@@ -224,7 +224,7 @@ class IterDomain : public Val {
     return isParallelTypeDeviceDim(getParallelType());
   }
 
-  void parallelize(ParallelType t);
+  NVF_API void parallelize(ParallelType t);
 
   ParallelType getParallelType() const {
     return parallel_type_;
@@ -648,7 +648,7 @@ class TensorDomain : public Val {
   // Set the allocation domain of this TensorDomain. Because contiguity is
   // always defined w.r.t. the allocation domain, the contiguity must be updated
   // accordingly.
-  void setAllocationDomain(
+  NVF_API void setAllocationDomain(
       std::vector<IterDomain*> new_allocation_domain,
       std::vector<std::optional<bool>> new_contiguity);
 
@@ -733,7 +733,7 @@ class TensorDomain : public Val {
   // Get a vector whose size is the number of IDs in the given logical_domain
   // filled with fill_value or nullopt depending on whether its corresponding ID
   // is broadcast.
-  static std::vector<std::optional<bool>> getContiguityFilledWith(
+  static NVF_API std::vector<std::optional<bool>> getContiguityFilledWith(
       const std::vector<IterDomain*>& allocation_domain,
       bool fill_value);
 

@@ -34,7 +34,7 @@ class HostIrContainer final : public Fusion {
   // Do not have a definition here as it requires the definition of
   // KernelExecutor due to kernel_executors_.
   // NOLINTNEXTLINE (modernize-use-equals-default)
-  ~HostIrContainer() override;
+  NVF_API ~HostIrContainer() override;
 
   //! Print to an output stream
   std::ostream& print(std::ostream& os) const;

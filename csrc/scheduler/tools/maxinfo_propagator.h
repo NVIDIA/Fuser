@@ -147,11 +147,11 @@ class MaxInfoSpanningTree {
   std::shared_ptr<Information> reference_info_;
 
  public:
-  MaxInfoSpanningTree(
+  NVF_API MaxInfoSpanningTree(
       TensorView* reference,
       std::shared_ptr<Information> reference_info,
       Selector* selector = nullptr);
-  void traverse(Propagator* propagator);
+  NVF_API void traverse(Propagator* propagator);
   virtual ~MaxInfoSpanningTree() = default;
 };
 
