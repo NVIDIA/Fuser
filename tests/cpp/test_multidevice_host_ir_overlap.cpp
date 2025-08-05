@@ -1094,6 +1094,10 @@ TEST_F(
 TEST_F(
     RingAllgatherOverlapTest,
     RingAllgatherBasedPipeliningHostIRImplementationCudaIpc) {
+  if (communicator_->size() == 1) {
+    GTEST_SKIP() << "Skipping test for single device";
+  }
+
   auto hic = std::make_unique<hir::HostIrContainer>();
   FusionGuard::setCurFusion(hic.get());
 
