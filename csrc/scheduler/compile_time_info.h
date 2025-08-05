@@ -312,7 +312,7 @@ class HeuristicDataCacheEntry {
   //!  i.e. std::unique_ptr<EntryClass::DataType>. It will only
   //!  be called either when data cache is recording or when no data
   //!  cache is given.
-  NVF_API HeuristicDataCacheEntry(HeuristicDataCache* data_cache, MakerFnType fn);
+  HeuristicDataCacheEntry(HeuristicDataCache* data_cache, MakerFnType fn);
 
   //! Unified interface to get actual data, either from cache
   //!  or from factory function.
