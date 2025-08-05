@@ -2305,30 +2305,29 @@ TensorView
 )");
   ops.def(
       "scatter",
-      [](TensorView* arg1, TensorView* index, TensorView* src, int64_t dim)
+      [](TensorView* arg, TensorView* index, TensorView* src, int64_t dim)
           -> TensorView* {
         NVF_CHECK(
-            arg1->nDims() == index->nDims() && arg1->nDims() == src->nDims(),
+            arg->nDims() == index->nDims() && arg->nDims() == src->nDims(),
             "Tensor arguments have different dimensions ",
-            arg1->nDims(),
+            arg->nDims(),
             ", ",
             index->nDims(),
             " and ",
             src->nDims());
-        auto num_dims = (int64_t)arg1->nDims();
         NVF_CHECK(
-            dim >= -num_dims && dim < num_dims,
+            dim >= -arg->nDims() && dim < arg->nDims(),
             "Tensor arguments have dimension ",
-            num_dims,
+            arg->nDims(),
             " so dim argument must satisfy ",
-            -num_dims,
+            -arg->nDims(),
             " <= dim < ",
-            num_dims,
+            arg->nDims(),
             ", but received ",
             dim);
-        return scatter(arg1, dim, index, src);
+        return scatter(arg, dim, index, src);
       },
-      py::arg("arg1"),
+      py::arg("arg"),
       py::arg("index"),
       py::arg("src"),
       py::arg("dim"),
@@ -2337,7 +2336,7 @@ Scatter a tensor.
 
 Parameters
 ----------
-arg1 : TensorView
+arg : TensorView
     The tensor to scatter into.
 index : TensorView
     The tensor containing the indices.
@@ -2350,6 +2349,56 @@ Returns
 -------
 TensorView
     The scattered tensor.
+)",
+      py::return_value_policy::reference);
+  ops.def(
+      "gather",
+      [](TensorView* arg, TensorView* index, int64_t dim) -> TensorView* {
+        NVF_CHECK(
+            arg->nDims() == index->nDims(),
+            "Tensor arguments have different dimensions ",
+            arg->nDims(),
+            " and ",
+            index->nDims());
+        NVF_CHECK(
+            dim >= -arg->nDims() && dim < arg->nDims(),
+            "Tensor arguments have dimension ",
+            arg->nDims(),
+            " so dim argument must satisfy ",
+            -arg->nDims(),
+            " <= dim < ",
+            arg->nDims(),
+            ", but received ",
+            dim);
+        return gather(arg, dim, index);
+      },
+      py::arg("arg"),
+      py::arg("index"),
+      py::arg("dim"),
+      R"(
+Gather values from arg tensor along dim at positions given by index.
+
+The arg and index tensors must have the same number of dimensions. For all axes
+other than dim the extent of index in that axis must be less than or equal to
+its counterpart in arg.
+
+Parameters
+----------
+arg : TensorView
+    A TensorView of shape `(A_i..., B, A_k...)` where `B` is the extent of `arg`
+    in the dimension `dim`.
+index : TensorView
+    A TensorView of dtype `DataType::Int` of shape `(C_i..., J, C_k...)` where
+    `C_k <= A_k` for all extents other than `J`
+dim : int
+    Which position to index along.
+
+Returns
+-------
+TensorView
+    A TensorView of same dtype as `arg` and of shape `(C_i..., J, C_k...)` where
+    the element at position `(i...,j,k...)` is equal to
+    `arg[i,...,index[i,...,j,k,...],k,...]`.
 )",
       py::return_value_policy::reference);
 }
