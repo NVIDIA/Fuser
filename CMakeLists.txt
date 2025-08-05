@@ -530,7 +530,7 @@ target_include_directories(nvfuser_codegen SYSTEM PUBLIC
   "$<BUILD_INTERFACE:${NVFUSER_ROOT}/third_party/flatbuffers/include>"
   "$<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}/nvfuser/flatbuffers>"
 )
-target_link_libraries(nvfuser_codegen 
+target_link_libraries(nvfuser_codegen
   PUBLIC ${TORCH_LIBRARIES}
   PRIVATE dynamic_type flatbuffers ${CUDA_NVRTC_LIB} CUDA::cupti dl
 )
