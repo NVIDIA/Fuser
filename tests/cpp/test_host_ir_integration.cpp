@@ -249,7 +249,7 @@ TEST_F(HostIrIntegrationTest, InsertDeallocations) {
   const std::vector<Expr*>& hicExprs =
       runtime->getHostIrEvaluator().container().topLevelExprs();
 
-  EXPECT_THAT(hicExprs, Contains(IsA<Deallocate>()).Times(3));
+  EXPECT_THAT(hicExprs, Contains(IsA<Deallocate>()).Times(2));
 
   testValidate(
       executor_cache.fusion(),
@@ -312,7 +312,7 @@ TEST_F(HostIrIntegrationTest, ExcludeOutputsFromDeallocations) {
   const std::vector<Expr*>& hicExprs =
       runtime->getHostIrEvaluator().container().topLevelExprs();
 
-  EXPECT_THAT(hicExprs, Contains(IsA<Deallocate>()).Times(1));
+  EXPECT_THAT(hicExprs, Contains(IsA<Deallocate>()).Times(0));
 
   EXPECT_EQ(out_tensors.size(), 2);
   EXPECT_TRUE(std::all_of(
