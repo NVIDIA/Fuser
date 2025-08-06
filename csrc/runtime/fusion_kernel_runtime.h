@@ -140,10 +140,6 @@ class FusionKernelRuntime {
 
   const std::vector<std::unique_ptr<ExecutorAbstract>>& executors() const;
 
-  const HostIrJit& getHostIrJit() const {
-    return *hij_.get();
-  };
-
   const hir::HostIrEvaluator& getHostIrEvaluator() const {
     return *hie_.get();
   };

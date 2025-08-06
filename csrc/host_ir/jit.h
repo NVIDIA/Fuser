@@ -11,7 +11,7 @@
 #include <multidevice/communicator.h>
 #include <memory>
 namespace nvfuser {
-
+#ifdef NVFUSER_HOST_IR_JIT
 constexpr int64_t kHostIrJitCompileThreads = 4;
 struct HostIrJitImpl;
 
@@ -31,4 +31,14 @@ class HostIrJit {
  private:
   std::unique_ptr<HostIrJitImpl> pimpl_;
 };
+#else
+class HostIrJit {
+ public:
+  HostIrJit(
+      std::unique_ptr<hir::HostIrContainer> container,
+      int num_threads = kHostIrJitCompileThreads) {
+    NVF_ERROR("HostIrJit is not supported in this build.");
+  }
+};
+#endif
 } // namespace nvfuser
