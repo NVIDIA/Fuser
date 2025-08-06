@@ -769,6 +769,18 @@ bool isIndexedConsumerID(const TensorView* tv, const IterDomain* id) {
       tv->definition()->as<ScatterOp>()->getIndexedID() == id;
 }
 
+TensorView* getIndexSelectOutputTv(const TensorView* tv) {
+  for (auto expr : tv->uses()) {
+    if (expr->isA<IndexSelectOp>()) {
+      auto idx_sel = expr->as<IndexSelectOp>();
+      if (idx_sel->input(0) == tv) {
+        return idx_sel->output(0)->as<TensorView>();
+      }
+    }
+  }
+  return nullptr;
+}
+
 bool isIndexSelectLookupTv(const TensorView* tv) {
   for (auto expr : tv->uses()) {
     if (expr->isA<IndexSelectOp>()) {
