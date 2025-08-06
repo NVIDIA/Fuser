@@ -11,8 +11,8 @@
 #include <multidevice/communicator.h>
 #include <memory>
 namespace nvfuser {
-#ifdef NVFUSER_HOST_IR_JIT
 constexpr int64_t kHostIrJitCompileThreads = 4;
+#ifdef NVFUSER_HOST_IR_JIT
 struct HostIrJitImpl;
 
 class HostIrJit {
