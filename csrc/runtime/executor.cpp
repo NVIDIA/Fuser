@@ -223,7 +223,6 @@ void KernelExecutor::compile(
     // it's safe to use 32-bit for the whole kernel, so unless it's
     // specified through CompileParams, we do not use 32-bit indexing.
     compile_params.index_type = arg_index_type;
-    compile_params.index_type = arg_index_type;
   }
 
   c10::DeviceGuard dg(device);
@@ -1066,15 +1065,13 @@ KernelArgumentHolder KernelExecutor::run(
             compiled_kernel_->blockSizeHighWaterMark() &&
         compile_params.maxrregcount ==
             compiled_kernel_->maxrregcountHighWaterMark())) {
-    NVF_ERROR(
-        compiled_kernel_->blockSizeHighWaterMark() == 1,
-        "Recompiling kernel because launch params or compile params changed. ",
-        "water_mark = ",
-        compiled_kernel_->blockSizeHighWaterMark(),
-        ", ",
-        compile_params.toString(),
-        ", ",
-        launch_constraints.toString());
+    NVF_ERROR_EQ(
+        compiled_kernel_->maxrregcountHighWaterMark(),
+        compile_params.maxrregcount,
+        "old params = ",
+        compiled_kernel_->compileParams().toString(),
+        ", new params = ",
+        compile_params.toString());
     compiled_kernel_->recompileKernel(
         executor_entry->launch_params, compile_params);
   }
