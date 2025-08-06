@@ -464,6 +464,7 @@ TEST_F(HostIrJitTest, Reshape) {
   TensorView* out = reshape(in, in_shape, out_shape);
   hic->addInput(in);
   hic->addOutput(out);
+  hic->pushBackTopLevelExprs(out->definition());
 
   HostIrJit jit(std::move(hic));
   at::Tensor in_tensor =

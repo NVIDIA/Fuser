@@ -741,7 +741,8 @@ void compileFunctionDeclarations(
   llvm::Function::Create(
       permute_type, llvm::Function::ExternalLinkage, kPermuteFuncName, module);
 
-  // reshape function: at::Tensor* reshape(at::Tensor* in, const int64_t* shape, int64_t shape_size)
+  // reshape function: at::Tensor* reshape(at::Tensor* in, const int64_t* shape,
+  // int64_t shape_size)
   auto* reshape_type = llvm::FunctionType::get(
       tensor_type, {tensor_type, int64_ptr_type, int64_type}, false);
   llvm::Function::Create(
@@ -779,27 +780,32 @@ class HostIrCompileDispatcher : public OptInDispatch {
     llvm::SmallVector<llvm::Value*, kMaxTensorDim> tensor_sizes;
     llvm::SmallVector<llvm::Value*, kMaxTensorDim> tensor_strides;
     inferTensorShapesAndStrides(
-        out_tv,
-        val_to_value_,
-        builder_,
-        tensor_sizes,
-        tensor_strides);
+        out_tv, val_to_value_, builder_, tensor_sizes, tensor_strides);
 
     // Bounds checking for ndim
-    const std::vector<IterDomain*>& logical_domain = TensorDomain::noReductions(
-        out_tv->getLogicalDomain());
+    const std::vector<IterDomain*>& logical_domain =
+        TensorDomain::noReductions(out_tv->getLogicalDomain());
 
     NVF_ERROR_EQ(tensor_sizes.size(), logical_domain.size());
 
-    llvm::ArrayType* sizes_type = getInt64StaticArrayType(context, tensor_sizes.size());
-    llvm::Value* sizes_array = builder_.CreateAlloca(sizes_type, nullptr, "sizes");
+    llvm::ArrayType* sizes_type =
+        getInt64StaticArrayType(context, tensor_sizes.size());
+    llvm::Value* sizes_array =
+        builder_.CreateAlloca(sizes_type, nullptr, "sizes");
     for (size_t i = 0; i < tensor_sizes.size(); ++i) {
-      llvm::Value* gep = builder_.CreateInBoundsGEP(sizes_type, sizes_array, {builder_.getInt32(0), builder_.getInt32(i)});
+      llvm::Value* gep = builder_.CreateInBoundsGEP(
+          sizes_type,
+          sizes_array,
+          {builder_.getInt32(0), builder_.getInt32(i)});
       builder_.CreateStore(tensor_sizes[i], gep);
     }
 
+    // Get pointer to the first element of the sizes array
+    llvm::Value* sizes_ptr =
+        builder_.CreateBitCast(sizes_array, getInt64PtrType(context));
     out_tensor = builder_.CreateCall(
-        module->getFunction(kReshapeFuncName), {in_tensor, sizes_array, builder_.getInt64(tensor_sizes.size())});
+        module->getFunction(kReshapeFuncName),
+        {in_tensor, sizes_ptr, builder_.getInt64(tensor_sizes.size())});
     val_to_value_[out_tv] = out_tensor;
   }
 
@@ -1315,7 +1321,9 @@ void HostIrJitImpl::registerExternalFunctions() {
 
   // reshape a tensor and return a new tensor
   void* reshape_func_ptr = reinterpret_cast<void*>(
-      +[](at::Tensor* in, const int64_t* shape, int64_t shape_size) -> at::Tensor* {
+      +[](at::Tensor* in,
+          const int64_t* shape,
+          int64_t shape_size) -> at::Tensor* {
         // Convert pointer to IntArrayRef for reshape function
         at::IntArrayRef shape_ref(shape, shape_size);
         return new at::Tensor(in->reshape(shape_ref));
