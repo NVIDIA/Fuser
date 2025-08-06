@@ -776,13 +776,11 @@ class HostIrCompileDispatcher : public OptInDispatch {
     llvm::Module* module = builder_.GetInsertBlock()->getParent()->getParent();
     llvm::LLVMContext& context = builder_.getContext();
 
-    // Get tensor sizes and strides using the inference function
     llvm::SmallVector<llvm::Value*, kMaxTensorDim> tensor_sizes;
     llvm::SmallVector<llvm::Value*, kMaxTensorDim> tensor_strides;
     inferTensorShapesAndStrides(
         out_tv, val_to_value_, builder_, tensor_sizes, tensor_strides);
 
-    // Bounds checking for ndim
     const std::vector<IterDomain*>& logical_domain =
         TensorDomain::noReductions(out_tv->getLogicalDomain());
 
@@ -800,7 +798,6 @@ class HostIrCompileDispatcher : public OptInDispatch {
       builder_.CreateStore(tensor_sizes[i], gep);
     }
 
-    // Get pointer to the first element of the sizes array
     llvm::Value* sizes_ptr =
         builder_.CreateBitCast(sizes_array, getInt64PtrType(context));
     out_tensor = builder_.CreateCall(
@@ -809,7 +806,6 @@ class HostIrCompileDispatcher : public OptInDispatch {
     val_to_value_[out_tv] = out_tensor;
   }
 
-  // LoadStoreOp Function LLVM IR Generation
   void handle(LoadStoreOp* load_store_op) final {
     NVF_ERROR(
         load_store_op->opType() == LoadStoreOpType::Set ||
@@ -917,7 +913,6 @@ class HostIrCompileDispatcher : public OptInDispatch {
     val_to_value_[linear_op->out()] = out;
   }
 
-  // Launch Kernel Function LLVM IR Generation
   void handle(hir::LaunchKernel* launch_kernel) final {
     llvm::Module* module = builder_.GetInsertBlock()->getParent()->getParent();
     llvm::LLVMContext& context = builder_.getContext();
@@ -1009,15 +1004,12 @@ class HostIrCompileDispatcher : public OptInDispatch {
          container_ptr});
   }
 
-  // Create Function LLVM IR Generation
   void handle(kir::Allocate* allocate) final {
     llvm::LLVMContext& context = builder_.getContext();
     llvm::Module* module = builder_.GetInsertBlock()->getParent()->getParent();
 
-    // Define LLVM types
     llvm::Type* int64_ptr_type = getInt64PtrType(context);
 
-    // Get tensor sizes and strides using the inference function
     llvm::SmallVector<llvm::Value*, kMaxTensorDim> tensor_sizes;
     llvm::SmallVector<llvm::Value*, kMaxTensorDim> tensor_strides;
     inferTensorShapesAndStrides(
@@ -1027,13 +1019,11 @@ class HostIrCompileDispatcher : public OptInDispatch {
         tensor_sizes,
         tensor_strides);
 
-    // Bounds checking for ndim
     const std::vector<IterDomain*>& logical_domain = TensorDomain::noReductions(
         allocate->buffer()->as<TensorView>()->getLogicalDomain());
 
     NVF_ERROR_EQ(tensor_sizes.size(), logical_domain.size());
 
-    // Create arrays for sizes and strides
     llvm::ArrayType* sizes_type =
         getInt64StaticArrayType(context, tensor_sizes.size());
     llvm::ArrayType* strides_type =
@@ -1043,14 +1033,12 @@ class HostIrCompileDispatcher : public OptInDispatch {
     llvm::Value* strides =
         builder_.CreateAlloca(strides_type, nullptr, "strides");
 
-    // Populate sizes array
     for (const auto [i, size] : enumerate(tensor_sizes)) {
       llvm::Value* gep = builder_.CreateInBoundsGEP(
           sizes_type, sizes, {builder_.getInt32(0), builder_.getInt32(i)});
       builder_.CreateStore(size, gep);
     }
 
-    // Populate strides array
     for (const auto [i, stride] : enumerate(tensor_strides)) {
       llvm::Value* gep = builder_.CreateInBoundsGEP(
           strides_type, strides, {builder_.getInt32(0), builder_.getInt32(i)});
@@ -1096,7 +1084,6 @@ class HostIrCompileDispatcher : public OptInDispatch {
     val_to_value_[allocate->buffer()] = out_tensor;
   }
 
-  // Deallocation Function LLVM IR Generation
   void handle(hir::Deallocate* deallocate) final {
     llvm::Module* module = builder_.GetInsertBlock()->getParent()->getParent();
     llvm::Function* delete_tensor_func =
