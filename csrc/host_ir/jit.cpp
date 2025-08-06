@@ -798,7 +798,7 @@ class HostIrCompileDispatcher : public OptInDispatch {
       builder_.CreateStore(tensor_sizes[i], gep);
     }
 
-    llvm::Value* out_tensor = builder_.CreateCall(
+    out_tensor = builder_.CreateCall(
         module->getFunction(kReshapeFuncName), {in_tensor, sizes_array, builder_.getInt64(tensor_sizes.size())});
     val_to_value_[out_tv] = out_tensor;
   }
@@ -1316,7 +1316,9 @@ void HostIrJitImpl::registerExternalFunctions() {
   // reshape a tensor and return a new tensor
   void* reshape_func_ptr = reinterpret_cast<void*>(
       +[](at::Tensor* in, const int64_t* shape, int64_t shape_size) -> at::Tensor* {
-        return new at::Tensor(in->reshape(shape_size, shape));
+        // Convert pointer to IntArrayRef for reshape function
+        at::IntArrayRef shape_ref(shape, shape_size);
+        return new at::Tensor(in->reshape(shape_ref));
       });
 
   // insert fuser perf scope
