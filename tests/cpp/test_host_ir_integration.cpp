@@ -16,7 +16,6 @@
 #include <tests/cpp/utils.h>
 #include <tests/cpp/validator.h>
 
-
 namespace nvfuser {
 
 namespace hir {

@@ -158,7 +158,7 @@ void FusionKernelRuntime::evictCache(size_t input_id) {
 
 bool FusionKernelRuntime::isCompiled() const {
   if (isOptionEnabled(EnableOption::HostIrLowering)) {
-    return hie_ != nullptr;
+    return hie_ != nullptr || hij_ != nullptr;
   } else {
     std::lock_guard<std::mutex> guard(mutex_);
     return std::all_of(
@@ -298,7 +298,13 @@ KernelArgumentHolder FusionKernelRuntime::runWithInputs(
               << std::endl;
     }
 
-    auto outputs = hie_->runWithInputs(args);
+    KernelArgumentHolder outputs;
+    if (isOptionEnabled(EnableOption::HostIrJit)) {
+      outputs = hij_->runWithInputs(args);
+    } else {
+      outputs = hie_->runWithInputs(args);
+    }
+
     if (isDebugDumpEnabled(DebugDumpOption::PerfDebugVerbose)) {
       debug() << "============= FINISHED RUNNING HOSTIR EVALUATOR ============"
               << std::endl;
