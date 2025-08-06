@@ -1265,7 +1265,6 @@ std::vector<TensorView*> cacheInputs(Fusion* fusion, bool unroll) {
   auto in_tvs = ir_utils::filterByType<TensorView>(fusion->inputs());
   for (auto tv : in_tvs) {
     if (tv->uses().empty() || ir_utils::isGatherLookupTv(tv) ||
-        ir_utils::isIndexSelectLookupTv(tv) ||
         ir_utils::isTvUsedByOpsOfType<SelectOp>(tv)) {
       // Right now, tensors that are input to the select, gather and
       // index_select ops can't be cached as they must be in global memory.
@@ -1613,8 +1612,10 @@ std::vector<TensorView*> getInputsOutputsWithInnerDim(
   auto inner_most_id = innerMostAllocDim(reference_tv);
 
   if (inner_most_id == nullptr) {
+    std::cout << "inner_most_id is nullptr" << std::endl;
     return {};
   }
+  std::cout << "inner_most_id: " << inner_most_id->toString() << std::endl;
 
   FindAllMappedDims all_mapped_root_dims(
       reference_tv, inner_most_id, inner_only, vectorize_pass);
@@ -1638,7 +1639,7 @@ std::vector<TensorView*> getInputsOutputsWithInnerDim(
        ir_utils::filterByType<TensorView>(reference_tv->fusion()->inputs())) {
     // for indexSelect(lookup_tv, dim, index_tv) op
     // ignore it's lookup_tv.
-    if (ir_utils::isGatherLookupTv(input_tv)) {
+    if (ir_utils::isGatherLookupTv(input_tv) && input_tv->uses().size() == 1) {
       continue;
     }
 

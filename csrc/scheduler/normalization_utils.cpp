@@ -968,6 +968,8 @@ PersistentKernelProperties getPersistentKernelProperties(
   vectorize_factor = vectorize_helper::getVectorizationFactor(
       runtime_info, reduced_tv, data_cache, vec_break_point.get());
 
+  std::cout << "vectorize_factor: " << vectorize_factor << std::endl;
+
   auto persistent_buffer_info_entry =
       HeuristicDataCacheEntry<HeuristicCompileTime::PersistentBufferInfo>(
           data_cache, [&fusion]() {
