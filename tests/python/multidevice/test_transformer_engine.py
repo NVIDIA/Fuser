@@ -44,6 +44,9 @@ class Parallelism(Enum):
     [False, True],
     ids=["nonoverlap", "overlap"],
 )
+@pytest.mark.skip(
+    reason="`RuntimeError: /workspace/TransformerEngine/transformer_engine/common/comm_gemm_overlap/userbuffers/userbuffers-host.cpp:321 in function create_communicator_grouped2: CUDA Error: invalid argument` in jit_python_distributed_tests_20_H100_TNVF"
+)
 def test_transformer_layer(
     setup_default_process_group,
     monkeypatch,
