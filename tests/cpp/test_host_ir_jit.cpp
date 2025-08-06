@@ -453,6 +453,32 @@ TEST_F(HostIrJitTest, Linear) {
   EXPECT_TRUE(ref_output_without_bias.allclose(out_without_bias_at));
 }
 
+TEST_F(HostIrJitTest, Reshape) {
+  auto hic = std::make_unique<HostIrContainer>();
+  FusionGuard fg(hic.get());
+
+  const std::vector<int64_t> in_shape({2, 3, 4});
+  const std::vector<int64_t> out_shape({2, 12});
+
+  TensorView* in = makeContigConcreteTensor(in_shape);
+  TensorView* out = reshape(in, in_shape, out_shape);
+  hic->addInput(in);
+  hic->addOutput(out);
+
+  HostIrJit jit(std::move(hic));
+  at::Tensor in_tensor =
+      at::randn({2, 3, 4}, at::dtype(at::kFloat).device(at::kCUDA, 0));
+  KernelArgumentHolder in_args;
+  in_args.setCacheId(0);
+  in_args.push(in_tensor);
+  KernelArgumentHolder outs = jit.runWithInputs(in_args);
+  EXPECT_EQ(outs.size(), 1);
+  at::Tensor output = outs[0].as<at::Tensor>();
+  auto ref_output = in_tensor.reshape(out_shape);
+
+  EXPECT_TRUE(ref_output.allclose(output));
+}
+
 } // namespace hir
 
 } // namespace nvfuser
