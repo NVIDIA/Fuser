@@ -529,37 +529,51 @@ void unpackInputs(
   }
 
   // Get the current function (main) and its input tensor array
-  llvm::Value* aten_tensor_array = func->getArg(1);
+  llvm::Value* main_func_input_array = func->getArg(1);
+  main_func_input_array->setName("input_args");
 
-  llvm::Type* aten_tensor_array_type = getInt8PtrDynamicArrayType(context);
+  llvm::Type* input_args_type = getInt8PtrDynamicArrayType(context);
   llvm::Type* tensor_type = getTensorPtrType(context);
 
   // bind input aten tensor sizes to val_to_value
   for (const auto [i, input] : enumerate(container->inputs())) {
-    auto* tv = dynamic_cast<TensorView*>(input);
-    NVF_ERROR(tv != nullptr, "Unsupported expression type: ", input);
-    llvm::Value* tensor_addr = builder.CreateGEP(
-        aten_tensor_array_type, aten_tensor_array, {builder.getInt64(i)});
-    tensor_addr->setName("input_aten_tensor_addr");
-    // Load the actual tensor pointer from the array
-    llvm::Value* tensor = builder.CreateLoad(tensor_type, tensor_addr);
-    tensor->setName("input_aten_tensor");
-    // bind input aten tensor sizes to val_to_value
-    // TODO: We should validate const size and strides here, ie. dim check
-    for (const auto [dim_idx, id] :
-         enumerate(TensorDomain::noReductions(tv->getLogicalDomain()))) {
-      if (id->isBroadcast()) {
-        val_to_value[id->extent()] = builder.getInt64(1);
-        if (id->hasExpandedExtent()) {
-          val_to_value[id->expandedExtent()] =
+    if (auto* tv = dynamic_cast<TensorView*>(input)) {
+      llvm::Value* tensor_addr = builder.CreateGEP(
+          input_args_type, main_func_input_array, {builder.getInt64(i)});
+      // Load the actual tensor pointer from the array
+      llvm::Value* tensor = builder.CreateLoad(tensor_type, tensor_addr);
+      tensor->setName("input_aten_tensor");
+      // bind input aten tensor sizes to val_to_value
+      // TODO: We should validate const size and strides here, ie. dim check
+      for (const auto [dim_idx, id] :
+           enumerate(TensorDomain::noReductions(tv->getLogicalDomain()))) {
+        if (id->isBroadcast()) {
+          val_to_value[id->extent()] = builder.getInt64(1);
+          if (id->hasExpandedExtent()) {
+            val_to_value[id->expandedExtent()] =
+                createTensorSize(tensor, dim_idx, builder);
+          }
+        } else {
+          val_to_value[id->extent()] =
               createTensorSize(tensor, dim_idx, builder);
         }
-      } else {
-        val_to_value[id->extent()] = createTensorSize(tensor, dim_idx, builder);
       }
+      // bind input aten tensor to val_to_value
+      val_to_value[tv] = tensor;
+    } else if (input->dtype() == DataType::Index) {
+      // NOTE: we currently only support index scalar inputs, we need to support
+      // other scalar types in the future
+      llvm::Value* scalar_addr = builder.CreateGEP(
+          input_args_type, main_func_input_array, {builder.getInt64(i)});
+      llvm::Value* int64_ptr =
+          builder.CreateBitCast(scalar_addr, getInt64PtrType(context));
+      llvm::Value* scalar =
+          builder.CreateLoad(llvm::Type::getInt64Ty(context), int64_ptr);
+      scalar->setName("input_scalar");
+      val_to_value[input] = scalar;
+    } else {
+      NVF_THROW("Unsupported expression type: ", input);
     }
-    // bind input aten tensor to val_to_value
-    val_to_value[tv] = tensor;
   }
   insertNvtxRangePop(builder);
   if (isDebugDumpEnabled(DebugDumpOption::HostIrJit)) {
@@ -575,22 +589,30 @@ void packOutputs(
   insertNvtxRangePush("packOutputs", builder);
   // Get the current function (main) and its output tensor array
   llvm::Function* func = builder.GetInsertBlock()->getParent();
-  llvm::Value* aten_tensor_array = func->getArg(2);
+  llvm::Value* output_args = func->getArg(2);
 
-  llvm::Type* aten_tensor_array_type = getInt8PtrDynamicArrayType(context);
+  llvm::Type* output_args_type = getInt8PtrDynamicArrayType(context);
   // Store output tensor pointers from val_to_value into the output array
   for (const auto [i, output] : enumerate(container->outputs())) {
-    auto* tv = dynamic_cast<TensorView*>(output);
-    NVF_ERROR(tv != nullptr, "Unsupported expression type: ", output);
-    llvm::Value* tensor_addr = builder.CreateGEP(
-        aten_tensor_array_type, aten_tensor_array, {builder.getInt64(i)});
-    tensor_addr->setName(kMainFuncOutputTensorName);
+    if (auto* tv = dynamic_cast<TensorView*>(output)) {
+      llvm::Value* tensor_addr = builder.CreateGEP(
+          output_args_type, output_args, {builder.getInt64(i)});
+      tensor_addr->setName(kMainFuncOutputTensorName);
 
-    // Get the tensor pointer from val_to_value and store it in the output
-    // array
-    llvm::Value* tensor = getOrDefault(val_to_value, output);
-    NVF_ERROR(tensor != nullptr)
-    builder.CreateStore(tensor, tensor_addr);
+      // Get the tensor pointer from val_to_value and store it in the output
+      // array
+      llvm::Value* tensor = getOrDefault(val_to_value, tv);
+      NVF_ERROR(tensor != nullptr)
+      builder.CreateStore(tensor, tensor_addr);
+    } else if (auto* named_scalar = dynamic_cast<NamedScalar*>(output)) {
+      llvm::Value* scalar_addr = builder.CreateGEP(
+          output_args_type, output_args, {builder.getInt64(i)});
+      llvm::Value* scalar = getOrDefault(val_to_value, named_scalar);
+      NVF_ERROR(scalar != nullptr)
+      builder.CreateStore(scalar, scalar_addr);
+    } else {
+      NVF_THROW("Unsupported expression type: ", output);
+    }
   }
   insertNvtxRangePop(builder);
   builder.CreateRetVoid();
@@ -1383,15 +1405,20 @@ KernelArgumentHolder HostIrJitImpl::runWithInputs(
   std::vector<const void*> input_aten_tensors;
   // Bind the inputs to the tensor map
   for (auto [in_val, arg] : zip(container_->inputs(), args)) {
-    NVF_ERROR(
-        arg.is<at::Tensor>(),
-        "Unsupported argument type: ",
-        arg,
-        " for input ",
-        in_val);
-    const at::Tensor* aten_tensor = &arg.as<at::Tensor>();
-    preserved_tensors.insert(aten_tensor);
-    input_aten_tensors.push_back(aten_tensor);
+    if (arg.is<at::Tensor>()) {
+      const at::Tensor* aten_tensor = &arg.as<at::Tensor>();
+      preserved_tensors.insert(aten_tensor);
+      input_aten_tensors.push_back(aten_tensor);
+    }
+    // NOTE: we currently only support index scalar inputs, we need to support
+    // other scalar types in the future
+    else if (in_val->dtype() == DataType::Index) {
+      // Cast int64_t to void* for the mixed array
+      int64_t scalar_value = arg.as<int64_t>();
+      input_aten_tensors.push_back(reinterpret_cast<const void*>(scalar_value));
+    } else {
+      NVF_THROW("Unsupported argument type: ", arg, " for input ", in_val);
+    }
   }
 
   // Run the main function
@@ -1405,13 +1432,14 @@ KernelArgumentHolder HostIrJitImpl::runWithInputs(
   KernelArgumentHolder outputs;
   for (const auto [output, tensor] :
        zip(container_->outputs(), output_aten_tensors)) {
+    // NOTE: we currently only support tensor outputs, we need to support other
+    // types in the future
     NVF_ERROR(
         output->isA<TensorView>(),
         "Unsupported output type: ",
         output,
         " for output ",
         output);
-    // Cast void* to at::Tensor* first, then dereference
     at::Tensor* aten_tensor = static_cast<at::Tensor*>(tensor);
     outputs.push(*aten_tensor);
     // Clean up the individual tensor object (not the array)

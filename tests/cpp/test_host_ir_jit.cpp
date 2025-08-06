@@ -480,6 +480,36 @@ TEST_F(HostIrJitTest, Reshape) {
   EXPECT_TRUE(ref_output.allclose(output));
 }
 
+TEST_F(HostIrJitTest, ReshapeWithDynamicTransform) {
+  auto hic = std::make_unique<HostIrContainer>();
+  FusionGuard fg(hic.get());
+
+  auto tv0 = makeSymbolicTensor(2);
+  auto s0 = IrBuilder::create<Val>(DataType::Index);
+  auto s1 = IrBuilder::create<Val>(DataType::Index);
+  hic->addInput(tv0);
+  hic->addInput(s0);
+  hic->addInput(s1);
+
+  auto tv1 = reshape(tv0, {s0, s1});
+  hic->addOutput(tv1);
+  hic->pushBackTopLevelExprs(tv1->definition());
+
+  HostIrJit jit(std::move(hic));
+  at::Tensor in_tensor =
+      at::randn({2, 3, 4}, at::dtype(at::kFloat).device(at::kCUDA, 0));
+  KernelArgumentHolder in_args;
+  in_args.setCacheId(0);
+  in_args.push(in_tensor);
+  in_args.push(6);
+  in_args.push(4);
+  KernelArgumentHolder outs = jit.runWithInputs(in_args);
+  EXPECT_EQ(outs.size(), 1);
+  at::Tensor output = outs[0].as<at::Tensor>();
+  auto ref_output = in_tensor.reshape({6, 4});
+  EXPECT_TRUE(ref_output.allclose(output));
+}
+
 } // namespace hir
 
 } // namespace nvfuser
