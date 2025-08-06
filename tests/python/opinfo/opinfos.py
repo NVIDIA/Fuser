@@ -1010,6 +1010,7 @@ cat_opinfo = OpInfo(
     error_input_generator=cat_error_generator,
     reference=torch.cat,
     symbolic_parameter_list=(ArgumentType.Symbolic, ArgumentType.Constant),
+    supports_direct_bindings=True,
 )
 shape_ops.append(cat_opinfo)
 
