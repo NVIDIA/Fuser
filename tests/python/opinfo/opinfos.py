@@ -1010,6 +1010,7 @@ cat_opinfo = OpInfo(
     error_input_generator=cat_error_generator,
     reference=torch.cat,
     symbolic_parameter_list=(ArgumentType.Symbolic, ArgumentType.Constant),
+    supports_direct_bindings=True,
 )
 shape_ops.append(cat_opinfo)
 
@@ -1090,6 +1091,7 @@ scatter_opinfo = OpInfo(
         ArgumentType.Symbolic,
         ArgumentType.Constant,
     ),
+    supports_direct_bindings=True,
 )
 shape_ops.append(scatter_opinfo)
 
@@ -1110,6 +1112,7 @@ gather_opinfo = OpInfo(
         ArgumentType.Symbolic,
         ArgumentType.Constant,
     ),
+    supports_direct_bindings=True,
 )
 shape_ops.append(gather_opinfo)
 
@@ -1165,6 +1168,7 @@ topk_opinfo = OpInfo(
         ArgumentType.Constant,  # largest
         ArgumentType.Constant,  # sorted
     ),
+    supports_direct_bindings=True,
 )
 shape_ops.append(topk_opinfo)
 
@@ -1206,6 +1210,7 @@ pad_opinfo = OpInfo(
         ArgumentType.Constant,
         ArgumentType.Symbolic,
     ),
+    supports_direct_bindings=True,
 )
 shape_ops.append(pad_opinfo)
 
@@ -1311,6 +1316,7 @@ full_opinfo = OpInfo(
         ArgumentType.Symbolic,
         ArgumentType.Constant,
     ),
+    supports_direct_bindings=True,
 )
 tensor_creation_ops.append(full_opinfo)
 
@@ -1326,6 +1332,7 @@ iota_opinfo = OpInfo(
         ArgumentType.ConstantScalar,
         ArgumentType.Constant,
     ),
+    supports_direct_bindings=True,
 )
 tensor_creation_ops.append(iota_opinfo)
 

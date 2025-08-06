@@ -113,13 +113,40 @@ output : Val
 
 Returns
 -------
-Val
-    The registered output value.
+None
 
 Notes
 -----
 - The output must be defined within the fusion or be an input.
 - The same value can be registered as an output multiple times.
+)")
+      .def(
+          "add_output",
+          [](Fusion& self, Val* output, Val* alias_input) {
+            self.aliasOutputToInput(
+                output, alias_input, AllocationType::ReuseBuffer);
+          },
+          py::arg("output"),
+          py::arg("alias_input"),
+          R"(
+Alias an output to an input.
+
+Parameters
+----------
+output : Val
+    The value to alias as an output.
+alias_input : Val
+    The value to alias the output to.
+
+Returns
+-------
+None
+
+Notes
+-----
+- This output is not returned from the fusion.
+- The same value can be registered as a regular output, so it is returned from
+the fusion.
 )")
       .def(
           "print_math",

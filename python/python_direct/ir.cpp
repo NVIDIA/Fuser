@@ -377,6 +377,21 @@ void bindDefineTensor(py::module& nvfuser) {
 }
 
 void bindDefineScalar(py::module& nvfuser) {
+  // The symbolic define_scalar must come before the constant version because of
+  // pybind11 rules for overload resolution. Essentially, overload functions are
+  // tried in the order they were registered with pybind11. If the order is
+  // reversed, the PrimDataType is cast to its corresponding Enum integer and
+  // used as a Fusion contant.
+  //
+  // Reference:
+  // https://pybind11.readthedocs.io/en/stable/advanced/functions.html#overload-resolution-order
+  nvfuser.def(
+      "define_scalar",
+      [](PrimDataType dtype = DataType::Double) {
+        return IrBuilder::create<Val>(std::monostate{}, dtype);
+      },
+      py::arg("dtype") = DataType::Double,
+      py::return_value_policy::reference);
   nvfuser.def(
       "define_scalar",
       [](PolymorphicValue::VariantType value,
@@ -392,13 +407,6 @@ void bindDefineScalar(py::module& nvfuser) {
       },
       py::arg("value"),
       py::arg("dtype") = std::nullopt,
-      py::return_value_policy::reference);
-  nvfuser.def(
-      "define_scalar",
-      [](PrimDataType dtype) {
-        return IrBuilder::create<Val>(std::monostate{}, dtype);
-      },
-      py::arg("dtype") = DataType::Double,
       py::return_value_policy::reference);
 }
 

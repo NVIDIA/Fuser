@@ -1639,6 +1639,30 @@ Returns
 TensorView
     A new tensor containing the sum of elements along the specified dimensions.
 )")
+  ops.def(
+      "welford",
+      [](TensorView* arg, const std::vector<int64_t>& dims) -> decltype(auto) {
+        WelfordResult output = WelfordRaw(arg, dims);
+        return std::make_tuple(output.avg, output.var_sum, output.n);
+      },
+      py::arg("arg"),
+      py::arg("dims"),
+      R"(
+Reduce a tensor by computing the mean and variance along specified dimensions.
+
+Parameters
+----------
+arg : TensorView
+    Input tensor to reduce.
+dims : list or tuple
+    Dimensions to reduce over.
+
+Returns
+-------
+tuple
+    A tuple containing the mean, variance, and count along the specified dimensions.
+)",
+      py::return_value_policy::reference);
 }
 
 void bindScanOps(py::module_& ops) {
@@ -2230,17 +2254,34 @@ list of Val
 )");
 }
 
+template <class ShapeType>
+TensorView* pad_fn(
+    TensorView* arg,
+    ShapeType generic_pad_widths,
+    std::optional<Val*> value) {
+  std::vector<Val*> pad_widths =
+      SequenceAsVector(generic_pad_widths, /*shape_check=*/false);
+  NVF_CHECK(
+      (int64_t)pad_widths.size() <= 2 * arg->nDims(),
+      "Number of pad widths must be at most twice the input dimension");
+  if (value.has_value()) {
+    return pad(arg, pad_widths, value.value());
+  } else {
+    return pad(arg, pad_widths);
+  }
+}
+
 void bindIndexingOps(py::module_& ops) {
   ops.def(
-         "index_select",
-         [](TensorView* arg, TensorView* index, int64_t dim) -> TensorView* {
-           return indexSelect(arg, dim, index);
-         },
-         py::arg("arg"),
-         py::arg("index"),
-         py::arg("dim"),
-         py::return_value_policy::reference,
-         R"(
+      "index_select",
+      [](TensorView* arg, TensorView* index, int64_t dim) -> TensorView* {
+        return indexSelect(arg, dim, index);
+      },
+      py::arg("arg"),
+      py::arg("index"),
+      py::arg("dim"),
+      py::return_value_policy::reference,
+      R"(
 Select elements from a tensor along a specified dimension.
 
 Parameters
@@ -2254,17 +2295,17 @@ Returns
 -------
 TensorView
     The selected tensor.
-)")
-      .def(
-          "select",
-          [](TensorView* arg, Val* index, int64_t dim) -> TensorView* {
-            return select(arg, dim, index);
-          },
-          py::arg("arg"),
-          py::arg("index"),
-          py::arg("dim"),
-          py::return_value_policy::reference,
-          R"(
+)");
+  ops.def(
+      "select",
+      [](TensorView* arg, Val* index, int64_t dim) -> TensorView* {
+        return select(arg, dim, index);
+      },
+      py::arg("arg"),
+      py::arg("index"),
+      py::arg("dim"),
+      py::return_value_policy::reference,
+      R"(
 Select elements from a tensor along a specified dimension.
 
 Parameters
@@ -2279,6 +2320,249 @@ Returns
 TensorView
     The selected tensor.
 )");
+  ops.def(
+      "scatter",
+      [](TensorView* arg, TensorView* index, TensorView* src, int64_t dim)
+          -> TensorView* {
+        NVF_CHECK(
+            arg->nDims() == index->nDims() && arg->nDims() == src->nDims(),
+            "Tensor arguments have different dimensions ",
+            arg->nDims(),
+            ", ",
+            index->nDims(),
+            " and ",
+            src->nDims());
+        NVF_CHECK(
+            dim >= -arg->nDims() && dim < arg->nDims(),
+            "Tensor arguments have dimension ",
+            arg->nDims(),
+            " so dim argument must satisfy ",
+            -arg->nDims(),
+            " <= dim < ",
+            arg->nDims(),
+            ", but received ",
+            dim);
+        return scatter(arg, dim, index, src);
+      },
+      py::arg("arg"),
+      py::arg("index"),
+      py::arg("src"),
+      py::arg("dim"),
+      R"(
+Scatter a tensor.
+
+Parameters
+----------
+arg : TensorView
+    The tensor to scatter into.
+index : TensorView
+    The tensor containing the indices.
+src : TensorView
+    The source tensor to scatter from.
+dim : int
+    The dimension to scatter along.
+
+Returns
+-------
+TensorView
+    The scattered tensor.
+)",
+      py::return_value_policy::reference);
+  ops.def(
+      "gather",
+      [](TensorView* arg, TensorView* index, int64_t dim) -> TensorView* {
+        NVF_CHECK(
+            arg->nDims() == index->nDims(),
+            "Tensor arguments have different dimensions ",
+            arg->nDims(),
+            " and ",
+            index->nDims());
+        NVF_CHECK(
+            dim >= -arg->nDims() && dim < arg->nDims(),
+            "Tensor arguments have dimension ",
+            arg->nDims(),
+            " so dim argument must satisfy ",
+            -arg->nDims(),
+            " <= dim < ",
+            arg->nDims(),
+            ", but received ",
+            dim);
+        return gather(arg, dim, index);
+      },
+      py::arg("arg"),
+      py::arg("index"),
+      py::arg("dim"),
+      R"(
+Gather values from arg tensor along dim at positions given by index.
+
+The arg and index tensors must have the same number of dimensions. For all axes
+other than dim the extent of index in that axis must be less than or equal to
+its counterpart in arg.
+
+Parameters
+----------
+arg : TensorView
+    A TensorView of shape `(A_i..., B, A_k...)` where `B` is the extent of `arg`
+    in the dimension `dim`.
+index : TensorView
+    A TensorView of dtype `DataType::Int` of shape `(C_i..., J, C_k...)` where
+    `C_k <= A_k` for all extents other than `J`
+dim : int
+    Which position to index along.
+
+Returns
+-------
+TensorView
+    A TensorView of same dtype as `arg` and of shape `(C_i..., J, C_k...)` where
+    the element at position `(i...,j,k...)` is equal to
+    `arg[i,...,index[i,...,j,k,...],k,...]`.
+)",
+      py::return_value_policy::reference);
+  ops.def(
+      "pad",
+      pad_fn<py::list>,
+      py::arg("arg"),
+      py::arg("pad_widths"),
+      py::arg("value") = py::none(),
+      py::return_value_policy::reference);
+  ops.def(
+      "pad",
+      pad_fn<py::tuple>,
+      py::arg("arg"),
+      py::arg("pad_widths"),
+      py::arg("value") = py::none(),
+      R"(
+Pad a tensor.
+
+Parameters
+----------
+arg : TensorView
+pad_widths : list or tuple
+    The widths of the padding.
+value : Val, optional
+    The value to pad with. The python default value is None, which is translated
+    to zero or False internally.
+
+Returns
+-------
+TensorView
+    The padded tensor.
+)",
+      py::return_value_policy::reference);
+  ops.def(
+      "cat",
+      [](std::vector<TensorView*> tensors,
+         int64_t dim,
+         bool manual_padding) -> TensorView* {
+        return cat(
+            tensors, dim, /*iter_type_opt=*/std::nullopt, manual_padding);
+      },
+      py::arg("tensors"),
+      py::arg("dim") = 0,
+      py::arg("manual_padding") = false,
+      py::return_value_policy::reference);
+}
+
+template <class ShapeType>
+TensorView* full_op_fn(
+    ShapeType generic_output_shape,
+    Val* fill_value,
+    PrimDataType dtype) {
+  std::vector<Val*> output_shape = SequenceAsVector(generic_output_shape);
+  return full(output_shape, fill_value, dtype);
+}
+
+void bindTensorFactoryOps(py::module_& ops) {
+  ops.def(
+      "iota",
+      [](Val* length, Val* start, Val* step, PrimDataType dtype)
+          -> TensorView* { return iota(length, start, step, dtype); },
+      py::arg("length"),
+      py::arg("start").none(true) = py::none(),
+      py::arg("step").none(true) = py::none(),
+      py::arg("dtype") = DataType::Int,
+      R"(
+Create a tensor with values from 0 to length-1.
+
+Parameters
+----------
+length : Val
+    The length of the tensor.
+start : Val, optional
+    The start of the tensor. When the default is None, start is set to zero.
+step : Val, optional
+    The step of the tensor. When the default is None, step is set to zero.
+dtype : PrimDataType, optional
+    The data type of the tensor. Default is DataType::Int.
+
+Returns
+-------
+TensorView
+    The tensor with values from 0 to length-1.
+)",
+      py::return_value_policy::reference);
+  ops.def(
+      "full",
+      full_op_fn<py::list>,
+      py::arg("shape"),
+      py::arg("fill_value"),
+      py::arg("dtype"),
+      py::return_value_policy::reference);
+  ops.def(
+      "full",
+      full_op_fn<py::tuple>,
+      py::arg("shape"),
+      py::arg("fill_value"),
+      py::arg("dtype"),
+      R"(
+Create a tensor with all elements set to a specified value.
+
+Parameters
+----------
+shape : list or tuple
+    The shape of the tensor.
+fill_value : Val
+    The value to fill the tensor with.
+dtype : PrimDataType
+    The data type of the tensor.
+
+Returns
+-------
+TensorView
+    The tensor with all elements set to the specified value.
+)",
+      py::return_value_policy::reference);
+}
+
+void bindSearchOps(py::module_& ops) {
+  ops.def(
+      "topk",
+      [](TensorView* arg, Val* k, int64_t dim, bool largest, bool sorted)
+          -> py::tuple {
+        auto output = topk(arg, k, dim, largest, sorted);
+        return py::make_tuple(output.values, output.indices);
+      },
+      R"(
+      Find the k largest or smallest elements along a dimension.
+
+      Args:
+          arg (Tensor): Input tensor
+          k (Scalar): Number of elements to return
+          dim (int, optional): Dimension along which to find top-k. Defaults to -1.
+          largest (bool, optional): If True, return largest elements. Defaults to True.
+          sorted (bool, optional): If True, return elements in sorted order. Defaults to False.
+
+      Returns:
+          tuple[Tensor, Tensor]: A tuple of (values, indices) where values contains
+                                the k largest/smallest elements and indices contains
+                                their positions in the original tensor.
+      )",
+      py::arg("arg"),
+      py::arg("k"),
+      py::arg("dim") = -1,
+      py::arg("largest") = true,
+      py::arg("sorted") = false,
+      py::return_value_policy::reference);
 }
 
 } // namespace
@@ -2290,12 +2574,14 @@ void bindOperations(py::module& nvfuser) {
   bindBinaryOps(nvf_ops);
   bindTernaryOps(nvf_ops);
   bindReductionOps(nvf_ops);
+  bindScanOps(nvf_ops);
   bindCastOps(nvf_ops);
   bindMatmulOps(nvf_ops);
   bindMetadataOps(nvf_ops);
   bindTensorUtilityOps(nvf_ops);
   bindIndexingOps(nvf_ops);
-  bindScanOps(nvf_ops);
+  bindTensorFactoryOps(nvf_ops);
+  bindSearchOps(nvf_ops);
 }
 
 } // namespace nvfuser::python

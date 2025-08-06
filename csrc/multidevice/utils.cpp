@@ -227,7 +227,7 @@ at::Tensor shardTensor(
     const int64_t axis,
     const DeviceMesh& mesh,
     const DeviceIdxType device_id) {
-  auto i = mesh.idxOf(device_id);
+  auto i = mesh.linearIndexOf(device_id);
   auto extent = tensor.size(axis);
   auto nslices = mesh.size();
   NVF_CHECK(
