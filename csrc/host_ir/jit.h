@@ -39,6 +39,10 @@ class HostIrJit {
       int num_threads = kHostIrJitCompileThreads) {
     NVF_ERROR("HostIrJit is not supported in this build.");
   }
+  KernelArgumentHolder runWithInputs(const KernelArgumentHolder& args) {
+    NVF_ERROR("HostIrJit is not supported in this build.");
+    return KernelArgumentHolder();
+  }
 };
 #endif
 } // namespace nvfuser
