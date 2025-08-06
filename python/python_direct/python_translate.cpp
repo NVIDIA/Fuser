@@ -288,7 +288,13 @@ class PythonPrinter {
   }
 
   // Generate a python operation with a list of inputs and outputs.
-  // A string keyword argument is added for each input.
+  // A string is added for each keyword argument.
+  //
+  // NOTES
+  // ------
+  //  - args and kwargs are a tuple, so it accepts a fixed set of arguments of
+  //    any type at compile-time.
+  //  - outputs is a vector of nvfuser values that is converted into a string.
   template <typename... arg_types, typename... kwargs_types>
   void generateKwargsOperation(
       const std::string& op_name,
@@ -303,7 +309,13 @@ class PythonPrinter {
   }
 
   // Generate a python operation with a list of inputs and a single output.
-  // A string keyword argument is added for each input.
+  // A string is added for each keyword argument.
+  //
+  // NOTES
+  // ------
+  //  - args and kwargs are a tuple, so it accepts a fixed set of arguments of
+  //    any type at compile-time.
+  //  - output_name is a string.
   template <typename... arg_types, typename... kwargs_types>
   void generateKwargsOperation(
       const std::string& op_name,
@@ -314,6 +326,28 @@ class PythonPrinter {
     std::string connect = (sizeof...(arg_types) == 0) ? "" : ", ";
     os_ << kTab << output_name << " = " << op_name << "(" << generateList(args)
         << connect << generateNamedList(kwargs_names, kwargs) << ")\n";
+  }
+
+  // Generate a python operation with a list of inputs and outputs.
+  // A string is added for each keyword argument.
+  //
+  // NOTES
+  // ------
+  //  - args and outputs are vectors of nvfuser values that are converted into
+  //    strings.
+  //  - kwargs is a tuple, so it accepts a fixed set of arguments of
+  //    any type at compile-time.
+  template <typename... kwargs_types>
+  void generateKwargsOperation(
+      const std::string& op_name,
+      const std::vector<Val*>& args,
+      const std::vector<std::string>& kwargs_names,
+      const std::tuple<kwargs_types...>& kwargs,
+      const std::vector<const nvfuser::Val*>& outputs) {
+    std::string connect = (args.size() == 0) ? "" : ", ";
+    os_ << kTab << toString(outputs, /*is_list=*/false) << " = " << op_name
+        << "(" << toString(args) << connect
+        << generateNamedList(kwargs_names, kwargs) << ")\n";
   }
 
   // Generate a python definition for a FusionDefinition.
@@ -648,7 +682,7 @@ class PythonTranslator : public OptInConstDispatch {
         "shape", "contiguity", "dtype", "is_cpu", "stride_order"};
     printer_.generateKwargsOperation(
         "fd.define_tensor",
-        {},
+        std::make_tuple(),
         argument_names,
         std::make_tuple(
             shape,
@@ -1046,6 +1080,24 @@ class PythonTranslator : public OptInConstDispatch {
         default_args,
         std::make_tuple(original_order_pad_widths, pad_op->value()),
         {pad_op->out()});
+  }
+
+  // Map CatOp to python frontend
+  void handle(const CatOp* cat_op) final {
+    NVF_ERROR(cat_op != nullptr);
+
+    visited_vals_.insert(cat_op->output(0));
+    // Since the normalization operations are expressed in the Fusion IR,
+    // manual_normalization argument is always true and default arguments is not
+    // used here.
+    static const std::vector<std::string> cat_argument_names = {
+        "dim", "manual_padding"};
+    printer_.generateKwargsOperation(
+        "fd.ops.cat",
+        cat_op->inputs(),
+        cat_argument_names,
+        std::make_tuple(cat_op->concatenatedDim(), /*manual_padding=*/true),
+        {cat_op->output(0)});
   }
 
   // If input and output values share the same type, a LoadStoreOp will be
