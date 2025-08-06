@@ -83,15 +83,13 @@ class DeviceMesh final {
     return (devices_ == device).any().item<bool>();
   }
 
-  // Returns the global index of device in the mesh, or -1 if device is not
-  // present.
-  int64_t idxOf(const DeviceIdxType device) const;
+  // Returns the linear index of the given device in the mesh, or -1 if device
+  // is not present.
+  int64_t linearIndexOf(const DeviceIdxType device) const;
 
-  // Returns the indices of a multi-dimensional mesh, or an empty vector
-  // if device is not present.
-  //
-  // TODO(wujingyue): return a 1D tensor instead.
-  std::vector<int64_t> getIndices(const DeviceIdxType device) const;
+  // Returns the multi-dimensional index of the given device, or an undefined
+  // tensor if device is not present.
+  at::Tensor multiDimensionalIndexOf(const DeviceIdxType device) const;
 
   // Returns the device at a particular index in the mesh
   DeviceIdxType at(int64_t index) const {
@@ -104,9 +102,7 @@ class DeviceMesh final {
   }
 
   bool operator==(const DeviceMesh& other) const {
-    const at::Tensor t = devices_;
-    const at::Tensor other_t = other.devices_;
-    return t.sizes() == other_t.sizes() && (t == other_t).all().item<bool>();
+    return at::equal(devices_, other.devices_);
   }
 
   bool operator!=(const DeviceMesh& other) const {
@@ -131,8 +127,6 @@ class DeviceMesh final {
   // getSlice(4, ParallelType::DIDy) = {1, 4}
   //
   // These might be worth caching per TV.
-  //
-  // TODO(wujingyue): return a 1D tensor instead.
   std::vector<DeviceIdxType> getSlice(DeviceIdxType device, ParallelType ptype)
       const;
 
