@@ -1209,6 +1209,7 @@ pad_opinfo = OpInfo(
         ArgumentType.Constant,
         ArgumentType.Symbolic,
     ),
+    supports_direct_bindings=True,
 )
 shape_ops.append(pad_opinfo)
 

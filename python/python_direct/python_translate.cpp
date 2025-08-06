@@ -991,6 +991,63 @@ class PythonTranslator : public OptInConstDispatch {
         {sop->out()});
   }
 
+  // Map PadOp to python frontend
+  void handle(const PadOp* pad_op) final {
+    NVF_ERROR(pad_op != nullptr);
+
+    // Step 1: Get pad widths in normalized order.
+    std::vector<Val*> normalized_pad_widths = pad_op->getPadWidths();
+    int64_t total_size = (int64_t)normalized_pad_widths.size();
+
+    // Step 2: Get indices for normalized pad widths.
+    std::vector<int64_t> normalized_indices(total_size);
+    std::iota(normalized_indices.begin(), normalized_indices.end(), 0);
+
+    // Step 3: Transform to indices for original pad widths
+    std::vector<int64_t> original_indices;
+    original_indices.reserve(normalized_indices.size());
+    std::transform(
+        normalized_indices.begin(),
+        normalized_indices.end(),
+        std::back_inserter(original_indices),
+        [=](int64_t normalized_idx) {
+          int64_t offset = total_size - normalized_idx;
+          int64_t dim = ceilDiv(offset, 2) - 1;
+
+          int64_t original_idx = dim * 2;
+          // right pad values require an additional offset
+          if (offset % 2 == 1) {
+            original_idx += 1;
+          }
+          return original_idx;
+        });
+
+    // Step 4: Get pad widths in original order.
+    std::vector<Val*> original_order_pad_widths(total_size, nullptr);
+    for (int64_t normalized_idx : normalized_indices) {
+      original_order_pad_widths.at(original_indices.at(normalized_idx)) =
+          normalized_pad_widths.at(normalized_idx);
+    }
+
+    // Check that no pad width values are nullptr.
+    NVF_ERROR(std::all_of(
+        original_order_pad_widths.begin(),
+        original_order_pad_widths.end(),
+        [](Val* v) { return v != nullptr; }));
+
+    visited_vals_.insert(pad_op->out());
+    static const auto default_args = std::make_tuple(
+        KeywordArgument<decltype(original_order_pad_widths)>{
+            "pad_widths", std::nullopt},
+        KeywordArgument<Val*>{"value", nullptr});
+    printer_.generateKwargsOperation(
+        "fd.ops.pad",
+        std::make_tuple(pad_op->in()),
+        default_args,
+        std::make_tuple(original_order_pad_widths, pad_op->value()),
+        {pad_op->out()});
+  }
+
   // If input and output values share the same type, a LoadStoreOp will be
   // created instead of a CastOp.
   void handle(const LoadStoreOp* lsop) final {
