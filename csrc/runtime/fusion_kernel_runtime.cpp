@@ -159,13 +159,12 @@ void FusionKernelRuntime::evictCache(size_t input_id) {
 bool FusionKernelRuntime::isCompiled() const {
   if (isOptionEnabled(EnableOption::HostIrLowering)) {
     return hie_ != nullptr || hij_ != nullptr;
-  } else {
-    std::lock_guard<std::mutex> guard(mutex_);
-    return std::all_of(
-        executors_.begin(), executors_.end(), [](const auto& executor) {
-          return ExecutorDispatch::isCompiled(executor.get());
-        });
   }
+  std::lock_guard<std::mutex> guard(mutex_);
+  return std::all_of(
+      executors_.begin(), executors_.end(), [](const auto& executor) {
+        return ExecutorDispatch::isCompiled(executor.get());
+      });
 }
 
 flatbuffers::Offset<serde::FusionKernelRuntime> FusionKernelRuntime::serialize(
