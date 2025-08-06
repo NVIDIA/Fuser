@@ -1097,3 +1097,33 @@ def test_pad_dynamic(nvfuser_direct_test):
     nvfuser_direct_test.assertEqual(
         torch.nn.functional.pad(inputs[0], [17, 17, 17, 17]), nvf_out[0]
     )
+
+
+def test_cat(nvfuser_direct_test):
+    inputs = [
+        torch.randn(2, 4, device="cuda"),
+        torch.randn(2, 3, device="cuda"),
+        torch.randn(4, 4, device="cuda"),
+        torch.randn(0, 4, device="cuda"),
+    ]
+
+    def fusion_func(fd: FusionDefinition):
+        t0 = fd.from_pytorch(inputs[0])
+        t1 = fd.from_pytorch(inputs[1])
+        t2 = fd.from_pytorch(inputs[2])
+        t3 = fd.from_pytorch(inputs[3])
+
+        t3 = fd.ops.cat([t0, t1], 1)
+        fd.add_output(t3)
+
+        t4 = fd.ops.cat([t0, t2], 0)
+        fd.add_output(t4)
+
+    nvf_out, _ = nvfuser_direct_test.exec_nvfuser(fusion_func, inputs)
+
+    nvfuser_direct_test.assertEqual(
+        torch.cat([inputs[0], inputs[1]], dim=1), nvf_out[0]
+    )
+    nvfuser_direct_test.assertEqual(
+        torch.cat([inputs[0], inputs[2]], dim=0), nvf_out[1]
+    )
