@@ -981,11 +981,13 @@ int64_t getVectorizationFactor(
           });
 
   if (vectorizable_inputs_outputs.empty()) {
+    std::cout << "vectorizable_inputs_outputs is empty" << std::endl;
     return 1;
   }
 
   // break point is beyond the range of vectorize_maps_entry, no vectorization.
   if (break_point >= static_cast<int64_t>(vectorize_maps_entry.get().size())) {
+    std::cout << "break_point >= static_cast<int64_t>(vectorize_maps_entry.get().size())" << std::endl;
     return 1;
   }
 
@@ -1002,6 +1004,7 @@ int64_t getVectorizationFactor(
   const auto& tv_to_inner_size_map = vectorize_maps_entry.get().at(break_point);
 
   for (auto inp_or_out : vectorizable_inputs_outputs) {
+    std::cout << "inp_or_out: " << inp_or_out->toString() << std::endl;
     // factor <= max_factor / dtype_size_bit
     const auto dtype_size_bit =
         dataTypeSizeBit(inp_or_out->dtype(), runtime_info.getIndexType());
@@ -1014,7 +1017,7 @@ int64_t getVectorizationFactor(
     NVF_ERROR(alignment_size_bit % dtype_size_bit == 0);
     max_vect_factor =
         std::min(max_vect_factor, alignment_size_bit / dtype_size_bit);
-
+    std::cout << "max_vect_factor: " << max_vect_factor << std::endl;
     // factor <= projected_extent
     auto inner_size_it = tv_to_inner_size_map.find(inp_or_out);
     if (inner_size_it == tv_to_inner_size_map.end()) {
