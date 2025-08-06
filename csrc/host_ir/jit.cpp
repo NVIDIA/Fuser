@@ -60,6 +60,7 @@ constexpr std::string_view kMatmulOutFuncName = "matmul_out";
 constexpr std::string_view kLinearFuncName = "linear";
 constexpr std::string_view kLinearOutFuncName = "linear_out";
 constexpr std::string_view kPermuteFuncName = "permute";
+constexpr std::string_view kReshapeFuncName = "reshape";
 constexpr std::string_view kMainFuncOutputTensorName =
     "output_aten_tensor_addr";
 constexpr size_t kMaxTensorDim = 8;
@@ -740,6 +741,12 @@ void compileFunctionDeclarations(
   llvm::Function::Create(
       permute_type, llvm::Function::ExternalLinkage, kPermuteFuncName, module);
 
+  // reshape function: at::Tensor* reshape(at::Tensor* in, const int64_t* shape, int64_t shape_size)
+  auto* reshape_type = llvm::FunctionType::get(
+      tensor_type, {tensor_type, int64_ptr_type, int64_type}, false);
+  llvm::Function::Create(
+      reshape_type, llvm::Function::ExternalLinkage, kReshapeFuncName, module);
+
   // main function: void main(void** input_tensors, void** output_tensors)
   auto* main_type = llvm::FunctionType::get(
       void_type, {int64_type, void_array_ptr_type, void_array_ptr_type}, false);
@@ -756,6 +763,45 @@ class HostIrCompileDispatcher : public OptInDispatch {
       hir::HostIrContainer* container)
       : builder_(builder), val_to_value_(val_to_value), container_(container) {}
   using OptInDispatch::handle;
+
+  void handle(ViewOp* vop) final {
+    auto* in_tv = vop->in()->as<TensorView>();
+    auto* out_tv = vop->out()->as<TensorView>();
+    llvm::Value* in_tensor = getOrDefault(val_to_value_, in_tv);
+    NVF_ERROR(in_tensor != nullptr)
+    llvm::Value* out_tensor = getOrDefault(val_to_value_, out_tv);
+    NVF_ERROR(out_tensor == nullptr)
+
+    llvm::Module* module = builder_.GetInsertBlock()->getParent()->getParent();
+    llvm::LLVMContext& context = builder_.getContext();
+
+    // Get tensor sizes and strides using the inference function
+    llvm::SmallVector<llvm::Value*, kMaxTensorDim> tensor_sizes;
+    llvm::SmallVector<llvm::Value*, kMaxTensorDim> tensor_strides;
+    inferTensorShapesAndStrides(
+        out_tv,
+        val_to_value_,
+        builder_,
+        tensor_sizes,
+        tensor_strides);
+
+    // Bounds checking for ndim
+    const std::vector<IterDomain*>& logical_domain = TensorDomain::noReductions(
+        out_tv->getLogicalDomain());
+
+    NVF_ERROR_EQ(tensor_sizes.size(), logical_domain.size());
+
+    llvm::ArrayType* sizes_type = getInt64StaticArrayType(context, tensor_sizes.size());
+    llvm::Value* sizes_array = builder_.CreateAlloca(sizes_type, nullptr, "sizes");
+    for (size_t i = 0; i < tensor_sizes.size(); ++i) {
+      llvm::Value* gep = builder_.CreateInBoundsGEP(sizes_type, sizes_array, {builder_.getInt32(0), builder_.getInt32(i)});
+      builder_.CreateStore(tensor_sizes[i], gep);
+    }
+
+    llvm::Value* out_tensor = builder_.CreateCall(
+        module->getFunction(kReshapeFuncName), {in_tensor, sizes_array, builder_.getInt64(tensor_sizes.size())});
+    val_to_value_[out_tv] = out_tensor;
+  }
 
   // LoadStoreOp Function LLVM IR Generation
   void handle(LoadStoreOp* load_store_op) final {
@@ -1267,6 +1313,12 @@ void HostIrJitImpl::registerExternalFunctions() {
         return new at::Tensor(in->permute(perm_vec));
       });
 
+  // reshape a tensor and return a new tensor
+  void* reshape_func_ptr = reinterpret_cast<void*>(
+      +[](at::Tensor* in, const int64_t* shape, int64_t shape_size) -> at::Tensor* {
+        return new at::Tensor(in->reshape(shape_size, shape));
+      });
+
   // insert fuser perf scope
   void* nvtx_range_push_func_ptr = reinterpret_cast<void*>(
       +[](const char* name) -> void { nvtxRangePush(name); });
@@ -1316,6 +1368,8 @@ void HostIrJitImpl::registerExternalFunctions() {
       linear_func_ptr, name_to_symbol, mangler, kLinearFuncName);
   registerExternalFunction(
       permute_func_ptr, name_to_symbol, mangler, kPermuteFuncName);
+  registerExternalFunction(
+      reshape_func_ptr, name_to_symbol, mangler, kReshapeFuncName);
   throwIfError(
       dest_dynamic_lib.define(llvm::orc::absoluteSymbols(name_to_symbol)));
 }
