@@ -531,7 +531,7 @@ void unpackInputs(
 
   // Get the current function (main) and its input tensor array
   llvm::Value* main_func_input_array = func->getArg(1);
-  main_func_input_array->setName("input_args");
+  main_func_input_array->setName("KernelInputArgs");
 
   llvm::Type* input_args_type = getInt8PtrDynamicArrayType(context);
   llvm::Type* tensor_type = getTensorPtrType(context);
@@ -591,6 +591,7 @@ void packOutputs(
   // Get the current function (main) and its output tensor array
   llvm::Function* func = builder.GetInsertBlock()->getParent();
   llvm::Value* output_args = func->getArg(2);
+  output_args->setName("KernelOutputArgs");
 
   llvm::Type* output_args_type = getInt8PtrDynamicArrayType(context);
   // Store output tensor pointers from val_to_value into the output array
