@@ -147,19 +147,7 @@ void ExpressionEvaluator::bindTensorDomain(
       t.dim());
 
   std::vector<int64_t> logical_sizes = unshardedSizes(tv, t.sizes());
-
-  // Adjust the last dimension of the logical domain to support DataType
-  // that is not supported by PyTorch. See the comment of getLastDimAdjustment
-  // in type.h for more details.
-  const auto adjust_last_dim = getLastDimAdjustment(tv->dtype());
-  if (!logical_sizes.empty()) {
-    auto& last_dim = logical_sizes.back();
-    last_dim = adjust_last_dim.fromATenToNVF(last_dim);
-  } else {
-    NVF_ERROR(
-        adjust_last_dim.denominator == 1 && adjust_last_dim.numerator == 1,
-        "DataType not supported");
-  }
+  adjustEvaluatorSizes(tv, logical_sizes);
 
   for (auto i : arange(t.dim())) {
     auto id = logical_domain[i];
@@ -282,7 +270,7 @@ const PolymorphicValue& ExpressionEvaluator::evaluate(
   std::reference_wrapper<const PolymorphicValue> maybe_concrete_value =
       getValue(value, known_values);
   if (!maybe_concrete_value.get().hasValue()) {
-    if (auto def = value->definition()) {
+    if (auto* def = value->definition()) {
       auto outputs = def->evaluate(*this, known_values);
       for (auto i : arange(def->outputs().size())) {
         known_values[def->output(i)] = std::move(outputs[i]);

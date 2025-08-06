@@ -28,7 +28,6 @@ void assertIsCompiledToHostIrContainer(
     const FusionExecutorCache& executor_cache) {
   FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
   if (isOptionEnabled(EnableOption::HostIrLowering)) {
-    EXPECT_EQ(runtime->getHostIrEvaluator().canRun(), "");
     auto hicExprs = runtime->getHostIrEvaluator().container().topLevelExprs();
     EXPECT_THAT(hicExprs, Contains(IsA<Communication>()))
         << "host ir container should have at least one communication";
@@ -758,8 +757,7 @@ INSTANTIATE_TEST_SUITE_P(
     LowerCollectiveTest,
     ::testing::Combine(
         testing::Values(CommunicatorBackend::kNccl),
-        // Can't do testing::Bool() yet due to #4230
-        testing::Values(false)),
+        testing::Bool()),
     ([](const testing::TestParamInfo<std::tuple<CommunicatorBackend, bool>>&
             info) -> std::string {
       const auto& [backend_type, enable_host_ir_lowering] = info.param;

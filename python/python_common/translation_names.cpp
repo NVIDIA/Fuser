@@ -259,4 +259,28 @@ std::string toString(const ReductionOp* rop) {
   }
 }
 
+std::string toString(const ScanOp* sop) {
+  switch (sop->opType()) {
+    case BinaryOpType::Add:
+      return "cumsum";
+      break;
+    case BinaryOpType::Mul:
+      return "cumprod";
+      break;
+    case BinaryOpType::Max:
+      return "cummax";
+      break;
+    case BinaryOpType::Min:
+      return "cummin";
+      break;
+    default:
+      NVF_CHECK(
+          false,
+          "Unexpected scan operator type: ",
+          sop->opType(),
+          " in ",
+          sop->toString());
+  }
+}
+
 } // namespace nvfuser::python
