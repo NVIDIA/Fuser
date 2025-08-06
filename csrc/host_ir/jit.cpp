@@ -509,6 +509,7 @@ void unpackInputs(
 
   // Get the cacheId from the main function's first argument
   llvm::Value* cache_id = func->getArg(0);
+  cache_id->setName("cacheId");
   // NOTE: Currently we can only grab cacheId by traversing all vals
   // In the future we should add a cacheId to the host ir container or fusion
   bool found_cache_id = false;
@@ -542,7 +543,7 @@ void unpackInputs(
           input_args_type, main_func_input_array, {builder.getInt64(i)});
       // Load the actual tensor pointer from the array
       llvm::Value* tensor = builder.CreateLoad(tensor_type, tensor_addr);
-      tensor->setName("input_aten_tensor");
+      tensor->setName(ir_utils::varName(tv));
       // bind input aten tensor sizes to val_to_value
       // TODO: We should validate const size and strides here, ie. dim check
       for (const auto [dim_idx, id] :
@@ -569,7 +570,7 @@ void unpackInputs(
           builder.CreateBitCast(scalar_addr, getInt64PtrType(context));
       llvm::Value* scalar =
           builder.CreateLoad(llvm::Type::getInt64Ty(context), int64_ptr);
-      scalar->setName("input_scalar");
+      scalar->setName(ir_utils::varName(input));
       val_to_value[input] = scalar;
     } else {
       NVF_THROW("Unsupported expression type: ", input);
@@ -1406,7 +1407,7 @@ KernelArgumentHolder HostIrJitImpl::runWithInputs(
   // Bind the inputs to the tensor map
   for (auto [in_val, arg] : zip(container_->inputs(), args)) {
     if (arg.is<at::Tensor>()) {
-      const at::Tensor* aten_tensor = &arg.as<at::Tensor>();
+      const auto* aten_tensor = &arg.as<at::Tensor>();
       preserved_tensors.insert(aten_tensor);
       input_aten_tensors.push_back(aten_tensor);
     }
@@ -1414,7 +1415,7 @@ KernelArgumentHolder HostIrJitImpl::runWithInputs(
     // other scalar types in the future
     else if (in_val->dtype() == DataType::Index) {
       // Cast int64_t to void* for the mixed array
-      int64_t scalar_value = arg.as<int64_t>();
+      auto scalar_value = arg.as<int64_t>();
       input_aten_tensors.push_back(reinterpret_cast<const void*>(scalar_value));
     } else {
       NVF_THROW("Unsupported argument type: ", arg, " for input ", in_val);
