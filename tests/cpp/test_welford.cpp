@@ -931,7 +931,7 @@ TEST_P(WelfordReductionTest, Test) {
   // sizeof(int64) = 2, which is wrong since the actual index type is int32
   // and the max vectorization factor is 4.
   ke.compile(&fusion, {aten_input}, lparams, cparams);
-  auto outputs = ke.run({aten_input}, {}, lparams);
+  auto outputs = ke.run({aten_input}, {}, lparams, cparams);
 
   // by default Welford outputs sum of square diff so need to divide to
   // get var

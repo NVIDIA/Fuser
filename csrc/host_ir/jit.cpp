@@ -1046,12 +1046,6 @@ class HostIrCompileDispatcher : public OptInDispatch {
 
   // Deallocation Function LLVM IR Generation
   void handle(hir::Deallocate* deallocate) final {
-    if (std::find(
-            container_->inputs().begin(),
-            container_->inputs().end(),
-            deallocate->buffer()) != container_->inputs().end()) {
-      return;
-    }
     llvm::Module* module = builder_.GetInsertBlock()->getParent()->getParent();
     llvm::Function* delete_tensor_func =
         module->getFunction(kDeleteTensorFuncName);

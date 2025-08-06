@@ -288,7 +288,13 @@ class PythonPrinter {
   }
 
   // Generate a python operation with a list of inputs and outputs.
-  // A string keyword argument is added for each input.
+  // A string is added for each keyword argument.
+  //
+  // NOTES
+  // ------
+  //  - args and kwargs are a tuple, so it accepts a fixed set of arguments of
+  //    any type at compile-time.
+  //  - outputs is a vector of nvfuser values that is converted into a string.
   template <typename... arg_types, typename... kwargs_types>
   void generateKwargsOperation(
       const std::string& op_name,
@@ -303,7 +309,13 @@ class PythonPrinter {
   }
 
   // Generate a python operation with a list of inputs and a single output.
-  // A string keyword argument is added for each input.
+  // A string is added for each keyword argument.
+  //
+  // NOTES
+  // ------
+  //  - args and kwargs are a tuple, so it accepts a fixed set of arguments of
+  //    any type at compile-time.
+  //  - output_name is a string.
   template <typename... arg_types, typename... kwargs_types>
   void generateKwargsOperation(
       const std::string& op_name,
@@ -314,6 +326,28 @@ class PythonPrinter {
     std::string connect = (sizeof...(arg_types) == 0) ? "" : ", ";
     os_ << kTab << output_name << " = " << op_name << "(" << generateList(args)
         << connect << generateNamedList(kwargs_names, kwargs) << ")\n";
+  }
+
+  // Generate a python operation with a list of inputs and outputs.
+  // A string is added for each keyword argument.
+  //
+  // NOTES
+  // ------
+  //  - args and outputs are vectors of nvfuser values that are converted into
+  //    strings.
+  //  - kwargs is a tuple, so it accepts a fixed set of arguments of
+  //    any type at compile-time.
+  template <typename... kwargs_types>
+  void generateKwargsOperation(
+      const std::string& op_name,
+      const std::vector<Val*>& args,
+      const std::vector<std::string>& kwargs_names,
+      const std::tuple<kwargs_types...>& kwargs,
+      const std::vector<const nvfuser::Val*>& outputs) {
+    std::string connect = (args.size() == 0) ? "" : ", ";
+    os_ << kTab << toString(outputs, /*is_list=*/false) << " = " << op_name
+        << "(" << toString(args) << connect
+        << generateNamedList(kwargs_names, kwargs) << ")\n";
   }
 
   // Generate a python definition for a FusionDefinition.
@@ -648,7 +682,7 @@ class PythonTranslator : public OptInConstDispatch {
         "shape", "contiguity", "dtype", "is_cpu", "stride_order"};
     printer_.generateKwargsOperation(
         "fd.define_tensor",
-        {},
+        std::make_tuple(),
         argument_names,
         std::make_tuple(
             shape,
@@ -991,6 +1025,81 @@ class PythonTranslator : public OptInConstDispatch {
         {sop->out()});
   }
 
+  // Map PadOp to python frontend
+  void handle(const PadOp* pad_op) final {
+    NVF_ERROR(pad_op != nullptr);
+
+    // Step 1: Get pad widths in normalized order.
+    std::vector<Val*> normalized_pad_widths = pad_op->getPadWidths();
+    int64_t total_size = (int64_t)normalized_pad_widths.size();
+
+    // Step 2: Get indices for normalized pad widths.
+    std::vector<int64_t> normalized_indices(total_size);
+    std::iota(normalized_indices.begin(), normalized_indices.end(), 0);
+
+    // Step 3: Transform to indices for original pad widths
+    std::vector<int64_t> original_indices;
+    original_indices.reserve(normalized_indices.size());
+    std::transform(
+        normalized_indices.begin(),
+        normalized_indices.end(),
+        std::back_inserter(original_indices),
+        [=](int64_t normalized_idx) {
+          int64_t offset = total_size - normalized_idx;
+          int64_t dim = ceilDiv(offset, 2) - 1;
+
+          int64_t original_idx = dim * 2;
+          // right pad values require an additional offset
+          if (offset % 2 == 1) {
+            original_idx += 1;
+          }
+          return original_idx;
+        });
+
+    // Step 4: Get pad widths in original order.
+    std::vector<Val*> original_order_pad_widths(total_size, nullptr);
+    for (int64_t normalized_idx : normalized_indices) {
+      original_order_pad_widths.at(original_indices.at(normalized_idx)) =
+          normalized_pad_widths.at(normalized_idx);
+    }
+
+    // Check that no pad width values are nullptr.
+    NVF_ERROR(std::all_of(
+        original_order_pad_widths.begin(),
+        original_order_pad_widths.end(),
+        [](Val* v) { return v != nullptr; }));
+
+    visited_vals_.insert(pad_op->out());
+    static const auto default_args = std::make_tuple(
+        KeywordArgument<decltype(original_order_pad_widths)>{
+            "pad_widths", std::nullopt},
+        KeywordArgument<Val*>{"value", nullptr});
+    printer_.generateKwargsOperation(
+        "fd.ops.pad",
+        std::make_tuple(pad_op->in()),
+        default_args,
+        std::make_tuple(original_order_pad_widths, pad_op->value()),
+        {pad_op->out()});
+  }
+
+  // Map CatOp to python frontend
+  void handle(const CatOp* cat_op) final {
+    NVF_ERROR(cat_op != nullptr);
+
+    visited_vals_.insert(cat_op->output(0));
+    // Since the normalization operations are expressed in the Fusion IR,
+    // manual_normalization argument is always true and default arguments is not
+    // used here.
+    static const std::vector<std::string> cat_argument_names = {
+        "dim", "manual_padding"};
+    printer_.generateKwargsOperation(
+        "fd.ops.cat",
+        cat_op->inputs(),
+        cat_argument_names,
+        std::make_tuple(cat_op->concatenatedDim(), /*manual_padding=*/true),
+        {cat_op->output(0)});
+  }
+
   // If input and output values share the same type, a LoadStoreOp will be
   // created instead of a CastOp.
   void handle(const LoadStoreOp* lsop) final {
@@ -1143,6 +1252,25 @@ class PythonTranslator : public OptInConstDispatch {
         default_args,
         std::make_tuple(topkop->dim(), topkop->isLargest(), topkop->isSorted()),
         std::vector<const nvfuser::Val*>{topkop->output(0), topkop->output(1)});
+  }
+
+  // Map ArgsortOp to python frontend
+  void handle(const ArgsortOp* argsortop) final {
+    NVF_ERROR(argsortop != nullptr);
+
+    TensorView* out_tv = argsortop->output(0)->as<TensorView>();
+    visited_vals_.insert(out_tv);
+    static const auto default_args = std::make_tuple(
+        KeywordArgument<decltype(argsortop->dim())>{"dim", std::nullopt},
+        KeywordArgument<bool>{"descending", false},
+        KeywordArgument<bool>{"stable", false});
+    printer_.generateKwargsOperation(
+        "fd.ops.argsort",
+        std::make_tuple(argsortop->in()),
+        default_args,
+        std::make_tuple(
+            argsortop->dim(), argsortop->isDescending(), argsortop->isStable()),
+        {out_tv});
   }
 
  private:
