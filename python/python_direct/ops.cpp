@@ -1831,6 +1831,242 @@ TensorView
     The result of the affine linear transformation.
 )",
       py::return_value_policy::reference);
+  ops.def(
+      "grouped_mm",
+      [](TensorView* mat1,
+         TensorView* mat2,
+         TensorView* offsets) -> TensorView* {
+        // Calculate output dimensions based on mat1 & mat2 rank
+        ScaledTensorView scaled_out = grouped_mm(mat1, mat2, offsets);
+        return scaled_out.tv;
+      },
+      py::arg("mat1"),
+      py::arg("mat2"),
+      py::arg("offsets"),
+      R"(
+Grouped matrix multiplication.
+
+Performs matrix multiplication on grouped sets of matrices using offsets
+to define variable-sized groups.
+
+Parameters
+----------
+mat1 : TensorView
+    First set of matrices
+mat2 : TensorView
+    Second set of matrices
+offsets : TensorView
+    Offsets tensor defining group boundaries
+
+Returns
+-------
+TensorView
+    Result of grouped matrix multiplication
+)",
+      py::return_value_policy::reference);
+  ops.def(
+      "grouped_mm",
+      [](TensorView* mat1,
+         TensorView* mat2,
+         TensorView* offsets,
+         TensorView* scale1,
+         TensorView* scale2,
+         TensorView* alpha,
+         TensorView* bias,
+         TensorView* beta,
+         PrimDataType dtype,
+         int64_t output_block_scale_size,
+         PrimDataType output_block_scale_dtype,
+         bool output_gamma)
+          -> std::tuple<
+              TensorView*,
+              std::optional<TensorView*>,
+              std::optional<TensorView*>> {
+        auto [output, block_scaling_factor, global_scaling_factor] = grouped_mm(
+            mat1,
+            mat2,
+            offsets,
+            scale1,
+            scale2,
+            alpha,
+            bias,
+            beta,
+            dtype,
+            output_block_scale_size,
+            output_block_scale_dtype,
+            output_gamma);
+
+        if (output_gamma) {
+          NVF_CHECK(
+              output_block_scale_size > 0,
+              "output_block_scale_size must be greater than 0 when "
+              "output_gamma is true");
+          return std::make_tuple(
+              output, block_scaling_factor, global_scaling_factor);
+        } else if (output_block_scale_size > 0) {
+          return std::make_tuple(output, block_scaling_factor, std::nullopt);
+        }
+        return std::make_tuple(output, std::nullopt, std::nullopt);
+      },
+      py::arg("mat1"),
+      py::arg("mat2"),
+      py::arg("offsets"),
+      py::arg("scale1"),
+      py::arg("scale2"),
+      py::arg("alpha").none(true) = py::none(),
+      py::arg("bias").none(true) = py::none(),
+      py::arg("beta").none(true) = py::none(),
+      py::arg("dtype") = DataType::BFloat16,
+      py::arg("output_block_scale_size") = 0,
+      py::arg("output_block_scale_dtype") = DataType::BFloat16,
+      py::arg("output_gamma") = false,
+      R"(
+Scaled Grouped matrix multiplication.
+
+Performs matrix multiplication on grouped sets of matrices using offsets
+to define variable-sized groups.
+
+The math operation is roughly two steps:
+    out = alpha * grouped_mm(dequant(mat1, scale1), dequant(mat2, scale2), offsets) + beta * bias
+
+    (out_mat, out_scale, out_gamma) = Quantization(
+        out,
+        dtype,
+        output_block_scale_size,
+        output_block_scale_dtype,
+        output_gamma)
+
+Note 1: The post quantization only applies when output_block_scale_size > 0,
+        which would produce out_scale tensor. Otherwise, None will be returned;
+Note 2: When output_gamma is set to True, it should produce global scaling factor out_gamma tensor.
+        Otherwise, None will be returned.
+
+Parameters
+----------
+mat1 : TensorView
+    First set of matrices
+mat2 : TensorView
+    Second set of matrices
+offsets : TensorView
+    Offsets tensor defining group boundaries
+scale1 : TensorView
+    Scale tensor for mat1
+scale2 : TensorView
+    Scale tensor for mat2
+alpha : TensorView, optional
+    Alpha tensor
+bias : TensorView, optional
+    Bias tensor
+beta : TensorView, optional
+    Beta tensor
+dtype : PrimDataType, optional
+    Output tensor type [default: DataType::BFloat16]
+output_block_scale_size : int, optional
+    Output block scale size
+output_block_scale_dtype : PrimDataType, optional
+    Output block scale dtype
+output_gamma : bool, optional
+    Output gamma [default: False]
+
+Returns
+-------
+tuple
+    A tuple containing the result of matrix multiplication, output block scale tensor, and output gamma tensor.
+)",
+      py::return_value_policy::reference);
+  ops.def(
+      "scaled_mm",
+      [](TensorView* mat1,
+         TensorView* mat2,
+         TensorView* scale1,
+         TensorView* scale2,
+         TensorView* alpha,
+         TensorView* bias,
+         TensorView* beta,
+         PrimDataType dtype,
+         int64_t output_block_scale_size,
+         PrimDataType output_block_scale_dtype,
+         bool output_gamma)
+          -> std::tuple<
+              TensorView*,
+              std::optional<TensorView*>,
+              std::optional<TensorView*>> {
+        /* Per https://pytorch.org/docs/stable/generated/torch.matmul.html */
+        auto [output, block_scaling_factor, global_scaling_factor] = scaled_mm(
+            mat1,
+            mat2,
+            scale1,
+            scale2,
+            alpha,
+            bias,
+            beta,
+            dtype,
+            output_block_scale_size,
+            output_block_scale_dtype,
+            output_gamma);
+
+        if (output_gamma) {
+          NVF_CHECK(
+              output_block_scale_size > 0,
+              "output_block_scale_size must be greater than 0 when "
+              "output_gamma is true");
+          return std::make_tuple(
+              output, block_scaling_factor, global_scaling_factor);
+        } else if (output_block_scale_size > 0) {
+          return std::make_tuple(output, block_scaling_factor, std::nullopt);
+        }
+        return std::make_tuple(output, std::nullopt, std::nullopt);
+      },
+      py::arg("mat1"),
+      py::arg("mat2"),
+      py::arg("scale1"),
+      py::arg("scale2"),
+      py::arg("alpha").none(true) = py::none(),
+      py::arg("bias").none(true) = py::none(),
+      py::arg("beta").none(true) = py::none(),
+      py::arg("dtype") = DataType::BFloat16,
+      py::arg("output_block_scale_size") = 0,
+      py::arg("output_block_scale_dtype") = DataType::BFloat16,
+      py::arg("output_gamma") = false,
+      R"(
+Scaled matrix multiplication.
+
+Note 1: The post quantization only applies when output_block_scale_size > 0,
+        which would produce out_scale tensor. Otherwise, None will be returned;
+Note 2: When output_gamma is set to True, it should produce global scaling factor out_gamma tensor.
+        Otherwise, None will be returned.
+
+Parameters
+----------
+mat1 : TensorView
+    First set of matrices
+mat2 : TensorView
+    Second set of matrices
+scale1 : TensorView
+    Scale tensor for mat1
+scale2 : TensorView
+    Scale tensor for mat2
+alpha : TensorView, optional
+    Alpha tensor
+bias : TensorView, optional
+    Bias tensor
+beta : TensorView, optional
+    Beta tensor
+dtype : PrimDataType, optional
+    Output tensor type [default: DataType::BFloat16]
+output_block_scale_size : int, optional
+    Output block scale size [default: 0]
+output_block_scale_dtype : PrimDataType, optional
+    Output block scale dtype
+output_gamma : bool, optional
+    Output gamma [default: False]
+
+Returns
+-------
+tuple
+    A tuple containing the result of matrix multiplication, output block scale tensor, and output gamma tensor.
+)",
+      py::return_value_policy::reference);
 }
 
 template <class ITERABLE>
@@ -2593,6 +2829,51 @@ TensorView
       py::return_value_policy::reference);
 }
 
+void bindSdpaOps(py::module_& ops) {
+  ops.def(
+      "sdpfa_fwd",
+      [](TensorView* query,
+         TensorView* key,
+         TensorView* value,
+         Val* dropout_p,
+         Val* is_causal,
+         Val* scale) -> decltype(auto) {
+        auto [output, log_sumexp, philox_seed, philox_offset] =
+            sdpfa_fwd(query, key, value, dropout_p, is_causal, scale);
+        return py::make_tuple(output, log_sumexp, philox_seed, philox_offset);
+      },
+      py::arg("query"),
+      py::arg("key"),
+      py::arg("value"),
+      py::arg("dropout_p").none(true) = py::none(),
+      py::arg("is_causal").none(true) = py::none(),
+      py::arg("scale").none(true) = py::none(),
+      R"(
+Scaled Dot Product Flash Attention Forward.
+
+Parameters
+----------
+query : TensorView
+    The query tensor.
+key : TensorView
+    The key tensor.
+value : TensorView
+    The value tensor.
+dropout_p : Val, optional
+    The dropout probability. Default is None.
+is_causal : Val, optional
+    Whether the attention is causal. Default is None.
+scale : Val, optional
+    The scale of the attention. Default is None.
+
+Returns
+-------
+tuple[TensorView, TensorView, TensorView, TensorView]
+    A tuple of (output, log_sumexp, philox_seed, philox_offset).
+      )",
+      py::return_value_policy::reference);
+}
+
 } // namespace
 
 void bindOperations(py::module& nvfuser) {
@@ -2610,6 +2891,7 @@ void bindOperations(py::module& nvfuser) {
   bindIndexingOps(nvf_ops);
   bindTensorFactoryOps(nvf_ops);
   bindSearchOps(nvf_ops);
+  bindSdpaOps(nvf_ops);
 }
 
 } // namespace nvfuser::python
