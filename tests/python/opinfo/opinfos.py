@@ -1395,6 +1395,7 @@ if LooseVersion(torch.__version__) >= LooseVersion("2.8.0"):
         dtypes=(torch.bfloat16,),
         sample_input_generator=grouped_mm_input_generator,
         reference=torch._grouped_mm,
+        supports_direct_bindings=True,
     )
 
     def scaled_grouped_mm_wrapper(
@@ -1440,6 +1441,7 @@ if LooseVersion(torch.__version__) >= LooseVersion("2.8.0"):
             ArgumentType.Constant,
             ArgumentType.Constant,
         ),
+        supports_direct_bindings=True,
     )
 
     def scaled_mm_wrapper(mat1, mat2, scale1, scale2, alpha, bias, beta, dtype):
@@ -1465,6 +1467,7 @@ if LooseVersion(torch.__version__) >= LooseVersion("2.8.0"):
             ArgumentType.Constant,
             ArgumentType.Constant,
         ),
+        supports_direct_bindings=True,
     )
 
     # only hopper is supported with torch._grouped_mm at this point.

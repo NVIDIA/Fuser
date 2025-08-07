@@ -117,7 +117,9 @@ class PythonPrinter {
   // Generate a unique name for a Val. Map val to name to track Val's lifetime.
   std::string toString(const nvfuser::Val* v) {
     std::stringstream ss;
-    if (v->isA<TensorView>()) {
+    if (v == nullptr) {
+      return "None";
+    } else if (v->isA<TensorView>()) {
       ss << "tv" << v->name();
     } else {
       ss << "c" << v->name();
@@ -169,6 +171,22 @@ class PythonPrinter {
     }
     if (is_list) {
       ss << "]";
+    }
+    return ss.str();
+  }
+
+  // Generate a python list of values.
+  std::string generateOutputs(const std::vector<const nvfuser::Val*>& vec) {
+    std::stringstream ss;
+    for (auto&& [i, val] : enumerate(vec)) {
+      if (val == nullptr) {
+        ss << "_";
+      } else {
+        ss << toString(val);
+      }
+      if (i < vec.size() - 1) {
+        ss << ", ";
+      }
     }
     return ss.str();
   }
@@ -262,7 +280,7 @@ class PythonPrinter {
       const std::vector<const nvfuser::Val*>& outputs) {
     os_ << kTab;
     if (!outputs.empty()) {
-      os_ << toString(outputs, /*is_list=*/false) << " = ";
+      os_ << generateOutputs(outputs) << " = ";
     }
     os_ << op_name << "(" << toString(inputs, /*is_list=*/false) << ")\n";
   }
@@ -283,8 +301,8 @@ class PythonPrinter {
     std::string kwargs_str = generateNamedList(default_kwargs, kwargs);
     constexpr bool any_arguments = sizeof...(arg_types) == 0;
     std::string connect = (any_arguments || kwargs_str.empty()) ? "" : ", ";
-    os_ << kTab << toString(outputs, /*is_list=*/false) << " = " << op_name
-        << "(" << generateList(args) << connect << kwargs_str << ")\n";
+    os_ << kTab << generateOutputs(outputs) << " = " << op_name << "("
+        << generateList(args) << connect << kwargs_str << ")\n";
   }
 
   // Generate a python operation with a list of inputs and outputs.
@@ -303,8 +321,8 @@ class PythonPrinter {
       const std::tuple<kwargs_types...>& kwargs,
       const std::vector<const nvfuser::Val*>& outputs) {
     std::string connect = (sizeof...(arg_types) == 0) ? "" : ", ";
-    os_ << kTab << toString(outputs, /*is_list=*/false) << " = " << op_name
-        << "(" << generateList(args) << connect
+    os_ << kTab << generateOutputs(outputs) << " = " << op_name << "("
+        << generateList(args) << connect
         << generateNamedList(kwargs_names, kwargs) << ")\n";
   }
 
@@ -345,9 +363,9 @@ class PythonPrinter {
       const std::tuple<kwargs_types...>& kwargs,
       const std::vector<const nvfuser::Val*>& outputs) {
     std::string connect = (args.size() == 0) ? "" : ", ";
-    os_ << kTab << toString(outputs, /*is_list=*/false) << " = " << op_name
-        << "(" << toString(args) << connect
-        << generateNamedList(kwargs_names, kwargs) << ")\n";
+    os_ << kTab << generateOutputs(outputs) << " = " << op_name << "("
+        << toString(args) << connect << generateNamedList(kwargs_names, kwargs)
+        << ")\n";
   }
 
   // Generate a python definition for a FusionDefinition.
@@ -902,6 +920,130 @@ class PythonTranslator : public OptInConstDispatch {
         default_args,
         std::make_tuple(lop->bias()),
         {lop->out()});
+  }
+
+  // Map GroupedMmaOp to python frontend
+  void handle(const GroupedMmaOp* gmm_op) final {
+    NVF_ERROR(gmm_op != nullptr);
+    TensorView* out_tv = gmm_op->out();
+    visited_vals_.insert(gmm_op->out());
+
+    int64_t out_block_scale_size = 0;
+    PrimDataType out_block_scale_dtype = DataType::BFloat16;
+    bool out_gamma = false;
+
+    TensorView* out_block_scale_tv = gmm_op->outScale();
+    if (out_block_scale_tv != nullptr) {
+      visited_vals_.insert(gmm_op->outScale());
+      const std::vector<IterDomain*>& logical =
+          out_block_scale_tv->getLogicalDomain();
+      Val* block_size_extent = logical.at(logical.size() - 1)->extent();
+      NVF_CHECK(
+          block_size_extent->isConstInt(),
+          "Block size extent needs to be a constant integer");
+      out_block_scale_size = block_size_extent->evaluate().as<int64_t>();
+      out_block_scale_dtype =
+          std::get<PrimDataType>(out_block_scale_tv->dtype().type);
+    }
+
+    TensorView* out_gamma_tv = gmm_op->outGamma();
+    if (out_gamma_tv != nullptr) {
+      visited_vals_.insert(gmm_op->outGamma());
+      out_gamma = true;
+    }
+
+    if (gmm_op->inputs().size() == 3) {
+      printer_.generateOperation(
+          "fd.ops.grouped_mm",
+          {gmm_op->matrix1(), gmm_op->matrix2(), gmm_op->offsets()},
+          {gmm_op->out()});
+    } else {
+      static const auto default_args = std::make_tuple(
+          KeywordArgument<decltype(gmm_op->alpha())>{"alpha", nullptr},
+          KeywordArgument<decltype(gmm_op->bias())>{"bias", nullptr},
+          KeywordArgument<decltype(gmm_op->beta())>{"beta", nullptr},
+          KeywordArgument<DataType>{"dtype", DataType::BFloat16},
+          KeywordArgument<int64_t>{"output_block_scale_size", 0},
+          KeywordArgument<DataType>{
+              "output_block_scale_dtype", DataType::BFloat16},
+          KeywordArgument<bool>{"output_gamma", false});
+      printer_.generateKwargsOperation(
+          "fd.ops.grouped_mm",
+          std::make_tuple(
+              gmm_op->matrix1(),
+              gmm_op->matrix2(),
+              gmm_op->offsets(),
+              gmm_op->scale1(),
+              gmm_op->scale2()),
+          default_args,
+          std::make_tuple(
+              gmm_op->alpha(),
+              gmm_op->bias(),
+              gmm_op->beta(),
+              out_tv->dtype(),
+              out_block_scale_size,
+              out_block_scale_dtype,
+              out_gamma),
+          {gmm_op->out(), out_block_scale_tv, out_gamma_tv});
+    }
+  }
+
+  // Map ScaledMmaOp to python frontend
+  void handle(const ScaledMmaOp* smm_op) final {
+    NVF_ERROR(smm_op != nullptr);
+    TensorView* out_tv = smm_op->out();
+    visited_vals_.insert(smm_op->out());
+
+    int64_t out_block_scale_size = 0;
+    PrimDataType out_block_scale_dtype = DataType::BFloat16;
+    bool out_gamma = false;
+
+    TensorView* out_block_scale_tv = smm_op->outScale();
+    if (out_block_scale_tv != nullptr) {
+      visited_vals_.insert(smm_op->outScale());
+      const std::vector<IterDomain*>& logical =
+          out_block_scale_tv->getLogicalDomain();
+      Val* block_size_extent = logical.at(logical.size() - 1)->extent();
+      NVF_CHECK(
+          block_size_extent->isConstInt(),
+          "Block size extent needs to be a constant integer");
+      out_block_scale_size = block_size_extent->evaluate().as<int64_t>();
+      out_block_scale_dtype =
+          std::get<PrimDataType>(out_block_scale_tv->dtype().type);
+    }
+
+    TensorView* out_gamma_tv = smm_op->outGamma();
+    if (out_gamma_tv != nullptr) {
+      visited_vals_.insert(smm_op->outGamma());
+      out_gamma = true;
+    }
+
+    static const auto default_args = std::make_tuple(
+        KeywordArgument<decltype(smm_op->alpha())>{"alpha", nullptr},
+        KeywordArgument<decltype(smm_op->bias())>{"bias", nullptr},
+        KeywordArgument<decltype(smm_op->beta())>{"beta", nullptr},
+        KeywordArgument<DataType>{"dtype", DataType::BFloat16},
+        KeywordArgument<int64_t>{"output_block_scale_size", 0},
+        KeywordArgument<DataType>{
+            "output_block_scale_dtype", DataType::BFloat16},
+        KeywordArgument<bool>{"output_gamma", false});
+    printer_.generateKwargsOperation(
+        "fd.ops.scaled_mm",
+        std::make_tuple(
+            smm_op->matrix1(),
+            smm_op->matrix2(),
+            smm_op->scale1(),
+            smm_op->scale2()),
+        default_args,
+        std::make_tuple(
+            smm_op->alpha(),
+            smm_op->bias(),
+            smm_op->beta(),
+            out_tv->dtype(),
+            out_block_scale_size,
+            out_block_scale_dtype,
+            out_gamma),
+        {smm_op->out(), out_block_scale_tv, out_gamma_tv});
   }
 
   // Map SqueezeOp to python frontend
