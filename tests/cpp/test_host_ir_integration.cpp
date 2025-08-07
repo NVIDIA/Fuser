@@ -321,6 +321,84 @@ TEST_F(HostIrIntegrationTest, ExcludeOutputsFromDeallocations) {
       }));
 }
 
+TEST_F(HostIrIntegrationTest, PPT) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  auto tv0 = makeSymbolicTensor(3);
+  fusion->addInput(tv0);
+  auto tv1 = makeSymbolicTensor(2);
+  fusion->addInput(tv1);
+  auto tv2 = segment_set(tv0);
+  auto tv3 = reshape(
+      tv2,
+      {mul(
+          mul(tv2->axis(0)->extent(), tv2->axis(1)->extent()),
+          tv2->axis(2)->extent())});
+  tv3 = segment_set(tv3);
+  auto tv4 =
+      reshape(tv1, {mul(tv1->axis(0)->extent(), tv1->axis(1)->extent())});
+  auto tv5 = add(tv3, tv4);
+  fusion->addOutput(tv5);
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+
+  at::Tensor in0 =
+      at::randn({12, 2, 4}, at::dtype(at::kFloat).device(at::kCUDA, 0));
+  at::Tensor in1 = at::randn({12, 2}, at::dtype(at::kFloat).device(at::kCUDA, 0));
+  auto out_tensors = executor_cache.runFusionWithInputs({in0, in1});
+}
+
+TEST_F(HostIrEvaluatorTest, PPT2) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+  TensorView* tv1 = makeSymbolicTensor(2);
+  fusion.addInput(tv1);
+  auto tv2 = reshape(
+        mul(tv1->axis(0)->extent(), tv1->axis(1)->extent()));
+
+  TensorView* tv3 = set(tv2);
+  fusion.addOutput(tv3);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({32, 32}, options);
+  auto ke = std::make_unique<KernelExecutor>();
+  ke->setGroupId(0);
+  ke->compile(&fusion, {t0});
+
+  auto hic = std::make_unique<HostIrContainer>(1);
+  FusionGuard::setCurFusion(hic.get());
+
+  hic->addKernelExecutor(std::move(ke));
+
+  IrCloner ir_cloner(hic.get());
+  auto hic_in = ir_cloner.clone(in);
+  auto hic_out = ir_cloner.clone(out);
+
+  hic->addInput(hic_in);
+  hic->addOutput(hic_out);
+
+  auto allocate = IrBuilder::create<kir::Allocate>(hic_out, MemoryType::Global);
+  auto* cache_id = IrBuilder::create<NamedScalar>("cacheId", DataType::UInt64);
+  auto launch_kernel = IrBuilder::create<LaunchKernel>(
+      0,
+      LaunchParams(),
+      CompileParams(),
+      std::vector<Val*>{hic_in},
+      std::vector<Val*>{hic_out},
+      cache_id);
+
+  hic->pushBackTopLevelExprs(allocate);
+  hic->pushBackTopLevelExprs(launch_kernel);
+
+  HostIrEvaluator hie(std::move(hic));
+
+  auto outputs = hie.runWithInput({{hic_in, t0}});
+
+  EXPECT_TRUE(outputs[0].as<at::Tensor>().equal(t0));
+}
+
+
 } // namespace hir
 
 } // namespace nvfuser
