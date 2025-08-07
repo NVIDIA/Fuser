@@ -1063,9 +1063,9 @@ KernelArgumentHolder KernelExecutor::run(
   }
 
   if (!(executor_entry->launch_params.nThreads() <=
-            compiled_kernel_->blockSizeHighWaterMark() &&
+            compiled_kernel_->blockSizeHighWatermark() &&
         compile_params.maxrregcount ==
-            compiled_kernel_->maxrregcountHighWaterMark())) {
+            compiled_kernel_->maxrregcountHighWatermark())) {
     compiled_kernel_->recompileKernel(
         executor_entry->launch_params, compile_params);
   }
@@ -1327,8 +1327,8 @@ flatbuffers::Offset<serde::KernelExecutor> KernelExecutor::serialize(
   return serde::CreateKernelExecutorDirect(
       builder,
       device_smem_limit_,
-      compiledKernel()->blockSizeHighWaterMark(),
-      compiledKernel()->maxrregcountHighWaterMark(),
+      compiledKernel()->blockSizeHighWatermark(),
+      compiledKernel()->maxrregcountHighWatermark(),
       warp_size_,
       toUnderlying(compiledKernel()->schedulerType()),
       fusion_id_,
