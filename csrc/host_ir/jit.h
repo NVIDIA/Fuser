@@ -12,7 +12,6 @@
 #include <memory>
 namespace nvfuser {
 constexpr int64_t kHostIrJitCompileThreads = 4;
-#ifdef NVFUSER_HOST_IR_JIT
 struct HostIrJitImpl;
 
 class HostIrJit {
@@ -31,18 +30,4 @@ class HostIrJit {
  private:
   std::unique_ptr<HostIrJitImpl> pimpl_;
 };
-#else
-class HostIrJit {
- public:
-  HostIrJit(
-      std::unique_ptr<hir::HostIrContainer> container,
-      int num_threads = kHostIrJitCompileThreads) {
-    NVF_ERROR("HostIrJit is not supported in this build.");
-  }
-  KernelArgumentHolder runWithInputs(const KernelArgumentHolder& args) {
-    NVF_ERROR("HostIrJit is not supported in this build.");
-    return KernelArgumentHolder();
-  }
-};
-#endif
 } // namespace nvfuser
