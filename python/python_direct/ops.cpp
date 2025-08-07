@@ -2829,6 +2829,51 @@ TensorView
       py::return_value_policy::reference);
 }
 
+void bindSdpaOps(py::module_& ops) {
+  ops.def(
+      "sdpfa_fwd",
+      [](TensorView* query,
+         TensorView* key,
+         TensorView* value,
+         Val* dropout_p,
+         Val* is_causal,
+         Val* scale) -> decltype(auto) {
+        auto [output, log_sumexp, philox_seed, philox_offset] =
+            sdpfa_fwd(query, key, value, dropout_p, is_causal, scale);
+        return py::make_tuple(output, log_sumexp, philox_seed, philox_offset);
+      },
+      py::arg("query"),
+      py::arg("key"),
+      py::arg("value"),
+      py::arg("dropout_p").none(true) = py::none(),
+      py::arg("is_causal").none(true) = py::none(),
+      py::arg("scale").none(true) = py::none(),
+      R"(
+Scaled Dot Product Flash Attention Forward.
+
+Parameters
+----------
+query : TensorView
+    The query tensor.
+key : TensorView
+    The key tensor.
+value : TensorView
+    The value tensor.
+dropout_p : Val, optional
+    The dropout probability. Default is None.
+is_causal : Val, optional
+    Whether the attention is causal. Default is None.
+scale : Val, optional
+    The scale of the attention. Default is None.
+
+Returns
+-------
+tuple[TensorView, TensorView, TensorView, TensorView]
+    A tuple of (output, log_sumexp, philox_seed, philox_offset).
+      )",
+      py::return_value_policy::reference);
+}
+
 } // namespace
 
 void bindOperations(py::module& nvfuser) {
@@ -2846,6 +2891,7 @@ void bindOperations(py::module& nvfuser) {
   bindIndexingOps(nvf_ops);
   bindTensorFactoryOps(nvf_ops);
   bindSearchOps(nvf_ops);
+  bindSdpaOps(nvf_ops);
 }
 
 } // namespace nvfuser::python
