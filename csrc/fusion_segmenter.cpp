@@ -1981,28 +1981,27 @@ bool SegmentCandidateFinder::hasSegmentHints(Fusion* fusion) {
   return false;
 }
 
-void SegmentCandidateFinder::resetLevels() {
-  FUSER_PERF_SCOPE("SegmentCandidateFinder::resetLevels");
-
+namespace {
+std::vector<SegmentedGroup*> toposort(
+    const std::vector<SegmentedGroup*>& groups) {
   std::deque<SegmentedGroup*> to_visit;
   std::unordered_map<SegmentedGroup*, int64_t> num_producer_edges;
-  for (SegmentedGroup* group : groups()) {
-    group->level_ = 0;
+  for (SegmentedGroup* group : groups) {
     if ((num_producer_edges[group] = std::ssize(group->producer_edges)) == 0) {
       // Start by visiting groups that have no producer edges.
       to_visit.push_back(group);
     }
   }
 
-  int64_t num_visited = 0;
+  std::vector<SegmentedGroup*> order;
+  order.reserve(groups.size());
   while (!to_visit.empty()) {
     SegmentedGroup* visiting = to_visit.front();
     to_visit.pop_front();
-    num_visited++;
+    order.push_back(visiting);
 
     for (SegmentedEdge* out : visiting->consumer_edges) {
       SegmentedGroup* consumer = out->to;
-      consumer->level_ = std::max(consumer->level_, visiting->level_ + 1);
       // After visiting a group, decrement the number of producer edges of each
       // consumer. When that number reaches 0, add the consumer to the visit
       // list.
@@ -2012,8 +2011,21 @@ void SegmentCandidateFinder::resetLevels() {
     }
   }
 
-  NVF_ERROR(
-      num_visited == std::ssize(groups()), "Error in graph, is not a DAG.");
+  NVF_ERROR_EQ(order.size(), groups.size(), "Error in graph, is not a DAG.");
+  return order;
+}
+} // namespace
+
+void SegmentCandidateFinder::resetLevels() {
+  FUSER_PERF_SCOPE("SegmentCandidateFinder::resetLevels");
+
+  for (SegmentedGroup* group : toposort(groups())) {
+    group->level_ = 0;
+    for (SegmentedEdge* in : group->producer_edges) {
+      SegmentedGroup* producer = in->from;
+      group->level_ = std::max(group->level_, producer->level_ + 1);
+    }
+  }
 }
 
 // Disconect group from neighbors, and return edges that were disconnected
@@ -5155,61 +5167,19 @@ void SegmentedFusion::annotateFP16IntermediateTensors() {
 RuntimeWorkSpace prepareRuntimeOrder(const SegmentedFusion& segmented_fusion) {
   RuntimeWorkSpace runtime_workspace;
 
-  // Setup group run order:
-  std::unordered_set<Val*> available_input;
-
   // setup the order tensor dimensions are bound
-  for (const size_t i : arange(segmented_fusion.inputs().size())) {
-    auto input_val = segmented_fusion.inputs()[i];
-    available_input.insert(input_val);
-
-    if (auto input_tv = dynamic_cast<TensorView*>(input_val)) {
-      auto logical_dom =
-          TensorDomain::noReductions(input_tv->getLogicalDomain());
-      for (const size_t dim : arange(logical_dom.size())) {
-        const auto extent = logical_dom[dim]->getMaybeExpandedExtent();
-        available_input.insert(extent);
-        runtime_workspace.group_extent_binding_order.push_back(extent);
-      }
+  runtime_workspace.group_extent_binding_order.reserve(
+      segmented_fusion.inputs().size());
+  for (auto* input_tv :
+       ir_utils::filterByType<TensorView>(segmented_fusion.inputs())) {
+    for (IterDomain* logical_id :
+         TensorDomain::noReductions(input_tv->getLogicalDomain())) {
+      runtime_workspace.group_extent_binding_order.push_back(
+          logical_id->getMaybeExpandedExtent());
     }
   }
 
-  // Keep track of groups that has run
-  std::vector<bool> group_ran(segmented_fusion.groups().size(), false);
-
-  while (!std::all_of(
-      group_ran.begin(), group_ran.end(), [](bool b) { return b; })) {
-    bool one_ran = false;
-
-    // Find the first segment with all inputs available to run
-    for (const size_t group_i : arange(segmented_fusion.groups().size())) {
-      auto& group = segmented_fusion.groups()[group_i];
-      if (group_ran[group_i]) {
-        continue;
-      }
-      const auto& group_inputs = group->inputs();
-      bool ready_to_run = std::all_of(
-          group_inputs.begin(),
-          group_inputs.end(),
-          [&available_input](Val* val) { return available_input.count(val); });
-
-      if (ready_to_run) {
-        runtime_workspace.group_run_order.push_back(group);
-        const auto& group_outputs = group->outputs();
-
-        // Insert graph segment output to tensor map
-        for (const size_t group_out_i : arange(group_outputs.size())) {
-          available_input.insert(group_outputs[group_out_i]);
-        }
-        group_ran[group_i] = true;
-        one_ran = true;
-      }
-    }
-    NVF_ERROR(
-        one_ran,
-        "Couldn't run all groups, something must have gone wrong in "
-        "segmentation.");
-  }
+  runtime_workspace.group_run_order = toposort(segmented_fusion.groups());
 
   return runtime_workspace;
 }
