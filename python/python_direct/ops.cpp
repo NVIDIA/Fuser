@@ -2905,11 +2905,11 @@ tuple[TensorView, TensorView, TensorView, TensorView]
       py::arg("value"),
       py::arg("output"),
       py::arg("log_sumexp"),
-      py::arg("dropout_p").none(true) = py::none(),
-      py::arg("is_causal").none(true) = py::none(),
+      py::arg("dropout_p"),
+      py::arg("is_causal"),
       py::arg("philox_seed"),
       py::arg("philox_offset"),
-      py::arg("scale").none(true) = py::none(),
+      py::arg("scale"),
       R"(
 Scaled Dot Product Flash Attention Backward.
 
@@ -2928,15 +2928,15 @@ output : TensorView
 log_sumexp : TensorView
     The log of the sum of the exponential of the key.
 dropout_p : Val, optional
-    The dropout probability. Default is None.
+    The dropout probability.
 is_causal : Val, optional
-    Whether the attention is causal. Default is None.
+    Whether the attention is causal.
 philox_seed : TensorView
     The seed for the philox random number generator.
 philox_offset : TensorView
     The offset for the philox random number generator.
 scale : Val, optional
-    The scale of the attention. Default is None.
+    The scale of the attention.
 
 Returns
 -------

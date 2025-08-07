@@ -1063,12 +1063,8 @@ class PythonTranslator : public OptInConstDispatch {
   void handle(const SdpaBwdOp* sdpa_bwd_op) final {
     NVF_ERROR(sdpa_bwd_op != nullptr);
 
-    static const auto default_args = std::make_tuple(
-        KeywordArgument<Val*>{"dropout_p", nullptr},
-        KeywordArgument<Val*>{"is_causal", nullptr},
-        KeywordArgument<TensorView*>{"philox_seed", std::nullopt},
-        KeywordArgument<TensorView*>{"philox_offset", std::nullopt},
-        KeywordArgument<Val*>{"scale", nullptr});
+    static const std::vector<std::string> argument_names = {
+        "dropout_p", "is_causal", "philox_seed", "philox_offset", "scale"};
     visited_vals_.insert(sdpa_bwd_op->grad_query());
     visited_vals_.insert(sdpa_bwd_op->grad_key());
     visited_vals_.insert(sdpa_bwd_op->grad_value());
@@ -1081,7 +1077,7 @@ class PythonTranslator : public OptInConstDispatch {
             sdpa_bwd_op->value(),
             sdpa_bwd_op->attn_out(),
             sdpa_bwd_op->logsumexp()),
-        default_args,
+        argument_names,
         std::make_tuple(
             sdpa_bwd_op->dropout_p(),
             sdpa_bwd_op->is_causal(),
