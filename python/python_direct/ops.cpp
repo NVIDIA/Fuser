@@ -240,14 +240,11 @@ namespace {
 #define NVFUSER_DIRECT_BINDING_SCAN_OP(NAME, OP_NAME, OP_TYPE, DOCSTRING) \
   ops.def(                                                                \
       NAME,                                                               \
-      [](TensorView* arg,                                                 \
-         int dim,                                                         \
-         std::optional<Val*> init = std::nullopt) -> TensorView* {        \
+      [](TensorView* arg, int dim, Val* init) -> TensorView* {            \
         BinaryOpType op_type = OP_TYPE;                                   \
-        Val* init_val = init.has_value() ? init.value() : nullptr;        \
         return static_cast<                                               \
             TensorView* (*)(TensorView*, int64_t, BinaryOpType, Val*)>(   \
-            OP_NAME)(arg, dim, op_type, init_val);                        \
+            OP_NAME)(arg, dim, op_type, init);                            \
       },                                                                  \
       py::arg("arg"),                                                     \
       py::arg("dim"),                                                     \
@@ -1804,16 +1801,14 @@ TensorView
       py::return_value_policy::reference);
   ops.def(
       "linear",
-      [](TensorView* arg1,
-         TensorView* arg2,
-         std::optional<TensorView*> bias = std::nullopt) -> TensorView* {
+      [](TensorView* arg1, TensorView* arg2, TensorView* bias) -> TensorView* {
         return static_cast<
             TensorView* (*)(TensorView*, TensorView*, TensorView*)>(linear)(
-            arg1, arg2, bias.has_value() ? bias.value() : nullptr);
+            arg1, arg2, bias);
       },
       py::arg("arg1"),
       py::arg("arg2"),
-      py::arg("bias") = std::nullopt,
+      py::arg("bias").none(true) = py::none(),
       R"(
 Applies an affine linear transformation to the incoming data:
 output = arg1 @ transpose(arg2) + bias.
@@ -2491,20 +2486,13 @@ list of Val
 }
 
 template <class ShapeType>
-TensorView* pad_fn(
-    TensorView* arg,
-    ShapeType generic_pad_widths,
-    std::optional<Val*> value) {
+TensorView* pad_fn(TensorView* arg, ShapeType generic_pad_widths, Val* value) {
   std::vector<Val*> pad_widths =
       SequenceAsVector(generic_pad_widths, /*shape_check=*/false);
   NVF_CHECK(
       (int64_t)pad_widths.size() <= 2 * arg->nDims(),
       "Number of pad widths must be at most twice the input dimension");
-  if (value.has_value()) {
-    return pad(arg, pad_widths, value.value());
-  } else {
-    return pad(arg, pad_widths);
-  }
+  return pad(arg, pad_widths, value);
 }
 
 void bindIndexingOps(py::module_& ops) {
@@ -2659,14 +2647,14 @@ TensorView
       pad_fn<py::list>,
       py::arg("arg"),
       py::arg("pad_widths"),
-      py::arg("value") = py::none(),
+      py::arg("value").none(true) = py::none(),
       py::return_value_policy::reference);
   ops.def(
       "pad",
       pad_fn<py::tuple>,
       py::arg("arg"),
       py::arg("pad_widths"),
-      py::arg("value") = py::none(),
+      py::arg("value").none(true) = py::none(),
       R"(
 Pad a tensor.
 

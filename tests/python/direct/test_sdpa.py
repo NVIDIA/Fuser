@@ -73,19 +73,19 @@ def test_sdpa_fwd(nvfuser_direct_test):
     ):
         q = fd.define_tensor(
             shape=[-1, -1, -1, -1],
-            contiguity=[True, True, True, True],
+            contiguity=True,
             dtype=DataType.BFloat16,
             is_cpu=False,
         )
         k = fd.define_tensor(
             shape=[-1, -1, -1, -1],
-            contiguity=[True, True, True, True],
+            contiguity=True,
             dtype=DataType.BFloat16,
             is_cpu=False,
         )
         v = fd.define_tensor(
             shape=[-1, -1, -1, -1],
-            contiguity=[True, True, True, True],
+            contiguity=True,
             dtype=DataType.BFloat16,
             is_cpu=False,
         )
@@ -164,37 +164,37 @@ def test_sdpa_bwd(nvfuser_direct_test):
     ):
         grad_output = fd.define_tensor(
             shape=[-1, -1, -1, -1],
-            contiguity=[True, True, True, True],
+            contiguity=True,
             dtype=DataType.BFloat16,
             is_cpu=False,
         )
         q = fd.define_tensor(
             shape=[-1, -1, -1, -1],
-            contiguity=[True, True, True, True],
+            contiguity=True,
             dtype=DataType.BFloat16,
             is_cpu=False,
         )
         k = fd.define_tensor(
             shape=[-1, -1, -1, -1],
-            contiguity=[True, True, True, True],
+            contiguity=True,
             dtype=DataType.BFloat16,
             is_cpu=False,
         )
         v = fd.define_tensor(
             shape=[-1, -1, -1, -1],
-            contiguity=[True, True, True, True],
+            contiguity=True,
             dtype=DataType.BFloat16,
             is_cpu=False,
         )
         output = fd.define_tensor(
             shape=[-1, -1, -1, -1],
-            contiguity=[True, True, True, True],
+            contiguity=True,
             dtype=DataType.BFloat16,
             is_cpu=False,
         )
         log_sumexp = fd.define_tensor(
             shape=[-1, -1, -1],
-            contiguity=[True, True, True],
+            contiguity=True,
             dtype=DataType.Float,
             is_cpu=False,
         )
@@ -316,25 +316,25 @@ def test_sdpa_fwd_bwd(nvfuser_direct_test):
     ):
         q = fd.define_tensor(
             shape=[-1, -1, -1, -1],
-            contiguity=[True, True, True, True],
+            contiguity=True,
             dtype=DataType.BFloat16,
             is_cpu=False,
         )
         k = fd.define_tensor(
             shape=[-1, -1, -1, -1],
-            contiguity=[True, True, True, True],
+            contiguity=True,
             dtype=DataType.BFloat16,
             is_cpu=False,
         )
         v = fd.define_tensor(
             shape=[-1, -1, -1, -1],
-            contiguity=[True, True, True, True],
+            contiguity=True,
             dtype=DataType.BFloat16,
             is_cpu=False,
         )
         grad_out = fd.define_tensor(
             shape=[-1, -1, -1, -1],
-            contiguity=[True, True, True, True],
+            contiguity=True,
             dtype=DataType.BFloat16,
             is_cpu=False,
         )
