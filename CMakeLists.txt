@@ -866,6 +866,7 @@ list(APPEND JIT_TEST_SRCS
   ${NVFUSER_ROOT}/tests/cpp/test_unary.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_utils.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_vectorization.cpp
+  ${NVFUSER_ROOT}/tests/cpp/test_welford.cpp
 )
 
 if(BUILD_TEST)
