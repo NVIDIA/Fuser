@@ -209,15 +209,10 @@ TEST_P(ShardingTest, ComputeIndex) {
 
 TEST_F(ShardingTest, MultiDimDeviceMesh) {
   DeviceMesh mesh({3, 4, 1, 0, 8, 2}, {2, 3});
-  // Shape not consistent with number of devices
-  EXPECT_ANY_THROW(DeviceMesh({1, 2}, {2, 3}));
-  // Duplicates in DeviceMesh
-  EXPECT_ANY_THROW(DeviceMesh({1, 2, 0, 2}, {2, 3}));
+  EXPECT_ANY_THROW(DeviceMesh({1, 2, 0, 2}, {2, 2}));
 
-  std::vector<int64_t> local_indices_8 = {1, 1};
-  std::vector<int64_t> local_indices_1 = {0, 2};
-  EXPECT_EQ(mesh.getIndices(8), local_indices_8);
-  EXPECT_EQ(mesh.getIndices(1), local_indices_1);
+  EXPECT_TRUE(at::equal(mesh.multiDimensionalIndexOf(8), at::tensor({1, 1})));
+  EXPECT_TRUE(at::equal(mesh.multiDimensionalIndexOf(1), at::tensor({0, 2})));
 
   std::vector<DeviceIdxType> slice_didx_034 = {3, 4, 1};
   std::vector<DeviceIdxType> slice_didy_12 = {1, 2};

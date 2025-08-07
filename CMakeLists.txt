@@ -130,24 +130,36 @@ if(BUILD_CUTLASS)
         ${NVFUSER_CUTLASS}/cutlass_utils.cpp
         )
     add_library(nvf_cutlass SHARED ${NVFUSER_CUTLASS_SRCS})
-    set_target_properties(nvf_cutlass PROPERTIES
-        CUDA_STANDARD ${NVFUSER_CUDA_STANDARD}
-        CXX_STANDARD ${NVFUSER_CPP_STANDARD}
-        POSITION_INDEPENDENT_CODE Yes
-    )
-    target_include_directories(nvf_cutlass PUBLIC ${NVFUSER_CUTLASS})
-    target_include_directories(nvf_cutlass PUBLIC ${NVFUSER_SRCS_DIR})
-    target_include_directories(nvf_cutlass PUBLIC ${repo-cutlass_SOURCE_DIR}/include)
-    target_include_directories(nvf_cutlass PUBLIC ${repo-cutlass_SOURCE_DIR}/tools/util/include)
+
+    target_include_directories(nvf_cutlass PRIVATE ${repo-cutlass_SOURCE_DIR}/include)
+    target_include_directories(nvf_cutlass PRIVATE ${repo-cutlass_SOURCE_DIR}/tools/util/include)
     target_compile_options(nvf_cutlass PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:${NVF_CUTLASS_CUDA_FLAGS}>)
     if(NOT MSVC)
       set(NVF_LIB_SUFFIX ".so")
     else()
       set(NVF_LIB_SUFFIX ".pyd")
     endif()
-    set_target_properties(nvf_cutlass PROPERTIES CUDA_ARCHITECTURES "100a")
+
+    target_include_directories(nvf_cutlass PUBLIC
+      "$<BUILD_INTERFACE:${NVFUSER_SRCS_DIR}>"
+      "$<BUILD_INTERFACE:${NVFUSER_CUTLASS}>"
+      "$<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}/nvfuser>"
+    )
     target_link_libraries(nvf_cutlass PRIVATE "${TORCH_LIBRARIES}" c10)
-    install(TARGETS nvf_cutlass DESTINATION lib)
+    set_target_properties(nvf_cutlass PROPERTIES
+      C_STANDARD ${NVFUSER_C_STANDARD}
+      CUDA_STANDARD ${NVFUSER_CUDA_STANDARD}
+      CXX_STANDARD ${NVFUSER_CPP_STANDARD}
+      CXX_STANDARD_REQUIRED ON
+      CXX_VISIBILITY_PRESET hidden
+      INSTALL_RPATH
+      "$ORIGIN/../../nvidia/cuda_runtime/lib:$ORIGIN/../../nvidia/cuda_nvrtc/lib:$ORIGIN/../../nvidia/cuda_cupti/lib:$ORIGIN/../../torch/lib"
+      POSITION_INDEPENDENT_CODE Yes
+      VISIBILITY_INLINES_HIDDEN Yes
+      CUDA_ARCHITECTURES "100a"
+    )
+    install(TARGETS nvf_cutlass EXPORT NvfuserTargets DESTINATION lib)
+
   endif()
 endif()
 
@@ -490,6 +502,15 @@ endif()
 
 add_library(nvfuser_codegen SHARED $<TARGET_OBJECTS:codegen_internal>)
 
+if (BUILD_CUTLASS AND CMAKE_CUDA_COMPILER_VERSION VERSION_GREATER_EQUAL 12.8)
+  target_link_libraries(nvfuser_codegen PUBLIC nvf_cutlass)
+endif()
+
+# Conditionally link CUTLASS using generator expression to avoid export issues
+target_link_libraries(nvfuser_codegen PRIVATE
+  $<$<AND:$<BOOL:${BUILD_CUTLASS}>,$<VERSION_GREATER_EQUAL:${CMAKE_CUDA_COMPILER_VERSION},12.8>>:nvf_cutlass>
+)
+
 if(NVFUSER_BUILD_WITH_ASAN)
   target_compile_options(codegen_internal PRIVATE -fsanitize=address)
   target_link_options(codegen_internal PUBLIC -fsanitize=address)
@@ -514,10 +535,11 @@ set_target_properties(nvfuser_codegen PROPERTIES
   CXX_STANDARD_REQUIRED ON
   CXX_VISIBILITY_PRESET hidden
   INSTALL_RPATH
-  "$ORIGIN/../../nvidia/cuda_runtime/lib:$ORIGIN/../../nvidia/cuda_nvrtc/lib:$ORIGIN/../../nvidia/cuda_cupti/lib:$ORIGIN/../../torch/lib"
+  "$ORIGIN/../../nvidia/cuda_runtime/lib:$ORIGIN/../../nvidia/cuda_nvrtc/lib:$ORIGIN/../../nvidia/cuda_cupti/lib:$ORIGIN/../../torch/lib:$ORIGIN"
   POSITION_INDEPENDENT_CODE Yes
   VISIBILITY_INLINES_HIDDEN Yes
 )
+
 install(TARGETS nvfuser_codegen EXPORT NvfuserTargets DESTINATION lib)
 
 # We are keeping fusion_cache_generated.h for the submodule build because flatc is unavailable.
@@ -770,19 +792,19 @@ list(APPEND JIT_TEST_SRCS
   ${NVFUSER_ROOT}/tests/cpp/kernel_db/test_nvfuser_kernel_db_open.cpp
   ${NVFUSER_ROOT}/tests/cpp/kernel_db/test_nvfuser_kernel_db_query.cpp
   ${NVFUSER_ROOT}/tests/cpp/kernel_db/test_nvfuser_kernel_db_write.cpp
+  ${NVFUSER_ROOT}/tests/cpp/test_abstract_tensor.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_alias.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_alias_analysis.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_allocation_domain.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_allocation_order_inference.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_bfs.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_ca_root_domain_map.cpp
+  ${NVFUSER_ROOT}/tests/cpp/test_circular_buffering.cpp
+  ${NVFUSER_ROOT}/tests/cpp/test_circular_buffering_ping_pong.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_combined_inner_outer_reduction.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_compute_at_map.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_compute_with.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_contiguity_id_model.cpp
-  ${NVFUSER_ROOT}/tests/cpp/test_circular_buffering.cpp
-  ${NVFUSER_ROOT}/tests/cpp/test_circular_buffering_ping_pong.cpp
-  ${NVFUSER_ROOT}/tests/cpp/test_abstract_tensor.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_driver_api.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_dynamic_transform.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_embedding_node.cpp
@@ -794,14 +816,11 @@ list(APPEND JIT_TEST_SRCS
   ${NVFUSER_ROOT}/tests/cpp/test_gpu1.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_gpu2.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_gpu3.cpp
-  ${NVFUSER_ROOT}/tests/cpp/test_gpu_fused_reduction.cpp
-  ${NVFUSER_ROOT}/tests/cpp/test_gpu_outer_reduction.cpp
-  ${NVFUSER_ROOT}/tests/cpp/test_gpu_transpose.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_id_model.cpp
+  ${NVFUSER_ROOT}/tests/cpp/test_index_put.cpp
+  ${NVFUSER_ROOT}/tests/cpp/test_index_select.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_indexing.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_indexing_advanced.cpp
-  ${NVFUSER_ROOT}/tests/cpp/test_index_select.cpp
-  ${NVFUSER_ROOT}/tests/cpp/test_index_put.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_inlining.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_interval_analysis.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_iter_visitor.cpp
@@ -811,23 +830,25 @@ list(APPEND JIT_TEST_SRCS
   ${NVFUSER_ROOT}/tests/cpp/test_low_precision_recipe.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_mbarrier.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_memory.cpp
-  ${NVFUSER_ROOT}/tests/cpp/test_move_split_cat.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_move_pad.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_move_repeat_forward.cpp
+  ${NVFUSER_ROOT}/tests/cpp/test_move_split_cat.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_mutator.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_no_op.cpp
+  ${NVFUSER_ROOT}/tests/cpp/test_outer_reduction.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_overlap.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_persistent_buffer.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_pointwise.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_polymorphic_value.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_predicate_elimination.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_preseg_passes.cpp
+  ${NVFUSER_ROOT}/tests/cpp/test_reduction.cpp
+  ${NVFUSER_ROOT}/tests/cpp/test_reduction_pointwise.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_remove_bcast_squeeze.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_remove_trivial_ops.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_replay.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_resharding.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_resize.cpp
-  ${NVFUSER_ROOT}/tests/cpp/test_reduction_pointwise.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_rope.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_runtime.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_scalar_hoisting.cpp
@@ -842,6 +863,7 @@ list(APPEND JIT_TEST_SRCS
   ${NVFUSER_ROOT}/tests/cpp/test_swizzle.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_tensor_factories.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_tmem.cpp
+  ${NVFUSER_ROOT}/tests/cpp/test_transpose.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_unary.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_utils.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_vectorization.cpp
@@ -1220,6 +1242,7 @@ list(APPEND NVFUSER_RUNTIME_FILES
   ${NVFUSER_ROOT}/runtime/tensor_memory.cu
   ${NVFUSER_ROOT}/runtime/tensor.cu
   ${NVFUSER_ROOT}/runtime/topk.cu
+  ${NVFUSER_ROOT}/runtime/scan.cu
   ${NVFUSER_ROOT}/runtime/tuple.cu
   ${NVFUSER_ROOT}/runtime/type_traits.cu
   ${NVFUSER_ROOT}/runtime/warp.cu

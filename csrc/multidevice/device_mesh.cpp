@@ -6,11 +6,11 @@
  */
 // clang-format on
 
+#include <ATen/ops/unique_dim.h>
 #include <multidevice/device_mesh.h>
 
 #include <utils.h>
 #include <numeric>
-#include <unordered_set>
 
 // for operator<<(std::ostream&, const std::vector<T>&)
 #include <c10/util/Logging.h>
@@ -19,69 +19,56 @@
 
 namespace nvfuser {
 
-DeviceMesh::DeviceMesh(
-    std::vector<DeviceIdxType> devices,
-    std::vector<int64_t> shape) {
-  setDevices(std::move(devices));
-  if (shape.empty()) {
-    shape = {(int64_t)vector_.size()};
-  } else {
-    int64_t num_devices =
-        std::accumulate(shape.begin(), shape.end(), 1, std::multiplies<>());
-    NVF_ERROR(
-        (int64_t)vector_.size() == num_devices,
-        "Specified a list of device with ",
-        vector_.size(),
-        " elements ",
-        " but shape contains ",
-        num_devices);
-  }
-  shape_ = std::move(shape);
+DeviceMesh::DeviceMesh() {
+  devices_ = at::empty({0}, at::dtype(at::kLong));
+  validate();
+}
+
+DeviceMesh::DeviceMesh(at::Tensor devices) {
+  devices_ = devices;
+  validate();
 }
 
 DeviceMesh::DeviceMesh(std::initializer_list<DeviceIdxType> devices) {
-  setDevices(std::vector<DeviceIdxType>(devices));
-  shape_ = {(int64_t)vector_.size()};
+  devices_ = at::tensor(devices);
+  validate();
 }
 
-void DeviceMesh::setDevices(std::vector<DeviceIdxType> devices) {
-  vector_ = std::move(devices);
+DeviceMesh::DeviceMesh(
+    const std::vector<int64_t>& devices,
+    const std::vector<int64_t>& shape) {
+  devices_ = at::tensor(devices).view(shape);
+  validate();
+}
 
-  std::unordered_set<DeviceIdxType> unique_devices(
-      vector_.begin(), vector_.end());
-  NVF_ERROR(
-      unique_devices.size() == vector_.size(),
-      "Device mesh has duplicates: ",
-      vector_);
+void DeviceMesh::validate() const {
+  NVF_ERROR_EQ(devices_.dtype(), at::kLong);
+  NVF_ERROR_EQ(
+      devices_.numel(),
+      std::get<0>(at::unique_dim(devices_.flatten(), 0)).numel());
 }
 
 /*static*/ DeviceMesh DeviceMesh::createForNumDevices(
     const int64_t num_devices) {
-  std::vector<DeviceIdxType> devices(num_devices);
-  std::iota(devices.begin(), devices.end(), 0);
-  return DeviceMesh(devices);
+  return DeviceMesh(at::arange(num_devices));
 }
 
 /*static*/ DeviceMesh DeviceMesh::createForShape(
     const std::vector<int64_t>& shape) {
-  int64_t num_devices =
-      std::accumulate(shape.begin(), shape.end(), 1, std::multiplies<>());
-  std::vector<DeviceIdxType> devices(num_devices);
-  std::iota(devices.begin(), devices.end(), 0);
-  return DeviceMesh(devices, shape);
+  int64_t numel = at::empty(shape, at::device(at::kMeta)).numel();
+  at::Tensor t = at::arange(numel).view(shape);
+  return DeviceMesh(t);
 }
 
 std::ostream& operator<<(std::ostream& out, const DeviceMesh& mesh) {
   out << "DeviceMesh";
-  int64_t ndevices = std::accumulate(
-      mesh.shape().begin(), mesh.shape().end(), 1, std::multiplies<>());
   int64_t ndims = mesh.rank();
-  std::vector<int64_t> strides = mesh.shape();
+  std::vector<int64_t> strides = mesh.shape().vec();
   for (auto i = ndims - 2; i >= 0; --i) {
     strides[i] *= strides[i + 1];
   }
 
-  for (auto i = 0; i < ndevices; i++) {
+  for (auto i : arange(mesh.size())) {
     for (auto axis = 0; axis < ndims; axis++) {
       if (i % strides[axis] == 0) {
         out << "{";
@@ -101,22 +88,54 @@ std::ostream& operator<<(std::ostream& out, const DeviceMesh& mesh) {
   return out;
 }
 
-std::vector<int64_t> DeviceMesh::getIndices(const DeviceIdxType device) const {
-  auto global_idx = idxOf(device);
-  if (global_idx == -1) {
-    return {};
+int64_t DeviceMesh::linearIndexOf(const DeviceIdxType device) const {
+  at::Tensor indices = at::nonzero(devices_.flatten() == device);
+  if (indices.numel() == 0) {
+    return -1;
   }
-  std::vector<int64_t> indices(shape_.size());
-  int64_t accumulated_size = 1;
-  for (int64_t i = (int64_t)shape_.size() - 1; i >= 0; i--) {
-    indices[i] = (global_idx / accumulated_size) % shape_[i];
-    accumulated_size *= shape_[i];
+
+  NVF_ERROR_EQ(
+      indices.numel(),
+      1,
+      "Expect device ",
+      device,
+      " to be present in the mesh at most once: ",
+      *this);
+  return indices.item<int64_t>();
+}
+
+namespace {
+template <typename T>
+std::vector<T> flattenToVector(at::Tensor t) {
+  t = t.flatten().contiguous();
+  const auto* data = t.data_ptr<T>();
+  return std::vector<T>(data, data + t.numel());
+}
+} // namespace
+
+at::Tensor DeviceMesh::multiDimensionalIndexOf(
+    const DeviceIdxType device) const {
+  at::Tensor indices = at::nonzero(devices_ == device);
+  if (indices.numel() == 0) {
+    return at::Tensor();
   }
-  return indices;
+
+  NVF_ERROR_EQ(
+      indices.size(0),
+      1,
+      "Expect device ",
+      device,
+      " to be present in the mesh at most once: ",
+      *this);
+
+  at::Tensor index = indices[0];
+  NVF_ERROR_EQ(index.dim(), 1);
+  NVF_ERROR_EQ(index.numel(), rank());
+  return index;
 }
 
 DeviceIdxType DeviceMesh::maxDeviceId() const {
-  return *std::max_element(vector_.begin(), vector_.end());
+  return devices_.max().item<DeviceIdxType>();
 }
 
 int64_t DeviceMesh::parallelTypeToAxis(ParallelType parallel_type) const {
@@ -126,8 +145,8 @@ int64_t DeviceMesh::parallelTypeToAxis(ParallelType parallel_type) const {
       parallel_type);
   int64_t offset = static_cast<int64_t>(parallel_type) -
       static_cast<int64_t>(ParallelType::DIDx);
-  int64_t ndims = rank();
-  if (offset > ndims - 1) {
+  const int64_t ndims = rank();
+  if (offset >= ndims) {
     return -1;
   }
   return ndims - 1 - offset;
@@ -158,28 +177,21 @@ std::vector<DeviceIdxType> DeviceMesh::getSlice(
       rank(),
       " does not have parallel type ",
       ptype);
-  auto indices = getIndices(deviceId);
-  NVF_ERROR(
-      !indices.empty(), "Device ", deviceId, " is not in DeviceMesh ", vector_);
 
-  int64_t offset = 0;
-  int64_t stride = 1;
-  int64_t accumulated_size = 1;
-  for (auto i = rank() - 1; i >= 0; i--) {
-    if (i > axis) {
-      stride *= shape_[i];
-    }
-    if (i != axis) {
-      offset += indices[i] * accumulated_size;
-    }
-    accumulated_size *= shape_[i];
-  }
+  at::Tensor index = multiDimensionalIndexOf(deviceId);
+  NVF_ERROR(index.defined(), "Device ", deviceId, " is not in ", *this);
 
-  std::vector<DeviceIdxType> devices(shape_[axis]);
-  for (auto i : arange(devices.size())) {
-    devices.at(i) = vector_.at(i * stride + offset);
+  std::vector<at::indexing::TensorIndex> indices;
+  indices.reserve(rank());
+  for (int64_t i : arange(rank())) {
+    if (i == axis) {
+      indices.push_back(at::indexing::Slice());
+    } else {
+      indices.push_back(index[i]);
+    }
   }
-  return devices;
+  at::Tensor slice = devices_.index(indices);
+  return flattenToVector<DeviceIdxType>(slice);
 }
 
 } // namespace nvfuser

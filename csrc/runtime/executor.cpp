@@ -107,8 +107,7 @@ KernelArgumentHolder ExprEvalExecutor::run(
         " and expects that the outputs are not populated, which they were.");
     if (outputs.empty()) {
       for (const auto& out_val : fusion_->outputs()) {
-        auto out_tensor =
-            expr_eval.evaluate(out_val->as<TensorView>()).as<at::Tensor>();
+        auto out_tensor = expr_eval.evaluate(out_val).as<at::Tensor>();
         expr_eval.bind(out_val, out_tensor);
         outputs.push(out_tensor);
       }

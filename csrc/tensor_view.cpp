@@ -1252,15 +1252,6 @@ TensorView* TensorView::cacheAfter(
       "Caching computed-at tensors is not allowed. Apply caching before "
       "computeAt.");
 
-  // disallow cache on operation where we require data remain in global memory.
-  for (auto use : cached_uses) {
-    NVF_ERROR(
-        !(use->isOneOf<SliceOp, SelectOp, PadOp>()) &&
-            !(use->isA<IndexSelectOp>() && use->input(0) == this),
-        "Right now, caching tensors that are input to the select/slice/pad ops "
-        "are not allowed as they must be in global memory.");
-  }
-
   // It also did additional transformation when this tensor is an
   // input and the outputs of its consumers have computeAt. Make sure
   // we no longer rely on that behavior.
