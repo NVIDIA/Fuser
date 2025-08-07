@@ -1150,6 +1150,7 @@ argsort_opinfo = OpInfo(
         ArgumentType.Constant,
         ArgumentType.Constant,
     ),
+    supports_direct_bindings=True,
 )
 shape_ops.append(argsort_opinfo)
 
