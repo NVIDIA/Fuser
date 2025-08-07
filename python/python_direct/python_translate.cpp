@@ -1362,7 +1362,7 @@ class PythonTranslator : public OptInConstDispatch {
     static const std::vector<std::string> argument_names = {"dim"};
     printer_.generateKwargsOperation(
         "fd.ops.scatter",
-        std::make_tuple(sop->selfTv(), sop->indexTv(), sop->srcTv()),
+        std::make_tuple(sop->in(), sop->index(), sop->src()),
         argument_names,
         std::make_tuple(sop->dim()),
         {out_tv});
