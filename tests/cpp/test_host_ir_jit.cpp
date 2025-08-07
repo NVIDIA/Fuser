@@ -484,7 +484,7 @@ TEST_F(HostIrJitTest, ReshapeWithDynamicTransform) {
   auto hic = std::make_unique<HostIrContainer>();
   FusionGuard fg(hic.get());
 
-  auto tv0 = makeSymbolicTensor(2);
+  auto tv0 = makeSymbolicTensor(3);
   auto s0 = IrBuilder::create<Val>(DataType::Index);
   auto s1 = IrBuilder::create<Val>(DataType::Index);
   hic->addInput(tv0);
