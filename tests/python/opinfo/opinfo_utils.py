@@ -22,15 +22,22 @@ except ImportError as e:
 def requiresJAX(fn):
     @wraps(fn)
     def _fn(*args, **kwargs):
+        import pytest
+
         if not JAX_AVAILABLE:
             pytest.xfail("Requires JAX")
         if torch.cuda.is_available():
             import os
+
             device_prop = torch.cuda.get_device_properties(torch.cuda.current_device())
             total_gpu_memory_gb = device_prop.total_memory / 1024**3
-            if total_gpu_memory_gb < int(os.getenv("NVFUSER_JAX_TEST_REQUIRE_MINIMUM_GPU_MEMORY_GB", -1)):   # default to -1 means no minimum requirement
-                pytest.xfail("JAX initialization requires enough GPU memory. Skipping this test to avoid flaky JAX initialization error. " \
-                "See http://nv/eRj for more details.")
+            if total_gpu_memory_gb < int(
+                os.getenv("NVFUSER_JAX_TEST_REQUIRE_MINIMUM_GPU_MEMORY_GB", -1)
+            ):  # default to -1 means no minimum requirement
+                pytest.xfail(
+                    "JAX initialization requires enough GPU memory. Skipping this test to avoid flaky JAX initialization error. "
+                    "See http://nv/eRj for more details."
+                )
         return fn(*args, **kwargs)
 
     return _fn
