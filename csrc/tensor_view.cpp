@@ -1133,7 +1133,11 @@ TensorView* TensorView::cacheBefore(LoadStoreOpType op_type) {
   // definition_ is no longer valid
   // setDefinition(nullptr);
 
-  // We do not want to reproduce the loop domain if it's for scatter
+  // We do not want to reproduce the loop domain if it's for
+  // scatter. Recall that the loop domain of the scatter op is derived
+  // from the logical domain of the scatter index tensor. Here, the
+  // consumer tensor needs to copy the whole producer tensor, so the
+  // loop domain must be based on the logical domain.
   if (!producer->definition()->isA<ScatterOp>()) {
     auto replayed_consumer_pair = TransformReplay::replayCasP(
         consumer, producer, -1, TransformReplayOptions().replayAllocation());

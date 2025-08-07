@@ -1380,8 +1380,8 @@ void validateScatter(Fusion* fusion) {
         return false;
       }
 
-      for (const auto i : arange(ids1.size())) {
-        if (!exact_graph.disjointValSets().strictAreMapped(ids1[i], ids2[i])) {
+      for (const auto& [id1, id2] : zip(ids1, ids2)) {
+        if (!exact_graph.disjointValSets().strictAreMapped(id1, id2)) {
           return false;
         }
       }

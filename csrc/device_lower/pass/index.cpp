@@ -356,17 +356,20 @@ void IndexLowering::handle(const GatherOp* top) {
 }
 
 void IndexLowering::handle(const ScatterOp* sop) {
+  // At this point, out and self are aliased, so they can be used
+  // interchangeably.
+
   auto lowered_index = lowerSrcIndex(sop->index(), sop->out());
   auto lowered_src = lowerSrcIndex(sop->src(), sop->out());
 
   const std::unordered_map<IterDomain*, Val*> override_index = {
       {sop->getIndexedID(), lowered_index}};
-  auto lowered_out = lowerDstIndex(sop->output(0), override_index);
+  auto lowered_out = lowerDstIndex(sop->out(), override_index);
 
   pushBack(IrBuilder::create<ScatterOp>(
       sop->getScatterOpType(),
-      lowered_out,
-      lowered_out,
+      /*out=*/lowered_out,
+      /*self=*/lowered_out,
       sop->dim(),
       lowered_index,
       lowered_src));
