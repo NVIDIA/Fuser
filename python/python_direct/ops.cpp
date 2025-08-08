@@ -2934,6 +2934,128 @@ tuple[TensorView, TensorView, TensorView]
       py::return_value_policy::reference);
 }
 
+template <
+    class ShapeType,
+    TensorView* (*RandomFuncWithSeed)(
+        const std::vector<Val*>&,
+        Val*,
+        Val*,
+        DataType,
+        Val*,
+        Val*,
+        bool)>
+TensorView* random_dist_op_fn(
+    Val* arg1,
+    Val* arg2,
+    ShapeType generic_new_shape,
+    Val* rng_seed,
+    Val* rng_offset,
+    PrimDataType dtype) {
+  NVF_CHECK(
+      !((rng_seed == nullptr) ^ (rng_offset == nullptr)),
+      "rng_seed and rng_offset must be provided together!");
+  std::vector<Val*> new_shape = SequenceAsVector(generic_new_shape);
+  return RandomFuncWithSeed(
+      new_shape,
+      arg1,
+      arg2,
+      dtype,
+      rng_seed,
+      rng_offset,
+      /*maybe_symbolic=*/true);
+}
+
+void bindRandomOps(py::module_& ops) {
+  ops.def(
+      "normal",
+      random_dist_op_fn<py::list, normal>,
+      py::arg("mean"),
+      py::arg("std"),
+      py::arg("shape"),
+      py::kw_only(),
+      py::arg("rng_seed").none(true) = py::none(),
+      py::arg("rng_offset").none(true) = py::none(),
+      py::arg("dtype") = DataType::Float,
+      py::return_value_policy::reference);
+  ops.def(
+      "normal",
+      random_dist_op_fn<py::tuple, normal>,
+      py::arg("mean"),
+      py::arg("std"),
+      py::arg("shape"),
+      py::kw_only(),
+      py::arg("rng_seed").none(true) = py::none(),
+      py::arg("rng_offset").none(true) = py::none(),
+      py::arg("dtype") = DataType::Float,
+      R"(
+Create a tensor with normal distribution.
+Parameters
+----------
+mean : Val
+    The mean of the normal distribution.
+std : Val
+    The standard deviation of the normal distribution.
+shape : list or tuple
+    The shape of the tensor.
+rng_seed : Val, optional
+    The seed for the random number generator.
+rng_offset : Val, optional
+    The offset for the random number generator.
+dtype : PrimDataType, optional
+    The data type of the tensor.
+
+Returns
+-------
+TensorView
+The tensor with normal distribution.
+      )",
+      py::return_value_policy::reference);
+  ops.def(
+      "uniform",
+      random_dist_op_fn<py::list, uniform>,
+      py::arg("minval"),
+      py::arg("maxval"),
+      py::arg("shape"),
+      py::kw_only(),
+      py::arg("rng_seed").none(true) = py::none(),
+      py::arg("rng_offset").none(true) = py::none(),
+      py::arg("dtype") = DataType::Float,
+      py::return_value_policy::reference);
+  ops.def(
+      "uniform",
+      random_dist_op_fn<py::tuple, uniform>,
+      py::arg("minval"),
+      py::arg("maxval"),
+      py::arg("shape"),
+      py::kw_only(),
+      py::arg("rng_seed").none(true) = py::none(),
+      py::arg("rng_offset").none(true) = py::none(),
+      py::arg("dtype") = DataType::Float,
+      R"(
+Create a tensor with uniform distribution.
+Parameters
+----------
+minval : Val
+    The minimum value of the uniform distribution.
+maxval : Val
+    The maximum value of the uniform distribution.
+shape : list or tuple
+    The shape of the tensor.
+rng_seed : Val, optional
+    The seed for the random number generator.
+rng_offset : Val, optional
+    The offset for the random number generator.
+dtype : PrimDataType, optional
+    The data type of the tensor.
+
+Returns
+-------
+TensorView
+The tensor with normal distribution.
+      )",
+      py::return_value_policy::reference);
+}
+
 } // namespace
 
 void bindOperations(py::module& nvfuser) {
@@ -2952,6 +3074,7 @@ void bindOperations(py::module& nvfuser) {
   bindTensorFactoryOps(nvf_ops);
   bindSearchOps(nvf_ops);
   bindSdpaOps(nvf_ops);
+  bindRandomOps(nvf_ops);
 }
 
 } // namespace nvfuser::python
