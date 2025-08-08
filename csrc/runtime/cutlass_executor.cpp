@@ -7,10 +7,14 @@
 // clang-format on
 
 #include <runtime/cutlass_executor.h>
+#include <runtime/cutlass_compiled_kernel.h>
 #include <fusion.h>
 #include <ir/all_nodes.h>
 #include <exceptions.h>
 #include <instrumentation.h>
+#include <scheduler/cutlass.h>
+#include <debug.h>
+#include <options.h>
 #include <type.h>
 
 namespace nvfuser {
@@ -37,20 +41,65 @@ void CutlassExecutor::compile(
   // Clone the fusion
   fusion_ = std::make_unique<Fusion>(*fusion);
   
-  // Generate CUTLASS code
-  generated_code_ = generateCutlassCode(fusion_.get());
+  // For now, create default CutlassParams
+  // TODO: Get from scheduler once it's properly integrated
+  CutlassParams cutlass_params_instance;
+  cutlass_params_instance.tile_m = 128;
+  cutlass_params_instance.tile_n = 128;
+  cutlass_params_instance.tile_k = 32;
+  cutlass_params_instance.num_warps_m = 2;
+  cutlass_params_instance.num_warps_n = 2;
+  cutlass_params_instance.num_warps_k = 1;
+  cutlass_params_instance.use_nvfp4 = true;
   
-  // Compile the generated code
-  compileGeneratedCode(generated_code_);
+  auto cutlass_params = &cutlass_params_instance;
   
-  // Extract launch parameters
-  extractLaunchParams();
+  // Create compile options
+  CutlassCompileOptions compile_options;
+  compile_options.use_nvrtc = true; // Default to NVRTC
+  compile_options.optimization_level = 3;
+  compile_options.debug = false; // TODO: Get from debug flags
+  
+  // Add CUTLASS include path if available
+  if (const char* cutlass_path = std::getenv("CUTLASS_PATH")) {
+    compile_options.include_paths.push_back(std::string(cutlass_path) + "/include");
+  }
+  
+  // Create and compile the CUTLASS kernel
+  cutlass_kernel_ = std::make_unique<CutlassCompiledKernel>(
+      fusion_.get(), *cutlass_params, compile_options);
+  cutlass_kernel_->compile();
+  
+  // Store the generated code for debugging
+  generated_code_ = cutlass_kernel_->getCode();
+  
+  // Extract kernel name from descriptor
+  kernel_name_ = cutlass_kernel_->getDescriptor().kernel_name;
+  
+  // Store launch parameters
+  const auto& descriptor = cutlass_kernel_->getDescriptor();
+  launch_params_ = LaunchParams(
+      descriptor.grid_dim.x,
+      descriptor.grid_dim.y,
+      descriptor.grid_dim.z,
+      descriptor.block_dim.x,
+      descriptor.block_dim.y,
+      descriptor.block_dim.z);
+  
+  if (descriptor.shared_memory_size > 0) {
+    // TODO: Set shared memory size properly
+    // launch_params_ doesn't have a setter for smem
+  }
+  
+  // Output debug information if requested
+  // Debug output disabled for now
+  // TODO: Enable when debug flags are properly set up
   
   compiled_ = true;
 }
 
 bool CutlassExecutor::isCompiled() const {
-  return compiled_;
+  return compiled_ && cutlass_kernel_ && cutlass_kernel_->isCompiled();
 }
 
 KernelArgumentHolder CutlassExecutor::run(
@@ -60,39 +109,72 @@ KernelArgumentHolder CutlassExecutor::run(
     const CompileParams& compile_params) {
   FUSER_PERF_SCOPE("CutlassExecutor::run");
   
-  NVF_CHECK(compiled_, "CutlassExecutor must be compiled before running");
+  NVF_CHECK(isCompiled(), "CutlassExecutor must be compiled before running");
   
-  // TODO: Implement kernel execution
-  NVF_THROW("CutlassExecutor::run not implemented yet");
+  // Allocate outputs if not provided
+  if (outputs.empty()) {
+    outputs = allocateOutputs(fusion_.get(), args);
+  }
+  
+  // Create kernel arguments including outputs
+  KernelArgumentHolder kernel_args = args;
+  for (const auto& arg : outputs) {
+    kernel_args.push(arg);
+  }
+  
+  // Run the kernel
+  float kernel_time_ms = cutlass_kernel_->run(kernel_args);
+  
+  // Log kernel time if profiling is enabled
+  // Debug output disabled for now
+  // TODO: Enable when debug flags are properly set up
   
   return outputs;
 }
 
+KernelArgumentHolder CutlassExecutor::allocateOutputs(
+    Fusion* fusion,
+    const KernelArgumentHolder& inputs) {
+  FUSER_PERF_SCOPE("CutlassExecutor::allocateOutputs");
+  
+  KernelArgumentHolder outputs;
+  
+  // For each output tensor in the fusion
+  for (auto output : fusion->outputs()) {
+    if (auto tv = dynamic_cast<TensorView*>(output)) {
+      // Create output tensor with appropriate size and dtype
+      // This is simplified - actual implementation would need to
+      // compute output shapes based on the operation and inputs
+      
+      // For now, assume it's a matmul and create MxN output
+      // TODO: Proper output shape inference
+      auto options = at::TensorOptions()
+          .dtype(data_type_to_aten(tv->dtype()))
+          .device(at::kCUDA, 0);
+      
+      // Placeholder shape - should be computed from inputs
+      auto output_tensor = at::empty({1024, 1024}, options);
+      outputs.push(output_tensor);
+    }
+  }
+  
+  return outputs;
+}
+
+// Keep these legacy methods for compatibility
 std::string CutlassExecutor::generateCutlassCode(Fusion* fusion) {
   FUSER_PERF_SCOPE("CutlassExecutor::generateCutlassCode");
-  
-  // TODO: Implement CUTLASS code generation
-  // For now, just return a placeholder
-  return R"(
-// Generated CUTLASS kernel code
-// TODO: Implement actual code generation
-)";
+  return generated_code_;
 }
 
 void CutlassExecutor::compileGeneratedCode(const std::string& code) {
   FUSER_PERF_SCOPE("CutlassExecutor::compileGeneratedCode");
-  
-  // TODO: Implement compilation using NVRTC or nvcc
-  // For now, just set a placeholder kernel name
-  kernel_name_ = "cutlass_kernel";
+  // No longer used - compilation happens in CutlassCompiledKernel
 }
 
 void CutlassExecutor::extractLaunchParams() {
   FUSER_PERF_SCOPE("CutlassExecutor::extractLaunchParams");
-  
-  // TODO: Extract launch parameters from the compiled kernel
-  // For now, use default launch params
-  launch_params_ = LaunchParams();
+  // No longer used - launch params are extracted from CutlassCompiledKernel
 }
 
 } // namespace nvfuser

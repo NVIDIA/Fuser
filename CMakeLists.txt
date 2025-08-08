@@ -306,6 +306,7 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/rng.cpp
       ${NVFUSER_SRCS_DIR}/runtime/allocations.cpp
     ${NVFUSER_SRCS_DIR}/runtime/compiled_kernel.cpp
+    ${NVFUSER_SRCS_DIR}/runtime/cutlass_compiled_kernel.cpp
     ${NVFUSER_SRCS_DIR}/runtime/cutlass_executor.cpp
     ${NVFUSER_SRCS_DIR}/runtime/executor.cpp
     ${NVFUSER_SRCS_DIR}/runtime/executor_dispatch.cpp
@@ -804,6 +805,7 @@ list(APPEND JIT_TEST_SRCS
   ${NVFUSER_ROOT}/tests/cpp/test_circular_buffering_ping_pong.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_combined_inner_outer_reduction.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_compute_at_map.cpp
+  ${NVFUSER_ROOT}/tests/cpp/test_cutlass_scheduler.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_compute_with.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_contiguity_id_model.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_driver_api.cpp

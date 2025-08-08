@@ -17,6 +17,8 @@
 
 namespace nvfuser {
 
+class CutlassCompiledKernel;
+
 class CutlassExecutor : public ExecutorAbstract {
  public:
   CutlassExecutor(
@@ -58,10 +60,15 @@ class CutlassExecutor : public ExecutorAbstract {
 
   // Extract launch parameters from compiled kernel
   void extractLaunchParams();
+  
+  // Allocate output tensors
+  KernelArgumentHolder allocateOutputs(
+      Fusion* fusion,
+      const KernelArgumentHolder& inputs);
 
  private:
   std::unique_ptr<Fusion> fusion_;
-  std::unique_ptr<CompiledKernel> compiled_kernel_;
+  std::unique_ptr<CutlassCompiledKernel> cutlass_kernel_;
   LaunchParams launch_params_;
   bool compiled_ = false;
   
@@ -71,7 +78,7 @@ class CutlassExecutor : public ExecutorAbstract {
   // Kernel function name
   std::string kernel_name_;
   
-  // Compiled kernel handle
+  // Compiled kernel handle - no longer used
   void* kernel_func_ = nullptr;
 };
 
