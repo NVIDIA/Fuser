@@ -1680,4 +1680,36 @@ INSTANTIATE_TEST_SUITE_P(
       ss << "non_concretized_pos_" << info.param;
       return sanitizeTestName(ss.str());
     });
+
+// Simplified version of test_ws_tma_normalization3.
+// Bug 5374767: Mistral-7B-v0.1 fails with "The non-allocating compute-at IDs
+// are not found in the allocation domain"
+TEST_F(CombinedSchedulerTest, AllocationDomainBroadcast) {
+  NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
+  EnableOptionsGuard opt_guard;
+  EnableOptionsGuard::getCurOptions().set(
+      EnableOption::WarpSpecializedNormalization);
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  long x = 1L, y = 4096L, z = 4096L;
+  auto tv1 = makeContigConcreteTensor({x, y, z});
+  fusion->addInput(tv1);
+  std::vector<IterDomain*> tv1_dom = {tv1->axis(1), tv1->axis(0), tv1->axis(2)};
+  tv1->setAllocationDomain(tv1_dom, true);
+  auto tv2 = sum(tv1, {0, 2});
+  auto tv3 = broadcast(tv2, {true, false, true});
+  auto tv4 = add(tv1, tv3);
+  auto tv5 = sum(tv4, {0, 1});
+  fusion->addOutput(tv4);
+  fusion->addOutput(tv5);
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  // shape: (x, y, z), alloc: (y, x, z), stride: (z, x*z, 1)
+  auto t1 = at::randn({x, y, z}, options).as_strided({x, y, z}, {z, x * z, 1});
+  std::vector<c10::IValue> inputs({t1});
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto outputs = executor_cache.runFusionWithInputs(inputs);
+  testValidate(executor_cache.fusion(), outputs, inputs, __LINE__, __FILE__);
+}
 } // namespace nvfuser
