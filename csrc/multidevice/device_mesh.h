@@ -35,10 +35,10 @@ class DeviceMesh final {
   // allow implicit conversion for that. This allows users to write `DeviceMesh
   // mesh = {1, 2};`, which is more concise.
   // When no shape is specified, a 1D DeviceMesh is created by default.
-  DeviceMesh();
-  explicit DeviceMesh(at::Tensor devices);
-  DeviceMesh(std::initializer_list<DeviceIdxType> devices);
-  DeviceMesh(
+  NVF_API DeviceMesh();
+  explicit NVF_API DeviceMesh(at::Tensor devices);
+  NVF_API DeviceMesh(std::initializer_list<DeviceIdxType> devices);
+  NVF_API DeviceMesh(
       const std::vector<int64_t>& devices,
       const std::vector<int64_t>& shape);
 
@@ -136,6 +136,6 @@ class DeviceMesh final {
   at::Tensor devices_;
 };
 
-std::ostream& operator<<(std::ostream& out, const DeviceMesh& mesh);
+NVF_API std::ostream& operator<<(std::ostream& out, const DeviceMesh& mesh);
 
 } // namespace nvfuser

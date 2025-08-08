@@ -167,7 +167,7 @@ NVF_API WelfordResult Welford(
 
 //! Create a raw WelfordOp. Don't convert size-1 or size-0 reduction into
 //! squeeze/full.
-WelfordResult WelfordRaw(
+NVF_API WelfordResult WelfordRaw(
     TensorView* tv,
     const std::vector<int64_t>& axes,
     TensorView* init_avg = nullptr,

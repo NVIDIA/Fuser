@@ -79,7 +79,7 @@ struct HostIrEvaluatorParams {
 //
 // Note: most of the implementation is copy pasted for MultiDeviceExecutor. This
 // duplication will be resolved in the future.
-class HostIrEvaluator final : public OptOutDispatch {
+class NVF_API HostIrEvaluator final : public OptOutDispatch {
  public:
   HostIrEvaluator(
       std::unique_ptr<HostIrContainer> container,
