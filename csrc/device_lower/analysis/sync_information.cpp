@@ -91,6 +91,26 @@ bool allowIncoherentDependency(
   return false;
 }
 
+bool isConsumedByScatter(TensorView* tv, IterDomain* id, Expr* consumer_expr) {
+  auto scatter = dynamic_cast<ScatterOp*>(consumer_expr);
+  if (scatter == nullptr || scatter->in() != tv) {
+    return false;
+  }
+
+  auto logical_scatter_dim = tv->domain()->noReductions().at(scatter->dim());
+  return DependencyCheck::isDependencyOf(logical_scatter_dim, id);
+}
+
+bool isProducedByScatter(TensorView* tv, IterDomain* id) {
+  auto scatter = dynamic_cast<ScatterOp*>(tv->definition());
+  if (scatter == nullptr) {
+    return false;
+  }
+
+  auto logical_scatter_dim = tv->domain()->noReductions().at(scatter->dim());
+  return DependencyCheck::isDependencyOf(logical_scatter_dim, id);
+}
+
 } // namespace
 
 SyncMap::SyncMap(Fusion* fusion) {
@@ -377,7 +397,9 @@ SyncMap::SyncMap(Fusion* fusion) {
             const auto& indexing_traveral_graph =
                 id_model.idGraph(TensorIndexer::traversalGraphType());
             if (indexing_traveral_graph.disjointValSets().strictAreMapped(
-                    producer_loop_id, consumer_loop_id)) {
+                    producer_loop_id, consumer_loop_id) &&
+                !isConsumedByScatter(producer, p_id, expr) &&
+                !isProducedByScatter(producer, p_id)) {
               continue;
             }
 
