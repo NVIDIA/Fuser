@@ -1265,35 +1265,64 @@ KernelArgumentHolder KernelExecutor::run(
               << ", warps_per_sm=" << warps_per_sm
               << ", occupancy=" << oss.str() << std::endl;
     }
-
-    if (true  || !compiled_kernel_->kernel()->summary().has_cooperative_grid_reduction) {
-      FUSER_PERF_SCOPE("ExecutorRunFusion::cuLaunchKernel");
-      NVFUSER_CUDA_SAFE_CALL(cuLaunchKernel(
-          compiled_kernel_->cudaExecutable()->function,
-          launch_params_.gdimx(),
-          launch_params_.gdimy(),
-          launch_params_.gdimz(),
-          launch_params_.bdimx(),
-          launch_params_.bdimy(),
-          launch_params_.bdimz(),
-          launch_params_.smem(),
-          stream,
-          executor_entry->arg_ptrs.data(),
-          nullptr));
-    } else {
-      FUSER_PERF_SCOPE("ExecutorRunFusion::cuLaunchCooperativeKernel");
-      NVFUSER_CUDA_SAFE_CALL(cuLaunchCooperativeKernel(
-          compiled_kernel_->cudaExecutable()->function,
-          launch_params_.gdimx(),
-          launch_params_.gdimy(),
-          launch_params_.gdimz(),
-          launch_params_.bdimx(),
-          launch_params_.bdimy(),
-          launch_params_.bdimz(),
-          launch_params_.smem(),
-          stream,
-          executor_entry->arg_ptrs.data()));
+    // Set up CUlaunchAttribute for cooperative and cluster launch
+    std::vector<CUlaunchAttribute> launch_attrs;
+    if (compiled_kernel_->kernel()->summary().has_cooperative_grid_reduction) {
+      CUlaunchAttribute attr;
+      attr.id = CU_LAUNCH_ATTRIBUTE_COOPERATIVE;
+      attr.value.cooperative = 1;
+      launch_attrs.push_back(attr);
     }
+    if (!std::getenv("USE_MAIN")) {
+      CUlaunchAttribute attr;
+      attr.id = CU_LAUNCH_ATTRIBUTE_CLUSTER_DIMENSION;
+      attr.value.clusterDim.x = 8;
+      attr.value.clusterDim.y = 1;
+      attr.value.clusterDim.z = 1;
+      launch_attrs.push_back(attr);
+    }
+    CUlaunchConfig config = {
+        .gridDimX = (unsigned int)launch_params_.gdimx(),
+        .gridDimY = (unsigned int)launch_params_.gdimy(),
+        .gridDimZ = (unsigned int)launch_params_.gdimz(),
+        .blockDimX = (unsigned int)launch_params_.bdimx(),
+        .blockDimY = (unsigned int)launch_params_.bdimy(),
+        .blockDimZ = (unsigned int)launch_params_.bdimz(),
+        .sharedMemBytes = (unsigned int)launch_params_.smem(),
+        .hStream = stream,
+        .attrs = launch_attrs.data(),
+        .numAttrs = (unsigned int)launch_attrs.size()};
+    NVFUSER_CUDA_SAFE_CALL(cuLaunchKernelEx(
+      &config, compiled_kernel_->cudaExecutable()->function, executor_entry->arg_ptrs.data(), nullptr));        
+
+    // if (true  || !compiled_kernel_->kernel()->summary().has_cooperative_grid_reduction) {
+    //   FUSER_PERF_SCOPE("ExecutorRunFusion::cuLaunchKernel");
+    //   NVFUSER_CUDA_SAFE_CALL(cuLaunchKernel(
+    //       compiled_kernel_->cudaExecutable()->function,
+    //       launch_params_.gdimx(),
+    //       launch_params_.gdimy(),
+    //       launch_params_.gdimz(),
+    //       launch_params_.bdimx(),
+    //       launch_params_.bdimy(),
+    //       launch_params_.bdimz(),
+    //       launch_params_.smem(),
+    //       stream,
+    //       executor_entry->arg_ptrs.data(),
+    //       nullptr));
+    // } else {
+    //   FUSER_PERF_SCOPE("ExecutorRunFusion::cuLaunchCooperativeKernel");
+    //   NVFUSER_CUDA_SAFE_CALL(cuLaunchCooperativeKernel(
+    //       compiled_kernel_->cudaExecutable()->function,
+    //       launch_params_.gdimx(),
+    //       launch_params_.gdimy(),
+    //       launch_params_.gdimz(),
+    //       launch_params_.bdimx(),
+    //       launch_params_.bdimy(),
+    //       launch_params_.bdimz(),
+    //       launch_params_.smem(),
+    //       stream,
+    //       executor_entry->arg_ptrs.data()));
+    // }
   }
 
   releaseZeroedMemory();
