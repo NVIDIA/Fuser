@@ -11,6 +11,7 @@
 
 #include <fusion_segmenter.h>
 #include <host_ir/executor.h>
+#include <host_ir/jit.h>
 #include <polymorphic_value.h>
 #include <runtime/executor.h>
 #include <runtime/executor_kernel_arg.h>
@@ -185,6 +186,9 @@ class FusionKernelRuntime {
   //! Entries indexed by groupID:
   //! Executors holding compiled kernels
   std::vector<std::unique_ptr<ExecutorAbstract>> executors_;
+
+  //! Host IR JIT
+  std::unique_ptr<HostIrJit> hij_;
 
   //! Host IR Evaluator
   std::unique_ptr<hir::HostIrEvaluator> hie_;
