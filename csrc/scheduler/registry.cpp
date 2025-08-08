@@ -118,6 +118,8 @@ std::unique_ptr<SchedulerEntry> SchedulerEntry::makeSchedulerInstance(
       return std::make_unique<ResizeScheduler>();
     case SchedulerType::Communication:
       return std::make_unique<CommunicationScheduler>();
+    case SchedulerType::Cutlass:
+      return std::make_unique<CutlassScheduler>();
     default:
       NVF_THROW("unreachable");
   }

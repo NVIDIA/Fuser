@@ -729,7 +729,8 @@ void initNvFuserPythonBindings(PyObject* module) {
       .value("outer_persistent", SchedulerType::OuterPersistent)
       .value("transpose", SchedulerType::Transpose)
       .value("expr_eval", SchedulerType::ExprEval)
-      .value("resize", SchedulerType::Resize);
+      .value("resize", SchedulerType::Resize)
+      .value("cutlass", SchedulerType::Cutlass);
 
   py::enum_<CommunicatorBackend>(
       nvfuser, "CommunicatorBackend", py::module_local())
