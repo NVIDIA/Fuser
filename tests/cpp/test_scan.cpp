@@ -158,15 +158,21 @@ TEST_F(ScanTest, ScanWithSimpleArithmetic) {
   // Scan operation
   auto tv2 = scan(tv1, /*dim=*/1, BinaryOpType::Add);
 
-  fusion.addOutput(tv2);
+  auto tv3 = set(tv2);
+
+  // fusion.addOutput(tv2);
+  fusion.addOutput(tv3);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor input = at::randn({4, 8}, options);
 
-  FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto outputs = executor_cache.runFusionWithInputs({input});
+  // FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  // auto outputs = executor_cache.runFusionWithInputs({input});
 
-  testValidate(executor_cache.fusion(), outputs, {input}, __LINE__, __FILE__);
+  auto outputs =
+      scheduleAndRun(&fusion, SchedulerType::Greedy, {input}).outputs;
+
+  testValidate(&fusion, outputs, {input}, __LINE__, __FILE__);
 }
 
 // Test ScanOp with multiple arithmetic operations - investigating complex
