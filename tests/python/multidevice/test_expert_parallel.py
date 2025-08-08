@@ -50,6 +50,9 @@ def rank_first_to_expert_first(
     return tokens
 
 
+# This test serves as the reference implementation for the expert parallelism
+# dispatch logic. Each token is dispatched to the rank hosting the corresponding
+# expert, and tokens received by the same rank are sorted by expert ID.
 @pytest.mark.mpi
 def test_dispatch(setup_default_process_group):
     rank = dist.get_rank()
