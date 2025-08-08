@@ -269,4 +269,51 @@ TEST_F(ScatterTest, CacheAfter) {
   testValidate(&fusion, outputs, {t0, t1}, __LINE__, __FILE__);
 }
 
+TEST_F(ScatterTest, MappedLogicalAndLoop) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  const int64_t m = 8;
+
+  auto tv0 = makeContigConcreteTensor({m}, DataType::Int);
+  fusion.addInput(tv0);
+  auto tv1 = makeContigConcreteTensor({m}, DataType::Int);
+  fusion.addInput(tv1);
+
+  auto tv2 = set(tv1);
+  auto tv3 = arange(IrBuilder::create<Val>(8));
+  auto tv4 = scatter(tv2, 0, tv0, tv3);
+  auto tv5 = set(tv4);
+  fusion.addOutput(tv5);
+
+  // Maps the iter domains of tv0 and tv1, which in turn maps the loop
+  // domain of tv4 with its logical domain
+  if (getenv("MAP")) {
+    auto tv6 = add(tv0, tv1);
+    fusion.addOutput(tv6);
+  }
+
+  for (auto tv : fusion.allTvs()) {
+    tv->axis(0)->parallelize(ParallelType::TIDx);
+  }
+
+  tv2->setMemoryType(MemoryType::Shared);
+  tv2->setAllocationDomain(tv2->getLogicalDomain(), true);
+  tv4->setMemoryType(MemoryType::Shared);
+  tv4->setAllocationDomain(tv4->getLogicalDomain(), true);
+
+  fusion.print();
+
+  auto options = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
+  auto t0 = at::randperm(m, options);
+  auto t1 = at::zeros({m}, options);
+
+  KernelExecutor ke;
+  ke.compile(&fusion, {t0, t1});
+  auto outputs = ke.run({t0, t1});
+
+  testValidate(&fusion, outputs, {t0, t1}, __LINE__, __FILE__);
+}
+
 } // namespace nvfuser
