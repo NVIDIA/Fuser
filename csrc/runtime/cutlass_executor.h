@@ -7,10 +7,10 @@
 // clang-format on
 #pragma once
 
+#include <runtime/compiled_kernel.h>
 #include <runtime/executor_abstract.h>
 #include <runtime/executor_kernel_arg.h>
 #include <runtime/executor_params.h>
-#include <runtime/compiled_kernel.h>
 #include <scheduler/scheduler_types.h>
 #include <memory>
 #include <string>
@@ -60,7 +60,7 @@ class CutlassExecutor : public ExecutorAbstract {
 
   // Extract launch parameters from compiled kernel
   void extractLaunchParams();
-  
+
   // Allocate output tensors
   KernelArgumentHolder allocateOutputs(
       Fusion* fusion,
@@ -71,13 +71,13 @@ class CutlassExecutor : public ExecutorAbstract {
   std::unique_ptr<CutlassCompiledKernel> cutlass_kernel_;
   LaunchParams launch_params_;
   bool compiled_ = false;
-  
+
   // Generated CUTLASS code
   std::string generated_code_;
-  
+
   // Kernel function name
   std::string kernel_name_;
-  
+
   // Compiled kernel handle - no longer used
   void* kernel_func_ = nullptr;
 };
