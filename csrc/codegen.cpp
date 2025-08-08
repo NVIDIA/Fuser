@@ -1307,7 +1307,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     if (sop->getScatterOpType() == ScatterOpType::Set) {
       // When value of index_tv are not unique, the behavior of Set is
       // non-deterministic
-      indent() << gen(sop->output(0)) << " = " << gen(sop->input(2)) << ";\n";
+      indent() << gen(sop->out()) << " = " << gen(sop->src()) << ";\n";
     } else {
       NVF_THROW("unkown scatterOp");
     }
@@ -3674,6 +3674,11 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     const auto buffer_dtype = alloc->buffer()->dtype();
 
     NVF_ERROR(alloc->buffer() != nullptr);
+
+    if (alloc->buffer()->isFusionOutput()) {
+      return;
+    }
+
     alloc_set_.emplace(alloc->buffer());
 
     if (!alloc->buffer()->isA<TensorView>()) {

@@ -531,6 +531,13 @@ std::vector<GlobalBufferInfo> KernelExecutor::getIntermediateBufferInfo(
     if (tv->isFusionOutput()) {
       continue;
     }
+    if (alloc->alias() != nullptr) {
+      // When aliased, no tensor argment is passed to the
+      // kernel. Inside the kernel, the aliasing tensor is defined as
+      // an alias of the aliasee, e.g., "auto& T2 = T4". The validity
+      // of the aliasing should be confirmed at the time of lowering.
+      continue;
+    }
     GlobalBufferInfo info;
     info.tv = tv;
     info.zero_init = alloc->zeroInit();
