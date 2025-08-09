@@ -828,12 +828,12 @@ class PythonTranslator : public OptInConstDispatch {
         : rop->out()->dtype();
     std::vector<int64_t> dims = getReductionAxes(rop->out()->as<TensorView>());
 
-    // TODO: keep_dim is always False in ReductionOp because a separate
-    // BroadcastOp node exists if keep_dim is True. Detect this pattern to
+    // TODO: keepdim is always False in ReductionOp because a separate
+    // BroadcastOp node exists if keepdim is True. Detect this pattern to
     // minify the python definition.
     static const auto default_args = std::make_tuple(
         KeywordArgument<decltype(dims)>{"dims", std::nullopt},
-        KeywordArgument<bool>{"keep_dim", false},
+        KeywordArgument<bool>{"keepdim", false},
         KeywordArgument<DataType>{"dtype", DataType::Null});
     printer_.generateKwargsOperation(
         "fd.ops." + nvfuser::python::toString(rop),
