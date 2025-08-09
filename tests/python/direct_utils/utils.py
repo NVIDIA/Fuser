@@ -45,7 +45,7 @@ def check_captured_python_definition(reference_outputs, fd, inputs, device=None)
         captured_outputs = fd_cap.execute(inputs, device=device)
         # Make sure the original and captured definitions match
         # torch.allclose does not work with fp8 datatype, so cast to fp64.
-        return all(
+        match_values = all(
             [
                 torch.allclose(
                     ref_out.to(torch.float64),
@@ -55,6 +55,15 @@ def check_captured_python_definition(reference_outputs, fd, inputs, device=None)
                 for idx, ref_out in enumerate(reference_outputs)
             ]
         )
+
+        # Check that the stride of all outputs match
+        match_stride = all(
+            [
+                ref_out.stride() == captured_outputs[idx].stride()
+                for idx, ref_out in enumerate(reference_outputs)
+            ]
+        )
+        return match_values and match_stride
     except Exception as err:
         print("\nException For Printed FusionDefinition:")
         print(
@@ -62,6 +71,14 @@ def check_captured_python_definition(reference_outputs, fd, inputs, device=None)
         )
         print(fd_str)
         raise err
+
+
+def verify_stride_order(output_strides, stride_order):
+    sorted_stride = list(output_strides)
+    rank = len(output_strides)
+    for idx, axis in enumerate(stride_order):
+        sorted_stride[rank - 1 - axis] = output_strides[idx]
+    assert sorted(sorted_stride, reverse=True) == sorted_stride
 
 
 UPDATED_SDPA = LooseVersion(torch.__version__) >= LooseVersion("2.7.0")

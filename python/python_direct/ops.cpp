@@ -2516,6 +2516,42 @@ Returns
 list of Val
     The shape of the tensor.
 )");
+  ops.def(
+      "stride_order",
+      [](TensorView* arg, std::vector<int64_t>& stride_order) -> TensorView* {
+        TensorView* output = set(arg);
+        if (stride_order.empty()) {
+          return output;
+        }
+        size_t ndims =
+            TensorDomain::noReductions(arg->getLogicalDomain()).size();
+        NVF_CHECK(
+            ndims == stride_order.size(),
+            "Operator stride_order expects `stride_order` argument to have the "
+            "same length as input!");
+        std::vector<IterDomain*> allocation_domain =
+            ir_utils::strideOrderToAllocation(
+                output->getLogicalDomain(), stride_order);
+        output->setAllocationDomain(allocation_domain, /*new_contiguity=*/true);
+        return output;
+      },
+      py::arg("arg"),
+      py::arg("stride_order"),
+      R"(
+Create a copy of a tensor with a new memory layout.
+
+Parameters
+----------
+arg : TensorView
+stride_order : list or tuple
+    The new order of the dimensions.
+
+Returns
+-------
+TensorView
+    The tensor with a new memory layout.
+)",
+      py::return_value_policy::reference);
 }
 
 template <class ShapeType>
