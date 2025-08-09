@@ -202,6 +202,25 @@ TensorView
     A TensorView with the split axes in its loop domain.
 )")
       .def(
+          "rfactor",
+          static_cast<TensorView* (TensorView::*)(const std::vector<int64_t>&)>(
+              &TensorView::rFactor),
+          py::arg("axes"),
+          py::return_value_policy::reference,
+          R"(
+Perform an rfactor transformation on the specified axes.
+
+Parameters
+----------
+axes : list of int
+The axes to apply rfactor to.
+
+Returns
+-------
+TensorView
+The newly created rfactor tensor.
+)")
+      .def(
           "set_allocation_domain",
           static_cast<void (TensorView::*)(std::vector<IterDomain*>, bool)>(
               &TensorView::setAllocationDomain),
