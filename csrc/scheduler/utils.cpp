@@ -1612,11 +1612,9 @@ std::vector<TensorView*> getInputsOutputsWithInnerDim(
   auto inner_most_id = innerMostAllocDim(reference_tv);
 
   if (inner_most_id == nullptr) {
-    std::cout << "inner_most_id is nullptr" << std::endl;
     return {};
   }
-  std::cout << "inner_most_id: " << inner_most_id->toString() << std::endl;
-
+  
   FindAllMappedDims all_mapped_root_dims(
       reference_tv, inner_most_id, inner_only, vectorize_pass);
   MaxLogicalDomainInfoSpanningTree tree(reference_tv);

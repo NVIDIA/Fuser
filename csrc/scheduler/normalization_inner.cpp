@@ -537,7 +537,7 @@ void innerGridPersistentHeuristic2D(
   // fully vectorized, use maxThreadsPerBlock to reduce workload per threads
   int64_t vectorize_factor = properties.vectorize_factor;
   int64_t bdimx = 256;
-  int64_t gdimx = 8;//scheduler_utils::roundUpPow2(properties.max_persistent_buffer_size_bit / scheduler_utils::register_file_size_bit);
+  int64_t gdimx = 2;//scheduler_utils::roundUpPow2(properties.max_persistent_buffer_size_bit / scheduler_utils::register_file_size_bit);
   NVF_ERROR(gdimx > 1, "gdimx should be larger than 1");
   int64_t persistent_batch =
       ceilDiv(properties.total_reduction_numel, vectorize_factor * bdimx * gdimx);
