@@ -44,7 +44,7 @@ fusion : Fusion
   // template functions in the Fusion class. Templates do not exist in the
   // python language. To bind these functions, you must instantiate a full
   // (explicit) template specialization.
-  py::class_<Fusion>(nvfuser, "Fusion")
+  py::class_<Fusion, std::shared_ptr<Fusion>>(nvfuser, "Fusion")
       .def(py::init<>(), R"(
 Create a new Fusion.
 
