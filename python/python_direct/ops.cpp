@@ -1637,6 +1637,39 @@ TensorView
     A new tensor containing the sum of elements along the specified dimensions.
 )")
   ops.def(
+      "var_mean",
+      [](TensorView* arg,
+         const std::vector<int64_t>& dims,
+         int64_t correction,
+         bool keepdim) -> std::tuple<TensorView*, TensorView*> {
+        VarMeanResult output = variance_mean(arg, dims, correction, keepdim);
+        return std::make_tuple(output.var, output.mean);
+      },
+      py::arg("arg"),
+      py::arg("dims"),
+      py::arg("correction") = 1,
+      py::arg("keepdim") = false,
+      R"(
+Reduce a tensor by computing the mean and variance along specified dimensions.
+
+Parameters
+----------
+arg : TensorView
+    Input tensor to reduce.
+dims : list or tuple
+    Dimensions to reduce over.
+correction : int, optional
+    The correction factor to apply to the variance. Default is 1.
+keepdim : bool, optional
+    Whether to keep the reduced dimensions with size 1. Default is False.
+
+Returns
+-------
+tuple
+    A tuple containing the variance and mean along the specified dimensions.
+)",
+      py::return_value_policy::reference);
+  ops.def(
       "welford",
       [](TensorView* arg, const std::vector<int64_t>& dims) -> decltype(auto) {
         WelfordResult output = WelfordRaw(arg, dims);
