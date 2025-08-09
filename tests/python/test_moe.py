@@ -166,3 +166,22 @@ def test_llama4_moe():
     assert out.size() == (batch_size, seq_len, config.hidden_size)
     assert out.dtype == torch.bfloat16
     assert out.is_cuda
+
+    from thunder.dynamo import thunderfx
+
+    thunder_model = thunderfx(model, nv_enable_linear=False)
+    out = thunder_model(inp)
+
+    backend = thunder_model._backend
+    print(name, "\n=== unoptimized inference trace:")
+    for subgraph_info in backend.subgraph_infos:
+        assert isinstance(subgraph_info.original_graph_module, torch.fx.GraphModule)
+        assert len(subgraph_info.thunder_compiled_fns) == 1
+    
+        for thunder_fn in subgraph_info.thunder_compiled_fns:
+            print(thunder.last_traces(thunder_fn)[0])
+    
+    print(name, "\n=== inference trace:")
+    for subgraph_info in backend.subgraph_infos:
+        for thunder_fn in subgraph_info.thunder_compiled_fns:
+            print(thunder.last_traces(thunder_fn)[-1])
