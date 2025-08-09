@@ -171,13 +171,7 @@ def correctness_test_fn(
         pytest.xfail("Reference function is not defined for this correctness test.")
 
 
-@create_op_test(
-    tuple(
-        op
-        for op in opinfos
-        if op.sample_input_generator is not None and op.supports_direct_bindings
-    )
-)
+@create_op_test(tuple(op for op in opinfos if op.sample_input_generator is not None))
 def test_correctness(op: OpInfo, dtype: torch.dtype):
     for sample in op.sample_input_generator(op, dtype):
         result = correctness_test_fn(op.reference_type, op, sample)
@@ -209,13 +203,7 @@ def _regex_escape_parenthesis(a: str) -> str:
     return b.replace(r"(", r"\(").replace(r")", r"\)")
 
 
-@create_op_test(
-    tuple(
-        op
-        for op in opinfos
-        if op.error_input_generator is not None and op.supports_direct_bindings
-    )
-)
+@create_op_test(tuple(op for op in opinfos if op.error_input_generator is not None))
 @retry_on_oom_or_skip_test
 def test_errors(op: OpInfo, dtype: torch.dtype):
     for sample, exception_type, exception_regex in op.error_input_generator(op, dtype):

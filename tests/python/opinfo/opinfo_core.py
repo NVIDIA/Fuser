@@ -125,6 +125,3 @@ class OpInfo:
     # Enable check_cpp_translation test
     # Tests that translation from CPP Fusion back to Python FusionDefinition is correct.
     is_clonable: bool = False
-
-    # Test operation using direct bindings python API
-    supports_direct_bindings: bool = False
