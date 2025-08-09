@@ -1332,10 +1332,16 @@ class PythonTranslator : public OptInConstDispatch {
   // If input and output values share the same type, a LoadStoreOp will be
   // created instead of a CastOp.
   void handle(const LoadStoreOp* lsop) final {
-    // TODO short-circuit: lsop is a permutation.
+    // short-circuit: lsop is a permutation.
     if (lsop->out()->isA<TensorView>() &&
         lsop->out()->as<TensorView>()->hasRoot()) {
       return handlePermute(lsop);
+    }
+
+    // short-circuit: lsop is a stride_order.
+    if (lsop->out()->isA<TensorView>() &&
+        lsop->out()->as<TensorView>()->hasAllocation()) {
+      return handleStrideOrder(lsop);
     }
 
     NVF_ERROR(
@@ -1365,6 +1371,18 @@ class PythonTranslator : public OptInConstDispatch {
         std::make_tuple(lsop->in()),
         argument_names,
         std::make_tuple(new2old.value()),
+        {lsop->out()});
+  }
+
+  void handleStrideOrder(const LoadStoreOp* lsop) {
+    TensorView* out_tv = lsop->out()->as<TensorView>();
+    visited_vals_.insert(lsop->out());
+    static const std::vector<std::string> argument_names = {"stride_order"};
+    printer_.generateKwargsOperation(
+        "fd.ops.stride_order",
+        std::make_tuple(lsop->in()),
+        argument_names,
+        std::make_tuple(out_tv->domain()->strideOrder()),
         {lsop->out()});
   }
 
