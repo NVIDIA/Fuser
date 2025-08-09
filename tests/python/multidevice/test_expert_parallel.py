@@ -37,6 +37,7 @@ def rank_first_to_expert_first(
     tokens: torch.Tensor, n_tokens_for_expert_from_rank: torch.Tensor
 ) -> torch.Tensor:
     d, num_experts_per_rank = n_tokens_for_expert_from_rank.size()
+    # Rank first, expert second
     tokens_for_expert_from_rank = tokens.split(
         n_tokens_for_expert_from_rank.flatten().tolist()
     )
@@ -44,6 +45,25 @@ def rank_first_to_expert_first(
         tokens_for_expert_from_rank, d, num_experts_per_rank
     )
     # list(zip(*matrix)) transposes the matrix.
+    # Expert first, rank second
+    tokens_for_expert_from_rank = list(zip(*tokens_for_expert_from_rank))
+    tokens_for_expert_from_rank = matrix_to_list(tokens_for_expert_from_rank)
+    tokens = torch.cat(tokens_for_expert_from_rank, dim=0)
+    return tokens
+
+
+def expert_first_to_rank_first(
+    tokens: torch.Tensor, n_tokens_for_expert_from_rank: torch.Tensor
+) -> torch.Tensor:
+    d, num_experts_per_rank = n_tokens_for_expert_from_rank.size()
+    # Expert first, rank second
+    tokens_for_expert_from_rank = tokens.split(
+        n_tokens_for_expert_from_rank.t().flatten().tolist()
+    )
+    tokens_for_expert_from_rank = list_to_matrix(
+        tokens_for_expert_from_rank, num_experts_per_rank, d
+    )
+    # Rank first, expert second
     tokens_for_expert_from_rank = list(zip(*tokens_for_expert_from_rank))
     tokens_for_expert_from_rank = matrix_to_list(tokens_for_expert_from_rank)
     tokens = torch.cat(tokens_for_expert_from_rank, dim=0)
@@ -51,10 +71,15 @@ def rank_first_to_expert_first(
 
 
 # This test serves as the reference implementation for the expert parallelism
-# dispatch logic. Each token is dispatched to the rank hosting the corresponding
-# expert, and tokens received by the same rank are sorted by expert ID.
+# dispatch and combine logic. An expert-parallel MoE layer dispatches,
+# processes, and combines tokens in the following steps:
+# 1. Each token is dispatched to the rank hosting the corresponding expert.
+# 2. Each rank sorts the received tokens by expert ID.
+# 3. Each rank processes the received tokens with their corresponding experts. This is omitted in the test for simplicity.
+# 4. Each rank sorts the processed tokens by rank ID.
+# 5. Processed tokens are sent back to the original ranks.
 @pytest.mark.mpi
-def test_dispatch(setup_default_process_group):
+def test_dispatch_and_combine(setup_default_process_group):
     rank = dist.get_rank()
     # So RNG generates different numbers for each rank.
     torch.manual_seed(rank)
@@ -65,15 +90,15 @@ def test_dispatch(setup_default_process_group):
 
     # Input tokens are distributed among ranks, so the effective sequence length is `n_tokens * d`.
     n_tokens = 12
-    # GPU 0: [n_tokens_for_expert_0, n_tokens_for_expert_1, ..., n_tokens_for_expert_5], sums to `n_tokens`
-    # GPU 1: [n_tokens_for_expert_0, n_tokens_for_expert_1, ..., n_tokens_for_expert_5], sums to `n_tokens`
     n_tokens_for_expert = random_partition(n_tokens, n_experts)
+    # GPU 0: [n_tokens_for_expert_0_from_rank_0, n_tokens_for_expert_1_from_rank_0, ..., n_tokens_for_expert_5_from_rank_0], sums to `n_tokens`
+    # GPU 1: [n_tokens_for_expert_0_from_rank_1, n_tokens_for_expert_1_from_rank_1, ..., n_tokens_for_expert_5_from_rank_1], sums to `n_tokens`
 
     # For illustration, input tokens are complex numbers of value `token_id + expert_id * j`.
     expert_ids = []
     for expert, n in enumerate(n_tokens_for_expert.tolist()):
         expert_ids.extend([expert] * n)
-    inp = (
+    tokens = (
         torch.arange(
             rank * n_tokens, (rank + 1) * n_tokens, dtype=torch.float, device="cuda"
         )
@@ -96,19 +121,47 @@ def test_dispatch(setup_default_process_group):
 
     # Number of tokens to receive from each rank
     n_tokens_from_rank = n_tokens_for_expert_from_rank.sum(-1)
+    # GPU 0: [n_tokens_for_expert_012_from_rank_0, n_tokens_for_expert_012_from_rank_1]
+    # GPU 1: [n_tokens_for_expert_345_from_rank_0, n_tokens_for_expert_345_from_rank_1]
     # Number of tokens to send to each rank
     n_tokens_to_rank = n_tokens_for_expert.view(d, -1).sum(-1)
-    out = torch.empty(n_tokens_from_rank.sum(), dtype=torch.complex64, device="cuda")
+    # GPU 0: [n_tokens_for_expert_012_from_rank_0, n_tokens_for_expert_345_from_rank_0]
+    # GPU 1: [n_tokens_for_expert_012_from_rank_1, n_tokens_for_expert_345_from_rank_1]
+
+    tokens_by_rank = torch.empty(
+        n_tokens_from_rank.sum(), dtype=torch.complex64, device="cuda"
+    )
     dist.all_to_all_single(
-        out, inp, n_tokens_from_rank.tolist(), n_tokens_to_rank.tolist()
+        tokens_by_rank, tokens, n_tokens_from_rank.tolist(), n_tokens_to_rank.tolist()
     )
     # GPU 0: tokens_for_expert_0_from_rank_0 || tokens_for_expert_1_from_rank_0 || tokens_for_expert_2_from_rank_0 || tokens_for_expert_0_from_rank_1 || tokens_for_expert_1_from_rank_1 || tokens_for_expert_2_from_rank_1
     # GPU 1: tokens_for_expert_3_from_rank_0 || tokens_for_expert_4_from_rank_0 || tokens_for_expert_5_from_rank_0 || tokens_for_expert_3_from_rank_1 || tokens_for_expert_4_from_rank_1 || tokens_for_expert_5_from_rank_1
-    out = rank_first_to_expert_first(out, n_tokens_for_expert_from_rank)
+    tokens_by_expert = rank_first_to_expert_first(
+        tokens_by_rank, n_tokens_for_expert_from_rank
+    )
     # GPU 0: tokens_for_expert_0_from_rank_0 || tokens_for_expert_0_from_rank_1 || tokens_for_expert_1_from_rank_0 || tokens_for_expert_1_from_rank_1 || tokens_for_expert_2_from_rank_0 || tokens_for_expert_2_from_rank_1
     # GPU 1: tokens_for_expert_3_from_rank_0 || tokens_for_expert_3_from_rank_1 || tokens_for_expert_4_from_rank_0 || tokens_for_expert_4_from_rank_1 || tokens_for_expert_5_from_rank_0 || tokens_for_expert_5_from_rank_1
 
-    imag = torch.imag(out)
+    imag = torch.imag(tokens_by_expert)
     assert (imag >= num_experts_per_rank * rank).all()
     assert (imag < num_experts_per_rank * (rank + 1)).all()
     assert (imag[:-1] <= imag[1:]).all()
+
+    # (Omitted) Process the tokens with the experts.
+    processed_tokens_by_expert = tokens_by_expert
+
+    processed_tokens_by_rank = expert_first_to_rank_first(
+        processed_tokens_by_expert, n_tokens_for_expert_from_rank
+    )
+    # GPU 0: tokens_for_expert_0_from_rank_0 || tokens_for_expert_1_from_rank_0 || tokens_for_expert_2_from_rank_0 || tokens_for_expert_0_from_rank_1 || tokens_for_expert_1_from_rank_1 || tokens_for_expert_2_from_rank_1
+    # GPU 1: tokens_for_expert_3_from_rank_0 || tokens_for_expert_4_from_rank_0 || tokens_for_expert_5_from_rank_0 || tokens_for_expert_3_from_rank_1 || tokens_for_expert_4_from_rank_1 || tokens_for_expert_5_from_rank_1
+
+    processed_tokens = torch.empty(n_tokens, dtype=torch.complex64, device="cuda")
+    dist.all_to_all_single(
+        processed_tokens,
+        processed_tokens_by_rank,
+        n_tokens_to_rank.tolist(),
+        n_tokens_from_rank.tolist(),
+    )
+
+    torch.testing.assert_close(processed_tokens, tokens, rtol=0, atol=0)
