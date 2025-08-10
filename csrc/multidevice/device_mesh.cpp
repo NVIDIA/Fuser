@@ -22,10 +22,11 @@ namespace nvfuser {
 DeviceMesh::DeviceMesh() : DeviceMesh(at::empty({0}, at::dtype(at::kLong))) {}
 
 DeviceMesh::DeviceMesh(at::Tensor devices) : devices_(devices.to(at::kLong)) {
-  NVF_ERROR_EQ(devices_.dtype(), at::kLong);
   NVF_ERROR_EQ(
       devices_.numel(),
-      std::get<0>(at::unique_dim(devices_.flatten(), 0)).numel());
+      std::get<0>(at::unique_dim(devices_.flatten(), 0)).numel(),
+      "`devices_` contains duplicates: ",
+      devices_);
 }
 
 DeviceMesh::DeviceMesh(std::initializer_list<DeviceIdxType> devices)
