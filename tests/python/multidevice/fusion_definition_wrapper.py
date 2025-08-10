@@ -42,7 +42,6 @@ class FusionDefinitionWrapper:
         self, fd: FusionDefinition, in_dtensors: Iterable[DTensor]
     ) -> None:
         for in_tv, in_dtensor in zip(fd.fusion.inputs(), in_dtensors):
-            print(in_dtensor.device_mesh.mesh)
             mesh = nvfuser.multidevice.DeviceMesh(in_dtensor.device_mesh.mesh)
 
             in_tv.set_device_mesh(mesh)
