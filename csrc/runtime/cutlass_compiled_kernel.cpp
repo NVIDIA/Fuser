@@ -22,16 +22,18 @@
 #include <scheduler/scheduler_types.h>
 #include <unistd.h>
 #include <utils.h>
-#include <filesystem>
-#include <fstream>
-#include <string>
-#include <vector>
 
 #include <ATen/ATen.h>
 #include <c10/cuda/CUDACachingAllocator.h>
 #include <c10/cuda/CUDAFunctions.h>
 #include <c10/cuda/CUDAMathCompat.h>
 #include <c10/util/Exception.h>
+
+#include <chrono>
+#include <filesystem>
+#include <fstream>
+#include <string>
+#include <vector>
 
 namespace nvfuser {
 
@@ -265,7 +267,7 @@ void CutlassCompiledKernel::compileWithNVCC() {
        {"-std=c++17",
         "--expt-relaxed-constexpr",
         "--expt-extended-lambda",
-        "-Xcompiler=-fPIC,-Wconversion,-fno-strict-aliasing"}) {
+        "-Xcompiler=-fPIC,-Wno-conversion,-fno-strict-aliasing"}) {
     compile_cmd += " " + arg;
   }
 
@@ -296,7 +298,14 @@ void CutlassCompiledKernel::compileWithNVCC() {
   // Execute nvcc compilation and capture output
   std::filesystem::path output_file_path = temp_dir_ / "nvcc_output.txt";
   std::string full_cmd = compile_cmd + " 2>&1 > " + output_file_path.string();
+
+  using Clock = std::chrono::steady_clock;
+  Clock::time_point start_timestamp = Clock::now();
   int result = system(full_cmd.c_str());
+  Clock::duration duration = Clock::now() - start_timestamp;
+  debug() << "NVCC CUTLASS kernel compile time: "
+          << std::chrono::duration_cast<std::chrono::seconds>(duration).count()
+          << " seconds" << std::endl;
 
   if (result != 0) {
     // Read compilation output for error details
@@ -411,37 +420,6 @@ std::string CutlassCodeGenerator::generateNvfp4ScaledMmKernel(
 namespace nvfuser::cutlass_kernels {
 
 namespace {
-
-int getSMVersion() {
-  int device{-1};
-  NVFUSER_CUDA_RT_SAFE_CALL(cudaGetDevice(&device));
-  int sm_major = 0;
-  int sm_minor = 0;
-  NVFUSER_CUDA_RT_SAFE_CALL(cudaDeviceGetAttribute(
-      &sm_major, cudaDevAttrComputeCapabilityMajor, device));
-  NVFUSER_CUDA_RT_SAFE_CALL(cudaDeviceGetAttribute(
-      &sm_minor, cudaDevAttrComputeCapabilityMinor, device));
-  return sm_major * 10 + sm_minor;
-}
-
-int getMultiProcessorCount() {
-  static int multi_processor_count = []() {
-    int device_id = 0;
-    int count = 0;
-
-    // Get the current CUDA device ID
-    NVFUSER_CUDA_RT_SAFE_CALL(cudaGetDevice(&device_id));
-
-    // Get the number of multiprocessors for the current device
-    NVFUSER_CUDA_RT_SAFE_CALL(cudaDeviceGetAttribute(
-        &count, cudaDevAttrMultiProcessorCount, device_id));
-
-    return count; // Initialize the static variable
-  }();
-
-  return multi_processor_count; // Return the cached value on subsequent calls
-}
-
 using namespace cute;
 
 #if defined(CUTLASS_ARCH_MMA_SM100_SUPPORTED)
@@ -688,11 +666,6 @@ void runGemm(
   NVF_THROW("Unsupported CUTLASS version.");
 }
 #endif // defined(CUTLASS_ARCH_MMA_SM100_SUPPORTED)
-
-// Helper function to round up to the nearest multiple of y
-inline int64_t roundUp(int64_t x, int64_t y) {
-  return (x + y - 1) / y * y;
-}
 
 } // namespace
 
