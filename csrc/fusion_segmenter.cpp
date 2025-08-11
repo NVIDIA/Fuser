@@ -4366,7 +4366,7 @@ bool is_upcast_op(Expr* expr) {
     return false;
   }
   auto precisions =
-      ir_utils::getPrecisionOfProducerConsumerTensors(maybe_upcast_op);
+      ir_utils::getPrecisionOfProducerConsumerTensorsBit(maybe_upcast_op);
   if (!precisions.has_value() || precisions->first >= precisions->second) {
     return false;
   }
@@ -4551,10 +4551,22 @@ bool SegmentCandidateFinder::privatizeUpCastOrSqueezeOp() {
       auto new_expr = ir_utils::replaceValInExprInputs(
           expr, maybe_upcast_squeeze_out_tv, out_tv_clone);
 
-      // make sure we don't have stale ops in privatized_ops_.
+      // Let's say, we have the following graph:
+      // In_0 -> Cast -> In_1 -> Squeeze -> Use0, Use1
+      // Firse, we'll privatize Squeeze, this will give us:
+      // In_0 -> cast -> In_1 -> Squeeze -> Use0
+      //                      -> Squeeze1 -> Use1
+      // At this point, the privatized_ops_ holds the pair: Squeeze, Squeeze1
+      // Next when we go to privatize cast, we will create:
+      // In_0 -> cast -> In_1 -> Squeeze -> Use0
+      //      -> cast -> In_2 -> Squeeze1' -> Use0
+      // While doing this we will create a new Squeeze1` (from Squeeze 1 via
+      // replaceValinExprInputs) invalidating the previous Squeeze1.
+      // Thus we need to update the privatized_ops_ to hold the new Squeeze1`.
       update_privatized_ops(privatized_ops_, expr, new_expr);
 
-      // We read the inputs of expr so update it.
+      // We need to update expr to new_expr so that when we iterate over
+      // expr we don't hit the old expr which has been invalidated.
       expr = new_expr;
 
       auto upcast_op = maybe_upcast_squeeze_out_tv->definition();
@@ -4627,18 +4639,10 @@ void SegmentCandidateFinder::revertPrivatizedOps(SegmentedGroup* group) {
     }
   };
 
-  bool reverted_privatized_op = true;
-  std::unordered_set<Expr*> processed;
-
   auto revert_privatized_exprs =
-      [group,
-       &reverted_privatized_op,
-       &processed,
-       maybe_replace,
-       maybe_deduplicate_edge](
+      [group, maybe_replace, maybe_deduplicate_edge](
           std::unordered_map<Expr*, std::unordered_set<Expr*>>&
               privatized_ops) {
-        reverted_privatized_op = false;
         for (const auto& [original, clones] : privatized_ops) {
           std::vector<Expr*> expr_in_group;
           Val* val_to_keep = nullptr;
@@ -4721,26 +4725,14 @@ void SegmentCandidateFinder::revertPrivatizedOps(SegmentedGroup* group) {
 
             std::erase(group->exprs_, op);
 
-            reverted_privatized_op = true;
-
             // Note that it should not be necessary to do anything with
             // group->output_vals since the inserted upcast ops should never
             // produce fusion outputs.
           }
-          processed.insert(original);
         }
       };
 
-  auto remaining_privatized_ops = privatized_ops_;
-  while (reverted_privatized_op && !remaining_privatized_ops.empty()) {
-    // remove exprs that have been processed.
-    for (const auto& key : processed) {
-      remaining_privatized_ops.erase(key);
-    }
-    // Revert privatized upcasts
-    processed.clear();
-    revert_privatized_exprs(remaining_privatized_ops);
-  };
+  revert_privatized_exprs(privatized_ops_);
 }
 
 // Decides whether we should forward an input (or a forwarded input) of a

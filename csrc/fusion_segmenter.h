@@ -582,11 +582,13 @@ class SegmentCandidateFinder {
   // privatized; false otherwise.
   bool privatizeUpCastOrSqueezeOp();
 
-  // Replicate upcast ops or squeeze ops when they are consumed by multiple
-  // expressions. This promotes segmented fusions to share pre-upcast tensors
-  // rather than post-upcast tensors. Replicated upcast/squeeze ops will be
-  // reverted when they are grouped into the same segment.
-  // Originally this was implemented for (up)cast onlys. See
+  // Replicate upcast ops when consumed by multiple expressions. This
+  // promotes segmented fusions to share pre-upcast tensors rather
+  // than post-upcast tensors. Replicated upcast ops will be reverted
+  // when they are grouped into the same segment.
+  // In addition, some meta operations are privatized in order to promote
+  // privatization of upcast. Currently, only squeeze is privatized in addition
+  // to upcast. See
   // https://github.com/NVIDIA/Fuser/pull/3776/ for more details.
   // To extend this for squeeze ops, we need to call the helper function
   // privatizeUpCastOrSqueezeOp() in a loop. This is because a round of
