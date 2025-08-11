@@ -16,11 +16,6 @@ import os
 import torch
 import traceback
 
-# This is needed when libnvfuser_direct.so is patched and doesn't have the pytorch library location available.
-pytorch_lib_dir = os.path.join(os.path.dirname(torch.__file__), "lib")
-if pytorch_lib_dir not in sys.path:
-    sys.path.append(pytorch_lib_dir)
-
 from ._C_DIRECT import *  # noqa: F401,F403
 
 
