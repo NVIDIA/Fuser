@@ -45,13 +45,6 @@ void CutlassExecutor::compile(
   // For now, create default CutlassParams
   // TODO: Get from scheduler once it's properly integrated
   CutlassParams cutlass_params_instance;
-  cutlass_params_instance.tile_m = 128;
-  cutlass_params_instance.tile_n = 128;
-  cutlass_params_instance.tile_k = 32;
-  cutlass_params_instance.num_warps_m = 2;
-  cutlass_params_instance.num_warps_n = 2;
-  cutlass_params_instance.num_warps_k = 1;
-  cutlass_params_instance.use_nvfp4 = true;
 
   auto cutlass_params = &cutlass_params_instance;
 

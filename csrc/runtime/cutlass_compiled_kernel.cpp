@@ -31,6 +31,7 @@
 
 #include <chrono>
 #include <filesystem>
+#include <format>
 #include <fstream>
 #include <string>
 #include <vector>
@@ -112,9 +113,6 @@ void CutlassCompiledKernel::compile() {
 
   // Load the compiled kernel
   loadKernel();
-
-  // Generate kernel arguments structure
-  generateKernelArguments();
 
   // Create launch parameters
   createLaunchParams();
@@ -342,22 +340,13 @@ void CutlassCompiledKernel::loadKernel() {
   }
 }
 
-void CutlassCompiledKernel::generateKernelArguments() {
-  // Generate kernel arguments structure for CUTLASS
-  // This would be specific to the CUTLASS kernel being generated
-  kernel_args_buffer_.resize(1024); // Placeholder size
-  kernel_arg_pointers_.clear();
-}
-
 void CutlassCompiledKernel::createLaunchParams() {
-  // For CUTLASS kernels, the launch parameters are typically computed
-  // based on the problem size and tile configuration
-  // For nvfp4 scaled matmul, we use the tile configuration from the kernel
-
   // Block dimensions based on CUTLASS tile configuration
   // The kernel uses 256x256 tiles with 4x4 warps
-  int block_dim_x = cutlass_params_.num_warps_m * 32; // 4 * 32 = 128
-  int block_dim_y = cutlass_params_.num_warps_n * 32; // 4 * 32 = 128
+  // TODO: adapt this to our actual generated kernel once we respect tile size
+  // params
+  int block_dim_x = 384;
+  int block_dim_y = 1;
   int block_dim_z = 1;
 
   // Grid dimensions will be computed at runtime based on problem size
@@ -388,7 +377,8 @@ std::string CutlassCodeGenerator::generateNvfp4ScaledMmKernel(
     Fusion* fusion,
     const CutlassParams& params,
     CutlassKernelDescriptor& descriptor) {
-  std::string code = R"(
+  std::string code = std::vformat(
+      R"(
 #include <ATen/cuda/CUDAContext.h>
 #include <c10/cuda/CUDAGuard.h>
 #include <torch/torch.h>
@@ -431,11 +421,12 @@ struct KernelTraits;
 // Kernel traits for FP16 output
 template <>
 struct KernelTraits<cutlass::half_t> {
-  using MmaTileShape = Shape<_256, _256, _256>;
+  using MmaTileShape = Shape<_{0}, _{1}, _{2}>;
   using ClusterShape = Shape<_4, _4, _1>;
   using PerSmTileShape_MNK = Shape<_128, _256, _256>;
 };
 
+// TODO: no template needed. KernelTraits is not needed when JITing either.
 // Kernel traits for BF16 output
 template <>
 struct KernelTraits<cutlass::bfloat16_t> {
@@ -697,7 +688,9 @@ extern "C" void nvfp4_scaled_mm_kernel(
 }
 
 } // namespace nvfuser::cutlass_kernels
-)";
+)",
+      std::make_format_args(
+          params.cta_tile.m, params.cta_tile.n, params.cta_tile.k));
 
   return code;
 }

@@ -114,9 +114,6 @@ class CutlassCompiledKernel : public NonCopyable {
   // Load compiled module/function
   void loadKernel();
 
-  // Generate kernel arguments structure
-  void generateKernelArguments();
-
   // Create launch parameters
   void createLaunchParams();
 
@@ -135,10 +132,6 @@ class CutlassCompiledKernel : public NonCopyable {
   CUmodule cuda_module_ = nullptr;
   CUfunction cuda_function_ = nullptr;
   void* shared_library_handle_ = nullptr; // For nvcc/dlopen approach
-
-  // Kernel arguments buffer
-  std::vector<uint8_t> kernel_args_buffer_;
-  std::vector<void*> kernel_arg_pointers_;
 
   // Launch configuration
   LaunchParams launch_params_;
