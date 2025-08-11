@@ -269,6 +269,10 @@ TEST_F(ScatterTest, CacheAfter) {
   testValidate(&fusion, outputs, {t0, t1}, __LINE__, __FILE__);
 }
 
+// Repro of #4929. In ScatterOp, the logical domain of the output tensor is not
+// automatically mapped with its loop domain, but it's possible they
+// happen to be mapped. Make sure proper syncronizations are inserted
+// even in that case.
 TEST_F(ScatterTest, MappedLogicalAndLoop) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
@@ -287,12 +291,20 @@ TEST_F(ScatterTest, MappedLogicalAndLoop) {
   auto tv5 = set(tv4);
   fusion.addOutput(tv5);
 
-  // Maps the iter domains of tv0 and tv1, which in turn maps the loop
-  // domain of tv4 with its logical domain
-  if (getenv("MAP")) {
-    auto tv6 = add(tv0, tv1);
-    fusion.addOutput(tv6);
-  }
+  // At this point, tv4's loop ID is not mapped with its sole logical
+  // ID but mapped with tv0's logical ID. This means that the loop
+  // ID is not mapped with the loop ID of the input of the op,
+  // tv2. When parallelized, this differene of the loop IDs should
+  // cause the sync analysis to flag a potential RAW race. However, it
+  // is possible they happen to be mapped, e.g., by an additional op
+  // like below:
+  auto tv6 = add(tv0, tv1);
+  fusion.addOutput(tv6);
+
+  // The binary add op maps the logical domains of tv0 and tv1, which
+  // in turn maps the loop domain of tv4 with its logical domain. Make
+  // sure that the proper synchronizations are inserted even in cases
+  // like this.
 
   for (auto tv : fusion.allTvs()) {
     tv->axis(0)->parallelize(ParallelType::TIDx);
@@ -303,8 +315,6 @@ TEST_F(ScatterTest, MappedLogicalAndLoop) {
   tv4->setMemoryType(MemoryType::Shared);
   tv4->setAllocationDomain(tv4->getLogicalDomain(), true);
 
-  fusion.print();
-
   auto options = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
   auto t0 = at::randperm(m, options);
   auto t1 = at::zeros({m}, options);
@@ -314,6 +324,34 @@ TEST_F(ScatterTest, MappedLogicalAndLoop) {
   auto outputs = ke.run({t0, t1});
 
   testValidate(&fusion, outputs, {t0, t1}, __LINE__, __FILE__);
+
+  // There must be a block sync both before and after the scatter
+  // op.
+  bool pre_scatter_sync_found = false;
+  bool scatter_found = false;
+  bool post_scatter_sync_found = false;
+  for (const auto expr :
+       KernelExprVisitor::getAllExprs(ke.compiledKernel()->kernel())) {
+    if (auto scatter = dynamic_cast<ScatterOp*>(expr)) {
+      EXPECT_TRUE(pre_scatter_sync_found)
+          << "Sync before scatter not found: " << scatter->toString();
+      scatter_found = true;
+    }
+    if (auto sync = dynamic_cast<kir::BlockSync*>(expr)) {
+      if (!scatter_found) {
+        EXPECT_FALSE(pre_scatter_sync_found)
+            << "Only one sync before scatter expected: " << sync->toString();
+        pre_scatter_sync_found = true;
+      } else {
+        EXPECT_FALSE(post_scatter_sync_found)
+            << "Only one sync after scatter expected: " << sync->toString();
+        post_scatter_sync_found = true;
+      }
+    }
+  }
+  EXPECT_TRUE(pre_scatter_sync_found) << "Sync before scatter not found";
+  EXPECT_TRUE(scatter_found) << "Scatter not found in Kernel";
+  EXPECT_TRUE(post_scatter_sync_found) << "Sync after scatter not found";
 }
 
 } // namespace nvfuser
