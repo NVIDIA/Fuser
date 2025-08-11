@@ -1279,6 +1279,40 @@ class PythonTranslator : public OptInConstDispatch {
         {cat_op->output(0)});
   }
 
+  // Map RNGOp to RandomDistOpRecord
+  void handle(const RNGOp* rop) final {
+    NVF_ERROR(rop != nullptr);
+    visited_vals_.insert(rop->output(0));
+
+    std::string rng_op_name;
+    switch (rop->getRNGOpType()) {
+      case RNGOpType::Uniform:
+      case RNGOpType::UniformRange:
+        rng_op_name = "fd.ops.uniform";
+        break;
+      case RNGOpType::NormalStandard:
+      case RNGOpType::NormalGeneral:
+        rng_op_name = "fd.ops.normal";
+        break;
+      default:
+        NVF_ERROR(false, "Unsupported RNGOpType.");
+    }
+    static const auto default_args = std::make_tuple(
+        KeywordArgument<Val*>{"rng_seed", nullptr},
+        KeywordArgument<Val*>{"rng_offset", nullptr},
+        KeywordArgument<DataType>{"dtype", DataType::Float});
+    printer_.generateKwargsOperation(
+        rng_op_name,
+        std::make_tuple(
+            rop->getParameters().at(0),
+            rop->getParameters().at(1),
+            rop->getShape()),
+        default_args,
+        std::make_tuple(
+            rop->getRNGSeedVal(), rop->getRNGOffsetVal(), rop->dtype()),
+        {rop->output(0)});
+  }
+
   // If input and output values share the same type, a LoadStoreOp will be
   // created instead of a CastOp.
   void handle(const LoadStoreOp* lsop) final {
@@ -1442,6 +1476,29 @@ class PythonTranslator : public OptInConstDispatch {
         std::make_tuple(
             argsortop->dim(), argsortop->isDescending(), argsortop->isStable()),
         {out_tv});
+  }
+
+  // Map EmbeddingFwdOp to python frontend
+  void handle(const EmbeddingFwdOp* eop) final {
+    NVF_ERROR(eop != nullptr);
+    visited_vals_.insert(eop->output(0));
+    static const auto default_args = std::make_tuple(
+        KeywordArgument<Val*>{"padding_idx", nullptr},
+        KeywordArgument<Val*>{"max_norm", nullptr},
+        KeywordArgument<Val*>{"norm_type", nullptr},
+        KeywordArgument<Val*>{"scale_grad_by_freq", nullptr},
+        KeywordArgument<Val*>{"sparse", nullptr});
+    printer_.generateKwargsOperation(
+        "fd.ops.embedding_fwd",
+        std::make_tuple(eop->in(), eop->weight()),
+        default_args,
+        std::make_tuple(
+            eop->padding_idx(),
+            eop->max_norm(),
+            eop->norm_type(),
+            eop->scale_grad_by_freq(),
+            eop->sparse()),
+        {eop->out()});
   }
 
  private:

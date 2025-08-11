@@ -2685,6 +2685,74 @@ TensorView
       py::arg("dim") = 0,
       py::arg("manual_padding") = false,
       py::return_value_policy::reference);
+  ops.def(
+      "embedding_fwd",
+      [](TensorView* input,
+         TensorView* weight,
+         Val* padding_idx,
+         Val* max_norm,
+         Val* norm_type,
+         Val* scale_grad_by_freq,
+         Val* sparse) -> decltype(auto) {
+        return embedding_fwd(
+            input,
+            weight,
+            padding_idx,
+            max_norm,
+            norm_type,
+            scale_grad_by_freq,
+            sparse);
+      },
+      py::arg("input"),
+      py::arg("weight"),
+      py::arg("padding_idx").none(true) = py::none(),
+      py::arg("max_norm").none(true) = py::none(),
+      py::arg("norm_type").none(true) = py::none(),
+      py::arg("scale_grad_by_freq").none(true) = py::none(),
+      py::arg("sparse").none(true) = py::none(),
+      R"(
+Forward pass for embedding layers that maps integer indices to vectors.
+
+This function performs the forward pass of an embedding layer, which converts
+integer indices into dense vector representations by looking up the corresponding
+rows in the weight matrix.
+
+Parameters
+----------
+input : TensorView
+    A 1D tensor containing integer indices to be embedded. Each element should
+    be a valid index into the weight matrix.
+weight : TensorView
+    A 2D tensor representing the embedding matrix. Shape should be (num_embeddings, embedding_dim).
+padding_idx : Val, optional
+    If specified, the embedding vector at this index will be filled with zeros.
+    Default is None (no padding).
+max_norm : Val, optional
+    If specified, each embedding vector will be normalized to have a maximum norm
+    of this value. Default is None (no normalization).
+norm_type : Val, optional
+    The p of the p-norm to use for normalization. Default is 2.0 (L2 norm).
+scale_grad_by_freq : Val, optional
+    If True, scale gradients by the inverse frequency of the indices in the batch.
+    Default is False.
+sparse : Val, optional
+    If True, only update the gradients for the indices that appear in the batch.
+    Default is False.
+
+Returns
+-------
+TensorView
+    A tensor with shape (input_shape + [embedding_dim]) containing the embedded
+    vectors corresponding to the input indices.
+
+Notes
+-----
+- The input tensor must be at least 1D.
+- The weight tensor must be exactly 2D.
+- All optional parameters must be scalar values when provided.
+- This operation is equivalent to PyTorch's torch.nn.functional.embedding.
+)",
+      py::return_value_policy::reference);
 }
 
 template <class ShapeType>
@@ -2934,6 +3002,128 @@ tuple[TensorView, TensorView, TensorView]
       py::return_value_policy::reference);
 }
 
+template <
+    class ShapeType,
+    TensorView* (*RandomFuncWithSeed)(
+        const std::vector<Val*>&,
+        Val*,
+        Val*,
+        DataType,
+        Val*,
+        Val*,
+        bool)>
+TensorView* random_dist_op_fn(
+    Val* arg1,
+    Val* arg2,
+    ShapeType generic_new_shape,
+    Val* rng_seed,
+    Val* rng_offset,
+    PrimDataType dtype) {
+  NVF_CHECK(
+      !((rng_seed == nullptr) ^ (rng_offset == nullptr)),
+      "rng_seed and rng_offset must be provided together!");
+  std::vector<Val*> new_shape = SequenceAsVector(generic_new_shape);
+  return RandomFuncWithSeed(
+      new_shape,
+      arg1,
+      arg2,
+      dtype,
+      rng_seed,
+      rng_offset,
+      /*maybe_symbolic=*/true);
+}
+
+void bindRandomOps(py::module_& ops) {
+  ops.def(
+      "normal",
+      random_dist_op_fn<py::list, normal>,
+      py::arg("mean"),
+      py::arg("std"),
+      py::arg("shape"),
+      py::kw_only(),
+      py::arg("rng_seed").none(true) = py::none(),
+      py::arg("rng_offset").none(true) = py::none(),
+      py::arg("dtype") = DataType::Float,
+      py::return_value_policy::reference);
+  ops.def(
+      "normal",
+      random_dist_op_fn<py::tuple, normal>,
+      py::arg("mean"),
+      py::arg("std"),
+      py::arg("shape"),
+      py::kw_only(),
+      py::arg("rng_seed").none(true) = py::none(),
+      py::arg("rng_offset").none(true) = py::none(),
+      py::arg("dtype") = DataType::Float,
+      R"(
+Create a tensor with normal distribution.
+Parameters
+----------
+mean : Val
+    The mean of the normal distribution.
+std : Val
+    The standard deviation of the normal distribution.
+shape : list or tuple
+    The shape of the tensor.
+rng_seed : Val, optional
+    The seed for the random number generator.
+rng_offset : Val, optional
+    The offset for the random number generator.
+dtype : PrimDataType, optional
+    The data type of the tensor.
+
+Returns
+-------
+TensorView
+The tensor with normal distribution.
+      )",
+      py::return_value_policy::reference);
+  ops.def(
+      "uniform",
+      random_dist_op_fn<py::list, uniform>,
+      py::arg("minval"),
+      py::arg("maxval"),
+      py::arg("shape"),
+      py::kw_only(),
+      py::arg("rng_seed").none(true) = py::none(),
+      py::arg("rng_offset").none(true) = py::none(),
+      py::arg("dtype") = DataType::Float,
+      py::return_value_policy::reference);
+  ops.def(
+      "uniform",
+      random_dist_op_fn<py::tuple, uniform>,
+      py::arg("minval"),
+      py::arg("maxval"),
+      py::arg("shape"),
+      py::kw_only(),
+      py::arg("rng_seed").none(true) = py::none(),
+      py::arg("rng_offset").none(true) = py::none(),
+      py::arg("dtype") = DataType::Float,
+      R"(
+Create a tensor with uniform distribution.
+Parameters
+----------
+minval : Val
+    The minimum value of the uniform distribution.
+maxval : Val
+    The maximum value of the uniform distribution.
+shape : list or tuple
+    The shape of the tensor.
+rng_seed : Val, optional
+    The seed for the random number generator.
+rng_offset : Val, optional
+    The offset for the random number generator.
+dtype : PrimDataType, optional
+    The data type of the tensor.
+
+Returns
+-------
+TensorView
+The tensor with normal distribution.
+      )",
+      py::return_value_policy::reference);
+}
+
 } // namespace
 
 void bindOperations(py::module& nvfuser) {
@@ -2952,6 +3142,7 @@ void bindOperations(py::module& nvfuser) {
   bindTensorFactoryOps(nvf_ops);
   bindSearchOps(nvf_ops);
   bindSdpaOps(nvf_ops);
+  bindRandomOps(nvf_ops);
 }
 
 } // namespace nvfuser::python

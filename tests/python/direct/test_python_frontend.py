@@ -1127,3 +1127,166 @@ def test_cat(nvfuser_direct_test):
     nvfuser_direct_test.assertEqual(
         torch.cat([inputs[0], inputs[2]], dim=0), nvf_out[1]
     )
+
+
+def test_normal(nvfuser_direct_test):
+    input_size = [64, 128, 1024]
+    dtype = torch.float32
+    device = "cuda"
+    inputs = [
+        torch.randn(*input_size, device=device, dtype=dtype),
+    ]
+    mean = 3.7
+    std = 2.5
+
+    def fusion_func(fd: FusionDefinition):
+        t0 = fd.from_pytorch(inputs[0])
+        s_mean = fd.define_scalar(mean)
+        s_std = fd.define_scalar(std)
+        t1 = fd.ops.normal(s_mean, s_std, t0.shape(), dtype=DataType.Double)
+        fd.add_output(t1)
+
+    nvf_out, _ = nvfuser_direct_test.exec_nvfuser(fusion_func, inputs)
+
+    # Is there a better way to test distribution?!
+    nvfuser_direct_test.assertTrue(
+        nvf_out[0]
+        .mean()
+        .cpu()
+        .float()
+        .isclose(torch.tensor(mean), rtol=1e-2, atol=1e-2)
+        .item()
+    )
+    nvfuser_direct_test.assertTrue(
+        nvf_out[0]
+        .std()
+        .cpu()
+        .float()
+        .isclose(torch.tensor(std), rtol=1e-2, atol=1e-2)
+        .item()
+    )
+
+
+def test_uniform(nvfuser_direct_test):
+    input_size = [64, 128, 1024]
+    dtype = torch.float32
+    device = "cuda"
+    inputs = [
+        torch.randn(*input_size, device=device, dtype=dtype),
+    ]
+    lo = 1.8
+    hi = 1223.5
+
+    def fusion_func(fd: FusionDefinition):
+        t0 = fd.from_pytorch(inputs[0])
+        s_lo = fd.define_scalar(lo)
+        s_hi = fd.define_scalar(hi)
+        t1 = fd.ops.uniform(s_lo, s_hi, t0.shape(), dtype=DataType.Double)
+        fd.add_output(t1)
+
+    nvf_out, _ = nvfuser_direct_test.exec_nvfuser(fusion_func, inputs)
+
+    # Is there a better way to test distribution?!
+    nvfuser_direct_test.assertTrue(
+        nvf_out[0]
+        .mean()
+        .cpu()
+        .float()
+        .isclose(torch.tensor((hi - lo) / 2.0), rtol=1e-2, atol=1e-2)
+        .item()
+    )
+    nvfuser_direct_test.assertTrue(
+        nvf_out[0]
+        .min()
+        .cpu()
+        .float()
+        .isclose(torch.tensor(lo), rtol=1e-2, atol=1e-2)
+        .item()
+    )
+    nvfuser_direct_test.assertTrue(
+        nvf_out[0]
+        .max()
+        .cpu()
+        .float()
+        .isclose(torch.tensor(hi), rtol=1e-2, atol=1e-2)
+        .item()
+    )
+
+
+@pytest.mark.parametrize("padding_idx", [None, -2])
+@pytest.mark.parametrize("max_norm", [None, 1e-5])
+@pytest.mark.parametrize("norm_type", [None, 1.0])
+@pytest.mark.parametrize("scale_grad_by_freq", [None, True])
+@pytest.mark.parametrize("sparse", [None, True])
+def test_embedding(
+    padding_idx: None | int,
+    max_norm: None | float,
+    norm_type: None | float,
+    scale_grad_by_freq: None | bool,
+    sparse: None | bool,
+):
+    def fusion_func(
+        fd: FusionDefinition,
+        has_optional_inputs: list[bool],
+        optional_inputs_dtypes: list[DataType],
+    ):
+        input = fd.define_tensor(
+            shape=[-1],
+            contiguity=[True],
+            dtype=DataType.Int,
+            is_cpu=False,
+        )
+        weight = fd.define_tensor(
+            shape=[-1, -1],
+            contiguity=[True, True],
+            dtype=DataType.BFloat16,
+            is_cpu=False,
+        )
+        # padding_idx, max_norm, norm_type, scale_grad_by_freq, sparse
+        optional_inputs = [None] * 5
+        for idx in range(len(optional_inputs)):
+            if has_optional_inputs[idx]:
+                optional_inputs[idx] = fd.define_scalar(
+                    value=None, dtype=optional_inputs_dtypes[idx]
+                )
+        out = fd.ops.embedding_fwd(input, weight, *optional_inputs)
+        fd.add_output(out)
+
+    N, S = 10, 3
+    input = torch.randint(
+        N, (S,), dtype=torch.int64, device="cuda", requires_grad=False
+    )
+    weight = torch.randn(N, S, dtype=torch.bfloat16, device="cuda", requires_grad=True)
+    optional_inputs_dtypes = [
+        DataType.Int,
+        DataType.Float,
+        DataType.Float,
+        DataType.Bool,
+        DataType.Bool,
+    ]
+
+    # This is not in pytest_ops.py since the torch API does not accept None values for some arguments.
+    # Different inputs for nvfuser and torch API cannot be handled within OpInfo
+    optional_inputs = [padding_idx, max_norm, norm_type, scale_grad_by_freq, sparse]
+    has_optional_inputs = [None] * 5
+    inputs = [input, weight]
+    for idx, param in enumerate(optional_inputs):
+        if param is not None:
+            has_optional_inputs[idx] = True
+            inputs.append(param)
+
+    with FusionDefinition() as fd:
+        fusion_func(
+            fd,
+            has_optional_inputs=has_optional_inputs,
+            optional_inputs_dtypes=optional_inputs_dtypes,
+        )
+    nvf_out = fd.execute(inputs)
+
+    norm_type = 2.0 if norm_type is None else norm_type
+    scale_grad_by_freq = False if scale_grad_by_freq is None else scale_grad_by_freq
+    sparse = False if sparse is None else sparse
+    ref_out = torch.nn.functional.embedding(
+        input, weight, padding_idx, max_norm, norm_type, scale_grad_by_freq, sparse
+    )
+    torch.testing.assert_close(nvf_out[0], ref_out)
