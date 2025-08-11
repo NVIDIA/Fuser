@@ -1890,7 +1890,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
   func_args.arg(genReductionOp(reduction_op_type, output->dtype()));
   func_args.arg(genStaticCast(genPtrType(data_type), "shared_mem"));
 
-  indent() << genCall("clusterReduce", template_args, func_args) << ";\n";
+  indent() << genCall("cluster::clusterReduce", template_args, func_args) << ";\n";
 }
   void handle(const ReductionOp* rop) final {
     NVF_ERROR(rop->out()->isA<kir::TensorIndex>());

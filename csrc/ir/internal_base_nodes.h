@@ -56,6 +56,7 @@ class IterDomainBuilder {
   IterDomainBuilder& iter_type(IterType _iter_type);
   IterDomainBuilder& is_rfactor_domain(bool _is_rfactor_domain);
   IterDomainBuilder& is_padded_dimension(bool _is_padded_dimension);
+  IterDomainBuilder& is_clustered_blocks(bool _is_clustered_blocks);
   IterDomainBuilder& padded_to_size(std::optional<int64_t> _padded_to_size);
 
   IterDomain* build() const;
@@ -73,6 +74,7 @@ class IterDomainBuilder {
   // Only relevant at scheduling time or compile time.
   bool is_rfactor_domain_ = false;
   bool is_padded_dimension_ = false;
+  bool is_clustered_blocks_ = false;
   std::optional<int64_t> padded_to_size_ = std::nullopt;
 };
 
@@ -96,6 +98,7 @@ class IterDomain : public Val {
       IterType iter_type,
       bool is_rfactor_domain,
       bool is_padded_dimension,
+      bool is_clustered_blocks,
       std::optional<int64_t> padded_to_size);
 
   IterDomain(const IterDomain* src, IrCloner* ir_cloner);

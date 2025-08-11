@@ -5,8 +5,8 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#pragma once
-
+namespace nvf {
+namespace cluster {
 #if (defined(__CUDA_ARCH__) && (__CUDA_ARCH__ >= 900))
 
 // The optional .relaxed qualifier on barrier.cluster.arrive specifies that
@@ -92,21 +92,13 @@ __device__ __forceinline__ uint32_t blockIdInClusterDimx() {
   return my_block_rank;
 }
 
-__device__ __forceinline__ uint32_t mapSharedRank(uint32_t smem_addr, uint32_t dst_cta_rank) {
-  uint32_t dsmem_addr;
-  asm volatile(
-      "mapa.shared::cluster.u32 %0, %1, %2;\n"
-      : "=r"(dsmem_addr)
-      : "r"(smem_addr), "r"(dst_cta_rank));
-  return dsmem_addr;
-}
 // Async store operations - template specializations for different data types
 template<typename T>
-__device__ __forceinline__ void store_shared_remote(T value, uint32_t smem_addr, uint32_t mbarrier_addr, uint32_t dst_cta_rank);
+__device__ __forceinline__ void storeSharedRemote(T value, uint32_t smem_addr, uint32_t mbarrier_addr, uint32_t dst_cta_rank);
 
 // Specialization for int (32-bit)
 template<>
-__device__ __forceinline__ void store_shared_remote<int>(int value, uint32_t smem_addr, uint32_t mbarrier_addr, uint32_t dst_cta_rank) {
+__device__ __forceinline__ void storeSharedRemote<int>(int value, uint32_t smem_addr, uint32_t mbarrier_addr, uint32_t dst_cta_rank) {
 uint32_t dsmem_addr = mapSharedRank(smem_addr, dst_cta_rank);
 uint32_t remote_barrier_addr = mapSharedRank(mbarrier_addr, dst_cta_rank);
 asm volatile("st.async.shared::cluster.mbarrier::complete_tx::bytes.u32 [%0], %1, [%2];"
@@ -115,7 +107,7 @@ asm volatile("st.async.shared::cluster.mbarrier::complete_tx::bytes.u32 [%0], %1
 
 // Specialization for float (32-bit)
 template<>
-__device__ __forceinline__ void store_shared_remote<float>(float value, uint32_t smem_addr, uint32_t mbarrier_addr, uint32_t dst_cta_rank) {
+__device__ __forceinline__ void storeSharedRemote<float>(float value, uint32_t smem_addr, uint32_t mbarrier_addr, uint32_t dst_cta_rank) {
 uint32_t dsmem_addr = mapSharedRank(smem_addr, dst_cta_rank);
 uint32_t remote_barrier_addr = mapSharedRank(mbarrier_addr, dst_cta_rank);
 asm volatile("st.async.shared::cluster.mbarrier::complete_tx::bytes.f32 [%0], %1, [%2];"
@@ -126,7 +118,7 @@ asm volatile("st.async.shared::cluster.mbarrier::complete_tx::bytes.f32 [%0], %1
 
 // Warp reduction using inline PTX
 template<typename T, typename Func>
-__device__ __forceinline__ T warp_reduce(T val, Func reduction_op) {
+__device__ __forceinline__ T warpReduce(T val, Func reduction_op) {
   T reduce_val = val;
 for (int offset = 16; offset > 0; offset /= 2) {
   reduction_op(reduce_val, __shfl_xor_sync(0xffffffff, val, offset));
@@ -179,7 +171,7 @@ if (lane_idx < CLUSTER_SIZE) {
   uint32_t peer_cta_rank_in_cluster = lane_idx;
   uint32_t buffer_offset = my_block_rank * warps_per_block + warp_idx;
   uint32_t buffer_addr = toSmem(&reduction_buffer[buffer_offset]);
-  store_shared_remote<T>(
+  storeSharedRemote<T>(
     warp_sum,
     buffer_addr,
     barrier_smem_addr, 
@@ -200,6 +192,8 @@ for(int i = 0; i < num_iter; i++){
 }
 // 4. Each CTA performs a warp reduction on its shared memory
 // Get final result using warp reduction
-res = warp_reduce_sum(block_reduce_val);
+res = warpReduce(block_reduce_val, reduction_op);
 }
 #endif // Arch 90
+} // namespace cluster
+} // namespace nvf

@@ -893,6 +893,7 @@ TensorView* TensorView::rFactor(const std::vector<int64_t>& axes) {
   } else {
     NVF_THROW("RFactor: unsupported tensor definition: ", definition());
   }
+  std::cout << "producer: " << producer->toString() << std::endl;
   return producer;
 }
 
