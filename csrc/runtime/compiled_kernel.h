@@ -191,7 +191,7 @@ class CompiledKernel : public NonCopyable {
  protected:
   // Virtual method to generate kernel code - can be overridden by subclasses
   virtual std::string generateKernelCode();
-  
+
   // Virtual method to compile the kernel - can be overridden by subclasses
   virtual void compileKernel();
 

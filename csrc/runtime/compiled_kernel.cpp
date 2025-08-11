@@ -1641,7 +1641,7 @@ void CompiledKernel::compileKernel() {
     ss << " have dynamic allocations but are placed in local memory.";
     NVF_THROW(ss.str());
   }
-  
+
   int64_t block_size = 1; // Default block size for compilation
   NVF_ERROR(block_size > 0, "launch param inferred block size < 0");
 

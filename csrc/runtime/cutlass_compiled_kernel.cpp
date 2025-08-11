@@ -147,7 +147,7 @@ float CutlassCompiledKernel::run(
     auto scales_a = args[3].as<at::Tensor>();
     auto scales_b = args[4].as<at::Tensor>();
     auto alpha = args[5].as<at::Tensor>();
-    
+
     // Get dimensions
     auto m = args[6].as<int64_t>();
     auto n = args[7].as<int64_t>();
@@ -157,9 +157,9 @@ float CutlassCompiledKernel::run(
     using KernelFunc = void(*)(at::Tensor&, const at::Tensor&, const at::Tensor&,
                               const at::Tensor&, const at::Tensor&, const at::Tensor&,
                               int64_t, int64_t, int64_t, cudaStream_t);
-    
+
     auto kernel_func = reinterpret_cast<KernelFunc>(cuda_function_);
-    
+
     // Call the kernel
     kernel_func(output, a, b, scales_a, scales_b, alpha, m, n, k, stream);
   }
@@ -212,22 +212,22 @@ void CutlassCompiledKernel::compileWithNVCC() {
   // Build nvcc command
   std::filesystem::path output_file = temp_dir_ / "cutlass_kernel.so";
   std::string compile_cmd = "nvcc -shared -o " + output_file.string() + " " + source_file.string();
-  
+
   // Add compute capability
   compile_cmd += " -arch=" + getComputeCapabilityString(compile_options_.compute_capability);
-  
+
   // Add C++ standard
   compile_cmd += " -std=c++17";
-  
+
   // Add optimization level
   compile_cmd += " -O" + std::to_string(compile_options_.optimization_level);
-  
+
   // Add CUTLASS include paths
   compile_cmd += " -I" + getCutlassIncludePath();
   for (const auto& path : compile_options_.include_paths) {
     compile_cmd += " -I" + path;
   }
-  
+
   // Add defines
   for (const auto& define : compile_options_.defines) {
     compile_cmd += " -D" + define;
@@ -242,15 +242,15 @@ void CutlassCompiledKernel::compileWithNVCC() {
   std::filesystem::path output_file_path = temp_dir_ / "nvcc_output.txt";
   std::string full_cmd = compile_cmd + " 2>&1 > " + output_file_path.string();
   int result = system(full_cmd.c_str());
-  
+
   if (result != 0) {
     // Read compilation output for error details
     std::ifstream output_file(output_file_path);
     std::string output_content((std::istreambuf_iterator<char>(output_file)),
                               std::istreambuf_iterator<char>());
     output_file.close();
-    
-    NVF_THROW("nvcc compilation failed with code: ", result, 
+
+    NVF_THROW("nvcc compilation failed with code: ", result,
                "\nCommand: ", compile_cmd,
                "\nOutput: ", output_content);
   }
@@ -286,13 +286,13 @@ void CutlassCompiledKernel::createLaunchParams() {
   // For CUTLASS kernels, the launch parameters are typically computed
   // based on the problem size and tile configuration
   // For nvfp4 scaled matmul, we use the tile configuration from the kernel
-  
+
   // Block dimensions based on CUTLASS tile configuration
   // The kernel uses 256x256 tiles with 4x4 warps
   int block_dim_x = cutlass_params_.num_warps_m * 32;  // 4 * 32 = 128
   int block_dim_y = cutlass_params_.num_warps_n * 32;  // 4 * 32 = 128
   int block_dim_z = 1;
-  
+
   // Grid dimensions will be computed at runtime based on problem size
   // For now, use placeholder values that will be updated during kernel launch
   launch_params_ = LaunchParams(
@@ -310,11 +310,11 @@ std::string CutlassCodeGenerator::generateCode(
     Fusion* fusion,
     const CutlassParams& params,
     CutlassKernelDescriptor& descriptor) {
-  
+
   // Set up descriptor for nvfp4 scaled matmul
   descriptor.kernel_name = "nvfp4_scaled_mm_kernel";
   descriptor.operation_type = "nvfp4_scaled_mm";
-  
+
   // Generate the same kernel code as nvfp4_scaled_mm.cu
   return generateNvfp4ScaledMmKernel(fusion, params, descriptor);
 }
@@ -323,7 +323,7 @@ std::string CutlassCodeGenerator::generateNvfp4ScaledMmKernel(
     Fusion* fusion,
     const CutlassParams& params,
     CutlassKernelDescriptor& descriptor) {
-  
+
   std::string code = R"(
 // clang-format off
 /*
@@ -618,10 +618,10 @@ extern "C" void nvfp4_scaled_mm_kernel(
     int64_t n,
     int64_t k,
     cudaStream_t stream) {
-  
+
   // Determine output data type
   auto out_dtype = output.scalar_type();
-  
+
   if (out_dtype == at::ScalarType::Half) {
     runGemm<cutlass::half_t>(
         output, a, b, scales_a, scales_b, alpha, m, n, k, stream);

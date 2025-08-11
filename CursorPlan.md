@@ -113,7 +113,7 @@
 ### Implementation Summary:
 1. **CutlassCompiledKernel**: Standalone class that generates and compiles CUTLASS kernels using nvcc
 2. **CutlassCodeGenerator**: Generates the exact same kernel code as `nvfp4_scaled_mm.cu`
-3. **nvcc Compilation Pipeline**: 
+3. **nvcc Compilation Pipeline**:
    - Creates temporary directories
    - Writes source files
    - Executes nvcc with proper flags
