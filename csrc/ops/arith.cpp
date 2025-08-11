@@ -659,6 +659,14 @@ Val* complex(Val* r, Val* i) {
   return out;
 }
 
+TensorView* complex(TensorView* tv_r, Val* v_i) {
+  return complex(tv_r->as<Val>(), v_i)->as<TensorView>();
+}
+
+TensorView* complex(Val* v_r, TensorView* tv_i) {
+  return complex(v_r, tv_i->as<Val>())->as<TensorView>();
+}
+
 TensorView* complex(TensorView* tv_r, TensorView* tv_i) {
   return complex(tv_r->as<Val>(), tv_i->as<Val>())->as<TensorView>();
 }
