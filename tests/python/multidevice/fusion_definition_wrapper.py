@@ -28,11 +28,11 @@ class FusionDefinitionWrapper:
         # TODO: In theory, a FusionDefinitionWrapper can own multiple
         # `FusionDefinition`s, because different shardings lead to different
         # `multidevice_schedule`s. Currently, cache FusionDefinition based on input DTensors.
-        self._fusion_definition_cache: dict[DTensorsKey, nvfuser.FusionDefinition] = {}
+        self._fusion_definition_cache: dict[DTensorsKey, FusionDefinition] = {}
 
     def _create_fusion_definition(
         self, in_dtensors: Iterable[DTensor]
-    ) -> nvfuser.FusionDefinition:
+    ) -> FusionDefinition:
         with FusionDefinition() as fd:
             self._define_fusion(fd)
             self._multidevice_schedule(fd, in_dtensors)
@@ -42,11 +42,7 @@ class FusionDefinitionWrapper:
         self, fd: FusionDefinition, in_dtensors: Iterable[DTensor]
     ) -> None:
         for in_tv, in_dtensor in zip(fd.fusion.inputs(), in_dtensors):
-            # Set the device mesh.
-            assert (
-                in_dtensor.device_mesh.ndim == 1
-            ), "nvFuser's Python API only supports 1D meshes."
-            mesh = nvfuser.multidevice.DeviceMesh(in_dtensor.device_mesh.mesh.tolist())
+            mesh = nvfuser.multidevice.DeviceMesh(in_dtensor.device_mesh.mesh)
 
             in_tv.set_device_mesh(mesh)
 
@@ -63,7 +59,7 @@ class FusionDefinitionWrapper:
 
     def _get_or_create_fusion_definition(
         self, in_dtensors: Iterable[DTensor]
-    ) -> nvfuser.FusionDefinition:
+    ) -> FusionDefinition:
         key = make_key_from_dtensors(in_dtensors)
         return self._fusion_definition_cache.setdefault(
             key, (lambda: self._create_fusion_definition(in_dtensors))()
