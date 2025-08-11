@@ -35,7 +35,7 @@ struct KernelSummary {
   //! Count of WAR (write-after-read) hazard barriers
   int64_t war_hazard_syncs_count = 0;
 
-  //! List of global buffers
+  //! List of global buffers (fusion outputs not included)
   std::vector<const kir::Allocate*> global_allocations;
 
   //! List of dynamic shared memory buffers

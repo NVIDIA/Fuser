@@ -306,8 +306,8 @@ std::string ScatterOp::toString(int indent_size) const {
   indent(ss, indent_size) << output(0)->toString() << "\n";
   indent_size++;
   indent(ss, indent_size) << " =" << getScatterOpType() << "(";
-  ss << "self = " << selfTv()->toString() << ", dim = " << dim()
-     << ", src = " << input(2)->toString() << ", idx = " << input(1)->toString()
+  ss << "in = " << in()->toString() << ", dim = " << dim()
+     << ", src = " << src()->toString() << ", idx = " << index()->toString()
      << " )\n";
   return ss.str();
 }
@@ -3198,6 +3198,7 @@ TensorDomain::TensorDomain(
     : Val(passkey, ValType::TensorDomain, DataType::Null),
       logical_domain_(std::move(logical_domain)),
       loop_domain_(logical_domain_),
+      initial_loop_domain_(loop_domain_),
       contiguity_(
           contiguity.empty() ? getContiguityFilledWith(maybeAllocation(), false)
                              : std::move(contiguity)) {
@@ -3215,6 +3216,7 @@ TensorDomain::TensorDomain(
     : Val(passkey, ValType::TensorDomain, DataType::Null),
       logical_domain_(std::move(logical_domain)),
       loop_domain_(logical_domain_),
+      initial_loop_domain_(loop_domain_),
       contiguity_(
           contiguity.empty() ? getContiguityFilledWith(maybeAllocation(), false)
                              : std::move(contiguity)) {
@@ -3247,19 +3249,24 @@ TensorDomain::TensorDomain(
     IrBuilderPasskey passkey,
     std::vector<IterDomain*> logical_domain,
     std::vector<IterDomain*> loop_domain,
-    std::vector<std::optional<bool>> contiguity)
+    std::vector<std::optional<bool>> contiguity,
+    bool skip_loop_validation)
     : Val(passkey, ValType::TensorDomain, DataType::Null),
       logical_domain_(std::move(logical_domain)),
       loop_domain_(std::move(loop_domain)),
+      initial_loop_domain_(loop_domain_),
       contiguity_(
           contiguity.empty() ? getContiguityFilledWith(maybeAllocation(), false)
                              : std::move(contiguity)) {
   validateContiguity(maybeAllocation(), contiguity_);
 
-  NVF_CHECK(
-      loop_domain_.empty() == logical_domain_.empty(),
-      "logical domain and loop domain can only be both empty or neither empty");
-  validateLoopDomain(logical_domain_, loop_domain_, additional_ids_);
+  if (!skip_loop_validation) {
+    NVF_CHECK(
+        loop_domain_.empty() == logical_domain_.empty(),
+        "logical domain and loop domain can only be both empty or neither "
+        "empty");
+    validateLoopDomain(logical_domain_, loop_domain_, additional_ids_);
+  }
 
   // resetDomains initializes other member variables, required by clang-tidy
   resetDomains();
@@ -3275,6 +3282,7 @@ TensorDomain::TensorDomain(
       root_domain_(std::move(root_domain)),
       logical_domain_(std::move(logical_domain)),
       loop_domain_(std::move(loop_domain)),
+      initial_loop_domain_(loop_domain_),
       contiguity_(
           contiguity.empty() ? getContiguityFilledWith(maybeAllocation(), false)
                              : std::move(contiguity)) {
