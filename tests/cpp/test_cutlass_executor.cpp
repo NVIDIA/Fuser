@@ -36,8 +36,8 @@ TEST_F(NVFuserTest, CutlassExecutor_ScaledMmWithFusionExecutorCache) {
   // Create input tensors
   auto tv0 = makeContigTensor(2, DataType::BFloat16); // Matrix A (M x K)
   auto tv1 = makeContigTensor(2, DataType::BFloat16); // Matrix B (N x K)
-  auto tv2 = makeContigTensor(2, DataType::Float);    // Scale A (M x 1)
-  auto tv3 = makeContigTensor(2, DataType::Float);    // Scale B (1 x N)
+  auto tv2 = makeContigTensor(2, DataType::Float); // Scale A (M x 1)
+  auto tv3 = makeContigTensor(2, DataType::Float); // Scale B (1 x N)
 
   fusion->addInput(tv0);
   fusion->addInput(tv1);
@@ -55,7 +55,8 @@ TEST_F(NVFuserTest, CutlassExecutor_ScaledMmWithFusionExecutorCache) {
   // Create test data
   at::manual_seed(0);
   auto options = at::TensorOptions().dtype(at::kBFloat16).device(at::kCUDA, 0);
-  auto float_options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto float_options =
+      at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
 
   auto a = at::randn({M, K}, options);
   auto b = at::randn({N, K}, options);
@@ -74,7 +75,9 @@ TEST_F(NVFuserTest, CutlassExecutor_ScaledMmWithFusionExecutorCache) {
 }
 
 // Test scaled_mm with different matrix sizes using FusionExecutorCache
-TEST_F(NVFuserTest, CutlassExecutor_ScaledMmDifferentSizesWithFusionExecutorCache) {
+TEST_F(
+    NVFuserTest,
+    CutlassExecutor_ScaledMmDifferentSizesWithFusionExecutorCache) {
   // Skip if not on SM100 or above
   if (at::cuda::getCurrentDeviceProperties()->major < 10) {
     GTEST_SKIP() << "Skipping test on pre-SM100 GPUs";
@@ -91,8 +94,8 @@ TEST_F(NVFuserTest, CutlassExecutor_ScaledMmDifferentSizesWithFusionExecutorCach
   // Create input tensors
   auto tv0 = makeContigTensor(2, DataType::BFloat16); // Matrix A (M x K)
   auto tv1 = makeContigTensor(2, DataType::BFloat16); // Matrix B (N x K)
-  auto tv2 = makeContigTensor(2, DataType::Float);    // Scale A (M x 1)
-  auto tv3 = makeContigTensor(2, DataType::Float);    // Scale B (1 x N)
+  auto tv2 = makeContigTensor(2, DataType::Float); // Scale A (M x 1)
+  auto tv3 = makeContigTensor(2, DataType::Float); // Scale B (1 x N)
 
   fusion->addInput(tv0);
   fusion->addInput(tv1);
@@ -110,7 +113,8 @@ TEST_F(NVFuserTest, CutlassExecutor_ScaledMmDifferentSizesWithFusionExecutorCach
   // Create test data
   at::manual_seed(0);
   auto options = at::TensorOptions().dtype(at::kBFloat16).device(at::kCUDA, 0);
-  auto float_options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto float_options =
+      at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
 
   auto a = at::randn({M, K}, options);
   auto b = at::randn({N, K}, options);
@@ -146,9 +150,9 @@ TEST_F(NVFuserTest, CutlassExecutor_ScaledMmWithAlphaUsingFusionExecutorCache) {
   // Create input tensors
   auto tv0 = makeContigTensor(2, DataType::BFloat16); // Matrix A (M x K)
   auto tv1 = makeContigTensor(2, DataType::BFloat16); // Matrix B (N x K)
-  auto tv2 = makeContigTensor(2, DataType::Float);    // Scale A (M x 1)
-  auto tv3 = makeContigTensor(2, DataType::Float);    // Scale B (1 x N)
-  auto tv4 = makeContigTensor(0, DataType::Float);    // Alpha (scalar)
+  auto tv2 = makeContigTensor(2, DataType::Float); // Scale A (M x 1)
+  auto tv3 = makeContigTensor(2, DataType::Float); // Scale B (1 x N)
+  auto tv4 = makeContigTensor(0, DataType::Float); // Alpha (scalar)
 
   fusion->addInput(tv0);
   fusion->addInput(tv1);
@@ -167,7 +171,8 @@ TEST_F(NVFuserTest, CutlassExecutor_ScaledMmWithAlphaUsingFusionExecutorCache) {
   // Create test data
   at::manual_seed(0);
   auto options = at::TensorOptions().dtype(at::kBFloat16).device(at::kCUDA, 0);
-  auto float_options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto float_options =
+      at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
 
   auto a = at::randn({M, K}, options);
   auto b = at::randn({N, K}, options);
@@ -204,8 +209,8 @@ TEST_F(NVFuserTest, CutlassExecutor_ScaledMmWithBiasUsingFusionExecutorCache) {
   // Create input tensors
   auto tv0 = makeContigTensor(2, DataType::BFloat16); // Matrix A (M x K)
   auto tv1 = makeContigTensor(2, DataType::BFloat16); // Matrix B (N x K)
-  auto tv2 = makeContigTensor(2, DataType::Float);    // Scale A (M x 1)
-  auto tv3 = makeContigTensor(2, DataType::Float);    // Scale B (1 x N)
+  auto tv2 = makeContigTensor(2, DataType::Float); // Scale A (M x 1)
+  auto tv3 = makeContigTensor(2, DataType::Float); // Scale B (1 x N)
   auto tv4 = makeContigTensor(1, DataType::BFloat16); // Bias (N)
 
   fusion->addInput(tv0);
@@ -225,7 +230,8 @@ TEST_F(NVFuserTest, CutlassExecutor_ScaledMmWithBiasUsingFusionExecutorCache) {
   // Create test data
   at::manual_seed(0);
   auto options = at::TensorOptions().dtype(at::kBFloat16).device(at::kCUDA, 0);
-  auto float_options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto float_options =
+      at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
 
   auto a = at::randn({M, K}, options);
   auto b = at::randn({N, K}, options);

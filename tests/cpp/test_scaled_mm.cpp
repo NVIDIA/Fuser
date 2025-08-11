@@ -37,8 +37,8 @@ TEST_F(NVFuserTest, ScaledMm_BasicOperation) {
   // Create input tensors
   auto tv0 = makeContigTensor(2, DataType::BFloat16); // Matrix A (M x K)
   auto tv1 = makeContigTensor(2, DataType::BFloat16); // Matrix B (N x K)
-  auto tv2 = makeContigTensor(2, DataType::Float);    // Scale A (M x 1)
-  auto tv3 = makeContigTensor(2, DataType::Float);    // Scale B (1 x N)
+  auto tv2 = makeContigTensor(2, DataType::Float); // Scale A (M x 1)
+  auto tv3 = makeContigTensor(2, DataType::Float); // Scale B (1 x N)
 
   fusion->addInput(tv0);
   fusion->addInput(tv1);
@@ -56,7 +56,8 @@ TEST_F(NVFuserTest, ScaledMm_BasicOperation) {
   // Create test data
   at::manual_seed(0);
   auto options = at::TensorOptions().dtype(at::kBFloat16).device(at::kCUDA, 0);
-  auto float_options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto float_options =
+      at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
 
   auto a = at::randn({M, K}, options);
   auto b = at::randn({N, K}, options);
@@ -71,8 +72,9 @@ TEST_F(NVFuserTest, ScaledMm_BasicOperation) {
 
   // Execute the fusion
   auto runtime_info = SchedulerRuntimeInfo(fusion.get(), args, nullptr, {});
-  auto params = SchedulerEntry::scheduleWith(fusion.get(), SchedulerType::Cutlass, args);
-  
+  auto params =
+      SchedulerEntry::scheduleWith(fusion.get(), SchedulerType::Cutlass, args);
+
   KernelExecutor ke;
   ke.compile(fusion.get(), args, params->lparams);
   auto outputs = ke.run(args, {}, params->lparams);
@@ -100,8 +102,8 @@ TEST_F(NVFuserTest, ScaledMm_DifferentSizes) {
   // Create input tensors
   auto tv0 = makeContigTensor(2, DataType::BFloat16); // Matrix A (M x K)
   auto tv1 = makeContigTensor(2, DataType::BFloat16); // Matrix B (N x K)
-  auto tv2 = makeContigTensor(2, DataType::Float);    // Scale A (M x 1)
-  auto tv3 = makeContigTensor(2, DataType::Float);    // Scale B (1 x N)
+  auto tv2 = makeContigTensor(2, DataType::Float); // Scale A (M x 1)
+  auto tv3 = makeContigTensor(2, DataType::Float); // Scale B (1 x N)
 
   fusion->addInput(tv0);
   fusion->addInput(tv1);
@@ -119,7 +121,8 @@ TEST_F(NVFuserTest, ScaledMm_DifferentSizes) {
   // Create test data
   at::manual_seed(0);
   auto options = at::TensorOptions().dtype(at::kBFloat16).device(at::kCUDA, 0);
-  auto float_options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto float_options =
+      at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
 
   auto a = at::randn({M, K}, options);
   auto b = at::randn({N, K}, options);
@@ -134,8 +137,9 @@ TEST_F(NVFuserTest, ScaledMm_DifferentSizes) {
 
   // Execute the fusion
   auto runtime_info = SchedulerRuntimeInfo(fusion.get(), args, nullptr, {});
-  auto params = SchedulerEntry::scheduleWith(fusion.get(), SchedulerType::Cutlass, args);
-  
+  auto params =
+      SchedulerEntry::scheduleWith(fusion.get(), SchedulerType::Cutlass, args);
+
   KernelExecutor ke;
   ke.compile(fusion.get(), args, params->lparams);
   auto outputs = ke.run(args, {}, params->lparams);
@@ -163,9 +167,9 @@ TEST_F(NVFuserTest, ScaledMm_WithAlpha) {
   // Create input tensors
   auto tv0 = makeContigTensor(2, DataType::BFloat16); // Matrix A (M x K)
   auto tv1 = makeContigTensor(2, DataType::BFloat16); // Matrix B (N x K)
-  auto tv2 = makeContigTensor(2, DataType::Float);    // Scale A (M x 1)
-  auto tv3 = makeContigTensor(2, DataType::Float);    // Scale B (1 x N)
-  auto tv4 = makeContigTensor(0, DataType::Float);    // Alpha (scalar)
+  auto tv2 = makeContigTensor(2, DataType::Float); // Scale A (M x 1)
+  auto tv3 = makeContigTensor(2, DataType::Float); // Scale B (1 x N)
+  auto tv4 = makeContigTensor(0, DataType::Float); // Alpha (scalar)
 
   fusion->addInput(tv0);
   fusion->addInput(tv1);
@@ -184,7 +188,8 @@ TEST_F(NVFuserTest, ScaledMm_WithAlpha) {
   // Create test data
   at::manual_seed(0);
   auto options = at::TensorOptions().dtype(at::kBFloat16).device(at::kCUDA, 0);
-  auto float_options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto float_options =
+      at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
 
   auto a = at::randn({M, K}, options);
   auto b = at::randn({N, K}, options);
@@ -201,8 +206,9 @@ TEST_F(NVFuserTest, ScaledMm_WithAlpha) {
 
   // Execute the fusion
   auto runtime_info = SchedulerRuntimeInfo(fusion.get(), args, nullptr, {});
-  auto params = SchedulerEntry::scheduleWith(fusion.get(), SchedulerType::Cutlass, args);
-  
+  auto params =
+      SchedulerEntry::scheduleWith(fusion.get(), SchedulerType::Cutlass, args);
+
   KernelExecutor ke;
   ke.compile(fusion.get(), args, params->lparams);
   auto outputs = ke.run(args, {}, params->lparams);
@@ -230,8 +236,8 @@ TEST_F(NVFuserTest, ScaledMm_WithBias) {
   // Create input tensors
   auto tv0 = makeContigTensor(2, DataType::BFloat16); // Matrix A (M x K)
   auto tv1 = makeContigTensor(2, DataType::BFloat16); // Matrix B (N x K)
-  auto tv2 = makeContigTensor(2, DataType::Float);    // Scale A (M x 1)
-  auto tv3 = makeContigTensor(2, DataType::Float);    // Scale B (1 x N)
+  auto tv2 = makeContigTensor(2, DataType::Float); // Scale A (M x 1)
+  auto tv3 = makeContigTensor(2, DataType::Float); // Scale B (1 x N)
   auto tv4 = makeContigTensor(1, DataType::BFloat16); // Bias (N)
 
   fusion->addInput(tv0);
@@ -251,7 +257,8 @@ TEST_F(NVFuserTest, ScaledMm_WithBias) {
   // Create test data
   at::manual_seed(0);
   auto options = at::TensorOptions().dtype(at::kBFloat16).device(at::kCUDA, 0);
-  auto float_options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto float_options =
+      at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
 
   auto a = at::randn({M, K}, options);
   auto b = at::randn({N, K}, options);
@@ -268,8 +275,9 @@ TEST_F(NVFuserTest, ScaledMm_WithBias) {
 
   // Execute the fusion
   auto runtime_info = SchedulerRuntimeInfo(fusion.get(), args, nullptr, {});
-  auto params = SchedulerEntry::scheduleWith(fusion.get(), SchedulerType::Cutlass, args);
-  
+  auto params =
+      SchedulerEntry::scheduleWith(fusion.get(), SchedulerType::Cutlass, args);
+
   KernelExecutor ke;
   ke.compile(fusion.get(), args, params->lparams);
   auto outputs = ke.run(args, {}, params->lparams);
@@ -297,8 +305,8 @@ TEST_F(NVFuserTest, ScaledMm_DifferentOutputTypes) {
   // Create input tensors
   auto tv0 = makeContigTensor(2, DataType::BFloat16); // Matrix A (M x K)
   auto tv1 = makeContigTensor(2, DataType::BFloat16); // Matrix B (N x K)
-  auto tv2 = makeContigTensor(2, DataType::Float);    // Scale A (M x 1)
-  auto tv3 = makeContigTensor(2, DataType::Float);    // Scale B (1 x N)
+  auto tv2 = makeContigTensor(2, DataType::Float); // Scale A (M x 1)
+  auto tv3 = makeContigTensor(2, DataType::Float); // Scale B (1 x N)
 
   fusion->addInput(tv0);
   fusion->addInput(tv1);
@@ -310,15 +318,25 @@ TEST_F(NVFuserTest, ScaledMm_DifferentOutputTypes) {
 
   // Create scaled matmul operation with Half output
   auto scaled_out = scaled_mm(
-      tv0, tv1_t, tv2, tv3, nullptr, nullptr, nullptr, 
-      DataType::Half, 0, DataType::Half, false);
+      tv0,
+      tv1_t,
+      tv2,
+      tv3,
+      nullptr,
+      nullptr,
+      nullptr,
+      DataType::Half,
+      0,
+      DataType::Half,
+      false);
 
   fusion->addOutput(scaled_out.tv);
 
   // Create test data
   at::manual_seed(0);
   auto options = at::TensorOptions().dtype(at::kBFloat16).device(at::kCUDA, 0);
-  auto float_options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto float_options =
+      at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
 
   auto a = at::randn({M, K}, options);
   auto b = at::randn({N, K}, options);
@@ -333,8 +351,9 @@ TEST_F(NVFuserTest, ScaledMm_DifferentOutputTypes) {
 
   // Execute the fusion
   auto runtime_info = SchedulerRuntimeInfo(fusion.get(), args, nullptr, {});
-  auto params = SchedulerEntry::scheduleWith(fusion.get(), SchedulerType::Cutlass, args);
-  
+  auto params =
+      SchedulerEntry::scheduleWith(fusion.get(), SchedulerType::Cutlass, args);
+
   KernelExecutor ke;
   ke.compile(fusion.get(), args, params->lparams);
   auto outputs = ke.run(args, {}, params->lparams);
@@ -364,8 +383,8 @@ TEST_F(NVFuserTest, ScaledMm_PerformanceComparison) {
   // Create input tensors
   auto tv0 = makeContigTensor(2, DataType::BFloat16); // Matrix A (M x K)
   auto tv1 = makeContigTensor(2, DataType::BFloat16); // Matrix B (N x K)
-  auto tv2 = makeContigTensor(2, DataType::Float);    // Scale A (M x 1)
-  auto tv3 = makeContigTensor(2, DataType::Float);    // Scale B (1 x N)
+  auto tv2 = makeContigTensor(2, DataType::Float); // Scale A (M x 1)
+  auto tv3 = makeContigTensor(2, DataType::Float); // Scale B (1 x N)
 
   fusion->addInput(tv0);
   fusion->addInput(tv1);
@@ -383,7 +402,8 @@ TEST_F(NVFuserTest, ScaledMm_PerformanceComparison) {
   // Create test data
   at::manual_seed(0);
   auto options = at::TensorOptions().dtype(at::kBFloat16).device(at::kCUDA, 0);
-  auto float_options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto float_options =
+      at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
 
   auto a = at::randn({M, K}, options);
   auto b = at::randn({N, K}, options);
@@ -398,31 +418,34 @@ TEST_F(NVFuserTest, ScaledMm_PerformanceComparison) {
 
   // Execute the fusion
   auto runtime_info = SchedulerRuntimeInfo(fusion.get(), args, nullptr, {});
-  auto params = SchedulerEntry::scheduleWith(fusion.get(), SchedulerType::Cutlass, args);
-  
+  auto params =
+      SchedulerEntry::scheduleWith(fusion.get(), SchedulerType::Cutlass, args);
+
   KernelExecutor ke;
   ke.compile(fusion.get(), args, params->lparams);
-  
+
   // Warm up
   for (int i = 0; i < 5; ++i) {
     ke.run(args, {}, params->lparams);
   }
-  
+
   // Measure performance
   auto start = std::chrono::high_resolution_clock::now();
   auto outputs = ke.run(args, {}, params->lparams);
   auto end = std::chrono::high_resolution_clock::now();
-  
-  auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
-  
+
+  auto duration =
+      std::chrono::duration_cast<std::chrono::microseconds>(end - start);
+
   // Verify output shape
   EXPECT_EQ(outputs[0].as<at::Tensor>().sizes()[0], M);
   EXPECT_EQ(outputs[0].as<at::Tensor>().sizes()[1], N);
-  
+
   // Log performance metrics
   double gflops = (2.0 * M * N * K) / (duration.count() * 1e-3);
   std::cout << "Scaled MM Performance: " << gflops << " GFLOPS" << std::endl;
-  std::cout << "Execution time: " << duration.count() << " microseconds" << std::endl;
+  std::cout << "Execution time: " << duration.count() << " microseconds"
+            << std::endl;
 }
 
 } // namespace nvfuser

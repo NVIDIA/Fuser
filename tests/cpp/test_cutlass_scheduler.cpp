@@ -8,15 +8,15 @@
 #include <gtest/gtest.h>
 
 #include <ATen/ATen.h>
+#include <cutlass/nvf_cutlass.h>
 #include <fusion.h>
 #include <ops/all_ops.h>
+#include <runtime/cutlass_executor.h>
 #include <scheduler/all_schedulers.h>
 #include <scheduler/runtime_info.h>
 #include <scheduler/scheduler_types.h>
 #include <tests/cpp/utils.h>
 #include <tests/cpp/validator.h>
-#include <cutlass/nvf_cutlass.h>
-#include <runtime/cutlass_executor.h>
 
 namespace nvfuser {
 
@@ -60,17 +60,22 @@ TEST_F(CutlassExecutorTest, SimpleNvfp4ScaledGemm) {
 
   // Create actual tensor data for inputs
   at::manual_seed(0);
-  auto uint8_options = at::TensorOptions().dtype(torch::kUInt8).device(at::kCUDA, 0);
-  auto float_options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto uint8_options =
+      at::TensorOptions().dtype(torch::kUInt8).device(at::kCUDA, 0);
+  auto float_options =
+      at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
 
-  // Create nvfp4 tensors by creating uint8 tensors and viewing them as Float4_e2m1fn_x2
-  auto a_fp4 = at::randint(0, 256, {M, N / 2}, uint8_options).view(at::kFloat4_e2m1fn_x2);
-  auto b_fp4 = at::randint(0, 256, {N, M / 2}, uint8_options).view(at::kFloat4_e2m1fn_x2);
-  
+  // Create nvfp4 tensors by creating uint8 tensors and viewing them as
+  // Float4_e2m1fn_x2
+  auto a_fp4 = at::randint(0, 256, {M, N / 2}, uint8_options)
+                   .view(at::kFloat4_e2m1fn_x2);
+  auto b_fp4 = at::randint(0, 256, {N, M / 2}, uint8_options)
+                   .view(at::kFloat4_e2m1fn_x2);
+
   // Create scale tensors in Float format (as expected by the fusion)
   auto a_scale = at::randn({M, 1}, float_options);
   auto b_scale = at::randn({1, N}, float_options);
-  
+
   // Create scalar tensors
   auto scale = at::scalar_tensor(1.0f, float_options);
   auto alpha = at::scalar_tensor(1.0f, float_options);
@@ -101,7 +106,7 @@ TEST_F(CutlassExecutorTest, SimpleNvfp4ScaledGemm) {
   // Run the fusion
   auto outputs = executor.run(args);
   EXPECT_EQ(outputs.size(), 1);
-  
+
   // Check that the output is a tensor with correct properties
   auto output_tensor = outputs[0].as<at::Tensor>();
   EXPECT_EQ(output_tensor.sizes(), at::IntArrayRef({M, N}));
