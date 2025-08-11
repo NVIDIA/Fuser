@@ -28,11 +28,11 @@ class FusionDefinitionWrapper:
         # TODO: In theory, a FusionDefinitionWrapper can own multiple
         # `FusionDefinition`s, because different shardings lead to different
         # `multidevice_schedule`s. Currently, cache FusionDefinition based on input DTensors.
-        self._fusion_definition_cache: dict[DTensorsKey, nvfuser.FusionDefinition] = {}
+        self._fusion_definition_cache: dict[DTensorsKey, FusionDefinition] = {}
 
     def _create_fusion_definition(
         self, in_dtensors: Iterable[DTensor]
-    ) -> nvfuser.FusionDefinition:
+    ) -> FusionDefinition:
         with FusionDefinition() as fd:
             self._define_fusion(fd)
             self._multidevice_schedule(fd, in_dtensors)
@@ -59,7 +59,7 @@ class FusionDefinitionWrapper:
 
     def _get_or_create_fusion_definition(
         self, in_dtensors: Iterable[DTensor]
-    ) -> nvfuser.FusionDefinition:
+    ) -> FusionDefinition:
         key = make_key_from_dtensors(in_dtensors)
         return self._fusion_definition_cache.setdefault(
             key, (lambda: self._create_fusion_definition(in_dtensors))()
