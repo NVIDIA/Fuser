@@ -377,7 +377,7 @@ std::string CutlassCodeGenerator::generateNvfp4ScaledMmKernel(
     Fusion* fusion,
     const CutlassParams& params,
     CutlassKernelDescriptor& descriptor) {
-  std::string code = std::vformat(
+  std::string code =
       R"(
 #include <ATen/cuda/CUDAContext.h>
 #include <c10/cuda/CUDAGuard.h>
@@ -421,9 +421,17 @@ struct KernelTraits;
 // Kernel traits for FP16 output
 template <>
 struct KernelTraits<cutlass::half_t> {
-  using MmaTileShape = Shape<_{0}, _{1}, _{2}>;
+)";
+  code += std::vformat(
+      R"(
+  using MmaTileShape = Shape<_{}, _{}, _{}>;
   using ClusterShape = Shape<_4, _4, _1>;
   using PerSmTileShape_MNK = Shape<_128, _256, _256>;
+)",
+      std::make_format_args(
+          params.cta_tile.m, params.cta_tile.n, params.cta_tile.k));
+
+  code += R"(
 };
 
 // TODO: no template needed. KernelTraits is not needed when JITing either.
@@ -688,9 +696,7 @@ extern "C" void nvfp4_scaled_mm_kernel(
 }
 
 } // namespace nvfuser::cutlass_kernels
-)",
-      std::make_format_args(
-          params.cta_tile.m, params.cta_tile.n, params.cta_tile.k));
+)";
 
   return code;
 }
