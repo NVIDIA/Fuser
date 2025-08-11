@@ -152,21 +152,21 @@ llvm::Type* getInt64PtrType(llvm::LLVMContext& context) {
 
 // Helper function to insert nvtxRangePush call
 void insertNvtxRangePush(const char* op_name, llvm::IRBuilder<>& builder) {
-  llvm::Module* module = builder.GetInsertBlock()->getParent()->getParent();
-  llvm::Function* nvtx_range_push_func =
-      module->getFunction(kNvtxRangePushFuncName);
+  // llvm::Module* module = builder.GetInsertBlock()->getParent()->getParent();
+  // llvm::Function* nvtx_range_push_func =
+  //     module->getFunction(kNvtxRangePushFuncName);
 
-  llvm::Value* op_name_ptr = builder.CreateGlobalString(op_name);
-  builder.CreateCall(nvtx_range_push_func, {op_name_ptr});
+  // llvm::Value* op_name_ptr = builder.CreateGlobalString(op_name);
+  // builder.CreateCall(nvtx_range_push_func, {op_name_ptr});
 }
 
 void insertNvtxRangePop(llvm::IRBuilder<>& builder) {
-  llvm::Module* module = builder.GetInsertBlock()->getParent()->getParent();
-  llvm::Function* nvtx_range_pop_func =
-      module->getFunction(kNvtxRangePopFuncName);
+  // llvm::Module* module = builder.GetInsertBlock()->getParent()->getParent();
+  // llvm::Function* nvtx_range_pop_func =
+  //     module->getFunction(kNvtxRangePopFuncName);
 
-  // Call nvtxRangePop function
-  builder.CreateCall(nvtx_range_pop_func, {});
+  // // Call nvtxRangePop function
+  // builder.CreateCall(nvtx_range_pop_func, {});
 }
 
 // Helper function to generate LLVM IR that extracts tensor size for a given
@@ -1078,8 +1078,13 @@ class HostIrCompileDispatcher : public OptInDispatch {
     llvm::Value* strides_ndim_arg = builder_.getInt64(tensor_strides.size());
 
     // Create output tensor
-    llvm::Value* out_tensor = builder_.CreateCall(
-        module->getFunction(kNewTensorFuncName), {}, "out_tensor");
+    llvm::Value* out_tensor = nullptr;
+    if (getOrDefault(val_to_value_, allocate->buffer()) != nullptr) {
+      out_tensor = getOrDefault(val_to_value_, allocate->buffer());
+    } else {
+      out_tensor = builder_.CreateCall(
+          module->getFunction(kNewTensorFuncName), {}, "out_tensor");
+    }
 
     // Create constants for type and device from params
     at::ScalarType data_type = data_type_to_aten(

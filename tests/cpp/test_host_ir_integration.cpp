@@ -321,6 +321,82 @@ TEST_F(HostIrIntegrationTest, ExcludeOutputsFromDeallocations) {
       }));
 }
 
+TEST_F(HostIrIntegrationTest, PPT) {
+    // Create HostIrContainer directly for dynamic reshape
+  auto hic = std::make_unique<HostIrContainer>();
+  FusionGuard fg(hic.get());
+
+  auto tv0 = makeSymbolicTensor(3);
+  hic->addInput(tv0);
+
+  // Index transformations
+  auto i0 = tv0->axis(0)->extent();
+  auto i1 = tv0->axis(1)->extent();
+  auto i2 = tv0->axis(2)->extent();
+
+  auto mul_i0_i1 = mul(i0, i1);
+
+  auto tv1 = reshape(tv0, {mul_i0_i1, i2});
+  tv1->setAllocationDomain({tv1->axis(1), tv1->axis(0)}, {true, true});
+  auto tv2 = set(tv1);
+
+  auto* cache_id = IrBuilder::create<NamedScalar>("cacheId", DataType::UInt64);
+  auto launch_kernel = IrBuilder::create<LaunchKernel>(
+      0,
+      LaunchParams(),
+      CompileParams(),
+      std::vector<Val*>{tv1},
+      std::vector<Val*>{tv2},
+      cache_id);
+  hic->addOutput(tv2);
+
+  // Set memory types for allocation
+  tv1->setMemoryType(MemoryType::Global);
+
+  // Push expressions in execution order
+  hic->pushBackTopLevelExprs(tv1->definition());
+  hic->pushBackTopLevelExprs(tv2->definition());
+  auto allocate_tv2 = IrBuilder::create<kir::Allocate>(tv2, MemoryType::Global);
+  hic->pushBackTopLevelExprs(allocate_tv2);
+  hic->pushBackTopLevelExprs(launch_kernel);
+  auto deallocate_tv1 = IrBuilder::create<hir::Deallocate>(tv1);
+  hic->pushBackTopLevelExprs(deallocate_tv1);
+
+  // Create HostIrJit and run
+  HostIrEvaluator hie(std::move(hic));
+  at::Tensor in_tensor =
+      at::randn({2, 3, 8}, at::dtype(at::kFloat).device(at::kCUDA, 0));
+  auto outputs = hie.runWithInput({{tv0, in_tensor}});
+}
+
+TEST_F(HostIrIntegrationTest, PPT2) {
+  // Create HostIrContainer directly for dynamic reshape
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  auto tv0 = makeSymbolicTensor(3);
+  fusion->addInput(tv0);
+
+  // Index transformations
+  auto i0 = tv0->axis(0)->extent();
+  auto i1 = tv0->axis(1)->extent();
+  auto i2 = tv0->axis(2)->extent();
+
+  auto mul_i0_i1 = mul(i0, i1);
+
+  auto tv1 = reshape(tv0, {mul_i0_i1, i2});
+  tv1->setAllocationDomain({tv1->axis(1), tv1->axis(0)}, {true, true});
+  tv1 = add(tv1, tv1);
+  auto tv2 = segment_set(tv1);
+  fusion->addOutput(tv2);
+  FusionExecutorCache executor_cache(std::move(fusion));
+
+  at::Tensor in_tensor =
+      at::randn({2, 3, 8}, at::dtype(at::kFloat).device(at::kCUDA));
+  auto outputs = executor_cache.runFusionWithInputs({in_tensor});
+}
+
+
 } // namespace hir
 
 } // namespace nvfuser
