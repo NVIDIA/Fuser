@@ -91,6 +91,10 @@ bool allowIncoherentDependency(
   return false;
 }
 
+// Check if an iter domain of a tensor is a subject of a scatter
+// op. Specifically, if the given expr is a scatter op using the given
+// tensor as its input, returns true if the given iter domain is
+// derived from the scattered logical iter domain.
 bool isConsumedByScatter(TensorView* tv, IterDomain* id, Expr* consumer_expr) {
   auto scatter = dynamic_cast<ScatterOp*>(consumer_expr);
   if (scatter == nullptr || scatter->in() != tv) {
@@ -101,6 +105,10 @@ bool isConsumedByScatter(TensorView* tv, IterDomain* id, Expr* consumer_expr) {
   return DependencyCheck::isDependencyOf(logical_scatter_dim, id);
 }
 
+// Check if an iter domain of a tensor is an output of a scatter
+// op. In other words, return true if the given iter domain is part of
+// the loop domain of the logical iter domain that corresponds to the
+// scatter dimension.
 bool isProducedByScatter(TensorView* tv, IterDomain* id) {
   auto scatter = dynamic_cast<ScatterOp*>(tv->definition());
   if (scatter == nullptr) {
@@ -390,7 +398,8 @@ SyncMap::SyncMap(Fusion* fusion) {
             // are mapped by the best effort replay. (See
             // NVFuserTest.RAWSync for a concrete repro).
 
-            // Case 1
+            // Case 1. Note that indexing through scatter needs to be
+            // excluded due to its indirect indexing.
             const auto& id_model = GpuLower::current()->idModel();
             auto producer_loop_id = getLoopPromotion(p_id, id_model);
             auto consumer_loop_id = getLoopPromotion(c_id, id_model);
