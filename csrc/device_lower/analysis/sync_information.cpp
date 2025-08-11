@@ -101,7 +101,8 @@ bool isConsumedByScatter(TensorView* tv, IterDomain* id, Expr* consumer_expr) {
     return false;
   }
 
-  auto logical_scatter_dim = tv->domain()->noReductions().at(scatter->dim());
+  auto logical_scatter_dim =
+      TensorDomain::noReductions(tv->getLogicalDomain()).at(scatter->dim());
   return DependencyCheck::isDependencyOf(logical_scatter_dim, id);
 }
 
@@ -115,7 +116,8 @@ bool isProducedByScatter(TensorView* tv, IterDomain* id) {
     return false;
   }
 
-  auto logical_scatter_dim = tv->domain()->noReductions().at(scatter->dim());
+  auto logical_scatter_dim =
+      TensorDomain::noReductions(tv->getLogicalDomain()).at(scatter->dim());
   return DependencyCheck::isDependencyOf(logical_scatter_dim, id);
 }
 

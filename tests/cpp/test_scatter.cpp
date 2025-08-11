@@ -294,7 +294,7 @@ TEST_F(ScatterTest, MappedLogicalAndLoop) {
   // At this point, tv4's loop ID is not mapped with its sole logical
   // ID but mapped with tv0's logical ID. This means that the loop
   // ID is not mapped with the loop ID of the input of the op,
-  // tv2. When parallelized, this differene of the loop IDs should
+  // tv2. When parallelized, this difference of the loop IDs should
   // cause the sync analysis to flag a potential RAW race. However, it
   // is possible they happen to be mapped, e.g., by an additional op
   // like below:
