@@ -8,32 +8,30 @@
 
 #include <cuda.h>
 #include <cuda_runtime.h>
+#include <debug.h>
 #include <dlfcn.h>
+#include <fusion.h>
 #include <instrumentation.h>
+#include <ir/all_nodes.h>
+#include <ops/all_ops.h>
+#include <options.h>
+#include <runtime/cutlass_compiled_kernel.h>
+#include <runtime/executor_kernel_arg.h>
+#include <runtime/executor_params.h>
+#include <scheduler/cutlass.h>
+#include <scheduler/scheduler_types.h>
 #include <unistd.h>
+#include <utils.h>
 #include <filesystem>
 #include <fstream>
-#include <memory>
-#include <sstream>
 #include <string>
 #include <vector>
-#include "options.h"
 
 #include <ATen/ATen.h>
 #include <c10/cuda/CUDACachingAllocator.h>
 #include <c10/cuda/CUDAFunctions.h>
 #include <c10/cuda/CUDAMathCompat.h>
 #include <c10/util/Exception.h>
-
-#include <fusion.h>
-#include <ir/all_nodes.h>
-#include <ops/all_ops.h>
-#include <runtime/cutlass_compiled_kernel.h>
-#include <runtime/executor_kernel_arg.h>
-#include <runtime/executor_params.h>
-#include <scheduler/cutlass.h>
-#include <scheduler/scheduler_types.h>
-#include <utils.h>
 
 namespace nvfuser {
 
@@ -201,6 +199,15 @@ void CutlassCompiledKernel::generateCode() {
   // Generate CUTLASS kernel code using the code generator
   cutlass_code_ =
       CutlassCodeGenerator::generateCode(fusion_, cutlass_params_, descriptor_);
+
+  // Dump the kernel if requested. Note that we do not currently distinguish
+  // between the kernel and the entire CUTLASS source file.
+  if (isDebugDumpEnabled(DebugDumpOption::CudaFull) ||
+      isDebugDumpEnabled(DebugDumpOption::CudaKernel)) {
+    debug() << cutlass_code_ << std::endl;
+  }
+
+  // TODO: enable dumping CUTLASS cuda to file
 }
 
 void CutlassCompiledKernel::generateCutlassCode() {
@@ -256,18 +263,20 @@ void CutlassCompiledKernel::compileWithNVCC() {
 
   for (const std::string arg :
        {"-std=c++17",
-        "-DCUTE_USE_PACKED_TUPLE=1",
-        "-DCUTLASS_ENABLE_TENSOR_CORE_MMA=1",
-        "-DCUTLASS_VERSIONS_GENERATED",
-        "-DCUTLASS_TEST_LEVEL=0",
-        "-DCUTLASS_TEST_ENABLE_CACHED_RESULTS=1",
-        "-DCUTLASS_DEBUG_TRACE_LEVEL=0",
         "--expt-relaxed-constexpr",
         "--expt-extended-lambda",
-        "-Xcompiler=-fPIC",
-        "-Xcompiler=-Wconversion",
-        "-Xcompiler=-fno-strict-aliasing"}) {
+        "-Xcompiler=-fPIC,-Wconversion,-fno-strict-aliasing"}) {
     compile_cmd += " " + arg;
+  }
+
+  for (const std::string def :
+       {"CUTE_USE_PACKED_TUPLE=1",
+        "CUTLASS_ENABLE_TENSOR_CORE_MMA=1",
+        "CUTLASS_VERSIONS_GENERATED",
+        "CUTLASS_TEST_LEVEL=0",
+        "CUTLASS_TEST_ENABLE_CACHED_RESULTS=1",
+        "CUTLASS_DEBUG_TRACE_LEVEL=0"}) {
+    compile_options_.defines.push_back(def);
   }
 
   // Add defines
@@ -281,6 +290,8 @@ void CutlassCompiledKernel::compileWithNVCC() {
   if (isOptionEnabled(EnableOption::KernelLineInfo)) {
     compile_cmd += " -lineinfo";
   }
+
+  // TODO: enable dumping cubin, ptx, and sass as in CompiledKernel
 
   // Execute nvcc compilation and capture output
   std::filesystem::path output_file_path = temp_dir_ / "nvcc_output.txt";
