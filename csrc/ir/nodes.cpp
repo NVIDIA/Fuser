@@ -2683,6 +2683,9 @@ std::string IterDomain::toString(int indent_size) const {
   if (hasPaddingToMultipleOfWarp()) {
     ss << "_p";
   }
+  if (hasClusteredBlocks()) {
+    ss << "_c";
+  }  
   return ss.str();
 }
 
@@ -3618,8 +3621,15 @@ bool TensorDomain::hasBlockReduction() const {
 bool TensorDomain::hasGridReduction() const {
   return std::any_of(
       loop_domain_.begin(), loop_domain_.end(), [](IterDomain* id) {
-        return id->isReduction() && id->isBlockDim();
+        return id->isReduction() && id->isBlockDim() && !id->hasClusteredBlocks();
       });
+}
+
+bool TensorDomain::hasClusterReduction() const {
+  return std::any_of(
+      loop_domain_.begin(), loop_domain_.end(), [](IterDomain* id) {
+        return id->isReduction() && id->isBlockDim() && id->hasClusteredBlocks();
+      });      
 }
 
 bool TensorDomain::hasSymbolicAxis() const {

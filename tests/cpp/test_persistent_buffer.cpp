@@ -1999,4 +1999,52 @@ INSTANTIATE_TEST_SUITE_P(
       ss << "_vocab_" << std::get<1>(info.param);
       return sanitizeTestName(ss.str());
     });
+
+TEST_F(PersistentBufferTest, clusterReduction) {
+  int x = 1024;
+  int y = 128 * 1024;
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+  auto tv0 = makeContigConcreteTensor({x, y}, DataType::BFloat16);
+  fusion.addInput(tv0);
+  auto tv1 = castOp(DataType::Float, tv0);
+  auto tv2 = sum(tv1, {1});
+  auto tv3 = broadcast(tv2, {false, true});
+  auto tv4 = add(tv1, tv3);
+  auto tv5 = castOp(DataType::BFloat16, tv4);
+  fusion.addOutput(tv5);
+  auto unscheduled_fusion_copy = fusion;
+
+  auto options = at::TensorOptions().dtype(at::kBFloat16).device(at::kCUDA, 0);
+  auto t0 = at::randn({x, y}, options);
+  SchedulerRuntimeInfo runtime_info(fusion_ptr.get(), {t0});
+  auto scheduler =
+      SchedulerEntry::makeSchedulerInstance(SchedulerType::InnerPersistent);
+  auto heuristic_params =
+      scheduler->computeHeuristics(fusion_ptr.get(), runtime_info);
+  auto rparams = heuristic_params->as<ReductionParams>();
+  rparams->cross_cluster_reduction = true;
+  rparams->cross_grid_inner_reduction = true;
+  rparams->grid_dim_inner_reduction = ParallelType::BIDx;
+  rparams->grid_dim_iter_dom = ParallelType::BIDy;
+  auto gdimx = 2;
+  auto max_gdimy = deviceSMCount() / gdimx;
+  rparams->split_grid_dim_iter_dom_inner = max_gdimy < x;
+  rparams->lparams = LaunchParams(
+      gdimx,
+      rparams->split_grid_dim_iter_dom_inner ? max_gdimy
+                                              : LaunchParams::UNINITIALIZED_VAL,
+      LaunchParams::UNINITIALIZED_VAL,
+      LaunchParams::UNINITIALIZED_VAL,
+      LaunchParams::UNINITIALIZED_VAL,
+      LaunchParams::UNINITIALIZED_VAL);
+
+  scheduler->schedule(fusion_ptr.get(), heuristic_params.get());
+  KernelExecutor ke;
+  ke.compile(fusion_ptr.get(), {t0});
+  auto outputs =
+      ke.run({t0}, {}, heuristic_params->as<ReductionParams>()->lparams);
+  testValidate(&unscheduled_fusion_copy, outputs, {t0});
+}    
 } // namespace nvfuser

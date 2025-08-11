@@ -139,7 +139,7 @@ class KernelIrScanner : private IrVisitor {
         summary_.has_block_reductions || domain->hasBlockReduction();
 
     // Update the largest smem data type
-    if (domain->hasBlockReduction() || domain->hasGridReduction() ||
+    if (domain->hasBlockReduction() || domain->hasGridReduction() || domain->hasClusterReduction() ||
         tv->getMemoryType() == MemoryType::Shared) {
       const auto data_type = tv->dtype();
       const size_t type_size = dataTypeSizeByte(data_type, index_type_);

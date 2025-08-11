@@ -789,7 +789,7 @@ bool hasBlockSync(const Expr* expr, const ThreadPredicateMap& pred_map) {
   auto tv = ir_utils::getTvOutput(expr);
 
   if (ir_utils::isReductionOp(expr) &&
-      (tv->hasBlockReduction() || tv->hasGridReduction())) {
+      (tv->hasBlockReduction() || tv->hasGridReduction() || tv->hasClusterReduction())) {
     return true;
   }
 
