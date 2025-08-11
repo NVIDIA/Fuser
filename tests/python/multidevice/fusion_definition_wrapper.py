@@ -42,11 +42,7 @@ class FusionDefinitionWrapper:
         self, fd: FusionDefinition, in_dtensors: Iterable[DTensor]
     ) -> None:
         for in_tv, in_dtensor in zip(fd.fusion.inputs(), in_dtensors):
-            # Set the device mesh.
-            assert (
-                in_dtensor.device_mesh.ndim == 1
-            ), "nvFuser's Python API only supports 1D meshes."
-            mesh = nvfuser.multidevice.DeviceMesh(in_dtensor.device_mesh.mesh.tolist())
+            mesh = nvfuser.multidevice.DeviceMesh(in_dtensor.device_mesh.mesh)
 
             in_tv.set_device_mesh(mesh)
 
