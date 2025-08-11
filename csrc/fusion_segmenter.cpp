@@ -4639,100 +4639,90 @@ void SegmentCandidateFinder::revertPrivatizedOps(SegmentedGroup* group) {
     }
   };
 
-  auto revert_privatized_exprs =
-      [group, maybe_replace, maybe_deduplicate_edge](
-          std::unordered_map<Expr*, std::unordered_set<Expr*>>&
-              privatized_ops) {
-        for (const auto& [original, clones] : privatized_ops) {
-          std::vector<Expr*> expr_in_group;
-          Val* val_to_keep = nullptr;
-          for (auto op : get_upcasts_and_squeezes(group)) {
-            if (op != original && !clones.count(op)) {
-              continue;
-            }
+  for (const auto& [original, clones] : privatized_ops_) {
+    std::vector<Expr*> expr_in_group;
+    Val* val_to_keep = nullptr;
+    for (auto op : get_upcasts_and_squeezes(group)) {
+      if (op != original && !clones.count(op)) {
+        continue;
+      }
 
-            expr_in_group.push_back(op);
+      expr_in_group.push_back(op);
 
-            auto out_tv = op->output(0);
+      auto out_tv = op->output(0);
 
-            // Prefer the original upcast if found
-            if (val_to_keep == nullptr || out_tv == original->output(0)) {
-              val_to_keep = out_tv;
-            }
-          }
+      // Prefer the original upcast if found
+      if (val_to_keep == nullptr || out_tv == original->output(0)) {
+        val_to_keep = out_tv;
+      }
+    }
 
-          if (expr_in_group.size() < 2) {
-            continue;
-          }
+    if (expr_in_group.size() < 2) {
+      continue;
+    }
 
-          for (auto op : expr_in_group) {
-            Val* out_val_to_replace = op->output(0);
-            if (out_val_to_replace == val_to_keep) {
-              // Keep this op as is since its output replaces the other
-              // upcast outputs
-              continue;
-            }
+    for (auto op : expr_in_group) {
+      Val* out_val_to_replace = op->output(0);
+      if (out_val_to_replace == val_to_keep) {
+        // Keep this op as is since its output replaces the other
+        // upcast outputs
+        continue;
+      }
 
-            NVF_ERROR(
-                out_val_to_replace->uses().size() == 1,
-                "Multiple use of replicated upcast tensor found: ",
-                toDelimitedString(out_val_to_replace->uses()));
+      NVF_ERROR(
+          out_val_to_replace->uses().size() == 1,
+          "Multiple use of replicated upcast tensor found: ",
+          toDelimitedString(out_val_to_replace->uses()));
 
-            auto use_of_out_val_to_replace = out_val_to_replace->uses().at(0);
+      auto use_of_out_val_to_replace = out_val_to_replace->uses().at(0);
 
-            auto updated_expr = ir_utils::replaceValInExprInputs(
-                use_of_out_val_to_replace, out_val_to_replace, val_to_keep);
+      auto updated_expr = ir_utils::replaceValInExprInputs(
+          use_of_out_val_to_replace, out_val_to_replace, val_to_keep);
 
-            update_privatized_ops(
-                privatized_ops, use_of_out_val_to_replace, updated_expr);
+      update_privatized_ops(
+          privatized_ops_, use_of_out_val_to_replace, updated_expr);
 
-            // Replace use_of_out_val_to_replace with
-            // updated_expr. use_of_out_val_to_replace must be in the
-            // same group of its consumer groups
-            if (!maybe_replace(
-                    group, use_of_out_val_to_replace, updated_expr)) {
-              for (auto consumer_edge : group->consumer_edges) {
-                if (maybe_replace(
-                        consumer_edge->to,
-                        use_of_out_val_to_replace,
-                        updated_expr)) {
-                  break;
-                }
-              }
-            }
-
-            // Update a consumer edge if its val is
-            // out_val_to_replace. Again, there must be at most one such
-            // edge.
-            SegmentedEdge* consumer_edge_to_update = nullptr;
-            for (auto consumer_edge : group->consumer_edges) {
-              if (consumer_edge->val == out_val_to_replace) {
-                NVF_ERROR(
-                    consumer_edge_to_update == nullptr,
-                    "Multiple consumer edges using ",
-                    out_val_to_replace->toString(),
-                    " found");
-                consumer_edge->val = val_to_keep;
-                consumer_edge_to_update = consumer_edge;
-              }
-            }
-
-            // Now that the consumer edge is updated, it may be a duplicate
-            // of an exising edge. Remove if so.
-            if (consumer_edge_to_update != nullptr) {
-              maybe_deduplicate_edge(consumer_edge_to_update);
-            }
-
-            std::erase(group->exprs_, op);
-
-            // Note that it should not be necessary to do anything with
-            // group->output_vals since the inserted upcast ops should never
-            // produce fusion outputs.
+      // Replace use_of_out_val_to_replace with
+      // updated_expr. use_of_out_val_to_replace must be in the
+      // same group of its consumer groups
+      if (!maybe_replace(group, use_of_out_val_to_replace, updated_expr)) {
+        for (auto consumer_edge : group->consumer_edges) {
+          if (maybe_replace(
+                  consumer_edge->to, use_of_out_val_to_replace, updated_expr)) {
+            break;
           }
         }
-      };
+      }
 
-  revert_privatized_exprs(privatized_ops_);
+      // Update a consumer edge if its val is
+      // out_val_to_replace. Again, there must be at most one such
+      // edge.
+      SegmentedEdge* consumer_edge_to_update = nullptr;
+      for (auto consumer_edge : group->consumer_edges) {
+        if (consumer_edge->val == out_val_to_replace) {
+          NVF_ERROR(
+              consumer_edge_to_update == nullptr,
+              "Multiple consumer edges using ",
+              out_val_to_replace->toString(),
+              " found");
+          consumer_edge->val = val_to_keep;
+          consumer_edge_to_update = consumer_edge;
+        }
+      }
+
+      // Now that the consumer edge is updated, it may be a duplicate
+      // of an exising edge. Remove if so.
+      if (consumer_edge_to_update != nullptr) {
+        maybe_deduplicate_edge(consumer_edge_to_update);
+      }
+
+      std::erase(group->exprs_, op);
+
+      // Note that it should not be necessary to do anything with
+      // group->output_vals since the inserted upcast ops should never
+      // produce fusion outputs.
+    }
+  }
 }
 
 // Decides whether we should forward an input (or a forwarded input) of a
