@@ -53,7 +53,7 @@ def execute_with_dtensors(fd, in_dtensors):
     for out_tensor, out_sharding in zip(out_tensors, out_shardings):
         mesh = dist.device_mesh.init_device_mesh("cuda", (out_sharding.mesh.size,))
         placements: list[Placement] = []
-        for parallel_type in [_C_DIRECT.ParallelType.mesh_x]:
+        for parallel_type in [ParallelType.mesh_x]:
             axis: int = out_sharding.axis_sharded_on(parallel_type)
             placements.append(Replicate() if axis == -1 else Shard(axis))
         out_dtensors.append(DTensor.from_local(out_tensor, mesh, placements))
@@ -81,7 +81,7 @@ class FusionDefinition:
         super(FusionDefinition, self).__init__()
         # Monkey patching nvfuser_direct.ops submodule to mimic python_frontend
         # FusionDefinition.ops API. This is to maintain backwards compatibilty.
-        self.ops = _C_DIRECT.ops
+        self.ops = ops
         self._fusion = None
         self._fusion_guard = None
 
@@ -100,7 +100,7 @@ class FusionDefinition:
         str
             A string representation of the FusionDefinition
         """
-        return _C_DIRECT.translate_fusion(self.fusion)
+        return translate_fusion(self.fusion)
 
     def __enter__(self):
         """
@@ -111,8 +111,8 @@ class FusionDefinition:
         FusionDefinition
             The FusionDefinition instance
         """
-        self._fusion = _C_DIRECT.Fusion()
-        self._fusion_guard = _C_DIRECT.FusionGuard(self._fusion)
+        self._fusion = Fusion()
+        self._fusion_guard = FusionGuard(self._fusion)
         return self
 
     def __exit__(self, exception_type, exception_value, exception_traceback):
@@ -148,16 +148,16 @@ class FusionDefinition:
         Parameters
         ----------
         *args
-            Positional arguments passed to _C_DIRECT.define_tensor
+            Positional arguments passed to define_tensor
         **kwargs
-            Keyword arguments passed to _C_DIRECT.define_tensor
+            Keyword arguments passed to define_tensor
 
         Returns
         -------
         Tensor
             The defined tensor
         """
-        tv = _C_DIRECT.define_tensor(*args, **kwargs)
+        tv = define_tensor(*args, **kwargs)
         self._fusion.add_input(tv)
         return tv
 
@@ -184,15 +184,15 @@ class FusionDefinition:
         Parameters
         ----------
         *args
-            Positional arguments passed to _C_DIRECT.define_scalar
+            Positional arguments passed to define_scalar
         **kwargs
-            Keyword arguments passed to _C_DIRECT.define_scalar
+            Keyword arguments passed to define_scalar
         Returns
         -------
         Scalar
             The defined scalar
         """
-        scalar = _C_DIRECT.define_scalar(*args, **kwargs)
+        scalar = define_scalar(*args, **kwargs)
         if scalar.is_symbolic():
             self._fusion.add_input(scalar)
         return scalar
@@ -254,7 +254,7 @@ class FusionDefinition:
 
         if auto_schedule:
             if not hasattr(self, "fec"):
-                self.fec = _C_DIRECT.FusionExecutorCache(self._fusion)
+                self.fec = FusionExecutorCache(self._fusion)
                 # A copy of fusion is created after construction FusionExecutorCache
                 # Delete the _fusion and reference the fusion inside FusionExecutorCache
                 del self._fusion
@@ -363,7 +363,7 @@ class FusionDefinition:
                 f"Found unsupported device {tensor.device}, only scalar CPU or CUDA tensors are supported"
             )
 
-        tv = _C_DIRECT.define_tensor(
+        tv = define_tensor(
             sizes=tensor.size(),
             strides=tensor.stride(),
             dtype=torch_dtype_to_nvfuser_dtype(tensor.dtype),
