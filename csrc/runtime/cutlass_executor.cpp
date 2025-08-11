@@ -58,7 +58,6 @@ void CutlassExecutor::compile(
   // Create compile options
   CutlassCompileOptions compile_options;
   compile_options.optimization_level = 3;
-  compile_options.debug = false; // TODO: Get from debug flags
 
   // Add CUTLASS include path if available
   if (const char* cutlass_path = std::getenv("CUTLASS_PATH")) {

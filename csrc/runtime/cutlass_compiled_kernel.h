@@ -32,9 +32,6 @@ struct CutlassCompileOptions {
   // Target architecture
   int compute_capability = 0; // 0 means auto-detect
 
-  // Enable debug mode
-  bool debug = false;
-
   // CUTLASS specific defines
   std::vector<std::string> defines;
 };

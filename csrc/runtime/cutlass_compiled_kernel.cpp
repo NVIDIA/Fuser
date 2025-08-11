@@ -9,14 +9,15 @@
 #include <cuda.h>
 #include <cuda_runtime.h>
 #include <dlfcn.h>
+#include <instrumentation.h>
+#include <unistd.h>
 #include <filesystem>
 #include <fstream>
-#include <instrumentation.h>
 #include <memory>
 #include <sstream>
 #include <string>
 #include <vector>
-#include <unistd.h>
+#include "options.h"
 
 #include <ATen/ATen.h>
 #include <c10/cuda/CUDACachingAllocator.h>
@@ -38,13 +39,21 @@ namespace nvfuser {
 
 namespace {
 
-// Get CUTLASS include path from environment or use default
-std::string getCutlassIncludePath() {
+// Get CUTLASS install path from environment or use default
+std::filesystem::path getCutlassPath() {
   if (const char* env_path = std::getenv("CUTLASS_PATH")) {
-    return std::string(env_path) + "/include";
+    return std::filesystem::path(env_path);
   }
-  // Default to system include path
-  return "/usr/local/cuda/include";
+  // Default to system CUDA path
+  return {"/usr/local/cuda"};
+}
+
+// Get Torch install path from environment or use default
+std::filesystem::path getTorchPath() {
+  if (const char* env_path = std::getenv("TORCH_PATH")) {
+    return std::filesystem::path(env_path);
+  }
+  return "";
 }
 
 // Get compute capability string
@@ -55,7 +64,8 @@ std::string getComputeCapabilityString(int compute_capability) {
     cudaDeviceProp prop;
     cudaError_t result = cudaGetDeviceProperties(&prop, device_id);
     if (result != cudaSuccess) {
-      NVF_THROW("Failed to get device properties: ", cudaGetErrorString(result));
+      NVF_THROW(
+          "Failed to get device properties: ", cudaGetErrorString(result));
     }
     compute_capability = prop.major * 10 + prop.minor;
   }
@@ -121,8 +131,8 @@ float CutlassCompiledKernel::run(
     NVF_ERROR(false, "Kernel not compiled");
   }
 
-  // Use base class run method if available, otherwise implement CUTLASS-specific run
-  // For now, we'll implement a basic CUTLASS kernel launch
+  // Use base class run method if available, otherwise implement
+  // CUTLASS-specific run For now, we'll implement a basic CUTLASS kernel launch
   cudaEvent_t start_event = {};
   cudaEvent_t finish_event = {};
 
@@ -154,9 +164,17 @@ float CutlassCompiledKernel::run(
     auto k = args[8].as<int64_t>();
 
     // Define the function signature for the kernel
-    using KernelFunc = void(*)(at::Tensor&, const at::Tensor&, const at::Tensor&,
-                              const at::Tensor&, const at::Tensor&, const at::Tensor&,
-                              int64_t, int64_t, int64_t, cudaStream_t);
+    using KernelFunc = void (*)(
+        at::Tensor&,
+        const at::Tensor&,
+        const at::Tensor&,
+        const at::Tensor&,
+        const at::Tensor&,
+        const at::Tensor&,
+        int64_t,
+        int64_t,
+        int64_t,
+        cudaStream_t);
 
     auto kernel_func = reinterpret_cast<KernelFunc>(cuda_function_);
 
@@ -181,23 +199,24 @@ void CutlassCompiledKernel::generateCode() {
   FUSER_PERF_SCOPE("CutlassCompiledKernel::generateCode");
 
   // Generate CUTLASS kernel code using the code generator
-  cutlass_code_ = CutlassCodeGenerator::generateCode(
-      fusion_, cutlass_params_, descriptor_);
+  cutlass_code_ =
+      CutlassCodeGenerator::generateCode(fusion_, cutlass_params_, descriptor_);
 }
 
 void CutlassCompiledKernel::generateCutlassCode() {
   FUSER_PERF_SCOPE("CutlassCompiledKernel::generateCutlassCode");
 
   // Generate CUTLASS kernel code using the code generator
-  cutlass_code_ = CutlassCodeGenerator::generateCode(
-      fusion_, cutlass_params_, descriptor_);
+  cutlass_code_ =
+      CutlassCodeGenerator::generateCode(fusion_, cutlass_params_, descriptor_);
 }
 
 void CutlassCompiledKernel::compileWithNVCC() {
   FUSER_PERF_SCOPE("CutlassCompiledKernel::compileWithNVCC");
 
   // Create temporary directory for compilation
-  temp_dir_ = std::filesystem::temp_directory_path() / ("cutlass_compile_" + std::to_string(getpid()));
+  temp_dir_ = std::filesystem::temp_directory_path() /
+      ("cutlass_compile_" + std::to_string(getpid()));
   if (std::filesystem::exists(temp_dir_)) {
     std::filesystem::remove_all(temp_dir_);
   }
@@ -211,21 +230,44 @@ void CutlassCompiledKernel::compileWithNVCC() {
 
   // Build nvcc command
   std::filesystem::path output_file = temp_dir_ / "cutlass_kernel.so";
-  std::string compile_cmd = "nvcc -shared -o " + output_file.string() + " " + source_file.string();
+  std::string compile_cmd =
+      "nvcc -shared -o " + output_file.string() + " " + source_file.string();
 
   // Add compute capability
-  compile_cmd += " -arch=" + getComputeCapabilityString(compile_options_.compute_capability);
-
-  // Add C++ standard
-  compile_cmd += " -std=c++17";
+  compile_cmd += " -arch=" +
+      getComputeCapabilityString(compile_options_.compute_capability);
 
   // Add optimization level
   compile_cmd += " -O" + std::to_string(compile_options_.optimization_level);
 
   // Add CUTLASS include paths
-  compile_cmd += " -I" + getCutlassIncludePath();
+  const std::filesystem::path cutlass_path = getCutlassPath();
+  compile_options_.include_paths.push_back(cutlass_path / "include");
+  compile_options_.include_paths.push_back(
+      cutlass_path / "tools" / "util" / "include");
+  const std::filesystem::path torch_path = getTorchPath();
+  compile_options_.include_paths.push_back(torch_path / "include");
+  compile_options_.include_paths.push_back(
+      torch_path / "include" / "torch" / "csrc" / "api" / "include");
+
   for (const auto& path : compile_options_.include_paths) {
     compile_cmd += " -I" + path;
+  }
+
+  for (const std::string arg :
+       {"-std=c++17",
+        "-DCUTE_USE_PACKED_TUPLE=1",
+        "-DCUTLASS_ENABLE_TENSOR_CORE_MMA=1",
+        "-DCUTLASS_VERSIONS_GENERATED",
+        "-DCUTLASS_TEST_LEVEL=0",
+        "-DCUTLASS_TEST_ENABLE_CACHED_RESULTS=1",
+        "-DCUTLASS_DEBUG_TRACE_LEVEL=0",
+        "--expt-relaxed-constexpr",
+        "--expt-extended-lambda",
+        "-Xcompiler=-fPIC",
+        "-Xcompiler=-Wconversion",
+        "-Xcompiler=-fno-strict-aliasing"}) {
+    compile_cmd += " " + arg;
   }
 
   // Add defines
@@ -233,9 +275,11 @@ void CutlassCompiledKernel::compileWithNVCC() {
     compile_cmd += " -D" + define;
   }
 
-  // Add debug flags if needed
-  if (compile_options_.debug) {
-    compile_cmd += " -G -lineinfo";
+  if (isOptionEnabled(EnableOption::KernelDebug)) {
+    compile_cmd += " -G";
+  }
+  if (isOptionEnabled(EnableOption::KernelLineInfo)) {
+    compile_cmd += " -lineinfo";
   }
 
   // Execute nvcc compilation and capture output
@@ -246,13 +290,18 @@ void CutlassCompiledKernel::compileWithNVCC() {
   if (result != 0) {
     // Read compilation output for error details
     std::ifstream output_file(output_file_path);
-    std::string output_content((std::istreambuf_iterator<char>(output_file)),
-                              std::istreambuf_iterator<char>());
+    std::string output_content(
+        (std::istreambuf_iterator<char>(output_file)),
+        std::istreambuf_iterator<char>());
     output_file.close();
 
-    NVF_THROW("nvcc compilation failed with code: ", result,
-               "\nCommand: ", compile_cmd,
-               "\nOutput: ", output_content);
+    NVF_THROW(
+        "nvcc compilation failed with code: ",
+        result,
+        "\nCommand: ",
+        compile_cmd,
+        "\nOutput: ",
+        output_content);
   }
 
   // Load shared library
@@ -261,8 +310,6 @@ void CutlassCompiledKernel::compileWithNVCC() {
     NVF_THROW("Failed to load compiled CUTLASS library: ", dlerror());
   }
 }
-
-
 
 void CutlassCompiledKernel::loadKernel() {
   if (shared_library_handle_) {
@@ -289,20 +336,19 @@ void CutlassCompiledKernel::createLaunchParams() {
 
   // Block dimensions based on CUTLASS tile configuration
   // The kernel uses 256x256 tiles with 4x4 warps
-  int block_dim_x = cutlass_params_.num_warps_m * 32;  // 4 * 32 = 128
-  int block_dim_y = cutlass_params_.num_warps_n * 32;  // 4 * 32 = 128
+  int block_dim_x = cutlass_params_.num_warps_m * 32; // 4 * 32 = 128
+  int block_dim_y = cutlass_params_.num_warps_n * 32; // 4 * 32 = 128
   int block_dim_z = 1;
 
   // Grid dimensions will be computed at runtime based on problem size
   // For now, use placeholder values that will be updated during kernel launch
   launch_params_ = LaunchParams(
-      LaunchParams::UNINITIALIZED_VAL,  // gdimx - computed at runtime
-      LaunchParams::UNINITIALIZED_VAL,  // gdimy - computed at runtime
-      1,  // gdimz
+      LaunchParams::UNINITIALIZED_VAL, // gdimx - computed at runtime
+      LaunchParams::UNINITIALIZED_VAL, // gdimy - computed at runtime
+      1, // gdimz
       block_dim_x,
       block_dim_y,
-      block_dim_z
-  );
+      block_dim_z);
 }
 
 // CutlassCodeGenerator implementation
@@ -310,7 +356,6 @@ std::string CutlassCodeGenerator::generateCode(
     Fusion* fusion,
     const CutlassParams& params,
     CutlassKernelDescriptor& descriptor) {
-
   // Set up descriptor for nvfp4 scaled matmul
   descriptor.kernel_name = "nvfp4_scaled_mm_kernel";
   descriptor.operation_type = "nvfp4_scaled_mm";
@@ -323,20 +368,7 @@ std::string CutlassCodeGenerator::generateNvfp4ScaledMmKernel(
     Fusion* fusion,
     const CutlassParams& params,
     CutlassKernelDescriptor& descriptor) {
-
   std::string code = R"(
-// clang-format off
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2025-present NVIDIA CORPORATION & AFFILIATES.
- * All rights reserved.
- * SPDX-License-Identifier: BSD-3-Clause
- */
-// clang-format on
-
-#include <cutlass_utils.h>
-#include <exceptions.h>
-#include <nvf_cutlass.h>
-
 #include <ATen/cuda/CUDAContext.h>
 #include <c10/cuda/CUDAGuard.h>
 #include <torch/torch.h>
@@ -348,9 +380,56 @@ std::string CutlassCodeGenerator::generateNvfp4ScaledMmKernel(
 #include "cutlass/gemm/kernel/gemm_universal.hpp"
 #include "cutlass/util/packed_stride.hpp"
 
+#define NVF_THROW(msg) throw std::runtime_error(msg);
+#define NVF_ERROR(cond, msg)                                      \
+  if (!(cond)) {                                                  \
+    NVF_THROW("Condition " #cond " failed: " + std::string(msg)); \
+  }
+
+#define NVFUSER_CUDA_RT_SAFE_CALL(x)               \
+  do {                                             \
+    cudaError_t _result = x;                       \
+    NVF_ERROR(                                     \
+        _result == cudaSuccess,                    \
+        std::string("CUDA error: ") +              \
+        std::string(cudaGetErrorName(_result)) +   \
+        std::string(" failed with error ") +       \
+        std::string(cudaGetErrorString(_result))); \
+  } while (0)
+
 namespace nvfuser::cutlass_kernels {
 
 namespace {
+
+int getSMVersion() {
+  int device{-1};
+  NVFUSER_CUDA_RT_SAFE_CALL(cudaGetDevice(&device));
+  int sm_major = 0;
+  int sm_minor = 0;
+  NVFUSER_CUDA_RT_SAFE_CALL(cudaDeviceGetAttribute(
+      &sm_major, cudaDevAttrComputeCapabilityMajor, device));
+  NVFUSER_CUDA_RT_SAFE_CALL(cudaDeviceGetAttribute(
+      &sm_minor, cudaDevAttrComputeCapabilityMinor, device));
+  return sm_major * 10 + sm_minor;
+}
+
+int getMultiProcessorCount() {
+  static int multi_processor_count = []() {
+    int device_id = 0;
+    int count = 0;
+
+    // Get the current CUDA device ID
+    NVFUSER_CUDA_RT_SAFE_CALL(cudaGetDevice(&device_id));
+
+    // Get the number of multiprocessors for the current device
+    NVFUSER_CUDA_RT_SAFE_CALL(cudaDeviceGetAttribute(
+        &count, cudaDevAttrMultiProcessorCount, device_id));
+
+    return count; // Initialize the static variable
+  }();
+
+  return multi_processor_count; // Return the cached value on subsequent calls
+}
 
 using namespace cute;
 
@@ -570,15 +649,15 @@ void runGemm(
   auto workspace = torch::empty(workspace_size, workspace_options);
 
   auto can_implement_status = gemm.can_implement(arguments);
-  NVF_CHECK(
+  NVF_ERROR(
       can_implement_status == cutlass::Status::kSuccess,
       "Failed to implement GEMM");
 
   auto status = gemm.initialize(arguments, workspace.data_ptr(), stream);
-  NVF_CHECK(status == cutlass::Status::kSuccess, "Failed to initialize GEMM");
+  NVF_ERROR(status == cutlass::Status::kSuccess, "Failed to initialize GEMM");
 
   status = gemm.run(arguments, workspace.data_ptr(), stream);
-  NVF_CHECK(status == cutlass::Status::kSuccess, "Failed to run GEMM");
+  NVF_ERROR(status == cutlass::Status::kSuccess, "Failed to run GEMM");
 }
 #else
 // Fallback implementation for unsupported CUTLASS versions
