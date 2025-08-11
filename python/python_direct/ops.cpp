@@ -7,6 +7,7 @@
 // clang-format on
 #include <bindings.h>
 #include <ops/all_ops.h>
+#include <ops/arith.h>
 
 namespace nvfuser::python {
 
@@ -1461,6 +1462,20 @@ Returns
 -------
 Val or TensorView
     Greatest common divisor of each pair of elements.
+)") NVFUSER_DIRECT_BINDING_BINARY_OP("complex",
+                                     complex,
+                                     R"(
+Create a complex number from real and imaginary parts.
+
+Parameters
+----------
+real : Val or TensorView
+imag : Val or TensorView
+
+Returns
+-------
+Val or TensorView
+    A complex number.
 )")
 };
 
