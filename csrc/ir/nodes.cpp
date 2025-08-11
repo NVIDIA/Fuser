@@ -3425,6 +3425,58 @@ bool TensorDomain::hasGridBroadcast() const {
       });
 }
 
+bool TensorDomain::checkDefinition(const Val* other) const {
+  if (!other->isA<TensorDomain>()) {
+    return false;
+  }
+  // Val checkDefinition checks dtype
+  if (!Val::checkDefinition(other)) {
+    return false;
+  }
+  const TensorDomain* other_td = other->as<TensorDomain>();
+
+  // Check number of dimensions
+  if (logical_domain_.size() != other_td->logical_domain_.size()) {
+    return false;
+  }
+
+  // Convert logical domain to integer vector and check shape
+  std::vector<int64_t> this_shape;
+  std::transform(
+      logical_domain_.begin(),
+      logical_domain_.end(),
+      std::back_inserter(this_shape),
+      [](IterDomain* id) {
+        return (id->getMaybeExpandedExtent()->isConstScalar())
+            ? id->getMaybeExpandedExtent()->evaluate().as<int64_t>()
+            : -1;
+      });
+  std::vector<int64_t> other_shape;
+  std::transform(
+      other_td->logical_domain_.begin(),
+      other_td->logical_domain_.end(),
+      std::back_inserter(other_shape),
+      [](IterDomain* id) {
+        return (id->getMaybeExpandedExtent()->isConstScalar())
+            ? id->getMaybeExpandedExtent()->evaluate().as<int64_t>()
+            : -1;
+      });
+  if (this_shape != other_shape) {
+    return false;
+  }
+  // Check stride order
+  if (strideOrder() != other_td->strideOrder()) {
+    return false;
+  }
+
+  // Check contiguity
+  if (contiguity_.size() != other_td->contiguity_.size()) {
+    return false;
+  }
+
+  return true;
+}
+
 bool TensorDomain::operator==(const TensorDomain& other) const {
   // Checks equality of each class field. Should not be necessary to
   // check no_bcast_domain_ and no_reduction_domain_ as they are just
