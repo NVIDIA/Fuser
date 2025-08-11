@@ -15,6 +15,8 @@
 #include <memory>
 #include <string>
 
+#include <runtime/cutlass_compiled_kernel.h>
+
 namespace nvfuser {
 
 class CutlassCompiledKernel;
@@ -52,13 +54,13 @@ class CutlassExecutor : public ExecutorAbstract {
   }
 
  private:
-  // Generate CUTLASS C++ code from the fusion
+  // Generate CUTLASS C++ code from the fusion (legacy method)
   std::string generateCutlassCode(Fusion* fusion);
 
-  // Compile the generated code using NVRTC or nvcc
+  // Compile the generated code using NVRTC or nvcc (legacy method)
   void compileGeneratedCode(const std::string& code);
 
-  // Extract launch parameters from compiled kernel
+  // Extract launch parameters from compiled kernel (legacy method)
   void extractLaunchParams();
 
   // Allocate output tensors

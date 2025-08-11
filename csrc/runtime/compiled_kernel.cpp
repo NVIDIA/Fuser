@@ -1343,71 +1343,11 @@ void CompiledKernel::compile(const LaunchParams& lparams) {
     }
   }
 
-  kernel_code_ = codegen::generateCudaKernel(kernel, kernelName(), lparams);
+  // Generate kernel code using virtual method
+  kernel_code_ = generateKernelCode();
 
-  const kir::KernelSummary& kernel_summary = kernel->summary();
-
-  std::pair<int64_t, int64_t> target_arch;
-  bool compile_to_sass = false;
-  queryTargetGPUVersion(
-      properties,
-      std::ref(target_arch.first),
-      std::ref(target_arch.second),
-      compile_to_sass);
-
-  NVF_CHECK(
-      target_arch >= kernel_summary.min_device_version,
-      "Target compute capability is ",
-      target_arch.first,
-      ".",
-      target_arch.second,
-      " but this fusion requires at least ",
-      kernel_summary.min_device_version.first,
-      ".",
-      kernel_summary.min_device_version.second,
-      ". Reason: ",
-      kernel_summary.min_device_version_reason);
-
-  // We currently shouldn't allocate any more shared mem
-  //  tensors statically but could keep this path if
-  //  needed in later development.
-  if (!kernel_summary.static_smem_allocations.empty()) {
-    ExpressionEvaluator static_evaluator;
-    const auto static_smem_size = computeSharedMemory(
-        static_evaluator,
-        kernel_summary.static_smem_allocations,
-        kernel->indexType());
-    NVF_ERROR(
-        static_smem_size < max_static_smem_,
-        "The static shared memory allocation is larger than available memory.");
-  }
-
-  if (!kernel_summary.dynamic_lmem_allocations.empty()) {
-    std::stringstream ss;
-    ss << "Allocations must be based on constant integers for local memory. "
-          "However, found: ";
-    for (auto alloc : kernel_summary.dynamic_lmem_allocations) {
-      ss << alloc->buffer()->toString() << ", ";
-    }
-    ss << " have dynamic allocations but are placed in local memory.";
-    NVF_THROW(ss.str());
-  }
-  int64_t block_size = lparams.nThreads();
-  NVF_ERROR(block_size > 0, "launch param inferred block size < 0");
-
-  // Basically setting high water mark as 1 when we don't provide args for
-  // compilation, it will just generate a kernel that gets ditched at the
-  // first run - not great. We should have better heuristics.
-  block_size_high_watermark_ =
-      std::max<int64_t>(block_size, block_size_high_watermark_);
-  maxrregcount_high_watermark_ = compile_params_.maxrregcount;
-  compiled_kernel_ = getCudaExecutable(
-      kernel_code_,
-      getStructuredCode(),
-      kernelName(),
-      kernel_id_,
-      compile_params_,
-      block_size);
+  // Compile the kernel using virtual method
+  compileKernel();
 
   NVF_ERROR(validKernelId(), "Invalid kernel id for CompiledKernel.");
 
@@ -1644,6 +1584,80 @@ void CompiledKernel::recompileKernel(
     validateCooperativeLaunch(
         compiled_kernel_->function, new_launch_params, device_.index());
   }
+}
+
+std::string CompiledKernel::generateKernelCode() {
+  kir::Kernel* kernel = lowered_->kernel();
+  return codegen::generateCudaKernel(kernel, kernelName(), LaunchParams());
+}
+
+void CompiledKernel::compileKernel() {
+  kir::Kernel* kernel = lowered_->kernel();
+  const kir::KernelSummary& kernel_summary = kernel->summary();
+
+  auto properties = at::cuda::getDeviceProperties(device_.index());
+  std::pair<int64_t, int64_t> target_arch;
+  bool compile_to_sass = false;
+  queryTargetGPUVersion(
+      properties,
+      std::ref(target_arch.first),
+      std::ref(target_arch.second),
+      compile_to_sass);
+
+  NVF_CHECK(
+      target_arch >= kernel_summary.min_device_version,
+      "Target compute capability is ",
+      target_arch.first,
+      ".",
+      target_arch.second,
+      " but this fusion requires at least ",
+      kernel_summary.min_device_version.first,
+      ".",
+      kernel_summary.min_device_version.second,
+      ". Reason: ",
+      kernel_summary.min_device_version_reason);
+
+  // We currently shouldn't allocate any more shared mem
+  //  tensors statically but could keep this path if
+  //  needed in later development.
+  if (!kernel_summary.static_smem_allocations.empty()) {
+    ExpressionEvaluator static_evaluator;
+    const auto static_smem_size = computeSharedMemory(
+        static_evaluator,
+        kernel_summary.static_smem_allocations,
+        kernel->indexType());
+    NVF_ERROR(
+        static_smem_size < max_static_smem_,
+        "The static shared memory allocation is larger than available memory.");
+  }
+
+  if (!kernel_summary.dynamic_lmem_allocations.empty()) {
+    std::stringstream ss;
+    ss << "Allocations must be based on constant integers for local memory. "
+          "However, found: ";
+    for (auto alloc : kernel_summary.dynamic_lmem_allocations) {
+      ss << alloc->buffer()->toString() << ", ";
+    }
+    ss << " have dynamic allocations but are placed in local memory.";
+    NVF_THROW(ss.str());
+  }
+  
+  int64_t block_size = 1; // Default block size for compilation
+  NVF_ERROR(block_size > 0, "launch param inferred block size < 0");
+
+  // Basically setting high water mark as 1 when we don't provide args for
+  // compilation, it will just generate a kernel that gets ditched at the
+  // first run - not great. We should have better heuristics.
+  block_size_high_watermark_ =
+      std::max<int64_t>(block_size, block_size_high_watermark_);
+  maxrregcount_high_watermark_ = compile_params_.maxrregcount;
+  compiled_kernel_ = getCudaExecutable(
+      kernel_code_,
+      getStructuredCode(),
+      kernelName(),
+      kernel_id_,
+      compile_params_,
+      block_size);
 }
 
 } // namespace nvfuser

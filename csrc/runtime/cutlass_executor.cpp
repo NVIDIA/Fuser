@@ -57,7 +57,6 @@ void CutlassExecutor::compile(
 
   // Create compile options
   CutlassCompileOptions compile_options;
-  compile_options.use_nvrtc = true; // Default to NVRTC
   compile_options.optimization_level = 3;
   compile_options.debug = false; // TODO: Get from debug flags
 
@@ -124,12 +123,7 @@ KernelArgumentHolder CutlassExecutor::run(
     kernel_args.push(arg);
   }
 
-  // Run the kernel
-  float kernel_time_ms = cutlass_kernel_->run(kernel_args);
-
-  // Log kernel time if profiling is enabled
-  // Debug output disabled for now
-  // TODO: Enable when debug flags are properly set up
+  cutlass_kernel_->run(kernel_args);
 
   return outputs;
 }

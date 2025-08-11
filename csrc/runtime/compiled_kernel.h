@@ -95,11 +95,11 @@ class CompiledKernel : public NonCopyable {
   //! To compile a fusion with the 32-bit index type, CompileParams
   //! must be passed in. There used to be an index type associated
   //! with KernelArgumentHolder, but it is no longer the case.
-  NVF_API void compile(const LaunchParams& lparams);
+  NVF_API virtual void compile(const LaunchParams& lparams);
 
   // Function to query whether a `CompiledKernel` has a compiled kernel to
   // execute
-  bool isCompiled() const {
+  virtual bool isCompiled() const {
     if (lowered_ == nullptr) {
       return false;
     }
@@ -111,9 +111,19 @@ class CompiledKernel : public NonCopyable {
     return true;
   };
 
-  using ExecutorCompileTimeInfoCache =
-      executor_utils::caching::ExecutorCompileTimeInfoCache;
+  static void setGlobalFusionCount(int64_t new_fusion_count) {
+    global_fusion_count_.store(new_fusion_count);
+  }
 
+  static int64_t getGlobalFusionCount() {
+    return global_fusion_count_.load();
+  }
+
+  static std::string kernelNamespace() {
+    return "nvf";
+  }
+
+  // Public methods needed by KernelExecutor
   kir::Kernel* kernel() const;
 
   //! Returns the string of the compiled kernel
@@ -133,16 +143,63 @@ class CompiledKernel : public NonCopyable {
     return compiled_kernel_;
   }
 
+  const c10::Device& device() const {
+    return device_;
+  }
+
+  std::unique_ptr<GpuLower>& lowered() {
+    return lowered_;
+  }
+
+  SchedulerType& schedulerType() {
+    return scheduler_type_;
+  }
+
+  std::string& kernelCode() {
+    return kernel_code_;
+  }
+
+  int64_t blockSizeHighWatermark() {
+    return block_size_high_watermark_;
+  }
+
+  int64_t maxrregcountHighWatermark() {
+    return maxrregcount_high_watermark_;
+  }
+
+  bool launchParamCacheDisabled() const {
+    return launch_param_cache_disabled_;
+  }
+
+  void disableLaunchParamCache() {
+    launch_param_cache_disabled_ = true;
+  }
+
+  void recompileKernel(
+      const LaunchParams& lparams,
+      const CompileParams& cparams);
+
+  void deserialize(const serde::KernelExecutor* buffer);
+
+  // Additional public methods needed by executor
+  void setUsedTVs();
+
+  const std::vector<TensorView*>& getUsedTVs() const {
+    return used_tvs_;
+  }
+
+ protected:
+  // Virtual method to generate kernel code - can be overridden by subclasses
+  virtual std::string generateKernelCode();
+  
+  // Virtual method to compile the kernel - can be overridden by subclasses
+  virtual void compileKernel();
+
+  using ExecutorCompileTimeInfoCache =
+      executor_utils::caching::ExecutorCompileTimeInfoCache;
+
   //! Returns the disassembled latest compiled binary
   NVF_API std::string disassembledKernelSASS() const;
-
-  static void setGlobalFusionCount(int64_t new_fusion_count) {
-    global_fusion_count_.store(new_fusion_count);
-  }
-
-  static int64_t getGlobalFusionCount() {
-    return global_fusion_count_.load();
-  }
 
   const int64_t& groupId() const {
     return group_id_;
@@ -154,10 +211,6 @@ class CompiledKernel : public NonCopyable {
 
   void createKernelId();
 
-  static std::string kernelNamespace() {
-    return "nvf";
-  }
-
   std::string kernelName() const {
     NVF_ERROR(!kernel_id_.empty(), "Invalid kernel name for fusion executor.");
     std::stringstream ss;
@@ -165,76 +218,9 @@ class CompiledKernel : public NonCopyable {
     return ss.str();
   }
 
-  //! Internal knob used for debugging/profiling only
-  void disableLaunchParamCache() {
-    launch_param_cache_disabled_ = true;
-  }
 
-  const int64_t& fusionId() const {
-    return fusion_id_;
-  }
-  const int64_t& concreteId() const {
-    return concrete_id_;
-  }
-  const int64_t& runtimeId() const {
-    return runtime_id_;
-  }
-  static std::atomic<int64_t>& globalFusionCount() {
-    return global_fusion_count_;
-  }
-  SchedulerType& schedulerType() {
-    return scheduler_type_;
-  }
-  const SchedulerType& schedulerType() const {
-    return scheduler_type_;
-  }
-  std::string& kernelId() {
-    return kernel_id_;
-  }
-  const std::string& kernelId() const {
-    return kernel_id_;
-  }
-  std::unique_ptr<GpuLower>& lowered() {
-    return lowered_;
-  }
 
-  const std::unique_ptr<GpuLower>& lowered() const {
-    return lowered_;
-  }
-  int64_t blockSizeHighWatermark() {
-    return block_size_high_watermark_;
-  }
-  int64_t maxrregcountHighWatermark() {
-    return maxrregcount_high_watermark_;
-  }
-  bool launchParamCacheDisabled() const {
-    return launch_param_cache_disabled_;
-  }
-  std::string& kernelCode() {
-    return kernel_code_;
-  }
-  const std::string& kernelCode() const {
-    return kernel_code_;
-  }
 
-  //! Deserialize Fusion Executor using flatbuffers
-  void deserialize(const serde::KernelExecutor* buffer);
-
-  //  private:
-  void setUsedTVs();
-
-  const std::vector<TensorView*>& getUsedTVs() const {
-    return used_tvs_;
-  };
-
-  // Recompile the kernel if the number of threads in the block has increased
-  // or maxrregcount has changed
-  void recompileKernel(
-      const LaunchParams& new_launch_params,
-      const CompileParams& new_compile_params);
-  const c10::Device& device() const {
-    return device_;
-  }
 
  private:
   CompileParams compile_params_;
