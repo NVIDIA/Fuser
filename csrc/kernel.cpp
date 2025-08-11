@@ -112,7 +112,9 @@ class KernelIrScanner : private IrVisitor {
   void handle(Allocate* allocate) final {
     switch (allocate->memoryType()) {
       case MemoryType::Global:
-        summary_.global_allocations.push_back(allocate);
+        if (!allocate->buffer()->isFusionOutput()) {
+          summary_.global_allocations.push_back(allocate);
+        }
         break;
       case MemoryType::Shared:
         summary_.dynamic_smem_allocations.push_back(allocate);
@@ -429,6 +431,9 @@ void Kernel::finalize(std::vector<Expr*> top_level_exprs) {
   parameters_ = GpuLower::current()->allKnownVals();
   parameters_.insert(parameters_.end(), outputs().begin(), outputs().end());
   for (auto alloc : summary_.global_allocations) {
+    if (alloc->alias() != nullptr) {
+      continue;
+    }
     parameters_.push_back(alloc->buffer());
   }
 }

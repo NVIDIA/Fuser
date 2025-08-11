@@ -240,14 +240,11 @@ namespace {
 #define NVFUSER_DIRECT_BINDING_SCAN_OP(NAME, OP_NAME, OP_TYPE, DOCSTRING) \
   ops.def(                                                                \
       NAME,                                                               \
-      [](TensorView* arg,                                                 \
-         int dim,                                                         \
-         std::optional<Val*> init = std::nullopt) -> TensorView* {        \
+      [](TensorView* arg, int dim, Val* init) -> TensorView* {            \
         BinaryOpType op_type = OP_TYPE;                                   \
-        Val* init_val = init.has_value() ? init.value() : nullptr;        \
         return static_cast<                                               \
             TensorView* (*)(TensorView*, int64_t, BinaryOpType, Val*)>(   \
-            OP_NAME)(arg, dim, op_type, init_val);                        \
+            OP_NAME)(arg, dim, op_type, init);                            \
       },                                                                  \
       py::arg("arg"),                                                     \
       py::arg("dim"),                                                     \
@@ -1804,16 +1801,14 @@ TensorView
       py::return_value_policy::reference);
   ops.def(
       "linear",
-      [](TensorView* arg1,
-         TensorView* arg2,
-         std::optional<TensorView*> bias = std::nullopt) -> TensorView* {
+      [](TensorView* arg1, TensorView* arg2, TensorView* bias) -> TensorView* {
         return static_cast<
             TensorView* (*)(TensorView*, TensorView*, TensorView*)>(linear)(
-            arg1, arg2, bias.has_value() ? bias.value() : nullptr);
+            arg1, arg2, bias);
       },
       py::arg("arg1"),
       py::arg("arg2"),
-      py::arg("bias") = std::nullopt,
+      py::arg("bias").none(true) = py::none(),
       R"(
 Applies an affine linear transformation to the incoming data:
 output = arg1 @ transpose(arg2) + bias.
@@ -1829,6 +1824,242 @@ Returns
 -------
 TensorView
     The result of the affine linear transformation.
+)",
+      py::return_value_policy::reference);
+  ops.def(
+      "grouped_mm",
+      [](TensorView* mat1,
+         TensorView* mat2,
+         TensorView* offsets) -> TensorView* {
+        // Calculate output dimensions based on mat1 & mat2 rank
+        ScaledTensorView scaled_out = grouped_mm(mat1, mat2, offsets);
+        return scaled_out.tv;
+      },
+      py::arg("mat1"),
+      py::arg("mat2"),
+      py::arg("offsets"),
+      R"(
+Grouped matrix multiplication.
+
+Performs matrix multiplication on grouped sets of matrices using offsets
+to define variable-sized groups.
+
+Parameters
+----------
+mat1 : TensorView
+    First set of matrices
+mat2 : TensorView
+    Second set of matrices
+offsets : TensorView
+    Offsets tensor defining group boundaries
+
+Returns
+-------
+TensorView
+    Result of grouped matrix multiplication
+)",
+      py::return_value_policy::reference);
+  ops.def(
+      "grouped_mm",
+      [](TensorView* mat1,
+         TensorView* mat2,
+         TensorView* offsets,
+         TensorView* scale1,
+         TensorView* scale2,
+         TensorView* alpha,
+         TensorView* bias,
+         TensorView* beta,
+         PrimDataType dtype,
+         int64_t output_block_scale_size,
+         PrimDataType output_block_scale_dtype,
+         bool output_gamma)
+          -> std::tuple<
+              TensorView*,
+              std::optional<TensorView*>,
+              std::optional<TensorView*>> {
+        auto [output, block_scaling_factor, global_scaling_factor] = grouped_mm(
+            mat1,
+            mat2,
+            offsets,
+            scale1,
+            scale2,
+            alpha,
+            bias,
+            beta,
+            dtype,
+            output_block_scale_size,
+            output_block_scale_dtype,
+            output_gamma);
+
+        if (output_gamma) {
+          NVF_CHECK(
+              output_block_scale_size > 0,
+              "output_block_scale_size must be greater than 0 when "
+              "output_gamma is true");
+          return std::make_tuple(
+              output, block_scaling_factor, global_scaling_factor);
+        } else if (output_block_scale_size > 0) {
+          return std::make_tuple(output, block_scaling_factor, std::nullopt);
+        }
+        return std::make_tuple(output, std::nullopt, std::nullopt);
+      },
+      py::arg("mat1"),
+      py::arg("mat2"),
+      py::arg("offsets"),
+      py::arg("scale1"),
+      py::arg("scale2"),
+      py::arg("alpha").none(true) = py::none(),
+      py::arg("bias").none(true) = py::none(),
+      py::arg("beta").none(true) = py::none(),
+      py::arg("dtype") = DataType::BFloat16,
+      py::arg("output_block_scale_size") = 0,
+      py::arg("output_block_scale_dtype") = DataType::BFloat16,
+      py::arg("output_gamma") = false,
+      R"(
+Scaled Grouped matrix multiplication.
+
+Performs matrix multiplication on grouped sets of matrices using offsets
+to define variable-sized groups.
+
+The math operation is roughly two steps:
+    out = alpha * grouped_mm(dequant(mat1, scale1), dequant(mat2, scale2), offsets) + beta * bias
+
+    (out_mat, out_scale, out_gamma) = Quantization(
+        out,
+        dtype,
+        output_block_scale_size,
+        output_block_scale_dtype,
+        output_gamma)
+
+Note 1: The post quantization only applies when output_block_scale_size > 0,
+        which would produce out_scale tensor. Otherwise, None will be returned;
+Note 2: When output_gamma is set to True, it should produce global scaling factor out_gamma tensor.
+        Otherwise, None will be returned.
+
+Parameters
+----------
+mat1 : TensorView
+    First set of matrices
+mat2 : TensorView
+    Second set of matrices
+offsets : TensorView
+    Offsets tensor defining group boundaries
+scale1 : TensorView
+    Scale tensor for mat1
+scale2 : TensorView
+    Scale tensor for mat2
+alpha : TensorView, optional
+    Alpha tensor
+bias : TensorView, optional
+    Bias tensor
+beta : TensorView, optional
+    Beta tensor
+dtype : PrimDataType, optional
+    Output tensor type [default: DataType::BFloat16]
+output_block_scale_size : int, optional
+    Output block scale size
+output_block_scale_dtype : PrimDataType, optional
+    Output block scale dtype
+output_gamma : bool, optional
+    Output gamma [default: False]
+
+Returns
+-------
+tuple
+    A tuple containing the result of matrix multiplication, output block scale tensor, and output gamma tensor.
+)",
+      py::return_value_policy::reference);
+  ops.def(
+      "scaled_mm",
+      [](TensorView* mat1,
+         TensorView* mat2,
+         TensorView* scale1,
+         TensorView* scale2,
+         TensorView* alpha,
+         TensorView* bias,
+         TensorView* beta,
+         PrimDataType dtype,
+         int64_t output_block_scale_size,
+         PrimDataType output_block_scale_dtype,
+         bool output_gamma)
+          -> std::tuple<
+              TensorView*,
+              std::optional<TensorView*>,
+              std::optional<TensorView*>> {
+        /* Per https://pytorch.org/docs/stable/generated/torch.matmul.html */
+        auto [output, block_scaling_factor, global_scaling_factor] = scaled_mm(
+            mat1,
+            mat2,
+            scale1,
+            scale2,
+            alpha,
+            bias,
+            beta,
+            dtype,
+            output_block_scale_size,
+            output_block_scale_dtype,
+            output_gamma);
+
+        if (output_gamma) {
+          NVF_CHECK(
+              output_block_scale_size > 0,
+              "output_block_scale_size must be greater than 0 when "
+              "output_gamma is true");
+          return std::make_tuple(
+              output, block_scaling_factor, global_scaling_factor);
+        } else if (output_block_scale_size > 0) {
+          return std::make_tuple(output, block_scaling_factor, std::nullopt);
+        }
+        return std::make_tuple(output, std::nullopt, std::nullopt);
+      },
+      py::arg("mat1"),
+      py::arg("mat2"),
+      py::arg("scale1"),
+      py::arg("scale2"),
+      py::arg("alpha").none(true) = py::none(),
+      py::arg("bias").none(true) = py::none(),
+      py::arg("beta").none(true) = py::none(),
+      py::arg("dtype") = DataType::BFloat16,
+      py::arg("output_block_scale_size") = 0,
+      py::arg("output_block_scale_dtype") = DataType::BFloat16,
+      py::arg("output_gamma") = false,
+      R"(
+Scaled matrix multiplication.
+
+Note 1: The post quantization only applies when output_block_scale_size > 0,
+        which would produce out_scale tensor. Otherwise, None will be returned;
+Note 2: When output_gamma is set to True, it should produce global scaling factor out_gamma tensor.
+        Otherwise, None will be returned.
+
+Parameters
+----------
+mat1 : TensorView
+    First set of matrices
+mat2 : TensorView
+    Second set of matrices
+scale1 : TensorView
+    Scale tensor for mat1
+scale2 : TensorView
+    Scale tensor for mat2
+alpha : TensorView, optional
+    Alpha tensor
+bias : TensorView, optional
+    Bias tensor
+beta : TensorView, optional
+    Beta tensor
+dtype : PrimDataType, optional
+    Output tensor type [default: DataType::BFloat16]
+output_block_scale_size : int, optional
+    Output block scale size [default: 0]
+output_block_scale_dtype : PrimDataType, optional
+    Output block scale dtype
+output_gamma : bool, optional
+    Output gamma [default: False]
+
+Returns
+-------
+tuple
+    A tuple containing the result of matrix multiplication, output block scale tensor, and output gamma tensor.
 )",
       py::return_value_policy::reference);
 }
@@ -2254,6 +2485,16 @@ list of Val
 )");
 }
 
+template <class ShapeType>
+TensorView* pad_fn(TensorView* arg, ShapeType generic_pad_widths, Val* value) {
+  std::vector<Val*> pad_widths =
+      SequenceAsVector(generic_pad_widths, /*shape_check=*/false);
+  NVF_CHECK(
+      (int64_t)pad_widths.size() <= 2 * arg->nDims(),
+      "Number of pad widths must be at most twice the input dimension");
+  return pad(arg, pad_widths, value);
+}
+
 void bindIndexingOps(py::module_& ops) {
   ops.def(
       "index_select",
@@ -2305,30 +2546,29 @@ TensorView
 )");
   ops.def(
       "scatter",
-      [](TensorView* arg1, TensorView* index, TensorView* src, int64_t dim)
+      [](TensorView* arg, TensorView* index, TensorView* src, int64_t dim)
           -> TensorView* {
         NVF_CHECK(
-            arg1->nDims() == index->nDims() && arg1->nDims() == src->nDims(),
+            arg->nDims() == index->nDims() && arg->nDims() == src->nDims(),
             "Tensor arguments have different dimensions ",
-            arg1->nDims(),
+            arg->nDims(),
             ", ",
             index->nDims(),
             " and ",
             src->nDims());
-        auto num_dims = (int64_t)arg1->nDims();
         NVF_CHECK(
-            dim >= -num_dims && dim < num_dims,
+            dim >= -arg->nDims() && dim < arg->nDims(),
             "Tensor arguments have dimension ",
-            num_dims,
+            arg->nDims(),
             " so dim argument must satisfy ",
-            -num_dims,
+            -arg->nDims(),
             " <= dim < ",
-            num_dims,
+            arg->nDims(),
             ", but received ",
             dim);
-        return scatter(arg1, dim, index, src);
+        return scatter(arg, dim, index, src);
       },
-      py::arg("arg1"),
+      py::arg("arg"),
       py::arg("index"),
       py::arg("src"),
       py::arg("dim"),
@@ -2337,7 +2577,7 @@ Scatter a tensor.
 
 Parameters
 ----------
-arg1 : TensorView
+arg : TensorView
     The tensor to scatter into.
 index : TensorView
     The tensor containing the indices.
@@ -2350,6 +2590,167 @@ Returns
 -------
 TensorView
     The scattered tensor.
+)",
+      py::return_value_policy::reference);
+  ops.def(
+      "gather",
+      [](TensorView* arg, TensorView* index, int64_t dim) -> TensorView* {
+        NVF_CHECK(
+            arg->nDims() == index->nDims(),
+            "Tensor arguments have different dimensions ",
+            arg->nDims(),
+            " and ",
+            index->nDims());
+        NVF_CHECK(
+            dim >= -arg->nDims() && dim < arg->nDims(),
+            "Tensor arguments have dimension ",
+            arg->nDims(),
+            " so dim argument must satisfy ",
+            -arg->nDims(),
+            " <= dim < ",
+            arg->nDims(),
+            ", but received ",
+            dim);
+        return gather(arg, dim, index);
+      },
+      py::arg("arg"),
+      py::arg("index"),
+      py::arg("dim"),
+      R"(
+Gather values from arg tensor along dim at positions given by index.
+
+The arg and index tensors must have the same number of dimensions. For all axes
+other than dim the extent of index in that axis must be less than or equal to
+its counterpart in arg.
+
+Parameters
+----------
+arg : TensorView
+    A TensorView of shape `(A_i..., B, A_k...)` where `B` is the extent of `arg`
+    in the dimension `dim`.
+index : TensorView
+    A TensorView of dtype `DataType::Int` of shape `(C_i..., J, C_k...)` where
+    `C_k <= A_k` for all extents other than `J`
+dim : int
+    Which position to index along.
+
+Returns
+-------
+TensorView
+    A TensorView of same dtype as `arg` and of shape `(C_i..., J, C_k...)` where
+    the element at position `(i...,j,k...)` is equal to
+    `arg[i,...,index[i,...,j,k,...],k,...]`.
+)",
+      py::return_value_policy::reference);
+  ops.def(
+      "pad",
+      pad_fn<py::list>,
+      py::arg("arg"),
+      py::arg("pad_widths"),
+      py::arg("value").none(true) = py::none(),
+      py::return_value_policy::reference);
+  ops.def(
+      "pad",
+      pad_fn<py::tuple>,
+      py::arg("arg"),
+      py::arg("pad_widths"),
+      py::arg("value").none(true) = py::none(),
+      R"(
+Pad a tensor.
+
+Parameters
+----------
+arg : TensorView
+pad_widths : list or tuple
+    The widths of the padding.
+value : Val, optional
+    The value to pad with. The python default value is None, which is translated
+    to zero or False internally.
+
+Returns
+-------
+TensorView
+    The padded tensor.
+)",
+      py::return_value_policy::reference);
+  ops.def(
+      "cat",
+      [](std::vector<TensorView*> tensors,
+         int64_t dim,
+         bool manual_padding) -> TensorView* {
+        return cat(
+            tensors, dim, /*iter_type_opt=*/std::nullopt, manual_padding);
+      },
+      py::arg("tensors"),
+      py::arg("dim") = 0,
+      py::arg("manual_padding") = false,
+      py::return_value_policy::reference);
+  ops.def(
+      "embedding_fwd",
+      [](TensorView* input,
+         TensorView* weight,
+         Val* padding_idx,
+         Val* max_norm,
+         Val* norm_type,
+         Val* scale_grad_by_freq,
+         Val* sparse) -> decltype(auto) {
+        return embedding_fwd(
+            input,
+            weight,
+            padding_idx,
+            max_norm,
+            norm_type,
+            scale_grad_by_freq,
+            sparse);
+      },
+      py::arg("input"),
+      py::arg("weight"),
+      py::arg("padding_idx").none(true) = py::none(),
+      py::arg("max_norm").none(true) = py::none(),
+      py::arg("norm_type").none(true) = py::none(),
+      py::arg("scale_grad_by_freq").none(true) = py::none(),
+      py::arg("sparse").none(true) = py::none(),
+      R"(
+Forward pass for embedding layers that maps integer indices to vectors.
+
+This function performs the forward pass of an embedding layer, which converts
+integer indices into dense vector representations by looking up the corresponding
+rows in the weight matrix.
+
+Parameters
+----------
+input : TensorView
+    A 1D tensor containing integer indices to be embedded. Each element should
+    be a valid index into the weight matrix.
+weight : TensorView
+    A 2D tensor representing the embedding matrix. Shape should be (num_embeddings, embedding_dim).
+padding_idx : Val, optional
+    If specified, the embedding vector at this index will be filled with zeros.
+    Default is None (no padding).
+max_norm : Val, optional
+    If specified, each embedding vector will be normalized to have a maximum norm
+    of this value. Default is None (no normalization).
+norm_type : Val, optional
+    The p of the p-norm to use for normalization. Default is 2.0 (L2 norm).
+scale_grad_by_freq : Val, optional
+    If True, scale gradients by the inverse frequency of the indices in the batch.
+    Default is False.
+sparse : Val, optional
+    If True, only update the gradients for the indices that appear in the batch.
+    Default is False.
+
+Returns
+-------
+TensorView
+    A tensor with shape (input_shape + [embedding_dim]) containing the embedded
+    vectors corresponding to the input indices.
+
+Notes
+-----
+- The input tensor must be at least 1D.
+- The weight tensor must be exactly 2D.
+- All optional parameters must be scalar values when provided.
+- This operation is equivalent to PyTorch's torch.nn.functional.embedding.
 )",
       py::return_value_policy::reference);
 }
@@ -2454,6 +2855,273 @@ void bindSearchOps(py::module_& ops) {
       py::arg("largest") = true,
       py::arg("sorted") = false,
       py::return_value_policy::reference);
+  ops.def(
+      "argsort",
+      [](TensorView* arg, int64_t dim, bool descending, bool stable)
+          -> TensorView* { return argsort(arg, dim, descending, stable); },
+      py::arg("arg"),
+      py::arg("dim"),
+      py::arg("descending") = false,
+      py::arg("stable") = false,
+      R"(
+Sort the elements of a tensor.
+
+Parameters
+----------
+arg : TensorView
+    The input tensor.
+dim : int, optional
+    The dimension along which to sort. Defaults to -1.
+descending : bool, optional
+    If True, sort in descending order. Defaults to False.
+stable : bool, optional
+    If True, sort in stable order. Defaults to False.
+
+Returns
+-------
+TensorView
+    The sorted tensor.
+      )",
+      py::return_value_policy::reference);
+}
+
+void bindSdpaOps(py::module_& ops) {
+  ops.def(
+      "sdpfa_fwd",
+      [](TensorView* query,
+         TensorView* key,
+         TensorView* value,
+         Val* dropout_p,
+         Val* is_causal,
+         Val* scale) -> decltype(auto) {
+        auto [output, log_sumexp, philox_seed, philox_offset] =
+            sdpfa_fwd(query, key, value, dropout_p, is_causal, scale);
+        return py::make_tuple(output, log_sumexp, philox_seed, philox_offset);
+      },
+      py::arg("query"),
+      py::arg("key"),
+      py::arg("value"),
+      py::arg("dropout_p").none(true) = py::none(),
+      py::arg("is_causal").none(true) = py::none(),
+      py::arg("scale").none(true) = py::none(),
+      R"(
+Scaled Dot Product Flash Attention Forward.
+
+Parameters
+----------
+query : TensorView
+    The query tensor.
+key : TensorView
+    The key tensor.
+value : TensorView
+    The value tensor.
+dropout_p : Val, optional
+    The dropout probability. Default is None.
+is_causal : Val, optional
+    Whether the attention is causal. Default is None.
+scale : Val, optional
+    The scale of the attention. Default is None.
+
+Returns
+-------
+tuple[TensorView, TensorView, TensorView, TensorView]
+    A tuple of (output, log_sumexp, philox_seed, philox_offset).
+      )",
+      py::return_value_policy::reference);
+  ops.def(
+      "sdpfa_bwd",
+      [](TensorView* grad_output,
+         TensorView* query,
+         TensorView* key,
+         TensorView* value,
+         TensorView* output,
+         TensorView* log_sumexp,
+         Val* dropout_p,
+         Val* is_causal,
+         TensorView* philox_seed,
+         TensorView* philox_offset,
+         Val* scale) -> decltype(auto) {
+        auto [grad_query, grad_key, grad_value] = sdpfa_bwd(
+            grad_output,
+            query,
+            key,
+            value,
+            output,
+            log_sumexp,
+            dropout_p,
+            is_causal,
+            philox_seed,
+            philox_offset,
+            scale);
+        return std::make_tuple(grad_query, grad_key, grad_value);
+      },
+      py::arg("grad_output"),
+      py::arg("query"),
+      py::arg("key"),
+      py::arg("value"),
+      py::arg("output"),
+      py::arg("log_sumexp"),
+      py::arg("dropout_p"),
+      py::arg("is_causal"),
+      py::arg("philox_seed"),
+      py::arg("philox_offset"),
+      py::arg("scale"),
+      R"(
+Scaled Dot Product Flash Attention Backward.
+
+Parameters
+----------
+grad_output : TensorView
+    The gradient of the output.
+query : TensorView
+    The query tensor.
+key : TensorView
+    The key tensor.
+value : TensorView
+    The value tensor.
+output : TensorView
+    The output tensor.
+log_sumexp : TensorView
+    The log of the sum of the exponential of the key.
+dropout_p : Val, optional
+    The dropout probability.
+is_causal : Val, optional
+    Whether the attention is causal.
+philox_seed : TensorView
+    The seed for the philox random number generator.
+philox_offset : TensorView
+    The offset for the philox random number generator.
+scale : Val, optional
+    The scale of the attention.
+
+Returns
+-------
+tuple[TensorView, TensorView, TensorView]
+    A tuple of (grad_query, grad_key, grad_value).
+      )",
+      py::return_value_policy::reference);
+}
+
+template <
+    class ShapeType,
+    TensorView* (*RandomFuncWithSeed)(
+        const std::vector<Val*>&,
+        Val*,
+        Val*,
+        DataType,
+        Val*,
+        Val*,
+        bool)>
+TensorView* random_dist_op_fn(
+    Val* arg1,
+    Val* arg2,
+    ShapeType generic_new_shape,
+    Val* rng_seed,
+    Val* rng_offset,
+    PrimDataType dtype) {
+  NVF_CHECK(
+      !((rng_seed == nullptr) ^ (rng_offset == nullptr)),
+      "rng_seed and rng_offset must be provided together!");
+  std::vector<Val*> new_shape = SequenceAsVector(generic_new_shape);
+  return RandomFuncWithSeed(
+      new_shape,
+      arg1,
+      arg2,
+      dtype,
+      rng_seed,
+      rng_offset,
+      /*maybe_symbolic=*/true);
+}
+
+void bindRandomOps(py::module_& ops) {
+  ops.def(
+      "normal",
+      random_dist_op_fn<py::list, normal>,
+      py::arg("mean"),
+      py::arg("std"),
+      py::arg("shape"),
+      py::kw_only(),
+      py::arg("rng_seed").none(true) = py::none(),
+      py::arg("rng_offset").none(true) = py::none(),
+      py::arg("dtype") = DataType::Float,
+      py::return_value_policy::reference);
+  ops.def(
+      "normal",
+      random_dist_op_fn<py::tuple, normal>,
+      py::arg("mean"),
+      py::arg("std"),
+      py::arg("shape"),
+      py::kw_only(),
+      py::arg("rng_seed").none(true) = py::none(),
+      py::arg("rng_offset").none(true) = py::none(),
+      py::arg("dtype") = DataType::Float,
+      R"(
+Create a tensor with normal distribution.
+Parameters
+----------
+mean : Val
+    The mean of the normal distribution.
+std : Val
+    The standard deviation of the normal distribution.
+shape : list or tuple
+    The shape of the tensor.
+rng_seed : Val, optional
+    The seed for the random number generator.
+rng_offset : Val, optional
+    The offset for the random number generator.
+dtype : PrimDataType, optional
+    The data type of the tensor.
+
+Returns
+-------
+TensorView
+The tensor with normal distribution.
+      )",
+      py::return_value_policy::reference);
+  ops.def(
+      "uniform",
+      random_dist_op_fn<py::list, uniform>,
+      py::arg("minval"),
+      py::arg("maxval"),
+      py::arg("shape"),
+      py::kw_only(),
+      py::arg("rng_seed").none(true) = py::none(),
+      py::arg("rng_offset").none(true) = py::none(),
+      py::arg("dtype") = DataType::Float,
+      py::return_value_policy::reference);
+  ops.def(
+      "uniform",
+      random_dist_op_fn<py::tuple, uniform>,
+      py::arg("minval"),
+      py::arg("maxval"),
+      py::arg("shape"),
+      py::kw_only(),
+      py::arg("rng_seed").none(true) = py::none(),
+      py::arg("rng_offset").none(true) = py::none(),
+      py::arg("dtype") = DataType::Float,
+      R"(
+Create a tensor with uniform distribution.
+Parameters
+----------
+minval : Val
+    The minimum value of the uniform distribution.
+maxval : Val
+    The maximum value of the uniform distribution.
+shape : list or tuple
+    The shape of the tensor.
+rng_seed : Val, optional
+    The seed for the random number generator.
+rng_offset : Val, optional
+    The offset for the random number generator.
+dtype : PrimDataType, optional
+    The data type of the tensor.
+
+Returns
+-------
+TensorView
+The tensor with normal distribution.
+      )",
+      py::return_value_policy::reference);
 }
 
 } // namespace
@@ -2473,6 +3141,8 @@ void bindOperations(py::module& nvfuser) {
   bindIndexingOps(nvf_ops);
   bindTensorFactoryOps(nvf_ops);
   bindSearchOps(nvf_ops);
+  bindSdpaOps(nvf_ops);
+  bindRandomOps(nvf_ops);
 }
 
 } // namespace nvfuser::python

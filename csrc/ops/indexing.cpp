@@ -161,7 +161,6 @@ TensorView* gather(TensorView* inp, int64_t dim, TensorView* index) {
   return out_tensor->as<TensorView>();
 }
 
-// torch.scatter torch.scatter_add
 TensorView* scatterOp(
     ScatterOpType type,
     TensorView* self,
@@ -180,9 +179,9 @@ TensorView* scatterOp(
   dim = wrapDim(dim, (int64_t)self_dom.size());
 
   // The shape of output tensor is same as self tensor.
-  std::vector<IterDomain*> out_domain;
+  std::vector<IterDomain*> out_logical;
   for (const auto i : arange(self_dom.size())) {
-    out_domain.push_back(
+    out_logical.push_back(
         IterDomainBuilder(self_dom[i])
             .iter_type(
                 self_dom[i]->getIterType() == IterType::Iteration
@@ -191,9 +190,25 @@ TensorView* scatterOp(
             .build());
   }
 
+  // Create the loop domain based on the logical domain of the index
+  // tensor.
+  std::vector<IterDomain*> out_loop;
+  out_loop.reserve(idx_dom.size());
+  std::ranges::transform(
+      idx_dom, std::back_inserter(out_loop), [](IterDomain* id) {
+        return IterDomainBuilder(id).build();
+      });
+
+  // Create the output tensor. The validation of the loop domain needs
+  // to be skipped as it is not guaranteed to be equivalent to the
+  // logical domain.
   TensorView* out_tensor = IrBuilder::create<TensorView>(
       IrBuilder::create<TensorDomain>(
-          out_domain, TensorDomain::getContiguityFilledWith(out_domain, true)),
+          /*logical_domain=*/out_logical,
+          /*loop_domain=*/out_loop,
+          /*contiguity=*/
+          TensorDomain::getContiguityFilledWith(out_logical, true),
+          /*skip_loop_validation=*/true),
       self->getDataType().value());
 
   IrBuilder::create<ScatterOp>(type, out_tensor, self, dim, index, src);

@@ -1398,9 +1398,9 @@ void CompiledKernel::compile(const LaunchParams& lparams) {
   // Basically setting high water mark as 1 when we don't provide args for
   // compilation, it will just generate a kernel that gets ditched at the
   // first run - not great. We should have better heuristics.
-  block_size_high_water_mark_ =
-      std::max<int64_t>(block_size, block_size_high_water_mark_);
-  maxrregcount_high_water_mark_ = compile_params_.maxrregcount;
+  block_size_high_watermark_ =
+      std::max<int64_t>(block_size, block_size_high_watermark_);
+  maxrregcount_high_watermark_ = compile_params_.maxrregcount;
   compiled_kernel_ = getCudaExecutable(
       kernel_code_,
       getStructuredCode(),
@@ -1557,14 +1557,14 @@ void CompiledKernel::deserialize(const serde::KernelExecutor* buffer) {
   c10::DeviceGuard dg(device_);
 
   // Initialize internal fields
-  maxrregcount_high_water_mark_ = buffer->maxrregcount_high_water_mark();
+  maxrregcount_high_watermark_ = buffer->maxrregcount_high_watermark();
   warp_size_ = buffer->warp_size();
   kernel_code_ = buffer->kernel_code()->str();
 
   // KernelDB query checks kernel_code string and compile_params before
   // copying cubin.
   compile_params_.index_type = serde::mapToNvfuserDtype(buffer->index_type());
-  compile_params_.maxrregcount = maxrregcount_high_water_mark_;
+  compile_params_.maxrregcount = maxrregcount_high_watermark_;
 
   // Replace integers that are tensor sizes by named scalars like "T0.size[0]"
   createKernelId();
@@ -1624,8 +1624,8 @@ void CompiledKernel::recompileKernel(
     const CompileParams& new_compile_params) {
   FUSER_PERF_SCOPE("CompiledKernel::runFusion::recompileKernel");
   const auto structured_code = getStructuredCode();
-  block_size_high_water_mark_ = new_launch_params.nThreads();
-  maxrregcount_high_water_mark_ = new_compile_params.maxrregcount;
+  block_size_high_watermark_ = new_launch_params.nThreads();
+  maxrregcount_high_watermark_ = new_compile_params.maxrregcount;
 
   // TODO: This should send in the right device!
   compiled_kernel_ = getCudaExecutable(
@@ -1634,7 +1634,7 @@ void CompiledKernel::recompileKernel(
       kernelName(),
       kernel_id_,
       new_compile_params,
-      block_size_high_water_mark_);
+      block_size_high_watermark_);
 
   if (kernel()->summary().has_cooperative_grid_reduction) {
     // We need to increase shared memory before kernel launch, but also before

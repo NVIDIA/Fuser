@@ -131,8 +131,6 @@ class DeviceMesh final {
       const;
 
  private:
-  void validate() const;
-
   at::Tensor devices_;
 };
 

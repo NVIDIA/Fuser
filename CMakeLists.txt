@@ -199,6 +199,7 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/device_lower/pass/grid_serialization.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/pass/index.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/pass/inline_ptx.cpp
+  ${NVFUSER_SRCS_DIR}/device_lower/pass/inplace_alias.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/pass/insert_syncs.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/pass/instrument.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/pass/loop_rotation.cpp
@@ -877,6 +878,7 @@ list(APPEND JIT_TEST_SRCS
   ${NVFUSER_ROOT}/tests/cpp/test_unary.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_utils.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_vectorization.cpp
+  ${NVFUSER_ROOT}/tests/cpp/test_welford.cpp
 )
 
 if(BUILD_TEST)
