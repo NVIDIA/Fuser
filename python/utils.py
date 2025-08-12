@@ -25,7 +25,6 @@ class BuildConfig:
     build_with_asan: bool = False
     build_without_distributed: bool = False
     explicit_error_check: bool = False
-    build_with_host_ir_jit: bool = False
     overwrite_version: bool = False
     version_tag: str = None
     build_type: str = "Release"
@@ -102,12 +101,6 @@ def parse_args():
         dest="build_with_ucc",
         action="store_true",
         help="Build nvfuser with UCC support",
-    )
-    parser.add_argument(
-        "--build-with-host-ir-jit",
-        dest="build_with_host_ir_jit",
-        action="store_true",
-        help="Build nvfuser with Host IR JIT support",
     )
     parser.add_argument(
         "--explicit-error-check",
@@ -211,7 +204,6 @@ def create_build_config():
         no_benchmark=args.no_benchmark,
         no_ninja=args.no_ninja,
         build_with_ucc=args.build_with_ucc,
-        build_with_host_ir_jit=args.build_with_host_ir_jit,
         build_with_asan=args.build_with_asan,
         build_without_distributed=args.build_without_distributed,
         explicit_error_check=args.explicit_error_check,
@@ -257,8 +249,6 @@ def override_build_config_from_env(config):
         config.no_ninja = get_env_flag_bool("NVFUSER_BUILD_NO_NINJA")
     if "NVFUSER_BUILD_WITH_UCC" in os.environ:
         config.build_with_ucc = get_env_flag_bool("NVFUSER_BUILD_WITH_UCC")
-    if "NVFUSER_HOST_IR_JIT" in os.environ:
-        config.build_with_host_ir_jit = get_env_flag_bool("NVFUSER_HOST_IR_JIT")
     if "NVFUSER_BUILD_WITH_ASAN" in os.environ:
         config.build_with_asan = get_env_flag_bool("NVFUSER_BUILD_WITH_ASAN")
     if "NVFUSER_BUILD_WITHOUT_DISTRIBUTED" in os.environ:
@@ -472,7 +462,6 @@ def cmake(config, relative_path):
         f"-DPython_EXECUTABLE={sys.executable}",
         f"-DBUILD_NVFUSER_BENCHMARK={on_or_off(not config.no_benchmark)}",
         f"-DNVFUSER_DISTRIBUTED={on_or_off(not config.build_without_distributed)}",
-        f"-DUSE_HOST_IR_JIT={on_or_off(config.build_with_host_ir_jit)}",
         "-B",
         cmake_build_dir,
     ]

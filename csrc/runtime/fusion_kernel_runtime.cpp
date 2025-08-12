@@ -158,14 +158,13 @@ void FusionKernelRuntime::evictCache(size_t input_id) {
 
 bool FusionKernelRuntime::isCompiled() const {
   if (isOptionEnabled(EnableOption::HostIrLowering)) {
-    return hie_ != nullptr;
-  } else {
-    std::lock_guard<std::mutex> guard(mutex_);
-    return std::all_of(
-        executors_.begin(), executors_.end(), [](const auto& executor) {
-          return ExecutorDispatch::isCompiled(executor.get());
-        });
+    return hie_ != nullptr || hij_ != nullptr;
   }
+  std::lock_guard<std::mutex> guard(mutex_);
+  return std::all_of(
+      executors_.begin(), executors_.end(), [](const auto& executor) {
+        return ExecutorDispatch::isCompiled(executor.get());
+      });
 }
 
 flatbuffers::Offset<serde::FusionKernelRuntime> FusionKernelRuntime::serialize(
@@ -298,7 +297,13 @@ KernelArgumentHolder FusionKernelRuntime::runWithInputs(
               << std::endl;
     }
 
-    auto outputs = hie_->runWithInputs(args);
+    KernelArgumentHolder outputs;
+    if (isOptionEnabled(EnableOption::HostIrJit)) {
+      outputs = hij_->runWithInputs(args);
+    } else {
+      outputs = hie_->runWithInputs(args);
+    }
+
     if (isDebugDumpEnabled(DebugDumpOption::PerfDebugVerbose)) {
       debug() << "============= FINISHED RUNNING HOSTIR EVALUATOR ============"
               << std::endl;
@@ -592,8 +597,12 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
 
     hir_pass::InsertDeallocations().runPass(hic.get());
 
-    hie_ = std::make_unique<hir::HostIrEvaluator>(
-        std::move(hic), &Communicator::getInstance());
+    if (isOptionEnabled(EnableOption::HostIrJit)) {
+      hij_ = std::make_unique<HostIrJit>(std::move(hic));
+    } else {
+      hie_ = std::make_unique<hir::HostIrEvaluator>(
+          std::move(hic), &Communicator::getInstance());
+    }
   }
 
   if (isProfilerEnabled()) {
