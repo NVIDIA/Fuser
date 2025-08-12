@@ -317,7 +317,7 @@ TEST_F(ScatterTest, MappedLogicalAndLoop) {
 
   auto options = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
   auto t0 = at::randperm(m, options);
-  auto t1 = at::zeros({m}, options);
+  auto t1 = at::randint(0, 100, {m}, options);
 
   KernelExecutor ke;
   ke.compile(&fusion, {t0, t1});
