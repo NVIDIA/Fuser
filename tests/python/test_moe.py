@@ -63,7 +63,8 @@ class GroupedLinear(nn.Module):
     def forward(
         self, hidden_states: torch.Tensor, offsets: torch.Tensor
     ) -> torch.Tensor:
-        return grouped_mm(hidden_states, self.weight, offsets)
+        #return grouped_mm(hidden_states, self.weight, offsets)
+        return torch._grouped_mm(hidden_states, self.weight, offsets)
 
 
 class GroupedSwiGLU(nn.Module):
