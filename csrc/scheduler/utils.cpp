@@ -1264,8 +1264,8 @@ std::vector<TensorView*> cacheInputs(Fusion* fusion, bool unroll) {
   // If we're going to unroll, make a cache of the inputs
   auto in_tvs = ir_utils::filterByType<TensorView>(fusion->inputs());
   for (auto tv : in_tvs) {
-    if (tv->uses().empty() || ir_utils::isGatherLookupTv(tv) ||
-        ir_utils::isIndexSelectLookupTv(tv) ||
+    if (tv->nDims() == 0 || tv->uses().empty() ||
+        ir_utils::isGatherLookupTv(tv) || ir_utils::isIndexSelectLookupTv(tv) ||
         ir_utils::isTvUsedByOpsOfType<SelectOp>(tv)) {
       // Right now, tensors that are input to the select, gather and
       // index_select ops can't be cached as they must be in global memory.
