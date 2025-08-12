@@ -41,9 +41,7 @@ std::unique_ptr<hir::HostIrContainer> lowerSegmentedFusionToHostIr(
     const SegmentedFusion& segmented_fusion,
     const std::vector<LaunchParams>& launch_params_per_segment,
     std::vector<std::unique_ptr<ExecutorAbstract>>& executors) {
-  // FIXME: this can be avoided.
-  auto hic =
-      std::make_unique<hir::HostIrContainer>(segmented_fusion.groups().size());
+  auto hic = std::make_unique<hir::HostIrContainer>();
 
   IrCloner ir_cloner(hic.get());
   FusionGuard::setCurFusion(hic.get());
