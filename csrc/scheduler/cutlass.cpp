@@ -23,14 +23,14 @@ std::string CutlassParams::toString() const {
   ss << "CutlassParams (" << scheduler_type << ")\n";
   ss << "  CTA Tile: " << cta_tile.m << "x" << cta_tile.n << "x" << cta_tile.k
      << "\n";
-  ss << "  Warp Tile: " << warp_tile.m << "x" << warp_tile.n << "x"
-     << warp_tile.k << "\n";
   return ss.str();
 }
 
 size_t CutlassParams::hash() const {
   size_t h = 0;
-  // TODO: better hash function
+  hashCombine(h, (size_t)cta_tile.m);
+  hashCombine(h, (size_t)cta_tile.n);
+  hashCombine(h, (size_t)cta_tile.k);
   return h;
 }
 
@@ -39,10 +39,7 @@ bool CutlassParams::sameAs(const HeuristicParams* other) const {
     return false;
   }
   const auto* other_cutlass = other->as<CutlassParams>();
-  return cta_tile == other_cutlass->cta_tile &&
-      warp_tile == other_cutlass->warp_tile &&
-      cluster_dims == other_cutlass->cluster_dims &&
-      HeuristicParams::sameAs(other);
+  return cta_tile == other_cutlass->cta_tile && HeuristicParams::sameAs(other);
 }
 
 std::unique_ptr<HeuristicParams> CutlassParams::clone() const {

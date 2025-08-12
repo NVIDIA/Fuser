@@ -20,9 +20,7 @@ namespace nvfuser {
 class CutlassParams : public HeuristicParams {
  public:
   // CUTLASS kernel configuration parameters
-  GemmTile cta_tile = {128, 128, 32};
-  GemmTile warp_tile = {64, 64, 32};
-  GemmTile cluster_dims = {2, 1, 1};
+  GemmTile cta_tile = {256, 256, 256};
 
   CutlassParams() : HeuristicParams(SchedulerType::Cutlass) {}
 
