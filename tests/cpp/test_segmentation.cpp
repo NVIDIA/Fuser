@@ -918,6 +918,8 @@ TEST_F(SegmentationTest, RevertPrivatizedUpcastAndSqueeze) {
   FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
   EXPECT_THAT(runtime->fusionSegments()->groups(), SizeIs(2));
 
+  auto total_num_upcast_ops = 0;
+  auto total_num_squeeze_ops = 0;
   for (const auto group : runtime->fusionSegments()->groups()) {
     int64_t num_upcast_ops = 0;
     int64_t num_squeeze_ops = 0;
@@ -935,7 +937,14 @@ TEST_F(SegmentationTest, RevertPrivatizedUpcastAndSqueeze) {
     EXPECT_TRUE(
         (num_upcast_ops == 1 && num_squeeze_ops == 1) ||
         (num_upcast_ops == 0 && num_squeeze_ops == 0));
+
+    total_num_upcast_ops += num_upcast_ops;
+    total_num_squeeze_ops += num_squeeze_ops;
   }
+
+  // We should have one upcast and one squeeze
+  EXPECT_EQ(total_num_upcast_ops, 1);
+  EXPECT_EQ(total_num_squeeze_ops, 1);
 }
 
 TEST_F(SegmentationTest, ForwardFull) {
