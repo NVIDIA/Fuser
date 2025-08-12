@@ -2128,6 +2128,8 @@ struct Slice {
   Val* start = nullptr;
   Val* stop = nullptr;
   Val* step = nullptr;
+
+  std::string toString() const;
 };
 
 class SliceOp : public Expr {

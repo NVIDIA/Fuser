@@ -752,6 +752,14 @@ TensorView* cat(
   return out;
 }
 
+std::string Slice::toString() const {
+  std::ostringstream oss;
+  oss << "Slice(start=" << start->toInlineString()
+      << ", stop=" << stop->toInlineString()
+      << ", step=" << step->toInlineString() << ")";
+  return oss.str();
+}
+
 TensorView* slice(
     TensorView* inp,
     const std::vector<Slice>& ranges,
@@ -901,11 +909,16 @@ TensorView* slice(
       // Clip the start and stop values to the extent of the input
       out_root_id =
           IterDomainBuilder(inp_root_id).is_rfactor_domain(true).build();
+      std::optional<IterType> iter_type_opt = std::nullopt;
+      if (out_root_id->isBroadcast()) {
+        iter_type_opt = IterType::Broadcast;
+      }
       out_rf_id = IterDomain::resize(
           out_root_id,
           SimplifyingIrBuilder::negExpr(normalized_range.start),
           SimplifyingIrBuilder::subExpr(normalized_range.stop, inp_root_size),
-          true);
+          true,
+          iter_type_opt);
       needs_real_slicing = true;
     }
     root_ids.push_back(out_root_id);
