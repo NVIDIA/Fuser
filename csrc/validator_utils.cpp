@@ -330,20 +330,26 @@ void errorDetails(at::Tensor expected, at::Tensor actual, const KernelArgumentHo
     row_idx = err_index_value / expected.size(1);
   }
   
-  std::cout << "Expected: " << expected_flat[err_index_value].item<double>()
-            << " Actual: " << actual_flat[err_index_value].item<double>() << " at col "
+  std::cout << "Expected: " << expected_flat[err_index_value].to(at::kDouble).item<double>()
+            << " Actual: " << actual_flat[err_index_value].to(at::kDouble).item<double>() << " at col "
             << col_idx << " row " << row_idx << std::endl;
   // print first 10 elements of this row
   std::cout << "First 10 elements Expected of this row: ";
   for(auto i : arange(10)){
-    std::cout << expected_flat[row_idx * expected.size(1) + i].item<double>() << " ";
+    std::cout << expected_flat[row_idx * expected.size(1) + i].to(at::kDouble).item<double>() << " ";
   }
   std::cout << std::endl;
   std::cout << "First 10 elements Actual of this row: ";
   for(auto i : arange(10)){
-    std::cout << actual_flat[row_idx * expected.size(1) + i].item<double>() << " ";
+    std::cout << actual_flat[row_idx * expected.size(1) + i].to(at::kDouble).item<double>() << " ";
   }  
   std::cout << std::endl;
+  std::cout << "First 10 elements Inputs of first row: ";
+  auto input_flat = aten_inputs[0].as<at::Tensor>().flatten();
+  for(auto i : arange(10)){
+    std::cout << input_flat[0 * expected.size(1) + i].to(at::kDouble).item<double>() << " ";
+  }  
+  std::cout << std::endl;  
   // print input at index err_index when they have the same shape
   for(auto i : arange(aten_inputs.size())){
     if(aten_inputs[i].is<at::Tensor>()){
@@ -351,7 +357,7 @@ void errorDetails(at::Tensor expected, at::Tensor actual, const KernelArgumentHo
       if(input.dim() == expected.dim() && input.size(0) == expected.size(0)){
         auto input_flat = input.flatten();
         if(err_index_value < input_flat.size(0)) {
-          std::cout << "Input " << i << " at index " << err_index_value << ": " << input_flat[err_index_value] << std::endl;
+          std::cout << "Input " << i << " at index " << err_index_value << ": " << input_flat[err_index_value].to(at::kDouble).item<double>() << std::endl;
         }
       }
     }

@@ -151,21 +151,21 @@ uint32_t barrier_smem_addr = toSmem(&barrier_storage);
 if (threadIdx.x == 0) {
   mbarrier::init(barrier_smem_addr, 1);
 }
-__syncthreads();
-clusterSync();
 
 T thread_val = inp;
 
 // 1. Perform warp reduction
 T warp_sum = warpReduce(thread_val, reduction_op);
 
+// sync all threads in the cluster before writing to distributed shared memory
+clusterSync();
+
 // 2. All warps store their results to distributed shared memory
 // Each warp uses N threads to write to N CTAs, e.g. thread-i write to CTA-i
 // Buffer layout: reduction_buffer[CLUSTER_SIZE][WARPS_PER_BLOCK]
-uint64_t arrival_token;
 if (threadIdx.x == 0) {
   uint32_t expected_bytes = WARPS_PER_BLOCK * CLUSTER_SIZE * sizeof(T);
-  arrival_token = mbarrier::arriveExpectTX(barrier_smem_addr, expected_bytes);
+  mbarrier::arriveExpectTX(barrier_smem_addr, expected_bytes);
 }
 if (lane_idx < CLUSTER_SIZE) {
   uint32_t peer_cta_rank_in_cluster = lane_idx;
@@ -178,7 +178,7 @@ if (lane_idx < CLUSTER_SIZE) {
     peer_cta_rank_in_cluster
   );
 }
-mbarrier::wait(barrier_smem_addr, arrival_token);
+mbarrier::wait(barrier_smem_addr, 0);
 
 // 3. Each CTA has a copy of the warp reduction results from all warps in the cluster
 //    Finish reduction with a warp reduction

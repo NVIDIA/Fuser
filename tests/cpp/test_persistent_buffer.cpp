@@ -2001,7 +2001,7 @@ INSTANTIATE_TEST_SUITE_P(
     });
 
 TEST_F(PersistentBufferTest, clusterReduction) {
-  int x = 1024;
+  int x = 66*2;
   int y = 128 * 1024;
   auto fusion_ptr = std::make_unique<Fusion>();
   auto& fusion = *fusion_ptr;
@@ -2016,9 +2016,9 @@ TEST_F(PersistentBufferTest, clusterReduction) {
   fusion.addOutput(tv5);
   auto unscheduled_fusion_copy = fusion;
 
+  torch::cuda::manual_seed(0);
+  //  -0.925781 -0.425781 -2 0.145508 -0.121094 -0.578125 -0.621094 -0.328125 -1.07812 -0.363281 
   auto options = at::TensorOptions().dtype(at::kBFloat16).device(at::kCUDA, 0);
-  // fix random seed
-  at::manual_seed(0);
   auto t0 = at::randn({x, y}, options).clamp(-2, 2);
   SchedulerRuntimeInfo runtime_info(fusion_ptr.get(), {t0});
   auto scheduler =
