@@ -595,7 +595,7 @@ install(DIRECTORY "${NVFUSER_SRCS_DIR}/"
   PATTERN "csrc/struct.inl")
 
 # TODO guard including flatbuffers headers
-# installing flatbuffers headers  
+# installing flatbuffers headers
 install(DIRECTORY "${NVFUSER_THIRD_PARTY_DIR}/flatbuffers/include/"
   DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/nvfuser")
 
