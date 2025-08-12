@@ -80,7 +80,7 @@ class IterDomainBuilder {
 //! TensorDomains which represent how to iterate over a tensor is made up of
 //! IterDomains to form an ND iterable. We directly set parallization strategies
 //! on IterDomains.
-class IterDomain : public Val {
+class NVF_API IterDomain : public Val {
  public:
   IterDomain(IrBuilderPasskey, const IterDomainBuilder& args);
 
@@ -408,7 +408,7 @@ class IterDomain : public Val {
 //! which should give us an operation in the list [split, merge] or similar
 //! operations that take in a TensorDomain, applies a transformation and outputs
 //! a tensor domain.
-class TensorDomain : public Val {
+class NVF_API TensorDomain : public Val {
  public:
   explicit TensorDomain(
       IrBuilderPasskey,
