@@ -66,7 +66,8 @@ class CutlassExecutor : public ExecutorAbstract {
   // Allocate output tensors
   KernelArgumentHolder allocateOutputs(
       Fusion* fusion,
-      const KernelArgumentHolder& inputs);
+      const KernelArgumentHolder& inputs,
+      const c10::Device& device) const;
 
  private:
   std::unique_ptr<Fusion> fusion_;

@@ -51,9 +51,13 @@ TEST_F(CutlassExecutorTest, SimpleNvfp4ScaledGemm) {
   fusion->addInput(tv5);
   fusion->addInput(tv6);
 
-  auto tv7 = scaled_mm(tv0, tv1, tv2, tv3, tv4, tv5, tv6);
+  // TODO: support more output dtypes, specifically nvfp4
+  auto tv7 = scaled_mm(
+      tv0, tv1, tv2, tv3, tv4, tv5, tv6, /*dtype=*/DataType::BFloat16);
 
   fusion->addOutput(tv7.tv);
+
+  fusion->printMath();
 
   auto scheduler = std::make_unique<CutlassScheduler>();
   EXPECT_TRUE(scheduler->canScheduleCompileTime(fusion.get()));

@@ -265,7 +265,8 @@ void CutlassCompiledKernel::compileWithNVCC() {
        {"-std=c++17",
         "--expt-relaxed-constexpr",
         "--expt-extended-lambda",
-        "-Xcompiler=-fPIC,-Wno-conversion,-fno-strict-aliasing"}) {
+        "-Xcompiler=-fPIC,-Wno-deprecated-declarations,-Wno-conversion,-fno-"
+        "strict-aliasing"}) {
     compile_cmd += " " + arg;
   }
 

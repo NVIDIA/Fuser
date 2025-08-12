@@ -12,6 +12,7 @@
 #include <instrumentation.h>
 #include <ir/all_nodes.h>
 #include <options.h>
+#include <runtime/allocations.h>
 #include <runtime/cutlass_compiled_kernel.h>
 #include <runtime/cutlass_executor.h>
 #include <scheduler/cutlass.h>
@@ -104,9 +105,11 @@ KernelArgumentHolder CutlassExecutor::run(
 
   NVF_CHECK(isCompiled(), "CutlassExecutor must be compiled before running");
 
+  auto device = c10::Device(c10::DeviceType::CUDA, args.getDeviceIndex());
+
   // Allocate outputs if not provided
   if (outputs.empty()) {
-    outputs = allocateOutputs(fusion_.get(), args);
+    outputs = allocateOutputs(fusion_.get(), args, device);
   }
 
   // Create kernel arguments including outputs
@@ -122,26 +125,42 @@ KernelArgumentHolder CutlassExecutor::run(
 
 KernelArgumentHolder CutlassExecutor::allocateOutputs(
     Fusion* fusion,
-    const KernelArgumentHolder& inputs) {
+    const KernelArgumentHolder& inputs,
+    const c10::Device& device) const {
   FUSER_PERF_SCOPE("CutlassExecutor::allocateOutputs");
 
   KernelArgumentHolder outputs;
+
+  ExpressionEvaluator expr_eval = executor_utils::bindInputs(inputs, fusion);
 
   // For each output tensor in the fusion
   for (auto output : fusion->outputs()) {
     if (auto tv = dynamic_cast<TensorView*>(output)) {
       // Create output tensor with appropriate size and dtype
-      // This is simplified - actual implementation would need to
-      // compute output shapes based on the operation and inputs
+      at::ScalarType aten_type = data_type_to_aten(tv->dtype());
 
-      // For now, assume it's a matmul and create MxN output
-      // TODO: Proper output shape inference
-      auto options = at::TensorOptions()
-                         .dtype(data_type_to_aten(tv->dtype()))
-                         .device(at::kCUDA, 0);
+      // Use Byte for reduced precision types for now
+      switch (aten_type) {
+        // case at::ScalarType::Float8_e4m3fn:
+        // case at::ScalarType::Float8_e5m2:
+        // case at::ScalarType::Float8_e8m0fnu:
+        case at::ScalarType::Float4_e2m1fn_x2:
+          aten_type = at::ScalarType::Byte;
+          break;
+        default:
+          break;
+      }
 
-      // Placeholder shape - should be computed from inputs
-      auto output_tensor = at::empty({1024, 1024}, options);
+      auto options = at::TensorOptions().dtype(aten_type).device(device);
+
+      auto alias_info = fusion->getOutputAlias(tv);
+      NVF_ERROR(
+          alias_info.type == AllocationType::New,
+          "Aliased inputs are not yet supported in CUTLASS fusions");
+
+      const auto& [size, stride] = inferShapeOfOutput(tv, expr_eval);
+      at::Tensor output_tensor = at::empty_strided(size, stride, options);
+
       outputs.push(output_tensor);
     }
   }
