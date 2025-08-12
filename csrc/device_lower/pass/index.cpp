@@ -64,7 +64,7 @@ Val* IndexLowering::lowerSrcIndex(
 
 Val* IndexLowering::lowerDstIndex(
     Val* dst,
-    const std::unordered_map<int, Val*>& override_index,
+    const std::unordered_map<IterDomain*, Val*>& override_index,
     bool generate_pointer,
     DataType as_type) const {
   if (auto tv = dynamic_cast<TensorView*>(dst)) {
@@ -356,19 +356,20 @@ void IndexLowering::handle(const GatherOp* top) {
 }
 
 void IndexLowering::handle(const ScatterOp* sop) {
-  auto lowered_index = lowerSrcIndex(sop->indexTv(), sop->output(0));
-  auto lowered_src = lowerSrcIndex(sop->srcTv(), sop->output(0));
+  // At this point, out and self are aliased, so they can be used
+  // interchangeably.
 
-  lowered_index = IrBuilder::maybeCastExpr(DataType::Index, lowered_index);
+  auto lowered_index = lowerSrcIndex(sop->index(), sop->out());
+  auto lowered_src = lowerSrcIndex(sop->src(), sop->out());
 
-  const std::unordered_map<int, Val*> override_index_out = {
-      {sop->dim(), lowered_index}};
-  auto lowered_out = lowerDstIndex(sop->output(0), override_index_out);
+  const std::unordered_map<IterDomain*, Val*> override_index = {
+      {sop->getIndexedID(), lowered_index}};
+  auto lowered_out = lowerDstIndex(sop->out(), override_index);
 
   pushBack(IrBuilder::create<ScatterOp>(
       sop->getScatterOpType(),
-      lowered_out,
-      sop->selfTv(),
+      /*out=*/lowered_out,
+      /*self=*/lowered_out,
       sop->dim(),
       lowered_index,
       lowered_src));

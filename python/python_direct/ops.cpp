@@ -7,6 +7,7 @@
 // clang-format on
 #include <bindings.h>
 #include <ops/all_ops.h>
+#include <ops/arith.h>
 
 namespace nvfuser::python {
 
@@ -24,23 +25,34 @@ namespace {
       DOCSTRING,                                                       \
       py::return_value_policy::reference);
 
-#define NVFUSER_DIRECT_BINDING_BINARY_OP(NAME, OP_NAME, DOCSTRING)             \
-  ops.def(NAME, [](Val* lhs, Val* rhs) -> Val* {                               \
-    return static_cast<Val* (*)(Val*, Val*)>(OP_NAME)(lhs, rhs);               \
-  });                                                                          \
-  ops.def(NAME, [](TensorView* lhs, Val* rhs) -> TensorView* {                 \
-    return static_cast<TensorView* (*)(TensorView*, Val*)>(OP_NAME)(lhs, rhs); \
-  });                                                                          \
-  ops.def(NAME, [](Val* lhs, TensorView* rhs) -> TensorView* {                 \
-    return static_cast<TensorView* (*)(Val*, TensorView*)>(OP_NAME)(lhs, rhs); \
-  });                                                                          \
-  ops.def(                                                                     \
-      NAME,                                                                    \
-      [](TensorView* lhs, TensorView* rhs) -> TensorView* {                    \
-        return static_cast<TensorView* (*)(TensorView*, TensorView*)>(         \
-            OP_NAME)(lhs, rhs);                                                \
-      },                                                                       \
-      DOCSTRING,                                                               \
+#define NVFUSER_DIRECT_BINDING_BINARY_OP(NAME, OP_NAME, DOCSTRING)       \
+  ops.def(                                                               \
+      NAME,                                                              \
+      [](Val* lhs, Val* rhs) -> Val* {                                   \
+        return static_cast<Val* (*)(Val*, Val*)>(OP_NAME)(lhs, rhs);     \
+      },                                                                 \
+      py::return_value_policy::reference);                               \
+  ops.def(                                                               \
+      NAME,                                                              \
+      [](TensorView* lhs, Val* rhs) -> TensorView* {                     \
+        return static_cast<TensorView* (*)(TensorView*, Val*)>(OP_NAME)( \
+            lhs, rhs);                                                   \
+      },                                                                 \
+      py::return_value_policy::reference);                               \
+  ops.def(                                                               \
+      NAME,                                                              \
+      [](Val* lhs, TensorView* rhs) -> TensorView* {                     \
+        return static_cast<TensorView* (*)(Val*, TensorView*)>(OP_NAME)( \
+            lhs, rhs);                                                   \
+      },                                                                 \
+      py::return_value_policy::reference);                               \
+  ops.def(                                                               \
+      NAME,                                                              \
+      [](TensorView* lhs, TensorView* rhs) -> TensorView* {              \
+        return static_cast<TensorView* (*)(TensorView*, TensorView*)>(   \
+            OP_NAME)(lhs, rhs);                                          \
+      },                                                                 \
+      DOCSTRING,                                                         \
       py::return_value_policy::reference);
 
 #define NVFUSER_DIRECT_BINDING_TERNARY_OP(NAME, OP_NAME, DOCSTRING)            \
@@ -198,41 +210,41 @@ namespace {
                                            const std::vector<int64_t>&, \
                                            bool,                        \
                                            DataType)>(OP_NAME)(         \
-            arg, dims, /*keep_dim=*/false, dtype);                      \
+            arg, dims, /*keepdim=*/false, dtype);                       \
       },                                                                \
       py::arg("arg"),                                                   \
       py::arg("dtype") = DataType::Null,                                \
       py::return_value_policy::reference);                              \
   ops.def(                                                              \
       NAME,                                                             \
-      [](TensorView* arg, int dim, bool keep_dim, PrimDataType dtype)   \
+      [](TensorView* arg, int dim, bool keepdim, PrimDataType dtype)    \
           -> TensorView* {                                              \
         return static_cast<TensorView* (*)(TensorView*,                 \
                                            const std::vector<int64_t>&, \
                                            bool,                        \
                                            DataType)>(OP_NAME)(         \
-            arg, {dim}, keep_dim, dtype);                               \
+            arg, {dim}, keepdim, dtype);                                \
       },                                                                \
       py::arg("arg"),                                                   \
       py::arg("dim"),                                                   \
-      py::arg("keep_dim") = false,                                      \
+      py::arg("keepdim") = false,                                       \
       py::arg("dtype") = DataType::Null,                                \
       py::return_value_policy::reference);                              \
   ops.def(                                                              \
       NAME,                                                             \
       [](TensorView* arg,                                               \
          const std::vector<int64_t>& dims,                              \
-         bool keep_dim,                                                 \
+         bool keepdim,                                                  \
          PrimDataType dtype) -> TensorView* {                           \
         return static_cast<TensorView* (*)(TensorView*,                 \
                                            const std::vector<int64_t>&, \
                                            bool,                        \
                                            DataType)>(OP_NAME)(         \
-            arg, dims, keep_dim, dtype);                                \
+            arg, dims, keepdim, dtype);                                 \
       },                                                                \
       py::arg("arg"),                                                   \
       py::arg("dims"),                                                  \
-      py::arg("keep_dim") = false,                                      \
+      py::arg("keepdim") = false,                                       \
       py::arg("dtype") = DataType::Null,                                \
       DOCSTRING,                                                        \
       py::return_value_policy::reference);
@@ -240,14 +252,11 @@ namespace {
 #define NVFUSER_DIRECT_BINDING_SCAN_OP(NAME, OP_NAME, OP_TYPE, DOCSTRING) \
   ops.def(                                                                \
       NAME,                                                               \
-      [](TensorView* arg,                                                 \
-         int dim,                                                         \
-         std::optional<Val*> init = std::nullopt) -> TensorView* {        \
+      [](TensorView* arg, int dim, Val* init) -> TensorView* {            \
         BinaryOpType op_type = OP_TYPE;                                   \
-        Val* init_val = init.has_value() ? init.value() : nullptr;        \
         return static_cast<                                               \
             TensorView* (*)(TensorView*, int64_t, BinaryOpType, Val*)>(   \
-            OP_NAME)(arg, dim, op_type, init_val);                        \
+            OP_NAME)(arg, dim, op_type, init);                            \
       },                                                                  \
       py::arg("arg"),                                                     \
       py::arg("dim"),                                                     \
@@ -1071,10 +1080,10 @@ Returns
 Val or TensorView
     The sum of the inputs.
 )")
-      NVFUSER_DIRECT_BINDING_BINARY_OP(
-          "atan2",
-          atan2,
-          R"(
+  NVFUSER_DIRECT_BINDING_BINARY_OP(
+      "atan2",
+      atan2,
+      R"(
 Element-wise arctangent of lhs/rhs choosing the quadrant.
 
 Parameters
@@ -1087,10 +1096,10 @@ Returns
 Val or TensorView
     The angles in radians between the positive x-axis and a line to the (x, y) point.
 )")
-          NVFUSER_DIRECT_BINDING_BINARY_OP(
-              "div",
-              div,
-              R"(
+  NVFUSER_DIRECT_BINDING_BINARY_OP(
+      "div",
+      div,
+      R"(
 Element-wise division.
 
 Parameters
@@ -1103,10 +1112,10 @@ Returns
 Val or TensorView
     The quotient of the division, truncated towards zero as per C++'s operator /.
 )")
-              NVFUSER_DIRECT_BINDING_BINARY_OP(
-                  "truediv",
-                  truediv,
-                  R"(
+  NVFUSER_DIRECT_BINDING_BINARY_OP(
+      "truediv",
+      truediv,
+      R"(
 Element-wise true (floating point) division.
 
 Parameters
@@ -1119,10 +1128,10 @@ Returns
 Val or TensorView
     The floating point quotient.
 )")
-                  NVFUSER_DIRECT_BINDING_BINARY_OP(
-                      "fmod",
-                      fmod,
-                      R"(
+  NVFUSER_DIRECT_BINDING_BINARY_OP(
+      "fmod",
+      fmod,
+      R"(
 Element-wise floating-point mod.
 
 Parameters
@@ -1135,10 +1144,10 @@ Returns
 Val or TensorView
     The floating-point mod.
 )")
-                      NVFUSER_DIRECT_BINDING_BINARY_OP(
-                          "mul",
-                          mul,
-                          R"(
+  NVFUSER_DIRECT_BINDING_BINARY_OP(
+      "mul",
+      mul,
+      R"(
 Element-wise multiplication.
 
 Parameters
@@ -1151,10 +1160,10 @@ Returns
 Val or TensorView
     The product of the inputs.
 )")
-                          NVFUSER_DIRECT_BINDING_BINARY_OP(
-                              "nextafter",
-                              nextafter,
-                              R"(
+  NVFUSER_DIRECT_BINDING_BINARY_OP(
+      "nextafter",
+      nextafter,
+      R"(
 Return the next floating-point value after lhs towards rhs.
 
 Parameters
@@ -1167,10 +1176,10 @@ Returns
 Val or TensorView
     The next representable values after lhs in the direction of rhs.
 )")
-                              NVFUSER_DIRECT_BINDING_BINARY_OP(
-                                  "pow",
-                                  pow,
-                                  R"(
+  NVFUSER_DIRECT_BINDING_BINARY_OP(
+      "pow",
+      pow,
+      R"(
 Element-wise power function.
 
 Parameters
@@ -1183,10 +1192,10 @@ Returns
 Val or TensorView
     The bases raised to the exponents.
 )")
-                                  NVFUSER_DIRECT_BINDING_BINARY_OP(
-                                      "remainder",
-                                      remainder,
-                                      R"(
+  NVFUSER_DIRECT_BINDING_BINARY_OP(
+      "remainder",
+      remainder,
+      R"(
 Element-wise IEEE remainder.
 
 Parameters
@@ -1198,9 +1207,11 @@ Returns
 -------
 Val or TensorView
     The IEEE remainder of the division.
-)") NVFUSER_DIRECT_BINDING_BINARY_OP("sub",
-                                     sub,
-                                     R"(
+)")
+  NVFUSER_DIRECT_BINDING_BINARY_OP(
+      "sub",
+      sub,
+      R"(
 Element-wise subtraction.
 
 Parameters
@@ -1212,9 +1223,11 @@ Returns
 -------
 Val or TensorView
     The difference of the inputs.
-)") NVFUSER_DIRECT_BINDING_BINARY_OP("minimum",
-                                     minimum,
-                                     R"(
+)")
+  NVFUSER_DIRECT_BINDING_BINARY_OP(
+      "minimum",
+      minimum,
+      R"(
 Element-wise minimum.
 
 Parameters
@@ -1226,9 +1239,11 @@ Returns
 -------
 Val or TensorView
     The smaller of each pair of elements.
-)") NVFUSER_DIRECT_BINDING_BINARY_OP("maximum",
-                                     maximum,
-                                     R"(
+)")
+  NVFUSER_DIRECT_BINDING_BINARY_OP(
+      "maximum",
+      maximum,
+      R"(
 Element-wise maximum.
 
 Parameters
@@ -1240,9 +1255,11 @@ Returns
 -------
 Val or TensorView
     The larger of each pair of elements.
-)") NVFUSER_DIRECT_BINDING_BINARY_OP("mod",
-                                     mod,
-                                     R"(
+)")
+  NVFUSER_DIRECT_BINDING_BINARY_OP(
+      "mod",
+      mod,
+      R"(
 Element-wise modulo operation.
 
 Parameters
@@ -1254,9 +1271,11 @@ Returns
 -------
 Val or TensorView
     The remainder after division.
-)") NVFUSER_DIRECT_BINDING_BINARY_OP("eq",
-                                     eq,
-                                     R"(
+)")
+  NVFUSER_DIRECT_BINDING_BINARY_OP(
+      "eq",
+      eq,
+      R"(
 Element-wise equality comparison.
 
 Parameters
@@ -1268,9 +1287,11 @@ Returns
 -------
 Val or TensorView
     True where elements are equal, False otherwise.
-)") NVFUSER_DIRECT_BINDING_BINARY_OP("ge",
-                                     ge,
-                                     R"(
+)")
+  NVFUSER_DIRECT_BINDING_BINARY_OP(
+      "ge",
+      ge,
+      R"(
 Element-wise greater than or equal comparison.
 
 Parameters
@@ -1282,9 +1303,11 @@ Returns
 -------
 Val or TensorView
     True where lhs >= rhs, False otherwise.
-)") NVFUSER_DIRECT_BINDING_BINARY_OP("gt",
-                                     gt,
-                                     R"(
+)")
+  NVFUSER_DIRECT_BINDING_BINARY_OP(
+      "gt",
+      gt,
+      R"(
 Element-wise greater than comparison.
 
 Parameters
@@ -1296,9 +1319,11 @@ Returns
 -------
 Val or TensorView
     True where lhs > rhs, False otherwise.
-)") NVFUSER_DIRECT_BINDING_BINARY_OP("le",
-                                     le,
-                                     R"(
+)")
+  NVFUSER_DIRECT_BINDING_BINARY_OP(
+      "le",
+      le,
+      R"(
 Element-wise less than or equal comparison.
 
 Parameters
@@ -1310,9 +1335,11 @@ Returns
 -------
 Val or TensorView
     True where lhs <= rhs, False otherwise.
-)") NVFUSER_DIRECT_BINDING_BINARY_OP("lt",
-                                     lt,
-                                     R"(
+)")
+  NVFUSER_DIRECT_BINDING_BINARY_OP(
+      "lt",
+      lt,
+      R"(
 Element-wise less than comparison.
 
 Parameters
@@ -1324,9 +1351,11 @@ Returns
 -------
 Val or TensorView
     True where lhs < rhs, False otherwise.
-)") NVFUSER_DIRECT_BINDING_BINARY_OP("ne",
-                                     ne,
-                                     R"(
+)")
+  NVFUSER_DIRECT_BINDING_BINARY_OP(
+      "ne",
+      ne,
+      R"(
 Element-wise not equal comparison.
 
 Parameters
@@ -1338,9 +1367,11 @@ Returns
 -------
 Val or TensorView
     True where elements are not equal, False otherwise.
-)") NVFUSER_DIRECT_BINDING_BINARY_OP("logical_and",
-                                     logical_and,
-                                     R"(
+)")
+  NVFUSER_DIRECT_BINDING_BINARY_OP(
+      "logical_and",
+      logical_and,
+      R"(
 Element-wise logical AND.
 
 Parameters
@@ -1352,9 +1383,11 @@ Returns
 -------
 Val or TensorView
     True where both inputs are True, False otherwise.
-)") NVFUSER_DIRECT_BINDING_BINARY_OP("logical_or",
-                                     logical_or,
-                                     R"(
+)")
+  NVFUSER_DIRECT_BINDING_BINARY_OP(
+      "logical_or",
+      logical_or,
+      R"(
 Element-wise logical OR.
 
 Parameters
@@ -1366,9 +1399,11 @@ Returns
 -------
 Val or TensorView
     True where either input is True, False otherwise.
-)") NVFUSER_DIRECT_BINDING_BINARY_OP("bitwise_and",
-                                     bitwise_and,
-                                     R"(
+)")
+  NVFUSER_DIRECT_BINDING_BINARY_OP(
+      "bitwise_and",
+      bitwise_and,
+      R"(
 Element-wise bitwise AND.
 
 Parameters
@@ -1380,9 +1415,11 @@ Returns
 -------
 Val or TensorView
     Bitwise AND of the inputs.
-)") NVFUSER_DIRECT_BINDING_BINARY_OP("bitwise_or",
-                                     bitwise_or,
-                                     R"(
+)")
+  NVFUSER_DIRECT_BINDING_BINARY_OP(
+      "bitwise_or",
+      bitwise_or,
+      R"(
 Element-wise bitwise OR.
 
 Parameters
@@ -1394,9 +1431,11 @@ Returns
 -------
 Val or TensorView
     Bitwise OR of the inputs.
-)") NVFUSER_DIRECT_BINDING_BINARY_OP("bitwise_xor",
-                                     bitwise_xor,
-                                     R"(
+)")
+  NVFUSER_DIRECT_BINDING_BINARY_OP(
+      "bitwise_xor",
+      bitwise_xor,
+      R"(
 Element-wise bitwise XOR.
 
 Parameters
@@ -1408,9 +1447,11 @@ Returns
 -------
 Val or TensorView
     Bitwise XOR of the inputs.
-)") NVFUSER_DIRECT_BINDING_BINARY_OP("bitwise_left_shift",
-                                     bitwise_left_shift,
-                                     R"(
+)")
+  NVFUSER_DIRECT_BINDING_BINARY_OP(
+      "bitwise_left_shift",
+      bitwise_left_shift,
+      R"(
 Element-wise bitwise left shift.
 
 Parameters
@@ -1422,9 +1463,11 @@ Returns
 -------
 Val or TensorView
     Values shifted left by specified amounts.
-)") NVFUSER_DIRECT_BINDING_BINARY_OP("bitwise_right_shift",
-                                     bitwise_right_shift,
-                                     R"(
+)")
+  NVFUSER_DIRECT_BINDING_BINARY_OP(
+      "bitwise_right_shift",
+      bitwise_right_shift,
+      R"(
 Element-wise bitwise right shift.
 
 Parameters
@@ -1436,9 +1479,11 @@ Returns
 -------
 Val or TensorView
     Values shifted right by specified amounts.
-)") NVFUSER_DIRECT_BINDING_BINARY_OP("logical_right_shift",
-                                     logical_right_shift,
-                                     R"(
+)")
+  NVFUSER_DIRECT_BINDING_BINARY_OP(
+      "logical_right_shift",
+      logical_right_shift,
+      R"(
 Element-wise logical right shift.
 
 Parameters
@@ -1450,9 +1495,11 @@ Returns
 -------
 Val or TensorView
     Values logically shifted right by specified amounts.
-)") NVFUSER_DIRECT_BINDING_BINARY_OP("gcd",
-                                     gcd,
-                                     R"(
+)")
+  NVFUSER_DIRECT_BINDING_BINARY_OP(
+      "gcd",
+      gcd,
+      R"(
 Element-wise greatest common divisor.
 
 Parameters
@@ -1465,6 +1512,30 @@ Returns
 Val or TensorView
     Greatest common divisor of each pair of elements.
 )")
+  // complex does not support (TV, Val) and (Val, TV) argument combinations.
+  ops.def("complex", [](Val* lhs, Val* rhs) -> Val* {
+    return static_cast<Val* (*)(Val*, Val*)>(complex)(lhs, rhs);
+  });
+  ops.def(
+      "complex",
+      [](TensorView* lhs, TensorView* rhs) -> TensorView* {
+        return static_cast<TensorView* (*)(TensorView*, TensorView*)>(complex)(
+            lhs, rhs);
+      },
+      R"(
+Create a complex number from real and imaginary parts.
+
+Parameters
+----------
+real : Val or TensorView
+imag : Val or TensorView
+
+Returns
+-------
+Val or TensorView
+    A complex number.
+)",
+      py::return_value_policy::reference);
 };
 
 void bindTernaryOps(py::module_& ops) {
@@ -1559,7 +1630,7 @@ arg : TensorView
     Input tensor to reduce.
 dim : int, optional
     Dimension to reduce over. If not specified, reduces over all dimensions.
-keep_dim : bool, optional
+keepdim : bool, optional
     Whether to keep the reduced dimensions with size 1. Default is False.
 dtype : PrimDataType, optional
     This argument is not used for max.
@@ -1581,7 +1652,7 @@ arg : TensorView
     Input tensor to reduce.
 dim : int, optional
     Dimension to reduce over. If not specified, reduces over all dimensions.
-keep_dim : bool, optional
+keepdim : bool, optional
     Whether to keep the reduced dimensions with size 1. Default is False.
 dtype : PrimDataType, optional
     This argument is not used for min.
@@ -1603,7 +1674,7 @@ arg : TensorView
     Input tensor to reduce.
 dim : int, optional
     Dimension to reduce over. If not specified, reduces over all dimensions.
-keep_dim : bool, optional
+keepdim : bool, optional
     Whether to keep the reduced dimensions with size 1. Default is False.
 dtype : PrimDataType, optional
     The data type to cast the arg to before computation. If the dtype argument
@@ -1627,7 +1698,7 @@ arg : TensorView
     Input tensor to reduce.
 dim : int, optional
     Dimension to reduce over. If not specified, reduces over all dimensions.
-keep_dim : bool, optional
+keepdim : bool, optional
     Whether to keep the reduced dimensions with size 1. Default is False.
 dtype : PrimDataType, optional
     The data type to cast the arg to before computation. If the dtype argument
@@ -1639,6 +1710,39 @@ Returns
 TensorView
     A new tensor containing the sum of elements along the specified dimensions.
 )")
+  ops.def(
+      "var_mean",
+      [](TensorView* arg,
+         const std::vector<int64_t>& dims,
+         int64_t correction,
+         bool keepdim) -> std::tuple<TensorView*, TensorView*> {
+        VarMeanResult output = variance_mean(arg, dims, correction, keepdim);
+        return std::make_tuple(output.var, output.mean);
+      },
+      py::arg("arg"),
+      py::arg("dims"),
+      py::arg("correction") = 1,
+      py::arg("keepdim") = false,
+      R"(
+Reduce a tensor by computing the mean and variance along specified dimensions.
+
+Parameters
+----------
+arg : TensorView
+    Input tensor to reduce.
+dims : list or tuple
+    Dimensions to reduce over.
+correction : int, optional
+    The correction factor to apply to the variance. Default is 1.
+keepdim : bool, optional
+    Whether to keep the reduced dimensions with size 1. Default is False.
+
+Returns
+-------
+tuple
+    A tuple containing the variance and mean along the specified dimensions.
+)",
+      py::return_value_policy::reference);
   ops.def(
       "welford",
       [](TensorView* arg, const std::vector<int64_t>& dims) -> decltype(auto) {
@@ -1804,16 +1908,14 @@ TensorView
       py::return_value_policy::reference);
   ops.def(
       "linear",
-      [](TensorView* arg1,
-         TensorView* arg2,
-         std::optional<TensorView*> bias = std::nullopt) -> TensorView* {
+      [](TensorView* arg1, TensorView* arg2, TensorView* bias) -> TensorView* {
         return static_cast<
             TensorView* (*)(TensorView*, TensorView*, TensorView*)>(linear)(
-            arg1, arg2, bias.has_value() ? bias.value() : nullptr);
+            arg1, arg2, bias);
       },
       py::arg("arg1"),
       py::arg("arg2"),
-      py::arg("bias") = std::nullopt,
+      py::arg("bias").none(true) = py::none(),
       R"(
 Applies an affine linear transformation to the incoming data:
 output = arg1 @ transpose(arg2) + bias.
@@ -2491,20 +2593,13 @@ list of Val
 }
 
 template <class ShapeType>
-TensorView* pad_fn(
-    TensorView* arg,
-    ShapeType generic_pad_widths,
-    std::optional<Val*> value) {
+TensorView* pad_fn(TensorView* arg, ShapeType generic_pad_widths, Val* value) {
   std::vector<Val*> pad_widths =
       SequenceAsVector(generic_pad_widths, /*shape_check=*/false);
   NVF_CHECK(
       (int64_t)pad_widths.size() <= 2 * arg->nDims(),
       "Number of pad widths must be at most twice the input dimension");
-  if (value.has_value()) {
-    return pad(arg, pad_widths, value.value());
-  } else {
-    return pad(arg, pad_widths);
-  }
+  return pad(arg, pad_widths, value);
 }
 
 void bindIndexingOps(py::module_& ops) {
@@ -2659,14 +2754,14 @@ TensorView
       pad_fn<py::list>,
       py::arg("arg"),
       py::arg("pad_widths"),
-      py::arg("value") = py::none(),
+      py::arg("value").none(true) = py::none(),
       py::return_value_policy::reference);
   ops.def(
       "pad",
       pad_fn<py::tuple>,
       py::arg("arg"),
       py::arg("pad_widths"),
-      py::arg("value") = py::none(),
+      py::arg("value").none(true) = py::none(),
       R"(
 Pad a tensor.
 
@@ -2696,6 +2791,74 @@ TensorView
       py::arg("tensors"),
       py::arg("dim") = 0,
       py::arg("manual_padding") = false,
+      py::return_value_policy::reference);
+  ops.def(
+      "embedding_fwd",
+      [](TensorView* input,
+         TensorView* weight,
+         Val* padding_idx,
+         Val* max_norm,
+         Val* norm_type,
+         Val* scale_grad_by_freq,
+         Val* sparse) -> decltype(auto) {
+        return embedding_fwd(
+            input,
+            weight,
+            padding_idx,
+            max_norm,
+            norm_type,
+            scale_grad_by_freq,
+            sparse);
+      },
+      py::arg("input"),
+      py::arg("weight"),
+      py::arg("padding_idx").none(true) = py::none(),
+      py::arg("max_norm").none(true) = py::none(),
+      py::arg("norm_type").none(true) = py::none(),
+      py::arg("scale_grad_by_freq").none(true) = py::none(),
+      py::arg("sparse").none(true) = py::none(),
+      R"(
+Forward pass for embedding layers that maps integer indices to vectors.
+
+This function performs the forward pass of an embedding layer, which converts
+integer indices into dense vector representations by looking up the corresponding
+rows in the weight matrix.
+
+Parameters
+----------
+input : TensorView
+    A 1D tensor containing integer indices to be embedded. Each element should
+    be a valid index into the weight matrix.
+weight : TensorView
+    A 2D tensor representing the embedding matrix. Shape should be (num_embeddings, embedding_dim).
+padding_idx : Val, optional
+    If specified, the embedding vector at this index will be filled with zeros.
+    Default is None (no padding).
+max_norm : Val, optional
+    If specified, each embedding vector will be normalized to have a maximum norm
+    of this value. Default is None (no normalization).
+norm_type : Val, optional
+    The p of the p-norm to use for normalization. Default is 2.0 (L2 norm).
+scale_grad_by_freq : Val, optional
+    If True, scale gradients by the inverse frequency of the indices in the batch.
+    Default is False.
+sparse : Val, optional
+    If True, only update the gradients for the indices that appear in the batch.
+    Default is False.
+
+Returns
+-------
+TensorView
+    A tensor with shape (input_shape + [embedding_dim]) containing the embedded
+    vectors corresponding to the input indices.
+
+Notes
+-----
+- The input tensor must be at least 1D.
+- The weight tensor must be exactly 2D.
+- All optional parameters must be scalar values when provided.
+- This operation is equivalent to PyTorch's torch.nn.functional.embedding.
+)",
       py::return_value_policy::reference);
 }
 
@@ -2872,6 +3035,200 @@ tuple[TensorView, TensorView, TensorView, TensorView]
     A tuple of (output, log_sumexp, philox_seed, philox_offset).
       )",
       py::return_value_policy::reference);
+  ops.def(
+      "sdpfa_bwd",
+      [](TensorView* grad_output,
+         TensorView* query,
+         TensorView* key,
+         TensorView* value,
+         TensorView* output,
+         TensorView* log_sumexp,
+         Val* dropout_p,
+         Val* is_causal,
+         TensorView* philox_seed,
+         TensorView* philox_offset,
+         Val* scale) -> decltype(auto) {
+        auto [grad_query, grad_key, grad_value] = sdpfa_bwd(
+            grad_output,
+            query,
+            key,
+            value,
+            output,
+            log_sumexp,
+            dropout_p,
+            is_causal,
+            philox_seed,
+            philox_offset,
+            scale);
+        return std::make_tuple(grad_query, grad_key, grad_value);
+      },
+      py::arg("grad_output"),
+      py::arg("query"),
+      py::arg("key"),
+      py::arg("value"),
+      py::arg("output"),
+      py::arg("log_sumexp"),
+      py::arg("dropout_p"),
+      py::arg("is_causal"),
+      py::arg("philox_seed"),
+      py::arg("philox_offset"),
+      py::arg("scale"),
+      R"(
+Scaled Dot Product Flash Attention Backward.
+
+Parameters
+----------
+grad_output : TensorView
+    The gradient of the output.
+query : TensorView
+    The query tensor.
+key : TensorView
+    The key tensor.
+value : TensorView
+    The value tensor.
+output : TensorView
+    The output tensor.
+log_sumexp : TensorView
+    The log of the sum of the exponential of the key.
+dropout_p : Val, optional
+    The dropout probability.
+is_causal : Val, optional
+    Whether the attention is causal.
+philox_seed : TensorView
+    The seed for the philox random number generator.
+philox_offset : TensorView
+    The offset for the philox random number generator.
+scale : Val, optional
+    The scale of the attention.
+
+Returns
+-------
+tuple[TensorView, TensorView, TensorView]
+    A tuple of (grad_query, grad_key, grad_value).
+      )",
+      py::return_value_policy::reference);
+}
+
+template <
+    class ShapeType,
+    TensorView* (*RandomFuncWithSeed)(
+        const std::vector<Val*>&,
+        Val*,
+        Val*,
+        DataType,
+        Val*,
+        Val*,
+        bool)>
+TensorView* random_dist_op_fn(
+    Val* arg1,
+    Val* arg2,
+    ShapeType generic_new_shape,
+    Val* rng_seed,
+    Val* rng_offset,
+    PrimDataType dtype) {
+  NVF_CHECK(
+      !((rng_seed == nullptr) ^ (rng_offset == nullptr)),
+      "rng_seed and rng_offset must be provided together!");
+  std::vector<Val*> new_shape = SequenceAsVector(generic_new_shape);
+  return RandomFuncWithSeed(
+      new_shape,
+      arg1,
+      arg2,
+      dtype,
+      rng_seed,
+      rng_offset,
+      /*maybe_symbolic=*/true);
+}
+
+void bindRandomOps(py::module_& ops) {
+  ops.def(
+      "normal",
+      random_dist_op_fn<py::list, normal>,
+      py::arg("mean"),
+      py::arg("std"),
+      py::arg("shape"),
+      py::kw_only(),
+      py::arg("rng_seed").none(true) = py::none(),
+      py::arg("rng_offset").none(true) = py::none(),
+      py::arg("dtype") = DataType::Float,
+      py::return_value_policy::reference);
+  ops.def(
+      "normal",
+      random_dist_op_fn<py::tuple, normal>,
+      py::arg("mean"),
+      py::arg("std"),
+      py::arg("shape"),
+      py::kw_only(),
+      py::arg("rng_seed").none(true) = py::none(),
+      py::arg("rng_offset").none(true) = py::none(),
+      py::arg("dtype") = DataType::Float,
+      R"(
+Create a tensor with normal distribution.
+Parameters
+----------
+mean : Val
+    The mean of the normal distribution.
+std : Val
+    The standard deviation of the normal distribution.
+shape : list or tuple
+    The shape of the tensor.
+rng_seed : Val, optional
+    The seed for the random number generator.
+rng_offset : Val, optional
+    The offset for the random number generator.
+dtype : PrimDataType, optional
+    The data type of the tensor.
+
+Returns
+-------
+TensorView
+The tensor with normal distribution.
+      )",
+      py::return_value_policy::reference);
+  ops.def(
+      "uniform",
+      random_dist_op_fn<py::list, uniform>,
+      py::arg("minval"),
+      py::arg("maxval"),
+      py::arg("shape"),
+      py::kw_only(),
+      py::arg("rng_seed").none(true) = py::none(),
+      py::arg("rng_offset").none(true) = py::none(),
+      py::arg("dtype") = DataType::Float,
+      py::return_value_policy::reference);
+  ops.def(
+      "uniform",
+      random_dist_op_fn<py::tuple, uniform>,
+      py::arg("minval"),
+      py::arg("maxval"),
+      py::arg("shape"),
+      py::kw_only(),
+      py::arg("rng_seed").none(true) = py::none(),
+      py::arg("rng_offset").none(true) = py::none(),
+      py::arg("dtype") = DataType::Float,
+      R"(
+Create a tensor with uniform distribution.
+Parameters
+----------
+minval : Val
+    The minimum value of the uniform distribution.
+maxval : Val
+    The maximum value of the uniform distribution.
+shape : list or tuple
+    The shape of the tensor.
+rng_seed : Val, optional
+    The seed for the random number generator.
+rng_offset : Val, optional
+    The offset for the random number generator.
+dtype : PrimDataType, optional
+    The data type of the tensor.
+
+Returns
+-------
+TensorView
+The tensor with normal distribution.
+      )",
+      py::return_value_policy::reference);
 }
 
 } // namespace
@@ -2892,6 +3249,7 @@ void bindOperations(py::module& nvfuser) {
   bindTensorFactoryOps(nvf_ops);
   bindSearchOps(nvf_ops);
   bindSdpaOps(nvf_ops);
+  bindRandomOps(nvf_ops);
 }
 
 } // namespace nvfuser::python
