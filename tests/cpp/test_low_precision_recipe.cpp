@@ -168,6 +168,76 @@ TEST_P(NVFP4QuantizeTest, WithoutPerTensorAmax) {
           HeuristicIs(SchedulerType::InnerPersistent)));
 }
 
+TEST_P(NVFP4QuantizeTest, SwizzledOuputAndWithoutPerTensorAmax) {
+  auto data_hp_dtype = GetParam();
+
+  std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  auto tv_data_hp = makeContigTensor(2, data_hp_dtype);
+  fusion->addInput(tv_data_hp);
+
+  auto tv_data_hp_reshaped =
+      reshape(tv_data_hp, [](auto& x) { x.split(-1, block_size); });
+
+  auto tv_data_hp_abs = abs(tv_data_hp_reshaped);
+  auto tv_data_hp_amax = max(tv_data_hp_abs, {-1});
+  // These scales are currently in fp32, we are going to `quantize` them to e4m3
+  // Note: in the torchao implementation, tv_block_scale is bf16 if the input is
+  // bf16 But in our case, tv_block_scale is always fp32, regardless of the
+  // input dtype.
+  auto tv_block_scale = div(
+      tv_data_hp_amax, IrBuilder::create<Val>(F4_E2M1_MAX, DataType::Float));
+  auto tv_block_scale_clamp = clamp(
+      tv_block_scale,
+      IrBuilder::create<Val>(E4M3_EPS, DataType::Float),
+      IrBuilder::create<Val>(F8E4M3_MAX, DataType::Float));
+  auto tv_block_scale_fp8 =
+      castOp(DataType::Float8_e4m3fn, tv_block_scale_clamp);
+  // TODO: should we just use auto tv_block_scale_fp32 = tv_block_scale_clamp?
+  auto tv_block_scale_fp32 = castOp(DataType::Float, tv_block_scale_fp8);
+  auto tv_block_scale_fp32_unsqueeze = unsqueeze(tv_block_scale_fp32, -1);
+  auto tv_data_scaled = div(tv_data_hp_reshaped, tv_block_scale_fp32_unsqueeze);
+  auto tv_data_scaled_clamp = clamp(
+      tv_data_scaled,
+      IrBuilder::create<Val>(-F4_E2M1_MAX, DataType::Float),
+      IrBuilder::create<Val>(F4_E2M1_MAX, DataType::Float));
+
+  auto tv_data_lp_fp4 = castOp(DataType::Float4_e2m1fn, tv_data_scaled_clamp);
+  auto tv_data_lp = reshape(tv_data_lp_fp4, [](auto& x) { x.merge(-2); });
+
+  fusion->addOutput(tv_block_scale_fp8);
+  fusion->addOutput(tv_data_lp);
+
+  tv_block_scale_fp8->split(0, 128);
+  // m/128, 128, k
+  tv_block_scale_fp8->split(1, 32);
+  // m/128, 4(m_o), 32(m_i), k
+  tv_block_scale_fp8->split(3, 4);
+  // m/128, 4(m_o), 32(m_i), k/4, 4(k)
+  std::vector<IterDomain*> tv_block_scale_fp8_alloc{
+      tv_block_scale_fp8->axis(0),
+      tv_block_scale_fp8->axis(3),
+      tv_block_scale_fp8->axis(2),
+      tv_block_scale_fp8->axis(1),
+      tv_block_scale_fp8->axis(4)};
+  // m/128, k/4, 32(m_i), 4(m_o), 4(k)
+  tv_block_scale_fp8->setAllocationDomain(tv_block_scale_fp8_alloc, true);
+
+  // back to a 2D logical domain.
+  tv_block_scale_fp8->merge(0);
+  tv_block_scale_fp8->merge(0);
+  tv_block_scale_fp8->merge(-1);
+
+  FusionExecutorCache fec(std::move(fusion));
+
+  std::vector<at::Tensor> inputs;
+  inputs.push_back(
+      at::randn({1024, 1024}, at::device(at::kCUDA).dtype(at::kFloat))
+          .to(data_type_to_aten(data_hp_dtype)));
+  auto outputs = fec.runFusionWithInputs(inputs);
+}
+
 TEST_P(NVFP4QuantizeTest, WithPerTensorAmax) {
   auto data_hp_dtype = GetParam();
 

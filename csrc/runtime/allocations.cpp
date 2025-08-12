@@ -524,7 +524,7 @@ class BackwardTraverseFromAllocToLogical {
         new_shape.emplace_back(tensor_.size(i));
       }
     }
-    tensor_ = tensor_.view(new_shape);
+    tensor_ = tensor_.reshape(new_shape);
     // update frontier
     if (inner_dim < outer_dim) {
       *inner_it = in;
