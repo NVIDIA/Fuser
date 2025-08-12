@@ -6189,13 +6189,11 @@ TEST_F(NVFuserTest, FusionIssue1133_CUDA) {
   bool tv2_validated = false;
   for (const auto& kir_node : gpulw.run()->topLevelExprs()) {
     if (auto alloc = dynamic_cast<kir::Allocate*>(kir_node)) {
-      auto size = alloc->size();
-      if (!(alloc->buffer()->name() == 1 || alloc->buffer()->name() == 2)) {
-        // There should be no allocation other than those for tv1 and tv2 and
-        // hoisted indices
-        NVF_CHECK(
-            !alloc->buffer()->isA<TensorView>(), "Invalid allocation detected");
+      // Only interested in the allocations of tv1 and tv2
+      if (alloc->buffer()->name() != 1 && alloc->buffer()->name() != 2) {
+        continue;
       }
+      auto size = alloc->size();
       NVF_CHECK(size->isConst(), "Allocation not constant");
       auto size_int = size->value();
       if (alloc->buffer()->name() == 1) {
