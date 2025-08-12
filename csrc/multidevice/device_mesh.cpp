@@ -19,34 +19,23 @@
 
 namespace nvfuser {
 
-DeviceMesh::DeviceMesh() {
-  devices_ = at::empty({0}, at::dtype(at::kLong));
-  validate();
+DeviceMesh::DeviceMesh() : DeviceMesh(at::empty({0}, at::dtype(at::kLong))) {}
+
+DeviceMesh::DeviceMesh(at::Tensor devices) : devices_(devices.to(at::kLong)) {
+  NVF_ERROR_EQ(
+      devices_.numel(),
+      std::get<0>(at::unique_dim(devices_.flatten(), 0)).numel(),
+      "`devices_` contains duplicates: ",
+      devices_);
 }
 
-DeviceMesh::DeviceMesh(at::Tensor devices) {
-  devices_ = devices;
-  validate();
-}
-
-DeviceMesh::DeviceMesh(std::initializer_list<DeviceIdxType> devices) {
-  devices_ = at::tensor(devices);
-  validate();
-}
+DeviceMesh::DeviceMesh(std::initializer_list<DeviceIdxType> devices)
+    : DeviceMesh(at::tensor(devices)) {}
 
 DeviceMesh::DeviceMesh(
     const std::vector<int64_t>& devices,
-    const std::vector<int64_t>& shape) {
-  devices_ = at::tensor(devices).view(shape);
-  validate();
-}
-
-void DeviceMesh::validate() const {
-  NVF_ERROR_EQ(devices_.dtype(), at::kLong);
-  NVF_ERROR_EQ(
-      devices_.numel(),
-      std::get<0>(at::unique_dim(devices_.flatten(), 0)).numel());
-}
+    const std::vector<int64_t>& shape)
+    : DeviceMesh(at::tensor(devices).view(shape)) {}
 
 /*static*/ DeviceMesh DeviceMesh::createForNumDevices(
     const int64_t num_devices) {
@@ -88,7 +77,7 @@ std::ostream& operator<<(std::ostream& out, const DeviceMesh& mesh) {
   return out;
 }
 
-int64_t DeviceMesh::idxOf(const DeviceIdxType device) const {
+int64_t DeviceMesh::linearIndexOf(const DeviceIdxType device) const {
   at::Tensor indices = at::nonzero(devices_.flatten() == device);
   if (indices.numel() == 0) {
     return -1;
@@ -113,10 +102,11 @@ std::vector<T> flattenToVector(at::Tensor t) {
 }
 } // namespace
 
-std::vector<int64_t> DeviceMesh::getIndices(const DeviceIdxType device) const {
+at::Tensor DeviceMesh::multiDimensionalIndexOf(
+    const DeviceIdxType device) const {
   at::Tensor indices = at::nonzero(devices_ == device);
   if (indices.numel() == 0) {
-    return {};
+    return at::Tensor();
   }
 
   NVF_ERROR_EQ(
@@ -129,8 +119,8 @@ std::vector<int64_t> DeviceMesh::getIndices(const DeviceIdxType device) const {
 
   at::Tensor index = indices[0];
   NVF_ERROR_EQ(index.dim(), 1);
-
-  return flattenToVector<int64_t>(index);
+  NVF_ERROR_EQ(index.numel(), rank());
+  return index;
 }
 
 DeviceIdxType DeviceMesh::maxDeviceId() const {
@@ -177,8 +167,8 @@ std::vector<DeviceIdxType> DeviceMesh::getSlice(
       " does not have parallel type ",
       ptype);
 
-  std::vector<int64_t> index = getIndices(deviceId);
-  NVF_ERROR(!index.empty(), "Device ", deviceId, " is not in ", *this);
+  at::Tensor index = multiDimensionalIndexOf(deviceId);
+  NVF_ERROR(index.defined(), "Device ", deviceId, " is not in ", *this);
 
   std::vector<at::indexing::TensorIndex> indices;
   indices.reserve(rank());
@@ -186,7 +176,7 @@ std::vector<DeviceIdxType> DeviceMesh::getSlice(
     if (i == axis) {
       indices.push_back(at::indexing::Slice());
     } else {
-      indices.push_back(index.at(i));
+      indices.push_back(index[i]);
     }
   }
   at::Tensor slice = devices_.index(indices);

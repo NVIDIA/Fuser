@@ -199,6 +199,7 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/device_lower/pass/grid_serialization.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/pass/index.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/pass/inline_ptx.cpp
+  ${NVFUSER_SRCS_DIR}/device_lower/pass/inplace_alias.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/pass/insert_syncs.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/pass/instrument.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/pass/loop_rotation.cpp
@@ -792,19 +793,19 @@ list(APPEND JIT_TEST_SRCS
   ${NVFUSER_ROOT}/tests/cpp/kernel_db/test_nvfuser_kernel_db_open.cpp
   ${NVFUSER_ROOT}/tests/cpp/kernel_db/test_nvfuser_kernel_db_query.cpp
   ${NVFUSER_ROOT}/tests/cpp/kernel_db/test_nvfuser_kernel_db_write.cpp
+  ${NVFUSER_ROOT}/tests/cpp/test_abstract_tensor.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_alias.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_alias_analysis.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_allocation_domain.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_allocation_order_inference.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_bfs.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_ca_root_domain_map.cpp
+  ${NVFUSER_ROOT}/tests/cpp/test_circular_buffering.cpp
+  ${NVFUSER_ROOT}/tests/cpp/test_circular_buffering_ping_pong.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_combined_inner_outer_reduction.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_compute_at_map.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_compute_with.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_contiguity_id_model.cpp
-  ${NVFUSER_ROOT}/tests/cpp/test_circular_buffering.cpp
-  ${NVFUSER_ROOT}/tests/cpp/test_circular_buffering_ping_pong.cpp
-  ${NVFUSER_ROOT}/tests/cpp/test_abstract_tensor.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_driver_api.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_dynamic_transform.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_embedding_node.cpp
@@ -816,14 +817,11 @@ list(APPEND JIT_TEST_SRCS
   ${NVFUSER_ROOT}/tests/cpp/test_gpu1.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_gpu2.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_gpu3.cpp
-  ${NVFUSER_ROOT}/tests/cpp/test_gpu_fused_reduction.cpp
-  ${NVFUSER_ROOT}/tests/cpp/test_gpu_outer_reduction.cpp
-  ${NVFUSER_ROOT}/tests/cpp/test_gpu_transpose.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_id_model.cpp
+  ${NVFUSER_ROOT}/tests/cpp/test_index_put.cpp
+  ${NVFUSER_ROOT}/tests/cpp/test_index_select.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_indexing.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_indexing_advanced.cpp
-  ${NVFUSER_ROOT}/tests/cpp/test_index_select.cpp
-  ${NVFUSER_ROOT}/tests/cpp/test_index_put.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_inlining.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_interval_analysis.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_iter_visitor.cpp
@@ -833,23 +831,25 @@ list(APPEND JIT_TEST_SRCS
   ${NVFUSER_ROOT}/tests/cpp/test_low_precision_recipe.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_mbarrier.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_memory.cpp
-  ${NVFUSER_ROOT}/tests/cpp/test_move_split_cat.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_move_pad.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_move_repeat_forward.cpp
+  ${NVFUSER_ROOT}/tests/cpp/test_move_split_cat.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_mutator.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_no_op.cpp
+  ${NVFUSER_ROOT}/tests/cpp/test_outer_reduction.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_overlap.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_persistent_buffer.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_pointwise.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_polymorphic_value.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_predicate_elimination.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_preseg_passes.cpp
+  ${NVFUSER_ROOT}/tests/cpp/test_reduction.cpp
+  ${NVFUSER_ROOT}/tests/cpp/test_reduction_pointwise.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_remove_bcast_squeeze.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_remove_trivial_ops.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_replay.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_resharding.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_resize.cpp
-  ${NVFUSER_ROOT}/tests/cpp/test_reduction_pointwise.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_rope.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_runtime.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_scalar_hoisting.cpp
@@ -864,9 +864,11 @@ list(APPEND JIT_TEST_SRCS
   ${NVFUSER_ROOT}/tests/cpp/test_swizzle.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_tensor_factories.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_tmem.cpp
+  ${NVFUSER_ROOT}/tests/cpp/test_transpose.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_unary.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_utils.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_vectorization.cpp
+  ${NVFUSER_ROOT}/tests/cpp/test_welford.cpp
 )
 
 if(BUILD_TEST)

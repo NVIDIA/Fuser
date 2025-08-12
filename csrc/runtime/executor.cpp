@@ -530,6 +530,13 @@ std::vector<GlobalBufferInfo> KernelExecutor::getIntermediateBufferInfo(
     if (tv->isFusionOutput()) {
       continue;
     }
+    if (alloc->alias() != nullptr) {
+      // When aliased, no tensor argment is passed to the
+      // kernel. Inside the kernel, the aliasing tensor is defined as
+      // an alias of the aliasee, e.g., "auto& T2 = T4". The validity
+      // of the aliasing should be confirmed at the time of lowering.
+      continue;
+    }
     GlobalBufferInfo info;
     info.tv = tv;
     info.zero_init = alloc->zeroInit();
@@ -1062,9 +1069,9 @@ KernelArgumentHolder KernelExecutor::run(
   }
 
   if (!(executor_entry->launch_params.nThreads() <=
-            compiled_kernel_->blockSizeHighWaterMark() &&
+            compiled_kernel_->blockSizeHighWatermark() &&
         compile_params.maxrregcount ==
-            compiled_kernel_->maxrregcountHighWaterMark())) {
+            compiled_kernel_->maxrregcountHighWatermark())) {
     compiled_kernel_->recompileKernel(
         executor_entry->launch_params, compile_params);
   }
@@ -1326,8 +1333,8 @@ flatbuffers::Offset<serde::KernelExecutor> KernelExecutor::serialize(
   return serde::CreateKernelExecutorDirect(
       builder,
       device_smem_limit_,
-      compiledKernel()->blockSizeHighWaterMark(),
-      compiledKernel()->maxrregcountHighWaterMark(),
+      compiledKernel()->blockSizeHighWatermark(),
+      compiledKernel()->maxrregcountHighWatermark(),
       warp_size_,
       toUnderlying(compiledKernel()->schedulerType()),
       fusion_id_,

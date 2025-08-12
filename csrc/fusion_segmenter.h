@@ -467,6 +467,18 @@ std::ostream& operator<<(
     std::ostream& os,
     const SegmentedFusion* segmented_fusion);
 
+struct RuntimeWorkSpace {
+  //! Pre-determined order to run the segmented groups
+  std::vector<SegmentedGroup*> group_run_order;
+
+  //! Pre-determined order to bind tensor input meta data
+  std::vector<Val*> group_extent_binding_order;
+};
+
+// Perform a topological sort of different groups composiong the Segmented
+// Fusion
+RuntimeWorkSpace prepareRuntimeOrder(const SegmentedFusion& segmented_fusion);
+
 //! This is a base class for segmenter analysis
 //!  provides the minimal implementation on header so that
 //!  a unique_ptr can use this base class
