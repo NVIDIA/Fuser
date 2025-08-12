@@ -94,20 +94,20 @@ echo ""
 check_extension_symbols() {
     local ext_file="$1"
     local ext_name="$2"
-    
+
     echo "=== Checking $ext_name ==="
-    
+
     # Get undefined nvfuser symbols from this extension
     local undefined_file="$TEMP_DIR/${ext_name}_undefined_symbols.txt"
     nm -u "$ext_file" | grep nvfuser | awk '{print $2}' | sort > "$undefined_file"
     local undefined_count=$(wc -l < "$undefined_file")
     echo "Found $undefined_count undefined nvfuser symbols in $ext_name"
-    
+
     # Find missing symbols
     local missing_file="$TEMP_DIR/${ext_name}_missing_symbols.txt"
     comm -23 "$undefined_file" "$TEMP_DIR/exported_symbols.txt" > "$missing_file"
     local missing_count=$(wc -l < "$missing_file")
-    
+
     if [ "$missing_count" -gt 0 ]; then
         echo "ERROR: Found $missing_count missing symbols in $ext_name:"
         echo ""
