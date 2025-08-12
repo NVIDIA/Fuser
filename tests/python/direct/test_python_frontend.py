@@ -35,7 +35,7 @@ def test_basic(nvfuser_direct_test):
 
         fd.add_output(t4)
 
-    # Check that keep_dim argument is not in fd_str
+    # Check that keepdim argument is not in fd_str
     fd_str = """def nvfuser_fusion(fd : FusionDefinition) -> None :
     tv0 = fd.define_tensor(shape=[-1, -1, -1], contiguity=[True, True, True], dtype=DataType.Float, is_cpu=False)
     tv1 = fd.define_tensor(shape=[-1, -1, -1], contiguity=[True, True, True], dtype=DataType.Float, is_cpu=False)
@@ -449,7 +449,7 @@ def test_reshape_dynamic(nvfuser_direct_test):
         S16 = fd.ops.cast(S12, dtype=DataType.Int)
         S17 = fd.ops.sub(S15, S16)
         T19 = fd.ops.reshape(T1, new_shape=[S0, S17])
-        T20 = fd.ops.sum(T19, dims=[1], keep_dim=False, dtype=DataType.Null)
+        T20 = fd.ops.sum(T19, dims=[1], keepdim=False, dtype=DataType.Null)
         fd.add_output(T20)
 
     nvf_out, _ = nvfuser_direct_test.exec_nvfuser(fusion_func, inputs)
@@ -534,7 +534,7 @@ def test_expanded_reduction(nvfuser_direct_test):
                 is_cpu=False,
                 stride_order=[1, 0],
             )
-            T1 = fd.ops.sum(T0, dims=[0], keep_dim=keepdim, dtype=DataType.Null)
+            T1 = fd.ops.sum(T0, dims=[0], keepdim=keepdim, dtype=DataType.Null)
             fd.add_output(T1)
 
         nvf_out, _ = nvfuser_direct_test.exec_nvfuser(fusion_func, inputs)
