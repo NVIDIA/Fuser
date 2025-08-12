@@ -1712,4 +1712,34 @@ TEST_F(CombinedSchedulerTest, AllocationDomainBroadcast) {
   auto outputs = executor_cache.runFusionWithInputs(inputs);
   testValidate(executor_cache.fusion(), outputs, inputs, __LINE__, __FILE__);
 }
+
+TEST_F(CombinedSchedulerTest, ScalarInput) {
+  NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
+  EnableOptionsGuard opt_guard;
+  EnableOptionsGuard::getCurOptions().set(
+      EnableOption::WarpSpecializedNormalization);
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  long x = 4096L, y = 4096L;
+  auto tv1 = makeContigConcreteTensor({x, y});
+  auto tv2 = makeContigTensor(0, DataType::Float);
+  fusion->addInput(tv1);
+  fusion->addInput(tv2);
+  auto tv3 = sum(tv1, {1});
+  auto tv4 = broadcast(tv3, {false, true});
+  auto tv5 = add(tv1, tv4);
+  auto tv6 = add(tv2, tv5);
+  auto tv7 = sum(tv1, {0});
+  fusion->addOutput(tv6);
+  fusion->addOutput(tv7);
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t1 = at::randn({x, y}, options);
+  auto t2 = at::randn({}, options);
+  std::vector<c10::IValue> inputs({t1, t2});
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto outputs = executor_cache.runFusionWithInputs(inputs);
+  testValidate(executor_cache.fusion(), outputs, inputs, __LINE__, __FILE__);
+}
 } // namespace nvfuser
