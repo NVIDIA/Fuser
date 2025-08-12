@@ -305,15 +305,15 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/preseg_passes/translate_no_reduction_matmul_to_mul_squeeze.cpp
   ${NVFUSER_SRCS_DIR}/preseg_passes/translate_repeat_to_expand.cpp
   ${NVFUSER_SRCS_DIR}/rng.cpp
-      ${NVFUSER_SRCS_DIR}/runtime/allocations.cpp
-    ${NVFUSER_SRCS_DIR}/runtime/compiled_kernel.cpp
-    ${NVFUSER_SRCS_DIR}/runtime/cutlass_compiled_kernel.cpp
-    ${NVFUSER_SRCS_DIR}/runtime/cutlass_executor.cpp
-    ${NVFUSER_SRCS_DIR}/runtime/executor.cpp
-    ${NVFUSER_SRCS_DIR}/runtime/executor_dispatch.cpp
-    ${NVFUSER_SRCS_DIR}/runtime/executor_kernel_arg.cpp
-    ${NVFUSER_SRCS_DIR}/runtime/executor_params.cpp
-    ${NVFUSER_SRCS_DIR}/runtime/executor_utils.cpp
+  ${NVFUSER_SRCS_DIR}/runtime/allocations.cpp
+  ${NVFUSER_SRCS_DIR}/runtime/compiled_kernel.cpp
+  ${NVFUSER_SRCS_DIR}/runtime/cutlass_compiled_kernel.cpp
+  ${NVFUSER_SRCS_DIR}/runtime/cutlass_executor.cpp
+  ${NVFUSER_SRCS_DIR}/runtime/executor.cpp
+  ${NVFUSER_SRCS_DIR}/runtime/executor_dispatch.cpp
+  ${NVFUSER_SRCS_DIR}/runtime/executor_kernel_arg.cpp
+  ${NVFUSER_SRCS_DIR}/runtime/executor_params.cpp
+  ${NVFUSER_SRCS_DIR}/runtime/executor_utils.cpp
   ${NVFUSER_SRCS_DIR}/runtime/fusion_cache_utils.cpp
   ${NVFUSER_SRCS_DIR}/runtime/fusion_executor_cache.cpp
   ${NVFUSER_SRCS_DIR}/runtime/fusion_kernel_runtime.cpp
@@ -326,10 +326,10 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/scheduler/matmul_heuristic_plugin.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/matmul_utils.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/mma_utils.cpp
-      ${NVFUSER_SRCS_DIR}/scheduler/no_op.cpp
-    ${NVFUSER_SRCS_DIR}/scheduler/communication.cpp
-    ${NVFUSER_SRCS_DIR}/scheduler/cutlass.cpp
-    ${NVFUSER_SRCS_DIR}/scheduler/normalization_inner.cpp
+  ${NVFUSER_SRCS_DIR}/scheduler/no_op.cpp
+  ${NVFUSER_SRCS_DIR}/scheduler/communication.cpp
+  ${NVFUSER_SRCS_DIR}/scheduler/cutlass.cpp
+  ${NVFUSER_SRCS_DIR}/scheduler/normalization_inner.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/normalization_inner_outer.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/normalization_inner_outer_utils.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/normalization_inner_outer_tma_ws.cpp
