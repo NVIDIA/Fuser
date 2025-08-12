@@ -1480,9 +1480,18 @@ std::unique_ptr<ReductionParams> getReductionHeuristics(
                 reduced_tv,
                 properties.inner_most_dimension_ndims));
       });
+  
+  // `getVectorizationFactor` makes comparisons assuming the break point
+  // is wrt to the logical domain size. Schedulers such as reduction
+  // compute it based on loop domain size, whereas pointwise computes it
+  // based on non-device/non-reduction domain size and accounts for device
+  // dimensions during scheduling.
+  // TODO (priya): We should make this consistent across all schedulers
+  int64_t num_device_dims = numDeviceDims(reduced_tv);
+  int64_t no_device_break_point = vec_break_point.get() - num_device_dims;
 
   const auto vectorize_factor = vectorize_helper::getVectorizationFactor(
-      runtime_info, reduced_tv, data_cache, vec_break_point.get());
+      runtime_info, reduced_tv, data_cache, no_device_break_point);
 
   // Base max dtype and n_tensor_inputs on tensors that are vectorizable (i.e.
   // share inner dimension with data pattern we're looking at).
