@@ -11,6 +11,7 @@
 #include <fusion_profiler.h>
 #include <fusion_segmenter.h>
 #include <host_ir/lower_to_communication.h>
+#include <host_ir/lowering.h>
 #include <host_ir/pass/insert_deallocations.h>
 #include <instrumentation.h>
 #include <ir/base_nodes.h>
@@ -742,34 +743,22 @@ void FusionKernelRuntime::compileKernel(
       heuristic_params->cparams.index_type.has_value(),
       "Kernel index type is not defined.");
 
-  if (hic != nullptr) {
-    auto ke = std::make_unique<KernelExecutor>();
-    ke->setGroupId(group_id);
-    ke->compile(
-        fusion_to_run.get(),
-        args,
-        heuristic_params->lparams,
-        heuristic_params->cparams,
-        heuristic_params->scheduler_type);
-    hic->addKernelExecutor(std::move(ke));
-  } else {
-    // Initialize associated executors
-    executors_[group_id] = ExecutorDispatch::makeExecutor(
-        fusion_to_run.get(),
-        fusion_id_,
-        concrete_id_,
-        runtime_id_,
-        group_id,
-        heuristic_params->scheduler_type);
+  // Initialize associated executors
+  executors_[group_id] = ExecutorDispatch::makeExecutor(
+      fusion_to_run.get(),
+      fusion_id_,
+      concrete_id_,
+      runtime_id_,
+      group_id,
+      heuristic_params->scheduler_type);
 
-    ExecutorDispatch::compile(
-        executors_.at(group_id).get(),
-        fusion_to_run.get(),
-        args,
-        heuristic_params->lparams,
-        heuristic_params->cparams,
-        heuristic_params->scheduler_type);
-  }
+  ExecutorDispatch::compile(
+      executors_.at(group_id).get(),
+      fusion_to_run.get(),
+      args,
+      heuristic_params->lparams,
+      heuristic_params->cparams,
+      heuristic_params->scheduler_type);
 }
 
 const std::vector<std::unique_ptr<HeuristicParams>>& FusionKernelRuntime::

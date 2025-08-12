@@ -40,7 +40,7 @@ void recomputeOutputTvs(Expr* e, IrCloner& ir_cloner) {
 std::unique_ptr<hir::HostIrContainer> lowerSegmentedFusionToHostIr(
     const SegmentedFusion& segmented_fusion,
     const std::vector<SegmentedGroup*>& group_run_order,
-    const std::vector<std::unique_ptr<ExecutorAbstract>>& executors) {
+    std::vector<std::unique_ptr<ExecutorAbstract>>& executors) {
   auto hic = std::make_unique<hir::HostIrContainer>(group_run_order.size());
 
   IrCloner ir_cloner(hic.get());
@@ -104,13 +104,14 @@ std::unique_ptr<hir::HostIrContainer> lowerSegmentedFusionToHostIr(
         for (auto* out : ir_utils::filterByType<TensorView>(group->outputs())) {
           recomputeTv(out, ir_cloner);
         }
-        auto heuristic_params = schedulers().at(group_id).get();
+        std::unique_ptr<KernelExecutor> ke(
+            executors.at(group_id).release()->as<KernelExecutor>());
         auto launch_kernel = IrBuilder::create<hir::LaunchKernel>(
             group_id,
-            heuristic_params->lparams,
-            heuristic_params->cparams,
-            std::vector<Val*>{in_clone},
-            std::vector<Val*>{out_clone},
+            ke->lastLaunchParams(),
+            ke->compiledKernel()->compileParams(),
+            in_clone,
+            out_clone,
             cache_id);
         for (auto* val : out_clone) {
           NVF_ERROR(
@@ -139,6 +140,8 @@ std::unique_ptr<hir::HostIrContainer> lowerSegmentedFusionToHostIr(
   }
 
   hir_pass::InsertDeallocations().runPass(hic.get());
+
+  return hic;
 }
 
 } // namespace nvfuser

@@ -242,6 +242,10 @@ class CompiledKernel : public NonCopyable {
     return device_;
   }
 
+  const CompileParams& compileParams() const {
+    return compile_params_;
+  }
+
  private:
   CompileParams compile_params_;
   // Assuming sm70 or above:

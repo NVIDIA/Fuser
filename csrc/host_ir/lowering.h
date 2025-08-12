@@ -19,6 +19,6 @@ namespace nvfuser {
 std::unique_ptr<hir::HostIrContainer> lowerSegmentedFusionToHostIr(
     const SegmentedFusion& segmented_fusion,
     const std::vector<SegmentedGroup*>& group_run_order,
-    const std::vector<std::unique_ptr<ExecutorAbstract>>& executors);
+    std::vector<std::unique_ptr<ExecutorAbstract>>& executors);
 
 } // namespace nvfuser
