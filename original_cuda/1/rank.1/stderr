@@ -1,0 +1,187 @@
+[W812 13:08:15.557736609 nodes.cpp:5173] Warning: Unroll required but not possible. Register allocation disabled. Loop index: 0, FOR 0 in ideviceIdx.x1022{2}:
+  FOR blockIdx.x in iblockIdx.x1167{( ceilDiv(18432, blockDim.x) )}:
+    FOR threadIdx.x in ithreadIdx.x1168{blockDim.x}:
+      T288_l_float[ideviceIdx.x1055{2}, iblockIdx.x1057{( ceilDiv(18432, blockDim.x) )}, ithreadIdx.x1058{blockDim.x}, rS1063{( ceilDiv(( ceilDiv(2048, blockDim.y) ), 32) )}rf, ithreadIdx.y1060{blockDim.y}rf, rUS1064{1}rf, rS1062{32}rf] ca_pos( 3 ) produce_pos( 7 ) (DeviceMesh{0 1}) = ALLOCATE(buffer=T288_l_float[ideviceIdx.x1055{2}, iblockIdx.x1057{( ceilDiv(18432, blockDim.x) )}, ithreadIdx.x1058{blockDim.x}, rS1063{( ceilDiv(( ceilDiv(2048, blockDim.y) ), 32) )}rf, ithreadIdx.y1060{blockDim.y}rf, rUS1064{1}rf, rS1062{32}rf] ca_pos( 3 ) produce_pos( 7 ) (DeviceMesh{0 1}), mem_type=register, size=1, zero_init=false, resets_to_zero=false)
+      FOR threadIdx.y in ithreadIdx.y1170{blockDim.y}:
+        IF Inline true:
+          T288_l[0] view( T288 )
+             = Set.Permute( float(0), cache_op=Streaming )
+      FOR i420981 in iS1173{( ceilDiv(( ceilDiv(2048, blockDim.y) ), 32) )}:
+        i422001 = ALLOCATE(buffer=i422001, mem_type=register, size=1, zero_init=false, resets_to_zero=false)
+        i422001 = i421999 * i420981;
+        i422013 = ALLOCATE(buffer=i422013, mem_type=register, size=1, zero_init=false, resets_to_zero=false)
+        i422013 = i422012 + i422001;
+        i422592 = ALLOCATE(buffer=i422592, mem_type=register, size=1, zero_init=false, resets_to_zero=false)
+        i422592 = i422591 + i422001;
+        i423166 = ALLOCATE(buffer=i423166, mem_type=register, size=1, zero_init=false, resets_to_zero=false)
+        i423166 = i423165 + i422001;
+        i423781 = ALLOCATE(buffer=i423781, mem_type=register, size=1, zero_init=false, resets_to_zero=false)
+        i423781 = i423780 + i423770;
+        i427199 = ALLOCATE(buffer=i427199, mem_type=register, size=1, zero_init=false, resets_to_zero=false)
+        i427199 = i427197 * i420981;
+        i427618 = ALLOCATE(buffer=i427618, mem_type=register, size=1, zero_init=false, resets_to_zero=false)
+        i427618 = i427604 + i427199;
+        FOR threadIdx.y in ithreadIdx.y1170{blockDim.y}:
+          IF Unswitch ( ( ( ( threadIdx.x + ( blockDim.x * blockIdx.x ) ) < 36864 ) && ( ( threadIdx.x + ( blockDim.x * blockIdx.x ) ) < 18432 ) ) && ( ( ( ( blockDim.y * 31 ) + threadIdx.y ) + ( ( blockDim.y * 32 ) * i420981 ) ) < 2048 ) ):
+            FOR 0 in iUS1174{1}:
+              T285_l___bfloat[ideviceIdx.x901{2}, iblockIdx.x1175{( ceilDiv(18432, blockDim.x) )}, ithreadIdx.x1176{blockDim.x}, iS1181{( ceilDiv(( ceilDiv(2048, blockDim.y) ), 32) )}, ithreadIdx.y1178{blockDim.y}, iUS1182{1}, iS1180{32}] ca_pos( 6 ) produce_pos( 7 ) (DeviceMesh{0 1}) = ALLOCATE(buffer=T285_l___bfloat[ideviceIdx.x901{2}, iblockIdx.x1175{( ceilDiv(18432, blockDim.x) )}, ithreadIdx.x1176{blockDim.x}, iS1181{( ceilDiv(( ceilDiv(2048, blockDim.y) ), 32) )}, ithreadIdx.y1178{blockDim.y}, iUS1182{1}, iS1180{32}] ca_pos( 6 ) produce_pos( 7 ) (DeviceMesh{0 1}), mem_type=register, size=32, zero_init=false, resets_to_zero=false)
+              T287_l___bfloat[ideviceIdx.x1018{2}, iblockIdx.x1159{( ceilDiv(18432, blockDim.x) )}, ithreadIdx.x1160{blockDim.x}, iS1165{( ceilDiv(( ceilDiv(2048, blockDim.y) ), 32) )}, ithreadIdx.y1162{blockDim.y}, iUS1166{1}, iS1164{32}] ca_pos( 6 ) produce_pos( 7 ) (DeviceMesh{0 1}) = ALLOCATE(buffer=T287_l___bfloat[ideviceIdx.x1018{2}, iblockIdx.x1159{( ceilDiv(18432, blockDim.x) )}, ithreadIdx.x1160{blockDim.x}, iS1165{( ceilDiv(( ceilDiv(2048, blockDim.y) ), 32) )}, ithreadIdx.y1162{blockDim.y}, iUS1166{1}, iS1164{32}] ca_pos( 6 ) produce_pos( 7 ) (DeviceMesh{0 1}), mem_type=register, size=32, zero_init=false, resets_to_zero=false)
+              FOR i420967 in iS1164{32}:
+                i422007 = ALLOCATE(buffer=i422007, mem_type=register, size=1, zero_init=false, resets_to_zero=false)
+                i422007 = i422005 * i421607;
+                T139_l___bfloat[ideviceIdx.x1040{2}, iblockIdx.x1135{( ceilDiv(18432, blockDim.x) )}, ithreadIdx.x1136{blockDim.x}, iS1141{( ceilDiv(( ceilDiv(2048, blockDim.y) ), 32) )}, ithreadIdx.y1138{blockDim.y}, iUS1142{1}, iS1140{32}, bS406{1}] ca_pos( 7 ) (DeviceMesh{0 1}) = ALLOCATE(buffer=T139_l___bfloat[ideviceIdx.x1040{2}, iblockIdx.x1135{( ceilDiv(18432, blockDim.x) )}, ithreadIdx.x1136{blockDim.x}, iS1141{( ceilDiv(( ceilDiv(2048, blockDim.y) ), 32) )}, ithreadIdx.y1138{blockDim.y}, iUS1142{1}, iS1140{32}, bS406{1}] ca_pos( 7 ) (DeviceMesh{0 1}), mem_type=register, size=1, zero_init=false, resets_to_zero=false)
+                FOR 0 in bS406{1}:
+                  IF Manual true:
+                    T139_l[0] view( T139 )
+                       = where(b422150
+                      , T138_g[( ( ( ( ( 128 * threadIdx.y ) + ( 262144 * ( ( threadIdx.x + ( blockDim.x * blockIdx.x ) ) / 384 ) ) ) + ( ( threadIdx.x + ( blockDim.x * blockIdx.x ) ) % 384 ) ) + ( ( blockDim.y * 4096 ) * i420981 ) ) + ( ( 128 * blockDim.y ) * ( i420967 + nvfuser_zero ) ) )] view( T138 )
+                      , __bfloat(0));
+                T141_l___bfloat[ideviceIdx.x1028{2}, iblockIdx.x1196{( ceilDiv(18432, blockDim.x) )}, ithreadIdx.x1104{blockDim.x}, iS1109{( ceilDiv(( ceilDiv(2048, blockDim.y) ), 32) )}, ithreadIdx.y1106{blockDim.y}, iUS1110{1}, iS1108{32}, bS416{1}] ca_pos( 7 ) (DeviceMesh{0 1}) = ALLOCATE(buffer=T141_l___bfloat[ideviceIdx.x1028{2}, iblockIdx.x1196{( ceilDiv(18432, blockDim.x) )}, ithreadIdx.x1104{blockDim.x}, iS1109{( ceilDiv(( ceilDiv(2048, blockDim.y) ), 32) )}, ithreadIdx.y1106{blockDim.y}, iUS1110{1}, iS1108{32}, bS416{1}] ca_pos( 7 ) (DeviceMesh{0 1}), mem_type=register, size=1, zero_init=false, resets_to_zero=false)
+                FOR 0 in bS416{1}:
+                  IF Manual true:
+                    T141_l[0] view( T141 )
+                       = where(b422724
+                      , T136_g[( ( ( ( ( -256 + ( 128 * threadIdx.y ) ) + ( 262144 * ( ( threadIdx.x + ( blockDim.x * blockIdx.x ) ) / 384 ) ) ) + ( ( threadIdx.x + ( blockDim.x * blockIdx.x ) ) % 384 ) ) + ( ( blockDim.y * 4096 ) * i420981 ) ) + ( ( 128 * blockDim.y ) * ( i420967 + nvfuser_zero ) ) )] view( T136 )
+                      , __bfloat(0));
+                T140_l___bfloat[ideviceIdx.x1034{2}, iblockIdx.x1195{( ceilDiv(18432, blockDim.x) )}, ithreadIdx.x1120{blockDim.x}, iS1125{( ceilDiv(( ceilDiv(2048, blockDim.y) ), 32) )}, ithreadIdx.y1122{blockDim.y}, iUS1126{1}, iS1124{32}, bS411{1}] ca_pos( 7 ) (DeviceMesh{0 1}) = ALLOCATE(buffer=T140_l___bfloat[ideviceIdx.x1034{2}, iblockIdx.x1195{( ceilDiv(18432, blockDim.x) )}, ithreadIdx.x1120{blockDim.x}, iS1125{( ceilDiv(( ceilDiv(2048, blockDim.y) ), 32) )}, ithreadIdx.y1122{blockDim.y}, iUS1126{1}, iS1124{32}, bS411{1}] ca_pos( 7 ) (DeviceMesh{0 1}), mem_type=register, size=1, zero_init=false, resets_to_zero=false)
+                FOR 0 in bS411{1}:
+                  IF Manual true:
+                    T140_l[0] view( T140 )
+                       = where(b423340
+                      , T137_g[( ( ( ( ( -128 + ( 128 * threadIdx.y ) ) + ( 262144 * ( ( threadIdx.x + ( blockDim.x * blockIdx.x ) ) / 384 ) ) ) + ( ( threadIdx.x + ( blockDim.x * blockIdx.x ) ) % 384 ) ) + ( ( blockDim.y * 4096 ) * i420981 ) ) + ( ( 128 * blockDim.y ) * ( i420967 + nvfuser_zero ) ) )] view( T137 )
+                      , __bfloat(0));
+                T142_l___bfloat[ideviceIdx.x1025{2}, iblockIdx.x1095{( ceilDiv(18432, blockDim.x) )}, ithreadIdx.x1096{blockDim.x}, iS1101{( ceilDiv(( ceilDiv(2048, blockDim.y) ), 32) )}, ithreadIdx.y1098{blockDim.y}, iUS1102{1}, iS1100{32}, bS421{1}] ca_pos( 7 ) produce_pos( 7 ) (DeviceMesh{0 1}) = ALLOCATE(buffer=T142_l___bfloat[ideviceIdx.x1025{2}, iblockIdx.x1095{( ceilDiv(18432, blockDim.x) )}, ithreadIdx.x1096{blockDim.x}, iS1101{( ceilDiv(( ceilDiv(2048, blockDim.y) ), 32) )}, ithreadIdx.y1098{blockDim.y}, iUS1102{1}, iS1100{32}, bS421{1}] ca_pos( 7 ) produce_pos( 7 ) (DeviceMesh{0 1}), mem_type=register, size=1, zero_init=false, resets_to_zero=false)
+                FOR 0 in bS421{1}:
+                  IF Manual true:
+                    T142_l[0] view( T142 )
+                       = f423391
+                       | T141_l[0] view( T141 );
+                T143_l___bfloat[ideviceIdx.x897{2}, iblockIdx.x1087{( ceilDiv(18432, blockDim.x) )}, ithreadIdx.x1088{blockDim.x}, iS1093{( ceilDiv(( ceilDiv(2048, blockDim.y) ), 32) )}, ithreadIdx.y1090{blockDim.y}, iUS1094{1}, iS1092{32}, bS425{1}] ca_pos( 7 ) produce_pos( 7 ) (DeviceMesh{0 1}) = ALLOCATE(buffer=T143_l___bfloat[ideviceIdx.x897{2}, iblockIdx.x1087{( ceilDiv(18432, blockDim.x) )}, ithreadIdx.x1088{blockDim.x}, iS1093{( ceilDiv(( ceilDiv(2048, blockDim.y) ), 32) )}, ithreadIdx.y1090{blockDim.y}, iUS1094{1}, iS1092{32}, bS425{1}] ca_pos( 7 ) produce_pos( 7 ) (DeviceMesh{0 1}), mem_type=register, size=1, zero_init=false, resets_to_zero=false)
+                FOR 0 in bS425{1}:
+                  IF Manual true:
+                    T143_l[0] view( T143 )
+                       = Set.Permute( T142_l[0] view( T142 ), cache_op=Streaming )
+                T214_l_float[ideviceIdx.x905{2}, iblockIdx.x1079{( ceilDiv(18432, blockDim.x) )}, ithreadIdx.x1080{blockDim.x}, iS1085{( ceilDiv(( ceilDiv(2048, blockDim.y) ), 32) )}, ithreadIdx.y1082{blockDim.y}, iUS1086{1}, iS1084{32}, bS631{1}] ca_pos( 7 ) produce_pos( 7 ) (DeviceMesh{0 1}) = ALLOCATE(buffer=T214_l_float[ideviceIdx.x905{2}, iblockIdx.x1079{( ceilDiv(18432, blockDim.x) )}, ithreadIdx.x1080{blockDim.x}, iS1085{( ceilDiv(( ceilDiv(2048, blockDim.y) ), 32) )}, ithreadIdx.y1082{blockDim.y}, iUS1086{1}, iS1084{32}, bS631{1}] ca_pos( 7 ) produce_pos( 7 ) (DeviceMesh{0 1}), mem_type=register, size=1, zero_init=false, resets_to_zero=false)
+                FOR 0 in bS631{1}:
+                  IF Manual true:
+                    T214_l[0] view( T214 )
+                       = __bfloat2float(T143_l[0] view( T143 ));
+                T144_l___bfloat[ideviceIdx.x899{2}, iblockIdx.x1151{( ceilDiv(18432, blockDim.x) )}, ithreadIdx.x1152{blockDim.x}, iS1157{( ceilDiv(( ceilDiv(2048, blockDim.y) ), 32) )}, ithreadIdx.y1154{blockDim.y}, iUS1158{1}, iS1156{32}] ca_pos( 7 ) produce_pos( 7 ) (DeviceMesh{0 1}) = ALLOCATE(buffer=T144_l___bfloat[ideviceIdx.x899{2}, iblockIdx.x1151{( ceilDiv(18432, blockDim.x) )}, ithreadIdx.x1152{blockDim.x}, iS1157{( ceilDiv(( ceilDiv(2048, blockDim.y) ), 32) )}, ithreadIdx.y1154{blockDim.y}, iUS1158{1}, iS1156{32}] ca_pos( 7 ) produce_pos( 7 ) (DeviceMesh{0 1}), mem_type=register, size=1, zero_init=false, resets_to_zero=false)
+                IF Manual true:
+                  T144_l[0] view( T144 )
+                     = Set( T143_l[0] view( T143 ), cache_op=Streaming )
+                IF Manual true:
+                  T285_l[i420967] view( T285 )
+                     = Set.Permute( T144_l[0] view( T144 ), cache_op=Streaming )
+                IF Manual true:
+                  T287_l[i420967] view( T287 )
+                     = Set( T144_l[0] view( T144 ), cache_op=Streaming )
+                T225_l_float[ideviceIdx.x907{2}, iblockIdx.x1071{( ceilDiv(18432, blockDim.x) )}, ithreadIdx.x1072{blockDim.x}, iS1077{( ceilDiv(( ceilDiv(2048, blockDim.y) ), 32) )}, ithreadIdx.y1074{blockDim.y}, iUS1078{1}, iS1076{32}] ca_pos( 7 ) produce_pos( 7 ) (DeviceMesh{0 1}) = ALLOCATE(buffer=T225_l_float[ideviceIdx.x907{2}, iblockIdx.x1071{( ceilDiv(18432, blockDim.x) )}, ithreadIdx.x1072{blockDim.x}, iS1077{( ceilDiv(( ceilDiv(2048, blockDim.y) ), 32) )}, ithreadIdx.y1074{blockDim.y}, iUS1078{1}, iS1076{32}] ca_pos( 7 ) produce_pos( 7 ) (DeviceMesh{0 1}), mem_type=register, size=1, zero_init=false, resets_to_zero=false)
+                IF Manual true:
+                  T225_l[0] view( T225 )
+                     = Set( T214_l[0] view( T214 ), cache_op=Streaming )
+                IF Manual true:
+                  T288_l[0] view( T288 )
+                     = T288_l[0] view( T288 )
+                     + T225_l[0] view( T225 );
+              FOR i420966 in iUR1188{32}:
+                IF Manual true:
+                  T228_g[( ( ( ( ( 18432 * threadIdx.y ) + threadIdx.x ) + ( blockDim.x * blockIdx.x ) ) + ( ( blockDim.y * 589824 ) * i420981 ) ) + ( ( 18432 * blockDim.y ) * ( i420966 + nvfuser_zero ) ) )] view( T228 )
+                     = Set( T285_l[i420966] view( T285 ), cache_op=Streaming )
+              FOR i420965 in iUR1172{32}:
+                IF Manual true:
+                  T286_g[( ( ( ( ( 18432 * threadIdx.y ) + threadIdx.x ) + ( blockDim.x * blockIdx.x ) ) + ( ( blockDim.y * 589824 ) * i420981 ) ) + ( ( 18432 * blockDim.y ) * ( i420965 + nvfuser_zero ) ) )] view( T286 )
+                     = Set( T287_l[i420965] view( T287 ), cache_op=Streaming )
+          ELSE:
+            FOR 0 in iUS1174{1}:
+              T285_l___bfloat[ideviceIdx.x901{2}, iblockIdx.x1175{( ceilDiv(18432, blockDim.x) )}, ithreadIdx.x1176{blockDim.x}, iS1181{( ceilDiv(( ceilDiv(2048, blockDim.y) ), 32) )}, ithreadIdx.y1178{blockDim.y}, iUS1182{1}, iS1180{32}] ca_pos( 6 ) produce_pos( 7 ) (DeviceMesh{0 1}) = ALLOCATE(buffer=T285_l___bfloat[ideviceIdx.x901{2}, iblockIdx.x1175{( ceilDiv(18432, blockDim.x) )}, ithreadIdx.x1176{blockDim.x}, iS1181{( ceilDiv(( ceilDiv(2048, blockDim.y) ), 32) )}, ithreadIdx.y1178{blockDim.y}, iUS1182{1}, iS1180{32}] ca_pos( 6 ) produce_pos( 7 ) (DeviceMesh{0 1}), mem_type=register, size=32, zero_init=false, resets_to_zero=false)
+              T287_l___bfloat[ideviceIdx.x1018{2}, iblockIdx.x1159{( ceilDiv(18432, blockDim.x) )}, ithreadIdx.x1160{blockDim.x}, iS1165{( ceilDiv(( ceilDiv(2048, blockDim.y) ), 32) )}, ithreadIdx.y1162{blockDim.y}, iUS1166{1}, iS1164{32}] ca_pos( 6 ) produce_pos( 7 ) (DeviceMesh{0 1}) = ALLOCATE(buffer=T287_l___bfloat[ideviceIdx.x1018{2}, iblockIdx.x1159{( ceilDiv(18432, blockDim.x) )}, ithreadIdx.x1160{blockDim.x}, iS1165{( ceilDiv(( ceilDiv(2048, blockDim.y) ), 32) )}, ithreadIdx.y1162{blockDim.y}, iUS1166{1}, iS1164{32}] ca_pos( 6 ) produce_pos( 7 ) (DeviceMesh{0 1}), mem_type=register, size=32, zero_init=false, resets_to_zero=false)
+              FOR i420967 in iS1164{32}:
+                i423977 = ALLOCATE(buffer=i423977, mem_type=register, size=1, zero_init=false, resets_to_zero=false)
+                i423977 = i420967 + nvfuser_zero;
+                i424373 = ALLOCATE(buffer=i424373, mem_type=register, size=1, zero_init=false, resets_to_zero=false)
+                i424373 = i422005 * i423977;
+                b427622 = ALLOCATE(buffer=b427622, mem_type=register, size=1, zero_init=false, resets_to_zero=false)
+                b427622 = b427208 && b427621;
+                T139_l___bfloat[ideviceIdx.x1040{2}, iblockIdx.x1135{( ceilDiv(18432, blockDim.x) )}, ithreadIdx.x1136{blockDim.x}, iS1141{( ceilDiv(( ceilDiv(2048, blockDim.y) ), 32) )}, ithreadIdx.y1138{blockDim.y}, iUS1142{1}, iS1140{32}, bS406{1}] ca_pos( 7 ) (DeviceMesh{0 1}) = ALLOCATE(buffer=T139_l___bfloat[ideviceIdx.x1040{2}, iblockIdx.x1135{( ceilDiv(18432, blockDim.x) )}, ithreadIdx.x1136{blockDim.x}, iS1141{( ceilDiv(( ceilDiv(2048, blockDim.y) ), 32) )}, ithreadIdx.y1138{blockDim.y}, iUS1142{1}, iS1140{32}, bS406{1}] ca_pos( 7 ) (DeviceMesh{0 1}), mem_type=register, size=1, zero_init=false, resets_to_zero=false)
+                FOR 0 in bS406{1}:
+                  IF Inline ( ( ( ( threadIdx.x + ( blockDim.x * blockIdx.x ) ) < 36864 ) && ( ( threadIdx.x + ( blockDim.x * blockIdx.x ) ) < 18432 ) ) && ( ( ( -2048 + threadIdx.y ) + ( ( blockDim.y * 32 ) * i420981 ) ) < ( -( blockDim.y * ( i420967 + nvfuser_zero ) ) ) ) ):
+                    T139_l[0] view( T139 )
+                       = where(b422150
+                      , T138_g[( ( ( ( ( 128 * threadIdx.y ) + ( 262144 * ( ( threadIdx.x + ( blockDim.x * blockIdx.x ) ) / 384 ) ) ) + ( ( threadIdx.x + ( blockDim.x * blockIdx.x ) ) % 384 ) ) + ( ( blockDim.y * 4096 ) * i420981 ) ) + ( ( 128 * blockDim.y ) * ( i420967 + nvfuser_zero ) ) )] view( T138 )
+                      , __bfloat(0));
+                T141_l___bfloat[ideviceIdx.x1028{2}, iblockIdx.x1196{( ceilDiv(18432, blockDim.x) )}, ithreadIdx.x1104{blockDim.x}, iS1109{( ceilDiv(( ceilDiv(2048, blockDim.y) ), 32) )}, ithreadIdx.y1106{blockDim.y}, iUS1110{1}, iS1108{32}, bS416{1}] ca_pos( 7 ) (DeviceMesh{0 1}) = ALLOCATE(buffer=T141_l___bfloat[ideviceIdx.x1028{2}, iblockIdx.x1196{( ceilDiv(18432, blockDim.x) )}, ithreadIdx.x1104{blockDim.x}, iS1109{( ceilDiv(( ceilDiv(2048, blockDim.y) ), 32) )}, ithreadIdx.y1106{blockDim.y}, iUS1110{1}, iS1108{32}, bS416{1}] ca_pos( 7 ) (DeviceMesh{0 1}), mem_type=register, size=1, zero_init=false, resets_to_zero=false)
+                FOR 0 in bS416{1}:
+                  IF Inline ( ( ( ( threadIdx.x + ( blockDim.x * blockIdx.x ) ) < 36864 ) && ( ( threadIdx.x + ( blockDim.x * blockIdx.x ) ) < 18432 ) ) && ( ( ( -2048 + threadIdx.y ) + ( ( blockDim.y * 32 ) * i420981 ) ) < ( -( blockDim.y * ( i420967 + nvfuser_zero ) ) ) ) ):
+                    T141_l[0] view( T141 )
+                       = where(b422724
+                      , T136_g[( ( ( ( ( -256 + ( 128 * threadIdx.y ) ) + ( 262144 * ( ( threadIdx.x + ( blockDim.x * blockIdx.x ) ) / 384 ) ) ) + ( ( threadIdx.x + ( blockDim.x * blockIdx.x ) ) % 384 ) ) + ( ( blockDim.y * 4096 ) * i420981 ) ) + ( ( 128 * blockDim.y ) * ( i420967 + nvfuser_zero ) ) )] view( T136 )
+                      , __bfloat(0));
+                T140_l___bfloat[ideviceIdx.x1034{2}, iblockIdx.x1195{( ceilDiv(18432, blockDim.x) )}, ithreadIdx.x1120{blockDim.x}, iS1125{( ceilDiv(( ceilDiv(2048, blockDim.y) ), 32) )}, ithreadIdx.y1122{blockDim.y}, iUS1126{1}, iS1124{32}, bS411{1}] ca_pos( 7 ) (DeviceMesh{0 1}) = ALLOCATE(buffer=T140_l___bfloat[ideviceIdx.x1034{2}, iblockIdx.x1195{( ceilDiv(18432, blockDim.x) )}, ithreadIdx.x1120{blockDim.x}, iS1125{( ceilDiv(( ceilDiv(2048, blockDim.y) ), 32) )}, ithreadIdx.y1122{blockDim.y}, iUS1126{1}, iS1124{32}, bS411{1}] ca_pos( 7 ) (DeviceMesh{0 1}), mem_type=register, size=1, zero_init=false, resets_to_zero=false)
+                FOR 0 in bS411{1}:
+                  IF Inline ( ( ( ( threadIdx.x + ( blockDim.x * blockIdx.x ) ) < 36864 ) && ( ( threadIdx.x + ( blockDim.x * blockIdx.x ) ) < 18432 ) ) && ( ( ( -2048 + threadIdx.y ) + ( ( blockDim.y * 32 ) * i420981 ) ) < ( -( blockDim.y * ( i420967 + nvfuser_zero ) ) ) ) ):
+                    T140_l[0] view( T140 )
+                       = where(b423340
+                      , T137_g[( ( ( ( ( -128 + ( 128 * threadIdx.y ) ) + ( 262144 * ( ( threadIdx.x + ( blockDim.x * blockIdx.x ) ) / 384 ) ) ) + ( ( threadIdx.x + ( blockDim.x * blockIdx.x ) ) % 384 ) ) + ( ( blockDim.y * 4096 ) * i420981 ) ) + ( ( 128 * blockDim.y ) * ( i420967 + nvfuser_zero ) ) )] view( T137 )
+                      , __bfloat(0));
+                T142_l___bfloat[ideviceIdx.x1025{2}, iblockIdx.x1095{( ceilDiv(18432, blockDim.x) )}, ithreadIdx.x1096{blockDim.x}, iS1101{( ceilDiv(( ceilDiv(2048, blockDim.y) ), 32) )}, ithreadIdx.y1098{blockDim.y}, iUS1102{1}, iS1100{32}, bS421{1}] ca_pos( 7 ) produce_pos( 7 ) (DeviceMesh{0 1}) = ALLOCATE(buffer=T142_l___bfloat[ideviceIdx.x1025{2}, iblockIdx.x1095{( ceilDiv(18432, blockDim.x) )}, ithreadIdx.x1096{blockDim.x}, iS1101{( ceilDiv(( ceilDiv(2048, blockDim.y) ), 32) )}, ithreadIdx.y1098{blockDim.y}, iUS1102{1}, iS1100{32}, bS421{1}] ca_pos( 7 ) produce_pos( 7 ) (DeviceMesh{0 1}), mem_type=register, size=1, zero_init=false, resets_to_zero=false)
+                FOR 0 in bS421{1}:
+                  IF Inline ( ( ( ( threadIdx.x + ( blockDim.x * blockIdx.x ) ) < 36864 ) && ( ( threadIdx.x + ( blockDim.x * blockIdx.x ) ) < 18432 ) ) && ( ( ( -2048 + threadIdx.y ) + ( ( blockDim.y * 32 ) * i420981 ) ) < ( -( blockDim.y * ( i420967 + nvfuser_zero ) ) ) ) ):
+                    T142_l[0] view( T142 )
+                       = f425738
+                       | T141_l[0] view( T141 );
+                T143_l___bfloat[ideviceIdx.x897{2}, iblockIdx.x1087{( ceilDiv(18432, blockDim.x) )}, ithreadIdx.x1088{blockDim.x}, iS1093{( ceilDiv(( ceilDiv(2048, blockDim.y) ), 32) )}, ithreadIdx.y1090{blockDim.y}, iUS1094{1}, iS1092{32}, bS425{1}] ca_pos( 7 ) produce_pos( 7 ) (DeviceMesh{0 1}) = ALLOCATE(buffer=T143_l___bfloat[ideviceIdx.x897{2}, iblockIdx.x1087{( ceilDiv(18432, blockDim.x) )}, ithreadIdx.x1088{blockDim.x}, iS1093{( ceilDiv(( ceilDiv(2048, blockDim.y) ), 32) )}, ithreadIdx.y1090{blockDim.y}, iUS1094{1}, iS1092{32}, bS425{1}] ca_pos( 7 ) produce_pos( 7 ) (DeviceMesh{0 1}), mem_type=register, size=1, zero_init=false, resets_to_zero=false)
+                FOR 0 in bS425{1}:
+                  IF Inline ( ( ( ( threadIdx.x + ( blockDim.x * blockIdx.x ) ) < 36864 ) && ( ( threadIdx.x + ( blockDim.x * blockIdx.x ) ) < 18432 ) ) && ( ( ( -2048 + threadIdx.y ) + ( ( blockDim.y * 32 ) * i420981 ) ) < ( -( blockDim.y * ( i420967 + nvfuser_zero ) ) ) ) ):
+                    T143_l[0] view( T143 )
+                       = Set.Permute( T142_l[0] view( T142 ), cache_op=Streaming )
+                T214_l_float[ideviceIdx.x905{2}, iblockIdx.x1079{( ceilDiv(18432, blockDim.x) )}, ithreadIdx.x1080{blockDim.x}, iS1085{( ceilDiv(( ceilDiv(2048, blockDim.y) ), 32) )}, ithreadIdx.y1082{blockDim.y}, iUS1086{1}, iS1084{32}, bS631{1}] ca_pos( 7 ) produce_pos( 7 ) (DeviceMesh{0 1}) = ALLOCATE(buffer=T214_l_float[ideviceIdx.x905{2}, iblockIdx.x1079{( ceilDiv(18432, blockDim.x) )}, ithreadIdx.x1080{blockDim.x}, iS1085{( ceilDiv(( ceilDiv(2048, blockDim.y) ), 32) )}, ithreadIdx.y1082{blockDim.y}, iUS1086{1}, iS1084{32}, bS631{1}] ca_pos( 7 ) produce_pos( 7 ) (DeviceMesh{0 1}), mem_type=register, size=1, zero_init=false, resets_to_zero=false)
+                FOR 0 in bS631{1}:
+                  IF Inline ( ( ( ( threadIdx.x + ( blockDim.x * blockIdx.x ) ) < 36864 ) && ( ( threadIdx.x + ( blockDim.x * blockIdx.x ) ) < 18432 ) ) && ( ( ( -2048 + threadIdx.y ) + ( ( blockDim.y * 32 ) * i420981 ) ) < ( -( blockDim.y * ( i420967 + nvfuser_zero ) ) ) ) ):
+                    T214_l[0] view( T214 )
+                       = __bfloat2float(T143_l[0] view( T143 ));
+                T144_l___bfloat[ideviceIdx.x899{2}, iblockIdx.x1151{( ceilDiv(18432, blockDim.x) )}, ithreadIdx.x1152{blockDim.x}, iS1157{( ceilDiv(( ceilDiv(2048, blockDim.y) ), 32) )}, ithreadIdx.y1154{blockDim.y}, iUS1158{1}, iS1156{32}] ca_pos( 7 ) produce_pos( 7 ) (DeviceMesh{0 1}) = ALLOCATE(buffer=T144_l___bfloat[ideviceIdx.x899{2}, iblockIdx.x1151{( ceilDiv(18432, blockDim.x) )}, ithreadIdx.x1152{blockDim.x}, iS1157{( ceilDiv(( ceilDiv(2048, blockDim.y) ), 32) )}, ithreadIdx.y1154{blockDim.y}, iUS1158{1}, iS1156{32}] ca_pos( 7 ) produce_pos( 7 ) (DeviceMesh{0 1}), mem_type=register, size=1, zero_init=false, resets_to_zero=false)
+                IF Inline ( ( ( ( threadIdx.x + ( blockDim.x * blockIdx.x ) ) < 36864 ) && ( ( threadIdx.x + ( blockDim.x * blockIdx.x ) ) < 18432 ) ) && ( ( ( -2048 + threadIdx.y ) + ( ( blockDim.y * 32 ) * i420981 ) ) < ( -( blockDim.y * ( i420967 + nvfuser_zero ) ) ) ) ):
+                  T144_l[0] view( T144 )
+                     = Set( T143_l[0] view( T143 ), cache_op=Streaming )
+                IF Inline ( ( ( ( threadIdx.x + ( blockDim.x * blockIdx.x ) ) < 36864 ) && ( ( threadIdx.x + ( blockDim.x * blockIdx.x ) ) < 18432 ) ) && ( ( ( -2048 + threadIdx.y ) + ( ( blockDim.y * 32 ) * i420981 ) ) < ( -( blockDim.y * ( i420967 + nvfuser_zero ) ) ) ) ):
+                  T285_l[i420967] view( T285 )
+                     = Set.Permute( T144_l[0] view( T144 ), cache_op=Streaming )
+                IF Inline ( ( ( ( threadIdx.x + ( blockDim.x * blockIdx.x ) ) < 36864 ) && ( ( threadIdx.x + ( blockDim.x * blockIdx.x ) ) < 18432 ) ) && ( ( ( -2048 + threadIdx.y ) + ( ( blockDim.y * 32 ) * i420981 ) ) < ( -( blockDim.y * ( i420967 + nvfuser_zero ) ) ) ) ):
+                  T287_l[i420967] view( T287 )
+                     = Set( T144_l[0] view( T144 ), cache_op=Streaming )
+                T225_l_float[ideviceIdx.x907{2}, iblockIdx.x1071{( ceilDiv(18432, blockDim.x) )}, ithreadIdx.x1072{blockDim.x}, iS1077{( ceilDiv(( ceilDiv(2048, blockDim.y) ), 32) )}, ithreadIdx.y1074{blockDim.y}, iUS1078{1}, iS1076{32}] ca_pos( 7 ) produce_pos( 7 ) (DeviceMesh{0 1}) = ALLOCATE(buffer=T225_l_float[ideviceIdx.x907{2}, iblockIdx.x1071{( ceilDiv(18432, blockDim.x) )}, ithreadIdx.x1072{blockDim.x}, iS1077{( ceilDiv(( ceilDiv(2048, blockDim.y) ), 32) )}, ithreadIdx.y1074{blockDim.y}, iUS1078{1}, iS1076{32}] ca_pos( 7 ) produce_pos( 7 ) (DeviceMesh{0 1}), mem_type=register, size=1, zero_init=false, resets_to_zero=false)
+                IF Inline ( ( ( ( threadIdx.x + ( blockDim.x * blockIdx.x ) ) < 36864 ) && ( ( threadIdx.x + ( blockDim.x * blockIdx.x ) ) < 18432 ) ) && ( ( ( -2048 + threadIdx.y ) + ( ( blockDim.y * 32 ) * i420981 ) ) < ( -( blockDim.y * ( i420967 + nvfuser_zero ) ) ) ) ):
+                  T225_l[0] view( T225 )
+                     = Set( T214_l[0] view( T214 ), cache_op=Streaming )
+                IF Inline ( ( ( ( threadIdx.x + ( blockDim.x * blockIdx.x ) ) < 36864 ) && ( ( threadIdx.x + ( blockDim.x * blockIdx.x ) ) < 18432 ) ) && ( ( ( -2048 + threadIdx.y ) + ( ( blockDim.y * 32 ) * i420981 ) ) < ( -( blockDim.y * ( i420967 + nvfuser_zero ) ) ) ) ):
+                  T288_l[0] view( T288 )
+                     = T288_l[0] view( T288 )
+                     + T225_l[0] view( T225 );
+              FOR i420966 in iUR1188{32}:
+                i426032 = ALLOCATE(buffer=i426032, mem_type=register, size=1, zero_init=false, resets_to_zero=false)
+                i426032 = i420966 + nvfuser_zero;
+                IF Inline ( ( ( ( threadIdx.x + ( blockDim.x * blockIdx.x ) ) < 36864 ) && ( ( threadIdx.x + ( blockDim.x * blockIdx.x ) ) < 18432 ) ) && ( ( ( -2048 + threadIdx.y ) + ( ( blockDim.y * 32 ) * i420981 ) ) < ( -( blockDim.y * ( i420966 + nvfuser_zero ) ) ) ) ):
+                  T228_g[( ( ( ( ( 18432 * threadIdx.y ) + threadIdx.x ) + ( blockDim.x * blockIdx.x ) ) + ( ( blockDim.y * 589824 ) * i420981 ) ) + ( ( 18432 * blockDim.y ) * ( i420966 + nvfuser_zero ) ) )] view( T228 )
+                     = Set( T285_l[i420966] view( T285 ), cache_op=Streaming )
+              FOR i420965 in iUR1172{32}:
+                i426176 = ALLOCATE(buffer=i426176, mem_type=register, size=1, zero_init=false, resets_to_zero=false)
+                i426176 = i420965 + nvfuser_zero;
+                IF Inline ( ( ( ( threadIdx.x + ( blockDim.x * blockIdx.x ) ) < 36864 ) && ( ( threadIdx.x + ( blockDim.x * blockIdx.x ) ) < 18432 ) ) && ( ( ( -2048 + threadIdx.y ) + ( ( blockDim.y * 32 ) * i420981 ) ) < ( -( blockDim.y * ( i420965 + nvfuser_zero ) ) ) ) ):
+                  T286_g[( ( ( ( ( 18432 * threadIdx.y ) + threadIdx.x ) + ( blockDim.x * blockIdx.x ) ) + ( ( blockDim.y * 589824 ) * i420981 ) ) + ( ( 18432 * blockDim.y ) * ( i420965 + nvfuser_zero ) ) )] view( T286 )
+                     = Set( T287_l[i420965] view( T287 ), cache_op=Streaming )
+      T226_l_float[ideviceIdx.x1067{2}, iblockIdx.x1069{( ceilDiv(18432, blockDim.x) )}, ithreadIdx.x1070{blockDim.x}, rthreadIdx.y1065{blockDim.y}] ca_pos( 3 ) produce_pos( 3 ) (DeviceMesh{0 1}) = ALLOCATE(buffer=T226_l_float[ideviceIdx.x1067{2}, iblockIdx.x1069{( ceilDiv(18432, blockDim.x) )}, ithreadIdx.x1070{blockDim.x}, rthreadIdx.y1065{blockDim.y}] ca_pos( 3 ) produce_pos( 3 ) (DeviceMesh{0 1}), mem_type=register, size=1, zero_init=false, resets_to_zero=false)
+      IF Inline true:
+        T226_l[0] view( T226 )
+           = Set( float(0), cache_op=Streaming )
+      FOR threadIdx.y in rthreadIdx.y1065{blockDim.y}:
+        T226_l[0] view( T226 )
+           = reduction( T288_l[0] view( T288 ), op = add, initial value = float(0), allreduce = false )
+      T284_l___bfloat[ideviceIdx.x911{2}, iblockIdx.x1191{( ceilDiv(18432, blockDim.x) )}, ithreadIdx.x1192{blockDim.x}] ca_pos( 3 ) produce_pos( 3 ) (DeviceMesh{0 1}) = ALLOCATE(buffer=T284_l___bfloat[ideviceIdx.x911{2}, iblockIdx.x1191{( ceilDiv(18432, blockDim.x) )}, ithreadIdx.x1192{blockDim.x}] ca_pos( 3 ) produce_pos( 3 ) (DeviceMesh{0 1}), mem_type=register, size=1, zero_init=false, resets_to_zero=false)
+      IF Inline ( ( ( threadIdx.x + ( blockDim.x * blockIdx.x ) ) < 36864 ) && ( ( threadIdx.x + ( blockDim.x * blockIdx.x ) ) < 18432 ) ):
+        T284_l[0] view( T284 )
+           = __float2bfloat(T226_l[0] view( T226 ));
+      IF Inline ( ( ( threadIdx.y == 0 ) && ( ( threadIdx.x + ( blockDim.x * blockIdx.x ) ) < 36864 ) ) && ( ( threadIdx.x + ( blockDim.x * blockIdx.x ) ) < 18432 ) ):
+        T248_g[( threadIdx.x + ( blockDim.x * blockIdx.x ) )] view( T248 )
+           = Set( T284_l[0] view( T284 ), cache_op=Streaming )
+ (function isUnrolled)

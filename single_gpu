@@ -1,0 +1,2322 @@
+============================= test session starts ==============================
+platform linux -- Python 3.12.3, pytest-8.3.5, pluggy-1.6.0
+Test order randomisation NOT enabled. Enable with --random-order or --random-order-bucket=<bucket_type>
+benchmark: 5.1.0 (defaults: timer=time.perf_counter disable_gc=False min_rounds=5 min_time=0.000005 max_time=1.0 calibration_precision=10 warmup=False warmup_iterations=100000)
+rootdir: /opt/pytorch/nvfuser
+plugins: timeout-2.4.0, xdist-3.7.0, random-order-1.2.0, cov-6.2.1, timestamper-0.0.10, shard-0.1.2, benchmark-5.1.0, hypothesis-6.136.6, mpi-0.6
+collected 5 items / 4 deselected / 1 selected
+Running 1 items in this shard
+
+tests/python/multidevice/test_transformer.py Segment the fusion (Original Fusion Un-modified): 
+Inputs:
+  T0_g___bfloat[bS0{1}, iS1{2048}, iS2{24576}]
+  T1_g___bfloat[bS3{1}, iS4{2048}, iS5{12288}]
+  T2_g_bool[bS6{1}, iS7{2048}, iS8{12288}]
+  T3_g___bfloat[iS9{12288}, iS10{24576}]
+  T4_g_bool[bS11{1}, iS12{2048}, iS13{12288}]
+  T5_g___bfloat[bS14{1}, iS15{2048}, iS16{12288}]
+  T6_g___bfloat[iS17{24576}, iS18{12288}]
+  T7_g___bfloat[iS19{12288}]
+  T8_g_float[bS20{1}, iS21{2048}]
+  T9_g___bfloat[bS22{1}, iS23{2048}, iS24{12288}]
+  T10_g_float[bS25{1}, iS26{2048}, bS27{1}]
+  T11_g___bfloat[iS28{12288}, iS29{6144}]
+  T12_g___bfloat[bS30{1}, iS31{2048}, iS32{18432}]
+  T13_g___bfloat[bS33{1}, iS34{48}, iS35{2048}, iS36{128}]
+  T14_g_float[bS37{1}, iS38{48}, iS39{2048}]
+  T15_g_uint64_t[iS40{2}]
+  T16_g_uint64_t[]
+  T17_g___bfloat[iS41{18432}, iS42{12288}]
+  T18_g___bfloat[iS43{12288}]
+  T19_g_float[bS44{1}, iS45{2048}]
+  T20_g_float[bS46{1}, iS47{2048}, bS48{1}]
+  T21_g___bfloat[iS49{12288}]
+  T22_g___bfloat[iS50{12288}]
+Outputs:
+  T257_g___bfloat[iS724{12288}, iS725{24576}, rS726{2048}]
+  T256_g___bfloat[iS723{12288}]
+  T255_g___bfloat[iS720{24576}, iS721{12288}, rS722{2048}]
+  T254_g___bfloat[iS719{24576}]
+  T253_g___bfloat[iS718{12288}]
+  T252_g___bfloat[iS717{12288}]
+  T251_g___bfloat[iS714{12288}, iS715{6144}, rS716{2048}]
+  T250_g___bfloat[iS713{12288}]
+  T249_g___bfloat[iS710{18432}, iS711{12288}, rS712{2048}]
+  T248_g___bfloat[iS709{18432}]
+  T247_g___bfloat[iS708{12288}]
+  T246_g___bfloat[iS707{12288}]
+  T245_g___bfloat[bS704{1}, iS705{2048}, iS706{12288}]
+
+%kernel_math {
+T27_l_float[bS63{1}, iS64{2048}, iS65{12288}]
+   = __to_float(T2_g_bool[bS6{1}, iS7{2048}, iS8{12288}]);
+T24_l_float[bS54{1}, iS55{2048}, iS56{12288}]
+   = __bfloat2float(T1_g___bfloat[bS3{1}, iS4{2048}, iS5{12288}]);
+T26_l_float[bS60{1}, iS61{2048}, iS62{12288}]
+   = double(1.11111)
+   * T24_l_float[bS54{1}, iS55{2048}, iS56{12288}];
+T29_l_float[bS69{1}, iS70{2048}, iS71{12288}]
+   = T27_l_float[bS63{1}, iS64{2048}, iS65{12288}]
+   * T26_l_float[bS60{1}, iS61{2048}, iS62{12288}];
+T31_l___bfloat[bS75{1}, iS76{2048}, iS77{12288}]
+   = __float2bfloat(T29_l_float[bS69{1}, iS70{2048}, iS71{12288}]);
+T33_l___bfloat[iS81{2048}, iS82{12288}]
+   = squeeze( T31_l___bfloat[bS75{1}, iS76{2048}, iS77{12288}], flags = {true, false, false} )
+T244_l___bfloat[iS703{12288}, iS702{2048}]
+   = Set.Permute( T33_l___bfloat[iS81{2048}, iS82{12288}], cache_op=Streaming )
+T23_l_float[bS51{1}, iS52{2048}, iS53{24576}]
+   = __bfloat2float(T0_g___bfloat[bS0{1}, iS1{2048}, iS2{24576}]);
+T40_l_float[bS101{1}, iS102{2048}, iS103{24576}]
+   = double(0.5)
+   * T23_l_float[bS51{1}, iS52{2048}, iS53{24576}];
+T25_l_float[bS57{1}, iS58{2048}, iS59{24576}]
+   = T23_l_float[bS51{1}, iS52{2048}, iS53{24576}]
+   * T23_l_float[bS51{1}, iS52{2048}, iS53{24576}];
+T28_l_float[bS66{1}, iS67{2048}, iS68{24576}]
+   = T25_l_float[bS57{1}, iS58{2048}, iS59{24576}]
+   * T23_l_float[bS51{1}, iS52{2048}, iS53{24576}];
+T30_l_float[bS72{1}, iS73{2048}, iS74{24576}]
+   = double(0.044714999999999998)
+   * T28_l_float[bS66{1}, iS67{2048}, iS68{24576}];
+T32_l_float[bS78{1}, iS79{2048}, iS80{24576}]
+   = T23_l_float[bS51{1}, iS52{2048}, iS53{24576}]
+   + T30_l_float[bS72{1}, iS73{2048}, iS74{24576}];
+T34_l_float[bS83{1}, iS84{2048}, iS85{24576}]
+   = double(0.79788499999999996)
+   * T32_l_float[bS78{1}, iS79{2048}, iS80{24576}];
+T36_l_float[bS89{1}, iS90{2048}, iS91{24576}]
+   = tanhf(T34_l_float[bS83{1}, iS84{2048}, iS85{24576}]);
+T44_l_float[bS113{1}, iS114{2048}, iS115{24576}]
+   = double(1)
+   + T36_l_float[bS89{1}, iS90{2048}, iS91{24576}];
+T210_l_float[bS619{1}, iS620{2048}, iS621{24576}]
+   = T40_l_float[bS101{1}, iS102{2048}, iS103{24576}]
+   * T44_l_float[bS113{1}, iS114{2048}, iS115{24576}];
+T219_l___bfloat[bS650{1}, iS651{2048}, iS652{24576}]
+   = __float2bfloat(T210_l_float[bS619{1}, iS620{2048}, iS621{24576}]);
+T243_l___bfloat[iS700{2048}, iS701{24576}]
+   = squeeze( T219_l___bfloat[bS650{1}, iS651{2048}, iS652{24576}], flags = {true, false, false} )
+T257_g___bfloat[iS724{12288}, iS725{24576}, rS726{2048}]
+   = matmul(T244_l___bfloat[iS703{12288}, iS702{2048}],
+            T243_l___bfloat[iS700{2048}, iS701{24576}])
+T241_l_float[iS696{2048}, iS697{12288}]
+   = squeeze( T29_l_float[bS69{1}, iS70{2048}, iS71{12288}], flags = {true, false, false} )
+T242_l_float[rS698{2048}, iS699{12288}]
+   = reduction( T241_l_float[iS696{2048}, iS697{12288}], op = add, initial value = float(0), allreduce = false )
+T256_g___bfloat[iS723{12288}]
+   = __float2bfloat(T242_l_float[rS698{2048}, iS699{12288}]);
+T35_l___bfloat[iS86{2048}, iS87{24576}, rS88{12288}]
+   = matmul(T33_l___bfloat[iS81{2048}, iS82{12288}],
+            T3_g___bfloat[iS9{12288}, iS10{24576}])
+T37_l___bfloat[bS92{1}, iS93{2048}, iS94{24576}]
+   = broadcast( T35_l___bfloat[iS86{2048}, iS87{24576}, rS88{12288}], flags = {true, false, false} )
+T39_l_float[bS98{1}, iS99{2048}, iS100{24576}]
+   = __bfloat2float(T37_l___bfloat[bS92{1}, iS93{2048}, iS94{24576}]);
+T42_l_float[bS107{1}, iS108{2048}, iS109{24576}]
+   = T40_l_float[bS101{1}, iS102{2048}, iS103{24576}]
+   * T39_l_float[bS98{1}, iS99{2048}, iS100{24576}];
+T38_l_float[bS95{1}, iS96{2048}, iS97{24576}]
+   = T36_l_float[bS89{1}, iS90{2048}, iS91{24576}]
+   * T36_l_float[bS89{1}, iS90{2048}, iS91{24576}];
+T41_l_float[bS104{1}, iS105{2048}, iS106{24576}]
+   = double(1)
+   - T38_l_float[bS95{1}, iS96{2048}, iS97{24576}];
+T43_l_float[bS110{1}, iS111{2048}, iS112{24576}]
+   = T42_l_float[bS107{1}, iS108{2048}, iS109{24576}]
+   * T41_l_float[bS104{1}, iS105{2048}, iS106{24576}];
+T45_l_float[bS116{1}, iS117{2048}, iS118{24576}]
+   = double(0.79788499999999996)
+   * T43_l_float[bS110{1}, iS111{2048}, iS112{24576}];
+T46_l_float[bS119{1}, iS120{2048}, iS121{24576}]
+   = T44_l_float[bS113{1}, iS114{2048}, iS115{24576}]
+   * T39_l_float[bS98{1}, iS99{2048}, iS100{24576}];
+T48_l_float[bS125{1}, iS126{2048}, iS127{24576}]
+   = double(0.5)
+   * T46_l_float[bS119{1}, iS120{2048}, iS121{24576}];
+T51_l_float[bS134{1}, iS135{2048}, iS136{24576}]
+   = T45_l_float[bS116{1}, iS117{2048}, iS118{24576}]
+   + T48_l_float[bS125{1}, iS126{2048}, iS127{24576}];
+T47_l_float[bS122{1}, iS123{2048}, iS124{24576}]
+   = double(0.044714999999999998)
+   * T45_l_float[bS116{1}, iS117{2048}, iS118{24576}];
+T50_l_float[bS131{1}, iS132{2048}, iS133{24576}]
+   = T25_l_float[bS57{1}, iS58{2048}, iS59{24576}]
+   * T47_l_float[bS122{1}, iS123{2048}, iS124{24576}];
+T53_l_float[bS140{1}, iS141{2048}, iS142{24576}]
+   = T51_l_float[bS134{1}, iS135{2048}, iS136{24576}]
+   + T50_l_float[bS131{1}, iS132{2048}, iS133{24576}];
+T49_l_float[bS128{1}, iS129{2048}, iS130{24576}]
+   = T23_l_float[bS51{1}, iS52{2048}, iS53{24576}]
+   * T47_l_float[bS122{1}, iS123{2048}, iS124{24576}];
+T52_l_float[bS137{1}, iS138{2048}, iS139{24576}]
+   = T23_l_float[bS51{1}, iS52{2048}, iS53{24576}]
+   * T49_l_float[bS128{1}, iS129{2048}, iS130{24576}];
+T54_l_float[bS143{1}, iS144{2048}, iS145{24576}]
+   = T53_l_float[bS140{1}, iS141{2048}, iS142{24576}]
+   + T52_l_float[bS137{1}, iS138{2048}, iS139{24576}];
+T55_l_float[bS146{1}, iS147{2048}, iS148{24576}]
+   = T54_l_float[bS143{1}, iS144{2048}, iS145{24576}]
+   + T52_l_float[bS137{1}, iS138{2048}, iS139{24576}];
+T56_l___bfloat[bS149{1}, iS150{2048}, iS151{24576}]
+   = __float2bfloat(T55_l_float[bS146{1}, iS147{2048}, iS148{24576}]);
+T57_l___bfloat[iS152{2048}, iS153{24576}]
+   = squeeze( T56_l___bfloat[bS149{1}, iS150{2048}, iS151{24576}], flags = {true, false, false} )
+T240_l___bfloat[iS695{24576}, iS694{2048}]
+   = Set.Permute( T57_l___bfloat[iS152{2048}, iS153{24576}], cache_op=Streaming )
+T68_l_float[bS184{1}, iS185{2048}, iS186{12288}]
+   = __bfloat2float(T9_g___bfloat[bS22{1}, iS23{2048}, iS24{12288}]);
+T59_l_float[bS157{1}, iS158{2048}, iS159{12288}]
+   = __bfloat2float(T5_g___bfloat[bS14{1}, iS15{2048}, iS16{12288}]);
+T58_l_float[bS154{1}, iS155{2048}, iS156{12288}]
+   = __to_float(T4_g_bool[bS11{1}, iS12{2048}, iS13{12288}]);
+T61_l_float[bS163{1}, iS164{2048}, iS165{12288}]
+   = T59_l_float[bS157{1}, iS158{2048}, iS159{12288}]
+   * T58_l_float[bS154{1}, iS155{2048}, iS156{12288}];
+T67_l_float[bS181{1}, iS182{2048}, iS183{12288}]
+   = T61_l_float[bS163{1}, iS164{2048}, iS165{12288}]
+   * double(1.11111);
+T73_l_float[bS199{1}, iS200{2048}, iS201{12288}]
+   = T68_l_float[bS184{1}, iS185{2048}, iS186{12288}]
+   + T67_l_float[bS181{1}, iS182{2048}, iS183{12288}];
+T65_l_float[bS175{1}, iS176{2048}, bS177{1}]
+   = broadcast( T8_g_float[bS20{1}, iS21{2048}], flags = {false, false, true} )
+T72_l_float[bS196{1}, iS197{2048}, bS198{1 ex 12288}] = expand( T65_l_float[bS175{1}, iS176{2048}, bS177{1}], {1, 2048, 12288} )
+T75_l_float[bS205{1}, iS206{2048}, iS207{12288}]
+   = T73_l_float[bS199{1}, iS200{2048}, iS201{12288}]
+   - T72_l_float[bS196{1}, iS197{2048}, bS198{1 ex 12288}];
+T81_l_float[bS221{1}, iS222{2048}, bS223{1}]
+   = Set( T10_g_float[bS25{1}, iS26{2048}, bS27{1}], cache_op=Streaming )
+T82_l_float[bS224{1}, iS225{2048}, bS226{1 ex 12288}] = expand( T81_l_float[bS221{1}, iS222{2048}, bS223{1}], {1, 2048, 12288} )
+T196_l_float[bS575{1}, iS576{2048}, iS577{12288}]
+   = T75_l_float[bS205{1}, iS206{2048}, iS207{12288}]
+   * T82_l_float[bS224{1}, iS225{2048}, bS226{1 ex 12288}];
+T63_l___bfloat[bS169{1}, bS170{1}, iS171{12288}]
+   = broadcast( T7_g___bfloat[iS19{12288}], flags = {true, true, false} )
+T64_l___bfloat[bS172{1}, bS173{1 ex 2048}, iS174{12288}] = expand( T63_l___bfloat[bS169{1}, bS170{1}, iS171{12288}], {1, 2048, 12288} )
+T70_l_float[bS190{1}, bS191{1 ex 2048}, iS192{12288}]
+   = __bfloat2float(T64_l___bfloat[bS172{1}, bS173{1 ex 2048}, iS174{12288}]);
+T204_l_float[bS600{1}, iS601{2048}, iS602{12288}]
+   = T196_l_float[bS575{1}, iS576{2048}, iS577{12288}]
+   * T70_l_float[bS190{1}, bS191{1 ex 2048}, iS192{12288}];
+T194_l___bfloat[bS569{1}, bS570{1}, iS571{12288}]
+   = broadcast( T22_g___bfloat[iS50{12288}], flags = {true, true, false} )
+T195_l___bfloat[bS572{1}, bS573{1 ex 2048}, iS574{12288}] = expand( T194_l___bfloat[bS569{1}, bS570{1}, iS571{12288}], {1, 2048, 12288} )
+T203_l_float[bS597{1}, bS598{1 ex 2048}, iS599{12288}]
+   = __bfloat2float(T195_l___bfloat[bS572{1}, bS573{1 ex 2048}, iS574{12288}]);
+T209_l_float[bS616{1}, iS617{2048}, iS618{12288}]
+   = T204_l_float[bS600{1}, iS601{2048}, iS602{12288}]
+   + T203_l_float[bS597{1}, bS598{1 ex 2048}, iS599{12288}];
+T218_l___bfloat[bS647{1}, iS648{2048}, iS649{12288}]
+   = __float2bfloat(T209_l_float[bS616{1}, iS617{2048}, iS618{12288}]);
+T239_l___bfloat[iS692{2048}, iS693{12288}]
+   = squeeze( T218_l___bfloat[bS647{1}, iS648{2048}, iS649{12288}], flags = {true, false, false} )
+T255_g___bfloat[iS720{24576}, iS721{12288}, rS722{2048}]
+   = matmul(T240_l___bfloat[iS695{24576}, iS694{2048}],
+            T239_l___bfloat[iS692{2048}, iS693{12288}])
+T237_l_float[iS688{2048}, iS689{24576}]
+   = squeeze( T55_l_float[bS146{1}, iS147{2048}, iS148{24576}], flags = {true, false, false} )
+T238_l_float[rS690{2048}, iS691{24576}]
+   = reduction( T237_l_float[iS688{2048}, iS689{24576}], op = add, initial value = float(0), allreduce = false )
+T254_g___bfloat[iS719{24576}]
+   = __float2bfloat(T238_l_float[rS690{2048}, iS691{24576}]);
+T60_l___bfloat[iS160{2048}, iS161{12288}, rS162{24576}]
+   = matmul(T57_l___bfloat[iS152{2048}, iS153{24576}],
+            T6_g___bfloat[iS17{24576}, iS18{12288}])
+T62_l___bfloat[bS166{1}, iS167{2048}, iS168{12288}]
+   = broadcast( T60_l___bfloat[iS160{2048}, iS161{12288}, rS162{24576}], flags = {true, false, false} )
+T69_l_float[bS187{1}, iS188{2048}, iS189{12288}]
+   = __bfloat2float(T62_l___bfloat[bS166{1}, iS167{2048}, iS168{12288}]);
+T235_l_float[iS684{2048}, iS685{12288}]
+   = squeeze( T69_l_float[bS187{1}, iS188{2048}, iS189{12288}], flags = {true, false, false} )
+T236_l_float[rS686{2048}, iS687{12288}]
+   = reduction( T235_l_float[iS684{2048}, iS685{12288}], op = add, initial value = float(0), allreduce = false )
+T253_g___bfloat[iS718{12288}]
+   = __float2bfloat(T236_l_float[rS686{2048}, iS687{12288}]);
+T217_l_float[bS644{1}, iS645{2048}, iS646{12288}]
+   = T196_l_float[bS575{1}, iS576{2048}, iS577{12288}]
+   * T69_l_float[bS187{1}, iS188{2048}, iS189{12288}];
+T233_l_float[iS680{2048}, iS681{12288}]
+   = squeeze( T217_l_float[bS644{1}, iS645{2048}, iS646{12288}], flags = {true, false, false} )
+T234_l_float[rS682{2048}, iS683{12288}]
+   = reduction( T233_l_float[iS680{2048}, iS681{12288}], op = add, initial value = float(0), allreduce = false )
+T252_g___bfloat[iS717{12288}]
+   = __float2bfloat(T234_l_float[rS682{2048}, iS683{12288}]);
+T74_l_float[bS202{1}, iS203{2048}, iS204{12288}]
+   = T70_l_float[bS190{1}, bS191{1 ex 2048}, iS192{12288}]
+   * T69_l_float[bS187{1}, iS188{2048}, iS189{12288}];
+T85_l_float[bS233{1}, iS234{2048}, iS235{12288}]
+   = T82_l_float[bS224{1}, iS225{2048}, bS226{1 ex 12288}]
+   * T74_l_float[bS202{1}, iS203{2048}, iS204{12288}];
+T116_l_float[bS316{1}, iS317{2048}, iS318{12288}]
+   = T24_l_float[bS54{1}, iS55{2048}, iS56{12288}]
+   + T85_l_float[bS233{1}, iS234{2048}, iS235{12288}];
+T87_l_float[bS239{1}, iS240{2048}, iS241{12288}]
+   = -T85_l_float[bS233{1}, iS234{2048}, iS235{12288}];
+T89_l_float[iS243{2048}, iS244{12288}]
+   = squeeze( T87_l_float[bS239{1}, iS240{2048}, iS241{12288}], flags = {true, false, false} )
+T90_l_float[iS245{2048}, rS246{12288}]
+   = reduction( T89_l_float[iS243{2048}, iS244{12288}], op = add, initial value = float(0), allreduce = false )
+T93_l_float[bS251{1}, iS252{2048}, bS253{1}]
+   = broadcast( T90_l_float[iS245{2048}, rS246{12288}], flags = {true, false, true} )
+T112_l_float[bS304{1}, iS305{2048}, bS306{1 ex 12288}] = expand( T93_l_float[bS251{1}, iS252{2048}, bS253{1}], {1, 2048, 12288} )
+T114_l_float[bS310{1}, iS311{2048}, bS312{1 ex 12288}]
+   = double(8.1380208333333329e-05)
+   * T112_l_float[bS304{1}, iS305{2048}, bS306{1 ex 12288}];
+T76_l_float[bS208{1}, iS209{2048}, iS210{12288}]
+   = T75_l_float[bS205{1}, iS206{2048}, iS207{12288}]
+   * T74_l_float[bS202{1}, iS203{2048}, iS204{12288}];
+T77_l_float[iS211{2048}, iS212{12288}]
+   = squeeze( T76_l_float[bS208{1}, iS209{2048}, iS210{12288}], flags = {true, false, false} )
+T78_l_float[iS213{2048}, rS214{12288}]
+   = reduction( T77_l_float[iS211{2048}, iS212{12288}], op = add, initial value = float(0), allreduce = false )
+T79_l_float[bS215{1}, iS216{2048}, bS217{1}]
+   = broadcast( T78_l_float[iS213{2048}, rS214{12288}], flags = {true, false, true} )
+T84_l_float[bS230{1}, iS231{2048}, bS232{1}]
+   = double(-0.5)
+   * T79_l_float[bS215{1}, iS216{2048}, bS217{1}];
+T83_l_float[bS227{1}, iS228{2048}, bS229{1}]
+   = pow(T10_g_float[bS25{1}, iS26{2048}, bS27{1}]
+  , double(3));
+T86_l_float[bS236{1}, iS237{2048}, bS238{1}]
+   = T84_l_float[bS230{1}, iS231{2048}, bS232{1}]
+   * T83_l_float[bS227{1}, iS228{2048}, bS229{1}];
+T103_l_float[bS279{1}, iS280{2048}, bS281{1 ex 12288}] = expand( T86_l_float[bS236{1}, iS237{2048}, bS238{1}], {1, 2048, 12288} )
+T107_l_float[bS289{1}, iS290{2048}, bS291{1 ex 12288}]
+   = double(2)
+   * T103_l_float[bS279{1}, iS280{2048}, bS281{1 ex 12288}];
+T95_l_float[bS257{1}, iS258{2048}, bS259{1}]
+   = broadcast( T8_g_float[bS20{1}, iS21{2048}], flags = {false, false, true} )
+T101_l_float[bS273{1}, iS274{2048}, bS275{1 ex 12288}] = expand( T95_l_float[bS257{1}, iS258{2048}, bS259{1}], {1, 2048, 12288} )
+T106_l_float[bS286{1}, iS287{2048}, iS288{12288}]
+   = T73_l_float[bS199{1}, iS200{2048}, iS201{12288}]
+   - T101_l_float[bS273{1}, iS274{2048}, bS275{1 ex 12288}];
+T110_l_float[bS298{1}, iS299{2048}, iS300{12288}]
+   = T107_l_float[bS289{1}, iS290{2048}, bS291{1 ex 12288}]
+   * T106_l_float[bS286{1}, iS287{2048}, iS288{12288}];
+d474 = reciprocal(double(12288));
+T113_l_float[bS307{1}, iS308{2048}, iS309{12288}]
+   = T110_l_float[bS298{1}, iS299{2048}, iS300{12288}]
+   * d474;
+T115_l_float[bS313{1}, iS314{2048}, iS315{12288}]
+   = T114_l_float[bS310{1}, iS311{2048}, bS312{1 ex 12288}]
+   + T113_l_float[bS307{1}, iS308{2048}, iS309{12288}];
+T117_l_float[bS319{1}, iS320{2048}, iS321{12288}]
+   = T116_l_float[bS316{1}, iS317{2048}, iS318{12288}]
+   + T115_l_float[bS313{1}, iS314{2048}, iS315{12288}];
+T118_l_float[bS322{1}, iS323{2048}, iS324{12288}]
+   = double(1.11111)
+   * T117_l_float[bS319{1}, iS320{2048}, iS321{12288}];
+T119_l_float[bS325{1}, iS326{2048}, iS327{12288}]
+   = T58_l_float[bS154{1}, iS155{2048}, iS156{12288}]
+   * T118_l_float[bS322{1}, iS323{2048}, iS324{12288}];
+T120_l___bfloat[bS328{1}, iS329{2048}, iS330{12288}]
+   = __float2bfloat(T119_l_float[bS325{1}, iS326{2048}, iS327{12288}]);
+T121_l___bfloat[iS331{2048}, iS332{12288}]
+   = squeeze( T120_l___bfloat[bS328{1}, iS329{2048}, iS330{12288}], flags = {true, false, false} )
+T232_l___bfloat[iS679{12288}, iS678{2048}]
+   = Set.Permute( T121_l___bfloat[iS331{2048}, iS332{12288}], cache_op=Streaming )
+T202_l___bfloat[bS593{1}, iS595{2048}, iS594{48}, iS596{128}]
+   = Set.Permute( T13_g___bfloat[bS33{1}, iS34{48}, iS35{2048}, iS36{128}], cache_op=Streaming )
+T208_l___bfloat[bS612{1}, iS613{2048}, iS614{48}, iS615{128}]
+   = Set( T202_l___bfloat[bS593{1}, iS595{2048}, iS594{48}, iS596{128}], cache_op=Streaming )
+T216_l___bfloat[bS637{1}, iS638{2048}, iS643{6144}rf] = view( T208_l___bfloat[bS612{1}, iS613{2048}, iS614{48}, iS615{128}] )
+T231_l___bfloat[iS676{2048}, iS677{6144}]
+   = squeeze( T216_l___bfloat[bS637{1}, iS638{2048}, iS643{6144}rf], flags = {true, false, false} )
+T251_g___bfloat[iS714{12288}, iS715{6144}, rS716{2048}]
+   = matmul(T232_l___bfloat[iS679{12288}, iS678{2048}],
+            T231_l___bfloat[iS676{2048}, iS677{6144}])
+T229_l_float[iS672{2048}, iS673{12288}]
+   = squeeze( T119_l_float[bS325{1}, iS326{2048}, iS327{12288}], flags = {true, false, false} )
+T230_l_float[rS674{2048}, iS675{12288}]
+   = reduction( T229_l_float[iS672{2048}, iS673{12288}], op = add, initial value = float(0), allreduce = false )
+T250_g___bfloat[iS713{12288}]
+   = __float2bfloat(T230_l_float[rS674{2048}, iS675{12288}]);
+T122_l___bfloat[iS333{2048}, iS334{6144}, rS335{12288}]
+   = matmul(T121_l___bfloat[iS331{2048}, iS332{12288}],
+            T11_g___bfloat[iS28{12288}, iS29{6144}])
+T127_l___bfloat[bS357{1}, iS358{2048}, iS359{6144}]
+   = broadcast( T122_l___bfloat[iS333{2048}, iS334{6144}, rS335{12288}], flags = {true, false, false} )
+T128_l___bfloat[bS360{1}, iS361{2048}, iS364{48}rf, iS365{128}rf] = view( T127_l___bfloat[bS357{1}, iS358{2048}, iS359{6144}] )
+T132_l___bfloat[bS378{1}, iS380{48}, iS379{2048}, iS381{128}]
+   = Set.Permute( T128_l___bfloat[bS360{1}, iS361{2048}, iS364{48}rf, iS365{128}rf], cache_op=Streaming )
+T123_l___bfloat[bS336{1}, iS337{2048}, iS340{48}rf, iS341{384}rf] = view( T12_g___bfloat[bS30{1}, iS31{2048}, iS32{18432}] )
+T126_l___bfloat[bS352{1}, iS353{2048}, iS354{48}, iS356{128}rf]
+   = slice( T123_l___bfloat[bS336{1}, iS337{2048}, iS340{48}rf, iS341{384}rf], { {0, 1, 1} {0, 2048, 1} {0, 48, 1} {0, 128, 1} } )
+T131_l___bfloat[bS374{1}, iS376{48}, iS375{2048}, iS377{128}]
+   = Set.Permute( T126_l___bfloat[bS352{1}, iS353{2048}, iS354{48}, iS356{128}rf], cache_op=Streaming )
+T125_l___bfloat[bS347{1}, iS348{2048}, iS349{48}, iS351{128}rf]
+   = slice( T123_l___bfloat[bS336{1}, iS337{2048}, iS340{48}rf, iS341{384}rf], { {0, 1, 1} {0, 2048, 1} {0, 48, 1} {128, 256, 1} } )
+T130_l___bfloat[bS370{1}, iS372{48}, iS371{2048}, iS373{128}]
+   = Set.Permute( T125_l___bfloat[bS347{1}, iS348{2048}, iS349{48}, iS351{128}rf], cache_op=Streaming )
+T124_l___bfloat[bS342{1}, iS343{2048}, iS344{48}, iS346{128}rf]
+   = slice( T123_l___bfloat[bS336{1}, iS337{2048}, iS340{48}rf, iS341{384}rf], { {0, 1, 1} {0, 2048, 1} {0, 48, 1} {256, 384, 1} } )
+T129_l___bfloat[bS366{1}, iS368{48}, iS367{2048}, iS369{128}]
+   = Set.Permute( T124_l___bfloat[bS342{1}, iS343{2048}, iS344{48}, iS346{128}rf], cache_op=Streaming )
+T133_l___bfloat[bS382{1}, iS383{48}, iS384{2048}, iS385{128}],
+T134_l___bfloat[bS386{1}, iS387{48}, iS388{2048}, iS389{128}],
+T135_l___bfloat[bS390{1}, iS391{48}, iS392{2048}, iS393{128}]
+   = sdpa_bwd(T132_l___bfloat[bS378{1}, iS380{48}, iS379{2048}, iS381{128}],
+            T131_l___bfloat[bS374{1}, iS376{48}, iS375{2048}, iS377{128}],
+            T130_l___bfloat[bS370{1}, iS372{48}, iS371{2048}, iS373{128}],
+            T129_l___bfloat[bS366{1}, iS368{48}, iS367{2048}, iS369{128}],
+            T13_g___bfloat[bS33{1}, iS34{48}, iS35{2048}, iS36{128}],
+            logsum_exp = T14_g_float[bS37{1}, iS38{48}, iS39{2048}],
+            dropout_p = double(0.10000000000000001),
+            is_causal = true,
+            philox_seed = T15_g_uint64_t[iS40{2}],
+            philox_offset = T16_g_uint64_t[],
+  )
+T138_l___bfloat[bS402{1}, iS404{2048}, iS403{48}, iS405{128}]
+   = Set.Permute( T133_l___bfloat[bS382{1}, iS383{48}, iS384{2048}, iS385{128}], cache_op=Streaming )
+T139_l___bfloat[bS406{1}, iS407{2048}, iS408{48}, iS410{384}rf]
+   = pad( T138_l___bfloat[bS402{1}, iS404{2048}, iS403{48}, iS405{128}], {0, 0, 0, 0, 0, 0, 0, 256} )
+T137_l___bfloat[bS398{1}, iS400{2048}, iS399{48}, iS401{128}]
+   = Set.Permute( T134_l___bfloat[bS386{1}, iS387{48}, iS388{2048}, iS389{128}], cache_op=Streaming )
+i680 = 0 + 128;
+T140_l___bfloat[bS411{1}, iS412{2048}, iS413{48}, iS415{( ( ( 0 + 128 ) + 128 ) + 128 )}rf]
+   = pad( T137_l___bfloat[bS398{1}, iS400{2048}, iS399{48}, iS401{128}], {0, 0, 0, 0, 0, 0, i680, 128} )
+T136_l___bfloat[bS394{1}, iS396{2048}, iS395{48}, iS397{128}]
+   = Set.Permute( T135_l___bfloat[bS390{1}, iS391{48}, iS392{2048}, iS393{128}], cache_op=Streaming )
+i695 = i680 + 128;
+T141_l___bfloat[bS416{1}, iS417{2048}, iS418{48}, iS420{( ( ( 0 + 128 ) + 128 ) + 128 )}rf]
+   = pad( T136_l___bfloat[bS394{1}, iS396{2048}, iS395{48}, iS397{128}], {0, 0, 0, 0, 0, 0, i695, 0} )
+T142_l___bfloat[bS421{1}, iS422{2048}, iS423{48}, iS424{384}]
+   = cat( T139_l___bfloat[bS406{1}, iS407{2048}, iS408{48}, iS410{384}rf], T140_l___bfloat[bS411{1}, iS412{2048}, iS413{48}, iS415{( ( ( 0 + 128 ) + 128 ) + 128 )}rf], T141_l___bfloat[bS416{1}, iS417{2048}, iS418{48}, iS420{( ( ( 0 + 128 ) + 128 ) + 128 )}rf], 3 )
+T143_l___bfloat[bS425{1}, iS426{2048}, iS431{18432}rf] = view( T142_l___bfloat[bS421{1}, iS422{2048}, iS423{48}, iS424{384}] )
+T144_l___bfloat[iS432{2048}, iS433{18432}]
+   = squeeze( T143_l___bfloat[bS425{1}, iS426{2048}, iS431{18432}rf], flags = {true, false, false} )
+T228_l___bfloat[iS671{18432}, iS670{2048}]
+   = Set.Permute( T144_l___bfloat[iS432{2048}, iS433{18432}], cache_op=Streaming )
+T149_l_float[bS446{1}, iS447{2048}, bS448{1}]
+   = broadcast( T19_g_float[bS44{1}, iS45{2048}], flags = {false, false, true} )
+T154_l_float[bS461{1}, iS462{2048}, bS463{1 ex 12288}] = expand( T149_l_float[bS446{1}, iS447{2048}, bS448{1}], {1, 2048, 12288} )
+T156_l_float[bS467{1}, iS468{2048}, iS469{12288}]
+   = T68_l_float[bS184{1}, iS185{2048}, iS186{12288}]
+   - T154_l_float[bS461{1}, iS462{2048}, bS463{1 ex 12288}];
+T162_l_float[bS483{1}, iS484{2048}, bS485{1}]
+   = Set( T20_g_float[bS46{1}, iS47{2048}, bS48{1}], cache_op=Streaming )
+T163_l_float[bS486{1}, iS487{2048}, bS488{1 ex 12288}] = expand( T162_l_float[bS483{1}, iS484{2048}, bS485{1}], {1, 2048, 12288} )
+T193_l_float[bS566{1}, iS567{2048}, iS568{12288}]
+   = T156_l_float[bS467{1}, iS468{2048}, iS469{12288}]
+   * T163_l_float[bS486{1}, iS487{2048}, bS488{1 ex 12288}];
+T147_l___bfloat[bS440{1}, bS441{1}, iS442{12288}]
+   = broadcast( T18_g___bfloat[iS43{12288}], flags = {true, true, false} )
+T148_l___bfloat[bS443{1}, bS444{1 ex 2048}, iS445{12288}] = expand( T147_l___bfloat[bS440{1}, bS441{1}, iS442{12288}], {1, 2048, 12288} )
+T152_l_float[bS455{1}, bS456{1 ex 2048}, iS457{12288}]
+   = __bfloat2float(T148_l___bfloat[bS443{1}, bS444{1 ex 2048}, iS445{12288}]);
+T201_l_float[bS590{1}, iS591{2048}, iS592{12288}]
+   = T193_l_float[bS566{1}, iS567{2048}, iS568{12288}]
+   * T152_l_float[bS455{1}, bS456{1 ex 2048}, iS457{12288}];
+T191_l___bfloat[bS560{1}, bS561{1}, iS562{12288}]
+   = broadcast( T21_g___bfloat[iS49{12288}], flags = {true, true, false} )
+T192_l___bfloat[bS563{1}, bS564{1 ex 2048}, iS565{12288}] = expand( T191_l___bfloat[bS560{1}, bS561{1}, iS562{12288}], {1, 2048, 12288} )
+T200_l_float[bS587{1}, bS588{1 ex 2048}, iS589{12288}]
+   = __bfloat2float(T192_l___bfloat[bS563{1}, bS564{1 ex 2048}, iS565{12288}]);
+T207_l_float[bS609{1}, iS610{2048}, iS611{12288}]
+   = T201_l_float[bS590{1}, iS591{2048}, iS592{12288}]
+   + T200_l_float[bS587{1}, bS588{1 ex 2048}, iS589{12288}];
+T215_l___bfloat[bS634{1}, iS635{2048}, iS636{12288}]
+   = __float2bfloat(T207_l_float[bS609{1}, iS610{2048}, iS611{12288}]);
+T227_l___bfloat[iS668{2048}, iS669{12288}]
+   = squeeze( T215_l___bfloat[bS634{1}, iS635{2048}, iS636{12288}], flags = {true, false, false} )
+T249_g___bfloat[iS710{18432}, iS711{12288}, rS712{2048}]
+   = matmul(T228_l___bfloat[iS671{18432}, iS670{2048}],
+            T227_l___bfloat[iS668{2048}, iS669{12288}])
+T214_l_float[bS631{1}, iS632{2048}, iS633{18432}]
+   = __bfloat2float(T143_l___bfloat[bS425{1}, iS426{2048}, iS431{18432}rf]);
+T225_l_float[iS664{2048}, iS665{18432}]
+   = squeeze( T214_l_float[bS631{1}, iS632{2048}, iS633{18432}], flags = {true, false, false} )
+T226_l_float[rS666{2048}, iS667{18432}]
+   = reduction( T225_l_float[iS664{2048}, iS665{18432}], op = add, initial value = float(0), allreduce = false )
+T248_g___bfloat[iS709{18432}]
+   = __float2bfloat(T226_l_float[rS666{2048}, iS667{18432}]);
+T145_l___bfloat[iS434{2048}, iS435{12288}, rS436{18432}]
+   = matmul(T144_l___bfloat[iS432{2048}, iS433{18432}],
+            T17_g___bfloat[iS41{18432}, iS42{12288}])
+T146_l___bfloat[bS437{1}, iS438{2048}, iS439{12288}]
+   = broadcast( T145_l___bfloat[iS434{2048}, iS435{12288}, rS436{18432}], flags = {true, false, false} )
+T151_l_float[bS452{1}, iS453{2048}, iS454{12288}]
+   = __bfloat2float(T146_l___bfloat[bS437{1}, iS438{2048}, iS439{12288}]);
+T223_l_float[iS660{2048}, iS661{12288}]
+   = squeeze( T151_l_float[bS452{1}, iS453{2048}, iS454{12288}], flags = {true, false, false} )
+T224_l_float[rS662{2048}, iS663{12288}]
+   = reduction( T223_l_float[iS660{2048}, iS661{12288}], op = add, initial value = float(0), allreduce = false )
+T247_g___bfloat[iS708{12288}]
+   = __float2bfloat(T224_l_float[rS662{2048}, iS663{12288}]);
+T213_l_float[bS628{1}, iS629{2048}, iS630{12288}]
+   = T193_l_float[bS566{1}, iS567{2048}, iS568{12288}]
+   * T151_l_float[bS452{1}, iS453{2048}, iS454{12288}];
+T221_l_float[iS656{2048}, iS657{12288}]
+   = squeeze( T213_l_float[bS628{1}, iS629{2048}, iS630{12288}], flags = {true, false, false} )
+T222_l_float[rS658{2048}, iS659{12288}]
+   = reduction( T221_l_float[iS656{2048}, iS657{12288}], op = add, initial value = float(0), allreduce = false )
+T246_g___bfloat[iS707{12288}]
+   = __float2bfloat(T222_l_float[rS658{2048}, iS659{12288}]);
+T155_l_float[bS464{1}, iS465{2048}, iS466{12288}]
+   = T152_l_float[bS455{1}, bS456{1 ex 2048}, iS457{12288}]
+   * T151_l_float[bS452{1}, iS453{2048}, iS454{12288}];
+T166_l_float[bS495{1}, iS496{2048}, iS497{12288}]
+   = T163_l_float[bS486{1}, iS487{2048}, bS488{1 ex 12288}]
+   * T155_l_float[bS464{1}, iS465{2048}, iS466{12288}];
+T212_l_float[bS625{1}, iS626{2048}, iS627{12288}]
+   = T117_l_float[bS319{1}, iS320{2048}, iS321{12288}]
+   + T166_l_float[bS495{1}, iS496{2048}, iS497{12288}];
+T168_l_float[bS501{1}, iS502{2048}, iS503{12288}]
+   = -T166_l_float[bS495{1}, iS496{2048}, iS497{12288}];
+T170_l_float[iS505{2048}, iS506{12288}]
+   = squeeze( T168_l_float[bS501{1}, iS502{2048}, iS503{12288}], flags = {true, false, false} )
+T171_l_float[iS507{2048}, rS508{12288}]
+   = reduction( T170_l_float[iS505{2048}, iS506{12288}], op = add, initial value = float(0), allreduce = false )
+T174_l_float[bS513{1}, iS514{2048}, bS515{1}]
+   = broadcast( T171_l_float[iS507{2048}, rS508{12288}], flags = {true, false, true} )
+T199_l_float[bS584{1}, iS585{2048}, bS586{1 ex 12288}] = expand( T174_l_float[bS513{1}, iS514{2048}, bS515{1}], {1, 2048, 12288} )
+T206_l_float[bS606{1}, iS607{2048}, bS608{1 ex 12288}]
+   = double(8.1380208333333329e-05)
+   * T199_l_float[bS584{1}, iS585{2048}, bS586{1 ex 12288}];
+T157_l_float[bS470{1}, iS471{2048}, iS472{12288}]
+   = T156_l_float[bS467{1}, iS468{2048}, iS469{12288}]
+   * T155_l_float[bS464{1}, iS465{2048}, iS466{12288}];
+T158_l_float[iS473{2048}, iS474{12288}]
+   = squeeze( T157_l_float[bS470{1}, iS471{2048}, iS472{12288}], flags = {true, false, false} )
+T159_l_float[iS475{2048}, rS476{12288}]
+   = reduction( T158_l_float[iS473{2048}, iS474{12288}], op = add, initial value = float(0), allreduce = false )
+T160_l_float[bS477{1}, iS478{2048}, bS479{1}]
+   = broadcast( T159_l_float[iS475{2048}, rS476{12288}], flags = {true, false, true} )
+T165_l_float[bS492{1}, iS493{2048}, bS494{1}]
+   = double(-0.5)
+   * T160_l_float[bS477{1}, iS478{2048}, bS479{1}];
+T164_l_float[bS489{1}, iS490{2048}, bS491{1}]
+   = pow(T20_g_float[bS46{1}, iS47{2048}, bS48{1}]
+  , double(3));
+T167_l_float[bS498{1}, iS499{2048}, bS500{1}]
+   = T165_l_float[bS492{1}, iS493{2048}, bS494{1}]
+   * T164_l_float[bS489{1}, iS490{2048}, bS491{1}];
+T184_l_float[bS541{1}, iS542{2048}, bS543{1 ex 12288}] = expand( T167_l_float[bS498{1}, iS499{2048}, bS500{1}], {1, 2048, 12288} )
+T188_l_float[bS551{1}, iS552{2048}, bS553{1 ex 12288}]
+   = double(2)
+   * T184_l_float[bS541{1}, iS542{2048}, bS543{1 ex 12288}];
+T176_l_float[bS519{1}, iS520{2048}, bS521{1}]
+   = broadcast( T19_g_float[bS44{1}, iS45{2048}], flags = {false, false, true} )
+T182_l_float[bS535{1}, iS536{2048}, bS537{1 ex 12288}] = expand( T176_l_float[bS519{1}, iS520{2048}, bS521{1}], {1, 2048, 12288} )
+T187_l_float[bS548{1}, iS549{2048}, iS550{12288}]
+   = T68_l_float[bS184{1}, iS185{2048}, iS186{12288}]
+   - T182_l_float[bS535{1}, iS536{2048}, bS537{1 ex 12288}];
+T197_l_float[bS578{1}, iS579{2048}, iS580{12288}]
+   = T188_l_float[bS551{1}, iS552{2048}, bS553{1 ex 12288}]
+   * T187_l_float[bS548{1}, iS549{2048}, iS550{12288}];
+d950 = reciprocal(double(12288));
+T205_l_float[bS603{1}, iS604{2048}, iS605{12288}]
+   = T197_l_float[bS578{1}, iS579{2048}, iS580{12288}]
+   * d950;
+T211_l_float[bS622{1}, iS623{2048}, iS624{12288}]
+   = T206_l_float[bS606{1}, iS607{2048}, bS608{1 ex 12288}]
+   + T205_l_float[bS603{1}, iS604{2048}, iS605{12288}];
+T220_l_float[bS653{1}, iS654{2048}, iS655{12288}]
+   = T212_l_float[bS625{1}, iS626{2048}, iS627{12288}]
+   + T211_l_float[bS622{1}, iS623{2048}, iS624{12288}];
+T245_g___bfloat[bS704{1}, iS705{2048}, iS706{12288}]
+   = __float2bfloat(T220_l_float[bS653{1}, iS654{2048}, iS655{12288}]);
+} // %kernel_math 
+
+Segmented_Fusion Dump: -- Re-written complete fusion:{
+Inputs:
+  T0_g___bfloat[bS0{1}, iS1{2048}, iS2{24576}]
+  T1_g___bfloat[bS3{1}, iS4{2048}, iS5{12288}]
+  T2_g_bool[bS6{1}, iS7{2048}, iS8{12288}]
+  T3_g___bfloat[iS9{12288}, iS10{24576}]
+  T4_g_bool[bS11{1}, iS12{2048}, iS13{12288}]
+  T5_g___bfloat[bS14{1}, iS15{2048}, iS16{12288}]
+  T6_g___bfloat[iS17{24576}, iS18{12288}]
+  T7_g___bfloat[iS19{12288}]
+  T8_g_float[bS20{1}, iS21{2048}]
+  T9_g___bfloat[bS22{1}, iS23{2048}, iS24{12288}]
+  T10_g_float[bS25{1}, iS26{2048}, bS27{1}]
+  T11_g___bfloat[iS28{12288}, iS29{6144}]
+  T12_g___bfloat[bS30{1}, iS31{2048}, iS32{18432}]
+  T13_g___bfloat[bS33{1}, iS34{48}, iS35{2048}, iS36{128}]
+  T14_g_float[bS37{1}, iS38{48}, iS39{2048}]
+  T15_g_uint64_t[iS40{2}]
+  T16_g_uint64_t[]
+  T17_g___bfloat[iS41{18432}, iS42{12288}]
+  T18_g___bfloat[iS43{12288}]
+  T19_g_float[bS44{1}, iS45{2048}]
+  T20_g_float[bS46{1}, iS47{2048}, bS48{1}]
+  T21_g___bfloat[iS49{12288}]
+  T22_g___bfloat[iS50{12288}]
+Outputs:
+  T257_g___bfloat[iS724{12288}, iS725{24576}, rS726{2048}]
+  T256_g___bfloat[iS723{12288}]
+  T255_g___bfloat[iS720{24576}, iS721{12288}, rS722{2048}]
+  T254_g___bfloat[iS719{24576}]
+  T253_g___bfloat[iS718{12288}]
+  T252_g___bfloat[iS717{12288}]
+  T251_g___bfloat[iS714{12288}, iS715{6144}, rS716{2048}]
+  T250_g___bfloat[iS713{12288}]
+  T249_g___bfloat[iS710{18432}, iS711{12288}, rS712{2048}]
+  T248_g___bfloat[iS709{18432}]
+  T247_g___bfloat[iS708{12288}]
+  T246_g___bfloat[iS707{12288}]
+  T245_g___bfloat[bS704{1}, iS705{2048}, iS706{12288}]
+
+%kernel_math {
+T27_g_float[bS63{1}, iS64{2048}, iS65{12288}]
+   = __to_float(T2_g_bool[bS6{1}, iS7{2048}, iS8{12288}]);
+T24_l_float[bS54{1}, iS55{2048}, iS56{12288}]
+   = __bfloat2float(T1_g___bfloat[bS3{1}, iS4{2048}, iS5{12288}]);
+T26_l_float[bS60{1}, iS61{2048}, iS62{12288}]
+   = double(1.11111)
+   * T24_l_float[bS54{1}, iS55{2048}, iS56{12288}];
+T29_g_float[bS69{1}, iS70{2048}, iS71{12288}]
+   = T27_g_float[bS63{1}, iS64{2048}, iS65{12288}]
+   * T26_l_float[bS60{1}, iS61{2048}, iS62{12288}];
+T31_g___bfloat[bS75{1}, iS76{2048}, iS77{12288}]
+   = __float2bfloat(T29_g_float[bS69{1}, iS70{2048}, iS71{12288}]);
+T33_g___bfloat[iS81{2048}, iS82{12288}]
+   = squeeze( T31_g___bfloat[bS75{1}, iS76{2048}, iS77{12288}], flags = {true, false, false} )
+T244_g___bfloat[iS703{12288}, iS702{2048}]
+   = Set.Permute( T33_g___bfloat[iS81{2048}, iS82{12288}], cache_op=Streaming )
+T23_l_float[bS51{1}, iS52{2048}, iS53{24576}]
+   = __bfloat2float(T0_g___bfloat[bS0{1}, iS1{2048}, iS2{24576}]);
+T40_g_float[bS101{1}, iS102{2048}, iS103{24576}]
+   = double(0.5)
+   * T23_l_float[bS51{1}, iS52{2048}, iS53{24576}];
+T25_g_float[bS57{1}, iS58{2048}, iS59{24576}]
+   = T23_l_float[bS51{1}, iS52{2048}, iS53{24576}]
+   * T23_l_float[bS51{1}, iS52{2048}, iS53{24576}];
+T28_l_float[bS66{1}, iS67{2048}, iS68{24576}]
+   = T25_g_float[bS57{1}, iS58{2048}, iS59{24576}]
+   * T23_l_float[bS51{1}, iS52{2048}, iS53{24576}];
+T30_l_float[bS72{1}, iS73{2048}, iS74{24576}]
+   = double(0.044714999999999998)
+   * T28_l_float[bS66{1}, iS67{2048}, iS68{24576}];
+T32_l_float[bS78{1}, iS79{2048}, iS80{24576}]
+   = T23_l_float[bS51{1}, iS52{2048}, iS53{24576}]
+   + T30_l_float[bS72{1}, iS73{2048}, iS74{24576}];
+T34_l_float[bS83{1}, iS84{2048}, iS85{24576}]
+   = double(0.79788499999999996)
+   * T32_l_float[bS78{1}, iS79{2048}, iS80{24576}];
+T36_g_float[bS89{1}, iS90{2048}, iS91{24576}]
+   = tanhf(T34_l_float[bS83{1}, iS84{2048}, iS85{24576}]);
+T44_g_float[bS113{1}, iS114{2048}, iS115{24576}]
+   = double(1)
+   + T36_g_float[bS89{1}, iS90{2048}, iS91{24576}];
+T210_g_float[bS619{1}, iS620{2048}, iS621{24576}]
+   = T40_g_float[bS101{1}, iS102{2048}, iS103{24576}]
+   * T44_g_float[bS113{1}, iS114{2048}, iS115{24576}];
+T219_g___bfloat[bS650{1}, iS651{2048}, iS652{24576}]
+   = __float2bfloat(T210_g_float[bS619{1}, iS620{2048}, iS621{24576}]);
+T243_g___bfloat[iS700{2048}, iS701{24576}]
+   = squeeze( T219_g___bfloat[bS650{1}, iS651{2048}, iS652{24576}], flags = {true, false, false} )
+T257_g___bfloat[iS724{12288}, iS725{24576}, rS726{2048}]
+   = matmul(T244_g___bfloat[iS703{12288}, iS702{2048}],
+            T243_g___bfloat[iS700{2048}, iS701{24576}])
+T241_g_float[iS696{2048}, iS697{12288}]
+   = squeeze( T29_g_float[bS69{1}, iS70{2048}, iS71{12288}], flags = {true, false, false} )
+T242_g_float[rS698{2048}, iS699{12288}]
+   = reduction( T241_g_float[iS696{2048}, iS697{12288}], op = add, initial value = float(0), allreduce = false )
+T256_g___bfloat[iS723{12288}]
+   = __float2bfloat(T242_g_float[rS698{2048}, iS699{12288}]);
+T35_g___bfloat[iS86{2048}, iS87{24576}, rS88{12288}]
+   = matmul(T33_g___bfloat[iS81{2048}, iS82{12288}],
+            T3_g___bfloat[iS9{12288}, iS10{24576}])
+T37_g___bfloat[bS92{1}, iS93{2048}, iS94{24576}]
+   = broadcast( T35_g___bfloat[iS86{2048}, iS87{24576}, rS88{12288}], flags = {true, false, false} )
+T39_l_float[bS98{1}, iS99{2048}, iS100{24576}]
+   = __bfloat2float(T37_g___bfloat[bS92{1}, iS93{2048}, iS94{24576}]);
+T42_l_float[bS107{1}, iS108{2048}, iS109{24576}]
+   = T40_g_float[bS101{1}, iS102{2048}, iS103{24576}]
+   * T39_l_float[bS98{1}, iS99{2048}, iS100{24576}];
+T38_l_float[bS95{1}, iS96{2048}, iS97{24576}]
+   = T36_g_float[bS89{1}, iS90{2048}, iS91{24576}]
+   * T36_g_float[bS89{1}, iS90{2048}, iS91{24576}];
+T41_l_float[bS104{1}, iS105{2048}, iS106{24576}]
+   = double(1)
+   - T38_l_float[bS95{1}, iS96{2048}, iS97{24576}];
+T43_l_float[bS110{1}, iS111{2048}, iS112{24576}]
+   = T42_l_float[bS107{1}, iS108{2048}, iS109{24576}]
+   * T41_l_float[bS104{1}, iS105{2048}, iS106{24576}];
+T45_g_float[bS116{1}, iS117{2048}, iS118{24576}]
+   = double(0.79788499999999996)
+   * T43_l_float[bS110{1}, iS111{2048}, iS112{24576}];
+T46_l_float[bS119{1}, iS120{2048}, iS121{24576}]
+   = T44_g_float[bS113{1}, iS114{2048}, iS115{24576}]
+   * T39_l_float[bS98{1}, iS99{2048}, iS100{24576}];
+T48_l_float[bS125{1}, iS126{2048}, iS127{24576}]
+   = double(0.5)
+   * T46_l_float[bS119{1}, iS120{2048}, iS121{24576}];
+T51_l_float[bS134{1}, iS135{2048}, iS136{24576}]
+   = T45_g_float[bS116{1}, iS117{2048}, iS118{24576}]
+   + T48_l_float[bS125{1}, iS126{2048}, iS127{24576}];
+T47_g_float[bS122{1}, iS123{2048}, iS124{24576}]
+   = double(0.044714999999999998)
+   * T45_g_float[bS116{1}, iS117{2048}, iS118{24576}];
+T50_l_float[bS131{1}, iS132{2048}, iS133{24576}]
+   = T25_g_float[bS57{1}, iS58{2048}, iS59{24576}]
+   * T47_g_float[bS122{1}, iS123{2048}, iS124{24576}];
+T53_l_float[bS140{1}, iS141{2048}, iS142{24576}]
+   = T51_l_float[bS134{1}, iS135{2048}, iS136{24576}]
+   + T50_l_float[bS131{1}, iS132{2048}, iS133{24576}];
+T49_l_float[bS128{1}, iS129{2048}, iS130{24576}]
+   = T23_l_float[bS51{1}, iS52{2048}, iS53{24576}]
+   * T47_g_float[bS122{1}, iS123{2048}, iS124{24576}];
+T52_g_float[bS137{1}, iS138{2048}, iS139{24576}]
+   = T23_l_float[bS51{1}, iS52{2048}, iS53{24576}]
+   * T49_l_float[bS128{1}, iS129{2048}, iS130{24576}];
+T54_l_float[bS143{1}, iS144{2048}, iS145{24576}]
+   = T53_l_float[bS140{1}, iS141{2048}, iS142{24576}]
+   + T52_g_float[bS137{1}, iS138{2048}, iS139{24576}];
+T55_g_float[bS146{1}, iS147{2048}, iS148{24576}]
+   = T54_l_float[bS143{1}, iS144{2048}, iS145{24576}]
+   + T52_g_float[bS137{1}, iS138{2048}, iS139{24576}];
+T56_g___bfloat[bS149{1}, iS150{2048}, iS151{24576}]
+   = __float2bfloat(T55_g_float[bS146{1}, iS147{2048}, iS148{24576}]);
+T57_g___bfloat[iS152{2048}, iS153{24576}]
+   = squeeze( T56_g___bfloat[bS149{1}, iS150{2048}, iS151{24576}], flags = {true, false, false} )
+T240_g___bfloat[iS695{24576}, iS694{2048}]
+   = Set.Permute( T57_g___bfloat[iS152{2048}, iS153{24576}], cache_op=Streaming )
+T68_l_float[bS184{1}, iS185{2048}, iS186{12288}]
+   = __bfloat2float(T9_g___bfloat[bS22{1}, iS23{2048}, iS24{12288}]);
+T59_g_float[bS157{1}, iS158{2048}, iS159{12288}]
+   = __bfloat2float(T5_g___bfloat[bS14{1}, iS15{2048}, iS16{12288}]);
+T58_l_float[bS154{1}, iS155{2048}, iS156{12288}]
+   = __to_float(T4_g_bool[bS11{1}, iS12{2048}, iS13{12288}]);
+T61_l_float[bS163{1}, iS164{2048}, iS165{12288}]
+   = T59_g_float[bS157{1}, iS158{2048}, iS159{12288}]
+   * T58_l_float[bS154{1}, iS155{2048}, iS156{12288}];
+T67_l_float[bS181{1}, iS182{2048}, iS183{12288}]
+   = T61_l_float[bS163{1}, iS164{2048}, iS165{12288}]
+   * double(1.11111);
+T73_g_float[bS199{1}, iS200{2048}, iS201{12288}]
+   = T68_l_float[bS184{1}, iS185{2048}, iS186{12288}]
+   + T67_l_float[bS181{1}, iS182{2048}, iS183{12288}];
+T65_l_float[bS175{1}, iS176{2048}, bS177{1}]
+   = broadcast( T8_g_float[bS20{1}, iS21{2048}], flags = {false, false, true} )
+T72_g_float[bS196{1}, iS197{2048}, bS198{1 ex 12288}] = expand( T65_l_float[bS175{1}, iS176{2048}, bS177{1}], {1, 2048, 12288} )
+T75_g_float[bS205{1}, iS206{2048}, iS207{12288}]
+   = T73_g_float[bS199{1}, iS200{2048}, iS201{12288}]
+   - T72_g_float[bS196{1}, iS197{2048}, bS198{1 ex 12288}];
+T81_l_float[bS221{1}, iS222{2048}, bS223{1}]
+   = Set( T10_g_float[bS25{1}, iS26{2048}, bS27{1}], cache_op=Streaming )
+T82_g_float[bS224{1}, iS225{2048}, bS226{1 ex 12288}] = expand( T81_l_float[bS221{1}, iS222{2048}, bS223{1}], {1, 2048, 12288} )
+T196_g_float[bS575{1}, iS576{2048}, iS577{12288}]
+   = T75_g_float[bS205{1}, iS206{2048}, iS207{12288}]
+   * T82_g_float[bS224{1}, iS225{2048}, bS226{1 ex 12288}];
+T63_l___bfloat[bS169{1}, bS170{1}, iS171{12288}]
+   = broadcast( T7_g___bfloat[iS19{12288}], flags = {true, true, false} )
+T64_g___bfloat[bS172{1}, bS173{1 ex 2048}, iS174{12288}] = expand( T63_l___bfloat[bS169{1}, bS170{1}, iS171{12288}], {1, 2048, 12288} )
+T70_l_float[bS190{1}, bS191{1 ex 2048}, iS192{12288}]
+   = __bfloat2float(T64_g___bfloat[bS172{1}, bS173{1 ex 2048}, iS174{12288}]);
+T204_l_float[bS600{1}, iS601{2048}, iS602{12288}]
+   = T196_g_float[bS575{1}, iS576{2048}, iS577{12288}]
+   * T70_l_float[bS190{1}, bS191{1 ex 2048}, iS192{12288}];
+T194_l___bfloat[bS569{1}, bS570{1}, iS571{12288}]
+   = broadcast( T22_g___bfloat[iS50{12288}], flags = {true, true, false} )
+T195_g___bfloat[bS572{1}, bS573{1 ex 2048}, iS574{12288}] = expand( T194_l___bfloat[bS569{1}, bS570{1}, iS571{12288}], {1, 2048, 12288} )
+T203_l_float[bS597{1}, bS598{1 ex 2048}, iS599{12288}]
+   = __bfloat2float(T195_g___bfloat[bS572{1}, bS573{1 ex 2048}, iS574{12288}]);
+T209_l_float[bS616{1}, iS617{2048}, iS618{12288}]
+   = T204_l_float[bS600{1}, iS601{2048}, iS602{12288}]
+   + T203_l_float[bS597{1}, bS598{1 ex 2048}, iS599{12288}];
+T218_g___bfloat[bS647{1}, iS648{2048}, iS649{12288}]
+   = __float2bfloat(T209_l_float[bS616{1}, iS617{2048}, iS618{12288}]);
+T239_g___bfloat[iS692{2048}, iS693{12288}]
+   = squeeze( T218_g___bfloat[bS647{1}, iS648{2048}, iS649{12288}], flags = {true, false, false} )
+T255_g___bfloat[iS720{24576}, iS721{12288}, rS722{2048}]
+   = matmul(T240_g___bfloat[iS695{24576}, iS694{2048}],
+            T239_g___bfloat[iS692{2048}, iS693{12288}])
+T237_g_float[iS688{2048}, iS689{24576}]
+   = squeeze( T55_g_float[bS146{1}, iS147{2048}, iS148{24576}], flags = {true, false, false} )
+T238_g_float[rS690{2048}, iS691{24576}]
+   = reduction( T237_g_float[iS688{2048}, iS689{24576}], op = add, initial value = float(0), allreduce = false )
+T254_g___bfloat[iS719{24576}]
+   = __float2bfloat(T238_g_float[rS690{2048}, iS691{24576}]);
+T60_g___bfloat[iS160{2048}, iS161{12288}, rS162{24576}]
+   = matmul(T57_g___bfloat[iS152{2048}, iS153{24576}],
+            T6_g___bfloat[iS17{24576}, iS18{12288}])
+T62_g___bfloat[bS166{1}, iS167{2048}, iS168{12288}]
+   = broadcast( T60_g___bfloat[iS160{2048}, iS161{12288}, rS162{24576}], flags = {true, false, false} )
+T69_l_float[bS187{1}, iS188{2048}, iS189{12288}]
+   = __bfloat2float(T62_g___bfloat[bS166{1}, iS167{2048}, iS168{12288}]);
+T235_l_float[iS684{2048}, iS685{12288}]
+   = squeeze( T69_l_float[bS187{1}, iS188{2048}, iS189{12288}], flags = {true, false, false} )
+T236_g_float[rS686{2048}, iS687{12288}]
+   = reduction( T235_l_float[iS684{2048}, iS685{12288}], op = add, initial value = float(0), allreduce = false )
+T253_g___bfloat[iS718{12288}]
+   = __float2bfloat(T236_g_float[rS686{2048}, iS687{12288}]);
+T217_l_float[bS644{1}, iS645{2048}, iS646{12288}]
+   = T196_g_float[bS575{1}, iS576{2048}, iS577{12288}]
+   * T69_l_float[bS187{1}, iS188{2048}, iS189{12288}];
+T233_l_float[iS680{2048}, iS681{12288}]
+   = squeeze( T217_l_float[bS644{1}, iS645{2048}, iS646{12288}], flags = {true, false, false} )
+T234_g_float[rS682{2048}, iS683{12288}]
+   = reduction( T233_l_float[iS680{2048}, iS681{12288}], op = add, initial value = float(0), allreduce = false )
+T252_g___bfloat[iS717{12288}]
+   = __float2bfloat(T234_g_float[rS682{2048}, iS683{12288}]);
+T275_g_float[bS778{1}, iS779{2048}, iS780{12288}]
+   = __bfloat2float(T1_g___bfloat[bS3{1}, iS4{2048}, iS5{12288}]);
+T74_g_float[bS202{1}, iS203{2048}, iS204{12288}]
+   = T70_l_float[bS190{1}, bS191{1 ex 2048}, iS192{12288}]
+   * T69_l_float[bS187{1}, iS188{2048}, iS189{12288}];
+T85_g_float[bS233{1}, iS234{2048}, iS235{12288}]
+   = T82_g_float[bS224{1}, iS225{2048}, bS226{1 ex 12288}]
+   * T74_g_float[bS202{1}, iS203{2048}, iS204{12288}];
+T116_g_float[bS316{1}, iS317{2048}, iS318{12288}]
+   = T275_g_float[bS778{1}, iS779{2048}, iS780{12288}]
+   + T85_g_float[bS233{1}, iS234{2048}, iS235{12288}];
+T87_l_float[bS239{1}, iS240{2048}, iS241{12288}]
+   = -T85_g_float[bS233{1}, iS234{2048}, iS235{12288}];
+T89_l_float[iS243{2048}, iS244{12288}]
+   = squeeze( T87_l_float[bS239{1}, iS240{2048}, iS241{12288}], flags = {true, false, false} )
+T90_g_float[iS245{2048}, rS246{12288}]
+   = reduction( T89_l_float[iS243{2048}, iS244{12288}], op = add, initial value = float(0), allreduce = false )
+T93_l_float[bS251{1}, iS252{2048}, bS253{1}]
+   = broadcast( T90_g_float[iS245{2048}, rS246{12288}], flags = {true, false, true} )
+T112_g_float[bS304{1}, iS305{2048}, bS306{1 ex 12288}] = expand( T93_l_float[bS251{1}, iS252{2048}, bS253{1}], {1, 2048, 12288} )
+T114_g_float[bS310{1}, iS311{2048}, bS312{1 ex 12288}]
+   = double(8.1380208333333329e-05)
+   * T112_g_float[bS304{1}, iS305{2048}, bS306{1 ex 12288}];
+T76_l_float[bS208{1}, iS209{2048}, iS210{12288}]
+   = T75_g_float[bS205{1}, iS206{2048}, iS207{12288}]
+   * T74_g_float[bS202{1}, iS203{2048}, iS204{12288}];
+T77_l_float[iS211{2048}, iS212{12288}]
+   = squeeze( T76_l_float[bS208{1}, iS209{2048}, iS210{12288}], flags = {true, false, false} )
+T78_g_float[iS213{2048}, rS214{12288}]
+   = reduction( T77_l_float[iS211{2048}, iS212{12288}], op = add, initial value = float(0), allreduce = false )
+T79_l_float[bS215{1}, iS216{2048}, bS217{1}]
+   = broadcast( T78_g_float[iS213{2048}, rS214{12288}], flags = {true, false, true} )
+T84_g_float[bS230{1}, iS231{2048}, bS232{1}]
+   = double(-0.5)
+   * T79_l_float[bS215{1}, iS216{2048}, bS217{1}];
+T83_g_float[bS227{1}, iS228{2048}, bS229{1}]
+   = pow(T10_g_float[bS25{1}, iS26{2048}, bS27{1}]
+  , double(3));
+T86_g_float[bS236{1}, iS237{2048}, bS238{1}]
+   = T84_g_float[bS230{1}, iS231{2048}, bS232{1}]
+   * T83_g_float[bS227{1}, iS228{2048}, bS229{1}];
+T103_l_float[bS279{1}, iS280{2048}, bS281{1 ex 12288}] = expand( T86_g_float[bS236{1}, iS237{2048}, bS238{1}], {1, 2048, 12288} )
+T107_g_float[bS289{1}, iS290{2048}, bS291{1 ex 12288}]
+   = double(2)
+   * T103_l_float[bS279{1}, iS280{2048}, bS281{1 ex 12288}];
+T95_l_float[bS257{1}, iS258{2048}, bS259{1}]
+   = broadcast( T8_g_float[bS20{1}, iS21{2048}], flags = {false, false, true} )
+T101_g_float[bS273{1}, iS274{2048}, bS275{1 ex 12288}] = expand( T95_l_float[bS257{1}, iS258{2048}, bS259{1}], {1, 2048, 12288} )
+T106_g_float[bS286{1}, iS287{2048}, iS288{12288}]
+   = T73_g_float[bS199{1}, iS200{2048}, iS201{12288}]
+   - T101_g_float[bS273{1}, iS274{2048}, bS275{1 ex 12288}];
+T110_g_float[bS298{1}, iS299{2048}, iS300{12288}]
+   = T107_g_float[bS289{1}, iS290{2048}, bS291{1 ex 12288}]
+   * T106_g_float[bS286{1}, iS287{2048}, iS288{12288}];
+d474 = reciprocal(double(12288));
+T113_l_float[bS307{1}, iS308{2048}, iS309{12288}]
+   = T110_g_float[bS298{1}, iS299{2048}, iS300{12288}]
+   * d474;
+T115_g_float[bS313{1}, iS314{2048}, iS315{12288}]
+   = T114_g_float[bS310{1}, iS311{2048}, bS312{1 ex 12288}]
+   + T113_l_float[bS307{1}, iS308{2048}, iS309{12288}];
+T117_g_float[bS319{1}, iS320{2048}, iS321{12288}]
+   = T116_g_float[bS316{1}, iS317{2048}, iS318{12288}]
+   + T115_g_float[bS313{1}, iS314{2048}, iS315{12288}];
+T118_l_float[bS322{1}, iS323{2048}, iS324{12288}]
+   = double(1.11111)
+   * T117_g_float[bS319{1}, iS320{2048}, iS321{12288}];
+T119_g_float[bS325{1}, iS326{2048}, iS327{12288}]
+   = T58_l_float[bS154{1}, iS155{2048}, iS156{12288}]
+   * T118_l_float[bS322{1}, iS323{2048}, iS324{12288}];
+T120_g___bfloat[bS328{1}, iS329{2048}, iS330{12288}]
+   = __float2bfloat(T119_g_float[bS325{1}, iS326{2048}, iS327{12288}]);
+T121_g___bfloat[iS331{2048}, iS332{12288}]
+   = squeeze( T120_g___bfloat[bS328{1}, iS329{2048}, iS330{12288}], flags = {true, false, false} )
+T232_g___bfloat[iS679{12288}, iS678{2048}]
+   = Set.Permute( T121_g___bfloat[iS331{2048}, iS332{12288}], cache_op=Streaming )
+T202_l___bfloat[bS593{1}, iS595{2048}, iS594{48}, iS596{128}]
+   = Set.Permute( T13_g___bfloat[bS33{1}, iS34{48}, iS35{2048}, iS36{128}], cache_op=Streaming )
+T208_g___bfloat[bS612{1}, iS613{2048}, iS614{48}, iS615{128}]
+   = Set( T202_l___bfloat[bS593{1}, iS595{2048}, iS594{48}, iS596{128}], cache_op=Streaming )
+T216_g___bfloat[bS637{1}, iS638{2048}, iS643{6144}rf] = view( T208_g___bfloat[bS612{1}, iS613{2048}, iS614{48}, iS615{128}] )
+T231_g___bfloat[iS676{2048}, iS677{6144}]
+   = squeeze( T216_g___bfloat[bS637{1}, iS638{2048}, iS643{6144}rf], flags = {true, false, false} )
+T251_g___bfloat[iS714{12288}, iS715{6144}, rS716{2048}]
+   = matmul(T232_g___bfloat[iS679{12288}, iS678{2048}],
+            T231_g___bfloat[iS676{2048}, iS677{6144}])
+T229_g_float[iS672{2048}, iS673{12288}]
+   = squeeze( T119_g_float[bS325{1}, iS326{2048}, iS327{12288}], flags = {true, false, false} )
+T230_g_float[rS674{2048}, iS675{12288}]
+   = reduction( T229_g_float[iS672{2048}, iS673{12288}], op = add, initial value = float(0), allreduce = false )
+T250_g___bfloat[iS713{12288}]
+   = __float2bfloat(T230_g_float[rS674{2048}, iS675{12288}]);
+T122_g___bfloat[iS333{2048}, iS334{6144}, rS335{12288}]
+   = matmul(T121_g___bfloat[iS331{2048}, iS332{12288}],
+            T11_g___bfloat[iS28{12288}, iS29{6144}])
+T127_g___bfloat[bS357{1}, iS358{2048}, iS359{6144}]
+   = broadcast( T122_g___bfloat[iS333{2048}, iS334{6144}, rS335{12288}], flags = {true, false, false} )
+T128_g___bfloat[bS360{1}, iS361{2048}, iS364{48}rf, iS365{128}rf] = view( T127_g___bfloat[bS357{1}, iS358{2048}, iS359{6144}] )
+T132_g___bfloat[bS378{1}, iS380{48}, iS379{2048}, iS381{128}]
+   = Set.Permute( T128_g___bfloat[bS360{1}, iS361{2048}, iS364{48}rf, iS365{128}rf], cache_op=Streaming )
+T123_g___bfloat[bS336{1}, iS337{2048}, iS340{48}rf, iS341{384}rf] = view( T12_g___bfloat[bS30{1}, iS31{2048}, iS32{18432}] )
+T126_g___bfloat[bS352{1}, iS353{2048}, iS354{48}, iS356{128}rf]
+   = slice( T123_g___bfloat[bS336{1}, iS337{2048}, iS340{48}rf, iS341{384}rf], { {0, 1, 1} {0, 2048, 1} {0, 48, 1} {0, 128, 1} } )
+T131_g___bfloat[bS374{1}, iS376{48}, iS375{2048}, iS377{128}]
+   = Set.Permute( T126_g___bfloat[bS352{1}, iS353{2048}, iS354{48}, iS356{128}rf], cache_op=Streaming )
+T125_g___bfloat[bS347{1}, iS348{2048}, iS349{48}, iS351{128}rf]
+   = slice( T123_g___bfloat[bS336{1}, iS337{2048}, iS340{48}rf, iS341{384}rf], { {0, 1, 1} {0, 2048, 1} {0, 48, 1} {128, 256, 1} } )
+T130_g___bfloat[bS370{1}, iS372{48}, iS371{2048}, iS373{128}]
+   = Set.Permute( T125_g___bfloat[bS347{1}, iS348{2048}, iS349{48}, iS351{128}rf], cache_op=Streaming )
+T124_g___bfloat[bS342{1}, iS343{2048}, iS344{48}, iS346{128}rf]
+   = slice( T123_g___bfloat[bS336{1}, iS337{2048}, iS340{48}rf, iS341{384}rf], { {0, 1, 1} {0, 2048, 1} {0, 48, 1} {256, 384, 1} } )
+T129_g___bfloat[bS366{1}, iS368{48}, iS367{2048}, iS369{128}]
+   = Set.Permute( T124_g___bfloat[bS342{1}, iS343{2048}, iS344{48}, iS346{128}rf], cache_op=Streaming )
+T133_g___bfloat[bS382{1}, iS383{48}, iS384{2048}, iS385{128}],
+T134_g___bfloat[bS386{1}, iS387{48}, iS388{2048}, iS389{128}],
+T135_g___bfloat[bS390{1}, iS391{48}, iS392{2048}, iS393{128}]
+   = sdpa_bwd(T132_g___bfloat[bS378{1}, iS380{48}, iS379{2048}, iS381{128}],
+            T131_g___bfloat[bS374{1}, iS376{48}, iS375{2048}, iS377{128}],
+            T130_g___bfloat[bS370{1}, iS372{48}, iS371{2048}, iS373{128}],
+            T129_g___bfloat[bS366{1}, iS368{48}, iS367{2048}, iS369{128}],
+            T13_g___bfloat[bS33{1}, iS34{48}, iS35{2048}, iS36{128}],
+            logsum_exp = T14_g_float[bS37{1}, iS38{48}, iS39{2048}],
+            dropout_p = double(0.10000000000000001),
+            is_causal = true,
+            philox_seed = T15_g_uint64_t[iS40{2}],
+            philox_offset = T16_g_uint64_t[],
+  )
+T138_g___bfloat[bS402{1}, iS404{2048}, iS403{48}, iS405{128}]
+   = Set.Permute( T133_g___bfloat[bS382{1}, iS383{48}, iS384{2048}, iS385{128}], cache_op=Streaming )
+T139_l___bfloat[bS406{1}, iS407{2048}, iS408{48}, iS410{384}rf]
+   = pad( T138_g___bfloat[bS402{1}, iS404{2048}, iS403{48}, iS405{128}], {0, 0, 0, 0, 0, 0, 0, 256} )
+T137_g___bfloat[bS398{1}, iS400{2048}, iS399{48}, iS401{128}]
+   = Set.Permute( T134_g___bfloat[bS386{1}, iS387{48}, iS388{2048}, iS389{128}], cache_op=Streaming )
+i680 = 0 + 128;
+T140_l___bfloat[bS411{1}, iS412{2048}, iS413{48}, iS415{( ( ( 0 + 128 ) + 128 ) + 128 )}rf]
+   = pad( T137_g___bfloat[bS398{1}, iS400{2048}, iS399{48}, iS401{128}], {0, 0, 0, 0, 0, 0, i680, 128} )
+T136_g___bfloat[bS394{1}, iS396{2048}, iS395{48}, iS397{128}]
+   = Set.Permute( T135_g___bfloat[bS390{1}, iS391{48}, iS392{2048}, iS393{128}], cache_op=Streaming )
+i695 = i680 + 128;
+T141_l___bfloat[bS416{1}, iS417{2048}, iS418{48}, iS420{( ( ( 0 + 128 ) + 128 ) + 128 )}rf]
+   = pad( T136_g___bfloat[bS394{1}, iS396{2048}, iS395{48}, iS397{128}], {0, 0, 0, 0, 0, 0, i695, 0} )
+T142_g___bfloat[bS421{1}, iS422{2048}, iS423{48}, iS424{384}]
+   = cat( T139_l___bfloat[bS406{1}, iS407{2048}, iS408{48}, iS410{384}rf], T140_l___bfloat[bS411{1}, iS412{2048}, iS413{48}, iS415{( ( ( 0 + 128 ) + 128 ) + 128 )}rf], T141_l___bfloat[bS416{1}, iS417{2048}, iS418{48}, iS420{( ( ( 0 + 128 ) + 128 ) + 128 )}rf], 3 )
+T143_g___bfloat[bS425{1}, iS426{2048}, iS431{18432}rf] = view( T142_g___bfloat[bS421{1}, iS422{2048}, iS423{48}, iS424{384}] )
+T144_g___bfloat[iS432{2048}, iS433{18432}]
+   = squeeze( T143_g___bfloat[bS425{1}, iS426{2048}, iS431{18432}rf], flags = {true, false, false} )
+T228_g___bfloat[iS671{18432}, iS670{2048}]
+   = Set.Permute( T144_g___bfloat[iS432{2048}, iS433{18432}], cache_op=Streaming )
+T277_l_float[bS784{1}, iS785{2048}, iS786{12288}]
+   = __bfloat2float(T9_g___bfloat[bS22{1}, iS23{2048}, iS24{12288}]);
+T149_l_float[bS446{1}, iS447{2048}, bS448{1}]
+   = broadcast( T19_g_float[bS44{1}, iS45{2048}], flags = {false, false, true} )
+T154_l_float[bS461{1}, iS462{2048}, bS463{1 ex 12288}] = expand( T149_l_float[bS446{1}, iS447{2048}, bS448{1}], {1, 2048, 12288} )
+T156_g_float[bS467{1}, iS468{2048}, iS469{12288}]
+   = T277_l_float[bS784{1}, iS785{2048}, iS786{12288}]
+   - T154_l_float[bS461{1}, iS462{2048}, bS463{1 ex 12288}];
+T162_l_float[bS483{1}, iS484{2048}, bS485{1}]
+   = Set( T20_g_float[bS46{1}, iS47{2048}, bS48{1}], cache_op=Streaming )
+T163_g_float[bS486{1}, iS487{2048}, bS488{1 ex 12288}] = expand( T162_l_float[bS483{1}, iS484{2048}, bS485{1}], {1, 2048, 12288} )
+T193_g_float[bS566{1}, iS567{2048}, iS568{12288}]
+   = T156_g_float[bS467{1}, iS468{2048}, iS469{12288}]
+   * T163_g_float[bS486{1}, iS487{2048}, bS488{1 ex 12288}];
+T147_l___bfloat[bS440{1}, bS441{1}, iS442{12288}]
+   = broadcast( T18_g___bfloat[iS43{12288}], flags = {true, true, false} )
+T148_g___bfloat[bS443{1}, bS444{1 ex 2048}, iS445{12288}] = expand( T147_l___bfloat[bS440{1}, bS441{1}, iS442{12288}], {1, 2048, 12288} )
+T152_l_float[bS455{1}, bS456{1 ex 2048}, iS457{12288}]
+   = __bfloat2float(T148_g___bfloat[bS443{1}, bS444{1 ex 2048}, iS445{12288}]);
+T201_l_float[bS590{1}, iS591{2048}, iS592{12288}]
+   = T193_g_float[bS566{1}, iS567{2048}, iS568{12288}]
+   * T152_l_float[bS455{1}, bS456{1 ex 2048}, iS457{12288}];
+T191_l___bfloat[bS560{1}, bS561{1}, iS562{12288}]
+   = broadcast( T21_g___bfloat[iS49{12288}], flags = {true, true, false} )
+T192_g___bfloat[bS563{1}, bS564{1 ex 2048}, iS565{12288}] = expand( T191_l___bfloat[bS560{1}, bS561{1}, iS562{12288}], {1, 2048, 12288} )
+T200_l_float[bS587{1}, bS588{1 ex 2048}, iS589{12288}]
+   = __bfloat2float(T192_g___bfloat[bS563{1}, bS564{1 ex 2048}, iS565{12288}]);
+T207_l_float[bS609{1}, iS610{2048}, iS611{12288}]
+   = T201_l_float[bS590{1}, iS591{2048}, iS592{12288}]
+   + T200_l_float[bS587{1}, bS588{1 ex 2048}, iS589{12288}];
+T215_g___bfloat[bS634{1}, iS635{2048}, iS636{12288}]
+   = __float2bfloat(T207_l_float[bS609{1}, iS610{2048}, iS611{12288}]);
+T227_g___bfloat[iS668{2048}, iS669{12288}]
+   = squeeze( T215_g___bfloat[bS634{1}, iS635{2048}, iS636{12288}], flags = {true, false, false} )
+T249_g___bfloat[iS710{18432}, iS711{12288}, rS712{2048}]
+   = matmul(T228_g___bfloat[iS671{18432}, iS670{2048}],
+            T227_g___bfloat[iS668{2048}, iS669{12288}])
+T214_l_float[bS631{1}, iS632{2048}, iS633{18432}]
+   = __bfloat2float(T143_g___bfloat[bS425{1}, iS426{2048}, iS431{18432}rf]);
+T225_l_float[iS664{2048}, iS665{18432}]
+   = squeeze( T214_l_float[bS631{1}, iS632{2048}, iS633{18432}], flags = {true, false, false} )
+T226_g_float[rS666{2048}, iS667{18432}]
+   = reduction( T225_l_float[iS664{2048}, iS665{18432}], op = add, initial value = float(0), allreduce = false )
+T248_g___bfloat[iS709{18432}]
+   = __float2bfloat(T226_g_float[rS666{2048}, iS667{18432}]);
+T145_g___bfloat[iS434{2048}, iS435{12288}, rS436{18432}]
+   = matmul(T144_g___bfloat[iS432{2048}, iS433{18432}],
+            T17_g___bfloat[iS41{18432}, iS42{12288}])
+T146_g___bfloat[bS437{1}, iS438{2048}, iS439{12288}]
+   = broadcast( T145_g___bfloat[iS434{2048}, iS435{12288}, rS436{18432}], flags = {true, false, false} )
+T151_l_float[bS452{1}, iS453{2048}, iS454{12288}]
+   = __bfloat2float(T146_g___bfloat[bS437{1}, iS438{2048}, iS439{12288}]);
+T223_l_float[iS660{2048}, iS661{12288}]
+   = squeeze( T151_l_float[bS452{1}, iS453{2048}, iS454{12288}], flags = {true, false, false} )
+T224_g_float[rS662{2048}, iS663{12288}]
+   = reduction( T223_l_float[iS660{2048}, iS661{12288}], op = add, initial value = float(0), allreduce = false )
+T247_g___bfloat[iS708{12288}]
+   = __float2bfloat(T224_g_float[rS662{2048}, iS663{12288}]);
+T213_l_float[bS628{1}, iS629{2048}, iS630{12288}]
+   = T193_g_float[bS566{1}, iS567{2048}, iS568{12288}]
+   * T151_l_float[bS452{1}, iS453{2048}, iS454{12288}];
+T221_l_float[iS656{2048}, iS657{12288}]
+   = squeeze( T213_l_float[bS628{1}, iS629{2048}, iS630{12288}], flags = {true, false, false} )
+T222_g_float[rS658{2048}, iS659{12288}]
+   = reduction( T221_l_float[iS656{2048}, iS657{12288}], op = add, initial value = float(0), allreduce = false )
+T246_g___bfloat[iS707{12288}]
+   = __float2bfloat(T222_g_float[rS658{2048}, iS659{12288}]);
+T155_g_float[bS464{1}, iS465{2048}, iS466{12288}]
+   = T152_l_float[bS455{1}, bS456{1 ex 2048}, iS457{12288}]
+   * T151_l_float[bS452{1}, iS453{2048}, iS454{12288}];
+T166_g_float[bS495{1}, iS496{2048}, iS497{12288}]
+   = T163_g_float[bS486{1}, iS487{2048}, bS488{1 ex 12288}]
+   * T155_g_float[bS464{1}, iS465{2048}, iS466{12288}];
+T212_g_float[bS625{1}, iS626{2048}, iS627{12288}]
+   = T117_g_float[bS319{1}, iS320{2048}, iS321{12288}]
+   + T166_g_float[bS495{1}, iS496{2048}, iS497{12288}];
+T168_l_float[bS501{1}, iS502{2048}, iS503{12288}]
+   = -T166_g_float[bS495{1}, iS496{2048}, iS497{12288}];
+T170_l_float[iS505{2048}, iS506{12288}]
+   = squeeze( T168_l_float[bS501{1}, iS502{2048}, iS503{12288}], flags = {true, false, false} )
+T171_g_float[iS507{2048}, rS508{12288}]
+   = reduction( T170_l_float[iS505{2048}, iS506{12288}], op = add, initial value = float(0), allreduce = false )
+T174_l_float[bS513{1}, iS514{2048}, bS515{1}]
+   = broadcast( T171_g_float[iS507{2048}, rS508{12288}], flags = {true, false, true} )
+T199_g_float[bS584{1}, iS585{2048}, bS586{1 ex 12288}] = expand( T174_l_float[bS513{1}, iS514{2048}, bS515{1}], {1, 2048, 12288} )
+T206_g_float[bS606{1}, iS607{2048}, bS608{1 ex 12288}]
+   = double(8.1380208333333329e-05)
+   * T199_g_float[bS584{1}, iS585{2048}, bS586{1 ex 12288}];
+T157_l_float[bS470{1}, iS471{2048}, iS472{12288}]
+   = T156_g_float[bS467{1}, iS468{2048}, iS469{12288}]
+   * T155_g_float[bS464{1}, iS465{2048}, iS466{12288}];
+T158_l_float[iS473{2048}, iS474{12288}]
+   = squeeze( T157_l_float[bS470{1}, iS471{2048}, iS472{12288}], flags = {true, false, false} )
+T159_g_float[iS475{2048}, rS476{12288}]
+   = reduction( T158_l_float[iS473{2048}, iS474{12288}], op = add, initial value = float(0), allreduce = false )
+T160_l_float[bS477{1}, iS478{2048}, bS479{1}]
+   = broadcast( T159_g_float[iS475{2048}, rS476{12288}], flags = {true, false, true} )
+T165_g_float[bS492{1}, iS493{2048}, bS494{1}]
+   = double(-0.5)
+   * T160_l_float[bS477{1}, iS478{2048}, bS479{1}];
+T164_g_float[bS489{1}, iS490{2048}, bS491{1}]
+   = pow(T20_g_float[bS46{1}, iS47{2048}, bS48{1}]
+  , double(3));
+T167_g_float[bS498{1}, iS499{2048}, bS500{1}]
+   = T165_g_float[bS492{1}, iS493{2048}, bS494{1}]
+   * T164_g_float[bS489{1}, iS490{2048}, bS491{1}];
+T184_l_float[bS541{1}, iS542{2048}, bS543{1 ex 12288}] = expand( T167_g_float[bS498{1}, iS499{2048}, bS500{1}], {1, 2048, 12288} )
+T188_g_float[bS551{1}, iS552{2048}, bS553{1 ex 12288}]
+   = double(2)
+   * T184_l_float[bS541{1}, iS542{2048}, bS543{1 ex 12288}];
+T281_l_float[bS796{1}, iS797{2048}, iS798{12288}]
+   = __bfloat2float(T9_g___bfloat[bS22{1}, iS23{2048}, iS24{12288}]);
+T176_l_float[bS519{1}, iS520{2048}, bS521{1}]
+   = broadcast( T19_g_float[bS44{1}, iS45{2048}], flags = {false, false, true} )
+T182_g_float[bS535{1}, iS536{2048}, bS537{1 ex 12288}] = expand( T176_l_float[bS519{1}, iS520{2048}, bS521{1}], {1, 2048, 12288} )
+T187_g_float[bS548{1}, iS549{2048}, iS550{12288}]
+   = T281_l_float[bS796{1}, iS797{2048}, iS798{12288}]
+   - T182_g_float[bS535{1}, iS536{2048}, bS537{1 ex 12288}];
+T197_g_float[bS578{1}, iS579{2048}, iS580{12288}]
+   = T188_g_float[bS551{1}, iS552{2048}, bS553{1 ex 12288}]
+   * T187_g_float[bS548{1}, iS549{2048}, iS550{12288}];
+d950 = reciprocal(double(12288));
+T205_l_float[bS603{1}, iS604{2048}, iS605{12288}]
+   = T197_g_float[bS578{1}, iS579{2048}, iS580{12288}]
+   * d950;
+T211_g_float[bS622{1}, iS623{2048}, iS624{12288}]
+   = T206_g_float[bS606{1}, iS607{2048}, bS608{1 ex 12288}]
+   + T205_l_float[bS603{1}, iS604{2048}, iS605{12288}];
+T220_g_float[bS653{1}, iS654{2048}, iS655{12288}]
+   = T212_g_float[bS625{1}, iS626{2048}, iS627{12288}]
+   + T211_g_float[bS622{1}, iS623{2048}, iS624{12288}];
+T245_g___bfloat[bS704{1}, iS705{2048}, iS706{12288}]
+   = __float2bfloat(T220_g_float[bS653{1}, iS654{2048}, iS655{12288}]);
+} // %kernel_math 
+
+} // {Re-written complete fusion}
+Segmented_Fusion Dump: -- fusion segments:
+Segmented_Fusion{ 
+groups: 
+  reduction{1, 3, 4, 6, 8, 10, 234, 235, 237, 249}
+  expr_eval{12}
+  reduction{0, 7, 11, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 24, 25, 27, 28, 30, 31, 32, 33, 34, 202, 212, 230, 231, 233, 236, 247, 380, 381, 382, 383, 384, 385}
+  expr_eval{250}
+  expr_eval{37}
+  inner_outer_persistent{35, 36, 38, 39, 40, 42, 44, 45, 46, 47, 50, 52, 53, 54, 55, 56, 58, 60, 62, 63, 64, 66, 67, 70, 72, 83, 84, 87, 90, 91, 92, 93, 95, 96, 98, 99, 185, 187, 194, 195, 201, 211, 222, 223, 225, 226, 227, 228, 229, 232, 243, 245, 246, 270, 271, 272, 296, 303, 304, 306, 314, 366, 367, 389, 391, 392}
+  expr_eval{248}
+  expr_eval{193, 200, 209, 224}
+  expr_eval{244}
+  expr_eval{100}
+  expr_eval{109, 111, 115}
+  expr_eval{102, 104, 106, 108, 112, 113, 114}
+  expr_eval{116}
+  pointwise{119}
+  pointwise{118}
+  pointwise{117}
+  reduction{122, 123, 124, 125, 127, 129, 131, 132, 134, 135, 206, 218, 219, 221, 241, 276}
+  expr_eval{136}
+  reduction{137, 138, 140, 142, 143, 153, 182, 184, 191, 192, 199, 207, 214, 215, 216, 217, 220, 239, 240, 279, 280, 281, 316, 370, 371, 387, 388}
+  expr_eval{242}
+  reduction{148, 149, 150, 151, 157, 159, 161, 162, 165, 198, 204, 294, 324}
+  pointwise{155, 158, 167, 179, 188, 196, 197, 203, 213, 238, 286, 293, 378, 379}
+edges: 
+  e{ reduction{1, 3, 4, 6, 8, 10, 234, 235, 237, 249} -> expr_eval{12}(T33_g___bfloat[iS81{2048}, iS82{12288}]) }
+  e{ reduction{1, 3, 4, 6, 8, 10, 234, 235, 237, 249} -> expr_eval{250}(T244_g___bfloat[iS703{12288}, iS702{2048}]) }
+  e{ expr_eval{12} -> reduction{0, 7, 11, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 24, 25, 27, 28, 30, 31, 32, 33, 34, 202, 212, 230, 231, 233, 236, 247, 380, 381, 382, 383, 384, 385}(T35_g___bfloat[iS86{2048}, iS87{24576}, rS88{12288}]) }
+  e{ reduction{0, 7, 11, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 24, 25, 27, 28, 30, 31, 32, 33, 34, 202, 212, 230, 231, 233, 236, 247, 380, 381, 382, 383, 384, 385} -> expr_eval{250}(T243_g___bfloat[iS700{2048}, iS701{24576}]) }
+  e{ reduction{0, 7, 11, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 24, 25, 27, 28, 30, 31, 32, 33, 34, 202, 212, 230, 231, 233, 236, 247, 380, 381, 382, 383, 384, 385} -> expr_eval{37}(T57_g___bfloat[iS152{2048}, iS153{24576}]) }
+  e{ reduction{0, 7, 11, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 24, 25, 27, 28, 30, 31, 32, 33, 34, 202, 212, 230, 231, 233, 236, 247, 380, 381, 382, 383, 384, 385} -> expr_eval{248}(T240_g___bfloat[iS695{24576}, iS694{2048}]) }
+  e{ expr_eval{37} -> inner_outer_persistent{35, 36, 38, 39, 40, 42, 44, 45, 46, 47, 50, 52, 53, 54, 55, 56, 58, 60, 62, 63, 64, 66, 67, 70, 72, 83, 84, 87, 90, 91, 92, 93, 95, 96, 98, 99, 185, 187, 194, 195, 201, 211, 222, 223, 225, 226, 227, 228, 229, 232, 243, 245, 246, 270, 271, 272, 296, 303, 304, 306, 314, 366, 367, 389, 391, 392}(T60_g___bfloat[iS160{2048}, iS161{12288}, rS162{24576}]) }
+  e{ inner_outer_persistent{35, 36, 38, 39, 40, 42, 44, 45, 46, 47, 50, 52, 53, 54, 55, 56, 58, 60, 62, 63, 64, 66, 67, 70, 72, 83, 84, 87, 90, 91, 92, 93, 95, 96, 98, 99, 185, 187, 194, 195, 201, 211, 222, 223, 225, 226, 227, 228, 229, 232, 243, 245, 246, 270, 271, 272, 296, 303, 304, 306, 314, 366, 367, 389, 391, 392} -> reduction{148, 149, 150, 151, 157, 159, 161, 162, 165, 198, 204, 294, 324}(T117_g_float[bS319{1}, iS320{2048}, iS321{12288}]) }
+  e{ inner_outer_persistent{35, 36, 38, 39, 40, 42, 44, 45, 46, 47, 50, 52, 53, 54, 55, 56, 58, 60, 62, 63, 64, 66, 67, 70, 72, 83, 84, 87, 90, 91, 92, 93, 95, 96, 98, 99, 185, 187, 194, 195, 201, 211, 222, 223, 225, 226, 227, 228, 229, 232, 243, 245, 246, 270, 271, 272, 296, 303, 304, 306, 314, 366, 367, 389, 391, 392} -> expr_eval{244}(T232_g___bfloat[iS679{12288}, iS678{2048}]) }
+  e{ inner_outer_persistent{35, 36, 38, 39, 40, 42, 44, 45, 46, 47, 50, 52, 53, 54, 55, 56, 58, 60, 62, 63, 64, 66, 67, 70, 72, 83, 84, 87, 90, 91, 92, 93, 95, 96, 98, 99, 185, 187, 194, 195, 201, 211, 222, 223, 225, 226, 227, 228, 229, 232, 243, 245, 246, 270, 271, 272, 296, 303, 304, 306, 314, 366, 367, 389, 391, 392} -> expr_eval{100}(T121_g___bfloat[iS331{2048}, iS332{12288}]) }
+  e{ inner_outer_persistent{35, 36, 38, 39, 40, 42, 44, 45, 46, 47, 50, 52, 53, 54, 55, 56, 58, 60, 62, 63, 64, 66, 67, 70, 72, 83, 84, 87, 90, 91, 92, 93, 95, 96, 98, 99, 185, 187, 194, 195, 201, 211, 222, 223, 225, 226, 227, 228, 229, 232, 243, 245, 246, 270, 271, 272, 296, 303, 304, 306, 314, 366, 367, 389, 391, 392} -> expr_eval{248}(T239_g___bfloat[iS692{2048}, iS693{12288}]) }
+  e{ expr_eval{193, 200, 209, 224} -> expr_eval{244}(T231_g___bfloat[iS676{2048}, iS677{6144}]) }
+  e{ expr_eval{100} -> expr_eval{109, 111, 115}(T122_g___bfloat[iS333{2048}, iS334{6144}, rS335{12288}]) }
+  e{ expr_eval{109, 111, 115} -> expr_eval{116}(T132_g___bfloat[bS378{1}, iS380{48}, iS379{2048}, iS381{128}]) }
+  e{ expr_eval{102, 104, 106, 108, 112, 113, 114} -> expr_eval{116}(T130_g___bfloat[bS370{1}, iS372{48}, iS371{2048}, iS373{128}]) }
+  e{ expr_eval{102, 104, 106, 108, 112, 113, 114} -> expr_eval{116}(T131_g___bfloat[bS374{1}, iS376{48}, iS375{2048}, iS377{128}]) }
+  e{ expr_eval{102, 104, 106, 108, 112, 113, 114} -> expr_eval{116}(T129_g___bfloat[bS366{1}, iS368{48}, iS367{2048}, iS369{128}]) }
+  e{ expr_eval{116} -> pointwise{119}(T133_g___bfloat[bS382{1}, iS383{48}, iS384{2048}, iS385{128}]) }
+  e{ expr_eval{116} -> pointwise{118}(T134_g___bfloat[bS386{1}, iS387{48}, iS388{2048}, iS389{128}]) }
+  e{ expr_eval{116} -> pointwise{117}(T135_g___bfloat[bS390{1}, iS391{48}, iS392{2048}, iS393{128}]) }
+  e{ pointwise{119} -> reduction{122, 123, 124, 125, 127, 129, 131, 132, 134, 135, 206, 218, 219, 221, 241, 276}(T138_g___bfloat[bS402{1}, iS404{2048}, iS403{48}, iS405{128}]) }
+  e{ pointwise{118} -> reduction{122, 123, 124, 125, 127, 129, 131, 132, 134, 135, 206, 218, 219, 221, 241, 276}(T137_g___bfloat[bS398{1}, iS400{2048}, iS399{48}, iS401{128}]) }
+  e{ pointwise{117} -> reduction{122, 123, 124, 125, 127, 129, 131, 132, 134, 135, 206, 218, 219, 221, 241, 276}(T136_g___bfloat[bS394{1}, iS396{2048}, iS395{48}, iS397{128}]) }
+  e{ reduction{122, 123, 124, 125, 127, 129, 131, 132, 134, 135, 206, 218, 219, 221, 241, 276} -> expr_eval{242}(T228_g___bfloat[iS671{18432}, iS670{2048}]) }
+  e{ reduction{122, 123, 124, 125, 127, 129, 131, 132, 134, 135, 206, 218, 219, 221, 241, 276} -> expr_eval{136}(T144_g___bfloat[iS432{2048}, iS433{18432}]) }
+  e{ expr_eval{136} -> reduction{137, 138, 140, 142, 143, 153, 182, 184, 191, 192, 199, 207, 214, 215, 216, 217, 220, 239, 240, 279, 280, 281, 316, 370, 371, 387, 388}(T145_g___bfloat[iS434{2048}, iS435{12288}, rS436{18432}]) }
+  e{ reduction{137, 138, 140, 142, 143, 153, 182, 184, 191, 192, 199, 207, 214, 215, 216, 217, 220, 239, 240, 279, 280, 281, 316, 370, 371, 387, 388} -> reduction{148, 149, 150, 151, 157, 159, 161, 162, 165, 198, 204, 294, 324}(T163_g_float[bS486{1}, iS487{2048}, bS488{1 ex 12288}]) }
+  e{ reduction{137, 138, 140, 142, 143, 153, 182, 184, 191, 192, 199, 207, 214, 215, 216, 217, 220, 239, 240, 279, 280, 281, 316, 370, 371, 387, 388} -> reduction{148, 149, 150, 151, 157, 159, 161, 162, 165, 198, 204, 294, 324}(T156_g_float[bS467{1}, iS468{2048}, iS469{12288}]) }
+  e{ reduction{137, 138, 140, 142, 143, 153, 182, 184, 191, 192, 199, 207, 214, 215, 216, 217, 220, 239, 240, 279, 280, 281, 316, 370, 371, 387, 388} -> expr_eval{242}(T227_g___bfloat[iS668{2048}, iS669{12288}]) }
+  e{ reduction{137, 138, 140, 142, 143, 153, 182, 184, 191, 192, 199, 207, 214, 215, 216, 217, 220, 239, 240, 279, 280, 281, 316, 370, 371, 387, 388} -> reduction{148, 149, 150, 151, 157, 159, 161, 162, 165, 198, 204, 294, 324}(T155_g_float[bS464{1}, iS465{2048}, iS466{12288}]) }
+  e{ reduction{137, 138, 140, 142, 143, 153, 182, 184, 191, 192, 199, 207, 214, 215, 216, 217, 220, 239, 240, 279, 280, 281, 316, 370, 371, 387, 388} -> reduction{148, 149, 150, 151, 157, 159, 161, 162, 165, 198, 204, 294, 324}(T155_g_float[bS464{1}, iS465{2048}, iS466{12288}]) }
+  e{ reduction{148, 149, 150, 151, 157, 159, 161, 162, 165, 198, 204, 294, 324} -> pointwise{155, 158, 167, 179, 188, 196, 197, 203, 213, 238, 286, 293, 378, 379}(T212_g_float[bS625{1}, iS626{2048}, iS627{12288}]) }
+  e{ reduction{148, 149, 150, 151, 157, 159, 161, 162, 165, 198, 204, 294, 324} -> pointwise{155, 158, 167, 179, 188, 196, 197, 203, 213, 238, 286, 293, 378, 379}(T206_g_float[bS606{1}, iS607{2048}, bS608{1 ex 12288}]) }
+  e{ reduction{148, 149, 150, 151, 157, 159, 161, 162, 165, 198, 204, 294, 324} -> pointwise{155, 158, 167, 179, 188, 196, 197, 203, 213, 238, 286, 293, 378, 379}(T165_g_float[bS492{1}, iS493{2048}, bS494{1}]) }
+
+group details:
+g{(reduction)
+group id: 20
+inputs:
+  T1_g___bfloat[bS3{1}, iS4{2048}, iS5{12288}] __bfloat
+  T2_g_bool[bS6{1}, iS7{2048}, iS8{12288}] bool
+outputs:
+  T33_g___bfloat[iS81{2048}, iS82{12288}] __bfloat
+  T244_g___bfloat[iS703{12288}, iS702{2048}] __bfloat
+  T256_g___bfloat[iS723{12288}] __bfloat
+
+
+T27_g_float[bS63{1}, iS64{2048}, iS65{12288}]
+   = __to_float(T2_g_bool[bS6{1}, iS7{2048}, iS8{12288}]);
+(4)
+T24_l_float[bS54{1}, iS55{2048}, iS56{12288}]
+   = __bfloat2float(T1_g___bfloat[bS3{1}, iS4{2048}, iS5{12288}]);
+(1)
+T26_l_float[bS60{1}, iS61{2048}, iS62{12288}]
+   = double(1.11111)
+   * T24_l_float[bS54{1}, iS55{2048}, iS56{12288}];
+(3)
+T29_g_float[bS69{1}, iS70{2048}, iS71{12288}]
+   = T27_g_float[bS63{1}, iS64{2048}, iS65{12288}]
+   * T26_l_float[bS60{1}, iS61{2048}, iS62{12288}];
+(6)
+T241_g_float[iS696{2048}, iS697{12288}]
+   = squeeze( T29_g_float[bS69{1}, iS70{2048}, iS71{12288}], flags = {true, false, false} )
+(234)
+T242_g_float[rS698{2048}, iS699{12288}]
+   = reduction( T241_g_float[iS696{2048}, iS697{12288}], op = add, initial value = float(0), allreduce = false )
+(235)
+T256_g___bfloat[iS723{12288}]
+   = __float2bfloat(T242_g_float[rS698{2048}, iS699{12288}]);
+(249)
+T31_g___bfloat[bS75{1}, iS76{2048}, iS77{12288}]
+   = __float2bfloat(T29_g_float[bS69{1}, iS70{2048}, iS71{12288}]);
+(8)
+T33_g___bfloat[iS81{2048}, iS82{12288}]
+   = squeeze( T31_g___bfloat[bS75{1}, iS76{2048}, iS77{12288}], flags = {true, false, false} )
+(10)
+T244_g___bfloat[iS703{12288}, iS702{2048}]
+   = Set.Permute( T33_g___bfloat[iS81{2048}, iS82{12288}], cache_op=Streaming )
+(237)
+}
+
+g{(expr_eval)
+group id: 1
+inputs:
+  T3_g___bfloat[iS9{12288}, iS10{24576}] __bfloat
+  T33_g___bfloat[iS81{2048}, iS82{12288}] __bfloat
+outputs:
+  T35_g___bfloat[iS86{2048}, iS87{24576}, rS88{12288}] __bfloat
+
+
+T35_g___bfloat[iS86{2048}, iS87{24576}, rS88{12288}]
+   = matmul(T33_g___bfloat[iS81{2048}, iS82{12288}],
+            T3_g___bfloat[iS9{12288}, iS10{24576}])
+(12)
+}
+
+g{(reduction)
+group id: 18
+inputs:
+  T0_g___bfloat[bS0{1}, iS1{2048}, iS2{24576}] __bfloat
+  T35_g___bfloat[iS86{2048}, iS87{24576}, rS88{12288}] __bfloat
+outputs:
+  T57_g___bfloat[iS152{2048}, iS153{24576}] __bfloat
+  T240_g___bfloat[iS695{24576}, iS694{2048}] __bfloat
+  T243_g___bfloat[iS700{2048}, iS701{24576}] __bfloat
+  T254_g___bfloat[iS719{24576}] __bfloat
+
+
+T37_g___bfloat[bS92{1}, iS93{2048}, iS94{24576}]
+   = broadcast( T35_g___bfloat[iS86{2048}, iS87{24576}, rS88{12288}], flags = {true, false, false} )
+(14)
+T39_l_float[bS98{1}, iS99{2048}, iS100{24576}]
+   = __bfloat2float(T37_g___bfloat[bS92{1}, iS93{2048}, iS94{24576}]);
+(16)
+T23_l_float[bS51{1}, iS52{2048}, iS53{24576}]
+   = __bfloat2float(T0_g___bfloat[bS0{1}, iS1{2048}, iS2{24576}]);
+(0)
+T25_g_float[bS57{1}, iS58{2048}, iS59{24576}]
+   = T23_l_float[bS51{1}, iS52{2048}, iS53{24576}]
+   * T23_l_float[bS51{1}, iS52{2048}, iS53{24576}];
+(383)
+T28_l_float[bS66{1}, iS67{2048}, iS68{24576}]
+   = T25_g_float[bS57{1}, iS58{2048}, iS59{24576}]
+   * T23_l_float[bS51{1}, iS52{2048}, iS53{24576}];
+(382)
+T30_l_float[bS72{1}, iS73{2048}, iS74{24576}]
+   = double(0.044714999999999998)
+   * T28_l_float[bS66{1}, iS67{2048}, iS68{24576}];
+(7)
+T32_l_float[bS78{1}, iS79{2048}, iS80{24576}]
+   = T23_l_float[bS51{1}, iS52{2048}, iS53{24576}]
+   + T30_l_float[bS72{1}, iS73{2048}, iS74{24576}];
+(381)
+T34_l_float[bS83{1}, iS84{2048}, iS85{24576}]
+   = double(0.79788499999999996)
+   * T32_l_float[bS78{1}, iS79{2048}, iS80{24576}];
+(11)
+T36_g_float[bS89{1}, iS90{2048}, iS91{24576}]
+   = tanhf(T34_l_float[bS83{1}, iS84{2048}, iS85{24576}]);
+(13)
+T38_l_float[bS95{1}, iS96{2048}, iS97{24576}]
+   = T36_g_float[bS89{1}, iS90{2048}, iS91{24576}]
+   * T36_g_float[bS89{1}, iS90{2048}, iS91{24576}];
+(15)
+T41_l_float[bS104{1}, iS105{2048}, iS106{24576}]
+   = double(1)
+   - T38_l_float[bS95{1}, iS96{2048}, iS97{24576}];
+(18)
+T40_g_float[bS101{1}, iS102{2048}, iS103{24576}]
+   = double(0.5)
+   * T23_l_float[bS51{1}, iS52{2048}, iS53{24576}];
+(17)
+T42_l_float[bS107{1}, iS108{2048}, iS109{24576}]
+   = T40_g_float[bS101{1}, iS102{2048}, iS103{24576}]
+   * T39_l_float[bS98{1}, iS99{2048}, iS100{24576}];
+(19)
+T43_l_float[bS110{1}, iS111{2048}, iS112{24576}]
+   = T42_l_float[bS107{1}, iS108{2048}, iS109{24576}]
+   * T41_l_float[bS104{1}, iS105{2048}, iS106{24576}];
+(20)
+T45_g_float[bS116{1}, iS117{2048}, iS118{24576}]
+   = double(0.79788499999999996)
+   * T43_l_float[bS110{1}, iS111{2048}, iS112{24576}];
+(22)
+T47_g_float[bS122{1}, iS123{2048}, iS124{24576}]
+   = double(0.044714999999999998)
+   * T45_g_float[bS116{1}, iS117{2048}, iS118{24576}];
+(24)
+T50_l_float[bS131{1}, iS132{2048}, iS133{24576}]
+   = T25_g_float[bS57{1}, iS58{2048}, iS59{24576}]
+   * T47_g_float[bS122{1}, iS123{2048}, iS124{24576}];
+(27)
+T49_l_float[bS128{1}, iS129{2048}, iS130{24576}]
+   = T23_l_float[bS51{1}, iS52{2048}, iS53{24576}]
+   * T47_g_float[bS122{1}, iS123{2048}, iS124{24576}];
+(385)
+T52_g_float[bS137{1}, iS138{2048}, iS139{24576}]
+   = T23_l_float[bS51{1}, iS52{2048}, iS53{24576}]
+   * T49_l_float[bS128{1}, iS129{2048}, iS130{24576}];
+(384)
+T44_g_float[bS113{1}, iS114{2048}, iS115{24576}]
+   = double(1)
+   + T36_g_float[bS89{1}, iS90{2048}, iS91{24576}];
+(21)
+T46_l_float[bS119{1}, iS120{2048}, iS121{24576}]
+   = T44_g_float[bS113{1}, iS114{2048}, iS115{24576}]
+   * T39_l_float[bS98{1}, iS99{2048}, iS100{24576}];
+(380)
+T48_l_float[bS125{1}, iS126{2048}, iS127{24576}]
+   = double(0.5)
+   * T46_l_float[bS119{1}, iS120{2048}, iS121{24576}];
+(25)
+T51_l_float[bS134{1}, iS135{2048}, iS136{24576}]
+   = T45_g_float[bS116{1}, iS117{2048}, iS118{24576}]
+   + T48_l_float[bS125{1}, iS126{2048}, iS127{24576}];
+(28)
+T53_l_float[bS140{1}, iS141{2048}, iS142{24576}]
+   = T51_l_float[bS134{1}, iS135{2048}, iS136{24576}]
+   + T50_l_float[bS131{1}, iS132{2048}, iS133{24576}];
+(30)
+T54_l_float[bS143{1}, iS144{2048}, iS145{24576}]
+   = T53_l_float[bS140{1}, iS141{2048}, iS142{24576}]
+   + T52_g_float[bS137{1}, iS138{2048}, iS139{24576}];
+(31)
+T55_g_float[bS146{1}, iS147{2048}, iS148{24576}]
+   = T54_l_float[bS143{1}, iS144{2048}, iS145{24576}]
+   + T52_g_float[bS137{1}, iS138{2048}, iS139{24576}];
+(32)
+T237_g_float[iS688{2048}, iS689{24576}]
+   = squeeze( T55_g_float[bS146{1}, iS147{2048}, iS148{24576}], flags = {true, false, false} )
+(230)
+T238_g_float[rS690{2048}, iS691{24576}]
+   = reduction( T237_g_float[iS688{2048}, iS689{24576}], op = add, initial value = float(0), allreduce = false )
+(231)
+T254_g___bfloat[iS719{24576}]
+   = __float2bfloat(T238_g_float[rS690{2048}, iS691{24576}]);
+(247)
+T56_g___bfloat[bS149{1}, iS150{2048}, iS151{24576}]
+   = __float2bfloat(T55_g_float[bS146{1}, iS147{2048}, iS148{24576}]);
+(33)
+T57_g___bfloat[iS152{2048}, iS153{24576}]
+   = squeeze( T56_g___bfloat[bS149{1}, iS150{2048}, iS151{24576}], flags = {true, false, false} )
+(34)
+T240_g___bfloat[iS695{24576}, iS694{2048}]
+   = Set.Permute( T57_g___bfloat[iS152{2048}, iS153{24576}], cache_op=Streaming )
+(233)
+T210_g_float[bS619{1}, iS620{2048}, iS621{24576}]
+   = T40_g_float[bS101{1}, iS102{2048}, iS103{24576}]
+   * T44_g_float[bS113{1}, iS114{2048}, iS115{24576}];
+(202)
+T219_g___bfloat[bS650{1}, iS651{2048}, iS652{24576}]
+   = __float2bfloat(T210_g_float[bS619{1}, iS620{2048}, iS621{24576}]);
+(212)
+T243_g___bfloat[iS700{2048}, iS701{24576}]
+   = squeeze( T219_g___bfloat[bS650{1}, iS651{2048}, iS652{24576}], flags = {true, false, false} )
+(236)
+}
+
+g{(expr_eval)
+group id: 0
+inputs:
+  T243_g___bfloat[iS700{2048}, iS701{24576}] __bfloat
+  T244_g___bfloat[iS703{12288}, iS702{2048}] __bfloat
+outputs:
+  T257_g___bfloat[iS724{12288}, iS725{24576}, rS726{2048}] __bfloat
+
+
+T257_g___bfloat[iS724{12288}, iS725{24576}, rS726{2048}]
+   = matmul(T244_g___bfloat[iS703{12288}, iS702{2048}],
+            T243_g___bfloat[iS700{2048}, iS701{24576}])
+(250)
+}
+
+g{(expr_eval)
+group id: 3
+inputs:
+  T6_g___bfloat[iS17{24576}, iS18{12288}] __bfloat
+  T57_g___bfloat[iS152{2048}, iS153{24576}] __bfloat
+outputs:
+  T60_g___bfloat[iS160{2048}, iS161{12288}, rS162{24576}] __bfloat
+
+
+T60_g___bfloat[iS160{2048}, iS161{12288}, rS162{24576}]
+   = matmul(T57_g___bfloat[iS152{2048}, iS153{24576}],
+            T6_g___bfloat[iS17{24576}, iS18{12288}])
+(37)
+}
+
+g{(inner_outer_persistent)
+group id: 21
+inputs:
+  T1_g___bfloat[bS3{1}, iS4{2048}, iS5{12288}] __bfloat
+  T4_g_bool[bS11{1}, iS12{2048}, iS13{12288}] bool
+  T5_g___bfloat[bS14{1}, iS15{2048}, iS16{12288}] __bfloat
+  T7_g___bfloat[iS19{12288}] __bfloat
+  T8_g_float[bS20{1}, iS21{2048}] float
+  T9_g___bfloat[bS22{1}, iS23{2048}, iS24{12288}] __bfloat
+  T10_g_float[bS25{1}, iS26{2048}, bS27{1}] float
+  T22_g___bfloat[iS50{12288}] __bfloat
+  T60_g___bfloat[iS160{2048}, iS161{12288}, rS162{24576}] __bfloat
+outputs:
+  T117_g_float[bS319{1}, iS320{2048}, iS321{12288}] float
+  T121_g___bfloat[iS331{2048}, iS332{12288}] __bfloat
+  T232_g___bfloat[iS679{12288}, iS678{2048}] __bfloat
+  T239_g___bfloat[iS692{2048}, iS693{12288}] __bfloat
+  T250_g___bfloat[iS713{12288}] __bfloat
+  T252_g___bfloat[iS717{12288}] __bfloat
+  T253_g___bfloat[iS718{12288}] __bfloat
+
+
+T59_g_float[bS157{1}, iS158{2048}, iS159{12288}]
+   = __bfloat2float(T5_g___bfloat[bS14{1}, iS15{2048}, iS16{12288}]);
+(36)
+T95_l_float[bS257{1}, iS258{2048}, bS259{1}]
+   = broadcast( T8_g_float[bS20{1}, iS21{2048}], flags = {false, false, true} )
+(72)
+T101_g_float[bS273{1}, iS274{2048}, bS275{1 ex 12288}] = expand( T95_l_float[bS257{1}, iS258{2048}, bS259{1}], {1, 2048, 12288} )
+(296)
+T65_l_float[bS175{1}, iS176{2048}, bS177{1}]
+   = broadcast( T8_g_float[bS20{1}, iS21{2048}], flags = {false, false, true} )
+(42)
+T72_g_float[bS196{1}, iS197{2048}, bS198{1 ex 12288}] = expand( T65_l_float[bS175{1}, iS176{2048}, bS177{1}], {1, 2048, 12288} )
+(306)
+T68_l_float[bS184{1}, iS185{2048}, iS186{12288}]
+   = __bfloat2float(T9_g___bfloat[bS22{1}, iS23{2048}, iS24{12288}]);
+(45)
+T58_l_float[bS154{1}, iS155{2048}, iS156{12288}]
+   = __to_float(T4_g_bool[bS11{1}, iS12{2048}, iS13{12288}]);
+(35)
+T61_l_float[bS163{1}, iS164{2048}, iS165{12288}]
+   = T59_g_float[bS157{1}, iS158{2048}, iS159{12288}]
+   * T58_l_float[bS154{1}, iS155{2048}, iS156{12288}];
+(38)
+T67_l_float[bS181{1}, iS182{2048}, iS183{12288}]
+   = T61_l_float[bS163{1}, iS164{2048}, iS165{12288}]
+   * double(1.11111);
+(44)
+T73_g_float[bS199{1}, iS200{2048}, iS201{12288}]
+   = T68_l_float[bS184{1}, iS185{2048}, iS186{12288}]
+   + T67_l_float[bS181{1}, iS182{2048}, iS183{12288}];
+(50)
+T106_g_float[bS286{1}, iS287{2048}, iS288{12288}]
+   = T73_g_float[bS199{1}, iS200{2048}, iS201{12288}]
+   - T101_g_float[bS273{1}, iS274{2048}, bS275{1 ex 12288}];
+(83)
+T75_g_float[bS205{1}, iS206{2048}, iS207{12288}]
+   = T73_g_float[bS199{1}, iS200{2048}, iS201{12288}]
+   - T72_g_float[bS196{1}, iS197{2048}, bS198{1 ex 12288}];
+(52)
+T194_l___bfloat[bS569{1}, bS570{1}, iS571{12288}]
+   = broadcast( T22_g___bfloat[iS50{12288}], flags = {true, true, false} )
+(185)
+T195_g___bfloat[bS572{1}, bS573{1 ex 2048}, iS574{12288}] = expand( T194_l___bfloat[bS569{1}, bS570{1}, iS571{12288}], {1, 2048, 12288} )
+(272)
+T63_l___bfloat[bS169{1}, bS170{1}, iS171{12288}]
+   = broadcast( T7_g___bfloat[iS19{12288}], flags = {true, true, false} )
+(40)
+T64_g___bfloat[bS172{1}, bS173{1 ex 2048}, iS174{12288}] = expand( T63_l___bfloat[bS169{1}, bS170{1}, iS171{12288}], {1, 2048, 12288} )
+(271)
+T81_l_float[bS221{1}, iS222{2048}, bS223{1}]
+   = Set( T10_g_float[bS25{1}, iS26{2048}, bS27{1}], cache_op=Streaming )
+(58)
+T82_g_float[bS224{1}, iS225{2048}, bS226{1 ex 12288}] = expand( T81_l_float[bS221{1}, iS222{2048}, bS223{1}], {1, 2048, 12288} )
+(270)
+T196_g_float[bS575{1}, iS576{2048}, iS577{12288}]
+   = T75_g_float[bS205{1}, iS206{2048}, iS207{12288}]
+   * T82_g_float[bS224{1}, iS225{2048}, bS226{1 ex 12288}];
+(187)
+T70_l_float[bS190{1}, bS191{1 ex 2048}, iS192{12288}]
+   = __bfloat2float(T64_g___bfloat[bS172{1}, bS173{1 ex 2048}, iS174{12288}]);
+(47)
+T204_l_float[bS600{1}, iS601{2048}, iS602{12288}]
+   = T196_g_float[bS575{1}, iS576{2048}, iS577{12288}]
+   * T70_l_float[bS190{1}, bS191{1 ex 2048}, iS192{12288}];
+(195)
+T203_l_float[bS597{1}, bS598{1 ex 2048}, iS599{12288}]
+   = __bfloat2float(T195_g___bfloat[bS572{1}, bS573{1 ex 2048}, iS574{12288}]);
+(194)
+T209_l_float[bS616{1}, iS617{2048}, iS618{12288}]
+   = T204_l_float[bS600{1}, iS601{2048}, iS602{12288}]
+   + T203_l_float[bS597{1}, bS598{1 ex 2048}, iS599{12288}];
+(201)
+T218_g___bfloat[bS647{1}, iS648{2048}, iS649{12288}]
+   = __float2bfloat(T209_l_float[bS616{1}, iS617{2048}, iS618{12288}]);
+(211)
+T239_g___bfloat[iS692{2048}, iS693{12288}]
+   = squeeze( T218_g___bfloat[bS647{1}, iS648{2048}, iS649{12288}], flags = {true, false, false} )
+(232)
+T83_g_float[bS227{1}, iS228{2048}, bS229{1}]
+   = pow(T10_g_float[bS25{1}, iS26{2048}, bS27{1}]
+  , double(3));
+(60)
+T275_g_float[bS778{1}, iS779{2048}, iS780{12288}]
+   = __bfloat2float(T1_g___bfloat[bS3{1}, iS4{2048}, iS5{12288}]);
+(366)
+T62_g___bfloat[bS166{1}, iS167{2048}, iS168{12288}]
+   = broadcast( T60_g___bfloat[iS160{2048}, iS161{12288}, rS162{24576}], flags = {true, false, false} )
+(39)
+T69_l_float[bS187{1}, iS188{2048}, iS189{12288}]
+   = __bfloat2float(T62_g___bfloat[bS166{1}, iS167{2048}, iS168{12288}]);
+(46)
+T217_l_float[bS644{1}, iS645{2048}, iS646{12288}]
+   = T196_g_float[bS575{1}, iS576{2048}, iS577{12288}]
+   * T69_l_float[bS187{1}, iS188{2048}, iS189{12288}];
+(391)
+T233_l_float[iS680{2048}, iS681{12288}]
+   = squeeze( T217_l_float[bS644{1}, iS645{2048}, iS646{12288}], flags = {true, false, false} )
+(226)
+T234_g_float[rS682{2048}, iS683{12288}]
+   = reduction( T233_l_float[iS680{2048}, iS681{12288}], op = add, initial value = float(0), allreduce = false )
+(227)
+T252_g___bfloat[iS717{12288}]
+   = __float2bfloat(T234_g_float[rS682{2048}, iS683{12288}]);
+(245)
+T235_l_float[iS684{2048}, iS685{12288}]
+   = squeeze( T69_l_float[bS187{1}, iS188{2048}, iS189{12288}], flags = {true, false, false} )
+(228)
+T236_g_float[rS686{2048}, iS687{12288}]
+   = reduction( T235_l_float[iS684{2048}, iS685{12288}], op = add, initial value = float(0), allreduce = false )
+(229)
+T253_g___bfloat[iS718{12288}]
+   = __float2bfloat(T236_g_float[rS686{2048}, iS687{12288}]);
+(246)
+T74_g_float[bS202{1}, iS203{2048}, iS204{12288}]
+   = T70_l_float[bS190{1}, bS191{1 ex 2048}, iS192{12288}]
+   * T69_l_float[bS187{1}, iS188{2048}, iS189{12288}];
+(392)
+T76_l_float[bS208{1}, iS209{2048}, iS210{12288}]
+   = T75_g_float[bS205{1}, iS206{2048}, iS207{12288}]
+   * T74_g_float[bS202{1}, iS203{2048}, iS204{12288}];
+(53)
+T77_l_float[iS211{2048}, iS212{12288}]
+   = squeeze( T76_l_float[bS208{1}, iS209{2048}, iS210{12288}], flags = {true, false, false} )
+(54)
+T78_g_float[iS213{2048}, rS214{12288}]
+   = reduction( T77_l_float[iS211{2048}, iS212{12288}], op = add, initial value = float(0), allreduce = false )
+(55)
+T79_l_float[bS215{1}, iS216{2048}, bS217{1}]
+   = broadcast( T78_g_float[iS213{2048}, rS214{12288}], flags = {true, false, true} )
+(56)
+T84_g_float[bS230{1}, iS231{2048}, bS232{1}]
+   = double(-0.5)
+   * T79_l_float[bS215{1}, iS216{2048}, bS217{1}];
+(304)
+T85_g_float[bS233{1}, iS234{2048}, iS235{12288}]
+   = T82_g_float[bS224{1}, iS225{2048}, bS226{1 ex 12288}]
+   * T74_g_float[bS202{1}, iS203{2048}, iS204{12288}];
+(62)
+T116_g_float[bS316{1}, iS317{2048}, iS318{12288}]
+   = T275_g_float[bS778{1}, iS779{2048}, iS780{12288}]
+   + T85_g_float[bS233{1}, iS234{2048}, iS235{12288}];
+(367)
+T87_l_float[bS239{1}, iS240{2048}, iS241{12288}]
+   = -T85_g_float[bS233{1}, iS234{2048}, iS235{12288}];
+(64)
+T89_l_float[iS243{2048}, iS244{12288}]
+   = squeeze( T87_l_float[bS239{1}, iS240{2048}, iS241{12288}], flags = {true, false, false} )
+(66)
+T90_g_float[iS245{2048}, rS246{12288}]
+   = reduction( T89_l_float[iS243{2048}, iS244{12288}], op = add, initial value = float(0), allreduce = false )
+(67)
+T93_l_float[bS251{1}, iS252{2048}, bS253{1}]
+   = broadcast( T90_g_float[iS245{2048}, rS246{12288}], flags = {true, false, true} )
+(70)
+T112_g_float[bS304{1}, iS305{2048}, bS306{1 ex 12288}] = expand( T93_l_float[bS251{1}, iS252{2048}, bS253{1}], {1, 2048, 12288} )
+(314)
+T114_g_float[bS310{1}, iS311{2048}, bS312{1 ex 12288}]
+   = double(8.1380208333333329e-05)
+   * T112_g_float[bS304{1}, iS305{2048}, bS306{1 ex 12288}];
+(92)
+T86_g_float[bS236{1}, iS237{2048}, bS238{1}]
+   = T84_g_float[bS230{1}, iS231{2048}, bS232{1}]
+   * T83_g_float[bS227{1}, iS228{2048}, bS229{1}];
+(63)
+T103_l_float[bS279{1}, iS280{2048}, bS281{1 ex 12288}] = expand( T86_g_float[bS236{1}, iS237{2048}, bS238{1}], {1, 2048, 12288} )
+(303)
+T107_g_float[bS289{1}, iS290{2048}, bS291{1 ex 12288}]
+   = double(2)
+   * T103_l_float[bS279{1}, iS280{2048}, bS281{1 ex 12288}];
+(84)
+T110_g_float[bS298{1}, iS299{2048}, iS300{12288}]
+   = T107_g_float[bS289{1}, iS290{2048}, bS291{1 ex 12288}]
+   * T106_g_float[bS286{1}, iS287{2048}, iS288{12288}];
+(87)
+d474 = reciprocal(double(12288));
+(90)
+T113_l_float[bS307{1}, iS308{2048}, iS309{12288}]
+   = T110_g_float[bS298{1}, iS299{2048}, iS300{12288}]
+   * d474;
+(91)
+T115_g_float[bS313{1}, iS314{2048}, iS315{12288}]
+   = T114_g_float[bS310{1}, iS311{2048}, bS312{1 ex 12288}]
+   + T113_l_float[bS307{1}, iS308{2048}, iS309{12288}];
+(93)
+T117_g_float[bS319{1}, iS320{2048}, iS321{12288}]
+   = T116_g_float[bS316{1}, iS317{2048}, iS318{12288}]
+   + T115_g_float[bS313{1}, iS314{2048}, iS315{12288}];
+(95)
+T118_l_float[bS322{1}, iS323{2048}, iS324{12288}]
+   = double(1.11111)
+   * T117_g_float[bS319{1}, iS320{2048}, iS321{12288}];
+(96)
+T119_g_float[bS325{1}, iS326{2048}, iS327{12288}]
+   = T58_l_float[bS154{1}, iS155{2048}, iS156{12288}]
+   * T118_l_float[bS322{1}, iS323{2048}, iS324{12288}];
+(389)
+T229_g_float[iS672{2048}, iS673{12288}]
+   = squeeze( T119_g_float[bS325{1}, iS326{2048}, iS327{12288}], flags = {true, false, false} )
+(222)
+T230_g_float[rS674{2048}, iS675{12288}]
+   = reduction( T229_g_float[iS672{2048}, iS673{12288}], op = add, initial value = float(0), allreduce = false )
+(223)
+T250_g___bfloat[iS713{12288}]
+   = __float2bfloat(T230_g_float[rS674{2048}, iS675{12288}]);
+(243)
+T120_g___bfloat[bS328{1}, iS329{2048}, iS330{12288}]
+   = __float2bfloat(T119_g_float[bS325{1}, iS326{2048}, iS327{12288}]);
+(98)
+T121_g___bfloat[iS331{2048}, iS332{12288}]
+   = squeeze( T120_g___bfloat[bS328{1}, iS329{2048}, iS330{12288}], flags = {true, false, false} )
+(99)
+T232_g___bfloat[iS679{12288}, iS678{2048}]
+   = Set.Permute( T121_g___bfloat[iS331{2048}, iS332{12288}], cache_op=Streaming )
+(225)
+}
+
+g{(expr_eval)
+group id: 2
+inputs:
+  T239_g___bfloat[iS692{2048}, iS693{12288}] __bfloat
+  T240_g___bfloat[iS695{24576}, iS694{2048}] __bfloat
+outputs:
+  T255_g___bfloat[iS720{24576}, iS721{12288}, rS722{2048}] __bfloat
+
+
+T255_g___bfloat[iS720{24576}, iS721{12288}, rS722{2048}]
+   = matmul(T240_g___bfloat[iS695{24576}, iS694{2048}],
+            T239_g___bfloat[iS692{2048}, iS693{12288}])
+(248)
+}
+
+g{(expr_eval)
+group id: 13
+inputs:
+  T13_g___bfloat[bS33{1}, iS34{48}, iS35{2048}, iS36{128}] __bfloat
+outputs:
+  T231_g___bfloat[iS676{2048}, iS677{6144}] __bfloat
+
+
+T202_l___bfloat[bS593{1}, iS595{2048}, iS594{48}, iS596{128}]
+   = Set.Permute( T13_g___bfloat[bS33{1}, iS34{48}, iS35{2048}, iS36{128}], cache_op=Streaming )
+(193)
+T208_g___bfloat[bS612{1}, iS613{2048}, iS614{48}, iS615{128}]
+   = Set( T202_l___bfloat[bS593{1}, iS595{2048}, iS594{48}, iS596{128}], cache_op=Streaming )
+(200)
+T216_g___bfloat[bS637{1}, iS638{2048}, iS643{6144}rf] = view( T208_g___bfloat[bS612{1}, iS613{2048}, iS614{48}, iS615{128}] )
+(209)
+T231_g___bfloat[iS676{2048}, iS677{6144}]
+   = squeeze( T216_g___bfloat[bS637{1}, iS638{2048}, iS643{6144}rf], flags = {true, false, false} )
+(224)
+}
+
+g{(expr_eval)
+group id: 4
+inputs:
+  T231_g___bfloat[iS676{2048}, iS677{6144}] __bfloat
+  T232_g___bfloat[iS679{12288}, iS678{2048}] __bfloat
+outputs:
+  T251_g___bfloat[iS714{12288}, iS715{6144}, rS716{2048}] __bfloat
+
+
+T251_g___bfloat[iS714{12288}, iS715{6144}, rS716{2048}]
+   = matmul(T232_g___bfloat[iS679{12288}, iS678{2048}],
+            T231_g___bfloat[iS676{2048}, iS677{6144}])
+(244)
+}
+
+g{(expr_eval)
+group id: 5
+inputs:
+  T11_g___bfloat[iS28{12288}, iS29{6144}] __bfloat
+  T121_g___bfloat[iS331{2048}, iS332{12288}] __bfloat
+outputs:
+  T122_g___bfloat[iS333{2048}, iS334{6144}, rS335{12288}] __bfloat
+
+
+T122_g___bfloat[iS333{2048}, iS334{6144}, rS335{12288}]
+   = matmul(T121_g___bfloat[iS331{2048}, iS332{12288}],
+            T11_g___bfloat[iS28{12288}, iS29{6144}])
+(100)
+}
+
+g{(expr_eval)
+group id: 12
+inputs:
+  T122_g___bfloat[iS333{2048}, iS334{6144}, rS335{12288}] __bfloat
+outputs:
+  T132_g___bfloat[bS378{1}, iS380{48}, iS379{2048}, iS381{128}] __bfloat
+
+
+T127_g___bfloat[bS357{1}, iS358{2048}, iS359{6144}]
+   = broadcast( T122_g___bfloat[iS333{2048}, iS334{6144}, rS335{12288}], flags = {true, false, false} )
+(109)
+T128_g___bfloat[bS360{1}, iS361{2048}, iS364{48}rf, iS365{128}rf] = view( T127_g___bfloat[bS357{1}, iS358{2048}, iS359{6144}] )
+(111)
+T132_g___bfloat[bS378{1}, iS380{48}, iS379{2048}, iS381{128}]
+   = Set.Permute( T128_g___bfloat[bS360{1}, iS361{2048}, iS364{48}rf, iS365{128}rf], cache_op=Streaming )
+(115)
+}
+
+g{(expr_eval)
+group id: 16
+inputs:
+  T12_g___bfloat[bS30{1}, iS31{2048}, iS32{18432}] __bfloat
+outputs:
+  T129_g___bfloat[bS366{1}, iS368{48}, iS367{2048}, iS369{128}] __bfloat
+  T130_g___bfloat[bS370{1}, iS372{48}, iS371{2048}, iS373{128}] __bfloat
+  T131_g___bfloat[bS374{1}, iS376{48}, iS375{2048}, iS377{128}] __bfloat
+
+
+T123_g___bfloat[bS336{1}, iS337{2048}, iS340{48}rf, iS341{384}rf] = view( T12_g___bfloat[bS30{1}, iS31{2048}, iS32{18432}] )
+(102)
+T124_g___bfloat[bS342{1}, iS343{2048}, iS344{48}, iS346{128}rf]
+   = slice( T123_g___bfloat[bS336{1}, iS337{2048}, iS340{48}rf, iS341{384}rf], { {0, 1, 1} {0, 2048, 1} {0, 48, 1} {256, 384, 1} } )
+(104)
+T129_g___bfloat[bS366{1}, iS368{48}, iS367{2048}, iS369{128}]
+   = Set.Permute( T124_g___bfloat[bS342{1}, iS343{2048}, iS344{48}, iS346{128}rf], cache_op=Streaming )
+(112)
+T125_g___bfloat[bS347{1}, iS348{2048}, iS349{48}, iS351{128}rf]
+   = slice( T123_g___bfloat[bS336{1}, iS337{2048}, iS340{48}rf, iS341{384}rf], { {0, 1, 1} {0, 2048, 1} {0, 48, 1} {128, 256, 1} } )
+(106)
+T130_g___bfloat[bS370{1}, iS372{48}, iS371{2048}, iS373{128}]
+   = Set.Permute( T125_g___bfloat[bS347{1}, iS348{2048}, iS349{48}, iS351{128}rf], cache_op=Streaming )
+(113)
+T126_g___bfloat[bS352{1}, iS353{2048}, iS354{48}, iS356{128}rf]
+   = slice( T123_g___bfloat[bS336{1}, iS337{2048}, iS340{48}rf, iS341{384}rf], { {0, 1, 1} {0, 2048, 1} {0, 48, 1} {0, 128, 1} } )
+(108)
+T131_g___bfloat[bS374{1}, iS376{48}, iS375{2048}, iS377{128}]
+   = Set.Permute( T126_g___bfloat[bS352{1}, iS353{2048}, iS354{48}, iS356{128}rf], cache_op=Streaming )
+(114)
+}
+
+g{(expr_eval)
+group id: 6
+inputs:
+  T13_g___bfloat[bS33{1}, iS34{48}, iS35{2048}, iS36{128}] __bfloat
+  T14_g_float[bS37{1}, iS38{48}, iS39{2048}] float
+  T15_g_uint64_t[iS40{2}] uint64_t
+  T16_g_uint64_t[] uint64_t
+  T129_g___bfloat[bS366{1}, iS368{48}, iS367{2048}, iS369{128}] __bfloat
+  T130_g___bfloat[bS370{1}, iS372{48}, iS371{2048}, iS373{128}] __bfloat
+  T131_g___bfloat[bS374{1}, iS376{48}, iS375{2048}, iS377{128}] __bfloat
+  T132_g___bfloat[bS378{1}, iS380{48}, iS379{2048}, iS381{128}] __bfloat
+outputs:
+  T133_g___bfloat[bS382{1}, iS383{48}, iS384{2048}, iS385{128}] __bfloat
+  T134_g___bfloat[bS386{1}, iS387{48}, iS388{2048}, iS389{128}] __bfloat
+  T135_g___bfloat[bS390{1}, iS391{48}, iS392{2048}, iS393{128}] __bfloat
+
+
+T133_g___bfloat[bS382{1}, iS383{48}, iS384{2048}, iS385{128}],
+T134_g___bfloat[bS386{1}, iS387{48}, iS388{2048}, iS389{128}],
+T135_g___bfloat[bS390{1}, iS391{48}, iS392{2048}, iS393{128}]
+   = sdpa_bwd(T132_g___bfloat[bS378{1}, iS380{48}, iS379{2048}, iS381{128}],
+            T131_g___bfloat[bS374{1}, iS376{48}, iS375{2048}, iS377{128}],
+            T130_g___bfloat[bS370{1}, iS372{48}, iS371{2048}, iS373{128}],
+            T129_g___bfloat[bS366{1}, iS368{48}, iS367{2048}, iS369{128}],
+            T13_g___bfloat[bS33{1}, iS34{48}, iS35{2048}, iS36{128}],
+            logsum_exp = T14_g_float[bS37{1}, iS38{48}, iS39{2048}],
+            dropout_p = double(0.10000000000000001),
+            is_causal = true,
+            philox_seed = T15_g_uint64_t[iS40{2}],
+            philox_offset = T16_g_uint64_t[],
+  )
+(116)
+}
+
+g{(pointwise)
+group id: 7
+inputs:
+  T133_g___bfloat[bS382{1}, iS383{48}, iS384{2048}, iS385{128}] __bfloat
+outputs:
+  T138_g___bfloat[bS402{1}, iS404{2048}, iS403{48}, iS405{128}] __bfloat
+
+
+T138_g___bfloat[bS402{1}, iS404{2048}, iS403{48}, iS405{128}]
+   = Set.Permute( T133_g___bfloat[bS382{1}, iS383{48}, iS384{2048}, iS385{128}], cache_op=Streaming )
+(119)
+}
+
+g{(pointwise)
+group id: 8
+inputs:
+  T134_g___bfloat[bS386{1}, iS387{48}, iS388{2048}, iS389{128}] __bfloat
+outputs:
+  T137_g___bfloat[bS398{1}, iS400{2048}, iS399{48}, iS401{128}] __bfloat
+
+
+T137_g___bfloat[bS398{1}, iS400{2048}, iS399{48}, iS401{128}]
+   = Set.Permute( T134_g___bfloat[bS386{1}, iS387{48}, iS388{2048}, iS389{128}], cache_op=Streaming )
+(118)
+}
+
+g{(pointwise)
+group id: 9
+inputs:
+  T135_g___bfloat[bS390{1}, iS391{48}, iS392{2048}, iS393{128}] __bfloat
+outputs:
+  T136_g___bfloat[bS394{1}, iS396{2048}, iS395{48}, iS397{128}] __bfloat
+
+
+T136_g___bfloat[bS394{1}, iS396{2048}, iS395{48}, iS397{128}]
+   = Set.Permute( T135_g___bfloat[bS390{1}, iS391{48}, iS392{2048}, iS393{128}], cache_op=Streaming )
+(117)
+}
+
+g{(reduction)
+group id: 14
+inputs:
+  T136_g___bfloat[bS394{1}, iS396{2048}, iS395{48}, iS397{128}] __bfloat
+  T137_g___bfloat[bS398{1}, iS400{2048}, iS399{48}, iS401{128}] __bfloat
+  T138_g___bfloat[bS402{1}, iS404{2048}, iS403{48}, iS405{128}] __bfloat
+outputs:
+  T144_g___bfloat[iS432{2048}, iS433{18432}] __bfloat
+  T228_g___bfloat[iS671{18432}, iS670{2048}] __bfloat
+  T248_g___bfloat[iS709{18432}] __bfloat
+
+
+T139_l___bfloat[bS406{1}, iS407{2048}, iS408{48}, iS410{384}rf]
+   = pad( T138_g___bfloat[bS402{1}, iS404{2048}, iS403{48}, iS405{128}], {0, 0, 0, 0, 0, 0, 0, 256} )
+(122)
+i680 = 0 + 128;
+(276)
+T140_l___bfloat[bS411{1}, iS412{2048}, iS413{48}, iS415{( ( ( 0 + 128 ) + 128 ) + 128 )}rf]
+   = pad( T137_g___bfloat[bS398{1}, iS400{2048}, iS399{48}, iS401{128}], {0, 0, 0, 0, 0, 0, i680, 128} )
+(127)
+i695 = i680 + 128;
+(123)
+T141_l___bfloat[bS416{1}, iS417{2048}, iS418{48}, iS420{( ( ( 0 + 128 ) + 128 ) + 128 )}rf]
+   = pad( T136_g___bfloat[bS394{1}, iS396{2048}, iS395{48}, iS397{128}], {0, 0, 0, 0, 0, 0, i695, 0} )
+(131)
+T142_g___bfloat[bS421{1}, iS422{2048}, iS423{48}, iS424{384}]
+   = cat( T139_l___bfloat[bS406{1}, iS407{2048}, iS408{48}, iS410{384}rf], T140_l___bfloat[bS411{1}, iS412{2048}, iS413{48}, iS415{( ( ( 0 + 128 ) + 128 ) + 128 )}rf], T141_l___bfloat[bS416{1}, iS417{2048}, iS418{48}, iS420{( ( ( 0 + 128 ) + 128 ) + 128 )}rf], 3 )
+(132)
+T143_g___bfloat[bS425{1}, iS426{2048}, iS431{18432}rf] = view( T142_g___bfloat[bS421{1}, iS422{2048}, iS423{48}, iS424{384}] )
+(134)
+T214_l_float[bS631{1}, iS632{2048}, iS633{18432}]
+   = __bfloat2float(T143_g___bfloat[bS425{1}, iS426{2048}, iS431{18432}rf]);
+(206)
+T225_l_float[iS664{2048}, iS665{18432}]
+   = squeeze( T214_l_float[bS631{1}, iS632{2048}, iS633{18432}], flags = {true, false, false} )
+(218)
+T226_g_float[rS666{2048}, iS667{18432}]
+   = reduction( T225_l_float[iS664{2048}, iS665{18432}], op = add, initial value = float(0), allreduce = false )
+(219)
+T248_g___bfloat[iS709{18432}]
+   = __float2bfloat(T226_g_float[rS666{2048}, iS667{18432}]);
+(241)
+T144_g___bfloat[iS432{2048}, iS433{18432}]
+   = squeeze( T143_g___bfloat[bS425{1}, iS426{2048}, iS431{18432}rf], flags = {true, false, false} )
+(135)
+T228_g___bfloat[iS671{18432}, iS670{2048}]
+   = Set.Permute( T144_g___bfloat[iS432{2048}, iS433{18432}], cache_op=Streaming )
+(221)
+i722 = i695 + 128;
+(129)
+i706 = i680 + 128;
+(124)
+i709 = i706 + 128;
+(125)
+}
+
+g{(expr_eval)
+group id: 11
+inputs:
+  T17_g___bfloat[iS41{18432}, iS42{12288}] __bfloat
+  T144_g___bfloat[iS432{2048}, iS433{18432}] __bfloat
+outputs:
+  T145_g___bfloat[iS434{2048}, iS435{12288}, rS436{18432}] __bfloat
+
+
+T145_g___bfloat[iS434{2048}, iS435{12288}, rS436{18432}]
+   = matmul(T144_g___bfloat[iS432{2048}, iS433{18432}],
+            T17_g___bfloat[iS41{18432}, iS42{12288}])
+(136)
+}
+
+g{(reduction)
+group id: 19
+inputs:
+  T9_g___bfloat[bS22{1}, iS23{2048}, iS24{12288}] __bfloat
+  T18_g___bfloat[iS43{12288}] __bfloat
+  T19_g_float[bS44{1}, iS45{2048}] float
+  T20_g_float[bS46{1}, iS47{2048}, bS48{1}] float
+  T21_g___bfloat[iS49{12288}] __bfloat
+  T145_g___bfloat[iS434{2048}, iS435{12288}, rS436{18432}] __bfloat
+outputs:
+  T155_g_float[bS464{1}, iS465{2048}, iS466{12288}] float
+  T156_g_float[bS467{1}, iS468{2048}, iS469{12288}] float
+  T163_g_float[bS486{1}, iS487{2048}, bS488{1 ex 12288}] float
+  T227_g___bfloat[iS668{2048}, iS669{12288}] __bfloat
+  T246_g___bfloat[iS707{12288}] __bfloat
+  T247_g___bfloat[iS708{12288}] __bfloat
+
+
+T162_l_float[bS483{1}, iS484{2048}, bS485{1}]
+   = Set( T20_g_float[bS46{1}, iS47{2048}, bS48{1}], cache_op=Streaming )
+(153)
+T163_g_float[bS486{1}, iS487{2048}, bS488{1 ex 12288}] = expand( T162_l_float[bS483{1}, iS484{2048}, bS485{1}], {1, 2048, 12288} )
+(279)
+T277_l_float[bS784{1}, iS785{2048}, iS786{12288}]
+   = __bfloat2float(T9_g___bfloat[bS22{1}, iS23{2048}, iS24{12288}]);
+(370)
+T149_l_float[bS446{1}, iS447{2048}, bS448{1}]
+   = broadcast( T19_g_float[bS44{1}, iS45{2048}], flags = {false, false, true} )
+(140)
+T154_l_float[bS461{1}, iS462{2048}, bS463{1 ex 12288}] = expand( T149_l_float[bS446{1}, iS447{2048}, bS448{1}], {1, 2048, 12288} )
+(316)
+T156_g_float[bS467{1}, iS468{2048}, iS469{12288}]
+   = T277_l_float[bS784{1}, iS785{2048}, iS786{12288}]
+   - T154_l_float[bS461{1}, iS462{2048}, bS463{1 ex 12288}];
+(371)
+T193_g_float[bS566{1}, iS567{2048}, iS568{12288}]
+   = T156_g_float[bS467{1}, iS468{2048}, iS469{12288}]
+   * T163_g_float[bS486{1}, iS487{2048}, bS488{1 ex 12288}];
+(184)
+T191_l___bfloat[bS560{1}, bS561{1}, iS562{12288}]
+   = broadcast( T21_g___bfloat[iS49{12288}], flags = {true, true, false} )
+(182)
+T192_g___bfloat[bS563{1}, bS564{1 ex 2048}, iS565{12288}] = expand( T191_l___bfloat[bS560{1}, bS561{1}, iS562{12288}], {1, 2048, 12288} )
+(281)
+T147_l___bfloat[bS440{1}, bS441{1}, iS442{12288}]
+   = broadcast( T18_g___bfloat[iS43{12288}], flags = {true, true, false} )
+(138)
+T148_g___bfloat[bS443{1}, bS444{1 ex 2048}, iS445{12288}] = expand( T147_l___bfloat[bS440{1}, bS441{1}, iS442{12288}], {1, 2048, 12288} )
+(280)
+T152_l_float[bS455{1}, bS456{1 ex 2048}, iS457{12288}]
+   = __bfloat2float(T148_g___bfloat[bS443{1}, bS444{1 ex 2048}, iS445{12288}]);
+(143)
+T201_l_float[bS590{1}, iS591{2048}, iS592{12288}]
+   = T193_g_float[bS566{1}, iS567{2048}, iS568{12288}]
+   * T152_l_float[bS455{1}, bS456{1 ex 2048}, iS457{12288}];
+(192)
+T200_l_float[bS587{1}, bS588{1 ex 2048}, iS589{12288}]
+   = __bfloat2float(T192_g___bfloat[bS563{1}, bS564{1 ex 2048}, iS565{12288}]);
+(191)
+T207_l_float[bS609{1}, iS610{2048}, iS611{12288}]
+   = T201_l_float[bS590{1}, iS591{2048}, iS592{12288}]
+   + T200_l_float[bS587{1}, bS588{1 ex 2048}, iS589{12288}];
+(199)
+T215_g___bfloat[bS634{1}, iS635{2048}, iS636{12288}]
+   = __float2bfloat(T207_l_float[bS609{1}, iS610{2048}, iS611{12288}]);
+(207)
+T227_g___bfloat[iS668{2048}, iS669{12288}]
+   = squeeze( T215_g___bfloat[bS634{1}, iS635{2048}, iS636{12288}], flags = {true, false, false} )
+(220)
+T146_g___bfloat[bS437{1}, iS438{2048}, iS439{12288}]
+   = broadcast( T145_g___bfloat[iS434{2048}, iS435{12288}, rS436{18432}], flags = {true, false, false} )
+(137)
+T151_l_float[bS452{1}, iS453{2048}, iS454{12288}]
+   = __bfloat2float(T146_g___bfloat[bS437{1}, iS438{2048}, iS439{12288}]);
+(142)
+T213_l_float[bS628{1}, iS629{2048}, iS630{12288}]
+   = T193_g_float[bS566{1}, iS567{2048}, iS568{12288}]
+   * T151_l_float[bS452{1}, iS453{2048}, iS454{12288}];
+(387)
+T221_l_float[iS656{2048}, iS657{12288}]
+   = squeeze( T213_l_float[bS628{1}, iS629{2048}, iS630{12288}], flags = {true, false, false} )
+(214)
+T222_g_float[rS658{2048}, iS659{12288}]
+   = reduction( T221_l_float[iS656{2048}, iS657{12288}], op = add, initial value = float(0), allreduce = false )
+(215)
+T246_g___bfloat[iS707{12288}]
+   = __float2bfloat(T222_g_float[rS658{2048}, iS659{12288}]);
+(239)
+T223_l_float[iS660{2048}, iS661{12288}]
+   = squeeze( T151_l_float[bS452{1}, iS453{2048}, iS454{12288}], flags = {true, false, false} )
+(216)
+T224_g_float[rS662{2048}, iS663{12288}]
+   = reduction( T223_l_float[iS660{2048}, iS661{12288}], op = add, initial value = float(0), allreduce = false )
+(217)
+T247_g___bfloat[iS708{12288}]
+   = __float2bfloat(T224_g_float[rS662{2048}, iS663{12288}]);
+(240)
+T155_g_float[bS464{1}, iS465{2048}, iS466{12288}]
+   = T152_l_float[bS455{1}, bS456{1 ex 2048}, iS457{12288}]
+   * T151_l_float[bS452{1}, iS453{2048}, iS454{12288}];
+(388)
+}
+
+g{(expr_eval)
+group id: 10
+inputs:
+  T227_g___bfloat[iS668{2048}, iS669{12288}] __bfloat
+  T228_g___bfloat[iS671{18432}, iS670{2048}] __bfloat
+outputs:
+  T249_g___bfloat[iS710{18432}, iS711{12288}, rS712{2048}] __bfloat
+
+
+T249_g___bfloat[iS710{18432}, iS711{12288}, rS712{2048}]
+   = matmul(T228_g___bfloat[iS671{18432}, iS670{2048}],
+            T227_g___bfloat[iS668{2048}, iS669{12288}])
+(242)
+}
+
+g{(reduction)
+group id: 15
+inputs:
+  T117_g_float[bS319{1}, iS320{2048}, iS321{12288}] float
+  T155_g_float[bS464{1}, iS465{2048}, iS466{12288}] float
+  T156_g_float[bS467{1}, iS468{2048}, iS469{12288}] float
+  T163_g_float[bS486{1}, iS487{2048}, bS488{1 ex 12288}] float
+outputs:
+  T165_g_float[bS492{1}, iS493{2048}, bS494{1}] float
+  T206_g_float[bS606{1}, iS607{2048}, bS608{1 ex 12288}] float
+  T212_g_float[bS625{1}, iS626{2048}, iS627{12288}] float
+
+
+T157_l_float[bS470{1}, iS471{2048}, iS472{12288}]
+   = T156_g_float[bS467{1}, iS468{2048}, iS469{12288}]
+   * T155_g_float[bS464{1}, iS465{2048}, iS466{12288}];
+(148)
+T158_l_float[iS473{2048}, iS474{12288}]
+   = squeeze( T157_l_float[bS470{1}, iS471{2048}, iS472{12288}], flags = {true, false, false} )
+(149)
+T159_g_float[iS475{2048}, rS476{12288}]
+   = reduction( T158_l_float[iS473{2048}, iS474{12288}], op = add, initial value = float(0), allreduce = false )
+(150)
+T160_l_float[bS477{1}, iS478{2048}, bS479{1}]
+   = broadcast( T159_g_float[iS475{2048}, rS476{12288}], flags = {true, false, true} )
+(151)
+T165_g_float[bS492{1}, iS493{2048}, bS494{1}]
+   = double(-0.5)
+   * T160_l_float[bS477{1}, iS478{2048}, bS479{1}];
+(294)
+T166_g_float[bS495{1}, iS496{2048}, iS497{12288}]
+   = T163_g_float[bS486{1}, iS487{2048}, bS488{1 ex 12288}]
+   * T155_g_float[bS464{1}, iS465{2048}, iS466{12288}];
+(157)
+T212_g_float[bS625{1}, iS626{2048}, iS627{12288}]
+   = T117_g_float[bS319{1}, iS320{2048}, iS321{12288}]
+   + T166_g_float[bS495{1}, iS496{2048}, iS497{12288}];
+(204)
+T168_l_float[bS501{1}, iS502{2048}, iS503{12288}]
+   = -T166_g_float[bS495{1}, iS496{2048}, iS497{12288}];
+(159)
+T170_l_float[iS505{2048}, iS506{12288}]
+   = squeeze( T168_l_float[bS501{1}, iS502{2048}, iS503{12288}], flags = {true, false, false} )
+(161)
+T171_g_float[iS507{2048}, rS508{12288}]
+   = reduction( T170_l_float[iS505{2048}, iS506{12288}], op = add, initial value = float(0), allreduce = false )
+(162)
+T174_l_float[bS513{1}, iS514{2048}, bS515{1}]
+   = broadcast( T171_g_float[iS507{2048}, rS508{12288}], flags = {true, false, true} )
+(165)
+T199_g_float[bS584{1}, iS585{2048}, bS586{1 ex 12288}] = expand( T174_l_float[bS513{1}, iS514{2048}, bS515{1}], {1, 2048, 12288} )
+(324)
+T206_g_float[bS606{1}, iS607{2048}, bS608{1 ex 12288}]
+   = double(8.1380208333333329e-05)
+   * T199_g_float[bS584{1}, iS585{2048}, bS586{1 ex 12288}];
+(198)
+}
+
+g{(pointwise)
+group id: 17
+inputs:
+  T9_g___bfloat[bS22{1}, iS23{2048}, iS24{12288}] __bfloat
+  T19_g_float[bS44{1}, iS45{2048}] float
+  T20_g_float[bS46{1}, iS47{2048}, bS48{1}] float
+  T165_g_float[bS492{1}, iS493{2048}, bS494{1}] float
+  T206_g_float[bS606{1}, iS607{2048}, bS608{1 ex 12288}] float
+  T212_g_float[bS625{1}, iS626{2048}, iS627{12288}] float
+outputs:
+  T245_g___bfloat[bS704{1}, iS705{2048}, iS706{12288}] __bfloat
+
+
+T176_l_float[bS519{1}, iS520{2048}, bS521{1}]
+   = broadcast( T19_g_float[bS44{1}, iS45{2048}], flags = {false, false, true} )
+(167)
+T182_g_float[bS535{1}, iS536{2048}, bS537{1 ex 12288}] = expand( T176_l_float[bS519{1}, iS520{2048}, bS521{1}], {1, 2048, 12288} )
+(286)
+T281_l_float[bS796{1}, iS797{2048}, iS798{12288}]
+   = __bfloat2float(T9_g___bfloat[bS22{1}, iS23{2048}, iS24{12288}]);
+(378)
+T187_g_float[bS548{1}, iS549{2048}, iS550{12288}]
+   = T281_l_float[bS796{1}, iS797{2048}, iS798{12288}]
+   - T182_g_float[bS535{1}, iS536{2048}, bS537{1 ex 12288}];
+(379)
+T164_g_float[bS489{1}, iS490{2048}, bS491{1}]
+   = pow(T20_g_float[bS46{1}, iS47{2048}, bS48{1}]
+  , double(3));
+(155)
+T167_g_float[bS498{1}, iS499{2048}, bS500{1}]
+   = T165_g_float[bS492{1}, iS493{2048}, bS494{1}]
+   * T164_g_float[bS489{1}, iS490{2048}, bS491{1}];
+(158)
+T184_l_float[bS541{1}, iS542{2048}, bS543{1 ex 12288}] = expand( T167_g_float[bS498{1}, iS499{2048}, bS500{1}], {1, 2048, 12288} )
+(293)
+T188_g_float[bS551{1}, iS552{2048}, bS553{1 ex 12288}]
+   = double(2)
+   * T184_l_float[bS541{1}, iS542{2048}, bS543{1 ex 12288}];
+(179)
+T197_g_float[bS578{1}, iS579{2048}, iS580{12288}]
+   = T188_g_float[bS551{1}, iS552{2048}, bS553{1 ex 12288}]
+   * T187_g_float[bS548{1}, iS549{2048}, iS550{12288}];
+(188)
+d950 = reciprocal(double(12288));
+(196)
+T205_l_float[bS603{1}, iS604{2048}, iS605{12288}]
+   = T197_g_float[bS578{1}, iS579{2048}, iS580{12288}]
+   * d950;
+(197)
+T211_g_float[bS622{1}, iS623{2048}, iS624{12288}]
+   = T206_g_float[bS606{1}, iS607{2048}, bS608{1 ex 12288}]
+   + T205_l_float[bS603{1}, iS604{2048}, iS605{12288}];
+(203)
+T220_g_float[bS653{1}, iS654{2048}, iS655{12288}]
+   = T212_g_float[bS625{1}, iS626{2048}, iS627{12288}]
+   + T211_g_float[bS622{1}, iS623{2048}, iS624{12288}];
+(213)
+T245_g___bfloat[bS704{1}, iS705{2048}, iS706{12288}]
+   = __float2bfloat(T220_g_float[bS653{1}, iS654{2048}, iS655{12288}]);
+(238)
+}
+
+} //Segmented_Fusion
+
+
+===== Outer Reduction Stats ========
+total_reduction_numel: 2048
+total_iteration_numel: 12288
+vectorize_factor: 8
+redu_unroll_factor: 4
+grid(48, 11, 1)
+block(32, 16, 1)
+
+
+===== Reduction Parameters ========
+
+Red On Slow Dim
+Circular buffer: not used
+
+Iteration Domain: blockIdx.x / threadIdx.x / multiple reductions per block / vectorize / factor 8
+Inner Reduction Domain: cross block - threadIdx.y / cross grid - blockIdx.y / split grid dim / split grid dimension / unroll / factor 4
+Launch Parameters: BlockDim.x = 32, BlockDim.y = 16, BlockDim.z = -1, GridDim.x = -1, GridDim.y = 11, GridDim.z = -1, Smem Size = 0
+Compile Parameters: index_type = NotSet, maxrregcount = 128, enable_magic_zero = 1, enable_ptxas_verbose = 0, include_paths = 
+
+====================================
+
+
+===== Outer Reduction Stats ========
+total_reduction_numel: 2048
+total_iteration_numel: 24576
+vectorize_factor: 8
+redu_unroll_factor: 2
+grid(96, 5, 1)
+block(32, 16, 1)
+
+
+===== Reduction Parameters ========
+
+Red On Slow Dim
+Circular buffer: not used
+
+Iteration Domain: blockIdx.x / threadIdx.x / multiple reductions per block / vectorize / factor 8
+Inner Reduction Domain: cross block - threadIdx.y / cross grid - blockIdx.y / split grid dim / split grid dimension / unroll / factor 2
+Launch Parameters: BlockDim.x = 32, BlockDim.y = 16, BlockDim.z = -1, GridDim.x = -1, GridDim.y = 5, GridDim.z = -1, Smem Size = 0
+Compile Parameters: index_type = NotSet, maxrregcount = 128, enable_magic_zero = 1, enable_ptxas_verbose = 0, include_paths = 
+
+====================================
+
+
+===== Combined InnerOuter Reduction Stats ========
+outer_dim_numel: 2048
+inner_dim_numel: 12288
+regs_buffer_size_bit: 1474560
+smem_buffer_size_bit: 645120
+smem_overhead_bit: 16384
+vectorize_factor_input: 4
+vectorization_factor_tmp_gmem_write: 4
+vectorization_factor_outer: 4
+multiple_reds_per_blk: 0
+warps_per_sm: 8
+gdimy: 142
+block(32, 8, 1)
+===== Reduction Parameters ========
+Tag: InnerOuter Register and Shared Memory Persistent Heuristic.
+
+Red On Fastest Dim
+Persistent Kernel
+Project Persistent Buffers
+Batches per block: 12
+Circular buffer: not used
+
+Iteration Domain: blockIdx.y / split grid dimension outer / 
+Inner Reduction Domain: persistent batch - 12 / vectorize / factor 4
+Launch Parameters: BlockDim.x = 32, BlockDim.y = 8, BlockDim.z = -1, GridDim.x = -1, GridDim.y = 142, GridDim.z = -1, Smem Size = 0
+Compile Parameters: index_type = int, maxrregcount = 255, enable_magic_zero = 1, enable_ptxas_verbose = 0, include_paths = 
+
+====================================
+
+
+===== Pointwise Stats ========
+num_elems: 12582912
+elem_counts: 1 48 2048 128
+max_dtype_size_bit_for_vectorization: 16
+unroll_factor_inner: 1
+unroll_factor_outer: 1
+vectorize_factor: 8
+
+reorder_map: (3, 3), (1, 2), (2, 1), (0, 0), 
+broadcast_byte_multiples: (0, 32), (0, 32), (32, 32), (32, 32), 
+LHS elems: 0 RHS elems: 0
+
+
+===== Pointwise Parameters ========
+Tag: Pointwise heuristics Pointwise Characteristics:
+ Gridx: 1 BlckY: 1 BlckX: 128
+vectorization_factor: 8
+unroll_factor_outer: 1
+unroll_factor_inner: 1
+====================================
+
+
+===== Pointwise Stats ========
+num_elems: 12582912
+elem_counts: 1 48 2048 128
+max_dtype_size_bit_for_vectorization: 16
+unroll_factor_inner: 1
+unroll_factor_outer: 1
+vectorize_factor: 8
+
+reorder_map: (3, 3), (1, 2), (2, 1), (0, 0), 
+broadcast_byte_multiples: (0, 32), (0, 32), (32, 32), (32, 32), 
+LHS elems: 0 RHS elems: 0
+
+
+===== Pointwise Parameters ========
+Tag: Pointwise heuristics Pointwise Characteristics:
+ Gridx: 1 BlckY: 1 BlckX: 128
+vectorization_factor: 8
+unroll_factor_outer: 1
+unroll_factor_inner: 1
+====================================
+
+
+===== Pointwise Stats ========
+num_elems: 12582912
+elem_counts: 1 48 2048 128
+max_dtype_size_bit_for_vectorization: 16
+unroll_factor_inner: 1
+unroll_factor_outer: 1
+vectorize_factor: 8
+
+reorder_map: (3, 3), (1, 2), (2, 1), (0, 0), 
+broadcast_byte_multiples: (0, 32), (0, 32), (32, 32), (32, 32), 
+LHS elems: 0 RHS elems: 0
+
+
+===== Pointwise Parameters ========
+Tag: Pointwise heuristics Pointwise Characteristics:
+ Gridx: 1 BlckY: 1 BlckX: 128
+vectorization_factor: 8
+unroll_factor_outer: 1
+unroll_factor_inner: 1
+====================================
+
+
+===== Outer Reduction Stats ========
+total_reduction_numel: 2048
+total_iteration_numel: 18432
+vectorize_factor: 8
+redu_unroll_factor: 4
+grid(72, 7, 1)
+block(32, 16, 1)
+
+
+===== Reduction Parameters ========
+
+Red On Slow Dim
+Circular buffer: not used
+
+Iteration Domain: blockIdx.x / threadIdx.x / multiple reductions per block / vectorize / factor 8
+Inner Reduction Domain: cross block - threadIdx.y / cross grid - blockIdx.y / split grid dim / split grid dimension / unroll / factor 4
+Launch Parameters: BlockDim.x = 32, BlockDim.y = 16, BlockDim.z = -1, GridDim.x = -1, GridDim.y = 7, GridDim.z = -1, Smem Size = 0
+Compile Parameters: index_type = NotSet, maxrregcount = 128, enable_magic_zero = 1, enable_ptxas_verbose = 0, include_paths = 
+
+====================================
+
+
+===== Outer Reduction Stats ========
+total_reduction_numel: 2048
+total_iteration_numel: 12288
+vectorize_factor: 4
+redu_unroll_factor: 2
+grid(96, 5, 1)
+block(32, 16, 1)
+
+
+===== Reduction Parameters ========
+
+Red On Slow Dim
+Circular buffer: not used
+
+Iteration Domain: blockIdx.x / threadIdx.x / multiple reductions per block / vectorize / factor 4
+Inner Reduction Domain: cross block - threadIdx.y / cross grid - blockIdx.y / split grid dim / split grid dimension / unroll / factor 2
+Launch Parameters: BlockDim.x = 32, BlockDim.y = 16, BlockDim.z = -1, GridDim.x = -1, GridDim.y = 5, GridDim.z = -1, Smem Size = 0
+Compile Parameters: index_type = NotSet, maxrregcount = 128, enable_magic_zero = 1, enable_ptxas_verbose = 0, include_paths = 
+
+====================================
+
+
+===== Inner 2D Reduction Stats ========
+total_reduction_numel: 12288
+total_iteration_numel: 2048
+target_vect_unroll: 1
+vectorize_factor: 1
+inner_unroll: 1
+outer_unroll: 1
+inner iteration: 48
+n_tensor_inputs: 3
+max_dtype_size_bit_for_vectorization: 32
+block(256, 1, 1)
+
+===== Reduction Parameters ========
+
+Red On Fastest Dim
+Circular buffer: not used
+
+Iteration Domain: blockIdx.x / 
+Inner Reduction Domain: cross block - threadIdx.x /  pad to warp / 
+Launch Parameters: BlockDim.x = 256, BlockDim.y = -1, BlockDim.z = -1, GridDim.x = -1, GridDim.y = -1, GridDim.z = -1, Smem Size = 0
+Compile Parameters: index_type = NotSet, maxrregcount = 255, enable_magic_zero = 1, enable_ptxas_verbose = 0, include_paths = 
+
+====================================
+
+
+===== Pointwise Stats ========
+num_elems: 25165824
+elem_counts: 1 2048 12288
+max_dtype_size_bit_for_vectorization: 32
+unroll_factor_inner: 1
+unroll_factor_outer: 1
+vectorize_factor: 4
+
+reorder_map: 
+broadcast_byte_multiples: (0, 192), (0, 192), (192, 64), 
+LHS elems: 2048 RHS elems: 12288
+
+
+===== Pointwise Parameters ========
+Tag: Pointwise heuristics Pointwise Characteristics:
+ Gridx: 1 BlckY: 1 BlckX: 128
+2D Schedule
+  Bcast break point: 2
+vectorization_factor: 4
+unroll_factor_outer: 1
+unroll_factor_inner: 1
+====================================
+
+PRINTING: __tmp_nvfuser_pointwise_f0_c1_r0_g7.cu
+PRINTING: __tmp_nvfuser_pointwise_f0_c1_r0_g8.cu
+PRINTING: __tmp_nvfuser_pointwise_f0_c1_r0_g9.cu
+PRINTING: __tmp_nvfuser_reduction_f0_c1_r0_g15.cu
+PRINTING: __tmp_nvfuser_reduction_f0_c1_r0_g20.cu
+PRINTING: __tmp_nvfuser_pointwise_f0_c1_r0_g17.cu
+PRINTING: __tmp_nvfuser_reduction_f0_c1_r0_g14.cu
+PRINTING: __tmp_nvfuser_reduction_f0_c1_r0_g18.cu
+PRINTING: __tmp_nvfuser_reduction_f0_c1_r0_g19.cu
+PRINTING: __tmp_nvfuser_inner_outer_persistent_f0_c1_r0_g21.cu
+.
+
+=============================== warnings summary ===============================
+tests/python/multidevice/test_transformer.py::test_transformer_backward_single_gpu
+  /opt/pytorch/nvfuser/python/nvfuser/__init__.py:329: UserWarning: Reset the FusionCache manually to avoid reusing kernels when re-executing the fusion definition with different options.
+    warnings.warn(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+================= 1 passed, 4 deselected, 1 warning in 38.73s ==================

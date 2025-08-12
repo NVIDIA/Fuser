@@ -1,0 +1,738 @@
+============================= test session starts ==============================
+platform linux -- Python 3.12.3, pytest-8.3.5, pluggy-1.6.0
+Test order randomisation NOT enabled. Enable with --random-order or --random-order-bucket=<bucket_type>
+benchmark: 5.1.0 (defaults: timer=time.perf_counter disable_gc=False min_rounds=5 min_time=0.000005 max_time=1.0 calibration_precision=10 warmup=False warmup_iterations=100000)
+rootdir: /opt/pytorch/nvfuser
+plugins: timeout-2.4.0, xdist-3.7.0, random-order-1.2.0, cov-6.2.1, timestamper-0.0.10, shard-0.1.2, benchmark-5.1.0, hypothesis-6.136.6, mpi-0.6
+collected 3 items / 2 deselected / 1 selected
+Running 1 items in this shard
+
+tests/python/multidevice/test_transformer.py 
+
+Python definition for segmented group 13:
+
+def nvfuser_fusion_id1(fd : FusionDefinition) -> None :
+    T0 = fd.define_tensor(shape=[1, 96, 2048, 128], contiguity=[None, True, True, True], dtype=DataType.BFloat16, is_cpu=False, stride_order=[3, 1, 2, 0])
+    T1 = fd.ops.permute(T0, dims=[0, 2, 1, 3])
+    S2 = fd.ops.size(T1, dim=0)
+    S3 = fd.ops.size(T1, dim=1)
+    S4 = fd.define_scalar(12288, dtype=DataType.Int)
+    V5 = fd.define_vector([S2, S3, S4], dtype=DataType.Int)
+    T6 = fd.ops.reshape(T1, new_shape=V5)
+    T7 = fd.ops.squeeze(T6, dims=[0], squeeze_expanded=True)
+    fd.add_output(T7)
+
+Python definition for segmented group 16:
+
+def nvfuser_fusion_id2(fd : FusionDefinition) -> None :
+    T0 = fd.define_tensor(shape=[1, 2048, 36864], contiguity=[None, True, True], dtype=DataType.BFloat16, is_cpu=False)
+    S1 = fd.ops.size(T0, dim=0)
+    S2 = fd.ops.size(T0, dim=1)
+    S3 = fd.define_scalar(96, dtype=DataType.Int)
+    S4 = fd.define_scalar(384, dtype=DataType.Int)
+    V5 = fd.define_vector([S1, S2, S3, S4], dtype=DataType.Int)
+    T6 = fd.ops.reshape(T0, new_shape=V5)
+    S7 = fd.define_scalar(0, dtype=DataType.Int)
+    S8 = fd.define_scalar(1, dtype=DataType.Int)
+    S9 = fd.define_scalar(1, dtype=DataType.Int)
+    S10 = fd.define_scalar(0, dtype=DataType.Int)
+    S11 = fd.define_scalar(2048, dtype=DataType.Int)
+    S12 = fd.define_scalar(1, dtype=DataType.Int)
+    S13 = fd.define_scalar(0, dtype=DataType.Int)
+    S14 = fd.define_scalar(96, dtype=DataType.Int)
+    S15 = fd.define_scalar(1, dtype=DataType.Int)
+    S16 = fd.define_scalar(256, dtype=DataType.Int)
+    S17 = fd.define_scalar(384, dtype=DataType.Int)
+    S18 = fd.define_scalar(1, dtype=DataType.Int)
+    V19 = fd.define_vector([S7, S10, S13, S16], dtype=DataType.Int)
+    V20 = fd.define_vector([S8, S11, S14, S17], dtype=DataType.Int)
+    V21 = fd.define_vector([S9, S12, S15, S18], dtype=DataType.Int)
+    T22 = fd.ops.slice(T6, start_indices=V19, end_indices=V20, strides=V21, manual_normalization=1)
+    T23 = fd.ops.permute(T22, dims=[0, 2, 1, 3])
+    S24 = fd.define_scalar(0, dtype=DataType.Int)
+    S25 = fd.define_scalar(1, dtype=DataType.Int)
+    S26 = fd.define_scalar(1, dtype=DataType.Int)
+    S27 = fd.define_scalar(0, dtype=DataType.Int)
+    S28 = fd.define_scalar(2048, dtype=DataType.Int)
+    S29 = fd.define_scalar(1, dtype=DataType.Int)
+    S30 = fd.define_scalar(0, dtype=DataType.Int)
+    S31 = fd.define_scalar(96, dtype=DataType.Int)
+    S32 = fd.define_scalar(1, dtype=DataType.Int)
+    S33 = fd.define_scalar(128, dtype=DataType.Int)
+    S34 = fd.define_scalar(256, dtype=DataType.Int)
+    S35 = fd.define_scalar(1, dtype=DataType.Int)
+    V36 = fd.define_vector([S24, S27, S30, S33], dtype=DataType.Int)
+    V37 = fd.define_vector([S25, S28, S31, S34], dtype=DataType.Int)
+    V38 = fd.define_vector([S26, S29, S32, S35], dtype=DataType.Int)
+    T39 = fd.ops.slice(T6, start_indices=V36, end_indices=V37, strides=V38, manual_normalization=1)
+    T40 = fd.ops.permute(T39, dims=[0, 2, 1, 3])
+    S41 = fd.define_scalar(0, dtype=DataType.Int)
+    S42 = fd.define_scalar(1, dtype=DataType.Int)
+    S43 = fd.define_scalar(1, dtype=DataType.Int)
+    S44 = fd.define_scalar(0, dtype=DataType.Int)
+    S45 = fd.define_scalar(2048, dtype=DataType.Int)
+    S46 = fd.define_scalar(1, dtype=DataType.Int)
+    S47 = fd.define_scalar(0, dtype=DataType.Int)
+    S48 = fd.define_scalar(96, dtype=DataType.Int)
+    S49 = fd.define_scalar(1, dtype=DataType.Int)
+    S50 = fd.define_scalar(0, dtype=DataType.Int)
+    S51 = fd.define_scalar(128, dtype=DataType.Int)
+    S52 = fd.define_scalar(1, dtype=DataType.Int)
+    V53 = fd.define_vector([S41, S44, S47, S50], dtype=DataType.Int)
+    V54 = fd.define_vector([S42, S45, S48, S51], dtype=DataType.Int)
+    V55 = fd.define_vector([S43, S46, S49, S52], dtype=DataType.Int)
+    T56 = fd.ops.slice(T6, start_indices=V53, end_indices=V54, strides=V55, manual_normalization=1)
+    T57 = fd.ops.permute(T56, dims=[0, 2, 1, 3])
+    fd.add_output(T23, stride_order=[3, 1, 2, 0])
+    fd.add_output(T40, stride_order=[3, 1, 2, 0])
+    fd.add_output(T57, stride_order=[3, 1, 2, 0])
+
+Python definition for segmented group 20:
+
+def nvfuser_fusion_id3(fd : FusionDefinition) -> None :
+    T0 = fd.define_tensor(shape=[1, 2048, 12288], contiguity=[None, True, True], dtype=DataType.Bool, is_cpu=False)
+    T1 = fd.define_tensor(shape=[1, 2048, 12288], contiguity=[None, True, True], dtype=DataType.BFloat16, is_cpu=False)
+    T2 = fd.ops.cast(T0, dtype=DataType.Float)
+    T3 = fd.ops.cast(T1, dtype=DataType.Float)
+    S4 = fd.define_scalar(1.11111, dtype=DataType.Double)
+    T5 = fd.ops.mul(S4, T3)
+    T6 = fd.ops.mul(T2, T5)
+    T7 = fd.ops.squeeze(T6, dims=[0], squeeze_expanded=True)
+    T8 = fd.ops.sum(T7, dims=[0], keepdim=False, dtype=DataType.Float)
+    T9 = fd.ops.cast(T8, dtype=DataType.BFloat16)
+    T10 = fd.ops.cast(T6, dtype=DataType.BFloat16)
+    T11 = fd.ops.squeeze(T10, dims=[0], squeeze_expanded=True)
+    T12 = fd.ops.permute(T11, dims=[1, 0])
+    fd.add_output(T9)
+    fd.add_output(T12, stride_order=[0, 1])
+    fd.add_output(T11)
+
+Python definition for segmented group 1:
+
+def nvfuser_fusion_id4(fd : FusionDefinition) -> None :
+    T0 = fd.define_tensor(shape=[12288, 49152], contiguity=[True, True], dtype=DataType.BFloat16, is_cpu=False)
+    T1 = fd.define_tensor(shape=[2048, 12288], contiguity=[True, True], dtype=DataType.BFloat16, is_cpu=False)
+    T2 = fd.ops.matmul(T1, T0)
+    fd.add_output(T2)
+
+Python definition for segmented group 18:
+
+def nvfuser_fusion_id5(fd : FusionDefinition) -> None :
+    T0 = fd.define_tensor(shape=[1, 2048, 49152], contiguity=[None, True, True], dtype=DataType.BFloat16, is_cpu=False)
+    T1 = fd.define_tensor(shape=[2048, 49152], contiguity=[True, True], dtype=DataType.BFloat16, is_cpu=False)
+    T2 = fd.ops.cast(T0, dtype=DataType.Float)
+    S3 = fd.define_scalar(0.500000, dtype=DataType.Double)
+    T4 = fd.ops.mul(S3, T2)
+    T5 = fd.ops.broadcast(T1, is_broadcast_dim=[True, False, False])
+    T6 = fd.ops.cast(T5, dtype=DataType.Float)
+    T7 = fd.ops.mul(T4, T6)
+    T8 = fd.ops.mul(T2, T2)
+    T9 = fd.ops.mul(T8, T2)
+    S10 = fd.define_scalar(0.0447150, dtype=DataType.Double)
+    T11 = fd.ops.mul(S10, T9)
+    T12 = fd.ops.add(T2, T11)
+    S13 = fd.define_scalar(0.797885, dtype=DataType.Double)
+    T14 = fd.ops.mul(S13, T12)
+    T15 = fd.ops.tanh(T14)
+    T16 = fd.ops.mul(T15, T15)
+    S17 = fd.define_scalar(1.00000, dtype=DataType.Double)
+    T18 = fd.ops.sub(S17, T16)
+    T19 = fd.ops.mul(T7, T18)
+    S20 = fd.define_scalar(0.797885, dtype=DataType.Double)
+    T21 = fd.ops.mul(S20, T19)
+    S22 = fd.define_scalar(1.00000, dtype=DataType.Double)
+    T23 = fd.ops.add(S22, T15)
+    T24 = fd.ops.mul(T23, T6)
+    S25 = fd.define_scalar(0.500000, dtype=DataType.Double)
+    T26 = fd.ops.mul(S25, T24)
+    T27 = fd.ops.add(T21, T26)
+    S28 = fd.define_scalar(0.0447150, dtype=DataType.Double)
+    T29 = fd.ops.mul(S28, T21)
+    T30 = fd.ops.mul(T8, T29)
+    T31 = fd.ops.add(T27, T30)
+    T32 = fd.ops.mul(T2, T29)
+    T33 = fd.ops.mul(T2, T32)
+    T34 = fd.ops.add(T31, T33)
+    T35 = fd.ops.add(T34, T33)
+    T36 = fd.ops.squeeze(T35, dims=[0], squeeze_expanded=True)
+    T37 = fd.ops.sum(T36, dims=[0], keepdim=False, dtype=DataType.Float)
+    T38 = fd.ops.cast(T37, dtype=DataType.BFloat16)
+    T39 = fd.ops.cast(T35, dtype=DataType.BFloat16)
+    T40 = fd.ops.squeeze(T39, dims=[0], squeeze_expanded=True)
+    T41 = fd.ops.permute(T40, dims=[1, 0])
+    T42 = fd.ops.mul(T4, T23)
+    T43 = fd.ops.cast(T42, dtype=DataType.BFloat16)
+    T44 = fd.ops.squeeze(T43, dims=[0], squeeze_expanded=True)
+    fd.add_output(T38)
+    fd.add_output(T41, stride_order=[0, 1])
+    fd.add_output(T40)
+    fd.add_output(T44)
+
+Python definition for segmented group 0:
+
+def nvfuser_fusion_id6(fd : FusionDefinition) -> None :
+    T0 = fd.define_tensor(shape=[2048, 49152], contiguity=[True, True], dtype=DataType.BFloat16, is_cpu=False)
+    T1 = fd.define_tensor(shape=[12288, 2048], contiguity=[True, True], dtype=DataType.BFloat16, is_cpu=False, stride_order=[0, 1])
+    T2 = fd.ops.matmul(T1, T0)
+    fd.add_output(T2)
+
+Python definition for segmented group 3:
+
+def nvfuser_fusion_id7(fd : FusionDefinition) -> None :
+    T0 = fd.define_tensor(shape=[49152, 12288], contiguity=[True, True], dtype=DataType.BFloat16, is_cpu=False)
+    T1 = fd.define_tensor(shape=[2048, 49152], contiguity=[True, True], dtype=DataType.BFloat16, is_cpu=False)
+    T2 = fd.ops.matmul(T1, T0)
+    fd.add_output(T2)
+
+Python definition for segmented group 21:
+
+def nvfuser_fusion_id8(fd : FusionDefinition) -> None :
+    T0 = fd.define_tensor(shape=[1, 2048, 12288], contiguity=[None, True, True], dtype=DataType.BFloat16, is_cpu=False)
+    T1 = fd.define_tensor(shape=[1, 2048], contiguity=[None, True], dtype=DataType.Float, is_cpu=False)
+    T2 = fd.define_tensor(shape=[1, 2048, 12288], contiguity=[None, True, True], dtype=DataType.BFloat16, is_cpu=False)
+    T3 = fd.define_tensor(shape=[1, 2048, 12288], contiguity=[None, True, True], dtype=DataType.Bool, is_cpu=False)
+    T4 = fd.define_tensor(shape=[12288], contiguity=[True], dtype=DataType.BFloat16, is_cpu=False)
+    T5 = fd.define_tensor(shape=[12288], contiguity=[True], dtype=DataType.BFloat16, is_cpu=False)
+    T6 = fd.define_tensor(shape=[1, 2048, 1], contiguity=[None, True, None], dtype=DataType.Float, is_cpu=False)
+    T7 = fd.define_tensor(shape=[1, 2048, 12288], contiguity=[None, True, True], dtype=DataType.BFloat16, is_cpu=False)
+    T8 = fd.define_tensor(shape=[2048, 12288], contiguity=[True, True], dtype=DataType.BFloat16, is_cpu=False)
+    T9 = fd.ops.cast(T2, dtype=DataType.Float)
+    T10 = fd.ops.cast(T0, dtype=DataType.Float)
+    T11 = fd.ops.cast(T3, dtype=DataType.Float)
+    T12 = fd.ops.mul(T10, T11)
+    S13 = fd.define_scalar(1.11111, dtype=DataType.Double)
+    T14 = fd.ops.mul(T12, S13)
+    T15 = fd.ops.add(T9, T14)
+    T16 = fd.ops.broadcast(T1, is_broadcast_dim=[False, False, True])
+    S17 = fd.ops.size(T15, dim=0)
+    S18 = fd.ops.size(T7, dim=1)
+    S19 = fd.define_scalar(12288, dtype=DataType.Int)
+    S20 = fd.ops.size(T16, dim=1)
+    V21 = fd.define_vector([S17, S20, S19], dtype=DataType.Int)
+    T22 = fd.ops.expand(T16, shape=V21)
+    T23 = fd.ops.sub(T15, T22)
+    S24 = fd.define_scalar(12288, dtype=DataType.Int)
+    S25 = fd.ops.size(T6, dim=1)
+    V26 = fd.define_vector([S17, S25, S24], dtype=DataType.Int)
+    T27 = fd.ops.expand(T6, shape=V26)
+    T28 = fd.ops.mul(T23, T27)
+    T29 = fd.ops.broadcast(T8, is_broadcast_dim=[True, False, False])
+    T30 = fd.ops.cast(T29, dtype=DataType.Float)
+    T31 = fd.ops.mul(T28, T30)
+    T32 = fd.ops.squeeze(T31, dims=[0], squeeze_expanded=True)
+    T33 = fd.ops.sum(T32, dims=[0], keepdim=False, dtype=DataType.Float)
+    T34 = fd.ops.cast(T33, dtype=DataType.BFloat16)
+    T35 = fd.ops.squeeze(T30, dims=[0], squeeze_expanded=True)
+    T36 = fd.ops.sum(T35, dims=[0], keepdim=False, dtype=DataType.Float)
+    T37 = fd.ops.cast(T36, dtype=DataType.BFloat16)
+    T38 = fd.ops.cast(T7, dtype=DataType.Float)
+    T39 = fd.ops.broadcast(T5, is_broadcast_dim=[True, True, False])
+    S40 = fd.define_scalar(2048, dtype=DataType.Int)
+    S41 = fd.ops.size(T38, dim=2)
+    S42 = fd.ops.size(T39, dim=2)
+    V43 = fd.define_vector([S17, S40, S42], dtype=DataType.Int)
+    T44 = fd.ops.expand(T39, shape=V43)
+    T45 = fd.ops.cast(T44, dtype=DataType.Float)
+    T46 = fd.ops.mul(T45, T30)
+    T47 = fd.ops.mul(T27, T46)
+    T48 = fd.ops.add(T38, T47)
+    T49 = fd.ops.neg(T47)
+    T50 = fd.ops.squeeze(T49, dims=[0], squeeze_expanded=True)
+    T51 = fd.ops.sum(T50, dims=[1], keepdim=False, dtype=DataType.Float)
+    T52 = fd.ops.broadcast(T51, is_broadcast_dim=[True, False, True])
+    S53 = fd.define_scalar(12288, dtype=DataType.Int)
+    V54 = fd.define_vector([S17, S25, S53], dtype=DataType.Int)
+    T55 = fd.ops.expand(T52, shape=V54)
+    S56 = fd.define_scalar(8.13802e-05, dtype=DataType.Double)
+    T57 = fd.ops.mul(S56, T55)
+    T58 = fd.ops.mul(T23, T46)
+    T59 = fd.ops.squeeze(T58, dims=[0], squeeze_expanded=True)
+    T60 = fd.ops.sum(T59, dims=[1], keepdim=False, dtype=DataType.Float)
+    T61 = fd.ops.broadcast(T60, is_broadcast_dim=[True, False, True])
+    S62 = fd.define_scalar(-0.500000, dtype=DataType.Double)
+    T63 = fd.ops.mul(S62, T61)
+    S64 = fd.define_scalar(3.00000, dtype=DataType.Double)
+    T65 = fd.ops.pow(T6, S64)
+    T66 = fd.ops.mul(T63, T65)
+    S67 = fd.define_scalar(12288, dtype=DataType.Int)
+    S68 = fd.ops.size(T63, dim=1)
+    V69 = fd.define_vector([S17, S68, S67], dtype=DataType.Int)
+    T70 = fd.ops.expand(T66, shape=V69)
+    S71 = fd.define_scalar(2.00000, dtype=DataType.Double)
+    T72 = fd.ops.mul(S71, T70)
+    T73 = fd.ops.broadcast(T1, is_broadcast_dim=[False, False, True])
+    S74 = fd.define_scalar(12288, dtype=DataType.Int)
+    V75 = fd.define_vector([S17, S20, S74], dtype=DataType.Int)
+    T76 = fd.ops.expand(T73, shape=V75)
+    T77 = fd.ops.sub(T15, T76)
+    T78 = fd.ops.mul(T72, T77)
+    S79 = fd.define_scalar(12288.0, dtype=DataType.Double)
+    S80 = fd.ops.reciprocal(S79)
+    T81 = fd.ops.mul(T78, S80)
+    T82 = fd.ops.add(T57, T81)
+    T83 = fd.ops.add(T48, T82)
+    S84 = fd.define_scalar(1.11111, dtype=DataType.Double)
+    T85 = fd.ops.mul(S84, T83)
+    T86 = fd.ops.mul(T11, T85)
+    T87 = fd.ops.squeeze(T86, dims=[0], squeeze_expanded=True)
+    T88 = fd.ops.sum(T87, dims=[0], keepdim=False, dtype=DataType.Float)
+    T89 = fd.ops.cast(T88, dtype=DataType.BFloat16)
+    T90 = fd.ops.mul(T28, T45)
+    T91 = fd.ops.broadcast(T4, is_broadcast_dim=[True, True, False])
+    S92 = fd.define_scalar(2048, dtype=DataType.Int)
+    S93 = fd.ops.size(T4, dim=0)
+    V94 = fd.define_vector([S17, S92, S93], dtype=DataType.Int)
+    T95 = fd.ops.expand(T91, shape=V94)
+    T96 = fd.ops.cast(T95, dtype=DataType.Float)
+    T97 = fd.ops.add(T90, T96)
+    T98 = fd.ops.cast(T97, dtype=DataType.BFloat16)
+    T99 = fd.ops.squeeze(T98, dims=[0], squeeze_expanded=True)
+    T100 = fd.ops.cast(T86, dtype=DataType.BFloat16)
+    T101 = fd.ops.squeeze(T100, dims=[0], squeeze_expanded=True)
+    T102 = fd.ops.permute(T101, dims=[1, 0])
+    fd.add_output(T34)
+    fd.add_output(T37)
+    fd.add_output(T89)
+    fd.add_output(T99)
+    fd.add_output(T101)
+    fd.add_output(T102, stride_order=[0, 1])
+    fd.add_output(T83)
+
+Python definition for segmented group 2:
+
+def nvfuser_fusion_id9(fd : FusionDefinition) -> None :
+    T0 = fd.define_tensor(shape=[49152, 2048], contiguity=[True, True], dtype=DataType.BFloat16, is_cpu=False, stride_order=[0, 1])
+    T1 = fd.define_tensor(shape=[2048, 12288], contiguity=[True, True], dtype=DataType.BFloat16, is_cpu=False)
+    T2 = fd.ops.matmul(T0, T1)
+    fd.add_output(T2)
+
+Python definition for segmented group 4:
+
+def nvfuser_fusion_id10(fd : FusionDefinition) -> None :
+    T0 = fd.define_tensor(shape=[2048, 12288], contiguity=[True, True], dtype=DataType.BFloat16, is_cpu=False)
+    T1 = fd.define_tensor(shape=[12288, 2048], contiguity=[True, True], dtype=DataType.BFloat16, is_cpu=False, stride_order=[0, 1])
+    T2 = fd.ops.matmul(T1, T0)
+    fd.add_output(T2)
+
+Python definition for segmented group 5:
+
+def nvfuser_fusion_id11(fd : FusionDefinition) -> None :
+    T0 = fd.define_tensor(shape=[12288, 12288], contiguity=[True, True], dtype=DataType.BFloat16, is_cpu=False)
+    T1 = fd.define_tensor(shape=[2048, 12288], contiguity=[True, True], dtype=DataType.BFloat16, is_cpu=False)
+    T2 = fd.ops.matmul(T1, T0)
+    fd.add_output(T2)
+
+Python definition for segmented group 12:
+
+def nvfuser_fusion_id12(fd : FusionDefinition) -> None :
+    T0 = fd.define_tensor(shape=[2048, 12288], contiguity=[True, True], dtype=DataType.BFloat16, is_cpu=False)
+    T1 = fd.ops.broadcast(T0, is_broadcast_dim=[True, False, False])
+    S2 = fd.ops.size(T1, dim=0)
+    S3 = fd.ops.size(T1, dim=1)
+    S4 = fd.define_scalar(96, dtype=DataType.Int)
+    S5 = fd.define_scalar(128, dtype=DataType.Int)
+    V6 = fd.define_vector([S2, S3, S4, S5], dtype=DataType.Int)
+    T7 = fd.ops.reshape(T1, new_shape=V6)
+    T8 = fd.ops.permute(T7, dims=[0, 2, 1, 3])
+    fd.add_output(T8, stride_order=[0, 2, 3, 1])
+
+Python definition for segmented group 6:
+
+def nvfuser_fusion_id13(fd : FusionDefinition) -> None :
+    T0 = fd.define_tensor(shape=[1, 96, 2048, 128], contiguity=[None, True, True, True], dtype=DataType.BFloat16, is_cpu=False, stride_order=[3, 1, 2, 0])
+    T1 = fd.define_tensor(shape=[1, 96, 2048], contiguity=[None, True, True], dtype=DataType.Float, is_cpu=False)
+    T2 = fd.define_tensor(shape=[2], contiguity=[True], dtype=DataType.UInt64, is_cpu=False)
+    T3 = fd.define_tensor(shape=[], contiguity=[], dtype=DataType.UInt64, is_cpu=False)
+    T4 = fd.define_tensor(shape=[1, 96, 2048, 128], contiguity=[True, True, True, None], dtype=DataType.BFloat16, is_cpu=False, stride_order=[0, 2, 3, 1])
+    T5 = fd.define_tensor(shape=[1, 96, 2048, 128], contiguity=[None, True, False, True], dtype=DataType.BFloat16, is_cpu=False, stride_order=[3, 1, 2, 0])
+    T6 = fd.define_tensor(shape=[1, 96, 2048, 128], contiguity=[None, True, False, True], dtype=DataType.BFloat16, is_cpu=False, stride_order=[3, 1, 2, 0])
+    T7 = fd.define_tensor(shape=[1, 96, 2048, 128], contiguity=[None, True, False, True], dtype=DataType.BFloat16, is_cpu=False, stride_order=[3, 1, 2, 0])
+    S8 = fd.define_scalar(0.100000, dtype=DataType.Double)
+    S9 = fd.define_scalar(True, dtype=DataType.Bool)
+    T10, T11, T12 = fd.ops.sdpfa_bwd(T4, T7, T6, T5, T0, T1, S8, S9, T2, T3, None)
+    fd.add_output(T10, stride_order=[3, 1, 2, 0])
+    fd.add_output(T11, stride_order=[3, 1, 2, 0])
+    fd.add_output(T12, stride_order=[3, 1, 2, 0])
+
+Python definition for segmented group 7:
+
+def nvfuser_fusion_id14(fd : FusionDefinition) -> None :
+    T0 = fd.define_tensor(shape=[1, 96, 2048, 128], contiguity=[None, True, True, True], dtype=DataType.BFloat16, is_cpu=False, stride_order=[3, 1, 2, 0])
+    T1 = fd.ops.permute(T0, dims=[0, 2, 1, 3])
+    fd.add_output(T1, stride_order=[3, 1, 2, 0])
+
+Python definition for segmented group 8:
+
+def nvfuser_fusion_id14(fd : FusionDefinition) -> None :
+    T0 = fd.define_tensor(shape=[1, 96, 2048, 128], contiguity=[None, True, True, True], dtype=DataType.BFloat16, is_cpu=False, stride_order=[3, 1, 2, 0])
+    T1 = fd.ops.permute(T0, dims=[0, 2, 1, 3])
+    fd.add_output(T1, stride_order=[3, 1, 2, 0])
+
+Python definition for segmented group 9:
+
+def nvfuser_fusion_id14(fd : FusionDefinition) -> None :
+    T0 = fd.define_tensor(shape=[1, 96, 2048, 128], contiguity=[None, True, True, True], dtype=DataType.BFloat16, is_cpu=False, stride_order=[3, 1, 2, 0])
+    T1 = fd.ops.permute(T0, dims=[0, 2, 1, 3])
+    fd.add_output(T1, stride_order=[3, 1, 2, 0])
+
+Python definition for segmented group 14:
+
+def nvfuser_fusion_id15(fd : FusionDefinition) -> None :
+    T0 = fd.define_tensor(shape=[1, 2048, 96, 128], contiguity=[None, True, True, True], dtype=DataType.BFloat16, is_cpu=False, stride_order=[3, 1, 2, 0])
+    T1 = fd.define_tensor(shape=[1, 2048, 96, 128], contiguity=[None, True, True, True], dtype=DataType.BFloat16, is_cpu=False, stride_order=[3, 1, 2, 0])
+    T2 = fd.define_tensor(shape=[1, 2048, 96, 128], contiguity=[None, True, True, True], dtype=DataType.BFloat16, is_cpu=False, stride_order=[3, 1, 2, 0])
+    S3 = fd.define_scalar(0.00000, dtype=DataType.BFloat16)
+    S4 = fd.define_scalar(0, dtype=DataType.Int)
+    S5 = fd.define_scalar(0, dtype=DataType.Int)
+    S6 = fd.define_scalar(0, dtype=DataType.Int)
+    S7 = fd.define_scalar(0, dtype=DataType.Int)
+    S8 = fd.define_scalar(0, dtype=DataType.Int)
+    S9 = fd.define_scalar(0, dtype=DataType.Int)
+    S10 = fd.define_scalar(0, dtype=DataType.Int)
+    S11 = fd.define_scalar(256, dtype=DataType.Int)
+    V13 = fd.define_vector([S10, S11, S8, S9, S6, S7, S4, S5], dtype=DataType.Int)
+    T12 = fd.ops.pad(T0, V13, S3)
+    S14 = fd.define_scalar(0, dtype=DataType.Int)
+    S15 = fd.ops.size(T1, dim=3)
+    S16 = fd.ops.add(S14, S15)
+    S17 = fd.define_scalar(0.00000, dtype=DataType.BFloat16)
+    S18 = fd.define_scalar(0, dtype=DataType.Int)
+    S19 = fd.define_scalar(0, dtype=DataType.Int)
+    S20 = fd.define_scalar(0, dtype=DataType.Int)
+    S21 = fd.define_scalar(0, dtype=DataType.Int)
+    S22 = fd.define_scalar(0, dtype=DataType.Int)
+    S23 = fd.define_scalar(0, dtype=DataType.Int)
+    S24 = fd.define_scalar(128, dtype=DataType.Int)
+    V26 = fd.define_vector([S16, S24, S22, S23, S20, S21, S18, S19], dtype=DataType.Int)
+    T25 = fd.ops.pad(T1, V26, S17)
+    S27 = fd.ops.add(S16, S15)
+    S28 = fd.define_scalar(0.00000, dtype=DataType.BFloat16)
+    S29 = fd.define_scalar(0, dtype=DataType.Int)
+    S30 = fd.define_scalar(0, dtype=DataType.Int)
+    S31 = fd.define_scalar(0, dtype=DataType.Int)
+    S32 = fd.define_scalar(0, dtype=DataType.Int)
+    S33 = fd.define_scalar(0, dtype=DataType.Int)
+    S34 = fd.define_scalar(0, dtype=DataType.Int)
+    S35 = fd.define_scalar(0, dtype=DataType.Int)
+    V37 = fd.define_vector([S27, S35, S33, S34, S31, S32, S29, S30], dtype=DataType.Int)
+    T36 = fd.ops.pad(T2, V37, S28)
+    T38 = fd.ops.cat([T12, T25, T36], dim=3, manual_padding=1)
+    S39 = fd.ops.size(T36, dim=0)
+    S40 = fd.ops.size(T36, dim=1)
+    S41 = fd.define_scalar(36864, dtype=DataType.Int)
+    V42 = fd.define_vector([S39, S40, S41], dtype=DataType.Int)
+    T43 = fd.ops.reshape(T38, new_shape=V42)
+    T44 = fd.ops.cast(T43, dtype=DataType.Float)
+    T45 = fd.ops.squeeze(T44, dims=[0], squeeze_expanded=True)
+    T46 = fd.ops.sum(T45, dims=[0], keepdim=False, dtype=DataType.Float)
+    T47 = fd.ops.cast(T46, dtype=DataType.BFloat16)
+    T48 = fd.ops.squeeze(T43, dims=[0], squeeze_expanded=True)
+    T49 = fd.ops.permute(T48, dims=[1, 0])
+    fd.add_output(T47)
+    fd.add_output(T49, stride_order=[0, 1])
+    fd.add_output(T48)
+
+Python definition for segmented group 11:
+
+def nvfuser_fusion_id16(fd : FusionDefinition) -> None :
+    T0 = fd.define_tensor(shape=[36864, 12288], contiguity=[True, True], dtype=DataType.BFloat16, is_cpu=False)
+    T1 = fd.define_tensor(shape=[2048, 36864], contiguity=[True, True], dtype=DataType.BFloat16, is_cpu=False)
+    T2 = fd.ops.matmul(T1, T0)
+    fd.add_output(T2)
+
+Python definition for segmented group 19:
+
+def nvfuser_fusion_id17(fd : FusionDefinition) -> None :
+    T0 = fd.define_tensor(shape=[1, 2048, 1], contiguity=[None, True, None], dtype=DataType.Float, is_cpu=False)
+    T1 = fd.define_tensor(shape=[1, 2048, 12288], contiguity=[None, True, True], dtype=DataType.BFloat16, is_cpu=False)
+    T2 = fd.define_tensor(shape=[1, 2048], contiguity=[None, True], dtype=DataType.Float, is_cpu=False)
+    T3 = fd.define_tensor(shape=[12288], contiguity=[True], dtype=DataType.BFloat16, is_cpu=False)
+    T4 = fd.define_tensor(shape=[12288], contiguity=[True], dtype=DataType.BFloat16, is_cpu=False)
+    T5 = fd.define_tensor(shape=[2048, 12288], contiguity=[True, True], dtype=DataType.BFloat16, is_cpu=False)
+    T6 = fd.ops.cast(T1, dtype=DataType.Float)
+    T7 = fd.ops.broadcast(T2, is_broadcast_dim=[False, False, True])
+    S8 = fd.ops.size(T7, dim=2)
+    S9 = fd.define_scalar(2048, dtype=DataType.Int)
+    S10 = fd.define_scalar(12288, dtype=DataType.Int)
+    S11 = fd.ops.size(T7, dim=1)
+    V12 = fd.define_vector([S8, S11, S10], dtype=DataType.Int)
+    T13 = fd.ops.expand(T7, shape=V12)
+    T14 = fd.ops.sub(T6, T13)
+    S15 = fd.define_scalar(12288, dtype=DataType.Int)
+    S16 = fd.ops.size(T0, dim=1)
+    V17 = fd.define_vector([S8, S16, S15], dtype=DataType.Int)
+    T18 = fd.ops.expand(T0, shape=V17)
+    T19 = fd.ops.mul(T14, T18)
+    T20 = fd.ops.broadcast(T5, is_broadcast_dim=[True, False, False])
+    T21 = fd.ops.cast(T20, dtype=DataType.Float)
+    T22 = fd.ops.mul(T19, T21)
+    T23 = fd.ops.squeeze(T22, dims=[0], squeeze_expanded=True)
+    T24 = fd.ops.sum(T23, dims=[0], keepdim=False, dtype=DataType.Float)
+    T25 = fd.ops.cast(T24, dtype=DataType.BFloat16)
+    T26 = fd.ops.squeeze(T21, dims=[0], squeeze_expanded=True)
+    T27 = fd.ops.sum(T26, dims=[0], keepdim=False, dtype=DataType.Float)
+    T28 = fd.ops.cast(T27, dtype=DataType.BFloat16)
+    T29 = fd.ops.broadcast(T4, is_broadcast_dim=[True, True, False])
+    S30 = fd.define_scalar(2048, dtype=DataType.Int)
+    S31 = fd.define_scalar(12288, dtype=DataType.Int)
+    S32 = fd.ops.size(T4, dim=0)
+    V33 = fd.define_vector([S8, S30, S32], dtype=DataType.Int)
+    T34 = fd.ops.expand(T29, shape=V33)
+    T35 = fd.ops.cast(T34, dtype=DataType.Float)
+    T36 = fd.ops.mul(T19, T35)
+    T37 = fd.ops.broadcast(T3, is_broadcast_dim=[True, True, False])
+    S38 = fd.define_scalar(2048, dtype=DataType.Int)
+    S39 = fd.ops.size(T37, dim=2)
+    V40 = fd.define_vector([S8, S38, S39], dtype=DataType.Int)
+    T41 = fd.ops.expand(T37, shape=V40)
+    T42 = fd.ops.cast(T41, dtype=DataType.Float)
+    T43 = fd.ops.add(T36, T42)
+    T44 = fd.ops.cast(T43, dtype=DataType.BFloat16)
+    T45 = fd.ops.squeeze(T44, dims=[0], squeeze_expanded=True)
+    T46 = fd.ops.mul(T35, T21)
+    fd.add_output(T25)
+    fd.add_output(T28)
+    fd.add_output(T18)
+    fd.add_output(T14)
+    fd.add_output(T45)
+    fd.add_output(T46)
+
+Python definition for segmented group 10:
+
+def nvfuser_fusion_id18(fd : FusionDefinition) -> None :
+    T0 = fd.define_tensor(shape=[36864, 2048], contiguity=[True, True], dtype=DataType.BFloat16, is_cpu=False, stride_order=[0, 1])
+    T1 = fd.define_tensor(shape=[2048, 12288], contiguity=[True, True], dtype=DataType.BFloat16, is_cpu=False)
+    T2 = fd.ops.matmul(T0, T1)
+    fd.add_output(T2)
+
+Python definition for segmented group 15:
+
+def nvfuser_fusion_id19(fd : FusionDefinition) -> None :
+    T0 = fd.define_tensor(shape=[1, 2048, 12288], contiguity=[None, True, None], dtype=DataType.Float, is_cpu=False)
+    T1 = fd.define_tensor(shape=[1, 2048, 12288], contiguity=[None, True, True], dtype=DataType.Float, is_cpu=False)
+    T2 = fd.define_tensor(shape=[1, 2048, 12288], contiguity=[None, True, True], dtype=DataType.Float, is_cpu=False)
+    T3 = fd.define_tensor(shape=[1, 2048, 12288], contiguity=[None, True, True], dtype=DataType.Float, is_cpu=False)
+    T4 = fd.ops.mul(T1, T2)
+    T5 = fd.ops.squeeze(T4, dims=[0], squeeze_expanded=True)
+    T6 = fd.ops.sum(T5, dims=[1], keepdim=False, dtype=DataType.Float)
+    T7 = fd.ops.broadcast(T6, is_broadcast_dim=[True, False, True])
+    S8 = fd.define_scalar(-0.500000, dtype=DataType.Double)
+    T9 = fd.ops.mul(S8, T7)
+    T10 = fd.ops.mul(T0, T2)
+    T11 = fd.ops.neg(T10)
+    T12 = fd.ops.squeeze(T11, dims=[0], squeeze_expanded=True)
+    T13 = fd.ops.sum(T12, dims=[1], keepdim=False, dtype=DataType.Float)
+    T14 = fd.ops.broadcast(T13, is_broadcast_dim=[True, False, True])
+    S15 = fd.ops.size(T14, dim=0)
+    S16 = fd.ops.size(T3, dim=1)
+    S17 = fd.define_scalar(12288, dtype=DataType.Int)
+    S18 = fd.ops.size(T14, dim=1)
+    V19 = fd.define_vector([S15, S18, S17], dtype=DataType.Int)
+    T20 = fd.ops.expand(T14, shape=V19)
+    S21 = fd.define_scalar(8.13802e-05, dtype=DataType.Double)
+    T22 = fd.ops.mul(S21, T20)
+    T23 = fd.ops.add(T3, T10)
+    fd.add_output(T9)
+    fd.add_output(T22)
+    fd.add_output(T23)
+
+Python definition for segmented group 17:
+
+def nvfuser_fusion_id20(fd : FusionDefinition) -> None :
+    T0 = fd.define_tensor(shape=[1, 2048], contiguity=[None, True], dtype=DataType.Float, is_cpu=False)
+    T1 = fd.define_tensor(shape=[1, 2048, 12288], contiguity=[None, True, True], dtype=DataType.BFloat16, is_cpu=False)
+    T2 = fd.define_tensor(shape=[1, 2048, 1], contiguity=[None, True, None], dtype=DataType.Float, is_cpu=False)
+    T3 = fd.define_tensor(shape=[1, 2048, 1], contiguity=[None, True, None], dtype=DataType.Float, is_cpu=False)
+    T4 = fd.define_tensor(shape=[1, 2048, 12288], contiguity=[None, True, None], dtype=DataType.Float, is_cpu=False)
+    T5 = fd.define_tensor(shape=[1, 2048, 12288], contiguity=[None, True, True], dtype=DataType.Float, is_cpu=False)
+    S6 = fd.define_scalar(3.00000, dtype=DataType.Double)
+    T7 = fd.ops.pow(T2, S6)
+    T8 = fd.ops.mul(T3, T7)
+    S9 = fd.ops.size(T8, dim=0)
+    S10 = fd.ops.size(T5, dim=1)
+    S11 = fd.define_scalar(12288, dtype=DataType.Int)
+    S12 = fd.ops.size(T8, dim=1)
+    V13 = fd.define_vector([S9, S12, S11], dtype=DataType.Int)
+    T14 = fd.ops.expand(T8, shape=V13)
+    S15 = fd.define_scalar(2.00000, dtype=DataType.Double)
+    T16 = fd.ops.mul(S15, T14)
+    T17 = fd.ops.cast(T1, dtype=DataType.Float)
+    T18 = fd.ops.broadcast(T0, is_broadcast_dim=[False, False, True])
+    S19 = fd.define_scalar(12288, dtype=DataType.Int)
+    S20 = fd.ops.size(T0, dim=1)
+    V21 = fd.define_vector([S9, S20, S19], dtype=DataType.Int)
+    T22 = fd.ops.expand(T18, shape=V21)
+    T23 = fd.ops.sub(T17, T22)
+    T24 = fd.ops.mul(T16, T23)
+    S25 = fd.define_scalar(12288.0, dtype=DataType.Double)
+    S26 = fd.ops.reciprocal(S25)
+    T27 = fd.ops.mul(T24, S26)
+    T28 = fd.ops.add(T4, T27)
+    T29 = fd.ops.add(T5, T28)
+    T30 = fd.ops.cast(T29, dtype=DataType.BFloat16)
+    fd.add_output(T30)
+
+FE
+
+==================================== ERRORS ====================================
+________________ ERROR at teardown of test_transformer_backward ________________
+
+    @pytest.fixture
+    def multidevice_test():
+        fixture = MultideviceTest(Binding.LEGACY)
+        yield fixture
+>       fixture.communicator.barrier()
+E       RuntimeError: The singleton Communicator isn't available. This is most likely because the instance wasn't successfully initialized due to lack of a multi-process running (e.g. mpirun or torchrun). Sometimes, this is because Communicator::cleanup has been accidentally called before this function.
+E       Exception raised from getBackendForTeam at /opt/pytorch/nvfuser/csrc/multidevice/communicator.cpp:366 (most recent call first):
+E       frame #0: nvfuser::nvfCheckFail(char const*, char const*, unsigned int, char const*) + 0xab (0x7551b0d3daec in /opt/pytorch/nvfuser/python/nvfuser/_C.cpython-312-x86_64-linux-gnu.so)
+E       frame #1: <unknown function> + 0xee2b9b (0x7551b11f2b9b in /opt/pytorch/nvfuser/python/nvfuser/_C.cpython-312-x86_64-linux-gnu.so)
+E       frame #2: <unknown function> + 0xee2e63 (0x7551b11f2e63 in /opt/pytorch/nvfuser/python/nvfuser/_C.cpython-312-x86_64-linux-gnu.so)
+E       frame #3: <unknown function> + 0xee2f8c (0x7551b11f2f8c in /opt/pytorch/nvfuser/python/nvfuser/_C.cpython-312-x86_64-linux-gnu.so)
+E       frame #4: <unknown function> + 0x1ebbfb (0x7551b04fbbfb in /opt/pytorch/nvfuser/python/nvfuser/_C.cpython-312-x86_64-linux-gnu.so)
+E       frame #5: <unknown function> + 0x1ef1df (0x7551b04ff1df in /opt/pytorch/nvfuser/python/nvfuser/_C.cpython-312-x86_64-linux-gnu.so)
+E       frame #6: <unknown function> + 0x1ee95e (0x7551b04fe95e in /opt/pytorch/nvfuser/python/nvfuser/_C.cpython-312-x86_64-linux-gnu.so)
+E       frame #7: <unknown function> + 0x1ed8f8 (0x7551b04fd8f8 in /opt/pytorch/nvfuser/python/nvfuser/_C.cpython-312-x86_64-linux-gnu.so)
+E       frame #8: <unknown function> + 0x1ed960 (0x7551b04fd960 in /opt/pytorch/nvfuser/python/nvfuser/_C.cpython-312-x86_64-linux-gnu.so)
+E       frame #9: <unknown function> + 0x205d90 (0x7551b0515d90 in /opt/pytorch/nvfuser/python/nvfuser/_C.cpython-312-x86_64-linux-gnu.so)
+E       frame #10: /usr/bin/python3() [0x581d4f]
+E       frame #11: _PyObject_MakeTpCall + 0x75 (0x548f85 in /usr/bin/python3)
+E       frame #12: _PyEval_EvalFrameDefault + 0xadf (0x5d6b2f in /usr/bin/python3)
+E       frame #13: /usr/bin/python3() [0x555136]
+E       frame #14: /usr/bin/python3() [0x5d3d4c]
+E       frame #15: _PyEval_EvalFrameDefault + 0x207b (0x5d80cb in /usr/bin/python3)
+E       frame #16: /usr/bin/python3() [0x6f9aa5]
+E       frame #17: PyObject_Vectorcall + 0x35 (0x549985 in /usr/bin/python3)
+E       frame #18: _PyEval_EvalFrameDefault + 0xadf (0x5d6b2f in /usr/bin/python3)
+E       frame #19: /usr/bin/python3() [0x54cb94]
+E       frame #20: PyObject_Call + 0x119 (0x54b1b9 in /usr/bin/python3)
+E       frame #21: /usr/bin/python3() [0x64f3e4]
+E       frame #22: _PyObject_MakeTpCall + 0x75 (0x548f85 in /usr/bin/python3)
+E       frame #23: PyObject_Vectorcall + 0x35 (0x549985 in /usr/bin/python3)
+E       frame #24: _PyEval_EvalFrameDefault + 0xadf (0x5d6b2f in /usr/bin/python3)
+E       frame #25: _PyObject_Call_Prepend + 0x18a (0x54a89a in /usr/bin/python3)
+E       frame #26: /usr/bin/python3() [0x5a3148]
+E       frame #27: PyObject_Call + 0x9c (0x54b13c in /usr/bin/python3)
+E       frame #28: _PyEval_EvalFrameDefault + 0x4cc6 (0x5dad16 in /usr/bin/python3)
+E       frame #29: _PyObject_Call_Prepend + 0x18a (0x54a89a in /usr/bin/python3)
+E       frame #30: /usr/bin/python3() [0x5a3148]
+E       frame #31: _PyObject_MakeTpCall + 0x13e (0x54904e in /usr/bin/python3)
+E       frame #32: _PyEval_EvalFrameDefault + 0xadf (0x5d6b2f in /usr/bin/python3)
+E       frame #33: _PyObject_Call_Prepend + 0x18a (0x54a89a in /usr/bin/python3)
+E       frame #34: /usr/bin/python3() [0x5a3148]
+E       frame #35: _PyObject_MakeTpCall + 0x13e (0x54904e in /usr/bin/python3)
+E       frame #36: _PyEval_EvalFrameDefault + 0xadf (0x5d6b2f in /usr/bin/python3)
+E       frame #37: _PyObject_Call_Prepend + 0x18a (0x54a89a in /usr/bin/python3)
+E       frame #38: /usr/bin/python3() [0x5a3148]
+E       frame #39: _PyObject_MakeTpCall + 0x13e (0x54904e in /usr/bin/python3)
+E       frame #40: _PyEval_EvalFrameDefault + 0xadf (0x5d6b2f in /usr/bin/python3)
+E       frame #41: PyEval_EvalCode + 0x15b (0x5d500b in /usr/bin/python3)
+E       frame #42: /usr/bin/python3() [0x6081e2]
+E       frame #43: /usr/bin/python3() [0x6b5033]
+E       frame #44: _PyRun_SimpleFileObject + 0x1aa (0x6b4d9a in /usr/bin/python3)
+E       frame #45: _PyRun_AnyFileObject + 0x4f (0x6b4bcf in /usr/bin/python3)
+E       frame #46: Py_RunMain + 0x3b5 (0x6bcc35 in /usr/bin/python3)
+E       frame #47: Py_BytesMain + 0x2d (0x6bc71d in /usr/bin/python3)
+E       frame #48: <unknown function> + 0x2a1ca (0x75532eec91ca in /usr/lib/x86_64-linux-gnu/libc.so.6)
+E       frame #49: __libc_start_main + 0x8b (0x75532eec928b in /usr/lib/x86_64-linux-gnu/libc.so.6)
+E       frame #50: _start + 0x25 (0x6575a5 in /usr/bin/python3)
+
+tests/python/multidevice/conftest.py:88: RuntimeError
+=================================== FAILURES ===================================
+__________________________ test_transformer_backward ___________________________
+
+multidevice_test = <conftest.MultideviceTest object at 0x75518cb718e0>
+benchmark = <pytest_benchmark.fixture.BenchmarkFixture object at 0x75518cb70cb0>
+
+    @pytest.mark.skipif(
+        is_pre_ampere(),
+        reason="Flash Attention is only supported on Ampere and newer devices.",
+    )
+    # @pytest.mark.mpi
+    def test_transformer_backward(multidevice_test, benchmark):
+        d = 1
+        mesh = nvfuser.DeviceMesh(range(d))
+    
+        b, s, h, e = 1, 2048, 96, 12288
+    
+        torch.cuda.set_device(multidevice_test.local_rank)
+    
+        mlp_linear0_out = torch.testing.make_tensor(
+            b, s, e * 4, dtype=torch.bfloat16, device="cpu"
+        )
+        mlp_linear1_weight = torch.testing.make_tensor(
+            e, e * 4, dtype=torch.bfloat16, device="cpu"
+        )
+        mlp_linear0_weight = torch.testing.make_tensor(
+            e * 4, e, dtype=torch.bfloat16, device="cpu"
+        )
+        mha_linear1_weight = torch.testing.make_tensor(
+            e, e, dtype=torch.bfloat16, device="cpu"
+        )
+        mha_linear0_out = torch.testing.make_tensor(
+            b, s, e * 3, dtype=torch.bfloat16, device="cpu"
+        )
+        sdpa_out = torch.testing.make_tensor(
+            b, h, s, e // h, dtype=torch.bfloat16, device="cpu"
+        )
+    
+        sdpa_log_sumexp = torch.testing.make_tensor(
+            b, h, s, dtype=torch.float32, device="cpu"
+        )
+        mha_linear0_weight = torch.testing.make_tensor(
+            e * 3, e, dtype=torch.bfloat16, device="cpu"
+        )
+        sdpa_philox_seed, sdpa_philox_offset = create_sdpa_rng_tensors()
+        ins = [
+            multidevice_test.shard_tensor(mlp_linear0_out, -1, mesh),
+            torch.testing.make_tensor((b, s, e), dtype=torch.bfloat16, device="cuda"),
+            torch.testing.make_tensor((b, s, e), dtype=torch.bool, device="cuda"),
+            multidevice_test.shard_tensor(mlp_linear1_weight, -1, mesh),
+            torch.testing.make_tensor((b, s, e), dtype=torch.bool, device="cuda"),
+            torch.testing.make_tensor((b, s, e), dtype=torch.bfloat16, device="cuda"),
+            multidevice_test.shard_tensor(mlp_linear0_weight, 0, mesh),
+            torch.testing.make_tensor((e,), dtype=torch.bfloat16, device="cuda"),
+            torch.testing.make_tensor((b, s), dtype=torch.float32, device="cuda"),
+            torch.testing.make_tensor((b, s, e), dtype=torch.bfloat16, device="cuda"),
+            torch.testing.make_tensor((b, s, 1), dtype=torch.float32, device="cuda"),
+            multidevice_test.shard_tensor(mha_linear1_weight, -1, mesh),
+            multidevice_test.shard_tensor(mha_linear0_out, -1, mesh),
+            multidevice_test.shard_tensor(sdpa_out, 1, mesh)
+            .transpose(1, 2)
+            .contiguous()
+            .transpose(1, 2),
+            multidevice_test.shard_tensor(sdpa_log_sumexp, 1, mesh),
+            sdpa_philox_seed,
+            sdpa_philox_offset,
+            multidevice_test.shard_tensor(mha_linear0_weight, 0, mesh),
+            torch.testing.make_tensor((e,), dtype=torch.bfloat16, device="cuda"),
+            torch.testing.make_tensor((b, s), dtype=torch.float32, device="cuda"),
+            torch.testing.make_tensor((b, s, 1), dtype=torch.float32, device="cuda"),
+            torch.testing.make_tensor((e,), dtype=torch.bfloat16, device="cuda"),
+            torch.testing.make_tensor((e,), dtype=torch.bfloat16, device="cuda"),
+        ]
+    
+        fd = TransformerBackwardFusion(d, b, s, h, e)
+    
+        # Resize scheduler disabled due toissue: #4890
+        warmup_fn, benchmark_fn = get_benchmark_fns(
+            lambda: fd.execute(ins, _disable_options=["resize_scheduler"])
+        )
+    
+>       outs, _ = warmup_fn()
+E       ValueError: too many values to unpack (expected 2)
+
+tests/python/multidevice/test_transformer.py:1141: ValueError
+=============================== warnings summary ===============================
+tests/python/multidevice/test_transformer.py::test_transformer_backward
+  /opt/pytorch/nvfuser/python/nvfuser/__init__.py:329: UserWarning: Reset the FusionCache manually to avoid reusing kernels when re-executing the fusion definition with different options.
+    warnings.warn(
+
+tests/python/multidevice/test_transformer.py::test_transformer_backward
+  tests/python/multidevice/test_transformer.py:1066: PytestBenchmarkWarning: Benchmark fixture was not used at all in this test!
+    @pytest.mark.skipif(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/python/multidevice/test_transformer.py::test_transformer_backward
+ERROR tests/python/multidevice/test_transformer.py::test_transformer_backward
+============ 1 failed, 2 deselected, 2 warnings, 1 error in 46.24s =============
