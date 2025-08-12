@@ -10,9 +10,7 @@
 #include <fusion.h>
 #include <fusion_profiler.h>
 #include <fusion_segmenter.h>
-#include <host_ir/lower_to_communication.h>
 #include <host_ir/lowering.h>
-#include <host_ir/pass/insert_deallocations.h>
 #include <instrumentation.h>
 #include <ir/base_nodes.h>
 #include <multidevice/communication.h>
