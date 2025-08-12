@@ -606,7 +606,12 @@ class SegmentCandidateFinder {
   void findSegments();
 
   // Revert privatized ops when not necessary
-  void revertPrivatizedOps(SegmentedGroup* group);
+  std::unordered_set<Expr*> revertPrivatizedOps(
+      SegmentedGroup* group,
+      std::unordered_map<Expr*, std::unordered_set<Expr*>>& remaining_privatized_ops);
+
+  // Iteratively revert privatized ops until no more privatized ops are found
+  void iterativelyRevertPrivatizedOps(SegmentedGroup* group);
 
   //! Find a group found in candidates that can be merged with the
   //! given group and set them to be merged if found. When no
