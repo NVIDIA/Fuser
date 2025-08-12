@@ -18,8 +18,6 @@ namespace nvfuser {
 
 std::unique_ptr<hir::HostIrContainer> lowerSegmentedFusionToHostIr(
     const SegmentedFusion& segmented_fusion,
-    // FIXME: remove this argument
-    const std::vector<SegmentedGroup*>& group_run_order,
     // TODO(#4927): This should be passed in at runtime, not compile time.
     const std::vector<LaunchParams>& launch_params_per_segment,
     std::vector<std::unique_ptr<ExecutorAbstract>>& executors);

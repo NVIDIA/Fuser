@@ -464,10 +464,7 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
       launch_params_per_segment.push_back(heuristic_params->lparams);
     }
     std::unique_ptr<hir::HostIrContainer> hic = lowerSegmentedFusionToHostIr(
-        *segmented_fusion_,
-        runtime_workspace_.group_run_order,
-        launch_params_per_segment,
-        executors_);
+        *segmented_fusion_, launch_params_per_segment, executors_);
     hie_ = std::make_unique<hir::HostIrEvaluator>(
         std::move(hic), &Communicator::getInstance());
   }
