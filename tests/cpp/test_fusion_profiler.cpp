@@ -54,7 +54,7 @@ class FusionProfilerTest : public NVFuserTest {
   Options<ProfilerOption> saved_;
 };
 
-// RUN CMD: bin/nvfuser_tests --gtest_filter="*Profile1Segment*"
+// RUN CMD: bin/test_profiler --gtest_filter="*Profile1Segment*"
 TEST_F(FusionProfilerTest, Profile1Segment) {
   try {
     auto fusion = std::make_unique<Fusion>();
@@ -208,18 +208,18 @@ TEST_F(FusionProfilerTest, FusionProfilerErrorChecks) {
 
   try {
     FusionProfiler::stop();
-    FAIL()
-        << "Expected FusionProfiler::stop to assert because state is not Running! "
-        << FusionProfiler::state();
+    FAIL() << "Expected FusionProfiler::stop to assert because state is not "
+              "Running! "
+           << FusionProfiler::state();
   } catch (const std::exception& e) {
     SUCCEED();
   }
 
   try {
     FusionProfiler::profile();
-    FAIL()
-        << "Expected FusionProfiler::profile to assert because state is not Processed! "
-        << FusionProfiler::state();
+    FAIL() << "Expected FusionProfiler::profile to assert because state is not "
+              "Processed! "
+           << FusionProfiler::state();
   } catch (const std::exception& e) {
     SUCCEED();
   }
@@ -231,9 +231,18 @@ TEST_F(FusionProfilerTest, FusionProfilerErrorChecks) {
 
   try {
     FusionProfiler::profile();
-    FAIL()
-        << "Expected FusionProfiler::profile to assert because state is not Processed! "
-        << FusionProfiler::state();
+    FAIL() << "Expected FusionProfiler::profile to assert because state is not "
+              "Processed! "
+           << FusionProfiler::state();
+  } catch (const std::exception& e) {
+    SUCCEED();
+  }
+
+  try {
+    FusionProfiler::start();
+    FAIL() << "Expected FusionProfiler::start to assert because state should "
+              "not be Running! "
+           << FusionProfiler::state();
   } catch (const std::exception& e) {
     SUCCEED();
   }

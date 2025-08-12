@@ -201,9 +201,9 @@ bool CancelSplitCat::sameIterDomainTransforms(
 
   {
     // Check slices[i0][j] and slices[i1][j] are mapped.
-    const std::vector<IterDomain*>& first_ligical =
+    const std::vector<IterDomain*>& first_logical =
         slices[0]->out()->getLogicalDomain();
-    size_t num_dims = first_ligical.size();
+    size_t num_dims = first_logical.size();
     for (size_t i = 1; i < slices.size(); i++) {
       const std::vector<IterDomain*>& other_logical =
           slices[i]->out()->getLogicalDomain();
@@ -212,7 +212,7 @@ bool CancelSplitCat::sameIterDomainTransforms(
       }
       for (size_t j = 0; j < num_dims; j++) {
         if (!exact_graph.disjointValSets().strictAreMapped(
-                first_ligical[j], other_logical[j])) {
+                first_logical[j], other_logical[j])) {
           return false;
         }
       }
@@ -257,7 +257,7 @@ TensorView* slicesFormSplit(
     }
 
     // Check only the split axis is sliced.
-    for (auto j : c10::irange(
+    for (auto j : arange(
              static_cast<int64_t>(slice->out()->getMaybeRootDomain().size()))) {
       const bool sliced =
           (slice->out()->getMaybeRootDomain()[j] !=

@@ -21,7 +21,8 @@ template <
     bool Z_REDUCE,
     bool Aligned,
     typename T,
-    typename Func>
+    typename Func,
+    typename BlockDimT>
 __device__ void blockReduce(
     T& out,
     const T& inp_val,
@@ -29,28 +30,32 @@ __device__ void blockReduce(
     T* shared_mem,
     bool read_pred,
     bool write_pred,
-    T init_val) {
+    T init_val,
+    // block_dim is basically just blockDim (wrapped as DefaultBlockDim) if
+    // there is no warp specialization in the kernel. If there is warp
+    // specialization, block_dim is the the dimension of the compute warps.
+    BlockDimT block_dim) {
   // If this thread will output a final result
   bool should_write =
       index_utils::maskedIsZero<X_REDUCE, Y_REDUCE, Z_REDUCE>(threadIdx);
 
   // Size of the reduction segments
   unsigned int reduction_size =
-      index_utils::maskedSize<X_REDUCE, Y_REDUCE, Z_REDUCE>(blockDim);
+      index_utils::maskedSize<X_REDUCE, Y_REDUCE, Z_REDUCE>(block_dim);
 
   // Index into the reduction segment
   unsigned int reduction_tid =
       index_utils::maskedOffset<X_REDUCE, Y_REDUCE, Z_REDUCE>(
-          threadIdx, blockDim);
+          threadIdx, block_dim);
 
   // Index of the reduction segment
   unsigned int reduction_idx =
       index_utils::maskedOffset<!X_REDUCE, !Y_REDUCE, !Z_REDUCE>(
-          threadIdx, blockDim);
+          threadIdx, block_dim);
 
   // number of reductions per block
   unsigned int reduction_num =
-      index_utils::maskedSize<!X_REDUCE, !Y_REDUCE, !Z_REDUCE>(blockDim);
+      index_utils::maskedSize<!X_REDUCE, !Y_REDUCE, !Z_REDUCE>(block_dim);
 
   // smem_offset is the offset into shared memory for the current thread.
   // To ensure coalesced access to shared memory, we need to ensure
@@ -65,15 +70,15 @@ __device__ void blockReduce(
   // To avoid this, we should always use the offset based on the indexing of
   // threads within a block.
   // Offset into smem for the current thread
-  unsigned int smem_offset = threadIdx.x + threadIdx.y * blockDim.x +
-      threadIdx.z * blockDim.x * blockDim.y;
+  unsigned int smem_offset = threadIdx.x + threadIdx.y * block_dim.x +
+      threadIdx.z * block_dim.x * block_dim.y;
 
   // The peer stride represents the distance between the current element and its
   // nearest reduction peer. It depends on the reduction dimension. A reduction
   // peer refers to elements that belong to the same reduction segment. For
   // example, if the reduction is across TIDy, all the elements in the same
   // column (with the same TIDx) are considered peers of each other. The
-  // distance between an element and its nearest peer is blockDim.x.
+  // distance between an element and its nearest peer is block_dim.x.
   constexpr int num_redu_dims = (int)X_REDUCE + (int)Y_REDUCE + (int)Z_REDUCE;
   constexpr bool xz_reduce = (num_redu_dims == 2 && !Y_REDUCE);
   // reduction in 3 dimensions, XYZ, stride is 1
@@ -82,27 +87,27 @@ __device__ void blockReduce(
     // Reduction only in 1 dimension, X or Y or Z
     // e.g. inner or outer reduction
     // If X_REDUCE, reducing in neighbor cols in smem, peer_stride is 1
-    // If Y_REDUCE, reducing in neighbor rows in smem, peer_stride is blockDim.x
-    // If Z_REDUCE, reducing in neighbor planes in smem, peer_stride is
-    // blockDim.x * blockDim.y
+    // If Y_REDUCE, reducing in neighbor rows in smem, peer_stride is
+    // block_dim.x If Z_REDUCE, reducing in neighbor planes in smem, peer_stride
+    // is block_dim.x * block_dim.y
     peer_stride = X_REDUCE ? 1
-        : Y_REDUCE         ? blockDim.x
-                           : blockDim.x * blockDim.y;
+        : Y_REDUCE         ? block_dim.x
+                           : block_dim.x * block_dim.y;
   } else if (num_redu_dims == 2) {
     // Reduction in 2 dimensions, only one dimension is not reduced, !X, !Y, !Z
     // If !Z_REDUCE, merge XY, reducing neighbor cols, peer_stride is 1
-    // If !X_REDUCE, merge ZY, reducing neighbor rows, peer_stride is blockDim.x
-    // If !Y_REDUCE, if blockDim.y == 1, merge XZ, peer_stride is 1.
-    // otherwise, needs carefully calculate offset to the reduction peer:
+    // If !X_REDUCE, merge ZY, reducing neighbor rows, peer_stride is
+    // block_dim.x If !Y_REDUCE, if block_dim.y == 1, merge XZ, peer_stride
+    // is 1. otherwise, needs carefully calculate offset to the reduction peer:
     // (1) redu_offset = reduction_tid + tree_fold_factor
-    // (2) idz = redu_offset / blockDim.x
-    // (3) idx = redu_offset % blockDim.x
-    // (4) smem_offset = idx + threadIdx.y * blockDim.x + idz * blockDim.x *
-    // blockDim.y
+    // (2) idz = redu_offset / block_dim.x
+    // (3) idx = redu_offset % block_dim.x
+    // (4) smem_offset = idx + threadIdx.y * block_dim.x + idz * block_dim.x *
+    // block_dim.y
     if (!Y_REDUCE) {
       peer_stride = 1;
     } else {
-      peer_stride = !Z_REDUCE ? 1 : blockDim.x;
+      peer_stride = !Z_REDUCE ? 1 : block_dim.x;
     }
   }
 
@@ -112,41 +117,41 @@ __device__ void blockReduce(
   } else {
     shared_mem[smem_offset] = init_val;
   }
-  block_sync::sync<Aligned>();
+  block_sync::sync<Aligned>(block_dim);
 
   // Reduce down to nearest power of 2 for the tree reduction:
   int np2 = 1 << (31 - __clz(reduction_size));
   if (reduction_tid < np2 && reduction_tid + np2 < reduction_size) {
     int peer_offset = smem_offset + np2 * peer_stride;
     if constexpr (xz_reduce) {
-      if (blockDim.y > 1) {
+      if (block_dim.y > 1) {
         int redu_offset = reduction_tid + np2;
-        int idz = redu_offset / blockDim.x;
-        int idx = redu_offset % blockDim.x;
+        int idz = redu_offset / block_dim.x;
+        int idx = redu_offset % block_dim.x;
         peer_offset =
-            idx + threadIdx.y * blockDim.x + idz * blockDim.x * blockDim.y;
+            idx + threadIdx.y * block_dim.x + idz * block_dim.x * block_dim.y;
       }
     }
     reduction_op(shared_mem[smem_offset], shared_mem[peer_offset]);
   }
-  block_sync::sync<Aligned>();
+  block_sync::sync<Aligned>(block_dim);
 
   // loop peel the final iteration to save one syncthread for the end
   for (int factor = np2 / 2; factor > 1; factor >>= 1) {
     if (reduction_tid < factor) {
       int peer_offset = smem_offset + factor * peer_stride;
       if constexpr (xz_reduce) {
-        if (blockDim.y > 1) {
+        if (block_dim.y > 1) {
           int redu_offset = reduction_tid + factor;
-          int idz = redu_offset / blockDim.x;
-          int idx = redu_offset % blockDim.x;
+          int idz = redu_offset / block_dim.x;
+          int idx = redu_offset % block_dim.x;
           peer_offset =
-              idx + threadIdx.y * blockDim.x + idz * blockDim.x * blockDim.y;
+              idx + threadIdx.y * block_dim.x + idz * block_dim.x * block_dim.y;
         }
       }
       reduction_op(shared_mem[smem_offset], shared_mem[peer_offset]);
     }
-    block_sync::sync<Aligned>();
+    block_sync::sync<Aligned>(block_dim);
   }
 
   if (should_write && write_pred) {
@@ -157,7 +162,7 @@ __device__ void blockReduce(
     }
     out = result;
   }
-  block_sync::sync<Aligned>();
+  block_sync::sync<Aligned>(block_dim);
 }
 
 // Use the same pred for both reads and writes
@@ -167,14 +172,19 @@ template <
     bool Z_REDUCE,
     bool Aligned,
     typename T,
-    typename Func>
+    typename Func,
+    typename BlockDimT>
 __device__ void blockReduce(
     T& out,
     const T& inp_val,
     Func reduction_op,
     T* shared_mem,
     bool read_write_pred,
-    T init_val) {
+    T init_val,
+    // block_dim is basically just blockDim (wrapped as DefaultBlockDim) if
+    // there is no warp specialization in the kernel. If there is warp
+    // specialization, block_dim is the the dimension of the compute warps.
+    BlockDimT block_dim) {
   blockReduce<X_REDUCE, Y_REDUCE, Z_REDUCE, Aligned, T, Func>(
       out,
       inp_val,
@@ -182,7 +192,8 @@ __device__ void blockReduce(
       shared_mem,
       read_write_pred,
       read_write_pred,
-      init_val);
+      init_val,
+      block_dim);
 }
 
 // Each thread in the iteration dimension processes N elements
@@ -195,7 +206,8 @@ template <
     bool Aligned,
     int N, // Number of elements per input array
     typename T,
-    typename Func>
+    typename Func,
+    typename BlockDimT>
 __device__ void blockIterGroupedYdimReduce(
     T out[N],
     const T inp_val[N],
@@ -203,14 +215,18 @@ __device__ void blockIterGroupedYdimReduce(
     T* shared_mem,
     bool read_pred,
     bool write_pred,
-    T init_val) {
+    T init_val,
+    // block_dim is basically just blockDim (wrapped as DefaultBlockDim) if
+    // there is no warp specialization in the kernel. If there is warp
+    // specialization, block_dim is the the dimension of the compute warps.
+    BlockDimT block_dim) {
   // N should be a valid vectorization factor
   static_assert(
       N == 2 || N == 4 || N == 8 || N == 16,
       "N should be a valid vectorization factor, one of (2, 4, 8, 16)!");
 
   bool should_write = threadIdx.y == 0;
-  unsigned int reduction_size = blockDim.y;
+  unsigned int reduction_size = block_dim.y;
   unsigned int reduction_tid = threadIdx.y;
 
   // In shared memory, each row has 128 bytes, if sizeof(T) * N = 32 bytes, each
@@ -228,11 +244,12 @@ __device__ void blockIterGroupedYdimReduce(
 
   // assume TIDy is the reduction dimension, TIDx is the iteration dimension
   // TIDz is not used
-  unsigned int peer_stride = elements_per_load * blockDim.x;
+  unsigned int peer_stride = elements_per_load * block_dim.x;
 
-  unsigned int smem_offset_inter = blockDim.x * blockDim.y * elements_per_load;
+  unsigned int smem_offset_inter =
+      block_dim.x * block_dim.y * elements_per_load;
   unsigned int smem_offset_intra =
-      (threadIdx.y * blockDim.x + threadIdx.x) * elements_per_load;
+      (threadIdx.y * block_dim.x + threadIdx.x) * elements_per_load;
 
 // load to [total_loads] sections of shared memory
 #pragma unroll
@@ -241,7 +258,7 @@ __device__ void blockIterGroupedYdimReduce(
         shared_mem + smem_offset_inter * i + smem_offset_intra,
         const_cast<T*>(inp_val) + i * elements_per_load);
   }
-  block_sync::sync<Aligned>();
+  block_sync::sync<Aligned>(block_dim);
 
   // Reduce down to nearest power of 2 for the tree reduction:
   // Perform parallel reduction for each element in the array
@@ -272,7 +289,7 @@ __device__ void blockIterGroupedYdimReduce(
           shared_mem + self_offset, self + i * elements_per_load);
     }
   }
-  block_sync::sync<Aligned>();
+  block_sync::sync<Aligned>(block_dim);
 
   // Tree reduction
   for (int factor = np2 / 2; factor > 1; factor >>= 1) {
@@ -302,7 +319,7 @@ __device__ void blockIterGroupedYdimReduce(
             shared_mem + self_offset, self + i * elements_per_load);
       }
     }
-    block_sync::sync<Aligned>();
+    block_sync::sync<Aligned>(block_dim);
   }
 
   // last reduction
@@ -347,7 +364,7 @@ __device__ void blockIterGroupedYdimReduce(
       out[i] = result[i];
     }
   }
-  block_sync::sync<Aligned>();
+  block_sync::sync<Aligned>(block_dim);
 }
 
 // Use the same pred for both reads and writes
@@ -355,14 +372,19 @@ template <
     bool Aligned,
     int N, // Number of elements per input array
     typename T,
-    typename Func>
+    typename Func,
+    typename BlockDimT>
 __device__ void blockIterGroupedYdimReduce(
     T out[N],
     const T inp_val[N],
     Func reduction_op,
     T* shared_mem,
     bool read_write_pred,
-    T init_val) {
+    T init_val,
+    // block_dim is basically just blockDim (wrapped as DefaultBlockDim) if
+    // there is no warp specialization in the kernel. If there is warp
+    // specialization, block_dim is the the dimension of the compute warps.
+    BlockDimT block_dim) {
   blockIterGroupedYdimReduce<Aligned, N, T, Func>(
       out,
       inp_val,
@@ -370,5 +392,6 @@ __device__ void blockIterGroupedYdimReduce(
       shared_mem,
       read_write_pred,
       read_write_pred,
-      init_val);
+      init_val,
+      block_dim);
 }

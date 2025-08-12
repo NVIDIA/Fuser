@@ -38,10 +38,8 @@ TEST_F(NoOpTest, FusionNullScheduler) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({1, 1, 1}, options);
 
-  std::vector<c10::IValue> aten_inputs({t0});
-
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
+  auto cg_outputs = executor_cache.runFusionWithInputs({t0});
 
   auto t1 = t0.sum({0, 1, 2});
 
@@ -52,7 +50,7 @@ TEST_F(NoOpTest, FusionNullScheduler) {
 
   // Check that all groups on the resulting runtime are null.
   for (auto group : groups) {
-    EXPECT_EQ(group->schedulerType(), SchedulerType::NoOp);
+    EXPECT_EQ(group->schedulerType(), SchedulerType::ExprEval);
   }
 }
 
@@ -71,10 +69,8 @@ TEST_F(NoOpTest, FusionNullScheduler2) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({0, 1, 9223372036854775807L}, options);
 
-  std::vector<c10::IValue> aten_inputs({t0});
-
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
+  auto cg_outputs = executor_cache.runFusionWithInputs({t0});
 
   testValidate(executor_cache.fusion(), cg_outputs, {t0}, __LINE__, __FILE__);
 
@@ -103,10 +99,8 @@ TEST_F(NoOpTest, FusionNullScheduler3) {
   at::Tensor t0 = at::randn({}, options);
   at::Tensor t1 = at::randn({}, options);
 
-  std::vector<c10::IValue> aten_inputs({t0, t1});
-
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
+  auto cg_outputs = executor_cache.runFusionWithInputs({t0, t1});
 
   testValidate(
       executor_cache.fusion(), cg_outputs, {t0, t1}, __LINE__, __FILE__);
@@ -134,44 +128,10 @@ TEST_F(NoOpTest, FusionReducingZeroElements) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({0, 1, 9223372036854775807L}, options);
 
-  std::vector<c10::IValue> aten_inputs({t0});
-
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
+  auto cg_outputs = executor_cache.runFusionWithInputs({t0});
 
   testValidate(executor_cache.fusion(), cg_outputs, {t0}, __LINE__, __FILE__);
-}
-
-TEST_F(NoOpTest, FusionEmpty) {
-  auto fusion = std::make_unique<Fusion>();
-  FusionGuard fg(fusion.get());
-
-  auto tv0 = makeConcreteTensor({10, 10, 10});
-  auto tv1 = makeConcreteTensor({10, 10, 10});
-  fusion->addInput(tv0);
-  fusion->addInput(tv1);
-  fusion->addOutput(tv0);
-  fusion->addOutput(tv1);
-
-  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::Tensor t0 = at::randn({10, 10, 10}, options);
-  at::Tensor t1 = at::randn({10, 10, 10}, options);
-
-  std::vector<c10::IValue> aten_inputs({t0, t1});
-
-  FusionExecutorCache executor_cache(std::move(fusion));
-  auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
-
-  testValidate(
-      executor_cache.fusion(), cg_outputs, {t0, t1}, __LINE__, __FILE__);
-
-  auto groups =
-      executor_cache.getMostRecentKernelRuntime()->fusionSegments()->groups();
-
-  // Check that all groups on the resulting runtime are null.
-  for (auto group : groups) {
-    EXPECT_EQ(group->schedulerType(), SchedulerType::NoOp);
-  }
 }
 
 TEST_F(NoOpTest, View) {
@@ -186,22 +146,22 @@ TEST_F(NoOpTest, View) {
   TensorView* out = reshape(in, in_shape, out_shape);
   fusion->addOutput(out);
 
-  FusionExecutorCache fec(std::move(fusion));
+  FusionExecutorCache executor_cache(std::move(fusion));
   at::Tensor in_tensor =
       at::randn({2, 3, 4}, at::dtype(at::kFloat).device(at::kCUDA, 0));
-  std::vector<at::Tensor> out_tensors = fec.runFusionWithInputs({in_tensor});
+  auto out_tensors = executor_cache.runFusionWithInputs({in_tensor});
   ASSERT_EQ(out_tensors.size(), 1);
-  at::Tensor out_tensor = out_tensors[0];
+  at::Tensor out_tensor = out_tensors[0].as<at::Tensor>();
 
   // Verify aliasing.
   EXPECT_EQ(in_tensor.data_ptr(), out_tensor.data_ptr());
 
   // Verify the NoOp scheduler was kicked in.
   const std::vector<SegmentedGroup*>& groups =
-      fec.getMostRecentKernelRuntime()->fusionSegments()->groups();
+      executor_cache.getMostRecentKernelRuntime()->fusionSegments()->groups();
   ASSERT_EQ(groups.size(), 1);
   SegmentedGroup* group = groups[0];
-  EXPECT_EQ(group->schedulerType(), SchedulerType::NoOp);
+  EXPECT_EQ(group->schedulerType(), SchedulerType::ExprEval);
 }
 
 TEST_F(NoOpTest, ExpandedReduction) {
@@ -219,18 +179,18 @@ TEST_F(NoOpTest, ExpandedReduction) {
   TensorView* out = sum(in, {0});
   out = segment_set(out);
   fusion->addOutput(out);
-
-  FusionExecutorCache fec(std::move(fusion));
+  FusionExecutorCache executor_cache(std::move(fusion));
   at::Tensor in_tensor = at::ones({}).cuda().as_strided({2, 3}, {0, 0});
-  at::Tensor out_tensor = fec.runFusionWithInputs({in_tensor})[0];
-  testValidate(fec.fusion(), {out_tensor}, {in_tensor}, __LINE__, __FILE__);
+  at::Tensor out_tensor =
+      executor_cache.runFusionWithInputs({in_tensor})[0].as<at::Tensor>();
+  testValidate(
+      executor_cache.fusion(), {out_tensor}, {in_tensor}, __LINE__, __FILE__);
 
-  FusionKernelRuntime* runtime = fec.getMostRecentKernelRuntime();
+  FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
   EXPECT_THAT(
       runtime->fusionSegments()->groups(),
       UnorderedElementsAre(HeuristicIs(SchedulerType::NoOp)));
-  const auto& executor = runtime->executors().front();
-  EXPECT_THAT(executor.kernel()->summary().global_allocations, IsEmpty());
+  EXPECT_TRUE(runtime->executors().front()->isA<KernelExecutor>());
 }
 
 } // namespace nvfuser

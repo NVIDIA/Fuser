@@ -42,13 +42,16 @@ enum RecordType: int {
     CastTv,
     CastVal,
     CatOp,
+    EmbeddingFwdOp,
     End,
     ExpandOp,
     FullOp,
     IotaOp,
     IndexSelectOp,
+    IndexPutAccumulateOp,
     SelectOp,
-    TorchGatherOp,
+    ScatterOp,
+    GatherOp,
     TakeAlongAxisOp,
     Unary_TV,
     Unary_VAL,
@@ -84,6 +87,8 @@ enum RecordType: int {
     ReductionSum,
     ReshapeOp,
     Scalar,
+    ScaledGroupedMmaOp,
+    ScaledMmaOp,
     SdpaFwdOp,
     SdpaBwdOp,
     ShapeOp,
@@ -98,6 +103,8 @@ enum RecordType: int {
     VarianceMeanOp,
     Vector,
     WelfordOp,
+    ArgsortOp,
+    TopKOp,
 }
 
 // =====================================================================================
@@ -124,6 +131,9 @@ union RecordData {
   TensorCreationSymbolic,
   Vector,
   Welford,
+  Sort,
+  TopK,
+  ScaledOp,
 }
 
 // The PolymorphicValueData union holds the attribute information for each PolymorphicValue.
@@ -156,7 +166,7 @@ table Scalar {
 }
 
 // =====================================================================================
-// Tables for PolymorphicValue, ScalarCpu, TensorArg, KernelArgumentHolder used in FusionExecutor.
+// Tables for PolymorphicValue, ScalarCpu, TensorArg, KernelArgumentHolder used in KernelExecutor.
 
 // The ScalarCpu is represented by a fixed size array of raw bytes.
 table ScalarCpu {
@@ -188,7 +198,7 @@ table KernelArgumentHolder {
 
 //
 // =====================================================================================
-// Tables for LaunchParams, GlobalBufferInfo, ExecutorEntry, and TensorShape used in FusionExecutor
+// Tables for LaunchParams, GlobalBufferInfo, KernelExecutorEntry, and TensorShape used in KernelExecutor
 
 // Data representing a tensor shape used in LaunchParam
 table TensorShape {
@@ -213,22 +223,28 @@ table LaunchParams {
 // For output tensors, we use its position in the fusion outputs.
 // For intermediate tensors, we use its position in the KernelSummary global_allocations.
 table GlobalBufferInfo {
-  tv : long = -1;
-  sizes : [long];
-  strides : [long];
+  tv_pos : long = -1;
+  logical_sizes : [long];
+  logical_strides : [long];
+  unsharded_logical_sizes : [long];
+  alloc_sizes : [long];
+  alloc_strides : [long];
   dtype : long;
   zero_init : bool;
   resets_to_zero : bool;
   is_profile_buffer : bool;
   is_fusion_output : bool;
+  is_fusion_input : bool;
 }
 
-// This table describes the cached ExecutorEntry for a kernel.
-table ExecutorEntry {
+// This table describes the cached KernelExecutorEntry for a kernel.
+table KernelExecutorEntry {
   init : bool;
   launch_params : LaunchParams;
   outputs : [GlobalBufferInfo];
   intermediates : [GlobalBufferInfo];
+  inputs : [GlobalBufferInfo];
+  output_aliased_to_input : [int];
 }
 
 // =====================================================================================
@@ -267,7 +283,7 @@ table Dtype {
   dtype: long;
 }
 
-// Data for TorchGatherOpRecord, TakeAlongAxisOpRecord, and IndexSelectOpRecord
+// Data for GatherOpRecord, TakeAlongAxisOpRecord, and IndexSelectOpRecord
 table Dimension {
   dim: long;
 }
@@ -337,6 +353,28 @@ table Welford {
   axes: [long];
 }
 
+// Data for ArgsortOpRecord
+table Sort {
+  dim: long;
+  descending: bool;
+  stable: bool;
+}
+
+// Data for TopKOpRecord
+table TopK {
+  dim: long;
+  largest: bool;
+  sorted: bool;
+}
+
+// Data for ScaledGroupedMmaOpRecord and ScaledMmaOpRecord
+table ScaledOp {
+  dtype: long;
+  block_scale_size: long;
+  block_scale_dtype: long;
+  gamma: bool;
+}
+
 // =====================================================================================
 //
 
@@ -355,10 +393,10 @@ table CudaKernel {
 }
 
 // Each Fusion Executor maps to a lowered and compiled kernel.
-table FusionExecutor {
+table KernelExecutor {
   device_smem_limit: long;
-  block_size_high_water_mark: long;
-  maxrregcount_high_water_mark: long;
+  block_size_high_watermark: long;
+  maxrregcount_high_watermark: long;
   warp_size: long;
   heuristic: long;
   fusion_id: long;
@@ -367,10 +405,13 @@ table FusionExecutor {
   group_id: long;
   kernel_code: string;
   executor_entry_lookup_keys: [ulong];
-  executor_entry_lookup_values: [ExecutorEntry];
+  executor_entry_lookup_values: [KernelExecutorEntry];
   // Is this kernel being compiled with int32 or int64 indexing?
   index_type : long;
   compiled_kernel: CudaKernel;
+  has_rng: bool;
+  has_tma: bool;
+  has_dynamic_alias: bool;
 }
 
 // A directed edge on DAG, which wraps a value that connects segmented groups.
@@ -390,11 +431,9 @@ table SegmentedGroup {
   heuristic: long;
   exprs: [long];
   level: int;
-  visited: bool;
   merge_with_segmented_group: long;
   merge_through_segmented_edge: long;
   merged: bool;
-  is_fusion_input: bool;
 }
 
 // The SegmentedFusion represents a segmented fusion graph that owns the segmented groups.
@@ -415,14 +454,14 @@ table SegmentedFusion {
 
 // Each FusionKernelRuntime represents a concretized, segmented Fusion.
 // We store the metadata for the original arguments to segment, schedule, and compile the Fusion at deserialization.
-// Each fusion segment is given a FusionExecutor.
+// Each fusion segment is given a KernelExecutor.
 // The unscheduled fusion is defined by traversing Trie in FusionCache.
 table FusionKernelRuntime {
   fusion_id: long;
   concrete_id: long;
   runtime_id: long;
   args: KernelArgumentHolder;
-  executors: [FusionExecutor];
+  executors: [KernelExecutor];
   segmented_fusion: SegmentedFusion;
 }
 

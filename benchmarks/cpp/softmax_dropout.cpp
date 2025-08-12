@@ -75,7 +75,7 @@ static void setupSoftmaxDropout(
 
 static void NvFuserScheduler_SoftmaxDropout(
     benchmark::State& benchmark_state,
-    FusionExecutorCache* fusion_executor_cache,
+    FusionExecutorCache* executor_cache,
     DataType dtype,
     const int kReductionAxis) {
   NVF_ERROR(dtype == DataType::Float || dtype == DataType::Half);
@@ -93,10 +93,9 @@ static void NvFuserScheduler_SoftmaxDropout(
       at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
   at::Tensor at_scores = at::randn(input_shape, options);
   at::Tensor at_mask = at::randn(input_shape, options);
-  std::vector<c10::IValue> aten_inputs(
-      {at_scores, at_mask, sqrt(kAttentionHeadSize)});
+  KernelArgumentHolder args({at_scores, at_mask, sqrt(kAttentionHeadSize)});
 
-  runBenchmarkIterations(benchmark_state, fusion_executor_cache, aten_inputs);
+  runBenchmarkIterations(benchmark_state, executor_cache, args);
 
   // 5 dtype: attention_scores + attention_mask + attention_scores_out +
   // attention_probs_out + output
@@ -104,10 +103,10 @@ static void NvFuserScheduler_SoftmaxDropout(
   // All the same size
   benchmark_state.SetBytesProcessed(
       int64_t(benchmark_state.iterations()) * 5 * at_scores.numel() *
-          int64_t(dataTypeSize(dtype)) +
+          dataTypeSizeByte(dtype) +
       // bool mask
       int64_t(benchmark_state.iterations()) * at_scores.numel() *
-          int64_t(dataTypeSize(DataType::Bool)));
+          int64_t(dataTypeSizeByte(DataType::Bool)));
 }
 
 //------------------------------------------------------------------------------
@@ -155,10 +154,10 @@ static void Baseline_Softmax_Dropout(
   // All the same size
   benchmark_state.SetBytesProcessed(
       int64_t(benchmark_state.iterations()) * 5 * attention_scores.numel() *
-          int64_t(dataTypeSize(dtype)) +
+          dataTypeSizeByte(dtype) +
       // bool mask
       int64_t(benchmark_state.iterations()) * attention_scores.numel() *
-          int64_t(dataTypeSize(DataType::Bool)));
+          int64_t(dataTypeSizeByte(DataType::Bool)));
 }
 
 //------------------------------------------------------------------------------

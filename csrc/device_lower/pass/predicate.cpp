@@ -38,57 +38,19 @@ class ConditionalFromPredicateModifier : public kir::ExprMutator {
     FUSER_PERF_SCOPE(
         "ConditionalFromPredicateModifier::ConditionalFromPredicateModifier");
     traverseAndInsert(exprs);
+    // For each OneDimTmaLoadExpectArrive, expect a corresponding
+    // OneDimTmaWaitParity.
+    NVF_ERROR(
+        !one_dim_tma_predicate_info_.isSet(),
+        "Unpaired OneDimTmaLoadExpectArrive detected.");
   }
 
   using kir::ExprMutator::handle;
-
-  // The ElectSync predicate expects a single thread to run operations within
-  // If-Then-Else. Any TensorView with thread parallelization is incompatible
-  // with this If-Then-Else because it can create a conflicting predicate.
-  void checkElectSyncCompatibility(Expr* expr) {
-    NVF_CHECK(expr->predicate()->predicate_type() == PredicateType::ElectSync);
-    NVF_ERROR(expr->isA<kir::IfThenElse>());
-
-    // Check all the expressions in the scope
-    auto check_scope_compatibility = [](Scope& scope) {
-      for (Expr* expr : scope.exprs()) {
-        // Thread predicates are generated based on the expression's outputs
-        for (Val* val : expr->outputs()) {
-          // short-circuit
-          if (!val->isA<kir::TensorIndex>()) {
-            continue;
-          }
-          // Check that none of the IterDomains in TensorView are parallelized
-          // with a thread dimension like TIDx, TIDy, or TIDz.
-          TensorView* tv = val->as<kir::TensorIndex>()->view();
-          bool is_thread_parallelized = std::any_of(
-              tv->domain()->loop().begin(),
-              tv->domain()->loop().end(),
-              [](IterDomain* id) { return id->isThreadDim(); });
-          NVF_ERROR(
-              !is_thread_parallelized,
-              "This thread-parallelized TensorView ",
-              tv->toString(),
-              " is incorrectly contained within a If-Then-Else with the ",
-              "ElectSync predicate.");
-        }
-      }
-    };
-
-    // Check the thenBody and elseBody of If-Then-Else
-    kir::IfThenElse* ite = expr->as<kir::IfThenElse>();
-    check_scope_compatibility(ite->thenBody());
-    check_scope_compatibility(ite->elseBody());
-  }
 
   void dispatch(Expr* expr) final {
     if (expr != nullptr && expr->predicate() != nullptr) {
       // Replace expr predicate with bool conditional
       auto conditional = generateConditional(expr->predicate());
-
-      if (expr->predicate()->predicate_type() == PredicateType::ElectSync) {
-        checkElectSyncCompatibility(expr);
-      }
 
       if (expr->predicate()->predicate_type() == PredicateType::Vectorize) {
         if (expr->isA<kir::IfThenElse>()) {
@@ -100,14 +62,17 @@ class ConditionalFromPredicateModifier : public kir::ExprMutator {
 
           NVF_ERROR(
               ite->thenBody().size() == 1,
-              "Expecting predicated body to only have one vectorized expression.");
+              "Expecting predicated body to only have one vectorized "
+              "expression.");
           auto vec_expr = ite->thenBody()[0];
           NVF_ERROR(
-              vec_expr->isA<UnaryOp>() || vec_expr->isA<LoadStoreOp>(),
+              vec_expr->isA<UnaryOp>() || vec_expr->isA<LoadStoreOp>() ||
+                  vec_expr->isA<TernaryOp>() || vec_expr->isA<IndexSelectOp>(),
               "Vectorize predicate exprs only supported on set operations.");
           NVF_ERROR(
               ir_utils::isTvOp(vec_expr),
-              "Vectorize predicate exprs only supported on tensor view operations.");
+              "Vectorize predicate exprs only supported on tensor view "
+              "operations.");
           if (!vec_expr->inputs()[0]->isConstScalar()) {
             conditional = SimplifyingIrBuilder::logicalAndExpr(
                 conditional,
@@ -236,25 +201,28 @@ class ConditionalFromPredicateModifier : public kir::ExprMutator {
         return IrBuilder::create<Val>(true, DataType::Bool);
       }
       case PredicateType::ElectSync: {
-        Val* zero = IrBuilder::create<Val>(0L, PrimDataType::UInt);
-        Val* warp_size = IrBuilder::create<Val>(32L, PrimDataType::UInt);
-        Val* full_mask_val =
-            IrBuilder::create<Val>(0xFFFFFFFF, PrimDataType::UInt32);
-
-        Val* elect_sync_val = IrBuilder::create<Val>(PrimDataType::Bool);
-        IrBuilder::create<UnaryOp>(
-            UnaryOpType::ElectSync, elect_sync_val, full_mask_val);
-
-        Val* first_warp = IrBuilder::logicalAndExpr(
-            IrBuilder::logicalAndExpr(
-                IrBuilder::ltExpr(
-                    NamedScalar::getParallelIndex(ParallelType::TIDx),
-                    warp_size),
-                IrBuilder::eqExpr(
-                    NamedScalar::getParallelIndex(ParallelType::TIDy), zero)),
-            IrBuilder::eqExpr(
-                NamedScalar::getParallelIndex(ParallelType::TIDz), zero));
-        return IrBuilder::logicalAndExpr(first_warp, elect_sync_val);
+        return PredicateCompute::getElectSyncPredicate(pred, for_loops_);
+      }
+      case PredicateType::OneDimTmaLoadExpectArrive: {
+        NVF_ERROR(
+            !one_dim_tma_predicate_info_.isSet(),
+            "Expect OneDimTmaLoadExpectArrive is NOT set before "
+            "OneDimTmaLoadExpectArrive.");
+        one_dim_tma_predicate_info_ =
+            PredicateCompute::OneDimTmaLoadExpectArrive(pred, for_loops_);
+        return one_dim_tma_predicate_info_.combined_pred_val;
+      }
+      case PredicateType::OneDimTmaWaitParity: {
+        // Ensure OneDimTmaPredicateInfo is set before use and reset it after
+        // use.
+        NVF_ERROR(
+            one_dim_tma_predicate_info_.isSet(),
+            "Expect OneDimTmaLoadExpectArrive to be set before "
+            "OneDimTmaWaitParity.");
+        auto pred_val = PredicateCompute::OneDimTmaWaitParity(
+            pred, for_loops_, one_dim_tma_predicate_info_);
+        one_dim_tma_predicate_info_.reset();
+        return pred_val;
       }
       default:
         break;
@@ -264,6 +232,9 @@ class ConditionalFromPredicateModifier : public kir::ExprMutator {
 
   // Keep track of the loop in which the currently visiting expr is a rotated.
   std::unordered_set<ForLoop*> rotated_loop_;
+  // Stores combined predicate value, inline predicate value and circular buffer
+  // loop index for one dim tma load.
+  OneDimTmaPredicateInfo one_dim_tma_predicate_info_;
 };
 
 } // namespace

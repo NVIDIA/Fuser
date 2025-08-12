@@ -9,179 +9,47 @@
 #include <ATen/cuda/CUDAGeneratorImpl.h>
 #include <ATen/native/cuda/jit_utils.h>
 
-#include <c10/util/irange.h>
-
 #include <contiguity.h>
 #include <debug.h>
+#include <device_lower/lower2device.h>
+#include <device_lower/utils.h>
 #include <driver_api.h>
 #include <instrumentation.h>
+#include <interval_analysis.h>
 #include <ir/all_nodes.h>
 #include <ir/iostream.h>
 #include <ir/utils.h>
-#include <kernel_db/kernel_db.h>
 #include <options.h>
 #include <runtime/executor_utils.h>
 #include <tensor_metadata.h>
-#include <torch/csrc/jit/resource_guard.h>
 #include <utils.h>
 
 #include <cuda_occupancy.h>
-#include <nvfuser_resources/array.h>
-#include <nvfuser_resources/basic_type_traits.h>
-#include <nvfuser_resources/bf16_support.h>
-#include <nvfuser_resources/bit.h>
-#include <nvfuser_resources/block_reduction.h>
-#include <nvfuser_resources/block_sync_atomic.h>
-#include <nvfuser_resources/block_sync_default.h>
-#include <nvfuser_resources/block_welford_outer.h>
-#include <nvfuser_resources/broadcast.h>
-#include <nvfuser_resources/complex_number.h>
-#include <nvfuser_resources/fp16_support.h>
-#include <nvfuser_resources/fp8_support.h>
-#include <nvfuser_resources/fused_reduction.h>
-#include <nvfuser_resources/fused_welford_helper.h>
-#include <nvfuser_resources/fused_welford_impl.h>
-#include <nvfuser_resources/fused_welford_impl_outer.h>
-#include <nvfuser_resources/grid_broadcast.h>
-#include <nvfuser_resources/grid_reduction.h>
-#include <nvfuser_resources/grid_sync.h>
-#include <nvfuser_resources/helpers.h>
-#include <nvfuser_resources/index_utils.h>
-#include <nvfuser_resources/mbarrier.h>
-#include <nvfuser_resources/memory.h>
-#include <nvfuser_resources/random_numbers.h>
-#include <nvfuser_resources/tensor.h>
-#include <nvfuser_resources/tuple.h>
-#include <nvfuser_resources/type_traits.h>
-#include <nvfuser_resources/warp.h>
-#include <nvfuser_resources/welford.h>
 
 #include <cstdlib>
 #include <fstream>
 #include <variant>
 
-#include <nvrtc.h>
-
 namespace nvfuser {
 namespace executor_utils {
-
-std::string kernelPreamble() {
-  std::stringstream ss;
-  ss << nvfuser_resources::basic_type_traits_cu;
-  ss << nvfuser_resources::bit_cu;
-  ss << nvfuser_resources::complex_number_cu;
-
-  ss << nvfuser_resources::fp16_support_cu;
-  ss << nvfuser_resources::bf16_support_cu;
-  ss << nvfuser_resources::fp8_support_cu;
-
-  // Base classes and helpers
-  ss << nvfuser_resources::type_traits_cu;
-  ss << nvfuser_resources::array_cu;
-  ss << nvfuser_resources::tensor_cu;
-  ss << nvfuser_resources::random_numbers_cu;
-  ss << nvfuser_resources::helpers_cu;
-  ss << nvfuser_resources::index_utils_cu;
-  ss << nvfuser_resources::tuple_cu;
-
-  // Synchronization classes
-  if (getNvFuserEnv("USE_BLOCK_SYNC_ATOMIC")) {
-    ss << nvfuser_resources::block_sync_atomic_cu;
-  } else {
-    ss << nvfuser_resources::block_sync_default_cu;
-  }
-  ss << nvfuser_resources::grid_sync_cu;
-  ss << nvfuser_resources::mbarrier_cu;
-
-  // Communication classes
-  ss << nvfuser_resources::block_reduction_cu;
-  ss << nvfuser_resources::grid_reduction_cu;
-  ss << nvfuser_resources::grid_broadcast_cu;
-  ss << nvfuser_resources::broadcast_cu;
-  ss << nvfuser_resources::welford_cu;
-  ss << nvfuser_resources::warp_cu;
-  ss << nvfuser_resources::memory_cu;
-  ss << nvfuser_resources::fused_welford_helper_cu;
-  ss << nvfuser_resources::fused_reduction_cu;
-  ss << nvfuser_resources::fused_welford_impl_cu;
-  ss << nvfuser_resources::block_welford_outer_cu;
-  ss << nvfuser_resources::fused_welford_impl_outer_cu;
-
-  return ss.str();
-}
-
-// Query the target GPU version number NVRTC compiles CUDA kernels for
-void queryTargetGPUVersion(
-    const cudaDeviceProp* const prop,
-    int64_t& major,
-    int64_t& minor,
-    bool& compile_to_sass) {
-  using CudaVersion = std::pair<int, int>;
-  CudaVersion nvrtc_version;
-  NVFUSER_NVRTC_SAFE_CALL(
-      nvrtcVersion(&nvrtc_version.first, &nvrtc_version.second));
-
-  NVF_CHECK(
-      nvrtc_version.first >= 6,
-      "NVRTC versions less than 6 are not supported. Is: ",
-      nvrtc_version.first);
-
-  // Version supported by device
-  // Usually any lower version works too but is less efficient
-  const CudaVersion dev_version = CudaVersion(prop->major, prop->minor);
-  // Maximum version supported by the driver, cap dev_version to this
-  CudaVersion max_dev_version;
-  if (nvrtc_version.first <= 7) { // 7 supports 2-5.x
-    max_dev_version = CudaVersion(5, 0);
-  } else if (nvrtc_version.first <= 8) { // 8 supports 2-6.x
-    max_dev_version = CudaVersion(6, 0);
-  } else if (nvrtc_version.first <= 9) { // 9 supports 3-7.2
-    max_dev_version = CudaVersion(7, 2);
-  } else if (nvrtc_version.first <= 10) { // 10 supports 3-7.5
-    max_dev_version = CudaVersion(7, 5);
-  } else if (nvrtc_version == CudaVersion(11, 0)) { // 11.0 supports 3-8.0
-    max_dev_version = CudaVersion(8, 0);
-  } else if (nvrtc_version.first == 11 && nvrtc_version.second < 8) {
-    max_dev_version = CudaVersion(8, 6);
-  } else {
-    // If the driver version is unknown (i.e. newer than this code)
-    // assume the driver supports this device
-    max_dev_version = dev_version;
-  }
-  if (dev_version > max_dev_version) {
-    major = max_dev_version.first;
-    minor = max_dev_version.second;
-    // if we are clamping major/minor, sass is not compatible
-    compile_to_sass = false;
-  } else {
-    major = dev_version.first;
-    minor = dev_version.second;
-    compile_to_sass = true;
-  }
-}
 
 namespace {
 
 // Return true if all the tensors have the same stride, assumes all tensors are
 // contiguous
-bool checkSameStride(const std::vector<c10::IValue>& tensors) {
+bool checkSameStride(const std::vector<at::Tensor>& tensors) {
   if (tensors.size() < 2) {
     return true;
   }
-  for (const auto idx : c10::irange(tensors.size() - 1)) {
-    auto current = tensors[idx];
-    auto next = tensors[idx + 1];
-    if (!current.isTensor() || !next.isTensor()) {
-      return false;
-    }
+  for (const auto idx : arange(tensors.size() - 1)) {
+    const auto& current_tensor = tensors[idx];
+    const auto& next_tensor = tensors[idx + 1];
 
-    const auto& current_tensor = current.toTensor();
-    const auto& next_tensor = next.toTensor();
     if (current_tensor.ndimension() != next_tensor.ndimension()) {
       return false;
     }
 
-    for (const auto i : c10::irange(current_tensor.ndimension())) {
+    for (const auto i : arange(current_tensor.ndimension())) {
       if (current_tensor.stride(i) != next_tensor.stride(i)) {
         return false;
       }
@@ -191,20 +59,15 @@ bool checkSameStride(const std::vector<c10::IValue>& tensors) {
 }
 
 // Return true if all the tensors are contiguous and have the same striding
-bool checkSameContiguity(const std::vector<c10::IValue>& tensors) {
+bool checkSameContiguity(const std::vector<at::Tensor>& tensors) {
   if (tensors.size() < 2) {
     return true;
   }
 
-  auto reference = tensors.front();
-  if (!reference.isTensor()) {
-    return false;
-  }
-
   // Determine if the reference tensor is contiguous
-  const auto& reference_tensor = reference.toTensor();
+  const auto& reference_tensor = tensors.front();
   int64_t expected_stride = 1;
-  for (const auto i : c10::irange(1, reference_tensor.ndimension() + 1)) {
+  for (const auto i : arange(1, reference_tensor.ndimension() + 1)) {
     int64_t ind = reference_tensor.ndimension() - i;
     if (reference_tensor.size(ind) == 1) {
       continue;
@@ -217,27 +80,6 @@ bool checkSameContiguity(const std::vector<c10::IValue>& tensors) {
 
   // Check if all the tensors have the same contiguity
   return checkSameStride(tensors);
-}
-
-bool checkValidMisalignedTensors(
-    const std::unordered_set<TensorView*>& inp_tv,
-    const std::unordered_set<TensorView*>& out_tv,
-    const std::vector<c10::IValue>& inp_tensors,
-    const std::vector<c10::IValue>& out_tensors) {
-  if (out_tv.empty()) {
-    // Only check input tensors
-    return checkSameStride(inp_tensors);
-  } else if (!out_tv.empty() && out_tensors.empty()) {
-    // out_tensors is empty unless outputs are given to runFusion.
-    // Assume out tensors are contiguous
-    return checkSameContiguity(inp_tensors);
-  } else {
-    // Only check input and output tensors
-    std::vector<c10::IValue> tensors;
-    tensors.insert(tensors.end(), inp_tensors.begin(), inp_tensors.end());
-    tensors.insert(tensors.end(), out_tensors.begin(), out_tensors.end());
-    return checkSameStride(tensors);
-  }
 }
 
 // Finds a fusion input or output tensor, this function is used to grab tensors
@@ -266,8 +108,7 @@ std::vector<std::pair<bool, int64_t>> getVectorizedFusionInputOutput(
         producer_tv,
         " in fusion inputs.");
     auto pos = std::distance(fusion->inputs().begin(), producer_it);
-    input_output.push_back(
-        std::make_pair<bool, int64_t>(true, static_cast<int64_t>(pos)));
+    input_output.emplace_back(true, static_cast<int64_t>(pos));
   }
 
   if (consumer_tv->isFusionOutput()) {
@@ -279,8 +120,7 @@ std::vector<std::pair<bool, int64_t>> getVectorizedFusionInputOutput(
         consumer_tv,
         " in fusion outputs.");
     auto pos = std::distance(fusion->outputs().begin(), consumer_it);
-    input_output.push_back(
-        std::make_pair<bool, int64_t>(false, static_cast<int64_t>(pos)));
+    input_output.emplace_back(false, static_cast<int64_t>(pos));
   }
 
   return input_output;
@@ -301,26 +141,10 @@ std::unique_ptr<caching::VectorizedTensorInfo> getVectorizedTensorValidationInfo
     const auto is_aligned =
         vector_dim->getParallelType() == ParallelType::Vectorize;
 
-    // Find fusion inputs and outputs that are used with misaligned
-    // vectorization.
-    if (!is_aligned) {
-      NVF_ERROR(
-          producer_tv->isFusionInput() || consumer_tv->isFusionOutput(),
-          "MisalignedVectorize is assumed to be used with either input or output tensor");
-      if (consumer_tv->getMemoryType() == MemoryType::Global &&
-          producer_tv->getMemoryType() == MemoryType::Local) {
-        vectorized_tensor_info_ptr->global_out_misaligned_tv.insert(
-            consumer_tv);
-      } else if (
-          producer_tv->getMemoryType() == MemoryType::Global &&
-          consumer_tv->getMemoryType() == MemoryType::Local) {
-        vectorized_tensor_info_ptr->global_inp_misaligned_tv.insert(
-            producer_tv);
-      } else {
-        NVF_THROW(
-            "Unsupported memory configuration for misaligned vectorization.");
-      }
-    }
+    NVF_ERROR(
+        is_aligned,
+        "Unexpected parallel type of vectorized ID: ",
+        vector_dim->toString());
 
     // Collect information on corresponding fusion input and output
     // tensors to verify strides.
@@ -333,27 +157,14 @@ std::unique_ptr<caching::VectorizedTensorInfo> getVectorizedTensorValidationInfo
       continue;
     }
 
-    // Misaligned vectorize only allows from input to local or local
-    // to output
-    if (!is_aligned) {
-      NVF_ERROR(inp_or_out_info.size() == 1);
-    }
-
     for (const auto& inp_or_out : inp_or_out_info) {
       const bool is_input = inp_or_out.first;
       const int64_t pos = inp_or_out.second;
 
-      if (is_aligned) {
-        auto& pos_list = is_input
-            ? vectorized_tensor_info_ptr->aligned_vectorized_inp_tensor_pos
-            : vectorized_tensor_info_ptr->aligned_vectorized_out_tensor_pos;
-        pos_list.push_back(pos);
-      } else {
-        auto& map = is_input
-            ? vectorized_tensor_info_ptr->inp_misaligned_tensors_pos
-            : vectorized_tensor_info_ptr->out_misaligned_tensors_pos;
-        map.emplace_back(pos);
-      }
+      auto& pos_list = is_input
+          ? vectorized_tensor_info_ptr->aligned_vectorized_inp_tensor_pos
+          : vectorized_tensor_info_ptr->aligned_vectorized_out_tensor_pos;
+      pos_list.push_back(pos);
     }
   }
 
@@ -434,7 +245,7 @@ getTensorOffsets(
     const auto slice_info = slice->getRanges();
 
     size_t offset = 0;
-    for (const auto i : c10::irange(logical_ids.size())) {
+    for (const auto i : arange(logical_ids.size())) {
       auto slice_start_eval = eval.evaluate(slice_info.at(i).start);
       NVF_ERROR(slice_start_eval.hasValue());
       auto slice_stop_eval = eval.evaluate(slice_info.at(i).stop);
@@ -476,7 +287,7 @@ void validateAlignedVectorizedFusionInputOutput(
       is_sliced ? tv->getLogicalDomain() : tv->getMaybeAllocationDomain();
 
   std::vector<int64_t> no_reduction_to_full;
-  for (int64_t i : c10::irange((int64_t)domain_to_validate.size())) {
+  for (int64_t i : arange((int64_t)domain_to_validate.size())) {
     auto alloc_id = domain_to_validate.at(i);
     if (!alloc_id->isReduction()) {
       no_reduction_to_full.emplace_back(i);
@@ -490,11 +301,25 @@ void validateAlignedVectorizedFusionInputOutput(
   NVF_ERROR(sizes.size() == no_reduction_to_full.size());
   NVF_ERROR(strides.size() == no_reduction_to_full.size());
 
+  // aten_element_size_bit is the minimum unit (one element) of tv's
+  // corresponding at::Tensor it may or may not be the same as
+  // dataTypeSizeBit(tv->dtype()), because we support non-ATen data types as
+  // ATen tensor. See the comment of AdjustLastDim in type.h for more details.
+  // For example, for fp4 tensor, we use Byte as the corresponding ATen
+  // ScalarType, so aten_element_size_bit is 8 bits instead of 4 bit.
+  const int64_t aten_element_size_byte =
+      c10::elementSize(data_type_to_aten(tv->dtype()));
+
+  int64_t vector_word_size_bit = word_size * dataTypeSizeBit(tv->dtype());
+  NVF_ERROR(
+      vector_word_size_bit % 8 == 0, "Vector word size is not divisible by 8");
+  int64_t vector_word_size_byte = vector_word_size_bit / 8;
+
   for (auto offset : offsets) {
     NVF_ERROR(
         (reinterpret_cast<size_t>(aten_tensor.data_ptr()) +
-         offset * aten_tensor.dtype().itemsize()) %
-                (word_size * aten_tensor.dtype().itemsize()) ==
+         offset * aten_element_size_byte) %
+                vector_word_size_byte ==
             0,
         "Vectorization of ",
         tv->toString(),
@@ -526,7 +351,8 @@ void validateAlignedVectorizedFusionInputOutput(
           stride == 0,
           "Dimension ",
           i,
-          " should be an expanded broadcasting, but it does not have stride zero.");
+          " should be an expanded broadcasting, but it does not have stride "
+          "zero.");
     }
 
     // If this domain is contiguous or size == 1, then not necessary to check
@@ -539,7 +365,7 @@ void validateAlignedVectorizedFusionInputOutput(
     NVF_ERROR(
         is_contiguous || size == 1 || is_expanded_broadcasting ||
             (still_rightmost && stride == 1) ||
-            (!still_rightmost && stride % word_size == 0),
+            ((stride * aten_element_size_byte) % vector_word_size_byte == 0),
         "Vectorization of ",
         tv->toString(),
         " with word size ",
@@ -573,7 +399,7 @@ void validateAlignedVectorizedFusionInputOutput(
 void validateAlignedVectorizedTensors(
     kir::Kernel* kernel,
     const KernelArgumentHolder& args,
-    const std::vector<at::Tensor>& outputs,
+    const KernelArgumentHolder& output_args,
     caching::ExecutorCompileTimeInfoCache* data_cache,
     ExpressionEvaluator& expr_eval) {
   // Verify extents of aligned vectorized tensors
@@ -596,70 +422,19 @@ void validateAlignedVectorizedTensors(
                       .aligned_vectorized_inp_tensor_pos) {
     auto tv = kernel->inputs().at(pos)->as<TensorView>();
     auto word_size = kernel->summary().vectorized_accesses.at(tv);
-    NVF_ERROR(args[pos]->is<at::Tensor>(), "alias io only supports tensor");
+    NVF_ERROR(args[pos].is<at::Tensor>(), "alias io only supports tensor");
     validateAlignedVectorizedFusionInputOutput(
-        args[pos]->as<at::Tensor>(), word_size, tv, expr_eval);
+        args[pos].as<at::Tensor>(), word_size, tv, expr_eval);
   }
-  if (!outputs.empty()) {
+  if (!output_args.empty()) {
     for (auto pos : tensor_vectorization_validation_entry.get()
                         .aligned_vectorized_out_tensor_pos) {
       auto tv = kernel->outputs().at(pos)->as<TensorView>();
       auto word_size = kernel->summary().vectorized_accesses.at(tv);
       validateAlignedVectorizedFusionInputOutput(
-          outputs[pos], word_size, tv, expr_eval);
+          output_args[pos].as<at::Tensor>(), word_size, tv, expr_eval);
     }
   }
-}
-
-// Misaligned vectorization check. Currently misaligned vectorization is limited
-// to global-register and register-global load/store patterns. However, this
-// could be improved to include shared memory.
-void validateMisalignedVectorizedTensors(
-    kir::Kernel* kernel,
-    const KernelArgumentHolder& args,
-    const std::vector<at::Tensor>& outputs,
-    caching::ExecutorCompileTimeInfoCache* data_cache,
-    ExpressionEvaluator& expr_eval) {
-  auto tensor_vectorization_validation_entry =
-      executor_utils::caching::ExecutorCompileTimeEntry<
-          executor_utils::caching::VectorizedTensorValidation>(
-          data_cache, [kernel]() {
-            return executor_utils::getVectorizedTensorValidationInfo(kernel);
-          });
-
-  std::vector<c10::IValue> inp_misaligned_tensors;
-  std::vector<c10::IValue> out_misaligned_tensors;
-
-  const auto& inp_misaligned_tensors_pos =
-      tensor_vectorization_validation_entry.get().inp_misaligned_tensors_pos;
-  inp_misaligned_tensors.reserve(inp_misaligned_tensors_pos.size());
-  std::transform(
-      inp_misaligned_tensors_pos.begin(),
-      inp_misaligned_tensors_pos.end(),
-      std::back_inserter(inp_misaligned_tensors),
-      [&args](int idx) {
-        NVF_ERROR(args[idx]->is<at::Tensor>(), "alias io only supports tensor");
-        return args[idx]->as<at::Tensor>();
-      });
-
-  const auto& out_misaligned_tensors_pos =
-      tensor_vectorization_validation_entry.get().out_misaligned_tensors_pos;
-  if (!outputs.empty()) {
-    out_misaligned_tensors.reserve(out_misaligned_tensors_pos.size());
-    std::transform(
-        out_misaligned_tensors_pos.begin(),
-        out_misaligned_tensors_pos.end(),
-        std::back_inserter(out_misaligned_tensors),
-        [&outputs](int idx) { return outputs[idx]; });
-  }
-  // If input stride is non-contiguous + no outputs, return false
-  NVF_ERROR(
-      checkValidMisalignedTensors(
-          tensor_vectorization_validation_entry.get().global_inp_misaligned_tv,
-          tensor_vectorization_validation_entry.get().global_out_misaligned_tv,
-          inp_misaligned_tensors,
-          out_misaligned_tensors),
-      "All global tensors must have the same stride for misaligned vectorization.");
 }
 
 } // namespace
@@ -669,16 +444,24 @@ void validateCircularBuffering(
     ExpressionEvaluator& expr_eval) {
   const CircularBufferInfo& cb_info = kernel->summary().circular_buffer_info;
   for (const TensorView* cb_tv : cb_info.getCircularBufferTvs()) {
+    // There is always a valid load and compute for loop with warp
+    // specialization.
+    bool use_warp_specialization = std::holds_alternative<WarpSpecialized>(
+        cb_tv->circularBufferOptions().type);
+    if (use_warp_specialization) {
+      continue;
+    }
+
     IterDomain* axis = cb_info.getCircularBufferAxis(cb_tv);
     NVF_ERROR(axis != nullptr);
     PolymorphicValue runtime_axis_size = expr_eval.evaluate(axis->extent());
     NVF_ERROR(
-        runtime_axis_size >= cb_tv->circularBufferDepth(),
+        runtime_axis_size >= cb_tv->circularBufferOptions().stage,
         "This kernel fails to fill the circular buffer pipeline at runtime. ",
         "The extent of the circular buffer axis is ",
         runtime_axis_size,
         " while ",
-        cb_tv->circularBufferDepth(),
+        cb_tv->circularBufferOptions().stage,
         " is the number of stages in the circular buffer.");
   }
 }
@@ -686,16 +469,13 @@ void validateCircularBuffering(
 void validateVectorizedTensors(
     kir::Kernel* kernel,
     const KernelArgumentHolder& args,
-    const std::vector<at::Tensor>& outputs,
+    const KernelArgumentHolder& output_args,
     caching::ExecutorCompileTimeInfoCache* data_cache,
     ExpressionEvaluator& expr_eval) {
-  FUSER_PERF_SCOPE("FusionExecutor::validateVectorizedTensors");
+  FUSER_PERF_SCOPE("KernelExecutor::validateVectorizedTensors");
 
   validateAlignedVectorizedTensors(
-      kernel, args, outputs, data_cache, expr_eval);
-
-  validateMisalignedVectorizedTensors(
-      kernel, args, outputs, data_cache, expr_eval);
+      kernel, args, output_args, data_cache, expr_eval);
 }
 
 ExpressionEvaluator bindInputs(
@@ -706,27 +486,28 @@ ExpressionEvaluator bindInputs(
   // args may contains more than just inputs, but inputs are always at the
   // beginning.
   NVF_ERROR(
-      kernel->inputs().size() <= args.size(),
+      std::ssize(kernel->inputs()) <= args.size(),
       "KernelArgumentHolder contains less argument than kernel's input.");
 
   ExpressionEvaluator expr_eval;
   const auto& inputs = kernel->inputs();
-  for (const auto i : c10::irange(inputs.size())) {
+  for (const auto i : arange(inputs.size())) {
     // NOTE: we bind all inputs here, including at::Tensors. This means that
     // expr_eval will create a PolymorphicValue containing *args[i], which means
     // that at::Tensor's lifetime will be at least as long as that of expr_eval.
     try {
-      expr_eval.bind(inputs[i], *args[i], true);
+      expr_eval.bind(inputs[i], args[i], true);
     } catch (const nvfError& e) {
       std::stringstream ss;
       ss << "When trying to run the provided host program,"
          << " there was an error with the provided input " << i
-         << ". Provided input was:\n  ";
-      ss << PolymorphicValue_functions::toString(*args[i]);
-      ss << "\n  Fusion input is:\n  ";
-      ss << inputs[i]->toString();
-      ss << "\n  Expr eval provided the error:\n\"\"\"";
-      ss << e.msg() << "\"\"\"\n";
+         << ". Provided input was:" << std::endl;
+      indent(ss, 1) << PolymorphicValue_functions::toString(args[i])
+                    << std::endl;
+      ss << "Fusion input was:" << std::endl;
+      indent(ss, 1) << inputs[i]->toString() << std::endl;
+      ss << "Expr eval provided the error:" << std::endl;
+      ss << R"(""")" << e.msg() << R"(""")" << std::endl;
       NVF_THROW(ss.str());
     }
   }
@@ -734,676 +515,50 @@ ExpressionEvaluator bindInputs(
   return expr_eval;
 }
 
-namespace {
+std::vector<int> getOutputAliasToInputMap(const Fusion* fusion) {
+  std::vector<int> output_to_input_map(fusion->outputs().size(), -1);
+  for (auto output_idx : arange(fusion->outputs().size())) {
+    auto alias_info = fusion->getOutputAlias(fusion->outputs()[output_idx]);
+    if (alias_info.type == AllocationType::New) {
+      continue;
+    }
+    NVF_ERROR(
+        alias_info.aliased_io && alias_info.aliased_io->isA<TensorView>(),
+        "Alias information is missing the aliased tensor.");
 
-std::vector<char> compileNvrtcProgramToPtx(const nvrtcProgram& program) {
-  size_t size = 0;
-  NVFUSER_NVRTC_SAFE_CALL(nvrtcGetPTXSize(program, &size));
-  std::vector<char> code(size);
-  NVFUSER_NVRTC_SAFE_CALL(nvrtcGetPTX(program, code.data()));
-  return code;
-}
-
-std::vector<char> compileNvrtcProgramToCubin(const nvrtcProgram& program) {
-#if CUDA_VERSION < 11010
-  NVF_THROW("SASS not supported in CUDA versions older than 11.1");
-#endif
-
-  size_t size = 0;
-  NVFUSER_NVRTC_SAFE_CALL(nvrtcGetCUBINSize(program, &size));
-  std::vector<char> code(size);
-  NVFUSER_NVRTC_SAFE_CALL(nvrtcGetCUBIN(program, code.data()));
-  return code;
-}
-
-// Returns the name of the dumped file.
-std::string dumpCompiledCodeToFile(
-    const std::vector<char>& code,
-    const std::string& id,
-    const std::string& suffix) {
-  std::stringstream file_name;
-  file_name << "__tmp_kernel_" << id << suffix;
-  debug() << "PRINTING: " << file_name.str() << std::endl;
-  std::ofstream out(file_name.str());
-  NVF_ERROR(out.is_open());
-  out.write(code.data(), (std::streamsize)code.size());
-  out.close();
-  return file_name.str();
-}
-
-// Get the max register count passed as -maxrregcount ptxas
-// option. The count is determined based on block sizes, an optional
-// heuristic and an environment variable.
-std::optional<int64_t> getMaxRegCount(
-    std::optional<int64_t> opt_block_size,
-    const int64_t max_register_heuristic) {
-  // The maximum possible count allowed by ptxas is 255
-  constexpr int64_t max_register_limit = 255;
-
-  // Temporary set the max register count to be larger than the
-  // limit.
-  int64_t max_register = max_register_limit + 1;
-
-  // If the block size is known, set the maximum that at least allows
-  // one block to be resident on an SM
-  if (opt_block_size.has_value() && opt_block_size.value() > 0) {
-    constexpr int64_t block_per_sm = 1;
-    max_register = std::min(
-        max_register_limit,
-        getRegPerThreadGivenThreadsPerSM(
-            opt_block_size.value() * block_per_sm));
-  }
-
-  // If a heuristic value is given, i.e., max_register_heuristic is
-  // less than the limit, use that value if it's smaller than the
-  // block-size based count
-  if (max_register_heuristic < max_register_limit) {
-    max_register = std::min(max_register, max_register_heuristic);
-  }
-
-  // Overwrite the count by the environment variable
-  if (auto env_count = getNvFuserEnv("MAX_REG_COUNT")) {
-    auto env_max_reg_count = std::atoi(env_count);
-    NVF_CHECK(
-        env_max_reg_count > 0 && env_max_reg_count <= max_register_limit,
-        "Invalid max register count specified by NVFUSER_MAX_REG_COUNT: ",
-        env_max_reg_count);
-    max_register = env_max_reg_count;
-  }
-
-  // only need to set this option when we want to limit the register usage,
-  // otherwise compiler with cuda-12.7 may use more registers than needed,
-  // which may cause lower occupancy and performance regression.
-  if (max_register < max_register_limit) {
-    return max_register;
-  } else {
-    return std::optional<int64_t>();
-  }
-}
-
-//! Utility class to invoke nvrtcCompileProgram. Mainly for setting up
-//! the c-str options.
-class NvrtcCompileDriver {
- public:
-  void setOption(const std::string& opt) {
-    options_.push_back(opt);
-  }
-
-  const std::vector<std::string>& options() const {
-    return options_;
-  }
-
-  std::string invoke(nvrtcProgram program, const std::string& src) const {
-    FUSER_PERF_SCOPE("executor_utils::Nvrtc::CompileProgram");
-    auto opts = getOptions();
-    auto result = nvrtcCompileProgram(
-        program, static_cast<int>(opts.size()), opts.data());
-    size_t logsize = 0;
-    NVFUSER_NVRTC_SAFE_CALL(nvrtcGetProgramLogSize(program, &logsize));
-    // The log size, as returned by 'nvrtcGetProgramLogSize', appears larger
-    // than its actual size by 2. This discrepancy was noticed in NVRTC
-    // version 12.1. The log returned from 'nvrtcGetProgramLog' terminates with
-    // a NULL character, ensuring it's safe to use 'std::vector<char>' for
-    // storage before converting it to 'std::string'.
-    std::vector<char> log_backing_buf(logsize);
-    char* log_buf = log_backing_buf.data();
-    NVFUSER_NVRTC_SAFE_CALL(nvrtcGetProgramLog(program, log_buf));
-    if (result != NVRTC_SUCCESS) {
-      // Print CUDA starting at first global function
-      size_t kernel_start = src.find("__global__");
+    auto aliased_to = alias_info.aliased_io->as<TensorView>();
+    auto aliased_to_idx = std::distance(
+        fusion->inputs().begin(),
+        std::find(
+            fusion->inputs().begin(), fusion->inputs().end(), aliased_to));
+    if (aliased_to_idx < (int64_t)fusion->inputs().size()) {
+      output_to_input_map[output_idx] = (int)aliased_to_idx;
+    } else {
+      auto aliased_out = std::find(
+          fusion->outputs().begin(), fusion->outputs().end(), aliased_to);
+      NVF_ERROR(
+          aliased_out != fusion->outputs().end(),
+          "Could not find the alias tensor of: ",
+          fusion->outputs()[output_idx]->toString(),
+          "\nAliased to: ",
+          aliased_to->toString());
       NVF_THROW(
-          "\n",
-          src.substr(kernel_start),
-          "\nCUDA NVRTC compile error: ",
-          log_buf);
-    }
-    if (isDebugDumpEnabled(DebugDumpOption::PrintPtxasLog)) {
-      debug() << log_buf << std::endl;
-    }
-    return std::string(log_buf);
-  }
-
- private:
-  // Get options that can be passed to nvrtcCompileProgram
-  std::vector<const char*> getOptions() const {
-    std::vector<const char*> opts(options_.size());
-    for (const auto i : c10::irange(options_.size())) {
-      opts.at(i) = options_.at(i).c_str();
-    }
-    return opts;
-  }
-
- private:
-  std::vector<std::string> options_;
-};
-
-//! Utility class to invoke cuModuleLoadDataEx. Similar to
-//! NvrtcCompileDriver, the main task is to set up the option lists
-//! of type void**
-class CuModuleLoadDataDriver {
- public:
-  //! Valid option type is either int or char*
-  using OptionType = std::variant<int, char*>;
-
-  template <typename OptionValType>
-  void setOption(CUjit_option key, OptionValType val) {
-    options_.push_back(key);
-    option_vals_.push_back(val);
-  }
-
-  //! Enable logging of cuModuleLoadData
-  void enableLogging() {
-    logging_enabled_ = true;
-    log_.resize(kLogSize);
-  }
-
-  const std::string& log() const {
-    NVF_ERROR(logging_enabled_, "Logging not enabled");
-    return log_;
-  }
-
-  //! Invoke cuModuleLoadDataEx with ptx or cubin. Dump logging output
-  //! if enabled
-  std::string invoke(CUmodule& module, const void* image) {
-    FUSER_PERF_SCOPE("executor_utils::Nvrtc::LoadPTX");
-
-    auto [opts, opt_vals] = getOptions();
-
-    NVFUSER_CUDA_SAFE_CALL(cuModuleLoadDataEx(
-        &module, image, opts.size(), opts.data(), opt_vals.data()));
-
-    if (logging_enabled_) {
-      debug() << log_ << std::endl;
-    }
-
-    return log_;
-  }
-
- private:
-  // Get options that can be passed to cuModuleLoadDataEx
-  std::pair<std::vector<CUjit_option>, std::vector<void*>> getOptions() {
-    auto opts = options_;
-    auto opt_vals = option_vals_;
-
-    // Append options for saving log message to log_
-    if (logging_enabled_) {
-      opts.push_back(CU_JIT_LOG_VERBOSE);
-      opt_vals.emplace_back(1);
-
-      opts.push_back(CU_JIT_INFO_LOG_BUFFER);
-      opt_vals.emplace_back(log_.data());
-
-      opts.push_back(CU_JIT_INFO_LOG_BUFFER_SIZE_BYTES);
-      opt_vals.emplace_back(kLogSize);
-    }
-
-    // Convert the options to void**. This is ugly, but that's how
-    // cuModuleLoadDataEx works. See initCUDA in the
-    // matrixMulDynlinkJIT sample
-    // https://github.com/NVIDIA/cuda-samples/blob/master/Samples/0_Introduction/matrixMulDynlinkJIT/matrixMulDynlinkJIT.cpp#L169-L204.
-    std::vector<void*> opt_val_voidp(opt_vals.size());
-    for (const auto i : c10::irange(opt_vals.size())) {
-      auto opt_val = opt_vals.at(i);
-      if (std::holds_alternative<int>(opt_val)) {
-        // NOLINTNEXTLINE(performance-no-int-to-ptr)
-        opt_val_voidp.at(i) = (void*)(int64_t)std::get<int>(opt_val);
-      } else if (std::holds_alternative<char*>(opt_val)) {
-        opt_val_voidp.at(i) = std::get<char*>(opt_val);
-      } else {
-        NVF_THROW("Invalid option");
-      }
-    }
-
-    return std::make_pair(opts, opt_val_voidp);
-  }
-
- private:
-  static constexpr int kLogSize = 8196;
-  //! cuModuleLoadDataEx options
-  std::vector<CUjit_option> options_;
-  //! Option parameters
-  std::vector<OptionType> option_vals_;
-  //! Save log to log_ if true
-  bool logging_enabled_ = false;
-  std::string log_;
-};
-
-// Fill options for nvrtcCompileProgram and cuModuleLoadDataEx
-void fillCompileOptions(
-    NvrtcCompileDriver& nvrtc_compile_driver,
-    CuModuleLoadDataDriver& module_load_driver,
-    bool compile_to_sass,
-    int64_t major,
-    int64_t minor,
-    const CompileParams& compile_params,
-    std::optional<int64_t> opt_block_size) {
-  nvrtc_compile_driver.setOption("--std=c++17");
-  if (isOptionEnabled(EnableOption::KernelDebug)) {
-    nvrtc_compile_driver.setOption("-G");
-  }
-
-  // Suppress warnings for functions that are defined but unused, since we have
-  // many unused functions in the preamble.
-  nvrtc_compile_driver.setOption("--diag-suppress=177");
-
-  // CUDA 11.1 allows going directly to SASS (sm_) instead of PTX (compute_)
-  // which gives better backwards compatibility to work on older driver,
-  // (since older driver doesn't necessarily recognize PTX emitted by new
-  // toolkit);
-  // Meanwhile, for forward compatibility (future device with
-  // `unsupported_arch==True`), since SASS are not necessarily compatible,
-  // we fallback to PTX instead.
-  std::string compute = std::string("--gpu-architecture=") +
-      (compile_to_sass ? "sm_" : "compute_") + std::to_string(major) +
-      std::to_string(minor);
-  if (major == 9) {
-    // Hopper MMAs require 90a instead of 90
-    compute += "a";
-  }
-  nvrtc_compile_driver.setOption(compute);
-
-  nvrtc_compile_driver.setOption("-default-device");
-
-  if (isOptionDisabled(DisableOption::Fma)) {
-    nvrtc_compile_driver.setOption("--fmad=false");
-  } else {
-    nvrtc_compile_driver.setOption("--fmad=true");
-  }
-
-  // Add line info to generated kernels
-  if (isOptionEnabled(EnableOption::KernelLineInfo)) {
-    nvrtc_compile_driver.setOption("-lineinfo");
-  }
-
-#ifdef NDEBUG
-  // Avoid excessive register usage from assertion
-  nvrtc_compile_driver.setOption("-DNDEBUG");
-#endif
-
-  if (isOptionEnabled(EnableOption::KernelProfile)) {
-    nvrtc_compile_driver.setOption("-DNVFUSER_PROFILE_KERNEL");
-  }
-  if (isDebugDumpEnabled(DebugDumpOption::PrintPtxasLog) ||
-      isDebugDumpEnabled(DebugDumpOption::PerfDebugVerbose) ||
-      isOptionEnabled(EnableOption::WarnRegisterSpill) ||
-      compile_params.enable_ptxas_verbose) {
-    // show register usage in compilation log
-    if (compile_to_sass) {
-      nvrtc_compile_driver.setOption("--ptxas-options");
-      nvrtc_compile_driver.setOption("--verbose");
-    } else {
-      module_load_driver.enableLogging();
+          "Kernel found with output to output aliasing, this is unsupported at "
+          "this moment.\n",
+          "Output: ",
+          fusion->outputs()[output_idx]->toString(),
+          "\nAliased to: ",
+          aliased_to->toString());
     }
   }
-
-  const char* ptxas_opt_level = getNvFuserEnv("JIT_OPT_LEVEL");
-
-  if (ptxas_opt_level) {
-    int val = atoi(ptxas_opt_level);
-    if (val <= 4 && val >= 0) {
-      if (val < 4) {
-        TORCH_WARN(
-            "ptxas optimization level manually set as ",
-            val,
-            ", which could negatively affect performance. Try removing env variable NVFUSER_JIT_OPT_LEVEL for optimal performance.");
-      }
-      if (compile_to_sass) {
-        nvrtc_compile_driver.setOption("--ptxas-options");
-        nvrtc_compile_driver.setOption("-O" + std::to_string(val));
-      } else {
-        module_load_driver.setOption(CU_JIT_OPTIMIZATION_LEVEL, val);
-      }
-    } else {
-      TORCH_WARN_ONCE(
-          "acceptable range for NVFUSER_JIT_OPT_LEVEL is between 0 and 4, but received ",
-          val,
-          ", ignoring the option");
-    }
-  }
-
-  const auto max_register =
-      getMaxRegCount(opt_block_size, compile_params.maxrregcount);
-
-  // If the max register count is set
-  if (max_register.has_value()) {
-    if (compile_to_sass) {
-      nvrtc_compile_driver.setOption(
-          "--maxrregcount=" + std::to_string(*max_register));
-    } else {
-      module_load_driver.setOption(CU_JIT_MAX_REGISTERS, (int)*max_register);
-    }
-  }
+  return output_to_input_map;
 }
 
-// Dump ptxas output if register spill is detected
-int warnRegisterSpill(const std::string& compile_log) {
-  auto getRegisterSpillInfo = [](const std::string& log, const char* subStr) {
-    auto it_end =
-        std::search(log.begin(), log.end(), subStr, subStr + strlen(subStr)) -
-        1;
-    auto it_beg = it_end - 1;
-    while (!std::isspace(*(it_beg - 1))) {
-      it_beg--;
-    }
-    std::string str(it_beg, it_end);
-    return std::stoi(str);
-  };
-
-  const char* str_stack = "bytes stack frame";
-  const char* str_store = "bytes spill stores";
-  const char* str_load = "bytes spill loads";
-  int stack_count = getRegisterSpillInfo(compile_log, str_stack);
-  int store_count = getRegisterSpillInfo(compile_log, str_store);
-  int load_count = getRegisterSpillInfo(compile_log, str_load);
-  int allowed_spill = 0;
-  if (isOptionEnabled(EnableOption::WarnRegisterSpill)) {
-    auto optionArgs = getEnableOptionArguments(EnableOption::WarnRegisterSpill);
-    if (!optionArgs.empty()) {
-      try {
-        allowed_spill = std::stoi(optionArgs[0]);
-      } catch (const std::exception& e) {
-        debug() << "skip invalid argument for WarnRegisterSpill, arg = "
-                << optionArgs[0] << std::endl;
-      }
-    }
-  }
-  if (stack_count > allowed_spill || store_count > allowed_spill ||
-      load_count > allowed_spill) {
-    debug() << "WARNING: Register spill detected\n" << compile_log << std::endl;
-  }
-  return store_count + load_count;
-}
-
-void createNvrtcProgram(
-    nvrtcProgram& program,
-    const std::string& id,
-    const std::string& full_src_code) {
-  std::stringstream ss;
-  ss << "__tmp_kernel_" << id << ".cu";
-  std::string name = ss.str();
-  FUSER_PERF_SCOPE("executor_utils::NvrtcCreateProgram");
-  NVFUSER_NVRTC_SAFE_CALL(nvrtcCreateProgram(
-      &program, full_src_code.c_str(), name.c_str(), 0, nullptr, nullptr));
-}
-
-// Compile the given source code with the NVRTC compiler driver.
-std::unique_ptr<CompiledKernel> compileSource(
-    const std::string& full_src_code,
-    const std::string& func_name,
-    const std::string& id,
-    const bool compile_to_sass,
-    NvrtcCompileDriver& nvrtc_compile) {
-  std::stringstream log;
-
-  nvrtcProgram program; // NOLINT(cppcoreguidelines-init-variables)
-  torch::jit::ResourceGuard holdProgram([&] {
-    FUSER_PERF_SCOPE("executor_utils::NvrtcDestroyProgram");
-    NVFUSER_NVRTC_SAFE_CALL(nvrtcDestroyProgram(&program));
-  });
-
-  createNvrtcProgram(program, id, full_src_code);
-
-  NVFUSER_NVRTC_SAFE_CALL(nvrtcAddNameExpression(program, func_name.c_str()));
-  log << nvrtc_compile.invoke(program, full_src_code) << std::endl;
-
-  auto compiled_kernel = std::make_unique<CompiledKernel>();
-  const char* lowered_kernel_name = nullptr;
-  NVFUSER_NVRTC_SAFE_CALL(
-      nvrtcGetLoweredName(program, func_name.c_str(), &lowered_kernel_name));
-  compiled_kernel->kernel_name = lowered_kernel_name;
-  compiled_kernel->compile_log = log.str();
-
-  if (compile_to_sass) {
-    compiled_kernel->cubin = compileNvrtcProgramToCubin(program);
-    if (isDebugDumpEnabled(DebugDumpOption::Cubin)) {
-      compiled_kernel->cubin_filename =
-          dumpCompiledCodeToFile(compiled_kernel->cubin, id, ".cubin");
-    }
-  }
-
-  if (!compile_to_sass || isDebugDumpEnabled(DebugDumpOption::Ptx)) {
-    compiled_kernel->ptx = compileNvrtcProgramToPtx(program);
-    if (isDebugDumpEnabled(DebugDumpOption::Ptx)) {
-      compiled_kernel->ptx_filename =
-          dumpCompiledCodeToFile(compiled_kernel->ptx, id, ".ptx");
-    }
-  }
-
-  return compiled_kernel;
-}
-
-} // namespace
-
-CompiledKernel::~CompiledKernel() {
+CudaExecutable::~CudaExecutable() {
   if (module != nullptr) {
     NVFUSER_CUDA_SAFE_CALL(cuModuleUnload(module));
     module = (CUmodule)0x2a2a2a2a2a2a2a2a;
   }
-}
-
-// Compile the source if no existing compiled binary is found in KernelDB
-std::unique_ptr<CompiledKernel> getCompiledKernel(
-    std::optional<std::reference_wrapper<const std::string>> kernel_code,
-    const std::string& full_src_code,
-    const std::string& func_name,
-    const std::string& id,
-    const CompileParams& compile_params,
-    std::optional<int64_t> opt_block_size) {
-  FUSER_PERF_SCOPE("executor_utils::NVRTC");
-
-  at::cuda::jit::initializeCudaContext();
-
-  // The above initialization works in some cases. However, it seems to
-  // occasionally fail to initialize a primary context. Here we check for that
-  // and if we detect that no context exists, we create one manually.
-  int device = 0;
-  cudaGetDevice(&device);
-  if (!at::detail::getCUDAHooks().hasPrimaryContext((c10::DeviceIndex)device)) {
-    // CUDA>=12 creates a context when cudaSetDevice is called. However, before
-    // cu12, that context is not necessarily created. In that case, we create
-    // one here implicitly. See https://github.com/NVIDIA/Fuser/issues/429
-    cudaFree(nullptr);
-  }
-
-  const auto prop = at::cuda::getCurrentDeviceProperties();
-
-  int64_t major = 0, minor = 0;
-  bool compile_to_sass = false;
-  queryTargetGPUVersion(prop, major, minor, compile_to_sass);
-
-#if CUDA_VERSION < 11010
-  // compile to sass is not allowed prior to CUDA 11.1
-  compile_to_sass = false;
-#endif
-
-  if (isOptionDisabled(DisableOption::CompileToSass)) {
-    compile_to_sass = false;
-  }
-
-  NvrtcCompileDriver nvrtc_compile_driver;
-  CuModuleLoadDataDriver module_load_driver;
-
-  fillCompileOptions(
-      nvrtc_compile_driver,
-      module_load_driver,
-      compile_to_sass,
-      major,
-      minor,
-      compile_params,
-      opt_block_size);
-
-  std::stringstream log;
-
-  if (compile_to_sass) {
-    log << "\nCompile options: ";
-    for (const auto& opt : nvrtc_compile_driver.options()) {
-      log << opt << " ";
-    }
-    if (opt_block_size.has_value()) {
-      log << " ; block size=" << opt_block_size.value() << "\n";
-    }
-  }
-
-  auto compiled_kernel = std::make_unique<CompiledKernel>();
-  const auto compile_args =
-      toDelimitedString(nvrtc_compile_driver.options(), " ");
-
-  auto& kernel_db = KernelDb::get();
-  const auto use_kernel_db = kernel_db.enabled() && kernel_code.has_value();
-
-  // If the Kernel Query fails, the Kernel is recompiled
-  if (!(use_kernel_db &&
-        kernel_db.query(
-            kernel_code.value(),
-            compile_args,
-            compiled_kernel->kernel_name,
-            (compile_to_sass ? compiled_kernel->cubin
-                             : compiled_kernel->ptx)))) {
-    compiled_kernel = compileSource(
-        full_src_code, func_name, id, compile_to_sass, nvrtc_compile_driver);
-    log << compiled_kernel->compile_log << std::endl;
-    if (use_kernel_db) {
-      auto result = kernel_db.write(
-          kernel_code.value(),
-          compile_args,
-          compiled_kernel->kernel_name,
-          (compile_to_sass ? compiled_kernel->cubin : compiled_kernel->ptx));
-      if (!result) {
-        TORCH_WARN(
-            "kernel_db was unable to write kernel: ",
-            compiled_kernel->kernel_name);
-      }
-    }
-  }
-
-  log << module_load_driver.invoke(
-             compiled_kernel->module,
-             (compile_to_sass ? compiled_kernel->cubin.data()
-                              : compiled_kernel->ptx.data()))
-      << std::endl;
-  compiled_kernel->compile_log = log.str();
-  compiled_kernel->compile_args = compile_args;
-
-  if (isOptionEnabled(EnableOption::WarnRegisterSpill) ||
-      compile_params.enable_ptxas_verbose) {
-    compiled_kernel->register_spills =
-        warnRegisterSpill(compiled_kernel->compile_log);
-  }
-
-  NVFUSER_CUDA_SAFE_CALL(cuModuleGetFunction(
-      &(compiled_kernel->function),
-      compiled_kernel->module,
-      compiled_kernel->kernel_name.c_str()));
-
-  // Store block size used to generate compile arguments
-  if (opt_block_size.has_value()) {
-    compiled_kernel->block_size = opt_block_size.value();
-  }
-
-  return compiled_kernel;
-}
-
-std::unique_ptr<CompiledKernel> getCompiledKernel(
-    const serde::CudaKernel* buffer,
-    const CompileParams& compile_params) {
-  FUSER_PERF_SCOPE("executor_utils::serde_NVRTC");
-
-  NVF_ERROR(buffer != nullptr, "serde::CudaKernel is nullptr.");
-
-  // Deserialize flatbuffer into CompiledKernel
-  auto compiled_kernel = std::make_unique<CompiledKernel>();
-  compiled_kernel->kernel_name = buffer->kernel_name()->str();
-  compiled_kernel->compile_args = buffer->compile_args()->str();
-  compiled_kernel->block_size = buffer->block_size();
-
-  if (buffer->cubin() != nullptr) {
-    compiled_kernel->cubin.reserve(buffer->cubin()->size());
-    std::copy(
-        buffer->cubin()->begin(),
-        buffer->cubin()->end(),
-        std::back_inserter(compiled_kernel->cubin));
-    compiled_kernel->cubin_filename = buffer->cubin_filename()->str();
-  }
-
-  if (buffer->ptx() != nullptr) {
-    compiled_kernel->ptx.reserve(buffer->ptx()->size());
-    std::copy(
-        buffer->ptx()->begin(),
-        buffer->ptx()->end(),
-        std::back_inserter(compiled_kernel->ptx));
-    compiled_kernel->ptx_filename = buffer->ptx_filename()->str();
-  }
-
-  at::cuda::jit::initializeCudaContext();
-
-  // The above initialization works in some cases. However, it seems to
-  // occasionally fail to initialize a primary context. Here we check for that
-  // and if we detect that no context exists, we create one manually.
-  int device = 0;
-  cudaGetDevice(&device);
-  if (!at::detail::getCUDAHooks().hasPrimaryContext((c10::DeviceIndex)device)) {
-    // CUDA>=12 creates a context when cudaSetDevice is called. However, before
-    // cu12, that context is not necessarily created. In that case, we create
-    // one here implicitly. See https://github.com/NVIDIA/Fuser/issues/429
-    cudaFree(nullptr);
-  }
-
-  const auto prop = at::cuda::getCurrentDeviceProperties();
-
-  // Generate compile args and compare against saved args in compiled_kernel
-  NvrtcCompileDriver nvrtc_compile_driver;
-  CuModuleLoadDataDriver module_load_driver;
-
-  int64_t major = 0, minor = 0;
-  bool compile_to_sass = false;
-  queryTargetGPUVersion(prop, major, minor, compile_to_sass);
-
-  std::optional<int64_t> opt_block_size;
-  if (compiled_kernel->block_size >= -1) {
-    opt_block_size = compiled_kernel->block_size;
-  }
-
-  fillCompileOptions(
-      nvrtc_compile_driver,
-      module_load_driver,
-      compile_to_sass,
-      major,
-      minor,
-      compile_params,
-      opt_block_size);
-
-  const auto latest_compile_args =
-      toDelimitedString(nvrtc_compile_driver.options(), " ");
-  NVF_ERROR(
-      latest_compile_args == compiled_kernel->compile_args,
-      "The compile arguments for the serialized cuda kernel does not ",
-      "match the latest generated compile args.\t",
-      latest_compile_args,
-      "\t",
-      compiled_kernel->compile_args);
-
-  NVF_ERROR(
-      !compile_to_sass || !compiled_kernel->cubin.empty(),
-      "Expected compiled cubin after deserializing CompiledKernel.");
-
-  NVF_ERROR(
-      compile_to_sass || !compiled_kernel->ptx.empty(),
-      "Expected compiled ptx after deserializing CompiledKernel.");
-
-  std::stringstream log;
-  log << module_load_driver.invoke(
-             compiled_kernel->module,
-             (compile_to_sass ? compiled_kernel->cubin.data()
-                              : compiled_kernel->ptx.data()))
-      << std::endl;
-  compiled_kernel->compile_log = log.str();
-
-  NVFUSER_CUDA_SAFE_CALL(cuModuleGetFunction(
-      &(compiled_kernel->function),
-      compiled_kernel->module,
-      compiled_kernel->kernel_name.c_str()));
-
-  return compiled_kernel;
 }
 
 namespace caching {
@@ -1511,6 +666,21 @@ std::unique_ptr<ParallelExtentMap> getParallelIterExtents(
   }
 
   return parallel_iter_extents_ptr;
+}
+
+void validateIndexCasts(
+    kir::Kernel* kernel,
+    ExpressionEvaluator& expr_eval,
+    const LaunchParams& launch_params) {
+  if (!kernel->summary().has_narrowing_index_casts) {
+    return;
+  }
+  ScalarBoundsCalculator calc(kernel, expr_eval, launch_params);
+  NVF_ERROR(
+      calc.castsFromIndexAreSafe(),
+      "Found unsafe casts from DataType::Index. ",
+      "This is likely because one coordinate of a TMA instruction overflowed "
+      "Int32");
 }
 
 } // namespace executor_utils

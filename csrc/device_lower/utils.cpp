@@ -8,7 +8,6 @@
 #include <device_lower/utils.h>
 
 #include <ATen/cuda/CUDAContext.h>
-#include <c10/util/irange.h>
 #include <device_lower/analysis/thread_predicate.h>
 #include <device_lower/lower2device.h>
 #include <device_lower/utils.h>
@@ -45,53 +44,6 @@ kir::IfThenElse* cloneIfThenElse(kir::IfThenElse* ite) {
 } // namespace scope_utils
 
 namespace ir_utils {
-
-TVDomainGuard::TVDomainGuard(TensorView* tv, TensorDomain* td)
-    : tv_(tv), prev_domain_(tv_->domain()) {
-  tv_->setDomain(td);
-}
-
-TVDomainGuard::TVDomainGuard(TVDomainGuard&& guard)
-    : tv_(nullptr), prev_domain_(guard.prev_domain_) {
-  std::swap(tv_, guard.tv_);
-}
-
-TVDomainGuard::~TVDomainGuard() {
-  if (tv_ != nullptr) {
-    tv_->setDomain(prev_domain_);
-  }
-}
-
-ir_utils::TVDomainGuard overrideContiguityGuard(
-    TensorView* tv,
-    bool contiguity) {
-  // Use domain guard to ignore the contiguity of the given tv.
-  TensorDomain* domain_with_specified_contiguity =
-      IrBuilder::create<TensorDomain>(
-          tv->getRootDomain(),
-          tv->getLogicalDomain(),
-          tv->getAllocationDomain(),
-          tv->getLoopDomain(),
-          TensorDomain::getContiguityFilledWith(
-              tv->getMaybeAllocationDomain(), contiguity));
-
-  return ir_utils::TVDomainGuard(tv, domain_with_specified_contiguity);
-}
-
-ir_utils::TVDomainGuard allocateToLogicalDomainGuard(
-    TensorView* tv,
-    bool contiguity) {
-  // Use domain guard to ignore the contiguity of the given tv.
-  TensorDomain* domain_with_specified_contiguity =
-      IrBuilder::create<TensorDomain>(
-          tv->getRootDomain(),
-          tv->getLogicalDomain(),
-          tv->getLoopDomain(),
-          TensorDomain::getContiguityFilledWith(
-              tv->getLogicalDomain(), contiguity));
-
-  return ir_utils::TVDomainGuard(tv, domain_with_specified_contiguity);
-}
 
 std::vector<IterDomain*> iterDomainInputsOf(
     const std::vector<IterDomain*>& input_ids,
@@ -132,18 +84,20 @@ bool isTV(const Val* val) {
 
 // Check if we're a TensorView op that we can generate code for.
 bool isTvOp(const Expr* expr) {
-  if (std::any_of(
-          expr->outputs().begin(),
-          expr->outputs().end(),
-          [](Val* v) { return isTV(v); }) &&
+  if (std::ranges::any_of(expr->outputs(), [](Val* v) { return isTV(v); }) &&
       (expr->isOneOf<
+          ArgsortOp,
+          GroupedMmaOp,
+          ScaledMmaOp,
+          TopKOp,
           UnaryOp,
           BinaryOp,
           TernaryOp,
           TensorConstruct,
           SelectOp,
           IndexSelectOp,
-          TorchGatherOp,
+          IndexPutAccumulateOp,
+          GatherOp,
           ScatterOp,
           RNGOp,
           FullOp,
@@ -159,20 +113,25 @@ bool isTvOp(const Expr* expr) {
           LinearOp,
           SdpaFwdOp,
           SdpaBwdOp,
+          EmbeddingFwdOp,
           BroadcastOp,
           SqueezeOp,
           ExpandOp,
+          RepeatOp,
           ViewAsScalar,
           ViewOp,
           PadOp,
           SliceOp,
           CatOp,
+          ScanOp,
+          kir::AllocTMem,
           kir::GridReduction,
           kir::GroupedGridReduction,
           kir::GridBroadcast,
           kir::GridWelford,
           kir::GroupedGridWelford,
-          kir::VectorizedWelfordOp>())) {
+          kir::VectorizedWelfordOp,
+          kir::RNGOp>())) {
     return true;
   }
   return false;
@@ -201,39 +160,83 @@ bool isCpAsyncOp(const Expr* expr) {
 
 namespace {
 
-enum class CpAsyncBulkTileType { G2S, S2G, NotACpAsyncBulkTile };
+enum class CpAsyncBulkMode { G2S, S2G, NotACpAsyncBulk };
 
-inline CpAsyncBulkTileType getCpAsyncBulkTileType(const Expr* expr) {
+inline CpAsyncBulkMode getCpAsyncBulkMode(const Expr* expr) {
+  // Attempt to cast to LoadStoreOp
   if (auto ldst = dynamic_cast<const LoadStoreOp*>(expr)) {
-    if (ldst->opType() == LoadStoreOpType::CpAsyncBulkTensorTile) {
-      if (getTv(ldst->in())->getMemoryType() == MemoryType::Global &&
-          getTv(ldst->out())->getMemoryType() == MemoryType::Shared) {
-        return CpAsyncBulkTileType::G2S;
+    // Check if opType is either CpAsyncBulk or CpAsyncBulkTensorTile
+    auto op_type = ldst->opType();
+    if (op_type == LoadStoreOpType::CpAsyncBulk ||
+        op_type == LoadStoreOpType::CpAsyncBulkTensorTile) {
+      // Check memory types
+      auto in_mem = getTv(ldst->in())->getMemoryType();
+      auto out_mem = getTv(ldst->out())->getMemoryType();
+      if (in_mem == MemoryType::Global && out_mem == MemoryType::Shared) {
+        return CpAsyncBulkMode::G2S;
       } else if (
-          getTv(ldst->in())->getMemoryType() == MemoryType::Shared &&
-          getTv(ldst->out())->getMemoryType() == MemoryType::Global) {
-        return CpAsyncBulkTileType::S2G;
+          in_mem == MemoryType::Shared && out_mem == MemoryType::Global) {
+        return CpAsyncBulkMode::S2G;
       } else {
-        NVF_THROW("Invalid CpAsyncBulkTileType");
+        NVF_THROW("Invalid memory types for CpAsyncBulk or CpAsyncBulkTile");
       }
     }
   }
-  return CpAsyncBulkTileType::NotACpAsyncBulkTile;
+  return CpAsyncBulkMode::NotACpAsyncBulk;
 }
 
 } // namespace
 
 bool isCpAsyncBulk(const Expr* expr) {
-  return getCpAsyncBulkTileType(expr) !=
-      CpAsyncBulkTileType::NotACpAsyncBulkTile;
+  return getCpAsyncBulkMode(expr) != CpAsyncBulkMode::NotACpAsyncBulk;
 }
 
 bool isCpAsyncBulkLoad(const Expr* expr) {
-  return getCpAsyncBulkTileType(expr) == CpAsyncBulkTileType::G2S;
+  return getCpAsyncBulkMode(expr) == CpAsyncBulkMode::G2S;
 }
 
 bool isCpAsyncBulkStore(const Expr* expr) {
-  return getCpAsyncBulkTileType(expr) == CpAsyncBulkTileType::S2G;
+  return getCpAsyncBulkMode(expr) == CpAsyncBulkMode::S2G;
+}
+
+// return true if expr is nD TMA load or store.
+// nD TMA ops handles out of bound accesses automatically in hardware, no need
+// to predicate it.
+bool isCpAsyncBulkTensorTile(const Expr* expr) {
+  return isCpAsyncBulk(expr) &&
+      expr->as<LoadStoreOp>()->opType() ==
+      LoadStoreOpType::CpAsyncBulkTensorTile;
+}
+bool isCpAsyncBulkTensorTileLoad(const Expr* expr) {
+  return isCpAsyncBulkLoad(expr) &&
+      expr->as<LoadStoreOp>()->opType() ==
+      LoadStoreOpType::CpAsyncBulkTensorTile;
+}
+bool isCpAsyncBulkTensorTileStore(const Expr* expr) {
+  return isCpAsyncBulkStore(expr) &&
+      expr->as<LoadStoreOp>()->opType() ==
+      LoadStoreOpType::CpAsyncBulkTensorTile;
+}
+
+bool isCpAsyncBulk1D(const Expr* expr) {
+  return isCpAsyncBulk(expr) &&
+      expr->as<LoadStoreOp>()->opType() == LoadStoreOpType::CpAsyncBulk;
+}
+bool isCpAsyncBulk1DLoad(const Expr* expr) {
+  return isCpAsyncBulkLoad(expr) &&
+      expr->as<LoadStoreOp>()->opType() == LoadStoreOpType::CpAsyncBulk;
+}
+bool isCpAsyncBulk1DStore(const Expr* expr) {
+  return isCpAsyncBulkStore(expr) &&
+      expr->as<LoadStoreOp>()->opType() == LoadStoreOpType::CpAsyncBulk;
+}
+
+bool isLdStTMem(const Expr* expr) {
+  if (auto ldst = dynamic_cast<const LoadStoreOp*>(expr)) {
+    return ldst->opType() == LoadStoreOpType::LdTMem ||
+        ldst->opType() == LoadStoreOpType::StTMem;
+  }
+  return false;
 }
 
 bool isTensorScalarFillOp(const Expr* expr) {
@@ -278,24 +281,6 @@ std::vector<TensorView*> getTvs(const std::vector<Val*>& vals) {
     }
   }
   return tvs;
-}
-
-TensorView* getTvOutput(const Expr* expr) {
-  for (auto out : expr->outputs()) {
-    if (auto tv = getTv(out)) {
-      return tv;
-    }
-  }
-  return nullptr;
-}
-
-TensorView* getTvInput(const Expr* expr) {
-  for (auto inp : expr->inputs()) {
-    if (auto tv = getTv(inp)) {
-      return tv;
-    }
-  }
-  return nullptr;
 }
 
 bool isScalarOp(const Expr* expr) {
@@ -564,6 +549,32 @@ class ReplaceExprInput : private kir::ExprMutator {
     return;
   }
 
+  void handle(kir::RNGOp* node) final {
+    auto replaced_inputs = getMaybeInputReplacementMap(node);
+    if (replaced_inputs.has_value()) {
+      kir::RNGOp* replacement = nullptr;
+      if (node->inputs().size() == 4) {
+        replacement = IrBuilder::create<kir::RNGOp>(
+            node->output(0),
+            replaced_inputs->at(node->input(0)),
+            replaced_inputs->at(node->input(1)),
+            node->dtype(),
+            node->getRNGOpType(),
+            std::vector<Val*>{
+                replaced_inputs->at(node->input(2)),
+                replaced_inputs->at(node->input(3))});
+      } else {
+        replacement = IrBuilder::create<kir::RNGOp>(
+            node->output(0),
+            replaced_inputs->at(node->input(0)),
+            replaced_inputs->at(node->input(1)),
+            node->dtype(),
+            node->getRNGOpType());
+      }
+      registerReplaceWithPredicate(node, replacement);
+    }
+  }
+
   void handle(ReductionOp* node) final {
     auto replaced_inputs = getMaybeInputReplacementMap(node);
     if (replaced_inputs.has_value()) {
@@ -676,6 +687,81 @@ std::vector<Expr*> getAllSwizzlesBetween(
   return all_swizzles;
 }
 
+bool isTMAOrMMASmemTv(TensorView* tv) {
+  return tv->getMemoryType() == MemoryType::Shared &&
+      (ir_utils::isCpAsyncBulkLoad(tv->definition()) ||
+       std::ranges::any_of(tv->uses(), [](Expr* e) {
+         return e->isA<MmaOp>() || ir_utils::isCpAsyncBulkStore(e);
+       }));
+}
+
+MmaInputSmemSwizzle getSwizzleMode(TensorView* tv) {
+  // Output of TMA load
+  if (ir_utils::isCpAsyncBulkLoad(tv->definition())) {
+    return GpuLower::current()->consumerToTMAInfo().at(tv).swizzle();
+  }
+  for (auto use : tv->uses()) {
+    // Input of TMA store
+    if (ir_utils::isCpAsyncBulkStore(use)) {
+      TensorView* consumer_tv = ir_utils::getTvOutput(use);
+      return GpuLower::current()->consumerToTMAInfo().at(consumer_tv).swizzle();
+    }
+
+    // Input of MmaOp
+    if (use->isA<MmaOp>()) {
+      TensorView* consumer_tv = ir_utils::getTvOutput(use);
+      auto id_graph = GpuLower::current()->tensorIndexer().traversalGraph();
+      const auto& to_domain = id_graph.toGroups(tv->getMaybeAllocationDomain());
+      const auto& from_domain = id_graph.toGroups(consumer_tv->getLoopDomain());
+      auto exprs = ValGraphBFS::getExprGroupsBetween(
+                       id_graph,
+                       {from_domain.begin(), from_domain.end()},
+                       {to_domain.begin(), to_domain.end()},
+                       false)
+                       .first;
+      for (const auto& [eg, dir] : exprs) {
+        auto expr = eg->front();
+        if (Swizzle* swizzle = dynamic_cast<Swizzle*>(expr)) {
+          NVF_ERROR(
+              swizzle->swizzleType() == SwizzleType::XOR, "expect xor swizzle");
+          return getSwizzleFromBytes(
+              swizzle->inX()->extent()->evaluate().as<int64_t>() * 16);
+        }
+      }
+    }
+  }
+  return MmaInputSmemSwizzle::None;
+}
+
+std::optional<int64_t> getStageSlicePosition(const TensorView* tv) {
+  NVF_ERROR(tv != nullptr);
+
+  bool is_warp_specialized =
+      std::holds_alternative<WarpSpecialized>(tv->circularBufferOptions().type);
+  if (!is_warp_specialized) {
+    return std::nullopt;
+  }
+
+  const auto& warp_specialized =
+      std::get<WarpSpecialized>(tv->circularBufferOptions().type);
+  if (!warp_specialized.stage_slice_position.has_value()) {
+    return std::nullopt;
+  }
+
+  return warp_specialized.stage_slice_position.value();
+}
+
+// Returns true if the for_loops contain a loop with the given
+// CircularBufferLoopStage.
+bool containsCircularBufferStage(
+    const std::vector<ForLoop*>& for_loops,
+    CircularBufferLoopStage stage_type) {
+  return std::any_of(
+      for_loops.begin(), for_loops.end(), [stage_type](const ForLoop* fl) {
+        return fl->circularBufferLoopStage() == stage_type;
+      });
+}
+
 } // namespace ir_utils
 
 namespace lower_utils {
@@ -698,21 +784,27 @@ bool hasBlockSync(const Expr* expr, const ThreadPredicateMap& pred_map) {
     return false;
   }
 
-  if (!(ir_utils::isReductionOp(expr) || expr->isA<BroadcastOp>() ||
-        expr->isA<kir::GridBroadcast>())) {
-    return false;
-  }
-
   // GroupedReductionOp can have multiple output TVs, but they must be
   // parallelized in the same way, so just checking one of them is enough.
   auto tv = ir_utils::getTvOutput(expr);
 
-  if (tv->hasBlockReduction() || tv->hasGridReduction()) {
+  if (ir_utils::isReductionOp(expr) &&
+      (tv->hasBlockReduction() || tv->hasGridReduction())) {
     return true;
-  } else if (expr->isA<BroadcastOp>()) {
-    const ParallelTypeBitmap pt_map =
-        GpuLower::current()->threadPredMap().getParallelBroadcastDomains(tv);
-    return pt_map.any();
+  }
+
+  if ((expr->isA<BroadcastOp>() &&
+       GpuLower::current()
+           ->threadPredMap()
+           .getParallelBroadcastDomains(tv)
+           .any()) ||
+      expr->isA<kir::GridBroadcast>()) {
+    return true;
+  }
+
+  // These ops currently use CUB, which uses syncthreads internally
+  if (expr->isOneOf<ArgsortOp, ScanOp, TopKOp>()) {
+    return true;
   }
 
   return false;
@@ -738,19 +830,24 @@ kir::Allocate* allocGlobalBufferForGridComm(
       resets_to_zero);
 }
 
-BasicAllocInfo getAllocInformation(
+AllocPosInfo getAllocPosInfo(
     const TensorView* tv,
     const std::vector<ForLoop*>& for_loops,
     const std::unordered_map<IterDomain*, IterDomain*>& id_map,
     bool use_id_map) {
   DEBUG_PRINT_SCOPE(tv);
-  BasicAllocInfo info;
+  AllocPosInfo info;
   auto gpu_lower = GpuLower::current();
 
   bool outer_alloc_found = false;
 
+  // Use stage_slice_position if it exists for TensorView. Otherwise, fallback
+  // to compute_at_position.
+  int64_t compute_position =
+      ir_utils::getStageSlicePosition(tv).value_or(tv->getComputeAtPosition());
+
   for (auto fl : for_loops) {
-    if (info.alloc_pos == tv->getComputeAtPosition()) {
+    if (info.alloc_pos == compute_position) {
       DEBUG_LOG("Break at info.alloc_pos = ", info.alloc_pos);
       break;
     }
@@ -761,7 +858,8 @@ BasicAllocInfo getAllocInformation(
           std::find(outputs.begin(), outputs.end(), tv) != outputs.end(),
           "Invalid computeAt of T",
           tv->name(),
-          ". A reducation axis is detected outside computeAt point even though it is not an output tensor.");
+          ". A reducation axis is detected outside computeAt point even though "
+          "it is not an output tensor.");
       DEBUG_LOG("Break at info.alloc_pos = ", info.alloc_pos);
       break;
     }
@@ -848,9 +946,16 @@ bool isScalarExpr(Expr* expr) {
   return true;
 }
 
-bool isExtentEqualToMaxParallelTypeExtent(const IterDomain* id) {
+bool isExtentEqualToMaxParallelTypeExtent(
+    const IterDomain* id,
+    bool in_compute_warp) {
   const auto& parallel_dim_map = GpuLower::current()->parallelDimensionMap();
-  auto* pdm_max_extent = parallel_dim_map.getRaw(id->getParallelType());
+  Val* pdm_max_extent = nullptr;
+  if (in_compute_warp) {
+    pdm_max_extent = parallel_dim_map.getRawCompute(id->getParallelType());
+  } else {
+    pdm_max_extent = parallel_dim_map.getRaw(id->getParallelType());
+  }
   if (nullptr == pdm_max_extent) {
     return false;
   }
@@ -924,14 +1029,17 @@ std::array<UnitDim, 2> getMmaLayout(const MmaOp* expr) {
   if (isAmpere(expr->macro()) || isTuring(expr->macro())) {
     return {UnitDim::K, UnitDim::K};
   }
-  NVF_ERROR(isHopper(expr->macro()));
 
   // NOLINTNEXTLINE(cppcoreguidelines-pro-type-member-init)
   std::array<UnitDim, 2> layout;
 
   auto out_tv = ir_utils::getTv(expr->out());
   IterDomain* reduction_id = nullptr;
-  for (auto id : out_tv->getLogicalDomain()) {
+  // For hopper matmuls, the mma_result logical domain is reordered as [M, N, K]
+  // using commitLeafToLogical. In the split-k case, use the root domain for the
+  // mma layout because the k dimension is divided into two iterDomains in the
+  // logical domain.
+  for (auto id : out_tv->getMaybeRootDomain()) {
     if (id->isReduction()) {
       reduction_id = id;
       break;
@@ -941,7 +1049,7 @@ std::array<UnitDim, 2> getMmaLayout(const MmaOp* expr) {
 
   std::array<TensorView*, 2> inputs = {
       ir_utils::getTv(expr->inA()), ir_utils::getTv(expr->inB())};
-  for (auto i : c10::irange(2)) {
+  for (auto i : arange(2)) {
     auto in_tv = inputs.at(i);
     if (in_tv->getMemoryType() == MemoryType::Local) {
       layout[i] = UnitDim::K;
@@ -1001,13 +1109,14 @@ bool predicateAtEnd(ForLoop* loop) {
   // If the other output is mapped with a vectorized IterDomain,
   // this IterDomain needs to be predicated at each iteration point.
   const auto& other_id_exact_set = GpuLower::current()
-                                       ->caMap()
-                                       ->getIdSets(IdMappingMode::EXACT)
-                                       .getDisjointSetOf(other_out_id);
+                                       ->idModel()
+                                       .idGraph(IdMappingMode::EXACT)
+                                       .toGroup(other_out_id);
 
   if (std::any_of(
-          other_id_exact_set.begin(), other_id_exact_set.end(), [](auto id) {
-            return id->getParallelType() == ParallelType::Vectorize;
+          other_id_exact_set->begin(), other_id_exact_set->end(), [](Val* val) {
+            return val->as<IterDomain>()->getParallelType() ==
+                ParallelType::Vectorize;
           })) {
     return false;
   }
@@ -1270,7 +1379,7 @@ Val* extent(const Composition<Projection>& comp) {
   return std::accumulate(
       comp.begin(),
       comp.end(),
-      static_cast<Val*>(nullptr),
+      FusionGuard::getCurFusion()->oneVal(),
       [](Val* acc, const auto& g) {
         return SimplifyingIrBuilder::mulExpr(acc, extent(g));
       });
@@ -1290,23 +1399,21 @@ Val* extent(const Projection& proj) {
 Projection simplify(Projection proj);
 
 // Given an expression on the traversal path and its direction, get the from
-// and to groups. Note that the traversal path is obtained by running BFS from
-// domain to linear_g, so the direction is flipped with respect to how we
-// propagate from linear_g to domain.
+// and to groups.
 auto fromGroups(
     const ValGraph& id_graph,
     const ExprGroup& eg,
     Direction direction) {
-  return direction == Direction::Forward ? id_graph.outputGroups(eg)
-                                         : id_graph.inputGroups(eg);
+  return direction == Direction::Backward ? id_graph.outputGroups(eg)
+                                          : id_graph.inputGroups(eg);
 }
 
 auto toGroups(
     const ValGraph& id_graph,
     const ExprGroup& eg,
     Direction direction) {
-  return direction == Direction::Forward ? id_graph.inputGroups(eg)
-                                         : id_graph.outputGroups(eg);
+  return direction == Direction::Backward ? id_graph.inputGroups(eg)
+                                          : id_graph.outputGroups(eg);
 }
 
 // Do the propagation to project linear_g on domain through the given
@@ -1457,8 +1564,6 @@ Projection propagate(
     const ExprGroup& eg,
     Direction direction) {
   // Just recursively propagate subtree.
-  auto from = fromGroups(id_graph, eg, direction);
-  auto to = toGroups(id_graph, eg, direction);
   auto propagated = propagate(*part.what, id_graph, eg, direction);
   if (!propagated.hasValue()) {
     return {};
@@ -1592,6 +1697,9 @@ Val* proveLinearAndGetStrideAfterPropagation(
 Val* proveLinearAndGetStrideAfterPropagation(
     const Composition<Projection>& comp,
     const ValGroups& domain) {
+  if (comp.empty()) {
+    return FusionGuard::getCurFusion()->zeroVal();
+  }
   auto it = search(domain, comp);
   if (it == domain.end()) {
     return nullptr;
@@ -1691,7 +1799,6 @@ PartOf<Projection> cancelCommonFactors(const PartOf<Projection>& part) {
   if (new_inner_extent->isOne()) {
     new_inner_extent = nullptr;
   }
-  NVF_ERROR(!dq.empty());
   if (dq.size() == 1) {
     return PartOf<Projection>{
         std::make_shared<Projection>(dq.front()),
@@ -1780,7 +1887,6 @@ PartOf<Projection> trimRedundant(const PartOf<Projection>& part) {
   while (count < (int64_t)dq.size()) {
     dq.pop_front();
   }
-  NVF_ERROR(!dq.empty());
   if (dq.size() == 1) {
     return PartOf<Projection>{
         std::make_shared<Projection>(dq.front()),
@@ -1907,6 +2013,11 @@ Val* proveLinearAndGetStride(
     const ValGroup& linear_g,
     const ValGroups& domain) {
   FusionGuard fg(linear_g->front()->fusion());
+  // This function uses simplifyExpr extensively. If we have disable expression
+  // simplification in order to help inspect generated kernels then we will get
+  // incorrect results here. Instead, we ensure it is enabled using this guard.
+  DisableOptionsGuard dog;
+  DisableOptionsGuard::getCurOptions().unset(DisableOption::ExprSimplify);
   if (simplifyExpr(extent(linear_g))->isOne()) {
     // If the extent of the linear group is 1, we always consider it as linear,
     // regardless of its relationship with domain. For this case, we use stride
@@ -1915,30 +2026,63 @@ Val* proveLinearAndGetStride(
     return linear_g->front()->fusion()->zeroVal();
   }
   // Propagate from linear_g to domain. Use frontier to keep track of the
-  // how linear_g lives in the current propagation front.
+  // how linear_g lives in the current propagation front. Note that linear_g may
+  // not contain full dependency of domain.
   Projection frontier = linear_g;
-  auto path = ValGraphBFS::getExprsBetween(id_graph, domain, {linear_g});
-  while (!path.empty()) {
-    const auto& [eg, direction] = path.back();
-    path.pop_back();
-    auto from = fromGroups(id_graph, eg, direction);
+  auto path =
+      ValGraphPermissiveBFS::getExprGroupsBetween(
+          id_graph, {linear_g}, domain, /*require_all_to_visited=*/false)
+          .first;
+  // Propagate along the path from linear_g to domain. Note that we do not
+  // always propagate all the way through the path. Instead, early stopping
+  // is necessary to be functionally correct. For example, if we have the
+  // following ValGroups:
+  //   4   2
+  //    \ /
+  //     8
+  //    / \.
+  //   4'  2'
+  // and we are asking: is 2' linear in [4, 2']? The answer is trivially
+  // yes by eyeballing, because 2' is the inner of [4, 2']. However, we must be
+  // careful in propagation to algorithmically get it right. Although we can
+  // directly tell the answer for this example without any progagation, because
+  // ValGraphPermissiveBFS has no information about the underlying problem we
+  // are solving, it always generate a path that visits `domain` as much as
+  // possible, regardless of whether the underlying problem want it or not.
+  // For this case, although the 4 in `domain` is unrelated to the answer,
+  // ValGraphPermissiveBFS will still visit it. Therefore, it will generate a
+  // path that include the merge of 4 and 2, and the split of 8. If we
+  // mindlessly propagate along this path without early stopping, we will
+  // propagate linear_g into frontier = 2, which leads to a conclusion that
+  // "linear_g is the 2, and domain is [4, 2'], linear_g is not in domain, so I
+  // can not prove linearity", which is not the answer we want. Note that
+  // patterns like this can appear anywhere in the path, so we need to check for
+  // early stopping at each step of the propagation.
+  Val* stride = proveLinearAndGetStrideAfterPropagation(frontier, domain);
+  if (stride != nullptr) {
+    return stride;
+  }
+  for (const auto& [eg, direction] : path) {
     frontier = propagate(frontier, id_graph, eg, direction);
     if (!frontier.hasValue()) {
       // Not representable (or don't know how to represent) by the language of
       // the dynamic type Projection.
       return nullptr;
     }
+    // Check for early stopping.
+    Val* stride = proveLinearAndGetStrideAfterPropagation(frontier, domain);
+    if (stride != nullptr) {
+      return stride;
+    }
   }
-  // After propagation, we should have the information about how linear_g lives
-  // in domain. Parse this information to check if linear_g is linear in domain.
-  return proveLinearAndGetStrideAfterPropagation(frontier, domain);
+  return nullptr;
 }
 
 IterDomain* getConcreteLoopID(IterDomain* id) {
   // Currently, the concrete loop ID depends on if loops are generated
   // based on the IdModel loop promotion, which needs to be enabled
   // explicitly by the IdModelEnableOption::Loop option.
-  if (isIdModelOptionEnabled(IdModelEnableOption::Loop)) {
+  if (GpuLower::current()->idModelOptions().loop()) {
     // If enabled, the concret ID should be basically just the
     // promotion ID itself. However, just to reduce literacl changes
     // of generated kernels so that the CI diff check could report
@@ -1988,14 +2132,29 @@ bool allMmaInputsGuardedByMBarrier(const MmaOp* mma) {
       ir_utils::isCpAsyncBulkLoad(ir_utils::getTv(mma->inB())->definition());
 }
 
-std::vector<Expr*> getSyncExprs(AsyncOpType async_type, int64_t keep_stages) {
-  std::vector<Expr*> sync_exprs;
-  sync_exprs.reserve(2);
-  auto commit = IrBuilder::create<kir::AsyncCommit>(async_type);
-  sync_exprs.push_back(commit);
-  auto wait = IrBuilder::create<kir::AsyncWait>(async_type, keep_stages);
-  sync_exprs.push_back(wait);
-  return sync_exprs;
+bool isWarpSpecializedLoop(ForLoop* loop) {
+  return std::holds_alternative<WarpSpecialized>(
+      GpuLower::current()
+          ->circularBufferInfo()
+          .getCircularBufferOptionsFor(loop->iter_domain())
+          .type);
+}
+
+bool isCopyOnly(Expr* expr) {
+  return expr
+      ->isOneOf<LoadStoreOp, BroadcastOp, SqueezeOp, SliceOp, PadOp, ViewOp>();
+}
+
+bool isCopyOnly(Val* val) {
+  if (val->definition() != nullptr && !isCopyOnly(val->definition())) {
+    return false;
+  }
+  for (auto use : val->uses()) {
+    if (!isCopyOnly(use)) {
+      return false;
+    }
+  }
+  return true;
 }
 
 } // namespace lower_utils

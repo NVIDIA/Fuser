@@ -4,9 +4,10 @@
 import pytest
 from nvfuser import FusionDefinition, DataType
 from nvfuser.pytorch_utils import torch_dtype_to_nvfuser_dtype
-from .core import run_benchmark, clear_dynamo_cache
+from .core import run_benchmark, clear_dynamo_cache, with_executor, DEFAULT_EXECUTORS
 import torch
 from .global_params import generate_input_sizes, FLOAT_DTYPES, PROMOTE_DTYPES
+from .torch_ops import silu_mul
 
 
 def silu_mul_fwd_fusion(fd: FusionDefinition, dtype: DataType):
@@ -31,10 +32,6 @@ def silu_mul_fwd_fusion(fd: FusionDefinition, dtype: DataType):
     fd.add_output(T8)
 
 
-def silu_mul_fwd_fn(inputs: list):  # [in_tensor1, in_tensor_2]
-    return torch.nn.functional.silu(inputs[0]) * inputs[1]
-
-
 @pytest.mark.parametrize("size", generate_input_sizes(dims=2))
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)
 def test_silu_mul_fwd_nvf_benchmark(
@@ -49,29 +46,34 @@ def test_silu_mul_fwd_nvf_benchmark(
     with FusionDefinition() as fd:
         silu_mul_fwd_fusion(fd, torch_dtype_to_nvfuser_dtype(dtype))
     if not disable_validation:
-        eager_output = silu_mul_fwd_fn(inputs)
+        eager_output = silu_mul(inputs)
         fd.validate(inputs, [eager_output])
 
     if not disable_benchmarking:
         run_benchmark(benchmark, fd.execute, inputs)
 
 
-@pytest.mark.parametrize("compile", [False, True], ids=["eager", "compile"])
+@pytest.mark.parametrize("executor", DEFAULT_EXECUTORS)
 @pytest.mark.parametrize("size", generate_input_sizes(dims=2))
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)
 def test_silu_mul_fwd_baseline_benchmark(
     benchmark,
     size: tuple,
     dtype: torch.dtype,
-    compile: bool,
+    executor: str,
 ):
-    if compile:
+    if executor == "torchcompile":
         clear_dynamo_cache()
-    inputs = [torch.randn(*size, device="cuda", dtype=dtype) for _ in range(2)]
+    inputs = [
+        torch.randn(*size, device="cuda", dtype=dtype, requires_grad=True)
+        for _ in range(2)
+    ]
+
+    benchmark_fn = with_executor(executor, silu_mul)
 
     # Inputs and outputs are same as nvFuser, no need for manual IOByte computation
     run_benchmark(
         benchmark,
-        torch.compile(silu_mul_fwd_fn) if compile else silu_mul_fwd_fn,
+        benchmark_fn,
         inputs,
     )

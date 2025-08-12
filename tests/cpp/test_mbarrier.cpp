@@ -46,9 +46,9 @@ TEST_F(MBarrierTest, Simple) {
   tv2->axis(0)->parallelize(ParallelType::TIDy);
   tv2->axis(1)->parallelize(ParallelType::TIDx);
 
-  FusionExecutor fe;
+  KernelExecutor ke;
 
-  fe.registerPostLoweringHook([](kir::Kernel* kernel) {
+  ke.registerPostLoweringHook([](kir::Kernel* kernel) {
     // Replace block sync with mbarrier
     FusionGuard fg(kernel);
 
@@ -62,7 +62,7 @@ TEST_F(MBarrierTest, Simple) {
         summary.dynamic_smem_allocations;
     ASSERT_EQ(dynamic_smem_allocations.size(), 1);
 
-    TensorView* mbarrier = makeContigConcreteTensor({}, DataType::UInt);
+    TensorView* mbarrier = makeContigConcreteTensor({}, DataType::UInt64);
     mbarrier->setMemoryType(MemoryType::Shared);
     kir::Allocate* mbarrier_alloc =
         IrBuilder::create<kir::Allocate>(mbarrier, MemoryType::Shared);
@@ -70,7 +70,7 @@ TEST_F(MBarrierTest, Simple) {
 
     Val* mbarrier_address = SimplifyingIrBuilder::mulExpr(
         dynamic_smem_allocations.at(0)->size(),
-        dataTypeSize(dynamic_smem_allocations.at(0)->buffer()->dtype()));
+        dataTypeSizeByte(dynamic_smem_allocations.at(0)->buffer()->dtype()));
     mbarrier_alloc->setAddress(mbarrier_address);
 
     auto smem_alloc_it = std::find_if(
@@ -107,7 +107,7 @@ TEST_F(MBarrierTest, Simple) {
           return expr->isA<kir::BlockSync>();
         });
     ASSERT_NE(sync_it, top_level_exprs.end());
-    auto state = IrBuilder::create<Val>(DataType::UInt);
+    auto state = IrBuilder::create<Val>(DataType::UInt64);
     auto alloc_state = IrBuilder::create<kir::Allocate>(
         state, MemoryType::Local, kernel->oneVal());
     auto arrive = IrBuilder::create<kir::MBarrierArrive>(state, mbarrier_index);
@@ -122,7 +122,7 @@ TEST_F(MBarrierTest, Simple) {
     top_level_exprs.push_back(invalidate);
   });
 
-  fe.compileFusion(&fusion);
+  ke.compile(&fusion);
 
   // Make sure that the post-lowering hook successfully inserted all mbarrier
   // operations
@@ -131,14 +131,14 @@ TEST_F(MBarrierTest, Simple) {
       &typeid(kir::MBarrierArrive),
       &typeid(kir::MBarrierWait),
       &typeid(kir::MBarrierInvalidate)};
-  for (auto expr : fe.kernel()->topLevelExprs()) {
+  for (auto expr : ke.compiledKernel()->kernel()->topLevelExprs()) {
     remaining_mbarrier_exprs.erase(&typeid(*expr));
   }
   EXPECT_TRUE(remaining_mbarrier_exprs.empty());
 
   auto input = at::randn(
       {32, 32}, at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0));
-  auto outputs = fe.runFusion({input});
+  auto outputs = ke.run({input});
 
   testValidate(&fusion, outputs, {input}, __LINE__, __FILE__);
 }

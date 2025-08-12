@@ -12,12 +12,19 @@
 #include <fusion.h>
 #include <fusion_segmenter.h>
 #include <host_ir/executor.h>
+#include <host_ir/lower.h>
 #include <ir/cloner.h>
 #include <multidevice/communication.h>
 #include <multidevice/communicator.h>
 #include <multidevice/multidevice.h>
+#include <runtime/fusion_kernel_runtime.h>
 
 namespace nvfuser {
+
+struct MultiDeviceExecutorParams {
+  hir::HostIrEvaluatorParams executor;
+  HostIrLowerParams lower;
+};
 
 /*
   The MultiDeviceExecutor executes a Fusion on a multi-device setting.
@@ -39,7 +46,7 @@ namespace nvfuser {
   Summary of the different steps performed by the MultiDeviceExecutor:
   I. At instantiation:
   - resharding "Set" exprs are automatically inserted in the fusion where a
-    network communication is needed. See the function insertReshardings.
+    network communication is needed. See the function DecomposeReshardings.
   - the Fusion is segmented into segments which can be of two types:
       1) compute segments, composed of non-Resharding expressions only,
          that can be purely execute on a single device
@@ -73,25 +80,16 @@ class MultiDeviceExecutor {
  public:
   MultiDeviceExecutor(
       std::unique_ptr<Fusion> fusion,
-      Communicator& comm,
-      hir::HostIrExecutorParams params = hir::HostIrExecutorParams());
+      Communicator& comm = Communicator::getInstance(),
+      MultiDeviceExecutorParams params = MultiDeviceExecutorParams());
 
   // Run the fusion on several devices with the given global inputs
-  std::vector<at::Tensor> runWithInput(const std::vector<c10::IValue>& inputs);
+  KernelArgumentHolder runWithInput(const KernelArgumentHolder& inputs);
 
   // Returns the Communicator
   Communicator* comm() const {
     return &comm_;
   }
-
-  // Returns the Fusion
-  auto completeFusion() const {
-    return complete_fusion_.get();
-  }
-
-  // check if the runtime is valid returns an error msg.
-  // An empty message means that the runtime is valid
-  std::string validate() const;
 
   //! Print to default debugging output stream
   std::ostream& print(std::ostream& os = debug());
@@ -100,19 +98,15 @@ class MultiDeviceExecutor {
     return host_ir_executor_->getFusionExecutorCaches();
   };
 
+  auto* hostIrEvaluator() const {
+    return host_ir_executor_.get();
+  }
+
  private:
   // holds the Communicator to be used for execution
   Communicator& comm_;
-  // holds the original complete fusion
-  std::unique_ptr<Fusion> complete_fusion_;
-  // holds the HostIrExecutor used for execution
-  std::unique_ptr<hir::HostIrExecutor> host_ir_executor_;
-  // Cached objects used for MultiDevice allocation
-  // TODO: remove and handle the allocation through Host Irs
-  std::unique_ptr<Fusion> allocator_fusion_;
-  // Cache the tensors that need to be allocated at runtime, which correspond to
-  // the destination buffers of interdevice communications.
-  std::vector<Val*> vals_to_allocate_;
+  // holds the HostIrEvaluator used for execution
+  std::unique_ptr<hir::HostIrEvaluator> host_ir_executor_;
 };
 
 } // namespace nvfuser

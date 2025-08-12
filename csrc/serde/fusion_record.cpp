@@ -43,7 +43,8 @@ python_frontend::RecordFunctor* deserializeOpRecord(
     const RecordFunctor* buffer) {
   NVF_ERROR(
       str_to_func_map.find(buffer->name()->str()) != str_to_func_map.end(),
-      "Missing mapping from operation string to nvfuser function in serde deserialization: ",
+      "Missing mapping from operation string to nvfuser function in serde "
+      "deserialization: ",
       buffer->name()->str());
   return new python_frontend::OpRecord<Signature...>(
       parseStateArgs(buffer->args()),
@@ -321,6 +322,13 @@ void RecordFunctorFactory::registerAllParsers() {
         parseStateArgs(buffer->args()), parseStateArgs(buffer->outputs()));
   };
   registerParser(RecordType::SdpaBwdOp, deserializeSdpaBwdRecord);
+
+  auto deserializeEmbeddingFwdRecord = [&](const RecordFunctor* buffer) {
+    return new python_frontend::EmbeddingFwdOpRecord(
+        parseStateArgs(buffer->args()), parseStateArgs(buffer->outputs()));
+  };
+  registerParser(RecordType::EmbeddingFwdOp, deserializeEmbeddingFwdRecord);
+
   // END OpRecord Parsers
 
   // START Reduction Parsers
@@ -441,13 +449,13 @@ void RecordFunctorFactory::registerAllParsers() {
   };
   registerParser(RecordType::IotaOp, deserializeIotaRecord);
 
-  auto deserializeTorchGatherRecord = [](const RecordFunctor* buffer) {
-    return new python_frontend::TorchGatherOpRecord(
+  auto deserializeGatherRecord = [](const RecordFunctor* buffer) {
+    return new python_frontend::GatherOpRecord(
         parseStateArgs(buffer->args()),
         parseStateArgs(buffer->outputs()),
         buffer->data_as_Dimension()->dim());
   };
-  registerParser(RecordType::TorchGatherOp, deserializeTorchGatherRecord);
+  registerParser(RecordType::GatherOp, deserializeGatherRecord);
 
   auto deserializeTakeAlongAxisRecord = [](const RecordFunctor* buffer) {
     return new python_frontend::TakeAlongAxisOpRecord(
@@ -464,6 +472,13 @@ void RecordFunctorFactory::registerAllParsers() {
         buffer->data_as_Dimension()->dim());
   };
   registerParser(RecordType::IndexSelectOp, deserializeIndexSelectRecord);
+
+  auto deserializeIndexPutAccumulateRecord = [](const RecordFunctor* buffer) {
+    return new python_frontend::IndexPutAccumulateOpRecord(
+        parseStateArgs(buffer->args()), parseStateArgs(buffer->outputs()));
+  };
+  registerParser(
+      RecordType::IndexPutAccumulateOp, deserializeIndexPutAccumulateRecord);
 
   auto deserializeSelectRecord = [](const RecordFunctor* buffer) {
     return new python_frontend::SelectOpRecord(
@@ -645,6 +660,28 @@ void RecordFunctorFactory::registerAllParsers() {
         parseVector(buffer->data_as_Welford()->axes()));
   };
   registerParser(RecordType::WelfordOp, deserializeWelfordRecord);
+
+  auto deserializeArgsortRecord = [](const RecordFunctor* buffer) {
+    auto data = buffer->data_as_Sort();
+    return new python_frontend::ArgsortOpRecord(
+        parseStateArgs(buffer->args()),
+        parseStateArgs(buffer->outputs()),
+        data->dim(),
+        data->descending(),
+        data->stable());
+  };
+  registerParser(RecordType::ArgsortOp, deserializeArgsortRecord);
+
+  auto deserializeTopKRecord = [](const RecordFunctor* buffer) {
+    auto data = buffer->data_as_TopK();
+    return new python_frontend::TopKOpRecord(
+        parseStateArgs(buffer->args()),
+        parseStateArgs(buffer->outputs()),
+        data->dim(),
+        data->largest(),
+        data->sorted());
+  };
+  registerParser(RecordType::TopKOp, deserializeTopKRecord);
 }
 
 void RecordFunctorFactory::setupFunctionMaps() {
@@ -652,6 +689,11 @@ void RecordFunctorFactory::setupFunctionMaps() {
   unary_tv.emplace(                                                         \
       ("ops." op_str), static_cast<TensorView* (*)(TensorView*)>(op_name)); \
   unary_val.emplace(("ops." op_str), static_cast<Val* (*)(Val*)>(op_name));
+
+#define NVFUSER_UNARY_TV_ALPHA_OP(op_str, op_name) \
+  binary_tv_val.emplace(                           \
+      ("ops." op_str),                             \
+      static_cast<TensorView* (*)(TensorView*, Val*)>(op_name));
 
 #define NVFUSER_BINARY_TV_ONLY_OP(op_str, op_name) \
   binary_tv.emplace(                               \
@@ -808,7 +850,15 @@ void RecordFunctorFactory::setupFunctionMaps() {
   NVFUSER_UNARY_TV_OP("real", real)
   NVFUSER_UNARY_TV_OP("imag", imag)
 
+  NVFUSER_UNARY_TV_ALPHA_OP("triu", triu)
+
   NVFUSER_BINARY_TV_ONLY_OP("matmul", matmul)
+  NVFUSER_TERNARY_TV_ONLY_OP(
+      "grouped_mm",
+      [](TensorView* mat1, TensorView* mat2, TensorView* offsets) {
+        ScaledTensorView scaled_out = grouped_mm(mat1, mat2, offsets);
+        return scaled_out.tv;
+      })
   NVFUSER_BINARY_TV_ONLY_OP("linear", linear)
   NVFUSER_TERNARY_TV_ONLY_OP("linear", linear)
 

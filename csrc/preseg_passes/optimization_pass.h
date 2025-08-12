@@ -8,15 +8,15 @@
 #pragma once
 #include <debug.h>
 #include <exceptions.h>
+#include <instrumentation.h>
 #include <ir/interface_nodes.h>
 #include <ir/utils.h>
 #include <options.h>
+#include <string_view>
 
 #include <atomic>
 
 namespace nvfuser::preseg_passes {
-
-using FusionPass = std::function<void(Fusion*)>;
 
 //! [experimental API]
 //! Base class to unify optimization pass APIs.
@@ -51,21 +51,23 @@ class OptimizationPass {
     if (!flag_.load()) {
       return;
     }
+
+    FUSER_PERF_SCOPE(DerivedClass::name().data());
     DerivedClass::runPass(fusion);
+
     // TODO: skip the logging of the pass where the fusion has not been changed.
     if (isDebugDumpEnabled(DebugDumpOption::PreSegmenterLogging)) {
       debug() << "Fusion after pass: " << DerivedClass::name() << std::endl;
       fusion->printMath();
       debug() << "========================================" << std::endl;
     }
+
 #ifndef NDEBUG
     // cycle detection is only enabled on debug run
     NVF_ERROR(
         ir_utils::checkCycle(fusion).empty(), "cycle detected in fusion IR");
 #endif
   }
-
-  virtual ~OptimizationPass() = default;
 
  protected:
   static inline std::atomic<bool> flag_{true};

@@ -116,7 +116,7 @@ IndexingParameters getLinearIndexParameters(
   auto& loop_domain = loop_indexing.loopDomains();
   auto& loop_index_map = index_parameters.initial_concrete_id_index;
 
-  for (auto loop_idx : c10::irange(loops.size())) {
+  for (auto loop_idx : arange(loops.size())) {
     auto loop = loops[loop_idx];
     auto index_domain = GpuLower::current()->caMap()->getConcreteMappedID(
         loop_domain[loop_idx], IdMappingMode::EXACT);
@@ -140,7 +140,7 @@ IndexingParameters getLinearIndexParameters(
         GpuLower::current()->circularBufferInfo().getCircularBufferLoop(
             loop_indexing.consumerTv(), loops, true);
 
-    for (auto loop_idx : c10::irange(loops.size())) {
+    for (auto loop_idx : arange(loops.size())) {
       auto loop = loops[loop_idx];
       if (loop == circular_buffer_loop) {
         auto loop_id = loop_indexing.loopDomains()[loop_idx];
@@ -150,8 +150,10 @@ IndexingParameters getLinearIndexParameters(
                 loop_id, IdMappingMode::EXACT);
 
         auto prefetch_distance =
-            GpuLower::current()->circularBufferInfo().getPrefetchDistanceFor(
-                loop->iter_domain());
+            GpuLower::current()
+                ->circularBufferInfo()
+                .getCircularBufferOptionsFor(loop->iter_domain())
+                .prefetch;
         index_parameters.initial_concrete_id_index[concrete_loop_id] =
             SimplifyingIrBuilder::addExpr(
                 index_parameters.initial_concrete_id_index[concrete_loop_id],
@@ -186,7 +188,7 @@ IndexingParameters getNonGlobalInitialIndexParameters(
   }
 
   auto alloc_tv = index_producer ? producer_tv : consumer_tv;
-  auto alloc_info = lower_utils::getAllocInformation(
+  auto alloc_info = lower_utils::getAllocPosInfo(
       alloc_tv, loops, alloc_id_map, index_producer);
 
   std::unordered_map<ForLoop*, Val*> loop_to_ind_map;
@@ -214,7 +216,7 @@ IndexingParameters getNonGlobalInitialIndexParameters(
       loops.size() <= loop_domains.size(),
       "Loop domain didn't replay all loops");
 
-  for (auto loop_idx : c10::irange(loops.size())) {
+  for (auto loop_idx : arange(loops.size())) {
     auto loop = loops[loop_idx];
     auto loop_domain = loop_domains[loop_idx];
 
@@ -316,7 +318,7 @@ IndexingParameters getPredicateInitialIndexParameters(
 
   bool within_unswitch = false;
 
-  for (const auto loop_i : c10::irange(loops.size())) {
+  for (const auto loop_i : arange(loops.size())) {
     auto loop = loops[loop_i];
     auto loop_id = loop->iter_domain();
     auto loop_pt = loop_id->getParallelType();
@@ -419,7 +421,8 @@ IndexingParameters getPredicateInitialIndexParameters(
       auto prefetch_distance =
           (int64_t)GpuLower::current()
               ->circularBufferInfo()
-              .getPrefetchDistanceFor(db_loop->iter_domain());
+              .getCircularBufferOptionsFor(db_loop->iter_domain())
+              .prefetch;
       bool is_same =
           (rotated_loops.count(db_loop)
                ? cur_index->sameAs(SimplifyingIrBuilder::addExpr(
@@ -435,7 +438,7 @@ IndexingParameters getPredicateInitialIndexParameters(
   }
 
   // Convert loop-to-ind map to concrete-to-ind map
-  for (auto loop_idx : c10::irange(loops.size())) {
+  for (auto loop_idx : arange(loops.size())) {
     auto loop = loops.at(loop_idx);
     auto concrete_loop_domain =
         GpuLower::current()->caMap()->getConcreteMappedID(
@@ -1372,6 +1375,10 @@ std::unordered_set<IterDomain*> buildLoopIndexingPreferredPath(
 // multiple such IDs exist, select one whose input IDs are mapped with
 // the consumer IDs. This is to ensure the path from the loop
 // IterDomains to the root matches with the consumer tensor.
+// Additionally, when none of the candidate iter domain has all of its
+// inputs mapped with the consumer tensor, prefer one that has at
+// least one mapped. This matters when the consumer tensor only has
+// one of the merge inputs, for example.
 IterDomain* getLogicalIDToTraverse(
     IterDomain* id,
     const std::vector<Val*>& consumer_all_ids) {
@@ -1381,6 +1388,9 @@ IterDomain* getLogicalIDToTraverse(
   if (logical_ids.empty()) {
     return nullptr;
   }
+
+  // Keep track of an iter domain that has at least one input mapped.
+  IterDomain* fallback_candidate = nullptr;
 
   for (auto logical_id : logical_ids) {
     auto def = logical_id->definition();
@@ -1398,6 +1408,22 @@ IterDomain* getLogicalIDToTraverse(
             })) {
       return logical_id;
     }
+
+    if (std::any_of(
+            logical_id_inputs.begin(),
+            logical_id_inputs.end(),
+            [&](IterDomain* logical_id_input) {
+              return isPermissivelyMappedWithAny(
+                  logical_id_input, consumer_all_ids);
+            })) {
+      if (fallback_candidate == nullptr) {
+        fallback_candidate = logical_id;
+      }
+    }
+  }
+
+  if (fallback_candidate != nullptr) {
+    return fallback_candidate;
   }
 
   // No mapped ID found, which means the consumer is a post-view

@@ -16,7 +16,14 @@ namespace nvfuser::preseg_passes {
 
 namespace {
 
-// counting the number of non-broadcast & non-reduction iter domains in tv's
+// returns non-broadcast & non-reduction iter domains in tv's allocation
+// domain.
+std::vector<IterDomain*> nonTrivialIterDomains(const TensorView* tv) {
+  return TensorDomain::noReductions(
+      TensorDomain::noBroadcasts(tv->getMaybeAllocationDomain()));
+}
+
+// counts the number of non-broadcast & non-reduction iter domains in tv's
 // allocation domain.
 int64_t countNonTrivialIterDomains(const TensorView* tv) {
   return std::count_if(
@@ -151,7 +158,7 @@ void mapAllocationDomain(
   // initialize new target allocation domain with nullptr
   std::vector<IterDomain*> target_alloc_domain(
       target_logical_domain.size(), nullptr);
-  for (auto i : c10::irange(target_logical_domain.size())) {
+  for (auto i : arange(target_logical_domain.size())) {
     // sharp-edges 1
     // preserves non-mapped reduction id in its original position
     if (target_logical_domain[i]->isReduction() &&
@@ -214,8 +221,6 @@ void mapAllocationDomain(
   }
 }
 
-} // namespace
-
 // Note [ Allocation Order Propagation ]
 //
 // The propagation tries to populate allocation domain from srcs to dsts.
@@ -249,7 +254,7 @@ void mapAllocationDomain(
 //   `target->getLogicalDomain()`, which would gives `target` similar innermost
 //   dimensions as with `ref`. For details on the propagation rule see Note [
 //   Allocation Order Mapping ]
-void inferenceAllocationOrder(
+void inferAllocationOrder(
     Fusion* fusion,
     const std::vector<TensorView*>& srcs,
     const std::vector<TensorView*>& dsts) {
@@ -311,13 +316,20 @@ void inferenceAllocationOrder(
       // found multiple candidate with the same iterdomain count
       if (non_trivial_iter_count[tv] == non_bc_high_water_mark &&
           ref != nullptr) {
+        std::vector<IterDomain*> ref_alloc_non_trivial =
+            nonTrivialIterDomains(ref);
+        std::vector<IterDomain*> tv_alloc_non_trivial =
+            nonTrivialIterDomains(tv);
+        NVF_ERROR(
+            ref_alloc_non_trivial.size() == tv_alloc_non_trivial.size(),
+            "candidates of allocation order reference should have identical "
+            "non-trivial ID size");
         // ensure that there's no ambiguity on permutation mapping from multiple
         // references. we need both ref candidates to have the same mapping on
         // allocation domain
-        for (auto i : c10::irange(ref->nDims())) {
-          if (!val_sets.permissiveAreMapped(
-                  ref->getMaybeAllocationDomain()[i],
-                  tv->getMaybeAllocationDomain()[i])) {
+        for (const auto& [id_ref, id] :
+             zip(ref_alloc_non_trivial, tv_alloc_non_trivial)) {
+          if (!val_sets.permissiveAreMapped(id_ref, id)) {
             // reset ref to nullptr, while keeping the iterdomain count high
             // water mark. No propagation will occur unless we found another ref
             // candidate with a higher iterdomain count.
@@ -336,6 +348,55 @@ void inferenceAllocationOrder(
   }
 }
 
+// Propagate allocation orders from an SDPA's inputs to outputs. This is
+// necessary to make an SPDA's allocation domain consistent with the output
+// at::Tensor from expression evaluation. Currently, we call ATen to evaluate
+// SDPAs so matching their behavior, despite being fragile, is the best
+// solution.
+class SdpaPropagator : public OptOutConstDispatch {
+ public:
+  void handle(const SdpaFwdOp* e) override {
+    // https://github.com/pytorch/pytorch/blob/0db21a6b23fc6d7ccf6246dfd22f063694996144/aten/src/ATen/native/transformers/cuda/flash_attn/flash_api.cpp#L439.
+    propagateAllocation(e->query(), e->attn_out());
+    // Don't propagate allocation to LSE because it's allocated as [B,H,S]:
+    // https://github.com/pytorch/pytorch/blob/0db21a6b23fc6d7ccf6246dfd22f063694996144/aten/src/ATen/native/transformers/cuda/flash_attn/flash_api.cpp#L454.
+  }
+  void handle(const SdpaBwdOp* e) override {
+    // https://github.com/pytorch/pytorch/blob/7578a0b26836116fed4daecf2f08ff75a4b2dbea/aten/src/ATen/native/transformers/cuda/flash_attn/flash_api.cpp#L904
+    propagateAllocation(e->query(), e->grad_query());
+    // https://github.com/pytorch/pytorch/blob/7578a0b26836116fed4daecf2f08ff75a4b2dbea/aten/src/ATen/native/transformers/cuda/flash_attn/flash_api.cpp#L913
+    propagateAllocation(e->key(), e->grad_key());
+    // https://github.com/pytorch/pytorch/blob/7578a0b26836116fed4daecf2f08ff75a4b2dbea/aten/src/ATen/native/transformers/cuda/flash_attn/flash_api.cpp#L922
+    propagateAllocation(e->value(), e->grad_value());
+  }
+
+ private:
+  // Returns true if propagation succeeded. Nit: the return value is not
+  // currently used anywhere. I just tend to use this semantic for functions
+  // that may or may not change the IR.  Compared with returning `void`, it is
+  // little extra code to maintain and becomes handy when actually needed.
+  static bool propagateAllocation(TensorView* in, TensorView* out) {
+    if (out->hasAllocation()) {
+      return false;
+    }
+
+    auto in_order = ir_utils::computePermutation(
+        in->getLogicalDomain(), in->getMaybeAllocationDomain());
+    if (!in_order.has_value()) {
+      return false;
+    }
+
+    // It's fragile to unconditionally set contiguity to `true`. In code paths
+    // that we care about, ATen allocates outputs using `at::empty_like` which
+    // by default produces a *contiguous* tensor of the same stride *order*.
+    out->setAllocationDomain(
+        ir_utils::applyPermutation(out->getLogicalDomain(), *in_order), true);
+    return true;
+  }
+};
+
+} // namespace
+
 void AllocationDomainPass::runPass(Fusion* fusion) {
   // mark input TensorViews as propagation sources
   auto input_tvs = ir_utils::filterByType<TensorView>(fusion->inputs());
@@ -351,15 +412,26 @@ void AllocationDomainPass::runPass(Fusion* fusion) {
   // hint, but they should respect semantic requirement.
   // see issue: https://github.com/NVIDIA/Fuser/pull/2425
   for (TensorView* output : output_tvs) {
-    if (output->isDefinitionType<LinearOp>() ||
-        output->isDefinitionType<MatmulOp>() ||
-        output->isDefinitionType<MmaOp>()) {
-      continue;
+    if (Expr* def = output->definition()) {
+      if (def->isOneOf<LinearOp, SdpaFwdOp, SdpaBwdOp, MatmulOp, MmaOp>()) {
+        continue;
+      }
     }
     dsts.push_back(output);
   }
   // propagate allocation domain from sources to destinations
-  inferenceAllocationOrder(fusion, srcs, dsts);
+  inferAllocationOrder(fusion, srcs, dsts);
+
+  SdpaPropagator sdpa_propagator;
+  for (Expr* e : fusion->exprs()) {
+    sdpa_propagator.dispatch(e);
+  }
+
+  if (isDebugDumpEnabled(DebugDumpOption::PreSegmenterLogging)) {
+    debug() << std::endl
+            << "Fusion Transforms after " << name() << ":" << std::endl;
+    fusion->printTransforms();
+  }
 }
 
 } // namespace nvfuser::preseg_passes

@@ -5,6 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <ir/utils.h>
 #include <logical_domain_map.h>
 #include <scheduler/tools/maxinfo_propagator.h>
 
@@ -85,9 +86,17 @@ void MaxInfoSpanningTree::compute_spanning_tree() {
   };
 
   auto allowSibling = [this](TensorView* from, TensorView* to) {
+    // Disable propagation between siblings if they are not uniform to avoid
+    // errors in `computeInfoSibling`. This is required for SdpaFwdOp and
+    // SdpaBwdOp.
+    if (!ir_utils::hasUniformSiblings(from->definition())) {
+      return false;
+    }
+
     if (selector_ == nullptr) {
       return true;
     }
+
     return selector_->allowSibling(from, to);
   };
 
@@ -183,7 +192,8 @@ namespace {
 // corresponding IDs in the logical domain of `tv`.
 std::unordered_set<IterDomain*> mapRootToLogical(
     TensorView* tv,
-    const std::unordered_set<IterDomain*>& root_ids) {
+    const std::unordered_set<IterDomain*>& root_ids,
+    bool propagate_through_resize) {
   std::unordered_set<IterDomain*> mapped_logical_ids;
   const auto& logical_dom = tv->getLogicalDomain();
   for (auto id : logical_dom) {
@@ -192,7 +202,12 @@ std::unordered_set<IterDomain*> mapRootToLogical(
       continue;
     }
     for (auto root_id : root_ids) {
-      if (id == root_id || DependencyCheck::isDependencyOf(root_id, id)) {
+      auto exprs = DependencyCheck::getAllExprsBetween({root_id}, {id});
+      if (!exprs.empty() &&
+          (propagate_through_resize ||
+           std::none_of(exprs.begin(), exprs.end(), [](Expr* expr) {
+             return expr->isA<Resize>();
+           }))) {
         mapped_logical_ids.emplace(id);
         break;
       }
@@ -205,7 +220,8 @@ std::unordered_set<IterDomain*> mapRootToLogical(
 // corresponding IDs in the root domain of `tv`.
 std::unordered_set<IterDomain*> mapLogicalToRoot(
     TensorView* tv,
-    const std::unordered_set<IterDomain*>& logical_ids) {
+    const std::unordered_set<IterDomain*>& logical_ids,
+    bool propagate_through_resize) {
   std::unordered_set<IterDomain*> mapped_root_ids;
   for (auto id : tv->getRootDomain()) {
     if (logical_ids.count(id) > 0) {
@@ -213,7 +229,12 @@ std::unordered_set<IterDomain*> mapLogicalToRoot(
       continue;
     }
     for (auto logical_id : logical_ids) {
-      if (DependencyCheck::isDependencyOf(id, logical_id)) {
+      auto exprs = DependencyCheck::getAllExprsBetween({id}, {logical_id});
+      if (!exprs.empty() &&
+          (propagate_through_resize ||
+           std::none_of(exprs.begin(), exprs.end(), [](Expr* expr) {
+             return expr->isA<Resize>();
+           }))) {
         mapped_root_ids.emplace(id);
         break;
       }
@@ -256,7 +277,8 @@ MaxLogicalDomainInfoSpanningTree::computeInfoP2C(
     // mapped root ids in producer -> mapped logical ids in producer
     std::unordered_set<IterDomain*> producer_mapped_logical_ids;
     if (producer->hasRoot() && !info.is_logical) {
-      producer_mapped_logical_ids = mapRootToLogical(producer, info.mapped_ids);
+      producer_mapped_logical_ids = mapRootToLogical(
+          producer, info.mapped_ids, propagate_through_resize_);
     } else {
       producer_mapped_logical_ids = info.mapped_ids;
     }
@@ -312,7 +334,8 @@ MaxLogicalDomainInfoSpanningTree::computeInfoC2P(
     // mapped logical ids in consumer -> mapped root ids in consumer
     std::unordered_set<IterDomain*> consumer_mapped_root_ids;
     if (info.is_logical && consumer->hasRoot()) {
-      consumer_mapped_root_ids = mapLogicalToRoot(consumer, info.mapped_ids);
+      consumer_mapped_root_ids = mapLogicalToRoot(
+          consumer, info.mapped_ids, propagate_through_resize_);
     } else {
       consumer_mapped_root_ids = info.mapped_ids;
     }
@@ -370,13 +393,15 @@ MaxLogicalDomainInfoSpanningTree::getReferenceIDInfo(TensorView* tv) {
 std::shared_ptr<MaxLogicalDomainInfoSpanningTree::DomainInfo>
 MaxLogicalDomainInfoSpanningTree::getReferenceIDInfo(
     TensorView* tv,
-    int64_t loop_pos) {
+    int64_t loop_pos,
+    bool propagate_through_resize) {
   if (loop_pos < 0) {
     loop_pos += int64_t(tv->nDims()) + 1;
   }
   NVF_CHECK(
       loop_pos >= 0 && loop_pos <= int64_t(tv->nDims()),
-      "MaxLogicalDomainInfoSpanningTree called on an loop_pos outside valid range.");
+      "MaxLogicalDomainInfoSpanningTree called on an loop_pos outside valid "
+      "range.");
   DomainInfo result;
   const auto& logical_domain = tv->getLogicalDomain();
   const auto& loop_domain = tv->getLoopDomain();
@@ -388,7 +413,13 @@ MaxLogicalDomainInfoSpanningTree::getReferenceIDInfo(
       continue;
     }
     for (auto selected_loop_id : selected_loop) {
-      if (DependencyCheck::isDependencyOf(id, selected_loop_id)) {
+      auto exprs =
+          DependencyCheck::getAllExprsBetween({id}, {selected_loop_id});
+      if (!exprs.empty() &&
+          (propagate_through_resize ||
+           std::none_of(exprs.begin(), exprs.end(), [](Expr* expr) {
+             return expr->isA<Resize>();
+           }))) {
         result.info.emplace_back(IDInfo{{id}, true, true});
         break;
       }
@@ -422,11 +453,11 @@ MaxLogicalDomainInfoSpanningTree::computeInfoSibling(
   NVF_ERROR(from_logical_dom.size() == to_logical_dom.size());
 
   std::unordered_map<IterDomain*, IterDomain*> id_map;
-  for (auto i : c10::irange(from_logical_dom.size())) {
+  for (auto i : arange(from_logical_dom.size())) {
     id_map[from_logical_dom.at(i)] = to_logical_dom.at(i);
   }
   if (from->hasRoot()) {
-    for (auto i : c10::irange(from_root_dom.size())) {
+    for (auto i : arange(from_root_dom.size())) {
       id_map[from_root_dom.at(i)] = to_root_dom.at(i);
     }
   }

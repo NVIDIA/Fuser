@@ -57,10 +57,10 @@ std::vector<at::Tensor> generateInputs(
   // Vectorization | Unroll - Add 1 to sizes
   // Shift axis by 1 to disable vectorize loads
   if (non_vectorize_offset) {
-    for (auto idx : c10::irange(transpose_shape.size())) {
+    for (auto idx : arange(transpose_shape.size())) {
       transpose_shape[idx] += 1;
     }
-    for (auto idx : c10::irange(non_transpose_shape.size())) {
+    for (auto idx : arange(non_transpose_shape.size())) {
       non_transpose_shape[idx] += 1;
     }
   }
@@ -108,7 +108,7 @@ static void setupTranspose(
 
 static void NvFuserScheduler_Transpose(
     benchmark::State& benchmark_state,
-    FusionExecutorCache* fusion_executor_cache,
+    FusionExecutorCache* executor_cache,
     DataType dtype,
     int num_dims,
     std::pair<int, int> axes,
@@ -124,12 +124,12 @@ static void NvFuserScheduler_Transpose(
   auto at_input1 = aten_inputs[0];
   auto at_input2 = aten_inputs[1];
 
-  std::vector<c10::IValue> fuser_inputs = {at_input1, at_input2};
-  runBenchmarkIterations(benchmark_state, fusion_executor_cache, fuser_inputs);
+  KernelArgumentHolder args({at_input1, at_input2});
+  runBenchmarkIterations(benchmark_state, executor_cache, args);
 
   benchmark_state.SetBytesProcessed(
       int64_t(benchmark_state.iterations()) *
-      ((at_input1.numel() * 3) * int64_t(dataTypeSize(dtype))));
+      ((at_input1.numel() * 3) * dataTypeSizeByte(dtype)));
 }
 
 //------------------------------------------------------------------------------
@@ -440,7 +440,7 @@ static void Baseline_Transpose(
 
   benchmark_state.SetBytesProcessed(
       int64_t(benchmark_state.iterations()) *
-      (at_input1.numel() * 3 * int64_t(dataTypeSize(dtype))));
+      (at_input1.numel() * 3 * dataTypeSizeByte(dtype)));
 }
 
 //------------------------------------------------------------------------------

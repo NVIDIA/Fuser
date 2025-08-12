@@ -53,13 +53,16 @@ class IndexLowering : private OptOutConstDispatch {
   void handle(const TensorConstruct*) final;
   void handle(const SelectOp*) final;
   void handle(const IndexSelectOp*) final;
-  void handle(const TorchGatherOp*) final;
+  void handle(const GatherOp*) final;
   void handle(const ScatterOp*) final;
+  void handle(const ArgsortOp*) final;
+  void handle(const TopKOp*) final;
   void handle(const RNGOp*) final;
   void handle(const ReductionOp*) final;
   void handle(const GroupedReductionOp*) final;
   void handle(const WelfordOp*) final;
   void handle(const GroupedWelfordOp*) final;
+  void handle(const ScanOp*) final;
   void handle(const LoadStoreOp*) final;
   void handle(const MmaOp*) final;
   void handle(const BroadcastOp*) final;
@@ -71,10 +74,14 @@ class IndexLowering : private OptOutConstDispatch {
   void handle(const ForLoop*) final;
   void handle(const kir::IfThenElse*) final;
   void handle(const kir::Allocate*) final;
+  void handle(const kir::AllocTMem*) final;
   void handle(const kir::BlockSync*) final;
   void handle(const kir::GridSync*) final;
   void handle(const kir::FenceAsyncProxy*) final;
   void handle(const kir::WgMmaFence*) final;
+  void handle(const kir::SetMaxNReg*) final;
+  void handle(const kir::Continue*) final;
+  void handle(const kir::Return*) final;
   void handle(const kir::MBarrierInit*) final;
   void handle(const kir::MBarrierInvalidate*) final;
   void handle(const kir::MBarrierArrive*) final;
@@ -114,7 +121,7 @@ class IndexLowering : private OptOutConstDispatch {
 
   Val* lowerDstIndex(
       Val* dst,
-      const std::unordered_map<int, Val*>& override_index = {},
+      const std::unordered_map<IterDomain*, Val*>& override_index = {},
       bool generate_pointer = false,
       DataType as_type = DataType::Null) const;
 

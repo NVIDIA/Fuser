@@ -466,7 +466,7 @@ class ComputeAtLogicalDomainMapBuilder : private BackwardVisitor {
     mapPointwiseLikeOp(op);
   }
 
-  void handle(TorchGatherOp* op) override {
+  void handle(GatherOp* op) override {
     mapPointwiseLikeOp(op);
   }
 
@@ -504,6 +504,10 @@ class ComputeAtLogicalDomainMapBuilder : private BackwardVisitor {
     mapPointwiseLikeOp(op);
   }
 
+  void handle(RepeatOp* op) override {
+    mapPointwiseLikeOp(op);
+  }
+
   void handle(PadOp* op) override {
     // For compute-at, padded id should be mapped
     mapPointwiseLikeOp(op);
@@ -515,6 +519,10 @@ class ComputeAtLogicalDomainMapBuilder : private BackwardVisitor {
 
   void handle(CatOp* op) override {
     // For compute-at, concat id should be mapped
+    mapPointwiseLikeOp(op);
+  }
+
+  void handle(EmbeddingFwdOp* op) override {
     mapPointwiseLikeOp(op);
   }
 

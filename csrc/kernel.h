@@ -16,6 +16,7 @@
 #include <ir/base_nodes.h>
 #include <ir/builder.h>
 #include <parallel_dimension_map.h>
+#include <type.h>
 #include <utils.h>
 #include <vectorization_info.h>
 #include <visibility.h>
@@ -34,7 +35,7 @@ struct KernelSummary {
   //! Count of WAR (write-after-read) hazard barriers
   int64_t war_hazard_syncs_count = 0;
 
-  //! List of global buffers
+  //! List of global buffers (fusion outputs not included)
   std::vector<const kir::Allocate*> global_allocations;
 
   //! List of dynamic shared memory buffers
@@ -43,11 +44,11 @@ struct KernelSummary {
   //! List of static shared memory buffers
   std::vector<const kir::Allocate*> static_smem_allocations;
 
-  //! Indicate the need to generate random numbers
-  bool has_philox_op = false;
-
   //! Do we have any block reductions?
   bool has_block_reductions = false;
+
+  //! Are all block reduction warp reductions?
+  bool all_block_reductions_are_warp_reduction = true;
 
   //! Number of static grid reductions
   bool has_grid_reductions = false;
@@ -86,11 +87,7 @@ struct KernelSummary {
   //! Largest shared memory buffer base type
   DataType largest_smem_data_type = DataType::Null;
 
-  //! Do we have allocations of dynamic local memory?
-  bool has_dynamic_local_memory_allocations = false;
-
   //! List of dynamic local memory buffers.
-  //! Only used for debugging.
   std::vector<const kir::Allocate*> dynamic_lmem_allocations;
 
   //! Validations needed and information about them. For example, a pair of
@@ -130,6 +127,25 @@ struct KernelSummary {
   //! Reason: At runtime, we check that at least a single warp along TIDx axis
   //! exists.
   bool has_elect_sync_predicate = false;
+
+  //! Do we have any possibly narrowing casts from DataType::Index variables?
+  //! These need to be validated to prevent overflow.
+  bool has_narrowing_index_casts = false;
+
+  //! adjusted register usage for tma load and computation warp groups
+  std::pair<int64_t, int64_t> dec_inc_register_usage = {-1, -1};
+
+  //! has mma op in fusion
+  bool has_mma_op = false;
+
+  //! Do we have any argsort op?
+  bool has_argsort = false;
+
+  //! Do we have any topk op?
+  bool has_topk = false;
+
+  //! Do we have any scan op?
+  bool has_scan = false;
 };
 
 class KernelPerformanceProfile {
@@ -221,6 +237,10 @@ class NVF_API Kernel final : public Fusion {
 
   PrimDataType indexType() const {
     return index_type_;
+  }
+
+  void setIndexType(PrimDataType new_index_type) {
+    index_type_ = new_index_type;
   }
 
   //! Checks if parallel type is padded

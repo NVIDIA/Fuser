@@ -10,7 +10,10 @@
 
 #include <expr_evaluator.h>
 #include <instrumentation.h>
+#include <ir/iostream.h>
+#include <multidevice/utils.h>
 #include <polymorphic_value.h>
+#include <runtime/executor.h>
 #include <runtime/executor_kernel_arg.h>
 #include <runtime/executor_utils.h>
 #include <tensor_metadata.h>
@@ -96,11 +99,20 @@ int64_t computeSharedMemory(
 
       const auto first_byte = smem_offset + address_val.as<int64_t>();
       const auto data_size =
-          dataTypeSize(smem_alloc->buffer()->dtype(), index_type);
+          dataTypeSizeByte(smem_alloc->buffer()->dtype(), index_type);
       const int64_t size_bytes = size_val.as<int64_t>() * data_size;
       const auto last_byte = first_byte + size_bytes;
 
       total = std::max(total, last_byte);
+      // First byte may not equal to last byte of the previous buffer since
+      // shared memory is forced to align at 128 Bytes. See PR-3023.
+      // https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html#table-alignment-multi-dim-tma
+      if (isDebugDumpEnabled(DebugDumpOption::DynamicSharedMemory)) {
+        debug() << "buffer: " << smem_alloc->buffer()->toString()
+                << ", first_byte: " << first_byte
+                << ", last_byte: " << last_byte << ", size: " << size_bytes
+                << std::endl;
+      }
     }
   }
   return total;
@@ -142,27 +154,21 @@ std::vector<int64_t> getContiguousStrides(
 // Infer the size and stride of each dimension
 std::pair<std::vector<int64_t>, std::vector<int64_t>> inferShape(
     const TensorView* tv,
-    std::vector<Val*> symbolic_sizes,
-    std::vector<bool> expand_flags,
-    ExpressionEvaluator& expr_eval) {
+    const std::vector<Val*>& symbolic_sizes,
+    const std::vector<bool>& expand_flags,
+    const ExpressionEvaluator& expr_eval) {
   FUSER_PERF_SCOPE("fusion_executor::allocations::inferShape");
-
-  // Allocate should be provided for intermediates. We just need to
-  // grab a chunk of memory of the size dicatated by
-  // Allocate::shape(). Fusion outputs do not come with Allocate and
-  // need to be allocated while taking expanded broadcasts into
-  // account.
 
   std::vector<int64_t> concrete_sizes(symbolic_sizes.size(), 0);
 
-  for (const auto i : c10::irange(symbolic_sizes.size())) {
+  for (const auto i : arange(symbolic_sizes.size())) {
     auto symbolic_size = symbolic_sizes.at(i);
     const auto inferred_val = expr_eval.evaluate(symbolic_size);
     NVF_ERROR(
         inferred_val.hasValue(),
         "Could not launch kernel as program could not infer ",
         symbolic_size->toInlineString(),
-        "(",
+        " (",
         symbolic_size->toString(),
         ") for the buffer ",
         tv->toString());
@@ -171,31 +177,26 @@ std::pair<std::vector<int64_t>, std::vector<int64_t>> inferShape(
     concrete_sizes.at(i) = concrete_size;
   }
 
+  // Adjust the last dimension of the logical domain to support DataType
+  // that is not supported by PyTorch. See the comment of getLastDimAdjustment
+  // in type.h for more details.
+  const auto adjust_last_dim = getLastDimAdjustment(tv->dtype());
+  if (!concrete_sizes.empty()) {
+    auto& last_dim = concrete_sizes.back();
+    last_dim = adjust_last_dim.fromNVFToATen(last_dim);
+  } else {
+    NVF_ERROR(
+        adjust_last_dim.denominator == 1 && adjust_last_dim.numerator == 1,
+        "DataType not supported");
+  }
+
   auto strides = getContiguousStrides(concrete_sizes, expand_flags);
 
   return {concrete_sizes, strides};
 }
 } // namespace
 
-std::pair<std::vector<int64_t>, std::vector<int64_t>> inferShapeOfIntermediate(
-    const TensorView* tv,
-    const kir::Allocate* alloc,
-    ExpressionEvaluator& expr_eval) {
-  FUSER_PERF_SCOPE("fusion_executor::allocations::inferShapeOfIntermediate");
-  // The allocation domain represents the logical allocation domain,
-  // bu its actual allocation size may be different, e.g., for
-  // supporting halo accesses. The actual size is currently computed
-  // when creating the Allocate expr.
-  NVF_ERROR(alloc != nullptr);
-  const auto& symbolic_sizes = alloc->shape();
-  // For intermediate tensors, we just need to allocate a memory chunk
-  // of the specified size. Broadcast expansion does not need to be considered.
-  const auto expand_flags = std::vector<bool>(symbolic_sizes.size(), false);
-
-  return inferShape(tv, symbolic_sizes, expand_flags, expr_eval);
-}
-
-bool fill_allocation_with_nan_ = false;
+static bool fill_allocation_with_nan_ = false;
 
 bool shouldFillAllocationWithNan() {
   return fill_allocation_with_nan_;
@@ -207,9 +208,6 @@ void setFillAllocationWithNan(bool value) {
 
 void fillTensorWithNan(at::Tensor& t) {
   switch (t.scalar_type()) {
-    case at::ScalarType::Byte:
-      t.fill_(0xFF);
-      break;
     case at::ScalarType::Char:
       t.fill_(0x7F);
       break;
@@ -222,6 +220,18 @@ void fillTensorWithNan(at::Tensor& t) {
     case at::ScalarType::Long:
       t.fill_(0x7FFFFFFFFFFFFFFFL);
       break;
+    case at::ScalarType::Byte:
+      t.fill_(0xFF);
+      break;
+    case at::ScalarType::UInt16:
+      t.fill_(0xFFFF);
+      break;
+    case at::ScalarType::UInt32:
+      t.fill_(0xFFFFFFFF);
+      break;
+    case at::ScalarType::UInt64:
+      t.fill_(0xFFFFFFFFFFFFFFFFL);
+      break;
     case at::ScalarType::Bool:
       t.fill_(true);
       break;
@@ -231,8 +241,14 @@ void fillTensorWithNan(at::Tensor& t) {
     case at::ScalarType::BFloat16:
     case at::ScalarType::Float8_e4m3fn:
     case at::ScalarType::Float8_e5m2:
+    case at::ScalarType::Float8_e8m0fnu:
       t.fill_(std::nan(""));
       break;
+#if NVF_TORCH_VERSION_NO_LESS(2, 8, 0)
+    case at::ScalarType::Float4_e2m1fn_x2:
+      t.view(torch::kByte).fill_(0xFF);
+      break;
+#endif
     case at::ScalarType::ComplexHalf:
     case at::ScalarType::ComplexFloat:
     case at::ScalarType::ComplexDouble:
@@ -243,42 +259,23 @@ void fillTensorWithNan(at::Tensor& t) {
   }
 }
 
-namespace {
-// Allocate an `at::Tensor` for `out_info` or compute it as an alias.
-at::Tensor allocateOutput(
-    const GlobalBufferInfo& out_info,
-    const AliasInfo& alias_info,
+KernelArgumentHolder allocateOutputs(
+    const Fusion* fusion,
+    const std::vector<GlobalBufferInfo>& output_infos,
+    const std::vector<int>& output_alias_to_input_map,
     const c10::Device& device,
-    ExpressionEvaluator& ee) {
-  FUSER_PERF_SCOPE("fusion_executor::allocations::allocateOutput");
-  // Handle a fusion with duplicated outputs.
-  TensorView* out_tv = out_info.tv;
-  if (ee.isKnown(out_tv)) {
-    return ee.evaluate(out_tv).as<at::Tensor>();
-  }
+    const KernelArgumentHolder& args,
+    bool dynamic_evaluate) {
+  FUSER_PERF_SCOPE("fusion_executor::allocations::allocateOutputs");
 
-  std::optional<at::Tensor> aliased_io_tensor = std::nullopt;
-  Val* aliased_io = alias_info.aliased_io;
-  if (aliased_io != nullptr) {
-    NVF_ERROR(
-        aliased_io->isFusionInput() || aliased_io->isFusionOutput(),
-        aliased_io->toInlineString(),
-        " is expected to be a fusion input/output. `ee.evaluate` ",
-        "an intermediate tensor may involve GPU computation to materialize it ",
-        "to global memory.");
-    const PolymorphicValue& aliased_io_val = ee.evaluate(aliased_io);
-    NVF_ERROR(
-        aliased_io_val.is<at::Tensor>(),
-        "Alias io only supports tensor. Found ",
-        PolymorphicValue_functions::toString(aliased_io_val));
-    aliased_io_tensor = aliased_io_val.as<at::Tensor>();
-  }
-
-  switch (alias_info.type) {
-    case AllocationType::New: {
+  KernelArgumentHolder out_tensors;
+  out_tensors.resize(output_infos.size());
+  for (auto out_idx : arange(output_infos.size())) {
+    auto out_info = output_infos.at(out_idx);
+    if (output_alias_to_input_map.at(out_idx) == -1) {
       auto alloc_tensor = at::native::empty_strided_cuda(
-          out_info.sizes,
-          out_info.strides,
+          out_info.shape_info.logical_sizes,
+          out_info.shape_info.logical_strides,
           out_info.type,
           c10::nullopt,
           device,
@@ -286,139 +283,62 @@ at::Tensor allocateOutput(
       if (shouldFillAllocationWithNan()) {
         fillTensorWithNan(alloc_tensor);
       }
-      return alloc_tensor;
-    }
-    case AllocationType::ReuseBuffer:
-      // Unlike for `AllocationType::Evaluate`, don't use
-      // ExpressionEvaluator to compute the output tensor. This is because
-      // the output tensor may hold different data from the input, e.g., an
-      // updated running mean.  `ExpressionEvaluator::evaluate(out_tv)`
-      // would trigger non-trivial host computation.
-      return aliased_io_tensor.value();
-    case AllocationType::Evaluate: {
-      auto out_tensor = ee.evaluate(out_tv).as<at::Tensor>();
-      if (aliased_io_tensor.has_value()) {
-        NVF_ERROR(
-            out_tensor.is_alias_of(aliased_io_tensor.value()),
-            "ExpressionEvaluator failed to evaluate ",
-            out_tv->toString(),
-            " as an alias of ",
-            aliased_io->toString());
-        inferAndValidateAllocationSizesAndStrides(out_tensor, out_tv, ee);
+      out_tensors[out_idx] = alloc_tensor;
+    } else if (
+        fusion->getOutputAlias(out_info.tv).type ==
+        AllocationType::ReuseBuffer) {
+      const auto& inp = args[output_alias_to_input_map.at(out_idx)];
+      NVF_ERROR(inp.is<at::Tensor>(), "Input is not a Tensor");
+      out_tensors[out_idx] = inp;
+    } else if (
+        fusion->getOutputAlias(out_info.tv).type == AllocationType::Evaluate) {
+      if (dynamic_evaluate) {
+        out_tensors[out_idx] = std::monostate();
+        continue;
       }
-      return out_tensor;
+
+      ExpressionEvaluator ee;
+      ee.bind(
+          fusion->getOutputAlias(out_info.tv).aliased_io,
+          args[output_alias_to_input_map.at(out_idx)]);
+      out_tensors[out_idx] = ee.evaluate(out_info.tv);
+    } else {
+      NVF_THROW(
+          "Unexpected allocation path, internal logic around allocations must "
+          "be incorrect.");
     }
-    default:
-      NVF_THROW("Unrecognized AllocationType.");
-  }
-}
-} // namespace
-
-std::vector<at::Tensor> allocateOutputs(
-    const Fusion* fusion,
-    const std::vector<GlobalBufferInfo>& output_info,
-    const c10::Device& device,
-    ExpressionEvaluator& ee) {
-  FUSER_PERF_SCOPE("fusion_executor::allocations::allocateOutputs");
-
-  const auto num_outs = output_info.size();
-
-  // Sort the outputs so we compute aliases after allocating non-aliases. The
-  // order between aliases can be arbitrary. E.g.,
-  //
-  // ```
-  // non_alias_out = ...
-  // alias_out_0 = reshape(non_alias_out, ...)
-  // alias_out_1 = reshape(alias_out_0, ...)
-  // ```
-  //
-  // It's fine to compute `alias_out_1` before computing `alias_out_0`: when we
-  // compute `alias_out_1`, `alias_out_0` will be recursively
-  // `ExpressionEvaluator::evaluate`ed. However, `non_alias_out` must be
-  // allocated first so `alias_out_*` can refer them.
-  std::vector<std::pair<int64_t, Val*>> sorted_outs;
-  sorted_outs.reserve(num_outs);
-  for (const auto out_index : c10::irange(num_outs)) {
-    sorted_outs.emplace_back(out_index, fusion->outputs()[out_index]);
-  }
-  std::sort(
-      sorted_outs.begin(),
-      sorted_outs.end(),
-      [fusion](
-          const std::pair<int64_t, Val*>& lhs,
-          const std::pair<int64_t, Val*>& rhs) {
-        return (
-            fusion->getOutputAlias(lhs.second).type == AllocationType::New &&
-            fusion->getOutputAlias(rhs.second).type != AllocationType::New);
-      });
-
-  std::vector<at::Tensor> out_tensors(num_outs);
-  for (const auto& [out_index, out] : sorted_outs) {
-    at::Tensor out_tensor = allocateOutput(
-        output_info[out_index], fusion->getOutputAlias(out), device, ee);
-    // Bind `out_tensor` so
-    // 1. duplicated outputs map to the same tensor,
-    // 2. an output that aliases another output can be evaluated via
-    // ExpressionEvaluator cheaply.
-    ee.bind(out, out_tensor);
-    out_tensors[out_index] = out_tensor;
   }
   return out_tensors;
 }
 
-std::vector<at::Tensor> allocOutputSpace(
-    const at::ArrayRef<c10::IValue>& inputs,
-    Fusion* fusion,
-    const c10::Device& device) {
-  FUSER_PERF_SCOPE("fusion_executor::allocations::allocOutputSpace");
-  auto fusion_inputs = KernelArgumentHolder::createKernelArgumentHolder(inputs);
-  auto expr_eval = executor_utils::bindInputs(fusion_inputs, fusion);
-
-  auto output_info =
-      getBufferInfos(expr_eval, PrimDataType::Int, fusion->outputs());
-
-  return allocateOutputs(fusion, output_info, device, expr_eval);
-}
-
-namespace {
-GlobalBufferInfo getBufferInfo(
-    ExpressionEvaluator& expr_eval,
-    DataType index_dtype,
-    TensorView* tv) {
-  FUSER_PERF_SCOPE("fusion_executor::allocations::getBufferInfo");
-  GlobalBufferInfo info;
-  info.tv = tv;
-  std::tie(info.sizes, info.strides) = inferShapeOfOutput(info.tv, expr_eval);
-  auto dtype =
-      (info.tv->dtype() == DataType::Index ? index_dtype : info.tv->dtype());
-  info.type = data_type_to_aten(dtype);
-  return info;
-}
-
-} // namespace
 std::vector<GlobalBufferInfo> getBufferInfos(
     ExpressionEvaluator& expr_eval,
     DataType index_dtype,
-    const std::vector<Val*>& fusion_outputs) {
-  FUSER_PERF_SCOPE("fusion_executor::allocations::getOutbufferInfo");
-  std::vector<GlobalBufferInfo> output_buffer_infos;
-  output_buffer_infos.reserve(fusion_outputs.size());
-  for (const auto out : fusion_outputs) {
+    const std::vector<Val*>& tvs) {
+  FUSER_PERF_SCOPE("fusion_executor::allocations::getBufferInfos");
+  std::vector<GlobalBufferInfo> buffer_infos;
+  buffer_infos.reserve(tvs.size());
+  for (Val* v : tvs) {
+    auto* tv = dynamic_cast<TensorView*>(v);
     NVF_ERROR(
-        out->isA<TensorView>(),
-        "Cannot allocate outputs that are not tensors.");
+        tv != nullptr, "Cannot allocate outputs that are not tensors: ", v);
 
-    output_buffer_infos.emplace_back(
-        getBufferInfo(expr_eval, index_dtype, out->as<TensorView>()));
+    GlobalBufferInfo info;
+    info.tv = tv;
+    info.shape_info = inferTensorShapes(tv, expr_eval);
+    auto dtype = (tv->dtype() == DataType::Index ? index_dtype : tv->dtype());
+    info.type = data_type_to_aten(dtype);
+
+    buffer_infos.emplace_back(info);
   }
-  return output_buffer_infos;
+  return buffer_infos;
 }
 
 namespace {
 
 class ForwardTraverseFromAllocToLogical {
   at::Tensor tensor_;
-  ExpressionEvaluator& ee_;
+  const ExpressionEvaluator& ee_;
   std::list<IterDomain*>& frontier_;
 
   // Forward traverse split from allocation to logical. Needs to, for example,
@@ -450,7 +370,7 @@ class ForwardTraverseFromAllocToLogical {
     // view tensor
     int64_t dim = std::distance(frontier_.begin(), in_it);
     std::vector<int64_t> new_shape;
-    for (auto i : c10::irange(tensor_.dim())) {
+    for (auto i : arange(tensor_.dim())) {
       if (i == dim) {
         new_shape.emplace_back(-1);
         new_shape.emplace_back(factor);
@@ -504,7 +424,7 @@ class ForwardTraverseFromAllocToLogical {
       tensor_ = tensor_.permute(dims);
     }
     std::vector<int64_t> new_shape;
-    for (auto i : c10::irange(tensor_.dim())) {
+    for (auto i : arange(tensor_.dim())) {
       if (i == left) {
         new_shape.emplace_back(-1);
       } else if (i != left + 1) {
@@ -535,7 +455,7 @@ class ForwardTraverseFromAllocToLogical {
  public:
   ForwardTraverseFromAllocToLogical(
       at::Tensor tensor,
-      ExpressionEvaluator& ee,
+      const ExpressionEvaluator& ee,
       std::list<IterDomain*>& frontier)
       : tensor_(std::move(tensor)), ee_(ee), frontier_(frontier) {}
 
@@ -555,7 +475,7 @@ class ForwardTraverseFromAllocToLogical {
 // transformations.
 class BackwardTraverseFromAllocToLogical {
   at::Tensor tensor_;
-  ExpressionEvaluator& ee_;
+  const ExpressionEvaluator& ee_;
   std::list<IterDomain*>& frontier_;
 
   // Backward traverse split from allocation to logical. Needs to, for example,
@@ -597,7 +517,7 @@ class BackwardTraverseFromAllocToLogical {
       tensor_ = tensor_.permute(dims);
     }
     std::vector<int64_t> new_shape;
-    for (auto i : c10::irange(tensor_.dim())) {
+    for (auto i : arange(tensor_.dim())) {
       if (i == left) {
         new_shape.emplace_back(-1);
       } else if (i != left + 1) {
@@ -631,7 +551,7 @@ class BackwardTraverseFromAllocToLogical {
     // view tensor
     int64_t dim = std::distance(frontier_.begin(), out_it);
     std::vector<int64_t> new_shape;
-    for (auto i : c10::irange(tensor_.dim())) {
+    for (auto i : arange(tensor_.dim())) {
       if (i == dim) {
         new_shape.emplace_back(-1);
         new_shape.emplace_back(factor);
@@ -659,7 +579,7 @@ class BackwardTraverseFromAllocToLogical {
  public:
   BackwardTraverseFromAllocToLogical(
       at::Tensor tensor,
-      ExpressionEvaluator& ee,
+      const ExpressionEvaluator& ee,
       std::list<IterDomain*>& frontier)
       : tensor_(std::move(tensor)), ee_(ee), frontier_(frontier) {}
 
@@ -685,12 +605,11 @@ class BackwardTraverseFromAllocToLogical {
 // Another example, if the logical domain is [I1*I2] and the allocation domain
 // is [I1, I2], then we will allocate as [I1, I2] and do a tensor.view(I1*I2) to
 // get a tensor whose semantics is [I1*I2] but memory is [I1,I2]
-at::Tensor transformOutputFromAllocationToLogical(
+at::Tensor transformFromAllocationToLogical(
     at::Tensor tensor,
     TensorView* tv,
-    ExpressionEvaluator& ee) {
-  FUSER_PERF_SCOPE(
-      "fusion_executor::allocations::transformOutputFromAllocationToLogical");
+    const ExpressionEvaluator& ee) {
+  FUSER_PERF_SCOPE("allocations::transformFromAllocationToLogical");
   // Ignore reductions because reductions does not exist in tensor's definition
   auto logical = TensorDomain::noReductions(tv->getLogicalDomain());
   auto alloc = TensorDomain::noReductions(tv->getMaybeAllocationDomain());
@@ -720,16 +639,9 @@ at::Tensor transformOutputFromAllocationToLogical(
   return tensor.permute(dims);
 }
 
-} // namespace
-
-std::pair<std::vector<int64_t>, std::vector<int64_t>> inferShapeOfOutput(
+std::pair<std::vector<int64_t>, std::vector<int64_t>> inferAllocationShape(
     TensorView* tv,
-    ExpressionEvaluator& expr_eval) {
-  FUSER_PERF_SCOPE("fusion_executor::allocations::inferShapeOfOutput");
-  // Fusion outputs do not come with Allocate and
-  // need to be allocated while taking expanded broadcasts into
-  // account.
-
+    const ExpressionEvaluator& expr_eval) {
   std::vector<Val*> symbolic_sizes;
   std::vector<bool> expand_flags;
 
@@ -754,8 +666,20 @@ std::pair<std::vector<int64_t>, std::vector<int64_t>> inferShapeOfOutput(
       expand_flags.push_back(false);
     }
   }
+  return inferShape(tv, symbolic_sizes, expand_flags, expr_eval);
+}
 
-  auto size_stride = inferShape(tv, symbolic_sizes, expand_flags, expr_eval);
+} // namespace
+
+std::pair<std::vector<int64_t>, std::vector<int64_t>> inferShapeOfOutput(
+    TensorView* tv,
+    const ExpressionEvaluator& expr_eval) {
+  FUSER_PERF_SCOPE("fusion_executor::allocations::inferShapeOfOutput");
+  // Fusion outputs do not come with Allocate and
+  // need to be allocated while taking expanded broadcasts into
+  // account.
+
+  auto size_stride = inferAllocationShape(tv, expr_eval);
   if (!tv->hasAllocation()) {
     return size_stride;
   }
@@ -765,10 +689,72 @@ std::pair<std::vector<int64_t>, std::vector<int64_t>> inferShapeOfOutput(
       at::empty_strided(size_stride.first, size_stride.second, options);
   // TODO(jiej): we should refactor it here, there's no need to use
   // meta_tensor at all, size + stride should be used directly in the
-  // `transformOutputFromAllocationToLogical`
-  meta_tensor =
-      transformOutputFromAllocationToLogical(meta_tensor, tv, expr_eval);
+  // `transformFromAllocationToLogical`
+  meta_tensor = transformFromAllocationToLogical(meta_tensor, tv, expr_eval);
   return {meta_tensor.sizes().vec(), meta_tensor.strides().vec()};
+}
+
+TensorShapeInfo inferTensorShapes(
+    TensorView* tv,
+    const ExpressionEvaluator& expr_eval) {
+  // Alias handling:
+  auto alias_info = tv->fusion()->getOutputAlias(tv);
+  if (alias_info.type != AllocationType::New) {
+    // For reuse buffer alias, we need to get the aliased_io's size/stride
+    if (alias_info.type == AllocationType::ReuseBuffer) {
+      tv = alias_info.aliased_io->as<TensorView>();
+    }
+
+    auto val = expr_eval.evaluate(tv);
+    NVF_ERROR(val.is<at::Tensor>(), "Output is not a Tensor");
+    auto tensor = val.as<at::Tensor>();
+
+    if (!tv->hasAllocation()) {
+      return TensorShapeInfo{
+          tensor.sizes().vec(),
+          tensor.strides().vec(),
+          isSharded(tv) ? unshardedSizes(tv, tensor.sizes().vec())
+                        : std::vector<int64_t>(),
+      };
+    }
+    auto allocation_size_stride =
+        inferAndValidateAllocationSizesAndStrides(tensor, tv, expr_eval);
+    return TensorShapeInfo{
+        tensor.sizes().vec(),
+        tensor.strides().vec(),
+        isSharded(tv) ? unshardedSizes(tv, tensor.sizes().vec())
+                      : std::vector<int64_t>(),
+        allocation_size_stride.first,
+        allocation_size_stride.second};
+  }
+
+  // Non-alias handling:
+  auto allocation_size_stride = inferAllocationShape(tv, expr_eval);
+  if (!tv->hasAllocation()) {
+    return TensorShapeInfo{
+        allocation_size_stride.first,
+        allocation_size_stride.second,
+        isSharded(tv) ? unshardedSizes(tv, allocation_size_stride.first)
+                      : std::vector<int64_t>(),
+    };
+  }
+
+  auto options =
+      c10::TensorOptions().device(c10::Device(c10::DeviceType::Meta));
+  auto logical_meta_tensor = at::empty_strided(
+      allocation_size_stride.first, allocation_size_stride.second, options);
+  // TODO(jiej): we should refactor it here, there's no need to use
+  // logical_meta_tensor at all, size + stride should be used directly in the
+  // `transformFromAllocationToLogical`
+  logical_meta_tensor =
+      transformFromAllocationToLogical(logical_meta_tensor, tv, expr_eval);
+  return TensorShapeInfo{
+      logical_meta_tensor.sizes().vec(),
+      logical_meta_tensor.strides().vec(),
+      isSharded(tv) ? unshardedSizes(tv, logical_meta_tensor.sizes().vec())
+                    : std::vector<int64_t>(),
+      allocation_size_stride.first,
+      allocation_size_stride.second};
 }
 
 } // namespace nvfuser

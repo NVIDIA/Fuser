@@ -23,6 +23,7 @@
 #include <ops/alias.h>
 #include <ops/arith.h>
 #include <runtime/executor_params.h>
+#include <transform_replay.h>
 
 #include <iterator>
 
@@ -44,7 +45,7 @@ void swap(Fusion& a, Fusion& b) noexcept {
 std::unique_ptr<SegmentedFusion> Fusion::segment(
     const KernelArgumentHolder& args) {
   FUSER_PERF_SCOPE("Segment Fusion");
-  return SegmentCandidateFinder::segment(this, &args);
+  return SegmentCandidateFinder::segment(this, args);
 }
 
 IrCloner Fusion::copy(const Fusion* from, Fusion* to) {
@@ -237,7 +238,8 @@ void Fusion::addInput(Val* input) {
   } else if (input->getValType().value() == ValType::Others) {
     NVF_CHECK(
         !input->isConst(),
-        "Immediate scalar value cannot be added as an input. It is not necessary to pass it as an input.");
+        "Immediate scalar value cannot be added as an input. It is not "
+        "necessary to pass it as an input.");
   }
 
   NVF_CHECK(
@@ -398,6 +400,17 @@ void Fusion::validateInputs() {
 std::ostream& Fusion::print(std::ostream& os, bool include_tensor_transforms)
     const {
   FUSER_PERF_SCOPE("Fusion::print");
+
+  os << "Inputs:" << std::endl;
+  for (auto inp : inputs()) {
+    os << "  " << inp << std::endl;
+  }
+
+  os << "Outputs:" << std::endl;
+  for (auto out : outputs()) {
+    os << "  " << out << std::endl;
+  }
+
   os << "\n%kernel {\n";
   IrMathPrinter op_exprs(os);
   op_exprs.handle(this);
@@ -407,6 +420,8 @@ std::ostream& Fusion::print(std::ostream& os, bool include_tensor_transforms)
     t_exprs.handle(this);
   }
   os << "} // %kernel\n";
+
+  os << std::flush;
 
   return os;
 }
@@ -420,6 +435,8 @@ void Fusion::printKernel(const CompileParams& compile_params) {
   GpuLower lower(this, compile_params);
   lower.run();
   debug() << codegen::generateCudaKernel(lower.kernel());
+
+  debug() << std::flush;
 }
 
 std::unordered_map<
@@ -527,6 +544,8 @@ void Fusion::printMath(bool from_outputs_only) {
     debug() << expr;
   }
   debug() << "} // %kernel_math \n\n";
+
+  debug() << std::flush;
 }
 
 std::vector<Val*> Fusion::inputsAndCreated() {
@@ -693,18 +712,6 @@ Expr* Fusion::definition(const Val* val) const {
   return val->definition();
 }
 
-// Indicate to kernel to set itself up to generate random numbers
-bool Fusion::isStochastic() const {
-  for (auto expr : exprs()) {
-    if (expr->isA<RNGOp>()) {
-      // Note that RNGOps without seed is not stochastic since the random seed
-      // and offset are given as Vals.
-      return !expr->as<RNGOp>()->isDeterministic();
-    }
-  }
-  return false;
-}
-
 std::vector<Val*> Fusion::getTerminatingOutputs() const {
   FUSER_PERF_SCOPE("getTerminatingOutputs");
 
@@ -752,34 +759,14 @@ std::vector<Val*> Fusion::getTerminatingOutputs() const {
   return terminating_outputs;
 }
 
-bool Fusion::isAliasCompatible(Val* left, Val* right) {
-  // Nullptr check
-  if (left == nullptr || right == nullptr) {
-    return false;
-  }
-
-  // DataType check
-  if (!left->getDataType().has_value() || !right->getDataType().has_value() ||
-      left->getDataType().value() != right->getDataType().value()) {
-    return false;
-  }
-
-  // ValType check
-  if (!left->getValType().has_value() || !right->getValType().has_value() ||
-      left->getValType().value() != right->getValType().value()) {
-    return false;
-  }
-
-  return true;
-}
-
 void Fusion::aliasOutputToInput(
     Val* output,
     Val* input,
     const AllocationType type) {
   NVF_CHECK(
       type != AllocationType::New,
-      "New is returned automatically for a missing key. Don't add it explicitly.");
+      "New is returned automatically for a missing key. Don't add it "
+      "explicitly.");
 
   if (type == AllocationType::Evaluate) {
     NVF_CHECK(
@@ -791,33 +778,28 @@ void Fusion::aliasOutputToInput(
   }
 
   NVF_ERROR(type == AllocationType::ReuseBuffer);
-  // `input` can be a cast of a fusion input.
-  if (!input->isFusionInput()) {
-    auto input_expr = input->definition();
-    NVF_ERROR(
-        input_expr->isA<UnaryOp>(), "expected unary op for aliased input");
-    auto input_uop = input_expr->as<UnaryOp>();
-    NVF_ERROR(
-        input_uop->getUnaryOpType() == UnaryOpType::Cast,
-        "expected aliased input to be output of cast op");
-    input = input_uop->in();
-  }
+  NVF_ERROR(input->isFusionInput(), "alias source can only be a fusion input");
   NVF_ERROR(
       input->getDataType().has_value() && output->getDataType().has_value(),
       "requires DataType to be available for aliased output to input");
-
-  if (input->getDataType().value() != output->getDataType().value()) {
-    output = castOp(input->getDataType().value(), output);
-  }
 
   if (output->isFusionInput()) {
     // ensure that codegen produce a write operation on the buffer.
     output = set(output);
   }
 
-  NVF_ERROR(
-      isAliasCompatible(input, output),
-      "The input and output values are not alias-compatible.");
+  // We need to replay the allocation domain and contiguity of input on output,
+  // this is because these two share the data buffer and should interpret it
+  // identically. Technically these two don't have to be identical, but rather
+  // compatible.
+  NVF_CHECK(
+      output->isA<TensorView>() && input->isA<TensorView>(),
+      "aliasing output to input is only supported for TensorView");
+  TransformReplay::selfReplay(
+      input->as<TensorView>()->domain(),
+      output->as<TensorView>()->domain(),
+      /*ignore_reductions=*/true);
+
   // Let integration hide any output that wasn't a fusion output when
   // `aliasOutputToInput` was called. For example, running mean and var for
   // batch norm.
@@ -843,13 +825,6 @@ const AliasInfo& Fusion::getOutputAlias(const Val* output) const {
 
 bool Fusion::hasDynamicTransform() {
   return !ir_utils::getTVsWithDynamicTransform(this).empty();
-}
-
-bool isExpressionEvaluated(Fusion* fusion) {
-  return std::all_of(
-      fusion->outputs().begin(), fusion->outputs().end(), [&fusion](Val* out) {
-        return fusion->getOutputAlias(out).type == AllocationType::Evaluate;
-      });
 }
 
 namespace {
@@ -885,7 +860,7 @@ std::vector<TensorView*> Fusion::allTvs() {
 
 void Fusion::registerExactMapping(IterDomain* id0, IterDomain* id1) {
   NVF_ERROR(
-      id0->sameAs(id1),
+      id0->extent()->sameAs(id1->extent()),
       "Invalid domains to map: ",
       id0->toString(),
       ", ",
@@ -906,6 +881,12 @@ DisjointSets<IterDomain*> Fusion::registeredExactMappings() const {
   }
 
   return getManaged<DisjointSets<IterDomain*>>(exact_mappings_key);
+}
+
+void Fusion::resetExactMappings() {
+  if (hasRegisteredExactMappings()) {
+    stopManaging(exact_mappings_key);
+  }
 }
 
 } // namespace nvfuser

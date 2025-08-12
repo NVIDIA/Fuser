@@ -80,7 +80,7 @@ static void setupLayerNorm_BWD(Fusion* fusion, DataType dtype) {
 
 static void NvFuserScheduler_LayerNorm_BWD(
     benchmark::State& benchmark_state,
-    FusionExecutorCache* fusion_executor_cache,
+    FusionExecutorCache* executor_cache,
     DataType dtype) {
   NVF_ERROR(dtype == DataType::Float || dtype == DataType::Half);
 
@@ -100,16 +100,15 @@ static void NvFuserScheduler_LayerNorm_BWD(
   at::Tensor mean = at::randn({input_shape[0], 1}, fp32_options);
   at::Tensor rstd = at::randn({input_shape[0], 1}, fp32_options);
 
-  std::vector<c10::IValue> aten_inputs(
-      {grad_out, input, weight, bias, mean, rstd});
+  KernelArgumentHolder args = {grad_out, input, weight, bias, mean, rstd};
 
-  runBenchmarkIterations(benchmark_state, fusion_executor_cache, aten_inputs);
+  runBenchmarkIterations(benchmark_state, executor_cache, args);
 
   benchmark_state.SetBytesProcessed(
       int64_t(benchmark_state.iterations()) *
       (3 * input.numel() + weight.numel() + bias.numel() + mean.numel() +
        rstd.numel()) *
-      int64_t(dataTypeSize(dtype)));
+      dataTypeSizeByte(dtype));
 }
 
 //------------------------------------------------------------------------------
@@ -159,7 +158,7 @@ static void Baseline_LayerNorm_BWD(
       int64_t(benchmark_state.iterations()) *
       (3 * input.numel() + weight.numel() + bias.numel() + mean.numel() +
        rstd.numel()) *
-      int64_t(dataTypeSize(dtype)));
+      dataTypeSizeByte(dtype));
 }
 
 static void Baseline_LayerNorm_BWD_fp32(benchmark::State& benchmark_state) {

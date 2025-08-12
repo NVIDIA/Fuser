@@ -97,8 +97,11 @@ std::string toString(const PointwiseParams* pparams) {
   if (pparams->vectorization_factor > 1) {
     ss << "Vectorize, Factor: " << pparams->vectorization_factor << "\n";
   }
-  if (pparams->unroll_factor > 1) {
-    ss << "Unroll, Factor: " << pparams->unroll_factor << "\n";
+  if (pparams->unroll_factor_outer > 1) {
+    ss << "Outer Unroll, Factor: " << pparams->unroll_factor_outer << "\n";
+  }
+  if (pparams->unroll_factor_inner > 1) {
+    ss << "Inner Unroll, Factor: " << pparams->unroll_factor_inner << "\n";
   }
   return ss.str();
 }
@@ -126,7 +129,8 @@ std::string toString(const std::unique_ptr<HeuristicParams>& params) {
     return toString(tparams);
   }
   NVF_THROW(
-      "Unknown heuristic parameter type. Did you just added a new heuristic parameter type but forget to update here?");
+      "Unknown heuristic parameter type. Did you just added a new heuristic "
+      "parameter type but forget to update here?");
 }
 
 std::string toString(LaunchParams lparams) {
@@ -142,62 +146,55 @@ std::string toString(LaunchParams lparams) {
 
 namespace {
 
-int64_t getSizeOfInputs(const std::vector<c10::IValue>& inputs) {
+int64_t getSizeOfArgs(const KernelArgumentHolder& args) {
   int64_t bytes = 0;
-  for (const auto& inp : inputs) {
-    if (!inp.isTensor()) {
+  for (const auto& inp : args) {
+    if (!inp.is<at::Tensor>()) {
       continue;
     }
-    const auto& inp_tensor = inp.toTensor();
+    const auto& inp_tensor = inp.as<at::Tensor>();
     bytes += inp_tensor.numel() *
-        (int64_t)dataTypeSize(aten_to_data_type(inp_tensor.scalar_type()));
+        dataTypeSizeByte(aten_to_data_type(inp_tensor.scalar_type()));
   }
   return bytes;
 }
 
-int64_t getSizeOfOutputs(const std::vector<at::Tensor>& outputs) {
-  int64_t bytes = 0;
-  for (const auto& tensor : outputs) {
-    bytes += tensor.numel() *
-        (int64_t)dataTypeSize(aten_to_data_type(tensor.scalar_type()));
-  }
-  return bytes;
-}
 } // namespace
 
 int64_t runBenchmarkIterations(
     benchmark::State& benchmark_state,
-    FusionExecutorCache* fusion_executor_cache,
-    std::vector<c10::IValue>& aten_inputs) {
+    FusionExecutorCache* executor_cache,
+    const KernelArgumentHolder& args) {
   c10::cuda::CUDACachingAllocator::emptyCache();
-  fusion_executor_cache->profile(true);
+  executor_cache->profile(true);
 
-  int64_t io_bytes = getSizeOfInputs(aten_inputs);
+  int64_t io_bytes = getSizeOfArgs(args);
 
   // Segment and compile the fusion
   {
-    auto cg_outputs = fusion_executor_cache->runFusionWithInputs(aten_inputs);
-    io_bytes += getSizeOfOutputs(cg_outputs);
+    auto cg_outputs = executor_cache->runFusionWithInputs(args);
+    io_bytes += getSizeOfArgs(cg_outputs);
   }
 
   bool segmented =
-      fusion_executor_cache->getMostRecentKernelRuntime()->isSegmented() &&
-      fusion_executor_cache->getMostRecentKernelRuntime()
+      executor_cache->getMostRecentKernelRuntime()->isSegmented() &&
+      executor_cache->getMostRecentKernelRuntime()
               ->fusionSegments()
               ->groups()
               .size() > 1;
 
-  const auto& compile_log = fusion_executor_cache->getMostRecentExecutorInfo();
-  auto params = toString(compile_log.params);
-  auto lparams = toString(compile_log.fusion_executor->lastLaunchParams());
   // Only set if not segmented. In the case of segmented fusions,
   // this could be confusing as the log would refect only the last
   // segment. Revisit if necessary.
   if (!segmented) {
+    const auto& compile_log = executor_cache->getMostRecentExecutorInfo();
+    auto params = toString(compile_log.params);
+    auto lparams = toString(
+        compile_log.fusion_executor->as<KernelExecutor>()->lastLaunchParams());
     benchmark_state.SetLabel(params + lparams);
   }
 
-  fusion_executor_cache->profile(false);
+  executor_cache->profile(false);
 
   // Sync everything up before we start
   NVFUSER_CUDA_RT_SAFE_CALL(cudaDeviceSynchronize());
@@ -205,7 +202,7 @@ int64_t runBenchmarkIterations(
 
   for (auto _ : benchmark_state) {
     clearL2Cache();
-    auto cg_outputs = fusion_executor_cache->runFusionWithInputs(aten_inputs);
+    auto cg_outputs = executor_cache->runFusionWithInputs(args);
     benchmark_state.SetIterationTime(
         FusionProfiler::profile().kernel_time_ms / 1000.0);
   }
@@ -220,19 +217,18 @@ int64_t runBenchmarkIterations(
 
 int64_t runBenchmarkIterations(
     benchmark::State& benchmark_state,
-    FusionExecutor* fusion_executor,
-    std::vector<c10::IValue>& aten_inputs,
+    KernelExecutor* ke,
+    const KernelArgumentHolder& args,
     const LaunchParams& launch_constraints,
     CompileParams compile_params) {
-  int64_t io_bytes = getSizeOfInputs(aten_inputs);
+  int64_t io_bytes = getSizeOfArgs(args);
   {
     // Warm-up run
-    auto cg_outputs = fusion_executor->runFusion(
-        aten_inputs, launch_constraints, compile_params);
-    io_bytes += getSizeOfOutputs(cg_outputs);
+    auto cg_outputs = ke->run(args, {}, launch_constraints, compile_params);
+    io_bytes += getSizeOfArgs(cg_outputs);
   }
 
-  auto lparams = toString(fusion_executor->lastLaunchParams());
+  auto lparams = toString(ke->lastLaunchParams());
   benchmark_state.SetLabel(lparams);
 
   // Sync everything up before we start
@@ -243,8 +239,7 @@ int64_t runBenchmarkIterations(
     clearL2Cache();
     FusionProfiler::start();
     FusionProfiler::createSegments(1);
-    auto cg_outputs = fusion_executor->runFusion(
-        aten_inputs, launch_constraints, compile_params);
+    auto cg_outputs = ke->run(args, {}, launch_constraints, compile_params);
     FusionProfiler::stop();
     benchmark_state.SetIterationTime(
         FusionProfiler::profile().kernel_time_ms / 1000.0);
@@ -281,4 +276,104 @@ void addCasesOneWave128To32K(benchmark::internal::Benchmark* b) {
   for (auto hidden_size = 128; hidden_size <= 32768; hidden_size += 128) {
     b->Args({batch_size, hidden_size});
   }
+}
+
+FusionKernelRuntime* getLayerBackwardNormRuntime(
+    std::unique_ptr<Fusion> fusion_ptr,
+    std::unique_ptr<FusionExecutorCache>& executor_cache,
+    KernelArgumentHolder& args,
+    const std::vector<int64_t>& shape,
+    const std::vector<int64_t>& norm_shape) {
+  Fusion& fusion = *fusion_ptr.get();
+
+  const size_t kM = shape.size();
+  const size_t kN = norm_shape.size();
+  const size_t kOuterNumDims = kM - kN;
+
+  std::vector<int64_t> outer_shape;
+  for (size_t idx = 0; idx < kOuterNumDims; ++idx) {
+    outer_shape.push_back(shape[idx]);
+  }
+  for (size_t idx = kOuterNumDims; idx < kM; ++idx) {
+    outer_shape.push_back(1);
+  }
+
+  auto grad_out = makeSymbolicTensor(shape.size());
+  auto input = makeSymbolicTensor(shape.size());
+  auto mean = makeConcreteTensor(outer_shape);
+  auto rstd = makeConcreteTensor(outer_shape);
+  auto weight = makeSymbolicTensor(norm_shape.size());
+  auto bias = makeSymbolicTensor(norm_shape.size());
+  fusion.addInput(grad_out);
+  fusion.addInput(input);
+  fusion.addInput(mean);
+  fusion.addInput(rstd);
+  fusion.addInput(weight);
+  fusion.addInput(bias);
+
+  auto grads = layer_norm_backward(
+      grad_out,
+      input,
+      norm_shape,
+      mean,
+      rstd,
+      weight,
+      bias,
+      {true, true, true});
+
+  fusion.addOutput(grads.grad_input);
+  fusion.addOutput(grads.grad_weight);
+  fusion.addOutput(grads.grad_bias);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor aten_grad_out = at::randn(shape, options);
+  at::Tensor aten_input = at::randn(shape, options);
+  at::Tensor aten_weight = at::randn(norm_shape, options);
+  at::Tensor aten_bias = at::randn(norm_shape, options);
+  auto at_weight = c10::optional<at::Tensor>(aten_weight);
+  auto at_bias = c10::optional<at::Tensor>(aten_bias);
+
+  const float kEps = 1e-5;
+  auto aten_results =
+      at::native_layer_norm(aten_input, norm_shape, at_weight, at_bias, kEps);
+  auto aten_output = std::get<0>(aten_results);
+  auto aten_mean = std::get<1>(aten_results);
+  auto aten_rstd = std::get<2>(aten_results);
+
+  executor_cache = std::make_unique<FusionExecutorCache>(std::move(fusion_ptr));
+  args = {
+      aten_grad_out, aten_input, aten_mean, aten_rstd, aten_weight, aten_bias};
+
+  auto cg_outputs = executor_cache->runFusionWithInputs(args);
+
+  return executor_cache->getMostRecentKernelRuntime();
+}
+
+FusionKernelRuntime* getLayerForwardNormRuntime(
+    std::unique_ptr<Fusion> fusion_ptr,
+    std::unique_ptr<FusionExecutorCache>& executor_cache,
+    KernelArgumentHolder& args,
+    const std::vector<int64_t>& shape,
+    const std::vector<int64_t>& norm_shape) {
+  Fusion& fusion = *fusion_ptr.get();
+
+  const float kEps = 1e-5;
+  Val* eps_ptr = IrBuilder::create<Val>(kEps);
+
+  auto input = makeSymbolicTensor(shape.size());
+  fusion.addInput(input);
+
+  auto result = layer_norm(input, norm_shape, nullptr, nullptr, eps_ptr);
+
+  fusion.addOutput(result.output);
+  fusion.addOutput(result.mean);
+  fusion.addOutput(result.invstd);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  args.push(at::randn(shape, options));
+
+  executor_cache = std::make_unique<FusionExecutorCache>(std::move(fusion_ptr));
+  auto cg_outputs = executor_cache->runFusionWithInputs(args);
+
+  return executor_cache->getMostRecentKernelRuntime();
 }

@@ -47,6 +47,8 @@ template <class _Tp, class _Up>
 struct is_same : public false_type {};
 template <class _Tp>
 struct is_same<_Tp, _Tp> : public true_type {};
+template <class T, class U>
+constexpr bool is_same_v = is_same<T, U>::value;
 
 // is_integral, for some types.
 template <class _Tp>

@@ -19,7 +19,7 @@ cd "$(dirname "${BASH_SOURCE[0]}")"
 
 run_test './bin/lib/dynamic_type/test_dynamic_type_17'
 run_test './bin/lib/dynamic_type/test_dynamic_type_20'
-run_test './bin/nvfuser_tests'
+run_test './bin/test_nvfuser'
 run_test './bin/test_rng'
 run_test './bin/test_host_ir'
 if type -p mpirun > /dev/null

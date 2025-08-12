@@ -32,7 +32,7 @@ class IdGraphIndexCompute : public OptOutDispatch {
     current_direction_ = Direction::Undefined;
   }
 
-  const std::unordered_map<ValGroup, Val*> indexMap() const {
+  const std::unordered_map<ValGroup, Val*>& indexMap() const {
     return index_map_;
   }
 
@@ -62,7 +62,10 @@ class IdGraphIndexCompute : public OptOutDispatch {
   }
 
   void setIndex(IterDomain* id, Val* idx) {
-    index_map_.emplace(toGroup(id), idx);
+    // May overwrite index. When the graph is cyclic due to, e.g.,
+    // resize, the index obtained by traversing most through the
+    // indexing path should be used (see also PR #3454)
+    index_map_[toGroup(id)] = idx;
   }
 
   const ValGroup& toGroup(IterDomain* id) const {

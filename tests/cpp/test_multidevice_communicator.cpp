@@ -49,7 +49,20 @@ MATCHER_P2(
 } // namespace
 
 // A regression test for #2499.
-TEST_P(CommunicatorTest, Barrier) {
+//
+// It's currently disabled for a potential flake. One way to fix that is:
+// ```
+// for each iteration i:
+//   timestamps[i] = now()
+//   barrier()
+//
+// prev_max = -inf
+// for each iteration i:
+//   min = allreduce(timestamps[i], MIN)
+//   assert prev_max <= min
+//   prev_max = allreduce(timestamps[i], MAX)
+// ```
+TEST_P(CommunicatorTest, DISABLED_Barrier) {
   using clock = std::chrono::high_resolution_clock;
 
   const auto rank = communicator_->deviceId();
@@ -58,7 +71,7 @@ TEST_P(CommunicatorTest, Barrier) {
 
   std::vector<std::chrono::time_point<clock>> end_times;
   end_times.reserve(kNumIterations);
-  for ([[maybe_unused]] auto _ : c10::irange(kNumIterations)) {
+  for ([[maybe_unused]] auto _ : arange(kNumIterations)) {
     // The last rank enters the barrier the last. Therefore, the duration per
     // iteration is expected to be `kUnitDuration*(num_devices - 1)`.
     std::this_thread::sleep_for(kUnitDuration * rank);
@@ -76,14 +89,16 @@ TEST_P(CommunicatorTest, Barrier) {
         toSeconds(expected_duration + kUnitDuration / 2);
     const auto expected_lower =
         toSeconds(expected_duration - kUnitDuration / 2);
-    EXPECT_THAT(duration, IsBetween(expected_lower, expected_upper));
+    EXPECT_THAT(duration, IsBetween(expected_lower, expected_upper))
+        << "Duration of iteration " << i
+        << " is outside the range of expectation.";
   }
 }
 
 INSTANTIATE_TEST_SUITE_P(
     ,
     CommunicatorTest,
-    testing::Values(CommunicatorBackend::kNccl, CommunicatorBackend::kUcc),
+    testing::Values(CommunicatorBackend::kNccl),
     testing::PrintToStringParamName());
 
 } // namespace nvfuser

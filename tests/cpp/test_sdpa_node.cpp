@@ -27,12 +27,14 @@ constexpr int64_t n = 16, h = 32, l = 64, s = 128, e = 64;
 
 // Note: Flash Attention is only supported on Ampere and above.
 
-auto addSdpaFwdOutputs = [](Fusion* fusion, SdpfaFwdResult output) {
+namespace {
+void addSdpaFwdOutputs(Fusion* fusion, SdpfaFwdResult output) {
   fusion->addOutput(output.output);
   fusion->addOutput(output.log_sumexp);
   fusion->addOutput(output.philox_seed);
   fusion->addOutput(output.philox_offset);
-};
+}
+} // namespace
 
 using AtenSdpaOut = std::tuple<
     at::Tensor,
@@ -44,7 +46,7 @@ using AtenSdpaOut = std::tuple<
     at::Tensor,
     at::Tensor,
     at::Tensor>;
-auto validateSdpaFwdOutputs = [](std::vector<at::Tensor> nvf_out,
+auto validateSdpaFwdOutputs = [](KernelArgumentHolder nvf_out,
                                  AtenSdpaOut aten_out) {
   auto
       [attn,
@@ -60,14 +62,14 @@ auto validateSdpaFwdOutputs = [](std::vector<at::Tensor> nvf_out,
   // Since, dropout_p = 0.0 to validate outputs,
   // philox_seed and philox_offset are uninitialized empty tensors with
   // garbage values for this case, so we skip validating those values.
-  EXPECT_TRUE(at::allclose(nvf_out[0], attn));
-  EXPECT_TRUE(at::allclose(nvf_out[1], log_sumexp));
+  NVF_CHECK(at::allclose(nvf_out[0].as<at::Tensor>(), attn));
+  NVF_CHECK(at::allclose(nvf_out[1].as<at::Tensor>(), log_sumexp));
 };
 
 // Check SDPAFwdOp mapping in IdModel and ComputeAtMap.
 void checkSdpaFwdMapping(Fusion* fusion, Expr* op) {
-  IdModel id_model(fusion);
-  const ValGraph& vg = id_model.idGraph(IdMappingMode::EXACT);
+  IdModel id_model(fusion, /*build_graphs=*/false);
+  const ValGraph& vg = id_model.buildExactGraph();
   vg.validateConsistency();
 
   ComputeAtMap compute_at_map(fusion);
@@ -86,16 +88,15 @@ void checkSdpaFwdMapping(Fusion* fusion, Expr* op) {
   Note: S, E are not mapped together in the producers and do not have any
   mapping to the consumer.
   */
+  std::vector<TensorView*> producer_tvs{
+      sdpa_op->query(), sdpa_op->key(), sdpa_op->value()};
+  std::vector<TensorView*> consumer_tvs{
+      sdpa_op->attn_out(), sdpa_op->logsumexp()};
 
-  for (auto producer : sdpa_op->inputs()) {
-    for (auto consumer : sdpa_op->outputs()) {
-      if (producer->isA<Val>() || consumer->isA<Val>()) {
-        continue;
-      }
-      std::vector<IterDomain*> producer_ids =
-          producer->as<TensorView>()->getLogicalDomain();
-      std::vector<IterDomain*> consumer_ids =
-          consumer->as<TensorView>()->getMaybeRootDomain();
+  for (auto producer : producer_tvs) {
+    for (auto consumer : consumer_tvs) {
+      std::vector<IterDomain*> producer_ids = producer->getLogicalDomain();
+      std::vector<IterDomain*> consumer_ids = consumer->getMaybeRootDomain();
 
       size_t num_device_dim = producer_ids.at(0)->isDeviceDim() ? 1 : 0;
 
@@ -104,7 +105,7 @@ void checkSdpaFwdMapping(Fusion* fusion, Expr* op) {
       // Idx=2: producer_ids[2]=L/S, consumer_ids [2] = L
       // Idx=3: prodcuer_ids[3] = E/Ev, consumer_idx[3] = Ev
 
-      for (auto idx : c10::irange(consumer_ids.size())) {
+      for (auto idx : arange(consumer_ids.size())) {
         if (idx < (2 + num_device_dim)) {
           checkMapped(vg, producer_ids.at(idx), consumer_ids.at(idx));
           EXPECT_TRUE(compute_at_map.areMapped(
@@ -133,8 +134,8 @@ void checkSdpaFwdMapping(Fusion* fusion, Expr* op) {
 
 // Check SDPABwdOp mapping in IdModel and ComputeAtMap.
 void checkSdpaBwdMapping(Fusion* fusion, Expr* op) {
-  IdModel id_model(fusion);
-  const ValGraph& vg = id_model.idGraph(IdMappingMode::EXACT);
+  IdModel id_model(fusion, /*build_graphs=*/false);
+  const ValGraph& vg = id_model.buildExactGraph();
   vg.validateConsistency();
 
   ComputeAtMap compute_at_map(fusion);
@@ -155,16 +156,20 @@ void checkSdpaBwdMapping(Fusion* fusion, Expr* op) {
     output = [N, H, L, Ev]
     logsumexp = [N, H, L]
   */
-
-  for (auto producer : sdpa_op->inputs()) {
-    for (auto consumer : sdpa_op->outputs()) {
-      if (producer->isA<Val>() || consumer->isA<Val>()) {
-        continue;
-      }
-      auto producer_tv = producer->as<TensorView>();
-      auto consumer_tv = consumer->as<TensorView>();
-      std::vector<IterDomain*> producer_ids = producer_tv->getLogicalDomain();
-      std::vector<IterDomain*> consumer_ids = consumer_tv->getMaybeRootDomain();
+  // Do not try to map from rng_state.
+  std::vector<TensorView*> producer_tvs{
+      sdpa_op->grad_attn(),
+      sdpa_op->query(),
+      sdpa_op->key(),
+      sdpa_op->value(),
+      sdpa_op->attn_out(),
+      sdpa_op->logsumexp()};
+  std::vector<TensorView*> consumer_tvs{
+      sdpa_op->grad_query(), sdpa_op->grad_key(), sdpa_op->grad_value()};
+  for (TensorView* producer : producer_tvs) {
+    for (TensorView* consumer : consumer_tvs) {
+      std::vector<IterDomain*> producer_ids = producer->getLogicalDomain();
+      std::vector<IterDomain*> consumer_ids = consumer->getMaybeRootDomain();
 
       size_t num_device_dim = producer_ids.at(0)->isDeviceDim() ? 1 : 0;
 
@@ -173,17 +178,16 @@ void checkSdpaBwdMapping(Fusion* fusion, Expr* op) {
       // Idx=2: producer_ids[2], consumer_ids [2] = L/S
       // Idx=3: producer_ids[3], consumer_ids[3] = E/Ev
 
-      bool producer_has_s = producer_tv->sameAs(sdpa_op->key()) ||
-          producer_tv->sameAs(sdpa_op->value());
-      bool consumer_has_s = consumer_tv->sameAs(sdpa_op->grad_key()) ||
-          consumer_tv->sameAs(sdpa_op->grad_value());
+      bool producer_has_s = producer->sameAs(sdpa_op->key()) ||
+          producer->sameAs(sdpa_op->value());
+      bool consumer_has_s = consumer->sameAs(sdpa_op->grad_key()) ||
+          consumer->sameAs(sdpa_op->grad_value());
 
-      bool producer_has_e = producer_tv->sameAs(sdpa_op->query()) ||
-          producer_tv->sameAs(sdpa_op->key());
-      bool consumer_has_e = consumer_tv->sameAs(sdpa_op->grad_query()) ||
-          consumer_tv->sameAs(sdpa_op->grad_key());
-
-      for (auto idx : c10::irange(consumer_ids.size())) {
+      bool producer_has_e = producer->sameAs(sdpa_op->query()) ||
+          producer->sameAs(sdpa_op->key());
+      bool consumer_has_e = consumer->sameAs(sdpa_op->grad_query()) ||
+          consumer->sameAs(sdpa_op->grad_key());
+      for (auto idx : arange(producer_ids.size())) {
         if (idx < 2 + num_device_dim) {
           checkMapped(vg, producer_ids.at(idx), consumer_ids.at(idx));
           EXPECT_TRUE(compute_at_map.areMapped(
@@ -252,8 +256,8 @@ TEST_F(SDPATest, NonCausalAttnConcrete) {
       /*return_debug_mask=*/false,
       scale);
 
-  FusionExecutorCache fec(std::move(fusion));
-  auto nvf_out = fec.runFusionWithInputs({q, k, v});
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto nvf_out = executor_cache.runFusionWithInputs({q, k, v});
   validateSdpaFwdOutputs(nvf_out, aten_out);
 }
 
@@ -299,8 +303,8 @@ TEST_F(SDPATest, NonCausalAttnSymbolic) {
       /*return_debug_mask=*/false,
       scale);
 
-  FusionExecutorCache fec(std::move(fusion));
-  auto nvf_out = fec.runFusionWithInputs({q, k, v});
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto nvf_out = executor_cache.runFusionWithInputs({q, k, v});
   validateSdpaFwdOutputs(nvf_out, aten_out);
 }
 
@@ -345,8 +349,8 @@ TEST_F(SDPATest, CausalAttn) {
       /*return_debug_mask=*/false,
       /*scale=*/1e-3);
 
-  FusionExecutorCache fec(std::move(fusion));
-  auto nvf_out = fec.runFusionWithInputs({q, k, v});
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto nvf_out = executor_cache.runFusionWithInputs({q, k, v});
   validateSdpaFwdOutputs(nvf_out, aten_out);
 }
 
@@ -387,8 +391,7 @@ TEST_F(SDPATest, PairwiseLogicalDomainMap) {
   for (auto role : {AttnRole::Q, AttnRole::K, AttnRole::V}) {
     auto producer_tv = producer_tvs[(int)role];
 
-    for (Val* consumer : fusion->outputs()) {
-      auto consumer_tv = consumer->as<TensorView>();
+    for (TensorView* consumer_tv : {output.output, output.log_sumexp}) {
       auto pairwise_map = PairwiseLogicalDomainMap(producer_tv, consumer_tv)
                               .mapProducerToConsumer();
       auto mappingExists = [&pairwise_map](
@@ -398,7 +401,7 @@ TEST_F(SDPATest, PairwiseLogicalDomainMap) {
       };
 
       auto consumer_root = consumer_tv->getMaybeRootDomain();
-      for (auto idx : c10::irange(consumer_tv->nDims())) {
+      for (auto idx : arange(consumer_tv->nDims())) {
         // Mapping for N, H exists from Q/K/V to any output.
         if (idx < 2) {
           EXPECT_TRUE(
@@ -460,8 +463,7 @@ TEST_F(SDPATest, NonCausalAttnConcreteBwd) {
   auto tvv = makeConcreteTensor(kv_shape, DataType::Half);
   auto tv_output = makeConcreteTensor(attn_shape, DataType::Half);
   auto tv_logsumexp = makeConcreteTensor({n, h, l}, DataType::Float);
-  auto tv_seed = makeConcreteTensor({}, DataType::Int);
-  auto tv_offset = makeConcreteTensor({}, DataType::Int);
+  auto [tv_seed, tv_offset] = createSdpaRngTvs();
 
   fusion->addInput(tv_grad_output);
   fusion->addInput(tvq);
@@ -493,11 +495,11 @@ TEST_F(SDPATest, NonCausalAttnConcreteBwd) {
 
   at::Tensor grad_out = at::randn(attn_shape, options);
 
-  std::vector<c10::IValue> sdpa_bwd_inputs = {
+  KernelArgumentHolder sdpa_bwd_inputs = {
       grad_out, q, k, v, output, log_sumexp, philox_seed, philox_offset};
 
-  FusionExecutorCache fec(std::move(fusion));
-  auto out = fec.runFusionWithInputs(sdpa_bwd_inputs);
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto out = executor_cache.runFusionWithInputs(sdpa_bwd_inputs);
 
   auto [ref_grad_query, ref_grad_key, ref_grad_value] =
       at::_scaled_dot_product_flash_attention_backward(
@@ -518,7 +520,7 @@ TEST_F(SDPATest, NonCausalAttnConcreteBwd) {
           /*scale=*/scale);
 
   testValidate(
-      fec.fusion(),
+      executor_cache.fusion(),
       out,
       sdpa_bwd_inputs,
       {ref_grad_query, ref_grad_key, ref_grad_value},
@@ -569,8 +571,7 @@ TEST_F(SDPATest, NonCausalAttnSymbolicBwd) {
   auto tvv = makeSymbolicTensor(kv_shape, DataType::Half);
   auto tv_output = makeSymbolicTensor(attn_shape, DataType::Half);
   auto tv_logsumexp = makeSymbolicTensor({n, h, l}, DataType::Float);
-  auto tv_seed = makeSymbolicTensor({}, DataType::Int);
-  auto tv_offset = makeSymbolicTensor({}, DataType::Int);
+  auto [tv_seed, tv_offset] = createSdpaRngTvs();
 
   fusion->addInput(tv_grad_output);
   fusion->addInput(tvq);
@@ -602,11 +603,11 @@ TEST_F(SDPATest, NonCausalAttnSymbolicBwd) {
 
   at::Tensor grad_out = at::randn(attn_shape, options);
 
-  std::vector<c10::IValue> sdpa_bwd_inputs = {
+  KernelArgumentHolder sdpa_bwd_inputs = {
       grad_out, q, k, v, output, log_sumexp, philox_seed, philox_offset};
 
-  FusionExecutorCache fec(std::move(fusion));
-  auto out = fec.runFusionWithInputs(sdpa_bwd_inputs);
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto out = executor_cache.runFusionWithInputs(sdpa_bwd_inputs);
 
   auto [ref_grad_query, ref_grad_key, ref_grad_value] =
       at::_scaled_dot_product_flash_attention_backward(
@@ -627,7 +628,7 @@ TEST_F(SDPATest, NonCausalAttnSymbolicBwd) {
           /*scale=*/scale);
 
   testValidate(
-      fec.fusion(),
+      executor_cache.fusion(),
       out,
       sdpa_bwd_inputs,
       {ref_grad_query, ref_grad_key, ref_grad_value},
@@ -683,9 +684,9 @@ TEST_F(SDPATest, AttnProgram) {
       scale);
   auto expected_out = (std::get<0>(aten_outputs).to(at::kFloat)) * 2.0;
 
-  FusionExecutorCache fec(std::move(fusion));
-  auto out = fec.runFusionWithInputs({q, k, v});
-  EXPECT_TRUE(at::allclose(out[0], expected_out));
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto out = executor_cache.runFusionWithInputs({q, k, v});
+  EXPECT_TRUE(at::allclose(out[0].as<at::Tensor>(), expected_out));
 }
 
 TEST_F(SDPATest, AttnFwdBwd) {
@@ -744,8 +745,8 @@ TEST_F(SDPATest, AttnFwdBwd) {
   at::Tensor v = at::randn(v_shape, options).set_requires_grad(true);
   at::Tensor grad_out = at::randn(attn_shape, options);
 
-  FusionExecutorCache fec(std::move(fusion));
-  auto nvf_out = fec.runFusionWithInputs({q, k, v, grad_out});
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto nvf_out = executor_cache.runFusionWithInputs({q, k, v, grad_out});
 
   auto attn = at::scaled_dot_product_attention(
       q,
@@ -761,7 +762,7 @@ TEST_F(SDPATest, AttnFwdBwd) {
   attn.backward(grad_out);
 
   testValidate(
-      fec.fusion(),
+      executor_cache.fusion(),
       nvf_out,
       {q, k, v, grad_out},
       {attn, q.grad(), k.grad(), v.grad()},
@@ -824,9 +825,9 @@ TEST_F(SDPATest, Sharded_SdpaFwd) {
       /*return_debug_mask=*/false,
       scale);
 
-  FusionExecutorCache fec(std::move(fusion));
-  auto nvf_out =
-      fec.runFusionWithInputs({q.unsqueeze(0), k.unsqueeze(0), v.unsqueeze(0)});
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto nvf_out = executor_cache.runFusionWithInputs(
+      {q.unsqueeze(0), k.unsqueeze(0), v.unsqueeze(0)});
   validateSdpaFwdOutputs(nvf_out, aten_out);
 }
 
@@ -876,8 +877,7 @@ TEST_F(SDPATest, Sharded_SdpaBwd) {
   auto tvv = makeConcreteTensor(kv_shape, DataType::Half);
   auto tv_output = makeConcreteTensor(attn_shape, DataType::Half);
   auto tv_logsumexp = makeConcreteTensor({d, n, h / d, l}, DataType::Float);
-  auto tv_seed = makeConcreteTensor({}, DataType::Int);
-  auto tv_offset = makeConcreteTensor({}, DataType::Int);
+  auto [tv_seed, tv_offset] = createSdpaRngTvs();
 
   fusion->addInput(tv_grad_output);
   fusion->addInput(tvq);
@@ -918,7 +918,7 @@ TEST_F(SDPATest, Sharded_SdpaBwd) {
 
   at::Tensor grad_out = at::randn({n, h / d, l, e}, options);
 
-  std::vector<c10::IValue> sdpa_bwd_inputs = {
+  KernelArgumentHolder sdpa_bwd_inputs = {
       grad_out.unsqueeze(0),
       q.unsqueeze(0),
       k.unsqueeze(0),
@@ -928,8 +928,8 @@ TEST_F(SDPATest, Sharded_SdpaBwd) {
       philox_seed,
       philox_offset};
 
-  FusionExecutorCache fec(std::move(fusion));
-  auto out = fec.runFusionWithInputs(sdpa_bwd_inputs);
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto out = executor_cache.runFusionWithInputs(sdpa_bwd_inputs);
 
   auto [ref_grad_query, ref_grad_key, ref_grad_value] =
       at::_scaled_dot_product_flash_attention_backward(
@@ -950,7 +950,7 @@ TEST_F(SDPATest, Sharded_SdpaBwd) {
           /*scale=*/scale);
 
   testValidate(
-      fec.fusion(),
+      executor_cache.fusion(),
       out,
       sdpa_bwd_inputs,
       {ref_grad_query.unsqueeze(0),
@@ -1016,9 +1016,9 @@ TEST_F(SDPATest, ComputeAt) {
       /*return_debug_mask=*/false,
       scale);
 
-  FusionExecutorCache fec(std::move(fusion));
-  auto nvf_out =
-      fec.runFusionWithInputs({q.unsqueeze(0), k.unsqueeze(0), v.unsqueeze(0)});
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto nvf_out = executor_cache.runFusionWithInputs(
+      {q.unsqueeze(0), k.unsqueeze(0), v.unsqueeze(0)});
   validateSdpaFwdOutputs(nvf_out, aten_out);
 }
 

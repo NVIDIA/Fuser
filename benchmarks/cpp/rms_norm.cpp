@@ -62,7 +62,7 @@ static void setupRMSNorm(Fusion* fusion, DataType dtype) {
 
 static void NvFuserScheduler_RMSNorm(
     benchmark::State& benchmark_state,
-    FusionExecutorCache* fusion_executor_cache,
+    FusionExecutorCache* executor_cache,
     DataType dtype) {
   NVF_ERROR(
       dtype == DataType::Float || dtype == DataType::Half ||
@@ -78,13 +78,13 @@ static void NvFuserScheduler_RMSNorm(
   at::Tensor input = at::randn(input_shape, options);
   at::Tensor weight = at::randn({input_shape[1]}, options);
 
-  std::vector<c10::IValue> aten_inputs({input, weight});
+  KernelArgumentHolder args({input, weight});
 
-  runBenchmarkIterations(benchmark_state, fusion_executor_cache, aten_inputs);
+  runBenchmarkIterations(benchmark_state, executor_cache, args);
 
   benchmark_state.SetBytesProcessed(
       int64_t(benchmark_state.iterations()) *
-      (2 * input.numel() + weight.numel()) * int64_t(dataTypeSize(dtype)));
+      (2 * input.numel() + weight.numel()) * dataTypeSizeByte(dtype));
 }
 
 //------------------------------------------------------------------------------

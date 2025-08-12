@@ -6,23 +6,26 @@
  */
 // clang-format on
 
-#include <gmock/gmock-matchers.h>
-#include <gtest/gtest.h>
-
-#include <tests/cpp/utils.h>
-
-#include <ops/all_ops.h>
-#include <scheduler/tools/inlining.h>
-
 #include <iostream>
 #include <list>
 #include <memory>
 #include <unordered_set>
 #include <vector>
 
+#include <gmock/gmock-matchers.h>
+#include <gtest/gtest.h>
+
+#include <ops/all_ops.h>
+#include <scheduler/tools/inlining.h>
+#include <tests/cpp/utils.h>
+#include <tests/cpp/validator.h>
+
 namespace nvfuser {
 
-class ExprSortTest : public NVFuserTest {};
+using ExprSortTest = NVFuserTest;
+
+using testing::ElementsAre;
+using testing::SizeIs;
 
 // Indirect normalization pattern with zero-dimensional tensors. Originally
 // showed up in issue #537.
@@ -157,6 +160,83 @@ TEST_F(ExprSortTest, IndirectInnerNormalization) {
       << "Unexpected computeAt position of tv2. " << tv2->toString();
 
   ASSERT_NO_THROW({ GpuLower(&fusion).run(); });
+}
+
+namespace {
+
+MATCHER_P(UnaryOpTypeIs, unary_op_type, "") {
+  auto* unary_op = dynamic_cast<UnaryOp*>(arg);
+  if (unary_op == nullptr) {
+    return false;
+  }
+  return unary_op->getUnaryOpType() == unary_op_type;
+}
+
+} // namespace
+
+TEST_F(ExprSortTest, SegmentedGroup_Unary) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  TensorView* in = makeSymbolicTensor(1);
+  TensorView* x = neg(in);
+  TensorView* out0 = sin(x);
+  TensorView* out1 = cos(x);
+
+  fusion->addInput(in);
+  fusion->addOutput(out0);
+  fusion->addOutput(out1);
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA);
+  at::Tensor in_tensor = at::randn({5}, options);
+  auto out_tensors = executor_cache.runFusionWithInputs({in_tensor});
+
+  testValidate(
+      executor_cache.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
+
+  FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
+  SegmentedFusion* segmented_fusion = runtime->fusionSegments();
+  ASSERT_THAT(segmented_fusion->groups(), SizeIs(1));
+  SegmentedGroup* group = segmented_fusion->groups().front();
+
+  EXPECT_THAT(
+      group->stablyOrderedExprs(),
+      ElementsAre(
+          UnaryOpTypeIs(UnaryOpType::Neg),
+          UnaryOpTypeIs(UnaryOpType::Sin),
+          UnaryOpTypeIs(UnaryOpType::Cos)));
+}
+
+TEST_F(ExprSortTest, SegmentedGroup_Binary_SameOperand) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  TensorView* in = makeSymbolicTensor(1);
+  TensorView* out = neg(in);
+  out = add(out, out);
+
+  fusion->addInput(in);
+  fusion->addOutput(out);
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA);
+  at::Tensor in_tensor = at::randn({5}, options);
+  auto out_tensors = executor_cache.runFusionWithInputs({in_tensor});
+
+  testValidate(
+      executor_cache.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
+
+  FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
+  SegmentedFusion* segmented_fusion = runtime->fusionSegments();
+  ASSERT_THAT(segmented_fusion->groups(), SizeIs(1));
+  SegmentedGroup* group = segmented_fusion->groups().front();
+
+  EXPECT_THAT(
+      group->stablyOrderedExprs(),
+      ElementsAre(IsA<UnaryOp>(), IsA<BinaryOp>()));
 }
 
 } // namespace nvfuser

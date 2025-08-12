@@ -59,7 +59,6 @@ namespace nvfuser {
 
 class Fusion;
 class TensorView;
-class WelfordResult;
 
 class SegmentCandidateFinder;
 class SegmentedFusion;
@@ -90,6 +89,37 @@ struct AliasInfo {
   // Whether integration should hide the output from users. This is currently
   // only used for ReuseBuffer.
   bool hide_output;
+
+  bool operator==(const AliasInfo& other) const {
+    return type == other.type && aliased_io == other.aliased_io &&
+        hide_output == other.hide_output;
+  }
+
+  bool operator!=(const AliasInfo& other) const {
+    return !(*this == other);
+  }
+
+  std::string toString() const {
+    std::stringstream ss;
+    ss << "AliasInfo{\n";
+    ss << "  type = ";
+    switch (type) {
+      case AllocationType::Evaluate:
+        ss << "Evaluate";
+        break;
+      case AllocationType::New:
+        ss << "New";
+        break;
+      case AllocationType::ReuseBuffer:
+        ss << "ReuseBuffer";
+        break;
+    }
+    ss << ",\n  aliased_io = "
+       << (aliased_io == nullptr ? "nullptr" : aliased_io->toString()) << ",\n";
+    ss << "  hide_output = " << (hide_output ? "true" : "false") << "\n";
+    ss << "}\n";
+    return ss.str();
+  }
 };
 
 //! Fusion is mutable but unique. Nodes cannot be copied in any way from one
@@ -208,9 +238,6 @@ class NVF_API Fusion : public IrContainer {
 
   //! Return the Expr that produces val
   Expr* definition(const Val* val) const;
-
-  //! Indicate to kernel to set itself up to generate random numbers
-  bool isStochastic() const;
 
   //! Run fusion segmentation algorithm to create a segmented fusion
   std::unique_ptr<SegmentedFusion> segment(const KernelArgumentHolder& args);
@@ -403,7 +430,7 @@ class NVF_API Fusion : public IrContainer {
   static IrCloner copy(const Fusion* from, Fusion* to);
 
   //! During scheduling, this can be set to a non-negative value. If done, then
-  //! during execution by FusionExecutor, we will check that this value matches
+  //! during execution by KernelExecutor, we will check that this value matches
   //! the corresponding value in LaunchParams.
   int64_t expectedDynamicSmemBytes() const {
     return expected_dynamic_smem_bytes_;
@@ -431,6 +458,8 @@ class NVF_API Fusion : public IrContainer {
   }
 
   DisjointSets<IterDomain*> registeredExactMappings() const;
+
+  void resetExactMappings();
 
  protected:
   friend SegmentCandidateFinder;
@@ -465,11 +494,6 @@ class NVF_API Fusion : public IrContainer {
   }
 
  private:
-  // Determine if the two values are compatible for aliasing
-  // Same DataType, ValType, and number of dimensions
-  bool isAliasCompatible(Val* left, Val* right);
-
- private:
   // Fusion inputs and outputs
   std::vector<Val*> inputs_;
   std::vector<Val*> outputs_;
@@ -482,6 +506,12 @@ class NVF_API Fusion : public IrContainer {
   bool all_tv_uses_valid_ = false;
   bool is_during_update_uses_ = false;
 
+  // See note [Fusion managed data]
+  // Stores data of arbitrary type as std::any, and how the data will be cloned
+  // when the fusion is cloned as CloneFn. The primary task that the clone
+  // function does is to update pointers to IR nodes inside the data structure
+  // being managed with new pointers. By default, the clone function will be
+  // the `defaultCloneFunction` below, which just dispatch to IrCloner::clone.
   std::vector<std::pair<std::any, CloneFn>> managed_data_;
   std::unordered_map<std::string, std::pair<std::any, CloneFn>>
       managed_named_data_;
@@ -496,22 +526,30 @@ class NVF_API Fusion : public IrContainer {
 };
 
 template <typename T>
+std::any defaultCloneFunction(IrCloner& cloner, std::any data) {
+  auto cloned_data = cloner.clone(std::any_cast<T>(data));
+  // Adding a static_assert to improve error message. Without this
+  // static_assert, the following cast will still fail, but the error message
+  // will be unreadable.
+  static_assert(
+      std::is_convertible_v<decltype(cloned_data), T>,
+      "IrCloner::clone returns a data type that is not compatible with the "
+      "original managed data type. "
+      "Likely you will need to check IrCloner::clone for your data type.");
+  // Convert the result of the clone back to T before assigning to std::any.
+  // This ensures the type of the std::any does not change over the clone of
+  // fusion.
+  return std::any((T)cloned_data);
+}
+
+template <typename T>
 size_t Fusion::manage(T data) {
-  std::any a = data;
-  return manage(a, [](IrCloner& cloner, std::any data) {
-    return std::any(cloner.clone(std::any_cast<T>(data)));
-  });
+  return manage(std::any(data), defaultCloneFunction<T>);
 }
 
 template <typename T>
 void Fusion::manage(std::string key, T data) {
-  std::any a = data;
-  manage(key, a, [](IrCloner& cloner, std::any data) {
-    return std::any(cloner.clone(std::any_cast<T>(data)));
-  });
+  return manage(key, std::any(data), defaultCloneFunction<T>);
 }
-
-// Returns true if all fusion outputs are expression evaluated.
-bool isExpressionEvaluated(Fusion* fusion);
 
 } // namespace nvfuser

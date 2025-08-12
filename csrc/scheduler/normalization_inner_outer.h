@@ -26,11 +26,8 @@ class HeuristicDataCache;
 
 class InnerOuterPersistentKernelScheduler : public SchedulerEntry {
  public:
-  // This scheduler has very high register pressure due to extra registers to
-  // store intermediate outer reduction results. So prefer to allow 255
-  // registers per thread and then the max threads per block is 256.
   constexpr static int64_t threads_per_block_min = 128l;
-  constexpr static int64_t threads_per_block_max = 256l;
+  constexpr static int64_t threads_per_block_max = 512l;
 
   void schedule(Fusion* fusion, const HeuristicParams* params) override;
 

@@ -8,11 +8,14 @@
 #pragma once
 
 #include <exceptions.h>
+#include <id_model/id_model.h>
 #include <ir/all_nodes.h>
 #include <runtime/executor_params.h>
 #include <scheduler/reduction_utils.h>
 #include <scheduler/scheduler_types.h>
 #include <scheduler/utils.h>
+#include <val_graph.h>
+
 #include <cmath>
 #include <optional>
 #include <ostream>
@@ -157,7 +160,7 @@ std::optional<GridOuterNormalizationParams> getGridOuterNormalizationParams(
     int64_t total_reduction_numel,
     int64_t total_iteration_numel,
     int64_t vectorize_factor,
-    int64_t persistent_buffer_size);
+    int64_t persistent_buffer_size_bit);
 
 //! check iter type of each domain in inner and outer reduction tvs
 //! inner reduction must be [I,I,...R,R]
@@ -193,22 +196,32 @@ int64_t partialReductionBufferSize(
     const std::vector<TensorView*>& outer_reduction_tvs,
     SchedulerRuntimeInfo& runtime_info);
 
+// Return the broadcast tvs that are broadcast to the iteration dimensions of
+// the inner reduction tv. These tvs are reused in the loop over the iteration
+// dimension. This reuse reduced the number loads from gmem and this tensor
+// is likely the first candidate to be moved to shared memory when the register
+// space runs low.
+std::vector<TensorView*> getOuterBroadcastTvs(
+    Fusion* fusion,
+    const std::vector<TensorView*>& reduction_tvs);
+
 // Return a scheduleHeuristic based on reduction types.
 using ReductionType = reduction_scheduler_utils::ReductionType;
 SchedulerType getPersistentHeuristicFor(ReductionType reduction_type);
 
-// get argument passed to innerPersistentHeuristic and outerPersistentHeuristic
 struct PersistentKernelProperties {
   int64_t inner_most_dimension_numel;
   int64_t total_reduction_numel;
   int64_t total_iteration_numel;
-  int64_t max_persistent_buffer_size;
+  int64_t max_persistent_buffer_size_bit;
   int64_t n_tensor_inputs;
-  int64_t max_dtype_size;
+  int64_t max_dtype_size_bit;
   int64_t vectorize_factor;
   bool project_persistent_buffers;
   PrimDataType index_type;
   bool has_exp_op;
+  bool has_rng_op;
+  bool disable_project_to_avoid_recompute;
   std::vector<TensorView*> persistent_buffers;
   std::string toString() const {
     std::stringstream ss;
@@ -216,11 +229,16 @@ struct PersistentKernelProperties {
        << "inner_most_dimension_numel: " << inner_most_dimension_numel << "\n"
        << "total_reduction_numel: " << total_reduction_numel << "\n"
        << "total_iteration_numel: " << total_iteration_numel << "\n"
-       << "max_persistent_buffer_size: " << max_persistent_buffer_size << "\n"
+       << "max_persistent_buffer_size_bit: " << max_persistent_buffer_size_bit
+       << "\n"
        << "n_tensor_inputs: " << n_tensor_inputs << "\n"
-       << "max_input_dtype_size: " << max_dtype_size << "\n"
+       << "max_input_dtype_size_bit: " << max_dtype_size_bit << "\n"
        << "max allowed vectorize_factor: " << vectorize_factor << "\n"
-       << "project_persistent_buffers: " << project_persistent_buffers << "\n";
+       << "disable_project_to_avoid_recompute: "
+       << disable_project_to_avoid_recompute << "\n"
+       << "project_persistent_buffers: " << project_persistent_buffers << "\n"
+       << "originally detected persistent_buffers: "
+       << toDelimitedString(persistent_buffers) << "\n";
     return ss.str();
   }
 };
@@ -254,15 +272,15 @@ bool checkReductionPattern(
 bool compileTimeCheck(Fusion* fusion, SchedulerType scheduler_type);
 
 // Common preparations before the actual schedule, used by all persistent
-// schedulers. Write to dummy_outputs, cached_inputs, reduction_tvs, and
-// cached_outputs.
-void beforeSchedule(
+// schedulers.
+void commonScheduleBeforeIterDomainTransform(
     Fusion* fusion,
     const ReductionParams* rparams,
     std::vector<TensorView*>& dummy_outputs,
     std::vector<TensorView*>& cached_inputs,
     std::vector<TensorView*>& reduction_tvs,
     std::vector<TensorView*>& smem_consumers,
+    std::vector<TensorView*>& persistent_buffers,
     std::vector<std::pair<TensorView*, TensorView*>>& cached_outputs);
 
 // schedule a reduction tv, used by all persistent schedulers.
@@ -281,15 +299,32 @@ void schedulePersistentKernel(
     SchedulerType scheduler_type);
 
 // Get max register or shared memory size for persistent buffer
-int64_t getMaxRegOrSharedMemorySizeForPersistentBuffer(
+int64_t getMaxRegOrSharedMemorySizeBitForPersistentBuffer(
+    Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
-    const std::vector<TensorView*>& persistent_buffers,
-    const bool can_use_smem_persistent);
+    const std::vector<TensorView*>& reduction_tvs,
+    const scheduler_utils::PersistentBufferInfo& persistent_buffer_info,
+    const bool can_use_smem_persistent,
+    const bool project_to_inputs);
 
-// Returns true if persistent buffers are projected to inputs, meaning the
-// inputs are cached instead of the persistent buffers. The decision of
-// projection is primarily based on the required sizes of the two cases --
-// projection is done if projecting to the inputs results in a smaller size.
+enum class BufferProjectionStrategy {
+  // Recompute persistent buffers from inputs, only need to cache inputs in
+  // registers or shared memories, usually used when size of required cached
+  // inputs is smaller than the size of persistent buffers.
+  ProjectToInputs,
+  // Don't project to inputs, to avoid recompute from inputs. This saves
+  // computation cost but uses more registers or shared memories. Usually used
+  // when the required buffer size  is small and hardware has high bandwidth to
+  // flops ratio.
+  NoProjectToAvoidRecompute,
+  // Project to inputs is disabled due to other reasons, e.g. can't reduce
+  // buffer size, recompute requires very expensive rng ops, not supported due
+  // to view ops.
+  NoProjectOtherReasons
+};
+
+// Returns BufferProjectionStrategy based on buffer size, hardware, and fusion
+// ops.
 
 // This function is used by inner persistent and InnerOuter persistent
 // schedulers.
@@ -311,9 +346,10 @@ int64_t getMaxRegOrSharedMemorySizeForPersistentBuffer(
 // - exp in inner normalization: only allowed to get projected if the buffer is
 // smaller than a certain size Otherwise, as long as the projected inputs are
 // smaller than the original persistent buffers, this function returns true.
-bool isProjectBufferToInputs(
+BufferProjectionStrategy isProjectBufferToInputs(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
+    const std::vector<TensorView*>& reduction_tvs,
     const scheduler_utils::PersistentBufferInfo& persistent_buffer_info,
     const scheduler_utils::PersistentBufferSizeReturn&
         persistent_buffer_size_info,
@@ -329,7 +365,8 @@ bool isProjectBufferToInputs(
 std::vector<TensorView*> movePersistentBufferToSmem(
     Fusion* fusion,
     const ReductionParams* rparams,
-    const std::vector<TensorView*>& cached_inputs);
+    const std::vector<TensorView*>& cached_inputs,
+    const std::vector<TensorView*>& persistent_buffers);
 
 // Find the resolution points of a persistent buffer. See also
 // the comments of PersistentBufferResolution in utils.cpp. Unlike
@@ -356,7 +393,20 @@ std::vector<TensorView*> movePersistentBufferToSmem(
 // point. getResolutionPointsOf addresses the problem by traversing
 // both forward and backward directions. See
 // PersistentBufferTest.GetResolutionIssue1123 for a concrete example
-std::vector<TensorView*> getResolutionPointsOf(TensorView* persistent_buffer);
+std::vector<TensorView*> getResolutionPointsOf(
+    TensorView* persistent_buffer,
+    IdModel& id_model);
+
+// Return empirical maximum persistent batch size for inner persistent scheduler
+int64_t getInnerPersistentMaxBatchSize(bool is_high_bandwidth_flops_ratio);
+
+// Check if an unmappable tensor can be persistent. The primary reason
+// of being unable to be persistent is broadcast inlining, which may
+// cause inconsistent parallelization
+bool isCacheableUnmappableTv(
+    TensorView* unmappable_tv,
+    const std::vector<TensorView*>& reduction_tvs,
+    const ValGraph& almost_exact_graph);
 
 } // namespace normalization_scheduler_utils
 } // namespace nvfuser

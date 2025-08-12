@@ -7,6 +7,7 @@
 // clang-format on
 #include <debug.h>
 #include <runtime/executor_params.h>
+#include <utils.h>
 
 #include <ATen/cuda/CUDAContext.h>
 
@@ -22,7 +23,8 @@ std::string CompileParams::toString() const {
   }
   ss << "maxrregcount = " << maxrregcount << ", "
      << "enable_magic_zero = " << enable_magic_zero << ", "
-     << "enable_ptxas_verbose = " << enable_ptxas_verbose << "\n";
+     << "enable_ptxas_verbose = " << enable_ptxas_verbose
+     << ", include_paths = " << toDelimitedString(include_paths, ":") << "\n";
   return ss.str();
 }
 
@@ -67,6 +69,33 @@ void LaunchParams::bind(int64_t val, ParallelType p_type) {
       break;
     case ParallelType::BIDz:
       checkAndSet(val, gdimz_, "gridDim.z");
+      break;
+    default:
+      NVF_THROW(
+          "Tried to bind invalid parallel type in launch config: ", p_type);
+  }
+  assertValid();
+}
+
+void LaunchParams::bindUnsafe(int64_t val, ParallelType p_type) {
+  switch (p_type) {
+    case ParallelType::TIDx:
+      bdimx_ = val;
+      break;
+    case ParallelType::BIDx:
+      gdimx_ = val;
+      break;
+    case ParallelType::TIDy:
+      bdimy_ = val;
+      break;
+    case ParallelType::BIDy:
+      gdimy_ = val;
+      break;
+    case ParallelType::TIDz:
+      bdimz_ = val;
+      break;
+    case ParallelType::BIDz:
+      gdimz_ = val;
       break;
     default:
       NVF_THROW(

@@ -25,8 +25,18 @@ std::vector<IterDomain*> getPredicateDomains(
       ? consumer_tv->getMaybeRootDomain()
       : consumer_tv->getLogicalDomain();
 
+  // Scatter is executed over the index tensor, so the logical domain
+  // of the index needs to be predicated
+  if (expr->isA<ScatterOp>()) {
+    auto index_input = expr->as<ScatterOp>()->index();
+    if (index_input->isA<kir::TensorIndex>()) {
+      index_input = index_input->as<kir::TensorIndex>()->view();
+    }
+    predicate_domains = index_input->as<TensorView>()->getLogicalDomain();
+  }
+
   // Broadcast domains should not need to be predicated. Note that
-  // unlike indexing for TensorIndex, reduction doamins do need to be
+  // unlike indexing for TensorIndex, reduction domains do need to be
   // indexed to guard the access to the producer tensor
   predicate_domains.erase(
       std::remove_if(
@@ -225,6 +235,8 @@ std::unordered_map<Val*, Val*> getPredicateIndexReplacementMap(
   // main loop of circular buffering, increment the index by
   // (number_of_stages - 1) since the main loop has a read that is
   // (number_of_stages - 1) elements ahead.
+  // Only required for pipelined circular buffering, for warp specialized
+  // circular buffering, there is no prologue or epilog loop.
   auto replace_for_circular_buffering = [&](ForLoop* fl,
                                             Val* original_index) -> Val* {
     auto circular_buffer_axis =
@@ -232,7 +244,8 @@ std::unordered_map<Val*, Val*> getPredicateIndexReplacementMap(
     if (circular_buffer_axis == nullptr ||
         !id_model.idGraph(IdMappingMode::LOOP)
              .disjointValSets()
-             .strictAreMapped(fl->iter_domain(), circular_buffer_axis)) {
+             .strictAreMapped(fl->iter_domain(), circular_buffer_axis) ||
+        lower_utils::isWarpSpecializedLoop(fl)) {
       return nullptr;
     }
 
@@ -249,8 +262,10 @@ std::unordered_map<Val*, Val*> getPredicateIndexReplacementMap(
       return nullptr;
     } else {
       auto prefetch_distance =
-          GpuLower::current()->circularBufferInfo().getPrefetchDistanceFor(
-              fl->iter_domain());
+          GpuLower::current()
+              ->circularBufferInfo()
+              .getCircularBufferOptionsFor(fl->iter_domain())
+              .prefetch;
       return SimplifyingIrBuilder::addExpr(
           original_index,
           SimplifyingIrBuilder::create<Val>(

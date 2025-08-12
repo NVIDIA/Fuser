@@ -9,6 +9,7 @@
 #include <ir/iostream.h>
 #include <ir/printer.h>
 #include <multidevice/communication.h>
+#include <multidevice/utils.h>
 #if defined(NVFUSER_DISTRIBUTED) && defined(USE_C10D_NCCL)
 #include <torch/csrc/distributed/c10d/ProcessGroupNCCL.hpp>
 #endif
@@ -66,12 +67,15 @@ void assertBuffersHaveSameSize(
   if (bufs1.empty() && bufs2.empty()) {
     return;
   }
-  const auto numel = (bufs1.empty() ? bufs2 : bufs1).at(0).numel();
+  const auto shape = (bufs1.empty() ? bufs2 : bufs1).at(0).sizes();
   for (const auto& bufs : {bufs1, bufs2}) {
     for (const auto& buf : bufs) {
       NVF_ERROR(
-          buf.numel() == numel,
-          "all buffers must have the same number of elements");
+          buf.sizes() == shape,
+          "all buffers must have the same shape, but got: ",
+          buf.sizes(),
+          " vs ",
+          shape);
     }
   }
 }
@@ -142,7 +146,7 @@ Communication::Communication(
     Team team,
     DeviceIdxType root,
     RedOpType red_op,
-    int64_t scattered_axis)
+    CommunicatorBackend backend)
     : Expr(passkey) {
   NVF_ERROR(
       in->getDeviceMesh().size() > 0,
@@ -157,7 +161,7 @@ Communication::Communication(
   addDataAttribute(team);
   addDataAttribute(root);
   addDataAttribute(red_op);
-  addDataAttribute(scattered_axis);
+  addDataAttribute(backend);
 
   validate();
 }
@@ -170,8 +174,6 @@ void Communication::validate() {
       " is not expected by CommunicationType ",
       type());
   NVF_ERROR(isReduction(type()) == (reduceOp() != RedOpType::UNUSED))
-  NVF_ERROR(
-      (type() == CommunicationType::ReduceScatter) == (scatteredAxis() >= 0));
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(Communication)
@@ -188,7 +190,7 @@ int64_t Communication::getRootRelativeIndex() {
   return getRelativeIndex(team(), root());
 }
 
-std::string Communication::toString(const int indent_size) const {
+std::string Communication::toInlineString(const int indent_size) const {
   std::stringstream ss;
   indent(ss, indent_size) << "Communication " << name() << " ("
                           << "type=" << type() << ", "
@@ -202,12 +204,13 @@ std::string Communication::toString(const int indent_size) const {
   if (!outputs().empty()) {
     ss << ", output=" << out();
   }
-  ss << ")\n";
+  ss << ", backend=" << backend();
+  ss << ")";
   return ss.str();
 }
 
-std::string Communication::toInlineString(int indent_size) const {
-  return toString(indent_size);
+std::string Communication::toString(int indent_size) const {
+  return toInlineString(indent_size) + "\n";
 }
 
 std::ostream& operator<<(std::ostream& os, const P2PCommunicationType& type) {
@@ -228,26 +231,29 @@ P2PCommunication::P2PCommunication(
     IrBuilderPasskey passkey,
     P2PCommunicationType type,
     TensorView* buffer,
-    Val* peer)
+    Val* peer,
+    CommunicatorBackend backend)
     : Expr(passkey) {
   addInput(buffer);
   addDataAttribute(type);
   addAttribute(peer);
+  addDataAttribute(backend);
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(P2PCommunication)
 
-std::string P2PCommunication::toString(const int indent_size) const {
+std::string P2PCommunication::toInlineString(const int indent_size) const {
   std::stringstream ss;
   indent(ss, indent_size) << "P2PCommunication " << name() << " ("
                           << "type=" << type() << ", "
                           << "buffer=" << buffer() << ", "
-                          << "peer=" << peer() << ")\n";
+                          << "peer=" << peer() << ", "
+                          << "backend=" << backend() << ")";
   return ss.str();
 }
 
-std::string P2PCommunication::toInlineString(int indent_size) const {
-  return toString(indent_size);
+std::string P2PCommunication::toString(int indent_size) const {
+  return toInlineString(indent_size) + "\n";
 }
 
 namespace {
@@ -301,7 +307,7 @@ c10::intrusive_ptr<c10d::Work> postGather(
   if (my_device_index == communication->root()) {
     output_tensors.resize(1);
     int64_t j = 0;
-    for (auto i : c10::irange(communication->team().size())) {
+    for (auto i : arange(communication->team().size())) {
       if (root_relative_index == static_cast<DeviceIdxType>(i) &&
           !communication->in()->getDeviceMesh().has(communication->root())) {
         output_tensors[0].push_back(input_tensor);
@@ -325,16 +331,32 @@ c10::intrusive_ptr<c10d::Work> postAllgather(
     c10d::Backend* backend,
     at::Tensor input_tensor,
     at::Tensor output_tensor) {
-  auto splits = at::split(output_tensor, /*split_size=*/1, /*dim=*/0);
-  assertBufferCount(splits, communication->team().size());
-  assertBuffersHaveSameSize({input_tensor}, splits);
+  // input and output tensors maybe strided (tensor with shape [m, n, k] and
+  // strides [1, k*m, m]), so we flatten them to match the ProcessGroupNCCL
+  // contiguity requirements. Presegmentation pass `makeReshardingContiguous`
+  // ensures that the tvs are contiguous and HostIrExecutor validates the tensor
+  // against the tv allocation domain.
+
+  NVF_ERROR(
+      isTvContiguous(communication->in()), "Input tensor is not contiguous");
+  NVF_ERROR(
+      isTvContiguous(communication->out()), "Output tensor is not contiguous");
+
+  auto flattened_output_tensor =
+      output_tensor.as_strided({output_tensor.numel()}, {1});
+  auto flattened_input_tensor =
+      input_tensor.as_strided({input_tensor.numel()}, {1});
+  auto splits = at::tensor_split(
+      flattened_output_tensor, communication->team_size(), /*dim=*/0);
+  assertBuffersHaveSameSize({flattened_input_tensor}, splits);
 
   // allgather primitive in c10d induces extra buffering time to copy out the
   // received tensors into user buffer. It is therefore always preferable to use
   // _allgather_base, which does not perform any extra copy at the cost of
   // assuming that the receive buffers are placed contiguously. See #2384 for an
   // illustration.
-  return backend->_allgather_base(output_tensor, input_tensor, {});
+  return backend->_allgather_base(
+      flattened_output_tensor, flattened_input_tensor, {});
 }
 
 c10::intrusive_ptr<c10d::Work> postScatter(
@@ -343,33 +365,44 @@ c10::intrusive_ptr<c10d::Work> postScatter(
     c10d::Backend* backend,
     at::Tensor input_tensor,
     at::Tensor output_tensor) {
-  if (my_device_index == communication->root() &&
-      !communication->out()->getDeviceMesh().has(communication->root())) {
-    output_tensor = at::empty_like(input_tensor.slice(0, 0, 1));
-  }
+  NVF_ERROR(
+      isTvContiguous(communication->in()), "Input tensor is not contiguous");
+  NVF_ERROR(
+      isTvContiguous(communication->out()), "Output tensor is not contiguous");
+
+  auto output_device_mesh = communication->out()->getDeviceMesh();
+  NVF_ERROR(
+      output_device_mesh.has(communication->root()),
+      "communication->root() ",
+      communication->root(),
+      " is not in the output device mesh ",
+      output_device_mesh,
+      ".");
+
+  std::vector<std::vector<at::Tensor>> input_tensors;
+
+  output_tensor = output_tensor.as_strided({output_tensor.numel()}, {1});
   std::vector<at::Tensor> output_tensors({output_tensor});
 
-  auto root_relative_index = communication->getRootRelativeIndex();
-  std::vector<std::vector<at::Tensor>> input_tensors;
   if (my_device_index == communication->root()) {
+    auto splits = at::tensor_split(
+        input_tensor.as_strided({input_tensor.numel()}, {1}),
+        output_device_mesh.size(),
+        /*dim=*/0);
+
     input_tensors.resize(1);
-    int64_t j = 0;
-    for (auto i : c10::irange(communication->team().size())) {
-      if (root_relative_index == static_cast<DeviceIdxType>(i) &&
-          !communication->out()->getDeviceMesh().has(communication->root())) {
-        input_tensors.front().push_back(output_tensor);
-        continue;
-      }
-      input_tensors.front().push_back(input_tensor.slice(0, j, j + 1));
-      j++;
+    for (const auto& split : splits) {
+      input_tensors.front().push_back(split);
     }
 
-    assertBufferCount(input_tensors[0], communication->team().size());
+    assertBufferCount(input_tensors[0], output_device_mesh.size());
     assertBuffersHaveSameSize(input_tensors[0], output_tensors);
   }
 
   return backend->scatter(
-      output_tensors, input_tensors, {.rootRank = root_relative_index});
+      output_tensors,
+      input_tensors,
+      {.rootRank = communication->getRootRelativeIndex()});
 }
 
 c10::intrusive_ptr<c10d::Work> postReduce(
@@ -408,6 +441,19 @@ c10::intrusive_ptr<c10d::Work> postAllreduce(
     c10d::Backend* backend,
     at::Tensor input_tensor,
     at::Tensor output_tensor) {
+  NVF_ERROR(
+      isTvContiguous(communication->in()),
+      "Input tensor is not contiguous: ",
+      communication->in(),
+      " contiguity: ",
+      communication->in()->domain()->getContiguityString());
+  NVF_ERROR(
+      isTvContiguous(communication->out()),
+      "Output tensor is not contiguous: ",
+      communication->out(),
+      " contiguity: ",
+      communication->out()->domain()->getContiguityString());
+
   doLocalCopy(output_tensor, input_tensor);
   std::vector<at::Tensor> output_tensors({output_tensor});
 
@@ -421,32 +467,35 @@ c10::intrusive_ptr<c10d::Work> postReduceScatter(
     c10d::Backend* backend,
     at::Tensor input_tensor,
     at::Tensor output_tensor) {
-  const auto scattered_axis = communication->scatteredAxis();
   NVF_ERROR(
-      scattered_axis >= 0,
-      "scattered_axis is expected to be non-negative: ",
-      scattered_axis);
-// reduce_scatter primitive in c10d induces extra buffering time to copy the
-// user's input tensors to an internal source buffer. It is therefore always
-// preferable to use _reduce_scatter_base (which does not perform any extra
-// copy) when the tensors are stored contiguously (i.e., when
-// scattered_axis==0). Note however than only nccl supports
-// _reduce_scatter_base, not ucc.
-#if defined(NVFUSER_DISTRIBUTED) && defined(USE_C10D_NCCL)
-  if (scattered_axis == 0 &&
-      backend->getBackendName() == c10d::NCCL_BACKEND_NAME) {
-    return backend->_reduce_scatter_base(
-        output_tensor, input_tensor, {.reduceOp = communication->reduceOp()});
-  }
-#endif
-  std::vector<std::vector<at::Tensor>> input_tensors(1);
-  input_tensors[0] = at::split(input_tensor, /*split_size=*/1, scattered_axis);
+      isTvContiguous(communication->in()),
+      "Input tensor is not contiguous: ",
+      communication->in(),
+      " contiguity: ",
+      communication->in()->domain()->getContiguityString());
+  NVF_ERROR(
+      isTvContiguous(communication->out()),
+      "Output tensor is not contiguous: ",
+      communication->out(),
+      " contiguity: ",
+      communication->out()->domain()->getContiguityString());
 
-  std::vector<at::Tensor> output_tensors({output_tensor});
+  auto flattened_input_tensor =
+      input_tensor.as_strided({input_tensor.numel()}, {1});
+  auto splits = at::tensor_split(
+      flattened_input_tensor, communication->team_size(), /*dim=*/0);
+  auto flattened_output_tensor =
+      output_tensor.as_strided({output_tensor.numel()}, {1});
+  assertBuffersHaveSameSize(splits, {flattened_output_tensor});
 
-  assertBufferCount(input_tensors[0], communication->team().size());
-  return backend->reduce_scatter(
-      output_tensors, input_tensors, {.reduceOp = communication->reduceOp()});
+  // reduce_scatter primitive in c10d induces extra buffering time to copy the
+  // user's input tensors to an internal source buffer. It is therefore always
+  // preferable to use _reduce_scatter_base (which does not perform any extra
+  // copy) when the tensors are stored contiguously
+  return backend->_reduce_scatter_base(
+      flattened_output_tensor,
+      flattened_input_tensor,
+      {.reduceOp = communication->reduceOp()});
 }
 
 c10::intrusive_ptr<c10d::Work> postSendRecv(
@@ -502,6 +551,12 @@ c10::intrusive_ptr<c10d::Work> postSingleCommunication(
     return nullptr;
   }
   NVF_ERROR(backend != nullptr);
+
+  if (isDebugDumpEnabled(DebugDumpOption::Communication)) {
+    debug() << "Posting " << communication->toInlineString()
+            << " with input_tensor " << input_tensor.sizes()
+            << " and output_tensor " << output_tensor.sizes() << std::endl;
+  }
 
   switch (communication->type()) {
     case CommunicationType::Gather:

@@ -5,34 +5,117 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <tests/cpp/utils.h>
-
-#include <ops/all_ops.h>
-#include <scheduler/mma_utils.h>
-
 #include <regex>
 #include <sstream>
 #include <string>
 #include <string_view>
 
+#include <c10/core/Allocator.h>
+#include <c10/core/CachingDeviceAllocator.h>
+#include <c10/cuda/CUDACachingAllocator.h>
+
+#include <exceptions.h>
+#include <ops/all_ops.h>
+#include <scheduler/mma_utils.h>
+#include <tests/cpp/utils.h>
+
 namespace nvfuser {
+
+NVFuserTest::NVFuserTest() {
+  // Enable logging so debug messages in PyTorch can be printed out
+  // via `TORCH_CPP_LOG_LEVEL`.
+  c10::initLogging();
+
+  setFillAllocationWithNan(true);
+
+  maybeClearAllocator();
+
+  // If NVFUSER_TEST_RANDOM_SEED is provided, use that for the C random seed.
+  // Otherwise, use system time. If a test fails, this seed will be printed.
+  at::manual_seed(getATenRandomSeed());
+
+  // If NVFUSER_TEST_ATEN_RANDOM_SEED is provided, use that for the ATen
+  // random seed. Otherwise, use zero. If a test fails, this seed will be
+  // printed.
+  std::srand(getCRandomSeed());
+
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModelExtraValidation);
+
+  constexpr const char* kTf32Override = "NVIDIA_TF32_OVERRIDE";
+  if (setenv(kTf32Override, "0", /*overwrite=*/1) != 0) {
+    TORCH_WARN("Failed to set ", kTf32Override, " to 0");
+  }
+}
+
+void NVFuserTest::SetUp() {
+  // requires PASCAL or newer
+  if (!deviceMajorMinorCheck(6)) {
+    GTEST_SKIP() << "skipping tests on pre-PASCAL GPUs";
+  }
+}
+
+NVFuserTest::~NVFuserTest() {
+  if (::testing::Test::HasFailure()) {
+    auto test_info = ::testing::UnitTest::GetInstance()->current_test_info();
+    std::cerr << "To reproduce: NVFUSER_TEST_RANDOM_SEED=" << getCRandomSeed()
+              << " NVFUSER_TEST_ATEN_RANDOM_SEED=" << getATenRandomSeed()
+              << " test_nvfuser --gtest_filter='"
+              << test_info->test_suite_name() << "." << test_info->name() << "'"
+              << std::endl;
+  }
+
+  // Make sure capturing of stdout is stopped
+  ensureStopCaptureStdout();
+
+  // Make sure profiler is unset in case it was set during test
+  ProfilerOptionsGuard::getCurOptions().unset(ProfilerOption::Enable);
+  ProfilerOptionsGuard::getCurOptions().unset(ProfilerOption::EnableNocupti);
+}
+
+void NVFuserTest::captureStdout() {
+  if (!capturing_) {
+    testing::internal::CaptureStdout();
+    capturing_ = true;
+  }
+}
+
+void NVFuserTest::ensureStopCaptureStdout() {
+  if (capturing_) {
+    testing::internal::GetCapturedStdout();
+    capturing_ = false;
+  }
+}
+
+std::string NVFuserTest::getCapturedStdout() {
+  NVF_ERROR(capturing_, "Not captured");
+  auto str = testing::internal::GetCapturedStdout();
+  capturing_ = false;
+  return str;
+}
+
+const KernelExecutor* onlyKernelExecutorInMostRecentRuntime(
+    const FusionExecutorCache& executor_cache) {
+  const auto& executors =
+      executor_cache.getMostRecentKernelRuntime()->executors();
+  NVF_CHECK(executors.size() == 1);
+  NVF_CHECK(executors.front()->isA<KernelExecutor>());
+  return executors.front()->as<KernelExecutor>();
+}
 
 CGResultsPackage scheduleAndRun(
     Fusion* fusion,
     SchedulerType scheduler_type,
-    const at::ArrayRef<c10::IValue>& runtime_inputs,
+    const KernelArgumentHolder& runtime_inputs,
     bool validate_scheduler) {
   auto heuristic_params = SchedulerEntry::scheduleWith(
       fusion, scheduler_type, runtime_inputs, validate_scheduler);
-  auto fusion_executor = std::make_unique<FusionExecutor>();
-  fusion_executor->compileFusion(
-      fusion, runtime_inputs, heuristic_params->lparams);
-  auto cg_outputs =
-      fusion_executor->runFusion(runtime_inputs, heuristic_params->lparams);
+  auto ke = std::make_unique<KernelExecutor>();
+  ke->compile(fusion, runtime_inputs, heuristic_params->lparams);
+  auto cg_outputs = ke->run(runtime_inputs, {}, heuristic_params->lparams);
   CGResultsPackage results = {
-      .outputs = cg_outputs,
+      .outputs = std::move(cg_outputs),
       .heuristic_params = std::move(heuristic_params),
-      .fusion_executor = std::move(fusion_executor)};
+      .kernel_executor = std::move(ke)};
   return results;
 }
 
@@ -232,12 +315,16 @@ Container parse(const std::string& nvdisasm_output) {
   Container result;
   bool started = false;
   std::stringstream ss(nvdisasm_output);
-  std::string header;
-  std::regex find_header_regex(".text.(.+):");
+  std::regex zero_pattern_regex("/\\*0+\\*/");
   for (std::string line; std::getline(ss, line);) {
     line = trim(line);
     if (line.empty() || starts_with(line, "//")) {
       continue;
+    }
+    if (!started) {
+      if (std::regex_search(line, zero_pattern_regex)) {
+        started = true;
+      }
     }
     if (started) {
       if (line[0] == '.') {
@@ -258,16 +345,6 @@ Container parse(const std::string& nvdisasm_output) {
         i.str.resize(i.str.size() - 1); // remove trailing ;
         i.str = trim(i.str);
         result.code.emplace_back(i);
-      }
-    } else {
-      if (line == header) {
-        started = true;
-      } else if (line[0] == '.') {
-        std::smatch line_match;
-        std::regex_match(line, line_match, find_header_regex);
-        if (line_match.size() == 2) {
-          header = line_match.str(1) + ":";
-        }
       }
     }
   }
@@ -807,6 +884,94 @@ bool isVectorized(TensorView* tv) {
     }
   }
   return false;
+}
+
+std::string macroToString(const MmaMacro macro) {
+  std::stringstream ss;
+  ss << "m" << getM(macro);
+  ss << "_n" << getN(macro);
+  ss << "_k" << getK(macro);
+  return ss.str();
+}
+
+std::pair<TensorView*, TensorView*> createSdpaRngTvs() {
+  DataType dtype = DataType::Int;
+  std::vector<int64_t> philox_shape = {};
+
+#if NVF_TORCH_VERSION_NO_LESS(2, 7, 0)
+  dtype = DataType::UInt64;
+  philox_shape = {2};
+#endif
+  TensorView* philox_seed =
+      TensorViewBuilder().shape(philox_shape).dtype(dtype).build();
+  TensorView* philox_offset = TensorViewBuilder().dtype(dtype).build();
+#if !(NVF_TORCH_VERSION_NO_LESS(2, 7, 0))
+  philox_seed->setCpuScalar(true);
+  philox_offset->setCpuScalar(true);
+#endif
+  return std::make_pair(philox_seed, philox_offset);
+}
+
+std::pair<at::Tensor, at::Tensor> createSdpaRngTensors() {
+  at::Tensor philox_seed, philox_offset;
+  int64_t max_int64 = std::numeric_limits<int64_t>::max();
+#if NVF_TORCH_VERSION_NO_LESS(2, 7, 0)
+  philox_seed = at::randint(
+      max_int64, // Using int64_t range to avoid
+                 // overflow in randint
+      {2}, // shape
+      at::dtype(c10::kUInt64).device(at::kCUDA));
+  philox_offset = at::empty({}, at::dtype(c10::kUInt64).device(at::kCUDA));
+#else
+  philox_seed = at::randint(max_int64, {}, at::kLong);
+  philox_offset = at::randint(max_int64, {}, at::kLong);
+#endif
+  return std::make_pair(philox_seed, philox_offset);
+}
+
+void resetPeakMemoryStats(const c10::DeviceIndex device) {
+  c10::cuda::CUDACachingAllocator::CUDAAllocator* allocator =
+      c10::cuda::CUDACachingAllocator::get();
+  NVF_CHECK(allocator != nullptr);
+
+  allocator->resetPeakStats(device);
+}
+
+namespace {
+// Stats like allocated_bytes comes as a size-3 array (cf.
+// https://github.com/pytorch/pytorch/blob/feb503c1df78afd46962ed04e446d6e88ac0522d/c10/core/Allocator.h#L365-L370).
+// The 0-th element is an aggregation of both the small pool and the large.
+//
+// To avoid hardcoded values, I initially wrote
+// c10::CachingAllocator::StatType::AGGREGATE here but ran into compilation
+// errors with slightly older PyTorch because that enum was introduced in a
+// recent commit:
+// https://github.com/pytorch/pytorch/commit/c65ee728f069ea9544bdcac815eb0825f45d1633.
+// NVF_TORCH_VERSION_* don't seem to be good enough to distinguish before and
+// after this commit.
+constexpr int64_t kAggregateStatsIndex = 0;
+} // namespace
+
+int64_t maxMemoryAllocated(const c10::DeviceIndex device) {
+  c10::cuda::CUDACachingAllocator::CUDAAllocator* allocator =
+      c10::cuda::CUDACachingAllocator::get();
+  NVF_CHECK(allocator != nullptr);
+
+  c10::CachingDeviceAllocator::DeviceStats device_stats =
+      allocator->getDeviceStats(device);
+
+  return device_stats.allocated_bytes.at(kAggregateStatsIndex).peak;
+}
+
+int64_t memoryAllocated(const c10::DeviceIndex device) {
+  c10::cuda::CUDACachingAllocator::CUDAAllocator* allocator =
+      c10::cuda::CUDACachingAllocator::get();
+  NVF_CHECK(allocator != nullptr);
+
+  c10::CachingDeviceAllocator::DeviceStats device_stats =
+      allocator->getDeviceStats(device);
+
+  return device_stats.allocated_bytes.at(kAggregateStatsIndex).current;
 }
 
 } // namespace nvfuser

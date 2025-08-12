@@ -5,72 +5,88 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <algorithm>
+#include <iostream>
+
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
 #include <fusion.h>
 #include <fusion_segmenter.h>
+#include <host_ir/lower_to_communication.h>
 #include <ir/all_nodes.h>
 #include <ir/builder.h>
 #include <multidevice/device_mesh.h>
-#include <multidevice/lower_communication.h>
 #include <multidevice/utils.h>
 #include <ops/all_ops.h>
-#include <preseg_passes/insert_reshardings.h>
+#include <preseg_passes/decompose_reshardings.h>
 #include <preseg_passes/reorder_sharded_axis.h>
 #include <runtime/executor_kernel_arg.h>
 #include <tests/cpp/utils.h>
 
-#include <algorithm>
-#include <iostream>
-
 namespace nvfuser {
 
-using ReshardingTestParams =
-    std::tuple<DeviceMesh, DeviceMesh, DeviceMesh, bool, bool, bool>;
+using testing::Each;
+using testing::IsEmpty;
+using testing::IsFalse;
+using testing::ResultOf;
 
-class ReshardingTest : public NVFuserFixtureParamTest<ReshardingTestParams> {
- protected:
-  void SetUp() override {
-    fusion_ = std::make_unique<Fusion>();
-    fg_ = std::make_unique<FusionGuard>(fusion_.get());
-  }
-  void validate() {
-    // TODO(wujingyue): after preseg passes are integrated to
-    // FusionExecutorCache, simplify validation by using
-    // FusionExecutorCache::getMostRecentKernelRuntime()->fusionSegments()->groups().
-    for (auto expr : fusion_->exprs()) {
-      EXPECT_TRUE(!isResharding(expr) || isLowerableToCommunication(expr))
-          << "on expr=" << expr;
-    }
+using ReshardingTest = NVFuserTest;
 
-    SegmentCandidateFinderOptions options{
-        .run_translate_welford = false,
-        .run_combine_reductions = false,
-        .run_herrmann_merge = true,
-        .run_final_merge = true,
-        .only_segment_resharding_exprs = true};
+TEST_F(ReshardingTest, SplitingView) {
+  const int b = 2, s = 3, h = 96, e = 128;
 
-    auto segmented_fusion =
-        SegmentCandidateFinder::segment(std::move(fusion_), nullptr, options);
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+  TensorView* in = makeContigConcreteTensor({-1, -1, h * e});
+  TensorView* out = reshape(
+      in,
+      {size(in, 0),
+       size(in, 1),
+       IrBuilder::create<Val>(h),
+       IrBuilder::create<Val>(e)});
+  fusion.addInput(in);
+  fusion.addOutput(out);
 
-    for (SegmentedGroup* group : segmented_fusion->groups()) {
-      // TODO: use EXPECT_THAT.
-      EXPECT_TRUE(
-          std::none_of(
-              group->exprs().begin(),
-              group->exprs().end(),
-              [](auto expr) { return isResharding(expr); }) ||
-          (group->exprs().size() == 1 && isResharding(group->exprs().at(0))));
-    }
-    // checks that the segments are disjoints and that the graph of segment is
-    // acyclic
-    segmented_fusion->validate();
+  const int d = 2;
+  auto mesh = DeviceMesh::createForNumDevices(d);
+  for (auto* tv : {in, out}) {
+    tv->setDeviceMesh(mesh);
+    tv->outer_split(2, d);
+    tv->axis(2)->parallelize(ParallelType::DIDx);
   }
 
-  std::unique_ptr<Fusion> fusion_;
-  std::unique_ptr<FusionGuard> fg_;
-};
+  at::Tensor in_tensor = at::randn({b, s, h * e / d}, at::Device(at::kCUDA));
+  KernelArgumentHolder args({in_tensor});
+  DynamicTransform::concretizeFusion(&fusion, args);
+
+  EXPECT_THAT(fusion.exprs(), Each(ResultOf(isResharding, IsFalse())));
+}
+
+TEST_F(ReshardingTest, MergingView) {
+  const int b = 2, s = 3, h = 96, e = 128;
+
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+  TensorView* in = makeContigConcreteTensor({-1, -1, h, e});
+  TensorView* out = flatten(in, /*start_dim=*/2);
+  fusion.addInput(in);
+  fusion.addOutput(out);
+
+  const int d = 2;
+  auto mesh = DeviceMesh::createForNumDevices(d);
+  for (auto* tv : {in, out}) {
+    tv->setDeviceMesh(mesh);
+    tv->outer_split(2, d);
+    tv->axis(2)->parallelize(ParallelType::DIDx);
+  }
+
+  at::Tensor in_tensor = at::randn({b, s, h / d, e}, at::Device(at::kCUDA));
+  KernelArgumentHolder args({in_tensor});
+  DynamicTransform::concretizeFusion(&fusion, args);
+
+  EXPECT_FALSE(isResharding(out->definition()));
+}
 
 TEST_F(ReshardingTest, Set_SameMesh_NoParallelTypes) {
   Fusion fusion;
@@ -130,18 +146,6 @@ TEST_F(ReshardingTest, Sum_SameMesh_NoParallelTypes) {
   EXPECT_FALSE(isResharding(out->definition()));
 }
 
-TEST_F(ReshardingTest, Sum_DifferentParallelTypes) {
-  Fusion fusion;
-  FusionGuard fg(&fusion);
-
-  TensorView* in = makeContigTensor(3);
-  in->setDeviceMesh({0, 1, 2});
-  TensorView* out = sum(in, {0});
-  out->axis(0)->parallelize(ParallelType::DIDx);
-
-  EXPECT_TRUE(isResharding(out->definition()));
-}
-
 TEST_F(ReshardingTest, Sum_DifferentMeshes) {
   Fusion fusion;
   FusionGuard fg(&fusion);
@@ -168,7 +172,7 @@ TEST_F(ReshardingTest, Sum_ParallelizeDifferentAxes) {
   EXPECT_TRUE(isResharding(out->definition()));
 }
 
-TEST_F(ReshardingTest, Sum_ParallelizeSameAxis) {
+TEST_F(ReshardingTest, Sum_UnshardedAxis) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -291,6 +295,175 @@ TEST_F(ReshardingTest, Add_InputsParallelizedDifferently) {
   EXPECT_TRUE(isResharding(z->definition()));
 }
 
+TEST_F(ReshardingTest, Add_Broadcast) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  TensorView* x = makeContigTensor(2);
+  x->setDeviceMesh({0, 1});
+  TensorView* y = makeContigTensor(1);
+  y->setDeviceMesh({0, 1});
+  y = broadcast(y, {true, false});
+  TensorView* z = add(x, y);
+
+  for (auto* tv : {x, y, z}) {
+    tv->axis(0)->parallelize(ParallelType::DIDx);
+  }
+
+  EXPECT_FALSE(isResharding(z->definition()));
+}
+
+TEST_F(ReshardingTest, Matmul_NoResharding) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  TensorView* x = makeContigTensor(2);
+  TensorView* y = makeContigTensor(2);
+  TensorView* z = matmul(x, y);
+
+  for (auto* tv : {x, y, z}) {
+    tv->setDeviceMesh({0, 1});
+  }
+  for (auto* tv : {x, z}) {
+    tv->axis(0)->parallelize(ParallelType::DIDx);
+  }
+
+  EXPECT_FALSE(isResharding(z->definition()));
+}
+
+TEST_F(ReshardingTest, Matmul_Resharding) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  TensorView* x = makeContigTensor(2); // [iM, iK]
+  TensorView* y = makeContigTensor(2); // [iK, iN]
+  TensorView* z = matmul(x, y); // [iM, iN, rk]
+
+  for (auto* tv : {x, y, z}) {
+    tv->setDeviceMesh({0, 1});
+  }
+  x->axis(0)->parallelize(ParallelType::DIDx);
+  y->axis(1)->parallelize(ParallelType::DIDx);
+  z->axis(0)->parallelize(ParallelType::DIDx);
+
+  // iN is sharded in y but not in z.
+  EXPECT_TRUE(isResharding(z->definition()));
+}
+
+TEST_F(ReshardingTest, Allgather) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  constexpr int64_t kNumDevices = 2;
+  TensorView* in = makeContigTensor(2);
+  in->setDeviceMesh(DeviceMesh::createForNumDevices(kNumDevices));
+  TensorView* out = set(in);
+
+  in->split(0, kNumDevices, /*inner_split=*/false);
+  in->axis(0)->parallelize(ParallelType::DIDx);
+
+  EXPECT_TRUE(isResharding(out->definition()));
+}
+
+TEST_F(ReshardingTest, ReduceScatter) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  constexpr int64_t kNumDevices = 2;
+  const auto mesh = DeviceMesh::createForNumDevices(kNumDevices);
+
+  TensorView* in = makeContigConcreteTensor({kNumDevices, 2, kNumDevices * 3});
+  in->setDeviceMesh(mesh);
+  in->axis(0)->parallelize(ParallelType::DIDx);
+
+  TensorView* out = sum(in, {0});
+  out->split(-1, kNumDevices, /*inner_split=*/false);
+  out->axis(-2)->parallelize(ParallelType::DIDx);
+
+  EXPECT_TRUE(isResharding(out->definition()));
+}
+
+TEST_F(ReshardingTest, Allreduce) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  constexpr int64_t kNumDevices = 2;
+  const auto mesh = DeviceMesh::createForNumDevices(kNumDevices);
+
+  TensorView* in = makeContigConcreteTensor({kNumDevices, 2, 3});
+  in->setDeviceMesh(mesh);
+  in->axis(0)->parallelize(ParallelType::DIDx);
+
+  TensorView* allreduce = sum(in, {0});
+
+  TensorView* out = add(allreduce, allreduce);
+
+  EXPECT_TRUE(isResharding(allreduce->definition()));
+  EXPECT_FALSE(isResharding(out->definition()));
+}
+
+TEST_F(ReshardingTest, Broadcast) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  constexpr int64_t kNumDevices = 2;
+  const auto mesh = DeviceMesh::createForNumDevices(kNumDevices);
+
+  TensorView* in = makeContigTensor(2);
+  TensorView* out = broadcast(in, {true, false, false});
+
+  for (auto* tv : {in, out}) {
+    tv->setDeviceMesh(mesh);
+  }
+  out->axis(0)->parallelize(ParallelType::DIDx);
+
+  EXPECT_FALSE(isResharding(out->definition()));
+}
+
+TEST_F(ReshardingTest, ReshardingSqueeze) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  constexpr int64_t kNumDevices = 2;
+  const auto mesh = DeviceMesh::createForNumDevices(kNumDevices);
+
+  TensorView* in = TensorViewBuilder()
+                       .dtype(DataType::Float)
+                       .contiguity({true, std::nullopt})
+                       .shape({-1, 1})
+                       .build();
+  in->setDeviceMesh(mesh);
+  TensorView* out = squeeze(in, {1});
+
+  in->merge(0);
+  in->axis(0)->parallelize(ParallelType::DIDx);
+
+  EXPECT_TRUE(isResharding(out->definition()));
+}
+
+// Currently, simplifyExpr doesn't recognize that `0 <= x < 1` ==> `x == 0`.
+TEST_F(ReshardingTest, DISABLED_NonreshardingSqueeze) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  constexpr int64_t kNumDevices = 2;
+  const auto mesh = DeviceMesh::createForNumDevices(kNumDevices);
+
+  TensorView* in = TensorViewBuilder()
+                       .dtype(DataType::Float)
+                       .contiguity({true, std::nullopt})
+                       .shape({-1, 1})
+                       .build();
+  in->setDeviceMesh(mesh);
+  TensorView* out = squeeze(in, {1});
+
+  in->merge(0);
+  in->axis(0)->parallelize(ParallelType::DIDx);
+  out->axis(0)->parallelize(ParallelType::DIDx);
+
+  EXPECT_FALSE(isResharding(out->definition()));
+}
+
 TEST_F(ReshardingTest, InsertResharding_Before) {
   Fusion fusion;
   FusionGuard fg(&fusion);
@@ -312,12 +485,12 @@ TEST_F(ReshardingTest, InsertResharding_Before) {
   c->axis(1)->parallelize(ParallelType::DIDx);
 
   preseg_passes::OptimizationPass<
-      preseg_passes::InsertReshardingsPass>::runPass(&fusion);
+      preseg_passes::DecomposeReshardingsPass>::runPass(&fusion);
   std::vector<Val*> outputs = fusion.outputs();
 
   c = outputs[0]->as<TensorView>();
   std::vector<TensorView*> inputs(c->definition()->inputs().size());
-  for (auto i : c10::irange(c->definition()->inputs().size())) {
+  for (auto i : arange(c->definition()->inputs().size())) {
     inputs[i] = c->definition()->input(i)->as<TensorView>();
   }
   EXPECT_TRUE(getTvsWithDifferentSharding(c, inputs).empty());
@@ -341,7 +514,7 @@ TEST_F(ReshardingTest, InsertResharding_After) {
   b->axis(1)->parallelize(ParallelType::DIDx);
 
   preseg_passes::OptimizationPass<
-      preseg_passes::InsertReshardingsPass>::runPass(&fusion);
+      preseg_passes::DecomposeReshardingsPass>::runPass(&fusion);
   std::vector<Val*> outputs = fusion.outputs();
 
   b = outputs[0]->as<TensorView>();
@@ -349,7 +522,7 @@ TEST_F(ReshardingTest, InsertResharding_After) {
   EXPECT_TRUE(expr->isA<LoadStoreOp>());
   EXPECT_EQ(expr->as<LoadStoreOp>()->opType(), LoadStoreOpType::Set);
   std::vector<TensorView*> tvs = {expr->inputs()[0]->as<TensorView>()};
-  EXPECT_THAT(getTvsWithDifferentSharding(a, tvs), ::testing::IsEmpty());
+  EXPECT_THAT(getTvsWithDifferentSharding(a, tvs), IsEmpty());
 }
 
 TEST_F(ReshardingTest, InsertShardedAxisReordering) {
@@ -371,10 +544,10 @@ TEST_F(ReshardingTest, InsertShardedAxisReordering) {
   c->axis(1)->parallelize(ParallelType::DIDx);
 
   preseg_passes::OptimizationPass<
-      preseg_passes::InsertReshardingsPass>::runPass(&fusion);
+      preseg_passes::DecomposeReshardingsPass>::runPass(&fusion);
   int num_inner_reshardings = 0;
   for (auto expr : fusion.exprs()) {
-    if (isResharding(expr) && isInnerResharding(expr)) {
+    if (isResharding(expr) && !isCommunicationLayoutCompliant(expr)) {
       num_inner_reshardings++;
     }
   }
@@ -384,78 +557,60 @@ TEST_F(ReshardingTest, InsertShardedAxisReordering) {
       preseg_passes::ReorderShardedAxisPass>::runPass(&fusion);
   for (auto expr : fusion.exprs()) {
     if (isResharding(expr)) {
-      EXPECT_FALSE(isInnerResharding(expr));
+      EXPECT_TRUE(isCommunicationLayoutCompliant(expr));
     }
   }
 }
 
-TEST_P(ReshardingTest, Insert) {
-  if (!distributedEnabled()) { // Test only works with distributed
-    GTEST_SKIP() << "Requires distributed API";
-  }
-  auto
-      [mesh0,
-       mesh1,
-       mesh2,
-       is_tv0_tv3_tv5_sharded,
-       is_tv1_tv4_sharded,
-       is_tv2_sharded] = GetParam();
-  int sharded_axis = 1;
+using ReshardingSelectOpTest = NVFuserTest;
 
-  TensorView* tv0 = makeContigTensor(3);
-  TensorView* tv1 = binaryOp(BinaryOpType::Mul, tv0, tv0);
-  TensorView* tv2 = binaryOp(BinaryOpType::Add, tv0, tv1);
-  TensorView* tv3 = sum(tv2, {1});
-  TensorView* tv4 = broadcast(tv3, {false, true, false});
-  TensorView* tv5 = binaryOp(BinaryOpType::Mul, tv2, tv4);
+TEST_F(ReshardingSelectOpTest, NonResharding) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+  auto* tv0 = makeContigTensor(3);
+  auto* tv1 = select(
+      tv0, /*dim=*/0, /*index=*/IrBuilder::create<Val>(0, DataType::Int));
 
-  tv0->setDeviceMesh(mesh0);
-  tv1->setDeviceMesh(mesh1);
-  tv2->setDeviceMesh(mesh2);
-  tv3->setDeviceMesh(mesh0);
-  tv4->setDeviceMesh(mesh1);
-  tv5->setDeviceMesh(mesh0);
-  fusion_->addInput(tv0);
-  fusion_->addOutput(tv1);
-  fusion_->addOutput(tv5);
+  DeviceMesh mesh({0});
+  tv0->setDeviceMesh(mesh);
+  tv1->setDeviceMesh(mesh);
 
-  if (is_tv0_tv3_tv5_sharded) {
-    tv0->axis(sharded_axis)->parallelize(ParallelType::DIDx);
-    tv3->axis(sharded_axis)->parallelize(ParallelType::DIDx);
-    tv5->axis(sharded_axis)->parallelize(ParallelType::DIDx);
-  }
-  if (is_tv1_tv4_sharded) {
-    tv1->axis(sharded_axis)->parallelize(ParallelType::DIDx);
-    tv4->axis(sharded_axis)->parallelize(ParallelType::DIDx);
-  }
-  if (is_tv2_sharded) {
-    tv2->axis(sharded_axis)->parallelize(ParallelType::DIDx);
-  }
+  tv0->axis(1)->parallelize(ParallelType::DIDx);
+  tv1->axis(0)->parallelize(ParallelType::DIDx);
 
-  preseg_passes::OptimizationPass<
-      preseg_passes::InsertReshardingsPass>::runPass(fusion_.get());
-  preseg_passes::OptimizationPass<
-      preseg_passes::ReorderShardedAxisPass>::runPass(fusion_.get());
-  validate();
+  EXPECT_FALSE(isResharding(tv1->definition()));
 }
 
-namespace {
+TEST_F(ReshardingSelectOpTest, ReshardinSelectIntoDeviceDim) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+  auto* tv0 = makeContigTensor(3);
+  auto* tv1 = select(
+      tv0, /*dim=*/0, /*index=*/IrBuilder::create<Val>(0, DataType::Int));
 
-DeviceMesh Mesh0({0});
-DeviceMesh Mesh1({1, 2});
-DeviceMesh Mesh2({0, 1, 2, 3});
+  DeviceMesh mesh({0});
+  tv0->setDeviceMesh(mesh);
+  tv1->setDeviceMesh(mesh);
 
-} // namespace
+  tv0->axis(0)->parallelize(ParallelType::DIDx);
 
-INSTANTIATE_TEST_SUITE_P(
-    ,
-    ReshardingTest,
-    ::testing::Combine(
-        ::testing::Values(Mesh0, Mesh2),
-        ::testing::Values(Mesh1, Mesh2),
-        ::testing::Values(Mesh2),
-        ::testing::Bool(),
-        ::testing::Bool(),
-        ::testing::Bool()));
+  EXPECT_TRUE(isResharding(tv1->definition()));
+}
+
+TEST_F(ReshardingSelectOpTest, ReshardingSelectIntoNonDeviceDim) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+  auto* tv0 = makeContigTensor(3);
+  auto* tv1 = select(
+      tv0, /*dim=*/0, /*index=*/IrBuilder::create<Val>(0, DataType::Int));
+
+  DeviceMesh mesh({0});
+  tv0->setDeviceMesh(mesh);
+  tv1->setDeviceMesh(mesh);
+
+  tv0->axis(1)->parallelize(ParallelType::DIDx);
+
+  EXPECT_TRUE(isResharding(tv1->definition()));
+}
 
 } // namespace nvfuser

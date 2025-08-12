@@ -13,6 +13,7 @@
 #include <ops/arith.h>
 #include <options.h>
 #include <preseg_passes/remove_bcast_squeeze.h>
+#include <transform_replay.h>
 
 namespace nvfuser::preseg_passes {
 
@@ -61,21 +62,6 @@ AxisOps squeezeToAxisOps(SqueezeOp* squeeze) {
   return ops;
 }
 
-//! Checks whether this is a simple Set of a TensorView. If not, then this might
-//! represent a scalar set, or a segment_set.
-bool isSimpleTVSet(Expr* expr) {
-  auto* ldst = dynamic_cast<LoadStoreOp*>(expr);
-  if (ldst == nullptr) {
-    return false;
-  }
-  auto in_tv = dynamic_cast<TensorView*>(ldst->in());
-  auto out_tv = dynamic_cast<TensorView*>(ldst->out());
-  return ldst->opType() == LoadStoreOpType::Set && in_tv != nullptr &&
-      out_tv != nullptr
-      // The hasRoot() check is to prevent picking up Set.Permute ops here
-      && !ldst->out()->as<TensorView>()->hasRoot();
-}
-
 //! This defines the types of operations that are eligible for simplification in
 //! this pass.
 bool isReplaceableExpr(Expr* expr) {
@@ -86,12 +72,12 @@ bool isReplaceableExpr(Expr* expr) {
     return false;
   }
   return expr->isA<BroadcastOp>() || expr->isA<SqueezeOp>() ||
-      isSimpleTVSet(expr);
+      ir_utils::isSimpleTVSet(expr);
 }
 
 //! Convert a LoadStoreOp to an AxisOps of all PRESERVE ops
 AxisOps setToAxisOps(LoadStoreOp* ldst) {
-  NVF_ERROR(isSimpleTVSet(ldst));
+  NVF_ERROR(ir_utils::isSimpleTVSet(ldst));
   return AxisOps(
       TensorDomain::noReductions(
           ldst->in()->as<TensorView>()->getLogicalDomain())
@@ -149,7 +135,7 @@ std::optional<AxisOp> getSimplifiedOpType(const AxisOps& ops) {
 std::vector<bool> nonPreservedDims(const AxisOps& ops) {
   std::vector<bool> flags;
   flags.reserve(ops.size());
-  for (size_t i : c10::irange(ops.size())) {
+  for (size_t i : arange(ops.size())) {
     flags.push_back(ops[i] != AxisOp::PRESERVE);
   }
   return flags;
@@ -352,6 +338,15 @@ TensorView* maybeDoReplacement(TensorView* orig) {
   }
   NVF_ERROR(replacement != orig, "Expected non-trivial replacement");
 
+  if (orig->isFusionOutput() && replacement->isFusionOutput() &&
+      FusionGuard::getCurFusion()->getOutputAlias(orig) !=
+          FusionGuard::getCurFusion()->getOutputAlias(replacement)) {
+    // Refuse to do replacement of one output with another unless their aliasing
+    // settings are identical.
+    // See https://github.com/NVIDIA/Fuser/issues/3833
+    return orig;
+  }
+
   std::vector<IterDomain*> old_loop =
       TensorDomain::noReductions(orig->getLoopDomain());
   std::vector<IterDomain*> new_loop =
@@ -379,12 +374,12 @@ TensorView* maybeDoReplacement(TensorView* orig) {
   //      v
   //  [b{1}, i0]
   //
-  // Such resharding expressions won't be resolved by `insert_reshardings`
-  // because `insert_reshardings` runs before `remove_bcast_squeeze`.
+  // Such resharding expressions won't be resolved by `decompose_reshardings`
+  // because `decompose_reshardings` runs before `remove_bcast_squeeze`.
   // Therefore, if resharding is needed, instead of replacing `orig` with
   // `replacement`, we link them with a resharding `set`.
   bool needs_resharding = false;
-  for (size_t i : c10::irange(old_loop.size())) {
+  for (size_t i : arange(old_loop.size())) {
     if (old_loop[i]->getParallelType() != new_loop[i]->getParallelType()) {
       NVF_ERROR(
           old_loop[i]->isDeviceDim() || new_loop[i]->isDeviceDim(),
@@ -393,6 +388,14 @@ TensorView* maybeDoReplacement(TensorView* orig) {
       needs_resharding = true;
       break;
     }
+  }
+
+  // If we are replacing an output, we need to preserve the memory layout by
+  // replaying the allocation domain. Otherwise it might alter user semantics,
+  // violating memory layout required by aliasing
+  if (orig->isFusionOutput()) {
+    TransformReplay::selfReplay(
+        orig->domain(), replacement->domain(), /*ignore_reductions=*/true);
   }
 
   if (needs_resharding) {

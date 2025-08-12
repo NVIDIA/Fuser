@@ -28,7 +28,7 @@ class ExternalSrcExample : public NVFuserTest {};
 TEST_F(ExternalSrcExample, Reduction_CUDA) {
   Fusion fusion;
   FusionGuard fg(&fusion);
-  FusionExecutor fe;
+  RtcKernel rk;
 
   // By default, this env var should not be defined. To test using an
   // external source file, set it to the path to the external source
@@ -44,7 +44,7 @@ TEST_F(ExternalSrcExample, Reduction_CUDA) {
   buffer << cuda_src.rdbuf();
   std::string cuda_src_str = buffer.str();
 
-  fe.compileRtc(cuda_src_str, "kernel1", true, PrimDataType::Int32);
+  rk.compile(cuda_src_str, "kernel1", true, PrimDataType::Int32);
 
   // The following is a sample launch pattern of the compiled
   // kernel. It must be adapted for each particular source file.
@@ -82,7 +82,7 @@ TEST_F(ExternalSrcExample, Reduction_CUDA) {
     clearL2Cache();
     std::cout << "Launching the kernel" << std::endl;
     float elapsed_time_ms =
-        fe.runRtc(lp, {t0, t7, t14, t15, t16, t17}, PrimDataType::Int32);
+        rk.run(lp, {t0, t7, t14, t15, t16, t17}, PrimDataType::Int32);
     std::cout << "kernel run in " << elapsed_time_ms << " ms, achieved "
               << (read_write_bytes / elapsed_time_ms / 1000.0 / 1000.0)
               << " GB/s" << std::endl;
@@ -99,7 +99,7 @@ TEST_F(ExternalSrcExample, Reduction_CUDA) {
 TEST_F(ExternalSrcExample, Matmul_CUDA) {
   Fusion fusion;
   FusionGuard fg(&fusion);
-  FusionExecutor fe;
+  RtcKernel rk;
 
   // By default, this env var should not be defined. To test using an
   // external source file, set it to the path to the external source
@@ -115,7 +115,7 @@ TEST_F(ExternalSrcExample, Matmul_CUDA) {
   buffer << cuda_src.rdbuf();
   std::string cuda_src_str = buffer.str();
 
-  fe.compileRtc(cuda_src_str, "kernel1", true, PrimDataType::Int32);
+  rk.compile(cuda_src_str, "kernel1", true, PrimDataType::Int32);
 
   int M = 2048, N = 3456, K = 2048;
   MmaLayout layout = MmaLayout::TN;
@@ -129,8 +129,8 @@ TEST_F(ExternalSrcExample, Matmul_CUDA) {
     auto output = at::zeros_like(at_output);
     clearL2Cache();
     std::cout << "Launching the kernel" << std::endl;
-    float elapsed_time_ms = fe.runRtc(
-        lp, {inputs.first, inputs.second, output}, PrimDataType::Int32);
+    float elapsed_time_ms =
+        rk.run(lp, {inputs.first, inputs.second, output}, PrimDataType::Int32);
     std::cout << "kernel run in " << elapsed_time_ms << " ms." << std::endl;
 
     std::cout << "Max diff: " << (at_output - output).abs().max().item<float>()

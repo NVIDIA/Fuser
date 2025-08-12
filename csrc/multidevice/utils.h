@@ -7,10 +7,13 @@
 // clang-format on
 #pragma once
 
+#include <c10/util/ArrayRef.h>
+
 #include <compute_at_map.h>
 #include <fusion.h>
 #include <ir/interface_nodes.h>
 #include <multidevice/multidevice.h>
+#include <scheduler/utils.h>
 #include <visibility.h>
 
 namespace nvfuser {
@@ -18,16 +21,8 @@ namespace nvfuser {
 // Returns true iff nvFuser was compiled with distributed APIs enabled.
 NVF_API bool distributedEnabled();
 
-// For a resharding expression, either a set or reduce, returns root IDs
-// that change sharding.
-// (1) sharded root IterDomains that are added by the expression
-// i.e. sharded IterDomains that are present in the output, but not the input.
-// (2) sharded root IterDomains that are removed by the expression
-// i.e. sharded IterDomains that are present in the input, but not the output.
-// TODO: Analyze loop domain for unsharded/sharded IDs and return their
-// parent root IDs.
-std::pair<std::vector<IterDomain*>, std::vector<IterDomain*>> getShardingChanges(
-    Expr* expr);
+// Return true if the TensorView is contiguous.
+bool isTvContiguous(const TensorView* tv);
 
 // Returns whether a TensorView has a non-reduction axis parallelized Didx
 // Checks that the other non-reduction axis are not parallelized on Didx
@@ -36,43 +31,15 @@ bool isSharded(const TensorView*);
 // Returns number of device dimensions in a TensorView's loop domain.
 int64_t numDeviceDims(const TensorView*);
 
+std::unordered_set<IterDomain*> getInputsInTargetDomain(
+    const std::vector<IterDomain*>& loop_ids,
+    const std::vector<IterDomain*>& target_domain);
+
 // Returns the subset of tvs which elements have the different multi-device
 // sharding as ref
-template <typename TvIterator>
 std::unordered_set<TensorView*> getTvsWithDifferentSharding(
     TensorView* ref,
-    TvIterator tvs) {
-  std::unordered_set<TensorView*> ret;
-  const auto& reference_dom = ref->getLoopDomain();
-  FusionGuard fg(ref->fusion());
-  auto ca_map = ComputeAtMap(FusionGuard::getCurFusion());
-  std::unordered_map<IterDomain*, IterDomain*> concrete_to_reference_map;
-  for (auto id : reference_dom) {
-    auto ca_id =
-        ca_map.getConcreteMappedID(id, IdMappingMode::PERMISSIVE_RESIZE);
-    concrete_to_reference_map[ca_id] = id;
-  }
-
-  for (TensorView* tv : tvs) {
-    if (ref->getDeviceMesh().vector() != tv->getDeviceMesh().vector()) {
-      ret.insert(tv);
-      continue;
-    }
-    for (auto id : tv->getLoopDomain()) {
-      auto ca_id =
-          ca_map.getConcreteMappedID(id, IdMappingMode::PERMISSIVE_RESIZE);
-      if (concrete_to_reference_map.count(ca_id) > 0) {
-        auto ref_id = concrete_to_reference_map.at(ca_id);
-        if ((ref_id->isDeviceDim() || id->isDeviceDim()) &&
-            ref_id->getParallelType() != id->getParallelType()) {
-          ret.insert(tv);
-          break;
-        }
-      }
-    }
-  }
-  return ret;
-}
+    const std::vector<TensorView*>& tvs);
 
 // Returns whether an Expr embeds multi-device resharding
 bool isResharding(const Expr* expr);
@@ -83,11 +50,21 @@ bool haveDifferentShardings(
     const TensorView* producer,
     const TensorView* consumer);
 
-// Returns whether a resharding expr reshards an inner axis
-bool isInnerResharding(Expr* expr);
+// Returns a set that contains DIDs and Stream.
+std::unordered_set<ParallelType> deviceAndStreamParallelTypes();
 
-// Shards all tensors in tvs like reference
-void shardAllLike(TensorView* ref, std::vector<TensorView*> tvs);
+// Collect device and stream parallelized IterDomains in `domain` and return
+// them as a ParallelType-to-IterDomain map. Excludes reduction iterdomains.
+std::unordered_map<ParallelType, IterDomain*> mapDeviceAndStreamParallelTypeToId(
+    const std::vector<IterDomain*>& domain);
+
+// Shards all tensors in tvs like reference.
+// Accepts a set of parallel types to shard on.
+// If empty, all DID parallel types are used.
+void shardAllLike(
+    TensorView* ref,
+    const std::vector<TensorView*>& tvs,
+    const std::unordered_set<ParallelType>& parallel_types);
 
 // Shards all TVs between from and to AND between TVs created inside a fusion
 // and to. This is required for (1) expressions like rng_uniform that create a
@@ -119,10 +96,69 @@ int64_t requestedNumberOfDevices(Fusion*);
 void unshard(Fusion*);
 void unshard(TensorView*);
 
-// Returns the index of the a sharded axis if none return -1.
-// TODO: Assumes no merges/splits on sharded axis.
-int64_t getShardedAxis(TensorView*);
+// Returns the index of the sharded logical axis that produces the allocation
+// IterDomain sharded on `parallel_type`. If `tv` isn't sharded on the parallel
+// type, returns -1.
+//
+// This is used to correlate `tv` and its corresponding at::Tensor, e.g., by
+// `unshardedSizes` and `shardTensor`. `at::Tensor::sizes` and
+// `tv->getLogicalDomain()` map one-to-one modulo reduction. However, a size in
+// `at::Tensor::sizes` is a factor of the corresponding logical IterDomain's
+// extent if that IterDomain is sharded.
+int64_t getShardedLogicalAxis(const TensorView* tv, ParallelType parallel_type);
+
+// Returns the index of the loop axis that's parallelized on `parallel_type`.
+// If it's not found, returns -1.
+int64_t getShardedLoopAxis(const TensorView* tv, ParallelType parallel_type);
+
+// Shards the input tensor along `axis`. How the tensor gets sliced along `axis`
+// is determined by `mesh` and `device_id`. Returns the sharded tensor.
+at::Tensor shardTensor(
+    at::Tensor tensor,
+    int64_t axis,
+    const DeviceMesh& mesh,
+    DeviceIdxType device_id);
 
 // Reorders a TensorView so that the DID parallelized axis are in front.
-void reorderDIDToFront(TensorView*);
+// Returns a map of the old index to the new index.
+std::unordered_map<int64_t, int64_t> reorderDIDToFront(TensorView*);
+
+// Given a TensorView and the shape of a sharded tensor of which certain
+// dimensions are partially allocated, returns the global shape that'll be used
+// to bind to the TensorView's logical domain. This is to solve #3282 so we can
+// bind a sharded tensor to a TensorView that has a DID-parallel loop domain.
+//
+// For example, when `tv` is
+//   logical: iM, iN
+//   allocation: iDIDx{D}, iN/D, iM
+// and `sizes` is [2, 3], the returned shape will be [2, 3D]. This is because,
+// according to the allocation domain, iM is fully allocated and iN is sharded
+// and thus partially allocated.
+//
+// If the TensorView is not sharded, this function returns `sizes`.
+//
+// Limitations:
+// - The function assumes that there are no Merges from logical to the
+// DID-parallel IterDomains in allocation. Otherwise, it's unclear which logical
+// dimension this DID-parallelization should be attributed to.
+// - The function assumes that all Splits from logical to the DID-parallel
+// IterDomains in allocation are even. This is because there are currently no
+// ways to pass in the global shape.
+//
+// Despite these limitations, I took this approach as a shortcut to fix #3282,
+// which blocked many other tasks. I'm however open to other better, long-term
+// solutions. Some alternatives considered in #3282 are:
+// - Try to bind `at::Tensor`s to allocation domains instead of logical. Many
+// `*Op::evaluate` methods (e.g.
+// https://github.com/NVIDIA/Fuser/blob/2415d904d1e9a5da7ca6fb1a55d3045bbd510341/csrc/ir/nodes.cpp#L4321-L4329)
+// assume the input/output `at::Tensor`s have the same dimension order as the
+// logical domain. Doing so would have to change them all.
+// - Try to pass into FusionExecutorCache both logical (global) shapes and
+// allocated (local) tensors for sharded TensorViews. The logical shapes would
+// have to be passed through FusionKernelRuntime, FusionExecutor,
+// ExpressionEvaluator, and so on, which is an API overhaul.
+std::vector<int64_t> unshardedSizes(
+    const TensorView* tv,
+    c10::IntArrayRef sizes);
+
 } // namespace nvfuser

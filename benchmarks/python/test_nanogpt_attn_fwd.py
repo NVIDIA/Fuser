@@ -4,9 +4,10 @@
 import pytest
 from nvfuser import FusionDefinition, DataType
 from nvfuser.pytorch_utils import torch_dtype_to_nvfuser_dtype
-from .core import run_benchmark, clear_dynamo_cache
+from .core import run_benchmark, clear_dynamo_cache, with_executor, DEFAULT_EXECUTORS
 import torch
 from .global_params import generate_attn_inputs, FLOAT_DTYPES, PROMOTE_DTYPES
+from .torch_ops import nanogpt_attn
 
 
 # Fusion from nanogpt attention module
@@ -68,17 +69,6 @@ def nanogpt_attn_fwd_fusion(
     fd.add_output(T11)
 
 
-def nanogpt_attn_fwd(inputs: list):
-    # Reference implementation from Thunder: https://github.com/Lightning-AI/lightning-thunder/blob/d3da8517bff02a913fd149b4d6559f6b5a4c6c7f/thunder/tests/nanogpt_model.py#L102-L106
-    input, bias, size, dropout_p = inputs
-    batch_size, seq_len, nh, n_embd = size
-    hs = n_embd // nh
-    attn = input / (hs**0.5)
-    attn = attn.masked_fill(bias[:, :, :seq_len, :seq_len] == 0, float("-inf"))
-    attn = torch.nn.functional.softmax(attn, dim=-1)
-    return torch.nn.functional.dropout(attn, p=dropout_p)
-
-
 def nanogpt_attn_fwd_iobytes(size: tuple, dtype: torch.dtype):
     # Manual IOByte computation is required since nvFuser outputs (out, dropout_mask, attn, bias_mask) differ from baseline outputs (out).
 
@@ -137,27 +127,32 @@ def test_nanogpt_attn_fwd_nvf_benchmark(
         run_benchmark(benchmark, fd.execute, [inputs, bias])
 
 
-@pytest.mark.parametrize("compile", [False, True], ids=["eager", "compile"])
+@pytest.mark.parametrize("executor", DEFAULT_EXECUTORS)
 @pytest.mark.parametrize("size", generate_attn_inputs())
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)
 def test_nanogpt_attn_fwd_baseline_benchmark(
     benchmark,
     size: tuple,
     dtype: torch.dtype,
-    compile: bool,
+    executor: str,
 ):
-    if compile:
+    if executor == "torchcompile":
         clear_dynamo_cache()
     batch_size, seq_len, nh, n_embd = size
     dropout_p = 0.2
-    inputs = torch.randn(batch_size, nh, seq_len, seq_len, device="cuda", dtype=dtype)
+    inputs = torch.randn(
+        batch_size, nh, seq_len, seq_len, device="cuda", dtype=dtype, requires_grad=True
+    )
     bias = torch.tril(torch.ones(seq_len, seq_len, device="cuda")).view(
         1, 1, seq_len, seq_len
     )
+
+    benchmark_fn = with_executor(executor, nanogpt_attn)
+
     # Manually compute IOBytes: See PR #1725
     run_benchmark(
         benchmark,
-        torch.compile(nanogpt_attn_fwd) if compile else nanogpt_attn_fwd,
+        benchmark_fn,
         [inputs, bias, size, dropout_p],
         iobytes=nanogpt_attn_fwd_iobytes(size, dtype),
     )

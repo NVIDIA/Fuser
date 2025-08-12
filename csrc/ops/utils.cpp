@@ -302,7 +302,7 @@ std::vector<IterDomain*> mapLinearOpIterDomains(
 
     // Fill *_wb from the front.
     out_index = 0;
-    for (auto in_index : c10::irange(in_r_index)) {
+    for (auto in_index : arange(in_r_index)) {
       mapping[out_index] = input_domain[in_index];
       out_index++;
     }
@@ -446,7 +446,7 @@ std::vector<IterDomain*> newOutputDomain(const std::vector<Val*>& vals) {
   std::vector<IterDomain*> out_domain(
       TensorDomain::noReductions(tvs[0]->getLogicalDomain()).size(), nullptr);
 
-  for (const auto dim_i : c10::irange(out_domain.size())) {
+  for (const auto dim_i : arange(out_domain.size())) {
     std::vector<IterDomain*> input_ids;
     input_ids.reserve(tvs.size());
     for (auto* tv : tvs) {
@@ -491,7 +491,7 @@ std::vector<Val*> maybeBroadcast(const std::vector<Val*>& vals) {
     }
   }
 
-  for (const auto i : c10::irange(vals.size())) {
+  for (const auto i : arange(vals.size())) {
     if (vals[i]->getValType().value() == ValType::TensorView) {
       auto tv = vals[i]->as<TensorView>();
       out_vals[i] = maybe_broadcast_inner_to_rank(tv, n_dims);
@@ -543,6 +543,11 @@ Val* getMinimumValue(DataType v) {
       return IrBuilder::create<Val>(static_cast<double>(
           -std::numeric_limits<c10::Float8_e5m2>::infinity()));
       break;
+    case DataType::Float8_e8m0fnu:
+      // e8m0 is finite.
+      return IrBuilder::create<Val>(static_cast<double>(
+          -std::numeric_limits<c10::Float8_e8m0fnu>::max()));
+      break;
     case (DataType::Int):
       return IrBuilder::create<Val>(std::numeric_limits<int64_t>::lowest());
       break;
@@ -588,14 +593,19 @@ Val* getMaximumValue(DataType v) {
       return IrBuilder::create<Val>(static_cast<double>(
           std::numeric_limits<c10::Float8_e5m2>::infinity()));
       break;
-    case (DataType::Int):
+    case DataType::Float8_e8m0fnu:
+      // e8m0 is finite.
+      return IrBuilder::create<Val>(
+          static_cast<double>(std::numeric_limits<c10::Float8_e8m0fnu>::max()));
+      break;
+    case DataType::Int:
       return IrBuilder::create<Val>(std::numeric_limits<int64_t>::max());
       break;
-    case (DataType::Int32):
+    case DataType::Int32:
       return IrBuilder::create<Val>(
           (int64_t)std::numeric_limits<int32_t>::max());
       break;
-    case (DataType::Bool):
+    case DataType::Bool:
       return IrBuilder::create<Val>(true);
       break;
     default:
@@ -614,6 +624,29 @@ std::vector<unsigned int> canonicalizeAxes(
         return (unsigned int)wrapDim(axis, ndims);
       });
   return uint_axes;
+}
+
+Val* binOpIdentity(BinaryOpType op_type, DataType dtype) {
+  Fusion* fusion = FusionGuard::getCurFusion();
+  switch (op_type) {
+    case BinaryOpType::Add:
+      return fusion->zeroVal(dtype);
+    case BinaryOpType::Mul:
+      return fusion->oneVal(dtype);
+    case BinaryOpType::Min:
+      return getMaximumValue(dtype);
+    case BinaryOpType::Max:
+      return getMinimumValue(dtype);
+    case BinaryOpType::LogicalAnd:
+      NVF_ERROR(isBooleanType(dtype));
+      return fusion->trueVal();
+    case BinaryOpType::LogicalOr:
+      NVF_ERROR(isBooleanType(dtype));
+      return fusion->falseVal();
+    default:
+      NVF_THROW("Binary op ", op_type, " has no two-sided inverse");
+  }
+  return nullptr;
 }
 
 } // namespace ops

@@ -84,7 +84,8 @@ class Val;
   f(TensorConstruct);             \
   f(SelectOp);                    \
   f(IndexSelectOp);               \
-  f(TorchGatherOp);               \
+  f(IndexPutAccumulateOp);        \
+  f(GatherOp);                    \
   f(ScatterOp);                   \
   f(RNGOp);                       \
   f(ReductionOp);                 \
@@ -96,12 +97,18 @@ class Val;
   f(BroadcastOp);                 \
   f(SqueezeOp);                   \
   f(ExpandOp);                    \
+  f(RepeatOp);                    \
   f(ViewAsScalar);                \
   f(ViewOp);                      \
   f(CatOp);                       \
   f(PadOp);                       \
   f(SliceOp);                     \
   f(Split);                       \
+  f(ArgsortOp);                   \
+  f(GroupedMmaOp);                \
+  f(ScaledMmaOp);                 \
+  f(TopKOp);                      \
+  f(ScanOp);                      \
   f(Merge);                       \
   f(Swizzle);                     \
   f(Swizzle2D);                   \
@@ -110,16 +117,21 @@ class Val;
   f(LinearOp);                    \
   f(SdpaFwdOp);                   \
   f(SdpaBwdOp);                   \
+  f(EmbeddingFwdOp);              \
   f(Communication);               \
   f(ForLoop);                     \
   f(P2PCommunication);
 #define DISPATCH_FOR_ALL_KIR_EXPRS(f) \
   f(Allocate);                        \
+  f(AllocTMem);                       \
   f(Asm);                             \
   f(BlockSync);                       \
   f(GridSync);                        \
   f(FenceAsyncProxy);                 \
   f(WgMmaFence);                      \
+  f(SetMaxNReg);                      \
+  f(Continue);                        \
+  f(Return);                          \
   f(MBarrierInit);                    \
   f(MBarrierInvalidate);              \
   f(MBarrierArrive);                  \
@@ -141,15 +153,21 @@ class Val;
   f(InitMagicZero);                   \
   f(UpdateMagicZero);                 \
   f(GetRNGSeedAndOffsetFromHost);     \
-  f(EncodeTensorMapTiled);
+  f(EncodeTensorMapTiled);            \
+  f(RNGOp);
 #define DISPATCH_FOR_ALL_HIR_EXPRS(f) \
   f(HostUnit);                        \
   f(PostOnStream);                    \
+  f(LaunchKernel);                    \
   f(SetCurrentStream);                \
+  f(GetCurrentStream);                \
   f(Wait);                            \
   f(Synchronize);                     \
   f(StartCoalescing);                 \
-  f(EndCoalescing);
+  f(EndCoalescing);                   \
+  f(ShareMemHandles);                 \
+  f(HirAliasSelect);                  \
+  f(Deallocate);
 
 // Forward declarations for all Val and Expr types
 

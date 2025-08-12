@@ -5,7 +5,7 @@ from nvfuser import FusionDefinition, DataType
 from .global_params import PROMOTE_DTYPES
 from nvfuser.pytorch_utils import torch_dtype_to_nvfuser_dtype
 import torch
-from .core import run_benchmark, unary_bwd_torch, clear_dynamo_cache
+from .core import run_benchmark, unary_bwd_torch, clear_dynamo_cache, with_executor
 import numpy as np
 
 
@@ -433,18 +433,18 @@ def norm_fwd_baseline_benchmark(
     size: tuple,
     dtype: torch.dtype,
     channels_last: bool,
-    compile: bool,
+    executor: str,
     norm: str,
 ):
-    if compile:
+    if executor == "torchcompile":
         clear_dynamo_cache()
 
     assert norm in ["batch_norm", "instance_norm"], NotImplementedError
 
     # Size is assumed to be in the order N, C, ...
     inputs = torch.randn(size, device="cuda", dtype=dtype, requires_grad=True)
-    weight = torch.randn(size[1], device="cuda", dtype=dtype)
-    bias = torch.randn(size[1], device="cuda", dtype=dtype)
+    weight = torch.randn(size[1], device="cuda", dtype=dtype, requires_grad=True)
+    bias = torch.randn(size[1], device="cuda", dtype=dtype, requires_grad=True)
 
     running_mean = torch.zeros(size[1], device="cuda", dtype=dtype)
     running_var = torch.ones(size[1], device="cuda", dtype=dtype)
@@ -453,10 +453,12 @@ def norm_fwd_baseline_benchmark(
 
     norm_fwd_fn = batchnorm_fwd_fn if norm == "batch_norm" else instancenorm_fwd_fn
 
+    benchmark_fn = with_executor(executor, norm_fwd_fn)
+
     # Manually compute IOBytes: See PR #1725
     run_benchmark(
         benchmark,
-        torch.compile(norm_fwd_fn) if compile else norm_fwd_fn,
+        benchmark_fn,
         [inputs, weight, bias, running_mean, running_var],
         iobytes=norm_fwd_iobytes(size, dtype, norm),
     )
@@ -467,18 +469,18 @@ def norm_bwd_baseline_benchmark(
     size: tuple,
     dtype: torch.dtype,
     channels_last: bool,
-    compile: bool,
+    executor: str,
     norm: str,
 ):
-    if compile:
+    if executor == "torchcompile":
         clear_dynamo_cache()
 
     assert norm in ["batch_norm", "instance_norm"], NotImplementedError
 
     # Size is assumed to be in the order N, C, ...
     inputs = torch.randn(size, device="cuda", dtype=dtype, requires_grad=True)
-    weight = torch.randn(size[1], device="cuda", dtype=dtype)
-    bias = torch.randn(size[1], device="cuda", dtype=dtype)
+    weight = torch.randn(size[1], device="cuda", dtype=dtype, requires_grad=True)
+    bias = torch.randn(size[1], device="cuda", dtype=dtype, requires_grad=True)
 
     running_mean = torch.zeros(size[1], device="cuda", dtype=dtype)
     running_var = torch.ones(size[1], device="cuda", dtype=dtype)
@@ -489,12 +491,15 @@ def norm_bwd_baseline_benchmark(
         grads = grads.to(memory_format=torch.channels_last)
 
     norm_fwd_fn = batchnorm_fwd_fn if norm == "batch_norm" else instancenorm_fwd_fn
-    output = norm_fwd_fn([inputs, weight, bias, running_mean, running_var])
+
+    fwd_fn = with_executor(executor, norm_fwd_fn)
+    fwd_inputs = [inputs, weight, bias, running_mean, running_var]
+    outputs = fwd_fn(fwd_inputs)
 
     # Manually compute IOBytes: See PR #1725
     run_benchmark(
         benchmark,
-        torch.compile(unary_bwd_torch) if compile else unary_bwd_torch,
-        [output, grads],
+        unary_bwd_torch,
+        [outputs, grads, *fwd_inputs],
         iobytes=norm_bwd_iobytes(size, dtype, norm),
     )

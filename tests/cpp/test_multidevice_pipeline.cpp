@@ -27,6 +27,8 @@
 #include <kernel_ir.h>
 #include <logical_domain_map.h>
 #include <ops/all_ops.h>
+#include <preseg_passes/optimization_pass.h>
+#include <preseg_passes/reorder_sharded_axis.h>
 #include <runtime/executor.h>
 #include <runtime/executor_params.h>
 #include <runtime/fusion_executor_cache.h>
@@ -43,31 +45,30 @@ namespace nvfuser {
 class PipelineTest : public MultiDeviceTest {
  protected:
   PipelineTest();
-
   // Utility function used for validation in the tests. It compares the
   // (sharded) outputs with ref_unsharded_outputs. if
   // validate_with_prescribed_values is true, ref_unsharded_outputs is assumed
   // to be set manually in the test body. Otherwise, ref_unsharded_outputs is
-  // computed by running a Fusion on a single device with the unsharded_inputs
+  // computed by running a Fusion on a single device with the unsharded_args.
   void validate(bool validate_with_prescribed_values = false);
   void executeAndValidate(bool validate_with_prescribed_values = false);
 
   std::unique_ptr<MultiDeviceExecutor> runtime;
   std::unique_ptr<Fusion> fusion;
-  std::vector<c10::IValue> inputs;
-  std::vector<c10::IValue> unsharded_inputs;
-  std::vector<at::Tensor> outputs;
-  std::vector<at::Tensor> ref_unsharded_outputs;
-  hir::HostIrExecutorParams host_ir_executor_params;
+  KernelArgumentHolder args;
+  KernelArgumentHolder unsharded_args;
+  KernelArgumentHolder outputs;
+  KernelArgumentHolder ref_unsharded_outputs;
+  hir::HostIrEvaluatorParams host_ir_executor_params;
 };
 
 void PipelineTest::validate(bool validate_with_prescribed_values) {
   if (!validate_with_prescribed_values) {
     // execute the fusion on one device without pipeline scheduling
-    auto fusion_copy = std::make_unique<Fusion>(*runtime->completeFusion());
+    auto fusion_copy = std::make_unique<Fusion>(*fusion);
     unshard(fusion_copy.get());
     FusionExecutorCache unsharded_fec(std::move(fusion_copy));
-    ref_unsharded_outputs = unsharded_fec.runFusionWithInputs(unsharded_inputs);
+    ref_unsharded_outputs = unsharded_fec.runFusionWithInputs(unsharded_args);
   }
 
   if (debug_print) {
@@ -83,15 +84,20 @@ void PipelineTest::validate(bool validate_with_prescribed_values) {
   }
 
   ASSERT_EQ(ref_unsharded_outputs.size(), outputs.size());
-  for (int i : c10::irange(runtime->completeFusion()->outputs().size())) {
-    ASSERT_TRUE(runtime->completeFusion()->outputs().at(i)->isA<TensorView>());
-    auto output_tv =
-        runtime->completeFusion()->outputs().at(i)->as<TensorView>();
+  for (int i : arange(fusion->outputs().size())) {
+    ASSERT_TRUE(fusion->outputs().at(i)->isA<TensorView>());
+    auto output_tv = fusion->outputs().at(i)->as<TensorView>();
     if (!output_tv->getDeviceMesh().has(communicator_->deviceId())) {
       continue;
     }
-    auto ref_output = shardTensor(ref_unsharded_outputs.at(i), output_tv);
-    auto obtained_output = outputs.at(i);
+    auto ref_output =
+        shardTensor(ref_unsharded_outputs[i].as<at::Tensor>(), output_tv);
+    auto obtained_output = outputs[i].as<at::Tensor>();
+
+    EXPECT_EQ(ref_output.strides(), obtained_output.strides())
+        << "Strides are not equal: Ref: " << ref_output.strides()
+        << " Output: " << obtained_output.strides() << std::endl;
+
     EXPECT_TRUE(torch::allclose(ref_output, obtained_output))
         << "Device " << communicator_->deviceId() << " has unexpected output "
         << i << " corresponding to tv " << output_tv
@@ -103,12 +109,12 @@ void PipelineTest::validate(bool validate_with_prescribed_values) {
 // Run and validate a pipeline
 // with given (possibly sharded) inputs
 void PipelineTest::executeAndValidate(bool validate_with_prescribed_values) {
-  ASSERT_EQ(unsharded_inputs.size(), fusion->inputs().size());
-  for (int i : c10::irange(fusion->inputs().size())) {
+  ASSERT_EQ(unsharded_args.size(), fusion->inputs().size());
+  for (int i : arange(fusion->inputs().size())) {
     ASSERT_TRUE(fusion->inputs().at(i)->isA<TensorView>());
-    auto input_tv = fusion->inputs().at(i)->as<TensorView>();
-    auto input = shardTensor(unsharded_inputs.at(i).toTensor(), input_tv);
-    inputs.push_back(input);
+    args.push(shardTensor(
+        unsharded_args[i].as<at::Tensor>(),
+        fusion->inputs().at(i)->as<TensorView>()));
   }
 
   if (debug_print) {
@@ -117,21 +123,19 @@ void PipelineTest::executeAndValidate(bool validate_with_prescribed_values) {
     }
     std::stringstream ss;
     std::string indent = "  ";
-    ss << "Device " << communicator_->deviceId() << "'s inputs:{\n";
-    for (auto& t : inputs) {
+    ss << "Device " << communicator_->deviceId() << "'s args:{\n";
+    for (auto& t : args) {
       ss << indent << t;
     }
     ss << "\n}";
     std::cout << ss.str() << std::endl;
   }
 
+  MultiDeviceExecutorParams params;
+  params.executor = host_ir_executor_params;
   runtime = std::make_unique<MultiDeviceExecutor>(
-      std::move(fusion), *communicator_, host_ir_executor_params);
-  auto error_msg = runtime->validate();
-  if (error_msg != "") {
-    GTEST_SKIP() << error_msg;
-  }
-  outputs = runtime->runWithInput(inputs);
+      std::make_unique<Fusion>(*fusion), *communicator_, params);
+  outputs = runtime->runWithInput(args);
 
   if (debug_print) {
     if (!communicator_->deviceId()) {
@@ -151,7 +155,6 @@ void PipelineTest::executeAndValidate(bool validate_with_prescribed_values) {
 
 PipelineTest::PipelineTest() {
   fusion = std::make_unique<Fusion>();
-  communicator_->setDefaultBackend(CommunicatorBackend::kNccl);
 }
 
 // To run the following tests on several devices, pytorch must be installed with
@@ -232,10 +235,11 @@ TEST_F(PipelineTest, Pipeline) {
   // Create input tensors.
   // Note: each process is binded to a different GPU
   // Note: the concrete values are only used at the relevant ranks
-  unsharded_inputs = {
+  unsharded_args = {
       at::randn(input_shape1, tensor_options),
       at::randn(input_shape2, tensor_options)};
 
+  SKIP_IF_NOT_ENOUGH_DEVICES(fusion);
   executeAndValidate();
 }
 
@@ -310,19 +314,19 @@ TEST_P(PipelineTestTwoStages, Communication) {
     tv3->axis(sharded_dim)->parallelize(ParallelType::DIDx);
   }
 
-  unsharded_inputs = {at::randn(unsharded_input_sizes, tensor_options)};
+  unsharded_args = {at::randn(unsharded_input_sizes, tensor_options)};
 
   if (use_fusion_executor_cache) {
     host_ir_executor_params.use_fusion_executor_cache = true;
     host_ir_executor_params.skip_auto_scheduling = true;
   }
 
+  SKIP_IF_NOT_ENOUGH_DEVICES(fusion);
   executeAndValidate();
 }
 
 namespace {
-auto all_backends =
-    testing::Values(CommunicatorBackend::kNccl, CommunicatorBackend::kUcc);
+auto all_backends = testing::Values(CommunicatorBackend::kNccl);
 
 DeviceMesh mesh_null;
 DeviceMesh mesh0({0});
@@ -340,33 +344,33 @@ INSTANTIATE_TEST_SUITE_P(
     Gather,
     PipelineTestTwoStages,
     testing::Combine(
-        testing::Values(CommunicatorBackend::kNccl, CommunicatorBackend::kUcc),
+        testing::Values(CommunicatorBackend::kNccl),
         all_meshes,
         all_meshes,
         testing::Values(true),
         testing::Values(false),
         testing::Values(false),
-        testing::Values(0, 1),
+        testing::Values(0),
         testing::Bool()));
 
 INSTANTIATE_TEST_SUITE_P(
     Scatter,
     PipelineTestTwoStages,
     testing::Combine(
-        testing::Values(CommunicatorBackend::kNccl, CommunicatorBackend::kUcc),
-        all_meshes,
-        all_meshes,
+        testing::Values(CommunicatorBackend::kNccl),
+        testing::Values(mesh0, mesh1),
+        testing::Values(mesh2, mesh4, mesh5),
         testing::Values(false),
         testing::Values(true),
         testing::Values(false),
-        testing::Values(0, 1),
+        testing::Values(0),
         testing::Bool()));
 
 INSTANTIATE_TEST_SUITE_P(
     Bcast,
     PipelineTestTwoStages,
     testing::Combine(
-        testing::Values(CommunicatorBackend::kNccl, CommunicatorBackend::kUcc),
+        testing::Values(CommunicatorBackend::kNccl),
         all_meshes,
         all_meshes,
         testing::Values(false),
@@ -393,7 +397,7 @@ INSTANTIATE_TEST_SUITE_P(
     Bcast_sharded_same_mesh,
     PipelineTestTwoStages,
     testing::Combine(
-        testing::Values(CommunicatorBackend::kNccl, CommunicatorBackend::kUcc),
+        testing::Values(CommunicatorBackend::kNccl),
         testing::Values(mesh0, mesh1),
         testing::Values(mesh_null), // the same mesh is used for all tensors
         testing::Values(true),
@@ -406,7 +410,7 @@ INSTANTIATE_TEST_SUITE_P(
     Reduce,
     PipelineTestTwoStages,
     testing::Combine(
-        testing::Values(CommunicatorBackend::kNccl, CommunicatorBackend::kUcc),
+        testing::Values(CommunicatorBackend::kNccl),
         all_nontrivial_meshes,
         all_meshes,
         testing::Values(true),
@@ -419,13 +423,13 @@ INSTANTIATE_TEST_SUITE_P(
     ReduceScatter,
     PipelineTestTwoStages,
     testing::Combine(
-        testing::Values(CommunicatorBackend::kNccl, CommunicatorBackend::kUcc),
+        testing::Values(CommunicatorBackend::kNccl),
         all_nontrivial_meshes,
         testing::Values(mesh_null), // the same mesh is used for all tensors
         testing::Values(true),
         testing::Values(true),
         testing::Values(true),
-        testing::Values(0, 1),
+        testing::Values(0),
         testing::Values(false)));
 
 // TODO: Distributed reduction tests using fusion executor cache are failing
@@ -434,7 +438,7 @@ INSTANTIATE_TEST_SUITE_P(
     DISABLED_FusionExecutorCache_Reduce,
     PipelineTestTwoStages,
     testing::Combine(
-        testing::Values(CommunicatorBackend::kNccl, CommunicatorBackend::kUcc),
+        testing::Values(CommunicatorBackend::kNccl),
         all_nontrivial_meshes,
         all_meshes,
         testing::Values(true),
@@ -447,7 +451,7 @@ INSTANTIATE_TEST_SUITE_P(
     DISABLED_FusionExecutorCache_ReduceScatter,
     PipelineTestTwoStages,
     testing::Combine(
-        testing::Values(CommunicatorBackend::kNccl, CommunicatorBackend::kUcc),
+        testing::Values(CommunicatorBackend::kNccl),
         all_nontrivial_meshes,
         testing::Values(mesh_null), // the same mesh is used for all tensors
         testing::Values(true),
@@ -455,136 +459,5 @@ INSTANTIATE_TEST_SUITE_P(
         testing::Values(true),
         testing::Values(0, 1),
         testing::Values(true)));
-
-// Different scheduling modes used in
-// PipelineTestStagedReduction.StagedReduction
-enum class SchedulingMode {
-  // Manual interdevice scheduling, no intra-device scheduling
-  InterDeviceOnly,
-  // Manual inter-/intra-device scheduling
-  Manual,
-  // Manual inter-device scheduling, composed with fully automated intra-device
-  // scheduling (through FusionExecutorCache)
-  Automatic,
-};
-
-std::ostream& operator<<(std::ostream& out, const SchedulingMode& mode) {
-  switch (mode) {
-    case SchedulingMode::InterDeviceOnly:
-      out << "InterDeviceOnly";
-      break;
-    case SchedulingMode::Manual:
-      out << "Manual";
-      break;
-    case SchedulingMode::Automatic:
-      out << "Automatic";
-      break;
-  }
-  return out;
-}
-
-class PipelineTestStagedReduction
-    : public PipelineTest,
-      public ::testing::WithParamInterface<SchedulingMode> {};
-
-// 1D staged reduction
-// Inputs: X[num_devices,B,C]
-TEST_P(PipelineTestStagedReduction, StagedReduction) {
-  auto scheduling_mode = GetParam();
-
-  const int num_devices = communicator_->size();
-  constexpr int B = 8;
-  constexpr int C = 64;
-
-  FusionGuard fg(fusion.get());
-  // The first dimension is made symbolic so `tv_out->definition()` won't
-  // become a squeeze when num_devices == 1. This wouldn't be a problem for
-  // automatic mode. However, for the manual mode, the scheduling code below
-  // assumes `tv_out->definition()` can be lowered to communication. A squeeze
-  // can't.
-  TensorView* tv0 = TensorViewBuilder()
-                        .dtype(DataType::Float)
-                        .contiguity(true)
-                        .shape({-1, B, C})
-                        .build();
-  auto mesh = DeviceMesh::createForNumDevices(num_devices);
-  tv0->setDeviceMesh(mesh);
-  TensorView* tv1 = sum(tv0, {2});
-  TensorView* tv_out = sum(tv1, {0});
-  fusion->addInput(tv0);
-  fusion->addOutput(tv_out);
-
-  for (auto* tv : {tv0, tv1}) {
-    tv->axis(0)->parallelize(ParallelType::DIDx);
-  }
-
-  // Intra-device reduction scheduling for the first reduction:
-  switch (scheduling_mode) {
-    case SchedulingMode::InterDeviceOnly:
-      break;
-    case SchedulingMode::Manual: {
-      // inspired from NVFuserTest.FusionReduction1_CUDA
-      // tv0[I0{A}, I1{B}, I2{C}]
-      tv1->split(2, 32);
-      // tv1[I0{A}, I1{B}, R2o{C/32}, R2i{32}] = tv0[I0{A}, I1{B}, I2{C}]
-      tv1->split(2, 4);
-      // clang-format off
-      // tv1[I0{A}, I1{B}, R2oo{C/32/4)}, R2oi{4}, R2i{32}] = tv0[I0{A}, I1{B}, I2{C}]
-      // clang-format on
-
-      TensorView* tv2 = tv1->rFactor({2});
-      // clang-format off
-      // tv2[I0{A}, I1{B}, R2oo{C/32/4)}, I2oi{4}, I2i{32}] = tv0[I0{A}, I1{B}, I2{C}]
-      // tv1[I0{A}, I1{B},                R2oi{4}, R2i{32}] = tv2[I0{A}, I1{B}, R2oo{C/32/4)}, I2oi{4}, I2i{32}]
-      // clang-format on
-
-      TensorView* tv3 = tv1->rFactor({2});
-      // clang-format off
-      // tv2[I0{A}, I1{B}, R2oo{C/32/4)}, I2oi{4}, I2i{32}] = tv0[I0{A}, I1{B}, I2{C}]
-      // tv3[I0{A}, I1{B},                R2oi{4}, I2i{32}] = tv2[I0{A}, I1{B}, R2oo{C/32/4)}, I2oi{4}, I2i{32}]
-      // tv1[I0{A}, I1{B},                         R2i{32}] = tv3[I0{A}, I1{B},                R2oi{4}, I2i{32}]
-      // clang-format on
-
-      // tv1 is a segment boundary so must be in global. This wouldn't be
-      // needed if the fusion were scheduled automatically.
-      tv1->setMemoryType(MemoryType::Global);
-
-      // Use `tv2` as the reference tensor because it contains the most
-      // parallel IterDomains.
-      tv2->axis(1)->parallelize(ParallelType::BIDx);
-      tv2->axis(3)->parallelize(ParallelType::Unroll);
-      tv2->axis(-1)->parallelize(ParallelType::TIDx);
-      scheduler_utils::parallelizeAllLike(
-          tv2,
-          /*pos=*/-1,
-          // Don't propagate the parallelization to `tv_out` because that's in
-          // a different, resharding segment.
-          /*selected_tv=*/{tv0, tv1, tv2, tv3});
-      inlineMost();
-      break;
-    }
-    case SchedulingMode::Automatic:
-      host_ir_executor_params.use_fusion_executor_cache = true;
-      break;
-  }
-
-  at::Tensor unsharded_input_tensor =
-      at::randn({num_devices, B, C}, tensor_options);
-  at::Tensor ref_unsharded_output_tensor =
-      unsharded_input_tensor.sum(at::IntArrayRef({0, 2}));
-  unsharded_inputs = {unsharded_input_tensor};
-  ref_unsharded_outputs = {ref_unsharded_output_tensor};
-
-  executeAndValidate(/* validate_with_prescribed_values */ true);
-}
-
-INSTANTIATE_TEST_SUITE_P(
-    ,
-    PipelineTestStagedReduction,
-    testing::Values(
-        SchedulingMode::InterDeviceOnly,
-        SchedulingMode::Manual,
-        SchedulingMode::Automatic),
-    testing::PrintToStringParamName());
 
 } // namespace nvfuser

@@ -8,6 +8,8 @@
 #pragma once
 
 #include <device_lower/analysis/trivial_broadcast.h>
+#include <device_lower/pass/allocation.h>
+#include <device_lower/utils.h>
 #include <id_model/id_model.h>
 #include <ir/base_nodes.h>
 #include <ir/interface_nodes.h>
@@ -22,19 +24,14 @@
 namespace nvfuser {
 
 struct IndexingInfo {
-  std::vector<IterDomain*> loop_domains;
+  std::vector<IterDomain*> loop_ids;
+  std::vector<IterDomain*> index_ids;
   // Indexing traversal path from loop domains
   ExprPath<ExprGroup> traversal_path;
   // Index mappings of ID groups along the traversal path
   std::unordered_map<ValGroup, Val*> index_map;
   // Mappings from ID groups to dependent loop groups
   std::unordered_map<ValGroup, ValGroups> loop_group_dependencies;
-};
-
-struct IndexingAllocationInfo {
-  std::vector<IterDomain*> domains;
-  std::vector<Val*> strides;
-  std::vector<bool> contiguity;
 };
 
 // The basic algorithm of indexing is:
@@ -63,28 +60,55 @@ class TensorIndexer {
   // as a consumer or a producer. The predicate indexing will have a
   // separate interface.
   //
-  // The actual for-loops are required for handling circular buffering
+  // The actual for-loops are required for handling circular
+  // buffering.
+  //
+  // The override_index parameter is used to enable indirect indexing
+  // such as index_select. When the parameter is given, the index of a
+  // ValGroup corresponding to a given iter domain is given by its
+  // mapped index Val.
   Val* getLinearIndex(
       TensorView* tv,
       const Expr* expr,
-      const std::vector<ForLoop*>& loops) const;
+      const std::vector<ForLoop*>& loops,
+      const std::unordered_map<IterDomain*, Val*>& override_index = {}) const;
 
-  // Get the index of a loop domain. Intended to be used only for testing.
-  Val* getLoopIndex(IterDomain* loop_id) const;
+  // Get the index of a loop domain.
+  Val* getLoopIndex(IterDomain* loop_id, const std::vector<ForLoop*>& for_loops)
+      const;
 
   // Get the index of the given ID groups
   std::vector<Val*> getIndexFor(
       const Expr* expr,
       bool as_consumer,
-      const ValGroups& index_groups,
-      const std::vector<ForLoop*>& loops) const;
+      const std::vector<IterDomain*>& index_ids,
+      const std::vector<ForLoop*>& loops,
+      bool use_magic_zero = false) const;
 
   // Get the contig indices of the given ID groups with their strides
   std::pair<std::vector<Val*>, std::vector<Val*>> getContigIndexFor(
+      TensorView* tv,
       const Expr* expr,
       bool as_consumer,
-      const IndexingAllocationInfo& alloc_info,
-      const std::vector<ForLoop*>& loops) const;
+      const AllocationDomainInfo& alloc_info,
+      const std::vector<ForLoop*>& loops,
+      const std::unordered_map<IterDomain*, Val*>& override_index) const;
+
+  // Grab all for-loops whose indices are actually used in the given
+  // index vals. Note that IndexingInfo.loop_group_dependencies can be
+  // used to find loop IDs that are connected to the index IDs, but
+  // that doesn't always mean corresponding loop indices are actually
+  // used in an index Val. For example, unswitch predicates replace loop indices
+  // with (N - 1), where N is the extent of an unswitched ID. This
+  // function only grabs for-loops whose indices are indeed used.
+  std::vector<ForLoop*> getUsedForLoopsOf(
+      const std::vector<Val*>& indices,
+      const std::vector<ForLoop*>& for_loops) const;
+
+  // Add "pragma unroll" to for-loops whose loop indices are used for
+  // the given indexing. This is meant to be used for register tensors.
+  void ensureStaticIndexing(const std::vector<ForLoop*>& loops, Val* index)
+      const;
 
   // The AlmostExact graph is used since size-1 splits and merges
   // should not affect actual index exprs.
@@ -98,9 +122,6 @@ class TensorIndexer {
   ValGraph& traversalGraph() const {
     return id_model_.idGraph(traversalGraphType());
   }
-
-  // Traverse exprs and set allocation info for each tensor
-  void setupAllocationDomains(const std::vector<Expr*>& exprs);
 
   // Get the list of predicates of a given tensor appearing in a given
   // expr as a consumer. Each predicate corresponds to a domain of the
@@ -117,28 +138,46 @@ class TensorIndexer {
       const std::vector<ForLoop*>& for_loops,
       ForLoop* unswitched_loop = nullptr) const;
 
+  // Get the indexing traversal path for indexing a given list of IDs
+  // for a given expr
+  ExprPath<ExprGroup> getIndexingPath(
+      const Expr* expr,
+      const std::vector<IterDomain*>& index_ids,
+      bool use_alternate_loop_domain = false) const;
+
+  ExprPath<ExprGroup> getPredicateIndexingPath(TensorView* tv, const Expr* expr)
+      const;
+
+  // Protect the index of the innermost loop with magic zero.
+  //
+  // NOTE: This just follows how the original indexer adds magic zero
+  // to indices.
+  //
+  // TODO: Revisit if this is still necessary.
+  std::vector<Val*> protectIndicesWithMagicZero(
+      const std::vector<Val*>& indices,
+      const std::vector<ForLoop*>& for_loops) const;
+
+  // Check if a given fusion can be indexed with
+  // TensorIndexer. Returns fals if the fusion uses features that have
+  // only been implemented for the old indexer.
+  static bool isSupported(Fusion* fusion);
+
  private:
   // Build a map of loop groups to their index Vals. See the comment
   // on loop_index_map_.
   void buildLoopIndexMap();
 
-  const IndexingAllocationInfo& getIndexingAllocationInfo(
-      TensorView* tv) const {
-    auto it = alloc_info_.find(tv);
-    NVF_ERROR(
-        it != alloc_info_.end(),
-        "No allocation info found for ",
-        tv->toString());
-    return it->second;
-  }
+  const AllocationDomainInfo& getIndexAllocationInfo(TensorView* tv) const;
 
   // Returns the index map as well as its traversal path of given
   // index domains appearing in a given expr. Used by
   // getIndexFor.
   IndexingInfo computeIndex(
       const Expr* expr,
-      const ValGroups& index_groups,
-      const std::vector<ForLoop*>& for_loops) const;
+      const std::vector<IterDomain*>& index_ids,
+      const std::vector<ForLoop*>& for_loops,
+      bool use_alternate_loop_domain = false) const;
 
   // Propagate the loop indices of a given list of loop domains to the
   // traversal graph (i.e., the AlmostExact graph). Uses the loop
@@ -159,7 +198,7 @@ class TensorIndexer {
   //
   // Currently, only backward traversal is supported.
   std::pair<std::vector<ValGroup>, std::vector<Val*>> getContigDomainsAndStrides(
-      const IndexingAllocationInfo& alloc_info,
+      const AllocationDomainInfo& alloc_info,
       const ExprPath<ExprGroup>& traversal_path) const;
 
   // Get a replace map for tensor indexing. Examples include replacing
@@ -182,6 +221,22 @@ class TensorIndexer {
       const std::vector<ForLoop*>& for_loops,
       const std::unordered_map<ValGroup, Val*>& index_map) const;
 
+  // Grab all non-divisible splits whose input IDs need to be
+  // predicated.
+  ValGroups getNonDivisibleIdsToPredicate(
+      TensorView* tv,
+      const IndexingInfo& index_info) const;
+
+  // Augment IndexingInfo with index mappings for non-divisible split
+  // predicates. Non-divisible splits on the normal indexing path
+  // should not need any additional indexing, but those not in the
+  // path need another traversal.
+  void updateIndexInfoForNonDivisibleSplits(
+      const Expr* expr,
+      const std::vector<ForLoop*>& for_loops,
+      const ValGroups& non_divisible_ids,
+      IndexingInfo& index_info) const;
+
  private:
   // Using non-const references of IdModel because traversalGraph() returns a
   // non-const reference
@@ -195,7 +250,7 @@ class TensorIndexer {
 
   // Allocation info for each tensor. Must be filled before computing
   // the index of each tensor
-  std::unordered_map<TensorView*, IndexingAllocationInfo> alloc_info_;
+  std::unordered_map<TensorView*, AllocationDomainInfo> alloc_info_;
 };
 
 } // namespace nvfuser

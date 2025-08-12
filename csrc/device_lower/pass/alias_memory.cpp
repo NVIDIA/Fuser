@@ -290,18 +290,14 @@ class BufferReuseDebugPrinter {
   }
 
   void handle(const kir::IfThenElse* node) {
-    // This pass doesn't yet need to handle
-    //  ite but could fill in the blank here
-    //  if this printer can be used for
-    //  other passes or we have more
-    //  complex ite pattern.
-    NVF_THROW("unsupported");
+    indent();
+    os_ << "IF " << node->predicate()->toString() << ":\n";
   }
 
   void printAllocInfo(const kir::Allocate* alloc);
 
   std::stringstream& indent() {
-    for (const auto i : c10::irange(indent_level_)) {
+    for (const auto i : arange(indent_level_)) {
       (void)i; // Suppress unused variable warning
       os_ << "  ";
     }
@@ -483,7 +479,10 @@ class ScopeMap : private kir::IrVisitor {
   }
 
   void handle(kir::IfThenElse* ite) final {
-    NVF_THROW("lower_alias_memory: no support for IfThenElse at this phase.");
+    // TODO: Currently we just naively dispatch into the IfThenElse node
+    // assuming that this does not affect the analysis. For now, this assumption
+    // is true, but in the future, we might need to revisit this.
+    kir::IrVisitor::handle(ite);
   }
 
   //! Factory function for internal loop information data
@@ -562,7 +561,7 @@ struct AllocationInfo {
   const kir::Allocate* alias_to = nullptr;
   bool is_inner_alias = false;
   bool should_try_alias = true;
-  bool is_cp_async_bulk = false;
+  int64_t alignment = 16;
   MemoryType mem_type = MemoryType::Local;
   DataType data_type = DataType::Float;
   std::string size_expr;
@@ -786,7 +785,16 @@ class AllocationInfoMap : private kir::IrVisitor {
   }
 
   void handle(kir::IfThenElse* ite) final {
-    NVF_THROW("lower_alias_memory: no support for IfThenElse at this phase.");
+    // TODO: Currently we just naively dispatch into the IfThenElse node
+    // assuming that this does not affect the analysis. For now, this assumption
+    // is true, but in the future, we might need to revisit this.
+    if (debug_printer_) {
+      debug_printer_->pushScope();
+    }
+    kir::IrVisitor::handle(ite);
+    if (debug_printer_) {
+      debug_printer_->popScope();
+    }
   }
 
   // Generate allocation info for allocation after some pre-filtering
@@ -841,9 +849,10 @@ class AllocationInfoMap : private kir::IrVisitor {
     alloc_info->size_expr = size_print;
     alloc_info->loop_info = current_stack_.back();
     alloc_info->should_try_alias = should_try_alias;
-    alloc_info->is_cp_async_bulk =
-        (tv->definition() != nullptr &&
-         ir_utils::isCpAsyncBulk(tv->definition()));
+
+    alloc_info->alignment = (ir_utils::isTMAOrMMASmemTv(tv))
+        ? getSharedMemoryByteAlignment(ir_utils::getSwizzleMode(tv))
+        : 16;
 
     // record short cuts
     allocation_info_map_[alloc] = alloc_info;
@@ -908,8 +917,6 @@ class AllocationInfoMap : private kir::IrVisitor {
     if (expr->isOneOf<kir::MBarrierInit, kir::MBarrierInvalidate>()) {
       collectLivenessInfoOfExprMBarrier(expr);
       return;
-    } else if (!ir_utils::isTvOp(expr)) {
-      return;
     }
 
     const auto expr_pos = scope_map_.getExprPos(expr);
@@ -917,7 +924,11 @@ class AllocationInfoMap : private kir::IrVisitor {
     // Collect all tv's that resolves broadcast in this
     //  expr. The current analysis isn't enough to capture
     //  their liveness range.
-    for (auto input_tv : ir_utils::filterByType<TensorView>(expr->inputs())) {
+    for (Val* input : expr->inputs()) {
+      TensorView* input_tv = ir_utils::getTv(input);
+      if (!input_tv) {
+        continue;
+      }
       auto alloc_info = getAllocInfoFromTV(input_tv);
       if (alloc_info) {
         if (!isSerialBroadcastResolution(input_tv, for_loops_)) {
@@ -940,7 +951,11 @@ class AllocationInfoMap : private kir::IrVisitor {
         }
       }
     }
-    for (auto output_tv : ir_utils::filterByType<TensorView>(expr->outputs())) {
+    for (Val* output : expr->outputs()) {
+      TensorView* output_tv = ir_utils::getTv(output);
+      if (!output_tv) {
+        continue;
+      }
       auto alloc_info = getAllocInfoFromTV(output_tv);
       if (alloc_info) {
         // Reductions use outputs as read-write parameters, so their
@@ -984,7 +999,7 @@ class AllocationInfoMap : private kir::IrVisitor {
       return nullptr;
     }
 
-    for (const auto idx : c10::irange(current_stack_.size() - 1)) {
+    for (const auto idx : arange(current_stack_.size() - 1)) {
       if (current_stack_[idx] == allocate_loop_info) {
         return current_stack_[idx + 1];
       }
@@ -1181,9 +1196,9 @@ class ReusableAllocationFinder : private kir::IrVisitor {
             continue;
           }
         } else if (
-            dataTypeSize(
+            dataTypeSizeBit(
                 alloc_info->data_type, GpuLower::current()->indexType()) !=
-            dataTypeSize(
+            dataTypeSizeBit(
                 alloc_to_reuse->data_type, GpuLower::current()->indexType())) {
           // Behavior for shared or global memory and default behavior for
           // registers is to re-use if dtypes have same size.
@@ -1377,12 +1392,22 @@ class ReusableAllocationFinder : private kir::IrVisitor {
     }
 
     // Check index map for the corresponding axes.
-    for (const auto id_it : c10::irange(alloc_domains.size())) {
-      if (!GpuLower::current()->caMap()->areMapped(
-              alloc_domains[id_it],
-              reuse_domains[id_it],
-              IdMappingMode::EXACT)) {
-        return false;
+    for (const auto id_it : arange(alloc_domains.size())) {
+      if (GpuLower::current()->hasIdModel()) {
+        if (!GpuLower::current()
+                 ->idModel()
+                 .idGraph(IdMappingMode::EXACT)
+                 .disjointValSets()
+                 .strictAreMapped(alloc_domains[id_it], reuse_domains[id_it])) {
+          return false;
+        }
+      } else {
+        if (!GpuLower::current()->caMap()->areMapped(
+                alloc_domains[id_it],
+                reuse_domains[id_it],
+                IdMappingMode::EXACT)) {
+          return false;
+        }
       }
     }
     return true;
@@ -1511,7 +1536,7 @@ Val* alignExpr(Val* addr, int64_t alignment = 16) {
 
 Val* allocSizeBytes(kir::Allocate* alloc) {
   const auto buffer_dtype = alloc->buffer()->dtype();
-  const auto dtype_size = dataTypeSize(buffer_dtype);
+  const auto dtype_size = dataTypeSizeByte(buffer_dtype);
   auto size = dtype_size == 1
       ? alloc->size()
       : SimplifyingIrBuilder::mulExpr(
@@ -1757,8 +1782,8 @@ class StackBasedSharedMemAllocator : kir::IrVisitor {
           SimplifyingIrBuilder::addExpr(top_alloc->address(), top_size);
       // Shared memory allocations must by 128B aligned for cpAsyncBulk
       // operations to avoid CUDA_ERROR_MISALIGNED_ADDRESS.
-      auto aligned_address = alignExpr(
-          unaligned_address, (alloc_info->is_cp_async_bulk) ? 128 : 16);
+      auto aligned_address =
+          alignExpr(unaligned_address, alloc_info->alignment);
       // TODO: hoisting of addresses using for_loops_ recorded at first write
       alloc->setAddress(aligned_address);
     }
@@ -1766,7 +1791,7 @@ class StackBasedSharedMemAllocator : kir::IrVisitor {
       debug() << "Assigned address " << alloc->address()->toInlineString()
               << " for T" << alloc->buffer()->name() << " with size "
               << alloc->size()->toInlineString() << " * "
-              << dataTypeSize(alloc->buffer()->dtype()) << " bytes"
+              << dataTypeSizeByte(alloc->buffer()->dtype()) << " bytes"
               << std::endl;
     }
   }

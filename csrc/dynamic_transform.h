@@ -42,7 +42,7 @@ class DynamicTransformInitialInfo {
   //! the structure of the Fusion.
   bool isDynamic() const {
     return hasPossibleEmptyTensor() || !dynamic_reshaped_tvs_.empty() ||
-        !dynamic_resized_ids_.empty();
+        !dynamic_resized_ids_.empty() || !dynamic_topk_tvs_.empty();
   }
 
   //! Return whether there are any tensors with unknown extent in some
@@ -89,6 +89,12 @@ class DynamicTransformInitialInfo {
     return dynamic_factory_tvs_;
   }
 
+  //! Return a vector of outputs of TopKOp expressions that have Symbolic
+  //! output IterTypes
+  const std::vector<TensorView*>& getDynamicTopKTensorViews() const {
+    return dynamic_topk_tvs_;
+  }
+
   std::string toString() const;
 
   DynamicTransformInitialInfo clone(IrCloner& ir_cloner) const;
@@ -123,6 +129,8 @@ class DynamicTransformInitialInfo {
   std::vector<TensorView*> dynamic_expanded_tvs_;
 
   std::vector<TensorView*> dynamic_factory_tvs_;
+
+  std::vector<TensorView*> dynamic_topk_tvs_;
 
   // This is a minimal set of scalars to check for empty tensors. If any are
   // zero, we should traverse to find empty tensors.
@@ -196,6 +204,13 @@ class DynamicTransformConcretizationInfo {
     return factory_output_itertypes_;
   }
 
+  //! Return a vector of pairs holding the index of each TopK TensorView in
+  //! the vector returned by initialInfo()->getDynamicTopKTensorViews(),
+  //! along with the IterType the TopK dimension should be concretized to.
+  const std::vector<std::pair<int64_t, IterType>>& getTopKIterTypes() const {
+    return topk_itertypes_;
+  }
+
   //! Comparison operator for the purposes of determining cache hits. This does
   //! not guarantee equality of all members. Instead, it returns equal if the
   //! resulting concretizations would be structurally equivalent. Note that
@@ -224,6 +239,10 @@ class DynamicTransformConcretizationInfo {
   //! Given an ExpressionEvaluator which already has input scalars bound to it,
   //! determine the IterTypes of factory function outputs.
   void analyzeFactoryOutputs(ExpressionEvaluator* expr_eval);
+
+  //! Given an ExpressionEvaluator which already has input scalars bound to it,
+  //! determine the concrete IterType of each TopK operation.
+  void analyzeTopK(ExpressionEvaluator* expr_eval);
 
   const DynamicTransformInitialInfo* initialInfo() const {
     return initial_info_;
@@ -274,6 +293,11 @@ class DynamicTransformConcretizationInfo {
   std::vector<std::vector<std::pair<int64_t, IterType>>>
       factory_output_itertypes_;
 
+  //! Holds the index of the TopK TensorView (values output) in the vector
+  //! returned by initial_info_->getDynamicTopKTensorViews() along with its
+  //! concretized IterType for the TopK dimension
+  std::vector<std::pair<int64_t, IterType>> topk_itertypes_;
+
   friend class DynamicTransformInfoBuilder;
 };
 
@@ -290,11 +314,6 @@ class DynamicTransform {
   NVF_API static std::unordered_map<Val*, Val*> concretizeFusion(
       Fusion* fusion,
       const DynamicTransformConcretizationInfo* info);
-
-  //! Calls the above after computing concretization info from inputs
-  static std::unordered_map<Val*, Val*> concretizeFusion(
-      Fusion* fusion,
-      const std::vector<c10::IValue>& aten_inputs);
 
   //! Calls the above after computing concretization info from
   //! KernelArgumentHolder

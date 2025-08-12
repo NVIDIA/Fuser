@@ -165,8 +165,7 @@ static void SingleMatmulBase(
   // Define fusion graph
   setupMatmul(fusion, layout, mparams);
 
-  KernelArgumentHolder args = KernelArgumentHolder::createKernelArgumentHolder(
-      {inputs.first, inputs.second});
+  KernelArgumentHolder args({inputs.first, inputs.second});
 
   // Disable magic zero
   CompileParams cparams;
@@ -175,19 +174,18 @@ static void SingleMatmulBase(
 
   // Compile kernel
   auto launch_constraints = LaunchParams();
-  FusionExecutor fe;
-  fe.compileFusion(fusion, args, launch_constraints, cparams);
+  KernelExecutor ke;
+  ke.compile(fusion, args, launch_constraints, cparams);
   NVF_CHECK(
-      getBankConflictInfo(fe.kernel(), launch_constraints).empty(),
+      getBankConflictInfo(ke.compiledKernel()->kernel(), launch_constraints)
+          .empty(),
       "Shared memory bank conflict not removed.");
 
-  std::vector<c10::IValue> aten_inputs({inputs.first, inputs.second});
-
   // Warm up run
-  auto outputs = fe.runFusion(aten_inputs);
-  checkMatch(expected_output, outputs.at(0).to(at::kDouble), k);
+  auto outputs = ke.run(args);
+  checkMatch(expected_output, outputs[0].as<at::Tensor>().to(at::kDouble), k);
 
-  runBenchmarkIterations(benchmark_state, &fe, aten_inputs);
+  runBenchmarkIterations(benchmark_state, &ke, args);
 
   // TODO: FLOPS calculation
 }
@@ -230,7 +228,7 @@ static void Baseline_Matmul(
 
 size_t getSmemSize(GemmTile cta_tile, int stage_number) {
   return ((cta_tile.m * cta_tile.k) + (cta_tile.n * cta_tile.k)) *
-      dataTypeSize(DataType::Half) * stage_number;
+      dataTypeSizeByte(DataType::Half) * stage_number;
 }
 
 // TODO: this part eventually will be automated by heuristics
@@ -243,7 +241,6 @@ MatmulParams getMatmulParams(
   gemm_tile.cta_tile = cta_tile;
   // TODO: pipe through split K
   gemm_tile.warp_tile = GemmTile(64, 64, cta_tile.k);
-  gemm_tile.instruction_tile = GemmTile(16, 16, 16);
 
   MatmulParams params;
   params.supported_vec_size = {8, 8, 8};
@@ -343,11 +340,9 @@ static void SingleMatmulPartitionedK(
       layout, TensorMatmulPos::A, at::kHalf, M, N, Ki, splitk_factor);
   at::Tensor aten_b = matmulAtInput2D(
       layout, TensorMatmulPos::B, at::kHalf, M, N, Ki, splitk_factor);
-  std::vector<c10::IValue> aten_inputs = {aten_a, aten_b};
+  KernelArgumentHolder args = {aten_a, aten_b};
   at::Tensor expected_output = splitkLikeAtMatmul(
       aten_a.to(at::kDouble), aten_b.to(at::kDouble), layout);
-
-  auto args = KernelArgumentHolder::createKernelArgumentHolder(aten_inputs);
 
   // Disable magic zero
   CompileParams cparams;
@@ -355,19 +350,19 @@ static void SingleMatmulPartitionedK(
   cparams.index_type = computeIndexType(M, N, K);
 
   // Compile kernel
-  FusionExecutor fe;
+  KernelExecutor ke;
   auto lparams = LaunchParams();
-  fe.compileFusion(fusion, args, lparams, cparams);
+  ke.compile(fusion, args, lparams, cparams);
   NVF_CHECK(
-      getBankConflictInfo(fe.kernel(), lparams).empty(),
+      getBankConflictInfo(ke.compiledKernel()->kernel(), lparams).empty(),
       "Shared memory bank conflict not removed.");
 
   // Warm up run
-  auto outputs = fe.runFusion(aten_inputs);
+  auto outputs = ke.run(args);
 
-  checkMatch(expected_output, outputs.at(0).to(at::kDouble), Ki);
+  checkMatch(expected_output, outputs[0].as<at::Tensor>().to(at::kDouble), Ki);
 
-  runBenchmarkIterations(benchmark_state, &fe, aten_inputs);
+  runBenchmarkIterations(benchmark_state, &ke, args);
 
   // TODO: FLOPS calculation
 }
@@ -405,6 +400,13 @@ static void NvFuserScheduler_Matmul(
 
   NVFUSER_BENCHMARK_ARCH_SMEM_GUARD(
       8, 0, getSmemSize(cta_tile, number_of_stage), benchmark_state);
+
+  if (cudaArchGuardShouldSkip(8, 0, 9, 0)) {
+    benchmark_state.SkipWithError(
+        "This Fusion includes broadcasts on the operands, which is not "
+        "supported on Hopper+");
+    return;
+  }
 
   // Run benchmark:
   if (partitionedk) {
@@ -445,10 +447,10 @@ static void NvFuserScheduler_MatmulSplitKReduction(
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
 
   auto aten_c = at::randn({M, N, splitk_factor}, options);
-  std::vector<c10::IValue> aten_inputs = {aten_c};
+  KernelArgumentHolder args = {aten_c};
 
-  auto heuristic_params = SchedulerEntry::scheduleWith(
-      fusion, SchedulerType::Reduction, aten_inputs);
+  auto heuristic_params =
+      SchedulerEntry::scheduleWith(fusion, SchedulerType::Reduction, args);
 
   auto expected_output = aten_c.to(at::kDouble).sum(-1);
 
@@ -457,25 +459,26 @@ static void NvFuserScheduler_MatmulSplitKReduction(
   heuristic_params->cparams.index_type =
       computeIndexType(M, N * splitk_factor, 1);
 
-  KernelArgumentHolder args =
-      KernelArgumentHolder::createKernelArgumentHolder(aten_inputs);
-
   // Compile kernel
-  FusionExecutor fe;
-  fe.compileFusion(
+  KernelExecutor ke;
+  ke.compile(
       fusion, args, heuristic_params->lparams, heuristic_params->cparams);
 
   NVF_CHECK(
-      getBankConflictInfo(fe.kernel(), heuristic_params->lparams).empty(),
+      getBankConflictInfo(
+          ke.compiledKernel()->kernel(), heuristic_params->lparams)
+          .empty(),
       "Shared memory bank conflict not removed.");
 
   // Warm up run
-  auto outputs = fe.runFusion(aten_inputs, heuristic_params->lparams);
+  auto outputs = ke.run(args, {}, heuristic_params->lparams);
 
-  checkMatch(expected_output, outputs.at(0).to(at::kDouble), splitk_factor);
+  checkMatch(
+      expected_output,
+      outputs[0].as<at::Tensor>().to(at::kDouble),
+      splitk_factor);
 
-  runBenchmarkIterations(
-      benchmark_state, &fe, aten_inputs, heuristic_params->lparams);
+  runBenchmarkIterations(benchmark_state, &ke, args, heuristic_params->lparams);
 
   // TODO: FLOPS calculation
 }
@@ -542,7 +545,7 @@ static void NvFuserScheduler_MatmulSplitKReduction(
 static std::vector<long int> splitKNs(long int tileN = 128) {
   const long int numSMs = getNumSMs();
   std::vector<long int> Ns;
-  for (long int N : c10::irange(numSMs + 1)) {
+  for (long int N : arange(numSMs + 1)) {
     if (N > 0 && numSMs % N == 0) {
       Ns.push_back(N * tileN);
     }

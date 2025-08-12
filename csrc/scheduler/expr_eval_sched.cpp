@@ -6,6 +6,7 @@
  */
 // clang-format on
 
+#include <alias_analysis.h>
 #include <ir/utils.h>
 #include <scheduler/debug_utils.h>
 #include <scheduler/expr_eval_sched.h>
@@ -13,6 +14,33 @@
 #include <scheduler/runtime_info.h>
 
 namespace nvfuser {
+
+namespace {
+bool allOutputsArePointerArithmetics(Fusion* fusion) {
+  const AliasAnalysisResult analysis =
+      findAliases(fusion, EmptyAllocationAs::kLogical);
+
+  auto is_pointer_arithmetic = [&](TensorView* out) -> bool {
+    // Check out has an alias and out is not an inplace update target.
+    if (fusion->getOutputAlias(out).type == AllocationType::ReuseBuffer) {
+      return false;
+    }
+
+    // When `out` happens to be a fusion input (unlikely but possible), we
+    // treat `out` as an alias. This check is necessary because getRoot(out)
+    // never returns `out` itself due to the way it is implemented.
+    if (out->isFusionInput()) {
+      return true;
+    }
+
+    TensorView* root = analysis.getRoot(out);
+    return root != nullptr && root->isFusionInput();
+  };
+
+  auto out_tvs = ir_utils::filterByType<TensorView>(fusion->outputs());
+  return std::all_of(out_tvs.begin(), out_tvs.end(), is_pointer_arithmetic);
+}
+} // namespace
 
 // Check if the fusion has a single MatmulOp/LinearOp node
 bool ExprEvalScheduler::canScheduleCompileTime(Fusion* fusion) {
@@ -22,6 +50,10 @@ bool ExprEvalScheduler::canScheduleCompileTime(Fusion* fusion) {
     return false;
   }
 
+  if (allOutputsArePointerArithmetics(fusion)) {
+    return true;
+  }
+
   auto exprs = fusion->exprs();
   if (exprs.size() != 1) {
     scheduler_debug_utils::canScheduleRejectReason(
@@ -29,7 +61,19 @@ bool ExprEvalScheduler::canScheduleCompileTime(Fusion* fusion) {
     return false;
   }
 
-  if (exprs.front()->isOneOf<SdpaFwdOp, SdpaBwdOp>()) {
+  // TODO: remove IndexPutAccumulateOp
+  if (exprs.front()
+          ->isOneOf<
+              ScatterOp,
+              SdpaFwdOp,
+              SdpaBwdOp,
+              EmbeddingFwdOp,
+              IndexPutAccumulateOp,
+              ArgsortOp,
+              GroupedMmaOp,
+              ScaledMmaOp,
+              TopKOp,
+              ScanOp>()) {
     return true;
   }
 
@@ -37,7 +81,8 @@ bool ExprEvalScheduler::canScheduleCompileTime(Fusion* fusion) {
     if (isOptionDisabled(DisableOption::MatmulExprEval)) {
       scheduler_debug_utils::canScheduleRejectReason(
           schedulerType(),
-          "Matmul ATen evaluation was disabled by NVFUSER_DISABLE=matmul_expr_eval");
+          "Matmul ATen evaluation was disabled by "
+          "NVFUSER_DISABLE=matmul_expr_eval");
       return false;
     }
     return true;
@@ -45,7 +90,8 @@ bool ExprEvalScheduler::canScheduleCompileTime(Fusion* fusion) {
 
   scheduler_debug_utils::canScheduleRejectReason(
       schedulerType(),
-      "Fusion must contain only a single expression of type MatmulOp/LinearOp/SdpaFwdOp/SdpaBwdOp");
+      "Fusion must contain only a single expression of type "
+      "MatmulOp/LinearOp/SdpaFwdOp/SdpaBwdOp");
   return false;
 }
 

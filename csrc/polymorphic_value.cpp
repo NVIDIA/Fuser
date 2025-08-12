@@ -7,6 +7,7 @@
 // clang-format on
 #include <polymorphic_value.h>
 #include <type.h>
+#include <utils.h>
 
 #include <string>
 
@@ -24,7 +25,7 @@ bool StructHandle::operator==(const StructHandle& other) const {
   if (this_type.fields.size() != other_type.fields.size()) {
     return false;
   }
-  for (size_t i : c10::irange(this_type.fields.size())) {
+  for (size_t i : arange(this_type.fields.size())) {
     // Check that fields are in same position, have same type, and have same
     // value (recursive)
     const StructType::FieldInfo& fa = this_type.fields.at(i);
@@ -44,10 +45,7 @@ namespace PolymorphicValue_functions {
 std::string toString(const PolymorphicValue& v) {
   std::stringstream ss;
   if (v.is<at::Tensor>()) {
-    const auto& t = v.as<at::Tensor>();
-    ss << "Tensor(sizes=" << t.sizes() << ", "
-       << "stride=" << t.strides() << ", dtype=" << t.dtype()
-       << ", device=" << t.device() << ", data_ptr=" << t.data_ptr() << ")";
+    ss << debug_str(v.as<at::Tensor>());
   } else if (v.is<std::monostate>()) {
     ss << "std::monostate";
   } else if (v.is<StructHandle>()) {
@@ -55,7 +53,7 @@ std::string toString(const PolymorphicValue& v) {
     StructType type = (v->*&StructHandle::type)();
     ss << "StructHandle<" << type.name << ">{";
     bool first = true;
-    for (size_t i : c10::irange(type.fields.size())) {
+    for (size_t i : arange(type.fields.size())) {
       if (first) {
         first = false;
       } else {
@@ -70,6 +68,40 @@ std::string toString(const PolymorphicValue& v) {
     ss << v;
   }
   return ss.str();
+}
+
+PolymorphicValue IValueToPolymorphicValue(const c10::IValue& val) {
+  if (val.isTensor()) {
+    return val.toTensor();
+  }
+
+  auto scalar_val = val.toScalar();
+  switch (scalar_val.type()) {
+    case c10::ScalarType::ComplexDouble:
+      return (std::complex<double>)scalar_val.toComplexDouble();
+    case c10::ScalarType::Double:
+      return scalar_val.toDouble();
+    case c10::ScalarType::Long:
+      return scalar_val.toLong();
+    case c10::ScalarType::Bool:
+      return scalar_val.toBool();
+    default:
+      NVF_THROW("Can not convert IValue to PolymorphicValue");
+  }
+}
+
+inline bool isScalar(const PolymorphicValue& x) {
+  return x.is<int64_t>() || x.is<double>() || x.is<bool>() ||
+      x.is<std::complex<double>>();
+}
+
+c10::IValue toIValue(const PolymorphicValue& x) {
+  if (x.is<at::Tensor>()) {
+    return c10::IValue(x.as<at::Tensor>());
+  } else if (isScalar(x)) {
+    return c10::IValue(toScalar(x));
+  }
+  NVF_THROW("Cannot convert provided PolymorphicValue to a c10::IValue.");
 }
 
 } // namespace PolymorphicValue_functions

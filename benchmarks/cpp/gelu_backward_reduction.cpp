@@ -93,7 +93,7 @@ static void setupGeluBackwardReduction(
 
 static void NvFuserScheduler_GeluBackwardReduction(
     benchmark::State& benchmark_state,
-    FusionExecutorCache* fusion_executor_cache,
+    FusionExecutorCache* executor_cache,
     DataType dtype,
     int reduction_dim) {
   auto reduction_size = benchmark_state.range(0);
@@ -110,16 +110,15 @@ static void NvFuserScheduler_GeluBackwardReduction(
       (reduction_dim ? at::randn({iter_size, reduction_size}, options)
                      : at::randn({reduction_size, iter_size}, options));
 
-  std::vector<c10::IValue> aten_inputs = {aten_input_grad, aten_input_x};
+  KernelArgumentHolder args = {aten_input_grad, aten_input_x};
 
-  runBenchmarkIterations(benchmark_state, fusion_executor_cache, aten_inputs);
+  runBenchmarkIterations(benchmark_state, executor_cache, args);
 
   // inputs: gradient tensor + input tensor
   // outputs: output, output_of_reduction
   benchmark_state.SetBytesProcessed(
       int64_t(benchmark_state.iterations()) *
-      (iter_size * reduction_size * 3 + iter_size) *
-      int64_t(dataTypeSize(dtype)));
+      (iter_size * reduction_size * 3 + iter_size) * dataTypeSizeByte(dtype));
 }
 
 static void Baseline_GeluBackwardReduction(
@@ -175,8 +174,7 @@ static void Baseline_GeluBackwardReduction(
 
   benchmark_state.SetBytesProcessed(
       int64_t(benchmark_state.iterations()) *
-      (iter_size * reduction_size * 3 + iter_size) *
-      int64_t(dataTypeSize(dtype)));
+      (iter_size * reduction_size * 3 + iter_size) * dataTypeSizeByte(dtype));
 }
 
 //------------------------------------------------------------------------------

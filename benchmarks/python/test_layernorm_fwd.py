@@ -4,10 +4,11 @@
 import pytest
 from nvfuser import FusionDefinition, DataType
 from nvfuser.pytorch_utils import torch_dtype_to_nvfuser_dtype
-from .core import run_benchmark, clear_dynamo_cache
+from .core import run_benchmark, clear_dynamo_cache, with_executor, DEFAULT_EXECUTORS
 import torch
 from .global_params import generate_input_sizes, FLOAT_DTYPES, PROMOTE_DTYPES
 import numpy as np
+from .torch_ops import layernorm
 
 
 def layernorm_fwd_fusion(
@@ -55,15 +56,6 @@ def layernorm_fwd_fusion(
     fd.add_output(T14)
 
 
-def layernorm_fwd(inputs: list):  # [in_tensor, weights, bias]
-    return torch.nn.functional.layer_norm(
-        inputs[0],
-        normalized_shape=inputs[0].shape[1:],
-        weight=inputs[1],
-        bias=inputs[2],
-    )
-
-
 def layernorm_fwd_iobytes(size: tuple, dtype: torch.dtype):
     # Manual IOBytes computation required since nvFuser outputs (out, mean, invstd) differs from baselines (out)
     # Total IO bytes = in_tensor (size, dtype) + weights (size[1], dtype) + bias (size[1], dtype) +
@@ -95,7 +87,7 @@ def test_layernorm_fwd_nvf_benchmark(
         layernorm_fwd_fusion(fd, torch_dtype_to_nvfuser_dtype(dtype))
 
     if not disable_validation:
-        eager_output = layernorm_fwd(inputs)
+        eager_output = layernorm(inputs)
         mean = inputs[0].to(torch.float).mean(dim=-1)
         variance = inputs[0].to(torch.float).var(dim=-1, unbiased=False)
         invstd = (1.0 / torch.sqrt(variance + eps)).unsqueeze(1)
@@ -106,28 +98,30 @@ def test_layernorm_fwd_nvf_benchmark(
         run_benchmark(benchmark, fd.execute, inputs)
 
 
-@pytest.mark.parametrize("compile", [False, True], ids=["eager", "compile"])
+@pytest.mark.parametrize("executor", DEFAULT_EXECUTORS)
 @pytest.mark.parametrize("size", generate_input_sizes(dims=2))
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)
 def test_layernorm_fwd_baseline_benchmark(
     benchmark,
     size: tuple,
     dtype: torch.dtype,
-    compile: bool,
+    executor: str,
 ):
-    if compile:
+    if executor == "torchcompile":
         clear_dynamo_cache()
     batch_size, hidden_size = size
     inputs = [
-        torch.randn(size, device="cuda", dtype=dtype),
-        torch.randn(hidden_size, device="cuda", dtype=dtype),
-        torch.randn(hidden_size, device="cuda", dtype=dtype),
+        torch.randn(size, device="cuda", dtype=dtype, requires_grad=True),
+        torch.randn(hidden_size, device="cuda", dtype=dtype, requires_grad=True),
+        torch.randn(hidden_size, device="cuda", dtype=dtype, requires_grad=True),
     ]
+
+    benchmark_fn = with_executor(executor, layernorm)
 
     # Manually compute IOBytes: See PR #1725
     run_benchmark(
         benchmark,
-        torch.compile(layernorm_fwd) if compile else layernorm_fwd,
+        benchmark_fn,
         inputs,
         iobytes=layernorm_fwd_iobytes(size, dtype),
     )

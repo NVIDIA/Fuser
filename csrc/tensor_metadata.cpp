@@ -7,6 +7,7 @@
 // clang-format on
 
 #include <expr_evaluator.h>
+#include <instrumentation.h>
 #include <ir/all_nodes.h>
 #include <ir/builder.h>
 #include <ir/cloner.h>
@@ -37,6 +38,7 @@ class ForwardTraverseFromLogicalToAlloc {
       // TODO: see [Allocation domain on both side of logical]
       return;
     }
+
     auto [in_size, in_stride] = in_it->second;
     auto factor = ee_.evaluate(split->factor()).as<int64_t>();
     NVF_ERROR(
@@ -44,17 +46,24 @@ class ForwardTraverseFromLogicalToAlloc {
         "The logical domain and allocation domain of fusion input/output ",
         "tensors must be a one-to-one map, therefore, ",
         "non-divisible split is not allowed in allocation domain");
+
+    int64_t inner_size = 0;
+    int64_t outer_size = 0;
+    if (split->innerSplit()) {
+      outer_size = in_size / factor;
+      inner_size = factor;
+    } else {
+      outer_size = factor;
+      inner_size = in_size / factor;
+    }
+
     NVF_ERROR(active_ids_.erase(in) == 1);
+    NVF_ERROR(active_ids_.emplace(inner, std::make_pair(inner_size, in_stride))
+                  .second);
     NVF_ERROR(
         active_ids_
-            .emplace(inner, std::pair<int64_t, int64_t>{factor, in_stride})
+            .emplace(outer, std::make_pair(outer_size, in_stride * inner_size))
             .second);
-    NVF_ERROR(active_ids_
-                  .emplace(
-                      outer,
-                      std::pair<int64_t, int64_t>{
-                          in_size / factor, in_stride * factor})
-                  .second);
   }
 
   void handle(Merge* merge) {
@@ -73,17 +82,14 @@ class ForwardTraverseFromLogicalToAlloc {
     auto [outer_size, outer_stride] = outer_it->second;
     NVF_ERROR(
         inner_stride * inner_size == outer_stride,
-        "The logical domain and allocation domain of fusion input/output ",
-        "tensors must be a one-to-one map, therefore, ",
-        "merging of discontiguous dimensions is not allowed in allocation domain");
+        "Merging of discontiguous dimensions is not allowed in allocation "
+        "domain. An allocation IterDomain can't have two different strides.");
     NVF_ERROR(active_ids_.erase(inner) == 1);
     NVF_ERROR(active_ids_.erase(outer) == 1);
-    NVF_ERROR(active_ids_
-                  .emplace(
-                      out,
-                      std::pair<int64_t, int64_t>{
-                          inner_size * outer_size, inner_stride})
-                  .second);
+    NVF_ERROR(
+        active_ids_
+            .emplace(out, std::make_pair(inner_size * outer_size, inner_stride))
+            .second);
   }
 
   void handle(Expr* expr) {
@@ -106,6 +112,7 @@ class ForwardTraverseFromLogicalToAlloc {
       TensorView* tv,
       const std::vector<IterDomain*>& logical,
       const std::vector<IterDomain*>& alloc) {
+    FUSER_PERF_SCOPE("ForwardTraverseFromLogicalToAlloc::run");
     auto forward_exprs = StmtSort::getExprsBetween(
         {logical.begin(), logical.end()}, {alloc.begin(), alloc.end()});
     for (auto expr : forward_exprs) {
@@ -138,7 +145,8 @@ class BackwardTraverseFromLogicalToAlloc {
         inner_stride * inner_size == outer_stride,
         "The logical domain and allocation domain of fusion input/output ",
         "tensors must be a one-to-one map, therefore, ",
-        "splitting one dimension into discontiguous dimensions is not allowed in allocation domain");
+        "splitting one dimension into discontiguous dimensions is not allowed "
+        "in allocation domain");
     NVF_ERROR(active_ids_.erase(inner) == 1);
     NVF_ERROR(active_ids_.erase(outer) == 1);
     NVF_ERROR(active_ids_
@@ -199,6 +207,7 @@ class BackwardTraverseFromLogicalToAlloc {
       TensorView* tv,
       const std::vector<IterDomain*>& logical,
       const std::vector<IterDomain*>& alloc) {
+    FUSER_PERF_SCOPE("BackwardTraverseFromLogicalToAlloc::run");
     auto backward_exprs = StmtSort::getExprsBetween(
         {alloc.begin(), alloc.end()}, {logical.begin(), logical.end()});
     std::reverse(backward_exprs.begin(), backward_exprs.end());
@@ -209,65 +218,70 @@ class BackwardTraverseFromLogicalToAlloc {
 };
 
 void validateAllocationSizesAndStrides(
-    const std::vector<IterDomain*>& alloc_dom_no_reductions,
+    const std::vector<IterDomain*>& alloc_dom,
     const std::vector<std::optional<bool>>& contiguity,
     c10::IntArrayRef sizes,
     c10::IntArrayRef strides) {
-  NVF_ERROR(sizes.size() == strides.size());
+  NVF_ERROR(alloc_dom.size() == contiguity.size());
+  checkAllEqual(
+      {TensorDomain::noReductions(alloc_dom).size(),
+       sizes.size(),
+       strides.size()});
 
-  // Validate contiguity
-  int64_t contiguous_stride = 1;
-  auto contiguity_rev = contiguity.crbegin();
-  for (int64_t i = (int64_t)sizes.size() - 1; i >= 0; i--) {
-    if (alloc_dom_no_reductions.at(i)->isBroadcast()) {
+  int64_t expected_stride_if_contiguous = 1;
+  auto dim_index = static_cast<int64_t>(sizes.size());
+  // Go backwards because it's easier to compute the expected stride this way.
+  for (auto domain_index = static_cast<int64_t>(alloc_dom.size()) - 1;
+       domain_index >= 0;
+       domain_index--) {
+    IterDomain* alloc_id = alloc_dom[domain_index];
+    if (alloc_id->isReduction()) {
       continue;
     }
-    while (!contiguity_rev->has_value()) {
-      contiguity_rev++;
+
+    dim_index--;
+    auto size = sizes.at(dim_index);
+    auto stride = strides.at(dim_index);
+
+    if (alloc_id->isBroadcast()) {
+      NVF_CHECK(!contiguity[domain_index].has_value());
+      if (alloc_id->hasExpandedExtent()) {
+        NVF_CHECK(
+            stride == 0,
+            "Expecting an expanded dimension on dimension ",
+            dim_index,
+            " but found stride ",
+            stride);
+      }
+      continue;
     }
-    auto size = sizes.at(i);
-    auto stride = strides.at(i);
-    NVF_ERROR(!contiguity.empty());
-    auto last_contiguity = *contiguity_rev;
-    NVF_ERROR(
-        last_contiguity.has_value(),
-        "I don't think this check makes sense, but unfortunately ",
-        "clang-tidy is not smart enough to infer from the context that this is always true.");
-    if (*last_contiguity) {
+
+    if (alloc_id->isDeviceDim()) {
+      NVF_CHECK(size == 1);
+      continue;
+    }
+
+    NVF_CHECK(contiguity[domain_index].has_value());
+    if (*contiguity[domain_index]) {
       NVF_CHECK(
-          stride == contiguous_stride,
+          stride == expected_stride_if_contiguous,
           "Stride mismatch with contiguity info. ",
           " allocation domain: ",
-          ir_utils::toString(alloc_dom_no_reductions),
-          " dim: ",
-          i,
-          " expected stride: ",
-          contiguous_stride,
-          " actual stride: ",
+          ir_utils::toString(alloc_dom),
+          ": sizes: ",
+          sizes,
+          ": strides: ",
+          strides,
+          "; contiguity: ",
+          toDelimitedString(contiguity),
+          "; dim: ",
+          domain_index,
+          "; expected stride: ",
+          expected_stride_if_contiguous,
+          "; actual stride: ",
           stride);
     }
-    contiguous_stride = stride * size;
-    contiguity_rev++;
-  }
-  NVF_ERROR(
-      std::none_of(
-          contiguity_rev,
-          contiguity.crend(),
-          [](auto c_flag) { return c_flag.has_value(); }),
-      "The size of contiguity mismatch with the dimensionality of allocation domain");
-
-  // Validate that for expanded broadcast, the stride must be zero.
-  for (int64_t i : c10::irange((int64_t)strides.size())) {
-    if (auto alloc_id = alloc_dom_no_reductions.at(i);
-        alloc_id->hasExpandedExtent()) {
-      auto stride = strides.at(i);
-      NVF_CHECK(
-          stride == 0,
-          "Expecting an expanded dimension on dimension ",
-          i,
-          " but found stride ",
-          stride);
-    }
+    expected_stride_if_contiguous = stride * size;
   }
 }
 
@@ -278,74 +292,44 @@ inferAndValidateAllocationSizesAndStrides(
     const at::Tensor& tensor,
     TensorView* tv,
     ExpressionEvaluator ee) {
-  if (tv == nullptr || !tv->hasAllocation()) {
-    // When tv is nullptr, or tv does not have allocation, the given sizes and
-    // strides should already be in the target format. So nothing to do here.
-    std::vector<int64_t> sizes;
-    std::vector<int64_t> strides;
-    for (auto i : c10::irange(tensor.dim())) {
-      sizes.emplace_back(tensor.size(i));
-      strides.emplace_back(tensor.stride(i));
-    }
-    return {sizes, strides};
-  }
-  const auto& alloc =
-      TensorDomain::noReductions(tv->getMaybeAllocationDomain());
-  const auto& logical = TensorDomain::noReductions(tv->getLogicalDomain());
+  const auto& logical = tv->getLogicalDomain();
+  const auto& alloc = tv->getMaybeAllocationDomain();
 
   // active IDs and their shape and stride
+  std::vector<int64_t> logical_sizes = unshardedSizes(tv, tensor.sizes());
   std::unordered_map<IterDomain*, std::pair<int64_t, int64_t>> active_ids;
-  NVF_ERROR((int64_t)logical.size() == tensor.dim());
-  for (int64_t i : c10::irange((int64_t)logical.size())) {
-    auto rf_id = logical.at(i);
-    active_ids[rf_id] = {tensor.size(i), tensor.stride(i)};
+  int64_t dim_index = 0;
+  for (IterDomain* id : TensorDomain::noReductions(logical)) {
+    active_ids[id] = {logical_sizes.at(dim_index), tensor.stride(dim_index)};
+    dim_index++;
   }
+  NVF_ERROR(dim_index == tensor.dim());
 
   ForwardTraverseFromLogicalToAlloc(ee, active_ids).run(tv, logical, alloc);
   BackwardTraverseFromLogicalToAlloc(ee, active_ids).run(tv, logical, alloc);
 
   // Now active_ids should contain the final sizes and strides, unordered. We
   // need to put them to the correct order.
-  std::vector<int64_t> sizes;
-  std::vector<int64_t> strides;
-  sizes.reserve(alloc.size());
-  strides.reserve(alloc.size());
-  for (auto i : c10::irange(alloc.size())) {
-    auto id = alloc.at(i);
-    sizes.emplace_back(active_ids.at(id).first);
-    strides.emplace_back(active_ids.at(id).second);
+  std::vector<int64_t> allocation_sizes;
+  std::vector<int64_t> allocation_strides;
+  allocation_sizes.reserve(alloc.size());
+  allocation_strides.reserve(alloc.size());
+  for (IterDomain* id : TensorDomain::noReductions(alloc)) {
+    if (id->isDeviceDim()) {
+      allocation_sizes.push_back(1);
+    } else {
+      allocation_sizes.push_back(active_ids.at(id).first);
+    }
+    allocation_strides.push_back(active_ids.at(id).second);
   }
+
   // Only validate final sizes and strides when we have a non-empty tensor.
   if (tensor.numel() != 0) {
     validateAllocationSizesAndStrides(
-        alloc, tv->getContiguity(), sizes, strides);
+        alloc, tv->getContiguity(), allocation_sizes, allocation_strides);
   }
-  return {std::move(sizes), std::move(strides)};
+  return {std::move(allocation_sizes), std::move(allocation_strides)};
 }
-
-namespace {
-std::pair<std::vector<int64_t>, std::vector<int64_t>> unshardedSizesAndStrides(
-    TensorView* tv,
-    c10::IntArrayRef sizes,
-    c10::IntArrayRef strides) {
-  std::vector<int64_t> unsharded_sizes(sizes.size());
-  std::vector<int64_t> unsharded_strides(strides.size());
-  for (const auto i : c10::irange(sizes.size())) {
-    IterDomain* id = tv->getLogicalDomain()[i];
-    if (id->isDeviceDim()) {
-      unsharded_sizes[i] = tv->getDeviceMesh().size(id->getParallelType());
-      // This probably doesn't matter in practice unless a kernel accidentally
-      // tries to access the data on another rank. To be safe, set the stride
-      // to zero, analogous to an expanded broadcast dimension.
-      unsharded_strides[i] = 0;
-    } else {
-      unsharded_sizes[i] = sizes[i];
-      unsharded_strides[i] = strides[i];
-    }
-  }
-  return {unsharded_sizes, unsharded_strides};
-}
-} // namespace
 
 std::vector<PolymorphicValue> GetMetaData::evaluate(
     const ExpressionEvaluator& ee,
@@ -370,29 +354,22 @@ std::vector<PolymorphicValue> GetMetaData::evaluate(
   metadata->data = input.data_ptr();
 
   if (isSharded(tv)) {
-    auto [unsharded_sizes, unsharded_strides] =
-        unshardedSizesAndStrides(tv, input.sizes(), input.strides());
+    std::vector<int64_t> unsharded_sizes = unshardedSizes(tv, input.sizes());
     metadata->logical_size_data = std::move(unsharded_sizes);
     metadata->logical_size = c10::makeArrayRef(metadata->logical_size_data);
-    metadata->logical_stride_data = std::move(unsharded_strides);
-    metadata->logical_stride = c10::makeArrayRef(metadata->logical_stride_data);
   } else {
     metadata->logical_size = input.sizes();
-    metadata->logical_stride = input.strides();
   }
+  metadata->logical_stride_data =
+      std::vector<int64_t>(input.strides().begin(), input.strides().end());
+  metadata->logical_stride = c10::makeArrayRef(metadata->logical_stride_data);
 
-  if (tv->hasAllocation()) {
-    auto allocation_data =
-        inferAndValidateAllocationSizesAndStrides(input, tv, ee);
-    metadata->alloc_size_data = std::move(allocation_data.first);
-    metadata->alloc_size = c10::makeArrayRef(metadata->alloc_size_data);
-    metadata->alloc_stride_data = std::move(allocation_data.second);
-    metadata->alloc_stride = c10::makeArrayRef(metadata->alloc_stride_data);
-  } else {
-    metadata->alloc_size = metadata->logical_size;
-    metadata->alloc_stride = metadata->logical_stride;
-    // TODO: validateAllocationSizesAndStrides
-  }
+  auto [allocation_sizes, allocation_strides] =
+      inferAndValidateAllocationSizesAndStrides(input, tv, ee);
+  metadata->alloc_size_data = std::move(allocation_sizes);
+  metadata->alloc_size = c10::makeArrayRef(metadata->alloc_size_data);
+  metadata->alloc_stride_data = std::move(allocation_strides);
+  metadata->alloc_stride = c10::makeArrayRef(metadata->alloc_stride_data);
   return {PolymorphicValue(std::move(struct_))};
 }
 

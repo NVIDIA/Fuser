@@ -3,13 +3,14 @@
 # SPDX-License-Identifier: BSD-3-Clause
 # Owner(s): ["module: nvfuser"]
 
-import torch
-from utils import NVFuserTest, is_pre_ampere
-from nvfuser import FusionDefinition, DataType, FusionCache
-import pytest
 import itertools
-from functools import partial
+import math
+import pytest
+import torch
 import torch.nn.functional as F
+from functools import partial
+from nvfuser import FusionDefinition, DataType, FusionCache
+from python.utils import NVFuserTest, is_pre_ampere, define_sdpa_rng_state
 
 
 @pytest.mark.skipif(
@@ -17,6 +18,48 @@ import torch.nn.functional as F
     reason="Flash Attention is only supported on Ampere and newer devices.",
 )
 class TestSdpa(NVFuserTest):
+    def test_softmax_logsumexp(self):
+        def fusion_func(fd: FusionDefinition) -> None:
+            q = fd.define_tensor(
+                shape=[-1, -1, -1, -1],
+                dtype=DataType.BFloat16,
+            )
+            k = fd.define_tensor(
+                shape=[-1, -1, -1, -1],
+                dtype=DataType.BFloat16,
+            )
+            v = fd.define_tensor(
+                shape=[-1, -1, -1, -1],
+                dtype=DataType.BFloat16,
+            )
+            (
+                _,
+                lse,
+                *_,
+            ) = fd.ops.sdpfa_fwd(q, k, v, dropout_p=None, is_causal=None, scale=None)
+            fd.add_output(lse)
+
+        n, h, l, s, e = 1, 1, 4, 4, 2
+        inputs = [
+            torch.ones((n, h, l, e), dtype=torch.bfloat16, device="cuda"),
+            torch.ones((n, h, s, e), dtype=torch.bfloat16, device="cuda"),
+            torch.ones((n, h, s, e), dtype=torch.bfloat16, device="cuda"),
+        ]
+
+        from torch.nn.attention import SDPBackend, sdpa_kernel
+
+        with sdpa_kernel(SDPBackend.FLASH_ATTENTION):
+            nvf_out, _ = self.exec_nvfuser(
+                fusion_func,
+                inputs,
+            )
+        # Ignoring size-1 dimensions, `q @ k^T / sqrt(e)` generates a `l`x`s`
+        # matrix full of `sqrt(e)`s.  Therefore, the logsumexp of each row is
+        # expected to be log(exp(sqrt(e)) * s) = log(s) + sqrt(e).
+        torch.testing.assert_close(
+            nvf_out[0].cpu(), torch.full((n, h, l), math.log(s) + e**0.5)
+        )
+
     def test_sdpa_fwd(self):
         def fusion_func(
             fd: FusionDefinition, has_dropout: bool, has_causal: bool, has_scale: bool
@@ -46,9 +89,7 @@ class TestSdpa(NVFuserTest):
                 is_causal = fd.define_scalar(value=None, dtype=DataType.Bool)
             if has_scale:
                 scale = fd.define_scalar(value=None, dtype=DataType.Double)
-            attn, *intermediate_results = fd.ops.sdpfa_fwd(
-                q, k, v, dropout_p, is_causal, scale
-            )
+            attn, *_ = fd.ops.sdpfa_fwd(q, k, v, dropout_p, is_causal, scale)
             fd.add_output(attn)
 
         N, H, L, S, E = 4, 8, 16, 16, 8
@@ -149,18 +190,7 @@ class TestSdpa(NVFuserTest):
                 dtype=DataType.Float,
                 is_cpu=False,
             )
-            philox_seed = fd.define_tensor(
-                shape=[],
-                contiguity=[],
-                dtype=DataType.Int,
-                is_cpu=True,
-            )
-            philox_offset = fd.define_tensor(
-                shape=[],
-                contiguity=[],
-                dtype=DataType.Int,
-                is_cpu=True,
-            )
+            philox_seed, philox_offset = define_sdpa_rng_state(fd)
 
             dropout_p, is_causal, scale = None, None, None
             if has_dropout:

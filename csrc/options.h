@@ -11,6 +11,7 @@
 #include <visibility.h>
 
 #include <algorithm>
+#include <mutex>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -39,7 +40,8 @@ enum class DebugDumpOption {
   FusionIrPresched, //!< Dump the segmented Fusion IR before it is scheduled
   // TODO(wujingyue): name the following FusionIrSched
   FusionIr, //!< Dump the Fusion IR before lowering. This is the Fusion IR fed
-            //!< to `FusionExecutor::compileFusion`.
+            //!< to `KernelExecutor::compile`.
+  FusionIrGraph, //!< Dump a GraphViz graph of the Fusion IR
   FusionIrMath, //!< Dump just the compute (math) part of the above `FusionIr`
                 //!< for conciseness
   KernelIr, //!< Dump the compiler Kernel IR
@@ -48,11 +50,13 @@ enum class DebugDumpOption {
   CudaFull, //!< Dump the complete CUDA C++ code
   CudaToFile, //!< Dump CUDA Strings to File
   LaunchParam, //!< Dump the Launch parameters of kernel
+  DynamicSharedMemory, //!< Dump the dynamic shared memory allocation
   FusionSegments, //!< Dump Segmented Fusion Graph
   FusionSegmenterLog, //!< Dump Detailed Segmenter Logging
   FusionArgs, //!< Print the runtime fusion arguments
   GlobalZeroedMemory, //!< Print the log for zeroed global memory allocator
   HostIr, //!< Dump the Host IR program
+  HostIrJit, //!< Dump the LLVM IR lowered from Host IR
   KernelArgs, //!< Print the runtime kernel arguments when launching kernels
   FusionSegmentsDrawing, //!< Dump Segmented Fusion Graph
   PrintPtxasLog, //!< Print the ptxas verbose log including register usage
@@ -63,12 +67,15 @@ enum class DebugDumpOption {
   PerfDebugVerbose, //! When running kernels, print verbose information
                     //! associated with what's running
   PreSegmenterLogging,
+  HostIrLoweringLogging, //! Dump the Host IR after each lowering pass
   PythonDefinition, //! Python Frontend Fusion Definition.
+  PythonDefinitionSegments, //! Python Frontend Fusion Definition of segments.
   PythonFrontendDebug, //! Python Frontend debug information.
   TransformPropagator, //! When running TransformPropagator, print propagation
                        //! path and replay result
   Cubin, //! Dump compiled CUBIN
-  Sass, // Dump disassembled SASS
+  Sass, //! Dump disassembled SASS
+  SassToFile, //!< Dump disassembled SASS to File
   Ptx, //! Dump compiled PTX
   BankConflictInfo, //! Dump bank confliction info
   SyncMap, //! RAW dependency info
@@ -77,10 +84,11 @@ enum class DebugDumpOption {
   ExprSort, //! Print merging decisions on expression sorting
   ExprSortVerbose, //! Print verbose debug info on expression sorting
   LoopRotation, //! Print loop rotation log
-  Occupancy, // Dump occupancy
+  Occupancy, //! Dump occupancy
   IndexType, //! Print the index type of the launched kernel
   PredicateElimination, //! Print the predicate elimination information
   IndexingVerbose, //! Print verbose debug info on indexing
+  Communication, //! Print multi-GPU communications posted
   EndOfOption //! Placeholder for counting the number of elements
 };
 
@@ -92,17 +100,22 @@ enum class EnableOption {
   FuseMatmul, //! Enable automatic fusion of matmul and linear ops
   FuseMultipleMatmuls, //! Allow fusing more than one matmul in a single kernel
   IdModel, //! Enable IdModel
-  KernelDb, //! Enable Kernel Database
-  KernelProfile, //! Enable intra-kernel performance profiling
-  MemoryPromotion, //! Enable promotion of memory types for non-pointwise ops
-  StaticFusionCount, //! Enable using single static count in kernel name
-  ReuseZeroedMemory, //! Re-use zeroed memory used for grid synchronization
-  WarnRegisterSpill, //! Enable warnings of register spill
+  IdModelExtraValidation, //! Enable extra error checking when building IdModel
   IoToLowerPrecision, //! Enable castInputOutputToLowerPrecision. #1889 explains
                       //! why we disabled it by default.
+  KernelDb, //! Enable Kernel Database
   KernelDebug, //! Enable debug mode in nvrtc
   KernelLineInfo, //! Embed line info to compiled kernel, and dump the full CUDA
                   //! C++ code
+  KernelProfile, //! Enable intra-kernel performance profiling
+  MemoryPromotion, //! Enable promotion of memory types for non-pointwise ops
+  ReuseZeroedMemory, //! Re-use zeroed memory used for grid synchronization
+  StaticFusionCount, //! Enable using single static count in kernel name
+  WaitDebugger, // Used for debugging multi-GPU. The rank given in the argument
+                // will wait for `gdb attach` at the start.
+  WarnRegisterSpill, //! Enable warnings of register spill
+  WarpSpecializedNormalization, //! Enable warp specialized persistent kernel
+  HostIrLowering, //! Enable FusionKernelRuntime lowering to host IR
   EndOfOption //! Placeholder for counting the number of elements
 };
 
@@ -119,10 +132,12 @@ enum class DisableOption {
   Fma, //! Disable FMA instructions
   GroupedGridWelfordOuterOpt, //! Disable use of outer-optimized
                               //! grouped grid welford kernel
+  IdModel, //! Disable IdModel
   IndexHoist, //! Disable index hoisting
   MagicZero, //! Disable nvfuser_zero
   MatmulExprEval, //! Disable ATen evaluation for the entire fusion containing
                   //! matmul
+  NvrtcCaching, // Disable compilation caching by nvrtc
   Nvtx, //! Disable NVTX instrumentation
   ParallelCompile, //! Disable compiling Fusion segments in parallel
   ParallelSerde, //! Disable deserializing FusionExecutorCache in parallel
@@ -140,6 +155,7 @@ enum class DisableOption {
                //! need this in particular to investigate possible conflicts
                //! between nvFuser communicator and the framework also setting
                //! up `c10d::ProcessGroup`
+  ResizeScheduler, //! Disable the resize scheduler
   EndOfOption //! Placeholder for counting the number of elements
 };
 
@@ -170,16 +186,31 @@ class Options {
  public:
   Options() : options_(getOptionsFromEnv()) {}
 
+  Options(const Options& other) {
+    std::lock_guard<std::mutex> lock_other(other.mutex_);
+    options_ = other.options_;
+  }
+
+  Options& operator=(const Options& other) {
+    std::lock_guard<std::mutex> lock_other(other.mutex_);
+    std::lock_guard<std::mutex> lock(mutex_);
+    options_ = other.options_;
+    return *this;
+  }
+
   bool has(OptionEnum option) const {
+    std::lock_guard<std::mutex> lock(mutex_);
     return options_.count(option);
   }
 
   bool hasAny() const {
+    std::lock_guard<std::mutex> lock(mutex_);
     return !options_.empty();
   }
 
   const std::vector<std::string>& getArgs(OptionEnum option) const {
     NVF_ERROR(has(option), "Option not set");
+    std::lock_guard<std::mutex> lock(mutex_);
     return options_.at(option);
   }
 
@@ -192,10 +223,12 @@ class Options {
   }
 
   void set(OptionEnum option_type, std::vector<std::string> option = {}) {
+    std::lock_guard<std::mutex> lock(mutex_);
     options_[option_type] = option;
   }
 
   void unset(OptionEnum option_type) {
+    std::lock_guard<std::mutex> lock(mutex_);
     options_.erase(option_type);
   }
 
@@ -204,6 +237,7 @@ class Options {
 
  protected:
   std::unordered_map<OptionEnum, std::vector<std::string>> options_;
+  mutable std::mutex mutex_;
 };
 
 //! Utility class to temporarily overrride the Enable options,
@@ -249,6 +283,9 @@ NVF_API std::unordered_map<EnableOption, std::vector<std::string>> Options<
 
 using EnableOptions = Options<EnableOption>;
 
+std::optional<EnableOption> stringToEnableOption(
+    const std::string& enable_option);
+
 bool isOptionEnabled(EnableOption option);
 
 const std::vector<std::string>& getEnableOptionArguments(EnableOption option);
@@ -266,6 +303,9 @@ NVF_API std::unordered_map<DisableOption, std::vector<std::string>> Options<
     DisableOption>::getOptionsFromEnv();
 
 using DisableOptions = Options<DisableOption>;
+
+std::optional<DisableOption> stringToDisableOption(
+    const std::string& disable_option);
 
 NVF_API bool isOptionDisabled(DisableOption option);
 

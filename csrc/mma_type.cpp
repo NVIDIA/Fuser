@@ -16,6 +16,25 @@ GemmTile getMmaOpShape(MmaMacro macro) {
   return {getM(macro), getN(macro), getK(macro)};
 }
 
+int64_t getSharedMemoryByteAlignment(MmaInputSmemSwizzle swizzle) {
+  // References:
+  // https://docs.nvidia.com/cuda/parallel-thread-execution/#swizzling-modes
+  // https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html#table-alignment-multi-dim-tma
+  switch (swizzle) {
+    case MmaInputSmemSwizzle::None:
+      return 128;
+    case MmaInputSmemSwizzle::B32:
+      return 256;
+    case MmaInputSmemSwizzle::B64:
+      return 512;
+    case MmaInputSmemSwizzle::B128:
+      return 1024;
+    default:
+      NVF_CHECK(false, "Unknown swizzle type!");
+      break;
+  }
+}
+
 int64_t getBytesFromSwizzle(MmaInputSmemSwizzle swizzle) {
   switch (swizzle) {
     case MmaInputSmemSwizzle::None:
@@ -78,7 +97,6 @@ std::string toString(const GemmTile& tile) {
 std::string toString(const MatMulTileOptions& opts) {
   std::stringstream ss;
   ss << "MatMulTileOptions: "
-     << "instruction tile " << toString(opts.instruction_tile) << ", "
      << "warp tile " << toString(opts.warp_tile) << ", "
      << "CTA tile " << toString(opts.cta_tile);
   return ss.str();
@@ -101,6 +119,12 @@ std::string toString(MmaMacro macro) {
       break;
     case MmaMacroEncode::Arch::Hopper:
       ss << "Hopper";
+      break;
+    case MmaMacroEncode::Arch::Blackwell1CTA:
+      ss << "Blackwell1CTA";
+      break;
+    case MmaMacroEncode::Arch::Blackwell2CTA:
+      ss << "Blackwell2CTA";
       break;
   }
   ss << "_" << underlying.m << "_" << underlying.n << "_" << underlying.k;
@@ -138,8 +162,9 @@ size_t hash(const GemmTile& tile) {
 }
 
 size_t hash(const MatMulTileOptions& opts) {
-  return (hash(opts.instruction_tile) << 0) ^ (hash(opts.warp_tile) << 1) ^
-      (hash(opts.cta_tile) << 2);
+  size_t h = hash(opts.warp_tile);
+  hashCombine(h, hash(opts.cta_tile));
+  return h;
 }
 
 std::string toString(const MatmulDimRole role) {

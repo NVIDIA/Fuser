@@ -23,8 +23,8 @@ struct Use {
   Expr* user;
 
   bool operator<(const Use& other) const {
-    return std::make_pair(use_of, user) <
-        std::make_pair(other.use_of, other.user);
+    return std::make_pair(use_of->name(), user->name()) <
+        std::make_pair(other.use_of->name(), other.user->name());
   }
 
   bool operator==(const Use& other) const {
@@ -102,14 +102,8 @@ void insertSegmentSetAfter(
   TensorView* copy = segment_set(use_of);
   // Inherit the allocation domain from `use_of`. This is important to pass
   // AliasTest.Bookend_SegmentSetPreservesAllocation.
-  TensorDomain* replayed_domain =
-      TransformReplay::replayCasP(
-          copy, use_of, -1, TransformReplayOptions().replayAllocation())
-          .first;
-  if (replayed_domain->hasAllocation()) {
-    copy->setAllocationDomain(
-        replayed_domain->allocation(), replayed_domain->contiguity());
-  }
+  TransformReplay::selfReplay(
+      use_of->domain(), copy->domain(), /*ignore_reductions=*/true);
   std::for_each(first_user, last_user, [&](const Use& use) {
     ir_utils::replaceValInExprInputs(use.user, use_of, copy);
   });
@@ -122,7 +116,7 @@ void insertSegmentSetAfter(
 
 void MarkAliasesPreparePass::runPass(Fusion* fusion) {
   const AliasAnalysisResult analysis =
-      findAliases(fusion, /*can_override_empty_allocation_domain=*/true);
+      findAliases(fusion, EmptyAllocationAs::kUndetermined);
   if (isDebugDumpEnabled(DebugDumpOption::PreSegmenterLogging)) {
     debug() << "Alias analysis result:" << std::endl;
     debug() << analysis.toString(/*indent_size=*/1) << std::endl;
@@ -147,12 +141,16 @@ void MarkAliasesPreparePass::runPass(Fusion* fusion) {
       continue;
     }
 
-    const Layout preferred_layout = analysis.preferredLayout(tv);
+    const auto preferred_layout = analysis.preferredLayout(tv);
+    NVF_ERROR(
+        preferred_layout.has_value(),
+        "No preferred layout for an alias TV: ",
+        tv);
     tv->setAllocationDomain(
-        preferred_layout.allocation_domain, preferred_layout.contiguity);
+        preferred_layout->allocation_domain(), preferred_layout->contiguity());
     if (isDebugDumpEnabled(DebugDumpOption::PreSegmenterLogging)) {
       debug() << "Set the layout of " << ir_utils::varName(tv) << " to "
-              << preferred_layout.toString() << std::endl;
+              << preferred_layout->toString() << std::endl;
     }
   }
 

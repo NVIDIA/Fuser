@@ -84,7 +84,7 @@ static void setupLayerNormFused(Fusion* fusion, DataType dtype) {
 
 static void NvFuserScheduler_LayerNormFused(
     benchmark::State& benchmark_state,
-    FusionExecutorCache* fusion_executor_cache,
+    FusionExecutorCache* executor_cache,
     DataType dtype) {
   NVF_ERROR(dtype == DataType::Half);
 
@@ -102,15 +102,15 @@ static void NvFuserScheduler_LayerNormFused(
   at::Tensor tv3 = at::randn({num_features}, options);
   at::Tensor tv4 = at::randn({num_features}, options);
 
-  std::vector<c10::IValue> aten_inputs({tv0, tv1, tv2, tv3, tv4});
+  KernelArgumentHolder args = {tv0, tv1, tv2, tv3, tv4};
 
-  runBenchmarkIterations(benchmark_state, fusion_executor_cache, aten_inputs);
+  runBenchmarkIterations(benchmark_state, executor_cache, args);
 
   benchmark_state.SetBytesProcessed(
       int64_t(benchmark_state.iterations()) *
       (2 * tv1.numel() + tv0.numel() + tv2.numel() + tv3.numel() +
        tv4.numel()) *
-      int64_t(dataTypeSize(dtype)));
+      dataTypeSizeByte(dtype));
 }
 
 //------------------------------------------------------------------------------
@@ -158,7 +158,7 @@ static void Baseline_LayerNormFused(
   benchmark_state.SetBytesProcessed(
       int64_t(benchmark_state.iterations()) *
       (2 * t1.numel() + t0.numel() + t2.numel() + t3.numel() + t4.numel()) *
-      int64_t(dataTypeSize(dtype)));
+      dataTypeSizeByte(dtype));
 }
 
 //------------------------------------------------------------------------------

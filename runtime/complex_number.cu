@@ -6,10 +6,21 @@
  */
 // clang-format on
 #ifndef __NVCC__
+
+// These macros may be already defined when CUB is used
+#ifndef POS_INFINITY
 #define POS_INFINITY __int_as_float(0x7f800000)
+#endif // POS_INFINITY
+#ifndef INFINITY
 #define INFINITY POS_INFINITY
+#endif // INFINITY
+#ifndef NEG_INFINITY
 #define NEG_INFINITY __int_as_float(0xff800000)
+#endif // NEG_INFINITY
+#ifndef NAN
 #define NAN __int_as_float(0x7fffffff)
+#endif // NAN
+
 //===----------------------------------------------------------------------===//
 // The following namespace std is modified from LLVM, see the following
 // copyright information

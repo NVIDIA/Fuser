@@ -83,7 +83,7 @@ std::string toString(
   // Sort based on minimum id in the group
   std::sort(group_name_info.begin(), group_name_info.end());
 
-  for (auto i : c10::irange(group_name_info.size())) {
+  for (auto i : arange(group_name_info.size())) {
     auto pos = group_name_info[i].second;
     ss << toString(id_groups[pos], indent_size + 1, with_ptr) << "\n";
   }
@@ -118,7 +118,7 @@ std::string toString(
   // Sort based on minimum id in the group
   std::sort(group_name_info.begin(), group_name_info.end());
 
-  for (auto i : c10::irange(group_name_info.size())) {
+  for (auto i : arange(group_name_info.size())) {
     auto pos = group_name_info[i].second;
     ss << toString(id_groups.vector()[pos], indent_size + 1, with_ptr) << "\n";
   }
@@ -150,7 +150,7 @@ std::string toInlineString(const std::vector<ValGroup>& id_groups) {
 
   ss << "(idgs){";
   bool first = true;
-  for (auto i : c10::irange(group_name_info.size())) {
+  for (auto i : arange(group_name_info.size())) {
     if (first) {
       first = false;
     } else {
@@ -216,7 +216,7 @@ std::string toString(
   // Sort based on minimum id in the group
   std::sort(group_name_info.begin(), group_name_info.end());
 
-  for (auto i : c10::irange(group_name_info.size())) {
+  for (auto i : arange(group_name_info.size())) {
     auto pos = group_name_info[i].second;
     const ExprGroup& expr_group = expr_groups[pos];
 
@@ -259,7 +259,7 @@ std::string toString(
   // Sort based on minimum id in the group
   std::sort(group_name_info.begin(), group_name_info.end());
 
-  for (auto i : c10::irange(group_name_info.size())) {
+  for (auto i : arange(group_name_info.size())) {
     auto pos = group_name_info[i].second;
     auto expr_group = expr_groups.vector()[pos];
 

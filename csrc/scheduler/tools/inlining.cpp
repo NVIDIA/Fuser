@@ -93,7 +93,7 @@ bool MaxPosCalculator::isAllowedID(
     std::unordered_set<Val*> logical_dom_set(
         logical_dom.begin(), logical_dom.end());
     auto all_vals =
-        IRBFS::getValsBetween({logical_dom.begin(), logical_dom.end()}, {id});
+        getValsBetween<IRBFS>({logical_dom.begin(), logical_dom.end()}, {id});
     bool is_unmappable = false;
     for (auto val : all_vals) {
       auto id = val->as<IterDomain>();
@@ -175,7 +175,7 @@ size_t MaxPosCalculator::getMaxProducerPosFromConsumer(
         consumer, producer, -1, pairwise_logical_map);
     auto p2c_replay_map = replay_CasP.getReplay();
 
-    for (const auto producer_pos : c10::irange(producer->nDims())) {
+    for (const auto producer_pos : arange(producer->nDims())) {
       // If the producer position is mismatching with the consumer, then we can
       // not inline into this position, otherwise the max producer position of
       // the consumer will become invalid and expression sort will fail.
@@ -194,7 +194,7 @@ size_t MaxPosCalculator::getMaxProducerPosFromConsumer(
     return producer->nDims();
   } else {
     auto consumer_it = consumer->getLoopDomain().begin();
-    for (const auto producer_pos : c10::irange(producer->nDims())) {
+    for (const auto producer_pos : arange(producer->nDims())) {
       auto p_id = producer->getLoopDomain().at(producer_pos);
       // When p_id is a reduction, skip and continue to the next
       // position. Since a producer reduction domain is never allowed
@@ -239,6 +239,72 @@ size_t MaxPosCalculator::getMaxPosAll(
     }
   }
   return max_pos;
+}
+
+// Try to find the aligned position on consumer's domain corresponding to a
+//  position of producer domain. No checking on actual
+//  producer-consumer relationship.
+int64_t MaxPosCalculator::getConsumerPosAlignedToProducerCA(
+    TensorView* consumer,
+    TensorView* producer,
+    int64_t producer_pos) {
+  // Locate consumer's position that aligns with
+  //  the producer's position. We need broadcast axes forwarded so we
+  //  need to replay PasC as CasP will not forward braodcast dims. For example
+  //  if we have:
+  // T2[ iS22{( 3 * 1 )} ] ca_pos( 1 ) = broadcast( T1[ iS1{3} ] ca_pos( 1 )
+  // produce_pos( 1) ) CasP will have the mapping iS1{3} -> iS2{3} and PasC will
+  // have the mapping iS22{( 3 * 1 )} <- iS1{3} We need the latter. Refer to
+  // NVFuserTest.FusionComplexBCast1_CUDA
+
+  int64_t consumer_pos = consumer->nDims();
+
+  const bool may_need_forwarding =
+      ir_utils::isLoopDomainFullyDerivedFromLogicalDomain(producer) &&
+      ir_utils::isLoopDomainFullyDerivedFromLogicalDomain(consumer);
+
+  if (may_need_forwarding) {
+    auto disjoint_sets = BestEffortReplay::replayPasC(
+                             producer,
+                             consumer,
+                             -1,
+                             PairwiseLogicalDomainMap(producer, consumer))
+                             .getIterDomainEquivalence();
+
+    // Find the innermost position of consumer that has
+    //  been mapped within the producer ca axis.
+
+    while (consumer_pos > 0) {
+      auto consumer_id = consumer->axis(consumer_pos - 1);
+      const auto& p_dom = producer->getLoopDomain();
+      if (std::any_of(
+              p_dom.begin(),
+              p_dom.begin() + producer_pos,
+              [&consumer_id, &disjoint_sets](IterDomain* p_id) {
+                return disjoint_sets.permissiveAreMapped(consumer_id, p_id);
+              })) {
+        break;
+      }
+      consumer_pos--;
+    }
+  } else {
+    while (consumer_pos > 0) {
+      auto consumer_id = consumer->axis(consumer_pos - 1);
+      const auto& p_dom = producer->getLoopDomain();
+      if (std::any_of(
+              p_dom.begin(),
+              p_dom.begin() + producer_pos,
+              [&](IterDomain* p_id) {
+                return inliningGraph().disjointValSets().strictAreMapped(
+                    consumer_id, p_id);
+              })) {
+        break;
+      }
+      consumer_pos--;
+    }
+  }
+
+  return consumer_pos;
 }
 
 void inlineMost(const std::unordered_set<IterDomain*>& uninlinable_ids) {
@@ -353,7 +419,14 @@ std::unordered_map<TensorView*, int64_t> getPositionsMappedTo(
     TensorView* reference_tv,
     int64_t reference_pos) {
   std::unordered_map<TensorView*, int64_t> mapped_positions;
-  MaxLogicalDomainInfoSpanningTree tree(reference_tv, reference_pos);
+  // Spanning tree traversal should not propagate across Resize ops
+  // since inlining should not be done across resized IDs. See
+  // ResizeTest.TraversalForInliningPosition for a concrete example.
+  MaxLogicalDomainInfoSpanningTree tree(
+      reference_tv,
+      reference_pos,
+      /*selector=*/nullptr,
+      /*propagate_through_resize=*/false);
   FindMappedPositions propagator(mapped_positions, reference_tv, reference_pos);
   tree.traverse(&propagator);
   return mapped_positions;

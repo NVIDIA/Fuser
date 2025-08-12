@@ -23,6 +23,12 @@ class ComputeAtMap;
 class SchedulerRuntimeInfo;
 class HeuristicDataCache;
 
+//! Utility enum to signify which direction
+//! transform propagation passes will propagate the transforms.
+//! For example, in sharding propagation or
+//! BoundedDirectionalTransformPropagator.
+enum class PropagateDirection { kBackward = 0, kForward };
+
 namespace scheduler_utils {
 
 // Assume any only half of the register file is available to spend on buffers,
@@ -30,14 +36,14 @@ namespace scheduler_utils {
 // with a compile time constant index. Unfortunately nvcc seems to be using
 // many registers for indexing. This is a bad estimation of extra register use,
 // but it's hard to get a better one.
-constexpr int64_t register_file_size_full = (int64_t)256 * 1024;
-constexpr int64_t register_file_size = register_file_size_full / 2;
-constexpr int64_t register_file_size_56k = (int64_t)56 * 4 * 1024;
+constexpr int64_t register_file_size_bit_full = (int64_t)256 * 1024 * 8;
+constexpr int64_t register_file_size_bit = register_file_size_bit_full / 2;
+constexpr int64_t register_file_size_bit_56k = (int64_t)56 * 4 * 1024 * 8;
 
 // Empirically observed number. Not guaranteed to be a good estimate
 constexpr int64_t register_overhead = 40l;
 constexpr int64_t max_registers_per_thread = 255l;
-constexpr int64_t bytes_per_register = 4l;
+constexpr int64_t bits_per_register = 4l * 8;
 
 constexpr int64_t x_grid_limit = ((int64_t)1 << (int64_t)31) - (int64_t)1;
 constexpr int64_t y_grid_limit = 65535;
@@ -99,6 +105,10 @@ constexpr int64_t roundUpToN(const int64_t x, const int64_t n) {
   return x % n == 0 ? x : x + (n - x % n);
 }
 
+constexpr int64_t roundDownToN(const int64_t x, const int64_t n) {
+  return x % n == 0 ? x : x - x % n;
+}
+
 // Div x by y, but min at 1
 inline int64_t safeDiv(const int64_t x, const int64_t y) {
   return std::max(x / y, (int64_t)1);
@@ -108,12 +118,12 @@ inline int64_t safeDiv(const int64_t x, const int64_t y) {
 // `to_update` to the positions in the splitted tensor. Splitting one dimension
 // multiple times is supported, and if this is the case, then the order of
 // `to_split` matters. All given dimensions are numbers before any split.
-NVF_API void splitDims(
+void splitDims(
     TensorView* tv,
     std::vector<std::pair<int64_t, int64_t>> to_split, // (dim, size)
     std::vector<int64_t>& to_update);
 
-NVF_API inline void splitDims(
+inline void splitDims(
     TensorView* tv,
     std::vector<std::pair<int64_t, int64_t>> to_split) { // (dim, size)
   std::vector<int64_t> unused;
@@ -126,7 +136,7 @@ NVF_API inline void splitDims(
 // merge.
 // NOTE: merged is done as the entries in the order of `to_merge`, assuming an
 // order from inner to outer
-NVF_API std::optional<int64_t> mergeDims(
+std::optional<int64_t> mergeDims(
     TensorView* tv,
     std::vector<int64_t> to_merge,
     std::vector<int64_t>& to_update);
@@ -153,24 +163,62 @@ int64_t mergeNonReduction(TensorView* tv);
 // DAG. Empty `selected_tvs` means selecting all tensors in the fusion of
 // `reference_tv`. `selected_parallel_types` are the selected parallel types.
 // Empty `selected_parallel_types` means selecting all parallel types.
-NVF_API void parallelizeAllLike(
+// Fusion inputs are generally ignored since parallel types (BID/TID) do not
+// mean anything on them. However, we have cases during scheduling where
+// propagating transforms can inadvertently remove DID parallelization from the
+// inputs of the fusion and needs to reapplied. `parallelize_inputs_on_did` is a
+// boolean flag that determines whether to additionally parallelize the inputs
+// of the fusion on DID parallel types. For eg: see propagateReshapeTransforms
+// and scheduleTranspose.
+void parallelizeAllLike(
     TensorView* reference_tv,
     int64_t pos = -1,
     std::vector<TensorView*> selected_tvs = {},
     const std::unordered_set<ParallelType>& selected_parallel_types = {},
-    bool propagate_padding = true);
+    bool propagate_padding = true,
+    bool parallelize_inputs_on_did = false);
 
 inline void parallelizeAllLike(
     TensorView* reference_tv,
     std::vector<TensorView*> selected_tvs,
     const std::unordered_set<ParallelType>& selected_parallel_types = {},
-    bool propagate_padding = true) {
+    bool propagate_padding = true,
+    bool parallelize_inputs_on_did = false) {
   parallelizeAllLike(
       reference_tv,
       -1,
       std::move(selected_tvs),
       selected_parallel_types,
-      propagate_padding);
+      propagate_padding,
+      parallelize_inputs_on_did);
+}
+
+inline void parallelizeAllLike(
+    TensorView* reference_tv,
+    std::initializer_list<TensorView*> selected_tvs,
+    const std::unordered_set<ParallelType>& selected_parallel_types = {},
+    bool propagate_padding = true,
+    bool parallelize_inputs_on_did = false) {
+  parallelizeAllLike(
+      reference_tv,
+      std::vector<TensorView*>(selected_tvs),
+      selected_parallel_types,
+      propagate_padding,
+      parallelize_inputs_on_did);
+}
+
+inline void parallelizeAllLike(
+    TensorView* reference_tv,
+    const std::unordered_set<ParallelType>& selected_parallel_types,
+    bool propagate_padding = true,
+    bool parallelize_inputs_on_did = false) {
+  parallelizeAllLike(
+      reference_tv,
+      -1,
+      std::vector<TensorView*>{},
+      selected_parallel_types,
+      propagate_padding,
+      parallelize_inputs_on_did);
 }
 
 // Common hyperparameters used in heuristic scheduler. These hyperparameters
@@ -182,11 +230,13 @@ struct SchedulerHyperParameters {
       int64_t vectorize_factor_,
       int64_t unroll_factor_,
       int64_t threads_per_block_min_,
-      int64_t threads_per_block_max_)
+      int64_t threads_per_block_max_,
+      bool is_warp_specialized_)
       : vectorize_factor(vectorize_factor_),
         unroll_factor(unroll_factor_),
         threads_per_block_min(threads_per_block_min_),
-        threads_per_block_max(threads_per_block_max_) {}
+        threads_per_block_max(threads_per_block_max_),
+        is_warp_specialized(is_warp_specialized_) {}
 
   //! Number of elements to load per vectorize load.
   int64_t vectorize_factor = 1;
@@ -199,11 +249,18 @@ struct SchedulerHyperParameters {
 
   //! Maximum number of threads per block.
   int64_t threads_per_block_max = 1;
+
+  //! Use warp specialized version
+  bool is_warp_specialized = false;
 };
 
 struct PersistentBufferInfo {
   std::vector<TensorView*> persistent_buffers;
   std::unordered_set<IterDomain*> unmappable_dims;
+
+  // Tensors with unmappable dims that cannot be persistent due to
+  // broadcast inling
+  std::vector<TensorView*> non_persistent_buffers;
 
   // Persistent buffers are needed until the path through the reduction -
   // broadcast chain is resolved by any other chain using the persistent buffer
@@ -237,7 +294,7 @@ struct PersistentBufferInfo {
 // return inputs as being marked persistent if they follow this pattern. It is
 // important to note however inputs don't strictly have to be persistent as they
 // can simply be read multiple times from GMEM in the same kernel.
-NVF_API PersistentBufferInfo persistentBuffers(Fusion* fusion);
+PersistentBufferInfo persistentBuffers(Fusion* fusion);
 
 // A persistent tv can be projected to its producers when all the producers are
 // persistent tvs and there is no reduction op.
@@ -296,15 +353,15 @@ ReductionTvProperties getReductionProperties(
 // Struct to store persistent buffer sizes. also holds the persistent buffer
 // size of the buffers are projected to the inputs.
 struct PersistentBufferSizeReturn {
-  int64_t persistent_buffer_size = 0;
-  int64_t projected_persistent_buffer_size = 0;
+  int64_t persistent_buffer_size_bit = 0;
+  int64_t projected_persistent_buffer_size_bit = 0;
 };
 
 // Compute the amount of register space would be needed to perform this kernel
 // persistently, only based on buffers that must be persistent, and based on the
 // maximum of all minimum size requirement. i.e. if must be persistent, only
 // hold persistent dimension.
-NVF_API PersistentBufferSizeReturn persistentBufferSize(
+PersistentBufferSizeReturn persistentBufferSizeBit(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
     const PersistentBufferInfo& persistent_buffers,
@@ -321,7 +378,7 @@ std::pair<bool, bool> canonicalDimReduction(
 // Return a list of tensor views that are outputs of reduction operations,
 // excluding resharding reduce expressions. If multiple outputs of an expression
 // are found, only include one in the list
-NVF_API std::vector<TensorView*> getReductionTvs(Fusion* fusion);
+std::vector<TensorView*> getReductionTvs(Fusion* fusion);
 
 // Returns a list of TensorViews that are the consumer tv for a view operation.
 std::vector<TensorView*> getViewTVs(Fusion* fusion);
@@ -330,15 +387,15 @@ std::vector<TensorView*> getViewTVs(Fusion* fusion);
 std::vector<TensorView*> getTVsWithNonReductionRFactor(Fusion* fusion);
 
 // Reset inputs and outputs to global memory, everything else to local.
-NVF_API void clearMemorySpace(Fusion* fusion);
+void clearMemorySpace(Fusion* fusion);
 
 // Returns cached after tensors of the fusion inputs if unrolled. Otherwise
 // return empty vector.
-NVF_API std::vector<TensorView*> cacheInputs(Fusion* fusion, bool unroll);
+std::vector<TensorView*> cacheInputs(Fusion* fusion, bool unroll);
 
 // Returns the pairs of <cache of each fusion output, corresponding output> for
 // all outputs.
-NVF_API std::vector<std::pair<TensorView*, TensorView*>> cacheAndForkOutputs(
+std::vector<std::pair<TensorView*, TensorView*>> cacheAndForkOutputs(
     Fusion* fusion,
     bool unroll);
 
@@ -473,7 +530,7 @@ struct BroadcastMultipleInformation {
 //
 // logical_reorder_map is provided to assume reference_tv will be reordered per
 // the map
-NVF_API BroadcastMultipleInformation getBroadcastMultiples(
+BroadcastMultipleInformation getBroadcastMultiples(
     TensorView* reference_tv,
     DataType index_type,
     const std::unordered_map<int64_t, int64_t>& logical_reorder_map = {});
@@ -542,7 +599,7 @@ struct BoundedDirectionalTransformPropagator {
   //! Replay transforms from tensorview `from`
   //!  to the tensorviews that are consumers
   //!  of boundary tensorviews in `to` and producers of `from`.
-  NVF_API static void backward(
+  static void backward(
       TensorView* from,
       int64_t pos,
       std::vector<TensorView*> to,
@@ -601,27 +658,34 @@ struct BoundedDirectionalTransformPropagator {
 // If IterDomains are disjoint in the returned set, then they are considered
 // "separable".
 // Warning: This pass generates the IdGraphs, not intended for use at runtime.
-NVF_API DisjointSets<IterDomain*> disjointLogicalSets(Fusion* fusion);
+DisjointSets<IterDomain*> disjointLogicalSets(Fusion* fusion);
 
 // Makes sure that there are no group id's left of pos that match right of pos.
 // e.g.
 // [1, 0, 0] pos 2 would return false
 // [1, 0, 0] pos 1 would return true
-NVF_API bool breakIsDisjoint(std::vector<int64_t> group_ids, int64_t pos);
+bool breakIsDisjoint(std::vector<int64_t> group_ids, int64_t pos);
 
-// Generates an old to new map to reorder tv's domain as the logical order.
+// Update the vector of ids_to_transform as progressing through the
+// `transform_exprs`. We'll always insert the result of split in the
+// location of the input, and insert the merge result in the position of the
+// inner dimension.
+void applyTransforms(
+    std::vector<IterDomain*>& ids_to_transform,
+    const std::vector<Expr*>& transform_exprs);
+
+// Generates a permutation to reorder tv's domain as the logical order.
 // Priority is given to inner most dimensions for example:
 // logical [i0, i1, i2]
 // domain [i0*i2, i1]
-// will produce the map {{0, 1}, {1, 0}}
+// will produce the permutation {1, 0}
 // This is somewhat similar to orderTiledConcreteIdAsRoot
-NVF_API std::unordered_map<int64_t, int64_t> domainReorderAsLogicalMap(
-    TensorView* tv);
+std::vector<int64_t> domainReorderAsLogicalMap(TensorView* tv);
 
-// Generates an old to new map to reorder tv's domain as the logical order.
-// This only handles the simple case where allocation is a permutation of
-// logical domain, otherwise, the function returns an empty container.
-std::unordered_map<int64_t, int64_t> maybeLogicalReorderAsAllocationMap(
+// Generates an old to new map to reorder tv's loop domain as its allocation
+// order. This only handles the simple case where allocation is a permutation of
+// loop domain, otherwise, the function returns an empty container.
+std::unordered_map<int64_t, int64_t> maybeReorderAsAllocationMap(
     TensorView* tv);
 
 // Assumes view's are consistent as detected by
@@ -629,7 +693,7 @@ std::unordered_map<int64_t, int64_t> maybeLogicalReorderAsAllocationMap(
 void propagateReshapeTransforms(Fusion* fusion, const ComputeAtMap& ca_map);
 
 //! Check if tv is an output of a fastest-dim reduction
-NVF_API bool isFastestDimReduction(TensorView* tv);
+bool isFastestDimReduction(TensorView* tv);
 
 // A wrapper for Fusion::rotateLoop that provide more consistent interace
 inline void rotateLoop(
@@ -670,7 +734,7 @@ inline void rotateLoop(
 //! tv1, but the data dependency for the resize op is still satisfied
 //! by having a copy of tv1, i.e., tv4. Note that the other op using
 //! tv1 still uses tv1.
-NVF_API void prepareForMemoryTypePromotion(Fusion* fusion);
+void prepareForMemoryTypePromotion(Fusion* fusion);
 
 //! If a consumer tensor induces a data dependency between threads,
 //! move its producer to a shared memory that is sufficient to satisfy
@@ -678,31 +742,30 @@ NVF_API void prepareForMemoryTypePromotion(Fusion* fusion);
 //! with blockIdx, the producer memory type will be changed to
 //! Global. A proper RAW sync will be automatically inserted when the
 //! fusion is lowered.
-NVF_API void promoteProducerMemoryTypes(
+void promoteProducerMemoryTypes(
     Fusion* fusion,
     const std::vector<TensorView*>& input_caches);
 
 //! Get all tensors that are connected to from_tvs without going through
 //! any tvs in the cutoff_tv_set.
-NVF_API std::unordered_set<TensorView*> getAllTvsFrom(
+std::unordered_set<TensorView*> getAllTvsFrom(
     const std::vector<TensorView*>& from_tvs,
     const std::unordered_set<TensorView*>& cutoff_tv_set);
 
 //! Get the persistent buffer size of a tensor
-int64_t getPersistentBufferSizeOfTensor(
+int64_t getPersistentBufferSizeBitOfTensor(
     const TensorView* buffer,
     SchedulerRuntimeInfo& runtime_info,
     const PersistentBufferInfo& persistent_buffer_info);
 
-//! The required shared memory size for a block inclues two parts: (1) smem
-//! for persistent buffers and (2) overhead. The overhead includes space
-//! reserved by the CUDA driver and reduction workspace which depends on the
+//! The required shared memory size for a block includes two parts: (1) smem
+//! for persistent buffers and (2) reduction workspace which depends on the
 //! number of threads per block specified by the parameter threads_per_block.
 //! By default, the function uses the maximum allowed number of threads per
 //! block (threads_per_block = -1) to calculate the overhead. The caller can
 //! specify a different value if they are sure about the max value used at
 //! runtime.
-int64_t getSharedMemoryOverheadPerBlock(
+int64_t getReductionSmemWorkspaceBit(
     Fusion* fusion,
     const std::vector<TensorView*>& reduction_tvs,
     int64_t threads_per_block = -1);
@@ -729,5 +792,75 @@ void moveNonConcretizedBroadcastInnermost(
     Fusion* fusion,
     const std::unordered_set<TensorView*>& ignored_tvs = {});
 
+// Returns a factor represents the computation cost of the given fusion.
+// Estimated using the number of MUFU operations, each weighted with a
+// predefined factor.
+int64_t getComputationCostFactor(Fusion* fusion);
+
+// Returns the required bits in flight to saturate the memory bandwidth.
+int64_t getRequiredBitsInFlight();
+
+// Returns true if the device has a high bandwidth to compute raito.
+bool isHighBandwidthFlopsRatio();
+
+// Return true if the fusion has computation requires Floating-Point
+// Multi-Function (MUFU) units, e.g. cos, sin, exponent, logarithm, sine,
+// cosine, square root, hyperbolic tangent. Currently, we only tested tanh, exp,
+// and Reciprocal. Note that, if compiled with fast math (not supported yet) or
+// directly lowered with inlined ptx, needs to revise the inner reduction
+// heuristics which uses this function to set the optimal unroll factor.
+bool hasExpensiveMUFUops(Fusion* fusion);
+// Reorder DID parallelized axes to outermost positions. Returns
+// the position of the outermost non-DID axis.
+int64_t reorderDevicesToOuter(TensorView* tv);
+
+// Returns number of non-reduction/non-broadcas/non-device dims in logical
+// domain
+inline int64_t nLogicalDims(const TensorView* tv) {
+  auto logical_dom = tv->getLogicalDomain();
+  int64_t tv_n_dims = 0;
+  for (auto dim : logical_dom) {
+    if (!dim->isReduction() && !dim->isBroadcast() && !dim->isDeviceDim()) {
+      tv_n_dims++;
+    }
+  }
+  return tv_n_dims;
+}
+
+// Get a permutation vector to reorder a given domain to align with a
+// given list of reference IDs. Non-matching loop IDs are placed outermost
+// positions.
+std::vector<int64_t> reorderDomainLike(
+    const std::vector<IterDomain*>& domain,
+    const std::vector<IterDomain*>& ref);
+
+// If buffer_tv's definition is an upcast and the input to the cast is not a
+// fusion input, return input to the cast. Otherwise, return nullptr. Used to
+// recompute buffer_tv from its producer to save register/smem usage. Fusion
+// input is skipped as it is handled by project to inputs.
+TensorView* getUpCastInputOf(const TensorView* buffer_tv);
+
+//! Given an input TV, try and schedule trivial ops as global to global ops that
+//! will be skipped at lowering by modifying their allocation domains and memory
+//! types. Returns the last resulting global consumer of the given TV: its
+//! definition and those of all its producers will be skipped during lowering
+//! with the tensor producer alias mechanism.
+//! See device_lower/analysis/tensor_producer_aliases.h
+TensorView* scheduleInputToSkipIntermediates(TensorView* tv);
+
+// Returns true if any of the domains of the tensor is symbolic
+bool isSymbolicTensor(const TensorView* tv);
+
+// Builds the allocation domain of `tv` by reusing existing IDs from the loop
+// domain. This avoids creating duplicate IDs when the loop domain already
+// contains the transformed IDs we need. It ensures we can allocate the tensor
+// based on its allocation domains and also verify that the allocated Ids are
+// consistent with the compute at position.
+void buildAllocationDomainFromLoopIds(TensorView* tv);
+
+// For shared memory tensor, replay loop domain transformations to allocation
+// domain
+void buildAllocationDomainForSharedMemoryTvs(Fusion* fusion);
 } // namespace scheduler_utils
+
 } // namespace nvfuser

@@ -7,12 +7,12 @@
 // clang-format on
 #include <runtime/fusion_cache_utils.h>
 
+#include <unordered_set>
+
 #include <fusion_segmenter.h>
 #include <ir/all_nodes.h>
 #include <polymorphic_value.h>
 #include <runtime/executor_kernel_arg.h>
-
-#include <unordered_set>
 
 namespace nvfuser {
 
@@ -23,7 +23,7 @@ namespace {
 template <typename T>
 void encodeBuffer(T value, std::string& buffer) {
   const char* v = reinterpret_cast<char*>(&value);
-  for (const auto i : c10::irange(sizeof(T))) {
+  for (const auto i : arange(sizeof(T))) {
     (void)i; // Suppress unused variable warning
     buffer.push_back(*(v++));
   }
@@ -31,105 +31,80 @@ void encodeBuffer(T value, std::string& buffer) {
 } // namespace
 
 ArgumentManager::ArgumentManager(
-    KernelArgumentHolder& args,
+    const KernelArgumentHolder& args,
     const RuntimeWorkSpace& runtime_workspace,
-    const std::vector<Val*>& fusion_inputs)
-    : fusion_args_(args) {
+    const std::vector<Val*>& fusion_inputs) {
   // map from val to args
   mapFusionInputsToArgs(
-      fusion_inputs, runtime_workspace.group_extent_binding_order);
+      fusion_inputs, args, runtime_workspace.group_extent_binding_order);
   setLastUsedSegmentID(runtime_workspace.group_run_order);
 }
 
-const std::unordered_map<Val*, const PolymorphicValue*>& ArgumentManager::
-    getTensorMap() {
-  return tensor_map_;
-}
-const PolymorphicValue* ArgumentManager::checkTensorMap(Val* v) {
+const PolymorphicValue& ArgumentManager::checkTensorMap(Val* v) const {
   return tensor_map_.at(v);
 }
 
-template <typename T>
-void ArgumentManager::addOutputsToArgsAndTensorMap(
+KernelArgumentHolder ArgumentManager::translateValsToArgs(
+    const std::vector<Val*>& vals) const {
+  std::vector<PolymorphicValue> arg_values;
+  arg_values.reserve(vals.size());
+
+  for (auto val : vals) {
+    auto it = tensor_map_.find(val);
+    NVF_ERROR(
+        it != tensor_map_.end(),
+        "Could not find value ",
+        val->toString(),
+        " in tensor map");
+    arg_values.push_back(it->second);
+  }
+
+  KernelArgumentHolder holder;
+  for (auto arg : arg_values) {
+    holder.push(std::move(arg));
+  }
+  return holder;
+}
+
+void ArgumentManager::updateWithSegmentOutputs(
     const std::vector<Val*>& group_outputs,
-    const T& group_runtime_outputs) {
+    const KernelArgumentHolder& group_runtime_outputs,
+    const int64_t group_id) {
   // Insert graph segment output to tensor map
-  NVF_ERROR(
-      group_outputs.size() == group_runtime_outputs.size(),
+  NVF_ERROR_EQ(
+      std::ssize(group_outputs),
+      group_runtime_outputs.size(),
       "Output size does not match.");
+  for (const size_t group_out_i : arange(group_outputs.size())) {
+    tensor_map_.emplace(
+        group_outputs[group_out_i], group_runtime_outputs[group_out_i]);
+  }
 
-  for (const size_t group_out_i : c10::irange(group_outputs.size())) {
-    Val* output = group_outputs[group_out_i];
-    const PolymorphicValue*& runtime_output = tensor_map_[output];
-    if (runtime_output != nullptr) {
-      // A trivial forwarding output or a dupliated output shares the same
-      // `Val*` as another fusion input/output. In those cases, we keep
-      // mapping it to the same runtime output.
-      continue;
+  // Delete args corresponding to vals lastly used in this segment
+  if (group_id >= 1 && vals_last_used_at_segment_.count(group_id)) {
+    for (auto val : vals_last_used_at_segment_[group_id]) {
+      tensor_map_.erase(val);
     }
-
-    if constexpr (std::is_pointer_v<
-                      decltype(group_runtime_outputs[group_out_i])>) {
-      fusion_args_.push(*group_runtime_outputs[group_out_i]);
-    } else {
-      fusion_args_.push(group_runtime_outputs[group_out_i]);
-    }
-    runtime_output = fusion_args_.back();
   }
 }
 
-template <typename T>
-void ArgumentManager::updateWithSegmentOutputs(
-    const std::vector<Val*>& group_outputs,
-    const T& group_runtime_outputs,
-    const int64_t group_id) {
-  addOutputsToArgsAndTensorMap(group_outputs, group_runtime_outputs);
-  deleteUnusedArgs(group_id);
-}
-
-template void ArgumentManager::addOutputsToArgsAndTensorMap<
-    std::vector<at::Tensor>>(
-    const std::vector<Val*>& group_outputs,
-    const std::vector<at::Tensor>& group_runtime_outputs);
-
-template void ArgumentManager::updateWithSegmentOutputs<
-    std::vector<at::Tensor>>(
-    const std::vector<Val*>&,
-    const std::vector<at::Tensor>&,
-    const int64_t);
-
-template void ArgumentManager::addOutputsToArgsAndTensorMap<
-    KernelArgumentHolder>(
-    const std::vector<Val*>& group_outputs,
-    const KernelArgumentHolder& group_runtime_outputs);
-
-template void ArgumentManager::updateWithSegmentOutputs<KernelArgumentHolder>(
-    const std::vector<Val*>&,
-    const KernelArgumentHolder&,
-    const int64_t);
-
 void ArgumentManager::mapFusionInputsToArgs(
     const std::vector<Val*>& fusion_inputs,
+    const KernelArgumentHolder& args,
     const std::vector<Val*>& group_extent_binding_order) {
   int extent_index = 0;
-  auto original_args_size = fusion_args_.size();
+  auto original_args_size = args.size();
   // Bind args in the tensor_map
-  for (const auto i : c10::irange(original_args_size)) {
-    tensor_map_.emplace(fusion_inputs[i], fusion_args_[i]);
+  for (const auto i : arange(original_args_size)) {
+    tensor_map_.emplace(fusion_inputs[i], args[i]);
     // Bind tensorview inputs values in case some segmented group
     //  needs it down the road.
-    // TODO: we probably have done this already up to this point
-    //      should consider caching the expression evaluators, both
-    //      more convenient and safer than replication
-    if (fusion_args_[i]->is<at::Tensor>()) {
-      // Note this is very ugly way. We are pushing every single extent to
-      // args, because we don't have a better place to hold them.
-      auto rank = fusion_args_[i]->as<at::Tensor>().dim();
-      for (const auto dim : c10::irange(rank)) {
-        fusion_args_.push(
-            PolymorphicValue(fusion_args_[i]->as<at::Tensor>().size(dim)));
+    if (args[i].is<at::Tensor>()) {
+      auto rank = args[i].as<at::Tensor>().dim();
+      for (const auto dim : arange(rank)) {
         tensor_map_.emplace(
-            group_extent_binding_order[extent_index++], fusion_args_.back());
+            group_extent_binding_order[extent_index++],
+            args[i].as<at::Tensor>().size(dim));
       }
     }
   }
@@ -145,7 +120,7 @@ void ArgumentManager::setLastUsedSegmentID(
     // start from the 2nd group, since the input of the first group is always
     // the global input and its outputs are always used by at least one of the
     // following groups
-    for (auto run_order_id : c10::irange(1l, num_groups)) {
+    for (auto run_order_id : arange(1l, num_groups)) {
       auto group_to_run = group_run_order.at(run_order_id);
       // set/update life of vals in inputs of this group
       for (auto val : group_to_run->inputs()) {
@@ -172,76 +147,6 @@ void ArgumentManager::setLastUsedSegmentID(
     for (auto item : last_used_segment_map) {
       vals_last_used_at_segment_[item.second].push_back(item.first);
     }
-  }
-}
-
-void ArgumentManager::deleteUnusedArgs(int64_t run_order_id) {
-  // erase args corresponding to vals lastly used in this segment
-  if (run_order_id >= 1 && vals_last_used_at_segment_.count(run_order_id)) {
-    for (auto val : vals_last_used_at_segment_[run_order_id]) {
-      fusion_args_.erase(tensor_map_.at(val));
-      tensor_map_.erase(val);
-    }
-  }
-}
-
-void prepareRuntimeOrder(
-    SegmentedFusion* segmented_fusion,
-    RuntimeWorkSpace& runtime_workspace) {
-  // Setup group run order:
-  std::unordered_set<Val*> available_input;
-
-  // setup the order tensor dimensions are bound
-  for (const size_t i : c10::irange(segmented_fusion->inputs().size())) {
-    auto input_val = segmented_fusion->inputs()[i];
-    available_input.insert(input_val);
-
-    if (auto input_tv = dynamic_cast<TensorView*>(input_val)) {
-      auto logical_dom =
-          TensorDomain::noReductions(input_tv->getLogicalDomain());
-      for (const size_t dim : c10::irange(logical_dom.size())) {
-        const auto extent = logical_dom[dim]->getMaybeExpandedExtent();
-        available_input.insert(extent);
-        runtime_workspace.group_extent_binding_order.push_back(extent);
-      }
-    }
-  }
-
-  // Keep track of groups that has run
-  std::vector<bool> group_ran(segmented_fusion->groups().size(), false);
-
-  while (!std::all_of(
-      group_ran.begin(), group_ran.end(), [](bool b) { return b; })) {
-    bool one_ran = false;
-
-    // Find the first segment with all inputs available to run
-    for (const size_t group_i :
-         c10::irange(segmented_fusion->groups().size())) {
-      auto& group = segmented_fusion->groups()[group_i];
-      if (group_ran[group_i]) {
-        continue;
-      }
-      const auto& group_inputs = group->inputs();
-      bool ready_to_run = std::all_of(
-          group_inputs.begin(),
-          group_inputs.end(),
-          [&available_input](Val* val) { return available_input.count(val); });
-
-      if (ready_to_run) {
-        runtime_workspace.group_run_order.push_back(group);
-        const auto& group_outputs = group->outputs();
-
-        // Insert graph segment output to tensor map
-        for (const size_t group_out_i : c10::irange(group_outputs.size())) {
-          available_input.insert(group_outputs[group_out_i]);
-        }
-        group_ran[group_i] = true;
-        one_ran = true;
-      }
-    }
-    NVF_ERROR(
-        one_ran,
-        "Couldn't run all groups, something must have gone wrong in segmentation.");
   }
 }
 
@@ -294,7 +199,7 @@ void InputsIdLookup::deserialize(const serde::InputsIdLookup* buffer) {
     used_entry_iterators.emplace_back(std::prev(used_entry_.end()));
   }
 
-  for (auto idx : c10::irange(buffer->encoding_lookup_keys()->size())) {
+  for (auto idx : arange(buffer->encoding_lookup_keys()->size())) {
     auto fb_encoding_lookup_str = buffer->encoding_lookup_keys()->Get(idx);
     auto fb_encoding_entry = buffer->encoding_lookup_values()->Get(idx);
 
@@ -306,19 +211,19 @@ void InputsIdLookup::deserialize(const serde::InputsIdLookup* buffer) {
 }
 
 InputsIdLookup::IdLookupReturn InputsIdLookup::lookupId(
-    const at::ArrayRef<c10::IValue>& inputs,
-    const std::unordered_set<size_t>& scalar_inputs_to_record,
-    int8_t device) {
+    const KernelArgumentHolder& args,
+    const std::unordered_set<size_t>& scalar_inputs_to_record) {
   IdLookupReturn ret;
 
   // lock mutex_ because we are touching encoding_
   std::lock_guard<std::mutex> guard(mutex_);
   encoding_.clear();
-  encodeBuffer(device, encoding_);
-  for (const auto i : c10::irange(inputs.size())) {
-    auto input = inputs[i];
-    if (input.isTensor()) {
-      auto& input_tensor = input.toTensor();
+  encodeBuffer(args.getDeviceIndex(), encoding_);
+
+  for (const auto i : arange(args.size())) {
+    const auto& arg = args[i];
+    if (arg.is<at::Tensor>()) {
+      const auto& input_tensor = arg.as<at::Tensor>();
 
       for (auto size : input_tensor.sizes()) {
         encodeBuffer(size, encoding_);
@@ -332,10 +237,9 @@ InputsIdLookup::IdLookupReturn InputsIdLookup::lookupId(
       }
       encoding_.push_back('a');
       encodeBuffer(
-          SchedulerRuntimeInfo::computeAlignmentSize(
+          SchedulerRuntimeInfo::computeAlignmentSizeBit(
               (size_t)input_tensor.data_ptr()),
           encoding_);
-      // NOTE: device is set for the whole set of inputs first using device arg
     } else {
       // encode s for scalar;
       encoding_.push_back('s');
@@ -345,18 +249,18 @@ InputsIdLookup::IdLookupReturn InputsIdLookup::lookupId(
         // Note that although most commonly these will be Int or Bool scalars,
         // any DataType might appear via `cast` and `where`, so we handle all
         // cases here.
-        if (input.isInt()) {
-          encodeBuffer(input.toInt(), encoding_);
-        } else if (input.isBool()) {
-          encodeBuffer(input.toBool(), encoding_);
-        } else if (input.isDouble()) {
-          encodeBuffer(input.toDouble(), encoding_);
-        } else if (input.isComplexDouble()) {
-          encodeBuffer(input.toComplexDouble(), encoding_);
+        if (arg.is<int64_t>()) {
+          encodeBuffer(arg.as<int64_t>(), encoding_);
+        } else if (arg.is<bool>()) {
+          encodeBuffer(arg.as<bool>(), encoding_);
+        } else if (arg.is<double>()) {
+          encodeBuffer(arg.as<double>(), encoding_);
+        } else if (arg.is<std::complex<double>>()) {
+          encodeBuffer(arg.as<std::complex<double>>(), encoding_);
         } else {
           NVF_THROW(
               "Unhandled input type when creating input ID. Cannot record ",
-              input);
+              PolymorphicValue_functions::toString(arg));
         }
       }
     }

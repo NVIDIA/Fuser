@@ -36,7 +36,6 @@
 
 namespace nvfuser {
 
-class WelfordResult;
 class ViewTransform;
 
 class IrCloner;
@@ -113,7 +112,7 @@ class TVDomainGuard;
 
 //
 //                 /load 0;\                 \.
-//                / load 1; [prefetch = 3]    | [prologue]
+//                / load 1; [prefetch = 3]    | [prefetching]
 //          [stage] load 2;/                 /'
 //          [ = 6 ] load 3;  wait load 0;  compute 0;                  \.
 //                \ load 4;  wait load 1;  compute 1;                   |
@@ -123,7 +122,7 @@ class TVDomainGuard;
 //                  load 2;  wait load 5;  compute 5;  wait compute 3;  |
 //                  load 3;  wait load 0;  compute 0;  wait compute 4;  |
 //                  load 4;  wait load 1;  compute 1;  wait compute 5;  | [main]
-//                  load 5;  wait load 2;  compute 2;  wait compute 0;  | [loop]
+//                  load 5;  wait load 2;  compute 2;  wait compute 0;  |
 //                  ..................................................  |
 //                  ..................................................  |
 //                  ..................................................  |
@@ -132,7 +131,7 @@ class TVDomainGuard;
 //                  load  ;  wait load  ;  compute  ;  wait compute  ;  |
 //                  load  ;  wait load  ;  compute  ;                  /'
 //                          /wait load  ;  compute  ;                      \.
-// [same number as prefetch] wait load  ;  compute  ;                       | [epilogue]
+// [same number as prefetch] wait load  ;  compute  ;                       | [draining]
 //                          \wait load  ;  compute  ;  wait all computes;  /'
 
 // clang-format on
@@ -142,19 +141,37 @@ class TVDomainGuard;
 // load pipeline depth = prefetch + 1
 // compute pipeline depth = stage - prefetch
 //
-// The above timeline can be implemented as the following loop structure:
+// There are two ways to implement the above timeline: pipelined, and
+// warp-specialization.
+//
+// In the pipelined way, the prefetching stage is implemented as a prologue
+// loop, and main stage is implemented as a main loop, and the draining stage is
+// implemented as an epilogue loop. That is, we will have the following loop
+// structure:
 //
 // Prologue loop:
 //   for i in range(prefetch):
 //     load data[i] to buffer[i]
 //
-// Main loop:
+// Main loop (using syncthreads to avoid WAR harzard):
 //   for i in range(data.size - prefetch):
 //     load data[i + prefetch] to buffer[(i + prefetch) % stage]
-//     wait buffer[i % stage] to be ready
+//     wait buffer[i % stage] to be loaded
 //     compute buffer[i % stage]
 //     wait until the first compute in the queue is done
 //       (i.e. stage - prefetch - 1 in flight computes remaining)
+//     __syncthreads();
+//
+// Main loop (using mbarrier to avoid WAR harzard):
+//   for i in range(data.size - prefetch):
+//     wait buffer[(i + prefetch) % stage] to be empty
+//     load data[i + prefetch] to buffer[(i + prefetch) % stage]
+//     wait buffer[i % stage] to be loaded
+//     compute buffer[i % stage]
+//     wait until the first compute in the queue is done
+//       (i.e. stage - prefetch - 1 in flight computes remaining)
+//     signal that buffer (i + prefetch + 1) % stage is empty and ready to be
+//       loaded again
 //
 // Epilogue loop:
 //   for i in range(data.size - prefetch, data.size):
@@ -166,8 +183,150 @@ class TVDomainGuard;
 // stage - prefetch - 1 iterations and last iteration of the main loop is
 // redundant. We can remove them to further optimize the performance, but
 // we decide to keep them for simplicity.
+//
+// In the warp-specialized approach, we will use different warp/warp-group
+// for loading and computing. We will generate code like below (assuming warp
+// specialized on TIDy):
+//
+//   if (threadIdx.y == blockDim.y - 1) {
+//     // If we use warp specialization on TIDy, then the blockDim.y of the
+//     // kernel will be (whatever_value_inferred_from_schedule + 1), and the
+//     // last threadIdx.y will be used as async warp
+//     for i in range(data.size):
+//       wait buffer[i % stage] to be empty
+//       load data[i] to buffer[i % stage]
+//   } else {
+//     // Every threadIdx.y other than the last will be used for compute
+//     for i in range(prefetch + 1):
+//       signal that buffer i % stage is empty and ready to load
+//     for i in range(data.size):
+//       wait buffer[i % stage] to be loaded
+//       compute buffer[i % stage]
+//       wait until the first compute in the queue is done
+//         (i.e. stage - prefetch - 1 in flight computes remaining)
+//       signal that buffer (i + prefetch + 1) % stage is empty and ready to be
+//         loaded again
+//   }
+
+struct Pipelined {
+  bool uses_mbarrier_for_war = false;
+  explicit Pipelined(bool uses_mbarrier_for_war)
+      : uses_mbarrier_for_war(uses_mbarrier_for_war) {}
+  Pipelined() = default;
+  bool operator==(const Pipelined& other) const {
+    return uses_mbarrier_for_war == other.uses_mbarrier_for_war;
+  }
+};
+
+inline std::ostream& operator<<(std::ostream& os, const Pipelined& pipelined) {
+  if (pipelined.uses_mbarrier_for_war) {
+    return os << "PipelinedMBarrierForWAR";
+  }
+  return os << "Pipelined";
+}
+
+struct WarpSpecialized {
+  ParallelType on = ParallelType::Serial;
+  // The number of registers for load and compute warps respectively.
+  std::optional<std::pair<int64_t, int64_t>> num_registers = std::nullopt;
+  // The iterDomain position to define the shape of the circular buffer stage.
+  std::optional<int64_t> stage_slice_position = std::nullopt;
+
+  explicit WarpSpecialized(
+      ParallelType on,
+      std::pair<int64_t, int64_t> num_registers,
+      int64_t stage_slice_position)
+      : on(on),
+        num_registers(num_registers),
+        stage_slice_position(stage_slice_position) {
+    validateRegisterSharing();
+  }
+  explicit WarpSpecialized(ParallelType on, int64_t stage_slice_position)
+      : on(on), stage_slice_position(stage_slice_position) {}
+  explicit WarpSpecialized(
+      ParallelType on,
+      std::pair<int64_t, int64_t> num_registers)
+      : on(on), num_registers(num_registers) {
+    validateRegisterSharing();
+  }
+  explicit WarpSpecialized(ParallelType on)
+      : on(on), num_registers(std::nullopt) {}
+  WarpSpecialized() = default;
+
+  void validateRegisterSharing() {
+    // short-circuit: register sharing is not used.
+    if (!num_registers.has_value()) {
+      return;
+    }
+    auto validate_num_registers = [](int64_t a) {
+      NVF_ERROR(
+          a >= 24 && a <= 256 && a % 8 == 0,
+          "The number of registers for setmaxnreg must be between 24 and",
+          " 256 (inclusive) and be a multiple of 8.");
+    };
+    validate_num_registers(num_registers.value().first);
+    validate_num_registers(num_registers.value().second);
+    NVF_ERROR(
+        num_registers.value().first <= num_registers.value().second,
+        "The number of registers for async warp group must be <= to the number",
+        " of registers for the compute warp groups.");
+  }
+
+  bool operator==(const WarpSpecialized& other) const {
+    return on == other.on && num_registers == other.num_registers &&
+        stage_slice_position == other.stage_slice_position;
+  }
+};
+
+inline std::ostream& operator<<(
+    std::ostream& os,
+    const WarpSpecialized& warp_specialized) {
+  std::string parallel_type_str = "";
+  switch (warp_specialized.on) {
+    case ParallelType::TIDx:
+      parallel_type_str = "TIDx";
+      break;
+    case ParallelType::TIDy:
+      parallel_type_str = "TIDy";
+      break;
+    case ParallelType::TIDz:
+      parallel_type_str = "TIDz";
+      break;
+    default:
+      NVF_THROW("Invalid parallel type");
+  }
+  std::string num_registers = "RegisterSharing_None";
+  if (warp_specialized.num_registers.has_value()) {
+    auto&& [decrease_num_reg, increase_num_reg] =
+        warp_specialized.num_registers.value();
+    std::stringstream s;
+    s << "RegisterSharing_" << decrease_num_reg << "_" << increase_num_reg;
+    num_registers = s.str();
+  }
+  std::string slice_position = "StageSlicePosition_None";
+  if (warp_specialized.stage_slice_position.has_value()) {
+    std::stringstream s;
+    s << "StageSlicePosition_" << warp_specialized.stage_slice_position.value();
+    slice_position = s.str();
+  }
+  return os << "WarpSpecializedOn" << parallel_type_str << num_registers
+            << slice_position;
+}
+
+using CircularBufferType = std::variant<Pipelined, WarpSpecialized>;
+
+inline std::ostream& operator<<(
+    std::ostream& os,
+    const CircularBufferType& type) {
+  return std::visit(
+      [&os](const auto& t) -> std::ostream& { return os << t; }, type);
+}
 
 struct CircularBufferOptions {
+  CircularBufferType type =
+      Pipelined(false); // Type of circular buffer. Currently supports:
+                        // - pipelined using syncthreads for WAR hazards
+                        // - pipelined using mbarrier for WAR hazards.
   int64_t stage = 0; // Size of the circular buffer (number of buffers)
   int64_t prefetch = 0; // Number of iterations ahead of the compute to
                         // prefetch, can only be < stage.
@@ -175,7 +334,27 @@ struct CircularBufferOptions {
   bool isEnable() const {
     return stage > 1;
   }
+
+  bool usesMBarrierForWAR() const {
+    return (std::holds_alternative<Pipelined>(type) &&
+            std::get<Pipelined>(type).uses_mbarrier_for_war) ||
+        std::holds_alternative<WarpSpecialized>(type);
+    return false;
+  }
+
+  bool operator==(const CircularBufferOptions& other) const {
+    return type == other.type && stage == other.stage &&
+        prefetch == other.prefetch;
+  }
 };
+
+inline std::ostream& operator<<(
+    std::ostream& os,
+    const CircularBufferOptions& options) {
+  return os << "CircularBufferOptions{ stage=" << options.stage
+            << ", prefetch=" << options.prefetch << ", type=" << options.type
+            << " }";
+}
 
 //! TensorView is our primitive Tensor Type used in code generation. It can be
 //! thought of as representing physical memory, however, its dimensionality is
@@ -294,6 +473,11 @@ class NVF_API TensorView : public Val {
     return domain()->loop();
   };
 
+  const std::optional<std::vector<IterDomain*>>& getAlternateLoopDomain()
+      const {
+    return domain()->alternateLoop();
+  };
+
   const std::vector<IterDomain*>& getInitialLoopDomain() const {
     return domain()->initialLoop();
   };
@@ -306,6 +490,10 @@ class NVF_API TensorView : public Val {
 
   void setLoopDomain(std::vector<IterDomain*> new_loop_domain) {
     domain()->setLoopDomain(std::move(new_loop_domain));
+  }
+
+  void setAlternateLoopDomain(std::vector<IterDomain*> new_loop_domain) {
+    domain()->setAlternateLoopDomain(std::move(new_loop_domain));
   }
 
   void setAllocationDomain(
@@ -334,7 +522,7 @@ class NVF_API TensorView : public Val {
   }
 
   int64_t nDims() const {
-    return (int64_t)domain()->nDims();
+    return domain()->nDims();
   }
 
   // sets cpu_scalar_ value, which is special handling for CPU based zero-dim
@@ -410,6 +598,16 @@ class NVF_API TensorView : public Val {
   // input, or using a parallel dim from NamedScalar::getParallelDim
   TensorView* split(int64_t axis, Val* factor, bool inner_split = true);
 
+  template <typename FactorType>
+  TensorView* inner_split(int64_t axis, FactorType factor) {
+    return split(axis, factor, /*inner_split=*/true);
+  }
+
+  template <typename FactorType>
+  TensorView* outer_split(int64_t axis, FactorType factor) {
+    return split(axis, factor, /*inner_split=*/false);
+  }
+
   // Merge axis_o and axis_i into 1 IterDomain
   TensorView* merge(int64_t axis_o, int64_t axis_i);
 
@@ -441,6 +639,15 @@ class NVF_API TensorView : public Val {
       int64_t x,
       int64_t y,
       SwizzleMode swizzle_mode = SwizzleMode::Data);
+
+  //! Resize an IterDomain by expanding both the left and right sides
+  //! by given widths. The resulting IterDomain has an extent of
+  //! (left_expansion + axis->extent() + right_expansion).
+  TensorView* resize(
+      int64_t axis,
+      Val* left_expansion,
+      Val* right_expansion,
+      std::optional<IterType> iter_type = std::nullopt);
 
   // WARNING: rFactor does not return this TensorView, ir returns a new
   //  tensorview consumed by this!
@@ -482,10 +689,16 @@ class NVF_API TensorView : public Val {
   //!
   //! @param op_type: memory operator to use for the inserted op between
   //!   the the data tensor and the cache tensor
+  //! @param cache_op: cache operator, see enum class CacheOp
+  //! @param propagate_allocation_domain: replay allocation domain on cached
+  //! load
+  //! @param cached_uses: if empty, cache all uses; otherwise, only try to cache
+  //! uses in cached_uses.
   TensorView* cacheAfter(
       LoadStoreOpType op_type = LoadStoreOpType::Set,
       CacheOp cache_op = CacheOp::Unspecified,
-      bool propagate_allocation_domain = true);
+      bool propagate_allocation_domain = true,
+      std::vector<Expr*> cached_uses = {});
 
   // For a fusion output with other uses, we want to avoid writing to global
   // memory and then reading the output again. We write to global memory
@@ -501,21 +714,18 @@ class NVF_API TensorView : public Val {
 
   // Apply circular buffering transformation. Negative prefetch_distance
   // means "all but", for example, -1 means number_of_stages - 1.
-  void circularBuffer(int64_t number_of_stages, int64_t prefetch_distance = -1);
+  void circularBuffer(
+      int64_t number_of_stages,
+      int64_t prefetch_distance = -1,
+      CircularBufferType type = Pipelined(false));
 
   // Returns true if this tensor is circular buffered.
   bool isCircularBuffered() const {
     return circular_buffer_options_.isEnable();
   }
 
-  // Returns the depth of circular buffering if applicable.
-  int64_t circularBufferDepth() const {
-    return circular_buffer_options_.stage;
-  }
-
-  // Returns the prefetch of circular buffering if applicable.
-  int64_t circularBufferPrefetchDistance() const {
-    return circular_buffer_options_.prefetch;
+  const CircularBufferOptions& circularBufferOptions() const {
+    return circular_buffer_options_;
   }
 
   //! Transforms the innermost iterdomains according to the given mma swizzle,
@@ -623,7 +833,7 @@ class NVF_API TensorView : public Val {
   // Update the max producer position of the current tensor. This is required
   // when we modify producer-consumer relationship of a scheduled tensor, for
   // example, grouping multiple reductions.
-  void updateMaxProducerPosition();
+  void updateMaxProducerPosition(MaxPosCalculator* calc = nullptr);
 
   // Commit the current changes in loop domain into rFactor domain. This
   // function can be used to do implicit transpose and view, but today, only
@@ -665,6 +875,15 @@ class NVF_API TensorView : public Val {
   bool hasDeviceMesh() const {
     return !mesh_.vector().empty();
   }
+
+  // Get/set the "Tensor Memory Dimension Separator Position"
+  // This is an allocation domain position for tensors with MemoryType::Tensor
+  // that separates the row and column of tensor memory.
+  // See doc/dev/tmem.md for more details.
+  int64_t getTMemDimSepPos() const {
+    return tmem_dim_sep_pos_;
+  }
+  void setTMemDimSepPos(int64_t pos);
 
  protected:
   void setDomain(TensorDomain* td) {
@@ -733,6 +952,12 @@ class NVF_API TensorView : public Val {
 
   // Device Mesh on which the Tensor is sharded
   DeviceMesh mesh_;
+
+  // The "Tensor Memory Dimension Separator Position"
+  // This is an allocation domain position for tensors with MemoryType::Tensor
+  // that separates the row and column of tensor memory.
+  // See doc/dev/tmem.md for more details.
+  int64_t tmem_dim_sep_pos_ = 0;
 };
 
 //! A simple TensorView builder

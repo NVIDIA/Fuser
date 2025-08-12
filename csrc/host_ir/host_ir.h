@@ -11,39 +11,35 @@
 #include <ir/base_nodes.h>
 #include <ir/builder.h>
 #include <multidevice/communication.h>
+#include <scheduler/heuristic.h>
 #include <atomic>
 
 namespace nvfuser {
 
+// Host Irs are used to represent a host program. They need to be registered in
+// a HostIrContainer. Each Ir represents a Host data or instruction.
 namespace hir {
 
-/*
-  Host Irs are used to represent a host program. They need to be registered in a
-  HostIrContainer. Each Ir represents a Host data or instruction.
-*/
-
-/*
-  HostUnit represents a Fusion in the Host Program. In other words, it
-  represents a compute graph (or a segment of a larger compute graph)
-  represented by a Fusion that should be compiled and executed as a bulked item
-  from the host perspective.
-
-  This IR can be thought as a thin layer around the class `Fusion`, which
-  furthermore inherits from `Expr` so that it is an "IR" in nvFuser IR
-  semantics.
-
-  This IRs fundamentally allows nested IR structures. It could potentially be
-  useful in other instances than HostIrs.
-
-  Its implementation is minimal, the only specifity being the moethod
-  `fusion_to_execute()` that returns the fusion that the IR represents.
-
-  Note: HostUnit has no I/O itself -- however the Fusion it embbeds has I/O of
-  course, which are not registered in the surrounding HostIrContainer.
-
-  Note: Whether HostUnit should inherit from Expr or Val is debatable. Both are
-  possible, I define it as an Expr for now here but am open to change it.
-*/
+// HostUnit represents a Fusion in the Host Program. In other words, it
+// represents a compute graph (or a segment of a larger compute graph)
+// represented by a Fusion that should be compiled and executed as a bulked
+// item from the host perspective.
+//
+// This IR can be thought as a thin layer around the class `Fusion`, which
+// furthermore inherits from `Expr` so that it is an "IR" in nvFuser IR
+// semantics.
+//
+// This IRs fundamentally allows nested IR structures. It could potentially be
+// useful in other instances than HostIrs.
+//
+// Its implementation is minimal, the only specifity being the moethod
+// `fusion_to_execute()` that returns the fusion that the IR represents.
+//
+// Note: HostUnit has no I/O itself -- however the Fusion it embbeds has I/O of
+// course, which are not registered in the surrounding HostIrContainer.
+//
+// Note: Whether HostUnit should inherit from Expr or Val is debatable. Both
+// are possible, I define it as an Expr for now here but am open to change it.
 class HostUnit : public Expr {
  public:
   using Expr::Expr;
@@ -115,6 +111,73 @@ class PostOnStream : public Expr {
   }
 };
 
+class LaunchKernel : public Expr {
+ public:
+  using Expr::Expr;
+  LaunchKernel(
+      IrBuilderPasskey passkey,
+      int64_t group_id,
+      const LaunchParams& launch_constraints,
+      const CompileParams& compile_params,
+      const std::vector<Val*>& inputs,
+      const std::vector<Val*>& outputs,
+      Val* cache_id);
+
+  LaunchKernel(const LaunchKernel& other) = delete;
+  LaunchKernel& operator=(const LaunchKernel& other) = delete;
+  LaunchKernel(LaunchKernel&& other) = delete;
+  LaunchKernel& operator=(LaunchKernel&& other) = delete;
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+  const char* getOpString() const override {
+    return "hir::LaunchKernel";
+  }
+
+  int64_t groupId() const {
+    return attribute<int64_t>(0);
+  }
+
+  const auto& launchParams() const {
+    return attribute<LaunchParams>(1);
+  }
+
+  const auto& compileParams() const {
+    return attribute<CompileParams>(2);
+  }
+
+  // A NamedScalar that holds the input cache ID. This NamedScalar is expected
+  // to be bound by HostIrEvaluate::runWithInputs. If it's not bound,
+  // KernelExecutor::runFusion will create a KernelArgumentHolder without cache
+  // ID and initializeExecutorEntry every time, slow yet functional.
+  Val* cacheId() const {
+    return attributeVal(3);
+  }
+};
+
+class Deallocate : public Expr {
+ public:
+  using Expr::Expr;
+  Deallocate(IrBuilderPasskey passkey, TensorView* tv);
+
+  Deallocate(const Deallocate& other) = delete;
+  Deallocate& operator=(const Deallocate& other) = delete;
+  Deallocate(Deallocate&& other) = delete;
+  Deallocate& operator=(Deallocate&& other) = delete;
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+  const char* getOpString() const override {
+    return "hir::Deallocate";
+  }
+
+  TensorView* buffer() const;
+};
+
 class Stream : public Val {
  public:
   // if index is provided, the IR represents the streams whose index is the
@@ -161,6 +224,28 @@ class SetCurrentStream : public Expr {
   }
 };
 
+class GetCurrentStream : public Expr {
+ public:
+  using Expr::Expr;
+  GetCurrentStream(IrBuilderPasskey passkey);
+
+  GetCurrentStream(const GetCurrentStream& other) = delete;
+  GetCurrentStream& operator=(const GetCurrentStream& other) = delete;
+  GetCurrentStream(GetCurrentStream&& other) = delete;
+  GetCurrentStream& operator=(GetCurrentStream&& other) = delete;
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  std::string toString(int indent_size = 0) const override;
+  const char* getOpString() const override {
+    return "hir::GetCurrentStream";
+  }
+
+  Stream* stream() const {
+    return attributes_.at(0)->as<Stream>();
+  }
+};
+
 class Wait : public Expr {
  public:
   using Expr::Expr;
@@ -186,6 +271,8 @@ class Wait : public Expr {
   }
 };
 
+// Makes the current stream wait on the given stream. Non-blocking from the host
+// point of view.
 class Synchronize : public Expr {
  public:
   using Expr::Expr;
@@ -259,6 +346,74 @@ class EndCoalescing : public Expr {
   std::string toInlineString(int indent_size = 0) const override;
   const char* getOpString() const override {
     return "hir::EndCoalescing";
+  }
+};
+
+class ShareMemHandles : public Expr {
+ public:
+  using Expr::Expr;
+  ShareMemHandles(
+      IrBuilderPasskey passkey,
+      std::vector<P2PCommunication*> communications);
+
+  ShareMemHandles(const ShareMemHandles& other) = delete;
+  ShareMemHandles& operator=(const ShareMemHandles& other) = delete;
+  ShareMemHandles(ShareMemHandles&& other) = delete;
+  ShareMemHandles& operator=(ShareMemHandles&& other) = delete;
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+  const char* getOpString() const override {
+    return "hir::ShareMemHandles";
+  }
+
+  const std::vector<P2PCommunication*>& communications() const {
+    return attribute<std::vector<P2PCommunication*>>(0);
+  }
+};
+
+// This op mimicks the semantics of SelectOp but is used in HIR non-SSA context
+// to index into a TensorView, returning an alias "slice" of the original
+// TensorView.
+class HirAliasSelect : public Expr {
+ public:
+  using Expr::Expr;
+  HirAliasSelect(
+      IrBuilderPasskey passkey,
+      TensorView* in,
+      TensorView* out,
+      int64_t axis,
+      Val* index);
+
+  HirAliasSelect(const HirAliasSelect& other) = delete;
+  HirAliasSelect& operator=(const HirAliasSelect& other) = delete;
+  HirAliasSelect(HirAliasSelect&& other) = delete;
+  HirAliasSelect& operator=(HirAliasSelect&& other) = delete;
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+  const char* getOpString() const override {
+    return "hir::HirAliasSelect";
+  }
+
+  TensorView* in() const {
+    return inputs().at(0)->as<TensorView>();
+  }
+
+  TensorView* out() const {
+    return attributeVal(0)->as<TensorView>();
+  }
+
+  int64_t axis() const {
+    return attribute<int64_t>(1);
+  }
+
+  Val* index() const {
+    return inputs().at(1);
   }
 };
 

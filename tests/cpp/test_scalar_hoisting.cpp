@@ -213,9 +213,9 @@ TEST_F(ScalarHoistTest, IndexHoist1) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn({15, 17}, options);
 
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, {t0});
-  auto cg_outputs = fe.runFusion({t0});
+  KernelExecutor ke;
+  ke.compile(&fusion, {t0});
+  auto cg_outputs = ke.run({t0});
 
   testValidate(&fusion, cg_outputs, {t0}, __LINE__, __FILE__);
 }
@@ -257,9 +257,9 @@ TEST_F(ScalarHoistTest, IndexHoist2) {
   auto t0 = at::randn({16}, options);
   auto t1 = at::randn({16}, options);
 
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, {t0, t1});
-  auto cg_outputs = fe.runFusion({t0, t1});
+  KernelExecutor ke;
+  ke.compile(&fusion, {t0, t1});
+  auto cg_outputs = ke.run({t0, t1});
 
   testValidate(&fusion, cg_outputs, {t0, t1}, __LINE__, __FILE__);
 }
@@ -290,11 +290,12 @@ TEST_F(ScalarHoistTest, IndexHoist3) {
       at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::arange(10000, options).view({100, 100});
 
-  FusionExecutor fe;
-  fe.compileFusion(fusion.get(), {t0});
-  auto cg_outputs = fe.runFusion({t0});
+  KernelExecutor ke;
+  ke.compile(fusion.get(), {t0});
+  auto cg_outputs = ke.run({t0});
 
   const std::string expected_kernel = R"(
+// Codegen generated code
 __global__ void CUDAGeneratedKernel(Tensor<float, 2, 2> T0, Tensor<float, 2, 2> T2) {
   nvfuser_index_t i0;
   i0 = ((nvfuser_index_t)threadIdx.x) + (256LL * ((nvfuser_index_t)blockIdx.x));
@@ -315,8 +316,8 @@ __global__ void CUDAGeneratedKernel(Tensor<float, 2, 2> T0, Tensor<float, 2, 2> 
   bool b7;
   b7 = i0 < i6;
   float f8;
-  f8 = (float)(i6);
-  float T1[1LL];
+  f8 = __to_float(i6);
+  Array<float, 1LL, 1> T1;
   if (b7) {
     T1[0LL]
        = sinf(T0[i0]);
@@ -369,11 +370,12 @@ TEST_F(ScalarHoistTest, ARange) {
 
   int64_t start = 0, end = 100, step = 1;
 
-  FusionExecutor fe;
-  fe.compileFusion(fusion.get(), {start, end, step});
-  auto cg_outputs = fe.runFusion({start, end, step});
+  KernelExecutor ke;
+  ke.compile(fusion.get(), {start, end, step});
+  auto cg_outputs = ke.run({start, end, step});
 
   const std::string expected_kernel = R"(
+// Codegen generated code
 __global__ void CUDAGeneratedKernel(int64_t i0, int64_t i1, int64_t i2, Tensor<int64_t, 1, 1> T0, Tensor<int64_t, 1, 1> T1) {
   int64_t i3;
   i3 = i1 - i0;
@@ -384,9 +386,9 @@ __global__ void CUDAGeneratedKernel(int64_t i0, int64_t i1, int64_t i2, Tensor<i
   int64_t i6;
   i6 = ceilDiv(i4, i5);
   nvfuser_index_t i7;
-  i7 = (nvfuser_index_t)(i6);
+  i7 = __to_index(i6);
   int64_t i8;
-  i8 = (int64_t)(i7);
+  i8 = __to_int64(i7);
   #pragma unroll 1
   for(nvfuser_index_t i9 = 0LL; i9 < i7; ++i9) {
     T0[i9] = (i0 + (i2 * i9));

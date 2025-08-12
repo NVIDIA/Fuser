@@ -141,3 +141,42 @@ def test_litgpt_variants_gpt_neox_like():
     ]
     # TODO: I wish we have an easy way for validation like in cpp tests.
     fd.execute(inputs)
+
+
+# https://github.com/NVIDIA/Fuser/issues/3369
+# don't need to replace constants in the same Id set
+def test_square_linear():
+    def nvfuser_fusion_id28(fd: FusionDefinition) -> None:
+        T0 = fd.define_tensor(
+            shape=[5, 5],
+            contiguity=[True, True],
+            dtype=DataType.Float,
+            is_cpu=False,
+            stride_order=[1, 0],
+        )
+        T1 = fd.define_tensor(
+            shape=[5, 5],
+            contiguity=[True, True],
+            dtype=DataType.Float,
+            is_cpu=False,
+            stride_order=[1, 0],
+        )
+        T2 = fd.define_tensor(
+            shape=[5],
+            contiguity=[True],
+            dtype=DataType.Float,
+            is_cpu=False,
+            stride_order=[0],
+        )
+        T3 = fd.ops.linear(T0, T1, T2)
+        fd.add_output(T3)
+
+    with FusionDefinition() as fd:
+        nvfuser_fusion_id28(fd)
+
+    inputs = [
+        torch.testing.make_tensor((5, 5), dtype=torch.float32, device="cuda:0"),
+        torch.testing.make_tensor((5, 5), dtype=torch.float32, device="cuda:0"),
+        torch.testing.make_tensor((5,), dtype=torch.float32, device="cuda:0"),
+    ]
+    fd.execute(inputs)

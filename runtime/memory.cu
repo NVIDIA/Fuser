@@ -13,7 +13,8 @@
 //  pointer.
 __device__ inline unsigned toSmem(const void* raw_ptr) {
   unsigned smem_ptr_uint;
-  asm("{ .reg .u64 smem_ptr; cvta.to.shared.u64 smem_ptr, %1; cvt.u32.u64 %0, smem_ptr; }\n"
+  asm("{ .reg .u64 smem_ptr; cvta.to.shared.u64 smem_ptr, %1; cvt.u32.u64 %0, "
+      "smem_ptr; }\n"
       : "=r"(smem_ptr_uint)
       : "l"(raw_ptr));
 
@@ -91,6 +92,43 @@ __device__ inline bool electSync(const uint32_t& membermask) {
 // Tensor map:
 // https://docs.nvidia.com/cuda/cuda-driver-api/group__CUDA__TENSOR__MEMORY.html
 
+// 1D TMA load:
+// https://github.com/NVIDIA/cutlass/blob/main/include/cute/arch/copy_sm90_tma.hpp#L1400
+
+// 1D TMA Load:
+struct CpAsyncBulkG2SIndex {
+  const void* raw_gmem_addr;
+  uint32_t bytes;
+  uint32_t mbarrier;
+};
+__device__ inline void cpAsyncBulkG2S(
+    const CpAsyncBulkG2SIndex& src,
+    uint32_t smem_addr) {
+  asm volatile(
+      "cp.async.bulk.shared::cluster.global.mbarrier::complete_tx::bytes [%0], "
+      "[%1], %2, [%3];\n"
+      :
+      : "r"(smem_addr),
+        "l"(src.raw_gmem_addr),
+        "r"(src.bytes),
+        "r"(src.mbarrier)
+      : "memory");
+}
+
+// 1D TMA Store:
+struct CpAsyncBulkS2GIndex {
+  const void* raw_gmem_addr;
+  uint32_t bytes;
+};
+__device__ inline void cpAsyncBulkS2G(
+    const CpAsyncBulkS2GIndex& dst,
+    uint32_t smem_addr) {
+  asm volatile("cp.async.bulk.global.shared::cta.bulk_group [%0], [%1], %2;\n"
+               :
+               : "l"(dst.raw_gmem_addr), "r"(smem_addr), "r"(dst.bytes)
+               : "memory");
+}
+
 // TMA Loads:
 
 template <int dim>
@@ -105,10 +143,29 @@ __device__ inline void cpAsyncBulkTensorTileG2S(
     uint32_t smem_addr) {
   uint64_t gmem_int_desc = reinterpret_cast<uint64_t>(src.descriptor);
   asm volatile(
-      "cp.async.bulk.tensor.1d.shared::cluster.global.mbarrier::complete_tx::bytes"
+      "cp.async.bulk.tensor.1d.shared::cluster.global.mbarrier::complete_tx::"
+      "bytes"
       " [%0], [%1, {%3}], [%2];"
       :
       : "r"(smem_addr), "l"(gmem_int_desc), "r"(src.mbarrier), "r"(src.crds[0])
+      : "memory");
+}
+
+__device__ inline void cpAsyncBulkTensorTileG2SMulticast(
+    const CpAsyncBulkTensorTileG2SIndex<1>& src,
+    uint32_t smem_addr,
+    uint16_t cta_mask) {
+  uint64_t gmem_int_desc = reinterpret_cast<uint64_t>(src.descriptor);
+  asm volatile(
+      "cp.async.bulk.tensor.1d.shared::cluster.global.mbarrier::complete_tx::"
+      "bytes.multicast::cluster"
+      " [%0], [%1, {%3}], [%2], %4;"
+      :
+      : "r"(smem_addr),
+        "l"(gmem_int_desc),
+        "r"(src.mbarrier),
+        "r"(src.crds[0]),
+        "h"(cta_mask)
       : "memory");
 }
 
@@ -117,7 +174,8 @@ __device__ inline void cpAsyncBulkTensorTileG2S(
     uint32_t smem_addr) {
   uint64_t gmem_int_desc = reinterpret_cast<uint64_t>(src.descriptor);
   asm volatile(
-      "cp.async.bulk.tensor.2d.shared::cluster.global.mbarrier::complete_tx::bytes"
+      "cp.async.bulk.tensor.2d.shared::cluster.global.mbarrier::complete_tx::"
+      "bytes"
       " [%0], [%1, {%3, %4}], [%2];"
       :
       : "r"(smem_addr),
@@ -128,12 +186,32 @@ __device__ inline void cpAsyncBulkTensorTileG2S(
       : "memory");
 }
 
+__device__ inline void cpAsyncBulkTensorTileG2SMulticast(
+    const CpAsyncBulkTensorTileG2SIndex<2>& src,
+    uint32_t smem_addr,
+    uint16_t cta_mask) {
+  uint64_t gmem_int_desc = reinterpret_cast<uint64_t>(src.descriptor);
+  asm volatile(
+      "cp.async.bulk.tensor.2d.shared::cluster.global.mbarrier::complete_tx::"
+      "bytes.multicast::cluster"
+      " [%0], [%1, {%3, %4}], [%2], %5;"
+      :
+      : "r"(smem_addr),
+        "l"(gmem_int_desc),
+        "r"(src.mbarrier),
+        "r"(src.crds[0]),
+        "r"(src.crds[1]),
+        "h"(cta_mask)
+      : "memory");
+}
+
 __device__ inline void cpAsyncBulkTensorTileG2S(
     const CpAsyncBulkTensorTileG2SIndex<3>& src,
     uint32_t smem_addr) {
   uint64_t gmem_int_desc = reinterpret_cast<uint64_t>(src.descriptor);
   asm volatile(
-      "cp.async.bulk.tensor.3d.shared::cluster.global.mbarrier::complete_tx::bytes"
+      "cp.async.bulk.tensor.3d.shared::cluster.global.mbarrier::complete_tx::"
+      "bytes"
       " [%0], [%1, {%3, %4, %5}], [%2];"
       :
       : "r"(smem_addr),
@@ -145,12 +223,33 @@ __device__ inline void cpAsyncBulkTensorTileG2S(
       : "memory");
 }
 
+__device__ inline void cpAsyncBulkTensorTileG2SMulticast(
+    const CpAsyncBulkTensorTileG2SIndex<3>& src,
+    uint32_t smem_addr,
+    uint16_t cta_mask) {
+  uint64_t gmem_int_desc = reinterpret_cast<uint64_t>(src.descriptor);
+  asm volatile(
+      "cp.async.bulk.tensor.3d.shared::cluster.global.mbarrier::complete_tx::"
+      "bytes.multicast_cluster"
+      " [%0], [%1, {%3, %4, %5}], [%2], %6;"
+      :
+      : "r"(smem_addr),
+        "l"(gmem_int_desc),
+        "r"(src.mbarrier),
+        "r"(src.crds[0]),
+        "r"(src.crds[1]),
+        "r"(src.crds[2]),
+        "h"(cta_mask)
+      : "memory");
+}
+
 __device__ inline void cpAsyncBulkTensorTileG2S(
     const CpAsyncBulkTensorTileG2SIndex<4>& src,
     uint32_t smem_addr) {
   uint64_t gmem_int_desc = reinterpret_cast<uint64_t>(src.descriptor);
   asm volatile(
-      "cp.async.bulk.tensor.4d.shared::cluster.global.mbarrier::complete_tx::bytes"
+      "cp.async.bulk.tensor.4d.shared::cluster.global.mbarrier::complete_tx::"
+      "bytes"
       " [%0], [%1, {%3, %4, %5, %6}], [%2];"
       :
       : "r"(smem_addr),
@@ -163,12 +262,34 @@ __device__ inline void cpAsyncBulkTensorTileG2S(
       : "memory");
 }
 
+__device__ inline void cpAsyncBulkTensorTileG2SMulticast(
+    const CpAsyncBulkTensorTileG2SIndex<4>& src,
+    uint32_t smem_addr,
+    uint16_t cta_mask) {
+  uint64_t gmem_int_desc = reinterpret_cast<uint64_t>(src.descriptor);
+  asm volatile(
+      "cp.async.bulk.tensor.4d.shared::cluster.global.mbarrier::complete_tx::"
+      "bytes.multicast_cluster"
+      " [%0], [%1, {%3, %4, %5, %6}], [%2], %7;"
+      :
+      : "r"(smem_addr),
+        "l"(gmem_int_desc),
+        "r"(src.mbarrier),
+        "r"(src.crds[0]),
+        "r"(src.crds[1]),
+        "r"(src.crds[2]),
+        "r"(src.crds[3]),
+        "h"(cta_mask)
+      : "memory");
+}
+
 __device__ inline void cpAsyncBulkTensorTileG2S(
     const CpAsyncBulkTensorTileG2SIndex<5>& src,
     uint32_t smem_addr) {
   uint64_t gmem_int_desc = reinterpret_cast<uint64_t>(src.descriptor);
   asm volatile(
-      "cp.async.bulk.tensor.5d.shared::cluster.global.mbarrier::complete_tx::bytes"
+      "cp.async.bulk.tensor.5d.shared::cluster.global.mbarrier::complete_tx::"
+      "bytes"
       " [%0], [%1, {%3, %4, %5, %6, %7}], [%2];"
       :
       : "r"(smem_addr),
@@ -179,6 +300,28 @@ __device__ inline void cpAsyncBulkTensorTileG2S(
         "r"(src.crds[2]),
         "r"(src.crds[3]),
         "r"(src.crds[4])
+      : "memory");
+}
+
+__device__ inline void cpAsyncBulkTensorTileG2SMulticast(
+    const CpAsyncBulkTensorTileG2SIndex<5>& src,
+    uint32_t smem_addr,
+    uint16_t cta_mask) {
+  uint64_t gmem_int_desc = reinterpret_cast<uint64_t>(src.descriptor);
+  asm volatile(
+      "cp.async.bulk.tensor.5d.shared::cluster.global.mbarrier::complete_tx::"
+      "bytes.multicast_cluster"
+      " [%0], [%1, {%3, %4, %5, %6, %7}], [%2], %8;"
+      :
+      : "r"(smem_addr),
+        "l"(gmem_int_desc),
+        "r"(src.mbarrier),
+        "r"(src.crds[0]),
+        "r"(src.crds[1]),
+        "r"(src.crds[2]),
+        "r"(src.crds[3]),
+        "r"(src.crds[4]),
+        "h"(cta_mask)
       : "memory");
 }
 
@@ -206,7 +349,8 @@ __device__ inline void cpAsyncBulkTensorTileS2G(
     uint32_t smem_addr) {
   uint64_t gmem_int_desc = reinterpret_cast<uint64_t>(dest.descriptor);
   asm volatile(
-      "cp.async.bulk.tensor.2d.global.shared::cta.bulk_group [%0, {%2, %3}], [%1];"
+      "cp.async.bulk.tensor.2d.global.shared::cta.bulk_group [%0, {%2, %3}], "
+      "[%1];"
       :
       : "l"(gmem_int_desc), "r"(smem_addr), "r"(dest.crds[0]), "r"(dest.crds[1])
       : "memory");
@@ -217,7 +361,8 @@ __device__ inline void cpAsyncBulkTensorTileS2G(
     uint32_t smem_addr) {
   uint64_t gmem_int_desc = reinterpret_cast<uint64_t>(dest.descriptor);
   asm volatile(
-      "cp.async.bulk.tensor.3d.global.shared::cta.bulk_group [%0, {%2, %3, %4}], [%1];"
+      "cp.async.bulk.tensor.3d.global.shared::cta.bulk_group [%0, {%2, %3, "
+      "%4}], [%1];"
       :
       : "l"(gmem_int_desc),
         "r"(smem_addr),
@@ -232,7 +377,8 @@ __device__ inline void cpAsyncBulkTensorTileS2G(
     uint32_t smem_addr) {
   uint64_t gmem_int_desc = reinterpret_cast<uint64_t>(dest.descriptor);
   asm volatile(
-      "cp.async.bulk.tensor.4d.global.shared::cta.bulk_group [%0, {%2, %3, %4, %5}], [%1];"
+      "cp.async.bulk.tensor.4d.global.shared::cta.bulk_group [%0, {%2, %3, %4, "
+      "%5}], [%1];"
       :
       : "l"(gmem_int_desc),
         "r"(smem_addr),
@@ -248,7 +394,8 @@ __device__ inline void cpAsyncBulkTensorTileS2G(
     uint32_t smem_addr) {
   uint64_t gmem_int_desc = reinterpret_cast<uint64_t>(dest.descriptor);
   asm volatile(
-      "cp.async.bulk.tensor.5d.global.shared::cta.bulk_group [%0, {%2, %3, %4, %5, %6}], [%1];"
+      "cp.async.bulk.tensor.5d.global.shared::cta.bulk_group [%0, {%2, %3, %4, "
+      "%5, %6}], [%1];"
       :
       : "l"(gmem_int_desc),
         "r"(smem_addr),

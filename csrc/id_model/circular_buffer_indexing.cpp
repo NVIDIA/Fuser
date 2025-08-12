@@ -7,6 +7,7 @@
 // clang-format on
 #include <id_model/circular_buffer_indexing.h>
 #include <id_model/indexing_utils.h>
+#include <ir/utils.h>
 
 namespace nvfuser {
 
@@ -48,7 +49,8 @@ Val* getLoopIndexOffsetForProducerOfCircularBuffer(
 
   NVF_ERROR(
       GpuLower::hasCurrent(),
-      "Circular buffering info of GpuLower is required but GpuLower is missing");
+      "Circular buffering info of GpuLower is required but GpuLower is "
+      "missing");
 
   CircularBufferInfo& info = GpuLower::current()->circularBufferInfo();
 
@@ -68,8 +70,7 @@ Val* getLoopIndexOffsetForProducerOfCircularBuffer(
 
   // This loop should be either prologue or main
   NVF_ERROR(
-      for_loop->circularBufferLoopStage() == CircularBufferLoopStage::Prolog ||
-          for_loop->circularBufferLoopStage() == CircularBufferLoopStage::Main,
+      hasCircularBufferLoad(for_loop->circularBufferLoopStage()),
       "Unexpected loop stage: ",
       for_loop->circularBufferLoopStage(),
       ". ",
@@ -80,7 +81,8 @@ Val* getLoopIndexOffsetForProducerOfCircularBuffer(
     return nullptr;
   }
 
-  auto prefetch_distance = info.getPrefetchDistanceFor(for_loop->iter_domain());
+  auto prefetch_distance =
+      info.getCircularBufferOptionsFor(for_loop->iter_domain()).prefetch;
 
   return IrBuilder::create<Val>(prefetch_distance, DataType::Index);
 }
@@ -94,7 +96,8 @@ Val* getOffsetForCircularBufferTensor(
   const auto gpu_lower = GpuLower::current();
   NVF_ERROR(
       gpu_lower != nullptr,
-      "Circular buffering info of GpuLower is required but GpuLower is missing");
+      "Circular buffering info of GpuLower is required but GpuLower is "
+      "missing");
 
   auto circular_buffer_loop =
       gpu_lower->circularBufferInfo().getCircularBufferLoop(
@@ -106,23 +109,19 @@ Val* getOffsetForCircularBufferTensor(
 
   const CircularBufferLoopStage stage =
       circular_buffer_loop->circularBufferLoopStage();
-  const bool is_prolog = stage == CircularBufferLoopStage::Prolog;
-  const bool is_main = stage == CircularBufferLoopStage::Main;
-  const bool is_epilog = stage == CircularBufferLoopStage::Epilog;
 
-  auto loop_index = circular_buffer_loop->indexOrStartIfTrivial();
+  Val* loop_index = gpu_lower->circularBufferInfo().getLinearIndex(
+      circular_buffer_tv, for_loops);
 
-  const auto stage_depth = gpu_lower->circularBufferInfo().getStageDepthFor(
-      circular_buffer_loop->iter_domain());
-  const auto prefetch_distance =
-      gpu_lower->circularBufferInfo().getPrefetchDistanceFor(
+  const auto& opt =
+      GpuLower::current()->circularBufferInfo().getCircularBufferOptionsFor(
           circular_buffer_loop->iter_domain());
 
   // If this appears as a consumer, it should be either prologue or
   // main. If it's producer, it should be main or epilogue
   NVF_ERROR(
-      (as_consumer && (is_prolog || is_main)) ||
-          (!as_consumer && (is_main || is_epilog)),
+      (as_consumer && hasCircularBufferLoad(stage)) ||
+          (!as_consumer && hasCircularBufferConsume(stage)),
       "Unexpected circular buffer stage: ",
       stage,
       " for using ",
@@ -134,17 +133,16 @@ Val* getOffsetForCircularBufferTensor(
 
   // If this is a consumer and in the main loop, advance the offset
   // for read-ahead
-  if (as_consumer && is_main) {
+  if (as_consumer && stage == CircularBufferLoopStage::Main) {
     offset = SimplifyingIrBuilder::addExpr(
         offset,
-        SimplifyingIrBuilder::create<Val>(prefetch_distance, DataType::Index));
+        SimplifyingIrBuilder::create<Val>(opt.prefetch, DataType::Index));
   }
 
   // Add "offset % num_stages", except when it's in prologue
-  if (!is_prolog) {
+  if (stage != CircularBufferLoopStage::Prolog) {
     offset = SimplifyingIrBuilder::modExpr(
-        offset,
-        SimplifyingIrBuilder::create<Val>(stage_depth, DataType::Index));
+        offset, SimplifyingIrBuilder::create<Val>(opt.stage, DataType::Index));
   }
 
   auto original_alloc_size =
@@ -159,7 +157,8 @@ CircularBufferLoopStage getCircularBufferLoopStage(
     const ValGraph& loop_graph) {
   NVF_ERROR(
       GpuLower::hasCurrent(),
-      "Circular buffering info of GpuLower is required but GpuLower is missing");
+      "Circular buffering info of GpuLower is required but GpuLower is "
+      "missing");
 
   auto circular_buffer_axis =
       GpuLower::current()->circularBufferInfo().getCircularBufferAxis(

@@ -21,6 +21,7 @@
 #include <ir/graphviz.h>
 #include <ops/all_ops.h>
 #include <scheduler/tools/inlining.h>
+#include <scheduler/tools/resize_utils.h>
 #include <transform_iter.h>
 #include <val_graph_visitor.h>
 
@@ -41,7 +42,10 @@ TEST_F(IdModelTest, DetectSelfMapping) {
   fusion.addOutput(tv2);
 
   EXPECT_THAT(
-      [&]() { IdModel id_model(&fusion, /*build_graphs=*/true); },
+      [&]() {
+        IdModel id_model(
+            &fusion, /*build_graphs=*/true, /*allow_self_mapping=*/false);
+      },
       ::testing::ThrowsMessage<nvfuser::nvfError>(
           ::testing::HasSubstr("are mapped with each other")));
 }
@@ -135,7 +139,7 @@ class IdModelTester : public LoopPromotionMapBuilderCallback {
         /*loop_promotion_map_builder_callback=*/this);
 
     // Only build the loop graph
-    id_model->buildLoopGraph();
+    id_model->buildLoopGraph(/*force_full_loop_promotion_analysis=*/true);
   }
 
   void postStep1(
@@ -409,7 +413,7 @@ void checkStep5Results(
     ASSERT_EQ(ref_promotion_domains.size(), tv->nDims())
         << "Invalid number of domains: "
         << toDelimitedString(ref_promotion_domains);
-    for (const auto i : c10::irange(tv->nDims())) {
+    for (const auto i : arange(tv->nDims())) {
       IterDomain* loop_id = tv->axis(i);
       const ValGroup& loop_group = loop_graph.toGroup(loop_id);
 
@@ -515,7 +519,7 @@ void checkSortingResults(
 
   // Check the ordering
   ASSERT_EQ(sorted_expr_groups.size(), ref_order.size());
-  for (const auto i : c10::irange(ref_order.size())) {
+  for (const auto i : arange(ref_order.size())) {
     Expr* ref_expr = ref_order.at(i);
     const ExprGroup& eg = sorted_expr_groups.at(i);
     ASSERT_TRUE(eg->has(ref_expr))
@@ -544,8 +548,8 @@ TEST_F(IdModelTest, ValGraphStmtSort1) {
   // order, but since there's no expr, it just makes sure exprs() and
   // vals() return all the val and expr groups.
   {
-    IdModel id_model(&fusion);
-    const ValGraph& vg = id_model.idGraph(IdMappingMode::EXACT);
+    IdModel id_model(&fusion, /*build_graphs=*/false);
+    const ValGraph& vg = id_model.buildExactGraph();
     ValGraphStmtSort vg_stmt_sort(vg);
     checkSortingResults(vg, vg_stmt_sort.exprs(), vg_stmt_sort.vals(), {});
   }
@@ -559,9 +563,9 @@ TEST_F(IdModelTest, ValGraphStmtSort1) {
   // The exact graph should just map all IDs of the tensors. Ther
   // ordering of the exprs should be the merge and then the split.
   {
-    IdModel id_model(&fusion);
+    IdModel id_model(&fusion, /*build_graphs=*/false);
 
-    const ValGraph& vg = id_model.idGraph(IdMappingMode::EXACT);
+    const ValGraph& vg = id_model.buildExactGraph();
     ValGraphStmtSort vg_stmt_sort(vg);
 
     // Reference expr order: merge, split
@@ -611,9 +615,9 @@ TEST_F(IdModelTest, ValGraphStmtSort2) {
   // one. Since it should be deterministic, we check if the returned
   // expr vector is indeed ordered that way.
 
-  IdModel id_model(&fusion);
+  IdModel id_model(&fusion, /*build_graphs=*/false);
 
-  const ValGraph& vg = id_model.idGraph(IdMappingMode::EXACT);
+  const ValGraph& vg = id_model.buildExactGraph();
   ValGraphStmtSort vg_stmt_sort(vg);
 
   std::vector<Expr*> ref_order;
@@ -653,8 +657,8 @@ TEST_F(IdModelTest, ValGraphStmtSort3) {
   // connected with tv0, tv1 and tv2.
   tv4->merge(0)->split(0, 1);
 
-  IdModel id_model(&fusion);
-  ValGraph vg = id_model.idGraph(IdMappingMode::EXACT);
+  IdModel id_model(&fusion, /*build_graphs=*/false);
+  ValGraph vg = id_model.buildExactGraph();
 
   // Map the split-by-1 input and output
   vg.mapVals(tv2->axis(0), tv2->axis(0)->definition()->input(0));
@@ -2101,6 +2105,42 @@ TEST_F(IdModelTest, ComplimentMappingCausingLoopSelfMapping) {
   //     loop_graph.toGroup(tv10->axis(1)), loop_graph.toGroup(tv10->axis(2)));
 }
 
+// When two broadcast IDs are merged, all of the two input IDs and the
+// output ID can be considered trivially mapped. However, doing so could
+// cause self mappings in a loop domain, which violates the assumption
+// of TensorIndexer. (For example, in this test case, tv1's loop
+// domain has two padded IDs of extent 3. If the merge of tv0 triggers
+// mappings of the two broadcast IDs of tv0, the two root IDs of tv1
+// would be mapped too in the AlmostExact graph, which then means the
+// two logical IDs of tv1 would also be mapped. This should be fixed
+// by avoiding mapping that could result in self mapping.
+//
+// This is also a repro of issue #3919.
+TEST_F(IdModelTest, SelfMappingInAlmostExactGraph) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  // [1, 1]
+  auto tv0 = makeConcreteTensor({1, 1});
+  fusion.addInput(tv0);
+
+  // [3, 3]
+  auto tv1 =
+      pad(tv0,
+          {fusion.oneVal(), fusion.oneVal(), fusion.oneVal(), fusion.oneVal()});
+
+  fusion.addOutput(tv1);
+
+  tv0->merge(0);
+
+  IdModel id_model(&fusion);
+  const auto& almost_exact = id_model.buildAlmostExactGraph();
+  EXPECT_FALSE(almost_exact.disjointValSets().strictAreMapped(
+      tv1->getLogicalDomain().at(0), tv1->getLogicalDomain().at(1)))
+      << "Should not be mapped: " << tv1->getLogicalDomain().at(0)->toString()
+      << ", " << tv1->getLogicalDomain().at(1)->toString();
+}
+
 namespace {
 bool iterDomainsAreMapped(
     const IdModel& id_model,
@@ -2190,11 +2230,11 @@ TEST_F(IdModelTest, LoopGraphWithSibling) {
   TransformPropagatorWithCheck propagator(avg);
   MaxLogicalDomainInfoSpanningTree(avg).traverse(&propagator);
 
-  IdModel id_model(&fusion);
+  IdModel id_model(&fusion, /*build_graphs=*/true);
   const auto& loop_graph = id_model.idGraph(IdMappingMode::LOOP);
 
   for (auto welford_out : {welford_out_tvs.var_sum, welford_out_tvs.n}) {
-    for (const auto i : c10::irange(avg->nDims())) {
+    for (const auto i : arange(avg->nDims())) {
       ASSERT_TRUE(loop_graph.disjointValSets().strictAreMapped(
           avg->axis(i), welford_out->axis(i)))
           << "Unmapped siblings: " << avg->axis(i)->toString() << ", "
@@ -2224,7 +2264,7 @@ TEST_F(IdModelTest, LoopPromotionWithViewRFactor1) {
 
   inlineMost();
 
-  IdModel id_model(&fusion);
+  IdModel id_model(&fusion, /*build_graphs=*/true);
 
   const auto& loop_graph = id_model.idGraph(IdMappingMode::LOOP);
   const auto& loop_group = loop_graph.toGroup(tv5->axis(0));
@@ -2274,7 +2314,7 @@ TEST_F(IdModelTest, LoopPromotionWithLogicalDomains2) {
 
   inlineMost();
 
-  IdModel id_model(&fusion);
+  IdModel id_model(&fusion, /*build_graphs=*/true);
 
   const auto& loop_graph = id_model.idGraph(IdMappingMode::LOOP);
   const auto& loop_group = loop_graph.toGroup(tv8->axis(0));
@@ -2333,7 +2373,7 @@ TEST_F(IdModelTest, LoopPromotionCoverage) {
   MaxLogicalDomainInfoSpanningTree(tv10).traverse(&propagator);
   inlineMost();
 
-  IdModel id_model(&fusion);
+  IdModel id_model(&fusion, /*build_graphs=*/true);
 
   const auto& exact_graph = id_model.idGraph(IdMappingMode::EXACT);
   const auto& loop_graph = id_model.idGraph(IdMappingMode::LOOP);
@@ -2359,7 +2399,8 @@ TEST_F(IdModelTest, LoopPromotionCoverage) {
     // Without the fix of PR #2322, this assertion would fail as the
     // loop group fails to find any promotion.
     ASSERT_NE(promotion_it, loop_promotion_map.end())
-        << "No promotion found for " << tv->axis(0)->toString();
+        << "No promotion found for " << tv->axis(0)->toString() << " of "
+        << tv->toString();
 
     auto promotion_id = promotion_it->second;
     ASSERT_TRUE(exact_graph.disjointValSets().strictAreMapped(
@@ -2390,7 +2431,7 @@ TEST_F(IdModelTest, ParallelTypePropagation) {
   tv2->axis(0)->parallelize(ParallelType::BIDx);
   tv2->axis(1)->parallelize(ParallelType::TIDx);
 
-  IdModel id_model(&fusion);
+  IdModel id_model(&fusion, /*build_graphs=*/true);
   id_model.validateAndPropagatePType();
 
   EXPECT_EQ(tv1->axis(0)->getParallelType(), tv2->axis(0)->getParallelType())
@@ -2456,7 +2497,9 @@ TEST_F(IdModelTest, BroadcastGraph) {
   fusion->addOutput(tv3);
 
   {
-    IdModel id_model(fusion.get());
+    IdModel id_model(fusion.get(), /*build_graphs=*/false);
+    id_model.buildExactGraph();
+    id_model.buildBroadcastGraph();
 
     // In the Exact graph, b0 should not be mapped with i0
     EXPECT_FALSE(id_model.idGraph(IdMappingMode::EXACT)
@@ -2474,9 +2517,10 @@ TEST_F(IdModelTest, BroadcastGraph) {
   MaxLogicalDomainInfoSpanningTree(tv3).traverse(&propagator);
 
   {
-    IdModel id_model(fusion.get());
+    IdModel id_model(fusion.get(), /*build_graphs=*/false);
+    id_model.buildBroadcastGraph();
     // tv2 and tv3 should be fully mapped in the Broadcast graph
-    for (const auto i : c10::irange(tv2->nDims())) {
+    for (const auto i : arange(tv2->nDims())) {
       EXPECT_TRUE(id_model.idGraph(IdMappingMode::BROADCAST)
                       .disjointValSets()
                       .strictAreMapped(tv2->axis(i), tv3->axis(i)));
@@ -2512,8 +2556,9 @@ TEST_F(IdModelTest, MappingClonedIDs) {
       << "Expected: " << ref_mapping.toString()
       << ". Actual: " << mapping->toString();
 
-  IdModel id_model_after_clone(&fusion);
-  for (const auto i : c10::irange(tv2->getLoopDomain().size())) {
+  IdModel id_model_after_clone(&fusion, /*build_graphs=*/false);
+  id_model_after_clone.buildExactGraph();
+  for (const auto i : arange(tv2->getLoopDomain().size())) {
     EXPECT_TRUE(id_model_after_clone.idGraph(IdMappingMode::EXACT)
                     .disjointValSets()
                     .strictAreMapped(
@@ -2523,105 +2568,283 @@ TEST_F(IdModelTest, MappingClonedIDs) {
   }
 }
 
-TEST_F(IdModelTest, LoopPromotionWithCyclicGraph) {
-  // This test includes multiple cases. Each one is a fairly trivial
-  // test, so they are all put in one test.
+// Testing of loop promotion with a cyclic graph. In this case,
+// reshape is used to introduce a cycle in the exact graph.
+TEST_F(IdModelTest, LoopPromotionWithCyclicGraphReshape) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
 
-  // Test with reshape
+  auto tv0 = makeConcreteTensor({10});
+  fusion.addInput(tv0);
+  auto tv1 = set(tv0);
+  auto tv2 = reshape(tv1, {10}, {2, 5});
+  auto tv3 = reshape(tv2, {2, 5}, {10});
+  auto tv4 = add(tv0, tv3);
+  fusion.addOutput(tv4);
+
+  // First, nothing is inlined, so each ID forms its own loop
+  // group. This is a trivial case.
   {
-    Fusion fusion;
-    FusionGuard fg(&fusion);
-
-    auto tv0 = makeConcreteTensor({10});
-    fusion.addInput(tv0);
-    auto tv1 = reshape(tv0, {10}, {2, 5});
-    auto tv2 = reshape(tv1, {2, 5}, {10});
-    auto tv3 = add(tv0, tv2);
-    fusion.addOutput(tv3);
-
     IdModel id_model(&fusion, /*build_graphs=*/false);
     id_model.buildExactGraph();
 
-    // The exact graph is cyclic, but the loop promotion should be
-    // generated successfully as this fusion should not require the full
-    // promotion analysis.
-    EXPECT_TRUE(isCyclic(id_model.idGraph(IdMappingMode::EXACT)));
-
-    id_model.buildLoopGraph();
+    id_model.buildLoopGraph(/*force_full_loop_promotion_analysis=*/true);
     EXPECT_TRUE(!id_model.loopPromotionMap().empty());
+
+    // There's no broadcast nor inlining. Each ID should have its own
+    // loop group and be promoted to itself.
+    for (const auto& [group, promotion] : id_model.loopPromotionMap()) {
+      EXPECT_EQ(group->size(), 1);
+      EXPECT_EQ(group->front(), promotion);
+    }
   }
 
-  // Test with slice and pad
+  // Fully inlining everything
+  tv1->split(0, 2, false);
+  tv1->merge(0);
+  tv2->merge(0);
+  inlineMost();
+
   {
-    Fusion fusion;
-    FusionGuard fg(&fusion);
+    IdModel id_model(&fusion, /*build_graphs=*/false);
+    const auto& exact_graph = id_model.buildExactGraph();
+    const auto& loop_graph =
+        id_model.buildLoopGraph(/*force_full_loop_promotion_analysis=*/true);
 
-    auto tv0 = makeConcreteTensor({10});
-    fusion.addInput(tv0);
-    auto tv1 = slice(tv0, {{fusion.zeroVal(), IrBuilder::create<Val>(5)}});
-    auto tv2 = pad(tv1, {fusion.zeroVal(), IrBuilder::create<Val>(5)});
-    auto tv3 = add(tv0, tv2);
-    fusion.addOutput(tv3);
+    // All loop IDs should be mapped together
+    const auto ref_loop = loop_graph.toGroups(tv4->getLoopDomain());
 
+    for (auto tv : fusion.allTvs()) {
+      // Fusion inputs are ignored
+      if (tv->isFusionInput()) {
+        continue;
+      }
+
+      EXPECT_EQ(loop_graph.toGroups(tv->getLoopDomain()), ref_loop);
+    }
+
+    // They should be promoted to the tv4 logical ID (or exact mapped
+    // with it)
+    IterDomain* promotion = id_model.loopPromotionMap().at(ref_loop.at(0));
+    EXPECT_TRUE(exact_graph.disjointValSets().strictAreMapped(
+        promotion, tv4->getLogicalDomain().at(0)));
+  }
+}
+
+// Testing with a cyclic graph that mimics a common pattern in RoPE
+TEST_F(IdModelTest, LoopPromotionWithCyclicGraphRoPELike) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeConcreteTensor({32});
+  fusion.addInput(tv0);
+  auto tv1 = set(tv0);
+  auto tv2 =
+      slice(tv1, {{IrBuilder::create<Val>(16L), IrBuilder::create<Val>(32L)}});
+  auto tv3 = pad(tv2, {fusion.zeroVal(), IrBuilder::create<Val>(16L)});
+  auto tv4 = add(tv0, tv3);
+  fusion.addOutput(tv4);
+
+  // Because of the final addition, the tv0 logical ID has a cycle
+  // going through the slice and pad path.
+
+  // First, nothing is inlined, so each ID forms its own loop
+  // group. This is a trivial case.
+  {
     IdModel id_model(&fusion, /*build_graphs=*/false);
     id_model.buildExactGraph();
 
-    // The exact graph is cyclic, but the loop promotion should be
-    // generated successfully as this fusion should not require the full
-    // promotion analysis.
-    EXPECT_TRUE(isCyclic(id_model.idGraph(IdMappingMode::EXACT)));
-
-    id_model.buildLoopGraph();
+    id_model.buildLoopGraph(/*force_full_loop_promotion_analysis=*/true);
     EXPECT_TRUE(!id_model.loopPromotionMap().empty());
+
+    // There's no broadcast nor inlining. Each ID should have its own
+    // loop group and be promoted to itself.
+    for (const auto& [group, promotion] : id_model.loopPromotionMap()) {
+      EXPECT_EQ(group->size(), 1);
+      EXPECT_EQ(group->front(), promotion);
+    }
   }
 
-  // Test with reshape that requires the full promotion analysis
+  // Minimal scheduling to inline the tensors
+  scheduler_tools::propagateResizeToInputs(tv2->definition());
+  scheduler_tools::propagateResizeToInputs(tv3->definition());
+
+  inlineMost();
+
+  /*
+    TransformPrinter :
+    T0_g_float[iS0{32}]
+     logical domain : (iS0{32})
+     contiguity: f
+     loop domain : (iS0{32})
+    T1_l_float[iS8{32}] ca_pos( 1 )
+     logical domain : (iS1{32})
+     contiguity: t
+      Resize: iS1{32} by -16 and 0 -> iS7{16}
+      Resize: iS7{16} by 0 and 16 -> iS8{32}
+     loop domain : (iS8{32})
+    T2_l_float[iS9{32}] ca_pos( 1 ) produce_pos( 1 )
+     root domain : (iS2{32}rf)
+      Resize: iS2{32}rf by -16 and 0 -> iS3{16}rf
+     logical domain : (iS3{16}rf)
+     contiguity: t
+      Resize: iS3{16}rf by 0 and 16 -> iS9{32}
+     loop domain : (iS9{32})
+    T3_l_float[iS5{32}rf] ca_pos( 1 ) produce_pos( 1 )
+     root domain : (iS4{16}rf)
+      Resize: iS4{16}rf by 0 and 16 -> iS5{32}rf
+     logical domain : (iS5{32}rf)
+     contiguity: t
+     loop domain : (iS5{32}rf)
+    T4_g_float[iS6{32}] ca_pos( 1 ) produce_pos( 1 )
+     logical domain : (iS6{32})
+     contiguity: t
+     loop domain : (iS6{32})
+    } // %kernel
+   */
+
+  // IEL Graph (exprs omitted)
+  //
+  // {0}
+  // {3, 4, 7} <-> {1, 2, 5, 6, 8, 9}
+
+  // Run through the IdModel build processes. Since there's no
+  // broadcast involved, loop promotion is actually not necessary, but
+  // just for the sake of testing, make sure the promotion analysis is
+  // indeed triggered.
   {
-    Fusion fusion;
-    FusionGuard fg(&fusion);
-
-    auto tv0 = makeConcreteTensor({10});
-    fusion.addInput(tv0);
-    auto tv1 = makeConcreteTensor({2});
-    fusion.addInput(tv1);
-    auto tv2 = reshape(tv0, {10}, {2, 5});
-    auto tv3 = reshape(tv2, {2, 5}, {10});
-    auto tv4 = add(tv0, tv3);
-    fusion.addOutput(tv4);
-    auto tv5 = broadcast(tv1, {false, true});
-    auto tv6 = add(tv2, tv5);
-    fusion.addOutput(tv6);
-
     IdModel id_model(&fusion, /*build_graphs=*/false);
-    id_model.buildExactGraph();
+    const auto& exact_graph = id_model.buildExactGraph();
+    const auto& loop_graph =
+        id_model.buildLoopGraph(/*force_full_loop_promotion_analysis=*/true);
 
-    std::ofstream ofs("exact_graph.dot", std::ofstream::trunc);
-    auto dot_string =
-        id_model.idGraph(IdMappingMode::EXACT).toGraphvizDotGraph();
-    ofs << dot_string;
-    ofs.close();
+    // All loop IDs should be mapped together
+    const auto ref_loop = loop_graph.toGroups(tv4->getLoopDomain());
 
-    // The exact graph is cyclic
-    EXPECT_TRUE(isCyclic(id_model.idGraph(IdMappingMode::EXACT)));
+    for (auto tv : fusion.allTvs()) {
+      // Fusion inputs are ignored
+      if (tv->isFusionInput()) {
+        continue;
+      }
 
-    // While the fusion has a broadcast, since it's never merged with
-    // a non-concrete domain, it should not require the full promotion
-    // analysis.
-    id_model.buildLoopGraph();
-    EXPECT_TRUE(!id_model.loopPromotionMap().empty());
+      EXPECT_EQ(loop_graph.toGroups(tv->getLoopDomain()), ref_loop);
+    }
 
-    // However, if the broadcast domain gets inlined, it should not
-    // follow the shortcut path and because of the cycle, the loop
-    // promotion analysis should fail.
-    tv5->flatten();
-    tv6->flatten();
-    tv5->inlineAt(1);
+    // They should be promoted to the tv4 logical ID (or exact mapped
+    // with it)
+    IterDomain* promotion = id_model.loopPromotionMap().at(ref_loop.at(0));
+    EXPECT_TRUE(exact_graph.disjointValSets().strictAreMapped(
+        promotion, tv4->getLogicalDomain().at(0)));
+  }
+}
 
-    IdModel id_model2(&fusion, /*build_graphs=*/false);
-    EXPECT_THAT(
-        [&]() { id_model2.buildLoopGraph(); },
-        ::testing::ThrowsMessage<nvfuser::nvfError>(
-            ::testing::HasSubstr("Cyclic exact graph is not supported")));
+// Testing with a cyclic graph with inlined broadcast
+TEST_F(IdModelTest, LoopPromotionWithCyclicGraphInlinedBroadcast) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeConcreteTensor({2, 10});
+  fusion.addInput(tv0);
+  auto tv1 = makeConcreteTensor({2});
+  fusion.addInput(tv1);
+
+  auto tv2 = set(tv1);
+  auto tv3 = broadcast(tv2, {false, true});
+  auto tv4 = add(tv0, tv3);
+  auto tv5 = reshape(tv4, {2, 10}, {20});
+  auto tv6 = reshape(tv5, {20}, {2, 10});
+  auto tv7 = add(tv0, tv6);
+  fusion.addOutput(tv7);
+
+  tv7->flatten();
+  tv7->split(0, 3);
+  TransformPropagatorWithCheck propagator(tv7);
+  MaxLogicalDomainInfoSpanningTree(tv7).traverse(&propagator);
+
+  for (auto tv : fusion.allTvs()) {
+    if (tv->isFusionInput()) {
+      continue;
+    }
+    tv->inlineAt(1);
+  }
+
+  /*
+   T0_g_float[iS43{7}, iS44{3}]
+    logical domain : (iS0{2}, iS1{10})
+    contiguity: f f
+     Merge: iS0{2} and iS1{10} -> iS42{20}
+     Split: iS42{20} by factor 3 -> iS43{7}, iS44{3}
+    loop domain : (iS43{7}, iS44{3})
+   T1_g_float[iS53{1}, iS54{3}]
+    logical domain : (iS2{2})
+    contiguity: f
+     Outer split: iS2{2} by factor 2 -> iS50{2}, iS51{1}
+     Merge: iS50{2} and iS51{1} -> iS52{2}
+     Split: iS52{2} by factor 3 -> iS53{1}, iS54{3}
+    loop domain : (iS53{1}, iS54{3})
+   T2_l_float[iS48{1}, iS49{3}] ca_pos( 1 )
+    logical domain : (iS3{2})
+    contiguity: t
+     Outer split: iS3{2} by factor 2 -> iS45{2}, iS46{1}
+     Merge: iS45{2} and iS46{1} -> iS47{2}
+     Split: iS47{2} by factor 3 -> iS48{1}, iS49{3}
+    loop domain : (iS48{1}, iS49{3})
+   T3_l_float[iS40{1}, iS41{3}] ca_pos( 1 ) produce_pos( 1 )
+    logical domain : (iS4{2}, bS5{1})
+    contiguity: t n
+     Merge: iS4{2} and bS5{1} -> iS36{2}
+     Outer split: iS36{2} by factor 2 -> iS37{2}, iS38{1}
+     Merge: iS37{2} and iS38{1} -> iS39{2}
+     Split: iS39{2} by factor 3 -> iS40{1}, iS41{3}
+    loop domain : (iS40{1}, iS41{3})
+   T4_l_float[iS34{7}, iS35{3}] ca_pos( 1 ) produce_pos( 1 )
+    logical domain : (iS6{2}, iS7{10})
+    contiguity: t t
+     Merge: iS6{2} and iS7{10} -> iS30{20}
+     Outer split: iS30{20} by factor 2 -> iS31{2}, iS32{10}
+     Merge: iS31{2} and iS32{10} -> iS33{20}
+     Split: iS33{20} by factor 3 -> iS34{7}, iS35{3}
+    loop domain : (iS34{7}, iS35{3})
+   T5_l_float[iS28{7}, iS29{3}] ca_pos( 1 ) produce_pos( 1 )
+    root domain : (iS10{2}rf, iS11{10}rf)
+     Merge: iS10{2}rf and iS11{10}rf -> iS12{20}rf
+    logical domain : (iS12{20}rf)
+    contiguity: t
+     Outer split: iS12{20}rf by factor 2 -> iS25{2}, iS26{10}
+     Merge: iS25{2} and iS26{10} -> iS27{20}
+     Split: iS27{20} by factor 3 -> iS28{7}, iS29{3}
+    loop domain : (iS28{7}, iS29{3})
+   T6_l_float[iS23{7}, iS24{3}] ca_pos( 1 ) produce_pos( 1 )
+    root domain : (iS14{20}rf)
+     Outer split: iS14{20}rf by factor 2 -> iS15{2}rf, iS16{10}rf
+    logical domain : (iS15{2}rf, iS16{10}rf)
+    contiguity: t t
+     Merge: iS15{2}rf and iS16{10}rf -> iS22{20}
+     Split: iS22{20} by factor 3 -> iS23{7}, iS24{3}
+    loop domain : (iS23{7}, iS24{3})
+   T7_g_float[iS20{7}, iS21{3}] ca_pos( 1 ) produce_pos( 1 )
+    logical domain : (iS17{2}, iS18{10})
+    contiguity: t t
+     Merge: iS17{2} and iS18{10} -> iS19{20}
+     Split: iS19{20} by factor 3 -> iS20{7}, iS21{3}
+    loop domain : (iS20{7}, iS21{3})
+  */
+
+  IdModel id_model(&fusion, /*build_graphs=*/false);
+  const auto& exact_graph = id_model.buildExactGraph();
+  id_model.buildLoopGraph(/*force_full_loop_promotion_analysis=*/true);
+
+  for (auto tv : fusion.allTvs()) {
+    if (tv->isFusionInput()) {
+      continue;
+    }
+
+    EXPECT_EQ(tv->nDims(), 2);
+    for (const auto i : arange(tv->nDims())) {
+      auto promotion = getLoopPromotion(tv->getLoopDomain().at(i), id_model);
+      EXPECT_TRUE(exact_graph.disjointValSets().strictAreMapped(
+          promotion, tv7->getLoopDomain().at(i)));
+    }
   }
 }
 
@@ -2653,7 +2876,7 @@ TEST_F(IdModelTest, LoopGraphWithSetLoopDomain) {
 
   inlineMost();
 
-  IdModel id_model(&fusion);
+  IdModel id_model(&fusion, /*build_graphs=*/true);
 
   // Make sure that:
   // - all loop IDs of tv2, tv3 and tv4 are grouped together.
@@ -2661,7 +2884,7 @@ TEST_F(IdModelTest, LoopGraphWithSetLoopDomain) {
   const auto& exact_graph = id_model.idGraph(IdMappingMode::EXACT);
   const auto& loop_graph = id_model.idGraph(IdMappingMode::LOOP);
   const auto& loop_promotion_map = id_model.loopPromotionMap();
-  for (const auto i : c10::irange(tv2->getLoopDomain().size())) {
+  for (const auto i : arange(tv2->getLoopDomain().size())) {
     const auto& loop_group = loop_graph.toGroup(tv2->getLoopDomain().at(i));
     for (auto tv : {tv3, tv4}) {
       EXPECT_TRUE(loop_group->has(tv->getLoopDomain().at(i)))
@@ -2675,6 +2898,286 @@ TEST_F(IdModelTest, LoopGraphWithSetLoopDomain) {
     auto promotion = loop_promotion_map_it->second;
     EXPECT_TRUE(exact_graph.disjointValSets().strictAreMapped(
         promotion, tv4->getLoopDomain().at(i)));
+  }
+}
+
+// Repro for the shortcut logic based on
+// inlining_info_.p2c_root_broadcast_resolution_map.
+TEST_F(IdModelTest, LoopPromotionCyclicGraphWar) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeSymbolicTensor(1);
+  fusion.addInput(tv0);
+
+  auto tv1 = set(tv0);
+  auto tv2 = broadcast(tv1, {true, false});
+  auto tv3 = sin(tv2);
+  fusion.addOutput(tv3);
+
+  tv3->flatten();
+  tv3->split(0, 4);
+  TransformPropagatorWithCheck propagator(tv3);
+  MaxLogicalDomainInfoSpanningTree(tv3).traverse(&propagator);
+
+  inlineMost();
+
+  IdModel id_model(&fusion, /*build_graphs=*/true);
+
+  for (auto tv : {tv1, tv2, tv3}) {
+    for (const auto i : arange(tv->getLoopDomain().size())) {
+      auto promotion_id = getLoopPromotion(tv->getLoopDomain().at(i), id_model);
+      EXPECT_TRUE(
+          id_model.idGraph(IdMappingMode::EXACT)
+              .disjointValSets()
+              .strictAreMapped(promotion_id, tv3->getLoopDomain().at(i)));
+    }
+  }
+}
+
+// Test to verify the split-aware covered group analysis. See
+// also https://github.com/NVIDIA/Fuser/pull/3877.
+TEST_F(IdModelTest, CoveredGroups) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+
+  auto tv0 = makeContigConcreteTensor({-1, 1});
+  fusion.addInput(tv0);
+  auto tv1 = makeContigConcreteTensor({-1});
+  fusion.addInput(tv1);
+
+  auto tv2 = set(tv0);
+  auto tv3 = reshape(tv1, {8}, {2, 4});
+  auto tv4 = add(tv2, tv3);
+  fusion.addOutput(tv4);
+
+  for (auto tv : fusion.allTvs()) {
+    tv->flatten();
+  }
+
+  inlineMost();
+
+  IdModel id_model(&fusion, true);
+  const auto& exact_graph = id_model.idGraph(IdMappingMode::EXACT);
+
+  // The exact group of the tv3 and tv4 IDs should cover both the inner and
+  // outer split groups of the input group of the tv1 logical ID.
+  const auto covered_groups =
+      LoopPromotionMapBuilder::computeCoveredGroups(exact_graph, id_model);
+
+  const auto& input_group = exact_graph.toGroup(tv1->getLogicalDomain().at(0));
+  auto input_covered_group_it = covered_groups.find(input_group);
+  ASSERT_NE(input_covered_group_it, covered_groups.end());
+  const std::shared_ptr<CoveredGroups>& input_covered_groups =
+      input_covered_group_it->second;
+
+  const auto& tv4_exact_group = exact_graph.toGroup(tv4->axis(0));
+  auto tv4_exact_group_it = covered_groups.find(tv4_exact_group);
+  ASSERT_NE(tv4_exact_group_it, covered_groups.end());
+  const std::shared_ptr<CoveredGroups>& tv4_covered_groups =
+      tv4_exact_group_it->second;
+
+  // It should consist of two CoveredGroups, both of which inheriths
+  // from the logical ID of tv1 through a split
+  EXPECT_EQ(tv4_covered_groups->size(), 2);
+  for (const CoveredGroup& covered_group : *tv4_covered_groups) {
+    EXPECT_EQ(covered_group.splitIn(), input_covered_groups);
+    if (covered_group.isInner()) {
+      EXPECT_EQ(
+          covered_group.group(),
+          exact_graph.toGroup(tv4->getLogicalDomain().at(1)));
+    } else {
+      EXPECT_EQ(
+          covered_group.group(),
+          exact_graph.toGroup(tv4->getLogicalDomain().at(0)));
+    }
+  }
+}
+
+// Repro of issue #3702
+// https://github.com/NVIDIA/Fuser/issues/3702. Indexing traversal
+// faied due to invalid loop promotion.
+TEST_F(IdModelTest, InvalidLoopPromotion) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+
+  auto T0 = makeContigConcreteTensor({1, 32, 6});
+  fusion.addInput(T0);
+  auto T32 = makeContigConcreteTensor({1, 6, 2048}, DataType::BFloat16);
+  fusion.addInput(T32);
+
+  auto T6 = transpose(T0, 1, 2);
+  auto T98 = broadcast(T6, {false, false, true, false});
+  auto T99 = expand(
+      T98,
+      {IrBuilder::create<Val>(-1L),
+       IrBuilder::create<Val>(-1L),
+       IrBuilder::create<Val>(2L),
+       IrBuilder::create<Val>(-1L)});
+  auto T100 = reshape(
+      T99,
+      {IrBuilder::create<Val>(1L),
+       IrBuilder::create<Val>(6L),
+       IrBuilder::create<Val>(-1)});
+  auto T11 = sin(T100);
+  auto T13 = mul(T11, IrBuilder::create<Val>(1.0));
+  auto T15 = castOp(DataType::BFloat16, T13);
+  auto T43 = broadcast(T15, {false, true, false, false});
+  auto T59 = expand(
+      T43,
+      {IrBuilder::create<Val>(-1L),
+       IrBuilder::create<Val>(32L),
+       IrBuilder::create<Val>(-1L),
+       IrBuilder::create<Val>(-1L)});
+  auto T61 = castOp(DataType::Float, T59);
+  auto T10 = cos(T100);
+  auto T12 = mul(T10, IrBuilder::create<Val>(1.0));
+  auto T14 = castOp(DataType::BFloat16, T12);
+  auto T41 = broadcast(T14, {false, true, false, false});
+  auto T66 = expand(
+      T41,
+      {IrBuilder::create<Val>(-1L),
+       IrBuilder::create<Val>(8L),
+       IrBuilder::create<Val>(-1L),
+       IrBuilder::create<Val>(-1L)});
+  auto T79 = expand(
+      T43,
+      {IrBuilder::create<Val>(-1L),
+       IrBuilder::create<Val>(8L),
+       IrBuilder::create<Val>(-1L),
+       IrBuilder::create<Val>(-1L)});
+  auto T81 = castOp(DataType::Float, T79);
+  auto T35 = reshape(
+      T32,
+      {IrBuilder::create<Val>(1L),
+       IrBuilder::create<Val>(6L),
+       IrBuilder::create<Val>(32L),
+       IrBuilder::create<Val>(64L)});
+  auto T36 = transpose(T35, 1, 2);
+  auto T47 = castOp(DataType::Float, T36);
+  auto T46 = expand(
+      T41,
+      {IrBuilder::create<Val>(-1L),
+       IrBuilder::create<Val>(32L),
+       IrBuilder::create<Val>(-1L),
+       IrBuilder::create<Val>(-1L)});
+  auto T48 = castOp(DataType::Float, T46);
+  auto T49 = mul(T47, T48);
+  fusion.addOutput(T61);
+  fusion.addOutput(T66);
+  fusion.addOutput(T81);
+  fusion.addOutput(T36);
+  fusion.addOutput(T49);
+
+  auto options_bf16 =
+      at::TensorOptions().dtype(at::kBFloat16).device(at::kCUDA, 0);
+  auto options_fp32 =
+      at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({1, 32, 6}, options_fp32);
+  auto t32 = at::randn({1, 6, 2048}, options_bf16);
+  std::vector<c10::IValue> inputs({t0, t32});
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs(inputs);
+  testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
+}
+
+// When a loop group only includes broadcast IDs, the group should not
+// need to be promoted
+TEST_F(IdModelTest, BroadcastOnlyNoLoopPromotion) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+
+  auto tv0 = makeContigConcreteTensor({-1, 1});
+  fusion.addInput(tv0);
+  auto tv1 = makeContigTensor(2);
+  fusion.addInput(tv1);
+
+  auto tv2 = set(tv0);
+  auto tv3 = add(tv2, tv1);
+  fusion.addOutput(tv3);
+
+  for (auto tv : fusion.allTvs()) {
+    tv->split(1, 1, false);
+    tv->reorder({{0, 1}, {1, 0}});
+  }
+
+  for (auto tv : fusion.allTvs()) {
+    tv->inlineAt(2);
+  }
+
+  // T2_l_float[bS10{1}, iS4{i0}, bS11{1}] ca_pos( 2 )
+  // = Set( T0_g_float[bS8{1}, iS0{i0}, bS9{1}], cache_op=Streaming )
+  // T3_g_float[iS14{1}, iS6{i0}, iS15{i5}] ca_pos( 2 ) produce_pos( 2 )
+  // = T2_l_float[bS10{1}, iS4{i0}, bS11{1}] ca_pos( 2 )
+  // + T1_g_float[iS12{1}, iS2{i4}, iS13{i5}];
+
+  // In this fusion, the innermost loop ID of tv2 is broadcast and is
+  // not inlined. While its producer ID is promoted to the concrete
+  // logical ID of tv3, it should not need to promote the loop ID as
+  // it's just a broadcast.
+
+  IdModel id_model(&fusion, /*build_graphs=*/true);
+
+  auto promotion_id = id_model.loopPromotionMap().at(
+      id_model.idGraph(IdMappingMode::LOOP).toGroup(tv2->axis(-1)));
+  EXPECT_TRUE(promotion_id->isBroadcast())
+      << "Should not be promoted a non-broadcast ID: "
+      << promotion_id->toString();
+}
+
+// Scatter output uses unique mapping schemes
+TEST_F(IdModelTest, ScatterLoopMapping) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+
+  auto tv0 = makeContigTensor(1);
+  fusion.addInput(tv0);
+  auto tv1 = makeContigTensor(1, DataType::Int);
+  fusion.addInput(tv1);
+  auto tv2 = makeContigTensor(1);
+  fusion.addInput(tv2);
+
+  auto tv3 = set(tv0);
+  auto tv4 = set(tv1);
+  auto tv5 = set(tv2);
+
+  auto tv6 = scatter(tv3, 0, tv4, tv5);
+  fusion.addOutput(tv6);
+
+  tv4->split(0, 4);
+  tv6->split(0, 4);
+
+  IdModel id_model(&fusion);
+  const auto& exact_graph = id_model.buildExactGraph();
+
+  // The loop domain should not be mapped with the logical domain
+  EXPECT_FALSE(exact_graph.disjointValSets().strictAreMapped(
+      tv6->domain()->initialLoop().at(0), tv3->getLogicalDomain().at(0)));
+
+  // Check if the initial loop domain are mapped with the logical
+  // domains of the index and src tensors
+  EXPECT_EQ(
+      tv6->domain()->initialLoop().size(), tv4->getLogicalDomain().size());
+  EXPECT_EQ(
+      tv6->domain()->initialLoop().size(), tv5->getLogicalDomain().size());
+  for (const auto i : arange(tv6->domain()->initialLoop().size())) {
+    EXPECT_TRUE(exact_graph.disjointValSets().strictAreMapped(
+        tv6->domain()->initialLoop().at(i), tv4->getLogicalDomain().at(i)));
+    EXPECT_TRUE(exact_graph.disjointValSets().strictAreMapped(
+        tv6->domain()->initialLoop().at(i), tv5->getLogicalDomain().at(i)));
+  }
+
+  // Since the output and index tensors have the same split, their
+  // loop domains should be mapped
+  EXPECT_EQ(tv6->getLoopDomain().size(), tv4->getLoopDomain().size());
+  for (const auto i : arange(tv6->getLogicalDomain().size())) {
+    EXPECT_TRUE(exact_graph.disjointValSets().strictAreMapped(
+        tv6->getLoopDomain().at(i), tv4->getLoopDomain().at(i)));
   }
 }
 

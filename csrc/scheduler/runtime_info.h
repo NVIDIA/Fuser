@@ -32,10 +32,6 @@ class ExpressionEvaluator;
 
 class SchedulerRuntimeInfo : public NonCopyable {
  public:
-  // Max vector size we will consider, in bytes,
-  //  currently set to 16B = 128b
-  static constexpr int64_t max_alignment_size_in_byte = 16;
-
   //! Create runtime info for given fusion and input. Creating and binding
   //! evaluator is optional. The evaluator is used to manage intermediate
   //! integers in the fusion. We need them for segmenter and schedulers,
@@ -52,15 +48,11 @@ class SchedulerRuntimeInfo : public NonCopyable {
       const std::vector<TensorView*>& all_tvs = {},
       std::optional<PrimDataType> forced_index_type = std::nullopt);
 
-  NVF_API SchedulerRuntimeInfo(
-      Fusion* complete_fusion,
-      const at::ArrayRef<c10::IValue>& aten_inputs);
-
   //! Lookup for the alignment sizes of the given tv. Currently only returns
   //!  actual alignment info for input tensors to the complete fusion,
   //!  and for other intermediate/fuser-allocated tensors will
-  //!  return max_alignment_size_in_byte.
-  size_t getAlignmentSize(TensorView* tv);
+  //!  return max_alignment_size_in_bit.
+  size_t getAlignmentSizeBit(TensorView* tv);
 
   //! Returns sizes of tensor dimensions in same order as allocation domain,
   //! ignoring any IterType::Reduction domains in the allocation domain. This
@@ -79,9 +71,9 @@ class SchedulerRuntimeInfo : public NonCopyable {
   }
 
   //! Returns strides of tensor in same order as allocation domain, in elements
-  //! instead of bytes. Only works for complete Fusion inputs whose allocation
-  //! domain is a permutation of their root domain and will raise an exception
-  //! otherwise.
+  //! instead of bytes/bits. Only works for complete Fusion inputs whose
+  //! allocation domain is a permutation of their root domain and will raise an
+  //! exception otherwise.
   const std::vector<int64_t>& getInputAllocationStrides(TensorView* tv) const {
     NVF_ERROR(
         isInputTv(tv),
@@ -94,10 +86,10 @@ class SchedulerRuntimeInfo : public NonCopyable {
     return strides_it->second;
   }
 
-  // Computes alignment size in bytes for provided ptr address
-  static size_t computeAlignmentSize(size_t ptr_address);
+  // Computes alignment size in bits for provided ptr address
+  static size_t computeAlignmentSizeBit(size_t ptr_address_in_bytes);
 
-  // Return the runtime pointer value for provided tensor view
+  // Return the runtime pointer value (in bytes) for provided tensor view
   size_t ptrOf(TensorView* tv) const;
 
   PrimDataType getIndexType() const {
@@ -151,10 +143,10 @@ class SchedulerRuntimeInfo : public NonCopyable {
 
   // Copy of aten input tensor strides (in bytes) for only discontiguous
   // dimensions
-  std::unordered_map<Val*, std::vector<size_t>> input_discontig_strides_;
+  std::unordered_map<Val*, std::vector<size_t>> input_discontig_strides_bytes_;
 
   // Cache for getAlignmentSize
-  std::unordered_map<TensorView*, size_t> alignment_map_;
+  std::unordered_map<TensorView*, size_t> alignment_map_bit_;
 
   // Found index mode kernel needs to be run in
   PrimDataType index_type_ = PrimDataType::Int;

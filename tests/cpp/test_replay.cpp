@@ -17,6 +17,13 @@
 
 namespace nvfuser {
 
+using testing::ContainerEq;
+using testing::Each;
+using testing::IsTrue;
+using testing::Optional;
+using testing::Property;
+using testing::SizeIs;
+
 using ReplayTest = NVFuserTest;
 
 TEST_F(ReplayTest, HorizontallyMergeReshapeAndPermute) {
@@ -46,8 +53,8 @@ TEST_F(ReplayTest, HorizontallyMergeReshapeAndPermute) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor in_tensor = at::randn({4, 5}, options);
 
-  FusionExecutorCache fec(std::move(fusion));
-  std::vector<at::Tensor> out_tensors = fec.runFusionWithInputs({in_tensor});
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto out_tensors = executor_cache.runFusionWithInputs({in_tensor});
   ASSERT_EQ(out_tensors.size(), 1);
   auto out_tensor = out_tensors[0];
 
@@ -57,7 +64,7 @@ TEST_F(ReplayTest, HorizontallyMergeReshapeAndPermute) {
        slices[1].view({2, 2, 3}).permute({1, 0, 2})},
       /*dim=*/-1);
 
-  EXPECT_TRUE(at::equal(out_tensor, expected_out_tensor));
+  EXPECT_TRUE(at::equal(out_tensor.as<at::Tensor>(), expected_out_tensor));
 }
 
 TEST_F(ReplayTest, HorizontallyMergeReshapeAndNeg) {
@@ -85,8 +92,8 @@ TEST_F(ReplayTest, HorizontallyMergeReshapeAndNeg) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor in_tensor = at::randn({4, 5}, options);
 
-  FusionExecutorCache fec(std::move(fusion));
-  std::vector<at::Tensor> out_tensors = fec.runFusionWithInputs({in_tensor});
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto out_tensors = executor_cache.runFusionWithInputs({in_tensor});
   ASSERT_EQ(out_tensors.size(), 1);
   auto out_tensor = out_tensors[0];
 
@@ -95,7 +102,73 @@ TEST_F(ReplayTest, HorizontallyMergeReshapeAndNeg) {
       {-slices[0].view({2, 2, 2}), -slices[1].view({2, 2, 3})},
       /*dim=*/-1);
 
-  EXPECT_TRUE(at::equal(out_tensor, expected_out_tensor));
+  EXPECT_TRUE(at::equal(out_tensor.as<at::Tensor>(), expected_out_tensor));
+}
+
+TEST_F(ReplayTest, ReplaySplitOnReduction) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+  TensorView* in = makeSymbolicTensor(1);
+  TensorView* out = sum(in, {0});
+  fusion.addInput(in);
+  fusion.addOutput(out);
+
+  constexpr int d = 2;
+  out->setDeviceMesh(DeviceMesh::createForNumDevices(d));
+  out->outer_split(0, d);
+
+  TensorView* new_out = sum(in, {0});
+  TransformReplay::selfReplay(
+      out->domain(), new_out->domain(), /*ignore_reductions=*/false);
+  fusion.replaceOutput(out, new_out);
+
+  std::vector<IterDomain*> out_loop =
+      fusion.outputs().at(0)->as<TensorView>()->getLoopDomain();
+  EXPECT_THAT(out_loop, SizeIs(2));
+  EXPECT_THAT(out_loop, Each(Property(&IterDomain::isReduction, IsTrue())));
+}
+
+TEST_F(ReplayTest, IgnoreSplitOnReduction) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+  TensorView* in = makeSymbolicTensor(2);
+  TensorView* x = sum(in, {0});
+  TensorView* out = set(x);
+  fusion.addInput(in);
+  fusion.addOutput(out);
+
+  constexpr int d = 2;
+  x->setDeviceMesh(DeviceMesh::createForNumDevices(d));
+  x->outer_split(0, d);
+  x->outer_split(2, d);
+
+  TransformReplay::selfReplay(
+      x->domain(), out->domain(), /*ignore_reductions=*/true);
+
+  EXPECT_THAT(
+      out->getLoopDomain(),
+      ElementsAre(
+          Property(&IterDomain::isIteration, IsTrue()),
+          Property(&IterDomain::isIteration, IsTrue())));
+}
+
+TEST_F(ReplayTest, LoopAndAllocation) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+  TensorView* in = makeSymbolicTensor(1);
+  TensorView* out = set(in);
+  fusion.addInput(in);
+  fusion.addOutput(out);
+
+  constexpr int d = 2;
+  in->setDeviceMesh(DeviceMesh::createForNumDevices(d));
+  in->outer_split(0, d);
+  in->setAllocationDomain(in->getLoopDomain(), true);
+
+  TransformReplay::selfReplay(in->domain(), out->domain());
+  EXPECT_THAT(out->getLoopDomain(), SizeIs(2));
+  EXPECT_THAT(out->getLoopDomain(), ContainerEq(out->getAllocationDomain()));
+  EXPECT_THAT(out->getContiguity(), Each(Optional(IsTrue())));
 }
 
 } // namespace nvfuser

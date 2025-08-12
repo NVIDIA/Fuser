@@ -7,16 +7,17 @@
 // clang-format on
 #include <expr_evaluator.h>
 #include <ir/cloner.h>
+#include <ir/iostream.h>
 #include <ir/utils.h>
 #include <multidevice/utils.h>
 #include <ops/arith.h>
 #include <scheduler/reduction_utils.h>
 #include <scheduler/registry.h>
 #include <scheduler/runtime_info.h>
-#include <scheduler/tools/inlining.h>
 #include <scheduler/tools/maxinfo_propagator.h>
 #include <scheduler/utils.h>
 #include <transform_replay.h>
+#include <utils.h>
 
 namespace nvfuser {
 
@@ -31,18 +32,25 @@ TensorView* scheduleReductionTV(
   // Inner here though is only relative to the other axis. When
   // rparams->fastest_dim == false, the reduction axis is logically outside the
   // iteration axis.
+  //
   // Multidevice scheduling: we assume only the outermost domain can be
   // parallelized with DIDx at this point and in that case this reduction
   // scheduler only schedules the remaining domains while leaving the DIDx
   // domain unchanged.
-  const bool has_outermost_dim_sharded = isSharded(reduction_tv);
+  int64_t sharded_axis = getShardedLoopAxis(reduction_tv, ParallelType::DIDx);
+  if (sharded_axis >= 0) {
+    NVF_ERROR(
+        sharded_axis == 0,
+        "Expect 1D mesh and DIDx only appear outermost in loop, but found: ",
+        reduction_tv->getLoopDomain());
+  }
   NVF_ERROR(
-      !has_outermost_dim_sharded || !rparams->schedule_3D,
+      sharded_axis == -1 || !rparams->schedule_3D,
       "Mixing interdevice and 3D schedule is not supported");
-  const int iter_axis = has_outermost_dim_sharded ? 1 : 0;
+  const int iter_axis = (sharded_axis >= 0) ? 1 : 0;
   const int outer_reduce_axis = rparams->schedule_3D ? 1 : 0;
   const int inner_reduce_axis =
-      rparams->schedule_3D ? 2 : has_outermost_dim_sharded + has_iter_axis;
+      rparams->schedule_3D ? 2 : (sharded_axis >= 0) + has_iter_axis;
 
   const bool is_outer_grid_persistence = rparams->persistent_kernel &&
       rparams->cross_grid_inner_reduction && !rparams->fastest_dim;
@@ -111,8 +119,30 @@ TensorView* scheduleReductionTV(
     reduction_tv->split(axis, factor, false);
     reduction_tv->axis(axis)->parallelize(ParallelType::Unroll);
   };
+  if (rparams->tma_warp_specialized) {
+    auto option = rparams->circular_buffer_options;
+    auto ws_pt = std::get<WarpSpecialized>(option.type).on;
+    // Reduction: [Persistent, TIDx, Vect]
+    vectorize(inner_reduce_axis, rparams->unroll_factor_inner_reduction);
 
-  if (is_outer_grid_persistence) {
+    // static bdimx is required for TMA warp specialization
+    int64_t compute_bdimx = getComputeBdimx(option, rparams->lparams.bdimx());
+    inner_parallel_static(inner_reduce_axis, ParallelType::TIDx, compute_bdimx);
+
+    // Iteration: [I/Unroll/BIDy, BIDy, Unroll]
+    if (rparams->unroll_factor_iter_dom > 1) {
+      inner_unroll(iter_axis, rparams->unroll_factor_iter_dom);
+    }
+    inner_parallel_static(
+        iter_axis, rparams->grid_dim_iter_dom, rparams->lparams.gdimy());
+    if (rparams->computation_warp_groups > 1) {
+      NVF_ERROR(
+          ws_pt == ParallelType::TIDy,
+          "Warp specialization only supports TIDy, got ",
+          ws_pt);
+      inner_parallel_static(iter_axis, ws_pt, rparams->computation_warp_groups);
+    }
+  } else if (is_outer_grid_persistence) {
     const auto reduction_axis = inner_reduce_axis;
     NVF_ERROR(rparams->static_bdimy, "blockDim.y must be static");
     inner_parallel_static(
@@ -138,12 +168,12 @@ TensorView* scheduleReductionTV(
     }
   } else if (rparams->persistent_kernel) {
     // Persistent Format:
-    // [Grid Split, persistent buffer, unswitch, unroll, thread dim, vectorize]
+    // [Grid Split, persistent buffer, unswitch, unroll, thread dim,
+    // vectorize]
     if (rparams->vectorize_inner_reduction) {
       vectorize(inner_reduce_axis, rparams->unroll_factor_inner_reduction);
     }
     if (rparams->combined_inner_outer && !rparams->multiple_reds_per_blk) {
-      // inner_parallel(inner_reduce_axis, rparams->block_dim_inner_reduction);
       NVF_ERROR(
           rparams->static_bdimx,
           "blockDim.x must be static for combined_inner_outer");
@@ -201,6 +231,9 @@ TensorView* scheduleReductionTV(
     if (!rparams->vectorize_inner_reduction &&
         rparams->unroll_factor_inner_reduction > 1) {
       inner_unroll(inner_reduce_axis, rparams->unroll_factor_inner_reduction);
+    } else if (rparams->unroll_factor_top_of_vectorization > 1) {
+      inner_unroll(
+          inner_reduce_axis, rparams->unroll_factor_top_of_vectorization);
     }
 
     inner_unswitch(inner_reduce_axis);
@@ -213,9 +246,8 @@ TensorView* scheduleReductionTV(
       }
     }
   }
-
   // Outer reduction axis
-  if (rparams->schedule_3D) {
+  if (!rparams->tma_warp_specialized && rparams->schedule_3D) {
     if (rparams->persistent_kernel) {
       // Persistent Format:
       // [Grid Split, persistent buffer, unroll, thread dim]
@@ -251,7 +283,7 @@ TensorView* scheduleReductionTV(
   }
 
   // Iteration domain
-  if (has_iter_axis) {
+  if (!rparams->tma_warp_specialized && has_iter_axis) {
     // [Grid Split, unswitch, unroll, thread dim, vectorize]
 
     if (rparams->vectorize_iter_dom) {
@@ -293,8 +325,10 @@ TensorView* scheduleReductionTV(
       }
     }
   }
-
-  auto reduction_rf_tv = sortAndRFactor(reduction_tv);
+  const bool is_non_persistent_outer_reduction =
+      !rparams->persistent_kernel && !rparams->fastest_dim;
+  auto reduction_rf_tv =
+      sortAndRFactor(reduction_tv, is_non_persistent_outer_reduction);
 
   // In the case of outer grid persistence, make sure the vectorized
   // domain placed at the innermost position.
@@ -302,7 +336,7 @@ TensorView* scheduleReductionTV(
   if (is_outer_grid_persistence) {
     int64_t vec_id_cur_pos = -1;
     std::unordered_map<int64_t, int64_t> vec_reorder_map;
-    for (const auto i : c10::irange(reduction_rf_tv->nDims())) {
+    for (const auto i : arange(reduction_rf_tv->nDims())) {
       auto id = reduction_rf_tv->axis(i);
       if (id->getParallelType() == ParallelType::Vectorize) {
         vec_id_cur_pos = i;
@@ -314,7 +348,13 @@ TensorView* scheduleReductionTV(
     NVF_ERROR(vec_id_cur_pos != -1, "Vectorized ID not found");
     reduction_rf_tv->reorder(vec_reorder_map);
   }
-
+  // [BIDy, TIDy, CircularLoop, Unroll, ...] to
+  // [BIDy, CircularLoop, TIDy, Unroll, ...]
+  // TIDy represents different computation warp groups and
+  // will be changed to serial for TMA loads.
+  if (rparams->computation_warp_groups > 1) {
+    reduction_rf_tv->reorder({{1, 2}});
+  }
   return reduction_rf_tv;
 }
 
@@ -329,7 +369,7 @@ std::vector<int64_t> addBackBroadcasts(
   // convert non-broadcast positions to raw positions
   std::vector<int64_t> axes;
   int64_t non_broadcast_pos = 0;
-  for (const auto i : c10::irange(tv->nDims())) {
+  for (const auto i : arange(tv->nDims())) {
     if (tv->axis(i)->isBroadcast()) {
       continue;
     }
@@ -339,52 +379,6 @@ std::vector<int64_t> addBackBroadcasts(
     non_broadcast_pos++;
   }
   return axes;
-}
-
-void multiReductionInliner(
-    Fusion* fusion,
-    TensorView* reduction_tv,
-    TensorView* reference_tv,
-    const bool is_unroll_or_vectorization,
-    const bool vectorize,
-    const bool use_grouped_reduction,
-    const int64_t vectorizatoin_factor,
-    std::vector<TensorView*> reduction_tvs,
-    std::vector<TensorView*> cached_inputs,
-    std::vector<std::pair<TensorView*, TensorView*>> cached_outputs,
-    std::vector<TensorView*> smem_consumers,
-    std::vector<TensorView*> dummy_outputs) {
-  // Propagate transformations before we rfactor the other reductions
-  propagateTransformation(reference_tv);
-  // If reduction_tv is rfactored, rfactor all reductions.
-  if (reference_tv != reduction_tv) {
-    propagateRFactor(reference_tv, reduction_tv, reduction_tvs);
-  }
-
-  const auto& unroll_vectorizable_cached_tvs = getCachedTvsToUnrollOrVectorize(
-      reference_tv, vectorize, cached_inputs, cached_outputs);
-  reduction_scheduler_utils::propagateParallelization(
-      reduction_tv,
-      reference_tv,
-      is_unroll_or_vectorization,
-      use_grouped_reduction,
-      reduction_tvs,
-      unroll_vectorizable_cached_tvs);
-
-  // Needs special handling of vectorized loading from shared memory due to
-  // potential different data types of inputs and shared memory tensor.
-  if (vectorize) {
-    reduction_scheduler_utils::sharedMemoryConsumerVectorization(
-        smem_consumers, vectorizatoin_factor);
-  }
-
-  // Remove dummy outputs as they can inadvertently affect CA positions
-  for (auto output : dummy_outputs) {
-    fusion->removeOutput(output);
-  }
-
-  // Inline the schedule
-  inlineMost();
 }
 
 void propagateTransformation(
@@ -407,7 +401,7 @@ void propagateRFactor(
   // position in other reduction TVs.
   std::unordered_set<int64_t> non_broadcast_rfactor_axes_ir;
   int64_t non_broadcast_pos_ir = 0;
-  for (const auto i : c10::irange(reference_tv->nDims())) {
+  for (const auto i : arange(reference_tv->nDims())) {
     if (reference_tv->axis(i)->isBroadcast()) {
       continue;
     }
@@ -510,24 +504,35 @@ void clearUnrollVectorizationAddGroupReduction(
     const std::unordered_set<TensorView*>& unroll_vectorizable_cached_tvs) {
   std::vector<TensorView*> rfactor_and_reduction_tvs = {
       reference_tv, reduction_tv};
+  bool is_inner_reduction =
+      scheduler_utils::isFastestDimReduction(reduction_tv);
+  auto convertParallelToGrouped = [&is_inner_reduction](IterDomain* id) {
+    auto pt = id->getParallelType();
+    // For inner reduction, convert outer dim unroll to group.
+    // For outer reduction, convert inner dim vectorization to group.
+    if (is_inner_reduction) {
+      return pt == ParallelType::Unroll && !id->isReduction();
+    } else {
+      return pt == ParallelType::Vectorize;
+    }
+  };
   for (auto tv : rfactor_and_reduction_tvs) {
     if (unroll_vectorizable_cached_tvs.count(tv) != 0) {
       continue;
     }
-    for (const auto i : c10::irange(tv->nDims())) {
+    for (const auto i : arange(tv->nDims())) {
       auto id = tv->axis(i);
       if (use_grouped_reduction &&
           std::find(reduction_tvs.begin(), reduction_tvs.end(), tv) !=
               reduction_tvs.end() &&
-          id->getParallelType() == ParallelType::Vectorize) {
+          convertParallelToGrouped(id)) {
         tv->axis(i)->parallelize(ParallelType::Group);
         for (auto sibling : ir_utils::siblingTvsOf(tv)) {
           sibling->axis(i)->parallelize(ParallelType::Group);
         }
       } else if (
           id->getParallelType() == ParallelType::Unroll ||
-          id->getParallelType() == ParallelType::Vectorize ||
-          id->getParallelType() == ParallelType::MisalignedVectorize) {
+          id->getParallelType() == ParallelType::Vectorize) {
         tv->axis(i)->parallelize(ParallelType::Serial);
         for (auto sibling : ir_utils::siblingTvsOf(tv)) {
           sibling->axis(i)->parallelize(ParallelType::Serial);
@@ -557,28 +562,28 @@ void propagateParallelization(
     const bool use_grouped_reduction,
     const std::vector<TensorView*>& reduction_tvs,
     const std::unordered_set<TensorView*>& unroll_vectorizable_cached_tvs,
-    const std::vector<TensorView*>& selected_tvs) {
+    const std::vector<TensorView*>& selected_tvs,
+    const bool skip_input_output_unroll) {
   // Propagate parallelization except vectorization and unrolling
   scheduler_utils::parallelizeAllLike(
       reference_tv,
       -1,
       selected_tvs,
-      allParallelTypesExcept(
-          {ParallelType::Unroll,
-           ParallelType::Vectorize,
-           ParallelType::MisalignedVectorize}));
+      allParallelTypesExcept({ParallelType::Unroll, ParallelType::Vectorize}));
 
   if (is_unroll_or_vectorization) {
     if (!unroll_vectorizable_cached_tvs.empty()) {
+      std::unordered_set<ParallelType> selected_pts{ParallelType::Vectorize};
+      if (!skip_input_output_unroll) {
+        selected_pts.insert(ParallelType::Unroll);
+      }
       // Propagate vectorization/unrolling to those tensors that need it
       scheduler_utils::parallelizeAllLike(
           reference_tv,
           -1,
           {unroll_vectorizable_cached_tvs.begin(),
            unroll_vectorizable_cached_tvs.end()},
-          {ParallelType::Unroll,
-           ParallelType::Vectorize,
-           ParallelType::MisalignedVectorize});
+          selected_pts);
     }
     // If reference shouldn't be unrolled, clear that parallel type.
     // In the case of outer grid persistence, replace Vector with Group.
@@ -601,8 +606,7 @@ int idPos(const IterDomain* id) {
   // Reduction and unrolled
   if (id->isReduction() &&
       (id->getParallelType() == ParallelType::Unroll ||
-       id->getParallelType() == ParallelType::Vectorize ||
-       id->getParallelType() == ParallelType::MisalignedVectorize)) {
+       id->getParallelType() == ParallelType::Vectorize)) {
     return inner_most;
   }
   inner_most--;
@@ -634,8 +638,7 @@ int idPos(const IterDomain* id) {
   // Iter and unrolled
   if (!id->isReduction() &&
       (id->getParallelType() == ParallelType::Unroll ||
-       id->getParallelType() == ParallelType::Vectorize ||
-       id->getParallelType() == ParallelType::MisalignedVectorize)) {
+       id->getParallelType() == ParallelType::Vectorize)) {
     return inner_most;
   }
   inner_most--;
@@ -685,36 +688,66 @@ int idPos(const IterDomain* id) {
   return 0;
 }
 
-struct id_lt {
-  // Return if id0 should be before id1
-  inline bool operator()(const IterDomain* id0, const IterDomain* id1) {
-    return idPos(id0) < idPos(id1);
-  }
-};
+// Return if id0 should be before id1
+bool placedBefore(const IterDomain* id0, const IterDomain* id1) {
+  return idPos(id0) < idPos(id1);
+}
 } // namespace
 
-TensorView* sortAndRFactor(TensorView* reference_tv) {
+TensorView* sortAndRFactor(
+    TensorView* reference_tv,
+    bool is_non_persistent_outer_reduction) {
   auto domain = reference_tv->getLoopDomain();
-  std::sort(domain.begin(), domain.end(), id_lt());
+  std::sort(domain.begin(), domain.end(), placedBefore);
   std::unordered_map<int64_t, int64_t> reorder_map;
   std::unordered_map<IterDomain*, int64_t> domain_pos;
-  for (int64_t axis_i = 0; axis_i < (int64_t)domain.size(); axis_i++) {
+  for (auto axis_i : arange(static_cast<int64_t>(domain.size()))) {
     domain_pos[domain[axis_i]] = axis_i;
   }
-  for (int64_t old_i = 0; old_i < reference_tv->nDims(); old_i++) {
-    auto new_i_it = domain_pos.find(reference_tv->axis(old_i));
-    NVF_ERROR(
-        new_i_it != domain_pos.end(),
-        "Error in schedule reorder, didn't reorder all axes in provided tv.");
-    auto new_i = new_i_it->second;
-    reorder_map[old_i] = new_i;
+  for (int64_t old_i : arange(reference_tv->nDims())) {
+    reorder_map[old_i] = domain_pos.at(reference_tv->axis(old_i));
   }
   reference_tv->reorder(reorder_map);
+  // For outer reduction, if an Id after vectorization Id is a constant
+  // serial Id, swap it with the vectorization Id to reduce register usage.
+  // For example, in a thread-local outer reduction, we want to transform:
+  //   [..., iV{8}, rS{7}, rUS{1}, rUR{4}]
+  // to:
+  //   [..., rS{7}, iV{8}, rUS{1}, rUR{4}]
+  // After change, each thread only needs to cache 8 × 4 elements instead of
+  // 8 × 7 × 4 elements.
+  // See https://github.com/NVIDIA/Fuser/issues/4172 for real examples.
+  if (is_non_persistent_outer_reduction) {
+    auto vect_iter =
+        std::find_if(domain.begin(), domain.end(), [](IterDomain* id) {
+          return id->getParallelType() == ParallelType::Vectorize;
+        });
+    if (vect_iter != domain.end()) {
+      int64_t vect_id_pos = vect_iter - domain.begin();
+      std::unordered_map<int64_t, int64_t> reorder_map;
+      for (auto iter = vect_iter + 1; iter != domain.end(); iter++) {
+        if ((*iter)->getParallelType() == ParallelType::Serial &&
+            (*iter)->extent()->isConstScalar()) {
+          int64_t id_pos = iter - domain.begin();
+          reorder_map[id_pos] = vect_id_pos++;
+        }
+      }
+      // Although we support reordering multiple constant serial IDs after the
+      // vectorization ID, the current scheduler only emits one. It may be worth
+      // exploring performance implications if multiple such IDs are introduced
+      // in the future.
+      NVF_ERROR(
+          reorder_map.size() <= 1,
+          "Expect one constant serial Id after vectorization Id, but found ",
+          reorder_map.size());
+      reference_tv->reorder(reorder_map);
+    }
+  }
 
   std::vector<int64_t> rfactor_axes;
   std::vector<int64_t> rfactor_axes_no_unswitch;
   size_t reduction_dims = 0;
-  for (int64_t axis_i = 0; axis_i < reference_tv->nDims(); axis_i++) {
+  for (int64_t axis_i : arange(reference_tv->nDims())) {
     auto id = reference_tv->axis(axis_i);
     if (!id->isReduction()) {
       continue;
@@ -730,9 +763,9 @@ TensorView* sortAndRFactor(TensorView* reference_tv) {
     // unswitch dim.
     if (!(id->getParallelType() == ParallelType::Unswitch &&
           id->extent()->isOneInt())) {
-      rfactor_axes_no_unswitch.emplace_back(axis_i);
+      rfactor_axes_no_unswitch.push_back(axis_i);
     }
-    rfactor_axes.emplace_back(axis_i);
+    rfactor_axes.push_back(axis_i);
   }
 
   if (reduction_dims == rfactor_axes.size()) {
@@ -750,14 +783,17 @@ namespace {
 // the scheduling.
 class PersistentBufferProjector {
  public:
-  PersistentBufferProjector(Fusion* fusion, const bool project_to_inputs)
+  PersistentBufferProjector(
+      Fusion* fusion,
+      scheduler_utils::PersistentBufferInfo persistent_info,
+      const bool project_to_inputs)
       : fusion_(fusion),
-        persistent_info(scheduler_utils::persistentBuffers(fusion)),
-        persistent_buffers(persistent_info.persistent_buffers),
+        persistent_info_(std::move(persistent_info)),
+        persistent_buffers(persistent_info_.persistent_buffers),
         persistent_buffer_resolution_points(
-            persistent_info.persistent_buffer_resolution_points),
+            persistent_info_.persistent_buffer_resolution_points),
         projectable_persistent_buffers(
-            persistent_info.projectable_persistent_buffers),
+            persistent_info_.projectable_persistent_buffers),
         project_to_inputs_(project_to_inputs) {}
 
   const std::vector<TensorView*>& project() {
@@ -771,7 +807,7 @@ class PersistentBufferProjector {
 
  private:
   Fusion* fusion_;
-  const scheduler_utils::PersistentBufferInfo persistent_info;
+  const scheduler_utils::PersistentBufferInfo persistent_info_;
   const std::vector<TensorView*>& persistent_buffers;
   const std::vector<std::vector<TensorView*>>&
       persistent_buffer_resolution_points;
@@ -783,7 +819,7 @@ class PersistentBufferProjector {
     // Iterate through projected buffers, tracking which index it corresponds
     // too since there's a resolution point entry for every buffer.
     const auto& reduction_tvs = scheduler_utils::getReductionTvs(fusion_);
-    for (auto buffer_i : c10::irange(persistent_buffers.size())) {
+    for (auto buffer_i : arange(persistent_buffers.size())) {
       auto buffer = persistent_buffers[buffer_i];
       if (std::find(
               projectable_persistent_buffers.begin(),
@@ -841,7 +877,9 @@ class PersistentBufferProjector {
               persistent_buffers[a], persistent_buffers[b]);
         });
 
-    // try to project buffer to its producers
+    // try to project buffer to its producers when
+    // (1) all producers are persistent buffers
+    // (2) or, the buffer is the input to an upcast op
     std::unordered_set<TensorView*> persistent_buffer_set(
         persistent_buffers.begin(), persistent_buffers.end());
     for (auto buffer_i : visiting_order) {
@@ -852,6 +890,23 @@ class PersistentBufferProjector {
         projectToInputOrImmediatePersistentProducer(
             (int)buffer_i,
             std::vector<Val*>(producers.begin(), producers.end()));
+      } else if (
+          auto upcast_input = scheduler_utils::getUpCastInputOf(buffer)) {
+        // Similar to projecting to inputs and persistent producers, this logic
+        // projects the buffer to its producer when the buffer is the output of
+        // an upcast op. This optimization reduces buffer size and can be
+        // extended to project to low-precision intermediate tensors, even if
+        // the recomputation involves non-cast ops. However, this should be
+        // avoided when the recomputation cost outweighs the benefits of reduced
+        // register usage.
+        // TODO: extend to allow non-cast ops in the recomputation.
+        auto consumers = ir_utils::consumerTvsOf(buffer);
+        for (auto i : arange(1, consumers.size())) {
+          ir_utils::replaceValInExprInputs(
+              consumers.at(i)->definition(),
+              buffer,
+              RecomputeTv::recompute(buffer, {upcast_input}));
+        }
       }
     }
   }
@@ -952,8 +1007,10 @@ class PersistentBufferProjector {
 } // namespace
 std::vector<TensorView*> projectPersistentBuffers(
     Fusion* fusion,
+    const scheduler_utils::PersistentBufferInfo& persistent_info,
     const bool project_to_inputs) {
-  PersistentBufferProjector pb_projector(fusion, project_to_inputs);
+  PersistentBufferProjector pb_projector(
+      fusion, persistent_info, project_to_inputs);
   return pb_projector.project();
 }
 
@@ -1030,19 +1087,20 @@ void sharedMemoryConsumerVectorization(
     // vectorization factor set for io tvs.
     NVF_ERROR(
         tv->axis(vect_axis_pos)->extent()->isConst(),
-        "Extent of the innermost axis of smem consumers should be constant. Got: ",
+        "Extent of the innermost axis of smem consumers should be constant. "
+        "Got: ",
         tv->toString());
     auto innermost_extent =
         tv->axis(vect_axis_pos)->extent()->evaluate().as<int64_t>();
     NVF_ERROR(
         innermost_extent == io_vectorization_factor,
-        "Extent of the innermost axis of smem consumers should be equal to the vectorization factor of fuion inputs and outputs. Got: ",
+        "Extent of the innermost axis of smem consumers should be equal to the "
+        "vectorization factor of fuion inputs and outputs. Got: ",
         innermost_extent,
         ", expected: ",
         io_vectorization_factor);
-    auto dtype_bytes = dataTypeSize(tv->getDataType().value());
-    auto max_vect_factor =
-        SchedulerRuntimeInfo::max_alignment_size_in_byte / dtype_bytes;
+    auto dtype_bits = dataTypeSizeBit(tv->getDataType().value());
+    auto max_vect_factor = getMaxVectorizationSizeInBit() / dtype_bits;
     // additional split is added if the innermost extent is greater than max
     // vectorization factor.
     if (innermost_extent > max_vect_factor) {
@@ -1052,5 +1110,21 @@ void sharedMemoryConsumerVectorization(
   }
 }
 
+int64_t getComputeBdimx(ParallelType warp_specialized_on, int64_t bdimx) {
+  return warp_specialized_on == ParallelType::TIDx
+      ? bdimx - kWarpSpecializationPaddedThreads
+      : bdimx;
+}
+
+int64_t getComputeBdimx(
+    const CircularBufferOptions& circular_buffer_opt,
+    int64_t bdimx) {
+  return (circular_buffer_opt.isEnable() &&
+          std::holds_alternative<WarpSpecialized>(circular_buffer_opt.type) &&
+          std::get<WarpSpecialized>(circular_buffer_opt.type).on ==
+              ParallelType::TIDx)
+      ? bdimx - kWarpSpecializationPaddedThreads
+      : bdimx;
+}
 } // namespace reduction_scheduler_utils
 } // namespace nvfuser

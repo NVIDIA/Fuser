@@ -4,7 +4,7 @@
 # Owner(s): ["module: nvfuser"]
 
 import torch
-from utils import NVFuserTest, is_pre_volta
+from python.utils import NVFuserTest, is_pre_volta, verify_stride_order
 from nvfuser import FusionDefinition, DataType
 import pytest
 from functools import partial
@@ -164,11 +164,11 @@ class TestMatmul(NVFuserTest):
             fd.add_output(T4)
 
         inputs = [
-            torch.randn((262400,), dtype=torch.float32, device="cuda:0").as_strided(
-                (1025, 256, 1), (256, 1, 256)
+            torch.randn((2 * 32,), dtype=torch.float32, device="cuda:0").as_strided(
+                (2, 32, 1), (32, 1, 32)
             ),
-            torch.randn((1049600,), dtype=torch.float32, device="cuda:0").as_strided(
-                (1025, 1, 1024), (1024, 1024, 1)
+            torch.randn((2 * 16,), dtype=torch.float32, device="cuda:0").as_strided(
+                (2, 1, 16), (16, 16, 1)
             ),
         ]
         self.exec_nvfuser(fusion_func, inputs)
@@ -201,3 +201,29 @@ class TestMatmul(NVFuserTest):
         ]
         outputs, _ = self.exec_nvfuser(fusion_func, inputs)
         assert outputs[0].ndim == 3
+
+    def test_matmul_stride(self):
+        n, h, l, s, e = 4, 8, 16, 16, 8
+        inputs = [
+            torch.randn(
+                n, h, l, e, device="cuda", dtype=torch.float16, requires_grad=True
+            ),
+            torch.randn(
+                n, h, s, e, device="cuda", dtype=torch.float16, requires_grad=True
+            ),
+        ]
+        for perm in itertools.permutations(range(4), 4):
+
+            def fusion_func(fd: FusionDefinition) -> None:
+                q = fd.from_pytorch(inputs[0])
+                k = fd.from_pytorch(inputs[1])
+                k_t = fd.ops.permute(k, [0, 1, 3, 2])
+                out = fd.ops.matmul(q, k_t)
+                fd.add_output(out, stride_order=perm)
+
+            with FusionDefinition() as fd:
+                fusion_func(fd)
+            nvf_out = fd.execute(inputs)
+            eager_out = torch.matmul(inputs[0], torch.transpose(inputs[1], -2, -1))
+            verify_stride_order(nvf_out[0].stride(), perm)
+            torch.testing.assert_close(nvf_out[0], eager_out)

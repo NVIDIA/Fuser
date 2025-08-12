@@ -11,7 +11,10 @@
 #include <visibility.h>
 
 #include <ir/interface_nodes.h>
+#include <scheduler/tools/abstract_tensor.h>
 #include <type.h>
+
+#include <functional>
 
 //
 // The operations defined in this header is intended as user facing functions.
@@ -40,6 +43,11 @@ NVF_API TensorView* reshape(
 //! symbolic, which are then concretized at run time with actual
 //! fusion inputs.
 NVF_API TensorView* reshape(TensorView* x, const std::vector<Val*>& new_sizes);
+
+// Reshape by manually specify domain transformation
+NVF_API TensorView* reshape(
+    TensorView* x,
+    std::function<void(AbstractTensor&)> transform);
 
 NVF_API TensorView* flatten(
     TensorView* x,
@@ -181,5 +189,12 @@ NVF_API TensorView* expand(
 // matching entry in other that's either a broadcast with expanded extent or a
 // non broadcasted iter domain, inp will be expanded to other's size.
 NVF_API TensorView* expand_as(TensorView* inp, TensorView* other);
+
+// Repeat each dimension for a given time. The repeat_times parameter
+// must have the same number of elements as the dimensionality of the
+// input tensor (excluding reduction IDs).
+NVF_API TensorView* repeat(
+    TensorView* inp,
+    const std::vector<int64_t>& repeat_times);
 
 } // namespace nvfuser

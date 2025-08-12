@@ -56,7 +56,7 @@ class EmptyTensorRemover : public DeadCodeRemover {
   //! `emptyAxes(TensorDomain::noReductions(tv->getLogicalDomain()))`
   std::vector<int64_t> emptyAxes(const std::vector<IterDomain*>& domain) {
     std::vector<int64_t> empty_axes;
-    for (auto ax : c10::irange(domain.size())) {
+    for (auto ax : arange(domain.size())) {
       auto id = domain.at(ax);
       PolymorphicValue extent =
           expr_eval_.evaluate(id->getMaybeExpandedExtent());

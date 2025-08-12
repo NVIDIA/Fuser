@@ -14,15 +14,6 @@
 
 namespace nvfuser::preseg_passes {
 
-// Propagate allocation domain from srcs to dsts.
-// The pass update allocation domain on dsts tensor views.
-//
-// See details in Note [ Allocation Order Propagation ]
-void inferenceAllocationOrder(
-    Fusion* fusion,
-    const std::vector<TensorView*>& srcs,
-    const std::vector<TensorView*>& dsts);
-
 // Realize allocation order propagation on fusion inputs to optimize allocation
 // domain of output tensor. This optimization pass currently only applies to
 // fusion outputs, but not intermediate tensors.
@@ -31,7 +22,7 @@ class AllocationDomainPass : public OptimizationPass<AllocationDomainPass> {
 
  protected:
   static void runPass(Fusion* fusion);
-  static std::string name() {
+  static constexpr std::string_view name() {
     return "AllocationDomainPass";
   }
 };

@@ -104,6 +104,14 @@ class SchedulerTopologyChecker {
   static bool hasGatherToBroadcastBeforeReduction(
       Fusion* fusion,
       const std::vector<TensorView*>& reduction_tvs);
+
+  static bool hasResizeAndIndexOps(Fusion* fusion);
+
+  // Checks if a series of reshape ops creates a cycle in the ID
+  // graph. It is not currently supported. For example,
+  // propagateReshapeTransforms won't work as it won't find any
+  // terminating reshape IDs.
+  static bool hasCyclicReshape(Fusion* fusion);
 };
 
 } // namespace registry_utils

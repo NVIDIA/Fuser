@@ -41,10 +41,8 @@ jobs:
         run: |
           tools/apt-install-things.sh &
           tools/pip-install-things.sh &
+          wait
           source tools/setup-env.sh
-
-          # clang-tidy does not work well with gcc-13 headers, remove them
-          sudo rm -rf /usr/lib/gcc/x86_64-linux-gnu/13
 
           # Install lintrunner
           pip install lintrunner
@@ -52,7 +50,8 @@ jobs:
           # Initialize lintrunner
           lintrunner init 2> /dev/null
 
-          wait
+          # Go to python folder to build cmake files
+          cd python
 
           # Run cmake build
           python setup.py --cmake-only
@@ -60,6 +59,9 @@ jobs:
           # Generate csrc/serde/fusion_cache_generated.h
           # NOTE: this might cause a compile of flatbuffers if it is missing
           ninja -C build build_flatbuffer_config
+
+          # Return to root to run clang-tidy
+          cd ..
 
           # Run lintrunner on all csrc files exclude benchmark and test folders
           this_commit=$(git rev-parse HEAD)
@@ -90,7 +92,7 @@ jobs:
           lintrunner init 2> /dev/null
 
           # Install dependencies
-          sudo apt install -y libtinfo5
+          sudo apt install -y libtinfo6
 
           # Run lintrunner except clang-tidy
           lintrunner --force-color --take FLAKE8,MYPY,CLANGFORMAT,NOQA,TYPEIGNORE,NEWLINE,MYPYSTRICT,TABS,SPACES,EXEC,BLACK,TORCH_INTERNAL_ASSERT,TORCH_CHECK,C10_ERROR,TORCH_CUDA_CU_API --all-files

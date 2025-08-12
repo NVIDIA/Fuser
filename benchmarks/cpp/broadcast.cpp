@@ -56,7 +56,7 @@ static void setupBroadcast(Fusion* fusion, DataType dtype, int bcast_axis) {
 
 static void NvFuserScheduler_Broadcast(
     benchmark::State& benchmark_state,
-    FusionExecutorCache* fusion_executor_cache,
+    FusionExecutorCache* executor_cache,
     DataType dtype,
     int bcast_dim) {
   auto bcast_size = benchmark_state.range(0);
@@ -72,13 +72,13 @@ static void NvFuserScheduler_Broadcast(
 
   at::Tensor t1 = at::randn({iter_size}, options);
 
-  std::vector<c10::IValue> aten_inputs({t0, t1});
+  KernelArgumentHolder args = {t0, t1};
 
-  runBenchmarkIterations(benchmark_state, fusion_executor_cache, aten_inputs);
+  runBenchmarkIterations(benchmark_state, executor_cache, args);
 
   benchmark_state.SetBytesProcessed(
       int64_t(benchmark_state.iterations()) *
-      (iter_size * bcast_size * 2 + iter_size) * int64_t(dataTypeSize(dtype)));
+      (iter_size * bcast_size * 2 + iter_size) * dataTypeSizeByte(dtype));
 }
 
 static void Baseline_Broadcast(
@@ -112,7 +112,7 @@ static void Baseline_Broadcast(
 
   benchmark_state.SetBytesProcessed(
       int64_t(benchmark_state.iterations()) *
-      (iter_size * bcast_size * 2 + iter_size) * int64_t(dataTypeSize(dtype)));
+      (iter_size * bcast_size * 2 + iter_size) * dataTypeSizeByte(dtype));
 }
 
 //------------------------------------------------------------------------------

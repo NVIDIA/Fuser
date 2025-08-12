@@ -23,39 +23,6 @@ namespace nvfuser::MmaOpUtils {
 // The expected number of concrete domains for gemm
 constexpr size_t expected_gemm_cdomains = 2;
 
-// A helper structure used to gather all data created during analysis
-struct MmaOpDetails {
-  using AxesData = MmaOp::AxesData;
-  // Concrete axes from A that are broadcast in B and are not
-  //  reduction in output
-  AxesData m_axes;
-  // Concrete axes from B that are broadcast in A and are not
-  //  reduction in output
-  AxesData n_axes;
-  // Concrete axes from A that are concrete in B and are
-  //  reduction in output
-  AxesData k_axes;
-  // Concrete or broadcast axes that are present in all inputs
-  //  and output
-  AxesData batch_axes;
-};
-
-// A helper structure with pieces of information about TensorView
-struct TensorViewDetails {
-  using AxesData = MmaOp::AxesData;
-  // Broadcast domains
-  AxesData bcasts;
-  // Reduction domains
-  AxesData rdomains;
-  // Concrete domains
-  AxesData cdomains;
-};
-
-MmaOpDetails getMmaOpDetails(
-    TensorView* out,
-    TensorView* in_a,
-    TensorView* in_b);
-
 void verifyMmaOpForEvaluation(MmaOp* mma_op, DataType expected_input_dtype);
 
 struct MatmulInputs {
@@ -81,10 +48,16 @@ struct MatmulInputs {
 namespace nvfuser::ir_utils {
 
 // Replace values in fusion using ValReplacementMutator, it also updates fusion
-// output according to the replacement_map
-void replaceValue(
+// output according to the replacement_map. Returns the final
+// replacement map, which includes the given replacement entries as
+// well as those that are the results of the replacement.
+std::unordered_map<Val*, Val*> replaceValue(
     Fusion*,
     const std::unordered_map<Val*, Val*>& replacement_map);
+
+//! Checks whether this is a simple Set of a TensorView. If not, then this might
+//! represent a scalar set, or a segment_set.
+bool isSimpleTVSet(Expr* expr);
 
 template <typename FilterType, typename Iterator>
 class FilterIterator {
@@ -442,11 +415,11 @@ bool isSqueezeInput(const TensorView* tv);
 bool isSqueezedID(const TensorView* tv, const IterDomain* id);
 
 // Test if the given ID in the given tensor is indirectly accessed by,
-// e.g., indexSelect, torchGather and scatter
+// e.g., indexSelect, gather and scatter
 bool isIndexedID(const TensorView* tv, const IterDomain* id);
 
 // Test if the given ID in the given tensor is indirectly read by,
-// e.g., indexSelect and torchGather
+// e.g., indexSelect gather
 bool isIndexedProducerID(const TensorView* tv, const IterDomain* id);
 
 // Test if the given ID in the given tensor is indirectly written to by,
@@ -454,7 +427,7 @@ bool isIndexedProducerID(const TensorView* tv, const IterDomain* id);
 bool isIndexedConsumerID(const TensorView* tv, const IterDomain* id);
 
 // Return a producer ID, if any, that is indirectly accessed by, e.g.,
-// indexSelect and torchGather.
+// indexSelect and gather.
 IterDomain* getIndexedProducerID(const Expr* expr);
 
 // Return the corresponding consumer if of a producer ID that is
@@ -467,7 +440,7 @@ bool isIndexSelectLookupTv(const TensorView* tv);
 // Check if the given tv is third argment of indexSelect(lookup, dim, indices)
 bool isIndexSelectIndicesTv(const TensorView* tv);
 
-bool isTorchGatherLookupTv(const Val* tv);
+bool isGatherLookupTv(const Val* tv);
 
 std::string varName(const Val* val);
 
@@ -508,6 +481,8 @@ struct CompareDomainResult {
   bool dom0_has_unreachable_ids = false;
   bool dom1_has_unreachable_ids = false;
 };
+
+// TODO: Completely replace this with compareDomainWithReference
 CompareDomainResult compareDomains(
     std::vector<IterDomain*> dom0,
     const std::vector<IterDomain*>& dom1,
@@ -519,6 +494,50 @@ void validateDomainEquivalence(
     std::vector<IterDomain*> dom0,
     const std::vector<IterDomain*>& dom1,
     const std::vector<IterDomain*>& additional_ids = {});
+
+struct CompareDomainWithReferenceResult {
+  // Redundant IDs found in the given domain
+  std::vector<IterDomain*> redundant_ids;
+  // IDs found in the given domain that are not connected with the
+  // reference domain
+  std::vector<IterDomain*> additional_ids;
+  // Reference IDs that are not reachable from the given domain
+  std::vector<IterDomain*> unreachable_reference_ids;
+
+  bool empty() const {
+    return redundant_ids.empty() && additional_ids.empty() &&
+        unreachable_reference_ids.empty();
+  }
+
+  std::string toString() const {
+    std::stringstream ss;
+    ss << "{redundant_ids: " << toDelimitedString(redundant_ids)
+       << ", additional_ids: " << toDelimitedString(additional_ids)
+       << ", unreachable_reference_ids: "
+       << toDelimitedString(unreachable_reference_ids) << "}";
+    return ss.str();
+  }
+};
+
+// Given a reference domain that has no redundancy, check if a given
+// domain completely covers the reference domain with no
+// redundancy. Redundant or extra IDs will be identified if
+// any.
+//
+// Once caveat is that if any of the IDs of the reference domain is not
+// reachable, it may not identify all of the redundant or extra IDs as
+// it is unclear if they should be considered redundant or extra. For example,
+// suppose we have a domain of {i0}, and there's an expession
+// of `merge(i0, i1) -> i2`. Comparing {i0} with {i2} as a
+// i2 will be returned as an unreachable ID. In this case, i0 is
+// not used sicne i1 is missing, but it doesn't seem right to cnsider
+// it's an extra ID since it would have been used if i1 were not
+// missing. Similarly, it should not be considered redundant. This
+// should not be a concern in practice since if any of the reference
+// IDs is unreachable, it should be considered an error.
+CompareDomainWithReferenceResult compareDomainWithReference(
+    const std::vector<IterDomain*>& domain,
+    const std::vector<IterDomain*>& reference);
 
 //! Check if all the inputs required to compute needed_val are known
 template <
@@ -642,20 +661,40 @@ template <typename T>
 std::optional<std::vector<int64_t>> computePermutation(
     const std::vector<T>& in,
     const std::vector<T>& out) {
-  if (!std::is_permutation(in.begin(), in.end(), out.begin())) {
+  // Both std::is_permutation and the rest of this function are O(n^2). This is
+  // fine for the current use case of computing the root-to-rfactor
+  // permutation. If needed, this can be improved by requiring T to be hashable
+  // (leading to O(n)) and/or comparable (leading to O(nlogn)).
+  if (!std::is_permutation(in.begin(), in.end(), out.begin(), out.end())) {
     return std::nullopt;
   }
 
   std::vector<int64_t> permutation;
   permutation.reserve(out.size());
-  // O(n^2) is totally fine for the current use case of computing the
-  // root-to-rfactor permutation. If needed, this can be improved by making T
-  // hashable and/or comparable.
   for (const T& out_element : out) {
     permutation.push_back(std::distance(
         in.begin(), std::find(in.begin(), in.end(), out_element)));
   }
   return permutation;
+}
+
+template <typename T>
+std::vector<T> applyPermutation(
+    const std::vector<T>& in,
+    const std::vector<int64_t>& permutation) {
+  NVF_CHECK(in.size() == permutation.size());
+
+  std::vector<int64_t> identity(permutation.size());
+  std::iota(identity.begin(), identity.end(), 0);
+  NVF_CHECK(std::is_permutation(
+      permutation.begin(), permutation.end(), identity.begin()));
+
+  std::vector<T> out;
+  out.reserve(permutation.size());
+  for (auto i : permutation) {
+    out.push_back(in[i]);
+  }
+  return out;
 }
 
 bool hasTrivialAllocationDomain(const TensorView* tv);
@@ -675,6 +714,7 @@ inline bool isMemoryPartitionedAcross(
       return isParallelTypeThread(parallel_type) ||
           isParallelTypeDeviceDim(parallel_type);
     case MemoryType::Shared:
+    case MemoryType::Tensor:
       return isParallelTypeBlockDim(parallel_type) ||
           isParallelTypeDeviceDim(parallel_type);
     case MemoryType::Global:
@@ -694,7 +734,8 @@ inline bool isMemorySharedAcross(
       // Nothing is shared if it's Local
       return false;
     case MemoryType::Shared:
-      // Only TID parallelized domains are shared if it's Shared
+    case MemoryType::Tensor:
+      // Only TID parallelized domains are shared if it's Shared or Tensor
       return isParallelTypeThreadDim(parallel_type);
     case MemoryType::Global:
       // Only TID and BID parallelized domains are shared if it's Global
@@ -727,5 +768,82 @@ std::string nullOrToInlineString(const Statement* stmt);
 //! Check if the given value is functional. A functional value is one that
 //! always returns the same result when called with the same inputs.
 bool isFunctional(const Val* v);
+
+// Check if the given val is recursively defined, which is invalid in
+// the Fusion IR but may not be necessarily the case in other IRs
+// such as the Kernel IR
+bool isRecursivelyDefined(Val* val);
+
+// Return the number of operations that are used to define val. One
+// instance of Expr is counted as a single operation.
+int64_t getOperationCount(Val* val);
+
+// Create a ForLoop IR node that represents:
+//   for (int i = 0; i < size; i++)
+ForLoop* createRangeLoop(int64_t size);
+
+// Returns the first output of Expr that is a TensorView
+TensorView* getTvOutput(const Expr*);
+
+// Returns the first input of Expr that is a TensorView
+TensorView* getTvInput(const Expr*);
+
+// Generates the allocation domain for the given logical domain based on the
+// stride order.
+std::vector<IterDomain*> strideOrderToAllocation(
+    const std::vector<IterDomain*>& logical_domain,
+    const std::vector<int64_t>& stride_order);
+
+// Returns the number of bits of data types of the producer and
+// consumer tensors of a cast unary op
+std::optional<std::pair<int64_t, int64_t>>
+getPrecisionOfProducerConsumerTensorsBit(UnaryOp* cast_op);
+
+// Get the <size> in the PTX instruction of TMem load/store:
+//   tcgen05.st.sync.aligned.32x32b.x<size>.b32
+// The minimum unit of TMem load/store is 4 bytes, and the .x<size>
+// in the PTX instruction is the number of this unit, not the number of items.
+// For example, tcgen05.st.sync.aligned.32x32b.x4.b32 could mean 1 complex
+// double, 2 doubles, 4 floats, 8 halfs, or 16 bytes.
+int64_t getTMemLdStVectorizeSize(TensorView* consumer_tv);
+
+// Somtimes we want to temporarily view a tensorview with another tensordomain.
+// This isn't a permanent transformation, but in indexing we want to index
+// producers with a consumer set of indices, so we need to view the producer
+// transformed like consumer while we index. This will set the tv with td for
+// the life of this context guard.
+class TVDomainGuard {
+ private:
+  TensorView* tv_;
+  TensorDomain* prev_domain_;
+
+ public:
+  explicit TVDomainGuard(TensorView* tv, TensorDomain* td);
+  TVDomainGuard(const TVDomainGuard&) = delete;
+  NVF_API TVDomainGuard(TVDomainGuard&&);
+
+  //! An utility to access the tensordomain before the temporary
+  //!  view. This is used to retrieve information, like swizzle
+  //!  information that can only be reliably kept at the original domain.
+  const TensorDomain* prevDomain() const {
+    return prev_domain_;
+  }
+
+  NVF_API ~TVDomainGuard();
+};
+
+// Given a reshape output TV, return two subsets of the root and
+// logical IDs, respectively. The root ID subset only includes that
+// are used as inputs to the reshape IDs ops, whereas the logical ID
+// subset includes those that are produced by the reshape ID ops.
+std::pair<std::vector<IterDomain*>, std::vector<IterDomain*>>
+getReshapeInputAndOutputIds(TensorView* reshape_out_tv);
+
+// Get reachable IDs from domain. Note that to reach to an ID through
+// its defining expression, all of the inputs need to be included in
+// the given domain or reachable from the domain.
+std::vector<IterDomain*> getReachableIds(
+    const std::vector<IterDomain*>& domain,
+    const std::vector<IterDomain*>& dependencies);
 
 } // namespace nvfuser::ir_utils

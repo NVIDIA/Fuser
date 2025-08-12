@@ -20,8 +20,6 @@
 
 #include <torch/csrc/jit/ir/ir.h>
 
-#include <c10/util/irange.h>
-
 #include <iostream>
 #include <string>
 #include <unordered_map>
@@ -141,6 +139,12 @@ bool Val::sameAs(const Statement* other) const {
         return false;
       }
     }
+    // non-deterministic operation returns value that wouldn't be the same even
+    // if the inputs are the same.
+    if (!definition_->isDeterministic() ||
+        !other_val->definition_->isDeterministic()) {
+      return false;
+    }
     if (!definition_->sameAs(other_val->definition_)) {
       return false;
     }
@@ -150,7 +154,7 @@ bool Val::sameAs(const Statement* other) const {
     }
     // For definition with multiple outputs, only outputs at the same position
     // could be the same
-    for (auto i : c10::irange(definition_->outputs().size())) {
+    for (auto i : arange(definition_->outputs().size())) {
       if ((definition_->output(i) == this) !=
           (other_val->definition_->output(i) == other_val)) {
         return false;
@@ -313,7 +317,7 @@ bool Expr::sameOp(const Expr* other) const {
       attributes().size() != other->attributes().size()) {
     return false;
   }
-  for (const auto i : c10::irange(attributes().size())) {
+  for (const auto i : arange(attributes().size())) {
     if (!attribute(i)->sameAs(other->attribute(i))) {
       return false;
     }
@@ -332,7 +336,10 @@ bool Expr::sameAs(const Statement* other) const {
   if (!sameOp(other_expr)) {
     return false;
   }
-  for (const auto i : c10::irange(inputs().size())) {
+  if (isDeterministic() != other_expr->isDeterministic()) {
+    return false;
+  }
+  for (const auto i : arange(inputs().size())) {
     if (!input(i)->sameAs(other_expr->input(i))) {
       return false;
     }

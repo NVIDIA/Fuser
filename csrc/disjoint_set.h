@@ -110,6 +110,11 @@ class VectorOfUniqueEntries {
     return intersection;
   }
 
+  bool hasIntersect(const VectorOfUniqueEntries<T, Hash>& other) const {
+    return std::ranges::any_of(
+        vector(), [&](const auto& entry) { return other.has(entry); });
+  }
+
   // Returns a new VectorOfUniqueEntries with entries that are in this but not
   // in other.
   VectorOfUniqueEntries<T, Hash> computeSubtract(
@@ -153,25 +158,25 @@ class VectorOfUniqueEntries {
 
   // Returns first element in vector
   T front() const {
-#ifndef NDEBUG
+#if !defined(NDEBUG) || defined(NVFUSER_EXPLICIT_ERROR_CHECK)
     NVF_ERROR(!empty());
-#endif // NDEBUG
+#endif // !defined(NDEBUG) || defined(NVFUSER_EXPLICIT_ERROR_CHECK)
     return vector_.front();
   }
 
   // Returns last element in vector
   T back() const {
-#ifndef NDEBUG
+#if !defined(NDEBUG) || defined(NVFUSER_EXPLICIT_ERROR_CHECK)
     NVF_ERROR(!empty());
-#endif // NDEBUG
+#endif // !defined(NDEBUG) || defined(NVFUSER_EXPLICIT_ERROR_CHECK)
     return vector_.back();
   }
 
   // Remove and returns the last element in vector
   T popBack() {
-#ifndef NDEBUG
+#if !defined(NDEBUG) || defined(NVFUSER_EXPLICIT_ERROR_CHECK)
     NVF_ERROR(!empty());
-#endif // NDEBUG
+#endif // !defined(NDEBUG) || defined(NVFUSER_EXPLICIT_ERROR_CHECK)
     T v = vector_.back();
     set_.erase(v);
     vector_.pop_back();
@@ -321,6 +326,22 @@ class DisjointSets {
     return disjoint_sets_;
   }
 
+  typename DisjointSetMap::iterator find(T entry) {
+    return disjoint_set_maps_.find(entry);
+  }
+
+  typename DisjointSetMap::iterator end() {
+    return disjoint_set_maps_.end();
+  }
+
+  typename DisjointSetMap::const_iterator find(T entry) const {
+    return disjoint_set_maps_.find(entry);
+  }
+
+  typename DisjointSetMap::const_iterator end() const {
+    return disjoint_set_maps_.end();
+  }
+
   // Return the entire disjoint set of provided entry
   const VectorOfUniqueEntries<T, Hash>& getDisjointSetOf(T entry) const {
     auto set_it = disjoint_set_maps_.find(entry);
@@ -401,7 +422,8 @@ class DisjointSets {
         entry_it != disjointSetMap().end(),
         "Strict mapping failed on element: ",
         abstractToString(entry0),
-        " either an error occurred, or non strict mapping should have been used.");
+        " either an error occurred, or non strict mapping should have been "
+        "used.");
     return entry_it->second->has(entry1);
   }
 

@@ -4,9 +4,16 @@
 import pytest
 from nvfuser import FusionDefinition, DataType
 from nvfuser.pytorch_utils import torch_dtype_to_nvfuser_dtype
-from .core import run_benchmark, clear_dynamo_cache, unary_bwd_torch
+from .core import (
+    run_benchmark,
+    clear_dynamo_cache,
+    unary_bwd_torch,
+    with_executor,
+    DEFAULT_EXECUTORS,
+)
 import torch
 from .global_params import generate_attn_inputs, FLOAT_DTYPES, PROMOTE_DTYPES
+from .torch_ops import nanogpt_attn
 
 
 # Fusion from nanogpt attention module
@@ -124,16 +131,16 @@ def test_nanogpt_attn_bwd_nvf_benchmark(
         run_benchmark(benchmark, fd.execute, [grads, attn, dropout_mask, bias_mask])
 
 
-@pytest.mark.parametrize("compile", [False, True], ids=["eager", "compile"])
+@pytest.mark.parametrize("executor", DEFAULT_EXECUTORS)
 @pytest.mark.parametrize("size", generate_attn_inputs())
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)
 def test_nanogpt_attn_bwd_baseline_benchmark(
     benchmark,
     size: tuple,
     dtype: torch.dtype,
-    compile: bool,
+    executor: str,
 ):
-    if compile:
+    if executor == "torchcompile":
         clear_dynamo_cache()
     batch_size, seq_len, nh, n_embd = size
     dropout_p = 0.2
@@ -144,19 +151,17 @@ def test_nanogpt_attn_bwd_baseline_benchmark(
         1, 1, seq_len, seq_len
     )
 
-    # Compute output
-    hs = n_embd // nh
-    attn = inputs / (hs**0.5)
-    attn = attn.masked_fill(bias[:, :, :seq_len, :seq_len] == 0, float("-inf"))
-    attn = torch.nn.functional.softmax(attn, dim=-1)
-    output = torch.nn.functional.dropout(attn, p=dropout_p)
+    # Compile the fwd fn for torchcompile
+    fwd_fn = with_executor(executor, nanogpt_attn)
+    fwd_inputs = [inputs, bias, size, dropout_p]
+    outputs = fwd_fn(fwd_inputs)
 
     grads = torch.randn(batch_size, nh, seq_len, seq_len, device="cuda", dtype=dtype)
 
     # Manually compute IOBytes: See PR #1725
     run_benchmark(
         benchmark,
-        torch.compile(unary_bwd_torch) if compile else unary_bwd_torch,
-        [output, grads],
+        unary_bwd_torch,
+        [outputs, grads, *fwd_inputs],
         iobytes=nanogpt_attn_bwd_iobytes(size, dtype),
     )

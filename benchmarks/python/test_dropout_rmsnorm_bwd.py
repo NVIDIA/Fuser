@@ -9,9 +9,12 @@ from .core import (
     clear_dynamo_cache,
     unary_bwd_torch,
     compute_total_iobytes,
+    with_executor,
+    DEFAULT_EXECUTORS,
 )
 import torch
 from .global_params import generate_input_sizes, FLOAT_DTYPES, PROMOTE_DTYPES
+from .torch_ops import dropout_rmsnorm
 
 
 def dropout_rmsnorm_bwd_fusion(
@@ -169,29 +172,30 @@ def test_dropout_rmsnorm_bwd_nvf_benchmark(
         )
 
 
-@pytest.mark.parametrize("compile", [False, True], ids=["eager", "compile"])
+@pytest.mark.parametrize("executor", DEFAULT_EXECUTORS)
 @pytest.mark.parametrize("size", generate_input_sizes(dims=2))
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)
 def test_dropout_rmsnorm_bwd_baseline_benchmark(
     benchmark,
     size: tuple,
     dtype: torch.dtype,
-    compile: bool,
+    executor: str,
 ):
-    if compile:
+    if executor == "torchcompile":
         clear_dynamo_cache()
     dropout_p = 0.2
     input1 = torch.randn(size, device="cuda", dtype=dtype, requires_grad=True)
     input2 = torch.randn(size, device="cuda", dtype=dtype, requires_grad=True)
     grads = torch.randn(size, device="cuda", dtype=dtype)
-    weights = torch.randn(size[1], device="cuda", dtype=dtype)
+    weights = torch.randn(size[1], device="cuda", dtype=dtype, requires_grad=True)
 
-    x = input2 + torch.nn.functional.dropout(input1, p=dropout_p)
-    output = weights * torch.rsqrt(x.pow(2).mean(-1, keepdim=True) + 1e-5)
+    fwd_fn = with_executor(executor, dropout_rmsnorm)
+    fwd_inputs = [input1, input2, weights, dropout_p]
+    outputs = fwd_fn(fwd_inputs)
 
     run_benchmark(
         benchmark,
-        torch.compile(unary_bwd_torch) if compile else unary_bwd_torch,
-        [output, grads],
+        unary_bwd_torch,
+        [outputs, grads, *fwd_inputs],
         iobytes=dropout_rmsnorm_bwd_iobytes(size, dtype),
     )

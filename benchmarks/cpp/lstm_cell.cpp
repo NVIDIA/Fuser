@@ -27,7 +27,8 @@ static void setupFusion(Fusion* fusion) {
 
   TensorView* tvs[16];
   for (size_t i = 0; i < 16; i++) {
-    tvs[i] = makeContigTensor(2, DataType::Float);
+    tvs[i] = makeSymbolicTensor(2, DataType::Float);
+    tvs[i]->setContiguity({false, true});
     fusion->addInput(tvs[i]);
   }
 
@@ -44,9 +45,7 @@ static void setupFusion(Fusion* fusion) {
   fusion->addOutput(lstm_result.hidden);
 }
 
-static std::vector<c10::IValue> setupInputs(
-    int hidden_features,
-    int batch_size) {
+static KernelArgumentHolder setupInputs(int hidden_features, int batch_size) {
   at::manual_seed(0);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
@@ -64,16 +63,16 @@ static std::vector<c10::IValue> setupInputs(
   const auto chunked2 = large_tensor2.chunk(4, 1);
   const auto chunked3 = large_tensor3.chunk(4, 1);
 
-  std::vector<c10::IValue> inputs;
-  inputs.insert(inputs.end(), chunked0.begin(), chunked0.end());
-  inputs.insert(inputs.end(), chunked1.begin(), chunked1.end());
-  inputs.insert(inputs.end(), chunked2.begin(), chunked2.end());
-  inputs.insert(inputs.end(), chunked3.begin(), chunked3.end());
+  KernelArgumentHolder args;
+  args.push(chunked0);
+  args.push(chunked1);
+  args.push(chunked2);
+  args.push(chunked3);
 
   const auto at_cx = at::randn({batch_size, hidden_features}, options);
-  inputs.push_back(at_cx);
+  args.push(at_cx);
 
-  return inputs;
+  return args;
 }
 
 //------------------------------------------------------------------------------
@@ -100,12 +99,11 @@ static void NvFuserScheduler_LstmCell_AutoSchedule(
     benchmark_state.PauseTiming();
     Fusion fusion;
     setupFusion(&fusion);
-    std::vector<c10::IValue> inputs = setupInputs(kHiddenFeatures, kBatchSize);
+    KernelArgumentHolder args = setupInputs(kHiddenFeatures, kBatchSize);
     benchmark_state.ResumeTiming();
 
     // Auto-schedule
-    SchedulerEntry::scheduleWith(
-        &fusion, SchedulerType::PointWise, c10::ArrayRef<c10::IValue>(inputs));
+    SchedulerEntry::scheduleWith(&fusion, SchedulerType::PointWise, args);
   }
 }
 
@@ -124,10 +122,9 @@ static void NvFuserScheduler_LstmCell_Lower(benchmark::State& benchmark_state) {
   setupFusion(&fusion);
 
   // inputs
-  std::vector<c10::IValue> inputs = setupInputs(kHiddenFeatures, kBatchSize);
+  KernelArgumentHolder args = setupInputs(kHiddenFeatures, kBatchSize);
 
-  SchedulerEntry::scheduleWith(
-      &fusion, SchedulerType::PointWise, c10::ArrayRef<c10::IValue>(inputs));
+  SchedulerEntry::scheduleWith(&fusion, SchedulerType::PointWise, args);
 
   for (auto _ : benchmark_state) {
     GpuLower(&fusion).run();
@@ -149,14 +146,13 @@ static void NvFuserScheduler_LstmCell_Compile(
   setupFusion(&fusion);
 
   // inputs
-  std::vector<c10::IValue> inputs = setupInputs(kHiddenFeatures, kBatchSize);
+  KernelArgumentHolder args = setupInputs(kHiddenFeatures, kBatchSize);
 
-  SchedulerEntry::scheduleWith(
-      &fusion, SchedulerType::PointWise, c10::ArrayRef<c10::IValue>(inputs));
+  SchedulerEntry::scheduleWith(&fusion, SchedulerType::PointWise, args);
 
   for (auto _ : benchmark_state) {
-    FusionExecutor executor;
-    executor.compileFusion(&fusion, inputs);
+    KernelExecutor ke;
+    ke.compile(&fusion, args);
   }
 }
 
@@ -174,22 +170,21 @@ static void NvFuserScheduler_LstmCell_RunFusion(
   setupFusion(&fusion);
 
   // inputs
-  std::vector<c10::IValue> inputs = setupInputs(hidden_features, batch_size);
+  KernelArgumentHolder args = setupInputs(hidden_features, batch_size);
 
   // outputs
-  std::vector<at::Tensor> outputs;
+  KernelArgumentHolder outputs;
 
-  auto heuristic_params = SchedulerEntry::scheduleWith(
-      &fusion, SchedulerType::PointWise, c10::ArrayRef<c10::IValue>(inputs));
+  auto heuristic_params =
+      SchedulerEntry::scheduleWith(&fusion, SchedulerType::PointWise, args);
 
-  FusionExecutor executor;
-  executor.compileFusion(&fusion, inputs);
+  KernelExecutor ke;
+  ke.compile(&fusion, args);
 
   C10_CUDA_CHECK(cudaDeviceSynchronize());
 
   for (auto _ : benchmark_state) {
-    outputs = executor.runFusion(
-        c10::ArrayRef<c10::IValue>(inputs), heuristic_params->lparams);
+    outputs = ke.run(args, {}, heuristic_params->lparams);
     C10_CUDA_CHECK(cudaDeviceSynchronize());
   }
 }
@@ -212,19 +207,18 @@ static void NvFuserScheduler_LstmCell_RunFusion_GpuOnly(
   setupFusion(&fusion);
 
   // inputs
-  std::vector<c10::IValue> inputs = setupInputs(hidden_features, batch_size);
+  KernelArgumentHolder args = setupInputs(hidden_features, batch_size);
 
   // outputs
   std::vector<at::Tensor> outputs;
 
-  auto heuristic_params = SchedulerEntry::scheduleWith(
-      &fusion, SchedulerType::PointWise, c10::ArrayRef<c10::IValue>(inputs));
+  auto heuristic_params =
+      SchedulerEntry::scheduleWith(&fusion, SchedulerType::PointWise, args);
 
-  FusionExecutor executor;
-  executor.compileFusion(&fusion, inputs);
+  KernelExecutor ke;
+  ke.compile(&fusion, args);
 
-  runBenchmarkIterations(
-      benchmark_state, &executor, inputs, heuristic_params->lparams);
+  runBenchmarkIterations(benchmark_state, &ke, args, heuristic_params->lparams);
 }
 
 BENCHMARK_CAPTURE(NvFuserScheduler_LstmCell_RunFusion_GpuOnly, Small, 512, 64)
@@ -251,21 +245,20 @@ static void NvFuserScheduler_LstmCell_RunFusion_CpuOnly(
   setupFusion(&fusion);
 
   // inputs
-  std::vector<c10::IValue> inputs = setupInputs(hidden_features, batch_size);
+  KernelArgumentHolder args = setupInputs(hidden_features, batch_size);
 
   // outputs
-  std::vector<at::Tensor> outputs;
+  KernelArgumentHolder outputs;
 
-  auto heuristic_params = SchedulerEntry::scheduleWith(
-      &fusion, SchedulerType::PointWise, c10::ArrayRef<c10::IValue>(inputs));
+  auto heuristic_params =
+      SchedulerEntry::scheduleWith(&fusion, SchedulerType::PointWise, args);
 
-  FusionExecutor executor;
-  executor.setExecuteKernelFlag(false);
-  executor.compileFusion(&fusion, inputs);
+  KernelExecutor ke;
+  ke.setExecuteKernelFlag(false);
+  ke.compile(&fusion, args);
 
   for (auto _ : benchmark_state) {
-    outputs = executor.runFusion(
-        c10::ArrayRef<c10::IValue>(inputs), heuristic_params->lparams);
+    outputs = ke.run(args, {}, heuristic_params->lparams);
   }
 }
 

@@ -81,7 +81,7 @@ static void setupInstanceNorm(
 
 static void NvFuserScheduler_InstanceNorm(
     benchmark::State& benchmark_state,
-    FusionExecutorCache* fusion_executor_cache,
+    FusionExecutorCache* executor_cache,
     DataType dtype,
     bool channels_last_3d = false) {
   NVF_ERROR(dtype == DataType::Float || dtype == DataType::Half);
@@ -112,11 +112,10 @@ static void NvFuserScheduler_InstanceNorm(
   at::Tensor at_mean = at::zeros({benchmark_state.range(2)}, fp32_options);
   at::Tensor at_var = at::ones({benchmark_state.range(2)}, fp32_options);
 
-  std::vector<c10::IValue> aten_inputs = {
-      at_x, at_weight, at_bias, at_mean, at_var};
+  KernelArgumentHolder args = {at_x, at_weight, at_bias, at_mean, at_var};
   std::vector<at::Tensor> outputs;
 
-  runBenchmarkIterations(benchmark_state, fusion_executor_cache, aten_inputs);
+  runBenchmarkIterations(benchmark_state, executor_cache, args);
 
   const size_t kChannels = benchmark_state.range(2);
 
@@ -124,8 +123,8 @@ static void NvFuserScheduler_InstanceNorm(
   // Write: y, running_mean, running_var
   benchmark_state.SetBytesProcessed(
       benchmark_state.iterations() *
-      ((kChannels * 2 + at_x.numel() * 2) * dataTypeSize(dtype) +
-       (kChannels * 2 * 2) * dataTypeSize(DataType::Float)));
+      ((kChannels * 2 + at_x.numel() * 2) * dataTypeSizeByte(dtype) +
+       (kChannels * 2 * 2) * dataTypeSizeByte(DataType::Float)));
 }
 
 // ------------------------------------------------------------------------------
@@ -165,7 +164,7 @@ static void setupInstanceNormNHWC(Fusion* fusion, DataType dtype) {
 
 static void NvFuserScheduler_InstanceNormNHWC(
     benchmark::State& benchmark_state,
-    FusionExecutorCache* fusion_executor_cache,
+    FusionExecutorCache* executor_cache,
     DataType dtype) {
   NVF_ERROR(dtype == DataType::Float || dtype == DataType::Half);
 
@@ -183,10 +182,10 @@ static void NvFuserScheduler_InstanceNormNHWC(
   at::Tensor at_weight = at::randn({benchmark_state.range(2)}, options);
   at::Tensor at_bias = at::randn({benchmark_state.range(2)}, options);
 
-  std::vector<c10::IValue> aten_inputs = {at_x, at_weight, at_bias};
+  KernelArgumentHolder args = {at_x, at_weight, at_bias};
   std::vector<at::Tensor> outputs;
 
-  runBenchmarkIterations(benchmark_state, fusion_executor_cache, aten_inputs);
+  runBenchmarkIterations(benchmark_state, executor_cache, args);
 
   const size_t kChannels = benchmark_state.range(2);
 
@@ -194,7 +193,7 @@ static void NvFuserScheduler_InstanceNormNHWC(
   // Write: y
   benchmark_state.SetBytesProcessed(
       benchmark_state.iterations() *
-      ((kChannels * 2 + at_x.numel() * 2) * dataTypeSize(dtype)));
+      ((kChannels * 2 + at_x.numel() * 2) * dataTypeSizeByte(dtype)));
 }
 
 static void Baseline_InstanceNorm(
@@ -270,8 +269,8 @@ static void Baseline_InstanceNorm(
   // Write: y, running_mean, running_var
   benchmark_state.SetBytesProcessed(
       benchmark_state.iterations() *
-      ((kChannels * 2 + at_x.numel() * 2) * dataTypeSize(dtype) +
-       (kChannels * 2 * 2) * dataTypeSize(DataType::Float)));
+      ((kChannels * 2 + at_x.numel() * 2) * dataTypeSizeByte(dtype) +
+       (kChannels * 2 * 2) * dataTypeSizeByte(DataType::Float)));
 }
 
 //------------------------------------------------------------------------------

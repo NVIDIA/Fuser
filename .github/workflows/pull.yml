@@ -7,6 +7,10 @@ name: pull
 on:
   pull_request:
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id}}
+  cancel-in-progress: true
+
 run-name: CI status hello ${{ github.event.pull_request.number }} - ${{ github.event.pull_request.head.sha }}
 jobs:
   status_hello:
@@ -17,9 +21,158 @@ jobs:
     steps:
       - name: Set CI hello status
         run: |
-          curl \
-          -X POST \
-          -H "Accept: application/vnd.github+json" \
-          -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
-          https://api.github.com/repos/${{ github.repository }}/statuses/${{ github.event.pull_request.head.sha }} \
-          -d "{\"state\":\"success\",\"target_url\":\"https://github.com/NVIDIA/Fuser/wiki/Bot-Commands\",\"description\":\"Authorized users: comment !build or !test to trigger CI pipelines. See wiki.\",\"context\":\"CI notes\"}"
+          send_status() {
+            curl -L -X POST \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            https://api.github.com/repos/${{ github.repository }}/statuses/${{ github.event.pull_request.head.sha }} \
+            -d "{ \
+              \"state\":\"pending\", \
+              \"target_url\":\"https://github.com/NVIDIA/Fuser/wiki/Bot-Commands\", \
+              \"description\":\"Use !build or !test to start CI. See wiki.\", \
+              \"context\":\"$1\" \
+            }"
+          }
+
+          send_status "nvfuser-ci/build_image_20"
+
+  pr-agent-tools:
+    name: PR Agent tools
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+      issues: write
+      packages: read
+    container:
+      image: ghcr.io/nvidia/fuser:ci-llm-workflow
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+      env:
+        GITHUB__USER_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        CONFIG__PUBLISH_OUTPUT: false
+        CONFIG__PUBLISH_COMBINED_OUTPUT: true
+
+        OPENAI__KEY: ${{ secrets.LLM_OPENAI__KEY }}
+        OPENAI__API_BASE: ${{ secrets.LLM_OPENAI__API_BASE }}
+        CONFIG__MODEL: ${{ secrets.LLM_CONFIG__MODEL }}
+        CONFIG__CUSTOM_MODEL_MAX_TOKENS: 30000
+        CONFIG__FALLBACK_MODELS: '[]'
+
+        CONFIG__MAX_MODEL_TOKENS: 30000
+        CONFIG__PUBLISH_OUTPUT_PROGRESS: false 
+
+        PR_REVIEWER__REQUIRE_SCORE_REVIEW: false
+        PR_REVIEWER__REQUIRE_TESTS_REVIEW: true
+        PR_REVIEWER__REQUIRE_CAN_BE_SPLIT_REVIEW: false
+        PR_REVIEWER__REQUIRE_SECURITY_REVIEW: false
+        PR_REVIEWER__REQUIRE_ESTIMATE_EFFORT_TO_REVIEW: false
+        PR_REVIEWER__REQUIRE_TICKET_ANALYSIS_REVIEW: false
+
+        PR_REVIEWER__ENABLE_REVIEW_LABELS_EFFORT: false
+        PR_REVIEWER__ENABLE_REVIEW_LABELS_SECURITY: false
+
+        PR_REVIEWER__PERSISTENT_COMMENT: true
+        PR_REVIEWER__FINAL_UPDATE_MESSAGE: false
+
+        PR_REVIEWER__EXTRA_INSTRUCTIONS: |
+          To review a pull request (PR) for the Nvfuser project effectively, follow this structured approach:
+
+          Overall Principles Check:
+          
+          Ensure the PR provides actual data and focuses on significant performance aspects.
+          Verify that a clear performance goal is set and that feedback was sought early.
+
+          Preliminary Evaluation:
+          
+          Scope and Context: Confirm the PR clearly states its purpose and the significance of the problem it addresses.
+          SOL Analysis: Check if the PR uses a roofline model or existing implementations (e.g., CUTLASS) as a target for expected performance.
+          Current Status and Data: Ensure the PR includes current performance metrics and reasons for any gaps.
+
+          Approach Assessment:
+          
+          Technical Details: Review the technical aspects of the approach and expected performance gains.
+          Limitations and Comparisons: Evaluate if multiple approaches were considered and if trade-offs are discussed.
+
+          Results Analysis:
+          
+          Correctness and Tests: Confirm all tests pass and new tests were added if necessary.
+          Performance Data: Check for thorough performance evaluation and clear data presentation.
+          Gap Analysis: Assess the explanation of performance gaps and their importance.
+          Regressions: Evaluate the impact of any regressions and whether benefits outweigh drawbacks, supported by quantitative data.
+
+          Conclusion and Documentation:
+          
+          Summarize the PR's effectiveness and potential next steps.
+          Ensure all guidelines are met and documentation is comprehensive.
+
+          Insight from Failed Approaches:
+          
+          Consider insights from discarded methods, even if they weren't the final solution.
+
+        PR_DESCRIPTION__ADD_ORIGINAL_USER_DESCRIPTION: false
+        PR_DESCRIPTION__GENERATE_AI_TITLE: true
+        PR_DESCRIPTION__USE_BULLET_POINTS: true
+        PR_DESCRIPTION__EXTRA_INSTRUCTIONS: ""
+        PR_DESCRIPTION__ENABLE_PR_TYPE: false
+        PR_DESCRIPTION__FINAL_UPDATE_MESSAGE: true
+        PR_DESCRIPTION__ENABLE_HELP_TEXT: false
+        PR_DESCRIPTION__ENABLE_HELP_COMMENT: false
+        PR_DESCRIPTION__PUBLISH_DESCRIPTION_AS_COMMENT: true
+        PR_DESCRIPTION__PUBLISH_DESCRIPTION_AS_COMMENT_Persistent: true
+        PR_DESCRIPTION__ENABLE_SEMANTIC_FILES_TYPES: true
+        PR_DESCRIPTION__COLLAPSIBLE_FILE_LIST: 'adaptive'
+        PR_DESCRIPTION__COLLAPSIBLE_FILE_LIST_THRESHOLD: 8
+        PR_DESCRIPTION__INLINE_FILE_SUMMARY: false
+        PR_DESCRIPTION__USE_DESCRIPTION_MARKERS: false
+        PR_DESCRIPTION__INCLUDE_GENERATED_BY_HEADER: true
+        PR_DESCRIPTION__ENABLE_LARGE_PR_HANDLING: true
+
+    steps:
+      - name: PR Agent combined action
+        run: python /app/pr_agent/cli.py --pr_url ${{ github.event.pull_request.html_url }} combined
+
+  commit-sanity-check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: checkout
+        uses: actions/checkout@v4
+      - name: reject files larger than 5 MB
+        run: |
+          max_bytes=$((5 * 1024 * 1024))
+          too_large=""
+
+          git fetch origin "${{ github.base_ref }}" --depth=1 || true
+          files=$(git diff --name-only --diff-filter=AM "origin/${{ github.base_ref }}")
+
+          for file in $files; do
+            if [ -f "$file" ]; then
+              size=$(stat -c%s "$file")
+              if [ "$size" -gt "$max_bytes" ]; then
+                too_large+="$file ($size bytes)\n"
+              fi
+            fi
+          done
+
+          if [ -n "$too_large" ]; then
+            echo -e "❌ The following files are over 5MB:\n$too_large"
+            exit 1
+          else
+            echo "✅ No large files detected."
+          fi
+      - name: Check for files that match .gitignore but are tracked
+        run: |
+          # List tracked files that should be ignored
+          violating_files=$(git ls-files --cached --ignored --exclude-standard)
+
+          if [ -n "$violating_files" ]; then
+            echo "❌ The following files are committed but should be ignored by .gitignore:"
+            echo "$violating_files"
+            echo "Please remove them from version control:"
+            echo "  git rm --cached <file>"
+            exit 1
+          else
+            echo "✅ No ignored files are tracked. All good!"
+          fi
+      # - name: more sanity checks in case needed in the future

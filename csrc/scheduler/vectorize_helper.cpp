@@ -12,14 +12,16 @@
 #include <device_lower/analysis/divisible_split.h>
 #include <expr_evaluator.h>
 #include <expr_simplifier.h>
+#include <id_model/id_model.h>
 #include <instrumentation.h>
 #include <ir/builder.h>
 #include <ir/iostream.h>
+#include <ir/printer.h>
 #include <iter_visitor.h>
 #include <scheduler/registry.h>
 #include <scheduler/runtime_info.h>
-
-#include <c10/util/irange.h>
+#include <scheduler/tools/resize_utils.h>
+#include <val_graph_visitor.h>
 
 #include <unordered_set>
 
@@ -67,6 +69,7 @@ ContiguousInnerDimensionsMapper::ContiguousInnerDimensionsMapper(
       ca_map_(std::move(ca_map)),
       divisible_splits_(divisible_splits) {
   FusionGuard fg(reference->fusion());
+
   // Exclude reduction IDs if the reference is a fusion input as they
   // don't manifest at all in the fusion. This simplifies the
   // analysis in getContigMergeOfInnerSize, which only looks at
@@ -365,10 +368,59 @@ std::vector<IterDomain*> ContiguousInnerDimensionsMapper::projectId(
     distributePE(merge_or_split);
   };
 
-  auto clear_left_of = [&frontier](IterDomain* id) {
-    auto it = std::find(frontier.begin(), frontier.end(), id);
-    if (it != frontier.end()) {
-      frontier.erase(frontier.begin(), it + 1);
+  auto propagateResize = [&frontier, this](Resize* resize_op, bool p2c) {
+    IterDomain* id_from = p2c ? resize_op->in() : resize_op->out();
+    IterDomain* id_to = p2c ? resize_op->out() : resize_op->in();
+
+    auto it = std::find(frontier.begin(), frontier.end(), id_from);
+    if (it == frontier.end()) {
+      return;
+    }
+    auto pos = std::distance(frontier.begin(), it);
+
+    // project resize op to frontier.
+    frontier[pos] = id_to;
+    // clear left of resize, since those are no long contiguous.
+    frontier.erase(frontier.begin(), it);
+
+    if (recording_) {
+      // we need to check slice offset at this point.
+      auto projected_extent = getProjectedExtent(id_from);
+
+      // projected_extent == 0: return the projected_extent as-is
+      // resize_extent == 0   : no resizing, return the projected_extent as-is
+      // resize_extent != 0   : slicing/padding, return gcd(projected_extent,
+      // abs(resize_extent)) This is a conservative analysis of the offset for
+      // data accessing. A better approach needs to consider the actual start
+      // pointer address and handle it in alignment analysis in runtime info. We
+      // also need to consider multiple resize stacked together and how they
+      // could interact with each other. Translating this to code: if
+      // (resize_extent == 0 || projected_extent == 0) {
+      //   return projected_extent;
+      // } else {
+      //   gcd(projected_extent, abs(resize_extent));
+      // }
+      auto comp = [](Val* projected_extent, Val* resize_extent) {
+        return SimplifyingIrBuilder::whereExpr(
+            SimplifyingIrBuilder::logicalOrExpr(
+                SimplifyingIrBuilder::eqExpr(
+                    resize_extent, resize_extent->container()->zeroVal()),
+                SimplifyingIrBuilder::eqExpr(
+                    projected_extent,
+                    projected_extent->container()->zeroVal())),
+            projected_extent,
+            SimplifyingIrBuilder::gcdExpr(
+                projected_extent, IrBuilder::absExpr(resize_extent)));
+      };
+      projected_extent = comp(projected_extent, resize_op->leftExpand());
+      projected_extent = comp(projected_extent, resize_op->rightExpand());
+
+      // cap extent by the destination, this is useful when the id_to is resized
+      // to zero, where projected_extent shouldn't go beyond the total extent.
+      projected_extent =
+          SimplifyingIrBuilder::minExpr(projected_extent, id_to->extent());
+
+      addProjectedExtent(id_to, projected_extent);
     }
   };
 
@@ -391,8 +443,7 @@ std::vector<IterDomain*> ContiguousInnerDimensionsMapper::projectId(
     } else if (Merge* merge = dynamic_cast<Merge*>(expr)) {
       propagateDistribute(merge);
     } else if (Resize* resize = dynamic_cast<Resize*>(expr)) {
-      // Cannot vectorize through resize
-      clear_left_of(resize->out());
+      propagateResize(resize, false);
     } else {
       // TODO: I wonder if we should just remove all inputs instead of erroring.
       // Seems that would be safe.
@@ -415,8 +466,7 @@ std::vector<IterDomain*> ContiguousInnerDimensionsMapper::projectId(
     } else if (Split* split = dynamic_cast<Split*>(expr)) {
       propagateDistribute(split);
     } else if (Resize* resize = dynamic_cast<Resize*>(expr)) {
-      // Cannot vectorize through resize
-      clear_left_of(resize->in());
+      propagateResize(resize, true);
     } else {
       // TODO: I wonder if we should just remove all inputs instead of erroring.
       // Seems that would be safe.
@@ -486,7 +536,7 @@ ContiguousInnerDimensionsMapper::computeInfoC2P(
   }
 
   std::vector<IterDomain*> producer_logical_ids;
-  for (auto i : c10::irange(clear_pos, (int64_t)from_ids.size())) {
+  for (auto i : arange(clear_pos, (int64_t)from_ids.size())) {
     auto from_id = from_ids[i];
     auto c2p_it = c2p_map.find(from_id);
     if (c2p_it != c2p_map.end() &&
@@ -539,7 +589,7 @@ ContiguousInnerDimensionsMapper::computeInfoP2C(
   if (!from->isFusionInput() && from->hasReduction()) {
     // Find the last reduction dimension in the logical domain.
     int64_t clear_pos = -1;
-    for (auto i : c10::irange((int64_t)from->getLogicalDomain().size())) {
+    for (auto i : arange((int64_t)from->getLogicalDomain().size())) {
       if (from->getLogicalDomain()[i]->isReduction()) {
         clear_pos = i;
       }
@@ -700,7 +750,7 @@ Val* ContiguousInnerDimensionsMapper::getContigMergeOfInnerSize(
   if (contiguity.size() == of_tv_alloc.size() &&
       contiguity.size() != of_tv_alloc_no_reductions.size()) {
     std::vector<std::optional<bool>> new_contiguity;
-    for (auto i : c10::irange(of_tv_alloc.size())) {
+    for (auto i : arange(of_tv_alloc.size())) {
       if (!of_tv_alloc[i]->isReduction()) {
         new_contiguity.push_back(contiguity[i]);
       }
@@ -726,7 +776,7 @@ Val* ContiguousInnerDimensionsMapper::getContigMergeOfInnerSize(
   // vectorize dimension.
   size_t projected_dims_i = projected_dims.size();
 
-  for (auto i : c10::irange(of_tv_alloc_no_reductions_size)) {
+  for (auto i : arange(of_tv_alloc_no_reductions_size)) {
     if (projected_dims_i == 0) {
       break;
     }
@@ -781,16 +831,123 @@ std::vector<std::unordered_map<TensorView*, Val*>> getTvToContigInnerSizeMapsOf(
     TensorView* ref,
     const std::unordered_map<int64_t, int64_t>& logical_reorder_map) {
   std::vector<std::unordered_map<TensorView*, Val*>> mappers;
-  auto root_dom = ref->getLogicalDomain();
+  auto logical_dom = ref->getLogicalDomain();
   if (!logical_reorder_map.empty()) {
-    root_dom = TensorDomain::orderedAs(root_dom, logical_reorder_map);
+    logical_dom = TensorDomain::orderedAs(logical_dom, logical_reorder_map);
   }
-  while (!root_dom.empty()) {
-    mappers.push_back(ContiguousInnerDimensionsMapper::map(ref, root_dom)
+  while (!logical_dom.empty()) {
+    mappers.push_back(ContiguousInnerDimensionsMapper::map(ref, logical_dom)
                           .getTvToContigMergeOfInnerSizeMap());
-    root_dom.erase(root_dom.begin());
+    logical_dom.erase(logical_dom.begin());
   }
   return mappers;
+}
+
+// Check if a traversal from vectorized reference IDs may reach the
+// IDs of a resize expr without visiting the Resize expr itself. That's
+// problematic for the vectorization analysis as the spanning-tree
+// based analysis may miss the constraint by the Resize expr.
+//
+// For this analysis, we start a traversal from the vectorized
+// reference IDs to both the input and output of the Resize expr but
+// disallow visiting the Resize expr itself. If the traversal is still
+// successful, it means there's a path from the reference IDs to the
+// resize input and output IDs without visiting the Resize expr.
+//
+// Permissive BFS is used in this traversal as the vectorized
+// reference IDs may not have all the dependencies for the
+// traversal. For example, suppose there's a split resshape, and only
+// the innermost ID is vectorized. The standard BFS is not able to
+// move forward if only the vectorized ID is give as the backward
+// split requires both outputs to be presented.
+class CanSkipResize : public ValGraphPermissiveBFS {
+ public:
+  static bool run(
+      const ValGraph& graph,
+      const ValGroups& ref_groups,
+      Resize* resize) {
+    ValGroups resize_in_out_groups;
+    resize_in_out_groups.pushBack(graph.toGroup(resize->in()));
+    resize_in_out_groups.pushBack(graph.toGroup(resize->out()));
+    CanSkipResize bfs(graph, ref_groups, resize_in_out_groups, resize);
+    bfs.traverse();
+    return bfs.allToNodesVisited();
+  }
+
+  CanSkipResize(
+      const ValGraph& graph,
+      const ValGroups& ref_groups,
+      const ValGroups& resize_in_out_groups,
+      Resize* resize)
+      : ValGraphPermissiveBFS(
+            graph,
+            {ref_groups.begin(), ref_groups.end()},
+            {resize_in_out_groups.begin(), resize_in_out_groups.end()},
+            /*require_all_to_visited=*/false,
+            /*allowed_direction=*/Direction::Undefined),
+        resize_(resize) {}
+
+  bool excludeFromTraversal(const NodeType& node) const override {
+    const ExprGroup* e = std::get_if<ExprGroup>(&node);
+    return e != nullptr && (*e)->has(resize_);
+  }
+
+ private:
+  Resize* resize_ = nullptr;
+};
+
+// This is a WAR for vectorizing through resized iter domains. The
+// spanning tree based analysis is not guaranteed to take all resize
+// ops into considerations (issue
+// https://github.com/NVIDIA/Fuser/issues/3640). To workaround the
+// limitation, grab all factors that must be divisible by a
+// vectorization factors.
+std::unordered_set<Val*> getResizeVectorizationFactors(
+    TensorView* reference_tv,
+    int64_t break_point) {
+  Fusion* fusion = reference_tv->fusion();
+  const auto resize_based_ops = scheduler_tools::getResizeBasedOps(fusion);
+
+  if (resize_based_ops.empty()) {
+    return {};
+  }
+
+  IdModel id_model(fusion);
+  const auto& graph = id_model.buildExactGraph();
+
+  std::unordered_set<Val*> resize_factors;
+
+  auto add_resize_factors = [&](Resize* resize) {
+    if (!resize->leftExpand()->isZeroInt()) {
+      resize_factors.insert(resize->leftExpand());
+    }
+    if (!resize->rightExpand()->isZeroInt()) {
+      resize_factors.insert(resize->rightExpand());
+    }
+  };
+
+  const ValGroups ref_vec_groups = graph.toGroups(std::vector<Val*>{
+      reference_tv->getLogicalDomain().begin() + break_point,
+      reference_tv->getLogicalDomain().end()});
+
+  // For each of Resize exprs, if it's reachable from the reference
+  // vectorized IDs without visiting the Resize expr itself, its
+  // constraint may not be reflectd in the inner sizes.
+  for (auto resize : resize_based_ops) {
+    auto resize_out_tv = resize->output(0)->as<TensorView>();
+    for (const auto logical_id : resize_out_tv->getLogicalDomain()) {
+      auto resize = dynamic_cast<Resize*>(logical_id->definition());
+      if (resize == nullptr) {
+        continue;
+      }
+
+      if (CanSkipResize::run(graph, ref_vec_groups, resize)) {
+        add_resize_factors(resize);
+      }
+    }
+  }
+
+  return resize_factors;
 }
 
 } // namespace
@@ -800,6 +957,7 @@ int64_t getVectorizationFactor(
     TensorView* reference_tv,
     HeuristicDataCache* data_cache,
     int64_t break_point,
+    int64_t max_vectorization_size_in_bit,
     const std::unordered_map<int64_t, int64_t>& logical_reorder_map) {
   FUSER_PERF_SCOPE("vectorize_helper::getVectorizationFactor");
 
@@ -831,21 +989,31 @@ int64_t getVectorizationFactor(
     return 1;
   }
 
-  int64_t max_vec_size = SchedulerRuntimeInfo::max_alignment_size_in_byte;
+  auto resize_factors_entry =
+      HeuristicDataCacheEntry<HeuristicCompileTime::ResizeVectorizationFactors>(
+          data_cache, [&reference_tv, &break_point]() {
+            return std::make_unique<std::unordered_set<Val*>>(
+                getResizeVectorizationFactors(reference_tv, break_point));
+          });
+
+  const auto& resize_factors = resize_factors_entry.get();
+
+  int64_t max_vect_factor = max_vectorization_size_in_bit;
   const auto& tv_to_inner_size_map = vectorize_maps_entry.get().at(break_point);
 
   for (auto inp_or_out : vectorizable_inputs_outputs) {
-    // factor <= max_factor / dtype_size
-    const auto dtype_size =
-        dataTypeSize(inp_or_out->dtype(), runtime_info.getIndexType());
-    max_vec_size = std::min(
-        max_vec_size,
-        SchedulerRuntimeInfo::max_alignment_size_in_byte / dtype_size);
+    // factor <= max_factor / dtype_size_bit
+    const auto dtype_size_bit =
+        dataTypeSizeBit(inp_or_out->dtype(), runtime_info.getIndexType());
+    max_vect_factor = std::min(
+        max_vect_factor, max_vectorization_size_in_bit / dtype_size_bit);
 
-    // factor <= alignment / dtype_size
-    int64_t alignment_size = (int64_t)runtime_info.getAlignmentSize(inp_or_out);
-    NVF_ERROR(alignment_size % dtype_size == 0);
-    max_vec_size = std::min(max_vec_size, alignment_size / dtype_size);
+    // factor <= alignment / dtype_size_bit
+    int64_t alignment_size_bit =
+        (int64_t)runtime_info.getAlignmentSizeBit(inp_or_out);
+    NVF_ERROR(alignment_size_bit % dtype_size_bit == 0);
+    max_vect_factor =
+        std::min(max_vect_factor, alignment_size_bit / dtype_size_bit);
 
     // factor <= projected_extent
     auto inner_size_it = tv_to_inner_size_map.find(inp_or_out);
@@ -865,12 +1033,29 @@ int64_t getVectorizationFactor(
         "Vectorization heuristic could not evaluate inner most size: ",
         inner_size_it->second);
 
-    max_vec_size = std::min(
+    max_vect_factor = std::min(
         scheduler_utils::maxVectorizationWidth(inner_size_opt.as<int64_t>()),
-        max_vec_size);
+        max_vect_factor);
   }
 
-  return max_vec_size;
+  // This is a WAR for vectorization through resize as the spanning
+  // tree based traversal is not guaranteed to reflect all resize ops
+  // that may affect vectorization. This is a safe but conservative
+  // analysis since it should only be necessary for innermost IDs.
+  for (const auto resize_factor : resize_factors) {
+    auto inferred_val =
+        runtime_info.expressionEvaluator().evaluate(resize_factor);
+    if (!inferred_val.hasValue()) {
+      return 1;
+    }
+    auto inferred_val_int = inferred_val.as<int64_t>();
+    if (inferred_val_int == 0) {
+      continue;
+    }
+    max_vect_factor = std::gcd(max_vect_factor, inferred_val_int);
+  }
+
+  return max_vect_factor;
 }
 
 int64_t getVectorizationFactorTransposeGroup(
@@ -884,12 +1069,19 @@ int64_t getVectorizationFactorTransposeGroup(
   std::vector<IterDomain*> virtual_innermost_dim;
   // find the virtual_innermost_dim in reference so we can later map
   // that to individual TensorView in vec_tv.
-  for (const auto& dim : dims_to_merge) {
+  for (const auto dim : dims_to_merge) {
     virtual_innermost_dim.insert(
-        virtual_innermost_dim.begin(), reference->axis(static_cast<int>(dim)));
+        virtual_innermost_dim.begin(), reference->axis(dim));
   }
-  virtual_innermost_dim.push_back(
-      reference->getLogicalDomain()[inner_most_dim]);
+  virtual_innermost_dim.push_back(reference->axis(inner_most_dim));
+
+  if (reference->axis(inner_most_dim)->isParallelized()) {
+    std::ostringstream oss;
+    IrTransformPrinter printer(oss);
+    printer.printTransforms(reference);
+    NVF_THROW(
+        "Loop axis ", inner_most_dim, " is expected to be Serial: ", oss.str());
+  }
 
   // NOTE: do I need to consider stride here?! sounds like
   // ContiguousInnerDimensionsMapper::map requires reference to be
@@ -932,7 +1124,7 @@ int64_t getVectorizationBreakPointOfReductionProducer(
   // Find the conrresponding producer break point. To the right of the
   // break point, there must be only the producer innermost IDs or
   // reduction IDs
-  int64_t break_point = (int64_t)(reduction_producer->nDims());
+  int64_t break_point = reduction_producer->nDims();
 
   // short-cut to to return break point when no c2p mapping is going to be
   // performed
@@ -947,16 +1139,16 @@ int64_t getVectorizationBreakPointOfReductionProducer(
   // Grab all the corresponding producer IDs that are mapped with the
   // innermost consumer IDs
   std::unordered_set<IterDomain*> producer_innermost_ids;
-  for (auto it = reduction_consumer->getMaybeRootDomain().begin() +
-           ((int64_t)reduction_consumer->nDims() - consumer_innermost_ndims);
+  for (auto it = reduction_consumer->getMaybeRootDomain().end() -
+           consumer_innermost_ndims;
        it != reduction_consumer->getMaybeRootDomain().end();
        ++it) {
-    auto consumer_id = *it;
+    IterDomain* consumer_id = *it;
     auto c2p_it = c2p.find(consumer_id);
     // Since this is for a reduction op, there must be a mapped
     // producer ID
     NVF_ERROR(c2p_it != c2p.end());
-    auto producer_id = c2p_it->second;
+    IterDomain* producer_id = c2p_it->second;
     producer_innermost_ids.insert(producer_id);
   }
 

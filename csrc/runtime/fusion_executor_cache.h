@@ -63,7 +63,7 @@ enum class PrimDataType;
 //! properties might: rank, DataType, contiguity, stride order, size (whether a
 //! dimension has size=1). When all of these properties are repeated, there is
 //! an opportunity to reduce the latency of producing a compiled Fusion and
-//! launch params (a FusionExecutor). Given inputs, we first compute an ID using
+//! launch params (a KernelExecutor). Given inputs, we first compute an ID using
 //! InputsIdLookup::lookupId that encodes tensor properties along with values of
 //! any integer-valued input scalars that might affect concretization. This ID
 //! is guaranteed not to conflict unless the inputs can be executed by the same
@@ -124,7 +124,7 @@ class FusionExecutorCache {
       int64_t fusion_id = 0,
       bool auto_schedule = true);
 
-  //! Execute fusion graph with given inputs, create `FusionExecutor` as needed
+  //! Execute fusion graph with given inputs, create `KernelExecutor` as needed
   //! Note this function also handles permutation & input update outside of
   //! codegen.
   //!
@@ -135,20 +135,14 @@ class FusionExecutorCache {
   //! WARING: Correctness is not guaranteed.
   //! TODO: Check usage of forced_index_type. It's a lot of plumbing, what's the
   //! value.
-  NVF_API std::vector<at::Tensor> runFusionWithInputs(
-      const at::ArrayRef<c10::IValue>& inputs,
+  NVF_API KernelArgumentHolder runFusionWithInputs(
+      KernelArgumentHolder args,
       std::optional<PrimDataType> forced_index_type = std::nullopt,
-      std::optional<int8_t> selected_device = std::nullopt);
-
-  //! Converts inputs from IValue to KernelArgumentHolder, also handles cache
-  //! lookup
-  KernelArgumentHolder prepareInputs(
-      const at::ArrayRef<c10::IValue>& inputs,
       std::optional<int8_t> selected_device = std::nullopt);
 
   //! query if there's a kernel ready to go for given inputs
   NVF_API bool isCompiled(
-      const at::ArrayRef<c10::IValue>& inputs,
+      const KernelArgumentHolder& inputs,
       int8_t device = 0);
 
   Fusion* fusion();
@@ -168,9 +162,7 @@ class FusionExecutorCache {
   std::string getMostRecentCode(bool instrinsic_code = false) const;
 
   //! Get the kernel code for the given inputs
-  std::string getCodeFor(
-      const at::ArrayRef<c10::IValue>& inputs,
-      bool intrinsic_code);
+  std::string getCodeFor(KernelArgumentHolder args, bool intrinsic_code);
 
   //! Gets the Scheduled IR for the associated runtime
   std::string getScheduledIr(
@@ -182,7 +174,7 @@ class FusionExecutorCache {
 
   //! Get the Scheduled IR for the given inputs
   std::string getScheduledIrFor(
-      const at::ArrayRef<c10::IValue>& inputs,
+      KernelArgumentHolder args,
       bool tensor_transforms = false);
 
   // TODO: in a follow up we need a global logging structure
@@ -241,8 +233,11 @@ class FusionExecutorCache {
   void deserialize(const serde::FusionExecutorCache* buffer, int64_t fusion_id);
 
  private:
+  //! Adds cache lookup information to provided argument holder
+  void setCacheId(KernelArgumentHolder& args);
+
   //! evict cached short cut entry in `code_to_fe_lookup_` as well as cached
-  //! entry in `FusionExecutor`
+  //! entry in `KernelExecutor`
   void evictCache(size_t cache_id);
 
   //! The index type of forced_index_type is used to get a kernel
@@ -298,7 +293,7 @@ class FusionExecutorCache {
   std::unordered_map<size_t, FusionKernelRuntime*> id_to_kernel_runtime_;
 
   //! This is cached to speed up finding concretization info
-  std::unique_ptr<ExactLogicalDomainMap> exact_map_;
+  ExactLogicalDomainMap exact_map_;
 
   //! Logging state for most recent compilation
   bool profiling_ = false;

@@ -382,6 +382,10 @@ class PredicateInfo {
     return stop_predicate_;
   }
 
+  auto& stopPredicate() {
+    return stop_predicate_;
+  }
+
   const auto& stopOffset() const {
     return stop_offset_;
   }
@@ -469,8 +473,7 @@ class Index {
   static std::vector<Val*> getGlobalConsumerStridedIndices(
       TensorView* consumer,
       const std::vector<ForLoop*>& loops,
-      const std::unordered_set<ForLoop*>& rotated_loops,
-      const std::unordered_map<int, Val*>& override_index = {});
+      const std::unordered_set<ForLoop*>& rotated_loops);
 
   // Indexing functions
   // Consumer = Producer
@@ -497,7 +500,7 @@ class Index {
       TensorView* consumer,
       const std::vector<ForLoop*>& loops,
       const std::unordered_set<ForLoop*>& rotated_loops,
-      const std::unordered_map<int, Val*>& override_index = {},
+      const std::unordered_map<IterDomain*, Val*>& override_index = {},
       bool generate_pointer = false,
       DataType as_type = DataType::Null);
 
@@ -521,7 +524,6 @@ class Index {
       TensorView* consumer,
       const std::vector<ForLoop*>& loops,
       const std::unordered_set<ForLoop*>& rotated_loops,
-      const std::unordered_map<int, Val*>& override_index = {},
       bool generate_pointer = false);
 
   //! Returns the logical index linearized from a multi-dimension address into a

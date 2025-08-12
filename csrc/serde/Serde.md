@@ -27,19 +27,19 @@ The string's position in the cache becomes the input's cache id.
 This table represents a key-value pair in the unordered_map.
 
 ### FusionKernelRuntime
-* `FusionKernelRuntime` contains the segments for a Fusion. Each segment is represented by a `FusionExecutor` object.
+* `FusionKernelRuntime` contains the segments for a Fusion. Each segment is represented by a `KernelExecutor` object.
 
 #### Serialization:
 * We save a metadata copy of the arguments used to construct the `FusionKernelRuntime`. During deserialization,
-we call the constructor using the saved metadata arguments. Afterwards, we regenerate the `FusionExecutor` objects,
+we call the constructor using the saved metadata arguments. Afterwards, we regenerate the `KernelExecutor` objects,
 which are normally built by calling `compileFusionParallel` outside the constructor.
 
 ### KernelArgumentHolder
 * A collection of `PolymorphicValue` objects representing Scalars [`int, double, bool, complex`], Cpu Scalars, and Gpu Tensors.
 * **Note:** Pointer address of meta aten tensors is zero. The pointer address is used to specify vectorization during schedule.
 
-### FusionExecutor
-* `FusionExecutor` defines two data structs: `ExecutorEntry` and `GlobalBufferInfo`
+### KernelExecutor
+* `KernelExecutor` defines two data structs: `ExecutorEntry` and `GlobalBufferInfo`
 * `ExecutorEntry` contains information to launch a kernel for a set of input arguments. It contains the launch parameters,
 output-to-input alias map, and global buffer configurations.
 * `GlobalBufferInfo` specifies the buffer's tensor properties [`shape, stride, dtype`] and its corresponding TensorView.
@@ -284,7 +284,7 @@ while (!queue.empty()) {
 }
 
 // Deserialize terminal_nodes field in the FusionCache table
-for (auto idx : c10::irange(fusions_.size())) {
+for (auto idx : arange(fusions_.size())) {
   // Add trie_node from bfs_order to terminal_nodes_
   // Get FusionExecutorCache for terminal TrieNode
   // Deserialize FusionExecutorCache

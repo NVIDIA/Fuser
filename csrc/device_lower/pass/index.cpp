@@ -6,12 +6,13 @@
  */
 // clang-format on
 #include <device_lower/analysis/index_compute.h>
+#include <device_lower/analysis/tma.h>
 #include <device_lower/lower2device.h>
-#include <device_lower/utils.h>
 #include <id_model/schedule.h>
 #include <index_compute.h>
 #include <ir/iostream.h>
 #include <ir/utils.h>
+#include <kernel_ir.h>
 #include <ops/arith.h>
 #include <options.h>
 #include <predicate_compute.h>
@@ -21,16 +22,13 @@
 
 #include <device_lower/pass/index.h>
 
+#include <ranges>
+
 namespace nvfuser {
 
 std::vector<Expr*> IndexLowering::getIndexedExprs(
     std::vector<Expr*> incoming_exprs) {
   FUSER_PERF_SCOPE("GpuLower::Lower::IndexLowering::getIndexedExprs");
-  // Traverse the exprs and setup allocation domains before
-  // generating indices.
-  if (GpuLower::current()->isTensorIndexerEnabled()) {
-    GpuLower::current()->tensorIndexer().setupAllocationDomains(incoming_exprs);
-  }
   IndexLowering il;
   il.generate(incoming_exprs);
   return il.lowered_exprs_;
@@ -44,7 +42,7 @@ Val* IndexLowering::lowerSrcIndex(
     DataType as_type) const {
   if (auto tv = dynamic_cast<TensorView*>(src)) {
     NVF_ERROR(dst->isA<TensorView>());
-    return Index::getProducerIndex(
+    kir::TensorIndex* tind = Index::getProducerIndex(
         tv,
         dst->as<TensorView>(),
         for_loops_,
@@ -52,6 +50,13 @@ Val* IndexLowering::lowerSrcIndex(
         override_index,
         generate_pointer,
         as_type);
+    if (TensorView* aliased_producer =
+            GpuLower::current()->getTensorProducerAlias(tv)) {
+      return IrBuilder::create<kir::TensorIndex>(
+          aliased_producer, tind->index());
+    } else {
+      return tind;
+    }
   } else {
     return src;
   }
@@ -59,7 +64,7 @@ Val* IndexLowering::lowerSrcIndex(
 
 Val* IndexLowering::lowerDstIndex(
     Val* dst,
-    const std::unordered_map<int, Val*>& override_index,
+    const std::unordered_map<IterDomain*, Val*>& override_index,
     bool generate_pointer,
     DataType as_type) const {
   if (auto tv = dynamic_cast<TensorView*>(dst)) {
@@ -276,7 +281,7 @@ void IndexLowering::handle(const ArrayConstruct* aop) {
 
 void IndexLowering::handle(const StructConstruct* sop) {
   std::vector<std::pair<std::string, Val*>> lowered_named_inputs;
-  for (auto i : c10::irange(sop->inputs().size())) {
+  for (auto i : arange(sop->inputs().size())) {
     lowered_named_inputs.emplace_back(
         sop->fieldName(i), lowerSrcIndex(sop->inputs().at(i), sop->out()));
   }
@@ -336,7 +341,7 @@ void IndexLowering::handle(const IndexSelectOp* sop) {
   GpuLower::current()->propagateExprInfo(sop, back());
 }
 
-void IndexLowering::handle(const TorchGatherOp* top) {
+void IndexLowering::handle(const GatherOp* top) {
   auto lowered_index = lowerSrcIndex(top->input(1), top->output(0));
   lowered_index = IrBuilder::maybeCastExpr(DataType::Index, lowered_index);
 
@@ -351,23 +356,48 @@ void IndexLowering::handle(const TorchGatherOp* top) {
 }
 
 void IndexLowering::handle(const ScatterOp* sop) {
-  auto lowered_index = lowerSrcIndex(sop->indexTv(), sop->output(0));
-  auto lowered_src = lowerSrcIndex(sop->srcTv(), sop->output(0));
+  // At this point, out and self are aliased, so they can be used
+  // interchangeably.
 
-  lowered_index = IrBuilder::maybeCastExpr(DataType::Index, lowered_index);
+  auto lowered_index = lowerSrcIndex(sop->index(), sop->out());
+  auto lowered_src = lowerSrcIndex(sop->src(), sop->out());
 
-  const std::unordered_map<int, Val*> override_index_out = {
-      {sop->dim(), lowered_index}};
-  auto lowered_out = lowerDstIndex(sop->output(0), override_index_out);
+  const std::unordered_map<IterDomain*, Val*> override_index = {
+      {sop->getIndexedID(), lowered_index}};
+  auto lowered_out = lowerDstIndex(sop->out(), override_index);
 
   pushBack(IrBuilder::create<ScatterOp>(
       sop->getScatterOpType(),
-      lowered_out,
-      sop->selfTv(),
+      /*out=*/lowered_out,
+      /*self=*/lowered_out,
       sop->dim(),
       lowered_index,
       lowered_src));
   GpuLower::current()->propagateExprInfo(sop, back());
+}
+
+void IndexLowering::handle(const ArgsortOp* aop) {
+  const auto in = lowerSrcIndex(aop->in(), aop->out());
+  const auto out = lowerDstIndex(aop->out());
+  pushBack(IrBuilder::create<ArgsortOp>(
+      out, in, aop->dim(), aop->isDescending(), aop->isStable()));
+  GpuLower::current()->propagateExprInfo(aop, back());
+}
+
+void IndexLowering::handle(const TopKOp* top) {
+  const auto in = lowerSrcIndex(top->in(), top->outValues());
+  const auto out_values = lowerDstIndex(top->outValues());
+  const auto out_indices = lowerDstIndex(top->outIndices());
+  const auto k = top->k();
+  pushBack(IrBuilder::create<TopKOp>(
+      out_values,
+      out_indices,
+      in,
+      k,
+      top->dim(),
+      top->isLargest(),
+      top->isSorted()));
+  GpuLower::current()->propagateExprInfo(top, back());
 }
 
 void IndexLowering::handle(const SelectOp* sop) {
@@ -827,7 +857,7 @@ void IndexLowering::handle(const GroupedReductionOp* grouped_rop) {
   std::vector<Val*> indexed_outputs(grouped_rop->numHorizontallyGroupedExprs());
   std::vector<Val*> indexed_inputs(grouped_rop->numHorizontallyGroupedExprs());
 
-  for (const auto i : c10::irange(grouped_rop->numHorizontallyGroupedExprs())) {
+  for (const auto i : arange(grouped_rop->numHorizontallyGroupedExprs())) {
     indexed_outputs.at(i) = lowerDstIndex(grouped_rop->output(i));
     indexed_inputs.at(i) =
         lowerSrcIndex(grouped_rop->input(i), grouped_rop->output(i));
@@ -838,8 +868,7 @@ void IndexLowering::handle(const GroupedReductionOp* grouped_rop) {
   } else if (has_block_reduce) {
     handleBlockReduction(grouped_rop, indexed_outputs, indexed_inputs);
   } else {
-    for (const auto i :
-         c10::irange(grouped_rop->numHorizontallyGroupedExprs())) {
+    for (const auto i : arange(grouped_rop->numHorizontallyGroupedExprs())) {
       pushBack(IrBuilder::create<BinaryOp>(
           grouped_rop->getReductionOpType(i),
           indexed_outputs.at(i),
@@ -1151,12 +1180,12 @@ void IndexLowering::handle(const GroupedWelfordOp* grouped_wop) {
   auto output_vals = grouped_wop->outputVals();
   auto input_vals = grouped_wop->inputVals();
 
-  for (const auto i : c10::irange(grouped_wop->numHorizontallyGroupedExprs())) {
+  for (const auto i : arange(grouped_wop->numHorizontallyGroupedExprs())) {
     const auto& output = output_vals.at(i);
     const auto& input = input_vals.at(i);
     WelfordTriplet indexed_output;
     WelfordTriplet indexed_input;
-    for (const auto j : c10::irange(3)) {
+    for (const auto j : arange(3)) {
       indexed_output.get(j) = lowerDstIndex(output.get(j));
       indexed_input.get(j) = lowerSrcIndex(input.get(j), output.get(j));
     }
@@ -1169,7 +1198,8 @@ void IndexLowering::handle(const GroupedWelfordOp* grouped_wop) {
         grouped_wop, indexed_outputs, indexed_inputs, grouped_wop->initVals());
   } else {
     NVF_THROW(
-        "Only grid welford is supported. Validation should have caught non-grid welford grouping.");
+        "Only grid welford is supported. Validation should have caught "
+        "non-grid welford grouping.");
   }
 }
 
@@ -1404,6 +1434,14 @@ void IndexLowering::handleGroupedGridWelford(
   }
 }
 
+void IndexLowering::handle(const ScanOp* sop) {
+  const auto in = lowerSrcIndex(sop->in(), sop->out());
+  const auto out = lowerDstIndex(sop->out());
+  pushBack(IrBuilder::create<ScanOp>(
+      sop->opType(), sop->init(), out, in, sop->dim()));
+  GpuLower::current()->propagateExprInfo(sop, back());
+}
+
 void IndexLowering::handle(const kir::MBarrierInit* minit) {
   Val* smem_address_ptr = nullptr;
 
@@ -1518,7 +1556,7 @@ void IndexLowering::handleCpAsyncBulkLoad(const LoadStoreOp* ldst) {
 
     GpuLower::current()->propagateExprInfo(ldst, back());
   } else {
-    TensorView* mbarrier = GpuLower::current()->ldstMBarrierMap().at(ldst);
+    TensorView* mbarrier = GpuLower::current()->mbarrierMap().at(ldst);
     Val* mbarrier_index = lower_utils::u32IndexScalarSmemTv(mbarrier);
 
     // gmem indexing and expect_bytes for mbarrier
@@ -1526,7 +1564,7 @@ void IndexLowering::handleCpAsyncBulkLoad(const LoadStoreOp* ldst) {
         ldst, mbarrier_index, for_loops_, rotated_loop_);
 
     // arrive and expect_tx mbarrier
-    Val* state = IrBuilder::create<Val>(DataType::UInt);
+    Val* state = IrBuilder::create<Val>(DataType::UInt64);
     pushBack(IrBuilder::create<kir::Allocate>(
         state, MemoryType::Local, ldst->container()->oneVal()));
     pushBack(IrBuilder::create<kir::MBarrierArriveExpectTx>(
@@ -1558,15 +1596,15 @@ void IndexLowering::handleCpAsyncBulkStore(const LoadStoreOp* ldst) {
 }
 
 static DataType getMmaInputAType(MmaMacro macro) {
-  int warp_group_size = isHopper(macro) ? 128 : 32;
-  int size = getM(macro) * getK(macro) / warp_group_size /
-      2 /* halves per 32bit register */;
+  int64_t warp_group_size = isHopper(macro) ? 128L : 32L;
+  int64_t size = getM(macro) * getK(macro) / warp_group_size /
+      2L /* halves per 32bit register */;
   return ArrayType{std::make_shared<DataType>(DataType::UInt32), (size_t)size};
 }
 
 static DataType getMmaInputBType(MmaMacro macro) {
-  int size = getN(macro) * getK(macro) / 32 /* threads per warp */ /
-      2 /* halves per 32bit register */;
+  int64_t size = getN(macro) * getK(macro) / 32L /* threads per warp */ /
+      2L /* halves per 32bit register */;
   return ArrayType{std::make_shared<DataType>(DataType::UInt32), (size_t)size};
 }
 
@@ -1581,16 +1619,98 @@ static inline DataType getMmaOutType(TensorView* mma_out) {
 }
 
 namespace {
+
 // Helper function to compute the index of the output of stmatrix (in shared
-// memory). We have two special cases (1) Handle tiles of size 8x8 and 16x8 and
-// (2) tiles of size 16x16. Each of these two cases has further two special
-// cases, (1) there is exactly one tile, (2) mulitple tiles thus multiple
-// stmatrix calls are issued in a for-loop. Please note that in a 16x16 tile,
-// the 4 8x8 tiles are stores/accessed in a m/column-major fasion. When we
-// mulitple tiles (whether it be 8x8, 18x6 or 16x16), the tiles are stored in a
-// m/column-major fashion.
-Val* hardCodedIndexGenerationForStMatrix(
-    const LoadStoreOp* ldst,
+// memory). We currently handle the cases:
+// 1. stmatrix.x4 (we have 16x16 tiles)
+// 2. stmatrix.x2 (we have 16x8 tiles)
+// The assumption of the function is that we have 128-threads (warp group or 4
+// warps) The stmatrix call is inside a for-loop. We can think of 4-stmatrix (4
+// warps) calls being issued for every iteration of the for-loop. For example if
+// we are storing [64, 16] piece of memory using stmatrix.x2 (16x8), there will
+// be two iteration of the for-loop. In the first iteration we'll store [64 (0
+// ... 63), 8(0 ... 7)] and in the next iteration we'll store [64 (0 ... 63),
+// 8(8 ... 15)].
+
+// In each iteration, the 4-warps will be storing what we'll call
+// a warp group box. Each warp group box will have (at most) 4 tile boxes,
+// that's the memory stored by each stmatrix issued. This each tile-box is of
+// shape: [16, 16], [16, 8]; to be supported: [8, 8].
+
+// For example, if we are store [64, 16] using stmatrix.x2 [16, 8], then the
+// warp group box will be [64, 8] (there will be 2 warp group boxes). If we are
+// using stmatrix.x4 [16, 16] then the warp group box will be [64, 16].
+
+// To compute the index/offset into shared memory, we sum the offset of the warp
+// group box, the tile box inside the warp group box, and then finally the
+// offset of the thread inside the tile box.
+
+// For an example of index computation assume we are storing [64, 32] using
+// stmatrix using a single warp group, that is the cta has 128 threads/4-warps.
+// We'll be using stmatrix.x4 (16x16 tiles). This will need two iterations of
+// the for-loop (loop index I = [0,1]). After each iteration we'd have store
+// [64, 16] piece of memory or a warp group box worth. Thus in this case the
+// offset of warp group box is:
+
+// warp_group_box_size_m = 64; warp_group_box_size_n = 16 * 2 = 32
+// num_warps_groups_m = 64/ (warp_group_box_size_m = 64)  = 1
+// warp_groups_box_offset_m =
+//        (I % num_warps_groups_m ) * warp_group_box_size_m = 0
+// warp_groups_box_offset_n =
+//        (I /  num_warps_groups_m) * warp_group_box_size_n = 32 (when I = 1)
+// warp_groups_offset =
+//                warp_groups_box_offset_m +  warp_groups_box_offset_n
+
+// A warp group box of size [64(M), 16(N)] has 4 tile boxes of size [16(tile_m),
+// 16(tile_n)] each.
+// Since each warp computes a tile box, we find tile_box_id as:
+// tile_box_id = threadIdx.x/32
+// tile_box_id will have two components tile_box_id_m, tile_box_id_n
+// But first we compute the number of tile boxes in the m and n dim .
+// tile_boxes_in_warp_group_box_m =
+//                    min (4, m/ tile_m(16))
+// tile_boxes_in_warp_group_box_n = 4 / tile_boxes_in_warp_group_box_m
+// Now tile_box_id_m =  tile_box_id % tile_boxes_in_warp_group_box_m
+// tile_box_id_n = tile_box_id / tile_boxes_in_warp_group_box_m
+// tile_box_offset_m = tile_box_id_m * tile_m(16) * N * 2 (half)
+// tile_box_offset_n = tile_box_id_n * tile_n (16) * N * 2 (half)
+// tile_box_offset = tile_box_offet_m + tile_box_offset_n
+
+// Inside the tile box [16, 16], we can think of it as 4 8x8 tiles
+// *****************
+// *       *       *
+// *       *       *
+// *  T0   *  T2   *
+// *       *       *
+// *       *       *
+// *****************
+// *       *       *
+// *       *       *
+// *  T1   *  T3   *
+// *       *       *
+// *       *       *
+// *****************
+// Since there are 128 threads working on 4 tile boxes.
+// Effective threadIdx effective_tidx = tidx.x % 32
+// offset_in_tile_box_m =
+//              (effective_tidx % 16 ) * N * 2 (half)
+// offset_in_tile_box_n =
+//              (effective_tidx/ 16 ) * 8 * 2 (half)
+// offset_in_tile = offset_in_tile_box_m + offset_in_tile_box_n
+// cumulative_offset = warp_groups_offset + tile_box_offset + offset_in_tile
+
+// In the above comment, M and N are instruction tiles.
+// We can mulitples of 4-warps (warp groups) working to execute stmatrix.
+// threadIdx.x will range from [0 ... 127] and will be the 4 warps to store
+// an instruction tile work of data.
+// threadIdx.y will provide the multiples of warp groups.
+
+// To account for the threadIdx.y we have to add it to the offset:
+// offset_from_threadIdx.y = threadIdx.y * M * N * 2 (half)
+
+// Final offset: cumulative_offset + offset_from_threadIdx.y
+Val* hardCodedSharedMemoryIndexForLdStMatrix(
+    TensorView* smem_tv,
     const ForLoop* outer_loop,
     const int64_t m_tile,
     const int64_t n_tile,
@@ -1600,91 +1720,199 @@ Val* hardCodedIndexGenerationForStMatrix(
       (m_tile == 8 && n_tile == 8) || (m_tile == 16 && n_tile == 8) ||
           (m_tile == 16 && n_tile == 16),
       "size not currently supported for stmatrix");
+  Val* smem_index = nullptr;
 
-  auto m_tiles = m / m_tile;
+  NVF_ERROR(
+      dataTypeSizeByte(smem_tv->dtype()) == 2,
+      "we only support 16-bit types in stmatrix");
 
-  Val* out_index = nullptr;
+  NVF_ERROR(getSwizzle(smem_tv) == MmaInputSmemSwizzle::None);
 
-  // For example: M=32, N=64, m_tile=16, n_tile=8.
-  // So m_tiles == 32/16 == 2; n_tiles == 8
-  // This is computed by getting the loop index say L, then mod the
-  // number of tiles in the m-dimension, then multiplying by n (*2 for Half)
-  // into the size of the tile in the n-dimension.
-  //  (L % m_tiles) * m_tile * n * 2
-  auto tile_offset_m = IrBuilder::mulExpr(
+  auto dtype_size = 2;
+
+  // A tile_box can be 16x16, 16x8 [to do: 8x8]
+  // A warp group (128 threads) can work on a number of tile boxes.
+  int64_t max_tile_boxes_in_warp_group_box = 4;
+
+  // These two variables gives the shape of the warp group box in terms of tile
+  // boxes. Think of a tile box as a stmatrix call.
+  auto tiles_in_warp_group_m =
+      std::min(m / m_tile, max_tile_boxes_in_warp_group_box);
+  auto tiles_in_warp_group_n =
+      max_tile_boxes_in_warp_group_box / tiles_in_warp_group_m;
+
+  // The size of a warp group box in the m dim.
+  auto warp_group_box_size_m = tiles_in_warp_group_m * m_tile;
+
+  // Each iteration of the for-loop compute a warp group box worth of stmatrix
+  // Compute how many warp group boxes are there in the m-dim
+  auto warp_groups_m = m / warp_group_box_size_m;
+
+  // Compute the offset of a warp group box.
+  // On each iteration we work on a different warp-group box. So the offset
+  // is a function of the trip-count and the shape of the warp group box.
+  auto warp_group_box_offset_m = IrBuilder::mulExpr(
       IrBuilder::modExpr(
           outer_loop->index(),
-          IrBuilder::create<Val>(m_tiles, DataType::Index)),
-      IrBuilder::create<Val>(m_tile * n * 2, DataType::Index));
+          IrBuilder::create<Val>(warp_groups_m, DataType::Index)),
+      IrBuilder::create<Val>(
+          tiles_in_warp_group_m * m_tile * n * dtype_size, DataType::Index));
 
-  // Offset of the tile in the n-dim.
-  // (L / m_tiles) * n_tile * 2
-  auto tile_offset_n = IrBuilder::mulExpr(
+  auto warp_group_box_offset_n = IrBuilder::mulExpr(
       IrBuilder::divExpr(
           outer_loop->index(),
-          IrBuilder::create<Val>(m_tiles, DataType::Index)),
-      IrBuilder::create<Val>(n_tile * 2, DataType::Index));
+          IrBuilder::create<Val>(warp_groups_m, DataType::Index)),
+      IrBuilder::create<Val>(
+          tiles_in_warp_group_n * n_tile * dtype_size, DataType::Index));
 
-  // This will hanlde 8x8 and 16x8.
-  if (n_tile == 8) {
-    // tidx.x * n * 2(dtype = Half)
-    auto offset_in_tile = IrBuilder::mulExpr(
-        IrBuilder::create<Val>(n * 2, DataType::Index),
-        IrBuilder::create<NamedScalar>("threadIdx.x", DataType::Index));
+  // Offset of the warp group box.
+  auto warp_group_box_offset =
+      IrBuilder::addExpr(warp_group_box_offset_m, warp_group_box_offset_n);
 
-    // If it's a single tile we don't need to add the tile offsets.
-    if (m_tile == m && n_tile == n) {
-      out_index = IrBuilder::addExpr(
-          IrBuilder::baseAddressExpr(dynamic_cast<TensorView*>(ldst->out())),
-          offset_in_tile);
+  auto tile_box_id = IrBuilder::divExpr(
+      IrBuilder::create<NamedScalar>("threadIdx.x", DataType::Index),
+      IrBuilder::create<Val>(/* each warp gets a box */ 32, DataType::Index));
 
-    } else {
-      out_index = IrBuilder::addExpr(
-          IrBuilder::baseAddressExpr(dynamic_cast<TensorView*>(ldst->out())),
-          IrBuilder::addExpr(
-              offset_in_tile,
-              IrBuilder::addExpr(tile_offset_m, tile_offset_n)));
-    }
+  // We compute the offset the the tile box inside the warp group box.
+  // We identify the co-ord (m, n ) of the tile box in the warp group box.
+  // The compute the offset of the box in terms of the m and n-dim and sum.
+  auto tile_box_id_m = IrBuilder::modExpr(
+      tile_box_id,
+      IrBuilder::create<Val>(tiles_in_warp_group_m, DataType::Index));
 
-  } else if (n_tile == 16) {
-    // This will hanlde 16x16
+  auto tile_box_id_n = IrBuilder::divExpr(
+      tile_box_id,
+      IrBuilder::create<Val>(tiles_in_warp_group_m, DataType::Index));
 
+  auto tile_box_id_m_offset = IrBuilder::mulExpr(
+      tile_box_id_m,
+      IrBuilder::create<Val>(m_tile * n * dtype_size, DataType::Index));
+
+  auto tile_box_id_n_offset = IrBuilder::mulExpr(
+      tile_box_id_n,
+      IrBuilder::create<Val>(n_tile * dtype_size, DataType::Index));
+
+  // Offset of the tile box inside the warp group box.
+  auto tile_box_offset =
+      IrBuilder::addExpr(tile_box_id_m_offset, tile_box_id_n_offset);
+
+  // If there is only one warp group box, then the cumulative offset is just the
+  // tile box offset.
+  auto warp_box_tile_box_offset_sum = (n == n_tile)
+      ? tile_box_offset
+      : IrBuilder::addExpr(warp_group_box_offset, tile_box_offset);
+
+  auto threadIdx_y_offset = IrBuilder::mulExpr(
+      IrBuilder::create<NamedScalar>("threadIdx.y", DataType::Index),
+      IrBuilder::create<Val>(m * n * 2));
+
+  // Cumulative offset of the the warp group box and tile box and the product of
+  // the threadIx.y and the instruction tile.
+  auto cum_offset =
+      IrBuilder::addExpr(threadIdx_y_offset, warp_box_tile_box_offset_sum);
+
+  // Compute the offset of the thread inside the tile box.
+  // Since each warp works on a tile box, and there are 128-threads
+  // the effective tidx is threadIdx % 32
+  auto effective_tidx = IrBuilder::modExpr(
+      IrBuilder::create<NamedScalar>("threadIdx.x", DataType::Index),
+      IrBuilder::create<Val>(32, DataType::Index));
+
+  // tidx.x is the effective threadIdx.x
+  if (m_tile == 16 && n_tile == 16) {
     // 2 is for dtype Half
     // (tidx.x /  (8 * 2)) * 16
     // This gives the offset in the n-dim
     auto offset_in_tile_n = IrBuilder::mulExpr(
-        IrBuilder::create<Val>(16, DataType::Index),
+        IrBuilder::create<Val>(8 * dtype_size, DataType::Index),
         IrBuilder::divExpr(
-            IrBuilder::create<NamedScalar>("threadIdx.x", DataType::Index),
-            IrBuilder::create<Val>(8 * 2, DataType::Index)));
+            effective_tidx, IrBuilder::create<Val>(16, DataType::Index)));
 
     // (tidx.x%16) * n * 2
     // This gives the offset inside the 16x16 tile in the m-dim.
     auto offset_in_tile_m = IrBuilder::mulExpr(
         IrBuilder::modExpr(
-            IrBuilder::create<NamedScalar>("threadIdx.x", DataType::Index),
-            IrBuilder::create<Val>(16, DataType::Index)),
-        IrBuilder::create<Val>(n * 2, DataType::Index));
+            effective_tidx, IrBuilder::create<Val>(16, DataType::Index)),
+        IrBuilder::create<Val>(n * dtype_size, DataType::Index));
 
-    // If it's a single tile we don't need to add the tile offsets.
-    if (m_tile == m && n_tile == n) {
-      out_index = IrBuilder::addExpr(
-          IrBuilder::baseAddressExpr(ir_utils::getTvOutput(ldst)),
-          IrBuilder::addExpr(offset_in_tile_n, offset_in_tile_m));
-    } else {
-      out_index = IrBuilder::addExpr(
-          IrBuilder::baseAddressExpr(ir_utils::getTvOutput(ldst)),
-          IrBuilder::addExpr(
-              offset_in_tile_n,
-              IrBuilder::addExpr(
-                  offset_in_tile_m,
-                  IrBuilder::addExpr(tile_offset_m, tile_offset_n))));
-    }
+    smem_index = IrBuilder::addExpr(
+        IrBuilder::baseAddressExpr(smem_tv),
+        IrBuilder::addExpr(
+            cum_offset,
+            IrBuilder::addExpr(offset_in_tile_m, offset_in_tile_n)));
+  } else if (m_tile == 16 && n_tile == 8) {
+    auto offset_in_tile = IrBuilder::mulExpr(
+        IrBuilder::create<Val>(n * dtype_size, DataType::Index),
+        effective_tidx);
+
+    smem_index = IrBuilder::addExpr(
+        IrBuilder::baseAddressExpr(smem_tv),
+        IrBuilder::addExpr(offset_in_tile, cum_offset));
   }
-  Val* out = IrBuilder::create<kir::TensorIndex>(
-      dynamic_cast<TensorView*>(ldst->out()), out_index);
+  return IrBuilder::create<kir::TensorIndex>(smem_tv, smem_index);
+}
 
-  return out;
+Val* indexTMemLdSt(
+    TensorView* tmem_tv,
+    TensorView* consumer_tv,
+    const std::vector<ForLoop*>& for_loops) {
+  NVF_ERROR(tmem_tv->getMemoryType() == MemoryType::Tensor, "Invalid tmem_tv");
+  const auto& tmem_info = GpuLower::current()->tmemInfo();
+  const auto& tensor_indexer = GpuLower::current()->tensorIndexer();
+  TMemRegisterDataPath dp;
+  if (tmem_tv == consumer_tv) {
+    dp = tmem_info.store_data_path.at(tmem_tv);
+  } else {
+    dp = tmem_info.load_data_path.at(tmem_tv);
+  }
+  NVF_ERROR(
+      dp == TMemRegisterDataPath::Path32x32b,
+      "Data path ",
+      dp,
+      " is not supported yet");
+  const std::vector<IterDomain*>& lane_allocation_domain =
+      tmem_info.allocation.getTVInfo(tmem_tv).lane_allocation;
+  const std::vector<IterDomain*>& column_allocation_domain =
+      tmem_info.allocation.getTVInfo(tmem_tv).column_allocation;
+
+  auto get_index_for = [&](const std::vector<IterDomain*>& domain) {
+    std::vector<Val*> indices = tensor_indexer.getIndexFor(
+        consumer_tv->definition(), consumer_tv == tmem_tv, domain, for_loops);
+    Val* stride = tmem_tv->fusion()->oneVal();
+    Val* index = tmem_tv->fusion()->zeroVal();
+    for (const auto& [id, idx] :
+         zip(std::ranges::views::reverse(domain),
+             std::ranges::views::reverse(indices))) {
+      index = SimplifyingIrBuilder::addExpr(
+          index, SimplifyingIrBuilder::mulExpr(idx, stride));
+      stride = SimplifyingIrBuilder::mulExpr(stride, id->extent());
+    }
+    return index;
+  };
+
+  Val* lane_index = get_index_for(lane_allocation_domain);
+  // All threads must provide the beginning address of the lane: i / 32 * 32
+  Val* thirty_two = IrBuilder::create<Val>(32);
+  lane_index = SimplifyingIrBuilder::mulExpr(
+      SimplifyingIrBuilder::divExpr(lane_index, thirty_two), thirty_two);
+  lane_index =
+      SimplifyingIrBuilder::maybeCastExpr(DataType::UInt16, lane_index);
+
+  Val* column_index = get_index_for(column_allocation_domain);
+  // The column_index above is in the unit of items, but the PTX instruction
+  // of TMem load/store is in the unit of 4 bytes.
+  column_index = SimplifyingIrBuilder::divExpr(
+      SimplifyingIrBuilder::mulExpr(
+          column_index,
+          IrBuilder::create<Val>(
+              dataTypeSizeByte(consumer_tv->dtype()), DataType::Index)),
+      IrBuilder::create<Val>(4, DataType::Index));
+  column_index =
+      SimplifyingIrBuilder::maybeCastExpr(DataType::UInt16, column_index);
+
+  Val* index = SimplifyingIrBuilder::arrayExpr(
+      std::vector<Val*>{lane_index, column_index});
+  return GpuLower::current()->commonScalarMap().hoistScalar(index, for_loops);
 }
 
 } // namespace
@@ -1702,32 +1930,115 @@ void IndexLowering::handle(const LoadStoreOp* ldst) {
     }
   } else {
     DataType as_type = DataType::Null;
+    bool is_tma_ldmatrix = false;
     if (ir_utils::isLdMatrixOp(ldst)) {
-      as_type = ArrayType{
-          std::make_shared<DataType>(DataType::UInt32),
-          (size_t)ir_utils::getVectorizeSize(ldst->out()->as<TensorView>()) /
-              2};
+      NVF_ERROR(ldst->in()->isA<TensorView>());
+      TensorView* in_tv = ldst->in()->as<TensorView>();
+      NVF_ERROR(in_tv->definition() != nullptr);
+      is_tma_ldmatrix = ir_utils::isCpAsyncBulkLoad(in_tv->definition());
+      if (is_tma_ldmatrix) {
+        NVF_ERROR(
+            in_tv->getLogicalDomain().size() >= 2,
+            "We only support 2D inputs ldmatrix");
+        NVF_ERROR(
+            ldst->fusion()->hasManaged("ldst_matrix_m_tile") &&
+                ldst->fusion()->hasManaged("ldst_matrix_n_tile"),
+            "We support ldmatrix only when tiling information is passed via "
+            "fusion managed cache");
+        auto ldst_m_tile =
+            ldst->fusion()->getManaged<int64_t>("ldst_matrix_m_tile");
+        auto ldst_n_tile =
+            ldst->fusion()->getManaged<int64_t>("ldst_matrix_n_tile");
+
+        MmaInputSmemSwizzle swizzle = getSwizzle(in_tv);
+        switch (swizzle) {
+          case MmaInputSmemSwizzle::None: {
+            int64_t m =
+                ldst->fusion()->getManaged<int64_t>("ldst_matrix_m_smem");
+            int64_t n =
+                ldst->fusion()->getManaged<int64_t>("ldst_matrix_n_smem");
+            in = hardCodedSharedMemoryIndexForLdStMatrix(
+                in_tv,
+                for_loops_[for_loops_.size() - 3],
+                ldst_m_tile,
+                ldst_n_tile,
+                m,
+                n);
+          } break;
+          case MmaInputSmemSwizzle::B128:
+          case MmaInputSmemSwizzle::B64:
+          case MmaInputSmemSwizzle::B32: {
+            Val* index = GpuLower::current()->tensorIndexer().getLinearIndex(
+                in_tv, ldst, for_loops_);
+            Val* offset = SimplifyingIrBuilder::mulExpr(
+                index, dataTypeSizeByte(in_tv->dtype()));
+            Val* smem_index =
+                IrBuilder::addExpr(IrBuilder::baseAddressExpr(in_tv), offset);
+            in = IrBuilder::create<kir::TensorIndex>(in_tv, smem_index);
+          } break;
+          default:
+            NVF_ERROR("Unsupported Swizzle Type for StMatrix");
+        }
+
+        auto num_regs = (ldst_m_tile) / 8 * (ldst_n_tile) / 8;
+        auto as_type = ArrayType{
+            std::make_shared<DataType>(DataType::UInt32),
+            static_cast<size_t>(num_regs)};
+
+        // Get the index for the input of stmatrix.
+        out = lowerDstIndex(ldst->out(), {}, false, as_type);
+      } else {
+        as_type = ArrayType{
+            std::make_shared<DataType>(DataType::UInt32),
+            (size_t)ir_utils::getVectorizeSize(ldst->out()->as<TensorView>()) /
+                2};
+      }
     } else if (ir_utils::isStMatrixOp(ldst)) {
       NVF_ERROR(
-          ldst->out()->as<TensorView>()->getLogicalDomain().size() == 2,
+          ldst->out()->as<TensorView>()->getLogicalDomain().size() >= 2,
           "We only support 2D inputs stmatrix");
-
       NVF_ERROR(
-          ldst->fusion()->hasManaged("st_matrix_m_tile") &&
-              ldst->fusion()->hasManaged("st_matrix_n_tile") &&
-              ldst->fusion()->hasManaged("st_matrix_m") &&
-              ldst->fusion()->hasManaged("st_matrix_n"),
-          "We support stmatrix only when tiling information is passed via fusion managed cache");
-      auto m_tile = ldst->fusion()->getManaged<int64_t>("st_matrix_m_tile");
-      auto n_tile = ldst->fusion()->getManaged<int64_t>("st_matrix_n_tile");
-      auto m = ldst->fusion()->getManaged<int64_t>("st_matrix_m");
-      auto n = ldst->fusion()->getManaged<int64_t>("st_matrix_n");
+          ldst->fusion()->hasManaged("ldst_matrix_m_tile") &&
+              ldst->fusion()->hasManaged("ldst_matrix_n_tile"),
+          "We support stmatrix only when tiling information is passed via "
+          "fusion managed cache");
+      int64_t ldst_m_tile =
+          ldst->fusion()->getManaged<int64_t>("ldst_matrix_m_tile");
+      int64_t ldst_n_tile =
+          ldst->fusion()->getManaged<int64_t>("ldst_matrix_n_tile");
 
       // Get the index for the output of stmatrix.
-      out = hardCodedIndexGenerationForStMatrix(
-          ldst, for_loops_[0], m_tile, n_tile, m, n);
+      NVF_ERROR(ldst->out()->isA<TensorView>());
+      TensorView* out_tv = ldst->out()->as<TensorView>();
+      MmaInputSmemSwizzle swizzle = getSwizzle(out_tv);
+      switch (swizzle) {
+        case MmaInputSmemSwizzle::None: {
+          int64_t m = ldst->fusion()->getManaged<int64_t>("ldst_matrix_m_smem");
+          int64_t n = ldst->fusion()->getManaged<int64_t>("ldst_matrix_n_smem");
+          out = hardCodedSharedMemoryIndexForLdStMatrix(
+              out_tv,
+              for_loops_[for_loops_.size() - 3],
+              ldst_m_tile,
+              ldst_n_tile,
+              m,
+              n);
+        } break;
+        case MmaInputSmemSwizzle::B128:
+        case MmaInputSmemSwizzle::B64:
+        case MmaInputSmemSwizzle::B32: {
+          Val* index = GpuLower::current()->tensorIndexer().getLinearIndex(
+              out_tv, ldst, for_loops_);
+          Val* offset = SimplifyingIrBuilder::mulExpr(
+              index, dataTypeSizeByte(out_tv->dtype()));
+          Val* smem_index =
+              IrBuilder::addExpr(IrBuilder::baseAddressExpr(out_tv), offset);
+          out = IrBuilder::create<kir::TensorIndex>(out_tv, smem_index);
+        } break;
+        default:
+          NVF_ERROR("Unsupported Swizzle Type for StMatrix");
+      }
 
-      auto num_regs = (m_tile) / 8 * (n_tile) / 8;
+      auto num_regs = (ldst_m_tile) / 8 * (ldst_n_tile) / 8;
       auto as_type = ArrayType{
           std::make_shared<DataType>(DataType::UInt32),
           static_cast<size_t>(num_regs)};
@@ -1740,14 +2051,47 @@ void IndexLowering::handle(const LoadStoreOp* ldst) {
       as_type = getMmaOutType(ldst->out()->as<TensorView>());
     }
 
-    if (!ir_utils::isStMatrixOp(ldst)) {
-      in = lowerSrcIndex(
-          ldst->in(),
-          ldst->out(),
-          {},
-          ir_utils::isLdMatrixOp(ldst) || ir_utils::isCpAsyncOp(ldst));
-      out =
-          lowerDstIndex(ldst->out(), {}, ir_utils::isCpAsyncOp(ldst), as_type);
+    if (!is_tma_ldmatrix && !ir_utils::isStMatrixOp(ldst)) {
+      bool is_ldst_tmem = ldst->opType() == LoadStoreOpType::LdTMem ||
+          ldst->opType() == LoadStoreOpType::StTMem;
+      if (is_ldst_tmem) {
+        NVF_ERROR(
+            ldst->in()->dtype() == ldst->out()->dtype(),
+            "TMem load/store must have the same type for input and output");
+        // According to the specification of tcgen05.{ld,st}, the register
+        // operand must be viewed as a vector of 32-bit elements.
+        // See:
+        // https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#tensor-memory-and-register-load-store-instructions
+        as_type = ArrayType{
+            std::make_shared<DataType>(
+                dataTypeSizeByte(ldst->in()->dtype()) == 4 ? ldst->in()->dtype()
+                                                           : DataType::UInt32),
+            (size_t)ir_utils::getTMemLdStVectorizeSize(
+                ldst->out()->as<TensorView>())};
+      }
+      if (auto tv = dynamic_cast<TensorView*>(ldst->in());
+          tv != nullptr && tv->getMemoryType() == MemoryType::Tensor) {
+        auto index =
+            indexTMemLdSt(tv, ldst->out()->as<TensorView>(), for_loops_);
+        in = IrBuilder::create<kir::TensorIndex>(
+            tv, index, DataType::TMemAddress);
+      } else {
+        in = lowerSrcIndex(
+            ldst->in(),
+            ldst->out(),
+            {},
+            ir_utils::isLdMatrixOp(ldst) || ir_utils::isCpAsyncOp(ldst),
+            as_type);
+      }
+      if (auto tv = dynamic_cast<TensorView*>(ldst->out());
+          tv != nullptr && tv->getMemoryType() == MemoryType::Tensor) {
+        auto index = indexTMemLdSt(tv, tv, for_loops_);
+        out = IrBuilder::create<kir::TensorIndex>(
+            tv, index, DataType::TMemAddress);
+      } else {
+        out = lowerDstIndex(
+            ldst->out(), {}, ir_utils::isCpAsyncOp(ldst), as_type);
+      }
     }
     auto new_ldst =
         IrBuilder::create<LoadStoreOp>(ldst->opType(), out, in, ldst->cacheOp())
@@ -1759,32 +2103,35 @@ void IndexLowering::handle(const LoadStoreOp* ldst) {
 
 // Reference:
 // https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#asynchronous-warpgroup-level-matrix-shared-memory-layout-matrix-descriptor
+// https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#tcgen05-shared-memory-descriptor
 static Val* matrixDescriptorEncode(Val* x) {
-  auto x_cast = IrBuilder::maybeCastExpr(DataType::UInt, x);
-  auto mask = IrBuilder::create<Val>(0x3FFFF, DataType::UInt);
-  auto x_and = IrBuilder::bitwiseAndExpr(x_cast, mask);
-  auto shift = IrBuilder::create<Val>(0x4, DataType::UInt);
+  Val* x_cast = IrBuilder::maybeCastExpr(DataType::UInt64, x);
+  Val* mask = IrBuilder::create<Val>(0x3FFFF, DataType::UInt64);
+  Val* x_and = IrBuilder::bitwiseAndExpr(x_cast, mask);
+  Val* shift = IrBuilder::create<Val>(0x4, DataType::UInt64);
   return IrBuilder::rShiftExpr(x_and, shift);
 }
 
-static Val* constructMatrixDescriptor(
+// Reference:
+// https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#tcgen05-shared-memory-descriptor
+static Val* constructHopperMatrixDescriptor(
     Val* start_address,
     Val* leading_dim_byte_offset,
     Val* stride_dim_byte_offset,
     Val* matrix_base_offset,
     MmaInputSmemSwizzle swizzle) {
-  auto or0 = matrixDescriptorEncode(start_address);
-  auto or1 = IrBuilder::lShiftExpr(
+  Val* or0 = matrixDescriptorEncode(start_address);
+  Val* or1 = IrBuilder::lShiftExpr(
       matrixDescriptorEncode(leading_dim_byte_offset),
-      IrBuilder::create<Val>(16, DataType::UInt));
-  auto or2 = IrBuilder::lShiftExpr(
+      IrBuilder::create<Val>(16, DataType::UInt64));
+  Val* or2 = IrBuilder::lShiftExpr(
       matrixDescriptorEncode(stride_dim_byte_offset),
-      IrBuilder::create<Val>(32, DataType::UInt));
-  auto or3 = IrBuilder::lShiftExpr(
-      matrix_base_offset, IrBuilder::create<Val>(49, DataType::UInt));
-  auto or4 = IrBuilder::lShiftExpr(
-      IrBuilder::create<Val>((int64_t)swizzle, DataType::UInt),
-      IrBuilder::create<Val>(62, DataType::UInt));
+      IrBuilder::create<Val>(32, DataType::UInt64));
+  Val* or3 = IrBuilder::lShiftExpr(
+      matrix_base_offset, IrBuilder::create<Val>(49, DataType::UInt64));
+  Val* or4 = IrBuilder::lShiftExpr(
+      IrBuilder::create<Val>((int64_t)swizzle, DataType::UInt64),
+      IrBuilder::create<Val>(62, DataType::UInt64));
   return IrBuilder::bitwiseOrExpr(
       IrBuilder::bitwiseOrExpr(
           IrBuilder::bitwiseOrExpr(IrBuilder::bitwiseOrExpr(or0, or1), or2),
@@ -1792,24 +2139,48 @@ static Val* constructMatrixDescriptor(
       or4);
 }
 
-static MmaInputSmemSwizzle getSwizzleMode(TensorView* tv) {
-  const auto& alloc_domain = tv->getMaybeRootDomain();
-  const auto& loop_domain = tv->getLoopDomain();
-  auto exprs = StmtSort::getExprsBetween(
-      {alloc_domain.begin(), alloc_domain.end()},
-      {loop_domain.begin(), loop_domain.end()});
-  auto swizzle_exprs = ir_utils::filterByType<Swizzle>(exprs);
-  if (swizzle_exprs.empty()) {
-    return MmaInputSmemSwizzle::None;
+// Reference:
+// https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#asynchronous-warpgroup-level-matrix-shared-memory-layout-matrix-descriptor
+static Val* constructBlackwellMatrixDescriptor(
+    Val* start_address,
+    Val* leading_dim_byte_offset,
+    Val* stride_dim_byte_offset,
+    Val* matrix_base_offset,
+    MmaInputSmemSwizzle swizzle) {
+  Val* or0 = matrixDescriptorEncode(start_address);
+  Val* or1 = IrBuilder::lShiftExpr(
+      matrixDescriptorEncode(leading_dim_byte_offset),
+      IrBuilder::create<Val>(16, DataType::UInt64));
+  Val* or2 = IrBuilder::lShiftExpr(
+      matrixDescriptorEncode(stride_dim_byte_offset),
+      IrBuilder::create<Val>(32, DataType::UInt64));
+  Val* or3 = IrBuilder::lShiftExpr(
+      IrBuilder::create<Val>(0b001, DataType::UInt64),
+      IrBuilder::create<Val>(46, DataType::UInt64));
+  Val* or4 = IrBuilder::lShiftExpr(
+      matrix_base_offset, IrBuilder::create<Val>(49, DataType::UInt64));
+  Val* or5 = nullptr;
+  switch (swizzle) {
+    case MmaInputSmemSwizzle::None:
+      or5 = IrBuilder::create<Val>(0, DataType::UInt64);
+      break;
+    case MmaInputSmemSwizzle::B128:
+      or5 = IrBuilder::create<Val>(2, DataType::UInt64);
+      break;
+    case MmaInputSmemSwizzle::B64:
+      or5 = IrBuilder::create<Val>(4, DataType::UInt64);
+      break;
+    case MmaInputSmemSwizzle::B32:
+      or5 = IrBuilder::create<Val>(6, DataType::UInt64);
+      break;
   }
-  NVF_ERROR(
-      swizzle_exprs.size() < 2,
-      "expected 2 or less swizzle expressions in mma input, got ",
-      swizzle_exprs.size());
-  auto swizzle = *swizzle_exprs.begin();
-  NVF_ERROR(swizzle->swizzleType() == SwizzleType::XOR, "expect xor swizzle");
-  return getSwizzleFromBytes(
-      swizzle->inX()->extent()->evaluate().as<int64_t>() * 16);
+  or5 =
+      IrBuilder::lShiftExpr(or5, IrBuilder::create<Val>(61, DataType::UInt64));
+  return IrBuilder::bitwiseOrExpr(
+      IrBuilder::bitwiseOrExpr(
+          IrBuilder::bitwiseOrExpr(or0, or1),
+          IrBuilder::bitwiseOrExpr(or2, or3)),
+      IrBuilder::bitwiseOrExpr(or4, or5));
 }
 
 // Get the ValGroup of the ID in consumer's loop domain that corresponds to the
@@ -1831,8 +2202,13 @@ ValGroup getInnerMmaLoopGroup(TensorView* tv, const MmaOp* mma) {
       "Matmul with all broadcasting dimension is not supported yet.");
   ValGroup inner = alloc_domain.back();
 
+  // We do not require all groups to be visited. Only the inner allocation group
+  // must be visited, which we check later.
+  // See https://github.com/NVIDIA/Fuser/issues/3962
   auto exprs =
-      ValGraphBFS::getExprsBetween(id_graph, loop_domain, alloc_domain);
+      ValGraphBFS::getExprGroupsBetween(
+          id_graph, loop_domain, alloc_domain, /*require_all_to_visited=*/false)
+          .first;
   while (!exprs.empty()) {
     auto [expr, direction] = exprs.back();
     exprs.pop_back();
@@ -1899,8 +2275,9 @@ ValGroup getInnerMmaLoopGroup(TensorView* tv, const MmaOp* mma) {
 // 3. Prove that `linear` is linear in the allocation domain of tv, and get the
 //    stride of `linear`.
 Val* getInnerStrideBytes(TensorView* tv, const MmaOp* mma) {
-  auto swizzle = getSwizzleMode(tv);
-  auto swizzle_size = getBytesFromSwizzle(swizzle) / dataTypeSize(tv->dtype());
+  auto swizzle = ir_utils::getSwizzleMode(tv);
+  auto swizzle_size =
+      getBytesFromSwizzle(swizzle) / dataTypeSizeByte(tv->dtype());
   ValGraph& id_graph = GpuLower::current()->tensorIndexer().traversalGraph();
   auto alloc_domain = id_graph.toGroups(tv->getMaybeAllocationDomain());
   auto inner = getInnerMmaLoopGroup(tv, mma);
@@ -1914,7 +2291,7 @@ Val* getInnerStrideBytes(TensorView* tv, const MmaOp* mma) {
   auto stride = lower_utils::proveLinearAndGetStride(
       id_graph, outer_of_tiling, alloc_domain);
   NVF_ERROR(stride != nullptr, "Could not get the stride of tiling");
-  return SimplifyingIrBuilder::mulExpr(stride, dataTypeSize(tv->dtype()));
+  return SimplifyingIrBuilder::mulExpr(stride, dataTypeSizeByte(tv->dtype()));
 }
 
 // Compute the "stride_bytes" in the matrix descriptor of Mma. The stride
@@ -1971,14 +2348,15 @@ Val* getOuterStrideBytes(TensorView* tv, const MmaOp* mma) {
   }
   NVF_ERROR(
       mma_groups.size() == 2,
-      "Expecting 3 IDs in the loop domain of mma output to be parallelized on Mma,",
+      "Expecting 3 IDs in the loop domain of mma output to be parallelized on "
+      "Mma,",
       " among which one must be the innermost of producer's allocation domain");
 
   // Get which group in mma_groups is projected to a concrete ID in the logical
   // domain of tv. There should be exactly one such group.
   auto is_projected_to_concrete = [&](const ValGroup& g) {
-    auto projection_on_logical =
-        ValGraphBFS::projectTo(id_graph, {g}, logical_domain);
+    auto projection_on_logical = projectTo<ValGraphBFS>(
+        g, logical_domain.vector(), Direction::Undefined, id_graph);
     for (auto id : tv->getLogicalDomain()) {
       if (!id->isBroadcast() &&
           projection_on_logical.count(id_graph.toGroup(id))) {
@@ -1992,13 +2370,15 @@ Val* getOuterStrideBytes(TensorView* tv, const MmaOp* mma) {
     if (is_projected_to_concrete(g)) {
       NVF_ERROR(
           selected == nullptr,
-          "Expecting exactly one group in mma output loop domain to be projected to a concrete ID in the logical domain of tv");
+          "Expecting exactly one group in mma output loop domain to be "
+          "projected to a concrete ID in the logical domain of tv");
       selected = std::move(g);
     }
   }
   NVF_ERROR(
       selected != nullptr,
-      "No group in mma output loop domain is projected to a concrete ID in the logical domain of tv");
+      "No group in mma output loop domain is projected to a concrete ID in the "
+      "logical domain of tv");
 
   // At this point, we can just create the following schedule:
   //      selected
@@ -2012,8 +2392,42 @@ Val* getOuterStrideBytes(TensorView* tv, const MmaOp* mma) {
   auto stride = lower_utils::proveLinearAndGetStride(
       id_graph, outer_of_tiling, alloc_domain);
   NVF_ERROR(stride != nullptr, "Could not get the stride of tiling");
-  return SimplifyingIrBuilder::mulExpr(stride, dataTypeSize(tv->dtype()));
+  return SimplifyingIrBuilder::mulExpr(stride, dataTypeSizeByte(tv->dtype()));
 }
+
+namespace {
+
+Val* indexBlackwellMmaOutput(
+    const MmaOp* mma,
+    const std::vector<ForLoop*>& for_loops) {
+  TensorView* tmem_tv = mma->out()->as<TensorView>();
+  NVF_ERROR(tmem_tv->getMemoryType() == MemoryType::Tensor, "Invalid tmem_tv");
+  const auto& tmem_info = GpuLower::current()->tmemInfo();
+  const auto& tensor_indexer = GpuLower::current()->tensorIndexer();
+
+  const std::vector<IterDomain*>& column_allocation_domain =
+      tmem_info.allocation.getTVInfo(tmem_tv).column_allocation;
+
+  std::vector<Val*> indices = tensor_indexer.getIndexFor(
+      mma, true, column_allocation_domain, for_loops);
+  Val* stride = tmem_tv->fusion()->oneVal();
+  Val* column_index = tmem_tv->fusion()->zeroVal();
+  for (const auto& [id, idx] :
+       std::ranges::views::reverse(zip(column_allocation_domain, indices))) {
+    column_index = SimplifyingIrBuilder::addExpr(
+        column_index, SimplifyingIrBuilder::mulExpr(idx, stride));
+    stride = SimplifyingIrBuilder::mulExpr(stride, id->extent());
+  }
+
+  column_index =
+      SimplifyingIrBuilder::maybeCastExpr(DataType::UInt16, column_index);
+
+  Val* index = SimplifyingIrBuilder::arrayExpr(std::vector<Val*>{
+      mma->fusion()->zeroVal(DataType::UInt16), column_index});
+  return GpuLower::current()->commonScalarMap().hoistScalar(index, for_loops);
+}
+
+} // namespace
 
 // Reference for smem strides:
 // https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#strides
@@ -2021,11 +2435,14 @@ void IndexLowering::handle(const MmaOp* mma) {
   Val* a = nullptr;
   Val* b = nullptr;
   const auto& [unitdim_a, unitdim_b] = lower_utils::getMmaLayout(mma);
+  auto constructMatrixDescriptor = mma->isBlackwell()
+      ? constructBlackwellMatrixDescriptor
+      : constructHopperMatrixDescriptor;
   if (mma->inA()->as<TensorView>()->getMemoryType() == MemoryType::Shared) {
     // TODO: This is a temporary solution and only supports a single tile in
     // smem.
     auto tv = mma->inA()->as<TensorView>();
-    auto swizzle = getSwizzleMode(tv);
+    auto swizzle = ir_utils::getSwizzleMode(tv);
     // Because the entire tile is parallelized on MMA, which are trivial
     // loops and always have zero loop variables, the result of lowerSrcIndex
     // will be the address of the first element of the tile, which happens to
@@ -2043,8 +2460,8 @@ void IndexLowering::handle(const MmaOp* mma) {
         base_addr,
         leading_bytes,
         stride_bytes,
-        IrBuilder::create<Val>(0, DataType::UInt),
-        getSwizzleMode(tv));
+        IrBuilder::create<Val>(0, DataType::UInt64),
+        ir_utils::getSwizzleMode(tv));
     a = IrBuilder::create<kir::TensorIndex>(
         tv,
         GpuLower::current()->commonScalarMap().hoistScalar(
@@ -2057,7 +2474,7 @@ void IndexLowering::handle(const MmaOp* mma) {
     // TODO: This is a temporary solution and only supports a single tile in
     // smem.
     auto tv = mma->inB()->as<TensorView>();
-    auto swizzle = getSwizzleMode(tv);
+    auto swizzle = ir_utils::getSwizzleMode(tv);
     // Because the entire tile is parallelized on MMA, which are trivial
     // loops and always have zero loop variables, the result of lowerSrcIndex
     // will be the address of the first element of the tile, which happens to
@@ -2075,7 +2492,7 @@ void IndexLowering::handle(const MmaOp* mma) {
         base_addr,
         leading_bytes,
         stride_bytes,
-        IrBuilder::create<Val>(0, DataType::UInt),
+        IrBuilder::create<Val>(0, DataType::UInt64),
         swizzle);
     b = IrBuilder::create<kir::TensorIndex>(
         tv,
@@ -2085,11 +2502,27 @@ void IndexLowering::handle(const MmaOp* mma) {
     b = lowerSrcIndex(
         mma->inB(), mma->out(), {}, false, getMmaInputBType(mma->macro()));
   }
-  const auto out = lowerDstIndex(
-      mma->out(), {}, false, getMmaOutType(mma->out()->as<TensorView>()));
+  Val* out = nullptr;
+  if (mma->out()->as<TensorView>()->getMemoryType() == MemoryType::Tensor) {
+    auto index = indexBlackwellMmaOutput(mma, for_loops_);
+    out = IrBuilder::create<kir::TensorIndex>(
+        mma->out()->as<TensorView>(), index, DataType::TMemAddress);
+  } else {
+    out = lowerDstIndex(
+        mma->out(), {}, false, getMmaOutType(mma->out()->as<TensorView>()));
+  }
   auto mma_indexed =
       IrBuilder::create<MmaOp>(out, a, b, mma->init(), mma->macro());
   pushBack(mma_indexed);
+  if (mma->isBlackwell()) {
+    pushBack(IrBuilder::create<kir::Asm>(
+        "tcgen05.commit.cta_group::1.mbarrier::arrive::one.shared::cluster."
+        "b64",
+        std::vector<Val*>{},
+        std::vector<Val*>{lower_utils::u32IndexScalarSmemTv(
+            GpuLower::current()->mbarrierMap().at(mma))},
+        kir::Asm::Options{/*volatile=*/true}));
+  }
   GpuLower::current()->propagateExprInfo(mma, back());
 }
 
@@ -2157,6 +2590,17 @@ void IndexLowering::handle(const kir::Allocate* allocate) {
   pushBack(const_cast<kir::Allocate*>(allocate)); // NOLINT
 }
 
+void IndexLowering::handle(const kir::AllocTMem* alloc) {
+  auto address_tv = alloc->address()->as<TensorView>();
+  const auto address = IrBuilder::create<kir::TensorIndex>(
+      address_tv, IrBuilder::baseAddressExpr(address_tv));
+  pushBack(IrBuilder::create<kir::AllocTMem>(
+      address,
+      GpuLower::current()->commonScalarMap().hoistScalar(
+          alloc->numColumns(), for_loops_)));
+  GpuLower::current()->propagateExprInfo(alloc, back());
+}
+
 void IndexLowering::handle(const kir::BlockSync* sync) {
   // TODO(kir): remove the need for const_cast
   pushBack(const_cast<kir::BlockSync*>(sync)); // NOLINT
@@ -2180,6 +2624,21 @@ void IndexLowering::handle(const kir::FenceAsyncProxy* fence) {
 void IndexLowering::handle(const kir::WgMmaFence* fence) {
   // TODO(kir): remove the need for const_cast
   pushBack(const_cast<kir::WgMmaFence*>(fence)); // NOLINT
+}
+
+void IndexLowering::handle(const kir::SetMaxNReg* maxnreg) {
+  // TODO(kir): remove the need for const_cast
+  pushBack(const_cast<kir::SetMaxNReg*>(maxnreg)); // NOLINT
+}
+
+void IndexLowering::handle(const kir::Continue* cont) {
+  // TODO(kir): remove the need for const_cast
+  pushBack(const_cast<kir::Continue*>(cont)); // NOLINT
+}
+
+void IndexLowering::handle(const kir::Return* ret) {
+  // TODO(kir): remove the need for const_cast
+  pushBack(const_cast<kir::Return*>(ret)); // NOLINT
 }
 
 void IndexLowering::handle(const kir::AsyncCommit* commit) {
@@ -2333,7 +2792,8 @@ void IndexLowering::handle(const CatOp* cat) {
 
   DataType dt = out->dtype();
   bool use_bitwise_or = dt == DataType::Half || dt == DataType::BFloat16 ||
-      dt == DataType::Float8_e4m3fn || dt == DataType::Float8_e5m2;
+      dt == DataType::Float8_e4m3fn || dt == DataType::Float8_e5m2 ||
+      dt == DataType::Float8_e8m0fnu;
   BinaryOpType op_type =
       use_bitwise_or ? BinaryOpType::BitwiseOr : BinaryOpType::Add;
 
@@ -2341,7 +2801,7 @@ void IndexLowering::handle(const CatOp* cat) {
 
   Val* result = nullptr;
   BinaryOp* expr = nullptr;
-  for (const auto i : c10::irange(cat->inputs().size())) {
+  for (const auto i : arange(cat->inputs().size())) {
     auto inp = lowerSrcIndex(cat->input(i), cat->output(0));
     if (result == nullptr) {
       result = inp;

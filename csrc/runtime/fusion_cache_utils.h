@@ -7,41 +7,27 @@
 // clang-format on
 #pragma once
 
-#include <runtime/executor.h>
-#include <scheduler/heuristic.h>
-#include <serde/fusion_cache_generated.h>
-#include <utils.h>
-
-#include <c10/util/ArrayRef.h>
-
 #include <list>
 #include <mutex>
 #include <string>
 #include <unordered_set>
 #include <vector>
 
-namespace nvfuser {
+#include <c10/util/ArrayRef.h>
 
-class SegmentedGroup;
-class SegmentedFusion;
+#include <fusion_segmenter.h>
+#include <runtime/executor.h>
+#include <scheduler/heuristic.h>
+#include <serde/fusion_cache_generated.h>
+#include <utils.h>
+
+namespace nvfuser {
 
 // Utilities for benchmarking and profiling
 struct ExecutorLog {
   std::unique_ptr<HeuristicParams> params = nullptr;
-  FusionExecutor* fusion_executor = nullptr;
+  ExecutorAbstract* fusion_executor = nullptr;
 };
-
-struct RuntimeWorkSpace {
-  //! Pre-determined order to run the segmented groups
-  std::vector<SegmentedGroup*> group_run_order;
-
-  //! Pre-determined order to bind tensor input meta data
-  std::vector<Val*> group_extent_binding_order;
-};
-
-// Perform a topological sort of different groups composiong the Segmented
-// Fusion
-void prepareRuntimeOrder(SegmentedFusion*, RuntimeWorkSpace&);
 
 //! Simple hasher for pair<T, const U*>. There is no default hasher for pairs,
 //! since there are a lot of options how to combine hashes. In a case where one
@@ -78,52 +64,66 @@ struct PairPointerEquals {
   }
 };
 
-// This ArgumentManager do two things
-// (1) add outputs from a segment to the global fusion args to pass it to next
-// segment (2) delete args no longer being used to save memory. For task (2), it
-// checks the input and output arguments of each segment and make a map from val
-// to the segment_id where the val is lastly used. The arguments representing
-// these vals are then deleted after the segment runs.
+// ArgumentManager is used to manage the lifetime of arguments. It accepts
+// runtime_workspace and fusion_inputs which determine the lifetime of
+// arguments. When updateWithSegmentOutputs is called, it will remove arguments
+// based on the information in runtime_workspace and the group_id passed into
+// updateWithSegmentOutputs.
 class ArgumentManager {
  public:
   ArgumentManager(
-      KernelArgumentHolder& args,
+      const KernelArgumentHolder& args,
       const RuntimeWorkSpace& runtime_workspace,
       const std::vector<Val*>& fusion_inputs);
 
-  const std::unordered_map<Val*, const PolymorphicValue*>& getTensorMap();
+  // Delete copy constructor and assignment operator since we have unique_ptrs
+  ArgumentManager(const ArgumentManager&) = delete;
+  ArgumentManager& operator=(const ArgumentManager&) = delete;
 
-  const PolymorphicValue* checkTensorMap(Val* v);
+  // Allow move operations
+  ArgumentManager(ArgumentManager&&) = default;
+  ArgumentManager& operator=(ArgumentManager&&) = default;
 
-  // T is assumed to be either std::vector<at::Tensor> or KernelArgumentHolder
-  // (from dry run)
-  // TODO: make the output type uniform no matter it's a real or dry run
-  template <typename T>
+  // This map is only taken on destruction. It might be good to steal the tensor
+  // map instead of make a copy.
+  std::unordered_map<Val*, PolymorphicValue> getTensorMap() const {
+    return tensor_map_;
+  }
+
+  const PolymorphicValue& checkTensorMap(Val* v) const;
+
+  // Translate a vector of Vals to their corresponding entries in tensor_map_
+  KernelArgumentHolder translateValsToArgs(const std::vector<Val*>& vals) const;
+
+  // Update argument manager with outputs from a segment
   void updateWithSegmentOutputs(
       const std::vector<Val*>& group_outputs,
-      const T& group_runtime_outputs,
+      const KernelArgumentHolder& group_runtime_outputs,
       const int64_t group_id);
 
+  std::string toString() const {
+    std::stringstream ss;
+    ss << "ArgumentManager {";
+    for (const auto& [key, value] : tensor_map_) {
+      ss << "  " << key->toString() << " : "
+         << PolymorphicValue_functions::toString(value) << std::endl;
+    }
+    ss << "}" << std::endl;
+    return ss.str();
+  }
+
  private:
-  KernelArgumentHolder& fusion_args_;
-  // map from val to args
-  std::unordered_map<Val*, const PolymorphicValue*> tensor_map_;
+  std::unordered_map<Val*, PolymorphicValue> tensor_map_;
   // map segment_id to vector of fusion vals lastly used at this segment
   std::unordered_map<int64_t, std::vector<Val*>> vals_last_used_at_segment_;
 
   void mapFusionInputsToArgs(
       const std::vector<Val*>& fusion_inputs,
+      const KernelArgumentHolder& args,
       const std::vector<Val*>& group_extent_binding_order);
 
   void setLastUsedSegmentID(
       const std::vector<SegmentedGroup*>& group_run_order);
-
-  void deleteUnusedArgs(int64_t run_order_id);
-
-  template <typename T>
-  void addOutputsToArgsAndTensorMap(
-      const std::vector<Val*>& group_outputs,
-      const T& group_runtime_outputs);
 };
 
 //! Encoding an input set to unique id, which is used to short-cut cache entry
@@ -153,7 +153,7 @@ class InputsIdLookup : public NonCopyable {
   //! Encode each input sets to with an unique id;
   //! The returned data structure also indicates whether eviction has happened
   //! within the lookup cache. This is needed because lookup shortcut is also
-  //! cached in nested `FusionExecutorCache` and `FusionExecutor`.
+  //! cached in nested `FusionExecutorCache` and `KernelExecutor`.
   //! see [ Note -- Post-definition cache implementation ] and [ Note -- 2 level
   //! cache implementation ].
   //!
@@ -177,9 +177,8 @@ class InputsIdLookup : public NonCopyable {
   //! inputs at the integer locations specified in that argument will affect the
   //! returned ID.
   NVF_API IdLookupReturn lookupId(
-      const at::ArrayRef<c10::IValue>& inputs,
-      const std::unordered_set<size_t>& scalar_inputs_to_record = {},
-      int8_t device = 0);
+      const KernelArgumentHolder& args,
+      const std::unordered_set<size_t>& scalar_inputs_to_record = {});
 
   //! debugging API that returns the size of lookup table
   size_t size() const {

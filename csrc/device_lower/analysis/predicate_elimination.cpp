@@ -23,14 +23,47 @@ namespace nvfuser {
 
 namespace {
 
+// Tensor memory is similar to shared memory because they are both
+// shared between threads in a block. In that sense, we can consider
+// tensor memory as special type of shared memory. In this file, we use
+// the term "shared memory", "smem" to refer to both shared and tensor
+// memories.
+bool isSharedMemory(TensorView* tv) {
+  return tv->getMemoryType() == MemoryType::Shared ||
+      tv->getMemoryType() == MemoryType::Tensor;
+}
+
 // Warp primitives are currently limited to un-predicated usage,
 //   predicating these ops will require extra steps to ensure that
 //   the whole warp will get the same value.
 void assertOnWarpOps(const Expr* expr) {
-  NVF_ERROR(
-      !ir_utils::isLdMatrixOp(expr),
-      "Predicate elimination: cannot eliminate pred for ldmatrix, use exact parallel dims. ",
-      expr->toString());
+  // Prohibit predicates for LdMatrix expressions in Mma k main loop;
+  // Allow predicates for general LdMatrix usage.
+  if (ir_utils::isLdMatrixOp(expr)) {
+    const LoadStoreOp* ldst = expr->as<LoadStoreOp>();
+    TensorView* in_tv = ir_utils::getTv(ldst->in());
+    NVF_ERROR(in_tv != nullptr);
+
+    NVF_ERROR(in_tv->definition() != nullptr);
+
+    // nD TMA load doesn't require predicate
+    bool is_nd_tma_load =
+        ir_utils::isCpAsyncBulkTensorTileLoad(in_tv->definition());
+
+    TensorView* out_tv = ir_utils::getTv(ldst->out());
+    NVF_ERROR(out_tv != nullptr);
+    bool any_mma_uses =
+        std::any_of(out_tv->uses().begin(), out_tv->uses().end(), [](Expr* e) {
+          return e->isA<MmaOp>();
+        });
+
+    NVF_ERROR(
+        !is_nd_tma_load || !any_mma_uses,
+        "Predicate elimination: cannot eliminate pred for ldmatrix, use exact "
+        "parallel dims. ",
+        expr->toString());
+  }
+
   NVF_ERROR(
       !expr->isA<MmaOp>(),
       "Mma op: cannot eliminate predicate for mma op, tiling not valid. ",
@@ -40,6 +73,46 @@ void assertOnWarpOps(const Expr* expr) {
 } // namespace
 
 namespace {
+
+// Check if consumer is in the compute warp of a warp specialized loop,
+// and the id_in_consumer is the parallel type of the warp specialization.
+bool isComputeWarp(TensorView* consumer, IterDomain* id_in_consumer) {
+  // TODO: This function can not find all the expressions in the compute
+  // warp. For example, if we have:
+  //   if (async warp) {
+  //     T1 = T0;
+  //   } else {
+  //     T2 = T1;
+  //     T3 = T2;
+  //   }
+  // then we will return false for T3, which is a false negative. Having
+  // a false negative is fine in the sense that we will still be
+  // functionally correct, but we will not be able to remove the predicate
+  // around T3, which is a missed optimization opportunity.
+  // For now, because warp specialization is only used for matmul, for
+  // which the circular buffer loop is a reduction loop, and mma is the
+  // only expr in the compute warp, we are fine. In the future, we might
+  // want to improve this function to find all the expressions in the
+  // compute warp, which will require a more sophisticated analysis.
+  auto def = consumer->definition();
+  if (def == nullptr) {
+    return false;
+  }
+  auto producer_tvs = ir_utils::filterByType<TensorView>(def->inputs());
+  if (producer_tvs.empty()) {
+    return false;
+  }
+  return std::all_of(
+      producer_tvs.begin(), producer_tvs.end(), [&](TensorView* producer_tv) {
+        if (!producer_tv->isCircularBuffered()) {
+          return false;
+        }
+        const auto& type = producer_tv->circularBufferOptions().type;
+        return std::holds_alternative<WarpSpecialized>(type) &&
+            std::get<WarpSpecialized>(type).on ==
+            id_in_consumer->getParallelType();
+      });
+}
 
 // Utility to check if the scheduled domain of the given
 //   TensorView represent an exact shared mem access, meaning
@@ -51,7 +124,8 @@ bool isExactParallelSharedMemAccess(TensorView* tv) {
     if (id->isThreadDim()) {
       // Need to predicate to avoid out of bound access
       //  because of over-subscribed block size.
-      if (!lower_utils::isExtentEqualToMaxParallelTypeExtent(id)) {
+      if (!lower_utils::isExtentEqualToMaxParallelTypeExtent(
+              id, isComputeWarp(tv, id))) {
         return false;
       }
     }
@@ -146,8 +220,7 @@ bool needsPredicateSharedMemAccess(const Expr* expr) {
   //  when the predicate around shared mem cannot be removed.
   for (auto consumer : ir_utils::filterByType<TensorView>(expr->outputs())) {
     for (auto producer : ir_utils::filterByType<TensorView>(expr->inputs())) {
-      if (producer->getMemoryType() == MemoryType::Shared ||
-          consumer->getMemoryType() == MemoryType::Shared) {
+      if (isSharedMemory(producer) || isSharedMemory(consumer)) {
         if (needSharedMemPredicate(producer, consumer)) {
           RECORD_AND_RETURN(true);
         }
@@ -168,7 +241,7 @@ class ProducerConsumerPairAnalyzer : public OptOutDispatch {
   static bool needsPredicate(TensorView* producer, TensorView* consumer) {
     // TMA ops handles out of bound accesses automatically in hardware, there is
     // no need for us to predicate it.
-    if (ir_utils::isCpAsyncBulk(consumer->definition())) {
+    if (ir_utils::isCpAsyncBulkTensorTile(consumer->definition())) {
       return false;
     }
     // Both tensors must be on local or shared memory. Global tensors must be
@@ -185,10 +258,11 @@ class ProducerConsumerPairAnalyzer : public OptOutDispatch {
 
     auto pairwise_map = PairwiseLogicalDomainMap(producer, consumer);
     auto c2p =
-        BestEffortReplay::replayPasC(producer, consumer, -1, pairwise_map)
+        BestEffortReplay::replayPasC(
+            producer, consumer, /*consumer_compute_at_axis=*/-1, pairwise_map)
             .getReplay();
 
-    ProducerConsumerPairAnalyzer analyzer(c2p);
+    ProducerConsumerPairAnalyzer analyzer(consumer, c2p);
 
     for (auto id : consumer->getLoopDomain()) {
       if (analyzer.needsPredicate(id)) {
@@ -201,8 +275,9 @@ class ProducerConsumerPairAnalyzer : public OptOutDispatch {
 
  private:
   ProducerConsumerPairAnalyzer(
+      TensorView* consumer,
       const std::unordered_map<IterDomain*, IterDomain*>& c2p)
-      : c2p_(c2p) {}
+      : consumer_(consumer), c2p_(c2p) {}
 
   // Returns true if no out-of-bound accesses could occur with a
   // producer
@@ -226,7 +301,8 @@ class ProducerConsumerPairAnalyzer : public OptOutDispatch {
     // consumer ID may be oversubscribed, which may cause
     // out-of-bounds accesses in the producer
     const auto maybe_oversubscribed = consumer_id->isThread() &&
-        (!lower_utils::isExtentEqualToMaxParallelTypeExtent(consumer_id));
+        (!lower_utils::isExtentEqualToMaxParallelTypeExtent(
+            consumer_id, isComputeWarp(consumer_, consumer_id)));
     if (maybe_oversubscribed) {
       // If oversubscribed, there must be a mapped producer ID that is
       // parallelized in the same way. Otherwise, needs to be
@@ -294,6 +370,7 @@ class ProducerConsumerPairAnalyzer : public OptOutDispatch {
   }
 
  private:
+  TensorView* consumer_ = nullptr;
   //! BestEffort map from consumer IDs to producer IDs
   const std::unordered_map<IterDomain*, IterDomain*>& c2p_;
   bool needs_predicate_ = false;
@@ -332,10 +409,9 @@ class PredicateChcker : public IterVisitor {
   void dispatch(Expr* expr) final {
     const bool needs_predicate_smem_access =
         needsPredicateSharedMemAccess(expr);
-    needs_predicate_ = predicateIntDiv(expr) ||
-        predicateMisalignedVectorize(expr) || needs_predicate_smem_access ||
+    needs_predicate_ = predicateIntDiv(expr) || needs_predicate_smem_access ||
         predicateProducerConsumerPair(expr) ||
-        predicateNonDivisibleRootDomains(expr) ||
+        predicateNonDivisibleLogicalDomains(expr) ||
         predicateNonDivisibleSplit(expr) || predicateExpandReduce(expr) ||
         predicateRNGOp(expr);
 
@@ -404,7 +480,7 @@ class PredicateChcker : public IterVisitor {
         "Was expecting matching number of inputs and outputs for expression: ",
         expr->toString());
 
-    for (auto i : c10::irange(tv_inputs.size())) {
+    for (auto i : arange(tv_inputs.size())) {
       const auto root_p2c =
           PairwiseLogicalDomainMap(tv_inputs[i], tv_outputs[i])
               .mapProducerToConsumer();
@@ -412,28 +488,6 @@ class PredicateChcker : public IterVisitor {
         auto p_id = entry.first;
         auto c_id = entry.second;
         if (p_id->hasExpandedExtent() && c_id->isReduction()) {
-          RECORD_AND_RETURN(true);
-        }
-      }
-    }
-    RECORD_AND_RETURN(false);
-  }
-
-  // Skip if MisalignedVectorize is involved for now. This could be
-  // relaxed.
-  bool predicateMisalignedVectorize(Expr* expr) const {
-    DEBUG_PRINT_SCOPE(expr);
-    std::vector<const std::vector<Val*>*> inputs_and_outputs = {
-        &(expr->inputs()), &(expr->outputs())};
-    for (const auto& inputs_or_outputs : inputs_and_outputs) {
-      for (auto tv : ir_utils::filterByType<TensorView>(*inputs_or_outputs)) {
-        if (std::any_of(
-                tv->getLoopDomain().begin(),
-                tv->getLoopDomain().end(),
-                [](IterDomain* axis) {
-                  return axis->getParallelType() ==
-                      ParallelType::MisalignedVectorize;
-                })) {
           RECORD_AND_RETURN(true);
         }
       }
@@ -460,17 +514,12 @@ class PredicateChcker : public IterVisitor {
   //   in the indexing pass.
   // For details on zero loops, see indexMapFromTV in
   //  lower index pass.
-  std::vector<Val*> getZeroLeafIds(const TensorView* tv) const {
-    NVF_ERROR(
-        tv->getMemoryType() == MemoryType::Local ||
-            tv->getMemoryType() == MemoryType::Shared,
-        "Local or shared memory tensor is assumed: ",
-        tv->toString());
-    bool is_shared_mem = tv->getMemoryType() == MemoryType::Shared;
+  std::vector<Val*> getZeroLoopIds(const TensorView* tv) const {
     std::vector<Val*> zero_loop_ids;
-    for (const auto i : c10::irange(tv->nDims())) {
+    for (const auto i : arange(tv->nDims())) {
       auto loop_id = tv->axis(i);
-      if (is_shared_mem && loop_id->isThreadDim()) {
+      if (ir_utils::isMemorySharedAcross(
+              tv->getMemoryType(), loop_id->getParallelType())) {
         // Thread parallel axes on shared mem are never
         //  zero loops as each thread owns its share
         //  of the shared mem space.
@@ -482,7 +531,8 @@ class PredicateChcker : public IterVisitor {
           i < tv->getComputeAtPosition() ||
           // Parallel axes on local mem is zero loop.
           // Grid axes on shared mem is zero loop.
-          loop_id->isThread() ||
+          ir_utils::isMemoryPartitionedAcross(
+              tv->getMemoryType(), loop_id->getParallelType()) ||
           // Mma axes, similar to vectorization, are
           //  implicit in hardware intrinsics, and thus
           //  will be treated as a zero loop.
@@ -503,7 +553,7 @@ class PredicateChcker : public IterVisitor {
   // This is not an issue if the index includes a zero domain (as defined in
   // index_compute.cpp), the extent is calculated by multiplying the
   // split output domains, so it never cross the domain boundary.
-  // So, if a root domain is split and none of its descendants is a
+  // So, if a logical domain is split and none of its descendants is a
   // zero domain, the expr needs to be predicated. See
   // FusionPredicateElimination6 for a concrete example.
   //
@@ -511,11 +561,11 @@ class PredicateChcker : public IterVisitor {
   // giving up predicate elimination. Since this condition should be
   // rather uncommon, either would be fine as long as correctness is
   // provided.
-  bool predicateNonDivisibleRootDomains(Expr* expr) const {
+  bool predicateNonDivisibleLogicalDomains(Expr* expr) const {
     DEBUG_PRINT_SCOPE(expr);
     // TMA ops handles out of bound accesses automatically in hardware, there is
     // no need for us to predicate it.
-    if (ir_utils::isCpAsyncBulk(expr)) {
+    if (ir_utils::isCpAsyncBulkTensorTile(expr)) {
       RECORD_AND_RETURN(false);
     }
     for (auto output : ir_utils::filterByType<TensorView>(expr->outputs())) {
@@ -523,16 +573,16 @@ class PredicateChcker : public IterVisitor {
           {output->getLogicalDomain().begin(),
            output->getLogicalDomain().end()},
           {output->getLoopDomain().begin(), output->getLoopDomain().end()});
-      std::unordered_set<Val*> split_root;
+      std::unordered_set<Val*> split_logical;
       std::copy_if(
           output->getLogicalDomain().begin(),
           output->getLogicalDomain().end(),
-          std::inserter(split_root, split_root.end()),
-          [&](auto rf_root) {
-            if (rf_root->isBroadcast()) {
+          std::inserter(split_logical, split_logical.end()),
+          [&](auto rf_logical) {
+            if (rf_logical->isBroadcast()) {
               return false;
             }
-            for (Expr* use : rf_root->uses()) {
+            for (Expr* use : rf_logical->uses()) {
               if (std::find(all_exprs.begin(), all_exprs.end(), use) ==
                   all_exprs.end()) {
                 continue;
@@ -541,21 +591,21 @@ class PredicateChcker : public IterVisitor {
             }
             return false;
           });
-      // If no root domain is split, no need to predicate
-      if (split_root.empty()) {
+      // If no logical domain is split, no need to predicate
+      if (split_logical.empty()) {
         continue;
       }
-      const auto zero_loop_ids = getZeroLeafIds(output);
+      const auto zero_loop_ids = getZeroLoopIds(output);
       if (zero_loop_ids.empty()) {
         RECORD_AND_RETURN(true);
       }
       const auto vals =
-          DependencyCheck::getAllValsBetween(split_root, zero_loop_ids);
+          DependencyCheck::getAllValsBetween(split_logical, zero_loop_ids);
       if (std::any_of(
-              split_root.begin(),
-              split_root.end(),
-              [&vals](auto split_root_id) {
-                return std::find(vals.begin(), vals.end(), split_root_id) ==
+              split_logical.begin(),
+              split_logical.end(),
+              [&vals](auto split_logical_id) {
+                return std::find(vals.begin(), vals.end(), split_logical_id) ==
                     vals.end();
               })) {
         RECORD_AND_RETURN(true);
@@ -571,14 +621,17 @@ class PredicateChcker : public IterVisitor {
     DEBUG_PRINT_SCOPE(expr);
     // TMA ops handles out of bound accesses automatically in hardware, there is
     // no need for us to predicate it.
-    if (ir_utils::isCpAsyncBulk(expr)) {
+    if (ir_utils::isCpAsyncBulkTensorTile(expr)) {
       RECORD_AND_RETURN(false);
     }
-    const auto& non_divisible_split_info =
-        GpuLower::current()->nonDivisibleSplitInfo();
-    for (auto output : ir_utils::filterByType<TensorView>(expr->outputs())) {
-      if (non_divisible_split_info.splitsToPredicate().find(output) !=
-          non_divisible_split_info.splitsToPredicate().end()) {
+
+    for (auto output_tv : ir_utils::filterByType<TensorView>(expr->outputs())) {
+      if ((GpuLower::current()->isTensorIndexerEnabled() &&
+           GpuLower::current()->nonDivisiblePredicateInfo().hasPredicate(
+               output_tv)) ||
+          (!GpuLower::current()->isTensorIndexerEnabled() &&
+           GpuLower::current()->nonDivisibleSplitInfo().hasPredicate(
+               output_tv))) {
         RECORD_AND_RETURN(true);
       }
     }
@@ -639,7 +692,7 @@ class PredicateChcker : public IterVisitor {
 
   // Welford. See FusionPredicateElimination5.
   void handle(WelfordOp* wop) final {
-    for (const auto i : c10::irange(3)) {
+    for (const auto i : arange(3)) {
       auto init = wop->getInitVals()[i];
 
       // Welford input can be a scalar. Predicate is required unless
@@ -690,8 +743,7 @@ class PredicateChcker : public IterVisitor {
   }
 
   void handle(GroupedReductionOp* grouped_rop) final {
-    for (const auto i :
-         c10::irange(grouped_rop->numHorizontallyGroupedExprs())) {
+    for (const auto i : arange(grouped_rop->numHorizontallyGroupedExprs())) {
       auto input = grouped_rop->input(i)->as<TensorView>();
       auto input_def = input->definition();
       // When input_def is null, input must be an input to the fusion,
@@ -754,8 +806,8 @@ class PredicateChcker : public IterVisitor {
 
   void handle(GroupedWelfordOp* grouped_wop) final {
     for (const auto expr_idx :
-         c10::irange(grouped_wop->numHorizontallyGroupedExprs())) {
-      for (const auto val_idx : c10::irange(3)) {
+         arange(grouped_wop->numHorizontallyGroupedExprs())) {
+      for (const auto val_idx : arange(3)) {
         auto init = grouped_wop->initVals().at(expr_idx).get(val_idx);
 
         // Welford input can be a scalar. Predicate is required unless
@@ -893,7 +945,7 @@ void PredicateElimination::dispatch(Expr* expr) {
 
   // Ensure all inputs have some values set at the out-of-bound
   // regions
-  for (const auto i : c10::irange(expr->inputs().size())) {
+  for (const auto i : arange(expr->inputs().size())) {
     auto input = dynamic_cast<TensorView*>(expr->inputs()[i]);
     if (input == nullptr) {
       continue;

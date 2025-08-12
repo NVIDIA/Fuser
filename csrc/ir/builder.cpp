@@ -9,6 +9,7 @@
 #include <fusion.h>
 #include <ir/builder.h>
 #include <ir/cloner.h>
+#include <ir/utils.h>
 #include <kernel.h>
 #include <C++20/compare>
 
@@ -89,6 +90,12 @@ Val* IrBuilder::bitwiseNotExpr(Val* val) {
   NVF_CHECK(val != nullptr, "val is a nullptr in bitwiseNotExpr.");
   auto result = create<Val>(val->dtype());
   IrBuilder::create<UnaryOp>(UnaryOpType::BitwiseNot, result, val);
+  return result;
+}
+
+Val* IrBuilder::bitCeilExpr(Val* val) {
+  auto result = create<Val>(val->dtype());
+  IrBuilder::create<UnaryOp>(UnaryOpType::BitCeil, result, val);
   return result;
 }
 
@@ -340,19 +347,33 @@ Val* SimplifyingIrBuilder::addExpr(
     rhs_dtype = getDataType(rhs);
   }
   if (lhs == nullptr) {
-    return IrBuilder::IrBuilder::create<Val>(rhs, rhs_dtype);
+    return IrBuilder::create<Val>(rhs, rhs_dtype);
+  }
+  // simplify x + y - y as x
+  if (lhs->definition() != nullptr && lhs->definition()->isA<BinaryOp>()) {
+    auto binary_op = lhs->definition()->as<BinaryOp>();
+    if (binary_op->getBinaryOpType() == BinaryOpType::Add) {
+      if (binary_op->rhs()->isConst() &&
+          (bool)(binary_op->rhs()->value() == -rhs)) {
+        return binary_op->lhs();
+      }
+    }
   }
   auto target_dtype = promoteType(lhs->dtype(), rhs_dtype);
   if (rhs == 0) {
     return maybeCastExpr(target_dtype, lhs);
   } else if (lhs->isConst()) {
-    return IrBuilder::IrBuilder::create<Val>(lhs->value() + rhs, target_dtype);
+    auto result = lhs->value() + rhs;
+    if (result == 0) {
+      return lhs->container()->zeroVal(target_dtype);
+    } else if (result == 1) {
+      return lhs->container()->oneVal(target_dtype);
+    }
+    return IrBuilder::create<Val>(lhs->value() + rhs, target_dtype);
   } else if (rhs > 0) {
-    return IrBuilder::addExpr(
-        lhs, IrBuilder::IrBuilder::create<Val>(rhs, rhs_dtype));
+    return IrBuilder::addExpr(lhs, IrBuilder::create<Val>(rhs, rhs_dtype));
   } else {
-    return IrBuilder::subExpr(
-        lhs, IrBuilder::IrBuilder::create<Val>(-rhs, rhs_dtype));
+    return IrBuilder::subExpr(lhs, IrBuilder::create<Val>(-rhs, rhs_dtype));
   }
 }
 
@@ -366,6 +387,17 @@ Val* SimplifyingIrBuilder::addExpr(Val* lhs, Val* rhs) {
   } else if (rhs->isConst()) {
     return addExpr(lhs, rhs->value(), rhs->dtype());
   } else {
+    // Simplify (-x) + x to 0
+    if (auto uop = dynamic_cast<UnaryOp*>(lhs->definition()); uop != nullptr &&
+        uop->getUnaryOpType() == UnaryOpType::Neg && uop->in()->sameAs(rhs)) {
+      return lhs->fusion()->zeroVal(lhs->dtype());
+    }
+    // Simplify x + (-x) to 0
+    if (auto uop = dynamic_cast<UnaryOp*>(rhs->definition()); uop != nullptr &&
+        uop->getUnaryOpType() == UnaryOpType::Neg && uop->in()->sameAs(lhs)) {
+      return lhs->fusion()->zeroVal(lhs->dtype());
+    }
+
     return IrBuilder::addExpr(lhs, rhs);
   }
 }
@@ -670,6 +702,9 @@ namespace {
 
 //! Compares a to b if they are both const scalars convertible to double
 std::partial_ordering compareScalars(Val* a, Val* b) {
+  if (!ir_utils::isFunctional(a) || !ir_utils::isFunctional(b)) {
+    return std::partial_ordering::unordered;
+  }
   ExpressionEvaluator ee;
   auto a_val = ee.evaluate(a);
   if (!a_val.hasValue()) {

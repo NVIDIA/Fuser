@@ -30,7 +30,7 @@ bool shouldHoistToHost(Val* value) {
 // Get the position of the innermost non-trivial loop
 int64_t getInnermostNonTrivialLoop(const std::vector<ForLoop*>& loops) {
   int64_t position = -1;
-  for (auto i : c10::irange(loops.size())) {
+  for (auto i : arange(loops.size())) {
     if (!loops.at(i)->isTrivial()) {
       position = (int64_t)i;
     }
@@ -77,7 +77,7 @@ int64_t findOutermostPosWithSatisfiedDependency(
   // variable or something like named scalar or constant
   if (def == nullptr) {
     // Check if `value` is a loop variable
-    for (auto i : c10::irange(loops.size())) {
+    for (auto i : arange(loops.size())) {
       auto loop = loops.at(i);
       // We skip trivial loop here because it is never materialized, so its loop
       // variable is accessible everywhere. For example, if the trivial loop is
@@ -356,7 +356,8 @@ std::vector<Val*> getAssumptions(const std::vector<ForLoop*>& loops) {
           stop->toInlineString(),
           " is same as start value ",
           start->toInlineString(),
-          ". This could indicate a suboptimal schedule such as circular-buffering a ",
+          ". This could indicate a suboptimal schedule such as "
+          "circular-buffering a ",
           "loop that has only a single iteration.");
     } else {
       assumptions.push_back(IrBuilder::ltExpr(loop->index(), stop));
@@ -469,7 +470,7 @@ std::pair<int64_t, bool> findAllocPointFromDataDependency(
                                      // the hoisted value should be inserted
     Val* value) {
   int64_t pos = -1;
-  for (auto i : c10::irange(exprs.size())) {
+  for (auto i : arange(exprs.size())) {
     auto expr = exprs[i];
     NVF_ERROR(expr != nullptr);
     if (auto alloc = dynamic_cast<kir::Allocate*>(expr)) {

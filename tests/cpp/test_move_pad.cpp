@@ -6,7 +6,6 @@
  */
 // clang-format on
 #include <gmock/gmock-matchers.h>
-#include <gmock/gmock-more-matchers.h>
 #include <gtest/gtest.h>
 
 #include <fusion.h>
@@ -17,11 +16,14 @@
 namespace nvfuser {
 
 using testing::Contains;
-using testing::IsTrue;
-using testing::Property;
 using testing::UnorderedElementsAre;
 
-using MovePadTest = NVFuserTest;
+class MovePadTest : public NVFuserTest {
+ protected:
+  MovePadTest() {
+    DisableOptionsGuard::getCurOptions().set(DisableOption::ResizeScheduler);
+  }
+};
 
 TEST_F(MovePadTest, UnaryCat) {
   auto fusion = std::make_unique<Fusion>();
@@ -39,15 +41,15 @@ TEST_F(MovePadTest, UnaryCat) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({4, 10}, options);
   at::Tensor t1 = at::randn({2, 10}, options);
-  std::vector<c10::IValue> aten_inputs = {t0, t1};
 
-  FusionExecutorCache fec(std::move(fusion));
-  auto out_tensors = fec.runFusionWithInputs(aten_inputs);
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto out_tensors = executor_cache.runFusionWithInputs({t0, t1});
 
-  FusionKernelRuntime* runtime = fec.getMostRecentKernelRuntime();
+  FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
   EXPECT_EQ(runtime->fusionSegments()->groups().size(), 1);
 
-  testValidate(fec.fusion(), out_tensors, aten_inputs, __LINE__, __FILE__);
+  testValidate(
+      executor_cache.fusion(), out_tensors, {t0, t1}, __LINE__, __FILE__);
 }
 
 TEST_F(MovePadTest, BinaryCat) {
@@ -69,15 +71,15 @@ TEST_F(MovePadTest, BinaryCat) {
   at::Tensor t0 = at::randn({4, 10}, options);
   at::Tensor t1 = at::randn({4, 10}, options);
   at::Tensor t2 = at::randn({2, 10}, options);
-  std::vector<c10::IValue> aten_inputs = {t0, t1, t2};
 
-  FusionExecutorCache fec(std::move(fusion));
-  auto out_tensors = fec.runFusionWithInputs(aten_inputs);
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto out_tensors = executor_cache.runFusionWithInputs({t0, t1, t2});
 
-  FusionKernelRuntime* runtime = fec.getMostRecentKernelRuntime();
+  FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
   EXPECT_EQ(runtime->fusionSegments()->groups().size(), 1);
 
-  testValidate(fec.fusion(), out_tensors, aten_inputs, __LINE__, __FILE__);
+  testValidate(
+      executor_cache.fusion(), out_tensors, {t0, t1, t2}, __LINE__, __FILE__);
 }
 
 TEST_F(MovePadTest, BinaryBroadcastOnNonCatDim) {
@@ -103,21 +105,21 @@ TEST_F(MovePadTest, BinaryBroadcastOnNonCatDim) {
   at::Tensor t0 = at::randn({4, 10}, options);
   at::Tensor t1 = at::randn({10}, options);
   at::Tensor t2 = at::randn({4, 5}, options);
-  std::vector<c10::IValue> aten_inputs = {t0, t1, t2};
 
-  FusionExecutorCache fec(std::move(fusion));
-  auto out_tensors = fec.runFusionWithInputs(aten_inputs);
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto out_tensors = executor_cache.runFusionWithInputs({t0, t1, t2});
 
   // ensure that we propagate the pad across binary operation and the first
   // segment is no-op
-  FusionKernelRuntime* runtime = fec.getMostRecentKernelRuntime();
+  FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
   EXPECT_THAT(
       runtime->fusionSegments()->groups(),
       UnorderedElementsAre(
-          HeuristicIs(SchedulerType::NoOp),
+          HeuristicIs(SchedulerType::ExprEval),
           HeuristicIs(SchedulerType::PointWise)));
 
-  testValidate(fec.fusion(), out_tensors, aten_inputs, __LINE__, __FILE__);
+  testValidate(
+      executor_cache.fusion(), out_tensors, {t0, t1, t2}, __LINE__, __FILE__);
 }
 
 TEST_F(MovePadTest, BinaryBroadcastOnCatDim) {
@@ -142,15 +144,15 @@ TEST_F(MovePadTest, BinaryBroadcastOnCatDim) {
   at::Tensor t0 = at::randn({4, 10}, options);
   at::Tensor t1 = at::randn({10}, options);
   at::Tensor t2 = at::randn({2, 10}, options);
-  std::vector<c10::IValue> aten_inputs = {t0, t1, t2};
 
-  FusionExecutorCache fec(std::move(fusion));
-  auto out_tensors = fec.runFusionWithInputs(aten_inputs);
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto out_tensors = executor_cache.runFusionWithInputs({t0, t1, t2});
 
-  FusionKernelRuntime* runtime = fec.getMostRecentKernelRuntime();
+  FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
   EXPECT_EQ(runtime->fusionSegments()->groups().size(), 2);
 
-  testValidate(fec.fusion(), out_tensors, aten_inputs, __LINE__, __FILE__);
+  testValidate(
+      executor_cache.fusion(), out_tensors, {t0, t1, t2}, __LINE__, __FILE__);
 }
 
 TEST_F(MovePadTest, PadReplayOnMultipleUsesCase0) {
@@ -177,15 +179,15 @@ TEST_F(MovePadTest, PadReplayOnMultipleUsesCase0) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({4, 10}, options);
   at::Tensor t1 = at::randn({1, 10}, options);
-  std::vector<c10::IValue> aten_inputs = {t0, t1};
 
-  FusionExecutorCache fec(std::move(fusion));
-  auto out_tensors = fec.runFusionWithInputs(aten_inputs);
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto out_tensors = executor_cache.runFusionWithInputs({t0, t1});
 
-  FusionKernelRuntime* runtime = fec.getMostRecentKernelRuntime();
+  FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
   EXPECT_EQ(runtime->fusionSegments()->groups().size(), 1);
 
-  testValidate(fec.fusion(), out_tensors, aten_inputs, __LINE__, __FILE__);
+  testValidate(
+      executor_cache.fusion(), out_tensors, {t0, t1}, __LINE__, __FILE__);
 }
 
 TEST_F(MovePadTest, PadReplayOnMultipleUsesCase1) {
@@ -213,12 +215,12 @@ TEST_F(MovePadTest, PadReplayOnMultipleUsesCase1) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({4, 10}, options);
   at::Tensor t1 = at::randn({4, 10}, options);
-  std::vector<c10::IValue> aten_inputs = {t0, t1};
 
-  FusionExecutorCache fec(std::move(fusion));
-  auto out_tensors = fec.runFusionWithInputs(aten_inputs);
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto out_tensors = executor_cache.runFusionWithInputs({t0, t1});
 
-  testValidate(fec.fusion(), out_tensors, aten_inputs, __LINE__, __FILE__);
+  testValidate(
+      executor_cache.fusion(), out_tensors, {t0, t1}, __LINE__, __FILE__);
 }
 
 TEST_F(MovePadTest, CascadePadCase0) {
@@ -262,17 +264,16 @@ TEST_F(MovePadTest, CascadePadCase0) {
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({4, 10}, options);
-  std::vector<c10::IValue> aten_inputs = {t0};
 
-  FusionExecutorCache fec(std::move(fusion));
-  auto out_tensors = fec.runFusionWithInputs(aten_inputs);
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto out_tensors = executor_cache.runFusionWithInputs({t0});
 
-  FusionKernelRuntime* runtime = fec.getMostRecentKernelRuntime();
+  FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
   Fusion* complete_fusion = runtime->fusionSegments()->completeFusion();
   std::vector<Expr*> exprs = complete_fusion->exprs();
-  EXPECT_THAT(exprs, Contains(Property(&Expr::isA<PadOp>, IsTrue())).Times(1));
+  EXPECT_THAT(exprs, Contains(IsA<PadOp>()).Times(1));
 
-  testValidate(fec.fusion(), out_tensors, aten_inputs, __LINE__, __FILE__);
+  testValidate(executor_cache.fusion(), out_tensors, {t0}, __LINE__, __FILE__);
 }
 
 TEST_F(MovePadTest, CascadePadCase1) {
@@ -300,17 +301,16 @@ TEST_F(MovePadTest, CascadePadCase1) {
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({4, 10}, options);
-  std::vector<c10::IValue> aten_inputs = {t0};
 
-  FusionExecutorCache fec(std::move(fusion));
-  auto out_tensors = fec.runFusionWithInputs(aten_inputs);
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto out_tensors = executor_cache.runFusionWithInputs({t0});
 
-  FusionKernelRuntime* runtime = fec.getMostRecentKernelRuntime();
+  FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
   Fusion* complete_fusion = runtime->fusionSegments()->completeFusion();
   std::vector<Expr*> exprs = complete_fusion->exprs();
-  EXPECT_THAT(exprs, Contains(Property(&Expr::isA<PadOp>, IsTrue())).Times(2));
+  EXPECT_THAT(exprs, Contains(IsA<PadOp>()).Times(2));
 
-  testValidate(fec.fusion(), out_tensors, aten_inputs, __LINE__, __FILE__);
+  testValidate(executor_cache.fusion(), out_tensors, {t0}, __LINE__, __FILE__);
 }
 
 TEST_F(MovePadTest, CascadePadCase2) {
@@ -357,12 +357,11 @@ TEST_F(MovePadTest, CascadePadCase2) {
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({4, 10}, options);
-  std::vector<c10::IValue> aten_inputs = {t0};
 
-  FusionExecutorCache fec(std::move(fusion));
-  auto out_tensors = fec.runFusionWithInputs(aten_inputs);
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto out_tensors = executor_cache.runFusionWithInputs({t0});
 
-  testValidate(fec.fusion(), out_tensors, aten_inputs, __LINE__, __FILE__);
+  testValidate(executor_cache.fusion(), out_tensors, {t0}, __LINE__, __FILE__);
 }
 
 TEST_F(MovePadTest, NotMergeNegativePad) {
@@ -389,12 +388,11 @@ TEST_F(MovePadTest, NotMergeNegativePad) {
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({4, 10}, options);
-  std::vector<c10::IValue> aten_inputs = {t0};
 
-  FusionExecutorCache fec(std::move(fusion));
-  auto out_tensors = fec.runFusionWithInputs(aten_inputs);
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto out_tensors = executor_cache.runFusionWithInputs({t0});
 
-  testValidate(fec.fusion(), out_tensors, aten_inputs, __LINE__, __FILE__);
+  testValidate(executor_cache.fusion(), out_tensors, {t0}, __LINE__, __FILE__);
 }
 
 TEST_F(MovePadTest, BooleanCat) {
@@ -416,20 +414,56 @@ TEST_F(MovePadTest, BooleanCat) {
   at::Tensor t0 = at::randn({4, 10}, options) > 0.5;
   at::Tensor t1 = at::randn({4, 10}, options) > 0.5;
   at::Tensor t2 = at::randn({2, 10}, options) > 0.5;
-  std::vector<c10::IValue> aten_inputs = {t0, t1, t2};
 
-  FusionExecutorCache fec(std::move(fusion));
-  auto out_tensors = fec.runFusionWithInputs(aten_inputs);
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto out_tensors = executor_cache.runFusionWithInputs({t0, t1, t2});
 
-  FusionKernelRuntime* runtime = fec.getMostRecentKernelRuntime();
+  FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
   EXPECT_EQ(runtime->fusionSegments()->groups().size(), 1);
 
   // ExpressionEvaluator is hitting an assert with dynamic value.
-  // https://github.com/NVIDIA/Fuser/issues/2697 testValidate(fec.fusion(),
-  // out_tensors, aten_inputs, __LINE__, __FILE__);
+  // https://github.com/NVIDIA/Fuser/issues/2697
+  // testValidate(executor_cache.fusion(), out_tensors, aten_inputs, __LINE__,
+  // __FILE__);
   at::Tensor ref = at::cat({at::bitwise_and(t0, t1), t2}, 0);
   testValidate(
-      fec.fusion(), out_tensors, aten_inputs, {ref}, __LINE__, __FILE__);
+      executor_cache.fusion(),
+      out_tensors,
+      {t0, t1, t2},
+      {ref},
+      __LINE__,
+      __FILE__);
+}
+
+TEST_F(MovePadTest, Issue3597Repro) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+
+  auto tv0 = makeSymbolicTensor(2);
+  fusion.addInput(tv0);
+  auto tv1 = makeSymbolicTensor(2);
+  fusion.addInput(tv1);
+
+  auto tv2 = slice(
+      tv0,
+      {{fusion.oneVal(), tv0->axis(0)->extent()},
+       {fusion.zeroVal(), tv0->axis(1)->extent()}});
+  auto tv3 = segment_set(tv2);
+
+  auto tv4 = add(tv3, tv1);
+  auto tv5 = pad(tv4, {fusion.zeroVal(), fusion.oneVal()});
+  auto tv6 = set(tv5);
+  fusion.addOutput(tv6);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({5, 10}, options);
+  auto t1 = at::randn({4, 10}, options);
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs({t0, t1});
+
+  testValidate(executor_cache.fusion(), outputs, {t0, t1}, __LINE__, __FILE__);
 }
 
 } // namespace nvfuser

@@ -18,11 +18,17 @@
 #include <scheduler/vectorize_helper.h>
 #include <tests/cpp/utils.h>
 #include <tests/cpp/validator.h>
+#include <utils.h>
 
 #include <cstdlib>
 #include <filesystem>
+#include <forward_list>
 #include <fstream>
+#include <list>
+#include <random>
+#include <ranges>
 #include <system_error>
+#include <vector>
 
 namespace nvfuser {
 
@@ -35,7 +41,9 @@ int myFavoriteFunction(int a, int b) {
   }
 }
 
-TEST_F(NVFuserTest, FunctionTrace1) {
+using UtilsTest = NVFuserTest;
+
+TEST_F(UtilsTest, FunctionTrace1) {
 #ifndef NDEBUG
   std::stringstream ss;
   DebugStreamGuard g(ss);
@@ -47,13 +55,13 @@ TEST_F(NVFuserTest, FunctionTrace1) {
   EXPECT_THAT(
       ss.str(),
       ::testing::HasSubstr("Leaving myFavoriteFunction returning 3 at "));
-  EXPECT_THAT(ss.str(), ::testing::HasSubstr("test_gpu_utils.cpp:32"));
+  EXPECT_THAT(ss.str(), ::testing::HasSubstr("test_utils.cpp:32"));
 #else
   GTEST_SKIP() << "Test only runs in debug mode";
 #endif
 }
 
-TEST_F(NVFuserTest, FunctionTrace2) {
+TEST_F(UtilsTest, FunctionTrace2) {
 #ifndef NDEBUG
   std::stringstream ss;
   DebugStreamGuard g(ss);
@@ -65,13 +73,13 @@ TEST_F(NVFuserTest, FunctionTrace2) {
   EXPECT_THAT(
       ss.str(),
       ::testing::HasSubstr("Leaving myFavoriteFunction returning -3 at "));
-  EXPECT_THAT(ss.str(), ::testing::HasSubstr("test_gpu_utils.cpp:34"));
+  EXPECT_THAT(ss.str(), ::testing::HasSubstr("test_utils.cpp:34"));
 #else
   GTEST_SKIP() << "Test only runs in debug mode";
 #endif
 }
 
-TEST_F(NVFuserTest, FusionSplitDims) {
+TEST_F(UtilsTest, FusionSplitDims) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -82,14 +90,14 @@ TEST_F(NVFuserTest, FusionSplitDims) {
   scheduler_utils::splitDims(
       tv, {{0, p(2)}, {0, p(1)}, {3, p(6)}, {6, p(10)}}, dims);
   EXPECT_EQ(tv->nDims(), 11);
-  for (auto i : c10::irange(11)) {
+  for (auto i : arange(11)) {
     EXPECT_EQ(tv->axis(i)->extent()->evaluate(), p(i));
   }
   std::vector<int64_t> expect{0, 3, 4, 5, 7, 8, 9};
   EXPECT_EQ(dims, expect);
 }
 
-TEST_F(NVFuserTest, FusionMergeDims) {
+TEST_F(UtilsTest, FusionMergeDims) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -103,7 +111,7 @@ TEST_F(NVFuserTest, FusionMergeDims) {
   std::vector<int64_t> expect_shape{
       p(0), p(1), p(2) * p(3) * p(7) * p(8) * p(9), p(4), p(5), p(6), p(10)};
   EXPECT_EQ(tv->nDims(), expect_shape.size());
-  for (auto i : c10::irange(expect_shape.size())) {
+  for (auto i : arange(expect_shape.size())) {
     EXPECT_EQ(tv->axis(i)->extent()->evaluate(), expect_shape[i]);
   }
   std::vector<int64_t> expect_dims{0, 1, 2, 2, 3, 4, 5, 2, 2, 2, 6};
@@ -111,13 +119,13 @@ TEST_F(NVFuserTest, FusionMergeDims) {
   auto logical_domain = tv->getLogicalDomain();
   auto num_merged_dim = to_merge.size();
   auto inputs = IterVisitor::getInputsTo({tv->axis(2)});
-  for (auto index : c10::irange(num_merged_dim)) {
+  for (auto index : arange(num_merged_dim)) {
     EXPECT_TRUE(logical_domain[to_merge[num_merged_dim - 1 - index]]->sameAs(
         inputs[index]));
   }
 }
 
-TEST_F(NVFuserTest, FusionReorderAsRFactor) {
+TEST_F(UtilsTest, FusionReorderAsRFactor) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -149,7 +157,7 @@ TEST_F(NVFuserTest, FusionReorderAsRFactor) {
   EXPECT_EQ(old2new[2], 0);
 }
 
-TEST_F(NVFuserTest, FusionDisjointViewSet) {
+TEST_F(UtilsTest, FusionDisjointViewSet) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
@@ -169,7 +177,7 @@ TEST_F(NVFuserTest, FusionDisjointViewSet) {
   NVF_ERROR(disjoint_exact.strictAreMapped(tv0->axis(1), tv0->axis(2)));
 }
 
-TEST_F(NVFuserTest, FusionBroadcastViewMultiples) {
+TEST_F(UtilsTest, FusionBroadcastViewMultiples) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -250,26 +258,28 @@ TEST_F(NVFuserTest, FusionBroadcastViewMultiples) {
   // tv7  [a, b, 1, 1, 1, 1] -> These broadcasts could be recognized
   // tv10 [a, b, c, d, e, f]
 
+  // Units are in bits
+
   EXPECT_EQ(bcast_info.broadcast_multiples[0].lhs_multiple, 0);
-  EXPECT_EQ(bcast_info.broadcast_multiples[0].rhs_multiple, 8 * 4);
+  EXPECT_EQ(bcast_info.broadcast_multiples[0].rhs_multiple, 8 * 4 * 8);
 
-  EXPECT_EQ(bcast_info.broadcast_multiples[1].lhs_multiple, 7 * 4);
-  EXPECT_EQ(bcast_info.broadcast_multiples[1].rhs_multiple, 8 * 4);
+  EXPECT_EQ(bcast_info.broadcast_multiples[1].lhs_multiple, 7 * 4 * 8);
+  EXPECT_EQ(bcast_info.broadcast_multiples[1].rhs_multiple, 8 * 4 * 8);
 
-  EXPECT_EQ(bcast_info.broadcast_multiples[2].lhs_multiple, 7 * 4);
-  EXPECT_EQ(bcast_info.broadcast_multiples[2].rhs_multiple, 7 * 4);
+  EXPECT_EQ(bcast_info.broadcast_multiples[2].lhs_multiple, 7 * 4 * 8);
+  EXPECT_EQ(bcast_info.broadcast_multiples[2].rhs_multiple, 7 * 4 * 8);
 
-  EXPECT_EQ(bcast_info.broadcast_multiples[3].lhs_multiple, 8 * 4);
-  EXPECT_EQ(bcast_info.broadcast_multiples[3].rhs_multiple, 7 * 4);
+  EXPECT_EQ(bcast_info.broadcast_multiples[3].lhs_multiple, 8 * 4 * 8);
+  EXPECT_EQ(bcast_info.broadcast_multiples[3].rhs_multiple, 7 * 4 * 8);
 
-  EXPECT_EQ(bcast_info.broadcast_multiples[4].lhs_multiple, 8 * 4);
-  EXPECT_EQ(bcast_info.broadcast_multiples[4].rhs_multiple, 7 * 4);
+  EXPECT_EQ(bcast_info.broadcast_multiples[4].lhs_multiple, 8 * 4 * 8);
+  EXPECT_EQ(bcast_info.broadcast_multiples[4].rhs_multiple, 7 * 4 * 8);
 
-  EXPECT_EQ(bcast_info.broadcast_multiples[5].lhs_multiple, 8 * 4);
-  EXPECT_EQ(bcast_info.broadcast_multiples[5].rhs_multiple, 7 * 4);
+  EXPECT_EQ(bcast_info.broadcast_multiples[5].lhs_multiple, 8 * 4 * 8);
+  EXPECT_EQ(bcast_info.broadcast_multiples[5].rhs_multiple, 7 * 4 * 8);
 }
 
-TEST_F(NVFuserTest, FusionTVDomainGuard) {
+TEST_F(UtilsTest, FusionTVDomainGuard) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -296,7 +306,7 @@ TEST_F(NVFuserTest, FusionTVDomainGuard) {
   EXPECT_EQ(tv->domain()->contiguity(), false_true);
 }
 
-class VectorizeHelperTest : public NVFuserTest {};
+using VectorizeHelperTest = NVFuserTest;
 
 // Test simple backward mapping through split
 TEST_F(VectorizeHelperTest, BackwardMapper1) {
@@ -469,8 +479,7 @@ TEST_F(VectorizeHelperTest, BackwardMapper5) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor inp = at::randn({2 * 3, 4}, options);
 
-  KernelArgumentHolder args =
-      KernelArgumentHolder::createKernelArgumentHolder({inp});
+  KernelArgumentHolder args({inp});
   auto expr_eval = executor_utils::bindInputs(args, &fusion);
 
   EXPECT_EQ(mapper.mappedLogicalIds(tv0).size(), 2);
@@ -792,8 +801,7 @@ TEST_F(VectorizeHelperTest, ForwardMapper5) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor inp = at::randn({2, 3 * 4}, options);
 
-  KernelArgumentHolder args =
-      KernelArgumentHolder::createKernelArgumentHolder({inp});
+  KernelArgumentHolder args({inp});
   auto expr_eval = executor_utils::bindInputs(args, &fusion);
 
   EXPECT_EQ(mapper.mappedLogicalIds(tv2).size(), 2);
@@ -1011,7 +1019,7 @@ TEST_F(VectorizeHelperTest, SpanningTree) {
   inputs.push_back(bcast_inp);
   auto bcast = broadcast(bcast_inp, {false, true});
 
-  for (auto i : c10::irange(10)) {
+  for (auto i : arange(10)) {
     auto resolution_inp = makeContigConcreteTensor({2, 2});
     inputs.push_back(resolution_inp);
     auto intermediate = add(bcast, resolution_inp);
@@ -1072,6 +1080,7 @@ TEST_F(VectorizeHelperTest, SpanningTree) {
   }
 }
 
+#if 0
 TEST_F(NVFuserTest, FusionSASSDumpError) {
   // create a fake nvdisasm that prints "I am fake" to stderr
   namespace fs = std::filesystem;
@@ -1115,19 +1124,21 @@ TEST_F(NVFuserTest, FusionSASSDumpError) {
 
   at::Tensor t0 = at::randn({8}, options);
 
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, {t0});
+  KernelExecutor ke;
+  ke.compile(&fusion, {t0});
 
   EXPECT_THAT(
-      [&]() { fe.disassembledKernelSASS(); },
+      [&]() { ke.compiledKernel()->disassembledKernelSASS(); },
       ::testing::ThrowsMessage<nvfuser::nvfError>(
           ::testing::HasSubstr("I am fake")));
 
-  auto cg_outputs = fe.runFusion({t0});
-  testValidate(fe.kernel(), cg_outputs, {t0}, __LINE__, __FILE__);
+  auto cg_outputs = ke.run({t0});
+  testValidate(
+      ke.compiledKernel()->kernel(), cg_outputs, {t0}, __LINE__, __FILE__);
 }
+#endif
 
-TEST_F(NVFuserTest, ProveLinearAndGetStride) {
+TEST_F(UtilsTest, ProveLinearAndGetStride) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -1624,6 +1635,561 @@ TEST_F(NVFuserTest, ProveLinearAndGetStride) {
 
   Val* v4_7_in_v4 = lower_utils::proveLinearAndGetStride(g, v4[7], v4);
   EXPECT_EQ(simplifyExpr(v4_7_in_v4)->value(), 1);
+}
+
+// Test that lower_utils::proveLinearAndGetStride still works even if some
+// dependency are missing, as long as the missing dependency is irrelevant to
+// result.
+TEST_F(UtilsTest, ProveLinearAndGetStrideWithMissingDependency) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+  for (auto _ : arange(100)) {
+    (void)_;
+    // [16, 8, 2, 4]
+    auto id16 =
+        IterDomainBuilder(
+            fusion.zeroVal(), IrBuilder::create<Val>(16, DataType::Index))
+            .build();
+    auto id8 = IterDomainBuilder(
+                   fusion.zeroVal(), IrBuilder::create<Val>(8, DataType::Index))
+                   .build();
+    auto id2 = IterDomainBuilder(
+                   fusion.zeroVal(), IrBuilder::create<Val>(2, DataType::Index))
+                   .build();
+    auto id4 = IterDomainBuilder(
+                   fusion.zeroVal(), IrBuilder::create<Val>(4, DataType::Index))
+                   .build();
+
+    ValGraph g;
+    g.initializeVal(id16);
+    g.initializeVal(id8);
+    g.initializeVal(id2);
+    g.initializeVal(id4);
+    ValGroup g16{g.toGroup(id16)};
+    ValGroup g8{g.toGroup(id8)};
+    ValGroup g2{g.toGroup(id2)};
+    ValGroup g4{g.toGroup(id4)};
+    ValGroupAndItsGraph gg16{g16, &g};
+    ValGroupAndItsGraph gg8{g8, &g};
+    ValGroupAndItsGraph gg2{g2, &g};
+    ValGroupAndItsGraph gg4{g4, &g};
+
+    AbstractTensor v({gg16, gg8, gg2, gg4});
+    // Merge all dims in random order
+    while (v.size() > 1) {
+      v.merge(std::rand() % (v.size() - 1));
+    }
+    v.split(0, 32);
+
+    ValGroup linear_g = v[1].as<ValGroupAndItsGraph>().group;
+    // Although linear_g depend on g16, whether it is linear w.r.t. [8, 2, 4] is
+    // not relevant to g16. So we should not require g16 to exist in order to
+    // prove linearity.
+    Val* stride =
+        lower_utils::proveLinearAndGetStride(g, linear_g, {g8, g2, g4});
+    ASSERT_NE(stride, nullptr);
+    EXPECT_EQ(simplifyExpr(stride)->value(), 1);
+  }
+}
+
+TEST_F(UtilsTest, ProveLinearAndGetStrideEarlyStopping) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  // [4, 2]
+  auto id4 = IterDomainBuilder(
+                 fusion.zeroVal(), IrBuilder::create<Val>(4, DataType::Index))
+                 .build();
+  auto id2 = IterDomainBuilder(
+                 fusion.zeroVal(), IrBuilder::create<Val>(2, DataType::Index))
+                 .build();
+
+  ValGraph g;
+  g.initializeVal(id4);
+  g.initializeVal(id2);
+  ValGroup g4{g.toGroup(id4)};
+  ValGroup g2{g.toGroup(id2)};
+  ValGroupAndItsGraph gg4{g4, &g};
+  ValGroupAndItsGraph gg2{g2, &g};
+  AbstractTensor v({gg4, gg2});
+  v.merge(0);
+  v.split(0, 2);
+  ValGroup g4_ = v[0].as<ValGroupAndItsGraph>().group;
+  ValGroup g2_ = v[1].as<ValGroupAndItsGraph>().group;
+  Val* stride = lower_utils::proveLinearAndGetStride(g, g2_, {g4, g2_});
+  ASSERT_NE(stride, nullptr);
+  EXPECT_EQ(simplifyExpr(stride)->value(), 1);
+}
+
+using TestCpp23BackPort = NVFuserTest;
+
+TEST_F(TestCpp23BackPort, ZipDifferentWaysToSayZeroToTen) {
+  // vector of integers
+  std::vector<int64_t> integer{0, 1, 2, 3, 4, 5, 6, 7, 8, 9};
+
+  // list of English words
+  std::list<std::string> english{
+      "zero",
+      "one",
+      "two",
+      "three",
+      "four",
+      "five",
+      "six",
+      "seven",
+      "eight",
+      "nine"};
+
+  // Custom iterator and range implementing the set-theoretic definition of
+  // natural numbers:
+  // https://en.wikipedia.org/wiki/Set-theoretic_definition_of_natural_numbers
+  struct SetTheoreticNaturalNumber {
+    std::vector<SetTheoreticNaturalNumber> content;
+    using value_type = SetTheoreticNaturalNumber;
+    using difference_type = std::ptrdiff_t;
+    SetTheoreticNaturalNumber() = default; // zero
+    SetTheoreticNaturalNumber(
+        std::initializer_list<SetTheoreticNaturalNumber> x)
+        : content(x) {}
+    SetTheoreticNaturalNumber operator*() const {
+      return *this;
+    }
+    SetTheoreticNaturalNumber& operator++() {
+      content.emplace_back(*this);
+      return *this;
+    }
+    SetTheoreticNaturalNumber operator++(int) {
+      SetTheoreticNaturalNumber temp = *this;
+      ++(*this);
+      return temp;
+    }
+    bool operator==(const SetTheoreticNaturalNumber& other) const {
+      return content == other.content;
+    }
+  };
+  static_assert(std::input_iterator<SetTheoreticNaturalNumber>);
+  struct ZeroToInf : std::ranges::view_interface<ZeroToInf> {
+    SetTheoreticNaturalNumber begin() {
+      return SetTheoreticNaturalNumber();
+    }
+    auto end() {
+      return std::unreachable_sentinel;
+    }
+  } set_theoretic_zero_to_inf;
+  static_assert(std::ranges::input_range<ZeroToInf>);
+  static_assert(std::ranges::view<ZeroToInf>);
+
+  int64_t counter = 0;
+  auto english_it = english.begin();
+  for (auto&& [i, e, s, iota] :
+       zip(integer,
+           english,
+           set_theoretic_zero_to_inf,
+           std::views::iota((int64_t)0))) {
+    static_assert(std::is_same_v<decltype(i), int64_t&>);
+    static_assert(std::is_same_v<decltype(e), std::string&>);
+    static_assert(std::is_same_v<decltype(s), SetTheoreticNaturalNumber>);
+    static_assert(std::is_same_v<decltype(iota), int64_t>);
+    EXPECT_EQ(i, counter);
+    EXPECT_EQ(&i, &integer[counter]);
+    EXPECT_EQ(&e, &*english_it);
+    EXPECT_EQ(iota, counter);
+    switch (counter) {
+      case 0: {
+        EXPECT_EQ(e, "zero");
+        SetTheoreticNaturalNumber expect = {};
+        EXPECT_EQ(s, expect);
+        break;
+      }
+      case 1: {
+        EXPECT_EQ(e, "one");
+        SetTheoreticNaturalNumber expect = {{}};
+        EXPECT_EQ(s, expect);
+        break;
+      }
+      case 2: {
+        EXPECT_EQ(e, "two");
+        SetTheoreticNaturalNumber expect = {{}, {{}}};
+        EXPECT_EQ(s, expect);
+        break;
+      }
+      case 3: {
+        EXPECT_EQ(e, "three");
+        SetTheoreticNaturalNumber expect = {{}, {{}}, {{}, {{}}}};
+        EXPECT_EQ(s, expect);
+        break;
+      }
+      case 4: {
+        EXPECT_EQ(e, "four");
+        SetTheoreticNaturalNumber expect = {
+            {}, {{}}, {{}, {{}}}, {{}, {{}}, {{}, {{}}}}};
+        EXPECT_EQ(s, expect);
+        break;
+      }
+      case 5: {
+        EXPECT_EQ(e, "five");
+        SetTheoreticNaturalNumber expect = {
+            {},
+            {{}},
+            {{}, {{}}},
+            {{}, {{}}, {{}, {{}}}},
+            {{}, {{}}, {{}, {{}}}, {{}, {{}}, {{}, {{}}}}}};
+        EXPECT_EQ(s, expect);
+        break;
+      }
+      case 6: {
+        EXPECT_EQ(e, "six");
+        SetTheoreticNaturalNumber expect = {
+            {},
+            {{}},
+            {{}, {{}}},
+            {{}, {{}}, {{}, {{}}}},
+            {{}, {{}}, {{}, {{}}}, {{}, {{}}, {{}, {{}}}}},
+            {{},
+             {{}},
+             {{}, {{}}},
+             {{}, {{}}, {{}, {{}}}},
+             {{}, {{}}, {{}, {{}}}, {{}, {{}}, {{}, {{}}}}}}};
+        EXPECT_EQ(s, expect);
+        break;
+      }
+      case 7: {
+        EXPECT_EQ(e, "seven");
+        SetTheoreticNaturalNumber expect = {
+            {},
+            {{}},
+            {{}, {{}}},
+            {{}, {{}}, {{}, {{}}}},
+            {{}, {{}}, {{}, {{}}}, {{}, {{}}, {{}, {{}}}}},
+            {{},
+             {{}},
+             {{}, {{}}},
+             {{}, {{}}, {{}, {{}}}},
+             {{}, {{}}, {{}, {{}}}, {{}, {{}}, {{}, {{}}}}}},
+            {{},
+             {{}},
+             {{}, {{}}},
+             {{}, {{}}, {{}, {{}}}},
+             {{}, {{}}, {{}, {{}}}, {{}, {{}}, {{}, {{}}}}},
+             {{},
+              {{}},
+              {{}, {{}}},
+              {{}, {{}}, {{}, {{}}}},
+              {{}, {{}}, {{}, {{}}}, {{}, {{}}, {{}, {{}}}}}}}};
+        EXPECT_EQ(s, expect);
+        break;
+      }
+      case 8: {
+        EXPECT_EQ(e, "eight");
+        SetTheoreticNaturalNumber expect = {
+            {},
+            {{}},
+            {{}, {{}}},
+            {{}, {{}}, {{}, {{}}}},
+            {{}, {{}}, {{}, {{}}}, {{}, {{}}, {{}, {{}}}}},
+            {{},
+             {{}},
+             {{}, {{}}},
+             {{}, {{}}, {{}, {{}}}},
+             {{}, {{}}, {{}, {{}}}, {{}, {{}}, {{}, {{}}}}}},
+            {{},
+             {{}},
+             {{}, {{}}},
+             {{}, {{}}, {{}, {{}}}},
+             {{}, {{}}, {{}, {{}}}, {{}, {{}}, {{}, {{}}}}},
+             {{},
+              {{}},
+              {{}, {{}}},
+              {{}, {{}}, {{}, {{}}}},
+              {{}, {{}}, {{}, {{}}}, {{}, {{}}, {{}, {{}}}}}}},
+            {{},
+             {{}},
+             {{}, {{}}},
+             {{}, {{}}, {{}, {{}}}},
+             {{}, {{}}, {{}, {{}}}, {{}, {{}}, {{}, {{}}}}},
+             {{},
+              {{}},
+              {{}, {{}}},
+              {{}, {{}}, {{}, {{}}}},
+              {{}, {{}}, {{}, {{}}}, {{}, {{}}, {{}, {{}}}}}},
+             {{},
+              {{}},
+              {{}, {{}}},
+              {{}, {{}}, {{}, {{}}}},
+              {{}, {{}}, {{}, {{}}}, {{}, {{}}, {{}, {{}}}}},
+              {{},
+               {{}},
+               {{}, {{}}},
+               {{}, {{}}, {{}, {{}}}},
+               {{}, {{}}, {{}, {{}}}, {{}, {{}}, {{}, {{}}}}}}}}};
+        EXPECT_EQ(s, expect);
+        break;
+      }
+      case 9: {
+        EXPECT_EQ(e, "nine");
+        SetTheoreticNaturalNumber expect = {
+            {},
+            {{}},
+            {{}, {{}}},
+            {{}, {{}}, {{}, {{}}}},
+            {{}, {{}}, {{}, {{}}}, {{}, {{}}, {{}, {{}}}}},
+            {{},
+             {{}},
+             {{}, {{}}},
+             {{}, {{}}, {{}, {{}}}},
+             {{}, {{}}, {{}, {{}}}, {{}, {{}}, {{}, {{}}}}}},
+            {{},
+             {{}},
+             {{}, {{}}},
+             {{}, {{}}, {{}, {{}}}},
+             {{}, {{}}, {{}, {{}}}, {{}, {{}}, {{}, {{}}}}},
+             {{},
+              {{}},
+              {{}, {{}}},
+              {{}, {{}}, {{}, {{}}}},
+              {{}, {{}}, {{}, {{}}}, {{}, {{}}, {{}, {{}}}}}}},
+            {{},
+             {{}},
+             {{}, {{}}},
+             {{}, {{}}, {{}, {{}}}},
+             {{}, {{}}, {{}, {{}}}, {{}, {{}}, {{}, {{}}}}},
+             {{},
+              {{}},
+              {{}, {{}}},
+              {{}, {{}}, {{}, {{}}}},
+              {{}, {{}}, {{}, {{}}}, {{}, {{}}, {{}, {{}}}}}},
+             {{},
+              {{}},
+              {{}, {{}}},
+              {{}, {{}}, {{}, {{}}}},
+              {{}, {{}}, {{}, {{}}}, {{}, {{}}, {{}, {{}}}}},
+              {{},
+               {{}},
+               {{}, {{}}},
+               {{}, {{}}, {{}, {{}}}},
+               {{}, {{}}, {{}, {{}}}, {{}, {{}}, {{}, {{}}}}}}}},
+            {{},
+             {{}},
+             {{}, {{}}},
+             {{}, {{}}, {{}, {{}}}},
+             {{}, {{}}, {{}, {{}}}, {{}, {{}}, {{}, {{}}}}},
+             {{},
+              {{}},
+              {{}, {{}}},
+              {{}, {{}}, {{}, {{}}}},
+              {{}, {{}}, {{}, {{}}}, {{}, {{}}, {{}, {{}}}}}},
+             {{},
+              {{}},
+              {{}, {{}}},
+              {{}, {{}}, {{}, {{}}}},
+              {{}, {{}}, {{}, {{}}}, {{}, {{}}, {{}, {{}}}}},
+              {{},
+               {{}},
+               {{}, {{}}},
+               {{}, {{}}, {{}, {{}}}},
+               {{}, {{}}, {{}, {{}}}, {{}, {{}}, {{}, {{}}}}}}},
+             {{},
+              {{}},
+              {{}, {{}}},
+              {{}, {{}}, {{}, {{}}}},
+              {{}, {{}}, {{}, {{}}}, {{}, {{}}, {{}, {{}}}}},
+              {{},
+               {{}},
+               {{}, {{}}},
+               {{}, {{}}, {{}, {{}}}},
+               {{}, {{}}, {{}, {{}}}, {{}, {{}}, {{}, {{}}}}}},
+              {{},
+               {{}},
+               {{}, {{}}},
+               {{}, {{}}, {{}, {{}}}},
+               {{}, {{}}, {{}, {{}}}, {{}, {{}}, {{}, {{}}}}},
+               {{},
+                {{}},
+                {{}, {{}}},
+                {{}, {{}}, {{}, {{}}}},
+                {{}, {{}}, {{}, {{}}}, {{}, {{}}, {{}, {{}}}}}}}}}};
+        EXPECT_EQ(s, expect);
+        break;
+      }
+    }
+    counter++;
+    english_it++;
+  }
+  EXPECT_EQ(counter, 10);
+}
+
+TEST_F(TestCpp23BackPort, ZipWithReverse) {
+  std::vector<int> v{1, 2, 3, 4, 5};
+  std::vector<int> v2{5, 4, 3, 2, 1};
+
+  int64_t count = 0;
+  for (auto&& [x, y] : zip(v, v2)) {
+    EXPECT_EQ(x, 6 - y);
+    EXPECT_EQ(x, count + 1);
+    count++;
+  }
+  EXPECT_EQ(count, 5);
+
+  count = 0;
+  for (auto&& [x, y] : zip(v, v2) | std::views::reverse) {
+    EXPECT_EQ(x, 6 - y);
+    EXPECT_EQ(x, 5 - count);
+    count++;
+  }
+  EXPECT_EQ(count, 5);
+
+  count = 0;
+  std::forward_list<int> fl{1, 2, 3, 4, 5};
+  for (auto&& [x, y] : zip(v, fl)) {
+    EXPECT_EQ(x, y);
+    EXPECT_EQ(x, count + 1);
+    count++;
+  }
+  EXPECT_EQ(count, 5);
+
+  // Can not do zip(v, fl) | std::views::reverse because fl is not bidirectional
+}
+
+TEST_F(TestCpp23BackPort, Enumerate) {
+  std::vector<int> v{1, 2, 3, 4, 5};
+
+  int64_t count = 0;
+  for (auto&& [i, x] : enumerate(v)) {
+    EXPECT_EQ(i, count);
+    EXPECT_EQ(x, count + 1);
+    count++;
+  }
+  EXPECT_EQ(count, 5);
+
+  count = 0;
+  for (auto&& [i, x] : enumerate(v) | std::views::reverse) {
+    EXPECT_EQ(i + 1, x);
+    EXPECT_EQ(i, 4 - count);
+    count++;
+  }
+  EXPECT_EQ(count, 5);
+
+  std::forward_list<int> fl{1, 2, 3, 4, 5};
+  for (auto&& [i, x] : enumerate(fl)) {
+    EXPECT_EQ(i + 1, x);
+  }
+  EXPECT_EQ(count, 5);
+
+  // Can not do enumerate(fl) | std::views::reverse because fl is not
+  // bidirectional
+}
+
+namespace {
+
+// Generator that yields integers from 0 to n-1
+Generator<int> zeroToN(int n) {
+  for (int i = 0; i < n; ++i) {
+    co_yield i;
+  }
+}
+
+// Generator that yields integers from n to 2*n - 1
+Generator<int> nTo2N(int n) {
+  for (int i = n; i < 2 * n; ++i) {
+    co_yield i;
+  }
+}
+
+// Generator that yields integers from m to m + 2*n - 1
+Generator<int> mTo2NplusM(int n, int m) {
+  for (auto x : zeroToN(n)) {
+    co_yield x + m;
+  }
+  for (auto x : nTo2N(n)) {
+    co_yield x + m;
+  }
+}
+
+// Generator that yields references
+Generator<int&> items(std::vector<int>& v) {
+  for (auto& x : v) {
+    co_yield x;
+  }
+}
+
+} // namespace
+
+TEST_F(UtilsTest, Generator1) {
+  static_assert(std::ranges::view<decltype(zeroToN(10))>);
+  std::vector<int> generated;
+  for (auto x : zeroToN(10) |
+           std::views::filter([](int x) { return x % 2 == 0; }) |
+           std::views::transform([](int x) { return x * x; })) {
+    generated.push_back(x);
+  }
+  std::vector<int> expect{0, 4, 16, 36, 64};
+  EXPECT_EQ(generated, expect);
+}
+
+TEST_F(UtilsTest, Generator2) {
+  static_assert(std::ranges::view<decltype(mTo2NplusM(10, 10))>);
+  std::vector<int> generated;
+  for (auto x : mTo2NplusM(10, 10)) {
+    generated.push_back(x);
+  }
+  std::vector<int> expect{10, 11, 12, 13, 14, 15, 16, 17, 18, 19,
+                          20, 21, 22, 23, 24, 25, 26, 27, 28, 29};
+  EXPECT_EQ(generated, expect);
+}
+
+TEST_F(UtilsTest, Generator3) {
+  std::vector<int> v{0, 0, 0, 0, 0};
+  for (auto&& [i, x] : enumerate(items(v))) {
+    x = i * 10;
+  }
+  std::vector<int> expect{0, 10, 20, 30, 40};
+  EXPECT_EQ(v, expect);
+}
+
+TEST_F(UtilsTest, Generator4) {
+  auto one2five = []() -> Generator<int> {
+    for (int i = 1; i <= 5; ++i) {
+      co_yield i;
+    }
+  };
+  std::vector<int> v;
+  for (auto x : one2five()) {
+    v.push_back(x);
+  }
+  std::vector<int> expect{1, 2, 3, 4, 5};
+  EXPECT_EQ(v, expect);
+}
+
+TEST_F(UtilsTest, Generator5) {
+  auto excepted_exception = []() -> Generator<int> {
+    co_yield 1;
+    throw std::runtime_error("Hello, world!");
+    co_yield 2;
+  };
+  auto run_generator = [&]() {
+    for (auto x : excepted_exception()) {
+      EXPECT_EQ(x, 1);
+    }
+  };
+  EXPECT_THAT(
+      run_generator,
+      ::testing::ThrowsMessage<std::runtime_error>("Hello, world!"));
+}
+
+TEST_F(UtilsTest, GetOrDefault) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  TensorView* in = makeSymbolicTensor(2);
+  fusion->addInput(in);
+  TensorView* out = set(in);
+  fusion->addOutput(out);
+
+  std::unordered_map<Val*, int64_t> m;
+  m[in] = 1;
+
+  EXPECT_EQ(getOrDefault(m, in), 1);
+  EXPECT_EQ(getOrDefault(m, out), 0);
 }
 
 } // namespace nvfuser

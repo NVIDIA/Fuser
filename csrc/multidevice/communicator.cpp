@@ -5,17 +5,17 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <cuda_utils.h>
 #include <multidevice/communicator.h>
 #include <options.h>
+#include <utils.h>
 
 #include <netdb.h>
 #include <map>
 
 #ifdef NVFUSER_DISTRIBUTED
 #include <torch/csrc/distributed/c10d/PrefixStore.hpp>
-#ifdef USE_C10D_GLOO
-#include <torch/csrc/distributed/c10d/ProcessGroupGloo.hpp>
-#endif
+#include <torch/csrc/distributed/c10d/exception.h>
 #ifdef USE_C10D_NCCL
 #include <torch/csrc/distributed/c10d/ProcessGroupNCCL.hpp>
 #endif
@@ -34,8 +34,8 @@ std::ostream& operator<<(std::ostream& out, const CommunicatorBackend& cb) {
     case CommunicatorBackend::kUcc:
       out << "UCC";
       break;
-    case CommunicatorBackend::kGloo:
-      out << "GLOO";
+    case CommunicatorBackend::kCuda:
+      out << "CUDA";
       break;
   }
   return out;
@@ -54,9 +54,15 @@ char* tryReadEnv(const std::vector<std::string>& envs) {
   return nullptr;
 }
 
-// Parse the environment to retrieve MPI rank, world size, local rank,
+// Parses the environment to retrieve MPI rank, world size, local rank,
 // local world size, and also master address and master port.
-// Returns true if the distributed configuration is valid, false otherwise
+//
+// We intend to support mpirun, torchrun
+// (https://docs.pytorch.org/docs/stable/elastic/run.html#environment-variables)
+// and slurm. However, only mpirun is tested in CI at this moment, so I
+// wouldn't be surprised the other launchers don't work out of the box.
+//
+// Returns true if the distributed configuration is valid, false otherwise.
 bool parseEnv(
     RankType& rank,
     int64_t& size,
@@ -64,10 +70,8 @@ bool parseEnv(
     int64_t& local_size,
     std::string& master_addr,
     int& master_port) {
-  char* env = nullptr;
-
   // retrieves the rank of the current process
-  env = tryReadEnv({"OMPI_COMM_WORLD_RANK", "WORLD_RANK", "SLURM_PROCID"});
+  char* env = tryReadEnv({"OMPI_COMM_WORLD_RANK", "RANK", "SLURM_PROCID"});
   if (env == nullptr) {
     return false;
   }
@@ -81,8 +85,8 @@ bool parseEnv(
   size = std::atoi(env);
 
   // retrieves the size of the communicator
-  env = tryReadEnv(
-      {"OMPI_COMM_WORLD_LOCAL_RANK", "WORLD_LOCAL_RANK", "SLURM_LOCALID"});
+  env =
+      tryReadEnv({"OMPI_COMM_WORLD_LOCAL_RANK", "LOCAL_RANK", "SLURM_LOCALID"});
   if (env == nullptr) {
     return false;
   }
@@ -91,7 +95,7 @@ bool parseEnv(
   // retrieves the size of the communicator
   env = tryReadEnv(
       {"OMPI_COMM_WORLD_LOCAL_SIZE",
-       "WORLD_LOCAL_SIZE",
+       "LOCAL_WORLD_SIZE",
        "SLURM_NTASKS_PER_NODE"});
   if (env == nullptr) {
     return false;
@@ -116,9 +120,9 @@ bool parseEnv(
   if ((env = std::getenv("NVFUSER_MASTER_PORT")) != nullptr) {
     master_port = std::atoi(env);
   } else {
-    LOG(INFO)
-        << "The environment variable NVFUSER_MASTER_PORT has not been specified. "
-        << "Set the master port to default: " << master_port;
+    LOG(INFO) << "The environment variable NVFUSER_MASTER_PORT has not been "
+                 "specified. "
+              << "Set the master port to default: " << master_port;
   }
 
   return true;
@@ -147,14 +151,6 @@ c10::intrusive_ptr<c10d::Backend> createBackend(
   if (backend == CommunicatorBackend::kNccl) {
     auto pg_opts = c10::make_intrusive<::c10d::ProcessGroupNCCL::Options>();
     return c10::make_intrusive<::c10d::ProcessGroupNCCL>(
-        store, rank, size, pg_opts);
-  }
-#endif
-
-#ifdef USE_C10D_GLOO
-  if (backend == CommunicatorBackend::kGloo) {
-    auto pg_opts = c10d::ProcessGroupGloo::Options::create();
-    return c10::make_intrusive<::c10d::ProcessGroupGloo>(
         store, rank, size, pg_opts);
   }
 #endif
@@ -196,6 +192,8 @@ Communicator::Communicator(
     return;
   }
 
+  NVFUSER_CUDA_RT_SAFE_CALL(cudaSetDevice(local_rank_));
+
 #ifdef NVFUSER_DISTRIBUTED
   c10d::TCPStoreOptions store_opts;
   {
@@ -209,7 +207,19 @@ Communicator::Communicator(
         local_rank_ == server_local_rank;
   }
   store_opts.port = master_port_;
-  store_ = c10::make_intrusive<c10d::TCPStore>(master_addr_, store_opts);
+
+  try {
+    store_ = c10::make_intrusive<c10d::TCPStore>(master_addr_, store_opts);
+  } catch (const c10d::SocketError& e) {
+    TORCH_WARN(
+        "Failed to create a TCPStore: ",
+        e.what(),
+        ". The Communicator is therefore made unavailable. If you imported "
+        "both nvfuser and nvfuser_direct, this warning is expected and can be "
+        "ignored: https://github.com/NVIDIA/Fuser/pull/4722");
+    is_available_ = false;
+    return;
+  }
 #endif
 
 #if defined(USE_C10D_UCC) && defined(NVFUSER_BUILD_WITH_UCC)
@@ -219,6 +229,99 @@ Communicator::Communicator(
 #ifdef USE_C10D_NCCL
   nccl_available_ = true;
 #endif
+}
+
+namespace {
+void waitForDebuggerAtRanks(
+    Communicator* communicator,
+    const std::vector<DeviceIdxType>& ranks) {
+  if (std::count(ranks.begin(), ranks.end(), communicator->deviceId()) > 0) {
+    volatile bool waiting = true;
+    auto pid = getpid();
+    std::cerr << "Process " << pid
+              << " is waiting for the debugger. To continue debugging, "
+              << "start gdb, `attach " << pid
+              << "`, `set var waiting=false`, and `fini`." << std::endl;
+    while (waiting) { // Please change `waiting` in the debugger.
+    }
+    std::cerr << "Process " << getpid() << " finished waiting." << std::endl;
+  }
+
+  if (communicator->is_available()) {
+    communicator->barrier();
+  }
+}
+} // namespace
+
+Communicator& Communicator::getInstance() {
+  // This isn't the best practice to use singleton. Ideally, we'd like to
+  // ```
+  // static Communicator communicator;
+  // ```
+  // and let the destructor clean it up at program exit after `main` returns.
+  // This however would cause a "driver shutting down" error, likely because
+  // another static variable destructor shuts down the CUDA driver before
+  // ~Communicator. Note that the order of static variable destruction
+  // across translation units is undefined.
+  //
+  // Therefore, we `new Communicator()` as a raw pointer and let the user
+  // call Communicator::getInstance().cleanup() to clean up the Communicator
+  // explicitly before the end of `main`. For example, the cleanup method is
+  // called via MultiDeviceTestEnvironment::TearDown in C++ unit tests and
+  // nvfuser._cleanup() in Python.
+  static auto* communicator = new Communicator();
+
+  // EnableOption::WaitDebugger can be used to attach gdb to one of the
+  // processes for debugging. For example,
+  //
+  // ```
+  // mpirun -np 2 -x NVFUSER_ENABLE='wait_debugger(1)' bin/test_multidevice
+  // --gtest_filter=*ReduceScatter
+  // ```
+  //
+  // When an mpirun fails, it usually prints out something like
+  // ```
+  // mpirun detected that one or more processes exited with non-zero status,
+  // thus causing the job to be terminated. The first process to do so was:
+  //
+  //   Process name: [[17665,1],0]
+  //   Exit code:    1
+  // ```
+  // The last bit of the process name (0 in this case) is the rank of the first
+  // failing process, and usually the rank to debug.
+  //
+  // Sometimes, multiple processes fail, and a failed, non-gdb'ed process can
+  // cause `mpirun` to terminate the entire job including the process being
+  // gdb'ed. For that, I use `mpirun -continuous` so `mpirun` keeps running the
+  // process being gdb'ed.
+  if (isOptionEnabled(EnableOption::WaitDebugger)) {
+    static std::once_flag once;
+    std::call_once(once, [&]() {
+      // Catch exceptions so call_once always flips `once` and executes this
+      // functor only once.
+      try {
+        const std::vector<std::string>& ranks_as_str =
+            getEnableOptionArguments(EnableOption::WaitDebugger);
+        std::vector<DeviceIdxType> ranks;
+        for (const auto& rank_as_str : ranks_as_str) {
+          const DeviceIdxType rank = std::stol(rank_as_str);
+          NVF_CHECK(
+              rank >= 0 && rank < communicator->size(),
+              "rank=",
+              rank,
+              " must be in the range of [0,",
+              communicator->size(),
+              ").");
+          ranks.push_back(rank);
+        }
+        waitForDebuggerAtRanks(communicator, ranks);
+      } catch (const std::exception& e) {
+        TORCH_WARN("Failed to wait for debugger: ", e.what());
+      }
+    });
+  }
+
+  return *communicator;
 }
 
 void Communicator::cleanup() {
@@ -232,8 +335,9 @@ void Communicator::cleanup() {
   // Without this, the TCPStore server can be cleaned up before TCPStore
   // clients are created, causing an hang. This happened with
   // test_multidevice.py::test_sizes_and_ranks.
-  if (is_available()) {
+  if (is_available_) {
     barrier();
+    is_available_ = false;
   }
 
   store_ = nullptr;
@@ -253,19 +357,19 @@ void Communicator::cleanup() {
   }
 #endif
   backends_.clear();
-
-  is_available_ = false;
 }
 
 c10d::Backend* Communicator::getBackendForTeam(
     const Team& team,
     std::optional<CommunicatorBackend> backend,
     const std::string& prefix) {
-  NVF_ERROR(
+  NVF_CHECK(
       is_available(),
       "The singleton Communicator isn't available. "
-      "This is likely because Communicator::cleanup has been called "
-      "or the instance wasn't successfully initialized.");
+      "This is most likely because the instance wasn't successfully "
+      "initialized due to lack of a multi-process running (e.g. mpirun or "
+      "torchrun). Sometimes, this is because Communicator::cleanup has been "
+      "accidentally called before this function.");
 
   CommunicatorBackend b = getBackend(backend);
   // generate a string key which is unique to the team

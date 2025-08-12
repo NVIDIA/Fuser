@@ -11,6 +11,7 @@
 #include <type.h>
 #include <visibility.h>
 
+#include <c10/core/DeviceType.h>
 #include <optional>
 
 namespace nvfuser {
@@ -21,6 +22,12 @@ struct CompileParams {
   bool enable_magic_zero = true;
   // if true, save ptxas info to compile log and check for register spilling
   bool enable_ptxas_verbose = false;
+  // Wrapping device in an optional allows us to initialize a value for the
+  // struct without having to select a specific device. Otherwise the default
+  // constructor will be deleted for the struct.
+  std::optional<c10::Device> device = std::nullopt;
+  // Additional include paths to be added to the nvrtc compilation
+  std::vector<std::string> include_paths;
 
   bool operator==(const CompileParams& other) const {
     // Disallow comparison if the index type is nullopt
@@ -32,7 +39,8 @@ struct CompileParams {
         "cannot compare as the other index type is not defined");
     return index_type == other.index_type &&
         maxrregcount == other.maxrregcount &&
-        enable_magic_zero == other.enable_magic_zero;
+        enable_magic_zero == other.enable_magic_zero &&
+        device == other.device && include_paths == other.include_paths;
   }
 
   bool operator!=(const CompileParams& other) const {
@@ -131,8 +139,16 @@ class LaunchParams {
     assertValid();
   }
 
-  // Binds dim assocaited with p_type to val
+  // Binds dim associated with p_type to val.
+  // Checks if ParallelType already has been assigned a value.
   void bind(int64_t val, ParallelType p_type);
+
+  // The LaunchParams class can act as a scheduler parameter or an executor
+  // constraint. The bind function uses checkAndSet to enforce that the value
+  // for a ParallelType cannot be set multiple times. bindUnsafe allows setting
+  // value of ParallelType multiple times. It is used for when LaunchParams is
+  // a configuration parameter.
+  void bindUnsafe(int64_t val, ParallelType p_type);
 
   // Adjusted value based on get functions above for each value
   NVF_API int64_t getDim(ParallelType p_type) const;

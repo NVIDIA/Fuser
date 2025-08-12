@@ -75,7 +75,8 @@ template <
     bool Z_THREAD,
     bool Aligned,
     typename T,
-    typename Func>
+    typename Func,
+    typename BlockDimT>
 __device__ void gridReduceLastBlock(
     T& out,
     const volatile T* in,
@@ -87,7 +88,11 @@ __device__ void gridReduceLastBlock(
     Func reduction_op,
     T* shared_buf,
     bool write_pred,
-    T init_val) {
+    T init_val,
+    // block_dim is basically just blockDim (wrapped as DefaultBlockDim) if
+    // there is no warp specialization in the kernel. If there is warp
+    // specialization, block_dim is the the dimension of the compute warps.
+    BlockDimT block_dim) {
   // We have to do num_reductions across reduction_size. The reductions are
   // contiguous, but offset by reduction_size. There is an entry in "in" for
   // every block, and every thread marked as true. Threads in dimensions marked
@@ -96,18 +101,18 @@ __device__ void gridReduceLastBlock(
   // Find the reduction id of the participating threads
   const auto block_reduction_segment_idx =
       index_utils::maskedOffset<X_THREAD, Y_THREAD, Z_THREAD>(
-          threadIdx, blockDim);
+          threadIdx, block_dim);
 
   // Find an id associated within a reduction segment for all
   // "non-participating" threads, which will parallelize the reductions for the
   // "participating" threads
   const auto id_in_block_segment =
       index_utils::maskedOffset<!X_THREAD, !Y_THREAD, !Z_THREAD>(
-          threadIdx, blockDim);
+          threadIdx, block_dim);
 
   // Stride by the "non-participating" threads
   const auto input_stride_for_thread_in_segment =
-      index_utils::maskedSize<!X_THREAD, !Y_THREAD, !Z_THREAD>(blockDim);
+      index_utils::maskedSize<!X_THREAD, !Y_THREAD, !Z_THREAD>(block_dim);
 
   T inp = init_val;
 
@@ -123,7 +128,7 @@ __device__ void gridReduceLastBlock(
   // Block reduce the per thread values into per "participating" thread values
   T inp_tmp = init_val;
   blockReduce<!X_THREAD, !Y_THREAD, !Z_THREAD, Aligned>(
-      inp_tmp, inp, reduction_op, shared_buf, true, init_val);
+      inp_tmp, inp, reduction_op, shared_buf, true, init_val, block_dim);
   const bool should_write = (X_THREAD || threadIdx.x == 0) &&
       (Y_THREAD || threadIdx.y == 0) && (Z_THREAD || threadIdx.z == 0);
   if (should_write && write_pred) {
@@ -191,7 +196,8 @@ template <
     bool PERSISTENT_REDUCTION,
     bool Aligned,
     typename T,
-    typename Func>
+    typename Func,
+    typename BlockDimT>
 __device__ void gridReduce(
     T& out,
     const T& inp_val,
@@ -203,7 +209,11 @@ __device__ void gridReduce(
     bool write_pred,
     T init_val,
     const nvfuser_index_t entrance_ind,
-    const nvfuser_index_t n_entrances) {
+    const nvfuser_index_t n_entrances,
+    // block_dim is basically just blockDim (wrapped as DefaultBlockDim) if
+    // there is no warp specialization in the kernel. If there is warp
+    // specialization, block_dim is the the dimension of the compute warps.
+    BlockDimT block_dim) {
   T block_reduction_val = init_val;
 
   // Do block reduction when required
@@ -215,7 +225,8 @@ __device__ void gridReduce(
         shared_buf,
         read_pred,
         true,
-        init_val);
+        init_val,
+        block_dim);
   } else if (read_pred) {
     block_reduction_val = inp_val;
   }
@@ -233,7 +244,7 @@ __device__ void gridReduce(
   // Number of threads we can use in final reduction, Seems to assume all
   // threads in the block participate
   const auto block_reduction_segment_size =
-      index_utils::maskedSize<!X_THREAD, !Y_THREAD, !Z_THREAD>(blockDim);
+      index_utils::maskedSize<!X_THREAD, !Y_THREAD, !Z_THREAD>(block_dim);
 
   // Number of reductions in the grid
   const nvfuser_index_t grid_segment_size = PERSISTENT_REDUCTION
@@ -251,20 +262,23 @@ __device__ void gridReduce(
         index_utils::maskedOffset<X_BLOCK, Y_BLOCK, Z_BLOCK>(blockIdx, gridDim);
     auto thread_offset =
         index_utils::maskedOffset<!X_THREAD, !Y_THREAD, !Z_THREAD>(
-            threadIdx, blockDim);
+            threadIdx, block_dim);
     auto work_buf_offset =
         block_offset * block_reduction_segment_size + thread_offset;
     work_buf[work_buf_offset] = block_reduction_val;
   }
   if (PERSISTENT_REDUCTION) {
     grid_sync::sync<X_BLOCK, Y_BLOCK, Z_BLOCK, PERSISTENT_REDUCTION, Aligned>(
-        sync_flags[idx_in_grid_segment], grid_reduction_segment_size);
+        sync_flags[idx_in_grid_segment],
+        grid_reduction_segment_size,
+        block_dim);
 
   } else {
     // Use a different sync flag for each call
     grid_sync::sync<X_BLOCK, Y_BLOCK, Z_BLOCK, PERSISTENT_REDUCTION, Aligned>(
         sync_flags[entrance_ind * grid_segment_size + idx_in_grid_segment],
-        grid_reduction_segment_size);
+        grid_reduction_segment_size,
+        block_dim);
   }
 
   bool last_block =
@@ -280,14 +294,17 @@ __device__ void gridReduce(
         reduction_op,
         shared_buf,
         write_pred,
-        init_val);
+        init_val,
+        block_dim);
   }
 
   if (PERSISTENT_REDUCTION) {
     // Make sure we're done with global memory before we allow the kernel to
     // continue
     grid_sync::sync<X_BLOCK, Y_BLOCK, Z_BLOCK, PERSISTENT_REDUCTION, Aligned>(
-        sync_flags[idx_in_grid_segment], grid_reduction_segment_size);
+        sync_flags[idx_in_grid_segment],
+        grid_reduction_segment_size,
+        block_dim);
   }
 }
 
@@ -306,7 +323,8 @@ template <
     bool PERSISTENT_REDUCTION,
     bool Aligned,
     typename T,
-    typename Func>
+    typename Func,
+    typename BlockDimT>
 __device__ void gridReduce(
     T& out,
     const T& inp_val,
@@ -319,6 +337,10 @@ __device__ void gridReduce(
     T init_val,
     const nvfuser_index_t entrance_ind,
     const nvfuser_index_t n_entrances,
+    // block_dim is basically just blockDim (wrapped as DefaultBlockDim) if
+    // there is no warp specialization in the kernel. If there is warp
+    // specialization, block_dim is the the dimension of the compute warps.
+    BlockDimT block_dim,
     int64_t& cycles,
     int64_t& count) {
   int64_t start_counter = 0;
@@ -349,7 +371,8 @@ __device__ void gridReduce(
       write_pred,
       init_val,
       entrance_ind,
-      n_entrances);
+      n_entrances,
+      block_dim);
 
   if (index_utils::maskedIsLast<true, true, true>(blockIdx, gridDim) &&
       index_utils::maskedIsZero<true, true, true>(threadIdx)) {
@@ -368,11 +391,16 @@ template <
     bool Z_THREAD,
     bool Aligned,
     typename T,
-    typename Func>
+    typename Func,
+    typename BlockDimT>
 __device__ void gridReduce2PartialReduction(
     const T& inp_val,
     T init_val,
     Func reduction_op,
+    // block_dim is basically just blockDim (wrapped as DefaultBlockDim) if
+    // there is no warp specialization in the kernel. If there is warp
+    // specialization, block_dim is the the dimension of the compute warps.
+    BlockDimT block_dim,
     volatile T* work_buf,
     T* shared_buf,
     bool read_pred,
@@ -390,7 +418,8 @@ __device__ void gridReduce2PartialReduction(
         shared_buf,
         read_pred,
         true,
-        init_val);
+        init_val,
+        block_dim);
   } else if (read_pred) {
     block_reduction_val = inp_val;
   }
@@ -401,7 +430,7 @@ __device__ void gridReduce2PartialReduction(
         index_utils::maskedOffset<X_BLOCK, Y_BLOCK, Z_BLOCK>(blockIdx, gridDim);
     auto thread_offset =
         index_utils::maskedOffset<!X_THREAD, !Y_THREAD, !Z_THREAD>(
-            threadIdx, blockDim);
+            threadIdx, block_dim);
     auto work_buf_offset =
         block_offset * block_reduction_segment_size + thread_offset;
     work_buf[work_buf_offset] = block_reduction_val;
@@ -421,7 +450,8 @@ template <
     typename T1,
     typename Func1,
     typename T2,
-    typename Func2>
+    typename Func2,
+    typename BlockDimT>
 __device__ void gridReduceGroup(
     T1& out1,
     const T1& inp_val1,
@@ -438,7 +468,11 @@ __device__ void gridReduceGroup(
     bool read_pred,
     bool write_pred,
     const nvfuser_index_t entrance_ind,
-    const nvfuser_index_t n_entrances) {
+    const nvfuser_index_t n_entrances,
+    // block_dim is basically just blockDim (wrapped as DefaultBlockDim) if
+    // there is no warp specialization in the kernel. If there is warp
+    // specialization, block_dim is the the dimension of the compute warps.
+    BlockDimT block_dim) {
   // Number of values to reduce in the reduction segment
   const auto grid_reduction_segment_size =
       index_utils::maskedSize<X_BLOCK, Y_BLOCK, Z_BLOCK>(gridDim);
@@ -452,7 +486,7 @@ __device__ void gridReduceGroup(
   // Number of threads we can use in final reduction, Seems to assume all
   // threads in the block participate
   const auto block_reduction_segment_size =
-      index_utils::maskedSize<!X_THREAD, !Y_THREAD, !Z_THREAD>(blockDim);
+      index_utils::maskedSize<!X_THREAD, !Y_THREAD, !Z_THREAD>(block_dim);
 
   // Number of reductions in the grid
   const nvfuser_index_t grid_segment_size = PERSISTENT_REDUCTION
@@ -478,6 +512,7 @@ __device__ void gridReduceGroup(
       inp_val1,
       init_val1,
       reduction_op1,
+      block_dim,
       work_buf1,
       (T1*)shared_buf,
       read_pred,
@@ -496,6 +531,7 @@ __device__ void gridReduceGroup(
       inp_val2,
       init_val2,
       reduction_op2,
+      block_dim,
       work_buf2,
       (T2*)shared_buf,
       read_pred,
@@ -505,11 +541,14 @@ __device__ void gridReduceGroup(
 
   if (PERSISTENT_REDUCTION) {
     grid_sync::sync<X_BLOCK, Y_BLOCK, Z_BLOCK, PERSISTENT_REDUCTION, Aligned>(
-        sync_flags[idx_in_grid_segment], grid_reduction_segment_size);
+        sync_flags[idx_in_grid_segment],
+        grid_reduction_segment_size,
+        block_dim);
   } else {
     grid_sync::sync<X_BLOCK, Y_BLOCK, Z_BLOCK, PERSISTENT_REDUCTION, Aligned>(
         sync_flags[entrance_ind * grid_segment_size + idx_in_grid_segment],
-        grid_reduction_segment_size);
+        grid_reduction_segment_size,
+        block_dim);
   }
 
   bool last_block =
@@ -525,7 +564,8 @@ __device__ void gridReduceGroup(
         reduction_op1,
         (T1*)shared_buf,
         write_pred,
-        init_val1);
+        init_val1,
+        block_dim);
     gridReduceLastBlock<!X_THREAD, !Y_THREAD, !Z_THREAD, Aligned>(
         out2,
         work_buf2,
@@ -534,14 +574,17 @@ __device__ void gridReduceGroup(
         reduction_op2,
         (T2*)shared_buf,
         write_pred,
-        init_val2);
+        init_val2,
+        block_dim);
   }
 
   if (PERSISTENT_REDUCTION) {
     // Make sure we're done with global memory before we allow the kernel to
     // continue
     grid_sync::sync<X_BLOCK, Y_BLOCK, Z_BLOCK, PERSISTENT_REDUCTION, Aligned>(
-        sync_flags[idx_in_grid_segment], grid_reduction_segment_size);
+        sync_flags[idx_in_grid_segment],
+        grid_reduction_segment_size,
+        block_dim);
   }
 }
 
@@ -558,7 +601,8 @@ template <
     typename T1,
     typename Func1,
     typename T2,
-    typename Func2>
+    typename Func2,
+    typename BlockDimT>
 __device__ void gridReduceGroup(
     T1& out1,
     const T1& inp_val1,
@@ -576,6 +620,10 @@ __device__ void gridReduceGroup(
     bool write_pred,
     const nvfuser_index_t entrance_ind,
     const nvfuser_index_t n_entrances,
+    // block_dim is basically just blockDim (wrapped as DefaultBlockDim) if
+    // there is no warp specialization in the kernel. If there is warp
+    // specialization, block_dim is the the dimension of the compute warps.
+    BlockDimT block_dim,
     int64_t& cycles,
     int64_t& count) {
   int64_t start_counter = 0;
@@ -613,7 +661,8 @@ __device__ void gridReduceGroup(
       read_pred,
       write_pred,
       entrance_ind,
-      n_entrances);
+      n_entrances,
+      block_dim);
 
   if (index_utils::maskedIsLast<true, true, true>(blockIdx, gridDim) &&
       index_utils::maskedIsZero<true, true, true>(threadIdx)) {
@@ -705,7 +754,8 @@ template <
     bool Aligned,
     int vec_size,
     typename T,
-    typename Func>
+    typename Func,
+    typename BlockDimT>
 __device__ void iterGroupedGridReduceLastBlock(
     T* out,
     const volatile T* in,
@@ -719,7 +769,11 @@ __device__ void iterGroupedGridReduceLastBlock(
     bool write_pred,
     T init_val,
     const nvfuser_index_t grid_segment_size,
-    const nvfuser_index_t idx_in_grid_segment) {
+    const nvfuser_index_t idx_in_grid_segment,
+    // block_dim is basically just blockDim (wrapped as DefaultBlockDim) if
+    // there is no warp specialization in the kernel. If there is warp
+    // specialization, block_dim is the the dimension of the compute warps.
+    BlockDimT block_dim) {
   // We have to do num_reductions across reduction_size. The reductions are
   // contiguous, but offset by reduction_size. There is an entry in "in" for
   // every block, and every thread marked as true. Threads in dimensions marked
@@ -728,14 +782,14 @@ __device__ void iterGroupedGridReduceLastBlock(
   // Find the reduction id of the participating threads
   const auto block_reduction_segment_idx =
       index_utils::maskedOffset<X_THREAD, Y_THREAD, Z_THREAD>(
-          threadIdx, blockDim);
+          threadIdx, block_dim);
 
   // Find an id associated within a reduction segment for all
   // "non-participating" threads, which will parallelize the reductions for the
   // "participating" threads
   const auto id_in_block_segment =
       index_utils::maskedOffset<!X_THREAD, !Y_THREAD, !Z_THREAD>(
-          threadIdx, blockDim);
+          threadIdx, block_dim);
 
   // index into iteration dim.
   // Its calculation is same to that in [iterGroupedGridReduce]. Becuase when
@@ -743,11 +797,11 @@ __device__ void iterGroupedGridReduceLastBlock(
   // X_THREAD, Y_THREAD, Z_THREAD are flipped.
   const auto thread_offset =
       index_utils::maskedOffset<X_THREAD, Y_THREAD, Z_THREAD>(
-          threadIdx, blockDim);
+          threadIdx, block_dim);
 
   // Stride by the "non-participating" threads
   const auto input_stride_for_thread_in_segment =
-      index_utils::maskedSize<!X_THREAD, !Y_THREAD, !Z_THREAD>(blockDim);
+      index_utils::maskedSize<!X_THREAD, !Y_THREAD, !Z_THREAD>(block_dim);
 
   constexpr unsigned int max_align_bytes = 16;
   constexpr unsigned int vec_bytes = sizeof(T) * vec_size;
@@ -814,7 +868,7 @@ __device__ void iterGroupedGridReduceLastBlock(
     inp_tmp[i] = init_val;
   }
   blockIterGroupedYdimReduce<Aligned, vec_size>(
-      inp_tmp, inp, reduction_op, shared_buf, true, init_val);
+      inp_tmp, inp, reduction_op, shared_buf, true, init_val, block_dim);
   const bool should_write = (X_THREAD || threadIdx.x == 0) &&
       (Y_THREAD || threadIdx.y == 0) && (Z_THREAD || threadIdx.z == 0);
   if (should_write && write_pred) {
@@ -846,7 +900,8 @@ template <
     bool Aligned,
     int vec_size,
     typename T,
-    typename Func>
+    typename Func,
+    typename BlockDimT>
 __device__ void iterGroupedGridReduce(
     T* out,
     const T* inp_val,
@@ -856,7 +911,11 @@ __device__ void iterGroupedGridReduce(
     T* shared_buf,
     bool read_pred,
     bool write_pred,
-    T init_val) {
+    T init_val,
+    // block_dim is basically just blockDim (wrapped as DefaultBlockDim) if
+    // there is no warp specialization in the kernel. If there is warp
+    // specialization, block_dim is the the dimension of the compute warps.
+    BlockDimT block_dim) {
   // inp or block reduction results
   T block_reduction_val[vec_size];
 
@@ -873,7 +932,8 @@ __device__ void iterGroupedGridReduce(
         shared_buf,
         read_pred,
         true,
-        init_val);
+        init_val,
+        block_dim);
   } else if (read_pred) {
 #pragma unroll
     for (int i = 0; i < vec_size; i++) {
@@ -893,7 +953,7 @@ __device__ void iterGroupedGridReduce(
 
   // Number of reductions in each block
   const auto block_segment_size =
-      index_utils::maskedSize<!X_THREAD, !Y_THREAD, !Z_THREAD>(blockDim);
+      index_utils::maskedSize<!X_THREAD, !Y_THREAD, !Z_THREAD>(block_dim);
 
   // Number of reductions in the grid
   const nvfuser_index_t grid_segment_size = PERSISTENT_REDUCTION
@@ -908,7 +968,7 @@ __device__ void iterGroupedGridReduce(
         index_utils::maskedOffset<X_BLOCK, Y_BLOCK, Z_BLOCK>(blockIdx, gridDim);
     auto thread_offset =
         index_utils::maskedOffset<!X_THREAD, !Y_THREAD, !Z_THREAD>(
-            threadIdx, blockDim);
+            threadIdx, block_dim);
 
     // Max vectorized load/store size is 16 bytes, if each thread has more than
     // 16 bytes, split into multiple sections to ensure each thread occupies
@@ -959,12 +1019,16 @@ __device__ void iterGroupedGridReduce(
 
   if (PERSISTENT_REDUCTION) {
     grid_sync::sync<X_BLOCK, Y_BLOCK, Z_BLOCK, PERSISTENT_REDUCTION, Aligned>(
-        sync_flags[idx_in_grid_segment], grid_reduction_segment_size);
+        sync_flags[idx_in_grid_segment],
+        grid_reduction_segment_size,
+        block_dim);
 
   } else {
     // there is only one vectorized call
     grid_sync::sync<X_BLOCK, Y_BLOCK, Z_BLOCK, PERSISTENT_REDUCTION, Aligned>(
-        sync_flags[idx_in_grid_segment], grid_reduction_segment_size);
+        sync_flags[idx_in_grid_segment],
+        grid_reduction_segment_size,
+        block_dim);
   }
 
   bool last_block =
@@ -987,14 +1051,17 @@ __device__ void iterGroupedGridReduce(
         write_pred,
         init_val,
         grid_segment_size,
-        idx_in_grid_segment);
+        idx_in_grid_segment,
+        block_dim);
   }
 
   if (PERSISTENT_REDUCTION) {
     // Make sure we're done with global memory before we allow the kernel to
     // continue
     grid_sync::sync<X_BLOCK, Y_BLOCK, Z_BLOCK, PERSISTENT_REDUCTION, Aligned>(
-        sync_flags[idx_in_grid_segment], grid_reduction_segment_size);
+        sync_flags[idx_in_grid_segment],
+        grid_reduction_segment_size,
+        block_dim);
   }
 }
 } // namespace reduction

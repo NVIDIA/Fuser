@@ -12,26 +12,10 @@
 #include <vector>
 
 #include <fusion.h>
+#include <ir/allocation_utils.h>
 #include <ir/interface_nodes.h>
 
 namespace nvfuser {
-
-struct Layout {
-  std::vector<IterDomain*> allocation_domain;
-  std::vector<std::optional<bool>> contiguity;
-
-  // The size of `allocation_domain` and therefore the size of `contiguity`.
-  int64_t size() const;
-
-  std::string toString(int indent_size = 0) const;
-
-  // Returns whether this layout is compliant with `required`. This is
-  // uni-directional. For example, `contiguity=[t,t]` is compliant with
-  // `contiguity=[f,f]` but not vice versa. As a special case,
-  // an empty `required.allocation` indicates no requirements, i.e., the method
-  // always returns true.
-  bool isCompliantWith(const Layout& required) const;
-};
 
 // Holds aliases found in a fusion. The expected user flow is
 //
@@ -57,13 +41,12 @@ class AliasAnalysisResult {
   void add(const TensorView* alias, TensorView* source, Layout&& layout);
 
   // Computes transitive aliases and caches them in `alias_to_root_`.
-  // See `findAliases` for the meaning of
-  // `can_override_empty_allocation_domain`.
-  void finalize(bool can_override_empty_allocation_domain);
+  void finalize();
 
   // Returns the preferred layout. If `alias` is not in `alias_to_source_`,
-  // returns the `TensorView`'s initial layout.
-  Layout preferredLayout(const Val* alias) const;
+  // returns `TensorView`'s canonicalized layout or nullopt if canonicalization
+  // failed (cf. canoncalizeLayout).
+  std::optional<Layout> preferredLayout(const TensorView* alias) const;
 
   std::string toString(int indent_size = 0) const;
 
@@ -84,16 +67,14 @@ class AliasAnalysisResult {
   std::unordered_map<const TensorView*, TensorView*> alias_to_root_;
 };
 
-// Finds aliases of the fusion inputs. The analysis should be conservative --
-// when the analysis says B is an alias of input A and that B's preferred layout
-// is compliant with the required layout, `ExpressionEvaluator::evaluate(B)`
-// should produce an `at::Tensor` that's an alias of the `at::Tensor` bound to
-// A.
+// Before segmentation, we treat an empty allocation domain as undetermined and
+// can override it to any layout. After segmentation, we treat an empty
+// allocation domain as the same as logical, i.e., major-to-minor and
+// contiguous. We have to be conservative after segmentation, because a
+// scheduler changing the allocation domain of a segment boundary may
+// invalidate heuristics of its upstream/downstream segment.
 //
-// [Note on overriding empty allocation domains]
-//
-// We can override an empty allocation domain to any layout before segmentation
-// but not after. For example,
+// For example,
 // ```
 // auto in = makeContigConcreteTensor({2, 3});
 // auto slice_out = segment_set(slice(in, {0, 0}, {2, 2}));
@@ -107,10 +88,20 @@ class AliasAnalysisResult {
 //
 // Therefore, I chose to run alias analysis both before segmentation and in
 // schedulers. The former, used by MarkAliasesPreparePass, updates layouts to
-// enable aliases; the latter, used by NoOpScheduler, calls
+// enable aliases; the latter, used by ExprEvalScheduler, calls
 // Fusion::aliasOutputToInput to mark aliases.
+enum class EmptyAllocationAs {
+  kLogical,
+  kUndetermined,
+};
+
+// Finds aliases of the fusion inputs. The analysis should be conservative --
+// when the analysis says B is an alias of input A and that B's preferred layout
+// is compliant with the required layout, `ExpressionEvaluator::evaluate(B)`
+// should produce an `at::Tensor` that's an alias of the `at::Tensor` bound to
+// A.
 AliasAnalysisResult findAliases(
     Fusion* fusion,
-    bool can_override_empty_allocation_domain = true);
+    EmptyAllocationAs empty_allocation_as = EmptyAllocationAs::kUndetermined);
 
 } // namespace nvfuser

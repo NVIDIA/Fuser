@@ -11,6 +11,7 @@
 #include <visibility.h>
 
 #include <ir/interface_nodes.h>
+#include <ops/utils.h>
 #include <type.h>
 
 //
@@ -34,6 +35,8 @@ NVF_API TensorView* dropout_backward(
     TensorView* dy,
     TensorView* mask,
     Val* scale);
+
+NVF_API TensorView* triu(TensorView* tv, Val* offset);
 
 struct LstmResult {
   TensorView* cell = nullptr;
@@ -76,6 +79,29 @@ NVF_API TensorView* view_as_real(TensorView* x);
 // layouts via strides. This has the same functionality as torch.matmul
 TensorView* matmul(TensorView* tv_a, TensorView* tv_b);
 
+// Scaled Matrix Multiplication
+// returns ScaledTensorView {tv, block_scaling_factor, global_scaling_factor}
+//
+// dtype: output tv dtype
+// out_block_scale_size: if 0, there won't be block_scaling_factor on output.
+// block_scaling_factor_dtype: when block_scaling_factor is generated, this is
+// the factor of the number of elements that share the same scaling factor.
+// out_gamma: if true, the op will produce global_scaling_factor.
+//
+// Note: out_gamma can only be true when block_scaling_factor_dtype > 0
+NVF_API ScaledTensorView scaled_mm(
+    TensorView* mat1,
+    TensorView* mat2,
+    TensorView* scale1,
+    TensorView* scale2,
+    TensorView* alpha = nullptr,
+    TensorView* bias = nullptr,
+    TensorView* beta = nullptr,
+    DataType dtype = DataType::Null,
+    int64_t output_block_scale_size = 0,
+    DataType output_block_scale_dtype = DataType::Null,
+    bool output_gamma = false);
+
 // Scaled Dot Product Flash Attention Forward Result
 struct SdpfaFwdResult {
   TensorView* output = nullptr;
@@ -115,5 +141,14 @@ SdpfaBwdResult sdpfa_bwd(
     TensorView* philox_seed,
     TensorView* philox_offset,
     Val* scale);
+
+TensorView* embedding_fwd(
+    TensorView* input,
+    TensorView* weight,
+    Val* padding_idx,
+    Val* max_norm,
+    Val* norm_type,
+    Val* scale_grad_by_freq,
+    Val* sparse);
 
 } // namespace nvfuser

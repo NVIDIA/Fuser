@@ -41,17 +41,16 @@ TEST_F(SegmentationTest, Issue1284_Repro1) {
   fusion.addOutput(out_1);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::Tensor at_in_0 = at::randn(input_shape_0, options);
-  at::Tensor at_in_1 = at::randn(input_shape_1, options);
-  std::vector<c10::IValue> aten_inputs = {at_in_0, at_in_1};
+  at::Tensor t0 = at::randn(input_shape_0, options);
+  at::Tensor t1 = at::randn(input_shape_1, options);
 
-  FusionExecutorCache fec(std::move(fusion_ptr));
-  auto outputs = fec.runFusionWithInputs(aten_inputs);
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs({t0, t1});
 
-  FusionKernelRuntime* runtime = fec.getMostRecentKernelRuntime();
+  FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
   EXPECT_EQ(runtime->fusionSegments()->groups().size(), 2);
 
-  testValidate(&fusion, outputs, {at_in_0, at_in_1}, __LINE__, __FILE__);
+  testValidate(&fusion, outputs, {t0, t1}, __LINE__, __FILE__);
 }
 
 TEST_F(SegmentationTest, Issue1284_Repro2) {
@@ -78,20 +77,17 @@ TEST_F(SegmentationTest, Issue1284_Repro2) {
   fusion.addOutput(out_1);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::Tensor at_in_0 = at::randn(input_shape_0, options);
-  at::Tensor at_in_1 = at::randn(input_shape_1, options);
-  at::Tensor at_in_2 = at::randn(input_shape_2, options);
+  at::Tensor t0 = at::randn(input_shape_0, options);
+  at::Tensor t1 = at::randn(input_shape_1, options);
+  at::Tensor t2 = at::randn(input_shape_2, options);
 
-  std::vector<c10::IValue> aten_inputs = {at_in_0, at_in_1, at_in_2};
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs({t0, t1, t2});
 
-  FusionExecutorCache fec(std::move(fusion_ptr));
-  auto outputs = fec.runFusionWithInputs(aten_inputs);
-
-  FusionKernelRuntime* runtime = fec.getMostRecentKernelRuntime();
+  FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
   EXPECT_EQ(runtime->fusionSegments()->groups().size(), 2);
 
-  testValidate(
-      &fusion, outputs, {at_in_0, at_in_1, at_in_2}, __LINE__, __FILE__);
+  testValidate(&fusion, outputs, {t0, t1, t2}, __LINE__, __FILE__);
 }
 
 // Test forced segmentation hint
@@ -147,12 +143,13 @@ TEST_F(SegmentationTest, SegmentHintOnNonTerminatingOutput) {
   fusion->addOutput(add_out);
   fusion->addOutput(mul_out);
 
-  FusionExecutorCache fec(std::move(fusion));
+  FusionExecutorCache executor_cache(std::move(fusion));
   at::Tensor in_tensor = at::randn({2, 3}).cuda();
-  std::vector<at::Tensor> out_tensors = fec.runFusionWithInputs({in_tensor});
-  testValidate(fec.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
+  auto out_tensors = executor_cache.runFusionWithInputs({in_tensor});
+  testValidate(
+      executor_cache.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
 
-  FusionKernelRuntime* runtime = fec.getMostRecentKernelRuntime();
+  FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
   // Segment 1: in -> add_out (defined by segment_set)
   // Segment 2: add_out -> mul_out
   EXPECT_EQ(runtime->fusionSegments()->groups().size(), 2);
@@ -195,18 +192,18 @@ TEST_F(SegmentationTest, EnforceSegmentationByCachingBeforeAndAfter) {
     }
   }
 
-  FusionExecutorCache fec(std::move(fusion));
+  FusionExecutorCache executor_cache(std::move(fusion));
   at::Tensor in_tensor = at::randn({2, 3}).cuda();
-  std::vector<at::Tensor> out_tensors = fec.runFusionWithInputs({in_tensor});
+  auto out_tensors = executor_cache.runFusionWithInputs({in_tensor});
   testValidate(
-      fec.fusion(),
+      executor_cache.fusion(),
       out_tensors,
       {in_tensor},
       {in_tensor / in_tensor.sum({0})},
       __LINE__,
       __FILE__);
 
-  FusionKernelRuntime* runtime = fec.getMostRecentKernelRuntime();
+  FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
   EXPECT_EQ(runtime->fusionSegments()->groups().size(), 2);
 }
 
@@ -225,10 +222,11 @@ TEST_F(SegmentationTest, SetAllocationDomainOnSegmentBoundary) {
   add_out->setAllocationDomain(
       {add_out->axis(0), add_out->axis(1), add_out->axis(2)}, false);
 
-  FusionExecutorCache fec(std::move(fusion));
+  FusionExecutorCache executor_cache(std::move(fusion));
   at::Tensor in_tensor = at::randn({2, 3, 5}).cuda();
-  std::vector<at::Tensor> out_tensors = fec.runFusionWithInputs({in_tensor});
-  testValidate(fec.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
+  auto out_tensors = executor_cache.runFusionWithInputs({in_tensor});
+  testValidate(
+      executor_cache.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
 }
 
 TEST_F(SegmentationTest, InputForwardingUntilBinary) {
@@ -254,16 +252,19 @@ TEST_F(SegmentationTest, InputForwardingUntilBinary) {
   z = segment_set(z);
   fusion->addOutput(z);
 
-  FusionExecutorCache fec(std::move(fusion));
+  FusionExecutorCache executor_cache(std::move(fusion));
 
   auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
   at::Tensor in_tensor = at::randn({2, 3}, options);
-  std::vector<at::Tensor> out_tensors =
-      fec.runFusionWithInputs({in_tensor, in_tensor});
+  auto out_tensors = executor_cache.runFusionWithInputs({in_tensor, in_tensor});
   testValidate(
-      fec.fusion(), out_tensors, {in_tensor, in_tensor}, __LINE__, __FILE__);
+      executor_cache.fusion(),
+      out_tensors,
+      {in_tensor, in_tensor},
+      __LINE__,
+      __FILE__);
 
-  FusionKernelRuntime* runtime = fec.getMostRecentKernelRuntime();
+  FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
   EXPECT_EQ(runtime->fusionSegments()->groups().size(), 1);
 }
 
@@ -285,14 +286,17 @@ TEST_F(SegmentationTest, InputForwardingUntilOutput) {
   fusion->addOutput(out0);
   fusion->addOutput(out1);
 
-  FusionExecutorCache fec(std::move(fusion));
+  FusionExecutorCache executor_cache(std::move(fusion));
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor in_tensor = at::randn({2, 3}, options);
-  std::vector<at::Tensor> out_tensors =
-      fec.runFusionWithInputs({in_tensor, in_tensor});
+  auto out_tensors = executor_cache.runFusionWithInputs({in_tensor, in_tensor});
   testValidate(
-      fec.fusion(), out_tensors, {in_tensor, in_tensor}, __LINE__, __FILE__);
+      executor_cache.fusion(),
+      out_tensors,
+      {in_tensor, in_tensor},
+      __LINE__,
+      __FILE__);
 }
 
 TEST_F(SegmentationTest, ForwardedExprsAreNotMergeable) {
@@ -308,9 +312,10 @@ TEST_F(SegmentationTest, ForwardedExprsAreNotMergeable) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto in_tensor = at::randn({10}, options);
 
-  FusionExecutorCache fec(std::move(fusion));
-  auto out_tensors = fec.runFusionWithInputs({in_tensor});
-  testValidate(fec.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto out_tensors = executor_cache.runFusionWithInputs({in_tensor});
+  testValidate(
+      executor_cache.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
 }
 
 TEST_F(SegmentationTest, ForwardedExprsAreReplicated) {
@@ -328,9 +333,10 @@ TEST_F(SegmentationTest, ForwardedExprsAreReplicated) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto in_tensor = at::randn({10, 20}, options);
 
-  FusionExecutorCache fec(std::move(fusion));
-  auto out_tensors = fec.runFusionWithInputs({in_tensor});
-  testValidate(fec.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto out_tensors = executor_cache.runFusionWithInputs({in_tensor});
+  testValidate(
+      executor_cache.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
 }
 
 TEST_F(SegmentationTest, ForceFp16Simple) {
@@ -356,18 +362,18 @@ TEST_F(SegmentationTest, ForceFp16Simple) {
 
   fusion->addOutput(tv5);
 
-  FusionExecutorCache fec(std::move(fusion));
+  FusionExecutorCache executor_cache(std::move(fusion));
 
   std::vector<int64_t> shape{15, 16};
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto in0 = at::randn(shape, options);
   auto in1 = at::randn(shape, options);
-  fec.runFusionWithInputs({in0, in1});
+  executor_cache.runFusionWithInputs({in0, in1});
 
   // Check the segmented edge is fp16
   SegmentedFusion* segmented_fusion =
-      fec.getMostRecentKernelRuntime()->fusionSegments();
+      executor_cache.getMostRecentKernelRuntime()->fusionSegments();
   for (SegmentedEdge* edge : segmented_fusion->edges()) {
     auto* edge_tv = edge->val->as<TensorView>();
     EXPECT_EQ(edge_tv->getDataType(), DataType::Half);
@@ -406,18 +412,18 @@ TEST_F(SegmentationTest, ForceBf16Simple) {
 
   fusion->addOutput(tv5);
 
-  FusionExecutorCache fec(std::move(fusion));
+  FusionExecutorCache executor_cache(std::move(fusion));
 
   std::vector<int64_t> shape{15, 16};
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto in0 = at::randn(shape, options);
   auto in1 = at::randn(shape, options);
-  fec.runFusionWithInputs({in0, in1});
+  executor_cache.runFusionWithInputs({in0, in1});
 
   // Check the segmented edge is bf16
   SegmentedFusion* segmented_fusion =
-      fec.getMostRecentKernelRuntime()->fusionSegments();
+      executor_cache.getMostRecentKernelRuntime()->fusionSegments();
   for (SegmentedEdge* edge : segmented_fusion->edges()) {
     auto* edge_tv = edge->val->as<TensorView>();
     EXPECT_EQ(edge_tv->getDataType(), DataType::BFloat16);
@@ -452,17 +458,17 @@ TEST_F(SegmentationTest, ForceFp16NotAllCast) {
   fusion->addOutput(tv7);
   fusion->addOutput(tv8);
 
-  FusionExecutorCache fec(std::move(fusion));
+  FusionExecutorCache executor_cache(std::move(fusion));
 
   std::vector<int64_t> shape{16, 16, 16};
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto in0 = at::randn(shape, options);
   auto in1 = at::randn(shape, options);
-  fec.runFusionWithInputs({in0, in1});
+  executor_cache.runFusionWithInputs({in0, in1});
 
   SegmentedFusion* segmented_fusion =
-      fec.getMostRecentKernelRuntime()->fusionSegments();
+      executor_cache.getMostRecentKernelRuntime()->fusionSegments();
   Fusion* complete_fusion = segmented_fusion->completeFusion();
 
   // Check that the edge that wasn't fp16 is the producer of the
@@ -513,17 +519,17 @@ TEST_F(SegmentationTest, ForceBf16NotAllCast) {
   fusion->addOutput(tv7);
   fusion->addOutput(tv8);
 
-  FusionExecutorCache fec(std::move(fusion));
+  FusionExecutorCache executor_cache(std::move(fusion));
 
   std::vector<int64_t> shape{16, 16, 16};
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto in0 = at::randn(shape, options);
   auto in1 = at::randn(shape, options);
-  fec.runFusionWithInputs({in0, in1});
+  executor_cache.runFusionWithInputs({in0, in1});
 
   SegmentedFusion* segmented_fusion =
-      fec.getMostRecentKernelRuntime()->fusionSegments();
+      executor_cache.getMostRecentKernelRuntime()->fusionSegments();
   Fusion* complete_fusion = segmented_fusion->completeFusion();
 
   // Check that the edge that wasn't fp16 is the producer of the
@@ -535,51 +541,6 @@ TEST_F(SegmentationTest, ForceBf16NotAllCast) {
       EXPECT_TRUE(consumer->isA<ReductionOp>());
     }
   }
-}
-
-// Test that a segment with a slice does not introduce a cast
-// See https://github.com/NVIDIA/Fuser/pull/1936
-TEST_F(SegmentationTest, SliceSegmentCasts) {
-  EnableOptionsGuard opt_guard;
-  EnableOptionsGuard::getCurOptions().set(EnableOption::IoToLowerPrecision);
-
-  auto fusion = std::make_unique<Fusion>();
-  FusionGuard fg(fusion.get());
-
-  auto tv0 = makeSymbolicTensor(1, DataType::Half);
-
-  fusion->addInput(tv0);
-
-  // Group 1
-  auto tv1 = mul(tv0, tv0);
-  // Group 2
-  auto tv2 = slice(tv1, {0}, {3}, {1});
-  auto tv3 = add(tv2, tv2);
-
-  fusion->addOutput(tv3);
-
-  FusionExecutorCache fec(std::move(fusion));
-
-  auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
-  auto in0 = at::randn({5}, options);
-  auto outputs = fec.runFusionWithInputs({in0});
-
-  SegmentedFusion* segmented_fusion =
-      fec.getMostRecentKernelRuntime()->fusionSegments();
-
-  ASSERT_EQ(segmented_fusion->edges().size(), 1);
-
-  SegmentedEdge* slice_edge = segmented_fusion->edges().at(0);
-
-  // Expect edge to be half-precision
-  // TODO: Change this rhs to DataType::Half once we have addressed
-  // https://github.com/NVIDIA/Fuser/issues/1902
-  EXPECT_EQ(slice_edge->val->getDataType(), DataType::Float);
-
-  // There should be no cast before the slice
-  EXPECT_TRUE(slice_edge->val->uses().at(0)->isA<SliceOp>());
-
-  testValidate(fec.fusion(), outputs, {in0}, __LINE__, __FILE__);
 }
 
 TEST_F(SegmentationTest, codeGenSupportedMergeIssue1970) {
@@ -596,13 +557,13 @@ TEST_F(SegmentationTest, codeGenSupportedMergeIssue1970) {
   auto* tv3 = segment_set(tv2);
   fusion->addOutput(tv3);
 
-  FusionExecutorCache fec(std::move(fusion));
+  FusionExecutorCache executor_cache(std::move(fusion));
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto in0 = at::randn({3, 4, 3}, options);
-  auto outputs = fec.runFusionWithInputs({in0});
+  auto outputs = executor_cache.runFusionWithInputs({in0});
 
-  testValidate(fec.fusion(), outputs, {in0}, __LINE__, __FILE__);
+  testValidate(executor_cache.fusion(), outputs, {in0}, __LINE__, __FILE__);
 }
 
 // Test that Reduction axes are removed in segmentation edges
@@ -622,15 +583,16 @@ TEST_F(SegmentationTest, EraseReductionsInSegmentationEdges) {
 
   fusion->addOutput(tv3);
 
-  FusionExecutorCache fec(std::move(fusion));
+  FusionExecutorCache executor_cache(std::move(fusion));
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto in0 = at::randn({3, 32, 17}, options);
-  auto outputs = fec.runFusionWithInputs({in0});
+  auto outputs = executor_cache.runFusionWithInputs({in0});
 
-  testValidate(fec.fusion(), outputs, {in0}, __LINE__, __FILE__);
+  testValidate(executor_cache.fusion(), outputs, {in0}, __LINE__, __FILE__);
 
-  const FusionKernelRuntime* runtime = fec.getMostRecentKernelRuntime();
+  const FusionKernelRuntime* runtime =
+      executor_cache.getMostRecentKernelRuntime();
   ASSERT_TRUE(runtime != nullptr);
 
   SegmentedFusion* segmented_fusion = runtime->fusionSegments();
@@ -662,18 +624,18 @@ TEST_F(SegmentationTest, AliasedOutputOnSegmentation) {
   auto* tv2 = relu(seg_out);
   fusion->addOutput(tv2);
 
-  FusionExecutorCache fec(std::move(fusion));
+  FusionExecutorCache executor_cache(std::move(fusion));
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto in0 = at::randn({2, 3, 4}, options);
   auto in0_ref = in0.clone();
 
-  auto outputs = fec.runFusionWithInputs({in0});
+  auto outputs = executor_cache.runFusionWithInputs({in0});
   auto in0_neg = in0_ref.neg();
   EXPECT_TRUE(in0_neg.allclose(in0));
 
   testValidate(
-      fec.fusion(),
+      executor_cache.fusion(),
       outputs,
       {in0.clone()},
       {in0_neg.relu()},
@@ -693,14 +655,16 @@ TEST_F(SegmentationTest, MultipleSegmentSetsInOneSegment) {
   fusion->addInput(in);
   fusion->addOutput(out);
 
-  FusionExecutorCache fec(std::move(fusion));
+  FusionExecutorCache executor_cache(std::move(fusion));
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor in_tensor = at::randn({10}, options);
-  at::Tensor out_tensor = fec.runFusionWithInputs({in_tensor})[0];
+  at::Tensor out_tensor =
+      executor_cache.runFusionWithInputs({in_tensor})[0].as<at::Tensor>();
 
-  testValidate(fec.fusion(), {out_tensor}, {in_tensor}, __LINE__, __FILE__);
+  testValidate(
+      executor_cache.fusion(), {out_tensor}, {in_tensor}, __LINE__, __FILE__);
 
-  FusionKernelRuntime* runtime = fec.getMostRecentKernelRuntime();
+  FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
   EXPECT_THAT(runtime->fusionSegments()->groups(), SizeIs(2));
 }
 
@@ -723,10 +687,179 @@ TEST_F(SegmentationTest, ForwardInputsToSegmenterSetIssue2658) {
   fusion->addOutput(permute_out);
   fusion->addOutput(compute_out);
 
-  FusionExecutorCache fec(std::move(fusion));
+  FusionExecutorCache executor_cache(std::move(fusion));
   at::Tensor in_tensor = at::randn({2, 3}).cuda();
-  std::vector<at::Tensor> out_tensors = fec.runFusionWithInputs({in_tensor});
-  testValidate(fec.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
+  auto out_tensors = executor_cache.runFusionWithInputs({in_tensor});
+  testValidate(
+      executor_cache.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
+}
+
+// Test to verify an upcast is replicated between different segments
+TEST_F(SegmentationTest, PrivatizeUpcast) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+
+  auto tv0 = makeSymbolicTensor(2, DataType::BFloat16);
+  fusion.addInput(tv0);
+
+  auto tv1 = segment_set(tv0);
+  auto tv2 = castOp(DataType::Float, tv1);
+
+  auto tv3 = sum(tv2, {0});
+  fusion.addOutput(tv3);
+
+  auto tv4 = sum(tv2, {1});
+  fusion.addOutput(tv4);
+
+  auto options = at::TensorOptions().dtype(at::kBFloat16).device(at::kCUDA, 0);
+  auto t0 = at::randn({16, 32}, options);
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs({t0});
+  testValidate(&fusion, outputs, {t0}, __LINE__, __FILE__);
+
+  // There must be three segments, one with ExprEvalExecutor and two
+  // with KernelExecutor.
+  FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
+  EXPECT_THAT(runtime->fusionSegments()->groups(), SizeIs(3));
+
+  for (const auto& executor : runtime->executors()) {
+    // Ignore the one taken care by ExprEvalExecutor
+    if (executor.get()->isA<ExprEvalExecutor>()) {
+      continue;
+    }
+    // This segment should corresponds to each of the reductions. Both
+    // of them should use tv1.
+    auto ke = dynamic_cast<KernelExecutor*>(executor.get());
+    ASSERT_NE(ke, nullptr);
+    kir::Kernel* kernel = ke->compiledKernel()->kernel();
+    EXPECT_EQ(kernel->inputs().size(), 1);
+    EXPECT_EQ(kernel->inputs().at(0)->name(), 1);
+  }
+}
+
+// Unlike PrivatizeUpcast, verify replicated upcast ops are
+// consolidated back as they are grouped into the same segment
+TEST_F(SegmentationTest, RevertPrivatizedUpcast) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+
+  auto tv0 = makeSymbolicTensor(2, DataType::BFloat16);
+  fusion.addInput(tv0);
+
+  auto tv1 = segment_set(tv0);
+
+  auto tv2 = set(tv1);
+  auto tv3 = castOp(DataType::Float, tv2);
+
+  auto tv4 = sum(tv3, {1});
+  fusion.addOutput(tv4);
+
+  auto tv5 = sum(tv3, {1});
+  fusion.addOutput(tv5);
+
+  auto options = at::TensorOptions().dtype(at::kBFloat16).device(at::kCUDA, 0);
+  auto t0 = at::randn({16, 32}, options);
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  KernelArgumentHolder outputs;
+
+  // Make sure NVFUSER_DUMP=segmented_fusion works
+  {
+    DebugDumpOptionsGuard options_guard;
+    DebugDumpOptionsGuard::getCurOptions().set(DebugDumpOption::FusionSegments);
+    std::ostringstream tmp_buf;
+    DebugStreamGuard debug_stream_guard(tmp_buf);
+    outputs = executor_cache.runFusionWithInputs({t0});
+  }
+
+  testValidate(&fusion, outputs, {t0}, __LINE__, __FILE__);
+
+  // There must be two segments, one with ExprEvalExecutor and another
+  // with KernelExecutor.
+  FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
+  EXPECT_THAT(runtime->fusionSegments()->groups(), SizeIs(2));
+
+  for (const auto& executor : runtime->executors()) {
+    // Ignore the one taken care by ExprEvalExecutor
+    if (executor.get()->isA<ExprEvalExecutor>()) {
+      continue;
+    }
+    // This segment should have the two reductions. There must be only
+    // one upcast op with tv1 as its producer.
+    auto ke = dynamic_cast<KernelExecutor*>(executor.get());
+    ASSERT_NE(ke, nullptr);
+    kir::Kernel* kernel = ke->compiledKernel()->kernel();
+    int64_t num_upcast_ops = 0;
+    for (auto expr : KernelExprVisitor::getAllExprs(kernel)) {
+      auto uop = dynamic_cast<UnaryOp*>(expr);
+      if (uop == nullptr || uop->getUnaryOpType() != UnaryOpType::Cast) {
+        continue;
+      }
+
+      EXPECT_EQ(uop->in()->as<kir::TensorIndex>()->view()->name(), 2);
+
+      ++num_upcast_ops;
+    }
+    EXPECT_EQ(num_upcast_ops, 1);
+  }
+}
+
+TEST_F(SegmentationTest, ForwardFull) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+
+  auto tv0 = makeSymbolicTensor(1);
+  fusion.addInput(tv0);
+
+  // FullOp that is used in two segments
+  auto tv1 = full({tv0->axis(0)->extent()}, fusion.oneVal(), DataType::Float);
+
+  auto tv2 = add(tv0, tv1);
+  auto tv3 = segment_set(tv2);
+
+  auto tv4 = add(tv3, tv1);
+  fusion.addOutput(tv4);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({1024}, options);
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs({t0});
+  testValidate(&fusion, outputs, {t0}, __LINE__, __FILE__);
+
+  FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
+  EXPECT_THAT(runtime->fusionSegments()->groups(), SizeIs(2));
+
+  // Make sure the full output should not be a segment input
+  for (const auto& executor : runtime->executors()) {
+    auto ke = dynamic_cast<KernelExecutor*>(executor.get());
+    ASSERT_NE(ke, nullptr);
+    kir::Kernel* kernel = ke->compiledKernel()->kernel();
+    bool full_op_found = false;
+    for (auto expr : KernelExprVisitor::getAllExprs(kernel)) {
+      auto out_tv = ir_utils::getTvOutput(expr);
+      if (out_tv == nullptr) {
+        continue;
+      }
+      auto full_op = dynamic_cast<FullOp*>(out_tv->definition());
+      if (full_op == nullptr) {
+        continue;
+      }
+      full_op_found = true;
+      auto output_it =
+          std::ranges::find_if(kernel->outputs(), [&](Val* output) {
+            return output->isA<TensorView>() &&
+                output->name() == out_tv->name();
+          });
+      EXPECT_EQ(output_it, kernel->outputs().end())
+          << "FullOp ouput should not be a segment output";
+    }
+    EXPECT_TRUE(full_op_found) << "Each segment has its own FullOp";
+  }
 }
 
 } // namespace nvfuser

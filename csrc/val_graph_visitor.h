@@ -67,6 +67,14 @@ class ValGraphVisitor {
   virtual ~ValGraphVisitor() = default;
 
  protected:
+  ValGraphVisitor(
+      const ValGraph& val_graph,
+      const ValGroups& additional_starting_groups,
+      bool allow_cycle = true)
+      : val_graph_(val_graph),
+        additional_starting_groups_(additional_starting_groups),
+        allow_cycle_(allow_cycle) {}
+
   ValGraphVisitor(const ValGraph& val_graph, bool allow_cycle = true)
       : val_graph_(val_graph), allow_cycle_(allow_cycle) {}
 
@@ -91,6 +99,10 @@ class ValGraphVisitor {
 
  private:
   const ValGraph& val_graph_;
+  // Traversal starting groups used in addition to terminating
+  // inputs. Cyclic graphs may need this as there may be no
+  // terminating inputs.
+  const ValGroups additional_starting_groups_;
   bool allow_cycle_ = true;
   std::string error_message_;
 };
@@ -100,6 +112,14 @@ class ValGraphStmtSort : public ValGraphVisitor {
  public:
   ValGraphStmtSort(const ValGraph& val_graph, bool allow_cycle = true)
       : ValGraphVisitor(val_graph, allow_cycle) {
+    NVF_ERROR(ValGraphVisitor::traverse(), errorMessage());
+  }
+
+  ValGraphStmtSort(
+      const ValGraph& val_graph,
+      const ValGroups& starting_groups,
+      bool allow_cycle = true)
+      : ValGraphVisitor(val_graph, starting_groups, allow_cycle) {
     NVF_ERROR(ValGraphVisitor::traverse(), errorMessage());
   }
 
@@ -172,6 +192,13 @@ class ValGraphOutputs {
   }
 };
 
+template <>
+struct GetValType<ExprGroup> {
+  using type = ValGroup;
+};
+
+using ExprGroupPath = std::vector<std::pair<ExprGroup, Direction>>;
+
 class ValGraphBFS : public BFS<
                         ExprGroup,
                         ValGroup,
@@ -179,7 +206,7 @@ class ValGraphBFS : public BFS<
                         ValGraphUses,
                         ValGraphInputs,
                         ValGraphOutputs> {
- protected:
+ public:
   ValGraphBFS(
       const ValGraph& graph,
       std::vector<NodeType> from_groups,
@@ -195,95 +222,85 @@ class ValGraphBFS : public BFS<
             require_all_to_visited,
             allowed_direction) {}
 
- public:
-  // Find the shortest path from the from_groups_ to to_groups_ on a
-  // given graph. Dependency between vals and exprs must be satisfied.
-  // It is an error if no valid path is found.
-  static ExprPath getExprsBetween(
-      const ValGraph& graph,
-      std::vector<NodeType> from,
-      std::vector<NodeType> to,
-      bool require_all_to_visited = true,
-      Direction allowed_direction = Direction::Undefined) {
-    ValGraphBFS bfs(
-        graph,
-        std::move(from),
-        std::move(to),
-        require_all_to_visited,
-        allowed_direction);
-    bfs.traverse();
-    return bfs.getShortestExprPath();
-  }
-  static ExprPath getExprsBetween(
+  // Just a shortcut to the generic getExprsBetween
+  static std::pair<ValGraphBFS::ExprPath, bool> getExprGroupsBetween(
       const ValGraph& graph,
       const ValGroups& from,
       const ValGroups& to,
       bool require_all_to_visited = true,
       Direction allowed_direction = Direction::Undefined) {
-    return getExprsBetween(
-        graph,
-        std::vector<NodeType>{from.vector().begin(), from.vector().end()},
-        std::vector<NodeType>{to.vector().begin(), to.vector().end()},
+    return getExprsBetween<ValGraphBFS>(
+        from.vector(),
+        to.vector(),
         require_all_to_visited,
-        allowed_direction);
+        allowed_direction,
+        graph);
   }
-
-  // Get all the val groups in vals that are reachable from the from groups
-  static ValGroups getReachableValsFrom(
-      const ValGraph& graph,
-      const ValGroups& from,
-      const ValGroups& vals,
-      Direction allowed_direction = Direction::Undefined);
-
-  // Given `from`, project it to `to`. This function will return a subset of
-  // `to` that is connected to `from`.
-  static std::unordered_set<ValGroup> projectTo(
-      const ValGraph& id_graph,
-      const ValGroup& from,
-      const ValGroups& to,
-      Direction allowed_direction = Direction::Undefined);
 };
 
-inline std::vector<ValGroup> inputGroups(
-    const ValGraph& graph,
-    const ExprGroup& expr,
-    Direction dir) {
-  return dir == Direction::Forward ? graph.inputGroups(expr)
-                                   : graph.outputGroups(expr);
-}
+class ValGraphPermissiveBFS : public BFSWithPermissiveDependence<
+                                  ExprGroup,
+                                  ValGroup,
+                                  ValGraphDefinitions,
+                                  ValGraphUses,
+                                  ValGraphInputs,
+                                  ValGraphOutputs> {
+ public:
+  ValGraphPermissiveBFS(
+      const ValGraph& graph,
+      std::vector<NodeType> from_groups,
+      std::vector<NodeType> to_groups,
+      bool require_all_to_visited = true,
+      Direction allowed_direction = Direction::Undefined)
+      : BFSWithPermissiveDependence(
+            ValGraphDefinitions(graph),
+            ValGraphUses(graph),
+            ValGraphInputs(graph),
+            ValGraphOutputs(graph),
+            std::move(from_groups),
+            std::move(to_groups),
+            require_all_to_visited,
+            allowed_direction) {}
 
-inline std::vector<ValGroup> outputGroups(
-    const ValGraph& graph,
-    const ExprGroup& expr,
-    Direction dir) {
-  return dir == Direction::Forward ? graph.outputGroups(expr)
-                                   : graph.inputGroups(expr);
-}
-
-inline ValGroups getInputsOfExprPath(
-    const ValGraph& graph,
-    const ValGraphBFS::ExprPath& path) {
-  ValGroups inputs;
-  std::unordered_set<ValGroup> all_outputs;
-
-  for (const auto& [expr_g, dir] : path) {
-    for (const auto& inp : inputGroups(graph, expr_g, dir)) {
-      if (all_outputs.find(inp) == all_outputs.end()) {
-        inputs.pushBack(inp);
-      }
-    }
-    for (const auto& out : outputGroups(graph, expr_g, dir)) {
-      all_outputs.emplace(out);
-    }
+  // Just a shortcut to the generic getExprsBetween
+  static std::pair<ValGraphPermissiveBFS::ExprPath, bool> getExprGroupsBetween(
+      const ValGraph& graph,
+      const ValGroups& from,
+      const ValGroups& to,
+      bool require_all_to_visited = true,
+      Direction allowed_direction = Direction::Undefined) {
+    return getExprsBetween<ValGraphPermissiveBFS>(
+        from.vector(),
+        to.vector(),
+        require_all_to_visited,
+        allowed_direction,
+        graph);
   }
+};
 
-  return inputs;
-}
-
-inline ValGroups getOutputsOfExprPath(
+inline std::vector<ValGroup> getInputsOfExprGroup(
     const ValGraph& graph,
-    const ValGraphBFS::ExprPath& path) {
-  return getInputsOfExprPath(graph, reverse(path));
+    const ExprGroup& expr,
+    Direction dir) {
+  return getInputsOfExpr(
+      expr, dir, ValGraphInputs(graph), ValGraphOutputs(graph));
 }
+
+inline std::vector<ValGroup> getOutputsOfExprGroup(
+    const ValGraph& graph,
+    const ExprGroup& expr,
+    Direction dir) {
+  return getOutputsOfExpr(
+      expr, dir, ValGraphInputs(graph), ValGraphOutputs(graph));
+}
+
+// Grab all ExprGroups between to sets of ValGroups. ExprGroups are
+// not guaranteed to be topologically sorted.
+std::pair<ExprGroupPath, bool> getAllExprGroupsBetween(
+    const ValGraph& graph,
+    const ValGroups& from,
+    const ValGroups& to,
+    bool require_all_to_visited = true,
+    Direction allowed_direction = Direction::Undefined);
 
 } // namespace nvfuser

@@ -129,7 +129,7 @@ Val* replaceCatOpWithBinaryOp(const std::vector<Val*>& inputs) {
   Val* (*binary_op)(Val*, Val*) =
       isBooleanType(data_type) ? logical_or_resolved : add_resolved;
   Val* res = inputs[0];
-  for (auto i : c10::irange(1, inputs.size())) {
+  for (auto i : arange(1, inputs.size())) {
     res = binary_op(res, inputs[i]);
   }
   // restore data type if it's promoted by BinaryOp.
@@ -242,9 +242,9 @@ TensorView* replayConcretePad(
     merged_pad_widths = vec_pad_widths.at(0);
   } else {
     merged_pad_widths.reserve(rank * 2);
-    for (const auto i : c10::irange(2 * rank)) {
+    for (const auto i : arange(2 * rank)) {
       Val* merged_pad_width = nullptr;
-      for (const auto idx : c10::irange(vec_pad_widths.size())) {
+      for (const auto idx : arange(vec_pad_widths.size())) {
         // skipping zero pad;
         Val* pad_width = vec_pad_widths[idx].at(i);
         if (pad_width->isZeroInt()) {
@@ -263,7 +263,7 @@ TensorView* replayConcretePad(
   // construct TensorDomain for output TV.
   std::vector<IterDomain*> merged_root_ids;
   std::vector<IterDomain*> merged_logical_ids;
-  for (const auto i : c10::irange(rank)) {
+  for (const auto i : arange(rank)) {
     Val* left_pad = merged_pad_widths.at(i * 2);
     Val* right_pad = merged_pad_widths.at(i * 2 + 1);
     IterDomain* inp_id = inp_dom.at(i);
@@ -287,7 +287,10 @@ TensorView* replayConcretePad(
 
   auto* new_out = IrBuilder::create<TensorView>(
       IrBuilder::create<TensorDomain>(
-          merged_root_ids, merged_logical_ids, merged_logical_ids),
+          merged_root_ids,
+          merged_logical_ids,
+          merged_logical_ids,
+          TensorDomain::getContiguityFilledWith(merged_logical_ids, true)),
       pad_tv->getDataType().value());
   IrBuilder::create<PadOp>(
       new_out,
@@ -302,47 +305,48 @@ TensorView* replayConcretePad(
 // returns padded inputs. When moving pad fails, this function returns an empty
 // vector.
 std::vector<Val*> maybeMovePadBeforeDefinition(
-    TensorView* tv,
+    TensorView* pad_inp,
     const std::unordered_set<Val*>& pad_dependencies,
     std::vector<PadOp*>& stack,
     std::unordered_set<PadOp*> simple_pad_set) {
   std::vector<Val*> padded_inputs;
   // stop propagation if current PadOp p isn't the only use of tv, since
   // it requires tv to be live in the fusion.
-  if (tv->uses().size() != 1) {
+  if (pad_inp->uses().size() != 1) {
     return padded_inputs;
   }
 
-  Expr* expr = tv->definition();
+  Expr* pad_inp_def = pad_inp->definition();
   // stop propagation if any of expr's inputs are not TensorView, which we
   // cannot pad.
-  if (std::any_of(expr->inputs().begin(), expr->inputs().end(), [](Val* val) {
-        return !val->isA<TensorView>();
-      })) {
+  if (std::any_of(
+          pad_inp_def->inputs().begin(),
+          pad_inp_def->inputs().end(),
+          [](Val* val) { return !val->isA<TensorView>(); })) {
     return padded_inputs;
   }
 
   // stop propagation if moving pad before definition would create cycles
   NVF_ERROR(
-      expr->outputs().size() == 1,
+      pad_inp_def->outputs().size() == 1,
       "expects tv to be the only output from its definition")
-  if (pad_dependencies.count(tv) > 0) {
+  if (pad_dependencies.count(pad_inp) > 0) {
     return padded_inputs;
   }
 
-  PadOp* p = tv->uses()[0]->as<PadOp>();
-  padded_inputs.reserve(expr->inputs().size());
+  PadOp* pad = pad_inp->uses()[0]->as<PadOp>();
+  padded_inputs.reserve(pad_inp_def->inputs().size());
   std::transform(
-      expr->inputs().begin(),
-      expr->inputs().end(),
+      pad_inp_def->inputs().begin(),
+      pad_inp_def->inputs().end(),
       std::back_inserter(padded_inputs),
-      [&p, &stack, &simple_pad_set](Val* val) {
+      [&pad, &stack, &simple_pad_set](Val* inp_of_pad_inp) {
         TensorView* new_pad_in = replayConcretePad(
-            val,
-            p->value(),
-            {p->getPadWidths()},
+            inp_of_pad_inp,
+            pad->value(),
+            {pad->getPadWidths()},
             TensorDomain::noReductions(
-                p->out()->as<TensorView>()->getLogicalDomain()));
+                pad->out()->as<TensorView>()->getLogicalDomain()));
         PadOp* new_pad_op = new_pad_in->definition()->as<PadOp>();
         stack.push_back(new_pad_op);
         simple_pad_set.insert(new_pad_op);
@@ -395,93 +399,93 @@ void propagatePads(Fusion* fusion) {
   std::vector<Expr*> pad_to_be_removed;
 
   while (!stack.empty()) {
-    PadOp* p = stack.back();
+    PadOp* pad = stack.back();
     stack.pop_back();
 
     // if no uses, this has already been short-wired.
-    if (p->out()->uses().empty() && !p->out()->isFusionOutput()) {
+    if (pad->out()->uses().empty() && !pad->out()->isFusionOutput()) {
       continue;
     }
 
     // unify all consumer pad of tv;
-    auto* tv = p->in()->as<TensorView>();
-    for (Expr* use : tv->uses()) {
-      if (use == p) {
+    auto* pad_inp = pad->in()->as<TensorView>();
+    for (Expr* uses_of_pad_op_inp : pad_inp->uses()) {
+      if (uses_of_pad_op_inp == pad) {
         continue;
       }
       // check if use is the same pad operation (same pad value / width e.t.c.)
-      if (isSamePadOp(use, p)) {
+      if (isSamePadOp(uses_of_pad_op_inp, pad)) {
         // replace consumer of use->out() with p->out()
         ir_utils::replaceValInAllExprInputsAndFusionOutputs(
-            use->output(0), p->out());
+            uses_of_pad_op_inp->output(0), pad->out());
         // we could remove `use`, but `use` could still be in stack and needs to
         // be visited later. So push it to a vector and we'll remove it later.
-        pad_to_be_removed.push_back(use);
+        pad_to_be_removed.push_back(uses_of_pad_op_inp);
       }
     }
 
     // if tv is fusion output, we need to keep tv alive, it might render
     // propagating PadOp before tv->definition() being non-optimal.
-    if (tv->isFusionOutput()) {
+    if (pad_inp->isFusionOutput()) {
       continue;
     }
 
     // check for pad_dependencies to verify that 'p' can be moved before 'def'.
     std::unordered_set<Val*> pad_inputs;
-    for (Val* val : p->inputs()) {
-      if (val == p->in() || val->isConst()) {
+    for (Val* pad_inp : pad->inputs()) {
+      if (pad_inp == pad->in() || pad_inp->isConst()) {
         continue;
       }
-      pad_inputs.insert(val);
+      pad_inputs.insert(pad_inp);
     }
     std::unordered_set<Val*> pad_dependencies =
         DependencyCheck::getAllDependentVals(pad_inputs);
 
-    Expr* def = p->in()->definition();
+    Expr* def_of_pad_in = pad->in()->definition();
     Val* new_out = nullptr;
 
-    if (auto* uop = dynamic_cast<UnaryOp*>(def)) {
+    if (auto* uop = dynamic_cast<UnaryOp*>(def_of_pad_in)) {
       // check if unary op type is compatible for zero pad propagation.
       if (!zeroIsFixedPoint(uop->getUnaryOpType())) {
         continue;
       }
-      std::vector<Val*> new_pad_inputs = maybeMovePadBeforeDefinition(
-          tv, pad_dependencies, std::ref(stack), std::ref(simple_pad_set));
+      std::vector<Val*> outputs_of_moved_pad = maybeMovePadBeforeDefinition(
+          pad_inp, pad_dependencies, std::ref(stack), std::ref(simple_pad_set));
       // stop when move pad fails.
-      if (new_pad_inputs.empty()) {
+      if (outputs_of_moved_pad.empty()) {
         continue;
       }
       // update new outputs.
-      new_out =
-          ops::newValLike(new_pad_inputs[0], uop->out()->getDataType().value());
+      new_out = ops::newValLike(
+          outputs_of_moved_pad[0], uop->out()->getDataType().value());
       IrBuilder::create<UnaryOp>(
-          uop->getUnaryOpType(), new_out, new_pad_inputs[0]);
-    } else if (auto* bop = dynamic_cast<BinaryOp*>(def)) {
+          uop->getUnaryOpType(), new_out, outputs_of_moved_pad[0]);
+    } else if (auto* bop = dynamic_cast<BinaryOp*>(def_of_pad_in)) {
       // check if unary op type is compatible for zero pad propagation.
       if (!zeroIsIdentity(bop->getBinaryOpType())) {
         continue;
       }
       // check for broadcast on padded axis.
-      if (hasBroadcastOnAny(p->getPaddedAxes(), bop->inputs())) {
+      if (hasBroadcastOnAny(pad->getPaddedAxes(), bop->inputs())) {
         continue;
       }
 
-      std::vector<Val*> new_pad_inputs = maybeMovePadBeforeDefinition(
-          tv, pad_dependencies, std::ref(stack), std::ref(simple_pad_set));
+      std::vector<Val*> outputs_of_moved_pad = maybeMovePadBeforeDefinition(
+          pad_inp, pad_dependencies, std::ref(stack), std::ref(simple_pad_set));
       // stop when move pad fails.
-      if (new_pad_inputs.empty()) {
+      if (outputs_of_moved_pad.empty()) {
         continue;
       }
 
-      new_out =
-          ops::newOutputTV(new_pad_inputs, bop->out()->getDataType().value());
+      new_out = ops::newValLike(pad->output(0), pad->output(0)->dtype());
+
       IrBuilder::create<BinaryOp>(
           bop->getBinaryOpType(),
           new_out,
-          new_pad_inputs[0],
-          new_pad_inputs[1]);
+          outputs_of_moved_pad[0],
+          outputs_of_moved_pad[1]);
       // insert new PadOp(s) to stack;
-    } else if (auto* pop = dynamic_cast<PadOp*>(def)) {
+    } else if (auto* pop = dynamic_cast<PadOp*>(def_of_pad_in)) {
       // stop propagation if PadOp `pop` isn't a simple PadOp, since we can
       // only merge simple PadOp together. Note that we don't need to check
       // the other uses of `tv` here, since we want to merge the consecutive
@@ -494,20 +498,20 @@ void propagatePads(Fusion* fusion) {
       new_out = replayConcretePad(
           pop->in()->as<TensorView>(),
           pop->value(),
-          {pop->getPadWidths(), p->getPadWidths()},
+          {pop->getPadWidths(), pad->getPadWidths()},
           TensorDomain::noReductions(
-              p->out()->as<TensorView>()->getLogicalDomain()));
+              pad->out()->as<TensorView>()->getLogicalDomain()));
       // insert new PadOp(s) to stack;
       stack.push_back(new_out->definition()->as<PadOp>());
       simple_pad_set.insert(new_out->definition()->as<PadOp>());
-    } else if (def->isA<CatOp>()) {
+    } else if (def_of_pad_in->isA<CatOp>()) {
       // TODO: can cat support broadcast on any non-cat dimensions? Otherwise
       // we need to ensure that we are not padding on broadcast dimensions
       // like binary op
 
       // check if PadOp can be replayed on input(s)
       std::vector<Val*> new_pad_inputs = maybeMovePadBeforeDefinition(
-          tv, pad_dependencies, std::ref(stack), std::ref(simple_pad_set));
+          pad_inp, pad_dependencies, std::ref(stack), std::ref(simple_pad_set));
       // stop when move pad fails.
       if (new_pad_inputs.empty()) {
         continue;
@@ -517,7 +521,7 @@ void propagatePads(Fusion* fusion) {
     }
     // replace old (->pad->) with (->pads_before_new_def->new_def->)
     if (new_out != nullptr) {
-      ir_utils::replaceValInAllExprInputsAndFusionOutputs(p->out(), new_out);
+      ir_utils::replaceValInAllExprInputsAndFusionOutputs(pad->out(), new_out);
     }
   }
 

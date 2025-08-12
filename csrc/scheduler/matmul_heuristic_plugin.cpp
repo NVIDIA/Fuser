@@ -91,12 +91,10 @@ std::string rolesToPrecisionString(
   std::string precision = "   ";
   const std::vector<TensorView*>& a_operands =
       tensor_roles.at(MatmulTensorRole::OPERAND_A);
-  NVF_ERROR(
-      a_operands.size() == 1, "We currently require exactly one A operand");
+  NVF_ERROR(!a_operands.empty(), "We currently require at least one A operand");
   const std::vector<TensorView*>& b_operands =
       tensor_roles.at(MatmulTensorRole::OPERAND_B);
-  NVF_ERROR(
-      b_operands.size() == 1, "We currently require exactly one B operand");
+  NVF_ERROR(!b_operands.empty(), "We currently require at least one B operand");
   TensorView* a = a_operands.front();
   TensorView* b = b_operands.front();
   NVF_CHECK(
@@ -135,19 +133,22 @@ void copyParamsToConfig(KernelConfig* config, const MatmulParams* mparams) {
   };
   config->load_stages =
       mparams->circular_buffer_options.smem_circular_buffer_stage;
+  config->prefetch_gap =
+      mparams->circular_buffer_options.smem_circular_buffer_prefetch_gap;
   config->async_gmem_load_operands = mparams->async_gmem_load_operands;
   setConfigTile(config->cta_tile, mparams->tile_sizes.cta_tile);
   setConfigTile(config->warp_tile, mparams->tile_sizes.warp_tile);
-  setConfigTile(config->instruction_tile, mparams->tile_sizes.instruction_tile);
+  setConfigTile(config->instruction_tile, getMmaOpShape(mparams->mma_macro));
+  config->cluster_dims[0] = mparams->cluster_dims.m;
+  config->cluster_dims[1] = mparams->cluster_dims.n;
+  config->cluster_dims[2] = 1;
   config->splitk_factor = mparams->splitk_factor;
-  config->grid_swizzle_factor = mparams->grid_swizzle_factor;
+  config->grid_swizzle_factor = mparams->grid_traversal_factor.first;
   config->cta_order =
       mparams->cta_order == MatmulParams::TileRasterizationOrder::RowMajor ? 0
                                                                            : 1;
   config->circular_buffer_smem_read =
       mparams->circular_buffer_options.circular_buffer_smem_read;
-  config->rotate_ldmatrix_out_of_main_loop =
-      mparams->rotate_ldmatrix_out_of_main_loop;
   config->problem.supported_vec_size.a = (uint8_t)mparams->supported_vec_size.a;
   config->problem.supported_vec_size.b = (uint8_t)mparams->supported_vec_size.b;
   config->problem.supported_vec_size.epilogue =
@@ -163,18 +164,25 @@ void copyConfigToParams(MatmulParams* mparams, const KernelConfig* config) {
   };
   setGemmTile(mparams->tile_sizes.cta_tile, config->cta_tile);
   setGemmTile(mparams->tile_sizes.warp_tile, config->warp_tile);
-  setGemmTile(mparams->tile_sizes.instruction_tile, config->instruction_tile);
+  mparams->cluster_dims.m = config->cluster_dims[0];
+  mparams->cluster_dims.n = config->cluster_dims[1];
+  NVF_CHECK(
+      config->cluster_dims[2] == 1,
+      "cluster_dims[2] must be 1 but found ",
+      config->cluster_dims[2]);
   mparams->circular_buffer_options.smem_circular_buffer_stage =
       config->load_stages;
+  mparams->circular_buffer_options.smem_circular_buffer_prefetch_gap =
+      config->prefetch_gap;
   mparams->async_gmem_load_operands = config->async_gmem_load_operands;
-  // Update mma macro if necessary to match instruction tile
+  // Update mma macro if necessary to match provided instruction tile
   MmaMacroEncode menc(mparams->mma_macro); // this will record the family
   menc.m = config->instruction_tile[0]; // update instruction tile size
   menc.n = config->instruction_tile[1];
   menc.k = config->instruction_tile[2];
   mparams->mma_macro = menc; // cast back to uint64_t
   mparams->splitk_factor = config->splitk_factor;
-  mparams->grid_swizzle_factor = config->grid_swizzle_factor;
+  mparams->grid_traversal_factor.first = config->grid_swizzle_factor;
   switch (config->cta_order) {
     case 0:
       mparams->cta_order = MatmulParams::TileRasterizationOrder::RowMajor;
@@ -190,8 +198,6 @@ void copyConfigToParams(MatmulParams* mparams, const KernelConfig* config) {
   }
   mparams->circular_buffer_options.circular_buffer_smem_read =
       config->circular_buffer_smem_read;
-  mparams->rotate_ldmatrix_out_of_main_loop =
-      config->rotate_ldmatrix_out_of_main_loop;
 
   // enable circular buffering if configured
   mparams->circular_buffer_options.circular_buffer_smem_write =

@@ -56,7 +56,7 @@ static void setup_vit_base_patch16_224_bcast7(Fusion* fusion, void* null) {
 
 static void NvFuserScheduler_TIMM_vit_base_patch16_224_bcast7(
     benchmark::State& benchmark_state,
-    FusionExecutorCache* fusion_executor_cache,
+    FusionExecutorCache* executor_cache,
     void* null) {
   std::vector<int64_t> input_shape{
       benchmark_state.range(0),
@@ -73,8 +73,8 @@ static void NvFuserScheduler_TIMM_vit_base_patch16_224_bcast7(
   auto t4 = at::randn({input_shape[0], input_shape[1], 1}, fp32_options);
   auto t7 = at::randn(input_shape, fp16_options);
 
-  std::vector<c10::IValue> aten_inputs({t2, t3, t4, t7});
-  runBenchmarkIterations(benchmark_state, fusion_executor_cache, aten_inputs);
+  KernelArgumentHolder args({t2, t3, t4, t7});
+  runBenchmarkIterations(benchmark_state, executor_cache, args);
 
   // full tensor - float + halfx2 - t2, t7, t39
   // Inner most dimension only - floatx2 - t36, t37
@@ -170,7 +170,7 @@ static void setup_vit_base_patch16_224_bcast5(Fusion* fusion, void* null) {
 
 static void NvFuserScheduler_TIMM_vit_base_patch16_224_bcast5(
     benchmark::State& benchmark_state,
-    FusionExecutorCache* fusion_executor_cache,
+    FusionExecutorCache* executor_cache,
     void* null) {
   std::vector<int64_t> input_shape{
       benchmark_state.range(0),
@@ -188,8 +188,8 @@ static void NvFuserScheduler_TIMM_vit_base_patch16_224_bcast5(
   auto t0 = at::randn({input_shape[2]}, fp32_options);
   auto t1 = at::randn({input_shape[2]}, fp32_options);
 
-  std::vector<c10::IValue> aten_inputs({t2, t5, t3, t0, t1});
-  runBenchmarkIterations(benchmark_state, fusion_executor_cache, aten_inputs);
+  KernelArgumentHolder args({t2, t5, t3, t0, t1});
+  runBenchmarkIterations(benchmark_state, executor_cache, args);
 
   // Full tensor - floatx2, halfx2, bool - t2, t16, t3, t34, t16
   // Inner most dim only - floatx5 - t5, t0, t1, t7, t17
@@ -236,7 +236,7 @@ static void setup_vit_base_patch16_224_bcast_outer2(
 
 static void NvFuserScheduler_TIMM_vit_base_patch16_224_bcast_outer2(
     benchmark::State& benchmark_state,
-    FusionExecutorCache* fusion_executor_cache,
+    FusionExecutorCache* executor_cache,
     void* null) {
   std::vector<int64_t> input_shape{
       benchmark_state.range(0),
@@ -251,8 +251,8 @@ static void NvFuserScheduler_TIMM_vit_base_patch16_224_bcast_outer2(
   auto t0 = at::randn(input_shape, fp16_options);
   auto t2 = at::randn({input_shape[2]}, fp32_options);
 
-  std::vector<c10::IValue> aten_inputs({t0, t2});
-  runBenchmarkIterations(benchmark_state, fusion_executor_cache, aten_inputs);
+  KernelArgumentHolder args({t0, t2});
+  runBenchmarkIterations(benchmark_state, executor_cache, args);
 
   // full tensor - halfx2 - t0, t6
   // inner dimension only - halfx2 - t2, t7
@@ -314,7 +314,7 @@ static void setup_vit_base_patch16_224_norm_inner3(Fusion* fusion, void* null) {
 
 static void NvFuserScheduler_TIMM_vit_base_patch16_224_norm_inner3(
     benchmark::State& benchmark_state,
-    FusionExecutorCache* fusion_executor_cache,
+    FusionExecutorCache* executor_cache,
     void* null) {
   std::vector<int64_t> input_shape{
       benchmark_state.range(0),
@@ -327,8 +327,8 @@ static void NvFuserScheduler_TIMM_vit_base_patch16_224_norm_inner3(
 
   auto t0 = at::randn(input_shape, fp16_options);
 
-  std::vector<c10::IValue> aten_inputs({t0, 0.125});
-  runBenchmarkIterations(benchmark_state, fusion_executor_cache, aten_inputs);
+  KernelArgumentHolder args({t0, 0.125});
+  runBenchmarkIterations(benchmark_state, executor_cache, args);
 
   // Full tensors - floatx2, half x2, bool - t12, t4, t0, t19, t14
   benchmark_state.SetBytesProcessed(
@@ -391,7 +391,7 @@ static void setup_vit_base_patch16_224_bcast_outer6(
 
 static void NvFuserScheduler_TIMM_vit_base_patch16_224_bcast_outer6(
     benchmark::State& benchmark_state,
-    FusionExecutorCache* fusion_executor_cache,
+    FusionExecutorCache* executor_cache,
     void* null) {
   std::vector<int64_t> input_shape{
       benchmark_state.range(0),
@@ -406,8 +406,8 @@ static void NvFuserScheduler_TIMM_vit_base_patch16_224_bcast_outer6(
   auto t0 = at::randn(input_shape, fp16_options);
   auto t2 = at::randn({input_shape[2]}, fp32_options);
 
-  std::vector<c10::IValue> aten_inputs({t0, t2});
-  runBenchmarkIterations(benchmark_state, fusion_executor_cache, aten_inputs);
+  KernelArgumentHolder args({t0, t2});
+  runBenchmarkIterations(benchmark_state, executor_cache, args);
   // full tensors - float, halfx2, bool - t6, t0, t18, t13
   // inner dimension only - float, half - t2, t19
   benchmark_state.SetBytesProcessed(
@@ -480,7 +480,7 @@ static void setup_vit_base_patch16_224_bcast_inner6(
 
 static void NvFuserScheduler_TIMM_vit_base_patch16_224_bcast_inner6(
     benchmark::State& benchmark_state,
-    FusionExecutorCache* fusion_executor_cache,
+    FusionExecutorCache* executor_cache,
     void* null) {
   std::vector<int64_t> input_shape{
       benchmark_state.range(0),
@@ -495,8 +495,8 @@ static void NvFuserScheduler_TIMM_vit_base_patch16_224_bcast_inner6(
   auto t0 = at::randn(input_shape, fp16_options);
   auto t2 = at::randn({input_shape[0], input_shape[1]}, fp32_options);
 
-  std::vector<c10::IValue> aten_inputs({t0, t2});
-  runBenchmarkIterations(benchmark_state, fusion_executor_cache, aten_inputs);
+  KernelArgumentHolder args({t0, t2});
+  runBenchmarkIterations(benchmark_state, executor_cache, args);
 
   // full tensors - float, halfx2, bool - t6, t0, t18, t13
   // outer two dimensions only - float, half - t2, t19
@@ -620,7 +620,7 @@ static void setup_vit_base_patch16_224_LN_BWD(Fusion* fusion, void* null) {
 
 static void NvFuserScheduler_TIMM_vit_base_patch16_224_LN_BWD(
     benchmark::State& benchmark_state,
-    FusionExecutorCache* fusion_executor_cache,
+    FusionExecutorCache* executor_cache,
     void* null) {
   std::vector<int64_t> input_shape{
       benchmark_state.range(0),
@@ -640,8 +640,8 @@ static void NvFuserScheduler_TIMM_vit_base_patch16_224_LN_BWD(
   auto t7 = at::randn({input_shape[2]}, fp16_options);
   auto t9 = at::randn({input_shape[2]}, fp16_options);
 
-  std::vector<c10::IValue> aten_inputs({t0, t1, t3, t5, t6, t7, t9, 1.0});
-  runBenchmarkIterations(benchmark_state, fusion_executor_cache, aten_inputs);
+  KernelArgumentHolder args({t0, t1, t3, t5, t6, t7, t9, 1.0});
+  runBenchmarkIterations(benchmark_state, executor_cache, args);
 
   // Full tensors - bool, halfx4 - t0, t1, t3, t34, t35
   // Outer two dimensions - floatx2 - t5, t6
@@ -701,7 +701,7 @@ static void nhwc_seresnet152d_transpose65(Fusion* fusion, void* null) {
 
 static void NvFuserScheduler_nhwc_seresnet152d_transpose65(
     benchmark::State& benchmark_state,
-    FusionExecutorCache* fusion_executor_cache,
+    FusionExecutorCache* executor_cache,
     void* null) {
   std::vector<int64_t> input_shape{
       benchmark_state.range(0),
@@ -720,8 +720,8 @@ static void NvFuserScheduler_nhwc_seresnet152d_transpose65(
   // 1D tensor
   auto t4 = at::randn({2}, fp16_options).sum();
 
-  std::vector<c10::IValue> aten_inputs({t2, t5, t7, t9, t4});
-  runBenchmarkIterations(benchmark_state, fusion_executor_cache, aten_inputs);
+  KernelArgumentHolder args({t2, t5, t7, t9, t4});
+  runBenchmarkIterations(benchmark_state, executor_cache, args);
 
   // Full tensors - halfx6 - t2, t5, t7, t9, t29, t30
   benchmark_state.SetBytesProcessed(

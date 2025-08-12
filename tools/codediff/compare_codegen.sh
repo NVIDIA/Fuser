@@ -20,14 +20,15 @@
 # rest of the command line as the test to run. For example, to compare the
 # generated code for a single binary test, you could use:
 #
-#   tools/compare_codegen.sh -- build/nvfuser_tests --gtest_filter='*TestFoo*'
+#   tools/codediff/compare_codegen.sh -- bin/test_nvfuser \
+#               --gtest_filter='*TestFoo*'
 #
 # or to run all benchmarks you can use:
 #
-#   tools/compare_codegen.sh -- build/nvfuser_bench \
-#       --benchmark_filter=NvFuserScheduler \
-#       --benchmark_repetitions=1 \
-#       --benchmark_min_time=0
+#   tools/codediff/compare_codegen.sh -- bin/nvfuser_bench \
+#               --benchmark_filter=NvFuserScheduler \
+#               --benchmark_repetitions=1 \
+#               --benchmark_min_time=0
 #
 # In those cases, the outputs will be placed in a subdirectory of the output
 # directory for each commit labelled "custom_command_$LAUNCHTIME" where
@@ -37,9 +38,9 @@
 # command type passed to run_command.sh. Should be one of GOOGLEBENCH,
 # GOOGLETEST, PYTEST, or UNKNOWN.
 #
-# By default, `python setup.py develop` is used to rebuild the project.
-# You can also set environment variable CUSTOM_BUILD_COMMAND if your build
-# is different.
+# By default, `pip install -v --no-build-isolation python/` is used to rebuild
+# the project. You can also set environment variable CUSTOM_BUILD_COMMAND if
+# your build is different.
 
 set -e
 set -o pipefail
@@ -122,11 +123,11 @@ scriptdir=$(mktemp -d -t codediffXXXXXX)
 cp -r "$nvfuserdir/tools/codediff/"* "$scriptdir/"
 
 movecudafiles() {
-    find . -maxdepth 1 \( -name '__tmp_kernel*.cu' -o -name '__tmp_kernel*.ptx' \) -exec mv '{}' "$1" \;
+    find . -maxdepth 1 \( -name '__tmp_*.cu' -o -name '__tmp_*.ptx' \) -exec mv '{}' "$1" \;
 }
 
 cleanup() {
-    numkernels=$(find . -maxdepth 1 -name '__tmp_kernel*.cu' -o -name '__tmp_kernel*.ptx' | wc -l)
+    numkernels=$(find . -maxdepth 1 -name '__tmp_*.cu' -o -name '__tmp_*.ptx' | wc -l)
 
     if (( numkernels > 0 ))
     then
@@ -149,7 +150,7 @@ collect_kernels() {
     commit=$2
 
     # Make sure we are doing a clean rebuild. Otherwise we might get linking error.
-    python setup.py clean
+    rm -rf $nvfuserdir/python/build
 
     git -c advice.detachedHead=false checkout "$commit"
     git submodule update --init --recursive
@@ -182,7 +183,7 @@ collect_kernels() {
     # Build in Release mode
     (
         cd "$nvfuserdir"
-        CUSTOM_BUILD_COMMAND="${CUSTOM_BUILD_COMMAND:-python setup.py develop}"
+        CUSTOM_BUILD_COMMAND="${CUSTOM_BUILD_COMMAND:-pip install -v --no-build-isolation python/}"
         bash -c "${CUSTOM_BUILD_COMMAND}"
     )
 
@@ -215,15 +216,17 @@ collect_kernels() {
         # python tests
         # Using -s to disable capturing stdout. This is important as it will let us see which tests creates each .cu file
         "${bashcmd[@]}" -o "$pyopsdir" -- \
-            python -m pytest "$nvfuserdir/python_tests/test_ops.py" -n 0 -v -s --color=yes
+            python -m pytest "$nvfuserdir/tests/python/opinfo/test_legacy_ops.py" -n 0 -v -s --color=yes
+        "${bashcmd[@]}" -o "$pyopsdir" -- \
+            python -m pytest "$nvfuserdir/tests/python/opinfo/test_direct_ops.py" -n 0 -v -s --color=yes
         "${bashcmd[@]}" -o "$pyschedopsdir" -- \
-            python -m pytest "$nvfuserdir/python_tests/test_schedule_ops.py" -n 0 -v -s --color=yes
+            python -m pytest "$nvfuserdir/tests/python/test_schedule_ops.py" -n 0 -v -s --color=yes
         "${bashcmd[@]}" -o "$pyfrontenddir" -- \
-            python -m pytest "$nvfuserdir/python_tests/test_python_frontend.py" -n 0 -v -s --color=yes
+            python -m pytest "$nvfuserdir/tests/python/test_python_frontend.py" -n 0 -v -s --color=yes
 
         # binary tests
         "${bashcmd[@]}" -o "$binarytestdir" -- \
-            "$nvfuserdir/build/nvfuser_tests" --gtest_color=yes
+            "$nvfuserdir/bin/test_nvfuser" --gtest_color=yes
     fi
 }
 

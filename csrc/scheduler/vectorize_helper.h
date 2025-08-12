@@ -31,7 +31,7 @@ namespace vectorize_helper {
 
 // Projects IterDomains through the fusion starting at provided reference. IDs
 // in the reference are expected to be "contiguous", simply means dimensions
-// that the iter domains are consecutive and next to eachother in the
+// that the iter domains are consecutive and next to each other in the
 // reference. This property is not enforced, but mapping can have some
 // unpredictbale results if they are not. The reason we want contiguity here
 // is this class is primarily used for vectorization analysis. Domains may be
@@ -78,7 +78,7 @@ namespace vectorize_helper {
 //   tv1[2*3, 5, 7*11] = view(tv0)
 // with tv1 and [2*3, 7*11] as the reference and ids. tv0's 2 and 11 dim are
 // easily identified as being mapped. The 3*5*7 dimension however, is
-// partially mapped on the left and right side. Since this class is  intended to
+// partially mapped on the left and right side. Since this class is intended to
 // line up "inner dimensions" of tensors through out the graph for the purpose
 // of unrolling and vectorization, it only tracks partial dimensions as they are
 // on the right hand side of iteration domains. For example in the last case we
@@ -317,6 +317,7 @@ int64_t getVectorizationFactor(
     TensorView* reference_tv,
     HeuristicDataCache* data_cache,
     int64_t break_point,
+    int64_t max_vectorization_size_in_bit = 128,
     const std::unordered_map<int64_t, int64_t>& logical_reorder = {});
 
 int64_t getVectorizationFactorTransposeGroup(

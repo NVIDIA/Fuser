@@ -50,7 +50,7 @@ static void setupReduction(Fusion* fusion, DataType dtype, int red_axis) {
 
 static void NvFuserScheduler_Reduction(
     benchmark::State& benchmark_state,
-    FusionExecutorCache* fusion_executor_cache,
+    FusionExecutorCache* executor_cache,
     DataType dtype,
     int reduction_dim) {
   auto reduction_size = benchmark_state.range(0);
@@ -63,13 +63,13 @@ static void NvFuserScheduler_Reduction(
       (reduction_dim ? at::randn({iter_size, reduction_size}, options)
                      : at::randn({reduction_size, iter_size}, options));
 
-  std::vector<c10::IValue> aten_inputs({aten_input});
+  KernelArgumentHolder inputs({aten_input});
 
-  runBenchmarkIterations(benchmark_state, fusion_executor_cache, aten_inputs);
+  runBenchmarkIterations(benchmark_state, executor_cache, inputs);
 
   benchmark_state.SetBytesProcessed(
       int64_t(benchmark_state.iterations()) *
-      (iter_size * reduction_size + iter_size) * int64_t(dataTypeSize(dtype)));
+      (iter_size * reduction_size + iter_size) * dataTypeSizeByte(dtype));
 }
 
 static void Baseline_Reduction(
@@ -100,7 +100,7 @@ static void Baseline_Reduction(
 
   benchmark_state.SetBytesProcessed(
       int64_t(benchmark_state.iterations()) *
-      (iter_size * reduction_size + iter_size) * int64_t(dataTypeSize(dtype)));
+      (iter_size * reduction_size + iter_size) * dataTypeSizeByte(dtype));
 }
 
 //------------------------------------------------------------------------------

@@ -29,16 +29,22 @@ template <
     bool Y_BLOCK,
     bool Z_BLOCK,
     bool PERSISTENT,
-    bool Aligned>
+    bool Aligned,
+    typename BlockDimT>
 __device__ void sync(
     int64_t& semaphore,
     const uint64_t& segment_size,
-    const bool last_block) {
+    const bool last_block,
+    // block_dim is basically just blockDim (wrapped as DefaultBlockDim) if
+    // there is no warp specialization in the kernel. If there is warp
+    // specialization, block_dim is the the dimension of the compute warps.
+    BlockDimT block_dim,
+    uint32_t barrier_id = 1) {
   // Finish all global memory transactions before synchronizing
   __threadfence();
 
   // Synchronize all threads in a block before synchronizing blocks
-  block_sync::sync<Aligned>();
+  block_sync::sync<Aligned>(block_dim, barrier_id);
 
   // Only allow linear_tid == 0 to participate in the synchronization
   if (threadIdx.x == 0 && threadIdx.y == 0 && threadIdx.z == 0) {
@@ -78,7 +84,7 @@ __device__ void sync(
   }
 
   // Sync block to make sure all other threads are waiting on the sync
-  block_sync::sync<Aligned>();
+  block_sync::sync<Aligned>(block_dim, barrier_id);
 }
 
 template <
@@ -86,12 +92,22 @@ template <
     bool Y_BLOCK,
     bool Z_BLOCK,
     bool PERSISTENT,
-    bool Aligned>
-__device__ void sync(int64_t& semaphore, const uint64_t& segment_size) {
+    bool Aligned,
+    typename BlockDimT>
+__device__ void sync(
+    int64_t& semaphore,
+    const uint64_t& segment_size,
+    // block_dim is basically just blockDim (wrapped as DefaultBlockDim) if
+    // there is no warp specialization in the kernel. If there is warp
+    // specialization, block_dim is the the dimension of the compute warps.
+    BlockDimT block_dim,
+    uint32_t barrier_id = 1) {
   sync<X_BLOCK, Y_BLOCK, Z_BLOCK, PERSISTENT, Aligned>(
       semaphore,
       segment_size,
-      index_utils::maskedIsLast<X_BLOCK, Y_BLOCK, Z_BLOCK>(blockIdx, gridDim));
+      index_utils::maskedIsLast<X_BLOCK, Y_BLOCK, Z_BLOCK>(blockIdx, gridDim),
+      block_dim,
+      barrier_id);
 }
 
 // Grid sync that can be called multiple times in the same kernel without all
@@ -105,16 +121,26 @@ __device__ void sync(int64_t& semaphore, const uint64_t& segment_size) {
 //
 // Note that this is not currently used by grid and welford reduction
 // as they use a separate sync flag for each each grid sync call.
-template <bool X_BLOCK, bool Y_BLOCK, bool Z_BLOCK, bool Aligned>
+template <
+    bool X_BLOCK,
+    bool Y_BLOCK,
+    bool Z_BLOCK,
+    bool Aligned,
+    typename BlockDimT>
 __device__ void sync(
     int64_t& semaphore,
     const uint64_t& segment_size,
-    const nvfuser_index_t n_entrances) {
+    const nvfuser_index_t n_entrances,
+    // block_dim is basically just blockDim (wrapped as DefaultBlockDim) if
+    // there is no warp specialization in the kernel. If there is warp
+    // specialization, block_dim is the the dimension of the compute warps.
+    BlockDimT block_dim,
+    uint32_t barrier_id = 1) {
   // Finish all global memory transactions before synchronizing
   __threadfence();
 
   // Synchronize all threads in a block before synchronizing blocks
-  block_sync::sync<Aligned>();
+  block_sync::sync<Aligned>(block_dim, barrier_id);
 
   // Only allow linear_tid == 0 to participate in the synchronization
   if (threadIdx.x == 0 && threadIdx.y == 0 && threadIdx.z == 0) {
@@ -147,7 +173,7 @@ __device__ void sync(
   }
 
   // Sync block to make sure all other threads are waiting on the sync
-  block_sync::sync<Aligned>();
+  block_sync::sync<Aligned>(block_dim, barrier_id);
 }
 
 // Non-blocking function to read the semaphore value in each calling thread

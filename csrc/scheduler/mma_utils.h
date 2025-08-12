@@ -47,7 +47,8 @@ NVF_API void scheduleContiguousVectorLoad(
 //! TODO: rewrite this one with makeTile
 NVF_API void scheduleWarpTileWithReduction(
     TensorView* tv,
-    MatMulTileOptions tile);
+    MatMulTileOptions tile,
+    MmaMacro macro);
 
 //! Schedule utility for mma output in matmul main loop:
 //!  Realize the hierarchical tiling based on the given tiling options
@@ -55,7 +56,8 @@ NVF_API void scheduleWarpTileWithReduction(
 //! TODO: remove this one eventually.
 NVF_API void scheduleWarpTileWithNoReduction(
     TensorView* tv,
-    MatMulTileOptions tile);
+    MatMulTileOptions tile,
+    MmaMacro macro);
 
 //! Lower level primitive spliting inner iterdomains into tiles:
 //! Eg.
@@ -65,7 +67,7 @@ void makeTile(TensorView* tv, const std::vector<int64_t>& tile_sizes);
 
 //! The above call assumes the axes are [(B), M, N, K]. In this version, we
 //! provide the dimension roles that are present for this tensor.
-void makeTile(
+std::vector<MatmulDimRole> makeTile(
     TensorView* tv,
     const GemmTile& tile_sizes,
     const std::vector<MatmulDimRole>& axis_roles);
@@ -78,7 +80,7 @@ using AbstractMatmulTensor = TaggedAbstractTensor<MatmulDimRole>;
 //! AbstractMatmulTensor instead of a concrete TensorView.
 void makeTile(
     AbstractMatmulTensor& canonicalized_abstract_tensor,
-    const std::vector<int64_t>& tile_sizes);
+    const GemmTile& tile_sizes);
 
 //! Order the inner tile dimensions as the original order in
 //! (maybe allocation) domain. Also putting broadcast domains on the left.
@@ -92,7 +94,7 @@ void orderTiledConcreteIdAsMaybeAllocationDomain(TensorView* tv);
 //! The return value gives the role of each loop IterDomain in tv.
 std::vector<MatmulDimRole> canonicalizeMmaTvOrdering(
     TensorView* tv,
-    const ValGraph& permissive_graph,
+    const ValGraph& broadcast_graph,
     const DimRolesMap& dim_roles,
     const std::vector<ValGroup>& ordering);
 
@@ -243,11 +245,23 @@ class MmaSwizzler {
 };
 
 //! Schedules the copy operation of output of a Mma op which resided in the
-//! shared memory to global memory. This assumes the outout of Mma in the
-//! shared memory is of the form [M, N].
-//! This is tiled to [MO(1), NO(1), MI(m), NI(n)]. The inner two dims are
-//! marked parallel type bulk.
-void scheduleTMAStoreForMmaOutput(TensorView* tv, int64_t m, int64_t n);
+//! shared memory to global memory.
+void scheduleTMAStoreForMmaOutput(TensorView* tv, MmaInputSmemSwizzle swizzle);
+
+//! Schedules the loop domain of a TensorView to be compatible with LdMatrix or
+//! StMatrix. The loop domain of input TensorView must already be scheduled to
+//! match wgmma register accumulator.
+void scheduleLdStMatrixForMmaOutput(
+    TensorView* tv,
+    int64_t tile_m,
+    int64_t tile_n);
+
+// Apply to the TensorView after block tiling and parallelization, but before
+// applying mma allocation to loop domain.
+AbstractTensor scheduleLdStMatrixSharedMemory(
+    TensorView* tv,
+    int64_t ldst_tile_m,
+    int64_t ldst_tile_n);
 
 void checkDimSize(
     TensorView* tv,
@@ -316,11 +330,18 @@ struct MatmulPattern {
   // LinearOp.
   TensorView* output;
 
+  struct TranslationResult {
+    MmaOp* mma = nullptr;
+    // This is useful for replaying replacements of TVs in MatmulPatterns when
+    // there are multiple patterns in a single fusion.
+    std::unordered_map<TensorView*, TensorView*> replacements;
+  };
+
   //! If the pattern is not already represented by an MmaOp, for example if
   //! there is a MatmulOp instead, this function modifies the fusion to insert
   //! an MmaOp. TensorViews A and B are unchanged, but this->output might be
   //! updated to reflect the replacement tensor.
-  MmaOp* translateToMmaOp();
+  TranslationResult translateToMmaOp();
 
   //! Given an IdModel, map groups of IterDomains to dimension roles
   //! (MatmulDimRole). Note that ValGroup is a shared_ptr to a
@@ -445,14 +466,14 @@ bool isLdMatrixTranspose(const LoadStoreOp* ldst);
 //!    b. K dimensions are ordered like the allocation domain of the first
 //!       A operand
 //!
-//! NOTE: The permissive graph is used for this so that we map broadcast
+//! NOTE: The broadcast graph is used for this so that we map broadcast
 //! dimensions to non-broadcast.
 // TODO: we might want more sophisticated ordering analysis for multi-dim role
 // ordering to maximize vectorization across multiple tensors (rule 4)
 std::vector<ValGroup> canonicalDimOrdering(
     const mma_utils::TensorRolesMap& tensor_roles,
     const mma_utils::DimRolesMap& dim_roles,
-    const ValGraph& permissive_graph);
+    const ValGraph& broadcast_graph);
 
 //! Returns roles maps which have been merged across individual maps generated
 //! by the provided matmul patterns.
@@ -474,6 +495,13 @@ inline void checkConcreteStaticDim(const AbstractId& abs_id) {
       "swizzled dimension's extend must be known during scheduling, got ",
       id->toString());
 }
+
+//! Automatically generates the shared memory swizzled data layout for tma loads
+//! in matmul mainloop. The shared memory data layout is always 2D currently.
+//! This utility function assumes that the shared_mem_tv has the following
+//! structure: [tile_row, tile_col]
+//! Returns which swizzle format to use for mma inputs with tma loads.
+MmaInputSmemSwizzle tmaSwizzleSharedMemory(TensorView* shared_mem_tv);
 
 } // namespace mma_utils
 

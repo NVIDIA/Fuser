@@ -5,7 +5,7 @@
 import torch
 
 from nvfuser import FusionDefinition
-from utils import NVFuserTest
+from python.utils import NVFuserTest
 
 
 # I tried to merge the tests to opinfo and [failed](https://github.com/NVIDIA/Fuser/issues/3225).

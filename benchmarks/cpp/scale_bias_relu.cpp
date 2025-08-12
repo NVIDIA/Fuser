@@ -114,7 +114,7 @@ static void setupSBRNorm(Fusion* fusion, DataType dtype) {
 
 static void NvFuserScheduler_SBR(
     benchmark::State& benchmark_state,
-    FusionExecutorCache* fusion_executor_cache,
+    FusionExecutorCache* executor_cache,
     DataType dtype) {
   // N, H, W, C format
   std::vector<int64_t> input_shape{
@@ -134,16 +134,16 @@ static void NvFuserScheduler_SBR(
   at::Tensor at_bias = at::zeros(static_bcast_shape, options);
 
   // inputs
-  std::vector<c10::IValue> aten_inputs = {at_x, at_scale, at_bias};
+  KernelArgumentHolder args({at_x, at_scale, at_bias});
 
-  runBenchmarkIterations(benchmark_state, fusion_executor_cache, aten_inputs);
+  runBenchmarkIterations(benchmark_state, executor_cache, args);
 
   const size_t size =
       input_shape[0] * input_shape[1] * input_shape[2] * input_shape[3];
   const size_t channels = input_shape[3];
   benchmark_state.SetBytesProcessed(
       int64_t(benchmark_state.iterations()) * (channels * 2 + size * 2) *
-      int64_t(dataTypeSize(dtype)));
+      dataTypeSizeByte(dtype));
 }
 
 static void Baseline_SBR(benchmark::State& benchmark_state, DataType dtype) {
@@ -184,14 +184,14 @@ static void Baseline_SBR(benchmark::State& benchmark_state, DataType dtype) {
   const size_t channels = input_shape[3];
   benchmark_state.SetBytesProcessed(
       int64_t(benchmark_state.iterations()) * (channels * 2 + size * 2) *
-      int64_t(dataTypeSize(dtype)));
+      dataTypeSizeByte(dtype));
 }
 
 //------------------------------------------------------------------------------
 
 static void NvFuserScheduler_SBR_Norm(
     benchmark::State& benchmark_state,
-    FusionExecutorCache* fusion_executor_cache,
+    FusionExecutorCache* executor_cache,
     DataType dtype) {
   // N, H, W, C format
   std::vector<int64_t> input_shape{
@@ -212,17 +212,16 @@ static void NvFuserScheduler_SBR_Norm(
   at::Tensor at_var = at::ones(bcast_shape, options);
 
   // inputs
-  std::vector<c10::IValue> aten_inputs = {
-      at_x, at_weight, at_bias, at_mean, at_var};
+  KernelArgumentHolder args({at_x, at_weight, at_bias, at_mean, at_var});
 
-  runBenchmarkIterations(benchmark_state, fusion_executor_cache, aten_inputs);
+  runBenchmarkIterations(benchmark_state, executor_cache, args);
 
   const size_t size =
       input_shape[0] * input_shape[1] * input_shape[2] * input_shape[3];
   const size_t channels = input_shape[3];
   benchmark_state.SetBytesProcessed(
       int64_t(benchmark_state.iterations()) * (channels * 4 + size * 2) *
-      int64_t(dataTypeSize(dtype)));
+      dataTypeSizeByte(dtype));
 }
 
 static void Baseline_SBR_Norm(
@@ -266,7 +265,7 @@ static void Baseline_SBR_Norm(
   const size_t channels = input_shape[3];
   benchmark_state.SetBytesProcessed(
       int64_t(benchmark_state.iterations()) * (channels * 4 + size * 2) *
-      int64_t(dataTypeSize(dtype)));
+      dataTypeSizeByte(dtype));
 }
 
 //------------------------------------------------------------------------------

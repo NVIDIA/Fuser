@@ -10,6 +10,7 @@
 #include <fusion.h>
 #include <scheduler/pointwise_utils.h>
 #include <scheduler/scheduler_types.h>
+#include <scheduler/tools/domain_map.h>
 #include <scheduler/utils.h>
 #include <scheduler/vectorize_helper.h>
 
@@ -37,6 +38,7 @@ enum class CompileTimeEntryType {
   VECTORIZABLE_INPUTS_AND_OUTPUTS,
   INPUTS_AND_OUTPUTS_INNER_DIM_GROUPS,
   TV_TO_CONTIG_INNER_SIZE_MAPS,
+  RESIZE_VECTORIZATION_FACTORS,
   UNROLLABLE_INPUTS_AND_OUTPUTS,
   REDUCTION_TVS,
   PERSISTENT_BUFFER_INFO,
@@ -54,7 +56,7 @@ enum class CompileTimeEntryType {
 //!  stores the domain map of a fusion.
 class DomainMap {
  public:
-  using DataType = pointwise_utils::DomainMap;
+  using DataType = scheduler_tools::DomainMap;
   static const CompileTimeEntryType EntryType =
       CompileTimeEntryType::DOMAIN_MAP;
 };
@@ -63,7 +65,7 @@ class DomainMap {
 //!  stores the domain map of a fusion, used by transpose scheduler.
 class TransposeDomainMap {
  public:
-  using DataType = pointwise_utils::DomainMap;
+  using DataType = scheduler_tools::DomainMap;
   static const CompileTimeEntryType EntryType =
       CompileTimeEntryType::TRANSPOSE_DOMAIN_MAP;
 };
@@ -103,6 +105,15 @@ class TvToContigInnerSizeMaps {
   using DataType = std::vector<std::unordered_map<TensorView*, Val*>>;
   static const CompileTimeEntryType EntryType =
       CompileTimeEntryType::TV_TO_CONTIG_INNER_SIZE_MAPS;
+};
+
+//! Stores the scalar vals that a vectorization factor must be able to
+//! divide evenly
+class ResizeVectorizationFactors {
+ public:
+  using DataType = std::unordered_set<Val*>;
+  static const CompileTimeEntryType EntryType =
+      CompileTimeEntryType::RESIZE_VECTORIZATION_FACTORS;
 };
 
 //! Entry type definition class for `INPUTS_AND_OUTPUTS_INNER_DIM_GROUPS`,
@@ -234,7 +245,7 @@ class CompileTimeInfoBase : public PolymorphicBase {
 //! Compile-time information cache for `canSchedule` and `getHeuristics`
 //! interfaces. Each cache instance stores information that could be inferred at
 //! compile time in a fusion and therefore corresponds to an instance of
-//! FusionExecutor.
+//! KernelExecutor.
 class HeuristicDataCache {
   using EntryOwningPtr =
       std::unique_ptr<HeuristicCompileTime::CompileTimeInfoBase>;

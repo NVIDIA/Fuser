@@ -19,7 +19,8 @@ namespace codegen {
 //! Generates a CUDA kernel definition for the given kernel
 NVF_API std::string generateCudaKernel(
     const kir::Kernel* kernel,
-    const std::string& kernel_name = "CUDAGeneratedKernel");
+    const std::string& kernel_name = "CUDAGeneratedKernel",
+    const LaunchParams& lparams = LaunchParams());
 
 } // namespace codegen
 } // namespace nvfuser
