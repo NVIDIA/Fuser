@@ -310,6 +310,53 @@ std::vector<std::pair<double, double>> get_val_constants(
   return tolerance_values;
 }
 
+void errorDetails(at::Tensor expected, at::Tensor actual, const KernelArgumentHolder& aten_inputs) {
+  // element with max abs error, row and col index
+  auto err = (expected - actual).abs().max();
+  auto err_index = (expected - actual).abs().argmax();
+  
+  // Convert linear index to scalar value
+  auto err_index_value = err_index.item<int64_t>();
+  
+  // Get flattened views for safe indexing
+  auto expected_flat = expected.flatten();
+  auto actual_flat = actual.flatten();
+  
+  // Calculate row and column indices for 2D tensors
+  int64_t col_idx = err_index_value;
+  int64_t row_idx = 0;
+  if (expected.dim() >= 2) {
+    col_idx = err_index_value % expected.size(1);
+    row_idx = err_index_value / expected.size(1);
+  }
+  
+  std::cout << "Expected: " << expected_flat[err_index_value].item<double>()
+            << " Actual: " << actual_flat[err_index_value].item<double>() << " at col "
+            << col_idx << " row " << row_idx << std::endl;
+  // print first 10 elements of this row
+  std::cout << "First 10 elements Expected of this row: ";
+  for(auto i : arange(10)){
+    std::cout << expected_flat[row_idx * expected.size(1) + i].item<double>() << " ";
+  }
+  std::cout << std::endl;
+  std::cout << "First 10 elements Actual of this row: ";
+  for(auto i : arange(10)){
+    std::cout << actual_flat[row_idx * expected.size(1) + i].item<double>() << " ";
+  }  
+  std::cout << std::endl;
+  // print input at index err_index when they have the same shape
+  for(auto i : arange(aten_inputs.size())){
+    if(aten_inputs[i].is<at::Tensor>()){
+      auto input = aten_inputs[i].as<at::Tensor>();
+      if(input.dim() == expected.dim() && input.size(0) == expected.size(0)){
+        auto input_flat = input.flatten();
+        if(err_index_value < input_flat.size(0)) {
+          std::cout << "Input " << i << " at index " << err_index_value << ": " << input_flat[err_index_value] << std::endl;
+        }
+      }
+    }
+  }
+}
 void testValidate(
     Fusion* fusion,
     const KernelArgumentHolder& fusion_outputs,
@@ -459,12 +506,14 @@ void testValidate(
             ratio.min().item<double>(),
             "\n   tolerance was set to 0.5");
       } else {
-        NVF_ERROR(
-            aten_output_in_common_dtype.allclose(
-                fusion_output_in_common_dtype,
-                tolerance_values.second,
-                tolerance_values.first,
-                /*equal_nan=*/true),
+        bool is_allclose = aten_output_in_common_dtype.allclose(
+          fusion_output_in_common_dtype,
+          tolerance_values.second,
+          tolerance_values.first,
+          /*equal_nan=*/true);
+        if(!is_allclose){
+          errorDetails(aten_output_in_common_dtype, fusion_output_in_common_dtype, aten_inputs);
+          NVF_THROW(
             "\n",
             err_msg,
             "\nValidation error in output ",
@@ -482,7 +531,8 @@ void testValidate(
             "\n    absolute tolerance was set to ",
             tolerance_values.first,
             "\n    and relative tolerance set to ",
-            tolerance_values.second);
+            tolerance_values.second);          
+        }
       }
     } else {
       NVF_ERROR(

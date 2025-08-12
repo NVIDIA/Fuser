@@ -330,10 +330,14 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       code_ << "__launch_bounds__(/*maxThreadsPerBlock=*/"
             << num_threads_per_cta << ", /*minBlocksPerMultiprocessor=*/1) ";
     }
-    if (kernel_->hasManaged("cluster_dims")) {
-      auto cluster_dims =
-          kernel_->getManaged<std::tuple<int64_t, int64_t, int64_t>>(
+    if (kernel_->hasManaged("cluster_dims") || kernel_->summary().has_cluster_reduction) {
+      std::tuple<int64_t, int64_t, int64_t> cluster_dims = {1, 1, 1};
+      if(kernel_->hasManaged("cluster_dims")) { 
+        cluster_dims = kernel_->getManaged<std::tuple<int64_t, int64_t, int64_t>>(
               "cluster_dims");
+      } else if(kernel_->summary().has_cluster_reduction) {
+        cluster_dims = {kernel_->summary().blocks_per_cluster, 1, 1};
+      }
       code_ << "__cluster_dims__(" << std::get<0>(cluster_dims) << ", "
             << std::get<1>(cluster_dims) << ", " << std::get<2>(cluster_dims)
             << ") ";
@@ -1877,18 +1881,19 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
   // domain parallelized by BIDx must be static
   NVF_ERROR(par_domains.count(ParallelType::BIDx)== 1 && par_domains.at(ParallelType::BIDx)->isReduction() && par_domains.at(ParallelType::BIDx)->extent()->isConst(), "BIDx must be static and used in cluster reduction.");
   NVF_ERROR(par_domains.count(ParallelType::TIDx)== 1 && par_domains.at(ParallelType::TIDx)->isReduction() && par_domains.at(ParallelType::TIDx)->hasPaddingToMultipleOfWarp(), "TIDx must be padded to multiple of warp size and used in cluster reduction.");
-  int64_t n_bdimx = par_domains.at(ParallelType::BIDx)->extent()->value().as<int64_t>();
+  int64_t blocks_per_cluster = par_domains.at(ParallelType::BIDx)->extent()->value().as<int64_t>();
+  int64_t warps_per_block = lparams_.bdimx() / 32;
 
   const auto data_type = output->dtype();
 
   ArgumentBuilder template_args;
-  template_args.arg(n_bdimx);
+  template_args.arg(blocks_per_cluster);
+  template_args.arg(warps_per_block);
 
   ArgumentBuilder func_args;
   func_args.arg(gen(output));
   func_args.arg(gen(input));
   func_args.arg(genReductionOp(reduction_op_type, output->dtype()));
-  func_args.arg(genStaticCast(genPtrType(data_type), "shared_mem"));
 
   indent() << genCall("cluster::clusterReduce", template_args, func_args) << ";\n";
 }

@@ -2017,7 +2017,9 @@ TEST_F(PersistentBufferTest, clusterReduction) {
   auto unscheduled_fusion_copy = fusion;
 
   auto options = at::TensorOptions().dtype(at::kBFloat16).device(at::kCUDA, 0);
-  auto t0 = at::randn({x, y}, options);
+  // fix random seed
+  at::manual_seed(0);
+  auto t0 = at::randn({x, y}, options).clamp(-2, 2);
   SchedulerRuntimeInfo runtime_info(fusion_ptr.get(), {t0});
   auto scheduler =
       SchedulerEntry::makeSchedulerInstance(SchedulerType::InnerPersistent);
@@ -2029,12 +2031,11 @@ TEST_F(PersistentBufferTest, clusterReduction) {
   rparams->grid_dim_inner_reduction = ParallelType::BIDx;
   rparams->grid_dim_iter_dom = ParallelType::BIDy;
   auto gdimx = 2;
-  auto max_gdimy = deviceSMCount() / gdimx;
-  rparams->split_grid_dim_iter_dom_inner = max_gdimy < x;
+  int bdimx = 256;
+  rparams->batches_per_block_inner_reduction = y/8/gdimx / bdimx;
   rparams->lparams = LaunchParams(
       gdimx,
-      rparams->split_grid_dim_iter_dom_inner ? max_gdimy
-                                              : LaunchParams::UNINITIALIZED_VAL,
+      LaunchParams::UNINITIALIZED_VAL,
       LaunchParams::UNINITIALIZED_VAL,
       LaunchParams::UNINITIALIZED_VAL,
       LaunchParams::UNINITIALIZED_VAL,

@@ -120,10 +120,10 @@ asm volatile("st.async.shared::cluster.mbarrier::complete_tx::bytes.f32 [%0], %1
 template<typename T, typename Func>
 __device__ __forceinline__ T warpReduce(T val, Func reduction_op) {
   T reduce_val = val;
-for (int offset = 16; offset > 0; offset /= 2) {
-  reduction_op(reduce_val, __shfl_xor_sync(0xffffffff, val, offset));
-}
-return reduce_val;
+  for (int offset = 16; offset > 0; offset /= 2) {
+    reduction_op(reduce_val, __shfl_xor_sync(0xffffffff, reduce_val, offset));
+  }
+  return reduce_val;
 }
 
 // Cluster reduction in x direction
@@ -135,18 +135,18 @@ return reduce_val;
 // 1. Each warp does a warp reduction
 // 2. All warps async store reduction results to its and clustered CTA's shared memories
 // 3. All warps read from its CTA's shared memory and do a warp reduction
-template<int CLUSTER_SIZE, typename T, typename Func>
-__device__ __forceinline__ void clusterReduce(T& res, T inp, Func reduction_op, T* reduction_buffer)
+template<int CLUSTER_SIZE, int WARPS_PER_BLOCK, typename T, typename Func>
+__device__ __forceinline__ void clusterReduce(T& res, T inp, Func reduction_op)
 {
 // assume only cluster in x direction
 uint32_t my_block_rank = blockIdx.x;
-const int warps_per_block = blockDim.x / 32;
 uint32_t lane_idx = threadIdx.x % 32;
 uint32_t warp_idx = threadIdx.x / 32;
 
 // Initialize barrier and buffers
 // barrier for writing to distributed shared memory using st.async
-__shared__ uint64_t barrier_storage;
+__shared__ alignas(128) uint64_t barrier_storage;
+__shared__ alignas(128) T reduction_buffer[CLUSTER_SIZE * WARPS_PER_BLOCK];
 uint32_t barrier_smem_addr = toSmem(&barrier_storage);
 if (threadIdx.x == 0) {
   mbarrier::init(barrier_smem_addr, 1);
@@ -161,15 +161,15 @@ T warp_sum = warpReduce(thread_val, reduction_op);
 
 // 2. All warps store their results to distributed shared memory
 // Each warp uses N threads to write to N CTAs, e.g. thread-i write to CTA-i
-// Buffer layout: reduction_buffer[CLUSTER_SIZE][warps_per_block]
+// Buffer layout: reduction_buffer[CLUSTER_SIZE][WARPS_PER_BLOCK]
 uint64_t arrival_token;
 if (threadIdx.x == 0) {
-  uint32_t expected_bytes = warps_per_block * CLUSTER_SIZE * sizeof(T);
+  uint32_t expected_bytes = WARPS_PER_BLOCK * CLUSTER_SIZE * sizeof(T);
   arrival_token = mbarrier::arriveExpectTX(barrier_smem_addr, expected_bytes);
 }
 if (lane_idx < CLUSTER_SIZE) {
   uint32_t peer_cta_rank_in_cluster = lane_idx;
-  uint32_t buffer_offset = my_block_rank * warps_per_block + warp_idx;
+  uint32_t buffer_offset = my_block_rank * WARPS_PER_BLOCK + warp_idx;
   uint32_t buffer_addr = toSmem(&reduction_buffer[buffer_offset]);
   storeSharedRemote<T>(
     warp_sum,
@@ -183,11 +183,15 @@ mbarrier::wait(barrier_smem_addr, arrival_token);
 // 3. Each CTA has a copy of the warp reduction results from all warps in the cluster
 //    Finish reduction with a warp reduction
 T block_reduce_val = reduction_buffer[lane_idx];
-int num_iter = (warps_per_block * CLUSTER_SIZE + 31) / 32;
-for(int i = 0; i < num_iter; i++){
-  int idx = lane_idx + i * 32;
-  if(idx < CLUSTER_SIZE * warps_per_block){
-    block_reduce_val += reduction_buffer[idx];
+constexpr int num_iter = (WARPS_PER_BLOCK * CLUSTER_SIZE + 31) / 32;
+if constexpr(num_iter > 1){
+  for(int i = 1; i < num_iter; i++){
+    int idx = lane_idx + i * 32;
+    if(idx < CLUSTER_SIZE * WARPS_PER_BLOCK){
+      block_reduce_val += reduction_buffer[idx];
+    } else {
+      break;
+    }
   }
 }
 // 4. Each CTA performs a warp reduction on its shared memory

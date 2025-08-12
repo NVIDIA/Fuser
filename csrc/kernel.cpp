@@ -191,8 +191,18 @@ class KernelIrScanner : private IrVisitor {
   void handle(ReductionOp* rop) final {
     checkWarpReduction(rop->out(), rop->in());
     auto out = ir_utils::getTvOutput(rop);
-    summary_.has_cluster_reduction =
-        summary_.has_cluster_reduction || out->domain()->hasClusterReduction();
+    if(out->domain()->hasClusterReduction()){
+      int64_t blocks_per_cluster = 1;
+      auto id = std::find_if(
+        out->getLoopDomain().begin(), out->getLoopDomain().end(), [](IterDomain* id) {
+          return id->isReduction() && id->isBlockDim() && id->hasClusteredBlocks();
+        });
+      if(id != out->getLoopDomain().end()){
+        blocks_per_cluster = (*id)->extent()->value().as<int64_t>();
+        summary_.blocks_per_cluster = blocks_per_cluster;
+        summary_.has_cluster_reduction = true;
+      }
+    }
   }
 
   void handle(GridReduction* grid_reduction) final {
