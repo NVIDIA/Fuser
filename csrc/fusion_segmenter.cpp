@@ -4586,7 +4586,8 @@ void SegmentCandidateFinder::privatizeOps() {
   return;
 }
 
-void SegmentCandidateFinder::revertPrivatizedOps(SegmentedGroup* group) {
+std::unordered_set<Expr*> SegmentCandidateFinder::revertPrivatizedOps(
+    SegmentedGroup* group, std::unordered_map<Expr*, std::unordered_set<Expr*>>& remaining_privatized_ops) {
   // If a given consumer edge is a duplicate of another edge of the
   // same producer group, remove the given edge from both the producer
   // and consumer groups.
@@ -4639,123 +4640,114 @@ void SegmentCandidateFinder::revertPrivatizedOps(SegmentedGroup* group) {
     }
   };
 
-  bool reverted_privatized_op = true;
-  std::unordered_set<Expr*> processed;
+  std::unordered_set<Expr*> reverted = {};
 
-  auto revert_privatized_exprs =
-      [group,
-       &reverted_privatized_op,
-       &processed,
-       maybe_replace,
-       maybe_deduplicate_edge](
-          std::unordered_map<Expr*, std::unordered_set<Expr*>>&
-              privatized_ops) {
-        reverted_privatized_op = false;
-        for (const auto& [original, clones] : privatized_ops) {
-          std::vector<Expr*> expr_in_group;
-          Val* val_to_keep = nullptr;
-          for (auto op : get_upcasts_and_squeezes(group)) {
-            if (op != original && !clones.count(op)) {
-              continue;
-            }
+  for (const auto& [original, clones] : remaining_privatized_ops) {
+    std::vector<Expr*> expr_in_group;
+    Val* val_to_keep = nullptr;
+    for (auto op : get_upcasts_and_squeezes(group)) {
+      if (op != original && !clones.count(op)) {
+        continue;
+      }
 
-            expr_in_group.push_back(op);
+      expr_in_group.push_back(op);
 
-            auto out_tv = op->output(0);
+      auto out_tv = op->output(0);
 
-            // Prefer the original upcast/squeeze if found
-            if (val_to_keep == nullptr || out_tv == original->output(0)) {
-              val_to_keep = out_tv;
-            }
+      // Prefer the original upcast/squeeze if found
+      if (val_to_keep == nullptr || out_tv == original->output(0)) {
+        val_to_keep = out_tv;
+      }
+    }
+
+    if (expr_in_group.size() < 2) {
+      continue;
+    }
+
+    for (auto op : expr_in_group) {
+      Val* out_val_to_replace = op->output(0);
+      if (out_val_to_replace == val_to_keep) {
+        // Keep this op as is since its output replaces the other
+        // upcast outputs
+        continue;
+      }
+
+      NVF_ERROR(
+          out_val_to_replace->uses().size() == 1,
+          "Multiple use of replicated upcast tensor found: ",
+          toDelimitedString(out_val_to_replace->uses()));
+
+      auto use_of_out_val_to_replace = out_val_to_replace->uses().at(0);
+
+      auto updated_expr = ir_utils::replaceValInExprInputs(
+          use_of_out_val_to_replace, out_val_to_replace, val_to_keep);
+
+      // In the code above, we keep the original and revert the clone(s).
+      NVF_ERROR(
+          remaining_privatized_ops.find(use_of_out_val_to_replace) ==
+              remaining_privatized_ops.end(),
+          "we should not be updating a key in the map");
+      update_privatized_ops(
+          remaining_privatized_ops, use_of_out_val_to_replace, updated_expr);
+
+      // Replace use_of_out_val_to_replace with
+      // updated_expr. use_of_out_val_to_replace must be in the
+      // same group of its consumer groups
+      if (!maybe_replace(group, use_of_out_val_to_replace, updated_expr)) {
+        for (auto consumer_edge : group->consumer_edges) {
+          if (maybe_replace(
+                  consumer_edge->to, use_of_out_val_to_replace, updated_expr)) {
+            break;
           }
-
-          if (expr_in_group.size() < 2) {
-            continue;
-          }
-
-          for (auto op : expr_in_group) {
-            Val* out_val_to_replace = op->output(0);
-            if (out_val_to_replace == val_to_keep) {
-              // Keep this op as is since its output replaces the other
-              // upcast outputs
-              continue;
-            }
-
-            NVF_ERROR(
-                out_val_to_replace->uses().size() == 1,
-                "Multiple use of replicated upcast tensor found: ",
-                toDelimitedString(out_val_to_replace->uses()));
-
-            auto use_of_out_val_to_replace = out_val_to_replace->uses().at(0);
-
-            auto updated_expr = ir_utils::replaceValInExprInputs(
-                use_of_out_val_to_replace, out_val_to_replace, val_to_keep);
-
-            // In the code above, we keep the original and revert the clone(s).
-            NVF_ERROR(
-                privatized_ops.find(use_of_out_val_to_replace) ==
-                    privatized_ops.end(),
-                "we should not be updating a key in the map");
-            update_privatized_ops(
-                privatized_ops, use_of_out_val_to_replace, updated_expr);
-
-            // Replace use_of_out_val_to_replace with
-            // updated_expr. use_of_out_val_to_replace must be in the
-            // same group of its consumer groups
-            if (!maybe_replace(
-                    group, use_of_out_val_to_replace, updated_expr)) {
-              for (auto consumer_edge : group->consumer_edges) {
-                if (maybe_replace(
-                        consumer_edge->to,
-                        use_of_out_val_to_replace,
-                        updated_expr)) {
-                  break;
-                }
-              }
-            }
-
-            // Update a consumer edge if its val is
-            // out_val_to_replace. Again, there must be at most one such
-            // edge.
-            SegmentedEdge* consumer_edge_to_update = nullptr;
-            for (auto consumer_edge : group->consumer_edges) {
-              if (consumer_edge->val == out_val_to_replace) {
-                NVF_ERROR(
-                    consumer_edge_to_update == nullptr,
-                    "Multiple consumer edges using ",
-                    out_val_to_replace->toString(),
-                    " found");
-                consumer_edge->val = val_to_keep;
-                consumer_edge_to_update = consumer_edge;
-              }
-            }
-
-            // Now that the consumer edge is updated, it may be a duplicate
-            // of an exising edge. Remove if so.
-            if (consumer_edge_to_update != nullptr) {
-              maybe_deduplicate_edge(consumer_edge_to_update);
-            }
-
-            std::erase(group->exprs_, op);
-
-            reverted_privatized_op = true;
-
-            // Note that it should not be necessary to do anything with
-            // group->output_vals since the inserted upcast ops should never
-            // produce fusion outputs.
-          }
-          processed.insert(original);
         }
-      };
+      }
 
+      // Update a consumer edge if its val is
+      // out_val_to_replace. Again, there must be at most one such
+      // edge.
+      SegmentedEdge* consumer_edge_to_update = nullptr;
+      for (auto consumer_edge : group->consumer_edges) {
+        if (consumer_edge->val == out_val_to_replace) {
+          NVF_ERROR(
+              consumer_edge_to_update == nullptr,
+              "Multiple consumer edges using ",
+              out_val_to_replace->toString(),
+              " found");
+          consumer_edge->val = val_to_keep;
+          consumer_edge_to_update = consumer_edge;
+        }
+      }
+
+      // Now that the consumer edge is updated, it may be a duplicate
+      // of an exising edge. Remove if so.
+      if (consumer_edge_to_update != nullptr) {
+        maybe_deduplicate_edge(consumer_edge_to_update);
+      }
+
+      std::erase(group->exprs_, op);
+
+      // Note that it should not be necessary to do anything with
+      // group->output_vals since the inserted upcast ops should never
+      // produce fusion outputs.
+    }
+    reverted.insert(original);
+  }
+
+  return reverted;
+   
+}
+
+void SegmentCandidateFinder::iterativelyRevertPrivatizedOps(SegmentedGroup* group) {
+  bool reverted_privatized_op = true;
   auto remaining_privatized_ops = privatized_ops_;
   while (reverted_privatized_op && !remaining_privatized_ops.empty()) {
+    // Revert privatized upcasts
+    auto reverted = revertPrivatizedOps(group, remaining_privatized_ops);
     // remove exprs that have been processed.
-    for (const auto& key : processed) {
+    for (const auto& key : reverted) {
       remaining_privatized_ops.erase(key);
     }
-    // Revert privatized upcasts
-    revert_privatized_exprs(remaining_privatized_ops);
+    reverted_privatized_op = !reverted.empty();
   };
 }
 
@@ -5226,7 +5218,7 @@ void SegmentCandidateFinder::finalize() {
   }
 
   for (auto group : segmented_fusion_->groups()) {
-    revertPrivatizedOps(group);
+    iterativelyRevertPrivatizedOps(group);
   }
 
   // Finalize each group, fill in the missing inputs, i.e. tensor dims.
