@@ -1806,6 +1806,113 @@ class TestRepro(NVFuserTest):
         ]
         fd.execute(inputs)
 
+    # scalar input, see simplified version at CombinedSchedulerTest.ScalarInput
+    # found in litgpt Gemma-7b model
+    def test_ws_tma_normalization6(self):
+        def nvfuser_fusion_id10(fd: FusionDefinition) -> None:
+            T0 = fd.define_tensor(
+                shape=[3072],
+                contiguity=[True],
+                dtype=DataType.BFloat16,
+                is_cpu=False,
+                stride_order=[0],
+            )
+            T1 = fd.define_tensor(
+                shape=[1, 4096, 3072],
+                contiguity=[None, True, True],
+                dtype=DataType.BFloat16,
+                is_cpu=False,
+                stride_order=[2, 1, 0],
+            )
+            T2 = fd.define_tensor(
+                shape=[1, 4096, 3072],
+                contiguity=[None, True, True],
+                dtype=DataType.BFloat16,
+                is_cpu=False,
+                stride_order=[2, 1, 0],
+            )
+            T3 = fd.define_tensor(
+                shape=[1, 4096, 1],
+                contiguity=[None, True, None],
+                dtype=DataType.Float,
+                is_cpu=False,
+                stride_order=[2, 1, 0],
+            )
+            T4 = fd.define_tensor(
+                shape=[1, 4096, 3072],
+                contiguity=[None, True, True],
+                dtype=DataType.BFloat16,
+                is_cpu=False,
+                stride_order=[2, 1, 0],
+            )
+            T5 = fd.define_tensor(
+                shape=[], contiguity=[], dtype=DataType.Float, is_cpu=True
+            )
+            T6 = fd.ops.cast(T0, dtype=DataType.Float)
+            S7 = fd.define_scalar(1.00000, dtype=DataType.Double)
+            T8 = fd.ops.add(S7, T6)
+            T9 = fd.ops.cast(T1, dtype=DataType.Float)
+            T14 = fd.ops.broadcast_in_dim(T8, shape=[1, 4096, 3072], broadcast_dims=[2])
+            T15 = fd.ops.mul(T14, T9)
+            T16 = fd.ops.cast(T2, dtype=DataType.Float)
+            T17 = fd.ops.mul(T16, T15)
+            T18 = fd.ops.sum(T17, dims=[0, 2], keepdim=False, dtype=DataType.Null)
+            T23 = fd.ops.broadcast_in_dim(T18, shape=[1, 4096, 1], broadcast_dims=[1])
+            S24 = fd.define_scalar(3.00000, dtype=DataType.Double)
+            T25 = fd.ops.pow(T3, S24)
+            S26 = fd.define_scalar(-0.500000, dtype=DataType.Double)
+            T27 = fd.ops.mul(S26, T23)
+            T28 = fd.ops.mul(T27, T25)
+            S29 = fd.define_scalar(3072.00, dtype=DataType.Double)
+            S30 = fd.ops.reciprocal(S29)
+            T31 = fd.ops.mul(T28, S30)
+            T32 = fd.ops.sum(T31, dims=[0, 2], keepdim=False, dtype=DataType.Null)
+            T36 = fd.ops.broadcast_in_dim(T32, shape=[1, 4096], broadcast_dims=[1])
+            T41 = fd.ops.broadcast_in_dim(
+                T36, shape=[1, 4096, 1], broadcast_dims=[0, 1]
+            )
+            T46 = fd.ops.broadcast_in_dim(
+                T41, shape=[1, 4096, 3072], broadcast_dims=[0, 1, 2]
+            )
+            T51 = fd.ops.broadcast_in_dim(
+                T3, shape=[1, 4096, 3072], broadcast_dims=[0, 1, 2]
+            )
+            T52 = fd.ops.mul(T16, T46)
+            T53 = fd.ops.mul(T51, T15)
+            T54 = fd.ops.add(T53, T52)
+            T55 = fd.ops.add(T54, T52)
+            T56 = fd.ops.cast(T4, dtype=DataType.Float)
+            T57 = fd.ops.mul(T16, T51)
+            T58 = fd.ops.add(T56, T55)
+            T59 = fd.ops.mul(T57, T9)
+            T60 = fd.ops.sum(T59, dims=[0, 1], keepdim=False, dtype=DataType.Null)
+            T61 = fd.ops.cast(T60, dtype=DataType.BFloat16)
+            T62 = fd.ops.mul(T5, T58)
+            T63 = fd.ops.cast(T62, dtype=DataType.BFloat16)
+            fd.add_output(T61)
+            fd.add_output(T63)
+
+        with FusionDefinition() as fd:
+            nvfuser_fusion_id10(fd)
+
+        inputs = [
+            torch.testing.make_tensor((3072,), dtype=torch.bfloat16, device="cuda:0"),
+            torch.testing.make_tensor(
+                (1, 4096, 3072), dtype=torch.bfloat16, device="cuda:0"
+            ),
+            torch.testing.make_tensor(
+                (1, 4096, 3072), dtype=torch.bfloat16, device="cuda:0"
+            ),
+            torch.testing.make_tensor(
+                (1, 4096, 1), dtype=torch.float32, device="cuda:0"
+            ),
+            torch.testing.make_tensor(
+                (1, 4096, 3072), dtype=torch.bfloat16, device="cuda:0"
+            ),
+            torch.testing.make_tensor((), dtype=torch.float32, device="cpu"),
+        ]
+        fd.execute(inputs)
+
     # https://github.com/NVIDIA/Fuser/issues/4960
     def test_domain_map_hang(self):
         import torch
