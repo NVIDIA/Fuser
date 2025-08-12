@@ -1625,7 +1625,9 @@ void schedulePersistentKernel(
   if (rparams->vectorize_casts) {
     for (auto tv : fusion->allTvs()) {
       if (auto uop = dynamic_cast<UnaryOp*>(tv->definition())) {
-        if (uop->getUnaryOpType() == UnaryOpType::Cast) {
+        if (uop->getUnaryOpType() == UnaryOpType::Cast &&
+            (dataTypeSizeBit(tv->dtype()) < 8 ||
+             dataTypeSizeBit(uop->in()->dtype()) < 8)) {
           unroll_vectorizable_cached_and_cast_tvs.emplace(tv);
         }
       }
