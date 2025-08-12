@@ -126,9 +126,9 @@ if(BUILD_CUTLASS)
 
     set(NVFUSER_CUTLASS_SRCS)
     list(APPEND NVFUSER_CUTLASS_SRCS
-	${NVFUSER_CUTLASS}/nvfp4_scaled_mm.cu
+	      ${NVFUSER_CUTLASS}/nvfp4_scaled_mm.cu
         ${NVFUSER_CUTLASS}/cutlass_utils.cpp
-        )
+    )
     add_library(nvf_cutlass SHARED ${NVFUSER_CUTLASS_SRCS})
 
     target_include_directories(nvf_cutlass PRIVATE ${repo-cutlass_SOURCE_DIR}/include)
