@@ -91,6 +91,53 @@ bool allowIncoherentDependency(
   return false;
 }
 
+// Check if an iter domain of a tensor is a subject of a scatter
+// op. Specifically, if the given expr is a scatter op using the given
+// tensor as its input, returns true if the given iter domain is
+// derived from the scattered logical iter domain.
+bool isConsumedByScatter(TensorView* tv, IterDomain* id, Expr* consumer_expr) {
+  auto scatter = dynamic_cast<ScatterOp*>(consumer_expr);
+  if (scatter == nullptr || scatter->in() != tv) {
+    return false;
+  }
+
+  auto logical_scatter_dim =
+      TensorDomain::noReductions(tv->getLogicalDomain()).at(scatter->dim());
+  return DependencyCheck::isDependencyOf(logical_scatter_dim, id);
+}
+
+// Check if an iter domain of a tensor is an output of a scatter
+// op. All non-scattered IDs should be derived from the non-scattered
+// logical IDs. If the given ID is not found in the non-scattered ID
+// set, it must be produced by the scatter. Note that we can't just do
+// isDependencyOf like isConsumedByScatter since the given ID has no
+// dependency with any of the logical IDs of the given tensor since
+// the loop domain is set by the index tensor.
+bool isProducedByScatter(TensorView* tv, IterDomain* id) {
+  auto scatter = dynamic_cast<ScatterOp*>(tv->definition());
+  if (scatter == nullptr) {
+    return false;
+  }
+
+  auto logical_scatter_dim =
+      TensorDomain::noReductions(tv->getLogicalDomain()).at(scatter->dim());
+
+  std::unordered_set<Val*> non_scatter_logical_ids;
+  std::ranges::copy_if(
+      tv->getLogicalDomain(),
+      std::inserter(non_scatter_logical_ids, non_scatter_logical_ids.end()),
+      [&](IterDomain* logical_id) {
+        return logical_id != logical_scatter_dim;
+      });
+
+  auto all_non_scatter_ids = DependencyCheck::getAllValsBetween(
+      non_scatter_logical_ids,
+      {tv->getLoopDomain().begin(), tv->getLoopDomain().end()});
+
+  return std::ranges::find(all_non_scatter_ids, id) ==
+      all_non_scatter_ids.end();
+}
+
 } // namespace
 
 SyncMap::SyncMap(Fusion* fusion) {
@@ -370,14 +417,17 @@ SyncMap::SyncMap(Fusion* fusion) {
             // are mapped by the best effort replay. (See
             // NVFuserTest.RAWSync for a concrete repro).
 
-            // Case 1
+            // Case 1. Note that indexing through scatter needs to be
+            // excluded due to its indirect indexing.
             const auto& id_model = GpuLower::current()->idModel();
             auto producer_loop_id = getLoopPromotion(p_id, id_model);
             auto consumer_loop_id = getLoopPromotion(c_id, id_model);
             const auto& indexing_traveral_graph =
                 id_model.idGraph(TensorIndexer::traversalGraphType());
             if (indexing_traveral_graph.disjointValSets().strictAreMapped(
-                    producer_loop_id, consumer_loop_id)) {
+                    producer_loop_id, consumer_loop_id) &&
+                !isConsumedByScatter(producer, p_id, expr) &&
+                !isProducedByScatter(producer, p_id)) {
               continue;
             }
 
