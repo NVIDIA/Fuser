@@ -7,12 +7,20 @@
 // clang-format on
 
 #include <debug.h>
+#include <device_lower/utils.h>
 #include <exceptions.h>
 #include <instrumentation.h>
+#include <ir/utils.h>
 #include <iter_visitor.h>
 #include <options.h>
 #include <scheduler/greedy.h>
 #include <scheduler/runtime_info.h>
+#include <scheduler/tools/maxinfo_propagator.h>
+#include <scheduler/utils.h>
+#include <transform_replay.h>
+
+#include <ranges>
+#include <vector>
 
 namespace nvfuser {
 
@@ -75,17 +83,157 @@ class ConstrainedOpScheduler : private IterVisitor {
 
     // Merge the remaining IDs
     if (std::ssize(out_tv->getLoopDomain()) > 2) {
-      out_tv->flatten(0, std::ssize(out_tv->getLoopDomain()) - 1);
+      out_tv->flatten(0, std::ssize(out_tv->getLoopDomain()) - 2);
     }
 
     NVF_ERROR_LE(std::ssize(out_tv->getLoopDomain()), 2);
-    NVF_ERROR_EQ(out_tv->axis(-1)->getParallelType(), ParallelType::TIDx);
+    NVF_ERROR_EQ(
+        out_tv->axis(-1)->getParallelType(),
+        ParallelType::TIDx,
+        "Unexpected loop domain: ",
+        out_tv->toString());
 
     if (std::ssize(out_tv->getLoopDomain()) == 2) {
       out_tv->axis(0)->parallelize(ParallelType::BIDx);
     }
   }
 };
+
+std::unordered_map<TensorView*, TensorView*> partitionFusion(
+    Fusion* fusion,
+    const std::unordered_set<TensorView*>& constrained_tvs) {
+  const auto all_exprs = fusion->exprs();
+  const auto all_tvs = fusion->allTvs();
+
+  std::unordered_map<TensorView*, TensorView*> tv_to_constrained_tv_map;
+
+  for (auto tv : constrained_tvs) {
+    tv_to_constrained_tv_map.emplace(tv, tv);
+  }
+
+  auto propagateThroughExpr = [&](Expr* expr, Direction dir) -> bool {
+    if (!ir_utils::isTvOp(expr)) {
+      return false;
+    }
+
+    std::cerr << "Prop (" << dir << "): " << expr->toString();
+
+    // The reference of each output may not be the same. Use the first
+    // output that has a reference. Conflicting outputs will be
+    // resolved later.
+    TensorView* src_ref = nullptr;
+    const auto& src_vals =
+        dir == Direction::Forward ? expr->inputs() : expr->outputs();
+    const auto& dst_vals =
+        dir == Direction::Forward ? expr->outputs() : expr->inputs();
+
+    auto src_with_ref_it = std::ranges::find_if(src_vals, [&](Val* src) {
+      return src->isA<TensorView>() &&
+          tv_to_constrained_tv_map.contains(src->as<TensorView>());
+    });
+    if (src_with_ref_it != src_vals.end()) {
+      src_ref =
+          tv_to_constrained_tv_map.at((*src_with_ref_it)->as<TensorView>());
+    }
+
+    bool updated = false;
+
+    for (auto dst_tv : ir_utils::filterByType<TensorView>(dst_vals)) {
+      // If already set, don't overwrite. If not, propagate the output reference
+      // if found.
+      if (tv_to_constrained_tv_map.contains(dst_tv)) {
+        continue;
+      } else if (src_ref != nullptr) {
+        NVF_ERROR(tv_to_constrained_tv_map.emplace(dst_tv, src_ref).second);
+        updated = true;
+      }
+    }
+
+    return updated;
+  };
+
+  auto propagate_backward = [&]() -> bool {
+    bool updated = false;
+    for (auto expr : all_exprs | std::views::reverse) {
+      if (tv_to_constrained_tv_map.size() == all_tvs.size()) {
+        return updated;
+      }
+      if (propagateThroughExpr(expr, Direction::Backward)) {
+        updated = true;
+      }
+    }
+    return updated;
+  };
+
+  auto propagate_forward = [&]() -> bool {
+    if (tv_to_constrained_tv_map.size() == all_tvs.size()) {
+      return false;
+    }
+    for (auto expr : all_exprs) {
+      if (propagateThroughExpr(expr, Direction::Forward)) {
+        return true;
+      }
+    }
+    return false;
+  };
+
+  // Propagates constrained tv grouping from outputs to inputs
+  propagate_backward();
+
+  // Initial back prop done
+  {
+    std::cerr << "Initial backprop done\n";
+    for (const auto& [tv, ref] : tv_to_constrained_tv_map) {
+      std::cerr << tv->toString() << " -> " << ref->toString() << "\n";
+    }
+  }
+
+  while (tv_to_constrained_tv_map.size() != all_tvs.size()) {
+    std::cerr << "Num tvs total: " << all_tvs.size()
+              << ", num entries: " << tv_to_constrained_tv_map.size() << "\n";
+
+    std::vector<TensorView*> ungrouped_tvs;
+    std::ranges::copy_if(
+        all_tvs, std::back_inserter(ungrouped_tvs), [&](auto tv) {
+          return !tv_to_constrained_tv_map.contains(tv);
+        });
+    std::cerr << "Still ungrouped: " << toDelimitedString(ungrouped_tvs)
+              << "\n";
+
+    // Prioritize backprop
+    if (propagate_backward()) {
+      continue;
+    }
+
+    if (propagate_forward()) {
+      continue;
+    }
+
+    // No progress made
+    break;
+  }
+
+  std::cerr << "Final grouping\n";
+  for (auto tv : all_tvs) {
+    if (tv_to_constrained_tv_map.contains(tv)) {
+      std::cerr << tv->toString() << " -> "
+                << tv_to_constrained_tv_map.at(tv)->toString() << "\n";
+    }
+  }
+
+  if (tv_to_constrained_tv_map.size() != all_tvs.size()) {
+    std::vector<TensorView*> ungrouped_tvs;
+    std::ranges::copy_if(
+        all_tvs, std::back_inserter(ungrouped_tvs), [&](auto tv) {
+          return !tv_to_constrained_tv_map.contains(tv);
+        });
+    NVF_THROW(
+        "Fail to group the following tensors: ",
+        toDelimitedString(ungrouped_tvs));
+  }
+
+  return tv_to_constrained_tv_map;
+}
 
 } // namespace
 
@@ -119,7 +267,43 @@ void GreedyScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
 
   std::cerr << "Constrained ops: " << toDelimitedString(constrained_exprs);
 
+  std::vector<TensorView*> constrained_out_tvs;
+  constrained_out_tvs.reserve(constrained_exprs.size());
+  std::ranges::transform(
+      constrained_exprs,
+      std::back_inserter(constrained_out_tvs),
+      [](const Expr* expr) { return ir_utils::getTvOutput(expr); });
+
+  std::cerr << "Constrained tvs: " << toDelimitedString(constrained_out_tvs)
+            << "\n";
+
+  auto tv_to_ref_map = partitionFusion(
+      fusion, {constrained_out_tvs.begin(), constrained_out_tvs.end()});
+
   ConstrainedOpScheduler::run(fusion);
+
+  fusion->print();
+
+  for (auto constrained_tv : constrained_out_tvs) {
+    std::unordered_set<TensorView*> tvs_to_transform;
+    for (const auto& [tv, ref] : tv_to_ref_map) {
+      if (ref == constrained_tv) {
+        tvs_to_transform.insert(tv);
+      }
+    }
+
+    std::cerr << "Scheduling " << toDelimitedString(tvs_to_transform) << "\n";
+
+    // constrained_tv must be already scheduled at this point
+
+    SetSelector selector(tvs_to_transform);
+    MaxLogicalDomainInfoSpanningTree tree(constrained_tv, &selector);
+    TransformPropagator tp(constrained_tv);
+    tree.traverse(&tp);
+
+    scheduler_utils::parallelizeAllLike(
+        constrained_tv, -1, {tvs_to_transform.begin(), tvs_to_transform.end()});
+  }
 
   fusion->print();
 }
