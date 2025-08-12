@@ -757,15 +757,12 @@ TensorView* slice(
     const std::vector<Slice>& ranges,
     bool manual_normalization) {
   const auto inp_dom = TensorDomain::noReductions(inp->getLogicalDomain());
-  const int64_t ndims = static_cast<int64_t>(inp_dom.size());
+  const int64_t ndims = std::ssize(inp_dom);
 
-  NVF_CHECK(
-      ndims == static_cast<int64_t>(ranges.size()),
-      "The range vector must have the same number of Slice descriptors. "
-      "Given: ",
-      ranges.size(),
-      ", Expected: ",
-      ndims);
+  NVF_CHECK_EQ(
+      ndims,
+      std::ssize(ranges),
+      "The range vector must have the same number of Slice descriptors.")
 
   ExpressionEvaluator expr_eval;
 
@@ -872,7 +869,7 @@ TensorView* slice(
     return range;
   };
 
-  for (auto& range : ranges) {
+  for (const Slice& range : ranges) {
     // Step not supported yet
     NVF_CHECK(
         range.step == nullptr || range.step->isOneInt(),
@@ -880,20 +877,23 @@ TensorView* slice(
         range.step->toString());
   }
 
-  std::vector<IterDomain*> root_ids(ndims);
-  std::vector<IterDomain*> logical_ids(ndims);
-  std::vector<Slice> normalized_ranges(ndims);
+  std::vector<Slice> normalized_ranges;
+  normalized_ranges.reserve(ndims);
+  std::vector<IterDomain*> root_ids;
+  root_ids.reserve(ndims);
+  std::vector<IterDomain*> logical_ids;
+  logical_ids.reserve(ndims);
 
   bool needs_real_slicing = false;
-  for (const auto idx : arange(ndims)) {
-    IterDomain* inp_root_id = inp_dom[idx];
+  for (const auto& [inp_root_id, range] : zip(inp_dom, ranges)) {
     Val* inp_root_size = inp_root_id->getMaybeExpandedExtent();
-    Slice range = normalize_slice_range(ranges.at(idx), inp_root_size);
-    normalized_ranges.at(idx) = range;
+    Slice normalized_range = normalize_slice_range(range, inp_root_size);
+    normalized_ranges.push_back(normalized_range);
     IterDomain* out_root_id = nullptr;
     IterDomain* out_rf_id = nullptr;
-    if (range.start->isZeroInt() && range.stop->sameAs(inp_root_size) &&
-        range.step->isOneInt()) {
+    if (normalized_range.start->isZeroInt() &&
+        normalized_range.stop->sameAs(inp_root_size) &&
+        normalized_range.step->isOneInt()) {
       // This dim doesn't need slicing
       out_root_id = inp_root_id->cloneWithoutRFactor();
       out_rf_id = out_root_id;
@@ -903,13 +903,13 @@ TensorView* slice(
           IterDomainBuilder(inp_root_id).is_rfactor_domain(true).build();
       out_rf_id = IterDomain::resize(
           out_root_id,
-          SimplifyingIrBuilder::negExpr(range.start),
-          SimplifyingIrBuilder::subExpr(range.stop, inp_root_size),
+          SimplifyingIrBuilder::negExpr(normalized_range.start),
+          SimplifyingIrBuilder::subExpr(normalized_range.stop, inp_root_size),
           true);
       needs_real_slicing = true;
     }
-    root_ids.at(idx) = out_root_id;
-    logical_ids.at(idx) = out_rf_id;
+    root_ids.push_back(out_root_id);
+    logical_ids.push_back(out_rf_id);
   }
 
   // If slicing isn't actually needed, just return a copy
