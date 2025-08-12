@@ -91,6 +91,14 @@ Create a new DeviceMesh.
           [](const DeviceMesh& self) -> int64_t { return self.size(); },
           R"(
 Returns the number of devices in the mesh.
+)")
+      .def_property_readonly(
+          "shape",
+          [](const DeviceMesh& self) -> at::IntArrayRef {
+            return self.shape();
+          },
+          R"(
+Returns the shape of the mesh.
 )");
 }
 

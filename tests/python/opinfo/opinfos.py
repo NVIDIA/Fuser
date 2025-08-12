@@ -994,6 +994,7 @@ var_mean_opinfo = OpInfo(
     error_input_generator=reduction_error_generator,
     reference=torch.var_mean,
     symbolic_parameter_list=(ArgumentType.Symbolic, ArgumentType.Constant),
+    supports_direct_bindings=True,
 )
 normalization_ops.append(var_mean_opinfo)
 

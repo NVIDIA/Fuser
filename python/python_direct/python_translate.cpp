@@ -382,19 +382,35 @@ class PythonPrinter {
 
 // PythonTranslator converts CPP Fusion to an equivalent python definition.
 //
-// How to add support for an expression not yet overriden by FusionTranslator?
+// How to add support for an expression not yet overriden by PythonTranslator?
 //  1. Create handle function for expression.
 //     a. void handle(const SomeOp* op) final
-//  2. Create output string for Statement.
-//  3. If input argument already exists, map expression's input values to
-//     their string names.
-//     a. map_val_to_name_.at(op->inputs(...))
-//  4. If input argument is a vector, use createVector function.
-//  5. If input argument is a scalar constant, use createScalar function.
-//  6. Get function name for operation.
-//  7. Add CPP Val and output string pair to map_val_to_name_.
-//  8. Create string for operation.
+//  2. Check if IR node pointer is not nullptr.
+//  3. Add output values for Expr node to visited_vals_.
+//  4. Create scalar input arguments. This step is for view and expand
+//     operations.
+//     a. TensorView input arguments are handled via DAG traversal.
+//  5. Use PythonPrinter to create string for operation.
 //     a. output = operation(inputs...)
+//  6. Use `PythonPrinter::generateOperation` if the operation only uses
+//     positional arguments. This is mainly used for unary and binary
+//     operations.
+//  7. Use `PythonPrinter::generateKwargsOperation` if the operation uses
+//     keyword arguments.
+//     a. If none of the keyword arguments have default arguments, create a
+//        static vector of strings.
+//     b. If some of the keyword arguments have default arguments, create a
+//        vector of KeywordArgument. The KeywordArgument struct hold default
+//        values for keyword arguments. Use `std::nullopt` for keyword
+//        arguments without default values.
+//
+// TODO: Python operations without a corresponding Fusion IR node require
+// pattern matching.
+//  1. Map a series of scalar values to `define_vector`
+//  2. Map Squeeze, Reduction, and Broadcast to a single reduction operation
+//     with keepdim argument.
+//  3. Map Broadcast and Expand to `broadcast_in_dim`
+//  4. var_mean
 class PythonTranslator : public OptInConstDispatch {
  public:
   // Returns a map from the values in the CPP fusion to its corresponding
@@ -828,12 +844,12 @@ class PythonTranslator : public OptInConstDispatch {
         : rop->out()->dtype();
     std::vector<int64_t> dims = getReductionAxes(rop->out()->as<TensorView>());
 
-    // TODO: keep_dim is always False in ReductionOp because a separate
-    // BroadcastOp node exists if keep_dim is True. Detect this pattern to
+    // TODO: keepdim is always False in ReductionOp because a separate
+    // BroadcastOp node exists if keepdim is True. Detect this pattern to
     // minify the python definition.
     static const auto default_args = std::make_tuple(
         KeywordArgument<decltype(dims)>{"dims", std::nullopt},
-        KeywordArgument<bool>{"keep_dim", false},
+        KeywordArgument<bool>{"keepdim", false},
         KeywordArgument<DataType>{"dtype", DataType::Null});
     printer_.generateKwargsOperation(
         "fd.ops." + nvfuser::python::toString(rop),
