@@ -107,9 +107,12 @@ bool isConsumedByScatter(TensorView* tv, IterDomain* id, Expr* consumer_expr) {
 }
 
 // Check if an iter domain of a tensor is an output of a scatter
-// op. In other words, return true if the given iter domain is part of
-// the loop domain of the logical iter domain that corresponds to the
-// scatter dimension.
+// op. All non-scattered IDs should be derived from the non-scattered
+// logical IDs. If the given ID is not found in the non-scattered ID
+// set, it must be produced by the scatter. Note that we can't just do
+// isDependencyOf like isConsumedByScatter since the given ID has no
+// dependency with any of the logical IDs of the given tensor since
+// the loop domain is set by the index tensor.
 bool isProducedByScatter(TensorView* tv, IterDomain* id) {
   auto scatter = dynamic_cast<ScatterOp*>(tv->definition());
   if (scatter == nullptr) {
@@ -118,7 +121,21 @@ bool isProducedByScatter(TensorView* tv, IterDomain* id) {
 
   auto logical_scatter_dim =
       TensorDomain::noReductions(tv->getLogicalDomain()).at(scatter->dim());
-  return DependencyCheck::isDependencyOf(logical_scatter_dim, id);
+
+  std::unordered_set<Val*> non_scatter_logical_ids;
+  std::ranges::copy_if(
+      tv->getLogicalDomain(),
+      std::inserter(non_scatter_logical_ids, non_scatter_logical_ids.end()),
+      [&](IterDomain* logical_id) {
+        return logical_id != logical_scatter_dim;
+      });
+
+  auto all_non_scatter_ids = DependencyCheck::getAllValsBetween(
+      non_scatter_logical_ids,
+      {tv->getLoopDomain().begin(), tv->getLoopDomain().end()});
+
+  return std::ranges::find(all_non_scatter_ids, id) ==
+      all_non_scatter_ids.end();
 }
 
 } // namespace
