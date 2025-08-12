@@ -143,10 +143,18 @@ float CutlassCompiledKernel::run(
   if (cuda_function_) {
     // For nvfp4_scaled_mm_kernel, we need to call it as a C function
     // Extract arguments for nvfp4_scaled_mm_kernel
-    // Expected order: output, a, b, scales_a, scales_b, alpha, m, n, k
-    if (args.size() < 9) {
-      NVF_THROW("Expected at least 9 arguments for nvfp4_scaled_mm_kernel");
+    // Expected order: output, a, b, scales_a, scales_b, alpha
+    if (args.size() == 6) {
+      NVF_THROW(
+          "Expected 6 arguments for nvfp4_scaled_mm_kernel but found ",
+          args.size());
     }
+
+    // TODO: figure out how to call this when the function signature is not
+    // known at nvfuser install time. We might need to compile in
+    // PolymorphicValue then pass a vector of PolymorphicValue so that we have a
+    // fixed function signature. This just means adding some more stuff to the
+    // codegen'd helper functions.
 
     // Get tensors from arguments
     auto output = args[0].as<at::Tensor>();
@@ -156,11 +164,6 @@ float CutlassCompiledKernel::run(
     auto scales_b = args[4].as<at::Tensor>();
     auto alpha = args[5].as<at::Tensor>();
 
-    // Get dimensions
-    auto m = args[6].as<int64_t>();
-    auto n = args[7].as<int64_t>();
-    auto k = args[8].as<int64_t>();
-
     // Define the function signature for the kernel
     using KernelFunc = void (*)(
         at::Tensor&,
@@ -169,15 +172,12 @@ float CutlassCompiledKernel::run(
         const at::Tensor&,
         const at::Tensor&,
         const at::Tensor&,
-        int64_t,
-        int64_t,
-        int64_t,
         cudaStream_t);
 
     auto kernel_func = reinterpret_cast<KernelFunc>(cuda_function_);
 
     // Call the kernel
-    kernel_func(output, a, b, scales_a, scales_b, alpha, m, n, k, stream);
+    kernel_func(output, a, b, scales_a, scales_b, alpha, stream);
   }
 
   NVFUSER_CUDA_RT_SAFE_CALL(cudaEventRecord(finish_event, stream));
@@ -676,13 +676,14 @@ extern "C" void nvfp4_scaled_mm_kernel(
     const at::Tensor& scales_a,
     const at::Tensor& scales_b,
     const at::Tensor& alpha,
-    int64_t m,
-    int64_t n,
-    int64_t k,
     cudaStream_t stream) {
 
   // Determine output data type
   auto out_dtype = output.scalar_type();
+
+  int64_t m = a.size(0);
+  int64_t n = b.size(1);
+  int64_t k = a.size(1);
 
   if (out_dtype == at::ScalarType::Half) {
     runGemm<cutlass::half_t>(
