@@ -608,9 +608,26 @@ class SegmentCandidateFinder {
   // Revert privatized ops when not necessary
   std::unordered_set<Expr*> revertPrivatizedOps(
       SegmentedGroup* group,
-      std::unordered_map<Expr*, std::unordered_set<Expr*>>& remaining_privatized_ops);
+      std::unordered_map<Expr*, std::unordered_set<Expr*>>&
+          remaining_privatized_ops);
 
   // Iteratively revert privatized ops until no more privatized ops are found
+  // Say, we have the following graph:
+  // In -> cast0 -> out_0 -> squeeze0 -> out_1
+  //   -> cast1-> out_2 -> squeeze1 -> out_3
+  // Let's assume cast is first privatized, then we have the following graph:
+  // In -> cast0 -> out_0 -> squeeze0 -> out_1
+  //                      -> squeeze1' -> out_3
+  // Then, we privatize squeeze, and we're done.
+  // All of the above can be done in one call to the above function
+  // revertPrivatizedOps.
+  // Howe ever, as the order in which we revert privatized ops is not
+  // guaranteed, If we had chosed on revert squeeze first, we would have failed,
+  // then we would have gone on to revert cast, which would have succeeded. All
+  // of this would have been done in one call to the above function
+  // revertPrivatizedOps. At this point, we would still have squeeze left to
+  // privatize, and we would have make another pass to privatize it, and thus
+  // the iterative version is needed.
   void iterativelyRevertPrivatizedOps(SegmentedGroup* group);
 
   //! Find a group found in candidates that can be merged with the
