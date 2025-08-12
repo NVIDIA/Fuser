@@ -198,41 +198,41 @@ namespace {
                                            const std::vector<int64_t>&, \
                                            bool,                        \
                                            DataType)>(OP_NAME)(         \
-            arg, dims, /*keep_dim=*/false, dtype);                      \
+            arg, dims, /*keepdim=*/false, dtype);                       \
       },                                                                \
       py::arg("arg"),                                                   \
       py::arg("dtype") = DataType::Null,                                \
       py::return_value_policy::reference);                              \
   ops.def(                                                              \
       NAME,                                                             \
-      [](TensorView* arg, int dim, bool keep_dim, PrimDataType dtype)   \
+      [](TensorView* arg, int dim, bool keepdim, PrimDataType dtype)    \
           -> TensorView* {                                              \
         return static_cast<TensorView* (*)(TensorView*,                 \
                                            const std::vector<int64_t>&, \
                                            bool,                        \
                                            DataType)>(OP_NAME)(         \
-            arg, {dim}, keep_dim, dtype);                               \
+            arg, {dim}, keepdim, dtype);                                \
       },                                                                \
       py::arg("arg"),                                                   \
       py::arg("dim"),                                                   \
-      py::arg("keep_dim") = false,                                      \
+      py::arg("keepdim") = false,                                       \
       py::arg("dtype") = DataType::Null,                                \
       py::return_value_policy::reference);                              \
   ops.def(                                                              \
       NAME,                                                             \
       [](TensorView* arg,                                               \
          const std::vector<int64_t>& dims,                              \
-         bool keep_dim,                                                 \
+         bool keepdim,                                                  \
          PrimDataType dtype) -> TensorView* {                           \
         return static_cast<TensorView* (*)(TensorView*,                 \
                                            const std::vector<int64_t>&, \
                                            bool,                        \
                                            DataType)>(OP_NAME)(         \
-            arg, dims, keep_dim, dtype);                                \
+            arg, dims, keepdim, dtype);                                 \
       },                                                                \
       py::arg("arg"),                                                   \
       py::arg("dims"),                                                  \
-      py::arg("keep_dim") = false,                                      \
+      py::arg("keepdim") = false,                                       \
       py::arg("dtype") = DataType::Null,                                \
       DOCSTRING,                                                        \
       py::return_value_policy::reference);
@@ -1556,7 +1556,7 @@ arg : TensorView
     Input tensor to reduce.
 dim : int, optional
     Dimension to reduce over. If not specified, reduces over all dimensions.
-keep_dim : bool, optional
+keepdim : bool, optional
     Whether to keep the reduced dimensions with size 1. Default is False.
 dtype : PrimDataType, optional
     This argument is not used for max.
@@ -1578,7 +1578,7 @@ arg : TensorView
     Input tensor to reduce.
 dim : int, optional
     Dimension to reduce over. If not specified, reduces over all dimensions.
-keep_dim : bool, optional
+keepdim : bool, optional
     Whether to keep the reduced dimensions with size 1. Default is False.
 dtype : PrimDataType, optional
     This argument is not used for min.
@@ -1600,7 +1600,7 @@ arg : TensorView
     Input tensor to reduce.
 dim : int, optional
     Dimension to reduce over. If not specified, reduces over all dimensions.
-keep_dim : bool, optional
+keepdim : bool, optional
     Whether to keep the reduced dimensions with size 1. Default is False.
 dtype : PrimDataType, optional
     The data type to cast the arg to before computation. If the dtype argument
@@ -1624,7 +1624,7 @@ arg : TensorView
     Input tensor to reduce.
 dim : int, optional
     Dimension to reduce over. If not specified, reduces over all dimensions.
-keep_dim : bool, optional
+keepdim : bool, optional
     Whether to keep the reduced dimensions with size 1. Default is False.
 dtype : PrimDataType, optional
     The data type to cast the arg to before computation. If the dtype argument
