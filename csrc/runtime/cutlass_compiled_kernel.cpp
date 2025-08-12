@@ -141,43 +141,36 @@ float CutlassCompiledKernel::run(
 
   // Launch the CUTLASS kernel
   if (cuda_function_) {
-    // For nvfp4_scaled_mm_kernel, we need to call it as a C function
-    // Extract arguments for nvfp4_scaled_mm_kernel
-    // Expected order: output, a, b, scales_a, scales_b, alpha
-    if (args.size() == 6) {
-      NVF_THROW(
-          "Expected 6 arguments for nvfp4_scaled_mm_kernel but found ",
-          args.size());
-    }
-
-    // TODO: figure out how to call this when the function signature is not
-    // known at nvfuser install time. We might need to compile in
-    // PolymorphicValue then pass a vector of PolymorphicValue so that we have a
-    // fixed function signature. This just means adding some more stuff to the
-    // codegen'd helper functions.
+    // TODO: Pattern match and find this ordering automatically (see below for
+    // codegen of entry point which will unpack the discovered ordering) For
+    // nvfp4_scaled_mm_kernel, we need to call it as a C function Extract
+    // arguments for nvfp4_scaled_mm_kernel Expected order: output, a, b,
+    // scales_a, scales_b, alpha, beta
+    NVF_ERROR(
+        args.size() == 6,
+        "Expected 6 arguments for nvfp4_scaled_mm_kernel but found ",
+        args.size());
 
     // Get tensors from arguments
-    auto output = args[0].as<at::Tensor>();
-    auto a = args[1].as<at::Tensor>();
-    auto b = args[2].as<at::Tensor>();
-    auto scales_a = args[3].as<at::Tensor>();
-    auto scales_b = args[4].as<at::Tensor>();
-    auto alpha = args[5].as<at::Tensor>();
+    std::vector<void*> arg_pointers;
+    arg_pointers.reserve(args.size());
+    for (auto arg : args) {
+      if (arg.is<at::Tensor>()) {
+        arg_pointers.push_back(&arg.as<at::Tensor>());
+      } else {
+        NVF_THROW(
+            "Non-tensor arguments are not yet supported in "
+            "CutlassCompiledKernel");
+      }
+    }
 
     // Define the function signature for the kernel
-    using KernelFunc = void (*)(
-        at::Tensor&,
-        const at::Tensor&,
-        const at::Tensor&,
-        const at::Tensor&,
-        const at::Tensor&,
-        const at::Tensor&,
-        cudaStream_t);
+    using KernelFunc = void (*)(const std::vector<void*>&, cudaStream_t);
 
     auto kernel_func = reinterpret_cast<KernelFunc>(cuda_function_);
 
     // Call the kernel
-    kernel_func(output, a, b, scales_a, scales_b, alpha, stream);
+    kernel_func(arg_pointers, stream);
   }
 
   NVFUSER_CUDA_RT_SAFE_CALL(cudaEventRecord(finish_event, stream));
@@ -333,8 +326,8 @@ void CutlassCompiledKernel::compileWithNVCC() {
 void CutlassCompiledKernel::loadKernel() {
   if (shared_library_handle_) {
     // Get function from dlopen-loaded library
-    cuda_function_ = reinterpret_cast<CUfunction>(
-        dlsym(shared_library_handle_, descriptor_.kernel_name.c_str()));
+    cuda_function_ = reinterpret_cast<CUfunction>(dlsym(
+        shared_library_handle_, descriptor_.launch_function_name.c_str()));
     if (!cuda_function_) {
       NVF_THROW("Failed to get CUTLASS kernel function: ", dlerror());
     }
@@ -368,6 +361,7 @@ std::string CutlassCodeGenerator::generateCode(
     CutlassKernelDescriptor& descriptor) {
   // Set up descriptor for nvfp4 scaled matmul
   descriptor.kernel_name = "nvfp4_scaled_mm_kernel";
+  descriptor.launch_function_name = "run_kernel";
   descriptor.operation_type = "nvfp4_scaled_mm";
 
   // Generate the same kernel code as nvfp4_scaled_mm.cu
@@ -413,7 +407,6 @@ namespace nvfuser::cutlass_kernels {
 namespace {
 using namespace cute;
 
-#if defined(CUTLASS_ARCH_MMA_SM100_SUPPORTED)
 // Kernel configuration traits for different output data types
 // Defines tile shapes and cluster configurations.
 template <typename T>
@@ -648,36 +641,22 @@ void runGemm(
   status = gemm.run(arguments, workspace.data_ptr(), stream);
   NVF_ERROR(status == cutlass::Status::kSuccess, "Failed to run GEMM");
 }
-#else
-// Fallback implementation for unsupported CUTLASS versions
-// Throws an error when SM100+ CUTLASS support is not available
-template <typename T>
-void runGemm(
-    at::Tensor& output,
-    at::Tensor const& a,
-    at::Tensor const& b,
-    at::Tensor const& scales_a,
-    at::Tensor const& b,
-    at::Tensor const& alpha,
-    int64_t m,
-    int64_t n,
-    int64_t k,
-    cudaStream_t stream) {
-  NVF_THROW("Unsupported CUTLASS version.");
-}
-#endif // defined(CUTLASS_ARCH_MMA_SM100_SUPPORTED)
 
 } // namespace
 
 // Main kernel function that will be called from nvFuser
-extern "C" void nvfp4_scaled_mm_kernel(
-    at::Tensor& output,
-    const at::Tensor& a,
-    const at::Tensor& b,
-    const at::Tensor& scales_a,
-    const at::Tensor& scales_b,
-    const at::Tensor& alpha,
+extern "C" void run_kernel(
+    const std::vector<void*>& args,
     cudaStream_t stream) {
+
+  // TODO: determine this ordering from fusion inputs and pattern matching
+  NVF_ERROR(args.size() == 6, "Expected 6 arguments");
+  const at::Tensor& a = *reinterpret_cast<at::Tensor*>(args[0]);
+  const at::Tensor& b = *reinterpret_cast<at::Tensor*>(args[1]);
+  const at::Tensor& scales_a = *reinterpret_cast<at::Tensor*>(args[2]);
+  const at::Tensor& scales_b = *reinterpret_cast<at::Tensor*>(args[3]);
+  const at::Tensor& alpha = *reinterpret_cast<at::Tensor*>(args[4]);
+  at::Tensor& output = *reinterpret_cast<at::Tensor*>(args[5]);
 
   // Determine output data type
   auto out_dtype = output.scalar_type();

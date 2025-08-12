@@ -41,6 +41,9 @@ struct CutlassKernelDescriptor {
   // Kernel name
   std::string kernel_name;
 
+  // Host function that launches the kernel
+  std::string launch_function_name;
+
   // CUTLASS operation type (e.g., "cutlass::gemm::device::Gemm")
   std::string operation_type;
 

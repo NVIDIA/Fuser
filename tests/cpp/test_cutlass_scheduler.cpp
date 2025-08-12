@@ -39,23 +39,26 @@ TEST_F(CutlassExecutorTest, SimpleNvfp4ScaledGemm) {
   auto tv1 = makeContigTensor(2, DataType::Float4_e2m1fn);
   auto tv2 = makeContigTensor(2, DataType::Float);
   auto tv3 = makeContigTensor(2, DataType::Float);
-  auto tv4 = makeContigTensor(0, DataType::Float); // scale
-  auto tv5 = makeContigTensor(0, DataType::Float); // alpha
-  auto tv6 = makeContigTensor(0, DataType::Float); // beta
+  auto tv4 = makeContigTensor(0, DataType::Float); // alpha
 
   fusion->addInput(tv0);
   fusion->addInput(tv1);
   fusion->addInput(tv2);
   fusion->addInput(tv3);
   fusion->addInput(tv4);
-  fusion->addInput(tv5);
-  fusion->addInput(tv6);
 
   // TODO: support more output dtypes, specifically nvfp4
-  auto tv7 = scaled_mm(
-      tv0, tv1, tv2, tv3, tv4, tv5, tv6, /*dtype=*/DataType::BFloat16);
+  auto smm = scaled_mm(
+      tv0,
+      tv1,
+      tv2,
+      tv3,
+      tv4,
+      /*bias=*/nullptr,
+      /*beta=*/nullptr,
+      /*dtype=*/DataType::BFloat16);
 
-  fusion->addOutput(tv7.tv);
+  fusion->addOutput(smm.tv);
 
   fusion->printMath();
 
@@ -81,18 +84,14 @@ TEST_F(CutlassExecutorTest, SimpleNvfp4ScaledGemm) {
   auto b_scale = at::randn({1, N}, float_options);
 
   // Create scalar tensors
-  auto scale = at::scalar_tensor(1.0f, float_options);
-  auto alpha = at::scalar_tensor(1.0f, float_options);
-  auto beta = at::scalar_tensor(0.0f, float_options);
+  auto alpha = at::scalar_tensor(1.5f, float_options);
 
   KernelArgumentHolder args;
   args.push(a_fp4);
   args.push(b_fp4);
   args.push(a_scale);
   args.push(b_scale);
-  args.push(scale);
   args.push(alpha);
-  args.push(beta);
 
   auto runtime_info = SchedulerRuntimeInfo(fusion.get(), args, nullptr, {});
 
