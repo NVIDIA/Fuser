@@ -587,8 +587,8 @@ NVF_API TensorView* ne(Val* v1, TensorView* v2);
 NVF_API TensorView* ne(TensorView* v1, TensorView* v2);
 
 // complex
-Val* complex(Val* v1, Val* v2);
-TensorView* complex(TensorView* v1, TensorView* v2);
+NVF_API Val* complex(Val* v1, Val* v2);
+NVF_API TensorView* complex(TensorView* v1, TensorView* v2);
 
 // REDUCTION OPERATIONS
 NVF_API TensorView* sum(
