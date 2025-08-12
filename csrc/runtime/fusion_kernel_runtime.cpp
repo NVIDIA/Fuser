@@ -129,7 +129,7 @@ FusionKernelRuntime::FusionKernelRuntime(
 
   // Pre-compute the executor order so that the run time path
   //  would go directly to kernel launch.
-  prepareRuntimeOrder(segmented_fusion_.get(), runtime_workspace_);
+  runtime_workspace_ = prepareRuntimeOrder(*segmented_fusion_);
 
   executors_.resize(segmented_fusion_->groups().size());
 
@@ -430,7 +430,6 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
   const std::vector<KernelArgumentHolder> all_runtime_inputs =
       prepareInputs(args);
 
-  std::atomic<bool> detect_exception_in_thread_pool{false};
   std::string thread_pool_error_message;
   std::mutex thread_pool_error_message_mutex;
 
@@ -452,7 +451,6 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
                               &group_runtime_inputs,
                               group_to_run,
                               hic_ptr,
-                              &detect_exception_in_thread_pool,
                               &thread_pool_error_message,
                               &thread_pool_error_message_mutex]() {
           FUSER_PERF_SCOPE("FusionKernelRuntime::compileFusionParallel");
@@ -461,7 +459,6 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
           } catch (const std::exception& e) {
             // Set flag inside lambda so we can throw an exception after thread
             // pool completes its work.
-            detect_exception_in_thread_pool.store(true);
             const std::lock_guard<std::mutex> lock(
                 thread_pool_error_message_mutex);
             std::stringstream ss;
@@ -485,7 +482,7 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
     // Wait until all segments finish compiling
     getThreadPool()->waitWorkComplete();
     NVF_ERROR(
-        !detect_exception_in_thread_pool.load(),
+        thread_pool_error_message.empty(),
         "Detected exception while compiling fusion segments in parallel. ",
         "Error messages from all threads are printed below.\n",
         thread_pool_error_message,
@@ -637,7 +634,7 @@ std::optional<std::unique_ptr<HeuristicParamsList>> FusionKernelRuntime::
   // The runtime group run order is different from the segmented_fusion group
   // order. Instead of using HeuristicParamsList::emplaceBack, we initialize
   // HeuristicParamsList with the desired number of groups.
-  const int64_t num_groups = (int64_t)runtime_workspace_.group_run_order.size();
+  const int64_t num_groups = std::ssize(runtime_workspace_.group_run_order);
   std::unique_ptr<HeuristicParamsList> heuristics =
       std::make_unique<HeuristicParamsList>(num_groups);
 
@@ -758,12 +755,11 @@ std::unordered_map<Val*, PolymorphicValue> FusionKernelRuntime::
 
   // group should share cache id.
   auto group_cache_id = args.getCacheId();
-  const int64_t num_groups = (int64_t)runtime_workspace_.group_run_order.size();
   kernel_time_ms_ = 0;
-  for (auto run_order_id : arange(num_groups)) {
+  for (auto [run_order_id, group_to_run] :
+       enumerate(runtime_workspace_.group_run_order)) {
     // TODO: index mode should be updated per segmented kernel
     // Prepare input vector
-    auto group_to_run = runtime_workspace_.group_run_order.at(run_order_id);
     KernelArgumentHolder group_runtime_inputs =
         args_manager.translateValsToArgs(group_to_run->inputs());
     group_runtime_inputs.setDeviceIndex(args.getDeviceIndex());
@@ -816,10 +812,10 @@ KernelArgumentHolder FusionKernelRuntime::runKernelWithInput(
   // a kernel is compiled and run for a segmented group
   // In the case of complete fusion, sg = nullptr, and the original fusion
   // is complied and run.
-  NVF_ERROR(sg, "runKernelWithInput: need valid group to run");
-  auto [launch_params, compile_params] = getKernelConfig(args, sg);
+  NVF_ERROR(sg != nullptr, "runKernelWithInput: need valid group to run");
   auto group_id = sg->groupId();
   auto heuristic_params = schedulers().at(group_id).get();
+  NVF_ERROR(heuristic_params->scheduler_type == sg->schedulerType());
   ExecutorAbstract* ea = executors_.at(group_id).get();
 
   if (profiling_) {
@@ -834,8 +830,8 @@ KernelArgumentHolder FusionKernelRuntime::runKernelWithInput(
   if (auto ke = dynamic_cast<KernelExecutor*>(ea)) {
     ke->setGroupId(group_id);
   }
-  auto outputs =
-      ExecutorDispatch::run(ea, args, {}, launch_params, compile_params);
+  auto outputs = ExecutorDispatch::run(
+      ea, args, {}, heuristic_params->lparams, heuristic_params->cparams);
 
   return outputs;
 }
@@ -906,18 +902,6 @@ void FusionKernelRuntime::compileKernel(
         heuristic_params->cparams,
         heuristic_params->scheduler_type);
   }
-}
-
-std::pair<LaunchParams, CompileParams> FusionKernelRuntime::getKernelConfig(
-    const KernelArgumentHolder& args,
-    SegmentedGroup* sg) {
-  auto group_id = sg->groupId();
-  auto heuristic_params = schedulers().at(group_id).get();
-
-  // Check that the heuristics are matched, in the case of segmented fusion
-  NVF_ERROR(!sg || heuristic_params->scheduler_type == sg->schedulerType());
-
-  return std::make_pair(heuristic_params->lparams, heuristic_params->cparams);
 }
 
 const std::vector<std::unique_ptr<HeuristicParams>>& FusionKernelRuntime::

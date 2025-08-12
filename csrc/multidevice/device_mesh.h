@@ -10,6 +10,8 @@
 
 #include <vector>
 
+#include <ATen/ATen.h>
+
 #include <exceptions.h>
 #include <multidevice/multidevice.h>
 #include <type.h>
@@ -33,10 +35,13 @@ class DeviceMesh final {
   // allow implicit conversion for that. This allows users to write `DeviceMesh
   // mesh = {1, 2};`, which is more concise.
   // When no shape is specified, a 1D DeviceMesh is created by default.
-  explicit DeviceMesh(
-      std::vector<DeviceIdxType> devices = {},
-      std::vector<int64_t> shape = {});
+  DeviceMesh();
+  explicit DeviceMesh(at::Tensor devices);
   DeviceMesh(std::initializer_list<DeviceIdxType> devices);
+  DeviceMesh(
+      const std::vector<int64_t>& devices,
+      const std::vector<int64_t>& shape);
+
   DeviceMesh(const DeviceMesh&) = default;
   DeviceMesh(DeviceMesh&&) = default;
   DeviceMesh& operator=(const DeviceMesh&) = default;
@@ -52,61 +57,56 @@ class DeviceMesh final {
 
   // Returns the number of devices in the mesh
   int64_t size() const {
-    return static_cast<int64_t>(vector_.size());
+    return devices_.numel();
   }
 
   // Return the size of an axis in the mesh
   int64_t size(int64_t axis) const {
-    return shape_.at(axis);
+    return devices_.size(axis);
   }
 
   // Returns the shape of the device mesh
-  const std::vector<int64_t>& shape() const {
-    return shape_;
+  const at::IntArrayRef shape() const {
+    return devices_.sizes();
   }
 
   int64_t size(ParallelType parallel_type) const;
 
   // Returns a vector containing the device indices of the mesh
-  const std::vector<DeviceIdxType>& vector() const {
-    return vector_;
+  std::vector<DeviceIdxType> vector() const {
+    auto* data = devices_.data_ptr<DeviceIdxType>();
+    return std::vector<DeviceIdxType>(data, data + devices_.numel());
   }
 
   // Returns whether a device is present in the mesh
   bool has(const DeviceIdxType device) const {
-    return std::find(vector_.begin(), vector_.end(), device) != vector_.end();
+    return (devices_ == device).any().item<bool>();
   }
 
-  // Returns the global index of device in the mesh, or -1 if device is not
-  // present.
-  int64_t idxOf(const DeviceIdxType device) const {
-    auto it = std::find(vector_.begin(), vector_.end(), device);
-    if (it != vector_.end()) {
-      return std::distance(vector_.begin(), it);
-    }
-    return -1;
-  }
+  // Returns the linear index of the given device in the mesh, or -1 if device
+  // is not present.
+  int64_t linearIndexOf(const DeviceIdxType device) const;
 
-  // Returns the indices of a multi-dimensional mesh, or an empty vector
-  // if device is not present
-  std::vector<int64_t> getIndices(const DeviceIdxType device) const;
+  // Returns the multi-dimensional index of the given device, or an undefined
+  // tensor if device is not present.
+  at::Tensor multiDimensionalIndexOf(const DeviceIdxType device) const;
 
   // Returns the device at a particular index in the mesh
   DeviceIdxType at(int64_t index) const {
-    return vector_.at(index);
+    return devices_.flatten()[index].item<DeviceIdxType>();
   }
 
   // Returns the rank (number of dimensions) of the mesh.
   int64_t rank() const {
-    return std::ssize(shape_);
+    return devices_.dim();
   }
 
   bool operator==(const DeviceMesh& other) const {
-    return vector_ == other.vector() && shape_ == other.shape();
+    return at::equal(devices_, other.devices_);
   }
 
   bool operator!=(const DeviceMesh& other) const {
-    return vector_ != other.vector() || shape_ != other.shape();
+    return !(*this == other);
   }
 
   // Returns the max device id in the DeviceMesh.
@@ -125,17 +125,13 @@ class DeviceMesh final {
   //      [3 4 5]]
   // getSlice(4, ParallelType::DIDx) = {3, 4, 5}
   // getSlice(4, ParallelType::DIDy) = {1, 4}
-  // TODO: these might be worth caching per TV
+  //
+  // These might be worth caching per TV.
   std::vector<DeviceIdxType> getSlice(DeviceIdxType device, ParallelType ptype)
       const;
 
  private:
-  void setDevices(std::vector<DeviceIdxType> devices);
-
-  // stores the flattened list of device indices
-  std::vector<DeviceIdxType> vector_;
-  // shape of the device mesh
-  std::vector<int64_t> shape_;
+  at::Tensor devices_;
 };
 
 std::ostream& operator<<(std::ostream& out, const DeviceMesh& mesh);

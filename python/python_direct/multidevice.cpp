@@ -70,28 +70,48 @@ Performs a blocking barrier across all ranks.
 }
 
 void bindDeviceMesh(py::module& nvfuser) {
-  py::class_<DeviceMesh>(nvfuser, "DeviceMesh", py::module_local())
-      .def(
-          py::init([](const std::vector<int64_t>& devices) {
-            return new DeviceMesh(devices);
-          }),
-          py::arg("devices"),
-          R"(
+  py::class_<DeviceMesh> device_mesh(nvfuser, "DeviceMesh", py::module_local());
+  device_mesh.def(
+      py::init([](at::Tensor devices) {
+        return new DeviceMesh(std::move(devices));
+      }),
+      py::arg("devices"),
+      R"(
 Create a new DeviceMesh.
-)")
-      .def(
-          "__repr__",
-          [](const DeviceMesh& self) {
-            std::stringstream ss;
-            ss << self;
-            return ss.str();
-          })
+)");
+  device_mesh.def("__repr__", [](const DeviceMesh& self) {
+    std::stringstream ss;
+    ss << self;
+    return ss.str();
+  });
+  device_mesh
       .def_property_readonly(
           "size",
           [](const DeviceMesh& self) -> int64_t { return self.size(); },
           R"(
 Returns the number of devices in the mesh.
+)")
+      .def_property_readonly(
+          "shape",
+          [](const DeviceMesh& self) -> at::IntArrayRef {
+            return self.shape();
+          },
+          R"(
+Returns the shape of the mesh.
 )");
+  device_mesh.def(
+      "shard_tensor",
+      [](const DeviceMesh& self,
+         at::Tensor tensor,
+         const int64_t axis,
+         int64_t device_id) -> at::Tensor {
+        return shardTensor(tensor, axis, self, device_id);
+      },
+      py::arg("tensor"),
+      py::arg("axis"),
+      py::arg("device_id"),
+      R"(
+Shards the input tensor along `axis`. Returns the sharded tensor.)");
 }
 
 void bindSharding(py::module& nvfuser) {

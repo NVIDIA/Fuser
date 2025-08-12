@@ -994,6 +994,7 @@ var_mean_opinfo = OpInfo(
     error_input_generator=reduction_error_generator,
     reference=torch.var_mean,
     symbolic_parameter_list=(ArgumentType.Symbolic, ArgumentType.Constant),
+    supports_direct_bindings=True,
 )
 normalization_ops.append(var_mean_opinfo)
 
@@ -1010,6 +1011,7 @@ cat_opinfo = OpInfo(
     error_input_generator=cat_error_generator,
     reference=torch.cat,
     symbolic_parameter_list=(ArgumentType.Symbolic, ArgumentType.Constant),
+    supports_direct_bindings=True,
 )
 shape_ops.append(cat_opinfo)
 
@@ -1090,6 +1092,7 @@ scatter_opinfo = OpInfo(
         ArgumentType.Symbolic,
         ArgumentType.Constant,
     ),
+    supports_direct_bindings=True,
 )
 shape_ops.append(scatter_opinfo)
 
@@ -1110,6 +1113,7 @@ gather_opinfo = OpInfo(
         ArgumentType.Symbolic,
         ArgumentType.Constant,
     ),
+    supports_direct_bindings=True,
 )
 shape_ops.append(gather_opinfo)
 
@@ -1147,6 +1151,7 @@ argsort_opinfo = OpInfo(
         ArgumentType.Constant,
         ArgumentType.Constant,
     ),
+    supports_direct_bindings=True,
 )
 shape_ops.append(argsort_opinfo)
 
@@ -1165,6 +1170,7 @@ topk_opinfo = OpInfo(
         ArgumentType.Constant,  # largest
         ArgumentType.Constant,  # sorted
     ),
+    supports_direct_bindings=True,
 )
 shape_ops.append(topk_opinfo)
 
@@ -1206,6 +1212,7 @@ pad_opinfo = OpInfo(
         ArgumentType.Constant,
         ArgumentType.Symbolic,
     ),
+    supports_direct_bindings=True,
 )
 shape_ops.append(pad_opinfo)
 
@@ -1311,6 +1318,7 @@ full_opinfo = OpInfo(
         ArgumentType.Symbolic,
         ArgumentType.Constant,
     ),
+    supports_direct_bindings=True,
 )
 tensor_creation_ops.append(full_opinfo)
 
@@ -1326,6 +1334,7 @@ iota_opinfo = OpInfo(
         ArgumentType.ConstantScalar,
         ArgumentType.Constant,
     ),
+    supports_direct_bindings=True,
 )
 tensor_creation_ops.append(iota_opinfo)
 
@@ -1387,6 +1396,7 @@ if LooseVersion(torch.__version__) >= LooseVersion("2.8.0"):
         dtypes=(torch.bfloat16,),
         sample_input_generator=grouped_mm_input_generator,
         reference=torch._grouped_mm,
+        supports_direct_bindings=True,
     )
 
     def scaled_grouped_mm_wrapper(
@@ -1432,6 +1442,7 @@ if LooseVersion(torch.__version__) >= LooseVersion("2.8.0"):
             ArgumentType.Constant,
             ArgumentType.Constant,
         ),
+        supports_direct_bindings=True,
     )
 
     def scaled_mm_wrapper(mat1, mat2, scale1, scale2, alpha, bias, beta, dtype):
@@ -1457,6 +1468,7 @@ if LooseVersion(torch.__version__) >= LooseVersion("2.8.0"):
             ArgumentType.Constant,
             ArgumentType.Constant,
         ),
+        supports_direct_bindings=True,
     )
 
     # only hopper is supported with torch._grouped_mm at this point.

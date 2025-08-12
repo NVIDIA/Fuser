@@ -201,6 +201,9 @@ std::string toString(const BinaryOp* bop) {
     case BinaryOpType::CeilDiv:
       return "ceilDiv";
       break;
+    case BinaryOpType::Complex:
+      return "complex";
+      break;
     default:
       NVF_CHECK(
           false,
