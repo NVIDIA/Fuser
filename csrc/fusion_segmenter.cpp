@@ -4587,7 +4587,9 @@ void SegmentCandidateFinder::privatizeOps() {
 }
 
 std::unordered_set<Expr*> SegmentCandidateFinder::revertPrivatizedOps(
-    SegmentedGroup* group, std::unordered_map<Expr*, std::unordered_set<Expr*>>& remaining_privatized_ops) {
+    SegmentedGroup* group,
+    std::unordered_map<Expr*, std::unordered_set<Expr*>>&
+        remaining_privatized_ops) {
   // If a given consumer edge is a duplicate of another edge of the
   // same producer group, remove the given edge from both the producer
   // and consumer groups.
@@ -4734,10 +4736,10 @@ std::unordered_set<Expr*> SegmentCandidateFinder::revertPrivatizedOps(
   }
 
   return reverted;
-   
 }
 
-void SegmentCandidateFinder::iterativelyRevertPrivatizedOps(SegmentedGroup* group) {
+void SegmentCandidateFinder::iterativelyRevertPrivatizedOps(
+    SegmentedGroup* group) {
   bool reverted_privatized_op = true;
   auto remaining_privatized_ops = privatized_ops_;
   while (reverted_privatized_op && !remaining_privatized_ops.empty()) {
