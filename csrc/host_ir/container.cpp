@@ -67,6 +67,11 @@ void HostIrContainer::addKernelExecutor(std::unique_ptr<KernelExecutor> ke) {
 
 KernelExecutor& HostIrContainer::getKernelExecutor(
     const int64_t group_id) const {
+  NVF_CHECK(
+      hasKernelExecutor(group_id),
+      "KernelExecutor with group ID ",
+      group_id,
+      " not found.");
   return *kernel_executors_.at(group_id);
 }
 
