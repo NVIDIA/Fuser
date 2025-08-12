@@ -838,6 +838,11 @@ void scheduleFusion(Fusion* fusion, const ReductionParams* rparams) {
           continue;
         }
 
+        // no dim to vectorize or unroll, e.g. 0d tensor (scalar input)
+        if (cached_tv->nDims() <= last_iter_dim) {
+          continue;
+        }
+
         // find tvs should be persistent due to grouped reduction.
         // (1) inline before iter unrolled dim to ensure accessible for both
         // loops before and after iter grouped reduction.
@@ -885,6 +890,9 @@ void scheduleFusion(Fusion* fusion, const ReductionParams* rparams) {
   } else {
     inlineMost();
   }
+  // replay loop domain transformations to allocation domain for shared memory
+  // tensors. Ensure we can allocate based on the allocation domain.
+  scheduler_utils::buildAllocationDomainForSharedMemoryTvs(fusion);
 }
 } // namespace inner_outer_tma_warp_specialized
 } // namespace nvfuser

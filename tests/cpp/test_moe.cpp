@@ -59,6 +59,10 @@ class SgLangMoETest : public NVFuserFixtureParamTest<MoEConfig> {
 };
 
 TEST_P(SgLangMoETest, ComputeProblemSizes) {
+  if (manual_scheduling) {
+    GTEST_SKIP() << "No manual scheduling implemented";
+  }
+
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
@@ -83,11 +87,14 @@ TEST_P(SgLangMoETest, ComputeProblemSizes) {
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
   auto outputs = executor_cache.runFusionWithInputs({t0});
-
-  testValidate(&fusion, outputs, {t0}, __LINE__, __FILE__);
+  testValidate(executor_cache.fusion(), outputs, {t0}, __LINE__, __FILE__);
 }
 
 TEST_P(SgLangMoETest, ComputeExpertOffsets) {
+  if (manual_scheduling) {
+    GTEST_SKIP() << "No manual scheduling implemented";
+  }
+
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
@@ -131,6 +138,10 @@ TEST_P(SgLangMoETest, ComputeExpertOffsets) {
 }
 
 TEST_P(SgLangMoETest, ComputeExpertBlockScaleOffsets) {
+  if (manual_scheduling) {
+    GTEST_SKIP() << "No manual scheduling implemented";
+  }
+
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
@@ -223,8 +234,29 @@ TEST_P(SgLangMoETest, ComputeArgSort) {
   auto options = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
   auto t0 = at::randint(0, num_tokens * topk, {num_tokens, topk}, options);
 
-  FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto outputs = executor_cache.runFusionWithInputs({t0});
+  KernelArgumentHolder outputs;
+
+  if (manual_scheduling) {
+    auto tv6_cache = tv6->cacheBefore();
+
+    // Scheduling all tensors as 1D tensors
+    for (auto tv : fusion.allTvs()) {
+      tv->flatten();
+      tv->axis(0)->parallelize(ParallelType::TIDx);
+    }
+
+    tv4->setMemoryType(MemoryType::Shared);
+    tv4->setAllocationDomain(tv4->getLogicalDomain(), true);
+    tv6_cache->setMemoryType(MemoryType::Shared);
+    tv6_cache->setAllocationDomain(tv6_cache->getLogicalDomain(), true);
+
+    KernelExecutor ke;
+    ke.compile(&fusion, {t0});
+    outputs = ke.run({t0});
+  } else {
+    FusionExecutorCache executor_cache(std::move(fusion_ptr));
+    outputs = executor_cache.runFusionWithInputs({t0});
+  }
 
   auto t2 = at::argsort(t0.flatten(), true, 0, true);
   auto t3 = at::floor(t2 / topk);

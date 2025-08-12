@@ -4,7 +4,8 @@
 # Owner(s): ["module: nvfuser"]
 
 import torch
-from nvfuser_direct import FusionDefinition, DataType  # noqa: F401
+from nvfuser_direct import FusionDefinition, DataType, TensorView  # noqa: F401
+from looseversion import LooseVersion
 
 
 def is_pre_volta():
@@ -61,3 +62,23 @@ def check_captured_python_definition(reference_outputs, fd, inputs, device=None)
         )
         print(fd_str)
         raise err
+
+
+UPDATED_SDPA = LooseVersion(torch.__version__) >= LooseVersion("2.7.0")
+
+
+def define_sdpa_rng_state(fd: FusionDefinition) -> tuple[TensorView, TensorView]:
+    dtype = DataType.UInt64 if UPDATED_SDPA else DataType.Int
+    is_cpu = False if UPDATED_SDPA else True
+    philox_shape = [2] if UPDATED_SDPA else []
+    philox_seed = fd.define_tensor(
+        shape=philox_shape,
+        dtype=dtype,
+        is_cpu=is_cpu,
+    )
+    philox_offset = fd.define_tensor(
+        shape=[],
+        dtype=dtype,
+        is_cpu=is_cpu,
+    )
+    return philox_seed, philox_offset

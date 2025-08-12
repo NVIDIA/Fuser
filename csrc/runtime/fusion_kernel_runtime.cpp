@@ -129,7 +129,7 @@ FusionKernelRuntime::FusionKernelRuntime(
 
   // Pre-compute the executor order so that the run time path
   //  would go directly to kernel launch.
-  prepareRuntimeOrder(segmented_fusion_.get(), runtime_workspace_);
+  runtime_workspace_ = prepareRuntimeOrder(*segmented_fusion_);
 
   executors_.resize(segmented_fusion_->groups().size());
 
@@ -643,7 +643,7 @@ std::optional<std::unique_ptr<HeuristicParamsList>> FusionKernelRuntime::
   // The runtime group run order is different from the segmented_fusion group
   // order. Instead of using HeuristicParamsList::emplaceBack, we initialize
   // HeuristicParamsList with the desired number of groups.
-  const int64_t num_groups = (int64_t)runtime_workspace_.group_run_order.size();
+  const int64_t num_groups = std::ssize(runtime_workspace_.group_run_order);
   std::unique_ptr<HeuristicParamsList> heuristics =
       std::make_unique<HeuristicParamsList>(num_groups);
 
