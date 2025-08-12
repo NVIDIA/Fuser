@@ -458,8 +458,16 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
   }
 
   if (isOptionEnabled(EnableOption::HostIrLowering)) {
+    std::vector<LaunchParams> launch_params_per_segment;
+    launch_params_per_segment.reserve(num_groups);
+    for (const auto& heuristic_params : schedulers()) {
+      launch_params_per_segment.push_back(heuristic_params->lparams);
+    }
     std::unique_ptr<hir::HostIrContainer> hic = lowerSegmentedFusionToHostIr(
-        *segmented_fusion_, runtime_workspace_.group_run_order, executors_);
+        *segmented_fusion_,
+        runtime_workspace_.group_run_order,
+        launch_params_per_segment,
+        executors_);
     hie_ = std::make_unique<hir::HostIrEvaluator>(
         std::move(hic), &Communicator::getInstance());
   }

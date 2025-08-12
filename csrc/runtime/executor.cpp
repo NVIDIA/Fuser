@@ -172,8 +172,6 @@ void KernelExecutor::compile(
     CompileParams compile_params,
     SchedulerType scheduler_type) {
   FUSER_PERF_SCOPE("KernelExecutor::compile");
-  std::cerr << "KernelExecutor::compile: launch_constraints = "
-            << launch_constraints.toString() << std::endl;
 
   NVF_ERROR(
       supported(fusion),
@@ -266,7 +264,7 @@ void KernelExecutor::compile(
         compile_params.index_type.value());
     block_size = launch_params.nThreads();
     dynamic_smem = launch_params.smem();
-    NVF_ERROR_GT(block_size, 0);
+    NVF_ERROR_GT(*block_size, 0);
   }
 
   // Launch parameters are required to compile the kernel to:

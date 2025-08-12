@@ -232,6 +232,7 @@ class CompiledKernel : public NonCopyable {
   void recompileKernel(
       const LaunchParams& new_launch_params,
       const CompileParams& new_compile_params);
+
   const c10::Device& device() const {
     return device_;
   }

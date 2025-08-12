@@ -40,6 +40,7 @@ void recomputeOutputTvs(Expr* e, IrCloner& ir_cloner) {
 std::unique_ptr<hir::HostIrContainer> lowerSegmentedFusionToHostIr(
     const SegmentedFusion& segmented_fusion,
     const std::vector<SegmentedGroup*>& group_run_order,
+    const std::vector<LaunchParams>& launch_params_per_segment,
     std::vector<std::unique_ptr<ExecutorAbstract>>& executors) {
   auto hic = std::make_unique<hir::HostIrContainer>(group_run_order.size());
 
@@ -109,11 +110,9 @@ std::unique_ptr<hir::HostIrContainer> lowerSegmentedFusionToHostIr(
         for (auto* out : ir_utils::filterByType<TensorView>(group->outputs())) {
           recomputeTv(out, ir_cloner);
         }
-        std::cerr << "lowerSegmentedFusionToHostIr: launch_params = "
-                  << ke->lastLaunchParams().toString() << std::endl;
         auto launch_kernel = IrBuilder::create<hir::LaunchKernel>(
             group_id,
-            ke->lastLaunchParams(),
+            launch_params_per_segment.at(group_id),
             ke->compiledKernel()->compileParams(),
             in_clone,
             out_clone,
