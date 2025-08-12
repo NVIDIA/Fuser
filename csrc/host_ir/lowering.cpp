@@ -95,17 +95,22 @@ std::unique_ptr<hir::HostIrContainer> lowerSegmentedFusionToHostIr(
       } break;
       default:
         const int group_id = group->groupId();
-        NVF_ERROR(
-            hic->hasKernelExecutor(group_id),
-            "The kernel to be launched hasn't been compiled: group_id = ",
-            group_id);
+        // Add the kernel executor to the container.
+        auto* ke = executors.at(group_id).release()->as<KernelExecutor>();
+        hic->addKernelExecutor(std::unique_ptr<KernelExecutor>(ke));
+        NVF_ERROR_EQ(
+            ke->groupId(),
+            group_id,
+            "The group ID of the kernel executor doesn't match the group ID of "
+            "the segment.");
+        // Add a LaunchKernel instruction to the container.
         auto in_clone = ir_cloner.clone(group->inputs());
         auto out_clone = ir_cloner.clone(group->outputs());
         for (auto* out : ir_utils::filterByType<TensorView>(group->outputs())) {
           recomputeTv(out, ir_cloner);
         }
-        std::unique_ptr<KernelExecutor> ke(
-            executors.at(group_id).release()->as<KernelExecutor>());
+        std::cerr << "lowerSegmentedFusionToHostIr: launch_params = "
+                  << ke->lastLaunchParams().toString() << std::endl;
         auto launch_kernel = IrBuilder::create<hir::LaunchKernel>(
             group_id,
             ke->lastLaunchParams(),

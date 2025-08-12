@@ -389,8 +389,7 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
   }
 
   if (isDebugDumpEnabled(DebugDumpOption::PythonDefinitionSegments)) {
-    for (int64_t run_order_id = 0; run_order_id < num_groups; ++run_order_id) {
-      auto group_to_run = runtime_workspace_.group_run_order.at(run_order_id);
+    for (SegmentedGroup* group_to_run : runtime_workspace_.group_run_order) {
       debug() << "Python definition for segmented group "
               << group_to_run->groupId() << ":" << std::endl;
       python_frontend::FusionDefinition fd(/*id=*/std::nullopt);
@@ -411,9 +410,8 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
   // ugly. Perhaps, we should reconsider passing unique_ptr-backed
   // data between threads.
   try {
-    for (int64_t run_order_id = 0; run_order_id < num_groups; ++run_order_id) {
-      auto group_to_run = runtime_workspace_.group_run_order.at(run_order_id);
-      const auto& group_runtime_inputs = all_runtime_inputs.at(run_order_id);
+    for (const auto& [group_to_run, group_runtime_inputs] :
+         zip(runtime_workspace_.group_run_order, all_runtime_inputs)) {
       if (num_groups == 1 || isOptionDisabled(DisableOption::ParallelCompile)) {
         compileKernel(group_runtime_inputs, group_to_run);
       } else {
@@ -513,9 +511,8 @@ std::optional<std::unique_ptr<HeuristicParamsList>> FusionKernelRuntime::
   ArgumentManager args_manager(
       args, runtime_workspace_, segmented_fusion_->inputs());
   // Follow group run order
-  for (int64_t run_order_id : arange(num_groups)) {
-    auto group_to_run = runtime_workspace_.group_run_order.at(run_order_id);
-
+  for (auto [run_order_id, group_to_run] :
+       enumerate(runtime_workspace_.group_run_order)) {
     // Create fusion for this segmented group
     Fusion* fusion_to_run = group_to_run->getFusion();
     NVF_ERROR(fusion_to_run != nullptr);
@@ -712,10 +709,10 @@ void FusionKernelRuntime::compileKernel(
   c10::Device device(c10::DeviceType::CUDA, args.getDeviceIndex());
 
   auto group_id = sg->groupId();
-  auto heuristic_params = schedulers().at(group_id).get();
+  HeuristicParams* heuristic_params = schedulers().at(group_id).get();
 
   // Check that the heuristics are matched, in the case of segmented fusion
-  NVF_ERROR(heuristic_params->scheduler_type == sg->schedulerType());
+  NVF_ERROR_EQ(heuristic_params->scheduler_type, sg->schedulerType());
 
   if (isOptionEnabled(EnableOption::HostIrLowering)) {
     if (sg->schedulerType() == SchedulerType::ExprEval ||
