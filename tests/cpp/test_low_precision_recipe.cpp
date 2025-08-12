@@ -161,7 +161,6 @@ TEST_P(NVFP4QuantizeTest, WithoutPerTensorAmax) {
 
   // Check that the fusion is segmented into two groups.
   // The normalization scheduler is used for the first group
-  auto gs = runtime->fusionSegments()->groups();
   EXPECT_THAT(
       runtime->fusionSegments()->groups(),
       UnorderedElementsAre(
