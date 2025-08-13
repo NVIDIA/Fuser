@@ -5292,7 +5292,8 @@ RuntimeWorkSpace prepareRuntimeOrder(const SegmentedFusion& segmented_fusion) {
     }
   }
 
-  runtime_workspace.group_run_order = toposort(segmented_fusion.groups());
+  runtime_workspace.group_run_order = optimalTopoSort(segmented_fusion.groups());
+  //runtime_workspace.group_run_order = toposort(segmented_fusion.groups());
 
   return runtime_workspace;
 }
