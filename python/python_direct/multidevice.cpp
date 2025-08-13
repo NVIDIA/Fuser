@@ -72,8 +72,8 @@ Performs a blocking barrier across all ranks.
 void bindDeviceMesh(py::module& nvfuser) {
   py::class_<DeviceMesh> device_mesh(nvfuser, "DeviceMesh", py::module_local());
   device_mesh.def(
-      py::init([](at::Tensor devices) {
-        return new DeviceMesh(std::move(devices));
+      py::init([](const std::vector<int64_t>& devices) {
+        return new DeviceMesh(at::tensor(devices));
       }),
       py::arg("devices"),
       R"(

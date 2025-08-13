@@ -19,23 +19,34 @@
 
 namespace nvfuser {
 
-DeviceMesh::DeviceMesh() : DeviceMesh(at::empty({0}, at::dtype(at::kLong))) {}
-
-DeviceMesh::DeviceMesh(at::Tensor devices) : devices_(devices.to(at::kLong)) {
-  NVF_ERROR_EQ(
-      devices_.numel(),
-      std::get<0>(at::unique_dim(devices_.flatten(), 0)).numel(),
-      "`devices_` contains duplicates: ",
-      devices_);
+DeviceMesh::DeviceMesh() {
+  devices_ = at::empty({0}, at::dtype(at::kLong));
+  validate();
 }
 
-DeviceMesh::DeviceMesh(std::initializer_list<DeviceIdxType> devices)
-    : DeviceMesh(at::tensor(devices)) {}
+DeviceMesh::DeviceMesh(at::Tensor devices) {
+  devices_ = devices;
+  validate();
+}
+
+DeviceMesh::DeviceMesh(std::initializer_list<DeviceIdxType> devices) {
+  devices_ = at::tensor(devices);
+  validate();
+}
 
 DeviceMesh::DeviceMesh(
     const std::vector<int64_t>& devices,
-    const std::vector<int64_t>& shape)
-    : DeviceMesh(at::tensor(devices).view(shape)) {}
+    const std::vector<int64_t>& shape) {
+  devices_ = at::tensor(devices).view(shape);
+  validate();
+}
+
+void DeviceMesh::validate() const {
+  NVF_ERROR_EQ(devices_.dtype(), at::kLong);
+  NVF_ERROR_EQ(
+      devices_.numel(),
+      std::get<0>(at::unique_dim(devices_.flatten(), 0)).numel());
+}
 
 /*static*/ DeviceMesh DeviceMesh::createForNumDevices(
     const int64_t num_devices) {
