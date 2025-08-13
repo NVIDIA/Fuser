@@ -190,7 +190,7 @@ class StructHandle {
   StructHandle& operator=(const StructHandle& other) = default;
   StructHandle& operator=(StructHandle&& other) = default;
 
-  bool operator==(const StructHandle& other) const;
+  NVF_API bool operator==(const StructHandle& other) const;
 
   template <typename T>
   bool is() const {

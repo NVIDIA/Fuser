@@ -85,6 +85,18 @@ Returns
 list of Val
     The outputs of the fusion.
 )")
+      .def(
+          "vals",
+          [](Fusion& self) { return self.vals(); },
+          py::return_value_policy::reference,
+          R"(
+Return all Vals registered in the fusion.
+
+Returns
+-------
+list of Val
+    The Vals registered in the fusion.
+)")
       .def("add_input", &Fusion::addInput, py::arg("input"), R"(
 Register a value as an input to the fusion.
 

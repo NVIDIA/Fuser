@@ -24,7 +24,7 @@ NVF_API TensorView* indexSelect(
     TensorView* index);
 
 // This is a restricted version of torch.index_put(..., accumulate=true)
-TensorView* indexPutAccumulate(
+NVF_API TensorView* indexPutAccumulate(
     TensorView* acc_tv,
     TensorView* index_tv,
     TensorView* value_tv);
@@ -33,7 +33,7 @@ TensorView* indexPutAccumulate(
 NVF_API TensorView* gather(TensorView* input, int64_t dim, TensorView* index);
 
 // TODO: Revisit the interface design. ScatterOpType could be just BinaryOpType
-TensorView* scatterOp(
+NVF_API TensorView* scatterOp(
     ScatterOpType type,
     TensorView* self,
     int64_t dim,

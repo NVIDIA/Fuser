@@ -21,7 +21,7 @@ python/nvfuser_common/cmake
 .hypothesis
 *.egg-info/
 **/__pycache__
-*/*.so
+**/*.so
 python/nvfuser/*.so
 python/nvfuser_direct/*.so
 

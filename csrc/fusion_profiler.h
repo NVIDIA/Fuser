@@ -256,7 +256,7 @@ class FusionProfiler {
   static void stopCompile();
   static void inputBytesAccessed(int64_t bytes);
   static void outputBytesAccessed(int64_t bytes);
-  static const FusionProfile& profile();
+  static NVF_API const FusionProfile& profile();
   // An API to query the last kernel time measured that is convenient
   // for profile a single kernel from the Fusion Executor.  Note, there
   // may be other kernels profiles as a code generated kernel requires

@@ -47,6 +47,21 @@ def verify_stride_order(output_strides, stride_order):
     assert sorted(sorted_stride, reverse=True) == sorted_stride
 
 
+# torch.allclose does not work with fp8 datatype, so cast to fp64.
+# However, casting complex values to real discards the imaginary
+# part, so skip complex dtypes.
+def compare_nvfuser_correctness(outputs, reference_outputs):
+    for idx, ref_out in enumerate(reference_outputs):
+        if not ref_out.dtype.is_complex:
+            ref_out = ref_out.to(torch.float64)
+        if not outputs[idx].dtype.is_complex:
+            outputs[idx] = outputs[idx].to(torch.float64)
+        match = torch.allclose(ref_out, outputs[idx], equal_nan=True)
+        if not match:
+            return False
+    return True
+
+
 # Get string representation for FusionDefinition
 # Run captured python definition
 # Check that the result of captured python definition matches original results
@@ -64,18 +79,7 @@ def check_captured_python_definition(reference_outputs, fd, inputs, device=None)
 
         torch.manual_seed(0)
         captured_outputs = fd_cap.execute(inputs, device=device)
-        # Make sure the original and captured definitions match
-        # torch.allclose does not work with fp8 datatype, so cast to fp64.
-        return all(
-            [
-                torch.allclose(
-                    ref_out.to(torch.float64),
-                    captured_outputs[idx].to(torch.float64),
-                    equal_nan=True,
-                )
-                for idx, ref_out in enumerate(reference_outputs)
-            ]
-        )
+        return compare_nvfuser_correctness(captured_outputs, reference_outputs)
     except Exception as err:
         print("\nException For Printed FusionDefinition:")
         print(
@@ -106,19 +110,7 @@ def check_cpp_translation(
 
         # Run
         cloned_outputs = cloned_fd.execute(inputs, device=device)
-
-        # Make sure the results of original and cloned definitions match.
-        # torch.allclose does not work with fp8 datatype, so cast to fp64.
-        return all(
-            [
-                torch.allclose(
-                    ref_out.to(torch.float64),
-                    cloned_outputs[idx].to(torch.float64),
-                    equal_nan=True,
-                )
-                for idx, ref_out in enumerate(reference_outputs)
-            ]
-        )
+        return compare_nvfuser_correctness(cloned_outputs, reference_outputs)
     except Exception as err:
         print("\nException For CPP Translation:")
         print(

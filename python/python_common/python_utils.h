@@ -65,7 +65,7 @@ namespace nvfuser {
 // be: [True, True, None, False]
 //
 // This function returns a pair of <contiguity, stride_order>
-std::pair<std::vector<std::optional<bool>>, std::vector<int64_t>>
+NVF_API std::pair<std::vector<std::optional<bool>>, std::vector<int64_t>>
 computeTensorDescriptor(
     const std::vector<int64_t>& sizes,
     const std::vector<int64_t>& strides);
@@ -74,7 +74,7 @@ computeTensorDescriptor(
 //
 // The shape must be a list of integers, where each integer is either a positive
 // integer, -1, or 1.
-void verifyShape(const std::vector<int64_t>& shape);
+NVF_API void verifyShape(const std::vector<int64_t>& shape);
 
 // Normalizes and validates the stride order for a tensor.
 //
@@ -96,7 +96,7 @@ void verifyShape(const std::vector<int64_t>& shape);
 // - All indices must be within the range [-rank, rank-1]
 // - No duplicate indices are allowed
 // - An empty stride_order vector is valid and will be left unchanged
-void normalizeStrideOrder(std::vector<int64_t>& stride_order);
+NVF_API void normalizeStrideOrder(std::vector<int64_t>& stride_order);
 
 // Determines which dimensions of a tensor are expanded.
 //
@@ -128,21 +128,21 @@ void normalizeStrideOrder(std::vector<int64_t>& stride_order);
 // - If stride_order is empty, contiguity[i] corresponds to dimension i
 // - Otherwise, contiguity[i] corresponds to dimension
 // (rank - 1 - stride_order[i])
-std::vector<bool> getExpanded(
+NVF_API std::vector<bool> getExpanded(
     const std::vector<int64_t>& shape,
     const std::vector<std::optional<bool>>& contiguity,
     const std::vector<int64_t>& stride_order);
 
 // If shape indicates a broadcast dimension, then the contiguity is optional.
 // Otherwise, assign each dimension the given contiguity value.
-std::vector<std::optional<bool>> getContiguityVec(
+NVF_API std::vector<std::optional<bool>> getContiguityVec(
     const std::vector<int64_t>& shape,
     const std::vector<int64_t>& stride_order,
     bool contiguity);
 
 // This helper function translates python sizes into to TensorViewBuilder's view
 // of the world.
-std::vector<int64_t> getTensorViewBuilderSizes(
+NVF_API std::vector<int64_t> getTensorViewBuilderSizes(
     const std::vector<int64_t>& sizes,
     bool static_sizes);
 
