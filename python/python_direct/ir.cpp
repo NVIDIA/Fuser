@@ -46,6 +46,17 @@ Returns
 -------
 bool
     True if the value is symbolic, False otherwise.
+)")
+      .def(
+          "is_tensor",
+          [](Val* self) { return self->isA<TensorView>(); },
+          R"(
+Check if this value is a TensorView.
+
+Returns
+-------
+bool
+    True if the value is a TensorView, False otherwise.
 )");
 
   // Expr

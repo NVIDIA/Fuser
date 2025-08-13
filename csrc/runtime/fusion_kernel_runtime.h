@@ -112,7 +112,7 @@ class FusionKernelRuntime {
   }
 
   //! Returns the fusion segments if applicable
-  SegmentedFusion* fusionSegments() const;
+  NVF_API SegmentedFusion* fusionSegments() const;
 
   //! Returns the list of heuristics in this runtime
   HeuristicParamsList* schedulerHeuristics() const;
