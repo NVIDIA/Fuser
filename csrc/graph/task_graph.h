@@ -103,10 +103,21 @@ class TaskGraph {
   //! corrupt this data. Raises an exception if corruption is detected.
   void validateSteps(const std::vector<Step>& steps) const;
 
+  struct SortResult {
+    std::vector<Step> steps;
+
+    //! Number of iterations computed
+    int64_t iterations;
+
+    //! Whether the search was exhaustive. If not, then it was likely cut off
+    //! early because of an iteration limit.
+    bool exhaustive;
+  };
+
   //! This does an exhaustive search of all possible orderings using a modified
   //! Kahn's algorithm to efficiently traverse the set of possible topological
   //! orderings.
-  std::vector<Step> findOptimalOrder() const;
+  SortResult findOptimalOrder() const;
 
  private:
   std::vector<Task> tasks_;

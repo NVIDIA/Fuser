@@ -75,8 +75,8 @@ class TaskSorter {
     sort();
   }
 
-  const std::vector<TaskGraph::Step>& steps() const {
-    return steps_;
+  const TaskGraph::SortResult& result() const {
+    return result_;
   }
 
  private:
@@ -195,7 +195,9 @@ class TaskSorter {
 
     // This is the main optimization loop
     TaskGraph::TaskId backtracked_task_id = -1;
-    for (int64_t _ : arange(max_iters_)) {
+    int64_t iter = 0;
+    while (iter < max_iters_) {
+      iter++;
       NVF_ERROR(
           !ready_tasks_.empty() || steps_.size() == (size_t)graph_.numTasks(),
           "Ran out of ready tasks before completing ordering");
@@ -230,12 +232,13 @@ class TaskSorter {
         best_steps = steps_;
       }
     }
+    result_.iterations = iter;
 
     // Record our best found steps
-    steps_ = best_steps;
+    result_.steps = best_steps;
 
     // Validate final result
-    NVF_ERROR(steps_.size() == graph_.numTasks());
+    NVF_ERROR(result_.steps.size() == graph_.numTasks());
     validate();
   }
 
@@ -243,6 +246,7 @@ class TaskSorter {
   const TaskGraph& graph_;
   bool validate_;
   int64_t max_iters_;
+  TaskGraph::SortResult result_;
   std::vector<TaskGraph::Step> steps_;
 
   //! There is one entry here for each task and indicating how many
@@ -260,11 +264,11 @@ class TaskSorter {
 
 } // namespace
 
-std::vector<TaskGraph::Step> TaskGraph::findOptimalOrder() const {
+TaskGraph::SortResult TaskGraph::findOptimalOrder() const {
   // TODO: Find a reasonable default number of iterations. Note that one
   // iteration equals one task, not one ordering
   TaskSorter sorter(*this, /*validate=*/true, /*max_iters=*/2000);
-  return sorter.steps();
+  return sorter.result();
 }
 
 } // namespace nvfuser

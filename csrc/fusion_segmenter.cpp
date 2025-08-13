@@ -6,13 +6,16 @@
  */
 // clang-format on
 #include <algorithm>
+#include <limits>
 #include <sstream>
 
 #include <debug.h>
 #include <device_lower/utils.h>
 #include <disjoint_set.h>
+#include <exceptions.h>
 #include <fusion.h>
 #include <fusion_segmenter.h>
+#include <graph/task_graph.h>
 #include <instrumentation.h>
 #include <ir/all_nodes.h>
 #include <ir/cloner.h>
@@ -1982,6 +1985,116 @@ bool SegmentCandidateFinder::hasSegmentHints(Fusion* fusion) {
 }
 
 namespace {
+
+std::vector<SegmentedGroup*> optimalTopoSort(
+    const std::vector<SegmentedGroup*>& groups) {
+  NVF_ERROR(
+      groups.size() <= std::numeric_limits<TaskGraph::TaskId>::max(),
+      "There are too many tasks to represent with TaskGraph::TaskId");
+
+  std::vector<TaskGraph::Data> all_data;
+  std::unordered_map<TensorView*, TaskGraph::DataId> tv2dataid;
+
+  const auto maybe_register_tv = [&](TensorView* tv) -> TaskGraph::DataId {
+    auto it = tv2dataid.find(tv);
+    if (it == tv2dataid.end()) {
+      // Register this TV
+      TaskGraph::DataId new_id = (TaskGraph::DataId)all_data.size();
+      tv2dataid[tv] = new_id;
+
+      // TODO: Pass runtime info so we can use actual sizes here, or at least
+      // use a better estimate
+      TaskGraph::Size size = 256;
+
+      all_data.emplace_back(
+          /*definition=*/std::nullopt,
+          /*uses=*/std::vector<TaskGraph::TaskId>{},
+          /*input_alias=*/std::nullopt,
+          size,
+          /*can_free=*/true);
+      return new_id;
+    } else {
+      return it->second;
+    }
+  };
+
+  std::vector<TaskGraph::Task> all_tasks;
+  all_tasks.reserve(groups.size());
+  for (SegmentedGroup* group : groups) {
+    TaskGraph::TaskId task_id = (TaskGraph::TaskId)all_tasks.size();
+
+    std::vector<TaskGraph::DataId> inputs;
+    // These are fusion inputs, so they are not edges between segments
+    for (Val* v : group->inputs()) {
+      if (auto* tv = dynamic_cast<TensorView*>(v)) {
+        // Ignore scalar inputs
+        TaskGraph::DataId data_id = maybe_register_tv(tv);
+        TaskGraph::Data& data = all_data.at((size_t)data_id);
+        data.uses.push_back(task_id);
+        data.can_free = false;
+        inputs.push_back(data_id);
+      }
+    }
+    // Now look at producer edges i.e. inputs that are intermediates and can
+    // likely be freed
+    for (SegmentedEdge* edge : group->producer_edges) {
+      if (auto* tv = dynamic_cast<TensorView*>(edge->val)) {
+        TaskGraph::DataId data_id = maybe_register_tv(tv);
+        TaskGraph::Data& data = all_data.at((size_t)data_id);
+        data.uses.push_back(task_id);
+        inputs.push_back(data_id);
+      }
+    }
+    // Now look at fusion outputs coming from this task. Like unaliased inputs,
+    // we never free these even after their last use
+    std::vector<TaskGraph::DataId> outputs;
+    for (Val* v : group->outputs()) {
+      if (auto* tv = dynamic_cast<TensorView*>(v)) {
+        // Ignore scalar inputs
+        TaskGraph::DataId data_id = maybe_register_tv(tv);
+        TaskGraph::Data& data = all_data.at((size_t)data_id);
+        data.uses.push_back(task_id);
+        data.can_free = false;
+        inputs.push_back(data_id);
+        if (Val* aliased_input = tv->fusion()->getOutputAlias(tv).aliased_io) {
+          TaskGraph::DataId alias_id = maybe_register_tv(tv);
+          data.input_alias = alias_id;
+        }
+        outputs.push_back(data_id);
+      }
+    }
+    for (SegmentedEdge* edge : group->consumer_edges) {
+      if (auto* tv = dynamic_cast<TensorView*>(edge->val)) {
+        TaskGraph::DataId data_id = maybe_register_tv(tv);
+        TaskGraph::Data& data = all_data.at((size_t)data_id);
+        data.uses.push_back(task_id);
+        outputs.push_back(data_id);
+      }
+    }
+
+    std::vector<TaskGraph::DataId> outputs;
+
+    // TODO: inspect compiled segment executors to determine temp gmem needed
+    TaskGraph::Size temp_space = 0;
+
+    all_tasks.emplace_back(inputs, outputs, temp_space);
+  }
+
+  NVF_ERROR(
+      all_data.size() <= std::numeric_limits<TaskGraph::TaskId>::max(),
+      "There are too many tensors to represent with TaskGraph::DataId");
+
+  TaskGraph graph(all_tasks, all_data);
+
+  TaskGraph::SortResult result = graph.findOptimalOrder();
+
+  std::vector<SegmentedGroup*> order;
+  order.reserve(groups.size());
+  for (const TaskGraph::Step& step : result.steps) {
+    order.push_back(groups.at((size_t)step.task));
+  }
+}
+
 std::vector<SegmentedGroup*> toposort(
     const std::vector<SegmentedGroup*>& groups) {
   std::deque<SegmentedGroup*> to_visit;
