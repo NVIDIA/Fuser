@@ -119,9 +119,13 @@ if(BUILD_CUTLASS)
       "--expt-relaxed-constexpr"
       "--expt-extended-lambda"
       "--threads=${NPROC}"
+      # -----------------
       # Suppress warnings
+      # -----------------
       "-Xcompiler=-Wconversion"
       "-Xcompiler=-fno-strict-aliasing"
+      # CUDA 13 has deprecated old vector types such as ulong4: https://developer.nvidia.com/blog/whats-new-and-important-in-cuda-toolkit-13-0
+      "-Xcompiler=-Wno-deprecated-declarations"
     )
 
     set(NVFUSER_CUTLASS_SRCS)
@@ -231,6 +235,7 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/host_ir/host_ir.cpp
   ${NVFUSER_SRCS_DIR}/host_ir/lower.cpp
   ${NVFUSER_SRCS_DIR}/host_ir/lower_to_communication.cpp
+  ${NVFUSER_SRCS_DIR}/host_ir/lowering.cpp
   ${NVFUSER_SRCS_DIR}/id_model/circular_buffer_indexing.cpp
   ${NVFUSER_SRCS_DIR}/id_model/contiguity.cpp
   ${NVFUSER_SRCS_DIR}/id_model/id_model.cpp

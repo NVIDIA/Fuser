@@ -20,11 +20,6 @@ namespace nvfuser {
 
 namespace hir {
 
-HostIrContainer::HostIrContainer(int64_t num_groups)
-    : kernel_executors_(num_groups) {}
-
-HostIrContainer::~HostIrContainer() = default;
-
 Stream* HostIrContainer::getDefaultStream() {
   if (default_stream_ == nullptr) {
     default_stream_ = IrBuilder::createInContainer<Stream>(this);
@@ -51,8 +46,16 @@ void HostIrContainer::pushBackTopLevelExprs(Expr* expr) {
   top_level_exprs_.push_back(expr);
 }
 
+bool HostIrContainer::hasKernelExecutor(int64_t group_id) const {
+  return group_id < std::ssize(kernel_executors_) &&
+      kernel_executors_.at(group_id) != nullptr;
+}
+
 void HostIrContainer::addKernelExecutor(std::unique_ptr<KernelExecutor> ke) {
   const int64_t group_id = ke->groupId();
+  if (group_id >= std::ssize(kernel_executors_)) {
+    kernel_executors_.resize(group_id + 1);
+  }
   NVF_ERROR(
       kernel_executors_.at(group_id) == nullptr,
       "KernelExecutor with the same group ID (",
@@ -62,9 +65,14 @@ void HostIrContainer::addKernelExecutor(std::unique_ptr<KernelExecutor> ke) {
   kernel_executors_.at(group_id) = std::move(ke);
 }
 
-KernelExecutor* HostIrContainer::getKernelExecutor(
+KernelExecutor& HostIrContainer::getKernelExecutor(
     const int64_t group_id) const {
-  return kernel_executors_.at(group_id).get();
+  NVF_CHECK(
+      hasKernelExecutor(group_id),
+      "KernelExecutor with group ID ",
+      group_id,
+      " not found.");
+  return *kernel_executors_.at(group_id);
 }
 
 } // namespace hir
