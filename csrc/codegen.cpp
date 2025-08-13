@@ -330,14 +330,10 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       code_ << "__launch_bounds__(/*maxThreadsPerBlock=*/"
             << num_threads_per_cta << ", /*minBlocksPerMultiprocessor=*/1) ";
     }
-    if (kernel_->hasManaged("cluster_dims") || kernel_->summary().has_cluster_reduction) {
+    if (kernel_->hasManaged("cluster_dims")) {
       std::tuple<int64_t, int64_t, int64_t> cluster_dims = {1, 1, 1};
-      if(kernel_->hasManaged("cluster_dims")) { 
-        cluster_dims = kernel_->getManaged<std::tuple<int64_t, int64_t, int64_t>>(
-              "cluster_dims");
-      } else if(kernel_->summary().has_cluster_reduction) {
-        cluster_dims = {kernel_->summary().blocks_per_cluster, 1, 1};
-      }
+      cluster_dims = kernel_->getManaged<std::tuple<int64_t, int64_t, int64_t>>(
+          "cluster_dims");
       code_ << "__cluster_dims__(" << std::get<0>(cluster_dims) << ", "
             << std::get<1>(cluster_dims) << ", " << std::get<2>(cluster_dims)
             << ") ";
@@ -1780,8 +1776,9 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       template_args.arg(
           kernel_->getWarpPaddedParallelInfo().is_tidx_single_warp);
       template_args.arg(/*Aligned=*/false);
-      template_args.arg(reduction_scheduler_utils::getComputeBdimx(
-          warp_specialized_on_, lparams_.bdimx()));
+      template_args.arg(
+          reduction_scheduler_utils::getComputeBdimx(
+              warp_specialized_on_, lparams_.bdimx()));
 
       indent() << genCall(
                       "warp::staticWarpAllReduceTIDX", template_args, func_args)
@@ -1863,40 +1860,52 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
   }
 
   void genClusterReduction(
-    const kir::TensorIndex* output,
-    const kir::TensorIndex* input,
-    BinaryOpType reduction_op_type ) {
-  const auto par_domains = ir_utils::getParallelDomains(output);
-  // Get parallel reduction domains
-  const bool tidx =
-      par_domains.find(ParallelType::TIDx) != par_domains.end() &&
-      par_domains.at(ParallelType::TIDx)->isReduction();
-  const bool tidy =
-      par_domains.find(ParallelType::TIDy) != par_domains.end() &&
-      par_domains.at(ParallelType::TIDy)->isReduction();
-  const bool tidz =
-      par_domains.find(ParallelType::TIDz) != par_domains.end() &&
-      par_domains.at(ParallelType::TIDz)->isReduction();
-  NVF_ERROR(tidx && !tidy && !tidz, "Only support reduction in x direction for now");
-  // domain parallelized by BIDx must be static
-  NVF_ERROR(par_domains.count(ParallelType::BIDx)== 1 && par_domains.at(ParallelType::BIDx)->isReduction() && par_domains.at(ParallelType::BIDx)->extent()->isConst(), "BIDx must be static and used in cluster reduction.");
-  NVF_ERROR(par_domains.count(ParallelType::TIDx)== 1 && par_domains.at(ParallelType::TIDx)->isReduction() && par_domains.at(ParallelType::TIDx)->hasPaddingToMultipleOfWarp(), "TIDx must be padded to multiple of warp size and used in cluster reduction.");
-  int64_t blocks_per_cluster = par_domains.at(ParallelType::BIDx)->extent()->value().as<int64_t>();
-  int64_t warps_per_block = lparams_.bdimx() / 32;
+      const kir::TensorIndex* output,
+      const kir::TensorIndex* input,
+      BinaryOpType reduction_op_type) {
+    const auto par_domains = ir_utils::getParallelDomains(output);
+    // Get parallel reduction domains
+    const bool tidx =
+        par_domains.find(ParallelType::TIDx) != par_domains.end() &&
+        par_domains.at(ParallelType::TIDx)->isReduction();
+    const bool tidy =
+        par_domains.find(ParallelType::TIDy) != par_domains.end() &&
+        par_domains.at(ParallelType::TIDy)->isReduction();
+    const bool tidz =
+        par_domains.find(ParallelType::TIDz) != par_domains.end() &&
+        par_domains.at(ParallelType::TIDz)->isReduction();
+    NVF_ERROR(
+        tidx && !tidy && !tidz,
+        "Only support reduction in x direction for now");
+    // domain parallelized by BIDx must be static
+    NVF_ERROR(
+        par_domains.count(ParallelType::BIDx) == 1 &&
+            par_domains.at(ParallelType::BIDx)->isReduction() &&
+            par_domains.at(ParallelType::BIDx)->extent()->isConst(),
+        "BIDx must be static and used in cluster reduction.");
+    NVF_ERROR(
+        par_domains.count(ParallelType::TIDx) == 1 &&
+            par_domains.at(ParallelType::TIDx)->isReduction() &&
+            par_domains.at(ParallelType::TIDx)->hasPaddingToMultipleOfWarp(),
+        "TIDx must be padded to multiple of warp size and used in cluster "
+        "reduction.");
+    int64_t blocks_per_cluster =
+        par_domains.at(ParallelType::BIDx)->extent()->value().as<int64_t>();
+    int64_t warps_per_block = lparams_.bdimx() / 32;
 
-  const auto data_type = output->dtype();
+    const auto data_type = output->dtype();
+    ArgumentBuilder template_args;
+    template_args.arg("/*blocks_per_cluster=*/").append(std::to_string(blocks_per_cluster));
+    template_args.arg("/*warps_per_block=*/").append(std::to_string(warps_per_block));
 
-  ArgumentBuilder template_args;
-  template_args.arg(blocks_per_cluster);
-  template_args.arg(warps_per_block);
+    ArgumentBuilder func_args;
+    func_args.arg(gen(output));
+    func_args.arg(gen(input));
+    func_args.arg(genReductionOp(reduction_op_type, output->dtype()));
 
-  ArgumentBuilder func_args;
-  func_args.arg(gen(output));
-  func_args.arg(gen(input));
-  func_args.arg(genReductionOp(reduction_op_type, output->dtype()));
-
-  indent() << genCall("cluster::clusterReduce", template_args, func_args) << ";\n";
-}
+    indent() << genCall("cluster::clusterReduce", template_args, func_args)
+             << ";\n";
+  }
   void handle(const ReductionOp* rop) final {
     NVF_ERROR(rop->out()->isA<kir::TensorIndex>());
 
@@ -3501,8 +3510,9 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     template_args.arg(kernel_->getWarpPaddedParallelInfo().is_tidx_single_warp);
     template_args.arg(isAligned());
     template_args.arg(num_grouped_iterations);
-    template_args.arg(reduction_scheduler_utils::getComputeBdimx(
-        warp_specialized_on_, lparams_.bdimx()));
+    template_args.arg(
+        reduction_scheduler_utils::getComputeBdimx(
+            warp_specialized_on_, lparams_.bdimx()));
     if (has_independent_compute_warp_groups_) {
       func_args.arg(genBarrierId(true));
     }

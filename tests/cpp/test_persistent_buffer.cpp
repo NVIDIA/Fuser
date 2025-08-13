@@ -1908,9 +1908,16 @@ TEST_F(PersistentBufferTest, BroadcastSyncInputsHasBcast) {
   testValidate(&unscheduled_fusion_copy, outputs, {t0, t1}, __LINE__, __FILE__);
 }
 
-TEST_F(PersistentBufferTest, clusterReduction) {
-  int x = 66*2;
-  int y = 128 * 1024;
+using ClusterReductionTestParams = std::tuple<int64_t, int64_t>;
+using clusterReductionTest = NVFuserFixtureParamTest<ClusterReductionTestParams>;
+TEST_P(clusterReductionTest, variedThreadClusterSizes) {
+  auto [threads_per_block, blocks_per_cluster] = GetParam();
+  constexpr int vect_factor = 8;
+  constexpr int batches_per_block = 2;
+  int y = threads_per_block * blocks_per_cluster * vect_factor * batches_per_block;
+  // use two waves
+  // int x = (deviceSMCount() * 2 + blocks_per_cluster - 1) / blocks_per_cluster;
+  int x = 2;
   auto fusion_ptr = std::make_unique<Fusion>();
   auto& fusion = *fusion_ptr;
   FusionGuard fg(fusion_ptr.get());
@@ -1937,14 +1944,14 @@ TEST_F(PersistentBufferTest, clusterReduction) {
   rparams->cross_grid_inner_reduction = true;
   rparams->grid_dim_inner_reduction = ParallelType::BIDx;
   rparams->grid_dim_iter_dom = ParallelType::BIDy;
-  auto gdimx = 2;
-  int bdimx = 256;
-  rparams->batches_per_block_inner_reduction = y/8/gdimx / bdimx;
+  rparams->batches_per_block_inner_reduction = batches_per_block;
+  rparams->static_bdimx = true;
+  rparams->static_gdimx = true;
   rparams->lparams = LaunchParams(
-      gdimx,
+      blocks_per_cluster,
       LaunchParams::UNINITIALIZED_VAL,
       LaunchParams::UNINITIALIZED_VAL,
-      LaunchParams::UNINITIALIZED_VAL,
+      threads_per_block,
       LaunchParams::UNINITIALIZED_VAL,
       LaunchParams::UNINITIALIZED_VAL);
 
@@ -1954,5 +1961,17 @@ TEST_F(PersistentBufferTest, clusterReduction) {
   auto outputs =
       ke.run({t0}, {}, heuristic_params->as<ReductionParams>()->lparams);
   testValidate(&unscheduled_fusion_copy, outputs, {t0});
-}    
+}
+INSTANTIATE_TEST_SUITE_P(
+    ,
+    clusterReductionTest,
+    ::testing::Combine(
+        ::testing::Values(128, 256),
+        ::testing::Values(2, 4, 8)),
+    [](const testing::TestParamInfo<ClusterReductionTestParams>& info) {
+      std::stringstream ss;
+      ss << "threads_" << std::get<0>(info.param);
+      ss << "_cluster_" << std::get<1>(info.param);
+      return sanitizeTestName(ss.str());
+    });
 } // namespace nvfuser
