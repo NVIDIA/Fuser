@@ -146,6 +146,11 @@ struct KernelSummary {
 
   //! Do we have any scan op?
   bool has_scan = false;
+
+  //! Do we have any clustered blocks?
+  bool has_cluster_reduction = false;
+  //! Number of blocks per cluster
+  int64_t blocks_per_cluster = -1;
 };
 
 class KernelPerformanceProfile {
