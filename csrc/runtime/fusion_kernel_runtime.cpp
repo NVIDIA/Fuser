@@ -157,7 +157,11 @@ void FusionKernelRuntime::evictCache(size_t input_id) {
 
 bool FusionKernelRuntime::isCompiled() const {
   if (isOptionEnabled(EnableOption::HostIrLowering)) {
+    #ifdef NVFUSER_HOST_IR_JIT
+    return hij_ != nullptr;
+    #else
     return hie_ != nullptr;
+    #endif
   } else {
     std::lock_guard<std::mutex> guard(mutex_);
     return std::all_of(
@@ -297,7 +301,12 @@ KernelArgumentHolder FusionKernelRuntime::runWithInputs(
               << std::endl;
     }
 
+    #ifdef NVFUSER_HOST_IR_JIT
+    auto outputs = hij_->runWithInputs(args); // TODO: add jit support
+    #else
     auto outputs = hie_->runWithInputs(args);
+    #endif
+
     if (isDebugDumpEnabled(DebugDumpOption::PerfDebugVerbose)) {
       debug() << "============= FINISHED RUNNING HOSTIR EVALUATOR ============"
               << std::endl;
