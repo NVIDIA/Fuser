@@ -481,6 +481,12 @@ class BackwardTraverseFromAllocToLogical {
   // Backward traverse split from allocation to logical. Needs to, for example,
   // view tensor with shape [..., 3, 5, ...] as [..., 15, ...]
   void handle(Split* split) {
+    std::cout << "Split: " << split->toString() << std::endl;
+    std::cout << "  in: " << split->in()->toString() << std::endl;
+    std::cout << "  outer: " << split->outer()->toString() << std::endl;
+    std::cout << "  inner: " << split->inner()->toString() << std::endl;
+    std::cout << "  factor: " << split->factor()->toString() << std::endl;
+    std::cout << "  inner_split: " << (split->innerSplit() ? "true" : "false") << std::endl;
     auto inner = split->inner();
     auto outer = split->outer();
     auto in = split->in();
@@ -524,7 +530,35 @@ class BackwardTraverseFromAllocToLogical {
         new_shape.emplace_back(tensor_.size(i));
       }
     }
-    tensor_ = tensor_.reshape(new_shape);
+    std::cout << "Frontier: ";
+    for (const auto& id : frontier_) {
+      std::cout << id->toString() << " ";
+    }
+    std::cout << std::endl;
+
+    
+    std::cout << "New shape: ";
+    for (const auto& dim : new_shape) {
+      std::cout << dim << " ";
+    }
+    std::cout << std::endl;
+
+    std::cout << "Tensor shape: ";
+    for (int64_t i = 0; i < tensor_.dim(); i++) {
+      std::cout << tensor_.size(i) << " ";
+    }
+    std::cout << std::endl;
+
+
+    std::cout << "Tensor strides: ";
+    for (int64_t i = 0; i < tensor_.dim(); i++) {
+      std::cout << tensor_.stride(i) << " ";
+    }
+    std::cout << std::endl;
+
+
+    // tensor_ = tensor_.reshape(new_shape);
+    tensor_ = tensor_.view(new_shape);
     // update frontier
     if (inner_dim < outer_dim) {
       *inner_it = in;
@@ -564,6 +598,17 @@ class BackwardTraverseFromAllocToLogical {
     frontier_.insert(out_it, outer);
     frontier_.insert(out_it, inner);
     frontier_.erase(out_it);
+    std::cout << "From merge - Tensor sizes: ";
+    for (int64_t i = 0; i < tensor_.dim(); i++) {
+      std::cout << tensor_.size(i) << " ";
+    }
+    std::cout << std::endl;
+
+    std::cout << "From merge - Tensor strides: ";
+    for (int64_t i = 0; i < tensor_.dim(); i++) {
+      std::cout << tensor_.stride(i) << " ";
+    }
+    std::cout << std::endl;
   }
 
   void handle(Expr* expr) {
@@ -612,14 +657,40 @@ at::Tensor transformFromAllocationToLogical(
   FUSER_PERF_SCOPE("allocations::transformFromAllocationToLogical");
   // Ignore reductions because reductions does not exist in tensor's definition
   auto logical = TensorDomain::noReductions(tv->getLogicalDomain());
+  // Print the logical domain
+  std::cout << "Logical domain: ";
+  for (auto id : logical) {
+    std::cout << id->toString() << " ";
+  }
+  std::cout << std::endl;
   auto alloc = TensorDomain::noReductions(tv->getMaybeAllocationDomain());
   // Traverse all affine transformations from allocation domain. Because
   // allocation domain can be before or after the logical domain, we need both a
   // forward and a backward traverse.
   std::list<IterDomain*> frontier(alloc.begin(), alloc.end());
   NVF_ERROR(tensor.dim() == (int64_t)frontier.size());
+  // Print tensor sizes and strides before forward traverse
+  std::cout << "Before forward traverse - tensor size: [";
+  for (const auto& s : tensor.sizes()) {
+    std::cout << s << ", ";
+  }
+  std::cout << "], stride: [";
+  for (const auto& s : tensor.strides()) {
+    std::cout << s << ", ";
+  }
+  std::cout << "]\n";
   tensor = ForwardTraverseFromAllocToLogical(tensor, ee, frontier)
                .run(logical, alloc);
+  // Print tensor sizes and strides after forward traverse
+  std::cout << "After forward traverse - tensor size: [";
+  for (const auto& s : tensor.sizes()) {
+    std::cout << s << ", ";
+  }
+  std::cout << "], stride: [";
+  for (const auto& s : tensor.strides()) {
+    std::cout << s << ", ";
+  }
+  std::cout << "]\n";
   tensor = BackwardTraverseFromAllocToLogical(tensor, ee, frontier)
                .run(logical, alloc);
   NVF_ERROR(frontier.size() == logical.size());
@@ -680,6 +751,15 @@ std::pair<std::vector<int64_t>, std::vector<int64_t>> inferShapeOfOutput(
   // account.
 
   auto size_stride = inferAllocationShape(tv, expr_eval);
+  std::cout << "size: [";
+  for (const auto& s : size_stride.first) {
+    std::cout << s << ", ";
+  }
+  std::cout << "], stride: [";
+  for (const auto& s : size_stride.second) {
+    std::cout << s << ", ";
+  }
+  std::cout << "]\n";
   if (!tv->hasAllocation()) {
     return size_stride;
   }
@@ -690,6 +770,15 @@ std::pair<std::vector<int64_t>, std::vector<int64_t>> inferShapeOfOutput(
   // TODO(jiej): we should refactor it here, there's no need to use
   // meta_tensor at all, size + stride should be used directly in the
   // `transformFromAllocationToLogical`
+  std::cout << "meta_tensor size: [";
+  for (const auto& s : meta_tensor.sizes()) {
+    std::cout << s << ", ";
+  }
+  std::cout << "], stride: [";
+  for (const auto& s : meta_tensor.strides()) {
+    std::cout << s << ", ";
+  }
+  std::cout << "]\n";
   meta_tensor = transformFromAllocationToLogical(meta_tensor, tv, expr_eval);
   return {meta_tensor.sizes().vec(), meta_tensor.strides().vec()};
 }
