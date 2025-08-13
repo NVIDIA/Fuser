@@ -3047,7 +3047,10 @@ IterDomain* IterDomain::resize(
   if (iter_type == IterType::Broadcast) {
     // Set immediate constant size of 1 if resize produces broadcast
     builder.extent(in->fusion()->oneVal());
-    builder.expanded_extent(resized_id_size);
+    // The output can have an expanded extent only when the input has one.
+    if (in->hasExpandedExtent()) {
+      builder.expanded_extent(resized_id_size);
+    }
   }
   IterDomain* resized_id = builder.build();
 
