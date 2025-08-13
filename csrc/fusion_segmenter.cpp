@@ -2056,8 +2056,9 @@ std::vector<SegmentedGroup*> optimalTopoSort(
         data.uses.push_back(task_id);
         data.can_free = false;
         inputs.push_back(data_id);
-        if (Val* aliased_input = tv->fusion()->getOutputAlias(tv).aliased_io) {
-          TaskGraph::DataId alias_id = maybe_register_tv(tv);
+        if (auto* aliased_input_tv = dynamic_cast<TensorView*>(
+                tv->fusion()->getOutputAlias(tv).aliased_io)) {
+          TaskGraph::DataId alias_id = maybe_register_tv(aliased_input_tv);
           data.input_alias = alias_id;
         }
         outputs.push_back(data_id);
@@ -2071,8 +2072,6 @@ std::vector<SegmentedGroup*> optimalTopoSort(
         outputs.push_back(data_id);
       }
     }
-
-    std::vector<TaskGraph::DataId> outputs;
 
     // TODO: inspect compiled segment executors to determine temp gmem needed
     TaskGraph::Size temp_space = 0;
@@ -2093,6 +2092,7 @@ std::vector<SegmentedGroup*> optimalTopoSort(
   for (const TaskGraph::Step& step : result.steps) {
     order.push_back(groups.at((size_t)step.task));
   }
+  return order;
 }
 
 std::vector<SegmentedGroup*> toposort(
@@ -5292,8 +5292,9 @@ RuntimeWorkSpace prepareRuntimeOrder(const SegmentedFusion& segmented_fusion) {
     }
   }
 
-  runtime_workspace.group_run_order = optimalTopoSort(segmented_fusion.groups());
-  //runtime_workspace.group_run_order = toposort(segmented_fusion.groups());
+  runtime_workspace.group_run_order =
+      optimalTopoSort(segmented_fusion.groups());
+  // runtime_workspace.group_run_order = toposort(segmented_fusion.groups());
 
   return runtime_workspace;
 }

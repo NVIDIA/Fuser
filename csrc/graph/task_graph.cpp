@@ -99,6 +99,10 @@ class TaskSorter {
       high_water_mark = steps_.back().high_water_mark;
     }
 
+    NVF_ERROR(
+        ready_tasks_.erase(task_id) == 1,
+        "Attempted to advance to task that was not marked ready");
+
     // Compute the new allocated amount and high water mark for this step
     const TaskGraph::Task& task = graph_.getTask(task_id);
 
@@ -144,7 +148,7 @@ class TaskSorter {
     const TaskGraph::Task& last_task = graph_.getTask(last_task_id);
     steps_.pop_back();
 
-    ready_tasks_.erase(last_task_id);
+    ready_tasks_.insert(last_task_id);
 
     // Update outstanding_dependencies to reflect that the outputs of last_task
     // are no longer available
@@ -238,7 +242,7 @@ class TaskSorter {
     result_.steps = best_steps;
 
     // Validate final result
-    NVF_ERROR(result_.steps.size() == graph_.numTasks());
+    NVF_ERROR(result_.steps.size() == (size_t)graph_.numTasks());
     validate();
   }
 
