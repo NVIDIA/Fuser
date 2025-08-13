@@ -161,10 +161,7 @@ class FusionKernelRuntime {
   //! Interface to compile a single kernel. It is either a single kernel for a
   //! fusion or a kernel for a segmentedGrouup in a segmented fusion. Returns
   //! launch and compile parameters for kernel.
-  void compileKernel(
-      const KernelArgumentHolder& args,
-      SegmentedGroup* sg,
-      hir::HostIrContainer* hic);
+  void compileKernel(const KernelArgumentHolder& args, SegmentedGroup* sg);
 
   //! Access the list of schedulers maintained in this runtime instance
   NVF_API const std::vector<std::unique_ptr<HeuristicParams>>& schedulers()
