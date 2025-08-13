@@ -1912,3 +1912,75 @@ class TestRepro(NVFuserTest):
             torch.testing.make_tensor((), dtype=torch.float32, device="cpu"),
         ]
         fd.execute(inputs)
+
+    # https://github.com/NVIDIA/Fuser/issues/3290
+    def test_execution_order(self):
+        import gc
+
+        N_PARALLEL_PATHS = 10
+
+        with FusionDefinition() as fd:
+            T0s = [
+                fd.define_tensor(
+                    shape=[256, 256],
+                    contiguity=[True, True],
+                    dtype=DataType.Float,
+                    is_cpu=False,
+                    stride_order=[1, 0],
+                )
+                for _ in range(N_PARALLEL_PATHS)
+            ]
+            a = fd.define_tensor(
+                shape=[256, 256],
+                contiguity=[True, True],
+                dtype=DataType.Float,
+                is_cpu=False,
+                stride_order=[1, 0],
+            )
+            for T0 in T0s:
+                T1 = fd.ops.relu(T0)
+                T2 = fd.ops.matmul(T1, T1)
+                T3 = fd.ops.relu(T2)
+                a = fd.ops.matmul(T3, a)
+            fd.add_output(a)
+
+        t0s = [
+            torch.randn(256, 256, device="cuda") for _ in range(N_PARALLEL_PATHS)
+        ]  # 0.25 MiB * N_PARALLEL_PATHS
+        a = torch.randn(256, 256, device="cuda")  # 0.25 MiB
+
+        # Record peak memory usage
+        fd.execute([*t0s, a])
+        gc.collect(0)
+        torch.cuda.empty_cache()
+        torch.cuda.reset_peak_memory_stats()
+        before_in_MiB = torch.cuda.max_memory_allocated() / (1024 * 1024)
+        fd.execute([*t0s, a])
+        nvf_max_allocated_in_MiB = (
+            torch.cuda.max_memory_allocated() / (1024 * 1024) - before_in_MiB
+        )
+
+        def eager_func(t0s, a):
+            for t0 in t0s:
+                t1 = torch.nn.functional.relu(t0)
+                del t0
+                t2 = torch.matmul(t1, t1)
+                del t1
+                t3 = torch.nn.functional.relu(t2)
+                del t2
+                a = torch.matmul(t3, a)
+                del t3
+            return a
+
+        # Record peak memory usage
+        eager_func(t0s, a)
+        gc.collect(0)
+        torch.cuda.empty_cache()
+        torch.cuda.reset_peak_memory_stats()
+        before_in_MiB = torch.cuda.max_memory_allocated() / (1024 * 1024)
+        eager_func(t0s, a)
+        eager_max_allocated_in_MiB = (
+            torch.cuda.max_memory_allocated() / (1024 * 1024) - before_in_MiB
+        )
+
+        assert nvf_max_allocated_in_MiB == eager_max_allocated_in_MiB
