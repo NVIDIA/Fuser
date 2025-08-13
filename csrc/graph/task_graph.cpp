@@ -217,6 +217,13 @@ class TaskSorter {
       if (next_task_id == -1) {
         // There are no ready tasks with ID above the backtracked_task_id. This
         // means it is time to backtrack
+
+        if (steps_.empty()) {
+          // If there is nowhere to backtrack it means we are done with the
+          // search
+          result_.exhaustive = true;
+          break;
+        }
         backtracked_task_id = backtrack();
         continue;
       }
