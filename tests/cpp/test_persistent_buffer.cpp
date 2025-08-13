@@ -1907,4 +1907,52 @@ TEST_F(PersistentBufferTest, BroadcastSyncInputsHasBcast) {
       ke.run({t0, t1}, {}, heuristic_params->as<ReductionParams>()->lparams);
   testValidate(&unscheduled_fusion_copy, outputs, {t0, t1}, __LINE__, __FILE__);
 }
+
+TEST_F(PersistentBufferTest, clusterReduction) {
+  int x = 66*2;
+  int y = 128 * 1024;
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+  auto tv0 = makeContigConcreteTensor({x, y}, DataType::BFloat16);
+  fusion.addInput(tv0);
+  auto tv1 = castOp(DataType::Float, tv0);
+  auto tv2 = sum(tv1, {1});
+  auto tv3 = broadcast(tv2, {false, true});
+  auto tv4 = add(tv1, tv3);
+  auto tv5 = castOp(DataType::BFloat16, tv4);
+  fusion.addOutput(tv5);
+  auto unscheduled_fusion_copy = fusion;
+
+  torch::cuda::manual_seed(0);
+  auto options = at::TensorOptions().dtype(at::kBFloat16).device(at::kCUDA, 0);
+  auto t0 = at::randn({x, y}, options).clamp(-2, 2);
+  SchedulerRuntimeInfo runtime_info(fusion_ptr.get(), {t0});
+  auto scheduler =
+      SchedulerEntry::makeSchedulerInstance(SchedulerType::InnerPersistent);
+  auto heuristic_params =
+      scheduler->computeHeuristics(fusion_ptr.get(), runtime_info);
+  auto rparams = heuristic_params->as<ReductionParams>();
+  rparams->cross_cluster_reduction = true;
+  rparams->cross_grid_inner_reduction = true;
+  rparams->grid_dim_inner_reduction = ParallelType::BIDx;
+  rparams->grid_dim_iter_dom = ParallelType::BIDy;
+  auto gdimx = 2;
+  int bdimx = 256;
+  rparams->batches_per_block_inner_reduction = y/8/gdimx / bdimx;
+  rparams->lparams = LaunchParams(
+      gdimx,
+      LaunchParams::UNINITIALIZED_VAL,
+      LaunchParams::UNINITIALIZED_VAL,
+      LaunchParams::UNINITIALIZED_VAL,
+      LaunchParams::UNINITIALIZED_VAL,
+      LaunchParams::UNINITIALIZED_VAL);
+
+  scheduler->schedule(fusion_ptr.get(), heuristic_params.get());
+  KernelExecutor ke;
+  ke.compile(fusion_ptr.get(), {t0});
+  auto outputs =
+      ke.run({t0}, {}, heuristic_params->as<ReductionParams>()->lparams);
+  testValidate(&unscheduled_fusion_copy, outputs, {t0});
+}    
 } // namespace nvfuser

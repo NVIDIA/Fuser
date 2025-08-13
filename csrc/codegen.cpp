@@ -330,10 +330,14 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       code_ << "__launch_bounds__(/*maxThreadsPerBlock=*/"
             << num_threads_per_cta << ", /*minBlocksPerMultiprocessor=*/1) ";
     }
-    if (kernel_->hasManaged("cluster_dims")) {
-      auto cluster_dims =
-          kernel_->getManaged<std::tuple<int64_t, int64_t, int64_t>>(
+    if (kernel_->hasManaged("cluster_dims") || kernel_->summary().has_cluster_reduction) {
+      std::tuple<int64_t, int64_t, int64_t> cluster_dims = {1, 1, 1};
+      if(kernel_->hasManaged("cluster_dims")) { 
+        cluster_dims = kernel_->getManaged<std::tuple<int64_t, int64_t, int64_t>>(
               "cluster_dims");
+      } else if(kernel_->summary().has_cluster_reduction) {
+        cluster_dims = {kernel_->summary().blocks_per_cluster, 1, 1};
+      }
       code_ << "__cluster_dims__(" << std::get<0>(cluster_dims) << ", "
             << std::get<1>(cluster_dims) << ", " << std::get<2>(cluster_dims)
             << ") ";
@@ -1858,6 +1862,41 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     indent() << genCall("blockReduce", template_args, func_args) << ";\n";
   }
 
+  void genClusterReduction(
+    const kir::TensorIndex* output,
+    const kir::TensorIndex* input,
+    BinaryOpType reduction_op_type ) {
+  const auto par_domains = ir_utils::getParallelDomains(output);
+  // Get parallel reduction domains
+  const bool tidx =
+      par_domains.find(ParallelType::TIDx) != par_domains.end() &&
+      par_domains.at(ParallelType::TIDx)->isReduction();
+  const bool tidy =
+      par_domains.find(ParallelType::TIDy) != par_domains.end() &&
+      par_domains.at(ParallelType::TIDy)->isReduction();
+  const bool tidz =
+      par_domains.find(ParallelType::TIDz) != par_domains.end() &&
+      par_domains.at(ParallelType::TIDz)->isReduction();
+  NVF_ERROR(tidx && !tidy && !tidz, "Only support reduction in x direction for now");
+  // domain parallelized by BIDx must be static
+  NVF_ERROR(par_domains.count(ParallelType::BIDx)== 1 && par_domains.at(ParallelType::BIDx)->isReduction() && par_domains.at(ParallelType::BIDx)->extent()->isConst(), "BIDx must be static and used in cluster reduction.");
+  NVF_ERROR(par_domains.count(ParallelType::TIDx)== 1 && par_domains.at(ParallelType::TIDx)->isReduction() && par_domains.at(ParallelType::TIDx)->hasPaddingToMultipleOfWarp(), "TIDx must be padded to multiple of warp size and used in cluster reduction.");
+  int64_t blocks_per_cluster = par_domains.at(ParallelType::BIDx)->extent()->value().as<int64_t>();
+  int64_t warps_per_block = lparams_.bdimx() / 32;
+
+  const auto data_type = output->dtype();
+
+  ArgumentBuilder template_args;
+  template_args.arg(blocks_per_cluster);
+  template_args.arg(warps_per_block);
+
+  ArgumentBuilder func_args;
+  func_args.arg(gen(output));
+  func_args.arg(gen(input));
+  func_args.arg(genReductionOp(reduction_op_type, output->dtype()));
+
+  indent() << genCall("cluster::clusterReduce", template_args, func_args) << ";\n";
+}
   void handle(const ReductionOp* rop) final {
     NVF_ERROR(rop->out()->isA<kir::TensorIndex>());
 
@@ -1867,6 +1906,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     const auto op_type = rop->getReductionOpType();
 
     const bool has_block_reduce = domain->hasBlockReduction();
+    const bool has_cluster_reduce = domain->hasClusterReduction();
     const bool has_grid_reduce = domain->hasGridReduction();
 
     NVF_ERROR(
@@ -1875,8 +1915,10 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
         "must be used. ",
         rop->toString());
 
-    if (!has_block_reduce) {
+    if (!has_block_reduce && !has_cluster_reduce) {
       genSerialReduction(output, input, op_type);
+    } else if (has_cluster_reduce) {
+      genClusterReduction(output, input, op_type);
     } else if (
         auto reduction_ids =
             ir_utils::getMaybeWarpReductionDim(output, input)) {

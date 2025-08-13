@@ -23,6 +23,17 @@ __device__ inline void init(
       "r"(thread_count));
 }
 
+// 
+// Required when cluster is used to ensure mabrrier is visible to other CTAs
+// Should follow with a clusterSync
+__device__ inline void fence_mbarrier_init() {
+  asm volatile(
+    "{\n\t"
+    "fence.mbarrier_init.release.cluster; \n"
+    "}"
+    ::);
+}
+
 __device__ inline void inval(uint32_t smem_barrier_ptr) {
   asm volatile("mbarrier.inval.shared.b64 [%0];\n" ::"r"(smem_barrier_ptr));
 }
