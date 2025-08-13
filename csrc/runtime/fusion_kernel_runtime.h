@@ -142,9 +142,11 @@ class FusionKernelRuntime {
 
   const std::vector<std::unique_ptr<ExecutorAbstract>>& executors() const;
 
+  #ifndef NVFUSER_HOST_IR_JIT
   const hir::HostIrEvaluator& getHostIrEvaluator() const {
     return *hie_.get();
-  };
+  }
+  #endif
 
  private:
   //! Runs each fusion segment given arguments. The outputs for a fusion are
@@ -188,7 +190,7 @@ class FusionKernelRuntime {
 
   #ifdef NVFUSER_HOST_IR_JIT
   //! Host IR JIT
-  std::unique_ptr<hir::HostIrJit> hij_;
+  std::unique_ptr<HostIrJit> hij_;
   #else
   //! Host IR Evaluator
   std::unique_ptr<hir::HostIrEvaluator> hie_;

@@ -472,8 +472,12 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
     }
     std::unique_ptr<hir::HostIrContainer> hic = lowerSegmentedFusionToHostIr(
         *segmented_fusion_, launch_params_per_segment, executors_);
+    #ifdef NVFUSER_HOST_IR_JIT
+    hij_ = std::make_unique<HostIrJit>(std::move(hic));
+    #else
     hie_ = std::make_unique<hir::HostIrEvaluator>(
         std::move(hic), &Communicator::getInstance());
+    #endif
   }
 
   if (isProfilerEnabled()) {
