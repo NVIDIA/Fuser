@@ -1988,21 +1988,30 @@ namespace {
 
 class SegmentedGroupTaskGraphConverter {
  public:
-  TaskGraph run(const std::vector<SegmentedGroup*>& groups) {
-    NVF_ERROR(
-        groups.size() <= std::numeric_limits<TaskGraph::TaskId>::max(),
-        "There are too many tasks to represent with TaskGraph::TaskId");
-
+  static TaskGraph convert(const std::vector<SegmentedGroup*>& groups) {
+    SegmentedGroupTaskGraphConverter conv;
     for (SegmentedGroup* group : groups) {
-      processGroup(group);
+      conv.processGroup(group);
     }
-
-    return TaskGraph(all_tasks_, all_data_);
+    return TaskGraph(conv.all_tasks_, conv.all_data_);
   }
 
  private:
   void processGroup(SegmentedGroup* group) {
     TaskGraph::TaskId task_id = (TaskGraph::TaskId)all_tasks_.size();
+
+    // When there are aliased inputs, they will appear as _outputs_ of the
+    // SegmentedGroup. To avoid actually adding those as outputs, we record them
+    // here first
+    std::unordered_set<TensorView*> aliased_input_tvs;
+    for (Val* v : group->outputs()) {
+      if (auto* tv = dynamic_cast<TensorView*>(v)) {
+        if (auto* aliased_input_tv = dynamic_cast<TensorView*>(
+                tv->fusion()->getOutputAlias(tv).aliased_io)) {
+          aliased_input_tvs.insert(aliased_input_tv);
+        }
+      }
+    }
 
     std::vector<TaskGraph::DataId> inputs;
     std::cout << "Task " << task_id
@@ -2023,6 +2032,11 @@ class SegmentedGroupTaskGraphConverter {
     std::vector<TaskGraph::DataId> outputs;
     for (Val* v : group->outputs()) {
       if (auto* tv = dynamic_cast<TensorView*>(v)) {
+        if (aliased_input_tvs.count(tv)) {
+          // These are counted as outputs but are actually _inputs_ to this
+          // group
+          continue;
+        }
         TaskGraph::DataId data_id = maybeRegisterTv(tv);
         TaskGraph::Data& data = all_data_.at((size_t)data_id);
         data.definition = task_id;
@@ -2078,10 +2092,10 @@ std::vector<SegmentedGroup*> optimalTopoSort(
   if (groups.size() == 1) {
     // Skip setting up the graph and doing the whole analysis when there's just
     // a single group
-    return groups;
+    return {groups.front()};
   }
 
-  TaskGraph graph = SegmentedGroupTaskGraphConverter().run(groups);
+  TaskGraph graph = SegmentedGroupTaskGraphConverter::convert(groups);
 
   std::cout << graph << std::endl;
 
