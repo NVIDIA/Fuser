@@ -29,7 +29,7 @@ namespace {
 //! lists of specialized nodes and other interesting information
 class KernelIrScanner : private IrVisitor {
  public:
-  explicit KernelIrScanner(const Kernel* kernel) {
+  explicit KernelIrScanner(const Kernel* kernel) : kernel_(kernel) {
     index_type_ = kernel->indexType();
     IrVisitor::handle(kernel->topLevelExprs());
   }
@@ -39,6 +39,7 @@ class KernelIrScanner : private IrVisitor {
   }
 
  private:
+  const Kernel* kernel_;
   inline int64_t getNumOfGroupedIterations(GroupedReductionOp* grouped_rop) {
     int64_t num_grouped_iterations = 1;
     auto out_tv = ir_utils::getTvOutput(grouped_rop);
@@ -190,19 +191,8 @@ class KernelIrScanner : private IrVisitor {
 
   void handle(ReductionOp* rop) final {
     checkWarpReduction(rop->out(), rop->in());
-    auto out = ir_utils::getTvOutput(rop);
-    if(out->domain()->hasClusterReduction()){
-      int64_t blocks_per_cluster = 1;
-      auto id = std::find_if(
-        out->getLoopDomain().begin(), out->getLoopDomain().end(), [](IterDomain* id) {
-          return id->isReduction() && id->isBlockDim() && id->hasClusteredBlocks();
-        });
-      if(id != out->getLoopDomain().end()){
-        blocks_per_cluster = (*id)->extent()->value().as<int64_t>();
-        summary_.blocks_per_cluster = blocks_per_cluster;
-        summary_.has_cluster_reduction = true;
-      }
-    }
+    summary_.has_cluster_reduction = summary_.has_cluster_reduction ||
+        ir_utils::getTvOutput(rop)->domain()->hasClusterReduction();
   }
 
   void handle(GridReduction* grid_reduction) final {

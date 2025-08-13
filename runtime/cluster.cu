@@ -190,8 +190,6 @@ if constexpr(num_iter > 1){
     int idx = lane_idx + i * 32;
     if(idx < CLUSTER_SIZE * WARPS_PER_BLOCK){
       block_reduce_val += reduction_buffer[idx];
-    } else {
-      break;
     }
   }
 }
