@@ -2004,7 +2004,7 @@ std::vector<SegmentedGroup*> optimalTopoSort(
 
       // TODO: Pass runtime info so we can use actual sizes here, or at least
       // use a better estimate
-      TaskGraph::Size size = 256;
+      TaskGraph::Size size = 1;
 
       all_data.emplace_back(
           /*definition=*/std::nullopt,

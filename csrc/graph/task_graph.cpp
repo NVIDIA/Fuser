@@ -25,38 +25,55 @@ void TaskGraph::validateSteps(const std::vector<Step>& steps) const {
   std::vector<TaskId> future_uses = num_uses_;
   std::vector<DataId> outstanding_dependencies = num_dependencies_;
 
+  std::cout << "Validating " << steps << std::endl;
+  std::cout << "    allocated=" << allocated << std::endl;
+
   // Now we are ready to process steps
   for (const Step& step : steps) {
     const Task& task = getTask(step.task);
+    std::cout << "  " << step << "  " << task << std::endl;
 
     // Allocate outputs
     for (const DataId output_id : task.outputs) {
       const Data& data = getData(output_id);
       if (!data.input_alias.has_value()) {
         // Don't allocate outputs if they are reusing input memory
+        std::cout << "    adding " << data.size << " to allocated for output "
+                  << output_id << ": " << data << std::endl;
         allocated += data.size;
       }
     }
 
     // Add temporary space
+    std::cout << "    adding " << task.temp_space
+              << " to allocated for temp space " << std::endl;
     allocated += task.temp_space;
 
     // This is the most space we will use, so update high water mark here
     high_water_mark = std::max(high_water_mark, allocated);
+    std::cout << "    high water mark is " << high_water_mark << std::endl;
     NVF_ERROR(
         step.high_water_mark == high_water_mark,
         "Mismatch in high water mark during validation");
 
     // reduce use count for inputs and free them if possible
     for (const DataId input_id : task.inputs) {
-      if (--future_uses.at((size_t)input_id)) {
+      std::cout << "    predecrement future uses="
+                << future_uses.at((size_t)input_id) << " for input id "
+                << input_id << std::endl;
+      if (--future_uses.at((size_t)input_id) == 0) {
         // There are no more uses for this Data, so free it if we're allowed to
         const Data& data = getData(input_id);
+        std::cout << "    input with no future uses: " << data << std::endl;
         if (data.can_free) {
+          std::cout << "    subtracting " << data.size
+                    << " from allocated for input " << input_id << ": " << data
+                    << std::endl;
           allocated -= data.size;
         }
       }
     }
+    std::cout << "    allocated=" << allocated << std::endl;
 
     // step.allocated indicates how much space is allocated _upon completion_ of
     // this step
