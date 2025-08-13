@@ -10,6 +10,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+# using thunderfx for compilation instead of thunder.jit
+using_fx = True
 
 # Sizes used in Llama 4 Maverick
 @dataclass
@@ -18,6 +20,20 @@ class Config:
     intermediate_size: int = 8192
     num_routed_experts: int = 128
     num_shared_experts: int = 1
+
+
+## This function should be replaced with torch._grouped_mm.  However,
+## torch._grouped_mm is yet to be usable because it requires offsets being
+## multiples of 16.
+#def grouped_mm(a: torch.Tensor, b: torch.Tensor, offsets: torch.Tensor) -> torch.Tensor:
+#    group_sizes = _group_sizes_from_offsets(offsets)
+#    group_outs = []
+#    for group_a, group_b in zip(a.split(group_sizes), b.unbind()):
+#        group_outs.append(group_a @ group_b)
+#    return torch.cat(group_outs)
+
+# This is required otherwise PyTorch graph-breaks on `_grouped_mm` and fallsback to eager mode
+grouped_mm = torch.compiler.allow_in_graph(torch._grouped_mm) if using_fx else torch._grouped_mm
 
 
 class SwiGLU(nn.Module):
@@ -42,17 +58,6 @@ def _group_sizes_from_offsets(offsets: torch.Tensor) -> list[int]:
     return group_sizes
 
 
-# This function should be replaced with torch._grouped_mm.  However,
-# torch._grouped_mm is yet to be usable because it requires offsets being
-# multiples of 16.
-def grouped_mm(a: torch.Tensor, b: torch.Tensor, offsets: torch.Tensor) -> torch.Tensor:
-    group_sizes = _group_sizes_from_offsets(offsets)
-    group_outs = []
-    for group_a, group_b in zip(a.split(group_sizes), b.unbind()):
-        group_outs.append(group_a @ group_b)
-    return torch.cat(group_outs)
-
-
 class GroupedLinear(nn.Module):
     def __init__(self, groups: int, in_features: int, out_features: int):
         super().__init__()
@@ -63,8 +68,7 @@ class GroupedLinear(nn.Module):
     def forward(
         self, hidden_states: torch.Tensor, offsets: torch.Tensor
     ) -> torch.Tensor:
-        #return grouped_mm(hidden_states, self.weight, offsets)
-        return torch._grouped_mm(hidden_states, self.weight, offsets)
+        return grouped_mm(hidden_states, self.weight, offsets.to(dtype=torch.int32))
 
 
 class GroupedSwiGLU(nn.Module):
@@ -105,8 +109,10 @@ class Llama4MoE(nn.Module):
         router_scores = topk_weight.sigmoid()  # [s, 1]
         hidden_states = hidden_states * router_scores  # [s, h]
 
-        counts = topk_ids.new_zeros(
-            (topk_ids.size(0), self.config.num_routed_experts)
+        # counts = topk_ids.new_zeros(
+        #     (topk_ids.size(0), self.config.num_routed_experts)
+        counts = torch.zeros_like(
+            router_logits, dtype=torch.int32
         )  # [s, n]
         counts.scatter_(1, topk_ids, 1)  # [s, n]
         tokens_per_expert = counts.sum(0)  # [n]
@@ -162,28 +168,48 @@ def test_llama4_moe():
     inp = torch.randn(
         batch_size, seq_len, config.hidden_size, dtype=torch.bfloat16, device="cuda"
     )
-    # note fallback doesn't run with torch._grouped_mm. i.e. grouped_mm has requirement on offsets
-    # out = model(inp)
 
+    # TODO:  we need to enable reference implementation. We cannot use eager fallback as-is, need to replace grouped_mm with unrolled implementation to allow un-aligned offset value.
+    # out = model(inp)
     # assert out.size() == (batch_size, seq_len, config.hidden_size)
     # assert out.dtype == torch.bfloat16
     # assert out.is_cuda
 
+    import thunder
     from thunder.dynamo import thunderfx
 
-    thunder_model = thunderfx(model, nv_enable_linear=False)
+    
+    if using_fx:
+        # note: torch.no_grad() context manager isn't working with thunderfx
+        model.requires_grad_(False)
+        thunder_model = thunderfx(model, nv_enable_linear=False)
+    else:
+        thunder_model = thunder.jit(model, nv_enable_linear=False)
+
     out = thunder_model(inp)
 
-    backend = thunder_model._backend
-    print("\n=== unoptimized inference trace:")
-    for subgraph_info in backend.subgraph_infos:
-        assert isinstance(subgraph_info.original_graph_module, torch.fx.GraphModule)
-        assert len(subgraph_info.thunder_compiled_fns)
-    
-        for thunder_fn in subgraph_info.thunder_compiled_fns:
-            print(thunder.last_traces(thunder_fn)[0])
-    
-    print("\n=== inference trace:")
-    for subgraph_info in backend.subgraph_infos:
-        for thunder_fn in subgraph_info.thunder_compiled_fns:
-            print(thunder.last_traces(thunder_fn)[-1])
+    if using_fx:
+        backend = thunder_model._backend
+        print("\n=== fx graphs:")
+        for subgraph_info in backend.subgraph_infos:
+            assert isinstance(subgraph_info.original_graph_module, torch.fx.GraphModule)
+            assert len(subgraph_info.thunder_compiled_fns)
+
+            subgraph_info.split_graph_module.print_readable()
+            print(subgraph_info.split_reasons)
+        
+        print("\n=== unoptimized inference trace:")
+        for subgraph_info in backend.subgraph_infos:
+            assert isinstance(subgraph_info.original_graph_module, torch.fx.GraphModule)
+            for thunder_fn in subgraph_info.thunder_compiled_fns:
+                print(thunder.last_traces(thunder_fn)[0])
+        
+        print("\n=== inference trace:")
+        for subgraph_info in backend.subgraph_infos:
+            for thunder_fn in subgraph_info.thunder_compiled_fns:
+                print(thunder.last_traces(thunder_fn)[-1])
+    else:
+        print(thunder.last_traces(thunder_model)[0])
+
+with torch.no_grad():
+    test_llama4_moe()
