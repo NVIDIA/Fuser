@@ -40,7 +40,7 @@ TEST_F(HostIrEvaluatorTest, LaunchKernel) {
   ke->setGroupId(0);
   ke->compile(&fusion, {t0});
 
-  auto hic = std::make_unique<HostIrContainer>(1);
+  auto hic = std::make_unique<HostIrContainer>();
   FusionGuard::setCurFusion(hic.get());
 
   hic->addKernelExecutor(std::move(ke));
