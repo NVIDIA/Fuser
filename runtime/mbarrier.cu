@@ -23,6 +23,17 @@ __device__ inline void init(
       "r"(thread_count));
 }
 
+// Helps with visibility of barrier init operations across warps / cta / cluster
+// Note : It must be composed with an appropriate sync instruction with the right scope
+// to ensure visibility eg. __syncthreads() or a cluster_arrive() + cluster_wait()
+__device__ inline void init_fence() {
+  asm volatile(
+    "{\n\t"
+    "fence.mbarrier_init.release.cluster; \n"
+    "}"
+    ::);
+}
+
 __device__ inline void inval(uint32_t smem_barrier_ptr) {
   asm volatile("mbarrier.inval.shared.b64 [%0];\n" ::"r"(smem_barrier_ptr));
 }

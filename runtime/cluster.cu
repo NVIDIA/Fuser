@@ -151,6 +151,7 @@ uint32_t barrier_smem_addr = toSmem(&barrier_storage);
 if (threadIdx.x == 0) {
   mbarrier::init(barrier_smem_addr, 1);
 }
+mbarrier::init_fence();
 
 T thread_val = inp;
 
