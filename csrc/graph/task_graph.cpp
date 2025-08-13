@@ -54,7 +54,8 @@ void TaskGraph::validateSteps(const std::vector<Step>& steps) const {
       }
     }
 
-    // step.allocated indicates how much space is allocated _upon completion_ of this step
+    // step.allocated indicates how much space is allocated _upon completion_ of
+    // this step
     NVF_ERROR(step.allocated == allocated);
   }
 }
@@ -100,7 +101,7 @@ class TaskSorter {
 
     // Compute the new allocated amount and high water mark for this step
     const TaskGraph::Task& task = graph_.getTask(task_id);
-    
+
     for (const TaskGraph::DataId output_id : task.outputs) {
       const TaskGraph::Data& output = graph_.getData(output_id);
       // Allocate outputs if not aliased
@@ -145,16 +146,18 @@ class TaskSorter {
 
     ready_tasks_.erase(last_task_id);
 
-    // Update outstanding_dependencies to reflect that the outputs of last_task are no longer available
-    for (const TaskGraph::DataId& output_id: last_task.outputs) {
+    // Update outstanding_dependencies to reflect that the outputs of last_task
+    // are no longer available
+    for (const TaskGraph::DataId& output_id : last_task.outputs) {
       const TaskGraph::Data& output = graph_.getData(output_id);
       for (const TaskGraph::TaskId use_id : output.uses) {
         outstanding_dependencies_.at((size_t)use_id)++;
       }
     }
 
-    // Update future_uses to reflect that the inputs to last_task will need to compute last_task later
-    for (const TaskGraph::DataId& input_id: last_task.inputs) {
+    // Update future_uses to reflect that the inputs to last_task will need to
+    // compute last_task later
+    for (const TaskGraph::DataId& input_id : last_task.inputs) {
       future_uses_.at((size_t)input_id)++;
     }
 
@@ -171,7 +174,7 @@ class TaskSorter {
         const TaskGraph::Data& data = graph_.getData(data_id);
         if (data.definition.has_value()) {
           // Skip counting input data since these are available before we start
-          inputs_to_compute++; 
+          inputs_to_compute++;
         }
       }
       outstanding_dependencies_.push_back(inputs_to_compute);
@@ -186,8 +189,50 @@ class TaskSorter {
       future_uses_.push_back(data.uses.size());
     }
 
+    // Initialize best_usage
+    TaskGraph::Size best_usage = std::numeric_limits<TaskGraph::Size>::max();
+    std::vector<TaskGraph::Step> best_steps;
+
+    // This is the main optimization loop
+    TaskGraph::TaskId backtracked_task_id = -1;
     for (int64_t _ : arange(max_iters_)) {
+      NVF_ERROR(
+          !ready_tasks_.empty() || steps_.size() == (size_t)graph_.numTasks(),
+          "Ran out of ready tasks before completing ordering");
+
+      TaskGraph::TaskId next_task_id = -1;
+      for (const TaskGraph::TaskId ready_id : ready_tasks_) {
+        if (ready_id > backtracked_task_id) {
+          next_task_id = ready_id;
+          break;
+        }
+      }
+
+      if (next_task_id == -1) {
+        // There are no ready tasks with ID above the backtracked_task_id. This
+        // means it is time to backtrack
+        backtracked_task_id = backtrack();
+        continue;
+      }
+
+      advance(next_task_id);
+
+      // If our high water mark is above best_usage, terminate early and
+      // backtrack
+      if (steps_.back().high_water_mark > best_usage) {
+        backtracked_task_id = backtrack();
+        continue;
+      }
+
+      // Our usage is at or below best_usage. Have we completed an ordering? If
+      // so, update best_steps
+      if (steps_.size() == (size_t)graph_.numTasks()) {
+        best_steps = steps_;
+      }
     }
+
+    // Record our best found steps
+    steps_ = best_steps;
 
     // Validate final result
     NVF_ERROR(steps_.size() == graph_.numTasks());
@@ -201,7 +246,8 @@ class TaskSorter {
   std::vector<TaskGraph::Step> steps_;
 
   //! There is one entry here for each task and indicating how many
-  //! dependencies are currently unmet. When this reaches zero the task becomes ready.
+  //! dependencies are currently unmet. When this reaches zero the task becomes
+  //! ready.
   std::vector<TaskGraph::DataId> outstanding_dependencies_;
 
   //! There is one entry here for each Data and indicating how many uses there
@@ -215,7 +261,9 @@ class TaskSorter {
 } // namespace
 
 std::vector<TaskGraph::Step> TaskGraph::findOptimalOrder() const {
-  TaskSorter sorter(*this, /*validate=*/true);
+  // TODO: Find a reasonable default number of iterations. Note that one
+  // iteration equals one task, not one ordering
+  TaskSorter sorter(*this, /*validate=*/true, /*max_iters=*/2000);
   return sorter.steps();
 }
 
