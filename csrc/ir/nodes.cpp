@@ -5912,10 +5912,6 @@ std::string GroupedMmaOp::toInlineString(int indent_size) const {
 std::vector<PolymorphicValue> GroupedMmaOp::evaluate(
     const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
-  const auto& mat1 = inputs[0].as<at::Tensor>();
-  const auto& mat2 = inputs[1].as<at::Tensor>();
-  const auto& offsets = inputs[2].as<at::Tensor>();
-#if 0 && NVF_TORCH_VERSION_NO_LESS(2, 8, 0)
   NVF_ERROR(
       inputs[0].is<at::Tensor>(),
       "GroupedMmaOp expects tensor input at position 0 but got ",
@@ -5935,6 +5931,7 @@ std::vector<PolymorphicValue> GroupedMmaOp::evaluate(
   const auto& mat2 = inputs[1].as<at::Tensor>();
   const auto& offsets = inputs[2].as<at::Tensor>();
 
+#if 0 && NVF_TORCH_VERSION_NO_LESS(2, 8, 0)
   at::Tensor alpha;
   at::Tensor bias;
   at::Tensor beta;
@@ -6084,10 +6081,6 @@ std::vector<PolymorphicValue> GroupedMmaOp::evaluate(
 
   return {result};
 #else
-  const auto& mat1 = inputs[0].as<at::Tensor>();
-  const auto& mat2 = inputs[1].as<at::Tensor>();
-  const auto& offsets = inputs[2].as<at::Tensor>();
-
   at::Tensor result;
   result = at::empty_like(mat1);
   at::Tensor offsets_cpu = offsets.cpu();
