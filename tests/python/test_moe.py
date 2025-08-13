@@ -182,9 +182,9 @@ def test_llama4_moe():
     if using_fx:
         # note: torch.no_grad() context manager isn't working with thunderfx
         model.requires_grad_(False)
-        thunder_model = thunderfx(model, nv_enable_linear=False)
+        thunder_model = thunderfx(model, nv_enable_linear=True)
     else:
-        thunder_model = thunder.jit(model, nv_enable_linear=False)
+        thunder_model = thunder.jit(model, nv_enable_linear=True)
 
     out = thunder_model(inp)
 
