@@ -9,6 +9,8 @@
 
 #include <cstdint>
 #include <optional>
+#include <ostream>
+#include <string>
 #include <vector>
 
 namespace nvfuser {
@@ -27,6 +29,8 @@ class TaskGraph {
     //! This amount of temporary space is required only while executing the Task
     //! and is immediately freed afterward
     Size temp_space = 0;
+
+    std::string toString() const;
   };
 
   struct Data {
@@ -44,6 +48,8 @@ class TaskGraph {
     //! freed (with the exception of an aliased input), while any intermediate
     //! tensors should be freed as soon as possible.
     bool can_free = true;
+
+    std::string toString() const;
   };
 
   TaskGraph(const std::vector<Task>& tasks, const std::vector<Data>& data)
@@ -57,7 +63,7 @@ class TaskGraph {
     }
     num_uses_.reserve(data_.size());
     for (const Data& data : data_) {
-      num_dependencies_.push_back((TaskId)data.uses.size());
+      num_uses_.push_back((TaskId)data.uses.size());
       if (!data.definition.has_value()) {
         initial_allocation_ += (Size)data.size;
       }
@@ -76,6 +82,8 @@ class TaskGraph {
 
     //! This is the maximum active space used until this step is completed.
     Size high_water_mark;
+
+    std::string toString() const;
   };
 
   TaskId numTasks() const {
@@ -112,6 +120,8 @@ class TaskGraph {
     //! Whether the search was exhaustive. If not, then it was likely cut off
     //! early because of an iteration limit.
     bool exhaustive;
+
+    std::string toString() const;
   };
 
   //! This does an exhaustive search of all possible orderings using a modified
@@ -119,15 +129,40 @@ class TaskGraph {
   //! orderings.
   SortResult findOptimalOrder() const;
 
+  std::string toString() const;
+
  private:
   std::vector<Task> tasks_;
   std::vector<Data> data_;
 
   //! How much data is allocated by data that has no definition, i.e. input data
-  Size initial_allocation_;
+  Size initial_allocation_ = 0;
 
   std::vector<TaskId> num_uses_;
   std::vector<DataId> num_dependencies_;
 };
+
+inline std::ostream& operator<<(std::ostream& os, const TaskGraph::Task& task) {
+  os << task.toString();
+  return os;
+}
+inline std::ostream& operator<<(std::ostream& os, const TaskGraph::Data& data) {
+  os << data.toString();
+  return os;
+}
+inline std::ostream& operator<<(std::ostream& os, const TaskGraph& graph) {
+  os << graph.toString();
+  return os;
+}
+inline std::ostream& operator<<(std::ostream& os, const TaskGraph::Step& step) {
+  os << step.toString();
+  return os;
+}
+inline std::ostream& operator<<(
+    std::ostream& os,
+    const TaskGraph::SortResult& result) {
+  os << result.toString();
+  return os;
+}
 
 } // namespace nvfuser

@@ -2024,51 +2024,33 @@ std::vector<SegmentedGroup*> optimalTopoSort(
     TaskGraph::TaskId task_id = (TaskGraph::TaskId)all_tasks.size();
 
     std::vector<TaskGraph::DataId> inputs;
+    std::cout << "Task " << task_id
+              << " is segmented groupId=" << group->groupId() << std::endl;
     // These are fusion inputs, so they are not edges between segments
     for (Val* v : group->inputs()) {
       if (auto* tv = dynamic_cast<TensorView*>(v)) {
+        std::cout << "  Group input " << tv->toString() << std::endl;
         // Ignore scalar inputs
         TaskGraph::DataId data_id = maybe_register_tv(tv);
         TaskGraph::Data& data = all_data.at((size_t)data_id);
         data.uses.push_back(task_id);
-        data.can_free = false;
+        data.can_free = !tv->isFusionInput();
         inputs.push_back(data_id);
       }
     }
-    // Now look at producer edges i.e. inputs that are intermediates and can
-    // likely be freed
-    for (SegmentedEdge* edge : group->producer_edges) {
-      if (auto* tv = dynamic_cast<TensorView*>(edge->val)) {
-        TaskGraph::DataId data_id = maybe_register_tv(tv);
-        TaskGraph::Data& data = all_data.at((size_t)data_id);
-        data.uses.push_back(task_id);
-        inputs.push_back(data_id);
-      }
-    }
-    // Now look at fusion outputs coming from this task. Like unaliased inputs,
-    // we never free these even after their last use
     std::vector<TaskGraph::DataId> outputs;
     for (Val* v : group->outputs()) {
       if (auto* tv = dynamic_cast<TensorView*>(v)) {
-        // Ignore scalar inputs
+        std::cout << "  Group output " << tv->toString() << std::endl;
         TaskGraph::DataId data_id = maybe_register_tv(tv);
         TaskGraph::Data& data = all_data.at((size_t)data_id);
-        data.uses.push_back(task_id);
-        data.can_free = false;
-        inputs.push_back(data_id);
+        data.definition = task_id;
         if (auto* aliased_input_tv = dynamic_cast<TensorView*>(
                 tv->fusion()->getOutputAlias(tv).aliased_io)) {
           TaskGraph::DataId alias_id = maybe_register_tv(aliased_input_tv);
           data.input_alias = alias_id;
         }
-        outputs.push_back(data_id);
-      }
-    }
-    for (SegmentedEdge* edge : group->consumer_edges) {
-      if (auto* tv = dynamic_cast<TensorView*>(edge->val)) {
-        TaskGraph::DataId data_id = maybe_register_tv(tv);
-        TaskGraph::Data& data = all_data.at((size_t)data_id);
-        data.uses.push_back(task_id);
+        data.can_free = !tv->isFusionOutput();
         outputs.push_back(data_id);
       }
     }
@@ -2085,7 +2067,11 @@ std::vector<SegmentedGroup*> optimalTopoSort(
 
   TaskGraph graph(all_tasks, all_data);
 
+  std::cout << graph << std::endl;
+
   TaskGraph::SortResult result = graph.findOptimalOrder();
+
+  std::cout << result << std::endl;
 
   std::vector<SegmentedGroup*> order;
   order.reserve(groups.size());

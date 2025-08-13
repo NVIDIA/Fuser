@@ -10,6 +10,8 @@
 #include <utils.h>
 
 #include <set>
+#include <sstream>
+#include <string>
 
 namespace nvfuser {
 
@@ -41,7 +43,9 @@ void TaskGraph::validateSteps(const std::vector<Step>& steps) const {
 
     // This is the most space we will use, so update high water mark here
     high_water_mark = std::max(high_water_mark, allocated);
-    NVF_ERROR(step.high_water_mark == high_water_mark);
+    NVF_ERROR(
+        step.high_water_mark == high_water_mark,
+        "Mismatch in high water mark during validation");
 
     // reduce use count for inputs and free them if possible
     for (const DataId input_id : task.inputs) {
@@ -56,7 +60,8 @@ void TaskGraph::validateSteps(const std::vector<Step>& steps) const {
 
     // step.allocated indicates how much space is allocated _upon completion_ of
     // this step
-    NVF_ERROR(step.allocated == allocated);
+    NVF_ERROR(
+        step.allocated == allocated, "Mismatch in allocated during validation");
   }
 }
 
@@ -274,6 +279,66 @@ class TaskSorter {
 };
 
 } // namespace
+
+std::string TaskGraph::Task::toString() const {
+  std::stringstream ss;
+  ss << "Task{";
+  ss << "input ids={" << inputs << "}";
+  ss << ", output ids={" << outputs << "}";
+  ss << ", temp space=" << temp_space;
+  ss << "}";
+  return ss.str();
+}
+
+std::string TaskGraph::Data::toString() const {
+  std::stringstream ss;
+  ss << "Data{";
+  ss << "definition="
+     << (definition.has_value() ? std::to_string(definition.value()) : "none");
+  ss << ", uses={" << uses << "}";
+  ss << ", size=" << size;
+  ss << ", input alias="
+     << (input_alias.has_value() ? std::to_string(input_alias.value())
+                                 : "none");
+  ss << ", can_free=" << (can_free ? "yes" : "no");
+  ss << "}";
+  return ss.str();
+}
+
+std::string TaskGraph::Step::toString() const {
+  std::stringstream ss;
+  ss << "Step{";
+  ss << "task id=" << task;
+  ss << ", allocated=" << allocated;
+  ss << ", high water mark=" << high_water_mark;
+  ss << "}";
+  return ss.str();
+}
+
+std::string TaskGraph::SortResult::toString() const {
+  std::stringstream ss;
+  ss << "SortResult{";
+  ss << "steps={" << steps << "}";
+  ss << ", iterations=" << iterations;
+  ss << ", exhaustive=" << (exhaustive ? "yes" : "no");
+  ss << "}";
+  return ss.str();
+}
+
+std::string TaskGraph::toString() const {
+  std::stringstream ss;
+  ss << "TaskGraph{\n";
+  ss << "  data:\n";
+  for (DataId i : arange(numData())) {
+    ss << "    " << i << " = " << getData(i) << "\n";
+  }
+  ss << "  tasks:\n";
+  for (TaskId j : arange(numTasks())) {
+    ss << "    " << j << " = " << getTask(j) << "\n";
+  }
+  ss << "}";
+  return ss.str();
+}
 
 TaskGraph::SortResult TaskGraph::findOptimalOrder() const {
   // TODO: Find a reasonable default number of iterations. Note that one
