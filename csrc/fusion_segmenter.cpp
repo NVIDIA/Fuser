@@ -5308,9 +5308,16 @@ RuntimeWorkSpace prepareRuntimeOrder(const SegmentedFusion& segmented_fusion) {
     }
   }
 
+  using Clock = std::chrono::high_resolution_clock;
+  auto start = Clock::now();
   runtime_workspace.group_run_order =
       optimalTopoSort(segmented_fusion.groups());
   // runtime_workspace.group_run_order = toposort(segmented_fusion.groups());
+  auto stop = Clock::now();
+  std::cout << "Sorting segments took "
+            << std::chrono::duration_cast<std::chrono::microseconds>(
+                   stop - start)
+            << " us" << std::endl;
 
   return runtime_workspace;
 }
