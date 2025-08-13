@@ -147,7 +147,7 @@ class FusionKernelRuntime {
 #ifdef NVFUSER_HOST_IR_JIT
     return hij_->container();
 #else
-    return hie_->getHostIrContainer();
+    return hie_->container();
 #endif
   }
 
