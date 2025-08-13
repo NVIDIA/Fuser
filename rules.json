@@ -1,0 +1,18 @@
+{
+  "bots": [
+    {
+      "id": "documenter",
+      "model": "gpt-4o-mini",
+      "instructions_file": "bots/documenter.md",
+      "constitution": {
+        "source": "file",
+        "path": "bots/constitutions/principles.md"
+      },
+      "tools": ["web_search", "python"],
+      "defaults": {
+        "temperature": 0.2,
+        "max_tokens": 2000
+      }
+    }
+  ]
+}
