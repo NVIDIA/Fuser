@@ -2029,19 +2029,19 @@ std::vector<SegmentedGroup*> optimalTopoSort(
     // These are fusion inputs, so they are not edges between segments
     for (Val* v : group->inputs()) {
       if (auto* tv = dynamic_cast<TensorView*>(v)) {
-        std::cout << "  Group input " << tv->toString() << std::endl;
         // Ignore scalar inputs
         TaskGraph::DataId data_id = maybe_register_tv(tv);
         TaskGraph::Data& data = all_data.at((size_t)data_id);
         data.uses.push_back(task_id);
         data.can_free = !tv->isFusionInput();
         inputs.push_back(data_id);
+        std::cout << "  Group input " << data_id << " = " << tv->toString()
+                  << std::endl;
       }
     }
     std::vector<TaskGraph::DataId> outputs;
     for (Val* v : group->outputs()) {
       if (auto* tv = dynamic_cast<TensorView*>(v)) {
-        std::cout << "  Group output " << tv->toString() << std::endl;
         TaskGraph::DataId data_id = maybe_register_tv(tv);
         TaskGraph::Data& data = all_data.at((size_t)data_id);
         data.definition = task_id;
@@ -2052,6 +2052,8 @@ std::vector<SegmentedGroup*> optimalTopoSort(
         }
         data.can_free = !tv->isFusionOutput();
         outputs.push_back(data_id);
+        std::cout << "  Group output " << data_id << " = " << tv->toString()
+                  << std::endl;
       }
     }
 

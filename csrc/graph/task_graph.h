@@ -52,23 +52,7 @@ class TaskGraph {
     std::string toString() const;
   };
 
-  TaskGraph(const std::vector<Task>& tasks, const std::vector<Data>& data)
-      : tasks_(tasks), data_(data) {
-    // Initialize the counts of future uses of data and unmet dependencies of
-    // tasks. These are the out-degrees of Data and in-degrees of Tasks,
-    // respectively.
-    num_dependencies_.reserve(tasks_.size());
-    for (const Task& task : tasks_) {
-      num_dependencies_.push_back((DataId)task.inputs.size());
-    }
-    num_uses_.reserve(data_.size());
-    for (const Data& data : data_) {
-      num_uses_.push_back((TaskId)data.uses.size());
-      if (!data.definition.has_value()) {
-        initial_allocation_ += (Size)data.size;
-      }
-    }
-  }
+  TaskGraph(const std::vector<Task>& tasks, const std::vector<Data>& data);
 
   //! This represents the execution of a single Task in a given ordering. It
   //! tracks some cumulative state representing the amount of space required up

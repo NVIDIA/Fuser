@@ -15,6 +15,31 @@
 
 namespace nvfuser {
 
+TaskGraph::TaskGraph(
+    const std::vector<Task>& tasks,
+    const std::vector<Data>& data)
+    : tasks_(tasks), data_(data) {
+  // Initialize the counts of future uses of data and unmet dependencies of
+  // tasks. These are the out-degrees of Data and in-degrees of Tasks,
+  // respectively.
+  num_dependencies_.reserve(tasks_.size());
+  for (const Task& task : tasks_) {
+    // Only count task inputs that are not already available (i.e. they have no
+    // definition)
+    num_dependencies_.push_back((DataId)std::count_if(
+        task.inputs.begin(), task.inputs.end(), [&](DataId data_id) {
+          return getData(data_id).definition.has_value();
+        }));
+  }
+  num_uses_.reserve(data_.size());
+  for (const Data& data : data_) {
+    num_uses_.push_back((TaskId)data.uses.size());
+    if (!data.definition.has_value()) {
+      initial_allocation_ += (Size)data.size;
+    }
+  }
+}
+
 void TaskGraph::validateSteps(const std::vector<Step>& steps) const {
   // First find any Data in the graph that has no definition. This must be
   // preallocated before running the program, so we initialize allocated and
@@ -25,55 +50,51 @@ void TaskGraph::validateSteps(const std::vector<Step>& steps) const {
   std::vector<TaskId> future_uses = num_uses_;
   std::vector<DataId> outstanding_dependencies = num_dependencies_;
 
-  std::cout << "Validating " << steps << std::endl;
-  std::cout << "    allocated=" << allocated << std::endl;
-
   // Now we are ready to process steps
   for (const Step& step : steps) {
+    NVF_ERROR(
+        outstanding_dependencies.at((size_t)step.task) == 0,
+        "Invalid ordering found: task id ",
+        step.task,
+        " is executed before all its dependencies are available");
+
     const Task& task = getTask(step.task);
-    std::cout << "  " << step << "  " << task << std::endl;
 
     // Allocate outputs
     for (const DataId output_id : task.outputs) {
       const Data& data = getData(output_id);
       if (!data.input_alias.has_value()) {
         // Don't allocate outputs if they are reusing input memory
-        std::cout << "    adding " << data.size << " to allocated for output "
-                  << output_id << ": " << data << std::endl;
         allocated += data.size;
       }
     }
 
     // Add temporary space
-    std::cout << "    adding " << task.temp_space
-              << " to allocated for temp space " << std::endl;
     allocated += task.temp_space;
 
     // This is the most space we will use, so update high water mark here
     high_water_mark = std::max(high_water_mark, allocated);
-    std::cout << "    high water mark is " << high_water_mark << std::endl;
     NVF_ERROR(
         step.high_water_mark == high_water_mark,
         "Mismatch in high water mark during validation");
 
     // reduce use count for inputs and free them if possible
     for (const DataId input_id : task.inputs) {
-      std::cout << "    predecrement future uses="
-                << future_uses.at((size_t)input_id) << " for input id "
-                << input_id << std::endl;
       if (--future_uses.at((size_t)input_id) == 0) {
         // There are no more uses for this Data, so free it if we're allowed to
         const Data& data = getData(input_id);
-        std::cout << "    input with no future uses: " << data << std::endl;
         if (data.can_free) {
-          std::cout << "    subtracting " << data.size
-                    << " from allocated for input " << input_id << ": " << data
-                    << std::endl;
           allocated -= data.size;
         }
       }
     }
-    std::cout << "    allocated=" << allocated << std::endl;
+
+    for (const DataId output_id : task.outputs) {
+      const Data& data = getData(output_id);
+      for (const TaskId use_id : data.uses) {
+        --outstanding_dependencies.at((size_t)use_id);
+      }
+    }
 
     // step.allocated indicates how much space is allocated _upon completion_ of
     // this step
@@ -314,7 +335,7 @@ std::string TaskGraph::Data::toString() const {
      << (definition.has_value() ? std::to_string(definition.value()) : "none");
   ss << ", uses={" << uses << "}";
   ss << ", size=" << size;
-  ss << ", input alias="
+  ss << ", alias="
      << (input_alias.has_value() ? std::to_string(input_alias.value())
                                  : "none");
   ss << ", can_free=" << (can_free ? "yes" : "no");
