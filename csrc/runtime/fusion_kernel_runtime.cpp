@@ -157,11 +157,11 @@ void FusionKernelRuntime::evictCache(size_t input_id) {
 
 bool FusionKernelRuntime::isCompiled() const {
   if (isOptionEnabled(EnableOption::HostIrLowering)) {
-    #ifdef NVFUSER_HOST_IR_JIT
+#ifdef NVFUSER_HOST_IR_JIT
     return hij_ != nullptr;
-    #else
+#else
     return hie_ != nullptr;
-    #endif
+#endif
   } else {
     std::lock_guard<std::mutex> guard(mutex_);
     return std::all_of(
@@ -301,11 +301,13 @@ KernelArgumentHolder FusionKernelRuntime::runWithInputs(
               << std::endl;
     }
 
-    #ifdef NVFUSER_HOST_IR_JIT
-    auto outputs = hij_->runWithInputs(args); // TODO: add jit support
-    #else
+#ifdef NVFUSER_HOST_IR_JIT
+    auto outputs =
+        hij_->runWithInputs(args); // TODO: change NVFUSER_HOST_IR_JIT flag to
+                                   // enableOption in the future.
+#else
     auto outputs = hie_->runWithInputs(args);
-    #endif
+#endif
 
     if (isDebugDumpEnabled(DebugDumpOption::PerfDebugVerbose)) {
       debug() << "============= FINISHED RUNNING HOSTIR EVALUATOR ============"
@@ -472,12 +474,12 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
     }
     std::unique_ptr<hir::HostIrContainer> hic = lowerSegmentedFusionToHostIr(
         *segmented_fusion_, launch_params_per_segment, executors_);
-    #ifdef NVFUSER_HOST_IR_JIT
+#ifdef NVFUSER_HOST_IR_JIT
     hij_ = std::make_unique<HostIrJit>(std::move(hic));
-    #else
+#else
     hie_ = std::make_unique<hir::HostIrEvaluator>(
         std::move(hic), &Communicator::getInstance());
-    #endif
+#endif
   }
 
   if (isProfilerEnabled()) {

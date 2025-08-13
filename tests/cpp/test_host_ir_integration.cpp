@@ -209,7 +209,6 @@ TEST_F(HostIrIntegrationTest, Deallocate) {
   EXPECT_EQ(memoryAllocated(device_index), 0);
 }
 
-#ifndef NVFUSER_HOST_IR_JIT
 TEST_F(HostIrIntegrationTest, InsertDeallocations) {
   c10::DeviceIndex device_index = 0;
   at::cuda::clearCublasWorkspaces();
@@ -248,7 +247,7 @@ TEST_F(HostIrIntegrationTest, InsertDeallocations) {
 
   FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
   const std::vector<Expr*>& hicExprs =
-      runtime->getHostIrEvaluator().container().topLevelExprs();
+      runtime->getHostIrContainer().topLevelExprs();
 
   EXPECT_THAT(hicExprs, Contains(IsA<Deallocate>()).Times(2));
 
@@ -286,9 +285,7 @@ TEST_F(HostIrIntegrationTest, InsertDeallocations) {
       << "Max memory allocated (" << max_memory_allocated
       << ") was higher than expected << (" << kExpectedPeakMemory << ")";
 }
-#endif
 
-#ifndef NVFUSER_HOST_IR_JIT
 TEST_F(HostIrIntegrationTest, ExcludeOutputsFromDeallocations) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
@@ -313,7 +310,7 @@ TEST_F(HostIrIntegrationTest, ExcludeOutputsFromDeallocations) {
 
   FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
   const std::vector<Expr*>& hicExprs =
-      runtime->getHostIrEvaluator().container().topLevelExprs();
+      runtime->getHostIrContainer().topLevelExprs();
 
   EXPECT_THAT(hicExprs, Contains(IsA<Deallocate>()).Times(0));
 
@@ -323,7 +320,6 @@ TEST_F(HostIrIntegrationTest, ExcludeOutputsFromDeallocations) {
         return v.as<at::Tensor>().defined();
       }));
 }
-#endif
 
 } // namespace hir
 
