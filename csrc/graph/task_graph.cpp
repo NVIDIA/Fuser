@@ -9,6 +9,7 @@
 #include <graph/task_graph.h>
 #include <utils.h>
 
+#include <numeric_limits>
 #include <set>
 #include <sstream>
 #include <string>
@@ -19,6 +20,13 @@ TaskGraph::TaskGraph(
     const std::vector<Task>& tasks,
     const std::vector<Data>& data)
     : tasks_(tasks), data_(data) {
+  NVF_ERROR(
+      tasks.size() <= std::numeric_limits<TaskGraph::TaskId>::max(),
+      "There are too many tasks to represent with TaskGraph::TaskId");
+  NVF_ERROR(
+      data.size() <= std::numeric_limits<TaskGraph::DataId>::max(),
+      "There are too many data objects to represent with TaskGraph::DataId");
+
   // Initialize the counts of future uses of data and unmet dependencies of
   // tasks. These are the out-degrees of Data and in-degrees of Tasks,
   // respectively.

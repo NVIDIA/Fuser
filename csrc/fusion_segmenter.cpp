@@ -1986,42 +1986,23 @@ bool SegmentCandidateFinder::hasSegmentHints(Fusion* fusion) {
 
 namespace {
 
-std::vector<SegmentedGroup*> optimalTopoSort(
-    const std::vector<SegmentedGroup*>& groups) {
-  NVF_ERROR(
-      groups.size() <= std::numeric_limits<TaskGraph::TaskId>::max(),
-      "There are too many tasks to represent with TaskGraph::TaskId");
+class SegmentedGroupTaskGraphConverter {
+ public:
+  TaskGraph run(const std::vector<SegmentedGroup*>& groups) {
+    NVF_ERROR(
+        groups.size() <= std::numeric_limits<TaskGraph::TaskId>::max(),
+        "There are too many tasks to represent with TaskGraph::TaskId");
 
-  std::vector<TaskGraph::Data> all_data;
-  std::unordered_map<TensorView*, TaskGraph::DataId> tv2dataid;
-
-  const auto maybe_register_tv = [&](TensorView* tv) -> TaskGraph::DataId {
-    auto it = tv2dataid.find(tv);
-    if (it == tv2dataid.end()) {
-      // Register this TV
-      TaskGraph::DataId new_id = (TaskGraph::DataId)all_data.size();
-      tv2dataid[tv] = new_id;
-
-      // TODO: Pass runtime info so we can use actual sizes here, or at least
-      // use a better estimate
-      TaskGraph::Size size = 1;
-
-      all_data.emplace_back(
-          /*definition=*/std::nullopt,
-          /*uses=*/std::vector<TaskGraph::TaskId>{},
-          /*input_alias=*/std::nullopt,
-          size,
-          /*can_free=*/true);
-      return new_id;
-    } else {
-      return it->second;
+    for (SegmentedGroup* group : groups) {
+      processGroup(group);
     }
-  };
 
-  std::vector<TaskGraph::Task> all_tasks;
-  all_tasks.reserve(groups.size());
-  for (SegmentedGroup* group : groups) {
-    TaskGraph::TaskId task_id = (TaskGraph::TaskId)all_tasks.size();
+    return TaskGraph(all_tasks_, all_data_);
+  }
+
+ private:
+  void processGroup(SegmentedGroup* group) {
+    TaskGraph::TaskId task_id = (TaskGraph::TaskId)all_tasks_.size();
 
     std::vector<TaskGraph::DataId> inputs;
     std::cout << "Task " << task_id
@@ -2030,8 +2011,8 @@ std::vector<SegmentedGroup*> optimalTopoSort(
     for (Val* v : group->inputs()) {
       if (auto* tv = dynamic_cast<TensorView*>(v)) {
         // Ignore scalar inputs
-        TaskGraph::DataId data_id = maybe_register_tv(tv);
-        TaskGraph::Data& data = all_data.at((size_t)data_id);
+        TaskGraph::DataId data_id = maybeRegisterTv(tv);
+        TaskGraph::Data& data = all_data_.at((size_t)data_id);
         data.uses.push_back(task_id);
         data.can_free = !tv->isFusionInput();
         inputs.push_back(data_id);
@@ -2042,12 +2023,12 @@ std::vector<SegmentedGroup*> optimalTopoSort(
     std::vector<TaskGraph::DataId> outputs;
     for (Val* v : group->outputs()) {
       if (auto* tv = dynamic_cast<TensorView*>(v)) {
-        TaskGraph::DataId data_id = maybe_register_tv(tv);
-        TaskGraph::Data& data = all_data.at((size_t)data_id);
+        TaskGraph::DataId data_id = maybeRegisterTv(tv);
+        TaskGraph::Data& data = all_data_.at((size_t)data_id);
         data.definition = task_id;
         if (auto* aliased_input_tv = dynamic_cast<TensorView*>(
                 tv->fusion()->getOutputAlias(tv).aliased_io)) {
-          TaskGraph::DataId alias_id = maybe_register_tv(aliased_input_tv);
+          TaskGraph::DataId alias_id = maybeRegisterTv(aliased_input_tv);
           data.input_alias = alias_id;
         }
         data.can_free = !tv->isFusionOutput();
@@ -2060,14 +2041,47 @@ std::vector<SegmentedGroup*> optimalTopoSort(
     // TODO: inspect compiled segment executors to determine temp gmem needed
     TaskGraph::Size temp_space = 0;
 
-    all_tasks.emplace_back(inputs, outputs, temp_space);
+    all_tasks_.emplace_back(inputs, outputs, temp_space);
   }
 
-  NVF_ERROR(
-      all_data.size() <= std::numeric_limits<TaskGraph::TaskId>::max(),
-      "There are too many tensors to represent with TaskGraph::DataId");
+  TaskGraph::DataId maybeRegisterTv(TensorView* tv) {
+    auto it = tv2dataid_.find(tv);
+    if (it == tv2dataid_.end()) {
+      // Register this TV
+      TaskGraph::DataId new_id = (TaskGraph::DataId)all_data_.size();
+      tv2dataid_[tv] = new_id;
 
-  TaskGraph graph(all_tasks, all_data);
+      // TODO: Pass runtime info so we can use actual sizes here, or at least
+      // use a better estimate
+      TaskGraph::Size size = 1;
+
+      all_data_.emplace_back(
+          /*definition=*/std::nullopt,
+          /*uses=*/std::vector<TaskGraph::TaskId>{},
+          /*input_alias=*/std::nullopt,
+          size,
+          /*can_free=*/true);
+      return new_id;
+    } else {
+      return it->second;
+    }
+  }
+
+ private:
+  std::vector<TaskGraph::Data> all_data_;
+  std::unordered_map<TensorView*, TaskGraph::DataId> tv2dataid_;
+  std::vector<TaskGraph::Task> all_tasks_;
+};
+
+std::vector<SegmentedGroup*> optimalTopoSort(
+    const std::vector<SegmentedGroup*>& groups) {
+  if (groups.size() == 1) {
+    // Skip setting up the graph and doing the whole analysis when there's just
+    // a single group
+    return groups;
+  }
+
+  TaskGraph graph = SegmentedGroupTaskGraphConverter().run(groups);
 
   std::cout << graph << std::endl;
 
