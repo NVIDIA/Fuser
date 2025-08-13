@@ -198,7 +198,10 @@ class TaskSorter {
     for (const TaskGraph::DataId& output_id : last_task.outputs) {
       const TaskGraph::Data& output = graph_.getData(output_id);
       for (const TaskGraph::TaskId use_id : output.uses) {
-        outstanding_dependencies_.at((size_t)use_id)++;
+        if (outstanding_dependencies_.at((size_t)use_id)++ == 0) {
+          // This task _was_ ready but not it is not
+          ready_tasks_.erase((size_t)use_id);
+        }
       }
     }
 
