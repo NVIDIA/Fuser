@@ -638,6 +638,31 @@ def test_select(nvfuser_direct_test):
     test_fn(1)
 
 
+def test_take_along_axis(nvfuser_direct_test):
+    inputs = [
+        torch.randn(8, 16, device="cuda"),
+        torch.randn(8, 16, device="cuda"),
+        torch.randint(0, 8, (8, 16), device="cuda").to(dtype=torch.long),
+    ]
+
+    def test_fn(dim):
+        def fusion_func(fd: FusionDefinition):
+            t0 = fd.from_pytorch(inputs[0])
+            t1 = fd.from_pytorch(inputs[1])
+            t2 = fd.from_pytorch(inputs[2])
+            t3 = fd.ops.add(t0, t1)
+            t4 = fd.ops.take_along_axis(t3, t2, dim)
+            fd.add_output(t4)
+
+        nvf_out, _ = nvfuser_direct_test.exec_nvfuser(fusion_func, inputs)
+
+        eager_out = torch.gather(inputs[0] + inputs[1], dim, inputs[2])
+        nvfuser_direct_test.assertEqual(eager_out, nvf_out[0])
+
+    test_fn(0)
+    test_fn(1)
+
+
 def test_cumsum(nvfuser_direct_test):
     inputs = [
         torch.randn(8, 16, device="cuda"),

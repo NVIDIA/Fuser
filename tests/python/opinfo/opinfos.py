@@ -1309,6 +1309,7 @@ take_along_axis_opinfo = OpInfo(
         ArgumentType.Symbolic,
         ArgumentType.Constant,
     ),
+    supports_direct_bindings=True,
 )
 shape_ops.append(take_along_axis_opinfo)
 

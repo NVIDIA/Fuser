@@ -2844,6 +2844,55 @@ TensorView
 )",
       py::return_value_policy::reference);
   ops.def(
+      "take_along_axis",
+      [](TensorView* arg, TensorView* index, int64_t dim) -> TensorView* {
+        NVF_CHECK(
+            arg->nDims() == index->nDims(),
+            "Tensor arguments have different dimensions ",
+            arg->nDims(),
+            " and ",
+            index->nDims());
+        auto num_dims = (int64_t)arg->nDims();
+        NVF_CHECK(
+            dim >= -num_dims && dim < num_dims,
+            "Tensor arguments have dimension ",
+            num_dims,
+            " so dim argument must satisfy ",
+            -num_dims,
+            " <= dim < ",
+            num_dims,
+            ", but received ",
+            dim);
+        return takeAlongAxis(arg, index, dim);
+      },
+      py::arg("arg"),
+      py::arg("index"),
+      py::arg("dim"),
+      R"(
+Index arg in dim at positions given by index.
+
+This operation is very similar to gather, but it enforces that all
+dimensions other than dim must be equal between arg and index.
+
+Parameters
+----------
+arg : TensorView
+    Tensor of shape `(Ni...,M,Nk...)` where `M` is the extent of `arg` in the
+    dimension `dim`.
+index : TensorView
+    Tensor of dtype `DataType::Int` of shape `(Ni...,J,Nk...)`.
+dim : int
+    Which position to index along.
+
+Returns
+-------
+TensorView
+    Tensor of same dtype as `arg` and of shape `(Ni...,J,Nk...)` where the
+    element at position `(i...,j,k...)` is equal to
+    `arg[i,...,index[i,...,j,k,...],k,...]`.
+      )",
+      py::return_value_policy::reference);
+  ops.def(
       "cat",
       [](std::vector<TensorView*> tensors,
          int64_t dim,
