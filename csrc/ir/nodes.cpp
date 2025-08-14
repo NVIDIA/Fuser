@@ -3012,7 +3012,7 @@ IterDomain* IterDomain::resize(
 
   Val* resized_id_size = nullptr;
   if (auto simplified_val = simplify_input_extent_plus_right_expansion(
-          right_expansion, in->extent())) {
+          right_expansion, in->getMaybeExpandedExtent())) {
     resized_id_size =
         SimplifyingIrBuilder::addExpr(left_expansion, simplified_val);
   } else {
