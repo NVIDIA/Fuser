@@ -1516,6 +1516,7 @@ triu_opinfo = OpInfo(
     error_input_generator=triu_error_generator,
     reference=torch.triu,
     symbolic_parameter_list=[ArgumentType.Symbolic, ArgumentType.Constant],
+    supports_direct_bindings=True,
 )
 
 tv_val_ops.append(triu_opinfo)

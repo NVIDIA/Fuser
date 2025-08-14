@@ -1335,3 +1335,18 @@ def test_output_stride_order_with_reduction(nvfuser_direct_test):
 
         out = fd.execute(inputs)[0]
         verify_stride_order(out.stride(), stride_order)
+
+
+def test_triu(nvfuser_direct_test):
+    inputs = [
+        torch.randn(4, 16, device="cuda", dtype=torch.float16),
+    ]
+
+    def fusion_func(fd: FusionDefinition) -> None:
+        t0 = fd.from_pytorch(inputs[0])
+        t1 = fd.ops.triu(t0, -1)
+        fd.add_output(t1)
+
+    nvf_out, _ = nvfuser_direct_test.exec_nvfuser(fusion_func, inputs)
+    eager_out0 = torch.triu(inputs[0], -1)
+    nvfuser_direct_test.assertEqual(eager_out0, nvf_out[0])

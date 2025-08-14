@@ -1886,6 +1886,33 @@ Val
       py::return_value_policy::reference);
 }
 
+void bindCompositeOps(py::module_& ops) {
+  ops.def(
+      "triu",
+      [](TensorView* arg, int64_t diagonal) -> TensorView* {
+        Val* diagonal_val =
+            IrBuilder::create<nvfuser::Val>(diagonal, DataType::Int);
+        return triu(arg, diagonal_val);
+      },
+      py::arg("arg"),
+      py::arg("diagonal") = 0,
+      R"(
+Get the upper triangular part of a tensor.
+
+Parameters
+----------
+arg : TensorView
+diagonal : int
+    Offset of the diagonal relative to the main diagonal.
+
+Returns
+-------
+TensorView
+    The upper triangular part of the tensor.
+)",
+      py::return_value_policy::reference);
+}
+
 void bindMatmulOps(py::module_& ops) {
   ops.def(
       "matmul",
@@ -3282,6 +3309,7 @@ void bindOperations(py::module& nvfuser) {
   bindReductionOps(nvf_ops);
   bindScanOps(nvf_ops);
   bindCastOps(nvf_ops);
+  bindCompositeOps(nvf_ops);
   bindMatmulOps(nvf_ops);
   bindMetadataOps(nvf_ops);
   bindTensorUtilityOps(nvf_ops);
