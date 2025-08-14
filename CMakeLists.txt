@@ -1299,6 +1299,10 @@ target_include_directories(codegen_internal PRIVATE "${CMAKE_BINARY_DIR}/include
 install(EXPORT NvfuserTargets FILE NvfuserConfig.cmake DESTINATION share/cmake/nvfuser)
 
 file(CREATE_LINK "${CMAKE_BINARY_DIR}" "${NVFUSER_ROOT}/bin" SYMBOLIC)
+# These symbolic links help IDEs like Cursor resolve symbols in nvfuser and
+# nvfuser_direct.
+file(CREATE_LINK "${NVFUSER_ROOT}/python/nvfuser" "${NVFUSER_ROOT}/nvfuser" SYMBOLIC)
+file(CREATE_LINK "${NVFUSER_ROOT}/python/nvfuser_direct" "${NVFUSER_ROOT}/nvfuser_direct" SYMBOLIC)
 
 message(STATUS "")
 message(STATUS "******** Nvfuser configuration summary ********")
