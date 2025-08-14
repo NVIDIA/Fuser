@@ -131,6 +131,7 @@ if(BUILD_CUTLASS)
     set(NVFUSER_CUTLASS_SRCS)
     list(APPEND NVFUSER_CUTLASS_SRCS
 	${NVFUSER_CUTLASS}/nvfp4_scaled_mm.cu
+        ${NVFUSER_CUTLASS}/nvfp4_scaled_mm_epilogue.cu
         ${NVFUSER_CUTLASS}/nvf_cutlass.cpp
         ${NVFUSER_CUTLASS}/cutlass_utils.cpp
     )
