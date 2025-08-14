@@ -17,7 +17,7 @@
 namespace nvfuser {
 
 // Heuristic parameters for CUTLASS scheduling
-class CutlassParams : public HeuristicParams {
+class NVF_API CutlassParams : public HeuristicParams {
  public:
   // CUTLASS kernel configuration parameters
   GemmTile cta_tile = {256, 256, 256};
