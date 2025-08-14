@@ -46,6 +46,17 @@ Returns
 -------
 bool
     True if the value is symbolic, False otherwise.
+)")
+      .def(
+          "is_tensor",
+          [](Val* self) { return self->isA<TensorView>(); },
+          R"(
+Check if this value is a TensorView.
+
+Returns
+-------
+bool
+    True if the value is a TensorView, False otherwise.
 )");
 
   // Expr
@@ -108,7 +119,9 @@ void bindInterfaceNodes(py::module& nvfuser) {
           "Convert the TensorView to a string representation.")
       .def(
           "num_dims",
-          &TensorView::nDims,
+          [](TensorView* self) {
+            return TensorDomain::noReductions(self->getLogicalDomain()).size();
+          },
           R"(
 Get the number of dimensions in this tensor.
 
@@ -200,6 +213,25 @@ Returns
 -------
 TensorView
     A TensorView with the split axes in its loop domain.
+)")
+      .def(
+          "rfactor",
+          static_cast<TensorView* (TensorView::*)(const std::vector<int64_t>&)>(
+              &TensorView::rFactor),
+          py::arg("axes"),
+          py::return_value_policy::reference,
+          R"(
+Perform an rfactor transformation on the specified axes.
+
+Parameters
+----------
+axes : list of int
+The axes to apply rfactor to.
+
+Returns
+-------
+TensorView
+The newly created rfactor tensor.
 )")
       .def(
           "set_allocation_domain",

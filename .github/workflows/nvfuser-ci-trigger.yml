@@ -43,6 +43,7 @@ jobs:
             github.actor == 'cowanmeg' ||
             github.actor == 'nsarka' ||
             github.actor == 'syed-ahmed' ||
+            github.actor == 'mattwalsh' ||
             github.actor == 'wolfcomos'
           )
     steps:

@@ -130,9 +130,9 @@ if(BUILD_CUTLASS)
 
     set(NVFUSER_CUTLASS_SRCS)
     list(APPEND NVFUSER_CUTLASS_SRCS
-	${NVFUSER_CUTLASS}/nvfp4_scaled_mm.cu
+	      ${NVFUSER_CUTLASS}/nvfp4_scaled_mm.cu
         ${NVFUSER_CUTLASS}/cutlass_utils.cpp
-        )
+    )
     add_library(nvf_cutlass SHARED ${NVFUSER_CUTLASS_SRCS})
 
     target_include_directories(nvf_cutlass PRIVATE ${repo-cutlass_SOURCE_DIR}/include)
@@ -526,15 +526,22 @@ if(NVFUSER_BUILD_WITH_ASAN)
 endif()
 
 target_include_directories(nvfuser_codegen PUBLIC
+  # Core nvfuser
   "$<BUILD_INTERFACE:${NVFUSER_SRCS_DIR}>"
+  # Python-specific
+  "$<BUILD_INTERFACE:${NVFUSER_PYTHON_DIR}>"
+  "$<BUILD_INTERFACE:${NVFUSER_PYTHON_COMMON}>"
+  # External dependencies
+  "$<BUILD_INTERFACE:${NVFUSER_ROOT}/lib/dynamic_type/src>"
   "$<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}/nvfuser>"
 )
-target_link_libraries(nvfuser_codegen PRIVATE
-  flatbuffers
-  ${CUDA_NVRTC_LIB}
-  CUDA::cupti
-  ${TORCH_LIBRARIES}
-  dl
+target_include_directories(nvfuser_codegen SYSTEM PUBLIC
+  "$<BUILD_INTERFACE:${NVFUSER_ROOT}/third_party/flatbuffers/include>"
+  "$<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}/nvfuser>"
+)
+target_link_libraries(nvfuser_codegen
+  PUBLIC ${TORCH_LIBRARIES}
+  PRIVATE dynamic_type flatbuffers ${CUDA_NVRTC_LIB} CUDA::cupti dl
 )
 set_target_properties(nvfuser_codegen PROPERTIES
   C_STANDARD ${NVFUSER_C_STANDARD}
@@ -597,8 +604,8 @@ install(DIRECTORY "${NVFUSER_SRCS_DIR}/"
 
 # TODO guard including flatbuffers headers
 # installing flatbuffers headers
-install(DIRECTORY "${NVFUSER_THIRD_PARTY_DIR}/flatbuffers/include/flatbuffers/"
-  DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/nvfuser/flatbuffers")
+install(DIRECTORY "${NVFUSER_THIRD_PARTY_DIR}/flatbuffers/include/"
+  DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/nvfuser")
 
 # installing dynamic_type headers
 install(DIRECTORY "${NVFUSER_ROOT}/lib/dynamic_type/src/dynamic_type"
@@ -692,15 +699,17 @@ if(BUILD_PYTHON)
   endif()
 
   target_link_libraries(nvf_py_internal PRIVATE
-    codegen_internal
+    nvfuser_codegen
     "${TORCH_INSTALL_PREFIX}/lib/libtorch_python.so"
     pybind11::pybind11 pybind11::headers
   )
 
   target_link_libraries(nvfuser PRIVATE
     nvf_py_internal
-    codegen_internal
     Python::Module
+  )
+  set_target_properties(nvfuser PROPERTIES
+    INSTALL_RPATH "$ORIGIN:$ORIGIN/lib:$ORIGIN/../build:$ORIGIN/../nvfuser_common/lib"
   )
   install(TARGETS nvfuser DESTINATION lib)
 
@@ -774,14 +783,14 @@ if(BUILD_PYTHON)
   target_include_directories(nvf_py_direct_internal PUBLIC ${NVFUSER_PYTHON_COMMON})
   if (BUILD_CUTLASS AND CMAKE_CUDA_COMPILER_VERSION VERSION_GREATER_EQUAL 12.8)
     target_link_libraries(nvf_py_direct_internal PRIVATE
-      codegen_internal
+      nvfuser_codegen
       nvf_cutlass
       "${TORCH_INSTALL_PREFIX}/lib/libtorch_python.so"
       pybind11::pybind11 pybind11::headers
     )
   else()
     target_link_libraries(nvf_py_direct_internal PRIVATE
-      codegen_internal
+      nvfuser_codegen
       "${TORCH_INSTALL_PREFIX}/lib/libtorch_python.so"
       pybind11::pybind11 pybind11::headers
     )
@@ -789,8 +798,10 @@ if(BUILD_PYTHON)
 
   target_link_libraries(nvfuser_direct PRIVATE
     nvf_py_direct_internal
-    codegen_internal
     Python::Module
+  )
+  set_target_properties(nvfuser_direct PROPERTIES
+    INSTALL_RPATH "$ORIGIN:$ORIGIN/../build:$ORIGIN/../nvfuser_common/lib"
   )
   install(TARGETS nvfuser_direct DESTINATION lib)
 endif()

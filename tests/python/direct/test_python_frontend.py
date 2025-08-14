@@ -15,7 +15,12 @@ from nvfuser_direct.pytorch_utils import torch_dtype_to_nvfuser_dtype
 
 import pytest
 import itertools
-from python.direct_utils import is_pre_ampere, is_pre_hopper, is_pre_blackwell
+from python.direct_utils import (
+    is_pre_ampere,
+    is_pre_hopper,
+    is_pre_blackwell,
+    verify_stride_order,
+)
 
 
 def test_basic(nvfuser_direct_test):
@@ -1290,3 +1295,43 @@ def test_embedding(
         input, weight, padding_idx, max_norm, norm_type, scale_grad_by_freq, sparse
     )
     torch.testing.assert_close(nvf_out[0], ref_out)
+
+
+def test_output_stride_order(nvfuser_direct_test):
+    inputs = [
+        torch.arange(0, 120).reshape(2, 3, 4, 5).cuda().float(),
+    ]
+    eager_out = inputs[0] + 3.0
+
+    for perm in itertools.permutations(range(4), 4):
+        # testing stride_order in set
+        def fusion_set_func(fd: FusionDefinition):
+            t0 = fd.from_pytorch(inputs[0])
+            c0 = fd.define_scalar(3.0)
+            t1 = fd.ops.add(t0, c0)
+            t2 = fd.ops.stride_order(t1, perm)
+            fd.add_output(t2)
+
+        nvf_out, _ = nvfuser_direct_test.exec_nvfuser(fusion_set_func, inputs)
+        nvfuser_direct_test.assertEqual(eager_out, nvf_out[0])
+
+        nvf_stride = nvf_out[0].stride()
+        verify_stride_order(nvf_stride, perm)
+
+
+def test_output_stride_order_with_reduction(nvfuser_direct_test):
+    inputs = [torch.randn(2, 3, 4, 5, device="cuda", dtype=torch.float)]
+
+    for stride_order in itertools.permutations(range(3), 3):
+
+        def fusion_stride_order_op(fd: FusionDefinition) -> None:
+            T0 = fd.from_pytorch(inputs[0])
+            T1 = fd.ops.sum(T0, dims=[2])
+            T2 = fd.ops.stride_order(T1, stride_order)
+            fd.add_output(T2)
+
+        with FusionDefinition() as fd:
+            fusion_stride_order_op(fd)
+
+        out = fd.execute(inputs)[0]
+        verify_stride_order(out.stride(), stride_order)
