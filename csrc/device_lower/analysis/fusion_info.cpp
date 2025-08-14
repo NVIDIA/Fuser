@@ -10,9 +10,11 @@
 
 namespace nvfuser {
 
-/*static*/ thread_local FusionInfo* FusionInfoGuard::active_fusion_info_ = nullptr;
+/*static*/ thread_local FusionInfo* FusionInfoGuard::active_fusion_info_ =
+    nullptr;
 
-FusionInfoGuard::FusionInfoGuard(FusionInfo* fusion_info) : prev_fusion_info_(active_fusion_info_) {
+FusionInfoGuard::FusionInfoGuard(FusionInfo* fusion_info)
+    : prev_fusion_info_(active_fusion_info_) {
   active_fusion_info_ = fusion_info;
 }
 
