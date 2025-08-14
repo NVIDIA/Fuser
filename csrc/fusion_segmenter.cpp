@@ -1817,8 +1817,9 @@ void eraseInputDistinctRootDomains(Fusion* fusion) {
       if (tv->getLoopDomain() == tv->getAllocationDomain()) {
         new_loop = new_alloc;
       } else {
+        // scatter output wouldn't have matching loop and logical domain
         NVF_ERROR(
-            tv->getLoopDomain() == tv->getLogicalDomain(),
+            tv->getLoopDomain().size() == tv->getLogicalDomain().size(),
             tv,
             " has an unexpected loop domain:\n",
             tv->domain()->toString(0, /*loop_only=*/false));
@@ -1833,8 +1834,9 @@ void eraseInputDistinctRootDomains(Fusion* fusion) {
           new_loop,
           tv->domain()->contiguity());
     } else {
+      // scatter output wouldn't have matching loop and logical domain
       NVF_ERROR(
-          tv->getLoopDomain() == tv->getLogicalDomain(),
+          tv->getLoopDomain().size() == tv->getLogicalDomain().size(),
           tv,
           " has an unexpected loop domain:\n",
           tv->domain()->toString(0, /*loop_only=*/false));
