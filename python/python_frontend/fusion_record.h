@@ -1824,7 +1824,7 @@ struct ScatterOpRecord : RecordFunctor {
   void operator()(FusionState& fd) final {
     auto arg1 = fd.getFusionState(args_.at(0).index)->template as<TensorView>();
     auto arg3 = fd.getFusionState(args_.at(1).index)->template as<TensorView>();
-    auto arg4 = fd.getFusionState(args_.at(2).index)->template as<TensorView>();
+    auto arg4 = fd.getFusionState(args_.at(2).index)->template as<Val>();
 
     Val* output = scatter(arg1, dim_, arg3, arg4);
     fd.setFusionState(outputs_.at(0).index, output);
