@@ -169,11 +169,10 @@ TensorView* scatterOp(
     Val* src) {
   auto self_dom = TensorDomain::noReductions(self->getLogicalDomain());
   auto idx_dom = TensorDomain::noReductions(index->getLogicalDomain());
-  auto src_dom = TensorDomain::noReductions(src->getLogicalDomain());
 
   NVF_CHECK(!self_dom.empty(), "scatter can not be applied to 0d tensor.");
   NVF_CHECK(
-      self_dom.size() == idx_dom.size() && (!src->is<TensorView>() || self_dom.size() == TensorDomain::noReductions(src->as<TensorView>()->getLogicalDomain()).size()),
+      self_dom.size() == idx_dom.size() && (!src->isA<TensorView>() || self_dom.size() == TensorDomain::noReductions(src->as<TensorView>()->getLogicalDomain()).size()),
       "self, index and src tensor should all have the same number of "
       "dimensions in scatter like ops.");
   dim = wrapDim(dim, (int64_t)self_dom.size());
