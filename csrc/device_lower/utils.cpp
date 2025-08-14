@@ -2082,7 +2082,7 @@ Val* proveLinearAndGetStride(
 IterDomain* getConcreteLoopID(IterDomain* id) {
   // FusionInfo with ComputeAtMap is required
   NVF_ERROR(FusionInfoGuard::hasCurrent());
-  NVF_ERROR(FusionInfoGuard::current()->hasCaMap());
+  NVF_ERROR(FusionInfoGuard::current()->hasComputeAtMap());
 
   // Currently, the concrete loop ID uses the IdModel loop
   // promotion only when opted in.

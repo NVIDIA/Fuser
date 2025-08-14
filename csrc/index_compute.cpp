@@ -2411,7 +2411,7 @@ std::vector<PredicateDomainInfo> getPredicateContigIds(
       concrete_index_map,
       GpuLower::current()->divisibleSplitSet(),
       &GpuLower::current()->info().caMap(),
-      GpuLower::current()->info().concretizedBroadcastDomains().get(),
+      &GpuLower::current()->info().concretizedBroadcastDomains(),
       {},
       false,
       true);

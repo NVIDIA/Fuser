@@ -36,7 +36,7 @@ void validateParallelizationOfTensor(TensorView* tv) {
     if (axis->isBroadcast() &&
         !FusionInfoGuard::current()
              ->concretizedBroadcastDomains()
-             ->isConcretized(axis)) {
+             .isConcretized(axis)) {
       continue;
     }
 
@@ -147,7 +147,7 @@ SyncMap::SyncMap(Fusion* fusion) {
   FusionGuard fg(fusion);
 
   NVF_ERROR(FusionInfoGuard::hasCurrent());
-  NVF_ERROR(FusionInfoGuard::current()->hasCaMap());
+  NVF_ERROR(FusionInfoGuard::current()->hasComputeAtMap());
   NVF_ERROR(FusionInfoGuard::current()->hasIdModel());
 
   const auto& ca_map = FusionInfoGuard::current()->caMap();
@@ -244,7 +244,7 @@ SyncMap::SyncMap(Fusion* fusion) {
               (!parallel_bcast_doms.get(consumer_ptype) ||
                !FusionInfoGuard::current()
                     ->concretizedBroadcastDomains()
-                    ->isConcretized(consumer_axis))) {
+                    .isConcretized(consumer_axis))) {
             continue;
           }
 
@@ -363,7 +363,7 @@ SyncMap::SyncMap(Fusion* fusion) {
               parallel_bcast_doms.get(producer_ptype) &&
               FusionInfoGuard::current()
                   ->concretizedBroadcastDomains()
-                  ->isConcretized(p_id);
+                  .isConcretized(p_id);
 
           auto producer_parallelized = isParallelTypeThread(producer_ptype) &&
               (!p_id->isBroadcast() || producer_parallel_bcast);

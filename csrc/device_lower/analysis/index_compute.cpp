@@ -900,7 +900,7 @@ IndexFromIdGraph getTensorIndexFromIdGraph(
       indexing.indexMap(),
       GpuLower::current()->divisibleSplitSet(),
       &GpuLower::current()->info().caMap(),
-      GpuLower::current()->info().concretizedBroadcastDomains().get(),
+      &GpuLower::current()->info().concretizedBroadcastDomains(),
       p2c_map);
 
   auto target_indexing = indexing.updateIndexCompute(

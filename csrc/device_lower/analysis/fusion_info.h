@@ -19,48 +19,47 @@
 
 namespace nvfuser {
 
+// Define query, setter and accessor methods. For example, in the case
+// of IdModel:
+//
+// bool hasIdModel() const;
+// void set(std::unique_ptr<IdModel> id_model);
+// IdModel& idModel();
+// const IdModel& idModel() const;
+#define DEFINE_FUNCTIONS(type, field, method) \
+  bool has##type() const {                    \
+    return field##_.get() != nullptr;         \
+  }                                           \
+  void set(std::unique_ptr<type> field) {     \
+    field##_ = std::move(field);              \
+  }                                           \
+  type& method() {                            \
+    NVF_ERROR(has##type());                   \
+    return *field##_;                         \
+  }                                           \
+  const type& method() const {                \
+    NVF_ERROR(has##type());                   \
+    return *field##_;                         \
+  }
+
+#define DEFINE_FIELD(type, field) std::unique_ptr<type> field##_;
+
 class FusionInfo {
  public:
-  auto& concretizedBroadcastDomains() {
-    return concretized_broadcast_domains_;
-  }
+  DEFINE_FUNCTIONS(
+      ConcretizedBroadcastDomains,
+      concretized_broadcast_domains,
+      concretizedBroadcastDomains);
 
-  const auto& concretizedBroadcastDomains() const {
-    return concretized_broadcast_domains_;
-  }
+  DEFINE_FUNCTIONS(
+      FusedReductionInfo,
+      fused_reduction_info,
+      fusedReductionInfo);
 
-  ConcretizedBroadcastDomains& concretizedBroadcastDomainsTmp() {
-    return *concretized_broadcast_domains_;
-  }
-
-  const ConcretizedBroadcastDomains& concretizedBroadcastDomainsTmp() const {
-    return *concretized_broadcast_domains_;
-  }
-
-  auto& fusedReductions() {
-    return fused_reductions_;
-  }
-
-  const auto& fusedReductions() const {
-    return fused_reductions_;
-  }
-
-  bool hasPaddedParallelDimensions() const {
-    return padded_parallel_dimensions_.get() != nullptr;
-  }
-
-  PaddedParallelDimensions& paddedParallelDimensions() {
-    return *padded_parallel_dimensions_;
-  }
-
-  const PaddedParallelDimensions& paddedParallelDimensions() const {
-    return *padded_parallel_dimensions_;
-  }
-
-  void set(
-      std::unique_ptr<PaddedParallelDimensions> padded_parallel_dimensions) {
-    padded_parallel_dimensions_ = std::move(padded_parallel_dimensions);
-  }
+  DEFINE_FUNCTIONS(
+      PaddedParallelDimensions,
+      padded_parallel_dimensions,
+      paddedParallelDimensions);
 
   auto& threadPredicateMap() {
     return thread_predicate_map_;
@@ -78,57 +77,23 @@ class FusionInfo {
     return parallel_dimension_map_;
   }
 
-  void set(std::unique_ptr<ComputeAtMap> ca_map) {
-    ca_map_ = std::move(ca_map);
-  }
+  DEFINE_FUNCTIONS(ComputeAtMap, ca_map, caMap);
 
-  bool hasCaMap() const {
-    return ca_map_.get() != nullptr;
-  }
-
-  ComputeAtMap& caMap() {
-    NVF_ERROR(hasCaMap());
-    return *ca_map_;
-  }
-
-  const ComputeAtMap& caMap() const {
-    NVF_ERROR(hasCaMap());
-    return *ca_map_;
-  }
-
-  bool hasIdModel() const {
-    return id_model_.get() != nullptr;
-  }
-
-  void set(std::unique_ptr<IdModel> id_model) {
-    id_model_ = std::move(id_model);
-  }
-
-  IdModel& idModel() {
-    NVF_ERROR(hasIdModel());
-    return *id_model_;
-  }
-
-  const IdModel& idModel() const {
-    NVF_ERROR(hasIdModel());
-    return *id_model_;
-  }
+  DEFINE_FUNCTIONS(IdModel, id_model, idModel);
 
  private:
-  std::shared_ptr<ConcretizedBroadcastDomains>
-      concretized_broadcast_domains_;
+  DEFINE_FIELD(ConcretizedBroadcastDomains, concretized_broadcast_domains);
 
-  std::shared_ptr<const FusedReductionInfo> fused_reductions_;
+  DEFINE_FIELD(FusedReductionInfo, fused_reduction_info);
 
-  std::unique_ptr<PaddedParallelDimensions> padded_parallel_dimensions_;
+  DEFINE_FIELD(PaddedParallelDimensions, padded_parallel_dimensions);
 
   std::shared_ptr<const ThreadPredicateMap> thread_predicate_map_;
 
   std::shared_ptr<const ParallelDimensionMap> parallel_dimension_map_;
 
-  std::unique_ptr<ComputeAtMap> ca_map_;
-
-  std::unique_ptr<IdModel> id_model_;
+  DEFINE_FIELD(ComputeAtMap, ca_map);
+  DEFINE_FIELD(IdModel, id_model);
 };
 
 class FusionInfoGuard {
