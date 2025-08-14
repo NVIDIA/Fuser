@@ -199,12 +199,14 @@ TensorView* scheduleReductionTV(
     auto outer_i = inner_reduce_axis;
     if (rparams->cross_grid_inner_reduction) {
       if (rparams->cross_cluster_reduction) {
-        outer_parallel_static(outer_i, rparams->grid_dim_inner_reduction, rparams->lparams.gdimx());
+        outer_parallel_static(
+            outer_i,
+            rparams->grid_dim_inner_reduction,
+            rparams->lparams.gdimx());
         reduction_tv->axis(outer_i)->setClusteredBlocks(true);
         outer_i++;
-      }else{
+      } else {
         outer_parallel(outer_i++, rparams->grid_dim_inner_reduction);
-
       }
     }
 

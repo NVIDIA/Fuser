@@ -59,7 +59,8 @@ class FusionInspector : private IterVisitor {
 
  private:
   FusionInspector(Fusion* fusion)
-  : has_warp_specialization_(checkWarpSpecialization(fusion)), fusion_(fusion) {
+      : has_warp_specialization_(checkWarpSpecialization(fusion)),
+        fusion_(fusion) {
     traverse(fusion);
   }
 
@@ -118,14 +119,19 @@ class FusionInspector : private IterVisitor {
     }
 
     // manage cluster dim for codegen
-    if(out->domain()->hasClusterReduction()){
+    if (out->domain()->hasClusterReduction()) {
       auto id = std::find_if(
-        out->getLoopDomain().begin(), out->getLoopDomain().end(), [](IterDomain* id) {
-          return id->isReduction() && id->isBlockDim() && id->hasClusteredBlocks();
-        });
-      if(id != out->getLoopDomain().end()){
+          out->getLoopDomain().begin(),
+          out->getLoopDomain().end(),
+          [](IterDomain* id) {
+            return id->isReduction() && id->isBlockDim() &&
+                id->hasClusteredBlocks();
+          });
+      if (id != out->getLoopDomain().end()) {
         int64_t blocks_per_cluster = (*id)->extent()->value().as<int64_t>();
-        fusion_->manage("cluster_dims", std::tuple<int64_t, int64_t, int64_t>{blocks_per_cluster, 1, 1});
+        fusion_->manage(
+            "cluster_dims",
+            std::tuple<int64_t, int64_t, int64_t>{blocks_per_cluster, 1, 1});
       }
     }
   }

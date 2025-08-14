@@ -348,7 +348,7 @@ void parallelizeAllLike(
           tv->axis(i)->padToMultipleOfWarp(
               reference_id->getMaybeSizeAfterPadding());
         }
-      }      
+      }
     }
   }
 }
