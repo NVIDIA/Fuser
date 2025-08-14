@@ -1351,6 +1351,7 @@ uniform_opinfo = OpInfo(
         ArgumentType.ConstantScalar,
         ArgumentType.Constant,
     ),
+    supports_direct_bindings=True,
 )
 tensor_creation_ops.append(uniform_opinfo)
 
@@ -1367,6 +1368,7 @@ uniform_opinfo = OpInfo(
         ArgumentType.ConstantScalar,
         ArgumentType.Constant,
     ),
+    supports_direct_bindings=True,
 )
 tensor_creation_ops.append(uniform_opinfo)
 

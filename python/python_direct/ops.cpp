@@ -3165,6 +3165,10 @@ TensorView* random_dist_op_fn(
   NVF_CHECK(
       !((rng_seed == nullptr) ^ (rng_offset == nullptr)),
       "rng_seed and rng_offset must be provided together!");
+  NVF_CHECK(
+      isFloatingPointType(dtype),
+      "Random distributions only create floating point types! ",
+      dtype);
   std::vector<Val*> new_shape = SequenceAsVector(generic_new_shape);
   return RandomFuncWithSeed(
       new_shape,
