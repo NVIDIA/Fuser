@@ -38,7 +38,7 @@ NVF_API TensorView* scatterOp(
     TensorView* self,
     int64_t dim,
     TensorView* index,
-    TensorView* src);
+    Val* src);
 
 // Provides torch.scatter. It is designed to represent the ouf-of-place
 // scatter operation, i.e., the returned tensor, out_tv, is defined as
@@ -72,7 +72,7 @@ NVF_API TensorView* scatter(
     TensorView* self,
     int64_t dim,
     TensorView* index,
-    TensorView* src);
+    Val* src);
 
 //! numpy.take_along_axis
 //! (https://numpy.org/doc/stable/reference/generated/numpy.take_along_axis.html)
