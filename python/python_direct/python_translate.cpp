@@ -1332,16 +1332,18 @@ class PythonTranslator : public OptInConstDispatch {
   // If input and output values share the same type, a LoadStoreOp will be
   // created instead of a CastOp.
   void handle(const LoadStoreOp* lsop) final {
-    // short-circuit: lsop is a permutation.
-    if (lsop->out()->isA<TensorView>() &&
-        lsop->out()->as<TensorView>()->hasRoot()) {
-      return handlePermute(lsop);
-    }
+    if (lsop->out()->isA<TensorView>()) {
+      TensorView* out_tv = lsop->out()->as<TensorView>();
+      NVF_ERROR(!(out_tv->hasRoot() && out_tv->hasAllocation()));
 
-    // short-circuit: lsop is a stride_order.
-    if (lsop->out()->isA<TensorView>() &&
-        lsop->out()->as<TensorView>()->hasAllocation()) {
-      return handleStrideOrder(lsop);
+      // short-circuit: lsop is a permutation.
+      if (out_tv->hasRoot()) {
+        return handlePermute(lsop);
+      }
+      // short-circuit: lsop is a stride_order.
+      if (out_tv->hasAllocation()) {
+        return handleStrideOrder(lsop);
+      }
     }
 
     NVF_ERROR(
