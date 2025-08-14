@@ -14,21 +14,46 @@ namespace nvfuser::python {
 
 namespace {
 
-torch::Tensor scaled_mm_wrapper(
-    const torch::Tensor& a,
-    const torch::Tensor& b,
-    const torch::Tensor& scales_a,
-    const torch::Tensor& scales_b,
-    const torch::Tensor& alpha,
-    at::ScalarType out_dtype) {
-  return cutlass_kernels::nvfp4_scaled_mm(
-      a, b, scales_a, scales_b, alpha, out_dtype);
-}
-
 void bindGemm(py::module_& cutlass) {
-  const char* nvfp4_gemm_docstring =
-      R"(nvfp4_scaled_mm(Tensor a, Tensor b, Tensor scales_a, Tensor scales_b, Tensor alpha, DataType out_dtype) -> Tensor output)";
-  cutlass.def("nvfp4_scaled_mm", &scaled_mm_wrapper, nvfp4_gemm_docstring);
+  cutlass.def(
+      "nvfp4_scaled_mm",
+      [](const torch::Tensor& a,
+         const torch::Tensor& b,
+         const torch::Tensor& scales_a,
+         const torch::Tensor& scales_b,
+         const torch::Tensor& alpha,
+         at::ScalarType out_dtype) -> torch::Tensor {
+        return cutlass_kernels::nvfp4_scaled_mm(
+            a, b, scales_a, scales_b, alpha, out_dtype);
+      },
+      R"(nvfp4_scaled_mm(Tensor a,
+                         Tensor b,
+                         Tensor scales_a,
+                         Tensor scales_b,
+                         Tensor alpha,
+                         DataType out_dtype)
+                         -> Tensor output)");
+
+  cutlass.def(
+      "nvfp4_scaled_mm_blockscale",
+      [](const torch::Tensor& a_nvfp4,
+         const torch::Tensor& b_nvfp4,
+         const torch::Tensor& scales_a,
+         const torch::Tensor& scales_b,
+         const torch::Tensor& alpha,
+         const torch::Tensor& global_normconst) -> py::tuple {
+        std::pair<torch::Tensor, torch::Tensor> output =
+            cutlass_kernels::nvfp4_scaled_mm_blockscale(
+                a_nvfp4, b_nvfp4, scales_a, scales_b, alpha, global_normconst);
+        return py::make_tuple(output.first, output.second);
+      },
+      R"(nvfp4_scaled_mm_blockscale(Tensor a_nvfp4,
+                                    Tensor b_nvfp4,
+                                    Tensor scales_a,
+                                    Tensor scales_b,
+                                    Tensor alpha,
+                                    Tensor global_normconst)
+                                    -> tuple(Tensor out_nvfp4, Tensor blockscale))");
 }
 
 void bindGroupedGemm(py::module_& cutlass) {
