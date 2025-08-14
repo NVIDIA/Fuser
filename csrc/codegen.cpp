@@ -331,9 +331,9 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
             << num_threads_per_cta << ", /*minBlocksPerMultiprocessor=*/1) ";
     }
     if (kernel_->hasManaged("cluster_dims")) {
-      std::tuple<int64_t, int64_t, int64_t> cluster_dims = {1, 1, 1};
-      cluster_dims = kernel_->getManaged<std::tuple<int64_t, int64_t, int64_t>>(
-          "cluster_dims");
+      auto cluster_dims =
+          kernel_->getManaged<std::tuple<int64_t, int64_t, int64_t>>(
+              "cluster_dims");
       code_ << "__cluster_dims__(" << std::get<0>(cluster_dims) << ", "
             << std::get<1>(cluster_dims) << ", " << std::get<2>(cluster_dims)
             << ") ";
@@ -460,9 +460,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
           auto space_type = kernel_summary.largest_smem_data_type;
           indent() << "nvfuser_index_t block_size = "
                       "blockDim.x*blockDim.y*blockDim.z;\n";
-          indent() << space_type << " *shared_mem_var = "
-                   << "static_cast<" << space_type << "*>("
-                   << "shared_mem);\n";
+          indent() << space_type << " *shared_mem_var = " << "static_cast<"
+                   << space_type << "*>(" << "shared_mem);\n";
           indent() << space_type
                    << " *shared_mem_avg = shared_mem_var + block_size;\n";
           indent() << space_type
@@ -1677,8 +1676,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     // This is slightly different from getReductionOp
     std::stringstream lambda;
     lambda << "[](const " << input->dtype() << "& a, const " << input->dtype()
-           << "& b) "
-           << "{ return "
+           << "& b) " << "{ return "
            << genBinaryOp(scan->opType(), input->dtype(), "a", "b") << "; }";
     func_args.arg(lambda.str());
 
@@ -1776,9 +1774,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       template_args.arg(
           kernel_->getWarpPaddedParallelInfo().is_tidx_single_warp);
       template_args.arg(/*Aligned=*/false);
-      template_args.arg(
-          reduction_scheduler_utils::getComputeBdimx(
-              warp_specialized_on_, lparams_.bdimx()));
+      template_args.arg(reduction_scheduler_utils::getComputeBdimx(
+          warp_specialized_on_, lparams_.bdimx()));
 
       indent() << genCall(
                       "warp::staticWarpAllReduceTIDX", template_args, func_args)
@@ -1896,8 +1893,10 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
 
     const auto data_type = output->dtype();
     ArgumentBuilder template_args;
-    template_args.arg("/*blocks_per_cluster=*/").append(std::to_string(blocks_per_cluster));
-    template_args.arg("/*warps_per_block=*/").append(std::to_string(warps_per_block));
+    template_args.arg("/*blocks_per_cluster=*/")
+        .append(std::to_string(blocks_per_cluster));
+    template_args.arg("/*warps_per_block=*/")
+        .append(std::to_string(warps_per_block));
 
     ArgumentBuilder func_args;
     func_args.arg(gen(output));
@@ -1929,7 +1928,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     if (!has_block_reduce && !has_cluster_reduce) {
       genSerialReduction(output, input, op_type);
     } else if (has_cluster_reduce) {
-      genClusterReduction(output, input, rop->init(),op_type);
+      genClusterReduction(output, input, rop->init(), op_type);
     } else if (
         auto reduction_ids =
             ir_utils::getMaybeWarpReductionDim(output, input)) {
@@ -2165,8 +2164,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     const bool has_grid_reduce = domain->hasGridReduction();
 
     if (!has_block_reduce && !has_grid_reduce) {
-      indent() << "welfordCombine ("
-               << "\n";
+      indent() << "welfordCombine (" << "\n";
       indent() << kTab << gen(out_avg) << ",\n";
       indent() << kTab << gen(out_var) << ",\n";
       indent() << kTab << gen(out_N) << ",\n";
@@ -3512,9 +3510,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     template_args.arg(kernel_->getWarpPaddedParallelInfo().is_tidx_single_warp);
     template_args.arg(isAligned());
     template_args.arg(num_grouped_iterations);
-    template_args.arg(
-        reduction_scheduler_utils::getComputeBdimx(
-            warp_specialized_on_, lparams_.bdimx()));
+    template_args.arg(reduction_scheduler_utils::getComputeBdimx(
+        warp_specialized_on_, lparams_.bdimx()));
     if (has_independent_compute_warp_groups_) {
       func_args.arg(genBarrierId(true));
     }
@@ -4032,8 +4029,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
                       // actual argument value like T0[i * 4 + j].
                       << (as_utility ? prefix + std::to_string(counter)
                                      : gen(register_))
-                      << "[" << i << "]"
-                      << ")";
+                      << "[" << i << "]" << ")";
                 }
               } else {
                 (*asm_target) << "\"" << constraint << "\"(";

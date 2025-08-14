@@ -2521,6 +2521,12 @@ IterDomainBuilder& IterDomainBuilder::is_padded_dimension(
   return *this;
 }
 
+IterDomainBuilder& IterDomainBuilder::padded_to_size(
+    std::optional<int64_t> _padded_to_size) {
+  padded_to_size_ = _padded_to_size;
+  return *this;
+}
+
 IterDomainBuilder& IterDomainBuilder::is_clustered_blocks(
     bool _is_clustered_blocks) {
   is_clustered_blocks_ = _is_clustered_blocks;
@@ -2692,7 +2698,7 @@ std::string IterDomain::toString(int indent_size) const {
   }
   if (hasClusteredBlocks()) {
     ss << "_c";
-  }  
+  }
   return ss.str();
 }
 
@@ -3119,7 +3125,6 @@ Val* IterDomain::stop() const {
 }
 
 namespace {
-
 void validateContiguity(
     const std::vector<IterDomain*>& allocation_domain,
     const std::vector<std::optional<bool>>& contiguity) {
@@ -3628,15 +3633,17 @@ bool TensorDomain::hasBlockReduction() const {
 bool TensorDomain::hasGridReduction() const {
   return std::any_of(
       loop_domain_.begin(), loop_domain_.end(), [](IterDomain* id) {
-        return id->isReduction() && id->isBlockDim() && !id->hasClusteredBlocks();
+        return id->isReduction() && id->isBlockDim() &&
+            !id->hasClusteredBlocks();
       });
 }
 
 bool TensorDomain::hasClusterReduction() const {
   return std::any_of(
       loop_domain_.begin(), loop_domain_.end(), [](IterDomain* id) {
-        return id->isReduction() && id->isBlockDim() && id->hasClusteredBlocks();
-      });      
+        return id->isReduction() && id->isBlockDim() &&
+            id->hasClusteredBlocks();
+      });
 }
 
 bool TensorDomain::hasSymbolicAxis() const {
@@ -4428,7 +4435,7 @@ std::string PadOp::toString(int indent_size) const {
   std::stringstream ss;
   indent(ss, indent_size) << out()->toString() << "\n";
   indent(ss, indent_size) << "   = pad( " << in()->toString() << ", {"
-                          << toDelimitedString(getPadWidths()) << "} )\n";
+                          << toDelimitedString(getPadWidths()) << "}" << " )\n";
   return ss.str();
 }
 
@@ -4719,12 +4726,12 @@ namespace {
 // When the contracting dimension is sharded, each device has a partial
 // matmul output and is followed by an allreduce. For loop split, this is
 // represented as an rfactored reduction. For example, for matmul, the local
-// logical domain after the rfactor is: i{DIDx}, i{M}, i{N}, r{K//d}. Unsqueeze
-// the rfactored DID axis to correctly bind with the logical domain. See
-// tests/python/test_multidevice.py/test_matmul_allreduce_loop_split
+// logical domain after the rfactor is: i{DIDx}, i{M}, i{N}, r{K//d}.
+// Unsqueeze the rfactored DID axis to correctly bind with the logical domain.
+// See tests/python/test_multidevice.py/test_matmul_allreduce_loop_split
 int64_t getRFactorDeviceDimensionIndex(const TensorView* tv) {
-  // Filter out reduction dimensions so the index to `logical` directly maps to
-  // an at::Tensor axis.
+  // Filter out reduction dimensions so the index to `logical` directly maps
+  // to an at::Tensor axis.
   auto logical = TensorDomain::noReductions(tv->getLogicalDomain());
   int64_t rfactor_did_idx = -1;
   for (auto idx : arange(static_cast<int64_t>(logical.size()))) {
@@ -5330,7 +5337,6 @@ bool ForLoop::isTrivial() const {
 }
 
 namespace {
-
 //! A utility class to check if an expression of a particular type exists
 class ExprFinder : kir::ConstIrVisitor {
  public:
@@ -5382,7 +5388,6 @@ bool ForLoop::isGroup() const {
 }
 
 namespace {
-
 //! A utility class to check if runtime reduction exists
 class RuntimeReductionFinder : kir::ConstIrVisitor {
  public:
