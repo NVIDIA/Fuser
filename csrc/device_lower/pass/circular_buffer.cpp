@@ -436,32 +436,109 @@ class CloneTmaCircularBufferLoopAndInsertSync
     IterDomain* outer_loop_id = outer_loop->iter_domain();
     IterDomain* inner_loop_id = inner_loop->iter_domain();
 
-    // Check that the outer and inner loop iterDomains have the same definition.
-    bool has_same_definition = outer_loop_id->definition() &&
-        inner_loop_id->definition() &&
-        outer_loop_id->definition() == inner_loop_id->definition();
-    if (!has_same_definition) {
-      return nullptr;
-    }
+    auto checkCoopPattern = [](IterDomain* outer_loop_id,
+                               IterDomain* inner_loop_id) {
+      /*
+       The coop pattern is:
 
-    // Check that outer_fl, inner_fl = split(x,  inner_fl->stop()) where
-    // inner_fl->stop() == number of SMs.
-    Expr* id_def = outer_loop_id->definition();
-    if (!id_def->isA<Split>()) {
-      return nullptr;
-    }
-    Split* id_def_split = id_def->as<Split>();
-    if (id_def_split->factor() != inner_loop->stop()) {
-      return nullptr;
-    }
+               num_tiles
+              /        \
+           outer     num_cgas
 
-    // Check that the outer loop is a serial for-loop.
-    if (outer_loop_id->isParallelized()) {
-      return nullptr;
-    }
+       where num_cgas is a constant
+      */
 
-    // Check that the inner loop is grid parallelized.
-    if (!inner_loop_id->isBlockDim()) {
+      // Check that the outer and inner loop iterDomains have the same
+      // definition.
+      bool has_same_definition = outer_loop_id->definition() &&
+          inner_loop_id->definition() &&
+          outer_loop_id->definition() == inner_loop_id->definition();
+      if (!has_same_definition) {
+        return false;
+      }
+      // Check that outer_fl, inner_fl = split(x,  inner_fl->stop()) where
+      // inner_fl->stop() == number of CGAs.
+      Expr* id_def = outer_loop_id->definition();
+      if (!id_def->isA<Split>()) {
+        return false;
+      }
+      Split* id_def_split = id_def->as<Split>();
+      if (!id_def_split->factor()->isConstInt()) {
+        return false;
+      }
+      if (id_def_split->inner() != inner_loop_id ||
+          !id_def_split->factor()->isConstInt()) {
+        return false;
+      }
+
+      // Check that the outer loop is a serial for-loop.
+      if (outer_loop_id->isParallelized()) {
+        return false;
+      }
+
+      // Check that the inner loop is grid parallelized.
+      if (!inner_loop_id->isBlockDim()) {
+        return false;
+      }
+
+      return true;
+    };
+
+    auto checkPingPongPattern = [](IterDomain* outer_loop_id,
+                                   IterDomain* inner_loop_id) {
+      /*
+       The ping-pong pattern is this:
+
+                      num_tiles
+                     /        \
+                  outer    (num_cgas * num_wgs)
+                              /       \
+                         num_wgs     num_cgas
+                               \    /
+                               reorder
+                              /       \
+                         num_cgas     num_wgs
+
+        where num_cgas and num_wgs are both constant
+     */
+
+      auto* outer_split = dynamic_cast<Split*>(outer_loop_id->definition());
+      if (outer_split == nullptr) {
+        return false;
+      }
+
+      auto* inner_split = dynamic_cast<Split*>(inner_loop_id->definition());
+      if (inner_split == nullptr) {
+        return false;
+      }
+
+      if (inner_loop_id != inner_split->inner()) {
+        return false;
+      }
+
+      if (!outer_split->inner()->sameAs(inner_split->in())) {
+        return false;
+      }
+
+      if (!inner_split->factor()->isConstInt()) {
+        return false;
+      }
+
+      // Check that the outer loop is a serial for-loop.
+      if (outer_loop_id->isParallelized()) {
+        return false;
+      }
+
+      // Check that the inner loop is grid parallelized.
+      if (!inner_loop_id->isBlockDim()) {
+        return false;
+      }
+
+      return true;
+    };
+
+    if (!checkCoopPattern(outer_loop_id, inner_loop_id) &&
+        !checkPingPongPattern(outer_loop_id, inner_loop_id)) {
       return nullptr;
     }
 
