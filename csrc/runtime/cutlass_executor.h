@@ -80,9 +80,6 @@ class CutlassExecutor : public ExecutorAbstract {
 
   // Kernel function name
   std::string kernel_name_;
-
-  // Compiled kernel handle - no longer used
-  void* kernel_func_ = nullptr;
 };
 
 } // namespace nvfuser

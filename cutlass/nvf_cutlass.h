@@ -53,7 +53,7 @@ std::tuple<int64_t, int64_t, int64_t> validateInputsNvfp4ScaledMm(
 //   out_dtype: Output data type (Half, BFloat16, or Float)
 //
 // Returns: Matrix C = alpha * (A @ B) in the specified output dtype
-NVF_API torch::Tensor nvfp4_scaled_mm(
+torch::Tensor nvfp4_scaled_mm(
     const torch::Tensor& a,
     const torch::Tensor& b,
     const torch::Tensor& scales_a,
