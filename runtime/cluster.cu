@@ -180,10 +180,9 @@ if (lane_idx < CLUSTER_SIZE) {
   );
 }
 mbarrier::wait(barrier_smem_addr, 0);
-
 // 3. Each CTA has a copy of the warp reduction results from all warps in the cluster
 //    Finish reduction with a warp reduction
-T block_reduce_val = reduction_buffer[lane_idx];
+T block_reduce_val = lane_idx < CLUSTER_SIZE * WARPS_PER_BLOCK ? reduction_buffer[lane_idx] : 0;
 constexpr int num_iter = (WARPS_PER_BLOCK * CLUSTER_SIZE + 31) / 32;
 if constexpr(num_iter > 1){
   for(int i = 1; i < num_iter; i++){
