@@ -2014,8 +2014,6 @@ class SegmentedGroupTaskGraphConverter {
     }
 
     std::vector<TaskGraph::DataId> inputs;
-    std::cout << "Task " << task_id
-              << " is segmented groupId=" << group->groupId() << std::endl;
     // These are fusion inputs, so they are not edges between segments
     for (Val* v : group->inputs()) {
       if (auto* tv = dynamic_cast<TensorView*>(v)) {
@@ -2025,8 +2023,6 @@ class SegmentedGroupTaskGraphConverter {
         data.uses.push_back(task_id);
         data.can_free = !tv->isFusionInput();
         inputs.push_back(data_id);
-        std::cout << "  Group input " << data_id << " = " << tv->toString()
-                  << std::endl;
       }
     }
     std::vector<TaskGraph::DataId> outputs;
@@ -2047,8 +2043,6 @@ class SegmentedGroupTaskGraphConverter {
         }
         data.can_free = !tv->isFusionOutput();
         outputs.push_back(data_id);
-        std::cout << "  Group output " << data_id << " = " << tv->toString()
-                  << std::endl;
       }
     }
 
@@ -2089,6 +2083,7 @@ class SegmentedGroupTaskGraphConverter {
 
 std::vector<SegmentedGroup*> optimalTopoSort(
     const std::vector<SegmentedGroup*>& groups) {
+  FUSER_PERF_SCOPE("optimalTopoSort");
   if (groups.size() == 1) {
     // Skip setting up the graph and doing the whole analysis when there's just
     // a single group
@@ -2097,11 +2092,7 @@ std::vector<SegmentedGroup*> optimalTopoSort(
 
   TaskGraph graph = SegmentedGroupTaskGraphConverter::convert(groups);
 
-  std::cout << graph << std::endl;
-
   TaskGraph::SortResult result = graph.findOptimalOrder();
-
-  std::cout << result << std::endl;
 
   std::vector<SegmentedGroup*> order;
   order.reserve(groups.size());
@@ -2113,6 +2104,7 @@ std::vector<SegmentedGroup*> optimalTopoSort(
 
 std::vector<SegmentedGroup*> toposort(
     const std::vector<SegmentedGroup*>& groups) {
+  FUSER_PERF_SCOPE("toposort");
   std::deque<SegmentedGroup*> to_visit;
   std::unordered_map<SegmentedGroup*, int64_t> num_producer_edges;
   for (SegmentedGroup* group : groups) {
@@ -5493,6 +5485,7 @@ void SegmentedFusion::annotateFP16IntermediateTensors() {
 }
 
 RuntimeWorkSpace prepareRuntimeOrder(const SegmentedFusion& segmented_fusion) {
+  FUSER_PERF_SCOPE("prepareRuntimeOrder");
   RuntimeWorkSpace runtime_workspace;
 
   // setup the order tensor dimensions are bound
@@ -5507,16 +5500,8 @@ RuntimeWorkSpace prepareRuntimeOrder(const SegmentedFusion& segmented_fusion) {
     }
   }
 
-  using Clock = std::chrono::high_resolution_clock;
-  auto start = Clock::now();
   runtime_workspace.group_run_order =
       optimalTopoSort(segmented_fusion.groups());
-  // runtime_workspace.group_run_order = toposort(segmented_fusion.groups());
-  auto stop = Clock::now();
-  std::cout << "Sorting segments took "
-            << std::chrono::duration_cast<std::chrono::microseconds>(
-                   stop - start)
-            << " us" << std::endl;
 
   return runtime_workspace;
 }
