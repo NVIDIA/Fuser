@@ -76,18 +76,18 @@ class ConditionalFromPredicateModifier : public kir::ExprMutator {
           if (!vec_expr->inputs()[0]->isConstScalar()) {
             conditional = SimplifyingIrBuilder::logicalAndExpr(
                 conditional,
-                GpuLower::current()->info().threadPredicateMap()->getPredicate(
+                GpuLower::current()->info().threadPredicateMap().getPredicate(
                     ir_utils::getTvOutput(vec_expr)));
           }
         } else {
           NVF_ERROR(lower_utils::supportInlinePredicate(expr));
           auto thread_pred =
-              GpuLower::current()->info().threadPredicateMap()->getPredicate(
+              GpuLower::current()->info().threadPredicateMap().getPredicate(
                   ir_utils::getTvOutput(expr));
           NVF_ERROR(thread_pred->isConst() && thread_pred->value());
           conditional = SimplifyingIrBuilder::logicalAndExpr(
               conditional,
-              GpuLower::current()->info().threadPredicateMap()->getPredicate(
+              GpuLower::current()->info().threadPredicateMap().getPredicate(
                   ir_utils::getTvOutput(expr)));
         }
       }

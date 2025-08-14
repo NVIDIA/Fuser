@@ -1003,7 +1003,8 @@ Expr* initializeCircularBufferMbarrier(
     num_of_arrives = SimplifyingIrBuilder::maybeCastExpr(
         DataType::UInt32,
         GpuLower::current()
-            ->parallelDimensionMap()
+            ->info()
+            .parallelDimensionMap()
             .getNumComputeThreadsEachBlock());
   }
 
@@ -1645,7 +1646,7 @@ namespace {
 // Create `if (is first warp)`, depending on whether the parallel types are
 // used in the schedule, the generated code may be different.
 kir::IfThenElse* createFirstWarpITE() {
-  const auto& pdim = GpuLower::current()->parallelDimensionMap();
+  const auto& pdim = GpuLower::current()->info().parallelDimensionMap();
   Val* tid = FusionGuard::getCurFusion()->zeroVal();
   Val* bdimx = pdim.getRaw(ParallelType::TIDx);
   Val* bdimy = pdim.getRaw(ParallelType::TIDy);

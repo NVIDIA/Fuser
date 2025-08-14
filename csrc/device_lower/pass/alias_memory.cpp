@@ -1719,7 +1719,7 @@ class StackBasedSharedMemAllocator : kir::IrVisitor {
     // Reclaim memory whenever we pass an Expr that is known to synchronize the
     // block
     if (lower_utils::hasBlockSync(
-            expr, *GpuLower::current()->info().threadPredicateMap())) {
+            expr, GpuLower::current()->info().threadPredicateMap())) {
       if (isDebugDumpEnabled(DebugDumpOption::BufferReuseInfo)) {
         debug() << "Block syncing expr found at position " << position_
                 << ". Reclaiming memory." << std::endl;
@@ -2041,7 +2041,7 @@ class PromoteReuseSyncModifier : private kir::ExprMutator {
     // upcoming_first_writes_ was just cleared.
     if (!inserted_sync &&
         lower_utils::hasBlockSync(
-            expr, *GpuLower::current()->info().threadPredicateMap())) {
+            expr, GpuLower::current()->info().threadPredicateMap())) {
       if (isDebugDumpEnabled(DebugDumpOption::BufferReuseInfo)) {
         debug() << "Found blocking expression at position " << position
                 << std::endl;

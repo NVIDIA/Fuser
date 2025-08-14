@@ -471,7 +471,7 @@ GridCommWorkBufferSizeInfo getGridCommWorkBufferSize(
   // sufficient since there could be extra threads/blocks.
   Val* size_of_single_buffer = GpuLower::current()->kernel()->oneVal();
   for (auto pt : kParallelTypeThreads) {
-    auto pt_dim = GpuLower::current()->parallelDimensionMap().get(pt);
+    auto pt_dim = GpuLower::current()->info().parallelDimensionMap().get(pt);
     if (pt_dim == nullptr || pt_dim->isOneInt()) {
       continue;
     }
@@ -537,7 +537,7 @@ Val* getGridSyncBufferSize(
   // See the comment above for getGridCommWorkBufferSize.
   Val* buffer_size = GpuLower::current()->kernel()->oneVal();
   for (auto pt : kParallelTypeBIDs) {
-    auto pt_dim = GpuLower::current()->parallelDimensionMap().get(pt);
+    auto pt_dim = GpuLower::current()->info().parallelDimensionMap().get(pt);
     if (pt_dim == nullptr || pt_dim->isOneInt()) {
       continue;
     }
@@ -717,7 +717,7 @@ void IndexLowering::handleSerialGridReduction(
   const auto& thread_pred = GpuLower::current()
                                 ->info()
                                 .threadPredicateMap()
-                                ->getPredicatedParallelTypes(out_tv);
+                                .getPredicatedParallelTypes(out_tv);
 
   auto serial_grid_reduction = IrBuilder::create<kir::GridReduction>(
       rop->getReductionOpType(),
@@ -817,7 +817,7 @@ void IndexLowering::handleGridReduction(
   const auto& thread_pred = GpuLower::current()
                                 ->info()
                                 .threadPredicateMap()
-                                ->getPredicatedParallelTypes(out_tv);
+                                .getPredicatedParallelTypes(out_tv);
 
   auto grid_reduction = IrBuilder::create<kir::GridReduction>(
       rop->getReductionOpType(),
@@ -967,7 +967,7 @@ void IndexLowering::handleGridReduction(
   const auto& thread_pred = GpuLower::current()
                                 ->info()
                                 .threadPredicateMap()
-                                ->getPredicatedParallelTypes(out_tv);
+                                .getPredicatedParallelTypes(out_tv);
 
   auto grid_reduction = IrBuilder::create<kir::GroupedGridReduction>(
       grouped_rop->getReductionOpTypes(),
@@ -1123,7 +1123,7 @@ void IndexLowering::handleGridWelford(WelfordOp* indexed_wop) {
   const auto& thread_pred = GpuLower::current()
                                 ->info()
                                 .threadPredicateMap()
-                                ->getPredicatedParallelTypes(out_tv);
+                                .getPredicatedParallelTypes(out_tv);
 
   auto grid_welford = IrBuilder::create<kir::GridWelford>(
       indexed_wop,
@@ -1274,7 +1274,7 @@ bool canUseOuterOptRuntimeKernel(const GroupedWelfordOp* grouped_wop) {
   }
 
   // TIDx and TIDy must be static constant
-  const auto& par_dim_map = GpuLower::current()->parallelDimensionMap();
+  const auto& par_dim_map = GpuLower::current()->info().parallelDimensionMap();
   auto tidx_val = par_dim_map.get(ParallelType::TIDx);
   auto tidy_val = par_dim_map.get(ParallelType::TIDy);
   if (!tidx_val->isConstInt() || !tidy_val->isConstInt()) {
@@ -1406,7 +1406,7 @@ void IndexLowering::handleGroupedGridWelford(
   const auto& thread_pred = GpuLower::current()
                                 ->info()
                                 .threadPredicateMap()
-                                ->getPredicatedParallelTypes(out_tv);
+                                .getPredicatedParallelTypes(out_tv);
 
   bool use_outer_opt =
       !isOptionDisabled(DisableOption::GroupedGridWelfordOuterOpt) &&
@@ -2550,7 +2550,7 @@ void IndexLowering::handle(const BroadcastOp* bop) {
       GpuLower::current()
           ->info()
           .threadPredicateMap()
-          ->getParallelBroadcastDomains(out_tv);
+          .getParallelBroadcastDomains(out_tv);
 
   const bool block_x = parallel_bitmap.get(ParallelType::BIDx);
   const bool block_y = parallel_bitmap.get(ParallelType::BIDy);

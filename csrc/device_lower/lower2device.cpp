@@ -493,11 +493,10 @@ void GpuLower::analysis(Fusion* fusion) {
   info().set(std::make_unique<ConcretizedBroadcastDomains>(fusion_));
   dumpExprsIfEnabled(fusion_->exprs(), "build ConcretizedBroadcastDomains");
 
-  info().parallelDimensionMap() =
-      std::make_shared<const ParallelDimensionMap>(fusion_);
+  info().set(std::make_unique<ParallelDimensionMap>(fusion_));
   if (isDebugDumpEnabled(DebugDumpOption::ParallelDimensions)) {
     debug() << "Parallel dimension map:" << std::endl;
-    debug() << info_.parallelDimensionMap()->toString() << std::endl;
+    debug() << info().parallelDimensionMap().toString() << std::endl;
   }
   dumpExprsIfEnabled(fusion_->exprs(), "build parallelDimensionMap");
 
@@ -516,8 +515,7 @@ void GpuLower::analysis(Fusion* fusion) {
   dumpExprsIfEnabled(fusion_->exprs(), "validateReductions");
 
   // Compute thread predicates. Depends on parallel_dimension_map_
-  info().threadPredicateMap() =
-      std::make_shared<const ThreadPredicateMap>(fusion_);
+  info().set(std::make_unique<ThreadPredicateMap>(fusion_));
   dumpExprsIfEnabled(fusion_->exprs(), "build thread_pred_map_");
 
   // Fuse cetain patterns of reductions, such as a grid reduction
@@ -529,8 +527,7 @@ void GpuLower::analysis(Fusion* fusion) {
 
   // When allreduce is generated, rebuild thread predicate map
   if (!info().fusedReductionInfo().allreduceIds().empty()) {
-    info().threadPredicateMap() =
-        std::make_shared<const ThreadPredicateMap>(fusion_);
+    info().set(std::make_unique<ThreadPredicateMap>(fusion_));
   }
 
   // Depends on ComputeAtMap

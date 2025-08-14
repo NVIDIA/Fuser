@@ -797,7 +797,7 @@ bool hasBlockSync(const Expr* expr, const ThreadPredicateMap& pred_map) {
        GpuLower::current()
            ->info()
            .threadPredicateMap()
-           ->getParallelBroadcastDomains(tv)
+           .getParallelBroadcastDomains(tv)
            .any()) ||
       expr->isA<kir::GridBroadcast>()) {
     return true;
@@ -950,7 +950,8 @@ bool isScalarExpr(Expr* expr) {
 bool isExtentEqualToMaxParallelTypeExtent(
     const IterDomain* id,
     bool in_compute_warp) {
-  const auto& parallel_dim_map = GpuLower::current()->parallelDimensionMap();
+  const auto& parallel_dim_map =
+      GpuLower::current()->info().parallelDimensionMap();
   Val* pdm_max_extent = nullptr;
   if (in_compute_warp) {
     pdm_max_extent = parallel_dim_map.getRawCompute(id->getParallelType());
@@ -994,7 +995,7 @@ Val* getGridSyncBufferSize(const ParallelTypeBitmap& ptb) {
     if (ptb.get(pt)) {
       continue;
     }
-    auto pt_dim = GpuLower::current()->parallelDimensionMap().get(pt);
+    auto pt_dim = GpuLower::current()->info().parallelDimensionMap().get(pt);
     if (pt_dim == nullptr || pt_dim->isOneInt()) {
       continue;
     }

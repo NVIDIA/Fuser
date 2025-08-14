@@ -227,7 +227,8 @@ class KernelIrScanner : private IrVisitor {
     }
     if (grid_welford->useOuterOpt()) {
       summary_.has_outer_grouped_grid_welford = true;
-      const auto& par_dim_map = GpuLower::current()->parallelDimensionMap();
+      const auto& par_dim_map =
+          GpuLower::current()->info().parallelDimensionMap();
       auto tidx_val = par_dim_map.get(ParallelType::TIDx);
       auto tidy_val = par_dim_map.get(ParallelType::TIDy);
       NVF_ERROR(
@@ -426,7 +427,8 @@ void Kernel::finalize(std::vector<Expr*> top_level_exprs) {
   summary_.vectorized_accesses = GpuLower::current()->vectorizedAccesses();
   summary_.vectorized_set_info = GpuLower::current()->vectorizedSetInfo();
   summary_.sync_map = GpuLower::current()->syncMap();
-  summary_.parallel_dimension_map = GpuLower::current()->parallelDimensionMap();
+  summary_.parallel_dimension_map =
+      GpuLower::current()->info().parallelDimensionMap();
   summary_.circular_buffer_info = GpuLower::current()->circularBufferInfo();
   summary_.min_device_version = GpuLower::current()->minDeviceVersion();
   summary_.min_device_version_reason =

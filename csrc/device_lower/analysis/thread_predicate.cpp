@@ -24,7 +24,7 @@ namespace {
 Val* getPredicatePerParallelType(
     ParallelType pt,
     const ThreadPredicateMap::PredicateInfo& pred_info) {
-  auto pt_dim = GpuLower::current()->parallelDimensionMap().get(pt);
+  auto pt_dim = GpuLower::current()->info().parallelDimensionMap().get(pt);
 
   // If pt is not used or is proven to be one, no need to predicate.
   if (pt_dim == nullptr || pt_dim->isOneInt()) {
@@ -157,7 +157,7 @@ ParallelTypeBitmap avoidRedundantWrites(const TensorView* out_tv) {
     unused_types.clear(pt);
   }
 
-  const auto& par_dim_map = GpuLower::current()->parallelDimensionMap();
+  const auto& par_dim_map = GpuLower::current()->info().parallelDimensionMap();
 
   for (const auto pt : unused_types) {
     // For shared memory tensors, unused BID isn't redundant
@@ -268,7 +268,8 @@ void ThreadPredicateMap::updateBitSet(const Expr* expr) {
         id_ptypes.set(id->getParallelType());
         if (id->isReduction() &&
             (!GpuLower::current()->info().hasFusedReductionInfo() ||
-             !GpuLower::current()->info().fusedReductionInfo().isAllreduce(id))) {
+             !GpuLower::current()->info().fusedReductionInfo().isAllreduce(
+                 id))) {
           id_reductions.set(id->getParallelType());
         }
         if (id->isBroadcast() &&

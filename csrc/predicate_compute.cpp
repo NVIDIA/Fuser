@@ -261,7 +261,8 @@ ParallelizedDomainPredicate::getPredicateMap(
         lower_utils::isExtentEqualToMaxParallelTypeExtent(loop_id)) {
       continue;
     }
-    auto parallel_dim = gpu_lower->parallelDimensionMap().getRaw(loop_ptype);
+    auto parallel_dim =
+        gpu_lower->info().parallelDimensionMap().getRaw(loop_ptype);
 
     // If protected by unswitch, the unswitch predicate is enough without
     // predicating the parallel type. For example, suppose a logical
@@ -524,7 +525,7 @@ Val* createElectSyncPredicateAsync() {
   Val* warp_size = IrBuilder::create<Val>(32L, PrimDataType::UInt64);
 
   const ParallelDimensionMap& pdim_map =
-      GpuLower::current()->parallelDimensionMap();
+      GpuLower::current()->info().parallelDimensionMap();
   Val* async_warp_thread_index = pdim_map.getLinearThreadIndexAsync();
   Val* warp_id =
       SimplifyingIrBuilder::divExpr(async_warp_thread_index, warp_size);
@@ -565,7 +566,8 @@ Val* createElectSyncPredicate(kir::Predicate* pred, bool is_async_warp) {
   }
 
   Val* tidx_paralleltype_dim =
-      GpuLower::current()->parallelDimensionMap().get(ParallelType::TIDx);
+      GpuLower::current()->info().parallelDimensionMap().get(
+          ParallelType::TIDx);
 
   // short-circuit: ParallelType::TIDx is not used in cuda kernel.
   if (tidx_paralleltype_dim == nullptr) {
@@ -606,7 +608,7 @@ Val* createSingleExpressionElectSync(
   Val* zero = IrBuilder::create<Val>(0L, PrimDataType::UInt64);
 
   const ParallelDimensionMap& pdim_map =
-      GpuLower::current()->parallelDimensionMap();
+      GpuLower::current()->info().parallelDimensionMap();
   auto pred_map =
       ParallelizedDomainPredicate::getPredicateMap(pred->expr(), loops);
 
@@ -647,7 +649,7 @@ Val* createSingleExpressionElectSync(
         // Select first element of dimension for ParallelDim::TIDy and
         // ParallelDim::TIDz.
         Val* paralleltype_dim =
-            GpuLower::current()->parallelDimensionMap().get(pt);
+            GpuLower::current()->info().parallelDimensionMap().get(pt);
         if (paralleltype_dim == nullptr || !paralleltype_dim->isOneInt()) {
           parallel_dom_pred = SimplifyingIrBuilder::logicalAndExpr(
               parallel_dom_pred,
@@ -674,7 +676,7 @@ Val* createMultipleExpressionElectSync(
 
   Val* zero = IrBuilder::create<Val>(0L, PrimDataType::UInt64);
   const ParallelDimensionMap& pdim_map =
-      GpuLower::current()->parallelDimensionMap();
+      GpuLower::current()->info().parallelDimensionMap();
 
   // Determine if warp specialized tma load expression.
   ParallelType async_warp_on = ParallelType::Serial;

@@ -22,6 +22,9 @@ namespace {
 
 // Validate parallelization of a single tensor
 void validateParallelizationOfTensor(TensorView* tv) {
+  NVF_ERROR(FusionInfoGuard::hasCurrent());
+
+  NVF_ERROR(FusionInfoGuard::current()->hasConcretizedBroadcastDomains());
   // Each ParallelType can be used only once.
   ParallelTypeBitmap pt_map;
   for (auto i : arange(tv->nDims())) {
@@ -53,9 +56,9 @@ void validateParallelizationOfTensor(TensorView* tv) {
 
   // If this tensor is predicated by a paralel type, it should not be
   // used to parallelize any domain of this tensor
-
+  NVF_ERROR(FusionInfoGuard::current()->hasThreadPredicateMap());
   const auto thread_pred =
-      FusionInfoGuard::current()->threadPredicateMap()->getPredicateInfo(tv);
+      FusionInfoGuard::current()->threadPredicateMap().getPredicateInfo(tv);
 
   auto predicated_parallel_types = pt_map & thread_pred.limited_types;
 
@@ -149,6 +152,7 @@ SyncMap::SyncMap(Fusion* fusion) {
   NVF_ERROR(FusionInfoGuard::hasCurrent());
   NVF_ERROR(FusionInfoGuard::current()->hasComputeAtMap());
   NVF_ERROR(FusionInfoGuard::current()->hasIdModel());
+  NVF_ERROR(FusionInfoGuard::current()->hasThreadPredicateMap());
 
   const auto& ca_map = FusionInfoGuard::current()->caMap();
   const auto& pred_map = FusionInfoGuard::current()->threadPredicateMap();
@@ -180,7 +184,7 @@ SyncMap::SyncMap(Fusion* fusion) {
       ParallelTypeBitmap raw_dims;
 
       const auto parallel_bcast_doms =
-          pred_map->getParallelBroadcastDomains(producer);
+          pred_map.getParallelBroadcastDomains(producer);
 
       // Stash information about parallelized producer iteration domains
       std::vector<IterDomain*> producer_parallel_ids(
@@ -194,10 +198,10 @@ SyncMap::SyncMap(Fusion* fusion) {
       //    shared[threadIdx.x + i] = ...
       // We will need a raw sync after this pattern for correctness.
       auto producer_redundant_types =
-          pred_map->getPredicateInfo(producer).redundant_types;
+          pred_map.getPredicateInfo(producer).redundant_types;
       // Get the parallel types that are inactive in consumer's use chains.
       auto producer_redundant_use_types =
-          pred_map->getPredicateInfo(producer).redundant_use_types;
+          pred_map.getPredicateInfo(producer).redundant_use_types;
 
       // In sync info pass we only consider the parallel types in
       //  producer that are redundantly produced but not redundantly consumed.

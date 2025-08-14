@@ -379,7 +379,7 @@ IndexingParameters getPredicateInitialIndexParameters(
           // Note that the parallel dimension is used rather than
           // loop-stop(). See the above comment.
           loop_to_ind_map[loop] =
-              GpuLower::current()->parallelDimensionMap().get(loop_pt);
+              GpuLower::current()->info().parallelDimensionMap().get(loop_pt);
         }
       } else if (is_start_predicate) {
         loop_to_ind_map[loop] = GpuLower::current()->kernel()->zeroVal();

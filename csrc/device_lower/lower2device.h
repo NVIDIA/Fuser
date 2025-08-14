@@ -113,10 +113,6 @@ class GpuLower : public NonCopyable {
     return *tensor_indexer_;
   }
 
-  const ParallelDimensionMap& parallelDimensionMap() const {
-    return *info().parallelDimensionMap();
-  }
-
   PredicateElimination& predicateElimination() {
     NVF_ERROR(pred_elimination_.get() != nullptr);
     return *pred_elimination_;

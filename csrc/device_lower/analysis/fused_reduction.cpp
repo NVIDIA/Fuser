@@ -231,7 +231,7 @@ class FusionInspector : private IterVisitor {
         GpuLower::current()
             ->info()
             .threadPredicateMap()
-            ->getParallelBroadcastDomains(broadcast_out);
+            .getParallelBroadcastDomains(broadcast_out);
 
     // If no parallel broadcast, nothing to fuse
     if (broadcast_parallel_types.none()) {

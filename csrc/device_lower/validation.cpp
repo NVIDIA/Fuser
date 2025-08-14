@@ -960,7 +960,7 @@ void validateMmaTensors(MmaOp* mma) {
         if (!tidx_validated) {
           // Check that TIDx is exact lane_id
           const auto& paralel_dim_map =
-              GpuLower::current()->parallelDimensionMap();
+              GpuLower::current()->info().parallelDimensionMap();
           NVF_ERROR(
               lower_utils::isExtentEqualToMaxParallelTypeExtent(id) &&
                   paralel_dim_map.get(ptype)->isConstInt(),

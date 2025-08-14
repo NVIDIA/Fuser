@@ -26,75 +26,77 @@ namespace nvfuser {
 // void set(std::unique_ptr<IdModel> id_model);
 // IdModel& idModel();
 // const IdModel& idModel() const;
-#define DEFINE_FUNCTIONS(type, field, method) \
-  bool has##type() const {                    \
-    return field##_.get() != nullptr;         \
-  }                                           \
-  void set(std::unique_ptr<type> field) {     \
-    field##_ = std::move(field);              \
-  }                                           \
-  type& method() {                            \
-    NVF_ERROR(has##type());                   \
-    return *field##_;                         \
-  }                                           \
-  const type& method() const {                \
-    NVF_ERROR(has##type());                   \
-    return *field##_;                         \
+#define FUSION_INFO_DEFINE_FUNCTIONS(type, field, method) \
+  bool has##type() const {                                \
+    return field##_.get() != nullptr;                     \
+  }                                                       \
+  void set(std::unique_ptr<type> field) {                 \
+    field##_ = std::move(field);                          \
+  }                                                       \
+  type& method() {                                        \
+    NVF_ERROR(has##type());                               \
+    return *field##_;                                     \
+  }                                                       \
+  const type& method() const {                            \
+    NVF_ERROR(has##type());                               \
+    return *field##_;                                     \
   }
 
-#define DEFINE_FIELD(type, field) std::unique_ptr<type> field##_;
+#define FUSION_INFO_DEFINE_FIELD(type, field) std::unique_ptr<type> field##_;
 
 class FusionInfo {
  public:
-  DEFINE_FUNCTIONS(
+  FUSION_INFO_DEFINE_FUNCTIONS(
       ConcretizedBroadcastDomains,
       concretized_broadcast_domains,
       concretizedBroadcastDomains);
 
-  DEFINE_FUNCTIONS(
+  FUSION_INFO_DEFINE_FUNCTIONS(
       FusedReductionInfo,
       fused_reduction_info,
       fusedReductionInfo);
 
-  DEFINE_FUNCTIONS(
+  FUSION_INFO_DEFINE_FUNCTIONS(
       PaddedParallelDimensions,
       padded_parallel_dimensions,
       paddedParallelDimensions);
 
-  auto& threadPredicateMap() {
-    return thread_predicate_map_;
-  }
+  FUSION_INFO_DEFINE_FUNCTIONS(
+      ThreadPredicateMap,
+      thread_predicate_map,
+      threadPredicateMap);
 
-  const auto& threadPredicateMap() const {
-    return thread_predicate_map_;
-  }
+  FUSION_INFO_DEFINE_FUNCTIONS(
+      ParallelDimensionMap,
+      parallel_dimension_map,
+      parallelDimensionMap);
 
-  auto& parallelDimensionMap() {
-    return parallel_dimension_map_;
-  }
+  FUSION_INFO_DEFINE_FUNCTIONS(ComputeAtMap, ca_map, caMap);
 
-  const auto& parallelDimensionMap() const {
-    return parallel_dimension_map_;
-  }
-
-  DEFINE_FUNCTIONS(ComputeAtMap, ca_map, caMap);
-
-  DEFINE_FUNCTIONS(IdModel, id_model, idModel);
+  FUSION_INFO_DEFINE_FUNCTIONS(IdModel, id_model, idModel);
 
  private:
-  DEFINE_FIELD(ConcretizedBroadcastDomains, concretized_broadcast_domains);
+  FUSION_INFO_DEFINE_FIELD(
+      ConcretizedBroadcastDomains,
+      concretized_broadcast_domains);
 
-  DEFINE_FIELD(FusedReductionInfo, fused_reduction_info);
+  FUSION_INFO_DEFINE_FIELD(FusedReductionInfo, fused_reduction_info);
 
-  DEFINE_FIELD(PaddedParallelDimensions, padded_parallel_dimensions);
+  FUSION_INFO_DEFINE_FIELD(
+      PaddedParallelDimensions,
+      padded_parallel_dimensions);
 
-  std::shared_ptr<const ThreadPredicateMap> thread_predicate_map_;
+  FUSION_INFO_DEFINE_FIELD(ThreadPredicateMap, thread_predicate_map);
 
-  std::shared_ptr<const ParallelDimensionMap> parallel_dimension_map_;
+  FUSION_INFO_DEFINE_FIELD(ParallelDimensionMap, parallel_dimension_map);
 
-  DEFINE_FIELD(ComputeAtMap, ca_map);
-  DEFINE_FIELD(IdModel, id_model);
+  FUSION_INFO_DEFINE_FIELD(ComputeAtMap, ca_map);
+
+  FUSION_INFO_DEFINE_FIELD(IdModel, id_model);
 };
+
+#undef FUSION_INFO_DEFINE_FUNCTIONS
+#undef FUSION_INFO_DEFINE_FIELD
 
 class FusionInfoGuard {
  public:
