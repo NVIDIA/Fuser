@@ -59,7 +59,7 @@ ParallelDimensionMap::ParallelDimensionMap(Fusion* fusion) {
         continue;
       }
       auto concrete_id =
-          GpuLower::current()->info().caMap()->getConcreteMappedID(
+          GpuLower::current()->info().caMap().getConcreteMappedID(
               id, IdMappingMode::EXACT);
       if (concrete_id->isBroadcast()) {
         // Broadcasted concrete id's don't specify anything about shape

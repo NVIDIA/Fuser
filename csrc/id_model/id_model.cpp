@@ -1375,10 +1375,10 @@ void IdModel::allocateLoopIndexVariables() {
       const auto& ca_map = GpuLower::current()->info().caMap();
       for (const auto& id :
            ir_utils::filterByType<IterDomain>(loop_group->vector())) {
-        if (!ca_map->getIdSets(IdMappingMode::LOOP).mappingExists(id)) {
+        if (!ca_map.getIdSets(IdMappingMode::LOOP).mappingExists(id)) {
           continue;
         }
-        loop_index = ca_map->getIndexVariable(id);
+        loop_index = ca_map.getIndexVariable(id);
         break;
       }
       NVF_ERROR(

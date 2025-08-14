@@ -588,7 +588,7 @@ class ConcretizedBroadcastRedundantWriteRemover {
   }
 
   void setConcretizedBroadcastLogicalDomain() {
-    const auto ca_map = GpuLower::current()->info().caMap();
+    const auto& ca_map = GpuLower::current()->info().caMap();
     for (auto loop_id : candidate_loop_domains_) {
       auto loop_concrete_id = lower_utils::getConcreteLoopID(loop_id);
       auto concrete_logical_vals = IterVisitor::getInputsTo({loop_concrete_id});
@@ -604,7 +604,7 @@ class ConcretizedBroadcastRedundantWriteRemover {
             concrete_logical_ids.begin(),
             concrete_logical_ids.end(),
             [&ca_map, &rd](auto concrete_logical_id) {
-              return ca_map->areMapped(
+              return ca_map.areMapped(
                   rd, concrete_logical_id, IdMappingMode::PERMISSIVE);
             });
         if (it == concrete_logical_ids.end()) {

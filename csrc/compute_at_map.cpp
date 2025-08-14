@@ -729,11 +729,11 @@ void IterDomainGraph::build(Fusion* fusion) {
   // Adds more mappings from IdModel if available
   auto expand_by_id_model = [](DisjointSets<IterDomain*>& nodes,
                                IdMappingMode mode) {
-    if (!GpuLower::hasCurrent() || !GpuLower::current()->hasIdModel()) {
+    if (!GpuLower::hasCurrent() || !GpuLower::current()->info().hasIdModel()) {
       return;
     }
 
-    const ValGraph& graph = GpuLower::current()->idModel().idGraph(mode);
+    const ValGraph& graph = GpuLower::current()->info().idModel().idGraph(mode);
     for (const auto& vg : graph.disjointValSets().disjointSets()) {
       IterDomain* first_id = nullptr;
       for (const auto& val : *vg) {

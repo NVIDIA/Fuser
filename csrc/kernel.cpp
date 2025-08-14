@@ -356,7 +356,7 @@ class ValidateAllocation : private OptOutConstDispatch {
           continue;
         }
         for (const auto& axis : tv->getLoopDomain()) {
-          if (!GpuLower::current()->info().caMap()->areMapped(
+          if (!GpuLower::current()->info().caMap().areMapped(
                   loop_id, axis, IdMappingMode::LOOP)) {
             continue;
           }

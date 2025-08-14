@@ -12,6 +12,7 @@
 #include <device_lower/analysis/padded_parallel_dimensions.h>
 #include <device_lower/analysis/thread_predicate.h>
 #include <device_lower/analysis/trivial_broadcast.h>
+#include <id_model/id_model.h>
 #include <parallel_dimension_map.h>
 
 #include <memory>
@@ -60,12 +61,40 @@ class FusionInfo {
     return parallel_dimension_map_;
   }
 
-  auto& caMap() {
-    return ca_map_;
+  void set(std::unique_ptr<ComputeAtMap> ca_map) {
+    ca_map_ = std::move(ca_map);
   }
 
-  auto caMap() const {
-    return std::const_pointer_cast<const ComputeAtMap>(ca_map_);
+  bool hasCaMap() const {
+    return ca_map_.get() != nullptr;
+  }
+
+  ComputeAtMap& caMap() {
+    NVF_ERROR(hasCaMap());
+    return *ca_map_;
+  }
+
+  const ComputeAtMap& caMap() const {
+    NVF_ERROR(hasCaMap());
+    return *ca_map_;
+  }
+
+  bool hasIdModel() const {
+    return id_model_.get() != nullptr;
+  }
+
+  void set(std::unique_ptr<IdModel> id_model) {
+    id_model_ = std::move(id_model);
+  }
+
+  IdModel& idModel() {
+    NVF_ERROR(hasIdModel());
+    return *id_model_;
+  }
+
+  const IdModel& idModel() const {
+    NVF_ERROR(hasIdModel());
+    return *id_model_;
   }
 
  private:
@@ -81,6 +110,8 @@ class FusionInfo {
   std::shared_ptr<const ParallelDimensionMap> parallel_dimension_map_;
 
   std::shared_ptr<ComputeAtMap> ca_map_;
+
+  std::unique_ptr<IdModel> id_model_;
 };
 
 class FusionInfoGuard {

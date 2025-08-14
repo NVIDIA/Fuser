@@ -429,7 +429,7 @@ void IndexLowering::handle(const ViewAsScalar* uop) {
   const auto in = lowerSrcIndex(uop->in(), uop->out());
   const auto out = lowerDstIndex(uop->out());
   for (auto loop : for_loops_) {
-    if (GpuLower::current()->info().caMap()->areMapped(
+    if (GpuLower::current()->info().caMap().areMapped(
             loop->iter_domain(),
             uop->vector_id()->as<IterDomain>(),
             IdMappingMode::LOOP)) {

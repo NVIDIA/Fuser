@@ -41,7 +41,7 @@ bool isOutputLocal(const Expr* expr) {
 } // namespace
 
 bool ParallelizedDomainPredicate::PredicateInfo::addDomain(IterDomain* id) {
-  auto concrete_id = GpuLower::current()->info().caMap()->getConcreteMappedID(
+  auto concrete_id = GpuLower::current()->info().caMap().getConcreteMappedID(
       id, IdMappingMode::EXACT);
   if (std::find(ids_.begin(), ids_.end(), concrete_id) == ids_.end()) {
     ids_.push_back(concrete_id);
@@ -61,7 +61,7 @@ Val* ParallelizedDomainPredicate::PredicateInfo::getPredicate() const {
     // Just sanity check that pred_id is concrete
     NVF_ERROR(
         pred_id ==
-        GpuLower::current()->info().caMap()->getConcreteMappedID(
+        GpuLower::current()->info().caMap().getConcreteMappedID(
             pred_id, IdMappingMode::EXACT));
     auto new_pred = SimplifyingIrBuilder::ltExpr(index, pred_id->extent());
     pred = SimplifyingIrBuilder::logicalAndExpr(pred, new_pred);
@@ -87,7 +87,7 @@ std::vector<IterDomain*> getUnswitchProtectedParallelLoopIds(
     return {};
   }
 
-  const auto& id_model = GpuLower::current()->idModel();
+  const auto& id_model = GpuLower::current()->info().idModel();
   const auto& indexing_graph =
       id_model.idGraph(TensorIndexer::traversalGraphType());
 
@@ -289,7 +289,7 @@ ParallelizedDomainPredicate::getPredicateMap(
           tv->getLoopDomain().begin(),
           tv->getLoopDomain().end(),
           [&](auto tv_id) {
-            return gpu_lower->info().caMap()->areMapped(
+            return gpu_lower->info().caMap().areMapped(
                 loop_id, tv_id, IdMappingMode::EXACT);
           });
       if (it == tv->getLoopDomain().end()) {
@@ -452,7 +452,7 @@ UnswitchPredicateKey::UnswitchPredicateKey(
   for (auto consumer_loop : parallelized_consumer_loop_ids) {
     auto pt = consumer_loop->getParallelType();
     auto concrete_loop =
-        GpuLower::current()->info().caMap()->getConcreteMappedID(
+        GpuLower::current()->info().caMap().getConcreteMappedID(
             consumer_loop, IdMappingMode::EXACT);
     parallel_concrete_ids_.at(pt) = concrete_loop;
   }
@@ -1012,7 +1012,7 @@ void UnswitchPredicate::predicateOn(Expr* tv_expr) {
     bool first_key_set = false;
 
     for (auto root_id : root_ids) {
-      auto concrete_root_id = gpu_lower->info().caMap()->getConcreteMappedID(
+      auto concrete_root_id = gpu_lower->info().caMap().getConcreteMappedID(
           root_id, IdMappingMode::EXACT);
 
       if (root_id->isBroadcast()) {

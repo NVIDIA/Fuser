@@ -326,9 +326,9 @@ bool hasIndependentWarpGroups(const TensorView* tv) {
     return false;
   }
 
-  NVF_ERROR(GpuLower::hasCurrent() && GpuLower::current()->hasIdModel());
+  NVF_ERROR(GpuLower::hasCurrent() && GpuLower::current()->info().hasIdModel());
   const auto& exact_graph =
-      GpuLower::current()->idModel().idGraph(IdMappingMode::BROADCAST);
+      GpuLower::current()->info().idModel().idGraph(IdMappingMode::BROADCAST);
 
   const auto& warp_specialized =
       std::get<WarpSpecialized>(tv->circularBufferOptions().type);
@@ -366,9 +366,9 @@ bool hasIndependentWarpGroups(const TensorView* tv) {
 // All the iterDomains to the left of the slice position in the producer and
 // consumer must belong to same iterDomain.
 void checkTraversalIterDomains(const TensorView* tv, int64_t slice_position) {
-  NVF_ERROR(GpuLower::hasCurrent() && GpuLower::current()->hasIdModel());
+  NVF_ERROR(GpuLower::hasCurrent() && GpuLower::current()->info().hasIdModel());
   const auto& exact_graph =
-      GpuLower::current()->idModel().idGraph(IdMappingMode::BROADCAST);
+      GpuLower::current()->info().idModel().idGraph(IdMappingMode::BROADCAST);
   TensorView* consumer = ir_utils::consumerTvsOf(tv).at(0);
   const std::vector<IterDomain*>& consumer_loop = consumer->domain()->loop();
   const std::vector<IterDomain*>& producer_loop = tv->domain()->loop();
@@ -733,7 +733,7 @@ ForLoop* CircularBufferInfo::getCircularBufferLoop(
     const std::vector<ForLoop*>& loops,
     bool ignore_prologue) {
   auto loop_it = std::find_if(loops.begin(), loops.end(), [&](const auto loop) {
-    return GpuLower::current()->info().caMap()->areMapped(
+    return GpuLower::current()->info().caMap().areMapped(
                loop->iter_domain(), axis, IdMappingMode::LOOP) &&
         (!ignore_prologue ||
          loop->circularBufferLoopStage() != CircularBufferLoopStage::Prolog);

@@ -1109,7 +1109,7 @@ bool predicateAtEnd(ForLoop* loop) {
 
   // If the other output is mapped with a vectorized IterDomain,
   // this IterDomain needs to be predicated at each iteration point.
-  const auto& other_id_exact_set = GpuLower::current()
+  const auto& other_id_exact_set = FusionInfoGuard::current()
                                        ->idModel()
                                        .idGraph(IdMappingMode::EXACT)
                                        .toGroup(other_out_id);
@@ -2092,23 +2092,24 @@ IterDomain* getConcreteLoopID(IterDomain* id) {
     // returned instead of the promotion ID.
 
     const auto& loop_graph =
-        GpuLower::current()->idModel().idGraph(IdMappingMode::LOOP);
-    auto promotion = getLoopPromotion(id, GpuLower::current()->idModel());
+        GpuLower::current()->info().idModel().idGraph(IdMappingMode::LOOP);
+    auto promotion =
+        getLoopPromotion(id, GpuLower::current()->info().idModel());
     const auto& ca_map = GpuLower::current()->info().caMap();
     const auto& loop_group = loop_graph.toGroup(id);
 
     // Try to see if the CA concrete domain can be used instead
     for (auto loop_val : *loop_group) {
       IterDomain* loop_id = loop_val->as<IterDomain>();
-      if (ca_map->idExistsInMap(loop_id, IdMappingMode::LOOP)) {
+      if (ca_map.idExistsInMap(loop_id, IdMappingMode::LOOP)) {
         auto ca_map_concrete =
-            ca_map->getConcreteMappedID(loop_id, IdMappingMode::LOOP);
-        if (GpuLower::current()
+            ca_map.getConcreteMappedID(loop_id, IdMappingMode::LOOP);
+        if (FusionInfoGuard::current()
                 ->idModel()
                 .idGraph(IdMappingMode::LOOP)
                 .disjointValSets()
                 .strictAreMapped(ca_map_concrete, promotion) &&
-            GpuLower::current()
+            FusionInfoGuard::current()
                 ->idModel()
                 .idGraph(IdMappingMode::EXACT)
                 .disjointValSets()
@@ -2123,7 +2124,7 @@ IterDomain* getConcreteLoopID(IterDomain* id) {
     return promotion;
   } else {
     const auto& ca_map = GpuLower::current()->info().caMap();
-    return ca_map->getConcreteMappedID(id, IdMappingMode::LOOP);
+    return ca_map.getConcreteMappedID(id, IdMappingMode::LOOP);
   }
 }
 

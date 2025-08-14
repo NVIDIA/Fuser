@@ -99,20 +99,6 @@ class GpuLower : public NonCopyable {
     return info_;
   }
 
-  bool hasIdModel() const {
-    return id_model_.get() != nullptr;
-  }
-
-  IdModel& idModel() {
-    NVF_ERROR(id_model_.get());
-    return *id_model_;
-  }
-
-  const IdModel& idModel() const {
-    NVF_ERROR(id_model_.get());
-    return *id_model_;
-  }
-
   bool isTensorIndexerEnabled() const {
     return tensor_indexer_.get() != nullptr;
   }
@@ -389,7 +375,6 @@ class GpuLower : public NonCopyable {
   kir::KernelPerformanceProfile profile_;
   std::unordered_set<Split*> divisible_splits_;
   CompileParams cparams_;
-  std::unique_ptr<IdModel> id_model_;
   std::unique_ptr<TensorIndexer> tensor_indexer_;
   std::unordered_map<TensorView*, const TMAInfo> consumer_to_tma_info_;
   std::pair<int64_t, int64_t> dec_inc_register_usage = {-1, -1};

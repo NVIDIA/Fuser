@@ -145,7 +145,7 @@ SyncMap::SyncMap(Fusion* fusion) {
   FUSER_PERF_SCOPE("SyncMap::SyncMap");
   FusionGuard fg(fusion);
 
-  NVF_ERROR(GpuLower::current()->hasIdModel());
+  NVF_ERROR(FusionInfoGuard::current()->hasIdModel());
 
   const auto& ca_map = FusionInfoGuard::current()->caMap();
   const auto& pred_map = FusionInfoGuard::current()->threadPredicateMap();
@@ -204,7 +204,7 @@ SyncMap::SyncMap(Fusion* fusion) {
       for (const auto producer_i : arange(producer->nDims())) {
         auto producer_axis = producer->getLoopDomain().at(producer_i);
         auto producer_ptype =
-            ca_map->getConcreteMappedID(producer_axis, IdMappingMode::LOOP)
+            ca_map.getConcreteMappedID(producer_axis, IdMappingMode::LOOP)
                 ->getParallelType();
 
         if (!isParallelTypeThread(producer_ptype)) {
@@ -228,7 +228,7 @@ SyncMap::SyncMap(Fusion* fusion) {
         for (const auto consumer_i : arange(consumer->nDims())) {
           auto consumer_axis = consumer->getLoopDomain().at(consumer_i);
           auto consumer_ptype =
-              ca_map->getConcreteMappedID(consumer_axis, IdMappingMode::LOOP)
+              ca_map.getConcreteMappedID(consumer_axis, IdMappingMode::LOOP)
                   ->getParallelType();
 
           if (!isParallelTypeThread(consumer_ptype)) {
@@ -301,7 +301,7 @@ SyncMap::SyncMap(Fusion* fusion) {
                 consumer->getLoopDomain().begin(),
                 consumer->getLoopDomain().end(),
                 [&](IterDomain* c_id) {
-                  return FusionInfoGuard::current()->caMap()->areMapped(
+                  return FusionInfoGuard::current()->caMap().areMapped(
                       p_id, c_id, IdMappingMode::PERMISSIVE);
                 });
 
@@ -318,7 +318,7 @@ SyncMap::SyncMap(Fusion* fusion) {
                 producer->getLoopDomain().begin(),
                 producer->getLoopDomain().end(),
                 [&](IterDomain* p_id) {
-                  return FusionInfoGuard::current()->caMap()->areMapped(
+                  return FusionInfoGuard::current()->caMap().areMapped(
                       p_id, c_id, IdMappingMode::PERMISSIVE);
                 });
             if (it == producer->getLoopDomain().end()) {
@@ -348,11 +348,11 @@ SyncMap::SyncMap(Fusion* fusion) {
           // B    B      G           G
 
           auto producer_ptype =
-              ca_map->getConcreteMappedID(p_id, IdMappingMode::LOOP)
+              ca_map.getConcreteMappedID(p_id, IdMappingMode::LOOP)
                   ->getParallelType();
           auto consumer_ptype = c_id == nullptr
               ? ParallelType::Serial
-              : ca_map->getConcreteMappedID(c_id, IdMappingMode::LOOP)
+              : ca_map.getConcreteMappedID(c_id, IdMappingMode::LOOP)
                     ->getParallelType();
 
           auto producer_parallel_bcast = p_id->isBroadcast() &&
@@ -417,7 +417,7 @@ SyncMap::SyncMap(Fusion* fusion) {
 
             // Case 1. Note that indexing through scatter needs to be
             // excluded due to its indirect indexing.
-            const auto& id_model = GpuLower::current()->idModel();
+            const auto& id_model = FusionInfoGuard::current()->idModel();
             auto producer_loop_id = getLoopPromotion(p_id, id_model);
             auto consumer_loop_id = getLoopPromotion(c_id, id_model);
             const auto& indexing_traveral_graph =

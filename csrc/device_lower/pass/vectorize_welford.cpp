@@ -87,7 +87,7 @@ class WelfordVectorizer : public kir::ExprMutator {
       return false;
     }
 
-    if (!GpuLower::current()->info().caMap()->areMapped(
+    if (!GpuLower::current()->info().caMap().areMapped(
             innermost_loop->iter_domain(),
             innermost_loop_id,
             IdMappingMode::EXACT)) {
@@ -101,7 +101,7 @@ class WelfordVectorizer : public kir::ExprMutator {
     const auto& exact_set = GpuLower::current()
                                 ->info()
                                 .caMap()
-                                ->getIdSets(IdMappingMode::EXACT)
+                                .getIdSets(IdMappingMode::EXACT)
                                 .getDisjointSetOf(innermost_loop_id);
     // If none of IterDomains is vectorized, don't vectorize the WelfordOp
     if (std::none_of(exact_set.begin(), exact_set.end(), [&](IterDomain* id) {
@@ -542,7 +542,7 @@ class WelfordVectorizer : public kir::ExprMutator {
                 wop_out->getLoopDomain().begin(),
                 wop_out->getLoopDomain().end(),
                 [&](auto wop_loop_id) {
-                  return GpuLower::current()->info().caMap()->areMapped(
+                  return GpuLower::current()->info().caMap().areMapped(
                       tv_loop_id, wop_loop_id, IdMappingMode::LOOP);
                 })) {
           return false;

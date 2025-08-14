@@ -337,9 +337,9 @@ class VectorizeValidator : public OptInDispatch {
       TensorView* tv,
       Expr* load_store) {
     NVF_ERROR(GpuLower::hasCurrent());
-    NVF_ERROR(GpuLower::current()->hasIdModel());
+    NVF_ERROR(GpuLower::current()->info().hasIdModel());
 
-    const auto& id_model = GpuLower::current()->idModel();
+    const auto& id_model = GpuLower::current()->info().idModel();
     const auto& graph = id_model.idGraph(IdMappingMode::EXACT);
 
     // Traverse from the complete set of loop IDs to the allocation
@@ -564,7 +564,7 @@ class VectorizeValidator : public OptInDispatch {
       Expr* load_store,
       int64_t vector_word_size_bit) {
     const auto& [vec_alloc_id, dep_alloc_ids] =
-        GpuLower::current()->hasIdModel()
+        GpuLower::current()->info().hasIdModel()
         ? getDependentAllocIDsIdModel(v_id, tv, load_store)
         : getDependentAllocIDs(v_id, tv);
 
@@ -719,7 +719,7 @@ class VectorizeValidator : public OptInDispatch {
     vectorized_set_info.vectorized_consumer_alloc_id = consumer_vectorized_id;
 
     // Validate producer
-    if (GpuLower::current()->hasIdModel()) {
+    if (GpuLower::current()->info().hasIdModel()) {
       // No need to do replayPasC when using IdModel
       vectorized_set_info.vectorized_producer_alloc_id =
           getAndValidateVectorizedIdInAllocationDomain(
@@ -1374,7 +1374,7 @@ void validateScatter(Fusion* fusion) {
     auto is_exact_mapped = [](const std::vector<IterDomain*>& ids1,
                               const std::vector<IterDomain*>& ids2) -> bool {
       const auto& exact_graph =
-          GpuLower::current()->idModel().idGraph(IdMappingMode::EXACT);
+          GpuLower::current()->info().idModel().idGraph(IdMappingMode::EXACT);
 
       if (ids1.size() != ids2.size()) {
         return false;

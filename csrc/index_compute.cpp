@@ -580,7 +580,7 @@ void IndexCompute::collectIndexIntoPermissiveMap(
     if (std::all_of(
             id_outputs.begin(), id_outputs.end(), [this](IterDomain* id) {
               return index_map_.count(
-                  GpuLower::current()->info().caMap()->getConcreteMappedID(
+                  GpuLower::current()->info().caMap().getConcreteMappedID(
                       id, IdMappingMode::EXACT));
             })) {
       // Visit this expression:
@@ -594,12 +594,12 @@ void IndexCompute::collectIndexIntoPermissiveMap(
         // Collect backward pass results from this expression if they are
         //  made available in by this expression.
         auto idx_it = index_map_.find(
-            GpuLower::current()->info().caMap()->getConcreteMappedID(
+            GpuLower::current()->info().caMap().getConcreteMappedID(
                 id, IdMappingMode::EXACT));
 
         if (idx_it != index_map_.end()) {
           permissive_index_map_
-              [GpuLower::current()->info().caMap()->getConcreteMappedID(
+              [GpuLower::current()->info().caMap().getConcreteMappedID(
                   id, IdMappingMode::PERMISSIVE)] = idx_it->second;
         }
       }
@@ -610,13 +610,13 @@ void IndexCompute::collectIndexIntoPermissiveMap(
 void IndexCompute::updateIndexMapFromPermissiveMap(const Expr* id_expr) {
   auto id_outputs = ir_utils::filterByType<IterDomain>(id_expr->outputs());
   for (auto id : id_outputs) {
-    auto concrete_id = GpuLower::current()->info().caMap()->getConcreteMappedID(
+    auto concrete_id = GpuLower::current()->info().caMap().getConcreteMappedID(
         id, IdMappingMode::EXACT);
     // Only try to copy index val from permissive map when
     //  the index is missing.
     if (!index_map_.count(concrete_id)) {
       auto permissive_id =
-          GpuLower::current()->info().caMap()->getConcreteMappedID(
+          GpuLower::current()->info().caMap().getConcreteMappedID(
               id, IdMappingMode::PERMISSIVE);
       // Write the permissive index val into index_map_ if the
       //  missing value is found here.
@@ -635,7 +635,7 @@ void IndexCompute::run() {
 
 IterDomain* IndexCompute::maybeGetExactMapConcreteID(IterDomain* id) const {
   if (concrete_id_pass_) {
-    return GpuLower::current()->info().caMap()->getConcreteMappedID(
+    return GpuLower::current()->info().caMap().getConcreteMappedID(
         id, IdMappingMode::EXACT);
   }
   return id;
@@ -1022,7 +1022,7 @@ bool isParallelLoopIndexSubstitutedAsZero(
     IterDomain* loop_id,
     bool as_consumer,
     bool within_mma_loops) {
-  const auto ca_map = GpuLower::current()->info().caMap();
+  const auto& ca_map = GpuLower::current()->info().caMap();
 
   // MMA operands are currently indexed in units of "fragments",
   //  so each mma tensor domain would be zero-ed and the tensor index
@@ -1068,8 +1068,8 @@ bool isParallelLoopIndexSubstitutedAsZero(
       [&](IterDomain* tv_id) {
         // Matching is done using the index and loop maps. See
         // validateParallelize as well.
-        return ca_map->areMapped(loop_id, tv_id, IdMappingMode::EXACT) ||
-            ca_map->areMapped(loop_id, tv_id, IdMappingMode::PERMISSIVE);
+        return ca_map.areMapped(loop_id, tv_id, IdMappingMode::EXACT) ||
+            ca_map.areMapped(loop_id, tv_id, IdMappingMode::PERMISSIVE);
       });
 
   // There's no mapped producer ID. Zero substitution shouldn't be
@@ -1233,7 +1233,7 @@ void ensureStaticIndexing(
           if (id_replacement != id_map.end()) {
             id = id_replacement->second;
           }
-          return GpuLower::current()->info().caMap()->areMapped(
+          return GpuLower::current()->info().caMap().areMapped(
               loop_id, id, IdMappingMode::PERMISSIVE);
         });
     if (it != tv->getLoopDomain().end()) {
@@ -2389,7 +2389,7 @@ std::vector<PredicateDomainInfo> getPredicateContigIds(
 
   std::unordered_map<IterDomain*, Val*> concrete_index_map;
   for (auto entry : consumer_index_map) {
-    auto c_id = gpu_lower->info().caMap()->getConcreteMappedID(
+    auto c_id = gpu_lower->info().caMap().getConcreteMappedID(
         entry.first, IdMappingMode::EXACT);
     concrete_index_map[c_id] = entry.second;
   }
@@ -2410,8 +2410,8 @@ std::vector<PredicateDomainInfo> getPredicateContigIds(
       final_ids,
       concrete_index_map,
       GpuLower::current()->divisibleSplitSet(),
-      GpuLower::current()->info().caMap(),
-      GpuLower::current()->info().concretizedBroadcastDomains(),
+      &GpuLower::current()->info().caMap(),
+      GpuLower::current()->info().concretizedBroadcastDomains().get(),
       {},
       false,
       true);
@@ -2512,7 +2512,7 @@ std::unordered_map<IterDomain*, Val*> updateInitialLoopIndexMap(
   if (magic_zero_info.original_loop_index != nullptr) {
     NVF_ERROR(magic_zero_info.protected_loop_index != nullptr);
     auto concrete_loop_id =
-        GpuLower::current()->info().caMap()->getConcreteMappedID(
+        GpuLower::current()->info().caMap().getConcreteMappedID(
             magic_zero_info.loop_id, IdMappingMode::EXACT);
     auto updated_map = initial_loop_index_map;
     updated_map[concrete_loop_id] = magic_zero_info.protected_loop_index;

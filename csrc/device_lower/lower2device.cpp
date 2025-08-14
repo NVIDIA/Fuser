@@ -460,12 +460,12 @@ void GpuLower::analysis(Fusion* fusion) {
   // New IterDomains may be created, so it is expected that generated
   // code may use diffrent variable names
   if (idModelOptions().buildIdModel()) {
-    id_model_ = std::make_unique<IdModel>(
+    info().set(std::make_unique<IdModel>(
         fusion_,
         /*build_graphs=*/true,
         /*allow_self_mapping=*/false,
-        /*validate=*/false);
-    id_model_->validateAndPropagatePType();
+        /*validate=*/false));
+    info().idModel().validateAndPropagatePType();
   }
 
   // Build what's refered to as the compute at map. This map contains the
@@ -474,20 +474,20 @@ void GpuLower::analysis(Fusion* fusion) {
   // information.
   //
   // Depends on IdModel
-  info().caMap() = std::make_shared<ComputeAtMap>(fusion_);
+  info().set(std::make_unique<ComputeAtMap>(fusion_));
 
   // Requires IdModel as expression sorting is necessary
   resolveComputeWith(fusion_);
   dumpExprsIfEnabled(fusion_->exprs(), "resolveComputeWith");
 
   if (isDebugDumpEnabled(DebugDumpOption::ComputeAtMap)) {
-    debug() << info().caMap()->toString() << std::endl;
+    debug() << info().caMap().toString() << std::endl;
   }
-  info().caMap()->validateAndPropagatePType();
+  info().caMap().validateAndPropagatePType();
   dumpExprsIfEnabled(fusion_->exprs(), "validateAndPropagatePType");
 
   // Uses compute_at_map, find all splits that are enforced to be divisible
-  divisible_splits_ = getAllDivisibleSplits(fusion_, info().caMap().get());
+  divisible_splits_ = getAllDivisibleSplits(fusion_, &info().caMap());
   dumpExprsIfEnabled(fusion_->exprs(), "getAllDivisibleSplits");
 
   // Used in parallel dimension map
@@ -577,16 +577,16 @@ void GpuLower::analysis(Fusion* fusion) {
   circularBufferInfo().build(fusion_);
   dumpExprsIfEnabled(fusion_->exprs(), "build circularBufferInfo");
 
-  info().caMap()->allocateIndexVariables();
+  info().caMap().allocateIndexVariables();
   dumpExprsIfEnabled(fusion_->exprs(), "allocateIndexVariables");
 
   if (idModelOptions().loop()) {
     // Depends on CircularBufferInfo and compute_at_map_->allocateIndexVariables
-    id_model_->allocateLoopIndexVariables();
+    info().idModel().allocateLoopIndexVariables();
   }
 
   if (idModelOptions().buildTensorIndexer()) {
-    tensor_indexer_ = std::make_unique<TensorIndexer>(*id_model_);
+    tensor_indexer_ = std::make_unique<TensorIndexer>(info().idModel());
     non_divisible_predicate_info_ =
         std::make_unique<NonDivisiblePredicateInfo>(fusion_);
   }
@@ -646,17 +646,17 @@ bool GpuLower::resolveComputeWith(Fusion* fusion) {
       }
       if (tv->resolveComputeWith(exprs_sorted)) {
         updated = true;
-        info().caMap()->updateComputeWith(tv);
+        info().caMap().updateComputeWith(tv);
       }
     }
   }
 
   // The Loop graph needs to be updated as the compute positions of
   // the updated tensors differ
-  if (updated && hasIdModel()) {
-    id_model_->removeGraph(IdMappingMode::LOOP);
-    id_model_->buildGraph(IdMappingMode::LOOP);
-    id_model_->validateAndPropagatePType();
+  if (updated && info().hasIdModel()) {
+    info().idModel().removeGraph(IdMappingMode::LOOP);
+    info().idModel().buildGraph(IdMappingMode::LOOP);
+    info().idModel().validateAndPropagatePType();
   }
 
   return updated;
@@ -666,9 +666,9 @@ Val* GpuLower::getLoopIndexVariable(
     IterDomain* id,
     CircularBufferLoopStage stage) const {
   if (idModelOptions().loop()) {
-    return idModel().getLoopIndexVariable(id, stage);
+    return info().idModel().getLoopIndexVariable(id, stage);
   } else {
-    return info().caMap()->getIndexVariable(id, stage);
+    return info().caMap().getIndexVariable(id, stage);
   }
 }
 

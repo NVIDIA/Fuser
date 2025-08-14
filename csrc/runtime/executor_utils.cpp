@@ -625,7 +625,7 @@ std::vector<IterDomain*> getParallelBindingsIterDomains(
           // Want to keep the broadcast dimensions if they are not resolved
           // TODO: piping down the parallel dimension map here would
           //  be helpful
-          if (lower->info().caMap()->getConcreteMappedID(
+          if (lower->info().caMap().getConcreteMappedID(
                   id, IdMappingMode::LOOP) == id) {
             parallel_ids.push_back(id);
           }

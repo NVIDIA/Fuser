@@ -139,7 +139,7 @@ void protectNonPredicateIndexWithMagicZero(
   for (auto idx : arange(loops.size())) {
     auto loop = loops[idx];
     auto concrete_loop_id =
-        GpuLower::current()->info().caMap()->getConcreteMappedID(
+        GpuLower::current()->info().caMap().getConcreteMappedID(
             loop_domains[idx], IdMappingMode::EXACT);
     auto loop_ind = concrete_loop_idx_map.at(concrete_loop_id);
 
@@ -199,7 +199,7 @@ IndexMagicZeroInfo protectPredicateIndexWithMagicZero(
   std::unordered_set<Val*> loop_indices;
   for (auto loop_id : id_graph.resolved_loop_domains) {
     auto concrete_loop_id =
-        GpuLower::current()->info().caMap()->getConcreteMappedID(
+        GpuLower::current()->info().caMap().getConcreteMappedID(
             loop_id, IdMappingMode::EXACT);
     auto index_it = id_graph.initial_concrete_index_map.find(concrete_loop_id);
     NVF_ERROR(
@@ -218,10 +218,10 @@ IndexMagicZeroInfo protectPredicateIndexWithMagicZero(
   for (int64_t i = static_cast<int64_t>(loops.size()) - 1; i >= 0; --i) {
     auto loop = loops.at(i);
     auto loop_id = id_graph.resolved_loop_domains.at(i);
-    NVF_ERROR(GpuLower::current()->info().caMap()->areMapped(
+    NVF_ERROR(GpuLower::current()->info().caMap().areMapped(
         loop_id, loop->iter_domain(), IdMappingMode::PERMISSIVE));
     IterDomain* concrete_loop_id =
-        GpuLower::current()->info().caMap()->getConcreteMappedID(
+        GpuLower::current()->info().caMap().getConcreteMappedID(
             loop_id, IdMappingMode::EXACT);
     auto index_it = id_graph.initial_concrete_index_map.find(concrete_loop_id);
     NVF_ERROR(index_it != id_graph.initial_concrete_index_map.end());

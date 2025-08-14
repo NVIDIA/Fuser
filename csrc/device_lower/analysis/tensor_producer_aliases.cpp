@@ -65,7 +65,7 @@ bool isTrivialExpr(Expr* expr) {
   }
 
   const ValGraph& exact_graph =
-      GpuLower::current()->idModel().idGraph(IdMappingMode::EXACT);
+      GpuLower::current()->info().idModel().idGraph(IdMappingMode::EXACT);
 
   for (size_t pos : arange(in_alloc.size())) {
     // At this point in_pos and out_pos are both in range and point to
