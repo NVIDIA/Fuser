@@ -5015,10 +5015,28 @@ fd.execute(inputs)
         src = torch.randn(scatter_size, hidden, device="cuda")
         inputs = [x, ind, src]
 
-        def fusion_func(fd : FusionDefinition):
-            T0 = fd.define_tensor(shape=[-1, -1], contiguity=[True, True], dtype=DataType.Float, is_cpu=False, stride_order=[1, 0])
-            T1 = fd.define_tensor(shape=[-1, -1], contiguity=[True, True], dtype=DataType.Int, is_cpu=False, stride_order=[1, 0])
-            T2 = fd.define_tensor(shape=[-1, -1], contiguity=[True, True], dtype=DataType.Float, is_cpu=False, stride_order=[1, 0])
+        def fusion_func(fd: FusionDefinition):
+            T0 = fd.define_tensor(
+                shape=[-1, -1],
+                contiguity=[True, True],
+                dtype=DataType.Float,
+                is_cpu=False,
+                stride_order=[1, 0],
+            )
+            T1 = fd.define_tensor(
+                shape=[-1, -1],
+                contiguity=[True, True],
+                dtype=DataType.Int,
+                is_cpu=False,
+                stride_order=[1, 0],
+            )
+            T2 = fd.define_tensor(
+                shape=[-1, -1],
+                contiguity=[True, True],
+                dtype=DataType.Float,
+                is_cpu=False,
+                stride_order=[1, 0],
+            )
             T3 = fd.ops.scatter(T0, T1, T2, scatter_dim)
             T4 = fd.ops.sigmoid(T3)
             fd.add_output(T4)
