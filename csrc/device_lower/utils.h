@@ -392,5 +392,10 @@ bool isCopyOnly(Expr* expr);
 // on it.
 bool isCopyOnly(Val* val);
 
+// https://docs.nvidia.com/cuda/parallel-thread-execution/#proxies
+enum class MemoryProxy { Generic, Async, TensorMap };
+
+MemoryProxy getMemoryProxy(Expr* expr);
+
 } // namespace lower_utils
 } // namespace nvfuser
