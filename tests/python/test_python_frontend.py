@@ -5010,9 +5010,9 @@ fd.execute(inputs)
         scatter_size = 64
         scatter_dim = 0
 
-        x = torch.randn([bsz, hidden], device=device)
+        x = torch.randn([bsz, hidden], device="cuda")
         _, ind = torch.topk(x, k=scatter_size, dim=scatter_dim)
-        src = torch.randn(scatter_size, hidden, device=device)
+        src = torch.randn(scatter_size, hidden, device="cuda")
         inputs = [x, ind, src]
 
         def fusion_func(fd : FusionDefinition):
