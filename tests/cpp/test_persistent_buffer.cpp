@@ -1910,16 +1910,22 @@ TEST_F(PersistentBufferTest, BroadcastSyncInputsHasBcast) {
   testValidate(&unscheduled_fusion_copy, outputs, {t0, t1}, __LINE__, __FILE__);
 }
 
-using ClusterReductionTestParams = std::tuple<DataType, int64_t>;
-using clusterReductionTest = NVFuserFixtureParamTest<ClusterReductionTestParams>;
-TEST_P(clusterReductionTest, variedThreadClusterSizes) {
+// Test cluster reduction with different models, dtype, and cluster size
+// is_softmax: true for softmax, false for simple norm
+// softmax uses cluster reduction twice in a single kernel with op max and add
+using ClusterReductionTestParams =
+    std::tuple</*is_softmax*/ bool, DataType, /*blocks_per_cluster=*/int64_t>;
+using ClusterReductionTest =
+    NVFuserFixtureParamTest<ClusterReductionTestParams>;
+TEST_P(ClusterReductionTest, SoftmaxDtypeClusterSize) {
   // reduction domain is scheduled as:
   // [blocks_per_cluster, batches_per_block, threads_per_block, vect_factor]
-  auto [dtype, blocks_per_cluster] = GetParam();
+  auto [is_softmax, dtype, blocks_per_cluster] = GetParam();
   constexpr int batches_per_block = 2;
   constexpr int threads_per_block = 256;
   const int vect_factor = 128 / dataTypeSizeBit(dtype);
-  int y = threads_per_block * blocks_per_cluster * vect_factor * batches_per_block;
+  int y =
+      threads_per_block * blocks_per_cluster * vect_factor * batches_per_block;
   // use two waves
   int x = (deviceSMCount() * 2 + blocks_per_cluster - 1) / blocks_per_cluster;
   auto fusion_ptr = std::make_unique<Fusion>();
@@ -1928,15 +1934,22 @@ TEST_P(clusterReductionTest, variedThreadClusterSizes) {
   auto tv0 = makeContigConcreteTensor({x, y}, dtype);
   fusion.addInput(tv0);
   auto tv1 = maybeCastOp(DataType::Float, tv0);
-  auto tv2 = sum(tv1, {1});
-  auto tv3 = broadcast(tv2, {false, true});
-  auto tv4 = add(tv1, tv3);
-  auto tv5 = maybeCastOp(DataType::BFloat16, tv4);
-  fusion.addOutput(tv5);
+  if (is_softmax) {
+    auto tv2 = softmax(tv1, {1});
+    auto tv3 = maybeCastOp(DataType::BFloat16, tv2);
+    fusion.addOutput(tv3);
+  } else {
+    auto tv2 = sum(tv1, {1});
+    auto tv3 = broadcast(tv2, {false, true});
+    auto tv4 = add(tv1, tv3);
+    auto tv5 = maybeCastOp(DataType::BFloat16, tv4);
+    fusion.addOutput(tv5);
+  }
   auto unscheduled_fusion_copy = fusion;
 
   torch::cuda::manual_seed(0);
-  auto options = at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
+  auto options =
+      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
   auto t0 = at::randn({x, y}, options).clamp(-2, 2);
   SchedulerRuntimeInfo runtime_info(fusion_ptr.get(), {t0});
   auto scheduler =
@@ -1968,14 +1981,16 @@ TEST_P(clusterReductionTest, variedThreadClusterSizes) {
 }
 INSTANTIATE_TEST_SUITE_P(
     PersistentBufferTest,
-    clusterReductionTest,
+    ClusterReductionTest,
     ::testing::Combine(
+        ::testing::Values(true, false),
         ::testing::Values(DataType::BFloat16, DataType::Float),
         ::testing::Values(2, 3, 4, 5, 6, 7, 8)),
     [](const testing::TestParamInfo<ClusterReductionTestParams>& info) {
       std::stringstream ss;
-      ss << "dtype_" << std::get<0>(info.param);
-      ss << "_cluster_" << std::get<1>(info.param);
+      ss << "is_softmax_" << std::get<0>(info.param);
+      ss << "_dtype_" << std::get<1>(info.param);
+      ss << "_cluster_" << std::get<2>(info.param);
       return sanitizeTestName(ss.str());
     });
 } // namespace nvfuser
