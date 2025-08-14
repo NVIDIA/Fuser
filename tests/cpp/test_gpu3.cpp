@@ -520,9 +520,9 @@ TEST_F(NVFuserTest, FusionBroadcastConcretization1_CUDA) {
 
   GpuLower gpulw(&fusion);
   gpulw.run();
-  NVF_CHECK(!gpulw.concretizedBroadcastDomains()->isConcretized(
+  NVF_CHECK(!gpulw.info().concretizedBroadcastDomains()->isConcretized(
       loweredTv(tv4, gpulw)->axis(1)));
-  NVF_CHECK(gpulw.concretizedBroadcastDomains()->isConcretized(
+  NVF_CHECK(gpulw.info().concretizedBroadcastDomains()->isConcretized(
       loweredTv(tv7, gpulw)->axis(1)));
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
@@ -2493,8 +2493,10 @@ TEST_F(NVFuserTest, FusionRedundantUseCheck_CUDA) {
       lowered_tv2 != nullptr && lowered_tv4 != nullptr,
       "tv2 or tv4 not lowered or mangled");
 
-  auto tv2_info = gpulw.threadPredMap().getPredicateInfo(lowered_tv2);
-  auto tv4_info = gpulw.threadPredMap().getPredicateInfo(lowered_tv4);
+  auto tv2_info =
+      gpulw.info().threadPredicateMap()->getPredicateInfo(lowered_tv2);
+  auto tv4_info =
+      gpulw.info().threadPredicateMap()->getPredicateInfo(lowered_tv4);
 
   // tv2 -> tv3 -> tv4 (shared) is the only use chain for tv2,
   //  and tv4 is redundantly written in tidx so tv2 is redundantly
@@ -5934,11 +5936,11 @@ TEST_F(NVFuserTest, FusionAvoidRedundantWriteBroadcastedSoftmaxInput_CUDA) {
   const auto* ke = onlyKernelExecutorInMostRecentRuntime(executor_cache);
   auto kernel = ke->compiledKernel()->kernel();
   const auto& thread_pred_map =
-      ke->compiledKernel()->lowered()->threadPredMap();
+      ke->compiledKernel()->lowered()->info().threadPredicateMap();
   for (const auto expr : kernel->exprs()) {
     auto tv = ir_utils::getTvOutput(expr);
     if (tv && tv->name() == 15 && tv->getMemoryType() == MemoryType::Global) {
-      const auto& thread_pred = thread_pred_map.getPredicateInfo(tv);
+      const auto& thread_pred = thread_pred_map->getPredicateInfo(tv);
       bool predicted = thread_pred.redundant_types.get(ParallelType::BIDx) &&
           thread_pred.broadcast_ld_indices_map.count(ParallelType::BIDx);
       NVF_CHECK(
@@ -5998,12 +6000,12 @@ TEST_F(NVFuserTest, FusionAvoidRedundantWrite_CUDA) {
     const auto* ke = onlyKernelExecutorInMostRecentRuntime(executor_cache);
     auto kernel = ke->compiledKernel()->kernel();
     const auto& thread_pred_map =
-        ke->compiledKernel()->lowered()->threadPredMap();
+        ke->compiledKernel()->lowered()->info().threadPredicateMap();
 
     for (const auto expr : kernel->exprs()) {
       auto tv = ir_utils::getTvOutput(expr);
       if (tv && tv->name() == 8 && tv->getMemoryType() == MemoryType::Global) {
-        const auto& thread_pred = thread_pred_map.getPredicateInfo(tv);
+        const auto& thread_pred = thread_pred_map->getPredicateInfo(tv);
         bool predicted = thread_pred.redundant_types.get(ParallelType::BIDx) &&
             thread_pred.broadcast_ld_indices_map.count(ParallelType::BIDx);
         NVF_CHECK(
@@ -6154,12 +6156,13 @@ TEST_F(NVFuserTest, FusionAvoidRedundantWriteNonOutput_CUDA) {
 
   // check thread_pred
   auto kernel = ke.compiledKernel()->kernel();
-  const auto& thread_pred_map = ke.compiledKernel()->lowered()->threadPredMap();
+  const auto& thread_pred_map =
+      ke.compiledKernel()->lowered()->info().threadPredicateMap();
 
   for (const auto expr : kernel->exprs()) {
     auto tv = ir_utils::getTvOutput(expr);
     if (tv->name() == 5 || tv->name() == 6) {
-      const auto& thread_pred = thread_pred_map.getPredicateInfo(tv);
+      const auto& thread_pred = thread_pred_map->getPredicateInfo(tv);
       bool predicted = thread_pred.redundant_types.get(ParallelType::BIDx) &&
           thread_pred.broadcast_ld_indices_map.count(ParallelType::BIDx);
       NVF_CHECK(
@@ -6218,12 +6221,13 @@ TEST_F(NVFuserTest, FusionAvoidRedundantWriteNonNeighbor_CUDA) {
 
   // check thread_pred
   auto kernel = ke.compiledKernel()->kernel();
-  const auto& thread_pred_map = ke.compiledKernel()->lowered()->threadPredMap();
+  const auto& thread_pred_map =
+      ke.compiledKernel()->lowered()->info().threadPredicateMap();
 
   for (const auto expr : kernel->exprs()) {
     auto tv = ir_utils::getTvOutput(expr);
     if (tv->name() == 5 || tv->name() == 6) {
-      const auto& thread_pred = thread_pred_map.getPredicateInfo(tv);
+      const auto& thread_pred = thread_pred_map->getPredicateInfo(tv);
       bool predicted = thread_pred.redundant_types.get(ParallelType::BIDx) &&
           thread_pred.broadcast_ld_indices_map.count(ParallelType::BIDx);
       NVF_CHECK(

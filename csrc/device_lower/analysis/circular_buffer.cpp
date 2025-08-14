@@ -733,7 +733,7 @@ ForLoop* CircularBufferInfo::getCircularBufferLoop(
     const std::vector<ForLoop*>& loops,
     bool ignore_prologue) {
   auto loop_it = std::find_if(loops.begin(), loops.end(), [&](const auto loop) {
-    return GpuLower::current()->caMap()->areMapped(
+    return GpuLower::current()->info().caMap()->areMapped(
                loop->iter_domain(), axis, IdMappingMode::LOOP) &&
         (!ignore_prologue ||
          loop->circularBufferLoopStage() != CircularBufferLoopStage::Prolog);

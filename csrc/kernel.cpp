@@ -253,8 +253,11 @@ class KernelIrScanner : private IrVisitor {
 
   void handle(BroadcastOp* bop) final {
     const ParallelTypeBitmap parallel_types =
-        GpuLower::current()->threadPredMap().getParallelBroadcastDomains(
-            bop->out()->as<TensorIndex>()->view());
+        GpuLower::current()
+            ->info()
+            .threadPredicateMap()
+            ->getParallelBroadcastDomains(
+                bop->out()->as<TensorIndex>()->view());
     summary_.broadcast_parallel_types.emplace(bop, parallel_types);
     // Do we have block broadcasts?
     summary_.has_block_broadcasts =
@@ -353,7 +356,7 @@ class ValidateAllocation : private OptOutConstDispatch {
           continue;
         }
         for (const auto& axis : tv->getLoopDomain()) {
-          if (!GpuLower::current()->caMap()->areMapped(
+          if (!GpuLower::current()->info().caMap()->areMapped(
                   loop_id, axis, IdMappingMode::LOOP)) {
             continue;
           }
@@ -413,7 +416,8 @@ Kernel::Kernel(Fusion* fusion, PrimDataType index_type)
 void Kernel::finalize(std::vector<Expr*> top_level_exprs) {
   NVF_ERROR(top_level_exprs_.empty());
   top_level_exprs_ = std::move(top_level_exprs);
-  warp_padded_parallel_info_ = GpuLower::current()->getWarpPaddedParallelInfo();
+  padded_parallel_dimensions_ =
+      *GpuLower::current()->info().paddedParallelDimensions();
   profile_ = GpuLower::current()->profile();
   ValidateAllocation::validate(this);
   analyze();

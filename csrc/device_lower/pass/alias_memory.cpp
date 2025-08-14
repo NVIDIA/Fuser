@@ -38,7 +38,7 @@ namespace nvfuser {
 namespace {
 // Alias used for std::transform
 IterDomain* exactConcreteId(IterDomain* id) {
-  return GpuLower::current()->caMap()->getConcreteMappedID(
+  return GpuLower::current()->info().caMap()->getConcreteMappedID(
       id, IdMappingMode::EXACT);
 }
 
@@ -143,7 +143,7 @@ bool isSerialBroadcastResolution(
   for (auto serial_loop_logical :
        ir_utils::filterByType<IterDomain>(serial_loop_logicals)) {
     if (!producer_exact_concrete_logical_ids.count(
-            GpuLower::current()->caMap()->getConcreteMappedID(
+            GpuLower::current()->info().caMap()->getConcreteMappedID(
                 serial_loop_logical, IdMappingMode::EXACT))) {
       return true;
     }
@@ -1402,7 +1402,7 @@ class ReusableAllocationFinder : private kir::IrVisitor {
           return false;
         }
       } else {
-        if (!GpuLower::current()->caMap()->areMapped(
+        if (!GpuLower::current()->info().caMap()->areMapped(
                 alloc_domains[id_it],
                 reuse_domains[id_it],
                 IdMappingMode::EXACT)) {
@@ -1718,7 +1718,8 @@ class StackBasedSharedMemAllocator : kir::IrVisitor {
 
     // Reclaim memory whenever we pass an Expr that is known to synchronize the
     // block
-    if (lower_utils::hasBlockSync(expr, GpuLower::current()->threadPredMap())) {
+    if (lower_utils::hasBlockSync(
+            expr, *GpuLower::current()->info().threadPredicateMap())) {
       if (isDebugDumpEnabled(DebugDumpOption::BufferReuseInfo)) {
         debug() << "Block syncing expr found at position " << position_
                 << ". Reclaiming memory." << std::endl;
@@ -2039,7 +2040,8 @@ class PromoteReuseSyncModifier : private kir::ExprMutator {
     // there is no need to perform the hasBlockSync check as we know that
     // upcoming_first_writes_ was just cleared.
     if (!inserted_sync &&
-        lower_utils::hasBlockSync(expr, GpuLower::current()->threadPredMap())) {
+        lower_utils::hasBlockSync(
+            expr, *GpuLower::current()->info().threadPredicateMap())) {
       if (isDebugDumpEnabled(DebugDumpOption::BufferReuseInfo)) {
         debug() << "Found blocking expression at position " << position
                 << std::endl;

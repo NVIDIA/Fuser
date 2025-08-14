@@ -88,7 +88,7 @@ void UnrollPass::dispatch(Expr* expr) {
     }
 
     auto thread_pred =
-        GpuLower::current()->threadPredMap().getPredicate(out_tv);
+        GpuLower::current()->info().threadPredicateMap()->getPredicate(out_tv);
     DEBUG_LOG("thread predicate: ", thread_pred->toInlineString());
 
     // If this expr is for initializing a reduction output tensor, the
@@ -101,8 +101,9 @@ void UnrollPass::dispatch(Expr* expr) {
         DEBUG_LOG("thread predicate: ", thread_pred->toInlineString());
       } else if (out_tv->getMemoryType() == MemoryType::Shared) {
         // In the case of Shared, we can only ignore BIDx predicates
-        thread_pred = GpuLower::current()->threadPredMap().getPredicate(
-            out_tv, ParallelTypeBitmap().setAllTID());
+        thread_pred =
+            GpuLower::current()->info().threadPredicateMap()->getPredicate(
+                out_tv, ParallelTypeBitmap().setAllTID());
         DEBUG_LOG("thread predicate: ", thread_pred->toInlineString());
       } else {
         // In the case of Global, we cannot ignore any predicates at
@@ -145,7 +146,8 @@ void UnrollPass::dispatch(Expr* expr) {
 
     // For expr calling a device func with block sync, don't create
     // if-then-else but pass the predicate to the device func
-    if (lower_utils::hasBlockSync(expr, GpuLower::current()->threadPredMap())) {
+    if (lower_utils::hasBlockSync(
+            expr, *GpuLower::current()->info().threadPredicateMap())) {
       const auto pred = unswitched_loop_
           ? thread_pred_expr
           : IrBuilder::create<kir::Predicate>(
@@ -331,7 +333,7 @@ void UnrollPass::handle(ForLoop* fl) {
 bool UnrollPass::canOmitElseClause(ForLoop* fl) {
   std::vector<ForLoop*> loops({fl});
 
-  const auto& pred_map = GpuLower::current()->threadPredMap();
+  const auto& pred_map = *GpuLower::current()->info().threadPredicateMap();
 
   std::unordered_set<Expr*> all_exprs_inside_loop_nest;
   std::unordered_set<Expr*> resize_exprs;

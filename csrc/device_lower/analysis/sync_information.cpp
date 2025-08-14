@@ -33,8 +33,9 @@ void validateParallelizationOfTensor(TensorView* tv) {
     // It doesn't matter if this axis is a non-concretized broadcast
     // TODO: merging broadcast and non-broadcast
     if (axis->isBroadcast() &&
-        !GpuLower::current()->concretizedBroadcastDomains()->isConcretized(
-            axis)) {
+        !FusionInfoGuard::current()
+             ->concretizedBroadcastDomains()
+             ->isConcretized(axis)) {
       continue;
     }
 
@@ -53,7 +54,7 @@ void validateParallelizationOfTensor(TensorView* tv) {
   // used to parallelize any domain of this tensor
 
   const auto thread_pred =
-      GpuLower::current()->threadPredMap().getPredicateInfo(tv);
+      FusionInfoGuard::current()->threadPredicateMap()->getPredicateInfo(tv);
 
   auto predicated_parallel_types = pt_map & thread_pred.limited_types;
 
@@ -146,8 +147,8 @@ SyncMap::SyncMap(Fusion* fusion) {
 
   NVF_ERROR(GpuLower::current()->hasIdModel());
 
-  const auto& ca_map = GpuLower::current()->caMap();
-  const auto& pred_map = GpuLower::current()->threadPredMap();
+  const auto& ca_map = FusionInfoGuard::current()->caMap();
+  const auto& pred_map = FusionInfoGuard::current()->threadPredicateMap();
 
   auto exprs = StmtSort::getExprs(fusion);
 
@@ -176,7 +177,7 @@ SyncMap::SyncMap(Fusion* fusion) {
       ParallelTypeBitmap raw_dims;
 
       const auto parallel_bcast_doms =
-          pred_map.getParallelBroadcastDomains(producer);
+          pred_map->getParallelBroadcastDomains(producer);
 
       // Stash information about parallelized producer iteration domains
       std::vector<IterDomain*> producer_parallel_ids(
@@ -189,15 +190,11 @@ SyncMap::SyncMap(Fusion* fusion) {
       //  below to eliminate redundant writes: if(threadIdx.x == 0)
       //    shared[threadIdx.x + i] = ...
       // We will need a raw sync after this pattern for correctness.
-      auto producer_redundant_types = GpuLower::current()
-                                          ->threadPredMap()
-                                          .getPredicateInfo(producer)
-                                          .redundant_types;
+      auto producer_redundant_types =
+          pred_map->getPredicateInfo(producer).redundant_types;
       // Get the parallel types that are inactive in consumer's use chains.
-      auto producer_redundant_use_types = GpuLower::current()
-                                              ->threadPredMap()
-                                              .getPredicateInfo(producer)
-                                              .redundant_use_types;
+      auto producer_redundant_use_types =
+          pred_map->getPredicateInfo(producer).redundant_use_types;
 
       // In sync info pass we only consider the parallel types in
       //  producer that are redundantly produced but not redundantly consumed.
@@ -242,7 +239,7 @@ SyncMap::SyncMap(Fusion* fusion) {
           // parallelized unless thread-predicated and eventually concretized
           if (consumer_axis->isBroadcast() &&
               (!parallel_bcast_doms.get(consumer_ptype) ||
-               !GpuLower::current()
+               !FusionInfoGuard::current()
                     ->concretizedBroadcastDomains()
                     ->isConcretized(consumer_axis))) {
             continue;
@@ -304,7 +301,7 @@ SyncMap::SyncMap(Fusion* fusion) {
                 consumer->getLoopDomain().begin(),
                 consumer->getLoopDomain().end(),
                 [&](IterDomain* c_id) {
-                  return GpuLower::current()->caMap()->areMapped(
+                  return FusionInfoGuard::current()->caMap()->areMapped(
                       p_id, c_id, IdMappingMode::PERMISSIVE);
                 });
 
@@ -321,7 +318,7 @@ SyncMap::SyncMap(Fusion* fusion) {
                 producer->getLoopDomain().begin(),
                 producer->getLoopDomain().end(),
                 [&](IterDomain* p_id) {
-                  return GpuLower::current()->caMap()->areMapped(
+                  return FusionInfoGuard::current()->caMap()->areMapped(
                       p_id, c_id, IdMappingMode::PERMISSIVE);
                 });
             if (it == producer->getLoopDomain().end()) {
@@ -361,8 +358,9 @@ SyncMap::SyncMap(Fusion* fusion) {
           auto producer_parallel_bcast = p_id->isBroadcast() &&
               isParallelTypeThread(producer_ptype) &&
               parallel_bcast_doms.get(producer_ptype) &&
-              GpuLower::current()->concretizedBroadcastDomains()->isConcretized(
-                  p_id);
+              FusionInfoGuard::current()
+                  ->concretizedBroadcastDomains()
+                  ->isConcretized(p_id);
 
           auto producer_parallelized = isParallelTypeThread(producer_ptype) &&
               (!p_id->isBroadcast() || producer_parallel_bcast);

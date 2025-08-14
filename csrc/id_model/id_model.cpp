@@ -1372,7 +1372,7 @@ void IdModel::allocateLoopIndexVariables() {
     if (GpuLower::current()->idModelOptions().loop()) {
       loop_index = IrBuilder::create<Val>(DataType::Index);
     } else {
-      const auto& ca_map = GpuLower::current()->caMap();
+      const auto& ca_map = GpuLower::current()->info().caMap();
       for (const auto& id :
            ir_utils::filterByType<IterDomain>(loop_group->vector())) {
         if (!ca_map->getIdSets(IdMappingMode::LOOP).mappingExists(id)) {

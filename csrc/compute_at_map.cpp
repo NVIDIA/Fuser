@@ -850,7 +850,7 @@ void ComputeAtMap::build(Fusion* fusion) {
   buildUniqueExactExprMaps();
 }
 
-void ComputeAtMap::validateAndPropagatePType() {
+void ComputeAtMap::validateAndPropagatePType() const {
   for (const auto& loop_disjoint_set : id_graph_.loopNodes().disjointSets()) {
     ParallelType common_ptype = ParallelType::Serial;
     for (auto id : loop_disjoint_set->vector()) {

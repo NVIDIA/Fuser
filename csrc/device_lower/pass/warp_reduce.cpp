@@ -406,7 +406,10 @@ class FuseBroadcastWithWarpReduce : private kir::IrVisitor {
       return false;
     }
 
-    if (!GpuLower::current()->getWarpPaddedParallelInfo().is_tidx_single_warp) {
+    if (!GpuLower::current()
+             ->info()
+             .paddedParallelDimensions()
+             ->is_tidx_single_warp) {
       return false;
     }
 

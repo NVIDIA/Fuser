@@ -795,8 +795,9 @@ bool hasBlockSync(const Expr* expr, const ThreadPredicateMap& pred_map) {
 
   if ((expr->isA<BroadcastOp>() &&
        GpuLower::current()
-           ->threadPredMap()
-           .getParallelBroadcastDomains(tv)
+           ->info()
+           .threadPredicateMap()
+           ->getParallelBroadcastDomains(tv)
            .any()) ||
       expr->isA<kir::GridBroadcast>()) {
     return true;
@@ -2093,7 +2094,7 @@ IterDomain* getConcreteLoopID(IterDomain* id) {
     const auto& loop_graph =
         GpuLower::current()->idModel().idGraph(IdMappingMode::LOOP);
     auto promotion = getLoopPromotion(id, GpuLower::current()->idModel());
-    const auto& ca_map = GpuLower::current()->caMap();
+    const auto& ca_map = GpuLower::current()->info().caMap();
     const auto& loop_group = loop_graph.toGroup(id);
 
     // Try to see if the CA concrete domain can be used instead
@@ -2121,7 +2122,7 @@ IterDomain* getConcreteLoopID(IterDomain* id) {
     // promotion ID instead.
     return promotion;
   } else {
-    const auto& ca_map = GpuLower::current()->caMap();
+    const auto& ca_map = GpuLower::current()->info().caMap();
     return ca_map->getConcreteMappedID(id, IdMappingMode::LOOP);
   }
 }

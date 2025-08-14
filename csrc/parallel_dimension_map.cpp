@@ -38,7 +38,7 @@ struct hash<PAndID> {
 
 namespace nvfuser {
 
-void ParallelDimensionMap::build(Fusion* fusion) {
+ParallelDimensionMap::ParallelDimensionMap(Fusion* fusion) {
   VectorOfUniqueEntries<PAndID> all_concrete_ids;
   auto all_vals = fusion->usedMathVals();
   for (auto tv : ir_utils::filterByType<TensorView>(all_vals)) {
@@ -58,8 +58,9 @@ void ParallelDimensionMap::build(Fusion* fusion) {
       if (!isParallelTypeThread(ptype)) {
         continue;
       }
-      auto concrete_id = GpuLower::current()->caMap()->getConcreteMappedID(
-          id, IdMappingMode::EXACT);
+      auto concrete_id =
+          GpuLower::current()->info().caMap()->getConcreteMappedID(
+              id, IdMappingMode::EXACT);
       if (concrete_id->isBroadcast()) {
         // Broadcasted concrete id's don't specify anything about shape
         continue;
@@ -104,7 +105,7 @@ void ParallelDimensionMap::adjustMappingsForWarpPadding() {
   // If TIDx is padded to a multiple of the warp size, mark it as
   // non-exact.
 
-  auto& warp_info = gpu_lower->getWarpPaddedParallelInfo();
+  const auto& warp_info = *gpu_lower->info().paddedParallelDimensions();
   // TIDx isn't really padded if there isn't a warp reduction (this could
   // change)
   if (!(warp_info.is_tidx_padded && warp_info.has_warp_reduction)) {
