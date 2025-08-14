@@ -417,7 +417,7 @@ void Kernel::finalize(std::vector<Expr*> top_level_exprs) {
   NVF_ERROR(top_level_exprs_.empty());
   top_level_exprs_ = std::move(top_level_exprs);
   padded_parallel_dimensions_ =
-      *GpuLower::current()->info().paddedParallelDimensions();
+      FusionInfoGuard::current()->paddedParallelDimensions();
   profile_ = GpuLower::current()->profile();
   ValidateAllocation::validate(this);
   analyze();

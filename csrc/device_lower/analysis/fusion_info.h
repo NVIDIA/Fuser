@@ -29,6 +29,14 @@ class FusionInfo {
     return concretized_broadcast_domains_;
   }
 
+  ConcretizedBroadcastDomains& concretizedBroadcastDomainsTmp() {
+    return *concretized_broadcast_domains_;
+  }
+
+  const ConcretizedBroadcastDomains& concretizedBroadcastDomainsTmp() const {
+    return *concretized_broadcast_domains_;
+  }
+
   auto& fusedReductions() {
     return fused_reductions_;
   }
@@ -37,12 +45,21 @@ class FusionInfo {
     return fused_reductions_;
   }
 
-  auto& paddedParallelDimensions() {
-    return padded_parallel_dimensions_;
+  bool hasPaddedParallelDimensions() const {
+    return padded_parallel_dimensions_.get() != nullptr;
   }
 
-  const auto& paddedParallelDimensions() const {
-    return padded_parallel_dimensions_;
+  PaddedParallelDimensions& paddedParallelDimensions() {
+    return *padded_parallel_dimensions_;
+  }
+
+  const PaddedParallelDimensions& paddedParallelDimensions() const {
+    return *padded_parallel_dimensions_;
+  }
+
+  void set(
+      std::unique_ptr<PaddedParallelDimensions> padded_parallel_dimensions) {
+    padded_parallel_dimensions_ = std::move(padded_parallel_dimensions);
   }
 
   auto& threadPredicateMap() {
@@ -98,18 +115,18 @@ class FusionInfo {
   }
 
  private:
-  std::shared_ptr<const ConcretizedBroadcastDomains>
+  std::shared_ptr<ConcretizedBroadcastDomains>
       concretized_broadcast_domains_;
 
   std::shared_ptr<const FusedReductionInfo> fused_reductions_;
 
-  std::shared_ptr<const PaddedParallelDimensions> padded_parallel_dimensions_;
+  std::unique_ptr<PaddedParallelDimensions> padded_parallel_dimensions_;
 
   std::shared_ptr<const ThreadPredicateMap> thread_predicate_map_;
 
   std::shared_ptr<const ParallelDimensionMap> parallel_dimension_map_;
 
-  std::shared_ptr<ComputeAtMap> ca_map_;
+  std::unique_ptr<ComputeAtMap> ca_map_;
 
   std::unique_ptr<IdModel> id_model_;
 };

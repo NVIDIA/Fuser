@@ -6,7 +6,7 @@
  */
 // clang-format on
 #include <ATen/cuda/CUDAContext.h>
-#include <device_lower/lower2device.h>
+#include <device_lower/analysis/fusion_info.h>
 #include <device_lower/pass/warp_reduce.h>
 #include <device_lower/utils.h>
 #include <expr_evaluator.h>
@@ -406,10 +406,9 @@ class FuseBroadcastWithWarpReduce : private kir::IrVisitor {
       return false;
     }
 
-    if (!GpuLower::current()
-             ->info()
-             .paddedParallelDimensions()
-             ->is_tidx_single_warp) {
+    if (!FusionInfoGuard::current()
+             ->paddedParallelDimensions()
+             .is_tidx_single_warp) {
       return false;
     }
 

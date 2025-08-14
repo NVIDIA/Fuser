@@ -10,6 +10,7 @@
 #include <gtest/gtest.h>
 
 #include <codegen.h>
+#include <device_lower/analysis/fusion_info.h>
 #include <device_lower/lower2device.h>
 #include <device_lower/pass/magic_zero.h>
 #include <disjoint_set.h>
@@ -3104,7 +3105,10 @@ TEST_F(NVFuserTest, FusionValidateParallelize8_CUDA) {
   tv3->computeAt(tv4, -1);
 
   // Since tv2 is not on shared memory, the fusion should be flagged
-  // as invalid by the parallel validation
+  // as invalid by the parallel validation.
+  FusionInfo fusion_info;
+  // TODO: Fill fusion_info
+  FusionInfoGuard info_guard(&fusion_info);
   // NOLINTNEXTLINE(cppcoreguidelines-avoid-goto,hicpp-avoid-goto)
   ASSERT_ANY_THROW(SyncMap sync_map_fail(&fusion));
 

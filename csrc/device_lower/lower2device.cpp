@@ -448,9 +448,8 @@ void GpuLower::analysis(Fusion* fusion) {
 
   // Checks if any TIDx dim is marked as padded to a warp. Also checks if we can
   // determine the padding is explicitly a single warp.
-  info().paddedParallelDimensions() =
-      std::make_shared<const PaddedParallelDimensions>(
-          collectPaddedParallelDims(fusion_));
+  info().set(std::make_unique<PaddedParallelDimensions>(
+      collectPaddedParallelDims(fusion_)));
   dumpExprsIfEnabled(fusion_->exprs(), "collectPaddedParallelDims");
 
   // Replaces integers that are tensor sizes by named scalars as "T0.size[0]"

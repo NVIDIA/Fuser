@@ -2080,9 +2080,12 @@ Val* proveLinearAndGetStride(
 }
 
 IterDomain* getConcreteLoopID(IterDomain* id) {
-  // Currently, the concrete loop ID depends on if loops are generated
-  // based on the IdModel loop promotion, which needs to be enabled
-  // explicitly by the IdModelEnableOption::Loop option.
+  // FusionInfo with ComputeAtMap is required
+  NVF_ERROR(FusionInfoGuard::hasCurrent());
+  NVF_ERROR(FusionInfoGuard::current()->hasCaMap());
+
+  // Currently, the concrete loop ID uses the IdModel loop
+  // promotion only when opted in.
   if (GpuLower::current()->idModelOptions().loop()) {
     // If enabled, the concret ID should be basically just the
     // promotion ID itself. However, just to reduce literacl changes
@@ -2092,10 +2095,12 @@ IterDomain* getConcreteLoopID(IterDomain* id) {
     // returned instead of the promotion ID.
 
     const auto& loop_graph =
-        GpuLower::current()->info().idModel().idGraph(IdMappingMode::LOOP);
+        FusionInfoGuard::current()->idModel().idGraph(IdMappingMode::LOOP);
+    const auto& exact_graph =
+        FusionInfoGuard::current()->idModel().idGraph(IdMappingMode::EXACT);
     auto promotion =
-        getLoopPromotion(id, GpuLower::current()->info().idModel());
-    const auto& ca_map = GpuLower::current()->info().caMap();
+        getLoopPromotion(id, FusionInfoGuard::current()->idModel());
+    const auto& ca_map = FusionInfoGuard::current()->caMap();
     const auto& loop_group = loop_graph.toGroup(id);
 
     // Try to see if the CA concrete domain can be used instead
@@ -2104,16 +2109,10 @@ IterDomain* getConcreteLoopID(IterDomain* id) {
       if (ca_map.idExistsInMap(loop_id, IdMappingMode::LOOP)) {
         auto ca_map_concrete =
             ca_map.getConcreteMappedID(loop_id, IdMappingMode::LOOP);
-        if (FusionInfoGuard::current()
-                ->idModel()
-                .idGraph(IdMappingMode::LOOP)
-                .disjointValSets()
-                .strictAreMapped(ca_map_concrete, promotion) &&
-            FusionInfoGuard::current()
-                ->idModel()
-                .idGraph(IdMappingMode::EXACT)
-                .disjointValSets()
-                .strictAreMapped(ca_map_concrete, promotion)) {
+        if (loop_graph.disjointValSets().strictAreMapped(
+                ca_map_concrete, promotion) &&
+            exact_graph.disjointValSets().strictAreMapped(
+                ca_map_concrete, promotion)) {
           return ca_map_concrete;
         }
       }
@@ -2123,7 +2122,7 @@ IterDomain* getConcreteLoopID(IterDomain* id) {
     // promotion ID instead.
     return promotion;
   } else {
-    const auto& ca_map = GpuLower::current()->info().caMap();
+    const auto& ca_map = FusionInfoGuard::current()->caMap();
     return ca_map.getConcreteMappedID(id, IdMappingMode::LOOP);
   }
 }

@@ -8,6 +8,7 @@
 #include <parallel_dimension_map.h>
 
 #include <ATen/cuda/CUDAContext.h>
+#include <device_lower/analysis/fusion_info.h>
 #include <device_lower/lower2device.h>
 #include <disjoint_set.h>
 #include <expr_simplifier.h>
@@ -59,7 +60,7 @@ ParallelDimensionMap::ParallelDimensionMap(Fusion* fusion) {
         continue;
       }
       auto concrete_id =
-          GpuLower::current()->info().caMap().getConcreteMappedID(
+          FusionInfoGuard::current()->caMap().getConcreteMappedID(
               id, IdMappingMode::EXACT);
       if (concrete_id->isBroadcast()) {
         // Broadcasted concrete id's don't specify anything about shape
@@ -100,12 +101,13 @@ ParallelDimensionMap::ParallelDimensionMap(Fusion* fusion) {
 }
 
 void ParallelDimensionMap::adjustMappingsForWarpPadding() {
-  const auto gpu_lower = GpuLower::current();
-
   // If TIDx is padded to a multiple of the warp size, mark it as
   // non-exact.
-
-  const auto& warp_info = *gpu_lower->info().paddedParallelDimensions();
+  NVF_ERROR(
+      FusionInfoGuard::hasCurrent() &&
+      FusionInfoGuard::current()->hasPaddedParallelDimensions());
+  const auto& warp_info =
+      FusionInfoGuard::current()->paddedParallelDimensions();
   // TIDx isn't really padded if there isn't a warp reduction (this could
   // change)
   if (!(warp_info.is_tidx_padded && warp_info.has_warp_reduction)) {

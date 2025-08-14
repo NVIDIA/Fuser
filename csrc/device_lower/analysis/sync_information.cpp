@@ -5,6 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <device_lower/analysis/fusion_info.h>
 #include <device_lower/analysis/index_compute.h>
 #include <device_lower/lower2device.h>
 #include <id_model/indexing.h>
@@ -145,6 +146,8 @@ SyncMap::SyncMap(Fusion* fusion) {
   FUSER_PERF_SCOPE("SyncMap::SyncMap");
   FusionGuard fg(fusion);
 
+  NVF_ERROR(FusionInfoGuard::hasCurrent());
+  NVF_ERROR(FusionInfoGuard::current()->hasCaMap());
   NVF_ERROR(FusionInfoGuard::current()->hasIdModel());
 
   const auto& ca_map = FusionInfoGuard::current()->caMap();
