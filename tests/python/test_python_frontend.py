@@ -5004,7 +5004,7 @@ fd.execute(inputs)
                 in str(w[-1].message)
             )
 
-    def test_broadcast_mixing(self):
+    def test_scatter_output_intermediate(self):
         bsz = 128
         hidden = 1024
         scatter_size = 64
