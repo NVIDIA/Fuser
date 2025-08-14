@@ -71,7 +71,14 @@ void TaskGraph::validateSteps(const std::vector<Step>& steps) const {
     // Allocate outputs
     for (const DataId output_id : task.outputs) {
       const Data& data = getData(output_id);
-      if (!data.input_alias.has_value()) {
+      if (data.input_alias.has_value()) {
+        // Check that the aliased input has no further uses
+        // Note that we will decrement this use count later in this function
+        NVF_ERROR(
+            num_uses_.at((size_t)data.input_alias.value()) == 1,
+            "Tried to execute segment that would overwrite input alias before "
+            "some of its uses");
+      } else {
         // Don't allocate outputs if they are reusing input memory
         allocated += data.size;
       }

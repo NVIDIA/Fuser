@@ -15,6 +15,24 @@
 
 namespace nvfuser {
 
+//! A task graph is a stripped-down representation of a data flow graph. It was
+//! originally intended to model runtime order optimization during segmentation,
+//! but might have applications in other contexts.
+//!
+//! TensorViews are represented as Data and each contains a size and might be
+//! aliased to another Data, modeling input/output aliasing in a Fusion. A
+//! segment from a segmented fusion is represented here as a Task. Every task
+//! has inputs and outputs and also might require some temporary space to do its
+//! computation. For example when doing grid reductions we require a gmem buffer
+//! that is freed after the segment is computed.
+//!
+//! We model execution using the Step struct. A vector of Steps is simply a
+//! runtime ordering of Tasks, but with some extra state that helps us track
+//! memory allocation across the execution. Specifically, our model usually only
+//! allocates Data upon its first use and immediately deallocates in after its
+//! last use. The only exception is if the Data is marked can_free=false, which
+//! would be the case for unsegmented Fusion inputs or outputs whose lifetimes
+//! must extend past the execution of the entire graph.
 class TaskGraph {
  public:
   using TaskId = int16_t;
@@ -33,13 +51,14 @@ class TaskGraph {
     std::string toString() const;
   };
 
+  //! A Data object represents a TensorView with a given size.
   struct Data {
     std::optional<TaskId> definition;
     std::vector<TaskId> uses;
-    // If set, this means we do not allocate a new output when executing this
-    // Data's definition, instead we re-use the space from the specified input.
-    // Note that this implies an ordering constraint which we will check, since
-    // the definition must be the last use of the aliased input.
+    //! If set, this means we do not allocate a new output when executing this
+    //! Data's definition, instead we re-use the space from the specified input.
+    //! Note that this implies an ordering constraint which we will check, since
+    //! the definition must be the last use of the aliased input.
     std::optional<DataId> input_alias;
     Size size;
 
