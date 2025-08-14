@@ -139,6 +139,7 @@ enum class DisableOption {
                   //! matmul
   NvrtcCaching, // Disable compilation caching by nvrtc
   Nvtx, //! Disable NVTX instrumentation
+  PadPredicateElimination, //! Disable elimination of pad where predicates
   ParallelCompile, //! Disable compiling Fusion segments in parallel
   ParallelSerde, //! Disable deserializing FusionExecutorCache in parallel
   PredicateElimination, //! Disable predicate elimination

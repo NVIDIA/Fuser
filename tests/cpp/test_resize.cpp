@@ -60,6 +60,7 @@ using ResizeTest = NVFuserTest;
 using ResizeSchedulerTest = NVFuserFixtureParamTest<bool>;
 
 using testing::Each;
+using testing::ElementsAre;
 using testing::HasSubstr;
 using testing::Not;
 using testing::Property;
@@ -5287,6 +5288,309 @@ TEST_P(ResizeSchedulerTest, PropagateCatToInputs) {
                                 ->kernel();
     checkLoopDomainEquivalence(
         scheduled_fusion->outputs().at(0)->as<TensorView>());
+  }
+}
+
+// Check if the pad predicate can be omitted. This is a trivial case
+// where it should be omitted.
+TEST_F(ResizeSchedulerTest, OmitPadPredicateTrivial) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+
+  std::vector<int64_t> shape({4, 30});
+
+  EnableOptionsGuard enable_options_guard;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::ResizeScheduler);
+
+  auto tv0 = makeContigConcreteTensor(shape);
+  fusion.addInput(tv0);
+
+  auto tv1 = set(tv0);
+  auto tv2 = pad(tv1, {IrBuilder::create<Val>(0L), IrBuilder::create<Val>(2L)});
+
+  fusion.addOutput(tv2);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn(shape, options);
+  std::vector<c10::IValue> inputs({t0});
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs(inputs);
+  testValidate(executor_cache.fusion(), outputs, inputs, __LINE__, __FILE__);
+  FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
+  EXPECT_THAT(
+      runtime->fusionSegments()->groups(),
+      ElementsAre(HeuristicIs(SchedulerType::Resize)));
+
+  // Make sure there's no where op
+  auto kernel_exprs = KernelExprVisitor::getAllExprs(
+      dynamic_cast<KernelExecutor*>(runtime->executors().at(0).get())
+          ->kernel());
+  auto where_op_it =
+      std::find_if(kernel_exprs.begin(), kernel_exprs.end(), [](Expr* expr) {
+        return expr->isA<TernaryOp>() &&
+            expr->as<TernaryOp>()->getTernaryOpType() == TernaryOpType::Where;
+      });
+  EXPECT_EQ(where_op_it, kernel_exprs.end())
+      << "Where op should not exist but found: " << (*where_op_it)->toString();
+}
+
+// Shrunk by slice and then expanded by pad. Each of the preceding
+// slice and the pad modifies the opposite sides, respectively, so
+// the predicate should be safe to omit. This pattern is common in
+// RoPE.
+TEST_F(ResizeSchedulerTest, OmitPadPredicateNonConflictingPrecedingSlice) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+
+  std::vector<int64_t> shape({4, 30});
+
+  EnableOptionsGuard enable_options_guard;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::ResizeScheduler);
+
+  auto tv0 = makeContigConcreteTensor(shape);
+  fusion.addInput(tv0);
+
+  auto tv1 = set(tv0);
+  auto tv2 = slice(
+      tv1,
+      {{fusion.zeroVal(), tv1->getLogicalDomain().at(0)->extent()},
+       {IrBuilder::create<Val>(2L), IrBuilder::create<Val>(shape[1])}});
+  auto tv3 = pad(tv2, {IrBuilder::create<Val>(0L), IrBuilder::create<Val>(2L)});
+
+  fusion.addOutput(tv3);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn(shape, options);
+  std::vector<c10::IValue> inputs({t0});
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs(inputs);
+  testValidate(executor_cache.fusion(), outputs, inputs, __LINE__, __FILE__);
+  FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
+  EXPECT_THAT(
+      runtime->fusionSegments()->groups(),
+      ElementsAre(HeuristicIs(SchedulerType::Resize)));
+
+  // Make sure there's no where op
+  auto kernel_exprs = KernelExprVisitor::getAllExprs(
+      dynamic_cast<KernelExecutor*>(runtime->executors().at(0).get())
+          ->kernel());
+  auto where_op_it =
+      std::find_if(kernel_exprs.begin(), kernel_exprs.end(), [](Expr* expr) {
+        return expr->isA<TernaryOp>() &&
+            expr->as<TernaryOp>()->getTernaryOpType() == TernaryOpType::Where;
+      });
+  EXPECT_EQ(where_op_it, kernel_exprs.end())
+      << "Where op should not exist but found: " << (*where_op_it)->toString();
+}
+
+// Shrunk by slice and then expanded by pad. The pad predicate should
+// not be omitted.
+TEST_F(ResizeSchedulerTest, OmitPadPredicateConflictingPrecedingSlice) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+
+  std::vector<int64_t> shape({4, 30});
+
+  EnableOptionsGuard enable_options_guard;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::ResizeScheduler);
+
+  auto tv0 = makeContigConcreteTensor(shape);
+  fusion.addInput(tv0);
+
+  auto tv1 = set(tv0);
+  auto tv2 = slice(
+      tv1,
+      {{fusion.zeroVal(), tv1->getLogicalDomain().at(0)->extent()},
+       {IrBuilder::create<Val>(2L), IrBuilder::create<Val>(shape[1] - 2)}});
+  auto tv3 = pad(tv2, {IrBuilder::create<Val>(2L), IrBuilder::create<Val>(2L)});
+
+  fusion.addOutput(tv3);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn(shape, options);
+  std::vector<c10::IValue> inputs({t0});
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs(inputs);
+  testValidate(executor_cache.fusion(), outputs, inputs, __LINE__, __FILE__);
+  FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
+  EXPECT_THAT(
+      runtime->fusionSegments()->groups(),
+      ElementsAre(HeuristicIs(SchedulerType::Resize)));
+
+  // Make sure a where op for the pad exists
+  auto kernel_exprs = KernelExprVisitor::getAllExprs(
+      dynamic_cast<KernelExecutor*>(runtime->executors().at(0).get())
+          ->kernel());
+  auto where_op_it =
+      std::find_if(kernel_exprs.begin(), kernel_exprs.end(), [](Expr* expr) {
+        return expr->isA<TernaryOp>() &&
+            expr->as<TernaryOp>()->getTernaryOpType() == TernaryOpType::Where;
+      });
+  EXPECT_NE(where_op_it, kernel_exprs.end()) << "No where op found";
+}
+
+// Slice then pad with a reshape inbetween. Since the reshape does not
+// touch the sliced and padded iter domain, it should not affect the
+// pad predicate analysis, and thus the predicate should be omitted.
+TEST_F(ResizeSchedulerTest, OmitPadPredicateNonCoflictingReshape) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+
+  std::vector<int64_t> shape({4, 30});
+
+  EnableOptionsGuard enable_options_guard;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::ResizeScheduler);
+
+  auto tv0 = makeContigConcreteTensor(shape);
+  fusion.addInput(tv0);
+
+  auto tv1 = set(tv0);
+  auto tv2 = slice(
+      tv1,
+      {{fusion.zeroVal(), tv1->getLogicalDomain().at(0)->extent()},
+       {IrBuilder::create<Val>(2L), IrBuilder::create<Val>(shape[1])}});
+  auto tv3 = reshape(tv2, {4, 28}, {2, 2, 28});
+  auto tv4 = pad(tv3, {IrBuilder::create<Val>(0L), IrBuilder::create<Val>(2L)});
+
+  fusion.addOutput(tv4);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn(shape, options);
+  std::vector<c10::IValue> inputs({t0});
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs(inputs);
+  testValidate(executor_cache.fusion(), outputs, inputs, __LINE__, __FILE__);
+  FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
+  EXPECT_THAT(
+      runtime->fusionSegments()->groups(),
+      ElementsAre(HeuristicIs(SchedulerType::Resize)));
+
+  // Make sure a where op for the pad exists
+  auto kernel_exprs = KernelExprVisitor::getAllExprs(
+      dynamic_cast<KernelExecutor*>(runtime->executors().at(0).get())
+          ->kernel());
+  auto where_op_it =
+      std::find_if(kernel_exprs.begin(), kernel_exprs.end(), [](Expr* expr) {
+        return expr->isA<TernaryOp>() &&
+            expr->as<TernaryOp>()->getTernaryOpType() == TernaryOpType::Where;
+      });
+  EXPECT_EQ(where_op_it, kernel_exprs.end())
+      << "Where op should not exist but found: " << (*where_op_it)->toString();
+}
+
+// Slice then pad with a reshape inbetween. Since the reshape does not
+// touch the sliced and padded iter domain, it should not affect the
+// pad predicate analysis, and thus the predicate should be omitted.
+TEST_F(ResizeSchedulerTest, OmitPadPredicateConflictingReshape) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+
+  std::vector<int64_t> shape({4, 16});
+
+  EnableOptionsGuard enable_options_guard;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::ResizeScheduler);
+
+  auto tv0 = makeContigConcreteTensor(shape);
+  fusion.addInput(tv0);
+
+  auto tv1 = set(tv0);
+  auto tv2 = slice(
+      tv1,
+      {{fusion.zeroVal(), tv1->getLogicalDomain().at(0)->extent()},
+       {IrBuilder::create<Val>(8L), IrBuilder::create<Val>(shape[1])}});
+  auto tv3 = reshape(tv2, {4, 8}, {32});
+  auto tv4 = pad(tv3, {IrBuilder::create<Val>(0L), IrBuilder::create<Val>(2L)});
+
+  fusion.addOutput(tv4);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn(shape, options);
+  std::vector<c10::IValue> inputs({t0});
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs(inputs);
+  testValidate(executor_cache.fusion(), outputs, inputs, __LINE__, __FILE__);
+  FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
+  EXPECT_THAT(
+      runtime->fusionSegments()->groups(),
+      ElementsAre(HeuristicIs(SchedulerType::Resize)));
+
+  // Make sure a where op for the pad exists
+  auto kernel_exprs = KernelExprVisitor::getAllExprs(
+      dynamic_cast<KernelExecutor*>(runtime->executors().at(0).get())
+          ->kernel());
+  auto where_op_it =
+      std::find_if(kernel_exprs.begin(), kernel_exprs.end(), [](Expr* expr) {
+        return expr->isA<TernaryOp>() &&
+            expr->as<TernaryOp>()->getTernaryOpType() == TernaryOpType::Where;
+      });
+  EXPECT_NE(where_op_it, kernel_exprs.end()) << "No where op found";
+}
+
+// If a pad is preceded by a reduction, the pad predicate analysis
+// gives up trying to omit the predicate. Currently, the pattern
+// should not show up as it should be always segmented, but in case
+// the resize scheduler may be extended in the future.
+TEST_F(ResizeSchedulerTest, OmitPadPredicatePrecedingReduction) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+
+  std::vector<int64_t> shape({4, 16});
+
+  EnableOptionsGuard enable_options_guard;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::ResizeScheduler);
+
+  // For this test, predicate removal should not be disabled
+  DisableOptionsGuard disable_options_guard;
+  DisableOptionsGuard::getCurOptions().unset(
+      DisableOption::PredicateElimination);
+
+  auto tv0 = makeContigConcreteTensor(shape);
+  fusion.addInput(tv0);
+
+  auto tv1 = sum(tv0, {0});
+  auto tv2 = pad(tv1, {IrBuilder::create<Val>(0L), IrBuilder::create<Val>(2L)});
+
+  fusion.addOutput(tv2);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn(shape, options);
+  std::vector<c10::IValue> inputs({t0});
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs(inputs);
+  testValidate(executor_cache.fusion(), outputs, inputs, __LINE__, __FILE__);
+  FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
+  EXPECT_THAT(
+      runtime->fusionSegments()->groups(),
+      ElementsAre(
+          HeuristicIs(SchedulerType::Reduction),
+          HeuristicIs(SchedulerType::Resize)));
+
+  // If in the future the fusion is scheduled without segmentation,
+  // the pad op should keep the predicate unless the predicate
+  // analysis is also extended
+  if (runtime->fusionSegments()->groups().size() == 1) {
+    // Make sure there's no where op
+    auto kernel_exprs = KernelExprVisitor::getAllExprs(
+        dynamic_cast<KernelExecutor*>(runtime->executors().at(0).get())
+            ->kernel());
+    auto where_op_it =
+        std::find_if(kernel_exprs.begin(), kernel_exprs.end(), [](Expr* expr) {
+          return expr->isA<TernaryOp>() &&
+              expr->as<TernaryOp>()->getTernaryOpType() == TernaryOpType::Where;
+        });
+    EXPECT_NE(where_op_it, kernel_exprs.end()) << "No where op found";
   }
 }
 

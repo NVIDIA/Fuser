@@ -616,8 +616,7 @@ std::vector<PredicateInfo> TensorIndexer::getPredicates(
     ForLoop* unswitched_loop) const {
   const auto& zero_val = tv->fusion()->zeroVal();
 
-  const std::vector<IterDomain*>& predicate_domains =
-      getPredicateDomains(tv, expr);
+  std::vector<IterDomain*> predicate_domains = getPredicateDomains(tv, expr);
 
   if (predicate_domains.empty()) {
     return {};
@@ -648,6 +647,50 @@ std::vector<PredicateInfo> TensorIndexer::getPredicates(
           id_model_,
           /*is_start_predicate=*/false,
           /*unswitched_loop=*/unswitched_loop);
+
+  // When resize is involved, predicate its input ID as well to avoid
+  // redudancy. This is only necessary if a predicated resize is
+  // preceded by a split, however, for now it's always predicated
+  // with an exception of static resize. See
+  // PredicateIndexingTest.SplitThenPad for a concrete example.
+  for (const auto& [eg, direction] : index_info.traversal_path) {
+    auto resize = dynamic_cast<Resize*>(eg->front());
+    if (resize == nullptr) {
+      continue;
+    }
+
+    // TODO: It seems this shouldn't be predicated when the direction is
+    // Forward, i.e., when resize ops are propagated from
+    // producers to consumers. For example, ResizeTest.SliceThenPadLeftHalf
+    // would fail with this. Revisit for the Forward case if necessary.
+    if (direction == Direction::Forward) {
+      continue;
+    }
+
+    // If the input ID is guaranteed to cover the output ID, then
+    // the input index should never exceed its boundary.
+    if (resize->leftExpand()->isConstInt() &&
+        resize->rightExpand()->isConstInt()) {
+      auto left_int = resize->leftExpand()->evaluate().as<int64_t>();
+      auto right_int = resize->rightExpand()->evaluate().as<int64_t>();
+      // If the traversal direction is forward, the predicate is not
+      // necessary if both of the left and right factors are
+      // non-negative as the ouput ID is guaranteed to cover the
+      // input ID. Similarly, if it's backward, it is not necessary
+      // if they are non-positive.
+      if ((direction == Direction::Forward && left_int >= 0 &&
+           right_int >= 0) ||
+          (direction == Direction::Backward && left_int <= 0 &&
+           right_int <= 0)) {
+        continue;
+      }
+    }
+
+    IterDomain* id_to_predicate =
+        direction == Direction::Forward ? resize->out() : resize->in();
+
+    predicate_domains.push_back(id_to_predicate);
+  }
 
   const std::unordered_map<IterDomain*, ValGroup> contig_domains =
       isContigIndexingEnabled()
