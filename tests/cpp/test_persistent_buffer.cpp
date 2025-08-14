@@ -17,6 +17,8 @@
 #include <scheduler/utils.h>
 #include <tests/cpp/utils.h>
 #include <tests/cpp/validator.h>
+#include "ops/arith.h"
+#include "type.h"
 namespace nvfuser {
 
 using testing::Contains;
@@ -1908,31 +1910,33 @@ TEST_F(PersistentBufferTest, BroadcastSyncInputsHasBcast) {
   testValidate(&unscheduled_fusion_copy, outputs, {t0, t1}, __LINE__, __FILE__);
 }
 
-using ClusterReductionTestParams = std::tuple<int64_t, int64_t>;
+using ClusterReductionTestParams = std::tuple<DataType, int64_t>;
 using clusterReductionTest = NVFuserFixtureParamTest<ClusterReductionTestParams>;
 TEST_P(clusterReductionTest, variedThreadClusterSizes) {
-  auto [threads_per_block, blocks_per_cluster] = GetParam();
-  constexpr int vect_factor = 8;
+  // reduction domain is scheduled as:
+  // [blocks_per_cluster, batches_per_block, threads_per_block, vect_factor]
+  auto [dtype, blocks_per_cluster] = GetParam();
   constexpr int batches_per_block = 2;
+  constexpr int threads_per_block = 256;
+  const int vect_factor = 128 / dataTypeSizeBit(dtype);
   int y = threads_per_block * blocks_per_cluster * vect_factor * batches_per_block;
   // use two waves
-  // int x = (deviceSMCount() * 2 + blocks_per_cluster - 1) / blocks_per_cluster;
-  int x = 2;
+  int x = (deviceSMCount() * 2 + blocks_per_cluster - 1) / blocks_per_cluster;
   auto fusion_ptr = std::make_unique<Fusion>();
   auto& fusion = *fusion_ptr;
   FusionGuard fg(fusion_ptr.get());
-  auto tv0 = makeContigConcreteTensor({x, y}, DataType::BFloat16);
+  auto tv0 = makeContigConcreteTensor({x, y}, dtype);
   fusion.addInput(tv0);
-  auto tv1 = castOp(DataType::Float, tv0);
+  auto tv1 = maybeCastOp(DataType::Float, tv0);
   auto tv2 = sum(tv1, {1});
   auto tv3 = broadcast(tv2, {false, true});
   auto tv4 = add(tv1, tv3);
-  auto tv5 = castOp(DataType::BFloat16, tv4);
+  auto tv5 = maybeCastOp(DataType::BFloat16, tv4);
   fusion.addOutput(tv5);
   auto unscheduled_fusion_copy = fusion;
 
   torch::cuda::manual_seed(0);
-  auto options = at::TensorOptions().dtype(at::kBFloat16).device(at::kCUDA, 0);
+  auto options = at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
   auto t0 = at::randn({x, y}, options).clamp(-2, 2);
   SchedulerRuntimeInfo runtime_info(fusion_ptr.get(), {t0});
   auto scheduler =
@@ -1963,14 +1967,14 @@ TEST_P(clusterReductionTest, variedThreadClusterSizes) {
   testValidate(&unscheduled_fusion_copy, outputs, {t0});
 }
 INSTANTIATE_TEST_SUITE_P(
-    ,
+    PersistentBufferTest,
     clusterReductionTest,
     ::testing::Combine(
-        ::testing::Values(128, 256),
-        ::testing::Values(2, 4, 8)),
+        ::testing::Values(DataType::BFloat16, DataType::Float),
+        ::testing::Values(2, 3, 4, 5, 6, 7, 8)),
     [](const testing::TestParamInfo<ClusterReductionTestParams>& info) {
       std::stringstream ss;
-      ss << "threads_" << std::get<0>(info.param);
+      ss << "dtype_" << std::get<0>(info.param);
       ss << "_cluster_" << std::get<1>(info.param);
       return sanitizeTestName(ss.str());
     });
