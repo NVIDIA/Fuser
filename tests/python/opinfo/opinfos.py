@@ -101,6 +101,9 @@ define_vector_constant_opinfo = OpInfo(
     "define_vector_constant",
     error_input_generator=define_vector_constant_error_generator,
     fd_error_input_fn=api_test_fd_fn,
+    # Direct bindings supports python lists and tuples of values.
+    # These python lists are directly indexable, so `define_vector_constant` is not needed.
+    supports_direct_bindings=False,
 )
 fusion_input_ops.append(define_vector_constant_opinfo)
 
@@ -977,6 +980,9 @@ vector_at_opinfo = OpInfo(
     error_input_generator=vector_at_error_generator,
     fd_correctness_fn=None,
     fd_error_input_fn=vector_api_test_fd_fn,
+    # Direct bindings supports python lists and tuples of values.
+    # These python lists are directly indexable, so `at` is not needed.
+    supports_direct_bindings=False,
 )
 dynamic_shapes_ops.append(vector_at_opinfo)
 
@@ -1198,6 +1204,8 @@ index_put_accumulate_opinfo = OpInfo(
         ArgumentType.Symbolic,
         ArgumentType.Symbolic,
     ),
+    # index_put_accumulate is not used in Thunder, so skip in direct bindings for now.
+    supports_direct_bindings=False,
 )
 shape_ops.append(index_put_accumulate_opinfo)
 
