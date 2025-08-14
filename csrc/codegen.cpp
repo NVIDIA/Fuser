@@ -1862,6 +1862,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
   void genClusterReduction(
       const kir::TensorIndex* output,
       const kir::TensorIndex* input,
+      const Val* init,
       BinaryOpType reduction_op_type) {
     const auto par_domains = ir_utils::getParallelDomains(output);
     // Get parallel reduction domains
@@ -1901,6 +1902,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     ArgumentBuilder func_args;
     func_args.arg(gen(output));
     func_args.arg(gen(input));
+    func_args.arg(gen(init));
     func_args.arg(genReductionOp(reduction_op_type, output->dtype()));
 
     indent() << genCall("cluster::clusterReduce", template_args, func_args)
@@ -1927,7 +1929,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     if (!has_block_reduce && !has_cluster_reduce) {
       genSerialReduction(output, input, op_type);
     } else if (has_cluster_reduce) {
-      genClusterReduction(output, input, op_type);
+      genClusterReduction(output, input, rop->init(),op_type);
     } else if (
         auto reduction_ids =
             ir_utils::getMaybeWarpReductionDim(output, input)) {

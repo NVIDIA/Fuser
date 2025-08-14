@@ -136,7 +136,7 @@ __device__ __forceinline__ T warpReduce(T val, Func reduction_op) {
 // 2. All warps async store reduction results to its and clustered CTA's shared memories
 // 3. All warps read from its CTA's shared memory and do a warp reduction
 template<int CLUSTER_SIZE, int WARPS_PER_BLOCK, typename T, typename Func>
-__device__ __forceinline__ void clusterReduce(T& res, T inp, Func reduction_op)
+__device__ __forceinline__ void clusterReduce(T& res, T inp, T init, Func reduction_op)
 {
 // assume only cluster in x direction
 uint32_t my_block_rank = blockIdx.x;
@@ -182,13 +182,13 @@ if (lane_idx < CLUSTER_SIZE) {
 mbarrier::wait(barrier_smem_addr, 0);
 // 3. Each CTA has a copy of the warp reduction results from all warps in the cluster
 //    Finish reduction with a warp reduction
-T block_reduce_val = lane_idx < CLUSTER_SIZE * WARPS_PER_BLOCK ? reduction_buffer[lane_idx] : 0;
+T block_reduce_val = lane_idx < CLUSTER_SIZE * WARPS_PER_BLOCK ? reduction_buffer[lane_idx] : init;
 constexpr int num_iter = (WARPS_PER_BLOCK * CLUSTER_SIZE + 31) / 32;
 if constexpr(num_iter > 1){
   for(int i = 1; i < num_iter; i++){
     int idx = lane_idx + i * 32;
     if(idx < CLUSTER_SIZE * WARPS_PER_BLOCK){
-      block_reduce_val += reduction_buffer[idx];
+      reduction_op(block_reduce_val, reduction_buffer[idx]);
     }
   }
 }
