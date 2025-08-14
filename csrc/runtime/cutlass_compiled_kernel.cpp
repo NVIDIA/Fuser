@@ -154,9 +154,9 @@ float CutlassCompiledKernel::run(
     // Get tensors from arguments
     std::vector<void*> arg_pointers;
     arg_pointers.reserve(args.size());
-    for (auto arg : args) {
+    for (const PolymorphicValue& arg : args) {
       if (arg.is<at::Tensor>()) {
-        arg_pointers.push_back(&arg.as<at::Tensor>());
+        arg_pointers.push_back((void*)&arg.as<at::Tensor>());
       } else {
         NVF_THROW(
             "Non-tensor arguments are not yet supported in "
