@@ -3,9 +3,8 @@
 # SPDX-License-Identifier: BSD-3-Clause
 
 import sys
-import warnings
-import os
 import traceback
+import warnings
 from typing import Iterable
 
 if "nvfuser" in sys.modules:
