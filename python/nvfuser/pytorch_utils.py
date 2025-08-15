@@ -202,7 +202,7 @@ class TorchMemorySnapshot:
 
 
 @dataclass
-class RecordTorchMemory():
+class RecordTorchMemory:
     before: TorchMemorySnapshot | None = None
     after: TorchMemorySnapshot | None = None
 
