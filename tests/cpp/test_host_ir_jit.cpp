@@ -23,7 +23,7 @@ namespace hir {
 using HostIrJitTest = NVFuserTest;
 // Build with: python setup.py install --build-with-host-ir-jit
 TEST_F(HostIrJitTest, Set) {
-  auto hic = std::make_unique<HostIrContainer>(1);
+  auto hic = std::make_unique<HostIrContainer>();
   FusionGuard::setCurFusion(hic.get());
 
   auto hic_in = makeSymbolicTensor(2);
@@ -50,7 +50,7 @@ TEST_F(HostIrJitTest, Set) {
 }
 
 TEST_F(HostIrJitTest, HostIrContainer) {
-  auto hic = std::make_unique<HostIrContainer>(1);
+  auto hic = std::make_unique<HostIrContainer>();
   FusionGuard::setCurFusion(hic.get());
 
   int num_inputs = std::rand() % 10 + 1;
@@ -275,7 +275,7 @@ TEST_F(HostIrJitTest, LaunchKernel) {
   ke->setGroupId(0);
   ke->compile(&fusion, {t0});
 
-  auto hic = std::make_unique<HostIrContainer>(1);
+  auto hic = std::make_unique<HostIrContainer>();
   FusionGuard::setCurFusion(hic.get());
 
   hic->addKernelExecutor(std::move(ke));

@@ -12,7 +12,7 @@ from nvfuser_direct import DataType, FusionDefinition
 @pytest.mark.mpi
 def test_allgather(multidevice_direct_test):
     d = multidevice_direct_test.size
-    mesh = nvfuser.multidevice.DeviceMesh(torch.tensor(range(d)))
+    mesh = nvfuser.multidevice.DeviceMesh(torch.arange(d))
 
     def _definition(fd: FusionDefinition):
         inp = fd.define_tensor((d * 4,), contiguity=True, dtype=DataType.Float)
@@ -42,7 +42,7 @@ def test_allgather(multidevice_direct_test):
 @pytest.mark.mpi
 def test_allreduce(multidevice_direct_test):
     d = multidevice_direct_test.size
-    mesh = nvfuser.multidevice.DeviceMesh(torch.tensor(range(d)))
+    mesh = nvfuser.multidevice.DeviceMesh(torch.arange(d))
 
     def _definition(fd: FusionDefinition):
         inp = fd.define_tensor((-1, -1, -1), contiguity=True, dtype=DataType.Float)
@@ -81,7 +81,7 @@ def test_reduce_scatter(multidevice_direct_test):
     if d == 1:
         pytest.skip("This test requires > 1 MPI processes")
 
-    mesh = nvfuser.multidevice.DeviceMesh(torch.tensor(range(d)))
+    mesh = nvfuser.multidevice.DeviceMesh(torch.arange(d))
 
     def _definition(fd: FusionDefinition):
         inp = fd.define_tensor((d, d * 4), contiguity=True, dtype=DataType.Float)
@@ -123,7 +123,7 @@ def test_reduce_scatter_noncontiguous(multidevice_direct_test):
     if d == 1:
         pytest.skip("This test requires > 1 MPI processes")
 
-    mesh = nvfuser.multidevice.DeviceMesh(torch.tensor(range(d)))
+    mesh = nvfuser.multidevice.DeviceMesh(torch.arange(d))
 
     def _definition(fd: FusionDefinition):
         inp = fd.define_tensor((d, 3, d * 4), contiguity=True, dtype=DataType.Float)

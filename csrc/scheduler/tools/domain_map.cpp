@@ -349,6 +349,10 @@ void DomainMap::eraseifInputMappedThroughRootDomainAndIndexing(
       for (auto producer_of_producer_it = indexed_id_multimap_range.first;
            producer_of_producer_it != indexed_id_multimap_range.second;
            ++producer_of_producer_it) {
+        if (producer_sets.has(producer_of_producer_it->second)) {
+          // Prevent infinite recursion
+          continue;
+        }
         current_sets.pushBack(producer_of_producer_it->second);
       }
     }

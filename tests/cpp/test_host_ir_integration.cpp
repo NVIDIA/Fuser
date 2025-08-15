@@ -247,7 +247,7 @@ TEST_F(HostIrIntegrationTest, InsertDeallocations) {
 
   FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
   const std::vector<Expr*>& hicExprs =
-      runtime->getHostIrEvaluator().container().topLevelExprs();
+      runtime->getHostIrContainer().topLevelExprs();
 
   EXPECT_THAT(hicExprs, Contains(IsA<Deallocate>()).Times(2));
 
@@ -310,7 +310,7 @@ TEST_F(HostIrIntegrationTest, ExcludeOutputsFromDeallocations) {
 
   FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
   const std::vector<Expr*>& hicExprs =
-      runtime->getHostIrEvaluator().container().topLevelExprs();
+      runtime->getHostIrContainer().topLevelExprs();
 
   EXPECT_THAT(hicExprs, Contains(IsA<Deallocate>()).Times(0));
 

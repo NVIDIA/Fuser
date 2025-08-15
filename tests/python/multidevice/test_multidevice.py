@@ -29,7 +29,7 @@ def test_sizes_and_ranks(multidevice_direct_test):
 @pytest.mark.mpi
 def test_pointwise(multidevice_direct_test):
     num_devices = multidevice_direct_test.size
-    mesh = nvfuser.multidevice.DeviceMesh(torch.tensor(range(num_devices)))
+    mesh = nvfuser.multidevice.DeviceMesh(torch.arange(num_devices))
 
     def _definition(fd: FusionDefinition):
         t0 = fd.define_tensor((-1, -1), contiguity=False, dtype=DataType.Float)
@@ -119,7 +119,7 @@ def test_sdpa(multidevice_direct_test, qkv_format: QkvFormat):
             fd.add_output(grad)
 
     def _multidevice_schedule(fd: FusionDefinition) -> None:
-        mesh = nvfuser.multidevice.DeviceMesh(torch.tensor(range(d)))
+        mesh = nvfuser.multidevice.DeviceMesh(torch.arange(d))
         for t in fd.fusion.inputs():
             t.set_device_mesh(mesh)
             t.axis(0).parallelize(nvfuser.ParallelType.mesh_x)
@@ -190,7 +190,7 @@ def test_sdpa(multidevice_direct_test, qkv_format: QkvFormat):
 @pytest.mark.mpi
 def test_sdpa_loop_split(multidevice_direct_test, qkv_format: QkvFormat):
     d = multidevice_direct_test.size
-    mesh = nvfuser.multidevice.DeviceMesh(torch.tensor(range(d)))
+    mesh = nvfuser.multidevice.DeviceMesh(torch.arange(d))
     h, e = 12, 768
     if h % d != 0:
         pytest.skip(f"We only support even split, so {h} has to be divisible by {d}.")

@@ -119,7 +119,9 @@ void bindInterfaceNodes(py::module& nvfuser) {
           "Convert the TensorView to a string representation.")
       .def(
           "num_dims",
-          &TensorView::nDims,
+          [](TensorView* self) {
+            return TensorDomain::noReductions(self->getLogicalDomain()).size();
+          },
           R"(
 Get the number of dimensions in this tensor.
 

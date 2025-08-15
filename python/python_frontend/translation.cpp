@@ -87,9 +87,11 @@ class FusionTranslator : public OptInConstDispatch {
       return true;
     }
 
-    for (size_t idx : arange(logical.size())) {
-      if (logical.at(idx) != loop.at(idx)) {
-        return true;
+    if (tv->definition() != nullptr && !tv->definition()->isA<ScatterOp>()) {
+      for (size_t idx : arange(logical.size())) {
+        if (logical.at(idx) != loop.at(idx)) {
+          return true;
+        }
       }
     }
     return false;
