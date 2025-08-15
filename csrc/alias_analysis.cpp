@@ -214,6 +214,13 @@ void AliasFinder::handle(const SliceOp* slice) {
     out_root_to_logical.reserve(out_root.size());
     for (auto&& [root_id, logical_id] : zip(out_root, out_logical)) {
       out_root_to_logical[root_id] = logical_id;
+      if (root_id->hasExpandedExtent() && !logical_id->isBroadcast()) {
+        // This works around a limitation in nvFuser's `slice`. Slicing an
+        // expanded broadcast dimension should produce another expanded
+        // broadcast dimension, but actually produces an IterType::Iteration. I
+        // tried to fix that in #4966 but failed.
+        return;
+      }
     }
   }
 
