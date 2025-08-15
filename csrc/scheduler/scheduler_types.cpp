@@ -35,6 +35,8 @@ std::string toString(SchedulerType scheduler_type) {
       return "resize";
     case SchedulerType::Communication:
       return "communication";
+    case SchedulerType::Cutlass:
+      return "cutlass";
     case SchedulerType::None:
       return "none";
     default:

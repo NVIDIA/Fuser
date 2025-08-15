@@ -650,6 +650,8 @@ void defineHeuristicParamBindings(py::module& nvfuser) {
       .PARAM(MatmulParams, cluster_dims)
       .PARAM(MatmulParams, mma_macro);
 
+  INITHEURISTICPARAMS(CutlassParams).PARAM(CutlassParams, cta_tile);
+
 #undef PARAM
 #undef INITPARAMS
 }
@@ -729,7 +731,8 @@ void initNvFuserPythonBindings(PyObject* module) {
       .value("outer_persistent", SchedulerType::OuterPersistent)
       .value("transpose", SchedulerType::Transpose)
       .value("expr_eval", SchedulerType::ExprEval)
-      .value("resize", SchedulerType::Resize);
+      .value("resize", SchedulerType::Resize)
+      .value("cutlass", SchedulerType::Cutlass);
 
   py::enum_<CommunicatorBackend>(
       nvfuser, "CommunicatorBackend", py::module_local())
