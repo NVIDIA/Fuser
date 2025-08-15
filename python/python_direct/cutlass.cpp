@@ -42,17 +42,19 @@ void bindGemm(py::module_& cutlass) {
          const torch::Tensor& b,
          const torch::Tensor& scales_a,
          const torch::Tensor& scales_b,
-         const torch::Tensor& alpha) -> py::tuple {
+         const torch::Tensor& alpha,
+         const torch::Tensor& global_normconst) -> py::tuple {
         std::pair<torch::Tensor, torch::Tensor> output =
             cutlass_kernels::nvfp4_scaled_mm_epilogue(
-                a, b, scales_a, scales_b, alpha);
+                a, b, scales_a, scales_b, alpha, global_normconst);
         return py::make_tuple(output.first, output.second);
       },
       R"(nvfp4_scaled_mm_epilouge(Tensor a,
                                   Tensor b,
                                   Tensor scales_a,
                                   Tensor scales_b,
-                                  Tensor alpha)
+                                  Tensor alpha,
+                                  Tensor global_normconst)
                                   -> tuple(Tensor output, Tensor blockscale))");
 }
 
