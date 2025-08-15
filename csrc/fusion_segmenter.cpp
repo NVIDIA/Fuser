@@ -1817,13 +1817,6 @@ void eraseInputDistinctRootDomains(Fusion* fusion) {
       if (tv->getLoopDomain() == tv->getAllocationDomain()) {
         new_loop = new_alloc;
       } else {
-        // scatter output wouldn't have matching loop and logical domain
-        NVF_ERROR(
-            tv->getLoopDomain().size() == tv->getLogicalDomain().size(),
-            tv,
-            " has an unexpected loop domain:\n",
-            tv->domain()->toString(0, /*loop_only=*/false));
-
         new_loop = new_logical_domain;
       }
 
@@ -1834,12 +1827,6 @@ void eraseInputDistinctRootDomains(Fusion* fusion) {
           new_loop,
           tv->domain()->contiguity());
     } else {
-      // scatter output wouldn't have matching loop and logical domain
-      NVF_ERROR(
-          tv->getLoopDomain().size() == tv->getLogicalDomain().size(),
-          tv,
-          " has an unexpected loop domain:\n",
-          tv->domain()->toString(0, /*loop_only=*/false));
       new_td = IrBuilder::create<TensorDomain>(
           new_logical_domain, tv->domain()->contiguity());
     }
