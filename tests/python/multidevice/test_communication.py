@@ -73,14 +73,6 @@ def test_allreduce(multidevice_direct_test):
 def test_reduce_scatter(multidevice_direct_test):
     d = multidevice_direct_test.size
 
-    # The first dimension of the TensorView is the world size.
-    # When it is one, the axis becomes a broadcast iterDomain.
-    # The sum operations uses squeeze for size-1 broadcast domains.
-    # Squeeze is not supported by getCommunicationInfo.
-    # This test is skipped when the world size is 1.
-    if d == 1:
-        pytest.skip("This test requires > 1 MPI processes")
-
     mesh = nvfuser.multidevice.DeviceMesh(torch.arange(d))
 
     def _definition(fd: FusionDefinition):

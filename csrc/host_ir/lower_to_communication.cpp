@@ -309,7 +309,7 @@ CommunicationInfo getCommunicationInfo(Expr* e) {
       e);
 
   NVF_ERROR(
-      e->isA<LoadStoreOp>() || e->isA<ReductionOp>(),
+      e->isA<LoadStoreOp>() || e->isA<ReductionOp>() || e->isA<SqueezeOp>(),
       "getCommunicationInfo should only be called when `e` is known to be a "
       "communication. So `e` should be either a LoadStoreOp or a "
       "ReductionOp. Given: ",
@@ -375,7 +375,7 @@ CommunicationInfo getCommunicationInfo(Expr* e) {
             CommunicationType::SendRecv, p_logical_id, c_logical_id);
       }
     } else {
-      NVF_ERROR(e->isA<ReductionOp>());
+      NVF_ERROR(e->isA<ReductionOp>() || e->isA<SqueezeOp>());
       if (!p_sharded) {
         // Not a reduction based communication.
         continue;
@@ -544,6 +544,38 @@ std::vector<Expr*> convertSingleOpToCommunication(
             input_tv, output_tv, op_type, backend, comms, my_device_idx);
       } else {
         lowerToReduce(input_tv, output_tv, op_type, backend, comms);
+      }
+    }
+  } else if (auto* squeeze = dynamic_cast<SqueezeOp*>(e)) {
+    NVF_ERROR(
+        is_input_sharded || sender_mesh.size() == 1,
+        "the comm input must be sharded in case of reduce.",
+        "Insert a `set` before the reduction to reshard")
+    if (is_output_sharded) {
+      NVF_ERROR(
+          same_mesh,
+          "ReduceScatter operation must have the same sender and receiver "
+          "device mesh. "
+          "Insert a Set operation before or after the reduction to reshard ot "
+          "another device mesh");
+      lowerToReduceScatter(
+          input_tv,
+          output_tv,
+          BinaryOpType::Add,
+          backend,
+          comms,
+          my_device_idx);
+    } else {
+      if (same_mesh) {
+        lowerToAllreduce(
+            input_tv,
+            output_tv,
+            BinaryOpType::Add,
+            backend,
+            comms,
+            my_device_idx);
+      } else {
+        lowerToReduce(input_tv, output_tv, BinaryOpType::Add, backend, comms);
       }
     }
   } else {
