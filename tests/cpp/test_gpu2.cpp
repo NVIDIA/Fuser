@@ -5041,7 +5041,7 @@ TEST_F(NVFuserTest, FusionParallelDimensionMap1_CUDA) {
   // actual values are not statically known
   GpuLower gpulw(fusion.get());
   gpulw.run();
-  const auto& pdmap = gpulw.parallelDimensionMap();
+  const auto& pdmap = gpulw.info().parallelDimensionMap();
 
   NVF_CHECK(pdmap.isExact(ParallelType::TIDx));
   NVF_CHECK(
@@ -5078,7 +5078,7 @@ TEST_F(NVFuserTest, FusionParallelDimensionMap2_CUDA) {
 
   GpuLower gpulw(fusion.get());
   gpulw.run();
-  const auto& pdmap = gpulw.parallelDimensionMap();
+  const auto& pdmap = gpulw.info().parallelDimensionMap();
   NVF_CHECK(pdmap.isExact(ParallelType::TIDx));
   NVF_CHECK(
       pdmap.get(ParallelType::TIDx)->isA<NamedScalar>() &&
@@ -5127,7 +5127,7 @@ TEST_F(NVFuserTest, FusionParallelDimensionMap3_CUDA) {
 
   GpuLower gpulw(fusion.get());
   gpulw.run();
-  const auto& pdmap = gpulw.parallelDimensionMap();
+  const auto& pdmap = gpulw.info().parallelDimensionMap();
   ASSERT_FALSE(pdmap.isExact(ParallelType::TIDx));
   ASSERT_EQ(pdmap.get(ParallelType::TIDx)->value(), 20);
   ASSERT_TRUE(pdmap.isExact(ParallelType::TIDy));
@@ -5172,7 +5172,7 @@ TEST_F(NVFuserTest, FusionParallelDimensionMap4_CUDA) {
 
   GpuLower gpulw(&fusion);
   gpulw.run();
-  const auto& pdmap = gpulw.parallelDimensionMap();
+  const auto& pdmap = gpulw.info().parallelDimensionMap();
   NVF_CHECK(!pdmap.isExact(ParallelType::TIDx));
   NVF_CHECK(
       pdmap.get(ParallelType::TIDx)->isA<NamedScalar>() &&
@@ -5212,7 +5212,7 @@ TEST_F(NVFuserTest, FusionParallelDimensionMap5_CUDA) {
 
   GpuLower gpulw(&fusion);
   gpulw.run();
-  const auto& pdmap = gpulw.parallelDimensionMap();
+  const auto& pdmap = gpulw.info().parallelDimensionMap();
   NVF_CHECK(pdmap.isExact(ParallelType::TIDx));
   NVF_CHECK(pdmap.isExact(ParallelType::TIDy));
   NVF_CHECK(

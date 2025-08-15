@@ -257,8 +257,7 @@ class KernelIrScanner : private IrVisitor {
         GpuLower::current()
             ->info()
             .threadPredicateMap()
-            ->getParallelBroadcastDomains(
-                bop->out()->as<TensorIndex>()->view());
+            .getParallelBroadcastDomains(bop->out()->as<TensorIndex>()->view());
     summary_.broadcast_parallel_types.emplace(bop, parallel_types);
     // Do we have block broadcasts?
     summary_.has_block_broadcasts =

@@ -1570,7 +1570,8 @@ class WarpSpecializedCircularBufferInserter : private kir::ExprMutator {
         std::get<WarpSpecialized>(options.type).on;
     int64_t warp_specialization_pad =
         GpuLower::current()
-            ->parallelDimensionMap()
+            ->info()
+            .parallelDimensionMap()
             .getWarpSpecializationPaddedVal(warp_specialize_on);
     Val* raw = GpuLower::current()->info().parallelDimensionMap().get(
         warp_specialize_on);
@@ -2001,7 +2002,8 @@ HopperPingPongMbarriers::HopperPingPongMbarriers(
       "Expected the warp specialized axis to be ParallelType::TIDy");
   NVF_ERROR(
       GpuLower::current()
-              ->parallelDimensionMap()
+              ->info()
+              .parallelDimensionMap()
               .getWarpSpecializationPaddedVal(ws_axis) == 1,
       "Expected the warp specialized axis to be padded by 1");
 }
@@ -2011,7 +2013,8 @@ ForLoop* HopperPingPongMbarriers::initializePingPongMbarrier() {
   Val* num_of_arrives = SimplifyingIrBuilder::maybeCastExpr(
       DataType::UInt32,
       GpuLower::current()
-          ->parallelDimensionMap()
+          ->info()
+          .parallelDimensionMap()
           .getNumComputeThreadsEachBlock());
   kir::TensorIndex* ping_pong_mbarrier_index =
       IrBuilder::create<kir::TensorIndex>(mbarriers_, loop->index());
