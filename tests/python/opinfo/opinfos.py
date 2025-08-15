@@ -1225,6 +1225,7 @@ take_along_axis_opinfo = OpInfo(
         ArgumentType.Symbolic,
         ArgumentType.Constant,
     ),
+    supports_direct_bindings=True,
 )
 shape_ops.append(take_along_axis_opinfo)
 
@@ -1273,6 +1274,7 @@ uniform_opinfo = OpInfo(
         ArgumentType.ConstantScalar,
         ArgumentType.Constant,
     ),
+    supports_direct_bindings=True,
 )
 tensor_creation_ops.append(uniform_opinfo)
 
@@ -1289,6 +1291,7 @@ uniform_opinfo = OpInfo(
         ArgumentType.ConstantScalar,
         ArgumentType.Constant,
     ),
+    supports_direct_bindings=True,
 )
 tensor_creation_ops.append(uniform_opinfo)
 
@@ -1423,6 +1426,7 @@ triu_opinfo = OpInfo(
     error_input_generator=triu_error_generator,
     reference=torch.triu,
     symbolic_parameter_list=[ArgumentType.Symbolic, ArgumentType.Constant],
+    supports_direct_bindings=True,
 )
 
 tv_val_ops.append(triu_opinfo)
