@@ -13,11 +13,17 @@
 #include <c10/cuda/CUDAGuard.h>
 #include <torch/torch.h>
 
+#include "cute/tensor.hpp"
 #include "cutlass/cutlass.h"
+#include "cutlass/detail/sm100_blockscaled_layout.hpp"
 #include "cutlass/epilogue/collective/collective_builder.hpp"
+#include "cutlass/epilogue/thread/linear_combination.h"
 #include "cutlass/gemm/collective/collective_builder.hpp"
 #include "cutlass/gemm/device/gemm_universal_adapter.h"
+#include "cutlass/gemm/dispatch_policy.hpp"
 #include "cutlass/gemm/kernel/gemm_universal.hpp"
+#include "cutlass/gemm/kernel/tile_scheduler_params.h"
+#include "cutlass/tensor_ref.h"
 #include "cutlass/util/packed_stride.hpp"
 
 namespace nvfuser::cutlass_kernels {
@@ -32,20 +38,11 @@ using namespace cute;
 template <typename T>
 struct KernelTraits;
 
-// Kernel traits for FP16 output
+// Kernel traits for NVFP4 output
 template <>
-struct KernelTraits<cutlass::half_t> {
-  using MmaTileShape = Shape<_256, _256, _256>;
-  using ClusterShape = Shape<_4, _4, _1>;
-  using PerSmTileShape_MNK = Shape<_128, _256, _256>;
-};
-
-// Kernel traits for BF16 output
-template <>
-struct KernelTraits<cutlass::bfloat16_t> {
-  using MmaTileShape = Shape<_256, _256, _256>;
-  using ClusterShape = Shape<_4, _4, _1>;
-  using PerSmTileShape_MNK = Shape<_128, _256, _256>;
+struct KernelTraits<cutlass::float_e2m1_t> {
+  using MmaTileShape = Shape<_128, _128, _256>;
+  using ClusterShape = Shape<_1, _1, _1>;
 };
 
 // Main GEMM configuration for NVFP4 scaled matrix multiplication on SM100+
@@ -64,27 +61,44 @@ struct Fp4GemmSm100 {
   static constexpr int AlignmentB = 32;
 
   // C/D matrix configuration
-  using ElementD = T;
-  using ElementC = T;
+  using ElementD = cutlass::float_e2m1_t;
+  using ElementSFD = cutlass::float_ue8m0_t;
+  using ElementC = float;
   using LayoutCTag = cutlass::layout::RowMajor;
   using LayoutDTag = cutlass::layout::RowMajor;
+  using LayoutSFDTag = LayoutDTag;
+
   static constexpr int AlignmentD = 128 / cutlass::sizeof_bits<ElementD>::value;
   static constexpr int AlignmentC = 128 / cutlass::sizeof_bits<ElementC>::value;
+
   // Kernel functional config
   using ElementAccumulator = float;
+  using ElementCompute = float;
   using ArchTag = cutlass::arch::Sm100;
   using OperatorClass = cutlass::arch::OpClassBlockScaledTensorOp;
 
   // Kernel Perf config
   using MmaTileShape = typename KernelTraits<T>::MmaTileShape;
   using ClusterShape = typename KernelTraits<T>::ClusterShape;
-  using PerSmTileShape_MNK = typename KernelTraits<T>::PerSmTileShape_MNK;
+
+  static constexpr int InputSFVectorSize = 16;
+  static constexpr int OutputSFVectorSize = InputSFVectorSize;
+
+  // D = alpha * acc + beta * C
+  // With BlockScaleFactor generation.
+  using FusionOperation = cutlass::epilogue::fusion::LinCombBlockScaleFactor<
+      OutputSFVectorSize,
+      ElementD,
+      ElementCompute,
+      ElementSFD,
+      LayoutSFDTag,
+      ElementC>;
 
   using CollectiveEpilogue =
       typename cutlass::epilogue::collective::CollectiveBuilder<
           ArchTag,
           OperatorClass,
-          PerSmTileShape_MNK,
+          MmaTileShape,
           ClusterShape,
           cutlass::epilogue::collective::EpilogueTileAuto,
           ElementAccumulator,
@@ -95,7 +109,8 @@ struct Fp4GemmSm100 {
           ElementD,
           LayoutDTag,
           AlignmentD,
-          cutlass::epilogue::collective::EpilogueScheduleAuto>::CollectiveOp;
+          cutlass::epilogue::collective::EpilogueScheduleAuto,
+          FusionOperation>::CollectiveOp;
 
   using CollectiveMainloop =
       typename cutlass::gemm::collective::CollectiveBuilder<
@@ -119,7 +134,10 @@ struct Fp4GemmSm100 {
       CollectiveMainloop,
       CollectiveEpilogue,
       void>;
+
   using Gemm = cutlass::gemm::device::GemmUniversalAdapter<GemmKernel>;
+
+  // Reference device GEMM implementation type
   using StrideA = typename Gemm::GemmKernel::StrideA;
   using LayoutA = decltype(cute::make_layout(make_shape(0, 0, 0), StrideA{}));
   using LayoutSFA = typename Gemm::GemmKernel::CollectiveMainloop::LayoutSFA;
@@ -130,6 +148,12 @@ struct Fp4GemmSm100 {
   using LayoutC = decltype(cute::make_layout(make_shape(0, 0, 0), StrideC{}));
   using StrideD = typename Gemm::GemmKernel::StrideD;
   using LayoutD = decltype(cute::make_layout(make_shape(0, 0, 0), StrideD{}));
+
+  using FusionOp = typename Gemm::EpilogueOutputOp;
+  static constexpr bool IsBlockScaleSupported = FusionOp::IsBlockScaleSupported;
+  using SfdOutputCfg =
+      cutlass::detail::Sm1xxBlockScaledOutputConfig<OutputSFVectorSize>;
+  using LayoutSFD = typename SfdOutputCfg::LayoutSF;
 };
 
 // Constructs CUTLASS GEMM arguments from PyTorch tensors and dimensions
@@ -222,6 +246,7 @@ typename T::Gemm::Arguments args_from_options(
 template <typename T>
 void runGemm(
     at::Tensor& output,
+    at::Tensor& output_blockscale,
     const at::Tensor& a,
     const at::Tensor& b,
     const at::Tensor& scales_a,
@@ -233,6 +258,7 @@ void runGemm(
     cudaStream_t stream) {
   typename Fp4GemmSm100<T>::Gemm gemm;
 
+  /*
   auto arguments = args_from_options<Fp4GemmSm100<T>>(
       output, a, b, scales_a, scales_b, alpha, m, n, k);
 
@@ -251,6 +277,7 @@ void runGemm(
 
   status = gemm.run(arguments, workspace.data_ptr(), stream);
   NVF_CHECK(status == cutlass::Status::kSuccess, "Failed to run GEMM");
+  */
 }
 #else
 // Fallback implementation for unsupported CUTLASS versions
@@ -258,6 +285,7 @@ void runGemm(
 template <typename T>
 void runGemm(
     at::Tensor& output,
+    at::Tensor& output_blockscale,
     at::Tensor const& a,
     at::Tensor const& b,
     at::Tensor const& scales_a,
@@ -299,8 +327,18 @@ std::pair<torch::Tensor, torch::Tensor> nvfp4_scaled_mm_epilogue(
       at::empty({m, roundUp(n / 16, 4)}, blockscale_options);
 
   // TODO modify runGemm
-  runGemm<cutlass::bfloat16_t>(
-      output, a, b, scales_a, scales_b, alpha, m, n, k, stream);
+  runGemm<cutlass::float_e2m1_t>(
+      output,
+      output_blockscale,
+      a,
+      b,
+      scales_a,
+      scales_b,
+      alpha,
+      m,
+      n,
+      k,
+      stream);
   return std::make_pair(output, output_blockscale);
 }
 
