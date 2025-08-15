@@ -42,6 +42,9 @@ namespace nvfuser {
     return *field##_;                                     \
   }
 
+// Define a std::unique_ptr member, e.g.,
+//
+// std::unique_ptr<IdModel> id_model_;
 #define FUSION_INFO_DEFINE_FIELD(type, field) std::unique_ptr<type> field##_;
 
 class FusionInfo {
