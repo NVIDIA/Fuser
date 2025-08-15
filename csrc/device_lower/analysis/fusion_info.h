@@ -47,6 +47,9 @@ namespace nvfuser {
 // std::unique_ptr<IdModel> id_model_;
 #define FUSION_INFO_DEFINE_FIELD(type, field) std::unique_ptr<type> field##_;
 
+// Container of fusion analysis results, mainly for lowering Fusion to
+// Kernel. FusionInfoGuard can be used as a context manager of the
+// active FusionInfo.
 class FusionInfo {
  public:
   FUSION_INFO_DEFINE_FUNCTIONS(
