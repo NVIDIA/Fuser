@@ -103,20 +103,10 @@ The following 95 tests exist in `tests/python/test_python_frontend.py` but are *
 - `test_tensor_shape_with_output_bcast` - Tests tensor shape with output broadcast
 - `test_tensor_size_both_args_bcast` - Tests tensor size with broadcast arguments
 - `test_uniform_range` - Tests uniform range generation
-- `test_unpadded_catop_issue2275_repro1` - Tests unpadded concatenation issue 2275
-- `test_unpadded_catop_issue2275_repro2` - Tests unpadded concatenation issue 2275 (repro 2)
 - `test_var_correction` - Tests variance correction
 - `test_var_mean_correction` - Tests variance mean correction
 - `test_where_op` - Tests where operation
 - `test_zero_size_dim` - Tests zero size dimensions
-
-#### Issue-Specific Tests
-- `test_issue1691` - Tests fix for issue 1691
-- `test_issue1706` - Tests fix for issue 1706
-- `test_issue1872` - Tests fix for issue 1872
-- `test_issue1953` - Tests fix for issue 1953
-- `test_issue2755` - Tests fix for issue 2755
-- `test_issue3292` - Tests fix for issue 3292
 
 ### Tests Only in Direct Frontend (Not in Main)
 
@@ -148,8 +138,16 @@ Both test files contain these common tests:
 - `test_issue1279` - Tests fix for issue 1279 (var_mean operations with casting)
 - `test_issue1310` - Tests fix for issue 1310 (input forwarding with multiple UnaryOps)
 - `test_issue1393` - Tests fix for issue 1393 (complex operations with strided tensors and broadcasting)
+- `test_issue1691` - Tests fix for issue 1691 (complex reduction operations with reshape and multiplication)
+- `test_issue1706` - Tests fix for issue 1706 (complex operations derived from Llama2 network)
+- `test_issue1872` - Tests fix for issue 1872 (full tensor creation with slice operations and casting)
+- `test_issue1953` - Tests fix for issue 1953 (complex operations with strided tensors and multiple data types)
+- `test_issue2275_repro1` - Tests fix for issue 2275 (unpadded concatenation operations with complex tensor manipulations)
+- `test_issue2275_repro2` - Tests fix for issue 2275 (unpadded concatenation operations with trigonometric functions)
 - `test_issue2545` - Tests fix for issue 2545 (complex operations with empty tensors and concatenation)
 - `test_issue2549` - Tests fix for issue 2549 (broadcast_in_dim and division operations)
+- `test_issue2755` - Tests fix for issue 2755 (slice operations with negation)
+- `test_issue3292` - Tests fix for issue 3292 (complex tensor operations with manual normalization and padding)
 - `test_cast_double_to_half` - Casting double to half precision
 - `test_cast_fp8` - FP8 casting operations
 - `test_promote_to_double` - Type promotion to double
@@ -424,6 +422,83 @@ Reproduction tests for specific issues:
   - Tests vector definition and scalar operations
   - Tests mixed precision arithmetic operations
 
+#### `test_issue1691()`
+- **Purpose**: Tests fix for issue 1691 - complex reduction operations with reshape and multiplication
+- **Functionality**:
+  - Tests complex reduction operations with strided tensors having non-standard memory layouts
+  - Tests multiple reduction operations along different dimensions
+  - Tests reshape operations with scalar-defined shapes
+  - Tests multiplication operations between reshaped tensors
+  - Tests final reduction operations on multiplied results
+  - Tests proper handling of tensor contiguity and stride order
+  - Tests scalar definition and vector operations
+  - Tests complex mathematical sequences involving reductions and multiplications
+
+#### `test_issue1706()`
+- **Purpose**: Tests fix for issue 1706 - complex operations derived from Llama2 network
+- **Functionality**:
+  - Tests large tensors with bfloat16 precision
+  - Tests extensive casting operations between different data types
+  - Tests complex mathematical operations (rsqrt, pow, reciprocal)
+  - Tests multiple broadcast_in_dim operations with different shapes
+  - Tests reduction operations along different dimensions
+  - Tests complex tensor manipulation sequences
+  - Tests proper handling of tensor contiguity and memory layouts
+  - Tests scalar definition and vector operations
+  - Tests complex mathematical sequences involving multiple operations
+  - Tests serialization during segmentation
+
+#### `test_issue1872()`
+- **Purpose**: Tests fix for issue 1872 - full tensor creation with slice operations and casting
+- **Functionality**:
+  - Tests full tensor creation with scalar fill values
+  - Tests slice operations with different start and end indices
+  - Tests casting operations between different data types
+  - Tests multiple output tensors from a single fusion
+  - Tests proper handling of tensor shapes and data types
+  - Tests scalar definition and vector operations
+  - Tests basic tensor manipulation sequences
+
+#### `test_issue1953()`
+- **Purpose**: Tests fix for issue 1953 - complex operations with strided tensors and multiple data types
+- **Functionality**:
+  - Tests large strided tensors with complex memory layouts
+  - Tests multiple data types (Float32 and BFloat16)
+  - Tests complex tensor operations (permute, reshape, slice, sum, mul, neg, add)
+  - Tests broadcasting operations with different shapes
+  - Tests padding operations with scalar values
+  - Tests multiple output tensors from a single fusion
+  - Tests proper handling of tensor contiguity and stride order
+  - Tests scalar definition and vector operations
+  - Tests complex mathematical sequences involving multiple operations
+  - Tests extensive tensor manipulation sequences
+
+#### `test_issue2275_repro1()`
+- **Purpose**: Tests fix for issue 2275 - unpadded concatenation operations with complex tensor manipulations
+- **Functionality**:
+  - Tests large strided tensors with complex memory layouts
+  - Tests BFloat16 precision operations
+  - Tests complex tensor operations (cast, mul, sum, broadcast_in_dim, rsqrt, linear, reshape, permute, slice, neg, cat)
+  - Tests broadcasting operations with different shapes
+  - Tests linear operations with weight matrices
+  - Tests multiple slice operations with different indices
+  - Tests concatenation operations with negative dimensions
+  - Tests proper handling of tensor contiguity and stride order
+  - Tests scalar definition and vector operations
+  - Tests complex mathematical sequences involving multiple operations
+  - Tests extensive tensor manipulation sequences
+
+#### `test_issue2275_repro2()`
+- **Purpose**: Tests fix for issue 2275 - unpadded concatenation operations with trigonometric functions
+- **Functionality**:
+  - Tests large tensors with BFloat16 precision
+  - Tests multiple slice operations with different indices
+  - Tests trigonometric operations (sin, cos)
+  - Tests negation and casting operations
+  - Tests concatenation operations with negative dimensions
+  - Tests proper handling of tensor shapes and operations
+  - Tests basic tensor manipulation sequences
+
 #### `test_issue2545()`
 - **Purpose**: Tests fix for issue 2545 - complex operations with empty tensors and concatenation
 - **Functionality**:
@@ -444,6 +519,27 @@ Reproduction tests for specific issues:
   - Verifies correct computation of division with broadcasted operands
   - Tests tensor definition with explicit sizes and strides
   - Compares nvFuser output with PyTorch reference implementation
+
+#### `test_issue2755()`
+- **Purpose**: Tests fix for issue 2755 - slice operations with negation
+- **Functionality**:
+  - Tests basic tensor slicing with different start and end indices
+  - Tests negation operations on sliced tensors
+  - Tests multiple slice operations in sequence
+  - Tests proper handling of tensor shapes and operations
+  - Tests basic tensor manipulation sequences
+
+#### `test_issue3292()`
+- **Purpose**: Tests fix for issue 3292 - complex tensor operations with manual normalization and padding
+- **Functionality**:
+  - Tests tensor reshaping and permutation operations
+  - Tests multiple slice operations with manual normalization
+  - Tests negation and concatenation operations with manual padding
+  - Tests multiplication and addition operations
+  - Tests complex tensor manipulation sequences
+  - Tests proper handling of tensor shapes and operations
+  - Tests scalar definition and vector operations
+  - Tests complex mathematical sequences involving multiple operations
 
 ## Test Configuration (conftest.py)
 
