@@ -2280,8 +2280,6 @@ class TestRepro(NVFuserTest):
         with RecordTorchMemory() as nvf_mem:
             fd.execute([*t0s, a])
 
-        print("NVF: ", nvf_mem)
-
         def eager_func(t0s, a):
             for t0 in t0s:
                 t1 = torch.nn.functional.relu(t0)
@@ -2296,7 +2294,5 @@ class TestRepro(NVFuserTest):
 
         with RecordTorchMemory() as eager_mem:
             eager_func(t0s, a)
-
-        print("Eager: ", eager_mem)
 
         assert nvf_mem == eager_mem
