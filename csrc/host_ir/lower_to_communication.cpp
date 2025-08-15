@@ -24,7 +24,7 @@ namespace {
 
 // TODO: handle `c10d::RedOpType::reduceOp::AVG` and
 // `c10d::RedOpType::reduceOp::PREMUL_SUM`
-inline c10d::ReduceOp::RedOpType getC10dReduceOpType(BinaryOpType op) {
+c10d::ReduceOp::RedOpType getC10dReduceOpType(BinaryOpType op) {
   switch (op) {
     case BinaryOpType::Add:
       return c10d::ReduceOp::RedOpType::SUM;
@@ -80,12 +80,10 @@ void lowerToScatter(
       backend));
 }
 
-/*
-Adds zero or multiple Gather communications to the vector 'comms'
-
-Note that since the root of a Gather collective is a destination, we possibly
-need multiple Gathers if the tensor is replicated in the receiver mesh.
-*/
+// Adds zero or multiple Gather communications to the vector 'comms'
+//
+// Note that since the root of a Gather collective is a destination, we possibly
+// need multiple Gathers if the tensor is replicated in the receiver mesh.
 void lowerToGather(
     TensorView* input_tv,
     TensorView* output_tv,
@@ -309,7 +307,7 @@ CommunicationInfo getCommunicationInfo(Expr* e) {
       e);
 
   NVF_ERROR(
-      e->isOneOf<LoadStoreOp, ReductionOp, SqueezeOp>(),
+      (e->isOneOf<LoadStoreOp, ReductionOp, SqueezeOp>()),
       "getCommunicationInfo should only be called when `e` is known to be a "
       "communication. Given: ",
       e);
