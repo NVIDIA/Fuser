@@ -101,3 +101,12 @@ def define_sdpa_rng_state(fd: FusionDefinition) -> tuple[TensorView, TensorView]
         is_cpu=is_cpu,
     )
     return philox_seed, philox_offset
+
+
+def create_sdpa_rng_tensors() -> tuple[torch.Tensor, torch.Tensor]:
+    dtype = torch.uint64 if UPDATED_SDPA else torch.int64
+    device = "cuda" if UPDATED_SDPA else "cpu"
+    philox_shape = (2,) if UPDATED_SDPA else ()
+    philox_seed = torch.testing.make_tensor(philox_shape, device=device, dtype=dtype)
+    philox_offset = torch.testing.make_tensor((), device=device, dtype=dtype)
+    return philox_seed, philox_offset

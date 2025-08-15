@@ -6,6 +6,7 @@ import torch
 from ._C import DataType
 
 import ctypes
+from dataclasses import dataclass
 import functools
 import gc
 from typing import Type, Union, Tuple
@@ -188,3 +189,33 @@ def retry_on_oom_or_skip_test(func):
         return output
 
     return retried_func
+
+
+@dataclass
+class TorchMemorySnapshot:
+    bytes_allocated_current: int = None
+    bytes_allocated_max: int = None
+
+    def __post_init__(self):
+        self.bytes_allocated_current = torch.cuda.memory_allocated()
+        self.bytes_allocated_max = torch.cuda.max_memory_allocated()
+
+
+@dataclass
+class RecordTorchMemory():
+    before: TorchMemorySnapshot | None = None
+    after: TorchMemorySnapshot | None = None
+
+    def __enter__(self):
+        gc.collect(0)
+        torch.cuda.empty_cache()
+        torch.cuda.reset_peak_memory_stats()
+        self.before = TorchMemorySnapshot()
+        return self
+
+    def __exit__(self, type, value, traceback):
+        self.after = TorchMemorySnapshot()
+        return True
+
+    def __repr__(self):
+        return f"RecordTorchMemory:\n  before={self.before}\n  after={self.after}\n"

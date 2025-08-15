@@ -3,9 +3,8 @@
 # SPDX-License-Identifier: BSD-3-Clause
 
 import sys
-import warnings
-import os
 import traceback
+import warnings
 from typing import Iterable
 
 if "nvfuser" in sys.modules:
@@ -19,11 +18,6 @@ import torch.distributed as dist
 from torch.distributed.tensor import DTensor
 from torch.distributed.tensor.placement_types import Placement, Shard, Replicate
 
-
-# This is needed when libnvfuser_direct.so is patched and doesn't have the pytorch library location available.
-pytorch_lib_dir = os.path.join(os.path.dirname(torch.__file__), "lib")
-if pytorch_lib_dir not in sys.path:
-    sys.path.append(pytorch_lib_dir)
 
 from ._C_DIRECT import *  # noqa: F401,F403
 
