@@ -157,7 +157,7 @@ ParallelTypeBitmap avoidRedundantWrites(const TensorView* out_tv) {
     unused_types.clear(pt);
   }
 
-  const auto& par_dim_map = GpuLower::current()->info().parallelDimensionMap();
+  const auto& par_dim_map = FusionInfoGuard::current()->parallelDimensionMap();
 
   for (const auto pt : unused_types) {
     // For shared memory tensors, unused BID isn't redundant
@@ -267,15 +267,14 @@ void ThreadPredicateMap::updateBitSet(const Expr* expr) {
       if (id->isThread()) {
         id_ptypes.set(id->getParallelType());
         if (id->isReduction() &&
-            (!GpuLower::current()->info().hasFusedReductionInfo() ||
-             !GpuLower::current()->info().fusedReductionInfo().isAllreduce(
+            (!FusionInfoGuard::current()->hasFusedReductionInfo() ||
+             !FusionInfoGuard::current()->fusedReductionInfo().isAllreduce(
                  id))) {
           id_reductions.set(id->getParallelType());
         }
         if (id->isBroadcast() &&
-            GpuLower::current()
-                ->info()
-                .concretizedBroadcastDomains()
+            FusionInfoGuard::current()
+                ->concretizedBroadcastDomains()
                 .isConcretized(id)) {
           id_bcasts.set(id->getParallelType());
         }
@@ -589,7 +588,7 @@ class ConcretizedBroadcastRedundantWriteRemover {
   }
 
   void setConcretizedBroadcastLogicalDomain() {
-    const auto& ca_map = GpuLower::current()->info().caMap();
+    const auto& ca_map = FusionInfoGuard::current()->caMap();
     for (auto loop_id : candidate_loop_domains_) {
       auto loop_concrete_id = lower_utils::getConcreteLoopID(loop_id);
       auto concrete_logical_vals = IterVisitor::getInputsTo({loop_concrete_id});
@@ -844,9 +843,8 @@ ParallelTypeBitmap ThreadPredicateMap::getParallelBroadcastDomains(
       continue;
     }
 
-    if (!GpuLower::current()
-             ->info()
-             .concretizedBroadcastDomains()
+    if (!FusionInfoGuard::current()
+             ->concretizedBroadcastDomains()
              .isConcretized(id)) {
       continue;
     }

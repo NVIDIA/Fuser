@@ -149,10 +149,17 @@ SyncMap::SyncMap(Fusion* fusion) {
   FUSER_PERF_SCOPE("SyncMap::SyncMap");
   FusionGuard fg(fusion);
 
-  NVF_ERROR(FusionInfoGuard::hasCurrent());
-  NVF_ERROR(FusionInfoGuard::current()->hasComputeAtMap());
-  NVF_ERROR(FusionInfoGuard::current()->hasIdModel());
-  NVF_ERROR(FusionInfoGuard::current()->hasThreadPredicateMap());
+  NVF_ERROR(FusionInfoGuard::hasCurrent(), "FusionInfo is required");
+  NVF_ERROR(
+      FusionInfoGuard::current()->hasComputeAtMap(),
+      "ComputeAtMap is required");
+  NVF_ERROR(FusionInfoGuard::current()->hasIdModel(), "IdModel is required");
+  NVF_ERROR(
+      FusionInfoGuard::current()->hasThreadPredicateMap(),
+      "ThreadPredicateMap is required");
+  NVF_ERROR(
+      FusionInfoGuard::current()->hasConcretizedBroadcastDomains(),
+      "ConcretizedBroadcastDomains is required");
 
   const auto& ca_map = FusionInfoGuard::current()->caMap();
   const auto& pred_map = FusionInfoGuard::current()->threadPredicateMap();

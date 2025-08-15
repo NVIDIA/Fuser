@@ -3107,10 +3107,19 @@ TEST_F(NVFuserTest, FusionValidateParallelize8_CUDA) {
   // Since tv2 is not on shared memory, the fusion should be flagged
   // as invalid by the parallel validation.
   FusionInfo fusion_info;
-  // TODO: Fill fusion_info
   FusionInfoGuard info_guard(&fusion_info);
-  // NOLINTNEXTLINE(cppcoreguidelines-avoid-goto,hicpp-avoid-goto)
-  ASSERT_ANY_THROW(SyncMap sync_map_fail(&fusion));
+  fusion_info.set(std::make_unique<ConcretizedBroadcastDomains>(&fusion));
+  fusion_info.set(std::make_unique<PaddedParallelDimensions>(
+      collectPaddedParallelDims(&fusion)));
+  fusion_info.set(std::make_unique<IdModel>(&fusion, /*build_graphs=*/true));
+  fusion_info.set(std::make_unique<ComputeAtMap>(&fusion));
+  fusion_info.set(std::make_unique<ParallelDimensionMap>(&fusion));
+  fusion_info.set(std::make_unique<ThreadPredicateMap>(&fusion));
+
+  EXPECT_THAT(
+      [&]() { SyncMap sync_map_fail(&fusion); },
+      ::testing::ThrowsMessage<nvfuser::nvfError>(::testing::ContainsRegex(
+          "Inconsistent parallelization found between TV2.*TV3")));
 
   // The fusion should work if tv2 is also fully inlined
   tv2->computeAt(tv4, -1);
