@@ -28,6 +28,7 @@
 #include <options.h>
 #include <scheduler/debug_utils.h>
 #include <scheduler/normalization_utils.h>
+#include <scheduler/runtime_info.h>
 #include <transform_iter.h>
 #include <transform_replay.h>
 
@@ -1988,8 +1989,10 @@ namespace {
 
 class SegmentedGroupTaskGraphConverter {
  public:
-  static TaskGraph convert(const std::vector<SegmentedGroup*>& groups) {
-    SegmentedGroupTaskGraphConverter conv;
+  static TaskGraph convert(
+      const std::vector<SegmentedGroup*>& groups,
+      SchedulerRuntimeInfo* runtime_info) {
+    SegmentedGroupTaskGraphConverter conv(runtime_info);
     for (SegmentedGroup* group : groups) {
       conv.processGroup(group);
     }
@@ -1997,6 +2000,9 @@ class SegmentedGroupTaskGraphConverter {
   }
 
  private:
+  SegmentedGroupTaskGraphConverter(SchedulerRuntimeInfo* runtime_info)
+      : runtime_info_(runtime_info) {}
+
   void processGroup(SegmentedGroup* group) {
     TaskGraph::TaskId task_id = (TaskGraph::TaskId)all_tasks_.size();
 
@@ -2058,9 +2064,39 @@ class SegmentedGroupTaskGraphConverter {
       TaskGraph::DataId new_id = (TaskGraph::DataId)all_data_.size();
       tv2dataid_[tv] = new_id;
 
-      // TODO: Pass runtime info so we can use actual sizes here, or at least
-      // use a better estimate
-      TaskGraph::Size size = 1;
+      // Assume all tensors the same shape if no runtime_info is given
+      int64_t numel = 1;
+      if (runtime_info_ != nullptr) {
+        // Get the actual size of the tensor allocation
+        if (tv->isFusionInput()) {
+          const std::vector<int64_t>& sizes =
+              runtime_info_->getInputAllocationSizes(tv);
+          const std::vector<int64_t>& strides =
+              runtime_info_->getInputAllocationStrides(tv);
+
+          numel = 1;
+          for (auto [size, stride] : zip(sizes, strides)) {
+            if (size == 0) {
+              // Check for empty tensors
+              numel = 0;
+              break;
+            }
+            numel += (size - 1) * stride;
+          }
+        } else {
+          // Use ExpressionEvaluator for computed tensors assuming they are
+          // contiguous
+          for (IterDomain* id : tv->getMaybeAllocationDomain()) {
+            if (id->isBroadcast() || id->isReduction()) {
+              continue;
+            }
+            numel *= runtime_info_->expressionEvaluator()
+                         .evaluate(id->extent())
+                         .as<int64_t>();
+          }
+        }
+      }
+      TaskGraph::Size size = numel * dataTypeSizeByte(tv->dtype());
 
       all_data_.emplace_back(
           /*definition=*/std::nullopt,
@@ -2075,13 +2111,15 @@ class SegmentedGroupTaskGraphConverter {
   }
 
  private:
+  SchedulerRuntimeInfo* runtime_info_;
   std::vector<TaskGraph::Data> all_data_;
   std::unordered_map<TensorView*, TaskGraph::DataId> tv2dataid_;
   std::vector<TaskGraph::Task> all_tasks_;
 };
 
 std::vector<SegmentedGroup*> optimalTopoSort(
-    const std::vector<SegmentedGroup*>& groups) {
+    const std::vector<SegmentedGroup*>& groups,
+    SchedulerRuntimeInfo* runtime_info) {
   FUSER_PERF_SCOPE("optimalTopoSort");
   if (groups.size() == 1) {
     // Skip setting up the graph and doing the whole analysis when there's just
@@ -2089,7 +2127,8 @@ std::vector<SegmentedGroup*> optimalTopoSort(
     return {groups.front()};
   }
 
-  TaskGraph graph = SegmentedGroupTaskGraphConverter::convert(groups);
+  TaskGraph graph =
+      SegmentedGroupTaskGraphConverter::convert(groups, runtime_info);
 
   TaskGraph::SortResult result = graph.findOptimalOrder();
 
@@ -5483,7 +5522,9 @@ void SegmentedFusion::annotateFP16IntermediateTensors() {
   }
 }
 
-RuntimeWorkSpace prepareRuntimeOrder(const SegmentedFusion& segmented_fusion) {
+RuntimeWorkSpace prepareRuntimeOrder(
+    const SegmentedFusion& segmented_fusion,
+    SchedulerRuntimeInfo* runtime_info) {
   FUSER_PERF_SCOPE("prepareRuntimeOrder");
   RuntimeWorkSpace runtime_workspace;
 
@@ -5500,7 +5541,7 @@ RuntimeWorkSpace prepareRuntimeOrder(const SegmentedFusion& segmented_fusion) {
   }
 
   runtime_workspace.group_run_order =
-      optimalTopoSort(segmented_fusion.groups());
+      optimalTopoSort(segmented_fusion.groups(), runtime_info);
 
   return runtime_workspace;
 }

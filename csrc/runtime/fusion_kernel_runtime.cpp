@@ -128,7 +128,7 @@ FusionKernelRuntime::FusionKernelRuntime(
 
   // Pre-compute the executor order so that the run time path
   //  would go directly to kernel launch.
-  runtime_workspace_ = prepareRuntimeOrder(*segmented_fusion_);
+  runtime_workspace_ = prepareRuntimeOrder(*segmented_fusion_, &runtime_info);
 
   executors_.resize(segmented_fusion_->groups().size());
 
