@@ -41,8 +41,10 @@ def _group_sizes_from_offsets(offsets: torch.Tensor) -> list[int]:
         prev = offset
     return group_sizes
 
+
 # Required otherwise, there is a graph-break.
 _grouped_mm = torch.compiler.allow_in_graph(torch._grouped_mm)
+
 
 # This function should be replaced with torch._grouped_mm.  However,
 # torch._grouped_mm is yet to be usable because it requires offsets being
@@ -112,8 +114,13 @@ class Llama4MoE(nn.Module):
         router_scores = topk_weight.sigmoid()  # [s, 1]
         hidden_states = hidden_states * router_scores  # [s, h]
 
-        counts = torch.zeros(topk_ids.size(0), self.config.num_routed_experts, device=topk_ids.device, dtype=torch.int32)  # [s, n]
-        counts = counts.scatter(1, topk_ids, 1)  # [s, n]
+        counts = torch.zeros(
+            topk_ids.size(0),
+            self.config.num_routed_experts,
+            device=topk_ids.device,
+            dtype=torch.int32,
+        )  # [s, n]
+        counts.scatter_(1, topk_ids, 1)  # [s, n]
         tokens_per_expert = counts.sum(0)  # [n]
 
         token_ids_sorted_by_expert_id = topk_ids.view(-1).argsort()  # [s]
@@ -126,7 +133,9 @@ class Llama4MoE(nn.Module):
             tokens_sorted_by_expert_id, offsets
         )  # [s, h]
 
-        outs_sorted_by_token_id = outs_sorted_by_expert_id[token_ids_sorted_by_expert_id]
+        outs_sorted_by_token_id = outs_sorted_by_expert_id[
+            token_ids_sorted_by_expert_id
+        ]
 
         return outs_sorted_by_token_id
 
@@ -171,6 +180,7 @@ def test_llama4_moe():
     assert out.dtype == torch.bfloat16
     assert out.is_cuda
 
+
 def test_llama4_moe_thunderfx():
     from thunder.dynamo import thunderfx
 
@@ -192,7 +202,6 @@ def test_llama4_moe_thunderfx():
     )
     expected = model(inp)
 
-    
     tmodel = thunderfx(model, nv_enable_linear=True)
 
     with torch.no_grad():
@@ -201,6 +210,6 @@ def test_llama4_moe_thunderfx():
     assert len(tmodel._backend.subgraph_infos) == 1
     assert len(tmodel._backend.subgraph_infos[0].split_reasons) == 0
     # Uncomment to view thunder traces
-    # print(tmodel.last_traces)
+    print(tmodel.last_traces)
 
     torch.testing.assert_close(actual, expected, atol=1e-2, rtol=1e-2)
