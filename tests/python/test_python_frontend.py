@@ -5076,7 +5076,7 @@ fd.execute(inputs)
             fd.add_output(T3)
 
         nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
-        eager_out = refs.sigmoid(torch.scatter(x, scatter_dim, ind, src))
+        eager_out = torch.scatter(x, scatter_dim, ind, src)
         self.assertEqual(eager_out, nvf_out[0])
 
 
