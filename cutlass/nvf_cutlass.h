@@ -75,6 +75,7 @@ NVF_API std::pair<torch::Tensor, torch::Tensor> nvfp4_scaled_mm_epilogue(
     const torch::Tensor& scales_a,
     const torch::Tensor& scales_b,
     const torch::Tensor& alpha,
+    const torch::Tensor& global_normconst,
     bool skip_checks = false);
 
 } // namespace nvfuser::cutlass_kernels

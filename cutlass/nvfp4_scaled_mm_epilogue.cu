@@ -62,8 +62,8 @@ struct Fp4GemmSm100 {
 
   // C/D matrix configuration
   using ElementD = cutlass::float_e2m1_t;
+  using ElementC = cutlass::float_e2m1_t;
   using ElementSFD = cutlass::float_ue8m0_t;
-  using ElementC = float;
   using LayoutCTag = cutlass::layout::RowMajor;
   using LayoutDTag = cutlass::layout::RowMajor;
   using LayoutSFDTag = LayoutDTag;
@@ -175,11 +175,13 @@ struct Fp4GemmSm100 {
 template <typename T>
 typename T::Gemm::Arguments args_from_options(
     at::Tensor& output,
+    at::Tensor& output_blockscale,
     const at::Tensor& a,
     const at::Tensor& b,
     const at::Tensor& scales_a,
     const at::Tensor& scales_b,
     const at::Tensor& alpha,
+    const at::Tensor& global_normconst,
     int64_t M,
     int64_t N,
     int64_t K) {
@@ -188,6 +190,7 @@ typename T::Gemm::Arguments args_from_options(
   using ElementSFA = cutlass::float_ue4m3_t;
   using ElementSFB = cutlass::float_ue4m3_t;
   using ElementD = typename T::Gemm::ElementD;
+  using ElementSFD = cutlass::float_ue8m0_t;
   using ElementCompute = float;
   using StrideA = typename T::StrideA;
   using StrideB = typename T::StrideB;
@@ -227,6 +230,14 @@ typename T::Gemm::Arguments args_from_options(
        stride_D}};
   auto& fusion_args = arguments.epilogue.thread;
   fusion_args.alpha_ptr = static_cast<ElementCompute const*>(alpha.data_ptr());
+
+  if constexpr (T::IsBlockScaleSupported) {
+    arguments.epilogue.thread.block_scale_factor_ptr =
+        static_cast<ElementSFD*>(output_blockscale.data_ptr());
+    // Matrix-wide normalization constant
+    arguments.epilogue.thread.norm_constant_ptr =
+        static_cast<ElementCompute const*>(global_normconst.data_ptr());
+  }
   return arguments;
 }
 
@@ -252,15 +263,25 @@ void runGemm(
     const at::Tensor& scales_a,
     const at::Tensor& scales_b,
     const at::Tensor& alpha,
+    const at::Tensor& global_normconst,
     int64_t m,
     int64_t n,
     int64_t k,
     cudaStream_t stream) {
   typename Fp4GemmSm100<T>::Gemm gemm;
 
-  /*
   auto arguments = args_from_options<Fp4GemmSm100<T>>(
-      output, a, b, scales_a, scales_b, alpha, m, n, k);
+      output,
+      output_blockscale,
+      a,
+      b,
+      scales_a,
+      scales_b,
+      alpha,
+      global_normconst,
+      m,
+      n,
+      k);
 
   size_t workspace_size = Fp4GemmSm100<T>::Gemm::get_workspace_size(arguments);
   auto const workspace_options =
@@ -277,7 +298,6 @@ void runGemm(
 
   status = gemm.run(arguments, workspace.data_ptr(), stream);
   NVF_CHECK(status == cutlass::Status::kSuccess, "Failed to run GEMM");
-  */
 }
 #else
 // Fallback implementation for unsupported CUTLASS versions
@@ -291,6 +311,7 @@ void runGemm(
     at::Tensor const& scales_a,
     at::Tensor const& scales_b,
     at::Tensor const& alpha,
+    at::Tensor const& global_normconst,
     int64_t m,
     int64_t n,
     int64_t k,
@@ -307,6 +328,7 @@ std::pair<torch::Tensor, torch::Tensor> nvfp4_scaled_mm_epilogue(
     const torch::Tensor& scales_a,
     const torch::Tensor& scales_b,
     const torch::Tensor& alpha,
+    const torch::Tensor& global_normconst,
     bool skip_checks) {
   // Validate all inputs and get matrix dimensions
   auto [m, n, k] =
@@ -335,6 +357,7 @@ std::pair<torch::Tensor, torch::Tensor> nvfp4_scaled_mm_epilogue(
       scales_a,
       scales_b,
       alpha,
+      global_normconst,
       m,
       n,
       k,
