@@ -41,11 +41,19 @@ def _group_sizes_from_offsets(offsets: torch.Tensor) -> list[int]:
         prev = offset
     return group_sizes
 
+# Required otherwise, there is a graph-break.
+_grouped_mm = torch.compiler.allow_in_graph(torch._grouped_mm)
 
 # This function should be replaced with torch._grouped_mm.  However,
 # torch._grouped_mm is yet to be usable because it requires offsets being
 # multiples of 16.
 def grouped_mm(a: torch.Tensor, b: torch.Tensor, offsets: torch.Tensor) -> torch.Tensor:
+    if torch.compiler.is_compiling():
+        # Without the cast, we see `RuntimeError: Offsets tensor must be integer (int32) tensor, but got torch.int64.`
+        # from PyTorch.
+        offsets = offsets.to(torch.int32)
+        return _grouped_mm(a, b, offsets)
+
     group_sizes = _group_sizes_from_offsets(offsets)
     group_outs = []
     for group_a, group_b in zip(a.split(group_sizes), b.unbind()):
@@ -104,10 +112,8 @@ class Llama4MoE(nn.Module):
         router_scores = topk_weight.sigmoid()  # [s, 1]
         hidden_states = hidden_states * router_scores  # [s, h]
 
-        counts = topk_ids.new_zeros(
-            (topk_ids.size(0), self.config.num_routed_experts)
-        )  # [s, n]
-        counts.scatter_(1, topk_ids, 1)  # [s, n]
+        counts = torch.zeros(topk_ids.size(0), self.config.num_routed_experts, device=topk_ids.device, dtype=torch.int32)  # [s, n]
+        counts = counts.scatter(1, topk_ids, 1)  # [s, n]
         tokens_per_expert = counts.sum(0)  # [n]
 
         token_ids_sorted_by_expert_id = topk_ids.view(-1).argsort()  # [s]
@@ -120,10 +126,8 @@ class Llama4MoE(nn.Module):
             tokens_sorted_by_expert_id, offsets
         )  # [s, h]
 
-        outs_sorted_by_token_id = torch.empty_like(outs_sorted_by_expert_id)  # [s, h]
-        outs_sorted_by_token_id[
-            token_ids_sorted_by_expert_id
-        ] = outs_sorted_by_expert_id
+        outs_sorted_by_token_id = outs_sorted_by_expert_id[token_ids_sorted_by_expert_id]
+
         return outs_sorted_by_token_id
 
     def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
@@ -166,3 +170,37 @@ def test_llama4_moe():
     assert out.size() == (batch_size, seq_len, config.hidden_size)
     assert out.dtype == torch.bfloat16
     assert out.is_cuda
+
+def test_llama4_moe_thunderfx():
+    from thunder.dynamo import thunderfx
+
+    config = Config()
+
+    # This is much faster than creating the module with CPU float parameters
+    # and then doing `.to("cuda").to(torch.bfloat16)`.
+    with default_tensor_type(dtype=torch.bfloat16, device="cuda"):
+        model = Llama4MoE(config)
+
+    # Without this, `thunderfx` falls back to `inductor` for `_grouped_mm`
+    # as it doesn't have a grad-rule for the same.
+    for p in model.parameters():
+        p.requires_grad_(False)
+
+    batch_size, seq_len = 1, 2048
+    inp = torch.randn(
+        batch_size, seq_len, config.hidden_size, dtype=torch.bfloat16, device="cuda"
+    )
+    expected = model(inp)
+
+    
+    tmodel = thunderfx(model, nv_enable_linear=True)
+
+    with torch.no_grad():
+        actual = tmodel(inp)
+
+    assert len(tmodel._backend.subgraph_infos) == 1
+    assert len(tmodel._backend.subgraph_infos[0].split_reasons) == 0
+    # Uncomment to view thunder traces
+    # print(tmodel.last_traces)
+
+    torch.testing.assert_close(actual, expected, atol=1e-2, rtol=1e-2)
