@@ -70,7 +70,12 @@ class CutlassCompiledKernel : public NonCopyable {
   CutlassCompiledKernel(
       Fusion* fusion,
       const CutlassParams& cutlass_params,
-      const CutlassCompileOptions& compile_options = CutlassCompileOptions());
+      const CutlassCompileOptions& compile_options = CutlassCompileOptions(),
+      c10::Device device = c10::Device(c10::DeviceType::CUDA, 0),
+      int64_t fusion_id = 0,
+      int64_t concrete_id = 0,
+      int64_t runtime_id = 0,
+      int64_t group_id = 0);
 
   // Compile the CUTLASS kernel
   void compile();
@@ -103,6 +108,21 @@ class CutlassCompiledKernel : public NonCopyable {
     return binary_;
   }
 
+  std::string& kernelId() {
+    return kernel_id_;
+  }
+  const std::string& kernelId() const {
+    return kernel_id_;
+  }
+
+  bool validKernelId() const {
+    return !kernel_id_.empty();
+  }
+
+  void createKernelId();
+
+  std::string kernelName() const;
+
  private:
   // Generate CUTLASS kernel code from fusion
   void generateCode();
@@ -120,9 +140,32 @@ class CutlassCompiledKernel : public NonCopyable {
   // Create launch parameters
   void createLaunchParams();
 
-  // Member variables
+ private:
   Fusion* fusion_ = nullptr;
+
   CutlassParams cutlass_params_;
+
+  c10::Device device_;
+
+  // ID of fusion in python frontend fusion cache, which maps to a single
+  // CompiledKernelCache.
+  const int64_t fusion_id_ = -1;
+
+  // ID of (device, concrete_info) key in CompiledKernelCache
+  const int64_t concrete_id_ = -1;
+
+  // ID of FusionKernelRuntime given (device, concrete_info) key
+  const int64_t runtime_id_ = -1;
+
+  // ID of segment in FusionKernelRuntime
+  const int64_t group_id_ = -1;
+
+  // Note that this is separate from CompiledKernel::global_fusion_count_
+  inline static std::atomic<int64_t> global_cutlass_fusion_count_;
+
+  // Kernel name for fusion executor
+  std::string kernel_id_;
+
   CutlassCompileOptions compile_options_;
   CutlassKernelDescriptor descriptor_;
 

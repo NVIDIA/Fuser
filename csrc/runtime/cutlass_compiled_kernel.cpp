@@ -78,9 +78,19 @@ std::string getComputeCapabilityString(int compute_capability) {
 CutlassCompiledKernel::CutlassCompiledKernel(
     Fusion* fusion,
     const CutlassParams& cutlass_params,
-    const CutlassCompileOptions& compile_options)
+    const CutlassCompileOptions& compile_options,
+    c10::Device device,
+    int64_t fusion_id,
+    int64_t concrete_id,
+    int64_t runtime_id,
+    int64_t group_id)
     : fusion_(fusion),
       cutlass_params_(cutlass_params),
+      device_(device),
+      fusion_id_(fusion_id),
+      concrete_id_(concrete_id),
+      runtime_id_(runtime_id),
+      group_id_(group_id),
       compile_options_(compile_options) {
   NVF_CHECK(fusion != nullptr, "Fusion cannot be null");
 }
@@ -98,12 +108,35 @@ CutlassCompiledKernel::~CutlassCompiledKernel() {
   }
 }
 
+void CutlassCompiledKernel::createKernelId() {
+  NVF_ERROR(fusion_id_ > -1, "Invalid fusion_id.");
+  NVF_ERROR(concrete_id_ > -1, "Invalid concrete_id.");
+  NVF_ERROR(runtime_id_ > -1, "Invalid runtime_id.");
+  NVF_ERROR(group_id_ > -1, "Invalid group_id");
+  ++global_cutlass_fusion_count_;
+  std::stringstream ss;
+  if (isOptionEnabled(EnableOption::StaticFusionCount)) {
+    ss << global_cutlass_fusion_count_.load();
+  } else {
+    ss << "cutlass";
+    ss << "_f" << fusion_id_;
+    ss << "_c" << concrete_id_;
+    ss << "_r" << runtime_id_;
+    ss << "_g" << group_id_;
+  }
+  kernel_id_ = ss.str();
+}
+
 void CutlassCompiledKernel::compile() {
   FUSER_PERF_SCOPE("CutlassCompiledKernel::compile");
 
   if (isCompiled()) {
     return;
   }
+
+  createKernelId();
+
+  NVF_ERROR(validKernelId(), "Invalid kernel id for CompiledKernel.");
 
   // Generate CUTLASS code
   generateCode();
@@ -199,8 +232,22 @@ void CutlassCompiledKernel::generateCode() {
       isDebugDumpEnabled(DebugDumpOption::CudaKernel)) {
     debug() << cutlass_code_ << std::endl;
   }
+  if (isDebugDumpEnabled(DebugDumpOption::CudaToFile)) {
+    std::stringstream file_name;
+    // TODO: choose name based on kernel name
+    file_name << "__tmp_" << kernelName() << ".cu";
+    debug() << "PRINTING: " << file_name.str() << std::endl;
+    std::ofstream out(file_name.str());
+    out << cutlass_code_ << std::endl;
+    out.close();
+  }
+}
 
-  // TODO: enable dumping CUTLASS cuda to file
+std::string CutlassCompiledKernel::kernelName() const {
+  NVF_ERROR(!kernel_id_.empty(), "Invalid kernel name for cutlass executor.");
+  std::stringstream ss;
+  ss << "kernel_" << kernel_id_;
+  return ss.str();
 }
 
 void CutlassCompiledKernel::generateCutlassCode() {
