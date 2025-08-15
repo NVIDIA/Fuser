@@ -67,7 +67,6 @@ TEST_F(CutlassExecutorTest, SimpleNvfp4ScaledGemm) {
   EXPECT_TRUE(scheduler->canScheduleCompileTime(fusion.get()));
 
   // Create actual tensor data for inputs
-  at::manual_seed(0);
   auto fp4_options =
       at::TensorOptions().dtype(torch::kFloat4_e2m1fn_x2).device(at::kCUDA, 0);
   auto fp8_options =
