@@ -309,10 +309,9 @@ CommunicationInfo getCommunicationInfo(Expr* e) {
       e);
 
   NVF_ERROR(
-      e->isA<LoadStoreOp>() || e->isA<ReductionOp>() || e->isA<SqueezeOp>(),
+      e->isOneOf<LoadStoreOp, ReductionOp, SqueezeOp>(),
       "getCommunicationInfo should only be called when `e` is known to be a "
-      "communication. So `e` should be either a LoadStoreOp or a "
-      "ReductionOp. Given: ",
+      "communication. Given: ",
       e);
 
   auto* producer = e->inputs().at(0)->as<TensorView>();
@@ -541,9 +540,12 @@ std::vector<Expr*> convertSingleOpToCommunication(
       if (auto* reduce = dynamic_cast<ReductionOp*>(e)) {
         return reduce->getReductionOpType();
       }
+
+      NVF_ERROR(e != nullptr);
       if (e->isA<SqueezeOp>()) {
         return BinaryOpType::Add;
       }
+
       NVF_THROW("Expected a ReductionOp or a SqueezeOp, but got: ", e);
     }();
 
