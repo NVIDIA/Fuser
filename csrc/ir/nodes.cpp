@@ -325,9 +325,12 @@ std::vector<PolymorphicValue> ScatterOp::evaluate(
     const std::vector<PolymorphicValue>& inputs) const {
   const auto& input = inputs.at(0).as<at::Tensor>();
   const auto& index = inputs.at(1).as<at::Tensor>();
-  const auto& src = inputs.at(2).as<at::Tensor>();
   auto dimension = dim();
-  return {at::scatter(input, dimension, index, src)};
+  if (src()->isA<TensorView>()) {
+    return {at::scatter(input, dimension, index, inputs.at(2).as<at::Tensor>())};
+  } else {
+    return {at::scatter(input, dimension, index, toScalar(inputs.back()))};
+  }
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(ScatterOp)
