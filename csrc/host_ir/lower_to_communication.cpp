@@ -306,6 +306,7 @@ CommunicationInfo getCommunicationInfo(Expr* e) {
       "communication. So `e` should be resharding. Given: ",
       e);
 
+  // `sum` leads to a SqueezeOp when the reduction dimension is size-1.
   NVF_ERROR(
       (e->isOneOf<LoadStoreOp, ReductionOp, SqueezeOp>()),
       "getCommunicationInfo should only be called when `e` is known to be a "
