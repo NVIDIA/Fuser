@@ -3012,7 +3012,7 @@ IterDomain* IterDomain::resize(
 
   Val* resized_id_size = nullptr;
   if (auto simplified_val = simplify_input_extent_plus_right_expansion(
-          right_expansion, in->extent())) {
+          right_expansion, in->getMaybeExpandedExtent())) {
     resized_id_size =
         SimplifyingIrBuilder::addExpr(left_expansion, simplified_val);
   } else {
@@ -3025,7 +3025,7 @@ IterDomain* IterDomain::resize(
   // If output IterType is provided, use it. Otherwise, if we can prove the
   // resized extent is 1, set to Broadcast, if we can prove it is >1 set to
   // Iteration, and otherwise fall back to Symbolic.
-  IterType iter_type = IterType::Symbolic;
+  auto iter_type = IterType::Symbolic;
   if (iter_type_opt.has_value()) {
     iter_type = iter_type_opt.value();
   } else if (left_expansion->isConstInt() && right_expansion->isConstInt()) {
@@ -4411,8 +4411,7 @@ std::string PadOp::toString(int indent_size) const {
   std::stringstream ss;
   indent(ss, indent_size) << out()->toString() << "\n";
   indent(ss, indent_size) << "   = pad( " << in()->toString() << ", {"
-                          << toDelimitedString(getPadWidths()) << "}"
-                          << " )\n";
+                          << toDelimitedString(getPadWidths()) << "}" << " )\n";
   return ss.str();
 }
 
@@ -5880,26 +5879,19 @@ std::string GroupedMmaOp::toString(int indent_size) const {
   if (outGamma() != nullptr) {
     ss << ", " << outGamma();
   }
-  ss << " = GroupedMmaOp("
-     << "mat1=" << matrix1() << ", "
-     << "mat2=" << matrix2() << ", "
-     << "offsets=" << offsets();
+  ss << " = GroupedMmaOp(" << "mat1=" << matrix1() << ", "
+     << "mat2=" << matrix2() << ", " << "offsets=" << offsets();
   if (hasScale()) {
-    ss << ", "
-       << "scale1=" << scale1() << ", "
-       << "scale2=" << scale2();
+    ss << ", " << "scale1=" << scale1() << ", " << "scale2=" << scale2();
   }
   if (hasAlpha()) {
-    ss << ", "
-       << "alpha=" << alpha();
+    ss << ", " << "alpha=" << alpha();
   }
   if (hasBias()) {
-    ss << ", "
-       << "bias=" << bias();
+    ss << ", " << "bias=" << bias();
   }
   if (hasBeta()) {
-    ss << ", "
-       << "beta=" << beta();
+    ss << ", " << "beta=" << beta();
   }
   ss << ")\n";
   return ss.str();
