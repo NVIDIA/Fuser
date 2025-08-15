@@ -54,8 +54,8 @@ void HostIrJitImpl::compile() {
 *Detailed Implementation:* https://github.com/NVIDIA/Fuser/blob/main/csrc/host_ir/jit.cpp#L1125-#L1176
 
 ### 3. External Function Integration
-In llvm level, we wrap aten fallbacks or other llvm unsupported functions into external C++ calls.
-Currently our JIT supports wrapper functions with:
+The LLVM IR we generate contain external C++ calls that wrap ATen fallbacks and other things 
+that are hard to implement in LLVM IR. Currently Host IR JIT supports wrapper functions with:
 
 - **Aten Fallbacks**: `matmul`, `linear`, `permute`, `reshape`, `at_empty_strided_cuda`
 - **Memory Management**: `new_tensor`, `delete_tensor`, `set_tensor`
@@ -72,13 +72,15 @@ Currently, Host IR JIT supports these expressions:
 *Detailed Implementation:* https://github.com/NVIDIA/Fuser/blob/main/csrc/host_ir/jit.cpp#L783-#L1123
 
 ## Runtime Execution
-
+**Below code snippets are a pseudo code for Host IR jit architecture.**
 ### 1. Function Interface
 The compiled JIT function follows this signature:
 ```cpp
 using main_func_t = void (*)(int64_t, const void**, void**);
 // Parameters: cache_id, input_tensors, output_tensors
 ```
+*Detailed Implementation:* https://github.com/NVIDIA/Fuser/blob/main/csrc/host_ir/jit.cpp#L46
+
 
 ### 2. Execution Flow
 ```cpp
@@ -94,14 +96,24 @@ KernelArgumentHolder HostIrJitImpl::runWithInputs(const KernelArgumentHolder& ar
   return outputs;
 }
 ```
+*Detailed Implementation:* https://github.com/NVIDIA/Fuser/blob/main/csrc/host_ir/jit.cpp#L1399-#L1453
 
 ## Configuration and Build Options
-`python setup.py install --build-with-host-ir-jit` will enables NVFUSER_HOST_IR_JIT flag and thus select Host IR JIT as
-backend by default. Otherwise the default backend is Host IR Evaluator. In the future, when llvm is fully supported in
-all build machines, we are able to get rid of this opt-in flag and rather use `enableOption` to control backend switching
-after build is done.
+Building nvFuser project with `NVFUSER_HOST_IR_JIT=1` will enables Host IR JIT as default runtime in Host IR execution path.
+Otherwise the default runtime is Host IR Evaluator. In the future, when llvm is fully supported in all build machines, we are able 
+to get rid of this opt-in flag and rather use `enableOption` to control backend switching after build is done.
 
-## Future Integration plan & steps to turn on by default
+Sample build
+```python
+NVFUSER_HOST_IR_JIT=1 pip install --no-build-isolation -e python -v
+```
+or
+```python
+NVFUSER_HOST_IR_JIT=1 _bn
+```
+## Future Integration plan
+We plan to turn on host IR JIT by default after its function and performance are on par.
+Known missing supports and bugs are:
 
 **Ops need to be supported:**
 - Stream operations
@@ -113,8 +125,11 @@ after build is done.
 - Dynamic shape support in launchKernel
 - Correct shape and stride handling for multi device tensor
 
-**Roadmap**
+A key challenge to turn on Host IR JIT by default is that Host IR JIT and host IR lowering, another opt-in feature, are currently inter-dependent. Host IR JIT requires FusionKernelRuntime to turn on Host IR lowering to generate Host IR. Host IR lowering also needs Host IR JIT to keep latency low. 
+We plan to follow the steps below to turn on both:
 - Enable currently Host IR path (without JIT) by default for multi-gpu, with loose requirement of latency
 - Enable Host IR JIT for multi-gpu with small set of ops coverage.
 - Enable Host IR JIT for single-gpu with small set of ops coverage, ensuring no latency regression
 - Enable Host IR JIT for single gpu with full set of ops coverage
+
+**More details**
