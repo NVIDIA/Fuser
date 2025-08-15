@@ -2038,8 +2038,7 @@ class SegmentedGroupTaskGraphConverter {
         data.definition = task_id;
         if (auto* aliased_input_tv = dynamic_cast<TensorView*>(
                 tv->fusion()->getOutputAlias(tv).aliased_io)) {
-          TaskGraph::DataId alias_id = maybeRegisterTv(aliased_input_tv);
-          data.input_alias = alias_id;
+          data.aliases_input = maybeRegisterTv(aliased_input_tv);
         }
         data.can_free = !tv->isFusionOutput();
         outputs.push_back(data_id);
@@ -2066,7 +2065,7 @@ class SegmentedGroupTaskGraphConverter {
       all_data_.emplace_back(
           /*definition=*/std::nullopt,
           /*uses=*/std::vector<TaskGraph::TaskId>{},
-          /*input_alias=*/std::nullopt,
+          /*aliases_input=*/std::nullopt,
           size,
           /*can_free=*/true);
       return new_id;

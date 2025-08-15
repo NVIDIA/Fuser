@@ -9,6 +9,7 @@
 #include <graph/task_graph.h>
 #include <utils.h>
 
+#include <algorithm>
 #include <limits>
 #include <set>
 #include <sstream>
@@ -71,11 +72,11 @@ void TaskGraph::validateSteps(const std::vector<Step>& steps) const {
     // Allocate outputs
     for (const DataId output_id : task.outputs) {
       const Data& data = getData(output_id);
-      if (data.input_alias.has_value()) {
+      if (data.aliases_input.has_value()) {
         // Check that the aliased input has no further uses
         // Note that we will decrement this use count later in this function
         NVF_ERROR(
-            num_uses_.at((size_t)data.input_alias.value()) == 1,
+            num_uses_.at((size_t)data.aliases_input.value()) == 1,
             "Tried to execute segment that would overwrite input alias before "
             "some of its uses");
       } else {
@@ -129,7 +130,14 @@ namespace {
 class TaskSorter {
  public:
   TaskSorter(const TaskGraph& graph, bool validate, int64_t max_iters)
-      : graph_(graph), validate_(validate), max_iters_(max_iters) {
+      : graph_(graph),
+        validate_(validate),
+        max_iters_(max_iters),
+        has_aliasing_(std::ranges::any_of(
+            arange(graph.numData()),
+            [&graph](TaskGraph::DataId data_id) {
+              return graph.getData(data_id).aliases_input.has_value();
+            })) {
     sort();
   }
 
@@ -167,13 +175,14 @@ class TaskSorter {
     for (const TaskGraph::DataId output_id : task.outputs) {
       const TaskGraph::Data& output = graph_.getData(output_id);
       // Allocate outputs if not aliased
-      if (!output.input_alias.has_value()) {
+      if (!output.aliases_input.has_value()) {
         allocated += output.size;
       }
 
       // Update outstanding_dependencies_ and ready_tasks_ for each use
       for (const TaskGraph::TaskId use_id : output.uses) {
-        if (--outstanding_dependencies_.at((size_t)use_id) == 0) {
+        --outstanding_dependencies_.at((size_t)use_id);
+        if (taskIsReady(use_id)) {
           ready_tasks_.insert(use_id);
         }
       }
@@ -229,7 +238,44 @@ class TaskSorter {
     return last_task_id;
   }
 
+  //! A task is ready if it has no outstanding_dependencies _and_ it is the last
+  //! use for all of its aliased inputs.
+  bool taskIsReady(TaskGraph::TaskId task_id) const {
+    if (outstanding_dependencies_.at((size_t)task_id) != 0) {
+      return false;
+    }
+    if (!has_aliasing_ || !task_has_aliased_input_.at((size_t)task_id)) {
+      return true;
+    }
+    // The rest of this function is the aliasing dependency check
+    for (const TaskGraph::DataId output_id : arange(graph_.numData())) {
+      const TaskGraph::Data& output_data = graph_.getData(output_id);
+      if (output_data.aliases_input.has_value()) {
+        TaskGraph::DataId input_id = output_data.aliases_input.value();
+        // Check for future uses (beyond the current one)
+        if (future_uses_.at((size_t)input_id) > 1) {
+          return false;
+        }
+      }
+    }
+    return true;
+  }
+
   void sort() {
+    if (has_aliasing_) {
+      task_has_aliased_input_.reserve(graph_.numTasks());
+      for (const TaskGraph::DataId data_id : arange(graph_.numData())) {
+        const TaskGraph::Data& data = graph_.getData(data_id);
+        if (data.aliases_input.has_value()) {
+          NVF_ERROR(
+              data.definition.has_value(),
+              "Data that aliases input must have a definition");
+          task_has_aliased_input_.at(data.definition.value()) = true;
+          continue;
+        }
+      }
+    }
+
     // Set up outstanding_dependencies_, future_uses_, and ready_tasks_
     outstanding_dependencies_.reserve(graph_.numTasks());
     for (const TaskGraph::TaskId task_id : arange(graph_.numTasks())) {
@@ -243,7 +289,7 @@ class TaskSorter {
         }
       }
       outstanding_dependencies_.push_back(inputs_to_compute);
-      if (inputs_to_compute == 0) {
+      if (taskIsReady(task_id)) {
         ready_tasks_.insert(task_id);
       }
     }
@@ -316,8 +362,17 @@ class TaskSorter {
 
  private:
   const TaskGraph& graph_;
-  bool validate_;
-  int64_t max_iters_;
+  const bool validate_;
+  const int64_t max_iters_;
+
+  //! This allows us to skip aliasing checks in the common case where no inputs
+  //! are aliased by outputs
+  const bool has_aliasing_ = false;
+  //! This tells us which tasks overwrite one of their inputs. For these, we
+  //! will need to check that the aliased input has no future uses before
+  //! advancing to it.
+  std::vector<bool> task_has_aliased_input_;
+
   TaskGraph::SortResult result_;
   std::vector<TaskGraph::Step> steps_;
 
@@ -353,9 +408,9 @@ std::string TaskGraph::Data::toString() const {
      << (definition.has_value() ? std::to_string(definition.value()) : "none");
   ss << ", uses={" << uses << "}";
   ss << ", size=" << size;
-  ss << ", alias="
-     << (input_alias.has_value() ? std::to_string(input_alias.value())
-                                 : "none");
+  ss << ", aliases_input="
+     << (aliases_input.has_value() ? std::to_string(aliases_input.value())
+                                   : "none");
   ss << ", can_free=" << (can_free ? "yes" : "no");
   ss << "}";
   return ss.str();

@@ -59,7 +59,7 @@ class TaskGraph {
     //! Data's definition, instead we re-use the space from the specified input.
     //! Note that this implies an ordering constraint which we will check, since
     //! the definition must be the last use of the aliased input.
-    std::optional<DataId> input_alias;
+    std::optional<DataId> aliases_input;
     Size size;
 
     //! This indicates whether we are able to free this data after its last use.
@@ -135,8 +135,8 @@ class TaskGraph {
   std::string toString() const;
 
  private:
-  std::vector<Task> tasks_;
-  std::vector<Data> data_;
+  const std::vector<Task> tasks_;
+  const std::vector<Data> data_;
 
   //! How much data is allocated by data that has no definition, i.e. input data
   Size initial_allocation_ = 0;
