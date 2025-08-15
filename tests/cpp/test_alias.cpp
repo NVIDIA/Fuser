@@ -1651,8 +1651,6 @@ TEST_F(AliasTest, SliceOfExpandedBroadcast) {
   TensorView* out = slice(in, {0, 1}, {2, 3});
   fusion->addOutput(out);
 
-  fusion->printMath();
-
   FusionExecutorCache fec(std::move(fusion));
   at::Tensor in_tensor = at::randn({2}).cuda().as_strided({2, 3}, {1, 0});
   auto out_tensors = fec.runFusionWithInputs({in_tensor});
