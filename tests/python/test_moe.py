@@ -51,9 +51,6 @@ _grouped_mm = torch.compiler.allow_in_graph(torch._grouped_mm)
 # multiples of 16.
 def grouped_mm(a: torch.Tensor, b: torch.Tensor, offsets: torch.Tensor) -> torch.Tensor:
     if torch.compiler.is_compiling():
-        # Without the cast, we see `RuntimeError: Offsets tensor must be integer (int32) tensor, but got torch.int64.`
-        # from PyTorch.
-        offsets = offsets.to(torch.int32)
         return _grouped_mm(a, b, offsets)
 
     group_sizes = _group_sizes_from_offsets(offsets)
@@ -120,7 +117,7 @@ class Llama4MoE(nn.Module):
             device=topk_ids.device,
             dtype=torch.int32,
         )  # [s, n]
-        counts.scatter_(1, topk_ids, 1)  # [s, n]
+        counts = counts.scatter(1, topk_ids, 1)  # [s, n]
         tokens_per_expert = counts.sum(0)  # [n]
 
         token_ids_sorted_by_expert_id = topk_ids.view(-1).argsort()  # [s]
@@ -128,13 +125,18 @@ class Llama4MoE(nn.Module):
             token_ids_sorted_by_expert_id
         ]  # [s, h]
 
-        offsets = torch.cumsum(tokens_per_expert, 0)  # [n]
+        # Without `torch.int32`, we see `RuntimeError: Offsets tensor must be integer (int32) tensor, but got torch.int64.`
+        # from PyTorch when calling _grouped_mm.
+        offsets = torch.cumsum(tokens_per_expert, 0, dtype=torch.int32)  # [n]
         outs_sorted_by_expert_id = self.routed_experts(
             tokens_sorted_by_expert_id, offsets
         )  # [s, h]
 
-        outs_sorted_by_token_id = outs_sorted_by_expert_id[
+        token_ids_sorted_by_expert_inverse_id = torch.argsort(
             token_ids_sorted_by_expert_id
+        )
+        outs_sorted_by_token_id = outs_sorted_by_expert_id[
+            token_ids_sorted_by_expert_inverse_id
         ]
 
         return outs_sorted_by_token_id
