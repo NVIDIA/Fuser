@@ -8,20 +8,23 @@
 
 ## Introduction
 
-The Host IR JIT (Just-In-Time) is a new runtime backend targeting to reduce host side latency, which:
+Host IR JIT (Just-In-Time) is a new runtime targeting to reduce host side latency. 
+It:
 1. captures graph dependencies at compile time
 2. has register aligned access in runtime comparing with hash table lookup
 
 ## JIT Compilation Process
 
 ### 1. LLVM Integration
-The host ir jit system uses LLVM's ORC (On-Request Compilation) jit framework:
-LLVM IR is translated from host ir and saved as an executable in LLVM ORC JIT
+Host IR JIT uses LLVM's ORC (On-Request Compilation) JIT framework:
+LLVM IR is translated from host IR and saved as an executable in LLVM ORC JIT
 at compile time. During runtime, LLVM ORC JIT calls the saved executable with
 given inputs and derives results.
 
 
 ### 2. Compilation Pipeline
+
+**Below code snippets are a pseudo code for host ir jit architecture.**
 
 ```cpp
 void HostIrJitImpl::compile() {
@@ -48,6 +51,7 @@ void HostIrJitImpl::compile() {
   main_func_ = jit_->lookup(kMainFuncName);
 }
 ```
+*Detailed Implementation:* https://github.com/NVIDIA/Fuser/blob/main/csrc/host_ir/jit.cpp#L1125-#L1176
 
 ### 3. External Function Integration
 In llvm level, we wrap aten fallbacks or other llvm unsupported functions into external C++ calls.
@@ -57,11 +61,15 @@ Currently our JIT supports wrapper functions with:
 - **Memory Management**: `new_tensor`, `delete_tensor`, `set_tensor`
 - **nvFuser Interals** `launchKernel`
 - **Profiling**: NVTX range push/pop for performance analysis
+  
+*Detailed Implementation:* https://github.com/NVIDIA/Fuser/blob/main/csrc/host_ir/jit.cpp#L1195-#L1396
 
 ### 3. IR Translation
 The `HostIrCompileDispatcher` translates Host IR expression nodes to LLVM IR:
 Currently, host ir jit supports these expressions:
 `ViewOp`, `LoadStoreOp`, `MatmulOp`, `LinearOp`, `LaunchKernel`, `Allocate`, `Deallocate`
+
+*Detailed Implementation:* https://github.com/NVIDIA/Fuser/blob/main/csrc/host_ir/jit.cpp#L783-#L1123
 
 ## Runtime Execution
 
