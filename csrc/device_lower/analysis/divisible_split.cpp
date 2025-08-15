@@ -63,14 +63,17 @@ std::unordered_set<Split*> getAllDivisibleSplits(
     all_divisible_splits.insert(split_exprs.begin(), split_exprs.end());
   }
 
-  // Vectorized dimensions are enforced to be a result of divisible splits.
-  // Gather vectorized splits.
+  // Vectorized and Grouped dimensions are enforced to be a result of divisible
+  // splits. Gather vectorized and grouped splits. Grouped dims are that
+  // converted from vectorized dims, e.g. iter dim of outer reduction is
+  // parallelized with vectorization for input and grouped for reduction tv.
   for (auto tv : all_tvs) {
     auto vec_id_it = std::find_if(
         tv->getLoopDomain().begin(),
         tv->getLoopDomain().end(),
         [](IterDomain* id) {
-          return id->getParallelType() == ParallelType::Vectorize;
+          return id->getParallelType() == ParallelType::Vectorize ||
+              id->getParallelType() == ParallelType::Group;
         });
 
     if (vec_id_it == tv->getLoopDomain().end()) {
