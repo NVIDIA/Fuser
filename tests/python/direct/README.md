@@ -111,11 +111,6 @@ The following 95 tests exist in `tests/python/test_python_frontend.py` but are *
 - `test_zero_size_dim` - Tests zero size dimensions
 
 #### Issue-Specific Tests
-- `test_issue1273` - Tests fix for issue 1273
-- `test_issue1277` - Tests fix for issue 1277
-- `test_issue1279` - Tests fix for issue 1279
-- `test_issue1310` - Tests fix for issue 1310
-- `test_issue1393` - Tests fix for issue 1393
 - `test_issue1691` - Tests fix for issue 1691
 - `test_issue1706` - Tests fix for issue 1706
 - `test_issue1872` - Tests fix for issue 1872
@@ -148,6 +143,11 @@ Both test files contain these common tests:
 - `test_issue1129` - Tests fix for issue 1129 (reshape and index_select with strided tensors)
 - `test_issue1246` - Tests fix for issue 1246 (concatenation with empty tensors and strided tensors)
 - `test_issue1270` - Tests fix for issue 1270 (empty tensors and dead code removal)
+- `test_issue1273` - Tests fix for issue 1273 (squeeze of dynamic input handling)
+- `test_issue1277` - Tests fix for issue 1277 (complex operations with strided tensors and slicing)
+- `test_issue1279` - Tests fix for issue 1279 (var_mean operations with casting)
+- `test_issue1310` - Tests fix for issue 1310 (input forwarding with multiple UnaryOps)
+- `test_issue1393` - Tests fix for issue 1393 (complex operations with strided tensors and broadcasting)
 - `test_issue2545` - Tests fix for issue 2545 (complex operations with empty tensors and concatenation)
 - `test_issue2549` - Tests fix for issue 2549 (broadcast_in_dim and division operations)
 - `test_cast_double_to_half` - Casting double to half precision
@@ -365,6 +365,64 @@ Reproduction tests for specific issues:
   - Verifies proper handling of empty tensor operations that should not cause problems
   - Tests full tensor creation with empty shapes
   - Compares nvFuser output with PyTorch reference implementation
+
+#### `test_issue1273()`
+- **Purpose**: Tests fix for issue 1273 - squeeze of dynamic input handling
+- **Functionality**:
+  - Tests squeeze operations with dynamic input tensors having strided layouts
+  - Tests complex operations involving reshape, var_mean, broadcast_in_dim
+  - Tests layer normalization-like operations with variance and mean
+  - Tests proper handling of tensor reshaping and broadcasting
+  - Tests correct computation of normalization operations
+  - Tests rsqrt operations and tensor arithmetic
+  - Compares nvFuser output with PyTorch reference implementation
+
+#### `test_issue1277()`
+- **Purpose**: Tests fix for issue 1277 - complex operations with strided tensors and slicing
+- **Functionality**:
+  - Tests complex operations with multiple strided tensors having complex memory layouts
+  - Tests extensive slicing operations with different indices and configurations
+  - Tests padding operations with various configurations and padding values
+  - Tests permutation and arithmetic operations on tensors
+  - Tests complex tensor manipulation sequences involving multiple operations
+  - Tests proper handling of resized extents and expression simplification
+  - Tests multiple output tensors from a single fusion
+  - Tests performance characteristics of complex fusion operations
+
+#### `test_issue1279()`
+- **Purpose**: Tests fix for issue 1279 - var_mean operations with casting
+- **Functionality**:
+  - Tests var_mean operations with half-precision (float16) input tensors
+  - Tests casting operations between different data types (Half to Float and back)
+  - Tests variance and mean computation with correction parameter
+  - Tests proper handling of dimension reduction operations
+  - Tests multiple output tensors from var_mean operation
+  - Tests statistical operations with mixed precision
+  - Compares nvFuser output with PyTorch reference implementation
+
+#### `test_issue1310()`
+- **Purpose**: Tests fix for issue 1310 - input forwarding with multiple UnaryOps
+- **Functionality**:
+  - Tests input forwarding when an input is used in multiple UnaryOps
+  - Tests multiple cast operations on the same input tensor
+  - Tests different reduction operations on cast results
+  - Tests proper handling of tensor aliasing and forwarding
+  - Tests correct computation of multiple reduction operations
+  - Tests bfloat16 to float32 casting operations
+  - Tests sum operations along different dimensions
+  - Compares nvFuser output with PyTorch reference implementation
+
+#### `test_issue1393()`
+- **Purpose**: Tests fix for issue 1393 - complex operations with strided tensors and broadcasting
+- **Functionality**:
+  - Tests complex operations with strided tensors having non-standard memory layouts
+  - Tests casting operations between different data types (Half to Float and back)
+  - Tests multiplication and reshape operations on tensors
+  - Tests broadcast_in_dim operations with explicit dimensions
+  - Tests complex tensor manipulation sequences
+  - Tests proper handling of tensor contiguity and strides
+  - Tests vector definition and scalar operations
+  - Tests mixed precision arithmetic operations
 
 #### `test_issue2545()`
 - **Purpose**: Tests fix for issue 2545 - complex operations with empty tensors and concatenation
