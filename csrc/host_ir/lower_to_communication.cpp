@@ -523,7 +523,7 @@ std::vector<Expr*> convertSingleOpToCommunication(
       "Resharding on an inner axis is not lowerable ",
       e->toString());
 
-  if (auto* load_store = dynamic_cast<LoadStoreOp*>(e)) {
+  if (e->isA<LoadStoreOp>()) {
     if (!is_input_sharded && is_output_sharded) {
       lowerToScatter(input_tv, output_tv, backend, comms);
     } else if (is_input_sharded && !is_output_sharded) {
