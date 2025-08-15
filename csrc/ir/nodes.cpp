@@ -329,7 +329,7 @@ std::vector<PolymorphicValue> ScatterOp::evaluate(
   if (src()->isA<TensorView>()) {
     return {at::scatter(input, dimension, index, inputs.at(2).as<at::Tensor>())};
   } else {
-    return {at::scatter(input, dimension, index, toScalar(inputs.back()))};
+    return {at::scatter(input, dimension, index, PolymorphicValue_functions::toScalar(inputs.back()))};
   }
 }
 
