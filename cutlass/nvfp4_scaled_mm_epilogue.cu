@@ -63,7 +63,7 @@ struct Fp4GemmSm100 {
   // C/D matrix configuration
   using ElementD = cutlass::float_e2m1_t;
   using ElementC = cutlass::float_e2m1_t;
-  using ElementSFD = cutlass::float_ue8m0_t;
+  using ElementSFD = cutlass::float_e4m3_t;
   using LayoutCTag = cutlass::layout::RowMajor;
   using LayoutDTag = cutlass::layout::RowMajor;
   using LayoutSFDTag = LayoutDTag;
@@ -190,7 +190,7 @@ typename T::Gemm::Arguments args_from_options(
   using ElementSFA = cutlass::float_ue4m3_t;
   using ElementSFB = cutlass::float_ue4m3_t;
   using ElementD = typename T::Gemm::ElementD;
-  using ElementSFD = cutlass::float_ue8m0_t;
+  using ElementSFD = cutlass::float_e4m3_t;
   using ElementCompute = float;
   using StrideA = typename T::StrideA;
   using StrideB = typename T::StrideB;
@@ -348,7 +348,6 @@ std::pair<torch::Tensor, torch::Tensor> nvfp4_scaled_mm_epilogue(
   torch::Tensor output_blockscale =
       at::empty({m, roundUp(n / 16, 4)}, blockscale_options);
 
-  // TODO modify runGemm
   runGemm<cutlass::float_e2m1_t>(
       output,
       output_blockscale,
