@@ -28,7 +28,7 @@ void assertIsCompiledToHostIrContainer(
     const FusionExecutorCache& executor_cache) {
   FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
   if (isOptionEnabled(EnableOption::HostIrLowering)) {
-    auto hicExprs = runtime->getHostIrEvaluator().container().topLevelExprs();
+    auto hicExprs = runtime->getHostIrContainer().topLevelExprs();
     EXPECT_THAT(hicExprs, Contains(IsA<Communication>()))
         << "host ir container should have at least one communication";
   } else {

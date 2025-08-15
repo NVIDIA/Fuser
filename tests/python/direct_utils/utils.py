@@ -43,18 +43,29 @@ def check_captured_python_definition(reference_outputs, fd, inputs, device=None)
 
         torch.manual_seed(0)
         captured_outputs = fd_cap.execute(inputs, device=device)
-        for idx, ref_out in enumerate(reference_outputs):
+
+        if len(reference_outputs) != len(captured_outputs):
+            return False
+
+        # Check that the values of all outputs match
+        for ref_out, cap_out in zip(reference_outputs, captured_outputs):
             # torch.allclose does not work with fp8 datatype, so cast to fp64.
             # However, casting complex values to real discards the imaginary
             # part, so skip complex dtypes.
             if not ref_out.dtype.is_complex:
                 ref_out = ref_out.to(torch.float64)
-            if not captured_outputs[idx].dtype.is_complex:
-                captured_outputs[idx] = captured_outputs[idx].to(torch.float64)
-            match = torch.allclose(ref_out, captured_outputs[idx], equal_nan=True)
-            if not match:
+            if not cap_out.dtype.is_complex:
+                cap_out = cap_out.to(torch.float64)
+            if not torch.allclose(ref_out, cap_out, equal_nan=True):
                 return False
-        return True
+
+        # Check that the stride of all outputs match
+        return all(
+            [
+                ref_out.stride() == cap_out.stride()
+                for ref_out, cap_out in zip(reference_outputs, captured_outputs)
+            ]
+        )
     except Exception as err:
         print("\nException For Printed FusionDefinition:")
         print(
@@ -62,6 +73,14 @@ def check_captured_python_definition(reference_outputs, fd, inputs, device=None)
         )
         print(fd_str)
         raise err
+
+
+def verify_stride_order(output_strides, stride_order):
+    sorted_stride = list(output_strides)
+    rank = len(output_strides)
+    for idx, axis in enumerate(stride_order):
+        sorted_stride[rank - 1 - axis] = output_strides[idx]
+    assert sorted(sorted_stride, reverse=True) == sorted_stride
 
 
 UPDATED_SDPA = LooseVersion(torch.__version__) >= LooseVersion("2.7.0")
@@ -81,4 +100,13 @@ def define_sdpa_rng_state(fd: FusionDefinition) -> tuple[TensorView, TensorView]
         dtype=dtype,
         is_cpu=is_cpu,
     )
+    return philox_seed, philox_offset
+
+
+def create_sdpa_rng_tensors() -> tuple[torch.Tensor, torch.Tensor]:
+    dtype = torch.uint64 if UPDATED_SDPA else torch.int64
+    device = "cuda" if UPDATED_SDPA else "cpu"
+    philox_shape = (2,) if UPDATED_SDPA else ()
+    philox_seed = torch.testing.make_tensor(philox_shape, device=device, dtype=dtype)
+    philox_offset = torch.testing.make_tensor((), device=device, dtype=dtype)
     return philox_seed, philox_offset

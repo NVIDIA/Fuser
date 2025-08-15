@@ -11,6 +11,9 @@
 
 #include <fusion_segmenter.h>
 #include <host_ir/executor.h>
+#ifdef NVFUSER_HOST_IR_JIT
+#include <host_ir/jit.h>
+#endif
 #include <polymorphic_value.h>
 #include <runtime/executor.h>
 #include <runtime/executor_kernel_arg.h>
@@ -112,7 +115,7 @@ class FusionKernelRuntime {
   }
 
   //! Returns the fusion segments if applicable
-  SegmentedFusion* fusionSegments() const;
+  NVF_API SegmentedFusion* fusionSegments() const;
 
   //! Returns the list of heuristics in this runtime
   HeuristicParamsList* schedulerHeuristics() const;
@@ -139,9 +142,14 @@ class FusionKernelRuntime {
 
   const std::vector<std::unique_ptr<ExecutorAbstract>>& executors() const;
 
-  const hir::HostIrEvaluator& getHostIrEvaluator() const {
-    return *hie_.get();
-  };
+  //! Get the Host IR Container
+  const hir::HostIrContainer& getHostIrContainer() const {
+#ifdef NVFUSER_HOST_IR_JIT
+    return hij_->container();
+#else
+    return hie_->container();
+#endif
+  }
 
  private:
   //! Runs each fusion segment given arguments. The outputs for a fusion are
@@ -183,8 +191,13 @@ class FusionKernelRuntime {
   //! Executors holding compiled kernels
   std::vector<std::unique_ptr<ExecutorAbstract>> executors_;
 
+#ifdef NVFUSER_HOST_IR_JIT
+  //! Host IR JIT
+  std::unique_ptr<HostIrJit> hij_;
+#else
   //! Host IR Evaluator
   std::unique_ptr<hir::HostIrEvaluator> hie_;
+#endif
 
   // A metadata copy of initial arguments used to contruct this
   // FusionKernelRuntime. Used during deserialization to schedule the fusion

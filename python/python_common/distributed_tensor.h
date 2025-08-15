@@ -19,7 +19,8 @@ namespace nvfuser {
 
 class Sharding {
  public:
-  explicit Sharding(DeviceMesh mesh = DeviceMesh()) : mesh_(std::move(mesh)) {}
+  explicit NVF_API Sharding(DeviceMesh mesh = DeviceMesh())
+      : mesh_(std::move(mesh)) {}
   Sharding(const Sharding&) = delete;
   Sharding& operator=(const Sharding&) = delete;
   Sharding(Sharding&&) = default;
@@ -29,9 +30,9 @@ class Sharding {
     return mesh_;
   }
 
-  void setAxisIsShardedOn(int64_t axis, ParallelType parallel_type);
+  NVF_API void setAxisIsShardedOn(int64_t axis, ParallelType parallel_type);
 
-  int64_t axisShardedOn(ParallelType parallel_type) const;
+  NVF_API int64_t axisShardedOn(ParallelType parallel_type) const;
 
  private:
   DeviceMesh mesh_;
@@ -41,6 +42,6 @@ class Sharding {
 // Returns the output shardings of the given fusion. As a short cut, if none of
 // the outputs have a device mesh, returns an empty vector indicating single-GPU
 // execution.
-std::vector<Sharding> getOutputShardings(Fusion* fusion);
+NVF_API std::vector<Sharding> getOutputShardings(Fusion* fusion);
 
 } // namespace nvfuser
