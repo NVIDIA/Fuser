@@ -119,13 +119,11 @@ def test_nvfp4_gemm_epilogue(
     alpha = 1.0 / (a_global_scale * b_global_scale)
     global_normconst = torch.tensor(2, dtype=torch.float, device="cuda")
 
-
     a_fp4, a_scale_linear = pytorch_nvfp4_quantize(a_dtype, a_global_scale)
     b_fp4, b_scale_linear = pytorch_nvfp4_quantize(b_dtype, b_global_scale)
     a_scale_interleaved = linear_to_swizzled_128_4(a_scale_linear)
     b_scale_interleaved = linear_to_swizzled_128_4(b_scale_linear)
 
-    '''
     expected_out = get_ref_results(
         a_fp4,
         b_fp4,
@@ -139,10 +137,19 @@ def test_nvfp4_gemm_epilogue(
         block_size,
         "cuda",
     )
-    '''
+
+    expected_out_fp4, expected_out_scale_linear = pytorch_nvfp4_quantize(
+        expected_out, global_normconst
+    )
+    expected_out_scale_interleaved = linear_to_swizzled_128_4(expected_out_scale_linear)
 
     out_fp4, out_scale_interleaved = nvf_cutlass.nvfp4_scaled_mm_epilogue(
         a_fp4, b_fp4, a_scale_interleaved, b_scale_interleaved, alpha, global_normconst
     )
 
-    #torch.testing.assert_close(out, expected_out.to(dtype=dtype), atol=1e-1, rtol=1e-1)
+    torch.testing.assert_close(
+        out_scale_interleaved.to(torch.float),
+        expected_out_scale_interleaved.to(torch.float),
+        atol=1e-1,
+        rtol=1e-1,
+    )
