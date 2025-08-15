@@ -8,7 +8,7 @@
 
 ## Introduction
 
-Host IR JIT (Just-In-Time) is a new runtime targeting to reduce host side latency. 
+Host IR JIT (Just-In-Time) is a new runtime targeting to reduce host side latency.
 It:
 1. captures graph dependencies at compile time
 2. has register aligned access in runtime comparing with hash table lookup
@@ -54,14 +54,14 @@ void HostIrJitImpl::compile() {
 *Detailed Implementation:* https://github.com/NVIDIA/Fuser/blob/main/csrc/host_ir/jit.cpp#L1125-#L1176
 
 ### 3. External Function Integration
-The LLVM IR we generate contain external C++ calls that wrap ATen fallbacks and other things 
+The LLVM IR we generate contain external C++ calls that wrap ATen fallbacks and other things
 that are hard to implement in LLVM IR. Currently Host IR JIT supports wrapper functions with:
 
 - **Aten Fallbacks**: `matmul`, `linear`, `permute`, `reshape`, `at_empty_strided_cuda`
 - **Memory Management**: `new_tensor`, `delete_tensor`, `set_tensor`
 - **nvFuser Interals** `launchKernel`
 - **Profiling**: NVTX range push/pop for performance analysis
-  
+
 *Detailed Implementation:* https://github.com/NVIDIA/Fuser/blob/main/csrc/host_ir/jit.cpp#L1195-#L1396
 
 ### 3. IR Translation
@@ -100,7 +100,7 @@ KernelArgumentHolder HostIrJitImpl::runWithInputs(const KernelArgumentHolder& ar
 
 ## Configuration and Build Options
 Building nvFuser project with `NVFUSER_HOST_IR_JIT=1` will enables Host IR JIT as default runtime in Host IR execution path.
-Otherwise the default runtime is Host IR Evaluator. In the future, when llvm is fully supported in all build machines, we are able 
+Otherwise the default runtime is Host IR Evaluator. In the future, when llvm is fully supported in all build machines, we are able
 to get rid of this opt-in flag and rather use `enableOption` to control backend switching after build is done.
 
 Sample build
@@ -125,7 +125,7 @@ Known missing supports and bugs are:
 - Dynamic shape support in launchKernel
 - Correct shape and stride handling for multi device tensor
 
-A key challenge to turn on Host IR JIT by default is that Host IR JIT and host IR lowering, another opt-in feature, are currently inter-dependent. Host IR JIT requires FusionKernelRuntime to turn on Host IR lowering to generate Host IR. Host IR lowering also needs Host IR JIT to keep latency low. 
+A key challenge to turn on Host IR JIT by default is that Host IR JIT and host IR lowering, another opt-in feature, are currently inter-dependent. Host IR JIT requires FusionKernelRuntime to turn on Host IR lowering to generate Host IR. Host IR lowering also needs Host IR JIT to keep latency low.
 We plan to follow the steps below to turn on both:
 - Enable currently Host IR path (without JIT) by default for multi-gpu, with loose requirement of latency
 - Enable Host IR JIT for multi-gpu with small set of ops coverage.
@@ -133,3 +133,4 @@ We plan to follow the steps below to turn on both:
 - Enable Host IR JIT for single gpu with full set of ops coverage
 
 **More details**
+......
