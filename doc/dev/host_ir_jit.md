@@ -17,14 +17,14 @@ It:
 
 ### 1. LLVM Integration
 Host IR JIT uses LLVM's ORC (On-Request Compilation) JIT framework:
-LLVM IR is translated from host IR and saved as an executable in LLVM ORC JIT
+LLVM IR is translated from Host IR and saved as an executable in LLVM ORC JIT
 at compile time. During runtime, LLVM ORC JIT calls the saved executable with
 given inputs and derives results.
 
 
 ### 2. Compilation Pipeline
 
-**Below code snippets are a pseudo code for host ir jit architecture.**
+**Below code snippets are a pseudo code for Host IR jit architecture.**
 
 ```cpp
 void HostIrJitImpl::compile() {
@@ -66,7 +66,7 @@ Currently our JIT supports wrapper functions with:
 
 ### 3. IR Translation
 The `HostIrCompileDispatcher` translates Host IR expression nodes to LLVM IR:
-Currently, host ir jit supports these expressions:
+Currently, Host IR JIT supports these expressions:
 `ViewOp`, `LoadStoreOp`, `MatmulOp`, `LinearOp`, `LaunchKernel`, `Allocate`, `Deallocate`
 
 *Detailed Implementation:* https://github.com/NVIDIA/Fuser/blob/main/csrc/host_ir/jit.cpp#L783-#L1123
@@ -96,8 +96,8 @@ KernelArgumentHolder HostIrJitImpl::runWithInputs(const KernelArgumentHolder& ar
 ```
 
 ## Configuration and Build Options
-`python setup.py install --build-with-host-ir-jit` will enables NVFUSER_HOST_IR_JIT flag and thus select host ir jit as
-backend by default. Otherwise the default backend is host ir evaluator. In the future, when llvm is fully supported in
+`python setup.py install --build-with-host-ir-jit` will enables NVFUSER_HOST_IR_JIT flag and thus select Host IR JIT as
+backend by default. Otherwise the default backend is Host IR Evaluator. In the future, when llvm is fully supported in
 all build machines, we are able to get rid of this opt-in flag and rather use `enableOption` to control backend switching
 after build is done.
 
@@ -114,7 +114,7 @@ after build is done.
 - Correct shape and stride handling for multi device tensor
 
 **Roadmap**
-- Enable currently Host IR path (without jit) by default for multi-gpu, with loose requirement of latency
-- Enable Host IR Jit for multi-gpu with small set of ops coverage.
-- Enable Host IR Jit for single-gpu with small set of ops coverage, ensuring no latency regression
-- Enable Host IR Jit for single gpu with full set of ops coverage
+- Enable currently Host IR path (without JIT) by default for multi-gpu, with loose requirement of latency
+- Enable Host IR JIT for multi-gpu with small set of ops coverage.
+- Enable Host IR JIT for single-gpu with small set of ops coverage, ensuring no latency regression
+- Enable Host IR JIT for single gpu with full set of ops coverage
