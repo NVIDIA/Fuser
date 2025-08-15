@@ -42,7 +42,6 @@ inline c10d::ReduceOp::RedOpType getC10dReduceOpType(BinaryOpType op) {
       return c10d::ReduceOp::RedOpType::BXOR;
     default:
       NVF_THROW("unsupported reduction operation");
-      return c10d::ReduceOp::RedOpType::UNUSED;
   }
 }
 

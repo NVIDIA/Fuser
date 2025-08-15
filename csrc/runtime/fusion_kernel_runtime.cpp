@@ -656,8 +656,18 @@ std::unordered_map<Val*, PolymorphicValue> FusionKernelRuntime::
     // something abstract. This is quite unsatisfying.
 
     // Run graph segment
-    KernelArgumentHolder group_runtime_outputs =
-        runKernelWithInput(group_runtime_inputs, group_to_run);
+    KernelArgumentHolder group_runtime_outputs;
+    try {
+      group_runtime_outputs =
+          runKernelWithInput(group_runtime_inputs, group_to_run);
+    } catch (const std::exception& e) {
+      // Set flag inside lambda so we can throw an exception after thread
+      // pool completes its work.
+      std::stringstream ss;
+      ss << "\nError from segmentation group " << group_to_run->groupId()
+         << ": " << e.what() << "\n";
+      throw std::runtime_error(ss.str());
+    }
 
     args_manager.updateWithSegmentOutputs(
         group_to_run->outputs(), group_runtime_outputs, run_order_id);
