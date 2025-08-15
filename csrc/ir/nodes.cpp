@@ -5926,7 +5926,7 @@ std::vector<PolymorphicValue> GroupedMmaOp::evaluate(
   const auto& mat2 = inputs[1].as<at::Tensor>();
   const auto& offsets = inputs[2].as<at::Tensor>();
 
-#if 0 && NVF_TORCH_VERSION_NO_LESS(2, 8, 0)
+#if 0
   at::Tensor alpha;
   at::Tensor bias;
   at::Tensor beta;
@@ -6083,9 +6083,13 @@ std::vector<PolymorphicValue> GroupedMmaOp::evaluate(
   for (int i = 0; i < offsets_cpu.size(0); ++i) {
     int start = offsets_cpu[i].item().toInt();
     int end = i != offsets_cpu.size(0) - 1 ? offsets_cpu[i + 1].item().toInt() : mat1.size(0);
+    // skip latent experts
+    if (end == start) {
+      continue;
+    }
     at::Tensor mat1_slice = mat1.slice(0, start, end);
     at::Tensor out_slice = result.slice(0, start, end);
-    at::matmul_out(out_slice, mat2[i], mat1_slice); 
+    at::matmul_out(out_slice, mat1_slice, mat2[i]); 
   }
   return {result};
 #endif
