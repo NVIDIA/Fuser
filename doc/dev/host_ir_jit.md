@@ -133,4 +133,4 @@ We plan to follow the steps below to turn on both:
 - Enable Host IR JIT for single gpu with full set of ops coverage
 
 **More details**
-......
+http://nv/eS2
