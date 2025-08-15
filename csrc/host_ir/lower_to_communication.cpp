@@ -523,8 +523,30 @@ std::vector<Expr*> convertSingleOpToCommunication(
       "Resharding on an inner axis is not lowerable ",
       e->toString());
 
-  if (auto* reduce = dynamic_cast<ReductionOp*>(e)) {
-    BinaryOpType op_type = reduce->getReductionOpType();
+  if (auto* load_store = dynamic_cast<LoadStoreOp*>(e)) {
+    if (!is_input_sharded && is_output_sharded) {
+      lowerToScatter(input_tv, output_tv, backend, comms);
+    } else if (is_input_sharded && !is_output_sharded) {
+      if (same_mesh) {
+        lowerToAllgather(input_tv, output_tv, backend, comms, my_device_idx);
+      } else {
+        lowerToGather(input_tv, output_tv, backend, comms);
+      }
+    } else {
+      // TODO(#4604): This is problematic for 2D sharding.
+      lowerToBroadcastOrSendRecv(input_tv, output_tv, backend, comms);
+    }
+  } else {
+    BinaryOpType op_type = [&]() {
+      if (auto* reduce = dynamic_cast<ReductionOp*>(e)) {
+        return reduce->getReductionOpType();
+      }
+      if (e->isA<SqueezeOp>()) {
+        return BinaryOpType::Add;
+      }
+      NVF_THROW("Expected a ReductionOp or a SqueezeOp, but got: ", e);
+    }();
+
     NVF_ERROR(
         is_input_sharded || sender_mesh.size() == 1,
         "the comm input must be sharded in case of reduce.",
@@ -545,55 +567,6 @@ std::vector<Expr*> convertSingleOpToCommunication(
       } else {
         lowerToReduce(input_tv, output_tv, op_type, backend, comms);
       }
-    }
-  } else if (auto* squeeze = dynamic_cast<SqueezeOp*>(e)) {
-    NVF_ERROR(
-        is_input_sharded || sender_mesh.size() == 1,
-        "the comm input must be sharded in case of reduce.",
-        "Insert a `set` before the reduction to reshard")
-    if (is_output_sharded) {
-      NVF_ERROR(
-          same_mesh,
-          "ReduceScatter operation must have the same sender and receiver "
-          "device mesh. "
-          "Insert a Set operation before or after the reduction to reshard ot "
-          "another device mesh");
-      lowerToReduceScatter(
-          input_tv,
-          output_tv,
-          BinaryOpType::Add,
-          backend,
-          comms,
-          my_device_idx);
-    } else {
-      if (same_mesh) {
-        lowerToAllreduce(
-            input_tv,
-            output_tv,
-            BinaryOpType::Add,
-            backend,
-            comms,
-            my_device_idx);
-      } else {
-        lowerToReduce(input_tv, output_tv, BinaryOpType::Add, backend, comms);
-      }
-    }
-  } else {
-    NVF_ERROR(
-        e->isA<LoadStoreOp>(),
-        "Expected a LoadStoreOp or a ReductionOp, but got: ",
-        e);
-    if (!is_input_sharded && is_output_sharded) {
-      lowerToScatter(input_tv, output_tv, backend, comms);
-    } else if (is_input_sharded && !is_output_sharded) {
-      if (same_mesh) {
-        lowerToAllgather(input_tv, output_tv, backend, comms, my_device_idx);
-      } else {
-        lowerToGather(input_tv, output_tv, backend, comms);
-      }
-    } else {
-      // TODO(#4604): This is problematic for 2D sharding.
-      lowerToBroadcastOrSendRecv(input_tv, output_tv, backend, comms);
     }
   }
 
