@@ -2979,14 +2979,14 @@ IterDomain* IterDomain::resize(
       "Non-zero stop offset not considered: ",
       in->toString());
 
-  // The overall extent is (in->extent() + left_expansion +
+  // The overall extent is (in_extent + left_expansion +
   // right_expansion). This can be simplified for a slice op as
   // the right expansion should look like (slice_end_offset -
-  // in->extent()), or (slice_end_offset + (- in->extent())), so the
+  // in_extent), or (slice_end_offset + (- in_extent)), so the
   // overall extent is left_expansion + slice_end_offset.
 
   // Detect common slice patterns and return a simplified Val
-  // representing (in->extent() + right_expansion) if possible
+  // representing (in_extent + right_expansion) if possible
   auto simplify_input_extent_plus_right_expansion = [](Val* right_expansion,
                                                        Val* in_extent) -> Val* {
     auto bop = dynamic_cast<BinaryOp*>(right_expansion->definition());
@@ -4411,7 +4411,7 @@ std::string PadOp::toString(int indent_size) const {
   std::stringstream ss;
   indent(ss, indent_size) << out()->toString() << "\n";
   indent(ss, indent_size) << "   = pad( " << in()->toString() << ", {"
-                          << toDelimitedString(getPadWidths()) << "}" << " )\n";
+                          << toDelimitedString(getPadWidths()) << "} )\n";
   return ss.str();
 }
 
