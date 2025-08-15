@@ -5020,6 +5020,48 @@ fd.execute(inputs)
         self.assertEqual(nvf_out[0].stride(), (1, 2, 2, 6))
 
 
+    def test_scatter_output_intermediate(self):
+        bsz = 128
+        hidden = 1024
+        scatter_size = 64
+        scatter_dim = 0
+
+        x = torch.randn([bsz, hidden], device="cuda")
+        _, ind = torch.topk(x, k=scatter_size, dim=scatter_dim)
+        src = torch.randn(scatter_size, hidden, device="cuda")
+        inputs = [x, ind, src]
+
+        def fusion_func(fd: FusionDefinition):
+            T0 = fd.define_tensor(
+                shape=[-1, -1],
+                contiguity=[True, True],
+                dtype=DataType.Float,
+                is_cpu=False,
+                stride_order=[1, 0],
+            )
+            T1 = fd.define_tensor(
+                shape=[-1, -1],
+                contiguity=[True, True],
+                dtype=DataType.Int,
+                is_cpu=False,
+                stride_order=[1, 0],
+            )
+            T2 = fd.define_tensor(
+                shape=[-1, -1],
+                contiguity=[True, True],
+                dtype=DataType.Float,
+                is_cpu=False,
+                stride_order=[1, 0],
+            )
+            T3 = fd.ops.scatter(T0, T1, T2, scatter_dim)
+            T4 = fd.ops.sigmoid(T3)
+            fd.add_output(T4)
+
+        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
+        eager_out = refs.sigmoid(torch.scatter(x, scatter_dim, ind, src))
+        self.assertEqual(eager_out, nvf_out[0])
+
+
 @pytest.mark.skip("https://github.com/NVIDIA/Fuser/issues/3740")
 def test_cat_qwen2_v2():
     def qwen2_cat_fusion_2(fd: FusionDefinition) -> None:
