@@ -5017,8 +5017,8 @@ fd.execute(inputs)
          
         nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
 
-        self.assertEqual(nvf_out[0], inputs[0].expand(2, 1, 3, 4))
-        self.assertEqual(nvf_out[0].stride(), (1, 2, 2, 6)
+        self.assertEqual(nvf_out[0], inputs[0].unsqueeze(1))
+        self.assertEqual(nvf_out[0].stride(), (1, 2, 2, 6))
         
 
 @pytest.mark.skip("https://github.com/NVIDIA/Fuser/issues/3740")
