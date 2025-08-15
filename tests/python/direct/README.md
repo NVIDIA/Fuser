@@ -23,13 +23,26 @@ The `tests/python/direct` directory contains the following test files:
 
 ### Overview
 - **Main frontend tests** (`tests/python/test_python_frontend.py`): 136 tests
-- **Direct frontend tests** (`tests/python/direct/test_python_frontend.py`): 56 tests
-- **Tests only in main**: 95 tests
+- **Direct frontend tests** (`tests/python/direct/test_python_frontend.py`, `tests/python/direct/test_repro.py`): 74 tests
+- **Tests only in main**: 77 tests
 - **Tests only in direct**: 15 tests
+
+#### Issue-Specific Test Migration
+
+A total of **18 issue-specific tests** have been successfully migrated from the main frontend (`tests/python/test_python_frontend.py`) to the direct frontend (`tests/python/direct/test_repro.py`). These tests were selected based on their importance for verifying critical bug fixes and edge cases in nvFuser.
+
+##### Migration Process
+Each migrated test underwent the following adaptations:
+1. **API Conversion**: Changed from `nvfuser` to `nvfuser_direct` imports
+2. **Fixture Adaptation**: Updated to use `nvfuser_direct_test` pytest fixture
+3. **Method Updates**: Changed `self.exec_nvfuser()` to `nvfuser_direct_test.exec_nvfuser()`
+4. **Assertion Updates**: Changed `self.assertEqual()` to `nvfuser_direct_test.assertEqual()`
+5. **Documentation**: Added comprehensive docstrings explaining test purpose and functionality
+6. **Code Optimization**: Updated vector definitions to use direct list passing where appropriate
 
 ### Tests Only in Main Frontend (Not in Direct)
 
-The following 95 tests exist in `tests/python/test_python_frontend.py` but are **NOT** present in `tests/python/direct/test_python_frontend.py`:
+The following 77 tests exist in `tests/python/test_python_frontend.py` but are **NOT** present in `tests/python/direct/test_python_frontend.py`:
 
 #### Advanced Operations & Features
 - `test_all_dim_var_mean` - Tests variance and mean across all dimensions
@@ -130,24 +143,6 @@ The following 15 tests exist in `tests/python/direct/test_python_frontend.py` bu
 Both test files contain these common tests:
 - `test_basic` - Basic fusion operations
 - `test_basic_fp16` - Basic operations with FP16
-- `test_issue1129` - Tests fix for issue 1129 (reshape and index_select with strided tensors)
-- `test_issue1246` - Tests fix for issue 1246 (concatenation with empty tensors and strided tensors)
-- `test_issue1270` - Tests fix for issue 1270 (empty tensors and dead code removal)
-- `test_issue1273` - Tests fix for issue 1273 (squeeze of dynamic input handling)
-- `test_issue1277` - Tests fix for issue 1277 (complex operations with strided tensors and slicing)
-- `test_issue1279` - Tests fix for issue 1279 (var_mean operations with casting)
-- `test_issue1310` - Tests fix for issue 1310 (input forwarding with multiple UnaryOps)
-- `test_issue1393` - Tests fix for issue 1393 (complex operations with strided tensors and broadcasting)
-- `test_issue1691` - Tests fix for issue 1691 (complex reduction operations with reshape and multiplication)
-- `test_issue1706` - Tests fix for issue 1706 (complex operations derived from Llama2 network)
-- `test_issue1872` - Tests fix for issue 1872 (full tensor creation with slice operations and casting)
-- `test_issue1953` - Tests fix for issue 1953 (complex operations with strided tensors and multiple data types)
-- `test_issue2275_repro1` - Tests fix for issue 2275 (unpadded concatenation operations with complex tensor manipulations)
-- `test_issue2275_repro2` - Tests fix for issue 2275 (unpadded concatenation operations with trigonometric functions)
-- `test_issue2545` - Tests fix for issue 2545 (complex operations with empty tensors and concatenation)
-- `test_issue2549` - Tests fix for issue 2549 (broadcast_in_dim and division operations)
-- `test_issue2755` - Tests fix for issue 2755 (slice operations with negation)
-- `test_issue3292` - Tests fix for issue 3292 (complex tensor operations with manual normalization and padding)
 - `test_cast_double_to_half` - Casting double to half precision
 - `test_cast_fp8` - FP8 casting operations
 - `test_promote_to_double` - Type promotion to double
@@ -182,6 +177,31 @@ Both test files contain these common tests:
 - `test_output_stride_order` - Output stride order handling
 - `test_output_stride_order_with_reduction` - Output stride order with reduction
 - `test_triu` - Upper triangular operations
+
+### Migrated Issue-Specific Tests
+
+The following 18 issue-specific tests have been migrated from the main frontend to the direct frontend and are now available in `tests/python/direct/test_repro.py`:
+
+- `test_issue1129` - Tests fix for issue 1129 (reshape and index_select with strided tensors)
+- `test_issue1246` - Tests fix for issue 1246 (concatenation with empty tensors and strided tensors)
+- `test_issue1270` - Tests fix for issue 1270 (empty tensors and dead code removal)
+- `test_issue1273` - Tests fix for issue 1273 (squeeze of dynamic input handling)
+- `test_issue1277` - Tests fix for issue 1277 (complex operations with strided tensors and slicing)
+- `test_issue1279` - Tests fix for issue 1279 (var_mean operations with casting)
+- `test_issue1310` - Tests fix for issue 1310 (input forwarding with multiple UnaryOps)
+- `test_issue1393` - Tests fix for issue 1393 (complex operations with strided tensors and broadcasting)
+- `test_issue1691` - Tests fix for issue 1691 (complex reduction operations with reshape and multiplication)
+- `test_issue1706` - Tests fix for issue 1706 (complex operations derived from Llama2 network)
+- `test_issue1872` - Tests fix for issue 1872 (full tensor creation with slice operations and casting)
+- `test_issue1953` - Tests fix for issue 1953 (complex operations with strided tensors and multiple data types)
+- `test_issue2275_repro1` - Tests fix for issue 2275 (unpadded concatenation operations with complex tensor manipulations)
+- `test_issue2275_repro2` - Tests fix for issue 2275 (unpadded concatenation operations with trigonometric functions)
+- `test_issue2545` - Tests fix for issue 2545 (complex operations with empty tensors and concatenation)
+- `test_issue2549` - Tests fix for issue 2549 (broadcast_in_dim and division operations)
+- `test_issue2755` - Tests fix for issue 2755 (slice operations with negation)
+- `test_issue3292` - Tests fix for issue 3292 (complex tensor operations with manual normalization and padding)
+
+These tests have been adapted to use the `nvfuser_direct` API and the `nvfuser_direct_test` pytest fixture, ensuring compatibility with the direct frontend while maintaining the same functionality as the original tests.
 
 ## Test Functions by File
 
