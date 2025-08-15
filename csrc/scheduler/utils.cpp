@@ -764,6 +764,34 @@ PersistentBufferInfo persistentBuffers(Fusion* fusion) {
   return persistent_buffer_info;
 }
 
+namespace {
+int64_t getAllocatedExtent(
+    TensorView* tv,
+    IterDomain* id,
+    ExpressionEvaluator& expr_eval) {
+  std::vector<Expr*> exprs = DependencyCheck::getAllExprsBetween(
+      {id},
+      {tv->getMaybeAllocationDomain().begin(),
+       tv->getMaybeAllocationDomain().end()});
+  IterDomain* alloc_id = id;
+  for (auto expr : exprs) {
+    Split* split = dynamic_cast<Split*>(expr);
+    NVF_CHECK(
+        split,
+        "Expected only split exprs between logical and allocation domains, "
+        "got ",
+        expr);
+    NVF_CHECK(split->outer()->isDeviceDim());
+    alloc_id = split->inner();
+  }
+  auto inferred_val = expr_eval.evaluate(alloc_id->extent());
+  NVF_ERROR(
+      inferred_val.hasValue(),
+      "Error inferring dimensions of reduction fusion.");
+  return inferred_val.as<int64_t>();
+}
+} // namespace
+
 ReductionTvProperties getReductionProperties(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
@@ -783,12 +811,13 @@ ReductionTvProperties getReductionProperties(
   int64_t inner_most_dimension_numel = 1;
   int64_t inner_most_dimension_ndims = 0;
 
+  ExpressionEvaluator& expr_eval = runtime_info.expressionEvaluator();
+
   // Start from the inner most dimension, and work outwards. If this is a 3D
   // pattern, i.e. theres a pattern like [r0, r1, i2, r3] or [i0, r1, r2, i3,
   // i4] then compute the inner most dimension to compute separately.
-  const auto& root_dom = tv->getMaybeRootDomain();
-  for (size_t i = root_dom.size(); i > 0; i--) {
-    auto id = root_dom[i - 1];
+  const auto& logical_domain = tv->getLogicalDomain();
+  for (IterDomain* id : logical_domain | std::views::reverse) {
     if (id->isBroadcast()) {
       continue;
     }
@@ -796,11 +825,9 @@ ReductionTvProperties getReductionProperties(
       dimensionality++;
       cur_dim_is_reduction = !cur_dim_is_reduction;
     } else if (dimensionality == 1) {
-      auto inferred_val =
-          runtime_info.expressionEvaluator().evaluate(id->extent());
-      NVF_ERROR(inferred_val.hasValue(), "Error inferring reduction size.");
+      int64_t allocated_extent = getAllocatedExtent(tv, id, expr_eval);
       inner_most_dimension_numel =
-          inner_most_dimension_numel * inferred_val.as<int64_t>();
+          inner_most_dimension_numel * allocated_extent;
       inner_most_dimension_ndims++;
     }
   }
@@ -810,16 +837,12 @@ ReductionTvProperties getReductionProperties(
   // Reduction element count
   int64_t total_reduction_numel = 1;
 
-  for (auto id : root_dom) {
-    auto inferred_val =
-        runtime_info.expressionEvaluator().evaluate(id->extent());
-    NVF_ERROR(
-        inferred_val.hasValue(),
-        "Error inferring dimensions of reduction fusion.");
+  for (IterDomain* id : logical_domain) {
+    int64_t allocated_extent = getAllocatedExtent(tv, id, expr_eval);
     if (id->isReduction()) {
-      total_reduction_numel *= inferred_val.as<int64_t>();
+      total_reduction_numel *= allocated_extent;
     } else {
-      total_iteration_numel *= inferred_val.as<int64_t>();
+      total_iteration_numel *= allocated_extent;
     }
   }
 

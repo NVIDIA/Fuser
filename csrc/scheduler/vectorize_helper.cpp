@@ -800,13 +800,33 @@ Val* ContiguousInnerDimensionsMapper::getContigMergeOfInnerSize(
       }
     }
 
+    // Get the logical ID corresponding to the allocation ID.
+    auto exprs = DependencyCheck::getAllExprsBetween(
+        {of_tv->getLogicalDomain().begin(), of_tv->getLogicalDomain().end()},
+        {alloc_iid});
+    IterDomain* logical_id = alloc_iid;
+    Val* num_devices = of_tv->container()->oneVal();
+    for (Expr* expr : exprs | std::views::reverse) {
+      auto split = dynamic_cast<Split*>(expr);
+      NVF_CHECK(
+          split,
+          "Expected only split exprs between logical and allocation domains, "
+          "got ",
+          expr);
+      NVF_CHECK(split->outer()->isDeviceDim());
+      logical_id = split->in();
+      num_devices = SimplifyingIrBuilder::mulExpr(num_devices, split->factor());
+    }
+
     // Mapping order isn't correct, cannot expand vectorization dimension.
-    if (projected_dims[--projected_dims_i] != alloc_iid) {
+    if (projected_dims[--projected_dims_i] != logical_id) {
       break;
     }
 
-    product_of_inner_extents = SimplifyingIrBuilder::mulExpr(
-        product_of_inner_extents, getProjectedExtent(alloc_iid));
+    auto sharded_extent = SimplifyingIrBuilder::divExpr(
+        getProjectedExtent(logical_id), num_devices);
+    product_of_inner_extents =
+        SimplifyingIrBuilder::mulExpr(product_of_inner_extents, sharded_extent);
   }
   return simplifyExpr(product_of_inner_extents);
 }
