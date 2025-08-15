@@ -16,7 +16,8 @@ The `tests/python/direct` directory contains the following test files:
 3. **test_sdpa.py** - Scaled Dot-Product Attention (SDPA) tests
 4. **test_cutlass_nvfp4_gemm.py** - CUTLASS nvFP4 GEMM tests
 5. **test_import.py** - Import functionality tests
-6. **conftest.py** - Test configuration and fixtures
+6. **test_repro.py** - Reproduction tests for specific issues
+7. **conftest.py** - Test configuration and fixtures
 
 ## Comparison: Main vs Direct Frontend Tests
 
@@ -50,7 +51,6 @@ The following 95 tests exist in `tests/python/test_python_frontend.py` but are *
 - `test_enable_disable_options` - Tests enable/disable options
 - `test_expand_to_zero` - Tests expansion to zero dimensions
 - `test_expanded_bcast_tensor` - Tests expanded broadcast tensors
-- `test_fix_2549` - Tests fix for issue 2549
 - `test_from_pytorch_fails_on_cpu_tensor` - Tests CPU tensor handling
 - `test_func_definition` - Tests function definition
 - `test_fusion_definition_error_cache` - Tests fusion definition error caching
@@ -82,7 +82,6 @@ The following 95 tests exist in `tests/python/test_python_frontend.py` but are *
 - `test_real_imag` - Tests real and imaginary parts
 - `test_reduction_complex_number` - Tests complex number reduction
 - `test_reduction_transpose_sched_issue2317` - Tests reduction transpose scheduling
-- `test_remove_empty_issue_2545` - Tests empty tensor removal
 - `test_replaced_sizes_pr2714` - Tests size replacement
 - `test_repro_script_generation` - Tests reproduction script generation
 - `test_reshape_squeeze_concretization` - Tests reshape squeeze concretization
@@ -112,9 +111,6 @@ The following 95 tests exist in `tests/python/test_python_frontend.py` but are *
 - `test_zero_size_dim` - Tests zero size dimensions
 
 #### Issue-Specific Tests
-- `test_issue1129` - Tests fix for issue 1129
-- `test_issue1246` - Tests fix for issue 1246
-- `test_issue1270` - Tests fix for issue 1270
 - `test_issue1273` - Tests fix for issue 1273
 - `test_issue1277` - Tests fix for issue 1277
 - `test_issue1279` - Tests fix for issue 1279
@@ -149,6 +145,11 @@ The following 15 tests exist in `tests/python/direct/test_python_frontend.py` bu
 Both test files contain these common tests:
 - `test_basic` - Basic fusion operations
 - `test_basic_fp16` - Basic operations with FP16
+- `test_issue1129` - Tests fix for issue 1129 (reshape and index_select with strided tensors)
+- `test_issue1246` - Tests fix for issue 1246 (concatenation with empty tensors and strided tensors)
+- `test_issue1270` - Tests fix for issue 1270 (empty tensors and dead code removal)
+- `test_issue2545` - Tests fix for issue 2545 (complex operations with empty tensors and concatenation)
+- `test_issue2549` - Tests fix for issue 2549 (broadcast_in_dim and division operations)
 - `test_cast_double_to_half` - Casting double to half precision
 - `test_cast_fp8` - FP8 casting operations
 - `test_promote_to_double` - Type promotion to double
@@ -332,6 +333,59 @@ Tests for import functionality:
 #### `test_import_conflict_direct_then_nvfuser()`
 - **Purpose**: Tests import conflict handling
 - **Functionality**: Tests warning generation when both nvfuser_direct and nvfuser are imported
+
+### test_repro.py
+
+Reproduction tests for specific issues:
+
+#### `test_issue1129()`
+- **Purpose**: Tests fix for issue 1129 - reshape and index_select operations with strided tensors
+- **Functionality**:
+  - Tests reshape operations with strided tensors
+  - Tests index selection after reshaping
+  - Tests complex tensor operations involving reshape → index_select → reshape
+  - Verifies correct handling of non-standard tensor strides
+  - Compares nvFuser output with PyTorch reference implementation
+
+#### `test_issue1246()`
+- **Purpose**: Tests fix for issue 1246 - concatenation with empty tensors and strided tensors
+- **Functionality**:
+  - Tests concatenation operations with strided tensors having non-standard memory layouts
+  - Tests handling of empty tensors (zero-sized dimensions)
+  - Tests both with and without additional operations after concatenation
+  - Verifies correct tensor multiplication and concatenation behavior
+  - Compares nvFuser output with PyTorch reference implementation
+
+#### `test_issue1270()`
+- **Purpose**: Tests fix for issue 1270 - empty tensors and dead code removal
+- **Functionality**:
+  - Tests operations with empty tensors (zero-sized dimensions)
+  - Tests dead code removal during fusion optimization
+  - Tests complex operations involving casting, multiplication, and reduction
+  - Verifies proper handling of empty tensor operations that should not cause problems
+  - Tests full tensor creation with empty shapes
+  - Compares nvFuser output with PyTorch reference implementation
+
+#### `test_issue2545()`
+- **Purpose**: Tests fix for issue 2545 - complex operations with empty tensors and concatenation
+- **Functionality**:
+  - Tests complex operations with empty tensors (zero-sized dimensions)
+  - Tests multiple concatenation operations
+  - Tests conditional operations (where, lt)
+  - Tests arithmetic operations with scalars
+  - Verifies proper handling of empty tensor removal during optimization
+  - Tests stride order specification in tensor definition
+  - Tests multiple output tensors from a single fusion
+
+#### `test_issue2549()`
+- **Purpose**: Tests fix for issue 2549 - broadcast_in_dim and division operations
+- **Functionality**:
+  - Tests broadcasting a tensor to a specific shape with explicit broadcast dimensions
+  - Tests division operations with broadcasted tensors
+  - Tests proper handling of tensor shapes and strides
+  - Verifies correct computation of division with broadcasted operands
+  - Tests tensor definition with explicit sizes and strides
+  - Compares nvFuser output with PyTorch reference implementation
 
 ## Test Configuration (conftest.py)
 
