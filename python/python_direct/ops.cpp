@@ -2705,7 +2705,7 @@ Select elements from a tensor along a specified dimension.
 Parameters
 ----------
 arg : TensorView
-index : Scalar
+index : Val
 dim : int
     The dimension to select along.
 
@@ -2753,6 +2753,46 @@ index : TensorView
     The tensor containing the indices.
 src : TensorView
     The source tensor to scatter from.
+dim : int
+    The dimension to scatter along.
+
+Returns
+-------
+TensorView
+    The scattered tensor.
+)",
+      py::return_value_policy::reference);
+  ops.def(
+      "scatter",
+      [](TensorView* arg, TensorView* index, Val* src, int64_t dim)
+          -> TensorView* {
+        NVF_CHECK(
+            dim >= -arg->nDims() && dim < arg->nDims(),
+            "Tensor arguments have dimension ",
+            arg->nDims(),
+            " so dim argument must satisfy ",
+            -arg->nDims(),
+            " <= dim < ",
+            arg->nDims(),
+            ", but received ",
+            dim);
+        return scatter(arg, dim, index, src);
+      },
+      py::arg("arg"),
+      py::arg("index"),
+      py::arg("src"),
+      py::arg("dim"),
+      R"(
+Scatter a tensor.
+
+Parameters
+----------
+arg : TensorView
+    The tensor to scatter into.
+index : TensorView
+    The tensor containing the indices.
+src : Val
+    The source scalar to scatter from.
 dim : int
     The dimension to scatter along.
 
@@ -3058,7 +3098,7 @@ void bindSearchOps(py::module_& ops) {
 
       Args:
           arg (Tensor): Input tensor
-          k (Scalar): Number of elements to return
+          k (Val): Number of elements to return
           dim (int, optional): Dimension along which to find top-k. Defaults to -1.
           largest (bool, optional): If True, return largest elements. Defaults to True.
           sorted (bool, optional): If True, return elements in sorted order. Defaults to False.
