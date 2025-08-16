@@ -2065,7 +2065,7 @@ TEST_F(NVFuserTest, FusionCrossIterationGroupedGridAllreduce3_CUDA) {
   NVF_CHECK(
       validated, "Invalid lowered kernel. No GroupedGridReduction found.");
 
-  std::vector<int64_t> shape({99, 101});
+  std::vector<int64_t> shape({99, 100});
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn(shape, options);
@@ -2272,7 +2272,8 @@ TEST_F(NVFuserTest, FusionCrossIterationGroupedGridAllreduceWelford2_CUDA) {
   tv2->axis(4)->parallelize(ParallelType::Group);
   tv2->axis(5)->parallelize(ParallelType::Group);
 
-  std::vector<int64_t> shape({99, 129});
+  // iter dim divisible by vec1 x vec2
+  std::vector<int64_t> shape({99, 132});
 
   // Make sure the reduction expr is converted to GroupedGridReduciton
   // and the non-reduction domains of the output TV are either
