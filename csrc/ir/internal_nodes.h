@@ -38,7 +38,7 @@ class Scope;
 class IrCloner;
 struct AnalyzeViewResult;
 
-class FullOp : public Expr {
+class NVF_API FullOp : public Expr {
  public:
   using Expr::Expr;
 
@@ -745,7 +745,7 @@ class TensorConstruct : public Expr {
 //! A specialization for random number generator (RNG) operations. RNG
 //! operations take in no tensor input and produce a single output.
 class RNGOp : public Expr {
-  int64_t getOutputDims() const;
+  NVF_API int64_t getOutputDims() const;
 
  public:
   struct Attributes {
@@ -1524,7 +1524,7 @@ class MmaOp : public Expr {
 };
 
 //! The semantics are identical to torch.broadcast_to.
-class ExpandOp : public Expr {
+class NVF_API ExpandOp : public Expr {
  public:
   using Expr::Expr;
 
@@ -1628,7 +1628,7 @@ class ViewAsScalar : public Expr {
   }
 };
 
-class ViewOp : public Expr {
+class NVF_API ViewOp : public Expr {
  public:
   using Expr::Expr;
 
@@ -2104,7 +2104,7 @@ class PadOp : public Expr {
   std::pair<Val*, Val*> getPadWidths(int64_t axis) const;
 
   //! Return the pad widths of all dimensions, including non-padded ones
-  std::vector<Val*> getPadWidths() const;
+  NVF_API std::vector<Val*> getPadWidths() const;
 
  private:
   //! Offset of pad_width inputs in the input vector
@@ -2128,6 +2128,8 @@ struct Slice {
   Val* start = nullptr;
   Val* stop = nullptr;
   Val* step = nullptr;
+
+  std::string toString() const;
 };
 
 class SliceOp : public Expr {
@@ -2161,7 +2163,7 @@ class SliceOp : public Expr {
   }
 
   //! Get normalized ranges for SliceOp.
-  std::vector<Slice> getRanges() const;
+  NVF_API std::vector<Slice> getRanges() const;
 
  private:
   //! Offset of ranges input in the input vector

@@ -17,6 +17,7 @@
 #include <scheduler/resize.h>
 #include <scheduler/runtime_info.h>
 #include <scheduler/utils.h>
+#include <visibility.h>
 
 namespace nvfuser {
 
@@ -263,6 +264,6 @@ template class HeuristicDataCacheEntry<
 template class HeuristicDataCacheEntry<HeuristicCompileTime::LogicalReorderMap>;
 template class HeuristicDataCacheEntry<
     HeuristicCompileTime::VectorizationBreakPointOfReductionProducer>;
-template class HeuristicDataCacheEntry<
-    HeuristicCompileTime::SchedulerHyperParameters>;
+template class NVF_API
+    HeuristicDataCacheEntry<HeuristicCompileTime::SchedulerHyperParameters>;
 } // namespace nvfuser

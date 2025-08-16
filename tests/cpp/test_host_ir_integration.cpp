@@ -40,7 +40,7 @@ TEST_F(HostIrEvaluatorTest, LaunchKernel) {
   ke->setGroupId(0);
   ke->compile(&fusion, {t0});
 
-  auto hic = std::make_unique<HostIrContainer>(1);
+  auto hic = std::make_unique<HostIrContainer>();
   FusionGuard::setCurFusion(hic.get());
 
   hic->addKernelExecutor(std::move(ke));
@@ -247,7 +247,7 @@ TEST_F(HostIrIntegrationTest, InsertDeallocations) {
 
   FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
   const std::vector<Expr*>& hicExprs =
-      runtime->getHostIrEvaluator().container().topLevelExprs();
+      runtime->getHostIrContainer().topLevelExprs();
 
   EXPECT_THAT(hicExprs, Contains(IsA<Deallocate>()).Times(2));
 
@@ -310,7 +310,7 @@ TEST_F(HostIrIntegrationTest, ExcludeOutputsFromDeallocations) {
 
   FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
   const std::vector<Expr*>& hicExprs =
-      runtime->getHostIrEvaluator().container().topLevelExprs();
+      runtime->getHostIrContainer().topLevelExprs();
 
   EXPECT_THAT(hicExprs, Contains(IsA<Deallocate>()).Times(0));
 
