@@ -426,7 +426,7 @@ def _assert_shape_dtype(
     reason="Flash Attention is only supported on Ampere and newer devices.",
 )
 @pytest.mark.mpi
-def test_transformer_forward(setup_default_process_group, multidevice_test, benchmark):
+def test_transformer_forward(multidevice_test, benchmark):
     d = multidevice_test.size
     mesh = nvfuser.DeviceMesh(range(d))
 
@@ -1041,7 +1041,7 @@ class TransformerBackwardFusion(FusionDefinition):
     reason="Flash Attention is only supported on Ampere and newer devices.",
 )
 @pytest.mark.mpi
-def test_transformer_backward(setup_default_process_group, multidevice_test, benchmark):
+def test_transformer_backward(multidevice_test, benchmark):
     d = multidevice_test.size
     rank = multidevice_test.rank
 
