@@ -1417,3 +1417,38 @@ def test_scatter_output_intermediate(nvfuser_direct_test):
     nvf_out, _ = nvfuser_direct_test.exec_nvfuser(fusion_func, inputs)
     eager_out = refs.sigmoid(torch.scatter(x, scatter_dim, ind, src))
     nvfuser_direct_test.assertEqual(eager_out, nvf_out[0])
+
+
+def test_scatter_scalar_src(nvfuser_direct_test):
+    bsz = 128
+    hidden = 1024
+    scatter_size = 64
+    scatter_dim = 0
+
+    x = torch.randn([bsz, hidden], device="cuda")
+    _, ind = torch.topk(x, k=scatter_size, dim=scatter_dim)
+    src = 1.5
+    inputs = [x, ind, src]
+
+    def fusion_func(fd: FusionDefinition):
+        T0 = fd.define_tensor(
+            shape=[-1, -1],
+            contiguity=[True, True],
+            dtype=DataType.Float,
+            is_cpu=False,
+            stride_order=[1, 0],
+        )
+        T1 = fd.define_tensor(
+            shape=[-1, -1],
+            contiguity=[True, True],
+            dtype=DataType.Int,
+            is_cpu=False,
+            stride_order=[1, 0],
+        )
+        S2 = fd.define_scalar(None, dtype=DataType.Double)
+        T3 = fd.ops.scatter(T0, T1, S2, scatter_dim)
+        fd.add_output(T3)
+
+    nvf_out, _ = nvfuser_direct_test.exec_nvfuser(fusion_func, inputs)
+    eager_out = torch.scatter(x, scatter_dim, ind, src)
+    nvfuser_direct_test.assertEqual(eager_out, nvf_out[0])
