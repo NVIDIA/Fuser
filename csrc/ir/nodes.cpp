@@ -6077,7 +6077,8 @@ std::vector<PolymorphicValue> GroupedMmaOp::evaluate(
   return {result};
 #else
   at::Tensor result;
-  result = at::empty_like(mat1);
+
+  result = at::empty({mat1.size(0), mat2.size(2)}, mat1.options());
   at::Tensor offsets_cpu = offsets.cpu();
   
   for (int i = 0; i < offsets_cpu.size(0); ++i) {
