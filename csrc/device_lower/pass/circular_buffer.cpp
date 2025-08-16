@@ -1832,10 +1832,8 @@ class PipelineCircularBufferInserter : private kir::ExprMutator {
 
       // Insert the initial block sync before entering main loop.
       if (std::any_of(loads.begin(), loads.end(), [](Expr* expr) {
-            return GpuLower::current()
-                ->syncMap()
-                ->needsRawSync(ir_utils::getTvOutput(expr))
-                .hasTID();
+            return GpuLower::current()->syncMap()->needsBlockRawSync(
+                ir_utils::getTvOutput(expr));
           })) {
         // If any of the circular buffered loads require sync, as indicated
         //  by sync info map, insert the sync before entering the circular

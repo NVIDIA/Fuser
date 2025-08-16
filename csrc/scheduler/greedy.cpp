@@ -7,6 +7,7 @@
 // clang-format on
 
 #include <debug.h>
+#include <device_lower/analysis/sync_information.h>
 #include <device_lower/utils.h>
 #include <exceptions.h>
 #include <instrumentation.h>
@@ -40,7 +41,13 @@ class StaticChecker : private IterVisitor {
 
   void dispatch(Expr* expr) override {
     can_schedule_ = can_schedule_ &&
-        expr->isOneOf<LoadStoreOp, UnaryOp, BinaryOp, TernaryOp, ScanOp>();
+        expr->isOneOf<
+            LoadStoreOp,
+            UnaryOp,
+            BinaryOp,
+            TernaryOp,
+            ScanOp,
+            PadOp>();
   }
 
  private:
@@ -48,7 +55,7 @@ class StaticChecker : private IterVisitor {
 };
 
 std::vector<Expr*> getAllConstrainedOps(Fusion* fusion) {
-  return ir_utils::getOpsOfType<ArgsortOp, ScanOp>(fusion);
+  return ir_utils::getOpsOfType<ArgsortOp, ScanOp, PadOp>(fusion);
 }
 
 class ConstrainedOpScheduler : private IterVisitor {
@@ -62,40 +69,68 @@ class ConstrainedOpScheduler : private IterVisitor {
     traverse(fusion);
   }
 
+  void handle(PadOp* pad) override {
+    std::cerr << "Scheduling " << pad->toString();
+
+    auto out_tv = ir_utils::getTvOutput(pad);
+
+    scheduleConstrainedTv(out_tv, pad->getPaddedAxes());
+  }
+
   void handle(ScanOp* scan) override {
     std::cerr << "Scheduling " << scan->toString();
 
     auto out_tv = ir_utils::getTvOutput(scan);
 
+    scheduleConstrainedTv(out_tv, {scan->dim()});
+  }
+
+  void scheduleConstrainedTv(
+      TensorView* tv,
+      const std::vector<int64_t>& constrained_logical_id_offsets) {
+    std::cerr << "Scheduling: " << tv->toString() << "\n";
     NVF_ERROR_EQ(
-        out_tv->getLogicalDomain(),
-        out_tv->getLoopDomain(),
-        "For now, logical and loop domains are assumed to be the same: ",
-        out_tv->toString());
+        tv->getLogicalDomain(),
+        tv->getLoopDomain(),
+        "Logical and loop domains are assumed to be the same: ",
+        tv->toString());
 
-    auto scan_dim = out_tv->domain()->noReductions().at(scan->dim());
-    scan_dim->parallelize(ParallelType::TIDx);
+    NVF_ERROR(!constrained_logical_id_offsets.empty());
 
-    // Move the scan_dim innermost
-    out_tv->reorder({{scan->dim(), -1}, {-1, scan->dim()}});
+    // Move the constrained_logical_ids innermost
+    std::unordered_map<int64_t, int64_t> old2new;
+    for (const auto [i, offset] : enumerate(constrained_logical_id_offsets)) {
+      old2new.emplace(offset, i - std::ssize(constrained_logical_id_offsets));
+    }
+    tv->reorder(old2new);
+    std::cerr << "Reordered: " << tv->toString() << "\n";
 
-    std::cerr << out_tv->toString() << "\n";
+    // Flatten the constrained ids
+    if (constrained_logical_id_offsets.size() > 1) {
+      tv->flatten(-std::ssize(constrained_logical_id_offsets), -1);
+    }
+    std::cerr << "Flattened: " << tv->toString() << "\n";
+
+    // Parallelize the flattened constrained id
+    tv->axis(-1)->parallelize(ParallelType::TIDx);
 
     // Merge the remaining IDs
-    if (std::ssize(out_tv->getLoopDomain()) > 2) {
-      out_tv->flatten(0, std::ssize(out_tv->getLoopDomain()) - 2);
+    if (std::ssize(tv->getLoopDomain()) > 2) {
+      tv->flatten(0, std::ssize(tv->getLoopDomain()) - 2);
     }
 
-    NVF_ERROR_LE(std::ssize(out_tv->getLoopDomain()), 2);
+    NVF_ERROR_LE(std::ssize(tv->getLoopDomain()), 2);
     NVF_ERROR_EQ(
-        out_tv->axis(-1)->getParallelType(),
+        tv->axis(-1)->getParallelType(),
         ParallelType::TIDx,
         "Unexpected loop domain: ",
-        out_tv->toString());
+        tv->toString());
 
-    if (std::ssize(out_tv->getLoopDomain()) == 2) {
-      out_tv->axis(0)->parallelize(ParallelType::BIDx);
+    if (std::ssize(tv->getLoopDomain()) == 2) {
+      tv->axis(0)->parallelize(ParallelType::BIDx);
     }
+
+    std::cerr << "Scheduled: " << tv->toString() << "\n";
   }
 };
 
@@ -306,6 +341,15 @@ void GreedyScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
   }
 
   fusion->print();
+
+  // TODO: Resolve conflicts. Find conflicting producer-consumer pairs
+  // and insert memory promotion
+
+  SyncMap sync_map(fusion, /*error_on_failure=*/false);
+  for (const auto& [tv, pt_map] : sync_map.map()) {
+    std::cerr << "Needs raw sync: " << tv->toString() << ", "
+              << pt_map.toString() << "\n";
+  }
 }
 
 } // namespace nvfuser

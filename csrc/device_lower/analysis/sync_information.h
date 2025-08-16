@@ -23,21 +23,41 @@ class SyncMap {
   //! blockIdx, there must be a mapped consumer axis with the
   //! same ParallelType with some exceptions.
   //!
-  //! ComputeAtMap is already built as they are used to validate consistency.
-  //!
   //! Fills needs_raw_sync with output TVs if they need a raw sync if on smem or
   //! gmem. The second entry in this map is the parallel dimensions being
   //! communicated across.
-  NVF_API SyncMap(Fusion* fusion);
+  //!
+  //! When error_on_failure is true, tensors requiring RAW sync are
+  //! asserted such that they are placed in proper memory spaces.
+  NVF_API SyncMap(Fusion* fusion, bool error_on_failure = true);
 
   std::string toString() const;
 
-  ParallelTypeBitmap needsRawSync(TensorView* tv) const {
+  bool needsAnyRawSync(TensorView* tv) const {
     auto it = needs_raw_sync_.find(tv);
-    if (it != needs_raw_sync_.end()) {
+    return it != needs_raw_sync_.end() && !it->second.none();
+  }
+
+  bool needsBlockRawSync(TensorView* tv) const {
+    auto it = needs_raw_sync_.find(tv);
+    return it != needs_raw_sync_.end() && it->second.hasTID();
+  }
+
+  bool needsGridRawSync(TensorView* tv) const {
+    auto it = needs_raw_sync_.find(tv);
+    return it != needs_raw_sync_.end() && it->second.hasBID();
+  }
+
+  ParallelTypeBitmap getRawSyncParallelTypes(TensorView* tv) const {
+    if (auto it = needs_raw_sync_.find(tv); it != needs_raw_sync_.end()) {
       return it->second;
+    } else {
+      return ParallelTypeBitmap();
     }
-    return ParallelTypeBitmap();
+  }
+
+  const std::unordered_map<TensorView*, ParallelTypeBitmap>& map() const {
+    return needs_raw_sync_;
   }
 
  private:
