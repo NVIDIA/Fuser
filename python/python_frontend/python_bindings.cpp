@@ -2866,7 +2866,7 @@ void initNvFuserPythonBindings(PyObject* module) {
         NVF_CHECK(
             self.validUse(), "Attempting to add to a completed definition!");
         FusionDefinition* fd = self.fusion_definition;
-        Tensor output = fd->defineTensor(arg.dims);
+        Tensor output = fd->defineTensor(is_broadcast_dim.size());
         fd->defineRecord(new BroadcastOpRecord(
             {fd->recordingState(arg())},
             {fd->recordingState(output())},
