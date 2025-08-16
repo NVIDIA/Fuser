@@ -4,7 +4,8 @@
 # Owner(s): ["module: nvfuser"]
 
 import torch
-from nvfuser_direct import FusionDefinition, DataType  # noqa: F401
+from nvfuser_direct import FusionDefinition, DataType, TensorView  # noqa: F401
+from looseversion import LooseVersion
 
 
 def is_pre_volta():
@@ -42,16 +43,27 @@ def check_captured_python_definition(reference_outputs, fd, inputs, device=None)
 
         torch.manual_seed(0)
         captured_outputs = fd_cap.execute(inputs, device=device)
-        # Make sure the original and captured definitions match
-        # torch.allclose does not work with fp8 datatype, so cast to fp64.
+
+        if len(reference_outputs) != len(captured_outputs):
+            return False
+
+        # Check that the values of all outputs match
+        for ref_out, cap_out in zip(reference_outputs, captured_outputs):
+            # torch.allclose does not work with fp8 datatype, so cast to fp64.
+            # However, casting complex values to real discards the imaginary
+            # part, so skip complex dtypes.
+            if not ref_out.dtype.is_complex:
+                ref_out = ref_out.to(torch.float64)
+            if not cap_out.dtype.is_complex:
+                cap_out = cap_out.to(torch.float64)
+            if not torch.allclose(ref_out, cap_out, equal_nan=True):
+                return False
+
+        # Check that the stride of all outputs match
         return all(
             [
-                torch.allclose(
-                    ref_out.to(torch.float64),
-                    captured_outputs[idx].to(torch.float64),
-                    equal_nan=True,
-                )
-                for idx, ref_out in enumerate(reference_outputs)
+                ref_out.stride() == cap_out.stride()
+                for ref_out, cap_out in zip(reference_outputs, captured_outputs)
             ]
         )
     except Exception as err:
@@ -61,3 +73,40 @@ def check_captured_python_definition(reference_outputs, fd, inputs, device=None)
         )
         print(fd_str)
         raise err
+
+
+def verify_stride_order(output_strides, stride_order):
+    sorted_stride = list(output_strides)
+    rank = len(output_strides)
+    for idx, axis in enumerate(stride_order):
+        sorted_stride[rank - 1 - axis] = output_strides[idx]
+    assert sorted(sorted_stride, reverse=True) == sorted_stride
+
+
+UPDATED_SDPA = LooseVersion(torch.__version__) >= LooseVersion("2.7.0")
+
+
+def define_sdpa_rng_state(fd: FusionDefinition) -> tuple[TensorView, TensorView]:
+    dtype = DataType.UInt64 if UPDATED_SDPA else DataType.Int
+    is_cpu = False if UPDATED_SDPA else True
+    philox_shape = [2] if UPDATED_SDPA else []
+    philox_seed = fd.define_tensor(
+        shape=philox_shape,
+        dtype=dtype,
+        is_cpu=is_cpu,
+    )
+    philox_offset = fd.define_tensor(
+        shape=[],
+        dtype=dtype,
+        is_cpu=is_cpu,
+    )
+    return philox_seed, philox_offset
+
+
+def create_sdpa_rng_tensors() -> tuple[torch.Tensor, torch.Tensor]:
+    dtype = torch.uint64 if UPDATED_SDPA else torch.int64
+    device = "cuda" if UPDATED_SDPA else "cpu"
+    philox_shape = (2,) if UPDATED_SDPA else ()
+    philox_seed = torch.testing.make_tensor(philox_shape, device=device, dtype=dtype)
+    philox_offset = torch.testing.make_tensor((), device=device, dtype=dtype)
+    return philox_seed, philox_offset

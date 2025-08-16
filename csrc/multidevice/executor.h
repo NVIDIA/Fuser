@@ -91,12 +91,6 @@ class MultiDeviceExecutor {
     return &comm_;
   }
 
-  // check if the runtime is valid returns an error msg.
-  // An empty message means that the runtime is valid
-  std::string validate() const {
-    return host_ir_executor_->canRun();
-  }
-
   //! Print to default debugging output stream
   std::ostream& print(std::ostream& os = debug());
 

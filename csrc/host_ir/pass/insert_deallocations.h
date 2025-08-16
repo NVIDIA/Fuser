@@ -13,7 +13,8 @@
 namespace nvfuser::hir_pass {
 
 /* For each input in every expression in the container, find the index of its
- * last use and insert a deallocate directly after */
+ * last use and insert a deallocate directly after, except for fusion inputs and
+ * outputs */
 class InsertDeallocations : public OptimizationPass<InsertDeallocations> {
   friend class OptimizationPass<InsertDeallocations>;
 

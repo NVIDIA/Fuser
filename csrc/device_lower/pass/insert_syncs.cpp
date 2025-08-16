@@ -588,15 +588,22 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
       last_writes_.pop_front();
       // Found that a sync is needed
 
-      if (!sync_bitmap.hasBID() &&
-          std::all_of(
-              expr->inputs().begin(), expr->inputs().end(), [](Val* val) {
-                return !val->isA<TensorView>() ||
-                    !isSharedMemory(val->as<TensorView>()) ||
-                    ir_utils::isCpAsyncBulkLoad(val->definition());
-              })) {
-        // RAW of TMA is handled separately, so skip it here.
-        return;
+      if (!sync_bitmap.hasBID()) {
+        // Inconsistent TID access detected. So needed a block sync.
+        // But not all block syncs are handled in this pass. For example,
+        // some ops, such as TMA, uses mbarrier based completion mechanism,
+        // and the wait of mbarrier will automatically makes block in sync.
+        // So we need to skip the block sync in this case.
+        if (std::all_of(
+                expr->inputs().begin(), expr->inputs().end(), [](Val* val) {
+                  return !val->isA<TensorView>() ||
+                      !ir_utils::isMemorySharedAcross(
+                          val->as<TensorView>()->getMemoryType(),
+                          ParallelType::TIDx) ||
+                      ir_utils::isCpAsyncBulkLoad(val->definition());
+                })) {
+          return;
+        }
       }
 
       // TODO: Explicitly test the 3 cases below

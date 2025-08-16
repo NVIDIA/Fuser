@@ -94,7 +94,7 @@ class HeuristicParamsList {
     heuristics_.emplace_back(std::move(pt));
   }
 
-  //! Returns list of heuristics for a segmneted fusion.
+  //! Returns list of heuristics for a segmented fusion.
   const std::vector<std::unique_ptr<HeuristicParams>>& heuristicsList() const {
     return heuristics_;
   }

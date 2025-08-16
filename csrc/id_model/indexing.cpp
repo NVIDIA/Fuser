@@ -971,7 +971,7 @@ std::pair<std::vector<Val*>, std::vector<Val*>> TensorIndexer::
   auto index_info = computeIndex(
       expr, indexed_ids, for_loops, isSharedMemoryTvForLdStMatrix(tv, expr));
   for (const auto& [indexed_id, index] : override_index) {
-    index_info.index_map.emplace(traversalGraph().toGroup(indexed_id), index);
+    index_info.index_map[traversalGraph().toGroup(indexed_id)] = index;
   }
   const auto& index_map = index_info.index_map;
   auto replacement_map = getIndexReplacementMap(
@@ -1092,11 +1092,6 @@ bool TensorIndexer::isSupported(Fusion* fusion) {
       for (const auto& id : tv->domain()->allIDs()) {
         if (auto swizzle2d = dynamic_cast<Swizzle2D*>(id->definition())) {
           reason << "Swizzle2D not supported: " << swizzle2d->toString();
-          break;
-        } else if (ir_utils::isIndexedConsumerID(tv, id)) {
-          reason << "Indirect indexing of consumer ID not supported: "
-                 << tv->toString() << ", " << id->toString() << ", "
-                 << tv->definition()->toString();
           break;
         }
       }

@@ -154,8 +154,8 @@ std::vector<int64_t> getContiguousStrides(
 // Infer the size and stride of each dimension
 std::pair<std::vector<int64_t>, std::vector<int64_t>> inferShape(
     const TensorView* tv,
-    std::vector<Val*> symbolic_sizes,
-    std::vector<bool> expand_flags,
+    const std::vector<Val*>& symbolic_sizes,
+    const std::vector<bool>& expand_flags,
     const ExpressionEvaluator& expr_eval) {
   FUSER_PERF_SCOPE("fusion_executor::allocations::inferShape");
 

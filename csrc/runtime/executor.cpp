@@ -42,7 +42,6 @@
 
 #include <cmath>
 #include <cstring>
-#include <fstream>
 
 namespace nvfuser {
 
@@ -107,8 +106,7 @@ KernelArgumentHolder ExprEvalExecutor::run(
         " and expects that the outputs are not populated, which they were.");
     if (outputs.empty()) {
       for (const auto& out_val : fusion_->outputs()) {
-        auto out_tensor =
-            expr_eval.evaluate(out_val->as<TensorView>()).as<at::Tensor>();
+        auto out_tensor = expr_eval.evaluate(out_val).as<at::Tensor>();
         expr_eval.bind(out_val, out_tensor);
         outputs.push(out_tensor);
       }
@@ -182,7 +180,7 @@ void KernelExecutor::compile(
   NVF_ERROR(
       !fusion->outputs().empty(), "No output found for this kernel, aborting.");
 
-  auto device = c10::Device(c10::DeviceType::CUDA, args.getDeviceIndex());
+  c10::Device device(c10::DeviceType::CUDA, args.getDeviceIndex());
 
   if (isProfilerEnabled()) {
     NVF_CHECK(
@@ -254,7 +252,7 @@ void KernelExecutor::compile(
   std::optional<int64_t> dynamic_smem = std::nullopt;
   std::optional<int64_t> block_size = std::nullopt;
 
-  auto launch_params = launch_constraints;
+  LaunchParams launch_params = launch_constraints;
   if (!args.empty()) {
     auto expr_eval =
         executor_utils::bindInputs(args, compiled_kernel_->lowered()->kernel());
@@ -266,7 +264,7 @@ void KernelExecutor::compile(
         compile_params.index_type.value());
     block_size = launch_params.nThreads();
     dynamic_smem = launch_params.smem();
-    NVF_ERROR(block_size > 0, "launch param inferred block size < 0");
+    NVF_ERROR_GT(*block_size, 0);
   }
 
   // Launch parameters are required to compile the kernel to:
@@ -287,7 +285,7 @@ void KernelExecutor::compile(
     FusionProfiler::segment(group_id_).stopCompile();
   }
 
-  for (auto expr : exprs) {
+  for (Expr* expr : exprs) {
     if (ir_utils::isCpAsyncBulk(expr)) {
       has_tma_ = true;
     }
@@ -305,25 +303,23 @@ void KernelExecutor::compile(
   // This could happen for other examples and has_dynamic_alias_ will be true if
   // to evaluate the output that has an alias, other values besides the aliased
   // input need to be bound to the expression evaluator to evaluate the output.
-  for (auto output : fusion->outputs()) {
-    if (output->isA<TensorView>()) {
-      auto out_tv = output->as<TensorView>();
-      auto alias_info = fusion->getOutputAlias(out_tv);
-      if (alias_info.type != AllocationType::Evaluate) {
+  for (TensorView* out_tv :
+       ir_utils::filterByType<TensorView>(fusion->outputs())) {
+    auto alias_info = fusion->getOutputAlias(out_tv);
+    if (alias_info.type != AllocationType::Evaluate) {
+      continue;
+    }
+    auto aliased_to = alias_info.aliased_io->as<TensorView>();
+    auto inputs = InputsOf::output(out_tv);
+    for (auto input : inputs) {
+      if (input->isA<TensorView>() && input->sameAs(aliased_to)) {
         continue;
       }
-      auto aliased_to = alias_info.aliased_io->as<TensorView>();
-      auto inputs = InputsOf::output(out_tv);
-      for (auto input : inputs) {
-        if (input->isA<TensorView>() && input->sameAs(aliased_to)) {
-          continue;
-        }
 
-        if (input->isConst()) {
-          continue;
-        }
-        has_dynamic_alias_ = true;
+      if (input->isConst()) {
+        continue;
       }
+      has_dynamic_alias_ = true;
     }
   }
 }
@@ -530,6 +526,13 @@ std::vector<GlobalBufferInfo> KernelExecutor::getIntermediateBufferInfo(
         "Cannot allocate global buffers that are not tensors.");
     auto tv = alloc->buffer()->as<TensorView>();
     if (tv->isFusionOutput()) {
+      continue;
+    }
+    if (alloc->alias() != nullptr) {
+      // When aliased, no tensor argment is passed to the
+      // kernel. Inside the kernel, the aliasing tensor is defined as
+      // an alias of the aliasee, e.g., "auto& T2 = T4". The validity
+      // of the aliasing should be confirmed at the time of lowering.
       continue;
     }
     GlobalBufferInfo info;
@@ -1064,9 +1067,9 @@ KernelArgumentHolder KernelExecutor::run(
   }
 
   if (!(executor_entry->launch_params.nThreads() <=
-            compiled_kernel_->blockSizeHighWaterMark() &&
+            compiled_kernel_->blockSizeHighWatermark() &&
         compile_params.maxrregcount ==
-            compiled_kernel_->maxrregcountHighWaterMark())) {
+            compiled_kernel_->maxrregcountHighWatermark())) {
     compiled_kernel_->recompileKernel(
         executor_entry->launch_params, compile_params);
   }
@@ -1328,8 +1331,8 @@ flatbuffers::Offset<serde::KernelExecutor> KernelExecutor::serialize(
   return serde::CreateKernelExecutorDirect(
       builder,
       device_smem_limit_,
-      compiledKernel()->blockSizeHighWaterMark(),
-      compiledKernel()->maxrregcountHighWaterMark(),
+      compiledKernel()->blockSizeHighWatermark(),
+      compiledKernel()->maxrregcountHighWatermark(),
       warp_size_,
       toUnderlying(compiledKernel()->schedulerType()),
       fusion_id_,

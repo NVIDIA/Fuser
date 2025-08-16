@@ -135,10 +135,6 @@ void PipelineTest::executeAndValidate(bool validate_with_prescribed_values) {
   params.executor = host_ir_executor_params;
   runtime = std::make_unique<MultiDeviceExecutor>(
       std::make_unique<Fusion>(*fusion), *communicator_, params);
-  auto error_msg = runtime->validate();
-  if (error_msg != "") {
-    GTEST_SKIP() << error_msg;
-  }
   outputs = runtime->runWithInput(args);
 
   if (debug_print) {
@@ -243,6 +239,7 @@ TEST_F(PipelineTest, Pipeline) {
       at::randn(input_shape1, tensor_options),
       at::randn(input_shape2, tensor_options)};
 
+  SKIP_IF_NOT_ENOUGH_DEVICES(fusion);
   executeAndValidate();
 }
 
@@ -324,6 +321,7 @@ TEST_P(PipelineTestTwoStages, Communication) {
     host_ir_executor_params.skip_auto_scheduling = true;
   }
 
+  SKIP_IF_NOT_ENOUGH_DEVICES(fusion);
   executeAndValidate();
 }
 

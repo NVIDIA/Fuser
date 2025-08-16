@@ -990,4 +990,42 @@ TEST_F(MultiDeviceTest, AliasingRetainsSharding) {
       Each(Not(HeuristicIs(SchedulerType::Communication))));
 }
 
+TEST_F(MultiDeviceTest, DecomposeRowParallelLinearWithBias) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  const int d = communicator_->size();
+  auto mesh = DeviceMesh::createForNumDevices(d);
+  const int64_t b = 2, s = 3, e = 5;
+
+  TensorView* tv0 = makeContigConcreteTensor({b, s, d * e}, DataType::BFloat16);
+  TensorView* tv1 = makeContigConcreteTensor({e, d * e}, DataType::BFloat16);
+  TensorView* tv2 = makeContigConcreteTensor({e}, DataType::BFloat16);
+  TensorView* tv3 = linear(tv0, tv1, tv2);
+  TensorView* tv4 = castOp(DataType::Float, tv3);
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+  fusion->addInput(tv2);
+  fusion->addOutput(tv4);
+
+  for (auto* tv : {tv0, tv1}) {
+    tv->setDeviceMesh(mesh);
+    tv->outer_split(-1, d);
+    tv->axis(-2)->parallelize(ParallelType::DIDx);
+  }
+  tv2->setDeviceMesh(mesh);
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  at::Tensor inp = at::ones({b, s, d * e}, tensor_options.dtype(at::kBFloat16));
+  at::Tensor weight = at::ones({e, d * e}, tensor_options.dtype(at::kBFloat16));
+  at::Tensor bias = at::ones({e}, tensor_options.dtype(at::kBFloat16));
+  at::Tensor sharded_inp = shardTensor(inp, -1, mesh);
+  at::Tensor sharded_weight = shardTensor(weight, -1, mesh);
+  at::Tensor nvf_out =
+      executor_cache.runFusionWithInputs({sharded_inp, sharded_weight, bias})[0]
+          .as<at::Tensor>();
+  EXPECT_TRUE(at::allclose(
+      nvf_out, (at::matmul(inp, weight.t()) + bias).to(at::kFloat)));
+}
+
 } // namespace nvfuser

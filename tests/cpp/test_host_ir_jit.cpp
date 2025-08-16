@@ -23,7 +23,7 @@ namespace hir {
 using HostIrJitTest = NVFuserTest;
 // Build with: python setup.py install --build-with-host-ir-jit
 TEST_F(HostIrJitTest, Set) {
-  auto hic = std::make_unique<HostIrContainer>(1);
+  auto hic = std::make_unique<HostIrContainer>();
   FusionGuard::setCurFusion(hic.get());
 
   auto hic_in = makeSymbolicTensor(2);
@@ -50,7 +50,7 @@ TEST_F(HostIrJitTest, Set) {
 }
 
 TEST_F(HostIrJitTest, HostIrContainer) {
-  auto hic = std::make_unique<HostIrContainer>(1);
+  auto hic = std::make_unique<HostIrContainer>();
   FusionGuard::setCurFusion(hic.get());
 
   int num_inputs = std::rand() % 10 + 1;
@@ -258,6 +258,256 @@ TEST_F(HostIrJitTest, BroadcastTest) {
 
   EXPECT_EQ(out_expand.sizes(), std::vector<int64_t>({64, 32, 16}));
   EXPECT_EQ(out_expand.strides(), std::vector<int64_t>({0, 0, 1}));
+}
+
+TEST_F(HostIrJitTest, LaunchKernel) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+  TensorView* in = makeSymbolicTensor(2);
+  fusion.addInput(in);
+
+  TensorView* out = set(in);
+  fusion.addOutput(out);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({32, 32}, options);
+  auto ke = std::make_unique<KernelExecutor>();
+  ke->setGroupId(0);
+  ke->compile(&fusion, {t0});
+
+  auto hic = std::make_unique<HostIrContainer>();
+  FusionGuard::setCurFusion(hic.get());
+
+  hic->addKernelExecutor(std::move(ke));
+
+  IrCloner ir_cloner(hic.get());
+  auto hic_in = ir_cloner.clone(in);
+  auto hic_out = ir_cloner.clone(out);
+
+  hic->addInput(hic_in);
+  hic->addOutput(hic_out);
+
+  auto allocate = IrBuilder::create<kir::Allocate>(hic_out, MemoryType::Global);
+  auto* cache_id = IrBuilder::create<NamedScalar>("cacheId", DataType::UInt64);
+  auto launch_kernel = IrBuilder::create<LaunchKernel>(
+      0,
+      LaunchParams(),
+      CompileParams(),
+      std::vector<Val*>{hic_in},
+      std::vector<Val*>{hic_out},
+      cache_id);
+
+  hic->pushBackTopLevelExprs(allocate);
+  hic->pushBackTopLevelExprs(launch_kernel);
+
+  HostIrJit jit(std::move(hic));
+  KernelArgumentHolder in_args;
+  in_args.setCacheId(0);
+  in_args.push(t0);
+  KernelArgumentHolder outs = jit.runWithInputs(in_args);
+  EXPECT_EQ(outs.size(), 1);
+  at::Tensor output = outs[0].as<at::Tensor>();
+  EXPECT_TRUE(at::equal(output, t0));
+}
+
+TEST_F(HostIrJitTest, Matmul) {
+  constexpr int64_t H = 32;
+  constexpr int64_t M = 64;
+  constexpr int64_t K = 128;
+  constexpr int64_t N = 256;
+
+  auto hic = std::make_unique<HostIrContainer>();
+  FusionGuard fg(hic.get());
+
+  TensorView* tv0 = makeContigTensor(3);
+  TensorView* tv1 = makeContigTensor(3);
+  TensorView* tv2 = makeContigTensor(3);
+  auto* matmul = IrBuilder::create<MatmulOp>(tv2, tv0, tv1);
+
+  hic->addInput(tv0);
+  hic->addInput(tv1);
+  hic->addInput(tv2);
+  hic->addOutput(tv2);
+
+  hic->pushBackTopLevelExprs(matmul);
+
+  HostIrJit jit(std::move(hic));
+
+  auto options = at::TensorOptions().device(at::kCUDA, 0).dtype(torch::kFloat);
+  at::Tensor t0 = at::randn({H, M, K}, options);
+  at::Tensor t1 = at::randn({H, K, N}, options);
+  at::Tensor t2 = at::randn({H, M, N}, options);
+  std::unordered_map<Val*, PolymorphicValue> concrete_input_buffers = {
+      {tv0, t0}, {tv1, t1}, {tv2, t2}};
+
+  KernelArgumentHolder in_args;
+  in_args.setCacheId(0);
+  in_args.push(t0);
+  in_args.push(t1);
+  in_args.push(t2);
+  KernelArgumentHolder outs = jit.runWithInputs(in_args);
+  EXPECT_EQ(outs.size(), 1);
+  at::Tensor output = outs[0].as<at::Tensor>();
+
+  // validate
+  auto ref_output = at::matmul(t0, t1);
+
+  EXPECT_TRUE(ref_output.allclose(t2));
+}
+
+TEST_F(HostIrJitTest, MatmulOut) {
+  constexpr int64_t H = 32;
+  constexpr int64_t M = 64;
+  constexpr int64_t K = 128;
+  constexpr int64_t N = 256;
+
+  auto hic = std::make_unique<HostIrContainer>();
+  FusionGuard fg(hic.get());
+
+  TensorView* tv0 = makeContigTensor(3);
+  TensorView* tv1 = makeContigTensor(3);
+  TensorView* tv2 = makeContigTensor(3);
+  auto* matmul = IrBuilder::create<MatmulOp>(tv2, tv0, tv1);
+
+  hic->addInput(tv0);
+  hic->addInput(tv1);
+  hic->addOutput(tv2);
+
+  hic->pushBackTopLevelExprs(matmul);
+
+  HostIrJit jit(std::move(hic));
+
+  auto options = at::TensorOptions().device(at::kCUDA, 0).dtype(torch::kFloat);
+  at::Tensor t0 = at::randn({H, M, K}, options);
+  at::Tensor t1 = at::randn({H, K, N}, options);
+  std::unordered_map<Val*, PolymorphicValue> concrete_input_buffers = {
+      {tv0, t0}, {tv1, t1}};
+
+  KernelArgumentHolder in_args;
+  in_args.setCacheId(0);
+  in_args.push(t0);
+  in_args.push(t1);
+  KernelArgumentHolder outs = jit.runWithInputs(in_args);
+  EXPECT_EQ(outs.size(), 1);
+  at::Tensor output = outs[0].as<at::Tensor>();
+
+  // validate
+  auto ref_output = at::matmul(t0, t1);
+
+  EXPECT_TRUE(ref_output.allclose(output));
+}
+
+TEST_F(HostIrJitTest, Linear) {
+  constexpr int64_t B = 32;
+  constexpr int64_t M = 64;
+  constexpr int64_t K = 128;
+  constexpr int64_t N = 256;
+
+  auto hic = std::make_unique<HostIrContainer>();
+  FusionGuard fg(hic.get());
+
+  TensorView* in = makeContigTensor(3);
+  TensorView* weight = makeContigTensor(2);
+  TensorView* bias = makeContigTensor(1);
+  TensorView* out_with_bias = makeContigTensor(3);
+  TensorView* out_without_bias = makeContigTensor(3);
+
+  auto linear_op_with_bias =
+      IrBuilder::create<LinearOp>(out_with_bias, in, weight, bias);
+  auto linear_op_without_bias =
+      IrBuilder::create<LinearOp>(out_without_bias, in, weight, nullptr);
+
+  hic->addInput(in);
+  hic->addInput(weight);
+  hic->addInput(bias);
+  hic->addInput(out_with_bias);
+  hic->addInput(out_without_bias);
+
+  hic->pushBackTopLevelExprs(linear_op_with_bias);
+  hic->pushBackTopLevelExprs(linear_op_without_bias);
+
+  HostIrJit jit(std::move(hic));
+
+  auto options = at::TensorOptions().device(at::kCUDA, 0).dtype(torch::kFloat);
+  auto in_at = at::randint(5, {B, M, K}, options);
+  auto weight_at = at::randint(5, {N, K}, options);
+  auto bias_at = at::randint(5, {N}, options);
+  auto out_with_bias_at = at::empty({B, M, N}, options);
+  auto out_without_bias_at = at::empty({B, M, N}, options);
+
+  KernelArgumentHolder in_args;
+  in_args.setCacheId(0);
+  in_args.push(in_at);
+  in_args.push(weight_at);
+  in_args.push(bias_at);
+  in_args.push(out_with_bias_at);
+  in_args.push(out_without_bias_at);
+
+  KernelArgumentHolder outs = jit.runWithInputs(in_args);
+  EXPECT_EQ(outs.size(), 0);
+  // validate
+  auto ref_output_with_bias = at::linear(in_at, weight_at, bias_at);
+  auto ref_output_without_bias = at::linear(in_at, weight_at);
+
+  EXPECT_TRUE(ref_output_with_bias.allclose(out_with_bias_at));
+  EXPECT_TRUE(ref_output_without_bias.allclose(out_without_bias_at));
+}
+
+TEST_F(HostIrJitTest, Reshape) {
+  auto hic = std::make_unique<HostIrContainer>();
+  FusionGuard fg(hic.get());
+
+  const std::vector<int64_t> in_shape({2, 3, 4});
+  const std::vector<int64_t> out_shape({2, 12});
+
+  TensorView* in = makeContigConcreteTensor(in_shape);
+  TensorView* out = reshape(in, in_shape, out_shape);
+  hic->addInput(in);
+  hic->addOutput(out);
+  hic->pushBackTopLevelExprs(out->definition());
+
+  HostIrJit jit(std::move(hic));
+  at::Tensor in_tensor =
+      at::randn({2, 3, 4}, at::dtype(at::kFloat).device(at::kCUDA, 0));
+  KernelArgumentHolder in_args;
+  in_args.setCacheId(0);
+  in_args.push(in_tensor);
+  KernelArgumentHolder outs = jit.runWithInputs(in_args);
+  EXPECT_EQ(outs.size(), 1);
+  at::Tensor output = outs[0].as<at::Tensor>();
+  auto ref_output = in_tensor.reshape(out_shape);
+
+  EXPECT_TRUE(ref_output.allclose(output));
+}
+
+TEST_F(HostIrJitTest, ReshapeWithDynamicTransform) {
+  auto hic = std::make_unique<HostIrContainer>();
+  FusionGuard fg(hic.get());
+
+  auto tv0 = makeSymbolicTensor(3);
+  auto s0 = IrBuilder::create<Val>(DataType::Index);
+  auto s1 = IrBuilder::create<Val>(DataType::Index);
+  hic->addInput(tv0);
+  hic->addInput(s0);
+  hic->addInput(s1);
+
+  auto tv1 = reshape(tv0, {s0, s1});
+  hic->addOutput(tv1);
+  hic->pushBackTopLevelExprs(tv1->definition());
+
+  HostIrJit jit(std::move(hic));
+  at::Tensor in_tensor =
+      at::randn({2, 3, 4}, at::dtype(at::kFloat).device(at::kCUDA, 0));
+  KernelArgumentHolder in_args;
+  in_args.setCacheId(0);
+  in_args.push(in_tensor);
+  in_args.push(6);
+  in_args.push(4);
+  KernelArgumentHolder outs = jit.runWithInputs(in_args);
+  EXPECT_EQ(outs.size(), 1);
+  at::Tensor output = outs[0].as<at::Tensor>();
+  auto ref_output = in_tensor.reshape({6, 4});
+  EXPECT_TRUE(ref_output.allclose(output));
 }
 
 } // namespace hir

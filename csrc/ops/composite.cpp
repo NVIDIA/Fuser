@@ -108,7 +108,7 @@ TensorView* triu(TensorView* tv, Val* offset) {
   auto tv_rows_b = broadcast(tv_rows, {false, true});
   auto tv_cols_b = broadcast(tv_columns, {true, false});
   auto mask = le(tv_rows_b, tv_cols_b);
-  return where(mask, tv, fusion->zeroVal(DataType::Index));
+  return where(mask, tv, fusion->zeroVal(*tv->getDataType()));
 }
 
 namespace {

@@ -42,7 +42,6 @@ inline c10d::ReduceOp::RedOpType getC10dReduceOpType(BinaryOpType op) {
       return c10d::ReduceOp::RedOpType::BXOR;
     default:
       NVF_THROW("unsupported reduction operation");
-      return c10d::ReduceOp::RedOpType::UNUSED;
   }
 }
 
@@ -59,13 +58,13 @@ void lowerToScatter(
       receiver_mesh);
 
   // Find a common device between input and receiver meshes to be the root
+  std::vector<DeviceIdxType> input_devices = input_tv->getDeviceMesh().vector();
   auto it = std::ranges::find_if(
-      input_tv->getDeviceMesh().vector(),
-      [&receiver_mesh](DeviceIdxType device) {
+      input_devices, [&receiver_mesh](DeviceIdxType device) {
         return receiver_mesh.has(device);
       });
   NVF_ERROR(
-      it != input_tv->getDeviceMesh().vector().end(),
+      it != input_devices.end(),
       "No common device found between input and receiver meshes");
   DeviceIdxType root = *it;
 

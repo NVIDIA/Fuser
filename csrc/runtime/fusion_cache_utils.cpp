@@ -7,12 +7,12 @@
 // clang-format on
 #include <runtime/fusion_cache_utils.h>
 
+#include <unordered_set>
+
 #include <fusion_segmenter.h>
 #include <ir/all_nodes.h>
 #include <polymorphic_value.h>
 #include <runtime/executor_kernel_arg.h>
-
-#include <unordered_set>
 
 namespace nvfuser {
 
@@ -147,66 +147,6 @@ void ArgumentManager::setLastUsedSegmentID(
     for (auto item : last_used_segment_map) {
       vals_last_used_at_segment_[item.second].push_back(item.first);
     }
-  }
-}
-
-void prepareRuntimeOrder(
-    SegmentedFusion* segmented_fusion,
-    RuntimeWorkSpace& runtime_workspace) {
-  // Setup group run order:
-  std::unordered_set<Val*> available_input;
-
-  // setup the order tensor dimensions are bound
-  for (const size_t i : arange(segmented_fusion->inputs().size())) {
-    auto input_val = segmented_fusion->inputs()[i];
-    available_input.insert(input_val);
-
-    if (auto input_tv = dynamic_cast<TensorView*>(input_val)) {
-      auto logical_dom =
-          TensorDomain::noReductions(input_tv->getLogicalDomain());
-      for (const size_t dim : arange(logical_dom.size())) {
-        const auto extent = logical_dom[dim]->getMaybeExpandedExtent();
-        available_input.insert(extent);
-        runtime_workspace.group_extent_binding_order.push_back(extent);
-      }
-    }
-  }
-
-  // Keep track of groups that has run
-  std::vector<bool> group_ran(segmented_fusion->groups().size(), false);
-
-  while (!std::all_of(
-      group_ran.begin(), group_ran.end(), [](bool b) { return b; })) {
-    bool one_ran = false;
-
-    // Find the first segment with all inputs available to run
-    for (const size_t group_i : arange(segmented_fusion->groups().size())) {
-      auto& group = segmented_fusion->groups()[group_i];
-      if (group_ran[group_i]) {
-        continue;
-      }
-      const auto& group_inputs = group->inputs();
-      bool ready_to_run = std::all_of(
-          group_inputs.begin(),
-          group_inputs.end(),
-          [&available_input](Val* val) { return available_input.count(val); });
-
-      if (ready_to_run) {
-        runtime_workspace.group_run_order.push_back(group);
-        const auto& group_outputs = group->outputs();
-
-        // Insert graph segment output to tensor map
-        for (const size_t group_out_i : arange(group_outputs.size())) {
-          available_input.insert(group_outputs[group_out_i]);
-        }
-        group_ran[group_i] = true;
-        one_ran = true;
-      }
-    }
-    NVF_ERROR(
-        one_ran,
-        "Couldn't run all groups, something must have gone wrong in "
-        "segmentation.");
   }
 }
 

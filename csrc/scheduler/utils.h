@@ -170,7 +170,7 @@ int64_t mergeNonReduction(TensorView* tv);
 // boolean flag that determines whether to additionally parallelize the inputs
 // of the fusion on DID parallel types. For eg: see propagateReshapeTransforms
 // and scheduleTranspose.
-void parallelizeAllLike(
+NVF_API void parallelizeAllLike(
     TensorView* reference_tv,
     int64_t pos = -1,
     std::vector<TensorView*> selected_tvs = {},
@@ -850,6 +850,17 @@ TensorView* scheduleInputToSkipIntermediates(TensorView* tv);
 
 // Returns true if any of the domains of the tensor is symbolic
 bool isSymbolicTensor(const TensorView* tv);
+
+// Builds the allocation domain of `tv` by reusing existing IDs from the loop
+// domain. This avoids creating duplicate IDs when the loop domain already
+// contains the transformed IDs we need. It ensures we can allocate the tensor
+// based on its allocation domains and also verify that the allocated Ids are
+// consistent with the compute at position.
+void buildAllocationDomainFromLoopIds(TensorView* tv);
+
+// For shared memory tensor, replay loop domain transformations to allocation
+// domain
+void buildAllocationDomainForSharedMemoryTvs(Fusion* fusion);
 } // namespace scheduler_utils
 
 } // namespace nvfuser

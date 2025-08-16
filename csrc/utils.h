@@ -547,11 +547,15 @@ NVF_API const char* getNvFuserEnv(
     const char* default_value = nullptr);
 
 // Returns the mapped value or the default.
-template <typename K, typename V>
-V getOrDefault(
-    const std::unordered_map<K, V>& map,
-    const K& key,
-    const V& default_value = V()) {
+template <
+    typename MapKey,
+    typename Value,
+    typename Key,
+    typename = std::enable_if_t<std::is_convertible_v<Key, MapKey>>>
+Value getOrDefault(
+    const std::unordered_map<MapKey, Value>& map,
+    const Key& key,
+    const Value& default_value = Value()) {
   const auto i = map.find(key);
   return i == map.end() ? default_value : i->second;
 }

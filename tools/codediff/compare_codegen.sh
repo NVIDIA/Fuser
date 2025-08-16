@@ -20,14 +20,15 @@
 # rest of the command line as the test to run. For example, to compare the
 # generated code for a single binary test, you could use:
 #
-#   tools/compare_codegen.sh -- build/test_nvfuser --gtest_filter='*TestFoo*'
+#   tools/codediff/compare_codegen.sh -- bin/test_nvfuser \
+#               --gtest_filter='*TestFoo*'
 #
 # or to run all benchmarks you can use:
 #
-#   tools/compare_codegen.sh -- build/nvfuser_bench \
-#       --benchmark_filter=NvFuserScheduler \
-#       --benchmark_repetitions=1 \
-#       --benchmark_min_time=0
+#   tools/codediff/compare_codegen.sh -- bin/nvfuser_bench \
+#               --benchmark_filter=NvFuserScheduler \
+#               --benchmark_repetitions=1 \
+#               --benchmark_min_time=0
 #
 # In those cases, the outputs will be placed in a subdirectory of the output
 # directory for each commit labelled "custom_command_$LAUNCHTIME" where
@@ -215,15 +216,17 @@ collect_kernels() {
         # python tests
         # Using -s to disable capturing stdout. This is important as it will let us see which tests creates each .cu file
         "${bashcmd[@]}" -o "$pyopsdir" -- \
-            python -m pytest "$nvfuserdir/python_tests/test_ops.py" -n 0 -v -s --color=yes
+            python -m pytest "$nvfuserdir/tests/python/opinfo/test_legacy_ops.py" -n 0 -v -s --color=yes
+        "${bashcmd[@]}" -o "$pyopsdir" -- \
+            python -m pytest "$nvfuserdir/tests/python/opinfo/test_direct_ops.py" -n 0 -v -s --color=yes
         "${bashcmd[@]}" -o "$pyschedopsdir" -- \
-            python -m pytest "$nvfuserdir/python_tests/test_schedule_ops.py" -n 0 -v -s --color=yes
+            python -m pytest "$nvfuserdir/tests/python/test_schedule_ops.py" -n 0 -v -s --color=yes
         "${bashcmd[@]}" -o "$pyfrontenddir" -- \
-            python -m pytest "$nvfuserdir/python_tests/test_python_frontend.py" -n 0 -v -s --color=yes
+            python -m pytest "$nvfuserdir/tests/python/test_python_frontend.py" -n 0 -v -s --color=yes
 
         # binary tests
         "${bashcmd[@]}" -o "$binarytestdir" -- \
-            "$nvfuserdir/build/test_nvfuser" --gtest_color=yes
+            "$nvfuserdir/bin/test_nvfuser" --gtest_color=yes
     fi
 }
 

@@ -62,6 +62,7 @@ class IndexLowering : private OptOutConstDispatch {
   void handle(const GroupedReductionOp*) final;
   void handle(const WelfordOp*) final;
   void handle(const GroupedWelfordOp*) final;
+  void handle(const ScanOp*) final;
   void handle(const LoadStoreOp*) final;
   void handle(const MmaOp*) final;
   void handle(const BroadcastOp*) final;
@@ -120,7 +121,7 @@ class IndexLowering : private OptOutConstDispatch {
 
   Val* lowerDstIndex(
       Val* dst,
-      const std::unordered_map<int, Val*>& override_index = {},
+      const std::unordered_map<IterDomain*, Val*>& override_index = {},
       bool generate_pointer = false,
       DataType as_type = DataType::Null) const;
 
