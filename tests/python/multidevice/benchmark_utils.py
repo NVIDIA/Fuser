@@ -3,12 +3,10 @@
 # SPDX-License-Identifier: BSD-3-Clause
 
 import torch
-import torch.distributed as dist
 
 
 def get_benchmark_fn(func, /, profile: bool):
     def wrapper(*args, **kwargs):
-        dist.barrier()
         if profile:
             torch.cuda.cudart().cudaProfilerStart()
         result = func(*args, **kwargs)
