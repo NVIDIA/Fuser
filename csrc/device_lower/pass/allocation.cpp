@@ -175,9 +175,9 @@ class AllocationDomainSetup : private kir::IrVisitor {
       return *exclude_it;
     }
     // Fallback: use IdModel to check if any excluded ID is mapped
-    if (GpuLower::current()->hasIdModel()) {
+    if (GpuLower::current()->info().hasIdModel()) {
       const auto& exact_graph =
-          GpuLower::current()->idModel().idGraph(IdMappingMode::EXACT);
+          GpuLower::current()->info().idModel().idGraph(IdMappingMode::EXACT);
       for (auto exclude_id : exclude_ca_ids) {
         if (exact_graph.disjointValSets().strictAreMapped(exclude_id, id)) {
           return exclude_id;
@@ -410,7 +410,8 @@ class AllocationDomainSetup : private kir::IrVisitor {
     if (auto transposed_smem_alloc_dom = patchAllocationOfTransposedSmemTensor(
             tv,
             allocation_domains,
-            GpuLower::current()->idModel().idGraph(IdMappingMode::EXACT));
+            GpuLower::current()->info().idModel().idGraph(
+                IdMappingMode::EXACT));
         transposed_smem_alloc_dom.has_value()) {
       allocation_domains = transposed_smem_alloc_dom.value();
       // Make sure the original allocation domains are fully contiguous
@@ -433,7 +434,7 @@ class AllocationDomainSetup : private kir::IrVisitor {
       TensorView* tv,
       std::vector<IterDomain*> allocation_domains,
       std::vector<std::optional<bool>> contiguity) {
-    const IdModel& id_model = GpuLower::current()->idModel();
+    const IdModel& id_model = GpuLower::current()->info().idModel();
 
     std::vector<IterDomain*> promoted_allocation_domains;
     promoted_allocation_domains.reserve(allocation_domains.size());
@@ -1002,7 +1003,8 @@ Expr* initializeCircularBufferMbarrier(
     num_of_arrives = SimplifyingIrBuilder::maybeCastExpr(
         DataType::UInt32,
         GpuLower::current()
-            ->parallelDimensionMap()
+            ->info()
+            .parallelDimensionMap()
             .getNumComputeThreadsEachBlock());
   }
 
@@ -1644,7 +1646,7 @@ namespace {
 // Create `if (is first warp)`, depending on whether the parallel types are
 // used in the schedule, the generated code may be different.
 kir::IfThenElse* createFirstWarpITE() {
-  const auto& pdim = GpuLower::current()->parallelDimensionMap();
+  const auto& pdim = GpuLower::current()->info().parallelDimensionMap();
   Val* tid = FusionGuard::getCurFusion()->zeroVal();
   Val* bdimx = pdim.getRaw(ParallelType::TIDx);
   Val* bdimy = pdim.getRaw(ParallelType::TIDy);

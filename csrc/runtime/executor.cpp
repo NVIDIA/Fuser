@@ -361,7 +361,7 @@ LaunchParams KernelExecutor::computeLaunchParams(
   auto& parallel_iter_extents = parallel_iter_extent_entry.get();
 
   const auto& simplified_parallel_iter_extents =
-      lower->parallelDimensionMap().getMap();
+      lower->info().parallelDimensionMap().getMap();
 
   // TODO: Need to redesign this part a bit to
   //   find the right place to trigger evaluate

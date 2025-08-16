@@ -5,6 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <device_lower/analysis/fusion_info.h>
 #include <device_lower/analysis/index_compute.h>
 #include <device_lower/lower2device.h>
 #include <id_model/indexing.h>
@@ -21,6 +22,9 @@ namespace {
 
 // Validate parallelization of a single tensor
 void validateParallelizationOfTensor(TensorView* tv) {
+  NVF_ERROR(FusionInfoGuard::hasCurrent());
+
+  NVF_ERROR(FusionInfoGuard::current()->hasConcretizedBroadcastDomains());
   // Each ParallelType can be used only once.
   ParallelTypeBitmap pt_map;
   for (auto i : arange(tv->nDims())) {
@@ -33,8 +37,9 @@ void validateParallelizationOfTensor(TensorView* tv) {
     // It doesn't matter if this axis is a non-concretized broadcast
     // TODO: merging broadcast and non-broadcast
     if (axis->isBroadcast() &&
-        !GpuLower::current()->concretizedBroadcastDomains()->isConcretized(
-            axis)) {
+        !FusionInfoGuard::current()
+             ->concretizedBroadcastDomains()
+             .isConcretized(axis)) {
       continue;
     }
 
@@ -51,9 +56,9 @@ void validateParallelizationOfTensor(TensorView* tv) {
 
   // If this tensor is predicated by a paralel type, it should not be
   // used to parallelize any domain of this tensor
-
+  NVF_ERROR(FusionInfoGuard::current()->hasThreadPredicateMap());
   const auto thread_pred =
-      GpuLower::current()->threadPredMap().getPredicateInfo(tv);
+      FusionInfoGuard::current()->threadPredicateMap().getPredicateInfo(tv);
 
   auto predicated_parallel_types = pt_map & thread_pred.limited_types;
 
@@ -144,10 +149,20 @@ SyncMap::SyncMap(Fusion* fusion) {
   FUSER_PERF_SCOPE("SyncMap::SyncMap");
   FusionGuard fg(fusion);
 
-  NVF_ERROR(GpuLower::current()->hasIdModel());
+  NVF_ERROR(FusionInfoGuard::hasCurrent(), "FusionInfo is required");
+  NVF_ERROR(
+      FusionInfoGuard::current()->hasComputeAtMap(),
+      "ComputeAtMap is required");
+  NVF_ERROR(FusionInfoGuard::current()->hasIdModel(), "IdModel is required");
+  NVF_ERROR(
+      FusionInfoGuard::current()->hasThreadPredicateMap(),
+      "ThreadPredicateMap is required");
+  NVF_ERROR(
+      FusionInfoGuard::current()->hasConcretizedBroadcastDomains(),
+      "ConcretizedBroadcastDomains is required");
 
-  const auto& ca_map = GpuLower::current()->caMap();
-  const auto& pred_map = GpuLower::current()->threadPredMap();
+  const auto& ca_map = FusionInfoGuard::current()->caMap();
+  const auto& pred_map = FusionInfoGuard::current()->threadPredicateMap();
 
   auto exprs = StmtSort::getExprs(fusion);
 
@@ -189,15 +204,11 @@ SyncMap::SyncMap(Fusion* fusion) {
       //  below to eliminate redundant writes: if(threadIdx.x == 0)
       //    shared[threadIdx.x + i] = ...
       // We will need a raw sync after this pattern for correctness.
-      auto producer_redundant_types = GpuLower::current()
-                                          ->threadPredMap()
-                                          .getPredicateInfo(producer)
-                                          .redundant_types;
+      auto producer_redundant_types =
+          pred_map.getPredicateInfo(producer).redundant_types;
       // Get the parallel types that are inactive in consumer's use chains.
-      auto producer_redundant_use_types = GpuLower::current()
-                                              ->threadPredMap()
-                                              .getPredicateInfo(producer)
-                                              .redundant_use_types;
+      auto producer_redundant_use_types =
+          pred_map.getPredicateInfo(producer).redundant_use_types;
 
       // In sync info pass we only consider the parallel types in
       //  producer that are redundantly produced but not redundantly consumed.
@@ -207,7 +218,7 @@ SyncMap::SyncMap(Fusion* fusion) {
       for (const auto producer_i : arange(producer->nDims())) {
         auto producer_axis = producer->getLoopDomain().at(producer_i);
         auto producer_ptype =
-            ca_map->getConcreteMappedID(producer_axis, IdMappingMode::LOOP)
+            ca_map.getConcreteMappedID(producer_axis, IdMappingMode::LOOP)
                 ->getParallelType();
 
         if (!isParallelTypeThread(producer_ptype)) {
@@ -231,7 +242,7 @@ SyncMap::SyncMap(Fusion* fusion) {
         for (const auto consumer_i : arange(consumer->nDims())) {
           auto consumer_axis = consumer->getLoopDomain().at(consumer_i);
           auto consumer_ptype =
-              ca_map->getConcreteMappedID(consumer_axis, IdMappingMode::LOOP)
+              ca_map.getConcreteMappedID(consumer_axis, IdMappingMode::LOOP)
                   ->getParallelType();
 
           if (!isParallelTypeThread(consumer_ptype)) {
@@ -242,9 +253,9 @@ SyncMap::SyncMap(Fusion* fusion) {
           // parallelized unless thread-predicated and eventually concretized
           if (consumer_axis->isBroadcast() &&
               (!parallel_bcast_doms.get(consumer_ptype) ||
-               !GpuLower::current()
+               !FusionInfoGuard::current()
                     ->concretizedBroadcastDomains()
-                    ->isConcretized(consumer_axis))) {
+                    .isConcretized(consumer_axis))) {
             continue;
           }
 
@@ -304,7 +315,7 @@ SyncMap::SyncMap(Fusion* fusion) {
                 consumer->getLoopDomain().begin(),
                 consumer->getLoopDomain().end(),
                 [&](IterDomain* c_id) {
-                  return GpuLower::current()->caMap()->areMapped(
+                  return FusionInfoGuard::current()->caMap().areMapped(
                       p_id, c_id, IdMappingMode::PERMISSIVE);
                 });
 
@@ -321,7 +332,7 @@ SyncMap::SyncMap(Fusion* fusion) {
                 producer->getLoopDomain().begin(),
                 producer->getLoopDomain().end(),
                 [&](IterDomain* p_id) {
-                  return GpuLower::current()->caMap()->areMapped(
+                  return FusionInfoGuard::current()->caMap().areMapped(
                       p_id, c_id, IdMappingMode::PERMISSIVE);
                 });
             if (it == producer->getLoopDomain().end()) {
@@ -351,18 +362,19 @@ SyncMap::SyncMap(Fusion* fusion) {
           // B    B      G           G
 
           auto producer_ptype =
-              ca_map->getConcreteMappedID(p_id, IdMappingMode::LOOP)
+              ca_map.getConcreteMappedID(p_id, IdMappingMode::LOOP)
                   ->getParallelType();
           auto consumer_ptype = c_id == nullptr
               ? ParallelType::Serial
-              : ca_map->getConcreteMappedID(c_id, IdMappingMode::LOOP)
+              : ca_map.getConcreteMappedID(c_id, IdMappingMode::LOOP)
                     ->getParallelType();
 
           auto producer_parallel_bcast = p_id->isBroadcast() &&
               isParallelTypeThread(producer_ptype) &&
               parallel_bcast_doms.get(producer_ptype) &&
-              GpuLower::current()->concretizedBroadcastDomains()->isConcretized(
-                  p_id);
+              FusionInfoGuard::current()
+                  ->concretizedBroadcastDomains()
+                  .isConcretized(p_id);
 
           auto producer_parallelized = isParallelTypeThread(producer_ptype) &&
               (!p_id->isBroadcast() || producer_parallel_bcast);
@@ -419,7 +431,7 @@ SyncMap::SyncMap(Fusion* fusion) {
 
             // Case 1. Note that indexing through scatter needs to be
             // excluded due to its indirect indexing.
-            const auto& id_model = GpuLower::current()->idModel();
+            const auto& id_model = FusionInfoGuard::current()->idModel();
             auto producer_loop_id = getLoopPromotion(p_id, id_model);
             auto consumer_loop_id = getLoopPromotion(c_id, id_model);
             const auto& indexing_traveral_graph =
