@@ -477,7 +477,9 @@ struct RuntimeWorkSpace {
 
 // Perform a topological sort of different groups composiong the Segmented
 // Fusion
-RuntimeWorkSpace prepareRuntimeOrder(const SegmentedFusion& segmented_fusion);
+RuntimeWorkSpace prepareRuntimeOrder(
+    const SegmentedFusion& segmented_fusion,
+    SchedulerRuntimeInfo* runtime_info = nullptr);
 
 //! This is a base class for segmenter analysis
 //!  provides the minimal implementation on header so that
