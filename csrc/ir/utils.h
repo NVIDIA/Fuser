@@ -440,7 +440,7 @@ bool isIndexSelectLookupTv(const TensorView* tv);
 // Check if the given tv is third argment of indexSelect(lookup, dim, indices)
 bool isIndexSelectIndicesTv(const TensorView* tv);
 
-bool isGatherLookupTv(const Val* tv);
+bool isAndOnlyIsGatherLookupTv(const Val* tv);
 
 std::string varName(const Val* val);
 

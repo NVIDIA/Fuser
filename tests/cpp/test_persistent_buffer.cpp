@@ -1907,4 +1907,46 @@ TEST_F(PersistentBufferTest, BroadcastSyncInputsHasBcast) {
       ke.run({t0, t1}, {}, heuristic_params->as<ReductionParams>()->lparams);
   testValidate(&unscheduled_fusion_copy, outputs, {t0, t1}, __LINE__, __FILE__);
 }
+
+// Should cache gather lookup tv if it is a persistent buffer
+TEST_F(PersistentBufferTest, BufferGatherLookupTv) {
+  DataType dtype = DataType::BFloat16;
+  int x = 2;
+  int y = 65 * 1024;
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+  auto tv0 = makeContigConcreteTensor({x, y}, dtype);
+  auto index_tv = makeContigConcreteTensor({x}, DataType::Int);
+  fusion.addInput(tv0);
+  fusion.addInput(index_tv);
+  auto tv1 = maybeCastOp(DataType::Float, tv0);
+  auto tv2 = sum(tv1, {1});
+  auto tv3 = broadcast(tv2, {false, true});
+  auto tv4 = broadcast(index_tv, {false, true});
+  auto tv5 = gather(tv0, 1, tv4);
+  auto tv6 = maybeCastOp(DataType::BFloat16, tv5);
+  auto tv7 = add(tv3, tv6);
+  auto tv8 = add(tv1, tv7);
+  auto tv9 = maybeCastOp(DataType::BFloat16, tv8);
+  fusion.addOutput(tv9);
+  auto unscheduled_fusion_copy = fusion;
+
+  auto options =
+      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
+  auto options_i = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
+  auto t0 = at::randn({x, y}, options).clamp(-2, 2);
+  auto t1 = at::randint(0, y, {x}, options_i);
+  SchedulerRuntimeInfo runtime_info(fusion_ptr.get(), {t0, t1});
+  auto scheduler =
+      SchedulerEntry::makeSchedulerInstance(SchedulerType::InnerPersistent);
+  auto heuristic_params =
+      scheduler->computeHeuristics(fusion_ptr.get(), runtime_info);
+  scheduler->schedule(fusion_ptr.get(), heuristic_params.get());
+  KernelExecutor ke;
+  ke.compile(fusion_ptr.get(), {t0, t1});
+  auto outputs =
+      ke.run({t0, t1}, {}, heuristic_params->as<ReductionParams>()->lparams);
+  testValidate(&unscheduled_fusion_copy, outputs, {t0, t1});
+}
 } // namespace nvfuser

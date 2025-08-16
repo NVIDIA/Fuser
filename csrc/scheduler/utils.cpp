@@ -1264,7 +1264,7 @@ std::vector<TensorView*> cacheInputs(Fusion* fusion, bool unroll) {
   // If we're going to unroll, make a cache of the inputs
   auto in_tvs = ir_utils::filterByType<TensorView>(fusion->inputs());
   for (auto tv : in_tvs) {
-    if (tv->uses().empty() || ir_utils::isGatherLookupTv(tv) ||
+    if (tv->uses().empty() || ir_utils::isAndOnlyIsGatherLookupTv(tv) ||
         ir_utils::isIndexSelectLookupTv(tv) ||
         ir_utils::isTvUsedByOpsOfType<SelectOp>(tv)) {
       // Right now, tensors that are input to the select, gather and
@@ -1282,7 +1282,7 @@ std::vector<TensorView*> cacheInputs(Fusion* fusion, bool unroll) {
     // caching load instructions.
     std::vector<Expr*> cached_uses;
     for (auto use : tv->uses()) {
-      if (!use->isOneOf<PadOp, SliceOp>()) {
+      if (!use->isOneOf<PadOp, SliceOp, GatherOp>()) {
         cached_uses.push_back(use);
       }
     }
@@ -1638,7 +1638,7 @@ std::vector<TensorView*> getInputsOutputsWithInnerDim(
        ir_utils::filterByType<TensorView>(reference_tv->fusion()->inputs())) {
     // for indexSelect(lookup_tv, dim, index_tv) op
     // ignore it's lookup_tv.
-    if (ir_utils::isGatherLookupTv(input_tv)) {
+    if (ir_utils::isAndOnlyIsGatherLookupTv(input_tv)) {
       continue;
     }
 
