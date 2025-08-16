@@ -41,7 +41,7 @@ bool isOutputLocal(const Expr* expr) {
 } // namespace
 
 bool ParallelizedDomainPredicate::PredicateInfo::addDomain(IterDomain* id) {
-  auto concrete_id = GpuLower::current()->caMap()->getConcreteMappedID(
+  auto concrete_id = GpuLower::current()->info().caMap().getConcreteMappedID(
       id, IdMappingMode::EXACT);
   if (std::find(ids_.begin(), ids_.end(), concrete_id) == ids_.end()) {
     ids_.push_back(concrete_id);
@@ -61,7 +61,7 @@ Val* ParallelizedDomainPredicate::PredicateInfo::getPredicate() const {
     // Just sanity check that pred_id is concrete
     NVF_ERROR(
         pred_id ==
-        GpuLower::current()->caMap()->getConcreteMappedID(
+        GpuLower::current()->info().caMap().getConcreteMappedID(
             pred_id, IdMappingMode::EXACT));
     auto new_pred = SimplifyingIrBuilder::ltExpr(index, pred_id->extent());
     pred = SimplifyingIrBuilder::logicalAndExpr(pred, new_pred);
@@ -87,7 +87,7 @@ std::vector<IterDomain*> getUnswitchProtectedParallelLoopIds(
     return {};
   }
 
-  const auto& id_model = GpuLower::current()->idModel();
+  const auto& id_model = GpuLower::current()->info().idModel();
   const auto& indexing_graph =
       id_model.idGraph(TensorIndexer::traversalGraphType());
 
@@ -261,7 +261,8 @@ ParallelizedDomainPredicate::getPredicateMap(
         lower_utils::isExtentEqualToMaxParallelTypeExtent(loop_id)) {
       continue;
     }
-    auto parallel_dim = gpu_lower->parallelDimensionMap().getRaw(loop_ptype);
+    auto parallel_dim =
+        gpu_lower->info().parallelDimensionMap().getRaw(loop_ptype);
 
     // If protected by unswitch, the unswitch predicate is enough without
     // predicating the parallel type. For example, suppose a logical
@@ -289,7 +290,7 @@ ParallelizedDomainPredicate::getPredicateMap(
           tv->getLoopDomain().begin(),
           tv->getLoopDomain().end(),
           [&](auto tv_id) {
-            return gpu_lower->caMap()->areMapped(
+            return gpu_lower->info().caMap().areMapped(
                 loop_id, tv_id, IdMappingMode::EXACT);
           });
       if (it == tv->getLoopDomain().end()) {
@@ -451,8 +452,9 @@ UnswitchPredicateKey::UnswitchPredicateKey(
   // Find the corresponding concrete id for each parallel type
   for (auto consumer_loop : parallelized_consumer_loop_ids) {
     auto pt = consumer_loop->getParallelType();
-    auto concrete_loop = GpuLower::current()->caMap()->getConcreteMappedID(
-        consumer_loop, IdMappingMode::EXACT);
+    auto concrete_loop =
+        GpuLower::current()->info().caMap().getConcreteMappedID(
+            consumer_loop, IdMappingMode::EXACT);
     parallel_concrete_ids_.at(pt) = concrete_loop;
   }
 }
@@ -523,7 +525,7 @@ Val* createElectSyncPredicateAsync() {
   Val* warp_size = IrBuilder::create<Val>(32L, PrimDataType::UInt64);
 
   const ParallelDimensionMap& pdim_map =
-      GpuLower::current()->parallelDimensionMap();
+      GpuLower::current()->info().parallelDimensionMap();
   Val* async_warp_thread_index = pdim_map.getLinearThreadIndexAsync();
   Val* warp_id =
       SimplifyingIrBuilder::divExpr(async_warp_thread_index, warp_size);
@@ -564,7 +566,8 @@ Val* createElectSyncPredicate(kir::Predicate* pred, bool is_async_warp) {
   }
 
   Val* tidx_paralleltype_dim =
-      GpuLower::current()->parallelDimensionMap().get(ParallelType::TIDx);
+      GpuLower::current()->info().parallelDimensionMap().get(
+          ParallelType::TIDx);
 
   // short-circuit: ParallelType::TIDx is not used in cuda kernel.
   if (tidx_paralleltype_dim == nullptr) {
@@ -605,7 +608,7 @@ Val* createSingleExpressionElectSync(
   Val* zero = IrBuilder::create<Val>(0L, PrimDataType::UInt64);
 
   const ParallelDimensionMap& pdim_map =
-      GpuLower::current()->parallelDimensionMap();
+      GpuLower::current()->info().parallelDimensionMap();
   auto pred_map =
       ParallelizedDomainPredicate::getPredicateMap(pred->expr(), loops);
 
@@ -646,7 +649,7 @@ Val* createSingleExpressionElectSync(
         // Select first element of dimension for ParallelDim::TIDy and
         // ParallelDim::TIDz.
         Val* paralleltype_dim =
-            GpuLower::current()->parallelDimensionMap().get(pt);
+            GpuLower::current()->info().parallelDimensionMap().get(pt);
         if (paralleltype_dim == nullptr || !paralleltype_dim->isOneInt()) {
           parallel_dom_pred = SimplifyingIrBuilder::logicalAndExpr(
               parallel_dom_pred,
@@ -673,7 +676,7 @@ Val* createMultipleExpressionElectSync(
 
   Val* zero = IrBuilder::create<Val>(0L, PrimDataType::UInt64);
   const ParallelDimensionMap& pdim_map =
-      GpuLower::current()->parallelDimensionMap();
+      GpuLower::current()->info().parallelDimensionMap();
 
   // Determine if warp specialized tma load expression.
   ParallelType async_warp_on = ParallelType::Serial;
@@ -1011,7 +1014,7 @@ void UnswitchPredicate::predicateOn(Expr* tv_expr) {
     bool first_key_set = false;
 
     for (auto root_id : root_ids) {
-      auto concrete_root_id = gpu_lower->caMap()->getConcreteMappedID(
+      auto concrete_root_id = gpu_lower->info().caMap().getConcreteMappedID(
           root_id, IdMappingMode::EXACT);
 
       if (root_id->isBroadcast()) {
