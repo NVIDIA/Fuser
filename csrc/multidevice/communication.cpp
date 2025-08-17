@@ -5,14 +5,16 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <c10/cuda/CUDAStream.h>
+#if defined(NVFUSER_DISTRIBUTED) && defined(USE_C10D_NCCL)
+#include <torch/csrc/distributed/c10d/ProcessGroupNCCL.hpp>
+#endif
+
 #include <ir/cloner.h>
 #include <ir/iostream.h>
 #include <ir/printer.h>
 #include <multidevice/communication.h>
 #include <multidevice/utils.h>
-#if defined(NVFUSER_DISTRIBUTED) && defined(USE_C10D_NCCL)
-#include <torch/csrc/distributed/c10d/ProcessGroupNCCL.hpp>
-#endif
 #include <utils.h>
 
 namespace nvfuser {
