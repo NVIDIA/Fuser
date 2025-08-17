@@ -70,27 +70,36 @@ void assertBuffersHaveSameSize(
   const auto shape = (bufs1.empty() ? bufs2 : bufs1).at(0).sizes();
   for (const auto& bufs : {bufs1, bufs2}) {
     for (const auto& buf : bufs) {
-      NVF_ERROR(
-          buf.sizes() == shape,
-          "all buffers must have the same shape, but got: ",
-          buf.sizes(),
-          " vs ",
-          shape);
+      NVF_ERROR_EQ(buf.sizes(), shape, "all buffers must have the same shape");
     }
   }
 }
 
-void doLocalCopy(
-    at::Tensor& dst,
-    const at::Tensor& src,
-    DeviceIdxType device_id) {
-  NVF_ERROR_EQ(dst.storage().nbytes(), src.storage().nbytes());
+void doLocalCopy(at::Tensor& dst, const at::Tensor& src) {
+  NVF_ERROR_EQ(dst.numel(), src.numel());
+  if (dst.is_contiguous()) {
+    dst.view_as(src).copy_(src, /*non_blocking=*/true);
+    return;
+  }
+
+  int64_t n_bytes = dst.numel() * dst.element_size();
+  for (auto [size, stride] : zip(dst.sizes(), dst.strides())) {
+    if (stride == 0) {
+      NVF_ERROR(
+          n_bytes % size == 0,
+          "n_bytes is expected to be divisible by size, but got ",
+          n_bytes,
+          " and ",
+          size);
+      n_bytes /= size;
+    }
+  }
   cudaMemcpyAsync(
-      dst.storage().mutable_data(),
-      src.storage().data(),
-      dst.storage().nbytes(),
+      dst.data_ptr(),
+      src.data_ptr(),
+      n_bytes,
       cudaMemcpyDeviceToDevice,
-      at::cuda::getCurrentCUDAStream(device_id).stream());
+      at::cuda::getCurrentCUDAStream().stream());
 }
 
 template <typename T>
@@ -202,8 +211,8 @@ int64_t Communication::getRootRelativeIndex() {
 std::string Communication::toInlineString(const int indent_size) const {
   std::stringstream ss;
   indent(ss, indent_size) << "Communication " << name() << " ("
-                          << "type=" << type() << ", "
-                          << "team=(" << team() << ")";
+                          << "type=" << type() << ", " << "team=(" << team()
+                          << ")";
   if (hasRoot(type())) {
     ss << ", root=" << root();
   }
@@ -254,9 +263,8 @@ NVFUSER_DEFINE_CLONE_AND_CREATE(P2PCommunication)
 std::string P2PCommunication::toInlineString(const int indent_size) const {
   std::stringstream ss;
   indent(ss, indent_size) << "P2PCommunication " << name() << " ("
-                          << "type=" << type() << ", "
-                          << "buffer=" << buffer() << ", "
-                          << "peer=" << peer() << ", "
+                          << "type=" << type() << ", " << "buffer=" << buffer()
+                          << ", " << "peer=" << peer() << ", "
                           << "backend=" << backend() << ")";
   return ss.str();
 }
@@ -277,7 +285,7 @@ c10::intrusive_ptr<c10d::Work> postBroadcast(
       // Do a local copy and the subsequent broadcast will be in place. Consider
       // ProcessGroupNCCL::_broadcast_oop so ncclBroadcast doesn't wait for the
       // local copy to complete.
-      doLocalCopy(output_tensor, input_tensor, my_device_index);
+      doLocalCopy(output_tensor, input_tensor);
     } else {
       // `output_tensor` isn't allocated for this device.
       output_tensor = input_tensor;
@@ -423,7 +431,7 @@ c10::intrusive_ptr<c10d::Work> postReduce(
   at::Tensor tensor;
   if (my_device_index == communication->root()) {
     if (communication->in()->getDeviceMesh().has(communication->root())) {
-      doLocalCopy(output_tensor, input_tensor, my_device_index);
+      doLocalCopy(output_tensor, input_tensor);
       tensor = output_tensor;
     } else {
       NVF_ERROR(
@@ -463,7 +471,7 @@ c10::intrusive_ptr<c10d::Work> postAllreduce(
       " contiguity: ",
       communication->out()->domain()->getContiguityString());
 
-  doLocalCopy(output_tensor, input_tensor, my_device_index);
+  doLocalCopy(output_tensor, input_tensor);
   std::vector<at::Tensor> output_tensors({output_tensor});
 
   return backend->allreduce(
@@ -527,7 +535,7 @@ c10::intrusive_ptr<c10d::Work> postSendRecv(
   }
 
   if (sender == receiver) {
-    doLocalCopy(output_tensor, input_tensor, my_device_index);
+    doLocalCopy(output_tensor, input_tensor);
     return nullptr;
   }
 
