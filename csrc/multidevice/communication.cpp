@@ -80,8 +80,17 @@ void assertBuffersHaveSameSize(
   }
 }
 
-void doLocalCopy(const at::Tensor& dst, const at::Tensor& src) {
-  dst.view_as(src).copy_(src, /*non_blocking=*/true);
+void doLocalCopy(
+    at::Tensor& dst,
+    const at::Tensor& src,
+    DeviceIdxType device_id) {
+  NVF_ERROR_EQ(dst.storage().nbytes(), src.storage().nbytes());
+  cudaMemcpyAsync(
+      dst.storage().mutable_data(),
+      src.storage().data(),
+      dst.storage().nbytes(),
+      cudaMemcpyDeviceToDevice,
+      at::cuda::getCurrentCUDAStream(device_id).stream());
 }
 
 template <typename T>
@@ -268,7 +277,7 @@ c10::intrusive_ptr<c10d::Work> postBroadcast(
       // Do a local copy and the subsequent broadcast will be in place. Consider
       // ProcessGroupNCCL::_broadcast_oop so ncclBroadcast doesn't wait for the
       // local copy to complete.
-      doLocalCopy(output_tensor, input_tensor);
+      doLocalCopy(output_tensor, input_tensor, my_device_index);
     } else {
       // `output_tensor` isn't allocated for this device.
       output_tensor = input_tensor;
@@ -414,7 +423,7 @@ c10::intrusive_ptr<c10d::Work> postReduce(
   at::Tensor tensor;
   if (my_device_index == communication->root()) {
     if (communication->in()->getDeviceMesh().has(communication->root())) {
-      doLocalCopy(output_tensor, input_tensor);
+      doLocalCopy(output_tensor, input_tensor, my_device_index);
       tensor = output_tensor;
     } else {
       NVF_ERROR(
@@ -454,7 +463,7 @@ c10::intrusive_ptr<c10d::Work> postAllreduce(
       " contiguity: ",
       communication->out()->domain()->getContiguityString());
 
-  doLocalCopy(output_tensor, input_tensor);
+  doLocalCopy(output_tensor, input_tensor, my_device_index);
   std::vector<at::Tensor> output_tensors({output_tensor});
 
   return backend->allreduce(
@@ -518,7 +527,7 @@ c10::intrusive_ptr<c10d::Work> postSendRecv(
   }
 
   if (sender == receiver) {
-    doLocalCopy(output_tensor, input_tensor);
+    doLocalCopy(output_tensor, input_tensor, my_device_index);
     return nullptr;
   }
 
