@@ -29,7 +29,7 @@ namespace {
 //! lists of specialized nodes and other interesting information
 class KernelIrScanner : private IrVisitor {
  public:
-  explicit KernelIrScanner(const Kernel* kernel) : kernel_(kernel) {
+  explicit KernelIrScanner(const Kernel* kernel) {
     index_type_ = kernel->indexType();
     IrVisitor::handle(kernel->topLevelExprs());
   }
@@ -39,7 +39,6 @@ class KernelIrScanner : private IrVisitor {
   }
 
  private:
-  const Kernel* kernel_;
   inline int64_t getNumOfGroupedIterations(GroupedReductionOp* grouped_rop) {
     int64_t num_grouped_iterations = 1;
     auto out_tv = ir_utils::getTvOutput(grouped_rop);
