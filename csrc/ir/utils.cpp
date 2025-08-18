@@ -793,16 +793,18 @@ bool isIndexSelectIndicesTv(const TensorView* tv) {
   return false;
 }
 
-bool isGatherLookupTv(const Val* tv) {
-  for (auto expr : tv->uses()) {
-    if (expr->isA<GatherOp>()) {
-      auto idx_sel = expr->as<GatherOp>();
-      if (idx_sel->lookupTv() == tv) {
-        return true;
-      }
-    }
-  }
-  return false;
+bool isAndOnlyIsGatherLookupTv(const Val* tv) {
+  return !tv->uses().empty() &&
+      std::all_of(tv->uses().begin(), tv->uses().end(), [tv](Expr* expr) {
+        return expr->isA<GatherOp>() && expr->as<GatherOp>()->lookupTv() == tv;
+      });
+}
+
+bool isGatherIndicesTv(const Val* tv) {
+  return !tv->uses().empty() &&
+      std::any_of(tv->uses().begin(), tv->uses().end(), [tv](Expr* expr) {
+        return expr->isA<GatherOp>() && expr->as<GatherOp>()->indexTv() == tv;
+      });
 }
 
 std::string varName(const Val* val) {
