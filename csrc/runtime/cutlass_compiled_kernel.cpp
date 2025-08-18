@@ -263,7 +263,7 @@ void CutlassCompiledKernel::compileWithNVCC() {
 
   // Create temporary directory for compilation
   temp_dir_ = std::filesystem::temp_directory_path() /
-      ("cutlass_compile_" + std::to_string(getpid()));
+      ("nvfuser_cutlass_compile_" + std::to_string(getpid()));
   if (std::filesystem::exists(temp_dir_)) {
     std::filesystem::remove_all(temp_dir_);
   }
@@ -312,6 +312,9 @@ void CutlassCompiledKernel::compileWithNVCC() {
 
   for (const std::string def :
        {"CUTE_USE_PACKED_TUPLE=1",
+        // This must actually be 90a, even for blackwell devices, or else we hit
+        // a TMA error at runtime
+        "CUTLASS_NVCC_ARCHS=90a",
         "CUTLASS_ENABLE_TENSOR_CORE_MMA=1",
         "CUTLASS_VERSIONS_GENERATED",
         "CUTLASS_TEST_LEVEL=0",
@@ -325,6 +328,11 @@ void CutlassCompiledKernel::compileWithNVCC() {
     compile_cmd += " -D" + define;
   }
 
+#ifndef NDEBUG
+  // On debug builds, build the host code in debug mode with nvcc also
+  compile_cmd += " -Xcompiler=-g";
+#endif
+
   if (isOptionEnabled(EnableOption::KernelDebug)) {
     compile_cmd += " -G";
   }
@@ -337,6 +345,8 @@ void CutlassCompiledKernel::compileWithNVCC() {
   // Execute nvcc compilation and capture output
   std::filesystem::path output_file_path = temp_dir_ / "nvcc_output.txt";
   std::string full_cmd = compile_cmd + " 2>&1 > " + output_file_path.string();
+
+  std::cout << full_cmd << std::endl;
 
   using Clock = std::chrono::steady_clock;
   Clock::time_point start_timestamp = Clock::now();
