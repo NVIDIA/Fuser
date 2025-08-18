@@ -77,6 +77,22 @@ void assertBuffersHaveSameSize(
   }
 }
 
+at::Tensor viewAsCompact(at::Tensor t) {
+  int64_t n_elements = t.numel();
+  for (auto [size, stride] : zip(t.sizes(), t.strides())) {
+    if (stride == 0) {
+      NVF_ERROR(
+          n_elements % size == 0,
+          "n_bytes is expected to be divisible by size, but got ",
+          n_elements,
+          " and ",
+          size);
+      n_elements /= size;
+    }
+  }
+  return t.as_strided({n_elements}, {1});
+}
+
 void doLocalCopy(at::Tensor& dst, const at::Tensor& src) {
   NVF_ERROR_EQ(dst.numel(), src.numel());
   if (dst.is_contiguous()) {
@@ -84,22 +100,11 @@ void doLocalCopy(at::Tensor& dst, const at::Tensor& src) {
     return;
   }
 
-  int64_t n_bytes = dst.numel() * dst.element_size();
-  for (auto [size, stride] : zip(dst.sizes(), dst.strides())) {
-    if (stride == 0) {
-      NVF_ERROR(
-          n_bytes % size == 0,
-          "n_bytes is expected to be divisible by size, but got ",
-          n_bytes,
-          " and ",
-          size);
-      n_bytes /= size;
-    }
-  }
+  at::Tensor dst_compact = viewAsCompact(dst);
   cudaMemcpyAsync(
-      dst.data_ptr(),
+      dst_compact.data_ptr(),
       src.data_ptr(),
-      n_bytes,
+      dst_compact.numel() * dst_compact.element_size(),
       cudaMemcpyDeviceToDevice,
       at::cuda::getCurrentCUDAStream().stream());
 }
@@ -118,7 +123,6 @@ T getInitialValue(c10d::ReduceOp::RedOpType op) {
       return std::numeric_limits<T>::max();
     default:
       NVF_THROW("unsupported reduction op type");
-      return 0;
   }
 }
 
@@ -361,10 +365,8 @@ c10::intrusive_ptr<c10d::Work> postAllgather(
   NVF_ERROR(
       isTvContiguous(communication->out()), "Output tensor is not contiguous");
 
-  auto flattened_output_tensor =
-      output_tensor.as_strided({output_tensor.numel()}, {1});
-  auto flattened_input_tensor =
-      input_tensor.as_strided({input_tensor.numel()}, {1});
+  auto flattened_output_tensor = viewAsCompact(output_tensor);
+  auto flattened_input_tensor = viewAsCompact(input_tensor);
   auto splits = at::tensor_split(
       flattened_output_tensor, communication->team_size(), /*dim=*/0);
   assertBuffersHaveSameSize({flattened_input_tensor}, splits);
@@ -400,12 +402,12 @@ c10::intrusive_ptr<c10d::Work> postScatter(
 
   std::vector<std::vector<at::Tensor>> input_tensors;
 
-  output_tensor = output_tensor.as_strided({output_tensor.numel()}, {1});
+  output_tensor = viewAsCompact(output_tensor);
   std::vector<at::Tensor> output_tensors({output_tensor});
 
   if (my_device_index == communication->root()) {
     auto splits = at::tensor_split(
-        input_tensor.as_strided({input_tensor.numel()}, {1}),
+        viewAsCompact(input_tensor),
         output_device_mesh.size(),
         /*dim=*/0);
 
@@ -499,12 +501,10 @@ c10::intrusive_ptr<c10d::Work> postReduceScatter(
       " contiguity: ",
       communication->out()->domain()->getContiguityString());
 
-  auto flattened_input_tensor =
-      input_tensor.as_strided({input_tensor.numel()}, {1});
+  auto flattened_input_tensor = viewAsCompact(input_tensor);
+  auto flattened_output_tensor = viewAsCompact(output_tensor);
   auto splits = at::tensor_split(
       flattened_input_tensor, communication->team_size(), /*dim=*/0);
-  auto flattened_output_tensor =
-      output_tensor.as_strided({output_tensor.numel()}, {1});
   assertBuffersHaveSameSize(splits, {flattened_output_tensor});
 
   // reduce_scatter primitive in c10d induces extra buffering time to copy the
@@ -658,7 +658,6 @@ c10::intrusive_ptr<c10d::Work> postSingleCommunication(
       return postRecv(communication, my_device_index, peer, backend, buffer);
     default:
       NVF_THROW("Wrong communication type: ", communication->type());
-      return nullptr;
   }
 }
 
