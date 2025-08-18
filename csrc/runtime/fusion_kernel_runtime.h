@@ -10,7 +10,7 @@
 #include <c10/util/ArrayRef.h>
 
 #include <fusion_segmenter.h>
-#include <host_ir/executor.h>
+#include <host_ir/evaluator.h>
 #ifdef NVFUSER_HOST_IR_JIT
 #include <host_ir/jit.h>
 #endif
