@@ -512,40 +512,4 @@ TEST_F(HostIrJitTest, ReshapeWithDynamicTransform) {
 
 } // namespace hir
 
-namespace dynamic_shape {
-
-using DynamicShapeTest = NVFuserTest;
-
-TEST_F(DynamicShapeTest, PointwiseScheduler) {
-  auto fusion_ptr = std::make_unique<Fusion>();
-  auto fusion = fusion_ptr.get();
-  FusionGuard fg(fusion);
-
-  TensorView* tv0 =
-      TensorViewBuilder().ndims(2).contiguity({true, true}).build();
-  fusion->addInput(tv0);
-  auto tv1 = add(tv0, IrBuilder::create<Val>(1.0, DataType::Float));
-  fusion->addOutput(tv3);
-
-  // create inputs
-  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::Tensor t0 = at::empty_strided({1024, 128}, {128, 1}, options);
-
-  KernelArgumentHolder runtime_inputs({t0});
-  SchedulerType scheduler_type = SchedulerType::PointWise;
-
-  // scheduling fusion using pointwise scheduler
-  auto heuristic_params = SchedulerEntry::scheduleWith(
-      fusion, scheduler_type, runtime_inputs, /*validate_scheduler=*/true);
-
-  // compile and run
-  auto ke = std::make_unique<KernelExecutor>();
-  ke->compile(fusion, runtime_inputs, heuristic_params->lparams);
-  auto cg_outputs = ke->run(runtime_inputs, {}, heuristic_params->lparams);
-
-  testValidate(fusion, cg_outputs, {t0}, __LINE__, __FILE__);
-}
-
-} // namespace dynamic_shape
-
 } // namespace nvfuser
