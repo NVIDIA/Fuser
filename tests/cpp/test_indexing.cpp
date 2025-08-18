@@ -305,7 +305,8 @@ class IndexValidator : public kir::IrVisitor {
     testing::internal::GetCapturedStderr();
 
     IndexValidator<GetReference> validator(
-        lower, GetReference(lower.tensorIndexer(), lower.idModel(), args...));
+        lower,
+        GetReference(lower.tensorIndexer(), lower.info().idModel(), args...));
 
     FusionGuard fg(kernel);
     validator.handle(kernel->topLevelExprs());
@@ -448,7 +449,8 @@ class PredicateIndexValidator : public kir::IrVisitor {
     testing::internal::GetCapturedStderr();
 
     PredicateIndexValidator<GetReference> validator(
-        lower, GetReference(lower.tensorIndexer(), lower.idModel(), args...));
+        lower,
+        GetReference(lower.tensorIndexer(), lower.info().idModel(), args...));
 
     FusionGuard fg(kernel);
     validator.handle(kernel->topLevelExprs());

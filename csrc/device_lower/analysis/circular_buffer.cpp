@@ -326,9 +326,11 @@ bool hasIndependentWarpGroups(const TensorView* tv) {
     return false;
   }
 
-  NVF_ERROR(GpuLower::hasCurrent() && GpuLower::current()->hasIdModel());
-  const auto& exact_graph =
-      GpuLower::current()->idModel().idGraph(IdMappingMode::BROADCAST);
+  NVF_ERROR(
+      FusionInfoGuard::hasCurrent() &&
+      FusionInfoGuard::current()->hasIdModel());
+  const auto& id_graph =
+      FusionInfoGuard::current()->idModel().idGraph(IdMappingMode::BROADCAST);
 
   const auto& warp_specialized =
       std::get<WarpSpecialized>(tv->circularBufferOptions().type);
@@ -343,7 +345,7 @@ bool hasIndependentWarpGroups(const TensorView* tv) {
 
   // ValGroup = std::shared_ptr<VectorOfUniqueEntries<Val*>>;
   // Step 2: Get ValGroup for warp specialized iterDomain
-  const ValGroup& val_group = exact_graph.toGroup(ws_id);
+  const ValGroup& val_group = id_graph.toGroup(ws_id);
 
   // Step 3: Find corresponding producer iterDomain to warp specialized
   // iterDomain
@@ -366,9 +368,11 @@ bool hasIndependentWarpGroups(const TensorView* tv) {
 // All the iterDomains to the left of the slice position in the producer and
 // consumer must belong to same iterDomain.
 void checkTraversalIterDomains(const TensorView* tv, int64_t slice_position) {
-  NVF_ERROR(GpuLower::hasCurrent() && GpuLower::current()->hasIdModel());
-  const auto& exact_graph =
-      GpuLower::current()->idModel().idGraph(IdMappingMode::BROADCAST);
+  NVF_ERROR(
+      FusionInfoGuard::hasCurrent() &&
+      FusionInfoGuard::current()->hasIdModel());
+  const auto& id_graph =
+      FusionInfoGuard::current()->idModel().idGraph(IdMappingMode::BROADCAST);
   TensorView* consumer = ir_utils::consumerTvsOf(tv).at(0);
   const std::vector<IterDomain*>& consumer_loop = consumer->domain()->loop();
   const std::vector<IterDomain*>& producer_loop = tv->domain()->loop();
@@ -379,7 +383,7 @@ void checkTraversalIterDomains(const TensorView* tv, int64_t slice_position) {
         "The corresponding consumer axis does not exist.");
     IterDomain* consumer_id = consumer_loop.at(idx);
     NVF_ERROR(
-        exact_graph.toGroup(producer_id) == exact_graph.toGroup(consumer_id),
+        id_graph.toGroup(producer_id) == id_graph.toGroup(consumer_id),
         "All iterDomains of the producer and consumer TensorViews to the left ",
         "of the stage_slice_position must be in the same Broadcast ValGroup.");
   }
@@ -733,7 +737,7 @@ ForLoop* CircularBufferInfo::getCircularBufferLoop(
     const std::vector<ForLoop*>& loops,
     bool ignore_prologue) {
   auto loop_it = std::find_if(loops.begin(), loops.end(), [&](const auto loop) {
-    return GpuLower::current()->caMap()->areMapped(
+    return FusionInfoGuard::current()->caMap().areMapped(
                loop->iter_domain(), axis, IdMappingMode::LOOP) &&
         (!ignore_prologue ||
          loop->circularBufferLoopStage() != CircularBufferLoopStage::Prolog);
