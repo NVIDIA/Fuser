@@ -400,18 +400,22 @@ ValGraph& IdModel::buildExactGraph() {
           sop->out()->as<TensorView>()->domain()->initialLoop();
       auto index_logical = TensorDomain::noReductions(
           sop->index()->as<TensorView>()->getLogicalDomain());
-      auto src_logical = TensorDomain::noReductions(
-          sop->src()->as<TensorView>()->getLogicalDomain());
       NVF_ERROR_EQ(out_initial_loop.size(), index_logical.size());
-      NVF_ERROR_EQ(out_initial_loop.size(), src_logical.size());
       for (const auto i : arange(out_initial_loop.size())) {
         if (out_initial_loop.at(i)->isBroadcast() ==
             index_logical.at(i)->isBroadcast()) {
           graph.mapVals(out_initial_loop.at(i), index_logical.at(i));
         }
-        if (out_initial_loop.at(i)->isBroadcast() ==
-            src_logical.at(i)->isBroadcast()) {
-          graph.mapVals(out_initial_loop.at(i), src_logical.at(i));
+      }
+      if (sop->src()->isA<TensorView>()) {
+        auto src_logical = TensorDomain::noReductions(
+            sop->src()->as<TensorView>()->getLogicalDomain());
+        NVF_ERROR_EQ(out_initial_loop.size(), src_logical.size());
+        for (const auto i : arange(out_initial_loop.size())) {
+          if (out_initial_loop.at(i)->isBroadcast() ==
+              src_logical.at(i)->isBroadcast()) {
+            graph.mapVals(out_initial_loop.at(i), src_logical.at(i));
+          }
         }
       }
     }
