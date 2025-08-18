@@ -2163,29 +2163,16 @@ void MmaOp::setMacro(MmaMacro macro) {
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(MmaOp)
 
-ExpandOp::ExpandOp(
-    IrBuilderPasskey passkey,
-    TensorView* out,
-    TensorView* in,
-    std::vector<Val*> _expanded_extents)
+ExpandOp::ExpandOp(IrBuilderPasskey passkey, TensorView* out, TensorView* in)
     : Expr(passkey) {
   addOutput(out);
   addInput(in);
-  for (auto expanded_extent : _expanded_extents) {
-    NVF_ERROR(expanded_extent != nullptr);
-    NVF_ERROR(
-        expanded_extent->dtype() == DataType::Index,
-        "Expanded extents must be of index type.");
-    addInput(expanded_extent);
-  }
 }
 
 std::string ExpandOp::toString(int indent_size) const {
   std::stringstream ss;
-  indent(ss, indent_size) << out()->toString() << " = expand( " << in()
-                          << ", {";
-  ss << toDelimitedString(expanded_extents());
-  ss << "} )\n";
+  indent(ss, indent_size) << out()->toString() << " = expand( " << in() << " )"
+                          << std::endl;
   return ss.str();
 }
 
