@@ -163,12 +163,14 @@ struct Fp4GemmSm100 {
 // and layout configurations for the scaled matrix multiplication.
 //
 // Parameters:
-//   output: Output tensor for storing results
+//   output: Output tensor for storing matmul results
+//   output_blockscale: Output tensor to store nvfp4 blockscale factor
 //   a: Input matrix A in NVFP4 format
 //   b: Input matrix B in NVFP4 format
 //   scales_a: Per-block scaling factors for matrix A
 //   scales_b: Per-block scaling factors for matrix B
-//   alpha: Global scaling factor
+//   alpha: Global scaling factor for operands A and B
+//   global_normconst: Global scaling factor for output blockscaling
 //   M, N, K: Matrix dimensions
 //
 // Returns: CUTLASS GEMM arguments structure ready for kernel execution
@@ -248,10 +250,12 @@ typename T::Gemm::Arguments args_from_options(
 // It handles the complete lifecycle from kernel initialization to execution.
 //
 // Parameters:
-//   output: Output tensor to store the result
+//   output: Output tensor to store the matmul result
+//   output_blockscale: Output tensor to store nvfp4 blockscale factor
 //   a, b: Input matrices in FP4 format
 //   scales_a, scales_b: Per-block scaling factors
 //   alpha: Global scaling factor
+//   global_normconst: Global scaling factor for output blockscaling
 //   m, n, k: Matrix dimensions
 //   stream: CUDA stream for asynchronous execution
 template <typename T>
