@@ -172,10 +172,11 @@ def nvfuser_cross_entropy_fusion(fd: FusionDefinition) -> None:
 def torch_cross_entropy(logits, labels):
     return torch.nn.functional.cross_entropy(logits, labels, reduction="none")
 
-
+@pytest.mark.parametrize("batch_size", [4096])
 @pytest.mark.parametrize("vocab_size", SyntheticMiniModel.generate_vocab_sizes())
 def test_cross_entropy_nvf_benchmark(
     benchmark,
+    batch_size: int,
     vocab_size: int,
     disable_validation: bool,
     disable_benchmarking: bool,
@@ -183,7 +184,6 @@ def test_cross_entropy_nvf_benchmark(
     with FusionDefinition() as fd:
         nvfuser_cross_entropy_fusion(fd)
 
-    batch_size = 4096
     logits = torch.randn(batch_size, vocab_size, device="cuda", dtype=torch.bfloat16)
     labels = torch.randint(
         0, vocab_size, (batch_size,), device="cuda", dtype=torch.int64
