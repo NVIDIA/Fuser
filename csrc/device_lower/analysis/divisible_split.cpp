@@ -70,8 +70,7 @@ std::unordered_set<Split*> getAllDivisibleSplits(
         tv->getLoopDomain().begin(),
         tv->getLoopDomain().end(),
         [](IterDomain* id) {
-          return id->getParallelType() == ParallelType::Vectorize ||
-              id->getParallelType() == ParallelType::Group;
+          return id->getParallelType() == ParallelType::Vectorize;
         });
 
     if (vec_id_it == tv->getLoopDomain().end()) {

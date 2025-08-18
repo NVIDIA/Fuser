@@ -1466,6 +1466,70 @@ IterDomain* projectIdToAllocation(
   return projected_id;
 }
 
+// Take an allocation domain id and project it back to the logical domain.
+// This is the reverse of projectIdToAllocation.
+IterDomain* projectAllocationToLogical(
+    TensorView* tv,
+    IterDomain* allocation_id,
+    bool inner_only,
+    bool vectorize_pass) {
+  if (allocation_id == nullptr) {
+    return nullptr;
+  }
+
+  auto replay_exprs = StmtSort::getExprsTo(
+      {tv->getMaybeAllocationDomain().begin(),
+       tv->getMaybeAllocationDomain().end()},
+      false);
+  if (replay_exprs.empty()) {
+    return allocation_id;
+  }
+
+  IterDomain* projected_id = allocation_id;
+  // Reverse iterate through the expressions to go back from allocation to logical
+  for (auto expr_it = replay_exprs.rbegin(); expr_it != replay_exprs.rend();
+       ++expr_it) {
+    auto expr = *expr_it;
+    if (expr->isA<Merge>()) {
+      auto merge = expr->as<Merge>();
+      if (merge->out() == projected_id) {
+        // Go back from merge output to one of the inputs
+        // Prefer inner unless it's broadcast, similar to projectIdToRoot
+        if (!merge->inner()->isBroadcast()) {
+          projected_id = merge->inner();
+        } else {
+          projected_id = merge->outer();
+        }
+      }
+    } else if (expr->isA<Split>()) {
+      auto split = expr->as<Split>();
+      if (split->inner() == projected_id) {
+        // Go back from split inner to split input
+        projected_id = split->in();
+      } else if (split->outer() == projected_id) {
+        // Go back from split outer to split input
+        if (inner_only) {
+          projected_id = nullptr;
+        } else {
+          projected_id = split->in();
+        }
+      }
+    } else if (expr->isA<Resize>()) {
+      auto resize = expr->as<Resize>();
+      if (resize->out() == projected_id) {
+        // Go back from resize output to resize input
+        projected_id = resize->in();
+      }
+    } else {
+      NVF_THROW("Didn't recognize the iterdomain expression: ", expr);
+    }
+    if (projected_id == nullptr) {
+      break;
+    }
+  }
+  return projected_id;
+}
+
 } // namespace
 
 IterDomain* innerMostAllocDim(TensorView* tv) {
@@ -1499,6 +1563,8 @@ FindAllMappedDims::FindAllMappedDims(
       vectorize_pass_(vectorize_pass) {}
 
 void FindAllMappedDims::setUp() {
+  std::cout << "\n\nsetUp starting_tv_ T: " << starting_tv_->name() << std::endl;
+  std::cout << "setUp starting_id_: " << starting_id_->toString() << std::endl;
   mapped_root_ids_[starting_tv_] =
       projectIdToRoot(starting_tv_, starting_id_, inner_only_, vectorize_pass_);
   mapped_logical_ids_[starting_tv_] = projectIdToAllocation(
@@ -1525,15 +1591,34 @@ void FindAllMappedDims::propagateC2P(TensorView* from, TensorView* to) {
 }
 
 void FindAllMappedDims::propagateP2C(TensorView* from, TensorView* to) {
-  auto from_id = mapped_logical_ids_.at(from);
+  auto from_allocation_id = mapped_logical_ids_.at(from);
+  std::cout << "\npropagateP2C from T: " << from->name() << std::endl;
+  std::cout << "propagateP2C tooo T: " << to->name() << std::endl;
+  if(from_allocation_id){
+    std::cout << "propagateP2C from_allocation_id: " << from_allocation_id->toString() << std::endl;
+  }
+  
+  // Project allocation domain back to logical domain for mapping
+  auto from_logical_id = projectAllocationToLogical(
+      from, from_allocation_id, inner_only_, vectorize_pass_);
+  std::cout << "propagateP2C from_logical_id: " << (from_logical_id ? from_logical_id->toString() : "nullptr") << std::endl;
+
   PairwiseLogicalDomainMap logical_map(from, to);
   auto p2c_map = logical_map.mapProducerToConsumer();
-  auto c_it = p2c_map.find(from_id);
+  for(auto p2c_pair : p2c_map){
+    std::cout << "p2c_pair: " << p2c_pair.first->toString() << " -> " << p2c_pair.second->toString() << std::endl;
+  }
+  
+  auto c_it = p2c_map.find(from_logical_id);
   if (c_it != p2c_map.end()) {
     mapped_root_ids_[to] = c_it->second;
     mapped_logical_ids_[to] =
         projectIdToAllocation(to, c_it->second, inner_only_, vectorize_pass_);
+    std::cout << "propagateP2C mapped_root_ids_[to]: " << mapped_root_ids_[to]->toString() << std::endl;
+    std::cout << "propagateP2C mapped_logical_ids_[to]: " << mapped_logical_ids_[to]->toString() << std::endl;
   } else {
+    std::cout << "No map found" << std::endl;
+
     mapped_root_ids_[to] = nullptr;
     mapped_logical_ids_[to] = nullptr;
   }
@@ -1639,12 +1724,66 @@ std::vector<TensorView*> getInputsOutputsWithInnerDim(
     return {};
   }
 
-  FindAllMappedDims all_mapped_root_dims(
-      reference_tv, inner_most_id, inner_only, vectorize_pass);
-  MaxLogicalDomainInfoSpanningTree tree(reference_tv);
-  tree.traverse(&all_mapped_root_dims);
+  std::unordered_set<IterDomain*> vectorizable_dims;
+  if(std::getenv("USE_MAIN")){
+    Fusion* fusion = reference_tv->fusion();
+    IdModel id_model(fusion);
+    id_model.buildExactGraph();
+    const ValGraph& exact_graph = id_model.idGraph(IdMappingMode::EXACT);
+    const DisjointSets<Val*>& id_sets = exact_graph.disjointValSets();
+    std::cout << "id_sets: " << id_sets.disjointSets().size() << std::endl;
+    for (auto id_set : id_sets.disjointSets()) {
+      std::cout << "id_set: " << id_set->toString() << std::endl;
+    }
+    auto group = exact_graph.toGroup(inner_most_id);
+    std::cout << "group: " << group->toString() << std::endl;
+        
+    FindAllMappedDims all_mapped_root_dims(
+        reference_tv, inner_most_id, inner_only, vectorize_pass);
+    MaxLogicalDomainInfoSpanningTree tree(reference_tv);
+    tree.traverse(&all_mapped_root_dims);
+    vectorizable_dims = all_mapped_root_dims.get();
+  }else{
+    // auto vectorizable_dims = all_mapped_root_dims.get();
+    std::cout << "\n===============reference_tv: " << reference_tv->toString() << std::endl;
+    Fusion* fusion = reference_tv->fusion();
+    IdModel id_model(fusion);
+    id_model.buildExactGraph();
+    const ValGraph& exact_graph = id_model.idGraph(IdMappingMode::EXACT);
+    const DisjointSets<Val*>& id_sets = exact_graph.disjointValSets();
+    std::cout << "id_sets: " << id_sets.disjointSets().size() << std::endl;
+    for (auto id_set : id_sets.disjointSets()) {
+      std::cout << "id_set: " << id_set->toString() << std::endl;
+    }
+    auto group = exact_graph.toGroup(inner_most_id);
+    std::cout << "group: " << group->toString() << std::endl;
+    // std::vector<ValGroup> all_val_groups = id_sets.disjointSets();
 
-  auto vectorizable_dims = all_mapped_root_dims.get();
+    if(reference_tv->domain()->hasAllocation()) {
+      auto replay_exprs = StmtSort::getExprsTo(
+        {reference_tv->getMaybeAllocationDomain().begin(),
+        reference_tv->getMaybeAllocationDomain().end()},
+      false);
+      for (auto expr : replay_exprs) {
+        std::cout << "expr: " << expr->toString() << std::endl;
+      }
+      // ValGroups reachable = getReachableValsFrom<ValGraphBFS>(
+      //   group, all_groups, Direction::Backward, graph);
+    }
+    for (auto val : *group) {
+      auto id = dynamic_cast<IterDomain*>(val);
+      if (id != nullptr) {
+        vectorizable_dims.insert(id);
+      }
+    }
+  }
+
+
+
+  for (auto id : vectorizable_dims) {
+    std::cout << "----------------vectorizable_dims: " << id->toString() << std::endl;
+  }
+
 
   std::vector<TensorView*> vectorizable_tensors;
 
@@ -1653,6 +1792,7 @@ std::vector<TensorView*> getInputsOutputsWithInnerDim(
   for (auto output_tv :
        ir_utils::filterByType<TensorView>(reference_tv->fusion()->outputs())) {
     if (hasInnerDim(output_tv, vectorizable_dims, vectorize_pass)) {
+      std::cout << "----------------output_tv: " << output_tv->toString() << std::endl;
       vectorizable_tensors.push_back(output_tv);
     }
   }
@@ -1666,6 +1806,7 @@ std::vector<TensorView*> getInputsOutputsWithInnerDim(
     }
 
     if (hasInnerDim(input_tv, vectorizable_dims, vectorize_pass)) {
+      std::cout << "----------------input_tv: " << input_tv->toString() << std::endl;
       vectorizable_tensors.push_back(input_tv);
     }
   }
