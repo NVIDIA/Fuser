@@ -8,8 +8,15 @@
 #pragma once
 
 #include <torch/torch.h>
+#include <visibility.h>
+#include <utility>
 
 namespace nvfuser::cutlass_kernels {
+
+// Helper function to round up to the nearest multiple of y
+inline int64_t roundUp(int64_t x, int64_t y) {
+  return (x + y - 1) / y * y;
+}
 
 // Validates all input parameters and tensor properties for NVFP4 scaled matrix
 // multiplication
@@ -29,7 +36,7 @@ namespace nvfuser::cutlass_kernels {
 // Returns: Tuple of (m, n, k) dimensions for the GEMM operation
 //
 // Throws: NVF_CHECK exceptions for any validation failures
-std::tuple<int64_t, int64_t, int64_t> validateInputsNvfp4ScaledMm(
+NVF_API std::tuple<int64_t, int64_t, int64_t> validateInputsNvfp4ScaledMm(
     const torch::Tensor& a,
     const torch::Tensor& b,
     const torch::Tensor& scales_a,
@@ -53,7 +60,16 @@ std::tuple<int64_t, int64_t, int64_t> validateInputsNvfp4ScaledMm(
 //   out_dtype: Output data type (Half, BFloat16, or Float)
 //
 // Returns: Matrix C = alpha * (A @ B) in the specified output dtype
-torch::Tensor nvfp4_scaled_mm(
+NVF_API torch::Tensor nvfp4_scaled_mm(
+    const torch::Tensor& a,
+    const torch::Tensor& b,
+    const torch::Tensor& scales_a,
+    const torch::Tensor& scales_b,
+    const torch::Tensor& alpha,
+    at::ScalarType out_dtype,
+    bool skip_checks = false);
+
+NVF_API std::pair<torch::Tensor, torch::Tensor> nvfp4_scaled_mm_epilogue(
     const torch::Tensor& a,
     const torch::Tensor& b,
     const torch::Tensor& scales_a,

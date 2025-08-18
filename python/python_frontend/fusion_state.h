@@ -27,7 +27,7 @@ struct State {
       : index(_index), stype(_stype), inline_def_record_(inline_def_record) {}
 
   bool inlineDef() const;
-  void setInlineDefRecord(const RecordFunctor* record);
+  NVF_API void setInlineDefRecord(const RecordFunctor* record);
   const RecordFunctor* inlineDefRecord() const;
 
   bool operator==(const State& other) const;

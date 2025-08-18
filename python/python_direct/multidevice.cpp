@@ -77,7 +77,15 @@ void bindDeviceMesh(py::module& nvfuser) {
       }),
       py::arg("devices"),
       R"(
-Create a new DeviceMesh.
+Create a new DeviceMesh from torch.Tensor.
+)");
+  device_mesh.def(
+      py::init([](const std::vector<int64_t>& devices) {
+        return new DeviceMesh(at::tensor(devices));
+      }),
+      py::arg("devices"),
+      R"(
+Create a new DeviceMesh from an integer list, for backward compatibility.
 )");
   device_mesh.def("__repr__", [](const DeviceMesh& self) {
     std::stringstream ss;
