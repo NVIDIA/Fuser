@@ -334,8 +334,8 @@ c10::intrusive_ptr<c10d::Work> postAllgather(
   // input and output tensors maybe strided (tensor with shape [m, n, k] and
   // strides [1, k*m, m]), so we flatten them to match the ProcessGroupNCCL
   // contiguity requirements. Presegmentation pass `makeReshardingContiguous`
-  // ensures that the tvs are contiguous and HostIrExecutor validates the tensor
-  // against the tv allocation domain.
+  // ensures that the tvs are contiguous. CommunicationExecutor and
+  // HostIrEvaluator validate the tensor against the tv allocation domain.
 
   NVF_ERROR(
       isTvContiguous(communication->in()), "Input tensor is not contiguous");
