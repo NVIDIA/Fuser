@@ -7,6 +7,7 @@
 // clang-format on
 
 #include <debug.h>
+#include <device_lower/analysis/fusion_info.h>
 #include <device_lower/analysis/sync_information.h>
 #include <device_lower/utils.h>
 #include <exceptions.h>
@@ -58,15 +59,21 @@ std::vector<Expr*> getAllConstrainedOps(Fusion* fusion) {
   return ir_utils::getOpsOfType<ArgsortOp, ScanOp, PadOp>(fusion);
 }
 
-class ConstrainedOpScheduler : private IterVisitor {
+class ConstrainedOpScheduler : public OptOutDispatch {
  public:
-  static void run(Fusion* fusion) {
-    ConstrainedOpScheduler scheduler(fusion);
+  static void run(
+      Fusion* fusion,
+      const std::vector<TensorView*>& constrained_out_tvs) {
+    ConstrainedOpScheduler scheduler(fusion, constrained_out_tvs);
   }
 
  private:
-  ConstrainedOpScheduler(Fusion* fusion) {
-    traverse(fusion);
+  ConstrainedOpScheduler(
+      Fusion* fusion,
+      const std::vector<TensorView*>& constrained_out_tvs) {
+    for (auto constrained_tv : constrained_out_tvs) {
+      dispatch(constrained_tv->definition());
+    }
   }
 
   void handle(PadOp* pad) override {
@@ -80,9 +87,22 @@ class ConstrainedOpScheduler : private IterVisitor {
   void handle(ScanOp* scan) override {
     std::cerr << "Scheduling " << scan->toString();
 
+    auto scan_dim = scan->dim();
+
+    auto in_tv = ir_utils::getTvInput(scan);
     auto out_tv = ir_utils::getTvOutput(scan);
 
-    scheduleConstrainedTv(out_tv, {scan->dim()});
+    // Currently, scan input must be a register tensor
+    if (in_tv->getMemoryType() != MemoryType::Local) {
+      in_tv->cacheAfter();
+    }
+
+    // Currently, scan output must be a register tensor
+    if (out_tv->getMemoryType() != MemoryType::Local) {
+      out_tv = out_tv->cacheBefore();
+    }
+
+    scheduleConstrainedTv(out_tv, {scan_dim});
   }
 
   void scheduleConstrainedTv(
@@ -137,6 +157,8 @@ class ConstrainedOpScheduler : private IterVisitor {
 std::unordered_map<TensorView*, TensorView*> partitionFusion(
     Fusion* fusion,
     const std::unordered_set<TensorView*>& constrained_tvs) {
+  FusionGuard fg(fusion);
+
   const auto all_exprs = fusion->exprs();
   const auto all_tvs = fusion->allTvs();
 
@@ -312,10 +334,10 @@ void GreedyScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
   std::cerr << "Constrained tvs: " << toDelimitedString(constrained_out_tvs)
             << "\n";
 
+  ConstrainedOpScheduler::run(fusion, constrained_out_tvs);
+
   auto tv_to_ref_map = partitionFusion(
       fusion, {constrained_out_tvs.begin(), constrained_out_tvs.end()});
-
-  ConstrainedOpScheduler::run(fusion);
 
   fusion->print();
 
@@ -342,14 +364,67 @@ void GreedyScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
 
   fusion->print();
 
-  // TODO: Resolve conflicts. Find conflicting producer-consumer pairs
+  // Resolve conflicts. Find conflicting producer-consumer pairs
   // and insert memory promotion
 
+  FusionInfo fusion_info;
+  FusionInfoGuard info_guard(&fusion_info);
+  fusion_info.set(std::make_unique<ConcretizedBroadcastDomains>(fusion));
+  fusion_info.set(std::make_unique<PaddedParallelDimensions>(
+      collectPaddedParallelDims(fusion)));
+  fusion_info.set(std::make_unique<IdModel>(fusion, /*build_graphs=*/true));
+  fusion_info.set(std::make_unique<ComputeAtMap>(fusion));
+  fusion_info.set(std::make_unique<ParallelDimensionMap>(fusion));
+  fusion_info.set(std::make_unique<ThreadPredicateMap>(fusion));
+
+  VectorOfUniqueEntries<TensorView*> tvs_to_upload_to_smem;
   SyncMap sync_map(fusion, /*error_on_failure=*/false);
   for (const auto& [tv, pt_map] : sync_map.map()) {
     std::cerr << "Needs raw sync: " << tv->toString() << ", "
               << pt_map.toString() << "\n";
+    NVF_ERROR(
+        !pt_map.hasBID(),
+        "Grid sync not expected: ",
+        tv->toString(),
+        ", ",
+        pt_map.toString());
+    tvs_to_upload_to_smem.pushBack(tv);
   }
+
+  for (const auto& tv : tvs_to_upload_to_smem) {
+    auto uses = tv->uses();
+
+    auto no_reduction_logical_domain =
+        TensorDomain::noReductions(tv->getLogicalDomain());
+    std::vector<IterDomain*> new_logical_domain;
+    new_logical_domain.reserve(no_reduction_logical_domain.size());
+    for (const auto& dom : no_reduction_logical_domain) {
+      new_logical_domain.push_back(dom->cloneWithoutRFactor());
+    }
+
+    auto copy = IrBuilder::create<TensorView>(
+        IrBuilder::create<TensorDomain>(
+            new_logical_domain,
+            TensorDomain::getContiguityFilledWith(new_logical_domain, true)),
+        tv->dtype());
+
+    IrBuilder::create<LoadStoreOp>(LoadStoreOpType::Set, copy, tv);
+
+    copy->setMemoryType(MemoryType::Shared);
+
+    TransformReplay::replayCasP(copy, tv, -1);
+    std::cerr << "Copy on shared memory: " << copy->toString() << "\n";
+
+    for (auto tv_use : uses) {
+      auto expr = ir_utils::replaceValInExprInputs(tv_use, tv, copy);
+      std::cerr << "Replaced expr: " << expr->toString();
+    }
+  }
+
+  std::cout << std::endl;
+  std::cout << "Final:" << std::endl;
+  fusion->print();
+  std::cout << std::endl;
 }
 
 } // namespace nvfuser
