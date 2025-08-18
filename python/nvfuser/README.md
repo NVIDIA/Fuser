@@ -144,33 +144,33 @@ def main():
     if not torch.cuda.is_available():
         print("CUDA is not available. nvfuser requires CUDA.")
         return
-    
+
     # Define a fusion that computes (x + y) * 2
     with FusionDefinition() as fd:
         # Define input tensors with explicit shapes
         x = fd.define_tensor([-1, -1], dtype=DataType.Float)  # 2D tensor
         y = fd.define_tensor([-1, -1], dtype=DataType.Float)  # 2D tensor
-        
+
         # Define operations
         sum_result = fd.ops.add(x, y)       # x + y
         two = fd.define_scalar(2.0)         # scalar constant
         final_result = fd.ops.mul(sum_result, two)  # (x + y) * 2
-        
+
         # Mark output
         fd.add_output(final_result)
-    
+
     # Create input tensors on GPU
     input_x = torch.ones(3, 4, device='cuda', dtype=torch.float32)
     input_y = torch.ones(3, 4, device='cuda', dtype=torch.float32) * 2
-    
+
     # Execute the fusion
     nvf_result = fd.execute([input_x, input_y])[0]
-    
+
     # Compare with PyTorch eager execution
     eager_result = (input_x + input_y) * 2.0
-    
+
     print(f"Results match: {torch.allclose(nvf_result, eager_result)}")
-    
+
     # Get debug information (only available after execution)
     print(f"Fusion ID: {fd.id()}")
     print(f"Fusion IR:\n{fd.fusion_ir()}")
