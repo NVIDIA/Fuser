@@ -127,4 +127,4 @@ class OpInfo:
     is_clonable: bool = False
 
     # Test operation using direct bindings python API
-    supports_direct_bindings: bool = False
+    supports_direct_bindings: bool = True

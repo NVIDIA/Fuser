@@ -449,10 +449,9 @@ void IndexCompute::handle(Resize* resize) {
 }
 
 void IndexCompute::dispatch(Expr* e) {
-  auto is_expected_type =
-      e->isOneOf<Split, Merge, Swizzle, Swizzle2D, Resize>();
   NVF_ERROR(
-      is_expected_type, "Invalid expr type found in transform traversal.");
+      (e->isOneOf<Split, Merge, Swizzle, Swizzle2D, Resize>()),
+      "Invalid expr type found in transform traversal.");
   updateUnswitchedDomains(e);
   BackwardVisitor::dispatch(e);
 }

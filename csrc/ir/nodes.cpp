@@ -327,9 +327,14 @@ std::vector<PolymorphicValue> ScatterOp::evaluate(
   const auto& index = inputs.at(1).as<at::Tensor>();
   auto dimension = dim();
   if (src()->isA<TensorView>()) {
-    return {at::scatter(input, dimension, index, inputs.at(2).as<at::Tensor>())};
+    return {
+        at::scatter(input, dimension, index, inputs.at(2).as<at::Tensor>())};
   } else {
-    return {at::scatter(input, dimension, index, PolymorphicValue_functions::toScalar(inputs.back()))};
+    return {at::scatter(
+        input,
+        dimension,
+        index,
+        PolymorphicValue_functions::toScalar(inputs.back()))};
   }
 }
 
