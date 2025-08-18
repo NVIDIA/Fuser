@@ -10,6 +10,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+from thunder.dynamo import thunderfx
+
 
 # Sizes used in Llama 4 Maverick
 @dataclass
@@ -164,28 +166,7 @@ def default_tensor_type(dtype=torch.float32, device="cpu"):
     torch.set_default_device(prev_device)
 
 
-def test_llama4_moe():
-    config = Config()
-
-    # This is much faster than creating the module with CPU float parameters
-    # and then doing `.to("cuda").to(torch.bfloat16)`.
-    with default_tensor_type(dtype=torch.bfloat16, device="cuda"):
-        model = Llama4MoE(config)
-
-    batch_size, seq_len = 1, 2048
-    inp = torch.randn(
-        batch_size, seq_len, config.hidden_size, dtype=torch.bfloat16, device="cuda"
-    )
-    out = model(inp)
-
-    assert out.size() == (batch_size, seq_len, config.hidden_size)
-    assert out.dtype == torch.bfloat16
-    assert out.is_cuda
-
-
 def test_llama4_moe_thunderfx():
-    from thunder.dynamo import thunderfx
-
     config = Config()
 
     # This is much faster than creating the module with CPU float parameters
@@ -203,6 +184,10 @@ def test_llama4_moe_thunderfx():
         batch_size, seq_len, config.hidden_size, dtype=torch.bfloat16, device="cuda"
     )
     expected = model(inp)
+
+    assert expected.size() == (batch_size, seq_len, config.hidden_size)
+    assert expected.dtype == torch.bfloat16
+    assert expected.is_cuda
 
     tmodel = thunderfx(model, nv_enable_linear=True)
 
