@@ -1051,7 +1051,7 @@ TensorView* expand(TensorView* inp, const std::vector<Val*>& expanded_sizes) {
   auto inp_domain = TensorDomain::noReductions(inp->getLogicalDomain());
 
   NVF_CHECK(
-      expanded_sizes.size() >= inp_domain.size(),
+      expanded_sizes.size() == inp_domain.size(),
       "Invalid expand, number of sizes provided is expected to be at least ",
       inp_domain.size(),
       " but received ",
@@ -1152,7 +1152,7 @@ TensorView* expand_as(TensorView* inp, TensorView* other) {
   auto other_domain = TensorDomain::noReductions(other->getLogicalDomain());
 
   NVF_CHECK(
-      inp_domain.size() <= other_domain.size(),
+      inp_domain.size() == other_domain.size(),
       "Invalid expand_as, dimensions of inp is higher than dimensions of "
       "other, expected other to be at least ",
       inp_domain.size(),
