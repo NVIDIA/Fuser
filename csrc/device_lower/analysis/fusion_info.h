@@ -59,6 +59,23 @@ namespace nvfuser {
 // should be considered stale. Currently, there's no way to
 // prevent using stale FusionInfo.
 //
+// FusionInfoGuard, analogous to FusionGuard, is a companion utility
+// for allowing access to FusionInfo throught the codebase. For
+// lowering passes, FusionInfoGuard is created in both
+// GpuLower::analysis() and GpuLower::run(). In GpuLower::analysis(),
+// analysis objects are created and stored in FusionInfo.
+//
+// How to add information in `FusionInfo`?
+//   FusionInfo info;
+//   info.set(std::make_unique<T>(args));
+//
+// How to use information stored in `FusionInfo`?
+//   NVF_ERROR(FusionInfoGuard::hasCurrent());
+//   NVF_ERROR(FusionInfoGuard::current()->has[AnalysisPass]());
+//   FusionInfoGuard::current()
+//               ->[Get_Analysis_Pass]()
+//               .[someMemberFunction]
+//
 // TODO: Eventually all fusion analysis results should be stored in
 // this class instead of GpuLower.
 //
