@@ -249,7 +249,7 @@ void HostIrEvaluator::handle(PostOnStream* post_ir) {
       "op must be a HostUnit: ",
       post_ir->hostOpToPost());
   auto hu = post_ir->hostOpToPost()->as<HostUnit>();
-  // Compile the fusion and execute it with HostIrExecutor
+  // Compile the fusion and execute it with CommunicationExecutor
   // Check if the executor has been cached. If not, create and cache it
   if (params_.use_fusion_executor_cache) {
     if (!fec_.count(hu)) {

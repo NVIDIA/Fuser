@@ -312,6 +312,7 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/preseg_passes/translate_repeat_to_expand.cpp
   ${NVFUSER_SRCS_DIR}/rng.cpp
   ${NVFUSER_SRCS_DIR}/runtime/allocations.cpp
+  ${NVFUSER_SRCS_DIR}/runtime/communication_executor.cpp
   ${NVFUSER_SRCS_DIR}/runtime/compiled_kernel.cpp
   ${NVFUSER_SRCS_DIR}/runtime/executor.cpp
   ${NVFUSER_SRCS_DIR}/runtime/executor_dispatch.cpp
