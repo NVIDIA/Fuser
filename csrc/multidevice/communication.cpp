@@ -77,6 +77,10 @@ void assertBuffersHaveSameSize(
   }
 }
 
+// View `t` as a compact tensor that's 1D and contiguous. All non-broadcast
+// dimensions of `t` must be contiguous. Note that this definition is different
+// from torch.Tensor.is_contiguous in that torch.Tensor.is_contiguous doesn't
+// allow expanded broadcast dimensions (aka internal overlapping).
 at::Tensor viewAsCompact(at::Tensor t) {
   int64_t n_elements = t.numel();
   for (auto [size, stride] : zip(t.sizes(), t.strides())) {
@@ -90,16 +94,19 @@ at::Tensor viewAsCompact(at::Tensor t) {
       n_elements /= size;
     }
   }
-  return t.as_strided({n_elements}, {1});
+  return t.as_strided(/*sizes=*/{n_elements}, /*strides=*/{1});
 }
 
-void doLocalCopy(at::Tensor& dst, const at::Tensor& src) {
+// Copy `src` to `dst`. `src` and `dst` must satisfy `isTvContiguous`.
+void doLocalCopy(at::Tensor dst, at::Tensor src) {
   NVF_ERROR_EQ(dst.numel(), src.numel());
   if (dst.is_contiguous()) {
     dst.view_as(src).copy_(src, /*non_blocking=*/true);
     return;
   }
 
+  // `isTVContiguous` allows tensors with expanded broadcasts, which fail
+  // `torch.Tensor.is_contiguous`.
   at::Tensor dst_compact = viewAsCompact(dst);
   cudaMemcpyAsync(
       dst_compact.data_ptr(),
