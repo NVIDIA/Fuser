@@ -50,6 +50,22 @@ namespace nvfuser {
 // Container of fusion analysis results, mainly for lowering Fusion to
 // Kernel. FusionInfoGuard can be used as a context manager of the
 // active FusionInfo.
+//
+// The main goals are 1) to simplify the GpuLower class and 2) to
+// allow fusion analyses to be used outside of lowering.
+//
+// To use FusionInfo, the given fusion must have already been
+// scheduled. If the fusion is modified afterward, FusionInfo states
+// should be considered stale. Currently, there's no way to
+// prevent using stale FusionInfo.
+//
+// TODO: Eventually all fusion analysis results should be stored in
+// this class instead of GpuLower.
+//
+// TODO: Each analysis pass often has dependencies to other
+// passes, which needs to be manually managed at this moment,
+// e.g., GpuLower::analysis(Fusion*). Consider add some utility to
+// automate dependency management.
 class FusionInfo {
  public:
   FUSION_INFO_DEFINE_FUNCTIONS(
@@ -106,7 +122,7 @@ class FusionInfo {
 
 class FusionInfoGuard {
  public:
-  FusionInfoGuard(FusionInfo* fusion_info);
+  explicit FusionInfoGuard(FusionInfo* fusion_info);
   ~FusionInfoGuard();
 
   static FusionInfo* current();
