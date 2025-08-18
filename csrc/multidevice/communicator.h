@@ -45,7 +45,7 @@ constexpr CommunicatorBackend comm_backend_default = CommunicatorBackend::kUcc;
 #endif
 constexpr int comm_server_local_rank_default = 0;
 
-class Communicator {
+class NVF_API Communicator {
  public:
   static Communicator& getInstance();
 

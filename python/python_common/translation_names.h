@@ -11,18 +11,18 @@
 namespace nvfuser::python {
 
 // Get string name for UnaryOp
-std::string toString(const UnaryOp* uop);
+NVF_API std::string toString(const UnaryOp* uop);
 
 // Get string name for BinaryOp
-std::string toString(const BinaryOp* bop);
+NVF_API std::string toString(const BinaryOp* bop);
 
 // Get string name for TernaryOp
-std::string toString(const TernaryOp* bop);
+NVF_API std::string toString(const TernaryOp* bop);
 
 // Get string name for ReductionOp
-std::string toString(const ReductionOp* rop);
+NVF_API std::string toString(const ReductionOp* rop);
 
 // Get string name for ScanOp
-std::string toString(const ScanOp* sop);
+NVF_API std::string toString(const ScanOp* sop);
 
 } // namespace nvfuser::python

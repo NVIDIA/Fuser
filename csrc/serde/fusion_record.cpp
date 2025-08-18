@@ -473,6 +473,14 @@ void RecordFunctorFactory::registerAllParsers() {
   };
   registerParser(RecordType::IndexSelectOp, deserializeIndexSelectRecord);
 
+  auto deserializeScatterRecord = [](const RecordFunctor* buffer) {
+    return new python_frontend::ScatterOpRecord(
+        parseStateArgs(buffer->args()),
+        parseStateArgs(buffer->outputs()),
+        buffer->data_as_Dimension()->dim());
+  };
+  registerParser(RecordType::ScatterOp, deserializeScatterRecord);
+
   auto deserializeIndexPutAccumulateRecord = [](const RecordFunctor* buffer) {
     return new python_frontend::IndexPutAccumulateOpRecord(
         parseStateArgs(buffer->args()), parseStateArgs(buffer->outputs()));
