@@ -19,6 +19,7 @@ from python.utils import (
     dequantize_to_dtype,
     linear_to_swizzled_128_4,
     pytorch_nvfp4_quantize,
+    unpack_fp4_bytes,
 )
 
 
@@ -117,7 +118,7 @@ def test_nvfp4_gemm_epilogue(
         (FLOAT8_E4M3_MAX * FLOAT4_E2M1_MAX) / torch.amax(b_dtype.flatten(), dim=-1)
     ).to(torch.float32)
     alpha = 1.0 / (a_global_scale * b_global_scale)
-    global_normconst = torch.tensor(2, dtype=torch.float, device="cuda")
+    global_normconst = torch.tensor(1, dtype=torch.float, device="cuda")
 
     a_fp4, a_scale_linear = pytorch_nvfp4_quantize(a_dtype, a_global_scale)
     b_fp4, b_scale_linear = pytorch_nvfp4_quantize(b_dtype, b_global_scale)
@@ -147,6 +148,19 @@ def test_nvfp4_gemm_epilogue(
         a_fp4, b_fp4, a_scale_interleaved, b_scale_interleaved, alpha, global_normconst
     )
 
+    # Convert to unpacked fp32 to check nvfp4 tensors.
+    expected_out_fp32 = unpack_fp4_bytes(expected_out_fp4, torch.float32)
+    out_fp32 = unpack_fp4_bytes(out_fp4, torch.float32)
+
+    # The absolute max difference is 2.0.
+    abs_diff = torch.abs(expected_out_fp32 - out_fp32)
+    assert torch.max(abs_diff) <= 2.0
+
+    # The percentage of mismatched values is 1%.
+    nonzero = torch.count_nonzero(torch.ne(abs_diff, 0.0))
+    assert (nonzero / abs_diff.numel()) < 0.01
+
+    # Compare scale factors
     torch.testing.assert_close(
         out_scale_interleaved.to(torch.float),
         expected_out_scale_interleaved.to(torch.float),

@@ -14,7 +14,7 @@
 namespace nvfuser::cutlass_kernels {
 
 // Helper function to round up to the nearest multiple of y
-inline int64_t roundUp(int64_t x, int64_t y) {
+inline int64_t roundUp(int64_t x, int64_t y = 1) {
   return (x + y - 1) / y * y;
 }
 
