@@ -34,6 +34,7 @@ def silu_mul_fwd_fusion(fd: FusionDefinition, dtype: DataType):
 
 @pytest.mark.parametrize("size", generate_input_sizes(dims=2))
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)
+@pytest.mark.pointwise
 def test_silu_mul_fwd_nvf_benchmark(
     benchmark,
     size: tuple,
@@ -56,6 +57,7 @@ def test_silu_mul_fwd_nvf_benchmark(
 @pytest.mark.parametrize("executor", DEFAULT_EXECUTORS)
 @pytest.mark.parametrize("size", generate_input_sizes(dims=2))
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)
+@pytest.mark.pointwise
 def test_silu_mul_fwd_baseline_benchmark(
     benchmark,
     size: tuple,

@@ -11,6 +11,10 @@ from .core import DEFAULT_EXECUTORS
 @pytest.mark.parametrize("size", generate_input_sizes(dims=4))
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)
 @pytest.mark.parametrize("channels_last", [True, False])
+@pytest.mark.inner_persistent
+@pytest.mark.outer_persistent
+@pytest.mark.pointwise
+@pytest.mark.reduction
 def test_batchnorm_bwd_nvf_benchmark(
     benchmark,
     size: tuple,
@@ -36,6 +40,10 @@ def test_batchnorm_bwd_nvf_benchmark(
 @pytest.mark.parametrize("size", generate_input_sizes(dims=4))
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)
 @pytest.mark.parametrize("channels_last", [True, False])
+@pytest.mark.inner_persistent
+@pytest.mark.outer_persistent
+@pytest.mark.pointwise
+@pytest.mark.reduction
 def test_batchnorm_bwd_baseline_benchmark(
     benchmark, size: tuple, dtype: torch.dtype, channels_last: bool, executor: str
 ):

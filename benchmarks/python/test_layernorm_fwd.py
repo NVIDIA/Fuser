@@ -68,6 +68,10 @@ def layernorm_fwd_iobytes(size: tuple, dtype: torch.dtype):
 
 @pytest.mark.parametrize("size", generate_input_sizes(dims=2))
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)
+@pytest.mark.inner_persistent
+@pytest.mark.pointwise
+@pytest.mark.reduction
+@pytest.mark.transpose
 def test_layernorm_fwd_nvf_benchmark(
     benchmark,
     size: tuple,
@@ -101,6 +105,10 @@ def test_layernorm_fwd_nvf_benchmark(
 @pytest.mark.parametrize("executor", DEFAULT_EXECUTORS)
 @pytest.mark.parametrize("size", generate_input_sizes(dims=2))
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)
+@pytest.mark.inner_persistent
+@pytest.mark.pointwise
+@pytest.mark.reduction
+@pytest.mark.transpose
 def test_layernorm_fwd_baseline_benchmark(
     benchmark,
     size: tuple,

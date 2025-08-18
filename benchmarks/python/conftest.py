@@ -100,6 +100,10 @@ def pytest_configure(config):
         BENCHMARK_CONFIG["num_inputs"] = int(config.getoption("--benchmark-num-inputs"))
     config.addinivalue_line(
         "markers",
+        "expr_eval: mark tests using expr_eval scheduler if not being segmented.",
+    )
+    config.addinivalue_line(
+        "markers",
         "inner_outer_persistent: mark tests using inner_outer_persistent scheduler if not being segmented.",
     )
     config.addinivalue_line(
@@ -108,7 +112,27 @@ def pytest_configure(config):
     )
     config.addinivalue_line(
         "markers",
+        "outer_persistent: mark tests using outer_persistent scheduler if not being segmented.",
+    )
+    config.addinivalue_line(
+        "markers",
+        "reduction: mark tests using reduction scheduler if not being segmented.",
+    )
+    config.addinivalue_line(
+        "markers",
+        "matmul: mark tests using matmul scheduler if not being segmented.",
+    )
+    config.addinivalue_line(
+        "markers",
         "resize: mark tests using resize scheduler if not being segmented.",
+    )
+    config.addinivalue_line(
+        "markers",
+        "transpose: mark tests using transpose scheduler if not being segmented.",
+    )
+    config.addinivalue_line(
+        "markers",
+        "pointwise: mark tests using pointwise scheduler if not being segmented.",
     )
 
 
