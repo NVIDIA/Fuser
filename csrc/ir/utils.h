@@ -442,6 +442,9 @@ bool isIndexSelectIndicesTv(const TensorView* tv);
 
 bool isAndOnlyIsGatherLookupTv(const Val* tv);
 
+// Check if the given tv is second argment of gather(lookup, index)
+bool isGatherIndicesTv(const Val* tv);
+
 std::string varName(const Val* val);
 
 // Check if a tensor is resized as part of its root to logical transformations

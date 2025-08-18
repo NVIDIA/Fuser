@@ -800,6 +800,13 @@ bool isAndOnlyIsGatherLookupTv(const Val* tv) {
       });
 }
 
+bool isGatherIndicesTv(const Val* tv) {
+  return !tv->uses().empty() &&
+      std::any_of(tv->uses().begin(), tv->uses().end(), [tv](Expr* expr) {
+        return expr->isA<GatherOp>() && expr->as<GatherOp>()->indexTv() == tv;
+      });
+}
+
 std::string varName(const Val* val) {
   if (val->isA<kir::TensorIndex>()) {
     return varName(val->as<kir::TensorIndex>()->view());

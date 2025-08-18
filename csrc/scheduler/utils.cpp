@@ -1280,9 +1280,12 @@ std::vector<TensorView*> cacheInputs(Fusion* fusion, bool unroll) {
     // used without padding, it will be read twice, once for pad and
     // once more for caching load. It would make sense to use the PTX
     // caching load instructions.
+    // For gatherOp, only allow to replace the indexTv with the cached_tv.
+    // Keep the lookupTv in global memory.
+    bool is_gather_indices = ir_utils::isGatherIndicesTv(tv);
     std::vector<Expr*> cached_uses;
     for (auto use : tv->uses()) {
-      if (!use->isOneOf<PadOp, SliceOp, GatherOp>()) {
+      if (!use->isOneOf<PadOp, SliceOp, GatherOp>() || is_gather_indices) {
         cached_uses.push_back(use);
       }
     }
