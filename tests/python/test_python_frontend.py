@@ -5019,7 +5019,6 @@ fd.execute(inputs)
         self.assertEqual(nvf_out[0], inputs[0].unsqueeze(1))
         self.assertEqual(nvf_out[0].stride(), (1, 2, 2, 6))
 
-
     def test_scatter_output_intermediate(self):
         bsz = 128
         hidden = 1024
