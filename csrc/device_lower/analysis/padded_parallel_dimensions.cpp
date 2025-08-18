@@ -24,19 +24,16 @@ PaddedParallelDimensions collectPaddedParallelDims(Fusion* fusion) {
 
   auto used_vals = fusion->usedMathVals();
   for (auto tv : ir_utils::filterByType<TensorView>(used_vals)) {
-    for (auto id : tv->getLoopDomain()) {
-      if (tv->definition()) {
-        // TODO: Support GroupedReductionOp
-        if (auto reduction = dynamic_cast<ReductionOp*>(tv->definition())) {
-          if (ir_utils::getMaybeWarpReductionDim(
-                  reduction->out(), reduction->in())
-                  .has_value()) {
-            warp_pad_info.has_warp_reduction = true;
-          }
-        }
-      }
+    // TODO: Support GroupedReductionOp
+    if (auto reduction = dynamic_cast<ReductionOp*>(tv->definition());
+        reduction != nullptr &&
+        ir_utils::getMaybeWarpReductionDim(reduction->out(), reduction->in())
+            .has_value()) {
+      warp_pad_info.has_warp_reduction = true;
+    }
 
-      // Check ifi TIDx is padded in this kernel
+    for (auto id : tv->getLoopDomain()) {
+      // Check if TIDx is padded in this kernel
       if (id->hasPaddingToMultipleOfWarp()) {
         NVF_ERROR(
             id->getParallelType() == ParallelType::TIDx,

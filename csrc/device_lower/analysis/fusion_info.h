@@ -47,6 +47,42 @@ namespace nvfuser {
 // std::unique_ptr<IdModel> id_model_;
 #define FUSION_INFO_DEFINE_FIELD(type, field) std::unique_ptr<type> field##_;
 
+// Container of fusion analysis results, mainly for lowering Fusion to
+// Kernel. FusionInfoGuard can be used as a context manager of the
+// active FusionInfo.
+//
+// The main goals are 1) to simplify the GpuLower class and 2) to
+// allow fusion analyses to be used outside of lowering.
+//
+// To use FusionInfo, the given fusion must have already been
+// scheduled. If the fusion is modified afterward, FusionInfo states
+// should be considered stale. Currently, there's no way to
+// prevent using stale FusionInfo.
+//
+// FusionInfoGuard, analogous to FusionGuard, is a companion utility
+// for allowing access to FusionInfo throught the codebase. For
+// lowering passes, FusionInfoGuard is created in both
+// GpuLower::analysis() and GpuLower::run(). In GpuLower::analysis(),
+// analysis objects are created and stored in FusionInfo.
+//
+// How to add information in `FusionInfo`?
+//   FusionInfo info;
+//   info.set(std::make_unique<T>(args));
+//
+// How to use information stored in `FusionInfo`?
+//   NVF_ERROR(FusionInfoGuard::hasCurrent());
+//   NVF_ERROR(FusionInfoGuard::current()->has[AnalysisPass]());
+//   FusionInfoGuard::current()
+//               ->[Get_Analysis_Pass]()
+//               .[someMemberFunction]
+//
+// TODO: Eventually all fusion analysis results should be stored in
+// this class instead of GpuLower.
+//
+// TODO: Each analysis pass often has dependencies to other
+// passes, which needs to be manually managed at this moment,
+// e.g., GpuLower::analysis(Fusion*). Consider add some utility to
+// automate dependency management.
 class FusionInfo {
  public:
   FUSION_INFO_DEFINE_FUNCTIONS(
@@ -103,7 +139,8 @@ class FusionInfo {
 
 class FusionInfoGuard {
  public:
-  FusionInfoGuard(FusionInfo* fusion_info);
+  explicit FusionInfoGuard(FusionInfo* fusion_info);
+
   ~FusionInfoGuard();
 
   static FusionInfo* current();
