@@ -212,6 +212,6 @@ def test_llama4_moe_thunderfx():
     assert len(tmodel._backend.subgraph_infos) == 1
     assert len(tmodel._backend.subgraph_infos[0].split_reasons) == 0
     # Uncomment to view thunder traces
-    print(tmodel.last_traces)
+    # print(tmodel.last_traces)
 
     torch.testing.assert_close(actual, expected, atol=1e-2, rtol=1e-2)
