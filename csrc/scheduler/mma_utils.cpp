@@ -2152,8 +2152,15 @@ DimRolesMap matmulOrLinearOpDimRoles(
       continue;
     }
 
-    bool has_a = mapping_a[i] != nullptr && mapping_a[i]->isIteration();
-    bool has_b = mapping_b[i] != nullptr && mapping_b[i]->isIteration();
+    const bool has_a = mapping_a[i] != nullptr;
+    const bool has_b = mapping_b[i] != nullptr;
+    const bool concrete_a = has_a && mapping_a[i]->isIteration();
+    const bool concrete_b = has_b && mapping_b[i]->isIteration();
+
+    if ((concrete_a && concrete_b) || (!concrete_a && !concrete_b)) {
+      dim_roles[g] = MatmulDimRole::Batch;
+      continue;
+    }
 
     NVF_ERROR(has_a || has_b);
     // If both operand IterDomains are Broadcast, treat as Batch dimension
