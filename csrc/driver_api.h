@@ -41,6 +41,10 @@ namespace nvfuser {
 // can accordingly increase the requested versions. However, we don't have to
 // unless new driver capabilities are needed.
 #define ALL_DRIVER_API_WRAPPER_VERSION_INDEPENDENT(fn) \
+  fn(cuDeviceGet, 11000);                              \
+  fn(cuInit, 11000);                                   \
+  fn(cuCtxCreate, 11000);                              \
+  fn(cuCtxDestroy, 11000);                             \
   fn(cuDeviceGetAttribute, 11000);                     \
   fn(cuDeviceGetName, 11000);                          \
   fn(cuFuncGetAttribute, 11000);                       \
