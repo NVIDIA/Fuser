@@ -1050,12 +1050,7 @@ TensorView* broadcast(
 TensorView* expand(TensorView* inp, const std::vector<Val*>& expanded_sizes) {
   auto inp_domain = TensorDomain::noReductions(inp->getLogicalDomain());
 
-  NVF_CHECK(
-      expanded_sizes.size() >= inp_domain.size(),
-      "Invalid expand, number of sizes provided is expected to be at least ",
-      inp_domain.size(),
-      " but received ",
-      expanded_sizes.size());
+  NVF_CHECK_GE(expanded_sizes.size(), inp_domain.size());
 
   inp = ops::maybe_broadcast_inner_to_rank(inp, expanded_sizes.size());
   inp_domain = TensorDomain::noReductions(inp->getLogicalDomain());
@@ -1148,64 +1143,28 @@ TensorView* expand(TensorView* inp, const std::vector<Val*>& expanded_sizes) {
 }
 
 TensorView* expand_as(TensorView* inp, TensorView* other) {
-  auto inp_domain = TensorDomain::noReductions(inp->getLogicalDomain());
-  auto other_domain = TensorDomain::noReductions(other->getLogicalDomain());
+  const std::vector<IterDomain*>& inp_domain =
+      TensorDomain::noReductions(inp->getLogicalDomain());
+  const std::vector<IterDomain*>& other_domain =
+      TensorDomain::noReductions(other->getLogicalDomain());
+  std::vector<Val*> expanded_sizes;
+  expanded_sizes.reserve(inp_domain.size());
 
-  NVF_CHECK(
-      inp_domain.size() <= other_domain.size(),
-      "Invalid expand_as, dimensions of inp is higher than dimensions of "
-      "other, expected other to be at least ",
-      inp_domain.size(),
-      " but received ",
-      other_domain.size());
-
-  inp = ops::maybe_broadcast_inner_to_rank(inp, other_domain.size());
-  inp_domain = TensorDomain::noReductions(inp->getLogicalDomain());
-
-  std::vector<IterDomain*> out_domain;
-  std::vector<Val*> maybe_expanded_sizes;
-  bool expanded = false;
-  for (auto i : arange(inp_domain.size())) {
-    auto inp_id = inp_domain[i];
-    auto other_id = other_domain[i];
-
-    auto out_id_builder = IterDomainBuilder(inp_id);
-    Val* maybe_expanded_size = inp_id->extent();
-
-    if (!inp_id->isBroadcast()) {
+  for (auto [inp_id, other_id] : zip(inp_domain, other_domain)) {
+    if (inp_id->isBroadcast()) {
+      expanded_sizes.push_back(other_id->getMaybeExpandedExtent());
+    } else {
       NVF_ERROR(
           !other_id->isBroadcast(),
           "Cannot expand as a tensor if other has broadcast dimensions that "
           "don't map to broadcast dimensions in the input.");
-      if (!inp_id->isConstInt() && other_id->isConstInt()) {
-        out_id_builder.extent(
-            ops::promoteSize(inp_id->extent(), other_id->extent()));
-      }
-    } else {
-      if (!other_id->isBroadcast()) {
-        expanded = true;
-        out_id_builder.expanded_extent(other_id->extent());
-        maybe_expanded_size = other_id->extent();
-      } else if (other_id->isBroadcast() && other_id->hasExpandedExtent()) {
-        expanded = true;
-        out_id_builder.expanded_extent(other_id->expandedExtent());
-        maybe_expanded_size = other_id->expandedExtent();
-      }
+      // promoteSize returns LHS if both are symbolic. This is good because it's
+      // easier for `expand` to tell that this dimension isn't expanded at all.
+      expanded_sizes.push_back(
+          ops::promoteSize(inp_id->extent(), other_id->extent()));
     }
-    out_domain.push_back(out_id_builder.build());
-    maybe_expanded_sizes.push_back(maybe_expanded_size);
   }
-
-  auto* out = IrBuilder::create<TensorView>(
-      IrBuilder::create<TensorDomain>(
-          out_domain, TensorDomain::getContiguityFilledWith(out_domain, true)),
-      inp->getDataType().value());
-  if (!expanded) {
-    IrBuilder::create<LoadStoreOp>(LoadStoreOpType::Set, out, inp);
-  } else {
-    IrBuilder::create<ExpandOp>(out, inp, maybe_expanded_sizes);
-  }
-  return out;
+  return expand(inp, expanded_sizes);
 }
 
 TensorView* repeat(
