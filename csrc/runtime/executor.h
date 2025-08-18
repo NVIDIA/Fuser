@@ -6,6 +6,8 @@
  */
 // clang-format on
 #pragma once
+#include <functional>
+
 #include <exceptions.h>
 #include <expr_evaluator.h>
 #include <fusion.h>
@@ -20,11 +22,6 @@
 #include <scheduler/scheduler_types.h>
 #include <serde/fusion_cache_generated.h>
 #include <utils.h>
-#include <atomic>
-
-#include <c10/core/DeviceType.h>
-
-#include <functional>
 
 namespace nvfuser {
 
@@ -347,6 +344,32 @@ class KernelExecutor : public ExecutorAbstract {
   // Post-lowering hooks that are called to modify the kernel after lowering.
   // The main use case is for unit tests to modify the kernel.
   std::vector<std::function<void(kir::Kernel*)>> post_lowering_hooks_;
+};
+
+class HostIrExecutor : public ExecutorAbstract {
+ public:
+  HostIrExecutor(
+      int64_t fusion_id = 0,
+      int64_t concrete_id = 0,
+      int64_t runtime_id = 0,
+      int64_t group_id = 0);
+
+  static bool supported(Fusion* fusion);
+
+  void compile(Fusion* fusion);
+
+  bool isCompiled() const override;
+
+  NVF_API KernelArgumentHolder
+  run(const KernelArgumentHolder& args, KernelArgumentHolder outputs = {});
+
+  const std::unique_ptr<hir::HostIrContainer>& hostContainer() const {
+    return host_ir_container_;
+  }
+
+ private:
+  std::unique_ptr<hir::HostIrContainer> host_ir_container_;
+  Communicator* communicator_;
 };
 
 } // namespace nvfuser
