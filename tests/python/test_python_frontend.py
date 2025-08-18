@@ -5004,6 +5004,21 @@ fd.execute(inputs)
                 in str(w[-1].message)
             )
 
+    def test_broadcast_and_stride_order(self):
+        inputs = [
+            torch.randn(2, 3, 4, dtype=torch.float32, device="cuda:0"),
+        ]
+
+        def fusion_func(fd: FusionDefinition) -> None:
+            T0 = fd.from_pytorch(inputs[0])
+            T1 = fd.ops.broadcast(T0, is_broadcast_dim=[False, True, False, False])
+            fd.add_output(T1, stride_order=[0, 1, 2, 3])
+
+        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
+
+        self.assertEqual(nvf_out[0], inputs[0].unsqueeze(1))
+        self.assertEqual(nvf_out[0].stride(), (1, 2, 2, 6))
+
     def test_scatter_output_intermediate(self):
         bsz = 128
         hidden = 1024

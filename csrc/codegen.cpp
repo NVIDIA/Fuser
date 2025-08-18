@@ -1774,7 +1774,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
         func_args.arg(genStaticCast(genPtrType(output->dtype()), "shared_mem"));
       }
       template_args.arg(
-          kernel_->getWarpPaddedParallelInfo().is_tidx_single_warp);
+          kernel_->paddedParallelDimensions().is_tidx_single_warp);
       template_args.arg(/*Aligned=*/false);
       template_args.arg(reduction_scheduler_utils::getComputeBdimx(
           warp_specialized_on_, lparams_.bdimx()));
@@ -1793,7 +1793,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     if (reduction_dims.first->getParallelType() == ParallelType::TIDx &&
         reduction_dims.second == nullptr) {
       template_args.arg(
-          kernel_->getWarpPaddedParallelInfo().is_tidx_single_warp);
+          kernel_->paddedParallelDimensions().is_tidx_single_warp);
       template_args.arg(isAligned());
       indent() << genCall("warp::warpReduceTIDX", template_args, func_args)
                << ";\n";
@@ -3456,7 +3456,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     }
 
     ArgumentBuilder template_args;
-    template_args.arg(kernel_->getWarpPaddedParallelInfo().is_tidx_single_warp);
+    template_args.arg(kernel_->paddedParallelDimensions().is_tidx_single_warp);
     template_args.arg(isAligned());
     template_args.arg(num_grouped_iterations);
     template_args.arg(reduction_scheduler_utils::getComputeBdimx(

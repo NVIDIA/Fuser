@@ -319,7 +319,7 @@ std::vector<Val*> getAssumptions(const std::vector<ForLoop*>& loops) {
   std::vector<Val*> assumptions;
   // assumptions from parallel dimension
   for (auto [p, extent] :
-       GpuLower::current()->parallelDimensionMap().getMap()) {
+       GpuLower::current()->info().parallelDimensionMap().getMap()) {
     auto a = IrBuilder::ltExpr(NamedScalar::getParallelIndex(p), extent);
     assumptions.emplace_back(a);
   }

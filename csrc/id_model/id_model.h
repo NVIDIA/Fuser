@@ -214,6 +214,9 @@ class IdModel : public PolymorphicBase {
   // Build a graph if not already built
   ValGraph& maybeBuildGraph(IdMappingMode mode);
 
+  // Query if the specified graph is already built
+  bool hasGraph(IdMappingMode mode) const;
+
   // Remove a graph if already built
   void removeGraph(IdMappingMode mode);
 

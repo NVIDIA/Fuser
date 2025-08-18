@@ -10,6 +10,7 @@
 #include <gtest/gtest.h>
 
 #include <codegen.h>
+#include <device_lower/analysis/fusion_info.h>
 #include <device_lower/lower2device.h>
 #include <device_lower/pass/magic_zero.h>
 #include <disjoint_set.h>
@@ -3104,9 +3105,21 @@ TEST_F(NVFuserTest, FusionValidateParallelize8_CUDA) {
   tv3->computeAt(tv4, -1);
 
   // Since tv2 is not on shared memory, the fusion should be flagged
-  // as invalid by the parallel validation
-  // NOLINTNEXTLINE(cppcoreguidelines-avoid-goto,hicpp-avoid-goto)
-  ASSERT_ANY_THROW(SyncMap sync_map_fail(&fusion));
+  // as invalid by the parallel validation.
+  FusionInfo fusion_info;
+  FusionInfoGuard info_guard(&fusion_info);
+  fusion_info.set(std::make_unique<ConcretizedBroadcastDomains>(&fusion));
+  fusion_info.set(std::make_unique<PaddedParallelDimensions>(
+      collectPaddedParallelDims(&fusion)));
+  fusion_info.set(std::make_unique<IdModel>(&fusion, /*build_graphs=*/true));
+  fusion_info.set(std::make_unique<ComputeAtMap>(&fusion));
+  fusion_info.set(std::make_unique<ParallelDimensionMap>(&fusion));
+  fusion_info.set(std::make_unique<ThreadPredicateMap>(&fusion));
+
+  EXPECT_THAT(
+      [&]() { SyncMap sync_map_fail(&fusion); },
+      ::testing::ThrowsMessage<nvfuser::nvfError>(::testing::ContainsRegex(
+          "Inconsistent parallelization found between TV2.*TV3")));
 
   // The fusion should work if tv2 is also fully inlined
   tv2->computeAt(tv4, -1);
@@ -5037,7 +5050,7 @@ TEST_F(NVFuserTest, FusionParallelDimensionMap1_CUDA) {
   // actual values are not statically known
   GpuLower gpulw(fusion.get());
   gpulw.run();
-  const auto& pdmap = gpulw.parallelDimensionMap();
+  const auto& pdmap = gpulw.info().parallelDimensionMap();
 
   NVF_CHECK(pdmap.isExact(ParallelType::TIDx));
   NVF_CHECK(
@@ -5074,7 +5087,7 @@ TEST_F(NVFuserTest, FusionParallelDimensionMap2_CUDA) {
 
   GpuLower gpulw(fusion.get());
   gpulw.run();
-  const auto& pdmap = gpulw.parallelDimensionMap();
+  const auto& pdmap = gpulw.info().parallelDimensionMap();
   NVF_CHECK(pdmap.isExact(ParallelType::TIDx));
   NVF_CHECK(
       pdmap.get(ParallelType::TIDx)->isA<NamedScalar>() &&
@@ -5123,7 +5136,7 @@ TEST_F(NVFuserTest, FusionParallelDimensionMap3_CUDA) {
 
   GpuLower gpulw(fusion.get());
   gpulw.run();
-  const auto& pdmap = gpulw.parallelDimensionMap();
+  const auto& pdmap = gpulw.info().parallelDimensionMap();
   ASSERT_FALSE(pdmap.isExact(ParallelType::TIDx));
   ASSERT_EQ(pdmap.get(ParallelType::TIDx)->value(), 20);
   ASSERT_TRUE(pdmap.isExact(ParallelType::TIDy));
@@ -5168,7 +5181,7 @@ TEST_F(NVFuserTest, FusionParallelDimensionMap4_CUDA) {
 
   GpuLower gpulw(&fusion);
   gpulw.run();
-  const auto& pdmap = gpulw.parallelDimensionMap();
+  const auto& pdmap = gpulw.info().parallelDimensionMap();
   NVF_CHECK(!pdmap.isExact(ParallelType::TIDx));
   NVF_CHECK(
       pdmap.get(ParallelType::TIDx)->isA<NamedScalar>() &&
@@ -5208,7 +5221,7 @@ TEST_F(NVFuserTest, FusionParallelDimensionMap5_CUDA) {
 
   GpuLower gpulw(&fusion);
   gpulw.run();
-  const auto& pdmap = gpulw.parallelDimensionMap();
+  const auto& pdmap = gpulw.info().parallelDimensionMap();
   NVF_CHECK(pdmap.isExact(ParallelType::TIDx));
   NVF_CHECK(pdmap.isExact(ParallelType::TIDy));
   NVF_CHECK(
