@@ -6231,10 +6231,9 @@ TEST_F(ResizeTest, ResizeTestOuterReduction) {
   at::Tensor nvf_out =
       executor_cache.runFusionWithInputs(inputs)[0].as<at::Tensor>();
 
-  at::Tensor ref_out =
-      at::cat({inputs[0], inputs[1], inputs[2]}, -1)
-          .view({b, s, 3 * e})
-          .sum(c10::IntArrayRef({0, 1}));
+  at::Tensor ref_out = at::cat({inputs[0], inputs[1], inputs[2]}, -1)
+                           .view({b, s, 3 * e})
+                           .sum(c10::IntArrayRef({0, 1}));
   EXPECT_TRUE(at::allclose(nvf_out, ref_out, 1e-3, 1e-3));
 
   FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
