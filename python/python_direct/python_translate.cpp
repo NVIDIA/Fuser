@@ -1473,7 +1473,7 @@ class PythonTranslator : public OptInConstDispatch {
     visited_vals_.insert(out_tv);
     static const std::vector<std::string> argument_names = {"dim"};
     printer_.generateKwargsOperation(
-        "fd.ops.gather",
+        (gop->exactSizes() ? "fd.ops.take_along_axis" : "fd.ops.gather"),
         std::make_tuple(gop->lookupTv(), gop->indexTv()),
         argument_names,
         std::make_tuple(gop->dim()),

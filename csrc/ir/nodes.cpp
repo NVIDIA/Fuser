@@ -325,9 +325,17 @@ std::vector<PolymorphicValue> ScatterOp::evaluate(
     const std::vector<PolymorphicValue>& inputs) const {
   const auto& input = inputs.at(0).as<at::Tensor>();
   const auto& index = inputs.at(1).as<at::Tensor>();
-  const auto& src = inputs.at(2).as<at::Tensor>();
   auto dimension = dim();
-  return {at::scatter(input, dimension, index, src)};
+  if (src()->isA<TensorView>()) {
+    return {
+        at::scatter(input, dimension, index, inputs.at(2).as<at::Tensor>())};
+  } else {
+    return {at::scatter(
+        input,
+        dimension,
+        index,
+        PolymorphicValue_functions::toScalar(inputs.back()))};
+  }
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(ScatterOp)
@@ -2189,11 +2197,8 @@ std::vector<PolymorphicValue> ExpandOp::evaluate(
     const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
   const auto& in = inputs.at(0).as<at::Tensor>();
-  std::vector<int64_t> expanded_size;
-  for (auto i : arange(1, inputs.size())) {
-    expanded_size.push_back((int64_t)inputs.at(i));
-  }
-  return {in.expand(expanded_size)};
+  const auto& [out_shape, _] = inferShapeOfOutput(out(), ee);
+  return {in.expand(out_shape)};
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(ExpandOp)
@@ -2979,14 +2984,14 @@ IterDomain* IterDomain::resize(
       "Non-zero stop offset not considered: ",
       in->toString());
 
-  // The overall extent is (in->extent() + left_expansion +
+  // The overall extent is (in_extent + left_expansion +
   // right_expansion). This can be simplified for a slice op as
   // the right expansion should look like (slice_end_offset -
-  // in->extent()), or (slice_end_offset + (- in->extent())), so the
+  // in_extent), or (slice_end_offset + (- in_extent)), so the
   // overall extent is left_expansion + slice_end_offset.
 
   // Detect common slice patterns and return a simplified Val
-  // representing (in->extent() + right_expansion) if possible
+  // representing (in_extent + right_expansion) if possible
   auto simplify_input_extent_plus_right_expansion = [](Val* right_expansion,
                                                        Val* in_extent) -> Val* {
     auto bop = dynamic_cast<BinaryOp*>(right_expansion->definition());
@@ -3012,7 +3017,7 @@ IterDomain* IterDomain::resize(
 
   Val* resized_id_size = nullptr;
   if (auto simplified_val = simplify_input_extent_plus_right_expansion(
-          right_expansion, in->extent())) {
+          right_expansion, in->getMaybeExpandedExtent())) {
     resized_id_size =
         SimplifyingIrBuilder::addExpr(left_expansion, simplified_val);
   } else {
@@ -3025,7 +3030,7 @@ IterDomain* IterDomain::resize(
   // If output IterType is provided, use it. Otherwise, if we can prove the
   // resized extent is 1, set to Broadcast, if we can prove it is >1 set to
   // Iteration, and otherwise fall back to Symbolic.
-  IterType iter_type = IterType::Symbolic;
+  auto iter_type = IterType::Symbolic;
   if (iter_type_opt.has_value()) {
     iter_type = iter_type_opt.value();
   } else if (left_expansion->isConstInt() && right_expansion->isConstInt()) {
@@ -4411,8 +4416,7 @@ std::string PadOp::toString(int indent_size) const {
   std::stringstream ss;
   indent(ss, indent_size) << out()->toString() << "\n";
   indent(ss, indent_size) << "   = pad( " << in()->toString() << ", {"
-                          << toDelimitedString(getPadWidths()) << "}"
-                          << " )\n";
+                          << toDelimitedString(getPadWidths()) << "} )\n";
   return ss.str();
 }
 
@@ -5880,26 +5884,19 @@ std::string GroupedMmaOp::toString(int indent_size) const {
   if (outGamma() != nullptr) {
     ss << ", " << outGamma();
   }
-  ss << " = GroupedMmaOp("
-     << "mat1=" << matrix1() << ", "
-     << "mat2=" << matrix2() << ", "
-     << "offsets=" << offsets();
+  ss << " = GroupedMmaOp(" << "mat1=" << matrix1() << ", "
+     << "mat2=" << matrix2() << ", " << "offsets=" << offsets();
   if (hasScale()) {
-    ss << ", "
-       << "scale1=" << scale1() << ", "
-       << "scale2=" << scale2();
+    ss << ", " << "scale1=" << scale1() << ", " << "scale2=" << scale2();
   }
   if (hasAlpha()) {
-    ss << ", "
-       << "alpha=" << alpha();
+    ss << ", " << "alpha=" << alpha();
   }
   if (hasBias()) {
-    ss << ", "
-       << "bias=" << bias();
+    ss << ", " << "bias=" << bias();
   }
   if (hasBeta()) {
-    ss << ", "
-       << "beta=" << beta();
+    ss << ", " << "beta=" << beta();
   }
   ss << ")\n";
   return ss.str();

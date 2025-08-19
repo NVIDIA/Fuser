@@ -8,11 +8,10 @@
 
 #include <runtime/executor_dispatch.h>
 
-#include <host_ir/executor.h>
 #include <instrumentation.h>
+#include <runtime/communication_executor.h>
 #include <runtime/cutlass_executor.h>
-
-#include <typeinfo>
+#include <runtime/executor.h>
 
 namespace nvfuser {
 
@@ -25,8 +24,8 @@ std::unique_ptr<ExecutorAbstract> ExecutorDispatch::makeExecutor(
     SchedulerType scheduler_type) {
   FUSER_PERF_SCOPE("ExecutorDispatch::makeExecutor");
   if (scheduler_type == SchedulerType::None) {
-    if (HostIrExecutor::supported(fusion)) {
-      return std::make_unique<HostIrExecutor>(
+    if (CommunicationExecutor::supported(fusion)) {
+      return std::make_unique<CommunicationExecutor>(
           fusion_id, concrete_id, runtime_id, group_id);
     }
     if (ExprEvalExecutor::supported(fusion)) {
@@ -46,7 +45,7 @@ std::unique_ptr<ExecutorAbstract> ExecutorDispatch::makeExecutor(
 
   switch (scheduler_type) {
     case SchedulerType::Communication:
-      return std::make_unique<HostIrExecutor>(
+      return std::make_unique<CommunicationExecutor>(
           fusion_id, concrete_id, runtime_id, group_id);
     case SchedulerType::ExprEval:
       return std::make_unique<ExprEvalExecutor>(
@@ -62,8 +61,8 @@ std::unique_ptr<ExecutorAbstract> ExecutorDispatch::makeExecutor(
 
 void ExecutorDispatch::compile(ExecutorAbstract* executor, Fusion* fusion) {
   FUSER_PERF_SCOPE("ExecutorDispatch::compile");
-  if (auto hire = dynamic_cast<HostIrExecutor*>(executor)) {
-    hire->compile(fusion);
+  if (auto ce = dynamic_cast<CommunicationExecutor*>(executor)) {
+    ce->compile(fusion);
     return;
   }
   if (auto eee = dynamic_cast<ExprEvalExecutor*>(executor)) {
@@ -92,8 +91,8 @@ void ExecutorDispatch::compile(
     SchedulerType scheduler_type) {
   FUSER_PERF_SCOPE("ExecutorDispatch::compile2");
 
-  if (auto hire = dynamic_cast<HostIrExecutor*>(executor)) {
-    hire->compile(fusion);
+  if (auto ce = dynamic_cast<CommunicationExecutor*>(executor)) {
+    ce->compile(fusion);
     return;
   }
   if (auto eee = dynamic_cast<ExprEvalExecutor*>(executor)) {
@@ -117,8 +116,8 @@ bool ExecutorDispatch::isCompiled(const ExecutorAbstract* executor) {
     return false;
   }
   FUSER_PERF_SCOPE("ExecutorDispatch::isCompiled");
-  if (auto hire = dynamic_cast<const HostIrExecutor*>(executor)) {
-    return hire->isCompiled();
+  if (auto ce = dynamic_cast<const CommunicationExecutor*>(executor)) {
+    return ce->isCompiled();
   }
   if (auto eee = dynamic_cast<const ExprEvalExecutor*>(executor)) {
     return eee->isCompiled();
@@ -139,8 +138,8 @@ KernelArgumentHolder ExecutorDispatch::run(
     const LaunchParams& launch_constraints,
     const CompileParams& compile_params) {
   FUSER_PERF_SCOPE("ExecutorDispatch::run");
-  if (auto hire = dynamic_cast<HostIrExecutor*>(executor)) {
-    return hire->run(args, outputs);
+  if (auto ce = dynamic_cast<CommunicationExecutor*>(executor)) {
+    return ce->run(args, outputs);
   }
   if (auto eee = dynamic_cast<ExprEvalExecutor*>(executor)) {
     return eee->run(args, outputs);

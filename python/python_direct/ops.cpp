@@ -1886,6 +1886,33 @@ Val
       py::return_value_policy::reference);
 }
 
+void bindCompositeOps(py::module_& ops) {
+  ops.def(
+      "triu",
+      [](TensorView* arg, int64_t diagonal) -> TensorView* {
+        Val* diagonal_val =
+            IrBuilder::create<nvfuser::Val>(diagonal, DataType::Int);
+        return triu(arg, diagonal_val);
+      },
+      py::arg("arg"),
+      py::arg("diagonal") = 0,
+      R"(
+Get the upper triangular part of a tensor.
+
+Parameters
+----------
+arg : TensorView
+diagonal : int
+    Offset of the diagonal relative to the main diagonal.
+
+Returns
+-------
+TensorView
+    The upper triangular part of the tensor.
+)",
+      py::return_value_policy::reference);
+}
+
 void bindMatmulOps(py::module_& ops) {
   ops.def(
       "matmul",
@@ -2678,7 +2705,7 @@ Select elements from a tensor along a specified dimension.
 Parameters
 ----------
 arg : TensorView
-index : Scalar
+index : Val
 dim : int
     The dimension to select along.
 
@@ -2726,6 +2753,46 @@ index : TensorView
     The tensor containing the indices.
 src : TensorView
     The source tensor to scatter from.
+dim : int
+    The dimension to scatter along.
+
+Returns
+-------
+TensorView
+    The scattered tensor.
+)",
+      py::return_value_policy::reference);
+  ops.def(
+      "scatter",
+      [](TensorView* arg, TensorView* index, Val* src, int64_t dim)
+          -> TensorView* {
+        NVF_CHECK(
+            dim >= -arg->nDims() && dim < arg->nDims(),
+            "Tensor arguments have dimension ",
+            arg->nDims(),
+            " so dim argument must satisfy ",
+            -arg->nDims(),
+            " <= dim < ",
+            arg->nDims(),
+            ", but received ",
+            dim);
+        return scatter(arg, dim, index, src);
+      },
+      py::arg("arg"),
+      py::arg("index"),
+      py::arg("src"),
+      py::arg("dim"),
+      R"(
+Scatter a tensor.
+
+Parameters
+----------
+arg : TensorView
+    The tensor to scatter into.
+index : TensorView
+    The tensor containing the indices.
+src : Val
+    The source scalar to scatter from.
 dim : int
     The dimension to scatter along.
 
@@ -2815,6 +2882,55 @@ Returns
 TensorView
     The padded tensor.
 )",
+      py::return_value_policy::reference);
+  ops.def(
+      "take_along_axis",
+      [](TensorView* arg, TensorView* index, int64_t dim) -> TensorView* {
+        NVF_CHECK(
+            arg->nDims() == index->nDims(),
+            "Tensor arguments have different dimensions ",
+            arg->nDims(),
+            " and ",
+            index->nDims());
+        auto num_dims = (int64_t)arg->nDims();
+        NVF_CHECK(
+            dim >= -num_dims && dim < num_dims,
+            "Tensor arguments have dimension ",
+            num_dims,
+            " so dim argument must satisfy ",
+            -num_dims,
+            " <= dim < ",
+            num_dims,
+            ", but received ",
+            dim);
+        return takeAlongAxis(arg, index, dim);
+      },
+      py::arg("arg"),
+      py::arg("index"),
+      py::arg("dim"),
+      R"(
+Index arg in dim at positions given by index.
+
+This operation is very similar to gather, but it enforces that all
+dimensions other than dim must be equal between arg and index.
+
+Parameters
+----------
+arg : TensorView
+    Tensor of shape `(Ni...,M,Nk...)` where `M` is the extent of `arg` in the
+    dimension `dim`.
+index : TensorView
+    Tensor of dtype `DataType::Int` of shape `(Ni...,J,Nk...)`.
+dim : int
+    Which position to index along.
+
+Returns
+-------
+TensorView
+    Tensor of same dtype as `arg` and of shape `(Ni...,J,Nk...)` where the
+    element at position `(i...,j,k...)` is equal to
+    `arg[i,...,index[i,...,j,k,...],k,...]`.
+      )",
       py::return_value_policy::reference);
   ops.def(
       "cat",
@@ -2982,7 +3098,7 @@ void bindSearchOps(py::module_& ops) {
 
       Args:
           arg (Tensor): Input tensor
-          k (Scalar): Number of elements to return
+          k (Val): Number of elements to return
           dim (int, optional): Dimension along which to find top-k. Defaults to -1.
           largest (bool, optional): If True, return largest elements. Defaults to True.
           sorted (bool, optional): If True, return elements in sorted order. Defaults to False.
@@ -3165,6 +3281,10 @@ TensorView* random_dist_op_fn(
   NVF_CHECK(
       !((rng_seed == nullptr) ^ (rng_offset == nullptr)),
       "rng_seed and rng_offset must be provided together!");
+  NVF_CHECK(
+      isFloatingPointType(dtype),
+      "Random distributions only create floating point types! ",
+      dtype);
   std::vector<Val*> new_shape = SequenceAsVector(generic_new_shape);
   return RandomFuncWithSeed(
       new_shape,
@@ -3278,6 +3398,7 @@ void bindOperations(py::module& nvfuser) {
   bindReductionOps(nvf_ops);
   bindScanOps(nvf_ops);
   bindCastOps(nvf_ops);
+  bindCompositeOps(nvf_ops);
   bindMatmulOps(nvf_ops);
   bindMetadataOps(nvf_ops);
   bindTensorUtilityOps(nvf_ops);

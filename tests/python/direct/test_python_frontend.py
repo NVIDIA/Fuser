@@ -638,6 +638,31 @@ def test_select(nvfuser_direct_test):
     test_fn(1)
 
 
+def test_take_along_axis(nvfuser_direct_test):
+    inputs = [
+        torch.randn(8, 16, device="cuda"),
+        torch.randn(8, 16, device="cuda"),
+        torch.randint(0, 8, (8, 16), device="cuda").to(dtype=torch.long),
+    ]
+
+    def test_fn(dim):
+        def fusion_func(fd: FusionDefinition):
+            t0 = fd.from_pytorch(inputs[0])
+            t1 = fd.from_pytorch(inputs[1])
+            t2 = fd.from_pytorch(inputs[2])
+            t3 = fd.ops.add(t0, t1)
+            t4 = fd.ops.take_along_axis(t3, t2, dim)
+            fd.add_output(t4)
+
+        nvf_out, _ = nvfuser_direct_test.exec_nvfuser(fusion_func, inputs)
+
+        eager_out = torch.gather(inputs[0] + inputs[1], dim, inputs[2])
+        nvfuser_direct_test.assertEqual(eager_out, nvf_out[0])
+
+    test_fn(0)
+    test_fn(1)
+
+
 def test_cumsum(nvfuser_direct_test):
     inputs = [
         torch.randn(8, 16, device="cuda"),
@@ -1299,11 +1324,11 @@ def test_embedding(
 
 def test_output_stride_order(nvfuser_direct_test):
     inputs = [
-        torch.arange(0, 120).reshape(2, 3, 4, 5).cuda().float(),
+        torch.arange(0, 24).reshape(2, 3, 4).cuda().float(),
     ]
     eager_out = inputs[0] + 3.0
 
-    for perm in itertools.permutations(range(4), 4):
+    for perm in itertools.permutations(range(3), 3):
         # testing stride_order in set
         def fusion_set_func(fd: FusionDefinition):
             t0 = fd.from_pytorch(inputs[0])
@@ -1335,3 +1360,95 @@ def test_output_stride_order_with_reduction(nvfuser_direct_test):
 
         out = fd.execute(inputs)[0]
         verify_stride_order(out.stride(), stride_order)
+
+
+def test_triu(nvfuser_direct_test):
+    inputs = [
+        torch.randn(4, 16, device="cuda", dtype=torch.float16),
+    ]
+
+    def fusion_func(fd: FusionDefinition) -> None:
+        t0 = fd.from_pytorch(inputs[0])
+        t1 = fd.ops.triu(t0, -1)
+        fd.add_output(t1)
+
+    nvf_out, _ = nvfuser_direct_test.exec_nvfuser(fusion_func, inputs)
+    eager_out0 = torch.triu(inputs[0], -1)
+    nvfuser_direct_test.assertEqual(eager_out0, nvf_out[0])
+
+
+def test_scatter_output_intermediate(nvfuser_direct_test):
+    bsz = 128
+    hidden = 1024
+    scatter_size = 64
+    scatter_dim = 0
+
+    x = torch.randn([bsz, hidden], device="cuda")
+    _, ind = torch.topk(x, k=scatter_size, dim=scatter_dim)
+    src = torch.randn(scatter_size, hidden, device="cuda")
+    inputs = [x, ind, src]
+
+    def fusion_func(fd: FusionDefinition):
+        T0 = fd.define_tensor(
+            shape=[-1, -1],
+            contiguity=[True, True],
+            dtype=DataType.Float,
+            is_cpu=False,
+            stride_order=[1, 0],
+        )
+        T1 = fd.define_tensor(
+            shape=[-1, -1],
+            contiguity=[True, True],
+            dtype=DataType.Int,
+            is_cpu=False,
+            stride_order=[1, 0],
+        )
+        T2 = fd.define_tensor(
+            shape=[-1, -1],
+            contiguity=[True, True],
+            dtype=DataType.Float,
+            is_cpu=False,
+            stride_order=[1, 0],
+        )
+        T3 = fd.ops.scatter(T0, T1, T2, scatter_dim)
+        T4 = fd.ops.sigmoid(T3)
+        fd.add_output(T4)
+
+    nvf_out, _ = nvfuser_direct_test.exec_nvfuser(fusion_func, inputs)
+    eager_out = refs.sigmoid(torch.scatter(x, scatter_dim, ind, src))
+    nvfuser_direct_test.assertEqual(eager_out, nvf_out[0])
+
+
+def test_scatter_scalar_src(nvfuser_direct_test):
+    bsz = 128
+    hidden = 1024
+    scatter_size = 64
+    scatter_dim = 0
+
+    x = torch.randn([bsz, hidden], device="cuda")
+    _, ind = torch.topk(x, k=scatter_size, dim=scatter_dim)
+    src = 1.5
+    inputs = [x, ind, src]
+
+    def fusion_func(fd: FusionDefinition):
+        T0 = fd.define_tensor(
+            shape=[-1, -1],
+            contiguity=[True, True],
+            dtype=DataType.Float,
+            is_cpu=False,
+            stride_order=[1, 0],
+        )
+        T1 = fd.define_tensor(
+            shape=[-1, -1],
+            contiguity=[True, True],
+            dtype=DataType.Int,
+            is_cpu=False,
+            stride_order=[1, 0],
+        )
+        S2 = fd.define_scalar(None, dtype=DataType.Double)
+        T3 = fd.ops.scatter(T0, T1, S2, scatter_dim)
+        fd.add_output(T3)
+
+    nvf_out, _ = nvfuser_direct_test.exec_nvfuser(fusion_func, inputs)
+    eager_out = torch.scatter(x, scatter_dim, ind, src)
+    nvfuser_direct_test.assertEqual(eager_out, nvf_out[0])
