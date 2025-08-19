@@ -30,6 +30,7 @@
 #include <python_frontend/python_bindings.h>
 #include <python_frontend/translation.h>
 #include <python_utils.h>
+#include <runtime/fusion_kernel_runtime.h>
 #include <scheduler/compile_time_info.h>
 #include <scheduler/registry.h>
 #include <scheduler/scheduler_types.h>
