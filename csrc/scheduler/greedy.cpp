@@ -31,6 +31,10 @@ namespace nvfuser {
 
 namespace {
 
+std::vector<Expr*> getAllConstrainedOps(Fusion* fusion) {
+  return ir_utils::getOpsOfType<ArgsortOp, ScanOp, PadOp>(fusion);
+}
+
 class CompileTimeChecker : private IterVisitor {
  public:
   static bool run(Fusion* fusion, const ValGraph& exact_graph) {
@@ -122,9 +126,95 @@ class CompileTimeChecker : private IterVisitor {
   std::optional<ValGroups> ref_block_domain_;
 };
 
-std::vector<Expr*> getAllConstrainedOps(Fusion* fusion) {
-  return ir_utils::getOpsOfType<ArgsortOp, ScanOp, PadOp>(fusion);
-}
+class RunTimeChecker : private IterVisitor {
+ public:
+  static bool run(
+      Fusion* fusion,
+      SchedulerRuntimeInfo& runtime_info,
+      HeuristicDataCache* data_cache,
+      const ValGraph& exact_graph) {
+    RunTimeChecker checker(fusion, runtime_info, data_cache, exact_graph);
+    return checker.can_schedule_;
+  }
+
+ private:
+  RunTimeChecker(
+      Fusion* fusion,
+      SchedulerRuntimeInfo& runtime_info,
+      HeuristicDataCache* data_cache,
+      const ValGraph& exact_graph)
+      : runtime_info_(runtime_info),
+        data_cache_(data_cache),
+        exact_graph_(exact_graph) {
+    traverse(fusion);
+  }
+
+  void dispatch(Expr* expr) override {
+    if (!can_schedule_) {
+      return;
+    }
+    IterVisitor::dispatch(expr);
+  }
+
+  void handle(PadOp* pad) override {
+    checkConstrainedTv(ir_utils::getTvOutput(pad), pad->getPaddedAxes());
+  }
+
+  void handle(ScanOp* scan) override {
+    checkConstrainedTv(ir_utils::getTvOutput(scan), {scan->dim()});
+  }
+
+  void checkConstrainedTv(
+      TensorView* tv,
+      const std::vector<int64_t>& constrained_logical_id_offsets) {
+    const auto& logical_domain = tv->getLogicalDomain();
+    const std::unordered_set<int64_t> constrained_logical_id_offset_set(
+        constrained_logical_id_offsets.begin(),
+        constrained_logical_id_offsets.end());
+
+    ValGroups non_constrained_ids;
+    for (const auto& [i, logical_id] : enumerate(logical_domain)) {
+      if (constrained_logical_id_offset_set.contains(i)) {
+        continue;
+      }
+
+      non_constrained_ids.pushBack(exact_graph_.toGroup(logical_id));
+    }
+
+    if (ref_block_domain_.has_value()) {
+      if (ref_block_domain_->set() != non_constrained_ids.set()) {
+        can_schedule_ = false;
+        std::stringstream reason;
+        reason << "Mismatched unconstrained IDs detected with "
+               << tv->toString() << ": "
+               << nvfuser::toString(non_constrained_ids)
+               << ". Ref: " << nvfuser::toString(*ref_block_domain_);
+        setRejectReason(reason.str());
+      }
+    } else {
+      ref_block_domain_ = non_constrained_ids;
+    }
+  }
+
+  void setRejectReason(const std::string& reason) {
+    // Only keeps the first reason
+    if (!reject_reason_.empty()) {
+      return;
+    }
+
+    reject_reason_ = reason;
+  }
+
+ private:
+  SchedulerRuntimeInfo& runtime_info_;
+  HeuristicDataCache* data_cache_ = nullptr;
+  const ValGraph& exact_graph_;
+
+  bool can_schedule_ = true;
+  std::string reject_reason_;
+
+  std::optional<ValGroups> ref_block_domain_;
+};
 
 class ConstrainedOpScheduler : public OptOutDispatch {
  public:
@@ -368,12 +458,20 @@ bool GreedyScheduler::canScheduleCompileTime(Fusion* fusion) {
     return false;
   }
 
-  // const auto exprs = fusion->exprs();
-
   IdModel id_model(fusion);
   const auto& exact_graph = id_model.buildExactGraph();
 
   return CompileTimeChecker::run(fusion, exact_graph);
+}
+
+bool GreedyScheduler::canScheduleRunTime(
+    Fusion* fusion,
+    SchedulerRuntimeInfo& runtime_info,
+    HeuristicDataCache* data_cache) {
+  IdModel id_model(fusion);
+  const auto& exact_graph = id_model.buildExactGraph();
+
+  return RunTimeChecker::run(fusion, runtime_info, data_cache, exact_graph);
 }
 
 std::unique_ptr<HeuristicParams> GreedyScheduler::computeHeuristics(
