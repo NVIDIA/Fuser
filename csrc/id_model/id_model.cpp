@@ -1085,6 +1085,10 @@ ValGraph& IdModel::maybeBuildGraph(IdMappingMode mode) {
   }
 }
 
+bool IdModel::hasGraph(IdMappingMode mode) const {
+  return id_graphs_.contains(mode);
+}
+
 void IdModel::removeGraph(IdMappingMode mode) {
   id_graphs_.erase(mode);
 }
@@ -1376,13 +1380,13 @@ void IdModel::allocateLoopIndexVariables() {
     if (GpuLower::current()->idModelOptions().loop()) {
       loop_index = IrBuilder::create<Val>(DataType::Index);
     } else {
-      const auto& ca_map = GpuLower::current()->caMap();
+      const auto& ca_map = FusionInfoGuard::current()->caMap();
       for (const auto& id :
            ir_utils::filterByType<IterDomain>(loop_group->vector())) {
-        if (!ca_map->getIdSets(IdMappingMode::LOOP).mappingExists(id)) {
+        if (!ca_map.getIdSets(IdMappingMode::LOOP).mappingExists(id)) {
           continue;
         }
-        loop_index = ca_map->getIndexVariable(id);
+        loop_index = ca_map.getIndexVariable(id);
         break;
       }
       NVF_ERROR(
