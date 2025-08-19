@@ -26,7 +26,7 @@ class HostIrJit {
   const std::vector<Val*>& inputs() const;
   const std::vector<Val*>& outputs() const;
   const hir::HostIrContainer& container() const;
-  NVF_API ~HostIrJit();
+  ~HostIrJit();
 
  private:
   std::unique_ptr<HostIrJitImpl> pimpl_;
