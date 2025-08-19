@@ -3119,7 +3119,7 @@ TEST_F(NVFuserTest, FusionValidateParallelize8_CUDA) {
   EXPECT_THAT(
       [&]() { SyncMap sync_map_fail(&fusion); },
       ::testing::ThrowsMessage<nvfuser::nvfError>(::testing::ContainsRegex(
-          "Inconsistent parallelization found between TV2.*TV3")));
+          "Inconsistent parallelization found between T2.*T3")));
 
   // The fusion should work if tv2 is also fully inlined
   tv2->computeAt(tv4, -1);
