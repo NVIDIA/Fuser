@@ -1142,7 +1142,7 @@ TensorView* expand(TensorView* inp, const std::vector<Val*>& expanded_sizes) {
   if (!expanded) {
     IrBuilder::create<LoadStoreOp>(LoadStoreOpType::Set, out, inp);
   } else {
-    IrBuilder::create<ExpandOp>(out, inp);
+    IrBuilder::create<ExpandOp>(out, inp, maybe_expanded_sizes);
   }
   return out;
 }
@@ -1203,7 +1203,7 @@ TensorView* expand_as(TensorView* inp, TensorView* other) {
   if (!expanded) {
     IrBuilder::create<LoadStoreOp>(LoadStoreOpType::Set, out, inp);
   } else {
-    IrBuilder::create<ExpandOp>(out, inp);
+    IrBuilder::create<ExpandOp>(out, inp, maybe_expanded_sizes);
   }
   return out;
 }

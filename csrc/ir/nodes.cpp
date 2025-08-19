@@ -2163,10 +2163,20 @@ void MmaOp::setMacro(MmaMacro macro) {
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(MmaOp)
 
-ExpandOp::ExpandOp(IrBuilderPasskey passkey, TensorView* out, TensorView* in)
+ExpandOp::ExpandOp(
+    IrBuilderPasskey passkey,
+    TensorView* out,
+    TensorView* in,
+    const std::vector<Val*>& expanded_extents)
     : Expr(passkey) {
   addOutput(out);
   addInput(in);
+  for (auto* expanded_extent : expanded_extents) {
+    NVF_ERROR(expanded_extent != nullptr);
+    NVF_ERROR_EQ(
+        expanded_extent->dtype(), DataType::Index, "Found ", expanded_extent);
+    addInput(expanded_extent);
+  }
 }
 
 std::string ExpandOp::toString(int indent_size) const {

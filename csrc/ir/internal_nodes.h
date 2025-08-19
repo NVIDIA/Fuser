@@ -1528,7 +1528,11 @@ class NVF_API ExpandOp : public Expr {
  public:
   using Expr::Expr;
 
-  ExpandOp(IrBuilderPasskey, TensorView* out, TensorView* in);
+  ExpandOp(
+      IrBuilderPasskey,
+      TensorView* out,
+      TensorView* in,
+      const std::vector<Val*>& expanded_extents);
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
