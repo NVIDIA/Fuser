@@ -176,7 +176,7 @@ def test_llama4_moe_thunderfx():
 
     # Without this, `thunderfx` falls back to `inductor` for `_grouped_mm`
     # as it doesn't have a grad-rule for the same.
-    model.requires_grad_(False)`
+    model.requires_grad_(False)
 
     batch_size, seq_len = 1, 2048
     inp = torch.randn(
