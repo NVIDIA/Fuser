@@ -120,13 +120,13 @@ def fusion(fd: FusionDefinition):
 
 # Corresponding FusionCache Trie Structure
 
-1. StartRecord
-2. TensorRecord --- t0
-3. ScalarRecord --- c0
-3. FullOpRecord --- t1
-4. OpRecord<TensorView*, TensorView*, TensorView*> --- t2
-4. OutputRecord
-5. EndRecord
+# 1. StartRecord
+# 2. TensorRecord --- t0
+# 3. ScalarRecord --- c0
+# 4. FullOpRecord --- t1
+# 5. OpRecord<TensorView*, TensorView*, TensorView*> --- t2
+# 6. OutputRecord
+# 7. EndRecord
 ```
 # Serialization Overview
 

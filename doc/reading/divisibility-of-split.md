@@ -292,6 +292,7 @@ We can see this from a simple example where there is a tensor `T[I1, I2]`,
 For transformation 1, after schedule, the extents of the loop domain `[I4, I5]` will be `[2*2, 4]`.
 We will be iterating the tensor as the following Listing 1:
 
+<!-- CI IGNORE -->
 ```python
 T[0, 0], T[0, 1], T[0, 2] , T[0, 3]
 T[0, 4], T[0, 5], T[0, 6] , T[0, 7]
@@ -302,6 +303,7 @@ T[1, 4], T[1, 5], T[1, 6] , T[1, 7]
 For transformation 2, after schedule, the extents of the loop domain `[I4, I5]` will be `[3, 4]`.
 We will be iterating the tensor as as the following Listing 2:
 
+<!-- CI IGNORE -->
 ```python
 T[0, 0], T[0, 1], T[0, 2] , T[0, 3]
 T[0, 4], T[1, 0], T[1, 1] , T[1, 2]

@@ -37,6 +37,7 @@ nvf_out = fd.execute([input1, input2])[0]
 
 ## Example 2 - Lookup and Execute a `FusionDefinition` Based on Id
 
+<!-- CI IGNORE -->
 ```python
 fid = 0
 fd = FusionDefinition(fid)
@@ -100,6 +101,7 @@ c0 = fd.define_scalar(3.0)
 ```
 
 **Note**: you cannot use Python literals directly:
+<!-- CI IGNORE -->
 ```python
 # Correct - define scalar constant first
 scalar_const = fd.define_scalar(2.0)
@@ -112,23 +114,29 @@ result = fd.ops.mul(tensor, 2.0)  # ERROR!
 #### Defining Operations
 
 Operators are added with the following notation:
+<!-- CI IGNORE -->
 ```python
 output = fd.ops.foo(arg1, ... )
 ```
 
 
 You can see a supported list of operations with the following query:
-```python
+```bash
 python -c "from nvfuser import FusionDefinition; help(FusionDefinition.Operators)"
 ```
+
 #### Notating Outputs
 
-The `FusionDefinition` `add_output` method is used to indicate an intermediate is an output to the fusion.
+The `FusionDefinition` `add_output` method is used to indicate an intermediate is an output to the fusion. Output can be a tensor or a scalar.
 
 ```python
-add_output(output: Tensor)
-# or
-add_output(output: Scalar)
+t0 = fd.define_tensor(sizes=[2, 4, 6], strides=[24, 6, 1], dtype=DataType.Half)
+fd.add_output(t0)
+```
+or
+<!-- CI IGNORE -->
+```python
+fd.add_output(output: Scalar)
 ```
 
 # Complete Working Example
@@ -181,11 +189,12 @@ if __name__ == "__main__":
 
 # Debug Information
 **Query a list of supported operations:**
-```python
+```bash
 python -c "from nvfuser import FusionDefinition; help(FusionDefinition.Operators)"
 ```
 
 **Get debug information after execution:**
+<!-- CI IGNORE -->
 ```python
 # These methods require the fusion to be executed first
 print(f"Fusion ID: {fd.id()}")
@@ -194,7 +203,7 @@ print(f"Generated CUDA code:\n{fd.last_cuda_code()}")
 ```
 
 **View the fusion definitions that are executed by setting an environment variable:**
-```python
+```bash
 export NVFUSER_DUMP=python_definition
 ```
 Example Output:

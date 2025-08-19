@@ -300,6 +300,7 @@ right are for the column.
 In the above example, the allocation domain, contiguity, and stride of the
 tensor could be:
 
+<!-- CI IGNORE -->
 ```python
 allocation domain: [ BIDx,  4, 16, | , BIDy, 8 ]
        contiguity: [    ?,  F,  T, | ,    ?, T ]
@@ -362,6 +363,7 @@ TEST_F(TMemTutorialC, TooManyLanes) {
 ```
 
 In the above example, the fusion is scheduled as:
+<!-- CI IGNORE -->
 ```python
 [BIDx{2}, TIDx{3}, 5, (CA), BIDy{7}, TIDy{11}, 13, (DimSep), 17]
 ```
@@ -411,6 +413,7 @@ TEST_F(TMemTutorialC, TooManyCols) {
 ```
 
 In the above example, the fusion is scheduled as:
+<!-- CI IGNORE -->
 ```python
 [TIDx{32}, (DimSep), BIDx{3}, TIDy{5}, 7, (CA), BIDy{11}, TIDz{13}, 17]
 ```

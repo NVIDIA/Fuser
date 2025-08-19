@@ -22,6 +22,7 @@ is_formatter = true
 It must accept two arguments.
 * `{{DRYRUN}}` - A bool flag that prints an explanation of what the linter would do.
 
+<!-- CI IGNORE -->
 ```python
 parser.add_argument(
     "--dry-run", help="do not install anything, just print what would be done."
@@ -30,6 +31,7 @@ parser.add_argument(
 
 * `{{PATHSFILE}}` - a variadic argument for all files passed to the linter.
 
+<!-- CI IGNORE -->
 ```python
 parser.add_argument(
     "filenames",

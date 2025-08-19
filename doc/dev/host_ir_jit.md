@@ -104,11 +104,11 @@ Otherwise the default runtime is Host IR Evaluator. In the future, when llvm is 
 to get rid of this opt-in flag and rather use `enableOption` to control backend switching after build is done.
 
 Sample build
-```python
+```bash
 NVFUSER_HOST_IR_JIT=1 pip install --no-build-isolation -e python -v
 ```
 or
-```python
+```bash
 NVFUSER_HOST_IR_JIT=1 _bn
 ```
 ## Future Integration plan
