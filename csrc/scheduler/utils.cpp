@@ -1564,71 +1564,48 @@ FindAllMappedDims::FindAllMappedDims(
       vectorize_pass_(vectorize_pass) {}
 
 void FindAllMappedDims::setUp() {
-  std::cout << "\n\nsetUp starting_tv_ T: " << starting_tv_->name()
-            << std::endl;
-  std::cout << "setUp starting_id_: " << starting_id_->toString() << std::endl;
   mapped_root_ids_[starting_tv_] =
       projectIdToRoot(starting_tv_, starting_id_, inner_only_, vectorize_pass_);
-  mapped_logical_ids_[starting_tv_] = projectIdToAllocation(
+  // Note, we want to project to allocation, since we could have
+  // transformation from logical to allocation. e.g. for multi-device, we
+  // could have DID related split between logical to allocation.
+  mapped_allocation_ids_[starting_tv_] = projectIdToAllocation(
       starting_tv_, starting_id_, inner_only_, vectorize_pass_);
 }
 
 void FindAllMappedDims::propagateC2P(TensorView* from, TensorView* to) {
-  auto from_id = mapped_root_ids_.at(from);
+  IterDomain* from_id = mapped_root_ids_.at(from);
   PairwiseLogicalDomainMap logical_map(to, from);
   auto c2p_map = logical_map.mapConsumerToProducer();
   auto p_it = c2p_map.find(from_id);
   if (p_it != c2p_map.end()) {
     mapped_root_ids_[to] =
         projectIdToRoot(to, p_it->second, inner_only_, vectorize_pass_);
-    // Note, we want to project to allocation, since we could have
-    // transformation from logical to allocation. e.g. for multi-device, we
-    // could have DID related split between logical to allocation.
-    mapped_logical_ids_[to] =
+    mapped_allocation_ids_[to] =
         projectIdToAllocation(to, p_it->second, inner_only_, vectorize_pass_);
   } else {
     mapped_root_ids_[to] = nullptr;
-    mapped_logical_ids_[to] = nullptr;
+    mapped_allocation_ids_[to] = nullptr;
   }
 }
 
 void FindAllMappedDims::propagateP2C(TensorView* from, TensorView* to) {
-  auto from_allocation_id = mapped_logical_ids_.at(from);
-  std::cout << "\npropagateP2C from T: " << from->name() << std::endl;
-  std::cout << "propagateP2C tooo T: " << to->name() << std::endl;
-  if (from_allocation_id) {
-    std::cout << "propagateP2C from_allocation_id: "
-              << from_allocation_id->toString() << std::endl;
-  }
+  IterDomain* from_allocation_id = mapped_allocation_ids_.at(from);
 
-  // Project allocation domain back to logical domain for mapping
-  auto from_logical_id = projectAllocationToLogical(
+  // Project allocation id back to logical id for mapping
+  IterDomain* from_logical_id = projectAllocationToLogical(
       from, from_allocation_id, inner_only_, vectorize_pass_);
-  std::cout << "propagateP2C from_logical_id: "
-            << (from_logical_id ? from_logical_id->toString() : "nullptr")
-            << std::endl;
 
   PairwiseLogicalDomainMap logical_map(from, to);
   auto p2c_map = logical_map.mapProducerToConsumer();
-  for (auto p2c_pair : p2c_map) {
-    std::cout << "p2c_pair: " << p2c_pair.first->toString() << " -> "
-              << p2c_pair.second->toString() << std::endl;
-  }
-
   auto c_it = p2c_map.find(from_logical_id);
   if (c_it != p2c_map.end()) {
     mapped_root_ids_[to] = c_it->second;
-    mapped_logical_ids_[to] =
+    mapped_allocation_ids_[to] =
         projectIdToAllocation(to, c_it->second, inner_only_, vectorize_pass_);
-    std::cout << "propagateP2C mapped_root_ids_[to]: "
-              << mapped_root_ids_[to]->toString() << std::endl;
-    std::cout << "propagateP2C mapped_logical_ids_[to]: "
-              << mapped_logical_ids_[to]->toString() << std::endl;
   } else {
-    std::cout << "No map found" << std::endl;
-
     mapped_root_ids_[to] = nullptr;
-    mapped_logical_ids_[to] = nullptr;
+    mapped_allocation_ids_[to] = nullptr;
   }
 }
 
@@ -1644,13 +1621,13 @@ void FindAllMappedDims::propagateSibling(TensorView* from, TensorView* to) {
       }
     }
   }
-  from_id = mapped_logical_ids_.at(from);
+  from_id = mapped_allocation_ids_.at(from);
   if (from_id == nullptr) {
     mapped_root_ids_[to] = nullptr;
   } else {
     for (auto i : arange(from->getLogicalDomain().size())) {
       if (from_id == from->getLogicalDomain()[i]) {
-        mapped_logical_ids_[to] = to->getLogicalDomain()[i];
+        mapped_allocation_ids_[to] = to->getLogicalDomain()[i];
         return;
       }
     }
@@ -1665,7 +1642,7 @@ std::unordered_set<IterDomain*> FindAllMappedDims::get() const {
       mapped_id_set.emplace(entry.second);
     }
   }
-  for (auto entry : mapped_logical_ids_) {
+  for (auto entry : mapped_allocation_ids_) {
     if (entry.second != nullptr) {
       mapped_id_set.emplace(entry.second);
     }
