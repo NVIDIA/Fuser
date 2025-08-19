@@ -497,10 +497,10 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
         in_tv->getMemoryType() == MemoryType::Global;
 
     bool is_volatile_to = out_tv->getMemoryType() == MemoryType::Global &&
-        kernel_->summary().sync_map->needsRawSync(out_tv).hasBID();
+        kernel_->summary().sync_map->needsGridRawSync(out_tv);
 
     bool is_volatile_from = in_tv->getMemoryType() == MemoryType::Global &&
-        kernel_->summary().sync_map->needsRawSync(in_tv).hasBID();
+        kernel_->summary().sync_map->needsGridRawSync(in_tv);
 
     if (localToGlobal) {
       code_ << "loadLocalToGlobal<" << out->dtype() << ", /*vec_size=*/"
@@ -735,7 +735,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     }
 
     if (ti->view()->getMemoryType() == MemoryType::Global &&
-        kernel_->summary().sync_map->needsRawSync(ti->view()).hasBID()) {
+        kernel_->summary().sync_map->needsGridRawSync(ti->view())) {
       code_ << "*(volatile " << ti->getDataType().value() << "*)&";
     }
 

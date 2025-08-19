@@ -497,13 +497,13 @@ SyncMap::SyncMap(Fusion* fusion) {
         if (raw_dims.hasBID()) {
           NVF_ERROR(
               producer->getMemoryType() == MemoryType::Global,
-              "Inconsistent parallelization found between TV",
+              "Inconsistent parallelization found between T",
               producer->name(),
               " (",
               producer->toString(),
-              ") and TV",
+              ") and T",
               consumer->name(),
-              "(",
+              " (",
               consumer->toString(),
               "). Producer is required to be in Global Memory based on "
               "parallelization strategy.",
@@ -516,20 +516,19 @@ SyncMap::SyncMap(Fusion* fusion) {
                   producer->getMemoryType() == MemoryType::Global ||
                   producer->getMemoryType() == MemoryType::Shared ||
                   producer->getMemoryType() == MemoryType::Tensor,
-              "Inconsistent parallelization found between TV",
+              "Inconsistent parallelization found between T",
               producer->name(),
               " (",
               producer->toString(),
-              ") and TV",
+              ") and T",
               consumer->name(),
-              "(",
+              " (",
               consumer->toString(),
               "). Producer is required to be in Global, Shared or Tensor "
               "Memory based on parallelization strategy.",
               " RAW flags: ",
               raw_dims.toString());
         }
-
       } // end for consumers
 
       if (raw_dims.any()) {
