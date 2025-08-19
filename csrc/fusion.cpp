@@ -653,7 +653,7 @@ void Fusion::resetTvUses() {
   is_during_update_uses_ = false;
 }
 
-std::vector<Val*> Fusion::usedMathVals() {
+std::vector<Val*> Fusion::usedMathVals() const {
   // Note that using fusion->inputs() as the argument for the first
   // parameter of getAllValsBetween does not grab all used vals as
   // there can be vals that are created inside a fusion without using

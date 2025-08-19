@@ -34,7 +34,7 @@ class IrMathPrinter : public IrPrinter {
 
   using IrPrinter::handle;
 
-  void handle(Fusion* f) override {
+  void handle(const Fusion* f) override {
     IrPrinter::handle(f);
   }
 };
@@ -49,7 +49,7 @@ class IrTransformPrinter : public IrPrinter {
 
   using IrPrinter::handle;
 
-  void handle(Fusion* f) override;
+  void handle(const Fusion* f) override;
 
   void printTransforms(const TensorView* tv);
 };

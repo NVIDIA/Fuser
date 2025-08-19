@@ -56,25 +56,9 @@ class IrPrinter {
     return print_inline_;
   }
 
-  virtual void handle(Fusion* f);
-
-  // handle calls some non const fusion ops,
-  // eventhough fusion should remain unchanged.
-  // Need to look into this.
-  virtual void handle(const Fusion* f) {
-    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-const-cast)
-    handle(const_cast<Fusion*>(f));
-  }
-
-  virtual void handle(Fusion& f) {
-    handle(&f);
-  }
-
+  virtual void handle(const Fusion* f);
   virtual void handle(const kir::Kernel* kernel);
-  virtual void handle(kir::Kernel& kernel);
-
   virtual void handle(const hir::HostIrContainer* host_ir_container);
-  virtual void handle(hir::HostIrContainer& host_ir_container);
 
  protected:
   std::ostream& os() {
@@ -87,9 +71,10 @@ class IrPrinter {
   int indent_size_ = 0;
 };
 
+NVF_API std::ostream& operator<<(std::ostream& os, const Statement& stmt);
 NVF_API std::ostream& operator<<(std::ostream& os, const Statement* stmt);
 
-std::ostream& operator<<(std::ostream& os, Fusion* f);
-NVF_API std::ostream& operator<<(std::ostream& os, Fusion& f);
+NVF_API std::ostream& operator<<(std::ostream& os, const Fusion& f);
+NVF_API std::ostream& operator<<(std::ostream& os, const Fusion* f);
 
 } // namespace nvfuser

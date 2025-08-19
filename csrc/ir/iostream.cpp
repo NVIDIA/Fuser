@@ -39,7 +39,7 @@ void checkInlineable(const Expr* expr) {
       "currently supported.");
 }
 
-void IrPrinter::handle(Fusion* fusion) {
+void IrPrinter::handle(const Fusion* fusion) {
   FUSER_PERF_SCOPE("IrPrinter");
   resetIndent();
   for (const Expr* expr : fusion->exprs()) {
@@ -76,10 +76,6 @@ void IrPrinter::handle(const kir::Kernel* kernel) {
   os_ << "\n} // %Kernel.\n\n";
 }
 
-void IrPrinter::handle(kir::Kernel& kernel) {
-  handle(&kernel);
-}
-
 void IrPrinter::handle(const hir::HostIrContainer* host_ir_container) {
   NVF_CHECK(host_ir_container != nullptr);
 
@@ -114,11 +110,7 @@ void IrPrinter::handle(const hir::HostIrContainer* host_ir_container) {
   os() << "} // %HostIrContainer\n\n";
 }
 
-void IrPrinter::handle(hir::HostIrContainer& host_ir_container) {
-  handle(&host_ir_container);
-}
-
-void IrTransformPrinter::handle(Fusion* f) {
+void IrTransformPrinter::handle(const Fusion* f) {
   auto all_vals = f->usedMathVals();
 
   for (auto tv : ir_utils::filterByType<TensorView>(all_vals)) {
@@ -160,22 +152,35 @@ void IrTransformPrinter::printTransforms(const TensorView* tv) {
   os() << " loop domain : (" << toDelimitedString(tv->getLoopDomain()) << ")\n";
 }
 
-std::ostream& operator<<(std::ostream& os, const Statement* stmt) {
-  if (stmt == nullptr) {
-    return os << "<null>";
-  } else {
-    return os << stmt->toString();
-  }
+std::ostream& operator<<(std::ostream& os, const Statement& stmt) {
+  return os << stmt.toString();
 }
 
-std::ostream& operator<<(std::ostream& os, Fusion* f) {
+std::ostream& operator<<(std::ostream& os, const Fusion& f) {
   IrPrinter p(os);
-  p.handle(f);
+  p.handle(&f);
   return os;
 }
 
-std::ostream& operator<<(std::ostream& os, Fusion& f) {
-  return os << &f;
+namespace {
+template <typename T>
+void print(std::ostream& os, const T* t) {
+  if (t == nullptr) {
+    os << "<null>";
+  } else {
+    os << *t;
+  }
+}
+} // namespace
+
+std::ostream& operator<<(std::ostream& os, const Statement* t) {
+  print(os, t);
+  return os;
+}
+
+std::ostream& operator<<(std::ostream& os, const Fusion* t) {
+  print(os, t);
+  return os;
 }
 
 } // namespace nvfuser
