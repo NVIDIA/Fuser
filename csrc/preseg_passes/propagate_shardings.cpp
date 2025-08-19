@@ -115,11 +115,14 @@ std::vector<TensorView*> getOutputsWithoutMesh(Expr* expr) {
 // tvs and hence, can be propagated.
 std::unordered_set<ParallelType> getParallelTypesToPropagate(
     std::vector<TensorView*> tvs) {
+  std::unordered_set<ParallelType> all_parallel_types =
+      deviceAndStreamParallelTypes();
+  
   // Get the set of parallel types seen on the loop domain of the given tvs.
   std::unordered_set<ParallelType> existing_parallel_types;
   for (auto tv : tvs) {
     for (auto id : tv->getLoopDomain()) {
-      if (!id->isReduction() && id->isDeviceDim()) {
+      if (!id->isReduction() && all_parallel_types.count(id->getParallelType())) {
         existing_parallel_types.insert(id->getParallelType());
       }
     }
@@ -221,10 +224,8 @@ void transformLoopDomain(
   };
 
   auto validate_split = [](Split* split, IterDomain* id) -> void {
-    NVF_ERROR(
-        !split->innerSplit() && split->outer()->isDeviceDim(),
-        "Expected the outer id of the split to be a device dimension. Got: ",
-        split->outer());
+    NVF_ERROR(!split->innerSplit(), "Inner split for device or stream parallelization is not supported.");
+    NVF_ERROR(split->outer()->isDeviceDim() || split->outer()->isStream(), "Expected the outer id of the split to be a device / stream dimension. Got: ", split->outer());
     NVF_ERROR(
         split->isDivisible(),
         "Expected the split to be divisible. Got: ",
@@ -478,9 +479,6 @@ void PropagateShardingsPass::runPass(Fusion* fusion) {
     const auto& inputs = ir_utils::filterByType<TensorView>(expr->inputs());
     std::vector<TensorView*> sharding_candidates;
     for (auto* tv : inputs) {
-      if (user_sharded_tvs.count(tv) != 0) {
-        continue;
-      }
       if (tv->isFusionInput()) {
         tv->setDeviceMesh(ref_output->getDeviceMesh());
         continue;
@@ -488,9 +486,24 @@ void PropagateShardingsPass::runPass(Fusion* fusion) {
       sharding_candidates.push_back(tv);
     }
 
-    for (TensorView* target : sharding_candidates) {
+    for (TensorView* target : inputs) {
+      if (user_sharded_tvs.count(target)) {
+        continue;
+      }
       std::unordered_set<ParallelType> selected_parallel_types =
           getParallelTypesToPropagate({target});
+      if (target->isFusionInput()) {
+        // Remove any device parallel type from selected_parallel_types
+        // Only stream parallel type is propagated to fusion inputs.
+        for (auto it = selected_parallel_types.begin(); it != selected_parallel_types.end();) {
+          if (isParallelTypeDeviceDim(*it)) {
+            it = selected_parallel_types.erase(it);
+          } else {
+            ++it;
+          }
+        }
+        continue;
+      }
       propagateDIDTransform(
           /*ref=*/ref_output,
           /*tv=*/target,
