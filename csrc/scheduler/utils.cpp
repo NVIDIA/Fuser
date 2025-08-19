@@ -1467,7 +1467,7 @@ IterDomain* projectIdToAllocation(
 }
 
 // Take an allocation domain id and project it back to the logical domain.
-// This is the reverse of projectIdToAllocation.
+// traversing device splits.
 IterDomain* projectAllocationToLogical(
     TensorView* tv,
     IterDomain* allocation_id,
@@ -1477,58 +1477,21 @@ IterDomain* projectAllocationToLogical(
     return nullptr;
   }
 
-  auto replay_exprs = StmtSort::getExprsTo(
-      {tv->getMaybeAllocationDomain().begin(),
-       tv->getMaybeAllocationDomain().end()},
-      false);
-  if (replay_exprs.empty()) {
-    return allocation_id;
-  }
+  auto replay_exprs = DependencyCheck::getAllExprsBetween(
+      {tv->getLogicalDomain().begin(), tv->getLogicalDomain().end()},
+      {allocation_id}
+  );
 
-  IterDomain* projected_id = allocation_id;
+  IterDomain* logical_id = allocation_id;
   // Reverse iterate through the expressions to go back from allocation to
-  // logical
-  for (auto expr_it = replay_exprs.rbegin(); expr_it != replay_exprs.rend();
-       ++expr_it) {
-    auto expr = *expr_it;
-    if (expr->isA<Merge>()) {
-      auto merge = expr->as<Merge>();
-      if (merge->out() == projected_id) {
-        // Go back from merge output to one of the inputs
-        // Prefer inner unless it's broadcast, similar to projectIdToRoot
-        if (!merge->inner()->isBroadcast()) {
-          projected_id = merge->inner();
-        } else {
-          projected_id = merge->outer();
-        }
-      }
-    } else if (expr->isA<Split>()) {
-      auto split = expr->as<Split>();
-      if (split->inner() == projected_id) {
-        // Go back from split inner to split input
-        projected_id = split->in();
-      } else if (split->outer() == projected_id) {
-        // Go back from split outer to split input
-        if (inner_only) {
-          projected_id = nullptr;
-        } else {
-          projected_id = split->in();
-        }
-      }
-    } else if (expr->isA<Resize>()) {
-      auto resize = expr->as<Resize>();
-      if (resize->out() == projected_id) {
-        // Go back from resize output to resize input
-        projected_id = resize->in();
-      }
-    } else {
-      NVF_THROW("Didn't recognize the iterdomain expression: ", expr);
-    }
-    if (projected_id == nullptr) {
-      break;
-    }
+  // logical. We only expect DID splits between logical and allocation.
+  for (Expr* expr: replay_exprs | std::views::reverse) {
+    auto* split = dynamic_cast<Split*>(expr);
+    NVF_CHECK(split != nullptr, "Expected a split between logical and allocation");
+    NVF_CHECK(split->outer()->isDeviceDim(), "Expected the outer dimension to be a device dimension");
+    logical_id = split->in();
   }
-  return projected_id;
+  return logical_id;
 }
 
 } // namespace
