@@ -513,10 +513,10 @@ SyncMap::SyncMap(Fusion* fusion, bool error_on_failure) {
           } else if (raw_dims.hasTID()) {
             NVF_ERROR(
                 ir_utils::isLdMatrixOp(producer->definition()) ||
-                    ir_utils::isStMatrixOp(consumer->definition()) ||
-                    producer->getMemoryType() == MemoryType::Global ||
-                    producer->getMemoryType() == MemoryType::Shared ||
-                    producer->getMemoryType() == MemoryType::Tensor,
+                ir_utils::isStMatrixOp(consumer->definition()) ||
+                producer->getMemoryType() == MemoryType::Global ||
+                producer->getMemoryType() == MemoryType::Shared ||
+                producer->getMemoryType() == MemoryType::Tensor,
                 "Inconsistent parallelization found between T",
                 producer->name(),
                 " (",

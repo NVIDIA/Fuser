@@ -373,4 +373,16 @@ std::vector<PolymorphicValue> GetMetaData::evaluate(
   return {PolymorphicValue(std::move(struct_))};
 }
 
+void validateSizesAndStrides(
+    const std::vector<at::Tensor>& tensors,
+    const std::vector<TensorView*>& tvs,
+    const ExpressionEvaluator& ee) {
+  NVF_ERROR_EQ(tensors.size(), tvs.size());
+  for (const auto& [tensor, tv] : zip(tensors, tvs)) {
+    if (tensor.defined()) {
+      inferAndValidateAllocationSizesAndStrides(tensor, tv, ee);
+    }
+  }
+}
+
 } // namespace nvfuser
