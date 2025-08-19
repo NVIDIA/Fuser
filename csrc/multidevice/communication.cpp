@@ -100,18 +100,17 @@ at::Tensor viewAsCompact(at::Tensor t) {
 // Copy `src` to `dst`. `src` and `dst` must satisfy `isTvContiguous`.
 void doLocalCopy(at::Tensor dst, at::Tensor src) {
   NVF_ERROR_EQ(dst.numel(), src.numel());
-  if (dst.is_contiguous()) {
-    dst.view_as(src).copy_(src, /*non_blocking=*/true);
-    return;
-  }
 
-  // `isTVContiguous` allows tensors with expanded broadcasts, which fail
-  // `torch.Tensor.is_contiguous`.
-  at::Tensor dst_compact = viewAsCompact(dst);
+  // I can't use `Tensor::copy_` because it doesn't alow `dst` to have expanded
+  // broadcasts.
+  dst = viewAsCompact(dst);
+  src = viewAsCompact(src);
+  NVF_ERROR_EQ(dst.numel(), src.numel());
+
   cudaMemcpyAsync(
-      dst_compact.data_ptr(),
+      dst.data_ptr(),
       src.data_ptr(),
-      dst_compact.numel() * dst_compact.element_size(),
+      dst.numel() * dst.element_size(),
       cudaMemcpyDeviceToDevice,
       at::cuda::getCurrentCUDAStream().stream());
 }
