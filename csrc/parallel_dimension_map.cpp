@@ -8,6 +8,7 @@
 #include <parallel_dimension_map.h>
 
 #include <ATen/cuda/CUDAContext.h>
+#include <device_lower/analysis/fusion_info.h>
 #include <device_lower/lower2device.h>
 #include <disjoint_set.h>
 #include <expr_simplifier.h>
@@ -38,7 +39,7 @@ struct hash<PAndID> {
 
 namespace nvfuser {
 
-void ParallelDimensionMap::build(Fusion* fusion) {
+ParallelDimensionMap::ParallelDimensionMap(Fusion* fusion) {
   VectorOfUniqueEntries<PAndID> all_concrete_ids;
   auto all_vals = fusion->usedMathVals();
   for (auto tv : ir_utils::filterByType<TensorView>(all_vals)) {
@@ -58,8 +59,9 @@ void ParallelDimensionMap::build(Fusion* fusion) {
       if (!isParallelTypeThread(ptype)) {
         continue;
       }
-      auto concrete_id = GpuLower::current()->caMap()->getConcreteMappedID(
-          id, IdMappingMode::EXACT);
+      auto concrete_id =
+          FusionInfoGuard::current()->caMap().getConcreteMappedID(
+              id, IdMappingMode::EXACT);
       if (concrete_id->isBroadcast()) {
         // Broadcasted concrete id's don't specify anything about shape
         continue;
@@ -99,12 +101,13 @@ void ParallelDimensionMap::build(Fusion* fusion) {
 }
 
 void ParallelDimensionMap::adjustMappingsForWarpPadding() {
-  const auto gpu_lower = GpuLower::current();
-
   // If TIDx is padded to a multiple of the warp size, mark it as
   // non-exact.
-
-  auto& warp_info = gpu_lower->getWarpPaddedParallelInfo();
+  NVF_ERROR(
+      FusionInfoGuard::hasCurrent() &&
+      FusionInfoGuard::current()->hasPaddedParallelDimensions());
+  const auto& warp_info =
+      FusionInfoGuard::current()->paddedParallelDimensions();
   // TIDx isn't really padded if there isn't a warp reduction (this could
   // change)
   if (!(warp_info.is_tidx_padded && warp_info.has_warp_reduction)) {

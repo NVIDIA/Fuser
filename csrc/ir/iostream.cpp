@@ -170,7 +170,6 @@ std::ostream& operator<<(std::ostream& os, const Statement* stmt) {
 
 std::ostream& operator<<(std::ostream& os, Fusion* f) {
   IrPrinter p(os);
-  FusionGuard guard(f);
   p.handle(f);
   return os;
 }

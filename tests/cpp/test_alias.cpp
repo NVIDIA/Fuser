@@ -14,6 +14,7 @@
 #include <alias_analysis.h>
 #include <fusion.h>
 #include <fusion_profiler.h>
+#include <ir/iostream.h>
 #include <ir/utils.h>
 #include <ops/alias.h>
 #include <ops/arith.h>
@@ -1634,6 +1635,27 @@ TEST_F(AliasTest, IntermediateTensorWithAllocation) {
       UnorderedElementsAre(
           HeuristicIs(SchedulerType::PointWise),
           HeuristicIs(SchedulerType::ExprEval)));
+}
+
+TEST_F(AliasTest, SliceOfExpandedBroadcast) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  TensorView* in = TensorViewBuilder()
+                       .ndims(2)
+                       .dtype(DataType::Float)
+                       .contiguity({true, std::nullopt})
+                       .shape({2, 3})
+                       .expanded({false, true})
+                       .build();
+  fusion->addInput(in);
+  TensorView* out = slice(in, {0, 1}, {2, 3});
+  fusion->addOutput(out);
+
+  FusionExecutorCache fec(std::move(fusion));
+  at::Tensor in_tensor = at::randn({2}).cuda().as_strided({2, 3}, {1, 0});
+  auto out_tensors = fec.runFusionWithInputs({in_tensor});
+  testValidate(fec.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
 }
 
 } // namespace nvfuser

@@ -228,8 +228,10 @@ class FusionInspector : private IterVisitor {
       TensorView* broadcast_out,
       const ParallelTypeBitmap& parallel_reduction_axes) {
     const auto broadcast_parallel_types =
-        GpuLower::current()->threadPredMap().getParallelBroadcastDomains(
-            broadcast_out);
+        GpuLower::current()
+            ->info()
+            .threadPredicateMap()
+            .getParallelBroadcastDomains(broadcast_out);
 
     // If no parallel broadcast, nothing to fuse
     if (broadcast_parallel_types.none()) {
@@ -269,10 +271,11 @@ class FusionInspector : private IterVisitor {
 //! Transform a fusion to use the fused reduction kernel.
 class FusionTransformer {
  public:
-  static void run(
+  static FusedReductionInfo run(
       Fusion* fusion,
       const std::vector<FusedReductionBroadcastInfo>& fusion_list) {
     FusionTransformer transformer(fusion, fusion_list);
+    return transformer.info_;
   }
 
  private:
@@ -286,11 +289,6 @@ class FusionTransformer {
   void transform() {
     for (const auto& info : fusion_list_) {
       transform(info);
-    }
-    // If the thread predicate map is modified, rebuild the
-    // map. build() only updates mappings that need to be updated.
-    if (thread_pred_map_modified_) {
-      GpuLower::current()->threadPredMap().build(fusion_);
     }
   }
 
@@ -367,9 +365,7 @@ class FusionTransformer {
              ir_utils::filterByType<TensorView>(fused_expr->outputs())) {
           for (auto id : reduction_out->getLoopDomain()) {
             if (id->isReduction()) {
-              GpuLower::current()->fusedReductionInfo().markAsAllreduce(id);
-              GpuLower::current()->threadPredMap().markAsUpdated(reduction_out);
-              thread_pred_map_modified_ = true;
+              info_.markAsAllreduce(id);
             }
           }
         }
@@ -380,14 +376,14 @@ class FusionTransformer {
  private:
   Fusion* fusion_ = nullptr;
   const std::vector<FusedReductionBroadcastInfo>& fusion_list_;
-  bool thread_pred_map_modified_ = false;
+  FusedReductionInfo info_;
 };
 
 } // namespace
 
-void fuseReductionsAndBroadcasts(Fusion* fusion) {
+FusedReductionInfo fuseReductionsAndBroadcasts(Fusion* fusion) {
   auto fusion_list = FusionInspector::run(fusion);
-  FusionTransformer::run(fusion, fusion_list);
+  return FusionTransformer::run(fusion, fusion_list);
 }
 
 void FusedReductionInfo::markAsAllreduce(IterDomain* id) {
