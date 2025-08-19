@@ -145,7 +145,6 @@ void FinalizeMultideviceDomainsPass::runPass(Fusion* fusion) {
       // definitions. This avoids processing the same tv multiple times.
       if (tv->isFusionInput()) {
         setLoopAndAllocationDomain(tv, is_resharding);
-        ;
       }
     }
     for (auto tv : outputs) {

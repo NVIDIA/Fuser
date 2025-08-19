@@ -54,9 +54,6 @@ python/nvfuser_direct/*.so
 *.log
 foo.bin
 
-# Config for https://pre-commit.com/
-.pre-commit-config.yaml
-
 *_generated.*
 
 # Mac OS internal file

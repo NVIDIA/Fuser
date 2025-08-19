@@ -2197,11 +2197,8 @@ std::vector<PolymorphicValue> ExpandOp::evaluate(
     const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
   const auto& in = inputs.at(0).as<at::Tensor>();
-  std::vector<int64_t> expanded_size;
-  for (auto i : arange(1, inputs.size())) {
-    expanded_size.push_back((int64_t)inputs.at(i));
-  }
-  return {in.expand(expanded_size)};
+  const auto& [out_shape, _] = inferShapeOfOutput(out(), ee);
+  return {in.expand(out_shape)};
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(ExpandOp)
