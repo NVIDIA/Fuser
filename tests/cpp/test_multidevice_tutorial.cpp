@@ -7,7 +7,7 @@
 // clang-format on
 
 #include <host_ir/container.h>
-#include <host_ir/executor.h>
+#include <host_ir/evaluator.h>
 #include <host_ir/host_ir.h>
 #include <ir/iostream.h>
 #include <multidevice/communicator.h>
