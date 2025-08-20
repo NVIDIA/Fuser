@@ -51,7 +51,6 @@ The following 75 tests exist in `tests/python/test_python_frontend.py` but are *
 - `test_arithmetic_ops` - Tests various arithmetic operations
 - `test_broadcast_in_dim_with_dynamic_shapes` - Tests broadcasting with dynamic shapes (79 lines)
 - `test_cat_symbolic` - Tests symbolic concatenation (86 lines)
-- `test_compute_tensor_descriptor` - Tests tensor descriptor computation
 - `test_cuda_code_and_scheduled_fusion_ir_strings` - Tests CUDA code generation (101 lines)
 - `test_fusion_profiler` - Tests fusion profiling
 - `test_fusion_profiler_user_schedule` - Tests user-defined fusion profiling
@@ -151,6 +150,7 @@ Both test files contain these common tests:
 - `test_basic_fp16` - Basic operations with FP16
 - `test_cast_double_to_half` - Casting double to half precision
 - `test_cast_fp8` - FP8 casting operations
+- `test_compute_tensor_descriptor` - Tests tensor descriptor computation
 - `test_promote_to_double` - Type promotion to double
 - `test_implicit_broadcast_input` - Implicit broadcast input handling
 - `test_explicit_broadcast_input` - Explicit broadcast input handling
