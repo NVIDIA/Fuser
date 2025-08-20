@@ -48,7 +48,7 @@ struct FusionKernelRuntime;
 //! executors_ objects from the flatbuffer binary.
 class FusionKernelRuntime {
  public:
-  explicit FusionKernelRuntime(
+  FusionKernelRuntime(
       std::unique_ptr<Fusion> fusion,
       const KernelArgumentHolder& inputs,
       const serde::FusionKernelRuntime* serde_buffer = nullptr,
@@ -80,11 +80,11 @@ class FusionKernelRuntime {
   PrimDataType getIndexType() const;
 
   //! Unified interface to run the managed kernels with given input
-  NVF_API KernelArgumentHolder runWithInputs(const KernelArgumentHolder& args);
+  KernelArgumentHolder runWithInputs(const KernelArgumentHolder& args);
 
   //! Compile a kernel executor for given inputs. Note: The compilation is
   //! multithreaded. The segments in the fusion are compiled independently.
-  NVF_API void compileFusionParallel(KernelArgumentHolder args);
+  void compileFusionParallel(KernelArgumentHolder args);
 
   //! Turn On/Off profiling
   void profile(bool to_profile = true) {
@@ -131,8 +131,7 @@ class FusionKernelRuntime {
   //  any segment cannot be scheduled or the parameters don't match
   //
   // Heuristics must use the index type of forced_index_type if given.
-  NVF_API std::optional<std::unique_ptr<HeuristicParamsList>>
-  getMaybeHeuristicsFor(
+  std::optional<std::unique_ptr<HeuristicParamsList>> getMaybeHeuristicsFor(
       const KernelArgumentHolder& args,
       std::optional<PrimDataType> forced_index_type = std::nullopt);
 
@@ -172,8 +171,7 @@ class FusionKernelRuntime {
   void compileKernel(const KernelArgumentHolder& args, SegmentedGroup* sg);
 
   //! Access the list of schedulers maintained in this runtime instance
-  NVF_API const std::vector<std::unique_ptr<HeuristicParams>>& schedulers()
-      const;
+  const std::vector<std::unique_ptr<HeuristicParams>>& schedulers() const;
 
   // Create KernelArgumentHolders for all of the segments. Sorted in
   // the run order.
