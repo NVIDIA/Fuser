@@ -49,18 +49,17 @@ void CutlassExecutor::compile(
   auto cutlass_params = &cutlass_params_instance;
 
   // Create compile options
-  CutlassCompileOptions compile_options;
-  compile_options.optimization_level = 3;
+  CompileParams cparams;
 
   // Add CUTLASS include path if available
   if (const char* cutlass_path = std::getenv("CUTLASS_PATH")) {
-    compile_options.include_paths.push_back(
+    cparams.include_paths.push_back(
         std::string(cutlass_path) + "/include");
   }
 
   // Create and compile the CUTLASS kernel
   cutlass_kernel_ = std::make_unique<CutlassCompiledKernel>(
-      fusion_.get(), *cutlass_params, compile_options);
+      fusion_.get(), *cutlass_params, cparams);
   cutlass_kernel_->compile();
 
   // Store the generated code for debugging
