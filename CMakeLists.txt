@@ -7,6 +7,11 @@ enable_language(CUDA)
 
 cmake_policy(SET CMP0063 NEW) # make symbol visibility always apply
 
+# ALWAYS: (default) print both Installing and Up-to-date messages
+# LAZY: print Installing but not Up-to-date messages
+# NEVER: print neither
+set(CMAKE_INSTALL_MESSAGE LAZY)
+
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 set(NVFUSER_ROOT ${PROJECT_SOURCE_DIR})
