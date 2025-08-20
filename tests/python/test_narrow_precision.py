@@ -109,6 +109,8 @@ def test_scaled_mm(
         * alpha
     )
     assert o.allclose(ref_o, 1e-2, 1e-2)
+
+
 def round_up(x, y):
     return (x + y - 1) // y * y
 
@@ -137,7 +139,7 @@ def activation_scale_to_nvfp4(x, g_sf, offsets, blockscale_offsets, block_size):
 @pytest.mark.skipif(
     is_pre_blackwell(), reason="Only supported on blackwell and newer devices."
 )
-@pytest.mark.parametrize("config", [[1024, 128, 256]]])
+@pytest.mark.parametrize("config", [[1024, 128, 256]])
 @pytest.mark.parametrize("tokens_per_expert_neg_one", [[115, 144, 8]])
 @pytest.mark.parametrize("out_dtype", [torch.bfloat16])
 def test_cutlass_nvfp4_grouped_mm(
