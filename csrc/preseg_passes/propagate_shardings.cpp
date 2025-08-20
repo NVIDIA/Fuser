@@ -497,13 +497,6 @@ void PropagateShardingsPass::runPass(Fusion* fusion) {
     // already present.
     const auto& inputs = ir_utils::filterByType<TensorView>(expr->inputs());
     std::vector<TensorView*> sharding_candidates;
-    for (auto* tv : inputs) {
-      if (tv->isFusionInput()) {
-        tv->setDeviceMesh(ref_output->getDeviceMesh());
-        continue;
-      }
-      sharding_candidates.push_back(tv);
-    }
 
     for (TensorView* target : inputs) {
       // Allow inputs to be stream parallelized for easier analysis.

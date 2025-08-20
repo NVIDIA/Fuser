@@ -75,8 +75,8 @@ std::unique_ptr<hir::HostIrContainer> HostIrLower::lower(
     DeviceIdxType my_device_index) {
   // Sharding PreSegmenter passes.
   // Note: passes run before PreSegmenter optimization passes.
-  preseg_passes::OptimizationPass<
-      preseg_passes::PropagateShardingsPass>::runPass(fusion.get());
+  // preseg_passes::OptimizationPass<
+  //     preseg_passes::PropagateShardingsPass>::runPass(fusion.get());
   preseg_passes::OptimizationPass<
       preseg_passes::DecomposeReshardingsPass>::runPass(fusion.get());
   preseg_passes::OptimizationPass<
