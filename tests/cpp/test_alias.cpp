@@ -14,6 +14,7 @@
 #include <alias_analysis.h>
 #include <fusion.h>
 #include <fusion_profiler.h>
+#include <ir/iostream.h>
 #include <ir/utils.h>
 #include <ops/alias.h>
 #include <ops/arith.h>

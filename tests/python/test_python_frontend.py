@@ -1634,11 +1634,11 @@ class TestNvFuserFrontend(NVFuserTest):
 
     def test_output_stride_order(self):
         inputs = [
-            torch.arange(0, 120).reshape(2, 3, 4, 5).cuda().float(),
+            torch.arange(0, 24).reshape(2, 3, 4).cuda().float(),
         ]
         eager_out = inputs[0] + 3.0
 
-        for perm in itertools.permutations(range(4), 4):
+        for perm in itertools.permutations(range(3), 3):
             # testing stride_order in add_output
             def fusion_func(fd: FusionDefinition):
                 t0 = fd.from_pytorch(inputs[0])

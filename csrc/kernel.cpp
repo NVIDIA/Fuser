@@ -9,6 +9,7 @@
 #include <device_lower/lower2device.h>
 #include <instrumentation.h>
 #include <ir/iostream.h>
+#include <ir/printer.h>
 #include <ir/utils.h>
 #include <kernel.h>
 #include <kernel_ir_dispatch.h>

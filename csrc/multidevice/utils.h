@@ -21,7 +21,9 @@ namespace nvfuser {
 // Returns true iff nvFuser was compiled with distributed APIs enabled.
 NVF_API bool distributedEnabled();
 
-// Return true if the TensorView is contiguous.
+// Return true if the TensorView is contiguous. This function is more
+// permissive than torch.Tensor.is_contiguous because it allows expanded
+// broadcasts.
 NVF_API bool isTvContiguous(const TensorView* tv);
 
 // Returns whether a TensorView has a non-reduction axis parallelized Didx
