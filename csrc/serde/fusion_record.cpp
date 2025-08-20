@@ -859,6 +859,7 @@ void RecordFunctorFactory::setupFunctionMaps() {
   NVFUSER_UNARY_TV_OP("imag", imag)
 
   NVFUSER_UNARY_TV_ALPHA_OP("triu", triu)
+  NVFUSER_UNARY_TV_ALPHA_OP("cumsum", cumsum)
 
   NVFUSER_BINARY_TV_ONLY_OP("matmul", matmul)
   NVFUSER_TERNARY_TV_ONLY_OP(

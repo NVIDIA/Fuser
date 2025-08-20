@@ -3749,7 +3749,7 @@ void initNvFuserPythonBindings(PyObject* module) {
         fd->defineRecord(new OpRecord<TensorView*, TensorView*, Val*>(  \
             {fd->recordingState(arg()), fd->recordingState(dim_())},    \
             {fd->recordingState(output())},                             \
-            ("ops.cumsum"),                                             \
+            (std::string("ops.") + op_str),                             \
             serde::RecordType::Binary_TV_VAL,                           \
             static_cast<TensorView* (*)(TensorView*, Val*)>(op_name))); \
                                                                         \

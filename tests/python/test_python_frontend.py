@@ -1244,7 +1244,6 @@ class TestNvFuserFrontend(NVFuserTest):
 
         nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
         eager_out = torch.cumsum(inputs[0], dim=0)
-        print(nvf_out[0])
         self.assertEqual(nvf_out[0], eager_out)
 
     def test_complex_rsqrt(self):

@@ -819,7 +819,6 @@ NVF_API TensorView* prefixSum(TensorView* tv, int64_t dim);
 
 //! Another alias for PyTorch's cumsum
 NVF_API inline TensorView* cumsum(TensorView* tv, Val* dim) {
-  std::cout << "ENTERED" << std::endl;
   return prefixSum(tv, dim->value().as<int64_t>());
 }
 

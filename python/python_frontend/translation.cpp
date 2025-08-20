@@ -1319,6 +1319,41 @@ class FusionTranslator : public OptInConstDispatch {
         topkop->isSorted()));
   }
 
+  // Helper function to get the corresponding name for ScanOp based on its
+  // BinaryOpType
+  std::string getScanOpString(const ScanOp* scan_op) {
+    NVF_ERROR(scan_op != nullptr, "ScanOp pointer is null.");
+    if (scan_op->opType() == BinaryOpType::Add) {
+      return "cumsum";
+    } else {
+      NVF_ERROR(
+          false,
+          "ScanOp type not implemented: only Add (cumsum) is supported.");
+      return nullptr;
+    }
+  }
+
+  void handle(const ScanOp* scan_op) final {
+    auto out_tv = scan_op->out()->as<TensorView>();
+    Tensor output = fd_->defineTensor(out_tv->nDims());
+    map_val_to_fd_index_.emplace(out_tv, output());
+    auto dim_ = fd_->defineScalar();
+    fd_->defineRecord(new ScalarRecord(
+        {fd_->recordingState(dim_())},
+        scan_op->dim(),
+        DataType::Int,
+        /*inline_def=*/true));
+
+    fd_->defineRecord(new OpRecord<TensorView*, TensorView*, Val*>(
+        {fd_->recordingState(
+             map_val_to_fd_index_.at(scan_op->in()->as<TensorView>())),
+         fd_->recordingState(dim_())},
+        {fd_->recordingState(output())},
+        (std::string("ops.") + getScanOpString(scan_op)),
+        serde::RecordType::Binary_TV_VAL,
+        static_cast<TensorView* (*)(TensorView*, Val*)>(cumsum)));
+  }
+
   // Map GatherOp to python frontend
   void handle(const GatherOp* gop) final {
     TensorView* out_tv = gop->output(0)->as<TensorView>();
