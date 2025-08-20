@@ -114,7 +114,8 @@ std::vector<TensorView*> getOutputsWithoutMesh(Expr* expr) {
 // Returns the set of parallel types not seen on the loop domain of the given
 // tvs and hence, can be propagated.
 std::unordered_set<ParallelType> getParallelTypesToPropagate(
-    std::vector<TensorView*> tvs, bool is_input = false) {
+    std::vector<TensorView*> tvs,
+    bool is_input = false) {
   std::unordered_set<ParallelType> all_parallel_types;
   if (is_input) {
     all_parallel_types = {ParallelType::Stream};
@@ -229,8 +230,14 @@ void transformLoopDomain(
   };
 
   auto validate_split = [](Split* split, IterDomain* id) -> void {
-    NVF_ERROR(!split->innerSplit(), "Inner split for device or stream parallelization is not supported.");
-    NVF_ERROR(split->outer()->isDeviceDim() || split->outer()->isStream(), "Expected the outer id of the split to be a device / stream dimension. Got: ", split->outer());
+    NVF_ERROR(
+        !split->innerSplit(),
+        "Inner split for device or stream parallelization is not supported.");
+    NVF_ERROR(
+        split->outer()->isDeviceDim() || split->outer()->isStream(),
+        "Expected the outer id of the split to be a device / stream dimension. "
+        "Got: ",
+        split->outer());
     NVF_ERROR(
         split->isDivisible(),
         "Expected the split to be divisible. Got: ",
@@ -505,7 +512,8 @@ void PropagateShardingsPass::runPass(Fusion* fusion) {
         continue;
       }
       std::unordered_set<ParallelType> selected_parallel_types =
-          getParallelTypesToPropagate({target}, /*is_input=*/target->isFusionInput());
+          getParallelTypesToPropagate(
+              {target}, /*is_input=*/target->isFusionInput());
       propagateDIDTransform(
           /*ref=*/ref_output,
           /*tv=*/target,

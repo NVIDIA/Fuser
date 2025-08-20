@@ -10,8 +10,8 @@
 #include <gtest/gtest.h>
 
 #include <ops/all_ops.h>
-#include <tests/cpp/utils.h>
 #include <preseg_passes/propagate_shardings.h>
+#include <tests/cpp/utils.h>
 
 namespace nvfuser {
 
@@ -75,7 +75,8 @@ TEST_F(RingBasedOverlapTest, ColumnAndSequenceParallelLinear_Forward) {
   // Fusion inputs/outputs can't be allocated per stream because the
   // user of a FusionDefinition can't inline external ops into a loop inside.
 
-  preseg_passes::OptimizationPass<preseg_passes::PropagateShardingsPass>::runPass(fusion.get());
+  preseg_passes::OptimizationPass<
+      preseg_passes::PropagateShardingsPass>::runPass(fusion.get());
   // DIDx from `w` is propagated to `out`
   EXPECT_TRUE(out->axis(2)->isDeviceDim());
 }
@@ -144,8 +145,10 @@ TEST_F(RingBasedOverlapTest, ColumnAndSequenceParallelLinear_WeightGrad) {
   // clear to me how to implement this in host IR lowering, so I recommend we
   // go with `s*` for now for simplicity.
 
-  preseg_passes::OptimizationPass<preseg_passes::PropagateShardingsPass>::runPass(fusion.get());
-  // `DIDx` from `out` is propagated to `w`. `Stream` from `w` is propagated to `out`.
+  preseg_passes::OptimizationPass<
+      preseg_passes::PropagateShardingsPass>::runPass(fusion.get());
+  // `DIDx` from `out` is propagated to `w`. `Stream` from `w` is propagated to
+  // `out`.
   EXPECT_TRUE(out->axis(0)->isStream());
   EXPECT_TRUE(w->axis(0)->isDeviceDim());
 }
@@ -313,7 +316,8 @@ TEST_F(RingBasedOverlapTest, RowAndSequenceParallelLinear_WeightGrad) {
   //                       /\.
   //                      d
 
-  preseg_passes::OptimizationPass<preseg_passes::PropagateShardingsPass>::runPass(fusion.get());
+  preseg_passes::OptimizationPass<
+      preseg_passes::PropagateShardingsPass>::runPass(fusion.get());
   // `DIDx` and `Stream` is propagated from `in` to `w`.
   EXPECT_TRUE(w->axis(1)->isDeviceDim());
   EXPECT_TRUE(w->axis(-2)->isStream());
@@ -349,7 +353,8 @@ TEST_F(RingBasedOverlapTest, RowAndSequenceParallelLinear_InputGrad) {
 
   // Fusion IR before segmentation will be similar to
   // `ColumnAndSequenceParallelLinear_Forward`.
-  preseg_passes::OptimizationPass<preseg_passes::PropagateShardingsPass>::runPass(fusion.get());
+  preseg_passes::OptimizationPass<
+      preseg_passes::PropagateShardingsPass>::runPass(fusion.get());
   EXPECT_TRUE(in->axis(2)->isDeviceDim());
 }
 
@@ -415,7 +420,8 @@ TEST_F(CollectiveBasedOverlapTest, RowParallelLinear_Forward) {
   //                  /\.
   //                 s*
 
-  preseg_passes::OptimizationPass<preseg_passes::PropagateShardingsPass>::runPass(fusion.get());
+  preseg_passes::OptimizationPass<
+      preseg_passes::PropagateShardingsPass>::runPass(fusion.get());
   EXPECT_TRUE(out->axis(0)->isStream());
   EXPECT_TRUE(out->axis(-2)->isDeviceDim());
 }
