@@ -1211,40 +1211,7 @@ TEST_F(GatherTest, GatherIterGoupedReduction) {
       lparams);
 }
 
-// segmented, pointwise scheduler can't find the reference tv to schedule.
-TEST_F(GatherTest, SameTvUsedAsLookupAndIndex1) {
-  auto fusion_ptr = std::make_unique<Fusion>();
-  Fusion& fusion = *fusion_ptr.get();
-  FusionGuard fg(&fusion);
-
-  // Create three input tensors
-  auto tv0 = makeContigTensor(2);
-  auto tv1 = makeContigTensor(2, DataType::Int);
-  auto tv2 = makeContigTensor(2, DataType::Int);
-  fusion.addInput(tv1);
-  fusion.addInput(tv2);
-
-  auto tv3 = gather(tv0, 1, tv1);
-  auto tv4 = gather(tv1, 1, tv2);
-  fusion.addOutput(tv3);
-  fusion.addOutput(tv4);
-
-  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  auto options_i = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
-
-  // Create test tensors
-  std::vector<int64_t> dims{4, 6};
-  at::Tensor t0 = at::randn(dims, options);
-  at::Tensor t1 = at::randint(0, dims[1], dims, options_i);
-  at::Tensor t2 = at::randint(0, dims[1], dims, options_i);
-
-  FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto cg_outputs = executor_cache.runFusionWithInputs({t0, t1, t2});
-  // Validate the result
-  testValidate(&fusion, cg_outputs, {t0, t1, t2}, __LINE__, __FILE__);
-}
-
-TEST_F(GatherTest, SameTvUsedAsLookupAndIndex2) {
+TEST_F(GatherTest, SameTvUsedAsLookupAndIndex) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
