@@ -4,11 +4,20 @@
 
 import torch
 
-from nvfuser import FusionDefinition, DataType
-from nvfuser.testing.utils import NVFuserTest
+from python.utils import NVFuserTest
 
-FLOAT8_E4M3_MAX = 448.0
-FLOAT4_E2M1_MAX = 6.0
+from nvfuser import (
+    FusionDefinition,
+    DataType,
+)
+from nvfuser.pytorch_utils import torch_dtype_to_nvfuser_dtype
+from python.utils import (
+    FLOAT4_E2M1_MAX,
+    FLOAT8_E4M3_MAX,
+    pytorch_nvfp4_quantize,
+    is_pre_blackwell,
+    linear_to_swizzled_128_4,
+)
 
 BLOCK_SIZE = 16
 
