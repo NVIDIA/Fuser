@@ -63,6 +63,11 @@ std::vector<TaskGraph::TaskId> getTasks(const TaskGraph::SortResult& result) {
 }
 
 TEST_F(TaskGraphTest, Basic) {
+  //   0   1
+  //   |\ /
+  //   | 2
+  //   |/
+  //   3
   Tasks tasks{{{0, 1}, {2}}, {{0, 2}, {3}}};
   auto data = inferData(tasks);
   auto graph = TaskGraph(tasks, data);
@@ -73,6 +78,11 @@ TEST_F(TaskGraphTest, Basic) {
 
 // This example includes two segments, each of which aliases the other
 TEST_F(TaskGraphTest, ImpossibleAlias) {
+  //   0   1
+  //   |\ /|
+  //   | X |
+  //   |/ \|
+  //   2   3
   // Two tasks, each takes the same two inputs
   Tasks tasks{{{0, 1}, {2}}, {{0, 1}, {3}}};
   auto data = inferData(tasks);
@@ -123,6 +133,68 @@ TEST_F(TaskGraphTest, ThreeCycle) {
       [&graph]() { getTasks(graph.findOptimalOrder()); },
       ::testing::ThrowsMessage<nvfuser::nvfError>(::testing::HasSubstr(
           "Ran out of ready tasks before completing ordering")));
+}
+
+TEST_F(TaskGraphTest, FreeableIntermediate) {
+  //   0
+  //  / \
+  // 1   2
+  //     |
+  //     3
+  Tasks tasks{
+      {{0}, {1}}, // Task 0
+      {{0}, {2}}, // Task 1
+      {{2}, {3}}, // Task 2
+  };
+  auto data = inferData(tasks);
+  auto graph = TaskGraph(tasks, data);
+
+  std::cout << graph << std::endl;
+
+  TaskGraph::SortResult result = graph.findOptimalOrder();
+
+  // Expect that we evaluate the branch with intermediates before the other,
+  // since those intermediates can take the space we'll need later for output 1
+  std::vector<TaskGraph::TaskId> expected{1, 2, 0};
+  EXPECT_EQ(getTasks(result), expected);
+
+  EXPECT_EQ(result.steps.back().high_water_mark, 2);
+}
+
+TEST_F(TaskGraphTest, DifferentSizes) {
+  //   0
+  //  / \
+  // 1   4
+  // |   |
+  // 2   5
+  // |   |
+  // 3   6
+  //  \ /
+  //   7
+  Tasks tasks{
+      {{0}, {1}}, // Task 0
+      {{1}, {2}}, // Task 1
+      {{2}, {3}}, // Task 2
+      {{0}, {4}}, // Task 3
+      {{4}, {5}}, // Task 4
+      {{5}, {6}}, // Task 5
+      {{3, 6}, {7}} // Task 6
+  };
+  auto data = inferData(tasks);
+  data[1].size = 8;
+  data[2].size = 12;
+  data[3].size = 8;
+  data[4].size = 10;
+  // Note that 4 is large but 5 is smaller than the others, so we should compute
+  // up to here then start on the 0-1-2-3 branch after freeing 4
+  data[5].size = 5;
+  data[6].size = 8;
+  auto graph = TaskGraph(tasks, data);
+
+  std::cout << graph << std::endl;
+
+  std::vector<TaskGraph::TaskId> expected{0, 3, 4, 1, 2, 5, 6};
+  EXPECT_EQ(getTasks(graph.findOptimalOrder()), expected);
 }
 
 } // namespace nvfuser
