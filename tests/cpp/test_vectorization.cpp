@@ -734,10 +734,15 @@ TEST_P(VectorizationCastTest, CastKernel) {
   at::Tensor t0;
   if (dtype_from == DataType::Float8_e4m3fn ||
       dtype_from == DataType::Float8_e5m2 ||
-      dtype_from == DataType::Float8_e8m0fnu) {
+      dtype_from == DataType::Float8_e8m0fnu ||
+      dtype_from == DataType::Float4_e2m1fn) {
+    int64_t size = vectorization_factor;
+    if (dtype_from == DataType::Float4_e2m1fn) {
+      size /= 2;
+    }
     auto options =
         at::TensorOptions().dtype(at::ScalarType::Byte).device(at::kCUDA, 0);
-    t0 = at::randint(0, 255, {vectorization_factor}, options)
+    t0 = at::randint(0, 255, {size}, options)
              .view(data_type_to_aten(dtype_from));
   } else {
     auto options = at::TensorOptions()
@@ -751,6 +756,12 @@ TEST_P(VectorizationCastTest, CastKernel) {
 
   auto cg_outputs = ke.run({t0});
 
+  if (dtype_from == DataType::Float4_e2m1fn ||
+      dtype_to == DataType::Float4_e2m1fn) {
+    // PyTorch does not have casting kernel for fp4, there is nothing we can use
+    // as reference.
+    return;
+  }
   testValidate(&fusion, cg_outputs, {t0}, __LINE__, __FILE__);
 }
 
@@ -788,15 +799,17 @@ auto all_vectorization_cast_params = ::testing::Values(
     VectorizationCastParams(DataType::Float8_e4m3fn, DataType::Half, 4),
     VectorizationCastParams(DataType::Float8_e5m2, DataType::Half, 4),
 
-    // // cvt.rn.satfinite{.relu}.f4x2type.f32
-    // VectorizationCastParams(DataType::Float, DataType::Float4_e2m1fn, 2),
-    // // Two cvt.rn.satfinite{.relu}.f4x2type.f32
-    // VectorizationCastParams(DataType::Float, DataType::Float4_e2m1fn, 4),
+#if NVF_TORCH_VERSION_NO_LESS(2, 8, 0)
+    // cvt.rn.satfinite{.relu}.f4x2type.f32
+    VectorizationCastParams(DataType::Float, DataType::Float4_e2m1fn, 2),
+    // Two cvt.rn.satfinite{.relu}.f4x2type.f32
+    VectorizationCastParams(DataType::Float, DataType::Float4_e2m1fn, 4),
 
-    // // cvt.rn{.relu}.f16x2.f4x2type
-    // VectorizationCastParams(DataType::Float4_e2m1fn, DataType::Half, 2),
-    // // Two cvt.rn{.relu}.f16x2.f4x2type
-    // VectorizationCastParams(DataType::Float4_e2m1fn, DataType::Half, 4),
+    // cvt.rn{.relu}.f16x2.f4x2type
+    VectorizationCastParams(DataType::Float4_e2m1fn, DataType::Half, 2),
+    // Two cvt.rn{.relu}.f16x2.f4x2type
+    VectorizationCastParams(DataType::Float4_e2m1fn, DataType::Half, 4),
+#endif
 
     // cvt.frnd3{.satfinite}.ue8m0x2.f32
     VectorizationCastParams(DataType::Float, DataType::Float8_e8m0fnu, 2),
@@ -827,4 +840,70 @@ INSTANTIATE_TEST_SUITE_P(
     all_vectorization_cast_params,
     vectorizeCastTestName);
 
+using Vect256TestParams = std::tuple<DataType, CacheOp>;
+class Vect256Test : public NVFuserFixtureParamTest<Vect256TestParams> {
+ public:
+  void SetUp() override {
+    NVFUSER_TEST_CUDA_ARCH_GUARD(10, 0);
+    std::tie(dtype, cache_op) = GetParam();
+  }
+
+ protected:
+  DataType dtype;
+  CacheOp cache_op;
+};
+
+TEST_P(Vect256Test, DateTypeCacheOps) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeContigTensor(1, dtype);
+  fusion.addInput(tv0);
+  auto tv1 = set(tv0);
+  tv1->definition()->as<LoadStoreOp>()->setCacheOp(cache_op);
+  tv1 = maybeCastOp(DataType::Float, tv1);
+  auto tv2 = add(tv1, tv1);
+  tv2 = maybeCastOp(dtype, tv2);
+  auto tv3 = set(tv2);
+  fusion.addOutput(tv3);
+
+  constexpr int64_t vectorization_bits = 256;
+  int64_t vectorization_factor = vectorization_bits / dataTypeSizeBit(dtype);
+
+  for (auto tv : fusion.allTvs()) {
+    tv->split(0, vectorization_factor);
+    tv->axis(0)->parallelize(ParallelType::TIDx);
+    if (tv->definition()->isA<LoadStoreOp>()) {
+      tv->axis(1)->parallelize(ParallelType::Vectorize);
+    }
+  }
+
+  int64_t n_elements = 1024;
+  auto options =
+      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
+  auto t0 = at::randn({n_elements}, options);
+  KernelExecutor ke;
+  ke.compile(&fusion, {t0});
+  auto cg_outputs = ke.run({t0});
+  testValidate(&fusion, cg_outputs, {t0}, __LINE__, __FILE__);
+}
+INSTANTIATE_TEST_SUITE_P(
+    ,
+    Vect256Test,
+    ::testing::Combine(
+        ::testing::Values(
+            DataType::Double,
+            DataType::Float,
+            DataType::Half,
+            DataType::BFloat16),
+        ::testing::Values(
+            CacheOp::AllLevels,
+            CacheOp::Streaming,
+            CacheOp::Global)),
+    [](const testing::TestParamInfo<Vect256TestParams>& info) -> std::string {
+      std::stringstream ss;
+      ss << "dtype_" << std::get<0>(info.param) << "_cache_op_"
+         << std::get<1>(info.param);
+      return sanitizeTestName(ss.str());
+    });
 } // namespace nvfuser

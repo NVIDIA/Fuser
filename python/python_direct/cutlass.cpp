@@ -14,20 +14,21 @@ namespace nvfuser::python {
 
 namespace {
 
+torch::Tensor scaled_mm_wrapper(
+    const torch::Tensor& a,
+    const torch::Tensor& b,
+    const torch::Tensor& scales_a,
+    const torch::Tensor& scales_b,
+    const torch::Tensor& alpha,
+    at::ScalarType out_dtype) {
+  return cutlass_kernels::nvfp4_scaled_mm(
+      a, b, scales_a, scales_b, alpha, out_dtype);
+}
+
 void bindGemm(py::module_& cutlass) {
   const char* nvfp4_gemm_docstring =
-      R"(nvfp4_scaled_mm(Tensor output, Tensor a, Tensor b, Tensor scales_a, Tensor scales_b, Tensor alpha))";
-  cutlass.def(
-      "nvfp4_scaled_mm",
-      &cutlass_kernels::nvfp4_scaled_mm,
-      nvfp4_gemm_docstring);
-
-  const char* nvfp4_quantize_docstring =
-      R"(nvfp4_quantize(Tensor output, Tensor output_scale, Tensor input, Tensor input_scale))";
-  cutlass.def(
-      "nvfp4_quantize",
-      &cutlass_kernels::nvfp4_quantize,
-      nvfp4_quantize_docstring);
+      R"(nvfp4_scaled_mm(Tensor a, Tensor b, Tensor scales_a, Tensor scales_b, Tensor alpha, DataType out_dtype) -> Tensor output)";
+  cutlass.def("nvfp4_scaled_mm", &scaled_mm_wrapper, nvfp4_gemm_docstring);
 }
 
 void bindGroupedGemm(py::module_& cutlass) {
@@ -47,7 +48,6 @@ void bindCutlass(py::module& nvfuser) {
   py::module_ nvf_cutlass = nvfuser.def_submodule(
       "nvf_cutlass", "This submodule contains all cutlass gemms for NvFuser.");
   bindGemm(nvf_cutlass);
-  bindGroupedGemm(nvf_cutlass);
 }
 
 } // namespace nvfuser::python

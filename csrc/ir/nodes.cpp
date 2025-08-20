@@ -306,8 +306,8 @@ std::string ScatterOp::toString(int indent_size) const {
   indent(ss, indent_size) << output(0)->toString() << "\n";
   indent_size++;
   indent(ss, indent_size) << " =" << getScatterOpType() << "(";
-  ss << "self = " << selfTv()->toString() << ", dim = " << dim()
-     << ", src = " << input(2)->toString() << ", idx = " << input(1)->toString()
+  ss << "in = " << in()->toString() << ", dim = " << dim()
+     << ", src = " << src()->toString() << ", idx = " << index()->toString()
      << " )\n";
   return ss.str();
 }
@@ -325,9 +325,17 @@ std::vector<PolymorphicValue> ScatterOp::evaluate(
     const std::vector<PolymorphicValue>& inputs) const {
   const auto& input = inputs.at(0).as<at::Tensor>();
   const auto& index = inputs.at(1).as<at::Tensor>();
-  const auto& src = inputs.at(2).as<at::Tensor>();
   auto dimension = dim();
-  return {at::scatter(input, dimension, index, src)};
+  if (src()->isA<TensorView>()) {
+    return {
+        at::scatter(input, dimension, index, inputs.at(2).as<at::Tensor>())};
+  } else {
+    return {at::scatter(
+        input,
+        dimension,
+        index,
+        PolymorphicValue_functions::toScalar(inputs.back()))};
+  }
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(ScatterOp)
@@ -833,7 +841,7 @@ std::vector<PolymorphicValue> TernaryOp::evaluate(
       return {(a <= b) ? c : a};
       break;
     case TernaryOpType::Where:
-      return {a.as<bool>() ? b : c};
+      return {where(a, b, c)};
       break;
     default:
       NVF_CHECK(
@@ -2159,25 +2167,22 @@ ExpandOp::ExpandOp(
     IrBuilderPasskey passkey,
     TensorView* out,
     TensorView* in,
-    std::vector<Val*> _expanded_extents)
+    const std::vector<Val*>& expanded_extents)
     : Expr(passkey) {
   addOutput(out);
   addInput(in);
-  for (auto expanded_extent : _expanded_extents) {
+  for (auto* expanded_extent : expanded_extents) {
     NVF_ERROR(expanded_extent != nullptr);
-    NVF_ERROR(
-        expanded_extent->dtype() == DataType::Index,
-        "Expanded extents must be of index type.");
+    NVF_ERROR_EQ(
+        expanded_extent->dtype(), DataType::Index, "Found ", expanded_extent);
     addInput(expanded_extent);
   }
 }
 
 std::string ExpandOp::toString(int indent_size) const {
   std::stringstream ss;
-  indent(ss, indent_size) << out()->toString() << " = expand( " << in()
-                          << ", {";
-  ss << toDelimitedString(expanded_extents());
-  ss << "} )\n";
+  indent(ss, indent_size) << out()->toString() << " = expand( " << in() << " )"
+                          << std::endl;
   return ss.str();
 }
 
@@ -2189,11 +2194,8 @@ std::vector<PolymorphicValue> ExpandOp::evaluate(
     const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
   const auto& in = inputs.at(0).as<at::Tensor>();
-  std::vector<int64_t> expanded_size;
-  for (auto i : arange(1, inputs.size())) {
-    expanded_size.push_back((int64_t)inputs.at(i));
-  }
-  return {in.expand(expanded_size)};
+  const auto& [out_shape, _] = inferShapeOfOutput(out(), ee);
+  return {in.expand(out_shape)};
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(ExpandOp)
@@ -2979,14 +2981,14 @@ IterDomain* IterDomain::resize(
       "Non-zero stop offset not considered: ",
       in->toString());
 
-  // The overall extent is (in->extent() + left_expansion +
+  // The overall extent is (in_extent + left_expansion +
   // right_expansion). This can be simplified for a slice op as
   // the right expansion should look like (slice_end_offset -
-  // in->extent()), or (slice_end_offset + (- in->extent())), so the
+  // in_extent), or (slice_end_offset + (- in_extent)), so the
   // overall extent is left_expansion + slice_end_offset.
 
   // Detect common slice patterns and return a simplified Val
-  // representing (in->extent() + right_expansion) if possible
+  // representing (in_extent + right_expansion) if possible
   auto simplify_input_extent_plus_right_expansion = [](Val* right_expansion,
                                                        Val* in_extent) -> Val* {
     auto bop = dynamic_cast<BinaryOp*>(right_expansion->definition());
@@ -3012,7 +3014,7 @@ IterDomain* IterDomain::resize(
 
   Val* resized_id_size = nullptr;
   if (auto simplified_val = simplify_input_extent_plus_right_expansion(
-          right_expansion, in->extent())) {
+          right_expansion, in->getMaybeExpandedExtent())) {
     resized_id_size =
         SimplifyingIrBuilder::addExpr(left_expansion, simplified_val);
   } else {
@@ -3025,7 +3027,7 @@ IterDomain* IterDomain::resize(
   // If output IterType is provided, use it. Otherwise, if we can prove the
   // resized extent is 1, set to Broadcast, if we can prove it is >1 set to
   // Iteration, and otherwise fall back to Symbolic.
-  IterType iter_type = IterType::Symbolic;
+  auto iter_type = IterType::Symbolic;
   if (iter_type_opt.has_value()) {
     iter_type = iter_type_opt.value();
   } else if (left_expansion->isConstInt() && right_expansion->isConstInt()) {
@@ -3198,6 +3200,7 @@ TensorDomain::TensorDomain(
     : Val(passkey, ValType::TensorDomain, DataType::Null),
       logical_domain_(std::move(logical_domain)),
       loop_domain_(logical_domain_),
+      initial_loop_domain_(loop_domain_),
       contiguity_(
           contiguity.empty() ? getContiguityFilledWith(maybeAllocation(), false)
                              : std::move(contiguity)) {
@@ -3215,6 +3218,7 @@ TensorDomain::TensorDomain(
     : Val(passkey, ValType::TensorDomain, DataType::Null),
       logical_domain_(std::move(logical_domain)),
       loop_domain_(logical_domain_),
+      initial_loop_domain_(loop_domain_),
       contiguity_(
           contiguity.empty() ? getContiguityFilledWith(maybeAllocation(), false)
                              : std::move(contiguity)) {
@@ -3247,19 +3251,24 @@ TensorDomain::TensorDomain(
     IrBuilderPasskey passkey,
     std::vector<IterDomain*> logical_domain,
     std::vector<IterDomain*> loop_domain,
-    std::vector<std::optional<bool>> contiguity)
+    std::vector<std::optional<bool>> contiguity,
+    bool skip_loop_validation)
     : Val(passkey, ValType::TensorDomain, DataType::Null),
       logical_domain_(std::move(logical_domain)),
       loop_domain_(std::move(loop_domain)),
+      initial_loop_domain_(loop_domain_),
       contiguity_(
           contiguity.empty() ? getContiguityFilledWith(maybeAllocation(), false)
                              : std::move(contiguity)) {
   validateContiguity(maybeAllocation(), contiguity_);
 
-  NVF_CHECK(
-      loop_domain_.empty() == logical_domain_.empty(),
-      "logical domain and loop domain can only be both empty or neither empty");
-  validateLoopDomain(logical_domain_, loop_domain_, additional_ids_);
+  if (!skip_loop_validation) {
+    NVF_CHECK(
+        loop_domain_.empty() == logical_domain_.empty(),
+        "logical domain and loop domain can only be both empty or neither "
+        "empty");
+    validateLoopDomain(logical_domain_, loop_domain_, additional_ids_);
+  }
 
   // resetDomains initializes other member variables, required by clang-tidy
   resetDomains();
@@ -3275,6 +3284,7 @@ TensorDomain::TensorDomain(
       root_domain_(std::move(root_domain)),
       logical_domain_(std::move(logical_domain)),
       loop_domain_(std::move(loop_domain)),
+      initial_loop_domain_(loop_domain_),
       contiguity_(
           contiguity.empty() ? getContiguityFilledWith(maybeAllocation(), false)
                              : std::move(contiguity)) {
@@ -3574,6 +3584,14 @@ std::vector<int64_t> TensorDomain::strideOrder() const {
   if (allocation_domain_.empty()) {
     return {};
   }
+
+  // The allocation domain is set by the loop domain not by permuting the
+  // logical domain.
+  if (loop_domain_ == allocation_domain_) {
+    return {};
+  }
+
+  NVF_ERROR(logical_domain_.size() == allocation_domain_.size());
 
   std::vector<int64_t> stride_order;
   stride_order.reserve(logical_domain_.size());
@@ -3947,14 +3965,8 @@ TensorDomain* TensorDomain::flatten(int64_t start_dim, int64_t end_dim) {
 
   IterDomain* merged_id = new_root_domain[start_dim];
   for (auto i : arange(start_dim + 1, end_dim + 1)) {
-    IterDomain* new_merged_id =
-        IterDomainBuilder(
-            merged_id->container()->zeroVal(),
-            mul(merged_id->extent(), new_root_domain[i]->extent()))
-            .is_rfactor_domain(true)
-            .build();
-    IrBuilder::create<Merge>(new_merged_id, merged_id, new_root_domain[i]);
-    merged_id = new_merged_id;
+    merged_id = IterDomain::merge(
+        merged_id, new_root_domain.at(i), /*rfactor_domain=*/true);
   }
   logical_domain.push_back(merged_id);
 
@@ -4401,8 +4413,7 @@ std::string PadOp::toString(int indent_size) const {
   std::stringstream ss;
   indent(ss, indent_size) << out()->toString() << "\n";
   indent(ss, indent_size) << "   = pad( " << in()->toString() << ", {"
-                          << toDelimitedString(getPadWidths()) << "}"
-                          << " )\n";
+                          << toDelimitedString(getPadWidths()) << "} )\n";
   return ss.str();
 }
 
@@ -5870,26 +5881,19 @@ std::string GroupedMmaOp::toString(int indent_size) const {
   if (outGamma() != nullptr) {
     ss << ", " << outGamma();
   }
-  ss << " = GroupedMmaOp("
-     << "mat1=" << matrix1() << ", "
-     << "mat2=" << matrix2() << ", "
-     << "offsets=" << offsets();
+  ss << " = GroupedMmaOp(" << "mat1=" << matrix1() << ", "
+     << "mat2=" << matrix2() << ", " << "offsets=" << offsets();
   if (hasScale()) {
-    ss << ", "
-       << "scale1=" << scale1() << ", "
-       << "scale2=" << scale2();
+    ss << ", " << "scale1=" << scale1() << ", " << "scale2=" << scale2();
   }
   if (hasAlpha()) {
-    ss << ", "
-       << "alpha=" << alpha();
+    ss << ", " << "alpha=" << alpha();
   }
   if (hasBias()) {
-    ss << ", "
-       << "bias=" << bias();
+    ss << ", " << "bias=" << bias();
   }
   if (hasBeta()) {
-    ss << ", "
-       << "beta=" << beta();
+    ss << ", " << "beta=" << beta();
   }
   ss << ")\n";
   return ss.str();
@@ -6015,7 +6019,51 @@ std::vector<PolymorphicValue> GroupedMmaOp::evaluate(
     NVF_ERROR(!alpha.defined(), "alpha is not supported yet");
     NVF_ERROR(!beta.defined(), "beta is not supported yet");
     NVF_ERROR(!bias.defined(), "bias is not supported yet");
-    result = at::_grouped_mm(mat1, mat2, offsets, /*bias=*/std::nullopt);
+
+    // Compute numbers of tokens per group from offsets.
+    at::Tensor offsets_cpu = offsets.cpu();
+    NVF_ERROR_EQ(offsets_cpu.dtype(), at::kInt);
+    const int* data_ptr = offsets_cpu.data_ptr<int>();
+    const int64_t num_groups = offsets_cpu.numel();
+    std::vector<int64_t> group_sizes(data_ptr, data_ptr + num_groups);
+    for (int64_t i : arange(1, num_groups) | std::views::reverse) {
+      group_sizes[i] -= group_sizes[i - 1];
+    }
+
+    std::vector<at::Tensor> group_mat1s;
+    std::vector<at::Tensor> group_mat2s;
+    std::vector<at::Tensor> group_outs;
+    if (mat1.dim() == 2 && mat2.dim() == 2) {
+      // [m, k] @ [k, n] => [g, m, n]
+      group_mat1s = mat1.split(group_sizes, -1);
+      group_mat2s = mat2.split(group_sizes, 0);
+      result =
+          at::empty({num_groups, mat1.size(0), mat2.size(-1)}, mat1.options());
+      group_outs = result.unbind();
+    } else if (mat1.dim() == 3 && mat2.dim() == 2) {
+      // [g, m, k] @ [k, n] => [m, n]
+      group_mat1s = mat1.unbind();
+      group_mat2s = mat2.split(group_sizes, -1);
+      result = at::empty({mat1.size(1), mat2.size(-1)}, mat1.options());
+      group_outs = result.split(group_sizes, -1);
+    } else if (mat1.dim() == 2 && mat2.dim() == 3) {
+      // [m, k] @ [g, k, n] => [m, n]
+      group_mat1s = mat1.split(group_sizes, 0);
+      group_mat2s = mat2.unbind();
+      result = at::empty({mat1.size(0), mat2.size(-1)}, mat1.options());
+      group_outs = result.split(group_sizes, 0);
+    } else {
+      NVF_THROW(
+          "Expect ranks to be <2, 2>, <3, 2> or <2, 3>. Got: mat1 = ",
+          mat1.sizes(),
+          " and mat2 = ",
+          mat2.sizes());
+    }
+
+    for (auto [group_mat1, group_mat2, group_out] :
+         zip(group_mat1s, group_mat2s, group_outs)) {
+      at::matmul_out(group_out, group_mat1, group_mat2);
+    }
   }
 
   result = result.to(data_type_to_aten(out()->dtype()));
@@ -6172,10 +6220,10 @@ std::string ScaledMmaOp::toInlineString(int indent_size) const {
 std::vector<PolymorphicValue> ScaledMmaOp::evaluate(
     const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
-  const auto& mat1 = inputs[0].as<at::Tensor>();
-  const auto& mat2 = inputs[1].as<at::Tensor>();
-  const auto& scale1 = inputs[2].as<at::Tensor>();
-  const auto& scale2 = inputs[3].as<at::Tensor>();
+  [[maybe_unused]] const auto& mat1 = inputs[0].as<at::Tensor>();
+  [[maybe_unused]] const auto& mat2 = inputs[1].as<at::Tensor>();
+  [[maybe_unused]] const auto& scale1 = inputs[2].as<at::Tensor>();
+  [[maybe_unused]] const auto& scale2 = inputs[3].as<at::Tensor>();
 
   at::Tensor alpha;
   at::Tensor bias;
@@ -6212,60 +6260,64 @@ std::vector<PolymorphicValue> ScaledMmaOp::evaluate(
   }
 
   at::Tensor result;
-  at::ScalarType out_scalar_type = data_type_to_aten(out()->dtype());
 #if NVFUSER_CUTLASS_KERNEL_ENABLED
   {
+    at::ScalarType out_scalar_type = data_type_to_aten(out()->dtype());
     at::Tensor mat1_view = mat1;
     // nvfp4_scaled_mm expected layout
     at::Tensor mat2_view = mat2.t();
 
     DataType in_dtype = matrix1()->dtype();
 
-    // TODO: check for contiguity
-    // nvfp4_scaled_mm expected Byte input dtype for fp4
-    if (in_dtype == DataType::Float4_e2m1fn ||
-        in_dtype == DataType::Float4_e2m1fn_x2) {
-      mat1_view = mat1_view.view(at::ScalarType::Byte);
-      mat2_view = mat2_view.view(at::ScalarType::Byte);
-    }
-
     // NOTE: cutlass nvfp4 kernel doesn't support bias, beta or quantized output
-    if (!bias.defined() && !beta.defined() && outputs().size() == 1 &&
-        cutlass_kernels::nvfp4_scaled_mm_check(
-            out_scalar_type, mat1_view, mat2_view, scale1, scale2, alpha)) {
-      // NOTE: this doesn't feel very flexible. We probably want to relax this
-      // when the kernel is fixed up.
-      int m = mat1_view.sizes().at(0);
-      int n = mat2_view.sizes().at(0);
-      const auto options =
-          at::TensorOptions().device(mat1_view.device()).dtype(out_scalar_type);
-      result = at::empty({m, n}, options);
-      cutlass_kernels::nvfp4_scaled_mm(
-          result, mat1_view, mat2_view, scale1, scale2, alpha);
-      return {result};
+    if (!bias.defined() && !beta.defined() && outputs().size() == 1) {
+      bool cutlass_can_run = true;
+      // NOTE: this felt ugly. I should go fix up the validate input
+      try {
+        cutlass_kernels::validateInputsNvfp4ScaledMm(
+            mat1_view, mat2_view, scale1, scale2, alpha);
+      } catch (...) {
+        cutlass_can_run = false;
+      }
+
+      if (cutlass_can_run) {
+        result = cutlass_kernels::nvfp4_scaled_mm(
+            mat1_view,
+            mat2_view,
+            scale1,
+            scale2,
+            alpha,
+            out_scalar_type,
+            /*skip_checks=*/true);
+      }
     }
   }
 #endif
 
 #if NVF_TORCH_VERSION_NO_LESS(2, 8, 0)
-  // TODO: interface with scaled matrix multiplication cutlass kernel. For now,
-  // we'll fallback with aten kernels
-  // at::_scaled_mm has implementation limitations:
-  NVF_CHECK(!beta.defined(), "beta in ScaledMmaOp is not supported yet");
-  NVF_CHECK(
-      outScale() == nullptr,
-      "output block scaling factor in ScaledMmaOp is not supported yet");
-  NVF_CHECK(
-      outGamma() == nullptr,
-      "output global scaling factor in ScaledMmaOp is not supported yet");
-  result = at::_scaled_mm(
-      mat1,
-      mat2,
-      scale1,
-      scale2,
-      bias.defined() ? std::optional<at::Tensor>(bias) : std::nullopt,
-      alpha.defined() ? std::optional<at::Tensor>(alpha) : std::nullopt,
-      data_type_to_aten(out()->dtype()));
+  if (!result.defined()) {
+    // TODO: interface with scaled matrix multiplication cutlass kernel. For
+    // now, we'll fallback with aten kernels at::_scaled_mm has implementation
+    // limitations:
+    NVF_CHECK(!beta.defined(), "beta in ScaledMmaOp is not supported yet");
+    NVF_CHECK(
+        outScale() == nullptr,
+        "output block scaling factor in ScaledMmaOp is not supported yet");
+    NVF_CHECK(
+        outGamma() == nullptr,
+        "output global scaling factor in ScaledMmaOp is not supported yet");
+    result = at::_scaled_mm(
+        mat1,
+        mat2,
+        scale1,
+        scale2,
+        bias.defined() ? std::optional<at::Tensor>(bias) : std::nullopt,
+        alpha.defined() ? std::optional<at::Tensor>(alpha) : std::nullopt,
+        data_type_to_aten(out()->dtype()));
+  }
+#endif
+
+  NVF_CHECK(result.defined(), "Couldn't find fallback kernel for scaled_mm");
 
   if (const auto rfactor_did_idx = getRFactorDeviceDimensionIndex(out());
       rfactor_did_idx != -1) {
@@ -6273,9 +6325,6 @@ std::vector<PolymorphicValue> ScaledMmaOp::evaluate(
   }
 
   return {result};
-#endif
-
-  NVF_THROW("Couldn't find fallback kernel for scaled_mm");
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(ScaledMmaOp)
@@ -6300,7 +6349,7 @@ std::string ScanOp::toString(int indent_size) const {
   indent(ss, indent_size) << out()->toString();
   ss << "\n";
   indent(ss, indent_size + 1) << " = scan(" << in()->toString() << ",\n";
-  indent(ss, indent_size + 1) << "        dim=" << scanDim() << ",\n";
+  indent(ss, indent_size + 1) << "        dim=" << dim() << ",\n";
   indent(ss, indent_size + 1) << "        op_type=" << opType() << ",\n";
   indent(ss, indent_size + 1)
       << "        init=" << init()->toInlineString() << ")\n";
@@ -6321,16 +6370,16 @@ std::vector<PolymorphicValue> ScanOp::evaluate(
   at::Tensor out;
   switch (opType()) {
     case BinaryOpType::Add:
-      out = at::cumsum(input, scanDim());
+      out = at::cumsum(input, dim());
       break;
     case BinaryOpType::Max:
-      out = std::get<0>(at::cummax(input, scanDim()));
+      out = std::get<0>(at::cummax(input, dim()));
       break;
     case BinaryOpType::Min:
-      out = std::get<0>(at::cummin(input, scanDim()));
+      out = std::get<0>(at::cummin(input, dim()));
       break;
     case BinaryOpType::Mul:
-      out = at::cumprod(input, scanDim());
+      out = at::cumprod(input, dim());
       break;
     default:
       NVF_THROW("Unhandled opType() ", opType());

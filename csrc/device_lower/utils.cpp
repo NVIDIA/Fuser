@@ -796,7 +796,8 @@ bool hasBlockSync(const Expr* expr, const ThreadPredicateMap& pred_map) {
 
   if ((expr->isA<BroadcastOp>() &&
        GpuLower::current()
-           ->threadPredMap()
+           ->info()
+           .threadPredicateMap()
            .getParallelBroadcastDomains(tv)
            .any()) ||
       expr->isA<kir::GridBroadcast>()) {
@@ -804,7 +805,7 @@ bool hasBlockSync(const Expr* expr, const ThreadPredicateMap& pred_map) {
   }
 
   // These ops currently use CUB, which uses syncthreads internally
-  if (expr->isOneOf<ArgsortOp, TopKOp>()) {
+  if (expr->isOneOf<ArgsortOp, ScanOp, TopKOp>()) {
     return true;
   }
 
@@ -950,7 +951,8 @@ bool isScalarExpr(Expr* expr) {
 bool isExtentEqualToMaxParallelTypeExtent(
     const IterDomain* id,
     bool in_compute_warp) {
-  const auto& parallel_dim_map = GpuLower::current()->parallelDimensionMap();
+  const auto& parallel_dim_map =
+      GpuLower::current()->info().parallelDimensionMap();
   Val* pdm_max_extent = nullptr;
   if (in_compute_warp) {
     pdm_max_extent = parallel_dim_map.getRawCompute(id->getParallelType());
@@ -994,7 +996,7 @@ Val* getGridSyncBufferSize(const ParallelTypeBitmap& ptb) {
     if (ptb.get(pt)) {
       continue;
     }
-    auto pt_dim = GpuLower::current()->parallelDimensionMap().get(pt);
+    auto pt_dim = GpuLower::current()->info().parallelDimensionMap().get(pt);
     if (pt_dim == nullptr || pt_dim->isOneInt()) {
       continue;
     }
@@ -1109,7 +1111,7 @@ bool predicateAtEnd(ForLoop* loop) {
 
   // If the other output is mapped with a vectorized IterDomain,
   // this IterDomain needs to be predicated at each iteration point.
-  const auto& other_id_exact_set = GpuLower::current()
+  const auto& other_id_exact_set = FusionInfoGuard::current()
                                        ->idModel()
                                        .idGraph(IdMappingMode::EXACT)
                                        .toGroup(other_out_id);
@@ -2080,9 +2082,12 @@ Val* proveLinearAndGetStride(
 }
 
 IterDomain* getConcreteLoopID(IterDomain* id) {
-  // Currently, the concrete loop ID depends on if loops are generated
-  // based on the IdModel loop promotion, which needs to be enabled
-  // explicitly by the IdModelEnableOption::Loop option.
+  // FusionInfo with ComputeAtMap is required
+  NVF_ERROR(FusionInfoGuard::hasCurrent());
+  NVF_ERROR(FusionInfoGuard::current()->hasComputeAtMap());
+
+  // Currently, the concrete loop ID uses the IdModel loop
+  // promotion only when opted in.
   if (GpuLower::current()->idModelOptions().loop()) {
     // If enabled, the concret ID should be basically just the
     // promotion ID itself. However, just to reduce literacl changes
@@ -2092,27 +2097,24 @@ IterDomain* getConcreteLoopID(IterDomain* id) {
     // returned instead of the promotion ID.
 
     const auto& loop_graph =
-        GpuLower::current()->idModel().idGraph(IdMappingMode::LOOP);
-    auto promotion = getLoopPromotion(id, GpuLower::current()->idModel());
-    const auto& ca_map = GpuLower::current()->caMap();
+        FusionInfoGuard::current()->idModel().idGraph(IdMappingMode::LOOP);
+    const auto& exact_graph =
+        FusionInfoGuard::current()->idModel().idGraph(IdMappingMode::EXACT);
+    auto promotion =
+        getLoopPromotion(id, FusionInfoGuard::current()->idModel());
+    const auto& ca_map = FusionInfoGuard::current()->caMap();
     const auto& loop_group = loop_graph.toGroup(id);
 
     // Try to see if the CA concrete domain can be used instead
     for (auto loop_val : *loop_group) {
       IterDomain* loop_id = loop_val->as<IterDomain>();
-      if (ca_map->idExistsInMap(loop_id, IdMappingMode::LOOP)) {
+      if (ca_map.idExistsInMap(loop_id, IdMappingMode::LOOP)) {
         auto ca_map_concrete =
-            ca_map->getConcreteMappedID(loop_id, IdMappingMode::LOOP);
-        if (GpuLower::current()
-                ->idModel()
-                .idGraph(IdMappingMode::LOOP)
-                .disjointValSets()
-                .strictAreMapped(ca_map_concrete, promotion) &&
-            GpuLower::current()
-                ->idModel()
-                .idGraph(IdMappingMode::EXACT)
-                .disjointValSets()
-                .strictAreMapped(ca_map_concrete, promotion)) {
+            ca_map.getConcreteMappedID(loop_id, IdMappingMode::LOOP);
+        if (loop_graph.disjointValSets().strictAreMapped(
+                ca_map_concrete, promotion) &&
+            exact_graph.disjointValSets().strictAreMapped(
+                ca_map_concrete, promotion)) {
           return ca_map_concrete;
         }
       }
@@ -2122,8 +2124,8 @@ IterDomain* getConcreteLoopID(IterDomain* id) {
     // promotion ID instead.
     return promotion;
   } else {
-    const auto& ca_map = GpuLower::current()->caMap();
-    return ca_map->getConcreteMappedID(id, IdMappingMode::LOOP);
+    const auto& ca_map = FusionInfoGuard::current()->caMap();
+    return ca_map.getConcreteMappedID(id, IdMappingMode::LOOP);
   }
 }
 

@@ -1270,6 +1270,23 @@ static const char* supported_casts2string(std::pair<DataType, DataType> t) {
     case supported_switch_pair(DataType::BFloat16, DataType::Float8_e8m0fnu):
       return "__bfloat2e8m0";
 
+    case supported_switch_pair(DataType::Float4_e2m1fn, DataType::Float):
+      return "__e2m12float";
+    case supported_switch_pair(DataType::Float4_e2m1fn, DataType::Double):
+      return "__e2m12double";
+    case supported_switch_pair(DataType::Float4_e2m1fn, DataType::Half):
+      return "__e2m12half";
+    case supported_switch_pair(DataType::Float4_e2m1fn, DataType::BFloat16):
+      return "__e2m12bfloat";
+    case supported_switch_pair(DataType::Float, DataType::Float4_e2m1fn):
+      return "__float2e2m1";
+    case supported_switch_pair(DataType::Double, DataType::Float4_e2m1fn):
+      return "__double2e2m1";
+    case supported_switch_pair(DataType::Half, DataType::Float4_e2m1fn):
+      return "__half2e2m1";
+    case supported_switch_pair(DataType::BFloat16, DataType::Float4_e2m1fn):
+      return "__bfloat2e2m1";
+
     default:
       return nullptr;
   }
@@ -1832,6 +1849,27 @@ std::ostream& operator<<(std::ostream& os, TMemRegisterDataPath dp) {
     default:
       NVF_THROW("Unknown TMemRegisterDataPath");
   }
+}
+
+std::ostream& operator<<(
+    std::ostream& os,
+    const cudaDriverEntryPointQueryResult result) {
+  switch (result) {
+    case cudaDriverEntryPointSuccess:
+      os << "Success";
+      break;
+    case cudaDriverEntryPointSymbolNotFound:
+      os << "SymbolNotFound";
+      break;
+    case cudaDriverEntryPointVersionNotSufficent:
+      os << "VersionNotSufficient";
+      break;
+    default:
+      NVF_THROW(
+          "Unknown cudaDriverEntryPointQueryResult: ",
+          static_cast<int>(result));
+  }
+  return os;
 }
 
 } // namespace nvfuser

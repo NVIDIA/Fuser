@@ -303,7 +303,7 @@ class MatmulParams : public HeuristicParams {
   //!    C3 C4 D3 D4
   //!
   //! Note that this is done at the CGA tile level in case cluster_dims is
-  //! something other than {1, 1, 1}
+  //! something other than {1, 1}
   std::pair<int, int> grid_traversal_factor = {1, 1};
 
   //! Unswizzle MMA results in shared memory to get
@@ -331,11 +331,11 @@ class MatmulParams : public HeuristicParams {
   //!
   //! When cta_order == ColumnMajor, M is parallelized BIDx and N is
   //! parallelized BIDy. In that case, the cluster dimension X will apply to the
-  //! M dimension and Y will apply to N. If cluster_dims = {2, 4, 1} in that
+  //! M dimension and Y will apply to N. If cluster_dims = {2, 4} in that
   //! case and the cta_tile is {128, 256, 64} then the "CGA tile" would be {256,
   //! 1024, 64}.
   //!
-  //! If however cta_order were RowMajor and cluster_dims = {2, 4, 1}, the
+  //! If however cta_order were RowMajor and cluster_dims = {2, 4}, the
   //! parallelization of M and N is swapped so the CGA tile would become {512,
   //! 512, 64}. This example shows that it is important to manage the cluster
   //! dims in conjunction with the CTA tile and CTA order. Also note that "grid
@@ -344,12 +344,11 @@ class MatmulParams : public HeuristicParams {
   //!
   //! The Z dimension must currently be 1.
   struct ClusterDims {
-    int64_t x = 1;
-    int64_t y = 1;
-    int64_t z = 1;
+    int64_t m = 1;
+    int64_t n = 1;
 
     bool operator==(const ClusterDims& other) const {
-      return x == other.x && y == other.y && z == other.z;
+      return m == other.m && n == other.n;
     }
 
     bool operator!=(const ClusterDims& other) const {
@@ -358,15 +357,13 @@ class MatmulParams : public HeuristicParams {
 
     std::string toString() const {
       std::stringstream ss;
-      ss << "__cluster_dims__(" << x << ", " << y << ", " << z << ")";
+      ss << "__cluster_dims__(" << m << ", " << n << ")";
       return ss.str();
     }
 
     size_t hash() const {
-      return std::hash<size_t>{}(
-                 (static_cast<size_t>(x) << 32) |
-                 (static_cast<size_t>(y)) << 16) |
-          (static_cast<size_t>(z));
+      return std::hash<size_t>{}((static_cast<size_t>(m)) << 16) |
+          (static_cast<size_t>(n));
     }
   } cluster_dims;
 

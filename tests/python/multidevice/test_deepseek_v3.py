@@ -2,6 +2,10 @@
 # All rights reserved.
 # SPDX-License-Identifier: BSD-3-Clause
 
+
+# Run command:
+# mpirun -np 1 pytest tests/python/multidevice/test_deepseek_v3.py --only-mpi -s
+
 import pytest
 import transformers
 import torch
@@ -10,7 +14,7 @@ from contextlib import contextmanager
 from enum import Enum, auto
 from functools import wraps
 from linear import TensorParallelLinear
-from nvfuser.testing.benchmark_utils import get_benchmark_fns
+from benchmark_utils import get_benchmark_fns
 from torch.distributed.tensor import DTensor
 from torch.distributed.tensor.parallel import (
     parallelize_module,
@@ -232,7 +236,7 @@ def test_transformer_layer(setup_default_process_group, benchmark, executor: Exe
                 )
 
         batch_size = 1
-        seq_len = 2048
+        seq_len = 1024
         inp = torch.randn(batch_size, seq_len, config.hidden_size)
         mask = transformers.modeling_attn_mask_utils._prepare_4d_causal_attention_mask(
             None, [batch_size, seq_len], inp, past_key_values_length=0

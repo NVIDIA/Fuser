@@ -462,6 +462,11 @@ std::ostream& operator<<(std::ostream& os, const FusionProfile& fp) {
   return os;
 }
 
+std::ostream& operator<<(std::ostream& os, const KernelProfile& kp) {
+  os << "KernelProfile{name=" << kp.name << "}";
+  return os;
+}
+
 namespace {
 //! The following CUPTI code is adapted from the CUTPI samples/common and
 //! sample/activity_trace_async examples shipped with CUPTI.

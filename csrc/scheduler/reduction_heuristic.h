@@ -56,6 +56,10 @@ class ReductionParams : public HeuristicParams {
 
   // vectorize instead of unroll
   bool vectorize_inner_reduction = false;
+
+  // vectorize casts
+  bool vectorize_casts = true;
+
   // Split grid dim for iteration axis in case it's too large for cuda
   bool split_grid_dim_inner_reduction = false;
   // Pad inner dimension to nearest warp

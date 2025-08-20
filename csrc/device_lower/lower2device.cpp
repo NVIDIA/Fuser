@@ -20,6 +20,7 @@
 #include <device_lower/pass/grid_serialization.h>
 #include <device_lower/pass/index.h>
 #include <device_lower/pass/inline_ptx.h>
+#include <device_lower/pass/inplace_alias.h>
 #include <device_lower/pass/insert_syncs.h>
 #include <device_lower/pass/instrument.h>
 #include <device_lower/pass/loop_rotation.h>
@@ -145,60 +146,6 @@ class KIRCleaner : public OptOutDispatch {
 
 } // namespace
 
-void GpuLower::collectPaddedParallelDims() {
-  bool can_be_single_warp = true;
-
-  auto warp_size = at::cuda::warp_size();
-
-  auto used_vals = fusion_->usedMathVals();
-  for (auto tv : ir_utils::filterByType<TensorView>(used_vals)) {
-    for (auto id : tv->getLoopDomain()) {
-      if (tv->definition()) {
-        // TODO: Support GroupedReductionOp
-        if (auto reduction = dynamic_cast<ReductionOp*>(tv->definition())) {
-          if (ir_utils::getMaybeWarpReductionDim(
-                  reduction->out(), reduction->in())
-                  .has_value()) {
-            warp_pad_info_.has_warp_reduction = true;
-          }
-        }
-      }
-
-      // Check ifi TIDx is padded in this kernel
-      if (id->hasPaddingToMultipleOfWarp()) {
-        NVF_ERROR(
-            id->getParallelType() == ParallelType::TIDx,
-            "Padded types supported only on TIDx");
-        warp_pad_info_.is_tidx_padded = true;
-      }
-
-      // Check all possible bindings of TIDx to see
-      //  if TIDx will eventually be bound to a single warp.
-      if (id->getParallelType() == ParallelType::TIDx) {
-        auto size_after_padding = id->getMaybeSizeAfterPadding();
-        bool padding_to_single_warp = size_after_padding.has_value() &&
-            size_after_padding.value() == warp_size;
-
-        if (id->extent()->isConstInt() &&
-            id->extent()->evaluate().as<int64_t>() > warp_size &&
-            !padding_to_single_warp) {
-          // If we see any other TIDx binding that's larger than
-          //  a warp or unknown, we shouldn't lower warp reduce
-          //  to a single warp type.
-          can_be_single_warp = false;
-          warp_pad_info_.is_tidx_single_warp = false;
-        } else if (can_be_single_warp) {
-          if (padding_to_single_warp ||
-              (id->extent()->isConstInt() &&
-               id->extent()->evaluate().as<int64_t>() == warp_size)) {
-            warp_pad_info_.is_tidx_single_warp = true;
-          }
-        }
-      }
-    }
-  }
-}
-
 void segmenterHintCleanup(Fusion* fusion) {
   for (auto expr : fusion->exprs()) {
     if (expr->isA<LoadStoreOp>()) {
@@ -270,6 +217,7 @@ GpuLower::GpuLower(Fusion* fusion, const CompileParams& cparams)
            {"loadStoreOpInserter", loadStoreOpInserter},
            {"insertGridSerializationSyncs", insertGridSerializationSyncs},
            {"insertAllocations", insertAllocations},
+           {"setInplaceAlias", setInplaceAlias},
            {"reuseMemoryAllocations", reuseMemoryAllocations},
            {"CircularBufferPass", CircularBufferPass::run},
            {"insertRawThreadSynchronization", insertRawThreadSynchronization},
@@ -314,6 +262,8 @@ struct LowerGuard {
 kir::Kernel* GpuLower::run() {
   FusionGuard fg(fusion_);
   LowerGuard lower_guard(this);
+  FusionInfoGuard fusion_info_guard(&info_);
+
   // Reorder expressions for loop-nest generation respecting computeAt
   // relationships
   auto exprs_lowered = reorderExprsForComputeAt();
@@ -459,6 +409,7 @@ void GpuLower::analysis(Fusion* fusion) {
       active_gpu_lower == nullptr, "Nested lowering passes are not supported");
 
   LowerGuard lower_guard(this);
+  FusionInfoGuard fusion_info_guard(&info_);
 
   // Use int64 by default as the kernel index type
   if (!cparams_.index_type.has_value()) {
@@ -497,7 +448,8 @@ void GpuLower::analysis(Fusion* fusion) {
 
   // Checks if any TIDx dim is marked as padded to a warp. Also checks if we can
   // determine the padding is explicitly a single warp.
-  collectPaddedParallelDims();
+  info().set(std::make_unique<PaddedParallelDimensions>(
+      collectPaddedParallelDims(fusion_)));
   dumpExprsIfEnabled(fusion_->exprs(), "collectPaddedParallelDims");
 
   // Replaces integers that are tensor sizes by named scalars as "T0.size[0]"
@@ -507,12 +459,12 @@ void GpuLower::analysis(Fusion* fusion) {
   // New IterDomains may be created, so it is expected that generated
   // code may use diffrent variable names
   if (idModelOptions().buildIdModel()) {
-    id_model_ = std::make_unique<IdModel>(
+    info().set(std::make_unique<IdModel>(
         fusion_,
         /*build_graphs=*/true,
         /*allow_self_mapping=*/false,
-        /*validate=*/false);
-    id_model_->validateAndPropagatePType();
+        /*validate=*/false));
+    info().idModel().validateAndPropagatePType();
   }
 
   // Build what's refered to as the compute at map. This map contains the
@@ -521,31 +473,30 @@ void GpuLower::analysis(Fusion* fusion) {
   // information.
   //
   // Depends on IdModel
-  compute_at_map_ = std::make_shared<ComputeAtMap>(fusion_);
+  info().set(std::make_unique<ComputeAtMap>(fusion_));
 
   // Requires IdModel as expression sorting is necessary
   resolveComputeWith(fusion_);
   dumpExprsIfEnabled(fusion_->exprs(), "resolveComputeWith");
 
   if (isDebugDumpEnabled(DebugDumpOption::ComputeAtMap)) {
-    debug() << compute_at_map_->toString() << std::endl;
+    debug() << info().caMap().toString() << std::endl;
   }
-  compute_at_map_->validateAndPropagatePType();
+  info().caMap().validateAndPropagatePType();
   dumpExprsIfEnabled(fusion_->exprs(), "validateAndPropagatePType");
 
   // Uses compute_at_map, find all splits that are enforced to be divisible
-  divisible_splits_ = getAllDivisibleSplits(fusion_, compute_at_map_.get());
+  divisible_splits_ = getAllDivisibleSplits(fusion_, &info().caMap());
   dumpExprsIfEnabled(fusion_->exprs(), "getAllDivisibleSplits");
 
   // Used in parallel dimension map
-  concretized_broadcast_domains_ =
-      std::make_shared<const ConcretizedBroadcastDomains>(fusion_);
+  info().set(std::make_unique<ConcretizedBroadcastDomains>(fusion_));
   dumpExprsIfEnabled(fusion_->exprs(), "build ConcretizedBroadcastDomains");
 
-  parallelDimensionMap().build(fusion_);
+  info().set(std::make_unique<ParallelDimensionMap>(fusion_));
   if (isDebugDumpEnabled(DebugDumpOption::ParallelDimensions)) {
     debug() << "Parallel dimension map:" << std::endl;
-    debug() << parallel_dimension_map_.toString() << std::endl;
+    debug() << info().parallelDimensionMap().toString() << std::endl;
   }
   dumpExprsIfEnabled(fusion_->exprs(), "build parallelDimensionMap");
 
@@ -564,14 +515,20 @@ void GpuLower::analysis(Fusion* fusion) {
   dumpExprsIfEnabled(fusion_->exprs(), "validateReductions");
 
   // Compute thread predicates. Depends on parallel_dimension_map_
-  thread_pred_map_.build(fusion_);
+  info().set(std::make_unique<ThreadPredicateMap>(fusion_));
   dumpExprsIfEnabled(fusion_->exprs(), "build thread_pred_map_");
 
   // Fuse cetain patterns of reductions, such as a grid reduction
   // followed by a grid broadcast. Only depends on parallelization and
   // thread predicate map.
-  fuseReductionsAndBroadcasts(fusion_);
+  info().set(std::make_unique<FusedReductionInfo>(
+      fuseReductionsAndBroadcasts(fusion_)));
   dumpExprsIfEnabled(fusion_->exprs(), "fuseReductionsAndBroadcasts");
+
+  // When allreduce is generated, rebuild thread predicate map
+  if (!info().fusedReductionInfo().allreduceIds().empty()) {
+    info().set(std::make_unique<ThreadPredicateMap>(fusion_));
+  }
 
   // Depends on ComputeAtMap
   validateAndConvertIterDomainGrouping(fusion_);
@@ -593,6 +550,9 @@ void GpuLower::analysis(Fusion* fusion) {
   validateLookupTV(fusion_);
   dumpExprsIfEnabled(fusion_->exprs(), "validateLookupTV");
 
+  validateScatter(fusion_);
+  dumpExprsIfEnabled(fusion_->exprs(), "validateScatter");
+
   // Find trivial global to global broadcast, squeeze, and set operations and
   // mark their outputs as aliases of their inputs.
   findTensorProducerAliases(fusion_);
@@ -612,16 +572,16 @@ void GpuLower::analysis(Fusion* fusion) {
   circularBufferInfo().build(fusion_);
   dumpExprsIfEnabled(fusion_->exprs(), "build circularBufferInfo");
 
-  compute_at_map_->allocateIndexVariables();
+  info().caMap().allocateIndexVariables();
   dumpExprsIfEnabled(fusion_->exprs(), "allocateIndexVariables");
 
   if (idModelOptions().loop()) {
     // Depends on CircularBufferInfo and compute_at_map_->allocateIndexVariables
-    id_model_->allocateLoopIndexVariables();
+    info().idModel().allocateLoopIndexVariables();
   }
 
   if (idModelOptions().buildTensorIndexer()) {
-    tensor_indexer_ = std::make_unique<TensorIndexer>(*id_model_);
+    tensor_indexer_ = std::make_unique<TensorIndexer>(info().idModel());
     non_divisible_predicate_info_ =
         std::make_unique<NonDivisiblePredicateInfo>(fusion_);
   }
@@ -681,17 +641,17 @@ bool GpuLower::resolveComputeWith(Fusion* fusion) {
       }
       if (tv->resolveComputeWith(exprs_sorted)) {
         updated = true;
-        compute_at_map_->updateComputeWith(tv);
+        info().caMap().updateComputeWith(tv);
       }
     }
   }
 
   // The Loop graph needs to be updated as the compute positions of
   // the updated tensors differ
-  if (updated && hasIdModel()) {
-    id_model_->removeGraph(IdMappingMode::LOOP);
-    id_model_->buildGraph(IdMappingMode::LOOP);
-    id_model_->validateAndPropagatePType();
+  if (updated && info().hasIdModel()) {
+    info().idModel().removeGraph(IdMappingMode::LOOP);
+    info().idModel().buildGraph(IdMappingMode::LOOP);
+    info().idModel().validateAndPropagatePType();
   }
 
   return updated;
@@ -701,9 +661,9 @@ Val* GpuLower::getLoopIndexVariable(
     IterDomain* id,
     CircularBufferLoopStage stage) const {
   if (idModelOptions().loop()) {
-    return idModel().getLoopIndexVariable(id, stage);
+    return info().idModel().getLoopIndexVariable(id, stage);
   } else {
-    return caMap()->getIndexVariable(id, stage);
+    return info().caMap().getIndexVariable(id, stage);
   }
 }
 

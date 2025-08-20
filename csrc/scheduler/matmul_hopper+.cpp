@@ -6,6 +6,7 @@
  */
 // clang-format on
 #include <device_lower/analysis/circular_buffer.h>
+#include <device_lower/utils.h>
 #include <disjoint_set.h>
 #include <id_model/schedule.h>
 #include <instrumentation.h>
@@ -144,20 +145,11 @@ void HopperPlus::validate() const {
   }
 
   NVF_CHECK(
-      params_->cluster_dims.z == 1,
-      "Cluster dims must have 1 in Z dimension but found ",
-      params_->cluster_dims.z);
-
-  NVF_CHECK(
       params_->tiling_strategy !=
           MatmulParams::TilingStrategy::DistributeStagesAcrossSMs,
       "Hopper+ matmul scheduler does not support distributing stages across "
       "SMs a la stream-K");
 
-  NVF_CHECK(
-      isCooperative(),
-      "Hopper+ matmul scheduler only supports cooperatively buffering at the "
-      "CTA level (no ping-pong)");
   if (isCooperative()) {
     NVF_CHECK(
         params_->tile_sizes.cta_tile.m % params_->tile_sizes.warp_tile.m == 0,
@@ -375,104 +367,147 @@ std::vector<MatmulDimRole> HopperPlus::applyCgaAndCtaTilingWithSwizzling(
 
   // TODO: It might be more natural to just have a "CGA tile" as part of
   // params_->tile_sizes and infer cluster_dims from that
-  bool has_cga = params_->cluster_dims.x != 1 || params_->cluster_dims.y != 1;
-  if (has_cga) {
-    GemmTile cga_tile{
-        params_->tile_sizes.cta_tile.m * params_->cluster_dims.x,
-        params_->tile_sizes.cta_tile.n * params_->cluster_dims.y,
-        params_->tile_sizes.cta_tile.k};
+  GemmTile cga_tile{
+      params_->tile_sizes.cta_tile.m * params_->cluster_dims.m,
+      params_->tile_sizes.cta_tile.n * params_->cluster_dims.n,
+      params_->tile_sizes.cta_tile.k};
 
-    merged_roles = mma_utils::makeTile(tv, cga_tile, orig_merged_roles);
+  merged_roles = mma_utils::makeTile(tv, cga_tile, orig_merged_roles);
 
-    merged_roles = reorderBlockTileTraversal(tv, merged_roles);
+  merged_roles = reorderBlockTileTraversal(tv, merged_roles);
 
-    merged_roles =
-        mma_utils::makeTile(tv, params_->tile_sizes.cta_tile, merged_roles);
+  merged_roles =
+      mma_utils::makeTile(tv, params_->tile_sizes.cta_tile, merged_roles);
 
-    switch (params_->tiling_strategy) {
-      case MatmulParams::TilingStrategy::OneTilePerCTA: {
-        // NOTE: This merge is only used for non-persistent schedules
-        // Now merge the 3 CGA/CTA split outer dims back with the outermost
-        // dims. This is important since we need single dims to bind to. For
-        // example we might have Mo, No, Mcga, Ncga, Mcta, Ncta, and we need
-        // this to be Mo*Mcga, No*Ncga, Mcta, Ncta instead.
-        int64_t outer_mnk_pos = 0; // Outermost of Mo or No. 0 the example above
-        int64_t almost_outer_mnk_pos = 0; // Outermost of Mcga or Ncga. 2 above
-        while (merged_roles.at((size_t)outer_mnk_pos) == MatmulDimRole::Batch) {
-          outer_mnk_pos++;
+  switch (params_->tiling_strategy) {
+    case MatmulParams::TilingStrategy::OneTilePerCTA: {
+      // NOTE: This merge is only used for non-persistent schedules
+      // Now merge the 3 CGA/CTA split outer dims back with the outermost
+      // dims. This is important since we need single dims to bind to. For
+      // example we might have Mo, No, Mcga, Ncga, Mcta, Ncta, and we need
+      // this to be Mo*Mcga, No*Ncga, Mcta, Ncta instead.
+      int64_t outer_mnk_pos = 0; // Outermost of Mo or No. 0 the example above
+      int64_t almost_outer_mnk_pos = 0; // Outermost of Mcga or Ncga. 2 above
+      while (merged_roles.at((size_t)outer_mnk_pos) == MatmulDimRole::Batch) {
+        outer_mnk_pos++;
+      }
+      std::unordered_set<MatmulDimRole> outer_roles;
+      while (almost_outer_mnk_pos < (int64_t)merged_roles.size()) {
+        // Find first repeated role position
+        MatmulDimRole role = merged_roles.at((size_t)almost_outer_mnk_pos);
+        if (outer_roles.count(role)) {
+          break;
         }
-        std::unordered_set<MatmulDimRole> outer_roles;
-        while (almost_outer_mnk_pos < (int64_t)merged_roles.size()) {
-          // Find first repeated role position
-          MatmulDimRole role = merged_roles.at((size_t)almost_outer_mnk_pos);
-          if (outer_roles.count(role)) {
-            break;
+        almost_outer_mnk_pos++;
+        outer_roles.insert(role);
+      }
+      NVF_ERROR(
+          almost_outer_mnk_pos < (int64_t)merged_roles.size(),
+          "Because of tiling, we expect repeated roles");
+      for (int64_t i :
+           std::views::reverse(arange(outer_mnk_pos, almost_outer_mnk_pos))) {
+        int64_t inner_axis = i + (almost_outer_mnk_pos - outer_mnk_pos);
+        PolymorphicValue inner_extent =
+            tv->axis(inner_axis)->extent()->evaluate();
+        if (inner_extent.hasValue() && inner_extent.as<int64_t>() == 1L) {
+          /* Special case: static shapes
+          Suppose we have static shapes M=512, N=128 K=256 and our config is
+          cluster_dims={1, 1}, cta_tile={128, 256, 64}, column major.
+          This is the case in the AllocationDomainTest.BasicMatmul test.
+          Then we will normally do the following non-persistent schedule for
+          the N dimensions:
+
+               iS22{128}             <--- Original logical ID (static shape)
+               /      \
+           iS113{1}   iS114{256}     <--- CGA tile split
+              \      /     \
+               \  iS117{1}  iS118{256}  <--- CTA tile split
+                \    |
+             iblockIdx.y121{1}       <--- Merge to create BIDy dimension
+
+          This looks innocent, but when building the AlmostExact graph, we
+          map IDs involved in merges where the right-hand ID has constant
+          extent 1. In this case, that means we map iS113 with iS117 and
+          iblockIdx.y121, and we map iS22 with iS114 and iS118. This is an
+          error because the CGA tile split in this case is not trivial (it is
+          non-divisible).
+
+          To avoid cases like this, we simply avoid that merge when we detect
+          that the inner extent (of iS117) is 1. In order to avoid problems
+          in downstream scheduling, we merge that dimension back in here:
+
+                          iS22{128}        <--- Original logical ID (static
+                          shape)
+                          /     \
+           iblockIdx.y113{1}   iS114{256}     <--- CGA tile split
+                                /       \
+                             iS117{1}  iS118{256}  <--- CTA tile split
+                                \       /
+                                iS130{256}  <--- Get rid of CGA dim
+          */
+          int64_t sibling_axis = inner_axis + 1;
+          while (sibling_axis < (int64_t)merged_roles.size() &&
+                 merged_roles.at(sibling_axis) != merged_roles.at(i)) {
+            ++sibling_axis;
           }
-          almost_outer_mnk_pos++;
-          outer_roles.insert(role);
+          NVF_ERROR(
+              sibling_axis < (int64_t)merged_roles.size(),
+              "Could not find sibling axis to merge");
+          tv->merge(inner_axis, sibling_axis);
+          tv->reorder({{inner_axis, sibling_axis - 1}});
+          merged_roles.erase(merged_roles.begin() + (size_t)inner_axis);
+          continue;
         }
-        NVF_ERROR(
-            almost_outer_mnk_pos < (int64_t)merged_roles.size(),
-            "Because of tiling, we expect repeated roles");
-        for (int64_t i :
-             std::views::reverse(arange(outer_mnk_pos, almost_outer_mnk_pos))) {
-          tv->merge(i, i + (almost_outer_mnk_pos - outer_mnk_pos));
-          merged_roles.erase(merged_roles.begin() + (size_t)i);
-        }
-        break;
+        tv->merge(i, inner_axis);
+        merged_roles.erase(merged_roles.begin() + (size_t)inner_axis);
       }
-      case MatmulParams::TilingStrategy::DistributeTilesAcrossSMs: {
-        // Do not merge CGA dims since we will map them to BIDy/BIDz instead
-        // However, We do move the CGA dims outside the serial K loop
-        // dimension in order to simplify downstream scheduling.
-        //
-        // For example, at this point we might have
-        //     T7_s___bfloat[
-        //       iS34{( ( ceilDiv(i0, 256) ) * 8 )},
-        //       bS32{1},
-        //       iS26{( ceilDiv(i1, 64) )},  // serial K loop
-        //       iS39{2},  // cga dims
-        //       bS37{1},
-        //       iS35{1},
-        //       iS40{128},  // cta tile
-        //       bS38{256},
-        //       iS36{64}
-        //       ]
-        // We need to reorder this to be
-        //     T7_s___bfloat[
-        //       iS34{( ( ceilDiv(i0, 256) ) * 8 )},
-        //       bS32{1},
-        //       iS39{2},  // cga dims
-        //       bS37{1},
-        //       iS35{1},
-        //       iS26{( ceilDiv(i1, 64) )},  // serial K loop
-        //       iS40{128},  // cta tile
-        //       bS38{256},
-        //       iS36{64}
-        //       ]
-
-        if (merged_roles.back() == MatmulDimRole::K) {
-          tv->reorder({{-7, -4}, {-6, -7}, {-5, -6}, {-4, -5}});
-          NVF_ERROR(merged_roles[merged_roles.size() - 7] == MatmulDimRole::K);
-          NVF_ERROR(merged_roles[merged_roles.size() - 6] == MatmulDimRole::M);
-          NVF_ERROR(merged_roles[merged_roles.size() - 5] == MatmulDimRole::N);
-          NVF_ERROR(merged_roles[merged_roles.size() - 4] == MatmulDimRole::K);
-          merged_roles[merged_roles.size() - 7] = MatmulDimRole::M;
-          merged_roles[merged_roles.size() - 6] = MatmulDimRole::N;
-          merged_roles[merged_roles.size() - 5] = MatmulDimRole::K;
-          merged_roles[merged_roles.size() - 4] = MatmulDimRole::K;
-        }
-        break;
-      }
-      default:
-        NVF_THROW("Unsupported tiling strategy");
+      break;
     }
-  } else {
-    // no cga split
+    case MatmulParams::TilingStrategy::DistributeTilesAcrossSMs: {
+      // Do not merge CGA dims since we will map them to BIDy/BIDz instead
+      // However, We do move the CGA dims outside the serial K loop
+      // dimension in order to simplify downstream scheduling.
+      //
+      // For example, at this point we might have
+      //     T7_s___bfloat[
+      //       iS34{( ( ceilDiv(i0, 256) ) * 8 )},
+      //       bS32{1},
+      //       iS26{( ceilDiv(i1, 64) )},  // serial K loop
+      //       iS39{2},  // cga dims
+      //       bS37{1},
+      //       iS35{1},
+      //       iS40{128},  // cta tile
+      //       bS38{256},
+      //       iS36{64}
+      //       ]
+      // We need to reorder this to be
+      //     T7_s___bfloat[
+      //       iS34{( ( ceilDiv(i0, 256) ) * 8 )},
+      //       bS32{1},
+      //       iS39{2},  // cga dims
+      //       bS37{1},
+      //       iS35{1},
+      //       iS26{( ceilDiv(i1, 64) )},  // serial K loop
+      //       iS40{128},  // cta tile
+      //       bS38{256},
+      //       iS36{64}
+      //       ]
 
-    merged_roles = mma_utils::makeTile(
-        tv, params_->tile_sizes.cta_tile, orig_merged_roles);
-    merged_roles = reorderBlockTileTraversal(tv, merged_roles);
+      if (merged_roles.back() == MatmulDimRole::K) {
+        tv->reorder({{-7, -4}, {-6, -7}, {-5, -6}, {-4, -5}});
+        NVF_ERROR(merged_roles[merged_roles.size() - 7] == MatmulDimRole::K);
+        NVF_ERROR(merged_roles[merged_roles.size() - 6] == MatmulDimRole::M);
+        NVF_ERROR(merged_roles[merged_roles.size() - 5] == MatmulDimRole::N);
+        NVF_ERROR(merged_roles[merged_roles.size() - 4] == MatmulDimRole::K);
+        merged_roles[merged_roles.size() - 7] = MatmulDimRole::M;
+        merged_roles[merged_roles.size() - 6] = MatmulDimRole::N;
+        merged_roles[merged_roles.size() - 5] = MatmulDimRole::K;
+        merged_roles[merged_roles.size() - 4] = MatmulDimRole::K;
+      }
+      break;
+    }
+    default:
+      NVF_THROW("Unsupported tiling strategy");
   }
 
   return merged_roles;
@@ -589,7 +624,34 @@ std::vector<std::vector<MatmulDimRole>> HopperPlus::blockTileTensors(
 
       const int64_t num_clusters =
           matmul_utils::getMaxActiveClusters(params_->cluster_dims);
-      tv->split(num_device_dims_, num_clusters);
+      if (isCooperative()) {
+        // outer, cga_m, cga_n
+        tv->split(num_device_dims_, num_clusters);
+        // outer/num_cgas, num_cgas, cga_m, cga_n
+      } else {
+        // Schedule TensorViews for Ping-Pong schedule; Only for Hopper
+        // Create iterDomain for the number of compute warp groups
+        // Parallelize all TensorViews except TMA Loads with ParallelType::TIDy
+        constexpr int64_t num_compute_warp_groups = 2;
+        int64_t outer_split = num_clusters * num_compute_warp_groups;
+
+        // outer, cga_m, cga_n
+        tv->split(num_device_dims_, outer_split);
+        // outer / (num_cgas * num_wgs), (num_cgas * num_wgs), cga_m, cga_n
+
+        tv->split(num_device_dims_ + 1, num_clusters);
+        // outer / (num_cgas * num_wgs), num_wgs, num_cgas, cga_m, cga_n
+
+        if (!ir_utils::isCpAsyncBulkLoad(tv->definition())) {
+          tv->axis(num_device_dims_ + 1)->parallelize(ParallelType::TIDy);
+        }
+        // outer / (num_cgas * num_wgs), num_wgs (TIDy), num_cgas, cga_m, cga_n
+
+        // Reorder so num_cgas, cga_m, and cga_n axes are in the same positions
+        // as cooperative
+        tv->reorder({{num_device_dims_ + 1, num_device_dims_ + 4}});
+        // outer / (num_cgas * num_wgs), num_cgas, cga_m, cga_n, num_wgs (TIDy)
+      }
     } else {
       NVF_THROW("Unsupported tiling strategy");
     }
@@ -602,9 +664,7 @@ std::vector<std::vector<MatmulDimRole>> HopperPlus::blockTileTensors(
 int64_t HopperPlus::numCGAs() const {
   const int64_t num_sms =
       at::cuda::getCurrentDeviceProperties()->multiProcessorCount;
-  return num_sms /
-      (params_->cluster_dims.x * params_->cluster_dims.y *
-       params_->cluster_dims.z);
+  return num_sms / (params_->cluster_dims.m * params_->cluster_dims.n);
 }
 
 void HopperPlus::inspectPrologues() const {
@@ -669,18 +729,13 @@ void HopperPlus::parallelizeBlocks(const std::vector<TensorView*>& tvs) const {
         break;
       case MatmulParams::TilingStrategy::DistributeTilesAcrossSMs:
       case MatmulParams::TilingStrategy::DistributeStagesAcrossSMs:
-        if (params_->cluster_dims.x != 1 || params_->cluster_dims.y != 1) {
-          // With CGAs, we only bind BIDz to indicate the cluster ID and
-          // BIDx/BIDy are the cluster dimensions
-          tv->axis(num_device_dims_ + 1)->parallelize(ParallelType::BIDz);
-          // BIDx and BIDy are the cluster dims and always correspond to M and
-          // N, regardless of cta_order
-          tv->axis(num_device_dims_ + 2)->parallelize(ParallelType::BIDx);
-          tv->axis(num_device_dims_ + 3)->parallelize(ParallelType::BIDy);
-        } else {
-          // Without CGAs, we only bind BIDx
-          tv->axis(num_device_dims_ + 1)->parallelize(ParallelType::BIDx);
-        }
+        // With CGAs, we only bind BIDz to indicate the cluster ID and
+        // BIDx/BIDy are the cluster dimensions
+        tv->axis(num_device_dims_ + 1)->parallelize(ParallelType::BIDz);
+        // BIDx and BIDy are the cluster dims and always correspond to M and
+        // N, regardless of cta_order
+        tv->axis(num_device_dims_ + 2)->parallelize(ParallelType::BIDx);
+        tv->axis(num_device_dims_ + 3)->parallelize(ParallelType::BIDy);
         break;
     }
   }
@@ -1052,6 +1107,19 @@ void Hopper::scheduleEpilogueWithSmemEpilogue() {
     if (!dc_is_mma_result && !dc_is_splitk_sum) {
       auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
           dc->getLoopDomain());
+      if (store_with_stmatrix) {
+        NVF_ERROR(ldst_matrix_tile_m == 16);
+        NVF_ERROR(ldst_matrix_tile_n == 16);
+        // Let [M, N] be [64, 32]
+        // After scheduleMmaOutputAllocation: [128(TIDx), 4, 2, 2]
+        // [128(TIDx), 4(n), 2, 2] ->  [128(TIDx), 2(no), 2(ni), 2, 2]
+        s.split(-3, 2);
+        // [128(TIDx), 2(no), 2(ni), 2, 2] -> [2(no), 128(TIDx), 2(ni), 2, 2]
+        s.reorder({{-4, -5}});
+        // [128(TIDx), 2(no), 2(ni), 2, 2] -> [2(no), 128(TIDx), 8 (vectorize)]
+        s.merge(-3);
+        s.merge(-2);
+      }
       dc->setLoopDomain(s.as<IterDomain*>());
       dc->setAllocationDomain(s.as<IterDomain*>(), true);
 
@@ -1255,16 +1323,15 @@ void Blackwell::scheduleSplitKSum() {
 
 void HopperPlus::setUpInlining() {
   // auto inline for all tensors except register tensors
-  std::unordered_set<TensorView*> smem_loads_and_mma_inputs;
-  inlineMost(ir_utils::allTvsExcept(fusion_, smem_loads_and_mma_inputs));
+  std::unordered_set<TensorView*> smem_loads;
+  if (isPingPong()) {
+    smem_loads.insert(acw_smems_.begin(), acw_smems_.end());
+    smem_loads.insert(bcw_smems_.begin(), bcw_smems_.end());
+  }
+  inlineMost(ir_utils::allTvsExcept(fusion_, smem_loads));
 
-  // if auto inline, will inline to position-7, leads to performance
-  // regression
   for (TensorView* mma_result : mma_results_) {
-    inlineSelectedAt(
-        smem_loads_and_mma_inputs,
-        mma_result,
-        num_device_dims_ + 6 + num_splitk_dims_);
+    inlineSelectedAt(smem_loads, mma_result, num_device_dims_ + 4);
   }
 }
 
@@ -1297,10 +1364,18 @@ CircularBufferType HopperPlus::getCircularBufferType() const {
         // register properly in that case.
         return (CircularBufferType)WarpSpecialized(ParallelType::TIDy);
       } else {
-        return (CircularBufferType)WarpSpecialized(
-            ParallelType::TIDy,
-            std::make_pair(
-                num_registers_async_warp, num_registers_compute_warp));
+        if (isPingPong()) {
+          return (CircularBufferType)WarpSpecialized(
+              ParallelType::TIDy,
+              std::make_pair(
+                  num_registers_async_warp, num_registers_compute_warp),
+              /*stage_slice_position=*/7);
+        } else {
+          return (CircularBufferType)WarpSpecialized(
+              ParallelType::TIDy,
+              std::make_pair(
+                  num_registers_async_warp, num_registers_compute_warp));
+        }
       }
   }
   NVF_ERROR(false, "Invalid circular buffer type");

@@ -16,9 +16,11 @@
 #include <ir/utils.h>
 #include <iter_visitor.h>
 #include <scheduler/mma_utils.h>
+#include <scheduler/runtime_info.h>
 #include <transform_iter.h>
 #include <transform_replay.h>
 #include <type.h>
+#include <utils.h>
 #include <val_graph_visitor.h>
 
 #include <ATen/cuda/CUDAContext.h>
@@ -335,9 +337,9 @@ class VectorizeValidator : public OptInDispatch {
       TensorView* tv,
       Expr* load_store) {
     NVF_ERROR(GpuLower::hasCurrent());
-    NVF_ERROR(GpuLower::current()->hasIdModel());
+    NVF_ERROR(GpuLower::current()->info().hasIdModel());
 
-    const auto& id_model = GpuLower::current()->idModel();
+    const auto& id_model = GpuLower::current()->info().idModel();
     const auto& graph = id_model.idGraph(IdMappingMode::EXACT);
 
     // Traverse from the complete set of loop IDs to the allocation
@@ -562,7 +564,7 @@ class VectorizeValidator : public OptInDispatch {
       Expr* load_store,
       int64_t vector_word_size_bit) {
     const auto& [vec_alloc_id, dep_alloc_ids] =
-        GpuLower::current()->hasIdModel()
+        GpuLower::current()->info().hasIdModel()
         ? getDependentAllocIDsIdModel(v_id, tv, load_store)
         : getDependentAllocIDs(v_id, tv);
 
@@ -617,11 +619,17 @@ class VectorizeValidator : public OptInDispatch {
     if (tv_def->isA<LoadStoreOp>()) {
       // Except for TMem, allow half2, float2, float4 and same sized vtypes.
       std::vector<int64_t> allowed_vector_sizes_bit = {8, 16, 32, 64, 128};
+      // with cuda-12.9 or later, devices 10.0 support 256 bit vectorization
+      if (getMaxVectorizationSizeInBit() == 256) {
+        allowed_vector_sizes_bit.push_back(256);
+      }
       // TMem can vectorize up to 4096 bits.
       if (auto ldst = dynamic_cast<LoadStoreOp*>(tv_def); ldst != nullptr &&
           (ldst->opType() == LoadStoreOpType::LdTMem ||
            ldst->opType() == LoadStoreOpType::StTMem)) {
-        allowed_vector_sizes_bit.push_back(256);
+        if (allowed_vector_sizes_bit.back() != 256) {
+          allowed_vector_sizes_bit.push_back(256);
+        }
         allowed_vector_sizes_bit.push_back(512);
         allowed_vector_sizes_bit.push_back(1024);
         allowed_vector_sizes_bit.push_back(2048);
@@ -711,7 +719,7 @@ class VectorizeValidator : public OptInDispatch {
     vectorized_set_info.vectorized_consumer_alloc_id = consumer_vectorized_id;
 
     // Validate producer
-    if (GpuLower::current()->hasIdModel()) {
+    if (GpuLower::current()->info().hasIdModel()) {
       // No need to do replayPasC when using IdModel
       vectorized_set_info.vectorized_producer_alloc_id =
           getAndValidateVectorizedIdInAllocationDomain(
@@ -952,7 +960,7 @@ void validateMmaTensors(MmaOp* mma) {
         if (!tidx_validated) {
           // Check that TIDx is exact lane_id
           const auto& paralel_dim_map =
-              GpuLower::current()->parallelDimensionMap();
+              GpuLower::current()->info().parallelDimensionMap();
           NVF_ERROR(
               lower_utils::isExtentEqualToMaxParallelTypeExtent(id) &&
                   paralel_dim_map.get(ptype)->isConstInt(),
@@ -1322,6 +1330,90 @@ void validate1dTmaLoad(Fusion* fusion) {
             "divisible, got: ",
             split->toString());
       }
+    }
+  }
+}
+
+void validateScatter(Fusion* fusion) {
+  for (auto sop : ir_utils::getOpsOfType<ScatterOp>(fusion)) {
+    auto in_tv = sop->in()->as<TensorView>();
+    auto out_tv = sop->out()->as<TensorView>();
+
+    // TensorIndexer currently only supports scatter with 1D tensors
+    // due to the non-exactness of non-indexed IDs.
+    NVF_ERROR_EQ(
+        out_tv->getLogicalDomain().size(),
+        1,
+        "Scatter with multi-dimensional tensors is not yet supported: ",
+        sop->toString());
+
+    // Scatter is implemented as an in-place op. To lower it safely, it
+    // needs to be able to alias each other. Here are the conditions to
+    // make sure they are valid input and output tensors.
+
+    NVF_ERROR_EQ(
+        in_tv->uses().size(),
+        1,
+        "Scatter input can only be used by the scatter op: ",
+        toDelimitedString(in_tv->uses()));
+
+    NVF_ERROR_EQ(in_tv->getMemoryType(), out_tv->getMemoryType());
+    NVF_ERROR_EQ(in_tv->getDeviceMesh(), out_tv->getDeviceMesh());
+
+    // To avoid making the inference of the allocation domain further
+    // convoluted, both non-global input and output must have
+    // explicitly set allocation domains
+    NVF_ERROR(
+        in_tv->getMemoryType() == MemoryType::Global || in_tv->hasAllocation(),
+        "Non-global scatter input must have an allocation domain");
+    NVF_ERROR(
+        out_tv->getMemoryType() == MemoryType::Global ||
+            out_tv->hasAllocation(),
+        "Non-global scatter output must have an allocation domain");
+
+    auto is_exact_mapped = [](const std::vector<IterDomain*>& ids1,
+                              const std::vector<IterDomain*>& ids2) -> bool {
+      const auto& exact_graph =
+          GpuLower::current()->info().idModel().idGraph(IdMappingMode::EXACT);
+
+      if (ids1.size() != ids2.size()) {
+        return false;
+      }
+
+      for (const auto& [id1, id2] : zip(ids1, ids2)) {
+        if (!exact_graph.disjointValSets().strictAreMapped(id1, id2)) {
+          return false;
+        }
+      }
+
+      return true;
+    };
+
+    NVF_ERROR(
+        is_exact_mapped(
+            in_tv->getAllocationDomain(), out_tv->getAllocationDomain()),
+        "Scatter input and output must have equivalent allocation domains");
+
+    // Fusion input as scatter input is not yet supported
+    NVF_ERROR(
+        !in_tv->isFusionInput(),
+        "Scatter with fusion input not supported: ",
+        in_tv->toString());
+
+    // Fusion output as scatter input is not allowed since aliasing is
+    // not possible between the input and output of the scatter
+    NVF_ERROR(
+        !in_tv->isFusionOutput(),
+        "Scatter with fusion output not allowed: ",
+        in_tv->toString());
+
+    // If the scatter output is a fusion output, aliasing to a fusion
+    // input is not yet supported
+    if (out_tv->isFusionOutput()) {
+      NVF_ERROR(
+          fusion->getOutputAlias(out_tv).aliased_io == nullptr,
+          "Scatter output to an aliasing fusion output is not supported: ",
+          out_tv->toString());
     }
   }
 }

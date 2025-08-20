@@ -7,7 +7,7 @@
 // clang-format on
 
 #include <host_ir/container.h>
-#include <host_ir/executor.h>
+#include <host_ir/evaluator.h>
 #include <host_ir/host_ir.h>
 #include <ir/iostream.h>
 #include <multidevice/communicator.h>
@@ -900,12 +900,7 @@ TEST_F(MultiDeviceTutorial, HostIrGemmReduceScatter) {
   // Before defining the communication (reduce-scatter) that produces tvd from
   // tvc, it is required to set tvd and tvc device mesh (this might be removed
   // in the future)
-  std::vector<int64_t> all_devices(communicator_->size());
-  std::iota(
-      all_devices.begin(),
-      all_devices.end(),
-      0); // all_devices = [0,1,..., communicator_->size()-1]
-  DeviceMesh mesh_full(all_devices);
+  auto mesh_full = DeviceMesh::createForNumDevices(communicator_->size());
   tvc->setDeviceMesh(mesh_full);
   tvd->setDeviceMesh(mesh_full);
 
@@ -913,7 +908,7 @@ TEST_F(MultiDeviceTutorial, HostIrGemmReduceScatter) {
       CommunicationType::ReduceScatter,
       /*out=*/tvd,
       /*in=*/tvc,
-      /*team=*/all_devices,
+      /*team=*/mesh_full.vector(),
       /*(unused)root=*/-1,
       RedOpType::SUM);
 

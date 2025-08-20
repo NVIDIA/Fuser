@@ -396,8 +396,8 @@ table CudaKernel {
 // Each Fusion Executor maps to a lowered and compiled kernel.
 table KernelExecutor {
   device_smem_limit: long;
-  block_size_high_water_mark: long;
-  maxrregcount_high_water_mark: long;
+  block_size_high_watermark: long;
+  maxrregcount_high_watermark: long;
   warp_size: long;
   heuristic: long;
   fusion_id: long;
