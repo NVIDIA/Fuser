@@ -71,15 +71,15 @@ The following 75 tests exist in `tests/python/test_python_frontend.py` but are *
 - `test_prim_rms_norm_fwd` - Tests RMS normalization forward pass (65 lines)
 
 **General Tests -- Legacy-Only**
-- `test_def_op_in_schedule` - Tests operation definition in schedules
-- `test_func_definition` - Tests function definition
-- `test_fusion_definition_error_cache` - Tests fusion definition error caching
-- `test_import_conflict_nvfuser_then_direct` - Tests import conflict handling
-- `test_fusion_information` - Tests fusion information retrieval
-- `test_repro_script_generation` - Tests reproduction script generation (130 lines)
-- `test_debug_output` - Tests debug output functionality
-- `test_compute_contiguity` - Tests contiguity computation
-- `test_static_tensor_sizes` - Tests static tensor sizes
+- `test_def_op_in_schedule` - Tests operation definition in schedules; scheduling and definition are not separate.
+- `test_func_definition` - Tests function definition; Redundant
+- `test_fusion_definition_error_cache` - Tests fusion definition error caching; No fusion cache
+- `test_fusion_information` - Tests fusion information retrieval; Not used in direct bindings
+- `test_debug_output` - Tests debug output functionality; Deprecated
+- `test_compute_contiguity` - Tests contiguity computation; Not used in Thunder
+- `test_static_tensor_sizes` - Tests static tensor sizes; Not used in Thunder
+- `test_import_conflict_nvfuser_then_direct` - Tests import conflict handling; An analogous test already exists
+- `test_repro_script_generation` - Tests reproduction script generation (130 lines); An analogous test already exists.
 
 **General Tests -- To Add**
 - `test_no_definition` - Tests undefined fusion behavior

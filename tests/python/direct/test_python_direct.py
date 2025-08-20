@@ -174,13 +174,36 @@ def nvfuser_fusion(fd : FusionDefinition) -> None :
     fd.add_output(tv4)
 with FusionDefinition() as fd:
     nvfuser_fusion(fd)
+"""
 
+    expected_inputs = """
 inputs = [
     torch.testing.make_tensor((2, 4, 8), dtype=torch.float32, device='cuda:0'),
     torch.testing.make_tensor((2, 4, 8), dtype=torch.float32, device='cuda:0'),
 ]
 fd.execute(inputs)\n"""
-    assert expected_repro in fd.repro_script_for(inputs)
+
+    # fd.repro_script_for(inputs) should have input arguments
+    repro_with_inputs = fd.repro_script_for(inputs)
+    assert expected_repro in repro_with_inputs
+    assert expected_inputs in repro_with_inputs
+
+    # fd.repro_script_for() should NOT have input arguments
+    repro_without_inputs = fd.repro_script_for()
+    assert expected_repro in repro_without_inputs
+    assert expected_inputs not in repro_without_inputs
+
+    # Check last_repro_script fails gracefully.
+    with pytest.raises(
+        AssertionError,
+        match=r"fd.last_repro_script\(\) cannot provide a repro because fd.execute\(inputs, save_repro_state=True\) was not executed!",
+    ):
+        fd.last_repro_script()
+
+    # Test fd.execute(inputs, save_repro_inputs=True) ; fd.last_repro_script()
+    fd.execute(inputs, save_repro_inputs=True)
+    last_repro = fd.last_repro_script()
+    assert repro_with_inputs == last_repro
 
 
 def test_define_tensor():
