@@ -98,10 +98,10 @@ def pytest_configure(config):
 
     if config.getoption("--benchmark-num-inputs"):
         BENCHMARK_CONFIG["num_inputs"] = int(config.getoption("--benchmark-num-inputs"))
-    config.addinivalue_line(
-        "markers",
-        "expr_eval: mark tests using expr_eval scheduler if not being segmented.",
-    )
+
+    # Scheduler markers were determined by running the benchmarks and aggregating logs with
+    # NVFUSER_DUMP=segmented_fusion. This was done this per-file, so for a file with multiple
+    # benchmarks inside, the individual benchmarks may have markers that don't apply.
     config.addinivalue_line(
         "markers",
         "inner_outer_persistent: mark tests using inner_outer_persistent scheduler if not being segmented.",
