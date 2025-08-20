@@ -31,6 +31,7 @@
 
 #include <algorithm>
 #include <queue>
+#include "ir/interface_nodes.h"
 #include "scheduler/tools/loop_domain_scheduler.h"
 #include "type.h"
 
@@ -1281,12 +1282,17 @@ std::vector<TensorView*> cacheInputs(Fusion* fusion, bool unroll) {
     // used without padding, it will be read twice, once for pad and
     // once more for caching load. It would make sense to use the PTX
     // caching load instructions.
-    // For gatherOp, only allow to replace the indexTv with the cached_tv.
-    // Keep the lookupTv in global memory.
-    bool is_gather_indices = ir_utils::isGatherIndicesTv(tv);
+    // For gatherOp, the lookupTv should stay in global memory, don't replace
+    // the original lookupTv with the cached_tv.
+    auto isGatherLookUpTvInUse = [tv](Expr* use) {
+      if (!use->isA<GatherOp>()) {
+        return false;
+      }
+      return use->as<GatherOp>()->lookupTv() == tv;
+    };
     std::vector<Expr*> cached_uses;
     for (auto use : tv->uses()) {
-      if (!use->isOneOf<PadOp, SliceOp, GatherOp>() || is_gather_indices) {
+      if (!use->isOneOf<PadOp, SliceOp>() && !isGatherLookUpTvInUse(use)) {
         cached_uses.push_back(use);
       }
     }

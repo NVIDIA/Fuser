@@ -17,6 +17,8 @@
 #include <scheduler/utils.h>
 #include <tests/cpp/utils.h>
 #include <tests/cpp/validator.h>
+#include "ir/internal_nodes.h"
+#include "ir/utils.h"
 namespace nvfuser {
 
 using testing::Contains;
@@ -1911,8 +1913,8 @@ TEST_F(PersistentBufferTest, BroadcastSyncInputsHasBcast) {
 // Should cache gather lookup tv if it is a persistent buffer
 TEST_F(PersistentBufferTest, BufferGatherLookupTv) {
   DataType dtype = DataType::BFloat16;
-  int x = 2;
-  int y = 65 * 1024;
+  int x = 1024;
+  int y = 2048;
   auto fusion_ptr = std::make_unique<Fusion>();
   auto& fusion = *fusion_ptr;
   FusionGuard fg(fusion_ptr.get());
@@ -1947,6 +1949,24 @@ TEST_F(PersistentBufferTest, BufferGatherLookupTv) {
   ke.compile(fusion_ptr.get(), {t0, t1});
   auto outputs =
       ke.run({t0, t1}, {}, heuristic_params->as<ReductionParams>()->lparams);
+
+  // tv0 is a lookup tv, should stays in global memory and consumed by a gather
+  // op tv0 is also a persistent buffer, should be cached in shared memory or
+  // register So, we should expect two uses of tv0, one is a gather op, the
+  // other is a load op
+  const auto& tv0_uses = tv0->uses();
+  EXPECT_THAT(
+      tv0_uses,
+      testing::UnorderedElementsAre(
+          testing::Truly([](Expr* e) { return e->isA<GatherOp>(); }),
+          testing::Truly([](Expr* e) { return e->isA<LoadStoreOp>(); })));
+
+  // index_tv is a indicies tv, should be cached in register
+  // Gather op will use the cached version
+  const auto& index_tv_uses = index_tv->uses();
+  EXPECT_EQ(index_tv_uses.size(), 1);
+  EXPECT_TRUE(index_tv_uses.at(0)->isA<LoadStoreOp>());
+
   testValidate(&unscheduled_fusion_copy, outputs, {t0, t1});
 }
 } // namespace nvfuser
