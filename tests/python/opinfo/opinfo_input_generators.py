@@ -1979,6 +1979,7 @@ F8E8M0_EXP_BIAS = 127
 
 F4E2M1_MAX_VAL = 6.0
 
+
 def data_to_mxfp8_scale(x, block_size):
     # simple implementation of https://www.opencompute.org/documents/ocp-microscaling-formats-mx-v1-0-spec-final-pdf
     # section 6.3, not all edge cases (such as NaN) are handled/tested
@@ -2005,10 +2006,12 @@ def data_to_mxfp8(x, block_size):
     x = x.clamp(min=min_val, max=max_val).to(torch.float8_e4m3fn)
     return x, x_scale, None
 
+
 def data_to_nvfp4(x):
     x_global_scale = ((F8E4M3_MAX_VAL * F4E2M1_MAX_VAL) / x.max()).to(torch.float32)
 
     from nvfuser_direct import cutlass_nvfp4_quantize
+
     x_u8, x_scale = cutlass_nvfp4_quantize(t0_ref, t0_global_scale)
     return x_u8, x_scale, x_global_scale
 
@@ -2058,6 +2061,8 @@ def scaled_mm_input_generator(
             mat1, scale1, global_sf1 = quantization(mat1_ref)
             mat2, scale2, global_sf2 = quantization(mat2_ref)
             alpha = None if global_sf1 is None else 1.0 / (global_sf1 * global_sf2)
-            yield SampleInput(mat1, mat2.t(), scale1, scale2, alpha, None, None, out_dtype)
+            yield SampleInput(
+                mat1, mat2.t(), scale1, scale2, alpha, None, None, out_dtype
+            )
 
     # TODO: support normal fp8 as requested by Masaki
