@@ -60,8 +60,19 @@ class SyncMap {
     return needs_raw_sync_;
   }
 
+  const std::unordered_map<
+      TensorView*,
+      std::unordered_map<TensorView*, ParallelTypeBitmap>>&
+  producerConsumerRawSync() const {
+    return producer_consumer_raw_sync_;
+  }
+
  private:
   std::unordered_map<TensorView*, ParallelTypeBitmap> needs_raw_sync_;
+  std::unordered_map<
+      TensorView*,
+      std::unordered_map<TensorView*, ParallelTypeBitmap>>
+      producer_consumer_raw_sync_;
 };
 
 } // namespace nvfuser

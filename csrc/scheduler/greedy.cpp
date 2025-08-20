@@ -24,6 +24,8 @@
 #include <scheduler/utils.h>
 #include <transform_replay.h>
 
+#include <ATen/cuda/CUDAContext.h>
+
 #include <ranges>
 #include <vector>
 
@@ -43,7 +45,6 @@ class CompileTimeChecker : private IterVisitor {
       scheduler_debug_utils::canScheduleRejectReason(
           SchedulerType::Greedy, checker.reject_reason_);
     }
-
     return checker.can_schedule_;
   }
 
@@ -131,9 +132,12 @@ class RunTimeChecker : private IterVisitor {
   static bool run(
       Fusion* fusion,
       SchedulerRuntimeInfo& runtime_info,
-      HeuristicDataCache* data_cache,
-      const ValGraph& exact_graph) {
-    RunTimeChecker checker(fusion, runtime_info, data_cache, exact_graph);
+      HeuristicDataCache* data_cache) {
+    RunTimeChecker checker(fusion, runtime_info, data_cache);
+    if (!checker.can_schedule_ && !checker.reject_reason_.empty()) {
+      scheduler_debug_utils::canScheduleRejectReason(
+          SchedulerType::Greedy, checker.reject_reason_);
+    }
     return checker.can_schedule_;
   }
 
@@ -141,11 +145,11 @@ class RunTimeChecker : private IterVisitor {
   RunTimeChecker(
       Fusion* fusion,
       SchedulerRuntimeInfo& runtime_info,
-      HeuristicDataCache* data_cache,
-      const ValGraph& exact_graph)
+      HeuristicDataCache* data_cache)
       : runtime_info_(runtime_info),
         data_cache_(data_cache),
-        exact_graph_(exact_graph) {
+        max_threads_per_block_(
+            at::cuda::getCurrentDeviceProperties()->maxThreadsPerBlock) {
     traverse(fusion);
   }
 
@@ -167,32 +171,28 @@ class RunTimeChecker : private IterVisitor {
   void checkConstrainedTv(
       TensorView* tv,
       const std::vector<int64_t>& constrained_logical_id_offsets) {
-    const auto& logical_domain = tv->getLogicalDomain();
-    const std::unordered_set<int64_t> constrained_logical_id_offset_set(
-        constrained_logical_id_offsets.begin(),
-        constrained_logical_id_offsets.end());
-
-    ValGroups non_constrained_ids;
-    for (const auto& [i, logical_id] : enumerate(logical_domain)) {
-      if (constrained_logical_id_offset_set.contains(i)) {
-        continue;
-      }
-
-      non_constrained_ids.pushBack(exact_graph_.toGroup(logical_id));
+    int64_t size_of_constrained_ids = 1;
+    for (const auto i : constrained_logical_id_offsets) {
+      auto logical_id = tv->getLogicalDomain().at(i);
+      auto extent_val =
+          runtime_info_.expressionEvaluator().evaluate(logical_id->extent());
+      NVF_ERROR(
+          extent_val.hasValue(),
+          "Cannot infer the extent of a constrained logical ID: ",
+          logical_id->toString());
+      size_of_constrained_ids *= extent_val.as<int64_t>();
     }
 
-    if (ref_block_domain_.has_value()) {
-      if (ref_block_domain_->set() != non_constrained_ids.set()) {
-        can_schedule_ = false;
-        std::stringstream reason;
-        reason << "Mismatched unconstrained IDs detected with "
-               << tv->toString() << ": "
-               << nvfuser::toString(non_constrained_ids)
-               << ". Ref: " << nvfuser::toString(*ref_block_domain_);
-        setRejectReason(reason.str());
-      }
-    } else {
-      ref_block_domain_ = non_constrained_ids;
+    std::cerr << "Size of constrained IDs for " << tv->toString() << ": "
+              << size_of_constrained_ids << "\n";
+
+    if (size_of_constrained_ids > max_threads_per_block_) {
+      std::stringstream reason;
+      reason << "Extent of constrained logical IDs, " << size_of_constrained_ids
+             << ", exceeds the maxinum number of threads per thread block, "
+             << max_threads_per_block_;
+      setRejectReason(reason.str());
+      can_schedule_ = false;
     }
   }
 
@@ -208,7 +208,7 @@ class RunTimeChecker : private IterVisitor {
  private:
   SchedulerRuntimeInfo& runtime_info_;
   HeuristicDataCache* data_cache_ = nullptr;
-  const ValGraph& exact_graph_;
+  int64_t max_threads_per_block_ = 0;
 
   bool can_schedule_ = true;
   std::string reject_reason_;
@@ -220,14 +220,17 @@ class ConstrainedOpScheduler : public OptOutDispatch {
  public:
   static void run(
       Fusion* fusion,
-      const std::vector<TensorView*>& constrained_out_tvs) {
-    ConstrainedOpScheduler scheduler(fusion, constrained_out_tvs);
+      const std::vector<TensorView*>& constrained_out_tvs,
+      const ValGraph& exact_graph) {
+    ConstrainedOpScheduler scheduler(fusion, constrained_out_tvs, exact_graph);
   }
 
  private:
   ConstrainedOpScheduler(
       Fusion* fusion,
-      const std::vector<TensorView*>& constrained_out_tvs) {
+      const std::vector<TensorView*>& constrained_out_tvs,
+      const ValGraph& exact_graph)
+      : exact_graph_(exact_graph) {
     for (auto constrained_tv : constrained_out_tvs) {
       dispatch(constrained_tv->definition());
     }
@@ -291,24 +294,45 @@ class ConstrainedOpScheduler : public OptOutDispatch {
     // Parallelize the flattened constrained id
     tv->axis(-1)->parallelize(ParallelType::TIDx);
 
+    if (tv->getLoopDomain().size() == 1) {
+      return;
+    }
+
+    // Scheduling of the unconstrained IDs with BIDx. Currently all
+    // tensors are assumed to have exact-mapped IDs for BID in order to
+    // avoid grid sync.
+    if (ref_block_ids_.empty()) {
+      ref_block_ids_ = exact_graph_.toGroups(std::vector<IterDomain*>{
+          tv->getLoopDomain().begin(), tv->getLoopDomain().end() - 1});
+    } else {
+      std::vector<int64_t> permutation;
+      permutation.reserve(ref_block_ids_.size());
+      for (const auto i : arange(tv->getLoopDomain().size() - 1)) {
+        auto id = tv->getLoopDomain().at(i);
+        auto ref_it = std::ranges::find_if(
+            ref_block_ids_,
+            [&](const ValGroup& id_group) { return id_group->has(id); });
+        NVF_ERROR(
+            ref_it != ref_block_ids_.end(),
+            "Failed find matching ID group: ",
+            id->toString());
+        permutation.push_back(std::distance(ref_block_ids_.begin(), ref_it));
+      }
+
+      tv->reorder(permutation);
+      std::cerr << "Reordered: " << tv->toString() << "\n";
+    }
+
     // Merge the remaining IDs
-    if (std::ssize(tv->getLoopDomain()) > 2) {
-      tv->flatten(0, std::ssize(tv->getLoopDomain()) - 2);
-    }
-
-    NVF_ERROR_LE(std::ssize(tv->getLoopDomain()), 2);
-    NVF_ERROR_EQ(
-        tv->axis(-1)->getParallelType(),
-        ParallelType::TIDx,
-        "Unexpected loop domain: ",
-        tv->toString());
-
-    if (std::ssize(tv->getLoopDomain()) == 2) {
-      tv->axis(0)->parallelize(ParallelType::BIDx);
-    }
+    tv->flatten(0, std::ssize(tv->getLoopDomain()) - 2);
+    tv->axis(0)->parallelize(ParallelType::BIDx);
 
     std::cerr << "Scheduled: " << tv->toString() << "\n";
   }
+
+ private:
+  const ValGraph& exact_graph_;
+  ValGroups ref_block_ids_;
 };
 
 std::unordered_map<TensorView*, TensorView*> partitionFusion(
@@ -468,10 +492,8 @@ bool GreedyScheduler::canScheduleRunTime(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
     HeuristicDataCache* data_cache) {
-  IdModel id_model(fusion);
-  const auto& exact_graph = id_model.buildExactGraph();
-
-  return RunTimeChecker::run(fusion, runtime_info, data_cache, exact_graph);
+  // TODO: Consider the shared memory capacity for resolving conflicts
+  return RunTimeChecker::run(fusion, runtime_info, data_cache);
 }
 
 std::unique_ptr<HeuristicParams> GreedyScheduler::computeHeuristics(
@@ -506,7 +528,10 @@ void GreedyScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
   std::cerr << "Constrained tvs: " << toDelimitedString(constrained_out_tvs)
             << "\n";
 
-  ConstrainedOpScheduler::run(fusion, constrained_out_tvs);
+  IdModel id_model(fusion);
+  const auto& exact_graph = id_model.buildExactGraph();
+
+  ConstrainedOpScheduler::run(fusion, constrained_out_tvs, exact_graph);
 
   auto tv_to_ref_map = partitionFusion(
       fusion, {constrained_out_tvs.begin(), constrained_out_tvs.end()});
@@ -564,7 +589,14 @@ void GreedyScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
   }
 
   for (const auto& tv : tvs_to_upload_to_smem) {
-    auto uses = tv->uses();
+    const auto& tv_sync_map = sync_map.producerConsumerRawSync().at(tv);
+    std::vector<Expr*> uses_to_update;
+    std::ranges::copy_if(
+        tv->uses(), std::back_inserter(uses_to_update), [&](Expr* use) {
+          auto it = tv_sync_map.find(ir_utils::getTvOutput(use));
+          return it != tv_sync_map.end() && it->second.hasTID();
+        });
+    NVF_ERROR(!uses_to_update.empty());
 
     auto no_reduction_logical_domain =
         TensorDomain::noReductions(tv->getLogicalDomain());
@@ -587,7 +619,7 @@ void GreedyScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
     TransformReplay::replayCasP(copy, tv, -1);
     std::cerr << "Copy on shared memory: " << copy->toString() << "\n";
 
-    for (auto tv_use : uses) {
+    for (auto tv_use : uses_to_update) {
       auto expr = ir_utils::replaceValInExprInputs(tv_use, tv, copy);
       std::cerr << "Replaced expr: " << expr->toString();
     }

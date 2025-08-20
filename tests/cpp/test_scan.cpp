@@ -470,4 +470,31 @@ TEST_F(ScanTest, ScanFollowedByPad) {
   testValidate(&fusion, outputs, {input}, __LINE__, __FILE__);
 }
 
+TEST_F(ScanTest, ScanFollowedByPadLarge) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  FusionGuard fg(fusion_ptr.get());
+  Fusion& fusion = *fusion_ptr;
+
+  auto tv0 = makeConcreteTensor({1024 * 1024});
+  fusion.addInput(tv0);
+
+  auto tv1 = scan(tv0, /*dim=*/-1, BinaryOpType::Add);
+
+  auto tv3 =
+      pad(tv1, {fusion.oneVal(DataType::Int), fusion.zeroVal(DataType::Int)});
+
+  fusion.addOutput(tv3);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor input = at::randn({1024 * 1024}, options);
+
+  // FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  // auto outputs = executor_cache.runFusionWithInputs({input});
+
+  auto outputs =
+      scheduleAndRun(&fusion, SchedulerType::Greedy, {input}).outputs;
+
+  testValidate(&fusion, outputs, {input}, __LINE__, __FILE__);
+}
+
 } // namespace nvfuser
