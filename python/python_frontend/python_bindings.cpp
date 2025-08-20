@@ -3761,7 +3761,21 @@ void initNvFuserPythonBindings(PyObject* module) {
       DOCSTRING);
 
   NVFUSER_PYTHON_BINDING_SCAN_OP(
-      "cumsum", cumsum, "Cumulative sum of a tensor");
+      "cumsum",
+      cumsum,
+      R"doc(
+            Computes the cumulative sum of elements along a given dimension.
+
+            Args:
+                    arg (Tensor): Input tensor.
+                    dim (int): Dimension along which to compute the cumulative sum.
+
+            Returns:
+                    Tensor: Tensor of the same shape as input with cumulative sums computed along the specified dimension.
+
+            Example:
+                    >>> fd.ops.cumsum(tensor, dim=0)
+        )doc");
 
 #undef NVFUSER_PYTHON_BINDING_SCAN_OP
 
