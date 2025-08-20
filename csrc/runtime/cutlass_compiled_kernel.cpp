@@ -375,15 +375,20 @@ void CutlassCompiledKernel::compileWithNVCC() {
   std::filesystem::path output_file_path = temp_dir_ / "nvcc_output.txt";
   std::string full_cmd = compile_cmd + " 2>&1 > " + output_file_path.string();
 
-  std::cout << full_cmd << std::endl;
+  int result = -1;
+  if (isDebugDumpEnabled(DebugDumpOption::CutlassCompile)) {
+    debug() << "Compiling CUTLASS kernel with command\n" << full_cmd << std::endl;
 
-  using Clock = std::chrono::steady_clock;
-  Clock::time_point start_timestamp = Clock::now();
-  int result = system(full_cmd.c_str());
-  Clock::duration duration = Clock::now() - start_timestamp;
-  debug() << "NVCC CUTLASS kernel compile time: "
-          << std::chrono::duration_cast<std::chrono::seconds>(duration).count()
-          << " seconds" << std::endl;
+    using Clock = std::chrono::steady_clock;
+    Clock::time_point start_timestamp = Clock::now();
+    result = system(full_cmd.c_str());
+    Clock::duration duration = Clock::now() - start_timestamp;
+    debug() << "NVCC CUTLASS kernel compile time: "
+            << std::chrono::duration_cast<std::chrono::seconds>(duration).count()
+            << " seconds" << std::endl;
+  } else {
+    result = system(full_cmd.c_str());
+  }
 
   if (result != 0) {
     // Read compilation output for error details

@@ -61,8 +61,8 @@ TEST_F(CutlassExecutorTest, SimpleNvfp4ScaledGemm) {
 
   fusion->addOutput(smm.tv);
 
-  fusion->printMath();
-
+  EnableOptionsGuard eog;
+  eog.getCurOptions().set(EnableOption::CutlassScheduler);
   auto scheduler = std::make_unique<CutlassScheduler>();
   EXPECT_TRUE(scheduler->canScheduleCompileTime(fusion.get()));
 

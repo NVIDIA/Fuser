@@ -23,6 +23,8 @@ namespace nvfuser {
 //! These can be set through the `NVFUSER_DUMP` environment variable
 //!
 enum class DebugDumpOption {
+  CutlassCompile, //!< Dump compile commands and compile times for
+                  //!< CutlassExecutor
   FunctionTrace, //!< Dump the function trace of selected internal function. The
                  //!< function of interest needs to be instrumented with
                  //!< DEBUG_PRINT_SCOPE and optionally RECORD_AND_RETURN before
@@ -97,6 +99,7 @@ enum class DebugDumpOption {
 //! These can be set through the `NVFUSER_ENABLE` environment variable
 //!
 enum class EnableOption {
+  CutlassScheduler, //! Enable the CUTLASS scheduler and executor
   FuseMatmul, //! Enable automatic fusion of matmul and linear ops
   FuseMultipleMatmuls, //! Allow fusing more than one matmul in a single kernel
   IdModel, //! Enable IdModel
