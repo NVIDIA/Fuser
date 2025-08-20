@@ -769,21 +769,7 @@ int64_t getAllocatedExtent(
     TensorView* tv,
     IterDomain* id,
     ExpressionEvaluator& expr_eval) {
-  std::vector<Expr*> exprs = DependencyCheck::getAllExprsBetween(
-      {id},
-      {tv->getMaybeAllocationDomain().begin(),
-       tv->getMaybeAllocationDomain().end()});
-  IterDomain* alloc_id = id;
-  for (auto expr : exprs) {
-    Split* split = dynamic_cast<Split*>(expr);
-    NVF_CHECK(
-        split,
-        "Expected only split exprs between logical and allocation domains, "
-        "got ",
-        expr);
-    NVF_CHECK(split->outer()->isDeviceDim());
-    alloc_id = split->inner();
-  }
+  IterDomain* alloc_id = projectLogicalToAllocation(tv, id);
   auto inferred_val = expr_eval.evaluate(alloc_id->extent());
   NVF_ERROR(
       inferred_val.hasValue(),
@@ -1466,34 +1452,6 @@ IterDomain* projectIdToAllocation(
   return projected_id;
 }
 
-// Take an allocation domain id and project it back to the logical domain.
-// traversing device splits.
-IterDomain* projectAllocationToLogical(
-    TensorView* tv,
-    IterDomain* allocation_id,
-    bool inner_only,
-    bool vectorize_pass) {
-  if (allocation_id == nullptr) {
-    return nullptr;
-  }
-
-  auto replay_exprs = DependencyCheck::getAllExprsBetween(
-      {tv->getLogicalDomain().begin(), tv->getLogicalDomain().end()},
-      {allocation_id}
-  );
-
-  IterDomain* logical_id = allocation_id;
-  // Reverse iterate through the expressions to go back from allocation to
-  // logical. We only expect DID splits between logical and allocation.
-  for (Expr* expr: replay_exprs | std::views::reverse) {
-    auto* split = dynamic_cast<Split*>(expr);
-    NVF_CHECK(split != nullptr, "Expected a split between logical and allocation");
-    NVF_CHECK(split->outer()->isDeviceDim(), "Expected the outer dimension to be a device dimension");
-    logical_id = split->in();
-  }
-  return logical_id;
-}
-
 } // namespace
 
 IterDomain* innerMostAllocDim(TensorView* tv) {
@@ -1556,8 +1514,8 @@ void FindAllMappedDims::propagateP2C(TensorView* from, TensorView* to) {
   IterDomain* from_allocation_id = mapped_allocation_ids_.at(from);
 
   // Project allocation id back to logical id for mapping
-  IterDomain* from_logical_id = projectAllocationToLogical(
-      from, from_allocation_id, inner_only_, vectorize_pass_);
+  IterDomain* from_logical_id =
+      projectAllocationToLogical(from, from_allocation_id);
 
   PairwiseLogicalDomainMap logical_map(from, to);
   auto p2c_map = logical_map.mapProducerToConsumer();
