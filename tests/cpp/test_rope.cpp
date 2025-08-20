@@ -1650,6 +1650,7 @@ TEST_P(LitgptRopeTest, Bwd) {
 // Testing the scheduling of an ending repeat pattern, which is
 // commonly seen in RoPE.
 TEST_F(RopeTest, EndingRepeat) {
+  GTEST_SKIP() << "Disabled due to as cancelReshape is disabled";
   auto fusion_ptr = std::make_unique<Fusion>();
   FusionGuard fg(fusion_ptr.get());
   Fusion& fusion = *fusion_ptr;
@@ -1731,6 +1732,8 @@ TEST_F(RopeTest, EndingRepeat) {
 // input tensor. A similar Pattern appears in the LitGPT Llama RoPE
 // module.
 TEST_F(RopeTest, EndingRepeatWithNoBroadcastOp) {
+  GTEST_SKIP() << "Disabled due to as cancelReshape is disabled";
+
   auto fusion_ptr = std::make_unique<Fusion>();
   FusionGuard fg(fusion_ptr.get());
   Fusion& fusion = *fusion_ptr;

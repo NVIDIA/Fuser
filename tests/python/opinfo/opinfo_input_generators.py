@@ -20,8 +20,14 @@ from opinfo_utils import (
     float_complex_dtypes,
     complex_dtypes,
 )
-from nvfuser import DataType
-from nvfuser.pytorch_utils import torch_dtype_to_nvfuser_dtype
+import sys
+
+if "nvfuser" in sys.modules:
+    from nvfuser import DataType
+    from nvfuser.pytorch_utils import torch_dtype_to_nvfuser_dtype
+else:
+    from nvfuser_direct import DataType
+    from nvfuser_direct.pytorch_utils import torch_dtype_to_nvfuser_dtype
 
 MINIMUM_SYMBOLIC_SIZE = -1
 INT64_MAX = 2**63 - 1

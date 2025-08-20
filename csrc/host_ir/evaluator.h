@@ -7,49 +7,18 @@
 // clang-format on
 #pragma once
 
+#include <c10/cuda/CUDAStream.h>
+
 #include <dispatch.h>
 #include <expr_evaluator.h>
 #include <host_ir/container.h>
 #include <host_ir/host_ir.h>
-#ifdef NVFUSER_HOST_IR_JIT
-#include <host_ir/jit.h>
-#endif
 #include <multidevice/communicator.h>
 #include <multidevice/ipc_handle.h>
-#include <runtime/executor.h>
 #include <runtime/executor_abstract.h>
-#include <runtime/executor_params.h>
 #include <runtime/fusion_executor_cache.h>
 
-#include <c10/cuda/CUDAStream.h>
-
 namespace nvfuser {
-
-class HostIrExecutor : public ExecutorAbstract {
- public:
-  HostIrExecutor(
-      int64_t fusion_id = 0,
-      int64_t concrete_id = 0,
-      int64_t runtime_id = 0,
-      int64_t group_id = 0);
-
-  static bool supported(Fusion* fusion);
-
-  void compile(Fusion* fusion);
-
-  bool isCompiled() const override;
-
-  NVF_API KernelArgumentHolder
-  run(const KernelArgumentHolder& args, KernelArgumentHolder outputs = {});
-
-  const std::unique_ptr<hir::HostIrContainer>& hostContainer() const {
-    return host_ir_container_;
-  }
-
- private:
-  std::unique_ptr<hir::HostIrContainer> host_ir_container_;
-  Communicator* communicator_;
-};
 
 namespace hir {
 
@@ -79,14 +48,14 @@ struct HostIrEvaluatorParams {
 //
 // Note: most of the implementation is copy pasted for MultiDeviceExecutor. This
 // duplication will be resolved in the future.
-class HostIrEvaluator final : public OptOutDispatch {
+class NVF_API HostIrEvaluator final : public OptOutDispatch {
  public:
   HostIrEvaluator(
       std::unique_ptr<HostIrContainer> container,
       Communicator* communicator = &Communicator::getInstance(),
       HostIrEvaluatorParams = HostIrEvaluatorParams());
 
-  // Used by FusionExecutor, the main stack.
+  // Used by FusionExecutorCache, the main stack.
   KernelArgumentHolder runWithInputs(const KernelArgumentHolder& args);
 
   // Used by MultiDeviceExecutor.
@@ -101,17 +70,13 @@ class HostIrEvaluator final : public OptOutDispatch {
     return container_->outputs();
   }
 
-  auto* container() const {
-    return container_.get();
+  const HostIrContainer& container() const {
+    return *container_;
   }
 
   std::ostream& print(std::ostream& os) const {
     return container_->print(os);
   };
-
-  const HostIrContainer& getHostIrContainer() const {
-    return *container_.get();
-  }
 
   const auto& getFusionExecutorCaches() {
     return fec_;
@@ -120,10 +85,6 @@ class HostIrEvaluator final : public OptOutDispatch {
   const auto& getCudaStreams() {
     return streams_;
   }
-
-  // check if the runtime is valid returns an error msg.
-  // An empty message means that the runtime is valid
-  std::string canRun() const;
 
  private:
   using OptOutDispatch::handle;
@@ -167,10 +128,9 @@ class HostIrEvaluator final : public OptOutDispatch {
         : at::Tensor();
   }
 
+  void validate() const;
+
   std::unique_ptr<HostIrContainer> container_;
-#ifdef NVFUSER_HOST_IR_JIT
-  std::unique_ptr<HostIrJit> jit_;
-#endif
   Communicator* communicator_;
   HostIrEvaluatorParams params_;
   // Stores concrete computed values

@@ -190,7 +190,7 @@ class StructHandle {
   StructHandle& operator=(const StructHandle& other) = default;
   StructHandle& operator=(StructHandle&& other) = default;
 
-  bool operator==(const StructHandle& other) const;
+  NVF_API bool operator==(const StructHandle& other) const;
 
   template <typename T>
   bool is() const {
@@ -427,6 +427,72 @@ inline c10::Scalar toScalar(const PolymorphicValue& x) {
     return (c10::complex<double>)x.as<std::complex<double>>();
   } else {
     return (c10::Scalar)x;
+  }
+}
+
+inline PolymorphicValue where(
+    const PolymorphicValue& a,
+    const PolymorphicValue& b,
+    const PolymorphicValue& c) {
+  if (!a.is<at::Tensor>()) {
+    return a.as<bool>() ? b : c;
+  }
+  // dispatch to at::where with appropriate overload
+  bool b_is_tensor = b.is<at::Tensor>();
+  bool c_is_tensor = c.is<at::Tensor>();
+  if (b_is_tensor && c_is_tensor) {
+    // Both are tensors
+    return PolymorphicValue(
+        at::where(a.as<at::Tensor>(), b.as<at::Tensor>(), c.as<at::Tensor>()));
+  } else if (b_is_tensor && !c_is_tensor) {
+    // b is tensor, c is scalar
+    return PolymorphicValue(
+        at::where(a.as<at::Tensor>(), b.as<at::Tensor>(), toScalar(c)));
+  } else if (!b_is_tensor && c_is_tensor) {
+    // b is scalar, c is tensor
+    return PolymorphicValue(
+        at::where(a.as<at::Tensor>(), toScalar(b), c.as<at::Tensor>()));
+  } else {
+    // Both are scalars
+    return PolymorphicValue(
+        at::where(a.as<at::Tensor>(), toScalar(b), toScalar(c)));
+  }
+}
+
+inline PolymorphicValue pow(
+    const PolymorphicValue& a,
+    const PolymorphicValue& b) {
+  bool a_is_tensor = a.is<at::Tensor>();
+  bool b_is_tensor = b.is<at::Tensor>();
+  if (a_is_tensor && b_is_tensor) {
+    return PolymorphicValue(at::pow(a.as<at::Tensor>(), b.as<at::Tensor>()));
+  } else if (a_is_tensor) {
+    return PolymorphicValue(at::pow(a.as<at::Tensor>(), toScalar(b)));
+  } else if (b_is_tensor) {
+    return PolymorphicValue(at::pow(toScalar(a), b.as<at::Tensor>()));
+  } else {
+    // no tensor involved, use std::pow, at::pow doesn't support scalar^scalar
+    if (a.is<int64_t>()) {
+      if (b.is<int64_t>()) {
+        return PolymorphicValue(std::pow(a.as<int64_t>(), b.as<int64_t>()));
+      }
+      if (b.is<double>()) {
+        return PolymorphicValue(std::pow(a.as<int64_t>(), b.as<double>()));
+      }
+    }
+    if (a.is<double>()) {
+      if (b.is<double>()) {
+        return PolymorphicValue(std::pow(a.as<double>(), b.as<double>()));
+      }
+      if (b.is<int64_t>()) {
+        return PolymorphicValue(std::pow(a.as<double>(), b.as<int64_t>()));
+      }
+    }
+    NVF_THROW(
+        "PolymorphicValue pow not implemented for ",
+        a.type().name(),
+        " , ",
+        b.type().name());
   }
 }
 

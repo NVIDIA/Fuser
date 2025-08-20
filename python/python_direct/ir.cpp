@@ -8,6 +8,10 @@
 #include <bindings.h>
 #include <python_utils.h>
 
+// size and shape operations are a part of TensorView bindings but not a
+// part of TensorView IR node.
+#include <ops/arith.h>
+
 #include <fusion.h>
 #include <ir/base_nodes.h>
 #include <ir/interface_nodes.h>
@@ -42,6 +46,17 @@ Returns
 -------
 bool
     True if the value is symbolic, False otherwise.
+)")
+      .def(
+          "is_tensor",
+          [](Val* self) { return self->isA<TensorView>(); },
+          R"(
+Check if this value is a TensorView.
+
+Returns
+-------
+bool
+    True if the value is a TensorView, False otherwise.
 )");
 
   // Expr
@@ -104,7 +119,9 @@ void bindInterfaceNodes(py::module& nvfuser) {
           "Convert the TensorView to a string representation.")
       .def(
           "num_dims",
-          &TensorView::nDims,
+          [](TensorView* self) {
+            return TensorDomain::noReductions(self->getLogicalDomain()).size();
+          },
           R"(
 Get the number of dimensions in this tensor.
 
@@ -112,6 +129,36 @@ Returns
 -------
 int
     The number of dimensions.
+)")
+      .def(
+          "size",
+          [](TensorView* self, int64_t dim) { return size(self, dim); },
+          py::arg("dim"),
+          py::return_value_policy::reference,
+          R"(
+Get the size of this tensor.
+
+Parameters
+----------
+dim : int
+    The dimension in the tensor.
+
+Returns
+-------
+int
+    The size of the dimension.
+)")
+      .def(
+          "shape",
+          [](TensorView* self) { return shape(self); },
+          py::return_value_policy::reference,
+          R"(
+Get the shape of this tensor.
+
+Returns
+-------
+list of Val
+    The shape of this tensor.
 )")
       .def(
           "domain",
@@ -166,6 +213,25 @@ Returns
 -------
 TensorView
     A TensorView with the split axes in its loop domain.
+)")
+      .def(
+          "rfactor",
+          static_cast<TensorView* (TensorView::*)(const std::vector<int64_t>&)>(
+              &TensorView::rFactor),
+          py::arg("axes"),
+          py::return_value_policy::reference,
+          R"(
+Perform an rfactor transformation on the specified axes.
+
+Parameters
+----------
+axes : list of int
+The axes to apply rfactor to.
+
+Returns
+-------
+TensorView
+The newly created rfactor tensor.
 )")
       .def(
           "set_allocation_domain",
@@ -342,7 +408,22 @@ void bindDefineTensor(py::module& nvfuser) {
           py::return_value_policy::reference);
 }
 
-void bindScalar(py::module& nvfuser) {
+void bindDefineScalar(py::module& nvfuser) {
+  // The symbolic define_scalar must come before the constant version because of
+  // pybind11 rules for overload resolution. Essentially, overload functions are
+  // tried in the order they were registered with pybind11. If the order is
+  // reversed, the PrimDataType is cast to its corresponding Enum integer and
+  // used as a Fusion contant.
+  //
+  // Reference:
+  // https://pybind11.readthedocs.io/en/stable/advanced/functions.html#overload-resolution-order
+  nvfuser.def(
+      "define_scalar",
+      [](PrimDataType dtype = DataType::Double) {
+        return IrBuilder::create<Val>(std::monostate{}, dtype);
+      },
+      py::arg("dtype") = DataType::Double,
+      py::return_value_policy::reference);
   nvfuser.def(
       "define_scalar",
       [](PolymorphicValue::VariantType value,
@@ -359,13 +440,6 @@ void bindScalar(py::module& nvfuser) {
       py::arg("value"),
       py::arg("dtype") = std::nullopt,
       py::return_value_policy::reference);
-  nvfuser.def(
-      "define_scalar",
-      [](PrimDataType dtype) {
-        return IrBuilder::create<Val>(std::monostate{}, dtype);
-      },
-      py::arg("dtype") = DataType::Double,
-      py::return_value_policy::reference);
 }
 
 } // namespace
@@ -375,7 +449,7 @@ void bindFusionIr(py::module& nvfuser) {
   bindInternalBaseNodes(nvfuser);
   bindInterfaceNodes(nvfuser);
   bindDefineTensor(nvfuser);
-  bindScalar(nvfuser);
+  bindDefineScalar(nvfuser);
 }
 
 } // namespace nvfuser::python

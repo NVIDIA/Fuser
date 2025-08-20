@@ -11,7 +11,7 @@
 #include <exceptions.h>
 #include <fusion.h>
 #include <fusion_segmenter.h>
-#include <host_ir/executor.h>
+#include <host_ir/evaluator.h>
 #include <host_ir/lower.h>
 #include <ir/cloner.h>
 #include <multidevice/communication.h>
@@ -46,7 +46,7 @@ struct MultiDeviceExecutorParams {
   Summary of the different steps performed by the MultiDeviceExecutor:
   I. At instantiation:
   - resharding "Set" exprs are automatically inserted in the fusion where a
-    network communication is needed. See the function insertReshardings.
+    network communication is needed. See the function DecomposeReshardings.
   - the Fusion is segmented into segments which can be of two types:
       1) compute segments, composed of non-Resharding expressions only,
          that can be purely execute on a single device
@@ -89,12 +89,6 @@ class MultiDeviceExecutor {
   // Returns the Communicator
   Communicator* comm() const {
     return &comm_;
-  }
-
-  // check if the runtime is valid returns an error msg.
-  // An empty message means that the runtime is valid
-  std::string validate() const {
-    return host_ir_executor_->canRun();
   }
 
   //! Print to default debugging output stream

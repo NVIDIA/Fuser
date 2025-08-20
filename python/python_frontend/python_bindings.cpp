@@ -510,10 +510,9 @@ void defineHeuristicParamBindings(py::module& nvfuser) {
       .value("row_major", MatmulParams::TileRasterizationOrder::RowMajor);
 
   py::class_<MatmulParams::ClusterDims>(nvfuser, "ClusterDims")
-      .def(py::init<int64_t, int64_t, int64_t>())
-      .PARAM(MatmulParams::ClusterDims, x)
-      .PARAM(MatmulParams::ClusterDims, y)
-      .PARAM(MatmulParams::ClusterDims, z)
+      .def(py::init<int64_t, int64_t>())
+      .PARAM(MatmulParams::ClusterDims, m)
+      .PARAM(MatmulParams::ClusterDims, n)
       .TOSTRINGMETHOD(MatmulParams::ClusterDims);
 
   py::enum_<MmaMacroEncode::Arch>(nvfuser, "MmaMacroArch")
@@ -2867,7 +2866,7 @@ void initNvFuserPythonBindings(PyObject* module) {
         NVF_CHECK(
             self.validUse(), "Attempting to add to a completed definition!");
         FusionDefinition* fd = self.fusion_definition;
-        Tensor output = fd->defineTensor(arg.dims);
+        Tensor output = fd->defineTensor(is_broadcast_dim.size());
         fd->defineRecord(new BroadcastOpRecord(
             {fd->recordingState(arg())},
             {fd->recordingState(output())},
@@ -3034,6 +3033,44 @@ void initNvFuserPythonBindings(PyObject* module) {
             index.dims,
             " and ",
             src.dims);
+        auto num_dims = (int64_t)arg1.dims;
+        NVF_CHECK(
+            dim >= -num_dims && dim < num_dims,
+            "Tensor arguments have dimension ",
+            num_dims,
+            " so dim argument must satisfy ",
+            -num_dims,
+            " <= dim < ",
+            num_dims,
+            ", but received ",
+            dim);
+        FusionDefinition* fd = self.fusion_definition;
+        Tensor output = fd->defineTensor(num_dims);
+        fd->defineRecord(new ScatterOpRecord(
+            {
+                fd->recordingState(arg1()),
+                fd->recordingState(index()),
+                fd->recordingState(src()),
+            },
+            {fd->recordingState(output())},
+            dim));
+        return output;
+      },
+      py::arg("arg1"),
+      py::arg("index"),
+      py::arg("src"),
+      py::arg("dim"),
+      py::return_value_policy::reference);
+  nvf_ops.def(
+      "scatter",
+      [](FusionDefinition::Operators& self,
+         Tensor arg1,
+         Tensor index,
+         Scalar src,
+         int64_t dim) -> Tensor {
+        FUSER_PERF_SCOPE("Operators.scatter");
+        NVF_CHECK(
+            self.validUse(), "Attempting to add to a completed definition!");
         auto num_dims = (int64_t)arg1.dims;
         NVF_CHECK(
             dim >= -num_dims && dim < num_dims,

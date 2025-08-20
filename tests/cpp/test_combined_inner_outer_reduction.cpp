@@ -1547,4 +1547,199 @@ TEST_F(CombinedSchedulerTest, ViewOps) {
 
   testValidate(&fusion_copy, cg_outputs, args, __LINE__, __FILE__);
 }
+
+// https://nvbugspro.nvidia.com/bug/5374765
+// Avoid setting 2 vectorization loop domains for a single tensor.
+// Test different broadcast positions for tensors with non-concretized
+// dimensions
+class NonConcretizedDomainTest : public NVFuserFixtureParamTest<int> {
+ protected:
+  void SetUp() override {
+    NVFuserFixtureParamTest<int>::SetUp();
+    EnableOptionsGuard::getCurOptions().set(
+        EnableOption::WarpSpecializedNormalization);
+  }
+};
+
+// combined_inner_outer scheduler can handle this case.
+TEST_P(NonConcretizedDomainTest, OnNonReductionTv) {
+  NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
+  auto non_concretized_pos = GetParam();
+
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  auto fusion = fusion_ptr.get();
+  FusionGuard fg(fusion);
+
+  // Create tv1 shape with non-concretized dimension at the specified position
+  std::vector<int64_t> tv1_shape;
+  if (non_concretized_pos == 0) {
+    tv1_shape = {1, 2048, 32}; // Non-concretized at beginning
+  } else if (non_concretized_pos == 1) {
+    tv1_shape = {2048, 1, 32}; // Non-concretized in middle
+  } else if (non_concretized_pos == 2) {
+    tv1_shape = {2048, 32, 1}; // Non-concretized at end
+  } else {
+    NVF_ERROR("Invalid position: ", non_concretized_pos);
+  }
+
+  auto tv0 = makeContigConcreteTensor({2048, 32});
+  auto tv1 = makeContigConcreteTensor(tv1_shape);
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+
+  auto tv2 = sum(tv0, {1});
+  auto tv3 = broadcast(tv2, {false, true});
+  auto tv4 = add(tv0, tv3);
+  auto tv5 = sum(tv0, {0});
+
+  std::vector<bool> broadcast_pattern;
+  for (size_t i = 0; i < tv1_shape.size(); i++) {
+    broadcast_pattern.push_back(tv1_shape[i] == 1);
+  }
+  auto tv6 = broadcast(tv4, broadcast_pattern);
+  auto tv7 = add(tv1, tv6);
+  fusion->addOutput(tv5);
+  fusion->addOutput(tv7);
+
+  auto fusion_copy = *fusion_ptr;
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({2048, 32}, options);
+  auto t1 = at::randn(tv1_shape, options);
+  KernelArgumentHolder args = {t0, t1};
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto cg_outputs = executor_cache.runFusionWithInputs(args);
+
+  // Verify that the fusion executes without issues
+  auto runtime = executor_cache.getMostRecentKernelRuntime();
+  HeuristicParams* heur =
+      runtime->schedulerHeuristics()->heuristicsList().at(0).get();
+  ASSERT_NE(heur, nullptr);
+  ASSERT_TRUE(heur->isA<ReductionParams>());
+  EXPECT_TRUE(heur->as<ReductionParams>()->combined_inner_outer);
+  EXPECT_TRUE(heur->as<ReductionParams>()->tma_warp_specialized);
+  testValidate(&fusion_copy, cg_outputs, args, __LINE__, __FILE__);
+}
+
+// Segmented due to non-concretized dimensions on reduction tensor.
+// Ideally, the scheduler should be able to handle this case.
+// TODO: modify canSchedule check to allow this case.
+TEST_P(NonConcretizedDomainTest, OnReductionTv) {
+  NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
+  auto non_concretized_pos = GetParam();
+
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  auto fusion = fusion_ptr.get();
+  FusionGuard fg(fusion);
+
+  // Create shape with non-concretized dimension at the specified position
+  std::vector<int64_t> tv_shape;
+  if (non_concretized_pos == 0) {
+    tv_shape = {1, 2048, 32}; // Non-concretized at beginning
+  } else if (non_concretized_pos == 1) {
+    tv_shape = {2048, 1, 32}; // Non-concretized in middle
+  } else if (non_concretized_pos == 2) {
+    tv_shape = {2048, 32, 1}; // Non-concretized at end
+  } else {
+    NVF_ERROR("Invalid position: ", non_concretized_pos);
+  }
+  std::vector<bool> broadcast_pattern;
+  for (size_t i = 0; i < tv_shape.size(); i++) {
+    broadcast_pattern.push_back(tv_shape[i] == 1);
+  }
+
+  auto tv0 = makeContigConcreteTensor(tv_shape);
+  auto tv1 = makeContigConcreteTensor(tv_shape);
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+  auto tv2 = sum(tv0, {1});
+  auto tv3 = broadcast(tv2, broadcast_pattern);
+  auto tv4 = add(tv0, tv3);
+  auto tv5 = add(tv1, tv4);
+  auto tv6 = sum(tv0, {0});
+  fusion->addOutput(tv5);
+  fusion->addOutput(tv6);
+
+  auto fusion_copy = *fusion_ptr;
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn(tv_shape, options);
+  auto t1 = at::randn(tv_shape, options);
+  KernelArgumentHolder args = {t0, t1};
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto cg_outputs = executor_cache.runFusionWithInputs(args);
+
+  // Verify that the fusion executes without issues
+  testValidate(&fusion_copy, cg_outputs, args, __LINE__, __FILE__);
+}
+
+INSTANTIATE_TEST_SUITE_P(
+    ,
+    NonConcretizedDomainTest,
+    testing::Values(0, 1, 2),
+    [](const testing::TestParamInfo<int>& info) -> std::string {
+      std::stringstream ss;
+      ss << "non_concretized_pos_" << info.param;
+      return sanitizeTestName(ss.str());
+    });
+
+// Simplified version of test_ws_tma_normalization3.
+// Bug 5374767: Mistral-7B-v0.1 fails with "The non-allocating compute-at IDs
+// are not found in the allocation domain"
+TEST_F(CombinedSchedulerTest, AllocationDomainBroadcast) {
+  NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
+  EnableOptionsGuard opt_guard;
+  EnableOptionsGuard::getCurOptions().set(
+      EnableOption::WarpSpecializedNormalization);
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  long x = 1L, y = 4096L, z = 4096L;
+  auto tv1 = makeContigConcreteTensor({x, y, z});
+  fusion->addInput(tv1);
+  std::vector<IterDomain*> tv1_dom = {tv1->axis(1), tv1->axis(0), tv1->axis(2)};
+  tv1->setAllocationDomain(tv1_dom, true);
+  auto tv2 = sum(tv1, {0, 2});
+  auto tv3 = broadcast(tv2, {true, false, true});
+  auto tv4 = add(tv1, tv3);
+  auto tv5 = sum(tv4, {0, 1});
+  fusion->addOutput(tv4);
+  fusion->addOutput(tv5);
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  // shape: (x, y, z), alloc: (y, x, z), stride: (z, x*z, 1)
+  auto t1 = at::randn({x, y, z}, options).as_strided({x, y, z}, {z, x * z, 1});
+  std::vector<c10::IValue> inputs({t1});
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto outputs = executor_cache.runFusionWithInputs(inputs);
+  testValidate(executor_cache.fusion(), outputs, inputs, __LINE__, __FILE__);
+}
+
+TEST_F(CombinedSchedulerTest, ScalarInput) {
+  NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
+  EnableOptionsGuard opt_guard;
+  EnableOptionsGuard::getCurOptions().set(
+      EnableOption::WarpSpecializedNormalization);
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  long x = 4096L, y = 4096L;
+  auto tv1 = makeContigConcreteTensor({x, y});
+  auto tv2 = makeContigTensor(0, DataType::Float);
+  fusion->addInput(tv1);
+  fusion->addInput(tv2);
+  auto tv3 = sum(tv1, {1});
+  auto tv4 = broadcast(tv3, {false, true});
+  auto tv5 = add(tv1, tv4);
+  auto tv6 = add(tv2, tv5);
+  auto tv7 = sum(tv1, {0});
+  fusion->addOutput(tv6);
+  fusion->addOutput(tv7);
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t1 = at::randn({x, y}, options);
+  auto t2 = at::randn({}, options);
+  std::vector<c10::IValue> inputs({t1, t2});
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto outputs = executor_cache.runFusionWithInputs(inputs);
+  testValidate(executor_cache.fusion(), outputs, inputs, __LINE__, __FILE__);
+}
 } // namespace nvfuser

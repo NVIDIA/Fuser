@@ -5,6 +5,7 @@
 
 from nvfuser_direct import FusionDefinition, DataType
 import torch
+import pytest
 
 
 def test_fusion_definition_print():
@@ -143,6 +144,45 @@ __global__ void nvfuser_pointwise_f0_c1_r0_g0(Tensor<float, 3, 3> T0, Tensor<flo
     assert fd.fec.get_cuda_kernel(inputs) == cuda_kernel
 
 
+def test_repro_script_for():
+    inputs = [
+        torch.ones(2, 4, 8, device="cuda"),
+        torch.ones(2, 4, 8, device="cuda"),
+    ]
+
+    with FusionDefinition() as fd:
+        t0 = fd.from_pytorch(inputs[0])
+        t1 = fd.from_pytorch(inputs[1])
+        c0 = fd.define_scalar(3.0)
+
+        t2 = fd.ops.add(t0, t1)
+        t3 = fd.ops.mul(t2, c0)
+        t4 = fd.ops.sum(t3, [1], False, DataType.Float)
+
+        fd.add_output(t4)
+
+    expected_repro = """
+import torch
+from nvfuser_direct import FusionDefinition, DataType
+def nvfuser_fusion(fd : FusionDefinition) -> None :
+    tv0 = fd.define_tensor(shape=[-1, -1, -1], contiguity=[True, True, True], dtype=DataType.Float, is_cpu=False)
+    tv1 = fd.define_tensor(shape=[-1, -1, -1], contiguity=[True, True, True], dtype=DataType.Float, is_cpu=False)
+    tv2 = fd.ops.add(tv0, tv1)
+    c7 = fd.define_scalar(3.00000, dtype=DataType.Double)
+    tv3 = fd.ops.mul(tv2, c7)
+    tv4 = fd.ops.sum(tv3, dims=[1], dtype=DataType.Float)
+    fd.add_output(tv4)
+with FusionDefinition() as fd:
+    nvfuser_fusion(fd)
+
+inputs = [
+    torch.testing.make_tensor((2, 4, 8), dtype=torch.float32, device='cuda:0'),
+    torch.testing.make_tensor((2, 4, 8), dtype=torch.float32, device='cuda:0'),
+]
+fd.execute(inputs)\n"""
+    assert expected_repro in fd.repro_script_for(inputs)
+
+
 def test_define_tensor():
     with FusionDefinition() as fd:
         tv0 = fd.define_tensor(
@@ -169,3 +209,29 @@ def test_define_tensor():
     ]
     outputs = fd.execute(inputs)
     assert torch.allclose(outputs[0], inputs[0] + inputs[1])
+
+
+@pytest.mark.skipif(
+    torch.cuda.device_count() < 2,
+    reason="test_selected_device requires multiple GPUs",
+)
+def test_execute_with_different_device():
+    inputs = [
+        torch.ones(2, 4, 8, device="cuda:1"),
+        torch.ones(2, 4, 8, device="cuda:1"),
+    ]
+
+    with FusionDefinition() as fd:
+        t0 = fd.from_pytorch(inputs[0])
+        t1 = fd.from_pytorch(inputs[1])
+        c0 = fd.define_scalar(3.0)
+
+        t2 = fd.ops.add(t0, t1)
+        t3 = fd.ops.mul(t2, c0)
+        t4 = fd.ops.sum(t3, [1], False, DataType.Float)
+
+        fd.add_output(t4)
+
+    outputs = fd.execute(inputs, device="cuda:1")
+    assert len(outputs) == 1
+    assert outputs[0].device.index == 1

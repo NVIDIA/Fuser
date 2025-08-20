@@ -227,7 +227,7 @@ at::Tensor shardTensor(
     const int64_t axis,
     const DeviceMesh& mesh,
     const DeviceIdxType device_id) {
-  auto i = mesh.idxOf(device_id);
+  auto i = mesh.linearIndexOf(device_id);
   auto extent = tensor.size(axis);
   auto nslices = mesh.size();
   NVF_CHECK(
@@ -640,7 +640,7 @@ int64_t requestedNumberOfDevices(Fusion* fusion) {
       max_index = std::max(max_index, tv->getDeviceMesh().maxDeviceId());
     }
   }
-  return static_cast<int64_t>(max_index + 1);
+  return max_index + 1;
 }
 
 void unshard(TensorView* tv) {
@@ -665,8 +665,8 @@ std::set<DeviceIdxType> involvedDevices(Expr* expr) {
         ir_utils::filterByType<TensorView>(expr->outputs())}) {
     for (auto* tv : tvs) {
       if (tv->hasDeviceMesh()) {
-        auto& mesh = tv->getDeviceMesh().vector();
-        std::copy(mesh.begin(), mesh.end(), std::inserter(ret, ret.end()));
+        const auto& mesh = tv->getDeviceMesh().vector();
+        ret.insert(mesh.begin(), mesh.end());
       } else {
         ret.insert(0);
       }

@@ -23,7 +23,13 @@ void initNvFuserPythonBindings(PyObject* module) {
   bindCutlass(nvfuser);
 #endif
 
-  auto cleanup = []() -> void { Communicator::getInstance().cleanup(); };
+  auto cleanup = []() -> void {
+    // cleanup the communicator only if it is_available.
+    Communicator& c = Communicator::getInstance();
+    if (c.is_available()) {
+      c.cleanup();
+    }
+  };
   nvfuser.add_object("_cleanup", py::capsule(cleanup));
 }
 

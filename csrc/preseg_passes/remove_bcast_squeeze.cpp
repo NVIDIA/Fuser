@@ -374,8 +374,8 @@ TensorView* maybeDoReplacement(TensorView* orig) {
   //      v
   //  [b{1}, i0]
   //
-  // Such resharding expressions won't be resolved by `insert_reshardings`
-  // because `insert_reshardings` runs before `remove_bcast_squeeze`.
+  // Such resharding expressions won't be resolved by `decompose_reshardings`
+  // because `decompose_reshardings` runs before `remove_bcast_squeeze`.
   // Therefore, if resharding is needed, instead of replacing `orig` with
   // `replacement`, we link them with a resharding `set`.
   bool needs_resharding = false;

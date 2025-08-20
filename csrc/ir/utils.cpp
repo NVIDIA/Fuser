@@ -187,7 +187,7 @@ namespace ValReplacement {
 // Creates a new Expr substituting current with producer
 struct SubstituteInExpr : public OptOutMutator {
  public:
-  static Expr* subsitute(Expr* expr, Val* reference, Val* substitute) {
+  static Expr* substitute(Expr* expr, Val* reference, Val* substitute) {
     NVF_ERROR(
         expr != nullptr && reference != nullptr && substitute != nullptr,
         "Nullptr arg found.");
@@ -217,7 +217,7 @@ struct SubstituteInExpr : public OptOutMutator {
 
 Expr* replaceValInExprInputs(Expr* expr, Val* reference, Val* substitute) {
   FusionGuard fg(expr->fusion());
-  return ValReplacement::SubstituteInExpr::subsitute(
+  return ValReplacement::SubstituteInExpr::substitute(
       expr, reference, substitute);
 }
 
@@ -1027,14 +1027,15 @@ CompareDomainResult compareDomains(
       toDelimitedString(dom1));
 
   dom0.insert(dom0.end(), additional_ids.begin(), additional_ids.end());
-  auto exprs =
-      getExprsBetween<IRBFS>(
-          {dom0.begin(), dom0.end()}, {dom1.begin(), dom1.end()}, false)
-          .first;
+  auto dom0_to_dom1_exprs = getExprsBetween<IRBFS>(
+                                {dom0.begin(), dom0.end()},
+                                {dom1.begin(), dom1.end()},
+                                /*require_all_to_visited=*/false)
+                                .first;
 
   std::unordered_set<Val*> frontier(dom0.begin(), dom0.end());
 
-  for (auto [expr, direction] : exprs) {
+  for (auto [expr, direction] : dom0_to_dom1_exprs) {
     NVF_ERROR(
         std::all_of(expr->inputs().begin(), expr->inputs().end(), [](Val* v) {
           return v->isA<IterDomain>();
@@ -1551,8 +1552,8 @@ std::vector<IterDomain*> strideOrderToAllocation(
   return allocation_domain;
 }
 
-std::optional<std::pair<int64_t, int64_t>> getPrecisionOfProducerConsumerTensors(
-    UnaryOp* uop) {
+std::optional<std::pair<int64_t, int64_t>>
+getPrecisionOfProducerConsumerTensorsBit(UnaryOp* uop) {
   NVF_CHECK(uop != nullptr);
   NVF_CHECK(
       uop->getUnaryOpType() == UnaryOpType::Cast,
@@ -1577,8 +1578,7 @@ std::optional<std::pair<int64_t, int64_t>> getPrecisionOfProducerConsumerTensors
   }
 
   return std::make_pair(
-      primDataTypeSizeByte(*inp_prim_type),
-      primDataTypeSizeByte(*out_prim_type));
+      primDataTypeSizeBit(*inp_prim_type), primDataTypeSizeBit(*out_prim_type));
 }
 
 int64_t getTMemLdStVectorizeSize(TensorView* consumer_tv) {
