@@ -507,7 +507,6 @@ void PropagateShardingsPass::runPass(Fusion* fusion) {
 
     for (TensorView* target : inputs) {
       // Allow inputs to be stream parallelized for easier analysis.
-      // Stream parallelism on fusion
       if (user_sharded_tvs.count(target) && !target->isFusionInput()) {
         continue;
       }
