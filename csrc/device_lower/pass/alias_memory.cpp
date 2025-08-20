@@ -214,7 +214,7 @@ class BufferReuseDebugPrinter {
   using DebugEntryPtr = std::unique_ptr<DebugEntry>;
 
  public:
-  BufferReuseDebugPrinter() : ir_printer_(os_) {};
+  BufferReuseDebugPrinter() = default;
 
   std::string dumpDebugInfo(const AllocationInfoMap* allocation_info_map) {
     allocation_info_map_ = allocation_info_map;
@@ -314,7 +314,6 @@ class BufferReuseDebugPrinter {
 
  private:
   std::stringstream os_;
-  IrPrinter ir_printer_;
   int indent_level_ = 0;
 
   std::vector<DebugEntryPtr> debug_info_;

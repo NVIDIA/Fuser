@@ -412,7 +412,7 @@ std::ostream& Fusion::print(std::ostream& os, bool include_tensor_transforms)
   }
 
   os << "\n%kernel {\n";
-  IrMathPrinter op_exprs(os);
+  IrPrinter op_exprs(os);
   op_exprs.handle(this);
   if (include_tensor_transforms) {
     os << "\nTransformPrinter : \n";
