@@ -11,7 +11,6 @@
 #include <runtime/executor_abstract.h>
 #include <runtime/executor_kernel_arg.h>
 #include <runtime/executor_params.h>
-#include <scheduler/scheduler_types.h>
 #include <memory>
 #include <string>
 
@@ -54,15 +53,6 @@ class CutlassExecutor : public ExecutorAbstract {
   }
 
  private:
-  // Generate CUTLASS C++ code from the fusion (legacy method)
-  std::string generateCutlassCode(Fusion* fusion);
-
-  // Compile the generated code using NVRTC or nvcc (legacy method)
-  void compileGeneratedCode(const std::string& code);
-
-  // Extract launch parameters from compiled kernel (legacy method)
-  void extractLaunchParams();
-
   // Allocate output tensors
   KernelArgumentHolder allocateOutputs(
       Fusion* fusion,

@@ -827,7 +827,6 @@ list(APPEND JIT_TEST_SRCS
   ${NVFUSER_ROOT}/tests/cpp/test_circular_buffering_ping_pong.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_combined_inner_outer_reduction.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_compute_at_map.cpp
-  ${NVFUSER_ROOT}/tests/cpp/test_cutlass_scheduler.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_compute_with.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_contiguity_id_model.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_driver_api.cpp
@@ -1063,6 +1062,7 @@ if(BUILD_TEST)
 
   set(MATMUL_TEST_SRCS)
   list(APPEND MATMUL_TEST_SRCS
+    ${NVFUSER_ROOT}/tests/cpp/test_cutlass_scheduler.cpp
     ${NVFUSER_ROOT}/tests/cpp/test_translate_mma.cpp
     ${NVFUSER_ROOT}/tests/cpp/test_matmul.cpp
     ${NVFUSER_ROOT}/tests/cpp/test_matmul_aten_evaluation.cpp

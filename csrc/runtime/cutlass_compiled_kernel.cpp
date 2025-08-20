@@ -18,8 +18,6 @@
 #include <runtime/cutlass_compiled_kernel.h>
 #include <runtime/executor_kernel_arg.h>
 #include <runtime/executor_params.h>
-#include <scheduler/cutlass.h>
-#include <scheduler/scheduler_types.h>
 #include <unistd.h>
 #include <utils.h>
 

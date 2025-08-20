@@ -51,6 +51,10 @@ std::unique_ptr<HeuristicParams> CutlassParams::clone() const {
 bool CutlassScheduler::canScheduleCompileTime(Fusion* fusion) {
   FUSER_PERF_SCOPE("CutlassScheduler::canScheduleCompileTime");
 
+  // TODO: Enable this scheduler by default once we are confident in the pattern
+  // matching and heuristic
+  return false;
+
   // Check if fusion has a supported matmul pattern
   if (!hasSupportedMatmulPattern(fusion)) {
     return false;
@@ -112,8 +116,8 @@ void CutlassScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
   // like split, reorder, etc. The scheduler type is already determined
   // by the time this method is called.
 
-  // TODO: We may want to add metadata to the fusion or specific ops
-  // to guide CUTLASS code generation
+  // We may want to add metadata to the fusion or specific ops to guide CUTLASS
+  // code generation
 }
 
 bool CutlassScheduler::hasSupportedMatmulPattern(Fusion* fusion) {

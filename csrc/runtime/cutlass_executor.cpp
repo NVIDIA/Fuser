@@ -15,7 +15,6 @@
 #include <runtime/allocations.h>
 #include <runtime/cutlass_compiled_kernel.h>
 #include <runtime/cutlass_executor.h>
-#include <scheduler/cutlass.h>
 #include <type.h>
 
 namespace nvfuser {
@@ -166,22 +165,6 @@ KernelArgumentHolder CutlassExecutor::allocateOutputs(
   }
 
   return outputs;
-}
-
-// Keep these legacy methods for compatibility
-std::string CutlassExecutor::generateCutlassCode(Fusion* fusion) {
-  FUSER_PERF_SCOPE("CutlassExecutor::generateCutlassCode");
-  return generated_code_;
-}
-
-void CutlassExecutor::compileGeneratedCode(const std::string& code) {
-  FUSER_PERF_SCOPE("CutlassExecutor::compileGeneratedCode");
-  // No longer used - compilation happens in CutlassCompiledKernel
-}
-
-void CutlassExecutor::extractLaunchParams() {
-  FUSER_PERF_SCOPE("CutlassExecutor::extractLaunchParams");
-  // No longer used - launch params are extracted from CutlassCompiledKernel
 }
 
 } // namespace nvfuser
