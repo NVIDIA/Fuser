@@ -1135,16 +1135,16 @@ TensorView* expand(TensorView* inp, const std::vector<Val*>& expanded_sizes) {
     out_domain.push_back(out_id_builder.build());
   }
 
-  TensorView* out_tensor = IrBuilder::create<TensorView>(
+  auto* out = IrBuilder::create<TensorView>(
       IrBuilder::create<TensorDomain>(
           out_domain, TensorDomain::getContiguityFilledWith(out_domain, true)),
       inp->getDataType().value());
   if (!expanded) {
-    IrBuilder::create<LoadStoreOp>(LoadStoreOpType::Set, out_tensor, inp);
+    IrBuilder::create<LoadStoreOp>(LoadStoreOpType::Set, out, inp);
   } else {
-    IrBuilder::create<ExpandOp>(out_tensor, inp, maybe_expanded_sizes);
+    IrBuilder::create<ExpandOp>(out, inp, maybe_expanded_sizes);
   }
-  return out_tensor;
+  return out;
 }
 
 TensorView* expand_as(TensorView* inp, TensorView* other) {
@@ -1196,16 +1196,16 @@ TensorView* expand_as(TensorView* inp, TensorView* other) {
     maybe_expanded_sizes.push_back(maybe_expanded_size);
   }
 
-  TensorView* out_tensor = IrBuilder::create<TensorView>(
+  auto* out = IrBuilder::create<TensorView>(
       IrBuilder::create<TensorDomain>(
           out_domain, TensorDomain::getContiguityFilledWith(out_domain, true)),
       inp->getDataType().value());
   if (!expanded) {
-    IrBuilder::create<LoadStoreOp>(LoadStoreOpType::Set, out_tensor, inp);
+    IrBuilder::create<LoadStoreOp>(LoadStoreOpType::Set, out, inp);
   } else {
-    IrBuilder::create<ExpandOp>(out_tensor, inp, maybe_expanded_sizes);
+    IrBuilder::create<ExpandOp>(out, inp, maybe_expanded_sizes);
   }
-  return out_tensor;
+  return out;
 }
 
 TensorView* repeat(
