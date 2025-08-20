@@ -39,12 +39,31 @@ TaskGraph::TaskGraph(
         task.inputs.begin(), task.inputs.end(), [&](DataId data_id) {
           return getData(data_id).definition.has_value();
         }));
+    // Validate input
+    for (DataId input_id : task.inputs) {
+      NVF_ERROR(input_id >= 0 && (size_t)input_id < data_.size());
+    }
+    for (DataId output_id : task.outputs) {
+      NVF_ERROR(output_id >= 0 && (size_t)output_id < data_.size());
+    }
   }
   num_uses_.reserve(data_.size());
   for (const Data& data : data_) {
     num_uses_.push_back((TaskId)data.uses.size());
     if (!data.definition.has_value()) {
       initial_allocation_ += (Size)data.size;
+    }
+    // Validate input
+    if (data.definition.has_value()) {
+      DataId d = data.definition.value();
+      NVF_ERROR(d >= 0 && (size_t)d < tasks_.size());
+    }
+    if (data.aliases_input.has_value()) {
+      DataId a = data.aliases_input.value();
+      NVF_ERROR(a >= 0 && (size_t)a < tasks_.size());
+    }
+    for (TaskId use : data.uses) {
+      NVF_ERROR(use >= 0 && (size_t)use < tasks_.size());
     }
   }
 }
@@ -277,7 +296,13 @@ class TaskSorter {
     }
 
     // Set up outstanding_dependencies_, future_uses_, and ready_tasks_
-    outstanding_dependencies_.reserve(graph_.numTasks());
+    future_uses_.resize(graph_.numData(), 0);
+    for (const TaskGraph::DataId data_id : arange(graph_.numData())) {
+      const TaskGraph::Data& data = graph_.getData(data_id);
+      future_uses_.at((size_t)data_id) = data.uses.size();
+    }
+
+    outstanding_dependencies_.resize(graph_.numTasks(), 0);
     for (const TaskGraph::TaskId task_id : arange(graph_.numTasks())) {
       const TaskGraph::Task& task = graph_.getTask(task_id);
       TaskGraph::DataId inputs_to_compute = 0;
@@ -288,16 +313,10 @@ class TaskSorter {
           inputs_to_compute++;
         }
       }
-      outstanding_dependencies_.push_back(inputs_to_compute);
+      outstanding_dependencies_.at((size_t)task_id) = inputs_to_compute;
       if (taskIsReady(task_id)) {
         ready_tasks_.insert(task_id);
       }
-    }
-
-    future_uses_.reserve(graph_.numData());
-    for (const TaskGraph::DataId data_id : arange(graph_.numData())) {
-      const TaskGraph::Data& data = graph_.getData(data_id);
-      future_uses_.push_back(data.uses.size());
     }
 
     // Initialize best_usage
