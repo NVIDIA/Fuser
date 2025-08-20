@@ -61,12 +61,18 @@ class CompileTimeChecker : private IterVisitor {
             UnaryOp,
             BinaryOp,
             TernaryOp,
+            FullOp,
+            ArgsortOp,
             ScanOp,
             PadOp>();
     if (!can_schedule_) {
       return;
     }
     IterVisitor::dispatch(expr);
+  }
+
+  void handle(ArgsortOp* argsort) override {
+    checkConstrainedTv(ir_utils::getTvOutput(argsort), {argsort->dim()});
   }
 
   void handle(PadOp* pad) override {
@@ -160,6 +166,10 @@ class RunTimeChecker : private IterVisitor {
     IterVisitor::dispatch(expr);
   }
 
+  void handle(ArgsortOp* argsort) override {
+    checkConstrainedTv(ir_utils::getTvOutput(argsort), {argsort->dim()});
+  }
+
   void handle(PadOp* pad) override {
     checkConstrainedTv(ir_utils::getTvOutput(pad), pad->getPaddedAxes());
   }
@@ -236,6 +246,30 @@ class ConstrainedOpScheduler : public OptOutDispatch {
     }
   }
 
+  void handle(ArgsortOp* argsort) override {
+    std::cerr << "Scheduling " << argsort->toString();
+
+    auto in_tv = ir_utils::getTvInput(argsort);
+    auto out_tv = ir_utils::getTvOutput(argsort);
+    auto dim = argsort->dim();
+
+    // Currently, input must be a register tensor
+    if (in_tv->getMemoryType() != MemoryType::Local) {
+      in_tv->cacheAfter();
+      // No longer a valid pointer
+      argsort = nullptr;
+    }
+
+    // Currently, output must be a register tensor
+    if (out_tv->getMemoryType() != MemoryType::Local) {
+      out_tv = out_tv->cacheBefore();
+      // No longer a valid pointer
+      argsort = nullptr;
+    }
+
+    scheduleConstrainedTv(out_tv, {dim});
+  }
+
   void handle(PadOp* pad) override {
     std::cerr << "Scheduling " << pad->toString();
 
@@ -255,11 +289,15 @@ class ConstrainedOpScheduler : public OptOutDispatch {
     // Currently, scan input must be a register tensor
     if (in_tv->getMemoryType() != MemoryType::Local) {
       in_tv->cacheAfter();
+      // No longer a valid pointer
+      scan = nullptr;
     }
 
     // Currently, scan output must be a register tensor
     if (out_tv->getMemoryType() != MemoryType::Local) {
       out_tv = out_tv->cacheBefore();
+      // No longer a valid pointer
+      scan = nullptr;
     }
 
     scheduleConstrainedTv(out_tv, {scan_dim});

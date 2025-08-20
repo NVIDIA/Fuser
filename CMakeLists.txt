@@ -1069,6 +1069,9 @@ if(BUILD_TEST)
   add_test(test_matmul "${MATMUL_TEST_SRCS}" "")
   list(APPEND TEST_BINARIES test_matmul)
 
+  add_test(test_greedy "${NVFUSER_ROOT}/tests/cpp/test_greedy.cpp" "")
+  list(APPEND TEST_BINARIES test_greedy)
+
   add_test(test_external_src "${NVFUSER_ROOT}/tests/cpp/test_external_src.cpp" "")
   list(APPEND TEST_BINARIES test_external_src)
 

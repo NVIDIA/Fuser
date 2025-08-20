@@ -149,30 +149,24 @@ TEST_F(ScanTest, ScanWithSimpleArithmetic) {
   FusionGuard fg(fusion_ptr.get());
   Fusion& fusion = *fusion_ptr;
 
-  auto tv0 = makeConcreteTensor({3, 4, 8});
+  auto tv0 = makeConcreteTensor({4, 8});
   fusion.addInput(tv0);
 
   // Single arithmetic operation before scan
   auto tv1 = add(tv0, IrBuilder::create<Val>(1.0));
 
   // Scan operation
-  auto tv2 = scan(tv1, /*dim=*/-1, BinaryOpType::Add);
+  auto tv2 = scan(tv1, /*dim=*/1, BinaryOpType::Add);
 
-  auto tv3 = set(tv2);
-
-  // fusion.addOutput(tv2);
-  fusion.addOutput(tv3);
+  fusion.addOutput(tv2);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::Tensor input = at::randn({3, 4, 8}, options);
+  at::Tensor input = at::randn({4, 8}, options);
 
-  // FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  // auto outputs = executor_cache.runFusionWithInputs({input});
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs({input});
 
-  auto outputs =
-      scheduleAndRun(&fusion, SchedulerType::Greedy, {input}).outputs;
-
-  testValidate(&fusion, outputs, {input}, __LINE__, __FILE__);
+  testValidate(executor_cache.fusion(), outputs, {input}, __LINE__, __FILE__);
 }
 
 // Test ScanOp with multiple arithmetic operations - investigating complex
@@ -279,26 +273,25 @@ TEST_F(ScanTest, KernelExecutorScanAdd) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
-  // Create input tensor [3, 4, 8]
-  std::vector<int64_t> shape = {3, 4, 8};
+  // Create input tensor [4, 8]
+  std::vector<int64_t> shape = {4, 8};
   auto tv0 = makeContigConcreteTensor(shape);
   fusion.addInput(tv0);
 
   auto tv1 = set(tv0);
   // Create scan operation along dimension 1, Add operation
-  auto tv_result = scan(tv1, /*dim=*/-1, BinaryOpType::Add);
+  auto tv_result = scan(tv1, /*dim=*/1, BinaryOpType::Add);
   auto tv_output = set(tv_result);
   fusion.addOutput(tv_output);
 
   // Parallelization strategy
   for (auto tv : {tv1, tv_result, tv_output}) {
-    tv->axis(0)->parallelize(ParallelType::BIDy);
-    tv->axis(1)->parallelize(ParallelType::BIDx);
+    tv->axis(0)->parallelize(ParallelType::BIDx);
     tv->axis(1)->parallelize(ParallelType::TIDx);
   }
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  auto input = at::randn({3, 4, 8}, options);
+  auto input = at::randn({4, 8}, options);
 
   KernelExecutor ke;
   ke.compile(&fusion, {input});
@@ -439,60 +432,6 @@ TEST_F(ScanTest, KernelExecutorMultipleScan) {
   KernelExecutor ke;
   ke.compile(&fusion, {input});
   auto outputs = ke.run({input});
-
-  testValidate(&fusion, outputs, {input}, __LINE__, __FILE__);
-}
-
-TEST_F(ScanTest, ScanFollowedByPad) {
-  auto fusion_ptr = std::make_unique<Fusion>();
-  FusionGuard fg(fusion_ptr.get());
-  Fusion& fusion = *fusion_ptr;
-
-  auto tv0 = makeConcreteTensor({10});
-  fusion.addInput(tv0);
-
-  auto tv1 = scan(tv0, /*dim=*/-1, BinaryOpType::Add);
-
-  auto tv3 =
-      pad(tv1, {fusion.oneVal(DataType::Int), fusion.zeroVal(DataType::Int)});
-
-  fusion.addOutput(tv3);
-
-  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::Tensor input = at::randn({10}, options);
-
-  // FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  // auto outputs = executor_cache.runFusionWithInputs({input});
-
-  auto outputs =
-      scheduleAndRun(&fusion, SchedulerType::Greedy, {input}).outputs;
-
-  testValidate(&fusion, outputs, {input}, __LINE__, __FILE__);
-}
-
-TEST_F(ScanTest, ScanFollowedByPadLarge) {
-  auto fusion_ptr = std::make_unique<Fusion>();
-  FusionGuard fg(fusion_ptr.get());
-  Fusion& fusion = *fusion_ptr;
-
-  auto tv0 = makeConcreteTensor({1024 * 1024});
-  fusion.addInput(tv0);
-
-  auto tv1 = scan(tv0, /*dim=*/-1, BinaryOpType::Add);
-
-  auto tv3 =
-      pad(tv1, {fusion.oneVal(DataType::Int), fusion.zeroVal(DataType::Int)});
-
-  fusion.addOutput(tv3);
-
-  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::Tensor input = at::randn({1024 * 1024}, options);
-
-  // FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  // auto outputs = executor_cache.runFusionWithInputs({input});
-
-  auto outputs =
-      scheduleAndRun(&fusion, SchedulerType::Greedy, {input}).outputs;
 
   testValidate(&fusion, outputs, {input}, __LINE__, __FILE__);
 }
