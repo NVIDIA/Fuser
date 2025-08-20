@@ -23,6 +23,8 @@ class SyncMap {
   //! blockIdx, there must be a mapped consumer axis with the
   //! same ParallelType with some exceptions.
   //!
+  //! ComputeAtMap is already built as they are used to validate consistency.
+  //!
   //! Fills needs_raw_sync with output TVs if they need a raw sync if on smem or
   //! gmem. The second entry in this map is the parallel dimensions being
   //! communicated across.
@@ -68,7 +70,14 @@ class SyncMap {
   }
 
  private:
+  // RAW dependency parallel types of each tensor
   std::unordered_map<TensorView*, ParallelTypeBitmap> needs_raw_sync_;
+
+  // Mappings of per-consumer dependecy parallel types. Maps from a
+  // tensor to a consumer tensor and its RAW
+  // dependency parallel types with respect to the consumer
+  // tensor. Aggregating the parallel types of all consumers yields
+  // the same parallel types as needs_raw_sync_
   std::unordered_map<
       TensorView*,
       std::unordered_map<TensorView*, ParallelTypeBitmap>>

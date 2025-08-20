@@ -2273,6 +2273,11 @@ TensorView* argsort(
     int64_t dim,
     bool descending,
     bool stable) {
+  const std::vector<IterDomain*> logical_dom =
+      TensorDomain::noReductions(inp->getLogicalDomain());
+
+  dim = wrapDim(dim, std::ssize(logical_dom));
+
   Val* out = ops::newValLike(inp, DataType::Int);
   IrBuilder::create<ArgsortOp>(out, inp, dim, descending, stable);
   return out->as<TensorView>();

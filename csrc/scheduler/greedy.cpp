@@ -627,6 +627,7 @@ void GreedyScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
   }
 
   for (const auto& tv : tvs_to_upload_to_smem) {
+    std::cerr << "Conflicting tv: " << tv->toString() << "\n";
     const auto& tv_sync_map = sync_map.producerConsumerRawSync().at(tv);
     std::vector<Expr*> uses_to_update;
     std::ranges::copy_if(
@@ -654,7 +655,7 @@ void GreedyScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
 
     copy->setMemoryType(MemoryType::Shared);
 
-    TransformReplay::replayCasP(copy, tv, -1);
+    TransformReplay::selfReplay(tv->domain(), copy->domain());
     std::cerr << "Copy on shared memory: " << copy->toString() << "\n";
 
     for (auto tv_use : uses_to_update) {

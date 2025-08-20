@@ -649,6 +649,9 @@ std::pair<TensorDomain*, int64_t> TransformReplay::replayCasP(
     TransformReplayOptions opt) {
   FUSER_PERF_SCOPE("TransformReplay::replayCasP");
 
+  std::cerr << "replayCasP: " << consumer->toString() << ", "
+            << producer->toString() << "\n";
+
   // If this is a reduction operation, we may call transform_replay on the same
   // tensor view. When this happens, just return thet target view.
   if (consumer == producer) {
@@ -700,6 +703,10 @@ std::pair<TensorDomain*, int64_t> TransformReplay::replayCasP(
   replay_CasP.setErrorOnFailure(false)
       .setReplaySwizzle(opt.replay_swizzle)
       .setReplayResize(opt.replay_resize);
+
+  for (const auto& [x, y] : replay_CasP.getReplay()) {
+    std::cerr << "Replay: " << x->toString() << " -> " << y->toString() << "\n";
+  }
 
   auto consumer_loop_ids(replay_CasP.getUnorderedLeafIDs());
 
@@ -862,6 +869,8 @@ std::pair<TensorDomain*, int64_t> TransformReplay::replayCasP(
       new_IDs.push_back(id);
     }
   }
+
+  std::cerr << "Replayed: " << toDelimitedString(new_IDs) << "\n";
 
   if (!opt.replay_allocation) {
     TensorDomain* replayed = IrBuilder::createInContainer<TensorDomain>(

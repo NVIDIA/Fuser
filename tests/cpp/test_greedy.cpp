@@ -32,24 +32,50 @@ class GreedySchedulerTest : public NVFuserTest {
 
 // Scan, followed by pad. Same fusion as
 // SgLangMoETest.ComputeExpertOffsets
-TEST_F(GreedySchedulerTest, ScanThenPad) {
+TEST_F(GreedySchedulerTest, ScanThenPad1D) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
 
-  int64_t s = 128;
+  std::vector<int64_t> shape{128};
 
-  auto tv0 = makeContigConcreteTensor({s}, DataType::Int);
+  auto tv0 = makeContigConcreteTensor(shape, DataType::Int);
   fusion.addInput(tv0);
 
-  auto tv1 = cumsum(tv0, 0);
+  auto tv1 = cumsum(tv0, -1);
   auto tv2 =
       pad(tv1, {fusion.oneVal(DataType::Int), fusion.zeroVal(DataType::Int)});
 
   fusion.addOutput(tv2);
 
   auto options = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
-  auto t0 = at::randint(0, 100, {s}, options);
+  auto t0 = at::randint(0, 100, shape, options);
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs({t0});
+  testValidate(executor_cache.fusion(), outputs, {t0}, __LINE__, __FILE__);
+
+  EXPECT_FALSE(executor_cache.getMostRecentKernelRuntime()->isSegmented());
+}
+
+TEST_F(GreedySchedulerTest, ScanThenPad3D) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  std::vector<int64_t> shape{3, 4, 128};
+
+  auto tv0 = makeContigConcreteTensor(shape, DataType::Int);
+  fusion.addInput(tv0);
+
+  auto tv1 = cumsum(tv0, -1);
+  auto tv2 =
+      pad(tv1, {fusion.oneVal(DataType::Int), fusion.zeroVal(DataType::Int)});
+
+  fusion.addOutput(tv2);
+
+  auto options = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
+  auto t0 = at::randint(0, 100, shape, options);
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
   auto outputs = executor_cache.runFusionWithInputs({t0});
@@ -64,17 +90,17 @@ TEST_F(GreedySchedulerTest, ArgsortThenDiv) {
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
 
-  int64_t s = 128;
+  std::vector<int64_t> shape{128};
 
-  auto tv0 = makeContigConcreteTensor({s}, DataType::Int);
+  auto tv0 = makeContigConcreteTensor(shape, DataType::Int);
   fusion.addInput(tv0);
 
-  auto tv1 = argsort(tv0, 0, /*descending=*/true, /*stable=*/true);
+  auto tv1 = argsort(tv0, -1, /*descending=*/true, /*stable=*/true);
   auto tv2 = mul(tv1, IrBuilder::create<Val>(100, DataType::Int));
   fusion.addOutput(tv2);
 
   auto options = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
-  auto t0 = at::randint(0, 100, {s}, options);
+  auto t0 = at::randint(0, 100, shape, options);
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
   auto outputs = executor_cache.runFusionWithInputs({t0});
