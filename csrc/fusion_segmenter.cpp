@@ -18,6 +18,7 @@
 #include <ir/cloner.h>
 #include <ir/graphviz.h>
 #include <ir/iostream.h>
+#include <ir/printer.h>
 #include <ir/utils.h>
 #include <multidevice/utils.h>
 #include <ops/alias.h>
