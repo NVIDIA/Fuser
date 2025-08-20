@@ -32,7 +32,7 @@ class GreedySchedulerTest : public NVFuserTest {
 
 // Scan, followed by pad. Same fusion as
 // SgLangMoETest.ComputeExpertOffsets
-TEST_F(GreedySchedulerTest, ScanThenPad1D) {
+TEST_F(GreedySchedulerTest, ScanPad1D) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
@@ -58,7 +58,7 @@ TEST_F(GreedySchedulerTest, ScanThenPad1D) {
   EXPECT_FALSE(executor_cache.getMostRecentKernelRuntime()->isSegmented());
 }
 
-TEST_F(GreedySchedulerTest, ScanThenPad3D) {
+TEST_F(GreedySchedulerTest, ScanPad3D) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
@@ -85,7 +85,7 @@ TEST_F(GreedySchedulerTest, ScanThenPad3D) {
 }
 
 // Based on SgLangMoETest.ComputeArgSort
-TEST_F(GreedySchedulerTest, ArgsortThenDiv) {
+TEST_F(GreedySchedulerTest, ArgsortArith) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
@@ -107,6 +107,36 @@ TEST_F(GreedySchedulerTest, ArgsortThenDiv) {
   testValidate(executor_cache.fusion(), outputs, {t0}, __LINE__, __FILE__);
 
   EXPECT_FALSE(executor_cache.getMostRecentKernelRuntime()->isSegmented());
+}
+
+// Currently, argsort requires TIDx to be exact, so this fusion is
+// currently segmented.
+TEST_F(GreedySchedulerTest, ArgsortPadScan) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  std::vector<int64_t> shape{128};
+
+  auto tv0 = makeContigConcreteTensor(shape, DataType::Int);
+  fusion.addInput(tv0);
+
+  auto tv1 = argsort(tv0, -1, /*descending=*/true, /*stable=*/true);
+  auto tv2 =
+      pad(tv1, {fusion.oneVal(DataType::Int), fusion.zeroVal(DataType::Int)});
+  auto tv3 = cumsum(tv2, -1);
+  fusion.addOutput(tv3);
+
+  auto options = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
+  auto t0 = at::randint(0, 100, shape, options);
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs({t0});
+  testValidate(executor_cache.fusion(), outputs, {t0}, __LINE__, __FILE__);
+
+  // TODO: Extend the greedy scheduler to accept the fusion without
+  // segmentation
+  EXPECT_TRUE(executor_cache.getMostRecentKernelRuntime()->isSegmented());
 }
 
 } // namespace nvfuser

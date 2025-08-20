@@ -52,6 +52,9 @@ class CompileTimeChecker : private IterVisitor {
   CompileTimeChecker(Fusion* fusion, const ValGraph& exact_graph)
       : exact_graph_(exact_graph) {
     traverse(fusion);
+    if (needs_exact_block_dim_ && unmapped_tid_detected_) {
+      can_schedule_ = false;
+    }
   }
 
   void dispatch(Expr* expr) override {
@@ -72,6 +75,8 @@ class CompileTimeChecker : private IterVisitor {
   }
 
   void handle(ArgsortOp* argsort) override {
+    needs_exact_block_dim_ = true;
+
     auto out_tv = ir_utils::getTvOutput(argsort);
     checkConstrainedTv(out_tv, {argsort->dim()});
     if (!can_schedule_) {
@@ -118,27 +123,43 @@ class CompileTimeChecker : private IterVisitor {
         constrained_logical_id_offsets.begin(),
         constrained_logical_id_offsets.end());
 
+    ValGroups constrained_ids;
     ValGroups non_constrained_ids;
     for (const auto& [i, logical_id] : enumerate(logical_domain)) {
       if (constrained_logical_id_offset_set.contains(i)) {
-        continue;
+        constrained_ids.pushBack(exact_graph_.toGroup(logical_id));
+      } else {
+        non_constrained_ids.pushBack(exact_graph_.toGroup(logical_id));
       }
-
-      non_constrained_ids.pushBack(exact_graph_.toGroup(logical_id));
     }
 
-    if (ref_block_domain_.has_value()) {
-      if (ref_block_domain_->set() != non_constrained_ids.set()) {
+    if (common_bid_domain_.has_value()) {
+      if (common_bid_domain_->set() != non_constrained_ids.set()) {
         can_schedule_ = false;
         std::stringstream reason;
         reason << "Mismatched unconstrained IDs detected with "
                << tv->toString() << ": "
                << nvfuser::toString(non_constrained_ids)
-               << ". Ref: " << nvfuser::toString(*ref_block_domain_);
+               << ". Ref: " << nvfuser::toString(*common_bid_domain_);
         setRejectReason(reason.str());
       }
     } else {
-      ref_block_domain_ = non_constrained_ids;
+      common_bid_domain_ = non_constrained_ids;
+    }
+
+    std::cerr << "Cur tid: " << nvfuser::toString(constrained_ids) << "\n";
+    std::cerr << "unmapped_tid_detected_: " << unmapped_tid_detected_ << "\n";
+    if (!unmapped_tid_detected_) {
+      if (common_tid_domain_.has_value()) {
+        std::cerr << "common tid: "
+                  << nvfuser::toString(common_tid_domain_.value()) << "\n";
+        if (common_tid_domain_->set() != constrained_ids.set()) {
+          unmapped_tid_detected_ = true;
+          common_tid_domain_.reset();
+        }
+      } else {
+        common_tid_domain_ = constrained_ids;
+      }
     }
   }
 
@@ -155,9 +176,13 @@ class CompileTimeChecker : private IterVisitor {
   const ValGraph& exact_graph_;
 
   bool can_schedule_ = true;
+
   std::string reject_reason_;
 
-  std::optional<ValGroups> ref_block_domain_;
+  std::optional<ValGroups> common_bid_domain_;
+  std::optional<ValGroups> common_tid_domain_;
+  bool unmapped_tid_detected_ = false;
+  bool needs_exact_block_dim_ = false;
 };
 
 class RunTimeChecker : private IterVisitor {
@@ -360,6 +385,7 @@ class ConstrainedOpScheduler : public OptOutDispatch {
     tv->axis(-1)->parallelize(ParallelType::TIDx);
 
     if (tv->getLoopDomain().size() == 1) {
+      std::cerr << "Scheduled: " << tv->toString() << "\n";
       return;
     }
 
@@ -598,6 +624,15 @@ void GreedyScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
 
   ConstrainedOpScheduler::run(fusion, constrained_out_tvs, exact_graph);
 
+  // Need to fetch constrained ops again as cacheAfter/Before may be used
+  // TODO: Cleanup.
+  constrained_exprs = getAllConstrainedOps(fusion);
+  constrained_out_tvs.clear();
+  std::ranges::transform(
+      constrained_exprs,
+      std::back_inserter(constrained_out_tvs),
+      [](const Expr* expr) { return ir_utils::getTvOutput(expr); });
+
   auto tv_to_ref_map = partitionFusion(
       fusion, {constrained_out_tvs.begin(), constrained_out_tvs.end()});
 
@@ -611,7 +646,8 @@ void GreedyScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
       }
     }
 
-    std::cerr << "Scheduling " << toDelimitedString(tvs_to_transform) << "\n";
+    std::cerr << "Scheduling " << toDelimitedString(tvs_to_transform)
+              << ", ref: " << constrained_tv->toString() << "\n";
 
     // constrained_tv must be already scheduled at this point
 

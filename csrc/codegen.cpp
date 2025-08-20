@@ -1607,8 +1607,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
 
     // The runtime device function assumes both input and output are
     // in registers
-    NVF_ERROR_EQ(input->view()->getMemoryType(), MemoryType::Local);
-    NVF_ERROR_EQ(output->view()->getMemoryType(), MemoryType::Local);
+    NVF_ERROR_NE(input->view()->getMemoryType(), MemoryType::Global);
+    NVF_ERROR_NE(output->view()->getMemoryType(), MemoryType::Global);
 
     // Build template arguments following TopKOp pattern
     ArgumentBuilder template_args;
@@ -1660,14 +1660,18 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
         .append(")");
 
     // Second argument: input data array
+    std::string input_array_name = genVariableName(input);
+    if (input->view()->getMemoryType() == MemoryType::Local) {
+      input_array_name += ".array";
+    }
+
     func_args.arg("*(")
         .append(input->dtype())
         .append("(*)[")
         .append(std::to_string(items_per_thread))
         .append("])")
         .append("(")
-        .append(
-            genVariableName(input) + ".array + " + genInline(input->index()))
+        .append(input_array_name + " + " + genInline(input->index()))
         .append(")");
 
     // Third argument: init value
