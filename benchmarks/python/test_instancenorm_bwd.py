@@ -12,8 +12,6 @@ from .normalization import norm_bwd_nvf_benchmark, norm_bwd_baseline_benchmark
 @pytest.mark.parametrize("channels_last", [True, False])
 @pytest.mark.inner_persistent
 @pytest.mark.outer_persistent
-@pytest.mark.pointwise
-@pytest.mark.reduction
 def test_instancenorm_bwd_nvf_benchmark(
     benchmark,
     size: tuple,
@@ -40,8 +38,6 @@ def test_instancenorm_bwd_nvf_benchmark(
 @pytest.mark.parametrize("channels_last", [True, False])
 @pytest.mark.inner_persistent
 @pytest.mark.outer_persistent
-@pytest.mark.pointwise
-@pytest.mark.reduction
 def test_instancenorm_bwd_baseline_benchmark(
     benchmark, size: tuple, dtype: torch.dtype, channels_last: bool, executor: str
 ):

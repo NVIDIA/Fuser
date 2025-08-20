@@ -13,8 +13,6 @@ from .core import DEFAULT_EXECUTORS
 @pytest.mark.parametrize("channels_last", [True, False])
 @pytest.mark.inner_persistent
 @pytest.mark.outer_persistent
-@pytest.mark.pointwise
-@pytest.mark.reduction
 def test_batchnorm_fwd_nvf_benchmark(
     benchmark,
     size: tuple,
