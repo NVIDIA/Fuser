@@ -235,3 +235,37 @@ def test_execute_with_different_device():
     outputs = fd.execute(inputs, device="cuda:1")
     assert len(outputs) == 1
     assert outputs[0].device.index == 1
+
+
+def test_enable_disable_options():
+    m = 24
+    n = 16
+    k = 8
+    inps = [
+        torch.randn(m, k, device="cuda", dtype=torch.float),
+        torch.randn(k, n, device="cuda", dtype=torch.float),
+    ]
+
+    def fusion_func(fd: FusionDefinition, inps) -> None:
+        t0 = fd.from_pytorch(inps[0])
+        t1 = fd.from_pytorch(inps[1])
+        t2 = fd.ops.matmul(t0, t1)
+        fd.add_output(t2)
+
+    with FusionDefinition() as fd:
+        fusion_func(fd, inps=inps)
+
+    # By default, matmul will be be run through expr_eval scheduler.
+    # Through setting the enable and disable options as below,
+    # we can execute it through matmul scheduler. The above fusion will not
+    # be accepted by the matmul scheduler since the outputs are of type Float and raises a RuntimeError.
+    # Note: We use this error-based test since for compatible dtypes (float16/bfloat16),
+    # the matmul scheduler ran into a scheduling error on H100. This test might be more robust against
+    # changes in matmul scheduler in the interim.
+
+    with pytest.raises(
+        RuntimeError, match="Can not find a scheduler to schedule fusion segment"
+    ):
+        fd.execute(
+            inps, _enable_options=["fuse_matmul"], _disable_options=["matmul_expr_eval"]
+        )

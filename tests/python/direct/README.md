@@ -46,15 +46,17 @@ The following 75 tests exist in `tests/python/test_python_frontend.py` but are *
 
 #### Advanced Operations & Features
 
+**Disabled because of CUDA 13 incompatiblity**
+- `test_fusion_profiler` - Tests fusion profiling
+- `test_fusion_profiler_user_schedule` - Tests user-defined fusion profiling
+- `test_fusion_profiler_with_noncodegen_kernels` - Tests profiling with non-codegen kernels
+
 **Tests with More Than 50 Lines of Code:**
 - `test_all_dim_var_mean` - Tests variance and mean across all dimensions
 - `test_arithmetic_ops` - Tests various arithmetic operations
 - `test_broadcast_in_dim_with_dynamic_shapes` - Tests broadcasting with dynamic shapes (79 lines)
 - `test_cat_symbolic` - Tests symbolic concatenation (86 lines)
 - `test_cuda_code_and_scheduled_fusion_ir_strings` - Tests CUDA code generation (101 lines)
-- `test_fusion_profiler` - Tests fusion profiling
-- `test_fusion_profiler_user_schedule` - Tests user-defined fusion profiling
-- `test_fusion_profiler_with_noncodegen_kernels` - Tests profiling with non-codegen kernels
 - `test_mismatched_input_types` - Tests mismatched input type handling (50 lines)
 - `test_random_distinct_values` - Tests random distinct value generation (100 lines)
 - `test_reduction_transpose_sched_issue2317` - Tests reduction transpose scheduling
@@ -76,20 +78,19 @@ The following 75 tests exist in `tests/python/test_python_frontend.py` but are *
 - `test_fusion_information` - Tests fusion information retrieval
 - `test_repro_script_generation` - Tests reproduction script generation (130 lines)
 - `test_debug_output` - Tests debug output functionality
+- `test_compute_contiguity` - Tests contiguity computation
+- `test_static_tensor_sizes` - Tests static tensor sizes
 
 **General Tests -- To Add**
 - `test_no_definition` - Tests undefined fusion behavior
-- `test_enable_disable_options` - Tests enable/disable options
 - `test_from_pytorch_fails_on_cpu_tensor` - Tests CPU tensor handling
 - `test_python_version_API` - Tests Python version API
-- `test_static_tensor_sizes` - Tests static tensor sizes
 
 **Tests with 50 Lines or Less:**
 - `test_allocation_domain_concretization` - Tests allocation domain handling
 - `test_allocation_domain_index_select` - Tests index select with allocation domains
 - `test_complex_constants` - Tests complex number constants
 - `test_complex_rsqrt` - Tests complex reciprocal square root
-- `test_compute_contiguity` - Tests contiguity computation
 - `test_constant_nans` - Tests constant NaN handling
 - `test_expand_to_zero` - Tests expansion to zero dimensions
 - `test_expanded_bcast_tensor` - Tests expanded broadcast tensors
@@ -147,6 +148,7 @@ The following 15 tests exist in `tests/python/direct/test_python_frontend.py` bu
 
 Both test files contain these common tests:
 - `test_basic` - Basic fusion operations
+- `test_enable_disable_options` - Tests enable/disable options
 - `test_basic_fp16` - Basic operations with FP16
 - `test_cast_double_to_half` - Casting double to half precision
 - `test_cast_fp8` - FP8 casting operations

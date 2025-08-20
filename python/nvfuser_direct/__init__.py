@@ -240,7 +240,15 @@ class FusionDefinition:
         ), "If device argument is passed it must be a CUDA device"
         return device.index
 
-    def execute(self, inputs, *, device=None, auto_schedule=True) -> list[torch.Tensor]:
+    def execute(
+        self,
+        inputs,
+        *,
+        device=None,
+        save_repro_inputs=False,
+        _enable_options: list[str] = [],
+        _disable_options: list[str] = [],
+    ) -> list[torch.Tensor]:
         """
         Execute the fusion with the given inputs.
 
@@ -250,8 +258,12 @@ class FusionDefinition:
             Input tensors and scalars to the fusion
         device : torch.device, optional
             Device to execute the fusion on
-        auto_schedule : bool, default=True
-            Whether to use automatic scheduling
+        save_repro_inputs : bool, default=False
+            Whether to save the inputs for last_repro_script() to provide a provide a reproduction script.
+        _enable_options : list of str, default=[]
+            A list of enable options. An alternative to setting NVFUSER_ENABLE environment variable.
+        _disable_options : list of str, default=[]
+            A list of disable options. An alternative to setting NVFUSER_DISABLE environment variable.
 
         Returns
         -------
@@ -259,15 +271,29 @@ class FusionDefinition:
             Output tensors from the fusion
         """
 
-        if auto_schedule:
-            if not hasattr(self, "fec"):
-                self.fec = FusionExecutorCache(self._fusion)
-                # A copy of fusion is created after construction FusionExecutorCache
-                # Delete the _fusion and reference the fusion inside FusionExecutorCache
-                del self._fusion
-            return self.fec.execute(inputs, device=self._get_device_index(device))
-        else:
-            raise RuntimeError("Manual scheduling is not supported yet.")
+        if save_repro_inputs:
+            from torch._subclasses.fake_tensor import FakeTensorMode
+
+            fake_mode = FakeTensorMode()
+            self.fake_inputs = [fake_mode.from_tensor(inp) for inp in inputs]
+
+        if not hasattr(self, "fec"):
+            self.fec = FusionExecutorCache(self._fusion)
+            # A copy of fusion is created after construction FusionExecutorCache
+            # Delete the _fusion and reference the fusion inside FusionExecutorCache
+            del self._fusion
+        return self.fec.execute(
+            inputs,
+            device=self._get_device_index(device),
+            _enable_options=_enable_options,
+            _disable_options=_disable_options,
+        )
+
+    def last_repro_script(self) -> str:
+        assert (
+            self.fake_inputs is not None
+        ), "fd.last_repro_script() cannot provide a repro because fd.execute(inputs, save_repro_state=True) was not executed!"
+        return self.repro_script_for(self.fake_inputs)
 
     def repro_script_for(self, inputs: list | None = None) -> str:
         """
