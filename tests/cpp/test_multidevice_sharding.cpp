@@ -1092,6 +1092,25 @@ TEST_F(MultiDeviceTest, OuterReductionShardedInnerDimension) {
                                        ->as<ReductionParams>();
   EXPECT_TRUE(rparams->vectorize_iter_dom);
   EXPECT_EQ(rparams->unroll_factor_iter_dom, 8);
+
+  auto scheduled_fusion = runtime->executors()
+                              .at(0)
+                              ->as<KernelExecutor>()
+                              ->compiledKernel()
+                              ->kernel();
+
+  auto is_vectorized = [](const TensorView* tv) {
+    return std::any_of(
+        tv->getLoopDomain().begin(),
+        tv->getLoopDomain().end(),
+        [](const IterDomain* id) {
+          return id->getParallelType() == ParallelType::Vectorize;
+        });
+  };
+
+  for (auto* val : scheduled_fusion->outputs()) {
+    EXPECT_TRUE(is_vectorized(val->as<TensorView>()));
+  }
 }
 
 } // namespace nvfuser

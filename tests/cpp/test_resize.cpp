@@ -6196,56 +6196,5 @@ TEST_F(ResizeTest, ReorderLikeInputShouldNotMoveInnermostID) {
   auto outputs = scheduleAndRun(&fusion, SchedulerType::Resize, {t0});
   testValidate(&fusion, outputs.outputs, {t0}, __LINE__, __FILE__);
 }
-TEST_F(ResizeTest, ResizeTestOuterReduction) {
-  auto fusion = std::make_unique<Fusion>();
-  FusionGuard fg(fusion.get());
 
-  int64_t b = 1, s = 2048, h = 96, e = 12288;
-  // 1, 2048, 96, 128
-  TensorView* tv0 =
-      makeContigConcreteTensor({b, s, h, e / h}, DataType::BFloat16);
-  TensorView* tv1 =
-      makeContigConcreteTensor({b, s, h, e / h}, DataType::BFloat16);
-  TensorView* tv2 =
-      makeContigConcreteTensor({b, s, h, e / h}, DataType::BFloat16);
-  // 1, 2048, 96, 384
-  TensorView* tv3 = cat({tv0, tv1, tv2}, -1);
-  // 1, 2048, 96, 12288
-  TensorView* tv4 = reshape(tv3, {b, s, h, 3 * e / h}, {b, s, 3 * e});
-  TensorView* tv5 = castOp(DataType::Float, tv4);
-  TensorView* tv6 = sum(tv5, {0, 1});
-  TensorView* tv7 = castOp(DataType::BFloat16, tv6);
-
-  for (TensorView* tv : {tv0, tv1, tv2}) {
-    fusion->addInput(tv);
-  }
-
-  fusion->addOutput(tv7);
-  auto options = at::TensorOptions().dtype(at::kBFloat16).device(at::kCUDA, 0);
-  std::vector<at::Tensor> inputs = {
-      at::randn({b, s, h, e / h}, options),
-      at::randn({b, s, h, e / h}, options),
-      at::randn({b, s, h, e / h}, options)};
-
-  FusionExecutorCache executor_cache(std::move(fusion));
-  at::Tensor nvf_out =
-      executor_cache.runFusionWithInputs(inputs)[0].as<at::Tensor>();
-
-  at::Tensor ref_out = at::cat({inputs[0], inputs[1], inputs[2]}, -1)
-                           .view({b, s, 3 * e})
-                           .sum(c10::IntArrayRef({0, 1}));
-  EXPECT_TRUE(at::allclose(nvf_out, ref_out, 1e-3, 1e-3));
-
-  FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
-
-  EXPECT_THAT(
-      runtime->fusionSegments()->groups(),
-      UnorderedElementsAre(HeuristicIs(SchedulerType::Reduction)));
-  const ReductionParams* rparams = runtime->schedulerHeuristics()
-                                       ->heuristicsList()
-                                       .at(0)
-                                       ->as<ReductionParams>();
-  EXPECT_TRUE(rparams->vectorize_iter_dom);
-  EXPECT_EQ(rparams->unroll_factor_iter_dom, 8);
-}
 } // namespace nvfuser
