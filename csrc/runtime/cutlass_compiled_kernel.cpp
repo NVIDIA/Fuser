@@ -70,7 +70,7 @@ std::string getComputeCapabilityString(int compute_capability) {
     }
     compute_capability = prop.major * 10 + prop.minor;
   }
-  return "sm_" + std::to_string(compute_capability);
+  return std::to_string(compute_capability);
 }
 
 } // namespace
@@ -277,8 +277,7 @@ void CutlassCompiledKernel::compileWithNVCC() {
 
   // Build nvcc command
   std::filesystem::path output_file = temp_dir_ / "cutlass_kernel.so";
-  std::string compile_cmd =
-      "nvcc -shared -o " + output_file.string() + " " + source_file.string();
+  std::string compile_cmd = "nvcc";
 
   // Add compute capability
   compile_cmd += " -arch=" +
@@ -297,36 +296,63 @@ void CutlassCompiledKernel::compileWithNVCC() {
   compile_options_.include_paths.push_back(
       torch_path / "include" / "torch" / "csrc" / "api" / "include");
 
+  compile_cmd = "nvcc";
+  compile_cmd += " -forward-unknown-to-host-compiler";
+
+  // Disable some warnings in host code
+  compile_cmd += " -Wno-conversion";
+
   for (const auto& path : compile_options_.include_paths) {
     compile_cmd += " -I" + path;
   }
 
-  for (const std::string arg :
-       {"-std=c++17",
-        "--expt-relaxed-constexpr",
-        "--expt-extended-lambda",
-        "-Xcompiler=-fPIC,-Wno-deprecated-declarations,-Wno-conversion,-fno-"
-        "strict-aliasing"}) {
-    compile_cmd += " " + arg;
-  }
+  compile_cmd +=
+      " -Xcudafe "
+      "--diag_suppress=cc_clobber_ignored,"
+      "--diag_suppress=field_without_dll_interface,"
+      "--diag_suppress=base_class_has_different_dll_interface,"
+      "--diag_suppress=dll_interface_conflict_none_assumed,"
+      "--diag_suppress=dll_interface_conflict_dllexport_assumed,"
+      "--diag_suppress=bad_friend_decl";
 
-  for (const std::string def :
-       {"CUTE_USE_PACKED_TUPLE=1",
-        // This must actually be 90a, even for blackwell devices, or else we hit
-        // a TMA error at runtime
-        "CUTLASS_NVCC_ARCHS=90a",
-        "CUTLASS_ENABLE_TENSOR_CORE_MMA=1",
-        "CUTLASS_VERSIONS_GENERATED",
-        "CUTLASS_TEST_LEVEL=0",
-        "CUTLASS_TEST_ENABLE_CACHED_RESULTS=1",
-        "CUTLASS_DEBUG_TRACE_LEVEL=0"}) {
-    compile_options_.defines.push_back(def);
-  }
+  compile_cmd += " --expt-relaxed-constexpr --expt-extended-lambda";
 
-  // Add defines
-  for (const auto& define : compile_options_.defines) {
-    compile_cmd += " -D" + define;
-  }
+  compile_cmd += " -O" + std::to_string(compile_options_.optimization_level);
+
+  compile_cmd += " -std=c++17";
+
+  std::string arch =
+      getComputeCapabilityString(compile_options_.compute_capability);
+  // 90 -> 90a  or  100 -> 100a
+  // Note that without this we get errors like
+  //   Trying to use TMA Descriptor Prefetch without CUTE_ARCH_TMA_SM90_ENABLED.
+  // TODO: This should be done properly
+  // https://github.com/nvidia/cutlass#target-architecture
+  arch += "a";
+  std::string compute_arch = "compute_" + arch;
+  std::string sm_arch = "sm_" + arch;
+  compile_cmd +=
+      " \"--generate-code="
+      "arch=" +
+      compute_arch +
+      ","
+      "code=[" +
+      compute_arch + "," + sm_arch + "]\"";
+
+  compile_cmd +=
+      " -DCUTE_USE_PACKED_TUPLE=1"
+      " -DCUTLASS_ENABLE_TENSOR_CORE_MMA=1"
+      " -DCUTLASS_VERSIONS_GENERATED"
+      " -DCUTLASS_DEBUG_TRACE_LEVEL=0";
+
+  compile_cmd +=
+      " --expt-relaxed-constexpr --expt-extended-lambda "
+      "--threads=32";
+
+  compile_cmd +=
+      " -Xcompiler=-Wconversion -Xcompiler=-fno-strict-aliasing "
+      "-Xcompiler=-Wno-deprecated-declarations "
+      "-Xcompiler=-fPIC";
 
 #ifndef NDEBUG
   // On debug builds, build the host code in debug mode with nvcc also
@@ -335,10 +361,15 @@ void CutlassCompiledKernel::compileWithNVCC() {
 
   if (isOptionEnabled(EnableOption::KernelDebug)) {
     compile_cmd += " -G";
+  } else {
+    compile_cmd += " -DNDEBUG";
   }
   if (isOptionEnabled(EnableOption::KernelLineInfo)) {
     compile_cmd += " -lineinfo";
   }
+
+  compile_cmd +=
+      " -x cu -shared -o " + output_file.string() + " " + source_file.string();
 
   // TODO: enable dumping cubin, ptx, and sass as in CompiledKernel
 
