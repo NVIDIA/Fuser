@@ -35,8 +35,7 @@ std::vector<TaskGraph::Data> inferData(const Tasks& tasks) {
   }
   std::vector<TaskGraph::Data> all_data((size_t)max_data_id + 1);
 
-  for (const TaskGraph::Task& task : tasks) {
-    auto task_id = (TaskGraph::TaskId)tasks.size();
+  for (const auto& [task_id, task] : enumerate(tasks)) {
     for (TaskGraph::DataId input_id : task.inputs) {
       all_data.at(input_id).uses.push_back(task_id);
     }
@@ -70,6 +69,23 @@ TEST_F(TaskGraphTest, Basic) {
 
   std::vector<TaskGraph::TaskId> expected{0, 1};
   EXPECT_EQ(getTasks(graph.findOptimalOrder()), expected);
+}
+
+// This example includes two segments, each of which aliases the other
+TEST_F(TaskGraphTest, ImpossibleAlias) {
+  // Two tasks, each takes the same two inputs
+  Tasks tasks{{{0, 1}, {2}}, {{0, 1}, {3}}};
+  auto data = inferData(tasks);
+  // Each of the segment outputs aliases a different input
+  data[2].aliases_input = 0;
+  data[3].aliases_input = 1;
+  // This graph can't be ordered without breaking the aliasing constraint
+  auto graph = TaskGraph(tasks, data);
+
+  EXPECT_THAT(
+      [&graph]() { getTasks(graph.findOptimalOrder()); },
+      ::testing::ThrowsMessage<nvfuser::nvfError>(::testing::HasSubstr(
+          "Ran out of ready tasks before completing ordering")));
 }
 
 } // namespace nvfuser
