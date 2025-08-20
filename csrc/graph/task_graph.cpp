@@ -263,7 +263,7 @@ class TaskSorter {
 
   void sort() {
     if (has_aliasing_) {
-      task_has_aliased_input_.reserve(graph_.numTasks());
+      task_has_aliased_input_.resize(graph_.numTasks(), false);
       for (const TaskGraph::DataId data_id : arange(graph_.numData())) {
         const TaskGraph::Data& data = graph_.getData(data_id);
         if (data.aliases_input.has_value()) {
