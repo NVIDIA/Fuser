@@ -88,4 +88,41 @@ TEST_F(TaskGraphTest, ImpossibleAlias) {
           "Ran out of ready tasks before completing ordering")));
 }
 
+TEST_F(TaskGraphTest, SelfEdge) {
+  Tasks tasks{{{0}, {0}}};
+  auto data = inferData(tasks);
+  // This graph can't be ordered because it contains an edge from a Data node
+  // back to itself. A task can't be both producer and consumer to a Data.
+  auto graph = TaskGraph(tasks, data);
+
+  EXPECT_THAT(
+      [&graph]() { getTasks(graph.findOptimalOrder()); },
+      ::testing::ThrowsMessage<nvfuser::nvfError>(::testing::HasSubstr(
+          "Ran out of ready tasks before completing ordering")));
+}
+
+TEST_F(TaskGraphTest, TwoCycle) {
+  Tasks tasks{{{0}, {1}}, {{1}, {0}}};
+  auto data = inferData(tasks);
+  // This graph can't be ordered because it contains a cycle
+  auto graph = TaskGraph(tasks, data);
+
+  EXPECT_THAT(
+      [&graph]() { getTasks(graph.findOptimalOrder()); },
+      ::testing::ThrowsMessage<nvfuser::nvfError>(::testing::HasSubstr(
+          "Ran out of ready tasks before completing ordering")));
+}
+
+TEST_F(TaskGraphTest, ThreeCycle) {
+  Tasks tasks{{{0}, {1}}, {{1}, {2}}, {{2}, {0}}};
+  auto data = inferData(tasks);
+  // This graph can't be ordered because it contains a cycle
+  auto graph = TaskGraph(tasks, data);
+
+  EXPECT_THAT(
+      [&graph]() { getTasks(graph.findOptimalOrder()); },
+      ::testing::ThrowsMessage<nvfuser::nvfError>(::testing::HasSubstr(
+          "Ran out of ready tasks before completing ordering")));
+}
+
 } // namespace nvfuser
