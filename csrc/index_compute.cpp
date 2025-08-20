@@ -449,10 +449,9 @@ void IndexCompute::handle(Resize* resize) {
 }
 
 void IndexCompute::dispatch(Expr* e) {
-  auto is_expected_type =
-      e->isOneOf<Split, Merge, Swizzle, Swizzle2D, Resize>();
   NVF_ERROR(
-      is_expected_type, "Invalid expr type found in transform traversal.");
+      (e->isOneOf<Split, Merge, Swizzle, Swizzle2D, Resize>()),
+      "Invalid expr type found in transform traversal.");
   updateUnswitchedDomains(e);
   BackwardVisitor::dispatch(e);
 }
@@ -580,7 +579,7 @@ void IndexCompute::collectIndexIntoPermissiveMap(
     if (std::all_of(
             id_outputs.begin(), id_outputs.end(), [this](IterDomain* id) {
               return index_map_.count(
-                  GpuLower::current()->caMap()->getConcreteMappedID(
+                  GpuLower::current()->info().caMap().getConcreteMappedID(
                       id, IdMappingMode::EXACT));
             })) {
       // Visit this expression:
@@ -593,13 +592,13 @@ void IndexCompute::collectIndexIntoPermissiveMap(
       for (auto id : id_inputs) {
         // Collect backward pass results from this expression if they are
         //  made available in by this expression.
-        auto idx_it =
-            index_map_.find(GpuLower::current()->caMap()->getConcreteMappedID(
+        auto idx_it = index_map_.find(
+            GpuLower::current()->info().caMap().getConcreteMappedID(
                 id, IdMappingMode::EXACT));
 
         if (idx_it != index_map_.end()) {
           permissive_index_map_
-              [GpuLower::current()->caMap()->getConcreteMappedID(
+              [GpuLower::current()->info().caMap().getConcreteMappedID(
                   id, IdMappingMode::PERMISSIVE)] = idx_it->second;
         }
       }
@@ -610,13 +609,14 @@ void IndexCompute::collectIndexIntoPermissiveMap(
 void IndexCompute::updateIndexMapFromPermissiveMap(const Expr* id_expr) {
   auto id_outputs = ir_utils::filterByType<IterDomain>(id_expr->outputs());
   for (auto id : id_outputs) {
-    auto concrete_id = GpuLower::current()->caMap()->getConcreteMappedID(
+    auto concrete_id = GpuLower::current()->info().caMap().getConcreteMappedID(
         id, IdMappingMode::EXACT);
     // Only try to copy index val from permissive map when
     //  the index is missing.
     if (!index_map_.count(concrete_id)) {
-      auto permissive_id = GpuLower::current()->caMap()->getConcreteMappedID(
-          id, IdMappingMode::PERMISSIVE);
+      auto permissive_id =
+          GpuLower::current()->info().caMap().getConcreteMappedID(
+              id, IdMappingMode::PERMISSIVE);
       // Write the permissive index val into index_map_ if the
       //  missing value is found here.
       auto permissive_it = permissive_index_map_.find(permissive_id);
@@ -634,7 +634,7 @@ void IndexCompute::run() {
 
 IterDomain* IndexCompute::maybeGetExactMapConcreteID(IterDomain* id) const {
   if (concrete_id_pass_) {
-    return GpuLower::current()->caMap()->getConcreteMappedID(
+    return GpuLower::current()->info().caMap().getConcreteMappedID(
         id, IdMappingMode::EXACT);
   }
   return id;
@@ -1021,7 +1021,7 @@ bool isParallelLoopIndexSubstitutedAsZero(
     IterDomain* loop_id,
     bool as_consumer,
     bool within_mma_loops) {
-  const auto ca_map = GpuLower::current()->caMap();
+  const auto& ca_map = GpuLower::current()->info().caMap();
 
   // MMA operands are currently indexed in units of "fragments",
   //  so each mma tensor domain would be zero-ed and the tensor index
@@ -1067,8 +1067,8 @@ bool isParallelLoopIndexSubstitutedAsZero(
       [&](IterDomain* tv_id) {
         // Matching is done using the index and loop maps. See
         // validateParallelize as well.
-        return ca_map->areMapped(loop_id, tv_id, IdMappingMode::EXACT) ||
-            ca_map->areMapped(loop_id, tv_id, IdMappingMode::PERMISSIVE);
+        return ca_map.areMapped(loop_id, tv_id, IdMappingMode::EXACT) ||
+            ca_map.areMapped(loop_id, tv_id, IdMappingMode::PERMISSIVE);
       });
 
   // There's no mapped producer ID. Zero substitution shouldn't be
@@ -1232,7 +1232,7 @@ void ensureStaticIndexing(
           if (id_replacement != id_map.end()) {
             id = id_replacement->second;
           }
-          return GpuLower::current()->caMap()->areMapped(
+          return GpuLower::current()->info().caMap().areMapped(
               loop_id, id, IdMappingMode::PERMISSIVE);
         });
     if (it != tv->getLoopDomain().end()) {
@@ -2388,7 +2388,7 @@ std::vector<PredicateDomainInfo> getPredicateContigIds(
 
   std::unordered_map<IterDomain*, Val*> concrete_index_map;
   for (auto entry : consumer_index_map) {
-    auto c_id = gpu_lower->caMap()->getConcreteMappedID(
+    auto c_id = gpu_lower->info().caMap().getConcreteMappedID(
         entry.first, IdMappingMode::EXACT);
     concrete_index_map[c_id] = entry.second;
   }
@@ -2409,8 +2409,8 @@ std::vector<PredicateDomainInfo> getPredicateContigIds(
       final_ids,
       concrete_index_map,
       GpuLower::current()->divisibleSplitSet(),
-      GpuLower::current()->caMap(),
-      GpuLower::current()->concretizedBroadcastDomains(),
+      &GpuLower::current()->info().caMap(),
+      &GpuLower::current()->info().concretizedBroadcastDomains(),
       {},
       false,
       true);
@@ -2510,8 +2510,9 @@ std::unordered_map<IterDomain*, Val*> updateInitialLoopIndexMap(
     const IndexMagicZeroInfo& magic_zero_info) {
   if (magic_zero_info.original_loop_index != nullptr) {
     NVF_ERROR(magic_zero_info.protected_loop_index != nullptr);
-    auto concrete_loop_id = GpuLower::current()->caMap()->getConcreteMappedID(
-        magic_zero_info.loop_id, IdMappingMode::EXACT);
+    auto concrete_loop_id =
+        GpuLower::current()->info().caMap().getConcreteMappedID(
+            magic_zero_info.loop_id, IdMappingMode::EXACT);
     auto updated_map = initial_loop_index_map;
     updated_map[concrete_loop_id] = magic_zero_info.protected_loop_index;
     return updated_map;

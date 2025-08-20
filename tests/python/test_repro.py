@@ -9,6 +9,10 @@ from python.utils import NVFuserTest
 
 
 class TestRepro(NVFuserTest):
+    # Set range of torch.testing.make_tensor same to that used in ValidationConstants
+    LOW_VAL = -2
+    HIGH_VAL = 2
+
     def test_issue4444(self):
         def fusion_func(fd: FusionDefinition) -> None:
             T0 = fd.define_tensor(
@@ -166,28 +170,36 @@ class TestRepro(NVFuserTest):
                 (1, 64, 16384, 128),
                 dtype=torch.bfloat16,
                 device="cuda:0",
-                low=-1,
-                high=1,
+                low=self.LOW_VAL,
+                high=self.HIGH_VAL,
             ),
             torch.testing.make_tensor(
-                (16384, 128), dtype=torch.float32, device="cuda:0", low=-1, high=1
+                (16384, 128),
+                dtype=torch.float32,
+                device="cuda:0",
+                low=self.LOW_VAL,
+                high=self.HIGH_VAL,
             ),
             torch.testing.make_tensor(
-                (16384, 128), dtype=torch.float32, device="cuda:0", low=-1, high=1
+                (16384, 128),
+                dtype=torch.float32,
+                device="cuda:0",
+                low=self.LOW_VAL,
+                high=self.HIGH_VAL,
             ),
             torch.testing.make_tensor(
                 (1, 64, 16384, 128),
                 dtype=torch.bfloat16,
                 device="cuda:0",
-                low=-1,
-                high=1,
+                low=self.LOW_VAL,
+                high=self.HIGH_VAL,
             ),
             torch.testing.make_tensor(
                 (1, 64, 16384, 128),
                 dtype=torch.bfloat16,
                 device="cuda:0",
-                low=-1,
-                high=1,
+                low=self.LOW_VAL,
+                high=self.HIGH_VAL,
             ),
         ]
         outputs = fd.execute(inputs)
@@ -357,23 +369,39 @@ class TestRepro(NVFuserTest):
                 (4, 32), (1, 4)
             ),
             torch.testing.make_tensor(
-                (4, 32, 1, 1, 1), dtype=torch.float32, device="cuda:0", low=-1, high=1
+                (4, 32, 1, 1, 1),
+                dtype=torch.float32,
+                device="cuda:0",
+                low=self.LOW_VAL,
+                high=self.HIGH_VAL,
             ),
             torch.testing.make_tensor(
                 (4, 32, 10, 64, 64),
                 dtype=torch.float32,
                 device="cuda:0",
-                low=-1,
-                high=1,
+                low=self.LOW_VAL,
+                high=self.HIGH_VAL,
             ),
             torch.testing.make_tensor(
-                (320,), dtype=torch.float32, device="cuda:0", low=-1, high=1
+                (320,),
+                dtype=torch.float32,
+                device="cuda:0",
+                low=self.LOW_VAL,
+                high=self.HIGH_VAL,
             ),
             torch.testing.make_tensor(
-                (320,), dtype=torch.float32, device="cuda:0", low=-1, high=1
+                (320,),
+                dtype=torch.float32,
+                device="cuda:0",
+                low=self.LOW_VAL,
+                high=self.HIGH_VAL,
             ),
             torch.testing.make_tensor(
-                (4, 320, 66, 66), dtype=torch.float32, device="cuda:0", low=-1, high=1
+                (4, 320, 66, 66),
+                dtype=torch.float32,
+                device="cuda:0",
+                low=self.LOW_VAL,
+                high=self.HIGH_VAL,
             ),
         ]
         fd.validate(inputs)
@@ -529,22 +557,46 @@ class TestRepro(NVFuserTest):
 
         inputs = [
             torch.testing.make_tensor(
-                (4096, 3072), dtype=torch.bfloat16, device="cuda:0", low=-1, high=1
+                (4096, 3072),
+                dtype=torch.bfloat16,
+                device="cuda:0",
+                low=self.LOW_VAL,
+                high=self.HIGH_VAL,
             ),
             torch.testing.make_tensor(
-                (4096, 3072), dtype=torch.bfloat16, device="cuda:0", low=-1, high=1
+                (4096, 3072),
+                dtype=torch.bfloat16,
+                device="cuda:0",
+                low=self.LOW_VAL,
+                high=self.HIGH_VAL,
             ),
             torch.testing.make_tensor(
-                (3072,), dtype=torch.bfloat16, device="cuda:0", low=-1, high=1
+                (3072,),
+                dtype=torch.bfloat16,
+                device="cuda:0",
+                low=self.LOW_VAL,
+                high=self.HIGH_VAL,
             ),
             torch.testing.make_tensor(
-                (1, 4096, 3072), dtype=torch.bfloat16, device="cuda:0", low=-1, high=1
+                (1, 4096, 3072),
+                dtype=torch.bfloat16,
+                device="cuda:0",
+                low=self.LOW_VAL,
+                high=self.HIGH_VAL,
             ),
             torch.testing.make_tensor(
-                (1, 4096, 1), dtype=torch.float32, device="cuda:0", low=-1, high=1
+                (1, 4096, 1),
+                dtype=torch.float32,
+                device="cuda:0",
+                low=self.LOW_VAL,
+                high=self.HIGH_VAL,
             ),
             torch.testing.make_tensor(
-                (1, 4096, 3072), dtype=torch.bfloat16, device="cuda:0", low=-1, high=1
+                (1, 4096, 3072),
+                dtype=torch.bfloat16,
+                device="cuda:0",
+                low=self.LOW_VAL,
+                high=self.HIGH_VAL,
             ),
         ]
         outputs = fd.execute(inputs)
@@ -675,19 +727,39 @@ class TestRepro(NVFuserTest):
 
         inputs = [
             torch.testing.make_tensor(
-                (147456, 128), dtype=torch.bfloat16, device="cuda:0", low=-1, high=1
+                (147456, 128),
+                dtype=torch.bfloat16,
+                device="cuda:0",
+                low=self.LOW_VAL,
+                high=self.HIGH_VAL,
             ),
             torch.testing.make_tensor(
-                (128,), dtype=torch.bfloat16, device="cuda:0", low=-1, high=1
+                (128,),
+                dtype=torch.bfloat16,
+                device="cuda:0",
+                low=self.LOW_VAL,
+                high=self.HIGH_VAL,
             ),
             torch.testing.make_tensor(
-                (288, 512), dtype=torch.float32, device="cuda:0", low=-1, high=1
+                (288, 512),
+                dtype=torch.float32,
+                device="cuda:0",
+                low=self.LOW_VAL,
+                high=self.HIGH_VAL,
             ),
             torch.testing.make_tensor(
-                (288, 512, 128), dtype=torch.bfloat16, device="cuda:0", low=-1, high=1
+                (288, 512, 128),
+                dtype=torch.bfloat16,
+                device="cuda:0",
+                low=self.LOW_VAL,
+                high=self.HIGH_VAL,
             ),
             torch.testing.make_tensor(
-                (288, 512, 1), dtype=torch.float32, device="cuda:0", low=-1, high=1
+                (288, 512, 1),
+                dtype=torch.float32,
+                device="cuda:0",
+                low=self.LOW_VAL,
+                high=self.HIGH_VAL,
             ),
         ]
         outputs = fd.execute(inputs)
@@ -780,19 +852,39 @@ class TestRepro(NVFuserTest):
 
         inputs = [
             torch.testing.make_tensor(
-                (4096, 4096), dtype=torch.bfloat16, device="cuda:0", low=-1, high=1
+                (4096, 4096),
+                dtype=torch.bfloat16,
+                device="cuda:0",
+                low=self.LOW_VAL,
+                high=self.HIGH_VAL,
             ),
             torch.testing.make_tensor(
-                (4096,), dtype=torch.bfloat16, device="cuda:0", low=-1, high=1
+                (4096,),
+                dtype=torch.bfloat16,
+                device="cuda:0",
+                low=self.LOW_VAL,
+                high=self.HIGH_VAL,
             ),
             torch.testing.make_tensor(
-                (1, 4096, 4096), dtype=torch.bfloat16, device="cuda:0", low=-1, high=1
+                (1, 4096, 4096),
+                dtype=torch.bfloat16,
+                device="cuda:0",
+                low=self.LOW_VAL,
+                high=self.HIGH_VAL,
             ),
             torch.testing.make_tensor(
-                (1, 4096, 1), dtype=torch.float32, device="cuda:0", low=-1, high=1
+                (1, 4096, 1),
+                dtype=torch.float32,
+                device="cuda:0",
+                low=self.LOW_VAL,
+                high=self.HIGH_VAL,
             ),
             torch.testing.make_tensor(
-                (1, 4096, 4096), dtype=torch.bfloat16, device="cuda:0", low=-1, high=1
+                (1, 4096, 4096),
+                dtype=torch.bfloat16,
+                device="cuda:0",
+                low=self.LOW_VAL,
+                high=self.HIGH_VAL,
             ),
         ]
         outputs = fd.execute(inputs)
@@ -881,16 +973,32 @@ class TestRepro(NVFuserTest):
 
         inputs = [
             torch.testing.make_tensor(
-                (28672, 2048), dtype=torch.bfloat16, device="cuda:0", low=-1, high=1
+                (28672, 2048),
+                dtype=torch.bfloat16,
+                device="cuda:0",
+                low=self.LOW_VAL,
+                high=self.HIGH_VAL,
             ),
             torch.testing.make_tensor(
-                (2048,), dtype=torch.bfloat16, device="cuda:0", low=-1, high=1
+                (2048,),
+                dtype=torch.bfloat16,
+                device="cuda:0",
+                low=self.LOW_VAL,
+                high=self.HIGH_VAL,
             ),
             torch.testing.make_tensor(
-                (14, 2048, 2048), dtype=torch.bfloat16, device="cuda:0", low=-1, high=1
+                (14, 2048, 2048),
+                dtype=torch.bfloat16,
+                device="cuda:0",
+                low=self.LOW_VAL,
+                high=self.HIGH_VAL,
             ),
             torch.testing.make_tensor(
-                (14, 2048, 1), dtype=torch.float32, device="cuda:0", low=-1, high=1
+                (14, 2048, 1),
+                dtype=torch.float32,
+                device="cuda:0",
+                low=self.LOW_VAL,
+                high=self.HIGH_VAL,
             ),
         ]
         outputs = fd.execute(inputs)
@@ -1091,28 +1199,60 @@ class TestRepro(NVFuserTest):
 
         inputs = [
             torch.testing.make_tensor(
-                (16384, 2560), dtype=torch.bfloat16, device="cuda:0", low=-1, high=1
+                (16384, 2560),
+                dtype=torch.bfloat16,
+                device="cuda:0",
+                low=self.LOW_VAL,
+                high=self.HIGH_VAL,
             ),
             torch.testing.make_tensor(
-                (2560,), dtype=torch.bfloat16, device="cuda:0", low=-1, high=1
+                (2560,),
+                dtype=torch.bfloat16,
+                device="cuda:0",
+                low=self.LOW_VAL,
+                high=self.HIGH_VAL,
             ),
             torch.testing.make_tensor(
-                (1, 16384), dtype=torch.float32, device="cuda:0", low=-1, high=1
+                (1, 16384),
+                dtype=torch.float32,
+                device="cuda:0",
+                low=self.LOW_VAL,
+                high=self.HIGH_VAL,
             ),
             torch.testing.make_tensor(
-                (1, 16384, 2560), dtype=torch.bfloat16, device="cuda:0", low=-1, high=1
+                (1, 16384, 2560),
+                dtype=torch.bfloat16,
+                device="cuda:0",
+                low=self.LOW_VAL,
+                high=self.HIGH_VAL,
             ),
             torch.testing.make_tensor(
-                (1, 16384, 1), dtype=torch.float32, device="cuda:0", low=-1, high=1
+                (1, 16384, 1),
+                dtype=torch.float32,
+                device="cuda:0",
+                low=self.LOW_VAL,
+                high=self.HIGH_VAL,
             ),
             torch.testing.make_tensor(
-                (16384, 2560), dtype=torch.bfloat16, device="cuda:0", low=-1, high=1
+                (16384, 2560),
+                dtype=torch.bfloat16,
+                device="cuda:0",
+                low=self.LOW_VAL,
+                high=self.HIGH_VAL,
             ),
             torch.testing.make_tensor(
-                (2560,), dtype=torch.bfloat16, device="cuda:0", low=-1, high=1
+                (2560,),
+                dtype=torch.bfloat16,
+                device="cuda:0",
+                low=self.LOW_VAL,
+                high=self.HIGH_VAL,
             ),
             torch.testing.make_tensor(
-                (1, 16384, 2560), dtype=torch.bfloat16, device="cuda:0", low=-1, high=1
+                (1, 16384, 2560),
+                dtype=torch.bfloat16,
+                device="cuda:0",
+                low=self.LOW_VAL,
+                high=self.HIGH_VAL,
             ),
         ]
         outputs = fd.execute(inputs)
@@ -1328,43 +1468,91 @@ class TestRepro(NVFuserTest):
 
         inputs = [
             torch.testing.make_tensor(
-                (4096, 128), dtype=torch.bfloat16, device="cuda:0"
+                (4096, 128),
+                dtype=torch.bfloat16,
+                device="cuda:0",
+                low=self.LOW_VAL,
+                high=self.HIGH_VAL,
             ),
             torch.testing.make_tensor(
-                (4096, 128), dtype=torch.bfloat16, device="cuda:0"
+                (4096, 128),
+                dtype=torch.bfloat16,
+                device="cuda:0",
+                low=self.LOW_VAL,
+                high=self.HIGH_VAL,
             ),
             torch.testing.make_tensor(
-                (1, 4096, 5120), dtype=torch.bfloat16, device="cuda:0"
+                (1, 4096, 5120),
+                dtype=torch.bfloat16,
+                device="cuda:0",
+                low=self.LOW_VAL,
+                high=self.HIGH_VAL,
             ),
             torch.testing.make_tensor(
-                (1, 4096, 640), dtype=torch.bfloat16, device="cuda:0"
+                (1, 4096, 640),
+                dtype=torch.bfloat16,
+                device="cuda:0",
+                low=self.LOW_VAL,
+                high=self.HIGH_VAL,
             ),
             torch.testing.make_tensor(
-                (1, 4096, 640), dtype=torch.bfloat16, device="cuda:0"
+                (1, 4096, 640),
+                dtype=torch.bfloat16,
+                device="cuda:0",
+                low=self.LOW_VAL,
+                high=self.HIGH_VAL,
             ),
             torch.testing.make_tensor(
-                (1, 4096, 16640), dtype=torch.bfloat16, device="cuda:0"
+                (1, 4096, 16640),
+                dtype=torch.bfloat16,
+                device="cuda:0",
+                low=self.LOW_VAL,
+                high=self.HIGH_VAL,
             ),
             torch.testing.make_tensor(
-                (1, 4096, 16640), dtype=torch.bfloat16, device="cuda:0"
+                (1, 4096, 16640),
+                dtype=torch.bfloat16,
+                device="cuda:0",
+                low=self.LOW_VAL,
+                high=self.HIGH_VAL,
             ),
             torch.testing.make_tensor(
-                (1, 4096, 5120), dtype=torch.float32, device="cuda:0"
+                (1, 4096, 5120),
+                dtype=torch.float32,
+                device="cuda:0",
+                low=self.LOW_VAL,
+                high=self.HIGH_VAL,
             ),
             torch.testing.make_tensor(
-                (1, 4096, 640), dtype=torch.float32, device="cuda:0"
+                (1, 4096, 640),
+                dtype=torch.float32,
+                device="cuda:0",
+                low=self.LOW_VAL,
+                high=self.HIGH_VAL,
             ),
             torch.testing.make_tensor(
-                (1, 4096, 640), dtype=torch.float32, device="cuda:0"
+                (1, 4096, 640),
+                dtype=torch.float32,
+                device="cuda:0",
+                low=self.LOW_VAL,
+                high=self.HIGH_VAL,
             ),
             torch.testing.make_tensor(
-                (1, 4096, 16640), dtype=torch.float32, device="cuda:0"
+                (1, 4096, 16640),
+                dtype=torch.float32,
+                device="cuda:0",
+                low=self.LOW_VAL,
+                high=self.HIGH_VAL,
             ),
             torch.testing.make_tensor(
-                (1, 4096, 16640), dtype=torch.float32, device="cuda:0"
+                (1, 4096, 16640),
+                dtype=torch.float32,
+                device="cuda:0",
+                low=self.LOW_VAL,
+                high=self.HIGH_VAL,
             ),
         ]
-        fd.execute(inputs)
+        fd.validate(inputs)
 
     # Repro of https://github.com/NVIDIA/Fuser/pull/4823
     def test_reshape_cancellation(self):
@@ -1511,7 +1699,11 @@ class TestRepro(NVFuserTest):
                 (1, 2048, 24, 32), (3145728, 1536, 64, 2)
             ),
             torch.testing.make_tensor(
-                (1, 2048, 4, 4608), dtype=torch.bfloat16, device="cuda:0"
+                (1, 2048, 4, 4608),
+                dtype=torch.bfloat16,
+                device="cuda:0",
+                low=self.LOW_VAL,
+                high=self.HIGH_VAL,
             ),
             torch.randn(3145727, dtype=torch.bfloat16, device="cuda:0").as_strided(
                 (1, 2048, 24, 32), (3145728, 1536, 64, 2)
@@ -1520,13 +1712,21 @@ class TestRepro(NVFuserTest):
                 (1, 2048, 24, 64), (131072, 64, 0, 1)
             ),
             torch.testing.make_tensor(
-                (1, 2048, 24, 64), dtype=torch.float32, device="cuda:0"
+                (1, 2048, 24, 64),
+                dtype=torch.float32,
+                device="cuda:0",
+                low=self.LOW_VAL,
+                high=self.HIGH_VAL,
             ),
             torch.testing.make_tensor(
-                (1, 2048, 24, 64), dtype=torch.float32, device="cuda:0"
+                (1, 2048, 24, 64),
+                dtype=torch.float32,
+                device="cuda:0",
+                low=self.LOW_VAL,
+                high=self.HIGH_VAL,
             ),
         ]
-        fd.execute(inputs)
+        fd.validate(inputs)
 
     # https://github.com/NVIDIA/Fuser/issues/4840
     def test_reduction_reference_missing_input_ids(self):
@@ -1779,33 +1979,36 @@ class TestRepro(NVFuserTest):
         with FusionDefinition() as fd:
             nvfuser_fusion_id20(fd)
 
+        # input range is revised to [-1, 1] to avoid small validation errors
+        # which highly likely caused by the strict tolerance values in
+        # ValidationConstants.
         inputs = [
-            torch.randn(8388608, dtype=torch.float16, device="cuda:0").as_strided(
-                (1, 16, 4096, 128), (8388608, 128, 2048, 1)
+            torch.testing.make_tensor(
+                (8388608,), dtype=torch.float16, device="cuda:0", low=-1, high=1
+            ).as_strided((1, 16, 4096, 128), (8388608, 128, 2048, 1)),
+            torch.testing.make_tensor(
+                (1, 4096, 16, 128), dtype=torch.float16, device="cuda:0", low=-1, high=1
             ),
             torch.testing.make_tensor(
-                (1, 4096, 16, 128), dtype=torch.float16, device="cuda:0"
-            ),
-            torch.randn(8388608, dtype=torch.float16, device="cuda:0").as_strided(
-                (1, 16, 4096, 128), (8388608, 128, 2048, 1)
-            ),
-            torch.randn(524288, dtype=torch.float32, device="cuda:0").as_strided(
-                (1, 4096, 16, 128), (1048576, 128, 0, 1)
+                (8388608,), dtype=torch.float16, device="cuda:0", low=-1, high=1
+            ).as_strided((1, 16, 4096, 128), (8388608, 128, 2048, 1)),
+            torch.testing.make_tensor(
+                (524288,), dtype=torch.float32, device="cuda:0", low=-1, high=1
+            ).as_strided((1, 4096, 16, 128), (1048576, 128, 0, 1)),
+            torch.testing.make_tensor(
+                (1, 4096, 6144), dtype=torch.float16, device="cuda:0", low=-1, high=1
             ),
             torch.testing.make_tensor(
-                (1, 4096, 6144), dtype=torch.float16, device="cuda:0"
-            ),
-            torch.randn(8388608, dtype=torch.float16, device="cuda:0").as_strided(
-                (1, 16, 4096, 128), (8388608, 128, 2048, 1)
-            ),
-            torch.randn(524288, dtype=torch.float32, device="cuda:0").as_strided(
-                (1, 4096, 16, 128), (1048576, 128, 0, 1)
-            ),
+                (8388608,), dtype=torch.float16, device="cuda:0", low=-1, high=1
+            ).as_strided((1, 16, 4096, 128), (8388608, 128, 2048, 1)),
             torch.testing.make_tensor(
-                (1, 4096, 16, 128), dtype=torch.float16, device="cuda:0"
+                (524288,), dtype=torch.float32, device="cuda:0", low=-1, high=1
+            ).as_strided((1, 4096, 16, 128), (1048576, 128, 0, 1)),
+            torch.testing.make_tensor(
+                (1, 4096, 16, 128), dtype=torch.float16, device="cuda:0", low=-1, high=1
             ),
         ]
-        fd.execute(inputs)
+        fd.validate(inputs)
 
     # scalar input, see simplified version at CombinedSchedulerTest.ScalarInput
     # found in litgpt Gemma-7b model
@@ -1847,7 +2050,7 @@ class TestRepro(NVFuserTest):
                 stride_order=[2, 1, 0],
             )
             T5 = fd.define_tensor(
-                shape=[], contiguity=[], dtype=DataType.Float, is_cpu=True
+                shape=[], contiguity=[], dtype=DataType.Float, is_cpu=False
             )
             T6 = fd.ops.cast(T0, dtype=DataType.Float)
             S7 = fd.define_scalar(1.00000, dtype=DataType.Double)
@@ -1897,22 +2100,50 @@ class TestRepro(NVFuserTest):
             nvfuser_fusion_id10(fd)
 
         inputs = [
-            torch.testing.make_tensor((3072,), dtype=torch.bfloat16, device="cuda:0"),
             torch.testing.make_tensor(
-                (1, 4096, 3072), dtype=torch.bfloat16, device="cuda:0"
+                (3072,),
+                dtype=torch.bfloat16,
+                device="cuda:0",
+                low=self.LOW_VAL,
+                high=self.HIGH_VAL,
             ),
             torch.testing.make_tensor(
-                (1, 4096, 3072), dtype=torch.bfloat16, device="cuda:0"
+                (1, 4096, 3072),
+                dtype=torch.bfloat16,
+                device="cuda:0",
+                low=self.LOW_VAL,
+                high=self.HIGH_VAL,
             ),
             torch.testing.make_tensor(
-                (1, 4096, 1), dtype=torch.float32, device="cuda:0"
+                (1, 4096, 3072),
+                dtype=torch.bfloat16,
+                device="cuda:0",
+                low=self.LOW_VAL,
+                high=self.HIGH_VAL,
             ),
             torch.testing.make_tensor(
-                (1, 4096, 3072), dtype=torch.bfloat16, device="cuda:0"
+                (1, 4096, 1),
+                dtype=torch.float32,
+                device="cuda:0",
+                low=self.LOW_VAL,
+                high=self.HIGH_VAL,
             ),
-            torch.testing.make_tensor((), dtype=torch.float32, device="cpu"),
+            torch.testing.make_tensor(
+                (1, 4096, 3072),
+                dtype=torch.bfloat16,
+                device="cuda:0",
+                low=self.LOW_VAL,
+                high=self.HIGH_VAL,
+            ),
+            torch.testing.make_tensor(
+                (),
+                dtype=torch.float32,
+                device="cuda:0",
+                low=self.LOW_VAL,
+                high=self.HIGH_VAL,
+            ),
         ]
-        fd.execute(inputs)
+        fd.validate(inputs)
 
     # https://github.com/NVIDIA/Fuser/issues/4960
     def test_domain_map_hang(self):

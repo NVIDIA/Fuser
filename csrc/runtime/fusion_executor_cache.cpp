@@ -42,6 +42,8 @@ FusionExecutorCache::FusionExecutorCache(
       fusion_id_{fusion_id},
       auto_schedule_(auto_schedule) {}
 
+FusionExecutorCache::~FusionExecutorCache() = default;
+
 KernelArgumentHolder FusionExecutorCache::runFusionWithInputs(
     KernelArgumentHolder args,
     std::optional<PrimDataType> forced_index_type,

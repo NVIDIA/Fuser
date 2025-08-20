@@ -29,7 +29,7 @@
 #include <c10/core/MemoryFormat.h>
 
 #include <bfs.h>
-#include <host_ir/executor.h>
+#include <host_ir/evaluator.h>
 #include <host_ir/jit.h>
 #include <instrumentation.h>
 #include <ir/all_nodes.h>

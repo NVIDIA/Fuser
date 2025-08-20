@@ -21,6 +21,10 @@ class FusedReductionInfo {
 
   bool isAllreduce(IterDomain* id) const;
 
+  const std::unordered_set<IterDomain*> allreduceIds() const {
+    return allreduce_ids_;
+  }
+
  private:
   // Reduction IterDomains that are also broadcast
   std::unordered_set<IterDomain*> allreduce_ids_;
@@ -31,6 +35,6 @@ class FusedReductionInfo {
 //! is unset, which effectively makes the broadcast just a unary set
 //! op.
 //! TODO: Consider moving the warp-based fused reduction here.
-void fuseReductionsAndBroadcasts(Fusion*);
+FusedReductionInfo fuseReductionsAndBroadcasts(Fusion*);
 
 } // namespace nvfuser
