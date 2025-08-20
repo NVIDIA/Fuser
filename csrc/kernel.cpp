@@ -141,6 +141,7 @@ class KernelIrScanner : private IrVisitor {
 
     // Update the largest smem data type
     if (domain->hasBlockReduction() || domain->hasGridReduction() ||
+        domain->hasClusterReduction() ||
         tv->getMemoryType() == MemoryType::Shared) {
       const auto data_type = tv->dtype();
       const size_t type_size = dataTypeSizeByte(data_type, index_type_);
@@ -190,6 +191,8 @@ class KernelIrScanner : private IrVisitor {
 
   void handle(ReductionOp* rop) final {
     checkWarpReduction(rop->out(), rop->in());
+    summary_.has_cluster_reduction = summary_.has_cluster_reduction ||
+        ir_utils::getTvOutput(rop)->domain()->hasClusterReduction();
   }
 
   void handle(GridReduction* grid_reduction) final {

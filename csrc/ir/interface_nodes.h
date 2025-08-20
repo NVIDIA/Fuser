@@ -427,6 +427,10 @@ class NVF_API TensorView : public Val {
     return domain()->hasGridReduction();
   }
 
+  bool hasClusterReduction() const {
+    return domain()->hasClusterReduction();
+  }
+
   bool hasBroadcast() const {
     return domain()->hasBroadcast();
   }

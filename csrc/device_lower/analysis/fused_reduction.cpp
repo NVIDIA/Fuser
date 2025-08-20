@@ -59,7 +59,8 @@ class FusionInspector : private IterVisitor {
 
  private:
   FusionInspector(Fusion* fusion)
-      : has_warp_specialization_(checkWarpSpecialization(fusion)) {
+      : has_warp_specialization_(checkWarpSpecialization(fusion)),
+        fusion_(fusion) {
     traverse(fusion);
   }
 
@@ -107,6 +108,7 @@ class FusionInspector : private IterVisitor {
     if (out->getMemoryType() == MemoryType::Local &&
         (is_static_warp_reduction(out, has_warp_specialization_) ||
          out->domain()->hasGridReduction() ||
+         out->domain()->hasClusterReduction() ||
          std::any_of(
              out->getLoopDomain().begin(),
              out->getLoopDomain().end(),
@@ -114,6 +116,23 @@ class FusionInspector : private IterVisitor {
                return id->getParallelType() == ParallelType::Group;
              }))) {
       reduction_dep_[out].insert(rop);
+    }
+
+    // manage cluster dim for codegen
+    if (out->domain()->hasClusterReduction()) {
+      auto id = std::find_if(
+          out->getLoopDomain().begin(),
+          out->getLoopDomain().end(),
+          [](IterDomain* id) {
+            return id->isReduction() && id->isBlockDim() &&
+                id->hasClusteredBlocks();
+          });
+      if (id != out->getLoopDomain().end()) {
+        int64_t blocks_per_cluster = (*id)->extent()->value().as<int64_t>();
+        fusion_->manage(
+            "cluster_dims",
+            std::tuple<int64_t, int64_t, int64_t>{blocks_per_cluster, 1, 1});
+      }
     }
   }
   void handle(WelfordOp* wop) final {
@@ -266,6 +285,8 @@ class FusionInspector : private IterVisitor {
   std::unordered_map<TensorView*, std::unordered_set<Expr*>> reduction_dep_;
   //! Whether this fusion has warp specialization enabled
   const bool has_warp_specialization_;
+  //! Add managed data to the fusion
+  Fusion* fusion_;
 };
 
 //! Transform a fusion to use the fused reduction kernel.
