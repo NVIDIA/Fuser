@@ -26,38 +26,6 @@ def round_up(x, y):
     return (x + y - 1) // y * y
 
 
-# NOTE: This is from pytorch nvfp4 gemm tests.
-def to_fp4(x):
-    def down_size(size):
-        assert size[-1] % 2 == 0, f"{size} last dim not divisible by two"
-        return (*size[:-1], size[-1] // 2)
-
-    def pack_uint4(uint8_data) -> torch.Tensor:
-        # converting to uint8 for operations
-        shape = uint8_data.shape
-        assert shape[-1] % 2 == 0
-        uint8_data = uint8_data.contiguous().view(-1)
-        return (uint8_data[1::2] << 4 | uint8_data[::2]).view(down_size(shape))
-
-    from torch.testing._internal.common_quantized import _f32_to_floatx_unpacked
-
-    x = _f32_to_floatx_unpacked(x.float(), 2, 1)
-    x = pack_uint4(x)
-    x = x.view(torch.float4_e2m1fn_x2)
-    return x
-
-
-def scale_to_nvfp4(x, g_sf):
-    x_blocked = x.view(*x.shape[:-1], -1, BLOCK_SIZE)
-    x_blocked_g_scaled = x_blocked / g_sf
-    block_sf = x_blocked_g_scaled.abs().amax(-1)
-
-    block_sf = block_sf.clamp(max=FLOAT8_E4M3_MAX)
-    x_blocked_scaled = x_blocked_g_scaled / block_sf.unsqueeze(-1)
-    x_blocked_scaled = x_blocked_scaled.view(x.shape)
-    return to_fp4(x_blocked_scaled), block_sf.to(dtype=torch.float8_e4m3fn)
-
-
 def activation_scale_to_nvfp4(x, g_sf, offsets, blockscale_offsets):
     m = x.size(0)
     k = x.size(1)
@@ -75,7 +43,7 @@ def activation_scale_to_nvfp4(x, g_sf, offsets, blockscale_offsets):
             r = offsets[i + 1]
         l_sf = blockscale_offsets[i]
         r_sf = l_sf + r - l
-        v_scaled[l:r], block_scale[l_sf:r_sf] = scale_to_nvfp4(x[l:r], g_sf[i])
+        v_scaled[l:r], block_scale[l_sf:r_sf] = pytorch_nvfp4_quantize(x[l:r], g_sf[i])
     return v_scaled, block_scale
 
 
@@ -125,8 +93,7 @@ class TestAlias(NVFuserTest):
             problem_sizes[i][1] = n
             problem_sizes[i][2] = k
 
-            # mat2[i], scale2[i] = scale_to_nvfp4(mat2[i], mat2_gs[i])
-            scaled_mat2_i, bs_mat2_i = scale_to_nvfp4(mat2[i], mat2_gs[i])
+            scaled_mat2_i, bs_mat2_i = pytorch_nvfp4_quantize(mat2[i], mat2_gs[i])
             mat2_scaled[i] = scaled_mat2_i
             scale2[i] = bs_mat2_i
 
