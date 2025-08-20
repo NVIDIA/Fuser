@@ -319,8 +319,7 @@ class TaskSorter {
       }
     }
 
-    // Initialize best_usage
-    TaskGraph::Size best_usage = std::numeric_limits<TaskGraph::Size>::max();
+    // Initialize best steps found so far
     std::vector<TaskGraph::Step> best_steps;
 
     // This is the main optimization loop
@@ -340,6 +339,9 @@ class TaskSorter {
         }
       }
 
+      // Reset backtracked_task_id
+      backtracked_task_id = -1;
+
       if (next_task_id == -1) {
         // There are no ready tasks with ID above the backtracked_task_id. This
         // means it is time to backtrack
@@ -358,7 +360,8 @@ class TaskSorter {
 
       // If our high water mark is above best_usage, terminate early and
       // backtrack
-      if (steps_.back().high_water_mark > best_usage) {
+      if (!best_steps.empty() &&
+          steps_.back().high_water_mark > best_steps.back().high_water_mark) {
         backtracked_task_id = backtrack();
         continue;
       }
