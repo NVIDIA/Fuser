@@ -70,7 +70,7 @@ TEST_F(TaskGraphTest, Basic) {
   //   |/
   //   3
   Tasks tasks{{{0, 1}, {2}}, {{0, 2}, {3}}};
-  auto data = inferData(tasks);
+  std::vector<TaskGraph::Data> data = inferData(tasks);
   auto graph = TaskGraph(tasks, data);
 
   const TaskGraph::SortResult result = graph.findOptimalOrder();
@@ -90,7 +90,7 @@ TEST_F(TaskGraphTest, ImpossibleAlias) {
   //   2   3
   // Two tasks, each takes the same two inputs
   Tasks tasks{{{0, 1}, {2}}, {{0, 1}, {3}}};
-  auto data = inferData(tasks);
+  std::vector<TaskGraph::Data> data = inferData(tasks);
   // Each of the segment outputs aliases a different input
   data[2].aliases_input = 0;
   data[3].aliases_input = 1;
@@ -105,7 +105,7 @@ TEST_F(TaskGraphTest, ImpossibleAlias) {
 
 TEST_F(TaskGraphTest, SelfEdge) {
   Tasks tasks{{{0}, {0}}};
-  auto data = inferData(tasks);
+  std::vector<TaskGraph::Data> data = inferData(tasks);
   // This graph can't be ordered because it contains an edge from a Data node
   // back to itself. A task can't be both producer and consumer to a Data.
   auto graph = TaskGraph(tasks, data);
@@ -118,7 +118,7 @@ TEST_F(TaskGraphTest, SelfEdge) {
 
 TEST_F(TaskGraphTest, TwoCycle) {
   Tasks tasks{{{0}, {1}}, {{1}, {0}}};
-  auto data = inferData(tasks);
+  std::vector<TaskGraph::Data> data = inferData(tasks);
   // This graph can't be ordered because it contains a cycle
   auto graph = TaskGraph(tasks, data);
 
@@ -130,7 +130,7 @@ TEST_F(TaskGraphTest, TwoCycle) {
 
 TEST_F(TaskGraphTest, ThreeCycle) {
   Tasks tasks{{{0}, {1}}, {{1}, {2}}, {{2}, {0}}};
-  auto data = inferData(tasks);
+  std::vector<TaskGraph::Data> data = inferData(tasks);
   // This graph can't be ordered because it contains a cycle
   auto graph = TaskGraph(tasks, data);
 
@@ -152,7 +152,7 @@ TEST_F(TaskGraphTest, FreeableIntermediate) {
       {{0}, {3}}, // Task 2
       {{3}, {4}}, // Task 3
   };
-  auto data = inferData(tasks);
+  std::vector<TaskGraph::Data> data = inferData(tasks);
   auto graph = TaskGraph(tasks, data);
 
   const TaskGraph::SortResult result = graph.findOptimalOrder();
@@ -184,7 +184,7 @@ TEST_F(TaskGraphTest, DifferentSizes) {
       {{5}, {6}}, // Task 5
       {{3, 6}, {7}} // Task 6
   };
-  auto data = inferData(tasks);
+  std::vector<TaskGraph::Data> data = inferData(tasks);
   data[1].size = 8;
   data[2].size = 12;
   data[3].size = 8;
