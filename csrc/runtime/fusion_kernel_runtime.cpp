@@ -472,8 +472,13 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
     for (const auto& heuristic_params : schedulers()) {
       launch_params_per_segment.push_back(heuristic_params->lparams);
     }
+    SchedulerRuntimeInfo runtime_info(
+        segmented_fusion_->completeFusion(), args);
     std::unique_ptr<hir::HostIrContainer> hic = lowerSegmentedFusionToHostIr(
-        *segmented_fusion_, launch_params_per_segment, executors_);
+        *segmented_fusion_,
+        launch_params_per_segment,
+        executors_,
+        runtime_info);
 #ifdef NVFUSER_HOST_IR_JIT
     hij_ = std::make_unique<HostIrJit>(std::move(hic));
 #else
