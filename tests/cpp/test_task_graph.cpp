@@ -211,4 +211,51 @@ TEST_F(TaskGraphTest, DifferentSizes) {
   EXPECT_EQ(result.steps.back().high_water_mark, 30);
 }
 
+TEST_F(TaskGraphTest, DifferentSizesRestartBranch) {
+  //   0
+  //  / \
+  // 1   6
+  // |   |
+  // 2*  7
+  // |   |
+  // 3   8*
+  // |   |
+  // 4*  9
+  // |   |
+  // 5  10
+  //  \ /
+  //  11
+  //
+  // The starred nodes are smaller than the others
+  Tasks tasks{
+      {{0}, {1}}, // Task 0
+      {{1}, {2}}, // Task 1
+      {{2}, {3}}, // Task 2
+      {{3}, {4}}, // Task 3
+      {{4}, {5}}, // Task 4
+      {{0}, {6}}, // Task 5
+      {{6}, {7}}, // Task 6
+      {{7}, {8}}, // Task 7
+      {{8}, {9}}, // Task 8
+      {{9}, {10}}, // Task 9
+      {{5, 10}, {11}} // Task 10
+  };
+  std::vector<TaskGraph::Data> data = inferData(tasks);
+  for (auto& di : data) {
+    di.size = 10;
+  }
+  data[2].size = 5;
+  data[4].size = 5;
+  data[8].size = 5;
+
+  auto graph = TaskGraph(tasks, data);
+
+  const TaskGraph::SortResult result = graph.findOptimalOrder();
+
+  ASSERT_EQ(result.steps.size(), tasks.size());
+  std::vector<TaskGraph::TaskId> expected{5, 6, 0, 1, 7, 8, 9, 2, 3, 4, 10};
+  EXPECT_EQ(getTasks(result), expected);
+  EXPECT_EQ(result.steps.back().high_water_mark, 30);
+}
+
 } // namespace nvfuser
