@@ -185,14 +185,20 @@ TEST_F(TaskGraphTest, DifferentSizes) {
       {{3, 6}, {7}} // Task 6
   };
   std::vector<TaskGraph::Data> data = inferData(tasks);
-  data[1].size = 8;
-  data[2].size = 12;
-  data[3].size = 8;
-  data[4].size = 10;
-  // Note that 4 is large but 5 is smaller than the others, so we should compute
-  // up to here then start on the 0-1-2-3 branch after freeing 4
-  data[5].size = 5;
-  data[6].size = 8;
+  data[0].size = 1;
+
+  data[1].size = 12;
+  data[2].size = 10;
+  data[3].size = 10;
+
+  // Note that 4 and 5  are large but that 6 is smaller than the others, so we
+  // should compute up to here then start on the 0-1-2-3 branch after freeing 4
+  // and 5. Otherwise we would need to hold
+  data[4].size = 11;
+  data[5].size = 11;
+  data[6].size = 7;
+
+  data[7].size = 1;
   auto graph = TaskGraph(tasks, data);
 
   std::cout << graph << std::endl;
@@ -200,9 +206,9 @@ TEST_F(TaskGraphTest, DifferentSizes) {
   const TaskGraph::SortResult result = graph.findOptimalOrder();
 
   ASSERT_EQ(result.steps.size(), tasks.size());
-  std::vector<TaskGraph::TaskId> expected{0, 3, 4, 1, 2, 5, 6};
+  std::vector<TaskGraph::TaskId> expected{3, 4, 5, 0, 1, 2, 6};
   EXPECT_EQ(getTasks(result), expected);
-  EXPECT_EQ(result.steps.back().high_water_mark, 2);
+  EXPECT_EQ(result.steps.back().high_water_mark, 30);
 }
 
 } // namespace nvfuser
