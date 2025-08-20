@@ -538,7 +538,6 @@ TensorView* cutlass_nvfp4_grouped_mm(
     TensorView* expert_offsets,
     TensorView* sf_offsets,
     DataType dtype) {
-  
   // Validate inputs
   NVF_CHECK(mat1 != nullptr, "mat1 cannot be null");
   NVF_CHECK(mat2 != nullptr, "mat2 cannot be null");
@@ -557,13 +556,13 @@ TensorView* cutlass_nvfp4_grouped_mm(
   auto mat2_domain = TensorDomain::noReductions(mat2->getLogicalDomain());
   NVF_CHECK(mat1_domain.size() == 2);
   NVF_CHECK(mat2_domain.size() == 3);
-  
+
   // Create output domain - this is a simplified approach
   // The actual output shape calculation should be more sophisticated
   std::vector<IterDomain*> out_domain;
   out_domain.push_back(ops::newOutputIterDomain({mat1_domain[0]}));
   out_domain.push_back(ops::newOutputIterDomain({mat2_domain[2]}));
-  
+
   TensorDomain* out_td = IrBuilder::create<TensorDomain>(
       out_domain, TensorDomain::getContiguityFilledWith(out_domain, true));
   TensorView* output = IrBuilder::create<TensorView>(out_td, dtype);

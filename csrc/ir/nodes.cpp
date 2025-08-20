@@ -6408,10 +6408,12 @@ CutlassNvfp4GroupedMmaOp::CutlassNvfp4GroupedMmaOp(
   NVF_ERROR(scale1->isA<TensorView>(), "Scale1 must be a TensorView");
   NVF_ERROR(scale2->isA<TensorView>(), "Scale2 must be a TensorView");
   NVF_ERROR(alpha->isA<TensorView>(), "Alpha must be a TensorView");
-  NVF_ERROR(problem_sizes->isA<TensorView>(), "Problem sizes must be a TensorView");
-  NVF_ERROR(expert_offsets->isA<TensorView>(), "Expert offsets must be a TensorView");
+  NVF_ERROR(
+      problem_sizes->isA<TensorView>(), "Problem sizes must be a TensorView");
+  NVF_ERROR(
+      expert_offsets->isA<TensorView>(), "Expert offsets must be a TensorView");
   NVF_ERROR(sf_offsets->isA<TensorView>(), "SF offsets must be a TensorView");
-  
+
   addOutput(out_mat);
   addInput(mat1);
   addInput(mat2);
@@ -6453,13 +6455,17 @@ std::vector<PolymorphicValue> CutlassNvfp4GroupedMmaOp::evaluate(
   const auto& problem_sizes = inputs[5].as<at::Tensor>();
   const auto& expert_offsets = inputs[6].as<at::Tensor>();
   const auto& sf_offsets = inputs[7].as<at::Tensor>();
-  NVF_CHECK(mat1.scalar_type() == at::ScalarType::Float4_e2m1fn_x2 && mat2.scalar_type() == at::ScalarType::Float4_e2m1fn_x2);
+  NVF_CHECK(
+      mat1.scalar_type() == at::ScalarType::Float4_e2m1fn_x2 &&
+      mat2.scalar_type() == at::ScalarType::Float4_e2m1fn_x2);
 
   // Validate problem_sizes tensor
   NVF_CHECK(problem_sizes.dim() == 2, "problem_sizes must be a 2D tensor");
-  NVF_CHECK(problem_sizes.size(1) == 3, "problem_sizes must have shape (num_experts, 3)");
+  NVF_CHECK(
+      problem_sizes.size(1) == 3,
+      "problem_sizes must have shape (num_experts, 3)");
   int num_experts = problem_sizes.size(0);
-  
+
   // Calculate output shape and allocate output tensor
   std::vector<int64_t> output_shape;
   output_shape = {mat1.size(0), mat2.size(2)};
@@ -6474,12 +6480,15 @@ std::vector<PolymorphicValue> CutlassNvfp4GroupedMmaOp::evaluate(
   // Note: mat1 is packed fp4x2.
   int k = mat1.size(1) * 2;
   int n = mat2.size(2);
-  auto ab_strides = at::empty({num_experts}, options.dtype(at::ScalarType::Long));
-  auto c_strides = at::empty({num_experts}, options.dtype(at::ScalarType::Long));
-  // FIXME: this could be done outside and provided as input to avoid two kernel launches.
+  auto ab_strides =
+      at::empty({num_experts}, options.dtype(at::ScalarType::Long));
+  auto c_strides =
+      at::empty({num_experts}, options.dtype(at::ScalarType::Long));
+  // FIXME: this could be done outside and provided as input to avoid two kernel
+  // launches.
   ab_strides.fill_(k);
   c_strides.fill_(n);
-  
+
 #if NVFUSER_CUTLASS_KERNEL_ENABLED
   // Call the cutlass kernel, note that it expect g,n,k layout on mat2.
   cutlass_kernels::nvfp4_scaled_grouped_mm(
@@ -6503,7 +6512,6 @@ std::vector<PolymorphicValue> CutlassNvfp4GroupedMmaOp::evaluate(
     result = result.unsqueeze(rfactor_did_idx);
   }
   return {result};
-
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(CutlassNvfp4GroupedMmaOp)

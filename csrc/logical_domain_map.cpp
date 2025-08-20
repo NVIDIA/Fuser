@@ -289,8 +289,8 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseLogicalDomainMap::map(
     }
   }
 
-  // For CutlassNvfp4GroupedMmaOp, use the corresponding mapped input iterdomains.
-  // Note that we are only mapping input matrices to output
+  // For CutlassNvfp4GroupedMmaOp, use the corresponding mapped input
+  // iterdomains. Note that we are only mapping input matrices to output
   if (CutlassNvfp4GroupedMmaOp* op =
           dynamic_cast<CutlassNvfp4GroupedMmaOp*>(consumer_tv_->definition())) {
     int64_t ndims_out = std::ssize(consumer_root);
@@ -298,7 +298,7 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseLogicalDomainMap::map(
     // is not broadcast.
     bool has_rk = consumer_root.back()->isReduction();
     int64_t out_non_rk_last_idx = has_rk ? ndims_out - 2 : ndims_out - 1;
-    
+
     int64_t last_producer_idx = std::ssize(producer_logical) - 1;
     if (producer_tv_ == op->matrix1()) {
       // mapping m dimension;

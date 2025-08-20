@@ -4039,8 +4039,7 @@ void initNvFuserPythonBindings(PyObject* module) {
          Tensor problem_sizes,
          Tensor expert_offsets,
          Tensor sf_offsets,
-         PrimDataType dtype)
-          -> Tensor {
+         PrimDataType dtype) -> Tensor {
         FUSER_PERF_SCOPE("Operators.cutlass_nvfp4_grouped_mm");
         NVF_CHECK(
             self.validUse(), "Attempting to add to a completed definition!");

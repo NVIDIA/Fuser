@@ -3521,7 +3521,8 @@ struct CutlassNvfp4GroupedMmaOpRecord : RecordFunctor {
     if (!RecordFunctor::operator==(other)) {
       return false;
     }
-    auto other_cutlass_nvfp4_grouped_mma = static_cast<const CutlassNvfp4GroupedMmaOpRecord&>(other);
+    auto other_cutlass_nvfp4_grouped_mma =
+        static_cast<const CutlassNvfp4GroupedMmaOpRecord&>(other);
     return (dtype_ == other_cutlass_nvfp4_grouped_mma.dtype_);
   }
 
@@ -3535,12 +3536,23 @@ struct CutlassNvfp4GroupedMmaOpRecord : RecordFunctor {
     auto scale1 = fd.getFusionState(args_[2].index)->template as<TensorView>();
     auto scale2 = fd.getFusionState(args_[3].index)->template as<TensorView>();
     auto alpha = fd.getFusionState(args_[4].index)->template as<TensorView>();
-    auto problem_sizes = fd.getFusionState(args_[5].index)->template as<TensorView>();
-    auto expert_offsets = fd.getFusionState(args_[6].index)->template as<TensorView>();
-    auto sf_offsets = fd.getFusionState(args_[7].index)->template as<TensorView>();
+    auto problem_sizes =
+        fd.getFusionState(args_[5].index)->template as<TensorView>();
+    auto expert_offsets =
+        fd.getFusionState(args_[6].index)->template as<TensorView>();
+    auto sf_offsets =
+        fd.getFusionState(args_[7].index)->template as<TensorView>();
 
     auto result = cutlass_nvfp4_grouped_mm(
-        mat1, mat2, scale1, scale2, alpha, problem_sizes, expert_offsets, sf_offsets, dtype_);
+        mat1,
+        mat2,
+        scale1,
+        scale2,
+        alpha,
+        problem_sizes,
+        expert_offsets,
+        sf_offsets,
+        dtype_);
     fd.setFusionState(outputs().at(0).index, result);
   }
 

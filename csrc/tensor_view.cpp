@@ -890,7 +890,9 @@ TensorView* TensorView::rFactor(const std::vector<int64_t>& axes) {
         IrBuilder::create<Val>(0.0, producer->dtype()),
         consumer,
         producer);
-  } else if (auto cutlass_grouped_mma = dynamic_cast<CutlassNvfp4GroupedMmaOp*>(definition())) {
+  } else if (
+      auto cutlass_grouped_mma =
+          dynamic_cast<CutlassNvfp4GroupedMmaOp*>(definition())) {
     IrBuilder::create<CutlassNvfp4GroupedMmaOp>(
         producer,
         cutlass_grouped_mma->matrix1(),
