@@ -72,7 +72,22 @@ class CompileTimeChecker : private IterVisitor {
   }
 
   void handle(ArgsortOp* argsort) override {
-    checkConstrainedTv(ir_utils::getTvOutput(argsort), {argsort->dim()});
+    auto out_tv = ir_utils::getTvOutput(argsort);
+    checkConstrainedTv(out_tv, {argsort->dim()});
+    if (!can_schedule_) {
+      return;
+    }
+
+    // Only static dim supported for now. See also
+    // CudaKernelGenerator::handle(ArgsortOp*)
+    auto sorted_id = out_tv->getLogicalDomain().at(argsort->dim());
+    if (!sorted_id->extent()->isConstInt()) {
+      can_schedule_ = false;
+      std::stringstream reason;
+      reason << "Symbolic dimension not supported yet: " << argsort->toString();
+      setRejectReason(reason.str());
+      return;
+    }
   }
 
   void handle(PadOp* pad) override {
@@ -80,7 +95,19 @@ class CompileTimeChecker : private IterVisitor {
   }
 
   void handle(ScanOp* scan) override {
-    checkConstrainedTv(ir_utils::getTvOutput(scan), {scan->dim()});
+    auto out_tv = ir_utils::getTvOutput(scan);
+    checkConstrainedTv(out_tv, {scan->dim()});
+
+    // Only static dim supported for now. See also
+    // CudaKernelGenerator::handle(ScanOp*)
+    auto scan_id = out_tv->getLogicalDomain().at(scan->dim());
+    if (!scan_id->extent()->isConstInt()) {
+      can_schedule_ = false;
+      std::stringstream reason;
+      reason << "Symbolic dimension not supported yet: " << scan->toString();
+      setRejectReason(reason.str());
+      return;
+    }
   }
 
   void checkConstrainedTv(
