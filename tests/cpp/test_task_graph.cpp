@@ -46,6 +46,7 @@ std::vector<TaskGraph::Data> inferData(const Tasks& tasks) {
 
   // Detect inputs and outputs and ensure they are not freed
   for (TaskGraph::Data& data : all_data) {
+    data.size = 1;
     data.can_free = data.definition.has_value() && !data.uses.empty();
   }
 
@@ -72,8 +73,12 @@ TEST_F(TaskGraphTest, Basic) {
   auto data = inferData(tasks);
   auto graph = TaskGraph(tasks, data);
 
+  const TaskGraph::SortResult result = graph.findOptimalOrder();
+
+  ASSERT_EQ(result.steps.size(), tasks.size());
   std::vector<TaskGraph::TaskId> expected{0, 1};
-  EXPECT_EQ(getTasks(graph.findOptimalOrder()), expected);
+  EXPECT_EQ(getTasks(result), expected);
+  EXPECT_EQ(result.steps.back().high_water_mark, 4);
 }
 
 // This example includes two segments, each of which aliases the other
@@ -93,7 +98,7 @@ TEST_F(TaskGraphTest, ImpossibleAlias) {
   auto graph = TaskGraph(tasks, data);
 
   EXPECT_THAT(
-      [&graph]() { getTasks(graph.findOptimalOrder()); },
+      [&graph]() { graph.findOptimalOrder(); },
       ::testing::ThrowsMessage<nvfuser::nvfError>(::testing::HasSubstr(
           "Ran out of ready tasks before completing ordering")));
 }
@@ -106,7 +111,7 @@ TEST_F(TaskGraphTest, SelfEdge) {
   auto graph = TaskGraph(tasks, data);
 
   EXPECT_THAT(
-      [&graph]() { getTasks(graph.findOptimalOrder()); },
+      [&graph]() { graph.findOptimalOrder(); },
       ::testing::ThrowsMessage<nvfuser::nvfError>(::testing::HasSubstr(
           "Ran out of ready tasks before completing ordering")));
 }
@@ -118,7 +123,7 @@ TEST_F(TaskGraphTest, TwoCycle) {
   auto graph = TaskGraph(tasks, data);
 
   EXPECT_THAT(
-      [&graph]() { getTasks(graph.findOptimalOrder()); },
+      [&graph]() { graph.findOptimalOrder(); },
       ::testing::ThrowsMessage<nvfuser::nvfError>(::testing::HasSubstr(
           "Ran out of ready tasks before completing ordering")));
 }
@@ -130,35 +135,34 @@ TEST_F(TaskGraphTest, ThreeCycle) {
   auto graph = TaskGraph(tasks, data);
 
   EXPECT_THAT(
-      [&graph]() { getTasks(graph.findOptimalOrder()); },
+      [&graph]() { graph.findOptimalOrder(); },
       ::testing::ThrowsMessage<nvfuser::nvfError>(::testing::HasSubstr(
           "Ran out of ready tasks before completing ordering")));
 }
 
 TEST_F(TaskGraphTest, FreeableIntermediate) {
   //   0
-  //  / \
-  // 1   2
+  //  /|\
+  // 1 2 3
   //     |
-  //     3
+  //     4
   Tasks tasks{
       {{0}, {1}}, // Task 0
       {{0}, {2}}, // Task 1
-      {{2}, {3}}, // Task 2
+      {{0}, {3}}, // Task 2
+      {{3}, {4}}, // Task 3
   };
   auto data = inferData(tasks);
   auto graph = TaskGraph(tasks, data);
 
-  std::cout << graph << std::endl;
+  const TaskGraph::SortResult result = graph.findOptimalOrder();
 
-  TaskGraph::SortResult result = graph.findOptimalOrder();
-
-  // Expect that we evaluate the branch with intermediates before the other,
-  // since those intermediates can take the space we'll need later for output 1
-  std::vector<TaskGraph::TaskId> expected{1, 2, 0};
-  EXPECT_EQ(getTasks(result), expected);
-
-  EXPECT_EQ(result.steps.back().high_water_mark, 2);
+  // Expect that we evaluate the branch with intermediate before the others,
+  // since that intermediate 3 can take the space we'll need later for output 1
+  // or 2
+  ASSERT_EQ(result.steps.size(), tasks.size());
+  EXPECT_NE(getTasks(result).back(), 3);
+  EXPECT_EQ(result.steps.back().high_water_mark, 4);
 }
 
 TEST_F(TaskGraphTest, DifferentSizes) {
@@ -193,8 +197,12 @@ TEST_F(TaskGraphTest, DifferentSizes) {
 
   std::cout << graph << std::endl;
 
+  const TaskGraph::SortResult result = graph.findOptimalOrder();
+
+  ASSERT_EQ(result.steps.size(), tasks.size());
   std::vector<TaskGraph::TaskId> expected{0, 3, 4, 1, 2, 5, 6};
-  EXPECT_EQ(getTasks(graph.findOptimalOrder()), expected);
+  EXPECT_EQ(getTasks(result), expected);
+  EXPECT_EQ(result.steps.back().high_water_mark, 2);
 }
 
 } // namespace nvfuser
