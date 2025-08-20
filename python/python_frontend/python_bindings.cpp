@@ -3732,6 +3732,39 @@ void initNvFuserPythonBindings(PyObject* module) {
       py::arg("stable") = false,
       py::return_value_policy::reference);
 
+#define NVFUSER_PYTHON_BINDING_SCAN_OP(op_str, op_name, DOCSTRING)      \
+  nvf_ops.def(                                                          \
+      op_str,                                                           \
+      [](FusionDefinition::Operators& self,                             \
+         Tensor arg,                                                    \
+         int64_t dim) -> Tensor {                                       \
+        FusionDefinition* fd = self.fusion_definition;                  \
+        Tensor output = fd->defineTensor(arg.dims);                     \
+        auto dim_ = fd->defineScalar();                                 \
+        fd->defineRecord(new ScalarRecord(                              \
+            {fd->recordingState(dim_())},                               \
+            dim,                                                        \
+            DataType::Int,                                              \
+            /*inline_def=*/true));                                      \
+        fd->defineRecord(new OpRecord<TensorView*, TensorView*, Val*>(  \
+            {fd->recordingState(arg()), fd->recordingState(dim_())},    \
+            {fd->recordingState(output())},                             \
+            ("ops.cumsum"),                                             \
+            serde::RecordType::Binary_TV_VAL,                           \
+            static_cast<TensorView* (*)(TensorView*, Val*)>(op_name))); \
+                                                                        \
+        return output;                                                  \
+      },                                                                \
+      py::arg("arg"),                                                   \
+      py::arg("dim"),                                                   \
+      py::return_value_policy::reference,                               \
+      DOCSTRING);
+
+  NVFUSER_PYTHON_BINDING_SCAN_OP(
+      "cumsum", cumsum, "Cumulative sum of a tensor");
+
+#undef NVFUSER_PYTHON_BINDING_SCAN_OP
+
   nvf_ops.def(
       "grouped_mm",
       [](FusionDefinition::Operators& self,
