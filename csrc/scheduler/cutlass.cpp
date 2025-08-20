@@ -53,7 +53,7 @@ bool CutlassScheduler::canScheduleCompileTime(Fusion* fusion) {
 
   // TODO: Enable this scheduler by default once we are confident in the pattern
   // matching and heuristic
-  return false;
+  return isOptionEnabled(EnableOption::CutlassScheduler);
 
   // Check if fusion has a supported matmul pattern
   if (!hasSupportedMatmulPattern(fusion)) {

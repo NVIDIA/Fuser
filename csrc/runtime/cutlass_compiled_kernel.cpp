@@ -377,15 +377,17 @@ void CutlassCompiledKernel::compileWithNVCC() {
 
   int result = -1;
   if (isDebugDumpEnabled(DebugDumpOption::CutlassCompile)) {
-    debug() << "Compiling CUTLASS kernel with command\n" << full_cmd << std::endl;
+    debug() << "Compiling CUTLASS kernel with command\n"
+            << full_cmd << std::endl;
 
     using Clock = std::chrono::steady_clock;
     Clock::time_point start_timestamp = Clock::now();
     result = system(full_cmd.c_str());
     Clock::duration duration = Clock::now() - start_timestamp;
-    debug() << "NVCC CUTLASS kernel compile time: "
-            << std::chrono::duration_cast<std::chrono::seconds>(duration).count()
-            << " seconds" << std::endl;
+    debug()
+        << "NVCC CUTLASS kernel compile time: "
+        << std::chrono::duration_cast<std::chrono::seconds>(duration).count()
+        << " seconds" << std::endl;
   } else {
     result = system(full_cmd.c_str());
   }

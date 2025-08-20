@@ -38,6 +38,9 @@ TEST_F(CutlassExecutorTest, SimpleNvfp4ScaledGemm) {
 
   auto tv0 = makeContigTensor(2, DataType::Float4_e2m1fn);
   auto tv1 = makeContigTensor(2, DataType::Float4_e2m1fn);
+  // B has K inner
+  tv1->setAllocationDomain(
+      {tv1->axis(1), tv1->axis(0)}, /*new_contiguity=*/true);
   auto tv2 = makeContigTensor(2, DataType::Float8_e4m3fn);
   auto tv3 = makeContigTensor(2, DataType::Float8_e4m3fn);
   auto tv4 = makeContigTensor(0, DataType::Float); // alpha
@@ -77,7 +80,7 @@ TEST_F(CutlassExecutorTest, SimpleNvfp4ScaledGemm) {
   // Create nvfp4 tensors by creating uint8 tensors and viewing them as
   // Float4_e2m1fn_x2
   auto a_fp4 = at::empty({M, K}, fp4_options);
-  auto b_fp4 = at::empty({N, K}, fp4_options);
+  auto b_fp4 = at::empty({N, K}, fp4_options).t();
 
   // Create scale tensors in Float format (as expected by the fusion)
   auto a_scale = at::empty({M, K / 8}, fp8_options);
