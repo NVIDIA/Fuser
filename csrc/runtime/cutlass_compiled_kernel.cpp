@@ -15,6 +15,7 @@
 #include <ir/all_nodes.h>
 #include <ops/all_ops.h>
 #include <options.h>
+#include <runtime/compiled_kernel.h>
 #include <runtime/cutlass_compiled_kernel.h>
 #include <runtime/executor_kernel_arg.h>
 #include <runtime/executor_params.h>
@@ -76,7 +77,7 @@ std::string getComputeCapabilityString(int compute_capability) {
 CutlassCompiledKernel::CutlassCompiledKernel(
     Fusion* fusion,
     const CutlassParams& cutlass_params,
-    const CutlassCompileOptions& compile_options,
+    const CompileParams& cparams,
     c10::Device device,
     int64_t fusion_id,
     int64_t concrete_id,
@@ -89,7 +90,7 @@ CutlassCompiledKernel::CutlassCompiledKernel(
       concrete_id_(concrete_id),
       runtime_id_(runtime_id),
       group_id_(group_id),
-      compile_options_(compile_options) {
+      cparams_(cparams) {
   NVF_CHECK(fusion != nullptr, "Fusion cannot be null");
 }
 
@@ -277,21 +278,22 @@ void CutlassCompiledKernel::compileWithNVCC() {
   std::filesystem::path output_file = temp_dir_ / "cutlass_kernel.so";
   std::string compile_cmd = "nvcc";
 
-  // Add compute capability
-  compile_cmd += " -arch=" +
-      getComputeCapabilityString(compile_options_.compute_capability);
+  const auto prop = at::cuda::getCurrentDeviceProperties();
+  int64_t major = 0, minor = 0;
+  bool compile_to_sass = false;
+  queryTargetGPUVersion(prop, major, minor, compile_to_sass);
+  const int64_t compute_capability = 10 * major + minor;
 
-  // Add optimization level
-  compile_cmd += " -O" + std::to_string(compile_options_.optimization_level);
+  // Add compute capability
+  compile_cmd += " -arch=" + getComputeCapabilityString(compute_capability);
 
   // Add CUTLASS include paths
   const std::filesystem::path cutlass_path = getCutlassPath();
-  compile_options_.include_paths.push_back(cutlass_path / "include");
-  compile_options_.include_paths.push_back(
-      cutlass_path / "tools" / "util" / "include");
+  cparams_.include_paths.push_back(cutlass_path / "include");
+  cparams_.include_paths.push_back(cutlass_path / "tools" / "util" / "include");
   const std::filesystem::path torch_path = getTorchPath();
-  compile_options_.include_paths.push_back(torch_path / "include");
-  compile_options_.include_paths.push_back(
+  cparams_.include_paths.push_back(torch_path / "include");
+  cparams_.include_paths.push_back(
       torch_path / "include" / "torch" / "csrc" / "api" / "include");
 
   compile_cmd = "nvcc";
@@ -300,7 +302,7 @@ void CutlassCompiledKernel::compileWithNVCC() {
   // Disable some warnings in host code
   compile_cmd += " -Wno-conversion";
 
-  for (const auto& path : compile_options_.include_paths) {
+  for (const auto& path : cparams_.include_paths) {
     compile_cmd += " -I" + path;
   }
 
@@ -315,12 +317,11 @@ void CutlassCompiledKernel::compileWithNVCC() {
 
   compile_cmd += " --expt-relaxed-constexpr --expt-extended-lambda";
 
-  compile_cmd += " -O" + std::to_string(compile_options_.optimization_level);
+  compile_cmd += " -O3";
 
   compile_cmd += " -std=c++17";
 
-  std::string arch =
-      getComputeCapabilityString(compile_options_.compute_capability);
+  std::string arch = getComputeCapabilityString(compute_capability);
   // 90 -> 90a  or  100 -> 100a
   // Note that without this we get errors like
   //   Trying to use TMA Descriptor Prefetch without CUTE_ARCH_TMA_SM90_ENABLED.

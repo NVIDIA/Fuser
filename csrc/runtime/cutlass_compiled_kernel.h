@@ -20,21 +20,6 @@ namespace nvfuser {
 
 class Fusion;
 
-// Compilation options specific to CUTLASS kernels
-struct CutlassCompileOptions {
-  // CUTLASS include paths
-  std::vector<std::string> include_paths;
-
-  // Optimization level
-  int optimization_level = 3;
-
-  // Target architecture
-  int compute_capability = 0; // 0 means auto-detect
-
-  // CUTLASS specific defines
-  std::vector<std::string> defines;
-};
-
 // CUTLASS kernel descriptor containing kernel configuration
 struct CutlassKernelDescriptor {
   // Kernel name
@@ -69,7 +54,7 @@ class CutlassCompiledKernel : public NonCopyable {
   CutlassCompiledKernel(
       Fusion* fusion,
       const CutlassParams& cutlass_params,
-      const CutlassCompileOptions& compile_options = CutlassCompileOptions(),
+      const CompileParams& cparams = CompileParams(),
       c10::Device device = c10::Device(c10::DeviceType::CUDA, 0),
       int64_t fusion_id = 0,
       int64_t concrete_id = 0,
@@ -165,7 +150,7 @@ class CutlassCompiledKernel : public NonCopyable {
   // Kernel name for fusion executor
   std::string kernel_id_;
 
-  CutlassCompileOptions compile_options_;
+  CompileParams cparams_;
   CutlassKernelDescriptor descriptor_;
 
   bool compiled_ = false;
