@@ -134,7 +134,7 @@ def activation_scale_to_nvfp4(x, g_sf, offsets, blockscale_offsets, block_size):
         r_sf = l_sf + r - l
         v, b_sf = pytorch_nvfp4_quantize(x[l:r], g_sf[i])
         v_scaled[l:r] = v
-        block_scale[l_sf:r_sf] = pytorch_nvfp4_quantize(b_sf)
+        block_scale[l_sf:r_sf] = linear_to_swizzled_128_4(b_sf)
 
     return v_scaled, block_scale
 
