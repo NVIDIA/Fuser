@@ -32,7 +32,8 @@ void CutlassExecutor::compile(
     Fusion* fusion,
     const KernelArgumentHolder& args,
     const LaunchParams& launch_constraints,
-    CompileParams compile_params) {
+    CompileParams compile_params,
+    const CutlassParams& cutlass_params) {
   FUSER_PERF_SCOPE("CutlassExecutor::compile");
 
   NVF_CHECK(!compiled_, "Cannot re-compile a CutlassExecutor");
@@ -41,12 +42,6 @@ void CutlassExecutor::compile(
 
   // Clone the fusion
   fusion_ = std::make_unique<Fusion>(*fusion);
-
-  // For now, create default CutlassParams
-  // TODO: Get from scheduler once it's properly integrated
-  CutlassParams cutlass_params_instance;
-
-  auto cutlass_params = &cutlass_params_instance;
 
   // Create compile options
   CompileParams cparams;
@@ -58,7 +53,7 @@ void CutlassExecutor::compile(
 
   // Create and compile the CUTLASS kernel
   cutlass_kernel_ = std::make_unique<CutlassCompiledKernel>(
-      fusion_.get(), *cutlass_params, cparams);
+      fusion_.get(), cutlass_params, cparams);
   cutlass_kernel_->compile();
 
   // Store the generated code for debugging

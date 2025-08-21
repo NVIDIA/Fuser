@@ -104,9 +104,14 @@ TEST_F(CutlassExecutorTest, SimpleNvfp4ScaledGemm) {
   auto cutlass_params = dynamic_cast<CutlassParams*>(params.get());
   EXPECT_NE(cutlass_params, nullptr);
 
+  // Change a few params to see difference in trace compared to ExprEval
+  cutlass_params->mma_tile.m = 128;
+  cutlass_params->cluster_shape.n = 1;
+
   // Create CutlassExecutor and compile the fusion
   CutlassExecutor executor;
-  executor.compile(fusion.get(), args);
+  executor.compile(
+      fusion.get(), args, LaunchParams(), CompileParams(), *cutlass_params);
   EXPECT_TRUE(executor.isCompiled());
 
   // Run the fusion

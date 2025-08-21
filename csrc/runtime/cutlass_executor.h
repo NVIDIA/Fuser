@@ -8,13 +8,13 @@
 #pragma once
 
 #include <runtime/compiled_kernel.h>
+#include <runtime/cutlass_compiled_kernel.h>
 #include <runtime/executor_abstract.h>
 #include <runtime/executor_kernel_arg.h>
 #include <runtime/executor_params.h>
+#include <scheduler/cutlass.h>
 #include <memory>
 #include <string>
-
-#include <runtime/cutlass_compiled_kernel.h>
 
 namespace nvfuser {
 
@@ -29,15 +29,16 @@ class CutlassExecutor : public ExecutorAbstract {
       int64_t group_id = 0)
       : ExecutorAbstract(fusion_id, concrete_id, runtime_id, group_id) {}
 
-  // Returns true if fusion can be executed by CUTLASS
+  //! Returns true if fusion can be executed by CUTLASS
   static bool supported(Fusion* fusion);
 
-  // Compile the fusion into a CUTLASS kernel
+  //! Compile the fusion into a CUTLASS kernel
   void compile(
       Fusion* fusion,
       const KernelArgumentHolder& args,
       const LaunchParams& launch_constraints = LaunchParams(),
-      CompileParams compile_params = CompileParams());
+      CompileParams compile_params = CompileParams(),
+      const CutlassParams& cutlass_params = CutlassParams());
 
   bool isCompiled() const override;
 
