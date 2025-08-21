@@ -6,10 +6,10 @@
  */
 // clang-format on
 
+#include <vector>
+
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
-
-#include <vector>
 
 #include <ops/all_ops.h>
 #include <preseg_passes/propagate_shardings.h>

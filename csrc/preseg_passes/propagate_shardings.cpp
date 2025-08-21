@@ -126,10 +126,13 @@ std::unordered_set<ParallelType> getParallelTypesToPropagate(
 
   // Collect any DID or stream parallel types seen on the loop domain of the
   // given tvs. For DID, only non-reduction dimensions are considered.
+  // For e.g., if tv is i0, r{DIDx(d)}, r{i1/d}], then we allow parallelizing
+  // i0 with DIDx. This generates the reduce-scatter communication (`DIDx(d),
+  // i0/d, r{DIDx(d)}, r{i1/d}`). where i0 is scattered and i1 is reduced.
   std::unordered_set<ParallelType> existing_parallel_types;
   for (auto tv : tvs) {
     for (auto id : tv->getLoopDomain()) {
-      if ((id->isDeviceDim() && !id->isReduction()) || id->isStream()) {
+      if (id->isStream() || (id->isDeviceDim() && !id->isReduction())) {
         existing_parallel_types.insert(id->getParallelType());
       }
     }
