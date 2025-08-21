@@ -104,8 +104,7 @@ TEST_P(SgLangMoETest, ComputeExpertOffsets) {
   fusion.addInput(tv0);
 
   // Inclusive scan
-  auto zero = fusion.zeroVal(DataType::Int);
-  auto tv1 = cumsum(tv0, zero);
+  auto tv1 = cumsum(tv0, 0);
   // Exclusive scan + total count
   auto tv2 =
       pad(tv1, {fusion.oneVal(DataType::Int), fusion.zeroVal(DataType::Int)});
@@ -152,8 +151,7 @@ TEST_P(SgLangMoETest, ComputeExpertBlockScaleOffsets) {
   fusion.addInput(tv0);
 
   // The first part is the same as ComputeExpertOffsets
-  auto zero = fusion.zeroVal(DataType::Int);
-  auto tv1 = cumsum(tv0, zero);
+  auto tv1 = cumsum(tv0, 0);
   auto tv2 =
       pad(tv1, {fusion.oneVal(DataType::Int), fusion.zeroVal(DataType::Int)});
 
@@ -161,7 +159,7 @@ TEST_P(SgLangMoETest, ComputeExpertBlockScaleOffsets) {
   auto tv3 =
       ceilDiv(tv0, IrBuilder::create<Val>(rounding_factor, DataType::Int));
   auto tv4 = mul(tv3, IrBuilder::create<Val>(rounding_factor, DataType::Int));
-  auto tv5 = cumsum(tv4, zero);
+  auto tv5 = cumsum(tv4, 0);
   auto tv6 =
       pad(tv5, {fusion.oneVal(DataType::Int), fusion.zeroVal(DataType::Int)});
 

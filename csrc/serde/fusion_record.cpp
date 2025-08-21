@@ -74,6 +74,21 @@ python_frontend::RecordFunctor* deserializeReductionRecord(
       mapToNvfuserDtype(data->dtype()));
 }
 
+python_frontend::RecordFunctor* deserializeScanOpRecord(
+    std::function<TensorView*(TensorView*, int64_t)> fusion_op,
+    RecordType record_type,
+    const RecordFunctor* buffer) {
+  auto data = buffer->data_as_ScanOp();
+  return new python_frontend::ScanOpRecord(
+      parseStateArgs(buffer->args()),
+      parseStateArgs(buffer->outputs()),
+      buffer->name()->str(),
+      record_type,
+      fusion_op,
+      data->dim(),
+      BinaryOpType::Add);
+}
+
 void RecordFunctorFactory::registerAllParsers() {
   auto deserializeStartRecord = [](const RecordFunctor* buffer) {
     return new python_frontend::StartRecord();
@@ -352,6 +367,13 @@ void RecordFunctorFactory::registerAllParsers() {
   };
   registerParser(RecordType::ReductionSum, reduction_sum_parser);
   // END Reduction Parsers
+
+  // START ScanOp Parsers
+  auto scanop_cumsum_parser = [](const RecordFunctor* buffer) {
+    return deserializeScanOpRecord(cumsum, RecordType::ScanOpCumsum, buffer);
+  };
+  registerParser(RecordType::ScanOpCumsum, scanop_cumsum_parser);
+  // END ScanOp Parsers
 
   auto deserializeBatchNormRecord = [](const RecordFunctor* buffer) {
     auto data = buffer->data_as_BatchNorm();
@@ -859,7 +881,7 @@ void RecordFunctorFactory::setupFunctionMaps() {
   NVFUSER_UNARY_TV_OP("imag", imag)
 
   NVFUSER_UNARY_TV_ALPHA_OP("triu", triu)
-  NVFUSER_UNARY_TV_ALPHA_OP("cumsum", cumsum)
+  // NVFUSER_UNARY_TV_ALPHA_OP("cumsum", cumsum)
 
   NVFUSER_BINARY_TV_ONLY_OP("matmul", matmul)
   NVFUSER_TERNARY_TV_ONLY_OP(
