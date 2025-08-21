@@ -79,6 +79,13 @@ python_frontend::RecordFunctor* deserializeScanOpRecord(
     RecordType record_type,
     const RecordFunctor* buffer) {
   auto data = buffer->data_as_ScanOp();
+  BinaryOpType op_type;
+  if (record_type == RecordType::ScanOpCumsum) {
+    op_type = BinaryOpType::Add;
+  } else {
+    NVF_THROW("Only cumsum scan operation is supported.");
+  }
+
   return new python_frontend::ScanOpRecord(
       parseStateArgs(buffer->args()),
       parseStateArgs(buffer->outputs()),
@@ -86,7 +93,7 @@ python_frontend::RecordFunctor* deserializeScanOpRecord(
       record_type,
       fusion_op,
       data->dim(),
-      BinaryOpType::Add);
+      op_type);
 }
 
 void RecordFunctorFactory::registerAllParsers() {
