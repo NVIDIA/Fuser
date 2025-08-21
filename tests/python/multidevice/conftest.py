@@ -2,6 +2,9 @@
 # All rights reserved.
 # SPDX-License-Identifier: BSD-3-Clause
 
+# Run command:
+# mpirun -np [num_devices] pytest tests/python/multidevice/[test_name].py --only-mpi -s
+
 import os
 from enum import Enum, auto
 from typing import Iterable

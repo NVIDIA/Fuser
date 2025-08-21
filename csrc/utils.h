@@ -245,29 +245,6 @@ struct Printer {
   }
 };
 
-#if 0
-
-// Waiting for C++20....
-
-#include <concepts>
-
-template<typename T>
-concept Printable = requires(T a)
-{
-  { std::stringstream{} << a } -> std::convertible_to<std::stringstream>;
-};
-
-template <Printable T>
-struct Printer<T> {
-  static std::string toString(const T& value) {
-    std::stringstream ss;
-    ss << value;
-    return ss.str();
-  }
-};
-
-#else
-
 #define SPECIALIZE_PRINTER(T)                     \
   template <>                                     \
   struct Printer<T> {                             \
@@ -309,8 +286,6 @@ SPECIALIZE_PRINTER(std::vector<uint64_t>);
 SPECIALIZE_PRINTER(std::optional<bool>);
 
 #undef SPECIALIZE_PRINTER
-
-#endif // if 0
 
 // Stringification with delimiter
 template <typename Iterator>
@@ -547,11 +522,15 @@ NVF_API const char* getNvFuserEnv(
     const char* default_value = nullptr);
 
 // Returns the mapped value or the default.
-template <typename K, typename V>
-V getOrDefault(
-    const std::unordered_map<K, V>& map,
-    const K& key,
-    const V& default_value = V()) {
+template <
+    typename MapKey,
+    typename Value,
+    typename Key,
+    typename = std::enable_if_t<std::is_convertible_v<Key, MapKey>>>
+Value getOrDefault(
+    const std::unordered_map<MapKey, Value>& map,
+    const Key& key,
+    const Value& default_value = Value()) {
   const auto i = map.find(key);
   return i == map.end() ? default_value : i->second;
 }

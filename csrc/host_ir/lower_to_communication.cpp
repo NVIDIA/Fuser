@@ -24,7 +24,7 @@ namespace {
 
 // TODO: handle `c10d::RedOpType::reduceOp::AVG` and
 // `c10d::RedOpType::reduceOp::PREMUL_SUM`
-inline c10d::ReduceOp::RedOpType getC10dReduceOpType(BinaryOpType op) {
+c10d::ReduceOp::RedOpType getC10dReduceOpType(BinaryOpType op) {
   switch (op) {
     case BinaryOpType::Add:
       return c10d::ReduceOp::RedOpType::SUM;
@@ -42,7 +42,6 @@ inline c10d::ReduceOp::RedOpType getC10dReduceOpType(BinaryOpType op) {
       return c10d::ReduceOp::RedOpType::BXOR;
     default:
       NVF_THROW("unsupported reduction operation");
-      return c10d::ReduceOp::RedOpType::UNUSED;
   }
 }
 
@@ -59,13 +58,13 @@ void lowerToScatter(
       receiver_mesh);
 
   // Find a common device between input and receiver meshes to be the root
+  std::vector<DeviceIdxType> input_devices = input_tv->getDeviceMesh().vector();
   auto it = std::ranges::find_if(
-      input_tv->getDeviceMesh().vector(),
-      [&receiver_mesh](DeviceIdxType device) {
+      input_devices, [&receiver_mesh](DeviceIdxType device) {
         return receiver_mesh.has(device);
       });
   NVF_ERROR(
-      it != input_tv->getDeviceMesh().vector().end(),
+      it != input_devices.end(),
       "No common device found between input and receiver meshes");
   DeviceIdxType root = *it;
 
@@ -80,12 +79,10 @@ void lowerToScatter(
       backend));
 }
 
-/*
-Adds zero or multiple Gather communications to the vector 'comms'
-
-Note that since the root of a Gather collective is a destination, we possibly
-need multiple Gathers if the tensor is replicated in the receiver mesh.
-*/
+// Adds zero or multiple Gather communications to the vector 'comms'
+//
+// Note that since the root of a Gather collective is a destination, we possibly
+// need multiple Gathers if the tensor is replicated in the receiver mesh.
 void lowerToGather(
     TensorView* input_tv,
     TensorView* output_tv,
@@ -308,11 +305,11 @@ CommunicationInfo getCommunicationInfo(Expr* e) {
       "communication. So `e` should be resharding. Given: ",
       e);
 
+  // `sum` leads to a SqueezeOp when the reduction dimension is size-1.
   NVF_ERROR(
-      e->isA<LoadStoreOp>() || e->isA<ReductionOp>(),
+      (e->isOneOf<LoadStoreOp, ReductionOp, SqueezeOp>()),
       "getCommunicationInfo should only be called when `e` is known to be a "
-      "communication. So `e` should be either a LoadStoreOp or a "
-      "ReductionOp. Given: ",
+      "communication. Given: ",
       e);
 
   auto* producer = e->inputs().at(0)->as<TensorView>();
@@ -375,7 +372,7 @@ CommunicationInfo getCommunicationInfo(Expr* e) {
             CommunicationType::SendRecv, p_logical_id, c_logical_id);
       }
     } else {
-      NVF_ERROR(e->isA<ReductionOp>());
+      NVF_ERROR(e->isA<ReductionOp>() || e->isA<SqueezeOp>());
       if (!p_sharded) {
         // Not a reduction based communication.
         continue;
@@ -523,8 +520,33 @@ std::vector<Expr*> convertSingleOpToCommunication(
       "Resharding on an inner axis is not lowerable ",
       e->toString());
 
-  if (auto* reduce = dynamic_cast<ReductionOp*>(e)) {
-    BinaryOpType op_type = reduce->getReductionOpType();
+  if (e->isA<LoadStoreOp>()) {
+    if (!is_input_sharded && is_output_sharded) {
+      lowerToScatter(input_tv, output_tv, backend, comms);
+    } else if (is_input_sharded && !is_output_sharded) {
+      if (same_mesh) {
+        lowerToAllgather(input_tv, output_tv, backend, comms, my_device_idx);
+      } else {
+        lowerToGather(input_tv, output_tv, backend, comms);
+      }
+    } else {
+      // TODO(#4604): This is problematic for 2D sharding.
+      lowerToBroadcastOrSendRecv(input_tv, output_tv, backend, comms);
+    }
+  } else {
+    BinaryOpType op_type = [&]() {
+      if (auto* reduce = dynamic_cast<ReductionOp*>(e)) {
+        return reduce->getReductionOpType();
+      }
+
+      NVF_ERROR(e != nullptr);
+      if (e->isA<SqueezeOp>()) {
+        return BinaryOpType::Add;
+      }
+
+      NVF_THROW("Expected a ReductionOp or a SqueezeOp, but got: ", e);
+    }();
+
     NVF_ERROR(
         is_input_sharded || sender_mesh.size() == 1,
         "the comm input must be sharded in case of reduce.",
@@ -545,23 +567,6 @@ std::vector<Expr*> convertSingleOpToCommunication(
       } else {
         lowerToReduce(input_tv, output_tv, op_type, backend, comms);
       }
-    }
-  } else {
-    NVF_ERROR(
-        e->isA<LoadStoreOp>(),
-        "Expected a LoadStoreOp or a ReductionOp, but got: ",
-        e);
-    if (!is_input_sharded && is_output_sharded) {
-      lowerToScatter(input_tv, output_tv, backend, comms);
-    } else if (is_input_sharded && !is_output_sharded) {
-      if (same_mesh) {
-        lowerToAllgather(input_tv, output_tv, backend, comms, my_device_idx);
-      } else {
-        lowerToGather(input_tv, output_tv, backend, comms);
-      }
-    } else {
-      // TODO(#4604): This is problematic for 2D sharding.
-      lowerToBroadcastOrSendRecv(input_tv, output_tv, backend, comms);
     }
   }
 

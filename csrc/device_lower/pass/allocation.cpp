@@ -139,6 +139,14 @@ class AllocationDomainSetup : private kir::IrVisitor {
           })) {
         return true;
       }
+
+      // If a shared memory output produced by scatter has an
+      // allocation domain explicitly set, it's likely to be the
+      // valid allocation domain.
+      if (auto def = tv->definition();
+          def != nullptr && def->isA<ScatterOp>()) {
+        return true;
+      }
     }
     return false;
   }
@@ -167,9 +175,9 @@ class AllocationDomainSetup : private kir::IrVisitor {
       return *exclude_it;
     }
     // Fallback: use IdModel to check if any excluded ID is mapped
-    if (GpuLower::current()->hasIdModel()) {
+    if (GpuLower::current()->info().hasIdModel()) {
       const auto& exact_graph =
-          GpuLower::current()->idModel().idGraph(IdMappingMode::EXACT);
+          GpuLower::current()->info().idModel().idGraph(IdMappingMode::EXACT);
       for (auto exclude_id : exclude_ca_ids) {
         if (exact_graph.disjointValSets().strictAreMapped(exclude_id, id)) {
           return exclude_id;
@@ -402,7 +410,8 @@ class AllocationDomainSetup : private kir::IrVisitor {
     if (auto transposed_smem_alloc_dom = patchAllocationOfTransposedSmemTensor(
             tv,
             allocation_domains,
-            GpuLower::current()->idModel().idGraph(IdMappingMode::EXACT));
+            GpuLower::current()->info().idModel().idGraph(
+                IdMappingMode::EXACT));
         transposed_smem_alloc_dom.has_value()) {
       allocation_domains = transposed_smem_alloc_dom.value();
       // Make sure the original allocation domains are fully contiguous
@@ -425,7 +434,7 @@ class AllocationDomainSetup : private kir::IrVisitor {
       TensorView* tv,
       std::vector<IterDomain*> allocation_domains,
       std::vector<std::optional<bool>> contiguity) {
-    const IdModel& id_model = GpuLower::current()->idModel();
+    const IdModel& id_model = GpuLower::current()->info().idModel();
 
     std::vector<IterDomain*> promoted_allocation_domains;
     promoted_allocation_domains.reserve(allocation_domains.size());
@@ -994,7 +1003,8 @@ Expr* initializeCircularBufferMbarrier(
     num_of_arrives = SimplifyingIrBuilder::maybeCastExpr(
         DataType::UInt32,
         GpuLower::current()
-            ->parallelDimensionMap()
+            ->info()
+            .parallelDimensionMap()
             .getNumComputeThreadsEachBlock());
   }
 
@@ -1172,10 +1182,8 @@ class AllocationInserter : public kir::ExprMutator {
     return init_expr;
   }
 
-  kir::Allocate* createAllocExpr(AllocationInformation& info, bool is_output) {
-    if (is_output) {
-      return nullptr;
-    }
+  kir::Allocate* createAllocExpr(AllocationInformation& info) {
+    // Note that Allocate nodes are created for fusion outputs too
 
     TensorView* tv_to_alloc = info.buffer;
     const MemoryType memory_type = tv_to_alloc->getMemoryType();
@@ -1343,19 +1351,11 @@ class AllocationInserter : public kir::ExprMutator {
         init = nullptr;
       }
 
-      const bool is_output = out->isFusionOutput();
-
-      // Don't need to alloc outputs, and if we don't need to initialize we're
-      // done.
-      if (is_output && init == nullptr) {
-        continue;
-      }
-
       AllocationInformation allocation;
       allocation.buffer = out_tv;
       fillAllocationInformation(allocation, expr);
 
-      auto alloc_expr = createAllocExpr(allocation, is_output);
+      auto alloc_expr = createAllocExpr(allocation);
       auto init_expr = createInitExpr(allocation, init);
 
       // Check that all circular buffer depth match
@@ -1646,7 +1646,7 @@ namespace {
 // Create `if (is first warp)`, depending on whether the parallel types are
 // used in the schedule, the generated code may be different.
 kir::IfThenElse* createFirstWarpITE() {
-  const auto& pdim = GpuLower::current()->parallelDimensionMap();
+  const auto& pdim = GpuLower::current()->info().parallelDimensionMap();
   Val* tid = FusionGuard::getCurFusion()->zeroVal();
   Val* bdimx = pdim.getRaw(ParallelType::TIDx);
   Val* bdimy = pdim.getRaw(ParallelType::TIDy);

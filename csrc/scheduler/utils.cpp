@@ -31,6 +31,7 @@
 
 #include <algorithm>
 #include <queue>
+#include "ir/interface_nodes.h"
 #include "scheduler/tools/loop_domain_scheduler.h"
 #include "type.h"
 
@@ -575,7 +576,7 @@ TensorView* getUpCastInputOf(const TensorView* tv) {
       return nullptr;
     }
     // skip if the cast is not upcast
-    auto precisions = ir_utils::getPrecisionOfProducerConsumerTensors(uop);
+    auto precisions = ir_utils::getPrecisionOfProducerConsumerTensorsBit(uop);
     if (!precisions.has_value() || precisions->first >= precisions->second) {
       return nullptr;
     }
@@ -1264,7 +1265,8 @@ std::vector<TensorView*> cacheInputs(Fusion* fusion, bool unroll) {
   // If we're going to unroll, make a cache of the inputs
   auto in_tvs = ir_utils::filterByType<TensorView>(fusion->inputs());
   for (auto tv : in_tvs) {
-    if (tv->uses().empty() || ir_utils::isGatherLookupTv(tv) ||
+    if (tv->nDims() == 0 || tv->uses().empty() ||
+        ir_utils::isAndOnlyIsGatherLookupTv(tv) ||
         ir_utils::isIndexSelectLookupTv(tv) ||
         ir_utils::isTvUsedByOpsOfType<SelectOp>(tv)) {
       // Right now, tensors that are input to the select, gather and
@@ -1280,9 +1282,17 @@ std::vector<TensorView*> cacheInputs(Fusion* fusion, bool unroll) {
     // used without padding, it will be read twice, once for pad and
     // once more for caching load. It would make sense to use the PTX
     // caching load instructions.
+    // For gatherOp, the lookupTv should stay in global memory, don't replace
+    // the original lookupTv with the cached_tv.
+    auto isGatherLookUpTvInUse = [tv](Expr* use) {
+      if (!use->isA<GatherOp>()) {
+        return false;
+      }
+      return use->as<GatherOp>()->lookupTv() == tv;
+    };
     std::vector<Expr*> cached_uses;
     for (auto use : tv->uses()) {
-      if (!use->isOneOf<PadOp, SliceOp>()) {
+      if (!use->isOneOf<PadOp, SliceOp>() && !isGatherLookUpTvInUse(use)) {
         cached_uses.push_back(use);
       }
     }
@@ -1638,7 +1648,7 @@ std::vector<TensorView*> getInputsOutputsWithInnerDim(
        ir_utils::filterByType<TensorView>(reference_tv->fusion()->inputs())) {
     // for indexSelect(lookup_tv, dim, index_tv) op
     // ignore it's lookup_tv.
-    if (ir_utils::isGatherLookupTv(input_tv)) {
+    if (ir_utils::isAndOnlyIsGatherLookupTv(input_tv)) {
       continue;
     }
 
@@ -3106,5 +3116,85 @@ bool isSymbolicTensor(const TensorView* tv) {
       [](IterDomain* id) { return !id->extent()->isConst(); });
 }
 
+// This function requires the allocation domain to be a permutation of the
+// logical domain.
+// For each allocation domain ID (which is a logical domain ID),
+// replace it with all the loop domain IDs that were derived from it.
+void buildAllocationDomainFromLoopIds(TensorView* tv) {
+  const auto& logical = tv->getLogicalDomain();
+  const auto& alloc = tv->getMaybeAllocationDomain();
+  NVF_ERROR(
+      std::is_permutation(
+          logical.begin(), logical.end(), alloc.begin(), alloc.end()),
+      "buildAllocationDomainFromLoopIds expects the allocation domain to be a "
+      "permutation of the logical domain");
+  const auto& loop = tv->getLoopDomain();
+
+  // Get transformation expressions from allocation to loop domain
+  auto transform_exprs = DependencyCheck::getAllExprsBetween(
+      {alloc.begin(), alloc.end()}, {loop.begin(), loop.end()});
+
+  // Track which allocation IDs each transformed ID came from
+  std::unordered_map<IterDomain*, std::vector<IterDomain*>> id_to_alloc_sources;
+  for (auto alloc_id : alloc) {
+    id_to_alloc_sources[alloc_id] = {alloc_id};
+  }
+  for (auto expr : transform_exprs) {
+    if (auto split = dynamic_cast<Split*>(expr)) {
+      NVF_ERROR(id_to_alloc_sources.contains(split->in()));
+      auto sources = id_to_alloc_sources[split->in()];
+      id_to_alloc_sources[split->outer()] = sources;
+      id_to_alloc_sources[split->inner()] = sources;
+    } else if (auto merge = dynamic_cast<Merge*>(expr)) {
+      NVF_ERROR(id_to_alloc_sources.contains(merge->outer()));
+      NVF_ERROR(id_to_alloc_sources.contains(merge->inner()));
+      auto outer_sources = id_to_alloc_sources[merge->outer()];
+      auto inner_sources = id_to_alloc_sources[merge->inner()];
+      outer_sources.insert(
+          outer_sources.end(), inner_sources.begin(), inner_sources.end());
+      id_to_alloc_sources[merge->out()] = std::move(outer_sources);
+    } else {
+      NVF_ERROR(false, "Unsupported expression type: ", expr->toString());
+    }
+  }
+
+  // Build final allocation domain preserving allocation order
+  std::vector<IterDomain*> new_alloc_domain;
+  std::unordered_set<IterDomain*> used_loop_ids;
+  for (auto alloc_id : alloc) {
+    for (auto loop_id : loop) {
+      // skip if the loop ID has already been used
+      if (used_loop_ids.count(loop_id)) {
+        continue;
+      }
+      // skip if the loop ID is not derived from any allocation ID
+      if (!id_to_alloc_sources.contains(loop_id)) {
+        continue;
+      }
+      // skip if the loop ID is not derived from the current allocation ID
+      auto& sources = id_to_alloc_sources.at(loop_id);
+      if (std::find(sources.begin(), sources.end(), alloc_id) ==
+          sources.end()) {
+        continue;
+      }
+      new_alloc_domain.push_back(loop_id);
+      used_loop_ids.insert(loop_id);
+    }
+  }
+
+  tv->setAllocationDomain(new_alloc_domain, true);
+}
+
+void buildAllocationDomainForSharedMemoryTvs(Fusion* fusion) {
+  for (auto tv : fusion->allTvs()) {
+    if (tv->getMemoryType() != MemoryType::Shared) {
+      continue;
+    }
+    if (!tv->hasAllocation()) {
+      continue;
+    }
+    buildAllocationDomainFromLoopIds(tv);
+  }
+}
 } // namespace scheduler_utils
 } // namespace nvfuser

@@ -26,107 +26,332 @@ namespace nvfuser {
 class ScatterTest : public NVFuserTest {
  protected:
   void SetUp() override {
-    // To make the tests using std::rand deterministic
-    std::srand(0);
+    NVFuserTest::SetUp();
+    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
   }
 };
 
-namespace {
-auto randomVector(int64_t low, int64_t high, int rank) {
-  std::vector<int64_t> out(rank, 0);
-  for (int idim = 0; idim < rank; ++idim) {
-    out[idim] = (std::rand() % (high - low)) + low;
+// Counting of non-duplicated integers on gmem with TIDx
+TEST_F(ScatterTest, BlockCountingWithGmem) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  const int64_t m = 64;
+  const int64_t n = 5;
+
+  auto tv0 = makeContigConcreteTensor({n}, DataType::Int);
+  fusion.addInput(tv0);
+
+  auto tv1 = set(tv0);
+  auto tv2 = zeros({IrBuilder::create<Val>(m)}, DataType::Int);
+  auto tv3 = ones({IrBuilder::create<Val>(n)}, DataType::Int);
+  auto tv4 = scatter(tv2, 0, tv1, tv3);
+  fusion.addOutput(tv4);
+
+  for (auto tv : fusion.allTvs()) {
+    tv->axis(0)->parallelize(ParallelType::TIDx);
   }
-  return out;
+
+  // Scatter input must use the same memory as the output
+  tv2->setMemoryType(MemoryType::Global);
+
+  auto options = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
+  auto t0 = at::randperm(m, options).slice(0, 0, n);
+
+  KernelExecutor ke;
+  ke.compile(&fusion, {t0});
+  auto outputs = ke.run({t0});
+
+  testValidate(&fusion, outputs, {t0}, __LINE__, __FILE__);
 }
 
-// When takeAlongAxis is true, the extents of non-indexed dimensions
-// are set to be the same as those of the input dimensions
-auto randomIndexVector(
-    const std::vector<int64_t>& input_dims,
-    int64_t low,
-    int rank,
-    bool take_along_axis = false,
-    int indexed_dim = -1) {
-  std::vector<int64_t> index_dims(rank, 0);
-  for (int idim = 0; idim < rank; ++idim) {
-    if (!take_along_axis || idim == indexed_dim) {
-      index_dims[idim] = (std::rand() % (input_dims[idim] - low)) + low;
-    } else {
-      index_dims[idim] = input_dims.at(idim);
-    }
+// Counting of non-duplicated integers on shmem with TIDx
+TEST_F(ScatterTest, BlockCountingWithShmem) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  const int64_t m = 64;
+  const int64_t n = 5;
+
+  auto tv0 = makeContigConcreteTensor({n}, DataType::Int);
+  fusion.addInput(tv0);
+
+  auto tv1 = set(tv0);
+  auto tv2 = zeros({IrBuilder::create<Val>(m)}, DataType::Int);
+  auto tv3 = ones({IrBuilder::create<Val>(n)}, DataType::Int);
+  auto tv4 = scatter(tv2, 0, tv1, tv3);
+  auto tv5 = set(tv4);
+  fusion.addOutput(tv5);
+
+  for (auto tv : fusion.allTvs()) {
+    tv->axis(0)->parallelize(ParallelType::TIDx);
   }
-  return index_dims;
+
+  // Scatter input must use the same memory as the output
+  tv2->setMemoryType(MemoryType::Shared);
+  tv2->setAllocationDomain(tv2->getLogicalDomain(), true);
+  tv4->setMemoryType(MemoryType::Shared);
+  tv4->setAllocationDomain(tv4->getLogicalDomain(), true);
+
+  auto options = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
+  auto t0 = at::randperm(m, options).slice(0, 0, n);
+
+  KernelExecutor ke;
+  ke.compile(&fusion, {t0});
+  auto outputs = ke.run({t0});
+
+  testValidate(&fusion, outputs, {t0}, __LINE__, __FILE__);
 }
 
-at::Tensor generateScatter2DIndex(
-    int64_t min,
-    int64_t extent_1d,
-    int64_t extent_2d,
-    int select_id) {
-  auto options_i =
-      torch::TensorOptions().dtype(torch::kLong).device(at::kCUDA, 0);
-  if (select_id == 0) {
-    auto idx = at::randint(0, extent_2d, {extent_1d, extent_2d}, options_i);
-    for (int64_t i = 0; i < extent_1d; ++i) {
-      idx[i] = at::randperm(extent_2d, options_i) + min;
-    }
-    return idx.transpose(0, 1).contiguous();
-  } else {
-    auto idx = at::randint(0, extent_1d, {extent_2d, extent_1d}, options_i);
-    for (int64_t i = 0; i < extent_2d; ++i) {
-      idx[i] = at::randperm(extent_1d, options_i) + min;
-    }
-    return idx;
+// Counting of non-duplicated integers on gmem with BIDx
+TEST_F(ScatterTest, GridCounting) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  const int64_t m = 64;
+  const int64_t n = 5;
+
+  auto tv0 = makeContigConcreteTensor({n}, DataType::Int);
+  fusion.addInput(tv0);
+
+  auto tv1 = set(tv0);
+  auto tv2 = zeros({IrBuilder::create<Val>(m)}, DataType::Int);
+  auto tv3 = ones({IrBuilder::create<Val>(n)}, DataType::Int);
+  auto tv4 = scatter(tv2, 0, tv1, tv3);
+  fusion.addOutput(tv4);
+
+  for (auto tv : fusion.allTvs()) {
+    tv->axis(0)->parallelize(ParallelType::BIDx);
   }
+
+  // Scatter input must use the same memory as the output
+  tv2->setMemoryType(MemoryType::Global);
+
+  auto options = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
+  auto t0 = at::randperm(m, options).slice(0, 0, n);
+
+  KernelExecutor ke;
+  ke.compile(&fusion, {t0});
+  auto outputs = ke.run({t0});
+
+  testValidate(&fusion, outputs, {t0}, __LINE__, __FILE__);
 }
 
-} // namespace
+TEST_F(ScatterTest, BlockCountingWithShmem2D) {
+  // Scatter allows the non-indexed domains of the index tensor to
+  // have smaller extents, which causes indexing error as there's not
+  // traversal path. It is not currently supported.
+  GTEST_SKIP() << "Scatter with multi-dimensional tensors not supported yet";
 
-TEST_F(ScatterTest, Scatter1DIndexZerosSelfTvSameShape) {
-  const std::vector<std::vector<int64_t>> input_dims = {{2, 2}};
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
 
-  const std::vector<std::vector<int64_t>> src_dims = {{2, 2}};
+  const std::vector<int64_t> self_shape{4, 100};
+  const std::vector<int64_t> index_shape{2, 10};
 
-  const std::vector<std::vector<int64_t>> idx_dims = {{2, 2}};
+  auto tv0 = makeContigConcreteTensor(index_shape, DataType::Int);
+  fusion.addInput(tv0);
 
-  for (size_t test_id = 0; test_id < idx_dims.size(); ++test_id) {
-    auto fusion_ptr = std::make_unique<Fusion>();
-    Fusion& fusion = *fusion_ptr.get();
-    FusionGuard fg(&fusion);
+  auto tv1 = set(tv0);
+  auto tv2 = zeros(
+      {IrBuilder::create<Val>(self_shape[0]),
+       IrBuilder::create<Val>(self_shape[1])},
+      DataType::Int);
+  auto tv3 = ones(
+      {IrBuilder::create<Val>(index_shape[0]),
+       IrBuilder::create<Val>(index_shape[1])},
+      DataType::Int);
+  auto tv4 = scatter(tv2, 1, tv1, tv3);
+  auto tv5 = set(tv4);
+  fusion.addOutput(tv5);
 
-    TensorView* tv_input = makeContigTensor(2);
-    TensorView* tv_idx_1 = makeContigTensor(2, DataType::Int);
-    TensorView* tv_idx_2 = makeContigTensor(2, DataType::Int);
-    TensorView* tv_src = makeContigTensor(2);
-
-    fusion.addInput(tv_input);
-    fusion.addInput(tv_idx_1);
-    fusion.addInput(tv_idx_2);
-    fusion.addInput(tv_src);
-
-    auto tv_idx = add(tv_idx_1, tv_idx_2);
-    auto tv_out = scatter(tv_input, 0, tv_idx, tv_src);
-    fusion.addOutput(tv_out);
-
-    auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-    auto options_i =
-        torch::TensorOptions().dtype(torch::kLong).device(at::kCUDA, 0);
-
-    at::Tensor idx = generateScatter2DIndex(
-        0, idx_dims[test_id][1], idx_dims[test_id][0], 0);
-
-    at::Tensor idx_1 = at::randint(0, 24, idx_dims[test_id], options_i);
-    at::Tensor idx_2 = idx - idx_1;
-    at::Tensor t0 = at::randn(input_dims[test_id], options);
-    at::Tensor src = at::randn(src_dims[test_id], options);
-
-    FusionExecutorCache executor_cache(std::move(fusion_ptr));
-    auto cg_outputs =
-        executor_cache.runFusionWithInputs({t0, idx_1, idx_2, src});
-    testValidate(
-        &fusion, cg_outputs, {t0, idx_1, idx_2, src}, __LINE__, __FILE__);
+  for (auto tv : fusion.allTvs()) {
+    tv->axis(0)->parallelize(ParallelType::BIDx);
+    tv->axis(1)->parallelize(ParallelType::TIDx);
   }
+
+  // Scatter input must use the same memory as the output
+  tv2->setMemoryType(MemoryType::Shared);
+  tv2->setAllocationDomain(tv2->getLogicalDomain(), true);
+  tv4->setMemoryType(MemoryType::Shared);
+  tv4->setAllocationDomain(tv4->getLogicalDomain(), true);
+
+  auto options = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
+  auto t0 = at::randperm(self_shape[1], options).slice(0, 0, index_shape[1]);
+
+  KernelExecutor ke;
+  ke.compile(&fusion, {t0});
+  auto outputs = ke.run({t0});
+
+  testValidate(&fusion, outputs, {t0}, __LINE__, __FILE__);
+}
+
+TEST_F(ScatterTest, CacheBefore) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  const int64_t m = 64;
+  const int64_t n = 5;
+
+  auto tv0 = makeContigConcreteTensor({n}, DataType::Int);
+  fusion.addInput(tv0);
+
+  auto tv1 = set(tv0);
+  auto tv2 = zeros({IrBuilder::create<Val>(m)}, DataType::Int);
+  auto tv3 = ones({IrBuilder::create<Val>(n)}, DataType::Int);
+  auto tv4 = scatter(tv2, 0, tv1, tv3);
+  fusion.addOutput(tv4);
+
+  auto output_cache = tv4->cacheBefore();
+
+  for (auto tv : fusion.allTvs()) {
+    tv->axis(0)->parallelize(ParallelType::TIDx);
+  }
+
+  // Scatter input must use the same memory as the output
+  tv2->setMemoryType(MemoryType::Shared);
+  tv2->setAllocationDomain(tv2->getLogicalDomain(), true);
+  output_cache->setMemoryType(MemoryType::Shared);
+  output_cache->setAllocationDomain(output_cache->getLogicalDomain(), true);
+
+  auto options = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
+  auto t0 = at::randperm(m, options).slice(0, 0, n);
+
+  KernelExecutor ke;
+  ke.compile(&fusion, {t0});
+  auto outputs = ke.run({t0});
+
+  testValidate(&fusion, outputs, {t0}, __LINE__, __FILE__);
+}
+
+TEST_F(ScatterTest, CacheAfter) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  const int64_t m = 64;
+  const int64_t n = 5;
+
+  auto tv0 = makeContigConcreteTensor({n}, DataType::Int);
+  fusion.addInput(tv0);
+  auto tv1 = makeContigConcreteTensor({m}, DataType::Int);
+  fusion.addInput(tv1);
+
+  auto tv2 = ones({IrBuilder::create<Val>(n)}, DataType::Int);
+  auto tv3 = scatter(tv1, 0, tv0, tv2);
+  auto tv4 = set(tv3);
+  fusion.addOutput(tv4);
+
+  auto input_cache = tv1->cacheAfter();
+
+  for (auto tv : fusion.allTvs()) {
+    tv->axis(0)->parallelize(ParallelType::TIDx);
+  }
+
+  input_cache->setMemoryType(MemoryType::Shared);
+  input_cache->setAllocationDomain(input_cache->getLogicalDomain(), true);
+  tv3->setMemoryType(MemoryType::Shared);
+  tv3->setAllocationDomain(tv3->getLogicalDomain(), true);
+
+  auto options = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
+  auto t0 = at::randperm(m, options).slice(0, 0, n);
+  auto t1 = at::zeros({m}, options);
+
+  KernelExecutor ke;
+  ke.compile(&fusion, {t0, t1});
+  auto outputs = ke.run({t0, t1});
+
+  testValidate(&fusion, outputs, {t0, t1}, __LINE__, __FILE__);
+}
+
+// Repro of #4929. In ScatterOp, the logical domain of the output tensor is not
+// automatically mapped with its loop domain, but it's possible they
+// happen to be mapped. Make sure proper syncronizations are inserted
+// even in that case.
+TEST_F(ScatterTest, MappedLogicalAndLoop) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  const int64_t m = 8;
+
+  auto tv0 = makeContigConcreteTensor({m}, DataType::Int);
+  fusion.addInput(tv0);
+  auto tv1 = makeContigConcreteTensor({m}, DataType::Int);
+  fusion.addInput(tv1);
+
+  auto tv2 = set(tv1);
+  auto tv3 = arange(IrBuilder::create<Val>(8));
+  auto tv4 = scatter(tv2, 0, tv0, tv3);
+  auto tv5 = set(tv4);
+  fusion.addOutput(tv5);
+
+  // At this point, tv4's loop ID is not mapped with its sole logical
+  // ID but mapped with tv0's logical ID. This means that the loop
+  // ID is not mapped with the loop ID of the input of the op,
+  // tv2. When parallelized, this difference of the loop IDs should
+  // cause the sync analysis to flag a potential RAW race. However, it
+  // is possible they happen to be mapped, e.g., by an additional op
+  // like below:
+  auto tv6 = add(tv0, tv1);
+  fusion.addOutput(tv6);
+
+  // The binary add op maps the logical domains of tv0 and tv1, which
+  // in turn maps the loop domain of tv4 with its logical domain. Make
+  // sure that the proper synchronizations are inserted even in cases
+  // like this.
+
+  for (auto tv : fusion.allTvs()) {
+    tv->axis(0)->parallelize(ParallelType::TIDx);
+  }
+
+  tv2->setMemoryType(MemoryType::Shared);
+  tv2->setAllocationDomain(tv2->getLogicalDomain(), true);
+  tv4->setMemoryType(MemoryType::Shared);
+  tv4->setAllocationDomain(tv4->getLogicalDomain(), true);
+
+  auto options = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
+  auto t0 = at::randperm(m, options);
+  auto t1 = at::randint(0, 100, {m}, options);
+
+  KernelExecutor ke;
+  ke.compile(&fusion, {t0, t1});
+  auto outputs = ke.run({t0, t1});
+
+  testValidate(&fusion, outputs, {t0, t1}, __LINE__, __FILE__);
+
+  // There must be a block sync both before and after the scatter
+  // op.
+  bool pre_scatter_sync_found = false;
+  bool scatter_found = false;
+  bool post_scatter_sync_found = false;
+  for (const auto expr :
+       KernelExprVisitor::getAllExprs(ke.compiledKernel()->kernel())) {
+    if (auto scatter = dynamic_cast<ScatterOp*>(expr)) {
+      EXPECT_TRUE(pre_scatter_sync_found)
+          << "Sync before scatter not found: " << scatter->toString();
+      scatter_found = true;
+    }
+    if (auto sync = dynamic_cast<kir::BlockSync*>(expr)) {
+      if (!scatter_found) {
+        EXPECT_FALSE(pre_scatter_sync_found)
+            << "Only one sync before scatter expected: " << sync->toString();
+        pre_scatter_sync_found = true;
+      } else {
+        EXPECT_FALSE(post_scatter_sync_found)
+            << "Only one sync after scatter expected: " << sync->toString();
+        post_scatter_sync_found = true;
+      }
+    }
+  }
+  EXPECT_TRUE(pre_scatter_sync_found) << "Sync before scatter not found";
+  EXPECT_TRUE(scatter_found) << "Scatter not found in Kernel";
+  EXPECT_TRUE(post_scatter_sync_found) << "Sync after scatter not found";
 }
 
 } // namespace nvfuser

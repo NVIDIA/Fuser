@@ -837,7 +837,6 @@ void scheduleFusion(Fusion* fusion, const ReductionParams* rparams) {
                 })) {
           continue;
         }
-
         // find tvs should be persistent due to grouped reduction.
         // (1) inline before iter unrolled dim to ensure accessible for both
         // loops before and after iter grouped reduction.
@@ -849,6 +848,10 @@ void scheduleFusion(Fusion* fusion, const ReductionParams* rparams) {
           tv_inline_pos_map.emplace(gp_tv, last_iter_dim);
         }
 
+        NVF_ERROR(
+            cached_tv->nDims() > last_iter_dim,
+            "No dim to vectorize or unroll, cached_tv: ",
+            cached_tv->toString());
         if (can_vectorize(ir_utils::getSoleProducerTv(cached_tv))) {
           cached_tv->axis(last_iter_dim)->parallelize(ParallelType::Vectorize);
         } else {
@@ -885,6 +888,9 @@ void scheduleFusion(Fusion* fusion, const ReductionParams* rparams) {
   } else {
     inlineMost();
   }
+  // replay loop domain transformations to allocation domain for shared memory
+  // tensors. Ensure we can allocate based on the allocation domain.
+  scheduler_utils::buildAllocationDomainForSharedMemoryTvs(fusion);
 }
 } // namespace inner_outer_tma_warp_specialized
 } // namespace nvfuser

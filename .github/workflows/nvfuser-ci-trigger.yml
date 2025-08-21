@@ -43,7 +43,9 @@ jobs:
             github.actor == 'cowanmeg' ||
             github.actor == 'nsarka' ||
             github.actor == 'syed-ahmed' ||
-            github.actor == 'wolfcomos'
+            github.actor == 'mattwalsh' ||
+            github.actor == 'wolfcomos' ||
+            github.actor == 'tbqh'
           )
     steps:
       - name: Check if comment is issued by authorized person

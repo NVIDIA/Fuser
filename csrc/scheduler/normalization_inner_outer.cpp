@@ -26,10 +26,6 @@ bool preferWarpSpecialized(
     Fusion* fusion,
     int64_t total_iteration_numel,
     int64_t n_inner_reduction_tvs) {
-  // Temporary disable warp specialized approach
-  // It can only be involed by NVFUSER_ENABLE=WarpSpecializedNormalization
-  return false;
-
   // False, for pre-Blackwell GPUs
   if (at::cuda::getCurrentDeviceProperties()->major < 10) {
     return false;
@@ -222,6 +218,16 @@ bool InnerOuterPersistentKernelScheduler::canScheduleCompileTime(
     Fusion* fusion) {
   FUSER_PERF_SCOPE(
       "InnerOuterPersistentKernelScheduler::canScheduleCompileTime");
+
+  for (auto tv : fusion->allTvs()) {
+    if (tv->dtype() != DataType::Index &&
+        dataTypeSizeBit(tv->dtype()) % 8 != 0) {
+      scheduler_debug_utils::canScheduleRejectReason(
+          schedulerType(), "Does not support sub-byte data types.");
+      return false;
+    }
+  }
+
   // common checks for all persistent heuristics
   if (!normalization_scheduler_utils::checkOpsAndInputs(
           fusion, schedulerType())) {

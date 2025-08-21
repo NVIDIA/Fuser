@@ -1621,13 +1621,30 @@ void schedulePersistentKernel(
       reduction_scheduler_utils::getCachedTvsToUnrollOrVectorize(
           reference_tv, is_vectorize, cached_inputs, cached_outputs);
 
+  std::unordered_set<TensorView*> unroll_vectorizable_cached_and_cast_tvs;
+  for (auto tv : unroll_vectorizable_cached_tvs) {
+    unroll_vectorizable_cached_and_cast_tvs.insert(tv);
+  }
+
+  if (rparams->vectorize_casts) {
+    for (auto tv : fusion->allTvs()) {
+      if (auto uop = dynamic_cast<UnaryOp*>(tv->definition())) {
+        if (uop->getUnaryOpType() == UnaryOpType::Cast &&
+            (dataTypeSizeBit(tv->dtype()) < 8 ||
+             dataTypeSizeBit(uop->in()->dtype()) < 8)) {
+          unroll_vectorizable_cached_and_cast_tvs.insert(tv);
+        }
+      }
+    }
+  }
+
   reduction_scheduler_utils::propagateParallelization(
       reduction_tv,
       reference_tv,
       is_unroll_or_vectorization,
       use_grouped_reduction,
       reduction_tvs,
-      unroll_vectorizable_cached_tvs);
+      unroll_vectorizable_cached_and_cast_tvs);
 
   // For inner persistent with vectorized load, use explicity unroll for cached
   // input if it is a persistent buffer. This won't increase register usage
