@@ -324,7 +324,7 @@ None
       .def(
           "get_val_tolerances",
           [](FusionExecutorCache& self, const py::iterable& args) {
-            return get_val_constants(self.fusion(), from_pyiterable(args));
+            return getValConstants(self.fusion(), from_pyiterable(args));
           },
           py::arg("args"),
           R"(

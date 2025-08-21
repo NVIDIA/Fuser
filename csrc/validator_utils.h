@@ -83,7 +83,7 @@ ExpressionEvaluator bindInputsAndLaunchParams(
     const KernelArgumentHolder& aten_inputs,
     const LaunchParams& launch_constraints);
 
-std::vector<std::pair<double, double>> get_val_constants(
+NVF_API std::vector<std::pair<double, double>> getValConstants(
     Fusion* fusion,
     const KernelArgumentHolder& aten_inputs,
     const LaunchParams& lparams = LaunchParams(),
@@ -126,7 +126,7 @@ void testValidate(
     const ValidationConstants& tolerances = ValidationConstants());
 
 // The variant withtout line number and file name.
-void testValidate(
+NVF_API void testValidate(
     Fusion* fusion,
     const KernelArgumentHolder& fusion_outputs,
     const KernelArgumentHolder& aten_inputs);
