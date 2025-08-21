@@ -4,7 +4,7 @@
 # Owner(s): ["module: nvfuser"]
 
 import torch
-from nvfuser_direct import FusionDefinition, DataType, validate
+from nvfuser_direct import FusionDefinition, DataType
 
 # Use smaller range for torch.testing.make_tensor for nvfuser_direct.validate
 LOW_VAL = -2
@@ -1600,7 +1600,7 @@ def test_issue4444(nvfuser_direct_test):
             high=HIGH_VAL,
         ),
     ]
-    validate(fd, inputs)
+    fd.validate(inputs)
 
 
 def test_issue4459(nvfuser_direct_test):
@@ -1803,7 +1803,7 @@ def test_issue4459(nvfuser_direct_test):
             high=HIGH_VAL,
         ),
     ]
-    validate(fd, inputs)
+    fd.validate(inputs)
 
 
 def test_issue4670(nvfuser_direct_test):
@@ -1854,7 +1854,7 @@ def test_issue4670(nvfuser_direct_test):
         fusion_func(fd)
 
     inputs = []
-    validate(fd, inputs)
+    fd.validate(inputs)
 
 
 def test_ws_tma_normalization1(nvfuser_direct_test):
@@ -2004,7 +2004,7 @@ def test_ws_tma_normalization1(nvfuser_direct_test):
             high=HIGH_VAL,
         ),
     ]
-    validate(fd, inputs)
+    fd.validate(inputs)
 
 
 def test_ws_tma_normalization2(nvfuser_direct_test):
@@ -2161,7 +2161,7 @@ def test_ws_tma_normalization2(nvfuser_direct_test):
             high=HIGH_VAL,
         ),
     ]
-    validate(fd, inputs)
+    fd.validate(inputs)
 
 
 def test_ws_tma_normalization3(nvfuser_direct_test):
@@ -2288,7 +2288,7 @@ def test_ws_tma_normalization3(nvfuser_direct_test):
             high=HIGH_VAL,
         ),
     ]
-    validate(fd, inputs)
+    fd.validate(inputs)
 
 
 def test_ws_tma_normalization4(nvfuser_direct_test):
@@ -2402,7 +2402,7 @@ def test_ws_tma_normalization4(nvfuser_direct_test):
             high=HIGH_VAL,
         ),
     ]
-    validate(fd, inputs)
+    fd.validate(inputs)
 
 
 def test_ws_tma_normalization5(nvfuser_direct_test):
@@ -2644,7 +2644,7 @@ def test_ws_tma_normalization5(nvfuser_direct_test):
             high=HIGH_VAL,
         ),
     ]
-    validate(fd, inputs)
+    fd.validate(inputs)
 
 
 def test_loop_promotion_cyclic_war(nvfuser_direct_test):
@@ -2948,7 +2948,7 @@ def test_loop_promotion_cyclic_war(nvfuser_direct_test):
             high=HIGH_VAL,
         ),
     ]
-    validate(fd, inputs)
+    fd.validate(inputs)
 
 
 def test_reshape_cancellation(nvfuser_direct_test):
@@ -3129,7 +3129,7 @@ def test_reshape_cancellation(nvfuser_direct_test):
             high=HIGH_VAL,
         ),
     ]
-    validate(fd, inputs)
+    fd.validate(inputs)
 
 
 def test_reduction_reference_missing_input_ids(nvfuser_direct_test):
@@ -3418,7 +3418,7 @@ def test_reduction_reference_missing_input_ids(nvfuser_direct_test):
             (1, 4096, 16, 128), dtype=torch.float16, device="cuda:0", low=-1, high=1
         ),
     ]
-    validate(fd, inputs)
+    fd.validate(inputs)
 
 
 def test_ws_tma_normalization6(nvfuser_direct_test):
@@ -3557,7 +3557,7 @@ def test_ws_tma_normalization6(nvfuser_direct_test):
             high=HIGH_VAL,
         ),
     ]
-    validate(fd, inputs)
+    fd.validate(inputs)
 
 
 def test_domain_map_hang(nvfuser_direct_test):
@@ -3885,4 +3885,4 @@ def test_domain_map_hang(nvfuser_direct_test):
             (1, 4096, 10240), dtype=torch.float32, device="cuda:0"
         ),
     ]
-    validate(fd, inputs)
+    fd.validate(inputs)

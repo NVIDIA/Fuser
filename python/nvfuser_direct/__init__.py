@@ -67,70 +67,6 @@ def execute_with_dtensors(fd, in_dtensors: Iterable[DTensor]) -> list[DTensor]:
     return out_dtensors
 
 
-def validate(
-    fd,
-    inputs: list[torch.Tensor],
-    reference_outputs: list[torch.Tensor] = None,
-    device=None,
-    **kwargs,
-):
-    """
-    Validates the fusion outputs against the provided reference outputs.
-    Tolerances are determined based on datatype and reduction size.
-
-    Parameters
-    ----------
-    fd : FusionDefinition
-        The fusion definition to validate
-    inputs : list of torch.Tensor
-        A list of inputs expected by the fusion definition
-    reference_outputs : list of torch.Tensor
-        A list of reference outputs to validate against
-    device : torch.device, optional
-        The device to execute the fusion on
-    **kwargs : dict, optional
-        Additional keyword arguments to pass to the execute method
-
-    Returns
-    -------
-    None
-    """
-    fusion_outputs = fd.execute(inputs, device=device, **kwargs)
-    assert (
-        hasattr(fd, "fec") and fd.fec is not None
-    ), "FusionExecutorCache is not initialized"
-
-    if reference_outputs is None:
-        return fd.fec.validate_with_auto_inferred_outputs(fusion_outputs, inputs)
-
-    assert len(fusion_outputs) == len(
-        reference_outputs
-    ), f"Expected {len(fusion_outputs)} reference outputs for validation."
-
-    tolerance_values = fd.fec.get_val_tolerances(inputs)
-    assert len(tolerance_values) == len(
-        fusion_outputs
-    ), f"Missing tolerance values, expected {len(fusion_outputs)}, got {len(tolerance_values)}"
-
-    for inx, fusion_output in enumerate(fusion_outputs):
-        atol, rtol = tolerance_values[inx]
-        reference_output = reference_outputs[inx]
-
-        assert (
-            reference_output.shape == fusion_output.shape
-        ), "Mismatch in reference and fusion output dimensions"
-
-        if torch.is_floating_point(fusion_output) or torch.is_complex(fusion_output):
-            assert torch.allclose(
-                fusion_output, reference_output, atol=atol, rtol=rtol
-            ), f"Max error: {torch.abs(torch.max(fusion_output - reference_output))}, \
-                Absolute tolerance: {atol}, Relative tolerance: {rtol}"
-        else:
-            assert torch.equal(
-                fusion_output, reference_output
-            ), "Mismatch in reference and fusion output values, datatype is not float/complex."
-
-
 class FusionDefinition:
     """
     A class for defining and executing fused operations in nvFuser.
@@ -469,3 +405,66 @@ class FusionDefinition:
         )
         self.fusion.add_input(tv)
         return tv
+
+    def validate(
+        self,
+        inputs: list[torch.Tensor],
+        reference_outputs: list[torch.Tensor] = None,
+        device=None,
+        **kwargs,
+    ):
+        """
+        Validates the fusion outputs against the provided reference outputs.
+        Tolerances are determined based on datatype and reduction size.
+
+        Parameters
+        ----------
+        inputs : list of torch.Tensor
+            A list of inputs expected by the fusion definition
+        reference_outputs : list of torch.Tensor
+            A list of reference outputs to validate against
+        device : torch.device, optional
+            The device to execute the fusion on
+        **kwargs : dict, optional
+            Additional keyword arguments to pass to the execute method
+
+        Returns
+        -------
+        None
+        """
+        fusion_outputs = self.execute(inputs, device=device, **kwargs)
+        assert (
+            hasattr(self, "fec") and self.fec is not None
+        ), "FusionExecutorCache is not initialized"
+
+        if reference_outputs is None:
+            return self.fec.validate_with_auto_inferred_outputs(fusion_outputs, inputs)
+
+        assert len(fusion_outputs) == len(
+            reference_outputs
+        ), f"Expected {len(fusion_outputs)} reference outputs for validation."
+
+        tolerance_values = self.fec.get_val_tolerances(inputs)
+        assert len(tolerance_values) == len(
+            fusion_outputs
+        ), f"Missing tolerance values, expected {len(fusion_outputs)}, got {len(tolerance_values)}"
+
+        for inx, fusion_output in enumerate(fusion_outputs):
+            atol, rtol = tolerance_values[inx]
+            reference_output = reference_outputs[inx]
+
+            assert (
+                reference_output.shape == fusion_output.shape
+            ), "Mismatch in reference and fusion output dimensions"
+
+            if torch.is_floating_point(fusion_output) or torch.is_complex(
+                fusion_output
+            ):
+                assert torch.allclose(
+                    fusion_output, reference_output, atol=atol, rtol=rtol
+                ), f"Max error: {torch.abs(torch.max(fusion_output - reference_output))}, \
+                    Absolute tolerance: {atol}, Relative tolerance: {rtol}"
+            else:
+                assert torch.equal(
+                    fusion_output, reference_output
+                ), "Mismatch in reference and fusion output values, datatype is not float/complex."
