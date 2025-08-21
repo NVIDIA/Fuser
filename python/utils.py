@@ -257,8 +257,8 @@ def override_build_config_from_env(config):
         config.no_ninja = get_env_flag_bool("NVFUSER_BUILD_NO_NINJA")
     if "NVFUSER_BUILD_WITH_UCC" in os.environ:
         config.build_with_ucc = get_env_flag_bool("NVFUSER_BUILD_WITH_UCC")
-    if "NVFUSER_HOST_IR_JIT" in os.environ:
-        config.build_with_host_ir_jit = get_env_flag_bool("NVFUSER_HOST_IR_JIT")
+    if "NVFUSER_BUILD_HOST_IR_JIT" in os.environ:
+        config.build_with_host_ir_jit = get_env_flag_bool("NVFUSER_BUILD_HOST_IR_JIT")
     if "NVFUSER_BUILD_WITH_ASAN" in os.environ:
         config.build_with_asan = get_env_flag_bool("NVFUSER_BUILD_WITH_ASAN")
     if "NVFUSER_BUILD_WITHOUT_DISTRIBUTED" in os.environ:

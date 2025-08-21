@@ -99,17 +99,17 @@ KernelArgumentHolder HostIrJitImpl::runWithInputs(const KernelArgumentHolder& ar
 *Detailed Implementation:* https://github.com/NVIDIA/Fuser/blob/main/csrc/host_ir/jit.cpp#L1399-#L1453
 
 ## Configuration and Build Options
-Building nvFuser project with `NVFUSER_HOST_IR_JIT=1` will enables Host IR JIT as default runtime in Host IR execution path.
+Building nvFuser project with `NVFUSER_BUILD_HOST_IR_JIT=1` will enables Host IR JIT as default runtime in Host IR execution path.
 Otherwise the default runtime is Host IR Evaluator. In the future, when llvm is fully supported in all build machines, we are able
 to get rid of this opt-in flag and rather use `enableOption` to control backend switching after build is done.
 
 Sample build
 ```python
-NVFUSER_HOST_IR_JIT=1 pip install --no-build-isolation -e python -v
+NVFUSER_BUILD_HOST_IR_JIT=1 pip install --no-build-isolation -e python -v
 ```
 or
 ```python
-NVFUSER_HOST_IR_JIT=1 _bn
+NVFUSER_BUILD_HOST_IR_JIT=1 _bn
 ```
 ## Future Integration plan
 We plan to turn on host IR JIT by default after its function and performance are on par.

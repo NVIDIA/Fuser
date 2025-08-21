@@ -550,6 +550,7 @@ target_include_directories(nvfuser_codegen SYSTEM PUBLIC
 target_link_libraries(nvfuser_codegen
   PUBLIC ${TORCH_LIBRARIES}
   PRIVATE dynamic_type flatbuffers ${CUDA_NVRTC_LIB} CUDA::cupti dl
+    $<$<BOOL:${NVFUSER_HOST_IR_JIT}>:LLVM_JIT>
 )
 set_target_properties(nvfuser_codegen PROPERTIES
   C_STANDARD ${NVFUSER_C_STANDARD}
@@ -562,6 +563,19 @@ set_target_properties(nvfuser_codegen PROPERTIES
   POSITION_INDEPENDENT_CODE Yes
   VISIBILITY_INLINES_HIDDEN Yes
 )
+
+# Add dead code elimination flags to reduce file size
+if(NOT MSVC)
+  target_link_options(nvfuser_codegen PRIVATE
+    "-Wl,--gc-sections"
+    "-Wl,--as-needed"
+    $<$<CONFIG:Release>:-s>
+  )
+  target_compile_options(nvfuser_codegen PRIVATE
+    "-ffunction-sections"
+    "-fdata-sections"
+  )
+endif()
 
 install(TARGETS nvfuser_codegen EXPORT NvfuserTargets DESTINATION lib)
 
@@ -673,6 +687,13 @@ if(BUILD_PYTHON)
   if(NOT MSVC)
     target_compile_options(nvf_py_internal PRIVATE -Wall -Wno-unused-function)
     target_compile_options(nvf_py_internal PRIVATE -Werror)
+
+    # Add function/data sections for dead code elimination
+    target_compile_options(nvf_py_internal PRIVATE
+      "-ffunction-sections"
+      "-fdata-sections"
+    )
+
     set(NVF_LIB_SUFFIX ".so")
   else()
     set(NVF_LIB_SUFFIX ".pyd")
@@ -716,6 +737,16 @@ if(BUILD_PYTHON)
     nvf_py_internal
     Python::Module
   )
+
+  # Add dead code elimination flags to reduce file size
+  if(NOT MSVC)
+    target_link_options(nvfuser PRIVATE
+      "-Wl,--gc-sections"
+      "-Wl,--as-needed"
+      $<$<CONFIG:Release>:-s>
+    )
+  endif()
+
   set_target_properties(nvfuser PROPERTIES
     INSTALL_RPATH "$ORIGIN:$ORIGIN/lib:$ORIGIN/../build:$ORIGIN/../nvfuser_common/lib"
   )
@@ -758,6 +789,13 @@ if(BUILD_PYTHON)
   if(NOT MSVC)
     target_compile_options(nvf_py_direct_internal PRIVATE -Wall -Wno-unused-function)
     target_compile_options(nvf_py_direct_internal PRIVATE -Werror)
+
+    # Add function/data sections for dead code elimination
+    target_compile_options(nvf_py_direct_internal PRIVATE
+      "-ffunction-sections"
+      "-fdata-sections"
+    )
+
     set(NVF_LIB_SUFFIX ".so")
   else()
     set(NVF_LIB_SUFFIX ".pyd")
@@ -808,6 +846,16 @@ if(BUILD_PYTHON)
     nvf_py_direct_internal
     Python::Module
   )
+
+  # Add dead code elimination flags to reduce file size
+  if(NOT MSVC)
+    target_link_options(nvfuser_direct PRIVATE
+      "-Wl,--gc-sections"
+      "-Wl,--as-needed"
+      $<$<CONFIG:Release>:-s>
+    )
+  endif()
+
   set_target_properties(nvfuser_direct PROPERTIES
     INSTALL_RPATH "$ORIGIN:$ORIGIN/../build:$ORIGIN/../nvfuser_common/lib"
   )
