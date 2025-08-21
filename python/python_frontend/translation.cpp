@@ -1319,24 +1319,14 @@ class FusionTranslator : public OptInConstDispatch {
         topkop->isSorted()));
   }
 
-  // Helper function to get the corresponding name for ScanOp based on its
-  // BinaryOpType
-  // std::string getScanOpString(const ScanOp* scan_op) {
-  //   NVF_ERROR(scan_op != nullptr, "ScanOp pointer is null.");
-  //   if (scan_op->opType() == BinaryOpType::Add) {
-  //     return "cumsum";
-  //   } else {
-  //     NVF_ERROR(
-  //         false,
-  //         "ScanOp type not implemented: only Add (cumsum) is supported.");
-  //     return nullptr;
-  //   }
-  // }
-
   void handle(const ScanOp* scan_op) final {
     auto out_tv = scan_op->out()->as<TensorView>();
     Tensor output = fd_->defineTensor(out_tv->nDims());
     map_val_to_fd_index_.emplace(out_tv, output());
+
+    NVF_ERROR(
+        scan_op->opType() == BinaryOpType::Add,
+        "Only cumsum (BinaryOpType::Add) is supported for ScanOp.");
 
     fd_->defineRecord(new ScanOpRecord(
         {fd_->recordingState(
