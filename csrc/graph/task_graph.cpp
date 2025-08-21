@@ -5,8 +5,10 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <debug.h>
 #include <exceptions.h>
 #include <graph/task_graph.h>
+#include <options.h>
 #include <utils.h>
 
 #include <algorithm>
@@ -15,6 +17,7 @@
 #include <set>
 #include <sstream>
 #include <string>
+#include "options.h"
 
 namespace nvfuser {
 
@@ -67,6 +70,88 @@ TaskGraph::TaskGraph(
       NVF_ERROR(use >= 0 && (size_t)use < tasks_.size());
     }
   }
+}
+
+std::string TaskGraph::toMermaid() const {
+  std::stringstream ss;
+
+  ss << "flowchart TD\n";
+
+  bool print_data_size = false;
+  if (numData() > 0) {
+    Size sz = data_.front().size;
+    for (const Data& data : data_) {
+      if (data.size != sz) {
+        print_data_size = true;
+        break;
+      }
+    }
+  }
+
+  std::vector<bool> is_aliased_input(numData(), false);
+
+  // Declare nodes with shapes and labels
+  for (const auto& [data_id, data] : enumerate(data_)) {
+    if (data.aliases_input.has_value()) {
+      is_aliased_input.at(data.aliases_input.value()) = true;
+    }
+    ss << "    d" << data_id << "([\"d" << data_id;
+    if (print_data_size) {
+      ss << " [" << data.size << "]";
+    }
+    ss << "\"]);\n";
+  }
+  for (const auto& [task_id, task] : enumerate(tasks_)) {
+    if (task.temp_space != 0) {
+      ss << "    t" << task_id << "[\"t" << task_id << " [" << task.temp_space
+         << "]\"];\n";
+    }
+  }
+
+  for (const auto& [task_id, task] : enumerate(tasks_)) {
+    for (const DataId& input_id : task.inputs) {
+      ss << "    d" << input_id << " --> t" << task_id << "\n";
+    }
+    for (const DataId& output_id : task.outputs) {
+      ss << "    t" << task_id << " --> d" << output_id << "\n";
+    }
+  }
+
+  ss << "\n";
+  ss << "    classDef task fill:orange;\n";
+  ss << "    classDef data fill:lightblue;\n";
+  ss << "    classDef dataInput fill:lightgreen;\n";
+  ss << "    classDef dataOutput fill:pink;\n";
+  ss << "    classDef aliasedInput fill:yellow;\n";
+  ss << "    classDef aliasEdge stroke-dasharray:3,stroke:blue;\n";
+
+  ss << "\n";
+  for (const TaskId task_id : arange(numTasks())) {
+    ss << "    class t" << task_id << " task;\n";
+  }
+  ss << "\n";
+  for (const auto& [data_id, data] : enumerate(data_)) {
+    // Create edges for aliases
+    if (data.aliases_input.has_value()) {
+      ss << "    d" << data_id << " alias" << data_id << "@--> d"
+         << data.aliases_input.value() << ";\n";
+      ss << "    class alias" << data_id << " aliasEdge;\n";
+    }
+
+    std::string class_name = "data";
+    if (!data.definition.has_value()) {
+      if (is_aliased_input.at(data_id)) {
+        class_name = "aliasedInput";
+      } else {
+        class_name = "dataInput";
+      }
+    } else if (!data.can_free) {
+      class_name = "dataOutput";
+    }
+    ss << "    class d" << data_id << " " << class_name << ";\n";
+  }
+
+  return ss.str();
 }
 
 void TaskGraph::validateSteps(const std::vector<Step>& steps) const {
@@ -149,8 +234,13 @@ namespace {
 //! c.f. https://en.wikipedia.org/wiki/Topological_sorting#Kahn's_algorithm
 class TaskSorter {
  public:
-  TaskSorter(const TaskGraph& graph, bool validate, int64_t max_time_us)
+  TaskSorter(
+      const TaskGraph& graph,
+      bool validate,
+      int64_t max_time_us,
+      bool print_debug)
       : graph_(graph),
+        debug_(print_debug),
         validate_(validate),
         max_time_us_(max_time_us),
         has_aliasing_(std::ranges::any_of(
@@ -158,6 +248,10 @@ class TaskSorter {
             [&graph](TaskGraph::DataId data_id) {
               return graph.getData(data_id).aliases_input.has_value();
             })) {
+    if (debug_) {
+      debug() << graph.toString() << "\n\n";
+      debug() << "Mermaid graph:\n" << graph.toMermaid() << std::endl;
+    }
     sort();
   }
 
@@ -395,6 +489,7 @@ class TaskSorter {
 
  private:
   const TaskGraph& graph_;
+  const bool debug_;
   const bool validate_;
   const int64_t max_time_us_;
 
@@ -485,7 +580,11 @@ std::string TaskGraph::toString() const {
 }
 
 TaskGraph::SortResult TaskGraph::findOptimalOrder() const {
-  TaskSorter sorter(*this, /*validate=*/true, /*max_time_us=*/100000);
+  TaskSorter sorter(
+      *this,
+      /*validate=*/true,
+      /*max_time_us=*/100000,
+      /*debug=*/isDebugDumpEnabled(DebugDumpOption::TaskGraph));
   return sorter.result();
 }
 

@@ -134,6 +134,9 @@ class TaskGraph {
 
   std::string toString() const;
 
+  //! Generates a string in the mermaid language for rendering online
+  std::string toMermaid() const;
+
  private:
   const std::vector<Task> tasks_;
   const std::vector<Data> data_;
