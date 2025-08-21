@@ -569,6 +569,22 @@ Reproduction tests for specific issues:
   - Tests scalar definition and vector operations
   - Tests complex mathematical sequences involving multiple operations
 
+#### `test_issue4444()`
+- **Purpose**: Tests fix for issue 4444 - complex tensor operations with multiple slice operations, manual normalization, padding, and reshaping operations
+- **Functionality**:
+  - Tests multiple slice operations with manual normalization
+  - Tests complex tensor reshaping and permutation operations
+  - Tests manual padding operations with scalar values
+  - Tests broadcast operations with specific dimensions
+  - Tests cast operations between different data types
+  - Tests complex mathematical sequences involving negation, addition, and multiplication
+  - Tests proper handling of tensor shapes and operations
+  - Tests scalar definition and vector operations
+  - Tests concatenation and permutation operations
+  - Tests sum operations with dimension reduction
+
+#### `test_issue
+
 ## Test Configuration (conftest.py)
 
 ### `NVFuserTest` Class
