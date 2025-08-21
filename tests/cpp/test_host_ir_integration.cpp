@@ -92,10 +92,10 @@ TEST_F(HostIrEvaluatorTest, AddOne) {
   hic->pushBackTopLevelExprs(allocate_out);
   hic->pushBackTopLevelExprs(out->definition());
 
-  // loop_in->outer_split(0, c);
-  // loop_in->axis(0)->parallelize(ParallelType::Stream);
-  // loop_out->outer_split(0, c);
-  // loop_out->axis(0)->parallelize(ParallelType::Stream);
+  loop_in->outer_split(0, c);
+  loop_in->axis(0)->parallelize(ParallelType::Stream);
+  loop_out->outer_split(0, c);
+  loop_out->axis(0)->parallelize(ParallelType::Stream);
 
   HostIrEvaluator hie(std::move(hic));
 
