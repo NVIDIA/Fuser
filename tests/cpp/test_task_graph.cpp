@@ -17,11 +17,6 @@ namespace nvfuser {
 using Tasks = std::vector<TaskGraph::Task>;
 using TaskGraphTest = NVFuserTest;
 
-struct SimpleAlias {
-  TaskGraph::DataId output;
-  TaskGraph::DataId input;
-};
-
 std::vector<TaskGraph::Data> inferData(const Tasks& tasks) {
   // Find number of data items so we can resize
   TaskGraph::DataId max_data_id = 0;
@@ -79,6 +74,55 @@ TEST_F(TaskGraphTest, Basic) {
 
   ASSERT_EQ(result.steps.size(), tasks.size());
   std::vector<TaskGraph::TaskId> expected{0, 1};
+  EXPECT_EQ(getTasks(result), expected);
+  EXPECT_EQ(result.steps.back().high_water_mark, 4);
+}
+
+TEST_F(TaskGraphTest, SharedIntermediate) {
+  /*
+   *     0
+   *    /|\
+   *   | 1 |
+   *   |/ \|
+   *   2   3
+   */
+  Tasks tasks{
+      {{0}, {1}},
+      {{0, 1}, {2}},
+      {{0, 1}, {3}},
+  };
+  std::vector<TaskGraph::Data> data = inferData(tasks);
+  auto graph = TaskGraph(tasks, data);
+
+  const TaskGraph::SortResult result = graph.findOptimalOrder();
+
+  ASSERT_EQ(result.steps.size(), tasks.size());
+  // Either 0 1 2 or 0 2 1 are acceptable orders
+  EXPECT_EQ(result.steps.back().high_water_mark, 4);
+}
+
+TEST_F(TaskGraphTest, SharedIntermediateWithAlias) {
+  /*
+   *     0
+   *    /|\
+   *   | 1 |
+   *   |/ \|
+   *   2   3
+   */
+  Tasks tasks{
+      {{0}, {1}}, // Task 0
+      {{0, 1}, {2}}, // Task 1
+      {{0, 1}, {3}}, // Task 2
+  };
+  std::vector<TaskGraph::Data> data = inferData(tasks);
+  data.at(3).aliases_input = 0;
+  auto graph = TaskGraph(tasks, data);
+
+  const TaskGraph::SortResult result = graph.findOptimalOrder();
+
+  ASSERT_EQ(result.steps.size(), tasks.size());
+  // Due to the alias 0 1 2 is the only acceptable order
+  std::vector<TaskGraph::TaskId> expected{0, 2, 1};
   EXPECT_EQ(getTasks(result), expected);
   EXPECT_EQ(result.steps.back().high_water_mark, 4);
 }
