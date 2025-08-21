@@ -68,6 +68,14 @@ def rmsnorm(inputs: list):
     return output
 
 
+def rmsnorm_rsqrt(inputs: list):
+    inp, weights = inputs
+    squared_mean = (inp**2).mean(1, keepdim=True)
+    rms_eps = torch.rsqrt(squared_mean + 1e-5)
+    output = weights * inp * rms_eps
+    return output
+
+
 def scale_bias_relu(inputs: list):
     inp, scale, bias = inputs
     return F.relu(inp * scale + bias)
@@ -86,6 +94,11 @@ def softmax(inputs: list):
 def embedding(inputs: list):
     indices, embedding_table = inputs
     return F.embedding(indices, embedding_table)
+
+
+def embedding_indexing(inputs: list):
+    indices, embedding_table = inputs
+    return embedding_table[indices]
 
 
 # deepseek v3 moe scatter
