@@ -122,7 +122,7 @@ class TaskGraph {
 
     //! Whether the search was exhaustive. If not, then it was likely cut off
     //! early because of an iteration limit.
-    bool exhaustive;
+    bool exhaustive = false;
 
     std::string toString() const;
   };

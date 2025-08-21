@@ -10,6 +10,7 @@
 #include <utils.h>
 
 #include <algorithm>
+#include <chrono>
 #include <limits>
 #include <set>
 #include <sstream>
@@ -148,10 +149,10 @@ namespace {
 //! c.f. https://en.wikipedia.org/wiki/Topological_sorting#Kahn's_algorithm
 class TaskSorter {
  public:
-  TaskSorter(const TaskGraph& graph, bool validate, int64_t max_iters)
+  TaskSorter(const TaskGraph& graph, bool validate, int64_t max_time_us)
       : graph_(graph),
         validate_(validate),
-        max_iters_(max_iters),
+        max_time_us_(max_time_us),
         has_aliasing_(std::ranges::any_of(
             arange(graph.numData()),
             [&graph](TaskGraph::DataId data_id) {
@@ -324,9 +325,20 @@ class TaskSorter {
 
     // This is the main optimization loop
     TaskGraph::TaskId backtracked_task_id = -1;
-    int64_t iter = 0;
-    while (iter < max_iters_) {
-      iter++;
+
+    using Clock = std::chrono::high_resolution_clock;
+    Clock::time_point start = Clock::now();
+
+    for (int64_t iter : arange(10000000)) {
+      if (iter % 64 == 0) {
+        Clock::time_point end = Clock::now();
+        if (std::chrono::duration_cast<std::chrono::microseconds>(end - start)
+                .count() > max_time_us_) {
+          result_.iterations = iter;
+          break;
+        }
+      }
+
       NVF_ERROR(
           !ready_tasks_.empty() || steps_.size() == (size_t)graph_.numTasks(),
           "Ran out of ready tasks before completing ordering");
@@ -372,7 +384,6 @@ class TaskSorter {
         best_steps = steps_;
       }
     }
-    result_.iterations = iter;
 
     // Record our best found steps
     result_.steps = best_steps;
@@ -385,7 +396,7 @@ class TaskSorter {
  private:
   const TaskGraph& graph_;
   const bool validate_;
-  const int64_t max_iters_;
+  const int64_t max_time_us_;
 
   //! This allows us to skip aliasing checks in the common case where no inputs
   //! are aliased by outputs
@@ -474,9 +485,7 @@ std::string TaskGraph::toString() const {
 }
 
 TaskGraph::SortResult TaskGraph::findOptimalOrder() const {
-  // TODO: Find a reasonable default number of iterations. Note that one
-  // iteration equals one task, not one ordering
-  TaskSorter sorter(*this, /*validate=*/true, /*max_iters=*/2000);
+  TaskSorter sorter(*this, /*validate=*/true, /*max_time_us=*/100000);
   return sorter.result();
 }
 
