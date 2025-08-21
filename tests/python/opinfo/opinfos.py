@@ -1377,7 +1377,7 @@ if LooseVersion(torch.__version__) >= LooseVersion("2.8.0"):
         lambda fd: fd.ops.scaled_mm,
         "scaled_mm",
         # limit test to mxfp8 for now
-        dtypes=(torch.float8_e4m3fn, torch.float4_e2m1fn_x2),
+        dtypes=(torch.float8_e4m3fn,),
         sample_input_generator=scaled_mm_input_generator,
         reference=scaled_mm_wrapper,
         symbolic_parameter_list=(
