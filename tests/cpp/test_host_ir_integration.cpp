@@ -72,6 +72,28 @@ TEST_F(HostIrEvaluatorTest, LaunchKernel) {
   EXPECT_TRUE(outputs[0].as<at::Tensor>().equal(t0));
 }
 
+TEST_F(HostIrEvaluatorTest, AddOne) {
+  auto hic = std::make_unique<HostIrContainer>();
+  FusionGuard::setCurFusion(hic.get());
+
+  TensorView* in = makeSymbolicTensor(2);
+  TensorView* out = add(in, hic->oneVal());
+  hic->addInput(in);
+  hic->addOutput(out);
+
+  hic->pushBackTopLevelExprs(out->definition());
+
+  HostIrEvaluator hie(std::move(hic));
+
+  at::Tensor in_tensor =
+      at::randn({32, 32}, at::dtype(at::kFloat).device(at::kCUDA));
+  KernelArgumentHolder args(in_tensor);
+  args.setCacheId(0);
+  auto out_tensors = hie.runWithInputs(args);
+
+  EXPECT_TRUE(torch::allclose(out_tensors[0].as<at::Tensor>(), in_tensor + 1));
+}
+
 class HostIrIntegrationTest : public NVFuserTest {
  protected:
   HostIrIntegrationTest() {
