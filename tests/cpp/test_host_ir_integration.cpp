@@ -73,20 +73,34 @@ TEST_F(HostIrEvaluatorTest, LaunchKernel) {
 }
 
 TEST_F(HostIrEvaluatorTest, AddOne) {
+  constexpr int64_t c = 2;
+
   auto hic = std::make_unique<HostIrContainer>();
   FusionGuard::setCurFusion(hic.get());
 
   TensorView* in = makeSymbolicTensor(2);
-  TensorView* out = add(in, hic->oneVal());
+  TensorView* loop_in = set(in);
+  TensorView* loop_out = add(loop_in, hic->oneVal());
+  TensorView* out = set(loop_out);
   hic->addInput(in);
   hic->addOutput(out);
 
+  hic->pushBackTopLevelExprs(loop_in->definition());
+  hic->pushBackTopLevelExprs(loop_out->definition());
+  auto* allocate_out = IrBuilder::create<kir::Allocate>(
+      out, MemoryType::Global, std::vector<Val*>({}), /*zero_init=*/true);
+  hic->pushBackTopLevelExprs(allocate_out);
   hic->pushBackTopLevelExprs(out->definition());
+
+  // loop_in->outer_split(0, c);
+  // loop_in->axis(0)->parallelize(ParallelType::Stream);
+  // loop_out->outer_split(0, c);
+  // loop_out->axis(0)->parallelize(ParallelType::Stream);
 
   HostIrEvaluator hie(std::move(hic));
 
   at::Tensor in_tensor =
-      at::randn({32, 32}, at::dtype(at::kFloat).device(at::kCUDA));
+      at::randn({c * 3, 5}, at::dtype(at::kFloat).device(at::kCUDA));
   KernelArgumentHolder args(in_tensor);
   args.setCacheId(0);
   auto out_tensors = hie.runWithInputs(args);
