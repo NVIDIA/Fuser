@@ -51,7 +51,7 @@ void HostIrJitImpl::compile() {
   main_func_ = jit_->lookup(kMainFuncName);
 }
 ```
-*Detailed Implementation:* https://github.com/NVIDIA/Fuser/blob/main/csrc/host_ir/jit.cpp#L1125-#L1176
+*Detailed Implementation:* https://github.com/NVIDIA/Fuser/blob/3ac1a4697b6b5c31e4dbb9763b3b6db2f0e0164b/csrc/host_ir/jit.cpp#L1125-L1176
 
 ### 3. External Function Integration
 The LLVM IR we generate contain external C++ calls that wrap ATen fallbacks and other things
@@ -62,14 +62,14 @@ that are hard to implement in LLVM IR. Currently Host IR JIT supports wrapper fu
 - **nvFuser Interals** `launchKernel`
 - **Profiling**: NVTX range push/pop for performance analysis
 
-*Detailed Implementation:* https://github.com/NVIDIA/Fuser/blob/main/csrc/host_ir/jit.cpp#L1195-#L1396
+*Detailed Implementation:* https://github.com/NVIDIA/Fuser/blob/3ac1a4697b6b5c31e4dbb9763b3b6db2f0e0164b/csrc/host_ir/jit.cpp#L1195-L1396
 
 ### 3. IR Translation
 The `HostIrCompileDispatcher` translates Host IR expression nodes to LLVM IR:
 Currently, Host IR JIT supports these expressions:
 `ViewOp`, `LoadStoreOp`, `MatmulOp`, `LinearOp`, `LaunchKernel`, `Allocate`, `Deallocate`
 
-*Detailed Implementation:* https://github.com/NVIDIA/Fuser/blob/main/csrc/host_ir/jit.cpp#L783-#L1123
+*Detailed Implementation:* https://github.com/NVIDIA/Fuser/blob/3ac1a4697b6b5c31e4dbb9763b3b6db2f0e0164b/csrc/host_ir/jit.cpp#L783-L1123
 
 ## Runtime Execution
 **Below code snippets are a pseudo code for Host IR jit architecture.**
@@ -79,7 +79,7 @@ The compiled JIT function follows this signature:
 using main_func_t = void (*)(int64_t, const void**, void**);
 // Parameters: cache_id, input_tensors, output_tensors
 ```
-*Detailed Implementation:* https://github.com/NVIDIA/Fuser/blob/main/csrc/host_ir/jit.cpp#L46
+*Detailed Implementation:* https://github.com/NVIDIA/Fuser/blob/3ac1a4697b6b5c31e4dbb9763b3b6db2f0e0164b/csrc/host_ir/jit.cpp#L46
 
 
 ### 2. Execution Flow
@@ -96,7 +96,7 @@ KernelArgumentHolder HostIrJitImpl::runWithInputs(const KernelArgumentHolder& ar
   return outputs;
 }
 ```
-*Detailed Implementation:* https://github.com/NVIDIA/Fuser/blob/main/csrc/host_ir/jit.cpp#L1399-#L1453
+*Detailed Implementation:* https://github.com/NVIDIA/Fuser/blob/3ac1a4697b6b5c31e4dbb9763b3b6db2f0e0164b/csrc/host_ir/jit.cpp#L1399-L1453
 
 ## Configuration and Build Options
 Building nvFuser project with `NVFUSER_BUILD_HOST_IR_JIT=1` will enables Host IR JIT as default runtime in Host IR execution path.
@@ -132,5 +132,5 @@ We plan to follow the steps below to turn on both:
 - Enable Host IR JIT for single-gpu with small set of ops coverage, ensuring no latency regression
 - Enable Host IR JIT for single gpu with full set of ops coverage
 
-**More details**
+**Link to intern presentation slides**
 http://nv/eS2
