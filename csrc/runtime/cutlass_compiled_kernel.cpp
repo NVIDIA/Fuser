@@ -504,32 +504,26 @@ using namespace cute;
 
 // Kernel configuration traits for different output data types
 // Defines tile shapes and cluster configurations.
-template <typename T>
-struct KernelTraits;
-
-// Kernel traits for FP16 output
-template <>
-struct KernelTraits<cutlass::half_t> {
+struct KernelTraits {
 )";
   code += std::vformat(
       R"(
   using MmaTileShape = Shape<_{}, _{}, _{}>;
-  using ClusterShape = Shape<_4, _4, _1>;
-  using PerSmTileShape_MNK = Shape<_128, _256, _256>;
+  using ClusterShape = Shape<_{}, _{}, _{}>;
+  using PerSmTileShape_MNK = Shape<_{}, _{}, _{}>;
 )",
       std::make_format_args(
-          params.cta_tile.m, params.cta_tile.n, params.cta_tile.k));
+          params.mma_tile.m,
+          params.mma_tile.n,
+          params.mma_tile.k,
+          params.cluster_shape.m,
+          params.cluster_shape.n,
+          params.cluster_shape.k,
+          params.per_sm_tile.m,
+          params.per_sm_tile.n,
+          params.per_sm_tile.k));
 
   code += R"(
-};
-
-// TODO: no template needed. KernelTraits is not needed when JITing either.
-// Kernel traits for BF16 output
-template <>
-struct KernelTraits<cutlass::bfloat16_t> {
-  using MmaTileShape = Shape<_256, _256, _256>;
-  using ClusterShape = Shape<_4, _4, _1>;
-  using PerSmTileShape_MNK = Shape<_128, _256, _256>;
 };
 
 // Main GEMM configuration for NVFP4 scaled matrix multiplication on SM100+
@@ -560,9 +554,9 @@ struct Fp4GemmSm100 {
   using OperatorClass = cutlass::arch::OpClassBlockScaledTensorOp;
 
   // Kernel Perf config
-  using MmaTileShape = typename KernelTraits<T>::MmaTileShape;
-  using ClusterShape = typename KernelTraits<T>::ClusterShape;
-  using PerSmTileShape_MNK = typename KernelTraits<T>::PerSmTileShape_MNK;
+  using MmaTileShape = typename KernelTraits::MmaTileShape;
+  using ClusterShape = typename KernelTraits::ClusterShape;
+  using PerSmTileShape_MNK = typename KernelTraits::PerSmTileShape_MNK;
 
   using CollectiveEpilogue =
       typename cutlass::epilogue::collective::CollectiveBuilder<

@@ -21,16 +21,24 @@ namespace nvfuser {
 std::string CutlassParams::toString() const {
   std::stringstream ss;
   ss << "CutlassParams (" << scheduler_type << ")\n";
-  ss << "  CTA Tile: " << cta_tile.m << "x" << cta_tile.n << "x" << cta_tile.k
-     << "\n";
+  ss << "  MMA Tile: " << mma_tile.m << "x" << mma_tile.n << "x" << mma_tile.k;
+  ss << "  Per-SM MMA Tile: " << per_sm_tile.m << "x" << per_sm_tile.n << "x"
+     << per_sm_tile.k;
+  ss << "  Cluster shape: " << cluster_shape.m << "x" << cluster_shape.n << "x"
+     << cluster_shape.k << "\n";
   return ss.str();
 }
 
 size_t CutlassParams::hash() const {
   size_t h = 0;
-  hashCombine(h, (size_t)cta_tile.m);
-  hashCombine(h, (size_t)cta_tile.n);
-  hashCombine(h, (size_t)cta_tile.k);
+#define HASHTILE(t)            \
+  hashCombine(h, (size_t)t.m); \
+  hashCombine(h, (size_t)t.n); \
+  hashCombine(h, (size_t)t.k);
+  HASHTILE(mma_tile);
+  HASHTILE(per_sm_tile);
+  HASHTILE(cluster_shape);
+#undef HASHTILE
   return h;
 }
 
@@ -39,7 +47,10 @@ bool CutlassParams::sameAs(const HeuristicParams* other) const {
     return false;
   }
   const auto* other_cutlass = other->as<CutlassParams>();
-  return cta_tile == other_cutlass->cta_tile && HeuristicParams::sameAs(other);
+  return mma_tile == other_cutlass->mma_tile &&
+      per_sm_tile == other_cutlass->per_sm_tile &&
+      cluster_shape == other_cutlass->cluster_shape &&
+      HeuristicParams::sameAs(other);
 }
 
 std::unique_ptr<HeuristicParams> CutlassParams::clone() const {

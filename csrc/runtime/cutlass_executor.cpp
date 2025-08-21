@@ -53,8 +53,7 @@ void CutlassExecutor::compile(
 
   // Add CUTLASS include path if available
   if (const char* cutlass_path = std::getenv("CUTLASS_PATH")) {
-    cparams.include_paths.push_back(
-        std::string(cutlass_path) + "/include");
+    cparams.include_paths.push_back(std::string(cutlass_path) + "/include");
   }
 
   // Create and compile the CUTLASS kernel
