@@ -1511,3 +1511,478 @@ def test_compute_tensor_descriptor(nvfuser_direct_test):
         )
         nvfuser_direct_test.assertEqual(computed_contiguity, contiguity)
         nvfuser_direct_test.assertEqual(computed_stride_order, stride_order)
+
+
+def test_complex_constants(nvfuser_direct_test):
+    inputs = [
+        torch.arange(2, device="cuda").type(torch.complex64),
+    ]
+
+    def fusion_func(fd: FusionDefinition):
+        t0 = fd.from_pytorch(inputs[0])
+        c0 = fd.define_scalar(complex(3.0, 0.5))
+        t1 = fd.ops.mul(t0, c0)
+        fd.add_output(t1)
+
+    (n,), _ = nvfuser_direct_test.exec_nvfuser(fusion_func, inputs)
+
+    eager_out = inputs[0] * (3.0 + 0.5j)
+
+    nvfuser_direct_test.assertEqual(eager_out, n)
+    assert n.dtype == torch.complex64
+
+
+def test_complex_rsqrt(nvfuser_direct_test):
+    inputs = [
+        torch.randn(4, device="cuda", dtype=torch.complex64),
+        torch.randn(4, device="cuda", dtype=torch.complex128),
+    ]
+
+    def fusion_func(fd: FusionDefinition):
+        t0 = fd.from_pytorch(inputs[0])
+        t1 = fd.from_pytorch(inputs[1])
+        t2 = fd.ops.rsqrt(t0)
+        fd.add_output(t2)
+        t3 = fd.ops.rsqrt(t1)
+        fd.add_output(t3)
+
+    (rfloat, rdouble), _ = nvfuser_direct_test.exec_nvfuser(fusion_func, inputs)
+
+    at_rfloat = inputs[0].rsqrt()
+    at_rdouble = inputs[1].rsqrt()
+
+    nvfuser_direct_test.assertEqual(at_rfloat, rfloat)
+    nvfuser_direct_test.assertEqual(at_rdouble, rdouble)
+
+
+def test_constant_nans(nvfuser_direct_test):
+    inputs = [
+        torch.randn(4, 4, device="cuda"),
+    ]
+
+    def fusion_func(fd: FusionDefinition) -> None:
+        t0 = fd.from_pytorch(inputs[0])
+        c0 = fd.define_scalar(float("nan"))
+        t1 = fd.ops.add(t0, c0)
+        fd.add_output(t1)
+
+    eager_out = inputs[0] + float("nan")
+
+    nvf_out, _ = nvfuser_direct_test.exec_nvfuser(fusion_func, inputs)
+    nvfuser_direct_test.assertEqual(eager_out, nvf_out[0])
+
+
+def test_gcd(nvfuser_direct_test):
+    inputs = [
+        torch.testing.make_tensor(1024, device="cuda", dtype=torch.long),
+        torch.testing.make_tensor(1024, device="cuda", dtype=torch.long),
+    ]
+
+    def fusion_func(fd: FusionDefinition):
+        t0 = fd.from_pytorch(inputs[0])
+        t1 = fd.from_pytorch(inputs[1])
+        t2 = fd.ops.gcd(t0, t1)
+        fd.add_output(t2)
+
+    nvf_out, _ = nvfuser_direct_test.exec_nvfuser(fusion_func, inputs)
+    nvfuser_direct_test.assertEqual(nvf_out[0], torch.gcd(inputs[0], inputs[1]))
+
+
+def test_input_scalar(nvfuser_direct_test):
+    inputs = [
+        torch.randn((3,), dtype=torch.float32, device="cuda:0"),
+        0.1,
+    ]
+
+    def fusion_func(fd: FusionDefinition) -> None:
+        T0 = fd.from_pytorch(inputs[0])
+        S1 = fd.define_scalar()
+        T1 = fd.ops.mul(T0, S1)
+        fd.add_output(T1)
+
+    # Just test that this executes, not that it's correct
+    nvf_out, _ = nvfuser_direct_test.exec_nvfuser(fusion_func, inputs)
+
+
+def test_integer_division(nvfuser_direct_test):
+    inputs = [
+        torch.testing.make_tensor(1024, device="cuda", dtype=torch.long),
+        torch.testing.make_tensor(1024, device="cuda", dtype=torch.long),
+    ]
+
+    def fusion_func(fd: FusionDefinition):
+        t0 = fd.from_pytorch(inputs[0])
+        t1 = fd.from_pytorch(inputs[1])
+        t2 = fd.ops.div(t0, t1)
+        t3 = fd.ops.truediv(t0, t1)
+        fd.add_output(t2)
+        fd.add_output(t3)
+
+    nvf_out, _ = nvfuser_direct_test.exec_nvfuser(fusion_func, inputs)
+    nvfuser_direct_test.assertEqual(
+        nvf_out[0], torch.div(inputs[0], inputs[1], rounding_mode="trunc")
+    )
+    nvfuser_direct_test.assertEqual(nvf_out[1], torch.true_divide(inputs[0], inputs[1]))
+
+
+def test_mark_alias_pass(nvfuser_direct_test):
+    def reshape(fd: FusionDefinition) -> None:
+        x = fd.define_tensor(
+            [2, 3, 4], contiguity=[True, True, True], dtype=DataType.Float
+        )
+        y = fd.ops.reshape(x, [2, 12])
+        fd.add_output(y)
+
+    x = torch.rand(2, 3, 4, device="cuda")
+    ys, _ = nvfuser_direct_test.exec_nvfuser(reshape, [x])
+    nvfuser_direct_test.assertEqual(len(ys), 1)
+    y = ys[0]
+
+    nvfuser_direct_test.assertEqual(y.data_ptr(), x.data_ptr())
+
+
+def test_misaligned_add(nvfuser_direct_test):
+    inputs = [
+        torch.ones(2**20 + 1, device="cuda")[1:],  # cannot vectorize
+        torch.ones(2**20, device="cuda"),
+    ]
+
+    def fusion_func(fd: FusionDefinition):
+        t0 = fd.from_pytorch(inputs[0])
+        t1 = fd.from_pytorch(inputs[1])
+        c0 = fd.define_scalar(3.0)
+
+        t2 = fd.ops.add(t0, t1)
+
+        fd.add_output(t2)
+
+    # Fails because vectorization 4 is set but only 1 supported
+    nvf_out, _ = nvfuser_direct_test.exec_nvfuser(fusion_func, inputs)
+
+
+def test_nextafter(nvfuser_direct_test):
+    inputs = [
+        # torch.nextafter is only defined for float{32,64} tensor inputs
+        torch.testing.make_tensor(4, device="cuda", dtype=torch.float32),
+        torch.testing.make_tensor(4, device="cuda", dtype=torch.float64),
+    ]
+
+    def fusion_func(fd: FusionDefinition):
+        t0 = fd.from_pytorch(inputs[0])
+        t1 = fd.from_pytorch(inputs[1])
+
+        s0 = fd.define_scalar(1.0, dtype=DataType.Float)
+        s1 = fd.define_scalar(-1.0, dtype=DataType.Double)
+
+        for a, b in itertools.product(
+            [t0, t1, s0, s1],
+            [t0, t1, s0, s1],
+        ):
+            # always enter the fusion...
+            t = fd.ops.nextafter(a, b)
+            if t.is_tensor():
+                # ...but skip outputting scalars, which we don't support
+                fd.add_output(t)
+
+    nvf_out, _ = nvfuser_direct_test.exec_nvfuser(fusion_func, inputs)
+
+    ab = [inputs[0], inputs[1], 1.0, -1.0]
+    i = 0
+    for a, b in itertools.product(ab, ab):
+        if not (isinstance(a, torch.Tensor) or isinstance(b, torch.Tensor)):
+            continue
+        n = nvf_out[i]
+        i += 1
+        torch_out = torch.nextafter(
+            torch.as_tensor(a, device="cuda"), torch.as_tensor(b, device="cuda")
+        )
+        nvfuser_direct_test.assertEqual(n, torch_out)
+
+
+def test_prod(nvfuser_direct_test):
+    inputs = [
+        torch.ones(2, 4, 8, device="cuda"),
+    ]
+
+    def fusion_func(fd: FusionDefinition):
+        t0 = fd.from_pytorch(inputs[0])
+
+        t1 = fd.ops.prod(t0, DataType.Float)
+        t2 = fd.ops.prod(t0, 1, False, DataType.Float)
+        t3 = fd.ops.prod(t0, 1, True, DataType.Float)
+        t4 = fd.ops.prod(t0, [-1], False, DataType.Float)
+
+        fd.add_output(t1)
+        fd.add_output(t2)
+        fd.add_output(t3)
+        fd.add_output(t4)
+
+    nvf_out, _ = nvfuser_direct_test.exec_nvfuser(fusion_func, inputs)
+
+    eager_outs = [
+        torch.prod(inputs[0], dtype=torch.float32),
+        torch.prod(inputs[0], 1, False, dtype=torch.float32),
+        torch.prod(inputs[0], 1, True, dtype=torch.float32),
+        torch.prod(inputs[0], -1, False, dtype=torch.float32),
+    ]
+    assert len(nvf_out) == len(eager_outs)
+
+    for n, e in zip(nvf_out, eager_outs):
+        nvfuser_direct_test.assertEqual(n, e)
+
+
+def test_real_imag(nvfuser_direct_test):
+    for dtype in [torch.complex128, torch.complex64]:
+        inputs = [
+            torch.randn(5, dtype=dtype, device="cuda"),
+        ]
+
+        def fusion_func(fd: FusionDefinition):
+            t0 = fd.from_pytorch(inputs[0])
+            fd.add_output(fd.ops.real(t0))
+            fd.add_output(fd.ops.imag(t0))
+
+        nvf_out, _ = nvfuser_direct_test.exec_nvfuser(fusion_func, inputs)
+
+        nvfuser_direct_test.assertEqual(torch.real(inputs[0]), nvf_out[0])
+        nvfuser_direct_test.assertEqual(torch.imag(inputs[0]), nvf_out[1])
+
+
+def test_reduction_complex_number(nvfuser_direct_test):
+    def test_dtype(torch_dtype):
+        inputs = [torch.randn(2, 32, device="cuda", dtype=torch_dtype)]
+
+        def fusion_func(fd: FusionDefinition):
+            t0 = fd.from_pytorch(inputs[0])
+            t1 = fd.ops.sum(t0, [-1], False, torch_dtype_to_nvfuser_dtype(torch_dtype))
+            fd.add_output(t1)
+
+        nvf_out1, _ = nvfuser_direct_test.exec_nvfuser(fusion_func, inputs)
+        eager_out = torch.sum(inputs[0], dim=-1)
+        nvfuser_direct_test.assertEqual(eager_out, nvf_out1[0])
+
+    list_of_dtype = [torch.complex64, torch.complex128]
+    for torch_dtype in list_of_dtype:
+        test_dtype(torch_dtype)
+
+
+def test_right_shift_arithmetic(nvfuser_direct_test):
+    inputs = [torch.tensor([-2147483648, 1073741824], dtype=torch.int32, device="cuda")]
+
+    def fusion_func(fd: FusionDefinition):
+        t0 = fd.from_pytorch(inputs[0])
+        c0 = fd.define_scalar(3)
+        t1 = fd.ops.bitwise_right_shift(t0, c0)
+        fd.add_output(t1)
+
+    nvf_out1, _ = nvfuser_direct_test.exec_nvfuser(fusion_func, inputs)
+    eager_out1 = torch.bitwise_right_shift(inputs[0], 3)
+    nvfuser_direct_test.assertEqual(eager_out1, nvf_out1[0])
+
+
+def test_segment_set(nvfuser_direct_test):
+    inputs = [
+        torch.randn(5, 5, 5, device="cuda"),
+    ]
+
+    def fusion_func(fd: FusionDefinition) -> None:
+        T0 = fd.from_pytorch(inputs[0])
+        T1 = fd.ops.neg(T0)
+        T2 = fd.ops.segment_set(T1)
+        T3 = fd.ops.relu(T2)
+        fd.add_output(T3)
+
+    eager_out = inputs[0].neg().relu()
+
+    nvf_out, _ = nvfuser_direct_test.exec_nvfuser(fusion_func, inputs)
+    nvfuser_direct_test.assertEqual(eager_out, nvf_out[0])
+
+
+def test_signbit(nvfuser_direct_test):
+    inputs = [
+        torch.randn(3, 4, 5, device="cuda", dtype=torch.float32),
+        torch.randn(3, 4, 5, device="cuda", dtype=torch.float32),
+    ]
+
+    def fusion_func(fd: FusionDefinition):
+        t0 = fd.from_pytorch(inputs[0])
+        t1 = fd.from_pytorch(inputs[1])
+        t2 = fd.ops.where(
+            fd.ops.signbit(t0), fd.ops.neg(fd.ops.abs(t1)), fd.ops.abs(t1)
+        )
+        fd.add_output(t2)
+
+    nvf_out, _ = nvfuser_direct_test.exec_nvfuser(fusion_func, inputs)
+    at_out = torch.where(
+        torch.signbit(inputs[0]), -torch.abs(inputs[1]), torch.abs(inputs[1])
+    )
+    nvfuser_direct_test.assertEqual(at_out, nvf_out[0])
+
+
+def test_tensor_shape(nvfuser_direct_test):
+    inputs = [
+        torch.randn(2, 3, 4, device="cuda"),
+        torch.randn(4, device="cuda"),
+    ]
+
+    def fusion_func(fd: FusionDefinition):
+        t0 = fd.from_pytorch(inputs[0])
+        t1 = fd.from_pytorch(inputs[1])
+
+        t1_b = fd.ops.broadcast_in_dim(t1, t0.shape(), [2])
+        t2 = fd.ops.sub(t0, t1_b)
+
+        fd.add_output(t2)
+
+    nvf_out, _ = nvfuser_direct_test.exec_nvfuser(fusion_func, inputs)
+    eager_out = refs.sub(
+        inputs[0], prims.broadcast_in_dim(inputs[1], inputs[0].size(), [2])
+    )
+    nvfuser_direct_test.assertEqual(eager_out, nvf_out[0])
+
+
+def test_tensor_shape_expand_bcast(nvfuser_direct_test):
+    def fusion_func(fd: FusionDefinition):
+        t0 = fd.define_tensor(shape=[-1, -1, -1], contiguity=[True, True, True])
+        t1 = fd.define_tensor(shape=[-1, 1, -1], contiguity=[True, None, True])
+        t2 = fd.define_tensor(shape=[-1, 1, -1], contiguity=[True, None, True])
+
+        t1_b = fd.ops.broadcast_in_dim(t1, t0.shape(), [0, 1, 2])
+        t2_b = fd.ops.broadcast_in_dim(t2, t1_b.shape(), [0, 1, 2])
+
+        fd.add_output(t2_b)
+
+    inputs = [
+        torch.randn(2, 3, 4, device="cuda"),
+        torch.randn(2, 1, 4, device="cuda"),
+        torch.randn(2, 1, 4, device="cuda"),
+    ]
+
+    nvf_out, _ = nvfuser_direct_test.exec_nvfuser(fusion_func, inputs)
+    eager_out1 = prims.broadcast_in_dim(inputs[1], inputs[0].size(), [0, 1, 2])
+    eager_out2 = prims.broadcast_in_dim(inputs[2], eager_out1.size(), [0, 1, 2])
+    nvfuser_direct_test.assertEqual(eager_out2, nvf_out[0])
+
+
+def test_tensor_shape_nobcast(nvfuser_direct_test):
+    inputs = [
+        torch.randn(2, 3, device="cuda"),
+        torch.randn(2, 3, device="cuda"),
+    ]
+
+    def fusion_func(fd: FusionDefinition):
+        t0 = fd.from_pytorch(inputs[0])
+        t1 = fd.from_pytorch(inputs[1])
+
+        t1_b = fd.ops.broadcast_in_dim(t1, t0.shape(), [0, 1])
+        t2 = fd.ops.add(t0, t1_b)
+
+        fd.add_output(t2)
+
+    nvf_out, _ = nvfuser_direct_test.exec_nvfuser(fusion_func, inputs)
+    eager_out = refs.add(
+        inputs[0], prims.broadcast_in_dim(inputs[1], inputs[0].size(), [0, 1])
+    )
+    nvfuser_direct_test.assertEqual(eager_out, nvf_out[0])
+
+
+def test_tensor_shape_with_output_bcast(nvfuser_direct_test):
+    def fusion_func(fd: FusionDefinition):
+        t0 = fd.define_tensor(shape=[-1, -1, -1], contiguity=[True, True, True])
+
+        t1 = fd.ops.sum(t0, dims=[2])
+        t1_b = fd.ops.broadcast_in_dim(t1, t0.shape(), [0, 1])
+
+        fd.add_output(t1_b)
+
+    inputs_1 = [
+        torch.randn(2, 3, 4, device="cuda"),
+    ]
+
+    inputs_2 = [
+        torch.randn(4, 5, 32, device="cuda"),
+    ]
+
+    inputs = inputs_1
+    nvf_out, _ = nvfuser_direct_test.exec_nvfuser(fusion_func, inputs)
+    eager_out = prims.broadcast_in_dim(
+        torch.sum(inputs[0], dim=-1), inputs[0].size(), [0, 1]
+    )
+    nvfuser_direct_test.assertEqual(eager_out, nvf_out[0])
+
+    # Testing Dynamic usage of same Fusion
+    inputs = inputs_2
+    nvf_out, _ = nvfuser_direct_test.exec_nvfuser(fusion_func, inputs)
+    eager_out = prims.broadcast_in_dim(
+        torch.sum(inputs[0], dim=-1), inputs[0].size(), [0, 1]
+    )
+    nvfuser_direct_test.assertEqual(eager_out, nvf_out[0])
+
+
+def test_tensor_size_both_args_bcast(nvfuser_direct_test):
+    inputs = [
+        torch.randn(1, 3, device="cuda"),
+        torch.randn(2, 1, device="cuda"),
+    ]
+
+    def fusion_func(fd: FusionDefinition):
+        t0 = fd.from_pytorch(inputs[0])
+        t1 = fd.from_pytorch(inputs[1])
+
+        t0_b = fd.ops.broadcast_in_dim(t0, [t1.size(0), t0.size(1)], [0, 1])
+        t1_b = fd.ops.broadcast_in_dim(t1, [t1.size(0), t0.size(1)], [0, 1])
+        t2 = fd.ops.add(t0_b, t1_b)
+
+        fd.add_output(t2)
+
+    nvf_out, _ = nvfuser_direct_test.exec_nvfuser(fusion_func, inputs)
+    eager_out = refs.add(
+        prims.broadcast_in_dim(
+            inputs[0], [inputs[1].size()[0], inputs[0].size()[1]], [0, 1]
+        ),
+        prims.broadcast_in_dim(
+            inputs[1], [inputs[1].size()[0], inputs[0].size()[1]], [0, 1]
+        ),
+    )
+    nvfuser_direct_test.assertEqual(eager_out, nvf_out[0])
+
+
+def test_var_mean_correction(nvfuser_direct_test):
+    num_elem = 2
+    inputs = [torch.randn(2, num_elem, device="cuda")]
+
+    # use decorator to create fusion_func
+    def fusion_decorator(correction):
+        def fusion_func(fd: FusionDefinition):
+            t0 = fd.from_pytorch(inputs[0])
+            t1, t2 = fd.ops.var_mean(t0, [-1], correction)
+            fd.add_output(t1)
+            fd.add_output(t2)
+
+        return fusion_func
+
+    # correction must be less than the reduction factor, which is the input
+    # numel divided by output numel.
+    for correction in range(num_elem):
+        fuser_result, _ = nvfuser_direct_test.exec_nvfuser(
+            fusion_decorator(correction), inputs
+        )
+        torch_result = torch.var_mean(inputs[0], [-1], correction=correction)
+        nvfuser_direct_test.assertEqual(fuser_result, torch_result)
+
+
+def test_zero_size_dim(nvfuser_direct_test):
+    inputs = [
+        torch.ones(0, 0, device="cuda"),
+    ]
+
+    def fusion_func(fd: FusionDefinition):
+        t0 = fd.define_tensor(
+            shape=[0, 0], contiguity=[True, True], dtype=DataType.Float
+        )
+        t1 = fd.ops.relu(t0)
+        fd.add_output(t1)
+
+    nvf_out, _ = nvfuser_direct_test.exec_nvfuser(fusion_func, inputs)
+    eager_out = torch.relu(inputs[0])
+    nvfuser_direct_test.assertEqual(eager_out.numel(), nvf_out[0].numel())
