@@ -583,6 +583,144 @@ Reproduction tests for specific issues:
   - Tests concatenation and permutation operations
   - Tests sum operations with dimension reduction
 
+#### `test_issue4459()`
+- **Purpose**: Tests fix for issue 4459 - complex tensor operations with broadcast, reshape, and mathematical operations
+- **Functionality**:
+  - Tests broadcast operations with specific dimensions
+  - Tests tensor reshaping and permutation operations
+  - Tests complex mathematical sequences involving subtraction, multiplication, addition, negation, and exponential operations
+  - Tests manual padding operations with scalar values
+  - Tests reciprocal and power operations
+  - Tests sum operations with dimension reduction
+  - Tests proper handling of tensor shapes and operations
+
+#### `test_issue4670()`
+- **Purpose**: Tests fix for issue 4670 - iota operations with broadcast and comparison operations
+- **Functionality**:
+  - Tests iota operations with scalar parameters
+  - Tests broadcast operations with boolean dimensions
+  - Tests expand operations with vector shapes
+  - Tests comparison operations (greater than, greater than or equal)
+  - Tests where operations with conditional logic
+  - Tests full tensor creation with specific fill values
+  - Tests proper handling of integer data types
+
+#### `test_ws_tma_normalization1()`
+- **Purpose**: Tests fix for issue 5374765 - Gemma-7b model failure with vectorized domains
+- **Functionality**:
+  - Tests complex tensor operations with BFloat16 data type
+  - Tests reshape and cast operations
+  - Tests broadcast operations with specific dimensions
+  - Tests mathematical operations including addition, multiplication, and power
+  - Tests sum operations with dimension reduction
+  - Tests proper handling of tensor shapes and operations
+  - Tests scalar definition and vector operations
+
+#### `test_ws_tma_normalization2()`
+- **Purpose**: Tests fix for issue 5374766 - multiple model failures with circular-buffer errors
+- **Functionality**:
+  - Tests complex tensor operations with BFloat16 and Float data types
+  - Tests reshape and cast operations
+  - Tests broadcast operations with specific dimensions
+  - Tests mathematical operations including multiplication, subtraction, and power
+  - Tests sum operations with dimension reduction
+  - Tests proper handling of tensor shapes and operations
+  - Tests scalar definition and vector operations
+
+#### `test_ws_tma_normalization3()`
+- **Purpose**: Tests fix for issue 5374767 - Mistral-7B-v0.1 failure with allocation domain errors
+- **Functionality**:
+  - Tests complex tensor operations with BFloat16 and Float data types
+  - Tests reshape and cast operations
+  - Tests broadcast operations with specific dimensions
+  - Tests mathematical operations including multiplication, addition, and power
+  - Tests sum operations with dimension reduction
+  - Tests proper handling of tensor shapes and operations
+  - Tests scalar definition and vector operations
+
+#### `test_ws_tma_normalization4()`
+- **Purpose**: Tests fix for issue 5374768 - multiple model failures with boundary index errors
+- **Functionality**:
+  - Tests complex tensor operations with BFloat16 and Float data types
+  - Tests reshape and cast operations
+  - Tests broadcast operations with specific dimensions
+  - Tests mathematical operations including multiplication, addition, and power
+  - Tests sum operations with dimension reduction
+  - Tests proper handling of tensor shapes and operations
+  - Tests scalar definition and vector operations
+
+#### `test_ws_tma_normalization5()`
+- **Purpose**: Tests fix for issue 5374769 - stablecode-completion-alpha-3b failure with allocation domain errors
+- **Functionality**:
+  - Tests complex tensor operations with BFloat16 and Float data types
+  - Tests reshape and cast operations
+  - Tests broadcast operations with specific dimensions
+  - Tests mathematical operations including multiplication, subtraction, addition, and power
+  - Tests sum operations with dimension reduction
+  - Tests proper handling of tensor shapes and operations
+  - Tests scalar definition and vector operations
+
+#### `test_loop_promotion_cyclic_war()`
+- **Purpose**: Tests loop promotion with cyclic WAR (Write-After-Read) dependencies
+- **Functionality**:
+  - Tests complex tensor operations with BFloat16 and Float data types
+  - Tests reshape and cast operations
+  - Tests broadcast operations with specific dimensions
+  - Tests mathematical operations including multiplication, addition, negation, and exponential
+  - Tests slice operations with manual normalization
+  - Tests concatenation operations with manual padding
+  - Tests reciprocal and power operations
+  - Tests proper handling of tensor shapes and operations
+
+#### `test_reshape_cancellation()`
+- **Purpose**: Tests reshape cancellation operations with complex tensor manipulations
+- **Functionality**:
+  - Tests complex tensor operations with BFloat16 and Float data types
+  - Tests slice operations with manual normalization
+  - Tests concatenation operations with manual padding
+  - Tests reshape and cast operations
+  - Tests broadcast operations with specific dimensions
+  - Tests mathematical operations including negation and multiplication
+  - Tests permutation operations
+  - Tests proper handling of tensor shapes and operations
+
+#### `test_reduction_reference_missing_input_ids()`
+- **Purpose**: Tests fix for issue 4840 - reduction reference missing input IDs
+- **Functionality**:
+  - Tests complex tensor operations with Half and Float data types
+  - Tests slice operations with manual normalization
+  - Tests concatenation operations with manual padding
+  - Tests reshape and cast operations
+  - Tests broadcast operations with specific dimensions
+  - Tests mathematical operations including multiplication, addition, and negation
+  - Tests sum operations with dimension reduction
+  - Tests proper handling of tensor shapes and operations
+
+#### `test_ws_tma_normalization6()`
+- **Purpose**: Tests fix for scalar input handling in TMA normalization
+- **Functionality**:
+  - Tests complex tensor operations with BFloat16 and Float data types
+  - Tests scalar tensor operations
+  - Tests reshape and cast operations
+  - Tests broadcast operations with specific dimensions
+  - Tests mathematical operations including multiplication, addition, and power
+  - Tests sum operations with dimension reduction
+  - Tests proper handling of tensor shapes and operations
+  - Tests scalar definition and vector operations
+
+#### `test_domain_map_hang()`
+- **Purpose**: Tests fix for issue 4960 - domain map hang in complex tensor operations
+- **Functionality**:
+  - Tests complex tensor operations with Float and BFloat16 data types
+  - Tests iota operations with scalar parameters
+  - Tests broadcast operations with specific dimensions
+  - Tests mathematical operations including multiplication, addition, cosine, sine, and power
+  - Tests index_select operations with dynamic indices
+  - Tests reshape and cast operations
+  - Tests slice operations with manual normalization
+  - Tests concatenation operations with manual padding
+  - Tests proper handling of tensor shapes and operations
+
 #### `test_issue
 
 ## Test Configuration (conftest.py)
