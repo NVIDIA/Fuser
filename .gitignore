@@ -75,3 +75,4 @@ compile_commands.json
 
 # Skip cursor editor initial prompt
 .cursorrules
+.cursor
