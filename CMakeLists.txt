@@ -173,6 +173,7 @@ if(BUILD_CUTLASS)
 
   endif()
 endif()
+
 # ------------------------------
 # build nvfuser_codegen library
 # ------------------------------
@@ -715,7 +716,6 @@ if(BUILD_PYTHON)
     nvf_py_internal
     Python::Module
   )
-
   set_target_properties(nvfuser PROPERTIES
     INSTALL_RPATH "$ORIGIN:$ORIGIN/lib:$ORIGIN/../build:$ORIGIN/../nvfuser_common/lib"
   )
