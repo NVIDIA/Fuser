@@ -225,13 +225,13 @@ TEST_F(TaskGraphTest, InTree) {
   //    10
   // The starred nodes are smaller than the others
   Tasks tasks{
-      {{0}, {1}},     // Task 0
-      {{1}, {2}},     // Task 1
-      {{3}, {4}},     // Task 2
-      {{4}, {5}},     // Task 3
-      {{2, 5}, {6}},  // Task 4
-      {{7}, {8}},     // Task 5
-      {{8}, {9}},     // Task 6
+      {{0}, {1}}, // Task 0
+      {{1}, {2}}, // Task 1
+      {{3}, {4}}, // Task 2
+      {{4}, {5}}, // Task 3
+      {{2, 5}, {6}}, // Task 4
+      {{7}, {8}}, // Task 5
+      {{8}, {9}}, // Task 6
       {{6, 9}, {10}}, // Task 7
   };
   std::vector<TaskGraph::Data> data = inferData(tasks);
