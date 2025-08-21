@@ -573,6 +573,13 @@ bool GreedyScheduler::canScheduleCompileTime(Fusion* fusion) {
     return false;
   }
 
+  auto constrained_ops = getAllConstrainedOps(fusion);
+  if (constrained_ops.empty()) {
+    scheduler_debug_utils::canScheduleRejectReason(
+        SchedulerType::Greedy, "No constrained op found");
+    return false;
+  }
+
   IdModel id_model(fusion);
   const auto& exact_graph = id_model.buildExactGraph();
 
