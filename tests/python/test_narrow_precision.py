@@ -132,7 +132,10 @@ def activation_scale_to_nvfp4(x, g_sf, offsets, blockscale_offsets, block_size):
             r = offsets[i + 1]
         l_sf = blockscale_offsets[i]
         r_sf = l_sf + r - l
-        v_scaled[l:r], block_scale[l_sf:r_sf] = pytorch_nvfp4_quantize(x[l:r], g_sf[i])
+        v, b_sf = pytorch_nvfp4_quantize(x[l:r], g_sf[i])
+        v_scaled[l:r] = v
+        block_scale[l_sf:r_sf] = pytorch_nvfp4_quantize(b_sf)
+
     return v_scaled, block_scale
 
 
@@ -192,7 +195,7 @@ def test_cutlass_nvfp4_grouped_mm(
 
         scaled_mat2_i, bs_mat2_i = pytorch_nvfp4_quantize(mat2[i], mat2_gs[i])
         mat2_scaled[i] = scaled_mat2_i
-        scale2[i] = bs_mat2_i
+        scale2[i] = linear_to_swizzled_128_4(bs_mat2_i)
 
     # prepare quantization for mat1
     # note: following sglang implementation, not computing global scaling factor for mat1
