@@ -161,9 +161,7 @@ def test_cutlass_nvfp4_grouped_mm(
 
     mat1 = torch.testing.make_tensor((m, k), dtype=torch.float32, device="cuda:0")
     # format is g, n, k instead of g, k, n
-    mat2 = torch.testing.make_tensor(
-        (g, n, k), dtype=torch.float32, device="cuda:0"
-    )
+    mat2 = torch.testing.make_tensor((g, n, k), dtype=torch.float32, device="cuda:0")
 
     offsets = torch.empty((g,), dtype=torch.int32, device="cuda:0")
     blockscale_offsets = torch.empty((g,), dtype=torch.int32, device="cuda:0")
