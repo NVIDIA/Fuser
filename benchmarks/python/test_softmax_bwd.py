@@ -72,12 +72,13 @@ def softmax_bwd_iobytes(size: tuple, dtype: torch.dtype):
 
 @pytest.mark.parametrize("size", generate_input_sizes(dims=2))
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)
-@pytest.mark.parametrize("reduction_axis", [0, 1])
-@pytest.mark.inner_persistent
-@pytest.mark.outer_persistent
-@pytest.mark.pointwise
-@pytest.mark.reduction
-@pytest.mark.transpose
+@pytest.mark.parametrize(
+    "reduction_axis",
+    [
+        pytest.param(0, marks=pytest.mark.outer_persistent),
+        pytest.param(1, marks=pytest.mark.inner_persistent),
+    ],
+)
 def test_softmax_bwd_nvf_benchmark(
     benchmark,
     size: tuple,
@@ -106,12 +107,13 @@ def test_softmax_bwd_nvf_benchmark(
 @pytest.mark.parametrize("executor", DEFAULT_EXECUTORS)
 @pytest.mark.parametrize("size", generate_input_sizes(dims=2))
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)
-@pytest.mark.parametrize("reduction_axis", [0, 1])
-@pytest.mark.inner_persistent
-@pytest.mark.outer_persistent
-@pytest.mark.pointwise
-@pytest.mark.reduction
-@pytest.mark.transpose
+@pytest.mark.parametrize(
+    "reduction_axis",
+    [
+        pytest.param(0, marks=pytest.mark.outer_persistent),
+        pytest.param(1, marks=pytest.mark.inner_persistent),
+    ],
+)
 def test_softmax_bwd_baseline_benchmark(
     benchmark,
     size: tuple,
