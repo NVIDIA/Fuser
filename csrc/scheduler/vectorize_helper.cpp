@@ -18,6 +18,7 @@
 #include <ir/iostream.h>
 #include <ir/printer.h>
 #include <iter_visitor.h>
+#include <multidevice/utils.h>
 #include <scheduler/registry.h>
 #include <scheduler/runtime_info.h>
 #include <scheduler/tools/resize_utils.h>
@@ -807,13 +808,8 @@ Val* ContiguousInnerDimensionsMapper::getContigMergeOfInnerSize(
     IterDomain* logical_id = alloc_iid;
     Val* num_devices = of_tv->container()->oneVal();
     for (Expr* expr : exprs | std::views::reverse) {
-      auto split = dynamic_cast<Split*>(expr);
-      NVF_CHECK(
-          split,
-          "Expected only split exprs between logical and allocation domains, "
-          "got ",
-          expr);
-      NVF_CHECK(split->outer()->isDeviceDim());
+      validateDeviceSplit(expr);
+      Split* split = expr->as<Split>();
       logical_id = split->in();
       num_devices = SimplifyingIrBuilder::mulExpr(num_devices, split->factor());
     }

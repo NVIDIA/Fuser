@@ -726,18 +726,22 @@ std::unordered_set<TensorView*> getTvsWithDifferentSharding(
   return ret;
 }
 
-namespace {
-void validateDeviceSplit(Split* split) {
-  NVF_CHECK(
-      split != nullptr, "Expected a split between logical and allocation.");
-  NVF_CHECK(
+void validateDeviceSplit(Expr* expr) {
+  NVF_ERROR(expr != nullptr, "Expected a valid expression.");
+  auto* split = dynamic_cast<Split*>(expr);
+  NVF_ERROR(
+      split != nullptr,
+      "Only split expressions are supported for producing device ids: ",
+      expr->toString());
+  NVF_ERROR(
       split->outer()->isDeviceDim(),
-      "Expected the outer dimension to be a device dimension.");
-  NVF_CHECK(
+      "Expected the outer dimension to be a device dimension: ",
+      expr->toString());
+  NVF_ERROR(
       !split->innerSplit(),
-      "Inner split by device dimension is not supported.");
+      "Inner split by device dimension is not supported: ",
+      expr->toString());
 }
-} // namespace
 
 // Take an allocation domain id and project it back to the logical domain.
 // traversing device splits.
@@ -754,9 +758,8 @@ IterDomain* projectAllocationToLogical(
 
   IterDomain* logical_id = allocation_id;
   for (Expr* expr : exprs | std::views::reverse) {
-    auto* split = dynamic_cast<Split*>(expr);
-    validateDeviceSplit(split);
-    logical_id = split->in();
+    validateDeviceSplit(expr);
+    logical_id = expr->as<Split>()->in();
   }
   return logical_id;
 }
@@ -772,9 +775,8 @@ IterDomain* projectLogicalToAllocation(TensorView* tv, IterDomain* logical_id) {
        tv->getMaybeAllocationDomain().end()});
   IterDomain* allocation_id = logical_id;
   for (auto expr : exprs) {
-    Split* split = dynamic_cast<Split*>(expr);
-    validateDeviceSplit(split);
-    allocation_id = split->inner();
+    validateDeviceSplit(expr);
+    allocation_id = expr->as<Split>()->inner();
   }
   return allocation_id;
 }

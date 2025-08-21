@@ -1630,13 +1630,11 @@ std::vector<TensorView*> getInputsOutputsWithInnerDim(
     return {};
   }
 
-  std::unordered_set<IterDomain*> vectorizable_dims;
-
   FindAllMappedDims all_mapped_root_dims(
       reference_tv, inner_most_id, inner_only, vectorize_pass);
   MaxLogicalDomainInfoSpanningTree tree(reference_tv);
   tree.traverse(&all_mapped_root_dims);
-  vectorizable_dims = all_mapped_root_dims.get();
+  auto vectorizable_dims = all_mapped_root_dims.get();
 
   std::vector<TensorView*> vectorizable_tensors;
 
