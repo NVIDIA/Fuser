@@ -345,7 +345,7 @@ std::pair<torch::Tensor, torch::Tensor> nvfp4_scaled_mm_blockscale(
                             .dtype(at::ScalarType::Float4_e2m1fn_x2)
                             .device(at::kCUDA, a.get_device());
   // Only half the number of elements in inner-most dimension for packed format.
-  torch::Tensor output = at::empty({m, roundUp(n / 2)}, output_options);
+  torch::Tensor output = at::empty({m, ceilDiv(n, 2)}, output_options);
 
   auto blockscale_options = at::TensorOptions()
                                 .dtype(at::ScalarType::Float8_e4m3fn)

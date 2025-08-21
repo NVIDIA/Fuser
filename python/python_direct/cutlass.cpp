@@ -26,7 +26,8 @@ void bindGemm(py::module_& cutlass) {
         return cutlass_kernels::nvfp4_scaled_mm(
             a, b, scales_a, scales_b, alpha, out_dtype);
       },
-      R"(nvfp4_scaled_mm(Tensor a,
+      R"(Computes nvfp4 matmul and returns bf16, fp16, or fp32 output tensor.
+         nvfp4_scaled_mm(Tensor a,
                          Tensor b,
                          Tensor scales_a,
                          Tensor scales_b,
@@ -47,7 +48,9 @@ void bindGemm(py::module_& cutlass) {
                 a_nvfp4, b_nvfp4, scales_a, scales_b, alpha, global_normconst);
         return py::make_tuple(output.first, output.second);
       },
-      R"(nvfp4_scaled_mm_blockscale(Tensor a_nvfp4,
+      R"(Computes nvfp4 matmul and blockscale quantization. It returns nvfp4
+         output tensor and its blockscale factor.
+         nvfp4_scaled_mm_blockscale(Tensor a_nvfp4,
                                     Tensor b_nvfp4,
                                     Tensor scales_a,
                                     Tensor scales_b,

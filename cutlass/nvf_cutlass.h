@@ -13,9 +13,14 @@
 
 namespace nvfuser::cutlass_kernels {
 
+// Helper function to compute ceil(x / y)
+inline int64_t ceilDiv(int64_t x, int64_t y) {
+  return (x + y - 1) / y;
+}
+
 // Helper function to round up to the nearest multiple of y
-inline int64_t roundUp(int64_t x, int64_t y = 1) {
-  return (x + y - 1) / y * y;
+inline int64_t roundUp(int64_t x, int64_t y) {
+  return ceilDiv(x, y) * y;
 }
 
 // Validates all input parameters and tensor properties for NVFP4 scaled matrix
@@ -44,7 +49,7 @@ NVF_API std::tuple<int64_t, int64_t, int64_t> validateInputsNvfp4ScaledMm(
     const torch::Tensor& alpha,
     bool skip_checks = false);
 
-// Performs scaled matrix multiplication using NVFP4 format
+// Performs scaled matrix multiplication using NVFP4 format.
 //
 // This function implements a scaled matrix multiplication C = alpha * (A @ B)
 // where A and B are matrices in NVFP4 format with per-block scaling factors.
@@ -69,7 +74,8 @@ NVF_API torch::Tensor nvfp4_scaled_mm(
     at::ScalarType out_dtype,
     bool skip_checks = false);
 
-// Performs scaled matrix multiplication using NVFP4 format
+// Performs scaled matrix multiplication using NVFP4 format with fused epilogue
+// blockscale quantization.
 //
 // This function implements a scaled matrix multiplication C = alpha * (A @ B)
 // where A and B are matrices in NVFP4 format with per-block scaling factors.
