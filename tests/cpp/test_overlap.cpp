@@ -9,9 +9,12 @@
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
+#include <vector>
+
 #include <ops/all_ops.h>
 #include <preseg_passes/propagate_shardings.h>
 #include <tests/cpp/utils.h>
+#include <tests/cpp/validator.h>
 
 namespace nvfuser {
 
@@ -78,7 +81,11 @@ TEST_F(RingBasedOverlapTest, ColumnAndSequenceParallelLinear_Forward) {
   preseg_passes::OptimizationPass<
       preseg_passes::PropagateShardingsPass>::runPass(fusion.get());
   // DIDx from `w` is propagated to `out`
-  EXPECT_TRUE(out->axis(2)->isDeviceDim());
+  EXPECT_THAT(
+      out,
+      DomainIsParallelized(
+          std::vector<ParallelType>{ParallelType::Stream, ParallelType::DIDx},
+          std::vector<int64_t>{0, 2}));
 }
 
 TEST_F(RingBasedOverlapTest, ColumnAndSequenceParallelLinear_WeightGrad) {
@@ -149,8 +156,16 @@ TEST_F(RingBasedOverlapTest, ColumnAndSequenceParallelLinear_WeightGrad) {
       preseg_passes::PropagateShardingsPass>::runPass(fusion.get());
   // `DIDx` from `out` is propagated to `w`. `Stream` from `w` is propagated to
   // `out`.
-  EXPECT_TRUE(out->axis(0)->isStream());
-  EXPECT_TRUE(w->axis(0)->isDeviceDim());
+  EXPECT_THAT(
+      out,
+      DomainIsParallelized(
+          std::vector<ParallelType>{ParallelType::Stream, ParallelType::DIDx},
+          std::vector<int64_t>{0, 1}));
+  EXPECT_THAT(
+      w,
+      DomainIsParallelized(
+          std::vector<ParallelType>{ParallelType::DIDx, ParallelType::Stream},
+          std::vector<int64_t>{0, 3}));
 }
 
 TEST_F(RingBasedOverlapTest, ColumnAndSequenceParallelLinear_InputGrad) {
@@ -319,8 +334,11 @@ TEST_F(RingBasedOverlapTest, RowAndSequenceParallelLinear_WeightGrad) {
   preseg_passes::OptimizationPass<
       preseg_passes::PropagateShardingsPass>::runPass(fusion.get());
   // `DIDx` and `Stream` is propagated from `in` to `w`.
-  EXPECT_TRUE(w->axis(1)->isDeviceDim());
-  EXPECT_TRUE(w->axis(-2)->isStream());
+  EXPECT_THAT(
+      w,
+      DomainIsParallelized(
+          std::vector<ParallelType>{ParallelType::DIDx, ParallelType::Stream},
+          std::vector<int64_t>{1, 3}));
 }
 
 TEST_F(RingBasedOverlapTest, RowAndSequenceParallelLinear_InputGrad) {
@@ -395,8 +413,8 @@ TEST_F(CollectiveBasedOverlapTest, RowParallelLinear_Forward) {
   }
   in->outer_split(0, d);
   in->axis(0)->parallelize(ParallelType::Stream);
-  in->outer_split(1, d);
-  in->axis(2)->parallelize(ParallelType::DIDx);
+  in->outer_split(2, d);
+  in->axis(3)->parallelize(ParallelType::DIDx);
   w->outer_split(1, d);
   w->axis(1)->parallelize(ParallelType::DIDx);
 
@@ -422,8 +440,11 @@ TEST_F(CollectiveBasedOverlapTest, RowParallelLinear_Forward) {
 
   preseg_passes::OptimizationPass<
       preseg_passes::PropagateShardingsPass>::runPass(fusion.get());
-  EXPECT_TRUE(out->axis(0)->isStream());
-  EXPECT_TRUE(out->axis(-2)->isDeviceDim());
+  EXPECT_THAT(
+      out,
+      DomainIsParallelized(
+          std::vector<ParallelType>{ParallelType::Stream, ParallelType::DIDx},
+          std::vector<int64_t>{0, 3}));
 }
 
 } // namespace nvfuser

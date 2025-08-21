@@ -114,10 +114,11 @@ std::vector<TensorView*> getOutputsWithoutMesh(Expr* expr) {
 // Returns the set of parallel types not seen on the loop domain of the given
 // tvs and hence, can be propagated.
 std::unordered_set<ParallelType> getParallelTypesToPropagate(
-    const std::vector<TensorView*>& tvs,
-    bool is_input = false) {
+    std::vector<TensorView*> tvs) {
   std::unordered_set<ParallelType> all_parallel_types;
-  if (is_input) {
+  // Since we propagate across exprs, either all tvs are fusion inputs or none
+  // are.
+  if (tvs.at(0)->isFusionInput()) {
     all_parallel_types = {ParallelType::Stream};
   } else {
     all_parallel_types = deviceAndStreamParallelTypes();
@@ -504,8 +505,7 @@ void PropagateShardingsPass::runPass(Fusion* fusion) {
         continue;
       }
       std::unordered_set<ParallelType> selected_parallel_types =
-          getParallelTypesToPropagate(
-              {target}, /*is_input=*/target->isFusionInput());
+          getParallelTypesToPropagate({target});
       propagateDIDTransform(
           /*ref=*/ref_output,
           /*tv=*/target,
