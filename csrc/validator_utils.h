@@ -125,7 +125,7 @@ void testValidate(
     const LaunchParams& lparams = LaunchParams(),
     const ValidationConstants& tolerances = ValidationConstants());
 
-// The variant withtout line number and file name.
+// The variant without line number and file name.
 NVF_API void testValidate(
     Fusion* fusion,
     const KernelArgumentHolder& fusion_outputs,
