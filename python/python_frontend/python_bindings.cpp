@@ -3751,7 +3751,16 @@ void initNvFuserPythonBindings(PyObject* module) {
       py::arg("arg"),
       py::arg("dim"),
       py::return_value_policy::reference,
-      "DOCSTRING");
+      R"doc(
+            Computes the cumulative sum of elements along a given dimension.
+            Args:
+                    arg (Tensor): Input tensor.
+                    dim (int): Dimension along which to compute the cumulative sum.
+            Returns:
+                    Tensor: Tensor of the same shape as input with cumulative sums computed along the specified dimension.
+            Example:
+                    >>> fd.ops.cumsum(tensor, dim=0)
+        )doc");
 
   nvf_ops.def(
       "grouped_mm",
