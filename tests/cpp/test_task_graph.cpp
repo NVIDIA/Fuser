@@ -201,8 +201,6 @@ TEST_F(TaskGraphTest, DifferentSizes) {
   data[7].size = 1;
   auto graph = TaskGraph(tasks, data);
 
-  std::cout << graph << std::endl;
-
   const TaskGraph::SortResult result = graph.findOptimalOrder();
 
   ASSERT_EQ(result.steps.size(), tasks.size());
@@ -211,51 +209,61 @@ TEST_F(TaskGraphTest, DifferentSizes) {
   EXPECT_EQ(result.steps.back().high_water_mark, 30);
 }
 
-TEST_F(TaskGraphTest, DifferentSizesRestartBranch) {
-  //   0
-  //  / \
-  // 1   6
-  // |   |
-  // 2*  7
-  // |   |
-  // 3   8*
-  // |   |
-  // 4*  9
-  // |   |
-  // 5  10
-  //  \ /
-  //  11
-  //
+// This is the example from Figure 1 of Kayaaslan et al. 2018
+// It includes temporary space needed for each task.
+// This is a candidate for the Liu algorithm instead of brute force search.
+// https://doi.org/10.1016/j.tcs.2017.09.037
+TEST_F(TaskGraphTest, InTree) {
+  // 0 3
+  // | |
+  // 1 4 7
+  // | | |
+  // 2 5 8
+  //  \| |
+  //   6 9
+  //    \|
+  //    10
   // The starred nodes are smaller than the others
   Tasks tasks{
-      {{0}, {1}}, // Task 0
-      {{1}, {2}}, // Task 1
-      {{2}, {3}}, // Task 2
-      {{3}, {4}}, // Task 3
-      {{4}, {5}}, // Task 4
-      {{0}, {6}}, // Task 5
-      {{6}, {7}}, // Task 6
-      {{7}, {8}}, // Task 7
-      {{8}, {9}}, // Task 8
-      {{9}, {10}}, // Task 9
-      {{5, 10}, {11}} // Task 10
+      {{0}, {1}},     // Task 0
+      {{1}, {2}},     // Task 1
+      {{3}, {4}},     // Task 2
+      {{4}, {5}},     // Task 3
+      {{2, 5}, {6}},  // Task 4
+      {{7}, {8}},     // Task 5
+      {{8}, {9}},     // Task 6
+      {{6, 9}, {10}}, // Task 7
   };
   std::vector<TaskGraph::Data> data = inferData(tasks);
-  for (auto& di : data) {
-    di.size = 10;
-  }
-  data[2].size = 5;
-  data[4].size = 5;
-  data[8].size = 5;
+  data[0].size = 1; // input
+  data[1].size = 4;
+  data[2].size = 1;
+  data[3].size = 1; // input
+  data[4].size = 2;
+  data[5].size = 2;
+  data[6].size = 2;
+  data[7].size = 1; // input
+  data[8].size = 1;
+  data[9].size = 5;
+  data[10].size = 1;
+  tasks[0].temp_space = 4; // A
+  tasks[1].temp_space = 3; // B
+  tasks[2].temp_space = 1; // C
+  tasks[3].temp_space = 2; // D
+  tasks[4].temp_space = 2; // E
+  tasks[5].temp_space = 8; // F
+  tasks[6].temp_space = 2; // G
+  tasks[7].temp_space = 1; // H
 
   auto graph = TaskGraph(tasks, data);
 
   const TaskGraph::SortResult result = graph.findOptimalOrder();
 
   ASSERT_EQ(result.steps.size(), tasks.size());
-  std::vector<TaskGraph::TaskId> expected{5, 6, 0, 1, 7, 8, 9, 2, 3, 4, 10};
-  EXPECT_EQ(getTasks(result), expected);
-  EXPECT_EQ(result.steps.back().high_water_mark, 30);
+  // By Kayaaslan et al. 2018, Sn 3.1,
+  // one optimal order is F A B C D E G H which has cost 34
+  // There are others with the same cost such as F C D A B E G H
+  EXPECT_EQ(result.steps.back().high_water_mark, 34);
 }
 
 } // namespace nvfuser
