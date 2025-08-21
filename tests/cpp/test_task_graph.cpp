@@ -64,11 +64,13 @@ std::vector<TaskGraph::TaskId> getTasks(const TaskGraph::SortResult& result) {
 }
 
 TEST_F(TaskGraphTest, Basic) {
-  //   0   1
-  //   |\ /
-  //   | 2
-  //   |/
-  //   3
+  /*
+   *   0   1
+   *   |\ /
+   *   | 2
+   *   |/
+   *   3
+   */
   Tasks tasks{{{0, 1}, {2}}, {{0, 2}, {3}}};
   std::vector<TaskGraph::Data> data = inferData(tasks);
   auto graph = TaskGraph(tasks, data);
@@ -83,12 +85,15 @@ TEST_F(TaskGraphTest, Basic) {
 
 // This example includes two segments, each of which aliases the other
 TEST_F(TaskGraphTest, ImpossibleAlias) {
-  //   0   1
-  //   |\ /|
-  //   | X |
-  //   |/ \|
-  //   2   3
-  // Two tasks, each takes the same two inputs
+  /*
+   *   0   1
+   *   |\ /|
+   *   | X |
+   *   |/ \|
+   *   2   3
+   *
+   * Two tasks, each takes the same two inputs
+   */
   Tasks tasks{{{0, 1}, {2}}, {{0, 1}, {3}}};
   std::vector<TaskGraph::Data> data = inferData(tasks);
   // Each of the segment outputs aliases a different input
@@ -141,11 +146,13 @@ TEST_F(TaskGraphTest, ThreeCycle) {
 }
 
 TEST_F(TaskGraphTest, FreeableIntermediate) {
-  //   0
-  //  /|\
-  // 1 2 3
-  //     |
-  //     4
+  /*
+   *     0
+   *    /|\
+   *   1 2 3
+   *       |
+   *       4
+   */
   Tasks tasks{
       {{0}, {1}}, // Task 0
       {{0}, {2}}, // Task 1
@@ -166,15 +173,17 @@ TEST_F(TaskGraphTest, FreeableIntermediate) {
 }
 
 TEST_F(TaskGraphTest, DifferentSizes) {
-  //   0
-  //  / \
-  // 1   4
-  // |   |
-  // 2   5
-  // |   |
-  // 3   6
-  //  \ /
-  //   7
+  /*
+   *     0
+   *    / \
+   *   1   4
+   *   |   |
+   *   2   5
+   *   |   |
+   *   3   6
+   *    \ /
+   *     7
+   */
   Tasks tasks{
       {{0}, {1}}, // Task 0
       {{1}, {2}}, // Task 1
@@ -214,16 +223,17 @@ TEST_F(TaskGraphTest, DifferentSizes) {
 // This is a candidate for the Liu algorithm instead of brute force search.
 // https://doi.org/10.1016/j.tcs.2017.09.037
 TEST_F(TaskGraphTest, InTree) {
-  // 0 3
-  // | |
-  // 1 4 7
-  // | | |
-  // 2 5 8
-  //  \| |
-  //   6 9
-  //    \|
-  //    10
-  // The starred nodes are smaller than the others
+  /*
+   *   0 3
+   *   | |
+   *   1 4 7
+   *   | | |
+   *   2 5 8
+   *    \| |
+   *     6 9
+   *      \|
+   *      10
+   */
   Tasks tasks{
       {{0}, {1}}, // Task 0
       {{1}, {2}}, // Task 1
