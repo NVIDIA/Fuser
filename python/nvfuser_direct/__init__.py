@@ -50,7 +50,7 @@ def execute_with_dtensors(fd, in_dtensors: Iterable[DTensor]) -> list[DTensor]:
                 common_mesh_dim_names == mesh_dim_names
             ), f"All DTensor inputs must have the same mesh dim names. Got {common_mesh_dim_names} and {mesh_dim_names}"
 
-    out_tensors = fd.execute(in_tensors, auto_schedule=True)
+    out_tensors = fd.execute(in_tensors)
     out_shardings = fd.fec.get_output_shardings()
     assert len(out_tensors) == len(out_shardings)
 
