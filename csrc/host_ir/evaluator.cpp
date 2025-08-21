@@ -510,8 +510,7 @@ void HostIrEvaluator::handle(LoadStoreOp* load_store_op) {
   NVF_ERROR(
       load_store_op->opType() == LoadStoreOpType::Set ||
       load_store_op->opType() == LoadStoreOpType::SegmenterSet);
-  NVF_ERROR(
-      load_store_op->out()->isA<TensorView>(), "out must be a TensorView");
+  NVF_ERROR(load_store_op->out()->isA<TensorView>());
   auto* out_tv = load_store_op->out()->as<TensorView>();
   auto in_tensor = getKnownConcreteValue(load_store_op->in()).as<at::Tensor>();
 
@@ -562,7 +561,7 @@ void HostIrEvaluator::handle(kir::Allocate* allocate) {
       allocate->buffer()->isA<TensorView>(),
       "Allocation must be on a TensorView but got ",
       allocate->buffer());
-  TensorView* tv = allocate->buffer()->as<TensorView>();
+  auto* tv = allocate->buffer()->as<TensorView>();
   if (expr_evaluator_.isKnown(tv)) {
     return;
   }
