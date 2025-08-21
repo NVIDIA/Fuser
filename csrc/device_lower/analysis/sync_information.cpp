@@ -533,7 +533,7 @@ SyncMap::SyncMap(Fusion* fusion, bool error_on_failure) {
         }
 
         auto& producer_sync_map = producer_consumer_raw_sync_[producer];
-        NVF_ERROR(producer_sync_map.emplace(consumer, raw_dims).second);
+        producer_sync_map.emplace(consumer, raw_dims);
       } // end for consumers
 
       if (raw_dims.any()) {
