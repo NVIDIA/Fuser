@@ -34,6 +34,7 @@
 #include <format>
 #include <fstream>
 #include <string>
+#include <variant>
 #include <vector>
 
 namespace nvfuser {
@@ -463,10 +464,35 @@ std::string CutlassCodeGenerator::generateCode(
   return generateNvfp4ScaledMmKernel(fusion, params, descriptor);
 }
 
+std::string dtypeToCutlass(const DataType& dtype) {
+  NVF_ERROR(std::holds_alternative<PrimDataType>(dtype.type));
+  switch (std::get<PrimDataType>(dtype.type)) {
+    case (DataType::Half):
+      return "cutlass::half_t";
+    case (DataType::BFloat16):
+      return "cutlass::bfloat16_t";
+    default:
+      return "UNKNOWN_DTYPE";
+  }
+}
+
 std::string CutlassCodeGenerator::generateNvfp4ScaledMmKernel(
     Fusion* fusion,
     const CutlassParams& params,
     CutlassKernelDescriptor& descriptor) {
+  NVF_ERROR_EQ(
+      fusion->outputs().size(),
+      1,
+      "Cutlass executor currently only supports a single output");
+  auto* main_output = fusion->outputs().front()->as<TensorView>();
+  const std::string output_dtype = dtypeToCutlass(main_output->dtype());
+
+  NVF_ERROR_GE(fusion->inputs().size(), 4);
+  auto* a = fusion->inputs()[0]->as<TensorView>();
+  auto* b = fusion->inputs()[1]->as<TensorView>();
+  auto* a_scale = fusion->inputs()[2]->as<TensorView>();
+  auto* b_scale = fusion->inputs()[3]->as<TensorView>();
+
   std::string code =
       R"(
 #include <ATen/cuda/CUDAContext.h>
@@ -529,23 +555,54 @@ struct KernelTraits {
 // Main GEMM configuration for NVFP4 scaled matrix multiplication on SM100+
 // Defines all the types, layouts, and configurations needed for the CUTLASS
 // kernel
-template <typename T>
 struct Fp4GemmSm100 {
   // A matrix configuration
-  using ElementA = cutlass::nv_float4_t<cutlass::float_e2m1_t>;
-  using LayoutATag = cutlass::layout::RowMajor;
+)";
+  NVF_ERROR_EQ(
+      a->dtype(),
+      DataType::Float4_e2m1fn,
+      "Only float_e2m1_t is supported so far");
+  code += "  using ElementA = cutlass::nv_float4_t<cutlass::float_e2m1_t>;\n";
+  if (a->getLogicalDomain().back() == a->getMaybeAllocationDomain().back()) {
+    code += "  using LayoutATag = cutlass::layout::RowMajor;\n";
+  } else {
+    code += "  using LayoutATag = cutlass::layout::ColumnMajor;\n";
+  }
+  // TODO: check alignment of A and save in cutlass_params.supported_vec_sizes
+  // as is done for Ampere
+  code += R"(
   static constexpr int AlignmentA = 32;
 
   // B matrix configuration
-  using ElementB = cutlass::nv_float4_t<cutlass::float_e2m1_t>;
-  using LayoutBTag = cutlass::layout::ColumnMajor;
+)";
+  NVF_ERROR_EQ(
+      b->dtype(),
+      DataType::Float4_e2m1fn,
+      "Only float_e2m1_t is supported so far");
+  code += "  using ElementB = cutlass::nv_float4_t<cutlass::float_e2m1_t>;\n";
+  if (b->getLogicalDomain().back() == b->getMaybeAllocationDomain().back()) {
+    code += "  using LayoutBTag = cutlass::layout::RowMajor;\n";
+  } else {
+    code += "  using LayoutBTag = cutlass::layout::ColumnMajor;\n";
+  }
+  // TODO: check alignment of B and save in cutlass_params.supported_vec_sizes
+  // as is done for Ampere
+  code += R"(
   static constexpr int AlignmentB = 32;
 
   // C/D matrix configuration
-  using ElementD = T;
-  using ElementC = T;
-  using LayoutCTag = cutlass::layout::RowMajor;
-  using LayoutDTag = cutlass::layout::RowMajor;
+)";
+  code += "  using ElementD = " + output_dtype + ";\n";
+  code += "  using ElementC = " + output_dtype + ";\n";
+
+  NVF_ERROR(
+      !main_output->hasAllocation(),
+      "Cutlass executor doesn't yet support transposed output");
+  // TODO: support transposed output by changing the below lines as needed
+  code += "  using LayoutDTag = cutlass::layout::RowMajor;\n";
+  code += "  using LayoutCTag = cutlass::layout::RowMajor;\n";
+
+  code += R"(
   static constexpr int AlignmentD = 128 / cutlass::sizeof_bits<ElementD>::value;
   static constexpr int AlignmentC = 128 / cutlass::sizeof_bits<ElementC>::value;
   // Kernel functional config
@@ -639,8 +696,13 @@ typename T::Gemm::Arguments args_from_options(
     int64_t K) {
   using ElementA = typename T::Gemm::ElementA;
   using ElementB = typename T::Gemm::ElementB;
-  using ElementSFA = cutlass::float_ue4m3_t;
-  using ElementSFB = cutlass::float_ue4m3_t;
+)";
+  NVF_ERROR_EQ(a_scale->dtype(), DataType::Float8_e4m3fn);
+  code += "  using ElementSFA = cutlass::float_ue4m3_t;\n";
+  NVF_ERROR_EQ(b_scale->dtype(), DataType::Float8_e4m3fn);
+  code += "  using ElementSFB = cutlass::float_ue4m3_t;\n";
+
+  code += R"(
   using ElementD = typename T::Gemm::ElementD;
   using ElementCompute = float;
   using StrideA = typename T::StrideA;
@@ -697,7 +759,6 @@ typename T::Gemm::Arguments args_from_options(
 //   alpha: Global scaling factor
 //   m, n, k: Matrix dimensions
 //   stream: CUDA stream for asynchronous execution
-template <typename T>
 void runGemm(
     at::Tensor& output,
     const at::Tensor& a,
@@ -709,12 +770,12 @@ void runGemm(
     int64_t n,
     int64_t k,
     cudaStream_t stream) {
-  typename Fp4GemmSm100<T>::Gemm gemm;
+  typename Fp4GemmSm100::Gemm gemm;
 
-  auto arguments = args_from_options<Fp4GemmSm100<T>>(
+  auto arguments = args_from_options<Fp4GemmSm100>(
       output, a, b, scales_a, scales_b, alpha, m, n, k);
 
-  size_t workspace_size = Fp4GemmSm100<T>::Gemm::get_workspace_size(arguments);
+  size_t workspace_size = Fp4GemmSm100::Gemm::get_workspace_size(arguments);
   auto const workspace_options =
       torch::TensorOptions().dtype(torch::kUInt8).device(a.device());
   auto workspace = torch::empty(workspace_size, workspace_options);
@@ -754,15 +815,7 @@ extern "C" void run_kernel(
   int64_t n = b.size(1);
   int64_t k = a.size(1);
 
-  if (out_dtype == at::ScalarType::Half) {
-    runGemm<cutlass::half_t>(
-        output, a, b, scales_a, scales_b, alpha, m, n, k, stream);
-  } else if (out_dtype == at::ScalarType::BFloat16) {
-    runGemm<cutlass::bfloat16_t>(
-        output, a, b, scales_a, scales_b, alpha, m, n, k, stream);
-  } else {
-    NVF_THROW("Unsupported output data type of nvfp4 scaled_mm.");
-  }
+  runGemm(output, a, b, scales_a, scales_b, alpha, m, n, k, stream);
 }
 
 } // namespace nvfuser::cutlass_kernels
