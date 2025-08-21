@@ -298,24 +298,4 @@ def test_cutlass_nvfp4_grouped_mm(
             * mat2_gs[i]
         )
 
-    # I think we have higher error because we are not fusing the scaling factor
     assert torch.allclose(o_decomposed_ref, o, atol=1e-2, rtol=1e-2)
-
-    # TODO: remove this, it's not relevant here.
-    o_ref = torch.empty(m, n, dtype=torch.bfloat16, device="cuda:0")
-    import nvfuser_direct
-
-    nvfuser_direct.nvf_cutlass.nvfp4_scaled_grouped_mm(
-        o_ref,
-        mat1.view(INPUT_DTYPE),
-        mat2_scaled.view(INPUT_DTYPE),
-        scale1,
-        scale2,
-        mat2_gs,
-        ab_strides,
-        c_strides,
-        problem_sizes,
-        offsets,
-        blockscale_offsets,
-    )
-    assert torch.allclose(o_ref, o_decomposed_ref, atol=1e-2, rtol=1e-2)
