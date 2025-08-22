@@ -902,7 +902,7 @@ TensorView* TensorView::rFactor(const std::vector<int64_t>& axes) {
         cutlass_grouped_mma->alpha(),
         cutlass_grouped_mma->problemSizes(),
         cutlass_grouped_mma->expertOffsets(),
-        cutlass_grouped_mma->sfOffsets());
+        cutlass_grouped_mma->scalingFactorOffsets());
     IrBuilder::create<ReductionOp>(
         BinaryOpType::Add,
         IrBuilder::create<Val>(0.0, producer->dtype()),

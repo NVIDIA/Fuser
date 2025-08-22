@@ -6436,7 +6436,7 @@ std::string CutlassNvfp4GroupedMmaOp::toString(int indent_size) const {
   ss << "alpha=" << alpha() << ", ";
   ss << "problem_sizes=" << problemSizes() << ", ";
   ss << "expert_offsets=" << expertOffsets() << ", ";
-  ss << "sf_offsets=" << sfOffsets() << ")\n";
+  ss << "sf_offsets=" << scalingFactorOffsets() << ")\n";
   return ss.str();
 }
 

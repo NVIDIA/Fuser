@@ -3437,7 +3437,7 @@ class CutlassNvfp4GroupedMmaOp : public Expr {
     return input(6)->as<TensorView>();
   }
 
-  TensorView* sfOffsets() const {
+  TensorView* scalingFactorOffsets() const {
     return input(7)->as<TensorView>();
   }
 };
