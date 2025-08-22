@@ -12,6 +12,7 @@
 #include <ops/all_ops.h>
 #include <preseg_passes/mark_aliases_prepare.h>
 #include <preseg_passes/optimization_pass.h>
+#include <runtime/communication_executor.h>
 #include <runtime/fusion_executor_cache.h>
 #include <tests/cpp/multidevice.h>
 #include <tests/cpp/validator.h>
@@ -28,12 +29,13 @@ void assertIsCompiledToHostIrContainer(
     const FusionExecutorCache& executor_cache) {
   FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
   if (isOptionEnabled(EnableOption::HostIrLowering)) {
-    auto hicExprs = runtime->getHostIrEvaluator().container().topLevelExprs();
+    auto hicExprs = runtime->getHostIrContainer().topLevelExprs();
     EXPECT_THAT(hicExprs, Contains(IsA<Communication>()))
         << "host ir container should have at least one communication";
   } else {
     EXPECT_EQ(runtime->executors().size(), 1);
-    EXPECT_THAT(runtime->executors(), Each(Pointer(IsA<HostIrExecutor>())))
+    EXPECT_THAT(
+        runtime->executors(), Each(Pointer(IsA<CommunicationExecutor>())))
         << "failed to compile to a HostIrContainer with Communications";
   }
 }

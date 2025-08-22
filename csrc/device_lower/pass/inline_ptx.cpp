@@ -258,7 +258,7 @@ class LowerToInlinePtx : public kir::ExprMutator {
     for (auto fl : for_loops_) {
       // Skip non-reduction loops.
       if (!std::ranges::any_of(reduction_ids, [fl](IterDomain* id) {
-            return GpuLower::current()
+            return FusionInfoGuard::current()
                 ->idModel()
                 .idGraph(IdMappingMode::LOOP)
                 .disjointValSets()

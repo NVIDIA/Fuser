@@ -21,7 +21,9 @@ namespace nvfuser {
 //! Maps TID/BID to its dimension.
 class ParallelDimensionMap {
  public:
-  void build(Fusion* fusion);
+  ParallelDimensionMap() = default;
+
+  ParallelDimensionMap(Fusion* fusion);
 
   //! Returns the dimension of a ParallelType. nullptr is returned if
   //! a ParallelType is unused. If a dimension is not a constant, return

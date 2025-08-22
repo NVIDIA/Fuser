@@ -257,8 +257,8 @@ def override_build_config_from_env(config):
         config.no_ninja = get_env_flag_bool("NVFUSER_BUILD_NO_NINJA")
     if "NVFUSER_BUILD_WITH_UCC" in os.environ:
         config.build_with_ucc = get_env_flag_bool("NVFUSER_BUILD_WITH_UCC")
-    if "NVFUSER_HOST_IR_JIT" in os.environ:
-        config.build_with_host_ir_jit = get_env_flag_bool("NVFUSER_HOST_IR_JIT")
+    if "NVFUSER_BUILD_HOST_IR_JIT" in os.environ:
+        config.build_with_host_ir_jit = get_env_flag_bool("NVFUSER_BUILD_HOST_IR_JIT")
     if "NVFUSER_BUILD_WITH_ASAN" in os.environ:
         config.build_with_asan = get_env_flag_bool("NVFUSER_BUILD_WITH_ASAN")
     if "NVFUSER_BUILD_WITHOUT_DISTRIBUTED" in os.environ:
@@ -320,10 +320,22 @@ class build_ext(setuptools.command.build_ext.build_ext):
     def build_extension(self, ext):
         if ext.name == "nvfuser._C":
             self.copy_library(ext, "libnvfuser")
+            self.copy_shared_library("libnvfuser_codegen.so")
         elif ext.name == "nvfuser_direct._C_DIRECT":
             self.copy_library(ext, "libnvfuser_direct")
+            self.copy_shared_library("libnvfuser_codegen.so")
         else:
             super().build_extension(ext)
+
+    def copy_shared_library(self, lib_name):
+        # Copy shared library to lib/ subdirectory for package data
+        src_path = os.path.join(self.install_dir, "lib", lib_name)
+        if os.path.exists(src_path):
+            dst_dir = os.path.join(self.build_lib, "nvfuser_common", "lib")
+            if not os.path.exists(dst_dir):
+                os.makedirs(dst_dir)
+            dst_path = os.path.join(dst_dir, lib_name)
+            self.copy_file(src_path, dst_path)
 
 
 class concat_third_party_license:

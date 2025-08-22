@@ -170,7 +170,7 @@ int64_t mergeNonReduction(TensorView* tv);
 // boolean flag that determines whether to additionally parallelize the inputs
 // of the fusion on DID parallel types. For eg: see propagateReshapeTransforms
 // and scheduleTranspose.
-void parallelizeAllLike(
+NVF_API void parallelizeAllLike(
     TensorView* reference_tv,
     int64_t pos = -1,
     std::vector<TensorView*> selected_tvs = {},
@@ -417,7 +417,7 @@ IterDomain* innerMostAllocDim(TensorView* tv);
 // case.
 class FindAllMappedDims : public MaxInfoSpanningTree::Propagator {
   std::unordered_map<TensorView*, IterDomain*> mapped_root_ids_;
-  std::unordered_map<TensorView*, IterDomain*> mapped_logical_ids_;
+  std::unordered_map<TensorView*, IterDomain*> mapped_allocation_ids_;
   TensorView* starting_tv_ = nullptr;
   IterDomain* starting_id_ = nullptr;
   bool inner_only_;

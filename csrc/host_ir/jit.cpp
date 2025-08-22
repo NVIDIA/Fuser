@@ -29,7 +29,7 @@
 #include <c10/core/MemoryFormat.h>
 
 #include <bfs.h>
-#include <host_ir/executor.h>
+#include <host_ir/evaluator.h>
 #include <host_ir/jit.h>
 #include <instrumentation.h>
 #include <ir/all_nodes.h>
@@ -1280,7 +1280,7 @@ void HostIrJitImpl::registerExternalFunctions() {
         }
         input_args.setDeviceIndex();
         container_ptr->getKernelExecutor(launch_kernel_ptr->groupId())
-            ->run(
+            .run(
                 input_args,
                 output_args,
                 launch_kernel_ptr->launchParams(),

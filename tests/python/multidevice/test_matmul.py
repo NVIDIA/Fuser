@@ -22,7 +22,7 @@ def test_linear_logical_split(multidevice_direct_test):
         fd.add_output(out)
 
     def _multidevice_schedule(fd: FusionDefinition, d: int):
-        mesh = nvfuser.multidevice.DeviceMesh(torch.tensor(range(d)))
+        mesh = nvfuser.multidevice.DeviceMesh(torch.arange(d))
         inp, weight, bias = fd.fusion.inputs()
         for t in [inp, weight, bias]:
             t.set_device_mesh(mesh)
@@ -63,7 +63,7 @@ def test_linear_logical_split(multidevice_direct_test):
 @pytest.mark.mpi
 def test_column_parallel_linear(multidevice_direct_test):
     d = multidevice_direct_test.size
-    mesh = nvfuser.multidevice.DeviceMesh(torch.tensor(range(d)))
+    mesh = nvfuser.multidevice.DeviceMesh(torch.arange(d))
     e = 768
 
     def _definition(fd: FusionDefinition):
@@ -116,7 +116,7 @@ def test_column_parallel_linear(multidevice_direct_test):
 @pytest.mark.mpi
 def test_row_parallel_linear(multidevice_direct_test):
     d = multidevice_direct_test.size
-    mesh = nvfuser.multidevice.DeviceMesh(torch.tensor(range(d)))
+    mesh = nvfuser.multidevice.DeviceMesh(torch.arange(d))
     e = 768
 
     def _definition(fd: FusionDefinition):
@@ -155,7 +155,7 @@ def test_row_parallel_linear(multidevice_direct_test):
 @pytest.mark.mpi
 def test_row_parallel_linear_with_bias(multidevice_direct_test):
     d = multidevice_direct_test.size
-    mesh = nvfuser.multidevice.DeviceMesh(torch.tensor(range(d)))
+    mesh = nvfuser.multidevice.DeviceMesh(torch.arange(d))
     e = 5
 
     def _definition(fd: FusionDefinition):
@@ -196,7 +196,7 @@ def test_row_parallel_linear_with_bias(multidevice_direct_test):
 @pytest.mark.mpi
 def test_linear_reduce_scatter(multidevice_direct_test):
     d = multidevice_direct_test.size
-    mesh = nvfuser.multidevice.DeviceMesh(torch.tensor(range(d)))
+    mesh = nvfuser.multidevice.DeviceMesh(torch.arange(d))
     e = 768
 
     def _definition(fd: FusionDefinition):
@@ -247,7 +247,7 @@ def test_linear_reduce_scatter(multidevice_direct_test):
 @pytest.mark.mpi
 def test_column_parallel_matmul(multidevice_direct_test):
     d = multidevice_direct_test.size
-    mesh = nvfuser.multidevice.DeviceMesh(torch.tensor(range(d)))
+    mesh = nvfuser.multidevice.DeviceMesh(torch.arange(d))
     e = 768
 
     def _definition(fd: FusionDefinition):
@@ -300,7 +300,7 @@ def test_column_parallel_matmul(multidevice_direct_test):
 @pytest.mark.mpi
 def test_row_parallel_matmul(multidevice_direct_test):
     d = multidevice_direct_test.size
-    mesh = nvfuser.multidevice.DeviceMesh(torch.tensor(range(d)))
+    mesh = nvfuser.multidevice.DeviceMesh(torch.arange(d))
     e = 8
 
     def _definition(fd: FusionDefinition) -> None:
@@ -354,7 +354,7 @@ def test_row_parallel_matmul(multidevice_direct_test):
 @pytest.mark.mpi
 def test_column_parallel_grouped_mm(multidevice_direct_test):
     d = multidevice_direct_test.size
-    mesh = nvfuser.multidevice.DeviceMesh(torch.tensor(range(d)))
+    mesh = nvfuser.multidevice.DeviceMesh(torch.arange(d))
     g = 4
     k = 16
     n = 16 * d
@@ -402,7 +402,7 @@ def test_column_parallel_grouped_mm(multidevice_direct_test):
 @pytest.mark.mpi
 def test_row_parallel_grouped_mm(multidevice_direct_test):
     d = multidevice_direct_test.size
-    mesh = nvfuser.multidevice.DeviceMesh(torch.tensor(range(d)))
+    mesh = nvfuser.multidevice.DeviceMesh(torch.arange(d))
     g = 4
     k = 16 * d
     n = 16
@@ -455,7 +455,7 @@ def test_row_parallel_grouped_mm(multidevice_direct_test):
 @pytest.mark.mpi
 def test_issue4729(multidevice_direct_test):
     d = multidevice_direct_test.size
-    mesh = nvfuser.multidevice.DeviceMesh(torch.tensor(range(d)))
+    mesh = nvfuser.multidevice.DeviceMesh(torch.arange(d))
 
     def _definition(fd: FusionDefinition):
         x = fd.define_tensor([1, 1, d * 3], dtype=DataType.BFloat16, contiguity=True)

@@ -481,12 +481,6 @@ class BackwardTraverseFromAllocToLogical {
   // Backward traverse split from allocation to logical. Needs to, for example,
   // view tensor with shape [..., 3, 5, ...] as [..., 15, ...]
   void handle(Split* split) {
-    std::cout << "Split: " << split->toString() << std::endl;
-    std::cout << "  in: " << split->in()->toString() << std::endl;
-    std::cout << "  outer: " << split->outer()->toString() << std::endl;
-    std::cout << "  inner: " << split->inner()->toString() << std::endl;
-    std::cout << "  factor: " << split->factor()->toString() << std::endl;
-    std::cout << "  inner_split: " << (split->innerSplit() ? "true" : "false") << std::endl;
     auto inner = split->inner();
     auto outer = split->outer();
     auto in = split->in();
@@ -522,6 +516,7 @@ class BackwardTraverseFromAllocToLogical {
       }
       tensor_ = tensor_.permute(dims);
     }
+
     std::vector<int64_t> new_shape;
     for (auto i : arange(tensor_.dim())) {
       if (i == left) {
@@ -530,35 +525,38 @@ class BackwardTraverseFromAllocToLogical {
         new_shape.emplace_back(tensor_.size(i));
       }
     }
-    std::cout << "Frontier: ";
-    for (const auto& id : frontier_) {
-      std::cout << id->toString() << " ";
+
+    // Copy tensor_ shape into std::vector<int64_t>
+    std::vector<int64_t> tensor_shape_vec(
+        tensor_.sizes().begin(), tensor_.sizes().end());
+    std::vector<int64_t> tensor_new_shape;
+    size_t i = 0;
+    while (i < new_shape.size()) {
+      if (new_shape[i] != -1) {
+        tensor_new_shape.push_back(new_shape[i]);
+        ++i;
+      } else {
+        // Multiply the corresponding entry and the next entry in
+        // tensor_shape_vec
+        NVF_ERROR(
+            i + 1 < tensor_shape_vec.size(),
+            "Index out of bounds for -1 handling in new_shape");
+        tensor_new_shape.push_back(
+            tensor_shape_vec[i] * tensor_shape_vec[i + 1]);
+        ++i;
+      }
     }
-    std::cout << std::endl;
 
-    
-    std::cout << "New shape: ";
-    for (const auto& dim : new_shape) {
-      std::cout << dim << " ";
+    // Compute cumulative product from highest index to 0-th index
+    std::vector<int64_t> tensor_new_strides(tensor_new_shape.size(), 1);
+    int64_t prod = 1;
+    for (int i = static_cast<int>(tensor_new_shape.size()) - 1; i >= 0; --i) {
+      prod *= tensor_new_shape[i];
+      tensor_new_strides[i] = prod;
     }
-    std::cout << std::endl;
 
-    std::cout << "Tensor shape: ";
-    for (int64_t i = 0; i < tensor_.dim(); i++) {
-      std::cout << tensor_.size(i) << " ";
-    }
-    std::cout << std::endl;
+    tensor_ = tensor_.as_strided(tensor_new_shape, tensor_new_strides);
 
-
-    std::cout << "Tensor strides: ";
-    for (int64_t i = 0; i < tensor_.dim(); i++) {
-      std::cout << tensor_.stride(i) << " ";
-    }
-    std::cout << std::endl;
-
-
-    // tensor_ = tensor_.reshape(new_shape);
-    tensor_ = tensor_.view(new_shape);
     // update frontier
     if (inner_dim < outer_dim) {
       *inner_it = in;
@@ -598,17 +596,6 @@ class BackwardTraverseFromAllocToLogical {
     frontier_.insert(out_it, outer);
     frontier_.insert(out_it, inner);
     frontier_.erase(out_it);
-    std::cout << "From merge - Tensor sizes: ";
-    for (int64_t i = 0; i < tensor_.dim(); i++) {
-      std::cout << tensor_.size(i) << " ";
-    }
-    std::cout << std::endl;
-
-    std::cout << "From merge - Tensor strides: ";
-    for (int64_t i = 0; i < tensor_.dim(); i++) {
-      std::cout << tensor_.stride(i) << " ";
-    }
-    std::cout << std::endl;
   }
 
   void handle(Expr* expr) {

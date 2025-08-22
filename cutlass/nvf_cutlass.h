@@ -8,8 +8,20 @@
 #pragma once
 
 #include <torch/torch.h>
+#include <visibility.h>
+#include <utility>
 
 namespace nvfuser::cutlass_kernels {
+
+// Helper function to compute ceil(x / y)
+inline int64_t ceilDiv(int64_t x, int64_t y) {
+  return (x + y - 1) / y;
+}
+
+// Helper function to round up to the nearest multiple of y
+inline int64_t roundUp(int64_t x, int64_t y) {
+  return ceilDiv(x, y) * y;
+}
 
 // Validates all input parameters and tensor properties for NVFP4 scaled matrix
 // multiplication
@@ -29,7 +41,7 @@ namespace nvfuser::cutlass_kernels {
 // Returns: Tuple of (m, n, k) dimensions for the GEMM operation
 //
 // Throws: NVF_CHECK exceptions for any validation failures
-std::tuple<int64_t, int64_t, int64_t> validateInputsNvfp4ScaledMm(
+NVF_API std::tuple<int64_t, int64_t, int64_t> validateInputsNvfp4ScaledMm(
     const torch::Tensor& a,
     const torch::Tensor& b,
     const torch::Tensor& scales_a,
@@ -37,7 +49,7 @@ std::tuple<int64_t, int64_t, int64_t> validateInputsNvfp4ScaledMm(
     const torch::Tensor& alpha,
     bool skip_checks = false);
 
-// Performs scaled matrix multiplication using NVFP4 format
+// Performs scaled matrix multiplication using NVFP4 format.
 //
 // This function implements a scaled matrix multiplication C = alpha * (A @ B)
 // where A and B are matrices in NVFP4 format with per-block scaling factors.
@@ -49,11 +61,11 @@ std::tuple<int64_t, int64_t, int64_t> validateInputsNvfp4ScaledMm(
 //   b: Input matrix B in Float4_e2m1fn_x2 format (N x K/2)
 //   scales_a: Per-block scaling factors for matrix A in FP8_E4M3 format
 //   scales_b: Per-block scaling factors for matrix B in FP8_E4M3 format
-//   alpha: Global scaling factor in FP32 format
+//   alpha: Combined global scaling factor for operands A and B in FP32 format
 //   out_dtype: Output data type (Half, BFloat16, or Float)
 //
 // Returns: Matrix C = alpha * (A @ B) in the specified output dtype
-torch::Tensor nvfp4_scaled_mm(
+NVF_API torch::Tensor nvfp4_scaled_mm(
     const torch::Tensor& a,
     const torch::Tensor& b,
     const torch::Tensor& scales_a,
@@ -61,5 +73,46 @@ torch::Tensor nvfp4_scaled_mm(
     const torch::Tensor& alpha,
     at::ScalarType out_dtype,
     bool skip_checks = false);
+
+// Performs scaled matrix multiplication using NVFP4 format with fused epilogue
+// blockscale quantization.
+//
+// This function implements a scaled matrix multiplication C = alpha * (A @ B)
+// where A and B are matrices in NVFP4 format with per-block scaling factors.
+// The function uses CUTLASS kernels optimized for NVIDIA GPUs with SM100+
+// architecture.
+//
+// Parameters:
+//   a: Input matrix A in Float4_e2m1fn_x2 format (M x K/2)
+//   b: Input matrix B in Float4_e2m1fn_x2 format (N x K/2)
+//   scales_a: Per-block scaling factors for matrix A in FP8_E4M3 format
+//   scales_b: Per-block scaling factors for matrix B in FP8_E4M3 format
+//   alpha: Combined global scaling factor for operands A and B in FP32 format
+//   global_normconst: Global scaling factor for output matrix C in FP32 format
+//
+// Returns: A tuple of nvfp4 output matrix and blockscale factor.
+//  * Matrix C = alpha * (A @ B) in Float4_e2m1fn_x2 format (M x N/2)
+//  * Blockscale factor for Matrix C in Float8_e4m3fn format
+NVF_API std::pair<torch::Tensor, torch::Tensor> nvfp4_scaled_mm_blockscale(
+    const torch::Tensor& a,
+    const torch::Tensor& b,
+    const torch::Tensor& scales_a,
+    const torch::Tensor& scales_b,
+    const torch::Tensor& alpha,
+    const torch::Tensor& global_normconst,
+    bool skip_checks = false);
+
+void nvfp4_scaled_grouped_mm(
+    torch::Tensor& output,
+    const torch::Tensor& a,
+    const torch::Tensor& b,
+    const torch::Tensor& a_blockscale,
+    const torch::Tensor& b_blockscales,
+    const torch::Tensor& alphas,
+    const torch::Tensor& ab_strides,
+    const torch::Tensor& c_strides,
+    const torch::Tensor& problem_sizes,
+    const torch::Tensor& expert_offsets,
+    const torch::Tensor& sf_offsets);
 
 } // namespace nvfuser::cutlass_kernels

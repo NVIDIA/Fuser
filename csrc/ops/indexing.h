@@ -24,7 +24,7 @@ NVF_API TensorView* indexSelect(
     TensorView* index);
 
 // This is a restricted version of torch.index_put(..., accumulate=true)
-TensorView* indexPutAccumulate(
+NVF_API TensorView* indexPutAccumulate(
     TensorView* acc_tv,
     TensorView* index_tv,
     TensorView* value_tv);
@@ -33,12 +33,12 @@ TensorView* indexPutAccumulate(
 NVF_API TensorView* gather(TensorView* input, int64_t dim, TensorView* index);
 
 // TODO: Revisit the interface design. ScatterOpType could be just BinaryOpType
-TensorView* scatterOp(
+NVF_API TensorView* scatterOp(
     ScatterOpType type,
     TensorView* self,
     int64_t dim,
     TensorView* index,
-    TensorView* src);
+    Val* src);
 
 // Provides torch.scatter. It is designed to represent the ouf-of-place
 // scatter operation, i.e., the returned tensor, out_tv, is defined as
@@ -72,7 +72,7 @@ NVF_API TensorView* scatter(
     TensorView* self,
     int64_t dim,
     TensorView* index,
-    TensorView* src);
+    Val* src);
 
 //! numpy.take_along_axis
 //! (https://numpy.org/doc/stable/reference/generated/numpy.take_along_axis.html)
