@@ -160,7 +160,7 @@ TEST_F(RingBasedOverlapTest, ColumnAndSequenceParallelLinear_WeightGrad) {
       out,
       DomainIsParallelized(
           std::vector<ParallelType>{ParallelType::Stream, ParallelType::DIDx},
-          std::vector<int64_t>{0, 1}));
+          std::vector<int64_t>{0, 2}));
   EXPECT_THAT(
       w,
       DomainIsParallelized(
@@ -373,7 +373,11 @@ TEST_F(RingBasedOverlapTest, RowAndSequenceParallelLinear_InputGrad) {
   // `ColumnAndSequenceParallelLinear_Forward`.
   preseg_passes::OptimizationPass<
       preseg_passes::PropagateShardingsPass>::runPass(fusion.get());
-  EXPECT_TRUE(in->axis(2)->isDeviceDim());
+  EXPECT_THAT(
+      in,
+      DomainIsParallelized(
+          std::vector<ParallelType>{ParallelType::Stream, ParallelType::DIDx},
+          std::vector<int64_t>{0, 2}));
 }
 
 // We can apply collective-based overlapping to the above patterns as well. The
