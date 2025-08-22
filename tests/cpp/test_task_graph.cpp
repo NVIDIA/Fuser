@@ -115,16 +115,32 @@ TEST_F(TaskGraphTest, SharedIntermediateWithAlias) {
       {{0, 1}, {3}}, // Task 2
   };
   std::vector<TaskGraph::Data> data = inferData(tasks);
-  data.at(3).aliases_input = 0;
-  auto graph = TaskGraph(tasks, data);
 
-  const TaskGraph::SortResult result = graph.findOptimalOrder();
+  {
+    data.at(2).aliases_input = std::nullopt;
+    data.at(3).aliases_input = 0;
+    auto graph = TaskGraph(tasks, data);
+    const TaskGraph::SortResult result = graph.findOptimalOrder();
 
-  ASSERT_EQ(result.steps.size(), tasks.size());
-  // Due to the alias 0 1 2 is the only acceptable order
-  std::vector<TaskGraph::TaskId> expected{0, 2, 1};
-  EXPECT_EQ(getTasks(result), expected);
-  EXPECT_EQ(result.steps.back().high_water_mark, 4);
+    ASSERT_EQ(result.steps.size(), tasks.size());
+    // Due to the alias 0 1 2 is the only acceptable order
+    std::vector<TaskGraph::TaskId> expected{0, 1, 2};
+    EXPECT_EQ(getTasks(result), expected);
+    EXPECT_EQ(result.steps.back().high_water_mark, 3);
+  }
+
+  { // When 2 aliases the input instead, we should switch the order
+    data.at(2).aliases_input = 0;
+    data.at(3).aliases_input = std::nullopt;
+    auto graph = TaskGraph(tasks, data);
+    const TaskGraph::SortResult result = graph.findOptimalOrder();
+
+    ASSERT_EQ(result.steps.size(), tasks.size());
+    // Now 0 2 1 is the only acceptable order
+    std::vector<TaskGraph::TaskId> expected{0, 2, 1};
+    EXPECT_EQ(getTasks(result), expected);
+    EXPECT_EQ(result.steps.back().high_water_mark, 3);
+  }
 }
 
 // This example includes two segments, each of which aliases the other

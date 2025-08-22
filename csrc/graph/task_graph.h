@@ -127,6 +127,17 @@ class TaskGraph {
     std::string toString() const;
   };
 
+  //! This converts a graph that has aliases into one that has no aliases but
+  //! has the same task order dependencies and the same memory requirements for
+  //! any execution order. This is done by adding new Data nodes that have zero
+  //! size in order to enforce the constraint that the last use of an aliased
+  //! input must be the one that overwrites that input.
+  //!
+  //! This conversion is mainly used to simplify algorithms so that they can
+  //! guarantee the aliasing condition without needing to explicitly handle
+  //! aliasing.
+  TaskGraph convertAliasesToDependencies() const;
+
   //! This does an exhaustive search of all possible orderings using a modified
   //! Kahn's algorithm to efficiently traverse the set of possible topological
   //! orderings.

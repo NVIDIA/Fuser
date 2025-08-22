@@ -79,9 +79,16 @@ std::string TaskGraph::toMermaid() const {
 
   bool print_data_size = false;
   if (numData() > 0) {
-    Size sz = data_.front().size;
+    Size sz = -1;
     for (const Data& data : data_) {
-      if (data.size != sz) {
+      if (data.size == 0) {
+        continue;
+      }
+      if (sz == -1) {
+        sz = data.size;
+        continue;
+      }
+      if (data.size != 0 && data.size != sz) {
         print_data_size = true;
         break;
       }
@@ -96,7 +103,9 @@ std::string TaskGraph::toMermaid() const {
       is_aliased_input.at(data.aliases_input.value()) = true;
     }
     ss << "    d" << data_id << "([\"d" << data_id;
-    if (print_data_size) {
+    if (print_data_size || data.size == 0) {
+      // Print data size if there are different sized data elements. Always
+      // print [0] for empty data (these will be shown in gray)
       ss << " [" << data.size << "]";
     }
     ss << "\"]);\n";
@@ -122,6 +131,7 @@ std::string TaskGraph::toMermaid() const {
   ss << "    classDef data fill:lightblue;\n";
   ss << "    classDef dataInput fill:lightgreen;\n";
   ss << "    classDef dataOutput fill:pink;\n";
+  ss << "    classDef dataEmpty fill:#EEE,stroke:#DDD,color:#999;\n";
   ss << "    classDef aliasedInput fill:yellow;\n";
   ss << "    classDef aliasEdge stroke-dasharray:3,stroke:blue;\n";
 
@@ -147,6 +157,8 @@ std::string TaskGraph::toMermaid() const {
       }
     } else if (!data.can_free) {
       class_name = "dataOutput";
+    } else if (data.size == 0) {
+      class_name = "dataEmpty";
     }
     ss << "    class d" << data_id << " " << class_name << ";\n";
   }
@@ -176,17 +188,17 @@ void TaskGraph::validateSteps(const std::vector<Step>& steps) const {
 
     // Allocate outputs
     for (const DataId output_id : task.outputs) {
-      const Data& data = getData(output_id);
-      if (data.aliases_input.has_value()) {
+      const Data& output = getData(output_id);
+      if (output.aliases_input.has_value()) {
         // Check that the aliased input has no further uses
         // Note that we will decrement this use count later in this function
         NVF_ERROR(
-            num_uses_.at((size_t)data.aliases_input.value()) == 1,
+            future_uses.at((size_t)output.aliases_input.value()) == 1,
             "Tried to execute segment that would overwrite input alias before "
             "some of its uses");
       } else {
         // Don't allocate outputs if they are reusing input memory
-        allocated += data.size;
+        allocated += output.size;
       }
     }
 
@@ -195,6 +207,7 @@ void TaskGraph::validateSteps(const std::vector<Step>& steps) const {
 
     // This is the most space we will use, so update high water mark here
     high_water_mark = std::max(high_water_mark, allocated);
+
     NVF_ERROR(
         step.high_water_mark == high_water_mark,
         "Mismatch in high water mark during validation");
@@ -224,6 +237,63 @@ void TaskGraph::validateSteps(const std::vector<Step>& steps) const {
   }
 }
 
+TaskGraph TaskGraph::convertAliasesToDependencies() const {
+  // Begin with a copy of the tasks and data
+  std::vector<Task> tasks{tasks_};
+  std::vector<Data> data{data_};
+
+  // This is used to ensure we don't have multiple aliases of the same input
+  std::unordered_set<DataId> aliased_inputs;
+
+  // If we modify data while traversing it, then we run the risk
+
+  for (TaskId task_id : arange((TaskId)tasks.size())) {
+    Task& task = tasks.at(task_id);
+    for (DataId output_id : task.outputs) {
+      Data& output = data.at((size_t)output_id);
+      if (output.aliases_input.has_value()) {
+        DataId& alias_id = output.aliases_input.value();
+        // Reset the aliases_input flag before modifying the data vector
+        output.aliases_input = std::nullopt;
+        Data& alias = data.at((size_t)alias_id);
+        NVF_ERROR_EQ(
+            output.size,
+            alias.size,
+            "Expected alias to have same size as alias");
+        // Reset to unaliased and set size to zero
+        output.size = 0;
+
+        NVF_ERROR(
+            !aliased_inputs.contains(alias_id),
+            "Found multiple outputs aliasing the same input");
+        aliased_inputs.insert(alias_id);
+
+        // For each use of the aliased input, add a new output to it and make
+        // that output a new input to the current task
+        for (TaskId use_id : alias.uses) {
+          if (use_id == task_id) {
+            continue;
+          }
+          Task& use = tasks.at((size_t)use_id);
+
+          auto dummy_data_id = (DataId)data.size();
+          data.emplace_back(
+              /*definition=*/std::optional<TaskId>{use_id},
+              /*uses=*/std::vector<TaskId>{task_id},
+              /*aliases_input=*/std::nullopt,
+              /*size=*/0,
+              /*can_free=*/true);
+
+          use.outputs.push_back(dummy_data_id);
+          task.inputs.push_back(dummy_data_id);
+        }
+      }
+    }
+  }
+
+  return {tasks, data};
+}
+
 namespace {
 
 //! [Backtracking algorithm to find optimal topological ordering]
@@ -239,18 +309,35 @@ class TaskSorter {
       bool validate,
       int64_t max_time_us,
       bool print_debug)
-      : graph_(graph),
+      : orig_graph_(graph),
+        graph_(graph.convertAliasesToDependencies()),
         debug_(print_debug),
         validate_(validate),
-        max_time_us_(max_time_us),
-        has_aliasing_(std::ranges::any_of(
-            arange(graph.numData()),
-            [&graph](TaskGraph::DataId data_id) {
-              return graph.getData(data_id).aliases_input.has_value();
-            })) {
+        max_time_us_(max_time_us) {
     if (debug_) {
-      debug() << graph.toString() << "\n\n";
-      debug() << "Mermaid graph:\n" << graph.toMermaid() << std::endl;
+      has_aliasing_ = std::ranges::any_of(
+          arange(orig_graph_.numData()), [&](TaskGraph::DataId data_id) {
+            return orig_graph_.getData(data_id).aliases_input.has_value();
+          });
+      if (has_aliasing_) {
+        debug() << "Aliasing detected in task graph. Original graph:\n";
+        debug() << orig_graph_.toString() << "\n\n";
+        if (hasDebugDumpArgument(DebugDumpOption::TaskGraph, "mermaid")) {
+          debug() << "Original graph (mermaid):\n"
+                  << graph_.toMermaid() << std::endl;
+        }
+        debug() << "Modified graph without aliasing:\n";
+        debug() << graph_.toString() << "\n\n";
+        if (hasDebugDumpArgument(DebugDumpOption::TaskGraph, "mermaid")) {
+          debug() << "Modified graph (mermaid):\n"
+                  << graph_.toMermaid() << std::endl;
+        }
+      } else {
+        debug() << graph_.toString() << "\n\n";
+        if (hasDebugDumpArgument(DebugDumpOption::TaskGraph, "mermaid")) {
+          debug() << "Mermaid graph:\n" << graph_.toMermaid() << std::endl;
+        }
+      }
     }
     sort();
   }
@@ -262,7 +349,7 @@ class TaskSorter {
  private:
   inline void validate() const {
     if (validate_) {
-      graph_.validateSteps(steps_);
+      orig_graph_.validateSteps(steps_);
     }
   }
 
@@ -488,14 +575,15 @@ class TaskSorter {
   }
 
  private:
-  const TaskGraph& graph_;
+  const TaskGraph& orig_graph_;
+  const TaskGraph graph_;
   const bool debug_;
   const bool validate_;
   const int64_t max_time_us_;
 
   //! This allows us to skip aliasing checks in the common case where no inputs
   //! are aliased by outputs
-  const bool has_aliasing_ = false;
+  bool has_aliasing_ = false;
   //! This tells us which tasks overwrite one of their inputs. For these, we
   //! will need to check that the aliased input has no future uses before
   //! advancing to it.
