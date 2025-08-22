@@ -259,7 +259,7 @@ class FusionDefinition:
         device : torch.device, optional
             Device to execute the fusion on
         save_repro_inputs : bool, default=False
-            Whether to save the inputs for last_repro_script() to provide a provide a reproduction script.
+            Whether to save the inputs for last_repro_script() to provide a reproduction script.
         _enable_options : list of str, default=[]
             A list of enable options. An alternative to setting NVFUSER_ENABLE environment variable.
         _disable_options : list of str, default=[]

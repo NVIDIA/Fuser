@@ -286,7 +286,7 @@ using EnableOptions = Options<EnableOption>;
 NVF_API std::optional<EnableOption> stringToEnableOption(
     const std::string& enable_option);
 
-NVF_API bool isOptionEnabled(EnableOption option);
+bool isOptionEnabled(EnableOption option);
 
 const std::vector<std::string>& getEnableOptionArguments(EnableOption option);
 

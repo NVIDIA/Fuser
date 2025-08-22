@@ -266,8 +266,8 @@ Examples
           py::arg("inputs"),
           py::kw_only(),
           py::arg("device") = py::none(),
-          py::arg("_enable_options") = py::none(),
-          py::arg("_disable_options") = py::none(),
+          py::arg("_enable_options") = py::list(),
+          py::arg("_disable_options") = py::list(),
           R"(
 Execute the fusion with the given inputs.
 
