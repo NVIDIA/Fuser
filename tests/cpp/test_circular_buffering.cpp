@@ -2601,8 +2601,13 @@ TEST_P(CircularBufferingTest, SingleDimTwoAsyncWarps) {
   tv4->axis(-1)->parallelize(ParallelType::TIDx);
   scheduler_utils::parallelizeAllLike(tv4);
 
-  tv2->circularBuffer(number_of_stages, prefetch_distance);
-  tv3->circularBuffer(number_of_stages, prefetch_distance);
+  // tv2->circularBuffer(number_of_stages, prefetch_distance);
+  // tv3->circularBuffer(number_of_stages, prefetch_distance);
+  WarpSpecialized ws(ParallelType::TIDy);
+  ws.async_warp = 0;
+  tv2->circularBuffer(number_of_stages, ws);
+  ws.async_warp = 1;
+  tv3->circularBuffer(number_of_stages, ws);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn({1000}, options);

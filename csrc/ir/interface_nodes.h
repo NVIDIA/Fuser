@@ -238,7 +238,7 @@ struct WarpSpecialized {
   // This value must be non-negative and all TVs with matching async_warp values
   // must have matching circular buffer position, stage_slice_position, and num
   // stages.
-  int64_t async_warp = -1;
+  int64_t async_warp = 0;
 
   explicit WarpSpecialized(
       ParallelType on,
