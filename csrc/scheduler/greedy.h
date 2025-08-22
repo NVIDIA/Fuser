@@ -58,7 +58,7 @@ class HeuristicDataCache;
 //
 // To partition a fusion into disjoint sets, each constrained
 // tensor is marked as a reference and forms an initial set. The
-// remaining non-constrained tensors are then iteratively added to a subset
+// remaining unconstrained tensors are then iteratively added to a subset
 // whose reference has matching iter domains, which allows the schedule of
 // the reference tensor to be propagated uniformly.
 //

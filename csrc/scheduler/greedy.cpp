@@ -33,6 +33,7 @@ namespace nvfuser {
 
 namespace {
 
+// These are the current supported constrained ops.
 std::vector<Expr*> getAllConstrainedOps(Fusion* fusion) {
   return ir_utils::getOpsOfType<ArgsortOp, ScanOp, PadOp>(fusion);
 }
@@ -52,12 +53,18 @@ class CompileTimeChecker : private IterVisitor {
   CompileTimeChecker(Fusion* fusion, const ValGraph& exact_graph)
       : exact_graph_(exact_graph) {
     traverse(fusion);
-    if (needs_exact_block_dim_ && unmapped_tid_detected_) {
+    // If this fusion requires the exact block dimension, requires the
+    // constrained IDs to be exactly mapped. This is not necessary but
+    // sufficient.
+    if (needs_exact_block_dim_ && mismatched_constrained_id_detected_) {
       can_schedule_ = false;
     }
   }
 
   void dispatch(Expr* expr) override {
+    // These are the ops that are currently allowed to exist in the
+    // given fusion. Notably, BroadcastOp, ReductionOp and ReshapeOp
+    // are still missing.
     can_schedule_ = can_schedule_ &&
         expr->isOneOf<
             LoadStoreOp,
@@ -75,6 +82,11 @@ class CompileTimeChecker : private IterVisitor {
   }
 
   void handle(ArgsortOp* argsort) override {
+    // Due to the current limitations of ArgsortOp codegen, all of the
+    // TIDx threads participate, which means the TID parallelized iter
+    // domain of this ArgsortOp must have an extent that is no less
+    // than any other TID parallelized iter domains. Requiring the
+    // exactness is not necessary but sufficient.
     needs_exact_block_dim_ = true;
 
     auto out_tv = ir_utils::getTvOutput(argsort);
@@ -115,6 +127,8 @@ class CompileTimeChecker : private IterVisitor {
     }
   }
 
+  // Check if the logical IDs of the given constrained tv can be
+  // acceptable.
   void checkConstrainedTv(
       TensorView* tv,
       const std::vector<int64_t>& constrained_logical_id_offsets) {
@@ -123,65 +137,69 @@ class CompileTimeChecker : private IterVisitor {
         constrained_logical_id_offsets.begin(),
         constrained_logical_id_offsets.end());
 
-    ValGroups constrained_ids;
-    ValGroups non_constrained_ids;
+    ValGroups constrained_domain;
+    ValGroups unconstrained_domain;
     for (const auto& [i, logical_id] : enumerate(logical_domain)) {
       if (constrained_logical_id_offset_set.contains(i)) {
-        constrained_ids.pushBack(exact_graph_.toGroup(logical_id));
+        constrained_domain.pushBack(exact_graph_.toGroup(logical_id));
       } else {
-        non_constrained_ids.pushBack(exact_graph_.toGroup(logical_id));
+        unconstrained_domain.pushBack(exact_graph_.toGroup(logical_id));
       }
     }
 
-    if (common_bid_domain_.has_value()) {
-      if (common_bid_domain_->set() != non_constrained_ids.set()) {
+    // All the unconstrained iter domains would be flattened and
+    // parallelized with BIDx. The BIDx parallelized iter
+    // domain must be mapped across the fusion to avoid the grid
+    // synchronization. For the mapping, the exact graph is used for
+    // now since BroadcastOp is not yet allowed.
+    if (unique_unconstrained_domain_.has_value()) {
+      if (unique_unconstrained_domain_->set() != unconstrained_domain.set()) {
         can_schedule_ = false;
         std::stringstream reason;
         reason << "Mismatched unconstrained IDs detected with "
                << tv->toString() << ": "
-               << nvfuser::toString(non_constrained_ids)
-               << ". Ref: " << nvfuser::toString(*common_bid_domain_);
+               << nvfuser::toString(unconstrained_domain)
+               << ". Ref: " << nvfuser::toString(*unique_unconstrained_domain_);
         setRejectReason(reason.str());
       }
     } else {
-      common_bid_domain_ = non_constrained_ids;
+      unique_unconstrained_domain_ = unconstrained_domain;
     }
 
-    std::cerr << "Cur tid: " << nvfuser::toString(constrained_ids) << "\n";
-    std::cerr << "unmapped_tid_detected_: " << unmapped_tid_detected_ << "\n";
-    if (!unmapped_tid_detected_) {
-      if (common_tid_domain_.has_value()) {
-        std::cerr << "common tid: "
-                  << nvfuser::toString(common_tid_domain_.value()) << "\n";
-        if (common_tid_domain_->set() != constrained_ids.set()) {
-          unmapped_tid_detected_ = true;
-          common_tid_domain_.reset();
+    // All the constrained iter domains would be flattened and parallelized
+    // with TIDx. Check if the flattened constrained iter domain would
+    // be unique. Nothing to do if already not found to be unique.
+    if (!mismatched_constrained_id_detected_) {
+      if (unique_constrained_domain_.has_value()) {
+        if (unique_constrained_domain_->set() != constrained_domain.set()) {
+          mismatched_constrained_id_detected_ = true;
+          unique_constrained_domain_.reset();
         }
       } else {
-        common_tid_domain_ = constrained_ids;
+        unique_constrained_domain_ = constrained_domain;
       }
     }
   }
 
   void setRejectReason(const std::string& reason) {
     // Only keeps the first reason
-    if (!reject_reason_.empty()) {
-      return;
+    if (reject_reason_.empty()) {
+      reject_reason_ = reason;
     }
-
-    reject_reason_ = reason;
   }
 
  private:
   const ValGraph& exact_graph_;
 
   bool can_schedule_ = true;
-
   std::string reject_reason_;
 
-  std::optional<ValGroups> common_bid_domain_;
-  std::optional<ValGroups> common_tid_domain_;
-  bool unmapped_tid_detected_ = false;
+  std::optional<ValGroups> unique_unconstrained_domain_;
+  std::optional<ValGroups> unique_constrained_domain_;
+
+  // True if mismatched constrained ID was detected
+  bool mismatched_constrained_id_detected_ = false;
+  // True if the block dimension must be exactly determined
   bool needs_exact_block_dim_ = false;
 };
 
@@ -223,6 +241,9 @@ class RunTimeChecker : private IterVisitor {
     checkConstrainedTv(ir_utils::getTvOutput(scan), {scan->dim()});
   }
 
+  // Since all constrained IDs are flattened and parallelized with
+  // TIDx, the extent of flattened ID must not exceed the maximum
+  // number of threads per thread block.
   void checkConstrainedTv(
       TensorView* tv,
       const std::vector<int64_t>& constrained_logical_id_offsets) {
@@ -237,9 +258,6 @@ class RunTimeChecker : private IterVisitor {
           logical_id->toString());
       size_of_constrained_ids *= extent_val.as<int64_t>();
     }
-
-    std::cerr << "Size of constrained IDs for " << tv->toString() << ": "
-              << size_of_constrained_ids << "\n";
 
     if (size_of_constrained_ids > max_threads_per_block_) {
       std::stringstream reason;
@@ -291,8 +309,6 @@ class ConstrainedOpScheduler : public OptOutDispatch {
   }
 
   void handle(ArgsortOp* argsort) override {
-    std::cerr << "Scheduling " << argsort->toString();
-
     auto in_tv = ir_utils::getTvInput(argsort);
     auto out_tv = ir_utils::getTvOutput(argsort);
     auto dim = argsort->dim();
@@ -315,16 +331,10 @@ class ConstrainedOpScheduler : public OptOutDispatch {
   }
 
   void handle(PadOp* pad) override {
-    std::cerr << "Scheduling " << pad->toString();
-
-    auto out_tv = ir_utils::getTvOutput(pad);
-
-    scheduleConstrainedTv(out_tv, pad->getPaddedAxes());
+    scheduleConstrainedTv(ir_utils::getTvOutput(pad), pad->getPaddedAxes());
   }
 
   void handle(ScanOp* scan) override {
-    std::cerr << "Scheduling " << scan->toString();
-
     auto scan_dim = scan->dim();
 
     auto in_tv = ir_utils::getTvInput(scan);
@@ -337,6 +347,7 @@ class ConstrainedOpScheduler : public OptOutDispatch {
       scan = nullptr;
     }
 
+    // TODO: Is this still necessary?
     // Currently, scan output must be a register tensor
     if (out_tv->getMemoryType() != MemoryType::Local) {
       out_tv = out_tv->cacheBefore();
@@ -350,7 +361,6 @@ class ConstrainedOpScheduler : public OptOutDispatch {
   void scheduleConstrainedTv(
       TensorView* tv,
       const std::vector<int64_t>& constrained_logical_id_offsets) {
-    std::cerr << "Scheduling: " << tv->toString() << "\n";
     NVF_ERROR_EQ(
         tv->getLogicalDomain(),
         tv->getLoopDomain(),
@@ -365,59 +375,71 @@ class ConstrainedOpScheduler : public OptOutDispatch {
       old2new.emplace(offset, i - std::ssize(constrained_logical_id_offsets));
     }
     tv->reorder(old2new);
-    std::cerr << "Reordered: " << tv->toString() << "\n";
 
     // Flatten the constrained ids
     if (constrained_logical_id_offsets.size() > 1) {
       tv->flatten(-std::ssize(constrained_logical_id_offsets), -1);
     }
-    std::cerr << "Flattened: " << tv->toString() << "\n";
 
     // Parallelize the flattened constrained id
     tv->axis(-1)->parallelize(ParallelType::TIDx);
 
+    // All done if there's no unconstrained ID
     if (tv->getLoopDomain().size() == 1) {
-      std::cerr << "Scheduled: " << tv->toString() << "\n";
       return;
     }
 
     // Scheduling of the unconstrained IDs with BIDx. Currently all
     // tensors are assumed to have exact-mapped IDs for BID in order to
-    // avoid grid sync.
-    if (ref_block_ids_.empty()) {
-      ref_block_ids_ = exact_graph_.toGroups(std::vector<IterDomain*>{
-          tv->getLoopDomain().begin(), tv->getLoopDomain().end() - 1});
+    // avoid grid sync. Reordering is
+
+    // Accommodate reordered unconstrained IDs
+    if (ref_unconstrained_domain_.empty()) {
+      ref_unconstrained_domain_ =
+          exact_graph_.toGroups(std::vector<IterDomain*>{
+              tv->getLoopDomain().begin(), tv->getLoopDomain().end() - 1});
     } else {
       std::vector<int64_t> permutation;
-      permutation.reserve(ref_block_ids_.size());
+      permutation.reserve(ref_unconstrained_domain_.size());
       for (const auto i : arange(tv->getLoopDomain().size() - 1)) {
         auto id = tv->getLoopDomain().at(i);
         auto ref_it = std::ranges::find_if(
-            ref_block_ids_,
+            ref_unconstrained_domain_,
             [&](const ValGroup& id_group) { return id_group->has(id); });
         NVF_ERROR(
-            ref_it != ref_block_ids_.end(),
+            ref_it != ref_unconstrained_domain_.end(),
             "Failed find matching ID group: ",
             id->toString());
-        permutation.push_back(std::distance(ref_block_ids_.begin(), ref_it));
+        permutation.push_back(
+            std::distance(ref_unconstrained_domain_.begin(), ref_it));
       }
-
       tv->reorder(permutation);
-      std::cerr << "Reordered: " << tv->toString() << "\n";
     }
 
-    // Merge the remaining IDs
     tv->flatten(0, std::ssize(tv->getLoopDomain()) - 2);
     tv->axis(0)->parallelize(ParallelType::BIDx);
-
-    std::cerr << "Scheduled: " << tv->toString() << "\n";
   }
 
  private:
   const ValGraph& exact_graph_;
-  ValGroups ref_block_ids_;
+  ValGroups ref_unconstrained_domain_;
 };
 
+// Partition all tensors in a given fusion to disjoint sets using
+// constrained tensors as references. Returns a map
+// from each tensor to its assigned reference.
+//
+// The partitioning proceeds bottom-up, traversing from
+// constrained tensors to all other tensors. When a tensor is
+// reached that hasn't been grouped yet, it is assigned into the
+// reference's subset. If the tensor is already part of a group, its
+// original assignment remains unchanged.
+//
+// The traversal occurs both backward and forward directions, with a
+// preference for backward. Currently, this doesn't make any
+// difference since reshape is not allowed. However, backward schedule
+// propagation can trivially work across reshapes, whereas forward
+// propagation requires a reshape to be cancelled.
 std::unordered_map<TensorView*, TensorView*> partitionFusion(
     Fusion* fusion,
     const std::unordered_set<TensorView*>& constrained_tvs) {
@@ -428,21 +450,27 @@ std::unordered_map<TensorView*, TensorView*> partitionFusion(
 
   std::unordered_map<TensorView*, TensorView*> tv_to_constrained_tv_map;
 
+  // Register self mappings for constrained tensors
   for (auto tv : constrained_tvs) {
     tv_to_constrained_tv_map.emplace(tv, tv);
   }
 
+  // Propagate source reference through a given expr. Returns true if
+  // propagation is indeed done.
   auto propagateThroughExpr = [&](Expr* expr, Direction dir) -> bool {
     if (!ir_utils::isTvOp(expr)) {
       return false;
     }
 
-    std::cerr << "Prop (" << dir << "): " << expr->toString();
-
-    // The reference of each output may not be the same. Use the first
-    // output that has a reference. Conflicting outputs will be
-    // resolved later.
-    TensorView* src_ref = nullptr;
+    // Find a reference to propagate. If dir is Forward, the reference
+    // of the first producer tensor with a reference is used as the
+    // reference of this expr. Similarly, if dir is Backward, the reference
+    // of the first consumer tensor with a reference is used.
+    //
+    // When multiple producers or consumers have different
+    // references, the reference of the first producer or consumer is
+    // propagated.
+    TensorView* ref_to_propagate = nullptr;
     const auto& src_vals =
         dir == Direction::Forward ? expr->inputs() : expr->outputs();
     const auto& dst_vals =
@@ -453,8 +481,13 @@ std::unordered_map<TensorView*, TensorView*> partitionFusion(
           tv_to_constrained_tv_map.contains(src->as<TensorView>());
     });
     if (src_with_ref_it != src_vals.end()) {
-      src_ref =
+      ref_to_propagate =
           tv_to_constrained_tv_map.at((*src_with_ref_it)->as<TensorView>());
+    }
+
+    // No reference to propagate is found
+    if (ref_to_propagate != nullptr) {
+      return false;
     }
 
     bool updated = false;
@@ -464,8 +497,11 @@ std::unordered_map<TensorView*, TensorView*> partitionFusion(
       // if found.
       if (tv_to_constrained_tv_map.contains(dst_tv)) {
         continue;
-      } else if (src_ref != nullptr) {
-        NVF_ERROR(tv_to_constrained_tv_map.emplace(dst_tv, src_ref).second);
+      } else {
+        NVF_ERROR(
+            tv_to_constrained_tv_map.emplace(dst_tv, ref_to_propagate).second,
+            "Trying to propagate reference multiple times to: ",
+            dst_tv->toString());
         updated = true;
       }
     }
@@ -473,6 +509,8 @@ std::unordered_map<TensorView*, TensorView*> partitionFusion(
     return updated;
   };
 
+  // Backward propagation across the fusion. Repeat until all
+  // expressions are visited.
   auto propagate_backward = [&]() -> bool {
     bool updated = false;
     for (auto expr : all_exprs | std::views::reverse) {
@@ -486,6 +524,9 @@ std::unordered_map<TensorView*, TensorView*> partitionFusion(
     return updated;
   };
 
+  // Forward propagation across the fusion. Unlike the backward prop,
+  // immediately terminate once a propagation is done. This is for
+  // prioritizing backward propagation.
   auto propagate_forward = [&]() -> bool {
     if (tv_to_constrained_tv_map.size() == all_tvs.size()) {
       return false;
@@ -498,29 +539,7 @@ std::unordered_map<TensorView*, TensorView*> partitionFusion(
     return false;
   };
 
-  // Propagates constrained tv grouping from outputs to inputs
-  propagate_backward();
-
-  // Initial back prop done
-  {
-    std::cerr << "Initial backprop done\n";
-    for (const auto& [tv, ref] : tv_to_constrained_tv_map) {
-      std::cerr << tv->toString() << " -> " << ref->toString() << "\n";
-    }
-  }
-
   while (tv_to_constrained_tv_map.size() != all_tvs.size()) {
-    std::cerr << "Num tvs total: " << all_tvs.size()
-              << ", num entries: " << tv_to_constrained_tv_map.size() << "\n";
-
-    std::vector<TensorView*> ungrouped_tvs;
-    std::ranges::copy_if(
-        all_tvs, std::back_inserter(ungrouped_tvs), [&](auto tv) {
-          return !tv_to_constrained_tv_map.contains(tv);
-        });
-    std::cerr << "Still ungrouped: " << toDelimitedString(ungrouped_tvs)
-              << "\n";
-
     // Prioritize backprop
     if (propagate_backward()) {
       continue;
@@ -554,6 +573,19 @@ std::unordered_map<TensorView*, TensorView*> partitionFusion(
   }
 
   return tv_to_constrained_tv_map;
+}
+
+SyncMap buildSyncMap(Fusion* fusion) {
+  FusionInfo fusion_info;
+  FusionInfoGuard info_guard(&fusion_info);
+  fusion_info.set(std::make_unique<ConcretizedBroadcastDomains>(fusion));
+  fusion_info.set(std::make_unique<PaddedParallelDimensions>(
+      collectPaddedParallelDims(fusion)));
+  fusion_info.set(std::make_unique<IdModel>(fusion, /*build_graphs=*/true));
+  fusion_info.set(std::make_unique<ComputeAtMap>(fusion));
+  fusion_info.set(std::make_unique<ParallelDimensionMap>(fusion));
+  fusion_info.set(std::make_unique<ThreadPredicateMap>(fusion));
+  return SyncMap(fusion, /*error_on_failure=*/false);
 }
 
 } // namespace
@@ -605,49 +637,40 @@ void GreedyScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
 
   auto constrained_exprs = getAllConstrainedOps(fusion);
 
-  std::cerr << "Constrained ops: " << toDelimitedString(constrained_exprs);
-
-  std::vector<TensorView*> constrained_out_tvs;
-  constrained_out_tvs.reserve(constrained_exprs.size());
+  std::vector<TensorView*> constrained_tvs;
+  constrained_tvs.reserve(constrained_exprs.size());
   std::ranges::transform(
       constrained_exprs,
-      std::back_inserter(constrained_out_tvs),
+      std::back_inserter(constrained_tvs),
       [](const Expr* expr) { return ir_utils::getTvOutput(expr); });
-
-  std::cerr << "Constrained tvs: " << toDelimitedString(constrained_out_tvs)
-            << "\n";
 
   IdModel id_model(fusion);
   const auto& exact_graph = id_model.buildExactGraph();
 
-  ConstrainedOpScheduler::run(fusion, constrained_out_tvs, exact_graph);
+  // Schedule all constrained tensors
+  ConstrainedOpScheduler::run(fusion, constrained_tvs, exact_graph);
 
   // Need to fetch constrained ops again as cacheAfter/Before may be used
   // TODO: Cleanup.
   constrained_exprs = getAllConstrainedOps(fusion);
-  constrained_out_tvs.clear();
+  constrained_tvs.clear();
   std::ranges::transform(
       constrained_exprs,
-      std::back_inserter(constrained_out_tvs),
+      std::back_inserter(constrained_tvs),
       [](const Expr* expr) { return ir_utils::getTvOutput(expr); });
 
-  auto tv_to_ref_map = partitionFusion(
-      fusion, {constrained_out_tvs.begin(), constrained_out_tvs.end()});
+  // Partition the fusion
+  auto tv_to_ref_map =
+      partitionFusion(fusion, {constrained_tvs.begin(), constrained_tvs.end()});
 
-  fusion->print();
-
-  for (auto constrained_tv : constrained_out_tvs) {
+  // Propagate the schedule of each constrained tv to its disjoint set
+  for (auto constrained_tv : constrained_tvs) {
     std::unordered_set<TensorView*> tvs_to_transform;
     for (const auto& [tv, ref] : tv_to_ref_map) {
       if (ref == constrained_tv) {
         tvs_to_transform.insert(tv);
       }
     }
-
-    std::cerr << "Scheduling " << toDelimitedString(tvs_to_transform)
-              << ", ref: " << constrained_tv->toString() << "\n";
-
-    // constrained_tv must be already scheduled at this point
 
     SetSelector selector(tvs_to_transform);
     MaxLogicalDomainInfoSpanningTree tree(constrained_tv, &selector);
@@ -658,26 +681,13 @@ void GreedyScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
         constrained_tv, -1, {tvs_to_transform.begin(), tvs_to_transform.end()});
   }
 
-  fusion->print();
-
   // Resolve conflicts. Find conflicting producer-consumer pairs
   // and insert memory promotion
 
-  FusionInfo fusion_info;
-  FusionInfoGuard info_guard(&fusion_info);
-  fusion_info.set(std::make_unique<ConcretizedBroadcastDomains>(fusion));
-  fusion_info.set(std::make_unique<PaddedParallelDimensions>(
-      collectPaddedParallelDims(fusion)));
-  fusion_info.set(std::make_unique<IdModel>(fusion, /*build_graphs=*/true));
-  fusion_info.set(std::make_unique<ComputeAtMap>(fusion));
-  fusion_info.set(std::make_unique<ParallelDimensionMap>(fusion));
-  fusion_info.set(std::make_unique<ThreadPredicateMap>(fusion));
-
   VectorOfUniqueEntries<TensorView*> tvs_to_upload_to_smem;
-  SyncMap sync_map(fusion, /*error_on_failure=*/false);
+  const auto sync_map = buildSyncMap(fusion);
+
   for (const auto& [tv, pt_map] : sync_map.map()) {
-    std::cerr << "Needs raw sync: " << tv->toString() << ", "
-              << pt_map.toString() << "\n";
     NVF_ERROR(
         !pt_map.hasBID(),
         "Grid sync not expected: ",
@@ -688,7 +698,26 @@ void GreedyScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
   }
 
   for (const auto& tv : tvs_to_upload_to_smem) {
-    std::cerr << "Conflicting tv: " << tv->toString() << "\n";
+    // Create a copy of this tensor on shared memory
+    auto no_reduction_logical_domain =
+        TensorDomain::noReductions(tv->getLogicalDomain());
+    std::vector<IterDomain*> new_logical_domain;
+    new_logical_domain.reserve(no_reduction_logical_domain.size());
+    for (const auto& dom : no_reduction_logical_domain) {
+      new_logical_domain.push_back(dom->cloneWithoutRFactor());
+    }
+    auto copy = IrBuilder::create<TensorView>(
+        IrBuilder::create<TensorDomain>(
+            new_logical_domain,
+            TensorDomain::getContiguityFilledWith(new_logical_domain, true)),
+        tv->dtype());
+    TransformReplay::selfReplay(tv->domain(), copy->domain());
+    copy->setMemoryType(MemoryType::Shared);
+
+    // Insert a copy op
+    IrBuilder::create<LoadStoreOp>(LoadStoreOpType::Set, copy, tv);
+
+    // Replace use of this tv if it has a conflicting consumer
     const auto& tv_sync_map = sync_map.producerConsumerRawSync().at(tv);
     std::vector<Expr*> uses_to_update;
     std::ranges::copy_if(
@@ -698,37 +727,10 @@ void GreedyScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
         });
     NVF_ERROR(!uses_to_update.empty());
 
-    auto no_reduction_logical_domain =
-        TensorDomain::noReductions(tv->getLogicalDomain());
-    std::vector<IterDomain*> new_logical_domain;
-    new_logical_domain.reserve(no_reduction_logical_domain.size());
-    for (const auto& dom : no_reduction_logical_domain) {
-      new_logical_domain.push_back(dom->cloneWithoutRFactor());
-    }
-
-    auto copy = IrBuilder::create<TensorView>(
-        IrBuilder::create<TensorDomain>(
-            new_logical_domain,
-            TensorDomain::getContiguityFilledWith(new_logical_domain, true)),
-        tv->dtype());
-
-    IrBuilder::create<LoadStoreOp>(LoadStoreOpType::Set, copy, tv);
-
-    copy->setMemoryType(MemoryType::Shared);
-
-    TransformReplay::selfReplay(tv->domain(), copy->domain());
-    std::cerr << "Copy on shared memory: " << copy->toString() << "\n";
-
     for (auto tv_use : uses_to_update) {
-      auto expr = ir_utils::replaceValInExprInputs(tv_use, tv, copy);
-      std::cerr << "Replaced expr: " << expr->toString();
+      ir_utils::replaceValInExprInputs(tv_use, tv, copy);
     }
   }
-
-  std::cout << std::endl;
-  std::cout << "Final:" << std::endl;
-  fusion->print();
-  std::cout << std::endl;
 }
 
 } // namespace nvfuser
