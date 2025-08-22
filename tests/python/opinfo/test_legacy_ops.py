@@ -217,7 +217,11 @@ def serde_test_fn(op: OpInfo, dtype: torch.dtype):
 
 
 @atexit_serde_create_op_test(
-    tuple(op for op in opinfos if op.sample_input_generator is not None)
+    tuple(
+        op
+        for op in opinfos
+        if op.sample_input_generator is not None and not op.supports_direct_bindings
+    )
 )
 def test_correctness(op: OpInfo, dtype: torch.dtype):
     return serde_test_fn(op, dtype)

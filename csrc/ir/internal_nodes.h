@@ -1532,7 +1532,7 @@ class NVF_API ExpandOp : public Expr {
       IrBuilderPasskey,
       TensorView* out,
       TensorView* in,
-      std::vector<Val*> _expanded_extents);
+      const std::vector<Val*>& expanded_extents);
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
@@ -1549,10 +1549,6 @@ class NVF_API ExpandOp : public Expr {
 
   TensorView* in() const {
     return input(0)->as<TensorView>();
-  }
-
-  std::vector<Val*> expanded_extents() const {
-    return {inputs().begin() + 1, inputs().end()};
   }
 
   std::vector<PolymorphicValue> evaluate(

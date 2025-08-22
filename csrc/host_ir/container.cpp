@@ -28,7 +28,7 @@ Stream* HostIrContainer::getDefaultStream() {
 }
 
 std::ostream& HostIrContainer::print(std::ostream& os) const {
-  IrMathPrinter op_exprs(os);
+  IrPrinter op_exprs(os);
   op_exprs.handle(this);
   return os;
 }

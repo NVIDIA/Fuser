@@ -1025,11 +1025,7 @@ def transformer_backward_multidevice_schedule(fd: FusionDefinition, num_devices:
 @pytest.mark.mpi
 def test_transformer_backward(multidevice_direct_test, benchmark):
     d = multidevice_direct_test.size
-    # If only one device exists, then this error occurs:
-    # RuntimeError: unsupported operation: more than one element of the
-    # written-to tensor refers to a single memory location.
-    if d == 1:
-        pytest.skip("This test requires > 1 MPI processes")
+
     rank = multidevice_direct_test.rank
 
     b, s, h, e = 1, 2048, 96, 12288

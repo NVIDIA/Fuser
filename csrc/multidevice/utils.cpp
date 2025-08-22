@@ -726,4 +726,59 @@ std::unordered_set<TensorView*> getTvsWithDifferentSharding(
   return ret;
 }
 
+void validateDeviceSplit(Expr* expr) {
+  NVF_ERROR(expr != nullptr, "Expected a valid expression.");
+  auto* split = dynamic_cast<Split*>(expr);
+  NVF_ERROR(
+      split != nullptr,
+      "Only split expressions are supported for producing device ids: ",
+      expr->toString());
+  NVF_ERROR(
+      split->outer()->isDeviceDim(),
+      "Expected the outer dimension to be a device dimension: ",
+      expr->toString());
+  NVF_ERROR(
+      !split->innerSplit(),
+      "Inner split by device dimension is not supported: ",
+      expr->toString());
+}
+
+// Take an allocation domain id and project it back to the logical domain.
+// traversing device splits.
+IterDomain* projectAllocationToLogical(
+    TensorView* tv,
+    IterDomain* allocation_id) {
+  if (allocation_id == nullptr) {
+    return nullptr;
+  }
+
+  std::vector<Expr*> exprs = DependencyCheck::getAllExprsBetween(
+      {tv->getLogicalDomain().begin(), tv->getLogicalDomain().end()},
+      {allocation_id});
+
+  IterDomain* logical_id = allocation_id;
+  for (Expr* expr : exprs | std::views::reverse) {
+    validateDeviceSplit(expr);
+    logical_id = expr->as<Split>()->in();
+  }
+  return logical_id;
+}
+
+IterDomain* projectLogicalToAllocation(TensorView* tv, IterDomain* logical_id) {
+  if (logical_id == nullptr) {
+    return nullptr;
+  }
+
+  std::vector<Expr*> exprs = DependencyCheck::getAllExprsBetween(
+      {logical_id},
+      {tv->getMaybeAllocationDomain().begin(),
+       tv->getMaybeAllocationDomain().end()});
+  IterDomain* allocation_id = logical_id;
+  for (auto expr : exprs) {
+    validateDeviceSplit(expr);
+    allocation_id = expr->as<Split>()->inner();
+  }
+  return allocation_id;
+}
+
 } // namespace nvfuser

@@ -10,7 +10,7 @@
 #include <c10/util/ArrayRef.h>
 #include <fusion.h>
 #include <host_ir/container.h>
-#include <host_ir/executor.h>
+#include <host_ir/evaluator.h>
 #include <host_ir/host_ir.h>
 #include <ir/utils.h>
 #include <ops/all_ops.h>

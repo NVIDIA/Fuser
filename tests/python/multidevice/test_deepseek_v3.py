@@ -236,7 +236,7 @@ def test_transformer_layer(setup_default_process_group, benchmark, executor: Exe
                 )
 
         batch_size = 1
-        seq_len = 2048
+        seq_len = 1024
         inp = torch.randn(batch_size, seq_len, config.hidden_size)
         mask = transformers.modeling_attn_mask_utils._prepare_4d_causal_attention_mask(
             None, [batch_size, seq_len], inp, past_key_values_length=0

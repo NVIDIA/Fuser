@@ -245,29 +245,6 @@ struct Printer {
   }
 };
 
-#if 0
-
-// Waiting for C++20....
-
-#include <concepts>
-
-template<typename T>
-concept Printable = requires(T a)
-{
-  { std::stringstream{} << a } -> std::convertible_to<std::stringstream>;
-};
-
-template <Printable T>
-struct Printer<T> {
-  static std::string toString(const T& value) {
-    std::stringstream ss;
-    ss << value;
-    return ss.str();
-  }
-};
-
-#else
-
 #define SPECIALIZE_PRINTER(T)                     \
   template <>                                     \
   struct Printer<T> {                             \
@@ -309,8 +286,6 @@ SPECIALIZE_PRINTER(std::vector<uint64_t>);
 SPECIALIZE_PRINTER(std::optional<bool>);
 
 #undef SPECIALIZE_PRINTER
-
-#endif // if 0
 
 // Stringification with delimiter
 template <typename Iterator>

@@ -8,6 +8,17 @@
 
 #include <runtime/executor.h>
 
+#include <cmath>
+#include <cstring>
+
+#include <ATen/core/LegacyTypeDispatch.h>
+#include <ATen/cuda/CUDAContext.h>
+#include <ATen/cuda/llvm_jit_strings.h>
+#include <ATen/native/cuda/jit_utils.h>
+#include <c10/core/DeviceGuard.h>
+#include <c10/cuda/CUDAFunctions.h>
+#include <c10/cuda/CUDAStream.h>
+
 #include <codegen.h>
 #include <debug.h>
 #include <device_lower/analysis/bank_conflict.h>
@@ -16,6 +27,8 @@
 #include <driver_api.h>
 #include <fusion_profiler.h>
 #include <global_allocator.h>
+#include <host_ir/container.h>
+#include <host_ir/lower_to_communication.h>
 #include <instrumentation.h>
 #include <ir/all_nodes.h>
 #include <ir/graphviz.h>
@@ -31,17 +44,6 @@
 #include <serde/utils.h>
 #include <tensor_metadata.h>
 #include <utils.h>
-
-#include <ATen/core/LegacyTypeDispatch.h>
-#include <ATen/cuda/CUDAContext.h>
-#include <ATen/cuda/llvm_jit_strings.h>
-#include <ATen/native/cuda/jit_utils.h>
-#include <c10/core/DeviceGuard.h>
-#include <c10/cuda/CUDAFunctions.h>
-#include <c10/cuda/CUDAStream.h>
-
-#include <cmath>
-#include <cstring>
 
 namespace nvfuser {
 
@@ -361,7 +363,7 @@ LaunchParams KernelExecutor::computeLaunchParams(
   auto& parallel_iter_extents = parallel_iter_extent_entry.get();
 
   const auto& simplified_parallel_iter_extents =
-      lower->parallelDimensionMap().getMap();
+      lower->info().parallelDimensionMap().getMap();
 
   // TODO: Need to redesign this part a bit to
   //   find the right place to trigger evaluate

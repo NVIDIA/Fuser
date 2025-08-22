@@ -837,12 +837,6 @@ void scheduleFusion(Fusion* fusion, const ReductionParams* rparams) {
                 })) {
           continue;
         }
-
-        // no dim to vectorize or unroll, e.g. 0d tensor (scalar input)
-        if (cached_tv->nDims() <= last_iter_dim) {
-          continue;
-        }
-
         // find tvs should be persistent due to grouped reduction.
         // (1) inline before iter unrolled dim to ensure accessible for both
         // loops before and after iter grouped reduction.
@@ -854,6 +848,10 @@ void scheduleFusion(Fusion* fusion, const ReductionParams* rparams) {
           tv_inline_pos_map.emplace(gp_tv, last_iter_dim);
         }
 
+        NVF_ERROR(
+            cached_tv->nDims() > last_iter_dim,
+            "No dim to vectorize or unroll, cached_tv: ",
+            cached_tv->toString());
         if (can_vectorize(ir_utils::getSoleProducerTv(cached_tv))) {
           cached_tv->axis(last_iter_dim)->parallelize(ParallelType::Vectorize);
         } else {

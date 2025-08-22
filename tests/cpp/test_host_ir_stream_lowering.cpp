@@ -9,7 +9,7 @@
 
 #include <fusion.h>
 #include <host_ir/container.h>
-#include <host_ir/executor.h>
+#include <host_ir/evaluator.h>
 #include <host_ir/host_ir.h>
 #include <host_ir/lower.h>
 #include <host_ir/pass/stream_parallel_type.h>

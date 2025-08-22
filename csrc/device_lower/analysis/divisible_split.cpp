@@ -139,9 +139,9 @@ std::unordered_set<Split*> getAllDivisibleSplits(
   }
 
   // Expand with ExactGraph if available
-  if (GpuLower::hasCurrent() && GpuLower::current()->hasIdModel()) {
+  if (GpuLower::hasCurrent() && GpuLower::current()->info().hasIdModel()) {
     const auto& exact_graph =
-        GpuLower::current()->idModel().idGraph(IdMappingMode::EXACT);
+        GpuLower::current()->info().idModel().idGraph(IdMappingMode::EXACT);
     std::unordered_set<Split*> additional_splits;
     for (const auto& split : all_divisible_splits) {
       const auto& split_group = exact_graph.toGroup(split);

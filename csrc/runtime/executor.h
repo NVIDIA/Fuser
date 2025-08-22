@@ -6,6 +6,8 @@
  */
 // clang-format on
 #pragma once
+#include <functional>
+
 #include <exceptions.h>
 #include <expr_evaluator.h>
 #include <fusion.h>
@@ -20,11 +22,6 @@
 #include <scheduler/scheduler_types.h>
 #include <serde/fusion_cache_generated.h>
 #include <utils.h>
-#include <atomic>
-
-#include <c10/core/DeviceType.h>
-
-#include <functional>
 
 namespace nvfuser {
 

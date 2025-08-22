@@ -24,7 +24,7 @@ namespace {
 Val* getPredicatePerParallelType(
     ParallelType pt,
     const ThreadPredicateMap::PredicateInfo& pred_info) {
-  auto pt_dim = GpuLower::current()->parallelDimensionMap().get(pt);
+  auto pt_dim = GpuLower::current()->info().parallelDimensionMap().get(pt);
 
   // If pt is not used or is proven to be one, no need to predicate.
   if (pt_dim == nullptr || pt_dim->isOneInt()) {
@@ -157,7 +157,7 @@ ParallelTypeBitmap avoidRedundantWrites(const TensorView* out_tv) {
     unused_types.clear(pt);
   }
 
-  const auto& par_dim_map = GpuLower::current()->parallelDimensionMap();
+  const auto& par_dim_map = FusionInfoGuard::current()->parallelDimensionMap();
 
   for (const auto pt : unused_types) {
     // For shared memory tensors, unused BID isn't redundant
@@ -267,12 +267,15 @@ void ThreadPredicateMap::updateBitSet(const Expr* expr) {
       if (id->isThread()) {
         id_ptypes.set(id->getParallelType());
         if (id->isReduction() &&
-            !GpuLower::current()->fusedReductionInfo().isAllreduce(id)) {
+            (!FusionInfoGuard::current()->hasFusedReductionInfo() ||
+             !FusionInfoGuard::current()->fusedReductionInfo().isAllreduce(
+                 id))) {
           id_reductions.set(id->getParallelType());
         }
         if (id->isBroadcast() &&
-            GpuLower::current()->concretizedBroadcastDomains()->isConcretized(
-                id)) {
+            FusionInfoGuard::current()
+                ->concretizedBroadcastDomains()
+                .isConcretized(id)) {
           id_bcasts.set(id->getParallelType());
         }
       }
@@ -585,7 +588,7 @@ class ConcretizedBroadcastRedundantWriteRemover {
   }
 
   void setConcretizedBroadcastLogicalDomain() {
-    std::shared_ptr<const ComputeAtMap> caMap = GpuLower::current()->caMap();
+    const auto& ca_map = FusionInfoGuard::current()->caMap();
     for (auto loop_id : candidate_loop_domains_) {
       auto loop_concrete_id = lower_utils::getConcreteLoopID(loop_id);
       auto concrete_logical_vals = IterVisitor::getInputsTo({loop_concrete_id});
@@ -600,8 +603,8 @@ class ConcretizedBroadcastRedundantWriteRemover {
         auto it = std::find_if(
             concrete_logical_ids.begin(),
             concrete_logical_ids.end(),
-            [&caMap, &rd](auto concrete_logical_id) {
-              return caMap->areMapped(
+            [&ca_map, &rd](auto concrete_logical_id) {
+              return ca_map.areMapped(
                   rd, concrete_logical_id, IdMappingMode::PERMISSIVE);
             });
         if (it == concrete_logical_ids.end()) {
@@ -720,6 +723,10 @@ void ThreadPredicateMap::avoidConcretizedBroadcastRedundantWrite(
   }
 }
 
+ThreadPredicateMap::ThreadPredicateMap(Fusion* fusion) {
+  build(fusion);
+}
+
 void ThreadPredicateMap::build(Fusion* fusion) {
   FUSER_PERF_SCOPE("GpuLower::Lower::ThreadPredicateMap");
 
@@ -749,15 +756,6 @@ void ThreadPredicateMap::populateRedundantUseMap(Fusion* fusion) {
     it.second.redundant_use_types =
         redundant_use.getRedundantUseBitMap(it.first);
   }
-}
-
-ThreadPredicateMap::const_iterator ThreadPredicateMap::find(
-    const TensorView* tv) const {
-  return thread_predicates_.find(tv);
-}
-
-ThreadPredicateMap::const_iterator ThreadPredicateMap::end() const {
-  return thread_predicates_.end();
 }
 
 const ThreadPredicateMap::PredicateInfo& ThreadPredicateMap::at(
@@ -845,8 +843,9 @@ ParallelTypeBitmap ThreadPredicateMap::getParallelBroadcastDomains(
       continue;
     }
 
-    if (!GpuLower::current()->concretizedBroadcastDomains()->isConcretized(
-            id)) {
+    if (!FusionInfoGuard::current()
+             ->concretizedBroadcastDomains()
+             .isConcretized(id)) {
       continue;
     }
 

@@ -1324,11 +1324,11 @@ def test_embedding(
 
 def test_output_stride_order(nvfuser_direct_test):
     inputs = [
-        torch.arange(0, 120).reshape(2, 3, 4, 5).cuda().float(),
+        torch.arange(0, 24).reshape(2, 3, 4).cuda().float(),
     ]
     eager_out = inputs[0] + 3.0
 
-    for perm in itertools.permutations(range(4), 4):
+    for perm in itertools.permutations(range(3), 3):
         # testing stride_order in set
         def fusion_set_func(fd: FusionDefinition):
             t0 = fd.from_pytorch(inputs[0])
@@ -1416,4 +1416,39 @@ def test_scatter_output_intermediate(nvfuser_direct_test):
 
     nvf_out, _ = nvfuser_direct_test.exec_nvfuser(fusion_func, inputs)
     eager_out = refs.sigmoid(torch.scatter(x, scatter_dim, ind, src))
+    nvfuser_direct_test.assertEqual(eager_out, nvf_out[0])
+
+
+def test_scatter_scalar_src(nvfuser_direct_test):
+    bsz = 128
+    hidden = 1024
+    scatter_size = 64
+    scatter_dim = 0
+
+    x = torch.randn([bsz, hidden], device="cuda")
+    _, ind = torch.topk(x, k=scatter_size, dim=scatter_dim)
+    src = 1.5
+    inputs = [x, ind, src]
+
+    def fusion_func(fd: FusionDefinition):
+        T0 = fd.define_tensor(
+            shape=[-1, -1],
+            contiguity=[True, True],
+            dtype=DataType.Float,
+            is_cpu=False,
+            stride_order=[1, 0],
+        )
+        T1 = fd.define_tensor(
+            shape=[-1, -1],
+            contiguity=[True, True],
+            dtype=DataType.Int,
+            is_cpu=False,
+            stride_order=[1, 0],
+        )
+        S2 = fd.define_scalar(None, dtype=DataType.Double)
+        T3 = fd.ops.scatter(T0, T1, S2, scatter_dim)
+        fd.add_output(T3)
+
+    nvf_out, _ = nvfuser_direct_test.exec_nvfuser(fusion_func, inputs)
+    eager_out = torch.scatter(x, scatter_dim, ind, src)
     nvfuser_direct_test.assertEqual(eager_out, nvf_out[0])

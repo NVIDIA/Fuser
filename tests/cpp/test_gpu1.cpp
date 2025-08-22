@@ -6403,7 +6403,7 @@ TEST_F(NVFuserTest, FusionSmemBlockGemm_CUDA) {
   // Make sure BIDx is makred as exact (see issue #1119)
   GpuLower gpulw(&fusion);
   gpulw.run();
-  NVF_CHECK(gpulw.parallelDimensionMap().isExact(ParallelType::BIDx));
+  NVF_CHECK(gpulw.info().parallelDimensionMap().isExact(ParallelType::BIDx));
 
   constexpr int M = 154, K = 45, N = 1524;
 

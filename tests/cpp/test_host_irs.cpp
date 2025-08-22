@@ -10,7 +10,7 @@
 #include <fusion.h>
 #include <fusion_segmenter.h>
 #include <host_ir/container.h>
-#include <host_ir/executor.h>
+#include <host_ir/evaluator.h>
 #include <host_ir/lower.h>
 #include <ir/all_nodes.h>
 #include <ir/builder.h>

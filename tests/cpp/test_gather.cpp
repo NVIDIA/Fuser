@@ -5,6 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <c10/core/ScalarType.h>
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
@@ -22,7 +23,7 @@
 #include <tests/cpp/validator.h>
 
 namespace nvfuser {
-
+using testing::UnorderedElementsAre;
 class GatherTest : public NVFuserTest {
  protected:
   void SetUp() override {
@@ -1210,4 +1211,52 @@ TEST_F(GatherTest, GatherIterGoupedReduction) {
       lparams);
 }
 
+TEST_F(GatherTest, SameTvUsedAsLookupAndIndex) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  // Create three input tensors
+  auto tv0 = makeContigTensor(2);
+  auto tv1 = makeContigTensor(2, DataType::Int);
+  auto tv2 = makeContigTensor(2, DataType::Int);
+  fusion.addInput(tv0);
+  fusion.addInput(tv1);
+  fusion.addInput(tv2);
+
+  auto tv3 = gather(tv0, 1, tv1);
+  auto tv4 = gather(tv1, 1, tv2);
+  auto tv5 = castOp(DataType::Float, tv4);
+  auto tv6 = add(tv3, tv5);
+  fusion.addOutput(tv6);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto options_i = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
+
+  // Create test tensors
+  std::vector<int64_t> dims{4, 6};
+  at::Tensor t0 = at::randn(dims, options);
+  at::Tensor t1 = at::randint(0, dims[1], dims, options_i);
+  at::Tensor t2 = at::randint(0, dims[1], dims, options_i);
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto cg_outputs = executor_cache.runFusionWithInputs({t0, t1, t2});
+
+  auto runtime = executor_cache.getMostRecentKernelRuntime();
+  auto scheduled_fusion = runtime->executors()
+                              .back()
+                              ->as<KernelExecutor>()
+                              ->compiledKernel()
+                              ->kernel();
+  auto tv1_uses = scheduled_fusion->inputs().at(1)->uses();
+  EXPECT_EQ(tv1_uses.size(), 2);
+  EXPECT_THAT(
+      tv1_uses,
+      testing::UnorderedElementsAre(
+          testing::Truly([](Expr* e) { return e->isA<GatherOp>(); }),
+          testing::Truly([](Expr* e) { return e->isA<LoadStoreOp>(); })));
+
+  // Validate the result
+  testValidate(&fusion, cg_outputs, {t0, t1, t2}, __LINE__, __FILE__);
+}
 } // namespace nvfuser

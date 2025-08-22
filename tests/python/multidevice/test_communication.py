@@ -40,6 +40,28 @@ def test_allgather(multidevice_direct_test):
 
 
 @pytest.mark.mpi
+def test_allgather_expanded_broadcast(multidevice_direct_test):
+    d = multidevice_direct_test.size
+    mesh = nvfuser.multidevice.DeviceMesh(torch.arange(d))
+
+    with FusionDefinition() as fd:
+        inp = fd.define_tensor([d], contiguity=True, dtype=DataType.Float)
+        expanded = fd.ops.broadcast_in_dim(inp, [d, 3], [0])
+        out = fd.ops.set(expanded)
+        fd.add_output(out)
+
+        for tv in [inp, expanded, out]:
+            tv.set_device_mesh(mesh)
+        inp.axis(0).parallelize(nvfuser.ParallelType.mesh_x)
+        expanded.axis(0).parallelize(nvfuser.ParallelType.mesh_x)
+
+    unsharded_inp = torch.randn(d)
+    inp = multidevice_direct_test.shard_tensor(unsharded_inp, 0, mesh)
+    (out,) = fd.execute([inp])
+    torch.testing.assert_close(out.cpu(), unsharded_inp.unsqueeze(-1).expand(-1, 3))
+
+
+@pytest.mark.mpi
 def test_allreduce(multidevice_direct_test):
     d = multidevice_direct_test.size
     mesh = nvfuser.multidevice.DeviceMesh(torch.arange(d))

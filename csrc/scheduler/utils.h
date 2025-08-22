@@ -417,7 +417,7 @@ IterDomain* innerMostAllocDim(TensorView* tv);
 // case.
 class FindAllMappedDims : public MaxInfoSpanningTree::Propagator {
   std::unordered_map<TensorView*, IterDomain*> mapped_root_ids_;
-  std::unordered_map<TensorView*, IterDomain*> mapped_logical_ids_;
+  std::unordered_map<TensorView*, IterDomain*> mapped_allocation_ids_;
   TensorView* starting_tv_ = nullptr;
   IterDomain* starting_id_ = nullptr;
   bool inner_only_;

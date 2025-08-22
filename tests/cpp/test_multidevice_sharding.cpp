@@ -1028,4 +1028,89 @@ TEST_F(MultiDeviceTest, DecomposeRowParallelLinearWithBias) {
       nvf_out, (at::matmul(inp, weight.t()) + bias).to(at::kFloat)));
 }
 
+TEST_F(MultiDeviceTest, OuterReductionShardedInnerDimension) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  int64_t d = communicator_->size();
+  int64_t b = 1, s = 2048, h = 96, e = 12288;
+  auto mesh = DeviceMesh::createForNumDevices(d);
+
+  if (h % d != 0) {
+    GTEST_SKIP() << "Requires number of devices=" << d
+                 << " evenly divide H=" << h;
+  }
+
+  TensorView* tv0 =
+      makeContigConcreteTensor({b, s, h, e / h}, DataType::BFloat16);
+  TensorView* tv1 =
+      makeContigConcreteTensor({b, s, h, e / h}, DataType::BFloat16);
+  TensorView* tv2 =
+      makeContigConcreteTensor({b, s, h, e / h}, DataType::BFloat16);
+  TensorView* tv3 = cat({tv0, tv1, tv2}, -1);
+  TensorView* tv4 = reshape(tv3, {b, s, h, 3 * e / h}, {b, s, 3 * e});
+  TensorView* tv5 = castOp(DataType::Float, tv4);
+  TensorView* tv6 = sum(tv5, {0, 1});
+  TensorView* tv7 = castOp(DataType::BFloat16, tv6);
+
+  for (TensorView* tv : {tv0, tv1, tv2}) {
+    tv->setDeviceMesh(mesh);
+    tv->outer_split(2, d);
+    tv->axis(2)->parallelize(ParallelType::DIDx);
+    fusion->addInput(tv);
+  }
+
+  fusion->addOutput(tv7);
+  std::vector<at::Tensor> inputs = {
+      at::randn({b, s, h, e / h}, tensor_options.dtype(at::kBFloat16)),
+      at::randn({b, s, h, e / h}, tensor_options.dtype(at::kBFloat16)),
+      at::randn({b, s, h, e / h}, tensor_options.dtype(at::kBFloat16))};
+
+  std::vector<at::Tensor> sharded_inputs = {
+      shardTensor(inputs[0], 2, mesh),
+      shardTensor(inputs[1], 2, mesh),
+      shardTensor(inputs[2], 2, mesh)};
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  at::Tensor nvf_out =
+      executor_cache.runFusionWithInputs(sharded_inputs)[0].as<at::Tensor>();
+
+  at::Tensor ref_out =
+      at::cat({sharded_inputs[0], sharded_inputs[1], sharded_inputs[2]}, -1)
+          .view({b, s, 3 * e / d})
+          .sum(c10::IntArrayRef({0, 1}));
+  EXPECT_TRUE(at::allclose(nvf_out, ref_out, 1e-3, 1e-3));
+
+  FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
+
+  EXPECT_THAT(
+      runtime->fusionSegments()->groups(),
+      UnorderedElementsAre(HeuristicIs(SchedulerType::Reduction)));
+  const ReductionParams* rparams = runtime->schedulerHeuristics()
+                                       ->heuristicsList()
+                                       .at(0)
+                                       ->as<ReductionParams>();
+  EXPECT_TRUE(rparams->vectorize_iter_dom);
+  EXPECT_EQ(rparams->unroll_factor_iter_dom, 8);
+
+  auto scheduled_fusion = runtime->executors()
+                              .at(0)
+                              ->as<KernelExecutor>()
+                              ->compiledKernel()
+                              ->kernel();
+
+  auto is_vectorized = [](const TensorView* tv) {
+    return std::any_of(
+        tv->getLoopDomain().begin(),
+        tv->getLoopDomain().end(),
+        [](const IterDomain* id) {
+          return id->getParallelType() == ParallelType::Vectorize;
+        });
+  };
+
+  for (auto* val : scheduled_fusion->outputs()) {
+    EXPECT_TRUE(is_vectorized(val->as<TensorView>()));
+  }
+}
+
 } // namespace nvfuser

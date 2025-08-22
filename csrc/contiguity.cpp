@@ -15,8 +15,8 @@ namespace nvfuser {
 
 OrderedIdInformation::OrderedIdInformation(
     const std::vector<IterDomain*>& alloc_domain,
-    std::shared_ptr<const ConcretizedBroadcastDomains> concrete_info)
-    : active_ids_(alloc_domain), concrete_info_(std::move(concrete_info)) {
+    const ConcretizedBroadcastDomains* concrete_info)
+    : active_ids_(alloc_domain), concrete_info_(concrete_info) {
   if (alloc_domain.empty()) {
     return;
   }
@@ -568,9 +568,11 @@ ContigIDs::ContigIDs(
   if (!ids.empty()) {
     // This constructor doesn't provide the following information so it needs to
     // be built.
-    ca_map_ = std::make_shared<ComputeAtMap>(ids[0]->fusion());
-    concrete_info_ =
-        std::make_shared<ConcretizedBroadcastDomains>(ids[0]->fusion());
+    own_ca_map_ = std::make_unique<ComputeAtMap>(ids[0]->fusion());
+    ca_map_ = own_ca_map_.get();
+    own_concrete_info_ =
+        std::make_unique<ConcretizedBroadcastDomains>(ids[0]->fusion());
+    concrete_info_ = own_concrete_info_.get();
 
     consistent_transform_info_ = std::make_unique<const OrderedIdInformation>(
         OrderedIdInformation::get(ids, alloc_domain, concrete_info_));
@@ -585,8 +587,8 @@ ContigIDs::ContigIDs(
     const std::unordered_set<IterDomain*>& final_ids,
     const std::unordered_map<IterDomain*, Val*>& index_map,
     const std::unordered_set<Split*>& divisible_splits,
-    std::shared_ptr<const ComputeAtMap> ca_map,
-    std::shared_ptr<const ConcretizedBroadcastDomains> concrete_info,
+    const ComputeAtMap* ca_map,
+    const ConcretizedBroadcastDomains* concrete_info,
     std::unordered_map<IterDomain*, IterDomain*> p2c_id_map,
     bool ignore_indexability,
     bool ignore_consistent_ordering)
@@ -595,8 +597,8 @@ ContigIDs::ContigIDs(
       final_ids_(final_ids),
       index_map_(index_map),
       divisible_splits_(divisible_splits),
-      ca_map_(std::move(ca_map)),
-      concrete_info_(std::move(concrete_info)),
+      ca_map_(ca_map),
+      concrete_info_(concrete_info),
       p2c_id_map_(std::move(p2c_id_map)),
       ignore_indexability_(ignore_indexability),
       ignore_consistent_ordering_(ignore_consistent_ordering),

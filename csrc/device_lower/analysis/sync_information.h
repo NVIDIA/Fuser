@@ -32,12 +32,31 @@ class SyncMap {
 
   std::string toString() const;
 
-  ParallelTypeBitmap needsRawSync(TensorView* tv) const {
+  bool needsAnyRawSync(TensorView* tv) const {
     auto it = needs_raw_sync_.find(tv);
-    if (it != needs_raw_sync_.end()) {
+    return it != needs_raw_sync_.end() && !it->second.none();
+  }
+
+  bool needsBlockRawSync(TensorView* tv) const {
+    auto it = needs_raw_sync_.find(tv);
+    return it != needs_raw_sync_.end() && it->second.hasTID();
+  }
+
+  bool needsGridRawSync(TensorView* tv) const {
+    auto it = needs_raw_sync_.find(tv);
+    return it != needs_raw_sync_.end() && it->second.hasBID();
+  }
+
+  ParallelTypeBitmap getRawSyncParallelTypes(TensorView* tv) const {
+    if (auto it = needs_raw_sync_.find(tv); it != needs_raw_sync_.end()) {
       return it->second;
+    } else {
+      return ParallelTypeBitmap();
     }
-    return ParallelTypeBitmap();
+  }
+
+  const std::unordered_map<TensorView*, ParallelTypeBitmap>& map() const {
+    return needs_raw_sync_;
   }
 
  private:
