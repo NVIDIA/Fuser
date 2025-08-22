@@ -1605,11 +1605,6 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     const auto output = scan->out()->as<kir::TensorIndex>();
     const auto input = scan->in()->as<kir::TensorIndex>();
 
-    // The runtime device function assumes both input and output are
-    // in registers
-    NVF_ERROR_NE(input->view()->getMemoryType(), MemoryType::Global);
-    NVF_ERROR_NE(output->view()->getMemoryType(), MemoryType::Global);
-
     // Build template arguments following TopKOp pattern
     ArgumentBuilder template_args;
     for (const auto pt : kParallelTypeTIDs) {
