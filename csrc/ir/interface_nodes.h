@@ -228,9 +228,17 @@ inline std::ostream& operator<<(std::ostream& os, const Pipelined& pipelined) {
 struct WarpSpecialized {
   ParallelType on = ParallelType::Serial;
   // The number of registers for load and compute warps respectively.
+  // NOTE: if multiple async_warp options exist (i.e. multi-role warp
+  // specialization) then all values of num_registers must match in the compute
+  // warp position.
   std::optional<std::pair<int64_t, int64_t>> num_registers = std::nullopt;
   // The iterDomain position to define the shape of the circular buffer stage.
   std::optional<int64_t> stage_slice_position = std::nullopt;
+  // The async warp used for the definition of this TV
+  // -1 indicates the synchronous CUDA warps will be used.
+  // For non-negative values, all TVs with matching async_warp values must have
+  // matching circular buffer position, stage_slice_position, and num stages.
+  int64_t async_warp = -1;
 
   explicit WarpSpecialized(
       ParallelType on,
