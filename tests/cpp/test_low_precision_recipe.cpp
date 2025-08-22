@@ -236,6 +236,15 @@ TEST_P(NVFP4QuantizeTest, SwizzledOuputAndWithoutPerTensorAmax) {
       at::randn({1024, 1024}, at::device(at::kCUDA).dtype(at::kFloat))
           .to(data_type_to_aten(data_hp_dtype)));
   auto outputs = fec.runFusionWithInputs(inputs);
+
+  // Check that the fusion is segmented into two groups.
+  // The normalization scheduler is used for the first group
+  FusionKernelRuntime* runtime = fec.getMostRecentKernelRuntime();
+  EXPECT_THAT(
+      runtime->fusionSegments()->groups(),
+      UnorderedElementsAre(
+          HeuristicIs(SchedulerType::ExprEval),
+          HeuristicIs(SchedulerType::InnerPersistent)));
 }
 
 TEST_P(NVFP4QuantizeTest, WithPerTensorAmax) {
