@@ -259,25 +259,10 @@ void CutlassCompiledKernel::generateCutlassCode() {
       CutlassCodeGenerator::generateCode(fusion_, cutlass_params_, descriptor_);
 }
 
-void CutlassCompiledKernel::compileWithNVCC() {
-  FUSER_PERF_SCOPE("CutlassCompiledKernel::compileWithNVCC");
-
-  // Create temporary directory for compilation
-  temp_dir_ = std::filesystem::temp_directory_path() /
-      ("nvfuser_cutlass_compile_" + std::to_string(getpid()));
-  if (std::filesystem::exists(temp_dir_)) {
-    std::filesystem::remove_all(temp_dir_);
-  }
-  std::filesystem::create_directories(temp_dir_);
-
-  // Write source file
-  std::filesystem::path source_file = temp_dir_ / "cutlass_kernel.cu";
-  std::ofstream source_out(source_file);
-  source_out << cutlass_code_;
-  source_out.close();
-
-  // Build nvcc command
-  std::filesystem::path output_file = temp_dir_ / "cutlass_kernel.so";
+std::string getCompileCommand(
+    CompileParams& cparams,
+    const std::filesystem::path& source_file,
+    const std::filesystem::path& output_file) {
   std::string compile_cmd = "nvcc";
 
   const auto prop = at::cuda::getCurrentDeviceProperties();
@@ -291,11 +276,11 @@ void CutlassCompiledKernel::compileWithNVCC() {
 
   // Add CUTLASS include paths
   const std::filesystem::path cutlass_path = getCutlassPath();
-  cparams_.include_paths.push_back(cutlass_path / "include");
-  cparams_.include_paths.push_back(cutlass_path / "tools" / "util" / "include");
+  cparams.include_paths.push_back(cutlass_path / "include");
+  cparams.include_paths.push_back(cutlass_path / "tools" / "util" / "include");
   const std::filesystem::path torch_path = getTorchPath();
-  cparams_.include_paths.push_back(torch_path / "include");
-  cparams_.include_paths.push_back(
+  cparams.include_paths.push_back(torch_path / "include");
+  cparams.include_paths.push_back(
       torch_path / "include" / "torch" / "csrc" / "api" / "include");
 
   compile_cmd = "nvcc";
@@ -304,7 +289,7 @@ void CutlassCompiledKernel::compileWithNVCC() {
   // Disable some warnings in host code
   compile_cmd += " -Wno-conversion";
 
-  for (const auto& path : cparams_.include_paths) {
+  for (const auto& path : cparams.include_paths) {
     compile_cmd += " -I" + path;
   }
 
@@ -374,9 +359,34 @@ void CutlassCompiledKernel::compileWithNVCC() {
 
   // TODO: enable dumping cubin, ptx, and sass as in CompiledKernel
 
+  return compile_cmd;
+}
+
+void CutlassCompiledKernel::compileWithNVCC() {
+  FUSER_PERF_SCOPE("CutlassCompiledKernel::compileWithNVCC");
+
+  // Create temporary directory for compilation
+  temp_dir_ = std::filesystem::temp_directory_path() /
+      ("nvfuser_cutlass_compile_" + std::to_string(getpid()));
+  if (std::filesystem::exists(temp_dir_)) {
+    std::filesystem::remove_all(temp_dir_);
+  }
+  std::filesystem::create_directories(temp_dir_);
+
+  // Write source file
+  std::filesystem::path source_file = temp_dir_ / "cutlass_kernel.cu";
+  std::ofstream source_out(source_file);
+  source_out << cutlass_code_;
+  source_out.close();
+
+  // Build nvcc command
+  std::filesystem::path output_file = temp_dir_ / "cutlass_kernel.so";
+  std::filesystem::path log_file = temp_dir_ / "nvcc_output.log";
+
+  std::string compile_cmd =
+      getCompileCommand(cparams_, source_file, output_file);
   // Execute nvcc compilation and capture output
-  std::filesystem::path output_file_path = temp_dir_ / "nvcc_output.txt";
-  std::string full_cmd = compile_cmd + " 2>&1 > " + output_file_path.string();
+  std::string full_cmd = compile_cmd + " 2>&1 > " + log_file.string();
 
   int result = -1;
   if (isDebugDumpEnabled(DebugDumpOption::CutlassCompile)) {
@@ -385,31 +395,39 @@ void CutlassCompiledKernel::compileWithNVCC() {
 
     using Clock = std::chrono::steady_clock;
     Clock::time_point start_timestamp = Clock::now();
+
     result = system(full_cmd.c_str());
+
     Clock::duration duration = Clock::now() - start_timestamp;
     debug()
         << "NVCC CUTLASS kernel compile time: "
         << std::chrono::duration_cast<std::chrono::seconds>(duration).count()
         << " seconds" << std::endl;
+    std::ifstream log_stream(log_file);
+    std::string log_content(
+        (std::istreambuf_iterator<char>(log_stream)),
+        std::istreambuf_iterator<char>());
+    log_stream.close();
+    debug() << "\nnvcc output: " << log_content << std::endl;
   } else {
     result = system(full_cmd.c_str());
   }
 
   if (result != 0) {
     // Read compilation output for error details
-    std::ifstream output_file(output_file_path);
-    std::string output_content(
-        (std::istreambuf_iterator<char>(output_file)),
+    std::ifstream log_stream(log_file);
+    std::string log_content(
+        (std::istreambuf_iterator<char>(log_stream)),
         std::istreambuf_iterator<char>());
-    output_file.close();
+    log_stream.close();
 
     NVF_THROW(
         "nvcc compilation failed with code: ",
         result,
         "\nCommand: ",
         compile_cmd,
-        "\nOutput: ",
-        output_content);
+        "\nnvcc output: ",
+        log_content);
   }
 
   // Load shared library
