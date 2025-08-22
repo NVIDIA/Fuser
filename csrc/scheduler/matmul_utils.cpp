@@ -37,11 +37,10 @@
 #include <limits>
 #include <memory>
 #include <sstream>
-#include <type_traits>
 #include <utility>
-#include <variant>
 
 #include <ATen/cuda/CUDAContext.h>
+#include <ATen/native/cuda/jit_utils.h>
 
 namespace nvfuser {
 namespace matmul_utils {
@@ -1108,16 +1107,7 @@ int64_t getMaxActiveClusters(const MatmulParams::ClusterDims& cluster_dims) {
     return cached_results.at(cluster_size);
   }
 
-  NVFUSER_CUDA_SAFE_CALL(cuInit(0));
-  CUdevice device;
-  NVFUSER_CUDA_SAFE_CALL(cuDeviceGet(&device, 0));
-
-  CUcontext context;
-  NVFUSER_CUDA_SAFE_CALL(cuCtxCreate(
-      &context,
-      /*ctxCreateParams=*/nullptr,
-      /*flags=*/CU_CTX_SCHED_AUTO,
-      device));
+  at::cuda::jit::initializeCudaContext();
 
   CUmodule mod;
   NVFUSER_CUDA_SAFE_CALL(cuModuleLoadData(&mod, noopPtx));
@@ -1166,8 +1156,6 @@ int64_t getMaxActiveClusters(const MatmulParams::ClusterDims& cluster_dims) {
       cudaOccupancyMaxActiveClusters(&num_clusters, (CUfunction)func, &config));
 
   NVFUSER_CUDA_SAFE_CALL(cuModuleUnload(mod));
-
-  NVFUSER_CUDA_SAFE_CALL(cuCtxDestroy(context));
 
   cached_results.at(cluster_size) = (int64_t)num_clusters;
   return cached_results.at(cluster_size);
