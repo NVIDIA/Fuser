@@ -1395,18 +1395,16 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     func_args.arg("*(int64_t(*)[")
         .append(items_per_thread)
         .append("])")
-        .append("(")
-        .append(
-            genVariableName(output) + ".array + " + genInline(output->index()))
+        .append("(&")
+        .append(genInline(output))
         .append(")");
     func_args.arg("*(")
         .append(input->dtype())
         .append("(*)[")
         .append(std::to_string(items_per_thread))
         .append("])")
-        .append("(")
-        .append(
-            genVariableName(input) + ".array + " + genInline(input->index()))
+        .append("(&")
+        .append(genInline(input))
         .append(")");
     func_args.arg(aop->isDescending() ? "true" : "false"); // descending flag
     func_args.arg(genComputeBlockDim());
@@ -1649,24 +1647,18 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
         .append("(*)[")
         .append(items_per_thread)
         .append("])")
-        .append("(")
-        .append(
-            genVariableName(output) + ".array + " + genInline(output->index()))
+        .append("(&")
+        .append(genInline(output))
         .append(")");
 
     // Second argument: input data array
-    std::string input_array_name = genVariableName(input);
-    if (input->view()->getMemoryType() == MemoryType::Local) {
-      input_array_name += ".array";
-    }
-
     func_args.arg("*(")
         .append(input->dtype())
         .append("(*)[")
         .append(std::to_string(items_per_thread))
         .append("])")
-        .append("(")
-        .append(input_array_name + " + " + genInline(input->index()))
+        .append("(&")
+        .append(genInline(input))
         .append(")");
 
     // Third argument: init value

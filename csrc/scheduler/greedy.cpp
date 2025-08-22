@@ -313,20 +313,21 @@ class ConstrainedOpScheduler : public OptOutDispatch {
     auto out_tv = ir_utils::getTvOutput(argsort);
     auto dim = argsort->dim();
 
-    // Currently, input must be a register tensor
-    if (in_tv->getMemoryType() != MemoryType::Local) {
-      in_tv->cacheAfter();
-      // No longer a valid pointer
-      argsort = nullptr;
-    }
+    if (getenv("PROMOTE")) {
+      // Currently, input must be a register tensor
+      if (in_tv->getMemoryType() != MemoryType::Local) {
+        in_tv->cacheAfter();
+        // No longer a valid pointer
+        argsort = nullptr;
+      }
 
-    // Currently, output must be a register tensor
-    if (out_tv->getMemoryType() != MemoryType::Local) {
-      out_tv = out_tv->cacheBefore();
-      // No longer a valid pointer
-      argsort = nullptr;
+      // Currently, output must be a register tensor
+      if (out_tv->getMemoryType() != MemoryType::Local) {
+        out_tv = out_tv->cacheBefore();
+        // No longer a valid pointer
+        argsort = nullptr;
+      }
     }
-
     scheduleConstrainedTv(out_tv, {dim});
   }
 
@@ -340,21 +341,22 @@ class ConstrainedOpScheduler : public OptOutDispatch {
     auto in_tv = ir_utils::getTvInput(scan);
     auto out_tv = ir_utils::getTvOutput(scan);
 
-    // Currently, scan input must be a register tensor
-    if (in_tv->getMemoryType() != MemoryType::Local) {
-      in_tv->cacheAfter();
-      // No longer a valid pointer
-      scan = nullptr;
-    }
+    if (getenv("PROMOTE")) {
+      // Currently, scan input must be a register tensor
+      if (in_tv->getMemoryType() != MemoryType::Local) {
+        in_tv->cacheAfter();
+        // No longer a valid pointer
+        scan = nullptr;
+      }
 
-    // TODO: Is this still necessary?
-    // Currently, scan output must be a register tensor
-    if (out_tv->getMemoryType() != MemoryType::Local) {
-      out_tv = out_tv->cacheBefore();
-      // No longer a valid pointer
-      scan = nullptr;
+      // TODO: Is this still necessary?
+      // Currently, scan output must be a register tensor
+      if (out_tv->getMemoryType() != MemoryType::Local) {
+        out_tv = out_tv->cacheBefore();
+        // No longer a valid pointer
+        scan = nullptr;
+      }
     }
-
     scheduleConstrainedTv(out_tv, {scan_dim});
   }
 
@@ -486,7 +488,7 @@ std::unordered_map<TensorView*, TensorView*> partitionFusion(
     }
 
     // No reference to propagate is found
-    if (ref_to_propagate != nullptr) {
+    if (ref_to_propagate == nullptr) {
       return false;
     }
 
@@ -551,14 +553,6 @@ std::unordered_map<TensorView*, TensorView*> partitionFusion(
 
     // No progress made
     break;
-  }
-
-  std::cerr << "Final grouping\n";
-  for (auto tv : all_tvs) {
-    if (tv_to_constrained_tv_map.contains(tv)) {
-      std::cerr << tv->toString() << " -> "
-                << tv_to_constrained_tv_map.at(tv)->toString() << "\n";
-    }
   }
 
   if (tv_to_constrained_tv_map.size() != all_tvs.size()) {
