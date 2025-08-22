@@ -115,17 +115,30 @@ std::vector<TensorView*> getOutputsWithoutMesh(Expr* expr) {
 // tvs and hence, can be propagated.
 std::unordered_set<ParallelType> getParallelTypesToPropagate(
     std::vector<TensorView*> tvs) {
-  // Get the set of parallel types seen on the loop domain of the given tvs.
+  std::unordered_set<ParallelType> all_parallel_types;
+  // Since we propagate across exprs, either all tvs are fusion inputs or none
+  // are.
+  if (tvs.at(0)->isFusionInput()) {
+    all_parallel_types = {ParallelType::Stream};
+  } else {
+    all_parallel_types = deviceAndStreamParallelTypes();
+  }
+
+  // Collect any DID or stream parallel types seen on the loop domain of the
+  // given tvs. For DID, only non-reduction dimensions are considered.
+  // For e.g., if tv is i0, r{DIDx(d)}, r{i1/d}], then we allow parallelizing
+  // i0 with DIDx. This generates the reduce-scatter communication (`DIDx(d),
+  // i0/d, r{DIDx(d)}, r{i1/d}`). where i0 is scattered and i1 is reduced.
   std::unordered_set<ParallelType> existing_parallel_types;
   for (auto tv : tvs) {
     for (auto id : tv->getLoopDomain()) {
-      if (!id->isReduction() && id->isDeviceDim()) {
+      if (id->isStream() || (id->isDeviceDim() && !id->isReduction())) {
         existing_parallel_types.insert(id->getParallelType());
       }
     }
   }
   std::unordered_set<ParallelType> selected_parallel_types;
-  for (ParallelType pt : kParallelTypeDIDs) {
+  for (ParallelType pt : all_parallel_types) {
     if (!existing_parallel_types.count(pt)) {
       selected_parallel_types.insert(pt);
     }
@@ -181,7 +194,7 @@ std::unordered_map<IterDomain*, IterDomain*> getRef2TargetMap(
 void transformLoopDomain(
     TensorView* target,
     const TensorView* ref,
-    const std::unordered_set<IterDomain*>& device_ids,
+    const std::unordered_set<IterDomain*>& device_or_stream_ids,
     PropagateDirection direction) {
   if (!target->hasDeviceMesh()) {
     target->setDeviceMesh(ref->getDeviceMesh());
@@ -222,8 +235,12 @@ void transformLoopDomain(
 
   auto validate_split = [](Split* split, IterDomain* id) -> void {
     NVF_ERROR(
-        !split->innerSplit() && split->outer()->isDeviceDim(),
-        "Expected the outer id of the split to be a device dimension. Got: ",
+        !split->innerSplit(),
+        "Inner split for device or stream parallelization is not supported.");
+    NVF_ERROR(
+        split->outer()->isDeviceDim() || split->outer()->isStream(),
+        "Expected the outer id of the split to be a device / stream dimension. "
+        "Got: ",
         split->outer());
     NVF_ERROR(
         split->isDivisible(),
@@ -245,7 +262,7 @@ void transformLoopDomain(
 
   std::vector<Expr*> transforms = DependencyCheck::getAllExprsBetween(
       {ref->getLogicalDomain().begin(), ref->getLogicalDomain().end()},
-      {device_ids.begin(), device_ids.end()});
+      {device_or_stream_ids.begin(), device_or_stream_ids.end()});
 
   for (Expr* transform : transforms) {
     auto* split = dynamic_cast<Split*>(transform);
@@ -296,15 +313,15 @@ void transformLoopDomain(
   }
 
   // Parallelize based on the ref2target map.
-  for (IterDomain* device_id : device_ids) {
+  for (IterDomain* ref_id : device_or_stream_ids) {
     NVF_ERROR(
-        ref2target.contains(device_id),
+        ref2target.contains(ref_id),
         "Failed to propagate ",
-        device_id,
+        ref_id,
         " to ",
         target);
-    IterDomain* target_id = ref2target.at(device_id);
-    target_id->parallelize(device_id->getParallelType());
+    IterDomain* target_id = ref2target.at(ref_id);
+    target_id->parallelize(ref_id->getParallelType());
   }
 
   auto new_loop = std::views::keys(transformed_loop);
@@ -316,14 +333,14 @@ void propagateDIDTransform(
     TensorView* tv,
     const std::unordered_set<ParallelType>& selected_parallel_types,
     PropagateDirection direction) {
-  std::unordered_set<IterDomain*> device_ids;
+  std::unordered_set<IterDomain*> device_or_stream_ids;
   const std::unordered_map<IterDomain*, IterDomain*> ref2target =
       getRef2TargetMap(ref, tv, direction);
 
   const auto& ref_mesh = ref->getDeviceMesh();
 
-  for (IterDomain* device_id : ref->getLoopDomain()) {
-    if (selected_parallel_types.count(device_id->getParallelType()) == 0) {
+  for (IterDomain* ref_id : ref->getLoopDomain()) {
+    if (selected_parallel_types.count(ref_id->getParallelType()) == 0) {
       continue;
     }
 
@@ -332,9 +349,9 @@ void propagateDIDTransform(
     // 1. The device id parallel type is present in the device mesh.
     // 2. The number of devices corresponding to the parallel type is same
     // between the reference and target.
-    if (tv->hasDeviceMesh()) {
+    if (ref_id->isDeviceDim() && tv->hasDeviceMesh()) {
       const auto& target_mesh = tv->getDeviceMesh();
-      const auto parallel_type = device_id->getParallelType();
+      const auto parallel_type = ref_id->getParallelType();
       if (!target_mesh.hasParallelType(parallel_type)) {
         continue;
       }
@@ -347,16 +364,15 @@ void propagateDIDTransform(
     // that will be present in ref2target mapping.
     std::unordered_set<IterDomain*> inputs =
         direction == PropagateDirection::kForward
-        ? getInputsInTargetDomain({device_id}, ref->getLogicalDomain())
-        : getInputsInTargetDomain({device_id}, ref->getMaybeRootDomain());
+        ? getInputsInTargetDomain({ref_id}, ref->getLogicalDomain())
+        : getInputsInTargetDomain({ref_id}, ref->getMaybeRootDomain());
     NVF_ERROR_EQ(
         inputs.size(),
         1,
         "Expected one input for ",
-        device_id,
+        ref_id,
         " in the root / logical domain.");
-    IterDomain* ref_id = *inputs.begin();
-    IterDomain* target_id = getOrDefault(ref2target, ref_id);
+    IterDomain* target_id = getOrDefault(ref2target, *inputs.begin());
     if (target_id == nullptr) {
       continue;
     }
@@ -374,10 +390,10 @@ void propagateDIDTransform(
     if (!isInDomain(outermost_target_id, tv->getLoopDomain())) {
       continue;
     }
-    device_ids.insert(device_id);
+    device_or_stream_ids.insert(ref_id);
   }
 
-  transformLoopDomain(tv, ref, device_ids, direction);
+  transformLoopDomain(tv, ref, device_or_stream_ids, direction);
 }
 
 void propagateDIDTransform(
@@ -392,13 +408,21 @@ void propagateDIDTransform(
 
 } // namespace
 
-// This presegmentation pass propagates shardings from fusion inputs to
-// downstream tensorviews.
-// 1. Forward propagating DID loop splits and parallelization from inputs to
-// outputs that don't have a mesh using TransformReplay
-// 2. Back-propagating device meshes to ensure all TensorViews have consistent
-// meshes. This also splits and parallelizes unsharded inputs based on outputs.
-// See `MultiDevicePresegPassesTest.ResidualAdd` for an example.
+// Propagates device / stream splits and parallelizations from user annotated
+// tensorviews to other tensorviews in the fusion. User annotated tensorviews
+// (tvs with device mesh) are not modified in this pass. The only exception is
+// fusion inputs which are allowed to be stream parallelized. This does not
+// have any effect on actual computation (since fusion inputs do not have a
+// producer) but may allow for easier analysis.
+//
+// The pass has two phases:
+// 1. Forward propagating across each expression from inputs to outputs that
+// don't have a mesh.
+// 2. Back propagating from outputs to inputs. The pass attempts to propagate
+// any device or stream parallelization if not already present. For fusion
+// inputs, only stream parallelization is propagated.
+// (See `MultiDevicePresegPassesTest.ResidualAdd`).
+
 void PropagateShardingsPass::runPass(Fusion* fusion) {
   // Any tensorview with a device mesh is considered scheduled by user and not
   // modified in this pass.
@@ -477,18 +501,12 @@ void PropagateShardingsPass::runPass(Fusion* fusion) {
     // already present.
     const auto& inputs = ir_utils::filterByType<TensorView>(expr->inputs());
     std::vector<TensorView*> sharding_candidates;
-    for (auto* tv : inputs) {
-      if (user_sharded_tvs.count(tv) != 0) {
-        continue;
-      }
-      if (tv->isFusionInput()) {
-        tv->setDeviceMesh(ref_output->getDeviceMesh());
-        continue;
-      }
-      sharding_candidates.push_back(tv);
-    }
 
-    for (TensorView* target : sharding_candidates) {
+    for (TensorView* target : inputs) {
+      // Allow inputs to be stream parallelized for easier analysis.
+      if (user_sharded_tvs.count(target) && !target->isFusionInput()) {
+        continue;
+      }
       std::unordered_set<ParallelType> selected_parallel_types =
           getParallelTypesToPropagate({target});
       propagateDIDTransform(
