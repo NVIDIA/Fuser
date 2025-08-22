@@ -2566,4 +2566,60 @@ INSTANTIATE_TEST_SUITE_P(
       return sanitizeTestName(ss.str());
     });
 
+TEST_P(CircularBufferingTest, SingleDimTwoAsyncWarps) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeContigTensor(1);
+  auto tv1 = makeContigTensor(1);
+  fusion.addInput(tv0);
+  fusion.addInput(tv1);
+
+  auto tv2 = set(tv0);
+  auto tv3 = set(tv1);
+  auto tv4 = add(tv2, tv3);
+  auto tv5 = set(tv4);
+  fusion.addOutput(tv5);
+
+  tv2->setMemoryType(MemoryType::Shared);
+  tv3->setMemoryType(MemoryType::Shared);
+
+  // I0
+  tv4->split(-1, 128);
+  // I0/128, 128
+  tv4->split(-1, 32);
+  // I0/128, 4, 32
+  TransformPropagatorWithCheck propagator(tv4);
+  MaxLogicalDomainInfoSpanningTree(tv4).traverse(&propagator);
+
+  // Outer for-loop is I0/128
+  tv0->computeAt(tv4, 1);
+  tv1->computeAt(tv4, 1);
+
+  // Parallelize inner two dimensions
+  tv4->axis(-2)->parallelize(ParallelType::BIDx);
+  tv4->axis(-1)->parallelize(ParallelType::TIDx);
+  scheduler_utils::parallelizeAllLike(tv4);
+
+  tv2->circularBuffer(number_of_stages, prefetch_distance);
+  tv3->circularBuffer(number_of_stages, prefetch_distance);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({1000}, options);
+  auto t1 = at::randn({1000}, options);
+
+  KernelExecutor ke;
+  ke.compile(&fusion, {t0, t1});
+
+  // Given computeAt axis 1, the axis_extent is I0/128.
+  constexpr int64_t axis_extent = 8;
+  if (axis_extent < number_of_stages) {
+    ASSERT_ANY_THROW(ke.run({t0, t1}));
+    return;
+  }
+
+  auto cg_outputs = ke.run({t0, t1});
+  testValidate(&fusion, cg_outputs, {t0, t1}, __LINE__, __FILE__);
+}
+
 } // namespace nvfuser
