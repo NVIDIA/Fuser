@@ -31,6 +31,7 @@
 
 #include <algorithm>
 #include <queue>
+#include "ir/interface_nodes.h"
 #include "scheduler/tools/loop_domain_scheduler.h"
 #include "type.h"
 
@@ -764,6 +765,20 @@ PersistentBufferInfo persistentBuffers(Fusion* fusion) {
   return persistent_buffer_info;
 }
 
+namespace {
+int64_t getAllocatedExtent(
+    TensorView* tv,
+    IterDomain* id,
+    ExpressionEvaluator& expr_eval) {
+  IterDomain* alloc_id = projectLogicalToAllocation(tv, id);
+  auto inferred_val = expr_eval.evaluate(alloc_id->extent());
+  NVF_ERROR(
+      inferred_val.hasValue(),
+      "Error inferring dimensions of reduction fusion.");
+  return inferred_val.as<int64_t>();
+}
+} // namespace
+
 ReductionTvProperties getReductionProperties(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
@@ -783,12 +798,13 @@ ReductionTvProperties getReductionProperties(
   int64_t inner_most_dimension_numel = 1;
   int64_t inner_most_dimension_ndims = 0;
 
+  ExpressionEvaluator& expr_eval = runtime_info.expressionEvaluator();
+
   // Start from the inner most dimension, and work outwards. If this is a 3D
   // pattern, i.e. theres a pattern like [r0, r1, i2, r3] or [i0, r1, r2, i3,
   // i4] then compute the inner most dimension to compute separately.
-  const auto& root_dom = tv->getMaybeRootDomain();
-  for (size_t i = root_dom.size(); i > 0; i--) {
-    auto id = root_dom[i - 1];
+  const auto& logical_domain = tv->getLogicalDomain();
+  for (IterDomain* id : logical_domain | std::views::reverse) {
     if (id->isBroadcast()) {
       continue;
     }
@@ -796,11 +812,9 @@ ReductionTvProperties getReductionProperties(
       dimensionality++;
       cur_dim_is_reduction = !cur_dim_is_reduction;
     } else if (dimensionality == 1) {
-      auto inferred_val =
-          runtime_info.expressionEvaluator().evaluate(id->extent());
-      NVF_ERROR(inferred_val.hasValue(), "Error inferring reduction size.");
+      int64_t allocated_extent = getAllocatedExtent(tv, id, expr_eval);
       inner_most_dimension_numel =
-          inner_most_dimension_numel * inferred_val.as<int64_t>();
+          inner_most_dimension_numel * allocated_extent;
       inner_most_dimension_ndims++;
     }
   }
@@ -810,16 +824,12 @@ ReductionTvProperties getReductionProperties(
   // Reduction element count
   int64_t total_reduction_numel = 1;
 
-  for (auto id : root_dom) {
-    auto inferred_val =
-        runtime_info.expressionEvaluator().evaluate(id->extent());
-    NVF_ERROR(
-        inferred_val.hasValue(),
-        "Error inferring dimensions of reduction fusion.");
+  for (IterDomain* id : logical_domain) {
+    int64_t allocated_extent = getAllocatedExtent(tv, id, expr_eval);
     if (id->isReduction()) {
-      total_reduction_numel *= inferred_val.as<int64_t>();
+      total_reduction_numel *= allocated_extent;
     } else {
-      total_iteration_numel *= inferred_val.as<int64_t>();
+      total_iteration_numel *= allocated_extent;
     }
   }
 
@@ -1265,7 +1275,8 @@ std::vector<TensorView*> cacheInputs(Fusion* fusion, bool unroll) {
   auto in_tvs = ir_utils::filterByType<TensorView>(fusion->inputs());
   for (auto tv : in_tvs) {
     if (tv->nDims() == 0 || tv->uses().empty() ||
-        ir_utils::isGatherLookupTv(tv) || ir_utils::isIndexSelectLookupTv(tv) ||
+        ir_utils::isAndOnlyIsGatherLookupTv(tv) ||
+        ir_utils::isIndexSelectLookupTv(tv) ||
         ir_utils::isTvUsedByOpsOfType<SelectOp>(tv)) {
       // Right now, tensors that are input to the select, gather and
       // index_select ops can't be cached as they must be in global memory.
@@ -1280,9 +1291,17 @@ std::vector<TensorView*> cacheInputs(Fusion* fusion, bool unroll) {
     // used without padding, it will be read twice, once for pad and
     // once more for caching load. It would make sense to use the PTX
     // caching load instructions.
+    // For gatherOp, the lookupTv should stay in global memory, don't replace
+    // the original lookupTv with the cached_tv.
+    auto isGatherLookUpTvInUse = [tv](Expr* use) {
+      if (!use->isA<GatherOp>()) {
+        return false;
+      }
+      return use->as<GatherOp>()->lookupTv() == tv;
+    };
     std::vector<Expr*> cached_uses;
     for (auto use : tv->uses()) {
-      if (!use->isOneOf<PadOp, SliceOp>()) {
+      if (!use->isOneOf<PadOp, SliceOp>() && !isGatherLookUpTvInUse(use)) {
         cached_uses.push_back(use);
       }
     }
@@ -1478,41 +1497,46 @@ FindAllMappedDims::FindAllMappedDims(
 void FindAllMappedDims::setUp() {
   mapped_root_ids_[starting_tv_] =
       projectIdToRoot(starting_tv_, starting_id_, inner_only_, vectorize_pass_);
-  mapped_logical_ids_[starting_tv_] = projectIdToAllocation(
+  // Note, we want to project to allocation, since we could have
+  // transformation from logical to allocation. e.g. for multi-device, we
+  // could have DID related split between logical to allocation.
+  mapped_allocation_ids_[starting_tv_] = projectIdToAllocation(
       starting_tv_, starting_id_, inner_only_, vectorize_pass_);
 }
 
 void FindAllMappedDims::propagateC2P(TensorView* from, TensorView* to) {
-  auto from_id = mapped_root_ids_.at(from);
+  IterDomain* from_id = mapped_root_ids_.at(from);
   PairwiseLogicalDomainMap logical_map(to, from);
   auto c2p_map = logical_map.mapConsumerToProducer();
   auto p_it = c2p_map.find(from_id);
   if (p_it != c2p_map.end()) {
     mapped_root_ids_[to] =
         projectIdToRoot(to, p_it->second, inner_only_, vectorize_pass_);
-    // Note, we want to project to allocation, since we could have
-    // transformation from logical to allocation. e.g. for multi-device, we
-    // could have DID related split between logical to allocation.
-    mapped_logical_ids_[to] =
+    mapped_allocation_ids_[to] =
         projectIdToAllocation(to, p_it->second, inner_only_, vectorize_pass_);
   } else {
     mapped_root_ids_[to] = nullptr;
-    mapped_logical_ids_[to] = nullptr;
+    mapped_allocation_ids_[to] = nullptr;
   }
 }
 
 void FindAllMappedDims::propagateP2C(TensorView* from, TensorView* to) {
-  auto from_id = mapped_logical_ids_.at(from);
+  IterDomain* from_allocation_id = mapped_allocation_ids_.at(from);
+
+  // Project allocation id back to logical id for mapping
+  IterDomain* from_logical_id =
+      projectAllocationToLogical(from, from_allocation_id);
+
   PairwiseLogicalDomainMap logical_map(from, to);
   auto p2c_map = logical_map.mapProducerToConsumer();
-  auto c_it = p2c_map.find(from_id);
+  auto c_it = p2c_map.find(from_logical_id);
   if (c_it != p2c_map.end()) {
     mapped_root_ids_[to] = c_it->second;
-    mapped_logical_ids_[to] =
+    mapped_allocation_ids_[to] =
         projectIdToAllocation(to, c_it->second, inner_only_, vectorize_pass_);
   } else {
     mapped_root_ids_[to] = nullptr;
-    mapped_logical_ids_[to] = nullptr;
+    mapped_allocation_ids_[to] = nullptr;
   }
 }
 
@@ -1528,13 +1552,13 @@ void FindAllMappedDims::propagateSibling(TensorView* from, TensorView* to) {
       }
     }
   }
-  from_id = mapped_logical_ids_.at(from);
+  from_id = mapped_allocation_ids_.at(from);
   if (from_id == nullptr) {
     mapped_root_ids_[to] = nullptr;
   } else {
     for (auto i : arange(from->getLogicalDomain().size())) {
       if (from_id == from->getLogicalDomain()[i]) {
-        mapped_logical_ids_[to] = to->getLogicalDomain()[i];
+        mapped_allocation_ids_[to] = to->getLogicalDomain()[i];
         return;
       }
     }
@@ -1549,7 +1573,7 @@ std::unordered_set<IterDomain*> FindAllMappedDims::get() const {
       mapped_id_set.emplace(entry.second);
     }
   }
-  for (auto entry : mapped_logical_ids_) {
+  for (auto entry : mapped_allocation_ids_) {
     if (entry.second != nullptr) {
       mapped_id_set.emplace(entry.second);
     }
@@ -1620,7 +1644,6 @@ std::vector<TensorView*> getInputsOutputsWithInnerDim(
       reference_tv, inner_most_id, inner_only, vectorize_pass);
   MaxLogicalDomainInfoSpanningTree tree(reference_tv);
   tree.traverse(&all_mapped_root_dims);
-
   auto vectorizable_dims = all_mapped_root_dims.get();
 
   std::vector<TensorView*> vectorizable_tensors;
@@ -1638,7 +1661,7 @@ std::vector<TensorView*> getInputsOutputsWithInnerDim(
        ir_utils::filterByType<TensorView>(reference_tv->fusion()->inputs())) {
     // for indexSelect(lookup_tv, dim, index_tv) op
     // ignore it's lookup_tv.
-    if (ir_utils::isGatherLookupTv(input_tv)) {
+    if (ir_utils::isAndOnlyIsGatherLookupTv(input_tv)) {
       continue;
     }
 
