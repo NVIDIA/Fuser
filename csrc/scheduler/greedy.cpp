@@ -187,11 +187,8 @@ class CompileTimeChecker : private IterVisitor {
 
 class RunTimeChecker : private IterVisitor {
  public:
-  static bool run(
-      Fusion* fusion,
-      SchedulerRuntimeInfo& runtime_info,
-      HeuristicDataCache* data_cache) {
-    RunTimeChecker checker(fusion, runtime_info, data_cache);
+  static bool run(Fusion* fusion, SchedulerRuntimeInfo& runtime_info) {
+    RunTimeChecker checker(fusion, runtime_info);
     if (!checker.can_schedule_ && !checker.reject_reason_.empty()) {
       scheduler_debug_utils::canScheduleRejectReason(
           SchedulerType::Greedy, checker.reject_reason_);
@@ -200,12 +197,8 @@ class RunTimeChecker : private IterVisitor {
   }
 
  private:
-  RunTimeChecker(
-      Fusion* fusion,
-      SchedulerRuntimeInfo& runtime_info,
-      HeuristicDataCache* data_cache)
+  RunTimeChecker(Fusion* fusion, SchedulerRuntimeInfo& runtime_info)
       : runtime_info_(runtime_info),
-        data_cache_(data_cache),
         max_threads_per_block_(
             at::cuda::getCurrentDeviceProperties()->maxThreadsPerBlock) {
     traverse(fusion);
@@ -269,7 +262,6 @@ class RunTimeChecker : private IterVisitor {
 
  private:
   SchedulerRuntimeInfo& runtime_info_;
-  HeuristicDataCache* data_cache_ = nullptr;
   int64_t max_threads_per_block_ = 0;
 
   bool can_schedule_ = true;
@@ -590,8 +582,7 @@ bool GreedyScheduler::canScheduleRunTime(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
     HeuristicDataCache* data_cache) {
-  // TODO: Consider the shared memory capacity for resolving conflicts
-  return RunTimeChecker::run(fusion, runtime_info, data_cache);
+  return RunTimeChecker::run(fusion, runtime_info);
 }
 
 std::unique_ptr<HeuristicParams> GreedyScheduler::computeHeuristics(

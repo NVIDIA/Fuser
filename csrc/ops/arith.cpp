@@ -2276,6 +2276,11 @@ TensorView* argsort(
   const std::vector<IterDomain*> logical_dom =
       TensorDomain::noReductions(inp->getLogicalDomain());
 
+  // Argsort of zero-dim tensor is allowed
+  if (logical_dom.empty()) {
+    return zeros({}, DataType::Int);
+  }
+
   dim = wrapDim(dim, std::ssize(logical_dom));
 
   Val* out = ops::newValLike(inp, DataType::Int);
