@@ -141,7 +141,7 @@ class TaskGraph {
   //! This does an exhaustive search of all possible orderings using a modified
   //! Kahn's algorithm to efficiently traverse the set of possible topological
   //! orderings.
-  SortResult findOptimalOrder() const;
+  SortResult findOptimalOrder(bool validate = true) const;
 
   std::string toString() const;
 

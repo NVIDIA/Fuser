@@ -328,7 +328,7 @@ class TaskSorter {
         debug() << orig_graph_.toString() << "\n\n";
         if (hasDebugDumpArgument(DebugDumpOption::TaskGraph, "mermaid")) {
           debug() << "Original graph (mermaid):\n"
-                  << graph_.toMermaid() << std::endl;
+                  << orig_graph_.toMermaid() << std::endl;
         }
         debug() << "Modified graph without aliasing:\n";
         debug() << graph_.toString() << "\n\n";
@@ -632,10 +632,10 @@ std::string TaskGraph::toString() const {
   return ss.str();
 }
 
-TaskGraph::SortResult TaskGraph::findOptimalOrder() const {
+TaskGraph::SortResult TaskGraph::findOptimalOrder(bool validate) const {
   TaskSorter sorter(
       *this,
-      /*validate=*/true,
+      validate,
       /*max_time_us=*/100000,
       /*debug=*/isDebugDumpEnabled(DebugDumpOption::TaskGraph));
   return sorter.result();

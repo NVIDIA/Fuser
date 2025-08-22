@@ -2120,7 +2120,7 @@ std::vector<SegmentedGroup*> optimalTopoSort(
   TaskGraph graph =
       SegmentedGroupTaskGraphConverter::convert(groups, runtime_info);
 
-  TaskGraph::SortResult result = graph.findOptimalOrder();
+  TaskGraph::SortResult result = graph.findOptimalOrder(/*validate=*/false);
 
   std::vector<SegmentedGroup*> order;
   order.reserve(groups.size());
