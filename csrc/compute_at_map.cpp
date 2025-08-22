@@ -729,11 +729,11 @@ void IterDomainGraph::build(Fusion* fusion) {
   // Adds more mappings from IdModel if available
   auto expand_by_id_model = [](DisjointSets<IterDomain*>& nodes,
                                IdMappingMode mode) {
-    if (!GpuLower::hasCurrent() || !GpuLower::current()->hasIdModel()) {
+    if (!GpuLower::hasCurrent() || !GpuLower::current()->info().hasIdModel()) {
       return;
     }
 
-    const ValGraph& graph = GpuLower::current()->idModel().idGraph(mode);
+    const ValGraph& graph = GpuLower::current()->info().idModel().idGraph(mode);
     for (const auto& vg : graph.disjointValSets().disjointSets()) {
       IterDomain* first_id = nullptr;
       for (const auto& val : *vg) {
@@ -850,7 +850,7 @@ void ComputeAtMap::build(Fusion* fusion) {
   buildUniqueExactExprMaps();
 }
 
-void ComputeAtMap::validateAndPropagatePType() {
+void ComputeAtMap::validateAndPropagatePType() const {
   for (const auto& loop_disjoint_set : id_graph_.loopNodes().disjointSets()) {
     ParallelType common_ptype = ParallelType::Serial;
     for (auto id : loop_disjoint_set->vector()) {

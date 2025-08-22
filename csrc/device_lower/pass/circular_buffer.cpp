@@ -1570,10 +1570,11 @@ class WarpSpecializedCircularBufferInserter : private kir::ExprMutator {
         std::get<WarpSpecialized>(options.type).on;
     int64_t warp_specialization_pad =
         GpuLower::current()
-            ->parallelDimensionMap()
+            ->info()
+            .parallelDimensionMap()
             .getWarpSpecializationPaddedVal(warp_specialize_on);
-    Val* raw =
-        GpuLower::current()->parallelDimensionMap().get(warp_specialize_on);
+    Val* raw = GpuLower::current()->info().parallelDimensionMap().get(
+        warp_specialize_on);
     Val* raw_minus_pad = SimplifyingIrBuilder::subExpr(
         raw, IrBuilder::create<Val>(warp_specialization_pad, DataType::Index));
     return IrBuilder::create<kir::Predicate>(IrBuilder::geExpr(
@@ -1832,10 +1833,8 @@ class PipelineCircularBufferInserter : private kir::ExprMutator {
 
       // Insert the initial block sync before entering main loop.
       if (std::any_of(loads.begin(), loads.end(), [](Expr* expr) {
-            return GpuLower::current()
-                ->syncMap()
-                ->needsRawSync(ir_utils::getTvOutput(expr))
-                .hasTID();
+            return GpuLower::current()->syncMap()->needsBlockRawSync(
+                ir_utils::getTvOutput(expr));
           })) {
         // If any of the circular buffered loads require sync, as indicated
         //  by sync info map, insert the sync before entering the circular
@@ -2001,7 +2000,8 @@ HopperPingPongMbarriers::HopperPingPongMbarriers(
       "Expected the warp specialized axis to be ParallelType::TIDy");
   NVF_ERROR(
       GpuLower::current()
-              ->parallelDimensionMap()
+              ->info()
+              .parallelDimensionMap()
               .getWarpSpecializationPaddedVal(ws_axis) == 1,
       "Expected the warp specialized axis to be padded by 1");
 }
@@ -2011,7 +2011,8 @@ ForLoop* HopperPingPongMbarriers::initializePingPongMbarrier() {
   Val* num_of_arrives = SimplifyingIrBuilder::maybeCastExpr(
       DataType::UInt32,
       GpuLower::current()
-          ->parallelDimensionMap()
+          ->info()
+          .parallelDimensionMap()
           .getNumComputeThreadsEachBlock());
   kir::TensorIndex* ping_pong_mbarrier_index =
       IrBuilder::create<kir::TensorIndex>(mbarriers_, loop->index());

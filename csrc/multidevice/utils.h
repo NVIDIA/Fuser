@@ -21,7 +21,9 @@ namespace nvfuser {
 // Returns true iff nvFuser was compiled with distributed APIs enabled.
 NVF_API bool distributedEnabled();
 
-// Return true if the TensorView is contiguous.
+// Return true if the TensorView is contiguous. This function is more
+// permissive than torch.Tensor.is_contiguous because it allows expanded
+// broadcasts.
 NVF_API bool isTvContiguous(const TensorView* tv);
 
 // Returns whether a TensorView has a non-reduction axis parallelized Didx
@@ -162,5 +164,21 @@ NVF_API std::unordered_map<int64_t, int64_t> reorderDIDToFront(TensorView*);
 NVF_API std::vector<int64_t> unshardedSizes(
     const TensorView* tv,
     c10::IntArrayRef sizes);
+
+// Validate the expression is a valid DID split: expr is an outer split with
+// device dim as the outer dimension.
+NVF_API void validateDeviceSplit(Expr* expr);
+
+// Find the producing logical id of the given allocation id traversing
+// through device splits.
+NVF_API IterDomain* projectAllocationToLogical(
+    TensorView* tv,
+    IterDomain* allocation_id);
+
+// Find the allocated id corresponding to the given logical id traversing
+// through device splits. For e.g.: `i0` -> `DIDx(d), i0/d` will return `i0/d`.
+NVF_API IterDomain* projectLogicalToAllocation(
+    TensorView* tv,
+    IterDomain* logical_id);
 
 } // namespace nvfuser

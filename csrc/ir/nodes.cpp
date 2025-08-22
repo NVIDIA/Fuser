@@ -325,9 +325,17 @@ std::vector<PolymorphicValue> ScatterOp::evaluate(
     const std::vector<PolymorphicValue>& inputs) const {
   const auto& input = inputs.at(0).as<at::Tensor>();
   const auto& index = inputs.at(1).as<at::Tensor>();
-  const auto& src = inputs.at(2).as<at::Tensor>();
   auto dimension = dim();
-  return {at::scatter(input, dimension, index, src)};
+  if (src()->isA<TensorView>()) {
+    return {
+        at::scatter(input, dimension, index, inputs.at(2).as<at::Tensor>())};
+  } else {
+    return {at::scatter(
+        input,
+        dimension,
+        index,
+        PolymorphicValue_functions::toScalar(inputs.back()))};
+  }
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(ScatterOp)
@@ -2159,25 +2167,22 @@ ExpandOp::ExpandOp(
     IrBuilderPasskey passkey,
     TensorView* out,
     TensorView* in,
-    std::vector<Val*> _expanded_extents)
+    const std::vector<Val*>& expanded_extents)
     : Expr(passkey) {
   addOutput(out);
   addInput(in);
-  for (auto expanded_extent : _expanded_extents) {
+  for (auto* expanded_extent : expanded_extents) {
     NVF_ERROR(expanded_extent != nullptr);
-    NVF_ERROR(
-        expanded_extent->dtype() == DataType::Index,
-        "Expanded extents must be of index type.");
+    NVF_ERROR_EQ(
+        expanded_extent->dtype(), DataType::Index, "Found ", expanded_extent);
     addInput(expanded_extent);
   }
 }
 
 std::string ExpandOp::toString(int indent_size) const {
   std::stringstream ss;
-  indent(ss, indent_size) << out()->toString() << " = expand( " << in()
-                          << ", {";
-  ss << toDelimitedString(expanded_extents());
-  ss << "} )\n";
+  indent(ss, indent_size) << out()->toString() << " = expand( " << in() << " )"
+                          << std::endl;
   return ss.str();
 }
 
@@ -2189,11 +2194,8 @@ std::vector<PolymorphicValue> ExpandOp::evaluate(
     const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
   const auto& in = inputs.at(0).as<at::Tensor>();
-  std::vector<int64_t> expanded_size;
-  for (auto i : arange(1, inputs.size())) {
-    expanded_size.push_back((int64_t)inputs.at(i));
-  }
-  return {in.expand(expanded_size)};
+  const auto& [out_shape, _] = inferShapeOfOutput(out(), ee);
+  return {in.expand(out_shape)};
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(ExpandOp)
