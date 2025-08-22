@@ -1743,11 +1743,6 @@ WelfordResult::WelfordResult(
   NVF_ERROR(avg->definition()->sameAs(n->definition()));
 }
 
-TopKResult::TopKResult(TensorView* in_values, TensorView* in_indices)
-    : values(in_values), indices(in_indices) {
-  NVF_ERROR(values->definition()->sameAs(indices->definition()));
-}
-
 // COMPOUND OPERATIONS
 
 // add_alpha
@@ -2514,6 +2509,26 @@ TopKResult topk(
     bool sorted,
     bool maybe_symbolic) {
   auto inp_domain = TensorDomain::noReductions(inp->getLogicalDomain());
+
+  // When the input is a zero-dimensional tensor, dim must be either
+  // 0 or -1, and k must be 1.
+  if (inp_domain.empty()) {
+    NVF_ERROR(
+        dim == 0 || dim == -1,
+        "Invalid dimension to compute top-k of an zero-dimensinal tensor: ",
+        dim);
+
+    // Note that unless k is const, it is not possible to validate
+    // it's indeed 1. We need some way to register a condition to
+    // validate with actual fusion inputs like GpuLower::validate.
+    if (k->isConstScalar()) {
+      NVF_ERROR(k->isOneInt(), "Invalid k of topk: ", k->toString());
+    }
+    auto out_idx = zeros({}, DataType::Int);
+    auto out_val = set(inp);
+    return TopKResult(out_val, out_idx);
+  }
+
   dim = wrapDim(dim, std::ssize(inp_domain));
 
   NVF_CHECK(
