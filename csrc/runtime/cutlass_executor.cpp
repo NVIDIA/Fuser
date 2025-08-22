@@ -36,7 +36,7 @@ void CutlassExecutor::compile(
     const CutlassParams& cutlass_params) {
   FUSER_PERF_SCOPE("CutlassExecutor::compile");
 
-  NVF_CHECK(!compiled_, "Cannot re-compile a CutlassExecutor");
+  NVF_CHECK(!isCompiled(), "Cannot re-compile a CutlassExecutor");
   // No need to check scheduler type here as CutlassExecutor is only created
   // when the scheduler type is already known to be Cutlass
 
@@ -55,37 +55,10 @@ void CutlassExecutor::compile(
   cutlass_kernel_ = std::make_unique<CutlassCompiledKernel>(
       fusion_.get(), cutlass_params, cparams);
   cutlass_kernel_->compile();
-
-  // Store the generated code for debugging
-  generated_code_ = cutlass_kernel_->getCode();
-
-  // Extract kernel name from descriptor
-  kernel_name_ = cutlass_kernel_->getDescriptor().kernel_name;
-
-  // Store launch parameters
-  const auto& descriptor = cutlass_kernel_->getDescriptor();
-  launch_params_ = LaunchParams(
-      descriptor.grid_dim.x,
-      descriptor.grid_dim.y,
-      descriptor.grid_dim.z,
-      descriptor.block_dim.x,
-      descriptor.block_dim.y,
-      descriptor.block_dim.z);
-
-  if (descriptor.shared_memory_size > 0) {
-    // TODO: Set shared memory size properly
-    // launch_params_ doesn't have a setter for smem
-  }
-
-  // Output debug information if requested
-  // Debug output disabled for now
-  // TODO: Enable when debug flags are properly set up
-
-  compiled_ = true;
 }
 
 bool CutlassExecutor::isCompiled() const {
-  return compiled_ && cutlass_kernel_ && cutlass_kernel_->isCompiled();
+  return cutlass_kernel_ && cutlass_kernel_->isCompiled();
 }
 
 KernelArgumentHolder CutlassExecutor::run(
@@ -130,19 +103,6 @@ KernelArgumentHolder CutlassExecutor::allocateOutputs(
     if (auto tv = dynamic_cast<TensorView*>(output)) {
       // Create output tensor with appropriate size and dtype
       at::ScalarType aten_type = data_type_to_aten(tv->dtype());
-
-      // Use Byte for reduced precision types for now
-      switch (aten_type) {
-        // case at::ScalarType::Float8_e4m3fn:
-        // case at::ScalarType::Float8_e5m2:
-        // case at::ScalarType::Float8_e8m0fnu:
-        case at::ScalarType::Float4_e2m1fn_x2:
-          aten_type = at::ScalarType::Byte;
-          break;
-        default:
-          break;
-      }
-
       auto options = at::TensorOptions().dtype(aten_type).device(device);
 
       auto alias_info = fusion->getOutputAlias(tv);

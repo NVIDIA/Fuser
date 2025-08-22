@@ -68,9 +68,6 @@ class CutlassExecutor : public ExecutorAbstract {
 
   // Generated CUTLASS code
   std::string generated_code_;
-
-  // Kernel function name
-  std::string kernel_name_;
 };
 
 } // namespace nvfuser

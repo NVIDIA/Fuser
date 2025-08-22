@@ -20,30 +20,6 @@ namespace nvfuser {
 
 class Fusion;
 
-// CUTLASS kernel descriptor containing kernel configuration
-struct CutlassKernelDescriptor {
-  // Kernel name
-  std::string kernel_name;
-
-  // Host function that launches the kernel
-  std::string launch_function_name;
-
-  // CUTLASS operation type (e.g., "cutlass::gemm::device::Gemm")
-  std::string operation_type;
-
-  // Template parameters for the CUTLASS kernel
-  std::string template_params;
-
-  // Launch configuration
-  dim3 grid_dim;
-  dim3 block_dim;
-  int shared_memory_size = 0;
-
-  // Kernel arguments info
-  std::vector<std::string> argument_types;
-  std::vector<size_t> argument_sizes;
-};
-
 // Compiled CUTLASS kernel similar to CompiledKernel but for CUTLASS
 class CutlassCompiledKernel : public NonCopyable {
  public:
@@ -77,11 +53,6 @@ class CutlassCompiledKernel : public NonCopyable {
     return cutlass_code_;
   }
 
-  // Get kernel descriptor
-  const CutlassKernelDescriptor& getDescriptor() const {
-    return descriptor_;
-  }
-
   // Get compilation log
   const std::string& getCompilationLog() const {
     return compilation_log_;
@@ -110,7 +81,6 @@ class CutlassCompiledKernel : public NonCopyable {
  private:
   // Generate CUTLASS kernel code from fusion
   void generateCode();
-  void generateCutlassCode();
 
   // Compile using NVRTC
   void compileWithNVRTC();
@@ -151,7 +121,6 @@ class CutlassCompiledKernel : public NonCopyable {
   std::string kernel_id_;
 
   CompileParams cparams_;
-  CutlassKernelDescriptor descriptor_;
 
   bool compiled_ = false;
   std::string cutlass_code_;
@@ -168,45 +137,6 @@ class CutlassCompiledKernel : public NonCopyable {
 
   // Temporary directory for nvcc compilation
   std::filesystem::path temp_dir_;
-};
-
-// Code generator for CUTLASS kernels
-class CutlassCodeGenerator {
- public:
-  // Generate CUTLASS C++ code for a fusion
-  static std::string generateCode(
-      Fusion* fusion,
-      const CutlassParams& params,
-      CutlassKernelDescriptor& descriptor);
-
- private:
-  // Generate includes
-  static std::string generateIncludes();
-
-  // Generate kernel definition
-  static std::string generateKernelDefinition(
-      const CutlassKernelDescriptor& descriptor);
-
-  // Generate epilogue visitor tree (EVT) code
-  static std::string generateEpilogueVisitorTree(
-      Fusion* fusion,
-      const CutlassParams& params);
-
-  // Generate kernel launch wrapper
-  static std::string generateLaunchWrapper(
-      const CutlassKernelDescriptor& descriptor);
-
-  // Map nvfuser types to CUTLASS types
-  static std::string mapDataTypeToCutlass(DataType dtype);
-
-  // Map nvfuser layout to CUTLASS layout
-  static std::string mapLayoutToCutlass(const TensorView* tv);
-
-  // Generate nvfp4 scaled matmul kernel
-  static std::string generateNvfp4ScaledMmKernel(
-      Fusion* fusion,
-      const CutlassParams& params,
-      CutlassKernelDescriptor& descriptor);
 };
 
 } // namespace nvfuser
