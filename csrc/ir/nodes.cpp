@@ -6447,6 +6447,7 @@ std::string CutlassNvfp4GroupedMmaOp::toInlineString(int indent_size) const {
 std::vector<PolymorphicValue> CutlassNvfp4GroupedMmaOp::evaluate(
     const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
+#if NVFUSER_CUTLASS_KERNEL_ENABLED
   const auto& mat1 = inputs[0].as<at::Tensor>();
   const auto& mat2 = inputs[1].as<at::Tensor>();
   const auto& scale1 = inputs[2].as<at::Tensor>();
@@ -6489,7 +6490,6 @@ std::vector<PolymorphicValue> CutlassNvfp4GroupedMmaOp::evaluate(
   ab_strides.fill_(k);
   c_strides.fill_(n);
 
-#if NVFUSER_CUTLASS_KERNEL_ENABLED
   // Call the cutlass kernel, note that it expect g,n,k layout on mat2.
   cutlass_kernels::nvfp4_scaled_grouped_mm(
       result,
@@ -6503,15 +6503,15 @@ std::vector<PolymorphicValue> CutlassNvfp4GroupedMmaOp::evaluate(
       problem_sizes,
       expert_offsets,
       sf_offsets);
-#else
-  NVF_THROW("CutlassNvfp4GroupedMmaOp requires CUTLASS kernels to be enabled");
-#endif
 
   if (const auto rfactor_did_idx = getRFactorDeviceDimensionIndex(out());
       rfactor_did_idx != -1) {
     result = result.unsqueeze(rfactor_did_idx);
   }
   return {result};
+#else
+  NVF_THROW("CutlassNvfp4GroupedMmaOp requires CUTLASS kernels to be enabled");
+#endif
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(CutlassNvfp4GroupedMmaOp)
