@@ -25,6 +25,32 @@ MATCHER_P(HeuristicIs, heuristic, "") {
   return arg->schedulerType() == heuristic;
 }
 
+// Matches whether the loop domain of the tensorview is parallelized with the
+// given parallel types at the given indices.
+MATCHER_P2(DomainIsParallelized, parallel_types, indices, "") {
+  const auto& domain = arg->getLoopDomain();
+  if (indices.size() > domain.size()) {
+    *result_listener << "Indices size " << indices.size()
+                     << " is greater than domain size " << domain.size();
+    return false;
+  }
+  for (size_t i = 0; i < indices.size(); ++i) {
+    if (indices.at(i) >= static_cast<int64_t>(domain.size())) {
+      *result_listener << "Index " << indices.at(i)
+                       << " is out of bounds for domain size " << domain.size();
+      return false;
+    }
+    if (domain.at(indices.at(i))->getParallelType() != parallel_types.at(i)) {
+      *result_listener << "Parallel type of " << arg->domain() << " at index "
+                       << indices.at(i)
+                       << " does not match expected parallel type "
+                       << parallel_types.at(i);
+      return false;
+    }
+  }
+  return true;
+}
+
 // Matches any subclass of T.
 //
 // See
