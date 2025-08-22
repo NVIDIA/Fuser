@@ -127,12 +127,12 @@ std::string TaskGraph::toMermaid() const {
   }
 
   ss << "\n";
-  ss << "    classDef task fill:orange;\n";
-  ss << "    classDef data fill:lightblue;\n";
-  ss << "    classDef dataInput fill:lightgreen;\n";
-  ss << "    classDef dataOutput fill:pink;\n";
+  ss << "    classDef task fill:orange,stroke:darkorange;\n";
+  ss << "    classDef data fill:lightblue,stroke:blue;\n";
+  ss << "    classDef dataInput fill:lightgreen,stroke:green;\n";
+  ss << "    classDef dataOutput fill:pink,stroke:red;\n";
   ss << "    classDef dataEmpty fill:#EEE,stroke:#DDD,color:#999;\n";
-  ss << "    classDef aliasedInput fill:yellow;\n";
+  ss << "    classDef aliasedInput fill:yellow,stroke:yellow;\n";
   ss << "    classDef aliasEdge stroke-dasharray:3,stroke:blue;\n";
 
   ss << "\n";
