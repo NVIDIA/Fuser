@@ -298,6 +298,10 @@ namespace {
 
 //! [Backtracking algorithm to find optimal topological ordering]
 //!
+//! Note that if the input graph has aliases, we first convert to a graph
+//! without aliases but with more data links. This allows us to ignore aliasing
+//! when sorting the tasks, while maintaining the same memory usage analysis.
+//!
 //! If validate==true, then we will validate the steps vector after every
 //! backtracking step.
 //!
@@ -315,11 +319,11 @@ class TaskSorter {
         validate_(validate),
         max_time_us_(max_time_us) {
     if (debug_) {
-      has_aliasing_ = std::ranges::any_of(
+      const bool has_aliasing = std::ranges::any_of(
           arange(orig_graph_.numData()), [&](TaskGraph::DataId data_id) {
             return orig_graph_.getData(data_id).aliases_input.has_value();
           });
-      if (has_aliasing_) {
+      if (has_aliasing) {
         debug() << "Aliasing detected in task graph. Original graph:\n";
         debug() << orig_graph_.toString() << "\n\n";
         if (hasDebugDumpArgument(DebugDumpOption::TaskGraph, "mermaid")) {
@@ -375,10 +379,8 @@ class TaskSorter {
 
     for (const TaskGraph::DataId output_id : task.outputs) {
       const TaskGraph::Data& output = graph_.getData(output_id);
-      // Allocate outputs if not aliased
-      if (!output.aliases_input.has_value()) {
-        allocated += output.size;
-      }
+      // Allocate outputs
+      allocated += output.size;
 
       // Update outstanding_dependencies_ and ready_tasks_ for each use
       for (const TaskGraph::TaskId use_id : output.uses) {
@@ -439,44 +441,15 @@ class TaskSorter {
     return last_task_id;
   }
 
-  //! A task is ready if it has no outstanding_dependencies _and_ it is the last
-  //! use for all of its aliased inputs.
+  //! A task is ready if it has no outstanding_dependencies and it is the last
+  //! use for all of its aliased inputs. Note that since we convert to a graph
+  //! with no aliases in the constructor of this class, it is safe to assume
+  //! that there are no alias conflicts.
   bool taskIsReady(TaskGraph::TaskId task_id) const {
-    if (outstanding_dependencies_.at((size_t)task_id) != 0) {
-      return false;
-    }
-    if (!has_aliasing_ || !task_has_aliased_input_.at((size_t)task_id)) {
-      return true;
-    }
-    // The rest of this function is the aliasing dependency check
-    for (const TaskGraph::DataId output_id : arange(graph_.numData())) {
-      const TaskGraph::Data& output_data = graph_.getData(output_id);
-      if (output_data.aliases_input.has_value()) {
-        TaskGraph::DataId input_id = output_data.aliases_input.value();
-        // Check for future uses (beyond the current one)
-        if (future_uses_.at((size_t)input_id) > 1) {
-          return false;
-        }
-      }
-    }
-    return true;
+    return outstanding_dependencies_.at((size_t)task_id) == 0;
   }
 
   void sort() {
-    if (has_aliasing_) {
-      task_has_aliased_input_.resize(graph_.numTasks(), false);
-      for (const TaskGraph::DataId data_id : arange(graph_.numData())) {
-        const TaskGraph::Data& data = graph_.getData(data_id);
-        if (data.aliases_input.has_value()) {
-          NVF_ERROR(
-              data.definition.has_value(),
-              "Data that aliases input must have a definition");
-          task_has_aliased_input_.at(data.definition.value()) = true;
-          continue;
-        }
-      }
-    }
-
     // Set up outstanding_dependencies_, future_uses_, and ready_tasks_
     future_uses_.resize(graph_.numData(), 0);
     for (const TaskGraph::DataId data_id : arange(graph_.numData())) {
@@ -580,14 +553,6 @@ class TaskSorter {
   const bool debug_;
   const bool validate_;
   const int64_t max_time_us_;
-
-  //! This allows us to skip aliasing checks in the common case where no inputs
-  //! are aliased by outputs
-  bool has_aliasing_ = false;
-  //! This tells us which tasks overwrite one of their inputs. For these, we
-  //! will need to check that the aliased input has no future uses before
-  //! advancing to it.
-  std::vector<bool> task_has_aliased_input_;
 
   TaskGraph::SortResult result_;
   std::vector<TaskGraph::Step> steps_;
