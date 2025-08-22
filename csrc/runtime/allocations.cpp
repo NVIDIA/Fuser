@@ -336,6 +336,59 @@ std::vector<GlobalBufferInfo> getBufferInfos(
 
 namespace {
 
+// Helper function to compute the shape and strides needed for merging
+// dimensions in a tensor. Used when merging dimensions in the allocation domain
+// that may have been permuted, making them non-contiguous.
+//
+// For example, if a tensor has shape [8, 16, 4, 32, 4] and strides [8192, 512,
+// 4, 16, 1] after a permute, and we want to merge the [4, 32] dimensions,
+// view() would fail since they are non-contiguous. This function computes the
+// correct shape and strides to use with as_strided() instead.
+//
+// Args:
+//   tensor: The input tensor whose dimensions will be merged
+//   new_shape: Target shape with -1 indicating dimensions to merge with the
+//   next dim
+//
+// Returns:
+//   A pair containing:
+//   - The final shape after merging dimensions
+//   - The strides needed for as_strided() to properly merge the dimensions
+std::pair<std::vector<int64_t>, std::vector<int64_t>>
+getShapeAndStrideAfterDimMerged(
+    const at::Tensor& tensor,
+    const std::vector<int64_t>& new_shape) {
+  // Copy tensor shape into std::vector<int64_t>
+  std::vector<int64_t> tensor_shape_vec(
+      tensor.sizes().begin(), tensor.sizes().end());
+  std::vector<int64_t> tensor_new_shape;
+  size_t i = 0;
+  while (i < new_shape.size()) {
+    if (new_shape[i] != -1) {
+      tensor_new_shape.push_back(new_shape[i]);
+      ++i;
+    } else {
+      // Multiply the corresponding entry and the next entry in
+      // tensor_shape_vec
+      NVF_ERROR(
+          i + 1 < tensor_shape_vec.size(),
+          "Index out of bounds for -1 handling in new_shape");
+      tensor_new_shape.push_back(tensor_shape_vec[i] * tensor_shape_vec[i + 1]);
+      ++i;
+    }
+  }
+
+  // Compute cumulative product from highest index to 0-th index
+  std::vector<int64_t> tensor_new_strides(tensor_new_shape.size(), 1);
+  int64_t prod = 1;
+  for (int i = static_cast<int>(tensor_new_shape.size()) - 1; i >= 0; --i) {
+    prod *= tensor_new_shape[i];
+    tensor_new_strides[i] = prod;
+  }
+
+  return {tensor_new_shape, tensor_new_strides};
+}
+
 class ForwardTraverseFromAllocToLogical {
   at::Tensor tensor_;
   const ExpressionEvaluator& ee_;
@@ -431,7 +484,13 @@ class ForwardTraverseFromAllocToLogical {
         new_shape.emplace_back(tensor_.size(i));
       }
     }
-    tensor_ = tensor_.view(new_shape);
+
+    // Please see use in the call site in backward traverse
+    // for an explanation of why we use as_strided.
+    auto [tensor_new_shape, tensor_new_strides] =
+        getShapeAndStrideAfterDimMerged(tensor_, new_shape);
+    tensor_ = tensor_.as_strided(tensor_new_shape, tensor_new_strides);
+
     // update frontier
     if (inner_dim < outer_dim) {
       *inner_it = out;
@@ -526,34 +585,18 @@ class BackwardTraverseFromAllocToLogical {
       }
     }
 
-    // Copy tensor_ shape into std::vector<int64_t>
-    std::vector<int64_t> tensor_shape_vec(
-        tensor_.sizes().begin(), tensor_.sizes().end());
-    std::vector<int64_t> tensor_new_shape;
-    size_t i = 0;
-    while (i < new_shape.size()) {
-      if (new_shape[i] != -1) {
-        tensor_new_shape.push_back(new_shape[i]);
-        ++i;
-      } else {
-        // Multiply the corresponding entry and the next entry in
-        // tensor_shape_vec
-        NVF_ERROR(
-            i + 1 < tensor_shape_vec.size(),
-            "Index out of bounds for -1 handling in new_shape");
-        tensor_new_shape.push_back(
-            tensor_shape_vec[i] * tensor_shape_vec[i + 1]);
-        ++i;
-      }
-    }
-
-    // Compute cumulative product from highest index to 0-th index
-    std::vector<int64_t> tensor_new_strides(tensor_new_shape.size(), 1);
-    int64_t prod = 1;
-    for (int i = static_cast<int>(tensor_new_shape.size()) - 1; i >= 0; --i) {
-      prod *= tensor_new_shape[i];
-      tensor_new_strides[i] = prod;
-    }
+    // We use a helper function to compute the shape and strides needed to call
+    // as_strided. We use as_strided instead of view because view does not
+    // support cases where a previous permute would have made dimensions we want
+    // to merge non-contiguous. Thus view would throw an error. We could have
+    // used reshape, but reshape can trigger a memory copy.
+    // For example, say before permute, the tensor shape is [8, 16, 32, 4, 4]
+    // with strides [8192, 512, 16, 4, 1]. After permute, the tensor shape is
+    // [8, 16, 4, 32, 4], and strides [8192, 512, 4, 16, 1]. If we were applying
+    // a view such as [8, 16, -1, 4], merging [4, 32], view would fail as these
+    // are non-contiguous.
+    auto [tensor_new_shape, tensor_new_strides] =
+        getShapeAndStrideAfterDimMerged(tensor_, new_shape);
 
     tensor_ = tensor_.as_strided(tensor_new_shape, tensor_new_strides);
 
