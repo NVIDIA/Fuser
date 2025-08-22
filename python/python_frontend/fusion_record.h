@@ -1734,8 +1734,6 @@ struct ScanOpRecord : RecordFunctor {
       result = RecordFunctor::operator==(other);
       if (result) {
         result = result &&
-            (fusion_op_.target_type() == child_ptr->fusion_op_.target_type());
-        result = result &&
             (*fusion_op_
                   .template target<TensorView* (*)(TensorView*, int64_t)>() ==
              *child_ptr->fusion_op_
