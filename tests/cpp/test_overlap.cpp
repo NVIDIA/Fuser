@@ -336,7 +336,11 @@ TEST_F(RingBasedOverlapTest, RowAndSequenceParallelLinear_WeightGrad) {
   preseg_passes::OptimizationPass<
       preseg_passes::PropagateShardingsPass>::runPass(fusion.get());
 
-  // Due to rFactor, `w` points to the tensor before `sum` and is therefore 5D.
+  // Due to lack of DecomposeReshardingsPass, `w` looks like the following:
+  //
+  //                   [h, 4h, r{t}]
+  //                       /\  /\.
+  //                      d   s
   EXPECT_THAT(
       w->getLoopDomain(),
       ElementsAre(
@@ -453,8 +457,11 @@ TEST_F(CollectiveBasedOverlapTest, RowParallelLinear_Forward) {
 
   preseg_passes::OptimizationPass<
       preseg_passes::PropagateShardingsPass>::runPass(fusion.get());
-  // Due to rFactor, `out` points to the tensor before `sum` and is therefore
-  // 5D.
+  // Due to lack of DecomposeReshardingsPass, `out` looks like the following:
+  //
+  //                  [t, h, r{4h}]
+  //                  /\      /\.
+  //                 s       d
   EXPECT_THAT(
       out->getLoopDomain(),
       ElementsAre(
