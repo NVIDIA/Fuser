@@ -15,6 +15,7 @@
 #include <device_lower/pass/alias_memory.h>
 #include <device_lower/pass/allocation.h>
 #include <device_lower/pass/circular_buffer.h>
+#include <device_lower/pass/cluster_reduction.h>
 #include <device_lower/pass/expr_sort.h>
 #include <device_lower/pass/fusion_simplifier.h>
 #include <device_lower/pass/grid_serialization.h>
@@ -217,6 +218,7 @@ GpuLower::GpuLower(Fusion* fusion, const CompileParams& cparams)
            {"loadStoreOpInserter", loadStoreOpInserter},
            {"insertGridSerializationSyncs", insertGridSerializationSyncs},
            {"insertAllocations", insertAllocations},
+           {"generateClusterReductions", generateClusterReductions},
            {"setInplaceAlias", setInplaceAlias},
            {"reuseMemoryAllocations", reuseMemoryAllocations},
            {"CircularBufferPass", CircularBufferPass::run},
@@ -510,6 +512,9 @@ void GpuLower::analysis(Fusion* fusion) {
   // Validate swizzle usage on the fusion schedule.
   validateSwizzle(fusion_);
   dumpExprsIfEnabled(fusion_->exprs(), "validateSwizzle");
+
+  validateAndConvertClusterReductions(fusion_);
+  dumpExprsIfEnabled(fusion_->exprs(), "validateAndConvertClusterReductions");
 
   validateReductions(fusion_);
   dumpExprsIfEnabled(fusion_->exprs(), "validateReductions");

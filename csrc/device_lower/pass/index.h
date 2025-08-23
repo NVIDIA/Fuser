@@ -71,12 +71,14 @@ class IndexLowering : private OptOutConstDispatch {
   void handle(const CatOp*) final;
 
   void handle(const kir::Asm*) final;
+  void handle(const kir::ClusterReductionOp*) final;
   void handle(const ForLoop*) final;
   void handle(const kir::IfThenElse*) final;
   void handle(const kir::Allocate*) final;
   void handle(const kir::AllocTMem*) final;
   void handle(const kir::BlockSync*) final;
   void handle(const kir::GridSync*) final;
+  void handle(const kir::ClusterSync*) final;
   void handle(const kir::FenceAsyncProxy*) final;
   void handle(const kir::WgMmaFence*) final;
   void handle(const kir::SetMaxNReg*) final;

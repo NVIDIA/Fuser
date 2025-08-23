@@ -1153,7 +1153,8 @@ std::string _getStructuredCode(
     std::string kernel_name,
     bool has_argsort = false,
     bool has_topk = false,
-    bool has_scan = false) {
+    bool has_scan = false,
+    bool has_cluster_reduction = false) {
   // generating cuda code;
   std::string code = "";
 
@@ -1188,6 +1189,9 @@ std::string _getStructuredCode(
   }
   if (has_topk) {
     code += nvfuser_resources::topk_cu;
+  }
+  if (has_cluster_reduction) {
+    code += nvfuser_resources::cluster_cu;
   }
 
   code += "\nnamespace " + CompiledKernel::kernelNamespace() + " {\n\n";
@@ -1434,7 +1438,8 @@ std::string CompiledKernel::getStructuredCode() const {
       kernelName(),
       kernel()->summary().has_argsort,
       kernel()->summary().has_topk,
-      kernel()->summary().has_scan);
+      kernel()->summary().has_scan,
+      kernel()->summary().has_cluster_reduction);
 }
 
 std::string CompiledKernel::disassembledKernelSASS() const {
