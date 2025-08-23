@@ -1,9 +1,10 @@
-# SPDX-FileCopyrightText: Copyright (c) 2024-present NVIDIA CORPORATION & AFFILIATES.
+# contextmanager SPDX-FileCopyrightText: Copyright (c) 2024-present NVIDIA CORPORATION & AFFILIATES.
 # All rights reserved.
 # SPDX-License-Identifier: BSD-3-Clause
 
 import torch
 from nvfuser import FusionDefinition, DataType
+from nvfuser.pytorch_utils import RecordTorchMemory
 from python.utils import NVFuserTest
 
 
@@ -2469,3 +2470,60 @@ class TestRepro(NVFuserTest):
             ),
         ]
         fd.validate(inputs)
+
+    # https://github.com/NVIDIA/Fuser/issues/3290
+    def test_execution_order(self):
+        N_PARALLEL_PATHS = 10
+
+        with FusionDefinition() as fd:
+            T0s = [
+                fd.define_tensor(
+                    shape=[256, 256],
+                    contiguity=[True, True],
+                    dtype=DataType.Float,
+                    is_cpu=False,
+                    stride_order=[1, 0],
+                )
+                for _ in range(N_PARALLEL_PATHS)
+            ]
+            a = fd.define_tensor(
+                shape=[256, 256],
+                contiguity=[True, True],
+                dtype=DataType.Float,
+                is_cpu=False,
+                stride_order=[1, 0],
+            )
+            for T0 in T0s:
+                T1 = fd.ops.relu(T0)
+                T2 = fd.ops.matmul(T1, T1)
+                T3 = fd.ops.relu(T2)
+                a = fd.ops.matmul(T3, a)
+            fd.add_output(a)
+
+        t0s = [
+            torch.randn(256, 256, device="cuda") for _ in range(N_PARALLEL_PATHS)
+        ]  # 0.25 MiB * N_PARALLEL_PATHS
+        a = torch.randn(256, 256, device="cuda")  # 0.25 MiB
+
+        # Warm up
+        fd.execute([*t0s, a])
+
+        with RecordTorchMemory() as nvf_mem:
+            fd.execute([*t0s, a])
+
+        def eager_func(t0s, a):
+            for t0 in t0s:
+                t1 = torch.nn.functional.relu(t0)
+                del t0
+                t2 = torch.matmul(t1, t1)
+                del t1
+                t3 = torch.nn.functional.relu(t2)
+                del t2
+                a = torch.matmul(t3, a)
+                del t3
+            return a
+
+        with RecordTorchMemory() as eager_mem:
+            eager_func(t0s, a)
+
+        assert nvf_mem == eager_mem
