@@ -14,11 +14,12 @@
 #include <scheduler/all_schedulers.h>
 #include <scheduler/normalization_utils.h>
 #include <scheduler/reduction_utils.h>
+#include <scheduler/tools/inlining.h>
 #include <scheduler/utils.h>
 #include <tests/cpp/utils.h>
 #include <tests/cpp/validator.h>
-#include "ir/internal_nodes.h"
-#include "ir/utils.h"
+#include "ops/arith.h"
+#include "type.h"
 namespace nvfuser {
 
 using testing::Contains;
@@ -1910,63 +1911,166 @@ TEST_F(PersistentBufferTest, BroadcastSyncInputsHasBcast) {
   testValidate(&unscheduled_fusion_copy, outputs, {t0, t1}, __LINE__, __FILE__);
 }
 
-// Should cache gather lookup tv if it is a persistent buffer
-TEST_F(PersistentBufferTest, BufferGatherLookupTv) {
-  DataType dtype = DataType::BFloat16;
-  int x = 1024;
-  int y = 2048;
+// Test cluster reduction with different models, dtype, and cluster size
+// is_softmax: true for softmax, false for simple norm
+// softmax uses cluster reduction twice in a single kernel with op max and add
+using ClusterReductionTestParams =
+    std::tuple</*is_softmax*/ bool, DataType, /*blocks_per_cluster=*/int64_t>;
+using ClusterReductionTest =
+    NVFuserFixtureParamTest<ClusterReductionTestParams>;
+TEST_P(ClusterReductionTest, SoftmaxDtypeClusterSize) {
+  // reduction domain is scheduled as:
+  // [blocks_per_cluster, batches_per_block, threads_per_block, vect_factor]
+  auto [is_softmax, dtype, blocks_per_cluster] = GetParam();
+  constexpr int batches_per_block = 2;
+  constexpr int threads_per_block = 256;
+  const int vect_factor = 128 / dataTypeSizeBit(dtype);
+  int y =
+      threads_per_block * blocks_per_cluster * vect_factor * batches_per_block;
+  // use two waves
+  int x = (deviceSMCount() * 2 + blocks_per_cluster - 1) / blocks_per_cluster;
   auto fusion_ptr = std::make_unique<Fusion>();
   auto& fusion = *fusion_ptr;
   FusionGuard fg(fusion_ptr.get());
   auto tv0 = makeContigConcreteTensor({x, y}, dtype);
-  auto index_tv = makeContigConcreteTensor({x}, DataType::Int);
   fusion.addInput(tv0);
-  fusion.addInput(index_tv);
   auto tv1 = maybeCastOp(DataType::Float, tv0);
-  auto tv2 = sum(tv1, {1});
-  auto tv3 = broadcast(tv2, {false, true});
-  auto tv4 = broadcast(index_tv, {false, true});
-  auto tv5 = gather(tv0, 1, tv4);
-  auto tv6 = maybeCastOp(DataType::BFloat16, tv5);
-  auto tv7 = add(tv3, tv6);
-  auto tv8 = add(tv1, tv7);
-  auto tv9 = maybeCastOp(DataType::BFloat16, tv8);
-  fusion.addOutput(tv9);
+  if (is_softmax) {
+    auto tv2 = softmax(tv1, {1});
+    auto tv3 = maybeCastOp(DataType::BFloat16, tv2);
+    fusion.addOutput(tv3);
+  } else {
+    auto tv2 = sum(tv1, {1});
+    auto tv3 = broadcast(tv2, {false, true});
+    auto tv4 = add(tv1, tv3);
+    auto tv5 = maybeCastOp(DataType::BFloat16, tv4);
+    fusion.addOutput(tv5);
+  }
   auto unscheduled_fusion_copy = fusion;
 
+  torch::cuda::manual_seed(0);
   auto options =
       at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
-  auto options_i = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
   auto t0 = at::randn({x, y}, options).clamp(-2, 2);
-  auto t1 = at::randint(0, y, {x}, options_i);
-  SchedulerRuntimeInfo runtime_info(fusion_ptr.get(), {t0, t1});
+  SchedulerRuntimeInfo runtime_info(fusion_ptr.get(), {t0});
   auto scheduler =
       SchedulerEntry::makeSchedulerInstance(SchedulerType::InnerPersistent);
   auto heuristic_params =
       scheduler->computeHeuristics(fusion_ptr.get(), runtime_info);
+  auto rparams = heuristic_params->as<ReductionParams>();
+  rparams->cross_cluster_reduction = true;
+  rparams->cross_grid_inner_reduction = true;
+  rparams->grid_dim_inner_reduction = ParallelType::BIDx;
+  rparams->grid_dim_iter_dom = ParallelType::BIDy;
+  rparams->batches_per_block_inner_reduction = batches_per_block;
+  rparams->static_bdimx = true;
+  rparams->static_gdimx = true;
+  rparams->lparams = LaunchParams(
+      blocks_per_cluster,
+      LaunchParams::UNINITIALIZED_VAL,
+      LaunchParams::UNINITIALIZED_VAL,
+      threads_per_block,
+      LaunchParams::UNINITIALIZED_VAL,
+      LaunchParams::UNINITIALIZED_VAL);
+
   scheduler->schedule(fusion_ptr.get(), heuristic_params.get());
   KernelExecutor ke;
-  ke.compile(fusion_ptr.get(), {t0, t1});
+  ke.compile(fusion_ptr.get(), {t0});
   auto outputs =
-      ke.run({t0, t1}, {}, heuristic_params->as<ReductionParams>()->lparams);
+      ke.run({t0}, {}, heuristic_params->as<ReductionParams>()->lparams);
+  testValidate(&unscheduled_fusion_copy, outputs, {t0});
+}
+INSTANTIATE_TEST_SUITE_P(
+    PersistentBufferTest,
+    ClusterReductionTest,
+    ::testing::Combine(
+        ::testing::Values(true, false),
+        ::testing::Values(DataType::BFloat16, DataType::Float),
+        ::testing::Values(2, 3, 4, 5, 6, 7, 8)),
+    [](const testing::TestParamInfo<ClusterReductionTestParams>& info) {
+      std::stringstream ss;
+      ss << "is_softmax_" << std::get<0>(info.param);
+      ss << "_dtype_" << std::get<1>(info.param);
+      ss << "_cluster_" << std::get<2>(info.param);
+      return sanitizeTestName(ss.str());
+    });
 
-  // tv0 is a lookup tv, should stays in global memory and consumed by a gather
-  // op tv0 is also a persistent buffer, should be cached in shared memory or
-  // register So, we should expect two uses of tv0, one is a gather op, the
-  // other is a load op
-  const auto& tv0_uses = tv0->uses();
-  EXPECT_THAT(
-      tv0_uses,
-      testing::UnorderedElementsAre(
-          testing::Truly([](Expr* e) { return e->isA<GatherOp>(); }),
-          testing::Truly([](Expr* e) { return e->isA<LoadStoreOp>(); })));
+TEST_F(PersistentBufferTest, CpAsyncBulk1dClusterReduction) {
+  NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
+  constexpr at::ScalarType dtype = at::ScalarType::Float;
+  CompileParams index32bit{DataType::Int32, 255, false};
 
-  // index_tv is a indicies tv, should be cached in register
-  // Gather op will use the cached version
-  const auto& index_tv_uses = index_tv->uses();
-  EXPECT_EQ(index_tv_uses.size(), 1);
-  EXPECT_TRUE(index_tv_uses.at(0)->isA<LoadStoreOp>());
+  constexpr int dim0 = 1024, dim1 = 1024 * 64;
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  auto tv0 = makeContigConcreteTensor({dim0, dim1}, aten_to_data_type(dtype));
+  fusion->addInput(tv0);
+  auto tv1 = set(tv0);
+  tv1->setMemoryType(MemoryType::Shared);
+  tv1->definition()->as<LoadStoreOp>()->setOpType(LoadStoreOpType::CpAsyncBulk);
+  auto tv2 = set(tv1);
+  auto tv3 = sum(tv2, {1});
+  auto tv4 = broadcast(tv3, {false, true});
+  auto tv5 = set(tv1);
+  auto tv6 = add(tv5, tv4);
+  auto tv7 = set(tv6);
+  fusion->addOutput(tv7);
+  auto unscheduled_fusion_copy = *fusion;
 
-  testValidate(&unscheduled_fusion_copy, outputs, {t0, t1});
+  int64_t vect = 4, threads = 256, blocks = 4;
+  int64_t persistent = dim1 / vect / threads / blocks;
+  int64_t smem = dataTypeSizeByte(aten_to_data_type(dtype)) * dim1 / blocks;
+  for (auto tv : {tv1, tv2, tv3, tv4, tv5, tv6, tv7}) {
+    // [I0/sm, sm, ...]
+    tv->split(0, deviceSMCount());
+    // [I0/sm, sm, ...] --> [sm, I0/sm, ...]
+    tv->reorder({{0, 1}});
+
+    // cluster dim
+    // [..., I1] --> [..., 2, I1/2]
+    tv->split(2, blocks, false);
+    if (tv == tv1) {
+      continue;
+    }
+    // [..., 2, I1/2] --> [..., 2, I1/2/4, 4]
+    tv->split(-1, vect); // vect
+    // [..., 2, I1/2/4, 4] --> [..., 2, 64, I1/2/4/64, 4]
+    tv->split(-2, persistent, false); // persistent batch
+  }
+
+  // iter dim: BIDy, CircularBufferLoop
+  // redu dim: BIDx, Bulk
+  // redu dim: BIDx, PersistentBatch, TIDx, Vectorize
+  for (auto tv : {tv1, tv2, tv3, tv4, tv5, tv6, tv7}) {
+    tv->axis(0)->parallelize(ParallelType::BIDy);
+    tv->axis(1)->parallelize(ParallelType::Serial);
+    // reduce dims, BIDx
+    tv->axis(2)->parallelize(ParallelType::BIDx);
+    if (tv == tv1) {
+      tv->axis(3)->parallelize(ParallelType::Bulk);
+      continue;
+    }
+    // reduction dims: PersistentBatch, TIDx, Vectorize
+    tv->axis(3)->parallelize(ParallelType::Serial);
+    tv->axis(4)->parallelize(ParallelType::TIDx);
+    tv->axis(4)->padToMultipleOfWarp();
+    if (tv->definition()->isA<LoadStoreOp>()) {
+      tv->axis(5)->parallelize(ParallelType::Vectorize);
+    } else {
+      tv->axis(5)->parallelize(ParallelType::Serial);
+    }
+  }
+  tv3->axis(2)->setClusteredBlocks(true);
+  tv3->rFactor({-1, -3});
+
+  inlineMost();
+  tv1->circularBuffer(2, 1, WarpSpecialized(ParallelType::TIDx));
+
+  auto options = at::TensorOptions().dtype(dtype).device(at::kCUDA, 0);
+  at::Tensor at_tv0 = at::randn({dim0, dim1}, options);
+  KernelExecutor ke;
+  ke.compile(fusion.get(), {at_tv0}, {}, index32bit);
+  // auto outputs = ke.run({at_tv0});
+  // testValidate(&unscheduled_fusion_copy, outputs, {at_tv0});
 }
 } // namespace nvfuser

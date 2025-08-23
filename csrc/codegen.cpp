@@ -460,9 +460,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
           auto space_type = kernel_summary.largest_smem_data_type;
           indent() << "nvfuser_index_t block_size = "
                       "blockDim.x*blockDim.y*blockDim.z;\n";
-          indent() << space_type << " *shared_mem_var = "
-                   << "static_cast<" << space_type << "*>("
-                   << "shared_mem);\n";
+          indent() << space_type << " *shared_mem_var = " << "static_cast<"
+                   << space_type << "*>(" << "shared_mem);\n";
           indent() << space_type
                    << " *shared_mem_avg = shared_mem_var + block_size;\n";
           indent() << space_type
@@ -1668,8 +1667,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     // This is slightly different from getReductionOp
     std::stringstream lambda;
     lambda << "[](const " << input->dtype() << "& a, const " << input->dtype()
-           << "& b) "
-           << "{ return "
+           << "& b) " << "{ return "
            << genBinaryOp(scan->opType(), input->dtype(), "a", "b") << "; }";
     func_args.arg(lambda.str());
 
@@ -2103,8 +2101,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     const bool has_grid_reduce = domain->hasGridReduction();
 
     if (!has_block_reduce && !has_grid_reduce) {
-      indent() << "welfordCombine ("
-               << "\n";
+      indent() << "welfordCombine (" << "\n";
       indent() << kTab << gen(out_avg) << ",\n";
       indent() << kTab << gen(out_var) << ",\n";
       indent() << kTab << gen(out_N) << ",\n";
@@ -3969,8 +3966,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
                       // actual argument value like T0[i * 4 + j].
                       << (as_utility ? prefix + std::to_string(counter)
                                      : gen(register_))
-                      << "[" << i << "]"
-                      << ")";
+                      << "[" << i << "]" << ")";
                 }
               } else {
                 (*asm_target) << "\"" << constraint << "\"(";
@@ -4130,7 +4126,14 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     indent() << sync_call << ";\n";
   }
 
+  void handle(const kir::ClusterSync* sync) final {
+    indent() << "cluster::clusterSync();\n";
+  }
+
   void handle(const kir::MBarrierInit* init) final {
+    std::cout << "MBarrierInit init: " << init->toString() << std::endl;
+    std::cout << "MBarrierInit mbarrier: " << init->mbarrier()->toInlineString()
+              << std::endl;
     auto call = genCall(
         "mbarrier::init",
         ArgumentBuilder()
@@ -4275,6 +4278,66 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
 
   void handle(const kir::Return* ret) final {
     indent() << "return;\n";
+  }
+
+  void handle(const kir::ClusterReductionOp* cluster_reduction) final {
+    const auto output = cluster_reduction->out()->as<kir::TensorIndex>();
+    const auto input = cluster_reduction->in()->as<kir::TensorIndex>();
+    const auto op_type = cluster_reduction->getReductionOpType();
+    const auto init_val = cluster_reduction->init();
+
+    // Get mbarrier from cluster reduction
+    const auto mbarrier = cluster_reduction->mbarrier();
+
+    // Inline cluster reduction logic with mbarrier support
+    const auto par_domains = ir_utils::getParallelDomains(output);
+    // Get parallel reduction domains
+    const bool tidx =
+        par_domains.find(ParallelType::TIDx) != par_domains.end() &&
+        par_domains.at(ParallelType::TIDx)->isReduction();
+    const bool tidy =
+        par_domains.find(ParallelType::TIDy) != par_domains.end() &&
+        par_domains.at(ParallelType::TIDy)->isReduction();
+    const bool tidz =
+        par_domains.find(ParallelType::TIDz) != par_domains.end() &&
+        par_domains.at(ParallelType::TIDz)->isReduction();
+    NVF_ERROR(
+        tidx && !tidy && !tidz,
+        "Only support reduction in x direction for now");
+    // domain parallelized by BIDx must be static
+    NVF_ERROR(
+        par_domains.count(ParallelType::BIDx) == 1 &&
+            par_domains.at(ParallelType::BIDx)->isReduction() &&
+            par_domains.at(ParallelType::BIDx)->extent()->isConst(),
+        "BIDx must be static and used in cluster reduction.");
+    NVF_ERROR(
+        par_domains.count(ParallelType::TIDx) == 1 &&
+            par_domains.at(ParallelType::TIDx)->isReduction() &&
+            par_domains.at(ParallelType::TIDx)->hasPaddingToMultipleOfWarp(),
+        "TIDx must be padded to multiple of warp size and used in cluster "
+        "reduction.");
+    int64_t blocks_per_cluster =
+        par_domains.at(ParallelType::BIDx)->extent()->value().as<int64_t>();
+    int64_t warps_per_block = lparams_.bdimx() / 32;
+
+    const auto data_type = output->dtype();
+    ArgumentBuilder template_args;
+    template_args.arg("/*blocks_per_cluster=*/")
+        .append(std::to_string(blocks_per_cluster));
+    template_args.arg("/*warps_per_block=*/")
+        .append(std::to_string(warps_per_block));
+
+    ArgumentBuilder func_args;
+    func_args.arg(gen(output));
+    func_args.arg(gen(input));
+    func_args.arg(gen(init_val));
+    // Convert mbarrier TensorView to smem address
+    func_args.arg(genInline(mbarrier));
+    func_args.arg(genReductionOp(op_type, output->dtype()));
+    std::cout << "clusterReduce mbarrier: " << mbarrier->toString()
+              << std::endl;
+    indent() << genCall("cluster::clusterReduce", template_args, func_args)
+             << ";\n";
   }
 
  private:

@@ -1258,7 +1258,76 @@ class AllocationInserter : public kir::ExprMutator {
     return alloc_expr;
   }
 
+  // Insert cluster reduction mbarrier allocation and initialization at the
+  // beginning of the kernel for the first top-level expression
+  void insertClusterReductionMBarrier(Expr* expr) {
+    int64_t cluster_reduction_count =
+        GpuLower::current()->clusterReductionCount();
+
+    // mbarrier for cluster reduction
+    // create and allocate a memory barrier
+    TensorView* all_mbarriers =
+        TensorViewBuilder()
+            .shape(std::vector<int64_t>{cluster_reduction_count})
+            .dtype(DataType::UInt64)
+            .contiguity(true)
+            .build();
+    all_mbarriers->setMemoryType(MemoryType::Shared);
+    kir::Allocate* mbarrier_alloc =
+        IrBuilder::create<kir::Allocate>(all_mbarriers, MemoryType::Shared);
+    registerInsertBefore(expr, mbarrier_alloc, nullptr);
+
+    if (cluster_reduction_count == 1) {
+      // For single mbarrier, use TensorView directly without loop
+      auto mbarrier_init = IrBuilder::create<kir::MBarrierInit>(
+          all_mbarriers,
+          simplifyExpr(SimplifyingIrBuilder::maybeCastExpr(
+              DataType::UInt32, GpuLower::current()->kernel()->oneVal())));
+      Expr* pred_mbarrier_init = mbarrier_init->withPredicate(
+          IrBuilder::create<kir::Predicate>(PredicateType::ElectSync));
+
+      std::cout << "inserting cluster reduction mbarrier: "
+                << pred_mbarrier_init->toString() << std::endl;
+      registerInsertBefore(expr, pred_mbarrier_init, nullptr);
+    } else {
+      // For multiple mbarriers, create a for loop using the utility function
+      auto fl = ir_utils::createRangeLoop(cluster_reduction_count);
+      kir::TensorIndex* indexed_mbarrier =
+          IrBuilder::create<kir::TensorIndex>(all_mbarriers, fl->index());
+
+      auto mbarrier_init = IrBuilder::create<kir::MBarrierInit>(
+          indexed_mbarrier,
+          simplifyExpr(SimplifyingIrBuilder::maybeCastExpr(
+              DataType::UInt32, GpuLower::current()->kernel()->oneVal())));
+      Expr* pred_mbarrier_init = mbarrier_init->withPredicate(
+          IrBuilder::create<kir::Predicate>(PredicateType::ElectSync));
+
+      fl->body().push_back(pred_mbarrier_init);
+
+      std::cout << "inserting cluster reduction mbarrier: " << fl->toString()
+                << std::endl;
+      registerInsertBefore(expr, fl, nullptr);
+    }
+
+    // Store the mbarrier in GpuLower for later use in cluster reduction ops
+    GpuLower::current()->setClusterReductionMBarrier(all_mbarriers);
+
+    // Insert clusterSync after mbarrier initialization to ensure mbarrier is
+    // visible to other CTAs
+    auto cluster_sync = IrBuilder::create<kir::ClusterSync>();
+    std::cout << "inserting clusterSync: " << cluster_sync->toString()
+              << std::endl;
+    registerInsertBefore(expr, cluster_sync, nullptr);
+  }
+
   void dispatch(Expr* expr) override {
+    // Insert cluster reduction mbarrier on first expression at top-level scope
+    if (GpuLower::current()->clusterReductionCount() != -1 &&
+        !cluster_mbarrier_inserted_ && scope_.empty()) {
+      insertClusterReductionMBarrier(expr);
+      cluster_mbarrier_inserted_ = true;
+    }
+
     if (!ir_utils::isTvOp(expr) || expr->isA<kir::Allocate>() ||
         expr->isA<kir::AllocTMem>()) {
       ExprMutator::dispatch(expr);
@@ -1633,6 +1702,8 @@ class AllocationInserter : public kir::ExprMutator {
 
  private:
   GpuLower* gpu_lower_ = nullptr;
+  bool cluster_mbarrier_inserted_ = false;
+  int64_t cluster_reduction_index_ = 0;
 
  public:
   static std::vector<Expr*> insert(const std::vector<Expr*>& exprs) {
@@ -1895,7 +1966,8 @@ std::vector<Expr*> insertAllocations(const std::vector<Expr*>& exprs) {
   // - A tcgen05.relinquish_alloc_permit after all tcgen05.allocs
   auto result = insertTMemRegionAllocsAndDeallocs(exprs);
   // Insert kir::Allocate for each Val, including the kir::Allocate for tensor
-  // memory TensorViews, in fusion math.
+  // memory TensorViews, in fusion math. AllocationInserter also handles
+  // cluster reduction mbarrier allocation and initialization.
   return AllocationInserter::insert(result);
 }
 

@@ -38,8 +38,13 @@ namespace nvfuser {
 namespace {
 // Alias used for std::transform
 IterDomain* exactConcreteId(IterDomain* id) {
-  return GpuLower::current()->info().caMap().getConcreteMappedID(
-      id, IdMappingMode::EXACT);
+  auto& ca_map = GpuLower::current()->info().caMap();
+  if (!ca_map.idExistsInMap(id)) {
+    // Return the original IterDomain if it's not in the ComputeAtMap
+    // This can happen for tensors created during lowering passes
+    return id;
+  }
+  return ca_map.getConcreteMappedID(id, IdMappingMode::EXACT);
 }
 
 //! Checks that the current loop nest is realizing a serial
@@ -880,6 +885,11 @@ class AllocationInfoMap : private kir::IrVisitor {
 
     auto mark_liveness = [&expr_pos, this](TensorView* tv, bool is_write) {
       AllocationInfo* alloc_info = getAllocInfoFromTV(tv);
+      if (!alloc_info) {
+        // MBarrier tensors may not be tracked in allocation analysis
+        // if they were created during lowering passes
+        return;
+      }
       if (is_write) {
         alloc_info->inner_live_interval->markWrite(expr_pos);
       } else {

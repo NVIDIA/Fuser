@@ -199,6 +199,16 @@ class GpuLower : public NonCopyable {
     return mbarrier_map_;
   }
 
+  std::unordered_map<const kir::ClusterReductionOp*, kir::TensorIndex*>&
+  clusterReductionMBarrierMap() {
+    return cluster_reduction_mbarrier_map_;
+  }
+
+  const std::unordered_map<const kir::ClusterReductionOp*, kir::TensorIndex*>&
+  clusterReductionMBarrierMap() const {
+    return cluster_reduction_mbarrier_map_;
+  }
+
   bool isNvFuserZeroEnabled() {
     if (isOptionDisabled(DisableOption::MagicZero)) {
       return false;
@@ -298,6 +308,26 @@ class GpuLower : public NonCopyable {
     return id_model_options_;
   }
 
+  //! Get the cluster reduction count if set
+  int64_t clusterReductionCount() const {
+    return cluster_reduction_count_;
+  }
+
+  //! Set the cluster reduction count
+  void setClusterReductionCount(int64_t count) {
+    cluster_reduction_count_ = count;
+  }
+
+  //! Get the cluster reduction mbarrier tensor
+  TensorView* clusterReductionMBarrier() const {
+    return cluster_reduction_mbarrier_tensor_;
+  }
+
+  //! Set the cluster reduction mbarrier tensor
+  void setClusterReductionMBarrier(TensorView* mbarrier) {
+    cluster_reduction_mbarrier_tensor_ = mbarrier;
+  }
+
   //! Define an alias for consumer as producer.
   //!
   //! If producer is already aliased, we chase the alias. If there are tensors
@@ -389,6 +419,10 @@ class GpuLower : public NonCopyable {
   // Keep track of the mbarrier used for each load/store and blackwell utcmma
   std::unordered_map<const Expr*, TensorView*> mbarrier_map_;
 
+  // Keep track of the mbarrier used for each cluster reduction
+  std::unordered_map<const kir::ClusterReductionOp*, kir::TensorIndex*>
+      cluster_reduction_mbarrier_map_;
+
   // Information about tensor memory usage
   TensorMemoryInfo tmem_info_;
 
@@ -407,6 +441,13 @@ class GpuLower : public NonCopyable {
 
   // A temporary option set to selectively enable IdModel usage
   IdModelOptions id_model_options_;
+
+  // Cluster reduction count for barrier insertion
+  int64_t cluster_reduction_count_ = -1;
+
+  // The shared cluster reduction mbarrier tensor allocated during allocation
+  // pass
+  TensorView* cluster_reduction_mbarrier_tensor_ = nullptr;
 };
 
 #define NVFUSER_LOWER_VALIDATE(cond, ...) \

@@ -128,6 +128,7 @@ class Val;
   f(Asm);                             \
   f(BlockSync);                       \
   f(GridSync);                        \
+  f(ClusterSync);                     \
   f(FenceAsyncProxy);                 \
   f(WgMmaFence);                      \
   f(SetMaxNReg);                      \
@@ -143,6 +144,7 @@ class Val;
   f(BlockSerializeRelease);           \
   f(AsyncWait);                       \
   f(AsyncCommit);                     \
+  f(ClusterReductionOp);              \
   f(IfThenElse);                      \
   f(GridReduction);                   \
   f(GroupedGridReduction);            \

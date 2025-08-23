@@ -636,6 +636,32 @@ void IndexLowering::handle(const ReductionOp* rop) {
   }
 }
 
+void IndexLowering::handle(const kir::ClusterReductionOp* cop) {
+  // Lower indices for cluster reduction operation
+  const auto out = lowerDstIndex(cop->out());
+  const auto in = lowerSrcIndex(cop->in(), cop->out());
+  const auto init = lowerSrcIndex(cop->init(), cop->out());
+
+  // Convert mbarrier to shared memory address (similar to MBarrierInit)
+  Val* mbarrier_addr = nullptr;
+  if (cop->mbarrier()->isA<TensorView>()) {
+    mbarrier_addr =
+        lower_utils::u32IndexScalarSmemTv(cop->mbarrier()->as<TensorView>());
+  } else if (cop->mbarrier()->isA<kir::TensorIndex>()) {
+    mbarrier_addr = lower_utils::u32IndexScalarSmemTv(
+        cop->mbarrier()->as<kir::TensorIndex>());
+  } else {
+    NVF_THROW("Unexpected ClusterReductionOp mbarrier type.");
+  }
+
+  // Create indexed ClusterReductionOp with lowered indices
+  auto indexed_cop = IrBuilder::create<kir::ClusterReductionOp>(
+      out, in, cop->getReductionOpType(), init, mbarrier_addr);
+
+  pushBack(indexed_cop);
+  GpuLower::current()->propagateExprInfo(cop, back());
+}
+
 void IndexLowering::handleBlockReduction(
     const ReductionOp* rop,
     Val* out,
@@ -2622,6 +2648,11 @@ void IndexLowering::handle(const kir::BlockSync* sync) {
 void IndexLowering::handle(const kir::GridSync* sync) {
   // TODO(kir): remove the need for const_cast
   pushBack(const_cast<kir::GridSync*>(sync)); // NOLINT
+}
+
+void IndexLowering::handle(const kir::ClusterSync* sync) {
+  // TODO(kir): remove the need for const_cast
+  pushBack(const_cast<kir::ClusterSync*>(sync)); // NOLINT
 }
 
 void IndexLowering::handle(const kir::AsyncWait* wait) {

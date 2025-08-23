@@ -603,6 +603,25 @@ std::string BlockSync::toInlineString(int indent_size) const {
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(BlockSync)
 
+ClusterSync::ClusterSync(IrBuilderPasskey passkey) : Expr(passkey) {
+  NVF_ERROR(passkey.ir_container_ != nullptr);
+  NVF_ERROR(
+      passkey.ir_container_->isA<kir::Kernel>(),
+      "IR type only valid for Kernel container.");
+}
+
+std::string ClusterSync::toString(int indent_size) const {
+  std::stringstream ss;
+  indent(ss, indent_size) << "CLUSTERSYNC()\n";
+  return ss.str();
+}
+
+std::string ClusterSync::toInlineString(int indent_size) const {
+  NVF_CHECK(false, "Tensor op can not be printed inline");
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(ClusterSync)
+
 GridSync::GridSync(
     IrBuilderPasskey passkey,
     ParallelTypeBitmap sync_dims,
@@ -1763,6 +1782,43 @@ std::string RNGOp::toInlineString(int indent_size) const {
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(RNGOp)
+
+ClusterReductionOp::ClusterReductionOp(
+    IrBuilderPasskey passkey,
+    Val* output,
+    Val* input,
+    BinaryOpType reduction_op_type,
+    Val* init,
+    Val* mbarrier)
+    : Expr(passkey), reduction_op_type_(reduction_op_type) {
+  NVF_ERROR(passkey.ir_container_ != nullptr);
+  NVF_ERROR(
+      passkey.ir_container_->isA<kir::Kernel>(),
+      "IR type only valid for Kernel container.");
+  addInput(input);
+  addInput(init);
+  addInput(mbarrier);
+  addOutput(output);
+}
+
+std::string ClusterReductionOp::toString(int indent_size) const {
+  std::stringstream ss;
+  indent(ss, indent_size);
+  ss << out()->toString() << " = cluster_reduction(" << in()->toString() << ", "
+     << init()->toString() << ", " << reduction_op_type_ << ", "
+     << "mbarrier=" << mbarrier()->toString() << ")\n";
+  return ss.str();
+}
+
+std::string ClusterReductionOp::toInlineString(int indent_size) const {
+  std::stringstream ss;
+  ss << "cluster_reduction(" << in()->toString() << ", " << init()->toString()
+     << ", " << reduction_op_type_ << ", "
+     << "mbarrier=" << mbarrier()->toString() << ")";
+  return ss.str();
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(ClusterReductionOp)
 
 } // namespace kir
 } // namespace nvfuser

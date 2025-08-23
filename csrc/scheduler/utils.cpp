@@ -350,6 +350,10 @@ void parallelizeAllLike(
               reference_id->getMaybeSizeAfterPadding());
         }
       }
+      // propagate clustered blocks
+      if (reference_id->hasClusteredBlocks()) {
+        tv->axis(i)->setClusteredBlocks(true);
+      }
     }
   }
 }

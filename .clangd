@@ -1,2 +1,2 @@
 CompileFlags:
-    CompilationDatabase: python/build
+    CompilationDatabase: .

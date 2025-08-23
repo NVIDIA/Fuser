@@ -65,6 +65,13 @@ std::pair<int64_t, int64_t> getPersistentBufferSizeBit(
           persistent_buffer_info,
           can_use_smem_persistent,
           project_persistent_buffers);
+
+  if (std::getenv("MAX_CLUSTER_SIZE")) {
+    int64_t max_cluster_size = std::stoi(std::getenv("MAX_CLUSTER_SIZE"));
+    available_persistent_buffer_size_bit *= max_cluster_size;
+    std::cout << "\n ================== max cluster size: " << max_cluster_size
+              << std::endl;
+  }
   return std::make_pair(
       persistent_buffer_size_bit, available_persistent_buffer_size_bit);
 }
@@ -524,6 +531,67 @@ void innerPersistentHeuristic2D(
       LaunchParams::UNINITIALIZED_VAL,
       LaunchParams::UNINITIALIZED_VAL,
       best_heuristic.bdimy,
+      LaunchParams::UNINITIALIZED_VAL);
+}
+
+void innerPersistentHeuristicCluster(
+    const PersistentKernelProperties& properties,
+    ReductionParams* rparams) {
+  // Inner reduction domain
+  // This heuristic is only used for cases with large total_reduction_numel.
+  // e.g. layer_norm with hidden size larger than 64K for fp16 or 32K for fp32.
+  // fully vectorized, use maxThreadsPerBlock to reduce workload per threads
+  int64_t vectorize_factor = properties.vectorize_factor;
+  int64_t bdimx = 256;
+  int64_t register_per_thread = 255;
+  const int64_t buffer_bits_per_batch =
+      properties.max_persistent_buffer_size_bit /
+      properties.total_reduction_numel * vectorize_factor;
+  int64_t max_persistent_batch = scheduler_utils::safeDiv(
+      (register_per_thread - 32) * scheduler_utils::bits_per_register,
+      buffer_bits_per_batch);
+  ;
+  std::cout << "================== buffer_bytes_per_batch: "
+            << buffer_bits_per_batch / 8 << std::endl;
+
+  std::cout << "================== max_persistent_batch: "
+            << max_persistent_batch << std::endl;
+  int64_t after_vect_bdimx =
+      ceilDiv(properties.total_reduction_numel / vectorize_factor, bdimx);
+  int64_t blocks_per_cluster = ceilDiv(after_vect_bdimx, max_persistent_batch);
+  if (std::getenv("SET_CLUSTER_SIZE")) {
+    blocks_per_cluster = (int64_t)std::stoi(std::getenv("SET_CLUSTER_SIZE"));
+  }
+  std::cout << "================== blocks_per_cluster: " << blocks_per_cluster
+            << std::endl;
+  int64_t persistent_batch = ceilDiv(after_vect_bdimx, blocks_per_cluster);
+  std::cout << "================== persistent_batch: " << persistent_batch
+            << std::endl;
+  rparams->cross_block_inner_reduction = true;
+  rparams->cross_cluster_reduction = true;
+  rparams->cross_grid_inner_reduction = true;
+  rparams->block_dim_inner_reduction = ParallelType::TIDx;
+  rparams->pad_inner_reduction_to_warp = true;
+  rparams->batches_per_block_inner_reduction = persistent_batch;
+  rparams->unroll_factor_inner_reduction = vectorize_factor;
+  rparams->vectorize_inner_reduction = vectorize_factor > 1;
+  rparams->grid_dim_inner_reduction = ParallelType::BIDx;
+
+  // register
+  rparams->cparams.maxrregcount = register_per_thread;
+
+  // Iter
+  rparams->grid_dim_iter_dom = ParallelType::BIDy;
+  rparams->multiple_reds_per_blk = false;
+  rparams->unroll_factor_iter_dom = 1;
+  rparams->static_bdimx = true;
+  rparams->static_gdimx = true;
+  rparams->lparams = LaunchParams(
+      blocks_per_cluster,
+      LaunchParams::UNINITIALIZED_VAL,
+      LaunchParams::UNINITIALIZED_VAL,
+      bdimx,
+      LaunchParams::UNINITIALIZED_VAL,
       LaunchParams::UNINITIALIZED_VAL);
 }
 
@@ -1076,9 +1144,14 @@ std::unique_ptr<ReductionParams> getInnerPersistentHeuristics(
   rparams->fastest_dim = true;
   rparams->project_persistent_buffers = prop.project_persistent_buffers;
   rparams->cparams.index_type = prop.index_type;
-
   // specific heuristics for different cases
-  if (prop.max_persistent_buffer_size_bit >
+  if (std::getenv("MAX_CLUSTER_SIZE") &&
+      std::stoi(std::getenv("MAX_CLUSTER_SIZE")) > 1 &&
+      prop.max_persistent_buffer_size_bit >
+          scheduler_utils::register_file_size_bit) {
+    innerPersistentHeuristicCluster(prop, rparams.get());
+  } else if (
+      prop.max_persistent_buffer_size_bit >
       scheduler_utils::register_file_size_bit) {
     rparams->tag = "Shared Memory Inner Persistent Heuristic.\n";
     // all persistent buffers are moved to shared memory
