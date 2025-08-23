@@ -3372,4 +3372,74 @@ class ScanOp : public Expr {
       const std::vector<PolymorphicValue>& inputs) const override;
 };
 
+class CutlassNvfp4GroupedMmaOp : public Expr {
+ public:
+  using Expr::Expr;
+
+  CutlassNvfp4GroupedMmaOp(
+      IrBuilderPasskey,
+      Val* out_mat,
+      Val* mat1,
+      Val* mat2,
+      Val* scale1,
+      Val* scale2,
+      Val* alpha,
+      Val* problem_sizes,
+      Val* expert_offsets,
+      Val* sf_offsets);
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  const char* getOpString() const override {
+    return "CutlassNvfp4GroupedMmaOp";
+  }
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+  std::vector<PolymorphicValue> evaluate(
+      const ExpressionEvaluator& ee,
+      const std::vector<PolymorphicValue>& inputs) const override;
+
+  // Get output matrix
+  TensorView* out() const {
+    return output(0)->as<TensorView>();
+  }
+
+  // Get first input matrix
+  TensorView* matrix1() const {
+    return input(0)->as<TensorView>();
+  }
+
+  // Get second input matrix
+  TensorView* matrix2() const {
+    return input(1)->as<TensorView>();
+  }
+
+  // Get scale factor for first input matrix, returns nullptr if not present
+  TensorView* scale1() const {
+    return input(2)->as<TensorView>();
+  }
+
+  // Get scale factor for second input matrix, returns nullptr if not present
+  TensorView* scale2() const {
+    return input(3)->as<TensorView>();
+  }
+
+  TensorView* alpha() const {
+    return input(4)->as<TensorView>();
+  }
+
+  TensorView* problemSizes() const {
+    return input(5)->as<TensorView>();
+  }
+
+  TensorView* expertOffsets() const {
+    return input(6)->as<TensorView>();
+  }
+
+  TensorView* scalingFactorOffsets() const {
+    return input(7)->as<TensorView>();
+  }
+};
+
 } // namespace nvfuser

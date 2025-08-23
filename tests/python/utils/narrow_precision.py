@@ -79,7 +79,7 @@ def linear_to_swizzled_128_4(a_sf_linear: torch.Tensor):
     # details about layout requirement on block-wise scaling factor
     # https://docs.nvidia.com/cutlass/media/docs/cpp/blackwell_functionality.html#scale-factor-layouts
     tmp = torch.reshape(a_sf_padded, (m_tiles, 4, 32, k_tiles, 4))
-    return tmp.transpose(1, 3).reshape(mn, sf_k)
+    return tmp.transpose(1, 3).reshape(mn_padded, k_padded)[:mn, :sf_k]
 
 
 def dequantize_to_dtype(
