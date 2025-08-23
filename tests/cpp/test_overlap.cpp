@@ -18,6 +18,9 @@
 
 namespace nvfuser {
 
+using testing::_;
+using testing::ElementsAre;
+
 using RingBasedOverlapTest = NVFuserTest;
 
 TEST_F(RingBasedOverlapTest, ColumnAndSequenceParallelLinear_Forward) {
@@ -80,12 +83,15 @@ TEST_F(RingBasedOverlapTest, ColumnAndSequenceParallelLinear_Forward) {
 
   preseg_passes::OptimizationPass<
       preseg_passes::PropagateShardingsPass>::runPass(fusion.get());
-  // DIDx from `w` is propagated to `out`
+
   EXPECT_THAT(
-      out,
-      DomainIsParallelized(
-          std::vector<ParallelType>{ParallelType::Stream, ParallelType::DIDx},
-          std::vector<int64_t>{0, 2}));
+      out->getLoopDomain(),
+      ElementsAre(
+          IsParallelized(ParallelType::Stream),
+          _,
+          IsParallelized(ParallelType::DIDx),
+          _,
+          _));
 }
 
 TEST_F(RingBasedOverlapTest, ColumnAndSequenceParallelLinear_WeightGrad) {
@@ -154,18 +160,14 @@ TEST_F(RingBasedOverlapTest, ColumnAndSequenceParallelLinear_WeightGrad) {
 
   preseg_passes::OptimizationPass<
       preseg_passes::PropagateShardingsPass>::runPass(fusion.get());
-  // `DIDx` from `out` is propagated to `w`. `Stream` from `w` is propagated to
-  // `out`.
+
   EXPECT_THAT(
-      out,
-      DomainIsParallelized(
-          std::vector<ParallelType>{ParallelType::Stream, ParallelType::DIDx},
-          std::vector<int64_t>{0, 2}));
-  EXPECT_THAT(
-      w,
-      DomainIsParallelized(
-          std::vector<ParallelType>{ParallelType::DIDx, ParallelType::Stream},
-          std::vector<int64_t>{0, 3}));
+      out->getLoopDomain(),
+      ElementsAre(
+          IsParallelized(ParallelType::Stream),
+          _,
+          IsParallelized(ParallelType::DIDx),
+          _));
 }
 
 TEST_F(RingBasedOverlapTest, ColumnAndSequenceParallelLinear_InputGrad) {
@@ -333,12 +335,16 @@ TEST_F(RingBasedOverlapTest, RowAndSequenceParallelLinear_WeightGrad) {
 
   preseg_passes::OptimizationPass<
       preseg_passes::PropagateShardingsPass>::runPass(fusion.get());
-  // `DIDx` and `Stream` is propagated from `in` to `w`.
+
+  // Due to rFactor, `w` points to the tensor before `sum` and is therefore 5D.
   EXPECT_THAT(
-      w,
-      DomainIsParallelized(
-          std::vector<ParallelType>{ParallelType::DIDx, ParallelType::Stream},
-          std::vector<int64_t>{1, 3}));
+      w->getLoopDomain(),
+      ElementsAre(
+          _,
+          IsParallelized(ParallelType::DIDx),
+          _,
+          IsParallelized(ParallelType::Stream),
+          _));
 }
 
 TEST_F(RingBasedOverlapTest, RowAndSequenceParallelLinear_InputGrad) {
@@ -374,10 +380,13 @@ TEST_F(RingBasedOverlapTest, RowAndSequenceParallelLinear_InputGrad) {
   preseg_passes::OptimizationPass<
       preseg_passes::PropagateShardingsPass>::runPass(fusion.get());
   EXPECT_THAT(
-      in,
-      DomainIsParallelized(
-          std::vector<ParallelType>{ParallelType::Stream, ParallelType::DIDx},
-          std::vector<int64_t>{0, 2}));
+      in->getLoopDomain(),
+      ElementsAre(
+          IsParallelized(ParallelType::Stream),
+          _,
+          IsParallelized(ParallelType::DIDx),
+          _,
+          _));
 }
 
 // We can apply collective-based overlapping to the above patterns as well. The
@@ -444,11 +453,16 @@ TEST_F(CollectiveBasedOverlapTest, RowParallelLinear_Forward) {
 
   preseg_passes::OptimizationPass<
       preseg_passes::PropagateShardingsPass>::runPass(fusion.get());
+  // Due to rFactor, `out` points to the tensor before `sum` and is therefore
+  // 5D.
   EXPECT_THAT(
-      out,
-      DomainIsParallelized(
-          std::vector<ParallelType>{ParallelType::Stream, ParallelType::DIDx},
-          std::vector<int64_t>{0, 3}));
+      out->getLoopDomain(),
+      ElementsAre(
+          IsParallelized(ParallelType::Stream),
+          _,
+          _,
+          IsParallelized(ParallelType::DIDx),
+          _));
 }
 
 } // namespace nvfuser
