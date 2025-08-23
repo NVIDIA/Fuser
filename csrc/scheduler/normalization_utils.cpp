@@ -965,8 +965,14 @@ PersistentKernelProperties getPersistentKernelProperties(
                 ref_red_tv, reduced_tv, properties.inner_most_dimension_ndims));
       });
 
+
+  int64_t max_vectorization_size_in_bit = 128;
+  if(std::getenv("VECT256")){
+    max_vectorization_size_in_bit = getMaxVectorizationSizeInBit();
+  }
+
   vectorize_factor = vectorize_helper::getVectorizationFactor(
-      runtime_info, reduced_tv, data_cache, vec_break_point.get());
+      runtime_info, reduced_tv, data_cache, vec_break_point.get(), max_vectorization_size_in_bit);
 
   auto persistent_buffer_info_entry =
       HeuristicDataCacheEntry<HeuristicCompileTime::PersistentBufferInfo>(
@@ -1651,8 +1657,7 @@ void schedulePersistentKernel(
   // and encourages compiler issuing memory load instructions together. It
   // improves performance with cuda-13.0.
   bool unroll_persistent_cached_inputs = rparams->vectorize_inner_reduction &&
-      rparams->fastest_dim && !rparams->schedule_3D &&
-      !rparams->cross_grid_inner_reduction;
+      rparams->fastest_dim && !rparams->schedule_3D;
   if (unroll_persistent_cached_inputs) {
     for (auto tv : cached_inputs) {
       if (std::find(persistent_buffers.begin(), persistent_buffers.end(), tv) ==

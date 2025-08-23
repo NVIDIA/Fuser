@@ -4141,7 +4141,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
 
   void handle(const kir::MBarrierInit* init) final {
     std::cout << "MBarrierInit init: " << init->toString() << std::endl;
-    std::cout << "MBarrierInit mbarrier: " << init->mbarrier()->toInlineString() << std::endl;
+    std::cout << "MBarrierInit mbarrier: " << init->mbarrier()->toInlineString()
+              << std::endl;
     auto call = genCall(
         "mbarrier::init",
         ArgumentBuilder()
@@ -4293,10 +4294,10 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     const auto input = cluster_reduction->in()->as<kir::TensorIndex>();
     const auto op_type = cluster_reduction->getReductionOpType();
     const auto init_val = cluster_reduction->init();
-    
+
     // Get mbarrier from cluster reduction
     const auto mbarrier = cluster_reduction->mbarrier();
-    
+
     // Inline cluster reduction logic with mbarrier support
     const auto par_domains = ir_utils::getParallelDomains(output);
     // Get parallel reduction domains
@@ -4339,12 +4340,25 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     func_args.arg(gen(output));
     func_args.arg(gen(input));
     func_args.arg(gen(init_val));
+    // shared memory buffer for each cluster reduction is:
+    // T[warps_per_block * blocks_per_cluster]
+    if (current_cluster_reduction_id_ == 0) {
+      func_args.arg(genStaticCast(genPtrType(output->dtype()), "shared_mem"));
+    } else {
+      func_args.arg(
+          genStaticCast(genPtrType(output->dtype()), "shared_mem") + " + " +
+          std::to_string(
+              current_cluster_reduction_id_ * warps_per_block *
+              blocks_per_cluster));
+    }
     // Convert mbarrier TensorView to smem address
     func_args.arg(genInline(mbarrier));
     func_args.arg(genReductionOp(op_type, output->dtype()));
-    std::cout << "clusterReduce mbarrier: " << mbarrier->toString() << std::endl;
+    std::cout << "clusterReduce mbarrier: " << mbarrier->toString()
+              << std::endl;
     indent() << genCall("cluster::clusterReduce", template_args, func_args)
              << ";\n";
+    current_cluster_reduction_id_++;
   }
 
  private:
@@ -4406,6 +4420,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
   int64_t next_barrier_id_ = 1;
   //! Track whether we are generating code for warp specialized computation loop
   bool is_within_warp_specialized_compute_loop_ = false;
+
+  int64_t current_cluster_reduction_id_ = 0;
 };
 
 } // namespace
