@@ -89,6 +89,7 @@ enum RecordType: int {
     Scalar,
     ScaledGroupedMmaOp,
     ScaledMmaOp,
+    CutlassNvfp4GroupedMmaOp,
     SdpaFwdOp,
     SdpaBwdOp,
     ShapeOp,

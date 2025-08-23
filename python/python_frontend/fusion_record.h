@@ -3570,6 +3570,75 @@ struct ScaledMmaOpRecord : RecordFunctor {
   bool out_gamma_;
 };
 
+struct CutlassNvfp4GroupedMmaOpRecord : RecordFunctor {
+  CutlassNvfp4GroupedMmaOpRecord(
+      std::vector<State> _args,
+      std::vector<State> _outputs,
+      PrimDataType dtype)
+      : RecordFunctor(
+            std::move(_args),
+            std::move(_outputs),
+            "ops.cutlass_nvfp4_grouped_mm",
+            serde::RecordType::CutlassNvfp4GroupedMmaOp),
+        dtype_(dtype) {}
+
+  ~CutlassNvfp4GroupedMmaOpRecord() override = default;
+
+  size_t hash() const final {
+    auto result = RecordFunctor::hash();
+    return result | (static_cast<size_t>(dtype_) & 0xffffffff);
+  }
+
+  bool operator==(const RecordFunctor& other) const final {
+    if (!RecordFunctor::operator==(other)) {
+      return false;
+    }
+    auto other_cutlass_nvfp4_grouped_mma =
+        static_cast<const CutlassNvfp4GroupedMmaOpRecord&>(other);
+    return (dtype_ == other_cutlass_nvfp4_grouped_mma.dtype_);
+  }
+
+  RecordFunctor* clone() final {
+    return new CutlassNvfp4GroupedMmaOpRecord(*this);
+  }
+
+  void operator()(FusionState& fd) final {
+    auto mat1 = fd.getFusionState(args_[0].index)->template as<TensorView>();
+    auto mat2 = fd.getFusionState(args_[1].index)->template as<TensorView>();
+    auto scale1 = fd.getFusionState(args_[2].index)->template as<TensorView>();
+    auto scale2 = fd.getFusionState(args_[3].index)->template as<TensorView>();
+    auto alpha = fd.getFusionState(args_[4].index)->template as<TensorView>();
+    auto problem_sizes =
+        fd.getFusionState(args_[5].index)->template as<TensorView>();
+    auto expert_offsets =
+        fd.getFusionState(args_[6].index)->template as<TensorView>();
+    auto sf_offsets =
+        fd.getFusionState(args_[7].index)->template as<TensorView>();
+
+    auto result = cutlass_nvfp4_grouped_mm(
+        mat1,
+        mat2,
+        scale1,
+        scale2,
+        alpha,
+        problem_sizes,
+        expert_offsets,
+        sf_offsets,
+        dtype_);
+    fd.setFusionState(outputs().at(0).index, result);
+  }
+
+  void print(std::ostream& os, bool close_function = true) const final {
+    RecordFunctor::print(os, false);
+    os << ", dtype=" << dtypeToPyString(dtype_);
+    if (close_function) {
+      os << ")";
+    }
+  }
+
+  PrimDataType dtype_;
+};
+
 } // namespace nvfuser::python_frontend
 
 //! Creating the template specialized hash and equal_to functions for a
