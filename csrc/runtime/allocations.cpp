@@ -336,6 +336,50 @@ std::vector<GlobalBufferInfo> getBufferInfos(
 
 namespace {
 
+// Helper function to see if the dimension of a tensor
+// which are being merged via the vector new_shape are
+// contiguous or not. This function only allows for two dims
+// to be merged - and the -1 in new_shape indicates the
+// dimension to be merged with the next one.
+bool areDimsToBeMergedContiguous(
+    const at::Tensor& tensor,
+    const std::vector<int64_t>& new_shape) {
+  // Assert that new_shape contains at most one -1
+  NVF_ERROR(
+      std::count(new_shape.begin(), new_shape.end(), -1) <= 1,
+      "new_shape can contain at most one -1");
+
+  // If new_shape doesn't have -1, return true
+  if (std::find(new_shape.begin(), new_shape.end(), -1) == new_shape.end()) {
+    return true;
+  }
+
+  auto strides = tensor.strides();
+  auto sizes = tensor.sizes();
+
+  // For each -1 in new_shape, check contiguity of corresponding dims in tensor
+  for (size_t i = 0, tdim = 0; i < new_shape.size() && tdim < sizes.size();
+       ++i) {
+    if (new_shape[i] == -1) {
+      // Check dims tdim and tdim+1 in tensor
+      if (tdim + 1 >= sizes.size()) {
+        return false;
+      }
+      // dims are contiguous if one's stride is the multiple of the other
+      // dim's size and stride.
+      if ((strides[tdim] != sizes[tdim + 1] * strides[tdim + 1]) &&
+          (strides[tdim + 1] * sizes[tdim + 1] != strides[tdim])) {
+        return false;
+      }
+      // After merging, skip next tensor dim
+      tdim += 2;
+    } else {
+      tdim += 1;
+    }
+  }
+  return true;
+}
+
 // Helper function to compute the shape and strides needed for merging
 // dimensions in a tensor. Used when merging dimensions in the allocation domain
 // that may have been permuted, making them non-contiguous.
@@ -485,11 +529,13 @@ class ForwardTraverseFromAllocToLogical {
       }
     }
 
-    // Please see use in the call site in backward traverse
-    // for an explanation of why we use as_strided.
-    auto [tensor_new_shape, tensor_new_strides] =
-        getShapeAndStrideAfterDimMerged(tensor_, new_shape);
-    tensor_ = tensor_.as_strided(tensor_new_shape, tensor_new_strides);
+    if (areDimsToBeMergedContiguous(tensor_, new_shape)) {
+      tensor_ = tensor_.view(new_shape);
+    } else {
+      auto [tensor_new_shape, tensor_new_strides] =
+          getShapeAndStrideAfterDimMerged(tensor_, new_shape);
+      tensor_ = tensor_.as_strided(tensor_new_shape, tensor_new_strides);
+    }
 
     // update frontier
     if (inner_dim < outer_dim) {
@@ -585,20 +631,13 @@ class BackwardTraverseFromAllocToLogical {
       }
     }
 
-    // We use a helper function to compute the shape and strides needed to call
-    // as_strided. We use as_strided instead of view because view does not
-    // support cases where a previous permute would have made dimensions we want
-    // to merge non-contiguous. Thus view would throw an error. We could have
-    // used reshape, but reshape can trigger a memory copy.
-    // For example, say before permute, the tensor shape is [8, 16, 32, 4, 4]
-    // with strides [8192, 512, 16, 4, 1]. After permute, the tensor shape is
-    // [8, 16, 4, 32, 4], and strides [8192, 512, 4, 16, 1]. If we were applying
-    // a view such as [8, 16, -1, 4], merging [4, 32], view would fail as these
-    // are non-contiguous.
-    auto [tensor_new_shape, tensor_new_strides] =
-        getShapeAndStrideAfterDimMerged(tensor_, new_shape);
-
-    tensor_ = tensor_.as_strided(tensor_new_shape, tensor_new_strides);
+    if (areDimsToBeMergedContiguous(tensor_, new_shape)) {
+      tensor_ = tensor_.view(new_shape);
+    } else {
+      auto [tensor_new_shape, tensor_new_strides] =
+          getShapeAndStrideAfterDimMerged(tensor_, new_shape);
+      tensor_ = tensor_.as_strided(tensor_new_shape, tensor_new_strides);
+    }
 
     // update frontier
     if (inner_dim < outer_dim) {
