@@ -42,83 +42,89 @@ Each migrated test underwent the following adaptations:
 
 ### Tests Only in Main Frontend (Not in Direct)
 
-The following 77 tests exist in `tests/python/test_python_frontend.py` but are **NOT** present in `tests/python/direct/test_python_frontend.py`:
+The following 75 tests exist in `tests/python/test_python_frontend.py` but are **NOT** present in `tests/python/direct/test_python_frontend.py`:
 
 #### Advanced Operations & Features
-- `test_all_dim_var_mean` - Tests variance and mean across all dimensions
-- `test_allocation_domain_concretization` - Tests allocation domain handling
-- `test_allocation_domain_index_select` - Tests index select with allocation domains
-- `test_arithmetic_ops` - Tests various arithmetic operations
-- `test_broadcast_in_dim_with_dynamic_shapes` - Tests broadcasting with dynamic shapes
-- `test_cat_qwen2_v2` - Tests concatenation for Qwen2 v2 model
-- `test_cat_symbolic` - Tests symbolic concatenation
-- `test_complex_constants` - Tests complex number constants
-- `test_complex_rsqrt` - Tests complex reciprocal square root
-- `test_compute_contiguity` - Tests contiguity computation
-- `test_compute_tensor_descriptor` - Tests tensor descriptor computation
-- `test_constant_nans` - Tests constant NaN handling
-- `test_cuda_code_and_scheduled_fusion_ir_strings` - Tests CUDA code generation
-- `test_debug_output` - Tests debug output functionality
-- `test_def_op_in_schedule` - Tests operation definition in schedules
-- `test_deterministic_random` - Tests deterministic random number generation
-- `test_enable_disable_options` - Tests enable/disable options
-- `test_expand_to_zero` - Tests expansion to zero dimensions
-- `test_expanded_bcast_tensor` - Tests expanded broadcast tensors
-- `test_from_pytorch_fails_on_cpu_tensor` - Tests CPU tensor handling
-- `test_func_definition` - Tests function definition
-- `test_fusion_definition_error_cache` - Tests fusion definition error caching
-- `test_fusion_information` - Tests fusion information retrieval
+
+**Disabled because of CUDA 13 incompatiblity**
 - `test_fusion_profiler` - Tests fusion profiling
 - `test_fusion_profiler_user_schedule` - Tests user-defined fusion profiling
 - `test_fusion_profiler_with_noncodegen_kernels` - Tests profiling with non-codegen kernels
+
+**Tests with More Than 50 Lines of Code:**
+- `test_all_dim_var_mean` - Tests variance and mean across all dimensions
+- `test_arithmetic_ops` - Tests various arithmetic operations
+- `test_broadcast_in_dim_with_dynamic_shapes` - Tests broadcasting with dynamic shapes (79 lines)
+- `test_cat_symbolic` - Tests symbolic concatenation (86 lines)
+- `test_cuda_code_and_scheduled_fusion_ir_strings` - Tests CUDA code generation (101 lines)
+- `test_mismatched_input_types` - Tests mismatched input type handling (50 lines)
+- `test_random_distinct_values` - Tests random distinct value generation (100 lines)
+- `test_reduction_transpose_sched_issue2317` - Tests reduction transpose scheduling
+- `test_slice_error_checks` - Tests slice error checking (128 lines)
+- `test_stride_order_with_explicit_broadcast` - Tests stride order with explicit broadcast
+- `test_deterministic_random` - Tests deterministic random number generation
+- `test_uniform_range` - Tests uniform range generation (230 lines)
+- `test_cat_qwen2_v2` - Tests concatenation for Qwen2 v2 model (201 lines)
+- `test_nanogpt_mha_dpa` - Tests NanoGPT multi-head attention
+- `test_nanogpt_split_mha_linears` - Tests NanoGPT split MHA linear layers
+- `test_prim_layer_norm_fwd` - Tests layer normalization forward pass (127 lines)
+- `test_prim_rms_norm_fwd` - Tests RMS normalization forward pass (65 lines)
+
+**General Tests -- Legacy-Only**
+- `test_def_op_in_schedule` - Tests operation definition in schedules; scheduling and definition are not separate.
+- `test_func_definition` - Tests function definition; Redundant
+- `test_fusion_definition_error_cache` - Tests fusion definition error caching; No fusion cache
+- `test_fusion_information` - Tests fusion information retrieval; Not used in direct bindings
+- `test_debug_output` - Tests debug output functionality; Deprecated
+- `test_compute_contiguity` - Tests contiguity computation; Not used in Thunder
+- `test_static_tensor_sizes` - Tests static tensor sizes; Not used in Thunder
+- `test_import_conflict_nvfuser_then_direct` - Tests import conflict handling; An analogous test already exists
+- `test_repro_script_generation` - Tests reproduction script generation (130 lines); An analogous test already exists.
+
+**General Tests -- To Add**
+- `test_no_definition` - Tests undefined fusion behavior
+- `test_from_pytorch_fails_on_cpu_tensor` - Tests CPU tensor handling
+- `test_python_version_API` - Tests Python version API
+
+**Tests with 50 Lines or Less:**
+- `test_allocation_domain_concretization` - Tests allocation domain handling
+- `test_allocation_domain_index_select` - Tests index select with allocation domains
+- `test_complex_constants` - Tests complex number constants
+- `test_complex_rsqrt` - Tests complex reciprocal square root
+- `test_constant_nans` - Tests constant NaN handling
+- `test_expand_to_zero` - Tests expansion to zero dimensions
+- `test_expanded_bcast_tensor` - Tests expanded broadcast tensors
 - `test_gcd` - Tests greatest common divisor
-- `test_import_conflict_nvfuser_then_direct` - Tests import conflict handling
 - `test_inplace_update_on_non_contiguous_inputs` - Tests in-place updates
 - `test_input_scalar` - Tests scalar input handling
 - `test_integer_division` - Tests integer division
 - `test_mark_alias_pass` - Tests alias marking
 - `test_misaligned_add` - Tests misaligned addition
-- `test_mismatched_input_types` - Tests mismatched input type handling
-- `test_nanogpt_mha_dpa` - Tests NanoGPT multi-head attention
-- `test_nanogpt_split_mha_linears` - Tests NanoGPT split MHA linear layers
 - `test_nextafter` - Tests nextafter function
-- `test_no_definition` - Tests undefined fusion behavior
 - `test_ops_broadcast` - Tests broadcast operations
 - `test_pad_cache` - Tests padding cache
 - `test_pad_expanded_empty` - Tests padding with expanded empty tensors
 - `test_pad_prior_cat` - Tests padding before concatenation
-- `test_prim_layer_norm_fwd` - Tests layer normalization forward pass
-- `test_prim_rms_norm_fwd` - Tests RMS normalization forward pass
 - `test_prod` - Tests product operations
-- `test_python_version_API` - Tests Python version API
-- `test_random_distinct_values` - Tests random distinct value generation
 - `test_real_imag` - Tests real and imaginary parts
 - `test_reduction_complex_number` - Tests complex number reduction
-- `test_reduction_transpose_sched_issue2317` - Tests reduction transpose scheduling
 - `test_replaced_sizes_pr2714` - Tests size replacement
-- `test_repro_script_generation` - Tests reproduction script generation
 - `test_reshape_squeeze_concretization` - Tests reshape squeeze concretization
 - `test_right_shift_arithmetic` - Tests arithmetic right shift
 - `test_right_shift_logical` - Tests logical right shift
 - `test_right_shift_logical_sizeof_dtype` - Tests logical right shift with dtype size
 - `test_segment_set` - Tests segment set operations
 - `test_segmentation_reduction_pointwise_epilogue` - Tests segmented reduction
-- `test_selected_device` - Tests device selection
 - `test_signbit` - Tests sign bit operations
 - `test_slice_api` - Tests slice API
-- `test_slice_error_checks` - Tests slice error checking
-- `test_static_tensor_sizes` - Tests static tensor sizes
-- `test_stride_order_with_explicit_broadcast` - Tests stride order with explicit broadcast
 - `test_sum_sliced_reshape_to_broadcast` - Tests sum sliced reshape to broadcast
 - `test_tensor_shape` - Tests tensor shape operations
 - `test_tensor_shape_expand_bcast` - Tests tensor shape expansion broadcast
 - `test_tensor_shape_nobcast` - Tests tensor shape without broadcast
 - `test_tensor_shape_with_output_bcast` - Tests tensor shape with output broadcast
 - `test_tensor_size_both_args_bcast` - Tests tensor size with broadcast arguments
-- `test_uniform_range` - Tests uniform range generation
 - `test_var_correction` - Tests variance correction
 - `test_var_mean_correction` - Tests variance mean correction
-- `test_where_op` - Tests where operation
 - `test_zero_size_dim` - Tests zero size dimensions
 
 ### Tests Only in Direct Frontend (Not in Main)
@@ -142,9 +148,11 @@ The following 15 tests exist in `tests/python/direct/test_python_frontend.py` bu
 
 Both test files contain these common tests:
 - `test_basic` - Basic fusion operations
+- `test_enable_disable_options` - Tests enable/disable options
 - `test_basic_fp16` - Basic operations with FP16
 - `test_cast_double_to_half` - Casting double to half precision
 - `test_cast_fp8` - FP8 casting operations
+- `test_compute_tensor_descriptor` - Tests tensor descriptor computation
 - `test_promote_to_double` - Type promotion to double
 - `test_implicit_broadcast_input` - Implicit broadcast input handling
 - `test_explicit_broadcast_input` - Explicit broadcast input handling

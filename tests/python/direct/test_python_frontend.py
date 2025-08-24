@@ -10,6 +10,7 @@ import torch._prims as prims
 from nvfuser_direct import (
     FusionDefinition,
     DataType,
+    compute_tensor_descriptor,
 )
 from nvfuser_direct.pytorch_utils import torch_dtype_to_nvfuser_dtype
 
@@ -1452,3 +1453,61 @@ def test_scatter_scalar_src(nvfuser_direct_test):
     nvf_out, _ = nvfuser_direct_test.exec_nvfuser(fusion_func, inputs)
     eager_out = torch.scatter(x, scatter_dim, ind, src)
     nvfuser_direct_test.assertEqual(eager_out, nvf_out[0])
+
+
+def test_compute_tensor_descriptor(nvfuser_direct_test):
+    configs = (
+        (
+            # size
+            [2, 1, 3, 1, 4, 3],
+            # stride
+            [12, 4, 4, 4, 1, 0],
+            # expected contiguity
+            [True, None, True, None, True, None],
+            # expected stride_order
+            [5, 4, 3, 2, 1, 0],
+        ),
+        (
+            [2, 3, 1, 5, 4],
+            [28, 4, 14, 0, 1],
+            [False, None, True, None, True],
+            [4, 2, 3, 1, 0],
+        ),
+        (
+            [2, 2, 1, 1, 2, 2, 2],
+            [8, 4, 3, 9, 2, 0, 1],
+            [None, True, True, None, True, None, True],
+            [5, 4, 3, 6, 2, 1, 0],
+        ),
+        (
+            [2, 2, 1, 2, 4, 2],
+            [2, 32, 1, 8, 0, 4],
+            [False, True, True, False, None, None],
+            [2, 5, 0, 4, 1, 3],
+        ),
+        (
+            [2, 2, 2, 2],
+            [8, 4, 2, 1],
+            [True, True, True, True],
+            [3, 2, 1, 0],
+        ),
+        (
+            [2, 1, 3, 1, 4],
+            [24, 4, 8, 4, 2],
+            [True, True, None, None, False],
+            [4, 2, 3, 1, 0],
+        ),
+        (
+            [2, 2, 2, 2],
+            [8, 4, 0, 2],
+            [True, True, None, False],
+            [3, 2, 1, 0],
+        ),
+    )
+
+    for sizes, strides, contiguity, stride_order in configs:
+        computed_contiguity, computed_stride_order = compute_tensor_descriptor(
+            sizes, strides
+        )
+        nvfuser_direct_test.assertEqual(computed_contiguity, contiguity)
+        nvfuser_direct_test.assertEqual(computed_stride_order, stride_order)
