@@ -83,7 +83,7 @@ ExpressionEvaluator bindInputsAndLaunchParams(
     const KernelArgumentHolder& aten_inputs,
     const LaunchParams& launch_constraints);
 
-NVF_API std::vector<std::pair<double, double>> getValConstants(
+NVF_API std::vector<std::pair<double, double>> getValTolerances(
     Fusion* fusion,
     const KernelArgumentHolder& aten_inputs,
     const LaunchParams& lparams = LaunchParams(),

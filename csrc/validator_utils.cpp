@@ -283,7 +283,7 @@ ExpressionEvaluator bindInputsAndLaunchParams(
   return expr_eval;
 }
 
-std::vector<std::pair<double, double>> getValConstants(
+std::vector<std::pair<double, double>> getValTolerances(
     Fusion* fusion,
     const KernelArgumentHolder& aten_inputs,
     const LaunchParams& lparams,
