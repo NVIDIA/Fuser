@@ -409,8 +409,8 @@ class FusionDefinition:
     def validate(
         self,
         inputs: list[torch.Tensor],
-        reference_outputs: list[torch.Tensor] = None,
-        device=None,
+        reference_outputs: Optional[list[torch.Tensor]] = None,
+        device: Optional[torch.device] = None,
         **kwargs,
     ):
         """
@@ -421,7 +421,7 @@ class FusionDefinition:
         ----------
         inputs : list of torch.Tensor
             A list of inputs expected by the fusion definition
-        reference_outputs : list of torch.Tensor
+        reference_outputs : list of torch.Tensor, optional
             A list of reference outputs to validate against
         device : torch.device, optional
             The device to execute the fusion on
@@ -467,4 +467,4 @@ class FusionDefinition:
             else:
                 assert torch.equal(
                     fusion_output, reference_output
-                ), "Mismatch in reference and fusion output values, datatype is not float/complex."
+                ), "Mismatch in reference and fusion output values for non-floating point datatypes"
