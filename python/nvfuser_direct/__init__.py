@@ -5,7 +5,7 @@
 import sys
 import traceback
 import warnings
-from typing import Iterable
+from typing import Iterable, Optional
 
 if "nvfuser" in sys.modules:
     warnings.warn(
