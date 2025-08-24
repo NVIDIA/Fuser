@@ -11,6 +11,7 @@
 #include <python_utils.h>
 
 #include <fusion.h>
+#include <options.h>
 #include <runtime/executor_kernel_arg.h>
 #include <runtime/fusion_executor_cache.h>
 #include <runtime/fusion_kernel_runtime.h>
@@ -230,15 +231,43 @@ Examples
           "execute",
           [](FusionExecutorCache& self,
              const py::iterable& iter,
-             std::optional<int64_t> device) {
+             std::optional<int64_t> device,
+             std::vector<std::string> _enable_options,
+             std::vector<std::string> _disable_options) {
             KernelArgumentHolder args = from_pyiterable(iter, device);
+
+            EnableOptionsGuard enable_opt_guard;
+            for (const auto& _enable_option : _enable_options) {
+              std::optional<EnableOption> opt =
+                  stringToEnableOption(_enable_option);
+              NVF_CHECK(
+                  opt.has_value(),
+                  "Unrecognized enable_option: ",
+                  _enable_option);
+              EnableOptionsGuard::getCurOptions().set(opt.value());
+            }
+
+            DisableOptionsGuard disable_opt_guard;
+            for (const auto& _disable_option : _disable_options) {
+              std::optional<DisableOption> opt =
+                  stringToDisableOption(_disable_option);
+              NVF_CHECK(
+                  opt.has_value(),
+                  "Unrecognized disable_option: ",
+                  _disable_option);
+              DisableOptionsGuard::getCurOptions().set(opt.value());
+            }
+
             KernelArgumentHolder outputs = self.runFusionWithInputs(
                 args, std::nullopt, args.getDeviceIndex());
+
             return to_tensor_vector(outputs);
           },
           py::arg("inputs"),
           py::kw_only(),
           py::arg("device") = py::none(),
+          py::arg("_enable_options") = py::list(),
+          py::arg("_disable_options") = py::list(),
           R"(
 Execute the fusion with the given inputs.
 
@@ -252,6 +281,12 @@ device : int, optional
     The device index to execute the fusion on.
     It must be a non-negative integer less than 256.
     If None, uses the device of the input tensors.
+    Default is None.
+_enable_options : list of str, optional
+    A list of enable options.
+    Default is None.
+_disable_options : list of str, optional
+    A list of disable options.
     Default is None.
 
 Returns
