@@ -1319,6 +1319,26 @@ class FusionTranslator : public OptInConstDispatch {
         topkop->isSorted()));
   }
 
+  void handle(const ScanOp* scan_op) final {
+    auto out_tv = scan_op->out()->as<TensorView>();
+    Tensor output = fd_->defineTensor(out_tv->nDims());
+    map_val_to_fd_index_.emplace(out_tv, output());
+
+    NVF_ERROR(
+        scan_op->opType() == BinaryOpType::Add,
+        "Only cumsum (BinaryOpType::Add) is supported for ScanOp.");
+
+    fd_->defineRecord(new ScanOpRecord(
+        {fd_->recordingState(
+            map_val_to_fd_index_.at(scan_op->in()->as<TensorView>()))},
+        {fd_->recordingState(output())},
+        ("ops.cumsum"),
+        serde::RecordType::ScanOpCumsum,
+        static_cast<TensorView* (*)(TensorView*, int64_t)>(cumsum),
+        scan_op->dim(),
+        BinaryOpType::Add));
+  }
+
   // Map GatherOp to python frontend
   void handle(const GatherOp* gop) final {
     TensorView* out_tv = gop->output(0)->as<TensorView>();
