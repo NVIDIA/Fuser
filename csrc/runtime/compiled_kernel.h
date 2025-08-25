@@ -296,4 +296,14 @@ class CompiledKernel : public NonCopyable {
   const c10::Device device_ = c10::Device(c10::DeviceType::CUDA, 0);
 };
 
+//! Utility for finding the target major and minor hardware version. This takes
+//! into account the maximum supported version by this CUDA version. It writes
+//! compile_to_sass to true if we do not need to clamp the version to the
+//! maximum supported by CUDA.
+void queryTargetGPUVersion(
+    const cudaDeviceProp* const prop,
+    int64_t& major,
+    int64_t& minor,
+    bool& compile_to_sass);
+
 } // namespace nvfuser

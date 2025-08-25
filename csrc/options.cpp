@@ -106,6 +106,7 @@ std::unordered_map<DebugDumpOption, std::vector<std::string>> Options<
       {"cuda_full", DebugDumpOption::CudaFull},
       {"cuda_kernel", DebugDumpOption::CudaKernel},
       {"cuda_to_file", DebugDumpOption::CudaToFile},
+      {"cutlass_compile", DebugDumpOption::CutlassCompile},
       {"draw_segmented_fusion", DebugDumpOption::FusionSegmentsDrawing},
       {"expr_simplify", DebugDumpOption::ExprSimplification},
       {"expr_sort", DebugDumpOption::ExprSort},
@@ -157,6 +158,7 @@ std::unordered_map<DebugDumpOption, std::vector<std::string>> Options<
 const std::unordered_map<std::string, EnableOption>& getEnableOptions() {
   static const std::unordered_map<std::string, EnableOption> available_options =
       {
+          {"cutlass_scheduler", EnableOption::CutlassScheduler},
           {"fuse_matmul", EnableOption::FuseMatmul},
           {"fuse_multiple_matmuls", EnableOption::FuseMultipleMatmuls},
           {"id_model", EnableOption::IdModel},
