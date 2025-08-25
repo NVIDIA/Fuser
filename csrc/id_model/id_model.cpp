@@ -824,44 +824,43 @@ void buildAsyncWarpInliningInfo(
   if (async_warps.size() == 0) {
     return;
   }
-  NVF_ERROR(
-      async_warps.size() == 1, "Multi-role specialization is not supported");
 
-  const AsyncWarp& async_warp = async_warps.front();
+  for (const AsyncWarp& async_warp : async_warps) {
+    // short-circuit: no sibling relationships to map.
+    if (async_warp.tvs.size() == 1) {
+      return;
+    }
 
-  // short-circuit: no sibling relationships to map.
-  if (async_warp.tvs.size() == 1) {
-    return;
-  }
+    // short-circuit: stage_slice_position is not used.
+    if (async_warp.stage_slice_position == -1) {
+      return;
+    }
 
-  // short-circuit: stage_slice_position is not used.
-  if (async_warp.stage_slice_position == -1) {
-    return;
-  }
+    NVF_ERROR(!async_warp.tvs.empty());
+    TensorView* async_warp_tv = async_warp.tvs.front();
+    NVF_ERROR(async_warp_tv != nullptr);
 
-  NVF_ERROR(!async_warp.tvs.empty());
-  TensorView* async_warp_tv = async_warp.tvs.front();
-  NVF_ERROR(async_warp_tv != nullptr);
+    // Gather all loop iterDomains to the left of the stage_slice_position.
+    VectorOfUniqueEntries<IterDomain*> stage_slice_position_ids(
+        async_warp_tv->getLoopDomain().begin(),
+        async_warp_tv->getLoopDomain().begin() +
+            async_warp.stage_slice_position);
+    info.ordered_sibling_ids.pushBack(stage_slice_position_ids);
 
-  // Gather all loop iterDomains to the left of the stage_slice_position.
-  VectorOfUniqueEntries<IterDomain*> stage_slice_position_ids(
-      async_warp_tv->getLoopDomain().begin(),
-      async_warp_tv->getLoopDomain().begin() + async_warp.stage_slice_position);
-  info.ordered_sibling_ids.pushBack(stage_slice_position_ids);
+    // For all TensorViews in the AsyncWarp, build an iterDomain mapping between
+    // the first TensorView and all other TensorViews.
+    std::vector<IterDomain*> all_tv_ids = async_warp_tv->domain()->allIDs();
+    for (size_t i : arange(1, async_warp.tvs.size())) {
+      TensorView* tv_i = async_warp.tvs.at(i);
+      std::vector<IterDomain*> all_tv_i_ids = tv_i->domain()->allIDs();
 
-  // For all TensorViews in the AsyncWarp, build an iterDomain mapping between
-  // the first TensorView and all other TensorViews.
-  std::vector<IterDomain*> all_tv_ids = async_warp_tv->domain()->allIDs();
-  for (size_t i : arange(1, async_warp.tvs.size())) {
-    TensorView* tv_i = async_warp.tvs.at(i);
-    std::vector<IterDomain*> all_tv_i_ids = tv_i->domain()->allIDs();
-
-    std::unordered_map<Val*, VectorOfUniqueEntries<Val*>> sibling_map =
-        permissive_graph.buildMapBetween(all_tv_ids, all_tv_i_ids);
-    for (const auto& [tv_id_1, tv_ids] : sibling_map) {
-      if (!tv_ids.empty() &&
-          stage_slice_position_ids.has(tv_id_1->as<IterDomain>())) {
-        info.sibling_maps[tv_id_1->as<IterDomain>()].pushBack(tv_ids);
+      std::unordered_map<Val*, VectorOfUniqueEntries<Val*>> sibling_map =
+          permissive_graph.buildMapBetween(all_tv_ids, all_tv_i_ids);
+      for (const auto& [tv_id_1, tv_ids] : sibling_map) {
+        if (!tv_ids.empty() &&
+            stage_slice_position_ids.has(tv_id_1->as<IterDomain>())) {
+          info.sibling_maps[tv_id_1->as<IterDomain>()].pushBack(tv_ids);
+        }
       }
     }
   }
