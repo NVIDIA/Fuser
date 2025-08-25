@@ -2262,3 +2262,56 @@ def test_sum_sliced_reshape_to_broadcast(nvfuser_direct_test):
         fd.add_output(T89)
 
     nvf_out, _ = nvfuser_direct_test.exec_nvfuser(fusion_func, inputs)
+
+
+# See https://github.com/NVIDIA/Fuser/issues/3833
+def test_bcast_squeeze_replace_aliased_output(nvfuser_direct_test):
+    inputs = [
+        torch.testing.make_tensor((1, 1, 576), dtype=torch.bfloat16, device="cuda:0"),
+        torch.testing.make_tensor((1, 576), dtype=torch.bfloat16, device="cuda:0"),
+    ]
+
+    def fusion_func(fd: FusionDefinition) -> None:
+        T0 = fd.define_tensor(
+            shape=[1, 1, 576],
+            contiguity=[None, None, True],
+            dtype=DataType.BFloat16,
+            is_cpu=False,
+            stride_order=[2, 1, 0],
+        )
+        T1 = fd.define_tensor(
+            shape=[1, 576],
+            contiguity=[None, True],
+            dtype=DataType.BFloat16,
+            is_cpu=False,
+            stride_order=[1, 0],
+        )
+        T5 = fd.ops.reshape(T0, new_shape=[1, 576])
+        T6 = fd.ops.set(T5)
+        fd.add_output(T6, T1)
+        fd.add_output(T5)
+
+    nvf_out, _ = nvfuser_direct_test.exec_nvfuser(fusion_func, inputs)
+
+    assert len(nvf_out) == 1
+    nvfuser_direct_test.assertEqual(nvf_out[0], inputs[0].squeeze(1))
+
+
+def test_broadcast_and_stride_order(nvfuser_direct_test):
+    inputs = [
+        torch.randn(2, 3, 4, dtype=torch.float32, device="cuda:0"),
+    ]
+
+    # Direct bindings does not support `add_output` with stride_order argument.
+    # Instead, we use `stride_order` operation to set the stride order before
+    # adding the output.
+    def fusion_func(fd: FusionDefinition) -> None:
+        T0 = fd.from_pytorch(inputs[0])
+        T1 = fd.ops.broadcast(T0, is_broadcast_dim=[False, True, False, False])
+        T2 = fd.ops.stride_order(T1, stride_order=[0, 1, 2, 3])
+        fd.add_output(T2)
+
+    nvf_out, _ = nvfuser_direct_test.exec_nvfuser(fusion_func, inputs)
+
+    nvfuser_direct_test.assertEqual(nvf_out[0], inputs[0].unsqueeze(1))
+    nvfuser_direct_test.assertEqual(nvf_out[0].stride(), (1, 2, 2, 6))

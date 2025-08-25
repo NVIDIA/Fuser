@@ -42,7 +42,7 @@ Each migrated test underwent the following adaptations:
 
 ### Tests Only in Main Frontend (Not in Direct)
 
-The following 41 tests exist in `tests/python/test_python_frontend.py` but are **NOT** present in `tests/python/direct/test_python_frontend.py`:
+The following 39 tests exist in `tests/python/test_python_frontend.py` but are **NOT** present in `tests/python/direct/test_python_frontend.py`:
 
 **Note**: The legacy frontend uses class-based tests (`def test_*(self):`) while the direct frontend uses standalone functions (`def test_*(nvfuser_direct_test):`). Only actual pytest test methods (with `self` parameter) are counted here. `test_cat_qwen2_v2` is the only pytest outside of `TestNvFuserFrontend` in `tests/python/test_python_frontend.py`.
 
@@ -96,8 +96,6 @@ The following tests will be added to tests/python/direct/test_python_frontend.py
 - `test_right_shift_logical` - Tests logical right shift; Missing bitwise_right_shift operation
 - `test_right_shift_logical_sizeof_dtype` - Tests logical right shift with dtype size; Missing bitwise_right_shift operation
 - `test_var_correction` - Tests variance correction; Missing `var` operation
-- `test_bcast_squeeze_replace_aliased_output` - Tests broadcast squeeze with aliased output replacement; Tests issue 3833 with reshape and set operations
-- `test_broadcast_and_stride_order` - Tests broadcast operations with specific stride order handling
 - `test_fix_2549` - Tests fix for issue 2549 (broadcast_in_dim and division operations)
 - `test_remove_empty_issue_2545` - Tests fix for issue 2545 (empty tensor handling with concatenation operations)
 
@@ -120,9 +118,11 @@ The following 12 tests exist in `tests/python/direct/test_python_frontend.py` bu
 
 ### Shared Tests
 
-Both test files contain these 71 common tests:
+Both test files contain these 73 common tests:
 - `test_addcmul` - Addcmul operations
 - `test_alias_output_to_input` - Output aliasing to input
+- `test_bcast_squeeze_replace_aliased_output` - Tests broadcast squeeze with aliased output replacement; Tests issue 3833 with reshape and set operations
+- `test_broadcast_and_stride_order` - Tests broadcast operations with specific stride order handling
 - `test_allocation_domain_concretization` - Tests allocation domain handling
 - `test_allocation_domain_index_select` - Tests index select with allocation domains
 - `test_basic` - Basic fusion operations
@@ -247,12 +247,12 @@ Contains direct frontend specific functionality tests:
 **Important Note**: The legacy frontend uses class-based tests (`def test_*(self):`) while the direct frontend uses standalone functions (`def test_*(nvfuser_direct_test):`). Only actual pytest test methods (with `self` parameter) are counted for the legacy frontend.
 
 - **Legacy Frontend**: 133 actual pytest test methods in `tests/python/test_python_frontend.py` (6 additional functions start with `test_` but are not pytest methods)
-- **Direct Frontend**: 114 actual pytest test functions in `tests/python/direct/test_python_frontend.py`
+- **Direct Frontend**: 116 actual pytest test functions in `tests/python/direct/test_python_frontend.py`
 - **Direct Repro**: 31 tests in `tests/python/direct/test_repro.py`
 - **Direct Python**: 6 tests in `tests/python/direct/test_python_direct.py`
-- **Total Direct Tests**: 151 tests across 3 files
-- **Shared Tests**: 71 tests between legacy and direct frontend
-- **Legacy-Only Tests**: 14 tests (not yet migrated)
+- **Total Direct Tests**: 153 tests across 3 files
+- **Shared Tests**: 73 tests between legacy and direct frontend
+- **Legacy-Only Tests**: 24 tests (not yet migrated)
 - **Direct-Only Tests**: 12 tests (new functionality)
 
 ## Test Functions by File
