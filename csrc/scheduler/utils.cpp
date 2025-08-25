@@ -2450,66 +2450,6 @@ getNonPointwiseProducerConsumerPairs(Fusion* fusion) {
   return tvs;
 }
 
-// If an input cache is promoted to global memory, just do not cache
-// the input but directly read from the global memory input. It
-// doesn't make any sense to cache a global memory input in global
-// memory. Note that a copy of an input cache is inserted by
-// prepareForMemoryTypePromotion, so grab the producer of the
-// producer and see if it's included in input_caches.
-bool revertUseOfInputCache(
-    TensorView* consumer,
-    TensorView* promoted_producer,
-    MemoryType promoted_memory_type,
-    const std::vector<TensorView*>& input_caches) {
-  auto get_copy_src = [](TensorView* tv) -> TensorView* {
-    if (auto uop = dynamic_cast<LoadStoreOp*>(tv->definition())) {
-      return uop->in()->as<TensorView>();
-    }
-    return nullptr;
-  };
-
-  // Only applies if the promoted new type is Global
-  if (promoted_memory_type != MemoryType::Global) {
-    return false;
-  }
-
-  // To see if the producer is a cache of an input, need to look at
-  // its producer as a copy is inserted
-  auto producer_of_producer = get_copy_src(promoted_producer);
-  if (producer_of_producer == nullptr) {
-    // No copy is detected. This must mean the producer is not a copy
-    // of any input cache
-    return false;
-  }
-
-  auto cache_it =
-      std::find(input_caches.begin(), input_caches.end(), producer_of_producer);
-  if (cache_it == input_caches.end()) {
-    return false;
-  }
-
-  auto fusion_input = get_copy_src(producer_of_producer);
-  NVF_ERROR(
-      fusion_input != nullptr,
-      "Unexpected input cache: ",
-      producer_of_producer->toString());
-
-  // Currently, the ops look like:
-  // tv0: fusion input
-  // tv1 = tv0 // cache of the input
-  // tv2 = tv1 // copy of the tv1. Placed on Global
-  // tv3 = resizeOp(tv2) // some op using resize
-
-  // Translate it to:
-  // tv0: fusion input
-  // tv3 = resizeOp(tv0) // some op using resize
-
-  ir_utils::replaceValInExprInputs(
-      consumer->definition(), promoted_producer, fusion_input);
-
-  return true;
-}
-
 } // namespace
 
 void prepareForMemoryTypePromotion(Fusion* fusion) {
@@ -2637,11 +2577,6 @@ void promoteProducerMemoryTypes(
 
     // Required memory type of the producer
     const auto new_mem_type = it->second;
-
-    if (revertUseOfInputCache(consumer, producer, new_mem_type, input_caches)) {
-      continue;
-    }
-
     producer->setMemoryType(new_mem_type);
   }
 }
