@@ -15,6 +15,7 @@
 #include <runtime/executor_kernel_arg.h>
 #include <runtime/fusion_executor_cache.h>
 #include <runtime/fusion_kernel_runtime.h>
+#include <validator_utils.h>
 
 namespace nvfuser::python {
 
@@ -293,6 +294,51 @@ Returns
 -------
 list of torch.Tensor
     The output tensors produced by the fusion.
+)")
+      .def(
+          "validate_with_auto_inferred_outputs",
+          [](FusionExecutorCache& self,
+             const py::iterable& fusion_outputs,
+             const py::iterable& args) {
+            return testValidate(
+                self.fusion(),
+                from_pyiterable(fusion_outputs),
+                from_pyiterable(args));
+          },
+          py::arg("fusion_outputs"),
+          py::arg("args"),
+          R"(
+Validate the fusion outputs with auto inferred outputs.
+
+Parameters
+----------
+fusion_outputs : iterable
+    The fusion outputs to validate.
+args : iterable
+    The arguments to validate the fusion outputs with.
+
+Returns
+-------
+None
+)")
+      .def(
+          "get_val_tolerances",
+          [](FusionExecutorCache& self, const py::iterable& args) {
+            return getValTolerances(self.fusion(), from_pyiterable(args));
+          },
+          py::arg("args"),
+          R"(
+Get the validation tolerances for the fusion.
+
+Parameters
+----------
+args : iterable
+    The arguments to get the validation tolerances for.
+
+Returns
+-------
+list of tuple of float
+    The validation tolerances for the fusion.
 )")
       .def(
           "is_compiled",
