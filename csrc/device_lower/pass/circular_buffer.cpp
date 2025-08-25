@@ -1564,21 +1564,129 @@ class WarpSpecializedCircularBufferInserter : private kir::ExprMutator {
   }
 
   // Create predicate for warp-specialized IfThenElse:
-  // kir::Predicate is thread_axis >= block_dim_axis - padded_value
+  //
+  // Note that this utility assumes that blockDim.x is a multiple of 32
+  //
+  // If specializing on TIDx, then
+  //   kir::Predicate is thread_axis / 32 == (block_dim_axis / 32) + (async_warp
+  //   - padded_value) / 32
+  // If specializing on TIDy, then
+  //   kir::Predicate is (thread_axis == block_dim_axis - padded_value +
+  //   (async_warp / (blockDim.x / 32))) && ((threadIdx.x / 32) == (async_warp %
+  //   (blockDim.x / 32)))
+  // This selects the warp group and the warp within the warp group for the
+  // given async_warp
+  //
+  // TODO: Also put the electsync predicate here if all expressions in the warp
+  // are single-thread like TMA load
   kir::Predicate* getAsyncWarpPredicate(const CircularBufferOptions& options) {
-    ParallelType warp_specialize_on =
-        std::get<WarpSpecialized>(options.type).on;
-    int64_t warp_specialization_pad =
-        GpuLower::current()
-            ->info()
-            .parallelDimensionMap()
-            .getWarpSpecializationPaddedVal(warp_specialize_on);
-    Val* raw = GpuLower::current()->info().parallelDimensionMap().get(
-        warp_specialize_on);
-    Val* raw_minus_pad = SimplifyingIrBuilder::subExpr(
-        raw, IrBuilder::create<Val>(warp_specialization_pad, DataType::Index));
-    return IrBuilder::create<kir::Predicate>(IrBuilder::geExpr(
-        NamedScalar::getParallelIndex(warp_specialize_on), raw_minus_pad));
+    const auto& ws = std::get<WarpSpecialized>(options.type);
+
+    const ParallelDimensionMap& dim_map =
+        GpuLower::current()->info().parallelDimensionMap();
+
+    Val* tidx_compute_val = dim_map.getRawCompute(ParallelType::TIDx);
+    NVF_ERROR(tidx_compute_val != nullptr);
+    PolymorphicValue tcpv = tidx_compute_val->evaluate();
+    NVF_ERROR(
+        tcpv.hasValue(),
+        "Could not compute X size of block ",
+        tidx_compute_val->toInlineString());
+    const int64_t tidx_compute = tcpv.as<int64_t>();
+
+    NVF_ERROR(
+        ws.on == ParallelType::TIDx || tidx_compute % 32 == 0,
+        "Size of block in X dimension must be a multiple of 32 when "
+        "specializing on TIDy or TIDz. ",
+        "Found warp specialization on ",
+        ws.on,
+        " but TIDx compute size of ",
+        tidx_compute);
+
+    const int64_t num_warps_tidx = ceilDiv(tidx_compute, 32L);
+    if (ws.on == ParallelType::TIDx) {
+      const int64_t warp_specialization_pad =
+          dim_map.getWarpSpecializationPaddedVal(ws.on);
+
+      Val* raw = GpuLower::current()->info().parallelDimensionMap().get(ws.on);
+      Val* raw_minus_pad = SimplifyingIrBuilder::subExpr(
+          raw,
+          IrBuilder::create<Val>(warp_specialization_pad, DataType::Index));
+      Val* target = SimplifyingIrBuilder::addExpr(
+          raw_minus_pad,
+          IrBuilder::create<Val>(ws.async_warp, DataType::Index));
+      return IrBuilder::create<kir::Predicate>(
+          IrBuilder::eqExpr(NamedScalar::getParallelIndex(ws.on), target));
+    }
+
+    // For TIDy or TIDz specialization, find the warp to target within TIDx
+    // first
+    const int64_t target_x = ws.async_warp % num_warps_tidx;
+    int64_t target_y = ws.async_warp / num_warps_tidx;
+    if (ws.on == ParallelType::TIDy) {
+      const int64_t warp_specialization_pad =
+          dim_map.getWarpSpecializationPaddedVal(ws.on);
+
+      Val* raw_y =
+          GpuLower::current()->info().parallelDimensionMap().get(ws.on);
+      Val* raw_y_minus_pad = SimplifyingIrBuilder::subExpr(
+          raw_y,
+          IrBuilder::create<Val>(warp_specialization_pad, DataType::Index));
+      Val* target_y_val = SimplifyingIrBuilder::addExpr(
+          raw_y_minus_pad, IrBuilder::create<Val>(target_y, DataType::Index));
+      Val* pred_y =
+          IrBuilder::eqExpr(NamedScalar::getParallelIndex(ws.on), target_y_val);
+
+      Val* pred_x = IrBuilder::eqExpr(
+          IrBuilder::divExpr(
+              NamedScalar::getParallelIndex(ParallelType::TIDx),
+              IrBuilder::create<Val>(32, DataType::Index)),
+          IrBuilder::create<Val>(target_x, DataType::Index));
+
+      Val* pred_val = SimplifyingIrBuilder::logicalAndExpr(pred_y, pred_x);
+
+      return IrBuilder::create<kir::Predicate>(pred_val);
+    }
+
+    NVF_ERROR(ws.on == ParallelType::TIDz);
+    Val* tidy_compute_val = dim_map.getRawCompute(ParallelType::TIDy);
+    NVF_ERROR(tidy_compute_val != nullptr);
+    PolymorphicValue tcypv = tidy_compute_val->evaluate();
+    NVF_ERROR(
+        tcypv.hasValue(),
+        "Could not compute Y size of block ",
+        tidy_compute_val->toInlineString());
+    const int64_t tidy_compute = tcypv.as<int64_t>();
+
+    // Now we have predicates in TIDx, TIDy, and TIDz
+    const int64_t target_z = target_y / tidy_compute;
+    target_y = target_y % tidy_compute;
+
+    const int64_t warp_specialization_pad =
+        dim_map.getWarpSpecializationPaddedVal(ws.on);
+
+    Val* raw_z = GpuLower::current()->info().parallelDimensionMap().get(ws.on);
+    Val* raw_z_minus_pad = SimplifyingIrBuilder::subExpr(
+        raw_z,
+        IrBuilder::create<Val>(warp_specialization_pad, DataType::Index));
+    Val* target_z_val = SimplifyingIrBuilder::addExpr(
+        raw_z_minus_pad, IrBuilder::create<Val>(target_z, DataType::Index));
+    Val* pred_z =
+        IrBuilder::eqExpr(NamedScalar::getParallelIndex(ws.on), target_z_val);
+
+    Val* pred_y = IrBuilder::eqExpr(
+        NamedScalar::getParallelIndex(ParallelType::TIDy),
+        IrBuilder::create<Val>(target_y, DataType::Index));
+
+    Val* pred_x = IrBuilder::eqExpr(
+        IrBuilder::divExpr(
+            NamedScalar::getParallelIndex(ParallelType::TIDx),
+            IrBuilder::create<Val>(32, DataType::Index)),
+        IrBuilder::create<Val>(target_x, DataType::Index));
+
+    Val* pred_val = SimplifyingIrBuilder::logicalAndExpr(
+        pred_z, SimplifyingIrBuilder::logicalAndExpr(pred_y, pred_x));
+    return IrBuilder::create<kir::Predicate>(pred_val);
   }
 
   void insertTmaWarpSpecialized(
