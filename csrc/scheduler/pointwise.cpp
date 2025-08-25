@@ -409,17 +409,16 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
             broadcast_bit_multiples[break_point_i].rhs_multiple;
 
         // Estimate transfer cost with this break point
-        int64_t cur_transfer_size_bit = 1;
-        int64_t right_transfer_size_bit = 1;
+        int64_t cur_transfer_size_bit = lhs_bit_multiple;
+        int64_t right_transfer_size_bit = rhs_bit_multiple;
 
         for (const auto left_i : arange(break_point_i)) {
-          cur_transfer_size_bit =
-              cur_transfer_size_bit * elem_counts[left_i] * lhs_bit_multiple;
+          cur_transfer_size_bit = cur_transfer_size_bit * elem_counts[left_i];
         }
 
         for (const auto right_i : arange(break_point_i, ref_loop.size())) {
           right_transfer_size_bit =
-              right_transfer_size_bit * elem_counts[right_i] * rhs_bit_multiple;
+              right_transfer_size_bit * elem_counts[right_i];
         }
         cur_transfer_size_bit *= right_transfer_size_bit;
 
