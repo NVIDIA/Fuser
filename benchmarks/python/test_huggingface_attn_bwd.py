@@ -75,6 +75,7 @@ def huggingface_attn_bwd_iobytes(size: tuple, dtype: torch.dtype):
 
 @pytest.mark.parametrize("size", generate_attn_inputs())
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)
+@pytest.mark.inner_persistent
 def test_huggingface_attn_bwd_nvf_benchmark(
     benchmark,
     size: tuple,
@@ -117,6 +118,7 @@ def test_huggingface_attn_bwd_nvf_benchmark(
 @pytest.mark.parametrize("executor", DEFAULT_EXECUTORS)
 @pytest.mark.parametrize("size", generate_attn_inputs())
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)
+@pytest.mark.inner_persistent
 def test_huggingface_attn_bwd_baseline_benchmark(
     benchmark,
     size: tuple,

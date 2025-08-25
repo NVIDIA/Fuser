@@ -47,6 +47,7 @@ def transpose_fwd_fn(inputs: list):  # [input1, input2, dim0, dim1]
 @pytest.mark.parametrize("size", generate_input_sizes(dims=3))
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)
 @pytest.mark.parametrize("axes", [(0, 1), (0, 2), (1, 2)])
+@pytest.mark.pointwise
 def test_transpose_nvf_benchmark(
     benchmark,
     size: tuple,
@@ -78,6 +79,7 @@ def test_transpose_nvf_benchmark(
 @pytest.mark.parametrize("size", generate_input_sizes(dims=3))
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)
 @pytest.mark.parametrize("axes", [(0, 1), (0, 2), (1, 2)])
+@pytest.mark.pointwise
 def test_transpose_baseline_benchmark(
     benchmark,
     size: tuple,

@@ -56,6 +56,7 @@ def bcast_add_fwd_fn(inputs: list):  # bias, x, bcast_dim
 @pytest.mark.parametrize(
     "contiguous", [True, False], ids=["contiguous", "non-contiguous"]
 )
+@pytest.mark.pointwise
 def test_bcast_add_nvf_benchmark(
     benchmark,
     size: tuple,
@@ -95,6 +96,7 @@ def test_bcast_add_nvf_benchmark(
 @pytest.mark.parametrize(
     "contiguous", [True, False], ids=["contiguous", "non-contiguous"]
 )
+@pytest.mark.pointwise
 def test_bcast_add_baseline_benchmark(
     benchmark,
     size: tuple,
