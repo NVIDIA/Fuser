@@ -2566,9 +2566,11 @@ INSTANTIATE_TEST_SUITE_P(
       return sanitizeTestName(ss.str());
     });
 
-TEST_P(CircularBufferingTest, SingleDimTwoAsyncWarps) {
+TEST_F(NVFuserTest, SingleDimTwoAsyncWarps) {
   Fusion fusion;
   FusionGuard fg(&fusion);
+
+  constexpr int64_t number_of_stages = 3;
 
   auto tv0 = makeContigTensor(1);
   auto tv1 = makeContigTensor(1);
@@ -2604,10 +2606,10 @@ TEST_P(CircularBufferingTest, SingleDimTwoAsyncWarps) {
   // tv2->circularBuffer(number_of_stages, prefetch_distance);
   // tv3->circularBuffer(number_of_stages, prefetch_distance);
   WarpSpecialized ws(ParallelType::TIDy);
-  ws.async_warp = 0;
-  tv2->circularBuffer(number_of_stages, ws);
-  ws.async_warp = 1;
-  tv3->circularBuffer(number_of_stages, ws);
+  // ws.async_warp = 0;
+  tv2->circularBuffer(number_of_stages, /*prefetch_distance=*/-1, ws);
+  // ws.async_warp = 1;
+  tv3->circularBuffer(number_of_stages, /*prefetch_distance=*/-1, ws);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn({1000}, options);
@@ -2625,6 +2627,116 @@ TEST_P(CircularBufferingTest, SingleDimTwoAsyncWarps) {
 
   auto cg_outputs = ke.run({t0, t1});
   testValidate(&fusion, cg_outputs, {t0, t1}, __LINE__, __FILE__);
+}
+
+TEST_F(NVFuserTest, TwoAsyncWarps) {
+  NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
+  constexpr int64_t gdimx = 2;
+
+  constexpr dim3 bdim(128, 2, 1);
+  constexpr ParallelType ws_pt = ParallelType::TIDy;
+
+  std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+
+  auto tv0 = makeContigTensor(2);
+  fusion->addInput(tv0);
+  auto tv1 = makeContigTensor(2);
+  fusion->addInput(tv1);
+
+  auto tv2 = set(tv0);
+  tv2->setMemoryType(MemoryType::Shared);
+  tv2->definition()->as<LoadStoreOp>()->setOpType(LoadStoreOpType::CpAsyncBulk);
+
+  auto tv3 = set(tv1);
+  tv3->setMemoryType(MemoryType::Shared);
+  tv3->definition()->as<LoadStoreOp>()->setOpType(LoadStoreOpType::CpAsyncBulk);
+
+  auto tv4 = mul(tv2, tv3);
+
+  fusion->addOutput(tv4);
+
+  // [I1, I2] -> [gdimx, I1/gdimx, I2/bdimx/bdimy, I2/bdimx/bdimy/bdimz, bdimz,
+  // bdimy, bdimx]
+  tv4->split(0, gdimx, false);
+  tv4->split(2, bdim.x);
+  tv4->split(2, bdim.y);
+  tv4->split(2, bdim.z);
+  tv4->axis(-1)->parallelize(ParallelType::TIDx);
+  tv4->axis(-2)->parallelize(ParallelType::TIDy);
+  tv4->axis(-3)->parallelize(ParallelType::TIDz);
+  tv4->axis(0)->parallelize(ParallelType::BIDx);
+
+  for (TensorView* tv : {tv2, tv3}) {
+    // [I1, I2] -> [gdimx, I1/gdimx, I2]
+    tv->split(0, gdimx, false);
+    tv->axis(0)->parallelize(ParallelType::BIDx);
+    tv->axis(2)->parallelize(ParallelType::Bulk);
+
+    // Set inlineAt before applying circular buffer
+    inlineAllAt(tv, /*pos=*/2);
+  }
+
+  int64_t n_computation_threads = bdim.x * bdim.y * bdim.z;
+  constexpr int64_t n_tma_branch_threads = 128;
+  int64_t n_total_threads = n_computation_threads + n_tma_branch_threads;
+
+  constexpr int64_t n_stages = 2;
+
+  // If ws_pt == ParallelType::TIDx and bdim.x == 32, CUDA kernel cannot use
+  // register sharing. ncu reports it uses 26 register per thread.
+  // getNumRegisters expects 168 registers by default, so the register settings
+  // causes nvrtc to hang during compilation.
+  if (ws_pt == ParallelType::TIDx && getTmaPadThreads(ws_pt, bdim) < 32) {
+    WarpSpecialized circular_buffer_type(ws_pt);
+    tv2->circularBuffer(
+        n_stages, /*prefetch_distance=*/-1, circular_buffer_type);
+
+    // Use a second async warp for loading tv3
+    circular_buffer_type.async_warp = 1;
+
+    tv3->circularBuffer(
+        n_stages, /*prefetch_distance=*/-1, circular_buffer_type);
+  } else {
+    WarpSpecialized circular_buffer_type(
+        ws_pt,
+        getNumRegisters(
+            n_computation_threads, n_tma_branch_threads, n_total_threads));
+    tv2->circularBuffer(
+        n_stages, /*prefetch_distance=*/-1, circular_buffer_type);
+
+    // Use a second async warp for loading tv3
+    circular_buffer_type.async_warp = 1;
+
+    tv3->circularBuffer(
+        n_stages, /*prefetch_distance=*/-1, circular_buffer_type);
+  }
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({n_stages * gdimx, n_computation_threads}, options);
+  at::Tensor t1 = at::randn({n_stages * gdimx, n_computation_threads}, options);
+  std::vector<c10::IValue> inputs{t0, t1};
+  KernelExecutor ke;
+
+  try {
+    ke.compile(fusion.get(), inputs);
+  } catch (const std::exception& e) {
+    const char* other_active_128_max =
+        R"(The # active threads in other thread dimensions > 128 threads.)";
+    if (getOtherActiveThreads(ws_pt, bdim) > n_tma_branch_threads) {
+      const char* str_match_pointer = strstr(e.what(), other_active_128_max);
+      ASSERT_TRUE(str_match_pointer != nullptr);
+      return;
+    }
+    throw;
+  }
+
+  auto cg_outputs = ke.run(inputs);
+  auto lparams = ke.lastLaunchParams();
+  EXPECT_EQ(lparams.nThreads(), n_total_threads);
+  testValidate(fusion.get(), cg_outputs, inputs, __LINE__, __FILE__);
 }
 
 } // namespace nvfuser
