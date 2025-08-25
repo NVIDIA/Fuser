@@ -1395,18 +1395,16 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     func_args.arg("*(int64_t(*)[")
         .append(items_per_thread)
         .append("])")
-        .append("(")
-        .append(
-            genVariableName(output) + ".array + " + genInline(output->index()))
+        .append("(&")
+        .append(genInline(output))
         .append(")");
     func_args.arg("*(")
         .append(input->dtype())
         .append("(*)[")
         .append(std::to_string(items_per_thread))
         .append("])")
-        .append("(")
-        .append(
-            genVariableName(input) + ".array + " + genInline(input->index()))
+        .append("(&")
+        .append(genInline(input))
         .append(")");
     func_args.arg(aop->isDescending() ? "true" : "false"); // descending flag
     func_args.arg(genComputeBlockDim());
@@ -1605,11 +1603,6 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     const auto output = scan->out()->as<kir::TensorIndex>();
     const auto input = scan->in()->as<kir::TensorIndex>();
 
-    // The runtime device function assumes both input and output are
-    // in registers
-    NVF_ERROR_EQ(input->view()->getMemoryType(), MemoryType::Local);
-    NVF_ERROR_EQ(output->view()->getMemoryType(), MemoryType::Local);
-
     // Build template arguments following TopKOp pattern
     ArgumentBuilder template_args;
     for (const auto pt : kParallelTypeTIDs) {
@@ -1654,9 +1647,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
         .append("(*)[")
         .append(items_per_thread)
         .append("])")
-        .append("(")
-        .append(
-            genVariableName(output) + ".array + " + genInline(output->index()))
+        .append("(&")
+        .append(genInline(output))
         .append(")");
 
     // Second argument: input data array
@@ -1665,9 +1657,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
         .append("(*)[")
         .append(std::to_string(items_per_thread))
         .append("])")
-        .append("(")
-        .append(
-            genVariableName(input) + ".array + " + genInline(input->index()))
+        .append("(&")
+        .append(genInline(input))
         .append(")");
 
     // Third argument: init value

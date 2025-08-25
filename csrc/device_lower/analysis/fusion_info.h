@@ -140,6 +140,7 @@ class FusionInfo {
 class FusionInfoGuard {
  public:
   explicit FusionInfoGuard(FusionInfo* fusion_info);
+
   ~FusionInfoGuard();
 
   static FusionInfo* current();

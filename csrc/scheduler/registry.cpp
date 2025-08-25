@@ -9,6 +9,7 @@
 #include <instrumentation.h>
 #include <scheduler/all_schedulers.h>
 #include <scheduler/debug_utils.h>
+#include <scheduler/greedy.h>
 #include <scheduler/heuristic.h>
 #include <scheduler/matmul_utils.h>
 #include <scheduler/registry.h>
@@ -37,7 +38,8 @@ bool checkCanSchedule(Fusion* fusion, SchedulerType scheduler_type) {
   // These ops are  are only accepted in `ExprEval`
   // scheduler, all other schedulers should reject them.
   // TODO: remove IndexPutAccumulateOp
-  if (ir_utils::hasOpsOfType<
+  if (scheduler_type != SchedulerType::Greedy &&
+      ir_utils::hasOpsOfType<
           ScatterOp,
           SdpaFwdOp,
           SdpaBwdOp,
@@ -118,6 +120,8 @@ std::unique_ptr<SchedulerEntry> SchedulerEntry::makeSchedulerInstance(
       return std::make_unique<ExprEvalScheduler>();
     case SchedulerType::Resize:
       return std::make_unique<ResizeScheduler>();
+    case SchedulerType::Greedy:
+      return std::make_unique<GreedyScheduler>();
     case SchedulerType::Communication:
       return std::make_unique<CommunicationScheduler>();
     default:
