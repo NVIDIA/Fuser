@@ -191,9 +191,8 @@ TEST_P(AdvancedIndexingTest, 3) {
   at::Tensor t0 = at::randn({x, y, z}, options);
   at::Tensor t1 = at::randn({w, x, y, z}, options);
 
-  auto cg_outputs =
-      scheduleAndRun(&fusion, SchedulerType::PointWise, {t0, t1}).outputs;
-  testValidate(&fusion, cg_outputs, {t0, t1}, __LINE__, __FILE__);
+  runAndValidate(
+      &fusion, SchedulerType::PointWise, {t0, t1}, __LINE__, __FILE__);
 }
 
 // Same as 3 but use 3 dimensions and concrete sizes
@@ -410,9 +409,8 @@ TEST_P(AdvancedIndexingTest, 9) {
   auto t0 = at::randn({numel_y}, options);
   auto t3 = at::randn({numel_x, numel_y, numel_z}, options);
 
-  auto cg_outputs =
-      scheduleAndRun(&fusion, SchedulerType::PointWise, {t0, t3}).outputs;
-  testValidate(&fusion, cg_outputs, {t0, t3}, __LINE__, __FILE__);
+  runAndValidate(
+      &fusion, SchedulerType::PointWise, {t0, t3}, __LINE__, __FILE__);
 }
 
 TEST_P(AdvancedIndexingTest, 10) {
