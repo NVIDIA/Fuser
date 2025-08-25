@@ -1275,7 +1275,6 @@ std::vector<TensorView*> cacheInputs(Fusion* fusion, bool unroll) {
   auto in_tvs = ir_utils::filterByType<TensorView>(fusion->inputs());
   for (auto tv : in_tvs) {
     if (tv->nDims() == 0 || tv->uses().empty() ||
-        ir_utils::isAndOnlyIsGatherLookupTv(tv) ||
         ir_utils::isIndexSelectLookupTv(tv) ||
         ir_utils::isTvUsedByOpsOfType<SelectOp>(tv)) {
       // Right now, tensors that are input to the select, gather and
