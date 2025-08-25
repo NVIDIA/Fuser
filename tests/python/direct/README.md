@@ -42,7 +42,7 @@ Each migrated test underwent the following adaptations:
 
 ### Tests Only in Main Frontend (Not in Direct)
 
-The following 39 tests exist in `tests/python/test_python_frontend.py` but are **NOT** present in `tests/python/direct/test_python_frontend.py`:
+The following 37 tests exist in `tests/python/test_python_frontend.py` but are **NOT** present in `tests/python/direct/test_python_frontend.py`:
 
 **Note**: The legacy frontend uses class-based tests (`def test_*(self):`) while the direct frontend uses standalone functions (`def test_*(nvfuser_direct_test):`). Only actual pytest test methods (with `self` parameter) are counted here. `test_cat_qwen2_v2` is the only pytest outside of `TestNvFuserFrontend` in `tests/python/test_python_frontend.py`.
 
@@ -96,8 +96,6 @@ The following tests will be added to tests/python/direct/test_python_frontend.py
 - `test_right_shift_logical` - Tests logical right shift; Missing bitwise_right_shift operation
 - `test_right_shift_logical_sizeof_dtype` - Tests logical right shift with dtype size; Missing bitwise_right_shift operation
 - `test_var_correction` - Tests variance correction; Missing `var` operation
-- `test_fix_2549` - Tests fix for issue 2549 (broadcast_in_dim and division operations)
-- `test_remove_empty_issue_2545` - Tests fix for issue 2545 (empty tensor handling with concatenation operations)
 
 ### Tests Only in Direct Frontend (Not in Main)
 
@@ -212,8 +210,8 @@ The following 18 issue-specific tests have been migrated from the main frontend 
 - `test_issue1953` - Tests fix for issue 1953 (complex operations with strided tensors and multiple data types)
 - `test_issue2275_repro1` - Tests fix for issue 2275 (unpadded concatenation operations with complex tensor manipulations); Maps to legacy `test_unpadded_catop_issue2275_repro1`
 - `test_issue2275_repro2` - Tests fix for issue 2275 (unpadded concatenation operations with trigonometric functions); Maps to legacy `test_unpadded_catop_issue2275_repro2`
-- `test_issue2545` - Tests fix for issue 2545 (complex operations with empty tensors and concatenation)
-- `test_issue2549` - Tests fix for issue 2549 (broadcast_in_dim and division operations)
+- `test_issue2545` - Tests fix for issue 2545 (complex operations with empty tensors and concatenation); Maps to legacy `test_remove_empty_issue_2545`
+- `test_issue2549` - Tests fix for issue 2549 (broadcast_in_dim and division operations); Maps to `test_fix_2549`
 - `test_issue2755` - Tests fix for issue 2755 (slice operations with negation)
 - `test_issue3292` - Tests fix for issue 3292 (complex tensor operations with manual normalization and padding)
 
@@ -252,7 +250,7 @@ Contains direct frontend specific functionality tests:
 - **Direct Python**: 6 tests in `tests/python/direct/test_python_direct.py`
 - **Total Direct Tests**: 153 tests across 3 files
 - **Shared Tests**: 73 tests between legacy and direct frontend
-- **Legacy-Only Tests**: 24 tests (not yet migrated)
+- **Legacy-Only Tests**: 22 tests (not yet migrated)
 - **Direct-Only Tests**: 12 tests (new functionality)
 
 ## Test Functions by File
