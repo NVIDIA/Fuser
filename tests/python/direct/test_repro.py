@@ -1198,14 +1198,11 @@ def test_issue2275_repro2(nvfuser_direct_test):
 
 def test_issue2545(nvfuser_direct_test):
     """
-    Test for issue 2545 - tests complex operations with empty tensors and concatenation.
+    Test for issue 2545 - tests empty tensor handling with concatenation operations.
 
-    This test verifies that complex operations work correctly with:
-    - Empty tensors (zero-sized dimensions)
-    - Multiple concatenation operations
-    - Conditional operations (where, lt)
-    - Arithmetic operations with scalars
-    - Proper handling of empty tensor removal during optimization
+    This test verifies that operations with empty tensors work correctly,
+    particularly when concatenating tensors where one or more inputs
+    are empty tensors.
     """
     inputs = [
         torch.randint(0, 10, (2,), dtype=torch.int64, device="cuda:0").as_strided(
@@ -1258,11 +1255,9 @@ def test_issue2549(nvfuser_direct_test):
     """
     Test for issue 2549 - tests broadcast_in_dim and division operations.
 
-    This test verifies that broadcast_in_dim and division operations work correctly:
-    - Broadcasting a tensor to a specific shape with explicit broadcast dimensions
-    - Division operations with broadcasted tensors
-    - Proper handling of tensor shapes and strides
-    - Correct computation of division with broadcasted operands
+    This test verifies that broadcast_in_dim operations work correctly
+    with division operations, particularly when broadcasting tensors
+    with different shapes.
     """
     a = torch.ones(4, 1, dtype=torch.double, device="cuda")
     b = torch.ones(4, 4, dtype=torch.double, device="cuda")
