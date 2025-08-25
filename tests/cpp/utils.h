@@ -66,6 +66,13 @@ inline torch::jit::Stack createStack(std::vector<at::Tensor>&& list) {
       std::make_move_iterator(list.end()));
 }
 
+void runAndValidate(
+    Fusion* fusion,
+    SchedulerType scheduler_type,
+    const KernelArgumentHolder& runtime_inputs,
+    int line_number,
+    const char* file_name);
+
 // Make a tensor that is known to be fully contiguous of dimensionality=ndims,
 // but unknown sizes
 inline TensorView* makeContigTensor(

@@ -18,6 +18,7 @@
 #include <ops/all_ops.h>
 #include <scheduler/mma_utils.h>
 #include <tests/cpp/utils.h>
+#include <validator_utils.h>
 
 namespace nvfuser {
 
@@ -117,6 +118,17 @@ CGResultsPackage scheduleAndRun(
       .heuristic_params = std::move(heuristic_params),
       .kernel_executor = std::move(ke)};
   return results;
+}
+
+void runAndValidate(
+    Fusion* fusion,
+    SchedulerType scheduler_type,
+    const KernelArgumentHolder& runtime_inputs,
+    int line_number,
+    const char* file_name) {
+  auto cg_outputs =
+      scheduleAndRun(fusion, scheduler_type, runtime_inputs).outputs;
+  testValidate(fusion, cg_outputs, runtime_inputs, line_number, file_name);
 }
 
 int64_t prime_number(int64_t i) {
