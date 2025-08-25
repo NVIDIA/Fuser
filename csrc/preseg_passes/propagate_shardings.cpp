@@ -100,25 +100,13 @@ std::vector<TensorView*> getOrderedReferenceInputs(Expr* expr) {
   return sorted_inputs;
 }
 
-std::vector<TensorView*> getOutputsWithoutMesh(Expr* expr) {
-  const auto& outputs = ir_utils::filterByType<TensorView>(expr->outputs());
-  std::vector<TensorView*> outputs_without_mesh;
-  std::copy_if(
-      outputs.begin(),
-      outputs.end(),
-      std::back_inserter(outputs_without_mesh),
-      [](TensorView* tv) { return !tv->hasDeviceMesh(); });
-  return outputs_without_mesh;
-}
-
 // Returns the set of parallel types not seen on the loop domain of the given
 // tvs and hence, can be propagated.
-std::unordered_set<ParallelType> getParallelTypesToPropagate(
-    std::vector<TensorView*> tvs) {
+std::unordered_set<ParallelType> getParallelTypesToPropagate(TensorView* tv) {
   std::unordered_set<ParallelType> all_parallel_types;
   // Since we propagate across exprs, either all tvs are fusion inputs or none
   // are.
-  if (tvs.at(0)->isFusionInput()) {
+  if (tv->isFusionInput()) {
     all_parallel_types = {ParallelType::Stream};
   } else {
     all_parallel_types = deviceAndStreamParallelTypes();
@@ -130,11 +118,9 @@ std::unordered_set<ParallelType> getParallelTypesToPropagate(
   // i0 with DIDx. This generates the reduce-scatter communication (`DIDx(d),
   // i0/d, r{DIDx(d)}, r{i1/d}`). where i0 is scattered and i1 is reduced.
   std::unordered_set<ParallelType> existing_parallel_types;
-  for (auto tv : tvs) {
-    for (auto id : tv->getLoopDomain()) {
-      if (id->isStream() || (id->isDeviceDim() && !id->isReduction())) {
-        existing_parallel_types.insert(id->getParallelType());
-      }
+  for (IterDomain* id : tv->getLoopDomain()) {
+    if (id->isStream() || (id->isDeviceDim() && !id->isReduction())) {
+      existing_parallel_types.insert(id->getParallelType());
     }
   }
   std::unordered_set<ParallelType> selected_parallel_types;
@@ -396,16 +382,6 @@ void propagateDIDTransform(
   transformLoopDomain(tv, ref, device_or_stream_ids, direction);
 }
 
-void propagateDIDTransform(
-    const TensorView* ref,
-    const std::vector<TensorView*>& tvs,
-    const std::unordered_set<ParallelType>& selected_parallel_types,
-    PropagateDirection direction) {
-  for (auto tv : tvs) {
-    propagateDIDTransform(ref, tv, selected_parallel_types, direction);
-  }
-}
-
 } // namespace
 
 // Propagates device / stream splits and parallelizations from user annotated
@@ -436,13 +412,6 @@ void PropagateShardingsPass::runPass(Fusion* fusion) {
   const std::vector<Expr*>& exprs = fusion->exprs();
 
   for (Expr* expr : exprs) {
-    // TensorViews without a mesh are assumed to have no user-specified sharding
-    // and are sharded like the producers.
-    const auto& outputs_without_mesh = getOutputsWithoutMesh(expr);
-    if (outputs_without_mesh.empty()) {
-      continue;
-    }
-
     const auto& reference_inputs = getOrderedReferenceInputs(expr);
     // Propagate shardings from reference inputs in order.
     for (auto* ref_input : reference_inputs) {
@@ -459,14 +428,19 @@ void PropagateShardingsPass::runPass(Fusion* fusion) {
       // will be [M, DIDx(d), N/d]. When we propagate from inp next, we should
       // not propagate DIDx parallel type to the output. Otherwise, the output
       // will have multiple DIDx shardings which is invalid.
-      std::unordered_set<ParallelType> selected_parallel_types =
-          getParallelTypesToPropagate(outputs_without_mesh);
-
-      propagateDIDTransform(
-          /*ref=*/ref_input,
-          /*tvs=*/outputs_without_mesh,
-          selected_parallel_types,
-          PropagateDirection::kForward);
+      for (TensorView* target :
+           ir_utils::filterByType<TensorView>(expr->outputs())) {
+        if (user_sharded_tvs.count(target)) {
+          continue;
+        }
+        std::unordered_set<ParallelType> selected_parallel_types =
+            getParallelTypesToPropagate(target);
+        propagateDIDTransform(
+            /*ref=*/ref_input,
+            /*tv=*/target,
+            selected_parallel_types,
+            PropagateDirection::kForward);
+      }
     }
   }
 
@@ -499,16 +473,14 @@ void PropagateShardingsPass::runPass(Fusion* fusion) {
     // modify their sharding. For non-fusion inputs, we try to propagate
     // shardings from the reference output for parallel types that are not
     // already present.
-    const auto& inputs = ir_utils::filterByType<TensorView>(expr->inputs());
-    std::vector<TensorView*> sharding_candidates;
-
-    for (TensorView* target : inputs) {
+    for (TensorView* target :
+         ir_utils::filterByType<TensorView>(expr->inputs())) {
       // Allow inputs to be stream parallelized for easier analysis.
       if (user_sharded_tvs.count(target) && !target->isFusionInput()) {
         continue;
       }
       std::unordered_set<ParallelType> selected_parallel_types =
-          getParallelTypesToPropagate({target});
+          getParallelTypesToPropagate(target);
       propagateDIDTransform(
           /*ref=*/ref_output,
           /*tv=*/target,
