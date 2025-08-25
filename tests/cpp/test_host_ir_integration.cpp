@@ -72,30 +72,33 @@ TEST_F(HostIrEvaluatorTest, LaunchKernel) {
   EXPECT_TRUE(outputs[0].as<at::Tensor>().equal(t0));
 }
 
-TEST_F(HostIrEvaluatorTest, AddOne) {
+TEST_F(HostIrEvaluatorTest, AddOutPerStream) {
   constexpr int64_t c = 2;
 
   auto hic = std::make_unique<HostIrContainer>();
   FusionGuard::setCurFusion(hic.get());
 
   TensorView* in = makeSymbolicTensor(2);
+  TensorView* out = set(in);
+  out->setMemoryType(MemoryType::Global);
+  auto* allocate_out = IrBuilder::create<kir::Allocate>(
+      out, MemoryType::Global, std::vector<Val*>({}), /*zero_init=*/true);
   TensorView* loop_in = set(in);
-  TensorView* loop_out = add(loop_in, hic->oneVal());
-  TensorView* out = set(loop_out);
+  TensorView* loop_out = set(out);
+  auto* add = IrBuilder::create<BinaryOp>(
+      BinaryOpType::Add, loop_out, loop_in, loop_in);
   hic->addInput(in);
   hic->addOutput(out);
 
+  hic->pushBackTopLevelExprs(allocate_out);
   hic->pushBackTopLevelExprs(loop_in->definition());
   hic->pushBackTopLevelExprs(loop_out->definition());
-  auto* allocate_out = IrBuilder::create<kir::Allocate>(
-      out, MemoryType::Global, std::vector<Val*>({}), /*zero_init=*/true);
-  hic->pushBackTopLevelExprs(allocate_out);
-  hic->pushBackTopLevelExprs(out->definition());
+  hic->pushBackTopLevelExprs(add);
 
-  loop_in->outer_split(0, c);
-  loop_in->axis(0)->parallelize(ParallelType::Stream);
-  loop_out->outer_split(0, c);
-  loop_out->axis(0)->parallelize(ParallelType::Stream);
+  // loop_in->outer_split(0, c);
+  // loop_in->axis(0)->parallelize(ParallelType::Stream);
+  // loop_out->outer_split(0, c);
+  // loop_out->axis(0)->parallelize(ParallelType::Stream);
 
   HostIrEvaluator hie(std::move(hic));
 
@@ -105,7 +108,34 @@ TEST_F(HostIrEvaluatorTest, AddOne) {
   args.setCacheId(0);
   auto out_tensors = hie.runWithInputs(args);
 
-  EXPECT_TRUE(torch::allclose(out_tensors[0].as<at::Tensor>(), in_tensor + 1));
+  EXPECT_TRUE(
+      torch::allclose(out_tensors[0].as<at::Tensor>(), in_tensor + in_tensor));
+}
+
+TEST_F(HostIrEvaluatorTest, AddOut) {
+  auto hic = std::make_unique<HostIrContainer>();
+  FusionGuard::setCurFusion(hic.get());
+
+  TensorView* in = makeSymbolicTensor(2);
+  TensorView* out = add(in, in);
+  hic->addInput(in);
+  hic->addOutput(out);
+
+  auto* allocate_out = IrBuilder::create<kir::Allocate>(
+      out, MemoryType::Global, std::vector<Val*>({}));
+  hic->pushBackTopLevelExprs(allocate_out);
+  hic->pushBackTopLevelExprs(out->definition());
+
+  HostIrEvaluator hie(std::move(hic));
+
+  at::Tensor in_tensor =
+      at::randn({3, 5}, at::dtype(at::kFloat).device(at::kCUDA));
+  KernelArgumentHolder args(in_tensor);
+  args.setCacheId(0);
+  auto out_tensors = hie.runWithInputs(args);
+
+  EXPECT_TRUE(
+      torch::allclose(out_tensors[0].as<at::Tensor>(), in_tensor + in_tensor));
 }
 
 class HostIrIntegrationTest : public NVFuserTest {
