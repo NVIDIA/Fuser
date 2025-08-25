@@ -15,6 +15,7 @@
 
 #include <algorithm>
 #include <iterator>
+#include <set>
 #include <vector>
 
 namespace nvfuser {
@@ -1214,7 +1215,19 @@ class CloneTmaCircularBufferLoopAndInsertSync
   int64_t insertion_position_;
 };
 
-using InsertionInfo = std::unordered_map<ForLoop*, std::vector<Expr*>>;
+// Represents a loop/warp combo.
+struct AsyncLoopInfo {
+  // These are asynchronous producers of TVs in this async warp
+  // TODO: also track asynchronous consumers so that we can place WAR syncs
+  // appropriately
+  std::vector<Expr*> exprs;
+  // TODO: this is a map from async warp index to the circular buffer options
+  // which must be common across all tensors sharing this CB loop and async
+  // warp. Use std::set for deterministic ordering when cloning loops
+  std::map<int64_t, CircularBufferOptions> async_warps;
+};
+
+using InsertionInfo = std::unordered_map<ForLoop*, AsyncLoopInfo>;
 
 class IsCircularBufferLoadLoop : public kir::IrVisitor {
  public:
@@ -1270,11 +1283,11 @@ class CircularBufferLoopNestInspector : private kir::IrVisitor {
     // Get WarpSpecialized InsertionInfo
     InsertionInfo ws_info;
     int64_t inner_most_ws_position = -1;
-    for (auto&& [cb_loop, cb_exprs] : inspector.insertion_info_) {
+    for (auto&& [cb_loop, cb_info] : inspector.insertion_info_) {
       if (!lower_utils::isWarpSpecializedLoop(cb_loop)) {
         continue;
       }
-      ws_info[cb_loop] = cb_exprs;
+      ws_info[cb_loop] = cb_info;
       inner_most_ws_position = std::max(
           inner_most_ws_position, inspector.loop_position_.at(cb_loop));
     }
@@ -1305,7 +1318,7 @@ class CircularBufferLoopNestInspector : private kir::IrVisitor {
 
     // Get Pipeline InsertionInfo
     InsertionInfo pipeline_info;
-    for (auto&& [cb_loop, cb_exprs] : inspector.insertion_info_) {
+    for (auto&& [cb_loop, cb_info] : inspector.insertion_info_) {
       if (lower_utils::isWarpSpecializedLoop(cb_loop)) {
         continue;
       }
@@ -1346,7 +1359,7 @@ class CircularBufferLoopNestInspector : private kir::IrVisitor {
           inspector.loop_position_.at(cb_loop) > inner_most_ws_position,
           "Warp Specialization cannot be nested in Pipeline circular "
           "buffering!");
-      pipeline_info[cb_loop] = cb_exprs;
+      pipeline_info[cb_loop] = cb_info;
     }
 
     return {ws_info, pipeline_info};
@@ -1377,6 +1390,8 @@ class CircularBufferLoopNestInspector : private kir::IrVisitor {
     ForLoop* circular_buffer_loop =
         GpuLower::current()->circularBufferInfo().getCircularBufferLoop(
             out_tv, for_loops_);
+    GpuLower::current()->circularBufferInfo().getCircularBufferLoop(
+        out_tv, for_loops_);
 
     NVF_ERROR(
         circular_buffer_loop != nullptr,
@@ -1389,7 +1404,23 @@ class CircularBufferLoopNestInspector : private kir::IrVisitor {
         std::find(for_loops_.begin(), for_loops_.end(), circular_buffer_loop);
     loop_position_[circular_buffer_loop] =
         std::distance(for_loops_.begin(), cb_loop_it);
-    insertion_info_[circular_buffer_loop].push_back(expr);
+
+    const CircularBufferOptions& opt = out_tv->circularBufferOptions();
+    int64_t async_warp = -1;
+    if (std::holds_alternative<WarpSpecialized>(opt.type)) {
+      async_warp = std::get<WarpSpecialized>(opt.type).async_warp;
+    }
+
+    AsyncLoopInfo& loop_info = insertion_info_[circular_buffer_loop];
+    loop_info.exprs.push_back(expr);
+    const auto cbopt_it = loop_info.async_warps.find(async_warp);
+    if (cbopt_it == loop_info.async_warps.end()) {
+      loop_info.async_warps[async_warp] = opt;
+    } else {
+      NVF_ERROR(
+          cbopt_it->second == opt,
+          "Found mismatched circular buffer options within same async warp");
+    }
   }
 
   void handle(UnaryOp* uop) final {
@@ -1548,9 +1579,18 @@ class WarpSpecializedCircularBufferInserter : private kir::ExprMutator {
     }
 
     NVF_ERROR(lower_utils::isWarpSpecializedLoop(loop));
+    // TODO: relax this constraint. We should allow not only other async
+    // producers like blackwell MMA but also async _consumers_. For example if
+    // we have a smem tensor that is circular buffered for TMA store, it can be
+    // produced by stmatrix (a synchronous op), and still be stored with TMA
+    // store. Currently we would not use warp specialization for that setting
+    // because TMA store does not use mbarrier synchronization, but we could
+    // still allow it by manually placing mbarrier WAR synchronization.
     NVF_ERROR(
         std::all_of(
-            it->second.begin(), it->second.end(), ir_utils::isCpAsyncBulk),
+            it->second.exprs.begin(),
+            it->second.exprs.end(),
+            ir_utils::isCpAsyncBulk),
         "In order to use warp specialization, all buffers must be loaded by "
         "TMA");
     int64_t insertion_position =
@@ -1691,8 +1731,9 @@ class WarpSpecializedCircularBufferInserter : private kir::ExprMutator {
 
   void insertTmaWarpSpecialized(
       ForLoop* circular_buffer_loop,
-      const std::vector<Expr*>& loads,
+      const AsyncLoopInfo& insertion_info,
       int64_t insertion_position) {
+    const std::vector<Expr*>& loads = insertion_info.exprs;
     const CircularBufferOptions& options =
         GpuLower::current()->circularBufferInfo().getCircularBufferOptionsFor(
             circular_buffer_loop->iter_domain());
@@ -1814,11 +1855,13 @@ class PipelineCircularBufferInserter : private kir::ExprMutator {
     NVF_ERROR(!lower_utils::isWarpSpecializedLoop(loop));
 
     auto has_cp_async_bulk = std::any_of(
-        it->second.begin(), it->second.end(), ir_utils::isCpAsyncBulk);
+        it->second.exprs.begin(),
+        it->second.exprs.end(),
+        ir_utils::isCpAsyncBulk);
     if (has_cp_async_bulk) {
-      insertTmaPipelined(loop, it->second);
+      insertTmaPipelined(loop, it->second.exprs);
     } else {
-      insert(loop, it->second);
+      insert(loop, it->second.exprs);
     }
 
     processed_loop_ = loop;
