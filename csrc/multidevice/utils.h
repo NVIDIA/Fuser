@@ -170,14 +170,17 @@ NVF_API std::vector<int64_t> unshardedSizes(
 NVF_API void validateDeviceSplit(Expr* expr);
 
 // Find the producing logical id of the given allocation id traversing
-// through device splits.
-NVF_API IterDomain* projectAllocationToLogical(
+// through device splits. For unsharded allocation_id, logical_id is the same as
+// allocation_id.
+NVF_API IterDomain* projectShardedAllocationToLogical(
     TensorView* tv,
     IterDomain* allocation_id);
 
-// Find the allocated id corresponding to the given logical id traversing
-// through device splits. For e.g.: `i0` -> `DIDx(d), i0/d` will return `i0/d`.
-NVF_API IterDomain* projectLogicalToAllocation(
+// Finds the allocated id corresponding to the given logical id
+// traversing through device splits. For e.g.: `i0` -> `DIDx(d), i0/d` will
+// return `i0/d`. For unsharded logical_id, allocation_id is the same as
+// logical_id.
+NVF_API IterDomain* projectLogicalToShardedAllocation(
     TensorView* tv,
     IterDomain* logical_id);
 

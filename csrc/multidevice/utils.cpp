@@ -743,9 +743,7 @@ void validateDeviceSplit(Expr* expr) {
       expr->toString());
 }
 
-// Take an allocation domain id and project it back to the logical domain.
-// traversing device splits.
-IterDomain* projectAllocationToLogical(
+IterDomain* projectShardedAllocationToLogical(
     TensorView* tv,
     IterDomain* allocation_id) {
   if (allocation_id == nullptr) {
@@ -764,7 +762,9 @@ IterDomain* projectAllocationToLogical(
   return logical_id;
 }
 
-IterDomain* projectLogicalToAllocation(TensorView* tv, IterDomain* logical_id) {
+IterDomain* projectLogicalToShardedAllocation(
+    TensorView* tv,
+    IterDomain* logical_id) {
   if (logical_id == nullptr) {
     return nullptr;
   }
