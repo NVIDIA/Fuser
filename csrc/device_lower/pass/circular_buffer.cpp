@@ -1217,14 +1217,20 @@ class CloneTmaCircularBufferLoopAndInsertSync
 
 // Represents a loop/warp combo.
 struct AsyncLoopInfo {
-  // These are asynchronous producers of TVs in this async warp
-  // TODO: also track asynchronous consumers so that we can place WAR syncs
-  // appropriately
-  std::vector<Expr*> exprs;
-  // TODO: this is a map from async warp index to the circular buffer options
-  // which must be common across all tensors sharing this CB loop and async
-  // warp. Use std::set for deterministic ordering when cloning loops
-  std::map<int64_t, CircularBufferOptions> async_warps;
+  struct SingleWarpInfo {
+    // Circular buffer options must be common across all tensors sharing this CB
+    // loop and async warp.
+    CircularBufferOptions cb_options;
+
+    // These are asynchronous producers of TVs in this async warp
+    // TODO: also track asynchronous consumers so that we can place WAR syncs
+    // appropriately
+    std::vector<Expr*> exprs;
+  };
+
+  // Ordered mapping from async warp ID to load exprs/CB options for that async
+  // warp
+  std::map<int64_t, SingleWarpInfo> async_warps;
 };
 
 using InsertionInfo = std::unordered_map<ForLoop*, AsyncLoopInfo>;
@@ -1412,14 +1418,17 @@ class CircularBufferLoopNestInspector : private kir::IrVisitor {
     }
 
     AsyncLoopInfo& loop_info = insertion_info_[circular_buffer_loop];
-    loop_info.exprs.push_back(expr);
     const auto cbopt_it = loop_info.async_warps.find(async_warp);
     if (cbopt_it == loop_info.async_warps.end()) {
-      loop_info.async_warps[async_warp] = opt;
+      AsyncLoopInfo::SingleWarpInfo& warp_info =
+          loop_info.async_warps[async_warp];
+      warp_info.cb_options = opt;
+      warp_info.exprs.push_back(expr);
     } else {
       NVF_ERROR(
-          cbopt_it->second == opt,
+          cbopt_it->second.cb_options == opt,
           "Found mismatched circular buffer options within same async warp");
+      cbopt_it->second.exprs.push_back(expr);
     }
   }
 
@@ -1586,13 +1595,15 @@ class WarpSpecializedCircularBufferInserter : private kir::ExprMutator {
     // store. Currently we would not use warp specialization for that setting
     // because TMA store does not use mbarrier synchronization, but we could
     // still allow it by manually placing mbarrier WAR synchronization.
-    NVF_ERROR(
-        std::all_of(
-            it->second.exprs.begin(),
-            it->second.exprs.end(),
-            ir_utils::isCpAsyncBulk),
-        "In order to use warp specialization, all buffers must be loaded by "
-        "TMA");
+    for (const auto& [warp_id, warp_info] : it->second.async_warps) {
+      NVF_ERROR(
+          std::all_of(
+              warp_info.exprs.begin(),
+              warp_info.exprs.end(),
+              ir_utils::isCpAsyncBulk),
+          "In order to use warp specialization, all buffers must be loaded by "
+          "TMA");
+    }
     int64_t insertion_position =
         GpuLower::current()
             ->circularBufferInfo()
@@ -1731,76 +1742,103 @@ class WarpSpecializedCircularBufferInserter : private kir::ExprMutator {
 
   void insertTmaWarpSpecialized(
       ForLoop* circular_buffer_loop,
-      const AsyncLoopInfo& insertion_info,
+      const AsyncLoopInfo& loop_info,
       int64_t insertion_position) {
-    const std::vector<Expr*>& loads = insertion_info.exprs;
-    const CircularBufferOptions& options =
-        GpuLower::current()->circularBufferInfo().getCircularBufferOptionsFor(
-            circular_buffer_loop->iter_domain());
+    // Track all async exprs so we can exclude them when cloning the compute
+    // warps' code
+    std::vector<Expr*> all_async_exprs;
 
-    kir::IfThenElse* warp_dispatch_ite =
-        IrBuilder::create<kir::IfThenElse>(getAsyncWarpPredicate(options));
+    // Create an ITE tree
+    kir::IfThenElse* top_level_warp_dispatch_ite = nullptr;
+    kir::IfThenElse* inner_dispatch_ite = nullptr;
+    std::unordered_map<int64_t, Scope*> async_scopes;
+    for (const auto& [warp_id, warp_info] : loop_info.async_warps) {
+      inner_dispatch_ite = IrBuilder::create<kir::IfThenElse>(
+          getAsyncWarpPredicate(warp_info.cb_options));
+      Scope& scope = inner_dispatch_ite->thenBody();
+      async_scopes[warp_id] = &scope;
+      if (top_level_warp_dispatch_ite == nullptr) {
+        top_level_warp_dispatch_ite = inner_dispatch_ite;
+      } else {
+        top_level_warp_dispatch_ite->elseBody().push_back(inner_dispatch_ite);
+      }
 
-    // Set default value
-    bool enable_register_sharing =
-        std::get<WarpSpecialized>(options.type).num_registers.has_value();
-    GpuLower::current()->kernel()->manage(
-        "enable_register_sharing", enable_register_sharing);
-
-    if (enable_register_sharing) {
-      auto&& [decrease_num_registers, increase_num_registers] =
-          std::get<WarpSpecialized>(options.type).num_registers.value();
-      GpuLower::current()->decIncRegisterUsage() =
-          std::make_pair(decrease_num_registers, increase_num_registers);
-      // Decrease registers in async warp group
-      kir::SetMaxNReg* dec_reg_async_warp = IrBuilder::create<kir::SetMaxNReg>(
-          IrBuilder::create<Val>(decrease_num_registers, DataType::Index),
-          /*increase_registers=*/false);
-      warp_dispatch_ite->thenBody().push_back(dec_reg_async_warp);
-
-      // Increase registers in compute warp group
-      kir::SetMaxNReg* inc_reg_async_warp = IrBuilder::create<kir::SetMaxNReg>(
-          IrBuilder::create<Val>(increase_num_registers, DataType::Index),
-          /*increase_registers*/ true);
-      warp_dispatch_ite->elseBody().push_back(inc_reg_async_warp);
+      all_async_exprs.insert(
+          all_async_exprs.end(),
+          warp_info.exprs.begin(),
+          warp_info.exprs.end());
     }
+    Scope& compute_scope = inner_dispatch_ite->elseBody();
 
-    // Load loop:
-    ForLoop* load_loop = CloneTmaCircularBufferLoopAndInsertSync::clone(
-        circular_buffer_loop,
-        loads,
-        CircularBufferLoopStage::AsyncWarp,
-        insertion_position);
-    warp_dispatch_ite->thenBody().push_back(load_loop);
+    for (const auto& [warp_id, warp_info] : loop_info.async_warps) {
+      Scope& scope = *async_scopes.at(warp_id);
+      // Set default value
+      bool enable_register_sharing =
+          std::get<WarpSpecialized>(warp_info.cb_options.type)
+              .num_registers.has_value();
+      GpuLower::current()->kernel()->manage(
+          "enable_register_sharing", enable_register_sharing);
 
-    // Terminate the warp group handling Load loop immediately after
-    // finishing its work.
-    kir::Return* ret = IrBuilder::create<kir::Return>();
-    warp_dispatch_ite->thenBody().push_back(ret);
+      if (enable_register_sharing) {
+        auto&& [decrease_num_registers, increase_num_registers] =
+            std::get<WarpSpecialized>(warp_info.cb_options.type)
+                .num_registers.value();
+        GpuLower::current()->decIncRegisterUsage() =
+            std::make_pair(decrease_num_registers, increase_num_registers);
+        // Decrease registers in async warp group
+        kir::SetMaxNReg* dec_reg_async_warp =
+            IrBuilder::create<kir::SetMaxNReg>(
+                IrBuilder::create<Val>(decrease_num_registers, DataType::Index),
+                /*increase_registers=*/false);
+        scope.push_back(dec_reg_async_warp);
 
-    // Prefetch:
-    auto prefetch_loop = createArrivesForWar(circular_buffer_loop);
-    warp_dispatch_ite->elseBody().push_back(prefetch_loop);
+        // Increase registers in compute warp group
+        // TODO: check that the increase registers expressions are consistent
+        // across async warps
+        kir::SetMaxNReg* inc_reg_async_warp =
+            IrBuilder::create<kir::SetMaxNReg>(
+                IrBuilder::create<Val>(increase_num_registers, DataType::Index),
+                /*increase_registers*/ true);
+        compute_scope.push_back(inc_reg_async_warp);
+      }
 
-    // If this is a ping-pong hopper, then we need the last warp group to
-    // release the mbarriers for the first warp group.
-    HopperPingPongMbarriers* ping_pong_mbarriers =
-        GpuLower::current()->circularBufferInfo().getPingPongMbarriersFor(
-            circular_buffer_loop->iter_domain());
-    if (ping_pong_mbarriers != nullptr) {
-      auto ite = ping_pong_mbarriers->createPrefetchIfThenElse();
-      warp_dispatch_ite->elseBody().push_back(ite);
+      // Load loop:
+      ForLoop* load_loop = CloneTmaCircularBufferLoopAndInsertSync::clone(
+          circular_buffer_loop,
+          warp_info.exprs,
+          CircularBufferLoopStage::AsyncWarp,
+          insertion_position);
+      scope.push_back(load_loop);
+
+      // Terminate the warp group handling Load loop immediately after
+      // finishing its work.
+      kir::Return* ret = IrBuilder::create<kir::Return>();
+      scope.push_back(ret);
+
+      // Prefetch:
+      auto prefetch_loop = createArrivesForWar(circular_buffer_loop);
+      compute_scope.push_back(prefetch_loop);
+
+      // If this is a ping-pong hopper, then we need the last warp group to
+      // release the mbarriers for the first warp group.
+      HopperPingPongMbarriers* ping_pong_mbarriers =
+          GpuLower::current()->circularBufferInfo().getPingPongMbarriersFor(
+              circular_buffer_loop->iter_domain());
+      if (ping_pong_mbarriers != nullptr) {
+        auto ite = ping_pong_mbarriers->createPrefetchIfThenElse();
+        compute_scope.push_back(ite);
+      }
     }
 
     // Compute loop:
     ForLoop* compute_loop = CloneTmaCircularBufferLoopAndInsertSync::clone(
         circular_buffer_loop,
-        loads,
+        all_async_exprs,
         CircularBufferLoopStage::ComputeWarp,
         insertion_position);
-    warp_dispatch_ite->elseBody().push_back(compute_loop);
+    compute_scope.push_back(compute_loop);
 
-    registerReplace(circular_buffer_loop, warp_dispatch_ite);
+    registerReplace(circular_buffer_loop, top_level_warp_dispatch_ite);
   }
 
  private:
@@ -1852,16 +1890,24 @@ class PipelineCircularBufferInserter : private kir::ExprMutator {
       return;
     }
 
+    std::vector<Expr*> all_async_exprs;
+    for (const auto& [warp_id, warp_info] : it->second.async_warps) {
+      all_async_exprs.insert(
+          all_async_exprs.end(),
+          warp_info.exprs.begin(),
+          warp_info.exprs.end());
+    }
+
     NVF_ERROR(!lower_utils::isWarpSpecializedLoop(loop));
 
     auto has_cp_async_bulk = std::any_of(
-        it->second.exprs.begin(),
-        it->second.exprs.end(),
+        all_async_exprs.begin(),
+        all_async_exprs.end(),
         ir_utils::isCpAsyncBulk);
     if (has_cp_async_bulk) {
-      insertTmaPipelined(loop, it->second.exprs);
+      insertTmaPipelined(loop, all_async_exprs);
     } else {
-      insert(loop, it->second.exprs);
+      insert(loop, all_async_exprs);
     }
 
     processed_loop_ = loop;
