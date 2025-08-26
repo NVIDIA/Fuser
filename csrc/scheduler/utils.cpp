@@ -677,7 +677,8 @@ PersistentBufferInfo persistentBuffers(Fusion* fusion) {
   }
 
   // don't project if there are view ops and no buffer can be projected
-  persistent_buffer_info.has_view_ops = !ir_utils::getViewOps(fusion).empty();
+  persistent_buffer_info.has_view_ops =
+      !ir_utils::getReshapeOps(fusion).empty();
   if (persistent_buffer_info.has_view_ops) {
     return persistent_buffer_info;
   }
@@ -1235,7 +1236,7 @@ std::vector<TensorView*> getViewTVs(Fusion* fusion) {
   for (auto producer_tv : ir_utils::filterByType<TensorView>(fusion_vals)) {
     auto consumer_tvs = ir_utils::consumerTvsOf(producer_tv);
     for (auto consumer_tv : consumer_tvs) {
-      if (consumer_tv->isDefinitionType<ViewOp>()) {
+      if (consumer_tv->isDefinitionType<ReshapeOp>()) {
         view_tvs.push_back(consumer_tv);
       }
     }
@@ -3079,7 +3080,7 @@ TensorView* scheduleInputToSkipIntermediates(TensorView* tv) {
     }
     Expr* use = tv->uses().front();
 
-    // TODO: support ViewOp here too
+    // TODO: support ReshapeOp here too
     if (!use->isOneOf<BroadcastOp, SqueezeOp, LoadStoreOp>()) {
       break;
     }
@@ -3116,9 +3117,9 @@ TensorView* scheduleInputToSkipIntermediates(TensorView* tv) {
       // NOTE: This simple approach assumes that the allocation domains of the
       // producer are also logical domains. We can then map those to producer to
       // get IDs to use in the consumer's allocation domain to get IDs to use in
-      // the consumer's allocation domain. This fails for ViewOp, which is why
-      // it is currently disabled. In the future, we should propagate through
-      // transforms as well using something similar to
+      // the consumer's allocation domain. This fails for ReshapeOp, which is
+      // why it is currently disabled. In the future, we should propagate
+      // through transforms as well using something similar to
       // scheduler_tools::scheduleLoopDomainsLike();
       auto it = p2c.find(p_id);
       NVF_ERROR(it != p2c.end());

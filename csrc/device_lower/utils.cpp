@@ -120,7 +120,7 @@ bool isTvOp(const Expr* expr) {
           ExpandOp,
           RepeatOp,
           ViewAsScalar,
-          ViewOp,
+          ReshapeOp,
           PadOp,
           SliceOp,
           CatOp,
@@ -2144,8 +2144,13 @@ bool isWarpSpecializedLoop(ForLoop* loop) {
 }
 
 bool isCopyOnly(Expr* expr) {
-  return expr
-      ->isOneOf<LoadStoreOp, BroadcastOp, SqueezeOp, SliceOp, PadOp, ViewOp>();
+  return expr->isOneOf<
+      LoadStoreOp,
+      BroadcastOp,
+      SqueezeOp,
+      SliceOp,
+      PadOp,
+      ReshapeOp>();
 }
 
 bool isCopyOnly(Val* val) {

@@ -148,7 +148,7 @@ class DynamicTransformInitialInfoBuilder : public IterVisitor {
   }
 
   //! Find views that have symbolic outputs
-  void handle(ViewOp* op) override {
+  void handle(ReshapeOp* op) override {
     auto inp_tv = op->in()->as<TensorView>();
     auto out_tv = op->out()->as<TensorView>();
     // If there's no symbolic axis, this is a static reshape op
@@ -327,7 +327,7 @@ void DynamicTransformConcretizationInfo::analyzeReshapes(
   const auto& reshape_tvs = initial_info_->getDynamicReshapedTensorViews();
   for (const auto tv_index : arange((int64_t)reshape_tvs.size())) {
     auto out_tv = reshape_tvs.at(tv_index);
-    auto op = out_tv->definition()->as<ViewOp>();
+    auto op = out_tv->definition()->as<ReshapeOp>();
     auto inp_tv = op->in()->as<TensorView>();
 
     // If there's no symblic axis, this is a static reshape op
@@ -337,7 +337,7 @@ void DynamicTransformConcretizationInfo::analyzeReshapes(
 
     NVF_ERROR(
         out_tv->hasRoot(),
-        "Unexpected output tv of ViewOp: ",
+        "Unexpected output tv of ReshapeOp: ",
         out_tv->toString());
 
     const auto& inp_dom =
@@ -914,7 +914,7 @@ TensorView* DynamicTransformConcretizer::concretizeNonEmptyReshape(
   //   T1[ iS2{i0} rS3{i1} ] = sum(T0[ iS0{i0} iS1{i1} ])
   //   T3[ iS4{i0} ] = -T1[ iS2{i0} rS3{i1} ]
   //
-  // Notice here that the ViewOp is gone since we recognized that there is no
+  // Notice here that the ReshapeOp is gone since we recognized that there is no
   // transformation to perform. Instead, T1 is used directly in place of T2.
   // We also replace the extent i2 from the dynamic reshape output T2 with i0,
   // which is what the code below implements. Since T1 includes a Reduction
@@ -1004,7 +1004,7 @@ void DynamicTransformConcretizer::concretizeReshape() {
   for (const auto& [tv_index, view_info] : info_->getReshapeTransforms()) {
     auto incomplete_out_tv =
         info_->initialInfo()->getDynamicReshapedTensorViews().at(tv_index);
-    auto view_op = incomplete_out_tv->definition()->as<ViewOp>();
+    auto view_op = incomplete_out_tv->definition()->as<ReshapeOp>();
     auto inp_tv = view_op->in()->as<TensorView>();
 
     TensorView* concrete_reshape_out_tv = nullptr;

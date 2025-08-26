@@ -65,8 +65,8 @@ class DynamicTransformInitialInfo {
     return maybe_zero_extents_;
   }
 
-  //! Return a vector of outputs of ViewOp expressions that have dynamic output
-  //! shapes
+  //! Return a vector of outputs of ReshapeOp expressions that have dynamic
+  //! output shapes
   const std::vector<TensorView*>& getDynamicReshapedTensorViews() const {
     return dynamic_reshaped_tvs_;
   }

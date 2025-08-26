@@ -2312,7 +2312,8 @@ std::vector<PolymorphicValue> ViewAsScalar::evaluate(
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(ViewAsScalar)
 
-ViewOp::ViewOp(IrBuilderPasskey passkey, Val* out, Val* in) : Expr(passkey) {
+ReshapeOp::ReshapeOp(IrBuilderPasskey passkey, Val* out, Val* in)
+    : Expr(passkey) {
   NVF_ERROR(
       in->isA<TensorView>(),
       in->toString(),
@@ -2325,18 +2326,18 @@ ViewOp::ViewOp(IrBuilderPasskey passkey, Val* out, Val* in) : Expr(passkey) {
   addInput(in);
 }
 
-std::string ViewOp::toString(int indent_size) const {
+std::string ReshapeOp::toString(int indent_size) const {
   std::stringstream ss;
   indent(ss, indent_size) << out()->toString() << " = view( "
                           << in()->toString() << " )\n";
   return ss.str();
 }
 
-std::string ViewOp::toInlineString(int indent_size) const {
+std::string ReshapeOp::toInlineString(int indent_size) const {
   NVF_CHECK(false, "Tensor op can not be printed inline");
 }
 
-std::vector<PolymorphicValue> ViewOp::evaluate(
+std::vector<PolymorphicValue> ReshapeOp::evaluate(
     const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
   NVF_ERROR(inputs.size() == 1);
@@ -2345,14 +2346,14 @@ std::vector<PolymorphicValue> ViewOp::evaluate(
   const auto& [out_shape, _] = inferShapeOfOutput(out(), ee);
   // TODO: check allocation domain and contiguity.
 
-  // Use `at::Tensor::reshape` instead of `at::Tensor::view` because `ViewOp`
+  // Use `at::Tensor::reshape` instead of `at::Tensor::view` because `ReshapeOp`
   // doesn't always produce an alias. For example, when merging an expanded
-  // `IterType::Broadcast` and an `IterType::Iteration`, `ViewOp` has to realize
-  // the expand.
+  // `IterType::Broadcast` and an `IterType::Iteration`, `ReshapeOp` has to
+  // realize the expand.
   return {in_tensor.reshape(out_shape)};
 }
 
-NVFUSER_DEFINE_CLONE_AND_CREATE(ViewOp)
+NVFUSER_DEFINE_CLONE_AND_CREATE(ReshapeOp)
 
 LoadStoreOp::LoadStoreOp(
     IrBuilderPasskey passkey,

@@ -789,7 +789,7 @@ class HostIrCompileDispatcher : public OptInDispatch {
       : builder_(builder), val_to_value_(val_to_value), container_(container) {}
   using OptInDispatch::handle;
 
-  void handle(ViewOp* vop) final {
+  void handle(ReshapeOp* vop) final {
     auto* in_tv = vop->in()->as<TensorView>();
     auto* out_tv = vop->out()->as<TensorView>();
     llvm::Value* in_tensor = getOrDefault(val_to_value_, in_tv);
