@@ -303,3 +303,80 @@ def test_sdpa_loop_split(multidevice_direct_test, qkv_format: QkvFormat):
         [expected_out, expected_q_grad, expected_k_grad, expected_v_grad],
     ):
         assert_close(actual, expected)
+
+@pytest.mark.mpi
+def test_reduction(multidevice_direct_test):
+    d = multidevice_direct_test.size
+    mesh = nvfuser.multidevice.DeviceMesh(torch.arange(d))
+    torch.cuda.set_device(multidevice_direct_test.local_rank)
+    
+    def _definition(fd: FusionDefinition, axis: list[int]) -> None:
+        inp = fd.define_tensor((-1, -1, -1), dtype=DataType.Float)
+        for axis in axis:
+            out = fd.ops.sum(inp, [axis])
+            fd.add_output(out)
+
+    def _multidevice_schedule(fd: FusionDefinition, sharded_axis: int) -> None:
+        for t in fd.fusion.inputs():
+            t.set_device_mesh(mesh)
+            t.split(sharded_axis, d, inner_split=False)
+            t.axis(sharded_axis).parallelize(nvfuser.ParallelType.mesh_x)
+
+    unsharded = torch.ones(4, 12, 22)
+    axis = [1]
+    for sharded_axis in [0]:
+      if (sharded_axis != 0):
+        continue
+      print(f"sharded_axis: {sharded_axis}")
+      sharded = multidevice_direct_test.shard_tensor(unsharded, sharded_axis, mesh)
+
+      with FusionDefinition() as fd:
+          _definition(fd, axis)
+          _multidevice_schedule(fd, sharded_axis)
+      ref_outs = []
+      for reduction_axis in axis:
+        ref_out = unsharded.sum(reduction_axis) if reduction_axis == sharded_axis else sharded.sum(reduction_axis)
+        ref_outs.append(ref_out)
+        
+      outs = fd.execute([sharded])
+      
+      for i in range(len(ref_outs)):
+        if (multidevice_direct_test.rank == 0):
+          if ref_outs[i].shape != outs[i].shape:
+            print(f"Mismatch in shape of ref_out with sharded axis {sharded_axis} and reduction axis {i}, expected: {ref_outs[i].shape}, actual: {outs[i].shape}")
+            continue
+          if not torch.allclose(ref_outs[i].cpu(), outs[i].cpu()):
+            print(f"Mismatch in value of ref_out with sharded axis {sharded_axis} and reduction axis {i}")
+                
+        # sum_outer, sum_inner = fd.execute([sharded])
+        # assert sum_outer.shape == unsharded.sum(reduction_axis).shape, "Mismatch in shape of sum_outer, expected: {}, actual: {}".format(unsharded.sum(reduction_axis).shape, sum_outer.shape)
+        # assert sum_inner.shape == sharded.sum(reduction_axis).shape, "Mismatch in shape of sum_inner, expected: {}, actual: {}".format(sharded.sum(reduction_axis).shape, sum_inner.shape)
+
+@pytest.mark.mpi
+def test_wrong_shape(multidevice_direct_test):
+    d = multidevice_direct_test.size
+    mesh = nvfuser.multidevice.DeviceMesh(torch.arange(d))
+    torch.cuda.set_device(multidevice_direct_test.local_rank)
+    
+    def _definition(fd: FusionDefinition) -> None:
+        inp = fd.define_tensor((-1, -1), dtype=DataType.Float)
+        sum_inner = fd.ops.sum(inp, [1])
+        fd.add_output(sum_inner)
+
+    def _multidevice_schedule(fd: FusionDefinition) -> None:
+        for t in fd.fusion.inputs():
+            t.set_device_mesh(mesh)
+            t.split(0, d, inner_split=False)
+            t.axis(0).parallelize(nvfuser.ParallelType.mesh_x)
+
+    unsharded = torch.ones(d*3, 5)
+    sharded = multidevice_direct_test.shard_tensor(unsharded, 0, mesh)
+
+    with FusionDefinition() as fd:
+        _definition(fd)
+        _multidevice_schedule(fd)
+    ref_out = sharded.sum(1)
+    out, = fd.execute([sharded])
+    assert ref_out.size() == out.size(), "Mismatch in shape of ref_out, expected: {}, actual: {}".format(ref_out.size(), out.size())
+    assert torch.allclose(ref_out, out), "Mismatch in value of ref_out"
+          
