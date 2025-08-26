@@ -292,4 +292,35 @@ TensorView* takeAlongAxis(TensorView* inp, TensorView* index, int64_t dim) {
   return out_tensor->as<TensorView>();
 }
 
+TensorView* groupedBlockSfLayout(
+    TensorView* input,
+    TensorView* buffer,
+    TensorView* expert_offsets,
+    TensorView* sf_offsets,
+    BlockScalingFactorLayout layout) {
+  // NOTE: technically output aliases buffer, instead of input.
+  // Since we are doing sparse update on buffer. It felt easier for me to map it
+  // to input instead, which fits better with the point-wise flavor on how we
+  // are trying to handle it inside runtime function.
+  TensorView* out_tv =
+      ops::newValLike(input, input->getDataType().value())->as<TensorView>();
+
+  std::vector<IterDomain*> inp_logical_domain =
+      TensorDomain::noReductions(input->getLogicalDomain());
+  std::vector<IterDomain*> offsets_logical_domain =
+      TensorDomain::noReductions(sf_offsets->getLogicalDomain());
+  IrBuilder::create<GroupedBlockScalingFactorLayoutOp>(
+      out_tv,
+      input,
+      buffer,
+      expert_offsets,
+      sf_offsets,
+      layout,
+      inp_logical_domain[0]->getMaybeExpandedExtent(),
+      inp_logical_domain[1]->getMaybeExpandedExtent(),
+      offsets_logical_domain[0]->getMaybeExpandedExtent());
+
+  return out_tv;
+}
+
 } // namespace nvfuser

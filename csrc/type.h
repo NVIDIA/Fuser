@@ -1176,4 +1176,8 @@ std::ostream& operator<<(std::ostream&, TMemRegisterDataPath);
 
 std::ostream& operator<<(std::ostream&, cudaDriverEntryPointQueryResult);
 
+enum class BlockScalingFactorLayout {
+  Block128x4,
+};
+
 } // namespace nvfuser
