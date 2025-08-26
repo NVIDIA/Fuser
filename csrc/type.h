@@ -1042,6 +1042,7 @@ std::optional<std::string> inline_op_str(const BinaryOpType);
 std::optional<std::string> inline_op_str(const RNGOpType);
 std::optional<std::string> integer_op_str(const BinaryOpType);
 std::optional<std::string> bool_op_str(const BinaryOpType);
+
 const char* predicate_type2string(PredicateType t);
 const char* load_store_type2string(LoadStoreOpType t);
 
@@ -1175,5 +1176,12 @@ enum class TMemRegisterDataPath {
 std::ostream& operator<<(std::ostream&, TMemRegisterDataPath);
 
 std::ostream& operator<<(std::ostream&, cudaDriverEntryPointQueryResult);
+
+enum class BlockScalingFactorLayout {
+  Block128x4,
+};
+
+const char* block_sf_layout2string(BlockScalingFactorLayout t);
+std::ostream& operator<<(std::ostream&, const BlockScalingFactorLayout);
 
 } // namespace nvfuser

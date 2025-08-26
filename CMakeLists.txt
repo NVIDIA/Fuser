@@ -1136,6 +1136,9 @@ if(BUILD_TEST)
   add_test(test_reshape "${NVFUSER_ROOT}/tests/cpp/test_reshape.cpp" "")
   list(APPEND TEST_BINARIES test_reshape)
 
+  add_test(test_layout_op ${NVFUSER_ROOT}/tests/cpp/test_layout_op.cpp "")
+  list(APPEND TEST_BINARIES test_layout_op)
+
   set(MATMUL_TEST_SRCS)
   list(APPEND MATMUL_TEST_SRCS
     ${NVFUSER_ROOT}/tests/cpp/test_translate_mma.cpp
@@ -1324,6 +1327,7 @@ list(APPEND NVFUSER_RUNTIME_FILES
   ${NVFUSER_ROOT}/runtime/block_sync_atomic.cu
   ${NVFUSER_ROOT}/runtime/block_sync_default.cu
   ${NVFUSER_ROOT}/runtime/block_welford_outer.cu
+  ${NVFUSER_ROOT}/runtime/block_layout.cu
   ${NVFUSER_ROOT}/runtime/broadcast.cu
   ${NVFUSER_ROOT}/runtime/casts.cu
   ${NVFUSER_ROOT}/runtime/cluster.cu

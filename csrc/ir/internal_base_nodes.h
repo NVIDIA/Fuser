@@ -439,7 +439,8 @@ class NVF_API TensorDomain : public Val {
       std::vector<IterDomain*> root_domain,
       std::vector<IterDomain*> logical_domain,
       std::vector<IterDomain*> loop_domain,
-      std::vector<std::optional<bool>> contiguity = {});
+      std::vector<std::optional<bool>> contiguity = {},
+      bool skip_root_loop_validation = false);
 
   TensorDomain(
       IrBuilderPasskey,
@@ -458,7 +459,8 @@ class NVF_API TensorDomain : public Val {
       std::vector<IterDomain*> loop_domain,
       std::optional<std::vector<IterDomain*>> alternate_loop_domain,
       std::vector<std::optional<bool>> contiguity = {},
-      std::vector<IterDomain*> additional_ids = {});
+      std::vector<IterDomain*> additional_ids = {},
+      bool skip_checks = false);
 
   TensorDomain(IrBuilderPasskey, const TensorDomain* src);
 

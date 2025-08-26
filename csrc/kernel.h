@@ -142,6 +142,9 @@ struct KernelSummary {
   //! Do we have any argsort op?
   bool has_argsort = false;
 
+  //! Do we have any grouped_block_sf_layout op?
+  bool has_grouped_block_sf_layout = false;
+
   //! Do we have any topk op?
   bool has_topk = false;
 

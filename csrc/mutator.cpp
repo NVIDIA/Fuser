@@ -167,6 +167,8 @@ void OptOutMutator::mutate(TensorDomain* td) {
     return;
   }
 
+  // NOTE for code comment: this change is coming from
+  // nvfuser::replaceSymbolicSizes during device lowering
   Val* mutated_val = IrBuilder::createInContainer<TensorDomain>(
       td->container(),
       root_dom,
@@ -175,7 +177,8 @@ void OptOutMutator::mutate(TensorDomain* td) {
       domain,
       alternate_domain,
       td->contiguity(),
-      additional_ids);
+      additional_ids,
+      true);
   registerMutation(td, mutated_val);
 }
 

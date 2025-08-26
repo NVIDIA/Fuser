@@ -292,4 +292,99 @@ TensorView* takeAlongAxis(TensorView* inp, TensorView* index, int64_t dim) {
   return out_tensor->as<TensorView>();
 }
 
+TensorView* groupedBlockSfLayout(
+    TensorView* input,
+    TensorView* buffer,
+    TensorView* expert_offsets,
+    TensorView* sf_offsets,
+    BlockScalingFactorLayout layout) {
+  // NOTE: technically output aliases buffer, instead of input.
+  // Since we are doing sparse update on buffer. It felt easier for me to map it
+  // to input instead, which fits better with the point-wise flavor on how we
+  // are trying to handle it inside runtime function.
+
+  // TensorView* out_tv =
+  //     ops::newValLike(input, input->getDataType().value())->as<TensorView>();
+
+  auto input_logical_dom =
+      TensorDomain::noReductions(input->getLogicalDomain());
+  NVF_ERROR_EQ(input_logical_dom.size(), 2);
+
+  // This is used for both root and loop domain on output
+  std::vector<IterDomain*> out_root;
+  out_root.reserve(input_logical_dom.size());
+  std::ranges::transform(
+      input_logical_dom, std::back_inserter(out_root), [](IterDomain* id) {
+        return IterDomainBuilder(id).build();
+      });
+
+  // Create the loop domain based on the logical domain of the index
+  // tensor.
+  std::vector<IterDomain*> out_logical;
+  out_logical.reserve(input_logical_dom.size());
+
+  // pad to multiple of 128x4
+  NVF_CHECK_EQ(layout, BlockScalingFactorLayout::Block128x4);
+  auto* one_val = input->fusion()->oneVal(DataType::Index);
+
+  auto pad_to_max_extent = [&](IterDomain* id, int multiple) -> IterDomain* {
+    auto* maximum_pad_value_per_group =
+        IrBuilder::create<Val>(multiple - 1, DataType::Index);
+    std::vector<IterDomain*> offset_logical_dom =
+        TensorDomain::noReductions(expert_offsets->getLogicalDomain());
+    Val* num_groups =
+        SimplifyingIrBuilder::subExpr(offset_logical_dom[0]->extent(), one_val);
+    Val* padded_ext = SimplifyingIrBuilder::addExpr(
+        id->extent(),
+        SimplifyingIrBuilder::mulExpr(num_groups, maximum_pad_value_per_group));
+    return IterDomainBuilder(id).extent(padded_ext).build();
+  };
+  out_logical.push_back(pad_to_max_extent(out_root[0], 128));
+
+  auto pad_to_multiple = [&](IterDomain* id, int multiple) -> IterDomain* {
+    Val* ext = id->extent();
+    auto* multiple_val = IrBuilder::create<Val>(multiple, DataType::Index);
+    // (ext + multiple - 1) / multiple * multiple;
+    Val* padded_ext = SimplifyingIrBuilder::mulExpr(
+        SimplifyingIrBuilder::divExpr(
+            SimplifyingIrBuilder::subExpr(
+                SimplifyingIrBuilder::addExpr(ext, multiple_val), one_val),
+            multiple_val)
+
+            ,
+        multiple_val);
+    return IterDomainBuilder(id).extent(padded_ext).build();
+  };
+  out_logical.push_back(pad_to_multiple(out_root[1], 4));
+
+  // Create the output tensor. The validation of the loop domain needs
+  // to be skipped as it is not guaranteed to be equivalent to the
+  // logical domain.
+  TensorView* out_tv = IrBuilder::create<TensorView>(
+      IrBuilder::create<TensorDomain>(
+          /*root_domain=*/out_root,
+          /*logical_domain=*/out_logical,
+          /*loop_domain=*/out_root,
+          /*contiguity=*/
+          TensorDomain::getContiguityFilledWith(out_logical, true),
+          /*skip_loop_validation=*/true),
+      input->getDataType().value());
+
+  std::vector<IterDomain*> offsets_logical_domain =
+      TensorDomain::noReductions(sf_offsets->getLogicalDomain());
+  IrBuilder::create<GroupedBlockScalingFactorLayoutOp>(
+      out_tv,
+      input,
+      buffer,
+      expert_offsets,
+      sf_offsets,
+      layout,
+      input_logical_dom[0]->getMaybeExpandedExtent(),
+      input_logical_dom[1]->getMaybeExpandedExtent(),
+      SimplifyingIrBuilder::subExpr(
+          offsets_logical_domain[0]->getMaybeExpandedExtent(), one_val));
+
+  return out_tv;
+}
+
 } // namespace nvfuser

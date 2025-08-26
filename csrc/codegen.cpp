@@ -4277,6 +4277,60 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     indent() << "return;\n";
   }
 
+  void handle(const GroupedBlockScalingFactorLayoutOp* layout_op) final {
+    // indent() << "/* layout op is encounted;\n";
+
+    const auto output = layout_op->out()->as<kir::TensorIndex>();
+    const auto input = layout_op->in()->as<kir::TensorIndex>();
+    ArgumentBuilder template_args;
+    template_args.arg(input->view()->dtype()); // DataT
+    template_args.arg(layout_op->expertOffsets()->dtype()); // OffsetsDataT
+    switch (layout_op->layout()) {
+      case BlockScalingFactorLayout::Block128x4:
+        template_args.arg(32); // block_row_outer
+        template_args.arg(4); // block_row_inner
+        template_args.arg(4); // block_col
+        break;
+      default:
+        NVF_THROW("unrecognized layout");
+        break;
+    }
+
+    int64_t vector_word_size = ir_utils::getVectorizeSize(output->view());
+    bool is_vector_op = vectorize_scope_ && vector_word_size != 1;
+    if (is_vector_op) {
+      template_args.arg(vector_word_size); // block_col
+    } else {
+      template_args.arg(1); // block_col
+    }
+
+    ArgumentBuilder func_args;
+    func_args.arg("&").append(genVariableName(output->view()) + "[0]");
+    func_args.arg("&").append(genInline(input));
+
+    auto logical_index = output->logical_index();
+    NVF_ERROR_EQ(logical_index.size(), 2);
+    func_args.arg(genInline(logical_index[0]));
+    func_args.arg(genInline(logical_index[1]));
+
+    // how do I access an entire tensor on global/shared memory?! maybe check
+    // out scatter example
+    func_args.arg("&").append(
+        genVariableName(layout_op->expertOffsets()) + "[0]");
+    func_args.arg("&").append(
+        genVariableName(layout_op->scalingFactorOffsets()) + "[0]");
+
+    func_args.arg(genInline(layout_op->mn()));
+    func_args.arg(genInline(layout_op->k()));
+    func_args.arg(genInline(layout_op->g()));
+
+    indent()
+        << genCall("block_layout::groupedBlockLayout", template_args, func_args)
+        << ";\n";
+
+    // indent() << "\n */\n";
+  }
+
  private:
   // Our generated string has two parts: a utilities section that contains PTX
   // wrappers and other definitions derived from kernel IR, and a kernel section
