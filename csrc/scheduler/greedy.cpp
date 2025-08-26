@@ -58,6 +58,9 @@ class CompileTimeChecker : private IterVisitor {
     // sufficient.
     if (needs_exact_block_dim_ && mismatched_constrained_id_detected_) {
       can_schedule_ = false;
+      setRejectReason(
+          "Block dimension must be exact but non-matching constrained IDs "
+          "found");
     }
   }
 
@@ -284,8 +287,6 @@ class RunTimeChecker : private IterVisitor {
 
   bool can_schedule_ = true;
   std::string reject_reason_;
-
-  std::optional<ValGroups> ref_block_domain_;
 };
 
 class ConstrainedOpScheduler : public OptOutDispatch {
@@ -309,25 +310,8 @@ class ConstrainedOpScheduler : public OptOutDispatch {
   }
 
   void handle(ArgsortOp* argsort) override {
-    auto in_tv = ir_utils::getTvInput(argsort);
     auto out_tv = ir_utils::getTvOutput(argsort);
     auto dim = argsort->dim();
-
-    if (getenv("PROMOTE")) {
-      // Currently, input must be a register tensor
-      if (in_tv->getMemoryType() != MemoryType::Local) {
-        in_tv->cacheAfter();
-        // No longer a valid pointer
-        argsort = nullptr;
-      }
-
-      // Currently, output must be a register tensor
-      if (out_tv->getMemoryType() != MemoryType::Local) {
-        out_tv = out_tv->cacheBefore();
-        // No longer a valid pointer
-        argsort = nullptr;
-      }
-    }
     scheduleConstrainedTv(out_tv, {dim});
   }
 
@@ -337,26 +321,7 @@ class ConstrainedOpScheduler : public OptOutDispatch {
 
   void handle(ScanOp* scan) override {
     auto scan_dim = scan->dim();
-
-    auto in_tv = ir_utils::getTvInput(scan);
     auto out_tv = ir_utils::getTvOutput(scan);
-
-    if (getenv("PROMOTE")) {
-      // Currently, scan input must be a register tensor
-      if (in_tv->getMemoryType() != MemoryType::Local) {
-        in_tv->cacheAfter();
-        // No longer a valid pointer
-        scan = nullptr;
-      }
-
-      // TODO: Is this still necessary?
-      // Currently, scan output must be a register tensor
-      if (out_tv->getMemoryType() != MemoryType::Local) {
-        out_tv = out_tv->cacheBefore();
-        // No longer a valid pointer
-        scan = nullptr;
-      }
-    }
     scheduleConstrainedTv(out_tv, {scan_dim});
   }
 
@@ -393,7 +358,8 @@ class ConstrainedOpScheduler : public OptOutDispatch {
 
     // Scheduling of the unconstrained IDs with BIDx. Currently all
     // tensors are assumed to have exact-mapped IDs for BID in order to
-    // avoid grid sync. Reordering is
+    // avoid grid sync. Reordering is allowed, though TransposeOp is
+    // not yet enabled.
 
     // Accommodate reordered unconstrained IDs
     if (ref_unconstrained_domain_.empty()) {
@@ -716,8 +682,14 @@ void GreedyScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
     std::vector<Expr*> uses_to_update;
     std::ranges::copy_if(
         tv->uses(), std::back_inserter(uses_to_update), [&](Expr* use) {
-          auto it = tv_sync_map.find(ir_utils::getTvOutput(use));
-          return it != tv_sync_map.end() && it->second.hasTID();
+          return std::ranges::any_of(use->outputs(), [&](Val* out) {
+            TensorView* out_tv = dynamic_cast<TensorView*>(out);
+            if (out_tv == nullptr) {
+              return false;
+            }
+            auto it = tv_sync_map.find(out_tv);
+            return it != tv_sync_map.end() && it->second.hasTID();
+          });
         });
     NVF_ERROR(!uses_to_update.empty());
 

@@ -42,7 +42,7 @@ class HeuristicDataCache;
 // The scheduler attempts to achieve the second principle through a
 // three-step process:
 // - First, it schedules all constrained tensors--tensor with specific
-//   scheduling requirements.For example,
+//   scheduling requirements. For example,
 //   ArgsortOp and ScanOp currently require the sorted or scanned iter
 //   domain to be parallelized with TID.
 // - Next, the schedule of each constrained tensor is propagated
