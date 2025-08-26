@@ -106,6 +106,7 @@ enum RecordType: int {
     WelfordOp,
     ArgsortOp,
     TopKOp,
+    ScanOpCumsum,
 }
 
 // =====================================================================================
@@ -135,6 +136,7 @@ union RecordData {
   Sort,
   TopK,
   ScaledOp,
+  ScanOp,
 }
 
 // The PolymorphicValueData union holds the attribute information for each PolymorphicValue.
@@ -374,6 +376,11 @@ table ScaledOp {
   block_scale_size: long;
   block_scale_dtype: long;
   gamma: bool;
+}
+
+// Data for ScanOp
+table ScanOp {
+  dim: long;
 }
 
 // =====================================================================================

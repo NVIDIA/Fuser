@@ -728,6 +728,10 @@ if(BUILD_PYTHON)
     target_link_libraries(nvf_py_internal PRIVATE nvf_cutlass)
   endif()
 
+  if (NOT MSVC)
+      target_link_libraries(nvf_py_internal PRIVATE CUDA::cupti)
+  endif()
+
   target_link_libraries(nvf_py_internal PRIVATE
     nvfuser_codegen
     "${TORCH_INSTALL_PREFIX}/lib/libtorch_python.so"

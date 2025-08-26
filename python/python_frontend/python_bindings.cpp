@@ -3733,6 +3733,36 @@ void initNvFuserPythonBindings(PyObject* module) {
       py::return_value_policy::reference);
 
   nvf_ops.def(
+      "cumsum",
+      [](FusionDefinition::Operators& self, Tensor arg, int64_t dim) -> Tensor {
+        FusionDefinition* fd = self.fusion_definition;
+        Tensor output = fd->defineTensor(arg.dims);
+        fd->defineRecord(new ScanOpRecord(
+            {fd->recordingState(arg())},
+            {fd->recordingState(output())},
+            ("ops.cumsum"),
+            serde::RecordType::ScanOpCumsum,
+            static_cast<TensorView* (*)(TensorView*, int64_t)>(cumsum),
+            dim,
+            BinaryOpType::Add));
+
+        return output;
+      },
+      py::arg("arg"),
+      py::arg("dim"),
+      py::return_value_policy::reference,
+      R"doc(
+            Computes the cumulative sum of elements along a given dimension.
+            Args:
+                    arg (Tensor): Input tensor.
+                    dim (int): Dimension along which to compute the cumulative sum.
+            Returns:
+                    Tensor: Tensor of the same shape as input with cumulative sums computed along the specified dimension.
+            Example:
+                    >>> fd.ops.cumsum(tensor, dim=0)
+        )doc");
+
+  nvf_ops.def(
       "grouped_mm",
       [](FusionDefinition::Operators& self,
          Tensor mat1,
