@@ -64,7 +64,6 @@ class CutlassExecutor : public ExecutorAbstract {
   std::unique_ptr<Fusion> fusion_;
   std::unique_ptr<CutlassCompiledKernel> cutlass_kernel_;
   LaunchParams launch_params_;
-  bool compiled_ = false;
 
   // Generated CUTLASS code
   std::string generated_code_;
