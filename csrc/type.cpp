@@ -756,7 +756,7 @@ static const char* parallel_type2string(ParallelType t) {
     case ParallelType::TIDx:
       return "threadIdx.x";
     case ParallelType::Stream:
-      return "StreamIdx";
+      return "streamIdx";
     case ParallelType::Vectorize:
       return "V";
     case ParallelType::Unroll:
@@ -865,8 +865,10 @@ static const char* thread_size2string(ParallelType t) {
       return "blockDim.y";
     case ParallelType::TIDx:
       return "blockDim.x";
+    case ParallelType::Stream:
+      return "streamDim";
     default:
-      NVF_THROW("Unexpected parallel type");
+      NVF_THROW("Unexpected parallel type: ", t);
   }
 }
 
