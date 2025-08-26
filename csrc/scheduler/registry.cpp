@@ -38,6 +38,7 @@ bool checkCanSchedule(Fusion* fusion, SchedulerType scheduler_type) {
   // scheduler, all other schedulers should reject them.
   // TODO: remove IndexPutAccumulateOp
   if (ir_utils::hasOpsOfType<
+          IndexShuffleOp,
           ScatterOp,
           SdpaFwdOp,
           SdpaBwdOp,

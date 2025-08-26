@@ -64,6 +64,7 @@ bool ExprEvalScheduler::canScheduleCompileTime(Fusion* fusion) {
   // TODO: remove IndexPutAccumulateOp
   if (exprs.front()
           ->isOneOf<
+              IndexShuffleOp,
               ScatterOp,
               SdpaFwdOp,
               SdpaBwdOp,

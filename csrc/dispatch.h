@@ -87,6 +87,7 @@ class Val;
   f(IndexPutAccumulateOp);        \
   f(GatherOp);                    \
   f(ScatterOp);                   \
+  f(IndexShuffleOp);              \
   f(RNGOp);                       \
   f(ReductionOp);                 \
   f(GroupedReductionOp);          \

@@ -292,4 +292,49 @@ TensorView* takeAlongAxis(TensorView* inp, TensorView* index, int64_t dim) {
   return out_tensor->as<TensorView>();
 }
 
+TensorView* indexShuffle(TensorView* index, int64_t dim, TensorView* src) {
+  // auto idx_dom = TensorDomain::noReductions(index->getLogicalDomain());
+  // NVF_CHECK(
+  //     idx_dom.size() == 1,
+  //     "index tensor should be 1D for index shuffle");
+  std::vector<IterDomain*> original_index_domain =
+      TensorDomain::noReductions(index->getLogicalDomain());
+  auto src_dom = TensorDomain::noReductions(src->getLogicalDomain());
+
+  NVF_CHECK(!src_dom.empty(), "index shuffle can not be applied to 0d tensor.");
+
+  int64_t n_dims = (int64_t)src_dom.size();
+  dim = wrapDim(dim, n_dims);
+  NVF_CHECK(
+      n_dims > 0, "lookup_tv argument for indexSelect cannot be a 0-D tensor.");
+
+  if (!ops::isIndexAlreadyBroadcast(original_index_domain, dim, n_dims)) {
+    // Broadcast index to src's rank.
+    NVF_CHECK(original_index_domain.size() == 1, "index must be a 1d tensor");
+    index = ops::maybeBroadcastIndexTv(index->as<TensorView>(), dim, n_dims);
+  } else {
+    // TODO: assert index is broadcast at the right place
+  }
+
+  // The shape of output tensor is same as src tensor.
+  std::vector<IterDomain*> out_domain;
+  for (const auto i : arange(src_dom.size())) {
+    out_domain.push_back(
+        IterDomainBuilder(src_dom[i])
+            .iter_type(
+                src_dom[i]->getIterType() == IterType::Iteration
+                    ? IterType::GatherScatter
+                    : src_dom[i]->getIterType())
+            .build());
+  }
+
+  TensorView* out_tensor = IrBuilder::create<TensorView>(
+      IrBuilder::create<TensorDomain>(
+          out_domain, TensorDomain::getContiguityFilledWith(out_domain, true)),
+      src->getDataType().value());
+
+  IrBuilder::create<IndexShuffleOp>(out_tensor, index, dim, src);
+  return out_tensor->as<TensorView>();
+}
+
 } // namespace nvfuser

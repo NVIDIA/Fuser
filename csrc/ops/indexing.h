@@ -83,4 +83,9 @@ NVF_API TensorView* takeAlongAxis(
     TensorView* index,
     int64_t dim);
 
+NVF_API TensorView* indexShuffle(
+    TensorView* index,
+    int64_t dim,
+    TensorView* src);
+
 } // namespace nvfuser

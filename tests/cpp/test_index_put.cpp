@@ -161,7 +161,7 @@ TEST_F(IndexPut, 3D) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
-
+  
   auto buffer_size_val = IrBuilder::create<Val>(DataType::Index);
   fusion.addInput(buffer_size_val);
 
@@ -200,6 +200,40 @@ TEST_F(IndexPut, 3D) {
       {out_shape[0], at_index_tv, at_value_tv},
       __LINE__,
       __FILE__);
+}
+
+TEST_F(IndexPut, IndexShuffle) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  int64_t seq = 1024;
+  int64_t hidden = 1024;
+
+  std::vector<int64_t> src_shape({seq, hidden});
+  std::vector<int64_t> index_shape({seq});
+
+  auto tv_src = makeSymbolicTensor(src_shape);
+  fusion.addInput(tv_src);
+  auto tv_index = makeSymbolicTensor(index_shape, DataType::Int);
+  fusion.addInput(tv_index);
+  // TODO: this should be an inplace. handle it when we have codegen support
+  auto out = indexShuffle(tv_index, 0, tv_src);
+  fusion.addOutput(out);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t_src = at::randn(src_shape, options);
+  // argsort to get unique indices
+  auto t_index = at::rand(index_shape, options).argsort();
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs({t_src, t_index});
+
+  auto ref = t_src.scatter(0, t_index.unsqueeze(-1).expand_as(t_src), t_src);
+  testValidate(&fusion, outputs, {t_src, t_index}, __LINE__, __FILE__);
+
+  // TODO: remove this after codegen for indexShuffle is added
+  EXPECT_TRUE(ref.allclose(outputs[0].as<at::Tensor>()));
 }
 
 } // namespace nvfuser
