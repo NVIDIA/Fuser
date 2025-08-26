@@ -1947,6 +1947,29 @@ def test_tensor_size_both_args_bcast(nvfuser_direct_test):
     nvfuser_direct_test.assertEqual(eager_out, nvf_out[0])
 
 
+def test_var_correction(nvfuser_direct_test):
+    num_elem = 2
+    inputs = [torch.randn(2, num_elem, device="cuda")]
+
+    # use decorator to create fusion_func
+    def fusion_decorator(correction):
+        def fusion_func(fd: FusionDefinition):
+            t0 = fd.from_pytorch(inputs[0])
+            t1 = fd.ops.var(t0, [-1], correction)
+            fd.add_output(t1)
+
+        return fusion_func
+
+    # correction must be less than the reduction factor, which is the input
+    # numel divided by output numel.
+    for correction in range(num_elem):
+        fuser_result, _ = nvfuser_direct_test.exec_nvfuser(
+            fusion_decorator(correction), inputs
+        )
+        torch_result = torch.var(inputs[0], [-1], correction=correction)
+        nvfuser_direct_test.assertEqual(fuser_result[0], torch_result)
+
+
 def test_var_mean_correction(nvfuser_direct_test):
     num_elem = 2
     inputs = [torch.randn(2, num_elem, device="cuda")]

@@ -411,6 +411,7 @@ class PythonPrinter {
 //     with keepdim argument.
 //  3. Map Broadcast and Expand to `broadcast_in_dim`
 //  4. var_mean
+//  5. var
 class PythonTranslator : public OptInConstDispatch {
  public:
   // Returns a map from the values in the CPP fusion to its corresponding
