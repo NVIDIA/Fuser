@@ -6,6 +6,8 @@
 from nvfuser_direct import FusionDefinition, DataType
 import torch
 import pytest
+import io
+from contextlib import redirect_stdout, redirect_stderr
 
 
 def test_fusion_not_defined():
@@ -31,13 +33,29 @@ def test_fusion_empty():
     ]
 
     # A FusionDefinition object is constructed but not defined, should trip an error
-    try:
+    with pytest.raises(NotImplementedError, match="Fusion is empty!"):
         with FusionDefinition() as fd:
             pass
         out = fd.execute(inputs)
-        raise RuntimeError("Expecting an error for an empty FusionDefinition!")
-    except NotImplementedError as e:
-        assert "Fusion is empty!" in str(e)
+
+
+def test_from_pytorch_fails_on_cpu_tensor():
+    inputs = [
+        torch.randn(4, 4, device="cpu"),
+    ]
+
+    stdout_capture = io.StringIO()
+    stderr_capture = io.StringIO()
+    error_msg = (
+        "Found unsupported device cpu, only scalar CPU or CUDA tensors are supported"
+    )
+    with pytest.raises(ValueError, match=error_msg), redirect_stdout(
+        stdout_capture
+    ), redirect_stderr(stderr_capture):
+        with FusionDefinition() as fd:
+            t0 = fd.from_pytorch(inputs[0])
+            t1 = fd.ops.relu(t0)
+            fd.add_output(t1)
 
 
 def test_fusion_definition_print():

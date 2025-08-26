@@ -257,11 +257,7 @@ class FusionDefinition:
                 "Fusion does not exist! Use `with FusionDefinition() as fd: ...` to define a fusion.",
             )
 
-        if (
-            len(self._fusion.inputs()) == 0
-            or len(self._fusion.outputs()) == 0
-            or len(self._fusion.vals()) == 0
-        ):
+        if len(self._fusion.outputs()) == 0 or len(self._fusion.vals()) == 0:
             return False, "Fusion is empty!"
 
         return True, None
