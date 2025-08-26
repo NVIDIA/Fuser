@@ -292,7 +292,10 @@ TensorView* squeeze(
     const std::vector<bool>& to_squeeze,
     bool squeeze_expanded) {
   NVF_ERROR(x != nullptr, "Input is invalid.");
-  auto x_dom = x->domain()->noReductions();
+  // SqueezeOp is cloned during segmentation where the loop domain
+  // may have device parallelization. Hence, use the logical domain
+  // explcitly to avoid a mismatch between domain and `to_squeeze` dims.
+  auto x_dom = TensorDomain::noReductions(x->getLogicalDomain());
   const auto ndims = static_cast<int64_t>(x_dom.size());
 
   NVF_ERROR(
