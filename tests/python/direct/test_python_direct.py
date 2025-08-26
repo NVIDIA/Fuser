@@ -8,6 +8,38 @@ import torch
 import pytest
 
 
+def test_fusion_not_defined():
+    inputs = [
+        torch.randn(4, 4, device="cpu"),
+    ]
+
+    # A FusionDefinition object is constructed but not defined, should trip an error
+    try:
+        fd = FusionDefinition()
+        out = fd.execute(inputs)
+        raise RuntimeError("Expecting an error for an empty FusionDefinition!")
+    except NotImplementedError as e:
+        assert (
+            "Fusion does not exist! Use `with FusionDefinition() as fd: ...` to define a fusion."
+            in str(e)
+        )
+
+
+def test_fusion_empty():
+    inputs = [
+        torch.randn(4, 4, device="cpu"),
+    ]
+
+    # A FusionDefinition object is constructed but not defined, should trip an error
+    try:
+        with FusionDefinition() as fd:
+            pass
+        out = fd.execute(inputs)
+        raise RuntimeError("Expecting an error for an empty FusionDefinition!")
+    except NotImplementedError as e:
+        assert "Fusion is empty!" in str(e)
+
+
 def test_fusion_definition_print():
     with FusionDefinition() as fd:
         tv0 = fd.define_tensor(
