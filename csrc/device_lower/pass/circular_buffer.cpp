@@ -1495,6 +1495,11 @@ ForLoop* createArrivesForWar(ForLoop* circular_buffer_loop) {
       GpuLower::current()->circularBufferInfo().getCircularBufferTvs(
           circular_buffer_loop->iter_domain());
   VectorOfUniqueEntries<TensorView*> mbarriers;
+  std::cout << "mbarrierMap:\n";
+  for (const auto& [expr, tv] : GpuLower::current()->mbarrierMap()) {
+    std::cout << "  " << expr->toString() << "   ->   " << tv->toString()
+              << std::endl;
+  }
   for (auto tv : circular_buffer_tvs) {
     auto ldst = dynamic_cast<LoadStoreOp*>(tv->definition());
     NVF_ERROR(ldst != nullptr);
@@ -1770,6 +1775,38 @@ class WarpSpecializedCircularBufferInserter : private kir::ExprMutator {
     }
     Scope& compute_scope = inner_dispatch_ite->elseBody();
 
+    // Initial setup for compute warp
+
+    // Increase registers in compute warp group
+    // TODO: check that the increase registers expressions are consistent
+    // across async warps
+    int64_t compute_regs = -1;
+    for (const auto& [warp_id, warp_info] : loop_info.async_warps) {
+      const auto& ws = std::get<WarpSpecialized>(warp_info.cb_options.type);
+      if (!ws.num_registers.has_value()) {
+        continue;
+      }
+      const int64_t increase_num_registers = ws.num_registers.value().second;
+      if (compute_regs == -1) {
+        compute_regs = increase_num_registers;
+      } else {
+        NVF_ERROR_EQ(
+            increase_num_registers,
+            compute_regs,
+            "Found mismatched compute registers between async warps");
+      }
+    }
+    if (compute_regs != -1) {
+      kir::SetMaxNReg* inc_reg_async_warp = IrBuilder::create<kir::SetMaxNReg>(
+          IrBuilder::create<Val>(compute_regs, DataType::Index),
+          /*increase_registers*/ true);
+      compute_scope.push_back(inc_reg_async_warp);
+    }
+
+    // Prefetch:
+    auto prefetch_loop = createArrivesForWar(circular_buffer_loop);
+    compute_scope.push_back(prefetch_loop);
+
     for (const auto& [warp_id, warp_info] : loop_info.async_warps) {
       Scope& scope = *async_scopes.at(warp_id);
       // Set default value
@@ -1791,15 +1828,6 @@ class WarpSpecializedCircularBufferInserter : private kir::ExprMutator {
                 IrBuilder::create<Val>(decrease_num_registers, DataType::Index),
                 /*increase_registers=*/false);
         scope.push_back(dec_reg_async_warp);
-
-        // Increase registers in compute warp group
-        // TODO: check that the increase registers expressions are consistent
-        // across async warps
-        kir::SetMaxNReg* inc_reg_async_warp =
-            IrBuilder::create<kir::SetMaxNReg>(
-                IrBuilder::create<Val>(increase_num_registers, DataType::Index),
-                /*increase_registers*/ true);
-        compute_scope.push_back(inc_reg_async_warp);
       }
 
       // Load loop:
@@ -1814,10 +1842,6 @@ class WarpSpecializedCircularBufferInserter : private kir::ExprMutator {
       // finishing its work.
       kir::Return* ret = IrBuilder::create<kir::Return>();
       scope.push_back(ret);
-
-      // Prefetch:
-      auto prefetch_loop = createArrivesForWar(circular_buffer_loop);
-      compute_scope.push_back(prefetch_loop);
 
       // If this is a ping-pong hopper, then we need the last warp group to
       // release the mbarriers for the first warp group.
