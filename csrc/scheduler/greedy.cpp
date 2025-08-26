@@ -20,9 +20,11 @@
 #include <scheduler/debug_utils.h>
 #include <scheduler/greedy.h>
 #include <scheduler/runtime_info.h>
+#include <scheduler/tools/loop_domain_scheduler.h>
 #include <scheduler/tools/maxinfo_propagator.h>
 #include <scheduler/utils.h>
 #include <transform_replay.h>
+#include <val_graph_visitor.h>
 
 #include <ATen/cuda/CUDAContext.h>
 
@@ -52,6 +54,11 @@ class CompileTimeChecker : private IterVisitor {
  private:
   CompileTimeChecker(Fusion* fusion, const ValGraph& exact_graph)
       : exact_graph_(exact_graph) {
+    checkConflictingReshape();
+    if (!can_schedule_) {
+      return;
+    }
+
     traverse(fusion);
     // If this fusion requires the exact block dimension, requires the
     // constrained IDs to be exactly mapped. This is not necessary but
@@ -61,6 +68,28 @@ class CompileTimeChecker : private IterVisitor {
       setRejectReason(
           "Block dimension must be exact but non-matching constrained IDs "
           "found");
+    }
+
+    // Make sure constrained and unconstrained ids are disjoint
+    if (unique_unconstrained_domain_.has_value()) {
+      auto reachable_vals_from_unconstrained_domain =
+          getReachableValsFrom<ValGraphPermissiveBFS>(
+              unique_unconstrained_domain_.value().vector(),
+              exact_graph_.disjointValSets().disjointSets(),
+              Direction::Forward,
+              exact_graph_);
+      auto common_reachable_ids = getReachableValsFrom<ValGraphPermissiveBFS>(
+          all_constrained_domain_.vector(),
+          reachable_vals_from_unconstrained_domain,
+          Direction::Forward,
+          exact_graph_);
+      if (!common_reachable_ids.empty()) {
+        can_schedule_ = false;
+        std::stringstream reason;
+        reason << "Constrained and unconstrained IDs are merged at: "
+               << nvfuser::toString(common_reachable_ids);
+        setRejectReason(reason.str());
+      }
     }
   }
 
@@ -75,6 +104,7 @@ class CompileTimeChecker : private IterVisitor {
             BinaryOp,
             TernaryOp,
             FullOp,
+            ViewOp,
             ArgsortOp,
             ScanOp,
             PadOp>();
@@ -144,7 +174,9 @@ class CompileTimeChecker : private IterVisitor {
     ValGroups unconstrained_domain;
     for (const auto& [i, logical_id] : enumerate(logical_domain)) {
       if (constrained_logical_id_offset_set.contains(i)) {
-        constrained_domain.pushBack(exact_graph_.toGroup(logical_id));
+        const auto& logical_id_group = exact_graph_.toGroup(logical_id);
+        constrained_domain.pushBack(logical_id_group);
+        all_constrained_domain_.pushBack(logical_id_group);
       } else {
         unconstrained_domain.pushBack(exact_graph_.toGroup(logical_id));
       }
@@ -184,6 +216,33 @@ class CompileTimeChecker : private IterVisitor {
     }
   }
 
+  void checkConflictingReshape() {
+    // For now, only allows fusions where each ID group is uniquely
+    // reshaped, meaning there's only one use ExprGroup for each ID
+    // group. Note that Resize ExprGroups should not matter as we
+    // simply propagate transformations through Resize
+    for (const ValGroup& val_group :
+         exact_graph_.disjointValSets().disjointSets()) {
+      const auto& use_groups = exact_graph_.getUses(val_group);
+      // Only count exprs for reshape.
+      int num_reshape_exprs = 0;
+      for (const auto& use_group : use_groups) {
+        if (use_group->front()->isA<Merge>() ||
+            use_group->front()->isA<Split>()) {
+          ++num_reshape_exprs;
+        }
+      }
+      if (num_reshape_exprs > 1) {
+        can_schedule_ = false;
+        std::stringstream ss;
+        ss << "Potentially conflicting reshape found for "
+           << nvfuser::toString(val_group);
+        setRejectReason(ss.str());
+        return;
+      }
+    }
+  }
+
   void setRejectReason(const std::string& reason) {
     // Only keeps the first reason
     if (reject_reason_.empty()) {
@@ -199,6 +258,8 @@ class CompileTimeChecker : private IterVisitor {
 
   std::optional<ValGroups> unique_unconstrained_domain_;
   std::optional<ValGroups> unique_constrained_domain_;
+
+  ValGroups all_constrained_domain_;
 
   // True if mismatched constrained ID was detected
   bool mismatched_constrained_id_detected_ = false;
@@ -289,6 +350,27 @@ class RunTimeChecker : private IterVisitor {
   std::string reject_reason_;
 };
 
+void propagateReshape(Fusion* fusion) {
+  IdModel id_model(fusion);
+  // const auto& exact_graph = id_model.buildExactGraph();
+
+  const auto reshape_ops = ir_utils::getOpsOfType<ViewOp>(fusion);
+  const auto all_tvs = fusion->allTvs();
+
+  for (auto reshape : reshape_ops) {
+    // TODO: Extend scheduleLoopDomainsBy so that a vector of exprs
+    // can be passed
+    for (auto reshape_expr : DependencyCheck::getAllExprsBetween(
+             {reshape->out()->getRootDomain().begin(),
+              reshape->out()->getRootDomain().end()},
+             {reshape->out()->getLogicalDomain().begin(),
+              reshape->out()->getLogicalDomain().end()})) {
+      scheduler_tools::scheduleLoopDomainsBy(
+          all_tvs, reshape_expr, Direction::Forward);
+    }
+  }
+}
+
 class ConstrainedOpScheduler : public OptOutDispatch {
  public:
   static void run(
@@ -328,24 +410,45 @@ class ConstrainedOpScheduler : public OptOutDispatch {
   void scheduleConstrainedTv(
       TensorView* tv,
       const std::vector<int64_t>& constrained_logical_id_offsets) {
-    NVF_ERROR_EQ(
-        tv->getLogicalDomain(),
-        tv->getLoopDomain(),
-        "Logical and loop domains are assumed to be the same: ",
-        tv->toString());
-
     NVF_ERROR(!constrained_logical_id_offsets.empty());
+
+    std::vector<Val*> constrained_logical_ids;
+    constrained_logical_ids.reserve(constrained_logical_id_offsets.size());
+    std::ranges::transform(
+        constrained_logical_id_offsets,
+        std::back_inserter(constrained_logical_ids),
+        [tv](int64_t logical_id_offset) {
+          return tv->getLogicalDomain().at(logical_id_offset);
+        });
+
+    // Find constrained loop IDs
+    const auto constrained_logical_loop_all_ids =
+        DependencyCheck::getAllValsBetween(
+            {constrained_logical_ids.begin(), constrained_logical_ids.end()},
+            {tv->getLoopDomain().begin(), tv->getLoopDomain().end()});
+    const std::unordered_set<Val*> constrained_logical_loop_all_id_set{
+        constrained_logical_loop_all_ids.begin(),
+        constrained_logical_loop_all_ids.end()};
+
+    std::vector<IterDomain*> constrained_loop_ids;
+    std::vector<int64_t> constrained_loop_id_offsets;
+    for (const auto [i, loop_id] : enumerate(tv->getLoopDomain())) {
+      if (constrained_logical_loop_all_id_set.contains(loop_id)) {
+        constrained_loop_ids.push_back(loop_id);
+        constrained_loop_id_offsets.push_back(i);
+      }
+    }
 
     // Move the constrained_logical_ids innermost
     std::unordered_map<int64_t, int64_t> old2new;
-    for (const auto [i, offset] : enumerate(constrained_logical_id_offsets)) {
-      old2new.emplace(offset, i - std::ssize(constrained_logical_id_offsets));
+    for (const auto [i, offset] : enumerate(constrained_loop_id_offsets)) {
+      old2new.emplace(offset, i - std::ssize(constrained_loop_id_offsets));
     }
     tv->reorder(old2new);
 
     // Flatten the constrained ids
-    if (constrained_logical_id_offsets.size() > 1) {
-      tv->flatten(-std::ssize(constrained_logical_id_offsets), -1);
+    if (constrained_loop_id_offsets.size() > 1) {
+      tv->flatten(-std::ssize(constrained_loop_id_offsets), -1);
     }
 
     // Parallelize the flattened constrained id
@@ -594,6 +697,12 @@ void GreedyScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
   FUSER_PERF_SCOPE("GreedyScheduler::schedule");
 
   scheduler_utils::clearMemorySpace(fusion);
+
+  propagateReshape(fusion);
+
+  std::cout << std::endl;
+  fusion->print();
+  std::cout << std::endl;
 
   auto constrained_exprs = getAllConstrainedOps(fusion);
 

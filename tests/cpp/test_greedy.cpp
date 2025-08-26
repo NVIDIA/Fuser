@@ -86,20 +86,140 @@ TEST_F(GreedySchedulerTest, ScanPad3D) {
   EXPECT_FALSE(executor_cache.getMostRecentKernelRuntime()->isSegmented());
 }
 
+TEST_F(GreedySchedulerTest, ScanPad3DReshape1) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  std::vector<int64_t> shape{3, 4, 128};
+
+  auto tv0 = makeContigConcreteTensor(shape, DataType::Int);
+  fusion.addInput(tv0);
+
+  auto tv1 = cumsum(tv0, -1);
+  auto tv2 =
+      pad(tv1, {fusion.oneVal(DataType::Int), fusion.zeroVal(DataType::Int)});
+  auto tv3 = reshape(tv2, {3, 4, 129}, {4, 3, 129});
+  auto tv4 = add(tv3, fusion.oneVal(DataType::Int));
+
+  fusion.addOutput(tv4);
+
+  auto options = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
+  auto t0 = at::randint(0, 100, shape, options);
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs({t0});
+  testValidate(executor_cache.fusion(), outputs, {t0}, __LINE__, __FILE__);
+
+  EXPECT_FALSE(executor_cache.getMostRecentKernelRuntime()->isSegmented());
+}
+
+// Merging constrained and unconstrained IDs is not allowed (yet)
+TEST_F(GreedySchedulerTest, ScanPad3DReshape2) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  std::vector<int64_t> shape{3, 4, 128};
+
+  auto tv0 = makeContigConcreteTensor(shape, DataType::Int);
+  fusion.addInput(tv0);
+
+  auto tv1 = cumsum(tv0, -1);
+  auto tv2 =
+      pad(tv1, {fusion.oneVal(DataType::Int), fusion.zeroVal(DataType::Int)});
+  auto tv3 = flatten(tv2);
+  auto tv4 = add(tv3, fusion.oneVal(DataType::Int));
+
+  fusion.addOutput(tv4);
+
+  auto options = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
+  auto t0 = at::randint(0, 100, shape, options);
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs({t0});
+  testValidate(executor_cache.fusion(), outputs, {t0}, __LINE__, __FILE__);
+
+  EXPECT_TRUE(executor_cache.getMostRecentKernelRuntime()->isSegmented());
+}
+
+TEST_F(GreedySchedulerTest, ScanPad3DReshape3) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  std::vector<int64_t> shape{3, 4, 128};
+
+  auto tv0 = makeContigConcreteTensor(shape, DataType::Int);
+  fusion.addInput(tv0);
+
+  auto tv1 = cumsum(tv0, -1);
+  auto tv2 =
+      pad(tv1, {fusion.oneVal(DataType::Int), fusion.zeroVal(DataType::Int)});
+  auto tv3 = reshape(tv2, {3, 4, 129}, {4, 3, 129});
+  auto tv4 = add(tv3, fusion.oneVal(DataType::Int));
+  fusion.addOutput(tv4);
+
+  // Non-matching another reshape
+  auto tv5 = reshape(tv2, {3, 4, 129}, {2, 6, 129});
+  auto tv6 = add(tv5, fusion.oneVal(DataType::Int));
+  fusion.addOutput(tv6);
+
+  auto options = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
+  auto t0 = at::randint(0, 100, shape, options);
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs({t0});
+  testValidate(executor_cache.fusion(), outputs, {t0}, __LINE__, __FILE__);
+
+  EXPECT_TRUE(executor_cache.getMostRecentKernelRuntime()->isSegmented());
+}
+
+TEST_F(GreedySchedulerTest, ScanPad3DReshape4) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  std::vector<int64_t> shape{3, 4, 128};
+
+  auto tv0 = makeContigConcreteTensor(shape, DataType::Int);
+  fusion.addInput(tv0);
+
+  auto tv1 = set(tv0);
+  auto tv2 = cumsum(tv1, -1);
+  auto tv3 =
+      pad(tv2, {fusion.oneVal(DataType::Int), fusion.zeroVal(DataType::Int)});
+  auto tv4 = reshape(tv1, {3, 4, 128}, {3, 4 * 128});
+  auto tv5 = add(tv4, fusion.oneVal(DataType::Int));
+
+  fusion.addOutput(tv3);
+  fusion.addOutput(tv5);
+
+  auto options = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
+  auto t0 = at::randint(0, 100, shape, options);
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs({t0});
+  testValidate(executor_cache.fusion(), outputs, {t0}, __LINE__, __FILE__);
+
+  EXPECT_TRUE(executor_cache.getMostRecentKernelRuntime()->isSegmented());
+}
+
 // Based on SgLangMoETest.ComputeArgSort
 TEST_F(GreedySchedulerTest, ArgsortArith) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
 
-  std::vector<int64_t> shape{128};
+  std::vector<int64_t> shape{4, 128};
 
   auto tv0 = makeContigConcreteTensor(shape, DataType::Int);
   fusion.addInput(tv0);
 
-  auto tv1 = argsort(tv0, -1, /*descending=*/true, /*stable=*/true);
-  auto tv2 = mul(tv1, IrBuilder::create<Val>(100, DataType::Int));
-  fusion.addOutput(tv2);
+  auto tv1 = flatten(tv0);
+  auto tv2 = argsort(tv1, -1, /*descending=*/true, /*stable=*/true);
+  auto tv3 = mul(tv2, IrBuilder::create<Val>(100, DataType::Int));
+  fusion.addOutput(tv3);
 
   auto options = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
   auto t0 = at::randint(0, 100, shape, options);
