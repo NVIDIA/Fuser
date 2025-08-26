@@ -494,3 +494,22 @@ class FusionDefinition:
                 assert torch.equal(
                     fusion_output, reference_output
                 ), "Mismatch in reference and fusion output values for non-floating point datatypes"
+
+
+from .nvfuser_direct_version import __version__
+
+
+def version():
+    r"""returns nvfuser_direct version in format of a string 'm.n.p+git[7d-sha]'.
+
+    We strip the git[7d-sha] and convert the string to
+    `nvfuser_version.Version` for comparison. e.g. you can use it as:
+        import nvfuser_direct
+        print(nvfuser_direct.version())              # 0.0.1+git21df524
+        nvfuser_direct.version() == '0.0.1`          # True
+        nvfuser_direct.version() > '0.0.0`           # True
+
+        from nvfuser_direct_version import Version
+        nvfuser_direct.version() < Version('1.0.0')  # True
+    """
+    return __version__
