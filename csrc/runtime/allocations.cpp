@@ -349,35 +349,32 @@ bool areDimsToBeMergedContiguous(
       std::count(new_shape.begin(), new_shape.end(), -1) <= 1,
       "new_shape can contain at most one -1");
 
-  // If new_shape doesn't have -1, return true
-  if (std::find(new_shape.begin(), new_shape.end(), -1) == new_shape.end()) {
+  auto it = std::find(new_shape.begin(), new_shape.end(), -1);
+  if (it == new_shape.end()) {
+    return true;
+  }
+  size_t merge_dim = std::distance(new_shape.begin(), it);
+
+  if (merge_dim == new_shape.size() - 1) {
     return true;
   }
 
   auto strides = tensor.strides();
   auto sizes = tensor.sizes();
 
-  // For each -1 in new_shape, check contiguity of corresponding dims in tensor
-  for (size_t i = 0, tdim = 0; i < new_shape.size() && tdim < sizes.size();
-       ++i) {
-    if (new_shape[i] == -1) {
-      // Check dims tdim and tdim+1 in tensor
-      if (tdim + 1 >= sizes.size()) {
-        return false;
-      }
-      // dims are contiguous if one's stride is the multiple of the other
-      // dim's size and stride.
-      if ((strides[tdim] != sizes[tdim + 1] * strides[tdim + 1]) &&
-          (strides[tdim + 1] * sizes[tdim + 1] != strides[tdim])) {
-        return false;
-      }
-      // After merging, skip next tensor dim
-      tdim += 2;
-    } else {
-      tdim += 1;
-    }
+  // Get the size and stride at merge_dim and merge_dim + 1
+  NVF_ERROR(merge_dim < sizes.size(), "merge_dim out of bounds for sizes");
+  NVF_ERROR(
+      merge_dim + 1 < sizes.size(), "merge_dim+1 out of bounds for sizes");
+  int64_t stride1 = strides[merge_dim];
+  int64_t size2 = sizes[merge_dim + 1];
+  int64_t stride2 = strides[merge_dim + 1];
+
+  if (stride1 == size2 * stride2) {
+    return true;
   }
-  return true;
+
+  return false;
 }
 
 // Helper function to compute the shape and strides needed for merging
