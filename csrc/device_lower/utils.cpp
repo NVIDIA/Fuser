@@ -89,6 +89,7 @@ bool isTvOp(const Expr* expr) {
           ArgsortOp,
           GroupedMmaOp,
           ScaledMmaOp,
+          CutlassNvfp4GroupedMmaOp,
           TopKOp,
           UnaryOp,
           BinaryOp,
