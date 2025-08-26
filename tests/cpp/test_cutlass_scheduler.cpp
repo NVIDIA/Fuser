@@ -177,10 +177,14 @@ TEST_F(CutlassExecutorTest, SimpleNvfp4ScaledGemm_ExecutorCache) {
 
   fusion->addOutput(smm.tv);
 
+  auto scheduler = std::make_unique<CutlassScheduler>();
+  EXPECT_FALSE(scheduler->canScheduleCompileTime(fusion.get()))
+      << "Expect Cutlass scheduler to reject Fusion unless "
+         "EnableOption::CutlassScheduler is set";
+
   EnableOptionsGuard eog;
   eog.getCurOptions().set(EnableOption::CutlassScheduler);
 
-  auto scheduler = std::make_unique<CutlassScheduler>();
   EXPECT_TRUE(scheduler->canScheduleCompileTime(fusion.get()));
 
   // Create actual tensor data for inputs
@@ -203,6 +207,8 @@ TEST_F(CutlassExecutorTest, SimpleNvfp4ScaledGemm_ExecutorCache) {
   // Create scalar tensors
   auto alpha = at::scalar_tensor(1.5f, float_options);
 
+  std::vector<c10::IValue> inputs{a_fp4, b_fp4, a_scale, b_scale, alpha};
+
   ExpressionEvaluator expr_eval;
   expr_eval.bind(tv0, a_fp4);
   expr_eval.bind(tv1, b_fp4);
@@ -212,8 +218,15 @@ TEST_F(CutlassExecutorTest, SimpleNvfp4ScaledGemm_ExecutorCache) {
   PolymorphicValue eval_smm = expr_eval.evaluate(smm.tv);
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  std::vector<c10::IValue> inputs{a_fp4, b_fp4, a_scale, b_scale, alpha};
   auto outputs = executor_cache.runFusionWithInputs(inputs);
+
+  const FusionKernelRuntime* fkr = executor_cache.getMostRecentKernelRuntime();
+  ASSERT_TRUE(fkr != nullptr);
+  EXPECT_FALSE(fkr->isSegmented());
+  EXPECT_EQ(
+      fkr->fusionSegments()->cgroups().front()->schedulerType(),
+      SchedulerType::Cutlass);
+
   // Check that the output is a tensor with correct properties
   auto output_tensor = outputs[0].as<at::Tensor>();
   EXPECT_EQ(output_tensor.sizes(), at::IntArrayRef({M, N}));

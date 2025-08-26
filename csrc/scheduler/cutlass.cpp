@@ -83,6 +83,9 @@ std::unique_ptr<HeuristicParams> CutlassScheduler::computeHeuristics(
       1, // bdimy
       1); // bdimz
 
+  // This is not used but FusionKernelRuntime expects it to be set
+  params->cparams.index_type = DataType::Int;
+
   return params;
 }
 
