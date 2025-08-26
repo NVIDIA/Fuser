@@ -42,7 +42,7 @@ Each migrated test underwent the following adaptations:
 
 ### Tests Only in Main Frontend (Not in Direct)
 
-The following 37 tests exist in `tests/python/test_python_frontend.py` but are **NOT** present in `tests/python/direct/test_python_frontend.py`:
+The following 35 tests exist in `tests/python/test_python_frontend.py` but are **NOT** present in `tests/python/direct/test_python_frontend.py`:
 
 **Note**: The legacy frontend uses class-based tests (`def test_*(self):`) while the direct frontend uses standalone functions (`def test_*(nvfuser_direct_test):`). Only actual pytest test methods (with `self` parameter) are counted here. `test_cat_qwen2_v2` is the only pytest outside of `TestNvFuserFrontend` in `tests/python/test_python_frontend.py`.
 
@@ -93,8 +93,6 @@ The following tests are complex and will be moved to tests/python/direct/test_hi
 
 **General tests to add with 50 Lines or Less:**
 The following tests will be added to tests/python/direct/test_python_frontend.py
-- `test_right_shift_logical` - Tests logical right shift; Missing bitwise_right_shift operation
-- `test_right_shift_logical_sizeof_dtype` - Tests logical right shift with dtype size; Missing bitwise_right_shift operation
 - `test_var_correction` - Tests variance correction; Missing `var` operation
 
 ### Tests Only in Direct Frontend (Not in Main)
@@ -169,6 +167,8 @@ Both test files contain these 73 common tests:
 - `test_reshape_squeeze_concretization` - Tests reshape squeeze concretization
 - `test_returning_aliased_outputs` - Returning aliased outputs
 - `test_right_shift_arithmetic` - Tests arithmetic right shift
+- `test_right_shift_logical` - Tests logical right shift
+- `test_right_shift_logical_sizeof_dtype` - Tests logical right shift with dtype size
 - `test_scalar_only_inputs` - Scalar-only input operations
 - `test_scatter_output_intermediate` - Scatter output intermediate operations
 - `test_scatter_scalar_src` - Scatter scalar source operations
@@ -249,7 +249,7 @@ Contains direct frontend specific functionality tests:
 - **Direct Repro**: 31 tests in `tests/python/direct/test_repro.py`
 - **Direct Python**: 6 tests in `tests/python/direct/test_python_direct.py`
 - **Total Direct Tests**: 153 tests across 3 files
-- **Shared Tests**: 73 tests between legacy and direct frontend
+- **Shared Tests**: 75 tests between legacy and direct frontend
 - **Legacy-Only Tests**: 22 tests (not yet migrated)
 - **Direct-Only Tests**: 12 tests (new functionality)
 
