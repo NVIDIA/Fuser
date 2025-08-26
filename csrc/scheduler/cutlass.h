@@ -61,16 +61,6 @@ class CutlassScheduler : public SchedulerEntry {
   constexpr static SchedulerType schedulerType() {
     return SchedulerType::Cutlass;
   }
-
- private:
-  // Check if the fusion contains supported matmul patterns
-  bool hasSupportedMatmulPattern(Fusion* fusion);
-
-  // Check if the epilogue is supported by CUTLASS
-  bool hasSupportedEpilogue(Fusion* fusion);
-
-  // Find the matmul operation in the fusion
-  TensorView* findMatmulOutput(Fusion* fusion);
 };
 
 } // namespace nvfuser

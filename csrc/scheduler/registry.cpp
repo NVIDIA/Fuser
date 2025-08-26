@@ -34,6 +34,14 @@ bool checkCanSchedule(Fusion* fusion, SchedulerType scheduler_type) {
 
   FusionGuard fg(fusion);
 
+  if (scheduler_type != SchedulerType::Cutlass &&
+      ir_utils::hasOpsOfType<ScaledMmaOp>(fusion)) {
+    scheduler_debug_utils::canScheduleRejectReason(
+        scheduler_type,
+        "Has ops only supported by the ExprEval and Cutlass schedulers");
+    return false;
+  }
+
   // These ops are  are only accepted in `ExprEval`
   // scheduler, all other schedulers should reject them.
   // TODO: remove IndexPutAccumulateOp
@@ -44,9 +52,12 @@ bool checkCanSchedule(Fusion* fusion, SchedulerType scheduler_type) {
           EmbeddingFwdOp,
           IndexPutAccumulateOp,
           ArgsortOp,
+
+          // TODO: support these in the Cutlass scheduler and move to the
+          // previous check
           GroupedMmaOp,
-          ScaledMmaOp,
           CutlassNvfp4GroupedMmaOp,
+
           TopKOp,
           ScanOp>(fusion)) {
     scheduler_debug_utils::canScheduleRejectReason(
