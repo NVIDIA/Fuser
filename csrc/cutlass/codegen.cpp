@@ -395,7 +395,6 @@ extern "C" void run_kernel(
   return code;
 }
 
-
 } // namespace
 
 std::string generateCode(Fusion* fusion, const CutlassParams& params) {

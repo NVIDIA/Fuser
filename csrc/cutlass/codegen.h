@@ -12,7 +12,6 @@
 
 #include <string>
 
-
 namespace nvfuser {
 
 namespace cutlass_codegen {
