@@ -318,7 +318,7 @@ IdModelOptions getIdModelOptions(Fusion* fusion) {
       options.setUnswitchPredicate(true);
       options.setLoop(true);
       continue;
-    } else if (auto reshape = dynamic_cast<ViewOp*>(expr)) {
+    } else if (auto reshape = dynamic_cast<ReshapeOp*>(expr)) {
       // The legacy indexer has an issue when an expand broadcast is
       // involved in reshape transformations. Enable both tensor and
       // predicate indexing if found
