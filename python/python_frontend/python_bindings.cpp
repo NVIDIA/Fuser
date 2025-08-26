@@ -3739,6 +3739,36 @@ void initNvFuserPythonBindings(PyObject* module) {
       py::return_value_policy::reference);
 
   nvf_ops.def(
+      "cumsum",
+      [](FusionDefinition::Operators& self, Tensor arg, int64_t dim) -> Tensor {
+        FusionDefinition* fd = self.fusion_definition;
+        Tensor output = fd->defineTensor(arg.dims);
+        fd->defineRecord(new ScanOpRecord(
+            {fd->recordingState(arg())},
+            {fd->recordingState(output())},
+            ("ops.cumsum"),
+            serde::RecordType::ScanOpCumsum,
+            static_cast<TensorView* (*)(TensorView*, int64_t)>(cumsum),
+            dim,
+            BinaryOpType::Add));
+
+        return output;
+      },
+      py::arg("arg"),
+      py::arg("dim"),
+      py::return_value_policy::reference,
+      R"doc(
+            Computes the cumulative sum of elements along a given dimension.
+            Args:
+                    arg (Tensor): Input tensor.
+                    dim (int): Dimension along which to compute the cumulative sum.
+            Returns:
+                    Tensor: Tensor of the same shape as input with cumulative sums computed along the specified dimension.
+            Example:
+                    >>> fd.ops.cumsum(tensor, dim=0)
+        )doc");
+
+  nvf_ops.def(
       "grouped_mm",
       [](FusionDefinition::Operators& self,
          Tensor mat1,
@@ -4032,6 +4062,67 @@ void initNvFuserPythonBindings(PyObject* module) {
       py::arg("output_block_scale_size") = 0,
       py::arg("output_block_scale_dtype") = DataType::BFloat16,
       py::arg("output_gamma") = false,
+      py::return_value_policy::reference);
+
+  nvf_ops.def(
+      "cutlass_nvfp4_grouped_mm",
+      [](FusionDefinition::Operators& self,
+         Tensor mat1,
+         Tensor mat2,
+         Tensor scale1,
+         Tensor scale2,
+         Tensor alpha,
+         Tensor problem_sizes,
+         Tensor expert_offsets,
+         Tensor sf_offsets,
+         PrimDataType dtype) -> Tensor {
+        FUSER_PERF_SCOPE("Operators.cutlass_nvfp4_grouped_mm");
+        NVF_CHECK(
+            self.validUse(), "Attempting to add to a completed definition!");
+        FusionDefinition* fd = self.fusion_definition;
+
+        Tensor output = fd->defineTensor(3);
+
+        fd->defineRecord(new CutlassNvfp4GroupedMmaOpRecord(
+            {fd->recordingState(mat1()),
+             fd->recordingState(mat2()),
+             fd->recordingState(scale1()),
+             fd->recordingState(scale2()),
+             fd->recordingState(alpha()),
+             fd->recordingState(problem_sizes()),
+             fd->recordingState(expert_offsets()),
+             fd->recordingState(sf_offsets())},
+            {fd->recordingState(output())},
+            dtype));
+
+        return output;
+      },
+      R"(
+      Cutlass NVFP4 Grouped Matrix Multiplication.
+
+      Args:
+          mat1 (Tensor): First set of matrices
+          mat2 (Tensor): Second set of matrices
+          scale1 (Tensor): Scale tensor for mat1
+          scale2 (Tensor): Scale tensor for mat2
+          alpha (Tensor): Alpha tensor
+          problem_sizes (Tensor): Problem sizes tensor
+          expert_offsets (Tensor): Expert offsets tensor
+          sf_offsets (Tensor): SF offsets tensor
+          dtype (ScalarType): Output tensor type
+
+      Returns:
+          Tensor: Result of grouped matrix multiplication
+      )",
+      py::arg("mat1"),
+      py::arg("mat2"),
+      py::arg("scale1"),
+      py::arg("scale2"),
+      py::arg("alpha"),
+      py::arg("problem_sizes"),
+      py::arg("expert_offsets"),
+      py::arg("sf_offsets"),
+      py::arg("dtype") = DataType::BFloat16,
       py::return_value_policy::reference);
 
   nvf_ops.def(

@@ -890,6 +890,24 @@ TensorView* TensorView::rFactor(const std::vector<int64_t>& axes) {
         IrBuilder::create<Val>(0.0, producer->dtype()),
         consumer,
         producer);
+  } else if (
+      auto cutlass_grouped_mma =
+          dynamic_cast<CutlassNvfp4GroupedMmaOp*>(definition())) {
+    IrBuilder::create<CutlassNvfp4GroupedMmaOp>(
+        producer,
+        cutlass_grouped_mma->matrix1(),
+        cutlass_grouped_mma->matrix2(),
+        cutlass_grouped_mma->scale1(),
+        cutlass_grouped_mma->scale2(),
+        cutlass_grouped_mma->alpha(),
+        cutlass_grouped_mma->problemSizes(),
+        cutlass_grouped_mma->expertOffsets(),
+        cutlass_grouped_mma->scalingFactorOffsets());
+    IrBuilder::create<ReductionOp>(
+        BinaryOpType::Add,
+        IrBuilder::create<Val>(0.0, producer->dtype()),
+        consumer,
+        producer);
   } else {
     NVF_THROW("RFactor: unsupported tensor definition: ", definition());
   }

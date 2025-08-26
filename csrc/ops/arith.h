@@ -147,10 +147,11 @@ struct WelfordResult {
 struct TopKResult {
  public:
   TensorView* values = nullptr; //!< The k largest/smallest values
-  TensorView* indices; //!< Indices of the values in the original tensor
+  TensorView* indices =
+      nullptr; //!< Indices of the values in the original tensor
 
-  //! Constructor ensuring both outputs come from the same TopK operation
-  explicit TopKResult(TensorView* in_values, TensorView* in_indices);
+  explicit TopKResult(TensorView* in_values, TensorView* in_indices)
+      : values(in_values), indices(in_indices) {}
 };
 
 //! Welford operator on specified axes. This is currently the only scan op with
