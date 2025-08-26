@@ -366,11 +366,11 @@ bool areDimsToBeMergedContiguous(
   NVF_ERROR(merge_dim < sizes.size(), "merge_dim out of bounds for sizes");
   NVF_ERROR(
       merge_dim + 1 < sizes.size(), "merge_dim+1 out of bounds for sizes");
-  int64_t stride1 = strides[merge_dim];
-  int64_t size2 = sizes[merge_dim + 1];
-  int64_t stride2 = strides[merge_dim + 1];
+  int64_t stride_outer = strides[merge_dim];
+  int64_t size_inner = sizes[merge_dim + 1];
+  int64_t stride_inner = strides[merge_dim + 1];
 
-  if (stride1 == size2 * stride2) {
+  if (stride_outer == size_inner * stride_inner) {
     return true;
   }
 
