@@ -768,17 +768,27 @@ PersistentBufferInfo persistentBuffers(Fusion* fusion) {
 namespace {
 int64_t getAllocatedExtent(
     TensorView* tv,
-    IterDomain* id,
+    IterDomain* logical_id,
     ExpressionEvaluator& expr_eval) {
-  IterDomain* alloc_id = projectLogicalToAllocation(tv, id);
+  IterDomain* alloc_id = projectLogicalToShardedAllocation(tv, logical_id);
   auto inferred_val = expr_eval.evaluate(alloc_id->extent());
   NVF_ERROR(
       inferred_val.hasValue(),
-      "Error inferring dimensions of reduction fusion.");
+      "Error inferring extent of ",
+      alloc_id->toString(),
+      " in ",
+      tv->toString());
   return inferred_val.as<int64_t>();
 }
 } // namespace
 
+// For sharded tensorviews, we record the properties
+// based on per-GPU extent of ids.
+// For eg: consider a tv with logical domain [r{i0}, i1]
+// sharded on i1. The allocation domain is [DIDx(d), r{i0}, i1/d]
+// The extent of the innermost dimension is the per-GPU extent of i1/d.
+// This ensures we don't launch kernels with parameters based on the
+// global sizes.
 ReductionTvProperties getReductionProperties(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
@@ -1275,7 +1285,6 @@ std::vector<TensorView*> cacheInputs(Fusion* fusion, bool unroll) {
   auto in_tvs = ir_utils::filterByType<TensorView>(fusion->inputs());
   for (auto tv : in_tvs) {
     if (tv->nDims() == 0 || tv->uses().empty() ||
-        ir_utils::isAndOnlyIsGatherLookupTv(tv) ||
         ir_utils::isIndexSelectLookupTv(tv) ||
         ir_utils::isTvUsedByOpsOfType<SelectOp>(tv)) {
       // Right now, tensors that are input to the select, gather and
@@ -1525,7 +1534,7 @@ void FindAllMappedDims::propagateP2C(TensorView* from, TensorView* to) {
 
   // Project allocation id back to logical id for mapping
   IterDomain* from_logical_id =
-      projectAllocationToLogical(from, from_allocation_id);
+      projectShardedAllocationToLogical(from, from_allocation_id);
 
   PairwiseLogicalDomainMap logical_map(from, to);
   auto p2c_map = logical_map.mapProducerToConsumer();

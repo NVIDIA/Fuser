@@ -174,13 +174,36 @@ def nvfuser_fusion(fd : FusionDefinition) -> None :
     fd.add_output(tv4)
 with FusionDefinition() as fd:
     nvfuser_fusion(fd)
+"""
 
+    expected_inputs = """
 inputs = [
     torch.testing.make_tensor((2, 4, 8), dtype=torch.float32, device='cuda:0'),
     torch.testing.make_tensor((2, 4, 8), dtype=torch.float32, device='cuda:0'),
 ]
 fd.execute(inputs)\n"""
-    assert expected_repro in fd.repro_script_for(inputs)
+
+    # fd.repro_script_for(inputs) should have input arguments
+    repro_with_inputs = fd.repro_script_for(inputs)
+    assert expected_repro in repro_with_inputs
+    assert expected_inputs in repro_with_inputs
+
+    # fd.repro_script_for() should NOT have input arguments
+    repro_without_inputs = fd.repro_script_for()
+    assert expected_repro in repro_without_inputs
+    assert expected_inputs not in repro_without_inputs
+
+    # Check last_repro_script fails gracefully.
+    with pytest.raises(
+        AssertionError,
+        match=r"fd.last_repro_script\(\) cannot provide a repro because fd.execute\(inputs, save_repro_state=True\) was not executed!",
+    ):
+        fd.last_repro_script()
+
+    # Test fd.execute(inputs, save_repro_inputs=True) ; fd.last_repro_script()
+    fd.execute(inputs, save_repro_inputs=True)
+    last_repro = fd.last_repro_script()
+    assert repro_with_inputs == last_repro
 
 
 def test_define_tensor():
@@ -235,3 +258,37 @@ def test_execute_with_different_device():
     outputs = fd.execute(inputs, device="cuda:1")
     assert len(outputs) == 1
     assert outputs[0].device.index == 1
+
+
+def test_enable_disable_options():
+    m = 24
+    n = 16
+    k = 8
+    inps = [
+        torch.randn(m, k, device="cuda", dtype=torch.float),
+        torch.randn(k, n, device="cuda", dtype=torch.float),
+    ]
+
+    def fusion_func(fd: FusionDefinition, inps) -> None:
+        t0 = fd.from_pytorch(inps[0])
+        t1 = fd.from_pytorch(inps[1])
+        t2 = fd.ops.matmul(t0, t1)
+        fd.add_output(t2)
+
+    with FusionDefinition() as fd:
+        fusion_func(fd, inps=inps)
+
+    # By default, matmul will be be run through expr_eval scheduler.
+    # Through setting the enable and disable options as below,
+    # we can execute it through matmul scheduler. The above fusion will not
+    # be accepted by the matmul scheduler since the outputs are of type Float and raises a RuntimeError.
+    # Note: We use this error-based test since for compatible dtypes (float16/bfloat16),
+    # the matmul scheduler ran into a scheduling error on H100. This test might be more robust against
+    # changes in matmul scheduler in the interim.
+
+    with pytest.raises(
+        RuntimeError, match="Can not find a scheduler to schedule fusion segment"
+    ):
+        fd.execute(
+            inps, _enable_options=["fuse_matmul"], _disable_options=["matmul_expr_eval"]
+        )
