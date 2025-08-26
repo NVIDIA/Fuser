@@ -2422,6 +2422,10 @@ def test_right_shift_logical_sizeof_dtype(nvfuser_direct_test):
         num_bits = 32 if (dtype == torch.int32) else 64
 
         # expected_outputs given by jax.lax.shift_right_logical(inputs, sizeof(dtype))
+        # >>> jax.lax.shift_right_logical(input.to('cpu').numpy(), 32)
+        # Array([0, 0, 0, 0, 0, 0, 0, 0], dtype=int32)
+        # >>> jax.lax.shift_right_logical(input.to('cpu').numpy(), 64)
+        # Array([0, 0, 0, 0, 0, 0, 0, 0], dtype=int32)
         expected_output = torch.zeros_like(current_input)
 
         def fusion_func(fd: FusionDefinition):
