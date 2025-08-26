@@ -42,11 +42,12 @@ TEST_F(GreedySchedulerTest, ScanPad1D) {
   auto tv0 = makeContigConcreteTensor(shape, DataType::Int);
   fusion.addInput(tv0);
 
-  auto tv1 = cumsum(tv0, -1);
-  auto tv2 =
-      pad(tv1, {fusion.oneVal(DataType::Int), fusion.zeroVal(DataType::Int)});
+  auto tv1 = set(tv0);
+  auto tv2 = cumsum(tv1, -1);
+  auto tv3 =
+      pad(tv2, {fusion.oneVal(DataType::Int), fusion.zeroVal(DataType::Int)});
 
-  fusion.addOutput(tv2);
+  fusion.addOutput(tv3);
 
   auto options = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
   auto t0 = at::randint(0, 100, shape, options);
@@ -68,11 +69,12 @@ TEST_F(GreedySchedulerTest, ScanPad3D) {
   auto tv0 = makeContigConcreteTensor(shape, DataType::Int);
   fusion.addInput(tv0);
 
-  auto tv1 = cumsum(tv0, -1);
-  auto tv2 =
-      pad(tv1, {fusion.oneVal(DataType::Int), fusion.zeroVal(DataType::Int)});
+  auto tv1 = set(tv0);
+  auto tv2 = cumsum(tv1, -1);
+  auto tv3 =
+      pad(tv2, {fusion.oneVal(DataType::Int), fusion.zeroVal(DataType::Int)});
 
-  fusion.addOutput(tv2);
+  fusion.addOutput(tv3);
 
   auto options = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
   auto t0 = at::randint(0, 100, shape, options);
