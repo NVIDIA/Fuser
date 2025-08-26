@@ -16,6 +16,7 @@
 #include <scheduler/resize.h>
 #include <scheduler/runtime_info.h>
 #include <scheduler/utils.h>
+#include <visibility.h>
 
 namespace nvfuser {
 
@@ -42,7 +43,13 @@ bool checkCanSchedule(Fusion* fusion, SchedulerType scheduler_type) {
           SdpaFwdOp,
           SdpaBwdOp,
           EmbeddingFwdOp,
-          IndexPutAccumulateOp>(fusion)) {
+          IndexPutAccumulateOp,
+          ArgsortOp,
+          GroupedMmaOp,
+          ScaledMmaOp,
+          CutlassNvfp4GroupedMmaOp,
+          TopKOp,
+          ScanOp>(fusion)) {
     scheduler_debug_utils::canScheduleRejectReason(
         scheduler_type, "Has unsupported ops");
     return false;
@@ -255,6 +262,6 @@ template class HeuristicDataCacheEntry<
 template class HeuristicDataCacheEntry<HeuristicCompileTime::LogicalReorderMap>;
 template class HeuristicDataCacheEntry<
     HeuristicCompileTime::VectorizationBreakPointOfReductionProducer>;
-template class HeuristicDataCacheEntry<
-    HeuristicCompileTime::SchedulerHyperParameters>;
+template class NVF_API
+    HeuristicDataCacheEntry<HeuristicCompileTime::SchedulerHyperParameters>;
 } // namespace nvfuser

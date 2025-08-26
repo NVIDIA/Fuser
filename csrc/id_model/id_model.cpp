@@ -392,6 +392,34 @@ ValGraph& IdModel::buildExactGraph() {
       }
     }
 
+    // Special additional mappings for ScatterOp
+    if (auto sop = dynamic_cast<ScatterOp*>(expr)) {
+      // Assumes the initial loop domain of the output tensor is
+      // mapped with the logical domain of the index and src tensors.
+      const auto& out_initial_loop =
+          sop->out()->as<TensorView>()->domain()->initialLoop();
+      auto index_logical = TensorDomain::noReductions(
+          sop->index()->as<TensorView>()->getLogicalDomain());
+      NVF_ERROR_EQ(out_initial_loop.size(), index_logical.size());
+      for (const auto i : arange(out_initial_loop.size())) {
+        if (out_initial_loop.at(i)->isBroadcast() ==
+            index_logical.at(i)->isBroadcast()) {
+          graph.mapVals(out_initial_loop.at(i), index_logical.at(i));
+        }
+      }
+      if (sop->src()->isA<TensorView>()) {
+        auto src_logical = TensorDomain::noReductions(
+            sop->src()->as<TensorView>()->getLogicalDomain());
+        NVF_ERROR_EQ(out_initial_loop.size(), src_logical.size());
+        for (const auto i : arange(out_initial_loop.size())) {
+          if (out_initial_loop.at(i)->isBroadcast() ==
+              src_logical.at(i)->isBroadcast()) {
+            graph.mapVals(out_initial_loop.at(i), src_logical.at(i));
+          }
+        }
+      }
+    }
+
     // TODO: Revisit if we really should map domains in the exact map
     mapThroughLoopSwizzles(graph);
   }
@@ -631,7 +659,7 @@ ValGraph& IdModel::buildPermissiveGraph() {
          ir_utils::filterByType<TensorView>(expr->outputs())) {
       auto tv_inputs = ir_utils::filterByType<TensorView>(expr->inputs());
 
-      // If the loop domain is not generated from the logial domain
+      // If the loop domain is not generated from the logical domain
       // with not extra IDs, broadcast forwarding is not
       // supported. As such, permissive mappings are not generated.
       if (!ir_utils::isLoopDomainFullyDerivedFromLogicalDomain(c_tv)) {
@@ -1057,6 +1085,10 @@ ValGraph& IdModel::maybeBuildGraph(IdMappingMode mode) {
   }
 }
 
+bool IdModel::hasGraph(IdMappingMode mode) const {
+  return id_graphs_.contains(mode);
+}
+
 void IdModel::removeGraph(IdMappingMode mode) {
   id_graphs_.erase(mode);
 }
@@ -1348,13 +1380,13 @@ void IdModel::allocateLoopIndexVariables() {
     if (GpuLower::current()->idModelOptions().loop()) {
       loop_index = IrBuilder::create<Val>(DataType::Index);
     } else {
-      const auto& ca_map = GpuLower::current()->caMap();
+      const auto& ca_map = FusionInfoGuard::current()->caMap();
       for (const auto& id :
            ir_utils::filterByType<IterDomain>(loop_group->vector())) {
-        if (!ca_map->getIdSets(IdMappingMode::LOOP).mappingExists(id)) {
+        if (!ca_map.getIdSets(IdMappingMode::LOOP).mappingExists(id)) {
           continue;
         }
-        loop_index = ca_map->getIndexVariable(id);
+        loop_index = ca_map.getIndexVariable(id);
         break;
       }
       NVF_ERROR(

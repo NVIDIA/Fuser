@@ -101,7 +101,7 @@ std::vector<int64_t> evaluateAddressesOnFirstPhase(
     num_threads = (bdimx ? bdimx.as<int64_t>() : 1) *
         (bdimy ? bdimy.as<int64_t>() : 1) * (bdimz ? bdimz.as<int64_t>() : 1);
   }
-  int64_t dtype_size = (int64_t)dataTypeSize(*(ti->getDataType()));
+  int64_t dtype_size = dataTypeSizeByte(*(ti->getDataType()));
   int64_t word_size_bytes = dtype_size * word_size;
   int64_t phase_size =
       std::min(num_threads, getPhaseSize((int64_t)word_size_bytes));

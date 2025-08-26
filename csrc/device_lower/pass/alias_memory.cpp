@@ -38,7 +38,7 @@ namespace nvfuser {
 namespace {
 // Alias used for std::transform
 IterDomain* exactConcreteId(IterDomain* id) {
-  return GpuLower::current()->caMap()->getConcreteMappedID(
+  return GpuLower::current()->info().caMap().getConcreteMappedID(
       id, IdMappingMode::EXACT);
 }
 
@@ -143,7 +143,7 @@ bool isSerialBroadcastResolution(
   for (auto serial_loop_logical :
        ir_utils::filterByType<IterDomain>(serial_loop_logicals)) {
     if (!producer_exact_concrete_logical_ids.count(
-            GpuLower::current()->caMap()->getConcreteMappedID(
+            GpuLower::current()->info().caMap().getConcreteMappedID(
                 serial_loop_logical, IdMappingMode::EXACT))) {
       return true;
     }
@@ -214,7 +214,7 @@ class BufferReuseDebugPrinter {
   using DebugEntryPtr = std::unique_ptr<DebugEntry>;
 
  public:
-  BufferReuseDebugPrinter() : ir_printer_(os_) {};
+  BufferReuseDebugPrinter() = default;
 
   std::string dumpDebugInfo(const AllocationInfoMap* allocation_info_map) {
     allocation_info_map_ = allocation_info_map;
@@ -314,7 +314,6 @@ class BufferReuseDebugPrinter {
 
  private:
   std::stringstream os_;
-  IrPrinter ir_printer_;
   int indent_level_ = 0;
 
   std::vector<DebugEntryPtr> debug_info_;
@@ -1196,9 +1195,9 @@ class ReusableAllocationFinder : private kir::IrVisitor {
             continue;
           }
         } else if (
-            dataTypeSize(
+            dataTypeSizeBit(
                 alloc_info->data_type, GpuLower::current()->indexType()) !=
-            dataTypeSize(
+            dataTypeSizeBit(
                 alloc_to_reuse->data_type, GpuLower::current()->indexType())) {
           // Behavior for shared or global memory and default behavior for
           // registers is to re-use if dtypes have same size.
@@ -1393,11 +1392,21 @@ class ReusableAllocationFinder : private kir::IrVisitor {
 
     // Check index map for the corresponding axes.
     for (const auto id_it : arange(alloc_domains.size())) {
-      if (!GpuLower::current()->caMap()->areMapped(
-              alloc_domains[id_it],
-              reuse_domains[id_it],
-              IdMappingMode::EXACT)) {
-        return false;
+      if (FusionInfoGuard::current()->hasIdModel()) {
+        if (!FusionInfoGuard::current()
+                 ->idModel()
+                 .idGraph(IdMappingMode::EXACT)
+                 .disjointValSets()
+                 .strictAreMapped(alloc_domains[id_it], reuse_domains[id_it])) {
+          return false;
+        }
+      } else {
+        if (!FusionInfoGuard::current()->caMap().areMapped(
+                alloc_domains[id_it],
+                reuse_domains[id_it],
+                IdMappingMode::EXACT)) {
+          return false;
+        }
       }
     }
     return true;
@@ -1526,7 +1535,7 @@ Val* alignExpr(Val* addr, int64_t alignment = 16) {
 
 Val* allocSizeBytes(kir::Allocate* alloc) {
   const auto buffer_dtype = alloc->buffer()->dtype();
-  const auto dtype_size = dataTypeSize(buffer_dtype);
+  const auto dtype_size = dataTypeSizeByte(buffer_dtype);
   auto size = dtype_size == 1
       ? alloc->size()
       : SimplifyingIrBuilder::mulExpr(
@@ -1708,7 +1717,8 @@ class StackBasedSharedMemAllocator : kir::IrVisitor {
 
     // Reclaim memory whenever we pass an Expr that is known to synchronize the
     // block
-    if (lower_utils::hasBlockSync(expr, GpuLower::current()->threadPredMap())) {
+    if (lower_utils::hasBlockSync(
+            expr, GpuLower::current()->info().threadPredicateMap())) {
       if (isDebugDumpEnabled(DebugDumpOption::BufferReuseInfo)) {
         debug() << "Block syncing expr found at position " << position_
                 << ". Reclaiming memory." << std::endl;
@@ -1781,7 +1791,7 @@ class StackBasedSharedMemAllocator : kir::IrVisitor {
       debug() << "Assigned address " << alloc->address()->toInlineString()
               << " for T" << alloc->buffer()->name() << " with size "
               << alloc->size()->toInlineString() << " * "
-              << dataTypeSize(alloc->buffer()->dtype()) << " bytes"
+              << dataTypeSizeByte(alloc->buffer()->dtype()) << " bytes"
               << std::endl;
     }
   }
@@ -2029,7 +2039,8 @@ class PromoteReuseSyncModifier : private kir::ExprMutator {
     // there is no need to perform the hasBlockSync check as we know that
     // upcoming_first_writes_ was just cleared.
     if (!inserted_sync &&
-        lower_utils::hasBlockSync(expr, GpuLower::current()->threadPredMap())) {
+        lower_utils::hasBlockSync(
+            expr, GpuLower::current()->info().threadPredicateMap())) {
       if (isDebugDumpEnabled(DebugDumpOption::BufferReuseInfo)) {
         debug() << "Found blocking expression at position " << position
                 << std::endl;

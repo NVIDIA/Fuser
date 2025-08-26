@@ -30,6 +30,7 @@
 namespace nvfuser::preseg_passes {
 
 using testing::ElementsAre;
+using testing::UnorderedElementsAre;
 
 using PresegTest = NVFuserTest;
 
@@ -1340,10 +1341,7 @@ TEST_F(PresegTest, MoveGatherOverCast) {
       unary_ops.begin(),
       unary_ops.end(),
       std::back_inserter(all_cast_ops),
-      [](UnaryOp* op) {
-        std::cout << op->toString() << std::endl;
-        return op->getUnaryOpType() == UnaryOpType::Cast;
-      });
+      [](UnaryOp* op) { return op->getUnaryOpType() == UnaryOpType::Cast; });
   EXPECT_EQ(all_cast_ops.size(), 2);
 
   // The cast op after gather op should be a new cast op
@@ -1508,11 +1506,13 @@ TEST_P(TranslateNoReductionMatmulTest, Test) {
   auto outputs = executor_cache.runFusionWithInputs({t0, t1});
   testValidate(executor_cache.fusion(), outputs, {t0, t1}, __LINE__, __FILE__);
 
-  // Should be scheduled as a pointwise kernel
+  // Should be scheduled as a pointwise & expr-eval kernel
   FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
   EXPECT_THAT(
       runtime->fusionSegments()->groups(),
-      ElementsAre(HeuristicIs(SchedulerType::PointWise)));
+      UnorderedElementsAre(
+          HeuristicIs(SchedulerType::ExprEval),
+          HeuristicIs(SchedulerType::PointWise)));
 }
 
 } // namespace nvfuser::preseg_passes

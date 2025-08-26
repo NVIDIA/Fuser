@@ -44,8 +44,8 @@ TensorView* view(TensorView* x, DataType dtype) {
   }
 
   auto input_type = x->getDataType().value();
-  auto input_size = dataTypeSize(input_type);
-  auto newsize = dataTypeSize(dtype);
+  auto input_size = dataTypeSizeByte(input_type);
+  auto newsize = dataTypeSizeByte(dtype);
 
   if (input_size == newsize) {
     return bitCastOp(dtype, x);
@@ -196,6 +196,24 @@ TensorView* reshape(TensorView* inp_tv, const std::vector<Val*>& new_sizes) {
 
   IrBuilder::createInContainer<ViewOp>(inp_tv->container(), out_tv, inp_tv);
 
+  return out_tv;
+}
+
+NVF_API TensorView* reshape(
+    TensorView* x,
+    std::function<void(AbstractTensor&)> transform) {
+  auto root_domain = ops::newOutputDomain({x});
+  AbstractTensor abst(root_domain);
+  transform(abst);
+  auto logical_domain = abst.as<IterDomain*>();
+  auto out_tv = IrBuilder::create<TensorView>(
+      IrBuilder::create<TensorDomain>(
+          root_domain,
+          logical_domain,
+          logical_domain,
+          TensorDomain::getContiguityFilledWith(logical_domain, true)),
+      x->getDataType().value());
+  IrBuilder::create<ViewOp>(out_tv, x);
   return out_tv;
 }
 
@@ -734,20 +752,25 @@ TensorView* cat(
   return out;
 }
 
+std::string Slice::toString() const {
+  std::ostringstream oss;
+  oss << "Slice(start=" << start->toInlineString()
+      << ", stop=" << stop->toInlineString()
+      << ", step=" << step->toInlineString() << ")";
+  return oss.str();
+}
+
 TensorView* slice(
     TensorView* inp,
     const std::vector<Slice>& ranges,
     bool manual_normalization) {
   const auto inp_dom = TensorDomain::noReductions(inp->getLogicalDomain());
-  const int64_t ndims = static_cast<int64_t>(inp_dom.size());
+  const int64_t ndims = std::ssize(inp_dom);
 
-  NVF_CHECK(
-      ndims == static_cast<int64_t>(ranges.size()),
-      "The range vector must have the same number of Slice descriptors. "
-      "Given: ",
-      ranges.size(),
-      ", Expected: ",
-      ndims);
+  NVF_CHECK_EQ(
+      ndims,
+      std::ssize(ranges),
+      "The range vector must have the same number of Slice descriptors.")
 
   ExpressionEvaluator expr_eval;
 
@@ -854,7 +877,7 @@ TensorView* slice(
     return range;
   };
 
-  for (auto& range : ranges) {
+  for (const Slice& range : ranges) {
     // Step not supported yet
     NVF_CHECK(
         range.step == nullptr || range.step->isOneInt(),
@@ -862,20 +885,23 @@ TensorView* slice(
         range.step->toString());
   }
 
-  std::vector<IterDomain*> root_ids(ndims);
-  std::vector<IterDomain*> logical_ids(ndims);
-  std::vector<Slice> normalized_ranges(ndims);
+  std::vector<Slice> normalized_ranges;
+  normalized_ranges.reserve(ndims);
+  std::vector<IterDomain*> root_ids;
+  root_ids.reserve(ndims);
+  std::vector<IterDomain*> logical_ids;
+  logical_ids.reserve(ndims);
 
   bool needs_real_slicing = false;
-  for (const auto idx : arange(ndims)) {
-    IterDomain* inp_root_id = inp_dom[idx];
+  for (const auto& [inp_root_id, range] : zip(inp_dom, ranges)) {
     Val* inp_root_size = inp_root_id->getMaybeExpandedExtent();
-    Slice range = normalize_slice_range(ranges.at(idx), inp_root_size);
-    normalized_ranges.at(idx) = range;
+    Slice normalized_range = normalize_slice_range(range, inp_root_size);
+    normalized_ranges.push_back(normalized_range);
     IterDomain* out_root_id = nullptr;
     IterDomain* out_rf_id = nullptr;
-    if (range.start->isZeroInt() && range.stop->sameAs(inp_root_size) &&
-        range.step->isOneInt()) {
+    if (normalized_range.start->isZeroInt() &&
+        normalized_range.stop->sameAs(inp_root_size) &&
+        normalized_range.step->isOneInt()) {
       // This dim doesn't need slicing
       out_root_id = inp_root_id->cloneWithoutRFactor();
       out_rf_id = out_root_id;
@@ -885,13 +911,13 @@ TensorView* slice(
           IterDomainBuilder(inp_root_id).is_rfactor_domain(true).build();
       out_rf_id = IterDomain::resize(
           out_root_id,
-          SimplifyingIrBuilder::negExpr(range.start),
-          SimplifyingIrBuilder::subExpr(range.stop, inp_root_size),
+          SimplifyingIrBuilder::negExpr(normalized_range.start),
+          SimplifyingIrBuilder::subExpr(normalized_range.stop, inp_root_size),
           true);
       needs_real_slicing = true;
     }
-    root_ids.at(idx) = out_root_id;
-    logical_ids.at(idx) = out_rf_id;
+    root_ids.push_back(out_root_id);
+    logical_ids.push_back(out_rf_id);
   }
 
   // If slicing isn't actually needed, just return a copy
@@ -1024,12 +1050,7 @@ TensorView* broadcast(
 TensorView* expand(TensorView* inp, const std::vector<Val*>& expanded_sizes) {
   auto inp_domain = TensorDomain::noReductions(inp->getLogicalDomain());
 
-  NVF_CHECK(
-      expanded_sizes.size() >= inp_domain.size(),
-      "Invalid expand, number of sizes provided is expected to be at least ",
-      inp_domain.size(),
-      " but received ",
-      expanded_sizes.size());
+  NVF_CHECK_GE(expanded_sizes.size(), inp_domain.size());
 
   inp = ops::maybe_broadcast_inner_to_rank(inp, expanded_sizes.size());
   inp_domain = TensorDomain::noReductions(inp->getLogicalDomain());
@@ -1109,77 +1130,41 @@ TensorView* expand(TensorView* inp, const std::vector<Val*>& expanded_sizes) {
     out_domain.push_back(out_id_builder.build());
   }
 
-  TensorView* out_tensor = IrBuilder::create<TensorView>(
+  auto* out = IrBuilder::create<TensorView>(
       IrBuilder::create<TensorDomain>(
           out_domain, TensorDomain::getContiguityFilledWith(out_domain, true)),
       inp->getDataType().value());
   if (!expanded) {
-    IrBuilder::create<LoadStoreOp>(LoadStoreOpType::Set, out_tensor, inp);
+    IrBuilder::create<LoadStoreOp>(LoadStoreOpType::Set, out, inp);
   } else {
-    IrBuilder::create<ExpandOp>(out_tensor, inp, maybe_expanded_sizes);
+    IrBuilder::create<ExpandOp>(out, inp, maybe_expanded_sizes);
   }
-  return out_tensor;
+  return out;
 }
 
 TensorView* expand_as(TensorView* inp, TensorView* other) {
-  auto inp_domain = TensorDomain::noReductions(inp->getLogicalDomain());
-  auto other_domain = TensorDomain::noReductions(other->getLogicalDomain());
+  const std::vector<IterDomain*>& inp_domain =
+      TensorDomain::noReductions(inp->getLogicalDomain());
+  const std::vector<IterDomain*>& other_domain =
+      TensorDomain::noReductions(other->getLogicalDomain());
+  std::vector<Val*> expanded_sizes;
+  expanded_sizes.reserve(inp_domain.size());
 
-  NVF_CHECK(
-      inp_domain.size() <= other_domain.size(),
-      "Invalid expand_as, dimensions of inp is higher than dimensions of "
-      "other, expected other to be at least ",
-      inp_domain.size(),
-      " but received ",
-      other_domain.size());
-
-  inp = ops::maybe_broadcast_inner_to_rank(inp, other_domain.size());
-  inp_domain = TensorDomain::noReductions(inp->getLogicalDomain());
-
-  std::vector<IterDomain*> out_domain;
-  std::vector<Val*> maybe_expanded_sizes;
-  bool expanded = false;
-  for (auto i : arange(inp_domain.size())) {
-    auto inp_id = inp_domain[i];
-    auto other_id = other_domain[i];
-
-    auto out_id_builder = IterDomainBuilder(inp_id);
-    Val* maybe_expanded_size = inp_id->extent();
-
-    if (!inp_id->isBroadcast()) {
+  for (auto [inp_id, other_id] : zip(inp_domain, other_domain)) {
+    if (inp_id->isBroadcast()) {
+      expanded_sizes.push_back(other_id->getMaybeExpandedExtent());
+    } else {
       NVF_ERROR(
           !other_id->isBroadcast(),
           "Cannot expand as a tensor if other has broadcast dimensions that "
           "don't map to broadcast dimensions in the input.");
-      if (!inp_id->isConstInt() && other_id->isConstInt()) {
-        out_id_builder.extent(
-            ops::promoteSize(inp_id->extent(), other_id->extent()));
-      }
-    } else {
-      if (!other_id->isBroadcast()) {
-        expanded = true;
-        out_id_builder.expanded_extent(other_id->extent());
-        maybe_expanded_size = other_id->extent();
-      } else if (other_id->isBroadcast() && other_id->hasExpandedExtent()) {
-        expanded = true;
-        out_id_builder.expanded_extent(other_id->expandedExtent());
-        maybe_expanded_size = other_id->expandedExtent();
-      }
+      // promoteSize returns LHS if both are symbolic. This is good because it's
+      // easier for `expand` to tell that this dimension isn't expanded at all.
+      expanded_sizes.push_back(
+          ops::promoteSize(inp_id->extent(), other_id->extent()));
     }
-    out_domain.push_back(out_id_builder.build());
-    maybe_expanded_sizes.push_back(maybe_expanded_size);
   }
-
-  TensorView* out_tensor = IrBuilder::create<TensorView>(
-      IrBuilder::create<TensorDomain>(
-          out_domain, TensorDomain::getContiguityFilledWith(out_domain, true)),
-      inp->getDataType().value());
-  if (!expanded) {
-    IrBuilder::create<LoadStoreOp>(LoadStoreOpType::Set, out_tensor, inp);
-  } else {
-    IrBuilder::create<ExpandOp>(out_tensor, inp, maybe_expanded_sizes);
-  }
-  return out_tensor;
+  return expand(inp, expanded_sizes);
 }
 
 TensorView* repeat(

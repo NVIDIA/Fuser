@@ -3,22 +3,68 @@
 # SPDX-License-Identifier: BSD-3-Clause
 
 import sys
-
-assert (
-    "nvfuser" not in sys.modules
-), "Cannot import nvfuser_direct if nvfuser module is already imported."
-
-import os
-import torch
 import traceback
+import warnings
+from typing import Iterable, Optional
 
-# This is needed when libnvfuser_direct.so is patched and doesn't have the pytorch library location available.
-pytorch_lib_dir = os.path.join(os.path.dirname(torch.__file__), "lib")
-if pytorch_lib_dir not in sys.path:
-    sys.path.append(pytorch_lib_dir)
+if "nvfuser" in sys.modules:
+    warnings.warn(
+        "Be careful! You've imported nvfuser_direct when the nvfuser module is already imported.",
+        UserWarning,
+    )
 
-from . import _C_DIRECT  # noqa: F401,F403
+import torch
+import torch.distributed as dist
+from torch.distributed.tensor import DTensor
+from torch.distributed.tensor.placement_types import Placement, Shard, Replicate
+
+
 from ._C_DIRECT import *  # noqa: F401,F403
+
+
+def execute_with_dtensors(fd, in_dtensors: Iterable[DTensor]) -> list[DTensor]:
+    """
+    Execute a fusion on a list of DTensor inputs.
+
+    Parameters
+    ----------
+    fd : FusionDefinition
+        The fusion definition to execute
+    in_dtensors : list of DTensor
+        The list of DTensor inputs to the fusion
+
+    Returns
+    -------
+    list of DTensor
+        The list of DTensor outputs from the fusion
+    """
+    in_tensors = []
+    common_mesh_dim_names = None
+    for in_dtensor in in_dtensors:
+        in_tensors.append(in_dtensor.to_local())
+        mesh_dim_names = in_dtensor.device_mesh.mesh_dim_names
+        if common_mesh_dim_names is None:
+            common_mesh_dim_names = mesh_dim_names
+        else:
+            assert (
+                common_mesh_dim_names == mesh_dim_names
+            ), f"All DTensor inputs must have the same mesh dim names. Got {common_mesh_dim_names} and {mesh_dim_names}"
+
+    out_tensors = fd.execute(in_tensors)
+    out_shardings = fd.fec.get_output_shardings()
+    assert len(out_tensors) == len(out_shardings)
+
+    out_dtensors: list[DTensor] = []
+    for out_tensor, out_sharding in zip(out_tensors, out_shardings):
+        mesh = dist.device_mesh.init_device_mesh(
+            "cuda", out_sharding.mesh.shape, mesh_dim_names=common_mesh_dim_names
+        )
+        placements: list[Placement] = []
+        for parallel_type in [ParallelType.mesh_x]:
+            axis: int = out_sharding.axis_sharded_on(parallel_type)
+            placements.append(Replicate() if axis == -1 else Shard(axis))
+        out_dtensors.append(DTensor.from_local(out_tensor, mesh, placements))
+    return out_dtensors
 
 
 class FusionDefinition:
@@ -42,7 +88,7 @@ class FusionDefinition:
         super(FusionDefinition, self).__init__()
         # Monkey patching nvfuser_direct.ops submodule to mimic python_frontend
         # FusionDefinition.ops API. This is to maintain backwards compatibilty.
-        self.ops = _C_DIRECT.ops
+        self.ops = ops
         self._fusion = None
         self._fusion_guard = None
 
@@ -53,6 +99,16 @@ class FusionDefinition:
         else:
             return self.fec.fusion()
 
+    def __repr__(self):
+        """
+        Return a string representation of the FusionDefinition.
+        Returns
+        -------
+        str
+            A string representation of the FusionDefinition
+        """
+        return translate_fusion(self.fusion)
+
     def __enter__(self):
         """
         Enter the context manager.
@@ -62,8 +118,8 @@ class FusionDefinition:
         FusionDefinition
             The FusionDefinition instance
         """
-        self._fusion = _C_DIRECT.Fusion()
-        self._fusion_guard = _C_DIRECT.FusionGuard(self._fusion)
+        self._fusion = Fusion()
+        self._fusion_guard = FusionGuard(self._fusion)
         return self
 
     def __exit__(self, exception_type, exception_value, exception_traceback):
@@ -99,18 +155,54 @@ class FusionDefinition:
         Parameters
         ----------
         *args
-            Positional arguments passed to _C_DIRECT.define_tensor
+            Positional arguments passed to define_tensor
         **kwargs
-            Keyword arguments passed to _C_DIRECT.define_tensor
+            Keyword arguments passed to define_tensor
 
         Returns
         -------
         Tensor
             The defined tensor
         """
-        tv = _C_DIRECT.define_tensor(*args, **kwargs)
+        tv = define_tensor(*args, **kwargs)
         self._fusion.add_input(tv)
         return tv
+
+    def define_vector(self, size):
+        """
+        Define a new vector input for the fusion.
+
+        Parameters
+        ----------
+        size : int
+            The size of the vector
+
+        Returns
+        -------
+        list of Scalar
+            The defined vector
+        """
+        return [self.define_scalar(None, DataType.Int) for i in range(size)]
+
+    def define_scalar(self, *args, **kwargs):
+        """
+        Define a new scalar input for the fusion.
+        It is added as a fusion input if it is a symbolic value.
+        Parameters
+        ----------
+        *args
+            Positional arguments passed to define_scalar
+        **kwargs
+            Keyword arguments passed to define_scalar
+        Returns
+        -------
+        Scalar
+            The defined scalar
+        """
+        scalar = define_scalar(*args, **kwargs)
+        if scalar.is_symbolic():
+            self._fusion.add_input(scalar)
+        return scalar
 
     def add_output(self, *args, **kwargs):
         """
@@ -125,7 +217,38 @@ class FusionDefinition:
         """
         self._fusion.add_output(*args, **kwargs)
 
-    def execute(self, inputs, *, device=None, auto_schedule=True) -> list[torch.Tensor]:
+    def _get_device_index(self, device_arg: torch.device | int | str | None) -> int:
+        """
+        Get the integer index for device_arg.
+
+        Parameters
+        ----------
+        device_arg : torch.device | int | str, optional
+
+        Returns
+        -------
+        int
+            The index for cuda device
+        """
+        if device_arg is None or isinstance(device_arg, int):
+            return device_arg
+
+        # NOTE: torch.device(torch.device) is still a torch.device
+        device = torch.device(device_arg)
+        assert (
+            device.type == "cuda"
+        ), "If device argument is passed it must be a CUDA device"
+        return device.index
+
+    def execute(
+        self,
+        inputs,
+        *,
+        device=None,
+        save_repro_inputs=False,
+        _enable_options: list[str] = [],
+        _disable_options: list[str] = [],
+    ) -> list[torch.Tensor]:
         """
         Execute the fusion with the given inputs.
 
@@ -135,20 +258,213 @@ class FusionDefinition:
             Input tensors and scalars to the fusion
         device : torch.device, optional
             Device to execute the fusion on
-        auto_schedule : bool, default=True
-            Whether to use automatic scheduling
+        save_repro_inputs : bool, default=False
+            Whether to save the inputs for last_repro_script() to provide a reproduction script.
+        _enable_options : list of str, default=[]
+            A list of enable options. An alternative to setting NVFUSER_ENABLE environment variable.
+        _disable_options : list of str, default=[]
+            A list of disable options. An alternative to setting NVFUSER_DISABLE environment variable.
 
         Returns
         -------
         list of torch.Tensor
             Output tensors from the fusion
         """
-        if auto_schedule:
-            if not hasattr(self, "fec"):
-                self.fec = _C_DIRECT.FusionExecutorCache(self._fusion)
-                # A copy of fusion is created after construction FusionExecutorCache
-                # Delete the _fusion and reference the fusion inside FusionExecutorCache
-                del self._fusion
-            return self.fec.execute(inputs)
-        else:
-            raise RuntimeError("Manual scheduling is not supported yet.")
+
+        if save_repro_inputs:
+            from torch._subclasses.fake_tensor import FakeTensorMode
+
+            fake_mode = FakeTensorMode()
+            self.fake_inputs = [fake_mode.from_tensor(inp) for inp in inputs]
+
+        if not hasattr(self, "fec"):
+            self.fec = FusionExecutorCache(self._fusion)
+            # A copy of fusion is created after construction FusionExecutorCache
+            # Delete the _fusion and reference the fusion inside FusionExecutorCache
+            del self._fusion
+        return self.fec.execute(
+            inputs,
+            device=self._get_device_index(device),
+            _enable_options=_enable_options,
+            _disable_options=_disable_options,
+        )
+
+    def last_repro_script(self) -> str:
+        assert (
+            hasattr(self, "fake_inputs") and self.fake_inputs is not None
+        ), "fd.last_repro_script() cannot provide a repro because fd.execute(inputs, save_repro_state=True) was not executed!"
+        return self.repro_script_for(self.fake_inputs)
+
+    def repro_script_for(self, inputs: list | None = None) -> str:
+        """
+        Generate a repro script for the fusion.
+
+        Parameters
+        ----------
+        inputs : list of torch.Tensor
+            The list of torch.Tensor inputs to the fusion
+
+        Returns
+        -------
+        str
+            The repro script for the fusion
+        """
+
+        msg = "# CUDA devices:\n"
+        for i in range(torch.cuda.device_count()):
+            msg += f"#  {i}: {torch.cuda.get_device_name(i)}\n"
+        msg += (
+            f"# torch version: {torch.__version__}\n"
+            f"# cuda version: {torch.version.cuda}\n"
+            f"import torch\n"
+            "from nvfuser_direct import FusionDefinition, DataType\n"
+            f"{self}"
+            "with FusionDefinition() as fd:\n"
+            f"    nvfuser_fusion(fd)\n"
+        )
+        if inputs is not None:
+            msg += "\ninputs = [\n"
+            for i in inputs:
+                if isinstance(i, torch.Tensor):
+                    if i.is_contiguous():
+                        msg += f"    torch.testing.make_tensor({tuple(i.size())}, dtype={i.dtype}, device='{i.device}'),\n"
+                    else:
+                        # max linear index determines number of elements to generate
+                        sz = 1
+                        for szi, stri in zip(i.size(), i.stride()):
+                            if szi == 0:
+                                sz = 0
+                                break
+                            sz += (szi - 1) * stri
+                        if i.dtype.is_floating_point:
+                            msg += (
+                                f"    torch.randn({sz}, dtype={i.dtype}, device='{i.device}')"
+                                f".as_strided({tuple(i.size())}, {tuple(i.stride())}),\n"
+                            )
+                        else:
+                            upper_bound = 2 if i.dtype == torch.bool else 10
+                            msg += (
+                                f"    torch.randint(0, {upper_bound}, ({sz},), dtype={i.dtype}, device='{i.device}')"
+                                f".as_strided({tuple(i.size())}, {tuple(i.stride())}),\n"
+                            )
+                else:
+                    input_as_string = str(i)
+                    # `nan` and `inf` are stringified as is, which are not
+                    # defined in Python. So we replace them with `float("nan")`
+                    # and `float("inf")`. `-inf` is replaced with
+                    # `-float("inf")`, which equals `float("-inf")`.
+                    input_as_string = re.sub(
+                        r"\binf\b", 'float("inf")', input_as_string
+                    )
+                    input_as_string = re.sub(
+                        r"\bnan\b", 'float("nan")', input_as_string
+                    )
+                    msg += f"    {input_as_string},\n"
+            msg += "]"
+            msg += "\nfd.execute(inputs)\n"
+
+        return msg
+
+    def from_pytorch(self, tensor, static_sizes=False):
+        """
+        Define an nvFuser input tensor from a PyTorch tensor.
+        This method creates a symbolic tensor for dynamic shape usage by default.
+        Parameters
+        ----------
+        tensor : torch.Tensor
+            Input PyTorch tensor to convert
+        static_sizes : bool, default=False
+            Whether to interpret sizes as static rather than symbolic
+            for dynamic shape usage
+        Returns
+        -------
+        Tensor
+            The defined nvFuser tensor
+        Raises
+        ------
+        ValueError
+            If a CPU non-scalar tensor is provided
+        """
+        try:
+            from .pytorch_utils import torch_dtype_to_nvfuser_dtype
+        except ImportError:
+            raise ImportError("Unable to import pytorch_utils!")
+
+        supported_tensor = tensor.is_cuda or (tensor.is_cpu and len(tensor.size()) == 0)
+        if not supported_tensor:
+            raise ValueError(
+                f"Found unsupported device {tensor.device}, only scalar CPU or CUDA tensors are supported"
+            )
+
+        tv = define_tensor(
+            sizes=tensor.size(),
+            strides=tensor.stride(),
+            dtype=torch_dtype_to_nvfuser_dtype(tensor.dtype),
+            static_sizes=static_sizes,
+            is_cpu=tensor.is_cpu,
+        )
+        self.fusion.add_input(tv)
+        return tv
+
+    def validate(
+        self,
+        inputs: list[torch.Tensor],
+        reference_outputs: Optional[list[torch.Tensor]] = None,
+        device: Optional[torch.device] = None,
+        **kwargs,
+    ):
+        """
+        Validates the fusion outputs against the provided reference outputs.
+        Tolerances are determined based on datatype and reduction size.
+
+        Parameters
+        ----------
+        inputs : list of torch.Tensor
+            A list of inputs expected by the fusion definition
+        reference_outputs : list of torch.Tensor, optional
+            A list of reference outputs to validate against
+        device : torch.device, optional
+            The device to execute the fusion on
+        **kwargs : dict, optional
+            Additional keyword arguments to pass to the execute method
+
+        Returns
+        -------
+        None
+        """
+        fusion_outputs = self.execute(inputs, device=device, **kwargs)
+        assert (
+            hasattr(self, "fec") and self.fec is not None
+        ), "FusionExecutorCache is not initialized"
+
+        if reference_outputs is None:
+            return self.fec.validate_with_auto_inferred_outputs(fusion_outputs, inputs)
+
+        assert len(fusion_outputs) == len(
+            reference_outputs
+        ), f"Expected {len(fusion_outputs)} reference outputs for validation."
+
+        tolerance_values = self.fec.get_val_tolerances(inputs)
+        assert len(tolerance_values) == len(
+            fusion_outputs
+        ), f"Missing tolerance values, expected {len(fusion_outputs)}, got {len(tolerance_values)}"
+
+        for inx, fusion_output in enumerate(fusion_outputs):
+            atol, rtol = tolerance_values[inx]
+            reference_output = reference_outputs[inx]
+
+            assert (
+                reference_output.shape == fusion_output.shape
+            ), "Mismatch in reference and fusion output dimensions"
+
+            if torch.is_floating_point(fusion_output) or torch.is_complex(
+                fusion_output
+            ):
+                assert torch.allclose(
+                    fusion_output, reference_output, atol=atol, rtol=rtol
+                ), f"Max error: {torch.abs(torch.max(fusion_output - reference_output))}, \
+                    Absolute tolerance: {atol}, Relative tolerance: {rtol}"
+            else:
+                assert torch.equal(
+                    fusion_output, reference_output
+                ), "Mismatch in reference and fusion output values for non-floating point datatypes"

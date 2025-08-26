@@ -62,7 +62,7 @@ TEST_P(IndexPut, AccumulateOpWithBroadcastIDs) {
   auto [vocab, hidden, seq] = GetParam();
 
   std::vector<int64_t> shape1({seq, hidden});
-  std::vector<int64_t> shape2({seq, 1});
+  std::vector<int64_t> shape2({seq});
 
   auto tv_value = makeSymbolicTensor(shape1);
   fusion.addInput(tv_value);
@@ -96,14 +96,14 @@ TEST_P(IndexPut, AccumulateOpWithBroadcastIDs) {
   // see [ Note -- IndexPutAccumulateOp semantics ]
   // args:
   //     buf      [ ID_indexed_g0, ID_g0 ]
-  //     tv_index [ ID_indexing_g1, ID_broadcast ]
+  //     tv_index [ ID_indexing_g1 ]
   //     tv_value [ ID_indexing_g1, ID_g0 ]
   // output:
   //     out      [ ID_indexed_g0, ID_g0 ]
   map_logical({true, true}, buf, out);
   // depends on the size of ID_g0, it would map to ID_broadcast when hidden is
   // size-1 dimension
-  map_logical({false, hidden == 1}, tv_index, out);
+  map_logical({false}, tv_index, out);
   map_logical({false, true}, tv_value, out);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
@@ -115,6 +115,91 @@ TEST_P(IndexPut, AccumulateOpWithBroadcastIDs) {
   auto outputs = executor_cache.runFusionWithInputs({t_value, t_index});
 
   testValidate(&fusion, outputs, {t_value, t_index}, __LINE__, __FILE__);
+}
+
+TEST_F(IndexPut, 1D) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  auto buffer_size_val = IrBuilder::create<Val>(DataType::Index);
+  fusion.addInput(buffer_size_val);
+
+  auto index_tv = makeSymbolicTensor(1, DataType::Int);
+  fusion.addInput(index_tv);
+
+  auto value_tv = makeSymbolicTensor(1, DataType::Int);
+  fusion.addInput(value_tv);
+
+  auto acc_tv = zeros({buffer_size_val}, DataType::Int);
+
+  auto tv3 = indexPutAccumulate(acc_tv, index_tv, value_tv);
+  fusion.addOutput(tv3);
+
+  const std::vector<int64_t> out_shape{32};
+  const int64_t index_size = 8;
+  const std::vector<int64_t> value_shape{index_size};
+
+  auto options = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
+
+  auto at_value_tv = at::ones(value_shape, options);
+  auto at_index_tv = at::randint(0, out_shape[0], {index_size}, options);
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs(
+      {out_shape[0], at_index_tv, at_value_tv});
+
+  testValidate(
+      &fusion,
+      outputs,
+      {out_shape[0], at_index_tv, at_value_tv},
+      __LINE__,
+      __FILE__);
+}
+
+TEST_F(IndexPut, 3D) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+  
+  auto buffer_size_val = IrBuilder::create<Val>(DataType::Index);
+  fusion.addInput(buffer_size_val);
+
+  auto index_tv = makeSymbolicTensor(1, DataType::Int);
+  fusion.addInput(index_tv);
+
+  auto value_tv = makeSymbolicTensor(3, DataType::Int);
+  fusion.addInput(value_tv);
+
+  auto acc_tv = zeros(
+      {buffer_size_val,
+       value_tv->axis(1)->extent(),
+       value_tv->axis(2)->extent()},
+      DataType::Int);
+
+  auto tv3 = indexPutAccumulate(acc_tv, index_tv, value_tv);
+  fusion.addOutput(tv3);
+
+  const std::vector<int64_t> out_shape{32, 4, 8};
+  const int64_t index_size = 8;
+  const std::vector<int64_t> value_shape{
+      index_size, out_shape[1], out_shape[2]};
+
+  auto options = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
+
+  auto at_value_tv = at::ones(value_shape, options);
+  auto at_index_tv = at::randint(0, out_shape[0], {index_size}, options);
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs(
+      {out_shape[0], at_index_tv, at_value_tv});
+
+  testValidate(
+      &fusion,
+      outputs,
+      {out_shape[0], at_index_tv, at_value_tv},
+      __LINE__,
+      __FILE__);
 }
 
 TEST_F(IndexPut, IndexShuffle) {

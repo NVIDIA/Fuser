@@ -22,6 +22,15 @@ namespace nvfuser {
 
 bool TransposeScheduler::canScheduleCompileTime(Fusion* fusion) {
   FUSER_PERF_SCOPE("TransposeScheduler::canScheduleCompileTime");
+  for (auto tv : fusion->allTvs()) {
+    if (tv->dtype() != DataType::Index &&
+        dataTypeSizeBit(tv->dtype()) % 8 != 0) {
+      scheduler_debug_utils::canScheduleRejectReason(
+          schedulerType(), "Does not support sub-byte data types.");
+      return false;
+    }
+  }
+
   if (scheduler_utils::isResharding(fusion)) {
     scheduler_debug_utils::canScheduleRejectReason(
         schedulerType(), "Fusion is resharding.");
@@ -675,7 +684,7 @@ std::unique_ptr<TransposeParams> getTransposeHeuristics(
     for (auto inp : ir_utils::filterByType<TensorView>(vals)) {
       max_io_dtype_size = std::max(
           max_io_dtype_size,
-          dataTypeSize(inp->getDataType().value(), index_type));
+          dataTypeSizeByte(inp->getDataType().value(), index_type));
       n_io_tensors++;
     }
   };

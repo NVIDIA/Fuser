@@ -9,6 +9,7 @@
 #include <device_lower/lower2device.h>
 #include <instrumentation.h>
 #include <ir/iostream.h>
+#include <ir/printer.h>
 #include <ir/utils.h>
 #include <kernel.h>
 #include <kernel_ir_dispatch.h>
@@ -112,7 +113,9 @@ class KernelIrScanner : private IrVisitor {
   void handle(Allocate* allocate) final {
     switch (allocate->memoryType()) {
       case MemoryType::Global:
-        summary_.global_allocations.push_back(allocate);
+        if (!allocate->buffer()->isFusionOutput()) {
+          summary_.global_allocations.push_back(allocate);
+        }
         break;
       case MemoryType::Shared:
         summary_.dynamic_smem_allocations.push_back(allocate);
@@ -140,7 +143,7 @@ class KernelIrScanner : private IrVisitor {
     if (domain->hasBlockReduction() || domain->hasGridReduction() ||
         tv->getMemoryType() == MemoryType::Shared) {
       const auto data_type = tv->dtype();
-      const size_t type_size = dataTypeSize(data_type, index_type_);
+      const size_t type_size = dataTypeSizeByte(data_type, index_type_);
       if (type_size > max_smem_type_size_) {
         max_smem_type_size_ = type_size;
         summary_.largest_smem_data_type = data_type;
@@ -225,7 +228,8 @@ class KernelIrScanner : private IrVisitor {
     }
     if (grid_welford->useOuterOpt()) {
       summary_.has_outer_grouped_grid_welford = true;
-      const auto& par_dim_map = GpuLower::current()->parallelDimensionMap();
+      const auto& par_dim_map =
+          GpuLower::current()->info().parallelDimensionMap();
       auto tidx_val = par_dim_map.get(ParallelType::TIDx);
       auto tidy_val = par_dim_map.get(ParallelType::TIDy);
       NVF_ERROR(
@@ -251,8 +255,10 @@ class KernelIrScanner : private IrVisitor {
 
   void handle(BroadcastOp* bop) final {
     const ParallelTypeBitmap parallel_types =
-        GpuLower::current()->threadPredMap().getParallelBroadcastDomains(
-            bop->out()->as<TensorIndex>()->view());
+        GpuLower::current()
+            ->info()
+            .threadPredicateMap()
+            .getParallelBroadcastDomains(bop->out()->as<TensorIndex>()->view());
     summary_.broadcast_parallel_types.emplace(bop, parallel_types);
     // Do we have block broadcasts?
     summary_.has_block_broadcasts =
@@ -260,6 +266,18 @@ class KernelIrScanner : private IrVisitor {
     // Do we have grid broadcasts?
     summary_.has_grid_broadcasts =
         summary_.has_grid_broadcasts || parallel_types.hasBID();
+  }
+
+  void handle(ArgsortOp* aop) final {
+    summary_.has_argsort = true;
+  }
+
+  void handle(TopKOp* top) final {
+    summary_.has_topk = true;
+  }
+
+  void handle(ScanOp* scan) final {
+    summary_.has_scan = true;
   }
 
   void handle(IfThenElse* ite) final {
@@ -271,6 +289,10 @@ class KernelIrScanner : private IrVisitor {
     }
     // Run default handle
     IrVisitor::handle(ite);
+  }
+
+  void handle(MmaOp* mma_op) final {
+    summary_.has_mma_op = true;
   }
 
  private:
@@ -335,7 +357,7 @@ class ValidateAllocation : private OptOutConstDispatch {
           continue;
         }
         for (const auto& axis : tv->getLoopDomain()) {
-          if (!GpuLower::current()->caMap()->areMapped(
+          if (!GpuLower::current()->info().caMap().areMapped(
                   loop_id, axis, IdMappingMode::LOOP)) {
             continue;
           }
@@ -395,7 +417,8 @@ Kernel::Kernel(Fusion* fusion, PrimDataType index_type)
 void Kernel::finalize(std::vector<Expr*> top_level_exprs) {
   NVF_ERROR(top_level_exprs_.empty());
   top_level_exprs_ = std::move(top_level_exprs);
-  warp_padded_parallel_info_ = GpuLower::current()->getWarpPaddedParallelInfo();
+  padded_parallel_dimensions_ =
+      FusionInfoGuard::current()->paddedParallelDimensions();
   profile_ = GpuLower::current()->profile();
   ValidateAllocation::validate(this);
   analyze();
@@ -404,7 +427,8 @@ void Kernel::finalize(std::vector<Expr*> top_level_exprs) {
   summary_.vectorized_accesses = GpuLower::current()->vectorizedAccesses();
   summary_.vectorized_set_info = GpuLower::current()->vectorizedSetInfo();
   summary_.sync_map = GpuLower::current()->syncMap();
-  summary_.parallel_dimension_map = GpuLower::current()->parallelDimensionMap();
+  summary_.parallel_dimension_map =
+      GpuLower::current()->info().parallelDimensionMap();
   summary_.circular_buffer_info = GpuLower::current()->circularBufferInfo();
   summary_.min_device_version = GpuLower::current()->minDeviceVersion();
   summary_.min_device_version_reason =
@@ -413,6 +437,9 @@ void Kernel::finalize(std::vector<Expr*> top_level_exprs) {
   parameters_ = GpuLower::current()->allKnownVals();
   parameters_.insert(parameters_.end(), outputs().begin(), outputs().end());
   for (auto alloc : summary_.global_allocations) {
+    if (alloc->alias() != nullptr) {
+      continue;
+    }
     parameters_.push_back(alloc->buffer());
   }
 }

@@ -14,6 +14,8 @@
 #include <runtime/executor.h>
 #include <scheduler/all_schedulers.h>
 #include <scheduler/registry.h>
+#include <scheduler/tools/inlining.h>
+#include <scheduler/utils.h>
 
 #include <tests/cpp/utils.h>
 #include <tests/cpp/validator.h>
@@ -1527,4 +1529,125 @@ TEST_F(AllocationDomainTest, InputAllocationIsSplit_Symbolic) {
       executor_cache.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
 }
 
+TEST_F(AllocationDomainTest, buildAllocationDomainFromLoopIdsSplit) {
+  NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  int64_t x = 2L, y = 12L, z = 16L;
+  auto tv0 = makeContigConcreteTensor({x, y, z});
+  fusion->addInput(tv0);
+  std::vector<IterDomain*> tv0_dom = {tv0->axis(1), tv0->axis(0), tv0->axis(2)};
+  tv0->setAllocationDomain(tv0_dom, true);
+  auto tv2 = add(tv0, tv0);
+  fusion->addOutput(tv2);
+
+  auto tv1 = tv0->cacheAfter(LoadStoreOpType::CpAsyncBulk);
+  tv1->setMemoryType(MemoryType::Shared);
+  tv1->axis(-1)->parallelize(ParallelType::Bulk);
+
+  for (auto tv : fusion->allTvs()) {
+    // [2, 3, 4, 16]
+    tv->split(1, 4);
+  }
+
+  inlineSelectedAt({tv1}, tv1, /*reference_pos=*/2);
+  scheduler_utils::buildAllocationDomainFromLoopIds(tv1);
+
+  // check allocation domain of tv1, expect:
+  // allocation domain : (iS15{3}, iS16{4}, iS6{2}, iB8{16})
+  // loop domain : (iS6{2}, iS11{3}, iS12{4}, iB8{16})
+  const auto& alloc = tv1->getMaybeAllocationDomain();
+  ASSERT_EQ(alloc.size(), 4);
+  ASSERT_EQ(alloc[0]->extent()->value(), tv1->axis(1)->extent()->value());
+  ASSERT_EQ(alloc[1]->extent()->value(), tv1->axis(2)->extent()->value());
+  ASSERT_EQ(alloc[2]->extent()->value(), tv1->axis(0)->extent()->value());
+  ASSERT_EQ(alloc[3]->extent()->value(), tv1->axis(3)->extent()->value());
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA);
+  // shape: (x, y, z), alloc: (y, x, z), stride: (z, x * z, 1)
+  auto t0 = at::randn({x, y, z}, options).as_strided({x, y, z}, {z, x * z, 1});
+  KernelExecutor ke;
+  ke.compile(fusion.get(), {t0});
+  auto outputs = ke.run({t0});
+  testValidate(fusion.get(), outputs, {t0}, __LINE__, __FILE__);
+}
+
+TEST_F(AllocationDomainTest, buildAllocationDomainFromLoopIdsMerge) {
+  NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  int64_t x = 2L, y = 12L, z = 16L;
+  auto tv0 = makeContigConcreteTensor({x, y, z});
+  fusion->addInput(tv0);
+  std::vector<IterDomain*> tv0_dom = {tv0->axis(1), tv0->axis(0), tv0->axis(2)};
+  tv0->setAllocationDomain(tv0_dom, true);
+  auto tv2 = add(tv0, tv0);
+  fusion->addOutput(tv2);
+
+  auto tv1 = tv0->cacheAfter(LoadStoreOpType::CpAsyncBulk);
+  tv1->setMemoryType(MemoryType::Shared);
+  tv1->axis(-1)->parallelize(ParallelType::Bulk);
+
+  for (auto tv : fusion->allTvs()) {
+    // (24, 16)
+    tv->merge(0);
+  }
+
+  inlineSelectedAt({tv1}, tv1, /*reference_pos=*/1);
+  // allocation domain : (iS7{12}, iS6{2}, iB8{16})
+  scheduler_utils::buildAllocationDomainFromLoopIds(tv1);
+  // allocation domain : (iS12{24}, iB8{16})
+
+  // check allocation domain of tv1, expect:
+  // allocation domain : (iS12{24}, iB8{16})
+  // loop domain : (iS10{24}, iB8{16})
+  const auto& alloc = tv1->getMaybeAllocationDomain();
+  ASSERT_EQ(alloc.size(), 2);
+  ASSERT_EQ(alloc[0]->extent()->value(), tv1->axis(0)->extent()->value());
+  ASSERT_EQ(alloc[1]->extent()->value(), tv1->axis(1)->extent()->value());
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA);
+  // shape: (x, y, z), alloc: (y, x, z), stride: (z, x * z, 1)
+  auto t0 = at::randn({x, y, z}, options).as_strided({x, y, z}, {z, x * z, 1});
+  KernelExecutor ke;
+  ke.compile(fusion.get(), {t0});
+  auto outputs = ke.run({t0});
+  testValidate(fusion.get(), outputs, {t0}, __LINE__, __FILE__);
+}
+
+TEST_F(AllocationDomainTest, SmemAllocationDomainChanged) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  auto tv0 = makeContigConcreteTensor({512, 32});
+  fusion->addInput(tv0);
+  std::vector<IterDomain*> tv0_dom = {tv0->axis(1), tv0->axis(0)};
+  tv0->setAllocationDomain(tv0_dom, true);
+  auto tv2 = add(tv0, tv0);
+  fusion->addOutput(tv2);
+
+  auto tv1 = tv0->cacheAfter();
+  tv1->setMemoryType(MemoryType::Shared);
+  for (auto tv : fusion->allTvs()) {
+    tv->axis(0)->parallelize(ParallelType::TIDx);
+  }
+  // smem tensor has allocation domain (32, 512)
+  // and loop domain (512(TIDx), 32(S))
+  // there is no bank conflict since the index goes to allocation
+  // domain where 512 is the inner-most dim.
+  ASSERT_TRUE(fusion->bankConflictInfo().empty());
+
+  // If we reset its allocation domain to (512, 32) and still keep loop
+  // domain as (512(TIDx), 32(S)), then there are bank conflicts, e.g.
+  // all threads in a warp access bank-0, then bank-1, then bank-2, etc.
+  tv1->setAllocationDomain(tv1->getLoopDomain(), /*new_contiguity=*/true);
+  ASSERT_FALSE(fusion->bankConflictInfo().empty());
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA);
+  // shape: (x, y), alloc: (y, x), stride: (1, x)
+  auto t0 = at::randn({512, 32}, options).as_strided({512, 32}, {1, 512});
+  KernelExecutor ke;
+  ke.compile(fusion.get(), {t0});
+  auto outputs = ke.run({t0});
+  testValidate(fusion.get(), outputs, {t0}, __LINE__, __FILE__);
+}
 } // namespace nvfuser

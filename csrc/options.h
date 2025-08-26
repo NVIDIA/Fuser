@@ -56,6 +56,7 @@ enum class DebugDumpOption {
   FusionArgs, //!< Print the runtime fusion arguments
   GlobalZeroedMemory, //!< Print the log for zeroed global memory allocator
   HostIr, //!< Dump the Host IR program
+  HostIrJit, //!< Dump the LLVM IR lowered from Host IR
   KernelArgs, //!< Print the runtime kernel arguments when launching kernels
   FusionSegmentsDrawing, //!< Dump Segmented Fusion Graph
   PrintPtxasLog, //!< Print the ptxas verbose log including register usage
@@ -87,6 +88,7 @@ enum class DebugDumpOption {
   IndexType, //! Print the index type of the launched kernel
   PredicateElimination, //! Print the predicate elimination information
   IndexingVerbose, //! Print verbose debug info on indexing
+  Communication, //! Print multi-GPU communications posted
   EndOfOption //! Placeholder for counting the number of elements
 };
 
@@ -135,6 +137,7 @@ enum class DisableOption {
   MagicZero, //! Disable nvfuser_zero
   MatmulExprEval, //! Disable ATen evaluation for the entire fusion containing
                   //! matmul
+  NvrtcCaching, // Disable compilation caching by nvrtc
   Nvtx, //! Disable NVTX instrumentation
   ParallelCompile, //! Disable compiling Fusion segments in parallel
   ParallelSerde, //! Disable deserializing FusionExecutorCache in parallel
@@ -280,7 +283,7 @@ NVF_API std::unordered_map<EnableOption, std::vector<std::string>> Options<
 
 using EnableOptions = Options<EnableOption>;
 
-std::optional<EnableOption> stringToEnableOption(
+NVF_API std::optional<EnableOption> stringToEnableOption(
     const std::string& enable_option);
 
 bool isOptionEnabled(EnableOption option);
@@ -301,7 +304,7 @@ NVF_API std::unordered_map<DisableOption, std::vector<std::string>> Options<
 
 using DisableOptions = Options<DisableOption>;
 
-std::optional<DisableOption> stringToDisableOption(
+NVF_API std::optional<DisableOption> stringToDisableOption(
     const std::string& disable_option);
 
 NVF_API bool isOptionDisabled(DisableOption option);

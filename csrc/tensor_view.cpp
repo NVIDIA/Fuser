@@ -778,13 +778,19 @@ TensorView* TensorView::rFactor(const std::vector<int64_t>& axes) {
   //     set.");
   NVF_ERROR(nDims() > 0, "Tried to rFactor a 0-dim TensorView");
   FusionGuard fg(fusion());
+  NVF_CHECK(definition() != nullptr, "Definition is a nullptr");
   NVF_CHECK(
-      definition() != nullptr &&
-          (definition()
-               ->isStrictlyOneOf<ReductionOp, MmaOp, MatmulOp, LinearOp>()),
+      (definition()
+           ->isStrictlyOneOf<
+               ReductionOp,
+               MmaOp,
+               MatmulOp,
+               LinearOp,
+               GroupedMmaOp,
+               ScaledMmaOp>()),
       "Error rfactoring ",
       this,
-      " its definition is either a nullptr or not a reduction.");
+      " because its definition is not a reduction.");
   NVF_CHECK(
       !definition()->isA<GroupedReductionOp>(),
       "For GroupedReductionOp, use TensorView::rFactor(const "
@@ -835,6 +841,68 @@ TensorView* TensorView::rFactor(const std::vector<int64_t>& axes) {
   } else if (auto linear = dynamic_cast<LinearOp*>(definition())) {
     IrBuilder::create<LinearOp>(
         producer, linear->inA(), linear->inB(), linear->bias());
+    IrBuilder::create<ReductionOp>(
+        BinaryOpType::Add,
+        IrBuilder::create<Val>(0.0, producer->dtype()),
+        consumer,
+        producer);
+  } else if (auto grouped_mma = dynamic_cast<GroupedMmaOp*>(definition())) {
+    // I'm not sure how we should handle block scale yet.
+    NVF_CHECK(
+        grouped_mma->outScale() == nullptr &&
+            grouped_mma->outGamma() == nullptr,
+        "not implemented yet");
+    IrBuilder::create<GroupedMmaOp>(
+        producer,
+        grouped_mma->outScale(),
+        grouped_mma->outGamma(),
+        grouped_mma->matrix1(),
+        grouped_mma->matrix2(),
+        grouped_mma->offsets(),
+        grouped_mma->scale1(),
+        grouped_mma->scale2(),
+        grouped_mma->alpha(),
+        grouped_mma->bias(),
+        grouped_mma->beta());
+    IrBuilder::create<ReductionOp>(
+        BinaryOpType::Add,
+        IrBuilder::create<Val>(0.0, producer->dtype()),
+        consumer,
+        producer);
+  } else if (auto scaled_mma = dynamic_cast<ScaledMmaOp*>(definition())) {
+    // I'm not sure how we should handle block scale yet.
+    NVF_CHECK(
+        scaled_mma->outScale() == nullptr && scaled_mma->outGamma() == nullptr,
+        "not implemented yet");
+    IrBuilder::create<ScaledMmaOp>(
+        producer,
+        scaled_mma->outScale(),
+        scaled_mma->outGamma(),
+        scaled_mma->matrix1(),
+        scaled_mma->matrix2(),
+        scaled_mma->scale1(),
+        scaled_mma->scale2(),
+        scaled_mma->alpha(),
+        scaled_mma->bias(),
+        scaled_mma->beta());
+    IrBuilder::create<ReductionOp>(
+        BinaryOpType::Add,
+        IrBuilder::create<Val>(0.0, producer->dtype()),
+        consumer,
+        producer);
+  } else if (
+      auto cutlass_grouped_mma =
+          dynamic_cast<CutlassNvfp4GroupedMmaOp*>(definition())) {
+    IrBuilder::create<CutlassNvfp4GroupedMmaOp>(
+        producer,
+        cutlass_grouped_mma->matrix1(),
+        cutlass_grouped_mma->matrix2(),
+        cutlass_grouped_mma->scale1(),
+        cutlass_grouped_mma->scale2(),
+        cutlass_grouped_mma->alpha(),
+        cutlass_grouped_mma->problemSizes(),
+        cutlass_grouped_mma->expertOffsets(),
+        cutlass_grouped_mma->scalingFactorOffsets());
     IrBuilder::create<ReductionOp>(
         BinaryOpType::Add,
         IrBuilder::create<Val>(0.0, producer->dtype()),
@@ -1044,13 +1112,7 @@ TensorView* TensorView::cacheBefore(LoadStoreOpType op_type) {
 
   TensorView* producer = IrBuilder::createInContainer<TensorView>(
       container(),
-      IrBuilder::createInContainer<TensorDomain>(
-          container(),
-          getRootDomain(),
-          getLogicalDomain(),
-          getAllocationDomain(),
-          getLoopDomain(),
-          getContiguity()),
+      IrBuilder::createInContainer<TensorDomain>(container(), domain()),
       getDataType().value());
 
   // Set domain of consumer
@@ -1089,10 +1151,17 @@ TensorView* TensorView::cacheBefore(LoadStoreOpType op_type) {
   // definition_ is no longer valid
   // setDefinition(nullptr);
 
-  auto replayed_consumer_pair = TransformReplay::replayCasP(
-      consumer, producer, -1, TransformReplayOptions().replayAllocation());
+  // We do not want to reproduce the loop domain if it's for
+  // scatter. Recall that the loop domain of the scatter op is derived
+  // from the logical domain of the scatter index tensor. Here, the
+  // consumer tensor needs to copy the whole producer tensor, so the
+  // loop domain must be based on the logical domain.
+  if (!producer->definition()->isA<ScatterOp>()) {
+    auto replayed_consumer_pair = TransformReplay::replayCasP(
+        consumer, producer, -1, TransformReplayOptions().replayAllocation());
 
-  consumer->setDomain(replayed_consumer_pair.first);
+    consumer->setDomain(replayed_consumer_pair.first);
+  }
 
   if (consumer->hasDeviceMesh()) {
     producer->setDeviceMesh(consumer->getDeviceMesh());
@@ -1200,15 +1269,6 @@ TensorView* TensorView::cacheAfter(
       !hasComputeAt(),
       "Caching computed-at tensors is not allowed. Apply caching before "
       "computeAt.");
-
-  // disallow cache on operation where we require data remain in global memory.
-  for (auto use : cached_uses) {
-    NVF_ERROR(
-        !(use->isOneOf<SliceOp, SelectOp, PadOp>()) &&
-            !(use->isA<IndexSelectOp>() && use->input(0) == this),
-        "Right now, caching tensors that are input to the select/slice/pad ops "
-        "are not allowed as they must be in global memory.");
-  }
 
   // It also did additional transformation when this tensor is an
   // input and the outputs of its consumers have computeAt. Make sure
@@ -1398,7 +1458,7 @@ void TensorView::swizzleTMABox(MmaInputSmemSwizzle swizzle) {
 
   NVF_ERROR(
       axis(-1)->extent()->evaluate().as<int64_t>() <=
-          (getBytesFromSwizzle(swizzle) / dataTypeSize(dtype)),
+          (getBytesFromSwizzle(swizzle) / dataTypeSizeByte(dtype)),
       "The inner dimension of the box cannot be more than swizzle")
 
   // [..., K, N(16)] -> [..., KO(2), KI(8), N(16)]
@@ -1412,7 +1472,7 @@ void TensorView::swizzleTMABox(MmaInputSmemSwizzle swizzle) {
 
   // [..., KO(2), KIO(2), KII(4), N(16)] ->
   // [..., KO(2), KIO(2), KII(4), NIO(2), NII(8)]
-  split(-1, (core_matrix_width_bytes / dataTypeSize(dtype)));
+  split(-1, (core_matrix_width_bytes / dataTypeSizeByte(dtype)));
 
   this->swizzle(SwizzleType::XOR, -4, -2);
 }
@@ -1439,9 +1499,9 @@ void TensorView::commitLeafToLogical() {
       domain_->loop(),
       domain_->allocation(),
       domain_->loop(),
-      // TODO: If needed, we can let commitLeafToLogical to take a parameter to
-      // allow customizing contiguity. But there is no such need now, so I will
-      // just fill the contiguity with true.
+      // TODO: If needed, we can let commitLeafToLogical to take a parameter
+      // to allow customizing contiguity. But there is no such need now, so
+      // I will just fill the contiguity with true.
       TensorDomain::getContiguityFilledWith(
           (domain_->hasAllocation() ? domain_->allocation() : domain_->loop()),
           true)));

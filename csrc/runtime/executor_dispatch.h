@@ -7,23 +7,32 @@
 // clang-format on
 #pragma once
 
-#include <runtime/executor.h>
+#include <fusion.h>
 #include <runtime/executor_abstract.h>
+#include <runtime/executor_kernel_arg.h>
+#include <runtime/executor_params.h>
+#include <scheduler/scheduler_types.h>
 
 namespace nvfuser {
 
-// Simple stateless dispatch system for KernelExecutor, HostIrExecutor, and
-// ExprEvalExecutor
+// Simple stateless dispatch system for KernelExecutor, CommunicationExecutor,
+// and ExprEvalExecutor
 class ExecutorDispatch {
  public:
-  // Iterates through executors in priority order creating the first executor
-  // that returns true when checking their "supported" method
+  // If `scheduler_type` is `SchedulerType::None`, this function iterates
+  // through executors in priority order creating the first executor that
+  // returns true when checking their "supported" method. Otherwise, create the
+  // executor according to `scheduler_type`, which is faster.
+  //
+  // The slow path (i.e. `SchedulerType::None`) is only used by
+  // MultiDeviceExecutor at this moment.
   static std::unique_ptr<ExecutorAbstract> makeExecutor(
       Fusion* fusion,
       int64_t fusion_id = -1,
       int64_t concrete_id = -1,
       int64_t runtime_id = -1,
-      int64_t group_id = -1);
+      int64_t group_id = -1,
+      SchedulerType scheduler_type = SchedulerType::None);
 
   static void compile(ExecutorAbstract* executor, Fusion* fusion);
 

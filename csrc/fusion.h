@@ -59,7 +59,6 @@ namespace nvfuser {
 
 class Fusion;
 class TensorView;
-class WelfordResult;
 
 class SegmentCandidateFinder;
 class SegmentedFusion;
@@ -224,7 +223,7 @@ class NVF_API Fusion : public IrContainer {
   //! outputs, however, when a multi-output expression exists, and only
   //! some of the outputs are used, the remaining unused outputs are
   //! also included as they must show up in the final code.
-  std::vector<Val*> usedMathVals();
+  std::vector<Val*> usedMathVals() const;
 
   //! Returns all vals that are produced by used math expressions and
   //!  also do not have further consumers.

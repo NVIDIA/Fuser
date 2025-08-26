@@ -80,7 +80,7 @@ class IterDomainBuilder {
 //! TensorDomains which represent how to iterate over a tensor is made up of
 //! IterDomains to form an ND iterable. We directly set parallization strategies
 //! on IterDomains.
-class IterDomain : public Val {
+class NVF_API IterDomain : public Val {
  public:
   IterDomain(IrBuilderPasskey, const IterDomainBuilder& args);
 
@@ -224,7 +224,11 @@ class IterDomain : public Val {
     return isParallelTypeDeviceDim(getParallelType());
   }
 
-  void parallelize(ParallelType t);
+  bool isStream() const {
+    return getParallelType() == ParallelType::Stream;
+  }
+
+  NVF_API void parallelize(ParallelType t);
 
   ParallelType getParallelType() const {
     return parallel_type_;
@@ -408,7 +412,7 @@ class IterDomain : public Val {
 //! which should give us an operation in the list [split, merge] or similar
 //! operations that take in a TensorDomain, applies a transformation and outputs
 //! a tensor domain.
-class TensorDomain : public Val {
+class NVF_API TensorDomain : public Val {
  public:
   explicit TensorDomain(
       IrBuilderPasskey,
@@ -427,7 +431,8 @@ class TensorDomain : public Val {
       IrBuilderPasskey,
       std::vector<IterDomain*> logical_domain,
       std::vector<IterDomain*> loop_domain,
-      std::vector<std::optional<bool>> contiguity = {});
+      std::vector<std::optional<bool>> contiguity = {},
+      bool skip_loop_validation = false);
 
   TensorDomain(
       IrBuilderPasskey,
@@ -442,6 +447,16 @@ class TensorDomain : public Val {
       std::vector<IterDomain*> logical_domain,
       std::vector<IterDomain*> allocation,
       std::vector<IterDomain*> loop_domain,
+      std::vector<std::optional<bool>> contiguity = {},
+      std::vector<IterDomain*> additional_ids = {});
+
+  TensorDomain(
+      IrBuilderPasskey,
+      std::vector<IterDomain*> root_domain,
+      std::vector<IterDomain*> logical_domain,
+      std::vector<IterDomain*> allocation,
+      std::vector<IterDomain*> loop_domain,
+      std::optional<std::vector<IterDomain*>> alternate_loop_domain,
       std::vector<std::optional<bool>> contiguity = {},
       std::vector<IterDomain*> additional_ids = {});
 
@@ -587,6 +602,10 @@ class TensorDomain : public Val {
     return loop_domain_;
   }
 
+  const std::optional<std::vector<IterDomain*>>& alternateLoop() const {
+    return alternate_loop_domain_;
+  }
+
   const std::vector<IterDomain*>& initialLoop() const {
     return initial_loop_domain_;
   }
@@ -628,10 +647,13 @@ class TensorDomain : public Val {
   // Set the loop domain of this TensorDomain.
   void setLoopDomain(std::vector<IterDomain*> new_loop_domain);
 
+  // Set the alternate loop domain of this TensorDomain.
+  void setAlternateLoopDomain(std::vector<IterDomain*> new_loop_domain);
+
   // Set the allocation domain of this TensorDomain. Because contiguity is
   // always defined w.r.t. the allocation domain, the contiguity must be updated
   // accordingly.
-  void setAllocationDomain(
+  NVF_API void setAllocationDomain(
       std::vector<IterDomain*> new_allocation_domain,
       std::vector<std::optional<bool>> new_contiguity);
 
@@ -716,8 +738,8 @@ class TensorDomain : public Val {
   // Get a vector whose size is the number of IDs in the given logical_domain
   // filled with fill_value or nullopt depending on whether its corresponding ID
   // is broadcast.
-  static std::vector<std::optional<bool>> getContiguityFilledWith(
-      const std::vector<IterDomain*>& logical_domain,
+  static NVF_API std::vector<std::optional<bool>> getContiguityFilledWith(
+      const std::vector<IterDomain*>& allocation_domain,
       bool fill_value);
 
   // pair is in order where second is the consumer of first
@@ -734,6 +756,7 @@ class TensorDomain : public Val {
   const std::vector<IterDomain*> logical_domain_;
   std::vector<IterDomain*> allocation_domain_;
   std::vector<IterDomain*> loop_domain_;
+  std::optional<std::vector<IterDomain*>> alternate_loop_domain_;
   // Initial loop domain. Loop domain is updated with transformations
   // such as split, but the initial loop domain can only change with
   // setLoopDomain

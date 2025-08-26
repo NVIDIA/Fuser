@@ -7,13 +7,13 @@ import torch
 import torch.distributed as dist
 from fusion_definition_wrapper import FusionDefinitionWrapper
 from linear import LinearFunction
-from nvfuser import DataType, FusionDefinition
+from nvfuser_direct import FusionDefinition, DataType
 from torch.distributed.tensor import DTensor
 from torch.distributed.tensor.placement_types import Shard, Replicate
 
 
 @pytest.mark.mpi
-def test_plus_one(setup_default_process_group, multidevice_test):
+def test_plus_one(setup_default_process_group, multidevice_direct_test):
     def define_fusion(fd: FusionDefinition):
         inp = fd.define_tensor((-1, -1), contiguity=False, dtype=DataType.Float)
         one = fd.define_scalar(1.0, dtype=DataType.Float)
@@ -25,17 +25,22 @@ def test_plus_one(setup_default_process_group, multidevice_test):
     num_devices = dist.get_world_size()
 
     in_tensor = torch.randn(num_devices, 4)
-    mesh = dist.device_mesh.init_device_mesh("cuda", [num_devices])
+    mesh = dist.device_mesh.init_device_mesh(
+        "cuda", [num_devices], mesh_dim_names=["tp"]
+    )
     in_dtensor = dist.tensor.distribute_tensor(in_tensor, mesh, [Shard(0)])
 
     (out_dtensor,) = op([in_dtensor])
     torch.testing.assert_close(out_dtensor.to_local(), in_dtensor.to_local() + 1)
     assert out_dtensor.device_mesh == in_dtensor.device_mesh
     assert out_dtensor.placements == in_dtensor.placements
+    assert (
+        out_dtensor.device_mesh.mesh_dim_names == in_dtensor.device_mesh.mesh_dim_names
+    )
 
 
 @pytest.mark.mpi
-def test_column_parallel_linear(setup_default_process_group, multidevice_test):
+def test_column_parallel_linear(setup_default_process_group, multidevice_direct_test):
     d, b, s, e = dist.get_world_size(), 2, 3, 5
 
     mesh = dist.device_mesh.init_device_mesh("cuda", [d])
@@ -73,7 +78,7 @@ def test_column_parallel_linear(setup_default_process_group, multidevice_test):
 
 
 @pytest.mark.mpi
-def test_row_parallel_linear(setup_default_process_group, multidevice_test):
+def test_row_parallel_linear(setup_default_process_group, multidevice_direct_test):
     d, b, s, e = dist.get_world_size(), 2, 3, 5
 
     mesh = dist.device_mesh.init_device_mesh("cuda", [d])

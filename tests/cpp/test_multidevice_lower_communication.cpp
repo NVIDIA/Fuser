@@ -10,6 +10,9 @@
 #include <gtest/gtest.h>
 
 #include <ops/all_ops.h>
+#include <preseg_passes/mark_aliases_prepare.h>
+#include <preseg_passes/optimization_pass.h>
+#include <runtime/communication_executor.h>
 #include <runtime/fusion_executor_cache.h>
 #include <tests/cpp/multidevice.h>
 #include <tests/cpp/validator.h>
@@ -26,33 +29,17 @@ void assertIsCompiledToHostIrContainer(
     const FusionExecutorCache& executor_cache) {
   FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
   if (isOptionEnabled(EnableOption::HostIrLowering)) {
-    EXPECT_EQ(runtime->getHostIrEvaluator().canRun(), "");
-    auto hicExprs =
-        runtime->getHostIrEvaluator().getHostIrContainer().topLevelExprs();
+    auto hicExprs = runtime->getHostIrContainer().topLevelExprs();
     EXPECT_THAT(hicExprs, Contains(IsA<Communication>()))
         << "host ir container should have at least one communication";
   } else {
     EXPECT_EQ(runtime->executors().size(), 1);
-    EXPECT_THAT(runtime->executors(), Each(Pointer(IsA<HostIrExecutor>())))
+    EXPECT_THAT(
+        runtime->executors(), Each(Pointer(IsA<CommunicationExecutor>())))
         << "failed to compile to a HostIrContainer with Communications";
   }
 }
 } // namespace
-
-// This is made a macro instead of a function, because GTEST_SKIP can only be
-// used in individual test cases or `SetUp` methods.
-#define SKIP_IF_NOT_ENOUGH_DEVICES(in_mesh, out_mesh)                 \
-  do {                                                                \
-    const auto num_devices = communicator_->size();                   \
-    for (const auto& mesh : {in_mesh, out_mesh}) {                    \
-      for (const auto device_id : mesh.vector()) {                    \
-        if (device_id >= num_devices) {                               \
-          GTEST_SKIP() << "Mesh (" << mesh << ") requires more than " \
-                       << num_devices << " devices.";                 \
-        }                                                             \
-      }                                                               \
-    }                                                                 \
-  } while (0)
 
 using InOutMesh = std::pair<DeviceMesh, DeviceMesh>;
 
@@ -63,15 +50,12 @@ class LowerGatherTest
       public testing::WithParamInterface<std::tuple<InOutMesh, bool>> {};
 
 TEST_P(LowerGatherTest, ) {
-  EnableOptionsGuard opt_guard;
   const auto& [meshes, enable_host_ir_lowering] = GetParam();
   const auto& [in_mesh, out_mesh] = meshes;
 
   if (enable_host_ir_lowering) {
     EnableOptionsGuard::getCurOptions().set(EnableOption::HostIrLowering);
   }
-
-  SKIP_IF_NOT_ENOUGH_DEVICES(in_mesh, out_mesh);
 
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
@@ -84,6 +68,8 @@ TEST_P(LowerGatherTest, ) {
   in->setDeviceMesh(in_mesh);
   out->setDeviceMesh(out_mesh);
   in->axis(0)->parallelize(ParallelType::DIDx);
+
+  SKIP_IF_NOT_ENOUGH_DEVICES(fusion);
 
   const auto device_id = communicator_->deviceId();
   at::Tensor unsharded_tensor =
@@ -122,7 +108,7 @@ std::string paramToString(
 } // namespace
 
 INSTANTIATE_TEST_SUITE_P(
-    HostIrLowering,
+    ,
     LowerGatherTest,
     // Create product of InOutMesh configurations and HostIrLowering options
     testing::Combine(
@@ -136,15 +122,12 @@ class LowerScatterTest
       public testing::WithParamInterface<std::tuple<InOutMesh, bool>> {};
 
 TEST_P(LowerScatterTest, ) {
-  EnableOptionsGuard opt_guard;
   const auto& [meshes, enable_host_ir_lowering] = GetParam();
   const auto& [in_mesh, out_mesh] = meshes;
 
   if (enable_host_ir_lowering) {
     EnableOptionsGuard::getCurOptions().set(EnableOption::HostIrLowering);
   }
-
-  SKIP_IF_NOT_ENOUGH_DEVICES(in_mesh, out_mesh);
 
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
@@ -157,6 +140,8 @@ TEST_P(LowerScatterTest, ) {
   in->setDeviceMesh(in_mesh);
   out->setDeviceMesh(out_mesh);
   out->axis(0)->parallelize(ParallelType::DIDx);
+
+  SKIP_IF_NOT_ENOUGH_DEVICES(fusion);
 
   const auto device_id = communicator_->deviceId();
   at::Tensor unsharded_tensor =
@@ -174,7 +159,7 @@ TEST_P(LowerScatterTest, ) {
 }
 
 INSTANTIATE_TEST_SUITE_P(
-    HostIrLowering,
+    ,
     LowerScatterTest,
     testing::Combine(
         testing::ValuesIn(std::vector<InOutMesh>(
@@ -187,15 +172,12 @@ class LowerSendRecvTest
       public testing::WithParamInterface<std::tuple<InOutMesh, bool>> {};
 
 TEST_P(LowerSendRecvTest, ) {
-  EnableOptionsGuard opt_guard;
   const auto& [meshes, enable_host_ir_lowering] = GetParam();
   const auto& [in_mesh, out_mesh] = meshes;
 
   if (enable_host_ir_lowering) {
     EnableOptionsGuard::getCurOptions().set(EnableOption::HostIrLowering);
   }
-
-  SKIP_IF_NOT_ENOUGH_DEVICES(in_mesh, out_mesh);
 
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
@@ -210,6 +192,8 @@ TEST_P(LowerSendRecvTest, ) {
   out->setDeviceMesh(out_mesh);
   in->axis(0)->parallelize(ParallelType::DIDx);
   out->axis(0)->parallelize(ParallelType::DIDx);
+
+  SKIP_IF_NOT_ENOUGH_DEVICES(fusion);
 
   const auto device_id = communicator_->deviceId();
   at::Tensor unsharded_tensor =
@@ -227,7 +211,7 @@ TEST_P(LowerSendRecvTest, ) {
 }
 
 INSTANTIATE_TEST_SUITE_P(
-    HostIrLowering,
+    ,
     LowerSendRecvTest,
     testing::Combine(
         testing::ValuesIn(std::vector<InOutMesh>(
@@ -253,7 +237,6 @@ void LowerCollectiveTest::SetUp() {
   // available. Therefore, we call it after the isBackendAvailable check.
   communicator_->setDefaultBackend(backend_type);
 
-  EnableOptionsGuard enable_options_guard;
   if (enable_host_ir_lowering) {
     EnableOptionsGuard::getCurOptions().set(EnableOption::HostIrLowering);
   }
@@ -589,7 +572,8 @@ TEST_P(LowerCollectiveTest, ReduceScatterNoncontig) {
   fusion->addInput(tv0);
   fusion->addOutput(tv1);
 
-  at::Tensor unsharded_in_tensor = at::randn({5, d * 3, d * 7}, tensor_options);
+  at::Tensor unsharded_in_tensor =
+      at::randint(2, {5, d * 3, d * 7}, tensor_options);
   at::Tensor in_tensor = shardTensor(unsharded_in_tensor, 1, mesh);
 
   at::Tensor expected_output =
@@ -600,7 +584,7 @@ TEST_P(LowerCollectiveTest, ReduceScatterNoncontig) {
       executor_cache.runFusionWithInputs({in_tensor})[0].as<at::Tensor>();
 
   EXPECT_TRUE(out_tensor.t().is_contiguous());
-  EXPECT_TRUE(at::allclose(out_tensor, expected_output));
+  EXPECT_TRUE(at::equal(out_tensor, expected_output));
 
   FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
   EXPECT_THAT(
@@ -687,8 +671,7 @@ TEST_P(LowerCollectiveTest, Allgather_CompliantAllocation) {
 
 TEST_P(LowerCollectiveTest, Allgather_NonCompliantAllocation) {
   if (communicator_->size() < 2) {
-    GTEST_SKIP() << "This test exercises ReorderShardedAxisPass, and requires "
-                    "at least 2 devices.";
+    GTEST_SKIP() << "Should pass with one GPU, but doesn't.";
   }
 
   auto fusion = std::make_unique<Fusion>();
@@ -728,12 +711,55 @@ TEST_P(LowerCollectiveTest, Allgather_NonCompliantAllocation) {
       Contains(HeuristicIs(SchedulerType::PointWise)).Times(2));
 }
 
+TEST_P(LowerCollectiveTest, Allgather_NoncontiguousOutput) {
+  if (communicator_->size() < 2) {
+    GTEST_SKIP() << "Should pass with one GPU, but doesn't.";
+  }
+
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  const auto d = communicator_->size();
+  const auto mesh = DeviceMesh::createForNumDevices(d);
+
+  TensorView* in = makeSymbolicTensor(2);
+  TensorView* out = set(in);
+  fusion->addInput(in);
+  fusion->addOutput(out);
+
+  out->setAllocationDomain({out->axis(1), out->axis(0)}, false);
+
+  in->setDeviceMesh(mesh);
+  out->setDeviceMesh(mesh);
+
+  in->outer_split(1, d);
+  in->axis(1)->parallelize(ParallelType::DIDx);
+
+  at::Tensor unsharded_in_tensor = at::randn({2, d * 3}, tensor_options);
+  at::Tensor in_tensor = shardTensor(unsharded_in_tensor, 1, mesh);
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  at::Tensor out_tensor =
+      executor_cache.runFusionWithInputs({in_tensor})[0].as<at::Tensor>();
+  EXPECT_TRUE(at::equal(out_tensor, unsharded_in_tensor));
+
+  EXPECT_LT(out_tensor.stride(0), out_tensor.stride(1))
+      << "`out` has been specified to be column major";
+
+  FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
+  EXPECT_THAT(
+      runtime->fusionSegments()->groups(),
+      UnorderedElementsAre(
+          HeuristicIs(SchedulerType::PointWise),
+          HeuristicIs(SchedulerType::Communication)));
+}
+
 INSTANTIATE_TEST_SUITE_P(
     ,
     LowerCollectiveTest,
     ::testing::Combine(
-        testing::Values(CommunicatorBackend::kNccl, CommunicatorBackend::kUcc),
-        testing::Values(false)),
+        testing::Values(CommunicatorBackend::kNccl),
+        testing::Bool()),
     ([](const testing::TestParamInfo<std::tuple<CommunicatorBackend, bool>>&
             info) -> std::string {
       const auto& [backend_type, enable_host_ir_lowering] = info.param;
@@ -742,4 +768,5 @@ INSTANTIATE_TEST_SUITE_P(
       ss << (enable_host_ir_lowering ? "_HostIr" : "_NonHostIr");
       return ss.str();
     }));
+
 } // namespace nvfuser

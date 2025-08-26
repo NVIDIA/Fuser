@@ -8,6 +8,10 @@
 #include <bindings.h>
 #include <python_utils.h>
 
+// size and shape operations are a part of TensorView bindings but not a
+// part of TensorView IR node.
+#include <ops/arith.h>
+
 #include <fusion.h>
 #include <ir/base_nodes.h>
 #include <ir/interface_nodes.h>
@@ -31,8 +35,29 @@ void bindBaseNodes(py::module& nvfuser) {
           R"(Get string representation of Statement.)");
 
   // Val
-  py::class_<Val, Statement, std::unique_ptr<Val, py::nodelete>>(
-      nvfuser, "Val");
+  py::class_<Val, Statement, std::unique_ptr<Val, py::nodelete>>(nvfuser, "Val")
+      .def(
+          "is_symbolic",
+          &Val::isSymbolic,
+          R"(
+Check if this value is symbolic (not a concrete value).
+
+Returns
+-------
+bool
+    True if the value is symbolic, False otherwise.
+)")
+      .def(
+          "is_tensor",
+          [](Val* self) { return self->isA<TensorView>(); },
+          R"(
+Check if this value is a TensorView.
+
+Returns
+-------
+bool
+    True if the value is a TensorView, False otherwise.
+)");
 
   // Expr
   py::class_<Expr, Statement, std::unique_ptr<Expr, py::nodelete>>(
@@ -57,6 +82,23 @@ Returns
 -------
 Val
     The extent of this domain.
+)")
+      .def(
+          "parallelize",
+          &IterDomain::parallelize,
+          py::arg("parallel_type"),
+          R"(
+Set the parallel type of this domain.
+
+Parameters
+----------
+parallel_type : ParallelType
+    The type of parallelization to apply (e.g., BIDx, TIDx, etc.).
+
+Notes
+-----
+This is a key function used in scheduling to specify how the domain should be parallelized
+across CUDA threads and blocks.
 )");
 
   // TensorDomain
@@ -77,7 +119,9 @@ void bindInterfaceNodes(py::module& nvfuser) {
           "Convert the TensorView to a string representation.")
       .def(
           "num_dims",
-          &TensorView::nDims,
+          [](TensorView* self) {
+            return TensorDomain::noReductions(self->getLogicalDomain()).size();
+          },
           R"(
 Get the number of dimensions in this tensor.
 
@@ -85,6 +129,36 @@ Returns
 -------
 int
     The number of dimensions.
+)")
+      .def(
+          "size",
+          [](TensorView* self, int64_t dim) { return size(self, dim); },
+          py::arg("dim"),
+          py::return_value_policy::reference,
+          R"(
+Get the size of this tensor.
+
+Parameters
+----------
+dim : int
+    The dimension in the tensor.
+
+Returns
+-------
+int
+    The size of the dimension.
+)")
+      .def(
+          "shape",
+          [](TensorView* self) { return shape(self); },
+          py::return_value_policy::reference,
+          R"(
+Get the shape of this tensor.
+
+Returns
+-------
+list of Val
+    The shape of this tensor.
 )")
       .def(
           "domain",
@@ -101,6 +175,91 @@ TensorDomain
     - Logical domain (The original dimensions. It may contain rFactor iterDomains.)
     - Allocation domain (How the memory is allocated for the tensor?)
     - Loop domain (The for-loop structure for the tensor.)
+)")
+      .def(
+          "get_loop_domain",
+          &TensorView::getLoopDomain,
+          R"(
+Get the loop domain of this tensor.
+
+Returns
+-------
+list of IterDomain
+    The loop iteration domains.
+)")
+      .def(
+          "split",
+          static_cast<TensorView* (TensorView::*)(int64_t, int64_t, bool)>(
+              &TensorView::split),
+          py::arg("axis"),
+          py::arg("factor"),
+          py::arg("inner_split") = true,
+          py::return_value_policy::reference,
+          R"(
+Split an axis into two axes.
+
+Parameters
+----------
+axis : int
+    The axis to split.
+factor : int
+    The factor to split by.
+inner_split : bool, optional
+    If True, the factor determines the size of the inner domain.
+    If False, the factor determines the size of the outer domain.
+    Default is True.
+
+Returns
+-------
+TensorView
+    A TensorView with the split axes in its loop domain.
+)")
+      .def(
+          "rfactor",
+          static_cast<TensorView* (TensorView::*)(const std::vector<int64_t>&)>(
+              &TensorView::rFactor),
+          py::arg("axes"),
+          py::return_value_policy::reference,
+          R"(
+Perform an rfactor transformation on the specified axes.
+
+Parameters
+----------
+axes : list of int
+The axes to apply rfactor to.
+
+Returns
+-------
+TensorView
+The newly created rfactor tensor.
+)")
+      .def(
+          "set_allocation_domain",
+          static_cast<void (TensorView::*)(std::vector<IterDomain*>, bool)>(
+              &TensorView::setAllocationDomain),
+          py::arg("new_allocation_domain"),
+          py::arg("new_contiguity"),
+          R"(
+Set the allocation domain of this tensor.
+
+Parameters
+----------
+new_allocation_domain : list of IterDomain
+    The new allocation iteration domains.
+new_contiguity : bool
+    The new contiguity flag.
+)")
+      .def(
+          "set_device_mesh",
+          &TensorView::setDeviceMesh,
+          py::arg("mesh"),
+          R"(
+Set the device mesh of this tensor.
+
+Parameters
+----------
+mesh : DeviceMesh
+    The device mesh to set.
 )")
       .def(
           "axis",
@@ -249,6 +408,40 @@ void bindDefineTensor(py::module& nvfuser) {
           py::return_value_policy::reference);
 }
 
+void bindDefineScalar(py::module& nvfuser) {
+  // The symbolic define_scalar must come before the constant version because of
+  // pybind11 rules for overload resolution. Essentially, overload functions are
+  // tried in the order they were registered with pybind11. If the order is
+  // reversed, the PrimDataType is cast to its corresponding Enum integer and
+  // used as a Fusion contant.
+  //
+  // Reference:
+  // https://pybind11.readthedocs.io/en/stable/advanced/functions.html#overload-resolution-order
+  nvfuser.def(
+      "define_scalar",
+      [](PrimDataType dtype = DataType::Double) {
+        return IrBuilder::create<Val>(std::monostate{}, dtype);
+      },
+      py::arg("dtype") = DataType::Double,
+      py::return_value_policy::reference);
+  nvfuser.def(
+      "define_scalar",
+      [](PolymorphicValue::VariantType value,
+         std::optional<PrimDataType> dtype) {
+        PolymorphicValue cast_value(
+            dtype.has_value() ? castToDtype(std::move(value), dtype.value())
+                              : std::move(value));
+        PrimDataType value_dtype(
+            dtype.has_value()
+                ? dtype.value()
+                : std::get<PrimDataType>(getDataType(cast_value).type));
+        return IrBuilder::create<Val>(cast_value, value_dtype);
+      },
+      py::arg("value"),
+      py::arg("dtype") = std::nullopt,
+      py::return_value_policy::reference);
+}
+
 } // namespace
 
 void bindFusionIr(py::module& nvfuser) {
@@ -256,6 +449,7 @@ void bindFusionIr(py::module& nvfuser) {
   bindInternalBaseNodes(nvfuser);
   bindInterfaceNodes(nvfuser);
   bindDefineTensor(nvfuser);
+  bindDefineScalar(nvfuser);
 }
 
 } // namespace nvfuser::python

@@ -5,10 +5,10 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <csrc/exceptions.h>
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
+#include <exceptions.h>
 #include <fusion.h>
 #include <ops/all_ops.h>
 #include <preseg_passes/mark_aliases_prepare.h>
@@ -21,8 +21,6 @@
 #include <scheduler/tools/resize_utils.h>
 #include <tests/cpp/utils.h>
 #include <tests/cpp/validator.h>
-
-#include <fstream>
 
 namespace nvfuser {
 
@@ -59,9 +57,7 @@ using ResizeTest = NVFuserTest;
 
 using ResizeSchedulerTest = NVFuserFixtureParamTest<bool>;
 
-using testing::Each;
 using testing::HasSubstr;
-using testing::Not;
 using testing::Property;
 using testing::ThrowsMessage;
 using testing::UnorderedElementsAre;
@@ -4935,16 +4931,6 @@ TEST_P(ResizeSchedulerTest, SliceRotateCatResidual) {
     ref_tv->split(0, 128);
     // For BIDx
     ref_tv->split(0, 4);
-
-    {
-      IdModel id_model(&fusion, false);
-      id_model.buildExactGraph();
-      std::ofstream ofs("exact_graph.dot", std::ofstream::trunc);
-      auto dot_string =
-          id_model.idGraph(IdMappingMode::EXACT).toGraphvizDotGraph();
-      ofs << dot_string;
-      ofs.close();
-    }
 
     scheduler_tools::scheduleLoopDomainsLike(
         fusion.allTvs(), ref_tv->getLoopDomain(), /*update_mode=*/true);

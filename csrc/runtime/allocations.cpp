@@ -10,6 +10,7 @@
 
 #include <expr_evaluator.h>
 #include <instrumentation.h>
+#include <ir/iostream.h>
 #include <multidevice/utils.h>
 #include <polymorphic_value.h>
 #include <runtime/executor.h>
@@ -98,7 +99,7 @@ int64_t computeSharedMemory(
 
       const auto first_byte = smem_offset + address_val.as<int64_t>();
       const auto data_size =
-          dataTypeSize(smem_alloc->buffer()->dtype(), index_type);
+          dataTypeSizeByte(smem_alloc->buffer()->dtype(), index_type);
       const int64_t size_bytes = size_val.as<int64_t>() * data_size;
       const auto last_byte = first_byte + size_bytes;
 
@@ -153,8 +154,8 @@ std::vector<int64_t> getContiguousStrides(
 // Infer the size and stride of each dimension
 std::pair<std::vector<int64_t>, std::vector<int64_t>> inferShape(
     const TensorView* tv,
-    std::vector<Val*> symbolic_sizes,
-    std::vector<bool> expand_flags,
+    const std::vector<Val*>& symbolic_sizes,
+    const std::vector<bool>& expand_flags,
     const ExpressionEvaluator& expr_eval) {
   FUSER_PERF_SCOPE("fusion_executor::allocations::inferShape");
 
@@ -167,13 +168,26 @@ std::pair<std::vector<int64_t>, std::vector<int64_t>> inferShape(
         inferred_val.hasValue(),
         "Could not launch kernel as program could not infer ",
         symbolic_size->toInlineString(),
-        "(",
+        " (",
         symbolic_size->toString(),
         ") for the buffer ",
         tv->toString());
 
     auto concrete_size = inferred_val.as<int64_t>();
     concrete_sizes.at(i) = concrete_size;
+  }
+
+  // Adjust the last dimension of the logical domain to support DataType
+  // that is not supported by PyTorch. See the comment of getLastDimAdjustment
+  // in type.h for more details.
+  const auto adjust_last_dim = getLastDimAdjustment(tv->dtype());
+  if (!concrete_sizes.empty()) {
+    auto& last_dim = concrete_sizes.back();
+    last_dim = adjust_last_dim.fromNVFToATen(last_dim);
+  } else {
+    NVF_ERROR(
+        adjust_last_dim.denominator == 1 && adjust_last_dim.numerator == 1,
+        "DataType not supported");
   }
 
   auto strides = getContiguousStrides(concrete_sizes, expand_flags);
@@ -227,8 +241,14 @@ void fillTensorWithNan(at::Tensor& t) {
     case at::ScalarType::BFloat16:
     case at::ScalarType::Float8_e4m3fn:
     case at::ScalarType::Float8_e5m2:
+    case at::ScalarType::Float8_e8m0fnu:
       t.fill_(std::nan(""));
       break;
+#if NVF_TORCH_VERSION_NO_LESS(2, 8, 0)
+    case at::ScalarType::Float4_e2m1fn_x2:
+      t.view(torch::kByte).fill_(0xFF);
+      break;
+#endif
     case at::ScalarType::ComplexHalf:
     case at::ScalarType::ComplexFloat:
     case at::ScalarType::ComplexDouble:
@@ -294,25 +314,24 @@ KernelArgumentHolder allocateOutputs(
 std::vector<GlobalBufferInfo> getBufferInfos(
     ExpressionEvaluator& expr_eval,
     DataType index_dtype,
-    const std::vector<Val*>& fusion_outputs) {
+    const std::vector<Val*>& tvs) {
   FUSER_PERF_SCOPE("fusion_executor::allocations::getBufferInfos");
-  std::vector<GlobalBufferInfo> output_buffer_infos;
-  output_buffer_infos.reserve(fusion_outputs.size());
-  for (const auto out : fusion_outputs) {
+  std::vector<GlobalBufferInfo> buffer_infos;
+  buffer_infos.reserve(tvs.size());
+  for (Val* v : tvs) {
+    auto* tv = dynamic_cast<TensorView*>(v);
     NVF_ERROR(
-        out->isA<TensorView>(),
-        "Cannot allocate outputs that are not tensors.");
+        tv != nullptr, "Cannot allocate outputs that are not tensors: ", v);
 
     GlobalBufferInfo info;
-    info.tv = out->as<TensorView>();
-    info.shape_info = inferTensorShapes(info.tv, expr_eval);
-    auto dtype =
-        (info.tv->dtype() == DataType::Index ? index_dtype : info.tv->dtype());
+    info.tv = tv;
+    info.shape_info = inferTensorShapes(tv, expr_eval);
+    auto dtype = (tv->dtype() == DataType::Index ? index_dtype : tv->dtype());
     info.type = data_type_to_aten(dtype);
 
-    output_buffer_infos.emplace_back(info);
+    buffer_infos.emplace_back(info);
   }
-  return output_buffer_infos;
+  return buffer_infos;
 }
 
 namespace {

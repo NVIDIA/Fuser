@@ -15,6 +15,7 @@
 
 #ifdef NVFUSER_DISTRIBUTED
 #include <torch/csrc/distributed/c10d/PrefixStore.hpp>
+#include <torch/csrc/distributed/c10d/exception.h>
 #ifdef USE_C10D_NCCL
 #include <torch/csrc/distributed/c10d/ProcessGroupNCCL.hpp>
 #endif
@@ -53,9 +54,15 @@ char* tryReadEnv(const std::vector<std::string>& envs) {
   return nullptr;
 }
 
-// Parse the environment to retrieve MPI rank, world size, local rank,
+// Parses the environment to retrieve MPI rank, world size, local rank,
 // local world size, and also master address and master port.
-// Returns true if the distributed configuration is valid, false otherwise
+//
+// We intend to support mpirun, torchrun
+// (https://docs.pytorch.org/docs/stable/elastic/run.html#environment-variables)
+// and slurm. However, only mpirun is tested in CI at this moment, so I
+// wouldn't be surprised the other launchers don't work out of the box.
+//
+// Returns true if the distributed configuration is valid, false otherwise.
 bool parseEnv(
     RankType& rank,
     int64_t& size,
@@ -63,10 +70,8 @@ bool parseEnv(
     int64_t& local_size,
     std::string& master_addr,
     int& master_port) {
-  char* env = nullptr;
-
   // retrieves the rank of the current process
-  env = tryReadEnv({"OMPI_COMM_WORLD_RANK", "WORLD_RANK", "SLURM_PROCID"});
+  char* env = tryReadEnv({"OMPI_COMM_WORLD_RANK", "RANK", "SLURM_PROCID"});
   if (env == nullptr) {
     return false;
   }
@@ -80,8 +85,8 @@ bool parseEnv(
   size = std::atoi(env);
 
   // retrieves the size of the communicator
-  env = tryReadEnv(
-      {"OMPI_COMM_WORLD_LOCAL_RANK", "WORLD_LOCAL_RANK", "SLURM_LOCALID"});
+  env =
+      tryReadEnv({"OMPI_COMM_WORLD_LOCAL_RANK", "LOCAL_RANK", "SLURM_LOCALID"});
   if (env == nullptr) {
     return false;
   }
@@ -90,7 +95,7 @@ bool parseEnv(
   // retrieves the size of the communicator
   env = tryReadEnv(
       {"OMPI_COMM_WORLD_LOCAL_SIZE",
-       "WORLD_LOCAL_SIZE",
+       "LOCAL_WORLD_SIZE",
        "SLURM_NTASKS_PER_NODE"});
   if (env == nullptr) {
     return false;
@@ -202,7 +207,19 @@ Communicator::Communicator(
         local_rank_ == server_local_rank;
   }
   store_opts.port = master_port_;
-  store_ = c10::make_intrusive<c10d::TCPStore>(master_addr_, store_opts);
+
+  try {
+    store_ = c10::make_intrusive<c10d::TCPStore>(master_addr_, store_opts);
+  } catch (const c10d::SocketError& e) {
+    TORCH_WARN(
+        "Failed to create a TCPStore: ",
+        e.what(),
+        ". The Communicator is therefore made unavailable. If you imported "
+        "both nvfuser and nvfuser_direct, this warning is expected and can be "
+        "ignored: https://github.com/NVIDIA/Fuser/pull/4722");
+    is_available_ = false;
+    return;
+  }
 #endif
 
 #if defined(USE_C10D_UCC) && defined(NVFUSER_BUILD_WITH_UCC)
@@ -318,8 +335,9 @@ void Communicator::cleanup() {
   // Without this, the TCPStore server can be cleaned up before TCPStore
   // clients are created, causing an hang. This happened with
   // test_multidevice.py::test_sizes_and_ranks.
-  if (is_available()) {
+  if (is_available_) {
     barrier();
+    is_available_ = false;
   }
 
   store_ = nullptr;
@@ -339,8 +357,6 @@ void Communicator::cleanup() {
   }
 #endif
   backends_.clear();
-
-  is_available_ = false;
 }
 
 c10d::Backend* Communicator::getBackendForTeam(

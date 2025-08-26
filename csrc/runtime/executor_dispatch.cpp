@@ -8,41 +8,53 @@
 
 #include <runtime/executor_dispatch.h>
 
-#include <host_ir/executor.h>
 #include <instrumentation.h>
-
-#include <typeinfo>
+#include <runtime/communication_executor.h>
+#include <runtime/executor.h>
 
 namespace nvfuser {
 
-// Iterates through executors in priority order creating the first executor that
-// returns true when checking their "supported" method
 std::unique_ptr<ExecutorAbstract> ExecutorDispatch::makeExecutor(
     Fusion* fusion,
     int64_t fusion_id,
     int64_t concrete_id,
     int64_t runtime_id,
-    int64_t group_id) {
+    int64_t group_id,
+    SchedulerType scheduler_type) {
   FUSER_PERF_SCOPE("ExecutorDispatch::makeExecutor");
-  if (HostIrExecutor::supported(fusion)) {
-    return std::make_unique<HostIrExecutor>(
-        fusion_id, concrete_id, runtime_id, group_id);
+  if (scheduler_type == SchedulerType::None) {
+    if (CommunicationExecutor::supported(fusion)) {
+      return std::make_unique<CommunicationExecutor>(
+          fusion_id, concrete_id, runtime_id, group_id);
+    }
+    if (ExprEvalExecutor::supported(fusion)) {
+      return std::make_unique<ExprEvalExecutor>(
+          fusion_id, concrete_id, runtime_id, group_id);
+    }
+    if (KernelExecutor::supported(fusion)) {
+      return std::make_unique<KernelExecutor>(
+          fusion_id, concrete_id, runtime_id, group_id);
+    }
+    NVF_THROW("No executor supports provided fusion.");
   }
-  if (ExprEvalExecutor::supported(fusion)) {
-    return std::make_unique<ExprEvalExecutor>(
-        fusion_id, concrete_id, runtime_id, group_id);
-  }
-  if (KernelExecutor::supported(fusion)) {
-    return std::make_unique<KernelExecutor>(
-        fusion_id, concrete_id, runtime_id, group_id);
-  }
-  NVF_THROW("No executor supports provided fusion.");
+
+  switch (scheduler_type) {
+    case SchedulerType::Communication:
+      return std::make_unique<CommunicationExecutor>(
+          fusion_id, concrete_id, runtime_id, group_id);
+    case SchedulerType::ExprEval:
+      return std::make_unique<ExprEvalExecutor>(
+          fusion_id, concrete_id, runtime_id, group_id);
+    default:
+      return std::make_unique<KernelExecutor>(
+          fusion_id, concrete_id, runtime_id, group_id);
+  };
 }
 
 void ExecutorDispatch::compile(ExecutorAbstract* executor, Fusion* fusion) {
   FUSER_PERF_SCOPE("ExecutorDispatch::compile");
-  if (auto hire = dynamic_cast<HostIrExecutor*>(executor)) {
-    hire->compile(fusion);
+  if (auto ce = dynamic_cast<CommunicationExecutor*>(executor)) {
+    ce->compile(fusion);
     return;
   }
   if (auto eee = dynamic_cast<ExprEvalExecutor*>(executor)) {
@@ -66,8 +78,8 @@ void ExecutorDispatch::compile(
     SchedulerType scheduler_type) {
   FUSER_PERF_SCOPE("ExecutorDispatch::compile2");
 
-  if (auto hire = dynamic_cast<HostIrExecutor*>(executor)) {
-    hire->compile(fusion);
+  if (auto ce = dynamic_cast<CommunicationExecutor*>(executor)) {
+    ce->compile(fusion);
     return;
   }
   if (auto eee = dynamic_cast<ExprEvalExecutor*>(executor)) {
@@ -87,8 +99,8 @@ bool ExecutorDispatch::isCompiled(const ExecutorAbstract* executor) {
     return false;
   }
   FUSER_PERF_SCOPE("ExecutorDispatch::isCompiled");
-  if (auto hire = dynamic_cast<const HostIrExecutor*>(executor)) {
-    return hire->isCompiled();
+  if (auto ce = dynamic_cast<const CommunicationExecutor*>(executor)) {
+    return ce->isCompiled();
   }
   if (auto eee = dynamic_cast<const ExprEvalExecutor*>(executor)) {
     return eee->isCompiled();
@@ -105,9 +117,9 @@ KernelArgumentHolder ExecutorDispatch::run(
     KernelArgumentHolder outputs,
     const LaunchParams& launch_constraints,
     const CompileParams& compile_params) {
-  FUSER_PERF_SCOPE("ExecutorDispatch::run2");
-  if (auto hire = dynamic_cast<HostIrExecutor*>(executor)) {
-    return hire->run(args, outputs);
+  FUSER_PERF_SCOPE("ExecutorDispatch::run");
+  if (auto ce = dynamic_cast<CommunicationExecutor*>(executor)) {
+    return ce->run(args, outputs);
   }
   if (auto eee = dynamic_cast<ExprEvalExecutor*>(executor)) {
     return eee->run(args, outputs);
