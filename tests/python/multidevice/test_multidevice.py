@@ -330,7 +330,7 @@ def test_privatize_squeeze(multidevice_direct_test):
         _definition(fd)
         _multidevice_schedule(fd)
 
-    unsharded = torch.randn(d * 3, 5, 6, dtype=torch.bfloat16, device="cpu")
+    unsharded = torch.randn(d * 3, 5, 6, dtype=torch.bfloat16)
     sharded = multidevice_direct_test.shard_tensor(unsharded, 0, mesh)
     out1, out2 = fd.execute([sharded])
     torch.testing.assert_close(out1.cpu(), unsharded.to(torch.float).sum(0))
