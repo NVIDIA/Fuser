@@ -199,16 +199,6 @@ class GpuLower : public NonCopyable {
     return mbarrier_map_;
   }
 
-  std::unordered_map<const kir::ClusterReductionOp*, kir::TensorIndex*>&
-  clusterReductionMBarrierMap() {
-    return cluster_reduction_mbarrier_map_;
-  }
-
-  const std::unordered_map<const kir::ClusterReductionOp*, kir::TensorIndex*>&
-  clusterReductionMBarrierMap() const {
-    return cluster_reduction_mbarrier_map_;
-  }
-
   bool isNvFuserZeroEnabled() {
     if (isOptionDisabled(DisableOption::MagicZero)) {
       return false;
@@ -418,10 +408,6 @@ class GpuLower : public NonCopyable {
 
   // Keep track of the mbarrier used for each load/store and blackwell utcmma
   std::unordered_map<const Expr*, TensorView*> mbarrier_map_;
-
-  // Keep track of the mbarrier used for each cluster reduction
-  std::unordered_map<const kir::ClusterReductionOp*, kir::TensorIndex*>
-      cluster_reduction_mbarrier_map_;
 
   // Information about tensor memory usage
   TensorMemoryInfo tmem_info_;

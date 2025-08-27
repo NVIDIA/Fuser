@@ -192,13 +192,10 @@ class KernelIrScanner : private IrVisitor {
 
   void handle(ReductionOp* rop) final {
     checkWarpReduction(rop->out(), rop->in());
-    summary_.has_cluster_reduction = summary_.has_cluster_reduction ||
-        ir_utils::getTvOutput(rop)->domain()->hasClusterReduction();
   }
 
   void handle(ClusterReductionOp* cop) final {
     summary_.has_cluster_reduction = true;
-    // Cluster reductions are not warp reductions by design
     summary_.all_block_reductions_are_warp_reduction = false;
   }
 

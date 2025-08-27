@@ -4282,13 +4282,9 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     const auto input = cluster_reduction->in()->as<kir::TensorIndex>();
     const auto op_type = cluster_reduction->getReductionOpType();
     const auto init_val = cluster_reduction->init();
-
-    // Get mbarrier from cluster reduction
     const auto mbarrier = cluster_reduction->mbarrier();
 
-    // Inline cluster reduction logic with mbarrier support
     const auto par_domains = ir_utils::getParallelDomains(output);
-    // Get parallel reduction domains
     const bool tidx =
         par_domains.find(ParallelType::TIDx) != par_domains.end() &&
         par_domains.at(ParallelType::TIDx)->isReduction();
@@ -4328,11 +4324,20 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     func_args.arg(gen(output));
     func_args.arg(gen(input));
     func_args.arg(gen(init_val));
-    // Convert mbarrier TensorView to smem address
     func_args.arg(genInline(mbarrier));
+    if (current_group_reduction_id_ > 0) {
+      func_args.arg(
+          genStaticCast(genPtrType(output->dtype()), "shared_mem") + " + " +
+          std::to_string(
+              blocks_per_cluster * warps_per_block *
+              current_group_reduction_id_));
+    } else {
+      func_args.arg(genStaticCast(genPtrType(output->dtype()), "shared_mem"));
+    }
     func_args.arg(genReductionOp(op_type, output->dtype()));
     indent() << genCall("cluster::clusterReduce", template_args, func_args)
              << ";\n";
+    current_group_reduction_id_++;
   }
 
  private:
@@ -4394,6 +4399,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
   int64_t next_barrier_id_ = 1;
   //! Track whether we are generating code for warp specialized computation loop
   bool is_within_warp_specialized_compute_loop_ = false;
+  //! Track current group reduction id
+  int64_t current_group_reduction_id_ = 0;
 };
 
 } // namespace

@@ -3223,12 +3223,13 @@ void buildAllocationDomainForSharedMemoryTvs(Fusion* fusion) {
     buildAllocationDomainFromLoopIds(tv);
   }
 }
+
+// https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html?#thread-block-clusters
+// There is no device attribute for max cluster size, use a hardcoded value for
+// now.
 int64_t getMaxClusterSize() {
-  int maxClusterSize = 0;
-  cudaDeviceGetAttribute(
-      &maxClusterSize, cudaDevAttrMaxClusterSize, at::cuda::current_device());
-  NVF_ERROR(maxClusterSize > 0, "Expect maxClusterSize >= 1");
-  return maxClusterSize;
+  const auto sm_major = at::cuda::getCurrentDeviceProperties()->major;
+  return sm_major >= 9 ? 8 : 1;
 }
 } // namespace scheduler_utils
 } // namespace nvfuser

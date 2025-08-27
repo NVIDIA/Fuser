@@ -1316,7 +1316,7 @@ class AllocationInserter : public kir::ExprMutator {
 
   void dispatch(Expr* expr) override {
     // Insert cluster reduction mbarrier on first expression at top-level scope
-    if (GpuLower::current()->clusterReductionCount() != -1 &&
+    if (GpuLower::current()->clusterReductionCount() >= 1 &&
         !cluster_mbarrier_inserted_ && scope_.empty()) {
       insertClusterReductionMBarrier(expr);
       cluster_mbarrier_inserted_ = true;
@@ -1960,8 +1960,7 @@ std::vector<Expr*> insertAllocations(const std::vector<Expr*>& exprs) {
   // - A tcgen05.relinquish_alloc_permit after all tcgen05.allocs
   auto result = insertTMemRegionAllocsAndDeallocs(exprs);
   // Insert kir::Allocate for each Val, including the kir::Allocate for tensor
-  // memory TensorViews, in fusion math. AllocationInserter also handles
-  // cluster reduction mbarrier allocation and initialization.
+  // memory TensorViews, in fusion math.
   return AllocationInserter::insert(result);
 }
 

@@ -86,28 +86,15 @@ uint32_t mapSharedRank(uint32_t smemAddr, uint32_t rank) {
   return result;
 }
 
-// Async store operations - template specializations for different data types
+// Async store operations - only supports float and double types
 template <typename T>
 __device__ __forceinline__ void storeSharedRemote(
     T value,
     uint32_t smem_addr,
     uint32_t mbarrier_addr,
-    uint32_t dst_cta_rank);
-
-// Specialization for int (32-bit)
-template <>
-__device__ __forceinline__ void storeSharedRemote<int>(
-    int value,
-    uint32_t smem_addr,
-    uint32_t mbarrier_addr,
     uint32_t dst_cta_rank) {
-  uint32_t dsmem_addr = mapSharedRank(smem_addr, dst_cta_rank);
-  uint32_t remote_barrier_addr = mapSharedRank(mbarrier_addr, dst_cta_rank);
-  asm volatile(
-      "st.async.shared::cluster.mbarrier::complete_tx::bytes.u32 [%0], %1, "
-      "[%2];"
-      :
-      : "r"(dsmem_addr), "r"(value), "r"(remote_barrier_addr));
+  static_assert(
+      sizeof(T) == 0, "storeSharedRemote only supports float and double types");
 }
 
 // Specialization for float (32-bit)
@@ -124,6 +111,22 @@ __device__ __forceinline__ void storeSharedRemote<float>(
       "[%2];"
       :
       : "r"(dsmem_addr), "f"(value), "r"(remote_barrier_addr));
+}
+
+// Specialization for double (64-bit)
+template <>
+__device__ __forceinline__ void storeSharedRemote<double>(
+    double value,
+    uint32_t smem_addr,
+    uint32_t mbarrier_addr,
+    uint32_t dst_cta_rank) {
+  uint32_t dsmem_addr = mapSharedRank(smem_addr, dst_cta_rank);
+  uint32_t remote_barrier_addr = mapSharedRank(mbarrier_addr, dst_cta_rank);
+  asm volatile(
+      "st.async.shared::cluster.mbarrier::complete_tx::bytes.f64 [%0], %1, "
+      "[%2];"
+      :
+      : "r"(dsmem_addr), "d"(value), "r"(remote_barrier_addr));
 }
 
 // ========== Kernel ==========
@@ -155,14 +158,11 @@ __device__ __forceinline__ void clusterReduce(
     T inp,
     T init,
     uint32_t barrier_smem_addr,
+    T* reduction_buffer,
     Func reduction_op) {
-  uint32_t my_block_rank = blockIdInCluster();
+  uint32_t my_block_rank = blockIdInCluster().x;
   uint32_t lane_idx = threadIdx.x % 32;
   uint32_t warp_idx = threadIdx.x / 32;
-
-  // Initialize barrier and buffers
-  // barrier for writing to distributed shared memory using st.async
-  __shared__ alignas(128) T reduction_buffer[CLUSTER_SIZE * WARPS_PER_BLOCK];
 
   T thread_val = inp;
 
