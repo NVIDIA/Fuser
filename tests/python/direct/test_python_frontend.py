@@ -2340,7 +2340,7 @@ def test_broadcast_and_stride_order(nvfuser_direct_test):
     nvfuser_direct_test.assertEqual(nvf_out[0].stride(), (1, 2, 2, 6))
 
 
-def test_right_shift_bitwise(nvfuser_direct_test):
+def test_right_shift_logical(nvfuser_direct_test):
     dtypes = [torch.int32, torch.int64]
     input = torch.tensor(
         [
