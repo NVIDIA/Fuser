@@ -24,10 +24,11 @@
 #include <ops/arith.h>
 #include <runtime/executor_params.h>
 #include <transform_replay.h>
+#include <utils.h>
 
 #include <iterator>
+#include <ranges>
 #include <string>
-#include "utils.h"
 
 namespace nvfuser {
 
@@ -462,6 +463,20 @@ std::string Int::toString() const {
   return ss.str();
 }
 
+Int operator*(const Int& a, const Int& b) {
+  NVF_ERROR(
+      !std::holds_alternative<std::shared_ptr<IntTuple>>(a),
+      "Cannot multiple IntTuple yet");
+  NVF_ERROR(
+      !std::holds_alternative<std::shared_ptr<IntTuple>>(b),
+      "Cannot multiple IntTuple yet");
+  if (std::holds_alternative<int64_t>(a) &&
+      std::holds_alternative<int64_t>(b)) {
+    return {std::get<int64_t>(a) * std::get<int64_t>(b)};
+  }
+  return {"UNIMPLEMENTED MUL"};
+}
+
 std::ostream& operator<<(std::ostream& os, const IntTuple& t) {
   os << "(";
   bool first = true;
@@ -509,20 +524,91 @@ class CuteConverter {
   CuteLayout logicalToAlloc(TensorView* tv) const {
     const std::vector<IterDomain*>& logical = tv->getLogicalDomain();
     const std::vector<IterDomain*>& alloc = tv->getMaybeAllocationDomain();
-    return getLayout(logical, alloc);
+    return getLayout(logical, alloc, tv->getMemoryType(), tv->getContiguity());
   }
 
   CuteLayout loopToAlloc(TensorView* tv) const {
     const std::vector<IterDomain*>& loop = tv->getLoopDomain();
     const std::vector<IterDomain*>& alloc = tv->getMaybeAllocationDomain();
-    return getLayout(loop, alloc);
+    return getLayout(loop, alloc, tv->getMemoryType(), tv->getContiguity());
   }
 
  private:
   CuteLayout getLayout(
       const std::vector<IterDomain*>& loop,
-      const std::vector<IterDomain*>& alloc) const {
+      const std::vector<IterDomain*>& alloc,
+      MemoryType mtype,
+      const std::vector<std::optional<bool>>& contiguity) const {
+    // A CuTE layout is essentially a mapping from a 1 to N many ints to a
+    // single int. We can think of the inputs to this mapping as the loop
+    // indices of the present expression.
+    // For example (3, 7):(1, 3) maps input [1, 2] to the single int 1*1 + 7*3 =
+    // 22
+    //
+    // Note that not all allocation IDs are actually _allocated_. For example, a
+    // tensor in shared memory might have an allocation ID that is parallelized
+    // BIDy. Since shard memory is not shared across CTAs, that dimension will
+    // not appear in the index so we should ignore it. The layouts we return
+    // ignore the presence of such dimensions entirely.
+
+    // Start by gathering the allocated allocation dimensions
+    std::vector<IterDomain*> true_alloc;
+    std::vector<std::optional<bool>> true_contig;
+    for (auto& [id, contig] : zip(alloc, contiguity)) {
+      if (!ir_utils::isMemorySharedAcross(mtype, id->getParallelType())) {
+        continue;
+      }
+      true_alloc.push_back(id);
+      true_contig.push_back(contig);
+    }
+
+    // Now set up a cute layout describing this
+    CuteLayout base_alloc_layout = getInitialLayout(true_alloc, true_contig);
+
     return CuteLayout{};
+  }
+
+  CuteLayout getInitialLayout(
+      const std::vector<IterDomain*>& alloc,
+      const std::vector<std::optional<bool>>& contig) const {
+    NVF_ERROR_EQ(alloc.size(), contig.size());
+    IntTuple shape;
+    IntTuple stride;
+    shape.reserve(alloc.size());
+    stride.reserve(alloc.size());
+    // We build up the shape and strides in reverse from inner to outer
+    Int inner_size{1};
+    Int inner_stride{1};
+    for (auto& [id, c] : std::ranges::views::reverse(zip(alloc, contig))) {
+      Int new_size;
+      PolymorphicValue s = id->getMaybeExpandedExtent()->evaluate();
+      if (s.is<int64_t>()) {
+        new_size = {s.as<int64_t>()};
+      } else {
+        // Use a string to represent this extent if it's not constant
+        new_size = {"sz" + std::to_string(id->name())};
+      }
+      size.push_back(new_size);
+
+      Int new_stride = inner_stride * inner_size;
+      if (id->isBroadcast() && id->hasExpandedExtent()) {
+        // Set stride to zero for expanded broadcasts
+        new_stride = {0};
+      }
+
+      if (c.has_value() && !c.value()) {
+        stride.push_back("str" + std::to_string(id->name()));
+      } else {
+        // This ID is contiguous, so the stride is a multiple of the inner
+        // stride and inner size
+        stride.push_back(new_stride);
+      }
+      inner_stride = new_stride;
+      inner_size = new_size;
+    }
+    std::reverse(shape.begin(), shape.end());
+    std::reverse(stride.begin(), stride.end());
+    return {shape, stride};
   }
 
  private:
@@ -541,7 +627,8 @@ std::ostream& Fusion::printCute(
   os << "Inputs:" << std::endl;
   for (auto inp : inputs()) {
     if (auto tv = dynamic_cast<TensorView*>(inp)) {
-      os << "  T" << tv->name() << ":  " << p.logicalToAlloc(tv) << std::endl;
+      os << "  " << tv->fullName() << ":  " << p.logicalToAlloc(tv)
+         << std::endl;
     } else {
       os << "  " << inp->toString() << std::endl;
     }
@@ -550,8 +637,8 @@ std::ostream& Fusion::printCute(
   os << "Outputs:" << std::endl;
   for (auto out : outputs()) {
     if (auto tv = dynamic_cast<TensorView*>(out)) {
-      os << "  T" << tv->name() << ":  logical " << p.logicalToAlloc(tv)
-         << std::endl;
+      os << "  " << tv->fullName() << ":  logical " << p.logicalToAlloc(tv)
+         << "\n";
       os << "    :     loop " << p.loopToAlloc(tv) << std::endl;
     } else {
       os << "  " << out->toString() << std::endl;
@@ -568,23 +655,23 @@ std::ostream& Fusion::printCute(
     std::vector<std::string> inpnames;
     inpnames.reserve(expr->inputs().size());
     for (Val* inp : expr->inputs()) {
-      if (inp->isA<TensorView>()) {
-        inpnames.push_back("T" + std::to_string(inp->name()));
+      if (auto* tv = dynamic_cast<TensorView*>(inp)) {
+        inpnames.push_back(tv->fullName());
       } else {
-        inpnames.push_back(inp->toString());
+        inpnames.push_back(ir_utils::varName(inp));
       }
     }
     std::vector<std::string> outnames;
     outnames.reserve(expr->outputs().size());
     for (Val* out : expr->outputs()) {
-      if (out->isA<TensorView>()) {
-        outnames.push_back("T" + std::to_string(out->name()));
+      if (auto* tv = dynamic_cast<TensorView*>(out)) {
+        outnames.push_back(tv->fullName());
       } else {
-        outnames.push_back(out->toString());
+        outnames.push_back(ir_utils::varName(out));
       }
     }
-    os << toDelimitedString(outnames) << " = " << expr->name() << "("
-       << inpnames << ")\n";
+    os << toDelimitedString(outnames) << " = " << expr->getOpString() << "("
+       << toDelimitedString(inpnames) << ")\n";
   }
 
   os << "} // %kernel\n";
