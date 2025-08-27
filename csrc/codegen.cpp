@@ -4277,6 +4277,26 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     indent() << "return;\n";
   }
 
+  void handle(const GroupedBlockScalingFactorLayoutOp* layout_op) final {
+    // FIXME: vectorization needs to be done at the operation level, instead of
+    // via cached IO.
+    indent() << "/* layout op is encounted;\n";
+    indent() << layout_op->getOpString() << "\n";
+    const auto output = layout_op->out()->as<kir::TensorIndex>();
+    const auto input = layout_op->in()->as<kir::TensorIndex>();
+
+    indent() << genVariableName(output) + ".array + " +
+            genInline(output->index());
+    code_ << "\t\t sizes: ";
+    for (const auto* val : output->logical_index()) {
+      code_ << genInline(val) << ", ";
+    }
+    code_ << "\n";
+
+    indent() << genVariableName(input) + ".array + " + genInline(input->index())
+             << "\n */\n";
+  }
+
  private:
   // Our generated string has two parts: a utilities section that contains PTX
   // wrappers and other definitions derived from kernel IR, and a kernel section
