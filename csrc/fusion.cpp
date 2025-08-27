@@ -554,7 +554,7 @@ class CuteConverter {
     // Start by gathering the allocated allocation dimensions
     std::vector<IterDomain*> true_alloc;
     std::vector<std::optional<bool>> true_contig;
-    for (auto& [id, contig] : zip(alloc, contiguity)) {
+    for (const auto [id, contig] : zip(alloc, contiguity)) {
       if (!ir_utils::isMemorySharedAcross(mtype, id->getParallelType())) {
         continue;
       }
@@ -565,7 +565,10 @@ class CuteConverter {
     // Now set up a cute layout describing this
     CuteLayout base_alloc_layout = getInitialLayout(true_alloc, true_contig);
 
-    return CuteLayout{};
+    // Now traverse from the base (allocation) layout to the loop domain. At
+    // each stage, we fill out a size/stride combo for each ID
+
+    return base_alloc_layout;
   }
 
   CuteLayout getInitialLayout(
@@ -579,7 +582,9 @@ class CuteConverter {
     // We build up the shape and strides in reverse from inner to outer
     Int inner_size{1};
     Int inner_stride{1};
-    for (auto& [id, c] : std::ranges::views::reverse(zip(alloc, contig))) {
+    for (size_t i : std::ranges::views::reverse(arange(alloc.size()))) {
+      IterDomain* id = alloc.at(i);
+      std::optional<bool> c = contig.at(i);
       Int new_size;
       PolymorphicValue s = id->getMaybeExpandedExtent()->evaluate();
       if (s.is<int64_t>()) {
@@ -588,7 +593,7 @@ class CuteConverter {
         // Use a string to represent this extent if it's not constant
         new_size = {"sz" + std::to_string(id->name())};
       }
-      size.push_back(new_size);
+      shape.push_back(new_size);
 
       Int new_stride = inner_stride * inner_size;
       if (id->isBroadcast() && id->hasExpandedExtent()) {
@@ -597,7 +602,7 @@ class CuteConverter {
       }
 
       if (c.has_value() && !c.value()) {
-        stride.push_back("str" + std::to_string(id->name()));
+        stride.emplace_back("str" + std::to_string(id->name()));
       } else {
         // This ID is contiguous, so the stride is a multiple of the inner
         // stride and inner size
