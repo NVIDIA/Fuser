@@ -404,16 +404,13 @@ void propagateReshape(Fusion* fusion) {
   // reshapes, but they are guaranteed to have the same
   // transformations.
   for (auto reshape : reshape_ops) {
-    for (auto reshape_expr : DependencyCheck::getAllExprsBetween(
-             {reshape->out()->getRootDomain().begin(),
-              reshape->out()->getRootDomain().end()},
-             {reshape->out()->getLogicalDomain().begin(),
-              reshape->out()->getLogicalDomain().end()})) {
-      // TODO: Extend scheduleLoopDomainsBy so that a vector of exprs
-      // can be passed
-      scheduler_tools::scheduleLoopDomainsBy(
-          all_tvs, reshape_expr, Direction::Forward);
-    }
+    auto reshape_exprs = DependencyCheck::getAllExprsBetween(
+        {reshape->out()->getRootDomain().begin(),
+         reshape->out()->getRootDomain().end()},
+        {reshape->out()->getLogicalDomain().begin(),
+         reshape->out()->getLogicalDomain().end()});
+    scheduler_tools::scheduleLoopDomainsBy(
+        all_tvs, reshape_exprs, Direction::Forward);
   }
 }
 
