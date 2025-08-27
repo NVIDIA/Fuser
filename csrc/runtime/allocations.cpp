@@ -366,9 +366,18 @@ bool areDimsToBeMergedContiguous(
   NVF_ERROR(merge_dim < sizes.size(), "merge_dim out of bounds for sizes");
   NVF_ERROR(
       merge_dim + 1 < sizes.size(), "merge_dim+1 out of bounds for sizes");
-  int64_t stride_outer = strides[merge_dim];
-  int64_t size_inner = sizes[merge_dim + 1];
-  int64_t stride_inner = strides[merge_dim + 1];
+  auto size_outer = sizes[merge_dim];
+  auto stride_outer = strides[merge_dim];
+  auto size_inner = sizes[merge_dim + 1];
+  auto stride_inner = strides[merge_dim + 1];
+
+  // We are just squeezing out a dim.
+  // For example we can call view on the tensor with shape
+  // [1, 1536, 2, 128] and strides [393216, 1, 196608, 1536]
+  // Then we should be able to merge the dims [1, 1536].
+  if (size_outer == 1 || size_inner == 1) {
+    return true;
+  }
 
   if (stride_outer == size_inner * stride_inner) {
     return true;
