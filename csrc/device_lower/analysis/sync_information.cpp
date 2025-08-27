@@ -145,7 +145,7 @@ bool isProducedByScatter(TensorView* tv, IterDomain* id) {
 
 } // namespace
 
-SyncMap::SyncMap(Fusion* fusion) {
+SyncMap::SyncMap(Fusion* fusion, bool error_on_failure) {
   FUSER_PERF_SCOPE("SyncMap::SyncMap");
   FusionGuard fg(fusion);
 
@@ -494,41 +494,46 @@ SyncMap::SyncMap(Fusion* fusion) {
           raw_dims.set(producer_ptype);
         } // end for ptypes
 
-        if (raw_dims.hasBID()) {
-          NVF_ERROR(
-              producer->getMemoryType() == MemoryType::Global,
-              "Inconsistent parallelization found between T",
-              producer->name(),
-              " (",
-              producer->toString(),
-              ") and T",
-              consumer->name(),
-              " (",
-              consumer->toString(),
-              "). Producer is required to be in Global Memory based on "
-              "parallelization strategy.",
-              " RAW flags: ",
-              raw_dims.toString());
-        } else if (raw_dims.hasTID()) {
-          NVF_ERROR(
-              ir_utils::isLdMatrixOp(producer->definition()) ||
-                  ir_utils::isStMatrixOp(consumer->definition()) ||
-                  producer->getMemoryType() == MemoryType::Global ||
-                  producer->getMemoryType() == MemoryType::Shared ||
-                  producer->getMemoryType() == MemoryType::Tensor,
-              "Inconsistent parallelization found between T",
-              producer->name(),
-              " (",
-              producer->toString(),
-              ") and T",
-              consumer->name(),
-              " (",
-              consumer->toString(),
-              "). Producer is required to be in Global, Shared or Tensor "
-              "Memory based on parallelization strategy.",
-              " RAW flags: ",
-              raw_dims.toString());
+        if (error_on_failure) {
+          if (raw_dims.hasBID()) {
+            NVF_ERROR(
+                producer->getMemoryType() == MemoryType::Global,
+                "Inconsistent parallelization found between T",
+                producer->name(),
+                " (",
+                producer->toString(),
+                ") and T",
+                consumer->name(),
+                " (",
+                consumer->toString(),
+                "). Producer is required to be in Global Memory based on "
+                "parallelization strategy.",
+                " RAW flags: ",
+                raw_dims.toString());
+          } else if (raw_dims.hasTID()) {
+            NVF_ERROR(
+                ir_utils::isLdMatrixOp(producer->definition()) ||
+                    ir_utils::isStMatrixOp(consumer->definition()) ||
+                    producer->getMemoryType() == MemoryType::Global ||
+                    producer->getMemoryType() == MemoryType::Shared ||
+                    producer->getMemoryType() == MemoryType::Tensor,
+                "Inconsistent parallelization found between T",
+                producer->name(),
+                " (",
+                producer->toString(),
+                ") and T",
+                consumer->name(),
+                " (",
+                consumer->toString(),
+                "). Producer is required to be in Global, Shared or Tensor "
+                "Memory based on parallelization strategy.",
+                " RAW flags: ",
+                raw_dims.toString());
+          }
         }
+
+        auto& producer_sync_map = producer_consumer_raw_sync_[producer];
+        producer_sync_map.emplace(consumer, raw_dims);
       } // end for consumers
 
       if (raw_dims.any()) {

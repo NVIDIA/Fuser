@@ -240,6 +240,28 @@ class FusionDefinition:
         ), "If device argument is passed it must be a CUDA device"
         return device.index
 
+    def validate_definition(self):
+        """
+        Validate that the FusionDefinition is defined.
+
+        Returns
+        -------
+        bool
+            True if the FusionDefinition is defined, False otherwise
+        str
+            The error message if the FusionDefinition is not defined
+        """
+        if self._fusion is None:
+            return (
+                False,
+                "Fusion does not exist! Use `with FusionDefinition() as fd: ...` to define a fusion.",
+            )
+
+        if len(self._fusion.outputs()) == 0 or len(self._fusion.vals()) == 0:
+            return False, "Fusion is empty!"
+
+        return True, None
+
     def execute(
         self,
         inputs,
@@ -278,6 +300,10 @@ class FusionDefinition:
             self.fake_inputs = [fake_mode.from_tensor(inp) for inp in inputs]
 
         if not hasattr(self, "fec"):
+            is_valid, error_message = self.validate_definition()
+            if not is_valid:
+                raise NotImplementedError(error_message)
+
             self.fec = FusionExecutorCache(self._fusion)
             # A copy of fusion is created after construction FusionExecutorCache
             # Delete the _fusion and reference the fusion inside FusionExecutorCache
