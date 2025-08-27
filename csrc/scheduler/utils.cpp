@@ -351,7 +351,7 @@ void parallelizeAllLike(
         }
       }
       // propagate clustered blocks
-      if (reference_id->hasClusteredBlocks()) {
+      if (reference_id->isClusteredBlockDim()) {
         tv->axis(i)->setClusteredBlocks(true);
       }
     }

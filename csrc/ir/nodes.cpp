@@ -2465,14 +2465,14 @@ IterDomainBuilder::IterDomainBuilder(const IterDomain* id)
       iter_type_(id->getIterType()),
       is_rfactor_domain_(id->isRFactorProduct()),
       is_padded_dimension_(id->hasPaddingToMultipleOfWarp()),
-      is_clustered_blocks_(id->hasClusteredBlocks()),
+      is_clustered_dimension_(id->isClusteredBlockDim()),
       padded_to_size_(id->getMaybeSizeAfterPadding()) {}
 
 IterDomainBuilder& IterDomainBuilder::resetSchedulingParams() {
   parallel_type_ = ParallelType::Serial;
   is_rfactor_domain_ = false;
   is_padded_dimension_ = false;
-  is_clustered_blocks_ = false;
+  is_clustered_dimension_ = false;
   padded_to_size_ = std::nullopt;
   return *this;
 }
@@ -2532,7 +2532,7 @@ IterDomainBuilder& IterDomainBuilder::padded_to_size(
 
 IterDomainBuilder& IterDomainBuilder::is_clustered_blocks(
     bool _is_clustered_blocks) {
-  is_clustered_blocks_ = _is_clustered_blocks;
+  is_clustered_dimension_ = _is_clustered_blocks;
   return *this;
 }
 
@@ -2566,7 +2566,7 @@ IterDomain::IterDomain(
       iter_type_(iter_type),
       is_rfactor_domain_(is_rfactor_domain),
       is_padded_dimension_(is_padded_dimension),
-      is_clustered_blocks_(is_clustered_blocks),
+      is_clustered_dimension_(is_clustered_blocks),
       padded_to_size_(padded_to_size) {
   // NOTE: We previously asserted !(isRFactorProduct() && isBroadcast()), i.e.
   // that an IterDomain could not be both a broadcast and an logical domain.
@@ -2616,7 +2616,7 @@ IterDomain::IterDomain(IrBuilderPasskey passkey, const IterDomainBuilder& args)
           args.iter_type_,
           args.is_rfactor_domain_,
           args.is_padded_dimension_,
-          args.is_clustered_blocks_,
+          args.is_clustered_dimension_,
           args.padded_to_size_) {}
 
 IterDomain::IterDomain(const IterDomain* src, IrCloner* ir_cloner)
@@ -2631,7 +2631,7 @@ IterDomain::IterDomain(const IterDomain* src, IrCloner* ir_cloner)
       iter_type_(src->iter_type_),
       is_rfactor_domain_(src->is_rfactor_domain_),
       is_padded_dimension_(src->is_padded_dimension_),
-      is_clustered_blocks_(src->is_clustered_blocks_),
+      is_clustered_dimension_(src->is_clustered_dimension_),
       padded_to_size_(src->padded_to_size_) {}
 
 NVFUSER_DEFINE_CLONE(IterDomain)
@@ -2672,7 +2672,7 @@ bool IterDomain::sameAs(const Statement* other) const {
       getParallelType() == other_id->getParallelType() &&
       getIterType() == other_id->getIterType() &&
       hasPaddingToMultipleOfWarp() == other_id->hasPaddingToMultipleOfWarp() &&
-      hasClusteredBlocks() == other_id->hasClusteredBlocks() &&
+      isClusteredBlockDim() == other_id->isClusteredBlockDim() &&
       getMaybeSizeAfterPadding() == other_id->getMaybeSizeAfterPadding();
 }
 
@@ -2699,7 +2699,7 @@ std::string IterDomain::toString(int indent_size) const {
   if (hasPaddingToMultipleOfWarp()) {
     ss << "_p";
   }
-  if (hasClusteredBlocks()) {
+  if (isClusteredBlockDim()) {
     ss << "_c";
   }
   return ss.str();
@@ -3637,7 +3637,7 @@ bool TensorDomain::hasGridReduction() const {
   return std::any_of(
       loop_domain_.begin(), loop_domain_.end(), [](IterDomain* id) {
         return id->isReduction() && id->isBlockDim() &&
-            !id->hasClusteredBlocks();
+            !id->isClusteredBlockDim();
       });
 }
 
@@ -3645,7 +3645,7 @@ bool TensorDomain::hasClusterReduction() const {
   return std::any_of(
       loop_domain_.begin(), loop_domain_.end(), [](IterDomain* id) {
         return id->isReduction() && id->isBlockDim() &&
-            id->hasClusteredBlocks();
+            id->isClusteredBlockDim();
       });
 }
 

@@ -127,8 +127,7 @@ class FusionInspector : private IterVisitor {
           out->getLoopDomain().begin(),
           out->getLoopDomain().end(),
           [](IterDomain* id) {
-            return id->isReduction() && id->isBlockDim() &&
-                id->hasClusteredBlocks();
+            return id->isReduction() && id->isClusteredBlockDim();
           });
       if (id != out->getLoopDomain().end()) {
         cluster_reduction_count_++;

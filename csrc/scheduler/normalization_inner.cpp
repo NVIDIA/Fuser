@@ -67,8 +67,7 @@ std::pair<int64_t, int64_t> getPersistentBufferSizeBit(
           can_use_smem_persistent,
           project_persistent_buffers);
 
-  int64_t max_cluster_size = scheduler_utils::getMaxClusterSize();
-  available_persistent_buffer_size_bit *= max_cluster_size;
+  available_persistent_buffer_size_bit *= scheduler_utils::getMaxClusterSize();
   return std::make_pair(
       persistent_buffer_size_bit, available_persistent_buffer_size_bit);
 }
@@ -1142,19 +1141,10 @@ std::unique_ptr<ReductionParams> getInnerPersistentHeuristics(
   rparams->project_persistent_buffers = prop.project_persistent_buffers;
   rparams->cparams.index_type = prop.index_type;
   // specific heuristics for different cases
-  if (std::getenv("MAX_CLUSTER_SIZE") &&
-      std::stoi(std::getenv("MAX_CLUSTER_SIZE")) > 1 &&
+  if (scheduler_utils::getMaxClusterSize() > 1 &&
       prop.max_persistent_buffer_size_bit >
           scheduler_utils::register_file_size_bit) {
     innerPersistentHeuristicCluster(prop, rparams.get());
-  } else if (
-      prop.max_persistent_buffer_size_bit >
-      scheduler_utils::register_file_size_bit) {
-    rparams->tag = "Shared Memory Inner Persistent Heuristic.\n";
-    // all persistent buffers are moved to shared memory
-    // TODO: allow only part of the buffers to be moved to shared memory
-    rparams->smem_persistent_buffers = prop.persistent_buffers;
-    innerPersistentHeuristicSharedMemory(prop, rparams.get());
   } else if (prop.total_reduction_numel == prop.inner_most_dimension_numel) {
     rparams->tag = "2D Register Inner Persistent Heuristic.\n";
     innerPersistentHeuristic2D(prop, rparams.get());
@@ -1201,9 +1191,10 @@ bool InnerPersistentKernelScheduler::canScheduleRunTime(
   const int64_t warp_size = at::cuda::getCurrentDeviceProperties()->warpSize;
 
   // check reduction properties, don't use shared memory persistent if 3D
-  // reduction
-  bool can_use_smem_persistent =
-      properties.total_reduction_numel == properties.inner_most_dimension_numel;
+  // reduction or device supports cluster reduction.
+  bool can_use_smem_persistent = (properties.total_reduction_numel ==
+                                  properties.inner_most_dimension_numel) &&
+      scheduler_utils::getMaxClusterSize() == 1;
 
   // pair of persistent_buffer_size_bit and available_persistent_buffer_size_bit
   const std::pair<int64_t, int64_t> buffer_size_bit =

@@ -74,7 +74,7 @@ class IterDomainBuilder {
   // Only relevant at scheduling time or compile time.
   bool is_rfactor_domain_ = false;
   bool is_padded_dimension_ = false;
-  bool is_clustered_blocks_ = false;
+  bool is_clustered_dimension_ = false;
   std::optional<int64_t> padded_to_size_ = std::nullopt;
 };
 
@@ -308,12 +308,12 @@ class NVF_API IterDomain : public Val {
   }
 
   void setClusteredBlocks(bool is_clustered_blocks) {
-    is_clustered_blocks_ = is_clustered_blocks;
+    is_clustered_dimension_ = is_clustered_blocks;
   }
 
   //! clusted blocks to use distributed shared memory
-  bool hasClusteredBlocks() const {
-    return is_clustered_blocks_;
+  bool isClusteredBlockDim() const {
+    return is_clustered_dimension_;
   }
 
   //! Returns a concrete value if this iterdomain
@@ -407,7 +407,7 @@ class NVF_API IterDomain : public Val {
   IterType iter_type_ = IterType::Iteration;
   bool is_rfactor_domain_ = false;
   bool is_padded_dimension_ = false;
-  bool is_clustered_blocks_ = false;
+  bool is_clustered_dimension_ = false;
   std::optional<int64_t> padded_to_size_ = std::nullopt;
 };
 

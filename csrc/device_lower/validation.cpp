@@ -1284,22 +1284,6 @@ void validateLookupTV(Fusion* fusion) {
   }
 }
 
-void validateAndConvertClusterReductions(Fusion* fusion) {
-  // Validate cluster reduction operations
-  // Note: ClusterReductionOp creation is now handled in
-  // generateClusterReductions pass after allocation to ensure mbarriers are
-  // available
-
-  // Just validate that cluster reductions can be supported
-  for (auto rop : ir_utils::getOpsOfType<ReductionOp>(fusion)) {
-    auto out_tv = rop->out()->as<TensorView>();
-    if (out_tv && out_tv->domain()->hasClusterReduction()) {
-      // Validate that reduction dimensions are appropriate for cluster
-      // reduction This is just a placeholder for any needed validation logic
-    }
-  }
-}
-
 void validateReductions(Fusion* fusion) {
   for (auto rop : ir_utils::getOpsOfType<ReductionOp>(fusion)) {
     auto in = rop->in()->as<TensorView>();

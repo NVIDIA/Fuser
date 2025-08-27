@@ -43,16 +43,16 @@ class ClusterReductionConverter : public kir::ExprMutator {
       auto init_val = rop->init();
 
       // Get mbarrier allocated during allocation pass
-      kir::TensorIndex* mbarrier = nullptr;
       auto cluster_mbarrier_tv =
           GpuLower::current()->clusterReductionMBarrier();
-      if (cluster_mbarrier_tv != nullptr) {
-        // Index into mbarrier array for this reduction
-        mbarrier = IrBuilder::create<kir::TensorIndex>(
-            cluster_mbarrier_tv,
-            IrBuilder::create<Val>(current_cluster_index_, DataType::Index));
-        current_cluster_index_++;
-      }
+      NVF_CHECK(
+          cluster_mbarrier_tv != nullptr,
+          "Cluster mbarrier must be allocated for cluster reductions");
+      // Index into mbarrier array for this reduction
+      auto mbarrier = IrBuilder::create<kir::TensorIndex>(
+          cluster_mbarrier_tv,
+          IrBuilder::create<Val>(current_cluster_index_, DataType::Index));
+      current_cluster_index_++;
       // Replace ReductionOp with ClusterReductionOp
       auto cluster_reduction = IrBuilder::create<kir::ClusterReductionOp>(
           out, in, reduction_op_type, init_val, mbarrier);

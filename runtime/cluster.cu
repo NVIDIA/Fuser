@@ -86,12 +86,6 @@ uint32_t mapSharedRank(uint32_t smemAddr, uint32_t rank) {
   return result;
 }
 
-__device__ __forceinline__ uint32_t blockIdInClusterDimx() {
-  uint32_t my_block_rank;
-  asm volatile("mov.u32 %0, %%cluster_ctaid.x;\n" : "=r"(my_block_rank));
-  return my_block_rank;
-}
-
 // Async store operations - template specializations for different data types
 template <typename T>
 __device__ __forceinline__ void storeSharedRemote(
@@ -138,6 +132,7 @@ __device__ __forceinline__ void storeSharedRemote<float>(
 template <typename T, typename Func>
 __device__ __forceinline__ T warpReduce(T val, Func reduction_op) {
   T reduce_val = val;
+#pragma unroll
   for (int offset = 16; offset > 0; offset /= 2) {
     reduction_op(reduce_val, __shfl_xor_sync(0xffffffff, reduce_val, offset));
   }
@@ -161,8 +156,7 @@ __device__ __forceinline__ void clusterReduce(
     T init,
     uint32_t barrier_smem_addr,
     Func reduction_op) {
-  // assume only cluster in x direction
-  uint32_t my_block_rank = blockIdx.x;
+  uint32_t my_block_rank = blockIdInCluster();
   uint32_t lane_idx = threadIdx.x % 32;
   uint32_t warp_idx = threadIdx.x / 32;
 
@@ -193,16 +187,13 @@ __device__ __forceinline__ void clusterReduce(
   // 3. Each CTA has a copy of the warp reduction results from all warps in the
   // cluster
   //    Finish reduction with a warp reduction
-  T block_reduce_val = lane_idx < CLUSTER_SIZE * WARPS_PER_BLOCK
-      ? reduction_buffer[lane_idx]
-      : init;
+  T block_reduce_val = init;
   constexpr int num_iter = (WARPS_PER_BLOCK * CLUSTER_SIZE + 31) / 32;
-  if constexpr (num_iter > 1) {
-    for (int i = 1; i < num_iter; i++) {
-      int idx = lane_idx + i * 32;
-      if (idx < CLUSTER_SIZE * WARPS_PER_BLOCK) {
-        reduction_op(block_reduce_val, reduction_buffer[idx]);
-      }
+#pragma unroll
+  for (int i = 0; i < num_iter; i++) {
+    int idx = lane_idx + i * 32;
+    if (idx < CLUSTER_SIZE * WARPS_PER_BLOCK) {
+      reduction_op(block_reduce_val, reduction_buffer[idx]);
     }
   }
   // 4. Each CTA performs a warp reduction on its shared memory
