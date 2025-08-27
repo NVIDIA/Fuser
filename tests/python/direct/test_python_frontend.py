@@ -1947,6 +1947,29 @@ def test_tensor_size_both_args_bcast(nvfuser_direct_test):
     nvfuser_direct_test.assertEqual(eager_out, nvf_out[0])
 
 
+def test_var_correction(nvfuser_direct_test):
+    num_elem = 2
+    inputs = [torch.randn(2, num_elem, device="cuda")]
+
+    # use decorator to create fusion_func
+    def fusion_decorator(correction):
+        def fusion_func(fd: FusionDefinition):
+            t0 = fd.from_pytorch(inputs[0])
+            t1 = fd.ops.var(t0, [-1], correction)
+            fd.add_output(t1)
+
+        return fusion_func
+
+    # correction must be less than the reduction factor, which is the input
+    # numel divided by output numel.
+    for correction in range(num_elem):
+        fuser_result, _ = nvfuser_direct_test.exec_nvfuser(
+            fusion_decorator(correction), inputs
+        )
+        torch_result = torch.var(inputs[0], [-1], correction=correction)
+        nvfuser_direct_test.assertEqual(fuser_result[0], torch_result)
+
+
 def test_var_mean_correction(nvfuser_direct_test):
     num_elem = 2
     inputs = [torch.randn(2, num_elem, device="cuda")]
@@ -2315,3 +2338,103 @@ def test_broadcast_and_stride_order(nvfuser_direct_test):
 
     nvfuser_direct_test.assertEqual(nvf_out[0], inputs[0].unsqueeze(1))
     nvfuser_direct_test.assertEqual(nvf_out[0].stride(), (1, 2, 2, 6))
+
+
+def test_right_shift_logical(nvfuser_direct_test):
+    dtypes = [torch.int32, torch.int64]
+    input = torch.tensor(
+        [
+            -1,
+            -2147483648,
+            1073741824,
+            -64463884,
+            -65968277,
+            4042311,
+            -98914167,
+            5526216,
+        ],
+        device="cuda",
+    )
+
+    # expected_outputs given by jax.lax.shift_right_logical(inputs, 3)
+    expected_outputs = [
+        torch.tensor(
+            [
+                536870911,
+                268435456,
+                134217728,
+                528812926,
+                528624877,
+                505288,
+                524506641,
+                690777,
+            ],
+            dtype=torch.int32,
+            device="cuda",
+        ),
+        torch.tensor(
+            [
+                2305843009213693951,
+                2305843008945258496,
+                134217728,
+                2305843009205635966,
+                2305843009205447917,
+                505288,
+                2305843009201329681,
+                690777,
+            ],
+            dtype=torch.int64,
+            device="cuda",
+        ),
+    ]
+
+    for idx, dtype in enumerate(dtypes):
+        current_input = input.to(dtype)
+
+        def fusion_func(fd: FusionDefinition):
+            t0 = fd.from_pytorch(current_input)
+            c0 = fd.define_scalar(3)
+            t1 = fd.ops.logical_right_shift(t0, c0)
+            fd.add_output(t1)
+
+        nvf_out, _ = nvfuser_direct_test.exec_nvfuser(fusion_func, [current_input])
+        nvfuser_direct_test.assertEqual(nvf_out[0], expected_outputs[idx])
+
+
+def test_right_shift_logical_sizeof_dtype(nvfuser_direct_test):
+    dtypes = [torch.int32, torch.int64]
+    input = torch.tensor(
+        [
+            -1,
+            -2147483648,
+            1073741824,
+            -64463884,
+            -65968277,
+            4042311,
+            -98914167,
+            5526216,
+        ],
+        device="cuda",
+    )
+
+    for idx, dtype in enumerate(dtypes):
+        current_input = input.to(dtype)
+        num_bits = 32 if (dtype == torch.int32) else 64
+
+        # expected_outputs given by jax.lax.shift_right_logical(inputs, sizeof(dtype))
+        # >>> jax.lax.shift_right_logical(input.to('cpu').numpy(), 32)
+        # Array([0, 0, 0, 0, 0, 0, 0, 0], dtype=int32)
+        # >>> jax.lax.shift_right_logical(input.to('cpu').numpy(), 64)
+        # Array([0, 0, 0, 0, 0, 0, 0, 0], dtype=int32)
+        expected_output = torch.zeros_like(current_input)
+
+        def fusion_func(fd: FusionDefinition):
+            t0 = fd.from_pytorch(current_input)
+            c0 = fd.define_scalar(None, dtype=DataType.Int)
+            t1 = fd.ops.logical_right_shift(t0, c0)
+            fd.add_output(t1)
+
+        nvf_out, _ = nvfuser_direct_test.exec_nvfuser(
+            fusion_func, [current_input, num_bits]
+        )
+        nvfuser_direct_test.assertEqual(nvf_out[0], expected_output)
