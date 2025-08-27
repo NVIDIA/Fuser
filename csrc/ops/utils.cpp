@@ -102,17 +102,20 @@ Val* promoteSize(Val* v1, Val* v2) {
   if (!v1->isConstInt() && !v2->isConstInt()) {
     return v1;
   } else if (v1->isConstInt() && v2->isConstInt()) {
+
+    auto fmtVal = [](Val* v) {
+      std::ostringstream oss;
+      if (v->isConstInt()) oss << v->evaluate();
+      else oss << v->toString() << " (" << v->evaluate() << ")";
+      return oss.str();
+    };
+
     NVF_ERROR(
         v1->evaluate() == v2->evaluate(),
-        "Expected sizes of, ",
-        v1->toString(),
-        " and ",
-        v2->toString(),
-        " to match but found ",
-        v1->evaluate(),
-        " and ",
-        v2->evaluate(),
-        ".");
+        "Expected sizes to match: ",
+        fmtVal(v1),
+        " vs ",
+        fmtVal(v2));
     return simplifiedInt(v1);
   } else if (v1->isConstInt()) {
     return simplifiedInt(v1);
