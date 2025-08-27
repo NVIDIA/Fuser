@@ -173,14 +173,17 @@ TEST_F(GreedySchedulerTest, ScanPad3DReshape3) {
   // non-scanned ID, which violates one of the requrements of the
   // greedy scheduler. This fusion should be segmented.
   auto tv1 = set(tv0);
-  auto tv2 = cumsum(tv1, -1);
-  auto tv3 =
-      pad(tv2, {fusion.oneVal(DataType::Int), fusion.zeroVal(DataType::Int)});
-  auto tv4 = reshape(tv1, {3, 4, 128}, {3, 4 * 128});
-  auto tv5 = add(tv4, fusion.oneVal(DataType::Int));
+  // This op is currently necessary to avoid out-of-bounds accesses
+  // in scan (Issue #5080)
+  auto tv2 = add(tv1, fusion.oneVal(DataType::Int));
+  auto tv3 = cumsum(tv2, -1);
+  auto tv4 =
+      pad(tv3, {fusion.oneVal(DataType::Int), fusion.zeroVal(DataType::Int)});
+  auto tv5 = reshape(tv1, {3, 4, 128}, {3, 4 * 128});
+  auto tv6 = add(tv5, fusion.oneVal(DataType::Int));
 
-  fusion.addOutput(tv3);
-  fusion.addOutput(tv5);
+  fusion.addOutput(tv4);
+  fusion.addOutput(tv6);
 
   auto options = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
   auto t0 = at::randint(0, 100, shape, options);
