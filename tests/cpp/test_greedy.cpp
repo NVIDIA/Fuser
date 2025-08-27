@@ -90,6 +90,8 @@ TEST_F(GreedySchedulerTest, ScanPad3D) {
   EXPECT_FALSE(executor_cache.getMostRecentKernelRuntime()->isSegmented());
 }
 
+// Adding a conforming reshape to the ScanPad3D test. This fusion
+// should not be segmented.
 TEST_F(GreedySchedulerTest, ScanPad3DReshape1) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
@@ -100,13 +102,16 @@ TEST_F(GreedySchedulerTest, ScanPad3DReshape1) {
   auto tv0 = makeContigConcreteTensor(shape, DataType::Int);
   fusion.addInput(tv0);
 
-  auto tv1 = cumsum(tv0, -1);
-  auto tv2 =
-      pad(tv1, {fusion.oneVal(DataType::Int), fusion.zeroVal(DataType::Int)});
-  auto tv3 = reshape(tv2, {3, 4, 129}, {4, 3, 129});
-  auto tv4 = add(tv3, fusion.oneVal(DataType::Int));
+  // This set is currently necessary to avoid out-of-bounds accesses
+  // in scan (Issue #5080)
+  auto tv1 = set(tv0);
+  auto tv2 = cumsum(tv1, -1);
+  auto tv3 =
+      pad(tv2, {fusion.oneVal(DataType::Int), fusion.zeroVal(DataType::Int)});
+  auto tv4 = reshape(tv3, {3, 4, 129}, {4, 3, 129});
+  auto tv5 = add(tv4, fusion.oneVal(DataType::Int));
 
-  fusion.addOutput(tv4);
+  fusion.addOutput(tv5);
 
   auto options = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
   auto t0 = at::randint(0, 100, shape, options);
@@ -118,7 +123,7 @@ TEST_F(GreedySchedulerTest, ScanPad3DReshape1) {
   EXPECT_FALSE(executor_cache.getMostRecentKernelRuntime()->isSegmented());
 }
 
-// Merging constrained and unconstrained IDs is not allowed (yet)
+// Merging constrained and unconstrained IDs is not allowed
 TEST_F(GreedySchedulerTest, ScanPad3DReshape2) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
@@ -129,13 +134,16 @@ TEST_F(GreedySchedulerTest, ScanPad3DReshape2) {
   auto tv0 = makeContigConcreteTensor(shape, DataType::Int);
   fusion.addInput(tv0);
 
-  auto tv1 = cumsum(tv0, -1);
-  auto tv2 =
-      pad(tv1, {fusion.oneVal(DataType::Int), fusion.zeroVal(DataType::Int)});
-  auto tv3 = flatten(tv2);
-  auto tv4 = add(tv3, fusion.oneVal(DataType::Int));
+  // This set is currently necessary to avoid out-of-bounds accesses
+  // in scan (Issue #5080)
+  auto tv1 = set(tv0);
+  auto tv2 = cumsum(tv1, -1);
+  auto tv3 =
+      pad(tv2, {fusion.oneVal(DataType::Int), fusion.zeroVal(DataType::Int)});
+  auto tv4 = flatten(tv3);
+  auto tv5 = add(tv4, fusion.oneVal(DataType::Int));
 
-  fusion.addOutput(tv4);
+  fusion.addOutput(tv5);
 
   auto options = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
   auto t0 = at::randint(0, 100, shape, options);
@@ -147,6 +155,9 @@ TEST_F(GreedySchedulerTest, ScanPad3DReshape2) {
   EXPECT_TRUE(executor_cache.getMostRecentKernelRuntime()->isSegmented());
 }
 
+// Similar to ScanPad3DReshape2, this fusion should be segmented since
+// the constrained and unconstrained IDs would be merged if the
+// reshape were propagated.
 TEST_F(GreedySchedulerTest, ScanPad3DReshape3) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
@@ -157,17 +168,19 @@ TEST_F(GreedySchedulerTest, ScanPad3DReshape3) {
   auto tv0 = makeContigConcreteTensor(shape, DataType::Int);
   fusion.addInput(tv0);
 
-  auto tv1 = cumsum(tv0, -1);
-  auto tv2 =
-      pad(tv1, {fusion.oneVal(DataType::Int), fusion.zeroVal(DataType::Int)});
-  auto tv3 = reshape(tv2, {3, 4, 129}, {4, 3, 129});
-  auto tv4 = add(tv3, fusion.oneVal(DataType::Int));
-  fusion.addOutput(tv4);
+  // The tv4 reshape, while it doesn't have straight producer-consumer
+  // relationship with cumsum, would merge the scanned ID and
+  // non-scanned ID, which violates one of the requrements of the
+  // greedy scheduler. This fusion should be segmented.
+  auto tv1 = set(tv0);
+  auto tv2 = cumsum(tv1, -1);
+  auto tv3 =
+      pad(tv2, {fusion.oneVal(DataType::Int), fusion.zeroVal(DataType::Int)});
+  auto tv4 = reshape(tv1, {3, 4, 128}, {3, 4 * 128});
+  auto tv5 = add(tv4, fusion.oneVal(DataType::Int));
 
-  // Non-matching another reshape
-  auto tv5 = reshape(tv2, {3, 4, 129}, {2, 6, 129});
-  auto tv6 = add(tv5, fusion.oneVal(DataType::Int));
-  fusion.addOutput(tv6);
+  fusion.addOutput(tv3);
+  fusion.addOutput(tv5);
 
   auto options = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
   auto t0 = at::randint(0, 100, shape, options);
@@ -179,6 +192,8 @@ TEST_F(GreedySchedulerTest, ScanPad3DReshape3) {
   EXPECT_TRUE(executor_cache.getMostRecentKernelRuntime()->isSegmented());
 }
 
+// Having conflicting reshapes is not allowed (yet). This fusion
+// should be segmented.
 TEST_F(GreedySchedulerTest, ScanPad3DReshape4) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
@@ -189,15 +204,20 @@ TEST_F(GreedySchedulerTest, ScanPad3DReshape4) {
   auto tv0 = makeContigConcreteTensor(shape, DataType::Int);
   fusion.addInput(tv0);
 
+  // This set is currently necessary to avoid out-of-bounds accesses
+  // in scan (Issue #5080)
   auto tv1 = set(tv0);
   auto tv2 = cumsum(tv1, -1);
   auto tv3 =
       pad(tv2, {fusion.oneVal(DataType::Int), fusion.zeroVal(DataType::Int)});
-  auto tv4 = reshape(tv1, {3, 4, 128}, {3, 4 * 128});
+  auto tv4 = reshape(tv3, {3, 4, 129}, {4, 3, 129});
   auto tv5 = add(tv4, fusion.oneVal(DataType::Int));
-
-  fusion.addOutput(tv3);
   fusion.addOutput(tv5);
+
+  // Non-matching another reshape. This should cause segmentation.
+  auto tv6 = reshape(tv3, {3, 4, 129}, {2, 6, 129});
+  auto tv7 = add(tv6, fusion.oneVal(DataType::Int));
+  fusion.addOutput(tv7);
 
   auto options = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
   auto t0 = at::randint(0, 100, shape, options);

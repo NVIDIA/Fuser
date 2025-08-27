@@ -40,6 +40,38 @@ std::vector<Expr*> getAllConstrainedOps(Fusion* fusion) {
   return ir_utils::getOpsOfType<ArgsortOp, ScanOp, PadOp>(fusion);
 }
 
+// Given offsets of logical IDs, return corresponding loop IDs and
+// their offsets
+std::pair<std::vector<int64_t>, std::vector<IterDomain*>> getDependentLoopIds(
+    TensorView* tv,
+    const std::vector<int64_t>& logical_id_offsets) {
+  std::vector<Val*> logical_ids;
+  logical_ids.reserve(logical_id_offsets.size());
+  std::ranges::transform(
+      logical_id_offsets,
+      std::back_inserter(logical_ids),
+      [tv](int64_t logical_id_offset) {
+        return tv->getLogicalDomain().at(logical_id_offset);
+      });
+
+  const auto logical_loop_all_ids = DependencyCheck::getAllValsBetween(
+      {logical_ids.begin(), logical_ids.end()},
+      {tv->getLoopDomain().begin(), tv->getLoopDomain().end()});
+  const std::unordered_set<Val*> logical_loop_all_id_set{
+      logical_loop_all_ids.begin(), logical_loop_all_ids.end()};
+
+  std::vector<IterDomain*> loop_ids;
+  std::vector<int64_t> loop_id_offsets;
+  for (const auto [i, loop_id] : enumerate(tv->getLoopDomain())) {
+    if (logical_loop_all_id_set.contains(loop_id)) {
+      loop_ids.push_back(loop_id);
+      loop_id_offsets.push_back(i);
+    }
+  }
+
+  return std::make_pair(loop_id_offsets, loop_ids);
+}
+
 class CompileTimeChecker : private IterVisitor {
  public:
   static bool run(Fusion* fusion, const ValGraph& exact_graph) {
@@ -70,7 +102,13 @@ class CompileTimeChecker : private IterVisitor {
           "found");
     }
 
-    // Make sure constrained and unconstrained ids are disjoint
+    // Make sure constrained and unconstrained ids are
+    // disjoint. Because of the requirement that all ID groups must be
+    // used uniquely (no multiple distinctive use Expr groups), it is
+    // suffient to look at reachable graph nodes from each of the
+    // groups by a forward traversal and see if there's any common
+    // nodes. Because there's no ID group that has multiple uses, it
+    // is not necessary to traverse backward.
     if (unique_unconstrained_domain_.has_value()) {
       auto reachable_vals_from_unconstrained_domain =
           getReachableValsFrom<ValGraphPermissiveBFS>(
@@ -176,6 +214,7 @@ class CompileTimeChecker : private IterVisitor {
       if (constrained_logical_id_offset_set.contains(i)) {
         const auto& logical_id_group = exact_graph_.toGroup(logical_id);
         constrained_domain.pushBack(logical_id_group);
+        // Keep track of all constrained IDs as well for reshape analysis
         all_constrained_domain_.pushBack(logical_id_group);
       } else {
         unconstrained_domain.pushBack(exact_graph_.toGroup(logical_id));
@@ -216,15 +255,17 @@ class CompileTimeChecker : private IterVisitor {
     }
   }
 
+  // In order to ensure no conflicting reshape exists, fusions are
+  // only allowed to have one use ExprGroup for each ID group. This
+  // condition is not strictly necessary, but it makes the
+  // can-schedule analysis fairly simple as seen below.
   void checkConflictingReshape() {
-    // For now, only allows fusions where each ID group is uniquely
-    // reshaped, meaning there's only one use ExprGroup for each ID
-    // group. Note that Resize ExprGroups should not matter as we
-    // simply propagate transformations through Resize
     for (const ValGroup& val_group :
          exact_graph_.disjointValSets().disjointSets()) {
       const auto& use_groups = exact_graph_.getUses(val_group);
-      // Only count exprs for reshape.
+      // Root-to-logical exprs may include Resize ops too, but they
+      // can be ignored for this analysis since transformations are
+      // simply propagated along Resize ops
       int num_reshape_exprs = 0;
       for (const auto& use_group : use_groups) {
         if (use_group->front()->isA<Merge>() ||
@@ -350,21 +391,26 @@ class RunTimeChecker : private IterVisitor {
   std::string reject_reason_;
 };
 
+// Propagate all reshape transformations throughout the fusion.
 void propagateReshape(Fusion* fusion) {
-  IdModel id_model(fusion);
-  // const auto& exact_graph = id_model.buildExactGraph();
-
   const auto reshape_ops = ir_utils::getOpsOfType<ReshapeOp>(fusion);
   const auto all_tvs = fusion->allTvs();
 
+  // Visit al reshape ops in a topological order. Propagate the merge
+  // and split ops to all tensors as long as they have matching input
+  // IDs. Propagation should work consistently as all reshapes are
+  // guaranteed to have no conflicting transformations. A single ID
+  // group may get propagated multiple times if there are multiple
+  // reshapes, but they are guaranteed to have the same
+  // transformations.
   for (auto reshape : reshape_ops) {
-    // TODO: Extend scheduleLoopDomainsBy so that a vector of exprs
-    // can be passed
     for (auto reshape_expr : DependencyCheck::getAllExprsBetween(
              {reshape->out()->getRootDomain().begin(),
               reshape->out()->getRootDomain().end()},
              {reshape->out()->getLogicalDomain().begin(),
               reshape->out()->getLogicalDomain().end()})) {
+      // TODO: Extend scheduleLoopDomainsBy so that a vector of exprs
+      // can be passed
       scheduler_tools::scheduleLoopDomainsBy(
           all_tvs, reshape_expr, Direction::Forward);
     }
@@ -412,32 +458,8 @@ class ConstrainedOpScheduler : public OptOutDispatch {
       const std::vector<int64_t>& constrained_logical_id_offsets) {
     NVF_ERROR(!constrained_logical_id_offsets.empty());
 
-    std::vector<Val*> constrained_logical_ids;
-    constrained_logical_ids.reserve(constrained_logical_id_offsets.size());
-    std::ranges::transform(
-        constrained_logical_id_offsets,
-        std::back_inserter(constrained_logical_ids),
-        [tv](int64_t logical_id_offset) {
-          return tv->getLogicalDomain().at(logical_id_offset);
-        });
-
-    // Find constrained loop IDs
-    const auto constrained_logical_loop_all_ids =
-        DependencyCheck::getAllValsBetween(
-            {constrained_logical_ids.begin(), constrained_logical_ids.end()},
-            {tv->getLoopDomain().begin(), tv->getLoopDomain().end()});
-    const std::unordered_set<Val*> constrained_logical_loop_all_id_set{
-        constrained_logical_loop_all_ids.begin(),
-        constrained_logical_loop_all_ids.end()};
-
-    std::vector<IterDomain*> constrained_loop_ids;
-    std::vector<int64_t> constrained_loop_id_offsets;
-    for (const auto [i, loop_id] : enumerate(tv->getLoopDomain())) {
-      if (constrained_logical_loop_all_id_set.contains(loop_id)) {
-        constrained_loop_ids.push_back(loop_id);
-        constrained_loop_id_offsets.push_back(i);
-      }
-    }
+    const auto& [constrained_loop_id_offsets, constrained_loop_ids] =
+        getDependentLoopIds(tv, constrained_logical_id_offsets);
 
     // Move the constrained_logical_ids innermost
     std::unordered_map<int64_t, int64_t> old2new;
@@ -699,10 +721,6 @@ void GreedyScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
   scheduler_utils::clearMemorySpace(fusion);
 
   propagateReshape(fusion);
-
-  std::cout << std::endl;
-  fusion->print();
-  std::cout << std::endl;
 
   auto constrained_exprs = getAllConstrainedOps(fusion);
 
