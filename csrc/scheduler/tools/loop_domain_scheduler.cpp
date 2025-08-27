@@ -625,7 +625,7 @@ void cancelReshapeInLoopDomains(TensorView* from_tv, bool skip_innermost_id) {
   for (auto exprs_it = all_dep_exprs_from_tv.rbegin();
        exprs_it != all_dep_exprs_from_tv.rend();
        ++exprs_it) {
-    auto reshape = dynamic_cast<ViewOp*>(*exprs_it);
+    auto reshape = dynamic_cast<ReshapeOp*>(*exprs_it);
     if (reshape == nullptr) {
       continue;
     }

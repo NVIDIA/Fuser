@@ -261,13 +261,13 @@ class MoveRepeatForward {
   MoveRepeatForward(Fusion* fusion) : fusion_(fusion) {}
 
   void run() {
-    auto reshape_ops = ir_utils::getOpsOfType<ViewOp>(fusion_);
+    auto reshape_ops = ir_utils::getOpsOfType<ReshapeOp>(fusion_);
     std::vector<TensorView*> reshape_output_tvs;
     reshape_output_tvs.reserve(reshape_ops.size());
     std::ranges::transform(
         reshape_ops,
         std::back_inserter(reshape_output_tvs),
-        [](ViewOp* reshape) { return reshape->out(); });
+        [](ReshapeOp* reshape) { return reshape->out(); });
 
     // For each reshape output, if it's a repeating reshape and a
     // valid move target is found, try moving the repetition after the
@@ -459,7 +459,7 @@ class MoveRepeatForward {
         std::distance(repeat_output_tv->getRootDomain().begin(), broadcast_it);
 
     auto repeat_input_tv = repeat_output_tv->definition()
-                               ->as<ViewOp>()
+                               ->as<ReshapeOp>()
                                ->input(0)
                                ->as<TensorView>();
 

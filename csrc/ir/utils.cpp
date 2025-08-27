@@ -632,18 +632,18 @@ bool isSegmentSet(const Expr* e) {
   return false;
 }
 
-std::vector<ViewOp*> getViewOps(Fusion* fusion) {
+std::vector<ReshapeOp*> getReshapeOps(Fusion* fusion) {
   auto all_exprs = fusion->exprs();
 
-  auto all_view_ops = ir_utils::filterByType<ViewOp>(all_exprs);
+  auto all_view_ops = ir_utils::filterByType<ReshapeOp>(all_exprs);
 
-  std::vector<ViewOp*> view_ops;
+  std::vector<ReshapeOp*> view_ops;
 
   std::copy_if(
       all_view_ops.begin(),
       all_view_ops.end(),
       std::back_inserter(view_ops),
-      [](ViewOp* view) {
+      [](ReshapeOp* view) {
         return std::any_of(
             view->outputs().begin(), view->outputs().end(), [](Val* v) {
               if (!v->isA<TensorView>()) {
@@ -1645,7 +1645,7 @@ std::pair<std::vector<IterDomain*>, std::vector<IterDomain*>>
 getReshapeInputAndOutputIds(TensorView* reshape_out_tv) {
   NVF_ERROR(
       reshape_out_tv->definition() != nullptr &&
-          reshape_out_tv->definition()->isA<ViewOp>(),
+          reshape_out_tv->definition()->isA<ReshapeOp>(),
       "Not a reshape output: ",
       reshape_out_tv->toString());
 

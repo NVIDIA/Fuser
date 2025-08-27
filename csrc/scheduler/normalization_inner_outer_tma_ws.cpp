@@ -393,7 +393,8 @@ void getHeuristics(
             << is_circular_buffer_regs_cached << "\n"
             << "is_non_circular_buffer_gmem_to_regs: "
             << is_non_circular_buffer_gmem_to_regs << "\n";
-    debug() << "smem_persistent_buffers: " << "\n";
+    debug() << "smem_persistent_buffers: "
+            << "\n";
     for (auto buffer : rparams->smem_persistent_buffers) {
       debug() << buffer->toString() << "\n";
     }
@@ -425,7 +426,7 @@ void scheduleOuterReduction(
   for (auto& outer_reduction_tv : outer_reduction_tvs) {
     // Similar to the inner reduction, we need to reorder the outer reduction tv
     // when there are view operations.
-    if (!ir_utils::getViewOps(fusion).empty()) {
+    if (!ir_utils::getReshapeOps(fusion).empty()) {
       // Reorder reference_tv after propagating the view operation. This will
       // reorder for better merging.
       outer_reduction_tv->reorder(

@@ -17,7 +17,7 @@ class Expr;
 class Fusion;
 class TensorView;
 class IterDomain;
-class ViewOp;
+class ReshapeOp;
 
 namespace scheduler_tools {
 

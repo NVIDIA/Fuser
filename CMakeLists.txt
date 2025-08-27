@@ -136,6 +136,7 @@ if(BUILD_CUTLASS)
     set(NVFUSER_CUTLASS_SRCS)
     list(APPEND NVFUSER_CUTLASS_SRCS
         ${NVFUSER_CUTLASS}/nvfp4_scaled_mm.cu
+        ${NVFUSER_CUTLASS}/nvfp4_scaled_mm_blockscale.cu
         ${NVFUSER_CUTLASS}/nvfp4_scaled_group_mm.cu
         ${NVFUSER_CUTLASS}/nvf_cutlass.cpp
         ${NVFUSER_CUTLASS}/cutlass_utils.cpp
@@ -333,6 +334,7 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/runtime/fusion_kernel_runtime.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/cache_policy_refiner.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/heuristic.cpp
+  ${NVFUSER_SRCS_DIR}/scheduler/greedy.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/mark_aliases.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/matmul.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/matmul_ampere-.cpp
@@ -727,6 +729,10 @@ if(BUILD_PYTHON)
     target_link_libraries(nvf_py_internal PRIVATE nvf_cutlass)
   endif()
 
+  if (NOT MSVC)
+      target_link_libraries(nvf_py_internal PRIVATE CUDA::cupti)
+  endif()
+
   target_link_libraries(nvf_py_internal PRIVATE
     nvfuser_codegen
     "${TORCH_INSTALL_PREFIX}/lib/libtorch_python.so"
@@ -904,6 +910,7 @@ list(APPEND JIT_TEST_SRCS
   ${NVFUSER_ROOT}/tests/cpp/test_loop_domain_scheduling.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_loop_rotation.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_low_precision_recipe.cpp
+  ${NVFUSER_ROOT}/tests/cpp/test_math_opt.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_mbarrier.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_memory.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_move_pad.cpp
@@ -1122,6 +1129,9 @@ if(BUILD_TEST)
   )
   add_test(test_matmul "${MATMUL_TEST_SRCS}" "")
   list(APPEND TEST_BINARIES test_matmul)
+
+  add_test(test_greedy "${NVFUSER_ROOT}/tests/cpp/test_greedy.cpp" "")
+  list(APPEND TEST_BINARIES test_greedy)
 
   add_test(test_external_src "${NVFUSER_ROOT}/tests/cpp/test_external_src.cpp" "")
   list(APPEND TEST_BINARIES test_external_src)

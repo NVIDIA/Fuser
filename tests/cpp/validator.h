@@ -21,8 +21,20 @@
 
 namespace nvfuser {
 // A gmock matcher for matching heuristics.
-MATCHER_P(HeuristicIs, heuristic, "") {
-  return arg->schedulerType() == heuristic;
+MATCHER_P(HeuristicIs, expected, "") {
+  const SchedulerType actual = arg->schedulerType();
+  if (actual != expected) {
+    *result_listener << "Expected " << expected << " but got " << actual;
+  }
+  return actual == expected;
+}
+
+MATCHER_P(IsParallelized, expected, "") {
+  const ParallelType actual = arg->getParallelType();
+  if (actual != expected) {
+    *result_listener << "Expected " << expected << " but got " << actual;
+  }
+  return actual == expected;
 }
 
 // Matches any subclass of T.
