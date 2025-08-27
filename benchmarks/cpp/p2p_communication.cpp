@@ -20,13 +20,17 @@
 #include <iostream>
 #include <vector>
 #include <iomanip>
-#include <algorithm>
-#include <random>
+#include <string>
 
 namespace nvfuser {
 
 void benchmarkP2PCommunication() {
-  static constexpr int kTensorSize = 1024;
+  // Test powers of 2 tensor sizes from 2^10 to 2^26
+  std::vector<int> tensor_sizes;
+  for (int power = 10; power <= 26; power++) {
+    tensor_sizes.push_back(1 << power);
+  }
+  
   static constexpr int kNumRepetitions = 100;
   static constexpr int kWarmupReps = 10;
 
@@ -42,87 +46,115 @@ void benchmarkP2PCommunication() {
   const DeviceIdxType send_peer = (my_rank + 1) % size;
   const DeviceIdxType recv_peer = (size + my_rank - 1) % size;
 
-  auto container = std::make_unique<hir::HostIrContainer>();
-  FusionGuard fg(container.get());
-
-  // Create the P2P communication setup
-  auto* send_peer_val = IrBuilder::create<Val>(send_peer, DataType::Int);
-  auto* recv_peer_val = IrBuilder::create<Val>(recv_peer, DataType::Int);
-
-  auto* send_tv = makeContigTensor(1);
-  auto* recv_tv = makeContigTensor(1);
-  container->addInput(send_tv);
-  container->addInput(recv_tv);
-
-  auto send = IrBuilder::create<P2PCommunication>(
-      P2PCommunicationType::SEND,
-      send_tv,
-      send_peer_val,
-      CommunicatorBackend::kCuda);
-  auto recv = IrBuilder::create<P2PCommunication>(
-      P2PCommunicationType::RECV,
-      recv_tv,
-      recv_peer_val,
-      CommunicatorBackend::kCuda);
-  
-  std::vector<P2PCommunication*> grouped_communications = {send, recv};
-  auto share_mem_handles = IrBuilder::create<hir::ShareMemHandles>(
-      std::move(grouped_communications));
-  auto wait_send = IrBuilder::create<hir::Wait>(send);
-  auto wait_recv = IrBuilder::create<hir::Wait>(recv);
-
-  container->pushBackTopLevelExprs(share_mem_handles);
-  container->pushBackTopLevelExprs(send);
-  container->pushBackTopLevelExprs(recv);
-  container->pushBackTopLevelExprs(wait_send);
-  container->pushBackTopLevelExprs(wait_recv);
-
-  hir::HostIrEvaluator executor(std::move(container), communicator);
-
-  // Create tensors
-  at::TensorOptions tensor_options = at::TensorOptions().device(at::kCUDA, my_rank);
-  at::Tensor send_tensor = at::empty({kTensorSize}, tensor_options);
-  at::Tensor recv_tensor = at::empty({kTensorSize}, tensor_options);
-
-  std::unordered_map<Val*, PolymorphicValue> inputs = {
-      {send_tv, send_tensor}, {recv_tv, recv_tensor}};
-
-  // Warmup
-  if (my_rank == 0) {
-    std::cout << "Running warmup..." << std::endl;
-  }
-  for (int i = 0; i < kWarmupReps; i++) {
-    send_tensor.copy_(at::arange(kTensorSize, tensor_options) + i);
-    executor.runWithInput(inputs);
-  }
-
-  // Benchmark
   if (my_rank == 0) {
     std::cout << "Starting P2P communication benchmark..." << std::endl;
-    std::cout << "Tensor size: " << kTensorSize << " elements" << std::endl;
-    std::cout << "Repetitions: " << kNumRepetitions << std::endl;
+    std::cout << "Repetitions per size: " << kNumRepetitions << std::endl;
     std::cout << "Number of devices: " << size << std::endl;
+    std::cout << "Testing tensor sizes from 2^10 to 2^26 elements" << std::endl;
+    std::cout << std::endl;
+    
+    // Table header
+    std::cout << std::left << std::setw(15) << "Message Size" 
+              << std::setw(12) << "Elements"
+              << std::setw(15) << "Latency (μs)" 
+              << std::setw(18) << "Bandwidth (GB/s)" << std::endl;
+    std::cout << std::string(60, '-') << std::endl;
   }
 
-  cudaDeviceSynchronize();
-  auto start_time = std::chrono::high_resolution_clock::now();
+  // Test each tensor size
+  for (size_t size_idx = 0; size_idx < tensor_sizes.size(); size_idx++) {
+    const int current_tensor_size = tensor_sizes[size_idx];
+    
+    auto container = std::make_unique<hir::HostIrContainer>();
+    FusionGuard fg(container.get());
 
-  for (int rep = 0; rep < kNumRepetitions; rep++) {
-    send_tensor.copy_(at::arange(kTensorSize, tensor_options) + rep);
-    executor.runWithInput(inputs);
+    // Create the P2P communication setup
+    auto* send_peer_val = IrBuilder::create<Val>(send_peer, DataType::Int);
+    auto* recv_peer_val = IrBuilder::create<Val>(recv_peer, DataType::Int);
+
+    auto* send_tv = makeContigTensor(1);
+    auto* recv_tv = makeContigTensor(1);
+    container->addInput(send_tv);
+    container->addInput(recv_tv);
+
+    auto send = IrBuilder::create<P2PCommunication>(
+        P2PCommunicationType::SEND,
+        send_tv,
+        send_peer_val,
+        CommunicatorBackend::kCuda);
+    auto recv = IrBuilder::create<P2PCommunication>(
+        P2PCommunicationType::RECV,
+        recv_tv,
+        recv_peer_val,
+        CommunicatorBackend::kCuda);
+    
+    std::vector<P2PCommunication*> grouped_communications = {send, recv};
+    auto share_mem_handles = IrBuilder::create<hir::ShareMemHandles>(
+        std::move(grouped_communications));
+    auto wait_send = IrBuilder::create<hir::Wait>(send);
+    auto wait_recv = IrBuilder::create<hir::Wait>(recv);
+
+    container->pushBackTopLevelExprs(share_mem_handles);
+    container->pushBackTopLevelExprs(send);
+    container->pushBackTopLevelExprs(recv);
+    container->pushBackTopLevelExprs(wait_send);
+    container->pushBackTopLevelExprs(wait_recv);
+
+    hir::HostIrEvaluator executor(std::move(container), communicator);
+
+    // Create tensors
+    at::TensorOptions tensor_options = at::TensorOptions().device(at::kCUDA, my_rank);
+    at::Tensor send_tensor = at::empty({current_tensor_size}, tensor_options);
+    at::Tensor recv_tensor = at::empty({current_tensor_size}, tensor_options);
+
+    std::unordered_map<Val*, PolymorphicValue> inputs = {
+        {send_tv, send_tensor}, {recv_tv, recv_tensor}};
+
+    // Calculate data transfer size
+    double data_size_mb = (current_tensor_size * sizeof(float)) / (1024.0 * 1024.0);
+
+    // Warmup
+    for (int i = 0; i < kWarmupReps; i++) {
+      send_tensor.copy_(at::arange(current_tensor_size, tensor_options) + i);
+      executor.runWithInput(inputs);
+    }
+
+    // Benchmark
+    cudaDeviceSynchronize();
+    auto start_time = std::chrono::high_resolution_clock::now();
+
+    for (int rep = 0; rep < kNumRepetitions; rep++) {
+      send_tensor.copy_(at::arange(current_tensor_size, tensor_options) + rep);
+      executor.runWithInput(inputs);
+    }
+
+    cudaDeviceSynchronize();
+    auto end_time = std::chrono::high_resolution_clock::now();
+
+    auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time);
+    double avg_time_us = duration.count() / static_cast<double>(kNumRepetitions);
+    double bandwidth_gb_s = (current_tensor_size * sizeof(float) / (1024.0 * 1024.0 * 1024.0)) / (avg_time_us / 1e6);
+
+    if (my_rank == 0) {
+      // Format message size with units
+      std::string size_str;
+      if (data_size_mb >= 1.0) {
+        size_str = std::to_string(static_cast<int>(data_size_mb + 0.5)) + " MB";
+      } else {
+        size_str = std::to_string(static_cast<int>(data_size_mb * 1024 + 0.5)) + " KB";
+      }
+      
+      // Print table row
+      std::cout << std::left << std::setw(15) << size_str
+                << std::setw(12) << current_tensor_size
+                << std::setw(15) << std::fixed << std::setprecision(2) << avg_time_us
+                << std::setw(18) << std::fixed << std::setprecision(2) << bandwidth_gb_s 
+                << std::endl;
+    }
   }
-
-  cudaDeviceSynchronize();
-  auto end_time = std::chrono::high_resolution_clock::now();
-
-  auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time);
-  double avg_time_us = duration.count() / static_cast<double>(kNumRepetitions);
-  double bandwidth_gb_s = (kTensorSize * sizeof(float) / (1024.0 * 1024.0 * 1024.0)) / (avg_time_us / 1e6);
-
+  
   if (my_rank == 0) {
-    std::cout << std::fixed << std::setprecision(2);
-    std::cout << "Average time per communication: " << avg_time_us << " μs" << std::endl;
-    std::cout << "Effective bandwidth: " << bandwidth_gb_s << " GB/s" << std::endl;
+    std::cout << std::string(60, '-') << std::endl;
   }
 }
 
