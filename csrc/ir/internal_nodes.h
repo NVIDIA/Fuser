@@ -1624,16 +1624,16 @@ class ViewAsScalar : public Expr {
   }
 };
 
-class NVF_API ViewOp : public Expr {
+class NVF_API ReshapeOp : public Expr {
  public:
   using Expr::Expr;
 
-  ViewOp(IrBuilderPasskey, Val* out, Val* in);
+  ReshapeOp(IrBuilderPasskey, Val* out, Val* in);
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
   const char* getOpString() const override {
-    return "ViewOp";
+    return "ReshapeOp";
   }
 
   std::string toString(int indent_size = 0) const override;

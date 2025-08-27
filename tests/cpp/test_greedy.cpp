@@ -42,6 +42,8 @@ TEST_F(GreedySchedulerTest, ScanPad1D) {
   auto tv0 = makeContigConcreteTensor(shape, DataType::Int);
   fusion.addInput(tv0);
 
+  // This set is currently necessary to avoid out-of-bounds accesses
+  // in scan (Issue #5080)
   auto tv1 = set(tv0);
   auto tv2 = cumsum(tv1, -1);
   auto tv3 =
@@ -69,6 +71,8 @@ TEST_F(GreedySchedulerTest, ScanPad3D) {
   auto tv0 = makeContigConcreteTensor(shape, DataType::Int);
   fusion.addInput(tv0);
 
+  // This set is currently necessary to avoid out-of-bounds accesses
+  // in scan (Issue #5080)
   auto tv1 = set(tv0);
   auto tv2 = cumsum(tv1, -1);
   auto tv3 =

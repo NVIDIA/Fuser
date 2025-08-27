@@ -382,7 +382,7 @@ bool isSegmentSet(const Expr* e);
 // Returns all non-trivial view operations. We shouldn't have trivial view
 // operations but this function is to simply make sure if we ever do we don't
 // pull them in.
-std::vector<ViewOp*> getViewOps(Fusion*);
+std::vector<ReshapeOp*> getReshapeOps(Fusion*);
 
 template <typename T>
 std::string toString(const T& nodes) {

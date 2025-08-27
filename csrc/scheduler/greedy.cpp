@@ -104,7 +104,7 @@ class CompileTimeChecker : private IterVisitor {
             BinaryOp,
             TernaryOp,
             FullOp,
-            ViewOp,
+            ReshapeOp,
             ArgsortOp,
             ScanOp,
             PadOp>();
@@ -354,7 +354,7 @@ void propagateReshape(Fusion* fusion) {
   IdModel id_model(fusion);
   // const auto& exact_graph = id_model.buildExactGraph();
 
-  const auto reshape_ops = ir_utils::getOpsOfType<ViewOp>(fusion);
+  const auto reshape_ops = ir_utils::getOpsOfType<ReshapeOp>(fusion);
   const auto all_tvs = fusion->allTvs();
 
   for (auto reshape : reshape_ops) {

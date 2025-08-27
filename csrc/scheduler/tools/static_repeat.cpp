@@ -28,7 +28,7 @@ std::optional<StaticRepeatInfo> getMaybeStaticRepeatInfo(
   }
 
   // Detect reshape
-  auto reshape = dynamic_cast<ViewOp*>(maybe_repeat_out_tv->definition());
+  auto reshape = dynamic_cast<ReshapeOp*>(maybe_repeat_out_tv->definition());
   if (reshape == nullptr) {
     return std::nullopt;
   }
