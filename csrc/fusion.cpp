@@ -434,11 +434,30 @@ namespace {
 // Forward declare IntTuple to help define nested Int type
 struct IntTuple;
 
+struct MultipliedString {
+  std::string str;
+  int64_t factor = 1;
+  std::string toString() const;
+};
+
+MultipliedString operator*(
+    const MultipliedString& a,
+    const MultipliedString& b) {
+  return {.str = a.str + "*" + b.str, .factor = a.factor * b.factor};
+}
+
+MultipliedString operator*(const int64_t& a, const MultipliedString& b) {
+  return {.str = b.str, .factor = a * b.factor};
+}
+MultipliedString operator*(const MultipliedString& a, const int64_t& b) {
+  return b * a;
+}
+
 // We can think of IntTuple as a tree where each node is an Int. For internal
 // nodes, the Int is another IntTuple, but for leaf nodes it is either a
 // concrete integer (int64_t) or a symbolic integer with a std::string name.
-struct Int
-    : public std::variant<int64_t, std::string, std::shared_ptr<IntTuple>> {
+struct Int : public std::
+                 variant<int64_t, MultipliedString, std::shared_ptr<IntTuple>> {
   std::string toString() const;
 };
 
@@ -446,11 +465,26 @@ struct IntTuple : public std::vector<Int> {
   std::string toString() const;
 };
 
+std::ostream& operator<<(std::ostream& os, const MultipliedString& s) {
+  if (s.factor == 1) {
+    os << s.str;
+  } else {
+    os << s.factor << "*" << s.str;
+  }
+  return os;
+}
+
+std::string MultipliedString::toString() const {
+  std::stringstream ss;
+  ss << *this;
+  return ss.str();
+}
+
 std::ostream& operator<<(std::ostream& os, const Int& i) {
   if (std::holds_alternative<int64_t>(i)) {
     os << std::get<int64_t>(i);
-  } else if (std::holds_alternative<std::string>(i)) {
-    os << std::get<std::string>(i);
+  } else if (std::holds_alternative<MultipliedString>(i)) {
+    os << std::get<MultipliedString>(i);
   } else if (std::holds_alternative<std::shared_ptr<IntTuple>>(i)) {
     os << *std::get<std::shared_ptr<IntTuple>>(i);
   }
@@ -473,8 +507,16 @@ Int operator*(const Int& a, const Int& b) {
   if (std::holds_alternative<int64_t>(a) &&
       std::holds_alternative<int64_t>(b)) {
     return {std::get<int64_t>(a) * std::get<int64_t>(b)};
+  } else if (
+      std::holds_alternative<MultipliedString>(a) &&
+      std::holds_alternative<int64_t>(b)) {
+    return {std::get<MultipliedString>(a) * std::get<int64_t>(b)};
+  } else if (
+      std::holds_alternative<int64_t>(a) &&
+      std::holds_alternative<MultipliedString>(b)) {
+    return {std::get<int64_t>(a) * std::get<MultipliedString>(b)};
   }
-  return {"UNIMPLEMENTED MUL"};
+  return {MultipliedString{"UNIMPLEMENTED MUL"}};
 }
 
 std::ostream& operator<<(std::ostream& os, const IntTuple& t) {
@@ -539,11 +581,12 @@ class CuteConverter {
       const std::vector<IterDomain*>& alloc,
       MemoryType mtype,
       const std::vector<std::optional<bool>>& contiguity) const {
-    // A CuTE layout is essentially a mapping from a 1 to N many ints to a
-    // single int. We can think of the inputs to this mapping as the loop
-    // indices of the present expression.
-    // For example (3, 7):(1, 3) maps input [1, 2] to the single int 1*1 + 7*3 =
-    // 22
+    // A CuTE layout is essentially a mapping from 1 to N many ints to a single
+    // int. We can think of the inputs to this mapping as the loop indices of
+    // the present expression.
+    //
+    // For example:
+    //    (3, 7):(1, 3) maps input [1, 2] to the single int 1*1 + 7*3 = 22
     //
     // Note that not all allocation IDs are actually _allocated_. For example, a
     // tensor in shared memory might have an allocation ID that is parallelized
@@ -555,7 +598,8 @@ class CuteConverter {
     std::vector<IterDomain*> true_alloc;
     std::vector<std::optional<bool>> true_contig;
     for (const auto [id, contig] : zip(alloc, contiguity)) {
-      if (!ir_utils::isMemorySharedAcross(mtype, id->getParallelType())) {
+      if (!id->isIteration() &&
+          !ir_utils::isMemorySharedAcross(mtype, id->getParallelType())) {
         continue;
       }
       true_alloc.push_back(id);
@@ -582,16 +626,17 @@ class CuteConverter {
     // We build up the shape and strides in reverse from inner to outer
     Int inner_size{1};
     Int inner_stride{1};
+    ExpressionEvaluator ee;
     for (size_t i : std::ranges::views::reverse(arange(alloc.size()))) {
       IterDomain* id = alloc.at(i);
       std::optional<bool> c = contig.at(i);
       Int new_size;
-      PolymorphicValue s = id->getMaybeExpandedExtent()->evaluate();
+      PolymorphicValue s = ee.evaluate(id->getMaybeExpandedExtent());
       if (s.is<int64_t>()) {
         new_size = {s.as<int64_t>()};
       } else {
         // Use a string to represent this extent if it's not constant
-        new_size = {"sz" + std::to_string(id->name())};
+        new_size = {MultipliedString{"sz" + std::to_string(id->name())}};
       }
       shape.push_back(new_size);
 
@@ -602,7 +647,8 @@ class CuteConverter {
       }
 
       if (c.has_value() && !c.value()) {
-        stride.emplace_back("str" + std::to_string(id->name()));
+        stride.emplace_back(
+            MultipliedString{"str" + std::to_string(id->name())});
       } else {
         // This ID is contiguous, so the stride is a multiple of the inner
         // stride and inner size
