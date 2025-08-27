@@ -115,7 +115,8 @@ Val* promoteSize(Val* v1, Val* v2) {
         "Expected sizes to match: ",
         fmtVal(v1),
         " vs ",
-        fmtVal(v2));
+        fmtVal(v2),
+        ".");
     return simplifiedInt(v1);
   } else if (v1->isConstInt()) {
     return simplifiedInt(v1);
