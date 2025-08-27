@@ -26,6 +26,8 @@
 #include <transform_replay.h>
 
 #include <iterator>
+#include <string>
+#include "utils.h"
 
 namespace nvfuser {
 
@@ -419,6 +421,172 @@ std::ostream& Fusion::print(std::ostream& os, bool include_tensor_transforms)
     IrTransformPrinter t_exprs(os);
     t_exprs.handle(this);
   }
+  os << "} // %kernel\n";
+
+  os << std::flush;
+
+  return os;
+}
+
+namespace {
+
+// Forward declare IntTuple to help define nested Int type
+struct IntTuple;
+
+// We can think of IntTuple as a tree where each node is an Int. For internal
+// nodes, the Int is another IntTuple, but for leaf nodes it is either a
+// concrete integer (int64_t) or a symbolic integer with a std::string name.
+struct Int
+    : public std::variant<int64_t, std::string, std::shared_ptr<IntTuple>> {
+  std::string toString() const;
+};
+
+struct IntTuple : public std::vector<Int> {
+  std::string toString() const;
+};
+
+std::ostream& operator<<(std::ostream& os, const Int& i) {
+  if (std::holds_alternative<int64_t>(i)) {
+    os << std::get<int64_t>(i);
+  } else if (std::holds_alternative<std::string>(i)) {
+    os << std::get<std::string>(i);
+  } else if (std::holds_alternative<std::shared_ptr<IntTuple>>(i)) {
+    os << *std::get<std::shared_ptr<IntTuple>>(i);
+  }
+  return os;
+}
+
+std::string Int::toString() const {
+  std::stringstream ss;
+  ss << *this;
+  return ss.str();
+}
+
+std::ostream& operator<<(std::ostream& os, const IntTuple& t) {
+  os << "(";
+  bool first = true;
+  for (const Int& i : t) {
+    if (!first) {
+      os << ", ";
+    }
+    first = false;
+    os << i;
+  }
+  os << ")";
+  return os;
+}
+
+std::string IntTuple::toString() const {
+  std::stringstream ss;
+  ss << *this;
+  return ss.str();
+}
+
+// A cute layout is a pair of IntTuples
+// https://docs.nvidia.com/cutlass/media/docs/cpp/cute/01_layout.html
+struct CuteLayout {
+  IntTuple shape;
+  IntTuple stride;
+
+  std::string toString() const;
+};
+
+std::ostream& operator<<(std::ostream& os, const CuteLayout& layout) {
+  os << layout.shape << ":" << layout.stride;
+  return os;
+}
+
+std::string CuteLayout::toString() const {
+  std::stringstream ss;
+  ss << *this;
+  return ss.str();
+}
+
+class CuteConverter {
+ public:
+  CuteConverter(Fusion* fusion) : id_model_(fusion, /*build_graphs=*/true) {}
+
+  CuteLayout logicalToAlloc(TensorView* tv) const {
+    const std::vector<IterDomain*>& logical = tv->getLogicalDomain();
+    const std::vector<IterDomain*>& alloc = tv->getMaybeAllocationDomain();
+    return getLayout(logical, alloc);
+  }
+
+  CuteLayout loopToAlloc(TensorView* tv) const {
+    const std::vector<IterDomain*>& loop = tv->getLoopDomain();
+    const std::vector<IterDomain*>& alloc = tv->getMaybeAllocationDomain();
+    return getLayout(loop, alloc);
+  }
+
+ private:
+  CuteLayout getLayout(
+      const std::vector<IterDomain*>& loop,
+      const std::vector<IterDomain*>& alloc) const {
+    return CuteLayout{};
+  }
+
+ private:
+  const IdModel id_model_;
+};
+
+} // namespace
+
+std::ostream& Fusion::printCute(
+    std::ostream& os,
+    bool include_tensor_transforms) const {
+  FUSER_PERF_SCOPE("Fusion::printCute");
+
+  CuteConverter p(const_cast<Fusion*>(this));
+
+  os << "Inputs:" << std::endl;
+  for (auto inp : inputs()) {
+    if (auto tv = dynamic_cast<TensorView*>(inp)) {
+      os << "  T" << tv->name() << ":  " << p.logicalToAlloc(tv) << std::endl;
+    } else {
+      os << "  " << inp->toString() << std::endl;
+    }
+  }
+
+  os << "Outputs:" << std::endl;
+  for (auto out : outputs()) {
+    if (auto tv = dynamic_cast<TensorView*>(out)) {
+      os << "  T" << tv->name() << ":  logical " << p.logicalToAlloc(tv)
+         << std::endl;
+      os << "    :     loop " << p.loopToAlloc(tv) << std::endl;
+    } else {
+      os << "  " << out->toString() << std::endl;
+    }
+  }
+
+  os << "\n%kernel {\n";
+
+  for (Expr* expr : exprs()) {
+    if (!ir_utils::isTvOp(expr)) {
+      continue;
+    }
+
+    std::vector<std::string> inpnames;
+    inpnames.reserve(expr->inputs().size());
+    for (Val* inp : expr->inputs()) {
+      if (inp->isA<TensorView>()) {
+        inpnames.push_back("T" + std::to_string(inp->name()));
+      } else {
+        inpnames.push_back(inp->toString());
+      }
+    }
+    std::vector<std::string> outnames;
+    outnames.reserve(expr->outputs().size());
+    for (Val* out : expr->outputs()) {
+      if (out->isA<TensorView>()) {
+        outnames.push_back("T" + std::to_string(out->name()));
+      } else {
+        outnames.push_back(out->toString());
+      }
+    }
+    os << toDelimitedString(outnames) << " = " << expr->name() << "("
+       << inpnames << ")\n";
+  }
+
   os << "} // %kernel\n";
 
   os << std::flush;

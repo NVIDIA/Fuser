@@ -114,6 +114,7 @@ std::unordered_map<DebugDumpOption, std::vector<std::string>> Options<
       {"fusion_args", DebugDumpOption::FusionArgs},
       {"fusion_ir", DebugDumpOption::FusionIr},
       {"fusion_ir_concretized", DebugDumpOption::FusionIrConcretized},
+      {"fusion_ir_cute", DebugDumpOption::FusionIrCute},
       {"fusion_ir_graph", DebugDumpOption::FusionIrGraph},
       {"fusion_ir_math", DebugDumpOption::FusionIrMath},
       {"fusion_ir_original", DebugDumpOption::FusionIrOriginal},
