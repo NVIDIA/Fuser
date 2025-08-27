@@ -296,7 +296,7 @@ TensorView* squeeze(
   // may have device parallelization. Hence, use the logical domain
   // explcitly to avoid a mismatch between domain and `to_squeeze` dims.
   auto x_dom = TensorDomain::noReductions(x->getLogicalDomain());
-  const auto ndims = static_cast<int64_t>(x_dom.size());
+  const auto ndims = std::ssize(x_dom);
 
   NVF_ERROR(
       ndims == (int64_t)to_squeeze.size(),
