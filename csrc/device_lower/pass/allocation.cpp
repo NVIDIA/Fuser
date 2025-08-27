@@ -1697,7 +1697,6 @@ class AllocationInserter : public kir::ExprMutator {
  private:
   GpuLower* gpu_lower_ = nullptr;
   bool cluster_mbarrier_inserted_ = false;
-  int64_t cluster_reduction_index_ = 0;
 
  public:
   static std::vector<Expr*> insert(const std::vector<Expr*>& exprs) {
