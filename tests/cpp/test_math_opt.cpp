@@ -17,9 +17,9 @@
 
 namespace nvfuser {
 
-using InstructionsTest = NVFuserTest;
+using MathOptTest = NVFuserTest;
 
-TEST_F(InstructionsTest, FastMathTanh) {
+TEST_F(MathOptTest, FastMathTanh) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
