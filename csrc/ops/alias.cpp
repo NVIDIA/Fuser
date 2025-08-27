@@ -194,7 +194,7 @@ TensorView* reshape(TensorView* inp_tv, const std::vector<Val*>& new_sizes) {
           TensorDomain::getContiguityFilledWith(logical_domain, true)),
       inp_tv->dtype());
 
-  IrBuilder::createInContainer<ViewOp>(inp_tv->container(), out_tv, inp_tv);
+  IrBuilder::createInContainer<ReshapeOp>(inp_tv->container(), out_tv, inp_tv);
 
   return out_tv;
 }
@@ -213,7 +213,7 @@ NVF_API TensorView* reshape(
           logical_domain,
           TensorDomain::getContiguityFilledWith(logical_domain, true)),
       x->getDataType().value());
-  IrBuilder::create<ViewOp>(out_tv, x);
+  IrBuilder::create<ReshapeOp>(out_tv, x);
   return out_tv;
 }
 
@@ -245,7 +245,7 @@ TensorView* flatten(TensorView* x, int64_t start_dim, int64_t end_dim) {
       x->domain()->flatten(start_dim, end_dim),
       x->getDataType().value());
 
-  IrBuilder::create<ViewOp>(out, x);
+  IrBuilder::create<ReshapeOp>(out, x);
   return out;
 }
 

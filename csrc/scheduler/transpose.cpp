@@ -145,7 +145,7 @@ struct TransposeViewPropagator : public MaxInfoSpanningTree::Propagator {
     // since view does NOT necessarily always introduce incoherent transform
     // that would break the propagation.
     auto chain_exprs = StmtSort::getExprsBetween({from}, {to});
-    if (!ir_utils::filterByType<ViewOp>(chain_exprs).empty()) {
+    if (!ir_utils::filterByType<ReshapeOp>(chain_exprs).empty()) {
       should_reject = true;
     };
   };

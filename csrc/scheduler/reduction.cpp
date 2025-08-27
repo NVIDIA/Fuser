@@ -1563,7 +1563,7 @@ void scheduleReduction(Fusion* fusion, const ReductionParams* rparams) {
   // changes registry needs to change.
   auto reduction_tv = reduction_tvs[0];
 
-  if (!ir_utils::getViewOps(fusion).empty()) {
+  if (!ir_utils::getReshapeOps(fusion).empty()) {
     ComputeAtMap ca_map(fusion);
     // Propagate reshape transforms through the graph, expecially the reference.
     scheduler_utils::propagateReshapeTransforms(fusion, ca_map);
@@ -1719,7 +1719,7 @@ bool ReductionScheduler::canScheduleCompileTime(Fusion* fusion) {
     return false;
   }
 
-  if (!ir_utils::getViewOps(fusion).empty()) {
+  if (!ir_utils::getReshapeOps(fusion).empty()) {
     ComputeAtMap ca_map(fusion);
     if (registry_utils::requiresForwardViewReplay(fusion, ca_map)) {
       scheduler_debug_utils::canScheduleRejectReason(

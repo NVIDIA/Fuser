@@ -546,6 +546,11 @@ void fillCompileOptions(
     nvrtc_compile_driver.setOption("--fmad=true");
   }
 
+  // Enable fast math optimizations if requested
+  if (isOptionEnabled(EnableOption::FastMath)) {
+    nvrtc_compile_driver.setOption("--use_fast_math");
+  }
+
   // Add line info to generated kernels
   if (isOptionEnabled(EnableOption::KernelLineInfo)) {
     nvrtc_compile_driver.setOption("-lineinfo");

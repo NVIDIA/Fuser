@@ -99,6 +99,7 @@ enum class DebugDumpOption {
 enum class EnableOption {
   FuseMatmul, //! Enable automatic fusion of matmul and linear ops
   FuseMultipleMatmuls, //! Allow fusing more than one matmul in a single kernel
+  GreedyScheduler, //! Enable the grreedy scheduler
   IdModel, //! Enable IdModel
   IdModelExtraValidation, //! Enable extra error checking when building IdModel
   IoToLowerPrecision, //! Enable castInputOutputToLowerPrecision. #1889 explains
@@ -116,6 +117,7 @@ enum class EnableOption {
   WarnRegisterSpill, //! Enable warnings of register spill
   WarpSpecializedNormalization, //! Enable warp specialized persistent kernel
   HostIrLowering, //! Enable FusionKernelRuntime lowering to host IR
+  FastMath, //! Enable fast math optimizations (--use_fast_math)
   EndOfOption //! Placeholder for counting the number of elements
 };
 

@@ -99,7 +99,7 @@ class Val;
   f(ExpandOp);                    \
   f(RepeatOp);                    \
   f(ViewAsScalar);                \
-  f(ViewOp);                      \
+  f(ReshapeOp);                   \
   f(CatOp);                       \
   f(PadOp);                       \
   f(SliceOp);                     \
