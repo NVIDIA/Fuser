@@ -129,9 +129,6 @@ __device__ __forceinline__ void storeSharedRemote<double>(
       : "r"(dsmem_addr), "d"(value), "r"(remote_barrier_addr));
 }
 
-// ========== Kernel ==========
-
-// Warp reduction using inline PTX
 template <typename T, typename Func>
 __device__ __forceinline__ T warpReduce(T val, Func reduction_op) {
   T reduce_val = val;
@@ -143,10 +140,6 @@ __device__ __forceinline__ T warpReduce(T val, Func reduction_op) {
 }
 
 // Cluster reduction in x direction
-// blockIdx --> clusterd reduction dimension
-// blockIdx.y --> iteration dimension
-// blockIdx.z --> Not Used
-// CLUSTER_SIZE equals gridDim.x, known at compile time
 // Algorithm:
 // 1. Each warp does a warp reduction
 // 2. All warps async store reduction results to its and clustered CTA's shared
