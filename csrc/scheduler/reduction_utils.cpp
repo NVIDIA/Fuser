@@ -340,8 +340,6 @@ TensorView* scheduleReductionTV(
       }
     }
   }
-  std::cout << "Scheduled reduction tv: " << reduction_tv->toString()
-            << std::endl;
   const bool is_non_persistent_outer_reduction =
       !rparams->persistent_kernel && !rparams->fastest_dim;
   auto reduction_rf_tv =
@@ -430,15 +428,11 @@ void propagateRFactor(
   }
 
   for (auto reduction_tv_ : reduction_tvs) {
-    std::cout << "================== reduction_tv_: "
-              << reduction_tv_->toString() << std::endl;
     if (reduction_tv_ == reduction_tv ||
         reduction_tv_->definition()->isA<GroupedReductionOp>()) {
       // This should come in already rfactored
       continue;
     } else {
-      std::cout << "================== rFactorHelper tv: "
-                << reduction_tv_->toString() << std::endl;
       ir_utils::rFactorHelper(
           reduction_tv_,
           reduction_scheduler_utils::addBackBroadcasts(

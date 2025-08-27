@@ -1286,8 +1286,6 @@ class AllocationInserter : public kir::ExprMutator {
       Expr* pred_mbarrier_init = mbarrier_init->withPredicate(
           IrBuilder::create<kir::Predicate>(PredicateType::ElectSync));
 
-      std::cout << "inserting cluster reduction mbarrier: "
-                << pred_mbarrier_init->toString() << std::endl;
       registerInsertBefore(expr, pred_mbarrier_init, nullptr);
     } else {
       // For multiple mbarriers, create a for loop using the utility function
@@ -1304,8 +1302,6 @@ class AllocationInserter : public kir::ExprMutator {
 
       fl->body().push_back(pred_mbarrier_init);
 
-      std::cout << "inserting cluster reduction mbarrier: " << fl->toString()
-                << std::endl;
       registerInsertBefore(expr, fl, nullptr);
     }
 
@@ -1315,8 +1311,6 @@ class AllocationInserter : public kir::ExprMutator {
     // Insert clusterSync after mbarrier initialization to ensure mbarrier is
     // visible to other CTAs
     auto cluster_sync = IrBuilder::create<kir::ClusterSync>();
-    std::cout << "inserting clusterSync: " << cluster_sync->toString()
-              << std::endl;
     registerInsertBefore(expr, cluster_sync, nullptr);
   }
 

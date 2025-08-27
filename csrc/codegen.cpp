@@ -4131,9 +4131,6 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
   }
 
   void handle(const kir::MBarrierInit* init) final {
-    std::cout << "MBarrierInit init: " << init->toString() << std::endl;
-    std::cout << "MBarrierInit mbarrier: " << init->mbarrier()->toInlineString()
-              << std::endl;
     auto call = genCall(
         "mbarrier::init",
         ArgumentBuilder()
@@ -4334,8 +4331,6 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     // Convert mbarrier TensorView to smem address
     func_args.arg(genInline(mbarrier));
     func_args.arg(genReductionOp(op_type, output->dtype()));
-    std::cout << "clusterReduce mbarrier: " << mbarrier->toString()
-              << std::endl;
     indent() << genCall("cluster::clusterReduce", template_args, func_args)
              << ";\n";
   }

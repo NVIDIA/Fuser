@@ -15,6 +15,7 @@
 #include <scheduler/utils.h>
 
 #include <ATen/cuda/CUDAContext.h>
+#include "utils.h"
 
 namespace nvfuser {
 using PersistentKernelProperties =
@@ -66,12 +67,8 @@ std::pair<int64_t, int64_t> getPersistentBufferSizeBit(
           can_use_smem_persistent,
           project_persistent_buffers);
 
-  if (std::getenv("MAX_CLUSTER_SIZE")) {
-    int64_t max_cluster_size = std::stoi(std::getenv("MAX_CLUSTER_SIZE"));
-    available_persistent_buffer_size_bit *= max_cluster_size;
-    std::cout << "\n ================== max cluster size: " << max_cluster_size
-              << std::endl;
-  }
+  int64_t max_cluster_size = scheduler_utils::getMaxClusterSize();
+  available_persistent_buffer_size_bit *= max_cluster_size;
   return std::make_pair(
       persistent_buffer_size_bit, available_persistent_buffer_size_bit);
 }
@@ -538,47 +535,47 @@ void innerPersistentHeuristicCluster(
     const PersistentKernelProperties& properties,
     ReductionParams* rparams) {
   // Inner reduction domain
-  // This heuristic is only used for cases with large total_reduction_numel.
-  // e.g. layer_norm with hidden size larger than 64K for fp16 or 32K for fp32.
-  // fully vectorized, use maxThreadsPerBlock to reduce workload per threads
+  // vect x TID x persistent_batch x BID
+  // Prefer 4 blocks each with 8 warps, then we have 32 warps per cluster.
+  // After warp reduction, there are 32 warp reduction results, they can be
+  // reduced within a single warp without serial reduction.
   int64_t vectorize_factor = properties.vectorize_factor;
   int64_t bdimx = 256;
-  int64_t register_per_thread = 255;
+  int64_t blocks_per_cluster = 4;
+  int64_t after_vect_bdimx =
+      ceilDiv(properties.total_reduction_numel / vectorize_factor, bdimx);
+  int64_t persistent_batch = ceilDiv(after_vect_bdimx, blocks_per_cluster);
+
+  // each thread process [vectorize_factor x persistent_batch] elements.
+  // May decrease persistent_batch by increasing blocks_per_cluster to avoid
+  // register spills due to too many elements per thread.
   const int64_t buffer_bits_per_batch =
       properties.max_persistent_buffer_size_bit /
       properties.total_reduction_numel * vectorize_factor;
+  constexpr int64_t register_overhead = 32;
   int64_t max_persistent_batch = scheduler_utils::safeDiv(
-      (register_per_thread - 32) * scheduler_utils::bits_per_register,
+      (scheduler_utils::max_registers_per_thread - register_overhead) *
+          scheduler_utils::bits_per_register,
       buffer_bits_per_batch);
-  ;
-  std::cout << "================== buffer_bytes_per_batch: "
-            << buffer_bits_per_batch / 8 << std::endl;
-
-  std::cout << "================== max_persistent_batch: "
-            << max_persistent_batch << std::endl;
-  int64_t after_vect_bdimx =
-      ceilDiv(properties.total_reduction_numel / vectorize_factor, bdimx);
-  int64_t blocks_per_cluster = ceilDiv(after_vect_bdimx, max_persistent_batch);
-  if (std::getenv("SET_CLUSTER_SIZE")) {
-    blocks_per_cluster = (int64_t)std::stoi(std::getenv("SET_CLUSTER_SIZE"));
+  if (persistent_batch > max_persistent_batch) {
+    blocks_per_cluster = std::min(
+        ceilDiv(after_vect_bdimx, max_persistent_batch),
+        scheduler_utils::getMaxClusterSize());
+    persistent_batch = ceilDiv(after_vect_bdimx, blocks_per_cluster);
   }
-  std::cout << "================== blocks_per_cluster: " << blocks_per_cluster
-            << std::endl;
-  int64_t persistent_batch = ceilDiv(after_vect_bdimx, blocks_per_cluster);
-  std::cout << "================== persistent_batch: " << persistent_batch
-            << std::endl;
+
   rparams->cross_block_inner_reduction = true;
-  rparams->cross_cluster_reduction = true;
   rparams->cross_grid_inner_reduction = true;
   rparams->block_dim_inner_reduction = ParallelType::TIDx;
   rparams->pad_inner_reduction_to_warp = true;
   rparams->batches_per_block_inner_reduction = persistent_batch;
   rparams->unroll_factor_inner_reduction = vectorize_factor;
   rparams->vectorize_inner_reduction = vectorize_factor > 1;
-  rparams->grid_dim_inner_reduction = ParallelType::BIDx;
 
-  // register
-  rparams->cparams.maxrregcount = register_per_thread;
+  // cluster reduction is true, the blocks in grid_dim_inner_reduction are
+  // grouped into a cluster.
+  rparams->cross_cluster_reduction = true;
+  rparams->grid_dim_inner_reduction = ParallelType::BIDx;
 
   // Iter
   rparams->grid_dim_iter_dom = ParallelType::BIDy;

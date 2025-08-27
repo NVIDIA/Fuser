@@ -3223,5 +3223,12 @@ void buildAllocationDomainForSharedMemoryTvs(Fusion* fusion) {
     buildAllocationDomainFromLoopIds(tv);
   }
 }
+int64_t getMaxClusterSize() {
+  int maxClusterSize = 0;
+  cudaDeviceGetAttribute(
+      &maxClusterSize, cudaDevAttrMaxClusterSize, at::cuda::current_device());
+  NVF_ERROR(maxClusterSize > 0, "Expect maxClusterSize >= 1");
+  return maxClusterSize;
+}
 } // namespace scheduler_utils
 } // namespace nvfuser
