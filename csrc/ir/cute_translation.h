@@ -52,6 +52,7 @@ inline MultipliedString operator*(const MultipliedString& a, const int64_t& b) {
 // concrete integer (int64_t) or a symbolic integer with a std::string name.
 struct Int : public std::
                  variant<int64_t, MultipliedString, std::shared_ptr<IntTuple>> {
+  using std::variant<int64_t, MultipliedString, std::shared_ptr<IntTuple>>::variant;
   std::string toString() const;
 };
 Int operator*(const Int& a, const Int& b);

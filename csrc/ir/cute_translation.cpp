@@ -51,11 +51,10 @@ std::string Int::toString() const {
   return ss.str();
 }
 
+// We multiply Ints to compute strides. When we multiply an IntTuple by a scalar
+// we simply multiply each element of the tuple. Multiplying two IntTuples is
+// more complicated. For example (a,b) * (c,d)
 Int operator*(const Int& a, const Int& b) {
-  NVF_ERROR(
-      !std::holds_alternative<std::shared_ptr<IntTuple>>(a) &&
-          !std::holds_alternative<std::shared_ptr<IntTuple>>(b),
-      "Cannot multiple IntTuple yet");
   if (std::holds_alternative<int64_t>(a) &&
       std::holds_alternative<int64_t>(b)) {
     return {std::get<int64_t>(a) * std::get<int64_t>(b)};
@@ -68,31 +67,21 @@ Int operator*(const Int& a, const Int& b) {
       std::holds_alternative<MultipliedString>(b)) {
     return {std::get<int64_t>(a) * std::get<MultipliedString>(b)};
   }
-  return {MultipliedString{"UNIMPLEMENTED MUL"}};
+  // TODO: Handle multiplication of IntTuples properly
+  return {MultipliedString{a.toString() + "*" + b.toString()}};
 }
 
+// When we do ceilDiv((a, b), c) we are indicating that we're splitting the
+// linearized index of (a, b) by factor c and taking the outer dim
 Int ceilDivInt(const Int& a, const Int& b) {
-  NVF_ERROR(
-      !std::holds_alternative<std::shared_ptr<IntTuple>>(a) &&
-          !std::holds_alternative<std::shared_ptr<IntTuple>>(b),
-      "Cannot ceilDiv IntTuple yet");
+  // TODO: Handle more cases
   if (std::holds_alternative<int64_t>(a) &&
       std::holds_alternative<int64_t>(b)) {
     return {ceilDiv(std::get<int64_t>(a), std::get<int64_t>(b))};
-  } else if (
-      std::holds_alternative<MultipliedString>(a) &&
-      std::holds_alternative<int64_t>(b)) {
-    return {MultipliedString{
-        "ceilDiv(" + std::get<MultipliedString>(a).str + "," +
-        std::to_string(std::get<int64_t>(b)) + ")"}};
-  } else if (
-      std::holds_alternative<int64_t>(a) &&
-      std::holds_alternative<MultipliedString>(b)) {
-    return {MultipliedString{
-        "ceilDiv(" + std::to_string(std::get<int64_t>(a)) + "," +
-        std::get<MultipliedString>(b).str + ")"}};
+  } else {
+    return {
+        MultipliedString{"ceilDiv(" + a.toString() + "," + b.toString() + ")"}};
   }
-  return {MultipliedString{"UNIMPLEMENTED MUL"}};
 }
 
 std::ostream& operator<<(std::ostream& os, const IntTuple& t) {
@@ -205,24 +194,22 @@ CuteLayout CuteConverter::getLayout(
           split->inner(), std::pair<Int, Int>{inner_shape, inner_stride});
     } else if (auto* merge = dynamic_cast<Merge*>(expr)) {
       auto it = id_size_stride.find(merge->outer());
-      if (it == id_size_stride.end()) {
-        NVF_THROW("TODO: Use 1:1 here");
-        continue;
-      }
-      // auto& [outer_shape, outer_stride] = it->second;
+      // Use 1:1 when ID is not found since that's an unallocated dim
+      Int outer_shape = it == id_size_stride.end() ? Int{1} : it->second.first;
+      Int outer_stride = it == id_size_stride.end() ? Int{1} : it->second.second;
       it = id_size_stride.find(merge->inner());
-      if (it == id_size_stride.end()) {
-        NVF_THROW("TODO: Use 1:1 here");
-        continue;
-      }
-      // auto& [inner_shape, inner_stride] = it->second;
+      Int inner_shape = it == id_size_stride.end() ? Int{1} : it->second.first;
+      Int inner_stride = it == id_size_stride.end() ? Int{1} : it->second.second;
 
       // TODO: Check if this is a contiguous merge. If so, then we can flatten
       // it IF NOT contiguous merge, then create a new IntTuple consisting of
       // the incoming shapes/strides
-
-      Int out_shape = {MultipliedString{"mergesh"}};
-      Int out_stride = {MultipliedString{"mergestr"}};
+      // For now, we don't flatten any merges, we just represent them as
+      // IntTuple always
+      Int out_shape = std::make_shared<IntTuple>(
+          std::vector<Int>{outer_shape, inner_shape});
+      Int out_stride = std::make_shared<IntTuple>(
+          std::vector<Int>{outer_stride, inner_stride});
 
       id_size_stride.emplace(
           merge->out(), std::pair<Int, Int>{out_shape, out_stride});
