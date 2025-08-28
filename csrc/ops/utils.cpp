@@ -102,11 +102,12 @@ Val* promoteSize(Val* v1, Val* v2) {
   if (!v1->isConstInt() && !v2->isConstInt()) {
     return v1;
   } else if (v1->isConstInt() && v2->isConstInt()) {
-
     auto fmtVal = [](Val* v) {
       std::ostringstream oss;
-      if (v->isConstInt()) oss << v->evaluate();
-      else oss << v->toString() << " (" << v->evaluate() << ")";
+      if (v->isConstInt())
+        oss << v->evaluate();
+      else
+        oss << v->toString() << " (" << v->evaluate() << ")";
       return oss.str();
     };
 
