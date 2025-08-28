@@ -379,6 +379,11 @@ bool isPointwiseTvOp(const Expr* expr);
 
 bool isSegmentSet(const Expr* e);
 
+template <typename ExprType>
+bool isProducedBy(const Val* val) {
+  return val->definition() != nullptr && val->definition()->isA<ExprType>();
+}
+
 // Returns all non-trivial view operations. We shouldn't have trivial view
 // operations but this function is to simply make sure if we ever do we don't
 // pull them in.
