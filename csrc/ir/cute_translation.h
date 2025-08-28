@@ -87,9 +87,53 @@ namespace cute_translation {
 // represent strides, but for that allocation domain we do associate a flag to
 // indicate whether each dimension in contiguous, meaning whether the immediate
 // inner dimension to that dimension has any padding.
-
-// Forward declare IntTuple to help define nested Int type
-struct IntTuple;
+//
+// The equivalent on nvFuser of a CuTE Layout is a path from a vector of
+// IterDomains representing a loop domain to a vector of IterDomains
+// representing the allocation domain of a TensorView (along with its
+// contiguity). These paths are found using a BFS in the indexing ValGraph
+// during nvFuser's indexing lowering pass and they are used to derive a linear
+// index scalar that combines strides with loop indices.
+//
+// For example, given an allocation domain [ iS0{i0}, iS1{i1} ] if we split the
+// first dimension by a factor of 5, we get [ iS2{ceilDiv(i0, 2)}, iS3{2},
+// iS1{i1} ]. This path to the allocation from that 3D loop domain can map 3
+// loop indices (let's call them i2, i3, & i4) to the linear index
+//
+//   (i2*2 + i3)*stride0 + i4*stride1
+//
+// Here stride0 and stride1 are not represented explicitly in our TensorDomain,
+// but we know that we can omit them in our expressions or replace them with
+// inner sizes if certain contiguity flags are set. With this correspondence it
+// is easy to see that the Split IterDomains path is equivalent to the Cute
+// Layout
+//    ((ceilDiv(i0,2),2),i1):((2*stride0,stride0),stride1)
+//
+// Modeling Merge expressions with Layouts is simple but more subtle. We already
+// discussed how we can convert a linear coordinate for a subtree into an
+// "unflattened" set of coordinates using divmod in a
+// right-to-left=outer-to-inner direction. This means we are in some sense
+// _already_ modeling merges using Layouts. We just need to make sure the order
+// of the inner dimensions matches the order we need to merge. For example,
+// let's say we started with a 3D allocation domain [ iS0{i0}, iS1{i1}, iS2{i2}
+// ] and then we merged the first two dimensions to get a loop domain like
+// [ iS3{i0*i1}, iS4{i2} ]. Given two loop indices i3 and i4 we would map these
+// to the following linear index:
+//
+//   (i3//i1)*stride0 + (i3%i1)*stride1 + i4*stride2
+//
+// Now suppose stride0=1, stride1=4, stride2=2 and all the sizes are 2:
+// i0=i1=i2=2. Then this mapping simplifies to
+//
+//   (i3//2)*1 + (i3%2)*4 + i4*2
+//
+// Notice that this is the same mapping as the ((2,2),2):((4,1),2) CuTE Layout.
+// Also note that we do need to take care that the merged dims are placed in the
+// correct orientation. In nvFuser's "row-major" convention the strides are [1,
+// 4, 2] and even though we merged these dimensions in the "natural" order for
+// nvFuser we wind up with a CuTE stride of ((4,1),2). To summarize, an nvFuser
+// Merge(outer,inner) operation maps to a
+// (inner_shape,outer_shape):(inner_stride,outer_stride) CuTE layout.
 
 struct MultipliedString {
   std::string str;
@@ -112,6 +156,10 @@ inline MultipliedString operator*(const MultipliedString& a, const int64_t& b) {
 // We can think of IntTuple as a tree where each node is an Int. For internal
 // nodes, the Int is another IntTuple, but for leaf nodes it is either a
 // concrete integer (int64_t) or a symbolic integer with a std::string name.
+
+// Forward declare IntTuple to help define nested Int type
+//
+struct IntTuple;
 struct Int : public std::
                  variant<int64_t, MultipliedString, std::shared_ptr<IntTuple>> {
   using std::variant<int64_t, MultipliedString, std::shared_ptr<IntTuple>>::
