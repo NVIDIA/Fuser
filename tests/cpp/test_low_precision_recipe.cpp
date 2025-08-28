@@ -13,6 +13,7 @@
 
 #include <fusion.h>
 #include <ops/all_ops.h>
+#include <tests/cpp/nvfp4_quantization_test_helpers.h>
 #include <tests/cpp/utils.h>
 #include <tests/cpp/validator.h>
 
@@ -158,6 +159,150 @@ TEST_P(NVFP4QuantizeTest, WithoutPerTensorAmax) {
   auto outputs = fec.runFusionWithInputs(inputs);
 
   FusionKernelRuntime* runtime = fec.getMostRecentKernelRuntime();
+
+  // Check that the fusion is segmented into two groups.
+  // The normalization scheduler is used for the first group
+  EXPECT_THAT(
+      runtime->fusionSegments()->groups(),
+      UnorderedElementsAre(
+          HeuristicIs(SchedulerType::ExprEval),
+          HeuristicIs(SchedulerType::InnerPersistent)));
+}
+
+TEST_P(NVFP4QuantizeTest, WithoutPerTensorAmaxAgainstDeviceFunction) {
+  auto data_hp_dtype = GetParam();
+
+  // Skip this test if data_hp_dtype is not float
+  if (data_hp_dtype != DataType::Float) {
+    GTEST_SKIP() << "Test requires data_hp_dtype to be Float, but got "
+                 << data_hp_dtype;
+  }
+
+  std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  auto tv_data_hp = makeContigTensor(2, data_hp_dtype);
+  fusion->addInput(tv_data_hp);
+
+  auto tv_data_hp_reshaped =
+      reshape(tv_data_hp, [](auto& x) { x.split(-1, block_size); });
+
+  auto tv_data_hp_abs = abs(tv_data_hp_reshaped);
+  auto tv_data_hp_amax = max(tv_data_hp_abs, {-1});
+  // These scales are currently in fp32, we are going to `quantize` them to e4m3
+  // Note: in the torchao implementation, tv_block_scale is bf16 if the input is
+  // bf16 But in our case, tv_block_scale is always fp32, regardless of the
+  // input dtype.
+  auto tv_block_scale = div(
+      tv_data_hp_amax, IrBuilder::create<Val>(F4_E2M1_MAX, DataType::Float));
+  auto tv_block_scale_clamp = clamp(
+      tv_block_scale,
+      IrBuilder::create<Val>(E4M3_EPS, DataType::Float),
+      IrBuilder::create<Val>(F8E4M3_MAX, DataType::Float));
+  auto tv_block_scale_fp8 =
+      castOp(DataType::Float8_e4m3fn, tv_block_scale_clamp);
+  // TODO: should we just use auto tv_block_scale_fp32 = tv_block_scale_clamp?
+  auto tv_block_scale_fp32 = castOp(DataType::Float, tv_block_scale_fp8);
+  auto tv_block_scale_fp32_unsqueeze = unsqueeze(tv_block_scale_fp32, -1);
+  auto tv_data_scaled = div(tv_data_hp_reshaped, tv_block_scale_fp32_unsqueeze);
+  auto tv_data_scaled_clamp = clamp(
+      tv_data_scaled,
+      IrBuilder::create<Val>(-F4_E2M1_MAX, DataType::Float),
+      IrBuilder::create<Val>(F4_E2M1_MAX, DataType::Float));
+
+  auto tv_data_lp_fp4 = castOp(DataType::Float4_e2m1fn, tv_data_scaled_clamp);
+  auto tv_data_lp = reshape(tv_data_lp_fp4, [](auto& x) { x.merge(-2); });
+
+  fusion->addOutput(tv_block_scale_fp8);
+  fusion->addOutput(tv_data_lp);
+
+  FusionExecutorCache fec(std::move(fusion));
+
+  std::vector<at::Tensor> inputs;
+  auto rows = 1024;
+  auto cols = 1024;
+
+  auto input_tensor =
+      at::randn({rows, cols}, at::device(at::kCUDA).dtype(at::kFloat));
+  inputs.push_back(input_tensor.to(data_type_to_aten(data_hp_dtype)));
+  auto outputs = fec.runFusionWithInputs(inputs);
+
+  FusionKernelRuntime* runtime = fec.getMostRecentKernelRuntime();
+
+  auto block_scales = outputs[0];
+  // Extract the actual at::Tensor from the dynamic type for block scales
+  at::Tensor block_scales_tensor = block_scales.as<at::Tensor>();
+  // Copy block scales to CPU for safe access and print values
+  at::Tensor block_scales_cpu = block_scales_tensor.cpu();
+
+  uint8_t* block_scales_data_ptr =
+      reinterpret_cast<uint8_t*>(block_scales_cpu.data_ptr());
+
+  // Call the device function for comparison
+  // Get the input tensor data pointer (already on GPU)
+  const float* d_input = inputs[0].data_ptr<float>();
+  int total_elements = inputs[0].numel();
+  nvfp4_types::__e2m1* h_output_e2m1 = nullptr;
+  nvfp4_types::__e4m3* h_output_e4m3 = nullptr;
+
+  // Call the fp_conversion_kernel_execute function
+  cudaError_t kernel_err = fp_conversion_kernel_execute<8, 16>(
+      d_input, 16, total_elements, &h_output_e2m1, &h_output_e4m3);
+
+  if (kernel_err != cudaSuccess) {
+    std::cerr << "CUDA kernel failed: " << cudaGetErrorString(kernel_err)
+              << std::endl;
+  }
+
+  // Compare h_output_e4m3 and block_scales_data_ptr using Google Test
+  // assertions
+  if (h_output_e4m3) {
+    size_t num_scale_bytes = (rows * cols) / 16; // Number of scale values
+
+    for (size_t i = 0; i < num_scale_bytes; ++i) {
+      uint8_t device_byte = h_output_e4m3[i].raw();
+      uint8_t fusion_byte = block_scales_data_ptr[i];
+
+      EXPECT_EQ(device_byte, fusion_byte)
+          << "Mismatch at index " << i << ": device=0x" << std::hex
+          << std::setw(2) << std::setfill('0')
+          << static_cast<unsigned int>(device_byte) << ", fusion=0x"
+          << static_cast<unsigned int>(fusion_byte) << std::dec;
+    }
+  }
+
+  // Extract the actual at::Tensor from the dynamic type
+  at::Tensor quantized_vals = outputs[1].as<at::Tensor>();
+
+  // Copy tensor to CPU for safe access
+  at::Tensor quantized_vals_cpu = quantized_vals.cpu();
+
+  // Get pointer to underlying data and treat as uint8_t
+  uint8_t* quantized_data_ptr =
+      reinterpret_cast<uint8_t*>(quantized_vals_cpu.data_ptr());
+
+  // Compare quantized_data_ptr and h_output_e2m1 using Google Test assertions
+  if (h_output_e2m1) {
+    size_t num_quantized_bytes =
+        (rows * cols) / 2; // Number of quantized values (2 FP4 values per byte)
+
+    for (size_t i = 0; i < num_quantized_bytes; ++i) {
+      uint8_t fusion_byte = quantized_data_ptr[i];
+      uint8_t device_byte = h_output_e2m1[i].data;
+
+      EXPECT_EQ(fusion_byte, device_byte)
+          << "Mismatch at index " << i << ": fusion=0x" << std::hex
+          << std::setw(2) << std::setfill('0')
+          << static_cast<unsigned int>(fusion_byte) << ", device=0x"
+          << static_cast<unsigned int>(device_byte) << std::dec;
+    }
+  }
+
+  // Clean up allocated memory
+  if (h_output_e2m1)
+    delete[] h_output_e2m1;
+  if (h_output_e4m3)
+    delete[] h_output_e4m3;
 
   // Check that the fusion is segmented into two groups.
   // The normalization scheduler is used for the first group

@@ -992,6 +992,48 @@ if(BUILD_TEST)
     ${NVFUSER_ROOT}/third_party/googletest/googlemock/include
   )
 
+  set(NVFP4_QUANT_TEST_KERNELS "nvfp4_quant_test_kernels")
+
+  # Create a custom target to compile the CUDA file with specific flags
+  # This bypasses CMake's automatic CUDA architecture handling
+  add_custom_command(
+    OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/nvfp4_quantization_kernels.o
+    COMMAND ${CMAKE_CUDA_COMPILER}
+      -gencode arch=compute_100a,code=sm_100a
+      -gencode arch=compute_120a,code=sm_120a
+      -O2 -std=c++17
+      --extended-lambda --expt-relaxed-constexpr
+      -I${NVFUSER_ROOT} -I${NVFUSER_ROOT}/csrc
+      -I${NVFUSER_ROOT}/third_party/googletest/googletest/include
+      -I${NVFUSER_ROOT}/third_party/googletest/googlemock/include
+      -c ${NVFUSER_ROOT}/tests/cpp/nvfp4_quantization_kernels.cu
+      -o ${CMAKE_CURRENT_BINARY_DIR}/nvfp4_quantization_kernels.o
+    DEPENDS ${NVFUSER_ROOT}/tests/cpp/nvfp4_quantization_kernels.cu
+    COMMENT "Compiling nvfp4_quantization_kernels.cu with custom flags"
+  )
+
+  # Create a library from the compiled object
+  add_library(${NVFP4_QUANT_TEST_KERNELS} SHARED
+    ${CMAKE_CURRENT_BINARY_DIR}/nvfp4_quantization_kernels.o
+  )
+
+  # Set properties for the library
+  set_target_properties(${NVFP4_QUANT_TEST_KERNELS} PROPERTIES
+    LINKER_LANGUAGE CUDA
+    CXX_STANDARD 17
+  )
+
+  target_include_directories(${NVFP4_QUANT_TEST_KERNELS} PRIVATE "${NVFUSER_ROOT}")
+  target_include_directories(${NVFP4_QUANT_TEST_KERNELS} SYSTEM PRIVATE
+    ${NVFUSER_ROOT}/third_party/googletest/googletest/include
+    ${NVFUSER_ROOT}/third_party/googletest/googlemock/include
+  )
+  target_include_directories(${NVFP4_QUANT_TEST_KERNELS} PRIVATE
+    ${CMAKE_SOURCE_DIR}/csrc
+  )
+  target_link_libraries(${NVFP4_QUANT_TEST_KERNELS} PRIVATE torch ${TORCH_LIBRARIES})
+
+
   set(SCAN_TEST_KERNELS "scan_test_kernels")
   add_library(${SCAN_TEST_KERNELS} SHARED
     ${NVFUSER_ROOT}/tests/cpp/scan_test_kernels.cu
@@ -1051,7 +1093,7 @@ endfunction()
 
 if(BUILD_TEST)
   set(TEST_BINARIES)
-  add_test(test_nvfuser "${JIT_TEST_SRCS}" "")
+  add_test(test_nvfuser "${JIT_TEST_SRCS}" "${NVFP4_QUANT_TEST_KERNELS}")
   list(APPEND TEST_BINARIES test_nvfuser)
 
   add_test(test_rng ${NVFUSER_ROOT}/tests/cpp/test_rng.cpp ${RNG_TEST_KERNELS})
