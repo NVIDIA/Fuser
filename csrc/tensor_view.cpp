@@ -1156,12 +1156,16 @@ TensorView* TensorView::cacheBefore(LoadStoreOpType op_type) {
   // from the logical domain of the scatter index tensor. Here, the
   // consumer tensor needs to copy the whole producer tensor, so the
   // loop domain must be based on the logical domain.
-  // TODO: Allocation domain may still need to be propagated.
   if (!producer->definition()->isA<ScatterOp>()) {
     auto replayed_consumer_pair = TransformReplay::replayCasP(
         consumer, producer, -1, TransformReplayOptions().replayAllocation());
 
     consumer->setDomain(replayed_consumer_pair.first);
+  } else if (producer->hasAllocation()) {
+    consumer->setAllocationDomain(
+        ir_utils::propagateScatterAllocationDomain(
+            producer, consumer->getLogicalDomain()),
+        true);
   }
 
   if (consumer->hasDeviceMesh()) {

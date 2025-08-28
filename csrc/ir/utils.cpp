@@ -1698,4 +1698,22 @@ std::vector<IterDomain*> getReachableIds(
   return dependent_ids;
 }
 
+std::vector<IterDomain*> propagateScatterAllocationDomain(
+    TensorView* from_tv,
+    const std::vector<IterDomain*>& to_logical_domain) {
+  auto logical_to_alloc = ir_utils::computePermutation(
+      from_tv->getLogicalDomain(), from_tv->getAllocationDomain());
+  NVF_ERROR(
+      logical_to_alloc.has_value(),
+      "Allocation domain of scatter output must be a permutation of logical "
+      "domain: ",
+      from_tv->toString(),
+      ", logical: ",
+      toDelimitedString(from_tv->getLogicalDomain()),
+      ", allocation: ",
+      toDelimitedString(from_tv->getAllocationDomain()));
+  return ir_utils::applyPermutation(
+      to_logical_domain, logical_to_alloc.value());
+}
+
 } // namespace nvfuser::ir_utils

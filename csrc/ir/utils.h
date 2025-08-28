@@ -851,4 +851,8 @@ std::vector<IterDomain*> getReachableIds(
     const std::vector<IterDomain*>& domain,
     const std::vector<IterDomain*>& dependencies);
 
+std::vector<IterDomain*> propagateScatterAllocationDomain(
+    TensorView* from_tv,
+    const std::vector<IterDomain*>& to_logical_domain);
+
 } // namespace nvfuser::ir_utils

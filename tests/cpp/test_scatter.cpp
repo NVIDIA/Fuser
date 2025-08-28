@@ -96,7 +96,6 @@ TEST_P(ScatterTest, BlockCountingWithShmem) {
   auto tv2 = zeros({IrBuilder::create<Val>(m)}, DataType::Int);
   auto tv3 = ones({IrBuilder::create<Val>(n)}, DataType::Int);
   auto tv4 = scatter(tv2, 0, tv1, tv3);
-  //  auto tv5 = add(tv4, fusion.oneVal(DataType::Int));
   auto tv5 = set(tv4);
   fusion.addOutput(tv5);
 
@@ -123,7 +122,12 @@ TEST_P(ScatterTest, BlockCountingWithShmem) {
     FusionExecutorCache executor_cache(std::move(fusion_ptr));
     auto outputs = executor_cache.runFusionWithInputs({t0});
     testValidate(executor_cache.fusion(), outputs, {t0}, __LINE__, __FILE__);
-    EXPECT_FALSE(executor_cache.getMostRecentKernelRuntime()->isSegmented());
+    FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
+    EXPECT_THAT(
+        runtime->fusionSegments()->groups(),
+        testing::UnorderedElementsAre(
+            HeuristicIs(SchedulerType::ExprEval),
+            HeuristicIs(SchedulerType::Greedy)));
   }
 }
 
