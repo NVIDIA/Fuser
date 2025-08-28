@@ -174,6 +174,7 @@ const std::unordered_map<std::string, EnableOption>& getEnableOptions() {
           {"warn_register_spill", EnableOption::WarnRegisterSpill},
           {"ws_normalization", EnableOption::WarpSpecializedNormalization},
           {"host_ir_lowering", EnableOption::HostIrLowering},
+          {"fast_math", EnableOption::FastMath},
       };
   return available_options;
 }
