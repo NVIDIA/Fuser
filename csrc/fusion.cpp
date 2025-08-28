@@ -465,26 +465,24 @@ std::ostream& Fusion::printCute(
       continue;
     }
 
-    std::vector<std::string> inpnames;
-    inpnames.reserve(expr->inputs().size());
-    for (Val* inp : expr->inputs()) {
-      if (auto* tv = dynamic_cast<TensorView*>(inp)) {
-        inpnames.push_back(tv->fullName());
-      } else {
-        inpnames.push_back(ir_utils::varName(inp));
-      }
-    }
-    std::vector<std::string> outnames;
-    outnames.reserve(expr->outputs().size());
     for (Val* out : expr->outputs()) {
       if (auto* tv = dynamic_cast<TensorView*>(out)) {
-        outnames.push_back(tv->fullName());
+        os << tv->fullName() << ": " << p.loopToAlloc(tv) << "\n";
       } else {
-        outnames.push_back(ir_utils::varName(out));
+        os << ir_utils::varName(out) << "\n";
       }
     }
-    os << toDelimitedString(outnames) << " = " << expr->getOpString() << "("
-       << toDelimitedString(inpnames) << ")\n";
+    os << "  = " << expr->getOpString() << "(\n";
+    for (Val* inp : expr->inputs()) {
+      if (auto* tv = dynamic_cast<TensorView*>(inp)) {
+        os << "    " << tv->fullName() << ": "
+           << p.consumerLoopToProducerAlloc(ir_utils::getTvOutput(expr), tv)
+           << "\n";
+      } else {
+        os << ir_utils::varName(inp) << "\n";
+      }
+    }
+    os << "  )\n";
   }
 
   os << "} // %kernel\n";

@@ -10,6 +10,7 @@
 #include <ir/cute_translation.h>
 #include <ir/utils.h>
 #include <iter_visitor.h>
+#include <utils.h>
 
 #include <ostream>
 #include <sstream>
@@ -52,10 +53,8 @@ std::string Int::toString() const {
 
 Int operator*(const Int& a, const Int& b) {
   NVF_ERROR(
-      !std::holds_alternative<std::shared_ptr<IntTuple>>(a),
-      "Cannot multiple IntTuple yet");
-  NVF_ERROR(
-      !std::holds_alternative<std::shared_ptr<IntTuple>>(b),
+      !std::holds_alternative<std::shared_ptr<IntTuple>>(a) &&
+          !std::holds_alternative<std::shared_ptr<IntTuple>>(b),
       "Cannot multiple IntTuple yet");
   if (std::holds_alternative<int64_t>(a) &&
       std::holds_alternative<int64_t>(b)) {
@@ -72,12 +71,36 @@ Int operator*(const Int& a, const Int& b) {
   return {MultipliedString{"UNIMPLEMENTED MUL"}};
 }
 
+Int ceilDivInt(const Int& a, const Int& b) {
+  NVF_ERROR(
+      !std::holds_alternative<std::shared_ptr<IntTuple>>(a) &&
+          !std::holds_alternative<std::shared_ptr<IntTuple>>(b),
+      "Cannot ceilDiv IntTuple yet");
+  if (std::holds_alternative<int64_t>(a) &&
+      std::holds_alternative<int64_t>(b)) {
+    return {ceilDiv(std::get<int64_t>(a), std::get<int64_t>(b))};
+  } else if (
+      std::holds_alternative<MultipliedString>(a) &&
+      std::holds_alternative<int64_t>(b)) {
+    return {MultipliedString{
+        "ceilDiv(" + std::get<MultipliedString>(a).str + "," +
+        std::to_string(std::get<int64_t>(b)) + ")"}};
+  } else if (
+      std::holds_alternative<int64_t>(a) &&
+      std::holds_alternative<MultipliedString>(b)) {
+    return {MultipliedString{
+        "ceilDiv(" + std::to_string(std::get<int64_t>(a)) + "," +
+        std::get<MultipliedString>(b).str + ")"}};
+  }
+  return {MultipliedString{"UNIMPLEMENTED MUL"}};
+}
+
 std::ostream& operator<<(std::ostream& os, const IntTuple& t) {
   os << "(";
   bool first = true;
   for (const Int& i : t) {
     if (!first) {
-      os << ", ";
+      os << ",";
     }
     first = false;
     os << i;
@@ -138,6 +161,14 @@ CuteLayout CuteConverter::getLayout(
 
   // Now traverse from the base (allocation) layout to the loop domain. At
   // each stage, we fill out a size/stride combo for each ID
+  struct IdInfo {
+    Int shape;
+    Int stride;
+    // If this is the inner part of a split, or this started as a contiguous
+    // dimension inner to another domain, this points to that outer contiguous
+    // domain.
+    IterDomain* contig_outer = nullptr;
+  };
   std::unordered_map<IterDomain*, std::pair<Int, Int>> id_size_stride;
   NVF_ERROR_EQ(base_alloc_layout.size(), true_alloc.size());
   for (size_t i : arange(true_alloc.size())) {
@@ -158,14 +189,53 @@ CuteLayout CuteConverter::getLayout(
         Direction::Forward,
         "Only forward direction is supported at this time");
     if (auto* split = dynamic_cast<Split*>(expr)) {
-      // TODO
-      NVF_THROW("Split support not yet implemented ", split->toString());
+      auto it = id_size_stride.find(split->in());
+      if (it == id_size_stride.end()) {
+        NVF_THROW("TODO: Use 1:1 here");
+        continue;
+      }
+      auto& [in_shape, in_stride] = it->second;
+      Int inner_shape = getIntFromVal(split->factor(), "split");
+      Int outer_shape = ceilDivInt(in_shape, inner_shape);
+      Int inner_stride = in_stride;
+      Int outer_stride = inner_stride * inner_shape;
+      id_size_stride.emplace(
+          split->outer(), std::pair<Int, Int>{outer_shape, outer_stride});
+      id_size_stride.emplace(
+          split->inner(), std::pair<Int, Int>{inner_shape, inner_stride});
     } else if (auto* merge = dynamic_cast<Merge*>(expr)) {
-      // TODO
-      NVF_THROW("Merge support not yet implemented ", merge->toString());
+      auto it = id_size_stride.find(merge->outer());
+      if (it == id_size_stride.end()) {
+        NVF_THROW("TODO: Use 1:1 here");
+        continue;
+      }
+      // auto& [outer_shape, outer_stride] = it->second;
+      it = id_size_stride.find(merge->inner());
+      if (it == id_size_stride.end()) {
+        NVF_THROW("TODO: Use 1:1 here");
+        continue;
+      }
+      // auto& [inner_shape, inner_stride] = it->second;
+
+      // TODO: Check if this is a contiguous merge. If so, then we can flatten
+      // it IF NOT contiguous merge, then create a new IntTuple consisting of
+      // the incoming shapes/strides
+
+      Int out_shape = {MultipliedString{"mergesh"}};
+      Int out_stride = {MultipliedString{"mergestr"}};
+
+      id_size_stride.emplace(
+          merge->out(), std::pair<Int, Int>{out_shape, out_stride});
     } else if (auto* swizzle = dynamic_cast<Swizzle*>(expr)) {
-      // TODO
-      NVF_THROW("Swizzle support not yet implemented ", swizzle->toString());
+      Int outX_shape = {MultipliedString{"swizsh"}};
+      Int outX_stride = {MultipliedString{"swizstr"}};
+      Int outY_shape = {MultipliedString{"swizsh"}};
+      Int outY_stride = {MultipliedString{"swizstr"}};
+
+      id_size_stride.emplace(
+          swizzle->outX(), std::pair<Int, Int>{outX_shape, outX_stride});
+      id_size_stride.emplace(
+          swizzle->outY(), std::pair<Int, Int>{outY_shape, outY_stride});
     } else if (auto* swizzle = dynamic_cast<Swizzle2D*>(expr)) {
       // TODO
       NVF_THROW("Swizzle2D support not yet implemented ", swizzle->toString());
@@ -184,7 +254,6 @@ CuteLayout CuteConverter::getLayout(
     if (it == id_size_stride.end()) {
       // TODO: I actually think this is fine but we need to check some
       // conditions and insert the right entry here
-      std::cout << "WARNING: Couldn't find loop ID" << std::endl;
       continue;
     }
     final_shape.push_back(it->second.first);
@@ -192,6 +261,16 @@ CuteLayout CuteConverter::getLayout(
   }
 
   return {final_shape, final_stride};
+}
+
+Int CuteConverter::getIntFromVal(Val* v, const std::string& prefix) const {
+  PolymorphicValue s = expr_eval_.evaluate(v);
+  if (s.is<int64_t>()) {
+    return {s.as<int64_t>()};
+  } else {
+    // Use a string to represent this extent if it's not constant
+    return {MultipliedString{prefix + std::to_string(v->name())}};
+  }
 }
 
 CuteLayout CuteConverter::getInitialLayout(
@@ -205,18 +284,10 @@ CuteLayout CuteConverter::getInitialLayout(
   // We build up the shape and strides in reverse from inner to outer
   Int inner_size{1};
   Int inner_stride{1};
-  ExpressionEvaluator ee;
   for (size_t i : std::ranges::views::reverse(arange(alloc.size()))) {
     IterDomain* id = alloc.at(i);
     std::optional<bool> c = contig.at(i);
-    Int new_size;
-    PolymorphicValue s = ee.evaluate(id->getMaybeExpandedExtent());
-    if (s.is<int64_t>()) {
-      new_size = {s.as<int64_t>()};
-    } else {
-      // Use a string to represent this extent if it's not constant
-      new_size = {MultipliedString{"sz" + std::to_string(id->name())}};
-    }
+    Int new_size = getIntFromVal(id->getMaybeExpandedExtent(), "sh");
     shape.push_back(new_size);
 
     Int new_stride = inner_stride * inner_size;

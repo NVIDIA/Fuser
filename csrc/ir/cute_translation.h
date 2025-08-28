@@ -8,6 +8,7 @@
 #pragma once
 
 #include <exceptions.h>
+#include <expr_evaluator.h>
 #include <id_model/id_model.h>
 #include <ir/interface_nodes.h>
 #include <ir/internal_base_nodes.h>
@@ -54,6 +55,7 @@ struct Int : public std::
   std::string toString() const;
 };
 Int operator*(const Int& a, const Int& b);
+Int ceilDivInt(const Int& a, const Int& b);
 std::ostream& operator<<(std::ostream& os, const Int& i);
 
 //! This represents a cute::IntTuple
@@ -87,10 +89,18 @@ class CuteConverter {
     return getLayout(logical, alloc, tv->getMemoryType(), tv->getContiguity());
   }
 
+  inline CuteLayout consumerLoopToProducerAlloc(
+      TensorView* producer,
+      TensorView* consumer) const {
+    const std::vector<IterDomain*>& loop = consumer->getLoopDomain();
+    const std::vector<IterDomain*>& alloc =
+        producer->getMaybeAllocationDomain();
+    return getLayout(
+        loop, alloc, producer->getMemoryType(), producer->getContiguity());
+  }
+
   inline CuteLayout loopToAlloc(TensorView* tv) const {
-    const std::vector<IterDomain*>& loop = tv->getLoopDomain();
-    const std::vector<IterDomain*>& alloc = tv->getMaybeAllocationDomain();
-    return getLayout(loop, alloc, tv->getMemoryType(), tv->getContiguity());
+    return consumerLoopToProducerAlloc(tv, tv);
   }
 
  private:
@@ -104,8 +114,13 @@ class CuteConverter {
       const std::vector<IterDomain*>& alloc,
       const std::vector<std::optional<bool>>& contig) const;
 
+  //! Returns an Int that is an int64_t if v is constant, otherwise returns a
+  //! MultipliedString like sz13 if v->name()==13 and prefix=="sz"
+  Int getIntFromVal(Val* v, const std::string& prefix) const;
+
  private:
   const IdModel id_model_;
+  ExpressionEvaluator expr_eval_;
 };
 
 } // namespace cute_translation
