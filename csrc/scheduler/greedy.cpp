@@ -40,9 +40,8 @@ std::vector<Expr*> getAllConstrainedOps(Fusion* fusion) {
   return ir_utils::getOpsOfType<ArgsortOp, ScanOp, PadOp>(fusion);
 }
 
-// Given offsets of logical IDs, return corresponding loop IDs and
-// their offsets
-std::pair<std::vector<int64_t>, std::vector<IterDomain*>> getDependentLoopIds(
+// Given offsets of logical IDs, return corresponding loop ID offsets
+std::vector<int64_t> getDependentLoopIds(
     TensorView* tv,
     const std::vector<int64_t>& logical_id_offsets) {
   std::vector<Val*> logical_ids;
@@ -60,16 +59,14 @@ std::pair<std::vector<int64_t>, std::vector<IterDomain*>> getDependentLoopIds(
   const std::unordered_set<Val*> logical_loop_all_id_set{
       logical_loop_all_ids.begin(), logical_loop_all_ids.end()};
 
-  std::vector<IterDomain*> loop_ids;
   std::vector<int64_t> loop_id_offsets;
   for (const auto [i, loop_id] : enumerate(tv->getLoopDomain())) {
     if (logical_loop_all_id_set.contains(loop_id)) {
-      loop_ids.push_back(loop_id);
       loop_id_offsets.push_back(i);
     }
   }
 
-  return std::make_pair(loop_id_offsets, loop_ids);
+  return loop_id_offsets;
 }
 
 class CompileTimeChecker : private IterVisitor {
@@ -460,7 +457,7 @@ class ConstrainedOpScheduler : public OptOutDispatch {
       const std::vector<int64_t>& constrained_logical_id_offsets) {
     NVF_ERROR(!constrained_logical_id_offsets.empty());
 
-    const auto& [constrained_loop_id_offsets, constrained_loop_ids] =
+    const auto& constrained_loop_id_offsets =
         getDependentLoopIds(tv, constrained_logical_id_offsets);
 
     // Move the constrained_logical_ids innermost

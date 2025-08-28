@@ -594,6 +594,8 @@ void scheduleLoopDomainsBy(
       for (const auto& ref_id : transform->inputs()) {
         auto clone = ref_id->as<IterDomain>()->cloneWithoutRFactor();
         input_ids.push_back(clone);
+        const auto& input_id_group = exact_graph.toGroup(ref_id);
+        register_mapping(input_id_group, clone);
       }
 
       // The definition of the output IDs will be set to the newly
