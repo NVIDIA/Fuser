@@ -153,11 +153,41 @@ TEST_P(NVFP4QuantizeTest, WithoutPerTensorAmax) {
 
   std::vector<at::Tensor> inputs;
   inputs.push_back(
-      at::randn({1024, 1024}, at::device(at::kCUDA).dtype(at::kFloat))
+      at::ones({1024, 1024}, at::device(at::kCUDA).dtype(at::kFloat))
           .to(data_type_to_aten(data_hp_dtype)));
   auto outputs = fec.runFusionWithInputs(inputs);
 
   FusionKernelRuntime* runtime = fec.getMostRecentKernelRuntime();
+  auto a = outputs[1];
+
+  // Extract the actual at::Tensor from the dynamic type
+  at::Tensor fp4_tensor = a.as<at::Tensor>();
+
+  // Copy tensor to CPU for safe access
+  at::Tensor fp4_tensor_cpu = fp4_tensor.cpu();
+
+  // Print the underlying memory as uint8_t
+  std::cout << "FP4 tensor shape: " << fp4_tensor_cpu.sizes() << std::endl;
+  std::cout << "FP4 tensor dtype: " << fp4_tensor_cpu.dtype() << std::endl;
+  std::cout << "FP4 tensor numel: " << fp4_tensor_cpu.numel() << std::endl;
+
+  // Get pointer to underlying data and treat as uint8_t
+  uint8_t* data_ptr = reinterpret_cast<uint8_t*>(fp4_tensor_cpu.data_ptr());
+  size_t num_bytes = fp4_tensor_cpu.numel() * fp4_tensor_cpu.element_size();
+
+  std::cout << "Raw memory contents (first 32 bytes as hex):" << std::endl;
+  for (size_t i = 0; i < std::min(num_bytes, size_t(32)); ++i) {
+    uint8_t byte = data_ptr[i];
+    uint8_t lower_4bits = byte & 0x0F;
+    uint8_t upper_4bits = (byte & 0xF0) >> 4;
+    std::cout << "0x" << std::hex << std::setw(2) << std::setfill('0')
+              << static_cast<unsigned int>(byte) << " (L:" << std::hex
+              << static_cast<unsigned int>(lower_4bits) << " U:" << std::hex
+              << static_cast<unsigned int>(upper_4bits) << ") ";
+    if ((i + 1) % 8 == 0)
+      std::cout << std::endl;
+  }
+  std::cout << std::dec << std::endl;
 
   // Check that the fusion is segmented into two groups.
   // The normalization scheduler is used for the first group
