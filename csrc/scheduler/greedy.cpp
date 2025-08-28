@@ -105,35 +105,6 @@ std::vector<int64_t> getDependentLoopIds(
   return loop_id_offsets;
 }
 
-// Given offsets of logical IDs, return corresponding loop ID offsets
-std::vector<int64_t> getDependentLoopIds(
-    TensorView* tv,
-    const std::vector<int64_t>& logical_id_offsets) {
-  std::vector<Val*> logical_ids;
-  logical_ids.reserve(logical_id_offsets.size());
-  std::ranges::transform(
-      logical_id_offsets,
-      std::back_inserter(logical_ids),
-      [tv](int64_t logical_id_offset) {
-        return tv->getLogicalDomain().at(logical_id_offset);
-      });
-
-  const auto logical_loop_all_ids = DependencyCheck::getAllValsBetween(
-      {logical_ids.begin(), logical_ids.end()},
-      {tv->getLoopDomain().begin(), tv->getLoopDomain().end()});
-  const std::unordered_set<Val*> logical_loop_all_id_set{
-      logical_loop_all_ids.begin(), logical_loop_all_ids.end()};
-
-  std::vector<int64_t> loop_id_offsets;
-  for (const auto [i, loop_id] : enumerate(tv->getLoopDomain())) {
-    if (logical_loop_all_id_set.contains(loop_id)) {
-      loop_id_offsets.push_back(i);
-    }
-  }
-
-  return loop_id_offsets;
-}
-
 class CompileTimeChecker : private IterVisitor {
  public:
   static bool run(Fusion* fusion, const ValGraph& exact_graph) {
