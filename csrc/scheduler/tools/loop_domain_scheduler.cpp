@@ -580,7 +580,8 @@ void scheduleLoopDomainsBy(
       if (replay_dir_tv == Direction::Forward) {
         auto replayed_expr = ReplayForwardTransformOnLoopDomain::replayAs(
             tv, input_ids, transform);
-        NVF_ERROR_EQ(replayed_expr->outputs().size(), output_groups.size());
+        NVF_ERROR_EQ(
+            std::ssize(replayed_expr->outputs()), output_groups.size());
         for (const auto& [output_id_group, new_output_id] :
              zip(output_groups, replayed_expr->outputs())) {
           NVF_ERROR(new_output_id->isA<IterDomain>());

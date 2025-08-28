@@ -92,6 +92,10 @@ class CompileTimeChecker : private IterVisitor {
     }
 
     traverse(fusion);
+    if (!can_schedule_) {
+      return;
+    }
+
     // If this fusion requires the exact block dimension, requires the
     // constrained IDs to be exactly mapped. This is not necessary but
     // sufficient.
@@ -235,6 +239,7 @@ class CompileTimeChecker : private IterVisitor {
                << nvfuser::toString(unconstrained_domain)
                << ". Ref: " << nvfuser::toString(*unique_unconstrained_domain_);
         setRejectReason(reason.str());
+        unique_unconstrained_domain_.reset();
       }
     } else {
       unique_unconstrained_domain_ = unconstrained_domain;
