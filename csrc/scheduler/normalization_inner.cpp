@@ -535,33 +535,47 @@ void innerPersistentHeuristicCluster(
     ReductionParams* rparams) {
   // Inner reduction domain
   // vect x TID x persistent_batch x BID
-  // Prefer 4 blocks each with 8 warps, then we have 32 warps per cluster.
-  // After warp reduction, there are 32 warp reduction results, they can be
-  // reduced within a single warp without serial reduction.
   int64_t vectorize_factor = properties.vectorize_factor;
   int64_t bdimx = 256;
-  int64_t blocks_per_cluster = 4;
   int64_t after_vect_bdimx =
       ceilDiv(properties.total_reduction_numel / vectorize_factor, bdimx);
-  int64_t persistent_batch = ceilDiv(after_vect_bdimx, blocks_per_cluster);
-
-  // each thread process [vectorize_factor x persistent_batch] elements.
-  // May decrease persistent_batch by increasing blocks_per_cluster to avoid
-  // register spills due to too many elements per thread.
   const int64_t buffer_bits_per_batch =
       properties.max_persistent_buffer_size_bit /
       properties.total_reduction_numel * vectorize_factor;
-  constexpr int64_t register_overhead = 32;
-  int64_t max_persistent_batch = scheduler_utils::safeDiv(
-      (scheduler_utils::max_registers_per_thread - register_overhead) *
-          scheduler_utils::bits_per_register,
-      buffer_bits_per_batch);
-  if (persistent_batch > max_persistent_batch) {
-    blocks_per_cluster = std::min(
-        ceilDiv(after_vect_bdimx, max_persistent_batch),
-        scheduler_utils::getMaxClusterSize());
-    persistent_batch = ceilDiv(after_vect_bdimx, blocks_per_cluster);
+  std::cout << "========== buffer_bits_per_batch: " << buffer_bits_per_batch
+            << std::endl;
+  // Given blocks per cluster and estimate blocks per sm from register usage
+  // Regsiters are used for indexing, computations, and buffering inputs.
+  auto getBlocksPerSM = [&](int64_t blocks_per_cluster) {
+    constexpr int64_t register_overhead = 16;
+    int64_t persistent_batch = ceilDiv(after_vect_bdimx, blocks_per_cluster);
+    int64_t register_per_thread = register_overhead +
+        ceilDiv(buffer_bits_per_batch * persistent_batch,
+                scheduler_utils::bits_per_register);
+    std::cout << "========== register_per_thread: " << register_per_thread
+              << std::endl;
+    return scheduler_utils::safeDiv(
+        getThreadsPerSMGivenRegPerThread(register_per_thread), bdimx);
+  };
+
+  // Start with 4 blocks each with 8 warps, then we have 32 warps per cluster.
+  // After warp reduction, there are 32 warp reduction results, they can be
+  // reduced within a single warp without serial reduction.
+  int64_t blocks_per_cluster = 4;
+  int64_t blocks_per_sm = getBlocksPerSM(blocks_per_cluster);
+  std::cout << "========== blocks_per_cluster = 4, blocks_per_sm: "
+            << blocks_per_sm << std::endl;
+  if (blocks_per_sm < 3) {
+    const int64_t max_bpc = scheduler_utils::getMaxClusterSize();
+    for (int64_t bpc = blocks_per_cluster * 2; bpc <= max_bpc; bpc *= 2) {
+      int64_t bpsm = getBlocksPerSM(bpc);
+      if (bpsm > blocks_per_sm) {
+        blocks_per_sm = bpsm;
+        blocks_per_cluster = bpc;
+      }
+    }
   }
+  int64_t persistent_batch = ceilDiv(after_vect_bdimx, blocks_per_cluster);
 
   rparams->cross_block_inner_reduction = true;
   rparams->cross_grid_inner_reduction = true;
