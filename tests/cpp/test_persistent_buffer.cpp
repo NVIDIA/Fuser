@@ -2000,7 +2000,7 @@ TEST_P(ClusterReductionTest, SoftmaxDtypeClusterSize) {
     auto tv3 = maybeCastOp(DataType::BFloat16, tv2);
     fusion.addOutput(tv3);
   } else {
-    auto tv2 = sum(tv1, 1);
+    auto tv2 = sum(tv1, {1});
     auto tv3 = broadcast(tv2, {false, true});
     auto tv4 = add(tv1, tv3);
     auto tv5 = maybeCastOp(DataType::BFloat16, tv4);

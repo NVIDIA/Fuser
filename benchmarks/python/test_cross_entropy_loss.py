@@ -175,7 +175,7 @@ def torch_cross_entropy(logits, labels):
 
 
 @pytest.mark.parametrize("batch_size", [1024, 4096, 32768])
-@pytest.mark.parametrize("vocab_size", [65536, 100352, 131072, 152064, 202048, 262144])
+@pytest.mark.parametrize("vocab_size", [i * 1024 for i in range(64, 257, 16)])
 def test_cross_entropy_nvf_static_benchmark(
     benchmark,
     batch_size: int,
