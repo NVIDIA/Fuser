@@ -1257,6 +1257,10 @@ TEST_F(PersistentBufferTest, SmemPersistentNotSupportedIn3DReduction) {
 }
 
 TEST_F(PersistentBufferTest, SmemPersistent2DReduction) {
+  // Skip hopper and above as they use cluster reduction
+  if (at::cuda::getCurrentDeviceProperties()->major >= 9) {
+    GTEST_SKIP();
+  }
   // 1024 elements is added to ensure the buffer size is larger than
   // max allowed register file size to trigger the use of smem persistent buffer
   // or segmentation.
@@ -1979,6 +1983,7 @@ using ClusterReductionTestParams =
 using ClusterReductionTest =
     NVFuserFixtureParamTest<ClusterReductionTestParams>;
 TEST_P(ClusterReductionTest, SoftmaxDtypeClusterSize) {
+  NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
   // reduction domain is scheduled as:
   // [blocks_per_cluster, batches_per_block, threads_per_block, vect_factor]
   auto [is_softmax, dtype, blocks_per_cluster] = GetParam();

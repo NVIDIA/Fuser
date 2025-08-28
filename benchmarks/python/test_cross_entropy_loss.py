@@ -167,7 +167,8 @@ def nvfuser_cross_entropy_fusion(
     T19 = fd.ops.squeeze(T18, dims=[1])
     T20 = fd.ops.cast(T19, dtype=DataType.Float)
     T21 = fd.ops.sub(T16, T20)
-    fd.add_output(T21)
+    T22 = fd.ops.cast(T21, dtype=DataType.BFloat16)
+    fd.add_output(T22)
 
 
 def torch_cross_entropy(logits, labels):

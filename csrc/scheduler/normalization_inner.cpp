@@ -1145,6 +1145,14 @@ std::unique_ptr<ReductionParams> getInnerPersistentHeuristics(
       prop.max_persistent_buffer_size_bit >
           scheduler_utils::register_file_size_bit) {
     innerPersistentHeuristicCluster(prop, rparams.get());
+  } else if (
+      prop.max_persistent_buffer_size_bit >
+      scheduler_utils::register_file_size_bit) {
+    rparams->tag = "Shared Memory Inner Persistent Heuristic.\n";
+    // all persistent buffers are moved to shared memory
+    // TODO: allow only part of the buffers to be moved to shared memory
+    rparams->smem_persistent_buffers = prop.persistent_buffers;
+    innerPersistentHeuristicSharedMemory(prop, rparams.get());
   } else if (prop.total_reduction_numel == prop.inner_most_dimension_numel) {
     rparams->tag = "2D Register Inner Persistent Heuristic.\n";
     innerPersistentHeuristic2D(prop, rparams.get());
