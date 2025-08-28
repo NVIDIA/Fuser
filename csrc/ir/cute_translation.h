@@ -7,6 +7,7 @@
 // clang-format on
 #pragma once
 
+#include <exceptions.h>
 #include <id_model/id_model.h>
 #include <ir/interface_nodes.h>
 #include <ir/internal_base_nodes.h>
@@ -55,6 +56,7 @@ struct Int : public std::
 Int operator*(const Int& a, const Int& b);
 std::ostream& operator<<(std::ostream& os, const Int& i);
 
+//! This represents a cute::IntTuple
 struct IntTuple : public std::vector<Int> {
   std::string toString() const;
 };
@@ -65,6 +67,11 @@ std::ostream& operator<<(std::ostream& os, const IntTuple& t);
 struct CuteLayout {
   IntTuple shape;
   IntTuple stride;
+
+  inline size_t size() const {
+    NVF_ERROR_EQ(shape.size(), stride.size());
+    return shape.size();
+  }
 
   std::string toString() const;
 };

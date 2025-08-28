@@ -5,9 +5,11 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <bfs.h>
 #include <expr_evaluator.h>
 #include <ir/cute_translation.h>
 #include <ir/utils.h>
+#include <iter_visitor.h>
 
 #include <ostream>
 #include <sstream>
@@ -136,8 +138,60 @@ CuteLayout CuteConverter::getLayout(
 
   // Now traverse from the base (allocation) layout to the loop domain. At
   // each stage, we fill out a size/stride combo for each ID
+  std::unordered_map<IterDomain*, std::pair<Int, Int>> id_size_stride;
+  NVF_ERROR_EQ(base_alloc_layout.size(), true_alloc.size());
+  for (size_t i : arange(true_alloc.size())) {
+    // Initialize id_size_stride with allocation domain mappings
+    id_size_stride.emplace(
+        true_alloc.at(i),
+        std::pair<Int, Int>{
+            base_alloc_layout.shape.at(i), base_alloc_layout.stride.at(i)});
+  }
+  for (const auto& [expr, direction] :
+       getExprsBetween<IRBFS>(
+           /*from=*/{true_alloc.begin(), true_alloc.end()},
+           /*to=*/{loop.begin(), loop.end()},
+           /*require_all_to_visited=*/false)
+           .first) {
+    NVF_ERROR_EQ(
+        direction,
+        Direction::Forward,
+        "Only forward direction is supported at this time");
+    if (auto* split = dynamic_cast<Split*>(expr)) {
+      // TODO
+      NVF_THROW("Split support not yet implemented ", split->toString());
+    } else if (auto* merge = dynamic_cast<Merge*>(expr)) {
+      // TODO
+      NVF_THROW("Merge support not yet implemented ", merge->toString());
+    } else if (auto* swizzle = dynamic_cast<Swizzle*>(expr)) {
+      // TODO
+      NVF_THROW("Swizzle support not yet implemented ", swizzle->toString());
+    } else if (auto* swizzle = dynamic_cast<Swizzle2D*>(expr)) {
+      // TODO
+      NVF_THROW("Swizzle2D support not yet implemented ", swizzle->toString());
+    } else {
+      NVF_THROW("Unsupported expr ", expr->toString());
+    }
+  }
+  // Now fill out the final layout by looking up the loop ID sizes and strides
+  // in the id_size_stride map
+  IntTuple final_shape;
+  IntTuple final_stride;
+  final_shape.reserve(loop.size());
+  final_stride.reserve(loop.size());
+  for (IterDomain* loop_id : loop) {
+    auto it = id_size_stride.find(loop_id);
+    if (it == id_size_stride.end()) {
+      // TODO: I actually think this is fine but we need to check some
+      // conditions and insert the right entry here
+      std::cout << "WARNING: Couldn't find loop ID" << std::endl;
+      continue;
+    }
+    final_shape.push_back(it->second.first);
+    final_stride.push_back(it->second.second);
+  }
 
-  return base_alloc_layout;
+  return {final_shape, final_stride};
 }
 
 CuteLayout CuteConverter::getInitialLayout(
