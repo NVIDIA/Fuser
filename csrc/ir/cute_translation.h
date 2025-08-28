@@ -60,7 +60,6 @@ struct IntTuple : public std::vector<Int> {
 };
 std::ostream& operator<<(std::ostream& os, const IntTuple& t);
 
-
 // A cute layout is a pair of IntTuples
 // https://docs.nvidia.com/cutlass/media/docs/cpp/cute/01_layout.html
 struct CuteLayout {
@@ -101,7 +100,6 @@ class CuteConverter {
  private:
   const IdModel id_model_;
 };
-
 
 } // namespace cute_translation
 
