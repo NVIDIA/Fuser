@@ -4890,6 +4890,29 @@ std::string SdpaFwdOp::toInlineString(int indent_size) const {
   NVF_CHECK(false, "Tensor op can not be printed inline");
 }
 
+namespace spda_meta {
+
+std::tuple<Tensor, Tensor> _scaled_dot_product_flash_attention_meta(
+    const Tensor& query) {
+  // Query (Batch x Num_heads x Q_seq_len  x Dim_per_head)
+  // Query -> Query(Batch x Q_seq_len  x Num_heads x Dim_per_head)
+  Tensor q_t = query.transpose(1, 2);
+
+  const auto sizes = q_t.sizes();
+  const int batch_size = sizes[0];
+  int seqlen_q = sizes[1];
+  int num_heads = sizes[2];
+  at::Tensor output = at::empty_like(q);
+  auto logsumexp = at::empty(
+      {batch_size, num_heads, seqlen_q}, q.options().dtype(at::kFloat));
+
+  // Reshape output to convert nnz to batch_size and seq_len
+  Tensor attention = output.transpose(1, 2);
+  return std::make_tuple(attention, logsumexp);
+}
+
+} // namespace spda_meta
+
 std::vector<PolymorphicValue> SdpaFwdOp::evaluate(
     const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
@@ -4961,15 +4984,16 @@ std::vector<PolymorphicValue> SdpaFwdOp::evaluate(
        key_seq_len,
        philox_seed,
        philox_offset,
-       debug_attn_mask] =
-          at::_scaled_dot_product_flash_attention(
-              query,
-              key,
-              value,
-              dropout_p,
-              is_causal,
-              /*return_debug_mask=*/false,
-              scale);
+       debug_attn_mask] = query.is_meta()
+      ? spda_meta::_scaled_dot_product_flash_attention_meta(query)
+      : at::_scaled_dot_product_flash_attention(
+            query,
+            key,
+            value,
+            dropout_p,
+            is_causal,
+            /*return_debug_mask=*/false,
+            scale);
 
   // If the inputs were padded, slice the output to restore the original
   // size
