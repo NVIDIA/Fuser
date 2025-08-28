@@ -196,10 +196,12 @@ CuteLayout CuteConverter::getLayout(
       auto it = id_size_stride.find(merge->outer());
       // Use 1:1 when ID is not found since that's an unallocated dim
       Int outer_shape = it == id_size_stride.end() ? Int{1} : it->second.first;
-      Int outer_stride = it == id_size_stride.end() ? Int{1} : it->second.second;
+      Int outer_stride =
+          it == id_size_stride.end() ? Int{1} : it->second.second;
       it = id_size_stride.find(merge->inner());
       Int inner_shape = it == id_size_stride.end() ? Int{1} : it->second.first;
-      Int inner_stride = it == id_size_stride.end() ? Int{1} : it->second.second;
+      Int inner_stride =
+          it == id_size_stride.end() ? Int{1} : it->second.second;
 
       // TODO: Check if this is a contiguous merge. If so, then we can flatten
       // it IF NOT contiguous merge, then create a new IntTuple consisting of
