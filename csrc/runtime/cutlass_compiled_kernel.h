@@ -20,6 +20,8 @@ class Fusion;
 
 class CutlassCompiledKernel : public CompiledKernel {
  public:
+  using CompiledKernel::CompiledKernel;
+
   void compile(const LaunchParams& lparams) override;
 
   void run(const KernelArgumentHolder& args, cudaStream_t stream) const;
@@ -36,8 +38,6 @@ class CutlassCompiledKernel : public CompiledKernel {
 
   // Load compiled module/function
   void loadKernel();
-
-  std::string kernelName() const;
 
  private:
   Fusion* fusion_;
