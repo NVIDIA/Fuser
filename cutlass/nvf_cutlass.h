@@ -102,6 +102,30 @@ NVF_API std::pair<torch::Tensor, torch::Tensor> nvfp4_scaled_mm_blockscale(
     const torch::Tensor& global_normconst,
     bool skip_checks = false);
 
+// Performs grouped scaled matrix multiplication using NVFP4 format.
+//
+// This function implements multiple scaled matrix multiplications in a grouped
+// format, where each group represents a separate GEMM operation with its own
+// parameters. The function is optimized for scenarios like mixture-of-experts
+// models where multiple independent matrix multiplications need to be performed
+// efficiently. The function uses CUTLASS kernels optimized for NVIDIA GPUs
+// with SM100+ architecture.
+//
+// Parameters:
+//   a: Input matrix A in Float4_e2m1fn_x2 format (M x K/2)
+//   b: Input matrix B in Float4_e2m1fn_x2 format (G x N, K/2)
+//   a_blockscale: Per-block scaling factors for matrix A in FP8_E4M3 format
+//   b_blockscales: Per-block scaling factors for matrix B in FP8_E4M3 format
+//   alphas: Global scaling factors for each group in FP32 format
+//   ab_strides: Stride information for matrices A and B across groups
+//   c_strides: Stride information for output matrix C across groups
+//   problem_sizes: Matrix dimensions (M, N, K) for each group
+//   expert_offsets: Offset indices for expert selection in grouped format
+//   sf_offsets: Scale factor offsets for each group
+//   out_dtype: Output data type (Half or BFloat16)
+//
+// Returns: Grouped matrix C = alpha * (A @ B) for all groups in the specified
+// output dtype
 NVF_API torch::Tensor nvfp4_scaled_grouped_mm(
     const torch::Tensor& a,
     const torch::Tensor& b,
