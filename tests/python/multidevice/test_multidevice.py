@@ -335,3 +335,31 @@ def test_privatize_squeeze(multidevice_direct_test):
     out1, out2 = fd.execute([sharded])
     torch.testing.assert_close(out1.cpu(), unsharded.to(torch.float).sum(0))
     torch.testing.assert_close(out2, sharded.to(torch.float).sum(1))
+
+
+@pytest.mark.mpi
+def test_inner_reduction(multidevice_direct_test):
+    d = multidevice_direct_test.size
+    mesh = nvfuser.multidevice.DeviceMesh(torch.arange(d))
+    torch.cuda.set_device(multidevice_direct_test.local_rank)
+
+    def _definition(fd: FusionDefinition) -> None:
+        inp = fd.define_tensor((-1, -1), dtype=DataType.Float)
+        sum_inner = fd.ops.sum(inp, [1])
+        fd.add_output(sum_inner)
+
+    def _multidevice_schedule(fd: FusionDefinition) -> None:
+        for t in fd.fusion.inputs():
+            t.set_device_mesh(mesh)
+            t.split(0, d, inner_split=False)
+            t.axis(0).parallelize(nvfuser.ParallelType.mesh_x)
+
+    unsharded = torch.ones(d * 3, 5)
+    sharded = multidevice_direct_test.shard_tensor(unsharded, 0, mesh)
+
+    with FusionDefinition() as fd:
+        _definition(fd)
+        _multidevice_schedule(fd)
+    ref_out = sharded.sum(1)
+    (out,) = fd.execute([sharded])
+    assert torch.allclose(ref_out, out)
