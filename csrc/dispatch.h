@@ -167,6 +167,7 @@ class Val;
   f(EndCoalescing);                   \
   f(ShareMemHandles);                 \
   f(HirAliasSelect);                  \
+  f(Narrow);                          \
   f(Deallocate);
 
 // Forward declarations for all Val and Expr types

@@ -19,9 +19,7 @@
 #include <ops/all_ops.h>
 #include <utils.h>
 
-namespace nvfuser {
-
-namespace hir {
+namespace nvfuser::hir {
 
 HostUnit::HostUnit(IrBuilderPasskey passkey, std::unique_ptr<Fusion> fusion)
     : Expr(passkey), fusion_(std::make_unique<Fusion>(*fusion)) {
@@ -424,6 +422,39 @@ std::string HirAliasSelect::toInlineString(int indent_size) const {
   NVF_THROW("Cannot be printed inline");
 }
 
-} // namespace hir
+Narrow::Narrow(
+    IrBuilderPasskey passkey,
+    TensorView* out,
+    TensorView* in,
+    int64_t axis,
+    Val* start,
+    Val* end)
+    : Expr(passkey, {in, start, end}, {out}, {}) {
+  NVF_CHECK(passkey.ir_container_ != nullptr);
+  NVF_CHECK(passkey.ir_container_->isA<HostIrContainer>());
+  NVF_CHECK_EQ(
+      TensorDomain::noReductions(in->getLogicalDomain()).size(),
+      out->getLogicalDomain().size());
+  NVF_CHECK_LE(0, axis);
+  NVF_CHECK_LT(axis, std::ssize(out->getLogicalDomain()));
 
-} // namespace nvfuser
+  addDataAttribute(axis);
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(Narrow)
+
+std::string Narrow::toString(int indent_size) const {
+  std::stringstream ss;
+  indent(ss, indent_size) << "Narrow(" << in()->toString()
+                          << ", axis = " << axis()
+                          << ", start = " << start()->toString()
+                          << ", end = " << end()->toString() << ")"
+                          << std::endl;
+  return ss.str();
+}
+
+std::string Narrow::toInlineString(int indent_size) const {
+  NVF_CHECK(false, "Cannot be printed inline");
+}
+
+} // namespace nvfuser::hir
