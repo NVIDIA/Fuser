@@ -12,13 +12,10 @@
 #include <ir/builder.h>
 #include <multidevice/communication.h>
 #include <scheduler/heuristic.h>
-#include <atomic>
-
-namespace nvfuser {
 
 // Host Irs are used to represent a host program. They need to be registered in
 // a HostIrContainer. Each Ir represents a Host data or instruction.
-namespace hir {
+namespace nvfuser::hir {
 
 // HostUnit represents a Fusion in the Host Program. In other words, it
 // represents a compute graph (or a segment of a larger compute graph)
@@ -417,6 +414,49 @@ class HirAliasSelect : public Expr {
   }
 };
 
-} // namespace hir
+class Narrow : public Expr {
+ public:
+  using Expr::Expr;
+  Narrow(
+      IrBuilderPasskey passkey,
+      TensorView* out,
+      TensorView* in,
+      int64_t axis,
+      Val* start,
+      Val* end);
 
-} // namespace nvfuser
+  Narrow(const Narrow& other) = delete;
+  Narrow& operator=(const Narrow& other) = delete;
+  Narrow(Narrow&& other) = delete;
+  Narrow& operator=(Narrow&& other) = delete;
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+  const char* getOpString() const override {
+    return "hir::Narrow";
+  }
+
+  TensorView* in() const {
+    return inputs().at(0)->as<TensorView>();
+  }
+
+  TensorView* out() const {
+    return attributeVal(0)->as<TensorView>();
+  }
+
+  int64_t axis() const {
+    return attribute<int64_t>(1);
+  }
+
+  Val* start() const {
+    return inputs().at(2);
+  }
+
+  Val* end() const {
+    return inputs().at(3);
+  }
+};
+
+} // namespace nvfuser::hir

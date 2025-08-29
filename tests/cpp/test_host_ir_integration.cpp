@@ -81,24 +81,43 @@ TEST_F(HostIrEvaluatorTest, AddOutPerStream) {
   TensorView* in = makeSymbolicTensor(2);
   TensorView* out = set(in);
   out->setMemoryType(MemoryType::Global);
+
   auto* allocate_out = IrBuilder::create<kir::Allocate>(
       out, MemoryType::Global, std::vector<Val*>({}), /*zero_init=*/true);
+
   TensorView* loop_in = set(in);
+  loop_in->outer_split(0, c);
+  loop_in->axis(0)->parallelize(ParallelType::Stream);
+  loop_in->setAllocationDomain(loop_in->getLoopDomain(), false);
+  auto* index_1 = hic->oneVal(DataType::Index);
+  auto* index_2 = IrBuilder::create<Val>(2, DataType::Index);
+  auto* narrow_in = IrBuilder::create<Narrow>(
+      loop_in,
+      in,
+      0,
+      mul(index_1, loop_in->axis(1)),
+      mul(index_2, loop_in->axis(1)));
+
   TensorView* loop_out = set(out);
+  loop_out->outer_split(0, c);
+  loop_out->axis(0)->parallelize(ParallelType::Stream);
+  loop_out->setAllocationDomain(loop_out->getLoopDomain(), false);
+  auto* narrow_out = IrBuilder::create<Narrow>(
+      loop_out,
+      out,
+      0,
+      mul(index_1, loop_out->axis(1)),
+      mul(index_2, loop_out->axis(1)));
+
   auto* add = IrBuilder::create<BinaryOp>(
       BinaryOpType::Add, loop_out, loop_in, loop_in);
   hic->addInput(in);
   hic->addOutput(out);
 
   hic->pushBackTopLevelExprs(allocate_out);
-  hic->pushBackTopLevelExprs(loop_in->definition());
-  hic->pushBackTopLevelExprs(loop_out->definition());
+  hic->pushBackTopLevelExprs(narrow_in);
+  hic->pushBackTopLevelExprs(narrow_out);
   hic->pushBackTopLevelExprs(add);
-
-  // loop_in->outer_split(0, c);
-  // loop_in->axis(0)->parallelize(ParallelType::Stream);
-  // loop_out->outer_split(0, c);
-  // loop_out->axis(0)->parallelize(ParallelType::Stream);
 
   HostIrEvaluator hie(std::move(hic));
 
