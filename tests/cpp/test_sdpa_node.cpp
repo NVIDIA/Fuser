@@ -868,12 +868,19 @@ TEST_F(SDPATest, Sharded_SdpaFwd) {
       {q.unsqueeze(0), k.unsqueeze(0), v.unsqueeze(0)});
 
   ExpressionEvaluator ee;
-  ee.bind(executor_cache.fusion()->inputs().at(0), q.to(at::kMeta));
-  ee.bind(executor_cache.fusion()->inputs().at(1), k.to(at::kMeta));
-  ee.bind(executor_cache.fusion()->inputs().at(2), v.to(at::kMeta));
+  ee.bind(
+      executor_cache.fusion()->inputs().at(0), q.to(at::kMeta).unsqueeze(0));
+  ee.bind(
+      executor_cache.fusion()->inputs().at(1), k.to(at::kMeta).unsqueeze(0));
+  ee.bind(
+      executor_cache.fusion()->inputs().at(2), v.to(at::kMeta).unsqueeze(0));
   MetaSdpaOut aten_out_meta = {
-      ee.evaluate(executor_cache.fusion()->outputs().at(0)).as<at::Tensor>(),
-      ee.evaluate(executor_cache.fusion()->outputs().at(1)).as<at::Tensor>(),
+      ee.evaluate(executor_cache.fusion()->outputs().at(0))
+          .as<at::Tensor>()
+          .squeeze(0),
+      ee.evaluate(executor_cache.fusion()->outputs().at(1))
+          .as<at::Tensor>()
+          .squeeze(0),
   };
   validateSdpaFwdOutputs(nvf_out, aten_out, aten_out_meta);
 }
@@ -1068,12 +1075,19 @@ TEST_F(SDPATest, ComputeAt) {
       {q.unsqueeze(0), k.unsqueeze(0), v.unsqueeze(0)});
 
   ExpressionEvaluator ee;
-  ee.bind(executor_cache.fusion()->inputs().at(0), q.to(at::kMeta));
-  ee.bind(executor_cache.fusion()->inputs().at(1), k.to(at::kMeta));
-  ee.bind(executor_cache.fusion()->inputs().at(2), v.to(at::kMeta));
+  ee.bind(
+      executor_cache.fusion()->inputs().at(0), q.to(at::kMeta).unsqueeze(0));
+  ee.bind(
+      executor_cache.fusion()->inputs().at(1), k.to(at::kMeta).unsqueeze(0));
+  ee.bind(
+      executor_cache.fusion()->inputs().at(2), v.to(at::kMeta).unsqueeze(0));
   MetaSdpaOut aten_out_meta = {
-      ee.evaluate(executor_cache.fusion()->outputs().at(0)).as<at::Tensor>(),
-      ee.evaluate(executor_cache.fusion()->outputs().at(1)).as<at::Tensor>(),
+      ee.evaluate(executor_cache.fusion()->outputs().at(0))
+          .as<at::Tensor>()
+          .squeeze(0),
+      ee.evaluate(executor_cache.fusion()->outputs().at(1))
+          .as<at::Tensor>()
+          .squeeze(0),
   };
   validateSdpaFwdOutputs(nvf_out, aten_out, aten_out_meta);
 }
