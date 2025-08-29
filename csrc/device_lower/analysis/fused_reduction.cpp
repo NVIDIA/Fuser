@@ -59,8 +59,7 @@ class FusionInspector : private IterVisitor {
 
  private:
   FusionInspector(Fusion* fusion)
-      : has_warp_specialization_(checkWarpSpecialization(fusion)),
-        fusion_(fusion) {
+      : has_warp_specialization_(checkWarpSpecialization(fusion)) {
     traverse(fusion);
     if (cluster_reduction_count_ > 0) {
       GpuLower::current()->setClusterReductionCount(cluster_reduction_count_);
@@ -284,8 +283,6 @@ class FusionInspector : private IterVisitor {
   std::unordered_map<TensorView*, std::unordered_set<Expr*>> reduction_dep_;
   //! Whether this fusion has warp specialization enabled
   const bool has_warp_specialization_;
-  //! Add managed data to the fusion
-  Fusion* fusion_;
   //! Track number of cluster reductions, used for mbarrier allocation
   //! as for each cluster reduction, we need to allocate a mbarrier
   int64_t cluster_reduction_count_ = 0;
