@@ -4903,22 +4903,14 @@ std::tuple<
     at::Tensor,
     at::Tensor>
 _scaled_dot_product_flash_attention_meta(const at::Tensor& query) {
-  // Query (Batch x Num_heads x Q_seq_len  x Dim_per_head)
-  // Query -> Query(Batch x Q_seq_len  x Num_heads x Dim_per_head)
-  at::Tensor q_t = query.transpose(1, 2);
-
-  const auto sizes = q_t.sizes();
+  const auto sizes = query.sizes();
   const int batch_size = sizes[0];
-  int seqlen_q = sizes[1];
-  int num_heads = sizes[2];
-  at::Tensor output = at::empty_like(q_t);
+  int num_heads = sizes[1];
+  int seqlen_q = sizes[2];
   auto logsumexp = at::empty(
-      {batch_size, num_heads, seqlen_q}, q_t.options().dtype(at::kFloat));
-
-  // Reshape output to convert nnz to batch_size and seq_len
-  at::Tensor attention = output.transpose(1, 2);
+      {batch_size, num_heads, seqlen_q}, query.options().dtype(at::kFloat));
   return std::make_tuple(
-      attention,
+      query,
       logsumexp,
       at::Tensor(),
       at::Tensor(),
