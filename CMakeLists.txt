@@ -187,6 +187,7 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/compute_at.cpp
   ${NVFUSER_SRCS_DIR}/compute_at_map.cpp
   ${NVFUSER_SRCS_DIR}/contiguity.cpp
+  ${NVFUSER_SRCS_DIR}/cutlass/codegen.cpp
   ${NVFUSER_SRCS_DIR}/debug.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/analysis/bank_conflict.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/analysis/circular_buffer.cpp
@@ -1137,6 +1138,7 @@ if(BUILD_TEST)
 
   set(MATMUL_TEST_SRCS)
   list(APPEND MATMUL_TEST_SRCS
+    ${NVFUSER_ROOT}/tests/cpp/test_cutlass_scheduler.cpp
     ${NVFUSER_ROOT}/tests/cpp/test_translate_mma.cpp
     ${NVFUSER_ROOT}/tests/cpp/test_matmul.cpp
     ${NVFUSER_ROOT}/tests/cpp/test_matmul_aten_evaluation.cpp
