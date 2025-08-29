@@ -1650,23 +1650,4 @@ TEST_F(AllocationDomainTest, SmemAllocationDomainChanged) {
   auto outputs = ke.run({t0});
   testValidate(fusion.get(), outputs, {t0}, __LINE__, __FILE__);
 }
-
-TEST_F(AllocationDomainTest, Rfactor) {
-  auto fusion = std::make_unique<Fusion>();
-  FusionGuard fg(fusion.get());
-  auto tv0 = makeContigConcreteTensor({12, 24});
-  auto tv1 = sum(tv0, {0});
-  fusion->addInput(tv0);
-  fusion->addOutput(tv1);
-
-  for (auto tv : fusion->allTvs()) {
-    tv->setAllocationDomain({tv->axis(1), tv->axis(0)}, true);
-    debug() << "tv: " << tv->domain()->toString(0, false) << std::endl;
-  }
-  tv1->outer_split(0, 2);
-  debug() << "After split tv1: " << tv1->domain()->toString(0, false) << std::endl;
-  auto tv2 = tv1->rFactor({0});
-  debug() << "After rfactor tv2: " << tv2->domain()->toString(0, false) << std::endl;
-  debug() << "After rfactor tv1: " << tv1->domain()->toString(0, false) << std::endl;
-}
 } // namespace nvfuser
