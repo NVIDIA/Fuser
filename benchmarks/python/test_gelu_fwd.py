@@ -44,6 +44,7 @@ def gelu_fwd_fusion(
 
 @pytest.mark.parametrize("size", generate_input_sizes(dims=2))
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)
+@pytest.mark.pointwise
 def test_gelu_fwd_nvf_benchmark(
     benchmark,
     size: tuple,
@@ -67,6 +68,7 @@ def test_gelu_fwd_nvf_benchmark(
 @pytest.mark.parametrize("executor", DEFAULT_EXECUTORS)
 @pytest.mark.parametrize("size", generate_input_sizes(dims=2))
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)
+@pytest.mark.pointwise
 def test_gelu_fwd_baseline_benchmark(
     benchmark,
     size: tuple,
