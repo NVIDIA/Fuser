@@ -92,8 +92,8 @@ TEST_F(CutlassExecutorTest, SimpleNvfp4ScaledGemm) {
   args.push(alpha);
 
   // Create CutlassExecutor and compile the fusion
-  CutlassCompiledKernel executor;
-  executor.compile(fusion.get(), args, LaunchParams(), CompileParams());
+  CutlassExecutor executor;
+  executor.compile(fusion.get(), args);
   EXPECT_TRUE(executor.isCompiled());
 
   // Run the fusion
