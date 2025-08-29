@@ -1997,7 +1997,7 @@ TEST_P(ClusterReductionTest, SoftmaxDtypeClusterSize) {
   auto fusion_ptr = std::make_unique<Fusion>();
   auto& fusion = *fusion_ptr;
   FusionGuard fg(fusion_ptr.get());
-  auto tv0 = makeContigConcreteTensor({x, y}, dtype);
+  auto tv0 = makeContigTensor(2, dtype);
   fusion.addInput(tv0);
   auto tv1 = maybeCastOp(DataType::Float, tv0);
   if (is_softmax) {

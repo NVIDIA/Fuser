@@ -1265,7 +1265,39 @@ KernelArgumentHolder KernelExecutor::run(
               << ", occupancy=" << oss.str() << std::endl;
     }
 
-    if (!compiled_kernel_->kernel()->summary().has_cooperative_grid_reduction) {
+    const auto& kernel_summary = compiled_kernel_->kernel()->summary();
+
+    // cluster reduction uses DSMEM, requires cuda-12.0
+    if (kernel_summary.has_cluster_reduction) {
+      FUSER_PERF_SCOPE("ExecutorRunFusion::cuLaunchKernelEx_Cluster");
+      // Use cuLaunchKernelEx with cluster dimensions: clusterDim.x = gridDim.x,
+      // y = 1, z = 1
+      CUlaunchConfig config = {};
+      config.gridDimX = launch_params_.gdimx();
+      config.gridDimY = launch_params_.gdimy();
+      config.gridDimZ = launch_params_.gdimz();
+      config.blockDimX = launch_params_.bdimx();
+      config.blockDimY = launch_params_.bdimy();
+      config.blockDimZ = launch_params_.bdimz();
+      config.sharedMemBytes = launch_params_.smem();
+      config.hStream = stream;
+
+      // Set cluster dimensions: clusterDim.x = gridDim.x, y = 1, z = 1
+      CUlaunchAttribute attribute;
+      attribute.id = CU_LAUNCH_ATTRIBUTE_CLUSTER_DIMENSION;
+      attribute.value.clusterDim.x = launch_params_.gdimx();
+      attribute.value.clusterDim.y = 1;
+      attribute.value.clusterDim.z = 1;
+      config.attrs = &attribute;
+      config.numAttrs = 1;
+      std::cout << "cuLaunchKernelEx clusterDim " << launch_params_.gdimx()
+                << std::endl;
+      NVFUSER_CUDA_SAFE_CALL(cuLaunchKernelEx(
+          &config,
+          compiled_kernel_->cudaExecutable()->function,
+          executor_entry->arg_ptrs.data(),
+          nullptr));
+    } else if (!kernel_summary.has_cooperative_grid_reduction) {
       FUSER_PERF_SCOPE("ExecutorRunFusion::cuLaunchKernel");
       NVFUSER_CUDA_SAFE_CALL(cuLaunchKernel(
           compiled_kernel_->cudaExecutable()->function,

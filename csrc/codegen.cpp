@@ -4297,20 +4297,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     NVF_ERROR(
         tidx && !tidy && !tidz,
         "Only support reduction in x direction for now");
-    // domain parallelized by BIDx must be static
-    NVF_ERROR(
-        par_domains.count(ParallelType::BIDx) == 1 &&
-            par_domains.at(ParallelType::BIDx)->isReduction() &&
-            par_domains.at(ParallelType::BIDx)->extent()->isConst(),
-        "BIDx must be static and used in cluster reduction.");
-    NVF_ERROR(
-        par_domains.count(ParallelType::TIDx) == 1 &&
-            par_domains.at(ParallelType::TIDx)->isReduction() &&
-            lparams_.bdimx() % 32 == 0,
-        "TIDx must be padded to multiple of warp size and used in cluster "
-        "reduction.");
-    int64_t blocks_per_cluster =
-        par_domains.at(ParallelType::BIDx)->extent()->value().as<int64_t>();
+    int64_t blocks_per_cluster = lparams_.gdimx();
     int64_t warps_per_block = lparams_.bdimx() / 32;
 
     const auto data_type = output->dtype();

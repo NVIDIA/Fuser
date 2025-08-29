@@ -131,10 +131,6 @@ class FusionInspector : private IterVisitor {
           });
       if (id != out->getLoopDomain().end()) {
         cluster_reduction_count_++;
-        int64_t blocks_per_cluster = (*id)->extent()->value().as<int64_t>();
-        fusion_->manage(
-            "cluster_dims",
-            std::tuple<int64_t, int64_t, int64_t>{blocks_per_cluster, 1, 1});
       }
     }
   }
