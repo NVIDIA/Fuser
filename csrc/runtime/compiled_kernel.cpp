@@ -1287,6 +1287,8 @@ NVF_API CompiledKernel::CompiledKernel(
           {},
           {}) {}
 
+NVF_API CompiledKernel::~CompiledKernel() = default;
+
 void CompiledKernel::compile(const LaunchParams& lparams) {
   FUSER_PERF_SCOPE("CompiledKernel::compile");
 

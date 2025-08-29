@@ -148,12 +148,6 @@ class CompiledKernelBase : public NonCopyable {
     return kernel_code_;
   }
 
-  // Recompile the kernel if the number of threads in the block has increased
-  // or maxrregcount has changed
-  void recompileKernel(
-      const LaunchParams& new_launch_params,
-      const CompileParams& new_compile_params);
-
   const c10::Device& device() const {
     return device_;
   }
@@ -212,6 +206,8 @@ class CompiledKernel : public CompiledKernelBase {
       int64_t runtime_id = 0,
       int64_t group_id = 0);
 
+  NVF_API ~CompiledKernel();
+
   CompiledKernel(const CompiledKernel& other) = delete;
   CompiledKernel& operator=(const CompiledKernel& other) = delete;
   CompiledKernel(CompiledKernel&& other) noexcept = delete;
@@ -253,6 +249,12 @@ class CompiledKernel : public CompiledKernelBase {
 
   //! Returns the disassembled latest compiled binary
   NVF_API std::string disassembledKernelSASS() const;
+
+  // Recompile the kernel if the number of threads in the block has increased
+  // or maxrregcount has changed
+  void recompileKernel(
+      const LaunchParams& new_launch_params,
+      const CompileParams& new_compile_params);
 
   //! Returns a const reference to the latest compiled kernel.
   const std::unique_ptr<executor_utils::CudaExecutable>& cudaExecutable()

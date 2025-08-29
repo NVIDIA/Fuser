@@ -82,13 +82,14 @@ CutlassCompiledKernel::CutlassCompiledKernel(
     int64_t concrete_id,
     int64_t runtime_id,
     int64_t group_id)
-    : fusion_(fusion),
-      device_(device),
-      scheduler_type_(scheduler_type),
-      fusion_id_(fusion_id),
-      conrete_id_(concrete_id),
-      runtime_id_(runtime_id),
-      group_id_(group_id) f {}
+    : CompiledKernelBase(
+          device,
+          scheduler_type,
+          fusion_id,
+          concrete_id,
+          runtime_id,
+          group_id),
+      fusion_(fusion) {}
 
 void CutlassCompiledKernel::compile() {
   FUSER_PERF_SCOPE("CutlassCompiledKernel::compile");
@@ -181,7 +182,6 @@ void CutlassCompiledKernel::generateCode() {
 }
 
 std::string getCompileCommand(
-    CompileParams& compile_params,
     const std::filesystem::path& source_file,
     const std::filesystem::path& output_file) {
   std::string compile_cmd = "nvcc";
@@ -305,8 +305,7 @@ void CutlassCompiledKernel::compileWithNVCC() {
   std::filesystem::path output_file = temp_dir_ / "cutlass_kernel.so";
   std::filesystem::path log_file = temp_dir_ / "nvcc_output.log";
 
-  std::string compile_cmd =
-      getCompileCommand(compile_params_, source_file, output_file);
+  std::string compile_cmd = getCompileCommand(source_file, output_file);
   // Execute nvcc compilation and capture output
   std::string full_cmd = compile_cmd + " 2>&1 > " + log_file.string();
 
