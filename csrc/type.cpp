@@ -560,7 +560,7 @@ static const char* binary_op_type2string(BinaryOpType t) {
     case BinaryOpType::Fmod:
       return "fmod";
     case BinaryOpType::Max:
-      return "fmaxf";
+      return "fmax";
     case BinaryOpType::Min:
       return "fmin";
     case BinaryOpType::Mul:

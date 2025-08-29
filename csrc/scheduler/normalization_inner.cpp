@@ -538,16 +538,11 @@ void innerPersistentHeuristicCluster(
   int64_t vectorize_factor = properties.vectorize_factor;
   int64_t after_vect = properties.total_reduction_numel / vectorize_factor;
   int64_t bdimx = 256;
-  if (std::getenv("BDIMX")) {
-    bdimx = std::stoi(std::getenv("BDIMX"));
-    std::cout << "========== BDIMX: " << bdimx << std::endl;
-  }
   int64_t after_vect_bdimx = ceilDiv(after_vect, bdimx);
   const int64_t buffer_bits_per_batch =
       properties.max_persistent_buffer_size_bit /
       properties.total_reduction_numel * vectorize_factor;
-  std::cout << "========== buffer_bits_per_batch: " << buffer_bits_per_batch
-            << std::endl;
+
   // Given blocks per cluster and estimate blocks per sm from register usage
   // Regsiters are used for indexing, computations, and buffering inputs.
   auto getBlocksPerSM = [&](int64_t blocks_per_cluster) {
@@ -556,8 +551,6 @@ void innerPersistentHeuristicCluster(
     int64_t register_per_thread = register_overhead +
         ceilDiv(buffer_bits_per_batch * persistent_batch,
                 scheduler_utils::bits_per_register);
-    std::cout << "========== register_per_thread: " << register_per_thread
-              << std::endl;
     return scheduler_utils::safeDiv(
         getThreadsPerSMGivenRegPerThread(register_per_thread), bdimx);
   };
@@ -567,8 +560,8 @@ void innerPersistentHeuristicCluster(
   // reduced within a single warp without serial reduction.
   int64_t blocks_per_cluster = 4;
   int64_t blocks_per_sm = getBlocksPerSM(blocks_per_cluster);
-  std::cout << "========== blocks_per_cluster = 4, blocks_per_sm: "
-            << blocks_per_sm << std::endl;
+
+  // If occupancy is less then 37.5%, check with more blocks per cluster
   if (blocks_per_sm < 3) {
     const int64_t max_bpc = scheduler_utils::getMaxClusterSize();
     for (int64_t bpc = blocks_per_cluster * 2; bpc <= max_bpc; bpc *= 2) {
@@ -598,6 +591,9 @@ void innerPersistentHeuristicCluster(
   rparams->grid_dim_iter_dom = ParallelType::BIDy;
   rparams->multiple_reds_per_blk = false;
   rparams->unroll_factor_iter_dom = 1;
+
+  // Static bdimx and gdimx indicates this kernel should only be used with these
+  // specific launch parameters.
   rparams->static_bdimx = true;
   rparams->static_gdimx = true;
   rparams->lparams = LaunchParams(

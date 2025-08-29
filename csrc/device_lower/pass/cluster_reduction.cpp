@@ -65,7 +65,7 @@ class ClusterReductionConverter : public kir::ExprMutator {
 
 } // namespace
 
-std::vector<Expr*> generateClusterReductions(const std::vector<Expr*>& exprs) {
+std::vector<Expr*> convertToClusterReduction(const std::vector<Expr*>& exprs) {
   if (GpuLower::current()->clusterReductionCount() < 1) {
     return exprs;
   }

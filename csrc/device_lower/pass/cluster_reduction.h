@@ -17,6 +17,6 @@ class GpuLower;
 
 //! Pass to convert ReductionOp to ClusterReductionOp after allocation
 //! This ensures mbarriers are available during ClusterReductionOp creation
-std::vector<Expr*> generateClusterReductions(const std::vector<Expr*>& exprs);
+std::vector<Expr*> convertToClusterReduction(const std::vector<Expr*>& exprs);
 
 } // namespace nvfuser

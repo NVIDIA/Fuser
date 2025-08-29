@@ -2,8 +2,8 @@
 # All rights reserved.
 # SPDX-License-Identifier: BSD-3-Clause
 import pytest
+
 import torch
-from nvfuser import FusionDefinition, DataType
 
 from .core import run_benchmark, with_executor, unary_bwd_torch, clear_dynamo_cache
 from .cross_entropy_loss import (
@@ -125,77 +125,3 @@ def test_cross_entropy_mini_benchmark_bwd(benchmark, executor: str, vocab_size: 
     outputs = fwd_fn(inputs)
     grads = SyntheticMiniModel.grads()
     run_benchmark(benchmark, unary_bwd_torch, [outputs, grads, *inputs])
-
-
-def nvfuser_cross_entropy_fusion(
-    fd: FusionDefinition, batch_size: int, vocab_size: int
-) -> None:
-    """
-    NvFuser fusion definition for torch.nn.functional.cross_entropy(logits, labels, reduction='none')
-    1. Compute LSE (log-sum-exp) for each row
-    2. Access target logit directly: logits[i, labels[i]]
-    3. Compute loss: loss = lse - target_logit
-    """
-    # Input tensors
-    T0 = fd.define_tensor(
-        shape=[batch_size, vocab_size],
-        contiguity=[True, True],
-        dtype=DataType.BFloat16,
-        is_cpu=False,
-        stride_order=[1, 0],
-    )
-    T1 = fd.define_tensor(
-        shape=[batch_size],
-        contiguity=[True],
-        dtype=DataType.Int,
-        is_cpu=False,
-        stride_order=[0],
-    )
-    T2 = fd.ops.cast(T0, dtype=DataType.Float)
-    T3 = fd.ops.max(T2, dims=[1], keepdim=False, dtype=DataType.Null)
-    T4 = fd.ops.broadcast_in_dim(T3, shape=[batch_size, 1], broadcast_dims=[0])
-    T11 = fd.ops.broadcast_in_dim(
-        T4, shape=[batch_size, vocab_size], broadcast_dims=[0, 1]
-    )
-    T12 = fd.ops.sub(T2, T11)
-    T13 = fd.ops.exp(T12)
-    T14 = fd.ops.sum(T13, dims=[1], keepdim=False, dtype=DataType.Null)
-    T15 = fd.ops.log(T14)
-    T16 = fd.ops.add(T15, T3)
-    T17 = fd.ops.broadcast_in_dim(T1, shape=[batch_size, 1], broadcast_dims=[0])
-    T18 = fd.ops.gather(T0, T17, dim=1)
-    T19 = fd.ops.squeeze(T18, dims=[1])
-    T20 = fd.ops.cast(T19, dtype=DataType.Float)
-    T21 = fd.ops.sub(T16, T20)
-    T22 = fd.ops.cast(T21, dtype=DataType.BFloat16)
-    fd.add_output(T22)
-
-
-def torch_cross_entropy(logits, labels):
-    return torch.nn.functional.cross_entropy(logits, labels, reduction="none")
-
-
-@pytest.mark.parametrize("batch_size", [1024, 4096, 32768])
-# @pytest.mark.parametrize("vocab_size", [i * 1024 for i in range(64, 257, 16)])
-@pytest.mark.parametrize("vocab_size", [202048])
-def test_cross_entropy_nvf_static_benchmark(
-    benchmark,
-    batch_size: int,
-    vocab_size: int,
-    disable_validation: bool,
-    disable_benchmarking: bool,
-):
-    with FusionDefinition() as fd:
-        nvfuser_cross_entropy_fusion(fd, batch_size, vocab_size)
-
-    logits = torch.randn(batch_size, vocab_size, device="cuda", dtype=torch.bfloat16)
-    labels = torch.randint(
-        0, vocab_size, (batch_size,), device="cuda", dtype=torch.int64
-    )
-    inputs = [logits, labels]
-
-    if not disable_validation:
-        fd.validate(inputs, [torch_cross_entropy(*inputs)])
-
-    if not disable_benchmarking:
-        run_benchmark(benchmark, fd.execute, inputs)

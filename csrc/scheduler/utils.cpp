@@ -3228,9 +3228,6 @@ void buildAllocationDomainForSharedMemoryTvs(Fusion* fusion) {
 // There is no device attribute for max cluster size, use a hardcoded value for
 // now.
 int64_t getMaxClusterSize() {
-  if (std::getenv("NVFUSER_MAX_CLUSTER_SIZE")) {
-    return std::stoi(std::getenv("NVFUSER_MAX_CLUSTER_SIZE"));
-  }
   const auto sm_major = at::cuda::getCurrentDeviceProperties()->major;
   return sm_major >= 9 ? 8 : 1;
 }

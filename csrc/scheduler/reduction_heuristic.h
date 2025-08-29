@@ -311,6 +311,9 @@ class ReductionParams : public HeuristicParams {
       ss << "cross block - " << block_dim_inner_reduction << " / ";
       ss << (pad_inner_reduction_to_warp ? " pad to warp / " : "");
     }
+    if (cross_cluster_reduction) {
+      ss << "cross cluster - " << grid_dim_inner_reduction << " / ";
+    }
     if (cross_grid_inner_reduction) {
       ss << "cross grid - " << grid_dim_inner_reduction << " / ";
       ss << (split_grid_dim_inner_reduction ? "split grid dim / " : "");
