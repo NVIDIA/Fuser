@@ -54,16 +54,141 @@ class RtcKernel : public NonCopyable {
   int64_t device_index_;
 };
 
-//! Class for compilation logic through nvRTC. It shouldn't hold any logic
+//! Class for compilation logic. Subclasses shouldn't hold any logic
 //! associated with how to run a kernel, but how to compile it. It should also
 //! contain any information about the kernel itself.
-class CompiledKernel : public NonCopyable {
+//! This is currently subclassed by CompiledKernel, which is our main codegen
+//! compilation method, and CutlassCompiledKernel, which compiles CUTLASS
+//! kernels.
+class CompiledKernelBase : public NonCopyable {
  public:
+  NVF_API CompiledKernelBase(
+      c10::Device device = c10::Device(c10::DeviceType::CUDA, 0),
+      SchedulerType scheduler_type = SchedulerType::None,
+      int64_t fusion_id = 0,
+      int64_t concrete_id = 0,
+      int64_t runtime_id = 0,
+      int64_t group_id = 0)
+      : scheduler_type_(scheduler_type),
+        fusion_id_(fusion_id),
+        concrete_id_(concrete_id),
+        runtime_id_(runtime_id),
+        group_id_(group_id),
+        device_(device) {}
+
   // NVF_API was added for nvfuser_extension. See examples/sinh_extension.
-  CompiledKernel() = delete;
+  CompiledKernelBase() = delete;
 
-  NVF_API ~CompiledKernel();
+  NVF_API ~CompiledKernelBase();
 
+  //! Returns the string of the compiled kernel
+  NVF_API std::string kernelString() const {
+    NVF_ERROR(!kernel_code_.empty(), "Kernel code not generated");
+    return kernel_code_;
+  }
+
+  static void setGlobalFusionCount(int64_t new_fusion_count) {
+    global_fusion_count_.store(new_fusion_count);
+  }
+
+  static int64_t getGlobalFusionCount() {
+    return global_fusion_count_.load();
+  }
+
+  const int64_t& groupId() const {
+    return group_id_;
+  }
+
+  std::string& kernelId() {
+    return kernel_id_;
+  }
+  const std::string& kernelId() const {
+    return kernel_id_;
+  }
+
+  bool validKernelId() const {
+    return !kernel_id_.empty();
+  }
+
+  void createKernelId();
+
+  static std::string kernelNamespace() {
+    return "nvf";
+  }
+
+  std::string kernelName() const {
+    NVF_ERROR(!kernel_id_.empty(), "Invalid kernel name for fusion executor.");
+    std::stringstream ss;
+    ss << "nvfuser_" << kernel_id_;
+    return ss.str();
+  }
+
+  const int64_t& fusionId() const {
+    return fusion_id_;
+  }
+  const int64_t& concreteId() const {
+    return concrete_id_;
+  }
+  const int64_t& runtimeId() const {
+    return runtime_id_;
+  }
+  static std::atomic<int64_t>& globalFusionCount() {
+    return global_fusion_count_;
+  }
+  SchedulerType& schedulerType() {
+    return scheduler_type_;
+  }
+  const SchedulerType& schedulerType() const {
+    return scheduler_type_;
+  }
+  std::string& kernelCode() {
+    return kernel_code_;
+  }
+  const std::string& kernelCode() const {
+    return kernel_code_;
+  }
+
+  // Recompile the kernel if the number of threads in the block has increased
+  // or maxrregcount has changed
+  void recompileKernel(
+      const LaunchParams& new_launch_params,
+      const CompileParams& new_compile_params);
+
+  const c10::Device& device() const {
+    return device_;
+  }
+
+ protected:
+  // Scheduling Heuristic for this Fusion
+  SchedulerType scheduler_type_ = SchedulerType::None;
+
+  // ID of fusion in python frontend fusion cache, which maps to a single
+  // CompiledKernelCache.
+  const int64_t fusion_id_ = -1;
+
+  // ID of (device, concrete_info) key in CompiledKernelCache
+  const int64_t concrete_id_ = -1;
+
+  // ID of FusionKernelRuntime given (device, concrete_info) key
+  const int64_t runtime_id_ = -1;
+
+  // ID of segment in FusionKernelRuntime
+  const int64_t group_id_ = -1;
+
+  // Kernel name for fusion executor
+  std::string kernel_id_;
+
+  inline static std::atomic<int64_t> global_fusion_count_;
+
+  // Profiling support: kept copy of the cuda kernel
+  std::string kernel_code_;
+
+  const c10::Device device_ = c10::Device(c10::DeviceType::CUDA, 0);
+};
+
+// This lowers a kernel and compiles it with NVRTC
+class CompiledKernel : public CompiledKernelBase {
+ public:
   NVF_API CompiledKernel(
       Fusion* fusion,
       CompileParams compile_params,
@@ -116,13 +241,18 @@ class CompiledKernel : public NonCopyable {
 
   kir::Kernel* kernel() const;
 
-  //! Returns the string of the compiled kernel
-  NVF_API std::string kernelString() const {
-    NVF_ERROR(!kernel_code_.empty(), "Kernel code not generated");
-    return kernel_code_;
+  std::unique_ptr<GpuLower>& lowered() {
+    return lowered_;
+  }
+
+  const std::unique_ptr<GpuLower>& lowered() const {
+    return lowered_;
   }
 
   NVF_API std::string getStructuredCode() const;
+
+  //! Returns the disassembled latest compiled binary
+  NVF_API std::string disassembledKernelSASS() const;
 
   //! Returns a const reference to the latest compiled kernel.
   const std::unique_ptr<executor_utils::CudaExecutable>& cudaExecutable()
@@ -132,89 +262,19 @@ class CompiledKernel : public NonCopyable {
   std::unique_ptr<executor_utils::CudaExecutable>& cudaExecutable() {
     return compiled_kernel_;
   }
-
-  //! Returns the disassembled latest compiled binary
-  NVF_API std::string disassembledKernelSASS() const;
-
-  static void setGlobalFusionCount(int64_t new_fusion_count) {
-    global_fusion_count_.store(new_fusion_count);
-  }
-
-  static int64_t getGlobalFusionCount() {
-    return global_fusion_count_.load();
-  }
-
-  const int64_t& groupId() const {
-    return group_id_;
-  }
-
-  bool validKernelId() const {
-    return !kernel_id_.empty();
-  }
-
-  void createKernelId();
-
-  static std::string kernelNamespace() {
-    return "nvf";
-  }
-
-  std::string kernelName() const {
-    NVF_ERROR(!kernel_id_.empty(), "Invalid kernel name for fusion executor.");
-    std::stringstream ss;
-    ss << "nvfuser_" << kernel_id_;
-    return ss.str();
-  }
-
-  //! Internal knob used for debugging/profiling only
-  void disableLaunchParamCache() {
-    launch_param_cache_disabled_ = true;
-  }
-
-  const int64_t& fusionId() const {
-    return fusion_id_;
-  }
-  const int64_t& concreteId() const {
-    return concrete_id_;
-  }
-  const int64_t& runtimeId() const {
-    return runtime_id_;
-  }
-  static std::atomic<int64_t>& globalFusionCount() {
-    return global_fusion_count_;
-  }
-  SchedulerType& schedulerType() {
-    return scheduler_type_;
-  }
-  const SchedulerType& schedulerType() const {
-    return scheduler_type_;
-  }
-  std::string& kernelId() {
-    return kernel_id_;
-  }
-  const std::string& kernelId() const {
-    return kernel_id_;
-  }
-  std::unique_ptr<GpuLower>& lowered() {
-    return lowered_;
-  }
-
-  const std::unique_ptr<GpuLower>& lowered() const {
-    return lowered_;
-  }
   int64_t blockSizeHighWatermark() {
     return block_size_high_watermark_;
   }
   int64_t maxrregcountHighWatermark() {
     return maxrregcount_high_watermark_;
   }
+
+  //! Internal knob used for debugging/profiling only
+  void disableLaunchParamCache() {
+    launch_param_cache_disabled_ = true;
+  }
   bool launchParamCacheDisabled() const {
     return launch_param_cache_disabled_;
-  }
-  std::string& kernelCode() {
-    return kernel_code_;
-  }
-  const std::string& kernelCode() const {
-    return kernel_code_;
   }
 
   //! Deserialize Fusion Executor using flatbuffers
@@ -227,22 +287,13 @@ class CompiledKernel : public NonCopyable {
     return used_tvs_;
   };
 
-  // Recompile the kernel if the number of threads in the block has increased
-  // or maxrregcount has changed
-  void recompileKernel(
-      const LaunchParams& new_launch_params,
-      const CompileParams& new_compile_params);
-
-  const c10::Device& device() const {
-    return device_;
-  }
-
   const CompileParams& compileParams() const {
     return compile_params_;
   }
 
  private:
   CompileParams compile_params_;
+
   // Assuming sm70 or above:
   //  limit of statically allocated smem is 48 KB:
   // See:
@@ -256,27 +307,6 @@ class CompiledKernel : public NonCopyable {
   // TensorViews actually used in the kernel.
   std::vector<TensorView*> used_tvs_;
 
-  // Scheduling Heuristic for this Fusion
-  SchedulerType scheduler_type_ = SchedulerType::None;
-
-  // ID of fusion in python frontend fusion cache, which maps to a single
-  // CompiledKernelCache.
-  const int64_t fusion_id_ = -1;
-
-  // ID of (device, concrete_info) key in CompiledKernelCache
-  const int64_t concrete_id_ = -1;
-
-  // ID of FusionKernelRuntime given (device, concrete_info) key
-  const int64_t runtime_id_ = -1;
-
-  // ID of segment in FusionKernelRuntime
-  const int64_t group_id_ = -1;
-
-  inline static std::atomic<int64_t> global_fusion_count_;
-
-  // Kernel name for fusion executor
-  std::string kernel_id_;
-
   std::unique_ptr<GpuLower> lowered_;
 
   // Track the block size this kernel was compiled with. If the block size
@@ -289,11 +319,13 @@ class CompiledKernel : public NonCopyable {
   // runtime scalar inputs, such as for the case of tensor factory. see
   // https://github.com/csarofeen/pytorch/issues/2002
   bool launch_param_cache_disabled_ = false;
-
-  // Profiling support: kept copy of the cuda kernel
-  std::string kernel_code_;
-
-  const c10::Device device_ = c10::Device(c10::DeviceType::CUDA, 0);
 };
+
+// Query the target GPU version number NVRTC compiles CUDA kernels for
+void queryTargetGPUVersion(
+    const cudaDeviceProp* const prop,
+    int64_t& major,
+    int64_t& minor,
+    bool& compile_to_sass);
 
 } // namespace nvfuser
