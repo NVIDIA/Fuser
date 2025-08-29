@@ -6,6 +6,10 @@
  */
 // clang-format on
 
+#include <ATen/cuda/CUDAContext.h>
+#include <ATen/native/cuda/jit_utils.h>
+#include <c10/cuda/CUDAStream.h>
+
 #include <debug.h>
 #include <exceptions.h>
 #include <fusion.h>
@@ -79,7 +83,9 @@ KernelArgumentHolder CutlassExecutor::run(
     kernel_args.push(arg);
   }
 
-  cutlass_kernel_->run(kernel_args);
+  auto stream = at::cuda::getCurrentCUDAStream();
+  at::cuda::jit::initializeCudaContext();
+  cutlass_kernel_->run(kernel_args, stream);
 
   return outputs;
 }

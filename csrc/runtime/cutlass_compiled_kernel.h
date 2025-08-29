@@ -37,6 +37,8 @@ class CutlassCompiledKernel : public CompiledKernel {
   // Load compiled module/function
   void loadKernel();
 
+  std::string kernelName() const;
+
  private:
   Fusion* fusion_;
 

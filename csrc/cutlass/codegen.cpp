@@ -102,14 +102,13 @@ using namespace cute;
 // Defines tile shapes and cluster configurations.
 struct KernelTraits {
 )";
-  code += std::vformat(
+  code += std::format(
       R"(
   using MmaTileShape = Shape<_{}, _{}, _{}>;
   using ClusterShape = Shape<_{}, _{}, _{}>;
   using PerSmTileShape_MNK = Shape<_{}, _{}, _{}>;
 )",
       // TODO: Accept heuristic parameters and use them here
-      std::make_format_args(
         256,
         256,
         256,
@@ -119,8 +118,7 @@ struct KernelTraits {
         128,
         256,
         256
-        /*
-          params.mma_tile.m,
+        /*params.mma_tile.m,
           params.mma_tile.n,
           params.mma_tile.k,
           params.cluster_shape.m,
@@ -129,7 +127,7 @@ struct KernelTraits {
           params.per_sm_tile.m,
           params.per_sm_tile.n,
           params.per_sm_tile.k
-          */));
+          */);
 
   code += R"(
 };

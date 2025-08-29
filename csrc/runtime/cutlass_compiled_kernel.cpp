@@ -164,13 +164,6 @@ void CutlassCompiledKernel::generateCode() {
   }
 }
 
-std::string CutlassCompiledKernel::kernelName() const {
-  NVF_ERROR(!kernel_id_.empty(), "Invalid kernel name for cutlass executor.");
-  std::stringstream ss;
-  ss << "kernel_" << kernel_id_;
-  return ss.str();
-}
-
 std::string getCompileCommand(
     CompileParams& compile_params,
     const std::filesystem::path& source_file,
