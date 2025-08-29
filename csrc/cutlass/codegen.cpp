@@ -9,7 +9,9 @@
 #include <exceptions.h>
 #include <fusion.h>
 #include <runtime/cutlass_compiled_kernel.h>
+#include <type.h>
 
+#include <format>
 #include <string>
 
 namespace nvfuser {
@@ -47,15 +49,14 @@ std::string dtypeToCutlass(const DataType& dtype) {
   }
 }
 
-std::string generateNvfp4ScaledMmKernel(
-    Fusion* fusion) {
+std::string generateNvfp4ScaledMmKernel(Fusion* fusion) {
   NVF_ERROR_EQ(
       fusion->outputs().size(),
       1,
       "Cutlass executor currently only supports a single output");
   auto* main_output = fusion->outputs().front()->as<TensorView>();
   const std::string output_dtype = dtypeToCutlass(main_output->dtype());
-  
+
   NVF_ERROR_GE(fusion->inputs().size(), 4);
   auto* a = fusion->inputs()[0]->as<TensorView>();
   auto* b = fusion->inputs()[1]->as<TensorView>();

@@ -201,7 +201,6 @@ class NvrtcCompileDriver {
   std::vector<std::string> options_;
 };
 
-// Query the target GPU version number NVRTC compiles CUDA kernels for
 void queryTargetGPUVersion(
     const cudaDeviceProp* const prop,
     int64_t& major,

@@ -30,12 +30,9 @@
 #include <c10/cuda/CUDAMathCompat.h>
 #include <c10/util/Exception.h>
 
-#include <chrono>
 #include <filesystem>
-#include <format>
 #include <fstream>
 #include <string>
-#include <variant>
 #include <vector>
 
 namespace nvfuser {
@@ -133,22 +130,22 @@ void CutlassCompiledKernel::run(
           "Non-tensor arguments are not yet supported in "
           "CutlassCompiledKernel");
     }
-    }
+  }
 
-    // Define the function signature for the kernel
-    using KernelFunc = void (*)(const std::vector<void*>&, cudaStream_t);
+  // Define the function signature for the kernel
+  using KernelFunc = void (*)(const std::vector<void*>&, cudaStream_t);
 
-    auto kernel_func = reinterpret_cast<KernelFunc>(cuda_function_);
+  auto kernel_func = reinterpret_cast<KernelFunc>(cuda_function_);
 
-    // Call the kernel
-    kernel_func(arg_pointers, stream);
+  // Call the kernel
+  kernel_func(arg_pointers, stream);
 }
 
 void CutlassCompiledKernel::generateCode() {
   FUSER_PERF_SCOPE("CutlassCompiledKernel::generateCode");
 
   // Generate CUTLASS kernel code using the code generator
-  cutlass_code_ = cutlass_codegen::generateCode(fusion_, cutlass_params_);
+  cutlass_code_ = cutlass_codegen::generateCode(fusion_);
 
   // Dump the kernel if requested. Note that we do not currently distinguish
   // between the kernel and the entire CUTLASS source file.
@@ -175,6 +172,7 @@ std::string CutlassCompiledKernel::kernelName() const {
 }
 
 std::string getCompileCommand(
+    CompileParams& compile_params,
     const std::filesystem::path& source_file,
     const std::filesystem::path& output_file) {
   std::string compile_cmd = "nvcc";
@@ -190,11 +188,12 @@ std::string getCompileCommand(
 
   // Add CUTLASS include paths
   const std::filesystem::path cutlass_path = getCutlassPath();
-  compile_params_.include_paths.push_back(cutlass_path / "include");
-  compile_params_.include_paths.push_back(cutlass_path / "tools" / "util" / "include");
+  compile_params.include_paths.push_back(cutlass_path / "include");
+  compile_params.include_paths.push_back(
+      cutlass_path / "tools" / "util" / "include");
   const std::filesystem::path torch_path = getTorchPath();
-  compile_params_.include_paths.push_back(torch_path / "include");
-  compile_params_.include_paths.push_back(
+  compile_params.include_paths.push_back(torch_path / "include");
+  compile_params.include_paths.push_back(
       torch_path / "include" / "torch" / "csrc" / "api" / "include");
 
   compile_cmd = "nvcc";
@@ -203,8 +202,8 @@ std::string getCompileCommand(
   // Disable some warnings in host code
   compile_cmd += " -Wno-conversion";
 
-  for (const std::filesystem::path& path : compile_params_.include_paths) {
-    compile_cmd += " -I" + path.string();
+  for (const std::string& path : compile_params.include_paths) {
+    compile_cmd += " -I" + path;
   }
 
   compile_cmd +=
@@ -298,7 +297,7 @@ void CutlassCompiledKernel::compileWithNVCC() {
   std::filesystem::path log_file = temp_dir_ / "nvcc_output.log";
 
   std::string compile_cmd =
-      getCompileCommand(source_file, output_file);
+      getCompileCommand(compile_params_, source_file, output_file);
   // Execute nvcc compilation and capture output
   std::string full_cmd = compile_cmd + " 2>&1 > " + log_file.string();
 

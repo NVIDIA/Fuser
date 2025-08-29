@@ -31,7 +31,7 @@ bool CutlassExecutor::supported(Fusion* fusion) {
 void CutlassExecutor::compile(
     Fusion* fusion,
     const KernelArgumentHolder& args,
-    const LaunchParams& launch_constraints,
+    const LaunchParams& launch_params,
     CompileParams compile_params) {
   FUSER_PERF_SCOPE("CutlassExecutor::compile");
 
@@ -44,13 +44,15 @@ void CutlassExecutor::compile(
 
   // Add CUTLASS include path if available
   if (const char* cutlass_path = std::getenv("CUTLASS_PATH")) {
-    compile_params.include_paths.push_back(std::string(cutlass_path) + "/include");
+    compile_params.include_paths.push_back(
+        std::string(cutlass_path) + "/include");
   }
 
   // Create and compile the CUTLASS kernel
+  c10::Device device(c10::DeviceType::CUDA, args.getDeviceIndex());
   cutlass_kernel_ = std::make_unique<CutlassCompiledKernel>(
       fusion_.get(), compile_params, device);
-  cutlass_kernel_->compile();
+  cutlass_kernel_->compile(launch_params);
 }
 
 bool CutlassExecutor::isCompiled() const {

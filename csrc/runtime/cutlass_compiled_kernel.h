@@ -55,10 +55,9 @@ class CutlassCompiledKernel : public CompiledKernel {
 };
 
 /*
-// CutlassCompiledKernel is similar to CompiledKernel but for CUTLASS. In particular, instead of accepting a 
-class CutlassCompiledKernel : public NonCopyable {
- public:
-  CutlassCompiledKernel() = delete;
+// CutlassCompiledKernel is similar to CompiledKernel but for CUTLASS. In
+particular, instead of accepting a class CutlassCompiledKernel : public
+NonCopyable { public: CutlassCompiledKernel() = delete;
 
   ~CutlassCompiledKernel();
 

@@ -296,4 +296,11 @@ class CompiledKernel : public NonCopyable {
   const c10::Device device_ = c10::Device(c10::DeviceType::CUDA, 0);
 };
 
+// Query the target GPU version number NVRTC compiles CUDA kernels for
+void queryTargetGPUVersion(
+    const cudaDeviceProp* const prop,
+    int64_t& major,
+    int64_t& minor,
+    bool& compile_to_sass);
+
 } // namespace nvfuser
