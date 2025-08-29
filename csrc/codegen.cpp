@@ -4310,7 +4310,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     ArgumentBuilder func_args;
     func_args.arg(gen(output));
     func_args.arg(gen(input));
-    func_args.arg(gen(init_val));
+    func_args.arg(genStaticCast(output->dtype(), genInline(init_val)));
     func_args.arg(genInline(mbarrier));
     if (current_group_reduction_id_ > 0) {
       func_args.arg(

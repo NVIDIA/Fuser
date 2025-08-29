@@ -1358,6 +1358,10 @@ TEST_F(PersistentBufferTest, GetResolutionIssue1123) {
 }
 
 TEST_F(PersistentBufferTest, InnerPersistentNotEnoughSharedMemory) {
+  // Skip hopper and above as they use cluster reduction
+  if (at::cuda::getCurrentDeviceProperties()->major >= 9) {
+    GTEST_SKIP();
+  }
   auto fusion_ptr = std::make_unique<Fusion>();
   auto& fusion = *fusion_ptr;
   FusionGuard fg(fusion_ptr.get());
@@ -1452,6 +1456,10 @@ TEST_F(PersistentBufferTest, InnerPersistentNotEnoughSharedMemory) {
 using TestParam = std::tuple<DataType, int64_t>;
 using LayerNormSharedMemoryTest = NVFuserFixtureParamTest<TestParam>;
 TEST_P(LayerNormSharedMemoryTest, FusionLayerNormSharedMemoryBuffer_CUDA) {
+  // Skip hopper and above as they use cluster reduction
+  if (at::cuda::getCurrentDeviceProperties()->major >= 9) {
+    GTEST_SKIP();
+  }
   auto [dtype, hidden_size] = GetParam();
 
   std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();

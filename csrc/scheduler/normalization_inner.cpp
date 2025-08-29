@@ -28,7 +28,8 @@ std::pair<int64_t, int64_t> getPersistentBufferSizeBit(
     SchedulerRuntimeInfo& runtime_info,
     HeuristicDataCache* data_cache,
     const std::vector<TensorView*>& reduction_tvs,
-    const bool can_use_smem_persistent) {
+    const bool can_use_smem_persistent,
+    const bool is_3d_reduction) {
   auto persistent_buffer_info_entry =
       HeuristicDataCacheEntry<HeuristicCompileTime::PersistentBufferInfo>(
           data_cache, [&fusion]() {
@@ -66,8 +67,10 @@ std::pair<int64_t, int64_t> getPersistentBufferSizeBit(
           persistent_buffer_info,
           can_use_smem_persistent,
           project_persistent_buffers);
-
-  available_persistent_buffer_size_bit *= scheduler_utils::getMaxClusterSize();
+  if (!is_3d_reduction) {
+    available_persistent_buffer_size_bit *=
+        scheduler_utils::getMaxClusterSize();
+  }
   return std::make_pair(
       persistent_buffer_size_bit, available_persistent_buffer_size_bit);
 }
@@ -595,7 +598,6 @@ void innerPersistentHeuristicCluster(
   // Static bdimx and gdimx indicates this kernel should only be used with these
   // specific launch parameters.
   rparams->static_bdimx = true;
-  rparams->static_gdimx = true;
   rparams->lparams = LaunchParams(
       blocks_per_cluster,
       LaunchParams::UNINITIALIZED_VAL,
@@ -1155,6 +1157,8 @@ std::unique_ptr<ReductionParams> getInnerPersistentHeuristics(
   rparams->project_persistent_buffers = prop.project_persistent_buffers;
   rparams->cparams.index_type = prop.index_type;
   // specific heuristics for different cases
+  // use cluster reduction when buffer size is larger than register size and
+  // the reduction is not 3D.
   if (scheduler_utils::getMaxClusterSize() > 1 &&
       prop.max_persistent_buffer_size_bit >
           scheduler_utils::register_file_size_bit) {
@@ -1217,7 +1221,8 @@ bool InnerPersistentKernelScheduler::canScheduleRunTime(
   bool can_use_smem_persistent = (properties.total_reduction_numel ==
                                   properties.inner_most_dimension_numel) &&
       scheduler_utils::getMaxClusterSize() == 1;
-
+  bool is_3d_reduction =
+      properties.total_reduction_numel != properties.inner_most_dimension_numel;
   // pair of persistent_buffer_size_bit and available_persistent_buffer_size_bit
   const std::pair<int64_t, int64_t> buffer_size_bit =
       getPersistentBufferSizeBit(
@@ -1225,7 +1230,8 @@ bool InnerPersistentKernelScheduler::canScheduleRunTime(
           runtime_info,
           data_cache,
           reduction_tvs,
-          can_use_smem_persistent);
+          can_use_smem_persistent,
+          is_3d_reduction);
   const int64_t persistent_buffer_size_bit = buffer_size_bit.first;
   const int64_t available_persistent_buffer_size_bit = buffer_size_bit.second;
 
