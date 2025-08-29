@@ -233,9 +233,7 @@ def test_nvfp4_grouped_mm(
     ab_strides = torch.full((g,), k, dtype=torch.int64, device="cuda:0")
     c_strides = torch.full((g,), n, dtype=torch.int64, device="cuda:0")
 
-    out = torch.empty(m, n, dtype=torch.bfloat16, device="cuda:0")
-    nvf_cutlass.nvfp4_scaled_grouped_mm(
-        out,
+    out = nvf_cutlass.nvfp4_scaled_grouped_mm(
         mat1_fp4,
         mat2_fp4,
         scale1,
@@ -246,6 +244,7 @@ def test_nvfp4_grouped_mm(
         problem_sizes,
         offsets,
         blockscale_offsets,
+        out_dtype,
     )
 
     # Create pytorch expected output reference

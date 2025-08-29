@@ -102,8 +102,7 @@ NVF_API std::pair<torch::Tensor, torch::Tensor> nvfp4_scaled_mm_blockscale(
     const torch::Tensor& global_normconst,
     bool skip_checks = false);
 
-void nvfp4_scaled_grouped_mm(
-    torch::Tensor& output,
+NVF_API torch::Tensor nvfp4_scaled_grouped_mm(
     const torch::Tensor& a,
     const torch::Tensor& b,
     const torch::Tensor& a_blockscale,
@@ -113,6 +112,7 @@ void nvfp4_scaled_grouped_mm(
     const torch::Tensor& c_strides,
     const torch::Tensor& problem_sizes,
     const torch::Tensor& expert_offsets,
-    const torch::Tensor& sf_offsets);
+    const torch::Tensor& sf_offsets,
+    const at::ScalarType out_dtype);
 
 } // namespace nvfuser::cutlass_kernels
