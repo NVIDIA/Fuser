@@ -656,7 +656,12 @@ void IndexLowering::handle(const kir::ClusterReductionOp* cop) {
 
   // Create indexed ClusterReductionOp with lowered indices
   auto indexed_cop = IrBuilder::create<kir::ClusterReductionOp>(
-      out, in, cop->getReductionOpType(), init, mbarrier_addr);
+      out,
+      in,
+      cop->getReductionOpType(),
+      init,
+      mbarrier_addr,
+      cop->isAllreduce());
 
   pushBack(indexed_cop);
   GpuLower::current()->propagateExprInfo(cop, back());

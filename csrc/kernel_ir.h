@@ -797,16 +797,17 @@ class MBarrierArriveExpectTx final : public Expr {
 };
 
 // IR node for cluster reduction operations with associated mbarrier
-class ClusterReductionOp final : public Expr {
+class ClusterReductionOp final : public ReductionOp {
  public:
-  using Expr::Expr;
+  using ReductionOp::ReductionOp;
   explicit ClusterReductionOp(
       IrBuilderPasskey passkey,
       Val* output,
       Val* input,
       BinaryOpType reduction_op_type,
       Val* init,
-      Val* mbarrier);
+      Val* mbarrier,
+      bool is_all_reduce);
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
@@ -817,28 +818,9 @@ class ClusterReductionOp final : public Expr {
   std::string toString(int indent_size = 0) const override;
   std::string toInlineString(int indent_size = 0) const override;
 
-  Val* out() const {
-    return output(0);
-  }
-
-  Val* in() const {
-    return input(0);
-  }
-
-  BinaryOpType getReductionOpType() const {
-    return reduction_op_type_;
-  }
-
-  Val* init() const {
+  Val* mbarrier() const {
     return input(1);
   }
-
-  Val* mbarrier() const {
-    return input(2);
-  }
-
- private:
-  BinaryOpType reduction_op_type_;
 };
 
 class MBarrierWait final : public Expr {

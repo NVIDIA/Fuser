@@ -220,7 +220,7 @@ GpuLower::GpuLower(Fusion* fusion, const CompileParams& cparams)
            {"insertAllocations", insertAllocations},
            {"setInplaceAlias", setInplaceAlias},
            {"reuseMemoryAllocations", reuseMemoryAllocations},
-           {"generateClusterReductions", generateClusterReductions},
+           {"convertToClusterReduction", convertToClusterReduction},
            {"CircularBufferPass", CircularBufferPass::run},
            {"insertRawThreadSynchronization", insertRawThreadSynchronization},
            {"insertWarThreadSynchronization", insertWarThreadSynchronization},

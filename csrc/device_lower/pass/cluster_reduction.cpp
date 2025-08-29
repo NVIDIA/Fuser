@@ -54,8 +54,14 @@ class ClusterReductionConverter : public kir::ExprMutator {
           IrBuilder::create<Val>(current_cluster_index_, DataType::Index));
       current_cluster_index_++;
       // Replace ReductionOp with ClusterReductionOp
+      // Current runtime only supports all-reduce, overkill for non-all-reduce
       auto cluster_reduction = IrBuilder::create<kir::ClusterReductionOp>(
-          out, in, reduction_op_type, init_val, mbarrier);
+          out,
+          in,
+          reduction_op_type,
+          init_val,
+          mbarrier,
+          /*is_all_reduce=*/true);
       registerReplace(rop, cluster_reduction);
     }
   }

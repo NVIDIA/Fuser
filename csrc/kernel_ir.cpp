@@ -1789,23 +1789,28 @@ ClusterReductionOp::ClusterReductionOp(
     Val* input,
     BinaryOpType reduction_op_type,
     Val* init,
-    Val* mbarrier)
-    : Expr(passkey), reduction_op_type_(reduction_op_type) {
+    Val* mbarrier,
+    bool is_all_reduce)
+    : ReductionOp(
+          passkey,
+          reduction_op_type,
+          init,
+          output,
+          input,
+          is_all_reduce) {
   NVF_ERROR(passkey.ir_container_ != nullptr);
   NVF_ERROR(
       passkey.ir_container_->isA<kir::Kernel>(),
       "IR type only valid for Kernel container.");
-  addInput(input);
-  addInput(init);
+  NVF_ERROR(is_all_reduce, "ClusterReductionOp only supports all-reduce");
   addInput(mbarrier);
-  addOutput(output);
 }
 
 std::string ClusterReductionOp::toString(int indent_size) const {
   std::stringstream ss;
   indent(ss, indent_size);
   ss << out()->toString() << " = cluster_reduction(" << in()->toString() << ", "
-     << init()->toString() << ", " << reduction_op_type_ << ", "
+     << init()->toString() << ", " << getReductionOpType() << ", "
      << "mbarrier=" << mbarrier()->toString() << ")\n";
   return ss.str();
 }
@@ -1813,7 +1818,7 @@ std::string ClusterReductionOp::toString(int indent_size) const {
 std::string ClusterReductionOp::toInlineString(int indent_size) const {
   std::stringstream ss;
   ss << "cluster_reduction(" << in()->toString() << ", " << init()->toString()
-     << ", " << reduction_op_type_ << ", "
+     << ", " << getReductionOpType() << ", "
      << "mbarrier=" << mbarrier()->toString() << ")";
   return ss.str();
 }

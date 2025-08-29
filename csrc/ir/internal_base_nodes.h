@@ -307,11 +307,15 @@ class NVF_API IterDomain : public Val {
     return is_padded_dimension_;
   }
 
+  //! Sets whether this IterDomain uses CUDA thread block clusters (Hopper+).
   void setClusteredBlocks(bool is_clustered_blocks) {
+    NVF_CHECK(
+        parallel_type_ == ParallelType::BIDx,
+        "setClusteredBlocks: only support set BIDx parallel type");
     is_clustered_dimension_ = is_clustered_blocks;
   }
 
-  //! clusted blocks to use distributed shared memory
+  //! Returns whether this IterDomain uses clustered blocks.
   bool isClusteredBlockDim() const {
     return is_clustered_dimension_;
   }

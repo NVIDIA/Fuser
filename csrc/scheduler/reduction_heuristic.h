@@ -125,6 +125,9 @@ class ReductionParams : public HeuristicParams {
   // Use computeWith to persistent buffers
   bool compute_persistent_buffer_with_first_consumer = false;
 
+  // When a dimension is set to static, it indicates the corresponding launch
+  // parameter must be set in the params and the kernel only works with these
+  // launch parameters.
   bool static_bdimx = false;
   bool static_bdimy = false;
   bool static_gdimx = false;
