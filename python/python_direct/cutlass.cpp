@@ -64,8 +64,7 @@ void bindGroupedGemm(py::module_& cutlass) {
       "nvfp4_scaled_grouped_mm",
       &cutlass_kernels::nvfp4_scaled_grouped_mm,
       R"(Computes nvfp4 grouped matmul and returns bf16 or fp16 output tensor.
-         nvfp4_scaled_grouped_mm(Tensor output,
-                                 Tensor a,
+         nvfp4_scaled_grouped_mm(Tensor a,
                                  Tensor b,
                                  Tensor a_blockscale,
                                  Tensor b_blockscale,
@@ -74,7 +73,8 @@ void bindGroupedGemm(py::module_& cutlass) {
                                  Tensor c_strides,
                                  Tensor problem_sizes,
                                  Tensor expert_offsets,
-                                 Tensor sf_offsets) -> ())");
+                                 Tensor sf_offsets,
+                                 DataType out_dtype) -> Tensor output)");
 }
 
 } // namespace

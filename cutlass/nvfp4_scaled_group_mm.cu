@@ -439,8 +439,7 @@ void run_nvfp4_scaled_group_mm(
   CHECK_CONTIGUOUS(x, m);     \
   CHECK_TYPE(x, st, m)
 
-void nvfp4_scaled_grouped_mm(
-    torch::Tensor& output,
+torch::Tensor nvfp4_scaled_grouped_mm(
     const torch::Tensor& a,
     const torch::Tensor& b,
     const torch::Tensor& a_blockscale,
@@ -450,47 +449,63 @@ void nvfp4_scaled_grouped_mm(
     const torch::Tensor& c_strides,
     const torch::Tensor& problem_sizes,
     const torch::Tensor& expert_offsets,
-    const torch::Tensor& sf_offsets) {
-  bool can_implement = false;
-  auto sm_version = getSMVersion();
+    const torch::Tensor& sf_offsets,
+    const at::ScalarType out_dtype) {
+  // Calculate output shape and allocate output tensor
+  auto options =
+      at::TensorOptions().dtype(out_dtype).device(at::kCUDA, a.get_device());
+  torch::Tensor output = at::empty({a.size(0), b.size(1)}, options);
 
-#if defined(CUTLASS_ARCH_MMA_SM100A_SUPPORTED) || \
-    defined(CUTLASS_ARCH_MMA_SM100_SUPPORTED)
-#if defined CUDA_VERSION && CUDA_VERSION >= 12080
-  if (sm_version == 100) {
-    // Input validation
-    CHECK_INPUT(a, at::ScalarType::Float4_e2m1fn_x2, "a");
-    CHECK_INPUT(b, at::ScalarType::Float4_e2m1fn_x2, "b");
-    CHECK_INPUT(a_blockscale, at::ScalarType::Float8_e4m3fn, "a_blockscale");
-    CHECK_INPUT(b_blockscales, at::ScalarType::Float8_e4m3fn, "b_blockscales");
-    CHECK_INPUT(alphas, at::ScalarType::Float, "alphas");
+  // Input validation
+  CHECK_INPUT(a, at::ScalarType::Float4_e2m1fn_x2, "a");
+  CHECK_INPUT(b, at::ScalarType::Float4_e2m1fn_x2, "b");
+  CHECK_INPUT(a_blockscale, at::ScalarType::Float8_e4m3fn, "a_blockscale");
+  CHECK_INPUT(b_blockscales, at::ScalarType::Float8_e4m3fn, "b_blockscales");
+  CHECK_INPUT(alphas, at::ScalarType::Float, "alphas");
 
-    NVF_CHECK(
-        a_blockscale.dim() == 2,
-        "expected a_blockscale to be of shape [num_experts, rounded_m,"
-        " k // group_size], observed rank: ",
-        a_blockscale.dim())
-    NVF_CHECK(
-        b_blockscales.dim() == 3,
-        "expected b_blockscale to be of shape: "
-        " [num_experts, n, k // group_size], observed rank: ",
-        b_blockscales.dim())
-    NVF_CHECK(problem_sizes.dim() == 2, "problem_sizes must be  a 2D tensor");
-    NVF_CHECK(
-        problem_sizes.size(1) == 3,
-        "problem_sizes must have the shape (num_experts, 3)");
-    NVF_CHECK(
-        problem_sizes.size(0) == expert_offsets.size(0),
-        "Number of experts in problem_sizes must match expert_offsets");
-    NVF_CHECK(
-        problem_sizes.dtype() == torch::kInt32, "problem_sizes must be int32.");
+  NVF_CHECK(
+      a_blockscale.dim() == 2,
+      "expected a_blockscale to be of shape [num_experts, rounded_m,"
+      " k // group_size], observed rank: ",
+      a_blockscale.dim())
+  NVF_CHECK(
+      b_blockscales.dim() == 3,
+      "expected b_blockscale to be of shape: "
+      " [num_experts, n, k // group_size], observed rank: ",
+      b_blockscales.dim())
+  NVF_CHECK(problem_sizes.dim() == 2, "problem_sizes must be  a 2D tensor");
+  NVF_CHECK(
+      problem_sizes.size(1) == 3,
+      "problem_sizes must have the shape (num_experts, 3)");
+  NVF_CHECK(
+      problem_sizes.size(0) == expert_offsets.size(0),
+      "Number of experts in problem_sizes must match expert_offsets");
+  NVF_CHECK(
+      problem_sizes.dtype() == torch::kInt32, "problem_sizes must be int32.");
 
-    int M = static_cast<int>(a.size(0));
-    int N = static_cast<int>(b.size(1));
-    int E = static_cast<int>(b.size(0));
-    int K = static_cast<int>(2 * b.size(2));
+  int M = static_cast<int>(a.size(0));
+  int N = static_cast<int>(b.size(1));
+  int E = static_cast<int>(b.size(0));
+  int K = static_cast<int>(2 * b.size(2));
 
-    if (output.scalar_type() == torch::kBFloat16) {
+  if (out_dtype == at::ScalarType::Half) {
+    run_nvfp4_scaled_group_mm<cutlass::half_t>(
+        output,
+        a,
+        b,
+        a_blockscale,
+        b_blockscales,
+        alphas,
+        ab_strides,
+        c_strides,
+        problem_sizes,
+        expert_offsets,
+        sf_offsets,
+        M,
+        N,
+        K);
+  } else {
+    if (out_dtype == at::ScalarType::BFloat16) {
       run_nvfp4_scaled_group_mm<cutlass::bfloat16_t>(
           output,
           a,
@@ -507,31 +522,10 @@ void nvfp4_scaled_grouped_mm(
           N,
           K);
     } else {
-      run_nvfp4_scaled_group_mm<cutlass::half_t>(
-          output,
-          a,
-          b,
-          a_blockscale,
-          b_blockscales,
-          alphas,
-          ab_strides,
-          c_strides,
-          problem_sizes,
-          expert_offsets,
-          sf_offsets,
-          M,
-          N,
-          K);
+      NVF_THROW("Unsupported output data type of nvfp4 scaled_grouped_mm.");
     }
-    can_implement = true;
   }
-#endif
-#endif
-  NVF_CHECK(
-      can_implement,
-      "nvfp4_scaled_group_mm is not implemented for current compute "
-      "capability: ",
-      sm_version);
+  return output;
 }
 
 } // namespace nvfuser::cutlass_kernels
