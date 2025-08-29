@@ -4892,11 +4892,11 @@ std::string SdpaFwdOp::toInlineString(int indent_size) const {
 
 namespace spda_meta {
 
-std::tuple<Tensor, Tensor> _scaled_dot_product_flash_attention_meta(
-    const Tensor& query) {
+std::tuple<at::Tensor, at::Tensor> _scaled_dot_product_flash_attention_meta(
+    const at::Tensor& query) {
   // Query (Batch x Num_heads x Q_seq_len  x Dim_per_head)
   // Query -> Query(Batch x Q_seq_len  x Num_heads x Dim_per_head)
-  Tensor q_t = query.transpose(1, 2);
+  at::Tensor q_t = query.transpose(1, 2);
 
   const auto sizes = q_t.sizes();
   const int batch_size = sizes[0];
