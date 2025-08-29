@@ -123,6 +123,8 @@ TEST_P(ScatterTest, BlockCountingWithShmem) {
     auto outputs = executor_cache.runFusionWithInputs({t0});
     testValidate(executor_cache.fusion(), outputs, {t0}, __LINE__, __FILE__);
     FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
+    // The set to tv5 is consumed by ExprEval, and the rest is done by
+    // the Greedy scheduler
     EXPECT_THAT(
         runtime->fusionSegments()->groups(),
         testing::UnorderedElementsAre(
