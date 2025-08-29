@@ -586,9 +586,8 @@ void UnaryOp::printHelper(std::stringstream& ss, std::string input) const {
     ss << inline_uop.value() << input;
   } else {
     if (op_type == UnaryOpType::Cast) {
-      std::optional<std::string> cast_str = cast_func_str(
-          std::make_pair(
-              in()->getDataType().value(), out()->getDataType().value()));
+      std::optional<std::string> cast_str = cast_func_str(std::make_pair(
+          in()->getDataType().value(), out()->getDataType().value()));
       NVF_ERROR(cast_str != std::nullopt, "Unsupported Cast");
       ss << cast_str.value();
     } else {
@@ -4098,11 +4097,10 @@ std::vector<Expr*> TensorDomain::allExprs() const {
         })) {
       exprs.pushBack(def);
     } else {
-      NVF_ERROR(
-          std::none_of(
-              def->inputs().begin(), def->inputs().end(), [&](Val* inp) {
-                return all_id_set.find(inp) != all_id_set.end();
-              }));
+      NVF_ERROR(std::none_of(
+          def->inputs().begin(), def->inputs().end(), [&](Val* inp) {
+            return all_id_set.find(inp) != all_id_set.end();
+          }));
     }
   }
 
@@ -4124,11 +4122,10 @@ std::vector<Statement*> TensorDomain::allStatements() const {
               })) {
         stmts.pushBack(def);
       } else {
-        NVF_ERROR(
-            std::none_of(
-                def->inputs().begin(), def->inputs().end(), [&](Val* inp) {
-                  return all_id_set.find(inp) != all_id_set.end();
-                }));
+        NVF_ERROR(std::none_of(
+            def->inputs().begin(), def->inputs().end(), [&](Val* inp) {
+              return all_id_set.find(inp) != all_id_set.end();
+            }));
       }
     }
 
@@ -4519,11 +4516,10 @@ std::string SliceOp::toString(int indent_size) const {
   indent(ss, indent_size) << "   = slice( " << in()->toString() << ", {";
   for (const auto& slice : getRanges()) {
     ss << " {"
-       << toDelimitedString(
-              std::vector<std::string>{
-                  slice.start->toString(),
-                  slice.stop->toString(),
-                  slice.step->toString()})
+       << toDelimitedString(std::vector<std::string>{
+              slice.start->toString(),
+              slice.stop->toString(),
+              slice.step->toString()})
        << "}";
   }
   ss << " } )\n";
