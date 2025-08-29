@@ -4306,7 +4306,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     NVF_ERROR(
         par_domains.count(ParallelType::TIDx) == 1 &&
             par_domains.at(ParallelType::TIDx)->isReduction() &&
-            par_domains.at(ParallelType::TIDx)->hasPaddingToMultipleOfWarp(),
+            lparams_.bdimx() % 32 == 0,
         "TIDx must be padded to multiple of warp size and used in cluster "
         "reduction.");
     int64_t blocks_per_cluster =

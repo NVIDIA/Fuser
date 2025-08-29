@@ -536,9 +536,13 @@ void innerPersistentHeuristicCluster(
   // Inner reduction domain
   // vect x TID x persistent_batch x BID
   int64_t vectorize_factor = properties.vectorize_factor;
+  int64_t after_vect = properties.total_reduction_numel / vectorize_factor;
   int64_t bdimx = 256;
-  int64_t after_vect_bdimx =
-      ceilDiv(properties.total_reduction_numel / vectorize_factor, bdimx);
+  if (std::getenv("BDIMX")) {
+    bdimx = std::stoi(std::getenv("BDIMX"));
+    std::cout << "========== BDIMX: " << bdimx << std::endl;
+  }
+  int64_t after_vect_bdimx = ceilDiv(after_vect, bdimx);
   const int64_t buffer_bits_per_batch =
       properties.max_persistent_buffer_size_bit /
       properties.total_reduction_numel * vectorize_factor;
