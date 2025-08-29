@@ -23,12 +23,12 @@ class CutlassCompiledKernel : public CompiledKernelBase {
   // This constructor does not attempt to lower the fusion
   NVF_API CutlassCompiledKernel(
       Fusion* fusion,
-      c10::Device device,
-      SchedulerType scheduler_type,
-      int64_t fusion_id,
-      int64_t concrete_id,
-      int64_t runtime_id,
-      int64_t group_id);
+      c10::Device device = c10::Device(c10::DeviceType::CUDA, 0),
+      SchedulerType scheduler_type = SchedulerType::None,
+      int64_t fusion_id = 0,
+      int64_t concrete_id = 0,
+      int64_t runtime_id = 0,
+      int64_t group_id = 0);
 
   inline bool isCompiled() const {
     return compiled_;
@@ -60,7 +60,6 @@ class CutlassCompiledKernel : public CompiledKernelBase {
   bool compiled_ = false;
 
   // CUDA resources
-  CUmodule cuda_module_ = nullptr;
   CUfunction cuda_function_ = nullptr;
   void* shared_library_handle_ = nullptr; // For nvcc/dlopen approach
 };

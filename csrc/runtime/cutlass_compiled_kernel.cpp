@@ -197,12 +197,12 @@ std::string getCompileCommand(
 
   // Add CUTLASS include paths
   const std::filesystem::path cutlass_path = getCutlassPath();
-  compile_params.include_paths.push_back(cutlass_path / "include");
-  compile_params.include_paths.push_back(
-      cutlass_path / "tools" / "util" / "include");
+  std::vector<std::string> include_paths;
+  include_paths.push_back(cutlass_path / "include");
+  include_paths.push_back(cutlass_path / "tools" / "util" / "include");
   const std::filesystem::path torch_path = getTorchPath();
-  compile_params.include_paths.push_back(torch_path / "include");
-  compile_params.include_paths.push_back(
+  include_paths.push_back(torch_path / "include");
+  include_paths.push_back(
       torch_path / "include" / "torch" / "csrc" / "api" / "include");
 
   compile_cmd = "nvcc";
@@ -211,7 +211,7 @@ std::string getCompileCommand(
   // Disable some warnings in host code
   compile_cmd += " -Wno-conversion";
 
-  for (const std::string& path : compile_params.include_paths) {
+  for (const std::string& path : include_paths) {
     compile_cmd += " -I" + path;
   }
 

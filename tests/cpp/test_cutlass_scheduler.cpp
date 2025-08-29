@@ -96,7 +96,7 @@ TEST_F(CutlassExecutorTest, Nvfp4ScaledGemm_CodeGen) {
   args.push(output_tensor);
 
   CutlassCompiledKernel kernel(
-      fusion.get(), CompileParams(), c10::Device(c10::DeviceType::CUDA, 0));
+      fusion.get(), c10::Device(c10::DeviceType::CUDA, 0));
 
   kernel.compile();
   EXPECT_TRUE(kernel.isCompiled());

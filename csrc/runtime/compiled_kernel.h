@@ -79,7 +79,7 @@ class CompiledKernelBase : public NonCopyable {
   // NVF_API was added for nvfuser_extension. See examples/sinh_extension.
   CompiledKernelBase() = delete;
 
-  NVF_API ~CompiledKernelBase();
+  NVF_API ~CompiledKernelBase() = default;
 
   //! Returns the string of the compiled kernel
   NVF_API std::string kernelString() const {
