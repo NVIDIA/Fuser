@@ -1156,21 +1156,3 @@ class TestScheduleOps(TestCase):
         inp = torch.randint(5, [30], dtype=torch.float32, device="cuda")
         (out,) = fd.execute([inp])
         self.assertEqual(out, inp.sum())
-
-    def test_rfactor_allocation(self):
-        class Model(FusionDefinition):
-            def definition(self):
-                self.inp = fd.define_tensor([4, 12], stride_order=[0, 1])
-                self.out = fd.ops.sum(self.inp, [0])
-                self.add_output(self.out)
-
-            def schedule(self):
-                print(fd._user_schedule_ir(True))
-                self.sched.split(self.out, 0, 2, False)
-                self.sched.rfactor(self.out, [0])
-                print(fd._user_schedule_ir(True))
-      
-        fd = Model()
-        print (fd.__repr__())
-        inp = torch.ones((4, 12), dtype=torch.float, device="cuda")
-        _ = fd.execute([inp])
