@@ -4907,7 +4907,7 @@ std::tuple<Tensor, Tensor> _scaled_dot_product_flash_attention_meta(
       {batch_size, num_heads, seqlen_q}, q.options().dtype(at::kFloat));
 
   // Reshape output to convert nnz to batch_size and seq_len
-  Tensor attention = output.transpose(1, 2);
+  at::Tensor attention = output.transpose(1, 2);
   return std::make_tuple(attention, logsumexp);
 }
 
