@@ -392,6 +392,8 @@ class NVF_API TensorView : public Val {
 
   NVFUSER_DECLARE_CLONE
 
+  std::string fullName() const;
+
   std::string toString(int indent_size = 0) const override;
 
   std::string toInlineString(int indent_size = 0) const override;

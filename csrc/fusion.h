@@ -187,6 +187,16 @@ class NVF_API Fusion : public IrContainer {
     return print(debug());
   }
 
+  //! Print equivalent CuTE layouts for scheduled fusion to an output stream
+  std::ostream& printCute(
+      std::ostream& os,
+      bool include_tensor_transforms = true) const;
+
+  //! Print equivalent CuTE layouts to default debugging output stream
+  std::ostream& printCute() const {
+    return printCute(debug());
+  }
+
   //! Print Arith exprs
   //! \param from_outputs_only Only print exprs reachable from outputs
   void printMath(bool from_outputs_only = true);

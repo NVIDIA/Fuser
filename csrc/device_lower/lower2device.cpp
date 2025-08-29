@@ -243,6 +243,9 @@ GpuLower::GpuLower(Fusion* fusion, const CompileParams& cparams)
   if (isDebugDumpEnabled(DebugDumpOption::FusionIr)) {
     fusion->print();
   }
+  if (isDebugDumpEnabled(DebugDumpOption::FusionIrCute)) {
+    fusion->printCute();
+  }
 
   analysis(fusion);
 }
