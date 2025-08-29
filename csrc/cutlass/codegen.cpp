@@ -50,6 +50,7 @@ std::string dtypeToCutlass(const DataType& dtype) {
 }
 
 std::string generateNvfp4ScaledMmKernel(Fusion* fusion) {
+  NVF_ERROR(fusion != nullptr);
   NVF_ERROR_EQ(
       fusion->outputs().size(),
       1,

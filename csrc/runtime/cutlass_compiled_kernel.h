@@ -22,7 +22,7 @@ class CutlassCompiledKernel : public CompiledKernel {
  public:
   using CompiledKernel::CompiledKernel;
 
-  void compile(const LaunchParams& lparams) override;
+  void compile(const LaunchParams& lparams);
 
   void run(const KernelArgumentHolder& args, cudaStream_t stream) const;
 
