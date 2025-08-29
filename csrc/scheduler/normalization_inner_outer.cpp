@@ -292,7 +292,7 @@ bool InnerOuterPersistentKernelScheduler::canScheduleCompileTime(
     return false;
   }
 
-  if (!ir_utils::getViewOps(fusion).empty()) {
+  if (!ir_utils::getReshapeOps(fusion).empty()) {
     ComputeAtMap ca_map(fusion);
     if (registry_utils::requiresForwardViewReplay(fusion, ca_map)) {
       scheduler_debug_utils::canScheduleRejectReason(

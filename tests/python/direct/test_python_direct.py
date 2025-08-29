@@ -3,9 +3,66 @@
 # SPDX-License-Identifier: BSD-3-Clause
 # Owner(s): ["module: nvfuser"]
 
-from nvfuser_direct import FusionDefinition, DataType
+from nvfuser_direct import FusionDefinition, DataType, version
 import torch
 import pytest
+import io
+from contextlib import redirect_stdout, redirect_stderr
+
+
+def test_python_version_API():
+    from nvfuser_direct.nvfuser_direct_version import Version
+
+    assert version() > "0.0.0"
+    assert version() > Version("0.0.0")
+
+
+def test_fusion_not_defined():
+    inputs = [
+        torch.randn(4, 4, device="cpu"),
+    ]
+
+    # A FusionDefinition object is constructed but not defined, should trip an error
+    try:
+        fd = FusionDefinition()
+        out = fd.execute(inputs)
+        raise RuntimeError("Expecting an error for an empty FusionDefinition!")
+    except NotImplementedError as e:
+        assert (
+            "Fusion does not exist! Use `with FusionDefinition() as fd: ...` to define a fusion."
+            in str(e)
+        )
+
+
+def test_fusion_empty():
+    inputs = [
+        torch.randn(4, 4, device="cpu"),
+    ]
+
+    # A FusionDefinition object is constructed but not defined, should trip an error
+    with pytest.raises(NotImplementedError, match="Fusion is empty!"):
+        with FusionDefinition() as fd:
+            pass
+        out = fd.execute(inputs)
+
+
+def test_from_pytorch_fails_on_cpu_tensor():
+    inputs = [
+        torch.randn(4, 4, device="cpu"),
+    ]
+
+    stdout_capture = io.StringIO()
+    stderr_capture = io.StringIO()
+    error_msg = (
+        "Found unsupported device cpu, only scalar CPU or CUDA tensors are supported"
+    )
+    with pytest.raises(ValueError, match=error_msg), redirect_stdout(
+        stdout_capture
+    ), redirect_stderr(stderr_capture):
+        with FusionDefinition() as fd:
+            t0 = fd.from_pytorch(inputs[0])
+            t1 = fd.ops.relu(t0)
+            fd.add_output(t1)
 
 
 def test_fusion_definition_print():

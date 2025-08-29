@@ -42,7 +42,7 @@ Each migrated test underwent the following adaptations:
 
 ### Tests Only in Main Frontend (Not in Direct)
 
-The following 37 tests exist in `tests/python/test_python_frontend.py` but are **NOT** present in `tests/python/direct/test_python_frontend.py`:
+The following 31 tests exist in `tests/python/test_python_frontend.py` but are **NOT** present in `tests/python/direct/test_python_frontend.py`:
 
 **Note**: The legacy frontend uses class-based tests (`def test_*(self):`) while the direct frontend uses standalone functions (`def test_*(nvfuser_direct_test):`). Only actual pytest test methods (with `self` parameter) are counted here. `test_cat_qwen2_v2` is the only pytest outside of `TestNvFuserFrontend` in `tests/python/test_python_frontend.py`.
 
@@ -66,12 +66,6 @@ The following tests only exist in legacy frontend:
 - `test_fusion_profiler_with_noncodegen_kernels` - Tests profiling with non-codegen kernels; Cuda 13 incompatibility
 - `test_cuda_code_and_scheduled_fusion_ir_strings` - Tests CUDA code generation (101 lines)
 
-**General Tests to add for basic functionality**
-The following functionality tests will be moved to tests/python/direct/test_python_direct.py.
-- `test_no_definition` - Tests undefined fusion behavior
-- `test_from_pytorch_fails_on_cpu_tensor` - Tests CPU tensor handling
-- `test_python_version_API` - Tests Python version API
-
 **General tests to add with more Than 50 Lines of Code:**
 The following tests are complex and will be moved to tests/python/direct/test_high_complexity.py.
 - `test_all_dim_var_mean` - Tests variance and mean across all dimensions
@@ -90,12 +84,6 @@ The following tests are complex and will be moved to tests/python/direct/test_hi
 - `test_nanogpt_split_mha_linears` - Tests NanoGPT split MHA linear layers
 - `test_prim_layer_norm_fwd` - Tests layer normalization forward pass (127 lines)
 - `test_prim_rms_norm_fwd` - Tests RMS normalization forward pass (65 lines)
-
-**General tests to add with 50 Lines or Less:**
-The following tests will be added to tests/python/direct/test_python_frontend.py
-- `test_right_shift_logical` - Tests logical right shift; Missing bitwise_right_shift operation
-- `test_right_shift_logical_sizeof_dtype` - Tests logical right shift with dtype size; Missing bitwise_right_shift operation
-- `test_var_correction` - Tests variance correction; Missing `var` operation
 
 ### Tests Only in Direct Frontend (Not in Main)
 
@@ -169,6 +157,8 @@ Both test files contain these 73 common tests:
 - `test_reshape_squeeze_concretization` - Tests reshape squeeze concretization
 - `test_returning_aliased_outputs` - Returning aliased outputs
 - `test_right_shift_arithmetic` - Tests arithmetic right shift
+- `test_right_shift_logical` - Tests logical right shift
+- `test_right_shift_logical_sizeof_dtype` - Tests logical right shift with dtype size
 - `test_scalar_only_inputs` - Scalar-only input operations
 - `test_scatter_output_intermediate` - Scatter output intermediate operations
 - `test_scatter_scalar_src` - Scatter scalar source operations
@@ -186,6 +176,7 @@ Both test files contain these 73 common tests:
 - `test_tensor_size_both_args_bcast` - Tests tensor size with broadcast arguments
 - `test_triu` - Upper triangular operations
 - `test_uniform` - Uniform distribution generation
+- `test_var_correction` - Tests variance correction; Missing `var` operation
 - `test_var_mean_correction` - Tests variance mean correction
 - `test_welford` - Welford algorithm implementation
 - `test_where_dtypes` - Where operations with different data types
@@ -230,8 +221,12 @@ The following 13 tests are from the original `tests/python/test_repro.py`.
 - `test_ws_tma_normalization5` - Tests workspace TMA normalization 5
 - `test_ws_tma_normalization6` - Tests workspace TMA normalization 6
 
-#### test_python_direct.py (6 tests)
+#### test_python_direct.py
 Contains direct frontend specific functionality tests:
+- `test_python_version_API` - Tests Python version API
+- `test_fusion_not_defined` - Tests that `execute` raises exception when `Fusion` is not defined; Maps to legacy `test_no_definition`
+- `test_fusion_empty` - Tests that `execute` raise exception when `Fusion` is empty; Maps to legacy `test_no_definition`
+- `test_from_pytorch_fails_on_cpu_tensor` - Tests CPU tensor handling
 - `test_define_tensor` - Tests tensor definition
 - `test_enable_disable_options` - Tests enable/disable options
 - `test_execute_with_different_device` - Tests execution with different devices
@@ -249,7 +244,7 @@ Contains direct frontend specific functionality tests:
 - **Direct Repro**: 31 tests in `tests/python/direct/test_repro.py`
 - **Direct Python**: 6 tests in `tests/python/direct/test_python_direct.py`
 - **Total Direct Tests**: 153 tests across 3 files
-- **Shared Tests**: 73 tests between legacy and direct frontend
+- **Shared Tests**: 75 tests between legacy and direct frontend
 - **Legacy-Only Tests**: 22 tests (not yet migrated)
 - **Direct-Only Tests**: 12 tests (new functionality)
 

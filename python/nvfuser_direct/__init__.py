@@ -240,6 +240,28 @@ class FusionDefinition:
         ), "If device argument is passed it must be a CUDA device"
         return device.index
 
+    def validate_definition(self):
+        """
+        Validate that the FusionDefinition is defined.
+
+        Returns
+        -------
+        bool
+            True if the FusionDefinition is defined, False otherwise
+        str
+            The error message if the FusionDefinition is not defined
+        """
+        if self._fusion is None:
+            return (
+                False,
+                "Fusion does not exist! Use `with FusionDefinition() as fd: ...` to define a fusion.",
+            )
+
+        if len(self._fusion.outputs()) == 0 or len(self._fusion.vals()) == 0:
+            return False, "Fusion is empty!"
+
+        return True, None
+
     def execute(
         self,
         inputs,
@@ -278,6 +300,10 @@ class FusionDefinition:
             self.fake_inputs = [fake_mode.from_tensor(inp) for inp in inputs]
 
         if not hasattr(self, "fec"):
+            is_valid, error_message = self.validate_definition()
+            if not is_valid:
+                raise NotImplementedError(error_message)
+
             self.fec = FusionExecutorCache(self._fusion)
             # A copy of fusion is created after construction FusionExecutorCache
             # Delete the _fusion and reference the fusion inside FusionExecutorCache
@@ -468,3 +494,22 @@ class FusionDefinition:
                 assert torch.equal(
                     fusion_output, reference_output
                 ), "Mismatch in reference and fusion output values for non-floating point datatypes"
+
+
+from .nvfuser_direct_version import __version__
+
+
+def version():
+    r"""returns nvfuser_direct version in format of a string 'm.n.p+git[7d-sha]'.
+
+    We strip the git[7d-sha] and convert the string to
+    `nvfuser_version.Version` for comparison. e.g. you can use it as:
+        import nvfuser_direct
+        print(nvfuser_direct.version())              # 0.0.1+git21df524
+        nvfuser_direct.version() == '0.0.1`          # True
+        nvfuser_direct.version() > '0.0.0`           # True
+
+        from nvfuser_direct_version import Version
+        nvfuser_direct.version() < Version('1.0.0')  # True
+    """
+    return __version__

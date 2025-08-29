@@ -490,7 +490,7 @@ class ComputeAtLogicalDomainMapBuilder : private BackwardVisitor {
     mapPointwiseLikeOp(wop);
   }
 
-  void handle(ViewOp* op) override {
+  void handle(ReshapeOp* op) override {
     mapPointwiseLikeOp(op);
   }
 

@@ -36,7 +36,7 @@ class AliasFinder : public OptOutConstDispatch {
       AliasAnalysisResult& analysis)
       : empty_allocation_as_(empty_allocation_as), analysis_(analysis) {}
 
-  void handle(const ViewOp*) override;
+  void handle(const ReshapeOp*) override;
   void handle(const LoadStoreOp*) override;
   void handle(const SliceOp*) override;
   void handle(const BroadcastOp*) override;
@@ -82,7 +82,7 @@ bool AliasFinder::aliasIfCompliant(
   return true;
 }
 
-void AliasFinder::handle(const ViewOp* view) {
+void AliasFinder::handle(const ReshapeOp* view) {
   TensorView* in = view->in();
   TensorView* out = view->out();
 

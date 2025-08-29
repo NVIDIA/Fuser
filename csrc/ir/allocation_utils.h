@@ -104,7 +104,7 @@ bool isCompliantWith(const Layout& layout, const Layout& required);
 // the mapping from `in_logical` to `out_root` and applies that mapping to
 // `preferred_in_layout`. For many ops, this function returns a good initial
 // preferred output layout for aliasing because it tries to preserve the input
-// layout. An op (e.g. ViewOp and SliceOp) that transforms root to logical
+// layout. An op (e.g. ReshapeOp and SliceOp) that transforms root to logical
 // using expressions will have to modify this initial layout so its allocation
 // domain will be a function of its logical domain.
 //

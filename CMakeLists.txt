@@ -334,6 +334,7 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/runtime/fusion_kernel_runtime.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/cache_policy_refiner.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/heuristic.cpp
+  ${NVFUSER_SRCS_DIR}/scheduler/greedy.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/mark_aliases.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/matmul.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/matmul_ampere-.cpp
@@ -661,7 +662,7 @@ if(BUILD_PYTHON)
     COMMAND
     "${PYTHON_EXECUTABLE}" -c \"from pathlib import Path\; Path('${NVFUSER_PYTHON_DIR}/tools/gen_nvfuser_version.py') .touch() \"
     COMMAND
-    "${PYTHON_EXECUTABLE}" ${NVFUSER_PYTHON_DIR}/tools/gen_nvfuser_version.py
+    "${PYTHON_EXECUTABLE}" ${NVFUSER_PYTHON_DIR}/tools/gen_nvfuser_version.py nvfuser
     DEPENDS ${NVFUSER_PYTHON_DIR}/tools/gen_nvfuser_version.py
     DEPENDS ${NVFUSER_PYTHON_DIR}/version.txt
     WORKING_DIRECTORY ${NVFUSER_ROOT}/tools/
@@ -775,6 +776,23 @@ if(BUILD_PYTHON)
     ${NVFUSER_PYTHON_DIRECT_BINDINGS}/python_translate.cpp
   )
   add_library(nvf_py_direct_internal OBJECT ${NVFUSER_PYTHON_DIRECT_SRCS})
+
+  # setup python API version
+  add_custom_command(
+    OUTPUT ${NVFUSER_PYTHON_DIR}/nvfuser_direct/version.py
+    COMMAND
+    "${PYTHON_EXECUTABLE}" -c \"from pathlib import Path\; Path('${NVFUSER_PYTHON_DIR}/tools/gen_nvfuser_version.py') .touch() \"
+    COMMAND
+    "${PYTHON_EXECUTABLE}" ${NVFUSER_PYTHON_DIR}/tools/gen_nvfuser_version.py nvfuser_direct
+    DEPENDS ${NVFUSER_PYTHON_DIR}/tools/gen_nvfuser_version.py
+    DEPENDS ${NVFUSER_PYTHON_DIR}/version.txt
+    WORKING_DIRECTORY ${NVFUSER_ROOT}/tools/
+  )
+  add_custom_target(
+    gen_nvfuser_direct_version ALL
+    DEPENDS ${NVFUSER_PYTHON_DIR}/nvfuser_direct/version.py
+  )
+  add_dependencies(nvf_py_direct_internal gen_nvfuser_direct_version)
 
   # NOTE: For any future extension, change PYTHON_DIRECT_EXTENSION to another
   # name other than EXTENSION_NAME.
@@ -909,6 +927,7 @@ list(APPEND JIT_TEST_SRCS
   ${NVFUSER_ROOT}/tests/cpp/test_loop_domain_scheduling.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_loop_rotation.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_low_precision_recipe.cpp
+  ${NVFUSER_ROOT}/tests/cpp/test_math_opt.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_mbarrier.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_memory.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_move_pad.cpp
@@ -1127,6 +1146,9 @@ if(BUILD_TEST)
   )
   add_test(test_matmul "${MATMUL_TEST_SRCS}" "")
   list(APPEND TEST_BINARIES test_matmul)
+
+  add_test(test_greedy "${NVFUSER_ROOT}/tests/cpp/test_greedy.cpp" "")
+  list(APPEND TEST_BINARIES test_greedy)
 
   add_test(test_external_src "${NVFUSER_ROOT}/tests/cpp/test_external_src.cpp" "")
   list(APPEND TEST_BINARIES test_external_src)

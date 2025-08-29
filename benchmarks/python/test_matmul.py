@@ -69,6 +69,7 @@ def maybe_skip_oom_case(m: int, n: int, k: int):
 @pytest.mark.parametrize(
     "config", load_matmul_problems(), ids=lambda val: "-".join(str(v) for v in val)
 )
+@pytest.mark.matmul
 def test_matmul_baseline_benchmark(
     benchmark,
     executor: str,
@@ -106,6 +107,7 @@ def test_matmul_baseline_benchmark(
 @pytest.mark.parametrize(
     "config", load_matmul_problems(), ids=lambda val: "-".join(str(v) for v in val)
 )
+@pytest.mark.matmul
 def test_matmul_nvf_benchmark(
     benchmark,
     config: tuple,

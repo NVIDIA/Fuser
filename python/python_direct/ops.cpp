@@ -1711,6 +1711,38 @@ TensorView
     A new tensor containing the sum of elements along the specified dimensions.
 )")
   ops.def(
+      "var",
+      [](TensorView* arg,
+         const std::vector<int64_t>& dims,
+         int64_t correction,
+         bool keepdim) -> TensorView* {
+        return variance(arg, dims, correction, keepdim);
+      },
+      py::arg("arg"),
+      py::arg("dims"),
+      py::arg("correction") = 1,
+      py::arg("keepdim") = false,
+      R"(
+Reduce a tensor by computing the variance along specified dimensions.
+
+Parameters
+----------
+arg : TensorView
+    Input tensor to reduce.
+dims : list or tuple
+    Dimensions to reduce over.
+correction : int, optional
+    The correction factor to apply to the variance. Default is 1.
+keepdim : bool, optional
+    Whether to keep the reduced dimensions with size 1. Default is False.
+
+Returns
+-------
+TensorView
+    A tensor containing the variance along the specified dimensions.
+)",
+      py::return_value_policy::reference);
+  ops.def(
       "var_mean",
       [](TensorView* arg,
          const std::vector<int64_t>& dims,
