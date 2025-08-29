@@ -63,7 +63,8 @@ TEST_F(CutlassExecutorTest, Nvfp4ScaledGemm_CodeGen) {
   const std::string code = cutlass_codegen::generateCode(fusion.get());
 
   EXPECT_THAT(
-      code, ::testing::HasSubstr("using MmaTileShape = Shape<_{}, _{}, _{}>;"));
+      code,
+      ::testing::HasSubstr("using MmaTileShape = Shape<_256, _256, _256>;"));
 }
 
 } // namespace nvfuser

@@ -8,7 +8,7 @@
 
 #include <exceptions.h>
 #include <fusion.h>
-#include <runtime/cutlass_compiled_kernel.h>
+#include <ir/interface_nodes.h>
 #include <type.h>
 
 #include <format>
