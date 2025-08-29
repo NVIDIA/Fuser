@@ -70,7 +70,8 @@ namespace nvfuser {
   ALL_DRIVER_API_WRAPPER_VERSION_INDEPENDENT(fn); \
   fn(cuStreamWaitValue32, 12000);                 \
   fn(cuStreamWriteValue32, 12000);                \
-  fn(cuTensorMapEncodeTiled, 12000)
+  fn(cuTensorMapEncodeTiled, 12000);              \
+  fn(cuLaunchKernelEx, 12000)
 #elif (CUDA_VERSION >= 11000)
 #define ALL_DRIVER_API_WRAPPER(fn)                \
   ALL_DRIVER_API_WRAPPER_VERSION_INDEPENDENT(fn); \
