@@ -320,17 +320,17 @@ void replayDomain(
         replay_id->toString());
     IterDomain* target_id = target_id_it->second;
 
-    if (propagate_padding) {
-      if (replay_id->hasPaddingToMultipleOfWarp()) {
-        target_id->padToMultipleOfWarp(replay_id->getMaybeSizeAfterPadding());
-      }
-    }
-
     // Device and stream parallel types should always be preserved in replay.
     // Other parallel types are only relevant to replay of the loop domain.
     if (propagate_parallelization || replay_id->isDeviceDim() ||
         replay_id->isStream()) {
       target_id->parallelize(replay_id->getParallelType());
+    }
+
+    if (propagate_padding) {
+      if (replay_id->hasPaddingToMultipleOfWarp()) {
+        target_id->padToMultipleOfWarp(replay_id->getMaybeSizeAfterPadding());
+      }
     }
     target_domain.push_back(target_id);
   }
