@@ -458,13 +458,11 @@ void nvfp4_scaled_grouped_mm(
     defined(CUTLASS_ARCH_MMA_SM100_SUPPORTED)
 #if defined CUDA_VERSION && CUDA_VERSION >= 12080
   if (sm_version == 100) {
-    constexpr auto FLOAT4_E2M1X2 = at::ScalarType::Byte;
-    constexpr auto SF_DTYPE = at::ScalarType::Float8_e4m3fn;
     // Input validation
-    CHECK_INPUT(a, FLOAT4_E2M1X2, "a");
-    CHECK_INPUT(b, FLOAT4_E2M1X2, "b");
-    CHECK_INPUT(a_blockscale, SF_DTYPE, "a_blockscale");
-    CHECK_INPUT(b_blockscales, SF_DTYPE, "b_blockscales");
+    CHECK_INPUT(a, at::ScalarType::Float4_e2m1fn_x2, "a");
+    CHECK_INPUT(b, at::ScalarType::Float4_e2m1fn_x2, "b");
+    CHECK_INPUT(a_blockscale, at::ScalarType::Float8_e4m3fn, "a_blockscale");
+    CHECK_INPUT(b_blockscales, at::ScalarType::Float8_e4m3fn, "b_blockscales");
     CHECK_INPUT(alphas, at::ScalarType::Float, "alphas");
 
     NVF_CHECK(
