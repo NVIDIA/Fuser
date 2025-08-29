@@ -19,6 +19,9 @@ namespace nvfuser {
 
 namespace {
 
+// Empty set for replayDomain calls that don't need to ignore any IDs
+static const std::unordered_set<IterDomain*> kEmptyIgnoreIds{};
+
 // This class replays the root domains of the producer of an logical domain.
 // Axes must be replayed to mark rfactor iter domains as being reductions in the
 // producer, but converting the other reductions in the producer as iter
@@ -55,7 +58,9 @@ namespace {
 // in this replay.
 class ReplayRFactor : public ReplayTransformations {
  private:
-  std::vector<IterDomain*>::iterator getPosInDomain(std::vector<IterDomain*>& domain, IterDomain* id) {
+  std::vector<IterDomain*>::iterator getPosInDomain(
+      std::vector<IterDomain*>& domain,
+      IterDomain* id) {
     auto pos = std::find(domain.begin(), domain.end(), id);
     NVF_ERROR(
         pos != domain.end(),
@@ -253,8 +258,8 @@ class ReplayRFactor : public ReplayTransformations {
   // The updated domain matching the producer's logical domain. This rfactor
   // domain is relative to the iter domains in the origianl_domain and must be
   // updated to grab the mapped id's later. Similarly, the allocation domain is
-  // the allocation domain of the original domain and updated similar to logical domain.
-  // Empty if no allocation domain is present.
+  // the allocation domain of the original domain and updated similar to logical
+  // domain. Empty if no allocation domain is present.
   std::vector<IterDomain*> logical_domain_;
   std::vector<IterDomain*> allocation_domain_;
 
@@ -289,6 +294,47 @@ class ReplayRFactor : public ReplayTransformations {
     setErrorOnFailure(false);
   }
 };
+
+// Use the replay_to_target_map to replay the replay_domain to the
+// target_domain. ignore_rfactor_ids is true for consumers where the replay will
+// not have these ids since they are already reduced. propagate_padding = true
+// for loop domain. propagate_parallelization = true for consumers. Device and
+// stream parallel types should always be preserved in replay.
+void replayDomain(
+    const std::vector<IterDomain*>& replay_domain,
+    std::vector<IterDomain*>& target_domain,
+    std::unordered_map<IterDomain*, IterDomain*>& replay_to_target_map,
+    const std::unordered_set<IterDomain*>& ignore_ids = kEmptyIgnoreIds,
+    bool propagate_padding = false,
+    bool propagate_parallelization = false) {
+  for (const auto& replay_id : replay_domain) {
+    auto target_id_it = replay_to_target_map.find(replay_id);
+
+    if (ignore_ids.count(replay_id)) {
+      continue;
+    }
+
+    NVF_ERROR(
+        target_id_it != replay_to_target_map.end(),
+        "Error during rfactor replay, missing an axis.",
+        replay_id->toString());
+    IterDomain* target_id = target_id_it->second;
+
+    if (propagate_padding) {
+      if (replay_id->hasPaddingToMultipleOfWarp()) {
+        target_id->padToMultipleOfWarp(replay_id->getMaybeSizeAfterPadding());
+      }
+    }
+
+    // Device and stream parallel types should always be preserved in replay.
+    // Other parallel types are only relevant to replay of the loop domain.
+    if (propagate_parallelization || replay_id->isDeviceDim() ||
+        replay_id->isStream()) {
+      target_id->parallelize(replay_id->getParallelType());
+    }
+    target_domain.push_back(target_id);
+  }
+}
 
 } // namespace
 
@@ -353,12 +399,6 @@ std::pair<TensorDomain*, TensorDomain*> TransformRFactor::runReplay(
   auto rfactor_root_vals = IterVisitor::getInputsTo(
       std::vector<Val*>(rfactor_axes.begin(), rfactor_axes.end()));
   auto rfactor_root_ids = ir_utils::filterByType<IterDomain>(rfactor_root_vals);
-  debug() << "original_td: " << original_td->toString(0, false) << std::endl;
-  debug() << "\nrfactor_root_ids:" << std::endl;
-  for (auto id : rfactor_root_ids) {
-    debug() << id->toString() << " ";
-  }
-  debug() << std::endl;
 
   // Put in a set to make searching easy
   std::unordered_set<IterDomain*> rfactor_root_axes(
@@ -399,8 +439,7 @@ std::pair<TensorDomain*, TensorDomain*> TransformRFactor::runReplay(
       } else {
         new_producer_root[i] = id->cloneWithoutRFactor();
       }
-      debug() << "original_to_producer_root_map: " << id->toString() << " -> " << new_producer_root[i]->toString() << std::endl;
-      original_to_producer_root_map[id] = new_producer_root[i++];
+      original_to_producer_root_map[id] = new_producer_root[i];
     }
   }
 
@@ -413,9 +452,6 @@ std::pair<TensorDomain*, TensorDomain*> TransformRFactor::runReplay(
 
   auto all_id_deps_of_logical =
       ir_utils::filterByType<IterDomain>(all_deps_of_logical);
-  for (auto id : all_id_deps_of_logical) {
-    debug() << "all_id_deps_of_logical: " << id->toString() << std::endl;
-  }
 
   std::unordered_set<IterDomain*> static_logical_ids(
       {all_id_deps_of_logical.begin(), all_id_deps_of_logical.end()});
@@ -430,68 +466,51 @@ std::pair<TensorDomain*, TensorDomain*> TransformRFactor::runReplay(
   std::unordered_map<IterDomain*, IterDomain*> original_to_producer_id_map =
       replay_rfactor.getReplay();
 
-  for (auto id : original_to_producer_id_map) {
-    debug() << "original_to_producer_id_map: " << id.first->toString() << " -> " << id.second->toString() << std::endl;
-  }
-
-  std::vector<IterDomain*> new_producer_domain(original_td->nDims(), nullptr);
-  {
-    for (auto i : arange(original_td->nDims())) {
-      auto orig_id = original_td->axis(i);
-      auto replayed_id_it = original_to_producer_id_map.find(orig_id);
-      NVF_ERROR(
-          replayed_id_it != original_to_producer_id_map.end(),
-          "Error during rfactor replay, missing an axis.");
-      auto replayed_id = replayed_id_it->second;
-      replayed_id->parallelize(orig_id->getParallelType());
-      if (orig_id->hasPaddingToMultipleOfWarp()) {
-        replayed_id->padToMultipleOfWarp(orig_id->getMaybeSizeAfterPadding());
-      }
-      new_producer_domain[i++] = replayed_id;
-    }
-  }
+  std::vector<IterDomain*> new_producer_domain;
+  new_producer_domain.reserve(original_td->nDims());
+  replayDomain(
+      original_td->loop(),
+      new_producer_domain,
+      original_to_producer_id_map,
+      /*ignore_ids=*/kEmptyIgnoreIds,
+      /*propagate_padding=*/true,
+      /*propagate_parallelization=*/true);
 
   // Specify the logical domain of the producer which will match the consumer
   // root domain.
   std::vector<IterDomain*> new_producer_logical_domain;
-  for (auto id : replay_rfactor.logical_domain_) {
-    debug() << "replay_rfactor.logical_domain_: " << id->toString() << std::endl;
-  }
   new_producer_logical_domain.reserve(replay_rfactor.logical_domain_.size());
-  std::transform(
-      replay_rfactor.logical_domain_.begin(),
-      replay_rfactor.logical_domain_.end(),
-      std::back_inserter(new_producer_logical_domain),
-      [&](IterDomain* id) {
-        auto replayed_id_it = original_to_producer_id_map.find(id);
-        NVF_ERROR(
-            replayed_id_it != original_to_producer_id_map.end(),
-            "Error during rfactor replay, missing an axis.");
-        return replayed_id_it->second;
-      });
-  
-  std::vector<IterDomain*> new_producer_allocation_domain;
-  if (!replay_rfactor.allocation_domain_.empty()) {
-    std::transform(
-        replay_rfactor.allocation_domain_.begin(),
-        replay_rfactor.allocation_domain_.end(),
-        std::back_inserter(new_producer_allocation_domain),
-        [&](IterDomain* id) {
-          auto replayed_id_it = original_to_producer_id_map.find(id);
-          NVF_ERROR(
-              replayed_id_it != original_to_producer_id_map.end(),
-              "Error during rfactor replay, missing an axis.");
-          return replayed_id_it->second;
-        });
-  }
+  replayDomain(
+      replay_rfactor.logical_domain_,
+      new_producer_logical_domain,
+      original_to_producer_id_map,
+      /*ignore_ids=*/kEmptyIgnoreIds,
+      /*propagate_padding=*/false,
+      /*propagate_parallelization=*/false);
 
   auto* producer_domain = IrBuilder::createInContainer<TensorDomain>(
       original_td->container(),
       new_producer_root,
       new_producer_logical_domain,
-      new_producer_allocation_domain,
       new_producer_domain,
-      TensorDomain::getContiguityFilledWith(new_producer_allocation_domain, true));
+      TensorDomain::getContiguityFilledWith(new_producer_logical_domain, true));
+
+  if (original_td->hasAllocation()) {
+    std::vector<IterDomain*> new_producer_allocation_domain;
+    new_producer_allocation_domain.reserve(
+        replay_rfactor.allocation_domain_.size());
+    replayDomain(
+        replay_rfactor.allocation_domain_,
+        new_producer_allocation_domain,
+        original_to_producer_id_map,
+        /*ignore_ids=*/kEmptyIgnoreIds,
+        /*propagate_padding=*/false,
+        /*propagate_parallelization=*/false);
+    producer_domain->setAllocationDomain(
+        new_producer_allocation_domain,
+        TensorDomain::getContiguityFilledWith(
+            new_producer_allocation_domain, true));
+  }
 
   // Producer has been finished, now work on consumer.
 
@@ -520,7 +539,6 @@ std::pair<TensorDomain*, TensorDomain*> TransformRFactor::runReplay(
             .iter_type(original_id->getIterType())
             .build();
     new_consumer_root_domain.push_back(new_consumer_root);
-    debug() << "new_consumer_root_domain: " << new_consumer_root->toString() << std::endl;
     original_to_consumer_root_map[original_id] = new_consumer_root;
   }
 
@@ -531,51 +549,37 @@ std::pair<TensorDomain*, TensorDomain*> TransformRFactor::runReplay(
   auto original_to_consumer_map = consumer_replay.getReplay();
 
   std::vector<IterDomain*> new_consumer_domain;
-
-  {
-    // Construct the new consumer domain
-    for (auto i : arange(original_td->nDims())) {
-      auto orig_id = original_td->axis(i);
-      auto replayed_id_it = original_to_consumer_map.find(orig_id);
-      if (replayed_id_it != original_to_consumer_map.end()) {
-        auto replayed_id = replayed_id_it->second;
-        new_consumer_domain.push_back(replayed_id);
-        replayed_id->parallelize(orig_id->getParallelType());
-        if (orig_id->hasPaddingToMultipleOfWarp()) {
-          replayed_id->padToMultipleOfWarp(orig_id->getMaybeSizeAfterPadding());
-        }
-      }
-    }
-  }
-
-  std::vector<IterDomain*> new_consumer_allocation_domain;
-  {
-    for (auto i : arange(new_producer_allocation_domain.size())) {
-      auto p_alloc_id = new_producer_allocation_domain[i];
-      if (p_alloc_id->isReduction()) {
-        continue;
-      }
-      auto p2o_it = producer_to_original_map.find(p_alloc_id);
-      NVF_ERROR(
-          p2o_it != producer_to_original_map.end(),
-          "Missing mapping from original tensor domain to producer tensor "
-          "domain.");
-      auto original_id = p2o_it->second;
-      auto replayed_id_it = original_to_consumer_map.find(original_id);
-      if (replayed_id_it != original_to_consumer_map.end()) {
-        auto replayed_id = replayed_id_it->second;
-        new_consumer_allocation_domain.push_back(replayed_id);
-      }
-    }
-  }
+  new_consumer_domain.reserve(original_td->nDims());
+  replayDomain(
+      original_td->loop(),
+      new_consumer_domain,
+      original_to_consumer_map,
+      /*ignore_ids=*/rfactor_axes,
+      /*propagate_padding=*/true,
+      /*propagate_parallelization=*/true);
 
   auto consumer_domain = IrBuilder::createInContainer<TensorDomain>(
       original_td->container(),
       new_consumer_root_domain,
-      new_consumer_root_domain,
-      new_consumer_allocation_domain,
       new_consumer_domain,
-      TensorDomain::getContiguityFilledWith(new_consumer_allocation_domain, true));
+      TensorDomain::getContiguityFilledWith(new_consumer_root_domain, true));
+
+  if (original_td->hasAllocation()) {
+    std::vector<IterDomain*> new_consumer_allocation_domain;
+    new_consumer_allocation_domain.reserve(
+        replay_rfactor.allocation_domain_.size());
+    replayDomain(
+        replay_rfactor.allocation_domain_,
+        new_consumer_allocation_domain,
+        original_to_consumer_map,
+        /*ignore_ids=*/rfactor_axes,
+        /*propagate_padding=*/false,
+        /*propagate_parallelization=*/false);
+    consumer_domain->setAllocationDomain(
+        new_consumer_allocation_domain,
+        TensorDomain::getContiguityFilledWith(
+            new_consumer_allocation_domain, true));
+  }
 
   return std::make_pair(producer_domain, consumer_domain);
 }
