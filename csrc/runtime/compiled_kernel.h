@@ -62,7 +62,7 @@ class CompiledKernel : public NonCopyable {
   // NVF_API was added for nvfuser_extension. See examples/sinh_extension.
   CompiledKernel() = delete;
 
-  NVF_API ~CompiledKernel();
+  NVF_API virtual ~CompiledKernel();
 
   NVF_API CompiledKernel(
       Fusion* fusion,
@@ -95,7 +95,7 @@ class CompiledKernel : public NonCopyable {
   //! To compile a fusion with the 32-bit index type, CompileParams
   //! must be passed in. There used to be an index type associated
   //! with KernelArgumentHolder, but it is no longer the case.
-  NVF_API void compile(const LaunchParams& lparams);
+  NVF_API virtual void compile(const LaunchParams& lparams);
 
   // Function to query whether a `CompiledKernel` has a compiled kernel to
   // execute
@@ -241,7 +241,7 @@ class CompiledKernel : public NonCopyable {
     return compile_params_;
   }
 
- private:
+ protected:
   CompileParams compile_params_;
   // Assuming sm70 or above:
   //  limit of statically allocated smem is 48 KB:
