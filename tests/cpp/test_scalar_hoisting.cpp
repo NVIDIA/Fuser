@@ -378,24 +378,30 @@ TEST_F(ScalarHoistTest, ARange) {
 // Codegen generated code
 __global__ void CUDAGeneratedKernel(int64_t i0, int64_t i1, int64_t i2, Tensor<int64_t, 1, 1> T0, Tensor<int64_t, 1, 1> T1) {
   int64_t i3;
-  i3 = i1 - i0;
+  i3 = -i0;
   int64_t i4;
-  i4 = abs(i3);
+  i4 = i1 + i3;
   int64_t i5;
-  i5 = abs(i2);
+  i5 = abs(i4);
   int64_t i6;
-  i6 = ceilDiv(i4, i5);
+  i6 = abs(i2);
   nvfuser_index_t i7;
-  i7 = __to_index(i6);
+  i7 = __to_index((ceilDiv(abs((i1 - i0)), i6)));
   int64_t i8;
   i8 = __to_int64(i7);
+  int64_t i9;
+  i9 = ceilDiv(i5, i6);
+  nvfuser_index_t i10;
+  i10 = __to_index(i9);
+  int64_t i11;
+  i11 = __to_int64(i10);
   #pragma unroll 1
-  for(nvfuser_index_t i9 = 0LL; i9 < i7; ++i9) {
-    T0[i9] = (i0 + (i2 * i9));
+  for(nvfuser_index_t i12 = 0LL; i12 < i7; ++i12) {
+    T0[i12] = (i0 + (i2 * i12));
   }
   #pragma unroll 1
-  for(nvfuser_index_t i10 = 0LL; i10 < i7; ++i10) {
-    T1[i10] = i8;
+  for(nvfuser_index_t i13 = 0LL; i13 < i7; ++i13) {
+    T1[i13] = i11;
   }
 }
 )";

@@ -96,6 +96,50 @@ class HeuristicDataCache;
 // its own problems (#4839).
 //
 //
+// Scheduling with Scatter
+// -----------------------
+//
+// To avoid grid synchronizations, the scattered dimension
+// must not be parallelized with BID. The output tensor of a
+// scatter operation is therefore designated as a constrained tensor.
+//
+// Additionally, scatter inputs and following consumer tensors also
+// need to be designated as constrained tensors. This is because the
+// loop domain of the output tensor is not connected with the logical
+// domain and thus cannot be used as a reference tensor for any
+// surrounding tensors. For example, consider the following
+// operations:
+//
+// ```
+// out = scatter(in, idx, src)
+// out_consumer = add(out, 1)
+// ```
+//
+// The `out` tensor is a constrained tensor, but that isn't the only
+// constrained tensor. Suppose its loop domain is already scheduled.
+// Since the loop domain is derived from the idx and src tensors,
+// there's no obvious way to propagate its transformation to the
+// `out_cosnumer` tensor. Therefore, the `out_cosnumer` tensor itself
+// needs to be explicitly scheduled, which is done by designating it
+// as a constrained tensor. Similarly, all three input tensors need to
+// be explicitly scheduled due to the lack of connection between the
+// logical and loop domains of the `out` tensor. Therefore, for each
+// scatter operation, we mark four input and output tensors as
+// constrained. Any following consumer tensors also need to be
+// designated as such. For simplicity, however, a copy of the output
+// tensor is inserted with cacheAfter, and only the copy tensor is
+// designated as a constrained tensor.
+//
+// Another type of scheduling specific to scatter is allocation domain
+// scheduling. The nvFuser ScatterOp is provided as an out-of-place
+// operation, but it is internally implemented as an in-place
+// operation. This means that the input and output tensors must share
+// the same memory buffer. The compile-time checker ensures that the
+// input and output tensors can safely share the same buffer, and
+// after scheduling, both of the two tensors are assigned the same
+// memory type and the allocation domain.
+//
+//
 // Limitations
 // -----------
 //

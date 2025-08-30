@@ -314,6 +314,19 @@ Val* SimplifyingIrBuilder::negExpr(Val* val) {
   return IrBuilder::negExpr(val);
 }
 
+Val* SimplifyingIrBuilder::absExpr(Val* val) {
+  if (val->isZeroInt()) {
+    return val->container()->zeroVal(val->dtype());
+  } else if (val->isConst()) {
+    auto const_val = val->value();
+    if (const_val < 0) {
+      const_val = -const_val;
+    }
+    return IrBuilder::create<Val>(const_val, val->dtype());
+  }
+  return IrBuilder::absExpr(val);
+}
+
 Val* SimplifyingIrBuilder::logicalNotExpr(Val* val) {
   if (val->isConst()) {
     if (val->value()) {

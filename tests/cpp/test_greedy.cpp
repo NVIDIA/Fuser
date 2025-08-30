@@ -288,4 +288,33 @@ TEST_F(GreedySchedulerTest, ArgsortPadScan) {
   EXPECT_TRUE(executor_cache.getMostRecentKernelRuntime()->isSegmented());
 }
 
+// Based on SgLangMoETest.ComputeArgSort
+TEST_F(GreedySchedulerTest, Scatter) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  const int64_t size = 128;
+
+  auto tv0 = makeContigConcreteTensor({size}, DataType::Int);
+  fusion.addInput(tv0);
+
+  auto tv1 = zeros({IrBuilder::create<Val>(size)}, DataType::Int);
+  auto tv2 = arange(
+      fusion.zeroVal(DataType::Int),
+      IrBuilder::create<Val>(size, DataType::Int),
+      DataType::Int);
+  auto tv3 = scatter(tv1, 0, tv0, tv2);
+  fusion.addOutput(tv3);
+
+  auto options = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
+  auto t0 = at::randperm(size, options);
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs({t0});
+  testValidate(executor_cache.fusion(), outputs, {t0}, __LINE__, __FILE__);
+
+  EXPECT_FALSE(executor_cache.getMostRecentKernelRuntime()->isSegmented());
+}
+
 } // namespace nvfuser
