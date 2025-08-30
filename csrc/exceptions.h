@@ -213,22 +213,6 @@ class NVF_API nvfError : public std::exception {
     uint32_t line,
     const char* msg);
 
-[[noreturn]] void nvfErrorFail(
-    const char* func,
-    const char* file,
-    uint32_t line,
-    const char* condMsg,
-    const char* userMsg);
-
-[[noreturn]] inline void nvfErrorFail(
-    const char* func,
-    const char* file,
-    uint32_t line,
-    const char* condMsg,
-    CompileTimeEmptyString /*userMsg*/) {
-  nvfCheckFail(func, file, line, condMsg);
-}
-
 [[noreturn]] NVF_API void nvfErrorFail(
     const char* func,
     const char* file,
@@ -237,15 +221,11 @@ class NVF_API nvfError : public std::exception {
     const std::string& userMsg);
 
 template <typename... Args>
-decltype(auto) nvfCheckMsgImpl(const char* /*msg*/, const Args&... args) {
-  return to_str(args...);
+decltype(auto) nvfCheckMsgImpl(const char* msg, const Args&... args) {
+  return to_str(msg, args...);
 }
 inline const char* nvfCheckMsgImpl(const char* msg) {
   return msg;
-}
-// If there is just 1 user-provided C-string argument, use it.
-inline const char* nvfCheckMsgImpl(const char* /*msg*/, const char* args) {
-  return args;
 }
 
 } // namespace nvfuser
@@ -264,14 +244,13 @@ inline const char* nvfCheckMsgImpl(const char* /*msg*/, const char* args) {
         "https://github.com/NVIDIA/Fuser/issues. ",         \
         nvfuser::to_str(__VA_ARGS__));
 
-#define NVF_ERROR(cond, ...) \
-  if ((!(cond))) {           \
-    NVF_THROW(__VA_ARGS__)   \
+#define NVF_ERROR(cond, ...)                          \
+  if ((!(cond))) {                                    \
+    NVF_THROW("Expected " #cond " . ", ##__VA_ARGS__) \
   }
 
 #define NVF_CHECK_MSG(cond, ...) \
-  (nvfuser::nvfCheckMsgImpl(     \
-      "Expected " #cond " to be true, but got false.  ", ##__VA_ARGS__))
+  (nvfuser::nvfCheckMsgImpl("Expected " #cond " . ", ##__VA_ARGS__))
 
 #define NVF_CHECK(cond, ...)                 \
   if ((!(cond))) {                           \
@@ -283,7 +262,7 @@ inline const char* nvfCheckMsgImpl(const char* /*msg*/, const char* args) {
   }
 
 #define NVF_COMPARISON_ERROR_MESSAGE(lhs, op, rhs) \
-  "Expected " #lhs " " #op " " #rhs ", but found ", (lhs), " vs ", (rhs), ". "
+  "Found ", (lhs), " vs ", (rhs), ". "
 
 #define NVF_ERROR_COMPARE(lhs, op, rhs, ...) \
   NVF_ERROR(                                 \

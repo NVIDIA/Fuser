@@ -288,17 +288,8 @@ void nvfErrorFail(
     const char* file,
     uint32_t line,
     const char* condMsg,
-    const char* userMsg) {
-  nvfCheckFail(func, file, line, nvfuser::to_str(condMsg, userMsg));
-}
-
-void nvfErrorFail(
-    const char* func,
-    const char* file,
-    uint32_t line,
-    const char* condMsg,
     const std::string& userMsg) {
-  nvfCheckFail(func, file, line, nvfuser::to_str(condMsg, userMsg));
+  nvfCheckFail(func, file, line, nvfuser::to_str(condMsg, "\n", userMsg));
 }
 
 } // namespace nvfuser

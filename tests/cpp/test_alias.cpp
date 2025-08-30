@@ -1658,4 +1658,12 @@ TEST_F(AliasTest, SliceOfExpandedBroadcast) {
   testValidate(fec.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
 }
 
+TEST_F(AliasTest, Error) {
+  NVF_ERROR(1 == 1);
+  NVF_ERROR_EQ(1, 1);
+  int a = 1;
+  int b = 2;
+  NVF_CHECK_EQ(a, b);
+}
+
 } // namespace nvfuser
