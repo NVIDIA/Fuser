@@ -275,14 +275,6 @@ void nvfCheckFail(
   throw nvfuser::nvfError({func, file, line}, msg);
 }
 
-void nvfCheckFail(
-    const char* func,
-    const char* file,
-    uint32_t line,
-    const char* msg) {
-  throw nvfuser::nvfError({func, file, line}, msg);
-}
-
 void nvfErrorFail(
     const char* func,
     const char* file,
