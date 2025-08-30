@@ -1652,18 +1652,11 @@ TEST_F(AliasTest, SliceOfExpandedBroadcast) {
   TensorView* out = slice(in, {0, 1}, {2, 3});
   fusion->addOutput(out);
 
-  FusionExecutorCache fec(std::move(fusion));
+  FusionExecutorCache executor_cache(std::move(fusion));
   at::Tensor in_tensor = at::randn({2}).cuda().as_strided({2, 3}, {1, 0});
-  auto out_tensors = fec.runFusionWithInputs({in_tensor});
-  testValidate(fec.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
-}
-
-TEST_F(AliasTest, Error) {
-  NVF_ERROR(1 == 1);
-  NVF_ERROR_EQ(1, 1);
-  int a = 1;
-  int b = 2;
-  NVF_CHECK_EQ(a, b);
+  auto out_tensors = executor_cache.runFusionWithInputs({in_tensor});
+  testValidate(
+      executor_cache.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
 }
 
 } // namespace nvfuser
