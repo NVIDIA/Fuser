@@ -40,7 +40,7 @@ std::string _get_backtrace(
 struct SourceLocation {
   const char* function;
   const char* file;
-  uint32_t line;
+  int64_t line;
 };
 
 std::ostream& operator<<(std::ostream& out, const SourceLocation& loc);
@@ -204,49 +204,15 @@ class NVF_API nvfError : public std::exception {
 [[noreturn]] NVF_API void nvfCheckFail(
     const char* func,
     const char* file,
-    uint32_t line,
+    int64_t line,
     const std::string& msg);
-
-[[noreturn]] NVF_API void nvfCheckFail(
-    const char* func,
-    const char* file,
-    uint32_t line,
-    const char* msg);
-
-[[noreturn]] void nvfErrorFail(
-    const char* func,
-    const char* file,
-    uint32_t line,
-    const char* condMsg,
-    const char* userMsg);
-
-[[noreturn]] inline void nvfErrorFail(
-    const char* func,
-    const char* file,
-    uint32_t line,
-    const char* condMsg,
-    CompileTimeEmptyString /*userMsg*/) {
-  nvfCheckFail(func, file, line, condMsg);
-}
 
 [[noreturn]] NVF_API void nvfErrorFail(
     const char* func,
     const char* file,
-    uint32_t line,
+    int64_t line,
     const char* condMsg,
     const std::string& userMsg);
-
-template <typename... Args>
-decltype(auto) nvfCheckMsgImpl(const char* /*msg*/, const Args&... args) {
-  return to_str(args...);
-}
-inline const char* nvfCheckMsgImpl(const char* msg) {
-  return msg;
-}
-// If there is just 1 user-provided C-string argument, use it.
-inline const char* nvfCheckMsgImpl(const char* /*msg*/, const char* args) {
-  return args;
-}
 
 } // namespace nvfuser
 
@@ -257,33 +223,29 @@ inline const char* nvfCheckMsgImpl(const char* /*msg*/, const char* args) {
   nvfuser::nvfErrorFail(                                    \
         __FUNCTION__,                                       \
         __FILE__,                                           \
-        static_cast<uint32_t>(__LINE__),                    \
+        __LINE__,                    \
         " INTERNAL ASSERT FAILED at "                       \
-        STRINGIZE(__FILE__) ":" STRINGIZE(__LINE__)         \
+        __FILE__ ":" STRINGIZE(__LINE__)         \
         ", please report a bug with repro script to NVFuser at " \
         "https://github.com/NVIDIA/Fuser/issues. ",         \
         nvfuser::to_str(__VA_ARGS__));
 
-#define NVF_ERROR(cond, ...) \
-  if ((!(cond))) {           \
-    NVF_THROW(__VA_ARGS__)   \
+#define NVF_ERROR(cond, ...)                          \
+  if ((!(cond))) {                                    \
+    NVF_THROW("Expected " #cond " . ", ##__VA_ARGS__) \
   }
 
-#define NVF_CHECK_MSG(cond, ...) \
-  (nvfuser::nvfCheckMsgImpl(     \
-      "Expected " #cond " to be true, but got false.  ", ##__VA_ARGS__))
-
-#define NVF_CHECK(cond, ...)                 \
-  if ((!(cond))) {                           \
-    nvfuser::nvfCheckFail(                   \
-        __func__,                            \
-        __FILE__,                            \
-        static_cast<uint32_t>(__LINE__),     \
-        NVF_CHECK_MSG(cond, ##__VA_ARGS__)); \
+#define NVF_CHECK(cond, ...)                                      \
+  if ((!(cond))) {                                                \
+    nvfuser::nvfCheckFail(                                        \
+        __func__,                                                 \
+        __FILE__,                                                 \
+        __LINE__,                                                 \
+        nvfuser::to_str("Expected " #cond " . ", ##__VA_ARGS__)); \
   }
 
 #define NVF_COMPARISON_ERROR_MESSAGE(lhs, op, rhs) \
-  "Expected " #lhs " " #op " " #rhs ", but found ", (lhs), " vs ", (rhs), ". "
+  "Found ", (lhs), " vs ", (rhs), ". "
 
 #define NVF_ERROR_COMPARE(lhs, op, rhs, ...) \
   NVF_ERROR(                                 \
