@@ -1699,19 +1699,29 @@ std::vector<IterDomain*> getReachableIds(
 }
 
 std::vector<IterDomain*> propagateScatterAllocationDomain(
-    TensorView* from_tv,
+    TensorView* scatter_out,
     const std::vector<IterDomain*>& to_logical_domain) {
+  NVF_ERROR_EQ(
+      scatter_out->getLogicalDomain().size(),
+      to_logical_domain.size(),
+      "Mismatching tensor rank");
+  if (!scatter_out->hasAllocation()) {
+    return to_logical_domain;
+  }
+
+  // Only permutation is considered for now
   auto logical_to_alloc = ir_utils::computePermutation(
-      from_tv->getLogicalDomain(), from_tv->getAllocationDomain());
+      scatter_out->getLogicalDomain(), scatter_out->getMaybeAllocationDomain());
   NVF_ERROR(
       logical_to_alloc.has_value(),
       "Allocation domain of scatter output must be a permutation of logical "
       "domain: ",
-      from_tv->toString(),
+      scatter_out->toString(),
       ", logical: ",
-      toDelimitedString(from_tv->getLogicalDomain()),
+      toDelimitedString(scatter_out->getLogicalDomain()),
       ", allocation: ",
-      toDelimitedString(from_tv->getAllocationDomain()));
+      toDelimitedString(scatter_out->getAllocationDomain()));
+
   return ir_utils::applyPermutation(
       to_logical_domain, logical_to_alloc.value());
 }

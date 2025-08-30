@@ -608,23 +608,8 @@ class ConstrainedOpScheduler : public OptOutDispatch {
     const bool in_tv_is_produced_by_scatter =
         dynamic_cast<ScatterOp*>(in_tv->definition()) != nullptr;
 
-    auto in_tv_current_memory_type = in_tv->getMemoryType();
-
-    // Setting the memory type.
-    // If either of the input and output needs to be a global memory
-    // tensor, both tensors should use global. Otherwise, use shared.
-    if (in_tv->isFusionInput() || in_tv->isFusionOutput() ||
-        out_tv->isFusionOutput()) {
-      in_tv->setMemoryType(MemoryType::Global);
-      out_tv->setMemoryType(MemoryType::Global);
-    } else {
-      in_tv->setMemoryType(MemoryType::Shared);
-      out_tv->setMemoryType(MemoryType::Shared);
-    }
-
-    scheduleScatterAllocationDomains(scatter);
-
     if (in_tv_is_produced_by_scatter) {
+      auto in_tv_current_memory_type = in_tv->getMemoryType();
       NVF_ERROR_EQ(
           in_tv->getMemoryType(),
           in_tv_current_memory_type,
@@ -634,7 +619,21 @@ class ConstrainedOpScheduler : public OptOutDispatch {
           in_tv_current_memory_type,
           ". New: ",
           in_tv->getMemoryType());
+    } else {
+      // Setting the memory type.
+      // If either of the input and output needs to be a global memory
+      // tensor, both tensors should use global. Otherwise, use shared.
+      if (in_tv->isFusionInput() || in_tv->isFusionOutput() ||
+          out_tv->isFusionOutput()) {
+        in_tv->setMemoryType(MemoryType::Global);
+        out_tv->setMemoryType(MemoryType::Global);
+      } else {
+        in_tv->setMemoryType(MemoryType::Shared);
+        out_tv->setMemoryType(MemoryType::Shared);
+      }
     }
+
+    scheduleScatterAllocationDomains(scatter);
 
     // If there's a use of the scatter output, that must be the copy
     // op inserted by insertCopyAfterScatter. It is not automatically
@@ -649,6 +648,7 @@ class ConstrainedOpScheduler : public OptOutDispatch {
     }
   }
 
+  // Scatter-specific allocation domain scheduling
   void scheduleScatterAllocationDomains(ScatterOp* scatter) {
     auto in_tv = ir_utils::getTvInput(scatter);
     auto out_tv = ir_utils::getTvOutput(scatter);
