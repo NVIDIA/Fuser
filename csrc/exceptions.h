@@ -40,7 +40,7 @@ std::string _get_backtrace(
 struct SourceLocation {
   const char* function;
   const char* file;
-  uint32_t line;
+  int64_t line;
 };
 
 std::ostream& operator<<(std::ostream& out, const SourceLocation& loc);
@@ -204,13 +204,13 @@ class NVF_API nvfError : public std::exception {
 [[noreturn]] NVF_API void nvfCheckFail(
     const char* func,
     const char* file,
-    uint32_t line,
+    int64_t line,
     const std::string& msg);
 
 [[noreturn]] NVF_API void nvfErrorFail(
     const char* func,
     const char* file,
-    uint32_t line,
+    int64_t line,
     const char* condMsg,
     const std::string& userMsg);
 
@@ -223,7 +223,7 @@ class NVF_API nvfError : public std::exception {
   nvfuser::nvfErrorFail(                                    \
         __FUNCTION__,                                       \
         __FILE__,                                           \
-        static_cast<uint32_t>(__LINE__),                    \
+        __LINE__,                    \
         " INTERNAL ASSERT FAILED at "                       \
         __FILE__ ":" STRINGIZE(__LINE__)         \
         ", please report a bug with repro script to NVFuser at " \
@@ -240,7 +240,7 @@ class NVF_API nvfError : public std::exception {
     nvfuser::nvfCheckFail(                                        \
         __func__,                                                 \
         __FILE__,                                                 \
-        static_cast<uint32_t>(__LINE__),                          \
+        __LINE__,                                                 \
         nvfuser::to_str("Expected " #cond " . ", ##__VA_ARGS__)); \
   }
 
