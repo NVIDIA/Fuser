@@ -792,7 +792,6 @@ if(BUILD_PYTHON)
     gen_nvfuser_direct_version ALL
     DEPENDS ${NVFUSER_PYTHON_DIR}/nvfuser_direct/version.py
   )
-  add_dependencies(nvf_py_direct_internal gen_nvfuser_direct_version)
 
   # NOTE: For any future extension, change PYTHON_DIRECT_EXTENSION to another
   # name other than EXTENSION_NAME.
@@ -803,6 +802,7 @@ if(BUILD_PYTHON)
   )
 
   add_library(nvfuser_direct MODULE $<TARGET_OBJECTS:nvf_py_direct_internal>)
+  add_dependencies(nvfuser_direct gen_nvfuser_direct_version)
   target_compile_definitions(nvfuser_direct PRIVATE
     "-DTORCH_CUDA_BUILD_MAIN_LIB"
     "-DC10_BUILD_MAIN_LIB=1"
