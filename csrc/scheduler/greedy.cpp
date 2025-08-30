@@ -373,11 +373,6 @@ class CompileTimeChecker : private IterVisitor {
     if (!mismatched_constrained_id_detected_) {
       if (unique_constrained_domain_.has_value()) {
         if (unique_constrained_domain_->set() != constrained_domain.set()) {
-          std::cerr << "Mismatch found with " << tv->toString() << "\n";
-          std::cerr << "New: " << nvfuser::toString(constrained_domain)
-                    << " vs "
-                    << nvfuser::toString(unique_constrained_domain_.value())
-                    << "\n";
           mismatched_constrained_id_detected_ = true;
           unique_constrained_domain_.reset();
         }
@@ -603,13 +598,9 @@ class ConstrainedOpScheduler : public OptOutDispatch {
     auto out_tv = ir_utils::getTvOutput(scatter);
 
     scheduleConstrainedTv(out_tv, {scatter_dim});
-    std::cerr << "Scheduled out: " << out_tv->toString() << "\n";
     scheduleConstrainedTv(index_tv, {scatter_dim});
-    std::cerr << "Scheduled index: " << index_tv->toString() << "\n";
     scheduleConstrainedTv(in_tv, {scatter_dim});
-    std::cerr << "Scheduled inp: " << in_tv->toString() << "\n";
     scheduleConstrainedTv(src_tv, {scatter_dim});
-    std::cerr << "Scheduled src: " << src_tv->toString() << "\n";
 
     // If in_tv is produced by another scatter, it should be already
     // scheduled, including its memory type. It should not be
@@ -644,8 +635,6 @@ class ConstrainedOpScheduler : public OptOutDispatch {
           ". New: ",
           in_tv->getMemoryType());
     }
-
-    std::cerr << "Scheduled: " << scatter->toString() << std::endl;
 
     // If there's a use of the scatter output, that must be the copy
     // op inserted by insertCopyAfterScatter. It is not automatically
@@ -964,11 +953,6 @@ void GreedyScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
   auto tv_to_ref_map =
       partitionFusion(fusion, {constrained_tvs.begin(), constrained_tvs.end()});
 
-  std::cerr << "Partitioning:\n";
-  for (const auto& [tv, ref] : tv_to_ref_map) {
-    std::cerr << tv->toString() << " -> " << ref->toString() << "\n";
-  }
-
   // Propagate the schedule of each constrained tv to its disjoint set
   for (auto constrained_tv : constrained_tvs) {
     std::unordered_set<TensorView*> tvs_to_transform;
@@ -977,9 +961,6 @@ void GreedyScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
         tvs_to_transform.insert(tv);
       }
     }
-
-    std::cerr << "Scheduling by: " << constrained_tv->toString() << ": "
-              << toDelimitedString(tvs_to_transform) << "\n";
 
     SetSelector selector(tvs_to_transform);
     MaxLogicalDomainInfoSpanningTree tree(constrained_tv, &selector);
@@ -1012,7 +993,6 @@ void GreedyScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
   }
 
   for (const auto& tv : tvs_to_upload_to_smem) {
-    std::cerr << "Sync needed: " << tv->toString() << "\n";
     // Create a copy of this tensor on shared memory
     auto no_reduction_logical_domain =
         TensorDomain::noReductions(tv->getLogicalDomain());
@@ -1034,10 +1014,6 @@ void GreedyScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
 
     // Replace use of this tv if it has a conflicting consumer
     const auto& tv_sync_map = sync_map.producerConsumerRawSync().at(tv);
-    for (const auto& [tv, typemap] : tv_sync_map) {
-      std::cerr << "Sync consumer: " << tv->toString() << ", "
-                << typemap.toString() << "\n";
-    }
     std::vector<Expr*> uses_to_update;
     std::ranges::copy_if(
         tv->uses(), std::back_inserter(uses_to_update), [&](Expr* use) {
