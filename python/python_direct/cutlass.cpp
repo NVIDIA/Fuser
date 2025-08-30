@@ -60,14 +60,21 @@ void bindGemm(py::module_& cutlass) {
 }
 
 void bindGroupedGemm(py::module_& cutlass) {
-  const char* nvfp4_scaled_grouped_mm_docstring =
-      R"(nvfp4_scaled_grouped_mm(Tensor! output, Tensor a, Tensor b, Tensor a_blockscale, "
-         "Tensor b_blockscale, Tensor alphas, Tensor ab_strides, Tensor c_strides, Tensor problem_sizes, "
-         "Tensor expert_offsets, Tensor sf_offsets) -> ())";
   cutlass.def(
       "nvfp4_scaled_grouped_mm",
       &cutlass_kernels::nvfp4_scaled_grouped_mm,
-      nvfp4_scaled_grouped_mm_docstring);
+      R"(Computes nvfp4 grouped matmul and returns bf16 or fp16 output tensor.
+         nvfp4_scaled_grouped_mm(Tensor a,
+                                 Tensor b,
+                                 Tensor a_blockscale,
+                                 Tensor b_blockscale,
+                                 Tensor alphas,
+                                 Tensor ab_strides,
+                                 Tensor c_strides,
+                                 Tensor problem_sizes,
+                                 Tensor expert_offsets,
+                                 Tensor sf_offsets,
+                                 DataType out_dtype) -> Tensor output)");
 }
 
 } // namespace
