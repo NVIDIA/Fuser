@@ -11,6 +11,25 @@ template <typename T>
 __device__ __forceinline__ T shfl_xor(T var, int laneMask, int width = 32) {
   return __shfl_xor_sync(0xffffffff, var, laneMask, width);
 }
+
+// Specialization for bfloat16 using native CUDA shuffle
+// we only have shfl.sync.bfly.b32, so needs to:
+// convert var to float and shfl, then convert back to bfloat16
+template <>
+__device__ __forceinline__ __bfloat
+shfl_xor(__bfloat var, int laneMask, int width) {
+  return __float2bfloat(
+      __shfl_xor_sync(0xffffffff, __bfloat2float(var), laneMask, width));
+}
+
+// Specialization half
+template <>
+__device__ __forceinline__ __half
+shfl_xor(__half var, int laneMask, int width) {
+  return __float2half(
+      __shfl_xor_sync(0xffffffff, __half2float(var), laneMask, width));
+}
+
 template <typename T>
 __device__ __forceinline__ std::complex<T> shfl_xor(
     std::complex<T> var,
