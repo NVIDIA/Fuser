@@ -166,14 +166,13 @@ class SyntheticMiniModel:
     def mini_model(logits, labels):
         labels = torch.nn.functional.pad(labels, (0, 1))
         labels = labels[1 : labels.shape[-1]]
-        logits = logits.to(dtype=torch.float32)
-        logits = logits.squeeze(dim=0)
+        # logits = logits.to(dtype=torch.float32)
+        # logits = logits.squeeze(dim=0)
         return torch.nn.functional.cross_entropy(logits, labels)
 
     @staticmethod
     def inputs(batch_size, vocab_size):
         input = torch.randn(
-            1,
             batch_size,
             vocab_size,
             device="cuda",

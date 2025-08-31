@@ -193,6 +193,28 @@ __device__ __forceinline__ void clusterReduce(
   // Get final result using warp reduction
   res = warpReduce(block_reduce_val, reduction_op);
 }
+
+template <int CLUSTER_SIZE, int WARPS_PER_BLOCK, typename Func>
+__device__ __forceinline__ void clusterReduce(
+    __bfloat& res,
+    __bfloat inp,
+    __bfloat init,
+    uint32_t barrier_smem_addr,
+    float* reduction_buffer,
+    Func reduction_op) {
+  float out_fp32;
+  float inp_val_fp32 = __bfloat2float(inp);
+  float init_val_fp32 = __bfloat2float(init);
+  auto reduction_op_fp32 = [](float& a, float b) { a = fmaxf(a, b); };
+  clusterReduce<CLUSTER_SIZE, WARPS_PER_BLOCK, float>(
+      out_fp32,
+      inp_val_fp32,
+      init_val_fp32,
+      barrier_smem_addr,
+      reduction_buffer,
+      reduction_op_fp32);
+  res = __float2bfloat(out_fp32);
+}
 #endif // Arch 90
 } // namespace cluster
 } // namespace nvf

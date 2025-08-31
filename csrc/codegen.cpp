@@ -4315,14 +4315,16 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     func_args.arg(gen(input));
     func_args.arg(genStaticCast(output->dtype(), genInline(init_val)));
     func_args.arg(genInline(mbarrier));
+    auto smem_dtype = output->dtype() == DataType::BFloat16 ? DataType::Float
+                                                            : output->dtype();
     if (current_group_reduction_id_ > 0) {
       func_args.arg(
-          genStaticCast(genPtrType(output->dtype()), "shared_mem") + " + " +
+          genStaticCast(genPtrType(smem_dtype), "shared_mem") + " + " +
           std::to_string(
               blocks_per_cluster * warps_per_block *
               current_group_reduction_id_));
     } else {
-      func_args.arg(genStaticCast(genPtrType(output->dtype()), "shared_mem"));
+      func_args.arg(genStaticCast(genPtrType(smem_dtype), "shared_mem"));
     }
     func_args.arg(genReductionOp(op_type, output->dtype()));
     indent() << genCall("cluster::clusterReduce", template_args, func_args)
