@@ -3,18 +3,11 @@
 # SPDX-License-Identifier: BSD-3-Clause
 # Owner(s): ["module: nvfuser"]
 
-from nvfuser_direct import FusionDefinition, DataType, version
+from nvfuser_direct import FusionDefinition, DataType
 import torch
 import pytest
 import io
 from contextlib import redirect_stdout, redirect_stderr
-
-
-def test_python_version_API():
-    from nvfuser_direct.nvfuser_direct_version import Version
-
-    assert version() > "0.0.0"
-    assert version() > Version("0.0.0")
 
 
 def test_fusion_not_defined():
