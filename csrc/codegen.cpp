@@ -460,9 +460,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
           auto space_type = kernel_summary.largest_smem_data_type;
           indent() << "nvfuser_index_t block_size = "
                       "blockDim.x*blockDim.y*blockDim.z;\n";
-          indent() << space_type << " *shared_mem_var = "
-                   << "static_cast<" << space_type << "*>("
-                   << "shared_mem);\n";
+          indent() << space_type << " *shared_mem_var = " << "static_cast<"
+                   << space_type << "*>(" << "shared_mem);\n";
           indent() << space_type
                    << " *shared_mem_avg = shared_mem_var + block_size;\n";
           indent() << space_type
@@ -1668,8 +1667,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     // This is slightly different from getReductionOp
     std::stringstream lambda;
     lambda << "[](const " << input->dtype() << "& a, const " << input->dtype()
-           << "& b) "
-           << "{ return "
+           << "& b) " << "{ return "
            << genBinaryOp(scan->opType(), input->dtype(), "a", "b") << "; }";
     func_args.arg(lambda.str());
 
@@ -1775,8 +1773,11 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
                << ";\n";
       return;
     }
-
-    func_args.arg(genStaticCast(genPtrType(output->dtype()), "shared_mem"));
+    if (output->dtype() != DataType::BFloat16) {
+      func_args.arg(genStaticCast(genPtrType(output->dtype()), "shared_mem"));
+    } else {
+      func_args.arg(genStaticCast(genPtrType(DataType::Float), "shared_mem"));
+    }
     NVF_ERROR(read_pred != nullptr && read_pred->hasValue());
     func_args.arg(genInline(read_pred));
     func_args.arg(genStaticCast(output->dtype(), genInline(init)));
@@ -2103,8 +2104,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     const bool has_grid_reduce = domain->hasGridReduction();
 
     if (!has_block_reduce && !has_grid_reduce) {
-      indent() << "welfordCombine ("
-               << "\n";
+      indent() << "welfordCombine (" << "\n";
       indent() << kTab << gen(out_avg) << ",\n";
       indent() << kTab << gen(out_var) << ",\n";
       indent() << kTab << gen(out_N) << ",\n";
@@ -3969,8 +3969,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
                       // actual argument value like T0[i * 4 + j].
                       << (as_utility ? prefix + std::to_string(counter)
                                      : gen(register_))
-                      << "[" << i << "]"
-                      << ")";
+                      << "[" << i << "]" << ")";
                 }
               } else {
                 (*asm_target) << "\"" << constraint << "\"(";
