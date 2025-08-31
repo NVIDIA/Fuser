@@ -1773,8 +1773,11 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
                << ";\n";
       return;
     }
-
-    func_args.arg(genStaticCast(genPtrType(output->dtype()), "shared_mem"));
+    if (output->dtype() != DataType::BFloat16) {
+      func_args.arg(genStaticCast(genPtrType(output->dtype()), "shared_mem"));
+    } else {
+      func_args.arg(genStaticCast(genPtrType(DataType::Float), "shared_mem"));
+    }
     NVF_ERROR(read_pred != nullptr && read_pred->hasValue());
     func_args.arg(genInline(read_pred));
     func_args.arg(genStaticCast(output->dtype(), genInline(init)));

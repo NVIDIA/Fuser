@@ -107,15 +107,31 @@ __device__ float fmax(float a, float b) {
 }
 
 __device__ __half fmax(__half a, __half b) {
+#if __CUDA_ARCH__ >= 800
+  __half val;
+  asm("{ max.f16 %0,%1,%2;\n}"
+      : "=h"(__NVFUSER_HALF_TO_US(val))
+      : "h"(__NVFUSER_HALF_TO_CUS(a)), "h"(__NVFUSER_HALF_TO_CUS(b)));
+  return val;
+#else
   auto a_float = __half2float(a);
   auto b_float = __half2float(b);
   return __float2half(fmax(a_float, b_float));
+#endif
 }
 
 __device__ __bfloat fmax(__bfloat a, __bfloat b) {
+#if __CUDA_ARCH__ >= 800
+  __bfloat val;
+  asm("{ max.bf16 %0,%1,%2;\n}"
+      : "=h"(__NVFUSER_BFLOAT_TO_US(val))
+      : "h"(__NVFUSER_BFLOAT_TO_CUS(a)), "h"(__NVFUSER_BFLOAT_TO_CUS(b)));
+  return val;
+#else
   auto a_float = __bfloat2float(a);
   auto b_float = __bfloat2float(b);
   return __float2bfloat(fmax(a_float, b_float));
+#endif
 }
 
 template <typename T>
