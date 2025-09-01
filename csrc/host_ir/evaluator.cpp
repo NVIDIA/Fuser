@@ -674,12 +674,12 @@ void HostIrEvaluator::handle(ReductionOp* reduction_op) {
   }
 }
 
-void HostIrEvaluator::handle(Narrow* narrow) {
-  auto in = getKnownConcreteValue(narrow->in()).as<at::Tensor>();
-  auto start = expr_evaluator_.evaluate(narrow->start()).as<int64_t>();
-  auto length = expr_evaluator_.evaluate(narrow->length()).as<int64_t>();
-  at::Tensor out = in.narrow(narrow->axis(), start, length);
-  expr_evaluator_.bind(narrow->out(), out);
+void HostIrEvaluator::handle(ShardByStream* shard) {
+  auto in = getKnownConcreteValue(shard->in()).as<at::Tensor>();
+  auto start = expr_evaluator_.evaluate(shard->start()).as<int64_t>();
+  auto length = expr_evaluator_.evaluate(shard->length()).as<int64_t>();
+  at::Tensor out = in.narrow(shard->axis(), start, length);
+  expr_evaluator_.bind(shard->out(), out);
 }
 
 void HostIrEvaluator::handle(Deallocate* deallocate) {

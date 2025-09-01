@@ -116,25 +116,25 @@ TEST_F(HostIrEvaluatorTest, AddInLoop) {
     loop_in->outer_split(0, c);
     loop_in->axis(0)->parallelize(ParallelType::Stream);
     loop_in->setAllocationDomain(loop_in->getLoopDomain(), false);
-    auto* narrow_in = IrBuilder::create<Narrow>(
+    auto* shard_in = IrBuilder::create<ShardByStream>(
         loop_in,
         in,
         0,
         mul(stream_index, loop_in->axis(1)->extent()),
         loop_in->axis(1)->extent());
-    for_loop->body().push_back(narrow_in);
+    for_loop->body().push_back(shard_in);
 
     TensorView* loop_out = set(out);
     loop_out->outer_split(0, c);
     loop_out->axis(0)->parallelize(ParallelType::Stream);
     loop_out->setAllocationDomain(loop_out->getLoopDomain(), false);
-    auto* narrow_out = IrBuilder::create<Narrow>(
+    auto* shard_out = IrBuilder::create<ShardByStream>(
         loop_out,
         out,
         0,
         mul(stream_index, loop_out->axis(1)->extent()),
         loop_out->axis(1)->extent());
-    for_loop->body().push_back(narrow_out);
+    for_loop->body().push_back(shard_out);
 
     auto* add = IrBuilder::create<BinaryOp>(
         BinaryOpType::Add, loop_out, loop_in, loop_in);

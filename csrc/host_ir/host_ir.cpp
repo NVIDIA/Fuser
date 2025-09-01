@@ -422,7 +422,7 @@ std::string HirAliasSelect::toInlineString(int indent_size) const {
   NVF_THROW("Cannot be printed inline");
 }
 
-Narrow::Narrow(
+ShardByStream::ShardByStream(
     IrBuilderPasskey passkey,
     TensorView* out,
     TensorView* in,
@@ -441,11 +441,11 @@ Narrow::Narrow(
   addDataAttribute(axis);
 }
 
-NVFUSER_DEFINE_CLONE_AND_CREATE(Narrow)
+NVFUSER_DEFINE_CLONE_AND_CREATE(ShardByStream)
 
-std::string Narrow::toString(int indent_size) const {
+std::string ShardByStream::toString(int indent_size) const {
   std::stringstream ss;
-  indent(ss, indent_size) << "Narrow(" << in()->toString()
+  indent(ss, indent_size) << "ShardByStream(" << in()->toString()
                           << ", axis = " << axis()
                           << ", start = " << start()->toString()
                           << ", length = " << length()->toString() << ")"
@@ -453,7 +453,7 @@ std::string Narrow::toString(int indent_size) const {
   return ss.str();
 }
 
-std::string Narrow::toInlineString(int indent_size) const {
+std::string ShardByStream::toInlineString(int indent_size) const {
   NVF_CHECK(false, "Cannot be printed inline");
 }
 

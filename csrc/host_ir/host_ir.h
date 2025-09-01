@@ -414,10 +414,10 @@ class HirAliasSelect : public Expr {
   }
 };
 
-class Narrow : public Expr {
+class ShardByStream : public Expr {
  public:
   using Expr::Expr;
-  Narrow(
+  ShardByStream(
       IrBuilderPasskey passkey,
       TensorView* out,
       TensorView* in,
@@ -425,17 +425,17 @@ class Narrow : public Expr {
       Val* start,
       Val* length);
 
-  Narrow(const Narrow& other) = delete;
-  Narrow& operator=(const Narrow& other) = delete;
-  Narrow(Narrow&& other) = delete;
-  Narrow& operator=(Narrow&& other) = delete;
+  ShardByStream(const ShardByStream& other) = delete;
+  ShardByStream& operator=(const ShardByStream& other) = delete;
+  ShardByStream(ShardByStream&& other) = delete;
+  ShardByStream& operator=(ShardByStream&& other) = delete;
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
   std::string toString(int indent_size = 0) const override;
   std::string toInlineString(int indent_size = 0) const override;
   const char* getOpString() const override {
-    return "hir::Narrow";
+    return "hir::ShardByStream";
   }
 
   TensorView* in() const {
