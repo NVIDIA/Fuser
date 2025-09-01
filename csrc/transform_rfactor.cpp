@@ -20,9 +20,6 @@ namespace nvfuser {
 
 namespace {
 
-// Empty set for replayDomain calls that don't need to ignore any IDs
-static const std::unordered_set<IterDomain*> kEmptyIgnoreIds{};
-
 // This class replays the root domains of the producer of an logical domain.
 // Axes must be replayed to mark rfactor iter domains as being reductions in the
 // producer, but converting the other reductions in the producer as iter
@@ -59,24 +56,30 @@ static const std::unordered_set<IterDomain*> kEmptyIgnoreIds{};
 // in this replay.
 class ReplayRFactor : public ReplayTransformations {
  private:
-  void splitId(Split* split) {
-    auto it = logical_domain_.erase(split->in()).second;
-    logical_domain_.insert(it, split->outer(), std::monostate());
-    logical_domain_.insert(it, split->inner(), std::monostate());
+  void splitId(LinkedHashMap<IterDomain*, std::monostate>& domain, Split* split) {
+    auto it = domain.erase(split->in()).second;
+    domain.insert(it, split->outer(), std::monostate());
+    domain.insert(it, split->inner(), std::monostate());
   }
 
-  void mergeId(Merge* merge) {
-    auto outer_it = logical_domain_.erase(merge->outer()).second;
-    logical_domain_.insert(outer_it, merge->out(), std::monostate());
-    logical_domain_.erase(merge->inner());
+  void mergeId(LinkedHashMap<IterDomain*, std::monostate>& domain, Merge* merge) {
+    auto outer_it = domain.erase(merge->outer()).second;
+    domain.insert(outer_it, merge->out(), std::monostate());
+    domain.erase(merge->inner());
   }
 
   void updateRFactorDomain(Expr* expr) {
     if (expr->isA<Split>()) {
-      splitId(expr->as<Split>());
+      splitId(logical_domain_, expr->as<Split>());
+      if (static_allocation_ids_.count(expr->as<Split>()->in())) {
+        splitId(allocation_domain_, expr->as<Split>());
+      }
     }
     if (expr->isA<Merge>()) {
-      mergeId(expr->as<Merge>());
+      mergeId(logical_domain_, expr->as<Merge>());
+      if (static_allocation_ids_.count(expr->as<Merge>()->outer())) {
+        mergeId(allocation_domain_, expr->as<Merge>());
+      }
     }
     NVF_ERROR("Unrecognized expression: ", expr->toString());
   }
@@ -226,6 +229,7 @@ class ReplayRFactor : public ReplayTransformations {
   // Iter domains whose history cannot be changed as it would break rfactor
   // dependencies.
   std::unordered_set<IterDomain*> static_logical_ids_;
+  std::unordered_set<IterDomain*> static_allocation_ids_;
 
  public:
   // The updated domain matching the producer's logical domain. This rfactor
@@ -234,7 +238,7 @@ class ReplayRFactor : public ReplayTransformations {
   // the allocation domain of the original domain and updated similar to logical
   // domain. Empty if no allocation domain is present.
   LinkedHashMap<IterDomain*, std::monostate> logical_domain_;
-  std::vector<IterDomain*> allocation_domain_;
+  LinkedHashMap<IterDomain*, std::monostate> allocation_domain_;
 
   ReplayRFactor(
       // Original domain the rfactor is in reference to.
@@ -247,10 +251,12 @@ class ReplayRFactor : public ReplayTransformations {
       std::unordered_set<IterDomain*> rfactor_axes,
       // All the iter domains in original_domain that the rfactor axes are
       // dependant on.
-      std::unordered_set<IterDomain*> static_logical_ids)
+      std::unordered_set<IterDomain*> static_logical_ids,
+      std::unordered_set<IterDomain*> static_allocation_ids)
       : ReplayTransformations(original_domain->loop(), std::move(id_map)),
         rfactor_axes_(std::move(rfactor_axes)),
-        static_logical_ids_(std::move(static_logical_ids)) {
+        static_logical_ids_(std::move(static_logical_ids)),
+        static_allocation_ids_(std::move(static_allocation_ids)) {
     const auto all_dep_vals = DependencyCheck::getAllValsBetween(
         {original_domain->maybeRoot().begin(),
          original_domain->maybeRoot().end()},
@@ -263,8 +269,8 @@ class ReplayRFactor : public ReplayTransformations {
       logical_domain_.pushBack(id, std::monostate());
     }
 
-    if (original_domain->hasAllocation()) {
-      allocation_domain_ = original_domain->allocation();
+    for (IterDomain* id : original_domain->allocation()) {
+      allocation_domain_.pushBack(id, std::monostate());
     }
 
     setErrorOnFailure(false);
@@ -276,6 +282,13 @@ class ReplayRFactor : public ReplayTransformations {
     std::vector<IterDomain*> transformed_logical(
         logical_ids.begin(), logical_ids.end());
     return transformed_logical;
+  }
+
+  std::vector<IterDomain*> allocation() const {
+    auto allocation_ids = std::views::keys(allocation_domain_);
+    std::vector<IterDomain*> transformed_allocation(
+        allocation_ids.begin(), allocation_ids.end());
+    return transformed_allocation;
   }
 };
 
@@ -447,12 +460,23 @@ std::pair<TensorDomain*, TensorDomain*> TransformRFactor::runReplay(
   std::unordered_set<IterDomain*> static_logical_ids(
       {all_id_deps_of_logical.begin(), all_id_deps_of_logical.end()});
 
+  std::unordered_set<IterDomain*> static_allocation_ids;
+  if (original_td->hasAllocation()) {
+    auto all_deps_of_allocation = DependencyCheck::getAllValsBetween(
+        {original_td->allocation().begin(), original_td->allocation().end()},
+        {rfactor_axes.begin(), rfactor_axes.end()});
+    auto all_id_deps_of_allocation =
+        ir_utils::filterByType<IterDomain>(all_deps_of_allocation);
+    static_allocation_ids = {all_id_deps_of_allocation.begin(), all_id_deps_of_allocation.end()};
+  }
+
   // Replay producer dimensions.
   ReplayRFactor replay_rfactor(
       original_td,
       original_to_producer_root_map,
       rfactor_axes,
-      static_logical_ids);
+      static_logical_ids,
+      static_allocation_ids);
 
   std::unordered_map<IterDomain*, IterDomain*> original_to_producer_id_map =
       replay_rfactor.getReplay();
@@ -466,8 +490,9 @@ std::pair<TensorDomain*, TensorDomain*> TransformRFactor::runReplay(
 
   // Specify the logical domain of the producer which will match the consumer
   // root domain.
+  std::vector<IterDomain*> replay_rfactor_logical_domain = replay_rfactor.logical();
   std::vector<IterDomain*> new_producer_logical_domain = replayDomain(
-      replay_rfactor.logical_domain_,
+      replay_rfactor_logical_domain,
       original_to_producer_id_map,
       /*ignore_ids=*/kEmptyIgnoreIds,
       /*propagate_padding=*/false,
@@ -481,12 +506,9 @@ std::pair<TensorDomain*, TensorDomain*> TransformRFactor::runReplay(
       TensorDomain::getContiguityFilledWith(new_producer_logical_domain, true));
 
   if (original_td->hasAllocation()) {
-    std::vector<IterDomain*> new_producer_allocation_domain;
-    new_producer_allocation_domain.reserve(
-        replay_rfactor.allocation_domain_.size());
-    replayDomain(
-        replay_rfactor.allocation_domain_,
-        new_producer_allocation_domain,
+    std::vector<IterDomain*> replay_rfactor_allocation_domain = replay_rfactor.allocation();
+    std::vector<IterDomain*> new_producer_allocation_domain = replayDomain(
+        replay_rfactor_allocation_domain,
         original_to_producer_id_map,
         /*ignore_ids=*/kEmptyIgnoreIds,
         /*propagate_padding=*/false,
@@ -547,12 +569,9 @@ std::pair<TensorDomain*, TensorDomain*> TransformRFactor::runReplay(
       TensorDomain::getContiguityFilledWith(new_consumer_root_domain, true));
 
   if (original_td->hasAllocation()) {
-    std::vector<IterDomain*> new_consumer_allocation_domain;
-    new_consumer_allocation_domain.reserve(
-        replay_rfactor.allocation_domain_.size());
-    replayDomain(
-        replay_rfactor.allocation_domain_,
-        new_consumer_allocation_domain,
+    std::vector<IterDomain*> replay_rfactor_allocation_domain = replay_rfactor.allocation();
+    std::vector<IterDomain*> new_consumer_allocation_domain = replayDomain(
+        replay_rfactor_allocation_domain,
         original_to_consumer_map,
         /*ignore_ids=*/rfactor_axes,
         /*propagate_padding=*/false,
