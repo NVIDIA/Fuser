@@ -1094,7 +1094,9 @@ def test_transformer_backward(multidevice_direct_test, benchmark):
         transformer_backward_multidevice_schedule(fd, d)
 
     # Resize scheduler disabled due toissue: #4890
-    warmup_fn, benchmark_fn = get_benchmark_fns(lambda: fd.execute(ins, _disable_options=['resize_scheduler']))
+    warmup_fn, benchmark_fn = get_benchmark_fns(
+        lambda: fd.execute(ins, _disable_options=["resize_scheduler"])
+    )
 
     (
         mlp_linear1_weight_grad,
