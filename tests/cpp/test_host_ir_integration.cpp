@@ -80,8 +80,8 @@ TEST_F(HostIrEvaluatorTest, LaunchKernel) {
   EXPECT_TRUE(out_tensor.equal(in_tensor));
 }
 
-TEST_F(HostIrEvaluatorTest, AddOutPerStream) {
-  constexpr int64_t c = 2;
+TEST_F(HostIrEvaluatorTest, AddInLoop) {
+  constexpr int64_t c = 3;
 
   Fusion fusion;
   {
@@ -98,21 +98,31 @@ TEST_F(HostIrEvaluatorTest, AddOutPerStream) {
     IrCloner ir_cloner(hic.get());
     auto* in = ir_cloner.clone(fusion.inputs().at(0))->as<TensorView>();
     auto* out = ir_cloner.clone(fusion.outputs().at(0))->as<TensorView>();
+    hic->addInput(in);
+    hic->addOutput(out);
 
     auto* allocate_out = IrBuilder::create<kir::Allocate>(
         out, MemoryType::Global, std::vector<Val*>({}), /*zero_init=*/true);
+
+    auto* stream_index = IrBuilder::create<Val>(DataType::Index);
+    auto* for_loop = IrBuilder::create<ForLoop>(
+        in->axis(0),
+        stream_index,
+        /*start=*/hic->oneVal(DataType::Index),
+        /*stop=*/IrBuilder::create<Val>(c, DataType::Index),
+        /*step=*/hic->oneVal());
 
     TensorView* loop_in = set(in);
     loop_in->outer_split(0, c);
     loop_in->axis(0)->parallelize(ParallelType::Stream);
     loop_in->setAllocationDomain(loop_in->getLoopDomain(), false);
-    auto* index_1 = hic->oneVal(DataType::Index);
     auto* narrow_in = IrBuilder::create<Narrow>(
         loop_in,
         in,
         0,
-        mul(index_1, loop_in->axis(1)->extent()),
+        mul(stream_index, loop_in->axis(1)->extent()),
         loop_in->axis(1)->extent());
+    for_loop->body().push_back(narrow_in);
 
     TensorView* loop_out = set(out);
     loop_out->outer_split(0, c);
@@ -122,28 +132,24 @@ TEST_F(HostIrEvaluatorTest, AddOutPerStream) {
         loop_out,
         out,
         0,
-        mul(index_1, loop_out->axis(1)->extent()),
+        mul(stream_index, loop_out->axis(1)->extent()),
         loop_out->axis(1)->extent());
+    for_loop->body().push_back(narrow_out);
 
     auto* add = IrBuilder::create<BinaryOp>(
         BinaryOpType::Add, loop_out, loop_in, loop_in);
-
-    hic->addInput(in);
-    hic->addOutput(out);
+    for_loop->body().push_back(add);
 
     hic->pushBackTopLevelExprs(allocate_out);
-    hic->pushBackTopLevelExprs(narrow_in);
-    hic->pushBackTopLevelExprs(narrow_out);
-    hic->pushBackTopLevelExprs(add);
+    hic->pushBackTopLevelExprs(for_loop);
   }
 
   HostIrEvaluator hie(std::move(hic));
 
   at::Tensor in_tensor =
-      at::randn({c * 3, 5}, at::dtype(at::kFloat).device(at::kCUDA));
-  at::Tensor expected_out_tensor = at::zeros_like(in_tensor);
-  expected_out_tensor.tensor_split(c, 0)[1].copy_(
-      in_tensor.tensor_split(c, 0)[1] * 2);
+      at::randn({c * 2, 5}, at::dtype(at::kFloat).device(at::kCUDA));
+  at::Tensor expected_out_tensor = in_tensor + in_tensor;
+  expected_out_tensor.chunk(c, 0)[0].zero_();
 
   KernelArgumentHolder ins(in_tensor);
   ins.setCacheId(0);
