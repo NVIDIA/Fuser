@@ -271,6 +271,54 @@ class ReplayRFactor : public ReplayTransformations {
   }
 };
 
+// Empty set for replayDomain calls that don't need to ignore any IDs
+static const std::unordered_set<IterDomain*> kEmptyIgnoreIds{};
+
+// Use the `replay_to_target_map` to replay the `replay_domain`.
+// `ignore_rfactor_ids` is true for consumers where the replay will not have
+// these ids since they are already reduced. If `propagate_padding = true`,
+// padding to multiple of warp is applied to the replayed ids. If
+// `propagate_parallelization = true`, replayed id is parallelized to the
+// original id's parallel type. Device and stream parallel types are always be
+// preserved in replay.
+std::vector<IterDomain*> replayDomain(
+    const std::vector<IterDomain*>& replay_domain,
+    std::unordered_map<IterDomain*, IterDomain*>& replay_to_target_map,
+    const std::unordered_set<IterDomain*>& ignore_ids = kEmptyIgnoreIds,
+    bool propagate_padding = false,
+    bool propagate_parallelization = false) {
+  std::vector<IterDomain*> target_domain;
+  target_domain.reserve(replay_domain.size());
+  for (const auto& replay_id : replay_domain) {
+    auto target_id_it = replay_to_target_map.find(replay_id);
+
+    if (ignore_ids.count(replay_id)) {
+      continue;
+    }
+
+    NVF_ERROR(
+        target_id_it != replay_to_target_map.end(),
+        "Error during rfactor replay, missing an axis.",
+        replay_id->toString());
+    IterDomain* target_id = target_id_it->second;
+
+    // Device and stream parallel types should always be preserved in replay.
+    // Other parallel types are only relevant to replay of the loop domain.
+    if (propagate_parallelization || replay_id->isDeviceDim() ||
+        replay_id->isStream()) {
+      target_id->parallelize(replay_id->getParallelType());
+    }
+
+    if (propagate_padding) {
+      if (replay_id->hasPaddingToMultipleOfWarp()) {
+        target_id->padToMultipleOfWarp(replay_id->getMaybeSizeAfterPadding());
+      }
+    }
+    target_domain.push_back(target_id);
+  }
+  return target_domain;
+}
+
 } // namespace
 
 std::pair<TensorDomain*, TensorDomain*> TransformRFactor::runReplay(
@@ -374,7 +422,7 @@ std::pair<TensorDomain*, TensorDomain*> TransformRFactor::runReplay(
       } else {
         new_producer_root[i] = id->cloneWithoutRFactor();
       }
-      original_to_producer_root_map[id] = new_producer_root[i++];
+      original_to_producer_root_map[id] = new_producer_root[i];
     }
   }
 
@@ -401,38 +449,21 @@ std::pair<TensorDomain*, TensorDomain*> TransformRFactor::runReplay(
   std::unordered_map<IterDomain*, IterDomain*> original_to_producer_id_map =
       replay_rfactor.getReplay();
 
-  std::vector<IterDomain*> new_producer_domain(original_td->nDims(), nullptr);
-  {
-    for (auto i : arange(original_td->nDims())) {
-      auto orig_id = original_td->axis(i);
-      auto replayed_id_it = original_to_producer_id_map.find(orig_id);
-      NVF_ERROR(
-          replayed_id_it != original_to_producer_id_map.end(),
-          "Error during rfactor replay, missing an axis.");
-      auto replayed_id = replayed_id_it->second;
-      replayed_id->parallelize(orig_id->getParallelType());
-      if (orig_id->hasPaddingToMultipleOfWarp()) {
-        replayed_id->padToMultipleOfWarp(orig_id->getMaybeSizeAfterPadding());
-      }
-      new_producer_domain[i++] = replayed_id;
-    }
-  }
+  std::vector<IterDomain*> new_producer_domain = replayDomain(
+      original_td->loop(),
+      original_to_producer_id_map,
+      /*ignore_ids=*/kEmptyIgnoreIds,
+      /*propagate_padding=*/true,
+      /*propagate_parallelization=*/true);
 
   // Specify the logical domain of the producer which will match the consumer
   // root domain.
-  std::vector<IterDomain*> new_producer_logical_domain;
-  new_producer_logical_domain.reserve(replay_rfactor.logical_domain_.size());
-  std::transform(
-      replay_rfactor.logical_domain_.begin(),
-      replay_rfactor.logical_domain_.end(),
-      std::back_inserter(new_producer_logical_domain),
-      [&](IterDomain* id) {
-        auto replayed_id_it = original_to_producer_id_map.find(id);
-        NVF_ERROR(
-            replayed_id_it != original_to_producer_id_map.end(),
-            "Error during rfactor replay, missing an axis.");
-        return replayed_id_it->second;
-      });
+  std::vector<IterDomain*> new_producer_logical_domain = replayDomain(
+      replay_rfactor.logical_domain_,
+      original_to_producer_id_map,
+      /*ignore_ids=*/kEmptyIgnoreIds,
+      /*propagate_padding=*/false,
+      /*propagate_parallelization=*/false);
 
   auto* producer_domain = IrBuilder::createInContainer<TensorDomain>(
       original_td->container(),
@@ -477,23 +508,12 @@ std::pair<TensorDomain*, TensorDomain*> TransformRFactor::runReplay(
 
   auto original_to_consumer_map = consumer_replay.getReplay();
 
-  std::vector<IterDomain*> new_consumer_domain;
-
-  {
-    // Construct the new consumer domain
-    for (auto i : arange(original_td->nDims())) {
-      auto orig_id = original_td->axis(i);
-      auto replayed_id_it = original_to_consumer_map.find(orig_id);
-      if (replayed_id_it != original_to_consumer_map.end()) {
-        auto replayed_id = replayed_id_it->second;
-        new_consumer_domain.push_back(replayed_id);
-        replayed_id->parallelize(orig_id->getParallelType());
-        if (orig_id->hasPaddingToMultipleOfWarp()) {
-          replayed_id->padToMultipleOfWarp(orig_id->getMaybeSizeAfterPadding());
-        }
-      }
-    }
-  }
+  std::vector<IterDomain*> new_consumer_domain = replayDomain(
+      original_td->loop(),
+      original_to_consumer_map,
+      /*ignore_ids=*/rfactor_axes,
+      /*propagate_padding=*/true,
+      /*propagate_parallelization=*/true);
 
   auto consumer_domain = IrBuilder::createInContainer<TensorDomain>(
       original_td->container(),
