@@ -5,7 +5,9 @@
 * SPDX-License-Identifier: BSD-3-Clause
 */
 // clang-format on
+#include <gmock/gmock-matchers.h>
 #include <gmock/gmock-more-matchers.h>
+#include <gtest/gtest.h>
 
 #include <fusion.h>
 #include <global_allocator.h>
@@ -27,49 +29,55 @@ using HostIrEvaluatorTest = NVFuserTest;
 // using HostIrEvaluator.
 TEST_F(HostIrEvaluatorTest, LaunchKernel) {
   Fusion fusion;
-  FusionGuard fg(&fusion);
-  TensorView* in = makeSymbolicTensor(2);
-  fusion.addInput(in);
-
-  TensorView* out = set(in);
-  fusion.addOutput(out);
+  {
+    FusionGuard fg(&fusion);
+    TensorView* in = makeSymbolicTensor(2);
+    TensorView* out = set(in);
+    fusion.addInput(in);
+    fusion.addOutput(out);
+  }
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::Tensor t0 = at::randn({32, 32}, options);
-  auto ke = std::make_unique<KernelExecutor>();
-  ke->setGroupId(0);
-  ke->compile(&fusion, {t0});
+  at::Tensor in_tensor = at::randn({32, 32}, options);
 
   auto hic = std::make_unique<HostIrContainer>();
-  FusionGuard::setCurFusion(hic.get());
+  {
+    FusionGuard fg(hic.get());
 
-  hic->addKernelExecutor(std::move(ke));
+    auto ke = std::make_unique<KernelExecutor>();
+    ke->setGroupId(0);
+    ke->compile(&fusion, {in_tensor});
+    hic->addKernelExecutor(std::move(ke));
 
-  IrCloner ir_cloner(hic.get());
-  auto hic_in = ir_cloner.clone(in);
-  auto hic_out = ir_cloner.clone(out);
+    IrCloner ir_cloner(hic.get());
+    auto hic_in = ir_cloner.clone(fusion.inputs().at(0));
+    auto hic_out = ir_cloner.clone(fusion.outputs().at(0));
 
-  hic->addInput(hic_in);
-  hic->addOutput(hic_out);
+    hic->addInput(hic_in);
+    hic->addOutput(hic_out);
+    auto allocate =
+        IrBuilder::create<kir::Allocate>(hic_out, MemoryType::Global);
+    auto* cache_id =
+        IrBuilder::create<NamedScalar>("cacheId", DataType::UInt64);
+    auto launch_kernel = IrBuilder::create<LaunchKernel>(
+        0,
+        LaunchParams(),
+        CompileParams(),
+        std::vector<Val*>{hic_in},
+        std::vector<Val*>{hic_out},
+        cache_id);
 
-  auto allocate = IrBuilder::create<kir::Allocate>(hic_out, MemoryType::Global);
-  auto* cache_id = IrBuilder::create<NamedScalar>("cacheId", DataType::UInt64);
-  auto launch_kernel = IrBuilder::create<LaunchKernel>(
-      0,
-      LaunchParams(),
-      CompileParams(),
-      std::vector<Val*>{hic_in},
-      std::vector<Val*>{hic_out},
-      cache_id);
-
-  hic->pushBackTopLevelExprs(allocate);
-  hic->pushBackTopLevelExprs(launch_kernel);
+    hic->pushBackTopLevelExprs(allocate);
+    hic->pushBackTopLevelExprs(launch_kernel);
+  }
 
   HostIrEvaluator hie(std::move(hic));
+  KernelArgumentHolder ins(in_tensor);
+  ins.setCacheId(0);
+  KernelArgumentHolder outs = hie.runWithInputs(ins);
 
-  auto outputs = hie.runWithInput({{hic_in, t0}});
-
-  EXPECT_TRUE(outputs[0].as<at::Tensor>().equal(t0));
+  auto out_tensor = outs[0].as<at::Tensor>();
+  EXPECT_TRUE(out_tensor.equal(in_tensor));
 }
 
 class HostIrIntegrationTest : public NVFuserTest {
