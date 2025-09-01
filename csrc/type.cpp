@@ -847,6 +847,9 @@ static const char* iter_type2string(IterType t) {
       return "v";
     case IterType::Symbolic:
       return "?";
+    default:
+      // Don't try to print t as it would recursively call this function
+      NVF_THROW("Unexpected IterType");
   }
   std::unreachable();
 }
@@ -866,7 +869,7 @@ static const char* thread_size2string(ParallelType t) {
     case ParallelType::TIDx:
       return "blockDim.x";
     default:
-      NVF_THROW("Unexpected parallel type: ", t);
+      NVF_THROW("Unexpected parallel type");
   }
 }
 
