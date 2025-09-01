@@ -13,6 +13,7 @@
 #include <ir/iostream.h>
 #include <ir/utils.h>
 #include <iter_visitor.h>
+#include <linked_hash_map.h>
 #include <ops/arith.h>
 
 namespace nvfuser {
@@ -58,54 +59,26 @@ static const std::unordered_set<IterDomain*> kEmptyIgnoreIds{};
 // in this replay.
 class ReplayRFactor : public ReplayTransformations {
  private:
-  std::vector<IterDomain*>::iterator getPosInDomain(
-      std::vector<IterDomain*>& domain,
-      IterDomain* id) {
-    auto pos = std::find(domain.begin(), domain.end(), id);
-    NVF_ERROR(
-        pos != domain.end(),
-        "Could not find iter domain: ",
-        id->toString(),
-        " in the domain, domain=",
-        toDelimitedString(domain));
-    return pos;
+  void splitId(Split* split) {
+    auto it = logical_domain_.erase(split->in()).second;
+    logical_domain_.insert(it, split->outer(), std::monostate());
+    logical_domain_.insert(it, split->inner(), std::monostate());
   }
 
-  // Perform the update of the given domain by replacing "replace0" with
-  // "with0" and if not nullptr "with1", also removes "replace1" if not nullptr.
-  void updateDomain(
-      std::vector<IterDomain*>& domain,
-      IterDomain* replace0,
-      IterDomain* replace1,
-      IterDomain* with0,
-      IterDomain* with1) {
-    NVF_ERROR(
-        with0 != nullptr,
-        "The first provided IterDomain should be a real pointer,",
-        " the second iter domain provided can be a nullptr.");
-    auto pos = getPosInDomain(domain, replace0);
-    domain.insert(pos, with0);
-    if (with1 != nullptr) {
-      pos = getPosInDomain(domain, replace0);
-      domain.insert(pos, with1);
-    }
-    pos = getPosInDomain(domain, replace0);
-    domain.erase(pos);
-    if (replace1 != nullptr) {
-      pos = getPosInDomain(domain, replace1);
-      domain.erase(pos);
-    }
+  void mergeId(Merge* merge) {
+    auto outer_it = logical_domain_.erase(merge->outer()).second;
+    logical_domain_.insert(outer_it, merge->out(), std::monostate());
+    logical_domain_.erase(merge->inner());
   }
 
-  void updateRFactorDomain(
-      IterDomain* replace0,
-      IterDomain* replace1,
-      IterDomain* with0,
-      IterDomain* with1) {
-    updateDomain(logical_domain_, replace0, replace1, with0, with1);
-    if (!allocation_domain_.empty()) {
-      updateDomain(allocation_domain_, replace0, replace1, with0, with1);
+  void updateRFactorDomain(Expr* expr) {
+    if (expr->isA<Split>()) {
+      splitId(expr->as<Split>());
     }
+    if (expr->isA<Merge>()) {
+      mergeId(expr->as<Merge>());
+    }
+    NVF_ERROR("Unrecognized expression: ", expr->toString());
   }
 
   // Took a good bit of this from ReplayTransformations::handle(Split...)
@@ -170,7 +143,7 @@ class ReplayRFactor : public ReplayTransformations {
     id_map_[s->inner()] = idi;
 
     if (static_logical_ids_.count(s->in())) {
-      updateRFactorDomain(s->in(), nullptr, s->outer(), s->inner());
+      updateRFactorDomain(s);
     }
   }
 
@@ -228,7 +201,7 @@ class ReplayRFactor : public ReplayTransformations {
               static_logical_ids_.count(m->outer()),
           "If one input to a merge is a static logical id, the other must be "
           "as well.");
-      updateRFactorDomain(m->outer(), m->inner(), m->out(), nullptr);
+      updateRFactorDomain(m);
     }
   }
 
@@ -260,7 +233,7 @@ class ReplayRFactor : public ReplayTransformations {
   // updated to grab the mapped id's later. Similarly, the allocation domain is
   // the allocation domain of the original domain and updated similar to logical
   // domain. Empty if no allocation domain is present.
-  std::vector<IterDomain*> logical_domain_;
+  LinkedHashMap<IterDomain*, std::monostate> logical_domain_;
   std::vector<IterDomain*> allocation_domain_;
 
   ReplayRFactor(
@@ -277,8 +250,7 @@ class ReplayRFactor : public ReplayTransformations {
       std::unordered_set<IterDomain*> static_logical_ids)
       : ReplayTransformations(original_domain->loop(), std::move(id_map)),
         rfactor_axes_(std::move(rfactor_axes)),
-        static_logical_ids_(std::move(static_logical_ids)),
-        logical_domain_(original_domain->logical()) {
+        static_logical_ids_(std::move(static_logical_ids)) {
     const auto all_dep_vals = DependencyCheck::getAllValsBetween(
         {original_domain->maybeRoot().begin(),
          original_domain->maybeRoot().end()},
@@ -287,11 +259,23 @@ class ReplayRFactor : public ReplayTransformations {
     auto all_dep_ids = ir_utils::filterByType<IterDomain>(all_dep_vals);
     rfactor_dep_ids_.insert(all_dep_ids.begin(), all_dep_ids.end());
 
+    for (IterDomain* id : original_domain->logical()) {
+      logical_domain_.pushBack(id, std::monostate());
+    }
+
     if (original_domain->hasAllocation()) {
       allocation_domain_ = original_domain->allocation();
     }
 
     setErrorOnFailure(false);
+  }
+
+
+  std::vector<IterDomain*> logical() const {
+    auto logical_ids = std::views::keys(logical_domain_);
+    std::vector<IterDomain*> transformed_logical(
+        logical_ids.begin(), logical_ids.end());
+    return transformed_logical;
   }
 };
 
