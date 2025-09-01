@@ -1093,7 +1093,7 @@ def test_transformer_backward(multidevice_direct_test, benchmark):
         transformer_backward_definition(fd, b, s, h, e)
         transformer_backward_multidevice_schedule(fd, d)
 
-    # Resize scheduler disabled due toissue: #4890
+    # Resize scheduler disabled due to #4890
     warmup_fn, benchmark_fn = get_benchmark_fns(
         lambda: fd.execute(ins, _disable_options=["resize_scheduler"])
     )
