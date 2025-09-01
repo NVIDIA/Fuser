@@ -50,22 +50,22 @@ TEST_F(HostIrEvaluatorTest, LaunchKernel) {
     hic->addKernelExecutor(std::move(ke));
 
     IrCloner ir_cloner(hic.get());
-    auto hic_in = ir_cloner.clone(fusion.inputs().at(0));
-    auto hic_out = ir_cloner.clone(fusion.outputs().at(0));
+    Val* in = ir_cloner.clone(fusion.inputs().at(0));
+    Val* out = ir_cloner.clone(fusion.outputs().at(0));
 
-    hic->addInput(hic_in);
-    hic->addOutput(hic_out);
-    auto allocate =
-        IrBuilder::create<kir::Allocate>(hic_out, MemoryType::Global);
+    auto allocate = IrBuilder::create<kir::Allocate>(out, MemoryType::Global);
     auto* cache_id =
         IrBuilder::create<NamedScalar>("cacheId", DataType::UInt64);
     auto launch_kernel = IrBuilder::create<LaunchKernel>(
         0,
         LaunchParams(),
         CompileParams(),
-        std::vector<Val*>{hic_in},
-        std::vector<Val*>{hic_out},
+        std::vector<Val*>{in},
+        std::vector<Val*>{out},
         cache_id);
+
+    hic->addInput(in);
+    hic->addOutput(out);
 
     hic->pushBackTopLevelExprs(allocate);
     hic->pushBackTopLevelExprs(launch_kernel);
