@@ -42,7 +42,7 @@ Each migrated test underwent the following adaptations:
 
 ### Tests Only in Main Frontend (Not in Direct)
 
-The following 32 tests exist in `tests/python/test_python_frontend.py` but are **NOT** present in `tests/python/direct/test_python_frontend.py`:
+The following 31 tests exist in `tests/python/test_python_frontend.py` but are **NOT** present in `tests/python/direct/test_python_frontend.py`:
 
 **Note**: The legacy frontend uses class-based tests (`def test_*(self):`) while the direct frontend uses standalone functions (`def test_*(nvfuser_direct_test):`). Only actual pytest test methods (with `self` parameter) are counted here. `test_cat_qwen2_v2` is the only pytest outside of `TestNvFuserFrontend` in `tests/python/test_python_frontend.py`.
 
@@ -65,10 +65,6 @@ The following tests only exist in legacy frontend:
 - `test_fusion_profiler_user_schedule` - Tests user-defined fusion profiling; Cuda 13 incompatibility
 - `test_fusion_profiler_with_noncodegen_kernels` - Tests profiling with non-codegen kernels; Cuda 13 incompatibility
 - `test_cuda_code_and_scheduled_fusion_ir_strings` - Tests CUDA code generation (101 lines)
-
-**General Tests to add for basic functionality**
-The following functionality tests will be moved to tests/python/direct/test_python_direct.py.
-- `test_python_version_API` - Tests Python version API
 
 **General tests to add with more Than 50 Lines of Code:**
 The following tests are complex and will be moved to tests/python/direct/test_high_complexity.py.
@@ -227,6 +223,7 @@ The following 13 tests are from the original `tests/python/test_repro.py`.
 
 #### test_python_direct.py
 Contains direct frontend specific functionality tests:
+- `test_python_version_API` - Tests Python version API
 - `test_fusion_not_defined` - Tests that `execute` raises exception when `Fusion` is not defined; Maps to legacy `test_no_definition`
 - `test_fusion_empty` - Tests that `execute` raise exception when `Fusion` is empty; Maps to legacy `test_no_definition`
 - `test_from_pytorch_fails_on_cpu_tensor` - Tests CPU tensor handling
