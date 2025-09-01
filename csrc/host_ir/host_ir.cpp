@@ -426,19 +426,13 @@ ShardByStream::ShardByStream(
     IrBuilderPasskey passkey,
     TensorView* out,
     TensorView* in,
-    int64_t axis,
-    Val* start,
-    Val* end)
-    : Expr(passkey, {in, start, end}, {out}, {}) {
+    Val* stream_index)
+    : Expr(passkey, {in, stream_index}, {out}, {}) {
   NVF_ERROR(passkey.ir_container_ != nullptr);
   NVF_ERROR(passkey.ir_container_->isA<HostIrContainer>());
   NVF_ERROR_EQ(
       TensorDomain::noReductions(in->getLogicalDomain()).size(),
       out->getLogicalDomain().size());
-  NVF_ERROR_LE(0, axis);
-  NVF_ERROR_LT(axis, std::ssize(out->getLogicalDomain()));
-
-  addDataAttribute(axis);
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(ShardByStream)
@@ -446,10 +440,8 @@ NVFUSER_DEFINE_CLONE_AND_CREATE(ShardByStream)
 std::string ShardByStream::toString(int indent_size) const {
   std::stringstream ss;
   indent(ss, indent_size) << "ShardByStream(" << in()->toString()
-                          << ", axis = " << axis()
-                          << ", start = " << start()->toString()
-                          << ", length = " << length()->toString() << ")"
-                          << std::endl;
+                          << ", stream_index = " << stream_index()->toString()
+                          << ")" << std::endl;
   return ss.str();
 }
 

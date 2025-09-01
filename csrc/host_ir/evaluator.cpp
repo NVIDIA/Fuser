@@ -675,11 +675,31 @@ void HostIrEvaluator::handle(ReductionOp* reduction_op) {
 }
 
 void HostIrEvaluator::handle(ShardByStream* shard) {
-  auto in = getKnownConcreteValue(shard->in()).as<at::Tensor>();
-  auto start = expr_evaluator_.evaluate(shard->start()).as<int64_t>();
-  auto length = expr_evaluator_.evaluate(shard->length()).as<int64_t>();
-  at::Tensor out = in.narrow(shard->axis(), start, length);
-  expr_evaluator_.bind(shard->out(), out);
+  auto* out_tv = shard->out();
+
+  const std::vector<IterDomain*>& allocation_domain =
+      out_tv->getMaybeAllocationDomain();
+  auto i = std::find_if(
+      allocation_domain.begin(),
+      allocation_domain.end(),
+      std::mem_fn(&IterDomain::isStream));
+  NVF_ERROR(
+      i != allocation_domain.end(),
+      "Stream axis not found in allocation domain: ",
+      out_tv);
+  IterDomain* stream_id = *i;
+
+  auto in_tensor = getKnownConcreteValue(shard->in()).as<at::Tensor>();
+  int64_t stream_index =
+      expr_evaluator_.evaluate(shard->stream_index()).as<int64_t>();
+  at::Tensor out_tensor =
+      in_tensor
+          .chunk(
+              stream_id->extent()->evaluate().as<int64_t>(),
+              getShardedLogicalAxis(out_tv, ParallelType::Stream))
+          .at(stream_index);
+
+  expr_evaluator_.bind(out_tv, out_tensor);
 }
 
 void HostIrEvaluator::handle(Deallocate* deallocate) {

@@ -421,9 +421,7 @@ class ShardByStream : public Expr {
       IrBuilderPasskey passkey,
       TensorView* out,
       TensorView* in,
-      int64_t axis,
-      Val* start,
-      Val* length);
+      Val* stream_index);
 
   ShardByStream(const ShardByStream& other) = delete;
   ShardByStream& operator=(const ShardByStream& other) = delete;
@@ -446,16 +444,8 @@ class ShardByStream : public Expr {
     return outputs().at(0)->as<TensorView>();
   }
 
-  int64_t axis() const {
-    return attribute<int64_t>(0);
-  }
-
-  Val* start() const {
+  Val* stream_index() const {
     return inputs().at(1);
-  }
-
-  Val* length() const {
-    return inputs().at(2);
   }
 };
 
