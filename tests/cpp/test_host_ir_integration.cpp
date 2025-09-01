@@ -83,48 +83,59 @@ TEST_F(HostIrEvaluatorTest, LaunchKernel) {
 TEST_F(HostIrEvaluatorTest, AddOutPerStream) {
   constexpr int64_t c = 2;
 
+  Fusion fusion;
+  {
+    FusionGuard fg(&fusion);
+    TensorView* in = makeSymbolicTensor(2);
+    TensorView* out = add(in, in);
+    fusion.addInput(in);
+    fusion.addOutput(out);
+  }
+
   auto hic = std::make_unique<HostIrContainer>();
-  FusionGuard::setCurFusion(hic.get());
+  {
+    FusionGuard fg(hic.get());
+    IrCloner ir_cloner(hic.get());
+    auto* in = ir_cloner.clone(fusion.inputs().at(0))->as<TensorView>();
+    auto* out = ir_cloner.clone(fusion.outputs().at(0))->as<TensorView>();
 
-  TensorView* in = makeSymbolicTensor(2);
-  TensorView* out = set(in);
-  out->setMemoryType(MemoryType::Global);
+    auto* allocate_out = IrBuilder::create<kir::Allocate>(
+        out, MemoryType::Global, std::vector<Val*>({}), /*zero_init=*/true);
 
-  auto* allocate_out = IrBuilder::create<kir::Allocate>(
-      out, MemoryType::Global, std::vector<Val*>({}), /*zero_init=*/true);
+    TensorView* loop_in = set(in);
+    loop_in->outer_split(0, c);
+    loop_in->axis(0)->parallelize(ParallelType::Stream);
+    loop_in->setAllocationDomain(loop_in->getLoopDomain(), false);
+    auto* index_1 = hic->oneVal(DataType::Index);
+    auto* narrow_in = IrBuilder::create<Narrow>(
+        loop_in,
+        in,
+        0,
+        mul(index_1, loop_in->axis(1)->extent()),
+        loop_in->axis(1)->extent());
 
-  TensorView* loop_in = set(in);
-  loop_in->outer_split(0, c);
-  loop_in->axis(0)->parallelize(ParallelType::Stream);
-  loop_in->setAllocationDomain(loop_in->getLoopDomain(), false);
-  auto* index_1 = hic->oneVal(DataType::Index);
-  auto* narrow_in = IrBuilder::create<Narrow>(
-      loop_in,
-      in,
-      0,
-      mul(index_1, loop_in->axis(1)->extent()),
-      loop_in->axis(1)->extent());
+    TensorView* loop_out = set(out);
+    loop_out->outer_split(0, c);
+    loop_out->axis(0)->parallelize(ParallelType::Stream);
+    loop_out->setAllocationDomain(loop_out->getLoopDomain(), false);
+    auto* narrow_out = IrBuilder::create<Narrow>(
+        loop_out,
+        out,
+        0,
+        mul(index_1, loop_out->axis(1)->extent()),
+        loop_out->axis(1)->extent());
 
-  TensorView* loop_out = set(out);
-  loop_out->outer_split(0, c);
-  loop_out->axis(0)->parallelize(ParallelType::Stream);
-  loop_out->setAllocationDomain(loop_out->getLoopDomain(), false);
-  auto* narrow_out = IrBuilder::create<Narrow>(
-      loop_out,
-      out,
-      0,
-      mul(index_1, loop_out->axis(1)->extent()),
-      loop_out->axis(1)->extent());
+    auto* add = IrBuilder::create<BinaryOp>(
+        BinaryOpType::Add, loop_out, loop_in, loop_in);
 
-  auto* add = IrBuilder::create<BinaryOp>(
-      BinaryOpType::Add, loop_out, loop_in, loop_in);
-  hic->addInput(in);
-  hic->addOutput(out);
+    hic->addInput(in);
+    hic->addOutput(out);
 
-  hic->pushBackTopLevelExprs(allocate_out);
-  hic->pushBackTopLevelExprs(narrow_in);
-  hic->pushBackTopLevelExprs(narrow_out);
-  hic->pushBackTopLevelExprs(add);
+    hic->pushBackTopLevelExprs(allocate_out);
+    hic->pushBackTopLevelExprs(narrow_in);
+    hic->pushBackTopLevelExprs(narrow_out);
+    hic->pushBackTopLevelExprs(add);
+  }
 
   HostIrEvaluator hie(std::move(hic));
 
@@ -134,10 +145,10 @@ TEST_F(HostIrEvaluatorTest, AddOutPerStream) {
   expected_out_tensor.tensor_split(c, 0)[1].copy_(
       in_tensor.tensor_split(c, 0)[1] * 2);
 
-  KernelArgumentHolder args(in_tensor);
-  args.setCacheId(0);
-  auto out_tensors = hie.runWithInputs(args);
-  auto out_tensor = out_tensors[0].as<at::Tensor>();
+  KernelArgumentHolder ins(in_tensor);
+  ins.setCacheId(0);
+  KernelArgumentHolder outs = hie.runWithInputs(ins);
+  auto out_tensor = outs[0].as<at::Tensor>();
 
   EXPECT_TRUE(torch::allclose(out_tensor, expected_out_tensor))
       << "out_tensor: " << std::endl
