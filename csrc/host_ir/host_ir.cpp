@@ -430,13 +430,13 @@ Narrow::Narrow(
     Val* start,
     Val* end)
     : Expr(passkey, {in, start, end}, {out}, {}) {
-  NVF_CHECK(passkey.ir_container_ != nullptr);
-  NVF_CHECK(passkey.ir_container_->isA<HostIrContainer>());
-  NVF_CHECK_EQ(
+  NVF_ERROR(passkey.ir_container_ != nullptr);
+  NVF_ERROR(passkey.ir_container_->isA<HostIrContainer>());
+  NVF_ERROR_EQ(
       TensorDomain::noReductions(in->getLogicalDomain()).size(),
       out->getLogicalDomain().size());
-  NVF_CHECK_LE(0, axis);
-  NVF_CHECK_LT(axis, std::ssize(out->getLogicalDomain()));
+  NVF_ERROR_LE(0, axis);
+  NVF_ERROR_LT(axis, std::ssize(out->getLogicalDomain()));
 
   addDataAttribute(axis);
 }
@@ -448,7 +448,7 @@ std::string Narrow::toString(int indent_size) const {
   indent(ss, indent_size) << "Narrow(" << in()->toString()
                           << ", axis = " << axis()
                           << ", start = " << start()->toString()
-                          << ", end = " << end()->toString() << ")"
+                          << ", length = " << length()->toString() << ")"
                           << std::endl;
   return ss.str();
 }

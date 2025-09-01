@@ -19,6 +19,7 @@
 #include <ops/all_ops.h>
 #include <statement_guard.h>
 #include <transform_replay.h>
+#include <type.h>
 
 namespace nvfuser {
 
@@ -131,9 +132,9 @@ int64_t getShardedLogicalAxis(
   // always be fully allocated, and segment inputs/outputs may be partially /
   // fully allocated which can be inferred from its allocation domain.
 
-  const std::vector<IterDomain*>& domain = parallel_type == ParallelType::Stream
-      ? tv->getMaybeAllocationDomain()
-      : tv->getLoopDomain();
+  const std::vector<IterDomain*>& domain =
+      (parallel_type == ParallelType::Stream) ? tv->getMaybeAllocationDomain()
+                                              : tv->getLoopDomain();
   const std::unordered_map<ParallelType, IterDomain*>& parallel_type_to_id =
       mapDeviceAndStreamParallelTypeToId(domain);
   IterDomain* parallel_id = getOrDefault(parallel_type_to_id, parallel_type);
@@ -252,6 +253,24 @@ std::vector<int64_t> unshardedSizes(
     }
     unsharded_sizes.at(sharded_axis) *= tv->getDeviceMesh().size(parallel_type);
   }
+
+  // FIXME: This should be consolidated with the above loop.
+  for (IterDomain* id : tv->getMaybeAllocationDomain()) {
+    if (id->getParallelType() != ParallelType::Stream) {
+      continue;
+    }
+
+    const int64_t sharded_axis =
+        getShardedLogicalAxis(tv, ParallelType::Stream);
+    if (sharded_axis == -1) {
+      continue;
+    }
+
+    NVF_ERROR(
+        id->extent()->isConstInt(), "Stream extent must be constant: ", id);
+    unsharded_sizes.at(sharded_axis) *= id->extent()->evaluate().as<int64_t>();
+  }
+
   return unsharded_sizes;
 }
 

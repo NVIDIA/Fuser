@@ -677,8 +677,8 @@ void HostIrEvaluator::handle(ReductionOp* reduction_op) {
 void HostIrEvaluator::handle(Narrow* narrow) {
   auto in = getKnownConcreteValue(narrow->in()).as<at::Tensor>();
   auto start = expr_evaluator_.evaluate(narrow->start()).as<int64_t>();
-  auto end = expr_evaluator_.evaluate(narrow->end()).as<int64_t>();
-  at::Tensor out = in.narrow(narrow->axis(), start, end - start);
+  auto length = expr_evaluator_.evaluate(narrow->length()).as<int64_t>();
+  at::Tensor out = in.narrow(narrow->axis(), start, length);
   expr_evaluator_.bind(narrow->out(), out);
 }
 

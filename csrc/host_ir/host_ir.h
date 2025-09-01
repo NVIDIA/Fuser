@@ -423,7 +423,7 @@ class Narrow : public Expr {
       TensorView* in,
       int64_t axis,
       Val* start,
-      Val* end);
+      Val* length);
 
   Narrow(const Narrow& other) = delete;
   Narrow& operator=(const Narrow& other) = delete;
@@ -443,19 +443,19 @@ class Narrow : public Expr {
   }
 
   TensorView* out() const {
-    return attributeVal(0)->as<TensorView>();
+    return outputs().at(0)->as<TensorView>();
   }
 
   int64_t axis() const {
-    return attribute<int64_t>(1);
+    return attribute<int64_t>(0);
   }
 
   Val* start() const {
-    return inputs().at(2);
+    return inputs().at(1);
   }
 
-  Val* end() const {
-    return inputs().at(3);
+  Val* length() const {
+    return inputs().at(2);
   }
 };
 
