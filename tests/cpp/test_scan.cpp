@@ -436,4 +436,88 @@ TEST_F(ScanTest, KernelExecutorMultipleScan) {
   testValidate(&fusion, outputs, {input}, __LINE__, __FILE__);
 }
 
+TEST_F(ScanTest, KernelExecutorSerialScanMax) {
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  // Create input tensor [4, 8]
+  std::vector<int64_t> shape = {4, 8};
+  auto tv0 = makeContigConcreteTensor(shape);
+  fusion.addInput(tv0);
+
+  auto tv1 = set(tv0);
+  // Create scan operation along dimension 1, Mul operation
+  auto tv_result = scan(tv1, /*dim=*/1, BinaryOpType::Max);
+  auto tv_output = set(tv_result);
+  fusion.addOutput(tv_output);
+
+  // Parallelization strategy
+  for (auto tv : {tv1, tv_result, tv_output}) {
+    tv->axis(0)->parallelize(ParallelType::BIDx);
+  }
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto input = at::randn({4, 8}, options);
+
+  KernelExecutor ke;
+  ke.compile(&fusion, {input});
+  auto outputs = ke.run({input});
+
+  testValidate(&fusion, outputs, {input}, __LINE__, __FILE__);
+}
+
+// Parameterized test for different BinaryOpType and data types
+class SerialScanTest
+    : public NVFuserTest,
+      public ::testing::WithParamInterface<std::tuple<BinaryOpType, DataType>> {
+};
+TEST_P(SerialScanTest, BinaryOpTypeAndDataType) {
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+
+  auto [binary_op_type, dtype] = GetParam();
+
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  // Create input tensor [4, 8]
+  std::vector<int64_t> shape = {4, 8};
+  auto tv0 = makeContigConcreteTensor(shape, dtype);
+  fusion.addInput(tv0);
+
+  auto tv1 = set(tv0);
+  // Create scan operation along dimension 1 with parameterized operation
+  auto tv_result = scan(tv1, /*dim=*/1, binary_op_type);
+  auto tv_output = set(tv_result);
+  fusion.addOutput(tv_output);
+
+  // Parallelization strategy
+  for (auto tv : {tv1, tv_result, tv_output}) {
+    tv->axis(0)->parallelize(ParallelType::BIDx);
+  }
+
+  auto options =
+      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
+
+  // Use appropriate input generation based on data type
+  at::Tensor input =
+      at::randint(-100, 100, {4, 8}, options).to(data_type_to_aten(dtype));
+
+  KernelExecutor ke;
+  ke.compile(&fusion, {input});
+  auto outputs = ke.run({input});
+
+  testValidate(&fusion, outputs, {input}, __LINE__, __FILE__);
+}
+
+INSTANTIATE_TEST_SUITE_P(
+    ScanTest,
+    SerialScanTest,
+    ::testing::Combine(
+        ::testing::Values(
+            BinaryOpType::Add,
+            BinaryOpType::Max,
+            BinaryOpType::Min,
+            BinaryOpType::Mul),
+        ::testing::Values(DataType::Float, DataType::Double, DataType::Int)));
 } // namespace nvfuser

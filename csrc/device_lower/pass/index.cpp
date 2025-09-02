@@ -1444,12 +1444,68 @@ void IndexLowering::handleGroupedGridWelford(
   }
 }
 
-void IndexLowering::handle(const ScanOp* sop) {
-  const auto in = lowerSrcIndex(sop->in(), sop->out());
-  const auto out = lowerDstIndex(sop->out());
-  pushBack(IrBuilder::create<ScanOp>(
-      sop->opType(), sop->init(), out, in, sop->dim()));
-  GpuLower::current()->propagateExprInfo(sop, back());
+void IndexLowering::handle(const ScanOp* scop) {
+  const auto in = lowerSrcIndex(scop->in(), scop->out());
+  const auto out = lowerDstIndex(scop->out());
+
+  IterDomain* scan_id = TensorDomain::noReductions(
+                            scop->in()->as<TensorView>()->getLogicalDomain())
+                            .at((size_t)scop->dim());
+  // short circuit for parallelized scan, use blockScan
+  if (scan_id->isParallelized()) {
+    pushBack(IrBuilder::create<ScanOp>(
+        scop->opType(), scop->init(), out, in, scop->dim()));
+    GpuLower::current()->propagateExprInfo(scop, back());
+    return;
+  }
+
+  // thread loacal serial scan
+  const std::vector<IterDomain*>& alloc_dom =
+      scop->in()->as<TensorView>()->getMaybeAllocationDomain();
+  auto it = std::find(alloc_dom.begin(), alloc_dom.end(), scan_id);
+  auto scan_alloc_id = (it != alloc_dom.end()) ? *it : nullptr;
+  NVF_ERROR(
+      scan_alloc_id != nullptr,
+      "Could not find scanned ID in allocation domain. ",
+      "Scan dimensions must not be merged or split during scheduling");
+  ValGraph& id_graph = GpuLower::current()->tensorIndexer().traversalGraph();
+  const ValGroup& scan_group = id_graph.toGroup(scan_id);
+  ForLoop* scan_loop = nullptr;
+  for (ForLoop* loop : for_loops_) {
+    if (id_graph.toGroup(loop->iter_domain()) == scan_group) {
+      scan_loop = loop;
+      break;
+    }
+  }
+  NVF_ERROR(
+      scan_loop != nullptr,
+      "Could not find for loop with scanned ID. ",
+      "Scan dimensions must not be merged or split during scheduling");
+  Val* scan_index = GpuLower::current()->tensorIndexer().getLoopIndex(
+      scan_loop->iter_domain(), for_loops_);
+  Val* lagged_index = sub(scan_index, GpuLower::current()->kernel()->oneVal());
+  // This gives us the previously computed value along the scanned dimension
+  Val* prev_sum_tensor = lowerDstIndex(
+      scop->out(),
+      /*override_index=*/{{scan_alloc_id, lagged_index}});
+
+  // Cache the tensors to scalars, to make building the where expression simpler
+  Val* next_val = IrBuilder::create<Val>(scop->in()->dtype());
+  IrBuilder::create<LoadStoreOp>(LoadStoreOpType::Set, next_val, in);
+
+  // Convert prev_sum to a scalar Val so that we don't need to allocate a new
+  // TensorView for it.
+  Val* prev_sum = IrBuilder::create<Val>(scop->out()->dtype());
+  IrBuilder::create<LoadStoreOp>(
+      LoadStoreOpType::Set, prev_sum, prev_sum_tensor);
+
+  prev_sum = where(gt(scan_index, scan_loop->start()), prev_sum, scop->init());
+
+  Expr* expr =
+      IrBuilder::create<BinaryOp>(scop->opType(), out, prev_sum, next_val);
+
+  pushBack(expr);
+  GpuLower::current()->propagateExprInfo(scop, expr);
 }
 
 void IndexLowering::handle(const kir::MBarrierInit* minit) {

@@ -554,7 +554,12 @@ Val* getMinimumValue(DataType v) {
           -std::numeric_limits<c10::Float8_e8m0fnu>::max()));
       break;
     case (DataType::Int):
-      return IrBuilder::create<Val>(std::numeric_limits<int64_t>::lowest());
+      // +1 to avoid overflow during LL parsing.
+      // lowest is -9223372036854775808LL, LL is parsed before the unary minus
+      // is applied. However, 9223372036854775808LL is 1 more than the largest
+      // int64_t, so it is converted to unsigned int64_t and may cause template
+      // substitution error.
+      return IrBuilder::create<Val>(std::numeric_limits<int64_t>::lowest() + 1);
       break;
     case (DataType::Int32):
       return IrBuilder::create<Val>(
