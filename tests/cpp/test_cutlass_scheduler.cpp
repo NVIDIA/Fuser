@@ -37,7 +37,7 @@ TEST_F(CutlassExecutorTest, Nvfp4ScaledGemm_CodeGen) {
   // B has K inner
   tv1->setAllocationDomain(
       {tv1->axis(1), tv1->axis(0)}, /*new_contiguity=*/true);
-  auto tv2 = makeContigTensor(2, DataType::Float8_e4m3fn);
+  TensorView* a_sf = makeContigTensor(2, DataType::Float8_e4m3fn);
   auto tv3 = makeContigTensor(2, DataType::Float8_e4m3fn);
   auto tv4 = makeContigTensor(0, DataType::Float); // alpha
 
