@@ -36,28 +36,27 @@ TEST_F(CutlassExecutorTest, Nvfp4ScaledGemm_CodeGen) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
-  auto tv0 = makeContigTensor(2, DataType::Float4_e2m1fn);
-  auto tv1 = makeContigTensor(2, DataType::Float4_e2m1fn);
+  TensorView* a = makeContigTensor(2, DataType::Float4_e2m1fn);
+  TensorView* b = makeContigTensor(2, DataType::Float4_e2m1fn);
   // B has K inner
-  tv1->setAllocationDomain(
-      {tv1->axis(1), tv1->axis(0)}, /*new_contiguity=*/true);
-  auto tv2 = makeContigTensor(2, DataType::Float8_e4m3fn);
-  auto tv3 = makeContigTensor(2, DataType::Float8_e4m3fn);
-  auto tv4 = makeContigTensor(0, DataType::Float); // alpha
+  b->setAllocationDomain({b->axis(1), b->axis(0)}, /*new_contiguity=*/true);
+  TensorView* a_sf = makeContigTensor(2, DataType::Float8_e4m3fn);
+  TensorView* b_sf = makeContigTensor(2, DataType::Float8_e4m3fn);
+  TensorView* alpha = makeContigTensor(0, DataType::Float);
 
-  fusion->addInput(tv0);
-  fusion->addInput(tv1);
-  fusion->addInput(tv2);
-  fusion->addInput(tv3);
-  fusion->addInput(tv4);
+  fusion->addInput(a);
+  fusion->addInput(b);
+  fusion->addInput(a_sf);
+  fusion->addInput(b_sf);
+  fusion->addInput(alpha);
 
   // TODO: support more output dtypes, specifically nvfp4
   auto smm = scaled_mm(
-      tv0,
-      tv1,
-      tv2,
-      tv3,
-      tv4,
+      a,
+      b,
+      a_sf,
+      b_sf,
+      alpha,
       /*bias=*/nullptr,
       /*beta=*/nullptr,
       /*dtype=*/DataType::BFloat16);

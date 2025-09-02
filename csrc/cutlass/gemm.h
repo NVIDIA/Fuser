@@ -5,9 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-
-#include <cutlass/gemm.h>
-#include <exceptions.h>
+#pragma once
 
 #include <string>
 
@@ -17,14 +15,9 @@ class Fusion;
 
 namespace cutlass_codegen {
 
-std::string generateCode(Fusion* fusion) {
-  // TODO: match patterns and dispatch to different generators here
-  if (hasNvfp4ScaledMmPattern(fusion)) {
-    return generateNvfp4ScaledMmKernel(fusion);
-  } else {
-    NVF_THROW("Unsupported Fusion pattern for CUTLASS executor");
-  }
-}
+bool hasNvfp4ScaledMmPattern(Fusion* fusion);
+
+std::string generateNvfp4ScaledMmKernel(Fusion* fusion);
 
 } // namespace cutlass_codegen
 
