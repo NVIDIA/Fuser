@@ -38,7 +38,7 @@ enum class ReshardPosition {
 // multi-output expressions if they don't require resharding.
 ReshardPosition whereToReshard(Expr* e) {
   if ((e->inputs().size() == 1 && e->outputs().size() == 1) ||
-       isOptionEnabled(EnableOption::InsertReshardingAfter)) {
+      isOptionEnabled(EnableOption::InsertReshardingAfter)) {
     return ReshardPosition::kAfter;
   } else {
     return ReshardPosition::kBefore;
