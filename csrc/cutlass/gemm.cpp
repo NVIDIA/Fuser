@@ -179,7 +179,7 @@ struct Fp4GemmSm100 {
       DataType::Float4_e2m1fn,
       "Only float_e2m1_t is supported so far");
   code += "  using ElementB = cutlass::nv_float4_t<cutlass::float_e2m1_t>;\n";
-  code += "  using LayoutATag = " + mapLayoutToCutlass(b) + ";\n";
+  code += "  using LayoutBTag = " + mapLayoutToCutlass(b) + ";\n";
   // TODO: check alignment of B and save in cutlass_params.supported_vec_sizes
   // as is done for Ampere
   code += R"(
