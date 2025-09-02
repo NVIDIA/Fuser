@@ -166,11 +166,7 @@ struct Fp4GemmSm100 {
       DataType::Float4_e2m1fn,
       "Only float_e2m1_t is supported so far");
   code += "  using ElementA = cutlass::nv_float4_t<cutlass::float_e2m1_t>;\n";
-  if (a->getLogicalDomain().back() == a->getMaybeAllocationDomain().back()) {
-    code += "  using LayoutATag = cutlass::layout::RowMajor;\n";
-  } else {
-    code += "  using LayoutATag = cutlass::layout::ColumnMajor;\n";
-  }
+  code += "  using LayoutATag = " + mapLayoutToCutlass(a) + ";\n";
   // TODO: check alignment of A and save in cutlass_params.supported_vec_sizes
   // as is done for Ampere
   code += R"(
@@ -183,11 +179,7 @@ struct Fp4GemmSm100 {
       DataType::Float4_e2m1fn,
       "Only float_e2m1_t is supported so far");
   code += "  using ElementB = cutlass::nv_float4_t<cutlass::float_e2m1_t>;\n";
-  if (b->getLogicalDomain().back() == b->getMaybeAllocationDomain().back()) {
-    code += "  using LayoutBTag = cutlass::layout::RowMajor;\n";
-  } else {
-    code += "  using LayoutBTag = cutlass::layout::ColumnMajor;\n";
-  }
+  code += "  using LayoutATag = " + mapLayoutToCutlass(b) + ";\n";
   // TODO: check alignment of B and save in cutlass_params.supported_vec_sizes
   // as is done for Ampere
   code += R"(
@@ -201,8 +193,8 @@ struct Fp4GemmSm100 {
   NVF_ERROR(
       !main_output->hasAllocation(),
       "Cutlass executor doesn't yet support transposed output");
-  // TODO: support transposed output by changing the below lines as needed
-  code += "  using LayoutDTag = cutlass::layout::RowMajor;\n";
+  code += "  using LayoutDTag = " + mapLayoutToCutlass(main_output) + ";\n";
+  // TODO: C is
   code += "  using LayoutCTag = cutlass::layout::RowMajor;\n";
 
   code += R"(
