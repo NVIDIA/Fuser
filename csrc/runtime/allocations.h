@@ -86,12 +86,11 @@ KernelArgumentHolder allocateOutputs(
     const KernelArgumentHolder& args,
     bool dynamic_evaluate = false);
 
-//! Return information necessary for allocating output tensors. Input
-//! and output tensors are allowed to alias each other, which is
-//! specified by the list of int pairs of input and output indices
+//! Return information necessary for allocating the given TensorViews. `tvs`
+//! has to be a list of TensorViews despite the type `Val*` for convenience.
 std::vector<GlobalBufferInfo> getBufferInfos(
     ExpressionEvaluator& expr_eval,
     DataType index_dtype,
-    const std::vector<Val*>& fusion_outputs);
+    const std::vector<Val*>& tvs);
 
 } // namespace nvfuser

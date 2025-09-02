@@ -890,6 +890,24 @@ TensorView* TensorView::rFactor(const std::vector<int64_t>& axes) {
         IrBuilder::create<Val>(0.0, producer->dtype()),
         consumer,
         producer);
+  } else if (
+      auto cutlass_grouped_mma =
+          dynamic_cast<CutlassNvfp4GroupedMmaOp*>(definition())) {
+    IrBuilder::create<CutlassNvfp4GroupedMmaOp>(
+        producer,
+        cutlass_grouped_mma->matrix1(),
+        cutlass_grouped_mma->matrix2(),
+        cutlass_grouped_mma->scale1(),
+        cutlass_grouped_mma->scale2(),
+        cutlass_grouped_mma->alpha(),
+        cutlass_grouped_mma->problemSizes(),
+        cutlass_grouped_mma->expertOffsets(),
+        cutlass_grouped_mma->scalingFactorOffsets());
+    IrBuilder::create<ReductionOp>(
+        BinaryOpType::Add,
+        IrBuilder::create<Val>(0.0, producer->dtype()),
+        consumer,
+        producer);
   } else {
     NVF_THROW("RFactor: unsupported tensor definition: ", definition());
   }
@@ -1094,13 +1112,7 @@ TensorView* TensorView::cacheBefore(LoadStoreOpType op_type) {
 
   TensorView* producer = IrBuilder::createInContainer<TensorView>(
       container(),
-      IrBuilder::createInContainer<TensorDomain>(
-          container(),
-          getRootDomain(),
-          getLogicalDomain(),
-          getAllocationDomain(),
-          getLoopDomain(),
-          getContiguity()),
+      IrBuilder::createInContainer<TensorDomain>(container(), domain()),
       getDataType().value());
 
   // Set domain of consumer
@@ -1139,10 +1151,17 @@ TensorView* TensorView::cacheBefore(LoadStoreOpType op_type) {
   // definition_ is no longer valid
   // setDefinition(nullptr);
 
-  auto replayed_consumer_pair = TransformReplay::replayCasP(
-      consumer, producer, -1, TransformReplayOptions().replayAllocation());
+  // We do not want to reproduce the loop domain if it's for
+  // scatter. Recall that the loop domain of the scatter op is derived
+  // from the logical domain of the scatter index tensor. Here, the
+  // consumer tensor needs to copy the whole producer tensor, so the
+  // loop domain must be based on the logical domain.
+  if (!producer->definition()->isA<ScatterOp>()) {
+    auto replayed_consumer_pair = TransformReplay::replayCasP(
+        consumer, producer, -1, TransformReplayOptions().replayAllocation());
 
-  consumer->setDomain(replayed_consumer_pair.first);
+    consumer->setDomain(replayed_consumer_pair.first);
+  }
 
   if (consumer->hasDeviceMesh()) {
     producer->setDeviceMesh(consumer->getDeviceMesh());
@@ -1250,15 +1269,6 @@ TensorView* TensorView::cacheAfter(
       !hasComputeAt(),
       "Caching computed-at tensors is not allowed. Apply caching before "
       "computeAt.");
-
-  // disallow cache on operation where we require data remain in global memory.
-  for (auto use : cached_uses) {
-    NVF_ERROR(
-        !(use->isOneOf<SliceOp, SelectOp, PadOp>()) &&
-            !(use->isA<IndexSelectOp>() && use->input(0) == this),
-        "Right now, caching tensors that are input to the select/slice/pad ops "
-        "are not allowed as they must be in global memory.");
-  }
 
   // It also did additional transformation when this tensor is an
   // input and the outputs of its consumers have computeAt. Make sure

@@ -147,10 +147,11 @@ struct WelfordResult {
 struct TopKResult {
  public:
   TensorView* values = nullptr; //!< The k largest/smallest values
-  TensorView* indices; //!< Indices of the values in the original tensor
+  TensorView* indices =
+      nullptr; //!< Indices of the values in the original tensor
 
-  //! Constructor ensuring both outputs come from the same TopK operation
-  explicit TopKResult(TensorView* in_values, TensorView* in_indices);
+  explicit TopKResult(TensorView* in_values, TensorView* in_indices)
+      : values(in_values), indices(in_indices) {}
 };
 
 //! Welford operator on specified axes. This is currently the only scan op with
@@ -167,7 +168,7 @@ NVF_API WelfordResult Welford(
 
 //! Create a raw WelfordOp. Don't convert size-1 or size-0 reduction into
 //! squeeze/full.
-WelfordResult WelfordRaw(
+NVF_API WelfordResult WelfordRaw(
     TensorView* tv,
     const std::vector<int64_t>& axes,
     TensorView* init_avg = nullptr,
@@ -587,10 +588,8 @@ NVF_API TensorView* ne(Val* v1, TensorView* v2);
 NVF_API TensorView* ne(TensorView* v1, TensorView* v2);
 
 // complex
-Val* complex(Val* v1, Val* v2);
-TensorView* complex(TensorView* v1, Val* v2);
-TensorView* complex(Val* v1, TensorView* v2);
-TensorView* complex(TensorView* v1, TensorView* v2);
+NVF_API Val* complex(Val* v1, Val* v2);
+NVF_API TensorView* complex(TensorView* v1, TensorView* v2);
 
 // REDUCTION OPERATIONS
 NVF_API TensorView* sum(

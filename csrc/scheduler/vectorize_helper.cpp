@@ -18,6 +18,7 @@
 #include <ir/iostream.h>
 #include <ir/printer.h>
 #include <iter_visitor.h>
+#include <multidevice/utils.h>
 #include <scheduler/registry.h>
 #include <scheduler/runtime_info.h>
 #include <scheduler/tools/resize_utils.h>
@@ -800,13 +801,28 @@ Val* ContiguousInnerDimensionsMapper::getContigMergeOfInnerSize(
       }
     }
 
+    // Get the logical ID corresponding to the allocation ID.
+    auto exprs = DependencyCheck::getAllExprsBetween(
+        {of_tv->getLogicalDomain().begin(), of_tv->getLogicalDomain().end()},
+        {alloc_iid});
+    IterDomain* logical_id = alloc_iid;
+    Val* num_devices = of_tv->container()->oneVal();
+    for (Expr* expr : exprs | std::views::reverse) {
+      validateDeviceSplit(expr);
+      Split* split = expr->as<Split>();
+      logical_id = split->in();
+      num_devices = SimplifyingIrBuilder::mulExpr(num_devices, split->factor());
+    }
+
     // Mapping order isn't correct, cannot expand vectorization dimension.
-    if (projected_dims[--projected_dims_i] != alloc_iid) {
+    if (projected_dims[--projected_dims_i] != logical_id) {
       break;
     }
 
-    product_of_inner_extents = SimplifyingIrBuilder::mulExpr(
-        product_of_inner_extents, getProjectedExtent(alloc_iid));
+    auto sharded_extent = SimplifyingIrBuilder::divExpr(
+        getProjectedExtent(logical_id), num_devices);
+    product_of_inner_extents =
+        SimplifyingIrBuilder::mulExpr(product_of_inner_extents, sharded_extent);
   }
   return simplifyExpr(product_of_inner_extents);
 }
@@ -957,6 +973,7 @@ int64_t getVectorizationFactor(
     TensorView* reference_tv,
     HeuristicDataCache* data_cache,
     int64_t break_point,
+    int64_t max_vectorization_size_in_bit,
     const std::unordered_map<int64_t, int64_t>& logical_reorder_map) {
   FUSER_PERF_SCOPE("vectorize_helper::getVectorizationFactor");
 
@@ -997,21 +1014,22 @@ int64_t getVectorizationFactor(
 
   const auto& resize_factors = resize_factors_entry.get();
 
-  int64_t max_vec_size = SchedulerRuntimeInfo::max_alignment_size_in_byte;
+  int64_t max_vect_factor = max_vectorization_size_in_bit;
   const auto& tv_to_inner_size_map = vectorize_maps_entry.get().at(break_point);
 
   for (auto inp_or_out : vectorizable_inputs_outputs) {
-    // factor <= max_factor / dtype_size
-    const auto dtype_size =
-        dataTypeSizeByte(inp_or_out->dtype(), runtime_info.getIndexType());
-    max_vec_size = std::min(
-        max_vec_size,
-        SchedulerRuntimeInfo::max_alignment_size_in_byte / dtype_size);
+    // factor <= max_factor / dtype_size_bit
+    const auto dtype_size_bit =
+        dataTypeSizeBit(inp_or_out->dtype(), runtime_info.getIndexType());
+    max_vect_factor = std::min(
+        max_vect_factor, max_vectorization_size_in_bit / dtype_size_bit);
 
-    // factor <= alignment / dtype_size
-    int64_t alignment_size = (int64_t)runtime_info.getAlignmentSize(inp_or_out);
-    NVF_ERROR(alignment_size % dtype_size == 0);
-    max_vec_size = std::min(max_vec_size, alignment_size / dtype_size);
+    // factor <= alignment / dtype_size_bit
+    int64_t alignment_size_bit =
+        (int64_t)runtime_info.getAlignmentSizeBit(inp_or_out);
+    NVF_ERROR(alignment_size_bit % dtype_size_bit == 0);
+    max_vect_factor =
+        std::min(max_vect_factor, alignment_size_bit / dtype_size_bit);
 
     // factor <= projected_extent
     auto inner_size_it = tv_to_inner_size_map.find(inp_or_out);
@@ -1031,9 +1049,9 @@ int64_t getVectorizationFactor(
         "Vectorization heuristic could not evaluate inner most size: ",
         inner_size_it->second);
 
-    max_vec_size = std::min(
+    max_vect_factor = std::min(
         scheduler_utils::maxVectorizationWidth(inner_size_opt.as<int64_t>()),
-        max_vec_size);
+        max_vect_factor);
   }
 
   // This is a WAR for vectorization through resize as the spanning
@@ -1050,10 +1068,10 @@ int64_t getVectorizationFactor(
     if (inferred_val_int == 0) {
       continue;
     }
-    max_vec_size = std::gcd(max_vec_size, inferred_val_int);
+    max_vect_factor = std::gcd(max_vect_factor, inferred_val_int);
   }
 
-  return max_vec_size;
+  return max_vect_factor;
 }
 
 int64_t getVectorizationFactorTransposeGroup(

@@ -8,7 +8,9 @@
 #include <ATen/cuda/CUDAContext.h>
 #include <c10/util/string_view.h>
 #include <cuda_occupancy.h>
+#include <nvrtc.h>
 
+#include <cuda_utils.h>
 #include <debug.h>
 #include <options.h>
 #include <runtime/executor_kernel_arg.h>
@@ -95,6 +97,28 @@ int8_t getCommonDeviceCUDA(
   return found_device ? index : (int8_t)0;
 }
 
+// with cuda-12.9 or later, devices 10.0 support 256 bit vectorization
+int64_t getMaxVectorizationSizeInBit() {
+  // Cache for max vectorization size to avoid repeated system calls
+  static std::optional<int64_t> cached_max_vectorization_size_in_bit =
+      std::nullopt;
+
+  if (cached_max_vectorization_size_in_bit.has_value()) {
+    return cached_max_vectorization_size_in_bit.value();
+  }
+  int64_t max_vec_bits = 128;
+  int sw_major, sw_minor;
+  NVFUSER_NVRTC_SAFE_CALL(nvrtcVersion(&sw_major, &sw_minor));
+  if ((sw_major >= 12 && sw_minor >= 9) || (sw_major >= 13)) {
+    int hw_major = at::cuda::getCurrentDeviceProperties()->major;
+    if (hw_major >= 10) {
+      max_vec_bits = 256;
+    }
+  }
+  cached_max_vectorization_size_in_bit = max_vec_bits;
+  return max_vec_bits;
+}
+
 bool useFallback() {
   // Keep this env var for compatibility
   const char* disable_fb_env = getNvFuserEnv("DISABLE_FALLBACK");
@@ -154,30 +178,14 @@ int64_t getThreadsPerSMGivenRegPerThread(int64_t reg_per_thread) {
   return num_warps * warp_size;
 }
 
-const char* getNvFuserEnv(const char* env_name, const char* default_value) {
+const char* getNvFuserEnv(
+    const std::string& env_name,
+    const char* default_value) {
   // Prepend the default prefix and try if the variable is defined.
-  const std::string prefix = "NVFUSER_";
-  auto prefixed_name = prefix + env_name;
-  auto env = std::getenv(prefixed_name.c_str());
-  if (env) {
+  const std::string prefixed_name = "NVFUSER_" + env_name;
+  if (const char* env = std::getenv(prefixed_name.c_str())) {
     return env;
   }
-
-  // Try the PYTROCH_NVFUSER prefix as well, which is considered
-  // deprecated.
-  const std::string pyt_prefix = "PYTORCH_NVFUSER_";
-  auto pyt_prefixed_name = pyt_prefix + env_name;
-  auto pyt_env = std::getenv(pyt_prefixed_name.c_str());
-  if (pyt_env) {
-    TORCH_WARN(
-        "Environment variable, ",
-        pyt_prefixed_name,
-        ", is deprecated. Please use ",
-        prefixed_name,
-        " instead.");
-    return pyt_env;
-  }
-
   return default_value;
 }
 

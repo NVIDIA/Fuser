@@ -38,10 +38,10 @@ void getHeuristics(
     ReductionParams* rparams,
     const int64_t outer_dim_numel,
     const int64_t inner_dim_numel,
-    const int64_t regs_buffer_size,
-    const int64_t smem_buffer_size,
-    const int64_t smem_overhead,
-    const size_t tmp_gmem_dtype_size,
+    const int64_t regs_buffer_size_bit,
+    const int64_t smem_buffer_size_bit,
+    const int64_t smem_overhead_bit,
+    const size_t tmp_gmem_dtype_size_bit,
     const size_t vectorize_factor,
     const int64_t hp_threads_per_block_min,
     const int64_t hp_threads_per_block_max,
@@ -121,10 +121,10 @@ void getHeuristics(
   // Assuming a constant register overhead for non-buffer related usage,
   // and all the register buffers are stored in registers.
   auto getEstimatedRegisterUsage = [&](int64_t batch_mul_vect) {
-    int64_t persistent_buffer_size =
-        regs_buffer_size / inner_dim_numel * batch_mul_vect;
+    int64_t persistent_buffer_size_bit =
+        regs_buffer_size_bit / inner_dim_numel * batch_mul_vect;
     int64_t estimated_register_count =
-        persistent_buffer_size / scheduler_utils::bytes_per_register +
+        persistent_buffer_size_bit / scheduler_utils::bits_per_register +
         scheduler_utils::register_overhead;
     return std::min(
         estimated_register_count, scheduler_utils::max_registers_per_thread);
@@ -144,8 +144,8 @@ void getHeuristics(
     int64_t max_blocks_per_sm_regs = scheduler_utils::safeDiv(
         threads_per_sm / warp_size, allocated_warps_per_block);
     // check shared memory limitation on blocks per sm
-    int64_t max_blocks_per_sm_smem = (int64_t)dev_prop->sharedMemPerBlockOptin /
-        (smem_overhead + smem_buffer_size);
+    int64_t max_blocks_per_sm_smem = (int64_t)dev_prop->sharedMemPerBlockOptin *
+        8 / (smem_overhead_bit + smem_buffer_size_bit);
     return std::min(max_blocks_per_sm_regs, max_blocks_per_sm_smem);
   };
 
@@ -185,9 +185,10 @@ void getHeuristics(
   //                         vectorization factor is used to optimize the
   //                         number of reaductions per thread.
   auto getOuterReductionBufferVectFactor = [&](int64_t inner_vect) {
-    constexpr int64_t max_gmem_vect_access_bytes = 16;
+    constexpr int64_t max_gmem_vect_access_bits = 128;
     const int64_t max_tmp_gmem_vect_factor = std::min(
-        max_gmem_vect_access_bytes / (int64_t)tmp_gmem_dtype_size, inner_vect);
+        max_gmem_vect_access_bits / (int64_t)tmp_gmem_dtype_size_bit,
+        inner_vect);
     int64_t tmp_gmem_write_vect = max_tmp_gmem_vect_factor;
     const int64_t workload_per_thread = inner_dim_numel >= 4096 ? 4l : 2l;
     int64_t vectorization_factor_outer =
@@ -405,9 +406,9 @@ void getHeuristics(
     debug() << "\n===== Combined InnerOuter Reduction Stats ========\n"
             << "outer_dim_numel: " << outer_dim_numel << "\n"
             << "inner_dim_numel: " << inner_dim_numel << "\n"
-            << "regs_buffer_size: " << regs_buffer_size << "\n"
-            << "smem_buffer_size: " << smem_buffer_size << "\n"
-            << "smem_overhead: " << smem_overhead << "\n"
+            << "regs_buffer_size_bit: " << regs_buffer_size_bit << "\n"
+            << "smem_buffer_size_bit: " << smem_buffer_size_bit << "\n"
+            << "smem_overhead_bit: " << smem_overhead_bit << "\n"
             << "vectorize_factor_input: " << iop.inner_vect << "\n"
             << "vectorization_factor_tmp_gmem_write: "
             << iop.tmp_gmem_write_vect << "\n"
@@ -446,7 +447,7 @@ void scheduleOuterReduction(
   for (auto& outer_reduction_tv : outer_reduction_tvs) {
     // Similar to the inner reduction, we need to reorder the outer reduction tv
     // when there are view operations.
-    if (!ir_utils::getViewOps(fusion).empty()) {
+    if (!ir_utils::getReshapeOps(fusion).empty()) {
       // Reorder reference_tv after propagating the view operation. This will
       // reorder for better merging.
       outer_reduction_tv->reorder(
@@ -554,15 +555,16 @@ void scheduleFusion(Fusion* fusion, const ReductionParams* rparams) {
   // Grab the reduction, input, and output tensor views. dummy_outputs are
   // helper tensors for persistent buffer projection.
   std::vector<TensorView*> dummy_outputs, cached_inputs, reduction_tvs,
-      smem_consumers;
+      smem_consumers, persistent_buffers;
   std::vector<std::pair<TensorView*, TensorView*>> cached_outputs;
-  normalization_scheduler_utils::beforeSchedule(
+  normalization_scheduler_utils::commonScheduleBeforeIterDomainTransform(
       fusion,
       rparams,
       dummy_outputs,
       cached_inputs,
       reduction_tvs,
       smem_consumers,
+      persistent_buffers,
       cached_outputs);
 
   // split reduction_tvs into inner and outer reduction_tvs

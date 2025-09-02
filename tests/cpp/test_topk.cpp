@@ -430,6 +430,39 @@ TEST_F(TopKDynamicTest, DynamicReshapeThenStaticTopK) {
       << "Should detect reshape operation";
 }
 
+TEST_F(TopKDynamicTest, KZeroConcretization) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  FusionGuard fg(fusion_ptr.get());
+  Fusion& fusion = *fusion_ptr;
+
+  auto tv0 = makeSymbolicTensor(1);
+  fusion.addInput(tv0);
+
+  auto k = IrBuilder::create<Val>(DataType::Int);
+  fusion.addInput(k);
+
+  auto topk_result = topk(tv0, k);
+  fusion.addOutput(topk_result.values);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({16}, options);
+
+  auto initial_info = DynamicTransform::getInitialInfo(&fusion);
+  KernelArgumentHolder args({t0, 0});
+  auto expr_eval = executor_utils::bindInputs(args, &fusion);
+  DynamicTransformConcretizationInfo conc_info(&initial_info, &expr_eval);
+
+  // Test concretization
+  DynamicTransform::concretizeFusion(&fusion, &conc_info);
+
+  IterDomain* out_id = fusion.outputs().at(0)->as<TensorView>()->axis(0);
+  EXPECT_TRUE(out_id->isIteration());
+  Val* out_extent = out_id->extent();
+  EXPECT_TRUE(out_extent->isZeroInt())
+      << "Expected output extent to concretize to constant zero but found "
+      << out_extent->toInlineString();
+}
+
 class TopKTest : public NVFuserTest {
  protected:
   void SetUp() override {
@@ -591,6 +624,25 @@ TEST_F(TopKTest, IndicesOnly) {
   auto topk_values = torch::gather(input, 1, index_output);
   auto ref_values = std::get<0>(torch::topk(input, 3));
   EXPECT_TRUE(ref_values.equal(topk_values));
+}
+
+TEST_F(TopKTest, ZeroDimensionalInput) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeSymbolicTensor(0);
+  fusion.addInput(tv0);
+
+  auto tv1 = topk(tv0, fusion.oneVal(DataType::Int), -1).indices;
+  fusion.addOutput(tv1);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({}, options);
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs({t0});
+  testValidate(executor_cache.fusion(), outputs, {t0}, __LINE__, __FILE__);
 }
 
 } // namespace nvfuser

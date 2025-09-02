@@ -80,7 +80,7 @@ class IterDomainBuilder {
 //! TensorDomains which represent how to iterate over a tensor is made up of
 //! IterDomains to form an ND iterable. We directly set parallization strategies
 //! on IterDomains.
-class IterDomain : public Val {
+class NVF_API IterDomain : public Val {
  public:
   IterDomain(IrBuilderPasskey, const IterDomainBuilder& args);
 
@@ -224,7 +224,11 @@ class IterDomain : public Val {
     return isParallelTypeDeviceDim(getParallelType());
   }
 
-  void parallelize(ParallelType t);
+  bool isStream() const {
+    return getParallelType() == ParallelType::Stream;
+  }
+
+  NVF_API void parallelize(ParallelType t);
 
   ParallelType getParallelType() const {
     return parallel_type_;
@@ -408,7 +412,7 @@ class IterDomain : public Val {
 //! which should give us an operation in the list [split, merge] or similar
 //! operations that take in a TensorDomain, applies a transformation and outputs
 //! a tensor domain.
-class TensorDomain : public Val {
+class NVF_API TensorDomain : public Val {
  public:
   explicit TensorDomain(
       IrBuilderPasskey,
@@ -427,7 +431,8 @@ class TensorDomain : public Val {
       IrBuilderPasskey,
       std::vector<IterDomain*> logical_domain,
       std::vector<IterDomain*> loop_domain,
-      std::vector<std::optional<bool>> contiguity = {});
+      std::vector<std::optional<bool>> contiguity = {},
+      bool skip_loop_validation = false);
 
   TensorDomain(
       IrBuilderPasskey,
@@ -653,7 +658,7 @@ class TensorDomain : public Val {
   // Set the allocation domain of this TensorDomain. Because contiguity is
   // always defined w.r.t. the allocation domain, the contiguity must be updated
   // accordingly.
-  void setAllocationDomain(
+  NVF_API void setAllocationDomain(
       std::vector<IterDomain*> new_allocation_domain,
       std::vector<std::optional<bool>> new_contiguity);
 
@@ -738,7 +743,7 @@ class TensorDomain : public Val {
   // Get a vector whose size is the number of IDs in the given logical_domain
   // filled with fill_value or nullopt depending on whether its corresponding ID
   // is broadcast.
-  static std::vector<std::optional<bool>> getContiguityFilledWith(
+  static NVF_API std::vector<std::optional<bool>> getContiguityFilledWith(
       const std::vector<IterDomain*>& allocation_domain,
       bool fill_value);
 

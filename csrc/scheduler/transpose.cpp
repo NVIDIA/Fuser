@@ -22,6 +22,15 @@ namespace nvfuser {
 
 bool TransposeScheduler::canScheduleCompileTime(Fusion* fusion) {
   FUSER_PERF_SCOPE("TransposeScheduler::canScheduleCompileTime");
+  for (auto tv : fusion->allTvs()) {
+    if (tv->dtype() != DataType::Index &&
+        dataTypeSizeBit(tv->dtype()) % 8 != 0) {
+      scheduler_debug_utils::canScheduleRejectReason(
+          schedulerType(), "Does not support sub-byte data types.");
+      return false;
+    }
+  }
+
   if (scheduler_utils::isResharding(fusion)) {
     scheduler_debug_utils::canScheduleRejectReason(
         schedulerType(), "Fusion is resharding.");
@@ -136,7 +145,7 @@ struct TransposeViewPropagator : public MaxInfoSpanningTree::Propagator {
     // since view does NOT necessarily always introduce incoherent transform
     // that would break the propagation.
     auto chain_exprs = StmtSort::getExprsBetween({from}, {to});
-    if (!ir_utils::filterByType<ViewOp>(chain_exprs).empty()) {
+    if (!ir_utils::filterByType<ReshapeOp>(chain_exprs).empty()) {
       should_reject = true;
     };
   };

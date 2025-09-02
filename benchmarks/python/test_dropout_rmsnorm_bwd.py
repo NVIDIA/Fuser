@@ -130,6 +130,7 @@ def dropout_rmsnorm_bwd_iobytes(size, dtype):
 @pytest.mark.parametrize("size", generate_input_sizes(dims=2))
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)
 @pytest.mark.inner_outer_persistent
+@pytest.mark.inner_persistent
 def test_dropout_rmsnorm_bwd_nvf_benchmark(
     benchmark,
     size: tuple,
@@ -175,6 +176,8 @@ def test_dropout_rmsnorm_bwd_nvf_benchmark(
 @pytest.mark.parametrize("executor", DEFAULT_EXECUTORS)
 @pytest.mark.parametrize("size", generate_input_sizes(dims=2))
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)
+@pytest.mark.inner_outer_persistent
+@pytest.mark.inner_persistent
 def test_dropout_rmsnorm_bwd_baseline_benchmark(
     benchmark,
     size: tuple,
@@ -187,7 +190,7 @@ def test_dropout_rmsnorm_bwd_baseline_benchmark(
     input1 = torch.randn(size, device="cuda", dtype=dtype, requires_grad=True)
     input2 = torch.randn(size, device="cuda", dtype=dtype, requires_grad=True)
     grads = torch.randn(size, device="cuda", dtype=dtype)
-    weights = torch.randn(size[1], device="cuda", dtype=dtype)
+    weights = torch.randn(size[1], device="cuda", dtype=dtype, requires_grad=True)
 
     fwd_fn = with_executor(executor, dropout_rmsnorm)
     fwd_inputs = [input1, input2, weights, dropout_p]

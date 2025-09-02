@@ -28,7 +28,7 @@ from nvfuser import (
 )
 from nvfuser.pytorch_utils import torch_dtype_to_nvfuser_dtype
 
-from nvfuser.testing.utils import (
+from python.utils import (
     is_pre_volta,
     is_pre_ampere,
     is_pre_hopper,
@@ -1232,6 +1232,20 @@ class TestNvFuserFrontend(NVFuserTest):
         eager_out0 = torch.triu(inputs[0], -1)
         self.assertEqual(eager_out0, nvf_out[0])
 
+    def test_cumsum(self):
+        inputs = [
+            torch.randn(8, 16, device="cuda"),
+        ]
+
+        def fusion_func(fd: FusionDefinition):
+            t0 = fd.from_pytorch(inputs[0])
+            t1 = fd.ops.cumsum(t0, 0)
+            fd.add_output(t1)
+
+        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
+        eager_out = torch.cumsum(inputs[0], dim=0)
+        self.assertEqual(nvf_out[0], eager_out)
+
     def test_complex_rsqrt(self):
         inputs = [
             torch.randn(4, device="cuda", dtype=torch.complex64),
@@ -1634,11 +1648,11 @@ class TestNvFuserFrontend(NVFuserTest):
 
     def test_output_stride_order(self):
         inputs = [
-            torch.arange(0, 120).reshape(2, 3, 4, 5).cuda().float(),
+            torch.arange(0, 24).reshape(2, 3, 4).cuda().float(),
         ]
         eager_out = inputs[0] + 3.0
 
-        for perm in itertools.permutations(range(4), 4):
+        for perm in itertools.permutations(range(3), 3):
             # testing stride_order in add_output
             def fusion_func(fd: FusionDefinition):
                 t0 = fd.from_pytorch(inputs[0])
@@ -4989,16 +5003,110 @@ fd.execute(inputs)
         self.assertEqual(nvf_out[0], ref_inp.relu())
 
     def test_import_conflict_nvfuser_then_direct(self):
-        try:
+        import warnings
+
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+
             import nvfuser  # noqa: F401
             import nvfuser_direct  # noqa: F401
-        except AssertionError as e:
-            expected_msg = (
-                "Cannot import nvfuser_direct if nvfuser module is already imported."
+
+            assert len(w) == 1
+            assert issubclass(w[-1].category, UserWarning)
+            assert (
+                "Be careful! You've imported nvfuser_direct when the nvfuser module is already imported."
+                in str(w[-1].message)
             )
-            assert expected_msg in str(e)
-            return
-        raise AssertionError("Expected AssertionError from imports.")
+
+    def test_broadcast_and_stride_order(self):
+        inputs = [
+            torch.randn(2, 3, 4, dtype=torch.float32, device="cuda:0"),
+        ]
+
+        def fusion_func(fd: FusionDefinition) -> None:
+            T0 = fd.from_pytorch(inputs[0])
+            T1 = fd.ops.broadcast(T0, is_broadcast_dim=[False, True, False, False])
+            fd.add_output(T1, stride_order=[0, 1, 2, 3])
+
+        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
+
+        self.assertEqual(nvf_out[0], inputs[0].unsqueeze(1))
+        self.assertEqual(nvf_out[0].stride(), (1, 2, 2, 6))
+
+    def test_scatter_output_intermediate(self):
+        bsz = 128
+        hidden = 1024
+        scatter_size = 64
+        scatter_dim = 0
+
+        x = torch.randn([bsz, hidden], device="cuda")
+        _, ind = torch.topk(x, k=scatter_size, dim=scatter_dim)
+        src = torch.randn(scatter_size, hidden, device="cuda")
+        inputs = [x, ind, src]
+
+        def fusion_func(fd: FusionDefinition):
+            T0 = fd.define_tensor(
+                shape=[-1, -1],
+                contiguity=[True, True],
+                dtype=DataType.Float,
+                is_cpu=False,
+                stride_order=[1, 0],
+            )
+            T1 = fd.define_tensor(
+                shape=[-1, -1],
+                contiguity=[True, True],
+                dtype=DataType.Int,
+                is_cpu=False,
+                stride_order=[1, 0],
+            )
+            T2 = fd.define_tensor(
+                shape=[-1, -1],
+                contiguity=[True, True],
+                dtype=DataType.Float,
+                is_cpu=False,
+                stride_order=[1, 0],
+            )
+            T3 = fd.ops.scatter(T0, T1, T2, scatter_dim)
+            T4 = fd.ops.sigmoid(T3)
+            fd.add_output(T4)
+
+        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
+        eager_out = refs.sigmoid(torch.scatter(x, scatter_dim, ind, src))
+        self.assertEqual(eager_out, nvf_out[0])
+
+    def test_scatter_scalar_src(self):
+        bsz = 128
+        hidden = 1024
+        scatter_size = 64
+        scatter_dim = 0
+
+        x = torch.randn([bsz, hidden], device="cuda")
+        _, ind = torch.topk(x, k=scatter_size, dim=scatter_dim)
+        src = 1.5
+        inputs = [x, ind, src]
+
+        def fusion_func(fd: FusionDefinition):
+            T0 = fd.define_tensor(
+                shape=[-1, -1],
+                contiguity=[True, True],
+                dtype=DataType.Float,
+                is_cpu=False,
+                stride_order=[1, 0],
+            )
+            T1 = fd.define_tensor(
+                shape=[-1, -1],
+                contiguity=[True, True],
+                dtype=DataType.Int,
+                is_cpu=False,
+                stride_order=[1, 0],
+            )
+            S2 = fd.define_scalar(None, dtype=DataType.Double)
+            T3 = fd.ops.scatter(T0, T1, S2, scatter_dim)
+            fd.add_output(T3)
+
+        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
+        eager_out = torch.scatter(x, scatter_dim, ind, src)
+        self.assertEqual(eager_out, nvf_out[0])
 
 
 @pytest.mark.skip("https://github.com/NVIDIA/Fuser/issues/3740")

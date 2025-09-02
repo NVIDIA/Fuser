@@ -10,6 +10,7 @@
 #include <exceptions.h>
 
 #include <device_lower/analysis/circular_buffer.h>
+#include <device_lower/analysis/padded_parallel_dimensions.h>
 #include <device_lower/analysis/sync_information.h>
 #include <device_lower/pass/warp_reduce.h>
 #include <fusion.h>
@@ -143,6 +144,9 @@ struct KernelSummary {
 
   //! Do we have any topk op?
   bool has_topk = false;
+
+  //! Do we have any scan op?
+  bool has_scan = false;
 };
 
 class KernelPerformanceProfile {
@@ -243,11 +247,11 @@ class NVF_API Kernel final : public Fusion {
   //! Checks if parallel type is padded
   bool isParallelTypePadded(ParallelType ptype) const {
     return ptype == ParallelType::TIDx &&
-        warp_padded_parallel_info_.is_tidx_padded;
+        padded_parallel_dimensions_.is_tidx_padded;
   }
 
-  const WarpPaddedParallelInfo& getWarpPaddedParallelInfo() const {
-    return warp_padded_parallel_info_;
+  const PaddedParallelDimensions& paddedParallelDimensions() const {
+    return padded_parallel_dimensions_;
   }
 
   const KernelPerformanceProfile& profile() const {
@@ -287,7 +291,7 @@ class NVF_API Kernel final : public Fusion {
   // information is required to resolve DataType::Index
   PrimDataType index_type_ = PrimDataType::Int;
 
-  WarpPaddedParallelInfo warp_padded_parallel_info_;
+  PaddedParallelDimensions padded_parallel_dimensions_;
 
   KernelPerformanceProfile profile_;
 

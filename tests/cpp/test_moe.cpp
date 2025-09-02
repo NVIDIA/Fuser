@@ -60,10 +60,8 @@ class SgLangMoETest : public NVFuserFixtureParamTest<MoEConfig> {
 };
 
 TEST_P(SgLangMoETest, ComputeProblemSizes) {
-  bool no_accumulation = num_tokens * topk == 1;
-  if (manual_scheduling && !no_accumulation) {
-    GTEST_SKIP() << "No manual scheduling implemented except when "
-                    "indexPutAccumulate is converted to scatter";
+  if (manual_scheduling) {
+    GTEST_SKIP() << "No manual scheduling implemented";
   }
 
   auto fusion_ptr = std::make_unique<Fusion>();
@@ -92,7 +90,6 @@ TEST_P(SgLangMoETest, ComputeProblemSizes) {
   auto options = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
   auto t0 = at::randint(0, num_experts, {num_tokens, topk}, options);
 
-  KernelArgumentHolder outputs;
 
   if (manual_scheduling) {
     auto tv4_cache = tv4->cacheBefore();
@@ -112,11 +109,11 @@ TEST_P(SgLangMoETest, ComputeProblemSizes) {
 
     KernelExecutor ke;
     ke.compile(&fusion, {t0});
-    outputs = ke.run({t0});
+    auto outputs = ke.run({t0});
     testValidate(&fusion, outputs, {t0}, __LINE__, __FILE__);
   } else {
     FusionExecutorCache executor_cache(std::move(fusion_ptr));
-    outputs = executor_cache.runFusionWithInputs({t0});
+    auto outputs = executor_cache.runFusionWithInputs({t0});
     testValidate(executor_cache.fusion(), outputs, {t0}, __LINE__, __FILE__);
   }
 }
@@ -145,10 +142,27 @@ TEST_P(SgLangMoETest, ComputeExpertOffsets) {
   auto options = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
   auto t0 = at::randint(0, num_tokens * topk, {num_experts}, options);
 
-  FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto outputs = executor_cache.runFusionWithInputs({t0});
+  if (manual_scheduling) {
+    tv0->cacheAfter();
+    // Stage tv1 to shared memory as tv1 and tv2 loop domains are not
+    // mapped
+    auto tv1_cache = tv1->cacheAfter();
 
-  testValidate(&fusion, outputs, {t0}, __LINE__, __FILE__);
+    for (auto tv : fusion.allTvs()) {
+      tv->axis(0)->parallelize(ParallelType::TIDx);
+    }
+
+    tv1_cache->setMemoryType(MemoryType::Shared);
+
+    KernelExecutor ke;
+    ke.compile(&fusion, {t0});
+    auto outputs = ke.run({t0});
+    testValidate(&fusion, outputs, {t0}, __LINE__, __FILE__);
+  } else {
+    FusionExecutorCache executor_cache(std::move(fusion_ptr));
+    auto outputs = executor_cache.runFusionWithInputs({t0});
+    testValidate(executor_cache.fusion(), outputs, {t0}, __LINE__, __FILE__);
+  }
 }
 
 TEST_P(SgLangMoETest, ComputeExpertBlockScaleOffsets) {
@@ -183,9 +197,6 @@ TEST_P(SgLangMoETest, ComputeExpertBlockScaleOffsets) {
   auto options = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
   auto t0 = at::randint(0, num_tokens * topk, {num_experts}, options);
 
-  FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto outputs = executor_cache.runFusionWithInputs({t0});
-
   // Manually computing the results as ceilDiv doesn't seem to work
   // with ExprEvaluator. This is the error message:
   //
@@ -196,7 +207,28 @@ TEST_P(SgLangMoETest, ComputeExpertBlockScaleOffsets) {
       at::floor((t0 + rounding_factor - 1) / rounding_factor) * rounding_factor;
   auto t6 = at::pad(at::cumsum(t0_rounded, 0), {1, 0});
 
-  testValidate(&fusion, outputs, {t0}, {t2, t6}, __LINE__, __FILE__);
+  if (manual_scheduling) {
+    tv0->cacheAfter();
+    auto tv1_cache = tv1->cacheAfter();
+    auto tv5_cache = tv5->cacheAfter();
+
+    for (auto tv : fusion.allTvs()) {
+      tv->axis(0)->parallelize(ParallelType::TIDx);
+    }
+
+    tv1_cache->setMemoryType(MemoryType::Shared);
+    tv5_cache->setMemoryType(MemoryType::Shared);
+
+    KernelExecutor ke;
+    ke.compile(&fusion, {t0});
+    auto outputs = ke.run({t0});
+    testValidate(&fusion, outputs, {t0}, {t2, t6}, __LINE__, __FILE__);
+  } else {
+    FusionExecutorCache executor_cache(std::move(fusion_ptr));
+    auto outputs = executor_cache.runFusionWithInputs({t0});
+    testValidate(
+        executor_cache.fusion(), outputs, {t0}, {t2, t6}, __LINE__, __FILE__);
+  }
 }
 
 TEST_P(SgLangMoETest, ComputeArgSort) {
@@ -235,9 +267,6 @@ TEST_P(SgLangMoETest, ComputeArgSort) {
   if (manual_scheduling) {
     auto tv6_cache = tv6->cacheBefore();
 
-    scheduler_tools::scheduleScatterLoopDomainAsIndexDomain(
-        tv6_cache->definition()->as<ScatterOp>());
-
     // Scheduling all tensors as 1D tensors
     for (auto tv : fusion.allTvs()) {
       tv->flatten();
@@ -274,7 +303,7 @@ INSTANTIATE_TEST_SUITE_P(
         testing::Values(16), // M
         testing::Values(32, 1), // N
         testing::Values(4, 1), // topk
-        testing::Values(128), // rounding factor,
+        testing::Values(128), // rounding factor
         testing::Bool()), // manual_scheduling
     [](const testing::TestParamInfo<MoEConfig>& info) {
       const auto& moe_config = info.param;

@@ -733,7 +733,13 @@ std::vector<Tensor> FusionDefinition::tensors() {
 
 std::vector<std::pair<double, double>> FusionDefinition::getValTolerances(
     const KernelArgumentHolder& args) {
-  return get_val_constants(preschedFusion(), args);
+  return nvfuser::getValTolerances(preschedFusion(), args);
+}
+
+void FusionDefinition::validate_with_auto_inferred_outputs(
+    const KernelArgumentHolder& fusion_outputs,
+    const KernelArgumentHolder& args) {
+  return testValidate(preschedFusion(), fusion_outputs, args);
 }
 
 int64_t FusionDefinition::setupSegmentation(const KernelArgumentHolder& args) {

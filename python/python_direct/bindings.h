@@ -33,4 +33,9 @@ void bindMultiDevice(py::module& nvfuser);
 // Translate a CPP Fusion to a bindings python function
 std::string translateFusion(Fusion* f);
 
+#ifdef NVFUSER_ENABLE_CUTLASS
+// Add bindings for Cutlass GEMM Operations
+void bindCutlass(py::module& nvfuser);
+#endif
+
 } // namespace nvfuser::python

@@ -38,7 +38,7 @@ class Scope;
 class IrCloner;
 struct AnalyzeViewResult;
 
-class FullOp : public Expr {
+class NVF_API FullOp : public Expr {
  public:
   using Expr::Expr;
 
@@ -233,6 +233,22 @@ class GatherOp : public Expr {
   }
 };
 
+// ScatterOp represents an out-of-place scatter operation as part of a
+// compute definition. However, its scheduling definition is always
+// based on the logical domain of the index input tensor. More
+// specifically, from the viewpoint of PyTorch/Thunder, the output
+// input and output tensors correspond to different tensors, however,
+// from the scheduling point of view, the output tensor always has a
+// loop domain that is derived from the logical domain of the index
+// logical domain.
+//
+// IMPLEMENTATION NOTE: This is currently implemented using the
+// initial loop domain of TensorDomain. To build a valid ScatterOp, the
+// TensorDomain of the output tensor must have a loop domain that is differnt
+// from the logical domain. The initial loop domain, kept tracked as
+// TensorDomain::initial_loop_, is used to augment the Exact graph by
+// adding mappings with the logical domain of the index and src input
+// tensors.
 class ScatterOp : public Expr {
  public:
   using Expr::Expr;
@@ -742,7 +758,7 @@ class TensorConstruct : public Expr {
 //! A specialization for random number generator (RNG) operations. RNG
 //! operations take in no tensor input and produce a single output.
 class RNGOp : public Expr {
-  int64_t getOutputDims() const;
+  NVF_API int64_t getOutputDims() const;
 
  public:
   struct Attributes {
@@ -1521,7 +1537,7 @@ class MmaOp : public Expr {
 };
 
 //! The semantics are identical to torch.broadcast_to.
-class ExpandOp : public Expr {
+class NVF_API ExpandOp : public Expr {
  public:
   using Expr::Expr;
 
@@ -1529,7 +1545,7 @@ class ExpandOp : public Expr {
       IrBuilderPasskey,
       TensorView* out,
       TensorView* in,
-      std::vector<Val*> _expanded_extents);
+      const std::vector<Val*>& expanded_extents);
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
@@ -1546,10 +1562,6 @@ class ExpandOp : public Expr {
 
   TensorView* in() const {
     return input(0)->as<TensorView>();
-  }
-
-  std::vector<Val*> expanded_extents() const {
-    return {inputs().begin() + 1, inputs().end()};
   }
 
   std::vector<PolymorphicValue> evaluate(
@@ -1625,16 +1637,16 @@ class ViewAsScalar : public Expr {
   }
 };
 
-class ViewOp : public Expr {
+class NVF_API ReshapeOp : public Expr {
  public:
   using Expr::Expr;
 
-  ViewOp(IrBuilderPasskey, Val* out, Val* in);
+  ReshapeOp(IrBuilderPasskey, Val* out, Val* in);
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
   const char* getOpString() const override {
-    return "ViewOp";
+    return "ReshapeOp";
   }
 
   std::string toString(int indent_size = 0) const override;
@@ -2101,7 +2113,7 @@ class PadOp : public Expr {
   std::pair<Val*, Val*> getPadWidths(int64_t axis) const;
 
   //! Return the pad widths of all dimensions, including non-padded ones
-  std::vector<Val*> getPadWidths() const;
+  NVF_API std::vector<Val*> getPadWidths() const;
 
  private:
   //! Offset of pad_width inputs in the input vector
@@ -2125,6 +2137,8 @@ struct Slice {
   Val* start = nullptr;
   Val* stop = nullptr;
   Val* step = nullptr;
+
+  std::string toString() const;
 };
 
 class SliceOp : public Expr {
@@ -2158,7 +2172,7 @@ class SliceOp : public Expr {
   }
 
   //! Get normalized ranges for SliceOp.
-  std::vector<Slice> getRanges() const;
+  NVF_API std::vector<Slice> getRanges() const;
 
  private:
   //! Offset of ranges input in the input vector
@@ -3362,13 +3376,83 @@ class ScanOp : public Expr {
     return attribute<BinaryOpType>(1);
   }
 
-  int64_t scanDim() const {
+  int64_t dim() const {
     return attribute<int64_t>(2);
   }
 
   std::vector<PolymorphicValue> evaluate(
       const ExpressionEvaluator& ee,
       const std::vector<PolymorphicValue>& inputs) const override;
+};
+
+class CutlassNvfp4GroupedMmaOp : public Expr {
+ public:
+  using Expr::Expr;
+
+  CutlassNvfp4GroupedMmaOp(
+      IrBuilderPasskey,
+      Val* out_mat,
+      Val* mat1,
+      Val* mat2,
+      Val* scale1,
+      Val* scale2,
+      Val* alpha,
+      Val* problem_sizes,
+      Val* expert_offsets,
+      Val* sf_offsets);
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  const char* getOpString() const override {
+    return "CutlassNvfp4GroupedMmaOp";
+  }
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+  std::vector<PolymorphicValue> evaluate(
+      const ExpressionEvaluator& ee,
+      const std::vector<PolymorphicValue>& inputs) const override;
+
+  // Get output matrix
+  TensorView* out() const {
+    return output(0)->as<TensorView>();
+  }
+
+  // Get first input matrix
+  TensorView* matrix1() const {
+    return input(0)->as<TensorView>();
+  }
+
+  // Get second input matrix
+  TensorView* matrix2() const {
+    return input(1)->as<TensorView>();
+  }
+
+  // Get scale factor for first input matrix, returns nullptr if not present
+  TensorView* scale1() const {
+    return input(2)->as<TensorView>();
+  }
+
+  // Get scale factor for second input matrix, returns nullptr if not present
+  TensorView* scale2() const {
+    return input(3)->as<TensorView>();
+  }
+
+  TensorView* alpha() const {
+    return input(4)->as<TensorView>();
+  }
+
+  TensorView* problemSizes() const {
+    return input(5)->as<TensorView>();
+  }
+
+  TensorView* expertOffsets() const {
+    return input(6)->as<TensorView>();
+  }
+
+  TensorView* scalingFactorOffsets() const {
+    return input(7)->as<TensorView>();
+  }
 };
 
 } // namespace nvfuser

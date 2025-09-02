@@ -2885,6 +2885,83 @@ INSTANTIATE_TEST_SUITE_P(
         testing::Values(2, 4, 8, 16)),
     fp4CastTestName);
 
+TEST_F(NVFuserTest, Fp4CopyKernelFusionExecutorCache) {
+  std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  TensorView* tv0 = makeSymbolicTensor(1, DataType::Float4_e2m1fn);
+  fusion->addInput(tv0);
+  TensorView* tv1 = set(tv0);
+  fusion->addOutput(tv1);
+
+  FusionExecutorCache fec(std::move(fusion));
+
+  auto options = at::TensorOptions().dtype(torch::kUInt8).device(at::kCUDA, 0);
+  at::Tensor input = at::randint(0, 256, {1024 * 1024}, options)
+                         .view(torch::kFloat4_e2m1fn_x2);
+
+  auto outputs = fec.runFusionWithInputs({input});
+
+  auto output_int8 = outputs[0].as<at::Tensor>().view(torch::kUInt8);
+  auto input_int8 = input.view(torch::kUInt8);
+  EXPECT_TRUE(output_int8.equal(input_int8));
+}
+
+TEST_F(NVFuserTest, Fp4CastToHighPrecisionFusionExecutorCache) {
+  NVFUSER_TEST_CUDA_ARCH_GUARD(10, 0);
+  std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  TensorView* tv0 = makeSymbolicTensor(2, DataType::Float4_e2m1fn);
+  fusion->addInput(tv0);
+  TensorView* tv1 = castOp(DataType::Float, tv0);
+  fusion->addOutput(tv1);
+
+  FusionExecutorCache fec(std::move(fusion));
+
+  at::Tensor input = at::from_blob(fp4ref::fp4_values.data(), {1, 8}, at::kByte)
+                         .to(at::kCUDA)
+                         .expand({1024 * 1024, -1})
+                         .contiguous()
+                         .view(torch::kFloat4_e2m1fn_x2);
+  at::Tensor expect =
+      at::from_blob(fp4ref::float_values.data(), {1, 16}, at::kFloat)
+          .to(at::kCUDA)
+          .expand({1024 * 1024, -1})
+          .contiguous();
+
+  auto outputs = fec.runFusionWithInputs({input});
+
+  EXPECT_TRUE(outputs[0].as<at::Tensor>().equal(expect));
+}
+
+TEST_F(NVFuserTest, Fp4CastFromHighPrecisionFusionExecutorCache) {
+  NVFUSER_TEST_CUDA_ARCH_GUARD(10, 0);
+  std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  TensorView* tv0 = makeSymbolicTensor(2, DataType::Float);
+  fusion->addInput(tv0);
+  TensorView* tv1 = castOp(DataType::Float4_e2m1fn, tv0);
+  fusion->addOutput(tv1);
+
+  FusionExecutorCache fec(std::move(fusion));
+
+  at::Tensor input =
+      at::from_blob(fp4ref::float_values.data(), {1, 16}, at::kFloat)
+          .to(at::kCUDA)
+          .expand({1024 * 1024, -1})
+          .contiguous();
+  at::Tensor expect =
+      at::from_blob(fp4ref::fp4_values.data(), {1, 8}, at::kByte)
+          .to(at::kCUDA)
+          .expand({1024 * 1024, -1})
+          .contiguous();
+  auto outputs = fec.runFusionWithInputs({input});
+
+  EXPECT_TRUE(outputs[0].as<at::Tensor>().view(torch::kByte).equal(expect));
+}
+
 #endif
 
 TEST_F(NVFuserTest, BitCeilKernel) {
@@ -3033,9 +3110,7 @@ TEST_P(Float4E2m1ManualScheduleTestAllArch, CopyKernelContiguous) {
     EXPECT_THAT(
         [&]() { ke.compile(&fusion, {input}); },
         testing::ThrowsMessage<nvfuser::nvfError>(testing::HasSubstr(
-            "Tried to vectorize a dim resulting in a word size of 4 bits, "
-            "however, vector sizes starting from and including 8 bits upto and "
-            "including 128 bits are supported.")));
+            "Tried to vectorize a dim resulting in a word size of 4 bits")));
   } else {
     ke.compile(&fusion, {input});
     auto outputs = ke.run({input});
@@ -3090,9 +3165,7 @@ TEST_P(Float4E2m1ManualScheduleTestAllArch, CopyKernelDiscontiguous) {
     EXPECT_THAT(
         [&]() { ke.compile(&fusion, {input}); },
         testing::ThrowsMessage<nvfuser::nvfError>(testing::HasSubstr(
-            "Tried to vectorize a dim resulting in a word size of 4 bits, "
-            "however, vector sizes starting from and including 8 bits upto and "
-            "including 128 bits are supported.")));
+            "Tried to vectorize a dim resulting in a word size of 4 bits")));
   } else {
     ke.compile(&fusion, {input});
     auto outputs = ke.run({input});
@@ -6330,7 +6403,7 @@ TEST_F(NVFuserTest, FusionSmemBlockGemm_CUDA) {
   // Make sure BIDx is makred as exact (see issue #1119)
   GpuLower gpulw(&fusion);
   gpulw.run();
-  NVF_CHECK(gpulw.parallelDimensionMap().isExact(ParallelType::BIDx));
+  NVF_CHECK(gpulw.info().parallelDimensionMap().isExact(ParallelType::BIDx));
 
   constexpr int M = 154, K = 45, N = 1524;
 

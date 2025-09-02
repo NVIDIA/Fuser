@@ -87,17 +87,19 @@ class FusionTranslator : public OptInConstDispatch {
       return true;
     }
 
-    for (size_t idx : arange(logical.size())) {
-      if (logical.at(idx) != loop.at(idx)) {
-        return true;
+    if (tv->definition() != nullptr && !tv->definition()->isA<ScatterOp>()) {
+      for (size_t idx : arange(logical.size())) {
+        if (logical.at(idx) != loop.at(idx)) {
+          return true;
+        }
       }
     }
     return false;
   }
 
   // The new shape for view operation can be dynamic. Check that all dynamic
-  // scalar dependencies are handled before the ViewOp.
-  bool checkViewShapeDependency(const ViewOp* vop) {
+  // scalar dependencies are handled before the ReshapeOp.
+  bool checkViewShapeDependency(const ReshapeOp* vop) {
     const std::vector<IterDomain*>& logical_out_domain =
         vop->out()->as<TensorView>()->domain()->logical();
     std::vector<Val*> logical_domain_extents;
@@ -173,7 +175,7 @@ class FusionTranslator : public OptInConstDispatch {
   // Check that all of the expression's inputs are defined in FusionDefinition.
   bool checkExpressionDependencies(Expr* e) {
     bool check_view_dependency =
-        !e->isA<ViewOp>() || checkViewShapeDependency(e->as<ViewOp>());
+        !e->isA<ReshapeOp>() || checkViewShapeDependency(e->as<ReshapeOp>());
     return check_view_dependency &&
         std::all_of(e->inputs().begin(), e->inputs().end(), [&](const Val* v) {
              return map_val_to_fd_index_.count(v) > 0;
@@ -196,7 +198,7 @@ class FusionTranslator : public OptInConstDispatch {
     // Scalar expressions are not handled by Fusion::exprs, so gather them
     // manually.
     for (Expr* e : to_visit) {
-      if (e->isA<ViewOp>() || e->isA<ExpandOp>() || e->isA<FullOp>()) {
+      if (e->isA<ReshapeOp>() || e->isA<ExpandOp>() || e->isA<FullOp>()) {
         std::vector<Expr*> extent_definitions =
             gatherScalarExpressions(e->output(0)->as<TensorView>());
         to_visit.insert(
@@ -440,7 +442,7 @@ class FusionTranslator : public OptInConstDispatch {
   // Utility functions
 
   // Create a vector for the logical domain of TensorView.
-  // Used with ViewOp and ExpandOp handlers
+  // Used with ReshapeOp and ExpandOp handlers
   Vector getShape(TensorView* tv) {
     const std::vector<IterDomain*>& logical_out_domain =
         tv->domain()->logical();
@@ -824,8 +826,8 @@ class FusionTranslator : public OptInConstDispatch {
         /*squeeze_expanded=*/true));
   }
 
-  // Map ViewOp to python frontend
-  void handle(const ViewOp* vop) final {
+  // Map ReshapeOp to python frontend
+  void handle(const ReshapeOp* vop) final {
     // Get extent's for output's logical domain
     TensorView* out_tv = vop->out()->as<TensorView>();
     Vector new_shape = getShape(out_tv);
@@ -1315,6 +1317,26 @@ class FusionTranslator : public OptInConstDispatch {
         topkop->dim(),
         topkop->isLargest(),
         topkop->isSorted()));
+  }
+
+  void handle(const ScanOp* scan_op) final {
+    auto out_tv = scan_op->out()->as<TensorView>();
+    Tensor output = fd_->defineTensor(out_tv->nDims());
+    map_val_to_fd_index_.emplace(out_tv, output());
+
+    NVF_ERROR(
+        scan_op->opType() == BinaryOpType::Add,
+        "Only cumsum (BinaryOpType::Add) is supported for ScanOp.");
+
+    fd_->defineRecord(new ScanOpRecord(
+        {fd_->recordingState(
+            map_val_to_fd_index_.at(scan_op->in()->as<TensorView>()))},
+        {fd_->recordingState(output())},
+        ("ops.cumsum"),
+        serde::RecordType::ScanOpCumsum,
+        static_cast<TensorView* (*)(TensorView*, int64_t)>(cumsum),
+        scan_op->dim(),
+        BinaryOpType::Add));
   }
 
   // Map GatherOp to python frontend

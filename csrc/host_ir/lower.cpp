@@ -18,8 +18,8 @@
 #include <multidevice/utils.h>
 #include <ops/all_ops.h>
 #include <ops/utils.h>
+#include <preseg_passes/decompose_reshardings.h>
 #include <preseg_passes/finalize_multidevice_domains.h>
-#include <preseg_passes/insert_reshardings.h>
 #include <preseg_passes/propagate_shardings.h>
 #include <preseg_passes/reorder_sharded_axis.h>
 #include <runtime/fusion_kernel_runtime.h>
@@ -75,10 +75,10 @@ std::unique_ptr<hir::HostIrContainer> HostIrLower::lower(
     DeviceIdxType my_device_index) {
   // Sharding PreSegmenter passes.
   // Note: passes run before PreSegmenter optimization passes.
+  // `PropagateShardingsPass` and `ReorderShardedAxisPass` are not run here
+  // since they are incompatible with MultiDeviceExecutor.
   preseg_passes::OptimizationPass<
-      preseg_passes::PropagateShardingsPass>::runPass(fusion.get());
-  preseg_passes::OptimizationPass<
-      preseg_passes::InsertReshardingsPass>::runPass(fusion.get());
+      preseg_passes::DecomposeReshardingsPass>::runPass(fusion.get());
   preseg_passes::OptimizationPass<
       preseg_passes::FinalizeMultideviceDomainsPass>::runPass(fusion.get());
 
@@ -97,8 +97,7 @@ std::unique_ptr<hir::HostIrContainer> HostIrLower::lower(
           std::move(fusion), KernelArgumentHolder(), options, true);
   // Infer a topologically ordered traversal of the segmented fusion to
   // determine the order for launching the kernels/comms
-  RuntimeWorkSpace workspace;
-  prepareRuntimeOrder(staged_fusion.get(), workspace);
+  RuntimeWorkSpace workspace = prepareRuntimeOrder(*staged_fusion);
   // Create the HostIrContainer representing the host program. Each segment of
   // the segmented fusion will be translated to a HostIR
   auto hic = std::make_unique<hir::HostIrContainer>();

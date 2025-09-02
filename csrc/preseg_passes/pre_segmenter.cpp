@@ -14,9 +14,9 @@
 #include <preseg_passes/add_axioms.h>
 #include <preseg_passes/allocation_order_inference.h>
 #include <preseg_passes/consecutive_cast.h>
+#include <preseg_passes/decompose_reshardings.h>
 #include <preseg_passes/exact_mapped_extent_substitution.h>
 #include <preseg_passes/finalize_multidevice_domains.h>
-#include <preseg_passes/insert_reshardings.h>
 #include <preseg_passes/mark_aliases_prepare.h>
 #include <preseg_passes/move_gather.h>
 #include <preseg_passes/move_pad.h>
@@ -75,22 +75,19 @@ namespace nvfuser::preseg_passes {
   // open an issue for this and see if we want to have a more aggressive
   // approach inside MovePadPass instead. removes extra cast added from pushing
   // pad out OptimizationPass<ConsecutiveCastPass>::runPass(fusion);
-  OptimizationPass<MarkAliasesPreparePass>::runPass(fusion);
   OptimizationPass<ExactMappedExtentSubstitutionPass>::runPass(fusion);
-  OptimizationPass<AllocationDomainPass>::runPass(fusion);
 
   OptimizationPass<RemoveBcastSqueeze>::runPass(fusion);
   OptimizationPass<SegmentInplaceUpdatePass>::runPass(fusion);
   OptimizationPass<MoveRepeatForwardPass>::runPass(fusion);
   OptimizationPass<MoveGatherPass>::runPass(fusion);
 
-  // All the multidevice passes are moved after allocation related passes:
-  // MarkAliasesPreparePass, and AllocationDomainPass Multidevice passes will
-  // try to set the allocation domain for tvs with device mesh which will
-  // conflict with these passes.
   OptimizationPass<PropagateShardingsPass>::runPass(fusion);
-  OptimizationPass<InsertReshardingsPass>::runPass(fusion);
+  OptimizationPass<DecomposeReshardingsPass>::runPass(fusion);
   OptimizationPass<ReorderShardedAxisPass>::runPass(fusion);
+
+  OptimizationPass<MarkAliasesPreparePass>::runPass(fusion);
+  OptimizationPass<AllocationDomainPass>::runPass(fusion);
 
   // This pass should be the last presegmentation pass.
   // It transforms the allocation domains of tvs with device mesh to

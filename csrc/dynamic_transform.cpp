@@ -148,7 +148,7 @@ class DynamicTransformInitialInfoBuilder : public IterVisitor {
   }
 
   //! Find views that have symbolic outputs
-  void handle(ViewOp* op) override {
+  void handle(ReshapeOp* op) override {
     auto inp_tv = op->in()->as<TensorView>();
     auto out_tv = op->out()->as<TensorView>();
     // If there's no symbolic axis, this is a static reshape op
@@ -327,7 +327,7 @@ void DynamicTransformConcretizationInfo::analyzeReshapes(
   const auto& reshape_tvs = initial_info_->getDynamicReshapedTensorViews();
   for (const auto tv_index : arange((int64_t)reshape_tvs.size())) {
     auto out_tv = reshape_tvs.at(tv_index);
-    auto op = out_tv->definition()->as<ViewOp>();
+    auto op = out_tv->definition()->as<ReshapeOp>();
     auto inp_tv = op->in()->as<TensorView>();
 
     // If there's no symblic axis, this is a static reshape op
@@ -337,7 +337,7 @@ void DynamicTransformConcretizationInfo::analyzeReshapes(
 
     NVF_ERROR(
         out_tv->hasRoot(),
-        "Unexpected output tv of ViewOp: ",
+        "Unexpected output tv of ReshapeOp: ",
         out_tv->toString());
 
     const auto& inp_dom =
@@ -774,6 +774,8 @@ class DynamicTransformConcretizer : public OptOutMutator {
 
   void mutate(TensorDomain* td) final;
 
+  void mutate(IterDomain* id) final;
+
   void mutate(Expr* expr) final;
 
   //! Concretizes the root domain of a symbolic consumer tensor from
@@ -912,7 +914,7 @@ TensorView* DynamicTransformConcretizer::concretizeNonEmptyReshape(
   //   T1[ iS2{i0} rS3{i1} ] = sum(T0[ iS0{i0} iS1{i1} ])
   //   T3[ iS4{i0} ] = -T1[ iS2{i0} rS3{i1} ]
   //
-  // Notice here that the ViewOp is gone since we recognized that there is no
+  // Notice here that the ReshapeOp is gone since we recognized that there is no
   // transformation to perform. Instead, T1 is used directly in place of T2.
   // We also replace the extent i2 from the dynamic reshape output T2 with i0,
   // which is what the code below implements. Since T1 includes a Reduction
@@ -1002,7 +1004,7 @@ void DynamicTransformConcretizer::concretizeReshape() {
   for (const auto& [tv_index, view_info] : info_->getReshapeTransforms()) {
     auto incomplete_out_tv =
         info_->initialInfo()->getDynamicReshapedTensorViews().at(tv_index);
-    auto view_op = incomplete_out_tv->definition()->as<ViewOp>();
+    auto view_op = incomplete_out_tv->definition()->as<ReshapeOp>();
     auto inp_tv = view_op->in()->as<TensorView>();
 
     TensorView* concrete_reshape_out_tv = nullptr;
@@ -1168,7 +1170,7 @@ void DynamicTransformConcretizer::mutate(TensorView* tv) {
   for (auto root_id : tv->getMaybeRootDomain()) {
     // This will register root_id for mutation if its extent, start, or
     // stop_offset is registered for mutation
-    OptOutMutator::mutate(root_id);
+    mutate(root_id);
   }
 
   // First, try to concretize the root domain as there may be symbolic
@@ -1359,6 +1361,18 @@ void DynamicTransformConcretizer::mutate(TensorDomain* td) {
   Val* mutated_val = IrBuilder::createInContainer<TensorDomain>(
       td->container(), root_dom, logical_dom, alloc_dom, loop_domain, contig);
   registerConcretization(td, mutated_val);
+}
+
+void DynamicTransformConcretizer::mutate(IterDomain* id) {
+  OptOutMutator::mutate(id);
+  // Check whether the extent was mutated to zero. If so, ensure that the
+  // IterType is set to Iteration
+  auto* mut_id = maybeMutated(id)->as<IterDomain>();
+  if (mut_id->isSymbolic() && mut_id->extent()->isZeroInt()) {
+    IterDomain* new_mut_id =
+        IterDomainBuilder(mut_id).iter_type(IterType::Iteration).build();
+    registerConcretization(id, new_mut_id);
+  }
 }
 
 //! Returns whether a reduction has any trivial partial reductions. Modifies

@@ -103,11 +103,12 @@ class LoopDomainSchedulerReplayTransform : OptInConstDispatch {
 // of a given tensor using specified loop IDs as its inputs.
 class ReplayForwardTransformOnLoopDomain : OptInConstDispatch {
  public:
-  static void replayAs(
+  static Expr* replayAs(
       TensorView* tv,
       const std::vector<IterDomain*>& input_loop_ids,
       const Expr* transform) {
     ReplayForwardTransformOnLoopDomain replay(tv, input_loop_ids, transform);
+    return replay.replayed_expr_;
   }
 
  private:
@@ -136,17 +137,17 @@ class ReplayForwardTransformOnLoopDomain : OptInConstDispatch {
 
   void handle(const Split* split) final {
     NVF_ERROR(input_loop_ids_.size() == 1);
-    tv_->split(
-        getLoopIdPosition(input_loop_ids_.at(0)),
-        split->factor(),
-        split->innerSplit());
+    auto loop_id_pos = getLoopIdPosition(input_loop_ids_.at(0));
+    tv_->split(loop_id_pos, split->factor(), split->innerSplit());
+    replayed_expr_ = tv_->axis(loop_id_pos)->definition();
   }
 
   void handle(const Merge* merge) final {
     NVF_ERROR(input_loop_ids_.size() == 2);
-    tv_->merge(
-        getLoopIdPosition(input_loop_ids_.at(0)),
-        getLoopIdPosition(input_loop_ids_.at(1)));
+    auto loop_id_pos_outer = getLoopIdPosition(input_loop_ids_.at(0));
+    auto loop_id_pos_inner = getLoopIdPosition(input_loop_ids_.at(1));
+    tv_->merge(loop_id_pos_outer, loop_id_pos_inner);
+    replayed_expr_ = tv_->axis(loop_id_pos_outer)->definition();
   }
 
   void handle(const Resize* resize) final {
@@ -155,12 +156,14 @@ class ReplayForwardTransformOnLoopDomain : OptInConstDispatch {
         resize->out()->getIterType() != IterType::Symbolic,
         "Unexpected to have a symbolic ID: ",
         resize->out()->toString());
+    auto loop_id_pos = getLoopIdPosition(input_loop_ids_.at(0));
     // Pass the iter type explicitly to avoid generating a symblic ID
     tv_->resize(
-        getLoopIdPosition(input_loop_ids_.at(0)),
+        loop_id_pos,
         resize->leftExpand(),
         resize->rightExpand(),
         resize->out()->getIterType());
+    replayed_expr_ = tv_->axis(loop_id_pos)->definition();
   }
 
   void handle(const Swizzle2D* swizzle_2d) final {
@@ -174,6 +177,7 @@ class ReplayForwardTransformOnLoopDomain : OptInConstDispatch {
  private:
   TensorView* tv_ = nullptr;
   const std::vector<IterDomain*>& input_loop_ids_;
+  Expr* replayed_expr_ = nullptr;
 };
 
 class LoopDomainScheduler {
@@ -498,99 +502,128 @@ void scheduleLoopDomainsLike(
 
 void scheduleLoopDomainsBy(
     const std::vector<TensorView*>& tvs,
-    Expr* transform,
+    const std::vector<Expr*>& transforms,
     Direction replay_dir) {
-  Fusion* fusion = transform->fusion();
+  if (tvs.empty()) {
+    return;
+  }
+
+  Fusion* fusion = tvs.front()->fusion();
   IdModel id_model(fusion, /*build_graphs=*/false);
   const ValGraph& exact_graph = id_model.buildExactGraph();
 
-  const ValGroups input_groups = exact_graph.toGroups(transform->inputs());
-  const ValGroups output_groups = exact_graph.toGroups(transform->outputs());
+  // Newly created IDs are not automatically added to the ID
+  // graph. Keep track of their mappings separately.
+  std::unordered_map<ValGroup, std::unordered_set<IterDomain*>> new_id_mappings;
 
-  for (auto tv : tvs) {
-    // Check if either the inputs or the outputs are mapped with the
-    // loop domain.
+  auto is_mapped = [&new_id_mappings](
+                       const ValGroup& id_group, IterDomain* new_id) {
+    auto it = new_id_mappings.find(id_group);
+    return it != new_id_mappings.end() && it->second.contains(new_id);
+  };
 
-    std::vector<IterDomain*> input_ids;
-    input_ids.reserve(transform->inputs().size());
-    for (const auto& input_g : input_groups) {
-      for (const auto loop_id : tv->getLoopDomain()) {
-        if (input_g->has(loop_id)) {
-          input_ids.push_back(loop_id);
+  auto register_mapping = [&new_id_mappings](
+                              const ValGroup& id_group, IterDomain* new_id) {
+    new_id_mappings[id_group].insert(new_id);
+  };
+
+  for (auto transform : transforms) {
+    const ValGroups input_groups = exact_graph.toGroups(transform->inputs());
+    const ValGroups output_groups = exact_graph.toGroups(transform->outputs());
+
+    for (auto tv : tvs) {
+      // Check if either the inputs or the outputs are mapped with the
+      // loop domain.
+      std::vector<IterDomain*> input_ids;
+      input_ids.reserve(transform->inputs().size());
+      for (const auto& input_g : input_groups) {
+        for (const auto loop_id : tv->getLoopDomain()) {
+          if (input_g->has(loop_id) || is_mapped(input_g, loop_id)) {
+            input_ids.push_back(loop_id);
+          }
         }
       }
-    }
 
-    std::vector<IterDomain*> output_ids;
-    output_ids.reserve(transform->outputs().size());
-    for (const auto& output_g : output_groups) {
-      for (const auto loop_id : tv->getLoopDomain()) {
-        if (output_g->has(loop_id)) {
-          output_ids.push_back(loop_id);
+      std::vector<IterDomain*> output_ids;
+      output_ids.reserve(transform->outputs().size());
+      for (const auto& output_g : output_groups) {
+        for (const auto loop_id : tv->getLoopDomain()) {
+          if (output_g->has(loop_id)) {
+            output_ids.push_back(loop_id);
+          }
         }
       }
+
+      // If all of the inputs are found, the tranform expr is replayed as
+      // a forward op.
+      Direction replay_dir_tv = Direction::Undefined;
+      if (replay_dir != Direction::Backward &&
+          input_ids.size() == transform->inputs().size()) {
+        replay_dir_tv = Direction::Forward;
+      } else if (
+          replay_dir != Direction::Forward &&
+          output_ids.size() == transform->outputs().size()) {
+        replay_dir_tv = Direction::Backward;
+      } else {
+        // Replay not possible since none of inputs nor outputs are connected
+        // with the transform
+        continue;
+      }
+
+      // When the direction is forward, the TensorView transform
+      // APIs, e.g., TensorView::split, can be used, which doesn't need
+      // to use TensorView::setLoopDomain. This is important as
+      // setLoopDomain may result in losing extra IDs added by prior
+      // scheduleLoopDomain calls, which was indeed the case with the
+      // Llama 3 RoPE backward (see also
+      // https://github.com/NVIDIA/Fuser/issues/3571).
+      if (replay_dir_tv == Direction::Forward) {
+        auto replayed_expr = ReplayForwardTransformOnLoopDomain::replayAs(
+            tv, input_ids, transform);
+        NVF_ERROR_EQ(
+            std::ssize(replayed_expr->outputs()), output_groups.size());
+        for (const auto& [output_id_group, new_output_id] :
+             zip(output_groups, replayed_expr->outputs())) {
+          NVF_ERROR(new_output_id->isA<IterDomain>());
+          register_mapping(output_id_group, new_output_id->as<IterDomain>());
+        }
+        continue;
+      }
+
+      NVF_ERROR(input_ids.empty());
+      for (const auto& ref_id : transform->inputs()) {
+        auto clone = ref_id->as<IterDomain>()->cloneWithoutRFactor();
+        input_ids.push_back(clone);
+        const auto& input_id_group = exact_graph.toGroup(ref_id);
+        register_mapping(input_id_group, clone);
+      }
+
+      // The definition of the output IDs will be set to the newly
+      // created expr. This is only allowed when the output IDs have no
+      // definition yet.
+      LoopDomainSchedulerReplayTransform::replayAs(
+          input_ids, output_ids, transform);
+
+      // Replace the inputs of the transform with the outputs
+      auto new_loop_domain = tv->getLoopDomain();
+      auto outermost_pos = (int64_t)tv->getLoopDomain().size();
+      for (const auto& output_id : output_ids) {
+        auto it = std::find(
+            new_loop_domain.begin(), new_loop_domain.end(), output_id);
+        NVF_ERROR(it != new_loop_domain.end());
+        auto pos = (int64_t)std::distance(new_loop_domain.begin(), it);
+        outermost_pos = std::min(outermost_pos, pos);
+        new_loop_domain.erase(it);
+      }
+
+      for (auto it = input_ids.rbegin(); it != input_ids.rend(); ++it) {
+        IterDomain* new_id = *it;
+        new_loop_domain.insert(new_loop_domain.begin() + outermost_pos, new_id);
+      }
+
+      tv->setLoopDomain(new_loop_domain);
     }
-
-    // If all of the inputs are found, the tranform expr is replayed as
-    // a forward op.
-    Direction replay_dir_tv = Direction::Undefined;
-    if (replay_dir != Direction::Backward &&
-        input_ids.size() == transform->inputs().size()) {
-      replay_dir_tv = Direction::Forward;
-    } else if (
-        replay_dir != Direction::Forward &&
-        output_ids.size() == transform->outputs().size()) {
-      replay_dir_tv = Direction::Backward;
-    } else {
-      // Replay not possible since none of inputs nor outputs are connected with
-      // the transform
-      continue;
-    }
-
-    // When the direction is forward, the TensorView transform
-    // APIs, e.g., TensorView::split, can be used, which doesn't need
-    // to use TensorView::setLoopDomain. This is important as
-    // setLoopDomain may result in losing extra IDs added by prior
-    // scheduleLoopDomain calls, which was indeed the case with the
-    // Llama 3 RoPE backward (see also
-    // https://github.com/NVIDIA/Fuser/issues/3571).
-    if (replay_dir_tv == Direction::Forward) {
-      ReplayForwardTransformOnLoopDomain::replayAs(tv, input_ids, transform);
-      continue;
-    }
-
-    NVF_ERROR(input_ids.empty());
-    for (const auto& ref_id : transform->inputs()) {
-      auto clone = ref_id->as<IterDomain>()->cloneWithoutRFactor();
-      input_ids.push_back(clone);
-    }
-
-    // The definition of the output IDs will be set to the newly
-    // created expr. This is only allowed when the output IDs have no
-    // definition yet.
-    LoopDomainSchedulerReplayTransform::replayAs(
-        input_ids, output_ids, transform);
-
-    // Replace the inputs of the transform with the outputs
-    auto new_loop_domain = tv->getLoopDomain();
-    auto outermost_pos = (int64_t)tv->getLoopDomain().size();
-    for (const auto& output_id : output_ids) {
-      auto it =
-          std::find(new_loop_domain.begin(), new_loop_domain.end(), output_id);
-      NVF_ERROR(it != new_loop_domain.end());
-      auto pos = (int64_t)std::distance(new_loop_domain.begin(), it);
-      outermost_pos = std::min(outermost_pos, pos);
-      new_loop_domain.erase(it);
-    }
-
-    for (auto it = input_ids.rbegin(); it != input_ids.rend(); ++it) {
-      IterDomain* new_id = *it;
-      new_loop_domain.insert(new_loop_domain.begin() + outermost_pos, new_id);
-    }
-
-    tv->setLoopDomain(new_loop_domain);
   }
-
   return;
 }
 
@@ -625,7 +658,7 @@ void cancelReshapeInLoopDomains(TensorView* from_tv, bool skip_innermost_id) {
   for (auto exprs_it = all_dep_exprs_from_tv.rbegin();
        exprs_it != all_dep_exprs_from_tv.rend();
        ++exprs_it) {
-    auto reshape = dynamic_cast<ViewOp*>(*exprs_it);
+    auto reshape = dynamic_cast<ReshapeOp*>(*exprs_it);
     if (reshape == nullptr) {
       continue;
     }
@@ -726,7 +759,7 @@ void cancelReshapeInLoopDomains(TensorView* from_tv, bool skip_innermost_id) {
 
       // Update all of the dependent TVs by this reshape expr
       scheduleLoopDomainsBy(
-          all_dep_tvs.vector(), reshape_expr, Direction::Backward);
+          all_dep_tvs.vector(), {reshape_expr}, Direction::Backward);
 
       cancellable_ids.insert(
           reshape_expr->inputs().begin(), reshape_expr->inputs().end());

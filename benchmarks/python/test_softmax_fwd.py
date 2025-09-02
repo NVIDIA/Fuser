@@ -56,7 +56,13 @@ def softmax_fwd_iobytes(size: tuple, dtype: torch.dtype):
 
 @pytest.mark.parametrize("size", generate_input_sizes(dims=2))
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)
-@pytest.mark.parametrize("reduction_axis", [0, 1])
+@pytest.mark.parametrize(
+    "reduction_axis",
+    [
+        pytest.param(0, marks=pytest.mark.outer_persistent),
+        pytest.param(1, marks=pytest.mark.inner_persistent),
+    ],
+)
 def test_softmax_fwd_nvf_benchmark(
     benchmark,
     size: tuple,
@@ -81,7 +87,13 @@ def test_softmax_fwd_nvf_benchmark(
 @pytest.mark.parametrize("executor", DEFAULT_EXECUTORS)
 @pytest.mark.parametrize("size", generate_input_sizes(dims=2))
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)
-@pytest.mark.parametrize("reduction_axis", [0, 1])
+@pytest.mark.parametrize(
+    "reduction_axis",
+    [
+        pytest.param(0, marks=pytest.mark.outer_persistent),
+        pytest.param(1, marks=pytest.mark.inner_persistent),
+    ],
+)
 def test_softmax_fwd_baseline_benchmark(
     benchmark,
     size: tuple,
@@ -91,7 +103,7 @@ def test_softmax_fwd_baseline_benchmark(
 ):
     if executor == "torchcompile":
         clear_dynamo_cache()
-    inputs = torch.randn(size, device="cuda", dtype=dtype)
+    inputs = torch.randn(size, device="cuda", dtype=dtype, requires_grad=True)
 
     benchmark_fn = with_executor(executor, softmax)
     run_benchmark(

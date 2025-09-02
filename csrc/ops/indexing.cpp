@@ -120,24 +120,6 @@ TensorView* indexPutAccumulate(
   std::vector<IterDomain*> value_domain =
       TensorDomain::noReductions(value_tv->getLogicalDomain());
 
-  // If acc_tv is a zero tensor and the ID of index_tv is a broadcast,
-  // just scattering is sufficient. Note that only 1D case is
-  // considered for simplicity. In the case of N-D, where N > 1, the
-  // index tensor would need to be repeated rather than just unsqueezed.
-  auto is_zero_tensor = [](TensorView* tv) -> bool {
-    auto full_op = dynamic_cast<FullOp*>(tv->definition());
-    if (full_op == nullptr) {
-      return false;
-    }
-    return full_op->getFillValue()->isZero();
-  };
-  if (acc_domain.size() == 1 && index_domain.size() == 1 &&
-      (index_domain.at(0)->isBroadcast() ||
-       index_domain.at(0)->extent()->isOne()) &&
-      is_zero_tensor(acc_tv)) {
-    return scatter(acc_tv, 0, index_tv, value_tv);
-  }
-
   NVF_CHECK(acc_domain.size() == value_domain.size());
   NVF_CHECK(index_domain.size() == 1);
 
@@ -183,15 +165,19 @@ TensorView* scatter(
     TensorView* self,
     int64_t dim,
     TensorView* index,
-    TensorView* src,
+    Val* src,
     std::optional<BinaryOpType> accumulate_op) {
   auto self_dom = TensorDomain::noReductions(self->getLogicalDomain());
   auto idx_dom = TensorDomain::noReductions(index->getLogicalDomain());
-  auto src_dom = TensorDomain::noReductions(src->getLogicalDomain());
 
   NVF_CHECK(!self_dom.empty(), "scatter can not be applied to 0d tensor.");
   NVF_CHECK(
-      self_dom.size() == idx_dom.size() && self_dom.size() == src_dom.size(),
+      self_dom.size() == idx_dom.size() &&
+          (!src->isA<TensorView>() ||
+           self_dom.size() ==
+               TensorDomain::noReductions(
+                   src->as<TensorView>()->getLogicalDomain())
+                   .size()),
       "self, index and src tensor should all have the same number of "
       "dimensions in scatter like ops.");
   dim = wrapDim(dim, (int64_t)self_dom.size());
@@ -208,10 +194,25 @@ TensorView* scatter(
             .build());
   }
 
+  // Create the loop domain based on the logical domain of the index
+  // tensor.
+  std::vector<IterDomain*> out_loop;
+  out_loop.reserve(idx_dom.size());
+  std::ranges::transform(
+      idx_dom, std::back_inserter(out_loop), [](IterDomain* id) {
+        return IterDomainBuilder(id).build();
+      });
+
+  // Create the output tensor. The validation of the loop domain needs
+  // to be skipped as it is not guaranteed to be equivalent to the
+  // logical domain.
   TensorView* out_tensor = IrBuilder::create<TensorView>(
       IrBuilder::create<TensorDomain>(
-          out_logical,
-          TensorDomain::getContiguityFilledWith(out_logical, true)),
+          /*logical_domain=*/out_logical,
+          /*loop_domain=*/out_loop,
+          /*contiguity=*/
+          TensorDomain::getContiguityFilledWith(out_logical, true),
+          /*skip_loop_validation=*/true),
       self->getDataType().value());
 
   if (accumulate_op.has_value()) {

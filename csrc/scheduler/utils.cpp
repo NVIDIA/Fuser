@@ -31,6 +31,7 @@
 
 #include <algorithm>
 #include <queue>
+#include "ir/interface_nodes.h"
 #include "scheduler/tools/loop_domain_scheduler.h"
 #include "type.h"
 
@@ -575,7 +576,7 @@ TensorView* getUpCastInputOf(const TensorView* tv) {
       return nullptr;
     }
     // skip if the cast is not upcast
-    auto precisions = ir_utils::getPrecisionOfProducerConsumerTensors(uop);
+    auto precisions = ir_utils::getPrecisionOfProducerConsumerTensorsBit(uop);
     if (!precisions.has_value() || precisions->first >= precisions->second) {
       return nullptr;
     }
@@ -676,7 +677,8 @@ PersistentBufferInfo persistentBuffers(Fusion* fusion) {
   }
 
   // don't project if there are view ops and no buffer can be projected
-  persistent_buffer_info.has_view_ops = !ir_utils::getViewOps(fusion).empty();
+  persistent_buffer_info.has_view_ops =
+      !ir_utils::getReshapeOps(fusion).empty();
   if (persistent_buffer_info.has_view_ops) {
     return persistent_buffer_info;
   }
@@ -764,6 +766,30 @@ PersistentBufferInfo persistentBuffers(Fusion* fusion) {
   return persistent_buffer_info;
 }
 
+namespace {
+int64_t getAllocatedExtent(
+    TensorView* tv,
+    IterDomain* logical_id,
+    ExpressionEvaluator& expr_eval) {
+  IterDomain* alloc_id = projectLogicalToShardedAllocation(tv, logical_id);
+  auto inferred_val = expr_eval.evaluate(alloc_id->extent());
+  NVF_ERROR(
+      inferred_val.hasValue(),
+      "Error inferring extent of ",
+      alloc_id->toString(),
+      " in ",
+      tv->toString());
+  return inferred_val.as<int64_t>();
+}
+} // namespace
+
+// For sharded tensorviews, we record the properties
+// based on per-GPU extent of ids.
+// For eg: consider a tv with logical domain [r{i0}, i1]
+// sharded on i1. The allocation domain is [DIDx(d), r{i0}, i1/d]
+// The extent of the innermost dimension is the per-GPU extent of i1/d.
+// This ensures we don't launch kernels with parameters based on the
+// global sizes.
 ReductionTvProperties getReductionProperties(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
@@ -783,12 +809,13 @@ ReductionTvProperties getReductionProperties(
   int64_t inner_most_dimension_numel = 1;
   int64_t inner_most_dimension_ndims = 0;
 
+  ExpressionEvaluator& expr_eval = runtime_info.expressionEvaluator();
+
   // Start from the inner most dimension, and work outwards. If this is a 3D
   // pattern, i.e. theres a pattern like [r0, r1, i2, r3] or [i0, r1, r2, i3,
   // i4] then compute the inner most dimension to compute separately.
-  const auto& root_dom = tv->getMaybeRootDomain();
-  for (size_t i = root_dom.size(); i > 0; i--) {
-    auto id = root_dom[i - 1];
+  const auto& logical_domain = tv->getLogicalDomain();
+  for (IterDomain* id : logical_domain | std::views::reverse) {
     if (id->isBroadcast()) {
       continue;
     }
@@ -796,11 +823,9 @@ ReductionTvProperties getReductionProperties(
       dimensionality++;
       cur_dim_is_reduction = !cur_dim_is_reduction;
     } else if (dimensionality == 1) {
-      auto inferred_val =
-          runtime_info.expressionEvaluator().evaluate(id->extent());
-      NVF_ERROR(inferred_val.hasValue(), "Error inferring reduction size.");
+      int64_t allocated_extent = getAllocatedExtent(tv, id, expr_eval);
       inner_most_dimension_numel =
-          inner_most_dimension_numel * inferred_val.as<int64_t>();
+          inner_most_dimension_numel * allocated_extent;
       inner_most_dimension_ndims++;
     }
   }
@@ -810,16 +835,12 @@ ReductionTvProperties getReductionProperties(
   // Reduction element count
   int64_t total_reduction_numel = 1;
 
-  for (auto id : root_dom) {
-    auto inferred_val =
-        runtime_info.expressionEvaluator().evaluate(id->extent());
-    NVF_ERROR(
-        inferred_val.hasValue(),
-        "Error inferring dimensions of reduction fusion.");
+  for (IterDomain* id : logical_domain) {
+    int64_t allocated_extent = getAllocatedExtent(tv, id, expr_eval);
     if (id->isReduction()) {
-      total_reduction_numel *= inferred_val.as<int64_t>();
+      total_reduction_numel *= allocated_extent;
     } else {
-      total_iteration_numel *= inferred_val.as<int64_t>();
+      total_iteration_numel *= allocated_extent;
     }
   }
 
@@ -976,11 +997,11 @@ bool canProjectToPersistentProducer(
   }
 }
 
-int64_t getPersistentBufferSizeOfTensor(
+int64_t getPersistentBufferSizeBitOfTensor(
     const TensorView* buffer,
     SchedulerRuntimeInfo& runtime_info,
     const PersistentBufferInfo& persistent_buffer_info) {
-  int64_t buffer_bytes = -1;
+  int64_t buffer_bits = -1;
   bool is_input =
       std::find(
           persistent_buffer_info.projectable_buffer_inputs.begin(),
@@ -1004,10 +1025,10 @@ int64_t getPersistentBufferSizeOfTensor(
 
     auto id_size = runtime_info.expressionEvaluator().evaluate(id->extent());
     NVF_ERROR(id_size.hasValue(), "Could not infer persistent buffer size.");
-    if (buffer_bytes == -1) {
-      buffer_bytes = id_size.as<int64_t>();
+    if (buffer_bits == -1) {
+      buffer_bits = id_size.as<int64_t>();
     } else {
-      buffer_bytes *= id_size.as<int64_t>();
+      buffer_bits *= id_size.as<int64_t>();
     }
   }
   // If the persistent buffer is the output of an upcast op, scheduler will
@@ -1015,25 +1036,25 @@ int64_t getPersistentBufferSizeOfTensor(
   // project to inputs, not abosutely necessary but we always do it to
   // save register usage. So, need to compute the buffer size using the data
   // type before upcast.
-  int64_t dtype_size = 1;
+  int64_t dtype_size_bit = 1;
   if (auto upcast_input = getUpCastInputOf(buffer)) {
-    dtype_size = dataTypeSizeByte(
+    dtype_size_bit = dataTypeSizeBit(
         upcast_input->getDataType().value(), runtime_info.getIndexType());
   } else {
-    dtype_size = dataTypeSizeByte(
+    dtype_size_bit = dataTypeSizeBit(
         buffer->getDataType().value(), runtime_info.getIndexType());
   }
 
-  buffer_bytes = buffer_bytes == -1 ? 0 : buffer_bytes * dtype_size;
-  return buffer_bytes;
+  buffer_bits = buffer_bits == -1 ? 0 : buffer_bits * dtype_size_bit;
+  return buffer_bits;
 }
 
-PersistentBufferSizeReturn persistentBufferSize(
+PersistentBufferSizeReturn persistentBufferSizeBit(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
     const PersistentBufferInfo& persistent_buffer_info,
     HeuristicDataCache* data_cache) {
-  FUSER_PERF_SCOPE("scheduler_utils::persistentBufferSize");
+  FUSER_PERF_SCOPE("scheduler_utils::persistentBufferSizeBit");
 
   if (persistent_buffer_info.persistent_buffers.empty()) {
     PersistentBufferSizeReturn empty_sizes;
@@ -1053,11 +1074,11 @@ PersistentBufferSizeReturn persistentBufferSize(
       projectable_buffers_inputs.begin(),
       projectable_buffers_inputs.end());
 
-  std::vector<int64_t> persistent_buffer_sizes(all_buffers.size(), -1);
+  std::vector<int64_t> persistent_buffer_sizes_bit(all_buffers.size(), -1);
 
   for (auto buffer_i : arange(all_buffers.size())) {
     auto buffer = all_buffers[buffer_i];
-    persistent_buffer_sizes[buffer_i] = getPersistentBufferSizeOfTensor(
+    persistent_buffer_sizes_bit[buffer_i] = getPersistentBufferSizeBitOfTensor(
         buffer, runtime_info, persistent_buffer_info);
   }
 
@@ -1093,7 +1114,7 @@ PersistentBufferSizeReturn persistentBufferSize(
                                const std::vector<bool>& mask1,
                                const std::vector<int64_t>& sizes,
                                const std::vector<TensorView*>& all_buffers) {
-    int64_t buffer_size = 0;
+    int64_t buffer_size_bit = 0;
     NVF_ERROR(
         mask0.size() == mask1.size() && mask0.size() == sizes.size() &&
         mask0.size() == all_buffers.size());
@@ -1104,11 +1125,11 @@ PersistentBufferSizeReturn persistentBufferSize(
     for (auto buffer_i : arange(sizes.size())) {
       if (mask0[buffer_i] && mask1[buffer_i] &&
           active_buffers.count(all_buffers[buffer_i]) == 0) {
-        buffer_size += sizes[buffer_i];
+        buffer_size_bit += sizes[buffer_i];
         active_buffers.insert(all_buffers[buffer_i]);
       }
     }
-    return buffer_size;
+    return buffer_size_bit;
   };
 
   auto persistent_buffer_info_entry =
@@ -1121,26 +1142,33 @@ PersistentBufferSizeReturn persistentBufferSize(
 
   // Go through all values, compute the size of the active persistent buffers,
   // do both without and with projection
-  int64_t max_persistence_size = 0;
-  int64_t max_proj_persistence_size = 0;
+  int64_t max_persistence_size_bit = 0;
+  int64_t max_proj_persistence_size_bit = 0;
   for (const auto& entry : scoped_persistence_factor) {
     auto active_buffers = entry.second;
-    auto persistent_buffer_size = masked_dot_product(
-        persistent_mask, active_buffers, persistent_buffer_sizes, all_buffers);
-    max_persistence_size =
-        std::max(max_persistence_size, persistent_buffer_size);
+    auto persistent_buffer_size_bit = masked_dot_product(
+        persistent_mask,
+        active_buffers,
+        persistent_buffer_sizes_bit,
+        all_buffers);
+    max_persistence_size_bit =
+        std::max(max_persistence_size_bit, persistent_buffer_size_bit);
 
-    auto projected_buffer_size = masked_dot_product(
-        projected_mask, active_buffers, persistent_buffer_sizes, all_buffers);
-    max_proj_persistence_size =
-        std::max(max_proj_persistence_size, projected_buffer_size);
+    auto projected_buffer_size_bit = masked_dot_product(
+        projected_mask,
+        active_buffers,
+        persistent_buffer_sizes_bit,
+        all_buffers);
+    max_proj_persistence_size_bit =
+        std::max(max_proj_persistence_size_bit, projected_buffer_size_bit);
   }
 
-  PersistentBufferSizeReturn persistent_buffer_size;
-  persistent_buffer_size.persistent_buffer_size = max_persistence_size;
-  persistent_buffer_size.projected_persistent_buffer_size =
-      max_proj_persistence_size;
-  return persistent_buffer_size;
+  PersistentBufferSizeReturn persistent_buffer_size_bit;
+  persistent_buffer_size_bit.persistent_buffer_size_bit =
+      max_persistence_size_bit;
+  persistent_buffer_size_bit.projected_persistent_buffer_size_bit =
+      max_proj_persistence_size_bit;
+  return persistent_buffer_size_bit;
 }
 
 std::pair<bool, bool> canonicalDimReduction(
@@ -1208,7 +1236,7 @@ std::vector<TensorView*> getViewTVs(Fusion* fusion) {
   for (auto producer_tv : ir_utils::filterByType<TensorView>(fusion_vals)) {
     auto consumer_tvs = ir_utils::consumerTvsOf(producer_tv);
     for (auto consumer_tv : consumer_tvs) {
-      if (consumer_tv->isDefinitionType<ViewOp>()) {
+      if (consumer_tv->isDefinitionType<ReshapeOp>()) {
         view_tvs.push_back(consumer_tv);
       }
     }
@@ -1257,7 +1285,7 @@ std::vector<TensorView*> cacheInputs(Fusion* fusion, bool unroll) {
   // If we're going to unroll, make a cache of the inputs
   auto in_tvs = ir_utils::filterByType<TensorView>(fusion->inputs());
   for (auto tv : in_tvs) {
-    if (tv->uses().empty() || ir_utils::isGatherLookupTv(tv) ||
+    if (tv->nDims() == 0 || tv->uses().empty() ||
         ir_utils::isIndexSelectLookupTv(tv) ||
         ir_utils::isTvUsedByOpsOfType<SelectOp>(tv)) {
       // Right now, tensors that are input to the select, gather and
@@ -1273,9 +1301,17 @@ std::vector<TensorView*> cacheInputs(Fusion* fusion, bool unroll) {
     // used without padding, it will be read twice, once for pad and
     // once more for caching load. It would make sense to use the PTX
     // caching load instructions.
+    // For gatherOp, the lookupTv should stay in global memory, don't replace
+    // the original lookupTv with the cached_tv.
+    auto isGatherLookUpTvInUse = [tv](Expr* use) {
+      if (!use->isA<GatherOp>()) {
+        return false;
+      }
+      return use->as<GatherOp>()->lookupTv() == tv;
+    };
     std::vector<Expr*> cached_uses;
     for (auto use : tv->uses()) {
-      if (!use->isOneOf<PadOp, SliceOp>()) {
+      if (!use->isOneOf<PadOp, SliceOp>() && !isGatherLookUpTvInUse(use)) {
         cached_uses.push_back(use);
       }
     }
@@ -1471,41 +1507,46 @@ FindAllMappedDims::FindAllMappedDims(
 void FindAllMappedDims::setUp() {
   mapped_root_ids_[starting_tv_] =
       projectIdToRoot(starting_tv_, starting_id_, inner_only_, vectorize_pass_);
-  mapped_logical_ids_[starting_tv_] = projectIdToAllocation(
+  // Note, we want to project to allocation, since we could have
+  // transformation from logical to allocation. e.g. for multi-device, we
+  // could have DID related split between logical to allocation.
+  mapped_allocation_ids_[starting_tv_] = projectIdToAllocation(
       starting_tv_, starting_id_, inner_only_, vectorize_pass_);
 }
 
 void FindAllMappedDims::propagateC2P(TensorView* from, TensorView* to) {
-  auto from_id = mapped_root_ids_.at(from);
+  IterDomain* from_id = mapped_root_ids_.at(from);
   PairwiseLogicalDomainMap logical_map(to, from);
   auto c2p_map = logical_map.mapConsumerToProducer();
   auto p_it = c2p_map.find(from_id);
   if (p_it != c2p_map.end()) {
     mapped_root_ids_[to] =
         projectIdToRoot(to, p_it->second, inner_only_, vectorize_pass_);
-    // Note, we want to project to allocation, since we could have
-    // transformation from logical to allocation. e.g. for multi-device, we
-    // could have DID related split between logical to allocation.
-    mapped_logical_ids_[to] =
+    mapped_allocation_ids_[to] =
         projectIdToAllocation(to, p_it->second, inner_only_, vectorize_pass_);
   } else {
     mapped_root_ids_[to] = nullptr;
-    mapped_logical_ids_[to] = nullptr;
+    mapped_allocation_ids_[to] = nullptr;
   }
 }
 
 void FindAllMappedDims::propagateP2C(TensorView* from, TensorView* to) {
-  auto from_id = mapped_logical_ids_.at(from);
+  IterDomain* from_allocation_id = mapped_allocation_ids_.at(from);
+
+  // Project allocation id back to logical id for mapping
+  IterDomain* from_logical_id =
+      projectShardedAllocationToLogical(from, from_allocation_id);
+
   PairwiseLogicalDomainMap logical_map(from, to);
   auto p2c_map = logical_map.mapProducerToConsumer();
-  auto c_it = p2c_map.find(from_id);
+  auto c_it = p2c_map.find(from_logical_id);
   if (c_it != p2c_map.end()) {
     mapped_root_ids_[to] = c_it->second;
-    mapped_logical_ids_[to] =
+    mapped_allocation_ids_[to] =
         projectIdToAllocation(to, c_it->second, inner_only_, vectorize_pass_);
   } else {
     mapped_root_ids_[to] = nullptr;
-    mapped_logical_ids_[to] = nullptr;
+    mapped_allocation_ids_[to] = nullptr;
   }
 }
 
@@ -1521,13 +1562,13 @@ void FindAllMappedDims::propagateSibling(TensorView* from, TensorView* to) {
       }
     }
   }
-  from_id = mapped_logical_ids_.at(from);
+  from_id = mapped_allocation_ids_.at(from);
   if (from_id == nullptr) {
     mapped_root_ids_[to] = nullptr;
   } else {
     for (auto i : arange(from->getLogicalDomain().size())) {
       if (from_id == from->getLogicalDomain()[i]) {
-        mapped_logical_ids_[to] = to->getLogicalDomain()[i];
+        mapped_allocation_ids_[to] = to->getLogicalDomain()[i];
         return;
       }
     }
@@ -1542,7 +1583,7 @@ std::unordered_set<IterDomain*> FindAllMappedDims::get() const {
       mapped_id_set.emplace(entry.second);
     }
   }
-  for (auto entry : mapped_logical_ids_) {
+  for (auto entry : mapped_allocation_ids_) {
     if (entry.second != nullptr) {
       mapped_id_set.emplace(entry.second);
     }
@@ -1613,7 +1654,6 @@ std::vector<TensorView*> getInputsOutputsWithInnerDim(
       reference_tv, inner_most_id, inner_only, vectorize_pass);
   MaxLogicalDomainInfoSpanningTree tree(reference_tv);
   tree.traverse(&all_mapped_root_dims);
-
   auto vectorizable_dims = all_mapped_root_dims.get();
 
   std::vector<TensorView*> vectorizable_tensors;
@@ -1631,7 +1671,7 @@ std::vector<TensorView*> getInputsOutputsWithInnerDim(
        ir_utils::filterByType<TensorView>(reference_tv->fusion()->inputs())) {
     // for indexSelect(lookup_tv, dim, index_tv) op
     // ignore it's lookup_tv.
-    if (ir_utils::isGatherLookupTv(input_tv)) {
+    if (ir_utils::isAndOnlyIsGatherLookupTv(input_tv)) {
       continue;
     }
 
@@ -1823,20 +1863,20 @@ BroadcastMultipleInformation getBroadcastMultiples(
     {
       bool rhs = false;
       bool lhs = false;
-      auto dtype_size =
-          dataTypeSizeByte(in_out_tv->getDataType().value(), index_type);
+      auto dtype_size_bit =
+          dataTypeSizeBit(in_out_tv->getDataType().value(), index_type);
       for (auto mapped_axes_i : arange(mapped_axes.size())) {
         auto lhs_i = mapped_axes_i;
         auto rhs_i = mapped_axes.size() - 1 - mapped_axes_i;
 
         if (lhs) {
-          multiples[lhs_i].lhs_multiple += (int64_t)dtype_size;
+          multiples[lhs_i].lhs_multiple += (int64_t)dtype_size_bit;
         } else if (mapped_axes[lhs_i]) {
           lhs = true;
         }
 
         if (rhs || mapped_axes[rhs_i]) {
-          multiples[rhs_i].rhs_multiple += (int64_t)dtype_size;
+          multiples[rhs_i].rhs_multiple += (int64_t)dtype_size_bit;
           rhs = true;
         }
       }
@@ -2651,7 +2691,7 @@ std::unordered_set<TensorView*> getAllTvsFrom(
   return tv_group;
 }
 
-int64_t getReductionSmemWorkspace(
+int64_t getReductionSmemWorkspaceBit(
     Fusion* fusion,
     const std::vector<TensorView*>& reduction_tvs,
     int64_t threads_per_block) {
@@ -2660,22 +2700,22 @@ int64_t getReductionSmemWorkspace(
   threads_per_block =
       threads_per_block > 0 ? threads_per_block : dev_prop->maxThreadsPerBlock;
   // (1) part-1, space for the reduction broadcast.
-  int64_t dtype_size = 1;
+  int64_t dtype_size_bit = 1;
   for (auto tv : reduction_tvs) {
-    dtype_size =
-        std::max(dtype_size, dataTypeSizeByte(tv->getDataType().value()));
+    dtype_size_bit =
+        std::max(dtype_size_bit, dataTypeSizeBit(tv->getDataType().value()));
   }
   // for welford, three arrays of type nvfuser_index_t are used to store var,
   // avg, and n. see KernelExecutor::computeLaunchParams. Here index type is
   // assumed as int64_t
   int64_t welford_factor = ir_utils::hasOpsOfType<WelfordOp>(fusion) ? 3l : 1l;
   if (welford_factor == 3l) {
-    dtype_size = std::max(dtype_size, (int64_t)sizeof(int64_t));
+    dtype_size_bit = std::max(dtype_size_bit, (int64_t)sizeof(int64_t) * 8);
   }
-  int64_t reduction_broadcast_workspace =
-      threads_per_block * dtype_size * welford_factor;
+  int64_t reduction_broadcast_workspace_bit =
+      threads_per_block * dtype_size_bit * welford_factor;
 
-  return reduction_broadcast_workspace;
+  return reduction_broadcast_workspace_bit;
 }
 
 bool isResharding(Fusion* fusion) {
@@ -2937,7 +2977,7 @@ int64_t getComputationCostFactor(Fusion* fusion) {
 
 // Calculate hardware bandwidth and required bytes in flight based on
 // little's law. bytes_in_flight = bandwidth * latency
-int64_t getRequiredBytesInFlight() {
+int64_t getRequiredBitsInFlight() {
   // H100, 32KB in flight @ 3352 GB/s = 9.5e-9 seconds
   constexpr float empirical_gmem_latency = 9.5e-9;
   const auto dev_idx = at::cuda::current_device();
@@ -2945,8 +2985,8 @@ int64_t getRequiredBytesInFlight() {
   cudaDeviceGetAttribute(
       &gpu_mem_clock_khz, cudaDevAttrMemoryClockRate, dev_idx);
   const auto dev_prop = at::cuda::getCurrentDeviceProperties();
-  float hardware_bandwidth = 2.f * (float)dev_prop->memoryBusWidth / 8.f *
-      (float)gpu_mem_clock_khz * 1000.f;
+  float hardware_bandwidth =
+      2.f * (float)dev_prop->memoryBusWidth * (float)gpu_mem_clock_khz * 1000.f;
   return (int64_t)(empirical_gmem_latency * hardware_bandwidth);
 }
 
@@ -3040,7 +3080,7 @@ TensorView* scheduleInputToSkipIntermediates(TensorView* tv) {
     }
     Expr* use = tv->uses().front();
 
-    // TODO: support ViewOp here too
+    // TODO: support ReshapeOp here too
     if (!use->isOneOf<BroadcastOp, SqueezeOp, LoadStoreOp>()) {
       break;
     }
@@ -3077,9 +3117,9 @@ TensorView* scheduleInputToSkipIntermediates(TensorView* tv) {
       // NOTE: This simple approach assumes that the allocation domains of the
       // producer are also logical domains. We can then map those to producer to
       // get IDs to use in the consumer's allocation domain to get IDs to use in
-      // the consumer's allocation domain. This fails for ViewOp, which is why
-      // it is currently disabled. In the future, we should propagate through
-      // transforms as well using something similar to
+      // the consumer's allocation domain. This fails for ReshapeOp, which is
+      // why it is currently disabled. In the future, we should propagate
+      // through transforms as well using something similar to
       // scheduler_tools::scheduleLoopDomainsLike();
       auto it = p2c.find(p_id);
       NVF_ERROR(it != p2c.end());
@@ -3099,5 +3139,85 @@ bool isSymbolicTensor(const TensorView* tv) {
       [](IterDomain* id) { return !id->extent()->isConst(); });
 }
 
+// This function requires the allocation domain to be a permutation of the
+// logical domain.
+// For each allocation domain ID (which is a logical domain ID),
+// replace it with all the loop domain IDs that were derived from it.
+void buildAllocationDomainFromLoopIds(TensorView* tv) {
+  const auto& logical = tv->getLogicalDomain();
+  const auto& alloc = tv->getMaybeAllocationDomain();
+  NVF_ERROR(
+      std::is_permutation(
+          logical.begin(), logical.end(), alloc.begin(), alloc.end()),
+      "buildAllocationDomainFromLoopIds expects the allocation domain to be a "
+      "permutation of the logical domain");
+  const auto& loop = tv->getLoopDomain();
+
+  // Get transformation expressions from allocation to loop domain
+  auto transform_exprs = DependencyCheck::getAllExprsBetween(
+      {alloc.begin(), alloc.end()}, {loop.begin(), loop.end()});
+
+  // Track which allocation IDs each transformed ID came from
+  std::unordered_map<IterDomain*, std::vector<IterDomain*>> id_to_alloc_sources;
+  for (auto alloc_id : alloc) {
+    id_to_alloc_sources[alloc_id] = {alloc_id};
+  }
+  for (auto expr : transform_exprs) {
+    if (auto split = dynamic_cast<Split*>(expr)) {
+      NVF_ERROR(id_to_alloc_sources.contains(split->in()));
+      auto sources = id_to_alloc_sources[split->in()];
+      id_to_alloc_sources[split->outer()] = sources;
+      id_to_alloc_sources[split->inner()] = sources;
+    } else if (auto merge = dynamic_cast<Merge*>(expr)) {
+      NVF_ERROR(id_to_alloc_sources.contains(merge->outer()));
+      NVF_ERROR(id_to_alloc_sources.contains(merge->inner()));
+      auto outer_sources = id_to_alloc_sources[merge->outer()];
+      auto inner_sources = id_to_alloc_sources[merge->inner()];
+      outer_sources.insert(
+          outer_sources.end(), inner_sources.begin(), inner_sources.end());
+      id_to_alloc_sources[merge->out()] = std::move(outer_sources);
+    } else {
+      NVF_ERROR(false, "Unsupported expression type: ", expr->toString());
+    }
+  }
+
+  // Build final allocation domain preserving allocation order
+  std::vector<IterDomain*> new_alloc_domain;
+  std::unordered_set<IterDomain*> used_loop_ids;
+  for (auto alloc_id : alloc) {
+    for (auto loop_id : loop) {
+      // skip if the loop ID has already been used
+      if (used_loop_ids.count(loop_id)) {
+        continue;
+      }
+      // skip if the loop ID is not derived from any allocation ID
+      if (!id_to_alloc_sources.contains(loop_id)) {
+        continue;
+      }
+      // skip if the loop ID is not derived from the current allocation ID
+      auto& sources = id_to_alloc_sources.at(loop_id);
+      if (std::find(sources.begin(), sources.end(), alloc_id) ==
+          sources.end()) {
+        continue;
+      }
+      new_alloc_domain.push_back(loop_id);
+      used_loop_ids.insert(loop_id);
+    }
+  }
+
+  tv->setAllocationDomain(new_alloc_domain, true);
+}
+
+void buildAllocationDomainForSharedMemoryTvs(Fusion* fusion) {
+  for (auto tv : fusion->allTvs()) {
+    if (tv->getMemoryType() != MemoryType::Shared) {
+      continue;
+    }
+    if (!tv->hasAllocation()) {
+      continue;
+    }
+    buildAllocationDomainFromLoopIds(tv);
+  }
+}
 } // namespace scheduler_utils
 } // namespace nvfuser

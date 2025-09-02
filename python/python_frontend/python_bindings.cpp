@@ -510,10 +510,9 @@ void defineHeuristicParamBindings(py::module& nvfuser) {
       .value("row_major", MatmulParams::TileRasterizationOrder::RowMajor);
 
   py::class_<MatmulParams::ClusterDims>(nvfuser, "ClusterDims")
-      .def(py::init<int64_t, int64_t, int64_t>())
-      .PARAM(MatmulParams::ClusterDims, x)
-      .PARAM(MatmulParams::ClusterDims, y)
-      .PARAM(MatmulParams::ClusterDims, z)
+      .def(py::init<int64_t, int64_t>())
+      .PARAM(MatmulParams::ClusterDims, m)
+      .PARAM(MatmulParams::ClusterDims, n)
       .TOSTRINGMETHOD(MatmulParams::ClusterDims);
 
   py::enum_<MmaMacroEncode::Arch>(nvfuser, "MmaMacroArch")
@@ -663,7 +662,7 @@ void initNvFuserPythonBindings(PyObject* module) {
   nvfuser.def("clone", clone);
 
   //! DataTypes supported by nvFuser in the FusionDefinition
-  py::enum_<PrimDataType>(nvfuser, "DataType")
+  py::enum_<PrimDataType>(nvfuser, "DataType", py::module_local())
       .value("Double", DataType::Double)
       .value("Float", DataType::Float)
       .value("Half", DataType::Half)
@@ -682,7 +681,7 @@ void initNvFuserPythonBindings(PyObject* module) {
       .value("Null", DataType::Null);
 
   //! ParallelType used for scheduling
-  py::enum_<ParallelType>(nvfuser, "ParallelType")
+  py::enum_<ParallelType>(nvfuser, "ParallelType", py::module_local())
       .value("mesh_x", ParallelType::DIDx)
       .value("grid_x", ParallelType::BIDx)
       .value("grid_y", ParallelType::BIDy)
@@ -732,7 +731,8 @@ void initNvFuserPythonBindings(PyObject* module) {
       .value("expr_eval", SchedulerType::ExprEval)
       .value("resize", SchedulerType::Resize);
 
-  py::enum_<CommunicatorBackend>(nvfuser, "CommunicatorBackend")
+  py::enum_<CommunicatorBackend>(
+      nvfuser, "CommunicatorBackend", py::module_local())
       .value("nccl", CommunicatorBackend::kNccl)
       .value("ucc", CommunicatorBackend::kUcc);
 
@@ -1461,6 +1461,38 @@ void initNvFuserPythonBindings(PyObject* module) {
         return self.getValTolerances(args);
       },
       py::return_value_policy::reference);
+
+  fusion_def.def(
+      "validate_with_auto_inferred_outputs",
+      [](FusionDefinition& self,
+         const py::iterable& fusion_outputs,
+         const py::iterable& inputs) {
+        KernelArgumentHolder fusion_outputs_holder;
+        for (py::handle obj : fusion_outputs) {
+          fusion_outputs_holder.push(
+              torch::jit::toIValue(obj, c10::AnyType::get()));
+        }
+        KernelArgumentHolder inputs_holder;
+        for (py::handle obj : inputs) {
+          inputs_holder.push(torch::jit::toIValue(obj, c10::AnyType::get()));
+        }
+        return self.validate_with_auto_inferred_outputs(
+            fusion_outputs_holder, inputs_holder);
+      },
+      py::return_value_policy::reference,
+      R"doc(
+    Validates the fusion outputs against the inputs with auto-inferred outputs.
+
+    Parameters
+    ----------
+    fusion_outputs : iterable
+        The outputs of the fusion to validate.
+    inputs : iterable
+        The inputs to the fusion.
+    Example
+    -------
+    >>> fd.validate_with_auto_inferred_outputs(fusion_outputs, inputs)
+    )doc");
 
   //! The Operators class is a nested class of FusionDefinition to allow the
   //! user to query the class for the list of operators.
@@ -2834,7 +2866,7 @@ void initNvFuserPythonBindings(PyObject* module) {
         NVF_CHECK(
             self.validUse(), "Attempting to add to a completed definition!");
         FusionDefinition* fd = self.fusion_definition;
-        Tensor output = fd->defineTensor(arg.dims);
+        Tensor output = fd->defineTensor(is_broadcast_dim.size());
         fd->defineRecord(new BroadcastOpRecord(
             {fd->recordingState(arg())},
             {fd->recordingState(output())},
@@ -3001,6 +3033,44 @@ void initNvFuserPythonBindings(PyObject* module) {
             index.dims,
             " and ",
             src.dims);
+        auto num_dims = (int64_t)arg1.dims;
+        NVF_CHECK(
+            dim >= -num_dims && dim < num_dims,
+            "Tensor arguments have dimension ",
+            num_dims,
+            " so dim argument must satisfy ",
+            -num_dims,
+            " <= dim < ",
+            num_dims,
+            ", but received ",
+            dim);
+        FusionDefinition* fd = self.fusion_definition;
+        Tensor output = fd->defineTensor(num_dims);
+        fd->defineRecord(new ScatterOpRecord(
+            {
+                fd->recordingState(arg1()),
+                fd->recordingState(index()),
+                fd->recordingState(src()),
+            },
+            {fd->recordingState(output())},
+            dim));
+        return output;
+      },
+      py::arg("arg1"),
+      py::arg("index"),
+      py::arg("src"),
+      py::arg("dim"),
+      py::return_value_policy::reference);
+  nvf_ops.def(
+      "scatter",
+      [](FusionDefinition::Operators& self,
+         Tensor arg1,
+         Tensor index,
+         Scalar src,
+         int64_t dim) -> Tensor {
+        FUSER_PERF_SCOPE("Operators.scatter");
+        NVF_CHECK(
+            self.validUse(), "Attempting to add to a completed definition!");
         auto num_dims = (int64_t)arg1.dims;
         NVF_CHECK(
             dim >= -num_dims && dim < num_dims,
@@ -3663,6 +3733,36 @@ void initNvFuserPythonBindings(PyObject* module) {
       py::return_value_policy::reference);
 
   nvf_ops.def(
+      "cumsum",
+      [](FusionDefinition::Operators& self, Tensor arg, int64_t dim) -> Tensor {
+        FusionDefinition* fd = self.fusion_definition;
+        Tensor output = fd->defineTensor(arg.dims);
+        fd->defineRecord(new ScanOpRecord(
+            {fd->recordingState(arg())},
+            {fd->recordingState(output())},
+            ("ops.cumsum"),
+            serde::RecordType::ScanOpCumsum,
+            static_cast<TensorView* (*)(TensorView*, int64_t)>(cumsum),
+            dim,
+            BinaryOpType::Add));
+
+        return output;
+      },
+      py::arg("arg"),
+      py::arg("dim"),
+      py::return_value_policy::reference,
+      R"doc(
+            Computes the cumulative sum of elements along a given dimension.
+            Args:
+                    arg (Tensor): Input tensor.
+                    dim (int): Dimension along which to compute the cumulative sum.
+            Returns:
+                    Tensor: Tensor of the same shape as input with cumulative sums computed along the specified dimension.
+            Example:
+                    >>> fd.ops.cumsum(tensor, dim=0)
+        )doc");
+
+  nvf_ops.def(
       "grouped_mm",
       [](FusionDefinition::Operators& self,
          Tensor mat1,
@@ -3956,6 +4056,67 @@ void initNvFuserPythonBindings(PyObject* module) {
       py::arg("output_block_scale_size") = 0,
       py::arg("output_block_scale_dtype") = DataType::BFloat16,
       py::arg("output_gamma") = false,
+      py::return_value_policy::reference);
+
+  nvf_ops.def(
+      "cutlass_nvfp4_grouped_mm",
+      [](FusionDefinition::Operators& self,
+         Tensor mat1,
+         Tensor mat2,
+         Tensor scale1,
+         Tensor scale2,
+         Tensor alpha,
+         Tensor problem_sizes,
+         Tensor expert_offsets,
+         Tensor sf_offsets,
+         PrimDataType dtype) -> Tensor {
+        FUSER_PERF_SCOPE("Operators.cutlass_nvfp4_grouped_mm");
+        NVF_CHECK(
+            self.validUse(), "Attempting to add to a completed definition!");
+        FusionDefinition* fd = self.fusion_definition;
+
+        Tensor output = fd->defineTensor(3);
+
+        fd->defineRecord(new CutlassNvfp4GroupedMmaOpRecord(
+            {fd->recordingState(mat1()),
+             fd->recordingState(mat2()),
+             fd->recordingState(scale1()),
+             fd->recordingState(scale2()),
+             fd->recordingState(alpha()),
+             fd->recordingState(problem_sizes()),
+             fd->recordingState(expert_offsets()),
+             fd->recordingState(sf_offsets())},
+            {fd->recordingState(output())},
+            dtype));
+
+        return output;
+      },
+      R"(
+      Cutlass NVFP4 Grouped Matrix Multiplication.
+
+      Args:
+          mat1 (Tensor): First set of matrices
+          mat2 (Tensor): Second set of matrices
+          scale1 (Tensor): Scale tensor for mat1
+          scale2 (Tensor): Scale tensor for mat2
+          alpha (Tensor): Alpha tensor
+          problem_sizes (Tensor): Problem sizes tensor
+          expert_offsets (Tensor): Expert offsets tensor
+          sf_offsets (Tensor): SF offsets tensor
+          dtype (ScalarType): Output tensor type
+
+      Returns:
+          Tensor: Result of grouped matrix multiplication
+      )",
+      py::arg("mat1"),
+      py::arg("mat2"),
+      py::arg("scale1"),
+      py::arg("scale2"),
+      py::arg("alpha"),
+      py::arg("problem_sizes"),
+      py::arg("expert_offsets"),
+      py::arg("sf_offsets"),
+      py::arg("dtype") = DataType::BFloat16,
       py::return_value_policy::reference);
 
   nvf_ops.def(

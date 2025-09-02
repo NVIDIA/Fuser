@@ -12,6 +12,7 @@
 #include <ops/all_ops.h>
 #include <preseg_passes/mark_aliases_prepare.h>
 #include <preseg_passes/optimization_pass.h>
+#include <runtime/communication_executor.h>
 #include <runtime/fusion_executor_cache.h>
 #include <tests/cpp/multidevice.h>
 #include <tests/cpp/validator.h>
@@ -28,14 +29,13 @@ void assertIsCompiledToHostIrContainer(
     const FusionExecutorCache& executor_cache) {
   FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
   if (isOptionEnabled(EnableOption::HostIrLowering)) {
-    EXPECT_EQ(runtime->getHostIrEvaluator().canRun(), "");
-    auto hicExprs =
-        runtime->getHostIrEvaluator().getHostIrContainer().topLevelExprs();
+    auto hicExprs = runtime->getHostIrContainer().topLevelExprs();
     EXPECT_THAT(hicExprs, Contains(IsA<Communication>()))
         << "host ir container should have at least one communication";
   } else {
     EXPECT_EQ(runtime->executors().size(), 1);
-    EXPECT_THAT(runtime->executors(), Each(Pointer(IsA<HostIrExecutor>())))
+    EXPECT_THAT(
+        runtime->executors(), Each(Pointer(IsA<CommunicationExecutor>())))
         << "failed to compile to a HostIrContainer with Communications";
   }
 }
@@ -759,8 +759,7 @@ INSTANTIATE_TEST_SUITE_P(
     LowerCollectiveTest,
     ::testing::Combine(
         testing::Values(CommunicatorBackend::kNccl),
-        // Can't do testing::Bool() yet due to #4230
-        testing::Values(false)),
+        testing::Bool()),
     ([](const testing::TestParamInfo<std::tuple<CommunicatorBackend, bool>>&
             info) -> std::string {
       const auto& [backend_type, enable_host_ir_lowering] = info.param;
