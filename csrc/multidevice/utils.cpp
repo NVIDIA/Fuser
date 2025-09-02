@@ -116,20 +116,14 @@ std::unordered_map<IterDomain*, int64_t> mapIterDomainToTensorAxis(
   return id_to_axis;
 }
 
-} // namespace
-
-int64_t getShardedLogicalAxis(
-    const TensorView* tv,
-    const ParallelType parallel_type) {
-  IterDomain* parallel_id = getShardedIterDomain(tv, parallel_type);
-  if (parallel_id == nullptr) {
-    return -1;
-  }
-
+int64_t getDominatingLogicalAxis(const TensorView* tv, IterDomain* id) {
   std::unordered_map<IterDomain*, int64_t> logical_id_to_axis =
       mapIterDomainToTensorAxis(tv->getLogicalDomain());
-  IterDomain* id = parallel_id;
-  while (logical_id_to_axis.count(id) == 0) {
+  while (true) {
+    if (auto i = logical_id_to_axis.find(id); i != logical_id_to_axis.end()) {
+      return i->second;
+    }
+
     Expr* def = id->definition();
     NVF_ERROR(
         def != nullptr,
@@ -189,7 +183,19 @@ int64_t getShardedLogicalAxis(
           def);
     }
   }
-  return logical_id_to_axis.at(id);
+}
+
+} // namespace
+
+int64_t getShardedLogicalAxis(
+    const TensorView* tv,
+    const ParallelType parallel_type) {
+  IterDomain* parallel_id = getShardedIterDomain(tv, parallel_type);
+  if (parallel_id == nullptr) {
+    return -1;
+  }
+
+  return getDominatingLogicalAxis(tv, parallel_id);
 }
 
 IterDomain* getShardedIterDomain(
