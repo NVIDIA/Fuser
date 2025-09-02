@@ -665,7 +665,7 @@ if(BUILD_PYTHON)
     "${PYTHON_EXECUTABLE}" ${NVFUSER_PYTHON_DIR}/tools/gen_nvfuser_version.py nvfuser
     DEPENDS ${NVFUSER_PYTHON_DIR}/tools/gen_nvfuser_version.py
     DEPENDS ${NVFUSER_PYTHON_DIR}/version.txt
-    WORKING_DIRECTORY ${NVFUSER_ROOT}/tools/
+    WORKING_DIRECTORY ${NVFUSER_PYTHON_DIR}/tools/
   )
   add_custom_target(
     gen_nvfuser_version ALL
@@ -786,7 +786,7 @@ if(BUILD_PYTHON)
     "${PYTHON_EXECUTABLE}" ${NVFUSER_PYTHON_DIR}/tools/gen_nvfuser_version.py nvfuser_direct
     DEPENDS ${NVFUSER_PYTHON_DIR}/tools/gen_nvfuser_version.py
     DEPENDS ${NVFUSER_PYTHON_DIR}/version.txt
-    WORKING_DIRECTORY ${NVFUSER_ROOT}/tools/
+    WORKING_DIRECTORY ${NVFUSER_PYTHON_DIR}/tools/
   )
   add_custom_target(
     gen_nvfuser_direct_version ALL
