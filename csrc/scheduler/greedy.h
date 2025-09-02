@@ -16,7 +16,11 @@ class Fusion;
 class SchedulerRuntimeInfo;
 class HeuristicDataCache;
 
-// The Greedy scheduler aims to maximize fusion while accommodating
+// ================
+// Greedy Scheduler
+// ================
+//
+// The greedy scheduler aims to maximize fusion while accommodating
 // scheduling constraints. Unlike some of the
 // existing schedulers such as pointwise, a given fusion is scheduled
 // as a collection of disjoint sets of tensors. Each set
@@ -29,6 +33,10 @@ class HeuristicDataCache;
 // set of operations are allowed to exist in the given fusion. See
 // canScheduleCompileTime for the current set of required and
 // supported operations.
+//
+//
+// Scheduling Strategy
+// -------------------
 //
 // The scheduling strategy is primarily based on two principles:
 //
@@ -61,6 +69,35 @@ class HeuristicDataCache;
 // remaining unconstrained tensors are then iteratively added to a subset
 // whose reference has matching iter domains, which allows the schedule of
 // the reference tensor to be propagated uniformly.
+//
+//
+// Scheduling with Reshape
+// -----------------------
+//
+// For scheduling, reshapes are processed by propagating their split
+// and merge transformations throughout a fusion before
+// scheduling constrained tensors. This is to ensure all reshape
+// transformations are preserved. Consequently,
+// we cannot allow conflicting reshapes. For example, if an input tensor
+// is reshaped in one way and also in another, and the two reshape
+// do not have the same set of splits and merges, they are not allowed
+// to exist in the same segment for scheduling. While this is a
+// conservative constraint since some conflicts could be accommodated,
+// it is currently enforced for simplicity.
+//
+// In addition to the above constraint, no reshape merge is allowed
+// between the constrained and unconstrained ID groups since those two
+// groups of IDs are scheduled separately.
+//
+// Note that some of these constraints could be lifted by cancelling
+// reshape transformations, i.e., setting the root domain of a reshape
+// output tensor as its loop domain. This strategy is partially used
+// in the resize scheduler, however, it is not used here yet as it has
+// its own problems (#4839).
+//
+//
+// Limitations
+// -----------
 //
 // There are still a number of limitations. For a full list of issues
 // we plan to address, see https://github.com/NVIDIA/Fuser/issues/5030.
