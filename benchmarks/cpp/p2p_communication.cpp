@@ -121,7 +121,7 @@ void benchmarkP2PCommunication() {
     }
 
     // Benchmark
-    cudaDeviceSynchronize();
+    NVFUSER_CUDA_RT_SAFE_CALL(cudaDeviceSynchronize());
     auto start_time = std::chrono::high_resolution_clock::now();
 
     for (int rep = 0; rep < kNumRepetitions; rep++) {
@@ -129,7 +129,7 @@ void benchmarkP2PCommunication() {
       executor.runWithInput(inputs);
     }
 
-    cudaDeviceSynchronize();
+    NVFUSER_CUDA_RT_SAFE_CALL(cudaDeviceSynchronize());
     auto end_time = std::chrono::high_resolution_clock::now();
 
     auto duration = std::chrono::duration_cast<std::chrono::microseconds>(
@@ -144,10 +144,10 @@ void benchmarkP2PCommunication() {
       // Format message size with units
       std::string size_str;
       if (data_size_mb >= 1.0) {
-        size_str = std::to_string(static_cast<int>(data_size_mb + 0.5)) + " MB";
+        size_str = std::to_string(static_cast<int>(data_size_mb)) + " MB";
       } else {
         size_str =
-            std::to_string(static_cast<int>(data_size_mb * 1024 + 0.5)) + " KB";
+            std::to_string(static_cast<int>(data_size_mb * 1024)) + " KB";
       }
 
       // Print table row
