@@ -7,20 +7,6 @@
 // clang-format on
 #pragma once
 
-#include <ATen/ATen.h>
-#include <exceptions.h>
-#include <torch/csrc/jit/ir/ir.h>
-#include <torch/torch.h>
-#include <visibility.h>
-
-#include <debug.h>
-#include <mma_type.h>
-#include <options.h>
-#include <tma.h>
-#include <type.h>
-
-#include <c10/core/thread_pool.h>
-
 #include <concepts>
 #include <coroutine>
 #include <deque>
@@ -35,6 +21,19 @@
 #include <typeinfo>
 #include <unordered_map>
 #include <vector>
+
+#include <ATen/ATen.h>
+#include <c10/core/thread_pool.h>
+#include <torch/torch.h>
+
+#include <debug.h>
+#include <exceptions.h>
+#include <mma_type.h>
+#include <options.h>
+#include <tma.h>
+#include <type.h>
+#include <visibility.h>
+#include <C++23/utility>
 
 //! IR header hierarchy
 //! 1. ** utils.h ** - PolymorphicBase and NonCopyable
@@ -619,7 +618,6 @@ void checkAllEqual(std::initializer_list<T> elements) {
 
 #if __cplusplus >= 202302L
 
-using std::unreachable;
 using std::views::enumerate;
 using std::views::zip;
 
@@ -818,10 +816,6 @@ auto enumerate(std::ranges::viewable_range auto&& r) {
 
 using views::enumerate;
 using views::zip;
-
-[[noreturn]] inline void unreachable() {
-  __builtin_unreachable();
-}
 
 #endif // C++23
 
