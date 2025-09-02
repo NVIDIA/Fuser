@@ -183,14 +183,25 @@ TEST_P(AGMatmulTest, CollectiveBasedPipeline) {
 
   const hir::HostIrContainer& container =
       executor.hostIrEvaluator()->container();
-  EXPECT_THAT(
-      container.topLevelExprs(),
-      ElementsAre(
-          IsA<kir::Allocate>(),
-          IsA<kir::Allocate>(),
-          IsA<hir::GetCurrentStream>(),
-          IsA<ForLoop>(),
-          IsA<ForLoop>()));
+  if (!insert_resharding_after) {
+    EXPECT_THAT(
+        container.topLevelExprs(),
+        ElementsAre(
+            IsA<kir::Allocate>(),
+            IsA<kir::Allocate>(),
+            IsA<hir::GetCurrentStream>(),
+            IsA<ForLoop>(),
+            IsA<ForLoop>()));
+  } else {
+    EXPECT_THAT(
+        container.topLevelExprs(),
+        ElementsAre(
+            IsA<MatmulOp>(),
+            IsA<kir::Allocate>(),
+            IsA<hir::GetCurrentStream>(),
+            IsA<ForLoop>(),
+            IsA<ForLoop>()));
+  }
 
   auto tensor_options =
       at::TensorOptions().dtype(at::kFloat).device(communicator_->device());
