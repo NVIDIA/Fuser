@@ -37,20 +37,21 @@ TensorView* scheduleReductionTV(
   // parallelized with DIDx at this point and in that case this reduction
   // scheduler only schedules the remaining domains while leaving the DIDx
   // domain unchanged.
-  int64_t sharded_axis = getShardedLoopAxis(reduction_tv, ParallelType::DIDx);
-  if (sharded_axis >= 0) {
+  IterDomain* sharded_id =
+      getShardedIterDomain(reduction_tv, ParallelType::DIDx);
+  if (sharded_id != nullptr) {
     NVF_ERROR(
-        sharded_axis == 0,
+        reduction_tv->axis(0) == sharded_id,
         "Expect 1D mesh and DIDx only appear outermost in loop, but found: ",
         reduction_tv->getLoopDomain());
+    NVF_ERROR(
+        !rparams->schedule_3D,
+        "Mixing multi-GPU and 3D schedule is not supported");
   }
-  NVF_ERROR(
-      sharded_axis == -1 || !rparams->schedule_3D,
-      "Mixing interdevice and 3D schedule is not supported");
-  const int iter_axis = (sharded_axis >= 0) ? 1 : 0;
+  const int iter_axis = (sharded_id != nullptr) ? 1 : 0;
   const int outer_reduce_axis = rparams->schedule_3D ? 1 : 0;
   const int inner_reduce_axis =
-      rparams->schedule_3D ? 2 : (sharded_axis >= 0) + has_iter_axis;
+      rparams->schedule_3D ? 2 : (sharded_id != nullptr) + has_iter_axis;
 
   const bool is_outer_grid_persistence = rparams->persistent_kernel &&
       rparams->cross_grid_inner_reduction && !rparams->fastest_dim;
