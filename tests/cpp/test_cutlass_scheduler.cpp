@@ -38,7 +38,7 @@ TEST_F(CutlassExecutorTest, Nvfp4ScaledGemm_CodeGen) {
   tv1->setAllocationDomain(
       {tv1->axis(1), tv1->axis(0)}, /*new_contiguity=*/true);
   TensorView* a_sf = makeContigTensor(2, DataType::Float8_e4m3fn);
-  auto tv3 = makeContigTensor(2, DataType::Float8_e4m3fn);
+  TensorView* b_sf = makeContigTensor(2, DataType::Float8_e4m3fn);
   auto tv4 = makeContigTensor(0, DataType::Float); // alpha
 
   fusion->addInput(tv0);
