@@ -363,7 +363,6 @@ bool areDimsToBeMergedContiguous(
   auto sizes = tensor.sizes();
 
   // Get the size and stride at merge_dim and merge_dim + 1
-  NVF_ERROR(merge_dim < sizes.size(), "merge_dim out of bounds for sizes");
   NVF_ERROR(
       merge_dim + 1 < sizes.size(), "merge_dim+1 out of bounds for sizes");
   auto size_outer = sizes[merge_dim];
@@ -413,18 +412,17 @@ getShapeAndStrideAfterDimMerged(
       tensor.sizes().begin(), tensor.sizes().end());
   std::vector<int64_t> tensor_new_shape;
   size_t i = 0;
-  while (i < new_shape.size()) {
-    if (new_shape[i] != -1) {
-      tensor_new_shape.push_back(new_shape[i]);
-      ++i;
+  for (size_t idx = 0; idx < new_shape.size(); ++idx) {
+    if (new_shape[idx] != -1) {
+      tensor_new_shape.push_back(new_shape[idx]);
     } else {
       // Multiply the corresponding entry and the next entry in
       // tensor_shape_vec
       NVF_ERROR(
-          i + 1 < tensor_shape_vec.size(),
+          idx + 1 < tensor_shape_vec.size(),
           "Index out of bounds for -1 handling in new_shape");
-      tensor_new_shape.push_back(tensor_shape_vec[i] * tensor_shape_vec[i + 1]);
-      ++i;
+      tensor_new_shape.push_back(
+          tensor_shape_vec[idx] * tensor_shape_vec[idx + 1]);
     }
   }
 
