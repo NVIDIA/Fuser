@@ -117,20 +117,14 @@ std::unordered_map<IterDomain*, int64_t> mapIterDomainToTensorAxis(
   return id_to_axis;
 }
 
-} // namespace
-
-int64_t getShardedLogicalAxis(
-    const TensorView* tv,
-    const ParallelType parallel_type) {
-  IterDomain* parallel_id = getShardedIterDomain(tv, parallel_type);
-  if (parallel_id == nullptr) {
-    return -1;
-  }
-
+int64_t getDominatingLogicalAxis(const TensorView* tv, IterDomain* id) {
   std::unordered_map<IterDomain*, int64_t> logical_id_to_axis =
       mapIterDomainToTensorAxis(tv->getLogicalDomain());
-  IterDomain* id = parallel_id;
-  while (logical_id_to_axis.count(id) == 0) {
+  while (true) {
+    if (auto i = logical_id_to_axis.find(id); i != logical_id_to_axis.end()) {
+      return i->second;
+    }
+
     Expr* def = id->definition();
     NVF_ERROR(
         def != nullptr,
@@ -190,7 +184,19 @@ int64_t getShardedLogicalAxis(
           def);
     }
   }
-  return logical_id_to_axis.at(id);
+}
+
+} // namespace
+
+int64_t getShardedLogicalAxis(
+    const TensorView* tv,
+    const ParallelType parallel_type) {
+  IterDomain* parallel_id = getShardedIterDomain(tv, parallel_type);
+  if (parallel_id == nullptr) {
+    return -1;
+  }
+
+  return getDominatingLogicalAxis(tv, parallel_id);
 }
 
 IterDomain* getShardedIterDomain(
@@ -246,31 +252,31 @@ std::vector<int64_t> unshardedSizes(
     const TensorView* tv,
     c10::IntArrayRef sizes) {
   std::vector<int64_t> unsharded_sizes = sizes.vec();
-  for (ParallelType parallel_type : kParallelTypeDIDs) {
-    const int64_t sharded_axis = getShardedLogicalAxis(tv, parallel_type);
-    if (sharded_axis == -1) {
-      continue;
-    }
-    unsharded_sizes.at(sharded_axis) *= tv->getDeviceMesh().size(parallel_type);
-  }
-
-  // FIXME: This should be consolidated with the above loop.
-  for (IterDomain* id : tv->getMaybeAllocationDomain()) {
-    if (id->getParallelType() != ParallelType::Stream) {
+  for (ParallelType parallel_type : deviceAndStreamParallelTypes()) {
+    IterDomain* sharded_id = getShardedIterDomain(tv, parallel_type);
+    if (sharded_id == nullptr) {
       continue;
     }
 
-    const int64_t sharded_axis =
-        getShardedLogicalAxis(tv, ParallelType::Stream);
+    const int64_t sharded_axis = getDominatingLogicalAxis(tv, sharded_id);
     if (sharded_axis == -1) {
       continue;
     }
 
-    NVF_ERROR(
-        id->extent()->isConstInt(),
-        "Stream extent is expected to be constant: ",
-        id);
-    unsharded_sizes.at(sharded_axis) *= id->extent()->evaluate().as<int64_t>();
+    int64_t multiplier = [&]() {
+      if (parallel_type == ParallelType::Stream) {
+        NVF_ERROR(
+            sharded_id->extent()->isConstInt(),
+            "Stream extent is expected to be constant: ",
+            sharded_id);
+        return sharded_id->extent()->evaluate().as<int64_t>();
+      }
+      if (isParallelTypeDeviceDim(parallel_type)) {
+        return tv->getDeviceMesh().size(parallel_type);
+      }
+      NVF_THROW("Unexpected parallel type: ", parallel_type);
+    }();
+    unsharded_sizes.at(sharded_axis) *= multiplier;
   }
 
   return unsharded_sizes;
