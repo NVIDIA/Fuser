@@ -619,6 +619,7 @@ void checkAllEqual(std::initializer_list<T> elements) {
 
 #if __cplusplus >= 202302L
 
+using std::unreachable;
 using std::views::enumerate;
 using std::views::zip;
 
@@ -811,12 +812,16 @@ enumerate_view(R&&) -> enumerate_view<std::views::all_t<R>>;
 // Helper function
 auto enumerate(std::ranges::viewable_range auto&& r) {
   return enumerate_view{std::forward<decltype(r)>(r)};
-};
+}
 
 } // namespace views
 
 using views::enumerate;
 using views::zip;
+
+[[noreturn]] inline void unreachable() {
+  __builtin_unreachable();
+}
 
 #endif // C++23
 

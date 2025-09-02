@@ -89,7 +89,7 @@ PrimDataType indexModeToDtype(KernelIndexMode index_mode) {
     case KernelIndexMode::INT64:
       return DataType::Int;
   }
-  __builtin_unreachable();
+  unreachable();
 }
 
 KernelIndexMode indexTypeToMode(DataType index_type) {
@@ -331,7 +331,7 @@ static const char* val_type2string(ValType t) {
     case ValType::Stream:
       return "Stream";
   }
-  __builtin_unreachable();
+  unreachable();
 }
 
 const char* predicate_type2string(PredicateType t) {
@@ -357,7 +357,7 @@ const char* predicate_type2string(PredicateType t) {
     case PredicateType::OneDimTmaWaitParity:
       return "OneDimTmaWaitParity";
   }
-  __builtin_unreachable();
+  unreachable();
 }
 
 bool needFloatSuffix(UnaryOpType t) {
@@ -612,7 +612,7 @@ static const char* binary_op_type2string(BinaryOpType t) {
     case BinaryOpType::NE:
       return "notEqual";
   }
-  __builtin_unreachable();
+  unreachable();
 }
 
 static const char* binary_op_integer_op2string(BinaryOpType t) {
@@ -717,7 +717,7 @@ static const char* ternary_op_type2string(TernaryOpType t) {
     case TernaryOpType::Philox:
       return "philox";
   }
-  __builtin_unreachable();
+  unreachable();
 }
 
 static const char* rng_op_type2string(RNGOpType t) {
@@ -808,7 +808,7 @@ static const char* memory_type2string(MemoryType t) {
     case MemoryType::Tensor:
       return "tensor";
   }
-  __builtin_unreachable();
+  unreachable();
 }
 
 static const char* id_map_mode_type2string(IdMappingMode t) {
@@ -828,7 +828,7 @@ static const char* id_map_mode_type2string(IdMappingMode t) {
     case IdMappingMode::PERMISSIVE_RESIZE:
       return "permissive_resize";
   }
-  __builtin_unreachable();
+  unreachable();
 }
 
 static const char* iter_type2string(IterType t) {
@@ -848,7 +848,7 @@ static const char* iter_type2string(IterType t) {
     case IterType::Symbolic:
       return "?";
   }
-  __builtin_unreachable();
+  unreachable();
 }
 
 static const char* thread_size2string(ParallelType t) {
@@ -891,7 +891,7 @@ const char* load_store_type2string(LoadStoreOpType t) {
     case LoadStoreOpType::StTMem:
       return "StTMem";
   }
-  __builtin_unreachable();
+  unreachable();
 }
 
 const unsigned int _WORD_SHIFT = 16;
@@ -1825,7 +1825,7 @@ std::ostream& operator<<(std::ostream& os, TMemRegisterDataPath dp) {
     case TMemRegisterDataPath::Path16x32bx2:
       return os << "16x32bx2";
   }
-  __builtin_unreachable();
+  unreachable();
 }
 
 std::ostream& operator<<(
