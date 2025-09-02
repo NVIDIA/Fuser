@@ -270,10 +270,6 @@ class ReplayRFactor : public ReplayTransformations {
     setErrorOnFailure(false);
   }
 };
-
-// Empty set for replayDomain calls that don't need to ignore any IDs
-static const std::unordered_set<IterDomain*> kEmptyIgnoreIds{};
-
 // Use the `replay_to_target_map` to replay the `replay_domain`.
 // `ignore_rfactor_ids` is true for consumers where the replay will not have
 // these ids since they are already reduced. If `propagate_padding = true`,
@@ -284,7 +280,7 @@ static const std::unordered_set<IterDomain*> kEmptyIgnoreIds{};
 std::vector<IterDomain*> replayDomain(
     const std::vector<IterDomain*>& replay_domain,
     std::unordered_map<IterDomain*, IterDomain*>& replay_to_target_map,
-    const std::unordered_set<IterDomain*>& ignore_ids = kEmptyIgnoreIds,
+    const std::unordered_set<IterDomain*>& ignore_ids = {},
     bool propagate_padding = false,
     bool propagate_parallelization = false) {
   std::vector<IterDomain*> target_domain;
@@ -452,7 +448,7 @@ std::pair<TensorDomain*, TensorDomain*> TransformRFactor::runReplay(
   std::vector<IterDomain*> new_producer_domain = replayDomain(
       original_td->loop(),
       original_to_producer_id_map,
-      /*ignore_ids=*/kEmptyIgnoreIds,
+      /*ignore_ids=*/{},
       /*propagate_padding=*/true,
       /*propagate_parallelization=*/true);
 
@@ -461,7 +457,7 @@ std::pair<TensorDomain*, TensorDomain*> TransformRFactor::runReplay(
   std::vector<IterDomain*> new_producer_logical_domain = replayDomain(
       replay_rfactor.logical_domain_,
       original_to_producer_id_map,
-      /*ignore_ids=*/kEmptyIgnoreIds,
+      /*ignore_ids=*/{},
       /*propagate_padding=*/false,
       /*propagate_parallelization=*/false);
 
