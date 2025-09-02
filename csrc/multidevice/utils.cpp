@@ -122,22 +122,7 @@ std::unordered_map<IterDomain*, int64_t> mapIterDomainToTensorAxis(
 int64_t getShardedLogicalAxis(
     const TensorView* tv,
     const ParallelType parallel_type) {
-  // The allocation domain for multidevice tensorviews is set during
-  // presegmentation, which is after concretization. This exposes a issue:
-  // allocation domain is not set for fusion inputs before presegmentation and
-  // can cause errors during binding.
-  //
-  // We use the loop domain, since allocation and loop domain will have the
-  // same DID parallelization. For ParalleType::Stream, fusion inputs will
-  // always be fully allocated, and segment inputs/outputs may be partially /
-  // fully allocated which can be inferred from its allocation domain.
-
-  const std::vector<IterDomain*>& domain =
-      (parallel_type == ParallelType::Stream) ? tv->getMaybeAllocationDomain()
-                                              : tv->getLoopDomain();
-  const std::unordered_map<ParallelType, IterDomain*>& parallel_type_to_id =
-      mapDeviceAndStreamParallelTypeToId(domain);
-  IterDomain* parallel_id = getOrDefault(parallel_type_to_id, parallel_type);
+  IterDomain* parallel_id = getShardedIterDomain(tv, parallel_type);
   if (parallel_id == nullptr) {
     return -1;
   }
@@ -208,19 +193,34 @@ int64_t getShardedLogicalAxis(
   return logical_id_to_axis.at(id);
 }
 
-int64_t getShardedLoopAxis(
+IterDomain* getShardedIterDomain(
     const TensorView* tv,
     const ParallelType parallel_type) {
-  NVF_ERROR(
-      isParallelTypeDeviceDim(parallel_type),
-      "Expect a DID but found: ",
-      parallel_type);
-  for (auto&& [index, loop_id] : enumerate(tv->getLoopDomain())) {
-    if (loop_id->getParallelType() == parallel_type) {
-      return index;
+  // The allocation domain for multidevice TensorViews is set during
+  // presegmentation, which is after concretization. This exposes a issue:
+  // allocation domain is not set for fusion inputs before presegmentation and
+  // can cause errors during binding.
+  //
+  // We use the loop domain, since allocation and loop domain will have the
+  // same DID parallelization. For ParalleType::Stream, fusion inputs will
+  // always be fully allocated, and segment inputs/outputs may be partially /
+  // fully allocated which can be inferred from its allocation domain.
+  const std::vector<IterDomain*>& domain = [&]() {
+    if (parallel_type == ParallelType::Stream) {
+      return tv->getMaybeAllocationDomain();
+    }
+    if (isParallelTypeDeviceDim(parallel_type)) {
+      return tv->getLoopDomain();
+    }
+    NVF_THROW("Unexpected parallel type: ", parallel_type);
+  }();
+
+  for (auto&& [index, id] : enumerate(domain)) {
+    if (id->getParallelType() == parallel_type) {
+      return id;
     }
   }
-  return -1;
+  return nullptr;
 }
 
 at::Tensor shardTensor(
@@ -267,7 +267,9 @@ std::vector<int64_t> unshardedSizes(
     }
 
     NVF_ERROR(
-        id->extent()->isConstInt(), "Stream extent must be constant: ", id);
+        id->extent()->isConstInt(),
+        "Stream extent is expected to be constant: ",
+        id);
     unsharded_sizes.at(sharded_axis) *= id->extent()->evaluate().as<int64_t>();
   }
 

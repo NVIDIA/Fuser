@@ -1576,7 +1576,7 @@ void scheduleReduction(Fusion* fusion, const ReductionParams* rparams) {
 
   NVF_ERROR(
       !(rparams->schedule_3D &&
-        getShardedLoopAxis(reduction_tv, ParallelType::DIDx) >= 0),
+        getShardedIterDomain(reduction_tv, ParallelType::DIDx) != nullptr),
       "Multidevice nvFuser does not support 3D reduction schedules");
 
   auto dim_analysis = scheduler_utils::canonicalDimReduction(
