@@ -32,7 +32,7 @@ TEST_F(CutlassExecutorTest, Nvfp4ScaledGemm_CodeGen) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
-  auto tv0 = makeContigTensor(2, DataType::Float4_e2m1fn);
+  TensorView* a = makeContigTensor(2, DataType::Float4_e2m1fn);
   auto tv1 = makeContigTensor(2, DataType::Float4_e2m1fn);
   // B has K inner
   tv1->setAllocationDomain(
