@@ -36,13 +36,9 @@ enum class ReshardPosition {
 // and attempt to minimize communication.
 // We do no support resharding multi-output expressions. Fusions may contain
 // multi-output expressions if they don't require resharding.
-bool shouldReshardAfter(Expr* expr) {
-  return (expr->inputs().size() == 1 && expr->outputs().size() == 1) ||
-      isOptionEnabled(EnableOption::InsertReshardingAfter);
-}
-
 ReshardPosition whereToReshard(Expr* e) {
-  if (e->inputs().size() == 1 && e->outputs().size() == 1) {
+  if ((e->inputs().size() == 1 && e->outputs().size() == 1) ||
+       isOptionEnabled(EnableOption::InsertReshardingAfter)) {
     return ReshardPosition::kAfter;
   } else {
     return ReshardPosition::kBefore;
@@ -404,7 +400,7 @@ void DecomposeReshardingsPass::runPass(Fusion* fusion) {
 
   rFactorLoopSplits(fusion);
 
-  // shouldReshardAfter selects whether insertReshardingSetsAfter or
+  // whereToReshard selects whether insertReshardingSetsAfter or
   // insertReshardingSetsBefore is used.
   insertReshardingSetsAfter(fusion);
   insertReshardingSetsBefore(fusion);
