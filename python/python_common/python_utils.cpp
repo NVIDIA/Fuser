@@ -164,6 +164,21 @@ std::vector<bool> getExpanded(
     const std::vector<int64_t>& shape,
     const std::vector<std::optional<bool>>& contiguity,
     const std::vector<int64_t>& stride_order) {
+  NVF_CHECK(
+      contiguity.size() == shape.size(),
+      "Length of contiguity argument (",
+      contiguity.size(),
+      ") must match that of shape argument (",
+      shape.size(),
+      ")");
+  NVF_CHECK(
+      stride_order.empty() || stride_order.size() == shape.size(),
+      "Length of stride_order argument (",
+      stride_order.size(),
+      ") must be zero or match that of shape argument (",
+      shape.size(),
+      ")");
+
   size_t rank = shape.size();
   std::vector<bool> is_expand(rank);
   for (size_t index : arange(rank)) {
@@ -178,9 +193,9 @@ std::vector<bool> getExpanded(
     // index `contig_index = rank - 1 - stride_order[index]`
     const size_t contig_index = stride_order.empty()
         ? index
-        : rank - 1 - static_cast<size_t>(stride_order[index]);
-    const bool is_broadcast = !contiguity[contig_index].has_value();
-    const bool has_non_broadcast_size = (shape[index] != 1);
+        : rank - 1 - static_cast<size_t>(stride_order.at(index));
+    const bool is_broadcast = !contiguity.at(contig_index).has_value();
+    const bool has_non_broadcast_size = (shape.at(index) != 1);
     // A root dimension is expand dimension if:
     //   The dimension is marked a broadcast; and
     //   The dimension has an expanded extent.
@@ -231,6 +246,49 @@ std::vector<int64_t> getTensorViewBuilderSizes(
     }
   }
   return dim_sizes;
+}
+
+const char* dtypeToPyString(PrimDataType t) {
+  // Use Int64 for DataType::Index
+  switch (t) {
+    case DataType::Bool:
+      return "DataType.Bool";
+    case DataType::Double:
+      return "DataType.Double";
+    case DataType::Float:
+      return "DataType.Float";
+    case DataType::Half:
+      return "DataType.Half";
+    case DataType::BFloat16:
+      return "DataType.BFloat16";
+    case DataType::Float8_e4m3fn:
+      return "DataType.Float8_e4m3fn";
+    case DataType::Float8_e5m2:
+      return "DataType.Float8_e5m2";
+    case DataType::Float8_e8m0fnu:
+      return "DataType.Float8_e8m0fnu";
+    case DataType::Float4_e2m1fn:
+      return "DataType.Float4_e2m1fn";
+    case DataType::Float4_e2m1fn_x2:
+      return "DataType.Float4_e2m1fn_x2";
+    case DataType::Int:
+    case DataType::Index:
+      return "DataType.Int";
+    case DataType::Int32:
+      return "DataType.Int32";
+    case DataType::ComplexFloat:
+      return "DataType.ComplexFloat";
+    case DataType::ComplexDouble:
+      return "DataType.ComplexDouble";
+    case DataType::Null:
+      return "DataType.Null";
+    case DataType::UInt64:
+      return "DataType.UInt64";
+    default:
+      break;
+  }
+  NVF_THROW("No string found for data type.");
+  return nullptr;
 }
 
 } // namespace nvfuser

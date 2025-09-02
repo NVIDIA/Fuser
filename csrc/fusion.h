@@ -59,7 +59,6 @@ namespace nvfuser {
 
 class Fusion;
 class TensorView;
-class WelfordResult;
 
 class SegmentCandidateFinder;
 class SegmentedFusion;
@@ -76,7 +75,7 @@ enum class AllocationType : int {
   ReuseBuffer,
   // This is used to cheaply compute the output tensor using
   // `ExpressionEvaluator` (instead of a kernel) for:
-  // 1. PointerArithmetics: For example, the output of a ViewOp is merely a
+  // 1. PointerArithmetics: For example, the output of a ReshapeOp is merely a
   // pointer arithmetic of the input.  In this case, aliased_io is a non-null
   // tensor.
   // 2. To evaluate output tensors which are not aliases. For example, default
@@ -224,7 +223,7 @@ class NVF_API Fusion : public IrContainer {
   //! outputs, however, when a multi-output expression exists, and only
   //! some of the outputs are used, the remaining unused outputs are
   //! also included as they must show up in the final code.
-  std::vector<Val*> usedMathVals();
+  std::vector<Val*> usedMathVals() const;
 
   //! Returns all vals that are produced by used math expressions and
   //!  also do not have further consumers.

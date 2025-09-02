@@ -187,7 +187,7 @@ namespace ValReplacement {
 // Creates a new Expr substituting current with producer
 struct SubstituteInExpr : public OptOutMutator {
  public:
-  static Expr* subsitute(Expr* expr, Val* reference, Val* substitute) {
+  static Expr* substitute(Expr* expr, Val* reference, Val* substitute) {
     NVF_ERROR(
         expr != nullptr && reference != nullptr && substitute != nullptr,
         "Nullptr arg found.");
@@ -217,7 +217,7 @@ struct SubstituteInExpr : public OptOutMutator {
 
 Expr* replaceValInExprInputs(Expr* expr, Val* reference, Val* substitute) {
   FusionGuard fg(expr->fusion());
-  return ValReplacement::SubstituteInExpr::subsitute(
+  return ValReplacement::SubstituteInExpr::substitute(
       expr, reference, substitute);
 }
 
@@ -632,18 +632,18 @@ bool isSegmentSet(const Expr* e) {
   return false;
 }
 
-std::vector<ViewOp*> getViewOps(Fusion* fusion) {
+std::vector<ReshapeOp*> getReshapeOps(Fusion* fusion) {
   auto all_exprs = fusion->exprs();
 
-  auto all_view_ops = ir_utils::filterByType<ViewOp>(all_exprs);
+  auto all_view_ops = ir_utils::filterByType<ReshapeOp>(all_exprs);
 
-  std::vector<ViewOp*> view_ops;
+  std::vector<ReshapeOp*> view_ops;
 
   std::copy_if(
       all_view_ops.begin(),
       all_view_ops.end(),
       std::back_inserter(view_ops),
-      [](ViewOp* view) {
+      [](ReshapeOp* view) {
         return std::any_of(
             view->outputs().begin(), view->outputs().end(), [](Val* v) {
               if (!v->isA<TensorView>()) {
@@ -793,16 +793,11 @@ bool isIndexSelectIndicesTv(const TensorView* tv) {
   return false;
 }
 
-bool isGatherLookupTv(const Val* tv) {
-  for (auto expr : tv->uses()) {
-    if (expr->isA<GatherOp>()) {
-      auto idx_sel = expr->as<GatherOp>();
-      if (idx_sel->lookupTv() == tv) {
-        return true;
-      }
-    }
-  }
-  return false;
+bool isAndOnlyIsGatherLookupTv(const Val* tv) {
+  return !tv->uses().empty() &&
+      std::all_of(tv->uses().begin(), tv->uses().end(), [tv](Expr* expr) {
+        return expr->isA<GatherOp>() && expr->as<GatherOp>()->lookupTv() == tv;
+      });
 }
 
 std::string varName(const Val* val) {
@@ -1027,14 +1022,15 @@ CompareDomainResult compareDomains(
       toDelimitedString(dom1));
 
   dom0.insert(dom0.end(), additional_ids.begin(), additional_ids.end());
-  auto exprs =
-      getExprsBetween<IRBFS>(
-          {dom0.begin(), dom0.end()}, {dom1.begin(), dom1.end()}, false)
-          .first;
+  auto dom0_to_dom1_exprs = getExprsBetween<IRBFS>(
+                                {dom0.begin(), dom0.end()},
+                                {dom1.begin(), dom1.end()},
+                                /*require_all_to_visited=*/false)
+                                .first;
 
   std::unordered_set<Val*> frontier(dom0.begin(), dom0.end());
 
-  for (auto [expr, direction] : exprs) {
+  for (auto [expr, direction] : dom0_to_dom1_exprs) {
     NVF_ERROR(
         std::all_of(expr->inputs().begin(), expr->inputs().end(), [](Val* v) {
           return v->isA<IterDomain>();
@@ -1551,8 +1547,8 @@ std::vector<IterDomain*> strideOrderToAllocation(
   return allocation_domain;
 }
 
-std::optional<std::pair<int64_t, int64_t>> getPrecisionOfProducerConsumerTensors(
-    UnaryOp* uop) {
+std::optional<std::pair<int64_t, int64_t>>
+getPrecisionOfProducerConsumerTensorsBit(UnaryOp* uop) {
   NVF_CHECK(uop != nullptr);
   NVF_CHECK(
       uop->getUnaryOpType() == UnaryOpType::Cast,
@@ -1577,12 +1573,12 @@ std::optional<std::pair<int64_t, int64_t>> getPrecisionOfProducerConsumerTensors
   }
 
   return std::make_pair(
-      primDataTypeSize(*inp_prim_type), primDataTypeSize(*out_prim_type));
+      primDataTypeSizeBit(*inp_prim_type), primDataTypeSizeBit(*out_prim_type));
 }
 
 int64_t getTMemLdStVectorizeSize(TensorView* consumer_tv) {
   int64_t vec_size = ir_utils::getVectorizeSize(consumer_tv);
-  int64_t dtype_size = dataTypeSize(consumer_tv->dtype());
+  int64_t dtype_size = dataTypeSizeByte(consumer_tv->dtype());
   int64_t vec_size_in_bytes = vec_size * dtype_size;
   constexpr int64_t tmem_unit_size_bytes = 4;
   NVF_ERROR(
@@ -1649,7 +1645,7 @@ std::pair<std::vector<IterDomain*>, std::vector<IterDomain*>>
 getReshapeInputAndOutputIds(TensorView* reshape_out_tv) {
   NVF_ERROR(
       reshape_out_tv->definition() != nullptr &&
-          reshape_out_tv->definition()->isA<ViewOp>(),
+          reshape_out_tv->definition()->isA<ReshapeOp>(),
       "Not a reshape output: ",
       reshape_out_tv->toString());
 
@@ -1685,6 +1681,21 @@ getReshapeInputAndOutputIds(TensorView* reshape_out_tv) {
   }
 
   return std::make_pair(reshaped_root_ids, reshaped_logical_ids);
+}
+
+std::vector<IterDomain*> getReachableIds(
+    const std::vector<IterDomain*>& domain,
+    const std::vector<IterDomain*>& dependencies) {
+  auto vals = getValsBetween<IRBFS>(
+      {domain.begin(), domain.end()},
+      {dependencies.begin(), dependencies.end()});
+
+  std::vector<IterDomain*> dependent_ids;
+  std::ranges::copy_if(
+      domain, std::back_inserter(dependent_ids), [&](IterDomain* id) {
+        return std::ranges::find(vals, id) != vals.end();
+      });
+  return dependent_ids;
 }
 
 } // namespace nvfuser::ir_utils

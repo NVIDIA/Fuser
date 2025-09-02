@@ -6,6 +6,8 @@
  */
 // clang-format on
 #pragma once
+#include <functional>
+
 #include <exceptions.h>
 #include <expr_evaluator.h>
 #include <fusion.h>
@@ -20,11 +22,6 @@
 #include <scheduler/scheduler_types.h>
 #include <serde/fusion_cache_generated.h>
 #include <utils.h>
-#include <atomic>
-
-#include <c10/core/DeviceType.h>
-
-#include <functional>
 
 namespace nvfuser {
 
@@ -203,6 +200,9 @@ class KernelExecutor : public ExecutorAbstract {
     return compiled_kernel_;
   }
 
+  //! Get the static shared memory size of the current compiled kernel
+  int64_t getStaticSmemSize();
+
  private:
   LaunchParams computeLaunchParams(
       const LaunchParams& launch_constraints,
@@ -272,9 +272,6 @@ class KernelExecutor : public ExecutorAbstract {
 
   //! Get the current dynamic shared memory size
   int64_t getAvailableDynamicSmemSize();
-
-  //! Get the static shared memory size of the current compiled kernel
-  int64_t getStaticSmemSize();
 
   //! Check if the shared memory size can be expandable to accommodate
   //! the given dynamic size. The total shared memory size consumed

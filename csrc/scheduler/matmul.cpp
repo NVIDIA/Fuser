@@ -26,6 +26,15 @@
 namespace nvfuser {
 
 bool MatmulScheduler::canScheduleCompileTime(Fusion* fusion) {
+  for (auto tv : fusion->allTvs()) {
+    if (tv->dtype() != DataType::Index &&
+        dataTypeSizeBit(tv->dtype()) % 8 != 0) {
+      scheduler_debug_utils::canScheduleRejectReason(
+          schedulerType(), "Does not support sub-byte data types.");
+      return false;
+    }
+  }
+
   const auto msg = matmul_utils::getMatmulCompileTimeRejectReason(fusion);
   if (!msg.empty()) {
     scheduler_debug_utils::canScheduleRejectReason(schedulerType(), msg);
@@ -70,8 +79,10 @@ void MatmulScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
   auto macro = mparams->mma_macro;
   if (isTuring(macro) || isAmpere(macro)) {
     schedule_matmul::AmpereMinus(fusion, mparams).run();
-  } else if (isHopper(macro) || isBlackwell(macro)) {
-    schedule_matmul::HopperPlus(fusion, mparams).run();
+  } else if (isHopper(macro)) {
+    schedule_matmul::Hopper(fusion, mparams).run();
+  } else if (isBlackwell(macro)) {
+    schedule_matmul::Blackwell(fusion, mparams).run();
   } else {
     NVF_THROW(
         "The matrix multiplication scheduler is unavailable for this macro: ",

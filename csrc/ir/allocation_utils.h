@@ -14,18 +14,49 @@
 #include <ir/internal_base_nodes.h>
 
 namespace nvfuser {
+
 // With respect to the logical domain. `allocation_domain` must be a
 // permutation of the corresponding logcial domain, and `contiguity` must be of
 // the same length as `allocation`. See canonicalizeLayout for how we handle DID
 // loop splits.
-struct Layout {
-  std::vector<IterDomain*> allocation_domain;
-  std::vector<std::optional<bool>> contiguity;
+class Layout {
+ public:
+  Layout(
+      std::vector<IterDomain*> allocation_domain,
+      std::vector<std::optional<bool>> contiguity)
+      : allocation_domain_(std::move(allocation_domain)),
+        contiguity_(std::move(contiguity)) {
+    NVF_ERROR_EQ(allocation_domain_.size(), contiguity_.size());
+  }
+
+  const std::vector<IterDomain*>& allocation_domain() const {
+    return allocation_domain_;
+  }
+
+  IterDomain* allocation_domain(int64_t i) const {
+    return allocation_domain_.at(i);
+  }
+
+  const std::vector<std::optional<bool>>& contiguity() const {
+    return contiguity_;
+  }
+
+  std::optional<bool> contiguity(int64_t i) const {
+    return contiguity_.at(i);
+  }
 
   // The size of `allocation_domain` and therefore the size of `contiguity`.
   int64_t size() const;
 
   std::string toString(int indent_size = 0) const;
+
+  // Returns a new Layout that has the same allocation domain but `true`
+  // contiguity.
+  Layout contiguous() const;
+
+ private:
+  std::vector<IterDomain*> allocation_domain_;
+  std::vector<std::optional<bool>> contiguity_;
 };
 
 // Computes `Split`'s output contiguity. Returns the outer contiguity and then
@@ -73,7 +104,7 @@ bool isCompliantWith(const Layout& layout, const Layout& required);
 // the mapping from `in_logical` to `out_root` and applies that mapping to
 // `preferred_in_layout`. For many ops, this function returns a good initial
 // preferred output layout for aliasing because it tries to preserve the input
-// layout. An op (e.g. ViewOp and SliceOp) that transforms root to logical
+// layout. An op (e.g. ReshapeOp and SliceOp) that transforms root to logical
 // using expressions will have to modify this initial layout so its allocation
 // domain will be a function of its logical domain.
 //

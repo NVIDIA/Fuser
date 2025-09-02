@@ -37,8 +37,8 @@ bool shouldSwapMetaCast(Expr* cast) {
   // cast on index types.
   if (cast->input(0)->getDataType().value() == DataType::Index ||
       cast->output(0)->getDataType().value() == DataType::Index ||
-      (dataTypeSize(cast->input(0)->getDataType().value()) <
-       dataTypeSize(cast->output(0)->getDataType().value()))) {
+      (dataTypeSizeBit(cast->input(0)->getDataType().value()) <
+       dataTypeSizeBit(cast->output(0)->getDataType().value()))) {
     return false;
   }
 
@@ -52,7 +52,7 @@ bool shouldSwapMetaCast(Expr* cast) {
   // issue: https://github.com/NVIDIA/Fuser/issues/3665.
   return (meta != nullptr && !meta->output(0)->isFusionOutput() &&
           meta->output(0)->uses().size() == 1) &&
-      (meta->isOneOf<SqueezeOp, ViewOp>() || ir_utils::isSimpleTVSet(meta));
+      (meta->isOneOf<SqueezeOp, ReshapeOp>() || ir_utils::isSimpleTVSet(meta));
 }
 
 // replays meta operation on `new_in`. return the new output from replayed meta
@@ -83,8 +83,8 @@ Val* replayMetaOnNewInput(
         replayed_meta_out,
         new_in,
         meta->as<BroadcastOp>()->getBroadcastDimFlags());
-  } else if (meta->isA<ViewOp>()) {
-    // replay transformation for ViewOp
+  } else if (meta->isA<ReshapeOp>()) {
+    // replay transformation for ReshapeOp
     NVF_ERROR(meta->output(0)->isA<TensorView>());
     TensorView* meta_tv_out = meta->output(0)->as<TensorView>();
 
@@ -129,7 +129,7 @@ Val* replayMetaOnNewInput(
         new_in->getDataType().value());
 
     // create the view op.
-    IrBuilder::create<ViewOp>(replayed_meta_out, new_in);
+    IrBuilder::create<ReshapeOp>(replayed_meta_out, new_in);
   } else {
     NVF_ERROR(
         ir_utils::isSimpleTVSet(meta), "Unidentified operation for replay");

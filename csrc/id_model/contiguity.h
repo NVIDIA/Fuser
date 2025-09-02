@@ -64,10 +64,8 @@ class OrderedIdGroupInformation : public OrderedIdInformation {
   // Currently only forward propagation is supported
   void traverse(const ExprPath<ExprGroup>& path_from_alloc) {
     for (const auto& [eg, direction] : path_from_alloc) {
-      if (direction == Direction::Backward) {
-        // TODO: support Backward prop
-        continue;
-      }
+      // Set current direction in the base class part
+      setCurrentDirection(direction);
       dispatch(eg->front());
     }
   }

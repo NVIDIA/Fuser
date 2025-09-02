@@ -87,6 +87,9 @@ enum RecordType: int {
     ReductionSum,
     ReshapeOp,
     Scalar,
+    ScaledGroupedMmaOp,
+    ScaledMmaOp,
+    CutlassNvfp4GroupedMmaOp,
     SdpaFwdOp,
     SdpaBwdOp,
     ShapeOp,
@@ -101,6 +104,9 @@ enum RecordType: int {
     VarianceMeanOp,
     Vector,
     WelfordOp,
+    ArgsortOp,
+    TopKOp,
+    ScanOpCumsum,
 }
 
 // =====================================================================================
@@ -127,6 +133,10 @@ union RecordData {
   TensorCreationSymbolic,
   Vector,
   Welford,
+  Sort,
+  TopK,
+  ScaledOp,
+  ScanOp,
 }
 
 // The PolymorphicValueData union holds the attribute information for each PolymorphicValue.
@@ -346,6 +356,33 @@ table Welford {
   axes: [long];
 }
 
+// Data for ArgsortOpRecord
+table Sort {
+  dim: long;
+  descending: bool;
+  stable: bool;
+}
+
+// Data for TopKOpRecord
+table TopK {
+  dim: long;
+  largest: bool;
+  sorted: bool;
+}
+
+// Data for ScaledGroupedMmaOpRecord and ScaledMmaOpRecord
+table ScaledOp {
+  dtype: long;
+  block_scale_size: long;
+  block_scale_dtype: long;
+  gamma: bool;
+}
+
+// Data for ScanOp
+table ScanOp {
+  dim: long;
+}
+
 // =====================================================================================
 //
 
@@ -366,8 +403,8 @@ table CudaKernel {
 // Each Fusion Executor maps to a lowered and compiled kernel.
 table KernelExecutor {
   device_smem_limit: long;
-  block_size_high_water_mark: long;
-  maxrregcount_high_water_mark: long;
+  block_size_high_watermark: long;
+  maxrregcount_high_watermark: long;
   warp_size: long;
   heuristic: long;
   fusion_id: long;

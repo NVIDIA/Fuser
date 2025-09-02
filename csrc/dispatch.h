@@ -99,11 +99,17 @@ class Val;
   f(ExpandOp);                    \
   f(RepeatOp);                    \
   f(ViewAsScalar);                \
-  f(ViewOp);                      \
+  f(ReshapeOp);                   \
   f(CatOp);                       \
   f(PadOp);                       \
   f(SliceOp);                     \
   f(Split);                       \
+  f(ArgsortOp);                   \
+  f(GroupedMmaOp);                \
+  f(ScaledMmaOp);                 \
+  f(CutlassNvfp4GroupedMmaOp);    \
+  f(TopKOp);                      \
+  f(ScanOp);                      \
   f(Merge);                       \
   f(Swizzle);                     \
   f(Swizzle2D);                   \
@@ -195,7 +201,7 @@ class FlattenedAssocCommOp;
 
 // By default, all IR nodes are handled in this dispatch, and will call an empty
 // function on all nodes.
-class OptOutConstDispatch : public PolymorphicBase {
+class NVF_API OptOutConstDispatch : public PolymorphicBase {
  protected:
   virtual void unhandled(const Statement*) {}
 
@@ -247,7 +253,7 @@ class NVF_API OptOutDispatch : public PolymorphicBase {
 #undef M
 };
 
-class OptInConstDispatch : public OptOutConstDispatch {
+class NVF_API OptInConstDispatch : public OptOutConstDispatch {
  public:
   using OptOutConstDispatch::handle;
 

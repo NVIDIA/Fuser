@@ -76,9 +76,9 @@ TEST_F(AliasAnalysisTest, View_Contiguous) {
   auto preferred_layout = analysis.preferredLayout(out);
   ASSERT_TRUE(preferred_layout.has_value());
   EXPECT_THAT(
-      preferred_layout->allocation_domain,
+      preferred_layout->allocation_domain(),
       ElementsAre(out->axis(0), out->axis(1)));
-  EXPECT_THAT(preferred_layout->contiguity, Each(Optional(IsTrue())));
+  EXPECT_THAT(preferred_layout->contiguity(), Each(Optional(IsTrue())));
 }
 
 TEST_F(AliasAnalysisTest, View_MergeNonContiguous) {
@@ -117,7 +117,7 @@ TEST_F(AliasAnalysisTest, Set) {
 
   const std::vector<IterDomain*>& out_logical = out->getLogicalDomain();
   EXPECT_THAT(
-      analysis.preferredLayout(out)->allocation_domain,
+      analysis.preferredLayout(out)->allocation_domain(),
       ElementsAre(out_logical[1], out_logical[2], out_logical[0]));
 }
 
@@ -137,7 +137,7 @@ TEST_F(AliasAnalysisTest, Permute) {
 
   const std::vector<IterDomain*>& out_logical = out->getLogicalDomain();
   EXPECT_THAT(
-      analysis.preferredLayout(out)->allocation_domain,
+      analysis.preferredLayout(out)->allocation_domain(),
       ElementsAre(out_logical[2], out_logical[0], out_logical[1]));
 }
 

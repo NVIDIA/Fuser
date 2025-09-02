@@ -520,9 +520,9 @@ TEST_F(NVFuserTest, FusionBroadcastConcretization1_CUDA) {
 
   GpuLower gpulw(&fusion);
   gpulw.run();
-  NVF_CHECK(!gpulw.concretizedBroadcastDomains()->isConcretized(
+  NVF_CHECK(!gpulw.info().concretizedBroadcastDomains().isConcretized(
       loweredTv(tv4, gpulw)->axis(1)));
-  NVF_CHECK(gpulw.concretizedBroadcastDomains()->isConcretized(
+  NVF_CHECK(gpulw.info().concretizedBroadcastDomains().isConcretized(
       loweredTv(tv7, gpulw)->axis(1)));
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
@@ -2493,8 +2493,10 @@ TEST_F(NVFuserTest, FusionRedundantUseCheck_CUDA) {
       lowered_tv2 != nullptr && lowered_tv4 != nullptr,
       "tv2 or tv4 not lowered or mangled");
 
-  auto tv2_info = gpulw.threadPredMap().getPredicateInfo(lowered_tv2);
-  auto tv4_info = gpulw.threadPredMap().getPredicateInfo(lowered_tv4);
+  auto tv2_info =
+      gpulw.info().threadPredicateMap().getPredicateInfo(lowered_tv2);
+  auto tv4_info =
+      gpulw.info().threadPredicateMap().getPredicateInfo(lowered_tv4);
 
   // tv2 -> tv3 -> tv4 (shared) is the only use chain for tv2,
   //  and tv4 is redundantly written in tidx so tv2 is redundantly
@@ -4422,7 +4424,7 @@ TEST_F(NVFuserTest, FusionHuggingFaceRepro2064_CUDA) {
 
 #ifndef USE_ROCM
 
-TEST_F(NVFuserTest, FusionCastings_CUDA) {
+TEST_F(NVFuserTest, Castings) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
@@ -5934,7 +5936,7 @@ TEST_F(NVFuserTest, FusionAvoidRedundantWriteBroadcastedSoftmaxInput_CUDA) {
   const auto* ke = onlyKernelExecutorInMostRecentRuntime(executor_cache);
   auto kernel = ke->compiledKernel()->kernel();
   const auto& thread_pred_map =
-      ke->compiledKernel()->lowered()->threadPredMap();
+      ke->compiledKernel()->lowered()->info().threadPredicateMap();
   for (const auto expr : kernel->exprs()) {
     auto tv = ir_utils::getTvOutput(expr);
     if (tv && tv->name() == 15 && tv->getMemoryType() == MemoryType::Global) {
@@ -5998,7 +6000,7 @@ TEST_F(NVFuserTest, FusionAvoidRedundantWrite_CUDA) {
     const auto* ke = onlyKernelExecutorInMostRecentRuntime(executor_cache);
     auto kernel = ke->compiledKernel()->kernel();
     const auto& thread_pred_map =
-        ke->compiledKernel()->lowered()->threadPredMap();
+        ke->compiledKernel()->lowered()->info().threadPredicateMap();
 
     for (const auto expr : kernel->exprs()) {
       auto tv = ir_utils::getTvOutput(expr);
@@ -6154,7 +6156,8 @@ TEST_F(NVFuserTest, FusionAvoidRedundantWriteNonOutput_CUDA) {
 
   // check thread_pred
   auto kernel = ke.compiledKernel()->kernel();
-  const auto& thread_pred_map = ke.compiledKernel()->lowered()->threadPredMap();
+  const auto& thread_pred_map =
+      ke.compiledKernel()->lowered()->info().threadPredicateMap();
 
   for (const auto expr : kernel->exprs()) {
     auto tv = ir_utils::getTvOutput(expr);
@@ -6218,7 +6221,8 @@ TEST_F(NVFuserTest, FusionAvoidRedundantWriteNonNeighbor_CUDA) {
 
   // check thread_pred
   auto kernel = ke.compiledKernel()->kernel();
-  const auto& thread_pred_map = ke.compiledKernel()->lowered()->threadPredMap();
+  const auto& thread_pred_map =
+      ke.compiledKernel()->lowered()->info().threadPredicateMap();
 
   for (const auto expr : kernel->exprs()) {
     auto tv = ir_utils::getTvOutput(expr);
@@ -6876,6 +6880,12 @@ TEST_F(NVFuserTest, FusionTestWarnRegisterSpill_CUDA) {
     auto compile_opts = heuristic_params->cparams;
     compile_opts.maxrregcount = 32;
     compile_opts.enable_ptxas_verbose = true;
+
+    // nvrtc JIT caching may skip compilation, in which case no warning
+    // is produced. Disable caching to test the warning option.
+    DisableOptionsGuard disable_opt_guard;
+    DisableOptionsGuard::getCurOptions().set(DisableOption::NvrtcCaching);
+
     KernelExecutor ke;
     ke.compile(&fusion, {aten_input}, heuristic_params->lparams, compile_opts);
     auto cg_outputs = ke.run({aten_input});
@@ -7087,8 +7097,13 @@ TEST_F(NVFuserTest, FusionOptionsGuard_CUDA) {
   // intentionally set maxrregcount to 32 to trigger register spill
   heuristic_params->cparams.maxrregcount = 32;
 
-  EnableOptionsGuard opt_guard;
+  EnableOptionsGuard enable_opt_guard;
   EnableOptionsGuard::getCurOptions().set(EnableOption::WarnRegisterSpill);
+
+  // nvrtc JIT caching may skip compilation, in which case no warning
+  // is produced. Disable caching to test the warning option.
+  DisableOptionsGuard disable_opt_guard;
+  DisableOptionsGuard::getCurOptions().set(DisableOption::NvrtcCaching);
 
   // capture stdout and check stdout contains register spill warning
   captureStdout();
@@ -7102,7 +7117,7 @@ TEST_F(NVFuserTest, FusionOptionsGuard_CUDA) {
 
   std::string output = getCapturedStdout();
   ASSERT_NE(output.find("Register spill detected"), std::string::npos)
-      << "Register spill is not captured!";
+      << "Register spill is not captured! NVRTC output: " << output;
 }
 
 // Test that DebugStreamGuard captures output
@@ -7489,45 +7504,6 @@ TEST_F(NVFuserTest, StructConstruct) {
   EXPECT_EQ(
       outputs[0].as<at::Tensor>().item<c10::complex<float>>(),
       c10::complex<float>(1.2, 3.4));
-}
-
-// Repro of an issue found in PR #733. Previously the runtime
-// validation of strides of vectorized tensors issued a false positive
-TEST_F(NVFuserTest, VectorizationStrideValidation) {
-  auto fusion_ptr = std::make_unique<Fusion>();
-  auto& fusion = *fusion_ptr;
-  FusionGuard fg(fusion_ptr.get());
-
-  const std::vector<int64_t> shape({2, 1, 3});
-  const std::vector<int64_t> expanded_shape({2, 5, 3});
-
-  auto tv0 = TensorViewBuilder()
-                 .ndims(shape.size())
-                 .shape(expanded_shape)
-                 .contiguity({false, std::nullopt, true})
-                 .expanded({false, true, false})
-                 .build();
-  fusion.addInput(tv0);
-
-  auto tv1 = set(tv0);
-  fusion.addOutput(tv1);
-
-  tv1->merge(0)->merge(0);
-  tv1->split(0, 2);
-
-  tv1->axis(-1)->parallelize(ParallelType::Vectorize);
-
-  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  auto t0 = at::randn(shape, options).expand({-1, 5, -1});
-
-  KernelExecutor ke;
-  ke.compile(&fusion, {t0});
-
-  // This previously triggered a false positive error with the stride
-  // validation
-  auto cg_outputs = ke.run({t0});
-
-  ASSERT_TRUE(cg_outputs[0].as<at::Tensor>().equal(t0));
 }
 
 // Test that Int constants used in expressions that would overflow for 32-bit
@@ -8862,7 +8838,7 @@ TEST_F(NVFuserTest, ParallelDimensionsInAllocation) {
   GpuLower gpulw(&fusion);
   gpulw.run();
 
-  Val* tidx_dim = gpulw.parallelDimensionMap().get(ParallelType::TIDx);
+  Val* tidx_dim = gpulw.info().parallelDimensionMap().get(ParallelType::TIDx);
   ASSERT_TRUE(tidx_dim != nullptr);
 }
 
@@ -8945,7 +8921,7 @@ TEST_F(NVFuserTest, RepeatNonBroadcast) {
   auto tv1 = repeat(tv0, {2L});
   fusion.addOutput(tv1);
 
-  ASSERT_TRUE(tv1->definition()->isA<ViewOp>());
+  ASSERT_TRUE(tv1->definition()->isA<ReshapeOp>());
   ASSERT_TRUE(tv1->definition()->input(0)->definition()->isA<ExpandOp>());
   ASSERT_TRUE(tv1->definition()
                   ->input(0)
@@ -9000,20 +8976,20 @@ TEST_F(NVFuserTest, CastPrecision) {
   auto tv4 = castOp(DataType::Int, tv3);
   fusion.addOutput(tv4);
 
-  auto tv1_precision = ir_utils::getPrecisionOfProducerConsumerTensors(
+  auto tv1_precision = ir_utils::getPrecisionOfProducerConsumerTensorsBit(
       tv1->definition()->as<UnaryOp>());
   ASSERT_TRUE(tv1_precision.has_value());
-  EXPECT_EQ(tv1_precision->first, 2);
-  EXPECT_EQ(tv1_precision->second, 4);
+  EXPECT_EQ(tv1_precision->first, 16);
+  EXPECT_EQ(tv1_precision->second, 32);
 
-  auto tv2_precision = ir_utils::getPrecisionOfProducerConsumerTensors(
+  auto tv2_precision = ir_utils::getPrecisionOfProducerConsumerTensorsBit(
       tv2->definition()->as<UnaryOp>());
   ASSERT_TRUE(tv2_precision.has_value());
-  EXPECT_EQ(tv2_precision->first, 4);
-  EXPECT_EQ(tv2_precision->second, 2);
+  EXPECT_EQ(tv2_precision->first, 32);
+  EXPECT_EQ(tv2_precision->second, 16);
 
   // Precision of type Index is not possible to determine until lowering
-  auto tv4_precision = ir_utils::getPrecisionOfProducerConsumerTensors(
+  auto tv4_precision = ir_utils::getPrecisionOfProducerConsumerTensorsBit(
       tv4->definition()->as<UnaryOp>());
   ASSERT_FALSE(tv4_precision.has_value());
 }
@@ -9087,6 +9063,110 @@ TEST_F(NVFuserTest, DeviceSharedMemoryLimit) {
   int device_reserved = (int)properties->reservedSharedMemPerBlock;
   EXPECT_EQ(device_limit, device_total - device_reserved);
 }
+
+// Check that we can actually make use of every byte of shared memory on the
+// device
+TEST_F(NVFuserTest, UseAllSharedMemory) {
+  const auto properties = at::cuda::getDeviceProperties(
+      c10::Device(c10::DeviceType::CUDA, 0).index());
+
+  // This kernel requires some static smem for some reason. We validate that
+  // here as well.
+  constexpr int64_t expected_static_smem = 16L;
+  const int64_t available_dyn_smem_bytes =
+      (int64_t)properties->sharedMemPerBlockOptin - expected_static_smem;
+
+  const PrimDataType dtype = DataType::Char;
+  EXPECT_EQ(available_dyn_smem_bytes % dataTypeSizeByte(dtype), 0);
+  const int64_t len = available_dyn_smem_bytes / dataTypeSizeByte(dtype);
+
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeConcreteTensor({len}, dtype);
+  fusion.addInput(tv0);
+
+  auto tv1 = set(tv0);
+  fusion.addOutput(tv1);
+
+  auto tv1_smem = tv1->cacheBefore();
+  tv1_smem->setMemoryType(MemoryType::Shared);
+
+  auto options = at::TensorOptions().dtype(at::kChar).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randint(0, 128, {len}, options);
+
+  KernelExecutor ke;
+  ke.compile(&fusion, {t0});
+  auto cg_outputs = ke.run({t0});
+  testValidate(&fusion, cg_outputs, {t0}, __LINE__, __FILE__);
+
+  // check that we used the full device
+  int64_t actual_smem = ke.lastLaunchParams().smem();
+  EXPECT_EQ(actual_smem, available_dyn_smem_bytes);
+  EXPECT_EQ(ke.getStaticSmemSize(), expected_static_smem);
+}
+
+TEST_F(NVFuserTest, SyncthreadsWithGmemIssue4741) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeSymbolicTensor(2);
+  fusion.addInput(tv0);
+
+  auto tv1 = set(tv0);
+  auto tv2 = set(tv1);
+
+  fusion.addOutput(tv2);
+
+  tv1->setMemoryType(MemoryType::Global);
+
+  // [TIDx, TIDy]
+  tv1->axis(0)->parallelize(ParallelType::TIDx);
+  tv1->axis(1)->parallelize(ParallelType::TIDy);
+
+  // [TIDy, TIDx]
+  tv2->axis(0)->parallelize(ParallelType::TIDy);
+  tv2->axis(1)->parallelize(ParallelType::TIDx);
+
+  GpuLower gpulw(&fusion);
+  gpulw.run();
+  auto kernel = gpulw.kernel();
+  const auto exprs = ir_utils::flattenScopedExprs(kernel->topLevelExprs());
+  EXPECT_TRUE(std::any_of(exprs.begin(), exprs.end(), [](Expr* expr) {
+    return expr->isA<kir::BlockSync>();
+  }));
+}
+
+// Repro of issue #4829
+TEST_F(NVFuserTest, InliningPosWithVectorizedCastOps) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+
+  auto tv0 = makeContigTensor(1);
+  fusion.addInput(tv0);
+
+  auto tv1 = makeContigTensor(1);
+  fusion.addInput(tv1);
+
+  auto tv2 = add(tv0, fusion.oneVal());
+  auto tv3 = add(tv2, fusion.oneVal());
+  auto tv4 = castOp(DataType::BFloat16, tv3);
+  auto tv5 = castOp(DataType::Float, tv4);
+  auto tv6 = eq(tv1, fusion.zeroVal());
+  auto tv7 = where(tv6, tv2, tv5);
+  fusion.addOutput(tv7);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({1024 * 1024}, options);
+  auto t1 = at::randn({1024 * 1024}, options);
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs({t0, t1});
+  testValidate(&fusion, outputs, {t0, t1}, __LINE__, __FILE__);
+}
+
 // Test file size should be up to 10K LoC. Create a new file for more tests.
 
 } // namespace nvfuser

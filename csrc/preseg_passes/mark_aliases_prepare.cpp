@@ -102,14 +102,8 @@ void insertSegmentSetAfter(
   TensorView* copy = segment_set(use_of);
   // Inherit the allocation domain from `use_of`. This is important to pass
   // AliasTest.Bookend_SegmentSetPreservesAllocation.
-  TensorDomain* replayed_domain =
-      TransformReplay::replayCasP(
-          copy, use_of, -1, TransformReplayOptions().replayAllocation())
-          .first;
-  if (replayed_domain->hasAllocation()) {
-    copy->setAllocationDomain(
-        replayed_domain->allocation(), replayed_domain->contiguity());
-  }
+  TransformReplay::selfReplay(
+      use_of->domain(), copy->domain(), /*ignore_reductions=*/true);
   std::for_each(first_user, last_user, [&](const Use& use) {
     ir_utils::replaceValInExprInputs(use.user, use_of, copy);
   });
@@ -153,7 +147,7 @@ void MarkAliasesPreparePass::runPass(Fusion* fusion) {
         "No preferred layout for an alias TV: ",
         tv);
     tv->setAllocationDomain(
-        preferred_layout->allocation_domain, preferred_layout->contiguity);
+        preferred_layout->allocation_domain(), preferred_layout->contiguity());
     if (isDebugDumpEnabled(DebugDumpOption::PreSegmenterLogging)) {
       debug() << "Set the layout of " << ir_utils::varName(tv) << " to "
               << preferred_layout->toString() << std::endl;

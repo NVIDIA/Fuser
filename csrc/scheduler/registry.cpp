@@ -9,6 +9,7 @@
 #include <instrumentation.h>
 #include <scheduler/all_schedulers.h>
 #include <scheduler/debug_utils.h>
+#include <scheduler/greedy.h>
 #include <scheduler/heuristic.h>
 #include <scheduler/matmul_utils.h>
 #include <scheduler/registry.h>
@@ -16,6 +17,7 @@
 #include <scheduler/resize.h>
 #include <scheduler/runtime_info.h>
 #include <scheduler/utils.h>
+#include <visibility.h>
 
 namespace nvfuser {
 
@@ -36,12 +38,19 @@ bool checkCanSchedule(Fusion* fusion, SchedulerType scheduler_type) {
   // These ops are  are only accepted in `ExprEval`
   // scheduler, all other schedulers should reject them.
   // TODO: remove IndexPutAccumulateOp
-  if (ir_utils::hasOpsOfType<
+  if (scheduler_type != SchedulerType::Greedy &&
+      ir_utils::hasOpsOfType<
           ScatterOp,
           SdpaFwdOp,
           SdpaBwdOp,
           EmbeddingFwdOp,
-          IndexPutAccumulateOp>(fusion)) {
+          IndexPutAccumulateOp,
+          ArgsortOp,
+          GroupedMmaOp,
+          ScaledMmaOp,
+          CutlassNvfp4GroupedMmaOp,
+          TopKOp,
+          ScanOp>(fusion)) {
     scheduler_debug_utils::canScheduleRejectReason(
         scheduler_type, "Has unsupported ops");
     return false;
@@ -111,6 +120,8 @@ std::unique_ptr<SchedulerEntry> SchedulerEntry::makeSchedulerInstance(
       return std::make_unique<ExprEvalScheduler>();
     case SchedulerType::Resize:
       return std::make_unique<ResizeScheduler>();
+    case SchedulerType::Greedy:
+      return std::make_unique<GreedyScheduler>();
     case SchedulerType::Communication:
       return std::make_unique<CommunicationScheduler>();
     default:
@@ -254,6 +265,6 @@ template class HeuristicDataCacheEntry<
 template class HeuristicDataCacheEntry<HeuristicCompileTime::LogicalReorderMap>;
 template class HeuristicDataCacheEntry<
     HeuristicCompileTime::VectorizationBreakPointOfReductionProducer>;
-template class HeuristicDataCacheEntry<
-    HeuristicCompileTime::SchedulerHyperParameters>;
+template class NVF_API
+    HeuristicDataCacheEntry<HeuristicCompileTime::SchedulerHyperParameters>;
 } // namespace nvfuser

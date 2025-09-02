@@ -86,6 +86,11 @@ bool isTV(const Val* val) {
 bool isTvOp(const Expr* expr) {
   if (std::ranges::any_of(expr->outputs(), [](Val* v) { return isTV(v); }) &&
       (expr->isOneOf<
+          ArgsortOp,
+          GroupedMmaOp,
+          ScaledMmaOp,
+          CutlassNvfp4GroupedMmaOp,
+          TopKOp,
           UnaryOp,
           BinaryOp,
           TernaryOp,
@@ -115,10 +120,11 @@ bool isTvOp(const Expr* expr) {
           ExpandOp,
           RepeatOp,
           ViewAsScalar,
-          ViewOp,
+          ReshapeOp,
           PadOp,
           SliceOp,
           CatOp,
+          ScanOp,
           kir::AllocTMem,
           kir::GridReduction,
           kir::GroupedGridReduction,
@@ -728,6 +734,24 @@ MmaInputSmemSwizzle getSwizzleMode(TensorView* tv) {
   return MmaInputSmemSwizzle::None;
 }
 
+std::optional<int64_t> getStageSlicePosition(const TensorView* tv) {
+  NVF_ERROR(tv != nullptr);
+
+  bool is_warp_specialized =
+      std::holds_alternative<WarpSpecialized>(tv->circularBufferOptions().type);
+  if (!is_warp_specialized) {
+    return std::nullopt;
+  }
+
+  const auto& warp_specialized =
+      std::get<WarpSpecialized>(tv->circularBufferOptions().type);
+  if (!warp_specialized.stage_slice_position.has_value()) {
+    return std::nullopt;
+  }
+
+  return warp_specialized.stage_slice_position.value();
+}
+
 // Returns true if the for_loops contain a loop with the given
 // CircularBufferLoopStage.
 bool containsCircularBufferStage(
@@ -761,21 +785,28 @@ bool hasBlockSync(const Expr* expr, const ThreadPredicateMap& pred_map) {
     return false;
   }
 
-  if (!(ir_utils::isReductionOp(expr) || expr->isA<BroadcastOp>() ||
-        expr->isA<kir::GridBroadcast>())) {
-    return false;
-  }
-
   // GroupedReductionOp can have multiple output TVs, but they must be
   // parallelized in the same way, so just checking one of them is enough.
   auto tv = ir_utils::getTvOutput(expr);
 
-  if (tv->hasBlockReduction() || tv->hasGridReduction()) {
+  if (ir_utils::isReductionOp(expr) &&
+      (tv->hasBlockReduction() || tv->hasGridReduction())) {
     return true;
-  } else if (expr->isA<BroadcastOp>()) {
-    const ParallelTypeBitmap pt_map =
-        GpuLower::current()->threadPredMap().getParallelBroadcastDomains(tv);
-    return pt_map.any();
+  }
+
+  if ((expr->isA<BroadcastOp>() &&
+       GpuLower::current()
+           ->info()
+           .threadPredicateMap()
+           .getParallelBroadcastDomains(tv)
+           .any()) ||
+      expr->isA<kir::GridBroadcast>()) {
+    return true;
+  }
+
+  // These ops currently use CUB, which uses syncthreads internally
+  if (expr->isOneOf<ArgsortOp, ScanOp, TopKOp>()) {
+    return true;
   }
 
   return false;
@@ -811,19 +842,14 @@ AllocPosInfo getAllocPosInfo(
   auto gpu_lower = GpuLower::current();
 
   bool outer_alloc_found = false;
-  int64_t compute_pos = tv->getComputeAtPosition();
-  // For warp specialized circular buffers its stage_slice_position controls the
-  // buffer size for each stage.
-  const auto& circular_buffer_type = tv->circularBufferOptions().type;
-  if (std::holds_alternative<WarpSpecialized>(circular_buffer_type)) {
-    const auto& warp_specialized =
-        std::get<WarpSpecialized>(circular_buffer_type);
-    if (warp_specialized.stage_slice_position.has_value()) {
-      compute_pos = warp_specialized.stage_slice_position.value();
-    }
-  }
+
+  // Use stage_slice_position if it exists for TensorView. Otherwise, fallback
+  // to compute_at_position.
+  int64_t compute_position =
+      ir_utils::getStageSlicePosition(tv).value_or(tv->getComputeAtPosition());
+
   for (auto fl : for_loops) {
-    if (info.alloc_pos == compute_pos) {
+    if (info.alloc_pos == compute_position) {
       DEBUG_LOG("Break at info.alloc_pos = ", info.alloc_pos);
       break;
     }
@@ -925,7 +951,8 @@ bool isScalarExpr(Expr* expr) {
 bool isExtentEqualToMaxParallelTypeExtent(
     const IterDomain* id,
     bool in_compute_warp) {
-  const auto& parallel_dim_map = GpuLower::current()->parallelDimensionMap();
+  const auto& parallel_dim_map =
+      GpuLower::current()->info().parallelDimensionMap();
   Val* pdm_max_extent = nullptr;
   if (in_compute_warp) {
     pdm_max_extent = parallel_dim_map.getRawCompute(id->getParallelType());
@@ -969,7 +996,7 @@ Val* getGridSyncBufferSize(const ParallelTypeBitmap& ptb) {
     if (ptb.get(pt)) {
       continue;
     }
-    auto pt_dim = GpuLower::current()->parallelDimensionMap().get(pt);
+    auto pt_dim = GpuLower::current()->info().parallelDimensionMap().get(pt);
     if (pt_dim == nullptr || pt_dim->isOneInt()) {
       continue;
     }
@@ -1084,7 +1111,7 @@ bool predicateAtEnd(ForLoop* loop) {
 
   // If the other output is mapped with a vectorized IterDomain,
   // this IterDomain needs to be predicated at each iteration point.
-  const auto& other_id_exact_set = GpuLower::current()
+  const auto& other_id_exact_set = FusionInfoGuard::current()
                                        ->idModel()
                                        .idGraph(IdMappingMode::EXACT)
                                        .toGroup(other_out_id);
@@ -2055,10 +2082,16 @@ Val* proveLinearAndGetStride(
 }
 
 IterDomain* getConcreteLoopID(IterDomain* id) {
-  // Currently, the concrete loop ID depends on if loops are generated
-  // based on the IdModel loop promotion, which needs to be enabled
-  // explicitly by the IdModelEnableOption::Loop option.
-  if (GpuLower::current()->idModelOptions().loop()) {
+  // FusionInfo with ComputeAtMap is required
+  NVF_ERROR(FusionInfoGuard::hasCurrent());
+  NVF_ERROR(FusionInfoGuard::current()->hasComputeAtMap());
+
+  // Currently, the concrete loop ID uses the IdModel loop
+  // promotion only when opted in.
+  if ((GpuLower::hasCurrent() &&
+       GpuLower::current()->idModelOptions().loop()) ||
+      (!GpuLower::hasCurrent() && FusionInfoGuard::current()->hasIdModel() &&
+       FusionInfoGuard::current()->idModel().hasIdGraph(IdMappingMode::LOOP))) {
     // If enabled, the concret ID should be basically just the
     // promotion ID itself. However, just to reduce literacl changes
     // of generated kernels so that the CI diff check could report
@@ -2067,27 +2100,24 @@ IterDomain* getConcreteLoopID(IterDomain* id) {
     // returned instead of the promotion ID.
 
     const auto& loop_graph =
-        GpuLower::current()->idModel().idGraph(IdMappingMode::LOOP);
-    auto promotion = getLoopPromotion(id, GpuLower::current()->idModel());
-    const auto& ca_map = GpuLower::current()->caMap();
+        FusionInfoGuard::current()->idModel().idGraph(IdMappingMode::LOOP);
+    const auto& exact_graph =
+        FusionInfoGuard::current()->idModel().idGraph(IdMappingMode::EXACT);
+    auto promotion =
+        getLoopPromotion(id, FusionInfoGuard::current()->idModel());
+    const auto& ca_map = FusionInfoGuard::current()->caMap();
     const auto& loop_group = loop_graph.toGroup(id);
 
     // Try to see if the CA concrete domain can be used instead
     for (auto loop_val : *loop_group) {
       IterDomain* loop_id = loop_val->as<IterDomain>();
-      if (ca_map->idExistsInMap(loop_id, IdMappingMode::LOOP)) {
+      if (ca_map.idExistsInMap(loop_id, IdMappingMode::LOOP)) {
         auto ca_map_concrete =
-            ca_map->getConcreteMappedID(loop_id, IdMappingMode::LOOP);
-        if (GpuLower::current()
-                ->idModel()
-                .idGraph(IdMappingMode::LOOP)
-                .disjointValSets()
-                .strictAreMapped(ca_map_concrete, promotion) &&
-            GpuLower::current()
-                ->idModel()
-                .idGraph(IdMappingMode::EXACT)
-                .disjointValSets()
-                .strictAreMapped(ca_map_concrete, promotion)) {
+            ca_map.getConcreteMappedID(loop_id, IdMappingMode::LOOP);
+        if (loop_graph.disjointValSets().strictAreMapped(
+                ca_map_concrete, promotion) &&
+            exact_graph.disjointValSets().strictAreMapped(
+                ca_map_concrete, promotion)) {
           return ca_map_concrete;
         }
       }
@@ -2097,8 +2127,8 @@ IterDomain* getConcreteLoopID(IterDomain* id) {
     // promotion ID instead.
     return promotion;
   } else {
-    const auto& ca_map = GpuLower::current()->caMap();
-    return ca_map->getConcreteMappedID(id, IdMappingMode::LOOP);
+    const auto& ca_map = FusionInfoGuard::current()->caMap();
+    return ca_map.getConcreteMappedID(id, IdMappingMode::LOOP);
   }
 }
 
@@ -2115,6 +2145,29 @@ bool isWarpSpecializedLoop(ForLoop* loop) {
           .getCircularBufferOptionsFor(loop->iter_domain())
           .type);
 }
+
+bool isCopyOnly(Expr* expr) {
+  return expr->isOneOf<
+      LoadStoreOp,
+      BroadcastOp,
+      SqueezeOp,
+      SliceOp,
+      PadOp,
+      ReshapeOp>();
+}
+
+bool isCopyOnly(Val* val) {
+  if (val->definition() != nullptr && !isCopyOnly(val->definition())) {
+    return false;
+  }
+  for (auto use : val->uses()) {
+    if (!isCopyOnly(use)) {
+      return false;
+    }
+  }
+  return true;
+}
+
 } // namespace lower_utils
 
 } // namespace nvfuser

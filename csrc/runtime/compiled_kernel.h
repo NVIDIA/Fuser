@@ -154,6 +154,10 @@ class CompiledKernel : public NonCopyable {
 
   void createKernelId();
 
+  static std::string kernelNamespace() {
+    return "nvf";
+  }
+
   std::string kernelName() const {
     NVF_ERROR(!kernel_id_.empty(), "Invalid kernel name for fusion executor.");
     std::stringstream ss;
@@ -197,17 +201,11 @@ class CompiledKernel : public NonCopyable {
   const std::unique_ptr<GpuLower>& lowered() const {
     return lowered_;
   }
-  int64_t& blockSizeHighWaterMark() {
-    return block_size_high_water_mark_;
+  int64_t blockSizeHighWatermark() {
+    return block_size_high_watermark_;
   }
-  int64_t& maxrregcountHighWaterMark() {
-    return maxrregcount_high_water_mark_;
-  }
-  const int64_t& blockSizeHighWaterMark() const {
-    return block_size_high_water_mark_;
-  }
-  const int64_t& maxrregcountHighWaterMark() const {
-    return maxrregcount_high_water_mark_;
+  int64_t maxrregcountHighWatermark() {
+    return maxrregcount_high_watermark_;
   }
   bool launchParamCacheDisabled() const {
     return launch_param_cache_disabled_;
@@ -234,8 +232,13 @@ class CompiledKernel : public NonCopyable {
   void recompileKernel(
       const LaunchParams& new_launch_params,
       const CompileParams& new_compile_params);
+
   const c10::Device& device() const {
     return device_;
+  }
+
+  const CompileParams& compileParams() const {
+    return compile_params_;
   }
 
  private:
@@ -278,8 +281,8 @@ class CompiledKernel : public NonCopyable {
 
   // Track the block size this kernel was compiled with. If the block size
   // increases, recompile to adjust maxregister count.
-  int64_t block_size_high_water_mark_ = 1;
-  int64_t maxrregcount_high_water_mark_ = 255;
+  int64_t block_size_high_watermark_ = 1;
+  int64_t maxrregcount_high_watermark_ = 255;
 
   // Profiling support: disable caching of launch params and output allocation
   // output allocation is also disable when output sizes are dependent on

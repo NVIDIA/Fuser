@@ -5,6 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <device_lower/analysis/fusion_info.h>
 #include <device_lower/analysis/index_compute.h>
 #include <device_lower/lower2device.h>
 #include <id_model/indexing.h>
@@ -21,6 +22,9 @@ namespace {
 
 // Validate parallelization of a single tensor
 void validateParallelizationOfTensor(TensorView* tv) {
+  NVF_ERROR(FusionInfoGuard::hasCurrent());
+
+  NVF_ERROR(FusionInfoGuard::current()->hasConcretizedBroadcastDomains());
   // Each ParallelType can be used only once.
   ParallelTypeBitmap pt_map;
   for (auto i : arange(tv->nDims())) {
@@ -33,8 +37,9 @@ void validateParallelizationOfTensor(TensorView* tv) {
     // It doesn't matter if this axis is a non-concretized broadcast
     // TODO: merging broadcast and non-broadcast
     if (axis->isBroadcast() &&
-        !GpuLower::current()->concretizedBroadcastDomains()->isConcretized(
-            axis)) {
+        !FusionInfoGuard::current()
+             ->concretizedBroadcastDomains()
+             .isConcretized(axis)) {
       continue;
     }
 
@@ -51,9 +56,9 @@ void validateParallelizationOfTensor(TensorView* tv) {
 
   // If this tensor is predicated by a paralel type, it should not be
   // used to parallelize any domain of this tensor
-
+  NVF_ERROR(FusionInfoGuard::current()->hasThreadPredicateMap());
   const auto thread_pred =
-      GpuLower::current()->threadPredMap().getPredicateInfo(tv);
+      FusionInfoGuard::current()->threadPredicateMap().getPredicateInfo(tv);
 
   auto predicated_parallel_types = pt_map & thread_pred.limited_types;
 
@@ -69,16 +74,95 @@ void validateParallelizationOfTensor(TensorView* tv) {
       thread_pred.limited_types.toString());
 }
 
+// Return true when consumer_id of consumer_tv can accommodate
+// incoherent data dependencies.
+bool allowIncoherentDependency(
+    TensorView* consumer_tv,
+    IterDomain* consumer_id) {
+  auto def = consumer_tv->definition();
+  NVF_ERROR(def != nullptr);
+
+  // In the case of topk, the dependency of the topk IDs are taken
+  // care by the topk operation itself.
+  if (auto topk = dynamic_cast<TopKOp*>(def)) {
+    auto topk_loop_ids = ir_utils::getReachableIds(
+        consumer_tv->getLoopDomain(),
+        {consumer_tv->getLogicalDomain().at(topk->dim())});
+    if (std::ranges::find(topk_loop_ids, consumer_id) != topk_loop_ids.end()) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+// Check if an iter domain of a tensor is a subject of a scatter
+// op. Specifically, if the given expr is a scatter op using the given
+// tensor as its input, returns true if the given iter domain is
+// derived from the scattered logical iter domain.
+bool isConsumedByScatter(TensorView* tv, IterDomain* id, Expr* consumer_expr) {
+  auto scatter = dynamic_cast<ScatterOp*>(consumer_expr);
+  if (scatter == nullptr || scatter->in() != tv) {
+    return false;
+  }
+
+  auto logical_scatter_dim =
+      TensorDomain::noReductions(tv->getLogicalDomain()).at(scatter->dim());
+  return DependencyCheck::isDependencyOf(logical_scatter_dim, id);
+}
+
+// Check if an iter domain of a tensor is an output of a scatter
+// op. All non-scattered IDs should be derived from the non-scattered
+// logical IDs. If the given ID is not found in the non-scattered ID
+// set, it must be produced by the scatter. Note that we can't just do
+// isDependencyOf like isConsumedByScatter since the given ID has no
+// dependency with any of the logical IDs of the given tensor since
+// the loop domain is set by the index tensor.
+bool isProducedByScatter(TensorView* tv, IterDomain* id) {
+  auto scatter = dynamic_cast<ScatterOp*>(tv->definition());
+  if (scatter == nullptr) {
+    return false;
+  }
+
+  auto logical_scatter_dim =
+      TensorDomain::noReductions(tv->getLogicalDomain()).at(scatter->dim());
+
+  std::unordered_set<Val*> non_scatter_logical_ids;
+  std::ranges::copy_if(
+      tv->getLogicalDomain(),
+      std::inserter(non_scatter_logical_ids, non_scatter_logical_ids.end()),
+      [&](IterDomain* logical_id) {
+        return logical_id != logical_scatter_dim;
+      });
+
+  auto all_non_scatter_ids = DependencyCheck::getAllValsBetween(
+      non_scatter_logical_ids,
+      {tv->getLoopDomain().begin(), tv->getLoopDomain().end()});
+
+  return std::ranges::find(all_non_scatter_ids, id) ==
+      all_non_scatter_ids.end();
+}
+
 } // namespace
 
-SyncMap::SyncMap(Fusion* fusion) {
+SyncMap::SyncMap(Fusion* fusion, bool error_on_failure) {
   FUSER_PERF_SCOPE("SyncMap::SyncMap");
   FusionGuard fg(fusion);
 
-  NVF_ERROR(GpuLower::current()->hasIdModel());
+  NVF_ERROR(FusionInfoGuard::hasCurrent(), "FusionInfo is required");
+  NVF_ERROR(
+      FusionInfoGuard::current()->hasComputeAtMap(),
+      "ComputeAtMap is required");
+  NVF_ERROR(FusionInfoGuard::current()->hasIdModel(), "IdModel is required");
+  NVF_ERROR(
+      FusionInfoGuard::current()->hasThreadPredicateMap(),
+      "ThreadPredicateMap is required");
+  NVF_ERROR(
+      FusionInfoGuard::current()->hasConcretizedBroadcastDomains(),
+      "ConcretizedBroadcastDomains is required");
 
-  const auto& ca_map = GpuLower::current()->caMap();
-  const auto& pred_map = GpuLower::current()->threadPredMap();
+  const auto& ca_map = FusionInfoGuard::current()->caMap();
+  const auto& pred_map = FusionInfoGuard::current()->threadPredicateMap();
 
   auto exprs = StmtSort::getExprs(fusion);
 
@@ -120,15 +204,11 @@ SyncMap::SyncMap(Fusion* fusion) {
       //  below to eliminate redundant writes: if(threadIdx.x == 0)
       //    shared[threadIdx.x + i] = ...
       // We will need a raw sync after this pattern for correctness.
-      auto producer_redundant_types = GpuLower::current()
-                                          ->threadPredMap()
-                                          .getPredicateInfo(producer)
-                                          .redundant_types;
+      auto producer_redundant_types =
+          pred_map.getPredicateInfo(producer).redundant_types;
       // Get the parallel types that are inactive in consumer's use chains.
-      auto producer_redundant_use_types = GpuLower::current()
-                                              ->threadPredMap()
-                                              .getPredicateInfo(producer)
-                                              .redundant_use_types;
+      auto producer_redundant_use_types =
+          pred_map.getPredicateInfo(producer).redundant_use_types;
 
       // In sync info pass we only consider the parallel types in
       //  producer that are redundantly produced but not redundantly consumed.
@@ -138,7 +218,7 @@ SyncMap::SyncMap(Fusion* fusion) {
       for (const auto producer_i : arange(producer->nDims())) {
         auto producer_axis = producer->getLoopDomain().at(producer_i);
         auto producer_ptype =
-            ca_map->getConcreteMappedID(producer_axis, IdMappingMode::LOOP)
+            ca_map.getConcreteMappedID(producer_axis, IdMappingMode::LOOP)
                 ->getParallelType();
 
         if (!isParallelTypeThread(producer_ptype)) {
@@ -162,7 +242,7 @@ SyncMap::SyncMap(Fusion* fusion) {
         for (const auto consumer_i : arange(consumer->nDims())) {
           auto consumer_axis = consumer->getLoopDomain().at(consumer_i);
           auto consumer_ptype =
-              ca_map->getConcreteMappedID(consumer_axis, IdMappingMode::LOOP)
+              ca_map.getConcreteMappedID(consumer_axis, IdMappingMode::LOOP)
                   ->getParallelType();
 
           if (!isParallelTypeThread(consumer_ptype)) {
@@ -173,9 +253,9 @@ SyncMap::SyncMap(Fusion* fusion) {
           // parallelized unless thread-predicated and eventually concretized
           if (consumer_axis->isBroadcast() &&
               (!parallel_bcast_doms.get(consumer_ptype) ||
-               !GpuLower::current()
+               !FusionInfoGuard::current()
                     ->concretizedBroadcastDomains()
-                    ->isConcretized(consumer_axis))) {
+                    .isConcretized(consumer_axis))) {
             continue;
           }
 
@@ -235,7 +315,7 @@ SyncMap::SyncMap(Fusion* fusion) {
                 consumer->getLoopDomain().begin(),
                 consumer->getLoopDomain().end(),
                 [&](IterDomain* c_id) {
-                  return GpuLower::current()->caMap()->areMapped(
+                  return FusionInfoGuard::current()->caMap().areMapped(
                       p_id, c_id, IdMappingMode::PERMISSIVE);
                 });
 
@@ -252,7 +332,7 @@ SyncMap::SyncMap(Fusion* fusion) {
                 producer->getLoopDomain().begin(),
                 producer->getLoopDomain().end(),
                 [&](IterDomain* p_id) {
-                  return GpuLower::current()->caMap()->areMapped(
+                  return FusionInfoGuard::current()->caMap().areMapped(
                       p_id, c_id, IdMappingMode::PERMISSIVE);
                 });
             if (it == producer->getLoopDomain().end()) {
@@ -282,18 +362,19 @@ SyncMap::SyncMap(Fusion* fusion) {
           // B    B      G           G
 
           auto producer_ptype =
-              ca_map->getConcreteMappedID(p_id, IdMappingMode::LOOP)
+              ca_map.getConcreteMappedID(p_id, IdMappingMode::LOOP)
                   ->getParallelType();
           auto consumer_ptype = c_id == nullptr
               ? ParallelType::Serial
-              : ca_map->getConcreteMappedID(c_id, IdMappingMode::LOOP)
+              : ca_map.getConcreteMappedID(c_id, IdMappingMode::LOOP)
                     ->getParallelType();
 
           auto producer_parallel_bcast = p_id->isBroadcast() &&
               isParallelTypeThread(producer_ptype) &&
               parallel_bcast_doms.get(producer_ptype) &&
-              GpuLower::current()->concretizedBroadcastDomains()->isConcretized(
-                  p_id);
+              FusionInfoGuard::current()
+                  ->concretizedBroadcastDomains()
+                  .isConcretized(p_id);
 
           auto producer_parallelized = isParallelTypeThread(producer_ptype) &&
               (!p_id->isBroadcast() || producer_parallel_bcast);
@@ -321,6 +402,12 @@ SyncMap::SyncMap(Fusion* fusion) {
             continue;
           }
 
+          // Certain operations resolve data dependencies by
+          // themselves, thus not requiring a RAW sync
+          if (allowIncoherentDependency(consumer, c_id)) {
+            continue;
+          }
+
           if (producer_ptype == consumer_ptype) {
             // Case 1:
             // Producer loop ID: non-broadcast
@@ -342,14 +429,17 @@ SyncMap::SyncMap(Fusion* fusion) {
             // are mapped by the best effort replay. (See
             // NVFuserTest.RAWSync for a concrete repro).
 
-            // Case 1
-            const auto& id_model = GpuLower::current()->idModel();
+            // Case 1. Note that indexing through scatter needs to be
+            // excluded due to its indirect indexing.
+            const auto& id_model = FusionInfoGuard::current()->idModel();
             auto producer_loop_id = getLoopPromotion(p_id, id_model);
             auto consumer_loop_id = getLoopPromotion(c_id, id_model);
             const auto& indexing_traveral_graph =
                 id_model.idGraph(TensorIndexer::traversalGraphType());
             if (indexing_traveral_graph.disjointValSets().strictAreMapped(
-                    producer_loop_id, consumer_loop_id)) {
+                    producer_loop_id, consumer_loop_id) &&
+                !isConsumedByScatter(producer, p_id, expr) &&
+                !isProducedByScatter(producer, p_id)) {
               continue;
             }
 
@@ -404,42 +494,46 @@ SyncMap::SyncMap(Fusion* fusion) {
           raw_dims.set(producer_ptype);
         } // end for ptypes
 
-        if (raw_dims.hasBID()) {
-          NVF_ERROR(
-              producer->getMemoryType() == MemoryType::Global,
-              "Inconsistent parallelization found between TV",
-              producer->name(),
-              " (",
-              producer->toString(),
-              ") and TV",
-              consumer->name(),
-              "(",
-              consumer->toString(),
-              "). Producer is required to be in Global Memory based on "
-              "parallelization strategy.",
-              " RAW flags: ",
-              raw_dims.toString());
-        } else if (raw_dims.hasTID()) {
-          NVF_ERROR(
-              ir_utils::isLdMatrixOp(producer->definition()) ||
-                  ir_utils::isStMatrixOp(consumer->definition()) ||
-                  producer->getMemoryType() == MemoryType::Global ||
-                  producer->getMemoryType() == MemoryType::Shared ||
-                  producer->getMemoryType() == MemoryType::Tensor,
-              "Inconsistent parallelization found between TV",
-              producer->name(),
-              " (",
-              producer->toString(),
-              ") and TV",
-              consumer->name(),
-              "(",
-              consumer->toString(),
-              "). Producer is required to be in Global, Shared or Tensor "
-              "Memory based on parallelization strategy.",
-              " RAW flags: ",
-              raw_dims.toString());
+        if (error_on_failure) {
+          if (raw_dims.hasBID()) {
+            NVF_ERROR(
+                producer->getMemoryType() == MemoryType::Global,
+                "Inconsistent parallelization found between T",
+                producer->name(),
+                " (",
+                producer->toString(),
+                ") and T",
+                consumer->name(),
+                " (",
+                consumer->toString(),
+                "). Producer is required to be in Global Memory based on "
+                "parallelization strategy.",
+                " RAW flags: ",
+                raw_dims.toString());
+          } else if (raw_dims.hasTID()) {
+            NVF_ERROR(
+                ir_utils::isLdMatrixOp(producer->definition()) ||
+                    ir_utils::isStMatrixOp(consumer->definition()) ||
+                    producer->getMemoryType() == MemoryType::Global ||
+                    producer->getMemoryType() == MemoryType::Shared ||
+                    producer->getMemoryType() == MemoryType::Tensor,
+                "Inconsistent parallelization found between T",
+                producer->name(),
+                " (",
+                producer->toString(),
+                ") and T",
+                consumer->name(),
+                " (",
+                consumer->toString(),
+                "). Producer is required to be in Global, Shared or Tensor "
+                "Memory based on parallelization strategy.",
+                " RAW flags: ",
+                raw_dims.toString());
+          }
         }
 
+        auto& producer_sync_map = producer_consumer_raw_sync_[producer];
+        producer_sync_map.emplace(consumer, raw_dims);
       } // end for consumers
 
       if (raw_dims.any()) {

@@ -18,52 +18,14 @@
 #include <multidevice/utils.h>
 #include <ops/all_ops.h>
 #include <ops/utils.h>
+#include <preseg_passes/decompose_reshardings.h>
 #include <preseg_passes/finalize_multidevice_domains.h>
-#include <preseg_passes/insert_reshardings.h>
 #include <preseg_passes/propagate_shardings.h>
 #include <preseg_passes/reorder_sharded_axis.h>
 #include <runtime/fusion_kernel_runtime.h>
 #include <limits>
 
 namespace nvfuser {
-
-bool HostIrLower::canLower(Expr* expr, bool ignore_inner_resharding) {
-  if (!isResharding(expr)) {
-    return true;
-  }
-  if (!ir_utils::isTvOp(expr)) {
-    return false;
-  }
-  if (auto* reduction = dynamic_cast<ReductionOp*>(expr)) {
-    if (!ignore_inner_resharding && !isCommunicationLayoutCompliant(expr)) {
-      return false;
-    }
-    auto in = reduction->in()->as<TensorView>();
-    auto out = reduction->out()->as<TensorView>();
-    // get the reduced axis
-    std::vector<IterDomain*> reduction_axis;
-    std::copy_if(
-        out->getLogicalDomain().begin(),
-        out->getLogicalDomain().end(),
-        std::back_inserter(reduction_axis),
-        [](IterDomain* id) { return id->isReduction(); });
-    // check whether the reduction involves only one axis
-    if (reduction_axis.size() != 1) {
-      return false;
-    }
-    // We check whether the reduced axis is sharded on the input
-    const auto c2p_map =
-        PairwiseLogicalDomainMap(in, out).mapConsumerToProducer();
-    auto c2p_map_it = c2p_map.find(reduction_axis.at(0));
-    return c2p_map_it != c2p_map.end() && c2p_map_it->second->isDeviceDim();
-  } else if (auto* ldst = dynamic_cast<LoadStoreOp*>(expr)) {
-    if (!ignore_inner_resharding && !isCommunicationLayoutCompliant(expr)) {
-      return false;
-    }
-    return ldst->as<LoadStoreOp>()->opType() == LoadStoreOpType::Set;
-  }
-  return false;
-}
 
 bool HostIrLower::isLowerableAsStandaloneHostOp(Expr* expr) {
   if (expr->isOneOf<
@@ -113,10 +75,10 @@ std::unique_ptr<hir::HostIrContainer> HostIrLower::lower(
     DeviceIdxType my_device_index) {
   // Sharding PreSegmenter passes.
   // Note: passes run before PreSegmenter optimization passes.
+  // `PropagateShardingsPass` and `ReorderShardedAxisPass` are not run here
+  // since they are incompatible with MultiDeviceExecutor.
   preseg_passes::OptimizationPass<
-      preseg_passes::PropagateShardingsPass>::runPass(fusion.get());
-  preseg_passes::OptimizationPass<
-      preseg_passes::InsertReshardingsPass>::runPass(fusion.get());
+      preseg_passes::DecomposeReshardingsPass>::runPass(fusion.get());
   preseg_passes::OptimizationPass<
       preseg_passes::FinalizeMultideviceDomainsPass>::runPass(fusion.get());
 
@@ -135,8 +97,7 @@ std::unique_ptr<hir::HostIrContainer> HostIrLower::lower(
           std::move(fusion), KernelArgumentHolder(), options, true);
   // Infer a topologically ordered traversal of the segmented fusion to
   // determine the order for launching the kernels/comms
-  RuntimeWorkSpace workspace;
-  prepareRuntimeOrder(staged_fusion.get(), workspace);
+  RuntimeWorkSpace workspace = prepareRuntimeOrder(*staged_fusion);
   // Create the HostIrContainer representing the host program. Each segment of
   // the segmented fusion will be translated to a HostIR
   auto hic = std::make_unique<hir::HostIrContainer>();

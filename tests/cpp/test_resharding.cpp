@@ -5,25 +5,24 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <algorithm>
+#include <iostream>
+
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
 #include <fusion.h>
 #include <fusion_segmenter.h>
-#include <host_ir/lower.h>
 #include <host_ir/lower_to_communication.h>
 #include <ir/all_nodes.h>
 #include <ir/builder.h>
 #include <multidevice/device_mesh.h>
 #include <multidevice/utils.h>
 #include <ops/all_ops.h>
-#include <preseg_passes/insert_reshardings.h>
+#include <preseg_passes/decompose_reshardings.h>
 #include <preseg_passes/reorder_sharded_axis.h>
 #include <runtime/executor_kernel_arg.h>
 #include <tests/cpp/utils.h>
-
-#include <algorithm>
-#include <iostream>
 
 namespace nvfuser {
 
@@ -32,50 +31,7 @@ using testing::IsEmpty;
 using testing::IsFalse;
 using testing::ResultOf;
 
-using ReshardingTestParams =
-    std::tuple<DeviceMesh, DeviceMesh, DeviceMesh, bool, bool, bool>;
-
-class ReshardingTest : public NVFuserFixtureParamTest<ReshardingTestParams> {
- protected:
-  void SetUp() override {
-    fusion_ = std::make_unique<Fusion>();
-    fg_ = std::make_unique<FusionGuard>(fusion_.get());
-  }
-  void validate() {
-    // TODO(wujingyue): after preseg passes are integrated to
-    // FusionExecutorCache, simplify validation by using
-    // FusionExecutorCache::getMostRecentKernelRuntime()->fusionSegments()->groups().
-    for (auto expr : fusion_->exprs()) {
-      EXPECT_TRUE(HostIrLower::canLower(expr)) << "on expr: " << expr;
-    }
-
-    SegmentCandidateFinderOptions options{
-        .run_translate_welford = false,
-        .run_combine_reductions = false,
-        .run_herrmann_merge = true,
-        .run_final_merge = true,
-        .custom_should_merge_groups = &HostIrLower::shouldMergeSegmentedGroups};
-
-    auto segmented_fusion = SegmentCandidateFinder::segment(
-        std::move(fusion_), KernelArgumentHolder(), options, true);
-
-    for (SegmentedGroup* group : segmented_fusion->groups()) {
-      // TODO: use EXPECT_THAT.
-      EXPECT_TRUE(
-          std::none_of(
-              group->exprs().begin(),
-              group->exprs().end(),
-              [](auto expr) { return isResharding(expr); }) ||
-          (group->exprs().size() == 1 && isResharding(group->exprs().at(0))));
-    }
-    // checks that the segments are disjoints and that the graph of segment is
-    // acyclic
-    segmented_fusion->validateDisjoint();
-  }
-
-  std::unique_ptr<Fusion> fusion_;
-  std::unique_ptr<FusionGuard> fg_;
-};
+using ReshardingTest = NVFuserTest;
 
 TEST_F(ReshardingTest, SplitingView) {
   const int b = 2, s = 3, h = 96, e = 128;
@@ -98,7 +54,6 @@ TEST_F(ReshardingTest, SplitingView) {
     tv->setDeviceMesh(mesh);
     tv->outer_split(2, d);
     tv->axis(2)->parallelize(ParallelType::DIDx);
-    tv->setAllocationDomain(tv->getLoopDomain(), true);
   }
 
   at::Tensor in_tensor = at::randn({b, s, h * e / d}, at::Device(at::kCUDA));
@@ -124,7 +79,6 @@ TEST_F(ReshardingTest, MergingView) {
     tv->setDeviceMesh(mesh);
     tv->outer_split(2, d);
     tv->axis(2)->parallelize(ParallelType::DIDx);
-    tv->setAllocationDomain(tv->getLoopDomain(), true);
   }
 
   at::Tensor in_tensor = at::randn({b, s, h / d, e}, at::Device(at::kCUDA));
@@ -531,7 +485,7 @@ TEST_F(ReshardingTest, InsertResharding_Before) {
   c->axis(1)->parallelize(ParallelType::DIDx);
 
   preseg_passes::OptimizationPass<
-      preseg_passes::InsertReshardingsPass>::runPass(&fusion);
+      preseg_passes::DecomposeReshardingsPass>::runPass(&fusion);
   std::vector<Val*> outputs = fusion.outputs();
 
   c = outputs[0]->as<TensorView>();
@@ -560,7 +514,7 @@ TEST_F(ReshardingTest, InsertResharding_After) {
   b->axis(1)->parallelize(ParallelType::DIDx);
 
   preseg_passes::OptimizationPass<
-      preseg_passes::InsertReshardingsPass>::runPass(&fusion);
+      preseg_passes::DecomposeReshardingsPass>::runPass(&fusion);
   std::vector<Val*> outputs = fusion.outputs();
 
   b = outputs[0]->as<TensorView>();
@@ -590,7 +544,7 @@ TEST_F(ReshardingTest, InsertShardedAxisReordering) {
   c->axis(1)->parallelize(ParallelType::DIDx);
 
   preseg_passes::OptimizationPass<
-      preseg_passes::InsertReshardingsPass>::runPass(&fusion);
+      preseg_passes::DecomposeReshardingsPass>::runPass(&fusion);
   int num_inner_reshardings = 0;
   for (auto expr : fusion.exprs()) {
     if (isResharding(expr) && !isCommunicationLayoutCompliant(expr)) {
@@ -607,75 +561,6 @@ TEST_F(ReshardingTest, InsertShardedAxisReordering) {
     }
   }
 }
-
-TEST_P(ReshardingTest, Insert) {
-  if (!distributedEnabled()) { // Test only works with distributed
-    GTEST_SKIP() << "Requires distributed API";
-  }
-  auto
-      [mesh0,
-       mesh1,
-       mesh2,
-       is_tv0_tv5_sharded,
-       is_tv1_tv4_sharded,
-       is_tv2_sharded] = GetParam();
-  constexpr int64_t kShardedAxis = 1;
-
-  TensorView* tv0 = makeContigTensor(3);
-  TensorView* tv1 = binaryOp(BinaryOpType::Mul, tv0, tv0);
-  TensorView* tv2 = binaryOp(BinaryOpType::Add, tv0, tv1);
-  TensorView* tv3 = sum(tv2, {kShardedAxis});
-  TensorView* tv4 = broadcast(tv3, {false, true, false});
-  TensorView* tv5 = binaryOp(BinaryOpType::Mul, tv2, tv4);
-
-  tv0->setDeviceMesh(mesh0);
-  tv1->setDeviceMesh(mesh1);
-  tv2->setDeviceMesh(mesh2);
-  tv3->setDeviceMesh(mesh0);
-  tv4->setDeviceMesh(mesh1);
-  tv5->setDeviceMesh(mesh0);
-  fusion_->addInput(tv0);
-  fusion_->addOutput(tv1);
-  fusion_->addOutput(tv5);
-
-  if (is_tv0_tv5_sharded) {
-    tv0->axis(kShardedAxis)->parallelize(ParallelType::DIDx);
-    // tv3->axis(kShardedAxis) is a reduction, so don't shard it.
-    tv5->axis(kShardedAxis)->parallelize(ParallelType::DIDx);
-  }
-  if (is_tv1_tv4_sharded) {
-    tv1->axis(kShardedAxis)->parallelize(ParallelType::DIDx);
-    tv4->axis(kShardedAxis)->parallelize(ParallelType::DIDx);
-  }
-  if (is_tv2_sharded) {
-    tv2->axis(kShardedAxis)->parallelize(ParallelType::DIDx);
-  }
-
-  preseg_passes::OptimizationPass<
-      preseg_passes::InsertReshardingsPass>::runPass(fusion_.get());
-  preseg_passes::OptimizationPass<
-      preseg_passes::ReorderShardedAxisPass>::runPass(fusion_.get());
-  validate();
-}
-
-namespace {
-
-DeviceMesh Mesh0({0});
-DeviceMesh Mesh1({1, 2});
-DeviceMesh Mesh2({0, 1, 2, 3});
-
-} // namespace
-
-INSTANTIATE_TEST_SUITE_P(
-    ,
-    ReshardingTest,
-    testing::Combine(
-        testing::Values(Mesh0, Mesh2),
-        testing::Values(Mesh1, Mesh2),
-        testing::Values(Mesh2),
-        testing::Bool(),
-        testing::Bool(),
-        testing::Bool()));
 
 using ReshardingSelectOpTest = NVFuserTest;
 

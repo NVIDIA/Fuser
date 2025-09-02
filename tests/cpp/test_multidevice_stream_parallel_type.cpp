@@ -8,7 +8,7 @@
 #include <cuda_profiler_api.h>
 #include <fusion.h>
 #include <host_ir/container.h>
-#include <host_ir/executor.h>
+#include <host_ir/evaluator.h>
 #include <ir/all_nodes.h>
 #include <ops/all_ops.h>
 #include <preseg_passes/reorder_sharded_axis.h>
@@ -39,9 +39,10 @@ TEST_F(MultiDeviceStreamParallelTypeTest, Allgather) {
 
   MultiDeviceExecutor executor(std::move(fusion), *communicator_);
 
-  hir::HostIrContainer* container = executor.hostIrEvaluator()->container();
+  const hir::HostIrContainer& container =
+      executor.hostIrEvaluator()->container();
   EXPECT_THAT(
-      container->topLevelExprs(),
+      container.topLevelExprs(),
       ElementsAre(
           IsA<kir::Allocate>(),
           IsA<hir::GetCurrentStream>(),
@@ -76,9 +77,10 @@ TEST_F(MultiDeviceStreamParallelTypeTest, Allreduce) {
 
   MultiDeviceExecutor executor(std::move(fusion), *communicator_);
 
-  hir::HostIrContainer* container = executor.hostIrEvaluator()->container();
+  const hir::HostIrContainer& container =
+      executor.hostIrEvaluator()->container();
   EXPECT_THAT(
-      container->topLevelExprs(),
+      container.topLevelExprs(),
       ElementsAre(
           IsA<kir::Allocate>(),
           IsA<hir::GetCurrentStream>(),
@@ -115,9 +117,10 @@ TEST_F(MultiDeviceStreamParallelTypeTest, ReduceScatter) {
 
   MultiDeviceExecutor executor(std::move(fusion), *communicator_);
 
-  hir::HostIrContainer* container = executor.hostIrEvaluator()->container();
+  const hir::HostIrContainer& container =
+      executor.hostIrEvaluator()->container();
   EXPECT_THAT(
-      container->topLevelExprs(),
+      container.topLevelExprs(),
       ElementsAre(
           IsA<kir::Allocate>(),
           IsA<hir::GetCurrentStream>(),
@@ -178,9 +181,10 @@ TEST_P(AGMatmulTest, CollectiveBasedPipeline) {
 
   MultiDeviceExecutor executor(std::move(fusion), *communicator_);
 
-  hir::HostIrContainer* container = executor.hostIrEvaluator()->container();
+  const hir::HostIrContainer& container =
+      executor.hostIrEvaluator()->container();
   EXPECT_THAT(
-      container->topLevelExprs(),
+      container.topLevelExprs(),
       ElementsAre(
           IsA<kir::Allocate>(),
           IsA<kir::Allocate>(),
@@ -250,9 +254,10 @@ TEST_F(MultiDeviceStreamParallelTypeTest, matmul_AR) {
 
   MultiDeviceExecutor executor(std::move(fusion), *communicator_);
 
-  hir::HostIrContainer* container = executor.hostIrEvaluator()->container();
+  const hir::HostIrContainer& container =
+      executor.hostIrEvaluator()->container();
   EXPECT_THAT(
-      container->topLevelExprs(),
+      container.topLevelExprs(),
       ElementsAre(
           IsA<kir::Allocate>(),
           IsA<kir::Allocate>(),
@@ -307,11 +312,13 @@ TEST_F(MultiDeviceStreamParallelTypeTest, matmul_RS_through_bcast) {
   auto mesh = DeviceMesh::createForNumDevices(D);
   tv0->setDeviceMesh(mesh);
   tv1->setDeviceMesh(mesh);
+  tv1b->setDeviceMesh(mesh);
   tv2_unreduced->setDeviceMesh(mesh);
   tv2->setDeviceMesh(mesh);
 
   tv0->axis(1)->parallelize(ParallelType::DIDx);
   tv1->axis(0)->parallelize(ParallelType::DIDx);
+  tv1b->axis(1)->parallelize(ParallelType::DIDx);
   tv2_unreduced->axis(0)->parallelize(ParallelType::Stream);
   tv2_unreduced->axis(1)->parallelize(ParallelType::DIDx);
   tv2->axis(0)->parallelize(ParallelType::Stream);
@@ -319,9 +326,10 @@ TEST_F(MultiDeviceStreamParallelTypeTest, matmul_RS_through_bcast) {
 
   MultiDeviceExecutor executor(std::move(fusion), *communicator_);
 
-  hir::HostIrContainer* container = executor.hostIrEvaluator()->container();
+  const hir::HostIrContainer& container =
+      executor.hostIrEvaluator()->container();
   EXPECT_THAT(
-      container->topLevelExprs(),
+      container.topLevelExprs(),
       ElementsAre(
           IsA<hir::PostOnStream>(),
           IsA<kir::Allocate>(),
@@ -368,9 +376,10 @@ TEST_F(MultiDeviceStreamParallelTypeTest, AllgatherP2p) {
 
   MultiDeviceExecutor executor(std::move(fusion), *communicator_);
 
-  hir::HostIrContainer* container = executor.hostIrEvaluator()->container();
+  const hir::HostIrContainer& container =
+      executor.hostIrEvaluator()->container();
   EXPECT_THAT(
-      container->topLevelExprs(),
+      container.topLevelExprs(),
       ElementsAre(
           IsA<kir::Allocate>(),
           IsA<hir::GetCurrentStream>(),
@@ -419,9 +428,10 @@ TEST_F(MultiDeviceStreamParallelTypeTest, AG_matmul_P2p) {
 
   MultiDeviceExecutor executor(std::move(fusion), *communicator_);
 
-  hir::HostIrContainer* container = executor.hostIrEvaluator()->container();
+  const hir::HostIrContainer& container =
+      executor.hostIrEvaluator()->container();
   EXPECT_THAT(
-      container->topLevelExprs(),
+      container.topLevelExprs(),
       ElementsAre(
           IsA<kir::Allocate>(),
           IsA<kir::Allocate>(),

@@ -6,13 +6,13 @@
  */
 // clang-format on
 #include <debug.h>
+#include <distributed_tensor.h>
 #include <fusion_profiler.h>
 #include <host_ir/pass/stream_parallel_type.h>
 #include <instrumentation.h>
 #include <multidevice/utils.h>
 #include <options.h>
 #include <preseg_passes/pre_segmenter.h>
-#include <python_frontend/distributed_tensor.h>
 #include <python_frontend/fusion_cache.h>
 #include <python_frontend/fusion_definition.h>
 #include <python_frontend/translation.h>
@@ -27,41 +27,6 @@
 using namespace nvfuser::inst;
 
 namespace nvfuser::python_frontend {
-
-const char* dtypeToPyString(PrimDataType t) {
-  switch (t) {
-    case DataType::Bool:
-      return "DataType.Bool";
-    case DataType::Double:
-      return "DataType.Double";
-    case DataType::Float:
-      return "DataType.Float";
-    case DataType::Half:
-      return "DataType.Half";
-    case DataType::BFloat16:
-      return "DataType.BFloat16";
-    case DataType::Float8_e4m3fn:
-      return "DataType.Float8_e4m3fn";
-    case DataType::Float8_e5m2:
-      return "DataType.Float8_e5m2";
-    case DataType::Int:
-      return "DataType.Int";
-    case DataType::Int32:
-      return "DataType.Int32";
-    case DataType::ComplexFloat:
-      return "DataType.ComplexFloat";
-    case DataType::ComplexDouble:
-      return "DataType.ComplexDouble";
-    case DataType::Null:
-      return "DataType.Null";
-    case DataType::UInt64:
-      return "DataType.UInt64";
-    default:
-      break;
-  }
-  NVF_THROW("No string found for data type.");
-  return nullptr;
-}
 
 FusionDefinition::FusionDefinition(
     std::optional<size_t> id,
@@ -354,45 +319,6 @@ void FusionDefinition::print(std::ostream& os) const {
   }
   os << std::endl;
 }
-
-namespace {
-// Returns the output shardings of the given fusion. As a short cut, if none of
-// the outputs have a device mesh, returns an empty vector indicating single-GPU
-// execution.
-std::vector<Sharding> getOutputShardings(Fusion* fusion) {
-  std::vector<TensorView*> all_tvs = fusion->allTvs();
-  if (std::none_of(
-          all_tvs.begin(),
-          all_tvs.end(),
-          std::mem_fn(&TensorView::hasDeviceMesh))) {
-    return {};
-  }
-
-  std::vector<Sharding> output_shardings;
-  output_shardings.reserve(fusion->outputs().size());
-  for (Val* out_val : fusion->outputs()) {
-    if (auto* out_tv = dynamic_cast<TensorView*>(out_val)) {
-      if (fusion->getOutputAlias(out_tv).hide_output) {
-        continue;
-      }
-      const DeviceMesh& mesh = out_tv->getDeviceMesh();
-      Sharding& output_sharding = output_shardings.emplace_back(mesh);
-      if (mesh.size() > 0) {
-        for (const ParallelType parallel_type : kParallelTypeDIDs) {
-          if (const auto axis = getShardedLogicalAxis(out_tv, parallel_type);
-              axis != -1) {
-            output_sharding.setAxisIsShardedOn(axis, parallel_type);
-          }
-        }
-      }
-    } else {
-      output_shardings.emplace_back(DeviceMesh());
-    }
-  }
-
-  return output_shardings;
-}
-} // namespace
 
 std::pair<KernelArgumentHolder, std::vector<Sharding>> FusionDefinition::
     execute(
@@ -807,7 +733,13 @@ std::vector<Tensor> FusionDefinition::tensors() {
 
 std::vector<std::pair<double, double>> FusionDefinition::getValTolerances(
     const KernelArgumentHolder& args) {
-  return get_val_constants(preschedFusion(), args);
+  return nvfuser::getValTolerances(preschedFusion(), args);
+}
+
+void FusionDefinition::validate_with_auto_inferred_outputs(
+    const KernelArgumentHolder& fusion_outputs,
+    const KernelArgumentHolder& args) {
+  return testValidate(preschedFusion(), fusion_outputs, args);
 }
 
 int64_t FusionDefinition::setupSegmentation(const KernelArgumentHolder& args) {

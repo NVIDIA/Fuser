@@ -108,7 +108,7 @@ TensorView* triu(TensorView* tv, Val* offset) {
   auto tv_rows_b = broadcast(tv_rows, {false, true});
   auto tv_cols_b = broadcast(tv_columns, {true, false});
   auto mask = le(tv_rows_b, tv_cols_b);
-  return where(mask, tv, fusion->zeroVal(DataType::Index));
+  return where(mask, tv, fusion->zeroVal(*tv->getDataType()));
 }
 
 namespace {
@@ -404,7 +404,10 @@ TensorView* view_as_real(TensorView* x) {
 namespace {
 
 //! Create new output for matmul
-TensorView* newForMatmul(TensorView* tv_a, TensorView* tv_b) {
+TensorView* newForMatmul(
+    TensorView* tv_a,
+    TensorView* tv_b,
+    DataType dtype = DataType::Null) {
   auto orig_domain_a = TensorDomain::noReductions(tv_a->getLogicalDomain());
   auto orig_domain_b = TensorDomain::noReductions(tv_b->getLogicalDomain());
 
@@ -452,7 +455,8 @@ TensorView* newForMatmul(TensorView* tv_a, TensorView* tv_b) {
   TensorDomain* td = IrBuilder::create<TensorDomain>(
       out_domain, TensorDomain::getContiguityFilledWith(out_domain, true));
 
-  return IrBuilder::create<TensorView>(td, tv_a->dtype());
+  return IrBuilder::create<TensorView>(
+      td, dtype == DataType::Null ? tv_a->dtype() : dtype);
 }
 
 } // namespace
@@ -480,6 +484,101 @@ TensorView* matmul(TensorView* tv_a, TensorView* tv_b) {
   TensorView* out = newForMatmul(tv_a, tv_b);
   IrBuilder::create<MatmulOp>(out, tv_a, tv_b);
   return out;
+}
+
+ScaledTensorView scaled_mm(
+    TensorView* mat1,
+    TensorView* mat2,
+    TensorView* scale1,
+    TensorView* scale2,
+    TensorView* alpha,
+    TensorView* bias,
+    TensorView* beta,
+    DataType dtype,
+    int64_t output_block_scale_size,
+    DataType output_block_scale_dtype,
+    bool output_gamma) {
+  bool has_bias = bias != nullptr;
+  NVF_CHECK(
+      beta == nullptr || has_bias,
+      "beta argument requires bias to be present. Got bias : ",
+      has_bias ? "true" : "false",
+      " and beta : ",
+      beta != nullptr ? "true" : "false");
+  // TODO: support scaled output
+  NVF_CHECK(
+      output_block_scale_size == 0, "output_block_scale is not yet supported");
+  NVF_CHECK(!output_gamma, "output_gamma is not yet supported");
+
+  ScaledTensorView scaled_out;
+
+  scaled_out.tv = newForMatmul(mat1, mat2, dtype);
+
+  IrBuilder::create<ScaledMmaOp>(
+      scaled_out.tv,
+      scaled_out.block_scaling_factor,
+      scaled_out.global_scaling_factor,
+      mat1,
+      mat2,
+      scale1,
+      scale2,
+      alpha,
+      bias,
+      beta);
+  return scaled_out;
+}
+
+TensorView* cutlass_nvfp4_grouped_mm(
+    TensorView* mat1,
+    TensorView* mat2,
+    TensorView* scale1,
+    TensorView* scale2,
+    TensorView* alpha,
+    TensorView* problem_sizes,
+    TensorView* expert_offsets,
+    TensorView* sf_offsets,
+    DataType dtype) {
+  // Validate inputs
+  NVF_CHECK(mat1 != nullptr, "mat1 cannot be null");
+  NVF_CHECK(mat2 != nullptr, "mat2 cannot be null");
+  NVF_CHECK(scale1 != nullptr, "scale1 cannot be null");
+  NVF_CHECK(scale2 != nullptr, "scale2 cannot be null");
+  NVF_CHECK(alpha != nullptr, "alpha cannot be null");
+  NVF_CHECK(problem_sizes != nullptr, "problem_sizes cannot be null");
+  NVF_CHECK(expert_offsets != nullptr, "expert_offsets cannot be null");
+  NVF_CHECK(sf_offsets != nullptr, "sf_offsets cannot be null");
+
+  // Create output tensor
+  // The output shape depends on the problem sizes and expert structure
+  // For now, we'll create a simple output based on the input shapes
+  // This should be refined based on the actual requirements
+  auto mat1_domain = TensorDomain::noReductions(mat1->getLogicalDomain());
+  auto mat2_domain = TensorDomain::noReductions(mat2->getLogicalDomain());
+  NVF_CHECK(mat1_domain.size() == 2);
+  NVF_CHECK(mat2_domain.size() == 3);
+
+  // Create output domain - this is a simplified approach
+  // The actual output shape calculation should be more sophisticated
+  std::vector<IterDomain*> out_domain;
+  out_domain.push_back(ops::newOutputIterDomain({mat1_domain[0]}));
+  out_domain.push_back(ops::newOutputIterDomain({mat2_domain[2]}));
+
+  TensorDomain* out_td = IrBuilder::create<TensorDomain>(
+      out_domain, TensorDomain::getContiguityFilledWith(out_domain, true));
+  TensorView* output = IrBuilder::create<TensorView>(out_td, dtype);
+
+  IrBuilder::create<CutlassNvfp4GroupedMmaOp>(
+      output,
+      mat1,
+      mat2,
+      scale1,
+      scale2,
+      alpha,
+      problem_sizes,
+      expert_offsets,
+      sf_offsets);
+
+  return output;
 }
 
 SdpfaFwdResult sdpfa_fwd(

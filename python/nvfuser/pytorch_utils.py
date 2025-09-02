@@ -21,6 +21,7 @@ _torch_dtype_to_nvfuser_dtype_map = {
     torch.bfloat16: DataType.BFloat16,
     torch.float8_e4m3fn: DataType.Float8_e4m3fn,
     torch.float8_e5m2: DataType.Float8_e5m2,
+    torch.float8_e8m0fnu: DataType.Float8_e8m0fnu,
     torch.long: DataType.Int,
     torch.int: DataType.Int32,
     torch.bool: DataType.Bool,
@@ -30,6 +31,11 @@ _torch_dtype_to_nvfuser_dtype_map = {
     int: DataType.Int,
     bool: DataType.Bool,
 }
+
+if hasattr(torch, "float4_e2m1fn_x2"):
+    _torch_dtype_to_nvfuser_dtype_map[
+        torch.float4_e2m1fn_x2
+    ] = DataType.Float4_e2m1fn_x2
 
 
 def python_scalar_to_nvfuser_dtype(a: Union[int, float, complex, bool]):

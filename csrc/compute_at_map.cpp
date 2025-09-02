@@ -729,11 +729,11 @@ void IterDomainGraph::build(Fusion* fusion) {
   // Adds more mappings from IdModel if available
   auto expand_by_id_model = [](DisjointSets<IterDomain*>& nodes,
                                IdMappingMode mode) {
-    if (!GpuLower::hasCurrent() || !GpuLower::current()->hasIdModel()) {
+    if (!GpuLower::hasCurrent() || !GpuLower::current()->info().hasIdModel()) {
       return;
     }
 
-    const ValGraph& graph = GpuLower::current()->idModel().idGraph(mode);
+    const ValGraph& graph = GpuLower::current()->info().idModel().idGraph(mode);
     for (const auto& vg : graph.disjointValSets().disjointSets()) {
       IterDomain* first_id = nullptr;
       for (const auto& val : *vg) {
@@ -850,7 +850,7 @@ void ComputeAtMap::build(Fusion* fusion) {
   buildUniqueExactExprMaps();
 }
 
-void ComputeAtMap::validateAndPropagatePType() {
+void ComputeAtMap::validateAndPropagatePType() const {
   for (const auto& loop_disjoint_set : id_graph_.loopNodes().disjointSets()) {
     ParallelType common_ptype = ParallelType::Serial;
     for (auto id : loop_disjoint_set->vector()) {
@@ -872,7 +872,62 @@ void ComputeAtMap::validateAndPropagatePType() {
   }
 }
 
+namespace {
+
+// For a given AsyncWarp, for all TensorViews, map all sibling iterDomains to
+// the left of stage_slice_position together.
+std::vector<ValGroup> getSiblingIds(const AsyncWarp& async_warp) {
+  std::vector<ValGroup> ids;
+
+  for (int64_t idx : arange(async_warp.stage_slice_position)) {
+    ValGroup vg =
+        std::make_shared<nvfuser::VectorOfUniqueEntries<nvfuser::Val*>>();
+
+    for (TensorView* tv : async_warp.tvs) {
+      vg->pushBack(tv->axis(idx));
+    }
+
+    ids.push_back(vg);
+  }
+  return ids;
+}
+
+// For a set of expressions, get sibling iterDomain mapping for first AsyncWarp
+std::vector<ValGroup> getAsyncWarpSiblingIds(const std::vector<Expr*>& exprs) {
+  std::vector<AsyncWarp> async_warps = createAsyncWarps(exprs);
+
+  // short-circuit: no async operations detected.
+  if (async_warps.size() == 0) {
+    return {};
+  }
+  NVF_ERROR(
+      async_warps.size() == 1, "Multi-role specialization is not supported");
+
+  const AsyncWarp& async_warp = async_warps.front();
+
+  // short-circuit: no sibling relationships to map.
+  if (async_warp.tvs.size() == 1) {
+    return {};
+  }
+
+  // short-circuit: stage_slice_position is not used.
+  if (async_warp.stage_slice_position == -1) {
+    return {};
+  }
+
+  return getSiblingIds(async_warp);
+}
+
+} // namespace
+
 void ComputeAtMap::allocateIndexVariables() {
+  // Get the sibling iterDomain mapping for AsyncWarp
+  std::vector<ValGroup> async_warp_sibling_ids =
+      getAsyncWarpSiblingIds(fusion_->exprs());
+  // Map sibling ValGroups to the same index variable.
+  std::vector<Val*> async_warp_sibling_id_index_variable(
+      async_warp_sibling_ids.size(), nullptr);
+
   // Run through all disjoint sets registered in loop map,
   //  all lowered ForLoop will correspond to one of the disjoint sets
   //  and we only need one index variable for each set.
@@ -924,6 +979,12 @@ void ComputeAtMap::allocateIndexVariables() {
 
     auto concrete_loop_id = concrete_loop_id_it->second;
 
+    // Determine if concrete_loop_id is a AsyncWarp iterDomain
+    auto async_warp_sibling_ids_iter = std::find_if(
+        async_warp_sibling_ids.begin(),
+        async_warp_sibling_ids.end(),
+        [&](ValGroup vg) { return vg->has(concrete_loop_id); });
+
     // Need to allocate circular buffered loop differently.
     if (GpuLower::current()->circularBufferInfo().isCircularBufferedIterDomain(
             concrete_loop_id)) {
@@ -935,6 +996,20 @@ void ComputeAtMap::allocateIndexVariables() {
         auto stage = static_cast<CircularBufferLoopStage>(i);
         circular_buffered_loop_index_variable_map_[loop_disjoint_set.get()]
             ->emplace(stage, IrBuilder::create<Val>(DataType::Index));
+      }
+    } else if (async_warp_sibling_ids_iter != async_warp_sibling_ids.end()) {
+      int64_t index = std::distance(
+          async_warp_sibling_ids.begin(), async_warp_sibling_ids_iter);
+      if (async_warp_sibling_id_index_variable.at(index) == nullptr) {
+        // Allocate index variable for sibling iterDomains upon first encounter.
+        loop_index_variable_map_[loop_disjoint_set.get()] =
+            IrBuilder::create<Val>(DataType::Index);
+        async_warp_sibling_id_index_variable.at(index) =
+            loop_index_variable_map_.at(loop_disjoint_set.get());
+      } else {
+        // Afterwards, reuse index variable for sibling iterDomains
+        loop_index_variable_map_[loop_disjoint_set.get()] =
+            async_warp_sibling_id_index_variable.at(index);
       }
     } else {
       // Everything now should be serial concrete loops,

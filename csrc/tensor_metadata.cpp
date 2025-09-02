@@ -7,6 +7,7 @@
 // clang-format on
 
 #include <expr_evaluator.h>
+#include <instrumentation.h>
 #include <ir/all_nodes.h>
 #include <ir/builder.h>
 #include <ir/cloner.h>
@@ -111,6 +112,7 @@ class ForwardTraverseFromLogicalToAlloc {
       TensorView* tv,
       const std::vector<IterDomain*>& logical,
       const std::vector<IterDomain*>& alloc) {
+    FUSER_PERF_SCOPE("ForwardTraverseFromLogicalToAlloc::run");
     auto forward_exprs = StmtSort::getExprsBetween(
         {logical.begin(), logical.end()}, {alloc.begin(), alloc.end()});
     for (auto expr : forward_exprs) {
@@ -205,6 +207,7 @@ class BackwardTraverseFromLogicalToAlloc {
       TensorView* tv,
       const std::vector<IterDomain*>& logical,
       const std::vector<IterDomain*>& alloc) {
+    FUSER_PERF_SCOPE("BackwardTraverseFromLogicalToAlloc::run");
     auto backward_exprs = StmtSort::getExprsBetween(
         {alloc.begin(), alloc.end()}, {logical.begin(), logical.end()});
     std::reverse(backward_exprs.begin(), backward_exprs.end());
@@ -368,6 +371,18 @@ std::vector<PolymorphicValue> GetMetaData::evaluate(
   metadata->alloc_stride_data = std::move(allocation_strides);
   metadata->alloc_stride = c10::makeArrayRef(metadata->alloc_stride_data);
   return {PolymorphicValue(std::move(struct_))};
+}
+
+void validateSizesAndStrides(
+    const std::vector<at::Tensor>& tensors,
+    const std::vector<TensorView*>& tvs,
+    const ExpressionEvaluator& ee) {
+  NVF_ERROR_EQ(tensors.size(), tvs.size());
+  for (const auto& [tensor, tv] : zip(tensors, tvs)) {
+    if (tensor.defined()) {
+      inferAndValidateAllocationSizesAndStrides(tensor, tv, ee);
+    }
+  }
 }
 
 } // namespace nvfuser

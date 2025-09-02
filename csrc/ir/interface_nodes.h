@@ -36,7 +36,6 @@
 
 namespace nvfuser {
 
-class WelfordResult;
 class ViewTransform;
 
 class IrCloner;
@@ -474,6 +473,11 @@ class NVF_API TensorView : public Val {
     return domain()->loop();
   };
 
+  const std::optional<std::vector<IterDomain*>>& getAlternateLoopDomain()
+      const {
+    return domain()->alternateLoop();
+  };
+
   const std::vector<IterDomain*>& getInitialLoopDomain() const {
     return domain()->initialLoop();
   };
@@ -486,6 +490,10 @@ class NVF_API TensorView : public Val {
 
   void setLoopDomain(std::vector<IterDomain*> new_loop_domain) {
     domain()->setLoopDomain(std::move(new_loop_domain));
+  }
+
+  void setAlternateLoopDomain(std::vector<IterDomain*> new_loop_domain) {
+    domain()->setAlternateLoopDomain(std::move(new_loop_domain));
   }
 
   void setAllocationDomain(

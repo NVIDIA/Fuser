@@ -102,16 +102,21 @@ Val* promoteSize(Val* v1, Val* v2) {
   if (!v1->isConstInt() && !v2->isConstInt()) {
     return v1;
   } else if (v1->isConstInt() && v2->isConstInt()) {
+    auto fmtVal = [](Val* v) {
+      std::ostringstream oss;
+      if (v->isConstInt())
+        oss << v->evaluate();
+      else
+        oss << v->toString() << " (" << v->evaluate() << ")";
+      return oss.str();
+    };
+
     NVF_ERROR(
         v1->evaluate() == v2->evaluate(),
-        "Expected sizes of, ",
-        v1->toString(),
-        " and ",
-        v2->toString(),
-        " to match but found ",
-        v1->evaluate(),
-        " and ",
-        v2->evaluate(),
+        "Expected sizes to match: ",
+        fmtVal(v1),
+        " vs ",
+        fmtVal(v2),
         ".");
     return simplifiedInt(v1);
   } else if (v1->isConstInt()) {
@@ -544,6 +549,11 @@ Val* getMinimumValue(DataType v) {
       return IrBuilder::create<Val>(static_cast<double>(
           -std::numeric_limits<c10::Float8_e5m2>::infinity()));
       break;
+    case DataType::Float8_e8m0fnu:
+      // e8m0 is finite.
+      return IrBuilder::create<Val>(static_cast<double>(
+          -std::numeric_limits<c10::Float8_e8m0fnu>::max()));
+      break;
     case (DataType::Int):
       return IrBuilder::create<Val>(std::numeric_limits<int64_t>::lowest());
       break;
@@ -589,14 +599,19 @@ Val* getMaximumValue(DataType v) {
       return IrBuilder::create<Val>(static_cast<double>(
           std::numeric_limits<c10::Float8_e5m2>::infinity()));
       break;
-    case (DataType::Int):
+    case DataType::Float8_e8m0fnu:
+      // e8m0 is finite.
+      return IrBuilder::create<Val>(
+          static_cast<double>(std::numeric_limits<c10::Float8_e8m0fnu>::max()));
+      break;
+    case DataType::Int:
       return IrBuilder::create<Val>(std::numeric_limits<int64_t>::max());
       break;
-    case (DataType::Int32):
+    case DataType::Int32:
       return IrBuilder::create<Val>(
           (int64_t)std::numeric_limits<int32_t>::max());
       break;
-    case (DataType::Bool):
+    case DataType::Bool:
       return IrBuilder::create<Val>(true);
       break;
     default:
@@ -615,6 +630,29 @@ std::vector<unsigned int> canonicalizeAxes(
         return (unsigned int)wrapDim(axis, ndims);
       });
   return uint_axes;
+}
+
+Val* binOpIdentity(BinaryOpType op_type, DataType dtype) {
+  Fusion* fusion = FusionGuard::getCurFusion();
+  switch (op_type) {
+    case BinaryOpType::Add:
+      return fusion->zeroVal(dtype);
+    case BinaryOpType::Mul:
+      return fusion->oneVal(dtype);
+    case BinaryOpType::Min:
+      return getMaximumValue(dtype);
+    case BinaryOpType::Max:
+      return getMinimumValue(dtype);
+    case BinaryOpType::LogicalAnd:
+      NVF_ERROR(isBooleanType(dtype));
+      return fusion->trueVal();
+    case BinaryOpType::LogicalOr:
+      NVF_ERROR(isBooleanType(dtype));
+      return fusion->falseVal();
+    default:
+      NVF_THROW("Binary op ", op_type, " has no two-sided inverse");
+  }
+  return nullptr;
 }
 
 } // namespace ops
