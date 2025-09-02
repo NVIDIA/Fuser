@@ -384,7 +384,7 @@ findPairingSplit(CatOp* cat) {
     // Currently, I limit this to only reshapes and permutes to reduce blast
     // radius.
     auto supported = [](Expr* e) -> bool {
-      if (e->isA<ViewOp>()) {
+      if (e->isA<ReshapeOp>()) {
         return true;
       }
       if (auto* set = dynamic_cast<LoadStoreOp*>(e)) {

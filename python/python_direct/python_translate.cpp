@@ -411,6 +411,7 @@ class PythonPrinter {
 //     with keepdim argument.
 //  3. Map Broadcast and Expand to `broadcast_in_dim`
 //  4. var_mean
+//  5. var
 class PythonTranslator : public OptInConstDispatch {
  public:
   // Returns a map from the values in the CPP fusion to its corresponding
@@ -425,8 +426,8 @@ class PythonTranslator : public OptInConstDispatch {
       : printer_(os), fusion_(fusion) {}
 
   // The new shape for view operation can be dynamic. Check that all dynamic
-  // scalar dependencies are handled before the ViewOp.
-  bool checkViewShapeDependency(const ViewOp* vop) {
+  // scalar dependencies are handled before the ReshapeOp.
+  bool checkViewShapeDependency(const ReshapeOp* vop) {
     const std::vector<IterDomain*>& logical_out_domain =
         vop->out()->as<TensorView>()->domain()->logical();
     std::vector<Val*> logical_domain_extents;
@@ -501,7 +502,7 @@ class PythonTranslator : public OptInConstDispatch {
   // Check that all of the expression's inputs are defined in FusionDefinition.
   bool checkExpressionDependencies(Expr* e) {
     // short-circuit: Found a view operation without all its shape dependencies.
-    if (e->isA<ViewOp>() && !checkViewShapeDependency(e->as<ViewOp>())) {
+    if (e->isA<ReshapeOp>() && !checkViewShapeDependency(e->as<ReshapeOp>())) {
       return false;
     }
     return std::all_of(
@@ -526,7 +527,7 @@ class PythonTranslator : public OptInConstDispatch {
     // Scalar expressions are not handled by Fusion::exprs, so gather them
     // manually.
     for (Expr* e : to_visit) {
-      if (e->isA<ViewOp>() || e->isA<ExpandOp>() || e->isA<FullOp>()) {
+      if (e->isA<ReshapeOp>() || e->isA<ExpandOp>() || e->isA<FullOp>()) {
         std::vector<Expr*> extent_definitions =
             gatherScalarExpressions(e->output(0)->as<TensorView>());
         to_visit.insert(
@@ -732,7 +733,7 @@ class PythonTranslator : public OptInConstDispatch {
   // Utility functions
 
   // Create a vector for the logical domain of TensorView.
-  // Used with ViewOp and ExpandOp handlers
+  // Used with ReshapeOp and ExpandOp handlers
   std::vector<Val*> getShape(TensorView* tv) {
     const std::vector<IterDomain*>& logical_out_domain =
         tv->domain()->logical();
@@ -1140,7 +1141,7 @@ class PythonTranslator : public OptInConstDispatch {
         {sop->out()});
   }
 
-  void handle(const ViewOp* vop) final {
+  void handle(const ReshapeOp* vop) final {
     NVF_ERROR(vop != nullptr);
 
     // Get extent's for output's logical domain

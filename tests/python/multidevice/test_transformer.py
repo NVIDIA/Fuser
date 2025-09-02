@@ -10,7 +10,6 @@ import nvfuser_direct as nvfuser
 from nvfuser_direct import DataType, FusionDefinition
 from python.direct_utils import (
     create_sdpa_rng_tensors,
-    define_sdpa_rng_state,
     is_pre_ampere,
 )
 from benchmark_utils import get_benchmark_fns
@@ -98,8 +97,12 @@ def test_grouped_mlp(multidevice_direct_test):
 # To generate the fusion, use the following snippet which turns on the necessary options
 # to get a single nvfuser definition.
 # ```
+#   from thunder.benchmarks import NanoGPTBlockBenchmark, NanoGPTConfig
+#   from thunder.executors.nvfuserex import nvfuserex
+
+#   config = NanoGPTConfig(seq_len=2048, n_head=96, n_embd=12288)
 #   bench = NanoGPTBlockBenchmark(
-#     config="gpt2", device="cuda:0", dtype=thunder.bfloat16, requires_grad=True
+#     batchdims=(1,), config=config, device="cuda:0", dtype=thunder.bfloat16, requires_grad=True
 #   )
 #   args, kwargs = bench.make_batch()
 #
@@ -112,9 +115,14 @@ def test_grouped_mlp(multidevice_direct_test):
 #       disable_replace_uniform=True,
 #   )
 #   out = jfn(*args, **kwargs)
-#   print (thunder.last_traces(jfn)[-1].python_ctx()['nvFusion0'].last_used)
+#   grads = torch.randn_like(out, device="cuda", dtype=torch.bfloat16)
+#   out.backward(grads)
+#   print(thunder.last_traces(jfn)[-1].python_ctx()['nvFusion0'].last_used)
+#   print(thunder.last_backward_traces(jfn)[-1].python_ctx()['nvFusion0'].last_used)
 # ```
-#
+# Fusions generated from Thunder commit: b0dc72ef1a9825a70923ae1a270d919f5948c4ed
+
+
 def transformer_forward_definition(
     fd: FusionDefinition, batch: int, sequence: int, head: int, hidden: int
 ) -> None:
@@ -514,435 +522,435 @@ def test_transformer_forward(multidevice_direct_test, benchmark):
     benchmark.pedantic(benchmark_fn, rounds=5)
 
 
-# The following micro-benchmarks the
-# backprop of a sharded Transformer block used in GPT-3.
-#
-# The single-GPU nvFusions are
-# dumped from Thunder. To regenerate the nvFusions and the inputs, run the
-# following:
-#
-# 1. `git clone https://github.com/Lightning-AI/lightning-thunder.git`
-# 2. `git fetch origin wjy/sharded`
-# 3. `git checkout wjy/sharded`
-#    This branch adds the GPT-3 block benchmark, turns on certain knobs so the
-#    entire Transformer block fits into one nvFusion, and prints out the repro.
-# 4. `pytest thunder/benchmarks/targets.py -k 'test_nanogpt_block[backward-thunder]' -s`
-#
-# In stdout, you'll find the forward nvFusion executed once followed by the
-# backward nvFusion executed many times.
-#
-# For future reference, the nvFusions below are generated with Thunder version
-# https://github.com/Lightning-AI/lightning-thunder/commit/953a91477cec792b6e694650cd2466b871af812d.
-# The Thunder traces are
-# https://gist.github.com/wujingyue/b111aa8b8d92067fc6004f5d0488dd27.
-#
-# Based on the single-GPU nvFusions, more changes are applied to generate the multi-GPU nvFusions.
-# 1. Replace magic values with variables for flexibility and readability.
-# 2. Split device dimensions and parallelize them.
-# 3. Decompose the second linear layer in MLP so the matmul result can be allreduced.
-# 4. Rename the inputs and outputs for readability.
-# All tensors are replicated to all devices at this moment; future PRs will try
-# to shard them.
 def transformer_backward_definition(
-    fd: FusionDefinition,
-    num_devices: int,
-    batch: int,
-    sequence: int,
-    head: int,
-    hidden: int,
+    fd: FusionDefinition, batch: int, sequence: int, head: int, hidden: int
 ) -> None:
-    d, b, s, h, e = (
-        num_devices,
-        batch,
-        sequence,
-        head,
-        hidden,
-    )
+    b, s, h, e = batch, sequence, head, hidden
 
-    mlp_dropout_offset = fd.define_scalar(None, dtype=DataType.Int)
-    mlp_dropout_seed = fd.define_scalar(None, dtype=DataType.Int)
-    mlp_linear0_out = fd.define_tensor(
-        shape=[d, b, s, e * 4 // d],
+    fd.mlp_linear0_out = fd.define_tensor(
+        shape=[b, s, 4 * e],
         contiguity=True,
         dtype=DataType.BFloat16,
+        is_cpu=False,
+        stride_order=[2, 1, 0],
     )
-    out_grad = fd.define_tensor(
+    fd.out_grad = fd.define_tensor(
         shape=[b, s, e],
         contiguity=True,
         dtype=DataType.BFloat16,
+        is_cpu=False,
+        stride_order=[2, 1, 0],
     )
-    mlp_linear1_weight = fd.define_tensor(
-        shape=[d, e, e * 4 // d],
+    fd.mlp_dropout_mask = fd.define_tensor(
+        shape=[b, s, e],
+        contiguity=True,
+        dtype=DataType.Bool,
+        is_cpu=False,
+        stride_order=[2, 1, 0],
+    )
+    fd.mlp_linear1_weight = fd.define_tensor(
+        shape=[e, e * 4],
         contiguity=True,
         dtype=DataType.BFloat16,
+        is_cpu=False,
+        stride_order=[1, 0],
     )
-    mha_dropout_offset = fd.define_scalar(None, dtype=DataType.Int)
-    mha_dropout_seed = fd.define_scalar(None, dtype=DataType.Int)
-    mha_linear1_out = fd.define_tensor(
+    fd.mha_dropout_mask = fd.define_tensor(
+        shape=[b, s, e],
+        contiguity=True,
+        dtype=DataType.Bool,
+        is_cpu=False,
+        stride_order=[2, 1, 0],
+    )
+    fd.mha_linear1_out = fd.define_tensor(
         shape=[b, s, e],
         contiguity=True,
         dtype=DataType.BFloat16,
+        is_cpu=False,
+        stride_order=[2, 1, 0],
     )
-    mlp_linear0_weight = fd.define_tensor(
-        shape=[d, e * 4 // d, e],
+    fd.mlp_linear0_weight = fd.define_tensor(
+        shape=[4 * e, e],
         contiguity=True,
         dtype=DataType.BFloat16,
+        is_cpu=False,
+        stride_order=[1, 0],
     )
-    layernorm1_weight = fd.define_tensor(
+    fd.layernorm1_weight = fd.define_tensor(
         shape=[e],
         contiguity=True,
         dtype=DataType.BFloat16,
+        is_cpu=False,
+        stride_order=[0],
     )
-    layernorm1_mean = fd.define_tensor(
+    fd.layernorm1_mean = fd.define_tensor(
         shape=[b, s],
         contiguity=True,
         dtype=DataType.Float,
+        is_cpu=False,
+        stride_order=[1, 0],
     )
-    inp = fd.define_tensor(
+    fd.inp = fd.define_tensor(
         shape=[b, s, e],
         contiguity=True,
         dtype=DataType.BFloat16,
+        is_cpu=False,
+        stride_order=[2, 1, 0],
     )
-    layernorm1_rstd = fd.define_tensor(
+    fd.layernorm1_rstd = fd.define_tensor(
         shape=[b, s, 1],
         contiguity=True,
         dtype=DataType.Float,
+        is_cpu=False,
+        stride_order=[2, 1, 0],
     )
-    mha_linear1_weight = fd.define_tensor(
-        shape=[d, e, e // d],
+    fd.mha_linear1_weight = fd.define_tensor(
+        shape=[e, e],
         contiguity=True,
         dtype=DataType.BFloat16,
+        is_cpu=False,
+        stride_order=[1, 0],
     )
-    mha_linear0_out = fd.define_tensor(
-        shape=[d, b, s, e * 3 // d],
+    fd.mha_linear0_out = fd.define_tensor(
+        shape=[b, s, 3 * e],
         contiguity=True,
         dtype=DataType.BFloat16,
+        is_cpu=False,
+        stride_order=[2, 1, 0],
     )
-    sdpa_out = fd.define_tensor(
-        shape=[d, b, h // d, s, e // h],
+    fd.sdpa_out = fd.define_tensor(
+        shape=[b, h, s, e // h],
         contiguity=True,
         dtype=DataType.BFloat16,
-        stride_order=[4, 3, 1, 2, 0],
+        is_cpu=False,
+        stride_order=[3, 1, 2, 0],
     )
-    sdpa_log_sumexp = fd.define_tensor(
-        shape=[d, b, h // d, s],
+    fd.sdpa_logsum_exp = fd.define_tensor(
+        shape=[b, h, s],
         contiguity=True,
         dtype=DataType.Float,
+        is_cpu=False,
+        stride_order=[2, 1, 0],
     )
-    mha_sdpa_seed, mha_sdpa_offset = define_sdpa_rng_state(fd)
-    mha_linear0_weight = fd.define_tensor(
-        shape=[d, e * 3 // d, e],
+    fd.sdpa_seed = fd.define_tensor(
+        shape=[2],
+        contiguity=True,
+        dtype=DataType.UInt64,
+        is_cpu=False,
+        stride_order=[0],
+    )
+    fd.sdpa_offset = fd.define_tensor(
+        shape=[], contiguity=[], dtype=DataType.UInt64, is_cpu=False
+    )
+    fd.mha_linear0_weight = fd.define_tensor(
+        shape=[3 * e, e],
         contiguity=True,
         dtype=DataType.BFloat16,
+        is_cpu=False,
+        stride_order=[1, 0],
     )
-    layernorm0_weight = fd.define_tensor(
+    fd.layernorm0_weight = fd.define_tensor(
         shape=[e],
         contiguity=True,
         dtype=DataType.BFloat16,
+        is_cpu=False,
+        stride_order=[0],
     )
-    layernorm0_mean = fd.define_tensor(
+    fd.layernorm0_mean = fd.define_tensor(
         shape=[b, s],
         contiguity=True,
         dtype=DataType.Float,
+        is_cpu=False,
+        stride_order=[1, 0],
     )
-    layernorm0_rstd = fd.define_tensor(
+    fd.layernorm0_rstd = fd.define_tensor(
         shape=[b, s, 1],
         contiguity=True,
         dtype=DataType.Float,
+        is_cpu=False,
+        stride_order=[2, 1, 0],
     )
-    layernorm0_bias = fd.define_tensor(
+    fd.layernorm0_bias = fd.define_tensor(
         shape=[e],
         contiguity=True,
         dtype=DataType.BFloat16,
+        is_cpu=False,
+        stride_order=[0],
     )
-    layernorm1_bias = fd.define_tensor(
+    fd.layernorm1_bias = fd.define_tensor(
         shape=[e],
         contiguity=True,
         dtype=DataType.BFloat16,
+        is_cpu=False,
+        stride_order=[0],
     )
-    S25 = fd.define_scalar(0.00000, dtype=DataType.Double)
-    S26 = fd.define_scalar(1.00000, dtype=DataType.Double)
-    T31 = fd.ops.uniform(
-        S25,
-        S26,
-        shape=[b, s, e],
-        rng_seed=mlp_dropout_seed,
-        rng_offset=mlp_dropout_offset,
-        dtype=DataType.BFloat16,
+    T23 = fd.ops.cast(fd.mlp_linear0_out, dtype=DataType.Float)
+    T24 = fd.ops.cast(fd.out_grad, dtype=DataType.Float)
+    T25 = fd.ops.mul(T23, T23)
+    S26 = fd.define_scalar(1.11111, dtype=DataType.Double)
+    T27 = fd.ops.mul(S26, T24)
+    T28 = fd.ops.cast(fd.mlp_dropout_mask, dtype=DataType.Float)
+    T29 = fd.ops.mul(T25, T23)
+    T30 = fd.ops.mul(T28, T27)
+    S31 = fd.define_scalar(0.0447150, dtype=DataType.Double)
+    T32 = fd.ops.mul(S31, T29)
+    T33 = fd.ops.cast(T30, dtype=DataType.BFloat16)
+    T34 = fd.ops.add(T23, T32)
+    T38 = fd.ops.reshape(T33, new_shape=[b * s, e])
+    S39 = fd.define_scalar(0.797885, dtype=DataType.Double)
+    T40 = fd.ops.mul(S39, T34)
+    T41 = fd.ops.matmul(T38, fd.mlp_linear1_weight)
+    T42 = fd.ops.tanh(T40)
+    T47 = fd.ops.reshape(T41, new_shape=[b, s, 4 * e])
+    T48 = fd.ops.mul(T42, T42)
+    T49 = fd.ops.cast(T47, dtype=DataType.Float)
+    S50 = fd.define_scalar(0.500000, dtype=DataType.Double)
+    T51 = fd.ops.mul(S50, T23)
+    S52 = fd.define_scalar(1.00000, dtype=DataType.Double)
+    T53 = fd.ops.sub(S52, T48)
+    T54 = fd.ops.mul(T51, T49)
+    T55 = fd.ops.mul(T54, T53)
+    S56 = fd.define_scalar(1.00000, dtype=DataType.Double)
+    T57 = fd.ops.add(S56, T42)
+    S58 = fd.define_scalar(0.797885, dtype=DataType.Double)
+    T59 = fd.ops.mul(S58, T55)
+    T60 = fd.ops.mul(T57, T49)
+    S61 = fd.define_scalar(0.0447150, dtype=DataType.Double)
+    T62 = fd.ops.mul(S61, T59)
+    S63 = fd.define_scalar(0.500000, dtype=DataType.Double)
+    T64 = fd.ops.mul(S63, T60)
+    T65 = fd.ops.mul(T23, T62)
+    T66 = fd.ops.mul(T25, T62)
+    T67 = fd.ops.add(T59, T64)
+    T68 = fd.ops.mul(T23, T65)
+    T69 = fd.ops.add(T67, T66)
+    T70 = fd.ops.add(T69, T68)
+    T71 = fd.ops.add(T70, T68)
+    T72 = fd.ops.cast(T71, dtype=DataType.BFloat16)
+    T76 = fd.ops.reshape(T72, new_shape=[b * s, e * 4])
+    T77 = fd.ops.cast(fd.mha_dropout_mask, dtype=DataType.Float)
+    T78 = fd.ops.cast(fd.mha_linear1_out, dtype=DataType.Float)
+    T79 = fd.ops.matmul(T76, fd.mlp_linear0_weight)
+    T80 = fd.ops.mul(T78, T77)
+    T85 = fd.ops.reshape(T79, new_shape=[b, s, e])
+    T90 = fd.ops.broadcast_in_dim(
+        fd.layernorm1_weight, shape=[b, s, e], broadcast_dims=[2]
     )
-    T32 = fd.ops.cast(mlp_linear0_out, dtype=DataType.Float)
-    T33 = fd.ops.cast(out_grad, dtype=DataType.Float)
-    S34 = fd.define_scalar(0.900000, dtype=DataType.Double)
-    T35 = fd.ops.lt(T31, S34)
-    T36 = fd.ops.mul(T32, T32)
-    S37 = fd.define_scalar(1.11111, dtype=DataType.Double)
-    T38 = fd.ops.mul(S37, T33)
-    T39 = fd.ops.cast(T35, dtype=DataType.Float)
-    T40 = fd.ops.mul(T36, T32)
-    T41 = fd.ops.mul(T39, T38)
-    S42 = fd.define_scalar(0.0447150, dtype=DataType.Double)
-    T43 = fd.ops.mul(S42, T40)
-    T44 = fd.ops.cast(T41, dtype=DataType.BFloat16)
-    T45 = fd.ops.add(T32, T43)
-    T49 = fd.ops.reshape(T44, new_shape=[b * s, e])
-    S50 = fd.define_scalar(0.797885, dtype=DataType.Double)
-    T51 = fd.ops.mul(S50, T45)
-    T52 = fd.ops.matmul(T49, mlp_linear1_weight)
-    T53 = fd.ops.tanh(T51)
-    T58 = fd.ops.reshape(T52, new_shape=[d, b, s, e * 4 // d])
-    T59 = fd.ops.mul(T53, T53)
-    T60 = fd.ops.cast(T58, dtype=DataType.Float)
-    S61 = fd.define_scalar(0.500000, dtype=DataType.Double)
-    T62 = fd.ops.mul(S61, T32)
-    S63 = fd.define_scalar(1.00000, dtype=DataType.Double)
-    T64 = fd.ops.sub(S63, T59)
-    T65 = fd.ops.mul(T62, T60)
-    T66 = fd.ops.mul(T65, T64)
-    S67 = fd.define_scalar(1.00000, dtype=DataType.Double)
-    T68 = fd.ops.add(S67, T53)
-    S69 = fd.define_scalar(0.797885, dtype=DataType.Double)
-    T70 = fd.ops.mul(S69, T66)
-    T71 = fd.ops.mul(T68, T60)
-    S72 = fd.define_scalar(0.0447150, dtype=DataType.Double)
-    T73 = fd.ops.mul(S72, T70)
-    S74 = fd.define_scalar(0.500000, dtype=DataType.Double)
-    T75 = fd.ops.mul(S74, T71)
-    T76 = fd.ops.mul(T32, T73)
-    T77 = fd.ops.mul(T36, T73)
-    T78 = fd.ops.add(T70, T75)
-    T79 = fd.ops.mul(T32, T76)
-    T80 = fd.ops.add(T78, T77)
-    T81 = fd.ops.add(T80, T79)
-    T82 = fd.ops.add(T81, T79)
-    S83 = fd.define_scalar(0.00000, dtype=DataType.Double)
-    S84 = fd.define_scalar(1.00000, dtype=DataType.Double)
-    T89 = fd.ops.uniform(
-        S83,
-        S84,
-        shape=[b, s, e],
-        rng_seed=mha_dropout_seed,
-        rng_offset=mha_dropout_offset,
-        dtype=DataType.BFloat16,
+    T95 = fd.ops.broadcast_in_dim(
+        fd.layernorm1_mean, shape=[b, s, 1], broadcast_dims=[0, 1]
     )
-    T90 = fd.ops.cast(T82, dtype=DataType.BFloat16)
-    S91 = fd.define_scalar(0.900000, dtype=DataType.Double)
-    T92 = fd.ops.lt(T89, S91)
-    T96 = fd.ops.reshape(T90, new_shape=[d, b * s, e * 4 // d])
-    T97 = fd.ops.cast(T92, dtype=DataType.Float)
-    T98 = fd.ops.cast(mha_linear1_out, dtype=DataType.Float)
-    T99_local = fd.ops.matmul(T96, mlp_linear0_weight)
-    T99 = fd.ops.sum(T99_local, [0])  # allreduce
-    T100 = fd.ops.mul(T98, T97)
-    T105 = fd.ops.reshape(T99, new_shape=[b, s, e])
-    T110 = fd.ops.broadcast_in_dim(
-        layernorm1_weight, shape=[b, s, e], broadcast_dims=[2]
+    S96 = fd.define_scalar(1.11111, dtype=DataType.Double)
+    T97 = fd.ops.mul(T80, S96)
+    T98 = fd.ops.cast(fd.inp, dtype=DataType.Float)
+    T99 = fd.ops.cast(T85, dtype=DataType.Float)
+    T100 = fd.ops.cast(T90, dtype=DataType.Float)
+    T105 = fd.ops.broadcast_in_dim(T95, shape=[b, s, e], broadcast_dims=[0, 1, 2])
+    T106 = fd.ops.add(T98, T97)
+    T107 = fd.ops.mul(T100, T99)
+    T108 = fd.ops.sub(T106, T105)
+    T109 = fd.ops.mul(T108, T107)
+    T110 = fd.ops.sum(T109, dims=[0, 2], keepdim=False, dtype=DataType.Null)
+    T115 = fd.ops.broadcast_in_dim(T110, shape=[b, s, 1], broadcast_dims=[1])
+    T120 = fd.ops.broadcast_in_dim(
+        fd.layernorm1_rstd, shape=[b, s, e], broadcast_dims=[0, 1, 2]
     )
-    T115 = fd.ops.broadcast_in_dim(
-        layernorm1_mean, shape=[b, s, 1], broadcast_dims=[0, 1]
+    S121 = fd.define_scalar(3.00000, dtype=DataType.Double)
+    T122 = fd.ops.pow(fd.layernorm1_rstd, S121)
+    S123 = fd.define_scalar(-0.500000, dtype=DataType.Double)
+    T124 = fd.ops.mul(S123, T115)
+    T125 = fd.ops.mul(T120, T107)
+    T126 = fd.ops.mul(T124, T122)
+    T127 = fd.ops.neg(T125)
+    T128 = fd.ops.sum(T126, dims=[0, 2], keepdim=False, dtype=DataType.Null)
+    T129 = fd.ops.sum(T127, dims=[0, 2], keepdim=False, dtype=DataType.Null)
+    T133 = fd.ops.broadcast_in_dim(T128, shape=[b, s], broadcast_dims=[1])
+    T138 = fd.ops.broadcast_in_dim(T129, shape=[b, s, 1], broadcast_dims=[1])
+    T143 = fd.ops.broadcast_in_dim(
+        fd.layernorm1_mean, shape=[b, s, 1], broadcast_dims=[0, 1]
     )
-    S116 = fd.define_scalar(1.11111, dtype=DataType.Double)
-    T117 = fd.ops.mul(T100, S116)
-    T118 = fd.ops.cast(inp, dtype=DataType.Float)
-    T119 = fd.ops.cast(T105, dtype=DataType.Float)
-    T120 = fd.ops.cast(T110, dtype=DataType.Float)
-    T125 = fd.ops.broadcast_in_dim(T115, shape=[b, s, e], broadcast_dims=[0, 1, 2])
-    T126 = fd.ops.add(T118, T117)
-    T127 = fd.ops.mul(T120, T119)
-    T128 = fd.ops.sub(T126, T125)
-    T129 = fd.ops.mul(T128, T127)
-    T130 = fd.ops.sum(T129, dims=[0, 2], keepdim=False, dtype=DataType.Null)
-    T135 = fd.ops.broadcast_in_dim(T130, shape=[b, s, 1], broadcast_dims=[1])
-    T140 = fd.ops.broadcast_in_dim(
-        layernorm1_rstd, shape=[b, s, e], broadcast_dims=[0, 1, 2]
+    T148 = fd.ops.broadcast_in_dim(T133, shape=[b, s, 1], broadcast_dims=[0, 1])
+    T149 = fd.ops.sum(T138, dims=[0, 2], keepdim=False, dtype=DataType.Null)
+    T154 = fd.ops.broadcast_in_dim(T143, shape=[b, s, e], broadcast_dims=[0, 1, 2])
+    T159 = fd.ops.broadcast_in_dim(T148, shape=[b, s, e], broadcast_dims=[0, 1, 2])
+    T163 = fd.ops.broadcast_in_dim(T149, shape=[b, s], broadcast_dims=[1])
+    T164 = fd.ops.sub(T106, T154)
+    S165 = fd.define_scalar(2.00000, dtype=DataType.Double)
+    T166 = fd.ops.mul(S165, T159)
+    T171 = fd.ops.broadcast_in_dim(T163, shape=[b, s, 1], broadcast_dims=[0, 1])
+    T172 = fd.ops.mul(T166, T164)
+    T177 = fd.ops.broadcast_in_dim(T171, shape=[b, s, e], broadcast_dims=[0, 1, 2])
+    S178 = fd.define_scalar(float(e), dtype=DataType.Double)
+    S179 = fd.ops.reciprocal(S178)
+    T180 = fd.ops.mul(T172, S179)
+    S181 = fd.define_scalar(1 / e, dtype=DataType.Double)
+    T182 = fd.ops.mul(S181, T177)
+    T183 = fd.ops.add(T182, T180)
+    T184 = fd.ops.add(T24, T125)
+    T185 = fd.ops.add(T184, T183)
+    S186 = fd.define_scalar(1.11111, dtype=DataType.Double)
+    T187 = fd.ops.mul(S186, T185)
+    T188 = fd.ops.mul(T77, T187)
+    T189 = fd.ops.cast(T188, dtype=DataType.BFloat16)
+    T193 = fd.ops.reshape(T189, new_shape=[b * s, e])
+    T194 = fd.ops.matmul(T193, fd.mha_linear1_weight)
+
+    # Reshape before slicing to avoid slicing along sharded dimensions.
+    T195 = fd.ops.reshape(fd.mha_linear0_out, new_shape=[b, s, h, 3 * e // h])
+    T244 = fd.ops.slice(
+        T195,
+        start_indices=[0, 0, 0, 2 * e // h],
+        end_indices=[b, s, h, 3 * e // h],
+        strides=[1, 1, 1, 1],
+        manual_normalization=0,
     )
-    S141 = fd.define_scalar(3.00000, dtype=DataType.Double)
-    T142 = fd.ops.pow(layernorm1_rstd, S141)
-    S143 = fd.define_scalar(-0.500000, dtype=DataType.Double)
-    T144 = fd.ops.mul(S143, T135)
-    T145 = fd.ops.mul(T140, T127)
-    T146 = fd.ops.mul(T144, T142)
-    T147 = fd.ops.neg(T145)
-    T148 = fd.ops.sum(T146, dims=[0, 2], keepdim=False, dtype=DataType.Null)
-    T149 = fd.ops.sum(T147, dims=[0, 2], keepdim=False, dtype=DataType.Null)
-    T153 = fd.ops.broadcast_in_dim(T148, shape=[b, s], broadcast_dims=[1])
-    T158 = fd.ops.broadcast_in_dim(T149, shape=[b, s, 1], broadcast_dims=[1])
-    T163 = fd.ops.broadcast_in_dim(
-        layernorm1_mean, shape=[b, s, 1], broadcast_dims=[0, 1]
+    T250 = fd.ops.slice(
+        T195,
+        start_indices=[0, 0, 0, e // h],
+        end_indices=[b, s, h, 2 * e // h],
+        strides=[1, 1, 1, 1],
+        manual_normalization=0,
     )
-    T168 = fd.ops.broadcast_in_dim(T153, shape=[b, s, 1], broadcast_dims=[0, 1])
-    T169 = fd.ops.sum(T158, dims=[0, 2], keepdim=False, dtype=DataType.Null)
-    T174 = fd.ops.broadcast_in_dim(T163, shape=[b, s, e], broadcast_dims=[0, 1, 2])
-    T179 = fd.ops.broadcast_in_dim(T168, shape=[b, s, e], broadcast_dims=[0, 1, 2])
-    T183 = fd.ops.broadcast_in_dim(T169, shape=[b, s], broadcast_dims=[1])
-    T184 = fd.ops.sub(T126, T174)
-    S185 = fd.define_scalar(2.00000, dtype=DataType.Double)
-    T186 = fd.ops.mul(S185, T179)
-    T191 = fd.ops.broadcast_in_dim(T183, shape=[b, s, 1], broadcast_dims=[0, 1])
-    T192 = fd.ops.mul(T186, T184)
-    T197 = fd.ops.broadcast_in_dim(T191, shape=[b, s, e], broadcast_dims=[0, 1, 2])
-    S198 = fd.define_scalar(e, dtype=DataType.Double)
-    S199 = fd.ops.reciprocal(S198)
-    T200 = fd.ops.mul(T192, S199)
-    S201 = fd.define_scalar(1 / e, dtype=DataType.Double)
-    T202 = fd.ops.mul(S201, T197)
-    T203 = fd.ops.add(T202, T200)
-    T204 = fd.ops.add(T145, T203)
-    T205 = fd.ops.add(T33, T204)
-    S206 = fd.define_scalar(1.11111, dtype=DataType.Double)
-    T207 = fd.ops.mul(S206, T205)
-    T208 = fd.ops.mul(T97, T207)
-    T209 = fd.ops.cast(T208, dtype=DataType.BFloat16)
-    T213 = fd.ops.reshape(T209, new_shape=[b * s, e])
-    T214 = fd.ops.matmul(T213, mha_linear1_weight)
-    T227 = fd.ops.slice(
-        mha_linear0_out,
-        start_indices=[0, 0, 0, e * 2 // d],
-        end_indices=[d, b, s, e * 3 // d],
-    )
-    T240 = fd.ops.slice(
-        mha_linear0_out,
-        start_indices=[0, 0, 0, e // d],
-        end_indices=[d, b, s, e * 2 // d],
-    )
-    T253 = fd.ops.slice(
-        mha_linear0_out,
+    T256 = fd.ops.slice(
+        T195,
         start_indices=[0, 0, 0, 0],
-        end_indices=[d, b, s, e // d],
+        end_indices=[b, s, h, e // h],
+        strides=[1, 1, 1, 1],
+        manual_normalization=0,
     )
-    T258 = fd.ops.reshape(T214, new_shape=[d, b, s, e // d])
-    T264 = fd.ops.reshape(T227, new_shape=[d, b, s, h // d, e // h])
-    T270 = fd.ops.reshape(T240, new_shape=[d, b, s, h // d, e // h])
-    T276 = fd.ops.reshape(T253, new_shape=[d, b, s, h // d, e // h])
-    T282 = fd.ops.reshape(T258, new_shape=[d, b, s, h // d, e // h])
-    T283 = fd.ops.permute(T264, dims=[0, 1, 3, 2, 4])
-    T284 = fd.ops.permute(T270, dims=[0, 1, 3, 2, 4])
-    T285 = fd.ops.permute(T276, dims=[0, 1, 3, 2, 4])
-    T286 = fd.ops.permute(T282, dims=[0, 1, 3, 2, 4])
-    S287 = fd.define_scalar(0.100000, dtype=DataType.Double)
-    S288 = fd.define_scalar(True, dtype=DataType.Bool)
-    T289, T290, T291 = fd.ops.sdpfa_bwd(
-        T286,
-        T285,
-        T284,
-        T283,
-        sdpa_out,
-        sdpa_log_sumexp,
-        S287,
-        S288,
-        mha_sdpa_seed,
-        mha_sdpa_offset,
+    T238 = fd.ops.reshape(T194, new_shape=[b, s, e])
+    T262 = fd.ops.reshape(T238, new_shape=[b, s, h, e // h])
+    T263 = fd.ops.permute(T244, dims=[0, 2, 1, 3])
+    T264 = fd.ops.permute(T250, dims=[0, 2, 1, 3])
+    T265 = fd.ops.permute(T256, dims=[0, 2, 1, 3])
+    T266 = fd.ops.permute(T262, dims=[0, 2, 1, 3])
+    S267 = fd.define_scalar(0.100000, dtype=DataType.Double)
+    S268 = fd.define_scalar(True, dtype=DataType.Bool)
+    T269, T270, T271 = fd.ops.sdpfa_bwd(
+        T266,
+        T265,
+        T264,
+        T263,
+        fd.sdpa_out,
+        fd.sdpa_logsum_exp,
+        S267,
+        S268,
+        fd.sdpa_seed,
+        fd.sdpa_offset,
         None,
     )
-    T292 = fd.ops.permute(T291, dims=[0, 1, 3, 2, 4])
-    T293 = fd.ops.permute(T290, dims=[0, 1, 3, 2, 4])
-    T294 = fd.ops.permute(T289, dims=[0, 1, 3, 2, 4])
-    T299 = fd.ops.reshape(T292, new_shape=[d, b, s, e // d])
-    T304 = fd.ops.reshape(T293, new_shape=[d, b, s, e // d])
-    T309 = fd.ops.reshape(T294, new_shape=[d, b, s, e // d])
-    T310 = fd.ops.cat([T309, T304, T299], dim=3)
-    T314 = fd.ops.reshape(T310, new_shape=[d, b * s, e * 3 // d])
-    T315_local = fd.ops.matmul(T314, mha_linear0_weight)
-    T315 = fd.ops.sum(T315_local, [0])  # allreduce
-    T320 = fd.ops.reshape(T315, new_shape=[b, s, e])
-    T325 = fd.ops.broadcast_in_dim(
-        layernorm0_weight, shape=[b, s, e], broadcast_dims=[2]
+    T272 = fd.ops.permute(T271, dims=[0, 2, 1, 3])
+    T273 = fd.ops.permute(T270, dims=[0, 2, 1, 3])
+    T274 = fd.ops.permute(T269, dims=[0, 2, 1, 3])
+    # Cat before reshape to avoid concatenating along sharded dimensions.
+
+    T290 = fd.ops.cat([T274, T273, T272], dim=3, manual_padding=0)
+    T291 = fd.ops.reshape(T290, new_shape=[b, s, 3 * e])
+    T294 = fd.ops.reshape(T291, new_shape=[b * s, 3 * e])
+    T295 = fd.ops.matmul(T294, fd.mha_linear0_weight)
+    T300 = fd.ops.reshape(T295, new_shape=[b, s, e])
+    T305 = fd.ops.broadcast_in_dim(
+        fd.layernorm0_weight, shape=[b, s, e], broadcast_dims=[2]
     )
-    T330 = fd.ops.broadcast_in_dim(
-        layernorm0_mean, shape=[b, s, 1], broadcast_dims=[0, 1]
+    T310 = fd.ops.broadcast_in_dim(
+        fd.layernorm0_mean, shape=[b, s, 1], broadcast_dims=[0, 1]
     )
-    T331 = fd.ops.cast(T320, dtype=DataType.Float)
-    T332 = fd.ops.cast(T325, dtype=DataType.Float)
-    T337 = fd.ops.broadcast_in_dim(T330, shape=[b, s, e], broadcast_dims=[0, 1, 2])
-    T338 = fd.ops.mul(T332, T331)
-    T339 = fd.ops.sub(T118, T337)
-    T340 = fd.ops.mul(T339, T338)
-    T341 = fd.ops.sum(T340, dims=[0, 2], keepdim=False, dtype=DataType.Null)
-    T346 = fd.ops.broadcast_in_dim(T341, shape=[b, s, 1], broadcast_dims=[1])
-    T351 = fd.ops.broadcast_in_dim(
-        layernorm0_rstd, shape=[b, s, e], broadcast_dims=[0, 1, 2]
+    T311 = fd.ops.cast(T300, dtype=DataType.Float)
+    T312 = fd.ops.cast(T305, dtype=DataType.Float)
+    T317 = fd.ops.broadcast_in_dim(T310, shape=[b, s, e], broadcast_dims=[0, 1, 2])
+    T318 = fd.ops.mul(T312, T311)
+    T319 = fd.ops.sub(T98, T317)
+    T320 = fd.ops.mul(T319, T318)
+    T321 = fd.ops.sum(T320, dims=[0, 2], keepdim=False, dtype=DataType.Null)
+    T326 = fd.ops.broadcast_in_dim(T321, shape=[b, s, 1], broadcast_dims=[1])
+    T331 = fd.ops.broadcast_in_dim(
+        fd.layernorm0_rstd, shape=[b, s, e], broadcast_dims=[0, 1, 2]
     )
-    S352 = fd.define_scalar(3.00000, dtype=DataType.Double)
-    T353 = fd.ops.pow(layernorm0_rstd, S352)
-    S354 = fd.define_scalar(-0.500000, dtype=DataType.Double)
-    T355 = fd.ops.mul(S354, T346)
-    T356 = fd.ops.mul(T351, T338)
-    T357 = fd.ops.mul(T355, T353)
-    T358 = fd.ops.neg(T356)
-    T359 = fd.ops.sum(T357, dims=[0, 2], keepdim=False, dtype=DataType.Null)
-    T360 = fd.ops.sum(T358, dims=[0, 2], keepdim=False, dtype=DataType.Null)
-    T364 = fd.ops.broadcast_in_dim(T359, shape=[b, s], broadcast_dims=[1])
-    T369 = fd.ops.broadcast_in_dim(T360, shape=[b, s, 1], broadcast_dims=[1])
-    T374 = fd.ops.broadcast_in_dim(
-        layernorm0_mean, shape=[b, s, 1], broadcast_dims=[0, 1]
+    S332 = fd.define_scalar(3.00000, dtype=DataType.Double)
+    T333 = fd.ops.pow(fd.layernorm0_rstd, S332)
+    S334 = fd.define_scalar(-0.500000, dtype=DataType.Double)
+    T335 = fd.ops.mul(S334, T326)
+    T336 = fd.ops.mul(T331, T318)
+    T337 = fd.ops.mul(T335, T333)
+    T338 = fd.ops.neg(T336)
+    T339 = fd.ops.sum(T337, dims=[0, 2], keepdim=False, dtype=DataType.Null)
+    T340 = fd.ops.sum(T338, dims=[0, 2], keepdim=False, dtype=DataType.Null)
+    T344 = fd.ops.broadcast_in_dim(T339, shape=[b, s], broadcast_dims=[1])
+    T349 = fd.ops.broadcast_in_dim(T340, shape=[b, s, 1], broadcast_dims=[1])
+    T354 = fd.ops.broadcast_in_dim(
+        fd.layernorm0_mean, shape=[b, s, 1], broadcast_dims=[0, 1]
     )
-    T379 = fd.ops.broadcast_in_dim(T364, shape=[b, s, 1], broadcast_dims=[0, 1])
-    T380 = fd.ops.sum(T369, dims=[0, 2], keepdim=False, dtype=DataType.Null)
-    T385 = fd.ops.broadcast_in_dim(T374, shape=[b, s, e], broadcast_dims=[0, 1, 2])
-    T390 = fd.ops.broadcast_in_dim(T379, shape=[b, s, e], broadcast_dims=[0, 1, 2])
-    T394 = fd.ops.broadcast_in_dim(T380, shape=[b, s], broadcast_dims=[1])
-    T395 = fd.ops.sub(T118, T385)
-    S396 = fd.define_scalar(2.00000, dtype=DataType.Double)
-    T397 = fd.ops.mul(S396, T390)
-    T402 = fd.ops.broadcast_in_dim(T394, shape=[b, s, 1], broadcast_dims=[0, 1])
-    T403 = fd.ops.mul(T397, T395)
-    T408 = fd.ops.broadcast_in_dim(T402, shape=[b, s, e], broadcast_dims=[0, 1, 2])
-    T413 = fd.ops.broadcast_in_dim(layernorm0_bias, shape=[b, s, e], broadcast_dims=[2])
-    T414 = fd.ops.mul(T339, T351)
-    T419 = fd.ops.broadcast_in_dim(layernorm1_bias, shape=[b, s, e], broadcast_dims=[2])
-    T420 = fd.ops.mul(T128, T140)
-    S421 = fd.define_scalar(e, dtype=DataType.Double)
-    S422 = fd.ops.reciprocal(S421)
-    T423 = fd.ops.mul(T403, S422)
-    S424 = fd.define_scalar(1 / e, dtype=DataType.Double)
-    T425 = fd.ops.mul(S424, T408)
-    T426 = fd.ops.cast(T413, dtype=DataType.Float)
-    T427 = fd.ops.mul(T414, T332)
-    T428 = fd.ops.permute(sdpa_out, dims=[0, 1, 3, 2, 4])
-    T429 = fd.ops.cast(T419, dtype=DataType.Float)
-    T430 = fd.ops.mul(T420, T120)
-    T431 = fd.ops.add(T425, T423)
-    T432 = fd.ops.add(T427, T426)
-    T433 = fd.ops.stride_order(T428, stride_order=[4, 3, 2, 1, 0])
-    T434 = fd.ops.add(T430, T429)
-    T435 = fd.ops.mul(T62, T68)
-    T436 = fd.ops.add(T356, T431)
-    T437 = fd.ops.mul(T414, T331)
-    T438 = fd.ops.cast(T310, dtype=DataType.Float)
-    T439 = fd.ops.cast(T432, dtype=DataType.BFloat16)
-    T444 = fd.ops.reshape(T433, new_shape=[d, b, s, e // d])
-    T445 = fd.ops.mul(T420, T119)
-    T446 = fd.ops.cast(T434, dtype=DataType.BFloat16)
-    T447 = fd.ops.cast(T435, dtype=DataType.BFloat16)
-    T448 = fd.ops.add(T205, T436)
-    T449 = fd.ops.sum(T437, dims=[0, 1], keepdim=False, dtype=DataType.Null)
-    T450 = fd.ops.sum(T331, dims=[0, 1], keepdim=False, dtype=DataType.Null)
-    T451 = fd.ops.sum(T438, dims=[1, 2], keepdim=False, dtype=DataType.Null)
-    T455 = fd.ops.reshape(T439, new_shape=[b * s, e])
-    T456 = fd.ops.permute(T314, dims=[0, 2, 1])
-    T457 = fd.ops.sum(T208, dims=[0, 1], keepdim=False, dtype=DataType.Null)
-    T461 = fd.ops.reshape(T444, new_shape=[d, b * s, e // d])
-    T462 = fd.ops.permute(T213, dims=[1, 0])
-    T463 = fd.ops.sum(T445, dims=[0, 1], keepdim=False, dtype=DataType.Null)
-    T464 = fd.ops.sum(T119, dims=[0, 1], keepdim=False, dtype=DataType.Null)
-    T465 = fd.ops.sum(T82, dims=[1, 2], keepdim=False, dtype=DataType.Null)
-    T469 = fd.ops.reshape(T446, new_shape=[b * s, e])
-    T470 = fd.ops.permute(T96, dims=[0, 2, 1])
-    T471 = fd.ops.sum(T41, dims=[0, 1], keepdim=False, dtype=DataType.Null)
-    T475 = fd.ops.reshape(T447, new_shape=[d, b * s, e * 4 // d])
-    T476 = fd.ops.permute(T49, dims=[1, 0])
-    inp_grad = fd.ops.cast(T448, dtype=DataType.BFloat16)
-    layernorm0_weight_grad = fd.ops.cast(T449, dtype=DataType.BFloat16)
-    layernorm0_bias_grad = fd.ops.cast(T450, dtype=DataType.BFloat16)
-    mha_linear0_bias_grad = fd.ops.cast(T451, dtype=DataType.BFloat16)
-    mha_linear0_weight_grad = fd.ops.matmul(T456, T455)
-    mha_linear1_bias_grad = fd.ops.cast(T457, dtype=DataType.BFloat16)
-    mha_linear1_weight_grad = fd.ops.matmul(T462, T461)
-    layernorm1_weight_grad = fd.ops.cast(T463, dtype=DataType.BFloat16)
-    layernorm1_bias_grad = fd.ops.cast(T464, dtype=DataType.BFloat16)
-    mlp_linear0_bias_grad = fd.ops.cast(T465, dtype=DataType.BFloat16)
-    mlp_linear0_weight_grad = fd.ops.matmul(T470, T469)
-    mlp_linear1_bias_grad = fd.ops.cast(T471, dtype=DataType.BFloat16)
-    mlp_linear1_weight_grad = fd.ops.matmul(T476, T475)
+    T359 = fd.ops.broadcast_in_dim(T344, shape=[b, s, 1], broadcast_dims=[0, 1])
+    T360 = fd.ops.sum(T349, dims=[0, 2], keepdim=False, dtype=DataType.Null)
+    T365 = fd.ops.broadcast_in_dim(T354, shape=[b, s, e], broadcast_dims=[0, 1, 2])
+    T370 = fd.ops.broadcast_in_dim(T359, shape=[b, s, e], broadcast_dims=[0, 1, 2])
+    T374 = fd.ops.broadcast_in_dim(T360, shape=[b, s], broadcast_dims=[1])
+    T375 = fd.ops.sub(T98, T365)
+    S376 = fd.define_scalar(2.00000, dtype=DataType.Double)
+    T377 = fd.ops.mul(S376, T370)
+    T382 = fd.ops.broadcast_in_dim(T374, shape=[b, s, 1], broadcast_dims=[0, 1])
+    T387 = fd.ops.broadcast_in_dim(
+        fd.layernorm0_bias, shape=[b, s, e], broadcast_dims=[2]
+    )
+    T388 = fd.ops.mul(T319, T331)
+    T393 = fd.ops.broadcast_in_dim(
+        fd.layernorm1_bias, shape=[b, s, e], broadcast_dims=[2]
+    )
+    T394 = fd.ops.mul(T108, T120)
+    T395 = fd.ops.mul(T377, T375)
+    T400 = fd.ops.broadcast_in_dim(T382, shape=[b, s, e], broadcast_dims=[0, 1, 2])
+    T401 = fd.ops.cast(T387, dtype=DataType.Float)
+    T402 = fd.ops.mul(T388, T312)
+    T403 = fd.ops.permute(fd.sdpa_out, dims=[0, 2, 1, 3])
+    T404 = fd.ops.cast(T393, dtype=DataType.Float)
+    T405 = fd.ops.mul(T394, T100)
+    S406 = fd.define_scalar(e, dtype=DataType.Double)
+    S407 = fd.ops.reciprocal(S406)
+    T408 = fd.ops.mul(T395, S407)
+    S409 = fd.define_scalar(1 / e, dtype=DataType.Double)
+    T410 = fd.ops.mul(S409, T400)
+    T411 = fd.ops.add(T402, T401)
+    T412 = fd.ops.stride_order(T403, stride_order=[3, 2, 1, 0])
+    T413 = fd.ops.add(T405, T404)
+    T414 = fd.ops.mul(T51, T57)
+    T415 = fd.ops.add(T410, T408)
+    T416 = fd.ops.add(T185, T336)
+    T417 = fd.ops.mul(T388, T311)
+    T418 = fd.ops.cast(T291, dtype=DataType.Float)
+    T419 = fd.ops.cast(T411, dtype=DataType.BFloat16)
+    T424 = fd.ops.reshape(T412, new_shape=[b, s, e])
+    T425 = fd.ops.mul(T394, T99)
+    T426 = fd.ops.cast(T413, dtype=DataType.BFloat16)
+    T427 = fd.ops.cast(T414, dtype=DataType.BFloat16)
+    T428 = fd.ops.add(T416, T415)
+    T429 = fd.ops.sum(T417, dims=[0, 1], keepdim=False, dtype=DataType.Null)
+    T430 = fd.ops.sum(T311, dims=[0, 1], keepdim=False, dtype=DataType.Null)
+    T431 = fd.ops.sum(T418, dims=[0, 1], keepdim=False, dtype=DataType.Null)
+    T435 = fd.ops.reshape(T419, new_shape=[b * s, e])
+    T436 = fd.ops.permute(T294, dims=[1, 0])
+    T437 = fd.ops.sum(T188, dims=[0, 1], keepdim=False, dtype=DataType.Null)
+    T441 = fd.ops.reshape(T424, new_shape=[b * s, e])
+    T442 = fd.ops.permute(T193, dims=[1, 0])
+    T443 = fd.ops.sum(T425, dims=[0, 1], keepdim=False, dtype=DataType.Null)
+    T444 = fd.ops.sum(T99, dims=[0, 1], keepdim=False, dtype=DataType.Null)
+    T445 = fd.ops.sum(T71, dims=[0, 1], keepdim=False, dtype=DataType.Null)
+    T449 = fd.ops.reshape(T426, new_shape=[b * s, e])
+    T450 = fd.ops.permute(T76, dims=[1, 0])
+    T451 = fd.ops.sum(T30, dims=[0, 1], keepdim=False, dtype=DataType.Null)
+    T455 = fd.ops.reshape(T427, new_shape=[b * s, e * 4])
+    T456 = fd.ops.permute(T38, dims=[1, 0])
+    inp_grad = fd.ops.cast(T428, dtype=DataType.BFloat16)
+    layernorm0_weight_grad = fd.ops.cast(T429, dtype=DataType.BFloat16)
+    layernorm0_bias_grad = fd.ops.cast(T430, dtype=DataType.BFloat16)
+    mha_linear0_bias_grad = fd.ops.cast(T431, dtype=DataType.BFloat16)
+    mha_linear0_weight_grad = fd.ops.matmul(T436, T435)
+    mha_linear1_bias_grad = fd.ops.cast(T437, dtype=DataType.BFloat16)
+    mha_linear1_weight_grad = fd.ops.matmul(T442, T441)
+    layernorm1_weight_grad = fd.ops.cast(T443, dtype=DataType.BFloat16)
+    layernorm1_bias_grad = fd.ops.cast(T444, dtype=DataType.BFloat16)
+    mlp_linear0_bias_grad = fd.ops.cast(T445, dtype=DataType.BFloat16)
+    mlp_linear0_weight_grad = fd.ops.matmul(T450, T449)
+    mlp_linear1_bias_grad = fd.ops.cast(T451, dtype=DataType.BFloat16)
+    mlp_linear1_weight_grad = fd.ops.matmul(T456, T455)
     fd.add_output(mlp_linear1_weight_grad)
     fd.add_output(mlp_linear1_bias_grad)
     fd.add_output(mlp_linear0_weight_grad)
@@ -961,31 +969,12 @@ def transformer_backward_definition(
 def transformer_backward_multidevice_schedule(fd: FusionDefinition, num_devices: int):
     mesh = nvfuser.multidevice.DeviceMesh(range(num_devices))
     inputs = fd.fusion.inputs()
-
-    mlp_linear0_out = inputs[2]
-    out_grad = inputs[3]
-    mlp_linear1_weight = inputs[4]
-    mha_linear1_out = inputs[7]
-    mlp_linear0_weight = inputs[8]
-    layernorm1_weight = inputs[9]
-    layernorm1_mean = inputs[10]
-    inp = inputs[11]
-    layernorm1_rstd = inputs[12]
-    mha_linear1_weight = inputs[13]
-    mha_linear0_out = inputs[14]
-    sdpa_out = inputs[15]
-    sdpa_log_sumexp = inputs[16]
-    mha_linear0_weight = inputs[19]
-    layernorm0_weight = inputs[20]
-    layernorm0_mean = inputs[21]
-    layernorm0_rstd = inputs[22]
-    layernorm0_bias = inputs[23]
-    layernorm1_bias = inputs[24]
-
-    for in_tv in [
+    (
         mlp_linear0_out,
         out_grad,
+        mlp_dropout_mask,
         mlp_linear1_weight,
+        mha_dropout_mask,
         mha_linear1_out,
         mlp_linear0_weight,
         layernorm1_weight,
@@ -995,27 +984,41 @@ def transformer_backward_multidevice_schedule(fd: FusionDefinition, num_devices:
         mha_linear1_weight,
         mha_linear0_out,
         sdpa_out,
-        sdpa_log_sumexp,
+        sdpa_logsum_exp,
+        sdpa_seed,
+        sdpa_offset,
         mha_linear0_weight,
         layernorm0_weight,
         layernorm0_mean,
         layernorm0_rstd,
         layernorm0_bias,
         layernorm1_bias,
-    ]:
-        in_tv.set_device_mesh(mesh)
+    ) = inputs
+    for tv in inputs:
+        tv.set_device_mesh(mesh)
 
-    for in_tv in [
-        mlp_linear0_out,
-        mlp_linear1_weight,
-        mlp_linear0_weight,
-        mha_linear1_weight,
-        mha_linear0_out,
-        sdpa_out,
-        sdpa_log_sumexp,
+    for tv in [
         mha_linear0_weight,
+        mlp_linear0_weight,
     ]:
-        in_tv.axis(0).parallelize(nvfuser.ParallelType.mesh_x)
+        tv.split(0, num_devices, inner_split=False)
+        tv.axis(0).parallelize(nvfuser.ParallelType.mesh_x)
+
+    for tv in [
+        sdpa_out,
+        sdpa_logsum_exp,
+    ]:
+        tv.split(1, num_devices, inner_split=False)
+        tv.axis(1).parallelize(nvfuser.ParallelType.mesh_x)
+
+    for tv in [
+        mlp_linear0_out,
+        mha_linear0_out,
+        mha_linear1_weight,
+        mlp_linear1_weight,
+    ]:
+        tv.split(-1, num_devices, inner_split=False)
+        tv.axis(-2).parallelize(nvfuser.ParallelType.mesh_x)
 
 
 @pytest.mark.skipif(
@@ -1025,59 +1028,60 @@ def transformer_backward_multidevice_schedule(fd: FusionDefinition, num_devices:
 @pytest.mark.mpi
 def test_transformer_backward(multidevice_direct_test, benchmark):
     d = multidevice_direct_test.size
-
-    rank = multidevice_direct_test.rank
+    mesh = nvfuser.multidevice.DeviceMesh(range(d))
 
     b, s, h, e = 1, 2048, 96, 12288
 
     torch.cuda.set_device(multidevice_direct_test.local_rank)
 
     mlp_linear0_out = torch.testing.make_tensor(
-        d, b, s, e * 4 // d, dtype=torch.bfloat16, device="cpu"
+        b, s, e * 4, dtype=torch.bfloat16, device="cpu"
     )
     mlp_linear1_weight = torch.testing.make_tensor(
-        d, e, e * 4 // d, dtype=torch.bfloat16, device="cpu"
+        e, e * 4, dtype=torch.bfloat16, device="cpu"
     )
     mlp_linear0_weight = torch.testing.make_tensor(
-        d, e * 4 // d, e, dtype=torch.bfloat16, device="cpu"
+        e * 4, e, dtype=torch.bfloat16, device="cpu"
     )
     mha_linear1_weight = torch.testing.make_tensor(
-        d, e, e // d, dtype=torch.bfloat16, device="cpu"
+        e, e, dtype=torch.bfloat16, device="cpu"
     )
     mha_linear0_out = torch.testing.make_tensor(
-        d, b, s, e * 3 // d, dtype=torch.bfloat16, device="cpu"
+        b, s, e * 3, dtype=torch.bfloat16, device="cpu"
     )
     sdpa_out = torch.testing.make_tensor(
-        d, b, s, h // d, e // h, dtype=torch.bfloat16, device="cpu"
-    ).permute(0, 1, 3, 2, 4)
+        b, h, s, e // h, dtype=torch.bfloat16, device="cpu"
+    )
+
     sdpa_log_sumexp = torch.testing.make_tensor(
-        d, b, h // d, s, dtype=torch.float32, device="cpu"
+        b, h, s, dtype=torch.float32, device="cpu"
     )
     mha_linear0_weight = torch.testing.make_tensor(
-        d, e * 3 // d, e, dtype=torch.bfloat16, device="cpu"
+        e * 3, e, dtype=torch.bfloat16, device="cpu"
     )
     sdpa_philox_seed, sdpa_philox_offset = create_sdpa_rng_tensors()
     ins = [
-        30,
-        2722423872872113,
-        mlp_linear0_out[rank : rank + 1].cuda(),
+        multidevice_direct_test.shard_tensor(mlp_linear0_out, -1, mesh),
         torch.testing.make_tensor((b, s, e), dtype=torch.bfloat16, device="cuda"),
-        mlp_linear1_weight[rank : rank + 1].cuda(),
-        29,
-        2722423872872113,
+        torch.testing.make_tensor((b, s, e), dtype=torch.bool, device="cuda"),
+        multidevice_direct_test.shard_tensor(mlp_linear1_weight, -1, mesh),
+        torch.testing.make_tensor((b, s, e), dtype=torch.bool, device="cuda"),
         torch.testing.make_tensor((b, s, e), dtype=torch.bfloat16, device="cuda"),
-        mlp_linear0_weight[rank : rank + 1].cuda(),
+        multidevice_direct_test.shard_tensor(mlp_linear0_weight, 0, mesh),
         torch.testing.make_tensor((e,), dtype=torch.bfloat16, device="cuda"),
         torch.testing.make_tensor((b, s), dtype=torch.float32, device="cuda"),
         torch.testing.make_tensor((b, s, e), dtype=torch.bfloat16, device="cuda"),
         torch.testing.make_tensor((b, s, 1), dtype=torch.float32, device="cuda"),
-        mha_linear1_weight[rank : rank + 1].cuda(),
-        mha_linear0_out[rank : rank + 1].cuda(),
-        sdpa_out[rank : rank + 1].cuda(),
-        sdpa_log_sumexp[rank : rank + 1].cuda(),
+        multidevice_direct_test.shard_tensor(mha_linear1_weight, -1, mesh),
+        multidevice_direct_test.shard_tensor(mha_linear0_out, -1, mesh),
+        multidevice_direct_test.shard_tensor(sdpa_out, 1, mesh)
+        .transpose(1, 2)
+        .contiguous()
+        .transpose(1, 2),
+        multidevice_direct_test.shard_tensor(sdpa_log_sumexp, 1, mesh),
         sdpa_philox_seed,
         sdpa_philox_offset,
-        mha_linear0_weight[rank : rank + 1].cuda(),
+        multidevice_direct_test.shard_tensor(mha_linear0_weight, 0, mesh),
         torch.testing.make_tensor((e,), dtype=torch.bfloat16, device="cuda"),
         torch.testing.make_tensor((b, s), dtype=torch.float32, device="cuda"),
         torch.testing.make_tensor((b, s, 1), dtype=torch.float32, device="cuda"),
@@ -1086,10 +1090,13 @@ def test_transformer_backward(multidevice_direct_test, benchmark):
     ]
 
     with FusionDefinition() as fd:
-        transformer_backward_definition(fd, d, b, s, h, e)
+        transformer_backward_definition(fd, b, s, h, e)
         transformer_backward_multidevice_schedule(fd, d)
 
-    warmup_fn, benchmark_fn = get_benchmark_fns(lambda: fd.execute(ins))
+    # Resize scheduler disabled due to #4890
+    warmup_fn, benchmark_fn = get_benchmark_fns(
+        lambda: fd.execute(ins, _disable_options=["resize_scheduler"])
+    )
 
     (
         mlp_linear1_weight_grad,
@@ -1106,16 +1113,16 @@ def test_transformer_backward(multidevice_direct_test, benchmark):
         layernorm0_weight_grad,
         inp_grad,
     ) = warmup_fn()
-    _assert_shape_dtype(mlp_linear1_weight_grad, [1, e, e * 4 // d], torch.bfloat16)
+    _assert_shape_dtype(mlp_linear1_weight_grad, [e, e * 4 // d], torch.bfloat16)
     _assert_shape_dtype(mlp_linear1_bias_grad, [e], torch.bfloat16)
-    _assert_shape_dtype(mlp_linear0_weight_grad, [1, e * 4 // d, e], torch.bfloat16)
-    _assert_shape_dtype(mlp_linear0_bias_grad, [1, e * 4 // d], torch.bfloat16)
+    _assert_shape_dtype(mlp_linear0_weight_grad, [e * 4 // d, e], torch.bfloat16)
+    _assert_shape_dtype(mlp_linear0_bias_grad, [e * 4 // d], torch.bfloat16)
     _assert_shape_dtype(layernorm1_bias_grad, [e], torch.bfloat16)
     _assert_shape_dtype(layernorm1_weight_grad, [e], torch.bfloat16)
-    _assert_shape_dtype(mha_linear1_weight_grad, [1, e, e // d], torch.bfloat16)
+    _assert_shape_dtype(mha_linear1_weight_grad, [e, e // d], torch.bfloat16)
     _assert_shape_dtype(mha_linear1_bias_grad, [e], torch.bfloat16)
-    _assert_shape_dtype(mha_linear0_weight_grad, [1, e * 3 // d, e], torch.bfloat16)
-    _assert_shape_dtype(mha_linear0_bias_grad, [1, e * 3 // d], torch.bfloat16)
+    _assert_shape_dtype(mha_linear0_weight_grad, [e * 3 // d, e], torch.bfloat16)
+    _assert_shape_dtype(mha_linear0_bias_grad, [e * 3 // d], torch.bfloat16)
     _assert_shape_dtype(layernorm0_bias_grad, [e], torch.bfloat16)
     _assert_shape_dtype(layernorm0_weight_grad, [e], torch.bfloat16)
     _assert_shape_dtype(inp_grad, [b, s, e], torch.bfloat16)

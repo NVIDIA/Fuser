@@ -8,23 +8,29 @@
 // This is a refactor of the tests used for PyTorch macros --
 // NVF_ERROR and NVF_CHECK.
 
-#include <csrc/exceptions.h>
-#include <gtest/gtest.h>
 #include <stdexcept>
 
+#include <gmock/gmock-matchers.h>
+#include <gtest/gtest.h>
+
+#include <exceptions.h>
 #include <tests/cpp/utils.h>
 #include <tests/cpp/validator.h>
 
 namespace nvfuser {
 
+using ExceptionTest = NVFuserTest;
+
+using testing::HasSubstr;
+
 namespace {
 
 template <class Functor>
-inline void expectThrowsEq(Functor&& functor, const char* expectedMessage) {
+inline void expectThrows(Functor&& functor, const char* expectedMessage) {
   try {
     std::forward<Functor>(functor)();
   } catch (const nvfError& e) {
-    EXPECT_STREQ(e.what_without_backtrace(), expectedMessage);
+    EXPECT_THAT(e.what_without_backtrace(), HasSubstr(expectedMessage));
     return;
   }
   ADD_FAILURE() << "Expected to throw exception with message \""
@@ -32,8 +38,8 @@ inline void expectThrowsEq(Functor&& functor, const char* expectedMessage) {
 }
 } // namespace
 
-TEST_F(NVFuserTest, ErrorFormatting) {
-  expectThrowsEq(
+TEST_F(ExceptionTest, ErrorFormatting) {
+  expectThrows(
       []() { NVF_CHECK(false, "This is invalid"); }, "This is invalid");
 }
 
@@ -53,7 +59,7 @@ void failError() {
 }
 } // namespace
 
-TEST_F(NVFuserTest, MultipleArgCalls) {
+TEST_F(ExceptionTest, MultipleArgCalls) {
   assertionArgumentCounter = 0;
   // NOLINTNEXTLINE(cppcoreguidelines-avoid-goto,hicpp-avoid-goto)
   EXPECT_ANY_THROW(failCheck());

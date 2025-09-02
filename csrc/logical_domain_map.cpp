@@ -267,6 +267,7 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseLogicalDomainMap::map(
             ops::mapMatmulOpIterDomains(
                 producer_logical, input_position, out_size);
         pairwiseMapAllIds(aligned_producer_ids, consumer_root);
+
         return dom_map;
       }
       // note op->beta() should map as a pointwise
@@ -277,6 +278,41 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseLogicalDomainMap::map(
       // TODO: map output block scale as well
       return dom_map;
     }
+  }
+
+  // For CutlassNvfp4GroupedMmaOp, use the corresponding mapped input
+  // iterdomains. Note that we are only mapping input matrices to output
+  if (CutlassNvfp4GroupedMmaOp* op =
+          dynamic_cast<CutlassNvfp4GroupedMmaOp*>(consumer_tv_->definition())) {
+    int64_t ndims_out = std::ssize(consumer_root);
+    // [rk] is the reduction axis for the matmul operation, it only exists if k
+    // is not broadcast.
+    bool has_rk = consumer_root.back()->isReduction();
+    int64_t out_non_rk_last_idx = has_rk ? ndims_out - 2 : ndims_out - 1;
+
+    int64_t last_producer_idx = std::ssize(producer_logical) - 1;
+    if (producer_tv_ == op->matrix1()) {
+      // mapping m dimension;
+      updatePairwiseLogicalDomainMap(
+          producer_logical.at(last_producer_idx - 1),
+          consumer_root.at(out_non_rk_last_idx - 1));
+      // mapping rk/k dimension;
+      if (has_rk) {
+        updatePairwiseLogicalDomainMap(
+            producer_logical.at(last_producer_idx), consumer_root.back());
+      }
+    } else if (producer_tv_ == op->matrix2()) {
+      // mapping n dimension;
+      updatePairwiseLogicalDomainMap(
+          producer_logical.at(last_producer_idx),
+          consumer_root.at(out_non_rk_last_idx));
+      // mapping rk/k dimension;
+      if (has_rk) {
+        updatePairwiseLogicalDomainMap(
+            producer_logical.at(last_producer_idx - 1), consumer_root.back());
+      }
+    }
+    return dom_map;
   }
 
   if (auto* op = dynamic_cast<LinearOp*>(consumer_tv_->definition())) {

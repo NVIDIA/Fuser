@@ -160,6 +160,7 @@ const std::unordered_map<std::string, EnableOption>& getEnableOptions() {
       {
           {"fuse_matmul", EnableOption::FuseMatmul},
           {"fuse_multiple_matmuls", EnableOption::FuseMultipleMatmuls},
+          {"greedy_scheduler", EnableOption::GreedyScheduler},
           {"id_model", EnableOption::IdModel},
           {"id_model_extra_validation", EnableOption::IdModelExtraValidation},
           {"io_to_lower_precision", EnableOption::IoToLowerPrecision},
@@ -174,6 +175,7 @@ const std::unordered_map<std::string, EnableOption>& getEnableOptions() {
           {"warn_register_spill", EnableOption::WarnRegisterSpill},
           {"ws_normalization", EnableOption::WarpSpecializedNormalization},
           {"host_ir_lowering", EnableOption::HostIrLowering},
+          {"fast_math", EnableOption::FastMath},
       };
   return available_options;
 }

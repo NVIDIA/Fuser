@@ -8921,7 +8921,7 @@ TEST_F(NVFuserTest, RepeatNonBroadcast) {
   auto tv1 = repeat(tv0, {2L});
   fusion.addOutput(tv1);
 
-  ASSERT_TRUE(tv1->definition()->isA<ViewOp>());
+  ASSERT_TRUE(tv1->definition()->isA<ReshapeOp>());
   ASSERT_TRUE(tv1->definition()->input(0)->definition()->isA<ExpandOp>());
   ASSERT_TRUE(tv1->definition()
                   ->input(0)

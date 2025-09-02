@@ -393,7 +393,7 @@ bool requiresForwardViewReplay(Fusion* fusion, ComputeAtMap& ca_map) {
 
 namespace {
 
-bool isSplitOnly(ViewOp* view_op) {
+bool isSplitOnly(ReshapeOp* view_op) {
   for (auto expr : StmtSort::getExprsTo(
            {view_op->out()->getLogicalDomain().begin(),
             view_op->out()->getLogicalDomain().end()})) {
@@ -413,8 +413,8 @@ bool reductionInterferingView(
     const ComputeAtMap& ca_map,
     TensorView* reduction_reference) {
   // If reshape transform only has split, it shouldn't influence reduction.
-  const auto& view_ops = ir_utils::getViewOps(fusion);
-  if (std::all_of(view_ops.begin(), view_ops.end(), [](ViewOp* view) {
+  const auto& view_ops = ir_utils::getReshapeOps(fusion);
+  if (std::all_of(view_ops.begin(), view_ops.end(), [](ReshapeOp* view) {
         return isSplitOnly(view);
       })) {
     return false;
@@ -1069,7 +1069,7 @@ bool hasProducerConsumerRelationship(const std::vector<Val*>& vals) {
 
 bool SchedulerTopologyChecker::hasCyclicReshape(Fusion* fusion) {
   // Do some quick filtering before creating an Exact graph
-  auto reshape_ops = ir_utils::getOpsOfType<ViewOp>(fusion);
+  auto reshape_ops = ir_utils::getOpsOfType<ReshapeOp>(fusion);
 
   // At least there must be multiple reshape ops
   if (reshape_ops.size() < 2) {
@@ -1080,7 +1080,7 @@ bool SchedulerTopologyChecker::hasCyclicReshape(Fusion* fusion) {
   std::vector<Val*> reshape_outputs;
   reshape_outputs.reserve(reshape_ops.size());
   std::ranges::transform(
-      reshape_ops, std::back_inserter(reshape_outputs), [](ViewOp* reshape) {
+      reshape_ops, std::back_inserter(reshape_outputs), [](ReshapeOp* reshape) {
         return reshape->out();
       });
   if (!hasProducerConsumerRelationship(reshape_outputs)) {
@@ -1096,7 +1096,7 @@ bool SchedulerTopologyChecker::hasCyclicReshape(Fusion* fusion) {
       std::pair<std::vector<IterDomain*>, std::vector<IterDomain*>>>
       reshape_ids;
 
-  auto getReshapeIds = [&reshape_ids](ViewOp* reshape) {
+  auto getReshapeIds = [&reshape_ids](ReshapeOp* reshape) {
     auto reshape_out_tv = reshape->out();
     auto it = reshape_ids.find(reshape_out_tv);
     if (it == reshape_ids.end()) {
