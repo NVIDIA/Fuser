@@ -189,11 +189,7 @@ void insertReshardingSetsAfter(Fusion* fusion) {
       // ParallelType::Serial is required here so the output is sharded as
       // [DIDx(i0), i1] instead of [DIDx(i0), DIDx(i1)] when sharding using
       // input as the reference.
-      shardAllLike(
-          input,
-          {output},
-          std::unordered_set<ParallelType>(
-              {kParallelTypeDIDs.begin(), kParallelTypeDIDs.end()}));
+      shardAllLike(input, {output}, allParallelTypes());
     }
   }
 }
