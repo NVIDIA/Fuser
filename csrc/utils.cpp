@@ -178,30 +178,14 @@ int64_t getThreadsPerSMGivenRegPerThread(int64_t reg_per_thread) {
   return num_warps * warp_size;
 }
 
-const char* getNvFuserEnv(const char* env_name, const char* default_value) {
+const char* getNvFuserEnv(
+    const std::string& env_name,
+    const char* default_value) {
   // Prepend the default prefix and try if the variable is defined.
-  const std::string prefix = "NVFUSER_";
-  auto prefixed_name = prefix + env_name;
-  auto env = std::getenv(prefixed_name.c_str());
-  if (env) {
+  const std::string prefixed_name = "NVFUSER_" + env_name;
+  if (const char* env = std::getenv(prefixed_name.c_str())) {
     return env;
   }
-
-  // Try the PYTROCH_NVFUSER prefix as well, which is considered
-  // deprecated.
-  const std::string pyt_prefix = "PYTORCH_NVFUSER_";
-  auto pyt_prefixed_name = pyt_prefix + env_name;
-  auto pyt_env = std::getenv(pyt_prefixed_name.c_str());
-  if (pyt_env) {
-    TORCH_WARN(
-        "Environment variable, ",
-        pyt_prefixed_name,
-        ", is deprecated. Please use ",
-        prefixed_name,
-        " instead.");
-    return pyt_env;
-  }
-
   return default_value;
 }
 
