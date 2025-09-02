@@ -9167,6 +9167,25 @@ TEST_F(NVFuserTest, InliningPosWithVectorizedCastOps) {
   testValidate(&fusion, outputs, {t0, t1}, __LINE__, __FILE__);
 }
 
+TEST_F(NVFuserTest, AvoidLLForLongLongMin) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+
+  auto dtype = DataType::Int;
+  auto tv0 = makeContigConcreteTensor({1024}, dtype);
+  fusion.addInput(tv0);
+  auto tv1 = max(tv0, {0});
+  fusion.addOutput(tv1);
+
+  auto options =
+      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
+  auto t0 = at::randint(-1024, 1024, {1024}, options);
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs({t0});
+  testValidate(&fusion, outputs, {t0}, __LINE__, __FILE__);
+}
 // Test file size should be up to 10K LoC. Create a new file for more tests.
 
 } // namespace nvfuser
