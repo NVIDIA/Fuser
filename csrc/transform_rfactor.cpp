@@ -267,28 +267,26 @@ class ReplayRFactor : public ReplayTransformations {
     return transformed_logical;
   }
 };
+
 // Use the `replay_to_target_map` to replay the `replay_domain`.
-// `ignore_rfactor_ids` is true for consumers where the replay will not have
-// these ids since they are already reduced. If `propagate_padding = true`,
-// padding to multiple of warp is applied to the replayed ids. If
-// `propagate_parallelization = true`, replayed id is parallelized to the
-// original id's parallel type. Device and stream parallel types are always be
-// preserved in replay.
+// `ignore_ids` is the set of ids that should not be replayed. If
+// `propagate_padding = true`, padding to multiple of warp is applied to the
+// replayed ids. If `propagate_parallelization = true`, replayed id is
+// parallelized to the original id's parallel type. Device and stream parallel
+// types are always be preserved in replay.
 std::vector<IterDomain*> replayDomain(
     const std::vector<IterDomain*>& replay_domain,
-    std::unordered_map<IterDomain*, IterDomain*>& replay_to_target_map,
+    const std::unordered_map<IterDomain*, IterDomain*>& replay_to_target_map,
     const std::unordered_set<IterDomain*>& ignore_ids = {},
     bool propagate_padding = false,
     bool propagate_parallelization = false) {
   std::vector<IterDomain*> target_domain;
   target_domain.reserve(replay_domain.size());
-  for (const auto& replay_id : replay_domain) {
+  for (const auto& replay_id :
+       replay_domain | std::views::filter([&ignore_ids](IterDomain* replay_id) {
+         return !ignore_ids.contains(replay_id);
+       })) {
     auto target_id_it = replay_to_target_map.find(replay_id);
-
-    if (ignore_ids.count(replay_id)) {
-      continue;
-    }
-
     NVF_ERROR(
         target_id_it != replay_to_target_map.end(),
         "Error during rfactor replay, missing an axis.",
@@ -451,8 +449,10 @@ std::pair<TensorDomain*, TensorDomain*> TransformRFactor::runReplay(
 
   // Specify the logical domain of the producer which will match the consumer
   // root domain.
+  std::vector<IterDomain*> transformed_original_logical =
+      replay_rfactor.logical();
   std::vector<IterDomain*> new_producer_logical_domain = replayDomain(
-      replay_rfactor.logical_domain_,
+      transformed_original_logical,
       original_to_producer_id_map,
       /*ignore_ids=*/{},
       /*propagate_padding=*/false,
