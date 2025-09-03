@@ -351,21 +351,17 @@ std::vector<PolymorphicValue> ScatterOp::evaluate(
       default:
         NVF_THROW("Unsupported accumulation op: ", accumulateOp());
     }
-    if (src()->isA<TensorView>()) {
-      return {at::scatter(
-          input,
-          dimension,
-          index,
-          inputs.at(2).as<at::Tensor>(),
-          accumulate_op_str)};
-    } else {
-      return {at::scatter(
-          input,
-          dimension,
-          index,
-          PolymorphicValue_functions::toScalar(inputs.at(2)),
-          accumulate_op_str)};
-    }
+    // at::scatter_reduce doesn't seem to support scalar
+    // src. at::scatter does support but it seems it's deprecated and
+    // only supports add and multiply accumulation.
+    NVF_ERROR(src()->isA<TensorView>(),
+              "at::scatter_reduce does not support scalar src argument");
+    return {at::scatter_reduce(
+        input,
+        dimension,
+        index,
+        inputs.at(2).as<at::Tensor>(),
+        accumulate_op_str)};
   } else {
     if (src()->isA<TensorView>()) {
       return {
