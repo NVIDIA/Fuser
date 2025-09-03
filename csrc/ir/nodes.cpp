@@ -368,14 +368,25 @@ std::vector<PolymorphicValue> ScatterOp::evaluate(
         NVF_THROW("Unsupported accumulation op: ", accumulateOp());
     }
     // There doesn't seem to be at::scatter_reduce with a scalar src
-    NVF_ERROR(src()->isA<TensorView>(), "The source input must be a tensor for scatter-reduce");
-    return
-        {at::scatter_reduce(input, dimension, index, inputs.at(2).as<at::Tensor>(), accumulate_op_str)};
+    NVF_ERROR(
+        src()->isA<TensorView>(),
+        "The source input must be a tensor for scatter-reduce");
+    return {at::scatter_reduce(
+        input,
+        dimension,
+        index,
+        inputs.at(2).as<at::Tensor>(),
+        accumulate_op_str)};
   } else {
     if (src()->isA<TensorView>()) {
-      return {at::scatter(input, dimension, index, inputs.at(2).as<at::Tensor>())};
+      return {
+          at::scatter(input, dimension, index, inputs.at(2).as<at::Tensor>())};
     } else {
-      return {at::scatter(input, dimension, index,  PolymorphicValue_functions::toScalar(inputs.at(2)))};
+      return {at::scatter(
+          input,
+          dimension,
+          index,
+          PolymorphicValue_functions::toScalar(inputs.at(2)))};
     }
   }
 }
@@ -4032,12 +4043,8 @@ std::pair<TensorDomain*, TensorDomain*> TensorDomain::rFactor(
   return TransformRFactor::runReplay(this, axes_);
 }
 
-void TensorDomain::setLoopDomain(
-    std::vector<IterDomain*> new_loop_domain,
-    bool skip_validation) {
-  if (!skip_validation) {
-    validateLoopDomain(logical(), new_loop_domain, additionalIDs());
-  }
+void TensorDomain::setLoopDomain(std::vector<IterDomain*> new_loop_domain) {
+  validateLoopDomain(logical(), new_loop_domain, additionalIDs());
   loop_domain_ = std::move(new_loop_domain);
   initial_loop_domain_ = loop_domain_;
   resetDomains();
