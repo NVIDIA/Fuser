@@ -2058,7 +2058,7 @@ class SegmentedGroupTaskGraphConverter {
       int64_t numel = 1;
       if (runtime_info_ != nullptr) {
         // Get the actual size of the tensor allocation
-        if (tv->isFusionInput()) {
+        if (tv->isFusionInput() && !isSharded(tv)) {
           const std::vector<int64_t>& sizes =
               runtime_info_->getInputAllocationSizes(tv);
           const std::vector<int64_t>& strides =
@@ -2077,12 +2077,16 @@ class SegmentedGroupTaskGraphConverter {
           // Use ExpressionEvaluator for computed tensors assuming they are
           // contiguous
           for (IterDomain* id : tv->getMaybeAllocationDomain()) {
-            if (id->isBroadcast() || id->isReduction()) {
+            if (id->isBroadcast() || id->isReduction() || id->isDeviceDim()) {
               continue;
             }
-            numel *= runtime_info_->expressionEvaluator()
-                         .evaluate(id->extent())
-                         .as<int64_t>();
+            PolymorphicValue pv =
+                runtime_info_->expressionEvaluator().evaluate(id->extent());
+            // If we can't determine the size of this dimension, just assume
+            // it's 2. This way we will give precedence to tensors with
+            // allocation domains that have more concrete IDs.
+            int64_t dim_size = pv.is<int64_t>() ? pv.as<int64_t>() : 2;
+            numel *= dim_size;
           }
         }
       }
