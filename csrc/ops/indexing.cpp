@@ -223,11 +223,10 @@ TensorView* scatter(
             accumulate_op.value() == BinaryOpType::Min,
         "Unsupported accumulation op: ",
         accumulate_op.value());
-    IrBuilder::create<ScatterOp>(
-        out_tensor, self, dim, index, src, true, accumulate_op.value());
-  } else {
-    IrBuilder::create<ScatterOp>(out_tensor, self, dim, index, src);
   }
+
+  IrBuilder::create<ScatterOp>(
+      out_tensor, self, dim, index, src, accumulate_op);
 
   return out_tensor->as<TensorView>();
 }

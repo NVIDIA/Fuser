@@ -258,17 +258,8 @@ class ScatterOp : public Expr {
       Val* self,
       int64_t dim,
       Val* index,
-      Val* src);
-
-  ScatterOp(
-      IrBuilderPasskey,
-      Val* out,
-      Val* self,
-      int64_t dim,
-      Val* index,
       Val* src,
-      bool accumulate,
-      BinaryOpType bop);
+      std::optional<BinaryOpType> accumulate_op = std::nullopt);
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
@@ -309,6 +300,7 @@ class ScatterOp : public Expr {
   }
 
   BinaryOpType accumulateOp() const {
+    NVF_ERROR(accumulate());
     return attribute<BinaryOpType>(2);
   }
 };

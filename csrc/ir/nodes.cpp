@@ -290,35 +290,19 @@ ScatterOp::ScatterOp(
     Val* self,
     int64_t dim,
     Val* index,
-    Val* src)
-    : ScatterOp(
-          passkey,
-          out,
-          self,
-          dim,
-          index,
-          src,
-          false,
-          // This BinaryOpType will not be used
-          BinaryOpType::Add) {}
-
-ScatterOp::ScatterOp(
-    IrBuilderPasskey passkey,
-    Val* out,
-    Val* self,
-    int64_t dim,
-    Val* index,
     Val* src,
-    bool accumulate,
-    BinaryOpType bop)
+    std::optional<BinaryOpType> accumulate_op)
     : Expr(passkey) {
   addInput(self);
   addInput(index);
   addInput(src);
   addOutput(out);
   addDataAttribute(dim);
-  addDataAttribute(accumulate);
-  addDataAttribute(bop);
+  // is this accumulate?
+  addDataAttribute(accumulate_op.has_value());
+  if (accumulate_op.has_value()) {
+    addDataAttribute(accumulate_op.value());
+  }
 }
 
 std::string ScatterOp::toString(int indent_size) const {
@@ -367,16 +351,21 @@ std::vector<PolymorphicValue> ScatterOp::evaluate(
       default:
         NVF_THROW("Unsupported accumulation op: ", accumulateOp());
     }
-    // There doesn't seem to be at::scatter_reduce with a scalar src
-    NVF_ERROR(
-        src()->isA<TensorView>(),
-        "The source input must be a tensor for scatter-reduce");
-    return {at::scatter_reduce(
-        input,
-        dimension,
-        index,
-        inputs.at(2).as<at::Tensor>(),
-        accumulate_op_str)};
+    if (src()->isA<TensorView>()) {
+      return {at::scatter(
+          input,
+          dimension,
+          index,
+          inputs.at(2).as<at::Tensor>(),
+          accumulate_op_str)};
+    } else {
+      return {at::scatter(
+          input,
+          dimension,
+          index,
+          PolymorphicValue_functions::toScalar(inputs.at(2)),
+          accumulate_op_str)};
+    }
   } else {
     if (src()->isA<TensorView>()) {
       return {
