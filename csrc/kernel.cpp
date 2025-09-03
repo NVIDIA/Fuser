@@ -272,6 +272,10 @@ class KernelIrScanner : private IrVisitor {
     summary_.has_argsort = true;
   }
 
+  void handle(GroupedBlockScalingFactorLayoutOp* aop) final {
+    summary_.has_grouped_block_sf_layout = true;
+  }
+
   void handle(TopKOp* top) final {
     summary_.has_topk = true;
   }
