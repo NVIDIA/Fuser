@@ -103,10 +103,10 @@ void insertSegmentSetAfter(
   // Inherit the allocation domain from `use_of`. This is important to pass
   // AliasTest.Bookend_SegmentSetPreservesAllocation.
   // TODO: Replay from scatter output doesn't work as the loop domain
-  // is not mapped its logical domain. We might want to either extend
+  // is not mapped to its logical domain. We might want to either extend
   // selfReplay or create a new API that can propagate the allocation
   // domain only.
-  if (!ir_utils::isProducedBy<ScatterOp>(use_of)) {
+  if (!use_of->isDefinitionType<ScatterOp>()) {
     TransformReplay::selfReplay(
         use_of->domain(), copy->domain(), /*ignore_reductions=*/true);
   } else if (use_of->hasAllocation()) {
