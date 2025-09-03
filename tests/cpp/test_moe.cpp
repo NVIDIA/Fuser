@@ -78,7 +78,7 @@ TEST_P(SgLangMoETest, ComputeProblemSizes) {
 
   auto tv3 = ones({IrBuilder::create<Val>(num_tokens * topk)}, DataType::Int);
 
-  auto tv4 = indexPutAccumulate(tv2, tv1, tv3);
+  auto tv4 = scatter(tv2, 0, tv1, tv3, BinaryOpType::Add);
 
   fusion.addOutput(tv4);
 
