@@ -411,7 +411,6 @@ getShapeAndStrideAfterDimMerged(
   std::vector<int64_t> tensor_shape_vec(
       tensor.sizes().begin(), tensor.sizes().end());
   std::vector<int64_t> tensor_new_shape;
-  size_t i = 0;
   for (size_t idx = 0; idx < new_shape.size(); ++idx) {
     if (new_shape[idx] != -1) {
       tensor_new_shape.push_back(new_shape[idx]);
