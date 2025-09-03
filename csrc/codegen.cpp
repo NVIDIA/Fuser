@@ -1303,63 +1303,73 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
   }
 
   void handle(const ScatterOp* sop) final {
-    // generate code like T_output[... T_index[...]] = op(T_src[...]);
+    if (sop->accumulate()) {
+      handleScatterAccumulate(sop);
+      return;
+    }
 
-    auto dst = gen(sop->out());
-    auto src = gen(sop->src());
+    // Generate code like T_output[... T_index[...]] = op(T_src[...]);
+    //
+    // When value of index_tv are not unique, the behavior of Set is
+    // non-deterministic
+    indent() << gen(sop->out()) << " = " << gen(sop->src()) << ";\n";
+  }
+
+  // Atomic-based accumulation. Only supported with integer data or
+  // non determinism is excplicitly permitted
+  void handleScatterAccumulate(const ScatterOp* sop) {
+    const bool non_deterministic = isFloatingPointType(sop->src()->dtype()) &&
+        (sop->accumulateOp() != BinaryOpType::Max ||
+         sop->accumulateOp() != BinaryOpType::Min);
+
+    NVF_ERROR(
+        !at::globalContext().deterministicAlgorithms() || !non_deterministic,
+        "Trying to use non-deterministic instructions even though "
+        "deterministic algorithm is requested: ",
+        sop->toString());
+
+    NVF_ERROR(
+        sop->src()->dtype() == DataType::Int ||
+            sop->src()->dtype() == DataType::Int32 ||
+            sop->src()->dtype() == DataType::Float ||
+            sop->src()->dtype() == DataType::Double,
+        "Data type not supported: ",
+        sop->src()->dtype());
+
+    const auto dst = gen(sop->out());
+    const auto src = gen(sop->src());
 
     indent();
-    if (sop->accumulate()) {
-      bool non_deterministic = isFloatingPointType(sop->src()->dtype()) &&
-          (sop->accumulateOp() != BinaryOpType::Max ||
-           sop->accumulateOp() != BinaryOpType::Min);
-      NVF_ERROR(
-          !at::globalContext().deterministicAlgorithms() || !non_deterministic,
-          "Trying to use non-deterministic instructions even thought "
-          "deterministic algorithm is requested: ",
-          sop->toString());
-      //
-      NVF_ERROR(
-          sop->src()->dtype() == DataType::Int ||
-              sop->src()->dtype() == DataType::Int32 ||
-              sop->src()->dtype() == DataType::Float ||
-              sop->src()->dtype() == DataType::Double,
-          "Data type not supported: ",
-          sop->src()->dtype());
-      switch (sop->accumulateOp()) {
-        case BinaryOpType::Add:
-          if (sop->in()->dtype() == DataType::Int) {
-            // atomicAdd does not provide an overload for int64_t
-            code_ << "atomicAdd("
-                  << "reinterpret_cast<unsigned long long*>(&" << dst << "), "
-                  << "static_cast<unsigned long long>(" << src << "));\n";
-          } else {
-            code_ << "atomicAdd(" << "&" << dst << ", " << src << ");\n";
-          }
-          break;
-        case BinaryOpType::Max:
-          // CUDA doesn't provide atomicMax for float. Could be
-          // implemented using atomicCAS
-          NVF_ERROR(
-              isIntegralType(sop->src()->dtype()),
-              "Floating point max accumulation not supported");
-          code_ << "atomicMax(" << "&" << dst << ", " << src << ");\n";
-          break;
-        case BinaryOpType::Min:
-          // CUDA doesn't provide atomicMin for float. Could be
-          // implemented using atomicCAS
-          NVF_ERROR(
-              isIntegralType(sop->src()->dtype()),
-              "Floating point min accumulation not supported");
-          code_ << "atomicMin(" << "&" << dst << ", " << src << ");\n";
-          break;
-        default:
-          NVF_THROW("Unsupported accumulation op: ", sop->accumulateOp());
-      }
-    } else {
-      // When value of index_tv are not unique, the behavior of Set is
-      // non-deterministic
-      code_ << dst << " = " << gen(sop->src()) << ";\n";
+
+    switch (sop->accumulateOp()) {
+      case BinaryOpType::Add:
+        if (sop->in()->dtype() == DataType::Int) {
+          // atomicAdd does not provide an overload for int64_t
+          code_ << "atomicAdd("
+                << "reinterpret_cast<unsigned long long*>(&" << dst << "), "
+                << "static_cast<unsigned long long>(" << src << "));\n";
+        } else {
+          code_ << "atomicAdd(" << "&" << dst << ", " << src << ");\n";
+        }
+        break;
+      case BinaryOpType::Max:
+        // CUDA doesn't provide atomicMax for float. Could be
+        // implemented using atomicCAS
+        NVF_ERROR(
+            isIntegralType(sop->src()->dtype()),
+            "Floating point max accumulation not supported");
+        code_ << "atomicMax(" << "&" << dst << ", " << src << ");\n";
+        break;
+      case BinaryOpType::Min:
+        // CUDA doesn't provide atomicMin for float. Could be
+        // implemented using atomicCAS
+        NVF_ERROR(
+            isIntegralType(sop->src()->dtype()),
+            "Floating point min accumulation not supported");
+        code_ << "atomicMin(" << "&" << dst << ", " << src << ");\n";
+        break;
+      default:
+        NVF_THROW("Unsupported accumulation op: ", sop->accumulateOp());
     }
   }
 

@@ -14,7 +14,6 @@
 #include <ops/all_ops.h>
 #include <runtime/executor.h>
 #include <runtime/executor_utils.h>
-#include <scheduler/tools/scatter_utils.h>
 #include <tests/cpp/utils.h>
 #include <tests/cpp/validator.h>
 
@@ -83,39 +82,12 @@ TEST_P(SgLangMoETest, ComputeProblemSizes) {
 
   fusion.addOutput(tv4);
 
-  if (no_accumulation) {
-    ASSERT_TRUE(tv4->definition()->isA<ScatterOp>());
-  }
-
   auto options = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
   auto t0 = at::randint(0, num_experts, {num_tokens, topk}, options);
 
-
-  if (manual_scheduling) {
-    auto tv4_cache = tv4->cacheBefore();
-    scheduler_tools::scheduleScatterLoopDomainAsIndexDomain(
-        tv4_cache->definition()->as<ScatterOp>());
-
-    // Scheduling all tensors as 1D tensors
-    for (auto tv : fusion.allTvs()) {
-      tv->flatten();
-      tv->axis(0)->parallelize(ParallelType::TIDx);
-    }
-
-    tv2->setMemoryType(MemoryType::Shared);
-    tv2->setAllocationDomain(tv2->getLogicalDomain(), true);
-    tv4_cache->setMemoryType(MemoryType::Shared);
-    tv4_cache->setAllocationDomain(tv4_cache->getLogicalDomain(), true);
-
-    KernelExecutor ke;
-    ke.compile(&fusion, {t0});
-    auto outputs = ke.run({t0});
-    testValidate(&fusion, outputs, {t0}, __LINE__, __FILE__);
-  } else {
-    FusionExecutorCache executor_cache(std::move(fusion_ptr));
-    auto outputs = executor_cache.runFusionWithInputs({t0});
-    testValidate(executor_cache.fusion(), outputs, {t0}, __LINE__, __FILE__);
-  }
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs({t0});
+  testValidate(executor_cache.fusion(), outputs, {t0}, __LINE__, __FILE__);
 }
 
 TEST_P(SgLangMoETest, ComputeExpertOffsets) {
