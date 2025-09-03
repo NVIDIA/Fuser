@@ -6,6 +6,7 @@
  */
 // clang-format on
 #include <csrc/exceptions.h>
+#include <csrc/scheduler/tools/inlining.h>
 #include <fusion.h>
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
@@ -14,7 +15,6 @@
 #include <runtime/fusion_executor_cache.h>
 #include <tests/cpp/utils.h>
 #include <tests/cpp/validator.h>
-
 namespace nvfuser {
 
 using ScanTest = NVFuserTest;
@@ -520,4 +520,164 @@ INSTANTIATE_TEST_SUITE_P(
             BinaryOpType::Min,
             BinaryOpType::Mul),
         ::testing::Values(DataType::Float, DataType::Double, DataType::Int)));
+
+TEST_F(ScanTest, RFactorBlockReduction) {
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  std::vector<int64_t> shape = {4, 8192};
+  auto tv0 = makeContigConcreteTensor(shape);
+  fusion.addInput(tv0);
+  auto tv1 = set(tv0);
+  auto tv2 = sum(tv1, {-1});
+  auto tv3 = set(tv2);
+  fusion.addOutput(tv3);
+  auto unscheduled_fusion = fusion;
+
+  int64_t vect = 4, threads = 256;
+  for (auto tv : {tv1, tv2}) {
+    tv->split(1, vect);
+    tv->split(1, threads);
+  }
+  // [I, R, threads, vect]
+  // thread local reduction
+  auto tv4 = tv2->rFactor({3});
+  std::cout << "tv4: " << tv4->toString() << std::endl;
+  tv4->printTransforms();
+
+  // tv2: [I, R, threads]
+  // block reduction
+  auto tv5 = tv2->rFactor({2});
+  std::cout << "tv5: " << tv5->toString() << std::endl;
+  tv5->printTransforms();
+
+  // Parallelization strategy
+  for (auto tv : {tv1, tv2, tv3, tv4, tv5}) {
+    tv->axis(0)->parallelize(ParallelType::BIDx);
+    if (tv != tv3 && tv != tv2) {
+      tv->axis(2)->parallelize(ParallelType::TIDx);
+    }
+    if (tv == tv1) {
+      tv->axis(3)->parallelize(ParallelType::Vectorize);
+    }
+  }
+  inlineMost(std::vector<TensorView*>{tv1, tv3, tv4});
+  fusion.printMath();
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto input = at::randn({4, 8192}, options);
+
+  KernelExecutor ke;
+  ke.compile(&fusion, {input});
+  auto outputs = ke.run({input});
+
+  testValidate(&unscheduled_fusion, outputs, {input}, __LINE__, __FILE__);
+}
+
+// online computation of sum(exp(x - max(x)))
+// split x into 8 partitions xp1, xp2, ..., xp8
+// compute max and sum for each partition
+// allocate m[] and d[]
+// for i = 1, 2, ..., 8
+//   mi = max(xpi)
+//   di = sum(exp(xpi - mi))
+// for i = 1, 2, ..., 8
+//   m_final = max(mi)
+// for i = 1, 2, ..., 8
+//   d_final = sum(di * exp(m - mi))
+// return d
+TEST_F(ScanTest, OnlineSumExpXMinusMaxNoScan) {
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  std::vector<int64_t> shape = {4, 8, 1024};
+  auto tv0 = makeContigConcreteTensor(shape);
+  fusion.addInput(tv0);
+  auto tv1 = set(tv0);
+  auto tv2 = max(tv1, {2});
+  auto tv3 = broadcast(tv2, {false, false, true});
+  auto tv4 = sub(tv1, tv3);
+  auto tv5 = exp(tv4);
+  auto tv6 = sum(tv5, {2});
+  // m = max(tv2)
+  // d = sum(d * exp(m - max(m)))
+  auto tv7 = max(tv2, {1}); // {4,8} -> {4}
+  auto tv8 = broadcast(tv7, {false, true});
+  auto tv9 = sub(tv2, tv8); // mi - m
+  auto tv10 = exp(tv9); // exp(mi - m)
+  auto tv11 = mul(tv6, tv10); // di * exp(mi - m)
+  auto tv12 = sum(tv11, {1}); // sum(di * exp(mi - m))
+  auto tv13 = set(tv12);
+  fusion.addOutput(tv13);
+  auto unscheduled_fusion = fusion;
+
+  int64_t vect = 4, threads = 256;
+  for (auto tv : {tv1, tv2, tv3, tv4, tv5, tv6}) {
+    tv->split(2, vect);
+    tv->split(2, threads);
+  }
+
+  fusion.printMath();
+
+  // Parallelization strategy
+  for (auto tv :
+       {tv1, tv2, tv3, tv4, tv5, tv6, tv7, tv8, tv9, tv10, tv11, tv12, tv13}) {
+    tv->axis(0)->parallelize(ParallelType::BIDx);
+  }
+  for (auto tv : {tv1, tv2, tv3, tv4, tv5, tv6}) {
+    tv->axis(3)->parallelize(ParallelType::TIDx);
+  }
+  tv1->axis(4)->parallelize(ParallelType::Vectorize);
+
+  // [I1, I2, R, threads, vect]
+  // thread local reduction
+  auto tv14 = tv2->rFactor({2, 4});
+  auto tv15 = tv6->rFactor({2, 4});
+  std::cout << "tv14: " << tv14->toString() << std::endl;
+  tv14->printTransforms();
+  std::cout << "tv15: " << tv15->toString() << std::endl;
+  tv15->printTransforms();
+
+  // inlineMost also works, want to clearly split the kernel into 2 parts
+  // block reduction to get mi and di
+  // online merge of m[] and d[] to get the final m and d
+  tv6->inlineAt(1);
+
+  inlineMost(std::vector<TensorView*>{
+      tv1,
+      tv2,
+      tv3,
+      tv4,
+      tv5,
+      tv7,
+      tv8,
+      tv9,
+      tv10,
+      tv11,
+      tv12,
+      tv13,
+      tv14,
+      tv15});
+  fusion.printMath();
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto input = at::randn(shape, options);
+
+  KernelExecutor ke;
+  ke.compile(&fusion, {input});
+  auto outputs = ke.run({input});
+  // equivalent to sum(exp(x - max(x)))
+  auto input_reshaped = input.reshape({4, 8192});
+  auto aten_max = at::amax(input_reshaped, {1});
+  std::cout << "aten_max: " << aten_max << std::endl;
+  auto aten_exp = at::exp(input_reshaped - aten_max.unsqueeze(1));
+  auto aten_sum = at::sum(aten_exp, {1});
+  std::cout << "aten_sum: " << aten_sum << std::endl;
+  std::cout << "outputs[0]: " << outputs[0] << std::endl;
+
+  EXPECT_TRUE(
+      at::allclose(outputs[0].as<at::Tensor>(), aten_sum, 1e-5, 1e-8, true));
+}
 } // namespace nvfuser
