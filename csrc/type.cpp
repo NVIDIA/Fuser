@@ -10,8 +10,7 @@
 #include <ATen/cuda/CUDAContext.h>
 
 #include <sstream>
-#include <stdexcept>
-#include <unordered_map>
+#include <unordered_set>
 
 #include <ir/all_nodes.h>
 #include <tensor_metadata.h>
@@ -89,9 +88,8 @@ PrimDataType indexModeToDtype(KernelIndexMode index_mode) {
       return DataType::Int32;
     case KernelIndexMode::INT64:
       return DataType::Int;
-    default:
-      NVF_CHECK(false, "Invalid kernel index mode type.");
   }
+  std::unreachable();
 }
 
 KernelIndexMode indexTypeToMode(DataType index_type) {
@@ -330,9 +328,10 @@ static const char* val_type2string(ValType t) {
       return "Predicate";
     case ValType::TensorIndex:
       return "TensorIndex";
-    default:
-      NVF_THROW("No string found for val type.");
+    case ValType::Stream:
+      return "Stream";
   }
+  std::unreachable();
 }
 
 const char* predicate_type2string(PredicateType t) {
@@ -357,9 +356,8 @@ const char* predicate_type2string(PredicateType t) {
       return "OneDimTmaLoadExpectArrive";
     case PredicateType::OneDimTmaWaitParity:
       return "OneDimTmaWaitParity";
-    default:
-      NVF_THROW("No string found for predicate type.");
   }
+  std::unreachable();
 }
 
 bool needFloatSuffix(UnaryOpType t) {
@@ -613,9 +611,8 @@ static const char* binary_op_type2string(BinaryOpType t) {
       return "lessThan";
     case BinaryOpType::NE:
       return "notEqual";
-    default:
-      NVF_THROW("No string found for binary op type.");
   }
+  std::unreachable();
 }
 
 static const char* binary_op_integer_op2string(BinaryOpType t) {
@@ -719,9 +716,8 @@ static const char* ternary_op_type2string(TernaryOpType t) {
       return "where";
     case TernaryOpType::Philox:
       return "philox";
-    default:
-      NVF_THROW("Unexpected TernaryOpType");
   }
+  std::unreachable();
 }
 
 static const char* rng_op_type2string(RNGOpType t) {
@@ -811,9 +807,8 @@ static const char* memory_type2string(MemoryType t) {
       return "global";
     case MemoryType::Tensor:
       return "tensor";
-    default:
-      NVF_THROW("Unexpected MemoryType");
   }
+  std::unreachable();
 }
 
 static const char* id_map_mode_type2string(IdMappingMode t) {
@@ -832,10 +827,8 @@ static const char* id_map_mode_type2string(IdMappingMode t) {
       return "innermost";
     case IdMappingMode::PERMISSIVE_RESIZE:
       return "permissive_resize";
-    default:
-      // Don't try to print t as it would recursively call this function
-      NVF_THROW("Unexpected IdMappingMode Type.");
   }
+  std::unreachable();
 }
 
 static const char* iter_type2string(IterType t) {
@@ -854,10 +847,8 @@ static const char* iter_type2string(IterType t) {
       return "v";
     case IterType::Symbolic:
       return "?";
-    default:
-      // Don't try to print t as it would recursively call this function
-      NVF_THROW("Unexpected IterType");
   }
+  std::unreachable();
 }
 
 static const char* thread_size2string(ParallelType t) {
@@ -899,9 +890,8 @@ const char* load_store_type2string(LoadStoreOpType t) {
       return "LdTMem";
     case LoadStoreOpType::StTMem:
       return "StTMem";
-    default:
-      NVF_THROW("Unexpected parallel type");
   }
+  std::unreachable();
 }
 
 const unsigned int _WORD_SHIFT = 16;
@@ -1510,8 +1500,8 @@ std::ostream& operator<<(std::ostream& os, const SwizzleType& swizzle) {
     case SwizzleType::XOR:
       os << "Xor";
       break;
-    default:
-      NVF_THROW("undefined 2D swizzle");
+    case SwizzleType::CyclicShift:
+      os << "CyclicShift";
       break;
   }
   return os;
@@ -1531,9 +1521,6 @@ std::ostream& operator<<(std::ostream& os, const Swizzle2DType& swizzle) {
     case Swizzle2DType::CyclicShift:
       os << "CyclicShift";
       break;
-    default:
-      NVF_THROW("undefined 2D swizzle");
-      break;
   }
   return os;
 }
@@ -1549,9 +1536,6 @@ std::ostream& operator<<(std::ostream& os, const SwizzleMode& swizzle) {
     case SwizzleMode::Data:
       os << "Data";
       break;
-    default:
-      NVF_THROW("undefined 2D swizzle");
-      break;
   }
   return os;
 }
@@ -1563,9 +1547,6 @@ std::ostream& operator<<(std::ostream& os, const KernelIndexMode& index_mode) {
       break;
     case KernelIndexMode::INT64:
       os << "INT64";
-      break;
-    default:
-      NVF_THROW("undefined index mode");
       break;
   }
   return os;
@@ -1584,9 +1565,6 @@ std::ostream& operator<<(std::ostream& os, const CacheOp& cache_op) {
       break;
     case CacheOp::Global:
       os << "Global";
-      break;
-    default:
-      NVF_THROW("undefined cache operator");
       break;
   }
   return os;
@@ -1846,9 +1824,8 @@ std::ostream& operator<<(std::ostream& os, TMemRegisterDataPath dp) {
       return os << "16x256b";
     case TMemRegisterDataPath::Path16x32bx2:
       return os << "16x32bx2";
-    default:
-      NVF_THROW("Unknown TMemRegisterDataPath");
   }
+  std::unreachable();
 }
 
 std::ostream& operator<<(
