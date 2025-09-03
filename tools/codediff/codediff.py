@@ -709,6 +709,9 @@ class TestDiff:
 
 def sanitize_ptx_lines(lines: list[str]) -> list[str]:
     """Remove comments and remove kernel id"""
+    symbol_pattern = re.compile(r"\b_[_A-Za-z0-9]*\b")
+    comment_pattern = re.compile(r"//.*$")
+
     sanitary_lines = []
     for l in lines:
         # Replace mangled kernel names like
@@ -716,26 +719,13 @@ def sanitize_ptx_lines(lines: list[str]) -> list[str]:
         # or
         #   _ZN76_GLOBAL__N__00000000_37___tmp_kernel_4_cu_8995cef2_3255329nvfuser_4ENS_6TensorIfLi2ELi2EEES1_S1_
         # with
-        #   _ZN11kernelscope6kernelENS_6TensorIfLi2ELi2EEES1_S1_
-
-        # demangle first two parts after _ZN and replace with "kernelscope" and "kernel"
-        m = re.match(r"^(?P<prefix>^.*\b_Z?ZN)(?P<scopenamelen>\d+)_", l)
-        if m is not None:
-            d = m.groupdict()
-            scopenamelen = int(d["scopenamelen"])
-            # demangle second part in remainder after scope name
-            remainder = l[(len(d["prefix"]) + len(d["scopenamelen"]) + scopenamelen) :]
-            mrem = re.match(r"^(?P<varnamelen>\d+)", remainder)
-            if mrem is not None:
-                drem = mrem.groupdict()
-                varnamelen = int(drem["varnamelen"])
-                remainder = (
-                    "6kernel" + remainder[len(drem["varnamelen"]) + varnamelen :]
-                )
-            l = d["prefix"] + "11kernelscope" + remainder
+        #   _foo
+        #
+        # We actually match any word beginning with _ since these are typically symbol names like above in PTX
+        l = re.sub(symbol_pattern, "_symbol", l)
 
         # Remove comments. This fixes mismatches in PTX "callseq" comments, which appear to be non-repeatable.
-        l = re.sub(r"//.*$", "", l)
+        l = re.sub(comment_pattern, "", l)
         sanitary_lines.append(l)
     return sanitary_lines
 
