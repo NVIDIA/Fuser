@@ -76,4 +76,10 @@ NVF_API TensorView* takeAlongAxis(
     TensorView* index,
     int64_t dim);
 
+NVF_API TensorView* groupedBlockSfLayout(
+    TensorView* input,
+    TensorView* expert_offsets,
+    TensorView* sf_offsets,
+    BlockScalingFactorLayout layout);
+
 } // namespace nvfuser
