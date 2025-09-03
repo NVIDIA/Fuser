@@ -135,14 +135,6 @@ bool isExactParallelSharedMemAccess(TensorView* tv) {
   return true;
 }
 
-// Check for conditions where the predicate cannot be removed
-//  when either producer or consumer is in shared memory.
-bool needSharedMemPredicate(TensorView* producer, TensorView* consumer) {
-  // Indexing is based on consumer loop ids so check the consumer.
-
-  return false;
-}
-
 bool needsPredicateSharedMemAccess(const Expr* expr) {
   DEBUG_PRINT_SCOPE(expr);
 
