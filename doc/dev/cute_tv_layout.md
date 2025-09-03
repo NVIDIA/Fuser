@@ -90,22 +90,103 @@ TEST_F(CuTeTutorial, ThreadLayout) {
   NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
   const auto dtype = DataType::BFloat16;
 
+  DisableOptionsGuard disable_options_guard;
+  DisableOptionsGuard::getCurOptions().set(DisableOption::MagicZero);
+
   // Fusion Definition
   std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
   Fusion* fusion = fusion_ptr.get();
   FusionGuard fg(fusion);
 
-  TensorView* tv0 = makeContigConcreteTensor({-1, -1}, dtype); // M, K
+  constexpr int dim0 = 4, dim1 = 4;
+  TensorView* tv0 = makeContigConcreteTensor({dim0, dim1}, dtype);
   fusion->addInput(tv0);
   TensorView* tv1 = set(tv0);
   fusion->addOutput(tv1);
 
-  constexpr int dim0 = 8192, dim1 = 8192;
-  auto options = at::TensorOptions().dtype(at::kBFloat16).device(at::kCUDA, 0);
-  at::Tensor at_tv0 = at::randn({dim0, dim1}, options);
+  // Set the allocation domain to column-major.
+  tv0->setAllocationDomain({tv0->axis(1), tv0->axis(0)}, /*new_contiguity=*/true);
+  tv1->reorder({1, 0}); // traverse rows then column.
+  tv1->setAllocationDomain(tv1->getLoopDomain(), /*new_contiguity=*/true);
 
-  FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto cg_outputs = executor_cache.runFusionWithInputs({at_tv0});
+  fusion->printKernel();
+  /*
+  // The input and output tensors are column-major with shape (8, 4) and stride (1, 8).
+  __global__ void CUDAGeneratedKernel(Tensor<__bfloat, 2, 2> T0, Tensor<__bfloat, 2, 2> T1) {
+    #pragma unroll
+    for(nvfuser_index_t i0 = 0LL; i0 < 4LL; ++i0) {
+      nvfuser_index_t i1;
+      i1 = 8LL * i0;
+      #pragma unroll
+      for(nvfuser_index_t i2 = 0LL; i2 < 8LL; ++i2) {
+        nvfuser_index_t i3;
+        i3 = i1 + i2;
+        T1[i3]
+          = T0[i3];
+      }
+    }
+  }
+  */
+
+  tv1->split(-1, 2);
+  tv1->split(0, 2);
+  tv1->reorder({{0, 2}, {1, 0}, {2, 1}});
+
+  TransformPropagator propagator(tv1);
+  MaxLogicalDomainInfoSpanningTree(tv1).traverse(&propagator);
+
+  inlineMost();
+
+  fusion->printKernel();
+  /*
+  // After splitting and reordering the loop domain of TV1, the loop domain is [2, 2, 2, 2].
+  // The strides of the loop domain are [4, 2, 8, 1].
+  //
+  // How to create CuTe TV layout from NvFuser TensorDomain?
+  //   1) Reverse ordering from inner to outer loops.
+  //   2) Gather modes 0 and 1 and 2 and 3 together.
+  // This creates the shape ((2, 2), (2, 2)) and the stride ((1, 8), (2, 4)),
+  // which corresponds with the CuTe Thread-Value Layout.
+  __global__ void CUDAGeneratedKernel(Tensor<__bfloat, 2, 2> T0, Tensor<__bfloat, 2, 2> T1) {
+    #pragma unroll
+    for(nvfuser_index_t i0 = 0LL; i0 < 2LL; ++i0) {
+      nvfuser_index_t i1;
+      i1 = 4LL * i0;
+      #pragma unroll
+      for(nvfuser_index_t i2 = 0LL; i2 < 2LL; ++i2) {
+        nvfuser_index_t i3;
+        i3 = 2LL * i2;
+        nvfuser_index_t i4;
+        i4 = i1 + i3;
+        #pragma unroll
+        for(nvfuser_index_t i5 = 0LL; i5 < 2LL; ++i5) {
+          nvfuser_index_t i6;
+          i6 = i4 + (8LL * i5);
+          bool b7;
+          b7 = (i0 + (2LL * i5)) < 4LL;
+          #pragma unroll
+          for(nvfuser_index_t i8 = 0LL; i8 < 2LL; ++i8) {
+            nvfuser_index_t i9;
+            i9 = i6 + i8;
+            if ((b7 && ((i3 + i8) < 4LL))) {
+              T1[i9]
+                 = T0[i9];
+            }
+          }
+        }
+      }
+    }
+  }
+  */
+
+  auto options = at::TensorOptions().dtype(at::kBFloat16).device(at::kCUDA, 0);
+  at::Tensor at_tv0 = at::randn({dim0, dim1}, options).as_strided({dim0, dim1}, {1, dim0});
+
+  KernelExecutor ke;
+  ke.compile(fusion, {at_tv0});
+  kir::Kernel* kernel = ke.compiledKernel()->kernel();
+  ASSERT_TRUE(kernel != nullptr);
+  auto cg_outputs = ke.run({at_tv0});
   NVF_CHECK(at::allclose(cg_outputs[0].as<at::Tensor>(), at_tv0));
 }
 /*
