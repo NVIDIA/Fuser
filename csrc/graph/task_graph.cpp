@@ -64,7 +64,7 @@ TaskGraph::TaskGraph(
     }
     if (data.aliases_input.has_value()) {
       DataId a = data.aliases_input.value();
-      NVF_ERROR(a >= 0 && (size_t)a < tasks_.size());
+      NVF_ERROR(a >= 0 && (size_t)a < data_.size());
     }
     for (TaskId use : data.uses) {
       NVF_ERROR(use >= 0 && (size_t)use < tasks_.size());
