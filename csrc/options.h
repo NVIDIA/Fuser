@@ -44,6 +44,7 @@ enum class DebugDumpOption {
   FusionIrGraph, //!< Dump a GraphViz graph of the Fusion IR
   FusionIrMath, //!< Dump just the compute (math) part of the above `FusionIr`
                 //!< for conciseness
+  FusionIrCute, //!< Dump scheduled Fusion IR described by CuTE layouts
   KernelIr, //!< Dump the compiler Kernel IR
   ComputeAtMap, //!< Dump the computeAt map
   CudaKernel, //!< Dump the generated CUDA C++ kernel code

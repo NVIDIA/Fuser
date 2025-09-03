@@ -267,6 +267,7 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/ir/base_nodes.cpp
   ${NVFUSER_SRCS_DIR}/ir/builder.cpp
   ${NVFUSER_SRCS_DIR}/ir/cloner.cpp
+  ${NVFUSER_SRCS_DIR}/ir/cute_translation.cpp
   ${NVFUSER_SRCS_DIR}/ir/container.cpp
   ${NVFUSER_SRCS_DIR}/ir/graphviz.cpp
   ${NVFUSER_SRCS_DIR}/ir/iostream.cpp

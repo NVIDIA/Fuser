@@ -16,6 +16,7 @@
 #include <instrumentation.h>
 #include <ir/all_nodes.h>
 #include <ir/cloner.h>
+#include <ir/cute_translation.h>
 #include <ir/printer.h>
 #include <ir/utils.h>
 #include <iter_visitor.h>
@@ -24,8 +25,11 @@
 #include <ops/arith.h>
 #include <runtime/executor_params.h>
 #include <transform_replay.h>
+#include <utils.h>
 
 #include <iterator>
+#include <ranges>
+#include <string>
 
 namespace nvfuser {
 
@@ -419,6 +423,68 @@ std::ostream& Fusion::print(std::ostream& os, bool include_tensor_transforms)
     IrTransformPrinter t_exprs(os);
     t_exprs.handle(this);
   }
+  os << "} // %kernel\n";
+
+  os << std::flush;
+
+  return os;
+}
+
+std::ostream& Fusion::printCute(
+    std::ostream& os,
+    bool include_tensor_transforms) const {
+  FUSER_PERF_SCOPE("Fusion::printCute");
+
+  cute_translation::CuteConverter p(const_cast<Fusion*>(this));
+
+  os << "Inputs:" << std::endl;
+  for (auto inp : inputs()) {
+    if (auto tv = dynamic_cast<TensorView*>(inp)) {
+      os << "  " << tv->fullName() << ":  " << p.logicalToAlloc(tv)
+         << std::endl;
+    } else {
+      os << "  " << inp->toString() << std::endl;
+    }
+  }
+
+  os << "Outputs:" << std::endl;
+  for (auto out : outputs()) {
+    if (auto tv = dynamic_cast<TensorView*>(out)) {
+      os << "  " << tv->fullName() << ":  logical " << p.logicalToAlloc(tv)
+         << "\n";
+      os << "    :     loop " << p.loopToAlloc(tv) << std::endl;
+    } else {
+      os << "  " << out->toString() << std::endl;
+    }
+  }
+
+  os << "\n%kernel {\n";
+
+  for (Expr* expr : exprs()) {
+    if (!ir_utils::isTvOp(expr)) {
+      continue;
+    }
+
+    for (Val* out : expr->outputs()) {
+      if (auto* tv = dynamic_cast<TensorView*>(out)) {
+        os << tv->fullName() << ": " << p.loopToAlloc(tv) << "\n";
+      } else {
+        os << ir_utils::varName(out) << "\n";
+      }
+    }
+    os << "  = " << expr->getOpString() << "(\n";
+    for (Val* inp : expr->inputs()) {
+      if (auto* tv = dynamic_cast<TensorView*>(inp)) {
+        os << "    " << tv->fullName() << ": "
+           << p.consumerLoopToProducerAlloc(ir_utils::getTvOutput(expr), tv)
+           << "\n";
+      } else {
+        os << ir_utils::varName(inp) << "\n";
+      }
+    }
+    os << "  )\n";
+  }
+
   os << "} // %kernel\n";
 
   os << std::flush;
