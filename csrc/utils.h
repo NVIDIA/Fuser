@@ -7,20 +7,6 @@
 // clang-format on
 #pragma once
 
-#include <ATen/ATen.h>
-#include <exceptions.h>
-#include <torch/csrc/jit/ir/ir.h>
-#include <torch/torch.h>
-#include <visibility.h>
-
-#include <debug.h>
-#include <mma_type.h>
-#include <options.h>
-#include <tma.h>
-#include <type.h>
-
-#include <c10/core/thread_pool.h>
-
 #include <concepts>
 #include <coroutine>
 #include <deque>
@@ -35,6 +21,19 @@
 #include <typeinfo>
 #include <unordered_map>
 #include <vector>
+
+#include <ATen/ATen.h>
+#include <c10/core/thread_pool.h>
+#include <torch/torch.h>
+
+#include <debug.h>
+#include <exceptions.h>
+#include <mma_type.h>
+#include <options.h>
+#include <tma.h>
+#include <type.h>
+#include <visibility.h>
+#include <C++23/utility>
 
 //! IR header hierarchy
 //! 1. ** utils.h ** - PolymorphicBase and NonCopyable
@@ -518,7 +517,7 @@ inline void hashCombine(size_t& hash, size_t new_hash) {
 
 //! A wrapper to std::getenv. env_name is prepended with NVFUSER_.
 NVF_API const char* getNvFuserEnv(
-    const char* env_name,
+    const std::string& env_name,
     const char* default_value = nullptr);
 
 // Returns the mapped value or the default.
@@ -811,7 +810,7 @@ enumerate_view(R&&) -> enumerate_view<std::views::all_t<R>>;
 // Helper function
 auto enumerate(std::ranges::viewable_range auto&& r) {
   return enumerate_view{std::forward<decltype(r)>(r)};
-};
+}
 
 } // namespace views
 
