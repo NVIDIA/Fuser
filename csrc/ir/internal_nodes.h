@@ -3442,4 +3442,61 @@ class CutlassNvfp4GroupedMmaOp : public Expr {
   }
 };
 
+class GroupedBlockScalingFactorLayoutOp : public Expr {
+ public:
+  using Expr::Expr;
+
+  GroupedBlockScalingFactorLayoutOp(
+      IrBuilderPasskey,
+      Val* output,
+      Val* input,
+      Val* expert_offsets,
+      Val* sf_offsets,
+      BlockScalingFactorLayout layout,
+      Val* k,
+      Val* g);
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  const char* getOpString() const override {
+    return "GroupedBlockScalingFactorLayoutOp";
+  }
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+  std::vector<PolymorphicValue> evaluate(
+      const ExpressionEvaluator& ee,
+      const std::vector<PolymorphicValue>& inputs) const override;
+
+  // Get output block scaling factor
+  Val* out() const {
+    return output(0);
+  }
+
+  // Get input block scaling factor
+  Val* in() const {
+    return input(0);
+  }
+
+  TensorView* expertOffsets() const {
+    return input(1)->as<TensorView>();
+  }
+
+  TensorView* scalingFactorOffsets() const {
+    return input(2)->as<TensorView>();
+  }
+
+  Val* k() const {
+    return input(3);
+  }
+
+  Val* g() const {
+    return input(4);
+  }
+
+  BlockScalingFactorLayout layout() const {
+    return attribute<BlockScalingFactorLayout>(0);
+  }
+};
+
 } // namespace nvfuser

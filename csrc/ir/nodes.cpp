@@ -3349,7 +3349,8 @@ TensorDomain::TensorDomain(
     std::vector<IterDomain*> loop_domain,
     std::optional<std::vector<IterDomain*>> alternate_loop_domain,
     std::vector<std::optional<bool>> contiguity,
-    std::vector<IterDomain*> additional_ids)
+    std::vector<IterDomain*> additional_ids,
+    bool skip_checks)
     : Val(passkey, ValType::TensorDomain, DataType::Null),
       root_domain_(std::move(root_domain)),
       logical_domain_(std::move(logical_domain)),
@@ -3366,18 +3367,21 @@ TensorDomain::TensorDomain(
   NVF_CHECK(
       loop_domain_.empty() == logical_domain_.empty(),
       "logical domain and loop domain can only be both empty or neither empty");
-  validateLoopDomain(logical_domain_, loop_domain_, additional_ids_);
-  if (!root_domain_.empty()) {
-    ir_utils::validateDomainEquivalence(
-        logical_domain_, root_domain_, additional_ids_);
-  }
-  if (!allocation_domain_.empty()) {
-    ir_utils::validateDomainEquivalence(
-        logical_domain_, allocation_domain_, additional_ids_);
-  }
-  if (alternate_loop_domain_.has_value()) {
-    validateLoopDomain(
-        logical_domain_, alternate_loop_domain_.value(), additional_ids_);
+
+  if (!skip_checks) {
+    validateLoopDomain(logical_domain_, loop_domain_, additional_ids_);
+    if (!root_domain_.empty()) {
+      ir_utils::validateDomainEquivalence(
+          logical_domain_, root_domain_, additional_ids_);
+    }
+    if (!allocation_domain_.empty()) {
+      ir_utils::validateDomainEquivalence(
+          logical_domain_, allocation_domain_, additional_ids_);
+    }
+    if (alternate_loop_domain_.has_value()) {
+      validateLoopDomain(
+          logical_domain_, alternate_loop_domain_.value(), additional_ids_);
+    }
   }
 
   // resetDomains initializes other member variables, required by clang-tidy
@@ -6550,5 +6554,61 @@ std::vector<PolymorphicValue> CutlassNvfp4GroupedMmaOp::evaluate(
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(CutlassNvfp4GroupedMmaOp)
+
+GroupedBlockScalingFactorLayoutOp::GroupedBlockScalingFactorLayoutOp(
+    IrBuilderPasskey passkey,
+    Val* output,
+    Val* input,
+    Val* expert_offsets,
+    Val* sf_offsets,
+    BlockScalingFactorLayout layout,
+    Val* k,
+    Val* g)
+    : Expr(passkey) {
+  addInput(input);
+  addInput(expert_offsets);
+  addInput(sf_offsets);
+  addInput(k);
+  addInput(g);
+  addOutput(output);
+  addDataAttribute(layout);
+}
+
+std::string GroupedBlockScalingFactorLayoutOp::toString(int indent_size) const {
+  std::stringstream ss;
+  indent(ss, indent_size) << output(0)->toString() << "\n";
+  indent_size++;
+  indent(ss, indent_size) << " = grouped_block_scaling_factor_layout(\n";
+  indent_size++;
+  indent(ss, indent_size) << "input = " << in()->toString() << ",\n";
+  indent(ss, indent_size) << "expert_offsets = " << expertOffsets()->toString()
+                          << ",\n";
+  indent(ss, indent_size) << "sf_offsets = "
+                          << scalingFactorOffsets()->toString() << ",\n";
+  indent(ss, indent_size) << "layout = "
+                          << (layout() == BlockScalingFactorLayout::Block128x4
+                                  ? "Block128x4"
+                                  : "Unknown")
+                          << "\n";
+  indent_size--;
+  indent(ss, indent_size) << ")\n";
+  return ss.str();
+}
+
+std::string GroupedBlockScalingFactorLayoutOp::toInlineString(
+    int indent_size) const {
+  NVF_CHECK(
+      false, "GroupedBlockScalingFactorLayoutOp can not be printed inline");
+}
+
+std::vector<PolymorphicValue> GroupedBlockScalingFactorLayoutOp::evaluate(
+    const ExpressionEvaluator& ee,
+    const std::vector<PolymorphicValue>& inputs) const {
+  // This is a placeholder implementation - the actual implementation
+  // would depend on the specific block scaling factor layout operation
+  NVF_THROW("GroupedBlockScalingFactorLayoutOp evaluation not yet implemented");
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(GroupedBlockScalingFactorLayoutOp)
 
 } // namespace nvfuser

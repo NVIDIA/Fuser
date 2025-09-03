@@ -125,6 +125,7 @@ bool isTvOp(const Expr* expr) {
           SliceOp,
           CatOp,
           ScanOp,
+          GroupedBlockScalingFactorLayoutOp,
           kir::AllocTMem,
           kir::GridReduction,
           kir::GroupedGridReduction,
