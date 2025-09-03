@@ -3335,7 +3335,8 @@ class ScanOp : public Expr {
       Val* init,
       Val* out,
       Val* in,
-      int64_t dim);
+      int64_t dim,
+      bool is_exclusive = false);
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
@@ -3365,6 +3366,10 @@ class ScanOp : public Expr {
 
   int64_t dim() const {
     return attribute<int64_t>(2);
+  }
+
+  bool isExclusive() const {
+    return attribute<bool>(3);
   }
 
   std::vector<PolymorphicValue> evaluate(

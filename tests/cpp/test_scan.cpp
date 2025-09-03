@@ -15,6 +15,7 @@
 #include <runtime/fusion_executor_cache.h>
 #include <tests/cpp/utils.h>
 #include <tests/cpp/validator.h>
+#include "ir/internal_nodes.h"
 namespace nvfuser {
 
 using ScanTest = NVFuserTest;
@@ -467,6 +468,40 @@ TEST_F(ScanTest, KernelExecutorSerialScanMax) {
   testValidate(&fusion, outputs, {input}, __LINE__, __FILE__);
 }
 
+TEST_F(ScanTest, KernelExecutorSerialScanMaxExclusive) {
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  // Create input tensor [4, 8]
+  std::vector<int64_t> shape = {4, 8};
+  auto tv0 = makeContigConcreteTensor(shape);
+  fusion.addInput(tv0);
+
+  auto tv1 = set(tv0);
+  auto tv2 = scan(tv1, /*dim=*/1, BinaryOpType::Max, /*is_exclusive=*/true);
+  // inclusive scan = op(x, exclusive_scan(x))
+  auto tv3 = binaryOp(BinaryOpType::Max, tv1, tv2);
+  auto tv_output = set(tv3);
+  fusion.addOutput(tv_output);
+
+  // Parallelization strategy
+  for (auto tv : {tv1, tv2, tv3, tv_output}) {
+    tv->axis(0)->parallelize(ParallelType::BIDx);
+  }
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto input = at::randn({4, 8}, options);
+
+  KernelExecutor ke;
+  ke.compile(&fusion, {input});
+  auto outputs = ke.run({input});
+  at::Tensor aten_result = std::get<0>(at::cummax(input, 1));
+  std::cout << "aten_result: " << aten_result << std::endl;
+  std::cout << "outputs[0]: " << outputs[0] << std::endl;
+  EXPECT_TRUE(
+      at::allclose(outputs[0].as<at::Tensor>(), aten_result, 1e-5, 1e-8, true));
+}
 // Parameterized test for different BinaryOpType and data types
 class SerialScanTest
     : public NVFuserTest,
@@ -587,6 +622,9 @@ TEST_F(ScanTest, RFactorBlockReduction) {
 // for i = 1, 2, ..., 8
 //   d_final = sum(di * exp(m - mi))
 // return d
+
+// pro: pure reduction, can use warp reduce when number of partitions is large
+// con: needs extra memory for m[] and d[]
 TEST_F(ScanTest, OnlineSumExpXMinusMaxNoScan) {
   EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
   Fusion fusion;
@@ -680,4 +718,122 @@ TEST_F(ScanTest, OnlineSumExpXMinusMaxNoScan) {
   EXPECT_TRUE(
       at::allclose(outputs[0].as<at::Tensor>(), aten_sum, 1e-5, 1e-8, true));
 }
+// Given x[i] for i=0 .. N-1:
+//
+//   m[-1] = -infinity
+//   d[-1] = 0
+//   for j = 0 .. N-1
+//     m[j] = max(m[j-1], x[j])
+//     d[j] = d[j-1] * exp(m[j-1] - m[j]) + exp(x[j] - m[j])
+//
+// Final denominator is d[N-1]
+// online computation of sum(exp(x - max(x)))
+// split x into 8 partitions xp1, xp2, ..., xp8
+// compute max and sum for each partition
+// m[-1] = -inf, d[-1] = 0
+// for j = 0 .. N-1
+//   mp = max(xpi)
+//   m[j] = max(m[j-1], mp)
+//   dp = sum(exp(xpi - m[j]))
+//   d[j] = d[j-1] * exp(m[j-1] - m[j]) + dp
+// return d[N-1]
+// TEST_F(ScanTest, OnlineSumExpXMinusMaxSerialScan) {
+//   EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+//   Fusion fusion;
+//   FusionGuard fg(&fusion);
+
+//   std::vector<int64_t> shape = {4, 8, 1024};
+//   auto tv0 = makeContigConcreteTensor(shape);
+//   fusion.addInput(tv0);
+//   auto tv1 = set(tv0);
+//   auto tv2 = max(tv1, {2});
+//   auto tv3 = broadcast(tv2, {false, false, true});
+//   auto tv4 = sub(tv1, tv3);
+//   auto tv5 = exp(tv4);
+//   auto tv6 = sum(tv5, {2});
+//   // m = max(tv2)
+//   // d = sum(d * exp(m - max(m)))
+
+//   TensorView* m = max_scan_result.inclusive;
+//   TensorView* m_prev = max_scan_result.exclusive;
+//   // normalize by running max and exponentiate
+//   TensorView* exp_x_m = exp(sub(x, m));
+//   // Discount factor is exponentiated delta: exp(m[i-1] - m[i])
+//   TensorView* discount = exp(sub(m_prev, m));
+
+//   auto denoms = prefixSum(exp_x_m, scan_dim, discount);
+
+//   auto tv7 = scan(tv2, {1}, BinaryOpType::Max); // {4,8} -> {4, 8}
+//   auto tv8 =
+//   fusion.addOutput(tv13);
+//   auto unscheduled_fusion = fusion;
+
+//   int64_t vect = 4, threads = 256;
+//   for (auto tv : {tv1, tv2, tv3, tv4, tv5, tv6}) {
+//     tv->split(2, vect);
+//     tv->split(2, threads);
+//   }
+
+//   fusion.printMath();
+
+//   // Parallelization strategy
+//   for (auto tv :
+//        {tv1, tv2, tv3, tv4, tv5, tv6, tv7, tv8, tv9, tv10, tv11, tv12, tv13})
+//        {
+//     tv->axis(0)->parallelize(ParallelType::BIDx);
+//   }
+//   for (auto tv : {tv1, tv2, tv3, tv4, tv5, tv6}) {
+//     tv->axis(3)->parallelize(ParallelType::TIDx);
+//   }
+//   tv1->axis(4)->parallelize(ParallelType::Vectorize);
+
+//   // [I1, I2, R, threads, vect]
+//   // thread local reduction
+//   auto tv14 = tv2->rFactor({2, 4});
+//   auto tv15 = tv6->rFactor({2, 4});
+//   std::cout << "tv14: " << tv14->toString() << std::endl;
+//   tv14->printTransforms();
+//   std::cout << "tv15: " << tv15->toString() << std::endl;
+//   tv15->printTransforms();
+
+//   // inlineMost also works, want to clearly split the kernel into 2 parts
+//   // block reduction to get mi and di
+//   // online merge of m[] and d[] to get the final m and d
+//   tv6->inlineAt(1);
+
+//   inlineMost(std::vector<TensorView*>{
+//       tv1,
+//       tv2,
+//       tv3,
+//       tv4,
+//       tv5,
+//       tv7,
+//       tv8,
+//       tv9,
+//       tv10,
+//       tv11,
+//       tv12,
+//       tv13,
+//       tv14,
+//       tv15});
+//   fusion.printMath();
+
+//   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+//   auto input = at::randn(shape, options);
+
+//   KernelExecutor ke;
+//   ke.compile(&fusion, {input});
+//   auto outputs = ke.run({input});
+//   // equivalent to sum(exp(x - max(x)))
+//   auto input_reshaped = input.reshape({4, 8192});
+//   auto aten_max = at::amax(input_reshaped, {1});
+//   std::cout << "aten_max: " << aten_max << std::endl;
+//   auto aten_exp = at::exp(input_reshaped - aten_max.unsqueeze(1));
+//   auto aten_sum = at::sum(aten_exp, {1});
+//   std::cout << "aten_sum: " << aten_sum << std::endl;
+//   std::cout << "outputs[0]: " << outputs[0] << std::endl;
+
+//   EXPECT_TRUE(
+//       at::allclose(outputs[0].as<at::Tensor>(), aten_sum, 1e-5, 1e-8, true));
+// }
 } // namespace nvfuser

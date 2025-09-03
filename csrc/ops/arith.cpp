@@ -2583,6 +2583,7 @@ TensorView* scan(
     TensorView* in_tv,
     int64_t dim,
     BinaryOpType op_type,
+    bool is_exclusive,
     Val* init) {
   const std::vector<IterDomain*> logical_dom =
       TensorDomain::noReductions(in_tv->getLogicalDomain());
@@ -2612,7 +2613,7 @@ TensorView* scan(
   }
 
   IrBuilder::createInContainer<ScanOp>(
-      in_tv->container(), op_type, init, out_tv, in_tv, dim);
+      in_tv->container(), op_type, init, out_tv, in_tv, dim, is_exclusive);
 
   return out_tv;
 }
