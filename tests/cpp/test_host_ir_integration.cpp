@@ -23,6 +23,7 @@ namespace nvfuser {
 namespace hir {
 
 using testing::Contains;
+
 using HostIrEvaluatorTest = NVFuserTest;
 
 // This test manually creates a HostIrContainer with LaunchKernels and runs it
@@ -85,6 +86,7 @@ TEST_F(HostIrEvaluatorTest, AddInLoop) {
 
   Fusion fusion;
   {
+    // FIXME: should in and out be stream parallelized?
     FusionGuard fg(&fusion);
     TensorView* in = makeSymbolicTensor(2);
     TensorView* out = add(in, in);
@@ -92,6 +94,9 @@ TEST_F(HostIrEvaluatorTest, AddInLoop) {
     fusion.addOutput(out);
   }
 
+  // We don't have host IR lowering in place for the stream parallel type yet.
+  // Below is a hand-written host IR implementation for the above fusion with
+  // some tweaks for test coverage.
   auto hic = std::make_unique<HostIrContainer>();
   {
     FusionGuard fg(hic.get());
@@ -105,6 +110,8 @@ TEST_F(HostIrEvaluatorTest, AddInLoop) {
         out, MemoryType::Global, std::vector<Val*>({}), /*zero_init=*/true);
 
     auto* stream_index = IrBuilder::create<Val>(DataType::Index);
+    // `start` is set to one intentially because I wanted to harden the test for
+    // the for loop.
     auto* for_loop = IrBuilder::create<ForLoop>(
         in->axis(0),
         stream_index,
@@ -128,6 +135,8 @@ TEST_F(HostIrEvaluatorTest, AddInLoop) {
         IrBuilder::create<ShardByStream>(loop_out, out, stream_index);
     for_loop->body().push_back(shard_out);
 
+    // In reality, this should be a LaunchKernel. But currently we can't pass
+    // streamIdx to a kernel yet.
     auto* add = IrBuilder::create<BinaryOp>(
         BinaryOpType::Add, loop_out, loop_in, loop_in);
     for_loop->body().push_back(add);

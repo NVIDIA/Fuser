@@ -847,9 +847,6 @@ static const char* iter_type2string(IterType t) {
       return "v";
     case IterType::Symbolic:
       return "?";
-    default:
-      // Don't try to print t as it would recursively call this function
-      NVF_THROW("Unexpected IterType");
   }
   std::unreachable();
 }

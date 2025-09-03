@@ -414,6 +414,17 @@ class HirAliasSelect : public Expr {
   }
 };
 
+// This is essentially a LoadStoreOp whose output allocation is stream
+// parallelized. The input and output TensorViews will have the same logical
+// domain except that the input may have extra reduction dimensions. Upon
+// evaluation, the output tensor will be an aliasing slice of the input tensor.
+//
+// I considered keeping this a LoadStoreOp but I couldn't figure out a good way
+// to pass in the stream index, which is needed for slicing.
+//
+// This op is similar to HirAliasSelect, but the semantics are slightly
+// different. I could merge them into one but I prefer keeping them separated to
+// not slow down MultiDeviceExecutor development.
 class ShardByStream : public Expr {
  public:
   using Expr::Expr;
