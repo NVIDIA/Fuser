@@ -27,7 +27,7 @@ namespace nvfuser {
 using CutlassExecutorTest = NVFuserTest;
 
 // Test Cutlass scheduler with simple nvfp4 block-scaled GEMM
-TEST_F(CutlassExecutorTest, Nvfp4ScaledGemm_CodeGen) {
+TEST_F(CutlassExecutorTest, Nvfp4ScaledGemm_CompiledKernel) {
   // Skip if not on SM100 or above
   if (at::cuda::getCurrentDeviceProperties()->major < 10) {
     GTEST_SKIP() << "Skipping test on pre-SM100 GPUs";
@@ -71,8 +71,7 @@ TEST_F(CutlassExecutorTest, Nvfp4ScaledGemm_CodeGen) {
   // Create nvfp4 tensors by creating uint8 tensors and viewing them as
   // Float4_e2m1fn_x2
   at::Tensor at_a = at::empty({M, K}, options.dtype(at::kFloat4_e2m1fn_x2));
-  at::Tensor at_b =
-      at::empty({N, K}, options.dtype(at::kFloat4_e2m1fn_x2)).t();
+  at::Tensor at_b = at::empty({N, K}, options.dtype(at::kFloat4_e2m1fn_x2)).t();
 
   // Create scale tensors in Float format (as expected by the fusion)
   at::Tensor at_a_sf = at::empty({M, K / 8}, options.dtype(at::kFloat8_e4m3fn));
