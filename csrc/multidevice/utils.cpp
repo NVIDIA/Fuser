@@ -116,7 +116,10 @@ std::unordered_map<IterDomain*, int64_t> mapIterDomainToTensorAxis(
   return id_to_axis;
 }
 
-int64_t getDominatingLogicalAxis(const TensorView* tv, IterDomain* id) {
+// Finds the logical IterDomain that transitively produces `id` and returns its
+// tensor axis. Returns -1 for reduction dimensions because they don't
+// correspond to any tensor axis.
+int64_t getProducingLogicalAxis(const TensorView* tv, IterDomain* id) {
   std::unordered_map<IterDomain*, int64_t> logical_id_to_axis =
       mapIterDomainToTensorAxis(tv->getLogicalDomain());
   while (true) {
@@ -195,7 +198,7 @@ int64_t getShardedLogicalAxis(
     return -1;
   }
 
-  return getDominatingLogicalAxis(tv, parallel_id);
+  return getProducingLogicalAxis(tv, parallel_id);
 }
 
 IterDomain* getShardedIterDomain(

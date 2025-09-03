@@ -40,9 +40,10 @@ TensorView* scheduleReductionTV(
   IterDomain* sharded_id =
       getShardedIterDomain(reduction_tv, ParallelType::DIDx);
   if (sharded_id != nullptr) {
+    NVF_ERROR_EQ(reduction_tv->getDeviceMesh().rank(), 1);
     NVF_ERROR(
         reduction_tv->axis(0) == sharded_id,
-        "Expect 1D mesh and DIDx only appear outermost in loop, but found: ",
+        "DIDx should only appear outermost in loop, but found: ",
         reduction_tv->getLoopDomain());
     NVF_ERROR(
         !rparams->schedule_3D,
