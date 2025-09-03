@@ -632,18 +632,18 @@ bool isSegmentSet(const Expr* e) {
   return false;
 }
 
-std::vector<ViewOp*> getViewOps(Fusion* fusion) {
+std::vector<ReshapeOp*> getReshapeOps(Fusion* fusion) {
   auto all_exprs = fusion->exprs();
 
-  auto all_view_ops = ir_utils::filterByType<ViewOp>(all_exprs);
+  auto all_view_ops = ir_utils::filterByType<ReshapeOp>(all_exprs);
 
-  std::vector<ViewOp*> view_ops;
+  std::vector<ReshapeOp*> view_ops;
 
   std::copy_if(
       all_view_ops.begin(),
       all_view_ops.end(),
       std::back_inserter(view_ops),
-      [](ViewOp* view) {
+      [](ReshapeOp* view) {
         return std::any_of(
             view->outputs().begin(), view->outputs().end(), [](Val* v) {
               if (!v->isA<TensorView>()) {
@@ -793,16 +793,11 @@ bool isIndexSelectIndicesTv(const TensorView* tv) {
   return false;
 }
 
-bool isGatherLookupTv(const Val* tv) {
-  for (auto expr : tv->uses()) {
-    if (expr->isA<GatherOp>()) {
-      auto idx_sel = expr->as<GatherOp>();
-      if (idx_sel->lookupTv() == tv) {
-        return true;
-      }
-    }
-  }
-  return false;
+bool isAndOnlyIsGatherLookupTv(const Val* tv) {
+  return !tv->uses().empty() &&
+      std::all_of(tv->uses().begin(), tv->uses().end(), [tv](Expr* expr) {
+        return expr->isA<GatherOp>() && expr->as<GatherOp>()->lookupTv() == tv;
+      });
 }
 
 std::string varName(const Val* val) {
@@ -1650,7 +1645,7 @@ std::pair<std::vector<IterDomain*>, std::vector<IterDomain*>>
 getReshapeInputAndOutputIds(TensorView* reshape_out_tv) {
   NVF_ERROR(
       reshape_out_tv->definition() != nullptr &&
-          reshape_out_tv->definition()->isA<ViewOp>(),
+          reshape_out_tv->definition()->isA<ReshapeOp>(),
       "Not a reshape output: ",
       reshape_out_tv->toString());
 
@@ -1701,6 +1696,34 @@ std::vector<IterDomain*> getReachableIds(
         return std::ranges::find(vals, id) != vals.end();
       });
   return dependent_ids;
+}
+
+std::vector<IterDomain*> propagateScatterAllocationDomain(
+    TensorView* scatter_out,
+    const std::vector<IterDomain*>& to_logical_domain) {
+  NVF_ERROR_EQ(
+      scatter_out->getLogicalDomain().size(),
+      to_logical_domain.size(),
+      "Mismatching tensor rank");
+  if (!scatter_out->hasAllocation()) {
+    return to_logical_domain;
+  }
+
+  // Only permutation is considered for now
+  auto logical_to_alloc = ir_utils::computePermutation(
+      scatter_out->getLogicalDomain(), scatter_out->getMaybeAllocationDomain());
+  NVF_ERROR(
+      logical_to_alloc.has_value(),
+      "Allocation domain of scatter output must be a permutation of logical "
+      "domain: ",
+      scatter_out->toString(),
+      ", logical: ",
+      toDelimitedString(scatter_out->getLogicalDomain()),
+      ", allocation: ",
+      toDelimitedString(scatter_out->getAllocationDomain()));
+
+  return ir_utils::applyPermutation(
+      to_logical_domain, logical_to_alloc.value());
 }
 
 } // namespace nvfuser::ir_utils

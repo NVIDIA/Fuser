@@ -18,6 +18,7 @@
 #include <ir/cloner.h>
 #include <ir/graphviz.h>
 #include <ir/iostream.h>
+#include <ir/printer.h>
 #include <ir/utils.h>
 #include <multidevice/utils.h>
 #include <ops/alias.h>
@@ -1889,7 +1890,7 @@ std::pair<IrCloner, std::unique_ptr<Fusion>> SegmentedFusion::makeFusion(
   for (auto inp : getAllInputs(sg)) {
     auto clone_tv = complete_to_segment_map.clone(inp);
     fusion_segment->addInput(clone_tv);
-    if (inp->isDefinitionType<ViewOp>()) {
+    if (inp->isDefinitionType<ReshapeOp>()) {
       NVF_ERROR(clone_tv != nullptr && clone_tv->isA<TensorView>());
       view_tvs.push_back(clone_tv->as<TensorView>());
     }

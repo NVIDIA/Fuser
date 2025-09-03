@@ -99,7 +99,7 @@ class Val;
   f(ExpandOp);                    \
   f(RepeatOp);                    \
   f(ViewAsScalar);                \
-  f(ViewOp);                      \
+  f(ReshapeOp);                   \
   f(CatOp);                       \
   f(PadOp);                       \
   f(SliceOp);                     \
@@ -107,6 +107,7 @@ class Val;
   f(ArgsortOp);                   \
   f(GroupedMmaOp);                \
   f(ScaledMmaOp);                 \
+  f(CutlassNvfp4GroupedMmaOp);    \
   f(TopKOp);                      \
   f(ScanOp);                      \
   f(Merge);                       \

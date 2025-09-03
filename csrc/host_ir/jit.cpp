@@ -5,23 +5,19 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <functional>
 #include <memory>
 #include <unordered_map>
 
 #include "llvm/ADT/SmallVector.h"
-#include "llvm/ExecutionEngine/JITLink/JITLink.h"
 #include "llvm/ExecutionEngine/Orc/CompileUtils.h"
 #include "llvm/ExecutionEngine/Orc/IRCompileLayer.h"
 #include "llvm/ExecutionEngine/Orc/LLJIT.h"
-#include "llvm/ExecutionEngine/Orc/RTDyldObjectLinkingLayer.h"
 #include "llvm/ExecutionEngine/Orc/ThreadSafeModule.h"
 #include "llvm/IR/IRBuilder.h"
 #include "llvm/IR/LLVMContext.h"
 #include "llvm/IR/Module.h"
 #include "llvm/IR/Verifier.h"
 #include "llvm/Support/Error.h"
-#include "llvm/Support/FileSystem.h"
 #include "llvm/Support/TargetSelect.h"
 #include "llvm/Support/raw_ostream.h"
 
@@ -29,7 +25,7 @@
 #include <c10/core/MemoryFormat.h>
 
 #include <bfs.h>
-#include <host_ir/executor.h>
+#include <host_ir/evaluator.h>
 #include <host_ir/jit.h>
 #include <instrumentation.h>
 #include <ir/all_nodes.h>
@@ -789,7 +785,7 @@ class HostIrCompileDispatcher : public OptInDispatch {
       : builder_(builder), val_to_value_(val_to_value), container_(container) {}
   using OptInDispatch::handle;
 
-  void handle(ViewOp* vop) final {
+  void handle(ReshapeOp* vop) final {
     auto* in_tv = vop->in()->as<TensorView>();
     auto* out_tv = vop->out()->as<TensorView>();
     llvm::Value* in_tensor = getOrDefault(val_to_value_, in_tv);

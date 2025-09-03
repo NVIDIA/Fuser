@@ -1711,6 +1711,38 @@ TensorView
     A new tensor containing the sum of elements along the specified dimensions.
 )")
   ops.def(
+      "var",
+      [](TensorView* arg,
+         const std::vector<int64_t>& dims,
+         int64_t correction,
+         bool keepdim) -> TensorView* {
+        return variance(arg, dims, correction, keepdim);
+      },
+      py::arg("arg"),
+      py::arg("dims"),
+      py::arg("correction") = 1,
+      py::arg("keepdim") = false,
+      R"(
+Reduce a tensor by computing the variance along specified dimensions.
+
+Parameters
+----------
+arg : TensorView
+    Input tensor to reduce.
+dims : list or tuple
+    Dimensions to reduce over.
+correction : int, optional
+    The correction factor to apply to the variance. Default is 1.
+keepdim : bool, optional
+    Whether to keep the reduced dimensions with size 1. Default is False.
+
+Returns
+-------
+TensorView
+    A tensor containing the variance along the specified dimensions.
+)",
+      py::return_value_policy::reference);
+  ops.def(
       "var_mean",
       [](TensorView* arg,
          const std::vector<int64_t>& dims,
@@ -2705,7 +2737,7 @@ Select elements from a tensor along a specified dimension.
 Parameters
 ----------
 arg : TensorView
-index : Scalar
+index : Val
 dim : int
     The dimension to select along.
 
@@ -2753,6 +2785,46 @@ index : TensorView
     The tensor containing the indices.
 src : TensorView
     The source tensor to scatter from.
+dim : int
+    The dimension to scatter along.
+
+Returns
+-------
+TensorView
+    The scattered tensor.
+)",
+      py::return_value_policy::reference);
+  ops.def(
+      "scatter",
+      [](TensorView* arg, TensorView* index, Val* src, int64_t dim)
+          -> TensorView* {
+        NVF_CHECK(
+            dim >= -arg->nDims() && dim < arg->nDims(),
+            "Tensor arguments have dimension ",
+            arg->nDims(),
+            " so dim argument must satisfy ",
+            -arg->nDims(),
+            " <= dim < ",
+            arg->nDims(),
+            ", but received ",
+            dim);
+        return scatter(arg, dim, index, src);
+      },
+      py::arg("arg"),
+      py::arg("index"),
+      py::arg("src"),
+      py::arg("dim"),
+      R"(
+Scatter a tensor.
+
+Parameters
+----------
+arg : TensorView
+    The tensor to scatter into.
+index : TensorView
+    The tensor containing the indices.
+src : Val
+    The source scalar to scatter from.
 dim : int
     The dimension to scatter along.
 
@@ -3058,7 +3130,7 @@ void bindSearchOps(py::module_& ops) {
 
       Args:
           arg (Tensor): Input tensor
-          k (Scalar): Number of elements to return
+          k (Val): Number of elements to return
           dim (int, optional): Dimension along which to find top-k. Defaults to -1.
           largest (bool, optional): If True, return largest elements. Defaults to True.
           sorted (bool, optional): If True, return elements in sorted order. Defaults to False.

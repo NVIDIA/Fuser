@@ -382,7 +382,7 @@ bool isSegmentSet(const Expr* e);
 // Returns all non-trivial view operations. We shouldn't have trivial view
 // operations but this function is to simply make sure if we ever do we don't
 // pull them in.
-std::vector<ViewOp*> getViewOps(Fusion*);
+std::vector<ReshapeOp*> getReshapeOps(Fusion*);
 
 template <typename T>
 std::string toString(const T& nodes) {
@@ -440,7 +440,7 @@ bool isIndexSelectLookupTv(const TensorView* tv);
 // Check if the given tv is third argment of indexSelect(lookup, dim, indices)
 bool isIndexSelectIndicesTv(const TensorView* tv);
 
-bool isGatherLookupTv(const Val* tv);
+bool isAndOnlyIsGatherLookupTv(const Val* tv);
 
 std::string varName(const Val* val);
 
@@ -845,5 +845,11 @@ getReshapeInputAndOutputIds(TensorView* reshape_out_tv);
 std::vector<IterDomain*> getReachableIds(
     const std::vector<IterDomain*>& domain,
     const std::vector<IterDomain*>& dependencies);
+
+// Replay the logical-allocation transformations of a scatter output
+// tensor to a list of logical iter domains for another tensor.
+std::vector<IterDomain*> propagateScatterAllocationDomain(
+    TensorView* scatter_out,
+    const std::vector<IterDomain*>& to_logical_domain);
 
 } // namespace nvfuser::ir_utils

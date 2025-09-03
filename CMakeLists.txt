@@ -7,6 +7,11 @@ enable_language(CUDA)
 
 cmake_policy(SET CMP0063 NEW) # make symbol visibility always apply
 
+# ALWAYS: (default) print both Installing and Up-to-date messages
+# LAZY: print Installing but not Up-to-date messages
+# NEVER: print neither
+set(CMAKE_INSTALL_MESSAGE LAZY)
+
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 set(NVFUSER_ROOT ${PROJECT_SOURCE_DIR})
@@ -130,7 +135,9 @@ if(BUILD_CUTLASS)
 
     set(NVFUSER_CUTLASS_SRCS)
     list(APPEND NVFUSER_CUTLASS_SRCS
-	${NVFUSER_CUTLASS}/nvfp4_scaled_mm.cu
+        ${NVFUSER_CUTLASS}/nvfp4_scaled_mm.cu
+        ${NVFUSER_CUTLASS}/nvfp4_scaled_mm_blockscale.cu
+        ${NVFUSER_CUTLASS}/nvfp4_scaled_group_mm.cu
         ${NVFUSER_CUTLASS}/nvf_cutlass.cpp
         ${NVFUSER_CUTLASS}/cutlass_utils.cpp
     )
@@ -180,14 +187,18 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/compute_at.cpp
   ${NVFUSER_SRCS_DIR}/compute_at_map.cpp
   ${NVFUSER_SRCS_DIR}/contiguity.cpp
+  ${NVFUSER_SRCS_DIR}/cutlass/codegen.cpp
+  ${NVFUSER_SRCS_DIR}/cutlass/gemm.cpp
   ${NVFUSER_SRCS_DIR}/debug.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/analysis/bank_conflict.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/analysis/circular_buffer.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/analysis/device_version.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/analysis/divisible_split.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/analysis/fused_reduction.cpp
+  ${NVFUSER_SRCS_DIR}/device_lower/analysis/fusion_info.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/analysis/index_compute.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/analysis/non_divisible_split.cpp
+  ${NVFUSER_SRCS_DIR}/device_lower/analysis/padded_parallel_dimensions.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/analysis/predicate_elimination.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/analysis/sync_information.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/analysis/tensor_memory.cpp
@@ -232,7 +243,7 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/global_allocator.cpp
   ${NVFUSER_SRCS_DIR}/grouped_reduction.cpp
   ${NVFUSER_SRCS_DIR}/host_ir/container.cpp
-  ${NVFUSER_SRCS_DIR}/host_ir/executor.cpp
+  ${NVFUSER_SRCS_DIR}/host_ir/evaluator.cpp
   ${NVFUSER_SRCS_DIR}/host_ir/host_ir.cpp
   ${NVFUSER_SRCS_DIR}/host_ir/lower.cpp
   ${NVFUSER_SRCS_DIR}/host_ir/lower_to_communication.cpp
@@ -260,6 +271,7 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/ir/graphviz.cpp
   ${NVFUSER_SRCS_DIR}/ir/iostream.cpp
   ${NVFUSER_SRCS_DIR}/ir/nodes.cpp
+  ${NVFUSER_SRCS_DIR}/ir/printer.cpp
   ${NVFUSER_SRCS_DIR}/ir/utils.cpp
   ${NVFUSER_SRCS_DIR}/iter_visitor.cpp
   ${NVFUSER_SRCS_DIR}/kernel.cpp
@@ -312,6 +324,7 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/preseg_passes/translate_repeat_to_expand.cpp
   ${NVFUSER_SRCS_DIR}/rng.cpp
   ${NVFUSER_SRCS_DIR}/runtime/allocations.cpp
+  ${NVFUSER_SRCS_DIR}/runtime/communication_executor.cpp
   ${NVFUSER_SRCS_DIR}/runtime/compiled_kernel.cpp
   ${NVFUSER_SRCS_DIR}/runtime/executor.cpp
   ${NVFUSER_SRCS_DIR}/runtime/executor_dispatch.cpp
@@ -323,6 +336,7 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/runtime/fusion_kernel_runtime.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/cache_policy_refiner.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/heuristic.cpp
+  ${NVFUSER_SRCS_DIR}/scheduler/greedy.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/mark_aliases.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/matmul.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/matmul_ampere-.cpp
@@ -540,6 +554,7 @@ target_include_directories(nvfuser_codegen SYSTEM PUBLIC
 target_link_libraries(nvfuser_codegen
   PUBLIC ${TORCH_LIBRARIES}
   PRIVATE dynamic_type flatbuffers ${CUDA_NVRTC_LIB} CUDA::cupti dl
+    $<$<BOOL:${NVFUSER_HOST_IR_JIT}>:LLVM_JIT>
 )
 set_target_properties(nvfuser_codegen PROPERTIES
   C_STANDARD ${NVFUSER_C_STANDARD}
@@ -552,6 +567,19 @@ set_target_properties(nvfuser_codegen PROPERTIES
   POSITION_INDEPENDENT_CODE Yes
   VISIBILITY_INLINES_HIDDEN Yes
 )
+
+# Add dead code elimination flags to reduce file size
+if(NOT MSVC)
+  target_link_options(nvfuser_codegen PRIVATE
+    "-Wl,--gc-sections"
+    "-Wl,--as-needed"
+    $<$<CONFIG:Release>:-s>
+  )
+  target_compile_options(nvfuser_codegen PRIVATE
+    "-ffunction-sections"
+    "-fdata-sections"
+  )
+endif()
 
 install(TARGETS nvfuser_codegen EXPORT NvfuserTargets DESTINATION lib)
 
@@ -597,7 +625,8 @@ install(DIRECTORY "${NVFUSER_SRCS_DIR}/"
   DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/nvfuser"
   FILES_MATCHING
   PATTERN "*.h"
-  PATTERN "csrc/C++20/type_traits"
+  PATTERN "csrc/C++20/compare"
+  PATTERN "csrc/C++23/utility"
   PATTERN "csrc/struct.inl")
 
 # TODO guard including flatbuffers headers
@@ -636,10 +665,10 @@ if(BUILD_PYTHON)
     COMMAND
     "${PYTHON_EXECUTABLE}" -c \"from pathlib import Path\; Path('${NVFUSER_PYTHON_DIR}/tools/gen_nvfuser_version.py') .touch() \"
     COMMAND
-    "${PYTHON_EXECUTABLE}" ${NVFUSER_PYTHON_DIR}/tools/gen_nvfuser_version.py
+    "${PYTHON_EXECUTABLE}" ${NVFUSER_PYTHON_DIR}/tools/gen_nvfuser_version.py nvfuser
     DEPENDS ${NVFUSER_PYTHON_DIR}/tools/gen_nvfuser_version.py
     DEPENDS ${NVFUSER_PYTHON_DIR}/version.txt
-    WORKING_DIRECTORY ${NVFUSER_ROOT}/tools/
+    WORKING_DIRECTORY ${NVFUSER_PYTHON_DIR}/tools/
   )
   add_custom_target(
     gen_nvfuser_version ALL
@@ -663,6 +692,13 @@ if(BUILD_PYTHON)
   if(NOT MSVC)
     target_compile_options(nvf_py_internal PRIVATE -Wall -Wno-unused-function)
     target_compile_options(nvf_py_internal PRIVATE -Werror)
+
+    # Add function/data sections for dead code elimination
+    target_compile_options(nvf_py_internal PRIVATE
+      "-ffunction-sections"
+      "-fdata-sections"
+    )
+
     set(NVF_LIB_SUFFIX ".so")
   else()
     set(NVF_LIB_SUFFIX ".pyd")
@@ -696,6 +732,10 @@ if(BUILD_PYTHON)
     target_link_libraries(nvf_py_internal PRIVATE nvf_cutlass)
   endif()
 
+  if (NOT MSVC)
+      target_link_libraries(nvf_py_internal PRIVATE CUDA::cupti)
+  endif()
+
   target_link_libraries(nvf_py_internal PRIVATE
     nvfuser_codegen
     "${TORCH_INSTALL_PREFIX}/lib/libtorch_python.so"
@@ -706,6 +746,16 @@ if(BUILD_PYTHON)
     nvf_py_internal
     Python::Module
   )
+
+  # Add dead code elimination flags to reduce file size
+  if(NOT MSVC)
+    target_link_options(nvfuser PRIVATE
+      "-Wl,--gc-sections"
+      "-Wl,--as-needed"
+      $<$<CONFIG:Release>:-s>
+    )
+  endif()
+
   set_target_properties(nvfuser PROPERTIES
     INSTALL_RPATH "$ORIGIN:$ORIGIN/lib:$ORIGIN/../build:$ORIGIN/../nvfuser_common/lib"
   )
@@ -730,6 +780,23 @@ if(BUILD_PYTHON)
   )
   add_library(nvf_py_direct_internal OBJECT ${NVFUSER_PYTHON_DIRECT_SRCS})
 
+  # setup python API version
+  add_custom_command(
+    OUTPUT ${NVFUSER_PYTHON_DIR}/nvfuser_direct/version.py
+    COMMAND
+    "${PYTHON_EXECUTABLE}" -c \"from pathlib import Path\; Path('${NVFUSER_PYTHON_DIR}/tools/gen_nvfuser_version.py') .touch() \"
+    COMMAND
+    "${PYTHON_EXECUTABLE}" ${NVFUSER_PYTHON_DIR}/tools/gen_nvfuser_version.py nvfuser_direct
+    DEPENDS ${NVFUSER_PYTHON_DIR}/tools/gen_nvfuser_version.py
+    DEPENDS ${NVFUSER_PYTHON_DIR}/version.txt
+    WORKING_DIRECTORY ${NVFUSER_PYTHON_DIR}/tools/
+  )
+  add_custom_target(
+    gen_nvfuser_direct_version ALL
+    DEPENDS ${NVFUSER_PYTHON_DIR}/nvfuser_direct/version.py
+  )
+  add_dependencies(nvf_py_direct_internal gen_nvfuser_direct_version)
+
   # NOTE: For any future extension, change PYTHON_DIRECT_EXTENSION to another
   # name other than EXTENSION_NAME.
   target_compile_definitions(nvf_py_direct_internal PRIVATE
@@ -748,6 +815,13 @@ if(BUILD_PYTHON)
   if(NOT MSVC)
     target_compile_options(nvf_py_direct_internal PRIVATE -Wall -Wno-unused-function)
     target_compile_options(nvf_py_direct_internal PRIVATE -Werror)
+
+    # Add function/data sections for dead code elimination
+    target_compile_options(nvf_py_direct_internal PRIVATE
+      "-ffunction-sections"
+      "-fdata-sections"
+    )
+
     set(NVF_LIB_SUFFIX ".so")
   else()
     set(NVF_LIB_SUFFIX ".pyd")
@@ -798,6 +872,16 @@ if(BUILD_PYTHON)
     nvf_py_direct_internal
     Python::Module
   )
+
+  # Add dead code elimination flags to reduce file size
+  if(NOT MSVC)
+    target_link_options(nvfuser_direct PRIVATE
+      "-Wl,--gc-sections"
+      "-Wl,--as-needed"
+      $<$<CONFIG:Release>:-s>
+    )
+  endif()
+
   set_target_properties(nvfuser_direct PROPERTIES
     INSTALL_RPATH "$ORIGIN:$ORIGIN/../build:$ORIGIN/../nvfuser_common/lib"
   )
@@ -840,11 +924,13 @@ list(APPEND JIT_TEST_SRCS
   ${NVFUSER_ROOT}/tests/cpp/test_indexing_advanced.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_inlining.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_interval_analysis.cpp
+  ${NVFUSER_ROOT}/tests/cpp/test_iostream.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_iter_visitor.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_linked_hash_map.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_loop_domain_scheduling.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_loop_rotation.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_low_precision_recipe.cpp
+  ${NVFUSER_ROOT}/tests/cpp/test_math_opt.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_mbarrier.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_memory.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_move_pad.cpp
@@ -1054,6 +1140,7 @@ if(BUILD_TEST)
 
   set(MATMUL_TEST_SRCS)
   list(APPEND MATMUL_TEST_SRCS
+    ${NVFUSER_ROOT}/tests/cpp/test_cutlass_scheduler.cpp
     ${NVFUSER_ROOT}/tests/cpp/test_translate_mma.cpp
     ${NVFUSER_ROOT}/tests/cpp/test_matmul.cpp
     ${NVFUSER_ROOT}/tests/cpp/test_matmul_aten_evaluation.cpp
@@ -1063,6 +1150,9 @@ if(BUILD_TEST)
   )
   add_test(test_matmul "${MATMUL_TEST_SRCS}" "")
   list(APPEND TEST_BINARIES test_matmul)
+
+  add_test(test_greedy "${NVFUSER_ROOT}/tests/cpp/test_greedy.cpp" "")
+  list(APPEND TEST_BINARIES test_greedy)
 
   add_test(test_external_src "${NVFUSER_ROOT}/tests/cpp/test_external_src.cpp" "")
   list(APPEND TEST_BINARIES test_external_src)

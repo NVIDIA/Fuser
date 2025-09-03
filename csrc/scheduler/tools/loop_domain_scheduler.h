@@ -17,7 +17,7 @@ class Expr;
 class Fusion;
 class TensorView;
 class IterDomain;
-class ViewOp;
+class ReshapeOp;
 
 namespace scheduler_tools {
 
@@ -33,9 +33,9 @@ void scheduleLoopDomainsLike(
     const std::vector<IterDomain*>& ref_loop_dom,
     bool update_loop_domain_only = false);
 
-// Replay a transform expr on the loop domain of each of the given
-// tensors. If the replay direction is specified, the expr is replayed
-// as specified. Otherwise, if the input of the transform is exact mapped with
+// Replay a series of transform exprs on the loop domain of each of the given
+// tensors. If the replay direction is specified, the exprs are replayed
+// as specified. Otherwise, if the input of a transform is exact mapped with
 // the loop domain, the transform is replayed as a forward op. If the output is
 // exact mapped with the loop domain, it's replayed as a backward op. The loop
 // domain of each tensor is updated with the replayed transform expr. If it's
@@ -66,7 +66,7 @@ void scheduleLoopDomainsLike(
 // LoopDomainSchedulingTest.ScheduleLoopDomainsBy1 for more examples.
 void scheduleLoopDomainsBy(
     const std::vector<TensorView*>& tvs,
-    Expr* transform,
+    const std::vector<Expr*>& transforms,
     Direction replay_dir = Direction::Undefined);
 
 // For each of immediate and indirect consumer tensors of from_tv,

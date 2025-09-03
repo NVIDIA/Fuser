@@ -12,11 +12,11 @@
 #include <unordered_set>
 #include <vector>
 
-#include <ATen/cuda/CUDAContext.h>
+#include <c10/cuda/CUDAFunctions.h>
 
 #include <dynamic_transform.h>
 #include <fusion_profiler.h>
-#include <host_ir/executor.h>
+#include <host_ir/evaluator.h>
 #include <host_ir/lower_to_communication.h>
 #include <host_ir/pass/convert_op_to_communication.h>
 #include <instrumentation.h>
@@ -32,165 +32,7 @@
 #include <runtime/fusion_kernel_runtime.h>
 #include <tensor_metadata.h>
 
-namespace nvfuser {
-
-HostIrExecutor::HostIrExecutor(
-    int64_t fusion_id,
-    int64_t concrete_id,
-    int64_t runtime_id,
-    int64_t group_id)
-    : ExecutorAbstract(fusion_id, concrete_id, runtime_id, group_id),
-      communicator_(&Communicator::getInstance()) {}
-
-bool HostIrExecutor::supported(Fusion* fusion) {
-  FUSER_PERF_SCOPE("HostIrExecutor::supported");
-  std::vector<Expr*> exprs = fusion->exprs();
-  if (std::any_of(exprs.begin(), exprs.end(), isResharding)) {
-    NVF_ERROR(
-        std::all_of(exprs.begin(), exprs.end(), isResharding),
-        "Could not execute fusion as all expressions in a host IR container "
-        "must be communication based at this point.");
-    return true;
-  }
-  return false;
-}
-
-void HostIrExecutor::compile(Fusion* fusion) {
-  FUSER_PERF_SCOPE("HostIrExecutor::compile");
-  NVF_ERROR(
-      supported(fusion),
-      "HostIrExecutor does not support the Fusion provided.");
-  if (isProfilerEnabled()) {
-    FusionProfiler::segment(group_id_).startCompile();
-  }
-
-  host_ir_container_ = std::make_unique<hir::HostIrContainer>();
-  IrCloner cloner = Fusion::copy(fusion, host_ir_container_.get());
-  if (fusion->isA<hir::HostIrContainer>()) {
-    for (Expr* e : fusion->as<hir::HostIrContainer>()->topLevelExprs()) {
-      host_ir_container_->pushBackTopLevelExprs(cloner.clone(e));
-    }
-  } else {
-    std::vector<Expr*> exprs = fusion->exprs();
-    DeviceIdxType my_device_idx = communicator_ ? communicator_->deviceId() : 0;
-    for (Expr* e : exprs) {
-      std::vector<Expr*> communications =
-          convertSingleOpToCommunication(cloner.clone(e), my_device_idx);
-      for (auto* communication : communications) {
-        host_ir_container_->pushBackTopLevelExprs(communication);
-      }
-    }
-  }
-
-  if (isProfilerEnabled()) {
-    FusionProfiler::segment(group_id_).stopCompile();
-  }
-}
-
-bool HostIrExecutor::isCompiled() const {
-  return host_ir_container_ != nullptr;
-}
-
-namespace {
-// Validates the sizes and strides of the input and output tensors
-// against the tensorviews
-void validateTensors(
-    const std::vector<at::Tensor>& tensors,
-    const std::vector<TensorView*>& tvs,
-    const ExpressionEvaluator& expr_eval) {
-  NVF_ERROR(tensors.size() == tvs.size());
-  for (const auto& [tensor, tv] : zip(tensors, tvs)) {
-    if (tensor.defined()) {
-      inferAndValidateAllocationSizesAndStrides(tensor, tv, expr_eval);
-    }
-  }
-}
-} // namespace
-
-KernelArgumentHolder HostIrExecutor::run(
-    const KernelArgumentHolder& args,
-    KernelArgumentHolder output_args) {
-  FUSER_PERF_SCOPE("HostIrExecutor::run");
-  if (isProfilerEnabled()) {
-    NVF_CHECK(
-        group_id_ >= 0,
-        "An invalid segment id is passed to FusionProfiler!:",
-        group_id_);
-    SegmentProfiler& sprof = FusionProfiler::segment(group_id_);
-    sprof.inputBytesAccessed(computeBytes(args));
-    sprof.scheduler(toString(SchedulerType::ExprEval));
-    sprof.startKernel();
-  }
-  NVF_ERROR(host_ir_container_, "Need to compile before you can run.");
-  // Bind fusion inputs
-  auto expr_eval = executor_utils::bindInputs(args, host_ir_container_.get());
-
-  if (output_args.empty()) {
-    std::vector<GlobalBufferInfo> output_infos = getBufferInfos(
-        expr_eval, PrimDataType::Int, host_ir_container_->outputs());
-    auto output_alias_to_input =
-        executor_utils::getOutputAliasToInputMap(host_ir_container_.get());
-    output_args = allocateOutputs(
-        host_ir_container_.get(),
-        output_infos,
-        output_alias_to_input,
-        c10::Device(c10::DeviceType::CUDA, args.getDeviceIndex()),
-        args,
-        true);
-  }
-
-  // TODO: If outputs are provided validate they're the correct size
-  for (Expr* e : host_ir_container_->topLevelExprs()) {
-    NVF_ERROR(e->isA<Communication>());
-    auto* communication = e->as<Communication>();
-    c10d::Backend* backend =
-        communicator_->getBackendForTeam(communication->team(), std::nullopt);
-    auto in_tensor = expr_eval.evaluate(communication->in()).as<at::Tensor>();
-    auto out_idx = std::distance(
-        host_ir_container_->outputs().begin(),
-        std::find(
-            host_ir_container_->outputs().begin(),
-            host_ir_container_->outputs().end(),
-            communication->out()));
-
-    NVF_ERROR(
-        out_idx < std::ssize(host_ir_container_->outputs()),
-        "Output tensor not found in fusion outputs");
-    auto out_tensor = output_args[out_idx].as<at::Tensor>();
-
-    // Inputs are already validated in bindInputs.
-    validateTensors({out_tensor}, {communication->out()}, expr_eval);
-    c10::intrusive_ptr<c10d::Work> work = postSingleCommunication(
-        communication,
-        communicator_->deviceId(),
-        backend,
-        in_tensor,
-        out_tensor);
-    if (work != nullptr) {
-      work->wait();
-    }
-  }
-
-  // Evaluate outputs that are marked as Evaluate
-  for (auto out_idx : arange(host_ir_container_->outputs().size())) {
-    auto out = host_ir_container_->outputs()[out_idx];
-    auto alias_info = host_ir_container_->getOutputAlias(out);
-    if (alias_info.type == AllocationType::Evaluate) {
-      NVF_ERROR(
-          !output_args[out_idx].hasValue(),
-          "Output tensor already has a value");
-      output_args[out_idx] = expr_eval.evaluate(out);
-    }
-  }
-
-  if (isProfilerEnabled()) {
-    FusionProfiler::segment(group_id_).setDevice(args.getDeviceIndex());
-    FusionProfiler::segment(group_id_).stopKernel();
-  }
-  return output_args;
-}
-
-namespace hir {
+namespace nvfuser::hir {
 
 HostIrEvaluator::HostIrEvaluator(
     std::unique_ptr<HostIrContainer> container,
@@ -288,7 +130,7 @@ void HostIrEvaluator::validate() const {
 
   NVF_CHECK_LE(
       communicator_->local_size(),
-      at::cuda::getNumGPUs(),
+      c10::cuda::device_count(),
       "More processes are spawned on the node than there are available GPUs.");
 }
 
@@ -407,7 +249,7 @@ void HostIrEvaluator::handle(PostOnStream* post_ir) {
       "op must be a HostUnit: ",
       post_ir->hostOpToPost());
   auto hu = post_ir->hostOpToPost()->as<HostUnit>();
-  // Compile the fusion and execute it with HostIrExecutor
+  // Compile the fusion and execute it with CommunicationExecutor
   // Check if the executor has been cached. If not, create and cache it
   if (params_.use_fusion_executor_cache) {
     if (!fec_.count(hu)) {
@@ -486,7 +328,7 @@ void HostIrEvaluator::handle(Communication* communication) {
   c10d::Backend* backend =
       communicator_->getBackendForTeam(communication->team(), backend_type);
 
-  validateTensors(
+  validateSizesAndStrides(
       {input_tensor, output_tensor},
       {communication->in(), communication->out()},
       expr_evaluator_);
@@ -520,7 +362,8 @@ void HostIrEvaluator::handle(P2PCommunication* communication) {
       get_zcopy::sendPost(p2p_ipc_handle, current_stream);
     }
   } else {
-    validateTensors({buffer}, {communication->buffer()}, expr_evaluator_);
+    validateSizesAndStrides(
+        {buffer}, {communication->buffer()}, expr_evaluator_);
     works_[communication] = postSingleCommunication(
         communication,
         communicator_->deviceId(),
@@ -667,12 +510,14 @@ void HostIrEvaluator::handle(LoadStoreOp* load_store_op) {
   NVF_ERROR(
       load_store_op->opType() == LoadStoreOpType::Set ||
       load_store_op->opType() == LoadStoreOpType::SegmenterSet);
-  NVF_ERROR(
-      load_store_op->out()->isA<TensorView>(), "out must be a TensorView");
-  auto* out_tv = load_store_op->out()->as<TensorView>();
-  auto in_tensor = getKnownConcreteValue(load_store_op->in()).as<at::Tensor>();
 
-  at::Tensor t;
+  NVF_ERROR(load_store_op->in()->isA<TensorView>());
+  auto* in_tv = load_store_op->in()->as<TensorView>();
+
+  NVF_ERROR(load_store_op->out()->isA<TensorView>());
+  auto* out_tv = load_store_op->out()->as<TensorView>();
+
+  auto t = getKnownConcreteValue(in_tv).as<at::Tensor>();
   if (out_tv->hasRoot()) {
     std::optional<std::vector<int64_t>> permutation =
         ir_utils::computePermutation(
@@ -682,14 +527,11 @@ void HostIrEvaluator::handle(LoadStoreOp* load_store_op) {
         "The logical domain of a Set.Permute is supposed to be a permutation"
         " of the root domain: ",
         out_tv);
-    t = in_tensor.permute(*permutation);
-  } else {
-    t = in_tensor;
+    t = t.permute(*permutation);
   }
 
   if (expr_evaluator_.isKnown(out_tv)) {
-    auto out_tensor =
-        getKnownConcreteValue(load_store_op->out()).as<at::Tensor>();
+    auto out_tensor = getKnownConcreteValue(out_tv).as<at::Tensor>();
     out_tensor.copy_(t, /*non_blocking=*/true);
   } else {
     // For completeness, we may check if out_tv's allocation matches `t` and
@@ -727,13 +569,16 @@ void HostIrEvaluator::handle(kir::Allocate* allocate) {
       getBufferInfos(expr_evaluator_, PrimDataType::Int, {tv}).at(0);
   c10::Device device =
       communicator_ ? communicator_->device() : at::Device("cuda:0");
-  auto tensor = at::native::empty_strided_cuda(
+  at::Tensor tensor = at::native::empty_strided_cuda(
       info.shape_info.logical_sizes,
       info.shape_info.logical_strides,
       info.type,
       c10::nullopt,
       device,
       c10::nullopt);
+  if (allocate->zeroInit()) {
+    tensor.zero_();
+  }
   expr_evaluator_.bind(tv, tensor);
 }
 
@@ -869,6 +714,4 @@ void HostIrEvaluator::unhandled(Statement* stmt) {
   }
 }
 
-} // namespace hir
-
-} // namespace nvfuser
+} // namespace nvfuser::hir

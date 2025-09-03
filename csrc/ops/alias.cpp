@@ -194,7 +194,7 @@ TensorView* reshape(TensorView* inp_tv, const std::vector<Val*>& new_sizes) {
           TensorDomain::getContiguityFilledWith(logical_domain, true)),
       inp_tv->dtype());
 
-  IrBuilder::createInContainer<ViewOp>(inp_tv->container(), out_tv, inp_tv);
+  IrBuilder::createInContainer<ReshapeOp>(inp_tv->container(), out_tv, inp_tv);
 
   return out_tv;
 }
@@ -213,7 +213,7 @@ NVF_API TensorView* reshape(
           logical_domain,
           TensorDomain::getContiguityFilledWith(logical_domain, true)),
       x->getDataType().value());
-  IrBuilder::create<ViewOp>(out_tv, x);
+  IrBuilder::create<ReshapeOp>(out_tv, x);
   return out_tv;
 }
 
@@ -245,7 +245,7 @@ TensorView* flatten(TensorView* x, int64_t start_dim, int64_t end_dim) {
       x->domain()->flatten(start_dim, end_dim),
       x->getDataType().value());
 
-  IrBuilder::create<ViewOp>(out, x);
+  IrBuilder::create<ReshapeOp>(out, x);
   return out;
 }
 
@@ -292,8 +292,11 @@ TensorView* squeeze(
     const std::vector<bool>& to_squeeze,
     bool squeeze_expanded) {
   NVF_ERROR(x != nullptr, "Input is invalid.");
-  auto x_dom = x->domain()->noReductions();
-  const auto ndims = static_cast<int64_t>(x_dom.size());
+  // SqueezeOp is cloned during segmentation where the loop domain
+  // may have device parallelization. Hence, use the logical domain
+  // explcitly to avoid a mismatch between domain and `to_squeeze` dims.
+  auto x_dom = TensorDomain::noReductions(x->getLogicalDomain());
+  const auto ndims = std::ssize(x_dom);
 
   NVF_ERROR(
       ndims == (int64_t)to_squeeze.size(),
@@ -1050,12 +1053,7 @@ TensorView* broadcast(
 TensorView* expand(TensorView* inp, const std::vector<Val*>& expanded_sizes) {
   auto inp_domain = TensorDomain::noReductions(inp->getLogicalDomain());
 
-  NVF_CHECK(
-      expanded_sizes.size() >= inp_domain.size(),
-      "Invalid expand, number of sizes provided is expected to be at least ",
-      inp_domain.size(),
-      " but received ",
-      expanded_sizes.size());
+  NVF_CHECK_GE(expanded_sizes.size(), inp_domain.size());
 
   inp = ops::maybe_broadcast_inner_to_rank(inp, expanded_sizes.size());
   inp_domain = TensorDomain::noReductions(inp->getLogicalDomain());
@@ -1135,77 +1133,41 @@ TensorView* expand(TensorView* inp, const std::vector<Val*>& expanded_sizes) {
     out_domain.push_back(out_id_builder.build());
   }
 
-  TensorView* out_tensor = IrBuilder::create<TensorView>(
+  auto* out = IrBuilder::create<TensorView>(
       IrBuilder::create<TensorDomain>(
           out_domain, TensorDomain::getContiguityFilledWith(out_domain, true)),
       inp->getDataType().value());
   if (!expanded) {
-    IrBuilder::create<LoadStoreOp>(LoadStoreOpType::Set, out_tensor, inp);
+    IrBuilder::create<LoadStoreOp>(LoadStoreOpType::Set, out, inp);
   } else {
-    IrBuilder::create<ExpandOp>(out_tensor, inp, maybe_expanded_sizes);
+    IrBuilder::create<ExpandOp>(out, inp, maybe_expanded_sizes);
   }
-  return out_tensor;
+  return out;
 }
 
 TensorView* expand_as(TensorView* inp, TensorView* other) {
-  auto inp_domain = TensorDomain::noReductions(inp->getLogicalDomain());
-  auto other_domain = TensorDomain::noReductions(other->getLogicalDomain());
+  const std::vector<IterDomain*>& inp_domain =
+      TensorDomain::noReductions(inp->getLogicalDomain());
+  const std::vector<IterDomain*>& other_domain =
+      TensorDomain::noReductions(other->getLogicalDomain());
+  std::vector<Val*> expanded_sizes;
+  expanded_sizes.reserve(inp_domain.size());
 
-  NVF_CHECK(
-      inp_domain.size() <= other_domain.size(),
-      "Invalid expand_as, dimensions of inp is higher than dimensions of "
-      "other, expected other to be at least ",
-      inp_domain.size(),
-      " but received ",
-      other_domain.size());
-
-  inp = ops::maybe_broadcast_inner_to_rank(inp, other_domain.size());
-  inp_domain = TensorDomain::noReductions(inp->getLogicalDomain());
-
-  std::vector<IterDomain*> out_domain;
-  std::vector<Val*> maybe_expanded_sizes;
-  bool expanded = false;
-  for (auto i : arange(inp_domain.size())) {
-    auto inp_id = inp_domain[i];
-    auto other_id = other_domain[i];
-
-    auto out_id_builder = IterDomainBuilder(inp_id);
-    Val* maybe_expanded_size = inp_id->extent();
-
-    if (!inp_id->isBroadcast()) {
+  for (auto [inp_id, other_id] : zip(inp_domain, other_domain)) {
+    if (inp_id->isBroadcast()) {
+      expanded_sizes.push_back(other_id->getMaybeExpandedExtent());
+    } else {
       NVF_ERROR(
           !other_id->isBroadcast(),
           "Cannot expand as a tensor if other has broadcast dimensions that "
           "don't map to broadcast dimensions in the input.");
-      if (!inp_id->isConstInt() && other_id->isConstInt()) {
-        out_id_builder.extent(
-            ops::promoteSize(inp_id->extent(), other_id->extent()));
-      }
-    } else {
-      if (!other_id->isBroadcast()) {
-        expanded = true;
-        out_id_builder.expanded_extent(other_id->extent());
-        maybe_expanded_size = other_id->extent();
-      } else if (other_id->isBroadcast() && other_id->hasExpandedExtent()) {
-        expanded = true;
-        out_id_builder.expanded_extent(other_id->expandedExtent());
-        maybe_expanded_size = other_id->expandedExtent();
-      }
+      // promoteSize returns LHS if both are symbolic. This is good because it's
+      // easier for `expand` to tell that this dimension isn't expanded at all.
+      expanded_sizes.push_back(
+          ops::promoteSize(inp_id->extent(), other_id->extent()));
     }
-    out_domain.push_back(out_id_builder.build());
-    maybe_expanded_sizes.push_back(maybe_expanded_size);
   }
-
-  TensorView* out_tensor = IrBuilder::create<TensorView>(
-      IrBuilder::create<TensorDomain>(
-          out_domain, TensorDomain::getContiguityFilledWith(out_domain, true)),
-      inp->getDataType().value());
-  if (!expanded) {
-    IrBuilder::create<LoadStoreOp>(LoadStoreOpType::Set, out_tensor, inp);
-  } else {
-    IrBuilder::create<ExpandOp>(out_tensor, inp, maybe_expanded_sizes);
-  }
-  return out_tensor;
+  return expand(inp, expanded_sizes);
 }
 
 TensorView* repeat(

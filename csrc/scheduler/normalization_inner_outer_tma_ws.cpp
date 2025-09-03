@@ -393,7 +393,8 @@ void getHeuristics(
             << is_circular_buffer_regs_cached << "\n"
             << "is_non_circular_buffer_gmem_to_regs: "
             << is_non_circular_buffer_gmem_to_regs << "\n";
-    debug() << "smem_persistent_buffers: " << "\n";
+    debug() << "smem_persistent_buffers: "
+            << "\n";
     for (auto buffer : rparams->smem_persistent_buffers) {
       debug() << buffer->toString() << "\n";
     }
@@ -425,7 +426,7 @@ void scheduleOuterReduction(
   for (auto& outer_reduction_tv : outer_reduction_tvs) {
     // Similar to the inner reduction, we need to reorder the outer reduction tv
     // when there are view operations.
-    if (!ir_utils::getViewOps(fusion).empty()) {
+    if (!ir_utils::getReshapeOps(fusion).empty()) {
       // Reorder reference_tv after propagating the view operation. This will
       // reorder for better merging.
       outer_reduction_tv->reorder(
@@ -837,12 +838,6 @@ void scheduleFusion(Fusion* fusion, const ReductionParams* rparams) {
                 })) {
           continue;
         }
-
-        // no dim to vectorize or unroll, e.g. 0d tensor (scalar input)
-        if (cached_tv->nDims() <= last_iter_dim) {
-          continue;
-        }
-
         // find tvs should be persistent due to grouped reduction.
         // (1) inline before iter unrolled dim to ensure accessible for both
         // loops before and after iter grouped reduction.
@@ -854,6 +849,10 @@ void scheduleFusion(Fusion* fusion, const ReductionParams* rparams) {
           tv_inline_pos_map.emplace(gp_tv, last_iter_dim);
         }
 
+        NVF_ERROR(
+            cached_tv->nDims() > last_iter_dim,
+            "No dim to vectorize or unroll, cached_tv: ",
+            cached_tv->toString());
         if (can_vectorize(ir_utils::getSoleProducerTv(cached_tv))) {
           cached_tv->axis(last_iter_dim)->parallelize(ParallelType::Vectorize);
         } else {

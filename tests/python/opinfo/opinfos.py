@@ -58,6 +58,8 @@ from opinfo_input_generators import (
     linear_error_generator,
     triu_input_generator,
     triu_error_generator,
+    cumsum_input_generator,
+    cumsum_error_generator,
     grouped_mm_input_generator,
     scaled_grouped_mm_input_generator,
     scaled_mm_input_generator,
@@ -68,6 +70,7 @@ from opinfo_utils import (
     full_precision_float_dtypes,
     int_dtypes,
     int_float_dtypes,
+    float_dtypes,
     float_complex_dtypes,
     ArgumentType,
     JAX_AVAILABLE,
@@ -1428,6 +1431,18 @@ triu_opinfo = OpInfo(
     symbolic_parameter_list=[ArgumentType.Symbolic, ArgumentType.Constant],
     supports_direct_bindings=True,
 )
+
+cumsum_opinfo = OpInfo(
+    lambda fd: fd.ops.cumsum,
+    "cumsum",
+    dtypes=float_dtypes,
+    sample_input_generator=cumsum_input_generator,
+    error_input_generator=cumsum_error_generator,
+    reference=torch.cumsum,
+    symbolic_parameter_list=[ArgumentType.Symbolic, ArgumentType.Constant],
+)
+
+tv_val_ops.append(cumsum_opinfo)
 
 tv_val_ops.append(triu_opinfo)
 

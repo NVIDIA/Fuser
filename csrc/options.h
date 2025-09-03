@@ -99,6 +99,7 @@ enum class DebugDumpOption {
 enum class EnableOption {
   FuseMatmul, //! Enable automatic fusion of matmul and linear ops
   FuseMultipleMatmuls, //! Allow fusing more than one matmul in a single kernel
+  GreedyScheduler, //! Enable the grreedy scheduler
   IdModel, //! Enable IdModel
   IdModelExtraValidation, //! Enable extra error checking when building IdModel
   IoToLowerPrecision, //! Enable castInputOutputToLowerPrecision. #1889 explains
@@ -116,6 +117,7 @@ enum class EnableOption {
   WarnRegisterSpill, //! Enable warnings of register spill
   WarpSpecializedNormalization, //! Enable warp specialized persistent kernel
   HostIrLowering, //! Enable FusionKernelRuntime lowering to host IR
+  FastMath, //! Enable fast math optimizations (--use_fast_math)
   EndOfOption //! Placeholder for counting the number of elements
 };
 
@@ -283,7 +285,7 @@ NVF_API std::unordered_map<EnableOption, std::vector<std::string>> Options<
 
 using EnableOptions = Options<EnableOption>;
 
-std::optional<EnableOption> stringToEnableOption(
+NVF_API std::optional<EnableOption> stringToEnableOption(
     const std::string& enable_option);
 
 bool isOptionEnabled(EnableOption option);
@@ -304,7 +306,7 @@ NVF_API std::unordered_map<DisableOption, std::vector<std::string>> Options<
 
 using DisableOptions = Options<DisableOption>;
 
-std::optional<DisableOption> stringToDisableOption(
+NVF_API std::optional<DisableOption> stringToDisableOption(
     const std::string& disable_option);
 
 NVF_API bool isOptionDisabled(DisableOption option);

@@ -198,8 +198,7 @@ struct RecordFunctor {
       os << ",";
     }
     if (!outputs_.empty()) {
-      os << " = "
-         << "fd." << name_ << "(";
+      os << " = " << "fd." << name_ << "(";
     } else {
       os << "fd." << name_ << "(";
     }
@@ -1149,8 +1148,7 @@ struct CatOpRecord : RecordFunctor {
       os << ",";
     }
     if (!outputs_.empty()) {
-      os << " = "
-         << "fd." << name_ << "(";
+      os << " = " << "fd." << name_ << "(";
     } else {
       os << "fd." << name_ << "(";
     }
@@ -1699,6 +1697,80 @@ struct ReductionOpRecord : RecordFunctor {
   PrimDataType dtype_;
 };
 
+struct ScanOpRecord : RecordFunctor {
+  ScanOpRecord(
+      std::vector<State> _args,
+      std::vector<State> _outputs,
+      std::string _name,
+      serde::RecordType record_type,
+      std::function<TensorView*(TensorView*, int64_t)> fusion_op,
+      int64_t dim,
+      BinaryOpType op_type)
+      : RecordFunctor(
+            std::move(_args),
+            std::move(_outputs),
+            _name,
+            record_type),
+        fusion_op_(std::move(fusion_op)),
+        dim_(dim),
+        op_type_(op_type) {}
+  ~ScanOpRecord() override = default;
+  RecordFunctor* clone() final {
+    return new ScanOpRecord(*this);
+  }
+
+  //! Child specific hash function in lower 32 bits.
+  //! | 7 --- 4 | 3 --- 0 |
+  //! | op_type | dim     |
+  size_t hash() const final {
+    auto result = RecordFunctor::hash();
+    result |= ((static_cast<size_t>(op_type_) & 0xf) << 4);
+    return result | (static_cast<size_t>(dim_) & 0xf);
+  }
+
+  bool operator==(const RecordFunctor& other) const final {
+    auto result = false;
+    if (auto child_ptr = dynamic_cast<const ScanOpRecord*>(&other)) {
+      result = RecordFunctor::operator==(other);
+      if (result) {
+        result = result &&
+            (*fusion_op_
+                  .template target<TensorView* (*)(TensorView*, int64_t)>() ==
+             *child_ptr->fusion_op_
+                  .template target<TensorView* (*)(TensorView*, int64_t)>());
+        result = result && (dim_ == child_ptr->dim_);
+        result = result && (op_type_ == child_ptr->op_type_);
+      }
+    }
+    return result;
+  }
+
+  void operator()(FusionState& fd) final {
+    auto arg = fd.getFusionState(args_.at(0).index)->template as<TensorView>();
+    auto output = fusion_op_(arg, dim_);
+    fd.setFusionState(outputs_.at(0).index, output);
+  }
+
+  void print(std::ostream& os, bool close_function = true) const final {
+    RecordFunctor::print(os, false);
+    os << ", dim=" << dim_;
+    if (close_function) {
+      os << ")";
+    }
+  }
+
+  std::pair<serde::RecordData, flatbuffers::Offset<void>> recordData(
+      flatbuffers::FlatBufferBuilder& builder) const final {
+    return {
+        serde::RecordData::ScanOp, serde::CreateScanOp(builder, dim_).Union()};
+  }
+
+ private:
+  std::function<TensorView*(TensorView*, int64_t)> fusion_op_;
+  int64_t dim_;
+  BinaryOpType op_type_;
+};
+
 struct IndexSelectOpRecord : RecordFunctor {
   IndexSelectOpRecord(
       std::vector<State> _args,
@@ -1824,7 +1896,7 @@ struct ScatterOpRecord : RecordFunctor {
   void operator()(FusionState& fd) final {
     auto arg1 = fd.getFusionState(args_.at(0).index)->template as<TensorView>();
     auto arg3 = fd.getFusionState(args_.at(1).index)->template as<TensorView>();
-    auto arg4 = fd.getFusionState(args_.at(2).index)->template as<TensorView>();
+    auto arg4 = fd.getFusionState(args_.at(2).index)->template as<Val>();
 
     Val* output = scatter(arg1, dim_, arg3, arg4);
     fd.setFusionState(outputs_.at(0).index, output);
@@ -3496,6 +3568,75 @@ struct ScaledMmaOpRecord : RecordFunctor {
   int64_t out_block_scale_size_;
   PrimDataType out_block_scale_dtype_;
   bool out_gamma_;
+};
+
+struct CutlassNvfp4GroupedMmaOpRecord : RecordFunctor {
+  CutlassNvfp4GroupedMmaOpRecord(
+      std::vector<State> _args,
+      std::vector<State> _outputs,
+      PrimDataType dtype)
+      : RecordFunctor(
+            std::move(_args),
+            std::move(_outputs),
+            "ops.cutlass_nvfp4_grouped_mm",
+            serde::RecordType::CutlassNvfp4GroupedMmaOp),
+        dtype_(dtype) {}
+
+  ~CutlassNvfp4GroupedMmaOpRecord() override = default;
+
+  size_t hash() const final {
+    auto result = RecordFunctor::hash();
+    return result | (static_cast<size_t>(dtype_) & 0xffffffff);
+  }
+
+  bool operator==(const RecordFunctor& other) const final {
+    if (!RecordFunctor::operator==(other)) {
+      return false;
+    }
+    auto other_cutlass_nvfp4_grouped_mma =
+        static_cast<const CutlassNvfp4GroupedMmaOpRecord&>(other);
+    return (dtype_ == other_cutlass_nvfp4_grouped_mma.dtype_);
+  }
+
+  RecordFunctor* clone() final {
+    return new CutlassNvfp4GroupedMmaOpRecord(*this);
+  }
+
+  void operator()(FusionState& fd) final {
+    auto mat1 = fd.getFusionState(args_[0].index)->template as<TensorView>();
+    auto mat2 = fd.getFusionState(args_[1].index)->template as<TensorView>();
+    auto scale1 = fd.getFusionState(args_[2].index)->template as<TensorView>();
+    auto scale2 = fd.getFusionState(args_[3].index)->template as<TensorView>();
+    auto alpha = fd.getFusionState(args_[4].index)->template as<TensorView>();
+    auto problem_sizes =
+        fd.getFusionState(args_[5].index)->template as<TensorView>();
+    auto expert_offsets =
+        fd.getFusionState(args_[6].index)->template as<TensorView>();
+    auto sf_offsets =
+        fd.getFusionState(args_[7].index)->template as<TensorView>();
+
+    auto result = cutlass_nvfp4_grouped_mm(
+        mat1,
+        mat2,
+        scale1,
+        scale2,
+        alpha,
+        problem_sizes,
+        expert_offsets,
+        sf_offsets,
+        dtype_);
+    fd.setFusionState(outputs().at(0).index, result);
+  }
+
+  void print(std::ostream& os, bool close_function = true) const final {
+    RecordFunctor::print(os, false);
+    os << ", dtype=" << dtypeToPyString(dtype_);
+    if (close_function) {
+      os << ")";
+    }
+  }
+
+  PrimDataType dtype_;
 };
 
 } // namespace nvfuser::python_frontend

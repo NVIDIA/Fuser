@@ -191,7 +191,7 @@ class ComputeAtMap {
   //! Run through disjoint sets in the LOOP map, make sure there's only one
   //! non-serial parallel type in each disjoint set, set the parallel type of
   //! all IterDomains in the disjoint set to that PType.
-  void validateAndPropagatePType();
+  void validateAndPropagatePType() const;
 
   //! Run through disjoint sets in the LOOP map and allocate the index
   //!  variable for the associated for loop that will be generated

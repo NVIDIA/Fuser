@@ -8,7 +8,7 @@
 #include <cuda_profiler_api.h>
 #include <fusion.h>
 #include <host_ir/container.h>
-#include <host_ir/executor.h>
+#include <host_ir/evaluator.h>
 #include <ir/all_nodes.h>
 #include <ops/all_ops.h>
 #include <preseg_passes/reorder_sharded_axis.h>
@@ -295,11 +295,13 @@ TEST_F(MultiDeviceStreamParallelTypeTest, matmul_RS_through_bcast) {
   auto mesh = DeviceMesh::createForNumDevices(D);
   tv0->setDeviceMesh(mesh);
   tv1->setDeviceMesh(mesh);
+  tv1b->setDeviceMesh(mesh);
   tv2_unreduced->setDeviceMesh(mesh);
   tv2->setDeviceMesh(mesh);
 
   tv0->axis(1)->parallelize(ParallelType::DIDx);
   tv1->axis(0)->parallelize(ParallelType::DIDx);
+  tv1b->axis(1)->parallelize(ParallelType::DIDx);
   tv2_unreduced->axis(0)->parallelize(ParallelType::Stream);
   tv2_unreduced->axis(1)->parallelize(ParallelType::DIDx);
   tv2->axis(0)->parallelize(ParallelType::Stream);
