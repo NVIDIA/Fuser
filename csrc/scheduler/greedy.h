@@ -119,7 +119,7 @@ class HeuristicDataCache;
 // constrained tensor. Suppose its loop domain is already scheduled.
 // Since the loop domain is derived from the idx and src tensors,
 // there's no obvious way to propagate its transformation to the
-// `out_cosnumer` tensor. Therefore, the `out_cosnumer` tensor itself
+// `out_consumer` tensor. Therefore, the `out_consumer` tensor itself
 // needs to be explicitly scheduled, which is done by designating it
 // as a constrained tensor. Similarly, all three input tensors need to
 // be explicitly scheduled due to the lack of connection between the

@@ -42,8 +42,7 @@ std::vector<Expr*> getAllConstrainedOps(Fusion* fusion) {
 }
 
 std::vector<TensorView*> getAllConstrainedTvs(Fusion* fusion) {
-  const auto constrained_exprs =
-      ir_utils::getOpsOfType<ArgsortOp, PadOp, ScanOp, ScatterOp>(fusion);
+  const auto constrained_exprs = getAllConstrainedOps(fusion);
 
   std::vector<TensorView*> constrained_tvs;
   constrained_tvs.reserve(constrained_exprs.size());
@@ -258,8 +257,11 @@ class CompileTimeChecker : private IterVisitor {
       return;
     }
 
-    // Allocation domain must match between the input and output since
-    // they need to share the same memory buffer
+    // If allocation domains already exist for the input and
+    // output, they must match since the input and output need to
+    // share the same memory buffer. This condition does not matter if
+    // no explicit allocation domain exists since we can set the
+    // allocation domain as required for this scheduler.
     if (inp->hasAllocation() && out->hasAllocation() &&
         (exact_graph_.toGroups(inp->getAllocationDomain()) !=
          exact_graph_.toGroups(out->getAllocationDomain()))) {
@@ -311,7 +313,7 @@ class CompileTimeChecker : private IterVisitor {
     checkConstrainedTv(out_tv, {constrained_out_logical_dim});
 
     // In addition, the index and src tensors are not allowed to use
-    // TID with the scan dim. Their logical domains are not mapped
+    // TID with the scatter dim. Their logical domains are not mapped
     // with the logical domains of the input and output tensors, so
     // they need to be checked separately.
     checkConstrainedTv(
@@ -602,35 +604,20 @@ class ConstrainedOpScheduler : public OptOutDispatch {
     scheduleConstrainedTv(in_tv, {scatter_dim});
     scheduleConstrainedTv(src_tv, {scatter_dim});
 
-    // If in_tv is produced by another scatter, it should be already
-    // scheduled, including its memory type. It should not be
-    // modified.
-    const bool in_tv_is_produced_by_scatter =
-        dynamic_cast<ScatterOp*>(in_tv->definition()) != nullptr;
-
-    if (in_tv_is_produced_by_scatter) {
-      auto in_tv_current_memory_type = in_tv->getMemoryType();
-      NVF_ERROR_EQ(
-          in_tv->getMemoryType(),
-          in_tv_current_memory_type,
-          "Inconsistent setting of memory type of ",
-          in_tv->toString(),
-          ". Previous: ",
-          in_tv_current_memory_type,
-          ". New: ",
-          in_tv->getMemoryType());
+    // Setting the memory type.
+    // If either of the input and output needs to be a global memory
+    // tensor, both tensors should use global. Otherwise, use shared.
+    // Note that the in_tv tensor should never be produced by another
+    // scatter since a copy must have been inserted by
+    // insertCopyAfterScatter.
+    NVF_ERROR(dynamic_cast<ScatterOp*>(in_tv->definition()) == nullptr);
+    if (in_tv->isFusionInput() || in_tv->isFusionOutput() ||
+        out_tv->isFusionOutput()) {
+      in_tv->setMemoryType(MemoryType::Global);
+      out_tv->setMemoryType(MemoryType::Global);
     } else {
-      // Setting the memory type.
-      // If either of the input and output needs to be a global memory
-      // tensor, both tensors should use global. Otherwise, use shared.
-      if (in_tv->isFusionInput() || in_tv->isFusionOutput() ||
-          out_tv->isFusionOutput()) {
-        in_tv->setMemoryType(MemoryType::Global);
-        out_tv->setMemoryType(MemoryType::Global);
-      } else {
-        in_tv->setMemoryType(MemoryType::Shared);
-        out_tv->setMemoryType(MemoryType::Shared);
-      }
+      in_tv->setMemoryType(MemoryType::Shared);
+      out_tv->setMemoryType(MemoryType::Shared);
     }
 
     scheduleScatterAllocationDomains(scatter);
