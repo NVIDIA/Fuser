@@ -526,15 +526,19 @@ class TaskSorter {
 
       // If our high water mark is above best_usage, terminate early and
       // backtrack
-      if (!best_steps.empty() &&
-          steps_.back().high_water_mark > best_steps.back().high_water_mark) {
+      TaskGraph::Size hwm = steps_.back().high_water_mark;
+      TaskGraph::Size best_hwm = best_steps.empty()
+          ? std::numeric_limits<TaskGraph::Size>::max()
+          : best_steps.back().high_water_mark;
+
+      if (hwm > best_hwm) {
         backtracked_task_id = backtrack();
         continue;
       }
 
-      // Our usage is at or below best_usage. Have we completed an ordering? If
+      // Our usage is at or below best. Have we completed an ordering? If
       // so, update best_steps
-      if (steps_.size() == (size_t)graph_.numTasks()) {
+      if (steps_.size() == (size_t)graph_.numTasks() && hwm < best_hwm) {
         best_steps = steps_;
       }
     }
