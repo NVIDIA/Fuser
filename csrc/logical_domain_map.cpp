@@ -131,6 +131,17 @@ std::pair<std::unordered_set<IterDomain*>, bool> getNonMappingDomainInfo(
       non_mapping_ids.insert(producer_logical.at(topk_dim));
       has_consumer_id = true;
     }
+  } else if (
+      auto* grouped_block_sf_layout =
+          dynamic_cast<GroupedBlockScalingFactorLayoutOp*>(
+              consumer_tv->definition())) {
+    if (producer_tv != grouped_block_sf_layout->in()) {
+      auto producer_logical =
+          TensorDomain::noReductions(producer_tv->getLogicalDomain());
+      non_mapping_ids.insert(producer_logical.begin(), producer_logical.end());
+      // we are not mapping anything, `has_consumer_id` doesn't matter.
+      has_consumer_id = false;
+    }
   }
 
   return std::make_pair(non_mapping_ids, has_consumer_id);
