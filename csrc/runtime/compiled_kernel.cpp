@@ -58,6 +58,7 @@
 #include <nvfuser_resources/basic_type_traits.h>
 #include <nvfuser_resources/bf16_support.h>
 #include <nvfuser_resources/bit.h>
+#include <nvfuser_resources/block_layout.h>
 #include <nvfuser_resources/block_reduction.h>
 #include <nvfuser_resources/block_sync_atomic.h>
 #include <nvfuser_resources/block_sync_default.h>
@@ -1158,7 +1159,8 @@ std::string _getStructuredCode(
     std::string kernel_name,
     bool has_argsort = false,
     bool has_topk = false,
-    bool has_scan = false) {
+    bool has_scan = false,
+    bool has_block_layout = false) {
   // generating cuda code;
   std::string code = "";
 
@@ -1193,6 +1195,9 @@ std::string _getStructuredCode(
   }
   if (has_topk) {
     code += nvfuser_resources::topk_cu;
+  }
+  if (has_block_layout) {
+    code += nvfuser_resources::block_layout_cu;
   }
 
   code += "\nnamespace " + CompiledKernel::kernelNamespace() + " {\n\n";
@@ -1439,7 +1444,8 @@ std::string CompiledKernel::getStructuredCode() const {
       kernelName(),
       kernel()->summary().has_argsort,
       kernel()->summary().has_topk,
-      kernel()->summary().has_scan);
+      kernel()->summary().has_scan,
+      kernel()->summary().has_grouped_block_sf_layout);
 }
 
 std::string CompiledKernel::disassembledKernelSASS() const {
