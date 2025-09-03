@@ -86,7 +86,7 @@ the index of a Tensor.
 <!-- */ //-->\
 ```cpp
 using CuTeTutorial = NVFuserTest;
-TEST_F(CuTeTutorial, ThreadLayout) {
+TEST_F(CuTeTutorial, SimpleThreadLayout) {
   NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
   const auto dtype = DataType::BFloat16;
 
@@ -172,6 +172,109 @@ TEST_F(CuTeTutorial, ThreadLayout) {
               T1[i9]
                  = T0[i9];
             }
+          }
+        }
+      }
+    }
+  }
+  */
+
+  auto options = at::TensorOptions().dtype(at::kBFloat16).device(at::kCUDA, 0);
+  at::Tensor at_tv0 = at::randn({dim0, dim1}, options).as_strided({dim0, dim1}, {1, dim0});
+
+  KernelExecutor ke;
+  ke.compile(fusion, {at_tv0});
+  kir::Kernel* kernel = ke.compiledKernel()->kernel();
+  ASSERT_TRUE(kernel != nullptr);
+  auto cg_outputs = ke.run({at_tv0});
+  NVF_CHECK(at::allclose(cg_outputs[0].as<at::Tensor>(), at_tv0));
+}
+
+TEST_F(CuTeTutorial, VectorizeThreadLayout) {
+  NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
+  const auto dtype = DataType::BFloat16;
+
+  DisableOptionsGuard disable_options_guard;
+  DisableOptionsGuard::getCurOptions().set(DisableOption::MagicZero);
+
+  // Fusion Definition
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  Fusion* fusion = fusion_ptr.get();
+  FusionGuard fg(fusion);
+
+  constexpr int dim0 = 16, dim1 = 64;
+  TensorView* tv0 = makeContigConcreteTensor({dim0, dim1}, dtype);
+  fusion->addInput(tv0);
+  TensorView* tv1 = set(tv0);
+  fusion->addOutput(tv1);
+
+  // Set the allocation domain to column-major.
+  tv0->setAllocationDomain({tv0->axis(1), tv0->axis(0)}, /*new_contiguity=*/true);
+  tv1->reorder({1, 0}); // traverse rows then column.
+  tv1->setAllocationDomain(tv1->getLoopDomain(), /*new_contiguity=*/true);
+
+  fusion->printKernel();
+  /*
+  // The input and output tensors are column-major with shape (16, 64) and stride (1, 16).
+  __global__ void CUDAGeneratedKernel(Tensor<__bfloat, 2, 2> T0, Tensor<__bfloat, 2, 2> T1) {
+    #pragma unroll
+    for(nvfuser_index_t i0 = 0LL; i0 < 64LL; ++i0) {
+      nvfuser_index_t i1;
+      i1 = 16LL * i0;
+      #pragma unroll
+      for(nvfuser_index_t i2 = 0LL; i2 < 16LL; ++i2) {
+        nvfuser_index_t i3;
+        i3 = i1 + i2;
+        T1[i3]
+           = T0[i3];
+      }
+    }
+  }
+  */
+
+  // Apply transformations to column-major TensorView
+  tv1->split(0, 8); // tv1 [8, 8, 16]
+  tv1->split(0, 8); // tv1 [1, 8, 8, 16]
+  // Reorder to organize by Thread-Value Relationship
+  // TV Layout T1_g___bfloat[iS6{1}, iS5{8}, iS2{16}, iS7{8}]
+  tv1->reorder({{1, 3}, {2, 1}, {3, 2}}); // tv1 [1, 8, 16, 8]
+
+  // Row-Major Tensor (16, 64): (64, 1)
+  // tv1->split(-1, 8); // tv1 [16, 8, 8]
+  // tv1->split(-1, 8); // tv1 [16, 1, 8, 8]
+  // tv1->split(0, 16); // tv1 [1, 16, 1, 8, 8]
+
+  TransformPropagator propagator(tv1);
+  MaxLogicalDomainInfoSpanningTree(tv1).traverse(&propagator);
+
+  inlineMost();
+
+  fusion->printKernel();
+  /*
+  // After splitting and reordering the loop domain of TV1, the loop domain is [1, 8, 16, 8].
+  // The strides of the loop domain are [-, 16, 1, 128].
+  //
+  // How to create CuTe TV layout from NvFuser TensorDomain?
+  //   1) Reverse ordering from inner to outer loops.
+  //   2) Gather modes 0 and 1 and 2 and 3 together.
+  // This creates the shape ((8, 16), (8, 1)) and the stride ((128, 1), (16, -)),
+  // which corresponds with the CuTe Thread-Value Layout.
+  __global__ void CUDAGeneratedKernel(Tensor<__bfloat, 2, 2> T0, Tensor<__bfloat, 2, 2> T1) {
+    #pragma unroll
+    for(nvfuser_index_t i0 = 0LL; i0 < 8LL; ++i0) {
+      nvfuser_index_t i1;
+      i1 = 16LL * i0;
+      #pragma unroll
+      for(nvfuser_index_t i2 = 0LL; i2 < 16LL; ++i2) {
+        nvfuser_index_t i3;
+        i3 = i1 + i2;
+        #pragma unroll
+        for(nvfuser_index_t i4 = 0LL; i4 < 8LL; ++i4) {
+          nvfuser_index_t i5;
+          i5 = i3 + (128LL * i4);
+          if (((i0 + (8LL * i4)) < 64LL)) {
+            T1[i5]
+               = T0[i5];
           }
         }
       }
