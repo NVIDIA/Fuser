@@ -365,7 +365,6 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/scheduler/tools/loop_domain_scheduler.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/tools/maxinfo_propagator.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/tools/resize_utils.cpp
-  ${NVFUSER_SRCS_DIR}/scheduler/tools/scatter_utils.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/tools/static_repeat.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/transpose.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/utils.cpp
