@@ -153,7 +153,8 @@ bool needsPredicateSharedMemAccess(const Expr* expr) {
       }
     }
 
-    if (isSharedMemoryTensor(consumer)) {
+    if (isSharedMemoryTensor(consumer) ||
+        std::ranges::any_of(expr->inputs(), isSharedMemoryTensor)) {
       for (auto id : consumer->getLoopDomain()) {
         // TODO: (Enable in a follow up)
         //  smem predicate removal with init would break unroll and unswitch,
