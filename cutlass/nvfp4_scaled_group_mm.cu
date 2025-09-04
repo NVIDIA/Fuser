@@ -193,9 +193,9 @@ __global__ void get_group_gemm_starts(
 //   expert_offsets: Expert offset indices
 //   sf_offsets: Scale factor offsets
 //   problem_sizes: Matrix dimensions for each expert
-//   M: Common M dimension
-//   N: Common N dimension
-//   K: Common K dimension
+//   M: Aggregated M dimension across all groups
+//   N: Common N dimension across all groups
+//   K: Common K dimension across all groups
 //   stream: CUDA stream for kernel execution
 template <typename LayoutSFA, typename LayoutSFB, typename ScaleConfig>
 void run_get_group_gemm_starts(
@@ -312,7 +312,7 @@ void run_get_group_gemm_starts(
 //   problem_sizes: Matrix dimensions for each group
 //   expert_offsets: Expert offset indices
 //   sf_offsets: Scale factor offsets
-//   M: Common M dimension across all groups
+//   M: Aggregated M dimension across all groups
 //   N: Common N dimension across all groups
 //   K: Common K dimension across all groups
 //   stream: CUDA stream for kernel execution
@@ -580,7 +580,8 @@ void validateInputsNvfp4ScaledGroupMm(
     const torch::Tensor& b_blockscales,
     const torch::Tensor& alphas,
     const torch::Tensor& problem_sizes,
-    const torch::Tensor& expert_offsets) {
+    const torch::Tensor& expert_offsets,
+    const torch::Tensor& sf_offsets) {
   // Check data types
   NVF_CHECK(
       a.scalar_type() == at::ScalarType::Float4_e2m1fn_x2,
@@ -638,6 +639,9 @@ void validateInputsNvfp4ScaledGroupMm(
       problem_sizes.size(0) == expert_offsets.size(0),
       "Number of experts in problem_sizes must match expert_offsets");
   NVF_CHECK(
+      problem_sizes.size(0) == expert_offsets.size(0),
+      "Number of experts in problem_sizes must match expert_offsets");
+  NVF_CHECK(
       problem_sizes.dtype() == torch::kInt32, "problem_sizes must be int32.");
 }
 
@@ -683,7 +687,14 @@ torch::Tensor nvfp4_scaled_grouped_mm(
   torch::Tensor output = at::empty({a.size(0), b.size(1)}, options);
 
   validateInputsNvfp4ScaledGroupMm(
-      a, b, a_blockscale, b_blockscales, alphas, problem_sizes, expert_offsets);
+      a,
+      b,
+      a_blockscale,
+      b_blockscales,
+      alphas,
+      problem_sizes,
+      expert_offsets,
+      sf_offsets);
 
   int M = static_cast<int>(a.size(0));
   int N = static_cast<int>(b.size(1));
