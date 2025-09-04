@@ -4342,7 +4342,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     const auto input = layout_op->in()->as<kir::TensorIndex>();
     ArgumentBuilder template_args;
     template_args.arg(input->view()->dtype()); // DataT
-    template_args.arg(layout_op->expertOffsets()->dtype()); // OffsetsDataT
+    template_args.arg(layout_op->inputOffsets()->dtype()); // OffsetsDataT
     switch (layout_op->layout()) {
       case BlockScalingFactorLayout::Block128x4:
         template_args.arg(32); // block_row_outer
@@ -4374,9 +4374,9 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     // how do I access an entire tensor on global/shared memory?! maybe check
     // out scatter example
     func_args.arg("&").append(
-        genVariableName(layout_op->expertOffsets()) + "[0]");
+        genVariableName(layout_op->inputOffsets()) + "[0]");
     func_args.arg("&").append(
-        genVariableName(layout_op->scalingFactorOffsets()) + "[0]");
+        genVariableName(layout_op->outputOffsets()) + "[0]");
 
     func_args.arg(genInline(layout_op->k()));
     func_args.arg(genInline(layout_op->g()));
