@@ -65,6 +65,9 @@ TEST_F(HostIrEvaluatorTest, LaunchKernel) {
         std::vector<Val*>{out},
         cache_id);
 
+    hic->addInput(in);
+    hic->addOutput(out);
+
     hic->pushBackTopLevelExprs(allocate);
     hic->pushBackTopLevelExprs(launch_kernel);
   }
