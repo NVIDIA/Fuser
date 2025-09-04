@@ -12,7 +12,7 @@ namespace {
 
 // TODO: support vectorized store
 template <int BLOCK_ROW_OUTER, int BLOCK_ROW_INNER, int BLOCK_COL>
-__device__ nvfuser_index_t offsetAfterSwizzlePadding(
+__device__ nvfuser_index_t outputOffsetAfterSwizzlePadding(
     const nvfuser_index_t row_idx,
     const nvfuser_index_t col_idx,
     const nvfuser_index_t padded_col_size) {
@@ -64,26 +64,26 @@ template <
     int BLOCK_ROW_INNER,
     int BLOCK_COL,
     int UNROLL_FACTOR>
-__device__ void groupedBlockLayout(
+__device__ void preprocessGroupedMatmulInputSf(
     T* output,
     const T* input,
     const nvfuser_index_t row_idx,
     const nvfuser_index_t col_idx,
-    const Index_T* expert_offsets,
+    const Index_T* input_offsets,
     const Index_T* output_offsets,
     const nvfuser_index_t col_size,
     const nvfuser_index_t group_size) {
   // find corresponding expert_id
   int expert_id = 0;
   for (int i = 0; i < group_size; ++i) {
-    if (row_idx < expert_offsets[i + 1]) {
+    if (row_idx < input_offsets[i + 1]) {
       expert_id = i;
       break;
     }
   }
 
   // row idx for current group
-  nvfuser_index_t c_row_idx = row_idx - expert_offsets[expert_id];
+  nvfuser_index_t c_row_idx = row_idx - input_offsets[expert_id];
   // compute output group offset for current group
   nvfuser_index_t padded_col_size =
       (col_size + BLOCK_COL - 1) / BLOCK_COL * BLOCK_COL;
@@ -91,9 +91,10 @@ __device__ void groupedBlockLayout(
 
   // TODO: vectorized load/store instead of for loop
   for (int i = 0; i < UNROLL_FACTOR && col_idx + i < col_size; ++i) {
-    nvfuser_index_t index =
-        offsetAfterSwizzlePadding<BLOCK_ROW_OUTER, BLOCK_ROW_INNER, BLOCK_COL>(
-            c_row_idx, col_idx + i, padded_col_size);
+    nvfuser_index_t index = outputOffsetAfterSwizzlePadding<
+        BLOCK_ROW_OUTER,
+        BLOCK_ROW_INNER,
+        BLOCK_COL>(c_row_idx, col_idx + i, padded_col_size);
     out_group_offset[index] = input[i];
   }
 }
