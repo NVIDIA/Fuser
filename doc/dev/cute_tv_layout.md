@@ -319,7 +319,11 @@ TEST_F(CuTeTutorial, VectorizeThreadLayout) {
 ## CuTe Hopper MMA Atom
 Create register layout for a (128, 24) C accumulator tile.
 
+### PTX WGMMA
 ![WGMMA .m64nNk16 register fragment layout for accumulator matrix](https://docs.nvidia.com/cuda/parallel-thread-execution/_images/wgmma-64N16-D.png)
+
+### WGMMA Thread Value Layout
+![WGMMA (m64, n24) TV Layout](cute/wgmma_tv_layout.svg)
 
 References:
 https://docs.nvidia.com/cutlass/media/docs/cpp/cute/0t_mma_atom.html#hopper
