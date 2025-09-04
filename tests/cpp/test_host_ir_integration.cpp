@@ -51,21 +51,18 @@ TEST_F(HostIrEvaluatorTest, LaunchKernel) {
     hic->addKernelExecutor(std::move(ke));
 
     IrCloner ir_cloner(hic.get());
-    auto hic_in = ir_cloner.clone(fusion.inputs().at(0));
-    auto hic_out = ir_cloner.clone(fusion.outputs().at(0));
+    Val* in = ir_cloner.clone(fusion.inputs().at(0));
+    Val* out = ir_cloner.clone(fusion.outputs().at(0));
 
-    hic->addInput(hic_in);
-    hic->addOutput(hic_out);
-    auto allocate =
-        IrBuilder::create<kir::Allocate>(hic_out, MemoryType::Global);
+    auto allocate = IrBuilder::create<kir::Allocate>(out, MemoryType::Global);
     auto* cache_id =
         IrBuilder::create<NamedScalar>("cacheId", DataType::UInt64);
     auto launch_kernel = IrBuilder::create<LaunchKernel>(
         0,
         LaunchParams(),
         CompileParams(),
-        std::vector<Val*>{hic_in},
-        std::vector<Val*>{hic_out},
+        std::vector<Val*>{in},
+        std::vector<Val*>{out},
         cache_id);
 
     hic->pushBackTopLevelExprs(allocate);
@@ -145,13 +142,12 @@ TEST_F(HostIrEvaluatorTest, AddInLoop) {
     hic->pushBackTopLevelExprs(for_loop);
   }
 
-  HostIrEvaluator hie(std::move(hic));
-
   at::Tensor in_tensor =
       at::randn({c * 2, 5}, at::dtype(at::kFloat).device(at::kCUDA));
   at::Tensor expected_out_tensor = in_tensor + in_tensor;
   expected_out_tensor.chunk(c, 0)[0].zero_();
 
+  HostIrEvaluator hie(std::move(hic));
   KernelArgumentHolder ins(in_tensor);
   ins.setCacheId(0);
   KernelArgumentHolder outs = hie.runWithInputs(ins);

@@ -1574,10 +1574,11 @@ void scheduleReduction(Fusion* fusion, const ReductionParams* rparams) {
         scheduler_utils::domainReorderAsLogicalMap(reduction_tv));
   }
 
-  NVF_ERROR(
-      !(rparams->schedule_3D &&
-        getShardedIterDomain(reduction_tv, ParallelType::DIDx) != nullptr),
-      "Multidevice nvFuser does not support 3D reduction schedules");
+  if (isSharded(reduction_tv)) {
+    NVF_ERROR(
+        !rparams->schedule_3D,
+        "Multidevice nvFuser does not support 3D reduction schedules");
+  }
 
   auto dim_analysis = scheduler_utils::canonicalDimReduction(
       fusion, reduction_tv, rparams->fastest_dim && rparams->schedule_3D);
