@@ -142,7 +142,7 @@ struct KernelSummary {
   //! Do we have any argsort op?
   bool has_argsort = false;
 
-  //! Do we have any grouped_block_sf_layout op?
+  //! Do we have any preprocess op?
   bool has_preprocess_grouped_matmul_input_sf = false;
 
   //! Do we have any topk op?
