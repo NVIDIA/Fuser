@@ -421,9 +421,21 @@ class HirAliasSelect : public Expr {
 //
 // I only plan to use ShardByStream around evaluated Exprs (e.g. MatmulOp)
 // because otherwise I would have to change every such Expr to support stream
-// parallelization. I don't plan to use ShardByStream around `LaunchKernel`s.
-// nvFuser codegen should be able to generate the right indexing by analyzing a
-// stream-parallelized allocation domain.
+// parallelization.
+//
+// I don't plan to use ShardByStream around `LaunchKernel`s.  nvFuser codegen
+// should be able to generate the right indexing by analyzing a
+// stream-parallelized allocation/loop domain. Having the kernel do the indexing
+// has two benefits:
+// 1. Preserve maximum allocation information. With ShardByStream, the input
+// allocation domain will be `[i{5}, i{2}], contiguity=[false, true]`. Without,
+// it will be `[i{5}, i{6}], contiguity=[true, true]`. With the latter, the
+// scheduler knows at compile time that the stride of i{5} is 6. This extra
+// information could help scheduling and codegen.
+// 2. Unify different parallel types. For TIDs or BIDs, we've already been
+// indexing into a global tensor, not a per-thread or per-block "local" tensor.
+// For DIDs, we currently assume the index is always 0 but that'll probably
+// change when nvFuser generates kernel-initiated communication.
 //
 // I considered keeping this a LoadStoreOp but I couldn't figure out a good way
 // to pass in the stream index, which is needed for slicing.

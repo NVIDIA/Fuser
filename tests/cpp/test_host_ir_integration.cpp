@@ -115,7 +115,10 @@ TEST_F(HostIrEvaluatorTest, AddInLoop) {
 
     auto* stream_index = IrBuilder::create<Val>(DataType::Index);
     // `start` is set to one intentially because I wanted to harden the test for
-    // the for loop.
+    // the for loop. Imagine a buggy nvFuser that completely ignores allocation
+    // domain being stream parallelized. It would make each loop iteration
+    // overwrite the entire tensor instead of a slice. This bug wouldn't be
+    // captured by the test if the for loop started from 0.
     auto* for_loop = IrBuilder::create<ForLoop>(
         out->axis(1),
         stream_index,
