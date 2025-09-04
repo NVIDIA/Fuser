@@ -484,17 +484,18 @@ std::pair<TensorDomain*, TensorDomain*> TransformRFactor::runReplay(
   std::vector<IterDomain*> new_producer_domain = replayDomain(
       original_td->loop(),
       original_to_producer_id_map,
-      /*ignore_ids=*/kEmptyIgnoreIds,
+      /*ignore_ids=*/{},
       /*propagate_padding=*/true,
       /*propagate_parallelization=*/true);
 
   // Specify the logical domain of the producer which will match the consumer
   // root domain.
-  std::vector<IterDomain*> replay_rfactor_logical_domain = replay_rfactor.logical();
+  std::vector<IterDomain*> transformed_original_logical =
+      replay_rfactor.logical();
   std::vector<IterDomain*> new_producer_logical_domain = replayDomain(
-      replay_rfactor_logical_domain,
+      transformed_original_logical,
       original_to_producer_id_map,
-      /*ignore_ids=*/kEmptyIgnoreIds,
+      /*ignore_ids=*/{},
       /*propagate_padding=*/false,
       /*propagate_parallelization=*/false);
 
