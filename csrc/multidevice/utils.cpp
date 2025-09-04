@@ -116,35 +116,17 @@ std::unordered_map<IterDomain*, int64_t> mapIterDomainToTensorAxis(
   return id_to_axis;
 }
 
-} // namespace
-
-int64_t getShardedLogicalAxis(
-    const TensorView* tv,
-    const ParallelType parallel_type) {
-  // The allocation domain for multidevice tensorviews is set during
-  // presegmentation, which is after concretization. This exposes a issue:
-  // allocation domain is not set for fusion inputs before presegmentation and
-  // can cause errors during binding.
-  //
-  // We use the loop domain, since allocation and loop domain will have the
-  // same DID parallelization. For ParalleType::Stream, fusion inputs will
-  // always be fully allocated, and segment inputs/outputs may be partially /
-  // fully allocated which can be inferred from its allocation domain.
-
-  const std::vector<IterDomain*>& domain = parallel_type == ParallelType::Stream
-      ? tv->getMaybeAllocationDomain()
-      : tv->getLoopDomain();
-  const std::unordered_map<ParallelType, IterDomain*>& parallel_type_to_id =
-      mapDeviceAndStreamParallelTypeToId(domain);
-  IterDomain* parallel_id = getOrDefault(parallel_type_to_id, parallel_type);
-  if (parallel_id == nullptr) {
-    return -1;
-  }
-
+// Finds the logical IterDomain that transitively produces `id` and returns its
+// tensor axis. Returns -1 for reduction dimensions because they don't
+// correspond to any tensor axis.
+int64_t getProducingLogicalAxis(const TensorView* tv, IterDomain* id) {
   std::unordered_map<IterDomain*, int64_t> logical_id_to_axis =
       mapIterDomainToTensorAxis(tv->getLogicalDomain());
-  IterDomain* id = parallel_id;
-  while (logical_id_to_axis.count(id) == 0) {
+  while (true) {
+    if (auto i = logical_id_to_axis.find(id); i != logical_id_to_axis.end()) {
+      return i->second;
+    }
+
     Expr* def = id->definition();
     NVF_ERROR(
         def != nullptr,
@@ -204,22 +186,49 @@ int64_t getShardedLogicalAxis(
           def);
     }
   }
-  return logical_id_to_axis.at(id);
 }
 
-int64_t getShardedLoopAxis(
+} // namespace
+
+int64_t getShardedLogicalAxis(
     const TensorView* tv,
     const ParallelType parallel_type) {
-  NVF_ERROR(
-      isParallelTypeDeviceDim(parallel_type),
-      "Expect a DID but found: ",
-      parallel_type);
-  for (auto&& [index, loop_id] : enumerate(tv->getLoopDomain())) {
-    if (loop_id->getParallelType() == parallel_type) {
-      return index;
+  IterDomain* parallel_id = getShardedIterDomain(tv, parallel_type);
+  if (parallel_id == nullptr) {
+    return -1;
+  }
+
+  return getProducingLogicalAxis(tv, parallel_id);
+}
+
+IterDomain* getShardedIterDomain(
+    const TensorView* tv,
+    const ParallelType parallel_type) {
+  // The allocation domain for multidevice TensorViews is set during
+  // presegmentation, which is after concretization. This exposes a issue:
+  // allocation domain is not set for fusion inputs before presegmentation and
+  // can cause errors during binding.
+  //
+  // We use the loop domain, since allocation and loop domain will have the
+  // same DID parallelization. For ParalleType::Stream, fusion inputs will
+  // always be fully allocated, and segment inputs/outputs may be partially /
+  // fully allocated which can be inferred from its allocation domain.
+  const std::vector<IterDomain*>& domain = [&]() {
+    if (parallel_type == ParallelType::Stream) {
+      return tv->getMaybeAllocationDomain();
+    }
+    if (isParallelTypeDeviceDim(parallel_type)) {
+      return tv->getLoopDomain();
+    }
+    NVF_THROW("Unexpected parallel type: ", parallel_type);
+  }();
+
+  for (auto&& [index, id] : enumerate(domain)) {
+    if (id->getParallelType() == parallel_type) {
+      return id;
     }
   }
-  return -1;
+  return nullptr;
 }
 
 at::Tensor shardTensor(
