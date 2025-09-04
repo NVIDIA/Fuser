@@ -138,14 +138,10 @@ bool isExactParallelSharedMemAccess(TensorView* tv) {
 bool needSharedMemPredicate(TensorView* producer, TensorView* consumer) {
   // Indexing is based on consumer loop ids so check the consumer.
 
-  bool _debug = consumer->name() == 11;
-
   // If consumer schedule contains in-exact thread parallel
   //  dimensions, need to predicate against out of bound
   //  shared memory access by out of bound threads.
   if (!isExactParallelSharedMemAccess(consumer)) {
-    if (_debug)
-      std::cerr << "DEBUG1\n";
     return true;
   }
 
@@ -186,8 +182,6 @@ bool needSharedMemPredicate(TensorView* producer, TensorView* consumer) {
         // Disable shared memory producers that is a consumer
         //  of another shared memory tensor. The initialization would
         //  break potential opportunity to re-use shared mem buffer.
-        if (_debug)
-          std::cerr << "DEBUG2\n";
         return true;
       }
     }
@@ -199,8 +193,6 @@ bool needSharedMemPredicate(TensorView* producer, TensorView* consumer) {
     //  eg. as in issue 1133, so disabling this removal pattern for now.
     if (id->getParallelType() == ParallelType::Unroll ||
         id->getParallelType() == ParallelType::Unswitch) {
-      if (_debug)
-        std::cerr << "DEBUG3\n";
       return true;
     }
   }
@@ -213,8 +205,6 @@ bool needSharedMemPredicate(TensorView* producer, TensorView* consumer) {
   auto consumer_def = consumer->definition();
   if (ir_utils::isReductionOp(consumer_def)) {
     if (producer->getMemoryType() == MemoryType::Shared) {
-      if (_debug)
-        std::cerr << "DEBUG4\n";
       return true;
     }
   }
