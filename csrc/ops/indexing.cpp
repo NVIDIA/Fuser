@@ -292,10 +292,10 @@ TensorView* takeAlongAxis(TensorView* inp, TensorView* index, int64_t dim) {
   return out_tensor->as<TensorView>();
 }
 
-TensorView* groupedBlockSfLayout(
+TensorView* preprocessGroupedMatmulInputSf(
     TensorView* input,
-    TensorView* expert_offsets,
-    TensorView* sf_offsets,
+    TensorView* input_offsets,
+    TensorView* output_offsets,
     BlockScalingFactorLayout layout) {
   // only support input matrix;
   auto input_logical_dom =
@@ -312,9 +312,6 @@ TensorView* groupedBlockSfLayout(
       });
 
   // Create the logical domain of output.
-  // Note: output logical domain handles potential padding required for the
-  // layout. Since the actual padding size is data-dependent, we allocate for
-  // the maximum padding (reflected on logical/allocation domain).
   std::vector<IterDomain*> out_logical;
   out_logical.reserve(input_logical_dom.size());
 
@@ -325,11 +322,15 @@ TensorView* groupedBlockSfLayout(
 
   auto* one_val = input->fusion()->oneVal(DataType::Index);
   std::vector<IterDomain*> offset_logical_dom =
-      TensorDomain::noReductions(expert_offsets->getLogicalDomain());
+      TensorDomain::noReductions(input_offsets->getLogicalDomain());
   Val* num_groups =
       SimplifyingIrBuilder::subExpr(offset_logical_dom[0]->extent(), one_val);
-  // padded row size:
-  // num_groups * (row_multiple - 1) + row_size
+
+  // Note: output logical domain handles potential padding required for the
+  // layout. Since the actual padding size is data-dependent, we allocate for
+  // the maximum padding (reflected on logical/allocation domain).
+
+  // pad row size: num_groups * (row_multiple - 1) + row_size
   auto pad_to_max_extent = [&](IterDomain* id, int multiple) -> IterDomain* {
     auto* maximum_pad_value_per_group =
         IrBuilder::create<Val>(multiple - 1, DataType::Index);
@@ -340,8 +341,7 @@ TensorView* groupedBlockSfLayout(
   };
   out_logical.push_back(pad_to_max_extent(out_root[0], row_multiple));
 
-  // padded col size:
-  // (col_size + col_multiple - 1) / col_multiple * col_multiple
+  // pad col size: (col_size + col_multiple - 1) / col_multiple * col_multiple
   auto pad_to_multiple = [&](IterDomain* id, int multiple) -> IterDomain* {
     Val* ext = id->extent();
     auto* multiple_val = IrBuilder::create<Val>(multiple, DataType::Index);
@@ -370,11 +370,11 @@ TensorView* groupedBlockSfLayout(
           /*skip_checks=*/true),
       input->getDataType().value());
 
-  IrBuilder::create<GroupedBlockScalingFactorLayoutOp>(
+  IrBuilder::create<PreprocessGroupedMatmulInputSf>(
       out_tv,
       input,
-      expert_offsets,
-      sf_offsets,
+      input_offsets,
+      output_offsets,
       layout,
       input_logical_dom[1]->getMaybeExpandedExtent(),
       num_groups);

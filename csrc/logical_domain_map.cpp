@@ -133,7 +133,7 @@ std::pair<std::unordered_set<IterDomain*>, bool> getNonMappingDomainInfo(
     }
   } else if (
       auto* grouped_block_sf_layout =
-          dynamic_cast<GroupedBlockScalingFactorLayoutOp*>(
+          dynamic_cast<PreprocessGroupedMatmulInputSf*>(
               consumer_tv->definition())) {
     if (producer_tv != grouped_block_sf_layout->in()) {
       auto producer_logical =

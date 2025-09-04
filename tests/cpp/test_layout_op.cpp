@@ -38,7 +38,7 @@ TEST_F(LayoutOpTest, CppApi) {
   fusion.addInput(offsets);
   fusion.addInput(rounded_offsets);
 
-  auto out = groupedBlockSfLayout(
+  auto out = preprocessGroupedMatmulInputSf(
       inp, offsets, rounded_offsets, BlockScalingFactorLayout::Block128x4);
   fusion.addOutput(out);
 }
