@@ -27,8 +27,10 @@ bool validateGroupedLayout(
   NVF_ERROR(BlockScalingFactorLayout::Block128x4 == layout);
   int num_group = expert_offsets.size(0) - 1;
 
-  int k = out.size(1);
+  // take length of reference for un-padded k size.
+  int k = ref.size(1);
 
+  // We validate each group individually
   for (int i = 0; i < num_group; ++i) {
     int start_idx = sf_offsets[i].item().to<int>();
     int padded_m_g = sf_offsets[i + 1].item().to<int>() - start_idx;
@@ -37,7 +39,8 @@ bool validateGroupedLayout(
     auto out_g = out.slice(0, start_idx, start_idx + padded_m_g);
 
     int mn_tile = padded_m_g / 128;
-    int k_tile = k / 4;
+    // ceil div in order to get padded k_tile size.
+    int k_tile = std::ceil(k / 4.0);
 
     // view as {mn_tile, k_tile, m_4, mn_32, k_4}
     // restore the swizzle/padding on output.
@@ -99,12 +102,17 @@ TEST_F(LayoutOpTest, ManualKernel) {
   auto inp_tv = set(inp);
   auto out_tv = preprocessGroupedMatmulInputSf(
       inp_tv, offsets, rounded_offsets, BlockScalingFactorLayout::Block128x4);
+  // NOTE: output of preprocessGroupedMatmulInputSf needs to be on global
+  // memory, because we do indexing on output inside the runtime function.
   fusion.addOutput(out_tv);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   int m = 512;
-  int k = 8;
+  int k = 9; // note: padded column size would be 12
   auto t0 = at::randn({m, k}, options);
+  // tokens per group are [100, 150, 262] respectively, so each group would be
+  // padded to multiple of 128. Hence the total output row span would cover a
+  // length of 128 + 256 + 384 = 768.
   auto t1 = at::tensor({0, 100, 250, 512}, options.dtype(at::kInt));
   auto t2 = at::tensor({0, 128, 384, 768}, options.dtype(at::kInt));
 
