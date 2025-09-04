@@ -16,9 +16,6 @@
 
 namespace nvfuser {
 
-#define DECLARE_DRIVER_API_WRAPPER(funcName, version) \
-  extern decltype(::funcName)* funcName
-
 // List of driver APIs that you want the magic to happen.
 //
 // The second argument is the **requested** driver API version.
@@ -96,6 +93,9 @@ namespace nvfuser {
   NVF_STREAM_DRIVER_API_WRAPPER(fn);                  \
   NVF_DRIVER_API_WRAPPER_CUDA_118(fn);                \
   NVF_DRIVER_API_WRAPPER_CUDA_120(fn)
+
+#define DECLARE_DRIVER_API_WRAPPER(funcName, version) \
+  extern decltype(::funcName)* funcName
 
 NVF_ALL_DRIVER_API_WRAPPER(DECLARE_DRIVER_API_WRAPPER);
 
