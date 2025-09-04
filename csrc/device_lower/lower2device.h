@@ -298,6 +298,26 @@ class GpuLower : public NonCopyable {
     return id_model_options_;
   }
 
+  //! Get the cluster reduction count if set
+  int64_t clusterReductionCount() const {
+    return cluster_reduction_count_;
+  }
+
+  //! Set the cluster reduction count
+  void setClusterReductionCount(int64_t count) {
+    cluster_reduction_count_ = count;
+  }
+
+  //! Get the cluster reduction mbarrier tensor
+  TensorView* clusterReductionMBarrier() const {
+    return cluster_reduction_mbarrier_tensor_;
+  }
+
+  //! Set the cluster reduction mbarrier tensor
+  void setClusterReductionMBarrier(TensorView* mbarrier) {
+    cluster_reduction_mbarrier_tensor_ = mbarrier;
+  }
+
   //! Define an alias for consumer as producer.
   //!
   //! If producer is already aliased, we chase the alias. If there are tensors
@@ -407,6 +427,13 @@ class GpuLower : public NonCopyable {
 
   // A temporary option set to selectively enable IdModel usage
   IdModelOptions id_model_options_;
+
+  // Cluster reduction count for barrier insertion
+  int64_t cluster_reduction_count_ = -1;
+
+  // The shared cluster reduction mbarrier tensor allocated during allocation
+  // pass
+  TensorView* cluster_reduction_mbarrier_tensor_ = nullptr;
 };
 
 #define NVFUSER_LOWER_VALIDATE(cond, ...) \

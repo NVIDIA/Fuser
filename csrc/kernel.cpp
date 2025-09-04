@@ -12,6 +12,7 @@
 #include <ir/printer.h>
 #include <ir/utils.h>
 #include <kernel.h>
+#include <kernel_ir.h>
 #include <kernel_ir_dispatch.h>
 #include <type.h>
 
@@ -141,6 +142,7 @@ class KernelIrScanner : private IrVisitor {
 
     // Update the largest smem data type
     if (domain->hasBlockReduction() || domain->hasGridReduction() ||
+        domain->hasClusterReduction() ||
         tv->getMemoryType() == MemoryType::Shared) {
       const auto data_type = tv->dtype();
       const size_t type_size = dataTypeSizeByte(data_type, index_type_);
@@ -190,6 +192,11 @@ class KernelIrScanner : private IrVisitor {
 
   void handle(ReductionOp* rop) final {
     checkWarpReduction(rop->out(), rop->in());
+  }
+
+  void handle(ClusterReductionOp* cop) final {
+    summary_.has_cluster_reduction = true;
+    summary_.all_block_reductions_are_warp_reduction = false;
   }
 
   void handle(GridReduction* grid_reduction) final {

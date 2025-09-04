@@ -709,16 +709,19 @@ TEST_F(NVFuserTest, Translate1Welford) {
 
   // Run an un-translated welford
   auto runtime2 = run_test(65536);
-
-  bool found_welford = false;
-  for (auto group : runtime2->fusionSegments()->groups()) {
-    for (auto expr : group->exprs()) {
-      if (expr->isA<WelfordOp>()) {
-        found_welford = true;
+  // Check it was not translated for pre-hopper
+  // Hopper and above use cluster reduction
+  if (at::cuda::getCurrentDeviceProperties()->major < 9) {
+    bool found_welford = false;
+    for (auto group : runtime2->fusionSegments()->groups()) {
+      for (auto expr : group->exprs()) {
+        if (expr->isA<WelfordOp>()) {
+          found_welford = true;
+        }
       }
     }
+    NVF_CHECK(found_welford);
   }
-  NVF_CHECK(found_welford);
 }
 
 TEST_F(NVFuserTest, Translate2Welford) {
@@ -762,16 +765,19 @@ TEST_F(NVFuserTest, Translate2Welford) {
 
   // Run an un-translated welford
   auto runtime2 = run_test(65536);
-  // // Check it was not translated
-  bool found_welford = false;
-  for (auto group : runtime2->fusionSegments()->groups()) {
-    for (auto expr : group->exprs()) {
-      if (expr->isA<WelfordOp>()) {
-        found_welford = true;
+  // Check it was not translated for pre-hopper
+  // Hopper and above use cluster reduction
+  if (at::cuda::getCurrentDeviceProperties()->major < 9) {
+    bool found_welford = false;
+    for (auto group : runtime2->fusionSegments()->groups()) {
+      for (auto expr : group->exprs()) {
+        if (expr->isA<WelfordOp>()) {
+          found_welford = true;
+        }
       }
     }
+    NVF_CHECK(found_welford);
   }
-  NVF_CHECK(found_welford);
 }
 
 TEST_F(NVFuserTest, LargeWelfordNormalization) {

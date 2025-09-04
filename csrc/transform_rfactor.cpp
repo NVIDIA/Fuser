@@ -411,6 +411,9 @@ std::pair<TensorDomain*, TensorDomain*> TransformRFactor::runReplay(
       if (orig_id->hasPaddingToMultipleOfWarp()) {
         replayed_id->padToMultipleOfWarp(orig_id->getMaybeSizeAfterPadding());
       }
+      if (orig_id->isClusteredBlockDim()) {
+        replayed_id->setClusteredBlocks(true);
+      }
       new_producer_domain[i++] = replayed_id;
     }
   }
@@ -488,6 +491,9 @@ std::pair<TensorDomain*, TensorDomain*> TransformRFactor::runReplay(
         replayed_id->parallelize(orig_id->getParallelType());
         if (orig_id->hasPaddingToMultipleOfWarp()) {
           replayed_id->padToMultipleOfWarp(orig_id->getMaybeSizeAfterPadding());
+        }
+        if (orig_id->isClusteredBlockDim()) {
+          replayed_id->setClusteredBlocks(orig_id->isClusteredBlockDim());
         }
       }
     }
