@@ -89,10 +89,10 @@ TEST_F(HostIrEvaluatorTest, AddInLoop) {
     fusion.addInput(in);
     fusion.addOutput(out);
 
-    in->outer_split(0, c);
-    in->axis(0)->parallelize(ParallelType::Stream);
-    out->outer_split(0, c);
-    out->axis(0)->parallelize(ParallelType::Stream);
+    in->outer_split(1, c);
+    in->axis(1)->parallelize(ParallelType::Stream);
+    out->outer_split(1, c);
+    out->axis(1)->parallelize(ParallelType::Stream);
   }
 
   // We don't have host IR lowering in place for the stream parallel type yet.
@@ -114,24 +114,25 @@ TEST_F(HostIrEvaluatorTest, AddInLoop) {
     // `start` is set to one intentially because I wanted to harden the test for
     // the for loop.
     auto* for_loop = IrBuilder::create<ForLoop>(
-        out->axis(0),
+        out->axis(1),
         stream_index,
         /*start=*/hic->oneVal(DataType::Index),
         /*stop=*/IrBuilder::create<Val>(c, DataType::Index),
         /*step=*/hic->oneVal());
 
     TensorView* loop_in = set(in);
-    loop_in->outer_split(0, c);
-    loop_in->axis(0)->parallelize(ParallelType::Stream);
-    loop_in->setAllocationDomain(loop_in->getLoopDomain(), false);
+    loop_in->outer_split(1, c);
+    loop_in->axis(1)->parallelize(ParallelType::Stream);
+    loop_in->setAllocationDomain(loop_in->getLoopDomain(), {false, true, true});
     auto* shard_in =
         IrBuilder::create<ShardByStream>(loop_in, in, stream_index);
     for_loop->body().push_back(shard_in);
 
     TensorView* loop_out = set(out);
-    loop_out->outer_split(0, c);
-    loop_out->axis(0)->parallelize(ParallelType::Stream);
-    loop_out->setAllocationDomain(loop_out->getLoopDomain(), false);
+    loop_out->outer_split(1, c);
+    loop_out->axis(1)->parallelize(ParallelType::Stream);
+    loop_out->setAllocationDomain(
+        loop_out->getLoopDomain(), {false, true, true});
     auto* shard_out =
         IrBuilder::create<ShardByStream>(loop_out, out, stream_index);
     for_loop->body().push_back(shard_out);
@@ -147,9 +148,9 @@ TEST_F(HostIrEvaluatorTest, AddInLoop) {
   }
 
   at::Tensor in_tensor =
-      at::randn({c * 2, 5}, at::dtype(at::kFloat).device(at::kCUDA));
+      at::randn({5, c * 2}, at::dtype(at::kFloat).device(at::kCUDA));
   at::Tensor expected_out_tensor = in_tensor + in_tensor;
-  expected_out_tensor.chunk(c, 0)[0].zero_();
+  expected_out_tensor.chunk(c, 1)[0].zero_();
 
   HostIrEvaluator hie(std::move(hic));
   KernelArgumentHolder ins(in_tensor);
