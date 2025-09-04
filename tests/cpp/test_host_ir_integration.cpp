@@ -137,8 +137,8 @@ TEST_F(HostIrEvaluatorTest, AddInLoop) {
         IrBuilder::create<ShardByStream>(loop_out, out, stream_index);
     for_loop->body().push_back(shard_out);
 
-    // In reality, this should be a LaunchKernel. But currently we can't pass
-    // streamIdx to a kernel yet.
+    // In reality, this should be a LaunchKernel and the two `ShardByStream`s
+    // should disappear. But currently we can't pass streamIdx to a kernel yet.
     auto* add = IrBuilder::create<BinaryOp>(
         BinaryOpType::Add, loop_out, loop_in, loop_in);
     for_loop->body().push_back(add);
