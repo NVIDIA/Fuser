@@ -10,7 +10,7 @@ namespace nvf::block_layout {
 
 namespace {
 
-// TODO: simplify this maybe?!
+// TODO: support vectorized store
 template <int BLOCK_ROW_OUTER, int BLOCK_ROW_INNER, int BLOCK_COL>
 __device__ nvfuser_index_t offsetAfterSwizzlePadding(
     const nvfuser_index_t row_idx,
@@ -20,14 +20,15 @@ __device__ nvfuser_index_t offsetAfterSwizzlePadding(
 
   /* logical dimension of matrix [ row_size, col_size]
    *
-   * while layout is decomposed as
+   * while logical domain after padding can be viewed as
    *   [ (row_tile*BLOCK_ROW_INNER*BLOCK_ROW_OUTER), (col_tile*BLOCK_COL) ]
    * where
-   *   row_tile = row_size / BLOCK_ROW_OUTER * BLOCK_ROW_INNER)
-   *   col_tile = col_size / BLOCK_COL
+   *   row_tile = ceilDiv(row_size / BLOCK_ROW_OUTER * BLOCK_ROW_INNER)
+   *   col_tile = ceilDiv(col_size / BLOCK_COL)
    */
-  nvfuser_index_t row_tile_idx = row_idx / BLOCK_ROW_SIZE;
 
+  // we first convert `row_idx` and `col_idx` to the logical index on the 5d tensor.
+  nvfuser_index_t row_tile_idx = row_idx / BLOCK_ROW_SIZE;
   nvfuser_index_t row_block_idx = row_idx % BLOCK_ROW_SIZE;
   nvfuser_index_t row_block_inner_idx = row_block_idx / BLOCK_ROW_OUTER;
   nvfuser_index_t row_block_outer_idx = row_block_idx % BLOCK_ROW_OUTER;
@@ -40,6 +41,7 @@ __device__ nvfuser_index_t offsetAfterSwizzlePadding(
    * then transposed with axis (1, 3)
    *   [row_tile, col_tile, BLOCK_ROW_OUTER, BLOCK_ROW_INNER, BLOCK_COL]
    * and then made contiguous
+   * So we can compute the corresponding stride for each dimension
    */
   constexpr nvfuser_index_t COL_TILE_STRIDE = BLOCK_ROW_SIZE * BLOCK_COL;
   constexpr nvfuser_index_t BLOCK_ROW_OUTER_STRIDE =
@@ -54,7 +56,6 @@ __device__ nvfuser_index_t offsetAfterSwizzlePadding(
 
 } // namespace
 
-// TODO: I think we can actually not have this handled as an opaque function.
 template <
     typename T,
     typename Index_T,
@@ -80,13 +81,14 @@ __device__ void groupedBlockLayout(
     }
   }
 
-  // row idx for current matmul
+  // row idx for current group
   nvfuser_index_t c_row_idx = row_idx - expert_offsets[expert_id];
+  // compute output group offset for current group
   nvfuser_index_t padded_col_size =
       (col_size + BLOCK_COL - 1) / BLOCK_COL * BLOCK_COL;
   T* out_group_offset = output + output_offsets[expert_id] * padded_col_size;
 
-  // TODO: vectorized load/store; The logic could be simplified afterwards.
+  // TODO: vectorized load/store instead of for loop
   for (int i = 0; i < UNROLL_FACTOR && col_idx + i < col_size; ++i) {
     nvfuser_index_t index =
         offsetAfterSwizzlePadding<BLOCK_ROW_OUTER, BLOCK_ROW_INNER, BLOCK_COL>(
