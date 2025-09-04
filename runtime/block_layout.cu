@@ -27,7 +27,8 @@ __device__ nvfuser_index_t offsetAfterSwizzlePadding(
    *   col_tile = ceilDiv(col_size / BLOCK_COL)
    */
 
-  // we first convert `row_idx` and `col_idx` to the logical index on the 5d tensor.
+  // we first convert `row_idx` and `col_idx` to the logical index on the 5d
+  // tensor.
   nvfuser_index_t row_tile_idx = row_idx / BLOCK_ROW_SIZE;
   nvfuser_index_t row_block_idx = row_idx % BLOCK_ROW_SIZE;
   nvfuser_index_t row_block_inner_idx = row_block_idx / BLOCK_ROW_OUTER;
