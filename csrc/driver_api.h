@@ -40,21 +40,23 @@ namespace nvfuser {
 // to go lower than that. When we increase the minimum supported version, we
 // can accordingly increase the requested versions. However, we don't have to
 // unless new driver capabilities are needed.
-#define ALL_DRIVER_API_WRAPPER_VERSION_INDEPENDENT(fn) \
-  fn(cuDeviceGetAttribute, 11000);                     \
-  fn(cuDeviceGetName, 11000);                          \
-  fn(cuFuncGetAttribute, 11000);                       \
-  fn(cuFuncSetAttribute, 11000);                       \
-  fn(cuGetErrorName, 11000);                           \
-  fn(cuGetErrorString, 11000);                         \
-  fn(cuLaunchCooperativeKernel, 11000);                \
-  fn(cuLaunchKernel, 11000);                           \
-  fn(cuModuleGetFunction, 11000);                      \
-  fn(cuModuleLoadData, 11000);                         \
-  fn(cuModuleLoadDataEx, 11000);                       \
-  fn(cuModuleUnload, 11000);                           \
-  fn(cuMemGetAddressRange, 11000);                     \
-  fn(cuOccupancyMaxActiveBlocksPerMultiprocessor, 11000)
+#define ALL_DRIVER_API_WRAPPER_VERSION_INDEPENDENT(fn)    \
+  fn(cuDeviceGetAttribute, 11000);                        \
+  fn(cuDeviceGetName, 11000);                             \
+  fn(cuFuncGetAttribute, 11000);                          \
+  fn(cuFuncSetAttribute, 11000);                          \
+  fn(cuGetErrorName, 11000);                              \
+  fn(cuGetErrorString, 11000);                            \
+  fn(cuLaunchCooperativeKernel, 11000);                   \
+  fn(cuLaunchKernel, 11000);                              \
+  fn(cuModuleGetFunction, 11000);                         \
+  fn(cuModuleLoadData, 11000);                            \
+  fn(cuModuleLoadDataEx, 11000);                          \
+  fn(cuModuleUnload, 11000);                              \
+  fn(cuMemGetAddressRange, 11000);                        \
+  fn(cuOccupancyMaxActiveBlocksPerMultiprocessor, 11000); \
+  fn(cuOccupancyAvailableDynamicSMemPerBlock, 11000);     \
+  fn(cuOccupancyMaxActiveClusters, 11080)
 
 // Stream memory operations (e.g. cuStreamWriteValue32) are specified for both
 // 11 and 12+. In CUDA 11, these operations require NVreg_EnableStreamMemOPs=1
