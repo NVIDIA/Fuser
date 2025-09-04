@@ -146,11 +146,14 @@ bool needsPredicateSharedMemAccess(const Expr* expr) {
     // If consumer schedule contains in-exact thread parallel
     //  dimensions, need to predicate against out of bound
     //  shared memory access by out of bound threads.
-    if (isSharedMemoryTensor(consumer)) {
+    if (isSharedMemoryTensor(consumer) ||
+        std::ranges::any_of(expr->inputs(), isSharedMemoryTensor)) {
       if (!isExactParallelSharedMemAccess(consumer)) {
         RECORD_AND_RETURN(true);
       }
+    }
 
+    if (isSharedMemoryTensor(consumer)) {
       for (auto id : consumer->getLoopDomain()) {
         // TODO: (Enable in a follow up)
         //  smem predicate removal with init would break unroll and unswitch,
