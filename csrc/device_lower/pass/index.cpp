@@ -2835,7 +2835,7 @@ void IndexLowering::handle(const CatOp* cat) {
 }
 
 void IndexLowering::handle(
-    const preprocessGroupedMatmulInputSf* grouped_block_sf_layou_op) {
+    const PreprocessGroupedMatmulInputSf* grouped_block_sf_layou_op) {
   const auto in = lowerSrcIndex(
       grouped_block_sf_layou_op->in(), grouped_block_sf_layou_op->out());
 
@@ -2848,7 +2848,7 @@ void IndexLowering::handle(
   auto* out = IrBuilder::create<kir::TensorIndex>(
       out_tv, linear_index, DataType::Null, root_index);
 
-  pushBack(IrBuilder::create<preprocessGroupedMatmulInputSf>(
+  pushBack(IrBuilder::create<PreprocessGroupedMatmulInputSf>(
       out,
       in,
       grouped_block_sf_layou_op->expertOffsets(),
