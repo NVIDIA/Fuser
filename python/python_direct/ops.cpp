@@ -2487,8 +2487,10 @@ TensorView
   ops.def(
       "permute",
       [](TensorView* arg, std::vector<int64_t>& dims) -> TensorView* {
+        size_t num_dims =
+            TensorDomain::noReductions(arg->getLogicalDomain()).size();
         NVF_CHECK(
-            arg->nDims() == (int64_t)dims.size(),
+            num_dims == dims.size(),
             "Operator permute expects `dims` argument to have the same length "
             "as input!");
         return permute(arg, dims);
