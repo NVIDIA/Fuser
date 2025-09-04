@@ -6594,15 +6594,15 @@ PreprocessGroupedMatmulInputSf::PreprocessGroupedMatmulInputSf(
     IrBuilderPasskey passkey,
     Val* output,
     Val* input,
-    Val* expert_offsets,
-    Val* sf_offsets,
+    Val* input_offsets,
+    Val* output_offsets,
     BlockScalingFactorLayout layout,
     Val* k,
     Val* g)
     : Expr(passkey) {
   addInput(input);
-  addInput(expert_offsets);
-  addInput(sf_offsets);
+  addInput(input_offsets);
+  addInput(output_offsets);
   addInput(k);
   addInput(g);
   addOutput(output);
@@ -6616,9 +6616,9 @@ std::string PreprocessGroupedMatmulInputSf::toString(int indent_size) const {
   indent(ss, indent_size) << " = preprocessGroupedMatmulInputSf(\n";
   indent_size++;
   indent(ss, indent_size) << "input = " << in()->toString() << ",\n";
-  indent(ss, indent_size) << "expert_offsets = " << expertOffsets()->toString()
+  indent(ss, indent_size) << "input_offsets = " << expertOffsets()->toString()
                           << ",\n";
-  indent(ss, indent_size) << "sf_offsets = "
+  indent(ss, indent_size) << "output_offsets = "
                           << scalingFactorOffsets()->toString() << ",\n";
   indent(ss, indent_size) << "layout = "
                           << (layout() == BlockScalingFactorLayout::Block128x4
