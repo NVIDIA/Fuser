@@ -6639,8 +6639,7 @@ std::string GroupedBlockScalingFactorLayoutOp::toInlineString(
 std::vector<PolymorphicValue> GroupedBlockScalingFactorLayoutOp::evaluate(
     const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
-  // This is a placeholder implementation - the actual implementation
-  // would depend on the specific block scaling factor layout operation
+  // This is a placeholder, currently we don't have a fallback kernel available
   NVF_THROW("GroupedBlockScalingFactorLayoutOp evaluation not yet implemented");
 }
 

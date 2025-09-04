@@ -3448,6 +3448,20 @@ class CutlassNvfp4GroupedMmaOp : public Expr {
   }
 };
 
+//! NOTE -- [ GroupedBlockScalingFactorLayoutOp ]
+//!
+//! This operation performs a layout change on the input, it's currently used
+//! for block scaling factor accompanying narrow precision inputs.
+//!
+//! 1. This can be viewed as a point-wise operation, where output loop domain
+//! would match the input logical domain.
+//! 2. Because of the potential padding/swizzle, the logical domain of the
+//! output does not map to input. We don't rely on codegen for indexing, so we
+//! don't care about mapping the logical/allocation of output to anything else.
+//! Indexing will be done in runtime function, utilizing `expert_offsets` and
+//! `sf_offsets`.
+//! 3. Output has a root domain, which is identical to its loop domain. We add
+//! this so we can map it to input.
 class GroupedBlockScalingFactorLayoutOp : public Expr {
  public:
   using Expr::Expr;
@@ -3474,12 +3488,10 @@ class GroupedBlockScalingFactorLayoutOp : public Expr {
       const ExpressionEvaluator& ee,
       const std::vector<PolymorphicValue>& inputs) const override;
 
-  // Get output block scaling factor
   Val* out() const {
     return output(0);
   }
 
-  // Get input block scaling factor
   Val* in() const {
     return input(0);
   }
@@ -3492,14 +3504,17 @@ class GroupedBlockScalingFactorLayoutOp : public Expr {
     return input(2)->as<TensorView>();
   }
 
+  // get scalar - column size
   Val* k() const {
     return input(3);
   }
 
+  // get scalar - number of groups
   Val* g() const {
     return input(4);
   }
 
+  // get enum - block scaling factor layout
   BlockScalingFactorLayout layout() const {
     return attribute<BlockScalingFactorLayout>(0);
   }
