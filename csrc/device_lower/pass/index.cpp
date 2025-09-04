@@ -2835,11 +2835,10 @@ void IndexLowering::handle(const CatOp* cat) {
 }
 
 void IndexLowering::handle(
-    const PreprocessGroupedMatmulInputSf* grouped_block_sf_layou_op) {
-  const auto in = lowerSrcIndex(
-      grouped_block_sf_layou_op->in(), grouped_block_sf_layou_op->out());
+    const PreprocessGroupedMatmulInputSf* preprocess_op) {
+  const auto in = lowerSrcIndex(preprocess_op->in(), preprocess_op->out());
 
-  auto* out_tv = grouped_block_sf_layou_op->out()->as<TensorView>();
+  auto* out_tv = preprocess_op->out()->as<TensorView>();
   Val* linear_index =
       Index::getLinearRootIndex(out_tv, for_loops_, getRotatedLoop());
   std::vector<Val*> root_index =
@@ -2851,11 +2850,11 @@ void IndexLowering::handle(
   pushBack(IrBuilder::create<PreprocessGroupedMatmulInputSf>(
       out,
       in,
-      grouped_block_sf_layou_op->expertOffsets(),
-      grouped_block_sf_layou_op->scalingFactorOffsets(),
-      grouped_block_sf_layou_op->layout(),
-      grouped_block_sf_layou_op->k(),
-      grouped_block_sf_layou_op->g()));
+      preprocess_op->inputOffsets(),
+      preprocess_op->outputOffsets(),
+      preprocess_op->layout(),
+      preprocess_op->k(),
+      preprocess_op->g()));
 
   // FIXME: Not sure if there's any information to be propagated.
   // GpuLower::current()->propagateExprInfo(aop, back());
