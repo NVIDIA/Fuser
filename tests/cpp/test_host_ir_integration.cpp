@@ -83,12 +83,16 @@ TEST_F(HostIrEvaluatorTest, AddInLoop) {
 
   Fusion fusion;
   {
-    // FIXME: should in and out be stream parallelized?
     FusionGuard fg(&fusion);
     TensorView* in = makeSymbolicTensor(2);
     TensorView* out = add(in, in);
     fusion.addInput(in);
     fusion.addOutput(out);
+
+    in->outer_split(0, c);
+    in->axis(0)->parallelize(ParallelType::Stream);
+    out->outer_split(0, c);
+    out->axis(0)->parallelize(ParallelType::Stream);
   }
 
   // We don't have host IR lowering in place for the stream parallel type yet.
@@ -110,7 +114,7 @@ TEST_F(HostIrEvaluatorTest, AddInLoop) {
     // `start` is set to one intentially because I wanted to harden the test for
     // the for loop.
     auto* for_loop = IrBuilder::create<ForLoop>(
-        in->axis(0),
+        out->axis(0),
         stream_index,
         /*start=*/hic->oneVal(DataType::Index),
         /*stop=*/IrBuilder::create<Val>(c, DataType::Index),

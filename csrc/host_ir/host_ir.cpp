@@ -411,10 +411,10 @@ NVFUSER_DEFINE_CLONE_AND_CREATE(HirAliasSelect)
 std::string HirAliasSelect::toString(int indent_size) const {
   std::stringstream ss;
   indent(ss, indent_size) << out()->toString() << "\n";
-  indent_size++;
-  indent(ss, indent_size) << " = HirAliasSelect( " << in()->toString()
-                          << ", axis = " << in()->getLogicalDomain().at(axis())
-                          << ", index = " << index()->toString() << " )\n";
+  indent(ss, indent_size + 1)
+      << " = HirAliasSelect( " << in()->toString()
+      << ", axis = " << in()->getLogicalDomain().at(axis())
+      << ", index = " << index()->toString() << " )\n";
   return ss.str();
 }
 
@@ -439,7 +439,8 @@ NVFUSER_DEFINE_CLONE_AND_CREATE(ShardByStream)
 
 std::string ShardByStream::toString(int indent_size) const {
   std::stringstream ss;
-  indent(ss, indent_size) << "ShardByStream(" << in()->toString()
+  indent(ss, indent_size) << out()->toString() << " = ShardByStream("
+                          << in()->toString()
                           << ", stream_index = " << stream_index()->toString()
                           << ")" << std::endl;
   return ss.str();
