@@ -6616,10 +6616,10 @@ std::string PreprocessGroupedMatmulInputSf::toString(int indent_size) const {
   indent(ss, indent_size) << " = preprocessGroupedMatmulInputSf(\n";
   indent_size++;
   indent(ss, indent_size) << "input = " << in()->toString() << ",\n";
-  indent(ss, indent_size) << "input_offsets = " << expertOffsets()->toString()
+  indent(ss, indent_size) << "input_offsets = " << inputOffsets()->toString()
                           << ",\n";
-  indent(ss, indent_size) << "output_offsets = "
-                          << scalingFactorOffsets()->toString() << ",\n";
+  indent(ss, indent_size) << "output_offsets = " << outputOffsets()->toString()
+                          << ",\n";
   indent(ss, indent_size) << "layout = "
                           << (layout() == BlockScalingFactorLayout::Block128x4
                                   ? "Block128x4"

@@ -3504,11 +3504,11 @@ class PreprocessGroupedMatmulInputSf : public Expr {
     return input(0);
   }
 
-  TensorView* expertOffsets() const {
+  TensorView* inputOffsets() const {
     return input(1)->as<TensorView>();
   }
 
-  TensorView* scalingFactorOffsets() const {
+  TensorView* outputOffsets() const {
     return input(2)->as<TensorView>();
   }
 
