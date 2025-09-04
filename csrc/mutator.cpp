@@ -167,8 +167,10 @@ void OptOutMutator::mutate(TensorDomain* td) {
     return;
   }
 
-  // NOTE for code comment: this change is coming from
-  // nvfuser::replaceSymbolicSizes during device lowering
+  // We skip checks in TensorDomain constructor. This is because mutation could
+  // update TensorView with domain that doesn't matching
+  // root/logical/allocation/loop domain. Any sparse operation, like scatter or
+  // PreprocessGroupedMatmulInputSf in the graph would fail the check.
   Val* mutated_val = IrBuilder::createInContainer<TensorDomain>(
       td->container(),
       root_dom,

@@ -549,6 +549,10 @@ class Index {
       const std::vector<ForLoop*>& loops,
       const std::unordered_set<ForLoop*>& rotated_loops);
 
+  //! Returns a vector of logical indices mapped onto the root
+  //! domain of a consumer tensor. The returned index is intended
+  //! to be used for the computation of some opaque runtime functions, such as:
+  //! PreprocessGroupedMatmulInputSf
   static std::vector<Val*> getConsumerPerDimRootIndex(
       TensorView* consumer_tv,
       const std::vector<ForLoop*>& loops,
