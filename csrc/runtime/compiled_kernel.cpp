@@ -1445,7 +1445,7 @@ std::string CompiledKernel::getStructuredCode() const {
       kernel()->summary().has_argsort,
       kernel()->summary().has_topk,
       kernel()->summary().has_scan,
-      kernel()->summary().has_grouped_block_sf_layout);
+      kernel()->summary().has_preprocess_grouped_matmul_input_sf);
 }
 
 std::string CompiledKernel::disassembledKernelSASS() const {
