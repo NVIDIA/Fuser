@@ -91,6 +91,8 @@ the index of a Tensor.
 Transform (4, 4) column-major tile into shape `((2, 2), (2, 2))` and
 stride `((4, 2), (8, 1))`
 
+![Simple TV Layout](cute/simple_tv_layout.svg)
+
 Reference:
 https://veitner.bearblog.dev/intuition-behind-hierarchical-layouts/
 <!-- */ //-->\
