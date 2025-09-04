@@ -35,6 +35,8 @@ tenosr layouts.
 
 namespace nvfuser {
 
+using CuTeTutorial = NVFuserTest;
+
 /* -->
 
 # Creating a CuTe TV Layout in NvFuser
@@ -54,8 +56,8 @@ complex layouts.
 # Layout Algebra
 
 1. Coalesce
-  * A simplify function to remove redundant shape dimensions without altering
-    the Layout's function.
+   * A simplify function to remove redundant shape dimensions without altering
+     the Layout's function.
 2. Composition
    * The composition of Layouts A and B is `(A o B)(c) := A(B(c))`.
    * Each coordinate is mapped to Layout B then onto Layout A.
@@ -77,15 +79,22 @@ complex layouts.
 Reference: [CuTe Layout Algebra](https://docs.nvidia.com/cutlass/media/docs/cpp/cute/02_layout_algebra.html)
 
 ## What is Thread-Value (TV) Layout?
-* The Thread-Value layout is a mapping of threads and values to an index.
+* The Thread-Value layout
 `((thread_shape, value_shape), (thread_stride, value_stride))`
-
-The main usage of TV layout is mapping the threads and its values of a CTA to
+is a mapping of threads and values to an index.
+* The main usage of TV layout is mapping the threads and its values of a CTA to
 the index of a Tensor.
 
+# Examples
+
+## Simple TV Layout
+Transform (4, 4) column-major tile into shape `((2, 2), (2, 2))` and
+stride `((4, 2), (8, 1))`
+
+Reference:
+https://veitner.bearblog.dev/intuition-behind-hierarchical-layouts/
 <!-- */ //-->\
 ```cpp
-using CuTeTutorial = NVFuserTest;
 TEST_F(CuTeTutorial, SimpleThreadLayout) {
   NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
   const auto dtype = DataType::BFloat16;
@@ -189,7 +198,16 @@ TEST_F(CuTeTutorial, SimpleThreadLayout) {
   auto cg_outputs = ke.run({at_tv0});
   NVF_CHECK(at::allclose(cg_outputs[0].as<at::Tensor>(), at_tv0));
 }
+/*
+```
+## Quack Reduction Base
+Given a static CTA tile, apply 2D thread parallelization using threadIdx.x and
+vectorization.
 
+Reference:
+https://github.com/Dao-AILab/quack/blob/main/quack/reduction_base.py#L35-L53
+<!-- */ //-->\
+```cpp
 TEST_F(CuTeTutorial, VectorizeThreadLayout) {
   NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
   const auto dtype = DataType::BFloat16;
@@ -251,13 +269,13 @@ TEST_F(CuTeTutorial, VectorizeThreadLayout) {
 
   fusion->printKernel();
   /*
-  // After splitting and reordering the loop domain of TV1, the loop domain is [1, 8, 16, 8].
-  // The strides of the loop domain are [-, 16, 1, 128].
+  // After splitting and reordering the loop domain of TV1, the loop domain is
+  // [1, 8, 16, 8]. The strides of the loop domain are [-, 16, 1, 128].
   //
   // How to create CuTe TV layout from NvFuser TensorDomain?
   //   1) Reverse ordering from inner to outer loops.
   //   2) Gather modes 0 and 1 and 2 and 3 together.
-  // This creates the shape ((8, 16), (8, 1)) and the stride ((128, 1), (16, -)),
+  // This creates the shape ((8, 16), (8, 1)) and the stride ((128, 1), (16, -))
   // which corresponds with the CuTe Thread-Value Layout.
   __global__ void CUDAGeneratedKernel(Tensor<__bfloat, 2, 2> T0, Tensor<__bfloat, 2, 2> T1) {
     #pragma unroll
@@ -281,6 +299,98 @@ TEST_F(CuTeTutorial, VectorizeThreadLayout) {
     }
   }
   */
+
+  auto options = at::TensorOptions().dtype(at::kBFloat16).device(at::kCUDA, 0);
+  at::Tensor at_tv0 = at::randn({dim0, dim1}, options).as_strided({dim0, dim1}, {1, dim0});
+
+  KernelExecutor ke;
+  ke.compile(fusion, {at_tv0});
+  kir::Kernel* kernel = ke.compiledKernel()->kernel();
+  ASSERT_TRUE(kernel != nullptr);
+  auto cg_outputs = ke.run({at_tv0});
+  NVF_CHECK(at::allclose(cg_outputs[0].as<at::Tensor>(), at_tv0));
+}
+/*
+```
+## CuTe Hopper MMA Atom
+Create register layout for a (128, 24) C accumulator tile.
+
+![WGMMA .m64nNk16 register fragment layout for accumulator matrix](https://docs.nvidia.com/cuda/parallel-thread-execution/_images/wgmma-64N16-D.png)
+
+References:
+https://docs.nvidia.com/cutlass/media/docs/cpp/cute/0t_mma_atom.html#hopper
+<!-- */ //-->\
+```cpp
+TEST_F(CuTeTutorial, HopperWgmmaThreadLayout) {
+  NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
+  const auto dtype = DataType::BFloat16;
+
+  DisableOptionsGuard disable_options_guard;
+  DisableOptionsGuard::getCurOptions().set(DisableOption::MagicZero);
+
+  // Fusion Definition
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  Fusion* fusion = fusion_ptr.get();
+  FusionGuard fg(fusion);
+
+  constexpr int dim0 = 64, dim1 = 24;
+  TensorView* tv0 = makeContigConcreteTensor({dim0, dim1}, dtype);
+  fusion->addInput(tv0);
+  TensorView* tv1 = set(tv0);
+  fusion->addOutput(tv1);
+
+  // Set the allocation domain to column-major.
+  tv0->setAllocationDomain({tv0->axis(1), tv0->axis(0)}, /*new_contiguity=*/true);
+  tv1->reorder({1, 0}); // traverse rows then column.
+  tv1->setAllocationDomain(tv1->getLoopDomain(), /*new_contiguity=*/true);
+
+  fusion->printKernel();
+  /*
+  // The input and output tensors are column-major with shape (16, 64) and stride (1, 16).
+  __global__ void CUDAGeneratedKernel(Tensor<__bfloat, 2, 2> T0, Tensor<__bfloat, 2, 2> T1) {
+    #pragma unroll
+    for(nvfuser_index_t i0 = 0LL; i0 < 64LL; ++i0) {
+      nvfuser_index_t i1;
+      i1 = 16LL * i0;
+      #pragma unroll
+      for(nvfuser_index_t i2 = 0LL; i2 < 16LL; ++i2) {
+        nvfuser_index_t i3;
+        i3 = i1 + i2;
+        T1[i3]
+           = T0[i3];
+      }
+    }
+  }
+  */
+
+  // Apply transformations to column-major TensorView
+  tv1->split(-1, 8); // tv1 [24, 8, 8]
+  tv1->split(-2, 2); // tv1 [24, 4, 2, 8]
+  tv1->split(0, 2); // tv1 [12, 2, 4, 2, 8]
+  tv1->split(0, 4); // tv1 [3, 4, 2, 4, 2, 8]
+  // Reorder to organize by Thread-Value Relationship
+  tv1->reorder({{0, 5}, {1, 0}, {2, 3}, {3, 2}, {5, 1}});
+  // tv1 [4n, 8m, 4m, 2n, 2m, 3n]
+
+  /*
+  // After splitting and reordering the loop domain of TV1, the loop domain is
+  // [4, 8, 4, 2, 2, 3]. The strides of the loop domain are
+  // [128, 1, 16, 64, 8, 512].
+  //
+  // How to create CuTe TV layout from NvFuser TensorDomain?
+  //   1) Reverse ordering from inner to outer loops.
+  //   2) Gather modes [0-2] and [3-5] together.
+  // This creates the shape ((4, 8, 4), (2, 2, 3)) and the stride
+  // ((128, 1, 16), (64, 8, 512)), which corresponds with the CuTe Thread-Value
+  // Layout.
+  */
+
+  TransformPropagator propagator(tv1);
+  MaxLogicalDomainInfoSpanningTree(tv1).traverse(&propagator);
+
+  inlineMost();
+
+  fusion->printKernel();
 
   auto options = at::TensorOptions().dtype(at::kBFloat16).device(at::kCUDA, 0);
   at::Tensor at_tv0 = at::randn({dim0, dim1}, options).as_strided({dim0, dim1}, {1, dim0});
