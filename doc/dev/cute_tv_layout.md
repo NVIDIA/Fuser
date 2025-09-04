@@ -122,33 +122,29 @@ TEST_F(CuTeTutorial, SimpleThreadLayout) {
 
   fusion->printKernel();
   /*
-  // The input and output tensors are column-major with shape (8, 4) and stride (1, 8).
+  // The input and output tensors are column-major with shape (4, 4) and stride (1, 4).
   __global__ void CUDAGeneratedKernel(Tensor<__bfloat, 2, 2> T0, Tensor<__bfloat, 2, 2> T1) {
-    #pragma unroll
-    for(nvfuser_index_t i0 = 0LL; i0 < 4LL; ++i0) {
-      nvfuser_index_t i1;
-      i1 = 8LL * i0;
       #pragma unroll
-      for(nvfuser_index_t i2 = 0LL; i2 < 8LL; ++i2) {
-        nvfuser_index_t i3;
-        i3 = i1 + i2;
-        T1[i3]
-          = T0[i3];
+      for(nvfuser_index_t i0 = 0LL; i0 < 4LL; ++i0) {
+          nvfuser_index_t i1;
+          i1 = 4LL * i0;
+          #pragma unroll
+          for(nvfuser_index_t i2 = 0LL; i2 < 4LL; ++i2) {
+              nvfuser_index_t i3;
+              i3 = i1 + i2;
+              T1[i3]
+                   = T0[i3];
+          }
       }
-    }
   }
   */
 
+  // Apply transformations to column-major TensorView
   tv1->split(-1, 2);
   tv1->split(0, 2);
+  // Reorder to organize by Thread-Value Relationship
   tv1->reorder({{0, 2}, {1, 0}, {2, 1}});
 
-  TransformPropagator propagator(tv1);
-  MaxLogicalDomainInfoSpanningTree(tv1).traverse(&propagator);
-
-  inlineMost();
-
-  fusion->printKernel();
   /*
   // After splitting and reordering the loop domain of TV1, the loop domain is [2, 2, 2, 2].
   // The strides of the loop domain are [4, 2, 8, 1].
@@ -158,6 +154,10 @@ TEST_F(CuTeTutorial, SimpleThreadLayout) {
   //   2) Gather modes 0 and 1 and 2 and 3 together.
   // This creates the shape ((2, 2), (2, 2)) and the stride ((1, 8), (2, 4)),
   // which corresponds with the CuTe Thread-Value Layout.
+  */
+
+  fusion->printKernel();
+  /*
   __global__ void CUDAGeneratedKernel(Tensor<__bfloat, 2, 2> T0, Tensor<__bfloat, 2, 2> T1) {
     #pragma unroll
     for(nvfuser_index_t i0 = 0LL; i0 < 2LL; ++i0) {
@@ -261,18 +261,12 @@ TEST_F(CuTeTutorial, VectorizeThreadLayout) {
   // TV Layout T1_g___bfloat[iS6{1}, iS5{8}, iS2{16}, iS7{8}]
   tv1->reorder({{1, 3}, {2, 1}, {3, 2}}); // tv1 [1, 8, 16, 8]
 
+  /*
   // Row-Major Tensor (16, 64): (64, 1)
   // tv1->split(-1, 8); // tv1 [16, 8, 8]
   // tv1->split(-1, 8); // tv1 [16, 1, 8, 8]
   // tv1->split(0, 16); // tv1 [1, 16, 1, 8, 8]
-
-  TransformPropagator propagator(tv1);
-  MaxLogicalDomainInfoSpanningTree(tv1).traverse(&propagator);
-
-  inlineMost();
-
-  fusion->printKernel();
-  /*
+  //
   // After splitting and reordering the loop domain of TV1, the loop domain is
   // [1, 8, 16, 8]. The strides of the loop domain are [-, 16, 1, 128].
   //
@@ -281,6 +275,10 @@ TEST_F(CuTeTutorial, VectorizeThreadLayout) {
   //   2) Gather modes 0 and 1 and 2 and 3 together.
   // This creates the shape ((8, 16), (8, 1)) and the stride ((128, 1), (16, -))
   // which corresponds with the CuTe Thread-Value Layout.
+  */
+
+  fusion->printKernel();
+  /*
   __global__ void CUDAGeneratedKernel(Tensor<__bfloat, 2, 2> T0, Tensor<__bfloat, 2, 2> T1) {
     #pragma unroll
     for(nvfuser_index_t i0 = 0LL; i0 < 8LL; ++i0) {
@@ -393,12 +391,58 @@ TEST_F(CuTeTutorial, HopperWgmmaThreadLayout) {
   // Layout.
   */
 
-  TransformPropagator propagator(tv1);
-  MaxLogicalDomainInfoSpanningTree(tv1).traverse(&propagator);
-
-  inlineMost();
-
   fusion->printKernel();
+  /*
+  __global__ void CUDAGeneratedKernel(Tensor<__bfloat, 2, 2> T0, Tensor<__bfloat, 2, 2> T1) {
+    #pragma unroll
+    for(nvfuser_index_t i0 = 0LL; i0 < 4LL; ++i0) {
+      nvfuser_index_t i1;
+      i1 = 128LL * i0;
+      nvfuser_index_t i2;
+      i2 = 2LL * i0;
+      #pragma unroll
+      for(nvfuser_index_t i3 = 0LL; i3 < 8LL; ++i3) {
+        nvfuser_index_t i4;
+        i4 = i1 + i3;
+        #pragma unroll
+        for(nvfuser_index_t i5 = 0LL; i5 < 4LL; ++i5) {
+          nvfuser_index_t i6;
+          i6 = 16LL * i5;
+          nvfuser_index_t i7;
+          i7 = i4 + i6;
+          nvfuser_index_t i8;
+          i8 = i3 + i6;
+          #pragma unroll
+          for(nvfuser_index_t i9 = 0LL; i9 < 2LL; ++i9) {
+            nvfuser_index_t i10;
+            i10 = i7 + (64LL * i9);
+            nvfuser_index_t i11;
+            i11 = i2 + i9;
+            #pragma unroll
+            for(nvfuser_index_t i12 = 0LL; i12 < 2LL; ++i12) {
+              nvfuser_index_t i13;
+              i13 = 8LL * i12;
+              nvfuser_index_t i14;
+              i14 = i10 + i13;
+              bool b15;
+              b15 = (i8 + i13) < 64LL;
+              #pragma unroll
+              for(nvfuser_index_t i16 = 0LL; i16 < 3LL; ++i16) {
+                nvfuser_index_t i17;
+                i17 = i14 + (512LL * i16);
+                if ((b15 && ((i11 + (8LL * i16)) < 24LL))) {
+                  T1[i17]
+                     = T0[i17];
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+  */
+
 
   auto options = at::TensorOptions().dtype(at::kBFloat16).device(at::kCUDA, 0);
   at::Tensor at_tv0 = at::randn({dim0, dim1}, options).as_strided({dim0, dim1}, {1, dim0});
