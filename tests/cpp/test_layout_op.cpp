@@ -30,6 +30,7 @@ bool validateGroupedLayout(
   int k = out.size(1);
 
   for (int i = 0; i < num_group; ++i) {
+
     int start_idx = sf_offsets[i].item().to<int>();
     int padded_m_g = sf_offsets[i + 1].item().to<int>() - start_idx;
     int m_g = expert_offsets[i + 1].item().to<int>() -
@@ -40,7 +41,8 @@ bool validateGroupedLayout(
     int k_tile = k / 4;
 
     // view as {mn_tile, k_tile, m_4, mn_32, k_4}
-    auto inp_g = out_g.view({mn_tile, k_tile, 32, 4, 4})
+    // restore the swizzle/padding on output.
+    auto restored_out_g = out_g.view({mn_tile, k_tile, 32, 4, 4})
                      .transpose(1, 3)
                      .reshape({mn_tile * 4 * 32, k_tile * 4})
                      .slice(0, 0, m_g)
@@ -49,11 +51,7 @@ bool validateGroupedLayout(
         0,
         expert_offsets[i].item().to<int>(),
         expert_offsets[i + 1].item().to<int>());
-    if (!at::allclose(inp_g, ref_g)) {
-      std::cout << "Failed at group " << i;
-      std::cout << " inp_g:\n" << inp_g << std::endl;
-      std::cout << " out_g:\n" << out_g << std::endl;
-      std::cout << " ref_g:\n" << ref_g << std::endl;
+    if (!at::allclose(restored_out_g, ref_g)) {
       return false;
     }
   }
@@ -85,8 +83,6 @@ TEST_F(LayoutOpTest, CppApi) {
   auto out = preprocessGroupedMatmulInputSf(
       inp, offsets, rounded_offsets, BlockScalingFactorLayout::Block128x4);
   fusion.addOutput(out);
-
-  fusion.printMath();
 }
 
 TEST_F(LayoutOpTest, ManualKernel) {
@@ -103,10 +99,7 @@ TEST_F(LayoutOpTest, ManualKernel) {
 
   auto inp_tv = set(inp);
   auto out_tv = groupedBlockSfLayout(
-      inp_tv,
-      offsets,
-      rounded_offsets,
-      BlockScalingFactorLayout::Block128x4);
+      inp_tv, offsets, rounded_offsets, BlockScalingFactorLayout::Block128x4);
   fusion.addOutput(out_tv);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
@@ -121,12 +114,11 @@ TEST_F(LayoutOpTest, ManualKernel) {
     tv->axis(0)->parallelize(ParallelType::BIDx);
     tv->axis(1)->parallelize(ParallelType::TIDx);
   }
-  
+
   KernelExecutor ke;
   ke.compile(&fusion, {t0, t1, t2});
   auto outputs = ke.run({t0, t1, t2});
 
-  // t0, t1, t2));
   ASSERT_TRUE(validateGroupedLayout(
       BlockScalingFactorLayout::Block128x4,
       outputs[0].as<at::Tensor>(),
