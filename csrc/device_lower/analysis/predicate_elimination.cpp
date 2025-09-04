@@ -146,6 +146,18 @@ bool needsPredicateSharedMemAccess(const Expr* expr) {
     // If consumer schedule contains in-exact thread parallel
     //  dimensions, need to predicate against out of bound
     //  shared memory access by out of bound threads.
+    //
+    // TODO: This condition should not need
+    // std::ranges::any_of(expr->inputs(), isSharedMemoryTensor), but
+    // it's there to keep the existing behavior as of PR #5107.
+    // Specifically, if not used,
+    // HopperMatmulTest.EpilogueBiasPersistentBroadcastInputs fails
+    // due to insufficient shared memory, which happens because T12 is
+    // not aliased with T9 if the predicate of T6 is removed. This
+    // seems to rely on an unintended effect. In this particular case,
+    // T6 is an output of a TMA store, so its input, T9, should not
+    // need to be initialized, and thus I think we could remove the
+    // predicate but still allow aliasing.
     if (isSharedMemoryTensor(consumer) ||
         std::ranges::any_of(expr->inputs(), isSharedMemoryTensor)) {
       if (!isExactParallelSharedMemAccess(consumer)) {
@@ -153,6 +165,9 @@ bool needsPredicateSharedMemAccess(const Expr* expr) {
       }
     }
 
+    // TODO: This condition should not need
+    // std::ranges::any_of(expr->inputs(), isSharedMemoryTensor), but
+    // it's there to keep the existing behavior as of PR #5107.
     if (isSharedMemoryTensor(consumer) ||
         std::ranges::any_of(expr->inputs(), isSharedMemoryTensor)) {
       for (auto id : consumer->getLoopDomain()) {
