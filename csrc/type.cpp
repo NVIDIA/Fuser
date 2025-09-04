@@ -338,9 +338,8 @@ const char* block_sf_layout2string(BlockScalingFactorLayout t) {
   switch (t) {
     case BlockScalingFactorLayout::Block128x4:
       return "block_128_4";
-    default:
-      NVF_THROW("No string found for layout.");
   }
+  std::unreachable();
 }
 
 const char* predicate_type2string(PredicateType t) {

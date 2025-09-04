@@ -76,10 +76,13 @@ NVF_API TensorView* takeAlongAxis(
     TensorView* index,
     int64_t dim);
 
-NVF_API TensorView* groupedBlockSfLayout(
+//! Changes the layout of input to satisfy the requirement of grouped matmul on
+//! block scaling factor. see:
+//! https://docs.nvidia.com/cutlass/media/docs/cpp/blackwell_functionality.html#scale-factor-layouts
+NVF_API TensorView* preprocessGroupedMatmulInputSf(
     TensorView* input,
-    TensorView* expert_offsets,
-    TensorView* sf_offsets,
+    TensorView* input_offsets,
+    TensorView* output_offsets,
     BlockScalingFactorLayout layout);
 
 } // namespace nvfuser

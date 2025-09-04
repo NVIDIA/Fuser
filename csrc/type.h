@@ -1173,6 +1173,9 @@ std::ostream& operator<<(std::ostream&, TMemRegisterDataPath);
 
 std::ostream& operator<<(std::ostream&, cudaDriverEntryPointQueryResult);
 
+// Layout for block scaling factor used by mx-format with narrow precision, this
+// indicates how to index into block scaling factor. see:
+// https://docs.nvidia.com/cutlass/media/docs/cpp/blackwell_functionality.html#scale-factor-layouts
 enum class BlockScalingFactorLayout {
   Block128x4,
 };

@@ -6590,7 +6590,7 @@ std::vector<PolymorphicValue> CutlassNvfp4GroupedMmaOp::evaluate(
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(CutlassNvfp4GroupedMmaOp)
 
-GroupedBlockScalingFactorLayoutOp::GroupedBlockScalingFactorLayoutOp(
+PreprocessGroupedMatmulInputSf::PreprocessGroupedMatmulInputSf(
     IrBuilderPasskey passkey,
     Val* output,
     Val* input,
@@ -6609,11 +6609,11 @@ GroupedBlockScalingFactorLayoutOp::GroupedBlockScalingFactorLayoutOp(
   addDataAttribute(layout);
 }
 
-std::string GroupedBlockScalingFactorLayoutOp::toString(int indent_size) const {
+std::string PreprocessGroupedMatmulInputSf::toString(int indent_size) const {
   std::stringstream ss;
   indent(ss, indent_size) << output(0)->toString() << "\n";
   indent_size++;
-  indent(ss, indent_size) << " = grouped_block_scaling_factor_layout(\n";
+  indent(ss, indent_size) << " = preprocessGroupedMatmulInputSf(\n";
   indent_size++;
   indent(ss, indent_size) << "input = " << in()->toString() << ",\n";
   indent(ss, indent_size) << "expert_offsets = " << expertOffsets()->toString()
@@ -6630,19 +6630,18 @@ std::string GroupedBlockScalingFactorLayoutOp::toString(int indent_size) const {
   return ss.str();
 }
 
-std::string GroupedBlockScalingFactorLayoutOp::toInlineString(
+std::string PreprocessGroupedMatmulInputSf::toInlineString(
     int indent_size) const {
-  NVF_CHECK(
-      false, "GroupedBlockScalingFactorLayoutOp can not be printed inline");
+  NVF_CHECK(false, "PreprocessGroupedMatmulInputSf can not be printed inline");
 }
 
-std::vector<PolymorphicValue> GroupedBlockScalingFactorLayoutOp::evaluate(
+std::vector<PolymorphicValue> PreprocessGroupedMatmulInputSf::evaluate(
     const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
   // This is a placeholder, currently we don't have a fallback kernel available
-  NVF_THROW("GroupedBlockScalingFactorLayoutOp evaluation not yet implemented");
+  NVF_THROW("PreprocessGroupedMatmulInputSf evaluation not yet implemented");
 }
 
-NVFUSER_DEFINE_CLONE_AND_CREATE(GroupedBlockScalingFactorLayoutOp)
+NVFUSER_DEFINE_CLONE_AND_CREATE(PreprocessGroupedMatmulInputSf)
 
 } // namespace nvfuser
