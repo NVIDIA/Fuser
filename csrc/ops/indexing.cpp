@@ -328,6 +328,8 @@ TensorView* groupedBlockSfLayout(
   constexpr int row_multiple = 128;
 
   auto* one_val = input->fusion()->oneVal(DataType::Index);
+  std::vector<IterDomain*> offset_logical_dom =
+      TensorDomain::noReductions(expert_offsets->getLogicalDomain());
   Val* num_groups =
       SimplifyingIrBuilder::subExpr(offset_logical_dom[0]->extent(), one_val);
   // padded row size:
@@ -335,8 +337,6 @@ TensorView* groupedBlockSfLayout(
   auto pad_to_max_extent = [&](IterDomain* id, int multiple) -> IterDomain* {
     auto* maximum_pad_value_per_group =
         IrBuilder::create<Val>(multiple - 1, DataType::Index);
-    std::vector<IterDomain*> offset_logical_dom =
-        TensorDomain::noReductions(expert_offsets->getLogicalDomain());
     Val* padded_ext = SimplifyingIrBuilder::addExpr(
         id->extent(),
         SimplifyingIrBuilder::mulExpr(num_groups, maximum_pad_value_per_group));
@@ -374,8 +374,6 @@ TensorView* groupedBlockSfLayout(
           /*skip_checks=*/true),
       input->getDataType().value());
 
-  std::vector<IterDomain*> offsets_logical_domain =
-      TensorDomain::noReductions(sf_offsets->getLogicalDomain());
   IrBuilder::create<GroupedBlockScalingFactorLayoutOp>(
       out_tv,
       input,
