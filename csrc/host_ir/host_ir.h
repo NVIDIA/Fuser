@@ -419,12 +419,19 @@ class HirAliasSelect : public Expr {
 // domain except that the input may have extra reduction dimensions. Upon
 // evaluation, the output tensor will be an aliasing slice of the input tensor.
 //
+// I only plan to use ShardByStream around evaluated Exprs (e.g. MatmulOp)
+// because otherwise I would have to change every such Expr to support stream
+// parallelization. I don't plan to use ShardByStream around `LaunchKernel`s.
+// nvFuser codegen should be able to generate the right indexing by analyzing a
+// stream-parallelized allocation domain.
+//
 // I considered keeping this a LoadStoreOp but I couldn't figure out a good way
 // to pass in the stream index, which is needed for slicing.
 //
 // This op is similar to HirAliasSelect, but the semantics are slightly
-// different. I could merge them into one but I prefer keeping them separated to
-// not slow down MultiDeviceExecutor development.
+// different. For example, `out` is for some reason an attribute there. I could
+// merge them into one but I prefer keeping them separated to not slow down
+// MultiDeviceExecutor development.
 class ShardByStream : public Expr {
  public:
   using Expr::Expr;

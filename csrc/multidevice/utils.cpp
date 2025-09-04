@@ -261,7 +261,7 @@ std::vector<int64_t> unshardedSizes(
       continue;
     }
 
-    const int64_t sharded_axis = getDominatingLogicalAxis(tv, sharded_id);
+    const int64_t sharded_axis = getProducingLogicalAxis(tv, sharded_id);
     if (sharded_axis == -1) {
       continue;
     }
@@ -276,7 +276,9 @@ std::vector<int64_t> unshardedSizes(
         // dimension to be stream-parallelized, both loop and allocation.  Refer
         // to
         // https://github.com/NVIDIA/Fuser/blob/f8e84e52296cdecd318dd2ce904139616d7bd434/tests/cpp/test_overlap.cpp#L155
-        // for an example.
+        // for an example. An alternative to consider is to create a new
+        // ParallelType for stream parallelization and use it in
+        // FusionExecutorCache.
         if (std::find(
                 tv->getLogicalDomain().begin(),
                 tv->getLogicalDomain().end(),
