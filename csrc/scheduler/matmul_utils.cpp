@@ -37,9 +37,7 @@
 #include <limits>
 #include <memory>
 #include <sstream>
-#include <type_traits>
 #include <utility>
-#include <variant>
 
 #include <ATen/cuda/CUDAContext.h>
 
@@ -1124,35 +1122,35 @@ int64_t getMaxActiveClusters(const MatmulParams::ClusterDims& cluster_dims) {
       func, CU_FUNC_ATTRIBUTE_NON_PORTABLE_CLUSTER_SIZE_ALLOWED, 1));
 
   size_t maxDynamicSmemSize;
-  NVFUSER_CUDA_RT_SAFE_CALL(cudaOccupancyAvailableDynamicSMemPerBlock(
+  NVFUSER_CUDA_SAFE_CALL(cuOccupancyAvailableDynamicSMemPerBlock(
       &maxDynamicSmemSize, func, /*numBlocks*/ 1, /*blockSize*/ 1));
 
   int32_t max_active_blocks;
-  NVFUSER_CUDA_RT_SAFE_CALL(cudaOccupancyMaxActiveBlocksPerMultiprocessor(
+  NVFUSER_CUDA_SAFE_CALL(cuOccupancyMaxActiveBlocksPerMultiprocessor(
       &max_active_blocks, func, /*blockSize=*/1, maxDynamicSmemSize));
 
-  cudaLaunchConfig_t config{0};
-  cudaLaunchAttribute attribute[1];
-  attribute[0].id = cudaLaunchAttributeClusterDimension;
-  attribute[0].val.clusterDim.x = (uint32_t)cluster_size;
-  attribute[0].val.clusterDim.y = 1;
-  attribute[0].val.clusterDim.z = 1;
+  CUlaunchConfig config{0};
+  CUlaunchAttribute attribute[1];
+  attribute[0].id = CU_LAUNCH_ATTRIBUTE_CLUSTER_DIMENSION;
+  attribute[0].value.clusterDim.x = (uint32_t)cluster_size;
+  attribute[0].value.clusterDim.y = 1;
+  attribute[0].value.clusterDim.z = 1;
 
   config.numAttrs = 1;
   config.attrs = attribute;
-  config.blockDim.x = 128;
-  config.blockDim.y = 1;
-  config.blockDim.z = 1;
+  config.blockDimX = 128;
+  config.blockDimY = 1;
+  config.blockDimZ = 1;
 
-  config.dynamicSmemBytes = maxDynamicSmemSize;
+  config.sharedMemBytes = maxDynamicSmemSize;
 
-  config.gridDim.x = (unsigned int)cluster_size;
-  config.gridDim.y = (unsigned int)max_active_blocks;
-  config.gridDim.z = 1;
+  config.gridDimX = (unsigned int)cluster_size;
+  config.gridDimY = (unsigned int)max_active_blocks;
+  config.gridDimZ = 1;
 
   int num_clusters;
-  NVFUSER_CUDA_RT_SAFE_CALL(
-      cudaOccupancyMaxActiveClusters(&num_clusters, (CUfunction)func, &config));
+  NVFUSER_CUDA_SAFE_CALL(
+      cuOccupancyMaxActiveClusters(&num_clusters, func, &config));
 
   NVFUSER_CUDA_SAFE_CALL(cuModuleUnload(mod));
 
