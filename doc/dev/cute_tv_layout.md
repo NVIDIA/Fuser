@@ -206,6 +206,8 @@ TEST_F(CuTeTutorial, SimpleThreadLayout) {
 Given a static CTA tile, apply 2D thread parallelization using threadIdx.x and
 vectorization.
 
+![Reduction Base TV Layout](cute/reduction_base_tv_layout.svg)
+
 Reference:
 https://github.com/Dao-AILab/quack/blob/main/quack/reduction_base.py#L35-L53
 <!-- */ //-->\
