@@ -30,7 +30,6 @@ bool validateGroupedLayout(
   int k = out.size(1);
 
   for (int i = 0; i < num_group; ++i) {
-
     int start_idx = sf_offsets[i].item().to<int>();
     int padded_m_g = sf_offsets[i + 1].item().to<int>() - start_idx;
     int m_g = expert_offsets[i + 1].item().to<int>() -
@@ -43,10 +42,10 @@ bool validateGroupedLayout(
     // view as {mn_tile, k_tile, m_4, mn_32, k_4}
     // restore the swizzle/padding on output.
     auto restored_out_g = out_g.view({mn_tile, k_tile, 32, 4, 4})
-                     .transpose(1, 3)
-                     .reshape({mn_tile * 4 * 32, k_tile * 4})
-                     .slice(0, 0, m_g)
-                     .slice(1, 0, k);
+                              .transpose(1, 3)
+                              .reshape({mn_tile * 4 * 32, k_tile * 4})
+                              .slice(0, 0, m_g)
+                              .slice(1, 0, k);
     auto ref_g = ref.slice(
         0,
         expert_offsets[i].item().to<int>(),
@@ -98,7 +97,7 @@ TEST_F(LayoutOpTest, ManualKernel) {
   fusion.addInput(rounded_offsets);
 
   auto inp_tv = set(inp);
-  auto out_tv = groupedBlockSfLayout(
+  auto out_tv = preprocessGroupedMatmulInputSf(
       inp_tv, offsets, rounded_offsets, BlockScalingFactorLayout::Block128x4);
   fusion.addOutput(out_tv);
 
