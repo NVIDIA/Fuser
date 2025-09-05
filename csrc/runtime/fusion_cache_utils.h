@@ -99,7 +99,8 @@ class ArgumentManager {
   void updateWithSegmentOutputs(
       const std::vector<Val*>& group_outputs,
       const KernelArgumentHolder& group_runtime_outputs,
-      const int64_t group_id);
+      const int64_t group_id,
+      const bool update_contiguity = false);
 
   std::string toString() const {
     std::stringstream ss;

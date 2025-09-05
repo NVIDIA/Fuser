@@ -116,7 +116,8 @@ std::vector<std::optional<bool>> _computeContiguity(
 void ArgumentManager::updateWithSegmentOutputs(
     const std::vector<Val*>& group_outputs,
     const KernelArgumentHolder& group_runtime_outputs,
-    const int64_t group_id) {
+    const int64_t group_id,
+    const bool update_contiguity) {
   // Insert graph segment output to tensor map
   NVF_ERROR_EQ(
       std::ssize(group_outputs),
@@ -126,7 +127,7 @@ void ArgumentManager::updateWithSegmentOutputs(
     tensor_map_.emplace(
         group_outputs[group_out_i], group_runtime_outputs[group_out_i]);
     auto tv = dynamic_cast<TensorView*>(group_outputs[group_out_i]);
-    if (tv) {
+    if (update_contiguity && tv) {
       tv->printTransforms();
       const at::Tensor& tensor = group_runtime_outputs[group_out_i].as<at::Tensor>();
       const std::vector<int64_t> sizes = tensor.sizes().vec();

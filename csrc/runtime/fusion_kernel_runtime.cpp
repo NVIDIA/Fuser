@@ -602,7 +602,8 @@ std::optional<std::unique_ptr<HeuristicParamsList>> FusionKernelRuntime::
     // Generate metadata for the fusion's outputs
     KernelArgumentHolder group_runtime_outputs;
     const auto& heuristic_params = heuristics->at(group_to_run->groupId());
-    if (heuristic_params->scheduler_type == SchedulerType::ExprEval) {
+    const bool is_expr_eval = heuristic_params->scheduler_type == SchedulerType::ExprEval;
+    if (is_expr_eval) {
       // For expr evaluated fusion, the striding rules follow that of ATen.
       ExpressionEvaluator eval_fusion;
       for (auto [i, v] : enumerate(group_to_run->inputs())) {
@@ -622,7 +623,7 @@ std::optional<std::unique_ptr<HeuristicParamsList>> FusionKernelRuntime::
     }
 
     args_manager.updateWithSegmentOutputs(
-        group_to_run->outputs(), group_runtime_outputs, run_order_id);
+        group_to_run->outputs(), group_runtime_outputs, run_order_id, is_expr_eval);
   }
   return heuristics;
 }
