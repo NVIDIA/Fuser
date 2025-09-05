@@ -117,9 +117,11 @@ void benchmarkP2PCommunication() {
     std::unordered_map<Val*, PolymorphicValue> inputs = {
         {send_tv, send_tensor}, {recv_tv, recv_tensor}};
 
+    auto dtype_size = send_tensor.element_size();
+
     // Calculate data transfer size
     double data_size_mb =
-        (current_tensor_size * send_tensor.element_size()) / (1024.0 * 1024.0);
+        (current_tensor_size * dtype_size) / (1024.0 * 1024.0);
 
     // Warmup
     for (int i = 0; i < kWarmupReps; i++) {
@@ -144,7 +146,7 @@ void benchmarkP2PCommunication() {
     double avg_time_us =
         duration.count() / static_cast<double>(kNumRepetitions);
     double bandwidth_gb_s =
-        (current_tensor_size * sizeof(float) / (1024.0 * 1024.0 * 1024.0)) /
+        (current_tensor_size * dtype_size / (1024.0 * 1024.0 * 1024.0)) /
         (avg_time_us / 1e6);
 
     if (my_rank == 0) {
