@@ -37,8 +37,11 @@ enum class ReshardPosition {
 // We do no support resharding multi-output expressions. Fusions may contain
 // multi-output expressions if they don't require resharding.
 ReshardPosition whereToReshard(Expr* e) {
-  if ((e->inputs().size() == 1 && e->outputs().size() == 1) ||
-      isOptionEnabled(EnableOption::InsertReshardingAfter)) {
+  if (isOptionEnabled(EnableOption::InsertReshardingAfter)) {
+    return ReshardPosition::kAfter;
+  }
+
+  if (e->inputs().size() == 1 && e->outputs().size() == 1) {
     return ReshardPosition::kAfter;
   } else {
     return ReshardPosition::kBefore;
