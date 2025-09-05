@@ -272,6 +272,10 @@ class KernelIrScanner : private IrVisitor {
     summary_.has_argsort = true;
   }
 
+  void handle(PreprocessGroupedMatmulInputSf* aop) final {
+    summary_.has_preprocess_grouped_matmul_input_sf = true;
+  }
+
   void handle(TopKOp* top) final {
     summary_.has_topk = true;
   }
