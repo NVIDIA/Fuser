@@ -109,8 +109,10 @@ void unshard(TensorView*);
 // extent if that IterDomain is sharded.
 int64_t getShardedLogicalAxis(const TensorView* tv, ParallelType parallel_type);
 
-// Returns the index of the loop axis that's parallelized on `parallel_type`.
-// If it's not found, returns -1.
+// Returns the IterDomain that's parallelized on `parallel_type`.  If it's not
+// found, returns nullptr. `parallel_type` decides which domain to look at.
+// ParallelType::Stream looks at the allocation domain and DIDs look at the loop
+// domain. Refer to the implementation for the reason.
 IterDomain* getShardedIterDomain(
     const TensorView* tv,
     ParallelType parallel_type);
