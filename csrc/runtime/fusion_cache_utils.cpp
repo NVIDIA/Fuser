@@ -142,12 +142,12 @@ void ArgumentManager::updateWithSegmentOutputs(
       contiguity_with_reduction.reserve(tv->domain()->maybeAllocation().size());
       int64_t index_with_reduction = 0;
       for (const auto id : tv->domain()->maybeAllocation()) {
-        if (id->isReduction() || id->isBroadcast()) {
+        if (id->isReduction()) {
           contiguity_with_reduction.push_back(std::nullopt);
         } else {
-          // contiguity_with_reduction.push_back(contiguity[index_with_reduction++]);
-          (void)index_with_reduction;
-          contiguity_with_reduction.push_back(false);
+          contiguity_with_reduction.push_back(contiguity[index_with_reduction++]);
+          // (void)index_with_reduction;
+          // contiguity_with_reduction.push_back(false);
         }
       }
       tv->domain()->setContiguity(contiguity_with_reduction);
