@@ -173,10 +173,15 @@ class TensorIndex final : public Val {
       IrBuilderPasskey,
       const TensorView* view,
       Val* index,
-      DataType dtype = DataType::Null);
+      DataType dtype = DataType::Null,
+      std::vector<Val*> logical_index = {});
 
   Val* index() const {
     return index_;
+  }
+
+  std::vector<Val*> logical_index() const {
+    return logical_index_;
   }
 
   TensorView* view() const {
@@ -191,6 +196,7 @@ class TensorIndex final : public Val {
  private:
   const TensorView* view_ = nullptr;
   Val* index_ = nullptr;
+  std::vector<Val*> logical_index_;
 };
 
 // In theory, we should just put this struct into class Asm, but unfortunately,
