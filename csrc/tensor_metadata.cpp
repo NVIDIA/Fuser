@@ -219,9 +219,10 @@ class BackwardTraverseFromLogicalToAlloc {
 
 void validateAllocationSizesAndStrides(
     const std::vector<IterDomain*>& alloc_dom,
-    const std::vector<std::optional<bool>>& contiguity,
+    TensorView* tv,
     c10::IntArrayRef sizes,
     c10::IntArrayRef strides) {
+  const std::vector<std::optional<bool>>& contiguity = tv->getContiguity();
   NVF_ERROR(alloc_dom.size() == contiguity.size());
   checkAllEqual(
       {TensorDomain::noReductions(alloc_dom).size(),
@@ -265,7 +266,9 @@ void validateAllocationSizesAndStrides(
     if (*contiguity[domain_index]) {
       NVF_CHECK(
           stride == expected_stride_if_contiguous,
-          "Stride mismatch with contiguity info. ",
+          "TensorView ",
+          tv->toString(),
+          "'s stride mismatch with contiguity info. ",
           " allocation domain: ",
           ir_utils::toString(alloc_dom),
           ": sizes: ",
@@ -326,7 +329,7 @@ inferAndValidateAllocationSizesAndStrides(
   // Only validate final sizes and strides when we have a non-empty tensor.
   if (tensor.numel() != 0) {
     validateAllocationSizesAndStrides(
-        alloc, tv->getContiguity(), allocation_sizes, allocation_strides);
+        alloc, tv, allocation_sizes, allocation_strides);
   }
   return {std::move(allocation_sizes), std::move(allocation_strides)};
 }
