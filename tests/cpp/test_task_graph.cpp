@@ -232,6 +232,11 @@ TEST_F(TaskGraphTest, FreeableIntermediate) {
   EXPECT_EQ(result.steps.back().high_water_mark, 4);
 }
 
+// This is a parallel chains graph, the optimal schedule should cut this into an
+// out-tree and an in-tree with the cut placed at local minimal of the
+// hill-valley representation of each chain.
+// See Kayaaslan et al. 2018
+// https://doi.org/10.1016/j.tcs.2017.09.037
 TEST_F(TaskGraphTest, DifferentSizes) {
   /*
    *     0
@@ -241,8 +246,10 @@ TEST_F(TaskGraphTest, DifferentSizes) {
    *   2   5
    *   |   |
    *   3   6
+   *   |   |
+   *   |   7
    *    \ /
-   *     7
+   *     8
    */
   Tasks tasks{
       {{0}, {1}}, // Task 0
@@ -251,31 +258,35 @@ TEST_F(TaskGraphTest, DifferentSizes) {
       {{0}, {4}}, // Task 3
       {{4}, {5}}, // Task 4
       {{5}, {6}}, // Task 5
-      {{3, 6}, {7}} // Task 6
+      {{6}, {7}}, // Task 6
+      {{3, 7}, {8}} // Task 7
   };
   std::vector<TaskGraph::Data> data = inferData(tasks);
   data[0].size = 1;
 
-  data[1].size = 12;
-  data[2].size = 10;
-  data[3].size = 10;
+  data[1].size = 15;
+  data[2].size = 7; // hill-valley = 8
+  data[3].size = 11;
 
-  // Note that 4 and 5  are large but that 6 is smaller than the others, so we
-  // should compute up to here then start on the 0-1-2-3 branch after freeing 4
-  // and 5. Otherwise we would need to hold
-  data[4].size = 11;
+  data[4].size = 10;
   data[5].size = 11;
-  data[6].size = 7;
+  data[6].size = 7; // hill-valley = 4
+  data[7].size = 8;
 
-  data[7].size = 1;
+  data[8].size = 1;
   auto graph = TaskGraph(tasks, data);
 
   const TaskGraph::SortResult result = graph.findOptimalOrder();
 
+  // The local minima are at data 2 and 6, so we should compute up to each first
+  // then compute the end parts afterward.
+
   ASSERT_EQ(result.steps.size(), tasks.size());
-  std::vector<TaskGraph::TaskId> expected{3, 4, 5, 0, 1, 2, 6};
+  std::vector<TaskGraph::TaskId> expected{0, 1, 3, 4, 5, 2, 6, 7};
   EXPECT_EQ(getTasks(result), expected);
-  EXPECT_EQ(result.steps.back().high_water_mark, 30);
+  // Note that the suboptimal straightforward ordering in this case is {0, 1,
+  // 2, 3, 4, 5, 6, 7} which has a high_water_mark of 33
+  EXPECT_EQ(result.steps.back().high_water_mark, 29);
 }
 
 // This is the example from Figure 1 of Kayaaslan et al. 2018
