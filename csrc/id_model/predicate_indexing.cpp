@@ -21,7 +21,10 @@ std::vector<IterDomain*> getPredicateDomains(
   // domains need to be predicated. Note that the non-divisible split
   // info does not seem to cover non-divisible reduction rfactor
   // splits.
-  std::vector<IterDomain*> predicate_domains = consumer_tv->hasReduction()
+  // NOTE: PreprocessGroupedMatmulInputSf's logical domain is specialized to
+  // handle padding logic and shouldn't be used for predicate.
+  std::vector<IterDomain*> predicate_domains =
+      consumer_tv->hasReduction() || expr->isA<PreprocessGroupedMatmulInputSf>()
       ? consumer_tv->getMaybeRootDomain()
       : consumer_tv->getLogicalDomain();
 
