@@ -127,8 +127,8 @@ void ArgumentManager::updateWithSegmentOutputs(
     auto tv = dynamic_cast<TensorView*>(group_outputs[group_out_i]);
     if (tv) {
       const at::Tensor& tensor = group_runtime_outputs[group_out_i].as<at::Tensor>();
-      const std::vector<int64_t> sizes = tensor.sizes();
-      const std::vector<int64_t> strides = tensor.strides();
+      const std::vector<int64_t> sizes = tensor.sizes().vector();
+      const std::vector<int64_t> strides = tensor.strides().vector();
       tv->domain()->setContiguity(_computeContiguity(sizes, strides));
     }
   }
