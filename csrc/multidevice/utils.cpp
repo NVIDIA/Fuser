@@ -19,6 +19,7 @@
 #include <ops/all_ops.h>
 #include <statement_guard.h>
 #include <transform_replay.h>
+#include <type.h>
 
 namespace nvfuser {
 
@@ -116,35 +117,17 @@ std::unordered_map<IterDomain*, int64_t> mapIterDomainToTensorAxis(
   return id_to_axis;
 }
 
-} // namespace
-
-int64_t getShardedLogicalAxis(
-    const TensorView* tv,
-    const ParallelType parallel_type) {
-  // The allocation domain for multidevice tensorviews is set during
-  // presegmentation, which is after concretization. This exposes a issue:
-  // allocation domain is not set for fusion inputs before presegmentation and
-  // can cause errors during binding.
-  //
-  // We use the loop domain, since allocation and loop domain will have the
-  // same DID parallelization. For ParalleType::Stream, fusion inputs will
-  // always be fully allocated, and segment inputs/outputs may be partially /
-  // fully allocated which can be inferred from its allocation domain.
-
-  const std::vector<IterDomain*>& domain = parallel_type == ParallelType::Stream
-      ? tv->getMaybeAllocationDomain()
-      : tv->getLoopDomain();
-  const std::unordered_map<ParallelType, IterDomain*>& parallel_type_to_id =
-      mapDeviceAndStreamParallelTypeToId(domain);
-  IterDomain* parallel_id = getOrDefault(parallel_type_to_id, parallel_type);
-  if (parallel_id == nullptr) {
-    return -1;
-  }
-
+// Finds the logical IterDomain that transitively produces `id` and returns its
+// tensor axis. Returns -1 for reduction dimensions because they don't
+// correspond to any tensor axis.
+int64_t getProducingLogicalAxis(const TensorView* tv, IterDomain* id) {
   std::unordered_map<IterDomain*, int64_t> logical_id_to_axis =
       mapIterDomainToTensorAxis(tv->getLogicalDomain());
-  IterDomain* id = parallel_id;
-  while (logical_id_to_axis.count(id) == 0) {
+  while (true) {
+    if (auto i = logical_id_to_axis.find(id); i != logical_id_to_axis.end()) {
+      return i->second;
+    }
+
     Expr* def = id->definition();
     NVF_ERROR(
         def != nullptr,
@@ -204,22 +187,49 @@ int64_t getShardedLogicalAxis(
           def);
     }
   }
-  return logical_id_to_axis.at(id);
 }
 
-int64_t getShardedLoopAxis(
+} // namespace
+
+int64_t getShardedLogicalAxis(
     const TensorView* tv,
     const ParallelType parallel_type) {
-  NVF_ERROR(
-      isParallelTypeDeviceDim(parallel_type),
-      "Expect a DID but found: ",
-      parallel_type);
-  for (auto&& [index, loop_id] : enumerate(tv->getLoopDomain())) {
-    if (loop_id->getParallelType() == parallel_type) {
-      return index;
+  IterDomain* parallel_id = getShardedIterDomain(tv, parallel_type);
+  if (parallel_id == nullptr) {
+    return -1;
+  }
+
+  return getProducingLogicalAxis(tv, parallel_id);
+}
+
+IterDomain* getShardedIterDomain(
+    const TensorView* tv,
+    const ParallelType parallel_type) {
+  // The allocation domain for multidevice TensorViews is set during
+  // presegmentation, which is after concretization. This exposes a issue:
+  // allocation domain is not set for fusion inputs before presegmentation and
+  // can cause errors during binding.
+  //
+  // We use the loop domain, since allocation and loop domain will have the
+  // same DID parallelization. For ParalleType::Stream, fusion inputs will
+  // always be fully allocated, and segment inputs/outputs may be partially /
+  // fully allocated which can be inferred from its allocation domain.
+  const std::vector<IterDomain*>& domain = [&]() {
+    if (parallel_type == ParallelType::Stream) {
+      return tv->getMaybeAllocationDomain();
+    }
+    if (isParallelTypeDeviceDim(parallel_type)) {
+      return tv->getLoopDomain();
+    }
+    NVF_THROW("Unexpected parallel type: ", parallel_type);
+  }();
+
+  for (auto&& [index, id] : enumerate(domain)) {
+    if (id->getParallelType() == parallel_type) {
+      return id;
     }
   }
-  return -1;
+  return nullptr;
 }
 
 at::Tensor shardTensor(
@@ -245,13 +255,53 @@ std::vector<int64_t> unshardedSizes(
     const TensorView* tv,
     c10::IntArrayRef sizes) {
   std::vector<int64_t> unsharded_sizes = sizes.vec();
-  for (ParallelType parallel_type : kParallelTypeDIDs) {
-    const int64_t sharded_axis = getShardedLogicalAxis(tv, parallel_type);
+  for (ParallelType parallel_type : deviceAndStreamParallelTypes()) {
+    IterDomain* sharded_id = getShardedIterDomain(tv, parallel_type);
+    if (sharded_id == nullptr) {
+      continue;
+    }
+
+    const int64_t sharded_axis = getProducingLogicalAxis(tv, sharded_id);
     if (sharded_axis == -1) {
       continue;
     }
-    unsharded_sizes.at(sharded_axis) *= tv->getDeviceMesh().size(parallel_type);
+
+    auto multiplier = [&]() -> int64_t {
+      if (parallel_type == ParallelType::Stream) {
+        // Hack for MultiDeviceExecutor.  MultiDeviceExecutor looks for
+        // ParallelType::Stream only in logical domains and assumes a
+        // stream-parallelized dimension is always fully allocated.  So we set
+        // the multiplier to 1 when `sharded_id` is a logical IterDomain. This
+        // will have to change when FusionExecutorCache requires a logical
+        // dimension to be stream-parallelized, both loop and allocation.  Refer
+        // to
+        // https://github.com/NVIDIA/Fuser/blob/f8e84e52296cdecd318dd2ce904139616d7bd434/tests/cpp/test_overlap.cpp#L155
+        // for an example. An alternative to consider is to create a new
+        // ParallelType for stream parallelization and use it in
+        // FusionExecutorCache.
+        if (std::find(
+                tv->getLogicalDomain().begin(),
+                tv->getLogicalDomain().end(),
+                sharded_id) != tv->getLogicalDomain().end()) {
+          return 1;
+        }
+
+        NVF_ERROR(
+            sharded_id->extent()->isConstInt(),
+            "DIDs/Stream extent is expected to be constant: ",
+            sharded_id);
+        return sharded_id->extent()->evaluate().as<int64_t>();
+      }
+
+      if (isParallelTypeDeviceDim(parallel_type)) {
+        return tv->getDeviceMesh().size(parallel_type);
+      }
+
+      NVF_THROW("Unexpected parallel type: ", parallel_type);
+    }();
+    unsharded_sizes.at(sharded_axis) *= multiplier;
   }
+
   return unsharded_sizes;
 }
 

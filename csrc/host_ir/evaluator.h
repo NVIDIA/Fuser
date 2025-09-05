@@ -88,28 +88,29 @@ class NVF_API HostIrEvaluator final : public OptOutDispatch {
 
  private:
   using OptOutDispatch::handle;
-  void handle(SetCurrentStream* set_current_stream) override;
-  void handle(GetCurrentStream* get_current_stream) override;
-  void handle(Synchronize* synchronize) override;
-  void handle(PostOnStream* post_ir) override;
-  void handle(LaunchKernel* post_ir) override;
-  void handle(Communication* communication) override;
-  void handle(P2PCommunication* communication) override;
-  void handle(Wait* wait) override;
-  void handle(ForLoop* for_loop) override;
-  void handle(StartCoalescing* start_coalescing) override;
-  void handle(EndCoalescing* end_coalescing) override;
-  void handle(kir::IfThenElse* if_then_else) override;
-  void handle(MatmulOp* matmul) override;
-  void handle(LinearOp* linear) override;
-  void handle(kir::Allocate* allocate) override;
-  void handle(LoadStoreOp* load_store_op) override;
-  void handle(BinaryOp* binary_op) override;
-  void handle(ReductionOp* reduction_op) override;
-  void handle(ShareMemHandles* share_mem_handles) override;
-  void handle(HirAliasSelect* hir_alias_select) override;
-  void handle(Deallocate* deallocate) override;
-  void unhandled(Statement* stmt) override;
+  void handle(SetCurrentStream*) override;
+  void handle(GetCurrentStream*) override;
+  void handle(Synchronize*) override;
+  void handle(PostOnStream*) override;
+  void handle(LaunchKernel*) override;
+  void handle(Communication*) override;
+  void handle(P2PCommunication*) override;
+  void handle(Wait*) override;
+  void handle(ForLoop*) override;
+  void handle(StartCoalescing*) override;
+  void handle(EndCoalescing*) override;
+  void handle(kir::IfThenElse*) override;
+  void handle(MatmulOp*) override;
+  void handle(LinearOp*) override;
+  void handle(kir::Allocate*) override;
+  void handle(LoadStoreOp*) override;
+  void handle(BinaryOp*) override;
+  void handle(ReductionOp*) override;
+  void handle(ShareMemHandles*) override;
+  void handle(HirAliasSelect*) override;
+  void handle(Deallocate*) override;
+  void handle(ShardByStream*) override;
+  void unhandled(Statement*) override;
 
   c10::cuda::CUDAStream getCUDAStream(Stream* stream);
 

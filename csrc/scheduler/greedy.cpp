@@ -19,10 +19,13 @@
 #include <options.h>
 #include <scheduler/debug_utils.h>
 #include <scheduler/greedy.h>
+#include <scheduler/mark_aliases.h>
 #include <scheduler/runtime_info.h>
+#include <scheduler/tools/loop_domain_scheduler.h>
 #include <scheduler/tools/maxinfo_propagator.h>
 #include <scheduler/utils.h>
 #include <transform_replay.h>
+#include <val_graph_visitor.h>
 
 #include <ATen/cuda/CUDAContext.h>
 
@@ -35,7 +38,70 @@ namespace {
 
 // These are the current supported constrained ops.
 std::vector<Expr*> getAllConstrainedOps(Fusion* fusion) {
-  return ir_utils::getOpsOfType<ArgsortOp, ScanOp, PadOp>(fusion);
+  return ir_utils::getOpsOfType<ArgsortOp, PadOp, ScanOp, ScatterOp>(fusion);
+}
+
+std::vector<TensorView*> getAllConstrainedTvs(Fusion* fusion) {
+  const auto constrained_exprs = getAllConstrainedOps(fusion);
+
+  std::vector<TensorView*> constrained_tvs;
+  constrained_tvs.reserve(constrained_exprs.size());
+  std::ranges::transform(
+      constrained_exprs,
+      std::back_inserter(constrained_tvs),
+      [](const Expr* expr) { return ir_utils::getTvOutput(expr); });
+
+  for (auto scatter : ir_utils::filterByType<ScatterOp>(constrained_exprs)) {
+    // ScatterOp's inputs are also considered constrained unless it's
+    // a fusion input. Fusion inputs don't need to be scheduled, so they
+    // shouldn't impose any constraint.
+    for (auto inp : scatter->inputs()) {
+      if (!inp->isFusionInput()) {
+        constrained_tvs.push_back(inp->as<TensorView>());
+      }
+    }
+    for (auto use : scatter->out()->uses()) {
+      auto use_tv_out = ir_utils::getTvOutput(use);
+      if (use_tv_out == nullptr) {
+        continue;
+      }
+      if (std::ranges::find(constrained_tvs, use_tv_out) ==
+          constrained_tvs.end()) {
+        constrained_tvs.push_back(use_tv_out);
+      }
+    }
+  }
+
+  return constrained_tvs;
+}
+
+// Given offsets of logical IDs, return corresponding loop ID offsets
+std::vector<int64_t> getDependentLoopIds(
+    TensorView* tv,
+    const std::vector<int64_t>& logical_id_offsets) {
+  std::vector<Val*> logical_ids;
+  logical_ids.reserve(logical_id_offsets.size());
+  std::ranges::transform(
+      logical_id_offsets,
+      std::back_inserter(logical_ids),
+      [tv](int64_t logical_id_offset) {
+        return tv->getLogicalDomain().at(logical_id_offset);
+      });
+
+  const auto logical_loop_all_ids = DependencyCheck::getAllValsBetween(
+      {logical_ids.begin(), logical_ids.end()},
+      {tv->getLoopDomain().begin(), tv->getLoopDomain().end()});
+  const std::unordered_set<Val*> logical_loop_all_id_set{
+      logical_loop_all_ids.begin(), logical_loop_all_ids.end()};
+
+  std::vector<int64_t> loop_id_offsets;
+  for (const auto [i, loop_id] : enumerate(tv->getLoopDomain())) {
+    if (logical_loop_all_id_set.contains(loop_id)) {
+      loop_id_offsets.push_back(i);
+    }
+  }
+
+  return loop_id_offsets;
 }
 
 class CompileTimeChecker : private IterVisitor {
@@ -52,7 +118,16 @@ class CompileTimeChecker : private IterVisitor {
  private:
   CompileTimeChecker(Fusion* fusion, const ValGraph& exact_graph)
       : exact_graph_(exact_graph) {
+    checkConflictingReshape();
+    if (!can_schedule_) {
+      return;
+    }
+
     traverse(fusion);
+    if (!can_schedule_) {
+      return;
+    }
+
     // If this fusion requires the exact block dimension, requires the
     // constrained IDs to be exactly mapped. This is not necessary but
     // sufficient.
@@ -62,9 +137,41 @@ class CompileTimeChecker : private IterVisitor {
           "Block dimension must be exact but non-matching constrained IDs "
           "found");
     }
+
+    // Make sure constrained and unconstrained ids are
+    // disjoint. Because of the requirement that all ID groups must be
+    // used uniquely (no multiple distinctive use Expr groups), it is
+    // suffient to look at reachable graph nodes from each of the
+    // groups by a forward traversal and see if there's any common
+    // nodes. Because there's no ID group that has multiple uses, it
+    // is not necessary to traverse backward.
+    if (unique_unconstrained_domain_.has_value()) {
+      auto reachable_vals_from_unconstrained_domain =
+          getReachableValsFrom<ValGraphPermissiveBFS>(
+              unique_unconstrained_domain_.value().vector(),
+              exact_graph_.disjointValSets().disjointSets(),
+              Direction::Forward,
+              exact_graph_);
+      auto common_reachable_ids = getReachableValsFrom<ValGraphPermissiveBFS>(
+          all_constrained_domain_.vector(),
+          reachable_vals_from_unconstrained_domain,
+          Direction::Forward,
+          exact_graph_);
+      if (!common_reachable_ids.empty()) {
+        can_schedule_ = false;
+        std::stringstream reason;
+        reason << "Constrained and unconstrained IDs are merged at: "
+               << nvfuser::toString(common_reachable_ids);
+        setRejectReason(reason.str());
+      }
+    }
   }
 
   void dispatch(Expr* expr) override {
+    if (!can_schedule_) {
+      return;
+    }
+
     // These are the ops that are currently allowed to exist in the
     // given fusion. Notably, BroadcastOp, ReductionOp and ReshapeOp
     // are still missing.
@@ -75,10 +182,14 @@ class CompileTimeChecker : private IterVisitor {
             BinaryOp,
             TernaryOp,
             FullOp,
+            ReshapeOp,
+            IotaOp,
             ArgsortOp,
             ScanOp,
-            PadOp>();
+            PadOp,
+            ScatterOp>();
     if (!can_schedule_) {
+      setRejectReason("Unsupported operation: " + expr->toString());
       return;
     }
     IterVisitor::dispatch(expr);
@@ -110,10 +221,6 @@ class CompileTimeChecker : private IterVisitor {
     }
   }
 
-  void handle(PadOp* pad) override {
-    checkConstrainedTv(ir_utils::getTvOutput(pad), pad->getPaddedAxes());
-  }
-
   void handle(ScanOp* scan) override {
     auto out_tv = ir_utils::getTvOutput(scan);
     checkConstrainedTv(out_tv, {scan->dim()});
@@ -130,6 +237,95 @@ class CompileTimeChecker : private IterVisitor {
     }
   }
 
+  void handle(ScatterOp* scatter) override {
+    auto inp = scatter->in()->as<TensorView>();
+    auto out = scatter->out()->as<TensorView>();
+
+    if (out->getLogicalDomain().size() != 1) {
+      can_schedule_ = false;
+      setRejectReason(
+          "Scatter with multi-dimensional tensors is not yet supported");
+      return;
+    }
+
+    // Scatter input tensor is only allowed to be used by this scatter
+    // op itself due to the input-output aliasing
+    if (inp->uses().size() != 1) {
+      can_schedule_ = false;
+      setRejectReason(
+          "Scatter input can only be used by the scatter op itself");
+      return;
+    }
+
+    // If allocation domains already exist for the input and
+    // output, they must match since the input and output need to
+    // share the same memory buffer. This condition does not matter if
+    // no explicit allocation domain exists since we can set the
+    // allocation domain as required for this scheduler.
+    if (inp->hasAllocation() && out->hasAllocation() &&
+        (exact_graph_.toGroups(inp->getAllocationDomain()) !=
+         exact_graph_.toGroups(out->getAllocationDomain()))) {
+      can_schedule_ = false;
+      setRejectReason(
+          "Scatter input and output do not have the same allocation domain");
+      return;
+    }
+
+    // This is just a temporary shortcut for simplicity: The allocation domain
+    // must stay the same as the logical domain. This condition should
+    // be lifted.
+    if (inp->hasAllocation() &&
+        inp->getAllocationDomain() != inp->getLogicalDomain()) {
+      can_schedule_ = false;
+      std::stringstream ss;
+      ss << "Scatter input has an allocation domain that is not the same as "
+            "the logical domain: "
+         << inp->toString()
+         << ", allocation: " << toDelimitedString(inp->getAllocationDomain())
+         << ", logical: " << toDelimitedString(inp->getLogicalDomain());
+      setRejectReason(ss.str());
+      return;
+    }
+    if (out->hasAllocation() &&
+        out->getAllocationDomain() != out->getLogicalDomain()) {
+      can_schedule_ = false;
+      std::stringstream ss;
+      ss << "Scatter out has an allocation domain that is not the same as the "
+            "logical domain: "
+         << out->toString()
+         << ", allocation: " << toDelimitedString(out->getAllocationDomain())
+         << ", logical: " << toDelimitedString(out->getLogicalDomain());
+      setRejectReason(ss.str());
+      return;
+    }
+
+    // In the case of scatter, the scatter dimension doesn't need to
+    // be parallelized with TID, but we need to make sure it isn't
+    // parallelized with BID. In that sense, categorizing it as a
+    // constrained ID may be too restrictive.
+    // TODO: Consider introducing another group of IDs that are semi
+    // constrained.
+    auto constrained_out_logical_dim = scatter->dim();
+
+    // For the scatter in and out tensors, the scatter dimension must
+    // not be parallelized with TID.
+    auto out_tv = ir_utils::getTvOutput(scatter);
+    checkConstrainedTv(out_tv, {constrained_out_logical_dim});
+
+    // In addition, the index and src tensors are not allowed to use
+    // TID with the scatter dim. Their logical domains are not mapped
+    // with the logical domains of the input and output tensors, so
+    // they need to be checked separately.
+    checkConstrainedTv(
+        scatter->index()->as<TensorView>(), {constrained_out_logical_dim});
+    // Index and src tensors are mapped, so just checking index should
+    // be sufficient.
+  }
+
+  void handle(PadOp* pad) override {
+    checkConstrainedTv(ir_utils::getTvOutput(pad), pad->getPaddedAxes());
+  }
+
   // Check if the logical IDs of the given constrained tv can be
   // acceptable.
   void checkConstrainedTv(
@@ -144,7 +340,10 @@ class CompileTimeChecker : private IterVisitor {
     ValGroups unconstrained_domain;
     for (const auto& [i, logical_id] : enumerate(logical_domain)) {
       if (constrained_logical_id_offset_set.contains(i)) {
-        constrained_domain.pushBack(exact_graph_.toGroup(logical_id));
+        const auto& logical_id_group = exact_graph_.toGroup(logical_id);
+        constrained_domain.pushBack(logical_id_group);
+        // Keep track of all constrained IDs as well for reshape analysis
+        all_constrained_domain_.pushBack(logical_id_group);
       } else {
         unconstrained_domain.pushBack(exact_graph_.toGroup(logical_id));
       }
@@ -164,6 +363,7 @@ class CompileTimeChecker : private IterVisitor {
                << nvfuser::toString(unconstrained_domain)
                << ". Ref: " << nvfuser::toString(*unique_unconstrained_domain_);
         setRejectReason(reason.str());
+        unique_unconstrained_domain_.reset();
       }
     } else {
       unique_unconstrained_domain_ = unconstrained_domain;
@@ -184,6 +384,35 @@ class CompileTimeChecker : private IterVisitor {
     }
   }
 
+  // In order to ensure no conflicting reshape exists, fusions are
+  // only allowed to have one use ExprGroup for each ID group. This
+  // condition is not strictly necessary, but it makes the
+  // can-schedule analysis fairly simple as seen below.
+  void checkConflictingReshape() {
+    for (const ValGroup& val_group :
+         exact_graph_.disjointValSets().disjointSets()) {
+      const auto& use_groups = exact_graph_.getUses(val_group);
+      // Root-to-logical exprs may include Resize ops too, but they
+      // can be ignored for this analysis since transformations are
+      // simply propagated along Resize ops
+      int num_reshape_exprs = 0;
+      for (const auto& use_group : use_groups) {
+        if (use_group->front()->isA<Merge>() ||
+            use_group->front()->isA<Split>()) {
+          ++num_reshape_exprs;
+        }
+      }
+      if (num_reshape_exprs > 1) {
+        can_schedule_ = false;
+        std::stringstream ss;
+        ss << "Potentially conflicting reshape found for "
+           << nvfuser::toString(val_group);
+        setRejectReason(ss.str());
+        return;
+      }
+    }
+  }
+
   void setRejectReason(const std::string& reason) {
     // Only keeps the first reason
     if (reject_reason_.empty()) {
@@ -199,6 +428,8 @@ class CompileTimeChecker : private IterVisitor {
 
   std::optional<ValGroups> unique_unconstrained_domain_;
   std::optional<ValGroups> unique_constrained_domain_;
+
+  ValGroups all_constrained_domain_;
 
   // True if mismatched constrained ID was detected
   bool mismatched_constrained_id_detected_ = false;
@@ -289,6 +520,42 @@ class RunTimeChecker : private IterVisitor {
   std::string reject_reason_;
 };
 
+// Propagate all reshape transformations throughout the fusion.
+void propagateReshape(Fusion* fusion) {
+  const auto reshape_ops = ir_utils::getOpsOfType<ReshapeOp>(fusion);
+  const auto all_tvs = fusion->allTvs();
+
+  // Visit al reshape ops in a topological order. Propagate the merge
+  // and split ops to all tensors as long as they have matching input
+  // IDs. Propagation should work consistently as all reshapes are
+  // guaranteed to have no conflicting transformations. A single ID
+  // group may get propagated multiple times if there are multiple
+  // reshapes, but they are guaranteed to have the same
+  // transformations.
+  for (auto reshape : reshape_ops) {
+    auto reshape_exprs = DependencyCheck::getAllExprsBetween(
+        {reshape->out()->getRootDomain().begin(),
+         reshape->out()->getRootDomain().end()},
+        {reshape->out()->getLogicalDomain().begin(),
+         reshape->out()->getLogicalDomain().end()});
+    scheduler_tools::scheduleLoopDomainsBy(
+        all_tvs, reshape_exprs, Direction::Forward);
+  }
+}
+
+void insertCopyAfterScatter(Fusion* fusion) {
+  for (auto scatter : ir_utils::getOpsOfType<ScatterOp>(fusion)) {
+    auto out_tv = scatter->out()->as<TensorView>();
+    if (out_tv->uses().empty()) {
+      continue;
+    }
+    out_tv->cacheAfter(
+        LoadStoreOpType::Set,
+        CacheOp::Unspecified,
+        /*propagate_allocation_domain=*/false);
+  }
+}
+
 class ConstrainedOpScheduler : public OptOutDispatch {
  public:
   static void run(
@@ -325,27 +592,81 @@ class ConstrainedOpScheduler : public OptOutDispatch {
     scheduleConstrainedTv(out_tv, {scan_dim});
   }
 
+  void handle(ScatterOp* scatter) override {
+    auto scatter_dim = scatter->dim();
+    auto in_tv = ir_utils::getTvInput(scatter);
+    auto index_tv = scatter->index()->as<TensorView>();
+    auto src_tv = scatter->src()->as<TensorView>();
+    auto out_tv = ir_utils::getTvOutput(scatter);
+
+    scheduleConstrainedTv(out_tv, {scatter_dim});
+    scheduleConstrainedTv(index_tv, {scatter_dim});
+    scheduleConstrainedTv(in_tv, {scatter_dim});
+    scheduleConstrainedTv(src_tv, {scatter_dim});
+
+    // Setting the memory type.
+    // If either of the input and output needs to be a global memory
+    // tensor, both tensors should use global. Otherwise, use shared.
+    // Note that the in_tv tensor should never be produced by another
+    // scatter since a copy must have been inserted by
+    // insertCopyAfterScatter.
+    NVF_ERROR(dynamic_cast<ScatterOp*>(in_tv->definition()) == nullptr);
+    if (in_tv->isFusionInput() || in_tv->isFusionOutput() ||
+        out_tv->isFusionOutput()) {
+      in_tv->setMemoryType(MemoryType::Global);
+      out_tv->setMemoryType(MemoryType::Global);
+    } else {
+      in_tv->setMemoryType(MemoryType::Shared);
+      out_tv->setMemoryType(MemoryType::Shared);
+    }
+
+    scheduleScatterAllocationDomains(scatter);
+
+    // If there's a use of the scatter output, that must be the copy
+    // op inserted by insertCopyAfterScatter. It is not automatically
+    // scheduled as the propagation from the scatter output won't
+    // happen because the loop domain of the scatter output is not mapped
+    // with its logical domain.
+    if (!out_tv->uses().empty()) {
+      NVF_ERROR_EQ(out_tv->uses().size(), 1);
+      auto use_of_out = out_tv->uses().at(0);
+      NVF_ERROR(use_of_out->isA<LoadStoreOp>());
+      scheduleConstrainedTv(ir_utils::getTvOutput(use_of_out), {scatter_dim});
+    }
+  }
+
+  // Scatter-specific allocation domain scheduling
+  void scheduleScatterAllocationDomains(ScatterOp* scatter) {
+    auto in_tv = ir_utils::getTvInput(scatter);
+    auto out_tv = ir_utils::getTvOutput(scatter);
+
+    // For now, just use the logical domain.
+    if (!in_tv->hasAllocation()) {
+      in_tv->setAllocationDomain(in_tv->getLogicalDomain(), true);
+    }
+    if (!out_tv->hasAllocation()) {
+      out_tv->setAllocationDomain(out_tv->getLogicalDomain(), true);
+    }
+  }
+
   void scheduleConstrainedTv(
       TensorView* tv,
       const std::vector<int64_t>& constrained_logical_id_offsets) {
-    NVF_ERROR_EQ(
-        tv->getLogicalDomain(),
-        tv->getLoopDomain(),
-        "Logical and loop domains are assumed to be the same: ",
-        tv->toString());
-
     NVF_ERROR(!constrained_logical_id_offsets.empty());
+
+    const auto& constrained_loop_id_offsets =
+        getDependentLoopIds(tv, constrained_logical_id_offsets);
 
     // Move the constrained_logical_ids innermost
     std::unordered_map<int64_t, int64_t> old2new;
-    for (const auto [i, offset] : enumerate(constrained_logical_id_offsets)) {
-      old2new.emplace(offset, i - std::ssize(constrained_logical_id_offsets));
+    for (const auto [i, offset] : enumerate(constrained_loop_id_offsets)) {
+      old2new.emplace(offset, i - std::ssize(constrained_loop_id_offsets));
     }
     tv->reorder(old2new);
 
     // Flatten the constrained ids
-    if (constrained_logical_id_offsets.size() > 1) {
-      tv->flatten(-std::ssize(constrained_logical_id_offsets), -1);
+    if (constrained_loop_id_offsets.size() > 1) {
+      tv->flatten(-std::ssize(constrained_loop_id_offsets), -1);
     }
 
     // Parallelize the flattened constrained id
@@ -595,14 +916,15 @@ void GreedyScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
 
   scheduler_utils::clearMemorySpace(fusion);
 
-  auto constrained_exprs = getAllConstrainedOps(fusion);
+  propagateReshape(fusion);
 
-  std::vector<TensorView*> constrained_tvs;
-  constrained_tvs.reserve(constrained_exprs.size());
-  std::ranges::transform(
-      constrained_exprs,
-      std::back_inserter(constrained_tvs),
-      [](const Expr* expr) { return ir_utils::getTvOutput(expr); });
+  // For each scatter output, if there's a use of the output, insert a
+  // copy between the output and the use (i.e., cacheAfter). This
+  // intermediate copy is used to simplify the propagation of
+  // scheduling from the scatter output tensor.
+  insertCopyAfterScatter(fusion);
+
+  std::vector<TensorView*> constrained_tvs = getAllConstrainedTvs(fusion);
 
   IdModel id_model(fusion);
   const auto& exact_graph = id_model.buildExactGraph();
@@ -612,12 +934,7 @@ void GreedyScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
 
   // Need to fetch constrained ops again as cacheAfter/Before may be used
   // TODO: Cleanup.
-  constrained_exprs = getAllConstrainedOps(fusion);
-  constrained_tvs.clear();
-  std::ranges::transform(
-      constrained_exprs,
-      std::back_inserter(constrained_tvs),
-      [](const Expr* expr) { return ir_utils::getTvOutput(expr); });
+  constrained_tvs = getAllConstrainedTvs(fusion);
 
   // Partition the fusion
   auto tv_to_ref_map =
@@ -654,6 +971,11 @@ void GreedyScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
         tv->toString(),
         ", ",
         pt_map.toString());
+    // Nothing to do if already in Global or Shared
+    if (tv->getMemoryType() == MemoryType::Global ||
+        tv->getMemoryType() == MemoryType::Shared) {
+      continue;
+    }
     tvs_to_upload_to_smem.pushBack(tv);
   }
 
@@ -697,6 +1019,8 @@ void GreedyScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
       ir_utils::replaceValInExprInputs(tv_use, tv, copy);
     }
   }
+
+  markAliases(fusion);
 }
 
 } // namespace nvfuser
