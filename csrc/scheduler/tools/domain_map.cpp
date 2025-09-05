@@ -114,7 +114,7 @@ bool DomainMap::areAllInputIdsMappedTo(TensorView* input_tv, TensorView* tv)
     const {
   // Get concrete IDs for input root or logical domain
   std::unordered_set<IterDomain*> in_concrete_ids;
-  for (auto in_id : input_tv->getLogicalDomain()) {
+  for (auto in_id : input_tv->getInitialLoopDomain()) {
     if (canIgnoreIndexedInputDomainID(input_tv, in_id, ca_map_)) {
       continue;
     }
@@ -132,7 +132,7 @@ bool DomainMap::areAllInputIdsMappedTo(TensorView* input_tv, TensorView* tv)
   // Erase all input concrete IDs mapped to the output domain
   // Ignore unresolved broadcast dimensions
   eraseifInputMappedThroughRootDomainAndIndexing(
-      in_concrete_ids, tv->getLogicalDomain());
+      in_concrete_ids, tv->getInitialLoopDomain());
 
   return in_concrete_ids.empty();
 }
@@ -211,12 +211,12 @@ bool DomainMap::areAllTargetIdsCoveredBy(
   // it's safe for target_tv to have them.
   std::unordered_set<IterDomain*> covered_source_ids;
   for (IterDomain* source_id_ref :
-       get_source_iter_domains(reference_tv->getLogicalDomain())) {
+       get_source_iter_domains(reference_tv->getInitialLoopDomain())) {
     covered_source_ids.insert(source_id_ref);
   }
   // It's safe to have unmapped broadcast IterDomain. There're quite a few tests
   // expecting pointwise scheduler to handle this pattern
-  for (IterDomain* id_out : target_tv->getLogicalDomain()) {
+  for (IterDomain* id_out : target_tv->getInitialLoopDomain()) {
     if (id_out->isBroadcast()) {
       NVF_ERROR(
           id_out->definition() == nullptr ||
@@ -224,7 +224,7 @@ bool DomainMap::areAllTargetIdsCoveredBy(
 
       // Note that ideally we should also be able to handle merge/split on
       // broadcast IDs, so we should really move this skip inside the loop below
-      // `get_source_iter_domains(target_tv->getLogicalDomain())` and skip
+      // `get_source_iter_domains(target_tv->getInitialLoopDomain())` and skip
       // broadcast source IDs. currently we have the issue that split/merge does
       // not preserve expanded broadcasts, see issue:
       // https://github.com/NVIDIA/Fuser/issues/1126
@@ -248,7 +248,7 @@ bool DomainMap::areAllTargetIdsCoveredBy(
 
   // Check all source iter domain involved in producing target_tv
   for (IterDomain* source_id_out :
-       get_source_iter_domains(target_tv->getLogicalDomain())) {
+       get_source_iter_domains(target_tv->getInitialLoopDomain())) {
     // NOTE: we use concrete id instead. This allows us to link indirect
     // broadcast. So in the example below:
     //   input T0[
