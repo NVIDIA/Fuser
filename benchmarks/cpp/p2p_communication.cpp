@@ -8,11 +8,11 @@
 #include <cuda.h>
 #include <fusion.h>
 #include <host_ir/container.h>
+#include <host_ir/evaluator.h>
 #include <ir/all_nodes.h>
 #include <multidevice/cuda_p2p.h>
 #include <multidevice/ipc_handle.h>
 #include <ops/all_ops.h>
-#include <tests/cpp/multidevice.h>
 
 #include <chrono>
 #include <iomanip>
@@ -69,8 +69,17 @@ void benchmarkP2PCommunication() {
     auto* send_peer_val = IrBuilder::create<Val>(send_peer, DataType::Int);
     auto* recv_peer_val = IrBuilder::create<Val>(recv_peer, DataType::Int);
 
-    auto* send_tv = makeContigTensor(1);
-    auto* recv_tv = makeContigTensor(1);
+    auto* send_tv = TensorViewBuilder()
+                        .ndims(1)
+                        .dtype(DataType::Float)
+                        .contiguity(true)
+                        .build();
+    auto* recv_tv = TensorViewBuilder()
+                        .ndims(1)
+                        .dtype(DataType::Float)
+                        .contiguity(true)
+                        .build();
+    ;
     container->addInput(send_tv);
     container->addInput(recv_tv);
 
@@ -110,7 +119,7 @@ void benchmarkP2PCommunication() {
 
     // Calculate data transfer size
     double data_size_mb =
-        (current_tensor_size * sizeof(float)) / (1024.0 * 1024.0);
+        (current_tensor_size * send_tensor.element_size()) / (1024.0 * 1024.0);
 
     // Warmup
     for (int i = 0; i < kWarmupReps; i++) {
