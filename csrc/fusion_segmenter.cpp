@@ -2056,7 +2056,11 @@ class SegmentedGroupTaskGraphConverter {
 
       // Assume all tensors the same shape if no runtime_info is given
       int64_t numel = 1;
-      if (runtime_info_ != nullptr) {
+      if (tv->isCpuScalar()) {
+        // runtime_info_ will not include sizes of GPU scalars and sine they do
+        // not result in any GPU allocation we count them as empty.
+        numel = 0;
+      } else if (runtime_info_ != nullptr) {
         // Get the actual size of the tensor allocation
         if (tv->isFusionInput() && !isSharded(tv)) {
           const std::vector<int64_t>& sizes =
