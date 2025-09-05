@@ -285,17 +285,19 @@ std::vector<int64_t> unshardedSizes(
                 sharded_id) != tv->getLogicalDomain().end()) {
           return 1;
         }
+
+        NVF_ERROR(
+            sharded_id->extent()->isConstInt(),
+            "DIDs/Stream extent is expected to be constant: ",
+            sharded_id);
+        return sharded_id->extent()->evaluate().as<int64_t>();
       }
 
-      NVF_ERROR(
-          sharded_id->extent()->isConstInt(),
-          "DIDs/Stream extent is expected to be constant: ",
-          sharded_id);
-      auto multiplier = sharded_id->extent()->evaluate().as<int64_t>();
       if (isParallelTypeDeviceDim(parallel_type)) {
-        NVF_ERROR_EQ(multiplier, tv->getDeviceMesh().size(parallel_type));
+        return tv->getDeviceMesh().size(parallel_type);
       }
-      return multiplier;
+
+      NVF_THROW("Unexpected parallel type: ", parallel_type);
     }();
     unsharded_sizes.at(sharded_axis) *= multiplier;
   }
