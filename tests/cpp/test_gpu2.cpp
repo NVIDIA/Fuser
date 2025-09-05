@@ -2585,8 +2585,14 @@ TEST_F(NVFuserTest, FusionSegmentReducePointwise_CUDA) {
   TensorView* tv3 = add(tv0, IrBuilder::create<Val>(1.0)); // Group 0
   TensorView* tv4 =
       max(tv3, {0}); // Group 0 (use max instead to avoid numerical issues)
+
+  //*
+  TensorView* tv7 = add(tv3, tv1);
+  TensorView* tv5 = add(tv4, tv7);
+  /*/
   TensorView* tv5 = add(tv4, tv1); //  Group 0 (Non Broadcast after reduce,
-                                   //  keeps normalization scheduler away)
+  //*/
+  //  keeps normalization scheduler away)
   TensorView* tv6 = add(tv5, tv2); //  Group 1 (Broadcast after reduce)
 
   fusion->addOutput(tv6);

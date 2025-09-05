@@ -29,6 +29,7 @@
 #include <preseg_passes/segment_inplace_update.h>
 #include <preseg_passes/translate_no_reduction_matmul_to_mul_squeeze.h>
 #include <preseg_passes/translate_repeat_to_expand.h>
+#include <preseg_passes/unsafe_reduce.h>
 
 namespace nvfuser::preseg_passes {
 
@@ -50,6 +51,7 @@ namespace nvfuser::preseg_passes {
   // removes consecutive cast operations
   OptimizationPass<ConsecutiveCastPass>::runPass(fusion);
   OptimizationPass<AddAxiomsPass>::runPass(fusion);
+  OptimizationPass<UnsafeReducePass>::runPass(fusion);
   OptimizationPass<MoveSplitCatPass>::runPass(fusion);
   // MovePadPass needs to happen:
   // 1. before MarkAliasPrepare; and
