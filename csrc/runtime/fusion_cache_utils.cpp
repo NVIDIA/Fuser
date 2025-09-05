@@ -127,7 +127,7 @@ void ArgumentManager::updateWithSegmentOutputs(
     tensor_map_.emplace(
         group_outputs[group_out_i], group_runtime_outputs[group_out_i]);
     auto tv = dynamic_cast<TensorView*>(group_outputs[group_out_i]);
-    if (false && update_contiguity && tv) {
+    if (true && update_contiguity && tv) {
       std::cout << tv->toString() << std::endl;
       tv->printTransforms();
       const at::Tensor& tensor = group_runtime_outputs[group_out_i].as<at::Tensor>();
