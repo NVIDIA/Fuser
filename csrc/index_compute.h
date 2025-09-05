@@ -535,11 +535,6 @@ class Index {
       const std::vector<ForLoop*>& loops,
       const std::unordered_set<ForLoop*>& rotated_loops);
 
-  static Val* getLinearRootIndex(
-      TensorView* consumer_tv,
-      const std::vector<ForLoop*>& loops,
-      const std::unordered_set<ForLoop*>& rotated_loops);
-
   //! Returns a vector of logical indices mapped onto the logical
   //! domain of a consumer tensor. The returned index is intended
   //! to be used for the computation of some tensor factories, such as:
