@@ -2834,4 +2834,31 @@ void IndexLowering::handle(const CatOp* cat) {
   GpuLower::current()->propagateExprInfo(cat, expr);
 }
 
+void IndexLowering::handle(
+    const PreprocessGroupedMatmulInputSf* preprocess_op) {
+  const auto in = lowerSrcIndex(preprocess_op->in(), preprocess_op->out());
+
+  auto* out_tv = preprocess_op->out()->as<TensorView>();
+  std::vector<Val*> root_index =
+      Index::getConsumerPerDimRootIndex(out_tv, for_loops_, getRotatedLoop());
+  // NOTE: use const zero for index, this always give the base pointer to
+  // output, because indexing is done with root_index in the runtime function.
+  auto* out = IrBuilder::create<kir::TensorIndex>(
+      out_tv,
+      GpuLower::current()->kernel()->zeroVal(),
+      DataType::Null,
+      root_index);
+
+  pushBack(IrBuilder::create<PreprocessGroupedMatmulInputSf>(
+      out,
+      in,
+      preprocess_op->inputOffsets(),
+      preprocess_op->outputOffsets(),
+      preprocess_op->layout(),
+      preprocess_op->k(),
+      preprocess_op->g()));
+
+  GpuLower::current()->propagateExprInfo(preprocess_op, back());
+}
+
 } // namespace nvfuser
