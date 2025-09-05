@@ -1167,9 +1167,10 @@ if(BUILD_TEST)
 
   set(HOSTIR_TEST_SRCS)
   list(APPEND HOSTIR_TEST_SRCS
-    ${NVFUSER_ROOT}/tests/cpp/test_host_irs.cpp
+    ${NVFUSER_ROOT}/tests/cpp/test_host_ir_evaluator.cpp
     ${NVFUSER_ROOT}/tests/cpp/test_host_ir_integration.cpp
     ${NVFUSER_ROOT}/tests/cpp/test_host_ir_stream_lowering.cpp
+    ${NVFUSER_ROOT}/tests/cpp/test_host_irs.cpp
   )
   add_test(test_host_ir "${HOSTIR_TEST_SRCS}" "")
   list(APPEND TEST_BINARIES test_host_ir)
