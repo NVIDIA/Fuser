@@ -255,12 +255,12 @@ class ReplayRFactor : public ReplayTransformations {
         rfactor_axes_(std::move(rfactor_axes)) {
     auto insert_rfactor_dep_ids_of_domain =
         [&](const std::vector<IterDomain*>& domain,
-            std::unordered_set<IterDomain*>& rfactor_dep_ids) {
+            std::unordered_set<IterDomain*>& domain_to_rfactor_dep_ids) {
           const auto dep_vals = DependencyCheck::getAllValsBetween(
               {domain.begin(), domain.end()},
               {rfactor_axes_.begin(), rfactor_axes_.end()});
-          auto dep_ids = ir_utils::filterByType<IterDomain>(all_dep_vals);
-          rfactor_dep_ids.insert(all_dep_ids.begin(), all_dep_ids.end());
+          auto dep_ids = ir_utils::filterByType<IterDomain>(dep_vals);
+          domain_to_rfactor_dep_ids.insert(dep_ids.begin(), dep_ids.end());
         };
 
     insert_rfactor_dep_ids_of_domain(
