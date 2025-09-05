@@ -1355,7 +1355,8 @@ std::vector<std::pair<TensorView*, int64_t>> cacheAndForkOutputs(
     if (output->definition() == nullptr ||
         // the output of ScatterOp must on the global memory due to the random
         // or atomic access.
-        output->definition()->isA<ScatterOp>()) {
+        output->definition()->isA<ScatterOp>() ||
+        output->definition()->isA<PreprocessGroupedMatmulInputSf>()) {
       continue;
     }
     if (!output->uses().empty()) {
