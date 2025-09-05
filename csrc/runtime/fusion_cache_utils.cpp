@@ -131,7 +131,7 @@ void ArgumentManager::updateWithSegmentOutputs(
       const at::Tensor& tensor = group_runtime_outputs[group_out_i].as<at::Tensor>();
       // const std::vector<int64_t> sizes = tensor.sizes().vec();
       // const std::vector<int64_t> strides = tensor.strides().vec();
-      const auto [sizes, strides] = inferAndValidateAllocationSizesAndStrides(tensor, tv);
+      const auto [sizes, strides] = inferAndValidateAllocationSizesAndStrides(tensor, tv, ExpressionEvaluator());
       tv->domain()->setContiguity(_computeContiguity(sizes, strides));
     }
   }
