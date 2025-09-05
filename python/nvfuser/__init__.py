@@ -62,7 +62,7 @@ class FusionDefinition(_C._FusionDefinition):
     def __init__(
         self,
         id=None,
-        max_length=1024,
+        max_length=9999,
         use_multidevice_executor=False,
         backend_type=CommunicatorBackend.nccl,
     ):

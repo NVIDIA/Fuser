@@ -4890,6 +4890,39 @@ std::string SdpaFwdOp::toInlineString(int indent_size) const {
   NVF_CHECK(false, "Tensor op can not be printed inline");
 }
 
+namespace spda_meta {
+
+std::tuple<
+    at::Tensor,
+    at::Tensor,
+    at::Tensor,
+    at::Tensor,
+    c10::SymInt,
+    c10::SymInt,
+    at::Tensor,
+    at::Tensor,
+    at::Tensor>
+_scaled_dot_product_flash_attention_meta(const at::Tensor& query) {
+  const auto sizes = query.sizes();
+  const int batch_size = sizes[0];
+  int num_heads = sizes[1];
+  int seqlen_q = sizes[2];
+  auto logsumexp = at::empty(
+      {batch_size, num_heads, seqlen_q}, query.options().dtype(at::kFloat));
+  return std::make_tuple(
+      query,
+      logsumexp,
+      at::Tensor(),
+      at::Tensor(),
+      c10::SymInt(seqlen_q),
+      c10::SymInt(seqlen_q),
+      at::Tensor(),
+      at::Tensor(),
+      at::Tensor());
+}
+
+} // namespace spda_meta
+
 std::vector<PolymorphicValue> SdpaFwdOp::evaluate(
     const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
@@ -4961,15 +4994,16 @@ std::vector<PolymorphicValue> SdpaFwdOp::evaluate(
        key_seq_len,
        philox_seed,
        philox_offset,
-       debug_attn_mask] =
-          at::_scaled_dot_product_flash_attention(
-              query,
-              key,
-              value,
-              dropout_p,
-              is_causal,
-              /*return_debug_mask=*/false,
-              scale);
+       debug_attn_mask] = query.is_meta()
+      ? spda_meta::_scaled_dot_product_flash_attention_meta(query)
+      : at::_scaled_dot_product_flash_attention(
+            query,
+            key,
+            value,
+            dropout_p,
+            is_causal,
+            /*return_debug_mask=*/false,
+            scale);
 
   // If the inputs were padded, slice the output to restore the original
   // size
@@ -6468,13 +6502,9 @@ std::vector<PolymorphicValue> CutlassNvfp4GroupedMmaOp::evaluate(
       "problem_sizes must have shape (num_experts, 3)");
   int num_experts = problem_sizes.size(0);
 
-  // Calculate output shape and allocate output tensor
-  std::vector<int64_t> output_shape;
-  output_shape = {mat1.size(0), mat2.size(2)};
-  const auto options = at::TensorOptions()
-                           .device(mat1.device())
-                           .dtype(data_type_to_aten(out()->dtype()));
-  at::Tensor result = at::empty(output_shape, options);
+  at::ScalarType out_dtype = data_type_to_aten(out()->dtype());
+  const auto options =
+      at::TensorOptions().device(mat1.device()).dtype(out_dtype);
 
   // Calculate proper stride tensors for the cutlass kernel
   // ab_strides: stride information for input matrices A and B
@@ -6492,10 +6522,9 @@ std::vector<PolymorphicValue> CutlassNvfp4GroupedMmaOp::evaluate(
   c_strides.fill_(n);
 
   // Call the cutlass kernel, note that it expect g,n,k layout on mat2.
-  cutlass_kernels::nvfp4_scaled_grouped_mm(
-      result,
-      mat1.view(at::ScalarType::Byte),
-      mat2.transpose(-1, -2).view(at::ScalarType::Byte),
+  at::Tensor result = cutlass_kernels::nvfp4_scaled_grouped_mm(
+      mat1.view(at::ScalarType::Float4_e2m1fn_x2),
+      mat2.transpose(-1, -2).view(at::ScalarType::Float4_e2m1fn_x2),
       scale1,
       scale2,
       alpha,
@@ -6503,7 +6532,8 @@ std::vector<PolymorphicValue> CutlassNvfp4GroupedMmaOp::evaluate(
       c_strides,
       problem_sizes,
       expert_offsets,
-      sf_offsets);
+      sf_offsets,
+      out_dtype);
 
   if (const auto rfactor_did_idx = getRFactorDeviceDimensionIndex(out());
       rfactor_did_idx != -1) {
