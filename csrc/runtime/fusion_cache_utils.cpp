@@ -146,6 +146,7 @@ void ArgumentManager::updateWithSegmentOutputs(
           contiguity_with_reduction.push_back(std::nullopt);
         } else {
           // contiguity_with_reduction.push_back(contiguity[index_with_reduction++]);
+          (void)index_with_reduction;
           contiguity_with_reduction.push_back(false);
         }
       }
