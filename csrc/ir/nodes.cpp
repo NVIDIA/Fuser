@@ -3571,8 +3571,9 @@ void TensorDomain::setContiguity(
       maybeAllocation().size() == contig.size(),
       "Invalid size of contiguity vector");
   for (auto i : arange(contig.size())) {
+    bool is_broadcast_or_reduction = maybeAllocation().at(i)->isBroadcast() || maybeAllocation().at(i)->isReduction();
     NVF_CHECK(
-        maybeAllocation().at(i)->isBroadcast() != contig.at(i).has_value(),
+        is_broadcast_or_reduction != contig.at(i).has_value(),
         "The contiguity of a broadcast dimension must be None. "
         "The contiguity of a non-broadcast dimension must be true/false");
   }
