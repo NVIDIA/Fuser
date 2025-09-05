@@ -49,14 +49,14 @@ bool checkCanSchedule(Fusion* fusion, SchedulerType scheduler_type) {
           GroupedMmaOp,
           ScaledMmaOp,
           CutlassNvfp4GroupedMmaOp,
-          // TODO: remove this once we have a scheduler for it
-          PreprocessGroupedMatmulInputSf,
           TopKOp,
           ScanOp>(fusion)) {
     scheduler_debug_utils::canScheduleRejectReason(
         scheduler_type, "Has unsupported ops");
     return false;
   }
+
+  // TODO: check PreprocessGroupedMatmulInputSf's output is in global memory / fusion output
 
   // Fusions with `MatmulOp, LinearOp, MmaOp` can only be accepted by Matmul
   // scheduler.
@@ -72,6 +72,7 @@ bool checkCanSchedule(Fusion* fusion, SchedulerType scheduler_type) {
         scheduler_type, "Connected fusion graph check failed!");
     return false;
   }
+
   if (IterDomainGraph(fusion, /*allow_self_mapping=*/true).hasSelfMapping()) {
     scheduler_debug_utils::canScheduleRejectReason(
         scheduler_type, "Iter domain graph check failed!");
