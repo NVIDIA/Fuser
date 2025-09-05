@@ -107,6 +107,15 @@ getIndexedConsumerToProducerMap(Fusion* fusion, const ComputeAtMap& ca_map) {
   return indexed_id_map;
 }
 
+std::vector<IterDomain*> getSchedulingIds(TensorView* tv) {
+  // if (tv->isDefinitionType<PreprocessGroupedMatmulInputSf>() && 
+  //     (tv->definition()->as<PreprocessGroupedMatmulInputSf>()->inputOffsets() == tv ||
+  //     tv->definition()->as<PreprocessGroupedMatmulInputSf>()->outputOffsets() == tv)) {
+  //   return tv->getMaybeRootDomain();
+  // }
+  return tv->getLogicalDomain();
+}
+
 } // namespace
 
 DomainMap::DomainMap(Fusion* fusion) : fusion_(fusion), ca_map_(fusion) {
@@ -136,7 +145,7 @@ bool DomainMap::areAllInputIdsMappedTo(TensorView* input_tv, TensorView* tv)
   // Erase all input concrete IDs mapped to the output domain
   // Ignore unresolved broadcast dimensions
   eraseifInputMappedThroughRootDomainAndIndexing(
-      in_concrete_ids, tv->getLogicalDomain());
+      in_concrete_ids, getSchedulingIds(tv));
 
   return in_concrete_ids.empty();
 }
@@ -215,7 +224,7 @@ bool DomainMap::areAllTargetIdsCoveredBy(
   // it's safe for target_tv to have them.
   std::unordered_set<IterDomain*> covered_source_ids;
   for (IterDomain* source_id_ref :
-       get_source_iter_domains(reference_tv->getLogicalDomain())) {
+       get_source_iter_domains(getSchedulingIds(reference_tv))) {
     covered_source_ids.insert(source_id_ref);
   }
   // It's safe to have unmapped broadcast IterDomain. There're quite a few tests

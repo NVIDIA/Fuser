@@ -740,6 +740,15 @@ at::Tensor transformFromAllocationToLogical(
   tensor = BackwardTraverseFromAllocToLogical(tensor, ee, frontier)
                .run(logical, alloc);
   NVF_ERROR(frontier.size() == logical.size());
+
+  // TODO: remove this and update the forward/backward traversal instead.
+  // give up on producing right shape/stride
+  std::set<IterDomain*> frontier_set(frontier.begin(), frontier.end());
+  std::set<IterDomain*> logical_set(logical.begin(), logical.end());
+  if (frontier_set != logical_set) {
+    return tensor;
+  }
+
   // Now that all affine transformations are handled, and frontiers should
   // contain the same set of IDs as logical. We still need to do a final
   // permutation so that their orders are also consistent.
