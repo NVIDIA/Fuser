@@ -1030,6 +1030,27 @@ bool SchedulerTopologyChecker::hasResizeAndIndexOps(Fusion* fusion) {
   return false;
 }
 
+bool SchedulerTopologyChecker::hasIllegalNonIndexableOps(Fusion* fusion) {
+  for (auto expr : fusion->exprs()) {
+    if (expr->isOneOf<PreprocessGroupedMatmulInputSf>()) {
+      // The runtime function of layout_op needs:
+      //   1. Write output directly to global memory
+      //   2. Read two offset inputs directly from global memory
+      auto layout_op = expr->as<PreprocessGroupedMatmulInputSf>();
+      // layout_op needs to write directly to global memory
+      if (!layout_op->out()->uses().empty()) {
+        return true;
+      }
+      // layout_op two offset needs to be in global memory
+      if (!layout_op->inputOffsets()->isFusionInput() ||
+          !layout_op->outputOffsets()->isFusionInput()) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
 namespace {
 
 // Return true when there's a producer-consumer relationship among a
