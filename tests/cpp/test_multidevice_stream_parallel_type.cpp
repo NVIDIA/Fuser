@@ -219,7 +219,7 @@ TEST_P(AGMatmulTest, CollectiveBasedPipeline) {
 INSTANTIATE_TEST_SUITE_P(
     ,
     AGMatmulTest,
-    testing::Values(false, true),
+    testing::Bool(),
     [](const testing::TestParamInfo<bool>& info) {
       return info.param ? "AG_after_Matmul" : "AG_before_Matmul";
     });
