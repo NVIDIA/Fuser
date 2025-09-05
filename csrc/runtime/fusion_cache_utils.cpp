@@ -128,6 +128,7 @@ void ArgumentManager::updateWithSegmentOutputs(
         group_outputs[group_out_i], group_runtime_outputs[group_out_i]);
     auto tv = dynamic_cast<TensorView*>(group_outputs[group_out_i]);
     if (update_contiguity && tv) {
+      std::cout << tv->toString() << std::endl;
       tv->printTransforms();
       const at::Tensor& tensor = group_runtime_outputs[group_out_i].as<at::Tensor>();
       const std::vector<int64_t> sizes = tensor.sizes().vec();
