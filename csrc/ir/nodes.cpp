@@ -24,7 +24,6 @@
 #include <transform_rfactor.h>
 #include <transform_view.h>
 #include <type.h>
-#include "internal_base_nodes.h"
 #if NVFUSER_CUTLASS_KERNEL_ENABLED
 #include <nvf_cutlass.h>
 #endif
@@ -3569,7 +3568,7 @@ std::string TensorDomain::toInlineString(int indent_size) const {
 void TensorDomain::setContiguity(
     const std::vector<std::optional<bool>>& contig) {
   NVF_ERROR(
-      TensorDomain::noReductions(maybeAllocation()).size() == contig.size(),
+      maybeAllocation().size() == contig.size(),
       "Invalid size of contiguity vector");
   for (auto i : arange(contig.size())) {
     NVF_CHECK(
