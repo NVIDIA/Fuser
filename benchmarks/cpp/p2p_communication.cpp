@@ -6,7 +6,6 @@
 */
 // clang-format on
 #include <cuda.h>
-#include <cuda_profiler_api.h>
 #include <fusion.h>
 #include <host_ir/container.h>
 #include <ir/all_nodes.h>
@@ -50,7 +49,6 @@ void benchmarkP2PCommunication() {
     std::cout << "Starting P2P communication benchmark..." << std::endl;
     std::cout << "Repetitions per size: " << kNumRepetitions << std::endl;
     std::cout << "Number of devices: " << size << std::endl;
-    std::cout << "Testing tensor sizes from 2^10 to 2^26 elements" << std::endl;
     std::cout << std::endl;
 
     // Table header
