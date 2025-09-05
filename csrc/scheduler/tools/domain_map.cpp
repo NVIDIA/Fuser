@@ -58,6 +58,10 @@ bool canIgnoreIndexedInputDomainID(
                ->isBroadcast()) {
         return false;
       }
+    } else if (auto layout = dynamic_cast<PreprocessGroupedMatmulInputSf*>(use)) {
+      if (input_tv == layout->inputOffsets() || input_tv == layout->outputOffsets()) {
+        continue;
+      }
     } else {
       // If the input TV is used by any other ops
       return false;
