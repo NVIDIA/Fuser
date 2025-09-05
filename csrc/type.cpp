@@ -756,7 +756,7 @@ static const char* parallel_type2string(ParallelType t) {
     case ParallelType::TIDx:
       return "threadIdx.x";
     case ParallelType::Stream:
-      return "StreamIdx";
+      return "streamIdx";
     case ParallelType::Vectorize:
       return "V";
     case ParallelType::Unroll:

@@ -1161,6 +1161,11 @@ TensorView* TensorView::cacheBefore(LoadStoreOpType op_type) {
         consumer, producer, -1, TransformReplayOptions().replayAllocation());
 
     consumer->setDomain(replayed_consumer_pair.first);
+  } else if (producer->hasAllocation()) {
+    consumer->setAllocationDomain(
+        ir_utils::propagateScatterAllocationDomain(
+            producer, consumer->getLogicalDomain()),
+        true);
   }
 
   if (consumer->hasDeviceMesh()) {

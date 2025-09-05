@@ -23,16 +23,24 @@
 
 namespace nvfuser {
 
-class ScatterTest : public NVFuserTest {
+using ScatterTestConfig = bool; // manual_scheduling
+
+class ScatterTest : public NVFuserFixtureParamTest<ScatterTestConfig> {
  protected:
   void SetUp() override {
     NVFuserTest::SetUp();
     EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+    EnableOptionsGuard::getCurOptions().set(EnableOption::GreedyScheduler);
+
+    manual_scheduling = GetParam();
   }
+
+ protected:
+  bool manual_scheduling = false;
 };
 
 // Counting of non-duplicated integers on gmem with TIDx
-TEST_F(ScatterTest, BlockCountingWithGmem) {
+TEST_P(ScatterTest, BlockCountingWithGmem) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
@@ -49,25 +57,31 @@ TEST_F(ScatterTest, BlockCountingWithGmem) {
   auto tv4 = scatter(tv2, 0, tv1, tv3);
   fusion.addOutput(tv4);
 
-  for (auto tv : fusion.allTvs()) {
-    tv->axis(0)->parallelize(ParallelType::TIDx);
-  }
-
-  // Scatter input must use the same memory as the output
-  tv2->setMemoryType(MemoryType::Global);
-
   auto options = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
   auto t0 = at::randperm(m, options).slice(0, 0, n);
 
-  KernelExecutor ke;
-  ke.compile(&fusion, {t0});
-  auto outputs = ke.run({t0});
+  if (manual_scheduling) {
+    for (auto tv : fusion.allTvs()) {
+      tv->axis(0)->parallelize(ParallelType::TIDx);
+    }
 
-  testValidate(&fusion, outputs, {t0}, __LINE__, __FILE__);
+    // Scatter input must use the same memory as the output
+    tv2->setMemoryType(MemoryType::Global);
+
+    KernelExecutor ke;
+    ke.compile(&fusion, {t0});
+    auto outputs = ke.run({t0});
+    testValidate(&fusion, outputs, {t0}, __LINE__, __FILE__);
+  } else {
+    FusionExecutorCache executor_cache(std::move(fusion_ptr));
+    auto outputs = executor_cache.runFusionWithInputs({t0});
+    testValidate(executor_cache.fusion(), outputs, {t0}, __LINE__, __FILE__);
+    EXPECT_FALSE(executor_cache.getMostRecentKernelRuntime()->isSegmented());
+  }
 }
 
 // Counting of non-duplicated integers on shmem with TIDx
-TEST_F(ScatterTest, BlockCountingWithShmem) {
+TEST_P(ScatterTest, BlockCountingWithShmem) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
@@ -85,24 +99,38 @@ TEST_F(ScatterTest, BlockCountingWithShmem) {
   auto tv5 = set(tv4);
   fusion.addOutput(tv5);
 
-  for (auto tv : fusion.allTvs()) {
-    tv->axis(0)->parallelize(ParallelType::TIDx);
-  }
-
-  // Scatter input must use the same memory as the output
-  tv2->setMemoryType(MemoryType::Shared);
-  tv2->setAllocationDomain(tv2->getLogicalDomain(), true);
-  tv4->setMemoryType(MemoryType::Shared);
-  tv4->setAllocationDomain(tv4->getLogicalDomain(), true);
-
   auto options = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
   auto t0 = at::randperm(m, options).slice(0, 0, n);
 
-  KernelExecutor ke;
-  ke.compile(&fusion, {t0});
-  auto outputs = ke.run({t0});
+  if (manual_scheduling) {
+    for (auto tv : fusion.allTvs()) {
+      tv->axis(0)->parallelize(ParallelType::TIDx);
+    }
 
-  testValidate(&fusion, outputs, {t0}, __LINE__, __FILE__);
+    // Scatter input must use the same memory as the output
+    tv2->setMemoryType(MemoryType::Shared);
+    tv2->setAllocationDomain(tv2->getLogicalDomain(), true);
+    tv4->setMemoryType(MemoryType::Shared);
+    tv4->setAllocationDomain(tv4->getLogicalDomain(), true);
+
+    KernelExecutor ke;
+    ke.compile(&fusion, {t0});
+    auto outputs = ke.run({t0});
+
+    testValidate(&fusion, outputs, {t0}, __LINE__, __FILE__);
+  } else {
+    FusionExecutorCache executor_cache(std::move(fusion_ptr));
+    auto outputs = executor_cache.runFusionWithInputs({t0});
+    testValidate(executor_cache.fusion(), outputs, {t0}, __LINE__, __FILE__);
+    FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
+    // The set to tv5 is consumed by ExprEval, and the rest is done by
+    // the Greedy scheduler
+    EXPECT_THAT(
+        runtime->fusionSegments()->groups(),
+        testing::UnorderedElementsAre(
+            HeuristicIs(SchedulerType::ExprEval),
+            HeuristicIs(SchedulerType::Greedy)));
+  }
 }
 
 // Counting of non-duplicated integers on gmem with BIDx
@@ -353,5 +381,16 @@ TEST_F(ScatterTest, MappedLogicalAndLoop) {
   EXPECT_TRUE(scatter_found) << "Scatter not found in Kernel";
   EXPECT_TRUE(post_scatter_sync_found) << "Sync after scatter not found";
 }
+
+INSTANTIATE_TEST_SUITE_P(
+    ,
+    ScatterTest,
+    testing::Bool(), // manual_scheduling
+    [](const testing::TestParamInfo<ScatterTestConfig>& info) {
+      const auto& config = info.param;
+      std::ostringstream os;
+      os << (config ? "manual" : "auto");
+      return os.str();
+    });
 
 } // namespace nvfuser
