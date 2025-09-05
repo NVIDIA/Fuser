@@ -7,6 +7,7 @@
 // clang-format on
 #include <runtime/fusion_cache_utils.h>
 
+#include <tensor_metadata.h>
 #include <unordered_set>
 
 #include <fusion_segmenter.h>
