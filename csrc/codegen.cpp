@@ -4337,7 +4337,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     indent() << "return;\n";
   }
 
-  void handle(const GroupedBlockScalingFactorLayoutOp* layout_op) final {
+  void handle(const PreprocessGroupedMatmulInputSf* layout_op) final {
     const auto output = layout_op->out()->as<kir::TensorIndex>();
     const auto input = layout_op->in()->as<kir::TensorIndex>();
     ArgumentBuilder template_args;
@@ -4381,9 +4381,11 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     func_args.arg(genInline(layout_op->k()));
     func_args.arg(genInline(layout_op->g()));
 
-    indent()
-        << genCall("block_layout::groupedBlockLayout", template_args, func_args)
-        << ";\n";
+    indent() << genCall(
+                    "block_layout::preprocessGroupedMatmulInputSf",
+                    template_args,
+                    func_args)
+             << ";\n";
 
     // indent() << "\n */\n";
   }
