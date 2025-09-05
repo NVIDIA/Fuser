@@ -2839,13 +2839,15 @@ void IndexLowering::handle(
   const auto in = lowerSrcIndex(preprocess_op->in(), preprocess_op->out());
 
   auto* out_tv = preprocess_op->out()->as<TensorView>();
-  Val* linear_index =
-      Index::getLinearRootIndex(out_tv, for_loops_, getRotatedLoop());
   std::vector<Val*> root_index =
       Index::getConsumerPerDimRootIndex(out_tv, for_loops_, getRotatedLoop());
-  // FIXME: shouldn't need linear_index.
+  // NOTE: use const zero for index, this always give the base pointer to
+  // output, because indexing is done with root_index in the runtime function.
   auto* out = IrBuilder::create<kir::TensorIndex>(
-      out_tv, linear_index, DataType::Null, root_index);
+      out_tv,
+      GpuLower::current()->kernel()->zeroVal(),
+      DataType::Null,
+      root_index);
 
   pushBack(IrBuilder::create<PreprocessGroupedMatmulInputSf>(
       out,
@@ -2856,8 +2858,7 @@ void IndexLowering::handle(
       preprocess_op->k(),
       preprocess_op->g()));
 
-  // FIXME: Not sure if there's any information to be propagated.
-  // GpuLower::current()->propagateExprInfo(aop, back());
+  GpuLower::current()->propagateExprInfo(preprocess_op, back());
 }
 
 } // namespace nvfuser

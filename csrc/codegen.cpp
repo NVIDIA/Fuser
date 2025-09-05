@@ -4356,23 +4356,24 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
 
     int64_t vector_word_size = ir_utils::getVectorizeSize(output->view());
     bool is_vector_op = vectorize_scope_ && vector_word_size != 1;
+    // TODO: Implement vectorized load/store. Currently vectorization is done
+    // via unrolled for loop.
     if (is_vector_op) {
-      template_args.arg(vector_word_size); // block_col
+      template_args.arg(vector_word_size);
     } else {
-      template_args.arg(1); // block_col
+      template_args.arg(1);
     }
 
     ArgumentBuilder func_args;
-    func_args.arg("&").append(genVariableName(output->view()) + "[0]");
+    // NOTE: genInline(output) always point to the beginning of the buffer,
+    // since its index value is const 0;
+    func_args.arg("&").append(genInline(output));
     func_args.arg("&").append(genInline(input));
-
     auto logical_index = output->logical_index();
     NVF_ERROR_EQ(logical_index.size(), 2);
     func_args.arg(genInline(logical_index[0]));
     func_args.arg(genInline(logical_index[1]));
 
-    // how do I access an entire tensor on global/shared memory?! maybe check
-    // out scatter example
     func_args.arg("&").append(
         genVariableName(layout_op->inputOffsets()) + "[0]");
     func_args.arg("&").append(
@@ -4386,8 +4387,6 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
                     template_args,
                     func_args)
              << ";\n";
-
-    // indent() << "\n */\n";
   }
 
  private:
