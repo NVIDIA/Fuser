@@ -301,22 +301,21 @@ class ReplayRFactor : public ReplayTransformations {
 };
 
 // Use the `replay_to_target_map` to replay the `replay_domain`.
-// `ignore_rfactor_ids` is true for consumers where the replay will not have
-// these ids since they are already reduced. If `propagate_padding = true`,
-// padding to multiple of warp is applied to the replayed ids. If
-// `propagate_parallelization = true`, replayed id is parallelized to the
-// original id's parallel type. Device and stream parallel types are always be
-// preserved in replay.
+// `ignore_ids` is the set of ids that should not be replayed. If
+// `propagate_padding = true`, padding to multiple of warp is applied to the
+// replayed ids. If `propagate_parallelization = true`, replayed id is
+// parallelized to the original id's parallel type. Device and stream parallel
+// types are always be preserved in replay.
 std::vector<IterDomain*> replayDomain(
     const std::vector<IterDomain*>& replay_domain,
-    std::unordered_map<IterDomain*, IterDomain*>& replay_to_target_map,
+    const std::unordered_map<IterDomain*, IterDomain*>& replay_to_target_map,
     const std::unordered_set<IterDomain*>& ignore_ids = {},
     bool propagate_padding = false,
     bool propagate_parallelization = false) {
   std::vector<IterDomain*> target_domain;
   target_domain.reserve(replay_domain.size());
   for (const auto& replay_id :
-       replay_domain | std::views::filter([&](IterDomain* replay_id) {
+       replay_domain | std::views::filter([&ignore_ids](IterDomain* replay_id) {
          return !ignore_ids.contains(replay_id);
        })) {
     auto target_id_it = replay_to_target_map.find(replay_id);
@@ -506,7 +505,6 @@ std::pair<TensorDomain*, TensorDomain*> TransformRFactor::runReplay(
   }
 
   std::vector<IterDomain*> new_consumer_root_domain;
-
   new_consumer_root_domain.reserve(new_producer_logical_domain.size());
   std::unordered_map<IterDomain*, IterDomain*> original_to_consumer_root_map;
   for (auto p_root_id : new_producer_logical_domain) {
