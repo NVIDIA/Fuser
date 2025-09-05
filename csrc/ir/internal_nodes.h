@@ -2523,11 +2523,12 @@ class ForLoop final : public Expr {
       Val* start,
       Val* stop,
       Val* step,
-      bool vectorize,
-      Val* vectorize_shift,
-      bool unroll_required,
-      CircularBufferLoopStage circular_buffer_loop_stage,
-      int64_t circular_buffer_loop_stage_depth);
+      bool vectorize = false,
+      Val* vectorize_shift = nullptr,
+      bool unroll_required = false,
+      CircularBufferLoopStage circular_buffer_loop_stage =
+          CircularBufferLoopStage::NotApplicable,
+      int64_t circular_buffer_loop_stage_depth = 0);
 
   ForLoop(
       IrBuilderPasskey passkey,
