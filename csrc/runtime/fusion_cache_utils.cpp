@@ -126,7 +126,7 @@ void ArgumentManager::updateWithSegmentOutputs(
         group_outputs[group_out_i], group_runtime_outputs[group_out_i]);
     auto tv = dynamic_cast<TensorView*>(group_outputs[group_out_i]);
     if (tv) {
-      const tensor = group_runtime_outputs[group_out_i].as<at::Tensor>();
+      const auto& tensor = group_runtime_outputs[group_out_i].as<at::Tensor>();
       tv->domain()->setContiguity(
         _computeContiguity(tensor.sizes(), tensor.strides()));
     }
