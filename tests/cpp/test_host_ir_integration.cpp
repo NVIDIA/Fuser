@@ -5,6 +5,9 @@
 * SPDX-License-Identifier: BSD-3-Clause
 */
 // clang-format on
+
+// This file contains integration tests that run fusions through
+// FusionExecutorCache with host IR lowering turned on.
 #include <gmock/gmock-matchers.h>
 #include <gmock/gmock-more-matchers.h>
 #include <gtest/gtest.h>
