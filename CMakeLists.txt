@@ -1357,7 +1357,6 @@ if(BUILD_NVFUSER_BENCHMARK)
     set(P2P_COMMUNICATION_BENCHMARK_SRCS)
     list(APPEND P2P_COMMUNICATION_BENCHMARK_SRCS
       ${NVFUSER_ROOT}/benchmarks/cpp/p2p_communication.cpp
-      ${NVFUSER_ROOT}/tests/cpp/utils.cpp
     )
     add_executable(nvfuser_p2p_communication_bench ${P2P_COMMUNICATION_BENCHMARK_SRCS})
     set_target_properties(nvfuser_p2p_communication_bench PROPERTIES
