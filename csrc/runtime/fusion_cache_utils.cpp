@@ -145,7 +145,8 @@ void ArgumentManager::updateWithSegmentOutputs(
         if (id->isReduction()) {
           contiguity_with_reduction.push_back(std::nullopt);
         } else {
-          contiguity_with_reduction.push_back(contiguity[index_with_reduction++]);
+          // contiguity_with_reduction.push_back(contiguity[index_with_reduction++]);
+          contiguity_with_reduction.push_back(false);
         }
       }
       tv->domain()->setContiguity(contiguity_with_reduction);
