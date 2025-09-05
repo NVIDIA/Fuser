@@ -132,9 +132,11 @@ void ArgumentManager::updateWithSegmentOutputs(
       // const std::vector<int64_t> sizes = tensor.sizes().vec();
       // const std::vector<int64_t> strides = tensor.strides().vec();
       const auto [sizes, strides] = inferAndValidateAllocationSizesAndStrides(tensor, tv, ExpressionEvaluator());
+      std::vector<std::optional<bool>> contiguity = _computeContiguity(sizes, strides);
       std::cout << "sizes: " << sizes << std::endl;
       std::cout << "strides: " << strides << std::endl;
-      tv->domain()->setContiguity(_computeContiguity(sizes, strides));
+      std::cout << "contiguity: " << contiguity << std::endl;
+      tv->domain()->setContiguity(contiguity);
     }
   }
 
