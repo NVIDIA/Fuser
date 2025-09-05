@@ -66,6 +66,52 @@ KernelArgumentHolder ArgumentManager::translateValsToArgs(
   return holder;
 }
 
+
+std::vector<std::optional<bool>> _computeContiguity(
+    const std::vector<int64_t>& sizes,
+    const std::vector<int64_t>& strides) {
+  NVF_CHECK(
+      sizes.size() == strides.size(),
+      "compute_contiguity: Sizes and strides must have the same number of "
+      "dimensions");
+  // Not a broadcast means neither the stride == 0 (size can be non-zero)
+  // or the size == 1 that each can indicate a broadcast
+  auto not_broadcast = [&](auto i) { return strides[i] != 0 && sizes[i] != 1; };
+  // Contiguity defaults to vector of all None's
+  std::vector<std::optional<bool>> contiguity(sizes.size(), std::nullopt);
+  if (contiguity.empty()) { // zero-dim tensor
+    return contiguity;
+  }
+  int64_t last = (int64_t)sizes.size() - 1; // inner most dimension
+  // Contiguity normallly is determined by the current dimension and one
+  // dimension to the right.  The innermost dimension, that is not broadcasted,
+  // does not have any dimension to it's right and needs to be specially marked
+  // contiguous.
+  for (; last >= 0; --last) {
+    if (not_broadcast(last)) {
+      contiguity[last] = (strides.at(last) == 1);
+      break;
+    }
+  }
+  // Dimensions are marked contiguous by inspecting the current dimension and
+  // one to the right towards the inner dimension while skipping over broadcast
+  // dimensions.
+  for (int64_t i = 0; i < last;) {
+    if (not_broadcast(i)) {
+      auto l = i++;
+      for (; i <= last; i++) {
+        if (not_broadcast(i)) {
+          break;
+        }
+      }
+      contiguity[l] = (strides[l] == strides[i] * sizes[i]);
+    } else {
+      i++;
+    }
+  }
+  return contiguity;
+}
+
 void ArgumentManager::updateWithSegmentOutputs(
     const std::vector<Val*>& group_outputs,
     const KernelArgumentHolder& group_runtime_outputs,
@@ -78,6 +124,12 @@ void ArgumentManager::updateWithSegmentOutputs(
   for (const size_t group_out_i : arange(group_outputs.size())) {
     tensor_map_.emplace(
         group_outputs[group_out_i], group_runtime_outputs[group_out_i]);
+    auto tv = dynamic_cast<TensorView*>(group_outputs[group_out_i]);
+    if (tv) {
+      const tensor = group_runtime_outputs[group_out_i].as<at::Tensor>();
+      tv->domain()->setContiguity(
+        _computeContiguity(tensor.sizes(), tensor.strides()));
+    }
   }
 
   // Delete args corresponding to vals lastly used in this segment
