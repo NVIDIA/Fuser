@@ -3567,16 +3567,7 @@ std::string TensorDomain::toInlineString(int indent_size) const {
 
 void TensorDomain::setContiguity(
     const std::vector<std::optional<bool>>& contig) {
-  NVF_ERROR(
-      maybeAllocation().size() == contig.size(),
-      "Invalid size of contiguity vector");
-  for (auto i : arange(contig.size())) {
-    NVF_CHECK(
-        maybeAllocation().at(i)->isBroadcast() != contig.at(i).has_value(),
-        "The contiguity of a broadcast dimension must be None. "
-        "The contiguity of a non-broadcast dimension must be true/false");
-  }
-
+  validateContiguity(maybeAllocation(), contig);
   contiguity_ = contig;
 }
 
