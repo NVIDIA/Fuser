@@ -117,8 +117,8 @@ void bindInterfaceNodes(py::module& nvfuser) {
           "__str__",
           [](TensorView* self) { return self->toString(/*indent_size=*/0); },
           "Convert the TensorView to a string representation.")
-      .def(
-          "num_dims",
+      .def_property_readonly(
+          "ndim",
           [](TensorView* self) {
             return TensorDomain::noReductions(self->getLogicalDomain()).size();
           },
