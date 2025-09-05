@@ -364,8 +364,9 @@ TensorView* preprocessGroupedMatmulInputSf(
   TensorView* out_tv = IrBuilder::create<TensorView>(
       IrBuilder::create<TensorDomain>(
           /*root_domain=*/out_root,
-          /*logical_domain=*/out_logical,
-          /*allocation=*/std::vector<IterDomain*>(),
+          /*logical_domain=*/out_root,
+          // /*allocation=*/std::vector<IterDomain*>(),
+          /*allocation=*/out_logical,
           /*loop_domain=*/out_root,
           /*alternate_loop_domain=*/std::nullopt,
           /*contiguity=*/
