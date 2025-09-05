@@ -1369,15 +1369,8 @@ if(BUILD_NVFUSER_BENCHMARK)
       POSITION_INDEPENDENT_CODE Yes
       VISIBILITY_INLINES_HIDDEN Yes
     )
-    target_include_directories(nvfuser_p2p_communication_bench SYSTEM PRIVATE
-      ${CMAKE_SOURCE_DIR}/third_party/benchmark/include
-      ${CMAKE_SOURCE_DIR}/third_party/flatbuffers/include
-      ${CMAKE_SOURCE_DIR}/third_party/googletest/googletest/include
-    )
     target_include_directories(nvfuser_p2p_communication_bench PUBLIC ${NVFUSER_ROOT})
     target_link_libraries(nvfuser_p2p_communication_bench PRIVATE
-      GTest::gtest
-      benchmark::benchmark
       codegen_internal
     )
     add_dependencies(nvfuser_p2p_communication_bench flatc build_flatbuffer_config)
