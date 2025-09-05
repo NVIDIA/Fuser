@@ -896,26 +896,30 @@ std::vector<ValGroup> getSiblingIds(const AsyncWarp& async_warp) {
 std::vector<ValGroup> getAsyncWarpSiblingIds(const std::vector<Expr*>& exprs) {
   std::vector<AsyncWarp> async_warps = createAsyncWarps(exprs);
 
-  // short-circuit: no async operations detected.
-  if (async_warps.size() == 0) {
-    return {};
+  for (const AsyncWarp& async_warp : async_warps) {
+    // short-circuit: no sibling relationships to map.
+    if (async_warp.tvs.size() == 1) {
+      continue;
+    }
+
+    // short-circuit: stage_slice_position is not used.
+    if (async_warp.stage_slice_position == -1) {
+      continue;
+    }
+
+    // If there are multiple async warps, check that only one of them uses
+    // stage_slice_position.
+    // TODO: I don't think we'll ever need stage_slice_position with multiple
+    // async warps
+
+    NVF_ERROR(
+        async_warps.size() == 1,
+        "Multi-role specialization supported only when stage_slice_position is "
+        "not used");
+
+    return getSiblingIds(async_warp);
   }
-  NVF_ERROR(
-      async_warps.size() == 1, "Multi-role specialization is not supported");
-
-  const AsyncWarp& async_warp = async_warps.front();
-
-  // short-circuit: no sibling relationships to map.
-  if (async_warp.tvs.size() == 1) {
-    return {};
-  }
-
-  // short-circuit: stage_slice_position is not used.
-  if (async_warp.stage_slice_position == -1) {
-    return {};
-  }
-
-  return getSiblingIds(async_warp);
+  return {};
 }
 
 } // namespace

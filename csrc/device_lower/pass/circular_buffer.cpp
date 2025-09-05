@@ -15,6 +15,7 @@
 
 #include <algorithm>
 #include <iterator>
+#include <set>
 #include <vector>
 
 namespace nvfuser {
@@ -1214,7 +1215,25 @@ class CloneTmaCircularBufferLoopAndInsertSync
   int64_t insertion_position_;
 };
 
-using InsertionInfo = std::unordered_map<ForLoop*, std::vector<Expr*>>;
+// Represents a loop/warp combo.
+struct AsyncLoopInfo {
+  struct SingleWarpInfo {
+    // Circular buffer options must be common across all tensors sharing this CB
+    // loop and async warp.
+    CircularBufferOptions cb_options;
+
+    // These are asynchronous producers of TVs in this async warp
+    // TODO: also track asynchronous consumers so that we can place WAR syncs
+    // appropriately
+    std::vector<Expr*> exprs;
+  };
+
+  // Ordered mapping from async warp ID to load exprs/CB options for that async
+  // warp
+  std::map<int64_t, SingleWarpInfo> async_warps;
+};
+
+using InsertionInfo = std::unordered_map<ForLoop*, AsyncLoopInfo>;
 
 class IsCircularBufferLoadLoop : public kir::IrVisitor {
  public:
@@ -1270,11 +1289,11 @@ class CircularBufferLoopNestInspector : private kir::IrVisitor {
     // Get WarpSpecialized InsertionInfo
     InsertionInfo ws_info;
     int64_t inner_most_ws_position = -1;
-    for (auto&& [cb_loop, cb_exprs] : inspector.insertion_info_) {
+    for (auto&& [cb_loop, cb_info] : inspector.insertion_info_) {
       if (!lower_utils::isWarpSpecializedLoop(cb_loop)) {
         continue;
       }
-      ws_info[cb_loop] = cb_exprs;
+      ws_info[cb_loop] = cb_info;
       inner_most_ws_position = std::max(
           inner_most_ws_position, inspector.loop_position_.at(cb_loop));
     }
@@ -1305,7 +1324,7 @@ class CircularBufferLoopNestInspector : private kir::IrVisitor {
 
     // Get Pipeline InsertionInfo
     InsertionInfo pipeline_info;
-    for (auto&& [cb_loop, cb_exprs] : inspector.insertion_info_) {
+    for (auto&& [cb_loop, cb_info] : inspector.insertion_info_) {
       if (lower_utils::isWarpSpecializedLoop(cb_loop)) {
         continue;
       }
@@ -1346,7 +1365,7 @@ class CircularBufferLoopNestInspector : private kir::IrVisitor {
           inspector.loop_position_.at(cb_loop) > inner_most_ws_position,
           "Warp Specialization cannot be nested in Pipeline circular "
           "buffering!");
-      pipeline_info[cb_loop] = cb_exprs;
+      pipeline_info[cb_loop] = cb_info;
     }
 
     return {ws_info, pipeline_info};
@@ -1377,6 +1396,8 @@ class CircularBufferLoopNestInspector : private kir::IrVisitor {
     ForLoop* circular_buffer_loop =
         GpuLower::current()->circularBufferInfo().getCircularBufferLoop(
             out_tv, for_loops_);
+    GpuLower::current()->circularBufferInfo().getCircularBufferLoop(
+        out_tv, for_loops_);
 
     NVF_ERROR(
         circular_buffer_loop != nullptr,
@@ -1389,7 +1410,26 @@ class CircularBufferLoopNestInspector : private kir::IrVisitor {
         std::find(for_loops_.begin(), for_loops_.end(), circular_buffer_loop);
     loop_position_[circular_buffer_loop] =
         std::distance(for_loops_.begin(), cb_loop_it);
-    insertion_info_[circular_buffer_loop].push_back(expr);
+
+    const CircularBufferOptions& opt = out_tv->circularBufferOptions();
+    int64_t async_warp = -1;
+    if (std::holds_alternative<WarpSpecialized>(opt.type)) {
+      async_warp = std::get<WarpSpecialized>(opt.type).async_warp;
+    }
+
+    AsyncLoopInfo& loop_info = insertion_info_[circular_buffer_loop];
+    const auto cbopt_it = loop_info.async_warps.find(async_warp);
+    if (cbopt_it == loop_info.async_warps.end()) {
+      AsyncLoopInfo::SingleWarpInfo& warp_info =
+          loop_info.async_warps[async_warp];
+      warp_info.cb_options = opt;
+      warp_info.exprs.push_back(expr);
+    } else {
+      NVF_ERROR(
+          cbopt_it->second.cb_options == opt,
+          "Found mismatched circular buffer options within same async warp");
+      cbopt_it->second.exprs.push_back(expr);
+    }
   }
 
   void handle(UnaryOp* uop) final {
@@ -1455,6 +1495,11 @@ ForLoop* createArrivesForWar(ForLoop* circular_buffer_loop) {
       GpuLower::current()->circularBufferInfo().getCircularBufferTvs(
           circular_buffer_loop->iter_domain());
   VectorOfUniqueEntries<TensorView*> mbarriers;
+  std::cout << "mbarrierMap:\n";
+  for (const auto& [expr, tv] : GpuLower::current()->mbarrierMap()) {
+    std::cout << "  " << expr->toString() << "   ->   " << tv->toString()
+              << std::endl;
+  }
   for (auto tv : circular_buffer_tvs) {
     auto ldst = dynamic_cast<LoadStoreOp*>(tv->definition());
     NVF_ERROR(ldst != nullptr);
@@ -1548,11 +1593,22 @@ class WarpSpecializedCircularBufferInserter : private kir::ExprMutator {
     }
 
     NVF_ERROR(lower_utils::isWarpSpecializedLoop(loop));
-    NVF_ERROR(
-        std::all_of(
-            it->second.begin(), it->second.end(), ir_utils::isCpAsyncBulk),
-        "In order to use warp specialization, all buffers must be loaded by "
-        "TMA");
+    // TODO: relax this constraint. We should allow not only other async
+    // producers like blackwell MMA but also async _consumers_. For example if
+    // we have a smem tensor that is circular buffered for TMA store, it can be
+    // produced by stmatrix (a synchronous op), and still be stored with TMA
+    // store. Currently we would not use warp specialization for that setting
+    // because TMA store does not use mbarrier synchronization, but we could
+    // still allow it by manually placing mbarrier WAR synchronization.
+    for (const auto& [warp_id, warp_info] : it->second.async_warps) {
+      NVF_ERROR(
+          std::all_of(
+              warp_info.exprs.begin(),
+              warp_info.exprs.end(),
+              ir_utils::isCpAsyncBulk),
+          "In order to use warp specialization, all buffers must be loaded by "
+          "TMA");
+    }
     int64_t insertion_position =
         GpuLower::current()
             ->circularBufferInfo()
@@ -1564,94 +1620,249 @@ class WarpSpecializedCircularBufferInserter : private kir::ExprMutator {
   }
 
   // Create predicate for warp-specialized IfThenElse:
-  // kir::Predicate is thread_axis >= block_dim_axis - padded_value
+  //
+  // Note that this utility assumes that blockDim.x is a multiple of 32
+  //
+  // If specializing on TIDx, then
+  //   kir::Predicate is thread_axis / 32 == (block_dim_axis / 32) + (async_warp
+  //   - padded_value) / 32
+  // If specializing on TIDy, then
+  //   kir::Predicate is (thread_axis == block_dim_axis - padded_value +
+  //   (async_warp / (blockDim.x / 32))) && ((threadIdx.x / 32) == (async_warp %
+  //   (blockDim.x / 32)))
+  // This selects the warp group and the warp within the warp group for the
+  // given async_warp
+  //
+  // TODO: Also put the electsync predicate here if all expressions in the warp
+  // are single-thread like TMA load
   kir::Predicate* getAsyncWarpPredicate(const CircularBufferOptions& options) {
-    ParallelType warp_specialize_on =
-        std::get<WarpSpecialized>(options.type).on;
-    int64_t warp_specialization_pad =
-        GpuLower::current()
-            ->info()
-            .parallelDimensionMap()
-            .getWarpSpecializationPaddedVal(warp_specialize_on);
-    Val* raw = GpuLower::current()->info().parallelDimensionMap().get(
-        warp_specialize_on);
-    Val* raw_minus_pad = SimplifyingIrBuilder::subExpr(
-        raw, IrBuilder::create<Val>(warp_specialization_pad, DataType::Index));
-    return IrBuilder::create<kir::Predicate>(IrBuilder::geExpr(
-        NamedScalar::getParallelIndex(warp_specialize_on), raw_minus_pad));
+    const auto& ws = std::get<WarpSpecialized>(options.type);
+
+    const ParallelDimensionMap& dim_map =
+        GpuLower::current()->info().parallelDimensionMap();
+
+    Val* tidx_compute_val = dim_map.getRawCompute(ParallelType::TIDx);
+    NVF_ERROR(tidx_compute_val != nullptr);
+    PolymorphicValue tcpv = tidx_compute_val->evaluate();
+    NVF_ERROR(
+        tcpv.hasValue(),
+        "Could not compute X size of block ",
+        tidx_compute_val->toInlineString());
+    const int64_t tidx_compute = tcpv.as<int64_t>();
+
+    NVF_ERROR(
+        ws.on == ParallelType::TIDx || tidx_compute % 32 == 0,
+        "Size of block in X dimension must be a multiple of 32 when "
+        "specializing on TIDy or TIDz. ",
+        "Found warp specialization on ",
+        ws.on,
+        " but TIDx compute size of ",
+        tidx_compute);
+
+    const int64_t num_warps_tidx = ceilDiv(tidx_compute, 32L);
+    if (ws.on == ParallelType::TIDx) {
+      const int64_t warp_specialization_pad =
+          dim_map.getWarpSpecializationPaddedVal(ws.on);
+
+      Val* raw = GpuLower::current()->info().parallelDimensionMap().get(ws.on);
+      Val* raw_minus_pad = SimplifyingIrBuilder::subExpr(
+          raw,
+          IrBuilder::create<Val>(warp_specialization_pad, DataType::Index));
+      Val* target = SimplifyingIrBuilder::addExpr(
+          raw_minus_pad,
+          IrBuilder::create<Val>(ws.async_warp, DataType::Index));
+      return IrBuilder::create<kir::Predicate>(
+          IrBuilder::eqExpr(NamedScalar::getParallelIndex(ws.on), target));
+    }
+
+    // For TIDy or TIDz specialization, find the warp to target within TIDx
+    // first
+    const int64_t target_x = ws.async_warp % num_warps_tidx;
+    int64_t target_y = ws.async_warp / num_warps_tidx;
+    if (ws.on == ParallelType::TIDy) {
+      const int64_t warp_specialization_pad =
+          dim_map.getWarpSpecializationPaddedVal(ws.on);
+
+      Val* raw_y =
+          GpuLower::current()->info().parallelDimensionMap().get(ws.on);
+      Val* raw_y_minus_pad = SimplifyingIrBuilder::subExpr(
+          raw_y,
+          IrBuilder::create<Val>(warp_specialization_pad, DataType::Index));
+      Val* target_y_val = SimplifyingIrBuilder::addExpr(
+          raw_y_minus_pad, IrBuilder::create<Val>(target_y, DataType::Index));
+      Val* pred_y =
+          IrBuilder::eqExpr(NamedScalar::getParallelIndex(ws.on), target_y_val);
+
+      Val* pred_x = IrBuilder::eqExpr(
+          IrBuilder::divExpr(
+              NamedScalar::getParallelIndex(ParallelType::TIDx),
+              IrBuilder::create<Val>(32, DataType::Index)),
+          IrBuilder::create<Val>(target_x, DataType::Index));
+
+      Val* pred_val = SimplifyingIrBuilder::logicalAndExpr(pred_y, pred_x);
+
+      return IrBuilder::create<kir::Predicate>(pred_val);
+    }
+
+    NVF_ERROR(ws.on == ParallelType::TIDz);
+    Val* tidy_compute_val = dim_map.getRawCompute(ParallelType::TIDy);
+    NVF_ERROR(tidy_compute_val != nullptr);
+    PolymorphicValue tcypv = tidy_compute_val->evaluate();
+    NVF_ERROR(
+        tcypv.hasValue(),
+        "Could not compute Y size of block ",
+        tidy_compute_val->toInlineString());
+    const int64_t tidy_compute = tcypv.as<int64_t>();
+
+    // Now we have predicates in TIDx, TIDy, and TIDz
+    const int64_t target_z = target_y / tidy_compute;
+    target_y = target_y % tidy_compute;
+
+    const int64_t warp_specialization_pad =
+        dim_map.getWarpSpecializationPaddedVal(ws.on);
+
+    Val* raw_z = GpuLower::current()->info().parallelDimensionMap().get(ws.on);
+    Val* raw_z_minus_pad = SimplifyingIrBuilder::subExpr(
+        raw_z,
+        IrBuilder::create<Val>(warp_specialization_pad, DataType::Index));
+    Val* target_z_val = SimplifyingIrBuilder::addExpr(
+        raw_z_minus_pad, IrBuilder::create<Val>(target_z, DataType::Index));
+    Val* pred_z =
+        IrBuilder::eqExpr(NamedScalar::getParallelIndex(ws.on), target_z_val);
+
+    Val* pred_y = IrBuilder::eqExpr(
+        NamedScalar::getParallelIndex(ParallelType::TIDy),
+        IrBuilder::create<Val>(target_y, DataType::Index));
+
+    Val* pred_x = IrBuilder::eqExpr(
+        IrBuilder::divExpr(
+            NamedScalar::getParallelIndex(ParallelType::TIDx),
+            IrBuilder::create<Val>(32, DataType::Index)),
+        IrBuilder::create<Val>(target_x, DataType::Index));
+
+    Val* pred_val = SimplifyingIrBuilder::logicalAndExpr(
+        pred_z, SimplifyingIrBuilder::logicalAndExpr(pred_y, pred_x));
+    return IrBuilder::create<kir::Predicate>(pred_val);
   }
 
   void insertTmaWarpSpecialized(
       ForLoop* circular_buffer_loop,
-      const std::vector<Expr*>& loads,
+      const AsyncLoopInfo& loop_info,
       int64_t insertion_position) {
-    const CircularBufferOptions& options =
-        GpuLower::current()->circularBufferInfo().getCircularBufferOptionsFor(
-            circular_buffer_loop->iter_domain());
+    // Track all async exprs so we can exclude them when cloning the compute
+    // warps' code
+    std::vector<Expr*> all_async_exprs;
 
-    kir::IfThenElse* warp_dispatch_ite =
-        IrBuilder::create<kir::IfThenElse>(getAsyncWarpPredicate(options));
+    // Create an ITE tree
+    kir::IfThenElse* top_level_warp_dispatch_ite = nullptr;
+    kir::IfThenElse* inner_dispatch_ite = nullptr;
+    std::unordered_map<int64_t, Scope*> async_scopes;
+    for (const auto& [warp_id, warp_info] : loop_info.async_warps) {
+      inner_dispatch_ite = IrBuilder::create<kir::IfThenElse>(
+          getAsyncWarpPredicate(warp_info.cb_options));
+      Scope& scope = inner_dispatch_ite->thenBody();
+      async_scopes[warp_id] = &scope;
+      if (top_level_warp_dispatch_ite == nullptr) {
+        top_level_warp_dispatch_ite = inner_dispatch_ite;
+      } else {
+        top_level_warp_dispatch_ite->elseBody().push_back(inner_dispatch_ite);
+      }
 
-    // Set default value
-    bool enable_register_sharing =
-        std::get<WarpSpecialized>(options.type).num_registers.has_value();
-    GpuLower::current()->kernel()->manage(
-        "enable_register_sharing", enable_register_sharing);
-
-    if (enable_register_sharing) {
-      auto&& [decrease_num_registers, increase_num_registers] =
-          std::get<WarpSpecialized>(options.type).num_registers.value();
-      GpuLower::current()->decIncRegisterUsage() =
-          std::make_pair(decrease_num_registers, increase_num_registers);
-      // Decrease registers in async warp group
-      kir::SetMaxNReg* dec_reg_async_warp = IrBuilder::create<kir::SetMaxNReg>(
-          IrBuilder::create<Val>(decrease_num_registers, DataType::Index),
-          /*increase_registers=*/false);
-      warp_dispatch_ite->thenBody().push_back(dec_reg_async_warp);
-
-      // Increase registers in compute warp group
-      kir::SetMaxNReg* inc_reg_async_warp = IrBuilder::create<kir::SetMaxNReg>(
-          IrBuilder::create<Val>(increase_num_registers, DataType::Index),
-          /*increase_registers*/ true);
-      warp_dispatch_ite->elseBody().push_back(inc_reg_async_warp);
+      all_async_exprs.insert(
+          all_async_exprs.end(),
+          warp_info.exprs.begin(),
+          warp_info.exprs.end());
     }
+    Scope& compute_scope = inner_dispatch_ite->elseBody();
 
-    // Load loop:
-    ForLoop* load_loop = CloneTmaCircularBufferLoopAndInsertSync::clone(
-        circular_buffer_loop,
-        loads,
-        CircularBufferLoopStage::AsyncWarp,
-        insertion_position);
-    warp_dispatch_ite->thenBody().push_back(load_loop);
+    // Initial setup for compute warp
 
-    // Terminate the warp group handling Load loop immediately after
-    // finishing its work.
-    kir::Return* ret = IrBuilder::create<kir::Return>();
-    warp_dispatch_ite->thenBody().push_back(ret);
+    // Increase registers in compute warp group
+    // TODO: check that the increase registers expressions are consistent
+    // across async warps
+    int64_t compute_regs = -1;
+    for (const auto& [warp_id, warp_info] : loop_info.async_warps) {
+      const auto& ws = std::get<WarpSpecialized>(warp_info.cb_options.type);
+      if (!ws.num_registers.has_value()) {
+        continue;
+      }
+      const int64_t increase_num_registers = ws.num_registers.value().second;
+      if (compute_regs == -1) {
+        compute_regs = increase_num_registers;
+      } else {
+        NVF_ERROR_EQ(
+            increase_num_registers,
+            compute_regs,
+            "Found mismatched compute registers between async warps");
+      }
+    }
+    if (compute_regs != -1) {
+      kir::SetMaxNReg* inc_reg_async_warp = IrBuilder::create<kir::SetMaxNReg>(
+          IrBuilder::create<Val>(compute_regs, DataType::Index),
+          /*increase_registers*/ true);
+      compute_scope.push_back(inc_reg_async_warp);
+    }
 
     // Prefetch:
     auto prefetch_loop = createArrivesForWar(circular_buffer_loop);
-    warp_dispatch_ite->elseBody().push_back(prefetch_loop);
+    compute_scope.push_back(prefetch_loop);
 
-    // If this is a ping-pong hopper, then we need the last warp group to
-    // release the mbarriers for the first warp group.
-    HopperPingPongMbarriers* ping_pong_mbarriers =
-        GpuLower::current()->circularBufferInfo().getPingPongMbarriersFor(
-            circular_buffer_loop->iter_domain());
-    if (ping_pong_mbarriers != nullptr) {
-      auto ite = ping_pong_mbarriers->createPrefetchIfThenElse();
-      warp_dispatch_ite->elseBody().push_back(ite);
+    for (const auto& [warp_id, warp_info] : loop_info.async_warps) {
+      Scope& scope = *async_scopes.at(warp_id);
+      // Set default value
+      bool enable_register_sharing =
+          std::get<WarpSpecialized>(warp_info.cb_options.type)
+              .num_registers.has_value();
+      GpuLower::current()->kernel()->manage(
+          "enable_register_sharing", enable_register_sharing);
+
+      if (enable_register_sharing) {
+        auto&& [decrease_num_registers, increase_num_registers] =
+            std::get<WarpSpecialized>(warp_info.cb_options.type)
+                .num_registers.value();
+        GpuLower::current()->decIncRegisterUsage() =
+            std::make_pair(decrease_num_registers, increase_num_registers);
+        // Decrease registers in async warp group
+        kir::SetMaxNReg* dec_reg_async_warp =
+            IrBuilder::create<kir::SetMaxNReg>(
+                IrBuilder::create<Val>(decrease_num_registers, DataType::Index),
+                /*increase_registers=*/false);
+        scope.push_back(dec_reg_async_warp);
+      }
+
+      // Load loop:
+      ForLoop* load_loop = CloneTmaCircularBufferLoopAndInsertSync::clone(
+          circular_buffer_loop,
+          warp_info.exprs,
+          CircularBufferLoopStage::AsyncWarp,
+          insertion_position);
+      scope.push_back(load_loop);
+
+      // Terminate the warp group handling Load loop immediately after
+      // finishing its work.
+      kir::Return* ret = IrBuilder::create<kir::Return>();
+      scope.push_back(ret);
+
+      // If this is a ping-pong hopper, then we need the last warp group to
+      // release the mbarriers for the first warp group.
+      HopperPingPongMbarriers* ping_pong_mbarriers =
+          GpuLower::current()->circularBufferInfo().getPingPongMbarriersFor(
+              circular_buffer_loop->iter_domain());
+      if (ping_pong_mbarriers != nullptr) {
+        auto ite = ping_pong_mbarriers->createPrefetchIfThenElse();
+        compute_scope.push_back(ite);
+      }
     }
 
     // Compute loop:
     ForLoop* compute_loop = CloneTmaCircularBufferLoopAndInsertSync::clone(
         circular_buffer_loop,
-        loads,
+        all_async_exprs,
         CircularBufferLoopStage::ComputeWarp,
         insertion_position);
-    warp_dispatch_ite->elseBody().push_back(compute_loop);
+    compute_scope.push_back(compute_loop);
 
-    registerReplace(circular_buffer_loop, warp_dispatch_ite);
+    registerReplace(circular_buffer_loop, top_level_warp_dispatch_ite);
   }
 
  private:
@@ -1703,14 +1914,24 @@ class PipelineCircularBufferInserter : private kir::ExprMutator {
       return;
     }
 
+    std::vector<Expr*> all_async_exprs;
+    for (const auto& [warp_id, warp_info] : it->second.async_warps) {
+      all_async_exprs.insert(
+          all_async_exprs.end(),
+          warp_info.exprs.begin(),
+          warp_info.exprs.end());
+    }
+
     NVF_ERROR(!lower_utils::isWarpSpecializedLoop(loop));
 
     auto has_cp_async_bulk = std::any_of(
-        it->second.begin(), it->second.end(), ir_utils::isCpAsyncBulk);
+        all_async_exprs.begin(),
+        all_async_exprs.end(),
+        ir_utils::isCpAsyncBulk);
     if (has_cp_async_bulk) {
-      insertTmaPipelined(loop, it->second);
+      insertTmaPipelined(loop, all_async_exprs);
     } else {
-      insert(loop, it->second);
+      insert(loop, all_async_exprs);
     }
 
     processed_loop_ = loop;
