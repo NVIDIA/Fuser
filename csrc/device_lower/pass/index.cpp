@@ -2834,4 +2834,31 @@ void IndexLowering::handle(const CatOp* cat) {
   GpuLower::current()->propagateExprInfo(cat, expr);
 }
 
+void IndexLowering::handle(
+    const GroupedBlockScalingFactorLayoutOp* grouped_block_sf_layou_op) {
+  const auto in = lowerSrcIndex(
+      grouped_block_sf_layou_op->in(), grouped_block_sf_layou_op->out());
+
+  auto* out_tv = grouped_block_sf_layou_op->out()->as<TensorView>();
+  Val* linear_index =
+      Index::getLinearRootIndex(out_tv, for_loops_, getRotatedLoop());
+  std::vector<Val*> root_index =
+      Index::getConsumerPerDimRootIndex(out_tv, for_loops_, getRotatedLoop());
+  // FIXME: shouldn't need linear_index.
+  auto* out = IrBuilder::create<kir::TensorIndex>(
+      out_tv, linear_index, DataType::Null, root_index);
+
+  pushBack(IrBuilder::create<GroupedBlockScalingFactorLayoutOp>(
+      out,
+      in,
+      grouped_block_sf_layou_op->expertOffsets(),
+      grouped_block_sf_layou_op->scalingFactorOffsets(),
+      grouped_block_sf_layou_op->layout(),
+      grouped_block_sf_layou_op->k(),
+      grouped_block_sf_layou_op->g()));
+
+  // FIXME: Not sure if there's any information to be propagated.
+  // GpuLower::current()->propagateExprInfo(aop, back());
+}
+
 } // namespace nvfuser

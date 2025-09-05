@@ -1637,6 +1637,35 @@ Val* Index::getLinearLogicalIndex(
   }
 }
 
+Val* Index::getLinearRootIndex(
+    TensorView* consumer_tv,
+    const std::vector<ForLoop*>& loops,
+    const std::unordered_set<ForLoop*>& rotated_loops) {
+  NVF_ERROR(
+      !ir_utils::hasRootToLoopLinearTransformations(consumer_tv) ||
+      ir_utils::isCpAsyncBulkLoad(consumer_tv->definition()) ||
+      GpuLower::current()->idModelOptions().consumerIndex() ||
+      GpuLower::current()->tmemInfo().hasTMemTensor());
+  NVF_ERROR(rotated_loops.empty(), "Loop rotation is not supported");
+  const TensorIndexer& indexer = GpuLower::current()->tensorIndexer();
+  auto per_dim_indices = indexer.getIndexFor(
+      consumer_tv->definition(),
+      /*as_consumer=*/true,
+      consumer_tv->getMaybeRootDomain(),
+      loops,
+      /*use_magic_zero=*/true);
+  Val* stride = consumer_tv->fusion()->oneVal();
+  for (const auto [i, root_id] :
+       enumerate(consumer_tv->getMaybeRootDomain()) | std::views::reverse) {
+    auto per_dim_index = per_dim_indices.at(i);
+    auto per_dim_strided_index =
+        SimplifyingIrBuilder::mulExpr(per_dim_index, stride);
+    per_dim_indices.at(i) = per_dim_strided_index;
+    stride = SimplifyingIrBuilder::mulExpr(stride, root_id->extent());
+  }
+  return sumVals(per_dim_indices);
+}
+
 std::vector<Val*> Index::getConsumerPerDimLogicalIndex(
     TensorView* consumer_tv,
     const std::vector<ForLoop*>& loops,
@@ -1658,6 +1687,23 @@ std::vector<Val*> Index::getConsumerPerDimLogicalIndex(
     return getConsumerAllocationIndices(
         consumer_tv, loops, index_from_id_graph);
   }
+}
+
+std::vector<Val*> Index::getConsumerPerDimRootIndex(
+    TensorView* consumer_tv,
+    const std::vector<ForLoop*>& loops,
+    const std::unordered_set<ForLoop*>& rotated_loops) {
+  NVF_ERROR(
+      !ir_utils::hasRootToLoopLinearTransformations(consumer_tv) ||
+      GpuLower::current()->idModelOptions().consumerIndex() ||
+      GpuLower::current()->tmemInfo().hasTMemTensor());
+  NVF_ERROR(rotated_loops.empty(), "Loop rotation is not supported");
+  const TensorIndexer& indexer = GpuLower::current()->tensorIndexer();
+  return indexer.getIndexFor(
+      consumer_tv->definition(),
+      /*as_consumer=*/true,
+      consumer_tv->getMaybeRootDomain(),
+      loops);
 }
 
 std::vector<Val*> Index::getProducerPerDimLogicalIndex(
