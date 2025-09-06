@@ -139,4 +139,30 @@ NVF_API torch::Tensor nvfp4_scaled_grouped_mm(
     const torch::Tensor& sf_offsets,
     const at::ScalarType out_dtype);
 
+// Performs grouped matrix multiplication.
+//
+// This function implements multiple matrix multiplications in a grouped format
+// where each group represents a separate GEMM operation with its own
+// parameters. The function is optimized for scenarios like mixture-of-experts
+// models where multiple independent matrix multiplications need to be performed
+// efficiently.
+//
+// Parameters:
+//   a: Input matrix A in BF16 or FP16 format (M x K)
+//   b: Input matrix B in BF16 or FP16 format (G x N, K)
+//   ab_strides: Stride information for matrices A and B across groups
+//   c_strides: Stride information for output matrix C across groups
+//   problem_sizes: Matrix dimensions (M, N, K) for each group
+//   expert_offsets: Offset indices for expert selection in grouped format
+//
+// Returns: Grouped matrix C = A @ B for all groups in the specified
+// output dtype
+NVF_API torch::Tensor grouped_mm(
+    const torch::Tensor& a,
+    const torch::Tensor& b,
+    const torch::Tensor& ab_strides,
+    const torch::Tensor& c_strides,
+    const torch::Tensor& problem_sizes,
+    const torch::Tensor& expert_offsets);
+
 } // namespace nvfuser::cutlass_kernels
