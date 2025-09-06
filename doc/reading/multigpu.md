@@ -30,7 +30,7 @@ block using nvFuser's multi-GPU API.
 
 ```python
 def define_fusion(fd: FusionDefinition):
-    inp = fd.define_tensor([-1, -1, h])
+    inp = fd.define_tensor([-1, h])  # [batch * sequence, hidden]
     up_w = fd.define_tensor([h * 4, h])
     out = fd.ops.linear(inp, up_w)
 
@@ -115,7 +115,7 @@ Then, nvFuser propagates shardings from inputs to outputs:
                         | linear
                         |
                      [t, 4h, r{h}]
-                         /\.
+                         /\
                         d
                         |
                         | gelu
@@ -143,7 +143,7 @@ Therefore, after decomposition, the fusion IR becomes:
                         | linear
                         |
                      [t, 4h, r{h}]
-                         /\.
+                         /\
                         d
                         |
                         | gelu
@@ -307,9 +307,70 @@ test](https://github.com/NVIDIA/Fuser/blob/main/tests/cpp/test_overlap.cpp#L57)
 shows how the fusion IR represents an overlapped allgather with GEMM using
 ring-based decomposition.
 
-### Data Parallelism
+### Distributed Data Parallelism
 
-TODO: DDP and FSDP
+```
+ in: [t, h]                           up_w: [4h,  h]
+     / \
+    d
+                        |
+                        | linear
+                        |
+                     [t, 4h, r{h}]
+                     /\
+                    d
+                        |
+                        | gelu
+                        |
+                     [t, 4h]                down_w: [h, 4h]
+                     /\
+                    d
+                                       |
+                                       | linear
+                                       |
+                                 [t, h, r{4h/d}]
+                                 / \
+                                d
+```
+
+### Fully Sharded Data Parallelism
+
+I skip sharding propagation and decomposition, and present the fusion IR just
+before segmentation:
+```
+                                      up_w: [4h,  h]
+                                             /\
+                                            d
+                                            |
+                                            | set
+                                            |
+ in: [t, h]                                 [4h,  h]
+     / \
+    d
+                        |
+                        | linear
+                        |
+                     [t, 4h, r{h}]          down_w: [h, 4h]
+                     /\                                 /\
+                    d                                  d
+                        |                             |
+                        | gelu                        | set
+                        |                             |
+                     [t, 4h]                        [h, 4h]
+                     /\
+                    d
+                                       |
+                                       | linear
+                                       |
+                                 [t, h, r{4h/d}]
+                                 / \
+                                d
+```
+
+The two `set`s become calls to `ncclAllGather`. During host IR optimization,
+nvFuser will (a) deallocate all-gathered weights right after they are used, and
+(b) assign the two allgathers to a different CUDA stream so they can be
+overlapped with computation.
 
 ### Pipeline Parallelism
 
