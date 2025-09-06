@@ -277,4 +277,29 @@ This fusion IR then goes through the rest of the nvFuser stack. The `set`
 becomes a call to `ncclAllGather` and the `sum` becomes a call to
 `ncclReduceScatter`.
 
+### Overlap communication with GEMM via Decomposition
+
+[This orthogonal technique](https://dl.acm.org/doi/10.1145/3567955.3567959) can
+be applied to many parallelisms (e.g. sequence parallelism, tensor parallelism
+and context parallelism) to reduce latency.
+
+There are two types of decomposition:
+* Collective-based. A large communication collective is decomposed into collectives of the same nature.
+* Ring-based. A large communication collective is decomposed into circular-shift point-to-point communications.
+
+The tradeoffs are:
+* Collective-based exposes a fine-grained communication to the critical path.
+* Collective-based is easier to implement in nvFuser because it doesn't involve circular shift.
+* Ring-based decomposition requires the number of chunks to be a multiple of the number of devices, whereas collective-based decomposition doesn’t.
+* Ring-based decomposition supports canonical layouts better.
+
+The `RingBasedOverlapTest.ColumnAndSequenceParallelLinear_Forward` test
+illustrates how to overlap allgather with GEMM via ring-based decomposition.
+
+### Data Parallelism
+
+TODO: DDP and FSDP
+
 ### Pipeline Parallelism
+
+TODO: DeviceMesh, Stream parallel type, and stream lowering
