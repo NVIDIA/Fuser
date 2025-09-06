@@ -286,11 +286,11 @@ communication operations (e.g. Allgather and ReduceScatter) and computation
 operations (e.g. GEMM), the technique reduces wall time by decomposing these
 operations and overlapping communication with computation.
 
-![Figure 1](multigpu/allgather_matmul_overlap.png)
+<img src="multigpu/allgather_matmul_overlap.png" alt="Figure 1" width="400">
 
 > **Figure 1.** Overlap allgather with GEMM[^1]
 
-[^1]: Wang et al., *Overlap Communication with Dependent Computation via Decomposition in Large Deep Learning Models*, ASPLOS 2023. [https://dl.acm.org/doi/pdf/10.1145/3567955.3567959]
+[^1]: Wang et al., *Overlap Communication with Dependent Computation via Decomposition in Large Deep Learning Models*, ASPLOS 2023. https://dl.acm.org/doi/pdf/10.1145/3567955.3567959
 
 There are two types of decomposition:
 * Collective-based. A large communication collective is decomposed into collectives of the same nature.
