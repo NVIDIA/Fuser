@@ -281,7 +281,14 @@ becomes a call to `ncclAllGather` and the `sum` becomes a call to
 
 [This orthogonal technique](https://dl.acm.org/doi/10.1145/3567955.3567959) can
 be applied to many parallelisms (e.g. sequence parallelism, tensor parallelism
-and context parallelism) to reduce latency.
+and context parallelism) to reduce latency. Instead of sequentially running
+communication operations (e.g. Allgather and ReduceScatter) and computation
+operations (e.g. GEMM), the technique reduces wall time by decomposing these
+operations and overlapping communication with computation.
+
+![Overlaping allgather with GEMM[^1]](multigpu/allgather_matmul_overlap.png)
+
+[^1]: Wang et al., *Overlap Communication with Dependent Computation via Decomposition in Large Deep Learning Models*, ASPLOS 2023. [https://dl.acm.org/doi/pdf/10.1145/3567955.3567959]
 
 There are two types of decomposition:
 * Collective-based. A large communication collective is decomposed into collectives of the same nature.
@@ -290,11 +297,13 @@ There are two types of decomposition:
 The tradeoffs are:
 * Collective-based exposes a fine-grained communication to the critical path.
 * Collective-based is easier to implement in nvFuser because it doesn't involve circular shift.
-* Ring-based decomposition requires the number of chunks to be a multiple of the number of devices, whereas collective-based decomposition doesn’t.
+* Ring-based decomposition requires the number of chunks to be a multiple of the number of devices, whereas collective-based decomposition doesn't.
 * Ring-based decomposition supports canonical layouts better.
 
-The `RingBasedOverlapTest.ColumnAndSequenceParallelLinear_Forward` test
-illustrates how to overlap allgather with GEMM via ring-based decomposition.
+[This
+test](https://github.com/NVIDIA/Fuser/blob/main/tests/cpp/test_overlap.cpp#L57)
+shows how the fusion IR represents an overlapped allgather with GEMM using
+ring-based decomposition.
 
 ### Data Parallelism
 
@@ -303,3 +312,7 @@ TODO: DDP and FSDP
 ### Pipeline Parallelism
 
 TODO: DeviceMesh, Stream parallel type, and stream lowering
+
+### Context Parallelism
+
+TODO
