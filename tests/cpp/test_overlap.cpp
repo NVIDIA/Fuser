@@ -90,8 +90,8 @@ TEST_F(RingBasedOverlapTest, ColumnAndSequenceParallelLinear_Forward) {
   // (streamIdx + the output deviceIdx.x) % deviceDim.x. Equivalently, the
   // output deviceIdx.x equals (the input deviceIdx.x - streamIdx) %
   // deviceDim.x.
-  // - Unless otherwise specified, all `s`s are parallelized on `Stream` and all
-  // `d`s are parallelized on `DIDx`.
+  // - All leaf `s`s are parallelized on `Stream` and all leaf `d`s are
+  // parallelized on `DIDx`.
   // - `s*`s are parallelized on `Stream` in loop but replicated in allocation.
   // Fusion inputs/outputs can't be allocated per stream because the
   // user of a FusionDefinition can't inline external ops into a loop inside.
@@ -224,7 +224,9 @@ TEST_F(RingBasedOverlapTest, ColumnAndSequenceParallelLinear_InputGrad) {
   //
   //   [t, 4h]                                 [4h,  h]
   //   /\  /\                                   /\.
-  //  s*  d                                    d
+  //  d   d                                    d
+  //  |
+  //  s*
   //                      |
   //                      | matmul
   //                      |
@@ -232,6 +234,8 @@ TEST_F(RingBasedOverlapTest, ColumnAndSequenceParallelLinear_InputGrad) {
   //                          /  \.
   //                 [t, h, d, r{4h/d}]
   //                 /\.
+  //                d
+  //                |
   //                s
   //                     |
   //                     | set
