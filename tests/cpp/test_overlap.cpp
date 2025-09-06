@@ -59,24 +59,39 @@ TEST_F(RingBasedOverlapTest, ColumnAndSequenceParallelLinear_Forward) {
   //   [t, h]
   //   /\.
   //  d
+  // (deviceIdx.x)
   //    |
   //    | set
   //    |
   //   [t, h]                                  [4h,  h]
   //   /\                                      /\.
-  //  s                                       d
+  //  d                                       d
+  // (streamIdx + deviceIdx.x) % deviceDim.x
+  //  | swizzle
+  //  s
+  // (streamIdx)
   //                      |
   //                      | linear
   //                      |
   //                   [t, 4h, r{h}]
   //                   /\  /\.
-  //                  s*  d
+  //                  d   d
+  //          swizzle |
+  //                  s*
   //
   // Notes for this test and many other RingBasedOverlapTest below:
   // - A `set` from `/d` to `/s` (or vice versa) will be lowered to a
-  // cyclic-shift communication like XLA's CollectivePermute.
-  // - All `s`s are parallelized on `Stream` and all `d`s are parallelized on
-  // `DIDx`.
+  // cyclic-shift communication like XLA's CollectivePermute. In the example
+  // above, in the first iteration (i.e. streamIdx = 0), `set` does nothing
+  // because the input `deviceIdx.x` equals the output `deviceIdx.x`. In the
+  // second iteration (i.e. streamIdx = 1), `set` sends data from device i to
+  // device (i-1)%deviceDim.x. This is captured by the math of the swizzle.
+  // According to the logical domain mapping, the input deviceIdx.x equals
+  // (streamIdx + the output deviceIdx.x) % deviceDim.x. Equivalently, the
+  // output deviceIdx.x equals (the input deviceIdx.x - streamIdx) %
+  // deviceDim.x.
+  // - Unless otherwise specified, all `s`s are parallelized on `Stream` and all
+  // `d`s are parallelized on `DIDx`.
   // - `s*`s are parallelized on `Stream` in loop but replicated in allocation.
   // Fusion inputs/outputs can't be allocated per stream because the
   // user of a FusionDefinition can't inline external ops into a loop inside.
