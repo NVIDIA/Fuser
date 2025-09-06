@@ -254,12 +254,12 @@ class ScatterOp : public Expr {
   using Expr::Expr;
   ScatterOp(
       IrBuilderPasskey,
-      ScatterOpType type,
       Val* out,
       Val* self,
       int64_t dim,
       Val* index,
-      Val* src);
+      Val* src,
+      std::optional<BinaryOpType> accumulate_op = std::nullopt);
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
@@ -295,8 +295,13 @@ class ScatterOp : public Expr {
 
   IterDomain* getIndexedID() const;
 
-  ScatterOpType getScatterOpType() const {
-    return attribute<ScatterOpType>(1);
+  bool accumulate() const {
+    return attribute<bool>(1);
+  }
+
+  BinaryOpType accumulateOp() const {
+    NVF_ERROR(accumulate());
+    return attribute<BinaryOpType>(2);
   }
 };
 
