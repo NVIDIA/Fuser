@@ -70,13 +70,17 @@ primitives such as `TensorView.split` and `IterDomain.parallelize`.
 
 ## Parallelisms
 
-This section goes through several common parallelisms and see how
-they can be represented and implemented in fusion IR.
+This section goes through several common parallelisms and see how they can be
+represented and implemented in fusion IR. For simplicity, I'm going to use the
+above MLP block as the running example. However, these parallelisms can often be
+applied other parts of a Transformer model such as MHA, RMSNorm and embedding
+layers.
 
 ### Tensor Parallelism
 
 To apply [tensor
-parallelism](https://docs.nvidia.com/nemo-framework/user-guide/latest/nemotoolkit/features/parallelisms.html#tensor-parallelism), the user calls the `FusionDefinitionWrapper` with the following DTensors:
+parallelism](https://docs.nvidia.com/nemo-framework/user-guide/latest/nemotoolkit/features/parallelisms.html#tensor-parallelism),
+the user calls the `FusionDefinitionWrapper` with the following DTensors:
 * `inp` with placement `Replicated()`
 * `up_w` with placement `Shard(0)`
 * `down_w` with placement `Shard(1)`
@@ -102,7 +106,7 @@ Therefore, nvFuser starts with the following fusion IR:
                                   [t, h, r{4h}]
 ```
 
-Then, nvFuser propagates sharding from inputs to outputs:
+Then, nvFuser propagates shardings from inputs to outputs:
 ```
  in: [t, h]                           up_w: [4h,  h]
                                              /\
@@ -129,7 +133,7 @@ Then, nvFuser propagates sharding from inputs to outputs:
 
 Then, nvFuser decomposes every Expr that does both computation and communication
 so every Expr can be lowered to either host IR or kernel IR. In the above fusion
-IR, the second `linear` does both intra-GPU reduction and inter-GPU reduction.
+IR, the second `linear` does both intra-GPU GEMM and inter-GPU reduction.
 Therefore, after decomposition, the fusion IR becomes:
 ```
  in: [t, h]                           up_w: [4h,  h]
@@ -158,5 +162,119 @@ Therefore, after decomposition, the fusion IR becomes:
 ```
 
 This fusion IR then goes through segmentation, (intra-GPU) scheduling, device
-lowering, and host IR lowering. Eventually, the `linears` and the `gelu` become
+lowering, and host IR lowering. Eventually, the `linear`s and the `gelu` become
 CUDA kernels and the `sum` becomes a call to `ncclAllReduce`.
+
+### Sequence Parallelism
+
+[Sequence
+parallelism](https://docs.nvidia.com/nemo-framework/user-guide/latest/nemotoolkit/features/parallelisms.html#sequence-parallelism)
+extends tensor parallelism by sharding not just the weights but also input and
+output activations.
+
+To apply sequence parallelism, the user calls the `FusionDefinitionWrapper` with the following DTensors:
+* `inp` with placement `Shard(0)`
+* `up_w` with placement `Shard(0)`
+* `down_w` with placement `Shard(1)`
+
+Therefore, nvFuser starts with the following fusion IR:
+```
+ inp: [t, h]                          up_w: [4h,  h]
+      / \                                    /\
+     d                                      d
+                        |
+                        | linear
+                        |
+                     [t, 4h, r{h}]
+                        |
+                        | gelu
+                        |
+                     [t, 4h]                down_w: [h, 4h]
+                                                        /\
+                                                       d
+                                       |
+                                       | linear
+                                       |
+                                  [t, h, r{4h}]
+```
+
+Then, nvFuser propagates shardings:
+```
+ inp: [t, h]                          up_w: [4h,  h]
+      / \                                    /\
+     d                                      d
+                        |
+                        | linear
+                        |
+                     [t, 4h, r{h}]
+                         /\
+                        d
+                        |
+                        | gelu
+                        |
+                     [t, 4h]                down_w: [h, 4h]
+                         /\                             /\
+                        d                              d
+                                       |
+                                       | linear
+                                       |
+                                  [t, h, r{4h}]
+                                  / \      /\
+                                 d      r{d}
+```
+
+When nvFuser propagates shardings through the first `linear`, it can choose to
+either follow `inp`'s sharding and split `t` by `d` or follow `up_w` and split
+`4h` by `d`. Currently, our implementation chooses to follow `up_w` so weights
+(usually larger than activations) don't have to be redistributed.
+
+The output's `t` is split by `d`. nvFuser wouldn't do this automatically if it
+runs the MLP block alone. However, in practice, the MLP block is followed by a
+residual connection. Therefore, `t` being split by `d` can be **back**
+propagated from that residual connection.
+
+Then, nvFuser decomposes every Expr that does both computation and
+communication. There are two of them:
+1. The first `linear` redistributes `inp` and runs a GEMM.
+2. The second `linear` runs a GEMM and redistributes the output.
+
+Therefore, after decomposition, the fusion IR becomes:
+```
+ inp: [t, h]
+      / \
+     d
+     |
+     | set
+     |
+      [t, h]                          up_w: [4h,  h]
+                                             /\
+                                            d
+                        |
+                        | linear
+                        |
+                     [t, 4h, r{h}]
+                         /\
+                        d
+                        |
+                        | gelu
+                        |
+                     [t, 4h]                down_w: [h, 4h]
+                         /\                             /\
+                        d                              d
+`                                      |
+                                       | linear
+                                       |
+                               [t, h, d, r{4h/d}]
+                                       |
+                                       | sum
+                                       |
+                                  [t, h, r{d}]
+                                  / \
+                                 d
+```
+
+This fusion IR then goes through the rest of the nvFuser stack. The `set`
+becomes a call to `ncclAllGather` and the `sum` becomes a call to
+`ncclReduceScatter`.
+
+### Pipeline Parallelism
