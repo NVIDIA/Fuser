@@ -21,7 +21,12 @@ std::vector<IterDomain*> getPredicateDomains(
   // domains need to be predicated. Note that the non-divisible split
   // info does not seem to cover non-divisible reduction rfactor
   // splits.
-  std::vector<IterDomain*> predicate_domains = consumer_tv->hasReduction()
+  //
+  // Similarly, in the case of TopKOp, it needs to be executed as long
+  // as the index is within the logical domain of the input tensor,
+  // which is mapped with the root domain
+  std::vector<IterDomain*> predicate_domains =
+      consumer_tv->hasReduction() || expr->isA<TopKOp>()
       ? consumer_tv->getMaybeRootDomain()
       : consumer_tv->getLogicalDomain();
 

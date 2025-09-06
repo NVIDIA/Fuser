@@ -393,14 +393,18 @@ void IndexLowering::handle(const TopKOp* top) {
   const auto out_values = lowerDstIndex(top->outValues());
   const auto out_indices = lowerDstIndex(top->outIndices());
   const auto k = top->k();
-  pushBack(IrBuilder::create<TopKOp>(
+  auto indexed_op = IrBuilder::create<TopKOp>(
       out_values,
       out_indices,
       in,
       k,
       top->dim(),
       top->isLargest(),
-      top->isSorted()));
+      top->isSorted());
+  if (top->predicate()) {
+    indexed_op = indexed_op->withPredicate(top->predicate())->as<TopKOp>();
+  }
+  pushBack(indexed_op);
   GpuLower::current()->propagateExprInfo(top, back());
 }
 

@@ -320,6 +320,70 @@ void checkStaticExtentGroups(const ValGraph& graph) {
 
   NVF_ERROR(err_msg.str().empty(), err_msg.str());
 }
+
+class ExprSpecificMapping : public OptOutDispatch {
+ public:
+  static void map(ValGraph& graph, Expr* expr) {
+    ExprSpecificMapping(graph, expr);
+  }
+
+ private:
+  ExprSpecificMapping(ValGraph& graph, Expr* expr) : graph_(graph) {
+    dispatch(expr);
+  }
+
+  void handle(ScatterOp* sop) final {
+    // Assumes the initial loop domain of the output tensor is
+    // mapped with the logical domain of the index and src tensors.
+    const auto& out_initial_loop =
+        sop->out()->as<TensorView>()->domain()->initialLoop();
+    auto index_logical = TensorDomain::noReductions(
+        sop->index()->as<TensorView>()->getLogicalDomain());
+    NVF_ERROR_EQ(out_initial_loop.size(), index_logical.size());
+    for (const auto i : arange(out_initial_loop.size())) {
+      if (out_initial_loop.at(i)->isBroadcast() ==
+          index_logical.at(i)->isBroadcast()) {
+        graph_.mapVals(out_initial_loop.at(i), index_logical.at(i));
+      }
+    }
+    if (sop->src()->isA<TensorView>()) {
+      auto src_logical = TensorDomain::noReductions(
+          sop->src()->as<TensorView>()->getLogicalDomain());
+      NVF_ERROR_EQ(out_initial_loop.size(), src_logical.size());
+      for (const auto i : arange(out_initial_loop.size())) {
+        if (out_initial_loop.at(i)->isBroadcast() ==
+            src_logical.at(i)->isBroadcast()) {
+          graph_.mapVals(out_initial_loop.at(i), src_logical.at(i));
+        }
+      }
+    }
+  }
+
+  void handle(TopKOp* top) final {
+    std::cerr << top->toString();
+    // Assumes the initial loop domain of the output tensor is
+    // mapped with the logical domain of the input tensor.
+    const auto in_logical = TensorDomain::noReductions(
+        top->in()->as<TensorView>()->getLogicalDomain());
+    for (const auto& out : top->outputs()) {
+      const auto& out_initial_loop =
+          out->as<TensorView>()->domain()->initialLoop();
+      NVF_ERROR_EQ(out_initial_loop.size(), in_logical.size());
+      for (const auto i : arange(out_initial_loop.size())) {
+        if (out_initial_loop.at(i)->isBroadcast() ==
+            in_logical.at(i)->isBroadcast()) {
+          graph_.mapVals(out_initial_loop.at(i), in_logical.at(i));
+          std::cerr << "Out: " << out_initial_loop.at(i)->toString() << ", "
+                    << in_logical.at(i)->toString() << "\n";
+        }
+      }
+    }
+  }
+
+ private:
+  ValGraph& graph_;
+};
+
 } // namespace
 
 ValGraph& IdModel::buildExactGraph() {
@@ -392,6 +456,8 @@ ValGraph& IdModel::buildExactGraph() {
       }
     }
 
+    ExprSpecificMapping::map(graph, expr);
+#if 0
     // Special additional mappings for ScatterOp
     if (auto sop = dynamic_cast<ScatterOp*>(expr)) {
       // Assumes the initial loop domain of the output tensor is
@@ -419,6 +485,7 @@ ValGraph& IdModel::buildExactGraph() {
         }
       }
     }
+#endif
 
     // TODO: Revisit if we really should map domains in the exact map
     mapThroughLoopSwizzles(graph);

@@ -59,6 +59,7 @@ class IndexingTraversal : public ValGraphBFS {
           })) {
         // This resize node should never be traversed for indexing of
         // the given expr
+        std::cerr << "Excluding resize: " << resize->toString();
         return true;
       }
     }

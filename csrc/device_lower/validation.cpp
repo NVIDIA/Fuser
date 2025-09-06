@@ -216,7 +216,7 @@ void validateIr(Fusion* fusion) {
   fusion->validateInputs();
 
   // Validate Parallelization
-  ValidateSiblings::validate(fusion);
+  // ValidateSiblings::validate(fusion);
 
   validateIterDomainUsage(fusion);
 

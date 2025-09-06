@@ -38,7 +38,8 @@ namespace {
 
 // These are the current supported constrained ops.
 std::vector<Expr*> getAllConstrainedOps(Fusion* fusion) {
-  return ir_utils::getOpsOfType<ArgsortOp, PadOp, ScanOp, ScatterOp>(fusion);
+  return ir_utils::getOpsOfType<ArgsortOp, PadOp, ScanOp, ScatterOp, TopKOp>(
+      fusion);
 }
 
 std::vector<TensorView*> getAllConstrainedTvs(Fusion* fusion) {
@@ -187,7 +188,8 @@ class CompileTimeChecker : private IterVisitor {
             ArgsortOp,
             ScanOp,
             PadOp,
-            ScatterOp>();
+            ScatterOp,
+            TopKOp>();
     if (!can_schedule_) {
       setRejectReason("Unsupported operation: " + expr->toString());
       return;
@@ -317,6 +319,21 @@ class CompileTimeChecker : private IterVisitor {
 
   void handle(PadOp* pad) override {
     checkConstrainedTv(ir_utils::getTvOutput(pad), pad->getPaddedAxes());
+  }
+
+  void handle(TopKOp* topk) override {
+    auto out_tv = ir_utils::getTvOutput(topk);
+    checkConstrainedTv(out_tv, {topk->dim()});
+
+    // Only static dim supported for now.
+    auto topk_id = out_tv->getLogicalDomain().at(topk->dim());
+    if (!topk_id->extent()->isConstInt()) {
+      can_schedule_ = false;
+      std::stringstream reason;
+      reason << "Symbolic dimension not supported yet: " << topk->toString();
+      setRejectReason(reason.str());
+      return;
+    }
   }
 
   // Check if the logical IDs of the given constrained tv can be
@@ -466,6 +483,10 @@ class RunTimeChecker : private IterVisitor {
 
   void handle(ScanOp* scan) override {
     checkConstrainedTv(ir_utils::getTvOutput(scan), {scan->dim()});
+  }
+
+  void handle(TopKOp* topk) override {
+    checkConstrainedTv(ir_utils::getTvOutput(topk), {topk->dim()});
   }
 
   // Since all constrained IDs are flattened and parallelized with
@@ -659,6 +680,12 @@ class ConstrainedOpScheduler : public OptOutDispatch {
     }
   }
 
+  void handle(TopKOp* topk) override {
+    auto topk_dim = topk->dim();
+    auto out_tv = ir_utils::getTvOutput(topk);
+    scheduleConstrainedTv(out_tv, {topk_dim});
+  }
+
   void scheduleConstrainedTv(
       TensorView* tv,
       const std::vector<int64_t>& constrained_logical_id_offsets) {
@@ -749,9 +776,26 @@ std::unordered_map<TensorView*, TensorView*> partitionFusion(
 
   std::unordered_map<TensorView*, TensorView*> tv_to_constrained_tv_map;
 
-  // Register self mappings for constrained tensors
+  // Register self and sibling mappings for constrained tensors
   for (auto tv : constrained_tvs) {
-    tv_to_constrained_tv_map.emplace(tv, tv);
+    NVF_ERROR(
+        tv_to_constrained_tv_map.emplace(tv, tv).second,
+        "Already mapped: ",
+        tv->toString());
+
+    if (auto def = tv->definition();
+        def != nullptr && def->outputs().size() > 1) {
+      for (const auto out_tv :
+           ir_utils::filterByType<TensorView>(def->outputs())) {
+        if (out_tv == tv) {
+          continue;
+        }
+        NVF_ERROR(
+            tv_to_constrained_tv_map.emplace(out_tv, tv).second,
+            "Already mapped: ",
+            tv->toString());
+      }
+    }
   }
 
   // Propagate source reference through a given expr. Returns true if

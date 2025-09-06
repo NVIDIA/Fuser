@@ -645,4 +645,55 @@ TEST_F(TopKTest, ZeroDimensionalInput) {
   testValidate(executor_cache.fusion(), outputs, {t0}, __LINE__, __FILE__);
 }
 
+TEST_F(TopKTest, Predication) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  // std::vector<int64_t> shape = {100};
+  std::vector<int64_t> shape = {10};
+
+  auto tv0 = makeContigConcreteTensor(shape);
+  fusion.addInput(tv0);
+
+  auto tv1 = set(tv0);
+  auto tv2 = topk(tv1, IrBuilder::create<Val>(3), -1).indices;
+  auto tv3 = set(tv2);
+  fusion.addOutput(tv3);
+
+  // Non-divisible split. 128 threads will be launched. The last 28
+  // threads need to be predicated out.
+  for (auto tv : fusion.allTvs()) {
+    tv->split(0, 8);
+    tv->axis(0)->parallelize(ParallelType::TIDy);
+    tv->axis(1)->parallelize(ParallelType::TIDx);
+  }
+
+  tv2->setMemoryType(MemoryType::Shared);
+  // tv2->setAllocationDomain(tv2->getLogicalDomain(), true);
+
+  IdModel id_model(&fusion);
+  const auto& g = id_model.buildExactGraph();
+  std::cerr << g.toString() << "\n";
+
+  fusion.print();
+  fusion.printKernel();
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn(shape, options);
+
+  KernelExecutor ke;
+  ke.compile(&fusion, {t0});
+  auto outputs = ke.run({t0});
+
+  std::cerr << "In:: " << t0 << "\n";
+
+  std::cerr << "Outputs: " << outputs[0] << std::endl;
+  auto ref = at::topk(t0, 3);
+  std::cerr << "Ref val: " << std::get<0>(ref) << "\n";
+  std::cerr << "Ref index: " << std::get<1>(ref) << "\n";
+
+  testValidate(&fusion, outputs, {t0}, __LINE__, __FILE__);
+}
+
 } // namespace nvfuser

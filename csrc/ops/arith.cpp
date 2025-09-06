@@ -2536,47 +2536,64 @@ TopKResult topk(
       "TopKOp expects int64_t input for k but got ",
       k->dtype());
 
-  std::vector<IterDomain*> out_domain;
-  out_domain.reserve(inp_domain.size());
+  std::vector<TensorView*> out_tvs(2);
 
-  for (const auto [index, inp_domain_ptr] : enumerate(inp_domain)) {
-    // TODO: nvfuser enumerate implementation is not correct, it should return
-    // signed ints instead.
-    if (index != (size_t)dim) {
-      out_domain.push_back(inp_domain_ptr->cloneWithoutRFactor());
-      continue;
+  for (const auto& [i, out_tv] : enumerate(out_tvs)) {
+    // Root domain bsed off the input logical
+    std::vector<IterDomain*> out_root;
+    out_root.reserve(inp_domain.size());
+    std::ranges::transform(
+        inp_domain, std::back_inserter(out_root), [](IterDomain* id) {
+          return IterDomainBuilder(id).build();
+        });
+
+    // Resize the topk dimension to extent k
+    std::vector<IterDomain*> out_logical;
+    out_logical.reserve(inp_domain.size());
+
+    for (const auto [index, root_id] : enumerate(out_root)) {
+      // TODO: nvfuser enumerate implementation is not correct, it should return
+      // signed ints instead.
+      if (index != (size_t)dim) {
+        out_logical.push_back(root_id);
+        continue;
+      }
+
+      // Handling top k dimension, since the output extent is k.
+      ExpressionEvaluator ee;
+      PolymorphicValue ext = ee.evaluate(k);
+
+      IterType iter_type;
+      if (ext.hasValue()) {
+        iter_type =
+            ext.as<int64_t>() == 1 ? IterType::Broadcast : IterType::Iteration;
+      } else {
+        iter_type =
+            maybe_symbolic ? IterType::Symbolic : root_id->getIterType();
+      }
+      auto resize_expansion =
+          SimplifyingIrBuilder::subExpr(k, root_id->getMaybeExpandedExtent());
+      auto k_dim = IterDomain::resize(
+          root_id, inp->fusion()->zeroVal(), resize_expansion, true, iter_type);
+      out_logical.push_back(k_dim);
     }
 
-    // Handling top k dimension, since the output extent is k.
-    ExpressionEvaluator ee;
-    PolymorphicValue ext = ee.evaluate(k);
-
-    IterType iter_type;
-    if (ext.hasValue()) {
-      iter_type =
-          ext.as<int64_t>() == 1 ? IterType::Broadcast : IterType::Iteration;
-    } else {
-      iter_type =
-          maybe_symbolic ? IterType::Symbolic : inp_domain_ptr->getIterType();
-    }
-    out_domain.push_back(
-        IterDomainBuilder(
-            inp->fusion()->zeroVal(),
-            SimplifyingIrBuilder::maybeCastExpr(DataType::Index, k))
-            .iter_type(iter_type)
-            .build());
+    // Create the output tensor. The validation of the loop domain needs
+    // to be skipped as it is not guaranteed to be equivalent to the
+    // logical domain.
+    out_tv = IrBuilder::create<TensorView>(
+        IrBuilder::create<TensorDomain>(
+            /*root_domain=*/out_root,
+            /*logical_domain=*/out_logical,
+            /*loop_domain=*/out_root,
+            /*contiguity=*/
+            TensorDomain::getContiguityFilledWith(out_logical, true)),
+        i == 0 ? inp->dtype() : DataType::Int);
   }
 
-  TensorView* out_values = IrBuilder::create<TensorView>(
-      IrBuilder::create<TensorDomain>(
-          out_domain, TensorDomain::getContiguityFilledWith(out_domain, true)),
-      inp->getDataType().value());
-  Val* out_indices = ops::newValLike(out_values, DataType::Int);
-
   IrBuilder::create<TopKOp>(
-      out_values, out_indices, inp, k, dim, largest, sorted);
-  return TopKResult(
-      out_values->as<TensorView>(), out_indices->as<TensorView>());
+      out_tvs.at(0), out_tvs.at(1), inp, k, dim, largest, sorted);
+  return TopKResult(out_tvs.at(0), out_tvs.at(1));
 }
 
 TensorView* scan(

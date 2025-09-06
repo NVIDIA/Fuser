@@ -5,10 +5,12 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <bfs.h>
 #include <codegen.h>
 #include <device_lower/utils.h>
 #include <instrumentation.h>
 #include <ir/utils.h>
+#include <iter_visitor.h>
 #include <kernel_ir.h>
 #include <kernel_ir_dispatch.h>
 #include <options.h>
@@ -1575,26 +1577,20 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
 
     auto sorted_logical_id =
         output_values->view()->getLogicalDomain().at(top->dim());
-    auto sorted_ids = DependencyCheck::getAllValsBetween(
+
+    auto sorted_loop_ids = getReachableValsFrom<IRBFS>(
         {sorted_logical_id},
         {output_values->view()->getLoopDomain().begin(),
          output_values->view()->getLoopDomain().end()});
-    std::vector<IterDomain*> sorted_loop_ids;
-    std::ranges::copy_if(
-        output_values->view()->getLoopDomain(),
-        std::back_inserter(sorted_loop_ids),
-        [&](IterDomain* id) {
-          return std::ranges::find(sorted_ids, id) != sorted_ids.end();
-        });
 
     // At this moment, we only support topk on thread parallelized
     // dimensions. No serial dimension is allowed either.
     ParallelTypeBitmap sorted_parallel_types;
     for (auto id : sorted_loop_ids) {
       NVF_ERROR(
-          isParallelTypeThreadDim(id->getParallelType()),
+          isParallelTypeThreadDim(id->as<IterDomain>()->getParallelType()),
           "TopK on non-thread dimension is not supported");
-      sorted_parallel_types.set(id->getParallelType());
+      sorted_parallel_types.set(id->as<IterDomain>()->getParallelType());
     }
 
     // TID parallel types must only be used for the sorted IDs with the static
@@ -1646,6 +1642,14 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     // Call the runtime topk function with dual outputs
     ArgumentBuilder func_args;
 
+    auto getArrayName = [this](kir::TensorIndex* ti) {
+      auto name = genVariableName(ti);
+      if (ti->view()->getMemoryType() == MemoryType::Local) {
+        name += ".array";
+      }
+      return name;
+    };
+
     // First argument: top_values output array
     func_args.arg("*(")
         .append(input->dtype())
@@ -1654,7 +1658,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
         .append("])")
         .append("(")
         .append(
-            genVariableName(output_values) + ".array + " +
+            getArrayName(output_values) + " + " +
             genInline(output_values->index()))
         .append(")");
 
@@ -1664,20 +1668,22 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
         .append("])")
         .append("(")
         .append(
-            genVariableName(output_indices) + ".array + " +
+            getArrayName(output_indices) + " + " +
             genInline(output_indices->index()))
         .append(")");
 
     // Third argument: input data array
-    func_args.arg("*(")
-        .append(input->dtype())
-        .append("(*)[")
-        .append(std::to_string(items_per_thread))
-        .append("])")
-        .append("(")
+    NVF_ERROR(top->predicate() != nullptr && top->predicate()->hasValue());
+    // {pred ? input : (isLargest ? min : max)}
+    func_args.arg("{")
+        .append(genInline(top->predicate()))
+        .append(" ? ")
+        .append(genInline(input))
+        .append(" : ")
         .append(
-            genVariableName(input) + ".array + " + genInline(input->index()))
-        .append(")");
+            top->isLargest() ? getMinimumValue(input->dtype())
+                             : getMaximumValue(input->dtype()))
+        .append("}");
 
     // Fourth argument: k value
     func_args.arg(genInline(top->k()));

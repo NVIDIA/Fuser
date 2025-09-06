@@ -223,6 +223,16 @@ Val* TensorIndexer::getLinearIndex(
 
   const auto& alloc_info = getIndexAllocationInfo(tv);
 
+  bool _debug = false;
+  if (expr->isA<TopKOp>()) {
+    _debug = true;
+  }
+
+  if (_debug) {
+    std::cerr << "getLinearIndex: " << tv->toString()
+              << ". indices: " << toDelimitedString(alloc_info.ids) << "\n";
+  }
+
   const auto [contig_indices, contig_strides] = getContigIndexFor(
       tv, expr, as_consumer, alloc_info, for_loops, override_index);
 

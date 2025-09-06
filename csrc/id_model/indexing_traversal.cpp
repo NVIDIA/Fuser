@@ -29,20 +29,29 @@ IndexingTraversal::IndexingTraversal(
   // ResizeTest.SliceScheduledLikeProducer. Alternatively, we could
   // have a separate graph for indexing that does not map producer and
   // consumers in non-unary ops. See PR #2897.
-  auto all_ids = consumer_tv->domain()->allIDs();
-  std::unordered_set<IterDomain*> all_id_set(all_ids.begin(), all_ids.end());
-  for (auto id : all_ids) {
-    auto resize = dynamic_cast<Resize*>(id->definition());
-    if (resize == nullptr) {
-      continue;
+  auto register_valid_resizes = [&](TensorView* tv) {
+    auto all_ids = tv->domain()->allIDs();
+    std::unordered_set<IterDomain*> all_id_set(all_ids.begin(), all_ids.end());
+    for (auto id : all_ids) {
+      auto resize = dynamic_cast<Resize*>(id->definition());
+      if (resize == nullptr) {
+        continue;
+      }
+      auto resize_in = resize->in();
+      if (all_id_set.find(resize_in) == all_id_set.end()) {
+        // ths resize must not be part of the exprs involved for
+        // the domains of consumer_tv
+        continue;
+      }
+      resize_paths_.insert(resize);
     }
-    auto resize_in = resize->in();
-    if (all_id_set.find(resize_in) == all_id_set.end()) {
-      // ths resize must not be part of the exprs involved for
-      // the domains of consumer_tv
-      continue;
-    }
-    resize_paths_.insert(resize);
+  };
+
+  for (auto inp_tv : ir_utils::filterByType<TensorView>(expr->inputs())) {
+    register_valid_resizes(inp_tv);
+  }
+  for (auto out_tv : ir_utils::filterByType<TensorView>(expr->outputs())) {
+    register_valid_resizes(out_tv);
   }
 
   // A unique expr path should be always allowed
