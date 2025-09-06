@@ -1741,7 +1741,14 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     // Call the runtime scan function
     ArgumentBuilder func_args;
 
-    // First argument: scan output array
+    // First argument: scan output array.
+    // The output tensor is assumed to be a register tensor, and thus
+    // its storage should always be available without predication.
+    NVF_ERROR_EQ(
+        output->view()->getMemoryType(),
+        MemoryType::Local,
+        "Scan output must be a Local tensor: ",
+        output->toString());
     func_args.arg("*(")
         .append(input->dtype())
         .append("(*)[")
@@ -1752,14 +1759,14 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
         .append(")");
 
     // Second argument: input data array
-    func_args.arg("*(")
-        .append(input->dtype())
-        .append("(*)[")
-        .append(std::to_string(items_per_thread))
-        .append("])")
-        .append("(&")
+    NVF_ERROR(scan->predicate() != nullptr && scan->predicate()->hasValue());
+    func_args.arg("{")
+        .append(genInline(scan->predicate()))
+        .append(" ? ")
         .append(genInline(input))
-        .append(")");
+        .append(" : ")
+        .append(genInline(scan->init()))
+        .append("}");
 
     // Third argument: init value
     func_args.arg(genInline(scan->init()));

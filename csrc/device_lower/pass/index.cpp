@@ -1451,8 +1451,12 @@ void IndexLowering::handleGroupedGridWelford(
 void IndexLowering::handle(const ScanOp* sop) {
   const auto in = lowerSrcIndex(sop->in(), sop->out());
   const auto out = lowerDstIndex(sop->out());
-  pushBack(IrBuilder::create<ScanOp>(
-      sop->opType(), sop->init(), out, in, sop->dim()));
+  auto indexed_sop = IrBuilder::create<ScanOp>(
+      sop->opType(), sop->init(), out, in, sop->dim());
+  if (sop->predicate()) {
+    indexed_sop = indexed_sop->withPredicate(sop->predicate())->as<ScanOp>();
+  }
+  pushBack(indexed_sop);
   GpuLower::current()->propagateExprInfo(sop, back());
 }
 

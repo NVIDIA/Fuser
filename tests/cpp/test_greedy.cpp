@@ -310,6 +310,30 @@ TEST_F(GreedySchedulerTest, ArgsortNonLocalOutput) {
   EXPECT_FALSE(executor_cache.getMostRecentKernelRuntime()->isSegmented());
 }
 
+TEST_F(GreedySchedulerTest, ScanNonLocalOutput) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  std::vector<int64_t> shape{128};
+
+  auto tv0 = makeContigConcreteTensor(shape, DataType::Int);
+  fusion.addInput(tv0);
+
+  auto tv1 = add(tv0, fusion.oneVal(DataType::Int));
+  auto tv2 = scan(tv1, -1, BinaryOpType::Add);
+  fusion.addOutput(tv2);
+
+  auto options = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
+  auto t0 = at::randint(0, 100, shape, options);
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs({t0});
+  testValidate(executor_cache.fusion(), outputs, {t0}, __LINE__, __FILE__);
+
+  EXPECT_FALSE(executor_cache.getMostRecentKernelRuntime()->isSegmented());
+}
+
 // Based on SgLangMoETest.ComputeArgSort
 TEST_F(GreedySchedulerTest, Scatter) {
   auto fusion_ptr = std::make_unique<Fusion>();
