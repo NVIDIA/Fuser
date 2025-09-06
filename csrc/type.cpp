@@ -334,6 +334,14 @@ static const char* val_type2string(ValType t) {
   std::unreachable();
 }
 
+const char* block_sf_layout2string(BlockScalingFactorLayout t) {
+  switch (t) {
+    case BlockScalingFactorLayout::Block128x4:
+      return "block_128_4";
+  }
+  std::unreachable();
+}
+
 const char* predicate_type2string(PredicateType t) {
   switch (t) {
     case PredicateType::Manual:
@@ -1437,6 +1445,12 @@ AdjustLastDim getLastDimAdjustment(const DataType& dtype) {
 
 std::ostream& operator<<(std::ostream& out, const ValType vtype) {
   return out << val_type2string(vtype);
+}
+
+std::ostream& operator<<(
+    std::ostream& out,
+    const BlockScalingFactorLayout layout) {
+  return out << block_sf_layout2string(layout);
 }
 
 std::ostream& operator<<(std::ostream& out, const PredicateType ptype) {
