@@ -34,7 +34,7 @@ def define_fusion(fd: FusionDefinition):
     up_w = fd.define_tensor([h * 4, h])
     out = fd.ops.linear(inp, up_w)
 
-    # `gelu` runs a series of pointwise operations. For simplicity, I ommit the
+    # `gelu` runs a series of pointwise operations. For simplicity, I omit the
     # details and treat it as one pointwise operation.
     out = gelu(out)
 
@@ -67,3 +67,96 @@ However, for performance-critical workloads, we plan to let users guide
 scheduling by providing partial schedules for selected intermediate and/or
 output `TensorView`s. This can be done through the scheduling Python API, using
 primitives such as `TensorView.split` and `IterDomain.parallelize`.
+
+## Parallelisms
+
+This section goes through several common parallelisms and see how
+they can be represented and implemented in fusion IR.
+
+### Tensor Parallelism
+
+To apply [tensor
+parallelism](https://docs.nvidia.com/nemo-framework/user-guide/latest/nemotoolkit/features/parallelisms.html#tensor-parallelism), the user calls the `FusionDefinitionWrapper` with the following DTensors:
+* `inp` with placement `Replicated()`
+* `up_w` with placement `Shard(0)`
+* `down_w` with placement `Shard(1)`
+
+Therefore, nvFuser starts with the following fusion IR:
+```
+ inp: [t, h]                          up_w: [4h,  h]
+                                             /\
+                                            d
+                        |
+                        | linear
+                        |
+                     [t, 4h, r{h}]
+                        |
+                        | gelu
+                        |
+                     [t, 4h]                down_w: [h, 4h]
+                                                        /\
+                                                       d
+                                       |
+                                       | linear
+                                       |
+                                  [t, h, r{4h}]
+```
+
+Then, nvFuser propagates sharding from inputs to outputs:
+```
+ in: [t, h]                           up_w: [4h,  h]
+                                             /\
+                                            d
+                        |
+                        | linear
+                        |
+                     [t, 4h, r{h}]
+                         /\.
+                        d
+                        |
+                        | gelu
+                        |
+                     [t, 4h]                down_w: [h, 4h]
+                         /\                             /\
+                        d                              d
+                                       |
+                                       | linear
+                                       |
+                                  [t, h, r{4h}]
+                                           /\
+                                        r{d}
+```
+
+Then, nvFuser decomposes every Expr that does both computation and communication
+so every Expr can be lowered to either host IR or kernel IR. In the above fusion
+IR, the second `linear` does both intra-GPU reduction and inter-GPU reduction.
+Therefore, after decomposition, the fusion IR becomes:
+```
+ in: [t, h]                           up_w: [4h,  h]
+                                             /\
+                                            d
+                        |
+                        | linear
+                        |
+                     [t, 4h, r{h}]
+                         /\.
+                        d
+                        |
+                        | gelu
+                        |
+                     [t, 4h]                down_w: [h, 4h]
+                         /\                             /\
+                        d                              d
+                                       |
+                                       | linear
+                                       |
+                               [t, h, d, r{4h/d}]
+                                       |
+                                       | sum
+                                       |
+                                  [t, h, r{d}]
+```
+
+This fusion IR then goes through segmentation, (intra-GPU) scheduling, device
+lowering, and host IR lowering. Eventually, the `linears` and the `gelu` become
+CUDA kernels and the `sum` becomes a call to `ncclAllReduce`.
