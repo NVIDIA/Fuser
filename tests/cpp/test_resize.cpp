@@ -5824,8 +5824,7 @@ TEST_F(ResizeTest, VectorizeInnermostWithReshapeSplit) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn(shape1, options);
 
-  auto outputs = scheduleAndRun(&fusion, SchedulerType::Resize, {t0});
-  testValidate(&fusion, outputs.outputs, {t0}, __LINE__, __FILE__);
+  runAndValidate(&fusion, SchedulerType::Resize, {t0}, __LINE__, __FILE__);
 
   // Should be vector by a factor of 2 because the resize scheduler
   // only uses the innermost logical ID, and the extent of the output
@@ -5866,8 +5865,7 @@ TEST_F(ResizeTest, VectorizeInnermostWithReshapeMerge) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn(shape1, options);
 
-  auto outputs = scheduleAndRun(&fusion, SchedulerType::Resize, {t0});
-  testValidate(&fusion, outputs.outputs, {t0}, __LINE__, __FILE__);
+  runAndValidate(&fusion, SchedulerType::Resize, {t0}, __LINE__, __FILE__);
 
   // Should be vector by a factor of 4. If the reshape were canceled,
   // it should have been 2, but in this case since it involves the
@@ -5981,8 +5979,7 @@ TEST_F(ResizeTest, VectorizeInnerSliceMultiplePaths) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn({size}, options);
 
-  auto outputs = scheduleAndRun(&fusion, SchedulerType::Resize, {t0});
-  testValidate(&fusion, outputs.outputs, {t0}, __LINE__, __FILE__);
+  runAndValidate(&fusion, SchedulerType::Resize, {t0}, __LINE__, __FILE__);
 
   // Should be vector by a factor of 2 because of the tv3 slice. The
   // spanning tree based vectorization analysis may return 4 as only
@@ -6021,8 +6018,7 @@ TEST_F(ResizeTest, DISABLED_VectorizeOuterSliceMultiplePaths) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn(shape, options);
 
-  auto outputs = scheduleAndRun(&fusion, SchedulerType::PointWise, {t0});
-  testValidate(&fusion, outputs.outputs, {t0}, __LINE__, __FILE__);
+  runAndValidate(&fusion, SchedulerType::PointWise, {t0}, __LINE__, __FILE__);
 
   // While there's a pad with factor of 2, it shouldn't matter as the
   // inner ID is large enough.
@@ -6067,8 +6063,7 @@ TEST_F(ResizeTest, PropagateResizeThroughMultiplePaths) {
   auto t0 = at::randn({size}, options);
   auto t1 = at::randn({size}, options);
 
-  auto outputs = scheduleAndRun(&fusion, SchedulerType::Resize, {t0, t1});
-  testValidate(&fusion, outputs.outputs, {t0, t1}, __LINE__, __FILE__);
+  runAndValidate(&fusion, SchedulerType::Resize, {t0, t1}, __LINE__, __FILE__);
 }
 
 // Check if vectorization is properly applied even when a resized ID
@@ -6100,9 +6095,8 @@ TEST_F(ResizeTest, VectorizeOuterPad) {
   auto t1 = at::randn(shape2, options);
   auto t2 = at::randn(shape2, options);
 
-  auto outputs =
-      scheduleAndRun(&fusion, SchedulerType::PointWise, {t0, t1, t2});
-  testValidate(&fusion, outputs.outputs, {t0, t1, t2}, __LINE__, __FILE__);
+  runAndValidate(
+      &fusion, SchedulerType::PointWise, {t0, t1, t2}, __LINE__, __FILE__);
 
   auto out_tv = tv5;
   // While there's a pad with factor of 2, it shouldn't matter as the
@@ -6158,8 +6152,7 @@ TEST_F(ResizeTest, ReshapeAfterRef) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn(shape, options);
 
-  auto outputs = scheduleAndRun(&fusion, SchedulerType::Resize, {t0});
-  testValidate(&fusion, outputs.outputs, {t0}, __LINE__, __FILE__);
+  runAndValidate(&fusion, SchedulerType::Resize, {t0}, __LINE__, __FILE__);
 }
 
 // Repro of an issue fixed by PR #4356.
@@ -6193,8 +6186,7 @@ TEST_F(ResizeTest, ReorderLikeInputShouldNotMoveInnermostID) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn(shape1, options);
 
-  auto outputs = scheduleAndRun(&fusion, SchedulerType::Resize, {t0});
-  testValidate(&fusion, outputs.outputs, {t0}, __LINE__, __FILE__);
+  runAndValidate(&fusion, SchedulerType::Resize, {t0}, __LINE__, __FILE__);
 }
 
 } // namespace nvfuser

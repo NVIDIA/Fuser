@@ -684,8 +684,8 @@ TEST_F(NVFuserTest, FusionLSTMCell_CUDA) {
   auto at_cx = at::randn({batch_size, hidden_features}, options);
   inputs.push(at_cx);
 
-  auto cg_outputs = scheduleAndRun(&fusion, SchedulerType::PointWise, inputs);
-  testValidate(&fusion, cg_outputs.outputs, inputs, __LINE__, __FILE__);
+  runAndValidate(
+      &fusion, SchedulerType::PointWise, {inputs}, __LINE__, __FILE__);
 }
 
 TEST_F(NVFuserTest, FusionReductionHalf_CUDA) {
@@ -896,8 +896,8 @@ TEST_F(NVFuserTest, FusionTrivialReduction2_CUDA) {
   at::Tensor t0 = at::randn({y, z}, options);
   at::Tensor t1 = at::randn({w, x, y, z}, options);
 
-  auto cg_outputs = scheduleAndRun(&fusion, SchedulerType::PointWise, {t0, t1});
-  testValidate(&fusion, cg_outputs.outputs, {t0, t1}, __LINE__, __FILE__);
+  runAndValidate(
+      &fusion, SchedulerType::PointWise, {t0, t1}, __LINE__, __FILE__);
 }
 
 TEST_F(NVFuserTest, FusionTrivialReduction3_CUDA) {
@@ -920,8 +920,8 @@ TEST_F(NVFuserTest, FusionTrivialReduction3_CUDA) {
   at::Tensor t0 = at::randn({y, z}, options);
   at::Tensor t1 = at::randn({v, w, x, y, z}, options);
 
-  auto cg_outputs = scheduleAndRun(&fusion, SchedulerType::PointWise, {t0, t1});
-  testValidate(&fusion, cg_outputs.outputs, {t0, t1}, __LINE__, __FILE__);
+  runAndValidate(
+      &fusion, SchedulerType::PointWise, {t0, t1}, __LINE__, __FILE__);
 }
 
 TEST_F(NVFuserTest, FusionInputsIdLookup_CUDA) {
@@ -1146,10 +1146,12 @@ TEST_F(NVFuserTest, FusionBiasGeluFwd_CUDA) {
   auto at_input = at::randn(input_shape, options);
   auto at_bias = at::randn(bias_shape, options);
 
-  auto cg_outputs =
-      scheduleAndRun(&fusion, SchedulerType::PointWise, {at_bias, at_input});
-  testValidate(
-      &fusion, cg_outputs.outputs, {at_bias, at_input}, __LINE__, __FILE__);
+  runAndValidate(
+      &fusion,
+      SchedulerType::PointWise,
+      {at_bias, at_input},
+      __LINE__,
+      __FILE__);
 }
 
 TEST_F(NVFuserTest, FusionBiasGeluBwd_CUDA) {
@@ -3699,9 +3701,7 @@ TEST_F(NVFuserTest, FusionSBAR_CUDA) {
   // inputs
   KernelArgumentHolder inputs = {at_x, at_y, at_weight, at_bias};
 
-  auto cg_outputs =
-      scheduleAndRun(&fusion, SchedulerType::PointWise, inputs).outputs;
-  testValidate(&fusion, cg_outputs, inputs, __LINE__, __FILE__);
+  runAndValidate(&fusion, SchedulerType::PointWise, inputs, __LINE__, __FILE__);
 }
 
 TEST_F(NVFuserTest, FusionSingleElement_CUDA) {
@@ -3718,9 +3718,7 @@ TEST_F(NVFuserTest, FusionSingleElement_CUDA) {
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({}, options);
-  auto cg_outputs =
-      scheduleAndRun(&fusion, SchedulerType::PointWise, {t0}).outputs;
-  testValidate(&fusion, cg_outputs, {t0}, __LINE__, __FILE__);
+  runAndValidate(&fusion, SchedulerType::PointWise, {t0}, __LINE__, __FILE__);
 }
 
 TEST_F(NVFuserTest, FusionBNBackwardRepro_CUDA) {
@@ -5630,10 +5628,8 @@ TEST_F(NVFuserTest, FusionPointwiseBroadcast_CUDA) {
   at::Tensor at_x = at::randn(input_shape, options);
   at::Tensor at_bias = at::randn(input_shape, options);
 
-  auto cg_outputs =
-      scheduleAndRun(&fusion, SchedulerType::PointWise, {at_x, at_bias});
-  testValidate(
-      &fusion, cg_outputs.outputs, {at_x, at_bias}, __LINE__, __FILE__);
+  runAndValidate(
+      &fusion, SchedulerType::PointWise, {at_x, at_bias}, __LINE__, __FILE__);
 }
 
 TEST_F(NVFuserTest, FusionPointwiseVectorize_CUDA) {

@@ -3583,9 +3583,8 @@ TEST_F(
   at::Tensor t0 = at::randn({100, 100, 10}, options);
   at::Tensor t1 = at::randn({10, 20}, options);
 
-  auto cg_outputs =
-      scheduleAndRun(&fusion, SchedulerType::PointWise, {t0, t1}).outputs;
-  testValidate(&fusion, cg_outputs, {t0, t1}, __LINE__, __FILE__);
+  runAndValidate(
+      &fusion, SchedulerType::PointWise, {t0, t1}, __LINE__, __FILE__);
 }
 
 TEST_F(NVFuserTest, FusionPrint_CUDA) {
@@ -8350,9 +8349,8 @@ TEST_F(NVFuserTest, MoveNonConcretizedBroadcastInPointwise) {
   at::Tensor input0 = at::randn({1024}, options);
   at::Tensor t1 = at::randn({1024}, options);
 
-  auto cg_outputs =
-      scheduleAndRun(&fusion, SchedulerType::PointWise, {input0, t1}).outputs;
-  testValidate(&fusion, cg_outputs, {input0, t1}, __LINE__, __FILE__);
+  runAndValidate(
+      &fusion, SchedulerType::PointWise, {input0, t1}, __LINE__, __FILE__);
 
   // tv2 and tv3 have non-concretized broadcasts. Make sure they are
   // moved to the innermost position of the loop domain

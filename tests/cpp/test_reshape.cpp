@@ -79,10 +79,8 @@ TEST_F(ReshapeTest, ViewDtypeSameSizeOutput) {
   at::Tensor at_x = at::randn(input_shape, options);
   at::Tensor at_bias = at::randn(input_shape, options);
 
-  auto cg_outputs =
-      scheduleAndRun(&fusion, SchedulerType::PointWise, {at_x, at_bias})
-          .outputs;
-  testValidate(&fusion, cg_outputs, {at_x, at_bias}, __LINE__, __FILE__);
+  runAndValidate(
+      &fusion, SchedulerType::PointWise, {at_x, at_bias}, __LINE__, __FILE__);
 }
 
 TEST_F(ReshapeTest, ViewDtypeFailMismatchSize) {
@@ -193,10 +191,8 @@ TEST_F(ReshapeTest, ReshapeOutput) {
   at::Tensor at_x = at::randn(input_shape, options);
   at::Tensor at_bias = at::randn(input_shape, options);
 
-  auto cg_outputs =
-      scheduleAndRun(&fusion, SchedulerType::PointWise, {at_x, at_bias})
-          .outputs;
-  testValidate(&fusion, cg_outputs, {at_x, at_bias}, __LINE__, __FILE__);
+  runAndValidate(
+      &fusion, SchedulerType::PointWise, {at_x, at_bias}, __LINE__, __FILE__);
 }
 
 TEST_F(ReshapeTest, ReshapeFailMismatchSize) {
@@ -506,10 +502,8 @@ void addViewGeluFusion(
     at::Tensor at_x = at::randn(input_shape, options);
     at::Tensor at_bias = at::randn(input_shape, options);
 
-    auto cg_outputs =
-        scheduleAndRun(&fusion, SchedulerType::PointWise, {at_x, at_bias})
-            .outputs;
-    testValidate(&fusion, cg_outputs, {at_x, at_bias}, __LINE__, __FILE__);
+    runAndValidate(
+        &fusion, SchedulerType::PointWise, {at_x, at_bias}, __LINE__, __FILE__);
   }
 }
 
@@ -572,10 +566,8 @@ void geluViewAddFusion(
     at::Tensor at_x = at::randn(inferred_input, options);
     at::Tensor at_bias = at::randn(inferred_output, options);
 
-    auto cg_outputs =
-        scheduleAndRun(&fusion, SchedulerType::PointWise, {at_x, at_bias})
-            .outputs;
-    testValidate(&fusion, cg_outputs, {at_x, at_bias}, __LINE__, __FILE__);
+    runAndValidate(
+        &fusion, SchedulerType::PointWise, {at_x, at_bias}, __LINE__, __FILE__);
   }
 }
 
@@ -612,10 +604,8 @@ void geluViewBinaryAddFusion(
     at::Tensor at_x = at::randn(input_shape1, options);
     at::Tensor at_bias = at::randn(input_shape2, options);
 
-    auto cg_outputs =
-        scheduleAndRun(&fusion, SchedulerType::PointWise, {at_x, at_bias})
-            .outputs;
-    testValidate(&fusion, cg_outputs, {at_x, at_bias}, __LINE__, __FILE__);
+    runAndValidate(
+        &fusion, SchedulerType::PointWise, {at_x, at_bias}, __LINE__, __FILE__);
   }
 }
 
@@ -1213,9 +1203,8 @@ TEST_F(ReshapeTest, ReshapeVectorize) {
 
   at::Tensor input = at::randn({256, 256, 256}, options);
 
-  auto cg_outputs =
-      scheduleAndRun(&fusion, SchedulerType::PointWise, {input}).outputs;
-  testValidate(&fusion, cg_outputs, {input}, __LINE__, __FILE__);
+  runAndValidate(
+      &fusion, SchedulerType::PointWise, {input}, __LINE__, __FILE__);
 
   auto hasVectorization = [](TensorView* tv) -> bool {
     for (auto i : tv->getLoopDomain()) {
@@ -2203,9 +2192,8 @@ TEST_F(ReshapeTest, ReshapeZeroDimInput) {
 
   at::Tensor at_y = at::randn({2, 3, 4}).to(options);
 
-  auto cg_outputs =
-      scheduleAndRun(&fusion, SchedulerType::PointWise, {at_x, at_y}).outputs;
-  testValidate(&fusion, cg_outputs, {at_x, at_y}, __LINE__, __FILE__);
+  runAndValidate(
+      &fusion, SchedulerType::PointWise, {at_x, at_y}, __LINE__, __FILE__);
 }
 
 TEST_F(ReshapeTest, ReshapeZeroDimOutput) {
@@ -2236,10 +2224,12 @@ TEST_F(ReshapeTest, ReshapeZeroDimOutput) {
       at::randn({1}).to(options)[0]; // indexing to get zero-dim tensor
   NVF_ERROR(at_z.ndimension() == 0);
 
-  auto cg_outputs =
-      scheduleAndRun(&fusion, SchedulerType::PointWise, {at_x, at_y, at_z})
-          .outputs;
-  testValidate(&fusion, cg_outputs, {at_x, at_y, at_z}, __LINE__, __FILE__);
+  runAndValidate(
+      &fusion,
+      SchedulerType::PointWise,
+      {at_x, at_y, at_z},
+      __LINE__,
+      __FILE__);
 }
 
 TEST_F(ReshapeTest, ReshapeZeroDimInputOutput) {
@@ -2266,9 +2256,8 @@ TEST_F(ReshapeTest, ReshapeZeroDimInputOutput) {
   at::Tensor at_y = at::randn({1}).to(options)[0];
   NVF_ERROR(at_x.ndimension() == 0 && at_y.ndimension() == 0);
 
-  auto cg_outputs =
-      scheduleAndRun(&fusion, SchedulerType::PointWise, {at_x, at_y}).outputs;
-  testValidate(&fusion, cg_outputs, {at_x, at_y}, __LINE__, __FILE__);
+  runAndValidate(
+      &fusion, SchedulerType::PointWise, {at_x, at_y}, __LINE__, __FILE__);
 }
 
 TEST_F(ReshapeTest, ReshapeOfReshape) {
