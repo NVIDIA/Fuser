@@ -600,13 +600,30 @@ std::optional<std::unique_ptr<HeuristicParamsList>> FusionKernelRuntime::
     }
 
     // Generate metadata for the fusion's outputs
-    auto group_runtime_outputs = inferOutputSizes(
-        fusion_to_run,
-        group_runtime_inputs,
-        evaluator_precomputed_values.get());
+    KernelArgumentHolder group_runtime_outputs;
+    const auto& heuristic_params = heuristics->at(group_to_run->groupId());
+    const bool is_expr_eval = heuristic_params->scheduler_type == SchedulerType::ExprEval;
+    if (is_expr_eval) {
+      // For expr evaluated fusion, the striding rules follow that of ATen.
+      ExpressionEvaluator eval_fusion;
+      for (auto [i, v] : enumerate(group_to_run->inputs())) {
+        auto tensor_pv = args_manager.checkTensorMap(v);
+        eval_fusion.bind(fusion_to_run->inputs()[i], tensor_pv);
+      }
+      for (auto v : fusion_to_run->outputs()) {
+        auto result = eval_fusion.evaluate(v);
+        group_runtime_outputs.push(result);
+      }
+    } else {
+      // For codegen fusion, we always allocate contiguous output tensors.
+      group_runtime_outputs = inferOutputSizes(
+          fusion_to_run,
+          group_runtime_inputs,
+          evaluator_precomputed_values.get());
+    }
 
     args_manager.updateWithSegmentOutputs(
-        group_to_run->outputs(), group_runtime_outputs, run_order_id);
+        group_to_run->outputs(), group_runtime_outputs, run_order_id, is_expr_eval);
   }
   return heuristics;
 }
