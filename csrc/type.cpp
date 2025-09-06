@@ -1455,13 +1455,6 @@ std::ostream& operator<<(std::ostream& out, const BinaryOpType botype) {
   return out << binary_op_type2string(botype);
 }
 
-std::ostream& operator<<(std::ostream& out, const ScatterOpType sotype) {
-  if (sotype == ScatterOpType::Set) {
-    return out << "scatter";
-  }
-  NVF_THROW("No scatterOp type found for scatterOp.");
-}
-
 std::ostream& operator<<(std::ostream& out, const TernaryOpType totype) {
   return out << ternary_op_type2string(totype);
 }

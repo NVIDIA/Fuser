@@ -367,12 +367,12 @@ void IndexLowering::handle(const ScatterOp* sop) {
   auto lowered_out = lowerDstIndex(sop->out(), override_index);
 
   pushBack(IrBuilder::create<ScatterOp>(
-      sop->getScatterOpType(),
       /*out=*/lowered_out,
       /*self=*/lowered_out,
       sop->dim(),
       lowered_index,
-      lowered_src));
+      lowered_src,
+      sop->accumulate() ? std::optional(sop->accumulateOp()) : std::nullopt));
   GpuLower::current()->propagateExprInfo(sop, back());
 }
 
