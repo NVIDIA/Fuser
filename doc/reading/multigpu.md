@@ -277,14 +277,14 @@ This fusion IR then goes through the rest of the nvFuser stack. The `set`
 becomes a call to `ncclAllGather` and the `sum` becomes a call to
 `ncclReduceScatter`.
 
-### Overlap communication with GEMM via Decomposition
+### Overlap Communication with GEMM via Decomposition
 
-[This orthogonal technique](https://dl.acm.org/doi/10.1145/3567955.3567959) can
-be applied to many parallelisms (e.g. sequence parallelism, tensor parallelism
-and context parallelism) to reduce latency. Instead of sequentially running
-communication operations (e.g. Allgather and ReduceScatter) and computation
-operations (e.g. GEMM), the technique reduces wall time by decomposing these
-operations and overlapping communication with computation.
+[This technique](https://dl.acm.org/doi/10.1145/3567955.3567959) is orthogonal
+and can be applied to different types of parallelism (e.g., sequence, tensor,
+and context parallelism) to cut down latency. Instead of running communication
+operations (e.g., Allgather, ReduceScatter) and computation operations (e.g.,
+GEMM) one after another, it breaks them into smaller pieces and overlaps
+communication with computation to reduce wall time.
 
 <img src="multigpu/allgather_matmul_overlap.png" alt="Figure 1" width="600">
 
