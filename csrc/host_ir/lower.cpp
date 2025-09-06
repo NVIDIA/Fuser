@@ -97,6 +97,8 @@ std::unique_ptr<hir::HostIrContainer> HostIrLower::lower(
           std::move(fusion), KernelArgumentHolder(), options, true);
   // Infer a topologically ordered traversal of the segmented fusion to
   // determine the order for launching the kernels/comms
+  // TODO: pass runtime info to prepareRuntimeOrder to optimize runtime order
+  // for memory use
   RuntimeWorkSpace workspace = prepareRuntimeOrder(*staged_fusion);
   // Create the HostIrContainer representing the host program. Each segment of
   // the segmented fusion will be translated to a HostIR

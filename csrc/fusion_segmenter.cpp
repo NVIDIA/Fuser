@@ -6,13 +6,16 @@
  */
 // clang-format on
 #include <algorithm>
+#include <limits>
 #include <sstream>
 
 #include <debug.h>
 #include <device_lower/utils.h>
 #include <disjoint_set.h>
+#include <exceptions.h>
 #include <fusion.h>
 #include <fusion_segmenter.h>
+#include <graph/task_graph.h>
 #include <instrumentation.h>
 #include <ir/all_nodes.h>
 #include <ir/cloner.h>
@@ -26,6 +29,7 @@
 #include <options.h>
 #include <scheduler/debug_utils.h>
 #include <scheduler/normalization_utils.h>
+#include <scheduler/runtime_info.h>
 #include <transform_iter.h>
 #include <transform_replay.h>
 
@@ -1972,8 +1976,171 @@ bool SegmentCandidateFinder::hasSegmentHints(Fusion* fusion) {
 }
 
 namespace {
+
+class SegmentedGroupTaskGraphConverter {
+ public:
+  static TaskGraph convert(
+      const std::vector<SegmentedGroup*>& groups,
+      SchedulerRuntimeInfo* runtime_info) {
+    SegmentedGroupTaskGraphConverter conv(runtime_info);
+    for (SegmentedGroup* group : groups) {
+      conv.processGroup(group);
+    }
+    return TaskGraph(conv.all_tasks_, conv.all_data_);
+  }
+
+ private:
+  SegmentedGroupTaskGraphConverter(SchedulerRuntimeInfo* runtime_info)
+      : runtime_info_(runtime_info) {}
+
+  void processGroup(SegmentedGroup* group) {
+    TaskGraph::TaskId task_id = (TaskGraph::TaskId)all_tasks_.size();
+
+    // When there are aliased inputs, they will appear as _outputs_ of the
+    // SegmentedGroup. To avoid actually adding those as outputs, we record them
+    // here first
+    std::unordered_set<TensorView*> aliased_input_tvs;
+    for (Val* v : group->outputs()) {
+      if (auto* tv = dynamic_cast<TensorView*>(v)) {
+        if (auto* aliased_input_tv = dynamic_cast<TensorView*>(
+                tv->fusion()->getOutputAlias(tv).aliased_io)) {
+          aliased_input_tvs.insert(aliased_input_tv);
+        }
+      }
+    }
+
+    std::vector<TaskGraph::DataId> inputs;
+    // These are fusion inputs, so they are not edges between segments
+    for (Val* v : group->inputs()) {
+      if (auto* tv = dynamic_cast<TensorView*>(v)) {
+        // Ignore scalar inputs
+        TaskGraph::DataId data_id = maybeRegisterTv(tv);
+        TaskGraph::Data& data = all_data_.at((size_t)data_id);
+        data.uses.push_back(task_id);
+        data.can_free = !tv->isFusionInput();
+        inputs.push_back(data_id);
+      }
+    }
+    std::vector<TaskGraph::DataId> outputs;
+    for (Val* v : group->outputs()) {
+      if (auto* tv = dynamic_cast<TensorView*>(v)) {
+        if (aliased_input_tvs.count(tv)) {
+          // These are counted as outputs but are actually _inputs_ to this
+          // group
+          continue;
+        }
+        TaskGraph::DataId data_id = maybeRegisterTv(tv);
+        TaskGraph::Data& data = all_data_.at((size_t)data_id);
+        data.definition = task_id;
+        if (auto* aliased_input_tv = dynamic_cast<TensorView*>(
+                tv->fusion()->getOutputAlias(tv).aliased_io)) {
+          data.aliases_input = maybeRegisterTv(aliased_input_tv);
+        }
+        data.can_free = !tv->isFusionOutput();
+        outputs.push_back(data_id);
+      }
+    }
+
+    // TODO: inspect compiled segment executors to determine temp gmem needed
+    TaskGraph::Size temp_space = 0;
+
+    all_tasks_.emplace_back(inputs, outputs, temp_space);
+  }
+
+  TaskGraph::DataId maybeRegisterTv(TensorView* tv) {
+    auto it = tv2dataid_.find(tv);
+    if (it == tv2dataid_.end()) {
+      // Register this TV
+      TaskGraph::DataId new_id = (TaskGraph::DataId)all_data_.size();
+      tv2dataid_[tv] = new_id;
+
+      // Assume all tensors the same shape if no runtime_info is given
+      int64_t numel = 1;
+      if (tv->isCpuScalar()) {
+        // runtime_info_ will not include sizes of GPU scalars and sine they do
+        // not result in any GPU allocation we count them as empty.
+        numel = 0;
+      } else if (runtime_info_ != nullptr) {
+        // Get the actual size of the tensor allocation
+        if (tv->isFusionInput() && !isSharded(tv)) {
+          const std::vector<int64_t>& sizes =
+              runtime_info_->getInputAllocationSizes(tv);
+          const std::vector<int64_t>& strides =
+              runtime_info_->getInputAllocationStrides(tv);
+
+          numel = 1;
+          for (auto [size, stride] : zip(sizes, strides)) {
+            if (size == 0) {
+              // Check for empty tensors
+              numel = 0;
+              break;
+            }
+            numel += (size - 1) * stride;
+          }
+        } else {
+          // Use ExpressionEvaluator for computed tensors assuming they are
+          // contiguous
+          for (IterDomain* id : tv->getMaybeAllocationDomain()) {
+            if (id->isBroadcast() || id->isReduction() || id->isDeviceDim()) {
+              continue;
+            }
+            PolymorphicValue pv =
+                runtime_info_->expressionEvaluator().evaluate(id->extent());
+            // If we can't determine the size of this dimension, just assume
+            // it's 2. This way we will give precedence to tensors with
+            // allocation domains that have more concrete IDs.
+            int64_t dim_size = pv.is<int64_t>() ? pv.as<int64_t>() : 2;
+            numel *= dim_size;
+          }
+        }
+      }
+      TaskGraph::Size size = numel * dataTypeSizeByte(tv->dtype());
+
+      all_data_.emplace_back(
+          /*definition=*/std::nullopt,
+          /*uses=*/std::vector<TaskGraph::TaskId>{},
+          /*aliases_input=*/std::nullopt,
+          size,
+          /*can_free=*/true);
+      return new_id;
+    } else {
+      return it->second;
+    }
+  }
+
+ private:
+  SchedulerRuntimeInfo* runtime_info_;
+  std::vector<TaskGraph::Data> all_data_;
+  std::unordered_map<TensorView*, TaskGraph::DataId> tv2dataid_;
+  std::vector<TaskGraph::Task> all_tasks_;
+};
+
+std::vector<SegmentedGroup*> optimalTopoSort(
+    const std::vector<SegmentedGroup*>& groups,
+    SchedulerRuntimeInfo* runtime_info) {
+  FUSER_PERF_SCOPE("optimalTopoSort");
+  if (groups.size() == 1) {
+    // Skip setting up the graph and doing the whole analysis when there's just
+    // a single group
+    return {groups.front()};
+  }
+
+  TaskGraph graph =
+      SegmentedGroupTaskGraphConverter::convert(groups, runtime_info);
+
+  TaskGraph::SortResult result = graph.findOptimalOrder(/*validate=*/false);
+
+  std::vector<SegmentedGroup*> order;
+  order.reserve(groups.size());
+  for (const TaskGraph::Step& step : result.steps) {
+    order.push_back(groups.at((size_t)step.task));
+  }
+  return order;
+}
+
 std::vector<SegmentedGroup*> toposort(
     const std::vector<SegmentedGroup*>& groups) {
+  FUSER_PERF_SCOPE("toposort");
   std::deque<SegmentedGroup*> to_visit;
   std::unordered_map<SegmentedGroup*, int64_t> num_producer_edges;
   for (SegmentedGroup* group : groups) {
@@ -5353,7 +5520,10 @@ void SegmentedFusion::annotateFP16IntermediateTensors() {
   }
 }
 
-RuntimeWorkSpace prepareRuntimeOrder(const SegmentedFusion& segmented_fusion) {
+RuntimeWorkSpace prepareRuntimeOrder(
+    const SegmentedFusion& segmented_fusion,
+    SchedulerRuntimeInfo* runtime_info) {
+  FUSER_PERF_SCOPE("prepareRuntimeOrder");
   RuntimeWorkSpace runtime_workspace;
 
   // setup the order tensor dimensions are bound
@@ -5368,7 +5538,8 @@ RuntimeWorkSpace prepareRuntimeOrder(const SegmentedFusion& segmented_fusion) {
     }
   }
 
-  runtime_workspace.group_run_order = toposort(segmented_fusion.groups());
+  runtime_workspace.group_run_order =
+      optimalTopoSort(segmented_fusion.groups(), runtime_info);
 
   return runtime_workspace;
 }

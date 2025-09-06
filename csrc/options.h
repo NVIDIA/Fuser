@@ -73,6 +73,7 @@ enum class DebugDumpOption {
   PythonFrontendDebug, //! Python Frontend debug information.
   TransformPropagator, //! When running TransformPropagator, print propagation
                        //! path and replay result
+  TaskGraph, //! Print information about TaskGraph used in segmentation ordering
   Cubin, //! Dump compiled CUBIN
   Sass, //! Dump disassembled SASS
   SassToFile, //!< Dump disassembled SASS to File

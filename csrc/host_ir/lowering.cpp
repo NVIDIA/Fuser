@@ -40,7 +40,8 @@ void recomputeOutputTvs(Expr* e, IrCloner& ir_cloner) {
 std::unique_ptr<hir::HostIrContainer> lowerSegmentedFusionToHostIr(
     const SegmentedFusion& segmented_fusion,
     const std::vector<LaunchParams>& launch_params_per_segment,
-    std::vector<std::unique_ptr<ExecutorAbstract>>& executors) {
+    std::vector<std::unique_ptr<ExecutorAbstract>>& executors,
+    SchedulerRuntimeInfo& runtime_info) {
   auto hic = std::make_unique<hir::HostIrContainer>();
 
   IrCloner ir_cloner(hic.get());
@@ -55,7 +56,7 @@ std::unique_ptr<hir::HostIrContainer> lowerSegmentedFusionToHostIr(
   }
 
   for (SegmentedGroup* group :
-       prepareRuntimeOrder(segmented_fusion).group_run_order) {
+       prepareRuntimeOrder(segmented_fusion, &runtime_info).group_run_order) {
     switch (group->schedulerType()) {
       case SchedulerType::Communication: {
         auto deviceid = Communicator::getInstance().deviceId();

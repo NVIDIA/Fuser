@@ -21,6 +21,7 @@ std::unique_ptr<hir::HostIrContainer> lowerSegmentedFusionToHostIr(
     // TODO(#4927): Launch parameters should be passed in at runtime, not
     // compile time.  They can change according to input sizes.
     const std::vector<LaunchParams>& launch_params_per_segment,
-    std::vector<std::unique_ptr<ExecutorAbstract>>& executors);
+    std::vector<std::unique_ptr<ExecutorAbstract>>& executors,
+    SchedulerRuntimeInfo& runtime_info);
 
 } // namespace nvfuser
