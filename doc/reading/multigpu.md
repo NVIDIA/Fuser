@@ -286,7 +286,9 @@ communication operations (e.g. Allgather and ReduceScatter) and computation
 operations (e.g. GEMM), the technique reduces wall time by decomposing these
 operations and overlapping communication with computation.
 
-![Overlaping allgather with GEMM[^1]](multigpu/allgather_matmul_overlap.png)
+![Figure 1](multigpu/allgather_matmul_overlap.png)
+
+> **Figure 1.** Overlap allgather with GEMM[^1]
 
 [^1]: Wang et al., *Overlap Communication with Dependent Computation via Decomposition in Large Deep Learning Models*, ASPLOS 2023. [https://dl.acm.org/doi/pdf/10.1145/3567955.3567959]
 
