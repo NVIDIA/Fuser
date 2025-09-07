@@ -1244,6 +1244,37 @@ def test_uniform(nvfuser_direct_test):
     )
 
 
+def test_random_distinct_values(nvfuser_direct_test):
+    dtypes = [DataType.Double, DataType.Float, DataType.Half, DataType.BFloat16]
+    for dtype, rand_op_name in itertools.product(dtypes, ["uniform", "normal"]):
+
+        def fusion_fn(fd: FusionDefinition):
+            # generate 4 values and check that they are all distinct
+            rand_op = getattr(fd.ops, rand_op_name)
+            S0 = fd.define_scalar(0.00000, dtype=DataType.Double)
+            S1 = fd.define_scalar(1.00000, dtype=DataType.Double)
+            output = rand_op(S0, S1, shape=[2, 2], dtype=dtype)
+            fd.add_output(output)
+
+        with FusionDefinition() as fd:
+            fusion_fn(fd)
+
+        for i in range(100):
+            output = fd.execute([])[0]
+
+            # Rarely we might have a pair of matching lower precision
+            # samples. However, it is extremely rare that we would have a
+            # set of three matching elements in only 100 repeats unless we
+            # have a bug.
+
+            match = output.flatten().unsqueeze(0) == output.flatten().unsqueeze(1)
+            match_pairs = (
+                match ^ torch.eye(4, dtype=torch.bool, device="cuda")
+            ).sum() // 2
+
+            assert match_pairs.item() < 3, f"At least three entries match in {output}"
+
+
 @pytest.mark.parametrize("padding_idx", [None, -2])
 @pytest.mark.parametrize("max_norm", [None, 1e-5])
 @pytest.mark.parametrize("norm_type", [None, 1.0])

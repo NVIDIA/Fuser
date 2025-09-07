@@ -73,7 +73,6 @@ The following tests are complex and will be moved to tests/python/direct/test_hi
 - `test_cat_symbolic` - Tests symbolic concatenation (86 lines)
 - `test_slice_error_checks` - Tests slice error checking (128 lines)
 
-- `test_random_distinct_values` - Tests random distinct value generation (100 lines)
 - `test_deterministic_random` - Tests deterministic random number generation
 - `test_uniform_range` - Tests uniform range generation (230 lines)
 - `test_cat_qwen2_v2` - Tests concatenation for Qwen2 v2 model (201 lines)
@@ -101,7 +100,7 @@ The following 12 tests exist in `tests/python/direct/test_python_frontend.py` bu
 
 ### Shared Tests
 
-Both test files contain these 73 common tests:
+Both test files contain these 80 common tests:
 - `test_addcmul` - Addcmul operations
 - `test_alias_output_to_input` - Output aliasing to input
 - `test_all_dim_var_mean` - Tests variance and mean across all dimensions
@@ -149,6 +148,7 @@ Both test files contain these 73 common tests:
 - `test_pad_prior_cat` - Tests padding before concatenation
 - `test_prod` - Tests product operations
 - `test_promote_to_double` - Type promotion to double
+- `test_random_distinct_values` - Tests random distinct value generation
 - `test_real_imag` - Tests real and imaginary parts
 - `test_reduction_complex_number` - Tests complex number reduction
 - `test_replaced_sizes_pr2714` - Tests size replacement
@@ -242,7 +242,7 @@ Contains direct frontend specific functionality tests:
 **Important Note**: The legacy frontend uses class-based tests (`def test_*(self):`) while the direct frontend uses standalone functions (`def test_*(nvfuser_direct_test):`). Only actual pytest test methods (with `self` parameter) are counted for the legacy frontend.
 
 - **Legacy Frontend**: 133 actual pytest test methods in `tests/python/test_python_frontend.py` (6 additional functions start with `test_` but are not pytest methods)
-- **Direct Frontend**: 118 actual pytest test functions in `tests/python/direct/test_python_frontend.py`
+- **Direct Frontend**: 119 actual pytest test functions in `tests/python/direct/test_python_frontend.py`
 - **Direct Repro**: 32 tests in `tests/python/direct/test_repro.py`
 - **Direct Python**: 7 tests in `tests/python/direct/test_python_direct.py`
 - **Total Direct Tests**: 153 tests across 3 files
