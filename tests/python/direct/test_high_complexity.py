@@ -16,6 +16,7 @@ import random
 import itertools
 import math
 from functools import partial
+from typing import List
 
 
 def test_broadcast_in_dim_with_dynamic_shapes(nvfuser_direct_test):
@@ -793,3 +794,127 @@ def test_nanogpt_split_mha_linears(nvfuser_direct_test):
         eager_out = torch_func(*inputs, 1024, 16)
         for idx in range(len(eager_out)):
             nvfuser_direct_test.assertEqual(eager_out[idx], nvf_out[idx])
+
+
+def test_prim_layer_norm_fwd(nvfuser_direct_test):
+    input_size = [64, 128, 1024]
+    dtype = torch.float32
+    device = "cuda"
+    inputs = [
+        torch.randn(*input_size, device=device, requires_grad=True),
+        torch.nn.Parameter(torch.randn(input_size[2], dtype=dtype, device=device)),
+        torch.nn.Parameter(torch.randn(input_size[2], dtype=dtype, device=device)),
+    ]
+
+    def primitive_definition(
+        inputs: torch.Tensor,
+        weight: torch.Tensor,
+        bias: torch.Tensor,
+        normalization_axis: int,
+        keepdim: bool,
+    ) -> torch.Tensor:
+        mean = inputs.mean(normalization_axis, keepdim=keepdim)
+        diff = inputs - mean
+        diff_sq = diff * diff
+        var = diff_sq.mean(normalization_axis, keepdim=keepdim)
+        pre_shift_scale_norm_output = (inputs - mean) / torch.sqrt(var + 1e-12)
+        norm_output = weight * pre_shift_scale_norm_output + bias
+        return norm_output
+
+    def nvfuser_fusion(
+        fd: FusionDefinition,
+        normalization_axis: int,
+        norm_size: int,
+        input_shape: List[int],
+        eps: float,
+        keepDim: bool,
+    ) -> None:
+        inputs = fd.define_tensor(
+            shape=[-1, -1, -1],
+            contiguity=[True, True, True],
+            dtype=DataType.Float,
+        )
+        weights = fd.define_tensor(shape=[-1], contiguity=[True], dtype=DataType.Float)
+        bias = fd.define_tensor(shape=[-1], contiguity=[True], dtype=DataType.Float)
+        sum0 = fd.ops.sum(inputs, dims=[normalization_axis], keepdim=keepDim)
+        norm_const = fd.define_scalar(norm_size)
+        mean = fd.ops.div(sum0, norm_const)
+        diff = fd.ops.sub(inputs, mean)
+        diff_sq = fd.ops.mul(diff, diff)
+        sum1 = fd.ops.sum(diff_sq, dims=[normalization_axis], keepdim=keepDim)
+        var = fd.ops.div(sum1, norm_const)
+        eps_const = fd.define_scalar(eps)
+        var_eps = fd.ops.add(var, eps_const)
+        invstd = fd.ops.rsqrt(var_eps)
+        pre_scale_bias = fd.ops.mul(diff, invstd)
+        weights_bcast = fd.ops.broadcast_in_dim(
+            weights, shape=input_shape, broadcast_dims=[2]
+        )
+        scale = fd.ops.mul(pre_scale_bias, weights_bcast)
+        bias_bcast = fd.ops.broadcast_in_dim(
+            bias, shape=input_shape, broadcast_dims=[2]
+        )
+        out = fd.ops.add(scale, bias_bcast)
+        fd.add_output(out)
+        fd.add_output(mean)
+        fd.add_output(invstd)
+
+    def nvfuser_fusion_var_mean(
+        fd: FusionDefinition,
+        normalization_axis: int,
+        norm_size: int,
+        input_shape: List[int],
+        eps: float,
+        keepDim: bool,
+    ) -> None:
+        inputs = fd.define_tensor(
+            shape=[-1, -1, -1],
+            contiguity=[True, True, True],
+            dtype=DataType.Float,
+        )
+        weights = fd.define_tensor(shape=[-1], contiguity=[True], dtype=DataType.Float)
+        bias = fd.define_tensor(shape=[-1], contiguity=[True], dtype=DataType.Float)
+        var, mean = fd.ops.var_mean(
+            inputs, dims=[normalization_axis], correction=0, keepdim=keepDim
+        )
+        eps_const = fd.define_scalar(eps)
+        var_eps = fd.ops.add(var, eps_const)
+        invstd = fd.ops.rsqrt(var_eps)
+        diff = fd.ops.sub(inputs, mean)
+        pre_scale_bias = fd.ops.mul(diff, invstd)
+        weights_bcast = fd.ops.broadcast_in_dim(
+            weights, shape=input_shape, broadcast_dims=[2]
+        )
+        scale = fd.ops.mul(pre_scale_bias, weights_bcast)
+        bias_bcast = fd.ops.broadcast_in_dim(
+            bias, shape=input_shape, broadcast_dims=[2]
+        )
+        out = fd.ops.add(scale, bias_bcast)
+        fd.add_output(out)
+        fd.add_output(mean)
+        fd.add_output(invstd)
+
+    fusion_func_1 = partial(
+        nvfuser_fusion,
+        normalization_axis=2,
+        norm_size=inputs[0].size()[2],
+        input_shape=inputs[0].size(),
+        eps=1e-12,
+        keepDim=True,
+    )
+    nvf_out, _ = nvfuser_direct_test.exec_nvfuser(fusion_func_1, inputs)
+
+    fusion_func_2 = partial(
+        nvfuser_fusion_var_mean,
+        normalization_axis=2,
+        norm_size=inputs[0].size()[2],
+        input_shape=inputs[0].size(),
+        eps=1e-12,
+        keepDim=True,
+    )
+    nvf_var_mean_out, _ = nvfuser_direct_test.exec_nvfuser(fusion_func_2, inputs)
+
+    eager_out = primitive_definition(inputs[0], inputs[1], inputs[2], 2, True)
+
+    nvfuser_direct_test.assertEqual(eager_out, nvf_out[0])
+    nvfuser_direct_test.assertEqual(eager_out, nvf_var_mean_out[0])

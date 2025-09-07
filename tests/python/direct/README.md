@@ -77,8 +77,8 @@ The following tests are complex and will be moved to tests/python/direct/test_hi
 - `test_cat_qwen2_v2` - Tests concatenation for Qwen2 v2 model
 - `test_nanogpt_mha_dpa` - Tests NanoGPT multi-head attention
 - `test_nanogpt_split_mha_linears` - Tests NanoGPT split MHA linear layers
+- `test_prim_layer_norm_fwd` - Tests layer normalization forward pass
 
-- `test_prim_layer_norm_fwd` - Tests layer normalization forward pass (127 lines)
 - `test_prim_rms_norm_fwd` - Tests RMS normalization forward pass (65 lines)
 
 ### Tests Only in Direct Frontend (Not in Main)
