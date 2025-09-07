@@ -73,7 +73,6 @@ The following tests are complex and will be moved to tests/python/direct/test_hi
 - `test_cat_symbolic` - Tests symbolic concatenation (86 lines)
 - `test_slice_error_checks` - Tests slice error checking (128 lines)
 
-- `test_stride_order_with_explicit_broadcast` - Tests stride order with explicit broadcast
 - `test_random_distinct_values` - Tests random distinct value generation (100 lines)
 - `test_deterministic_random` - Tests deterministic random number generation
 - `test_uniform_range` - Tests uniform range generation (230 lines)
@@ -166,6 +165,7 @@ Both test files contain these 73 common tests:
 - `test_select` - Tensor selection operations
 - `test_signbit` - Tests sign bit operations
 - `test_squeeze` - Tensor squeezing operations
+- `test_stride_order_with_explicit_broadcast` - Tests stride order with explicit broadcast
 - `test_sum_sliced_reshape_to_broadcast` - Tests sum sliced reshape to broadcast
 - `test_take_along_axis` - Take along axis operations
 - `test_tensor_ndim` - Tensor dimensionality
@@ -242,7 +242,7 @@ Contains direct frontend specific functionality tests:
 **Important Note**: The legacy frontend uses class-based tests (`def test_*(self):`) while the direct frontend uses standalone functions (`def test_*(nvfuser_direct_test):`). Only actual pytest test methods (with `self` parameter) are counted for the legacy frontend.
 
 - **Legacy Frontend**: 133 actual pytest test methods in `tests/python/test_python_frontend.py` (6 additional functions start with `test_` but are not pytest methods)
-- **Direct Frontend**: 117 actual pytest test functions in `tests/python/direct/test_python_frontend.py`
+- **Direct Frontend**: 118 actual pytest test functions in `tests/python/direct/test_python_frontend.py`
 - **Direct Repro**: 32 tests in `tests/python/direct/test_repro.py`
 - **Direct Python**: 7 tests in `tests/python/direct/test_python_direct.py`
 - **Total Direct Tests**: 153 tests across 3 files

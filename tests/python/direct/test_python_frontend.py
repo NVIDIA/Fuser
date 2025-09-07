@@ -1323,6 +1323,45 @@ def test_embedding(
     torch.testing.assert_close(nvf_out[0], ref_out)
 
 
+def test_stride_order_with_explicit_broadcast(nvfuser_direct_test):
+    inputs = [
+        torch.randn(3, device="cuda").unsqueeze(-1),
+        torch.randn(2, 3, device="cuda").unsqueeze(-1).expand(2, 3, 4).transpose(2, 0),
+        torch.randn(5 * 960, device="cuda").as_strided(
+            (5, 4, 1, 5, 16), (960, 48, 16, 192, 1)
+        ),
+        torch.randn(6, device="cuda").as_strided((2, 16, 3), (3, 0, 1)),
+    ]
+
+    def fusion_func(fd: FusionDefinition):
+        t0 = fd.from_pytorch(inputs[0])
+        t1 = fd.from_pytorch(inputs[1])
+        t2 = fd.from_pytorch(inputs[2])
+        t3 = fd.define_tensor(
+            shape=[-1, 16, 3],
+            contiguity=[None, True, True],
+            dtype=DataType.Float,
+            stride_order=[1, 2, 0],
+            is_cpu=False,
+        )
+
+        t0_b = fd.ops.broadcast(t0, [True, False, False])
+        t4 = fd.ops.add(t0_b, t1)
+        c0 = fd.define_scalar(3.0)
+        t5 = fd.ops.add(t2, c0)
+        t6 = fd.ops.mul(t3, c0)
+
+        fd.add_output(t4)
+        fd.add_output(t5)
+        fd.add_output(t6)
+
+    nvf_out, _ = nvfuser_direct_test.exec_nvfuser(fusion_func, inputs)
+    eager_out = inputs[0] + inputs[1]
+    nvfuser_direct_test.assertEqual(nvf_out[0], inputs[0] + inputs[1])
+    nvfuser_direct_test.assertEqual(nvf_out[1], inputs[2] + 3.0)
+    nvfuser_direct_test.assertEqual(nvf_out[2], inputs[3] * 3.0)
+
+
 def test_output_stride_order(nvfuser_direct_test):
     inputs = [
         torch.arange(0, 24).reshape(2, 3, 4).cuda().float(),
