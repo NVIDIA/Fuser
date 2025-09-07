@@ -7,7 +7,13 @@ import torch
 import torch._refs as refs
 import torch._prims as prims
 
+import io
+from contextlib import redirect_stdout, redirect_stderr
+import pytest
+
 from nvfuser_direct import FusionDefinition, DataType
+import itertools
+from functools import partial
 
 
 def test_broadcast_in_dim_with_dynamic_shapes(nvfuser_direct_test):
@@ -170,3 +176,118 @@ def test_cat_symbolic(nvfuser_direct_test):
 
     nvfuser_direct_test.assertEqual(nvf_out[0], t27)
     nvfuser_direct_test.assertEqual(nvf_out[1], t28)
+
+
+def test_slice_error_checks(nvfuser_direct_test):
+    inputs = [
+        [torch.randn(10, 10, device="cuda")],
+        [torch.randn(5, 5, device="cuda")],
+    ]
+
+    def check_start_indices(fd: FusionDefinition, acts) -> None:
+        T0 = fd.from_pytorch(acts[0])
+        T1 = fd.ops.slice(
+            T0, start_indices=[-1, -2], end_indices=[5, 5], strides=[7, 7]
+        )
+        fd.add_output(T1)
+
+    def check_end_indices(fd: FusionDefinition, acts) -> None:
+        T0 = fd.from_pytorch(acts[0])
+        T1 = fd.ops.slice(T0, start_indices=[3, 4], end_indices=[1, 2], strides=[1, 1])
+        fd.add_output(T1)
+
+    def check_strides(fd: FusionDefinition, acts) -> None:
+        T0 = fd.from_pytorch(acts[0])
+        T1 = fd.ops.slice(T0, start_indices=[0, 0], end_indices=[5, 5], strides=[5, 5])
+        fd.add_output(T1)
+
+    def check_tensor_dims(fd: FusionDefinition, acts) -> None:
+        T0 = fd.from_pytorch(acts[0])
+        T1 = fd.ops.slice(
+            T0, start_indices=[0, 0, 0], end_indices=[4, 4, 4], strides=[1, 1, 1]
+        )
+        fd.add_output(T1)
+
+    def check_slice_dims_start(fd: FusionDefinition, acts) -> None:
+        T0 = fd.from_pytorch(acts[0])
+        T1 = fd.ops.slice(
+            T0, start_indices=[0, 0, 0], end_indices=[4, 4], strides=[1, 1]
+        )
+        fd.add_output(T1)
+
+    def check_slice_dims_end(fd: FusionDefinition, acts) -> None:
+        T0 = fd.from_pytorch(acts[0])
+        T1 = fd.ops.slice(
+            T0, start_indices=[0, 0], end_indices=[4, 4, 4], strides=[1, 1]
+        )
+        fd.add_output(T1)
+
+    def check_slice_dims_stride(fd: FusionDefinition, acts) -> None:
+        T0 = fd.from_pytorch(acts[0])
+        T1 = fd.ops.slice(
+            T0, start_indices=[0, 0], end_indices=[4, 4], strides=[1, 1, 1]
+        )
+        fd.add_output(T1)
+
+    def check_nostrides(fd: FusionDefinition, acts) -> None:
+        T0 = fd.from_pytorch(acts[0])
+        T1 = fd.ops.slice(T0, start_indices=[2, 2], end_indices=[4, 4])
+        fd.add_output(T1)
+
+    def legal(fd: FusionDefinition, acts) -> None:
+        T0 = fd.from_pytorch(acts[0])
+        T1 = fd.ops.slice(T0, start_indices=[6, 6], end_indices=[8, 8], strides=[1, 1])
+        fd.add_output(T1)
+
+    checks = [
+        (
+            check_start_indices,
+            "Slice operation start_indices must be greater than or equal to 0. .*",
+        ),
+        (
+            check_end_indices,
+            "Slice operation end_indices must be greater than or equal to start_indices. .*",
+        ),
+        (
+            check_strides,
+            "nvFuser Limitation: All slice operation strides must be of const size 1.*",
+        ),
+        (
+            check_tensor_dims,
+            "Number of tensor dimensions does not match slice dimensions! .*",
+        ),
+        (
+            check_slice_dims_start,
+            "Slice start_indices and strides don't match! .*",
+        ),
+        (
+            check_slice_dims_end,
+            "Slice indexing attribute dimensions don't match! .*",
+        ),
+        (
+            check_slice_dims_stride,
+            "Slice start_indices and strides don't match! .*",
+        ),
+        (check_nostrides, None),
+        (legal, None),
+    ]
+
+    # Redirect stdout and stderr messages to log to avoid false positives in
+    # the CI.
+    stdout_capture = io.StringIO()
+    stderr_capture = io.StringIO()
+    for combination in itertools.product(inputs, checks):
+        inputs, (check, error_msg) = combination
+        if error_msg is None:
+            out = nvfuser_direct_test.exec_nvfuser(
+                partial(check, acts=inputs),
+                inputs,
+            )
+        else:
+            with pytest.raises(RuntimeError, match=error_msg), redirect_stdout(
+                stdout_capture
+            ), redirect_stderr(stderr_capture):
+                nvfuser_direct_test.exec_nvfuser(
+                    partial(check, acts=inputs),
+                    inputs,
+                )

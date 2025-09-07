@@ -72,6 +72,7 @@ The following tests are complex and will be moved to tests/python/direct/test_hi
 - `test_broadcast_in_dim_with_dynamic_shapes` - Tests broadcasting with dynamic shapes (79 lines)
 - `test_cat_symbolic` - Tests symbolic concatenation (86 lines)
 - `test_slice_error_checks` - Tests slice error checking (128 lines)
+
 - `test_stride_order_with_explicit_broadcast` - Tests stride order with explicit broadcast
 - `test_random_distinct_values` - Tests random distinct value generation (100 lines)
 - `test_deterministic_random` - Tests deterministic random number generation
