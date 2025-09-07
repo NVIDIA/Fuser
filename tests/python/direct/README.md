@@ -67,20 +67,6 @@ The following tests only exist in legacy frontend:
 - `test_cuda_code_and_scheduled_fusion_ir_strings` - Tests CUDA code generation (101 lines)
 - `test_arithmetic_ops` - TODO: Tests __neg__ and __abs__ arithmetic operations
 
-**General tests to add with more Than 50 Lines of Code:**
-The following tests are complex and will be moved to tests/python/direct/test_high_complexity.py.
-- `test_broadcast_in_dim_with_dynamic_shapes` - Tests broadcasting with dynamic shapes
-- `test_cat_symbolic` - Tests symbolic concatenation
-- `test_slice_error_checks` - Tests slice error checking
-- `test_deterministic_random` - Tests deterministic random number generation
-- `test_uniform_range` - Tests uniform range generation
-- `test_cat_qwen2_v2` - Tests concatenation for Qwen2 v2 model
-- `test_nanogpt_mha_dpa` - Tests NanoGPT multi-head attention
-- `test_nanogpt_split_mha_linears` - Tests NanoGPT split MHA linear layers
-- `test_prim_layer_norm_fwd` - Tests layer normalization forward pass
-
-- `test_prim_rms_norm_fwd` - Tests RMS normalization forward pass (65 lines)
-
 ### Tests Only in Direct Frontend (Not in Main)
 
 The following 12 tests exist in `tests/python/direct/test_python_frontend.py` but are **NOT** present in `tests/python/test_python_frontend.py`:
@@ -183,6 +169,20 @@ Both test files contain these 80 common tests:
 - `test_zero_size_dim` - Tests zero size dimensions
 
 ### Additional Direct Frontend Test Files
+
+#### test_high_complexity.py
+The following 10 tests are moved from `tests/python/test_python_frontend.py` to `tests/python/direct/test_high_complexity.py`:
+
+- `test_broadcast_in_dim_with_dynamic_shapes` - Tests broadcasting with dynamic shapes
+- `test_cat_symbolic` - Tests symbolic concatenation
+- `test_slice_error_checks` - Tests slice error checking
+- `test_deterministic_random` - Tests deterministic random number generation
+- `test_uniform_range` - Tests uniform range generation
+- `test_cat_qwen2_v2` - Tests concatenation for Qwen2 v2 model
+- `test_nanogpt_mha_dpa` - Tests NanoGPT multi-head attention
+- `test_nanogpt_split_mha_linears` - Tests NanoGPT split MHA linear layers
+- `test_prim_layer_norm_fwd` - Tests layer normalization forward pass
+- `test_prim_rms_norm_fwd` - Tests RMS normalization forward pass
 
 #### test_repro.py (32 tests)
 The following 19 issue-specific tests have been migrated from the main frontend to the direct frontend and are now available in `tests/python/direct/test_repro.py`:

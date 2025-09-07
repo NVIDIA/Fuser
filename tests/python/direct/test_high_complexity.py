@@ -918,3 +918,67 @@ def test_prim_layer_norm_fwd(nvfuser_direct_test):
 
     nvfuser_direct_test.assertEqual(eager_out, nvf_out[0])
     nvfuser_direct_test.assertEqual(eager_out, nvf_var_mean_out[0])
+
+
+def test_prim_rms_norm_fwd(nvfuser_direct_test):
+    input_size = [64, 128, 1024]
+    dtype = torch.float32
+    device = "cuda"
+    inputs = [
+        torch.randn(*input_size, device=device, requires_grad=True),
+        torch.nn.Parameter(torch.randn(input_size[2], dtype=dtype, device=device)),
+    ]
+
+    def primitive_definition(
+        inputs: torch.Tensor,
+        weight: torch.Tensor,
+        normalization_axis: int,
+        keepdim: bool,
+    ) -> torch.Tensor:
+        var = inputs.mul(inputs).mean(normalization_axis, keepdim)
+        pre_shift_scale_norm_output = inputs / torch.sqrt(var + 1e-12)
+        norm_output = weight * pre_shift_scale_norm_output
+        return norm_output
+
+    def nvfuser_fusion(
+        fd: FusionDefinition,
+        normalization_axis: int,
+        norm_size: int,
+        input_shape: List[int],
+        eps: float,
+        keepDim: bool,
+    ) -> None:
+        inputs = fd.define_tensor(
+            shape=[-1, -1, -1],
+            contiguity=[True, True, True],
+            dtype=DataType.Float,
+        )
+        weights = fd.define_tensor(shape=[-1], contiguity=[True], dtype=DataType.Float)
+        inputs_sq = fd.ops.mul(inputs, inputs)
+        sum0 = fd.ops.sum(inputs_sq, dims=[normalization_axis], keepdim=keepDim)
+        norm_const = fd.define_scalar(norm_size)
+        var = fd.ops.div(sum0, norm_const)
+        eps_const = fd.define_scalar(eps)
+        var_eps = fd.ops.add(var, eps_const)
+        invstd = fd.ops.rsqrt(var_eps)
+        pre_scale = fd.ops.mul(inputs, invstd)
+        weights_bcast = fd.ops.broadcast_in_dim(
+            weights, shape=input_shape, broadcast_dims=[2]
+        )
+        out = fd.ops.mul(pre_scale, weights_bcast)
+        fd.add_output(out)
+        fd.add_output(invstd)
+
+    fusion_func = partial(
+        nvfuser_fusion,
+        normalization_axis=2,
+        norm_size=inputs[0].size()[2],
+        input_shape=inputs[0].size(),
+        eps=1e-12,
+        keepDim=True,
+    )
+    nvf_out, _ = nvfuser_direct_test.exec_nvfuser(fusion_func, inputs)
+
+    eager_out = primitive_definition(inputs[0], inputs[1], 2, True)
+
+    nvfuser_direct_test.assertEqual(eager_out, nvf_out[0])
