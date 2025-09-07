@@ -65,11 +65,10 @@ The following tests only exist in legacy frontend:
 - `test_fusion_profiler_user_schedule` - Tests user-defined fusion profiling; Cuda 13 incompatibility
 - `test_fusion_profiler_with_noncodegen_kernels` - Tests profiling with non-codegen kernels; Cuda 13 incompatibility
 - `test_cuda_code_and_scheduled_fusion_ir_strings` - Tests CUDA code generation (101 lines)
+- `test_arithmetic_ops` - TODO: Tests __neg__ and __abs__ arithmetic operations
 
 **General tests to add with more Than 50 Lines of Code:**
 The following tests are complex and will be moved to tests/python/direct/test_high_complexity.py.
-- `test_all_dim_var_mean` - Tests variance and mean across all dimensions
-- `test_arithmetic_ops` - Tests various arithmetic operations
 - `test_broadcast_in_dim_with_dynamic_shapes` - Tests broadcasting with dynamic shapes (79 lines)
 - `test_cat_symbolic` - Tests symbolic concatenation (86 lines)
 - `test_mismatched_input_types` - Tests mismatched input type handling (50 lines)
@@ -107,6 +106,7 @@ The following 12 tests exist in `tests/python/direct/test_python_frontend.py` bu
 Both test files contain these 73 common tests:
 - `test_addcmul` - Addcmul operations
 - `test_alias_output_to_input` - Output aliasing to input
+- `test_all_dim_var_mean` - Tests variance and mean across all dimensions
 - `test_bcast_squeeze_replace_aliased_output` - Tests broadcast squeeze with aliased output replacement; Tests issue 3833 with reshape and set operations
 - `test_broadcast_and_stride_order` - Tests broadcast operations with specific stride order handling
 - `test_allocation_domain_concretization` - Tests allocation domain handling
@@ -240,7 +240,7 @@ Contains direct frontend specific functionality tests:
 **Important Note**: The legacy frontend uses class-based tests (`def test_*(self):`) while the direct frontend uses standalone functions (`def test_*(nvfuser_direct_test):`). Only actual pytest test methods (with `self` parameter) are counted for the legacy frontend.
 
 - **Legacy Frontend**: 133 actual pytest test methods in `tests/python/test_python_frontend.py` (6 additional functions start with `test_` but are not pytest methods)
-- **Direct Frontend**: 116 actual pytest test functions in `tests/python/direct/test_python_frontend.py`
+- **Direct Frontend**: 117 actual pytest test functions in `tests/python/direct/test_python_frontend.py`
 - **Direct Repro**: 31 tests in `tests/python/direct/test_repro.py`
 - **Direct Python**: 6 tests in `tests/python/direct/test_python_direct.py`
 - **Total Direct Tests**: 153 tests across 3 files

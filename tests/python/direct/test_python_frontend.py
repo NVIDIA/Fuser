@@ -2438,3 +2438,25 @@ def test_right_shift_logical_sizeof_dtype(nvfuser_direct_test):
             fusion_func, [current_input, num_bits]
         )
         nvfuser_direct_test.assertEqual(nvf_out[0], expected_output)
+
+
+def test_all_dim_var_mean(nvfuser_direct_test):
+    inputs = [torch.randn(2, 2, 2, device="cuda")]
+
+    # use decorator to create fusion_func
+    def fusion_decorator(correction):
+        def fusion_func(fd: FusionDefinition):
+            t0 = fd.from_pytorch(inputs[0])
+            t1, t2 = fd.ops.var_mean(t0, [0, 1, 2], correction)
+            fd.add_output(t1)
+            fd.add_output(t2)
+
+        return fusion_func
+
+    list_of_test_cases = [0, 1]
+    for correction in list_of_test_cases:
+        fuser_result, _ = nvfuser_direct_test.exec_nvfuser(
+            fusion_decorator(correction), inputs
+        )
+        torch_result = torch.var_mean(inputs[0], [0, 1, 2], bool(correction))
+        nvfuser_direct_test.assertEqual(fuser_result, torch_result)
