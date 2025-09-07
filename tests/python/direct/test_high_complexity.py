@@ -620,3 +620,94 @@ def test_cat_qwen2_v2(nvfuser_direct_test):
     ]
 
     nvfuser_direct_test.exec_nvfuser(qwen2_cat_fusion_2, inputs)
+
+
+def test_nanogpt_mha_dpa(nvfuser_direct_test):
+    inputs = [
+        torch.randn(16, 16, 128, 128, device="cuda"),
+        torch.randn(1, 1, 1024, 1024, device="cuda"),
+    ]
+
+    def nvfuser_fusion(fd: FusionDefinition, prob) -> None:
+        T0 = fd.define_tensor(
+            shape=[-1, -1, -1, -1],
+            contiguity=[True, True, True, True],
+            dtype=DataType.Float,
+            is_cpu=False,
+        )
+        T1 = fd.define_tensor(
+            shape=[1, 1, -1, -1],
+            contiguity=[None, None, True, True],
+            dtype=DataType.Float,
+            is_cpu=False,
+        )
+        S2 = fd.define_scalar(0.125000, dtype=DataType.Double)
+        T3 = fd.ops.mul(T0, S2)
+        T4 = fd.ops.slice(
+            T1,
+            start_indices=[0, 0, 0, 0],
+            end_indices=[1, 1, 128, 128],
+            strides=[1, 1, 1, 1],
+        )
+        S5 = fd.define_scalar(0.00000, dtype=DataType.Double)
+        T6 = fd.ops.eq(S5, T4)
+        T7 = fd.ops.broadcast_in_dim(
+            T6, shape=[16, 16, 128, 128], broadcast_dims=[0, 1, 2, 3]
+        )
+        S8 = fd.define_scalar(float("-inf"), dtype=DataType.Double)
+        T9 = fd.ops.where(T7, S8, T3)
+        S10 = fd.define_scalar(-1, dtype=DataType.Int)
+        S11 = fd.define_scalar(4, dtype=DataType.Int)
+        S12 = fd.ops.add(S10, S11)
+        T13 = fd.ops.max(T9, dims=[3], keepdim=False, dtype=DataType.Null)
+        T14 = fd.ops.broadcast_in_dim(
+            T13, shape=[16, 16, 128, 1], broadcast_dims=[0, 1, 2]
+        )
+        T15 = fd.ops.broadcast_in_dim(
+            T14, shape=[16, 16, 128, 128], broadcast_dims=[0, 1, 2, 3]
+        )
+        T16 = fd.ops.sub(T9, T15)
+        T17 = fd.ops.exp(T16)
+        S18 = fd.define_scalar(-1, dtype=DataType.Int)
+        S19 = fd.define_scalar(4, dtype=DataType.Int)
+        S20 = fd.ops.add(S18, S19)
+        T21 = fd.ops.sum(T17, dims=[3], keepdim=False, dtype=DataType.Null)
+        T22 = fd.ops.broadcast_in_dim(
+            T21, shape=[16, 16, 128, 1], broadcast_dims=[0, 1, 2]
+        )
+        T23 = fd.ops.broadcast_in_dim(
+            T22, shape=[16, 16, 128, 128], broadcast_dims=[0, 1, 2, 3]
+        )
+        T24 = fd.ops.div(T17, T23)
+        S25 = fd.define_scalar(16, dtype=DataType.Int)
+        S26 = fd.define_scalar(16, dtype=DataType.Int)
+        S27 = fd.define_scalar(128, dtype=DataType.Int)
+        S28 = fd.define_scalar(128, dtype=DataType.Int)
+        S29 = fd.define_scalar(0.00000, dtype=DataType.Double)
+        S30 = fd.define_scalar(1.00000, dtype=DataType.Double)
+        T31 = fd.ops.uniform(S29, S30, shape=[S25, S26, S27, S28], dtype=DataType.Float)
+        S32 = fd.define_scalar(1.0 - prob, dtype=DataType.Double)
+        T33 = fd.ops.lt(T31, S32)
+        T34 = fd.ops.cast(T33, dtype=DataType.Float)
+        T35 = fd.ops.mul(T24, T34)
+        S36 = fd.define_scalar(1.0 / (1.0 - prob), dtype=DataType.Double)
+        T37 = fd.ops.mul(T35, S36)
+        fd.add_output(T37)
+
+    def torch_def(acts, bias, n_seq_len, n_head_dim, prob):
+        att = acts * (1.0 / math.sqrt(n_head_dim))
+        att = att.masked_fill(bias[:, :, :n_seq_len, :n_seq_len] == 0, float("-inf"))
+        att = torch.nn.functional.softmax(att, dim=-1)
+        att = torch.nn.functional.dropout(att, p=prob)
+        return att
+
+    # NOTE: The dropout probabilities need to be set to 0 elements zeroed out
+    # in order to match implementations as eager and nvFuser do not have matching
+    # blocking.
+    nvf_out, _ = nvfuser_direct_test.exec_nvfuser(
+        partial(nvfuser_fusion, prob=0.0), inputs
+    )
+    eager_out = torch_def(inputs[0], inputs[1], 128, 64, 0.0)
+
+    for idx in range(len(nvf_out)):
+        nvfuser_direct_test.assertEqual(eager_out, nvf_out[idx])
