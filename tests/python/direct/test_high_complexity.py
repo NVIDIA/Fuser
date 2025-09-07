@@ -14,6 +14,7 @@ import pytest
 from nvfuser_direct import FusionDefinition, DataType
 import random
 import itertools
+import math
 from functools import partial
 
 
@@ -355,3 +356,76 @@ def test_deterministic_random(nvfuser_direct_test):
                 nvfuser_direct_test.assertEqual(sful[0], sless[0])
         # Restore the RNG state
         torch.cuda.set_rng_state(state)
+
+
+# Test that the range of generated uniform values spans the proper range
+# https://github.com/NVIDIA/Fuser/issues/1653
+def test_uniform_range(nvfuser_direct_test):
+    dtypes = [DataType.Double, DataType.Float, DataType.Half, DataType.BFloat16]
+
+    def run_test(left: float, right: float, dtype: DataType):
+        samples_per_run = 2**29
+
+        def fusion_fn(fd: FusionDefinition):
+            # Generate enough values to reasonably expect to sample the ends of the range
+            S0 = fd.define_scalar(left, dtype=DataType.Double)
+            S1 = fd.define_scalar(right, dtype=DataType.Double)
+            output = fd.ops.uniform(S0, S1, shape=[samples_per_run], dtype=dtype)
+            fd.add_output(output)
+
+        with FusionDefinition() as fd:
+            fusion_fn(fd)
+
+        output = fd.execute([])[0]
+
+        x = output.amax()
+        m = output.amin()
+        mu = output.type(torch.float64).mean()
+        # Repeat to improve chances of sampling extreme values
+        num_runs = 100
+        num_samples = num_runs * samples_per_run
+        for i in range(num_runs):
+            u = fd.execute([])[0]
+            x = torch.maximum(x, u.amax())
+            m = torch.minimum(m, u.amin())
+            mu = mu + (u.type(torch.float64).mean() - mu) / (i + 2)
+
+        # round-trip cast to find expected min
+        theomin = torch.tensor(left, dtype=output.dtype).item()
+        theomu = 0.5 * (right + left)
+        theomax = torch.nextafter(
+            torch.tensor(right, dtype=output.dtype),
+            torch.tensor(left, dtype=output.dtype),
+        )
+
+        assert (
+            m.item() >= theomin
+        ), f"{output.dtype} expected min generated value {theomin} but found {m.item()}"
+        assert (
+            m.item() <= theomax
+        ), f"{output.dtype} expected max generated value {theomax} but found {x.item()}"
+
+        # uniform distribution on [0, 1) has mean 0.5 and variance 1/12
+        # The standard error of the mean is then 1/sqrt(12 *
+        # num_samples). We use the precision at 1.0 as a surrogate for
+        # the contribution of rounding to the standard error of the
+        # finite-precision mean.
+        assert abs(mu.item() - theomu) < (right - left) * max(
+            right - x.item(), 3.0 / math.sqrt(12 * num_samples)
+        ), f"{output.dtype} expected mean generated value {theomu} but found {mu.item()}"
+
+        if dtype not in [DataType.Float, DataType.Double]:
+            # For reduced precision types, check that we sample the extreme
+            # values. We don't do this for full precision types since the
+            # amount of samples required would be too large.
+            assert (
+                m.item() == theomin
+            ), f"{output.dtype} expected min generated value {theomin} but found {m.item()}"
+            assert (
+                x.item() == theomax
+            ), f"{output.dtype} expected max generated value {theomax} but found {x.item()}"
+
+    # test standard and non-standard uniform
+    for left, right in [[0.0, 1.0], [-1.5, 3.7]]:
+        for dtype in dtypes:
+            run_test(left, right, dtype)
