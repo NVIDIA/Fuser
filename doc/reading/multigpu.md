@@ -70,16 +70,16 @@ primitives such as `TensorView.split` and `IterDomain.parallelize`.
 
 ## Parallelisms
 
-This section goes through several common parallelisms and see how they can be
-represented and implemented in fusion IR. For simplicity, I'm going to use the
-above MLP block as the running example. However, these parallelisms can often be
-applied other parts of a Transformer model such as MHA, RMSNorm and embedding
-layers.
+This section walks through several common forms of parallelism and shows how
+they can be represented and implemented in fusion IR. For simplicity, I'll use
+the above MLP block as the running example. These parallelisms also apply to
+other parts of a Transformer, such as MHA, RMSNorm and embedding layers. For
+clarity, I'll only cover forward propagation -- backpropagation typically shards
+tensors in the same way.
 
-### Tensor Parallelism
+### Tensor Parallelism (TP)
 
-To apply [tensor
-parallelism](https://docs.nvidia.com/nemo-framework/user-guide/latest/nemotoolkit/features/parallelisms.html#tensor-parallelism),
+To apply [TP](https://docs.nvidia.com/nemo-framework/user-guide/latest/nemotoolkit/features/parallelisms.html#tensor-parallelism),
 the user calls the `FusionDefinitionWrapper` with the following DTensors:
 * `inp` with placement `Replicated()`
 * `up_w` with placement `Shard(0)`
@@ -165,14 +165,13 @@ This fusion IR then goes through segmentation, (intra-GPU) scheduling, device
 lowering, and host IR lowering. Eventually, the `linear`s and the `gelu` become
 CUDA kernels and the `sum` becomes a call to `ncclAllReduce`.
 
-### Sequence Parallelism
+### Sequence Parallelism (SP)
 
-[Sequence
-parallelism](https://docs.nvidia.com/nemo-framework/user-guide/latest/nemotoolkit/features/parallelisms.html#sequence-parallelism)
-extends tensor parallelism by sharding not just the weights but also input and
+[SP](https://docs.nvidia.com/nemo-framework/user-guide/latest/nemotoolkit/features/parallelisms.html#sequence-parallelism)
+extends TP by sharding not just the parameters but also input and
 output activations.
 
-To apply sequence parallelism, the user calls the `FusionDefinitionWrapper` with the following DTensors:
+To apply SP, the user calls the `FusionDefinitionWrapper` with the following DTensors:
 * `inp` with placement `Shard(0)`
 * `up_w` with placement `Shard(0)`
 * `down_w` with placement `Shard(1)`
@@ -307,7 +306,10 @@ test](https://github.com/NVIDIA/Fuser/blob/main/tests/cpp/test_overlap.cpp#L57)
 shows how the fusion IR represents an overlapped allgather with GEMM using
 ring-based decomposition.
 
-### Distributed Data Parallelism
+### Distributed Data Parallelism (DDP)
+
+[DDP](https://docs.nvidia.com/nemo-framework/user-guide/latest/nemotoolkit/features/parallelisms.html#distributed-data-parallelism)
+shards activations not parameters.
 
 ```
  in: [t, h]                           up_w: [4h,  h]
@@ -328,15 +330,64 @@ ring-based decomposition.
                                        |
                                        | linear
                                        |
-                                 [t, h, r{4h/d}]
+                                 [t, h, r{4h}]
                                  / \
                                 d
 ```
 
-### Fully Sharded Data Parallelism
+nvFuser adopts the
+[DeviceMesh](https://docs.pytorch.org/tutorials/recipes/distributed_device_mesh.html)
+concept from XLA and PyTorch.
 
-I skip sharding propagation and decomposition, and present the fusion IR just
-before segmentation:
+So far, I've assumed a one-dimensional device mesh. In practice, users
+often want to combine multiple forms of parallelism, which leads to
+multi-dimensional device meshes.
+
+For example, consider 1,024 GPUs distributed across 128 nodes with 8 GPUs per
+node.  Suppose the user wants to apply DDP across nodes and TP within each node.
+They can define a two-dimensional DeviceMesh of shape `[128, 8]`, using
+`deviceIdx.y` (size 128) to shard across nodes and `deviceIdx.x` (size 8) to
+shard across GPUs within a node.
+
+In this setup, the fusion IR just before segmentation becomes:
+```
+ in: [t, h]                           up_w: [4h,  h]
+     / \                                     /\
+    dy                                      dx
+                        |
+                        | linear
+                        |
+                     [t, 4h, r{h}]
+                     /\  /\
+                    dy  dx
+                        |
+                        | gelu
+                        |
+                     [t, 4h]                down_w: [h, 4h]
+                     /\  /\                             /\
+                    dy  dx                             dx
+                                       |
+                                       | linear
+                                       |
+                               [t, h, dx, r{4h/dx}]
+                               / \
+                              dy
+                                       |
+                                       | sum
+                                       |
+                                  [t, h, r{dx}]
+                                  / \
+                                 dy
+```
+
+### Fully Sharded Data Parallelism (FSDP)
+
+[FSDP](https://docs.pytorch.org/tutorials/intermediate/FSDP_tutorial.html)
+shards both activations and parameters. Before forward and backward, sharded
+parameters are all-gathered into unsharded parameters.
+
+For simplicity, I'll skip sharding propagation and decomposition, and present the
+fusion IR just before segmentation:
 ```
                                       up_w: [4h,  h]
                                              /\
@@ -362,13 +413,13 @@ before segmentation:
                                        |
                                        | linear
                                        |
-                                 [t, h, r{4h/d}]
+                                 [t, h, r{4h}]
                                  / \
                                 d
 ```
 
 The two `set`s become calls to `ncclAllGather`. During host IR optimization,
-nvFuser will (a) deallocate all-gathered weights right after they are used, and
+nvFuser will (a) deallocate all-gathered parameters right after they are used, and
 (b) assign the two allgathers to a different CUDA stream so they can be
 overlapped with computation.
 
