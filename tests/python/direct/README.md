@@ -68,7 +68,6 @@ The following tests only exist in legacy frontend:
 
 **General tests to add with more Than 50 Lines of Code:**
 The following tests are complex and will be moved to tests/python/direct/test_high_complexity.py.
-- `test_all_dim_var_mean` - Tests variance and mean across all dimensions
 - `test_arithmetic_ops` - Tests various arithmetic operations
 - `test_broadcast_in_dim_with_dynamic_shapes` - Tests broadcasting with dynamic shapes (79 lines)
 - `test_cat_symbolic` - Tests symbolic concatenation (86 lines)
@@ -107,6 +106,7 @@ The following 12 tests exist in `tests/python/direct/test_python_frontend.py` bu
 Both test files contain these 73 common tests:
 - `test_addcmul` - Addcmul operations
 - `test_alias_output_to_input` - Output aliasing to input
+- `test_all_dim_var_mean` - Tests variance and mean across all dimensions
 - `test_bcast_squeeze_replace_aliased_output` - Tests broadcast squeeze with aliased output replacement; Tests issue 3833 with reshape and set operations
 - `test_broadcast_and_stride_order` - Tests broadcast operations with specific stride order handling
 - `test_allocation_domain_concretization` - Tests allocation domain handling
