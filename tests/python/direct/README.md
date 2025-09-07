@@ -74,10 +74,10 @@ The following tests are complex and will be moved to tests/python/direct/test_hi
 - `test_slice_error_checks` - Tests slice error checking
 - `test_deterministic_random` - Tests deterministic random number generation
 - `test_uniform_range` - Tests uniform range generation
-- `test_cat_qwen2_v2` - Tests concatenation for Qwen2 v2 model (201 lines)
+- `test_cat_qwen2_v2` - Tests concatenation for Qwen2 v2 model
 - `test_nanogpt_mha_dpa` - Tests NanoGPT multi-head attention
-
 - `test_nanogpt_split_mha_linears` - Tests NanoGPT split MHA linear layers
+
 - `test_prim_layer_norm_fwd` - Tests layer normalization forward pass (127 lines)
 - `test_prim_rms_norm_fwd` - Tests RMS normalization forward pass (65 lines)
 
