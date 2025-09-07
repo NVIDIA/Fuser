@@ -12,6 +12,7 @@ from contextlib import redirect_stdout, redirect_stderr
 import pytest
 
 from nvfuser_direct import FusionDefinition, DataType
+import random
 import itertools
 from functools import partial
 
@@ -291,3 +292,66 @@ def test_slice_error_checks(nvfuser_direct_test):
                     partial(check, acts=inputs),
                     inputs,
                 )
+
+
+# Test that deterministic random ops (uniform, normal) give same results as
+# their stochastic versions
+def test_deterministic_random(nvfuser_direct_test):
+    inputs = [
+        torch.randn([5, 9], device="cuda", dtype=torch.float32),
+    ]
+
+    for rand_op_name in ["uniform", "normal"]:
+
+        def fusion_func(fd: FusionDefinition, *, deterministic) -> None:
+            t1 = fd.from_pytorch(inputs[0])
+            a = fd.define_scalar(0.3, DataType.Float)
+            b = fd.define_scalar(1.7, DataType.Float)
+            rand_op = getattr(fd.ops, rand_op_name)
+            if deterministic:
+                rng_seed = fd.define_scalar(DataType.Int)
+                rng_offset = fd.define_scalar(DataType.Int)
+                u = rand_op(
+                    a, b, shape=[5, 9], rng_seed=rng_seed, rng_offset=rng_offset
+                )
+            else:
+                u = rand_op(a, b, shape=[5, 9])
+            t2 = fd.ops.mul(t1, u)
+            fd.add_output(t2)
+
+        # exec_nvfuser tests printing and serde, so run that for each definition first
+        nvfuser_direct_test.exec_nvfuser(
+            partial(fusion_func, deterministic=False), inputs
+        )
+        nvfuser_direct_test.exec_nvfuser(
+            partial(fusion_func, deterministic=True), [inputs[0], 0, 0]
+        )
+
+        # Now instantiate FusionDefinitions in each mode
+        with FusionDefinition() as fd_stoch:
+            fusion_func(fd_stoch, deterministic=False)
+        with FusionDefinition() as fd_det:
+            fusion_func(fd_det, deterministic=True)
+
+        # Get the current RNG state to restore after this test.
+        state = torch.cuda.get_rng_state()
+        # Test with three different random seeds
+        for _ in range(3):
+            max_seed = 2**63 - 1
+            seed = random.randint(0, max_seed)
+            torch.manual_seed(seed)
+
+            stateful_sequence = [fd_stoch.execute(inputs) for _ in range(10)]
+            # Each call to uniform with DataType::Float will advance the offset by one
+            # See Note [Divide offset by 4] in rng.cpp for more information
+            stateless_sequence = [
+                fd_det.execute([inputs[0], seed, rng_offset])
+                for rng_offset in range(10)
+            ]
+
+            for i, (sful, sless) in enumerate(
+                zip(stateful_sequence, stateless_sequence)
+            ):
+                nvfuser_direct_test.assertEqual(sful[0], sless[0])
+        # Restore the RNG state
+        torch.cuda.set_rng_state(state)
