@@ -7,6 +7,7 @@ from nvfuser_direct import FusionDefinition, DataType, version
 import torch
 import pytest
 import io
+import re
 from contextlib import redirect_stdout, redirect_stderr
 
 
@@ -349,3 +350,53 @@ def test_enable_disable_options():
         fd.execute(
             inps, _enable_options=["fuse_matmul"], _disable_options=["matmul_expr_eval"]
         )
+
+
+# Test that we properly raise an error when passing inputs with the wrong types
+def test_mismatched_input_types():
+    scalar_inp = 2.0
+    tensor_inp = torch.rand((15,), dtype=torch.float32, device="cuda:0")
+
+    def fusion_func(fd: FusionDefinition):
+        T0 = fd.define_tensor(
+            shape=[-1],
+            contiguity=[True],
+            dtype=DataType.Float,
+            is_cpu=False,
+            stride_order=[0],
+        )
+        s0 = fd.define_scalar()
+        T1 = fd.ops.mul(T0, s0)
+        fd.add_output(T1)
+
+    with FusionDefinition() as fd:
+        fusion_func(fd)
+
+    with pytest.raises(
+        Exception,
+        match="Expected input 0, .*, to be an at::Tensor but got scalar 2",
+    ):
+        nvf_out = fd.execute([scalar_inp, scalar_inp])
+
+    with pytest.raises(
+        Exception,
+        match=re.escape(
+            "Expected input 1, d2, to be a scalar but got float tensor of rank 1"
+        ),
+    ):
+        nvf_out = fd.execute([tensor_inp, tensor_inp])
+
+    with pytest.raises(
+        Exception,
+        match="Expected input 0, .*, to be bound to a tensor of dtype float, but got a tensor of dtype __half",
+    ):
+        wrong_tensor_inp = torch.rand((15,), dtype=torch.float16, device="cuda:0")
+        nvf_out = fd.execute([wrong_tensor_inp, 2.0])
+
+    with pytest.raises(
+        Exception,
+        match=re.escape(
+            "Scalar value (2,1) is not compatible with the expected data type: double."
+        ),
+    ):
+        nvf_out = fd.execute([tensor_inp, 2.0 + 1.0j])
