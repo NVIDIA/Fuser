@@ -71,11 +71,9 @@ The following tests only exist in legacy frontend:
 The following tests are complex and will be moved to tests/python/direct/test_high_complexity.py.
 - `test_broadcast_in_dim_with_dynamic_shapes` - Tests broadcasting with dynamic shapes (79 lines)
 - `test_cat_symbolic` - Tests symbolic concatenation (86 lines)
-- `test_mismatched_input_types` - Tests mismatched input type handling (50 lines)
-- `test_random_distinct_values` - Tests random distinct value generation (100 lines)
-- `test_reduction_transpose_sched_issue2317` - Tests reduction transpose scheduling
 - `test_slice_error_checks` - Tests slice error checking (128 lines)
 - `test_stride_order_with_explicit_broadcast` - Tests stride order with explicit broadcast
+- `test_random_distinct_values` - Tests random distinct value generation (100 lines)
 - `test_deterministic_random` - Tests deterministic random number generation
 - `test_uniform_range` - Tests uniform range generation (230 lines)
 - `test_cat_qwen2_v2` - Tests concatenation for Qwen2 v2 model (201 lines)
@@ -109,6 +107,7 @@ Both test files contain these 73 common tests:
 - `test_all_dim_var_mean` - Tests variance and mean across all dimensions
 - `test_bcast_squeeze_replace_aliased_output` - Tests broadcast squeeze with aliased output replacement; Tests issue 3833 with reshape and set operations
 - `test_broadcast_and_stride_order` - Tests broadcast operations with specific stride order handling
+- `test_broadcast_in_dim_with_dynamic_shapes` - Tests broadcasting with dynamic shapes (79 lines)
 - `test_allocation_domain_concretization` - Tests allocation domain handling
 - `test_allocation_domain_index_select` - Tests index select with allocation domains
 - `test_basic` - Basic fusion operations
@@ -184,8 +183,8 @@ Both test files contain these 73 common tests:
 
 ### Additional Direct Frontend Test Files
 
-#### test_repro.py (31 tests)
-The following 18 issue-specific tests have been migrated from the main frontend to the direct frontend and are now available in `tests/python/direct/test_repro.py`:
+#### test_repro.py (32 tests)
+The following 19 issue-specific tests have been migrated from the main frontend to the direct frontend and are now available in `tests/python/direct/test_repro.py`:
 
 - `test_issue1129` - Tests fix for issue 1129 (reshape and index_select with strided tensors)
 - `test_issue1246` - Tests fix for issue 1246 (concatenation with empty tensors and strided tensors)
@@ -201,6 +200,7 @@ The following 18 issue-specific tests have been migrated from the main frontend 
 - `test_issue1953` - Tests fix for issue 1953 (complex operations with strided tensors and multiple data types)
 - `test_issue2275_repro1` - Tests fix for issue 2275 (unpadded concatenation operations with complex tensor manipulations); Maps to legacy `test_unpadded_catop_issue2275_repro1`
 - `test_issue2275_repro2` - Tests fix for issue 2275 (unpadded concatenation operations with trigonometric functions); Maps to legacy `test_unpadded_catop_issue2275_repro2`
+- `test_issue2317` - Tests fix for issue 2317 (reduction transpose scheduling); Maps to legacy `test_reduction_transpose_sched_issue2317`
 - `test_issue2545` - Tests fix for issue 2545 (complex operations with empty tensors and concatenation); Maps to legacy `test_remove_empty_issue_2545`
 - `test_issue2549` - Tests fix for issue 2549 (broadcast_in_dim and division operations); Maps to `test_fix_2549`
 - `test_issue2755` - Tests fix for issue 2755 (slice operations with negation)
@@ -234,6 +234,7 @@ Contains direct frontend specific functionality tests:
 - `test_fusion_execution_cache` - Tests fusion execution caching; Maps to legacy `test_selected_device`
 - `test_repro_script_for` - Tests reproduction script generation; Maps to legacy `test_repro_script_generation`
 - `test_enable_disable_options` - Tests enable/disable options for scheduler selection; Tests matmul scheduler vs expr_eval scheduler options
+- `test_mismatched_input_types` - Tests mismatched input type handling
 
 ### Test Count Summary
 
@@ -241,8 +242,8 @@ Contains direct frontend specific functionality tests:
 
 - **Legacy Frontend**: 133 actual pytest test methods in `tests/python/test_python_frontend.py` (6 additional functions start with `test_` but are not pytest methods)
 - **Direct Frontend**: 117 actual pytest test functions in `tests/python/direct/test_python_frontend.py`
-- **Direct Repro**: 31 tests in `tests/python/direct/test_repro.py`
-- **Direct Python**: 6 tests in `tests/python/direct/test_python_direct.py`
+- **Direct Repro**: 32 tests in `tests/python/direct/test_repro.py`
+- **Direct Python**: 7 tests in `tests/python/direct/test_python_direct.py`
 - **Total Direct Tests**: 153 tests across 3 files
 - **Shared Tests**: 75 tests between legacy and direct frontend
 - **Legacy-Only Tests**: 22 tests (not yet migrated)
