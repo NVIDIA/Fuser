@@ -1,9 +1,9 @@
-# SPDX-FileCopyrightText: Copyright (c) 2023-present NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2025-present NVIDIA CORPORATION & AFFILIATES.
 # All rights reserved.
 # SPDX-License-Identifier: BSD-3-Clause
 import torch
 
-from ._C import DataType
+from ._C_DIRECT import DataType
 
 import ctypes
 import functools
