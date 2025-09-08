@@ -13,7 +13,7 @@ if torch.cuda.get_device_capability() < (10, 0):
         allow_module_level=True,
     )
 
-from python.utils import (
+from python.direct_utils import (
     FLOAT4_E2M1_MAX,
     FLOAT8_E4M3_MAX,
     dequantize_to_dtype,

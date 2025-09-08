@@ -2136,6 +2136,67 @@ tuple
 )",
       py::return_value_policy::reference);
   ops.def(
+      "cutlass_nvfp4_grouped_mm",
+      [](TensorView* mat1,
+         TensorView* mat2,
+         TensorView* scale1,
+         TensorView* scale2,
+         TensorView* alpha,
+         TensorView* problem_sizes,
+         TensorView* expert_offsets,
+         TensorView* sf_offsets,
+         PrimDataType dtype) -> TensorView* {
+        return cutlass_nvfp4_grouped_mm(
+            mat1,
+            mat2,
+            scale1,
+            scale2,
+            alpha,
+            problem_sizes,
+            expert_offsets,
+            sf_offsets,
+            dtype);
+      },
+      R"(
+Cutlass NVFP4 Grouped Matrix Multiplication.
+
+Parameters
+----------
+mat1 : TensorView
+    First set of matrices
+mat2 : TensorView
+    Second set of matrices
+scale1 : TensorView
+    Scale tensor for mat1
+scale2 : TensorView
+    Scale tensor for mat2
+alpha : TensorView
+    Alpha tensor
+problem_sizes : TensorView
+    Problem sizes tensor
+expert_offsets : TensorView
+    Expert offsets tensor
+sf_offsets : TensorView
+    SF offsets tensor
+dtype : PrimDataType
+    Output tensor type
+
+Returns
+-------
+TensorView
+    Result of grouped matrix multiplication
+)",
+      py::arg("mat1"),
+      py::arg("mat2"),
+      py::arg("scale1"),
+      py::arg("scale2"),
+      py::arg("alpha"),
+      py::arg("problem_sizes"),
+      py::arg("expert_offsets"),
+      py::arg("sf_offsets"),
+      py::arg("dtype") = DataType::BFloat16,
+      py::return_value_policy::reference);
+  ops.def(
       "scaled_mm",
       [](TensorView* mat1,
          TensorView* mat2,
