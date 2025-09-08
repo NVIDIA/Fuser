@@ -454,39 +454,51 @@ a `DeviceMesh` can cover only a subset of GPUs. [Pipeline
 parallelism](https://docs.nvidia.com/nemo-framework/user-guide/latest/nemotoolkit/features/parallelisms.html#pipeline-parallelism)
 is a good example of this.
 
-Consider a model with three MLP blocks executed sequentially. Suppose the user wants to
-pipeline-parallelize the model on three GPUs, with each GPU holding one MLP block. This setup
-can be expressed in the fusion IR as follows:
+Consider a model with three MLP blocks (as defined in the [User API](#user-api)
+section) executed sequentially[^2]. Suppose the user wants to pipeline-parallelize
+the model on three GPUs, with each GPU holding one MLP block. This setup can be
+expressed in the fusion IR as follows:
+
+[^2]: This is just for illustration. It's redundant to run two linear layers
+    sequentially without a non-linearity in between.
 
 ```
          [t, h]    [4h, h]    [h, 4h]
         mesh={0}   mesh={0}   mesh={0}
          / \          |          |
-        s             |          |
+        s*            |          |
             |---------+----------+
-            MLP0
+            mlp0
             |
          [t, h]    [4h, h]    [h, 4h]
                    mesh={1}   mesh={1}
                       |          |
                       |          |
             |---------+----------+
-            MLP1
+            mlp1
             |
          [t, h]    [4h, h]    [h, 4h]
                    mesh={2}   mesh={2}
                       |          |
                       |          |
             |---------+----------+
-            MLP2
+            mlp2
             |
          [t, h]
 ```
 
+For brevity, in the above figure, I encapsulate all the ops in an MLP block
+into a single MLP op.
+
 The parameters for the first MLP block are placed on DeviceMesh `{0}`, the
 second on `{1}` and the third on `{2}`. The input activations are
-stream-parallelized, meaning that they are split into microbatches and processed
-in a loop.
+stream-parallelized, meaning that they are split into microbatches and
+processed in a loop. In fusion IR, this is represented in the input
+`TensorView`'s loop domain as an outer split of `t` by `s`, which is
+parallelized on `ParallelType::Stream`. The allocation domain of the input
+`TensorView` remains unsplit because the entire batch stays alive during the
+loop. For conciseness, I use `s*` to represent a split that only exists in loop
+but not in allocation.
 
 After propagation and decomposition, the fusion IR becomes:
 
@@ -494,9 +506,9 @@ After propagation and decomposition, the fusion IR becomes:
    in_0: [t, h]    [4h, h]    [h, 4h]
         mesh={0}   mesh={0}   mesh={0}
          / \          |          |
-        s             |          |
+        s*            |          |
             |---------+----------+
-            MLP0
+            mlp0
             |
   out_0: [t, h]
         mesh={0}
@@ -510,7 +522,7 @@ After propagation and decomposition, the fusion IR becomes:
          / \          |          |
         s             |          |
             |---------+----------+
-            MLP1
+            mlp1
             |
   out_1: [t, h]
         mesh={1}
@@ -524,12 +536,12 @@ After propagation and decomposition, the fusion IR becomes:
          / \          |          |
         s             |          |
             |---------+----------+
-            MLP2
+            mlp2
             |
   out_2: [t, h]
         mesh={2}
          / \
-        s
+        s*
 ```
 
 As a result of decomposition, two `set` operations are added: one to send
@@ -537,41 +549,38 @@ activations from GPU 0 to GPU 1, and the other from GPU 1 to GPU 2.
 
 This fusion IR is then lowered to the following host IR:
 
-```
+```python
 for i in range(3):
-  in_0 = ShardByStream(in, i)
-  out_0 = MLP0(in_0, up_w_0, down_w_0)
-  SendTo(out_0, 1)
-  in_1 = RecvFrom(0)
-  out_1 = MLP1(in_1, up_w_1, down_w_1)
-  SendTo(out_1, 2)
-  in_2 = RecvFrom(1)
-  out_2 = ShardByStream(out, i)
-  out_2 = MLP2(in_2, up_w_2, down_w_2)
+  out_0 = mlp0(in_0, up_w_0, down_w_0, i)
+  send_to(out_0, 1)
+  in_1 = recv_from(0)
+  out_1 = mlp1(in_1, up_w_1, down_w_1, i)
+  send_to(out_1, 2)
+  in_2 = recv_from(1)
+  out_2 = mlp2(in_2, up_w_2, down_w_2, i)
 ```
 
-Host IR follows an MPMD (Multiple Program, Multiple Data) paradigm. Each GPU's host IR
-only needs to process the `TensorView`s that live on that GPU. The
-collective host IR above can then be specialized into the following GPU-specific host IR:
+Host IR follows an MPMD (Multiple Program, Multiple Data) paradigm. Each GPU's
+host IR only needs to process the `TensorView`s that live on that GPU. The
+collective host IR above can then be specialized into the following
+GPU-specific host IR:
 
-```
+```python
 # GPU 0
 for i in range(3):
-  in_0 = ShardByStream(in, i)
-  out_0 = MLP0(in_0, up_w_0, down_w_0)
-  SendTo(out_0, 1)
+  out_0 = mlp0(in_0, up_w_0, down_w_0, i)
+  send_to(out_0, 1)
 
 # GPU 1
 for i in range(3):
-  in_1 = RecvFrom(0)
-  out_1 = MLP1(in_1, up_w_1, down_w_1)
-  SendTo(out_1, 2)
+  in_1 = recv_from(0)
+  out_1 = mlp1(in_1, up_w_1, down_w_1, i)
+  send_to(out_1, 2)
 
 # GPU 2
 for i in range(3):
-  in_2 = RecvFrom(1)
-  out_2 = ShardByStream(out, i)
-  out_2 = MLP2(in_2, up_w_2, down_w_2)
+  in_2 = recv_from(1)
+  out_2 = mlp2(in_2, up_w_2, down_w_2, i)
 ```
 
 Similar to [GEMM-communication overlap], nvFuser can assign different loop
