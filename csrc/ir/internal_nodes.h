@@ -254,12 +254,12 @@ class ScatterOp : public Expr {
   using Expr::Expr;
   ScatterOp(
       IrBuilderPasskey,
-      ScatterOpType type,
       Val* out,
       Val* self,
       int64_t dim,
       Val* index,
-      Val* src);
+      Val* src,
+      std::optional<BinaryOpType> accumulate_op = std::nullopt);
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
@@ -295,8 +295,13 @@ class ScatterOp : public Expr {
 
   IterDomain* getIndexedID() const;
 
-  ScatterOpType getScatterOpType() const {
-    return attribute<ScatterOpType>(1);
+  bool accumulate() const {
+    return attribute<bool>(1);
+  }
+
+  BinaryOpType accumulateOp() const {
+    NVF_ERROR(accumulate());
+    return attribute<BinaryOpType>(2);
   }
 };
 
@@ -2518,11 +2523,12 @@ class ForLoop final : public Expr {
       Val* start,
       Val* stop,
       Val* step,
-      bool vectorize,
-      Val* vectorize_shift,
-      bool unroll_required,
-      CircularBufferLoopStage circular_buffer_loop_stage,
-      int64_t circular_buffer_loop_stage_depth);
+      bool vectorize = false,
+      Val* vectorize_shift = nullptr,
+      bool unroll_required = false,
+      CircularBufferLoopStage circular_buffer_loop_stage =
+          CircularBufferLoopStage::NotApplicable,
+      int64_t circular_buffer_loop_stage_depth = 0);
 
   ForLoop(
       IrBuilderPasskey passkey,

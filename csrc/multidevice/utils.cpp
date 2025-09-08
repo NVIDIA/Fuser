@@ -19,6 +19,7 @@
 #include <ops/all_ops.h>
 #include <statement_guard.h>
 #include <transform_replay.h>
+#include <type.h>
 
 namespace nvfuser {
 
@@ -254,13 +255,53 @@ std::vector<int64_t> unshardedSizes(
     const TensorView* tv,
     c10::IntArrayRef sizes) {
   std::vector<int64_t> unsharded_sizes = sizes.vec();
-  for (ParallelType parallel_type : kParallelTypeDIDs) {
-    const int64_t sharded_axis = getShardedLogicalAxis(tv, parallel_type);
+  for (ParallelType parallel_type : deviceAndStreamParallelTypes()) {
+    IterDomain* sharded_id = getShardedIterDomain(tv, parallel_type);
+    if (sharded_id == nullptr) {
+      continue;
+    }
+
+    const int64_t sharded_axis = getProducingLogicalAxis(tv, sharded_id);
     if (sharded_axis == -1) {
       continue;
     }
-    unsharded_sizes.at(sharded_axis) *= tv->getDeviceMesh().size(parallel_type);
+
+    auto multiplier = [&]() -> int64_t {
+      if (parallel_type == ParallelType::Stream) {
+        // Hack for MultiDeviceExecutor.  MultiDeviceExecutor looks for
+        // ParallelType::Stream only in logical domains and assumes a
+        // stream-parallelized dimension is always fully allocated.  So we set
+        // the multiplier to 1 when `sharded_id` is a logical IterDomain. This
+        // will have to change when FusionExecutorCache requires a logical
+        // dimension to be stream-parallelized, both loop and allocation.  Refer
+        // to
+        // https://github.com/NVIDIA/Fuser/blob/f8e84e52296cdecd318dd2ce904139616d7bd434/tests/cpp/test_overlap.cpp#L155
+        // for an example. An alternative to consider is to create a new
+        // ParallelType for stream parallelization and use it in
+        // FusionExecutorCache.
+        if (std::find(
+                tv->getLogicalDomain().begin(),
+                tv->getLogicalDomain().end(),
+                sharded_id) != tv->getLogicalDomain().end()) {
+          return 1;
+        }
+
+        NVF_ERROR(
+            sharded_id->extent()->isConstInt(),
+            "DIDs/Stream extent is expected to be constant: ",
+            sharded_id);
+        return sharded_id->extent()->evaluate().as<int64_t>();
+      }
+
+      if (isParallelTypeDeviceDim(parallel_type)) {
+        return tv->getDeviceMesh().size(parallel_type);
+      }
+
+      NVF_THROW("Unexpected parallel type: ", parallel_type);
+    }();
+    unsharded_sizes.at(sharded_axis) *= multiplier;
   }
+
   return unsharded_sizes;
 }
 

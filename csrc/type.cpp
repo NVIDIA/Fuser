@@ -756,7 +756,7 @@ static const char* parallel_type2string(ParallelType t) {
     case ParallelType::TIDx:
       return "threadIdx.x";
     case ParallelType::Stream:
-      return "StreamIdx";
+      return "streamIdx";
     case ParallelType::Vectorize:
       return "V";
     case ParallelType::Unroll:
@@ -1453,13 +1453,6 @@ std::ostream& operator<<(std::ostream& out, const UnaryOpType uotype) {
 
 std::ostream& operator<<(std::ostream& out, const BinaryOpType botype) {
   return out << binary_op_type2string(botype);
-}
-
-std::ostream& operator<<(std::ostream& out, const ScatterOpType sotype) {
-  if (sotype == ScatterOpType::Set) {
-    return out << "scatter";
-  }
-  NVF_THROW("No scatterOp type found for scatterOp.");
 }
 
 std::ostream& operator<<(std::ostream& out, const TernaryOpType totype) {

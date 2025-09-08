@@ -11,13 +11,11 @@
 #include <ir/cloner.h>
 #include <ir/utils.h>
 #include <kernel.h>
-#include <C++20/compare>
 
 #include <ir/all_nodes.h>
 #include <ir/container.h>
 #include <type_promotion.h>
 
-#include <complex>
 #include <cstdint>
 
 namespace nvfuser {

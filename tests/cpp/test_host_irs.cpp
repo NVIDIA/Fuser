@@ -5,7 +5,11 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <iostream>
+
 #include <gtest/gtest.h>
+
+#include <c10/cuda/CUDAStream.h>
 
 #include <fusion.h>
 #include <fusion_segmenter.h>
@@ -19,14 +23,7 @@
 #include <runtime/executor_kernel_arg.h>
 #include <tests/cpp/utils.h>
 
-#include <algorithm>
-#include <iostream>
-
-#include <c10/cuda/CUDAStream.h>
-
-namespace nvfuser {
-
-namespace hir {
+namespace nvfuser::hir {
 
 using HostIrTestParams = std::tuple<bool>;
 using HostIrTest = NVFuserFixtureParamTest<HostIrTestParams>;
@@ -391,7 +388,7 @@ TEST_P(HostIrTest, ForLoops) {
   auto* stop = IrBuilder::create<Val>(kForLoopStop, DataType::Index);
   auto* step = IrBuilder::create<Val>(kForLoopStep, DataType::Index);
   auto* for_loop = IrBuilder::create<ForLoop>(
-      /*IterDomain=*/makeContigConcreteTensor({0})->axis(0), // unused
+      /*iter_domain=*/makeContigConcreteTensor({0})->axis(0), // unused
       index,
       start,
       stop,
@@ -1449,6 +1446,4 @@ TEST_F(HirReductionOpTest, NonPreAllocatedOutputs) {
       << "Expected output: " << expected_out;
 }
 
-} // namespace hir
-
-} // namespace nvfuser
+} // namespace nvfuser::hir
