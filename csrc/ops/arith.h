@@ -814,10 +814,14 @@ NVF_API TensorView* scan(
     int64_t dim,
     BinaryOpType op_type,
     bool is_exclusive = false,
-    Val* init = nullptr);
+    Val* init = nullptr,
+    Val* discount = nullptr);
 
 //! This is an alias for scan(tv, dim, BinaryOpType::Add, zeroVal())
-NVF_API TensorView* prefixSum(TensorView* tv, int64_t dim);
+NVF_API TensorView* prefixSum(
+    TensorView* tv,
+    int64_t dim,
+    Val* discount = nullptr);
 
 //! Another alias for PyTorch's cumsum
 NVF_API inline TensorView* cumsum(TensorView* tv, int64_t dim) {

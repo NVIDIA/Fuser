@@ -1489,20 +1489,47 @@ void IndexLowering::handle(const ScanOp* scop) {
       scop->out(),
       /*override_index=*/{{scan_alloc_id, lagged_index}});
 
-  // Cache the tensors to scalars, to make building the where expression simpler
-  Val* next_val = IrBuilder::create<Val>(scop->in()->dtype());
-  IrBuilder::create<LoadStoreOp>(LoadStoreOpType::Set, next_val, in);
+  // Cache the current input value to a scalar for easier manipulation
+  Val* current_val = IrBuilder::create<Val>(scop->in()->dtype());
+  IrBuilder::create<LoadStoreOp>(LoadStoreOpType::Set, current_val, in);
 
-  // Convert prev_sum to a scalar Val so that we don't need to allocate a new
-  // TensorView for it.
+  // Convert prev_sum_tensor to a scalar Val so that we don't need to allocate a
+  // new TensorView for it. This holds the accumulated result from the previous
+  // iteration.
   Val* prev_sum = IrBuilder::create<Val>(scop->out()->dtype());
   IrBuilder::create<LoadStoreOp>(
       LoadStoreOpType::Set, prev_sum, prev_sum_tensor);
 
+  // For the first iteration (scan_index == scan_loop->start()), use the init
+  // value For subsequent iterations, use the previously computed accumulated
+  // result
   prev_sum = where(gt(scan_index, scan_loop->start()), prev_sum, scop->init());
 
-  Expr* expr =
-      IrBuilder::create<BinaryOp>(scop->opType(), out, prev_sum, next_val);
+  Expr* expr = nullptr;
+  if (scop->isExclusive()) {
+    // For exclusive scan, output[i] should contain the scan of elements [0,
+    // i-1] Get the previous input value (input[i-1])
+    const auto prev_input_tensor = lowerDstIndex(
+        scop->in(),
+        /*override_index=*/{{scan_alloc_id, lagged_index}});
+    Val* prev_input_val = IrBuilder::create<Val>(scop->in()->dtype());
+    IrBuilder::create<LoadStoreOp>(
+        LoadStoreOpType::Set, prev_input_val, prev_input_tensor);
+
+    // For the first position, use init value instead of previous input
+    prev_input_val =
+        where(gt(scan_index, scan_loop->start()), prev_input_val, scop->init());
+
+    // Exclusive scan: combine accumulated result with previous input
+    expr = IrBuilder::create<BinaryOp>(
+        scop->opType(), out, prev_sum, prev_input_val);
+  } else {
+    // For inclusive scan, output[i] should contain the scan of elements [0, i]
+    // This equals: prev_sum (accumulated [0, i-1]) op current_input_val
+    // (element at i)
+    expr =
+        IrBuilder::create<BinaryOp>(scop->opType(), out, prev_sum, current_val);
+  }
 
   pushBack(expr);
   GpuLower::current()->propagateExprInfo(scop, expr);

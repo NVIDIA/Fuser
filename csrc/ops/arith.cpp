@@ -2584,7 +2584,8 @@ TensorView* scan(
     int64_t dim,
     BinaryOpType op_type,
     bool is_exclusive,
-    Val* init) {
+    Val* init,
+    Val* discount_factor) {
   const std::vector<IterDomain*> logical_dom =
       TensorDomain::noReductions(in_tv->getLogicalDomain());
 
@@ -2602,7 +2603,20 @@ TensorView* scan(
   }
 
   DataType dtype = in_tv->dtype();
-  auto new_dom = ops::newOutputDomain({in_tv});
+
+  std::vector<IterDomain*> new_dom;
+  if (discount_factor == nullptr) {
+    new_dom = ops::newOutputDomain({in_tv});
+  } else {
+    new_dom = ops::newOutputDomain({in_tv, discount_factor});
+    dtype = promoteType(in_tv->dtype(), discount_factor->dtype());
+    in_tv = maybeCastOp(dtype, in_tv);
+    discount_factor = maybeCastOp(dtype, discount_factor);
+  }
+  // new_dom.at((size_t)dim) = IterDomainBuilder(new_dom.at((size_t)dim))
+  //                               .iter_type(IterType::Scan)
+  //                               .build();
+
   auto* td = IrBuilder::create<TensorDomain>(
       new_dom, TensorDomain::getContiguityFilledWith(new_dom, true));
   auto out_tv = IrBuilder::create<TensorView>(td, in_tv->dtype());
@@ -2613,17 +2627,26 @@ TensorView* scan(
   }
 
   IrBuilder::createInContainer<ScanOp>(
-      in_tv->container(), op_type, init, out_tv, in_tv, dim, is_exclusive);
+      in_tv->container(),
+      op_type,
+      init,
+      out_tv,
+      in_tv,
+      dim,
+      is_exclusive,
+      discount_factor);
 
   return out_tv;
 }
 
-TensorView* prefixSum(TensorView* tv, int64_t dim) {
+TensorView* prefixSum(TensorView* tv, int64_t dim, Val* discount) {
   return scan(
       tv,
       dim,
       BinaryOpType::Add,
-      /*init=*/tv->fusion()->zeroVal(tv->dtype()));
+      /*is_exclusive=*/false,
+      /*init=*/tv->fusion()->zeroVal(tv->dtype()),
+      /*discount=*/discount);
 }
 
 } // namespace nvfuser

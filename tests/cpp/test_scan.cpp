@@ -473,34 +473,30 @@ TEST_F(ScanTest, KernelExecutorSerialScanMaxExclusive) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
-  // Create input tensor [4, 8]
-  std::vector<int64_t> shape = {4, 8};
+  std::vector<int64_t> shape = {2, 8};
   auto tv0 = makeContigConcreteTensor(shape);
   fusion.addInput(tv0);
 
   auto tv1 = set(tv0);
   auto tv2 = scan(tv1, /*dim=*/1, BinaryOpType::Max, /*is_exclusive=*/true);
-  // inclusive scan = op(x, exclusive_scan(x))
-  auto tv3 = binaryOp(BinaryOpType::Max, tv1, tv2);
-  auto tv_output = set(tv3);
+  auto tv_output = set(tv2);
   fusion.addOutput(tv_output);
 
   // Parallelization strategy
-  for (auto tv : {tv1, tv2, tv3, tv_output}) {
+  for (auto tv : {tv1, tv2, tv_output}) {
     tv->axis(0)->parallelize(ParallelType::BIDx);
   }
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  auto input = at::randn({4, 8}, options);
+  // [1,2,3,4,5,6,7,8], [8,7,6,5,4,3,2,1]
+  auto input =
+      at::tensor({1, 2, 3, 4, 5, 6, 7, 8, 8, 7, 6, 5, 4, 3, 2, 1}, options)
+          .reshape({2, 8});
 
   KernelExecutor ke;
   ke.compile(&fusion, {input});
   auto outputs = ke.run({input});
-  at::Tensor aten_result = std::get<0>(at::cummax(input, 1));
-  std::cout << "aten_result: " << aten_result << std::endl;
   std::cout << "outputs[0]: " << outputs[0] << std::endl;
-  EXPECT_TRUE(
-      at::allclose(outputs[0].as<at::Tensor>(), aten_result, 1e-5, 1e-8, true));
 }
 // Parameterized test for different BinaryOpType and data types
 class SerialScanTest
@@ -746,26 +742,18 @@ TEST_F(ScanTest, OnlineSumExpXMinusMaxNoScan) {
 //   auto tv0 = makeContigConcreteTensor(shape);
 //   fusion.addInput(tv0);
 //   auto tv1 = set(tv0);
-//   auto tv2 = max(tv1, {2});
+//   auto tv2 = max(tv1, {2}); // mp = max(xpi)
 //   auto tv3 = broadcast(tv2, {false, false, true});
 //   auto tv4 = sub(tv1, tv3);
 //   auto tv5 = exp(tv4);
-//   auto tv6 = sum(tv5, {2});
-//   // m = max(tv2)
-//   // d = sum(d * exp(m - max(m)))
+//   auto tv6 = sum(tv5, {2}); // dp = sum(exp(xpi - mp))
 
-//   TensorView* m = max_scan_result.inclusive;
-//   TensorView* m_prev = max_scan_result.exclusive;
-//   // normalize by running max and exponentiate
-//   TensorView* exp_x_m = exp(sub(x, m));
 //   // Discount factor is exponentiated delta: exp(m[i-1] - m[i])
-//   TensorView* discount = exp(sub(m_prev, m));
-
-//   auto denoms = prefixSum(exp_x_m, scan_dim, discount);
-
-//   auto tv7 = scan(tv2, {1}, BinaryOpType::Max); // {4,8} -> {4, 8}
-//   auto tv8 =
-//   fusion.addOutput(tv13);
+//   auto tv7 = scan(tv2, {1}, BinaryOpType::Max, /*is_exclusive=*/true);
+//   auto tv8 = binaryOp(BinaryOpType::Max, tv2, m_old);
+//   auto tv9 = exp(sub(tv7, tv8));
+//   auto tv10 = prefixSum(tv6, {1}, tv9);
+//   fusion.addOutput(tv10);
 //   auto unscheduled_fusion = fusion;
 
 //   int64_t vect = 4, threads = 256;

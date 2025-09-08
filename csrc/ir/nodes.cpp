@@ -6337,7 +6337,8 @@ ScanOp::ScanOp(
     Val* out,
     Val* in,
     int64_t dim,
-    bool is_exclusive)
+    bool is_exclusive,
+    Val* discount_factor)
     : Expr(passkey) {
   addOutput(out);
   addInput(in);
@@ -6345,6 +6346,7 @@ ScanOp::ScanOp(
   addDataAttribute(op_type);
   addDataAttribute(dim);
   addDataAttribute(is_exclusive);
+  addDataAttribute(discount_factor);
 }
 
 std::string ScanOp::toString(int indent_size) const {
@@ -6357,7 +6359,10 @@ std::string ScanOp::toString(int indent_size) const {
   indent(ss, indent_size + 1)
       << "        init=" << init()->toInlineString() << ",\n";
   indent(ss, indent_size + 1)
-      << "        is_exclusive=" << isExclusive() << ")\n";
+      << "        is_exclusive=" << isExclusive() << ",\n";
+  indent(ss, indent_size + 1)
+      << "        discount_factor=" << discountFactor()->toInlineString()
+      << ")\n";
   return ss.str();
 }
 
