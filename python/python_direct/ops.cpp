@@ -2419,11 +2419,12 @@ TensorView* slice_fn(
     }
   }
 
+  size_t num_dims = TensorDomain::noReductions(arg->getLogicalDomain()).size();
   NVF_CHECK(
-      arg->nDims() == (int64_t)start_vec.size(),
+      num_dims == start_vec.size(),
       "Number of tensor dimensions does not match slice dimensions! "
       "Tensor-dims: ",
-      arg->nDims(),
+      num_dims,
       " Slice-dims: ",
       start_vec.size());
   NVF_CHECK(
@@ -2434,7 +2435,7 @@ TensorView* slice_fn(
       end_vec.size());
 
   std::vector<Slice> vec_slice;
-  for (const auto idx : arange(arg->domain()->noReductions().size())) {
+  for (const auto idx : arange(num_dims)) {
     // NOTE: there's an extra move, we can use emplace_back if we go write
     // some constructors for Slice.
     Val* start_idx = start_vec.at(idx);
