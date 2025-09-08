@@ -39,6 +39,7 @@ The `tests/python/direct` directory contains the following test files:
 - test_embedding.py
 - test_matmul.py
 - test_nan.py
+- test_optimization_passes.py
 - test_python_frontend.py
 - test_repro.py
 - test_sdpa.py
@@ -47,7 +48,6 @@ The `tests/python/direct` directory contains the following test files:
 - test_inline_definitions.py --- Inline definitions is not supported in direct bindings.
 - test_narrow_precision.py
 - test_normalization.py
-- test_optimization_passes.py
 - test_pointwise.py
 
 #### Legacy-Only test files
@@ -202,6 +202,7 @@ The following 10 tests are moved from `tests/python/test_python_frontend.py` to 
 - `test_nanogpt_split_mha_linears` - Tests NanoGPT split MHA linear layers
 - `test_prim_layer_norm_fwd` - Tests layer normalization forward pass
 - `test_prim_rms_norm_fwd` - Tests RMS normalization forward pass
+- `test_litgpt_variants_gpt_neox_like` - Migrated from legacy `test_optimization_passes.py`
 
 ## test_repro.py
 The following 19 issue-specific tests have been migrated from the main frontend to the direct frontend and are now available in `tests/python/direct/test_repro.py`:
@@ -227,6 +228,7 @@ The following 19 issue-specific tests have been migrated from the main frontend 
 - `test_issue2549` - Tests fix for issue 2549 (broadcast_in_dim and division operations); Maps to `test_fix_2549`
 - `test_issue2755` - Tests fix for issue 2755 (slice operations with negation)
 - `test_issue3192` - Mapped from legacy `test_squeeze_issue_3192` in `test_alias.py`
+- `test_issue3369` - Mapped from legacy `test_square_linear` in `test_optimization_passes.py`
 - `test_issue3292` - Tests fix for issue 3292 (complex tensor operations with manual normalization and padding)
 
 The following tests are from the original `tests/python/test_repro.py`.
