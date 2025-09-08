@@ -86,6 +86,7 @@ the user calls the `FusionDefinitionWrapper` with the following DTensors:
 * `down_w` with placement `Shard(1)`
 
 Therefore, nvFuser starts with the following fusion IR:
+
 ```
  inp: [t, h]                          up_w: [4h,  h]
                                              /\
@@ -107,6 +108,7 @@ Therefore, nvFuser starts with the following fusion IR:
 ```
 
 Then, nvFuser propagates shardings from inputs to outputs:
+
 ```
  in: [t, h]                           up_w: [4h,  h]
                                              /\
@@ -131,10 +133,12 @@ Then, nvFuser propagates shardings from inputs to outputs:
                                         r{d}
 ```
 
-Then, nvFuser decomposes every Expr that does both computation and communication
-so every Expr can be lowered to either host IR or kernel IR. In the above fusion
-IR, the second `linear` does both intra-GPU GEMM and inter-GPU reduction.
-Therefore, after decomposition, the fusion IR becomes:
+Then, nvFuser decomposes every `Expr` that performs both computation and
+communication. After decomposition, every `Expr` can be lowered to either host
+IR or kernel IR. In the above fusion IR, the second `linear` performs both
+intra-GPU GEMM and inter-GPU reduction. After decomposition, the fusion IR
+becomes:
+
 ```
  in: [t, h]                           up_w: [4h,  h]
                                              /\
@@ -177,6 +181,7 @@ To apply SP, the user calls the `FusionDefinitionWrapper` with the following DTe
 * `down_w` with placement `Shard(1)`
 
 Therefore, nvFuser starts with the following fusion IR:
+
 ```
  inp: [t, h]                          up_w: [4h,  h]
       / \                                    /\
@@ -198,6 +203,7 @@ Therefore, nvFuser starts with the following fusion IR:
 ```
 
 Then, nvFuser propagates shardings:
+
 ```
  inp: [t, h]                          up_w: [4h,  h]
       / \                                    /\
@@ -238,6 +244,7 @@ communication. There are two of them:
 2. The second `linear` runs a GEMM and redistributes the output.
 
 Therefore, after decomposition, the fusion IR becomes:
+
 ```
  inp: [t, h]
       / \
@@ -303,8 +310,9 @@ The tradeoffs are:
 
 [This
 test](https://github.com/NVIDIA/Fuser/blob/main/tests/cpp/test_overlap.cpp#L57)
-shows how the fusion IR represents an overlapped allgather with GEMM using
-ring-based decomposition.
+shows how the fusion IR represents a decomposed allgather with GEMM using
+ring-based scheme. This decomposition allows host IR optimizations to assign
+different loop iterations to different CUDA streams, enabling overlapping.
 
 ### Distributed Data Parallelism (DDP)
 
@@ -339,17 +347,18 @@ nvFuser adopts the
 [DeviceMesh](https://docs.pytorch.org/tutorials/recipes/distributed_device_mesh.html)
 concept from XLA and PyTorch.
 
-So far, I've assumed a one-dimensional device mesh. In practice, users
+So far, I've assumed a one-dimensional `DeviceMesh`. In practice, users
 often want to combine multiple forms of parallelism, which leads to
-multi-dimensional device meshes.
+multi-dimensional `DeviceMesh`es.
 
 For example, consider 1,024 GPUs distributed across 128 nodes with 8 GPUs per
 node.  Suppose the user wants to apply DDP across nodes and TP within each node.
-They can define a two-dimensional DeviceMesh of shape `[128, 8]`, using
+They can define a two-dimensional `DeviceMesh` of shape `[128, 8]`, using
 `deviceIdx.y` (size 128) to shard across nodes and `deviceIdx.x` (size 8) to
 shard across GPUs within a node.
 
 In this setup, the fusion IR just before segmentation becomes:
+
 ```
  in: [t, h]                           up_w: [4h,  h]
      / \                                     /\
@@ -388,6 +397,7 @@ parameters are all-gathered into unsharded parameters.
 
 For simplicity, I'll skip sharding propagation and decomposition, and present the
 fusion IR just before segmentation:
+
 ```
                                       up_w: [4h,  h]
                                              /\
