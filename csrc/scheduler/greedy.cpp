@@ -569,13 +569,12 @@ void propagateReshape(Fusion* fusion) {
 // cacheAfter). This intermediate copy is used to simplify the
 // propagation of scheduling from the scatter output tensor.
 //
-// ArgsortOp, ScanOp: To make sure an ArgsortOp or ScanOp can be done
-// without predicating the output, use a new Local tensor as the
-// output and insert a copy from the Local tensor to the original
-// output.
+// ArgsortOp, ScanOp, TopKOp: To avoid predicating the output, use a
+// new Local tensor as the output and insert a copy from the Local
+// tensor to the original output.
 void insertCopyAfter(Fusion* fusion) {
   for (auto expr :
-       ir_utils::getOpsOfType<ArgsortOp, ScanOp, ScatterOp>(fusion)) {
+       ir_utils::getOpsOfType<ArgsortOp, ScanOp, ScatterOp, TopKOp>(fusion)) {
     auto out_tv = expr->output(0)->as<TensorView>();
     if (expr->isA<ScatterOp>()) {
       if (out_tv->uses().empty()) {
@@ -585,7 +584,7 @@ void insertCopyAfter(Fusion* fusion) {
           LoadStoreOpType::Set,
           CacheOp::Unspecified,
           /*propagate_allocation_domain=*/false);
-    } else if (expr->isOneOf<ArgsortOp, ScanOp>()) {
+    } else if (expr->isOneOf<ArgsortOp, ScanOp, TopKOp>()) {
       if (out_tv->getMemoryType() == MemoryType::Local) {
         continue;
       }
