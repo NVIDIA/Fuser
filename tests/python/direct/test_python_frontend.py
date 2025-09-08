@@ -2503,3 +2503,30 @@ def test_all_dim_var_mean(nvfuser_direct_test):
         )
         torch_result = torch.var_mean(inputs[0], [0, 1, 2], bool(correction))
         nvfuser_direct_test.assertEqual(fuser_result, torch_result)
+
+
+def test_validate_precomputed_values(nvfuser_direct_test):
+    # This test is from legacy test_nan.py
+    def fusion_func(fd: FusionDefinition):
+        T0 = fd.define_tensor(
+            shape=[-1, -1],
+            contiguity=[True, True],
+            dtype=DataType.Float,
+            is_cpu=False,
+        )
+
+        S1 = fd.define_scalar(None, dtype=DataType.Double)
+        T2 = fd.ops.ge(T0, S1)
+        fd.add_output(T2)
+
+    outs, _ = nvfuser_direct_test.exec_nvfuser(
+        fusion_func,
+        [
+            torch.randn((10,), dtype=torch.float32, device="cuda:0").as_strided(
+                (2, 5), (5, 1)
+            ),
+            float("nan"),
+        ],
+    )
+    # Comparing any number to NaN results in False.
+    torch.testing.assert_close(outs[0].cpu(), torch.full((2, 5), False))
