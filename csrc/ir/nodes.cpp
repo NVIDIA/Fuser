@@ -3389,7 +3389,7 @@ TensorDomain::TensorDomain(
     std::optional<std::vector<IterDomain*>> alternate_loop_domain,
     std::vector<std::optional<bool>> contiguity,
     std::vector<IterDomain*> additional_ids,
-    bool skip_checks)
+    bool skip_validation)
     : Val(passkey, ValType::TensorDomain, DataType::Null),
       root_domain_(std::move(root_domain)),
       logical_domain_(std::move(logical_domain)),
@@ -3407,7 +3407,7 @@ TensorDomain::TensorDomain(
       loop_domain_.empty() == logical_domain_.empty(),
       "logical domain and loop domain can only be both empty or neither empty");
 
-  if (!skip_checks) {
+  if (!skip_validation) {
     validateLoopDomain(logical_domain_, loop_domain_, additional_ids_);
     if (!root_domain_.empty()) {
       ir_utils::validateDomainEquivalence(
