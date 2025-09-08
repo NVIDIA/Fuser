@@ -107,7 +107,9 @@ Therefore, nvFuser starts with the following fusion IR:
                                   [t, h, r{4h}]
 ```
 
-Then, nvFuser propagates shardings from inputs to outputs:
+#### Sharding Propagation
+
+nvFuser propagates shardings from inputs to outputs:
 
 ```
  in: [t, h]                           up_w: [4h,  h]
@@ -133,11 +135,12 @@ Then, nvFuser propagates shardings from inputs to outputs:
                                         r{d}
 ```
 
-Then, nvFuser decomposes every `Expr` that performs both computation and
-communication. After decomposition, every `Expr` can be lowered to either host
-IR or kernel IR. In the above fusion IR, the second `linear` performs both
-intra-GPU GEMM and inter-GPU reduction. After decomposition, the fusion IR
-becomes:
+#### Communication-computation Decomposition
+
+After sharding propagation, nvFuser decomposes every Expr that performs both
+communication and computation, because they are initiated by different runtime
+APIs.  In the above fusion IR, the second `linear` performs both intra-GPU GEMM
+and inter-GPU reduction. After decomposition, the fusion IR becomes:
 
 ```
  in: [t, h]                           up_w: [4h,  h]
@@ -240,9 +243,7 @@ propagated from that residual connection.
 
 #### Communication-computation Decomposition
 
-AFter sharding propagation, nvFuser decomposes every Expr that performs both
-communication and computation, because they are initiated by different runtime
-APIs. There are two of them:
+Two `Expr`s in the above figure perform both communication and computation:
 1. The first `linear` redistributes `inp` and runs a GEMM.
 2. The second `linear` runs a GEMM and redistributes the output.
 
@@ -299,7 +300,9 @@ communication with computation to reduce wall time.
 
 > **Figure 1.** Overlap allgather with GEMM[^1]
 
-[^1]: Wang et al., *Overlap Communication with Dependent Computation via Decomposition in Large Deep Learning Models*, ASPLOS 2023. https://dl.acm.org/doi/pdf/10.1145/3567955.3567959
+[^1]: Wang et al., *Overlap Communication with Dependent Computation via
+    Decomposition in Large Deep Learning Models*, ASPLOS 2023.
+https://dl.acm.org/doi/pdf/10.1145/3567955.3567959
 
 There are two types of decomposition:
 * Collective-based. A large communication collective is decomposed into collectives of the same nature.
