@@ -50,14 +50,15 @@ out_dtensors: list[DTensor] = fdw(inp_dtensors)
 
 A user initializes a
 [`FusionDefinitionWrapper`](https://github.com/NVIDIA/Fuser/blob/84c46fed9256b94c4eb9c7aa7f5757056dc88783/tests/python/multidevice/fusion_definition_wrapper.py#L21)
-with a **single-GPU** fusion definition. Then, they can invoke it with a list of
-three `DTensor` objects -- corresponding to the input activations, the
-up-projection weights, and the down-projection weights. The result is a list
-containing a single `DTensor` that represents the output activations of the MLP
-block.
+with a **single-GPU** fusion definition. Then, they can invoke it with a list
+of three
+[`DTensor`](https://docs.pytorch.org/docs/stable/distributed.tensor.html#dtensor-class-apis)
+objects -- corresponding to the input activations, the up-projection weights,
+and the down-projection weights. The result is a list containing a single
+`DTensor` that represents the output activations of the MLP block.
 
 Under the hood, nvFuser derives a **multi-GPU** schedule from the definition and
-the input DTensors, then executes that schedule across multiple GPUs. This
+the input `DTensor`s, then executes that schedule across multiple GPUs. This
 automatically handles sharding and communication and therefore removes the need
 for users to explicitly orchestrate communications such as
 `torch.distributed.all_reduce`.
@@ -80,7 +81,7 @@ tensors in the same way.
 ### Tensor Parallelism (TP)
 
 To apply [TP](https://docs.nvidia.com/nemo-framework/user-guide/latest/nemotoolkit/features/parallelisms.html#tensor-parallelism),
-the user calls the `FusionDefinitionWrapper` with the following DTensors:
+the user calls the `FusionDefinitionWrapper` with the following `DTensor`s:
 * `inp` with placement `Replicated()`
 * `up_w` with placement `Shard(0)`
 * `down_w` with placement `Shard(1)`
@@ -176,9 +177,13 @@ CUDA kernels and the `sum` becomes a call to `ncclAllReduce`.
 
 [SP](https://docs.nvidia.com/nemo-framework/user-guide/latest/nemotoolkit/features/parallelisms.html#sequence-parallelism)
 extends TP by sharding not just the parameters but also input and
-output activations.
+output activations. This comes with the following benefits:
+* The program uses less memory for activations.
+* The surrounding operations like LayerNorm and Dropout run faster.
+* This creates more opportunities for communication-computation overlapping.
+However, it tends to increase latency so it's not applied universally.
 
-To apply SP, the user calls the `FusionDefinitionWrapper` with the following DTensors:
+To apply SP, the user calls the `FusionDefinitionWrapper` with the following `DTensor`s:
 * `inp` with placement `Shard(0)`
 * `up_w` with placement `Shard(0)`
 * `down_w` with placement `Shard(1)`
@@ -238,8 +243,9 @@ either follow `inp`'s sharding and split `t` by `d` or follow `up_w` and split
 
 The output's `t` is split by `d`. nvFuser wouldn't do this automatically if it
 runs the MLP block alone. However, in practice, the MLP block is followed by a
-residual connection. Therefore, `t` being split by `d` can be **back**
-propagated from that residual connection.
+residual connection. Therefore, `t` being split by `d` can be forward
+propagated through that residual connection and then back propagated through
+the addition.
 
 #### Communication-computation Decomposition
 
