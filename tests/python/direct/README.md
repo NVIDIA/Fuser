@@ -35,13 +35,13 @@ The `tests/python/direct` directory contains the following test files:
 
 #### Migrated legacy tests files
 - test_alias.py
+- test_define.py
 - test_embedding.py
 - test_python_frontend.py
 - test_repro.py
 - test_sdpa.py
 
 #### Remaining legacy test files
-- test_define.py
 - test_inline_definitions.py
 - test_matmul.py
 - test_moe.py
@@ -86,6 +86,12 @@ The following tests exist in `tests/python/direct/test_python_frontend.py` but a
 - `test_linear_with_bias` - Tests linear layers with bias
 - `test_linear_without_bias` - Tests linear layers without bias
 - `test_matmul` - Tests matrix multiplication
+
+### Migrated tests in `tests/python/direct/test_python_frontend.py` from `tests/python/test_define.py`
+- `test_define_contiguous_tensor` - corresponds with `TestDefine::test_contiguous`
+- `test_define_noncontiguous_tensor` - corresponds with `TestDefine::test_noncontiguous`
+- `test_define_broadcast_tensor` - corresponds with `TestDefine::test_broadcast`
+- `test_define_tensor_contiguity_with_stride_order` - corresponds with `TestDefine::test_contiguity_with_stride_order`
 
 ### Shared Tests in `tests/python/direct/test_python_frontend.py` and `tests/python/test_python_frontend.py`
 
