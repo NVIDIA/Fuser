@@ -1038,6 +1038,22 @@ class PythonTranslator : public OptInConstDispatch {
     }
   }
 
+  void handle(const CutlassNvfp4GroupedMmaOp* cmm_op) final {
+    NVF_ERROR(cmm_op != nullptr);
+    visited_vals_.insert(cmm_op->out());
+    printer_.generateOperation(
+        "fd.ops.cutlass_nvfp4_grouped_mm",
+        {cmm_op->matrix1(),
+         cmm_op->matrix2(),
+         cmm_op->scale1(),
+         cmm_op->scale2(),
+         cmm_op->alpha(),
+         cmm_op->problemSizes(),
+         cmm_op->expertOffsets(),
+         cmm_op->scalingFactorOffsets()},
+        {cmm_op->out()});
+  }
+
   void handle(const ScaledMmaOp* smm_op) final {
     NVF_ERROR(smm_op != nullptr);
     TensorView* out_tv = smm_op->out();
