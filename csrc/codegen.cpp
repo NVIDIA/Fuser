@@ -1612,20 +1612,16 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
         .append("(*)[")
         .append(items_per_thread)
         .append("])")
-        .append("(")
-        .append(
-            genVariableName(output_values) + ".array + " +
-            genInline(output_values->index()))
+        .append("(&")
+        .append(genInline(output_values))
         .append(")");
 
     // Second argument: top_indices output array
     func_args.arg("*(int64_t(*)[")
         .append(items_per_thread)
         .append("])")
-        .append("(")
-        .append(
-            genVariableName(output_indices) + ".array + " +
-            genInline(output_indices->index()))
+        .append("(&")
+        .append(genInline(output_indices))
         .append(")");
 
     // Third argument: input data array
@@ -1634,9 +1630,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
         .append("(*)[")
         .append(std::to_string(items_per_thread))
         .append("])")
-        .append("(")
-        .append(
-            genVariableName(input) + ".array + " + genInline(input->index()))
+        .append("(&")
+        .append(genInline(input))
         .append(")");
 
     // Fourth argument: k value
