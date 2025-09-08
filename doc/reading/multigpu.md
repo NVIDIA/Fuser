@@ -180,7 +180,7 @@ To apply SP, the user calls the `FusionDefinitionWrapper` with the following DTe
 * `up_w` with placement `Shard(0)`
 * `down_w` with placement `Shard(1)`
 
-Therefore, nvFuser starts with the following fusion IR:
+As a result, nvFuser starts with the following fusion IR:
 
 ```
  inp: [t, h]                          up_w: [4h,  h]
@@ -202,7 +202,7 @@ Therefore, nvFuser starts with the following fusion IR:
                                   [t, h, r{4h}]
 ```
 
-Then, nvFuser propagates shardings:
+#### Sharding Propagation
 
 ```
  inp: [t, h]                          up_w: [4h,  h]
@@ -238,12 +238,15 @@ runs the MLP block alone. However, in practice, the MLP block is followed by a
 residual connection. Therefore, `t` being split by `d` can be **back**
 propagated from that residual connection.
 
-Then, nvFuser decomposes every Expr that does both computation and
-communication. There are two of them:
+#### Communication-computation Decomposition
+
+AFter sharding propagation, nvFuser decomposes every Expr that performs both
+communication and computation, because they are initiated by different runtime
+APIs. There are two of them:
 1. The first `linear` redistributes `inp` and runs a GEMM.
 2. The second `linear` runs a GEMM and redistributes the output.
 
-Therefore, after decomposition, the fusion IR becomes:
+After decomposition, the fusion IR becomes:
 
 ```
  inp: [t, h]
