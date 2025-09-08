@@ -38,21 +38,21 @@ The `tests/python/direct` directory contains the following test files:
 - test_define.py
 - test_embedding.py
 - test_matmul.py
+- test_nan.py
 - test_python_frontend.py
 - test_repro.py
 - test_sdpa.py
 
 #### Remaining legacy test files
 - test_inline_definitions.py --- Inline definitions is not supported in direct bindings.
-- test_moe.py
-- test_nan.py
 - test_narrow_precision.py
 - test_normalization.py
 - test_optimization_passes.py
 - test_pointwise.py
 
 #### Legacy-Only test files
-- test_schedule_ops.py
+- test_moe.py --- Uses neither legacy nor direct nvfuser python frontend
+- test_schedule_ops.py --- Scheduling API will be different in direct bindings
 
 ## test_matmul.py
 - `test_matmul`
@@ -98,6 +98,9 @@ The following tests exist in `tests/python/direct/test_python_frontend.py` but a
 - `test_define_noncontiguous_tensor` - corresponds with `TestDefine::test_noncontiguous`
 - `test_define_broadcast_tensor` - corresponds with `TestDefine::test_broadcast`
 - `test_define_tensor_contiguity_with_stride_order` - corresponds with `TestDefine::test_contiguity_with_stride_order`
+
+### Migrated tests in `tests/python/direct/test_python_frontend.py` from `tests/python/test_nan.py`
+- `test_validate_precomputed_values`
 
 ### Shared Tests in `tests/python/direct/test_python_frontend.py` and `tests/python/test_python_frontend.py`
 
