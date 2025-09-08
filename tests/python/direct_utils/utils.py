@@ -71,7 +71,8 @@ def check_captured_python_definition(reference_outputs, fd, inputs, device=None)
         print(
             "(A failure here suggests a mismatch in functionality between the original definition and the printed definition.)"
         )
-        print(fd_str)
+        if "fd_str" in locals():
+            print(fd_str)
         raise err
 
 
