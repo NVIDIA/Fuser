@@ -379,8 +379,12 @@ void IndexLowering::handle(const ScatterOp* sop) {
 void IndexLowering::handle(const ArgsortOp* aop) {
   const auto in = lowerSrcIndex(aop->in(), aop->out());
   const auto out = lowerDstIndex(aop->out());
-  pushBack(IrBuilder::create<ArgsortOp>(
-      out, in, aop->dim(), aop->isDescending(), aop->isStable()));
+  auto indexed_aop = IrBuilder::create<ArgsortOp>(
+      out, in, aop->dim(), aop->isDescending(), aop->isStable());
+  if (aop->predicate()) {
+    indexed_aop = indexed_aop->withPredicate(aop->predicate())->as<ArgsortOp>();
+  }
+  pushBack(indexed_aop);
   GpuLower::current()->propagateExprInfo(aop, back());
 }
 
@@ -1447,8 +1451,12 @@ void IndexLowering::handleGroupedGridWelford(
 void IndexLowering::handle(const ScanOp* sop) {
   const auto in = lowerSrcIndex(sop->in(), sop->out());
   const auto out = lowerDstIndex(sop->out());
-  pushBack(IrBuilder::create<ScanOp>(
-      sop->opType(), sop->init(), out, in, sop->dim()));
+  auto indexed_sop = IrBuilder::create<ScanOp>(
+      sop->opType(), sop->init(), out, in, sop->dim());
+  if (sop->predicate()) {
+    indexed_sop = indexed_sop->withPredicate(sop->predicate())->as<ScanOp>();
+  }
+  pushBack(indexed_sop);
   GpuLower::current()->propagateExprInfo(sop, back());
 }
 
