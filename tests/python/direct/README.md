@@ -33,7 +33,30 @@ The `tests/python/direct` directory contains the following test files:
 - **Shared Tests**: 83 tests between legacy and direct frontend
 - **Direct-Only Tests**: 39 tests (new functionality)
 
-### Legacy-Only Tests (Not in Direct)
+#### Migrated legacy tests files
+1. test_embedding.py
+2. test_python_frontend.py
+3. test_repro.py
+4. test_sdpa.py
+
+#### Remaining legacy test files
+1. test_alias.py
+2. test_define.py
+4. test_inline_definitions.py
+5. test_matmul.py
+6. test_moe.py
+7. test_nan.py
+8. test_narrow_precision.py
+9. test_normalization.py
+10. test_optimization_passes.py
+11. test_pointwise.py
+
+#### Legacy-Only test files
+1. test_schedule_ops.py
+
+## test_python_frontend.py
+
+### Legacy-Only Tests from test_python_frontend.py (Not in Direct)
 The following 15 tests only exist in legacy frontend:
 
 - `test_def_op_in_schedule` - Tests operation definition in schedules; scheduling and definition are not separate.
@@ -59,7 +82,7 @@ The following tests exist in `tests/python/direct/test_python_frontend.py` but a
 - `test_cummax` - Tests cumulative maximum operations
 - `test_cummin` - Tests cumulative minimum operations
 - `test_cumprod` - Tests cumulative product operations
-- `test_embedding` - Tests embedding operations; 32 variants
+- `test_embedding` - Tests embedding operations; 32 variants; Moved from legacy test_embedding.py to direct test_python_frontend.py
 - `test_linear_with_bias` - Tests linear layers with bias
 - `test_linear_without_bias` - Tests linear layers without bias
 - `test_matmul` - Tests matrix multiplication
