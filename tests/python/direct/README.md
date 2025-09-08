@@ -82,7 +82,7 @@ The following tests exist in `tests/python/direct/test_python_frontend.py` but a
 - `test_cummax` - Tests cumulative maximum operations
 - `test_cummin` - Tests cumulative minimum operations
 - `test_cumprod` - Tests cumulative product operations
-- `test_embedding` - Tests embedding operations; 32 variants; Moved from legacy test_embedding.py to direct test_python_frontend.py
+- `test_embedding` - Tests embedding operations; 32 variants; Moved from legacy `test_embedding.py` to direct `test_python_frontend.py`
 - `test_linear_with_bias` - Tests linear layers with bias
 - `test_linear_without_bias` - Tests linear layers without bias
 - `test_matmul` - Tests matrix multiplication
