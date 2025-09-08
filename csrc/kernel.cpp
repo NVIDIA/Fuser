@@ -26,12 +26,36 @@ namespace kir {
 
 namespace {
 
+bool isStreamParallelized(const std::vector<IterDomain*>& domain) {
+  for (auto* id : domain) {
+    if (id->getParallelType() == ParallelType::Stream) {
+      return true;
+    }
+  }
+  return false;
+}
+
 //! Scan all primary expressions in the Kernel IR and build
 //! lists of specialized nodes and other interesting information
 class KernelIrScanner : private IrVisitor {
  public:
   explicit KernelIrScanner(const Kernel* kernel) {
     index_type_ = kernel->indexType();
+
+    summary_.stream_parallelized = [&]() {
+      for (auto* in_tv : ir_utils::filterByType<TensorView>(kernel->inputs())) {
+        if (isStreamParallelized(in_tv->getLoopDomain())) {
+          return true;
+        }
+      }
+      for (auto* out_tv :
+           ir_utils::filterByType<TensorView>(kernel->outputs())) {
+        if (isStreamParallelized(out_tv->getLoopDomain())) {
+          return true;
+        }
+      }
+      return false;
+    }();
     IrVisitor::handle(kernel->topLevelExprs());
   }
 
@@ -441,6 +465,9 @@ void Kernel::finalize(std::vector<Expr*> top_level_exprs) {
       continue;
     }
     parameters_.push_back(alloc->buffer());
+  }
+  if (summary_.stream_parallelized) {
+    parameters_.push_back(NamedScalar::getParallelIndex(ParallelType::Stream));
   }
 }
 
