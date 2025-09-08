@@ -63,10 +63,10 @@ for users to explicitly orchestrate communications such as
 `torch.distributed.all_reduce`.
 
 By default, nvFuser strives to generate an efficient schedule automatically.
-However, for performance-critical workloads, we plan to let users guide
-scheduling by providing partial schedules for selected intermediate and/or
-output `TensorView`s. This can be done through the scheduling Python API, using
-primitives such as `TensorView.split` and `IterDomain.parallelize`.
+For performance-critical workloads, however, users can extend `define_fusion`
+with schedules that nvFuser must honor. These are specified through the
+scheduling Python API, using primitives such as `TensorView.split` and
+`IterDomain.parallelize`.
 
 ## Parallelisms
 
