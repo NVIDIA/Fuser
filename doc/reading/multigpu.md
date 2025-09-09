@@ -181,6 +181,7 @@ output activations. This comes with the following benefits:
 * The program uses less memory for activations.
 * The surrounding operations like LayerNorm and Dropout run faster.
 * This creates more opportunities for communication-computation overlapping.
+
 However, it tends to increase latency so it's not applied universally.
 
 To apply SP, the user calls the `FusionDefinitionWrapper` with the following `DTensor`s:
