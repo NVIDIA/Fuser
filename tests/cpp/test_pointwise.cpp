@@ -935,8 +935,7 @@ TEST_F(PointwiseTest, DomainMapTestEg0) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({4, 7}, options);
   // NOTE force pointwise scheduler here for unit test
-  auto cg_results = scheduleAndRun(fusion, SchedulerType::PointWise, {t0});
-  testValidate(fusion, cg_results.outputs, {t0}, __LINE__, __FILE__);
+  runAndValidate(fusion, SchedulerType::PointWise, {t0}, __LINE__, __FILE__);
 }
 
 TEST_F(PointwiseTest, DomainMapTestEg1) {
@@ -978,8 +977,8 @@ TEST_F(PointwiseTest, DomainMapTestEg1) {
   at::Tensor t0 = at::randn({2, 4}, options);
   at::Tensor t1 = at::randn({3, 2, 4}, options);
   // NOTE force pointwise scheduler here for unit test
-  auto cg_results = scheduleAndRun(fusion, SchedulerType::PointWise, {t0, t1});
-  testValidate(fusion, cg_results.outputs, {t0, t1}, __LINE__, __FILE__);
+  runAndValidate(
+      fusion, SchedulerType::PointWise, {t0, t1}, __LINE__, __FILE__);
 }
 
 TEST_F(PointwiseTest, DomainMapTestEg2) {
@@ -1021,8 +1020,7 @@ TEST_F(PointwiseTest, DomainMapTestEg2) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({4, 7}, options);
   // NOTE force pointwise scheduler here for unit test
-  auto cg_results = scheduleAndRun(fusion, SchedulerType::PointWise, {t0});
-  testValidate(fusion, cg_results.outputs, {t0}, __LINE__, __FILE__);
+  runAndValidate(fusion, SchedulerType::PointWise, {t0}, __LINE__, __FILE__);
 }
 
 TEST_F(PointwiseTest, DomainMapFactory) {
@@ -1185,8 +1183,8 @@ TEST_F(PointwiseTest, DomainMapPad0) {
   at::Tensor t0 = at::empty_strided({1, 5}, {5, 1}, options);
   at::Tensor t1 = at::empty_strided({7, 1, 5}, {5, 5, 1}, options);
   // NOTE force pointwise scheduler here for unit test
-  auto cg_results = scheduleAndRun(fusion, SchedulerType::PointWise, {t0, t1});
-  testValidate(fusion, cg_results.outputs, {t0, t1}, __LINE__, __FILE__);
+  runAndValidate(
+      fusion, SchedulerType::PointWise, {t0, t1}, __LINE__, __FILE__);
 }
 
 TEST_F(PointwiseTest, DomainMapPad1) {
@@ -1234,8 +1232,8 @@ TEST_F(PointwiseTest, DomainMapPad1) {
   at::Tensor t0 = at::empty_strided({1, 5}, {5, 1}, options);
   at::Tensor t1 = at::empty_strided({2, 3, 4, 1}, {12, 4, 1, 1}, options);
   // NOTE force pointwise scheduler here for unit test
-  auto cg_results = scheduleAndRun(fusion, SchedulerType::PointWise, {t0, t1});
-  testValidate(fusion, cg_results.outputs, {t0, t1}, __LINE__, __FILE__);
+  runAndValidate(
+      fusion, SchedulerType::PointWise, {t0, t1}, __LINE__, __FILE__);
 }
 
 TEST_F(PointwiseTest, DomainMapSlice0) {
@@ -1281,8 +1279,8 @@ TEST_F(PointwiseTest, DomainMapSlice0) {
   at::Tensor t0 = at::randn({2, 4}, options);
   at::Tensor t1 = at::randn({2, 4}, options);
   // NOTE force pointwise scheduler here for unit test
-  auto cg_results = scheduleAndRun(fusion, SchedulerType::PointWise, {t0, t1});
-  testValidate(fusion, cg_results.outputs, {t0, t1}, __LINE__, __FILE__);
+  runAndValidate(
+      fusion, SchedulerType::PointWise, {t0, t1}, __LINE__, __FILE__);
 }
 
 TEST_F(PointwiseTest, DomainMapSlice1) {
@@ -1328,8 +1326,8 @@ TEST_F(PointwiseTest, DomainMapSlice1) {
   at::Tensor t0 = at::randn({2, 2, 4}, options);
   at::Tensor t1 = at::randn({2, 4}, options);
   // NOTE force pointwise scheduler here for unit test
-  auto cg_results = scheduleAndRun(fusion, SchedulerType::PointWise, {t0, t1});
-  testValidate(fusion, cg_results.outputs, {t0, t1}, __LINE__, __FILE__);
+  runAndValidate(
+      fusion, SchedulerType::PointWise, {t0, t1}, __LINE__, __FILE__);
 }
 
 TEST_F(NVFuserTest, DomainMapBroadcastIssue3653) {
