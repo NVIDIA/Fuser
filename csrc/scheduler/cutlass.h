@@ -26,7 +26,11 @@ class NVF_API CutlassParams : public HeuristicParams {
   // Shape of the cluster in CTAs, order is M, N, 1
   GemmTile cluster_shape = {4, 4, 1};
 
-  CutlassParams() : HeuristicParams(SchedulerType::Cutlass) {}
+  CutlassParams() : HeuristicParams(SchedulerType::Cutlass) {
+    // This is not used for code generation, but FusionKernelRuntime expects it
+    // to be set.
+    cparams.index_type = DataType::Int;
+  }
 
   std::string toString() const override;
 

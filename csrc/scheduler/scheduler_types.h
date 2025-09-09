@@ -65,10 +65,10 @@ enum class SchedulerType {
 
 //! Define a schedule table to loop over all the heuristics in priority order.
 constexpr std::array<SchedulerType, 13> all_heuristics_in_priority_order = {
+    SchedulerType::Cutlass,
     SchedulerType::ExprEval,
     SchedulerType::Communication,
     SchedulerType::NoOp,
-    SchedulerType::Cutlass,
     SchedulerType::Matmul,
     SchedulerType::Reduction,
     SchedulerType::Resize,
