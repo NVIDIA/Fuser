@@ -46,8 +46,7 @@ def test_basic(nvfuser_direct_test):
     tv0 = fd.define_tensor(shape=[-1, -1, -1], contiguity=[True, True, True], dtype=DataType.Float, is_cpu=False)
     tv1 = fd.define_tensor(shape=[-1, -1, -1], contiguity=[True, True, True], dtype=DataType.Float, is_cpu=False)
     tv2 = fd.ops.add(tv0, tv1)
-    c7 = fd.define_scalar(3.00000, dtype=DataType.Double)
-    tv3 = fd.ops.mul(tv2, c7)
+    tv3 = fd.ops.mul(tv2, 3.00000)
     tv4 = fd.ops.sum(tv3, dims=[2], dtype=DataType.Float)
     fd.add_output(tv4)"""
 
@@ -2398,7 +2397,17 @@ def test_sum_sliced_reshape_to_broadcast(nvfuser_direct_test):
         T89 = fd.ops.sum(T98, dims=[4], keepdim=False, dtype=DataType.Null)
         fd.add_output(T89)
 
-    nvf_out, _ = nvfuser_direct_test.exec_nvfuser(fusion_func, inputs)
+    # Check that define_scalar is not used in fd_str
+    fd_str = """def nvfuser_fusion(fd : FusionDefinition) -> None :
+    tv0 = fd.define_tensor(shape=[-1, -1, -1, -1], contiguity=[True, True, True, True], dtype=DataType.Float, is_cpu=False)
+    tv1 = fd.ops.reshape(tv0, new_shape=[12, 128, 25, 32, 2])
+    tv2 = fd.ops.slice(tv1, start_indices=[0, 0, 0, 0, 0], end_indices=[12, 128, 25, 32, 1], strides=[1, 1, 1, 1, 1], manual_normalization=True)
+    tv3 = fd.ops.squeeze(tv2, dims=[4])
+    fd.add_output(tv3)"""
+
+    nvf_out, _ = nvfuser_direct_test.exec_nvfuser(
+        fusion_func, inputs, expected_fd_str=fd_str
+    )
 
 
 # See https://github.com/NVIDIA/Fuser/issues/3833

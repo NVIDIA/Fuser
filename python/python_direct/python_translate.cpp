@@ -43,6 +43,34 @@ struct KeywordArgument {
   std::optional<T> default_value;
 };
 
+// Check if the NvFuser Val can be represented as a Python scalar.
+bool isPythonScalar(const Val* v) {
+  // short_circuit: Symbolic values are not Python scalars.
+  if (v->isSymbolic()) {
+    return false;
+  }
+
+  // Check if the dtype is compatible with a Python scalar.
+  // e.g., Python scalar cannot distiguish between ComplexDouble and
+  // ComplexFloat. In this case, define_scalar must be used to specify custom
+  // dtype.
+  PrimDataType value_dtype(std::get<PrimDataType>(v->dtype().type));
+  switch (value_dtype) {
+    case PrimDataType::Bool:
+      return true;
+    case PrimDataType::Int:
+    case PrimDataType::Index:
+      return true;
+    case PrimDataType::ComplexDouble:
+      return true;
+    case PrimDataType::Double:
+      return true;
+    default:
+      return false;
+  }
+  return false;
+}
+
 class PythonPrinter {
  public:
   PythonPrinter(std::ostream& os) : os_(os) {}
@@ -115,12 +143,14 @@ class PythonPrinter {
   }
 
   // Generate a unique name for a Val. Map val to name to track Val's lifetime.
-  std::string toString(const nvfuser::Val* v) {
+  std::string toString(const nvfuser::Val* v, bool is_lvalue = false) {
     std::stringstream ss;
     if (v == nullptr) {
       return "None";
     } else if (v->isA<TensorView>()) {
       ss << "tv" << v->name();
+    } else if (!is_lvalue && isPythonScalar(v)) {
+      ss << toString(v->value());
     } else {
       ss << "c" << v->name();
     }
@@ -162,6 +192,8 @@ class PythonPrinter {
     for (auto&& [i, val] : enumerate(vec)) {
       if constexpr (is_optional_v<T>) {
         ss << toString(val, /*skip_none=*/false);
+      } else if constexpr (std::is_same_v<T, nvfuser::Val*>) {
+        ss << toString(val, /*is_lvalue=*/false);
       } else {
         ss << toString(val);
       }
@@ -182,7 +214,7 @@ class PythonPrinter {
       if (val == nullptr) {
         ss << "_";
       } else {
-        ss << toString(val);
+        ss << toString(val, /*is_lvalue=*/true);
       }
       if (i < vec.size() - 1) {
         ss << ", ";
@@ -517,7 +549,7 @@ class PythonTranslator : public OptInConstDispatch {
     }
     return std::all_of(
         e->inputs().begin(), e->inputs().end(), [&](const Val* v) {
-          return visited_vals_.count(v) > 0;
+          return isPythonScalar(v) || visited_vals_.count(v) > 0;
         });
   }
 
@@ -576,7 +608,9 @@ class PythonTranslator : public OptInConstDispatch {
           std::back_inserter(scalars),
           [](Val* v) { return v->isScalar(); });
       std::for_each(scalars.begin(), scalars.end(), [this](const Val* v) {
-        dispatch(v);
+        if (!isPythonScalar(v)) {
+          dispatch(v);
+        }
       });
 
       // short-circuit: add to back of stack if not all of the expression's
@@ -1165,7 +1199,9 @@ class PythonTranslator : public OptInConstDispatch {
     static const std::vector<std::string> reshape_argument_names = {
         "new_shape"};
     std::for_each(new_shape.begin(), new_shape.end(), [this](const Val* v) {
-      dispatch(v);
+      if (!isPythonScalar(v)) {
+        dispatch(v);
+      }
     });
     visited_vals_.insert(vop->out());
     printer_.generateKwargsOperation(
