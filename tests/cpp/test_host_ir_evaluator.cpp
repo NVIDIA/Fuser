@@ -163,7 +163,7 @@ TEST_F(HostIrEvaluatorTest, AddInLoop) {
   KernelArgumentHolder outs = hie.runWithInputs(ins);
   auto out_tensor = outs[0].as<at::Tensor>();
 
-  EXPECT_TRUE(torch::allclose(out_tensor, expected_out_tensor))
+  EXPECT_TRUE(at::allclose(out_tensor, expected_out_tensor))
       << "out_tensor: " << std::endl
       << out_tensor << std::endl
       << "expected_out_tensor: " << std::endl
