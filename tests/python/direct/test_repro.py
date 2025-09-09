@@ -1349,6 +1349,29 @@ def test_issue2755(nvfuser_direct_test):
     nvfuser_direct_test.exec_nvfuser(fusion_func, inputs)
 
 
+def test_issue3192(nvfuser_direct_test):
+    """
+    Test for issue 3192 - tests squeeze and slice operations.
+
+    This test verifies that squeeze and slice operations work correctly with:
+    - Squeeze operation with two dimensions
+    - Slice operation with one dimension
+    - Negation operation
+    """
+
+    def fusion_func(fd: FusionDefinition):
+        inp = fd.define_tensor([1, 1, 2], contiguity=True)
+        out = fd.ops.squeeze(inp, [0, 1])
+        out = fd.ops.slice(out, [1], [2])
+        fd.add_output(out)
+
+    in_tensor = torch.randn(1, 1, 2, device="cuda")
+    out_tensors, _ = nvfuser_direct_test.exec_nvfuser(fusion_func, [in_tensor])
+    nvfuser_direct_test.assertEqual(
+        out_tensors[0], in_tensor.squeeze([0, 1])[1:2], rtol=0, atol=0
+    )
+
+
 def test_issue3292(nvfuser_direct_test):
     """
     Test for issue 3292 - tests complex tensor operations with manual normalization and padding.

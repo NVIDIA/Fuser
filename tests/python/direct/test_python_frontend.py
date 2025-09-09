@@ -86,6 +86,50 @@ def test_basic_fp16(nvfuser_direct_test):
     nvfuser_direct_test.assertEqual(eager_out, nvf_out[0])
 
 
+def test_define_contiguous_tensor(nvfuser_direct_test):
+    def fusion_func(fd: FusionDefinition):
+        inp = fd.define_tensor([2, 3], contiguity=True)
+        out = fd.ops.add(inp, inp)
+        fd.add_output(out)
+
+    in_tensor = torch.randn(2, 3, device="cuda")
+    out_tensors, _ = nvfuser_direct_test.exec_nvfuser(fusion_func, [in_tensor])
+    nvfuser_direct_test.assertEqual(out_tensors[0], in_tensor * 2)
+
+
+def test_define_noncontiguous_tensor(nvfuser_direct_test):
+    def fusion_func(fd: FusionDefinition):
+        inp = fd.define_tensor([2, 3])
+        out = fd.ops.add(inp, inp)
+        fd.add_output(out)
+
+    in_tensor = torch.randn(8, device="cuda").as_strided([2, 3], [4, 1])
+    out_tensors, _ = nvfuser_direct_test.exec_nvfuser(fusion_func, [in_tensor])
+    nvfuser_direct_test.assertEqual(out_tensors[0], in_tensor * 2)
+
+
+def test_define_broadcast_tensor(nvfuser_direct_test):
+    def fusion_func(fd: FusionDefinition):
+        inp = fd.define_tensor([1, 2, 1], contiguity=True)
+        out = fd.ops.add(inp, inp)
+        fd.add_output(out)
+
+    in_tensor = torch.randn(1, 2, 1, device="cuda").as_strided([1, 2, 1], [0, 1, 0])
+    out_tensors, _ = nvfuser_direct_test.exec_nvfuser(fusion_func, [in_tensor])
+    nvfuser_direct_test.assertEqual(out_tensors[0], in_tensor * 2)
+
+
+def test_define_tensor_contiguity_with_stride_order(nvfuser_direct_test):
+    def fusion_func(fd: FusionDefinition):
+        inp = fd.define_tensor([1, 2], contiguity=True, stride_order=[0, 1])
+        out = fd.ops.add(inp, inp)
+        fd.add_output(out)
+
+    in_tensor = torch.randn(1, 2, device="cuda")
+    out_tensors, _ = nvfuser_direct_test.exec_nvfuser(fusion_func, [in_tensor])
+    nvfuser_direct_test.assertEqual(out_tensors[0], in_tensor * 2)
+
+
 def test_cast_scalar(nvfuser_direct_test):
     inputs = [
         torch.ones(2, 4, 8, device="cuda", dtype=torch.int32),

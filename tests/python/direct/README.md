@@ -33,7 +33,30 @@ The `tests/python/direct` directory contains the following test files:
 - **Shared Tests**: 83 tests between legacy and direct frontend
 - **Direct-Only Tests**: 39 tests (new functionality)
 
-### Legacy-Only Tests (Not in Direct)
+#### Migrated legacy tests files
+- test_alias.py
+- test_define.py
+- test_embedding.py
+- test_python_frontend.py
+- test_repro.py
+- test_sdpa.py
+
+#### Remaining legacy test files
+- test_inline_definitions.py
+- test_matmul.py
+- test_moe.py
+- test_nan.py
+- test_narrow_precision.py
+- test_normalization.py
+- test_optimization_passes.py
+- test_pointwise.py
+
+#### Legacy-Only test files
+- test_schedule_ops.py
+
+## test_python_frontend.py
+
+### Legacy-Only Tests from test_python_frontend.py (Not in Direct)
 The following 15 tests only exist in legacy frontend:
 
 - `test_def_op_in_schedule` - Tests operation definition in schedules; scheduling and definition are not separate.
@@ -59,10 +82,16 @@ The following tests exist in `tests/python/direct/test_python_frontend.py` but a
 - `test_cummax` - Tests cumulative maximum operations
 - `test_cummin` - Tests cumulative minimum operations
 - `test_cumprod` - Tests cumulative product operations
-- `test_embedding` - Tests embedding operations; 32 variants
+- `test_embedding` - Tests embedding operations; 32 variants; Moved from legacy `test_embedding.py` to direct `test_python_frontend.py`
 - `test_linear_with_bias` - Tests linear layers with bias
 - `test_linear_without_bias` - Tests linear layers without bias
 - `test_matmul` - Tests matrix multiplication
+
+### Migrated tests in `tests/python/direct/test_python_frontend.py` from `tests/python/test_define.py`
+- `test_define_contiguous_tensor` - corresponds with `TestDefine::test_contiguous`
+- `test_define_noncontiguous_tensor` - corresponds with `TestDefine::test_noncontiguous`
+- `test_define_broadcast_tensor` - corresponds with `TestDefine::test_broadcast`
+- `test_define_tensor_contiguity_with_stride_order` - corresponds with `TestDefine::test_contiguity_with_stride_order`
 
 ### Shared Tests in `tests/python/direct/test_python_frontend.py` and `tests/python/test_python_frontend.py`
 
@@ -186,6 +215,7 @@ The following 19 issue-specific tests have been migrated from the main frontend 
 - `test_issue2545` - Tests fix for issue 2545 (complex operations with empty tensors and concatenation); Maps to legacy `test_remove_empty_issue_2545`
 - `test_issue2549` - Tests fix for issue 2549 (broadcast_in_dim and division operations); Maps to `test_fix_2549`
 - `test_issue2755` - Tests fix for issue 2755 (slice operations with negation)
+- `test_issue3192` - Mapped from legacy `test_squeeze_issue_3192` in `test_alias.py`
 - `test_issue3292` - Tests fix for issue 3292 (complex tensor operations with manual normalization and padding)
 
 The following tests are from the original `tests/python/test_repro.py`.
