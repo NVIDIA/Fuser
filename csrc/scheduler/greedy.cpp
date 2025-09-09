@@ -575,8 +575,8 @@ void propagateReshape(Fusion* fusion) {
 void insertCopyAfter(Fusion* fusion) {
   for (auto expr :
        ir_utils::getOpsOfType<ArgsortOp, ScanOp, ScatterOp, TopKOp>(fusion)) {
-    auto out_tv = expr->output(0)->as<TensorView>();
     if (expr->isA<ScatterOp>()) {
+      auto out_tv = expr->output(0)->as<TensorView>();
       if (out_tv->uses().empty()) {
         continue;
       }
@@ -585,10 +585,13 @@ void insertCopyAfter(Fusion* fusion) {
           CacheOp::Unspecified,
           /*propagate_allocation_domain=*/false);
     } else if (expr->isOneOf<ArgsortOp, ScanOp, TopKOp>()) {
-      if (out_tv->getMemoryType() == MemoryType::Local) {
-        continue;
+      auto outputs = expr->outputs();
+      for (auto out_tv : ir_utils::filterByType<TensorView>(outputs)) {
+        if (out_tv->getMemoryType() == MemoryType::Local) {
+          continue;
+        }
+        out_tv->cacheBefore(LoadStoreOpType::Set);
       }
-      out_tv->cacheBefore(LoadStoreOpType::Set);
     }
   }
 }
