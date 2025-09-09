@@ -17,6 +17,7 @@
 
 #include <ATen/Context.h>
 #include <ATen/cuda/CUDAContext.h>
+#include <c10/core/GradMode.h>
 #include <c10/cuda/CUDACachingAllocator.h>
 
 #include <codegen.h>
@@ -57,13 +58,6 @@ CGResultsPackage scheduleAndRun(
     SchedulerType scheduler_type,
     const KernelArgumentHolder& runtime_inputs,
     bool validate_scheduler = true);
-
-// Make s Stack used for TorchScript execution
-inline torch::jit::Stack createStack(std::vector<at::Tensor>&& list) {
-  return torch::jit::Stack(
-      std::make_move_iterator(list.begin()),
-      std::make_move_iterator(list.end()));
-}
 
 // Make a tensor that is known to be fully contiguous of dimensionality=ndims,
 // but unknown sizes
@@ -125,15 +119,14 @@ inline int deviceSMCount() {
 }
 
 inline void clearL2Cache() {
-  torch::NoGradGuard no_grad;
+  c10::NoGradGuard no_grad;
   auto l2_cache_size = at::cuda::getCurrentDeviceProperties()->l2CacheSize;
-  auto options =
-      torch::TensorOptions().dtype(torch::kFloat32).device(at::kCUDA, 0);
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
 
   auto l2_elems = l2_cache_size / 4;
-  torch::Tensor t0 = torch::empty(l2_elems, options);
-  torch::Tensor t1 = torch::clone(t0);
-};
+  at::Tensor t0 = at::empty(l2_elems, options);
+  at::Tensor t1 = at::clone(t0);
+}
 
 inline TensorView* loweredTv(TensorView* tv, kir::Kernel* kernel) {
   auto used_tvs = kernel->allTvs();

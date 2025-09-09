@@ -5,9 +5,11 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <csrc/exceptions.h>
 #include <gtest/gtest.h>
 
+#include <torch/torch.h>
+
+#include <exceptions.h>
 #include <fusion.h>
 #include <ops/all_ops.h>
 #include <ops/utils.h>
