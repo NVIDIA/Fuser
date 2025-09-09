@@ -462,16 +462,20 @@ void Kernel::finalize(std::vector<Expr*> top_level_exprs) {
   summary_.min_device_version_reason =
       GpuLower::current()->minDeviceVersionReason();
   summary_.dec_inc_register_usage = GpuLower::current()->decIncRegisterUsage();
+
+  // Parameters are ordered to match KernelExecutor::run:
+  // first inputs, then (if needed) stream index, then outputs, then
+  // intermediates.
   parameters_ = GpuLower::current()->allKnownVals();
+  if (summary_.stream_parallelized) {
+    parameters_.push_back(NamedScalar::getParallelIndex(ParallelType::Stream));
+  }
   parameters_.insert(parameters_.end(), outputs().begin(), outputs().end());
   for (auto alloc : summary_.global_allocations) {
     if (alloc->alias() != nullptr) {
       continue;
     }
     parameters_.push_back(alloc->buffer());
-  }
-  if (summary_.stream_parallelized) {
-    parameters_.push_back(NamedScalar::getParallelIndex(ParallelType::Stream));
   }
 }
 

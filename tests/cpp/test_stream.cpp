@@ -33,7 +33,7 @@ TEST_F(StreamTest, AddPerStream) {
 
   KernelExecutor ke;
   ke.compile(&fusion, {in_tensor});
-  ke.run({in_tensor}, {out_tensor});
+  ke.run({in_tensor, 1}, {out_tensor});
 
   std::cout << "in_tensor: " << in_tensor << std::endl;
   std::cout << "out_tensor: " << out_tensor << std::endl;
