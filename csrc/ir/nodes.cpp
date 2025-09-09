@@ -6445,30 +6445,30 @@ std::vector<PolymorphicValue> ScanOp::evaluate(
 
   NVF_ERROR(inputs.size() == 1);
 
-  at::Tensor out;
+  at::Tensor out_t;
   switch (opType()) {
     case BinaryOpType::Add:
-      out = at::cumsum(input, dim());
+      out_t = at::cumsum(input, dim());
       break;
     case BinaryOpType::Max:
-      out = std::get<0>(at::cummax(input, dim()));
+      out_t = std::get<0>(at::cummax(input, dim()));
       break;
     case BinaryOpType::Min:
-      out = std::get<0>(at::cummin(input, dim()));
+      out_t = std::get<0>(at::cummin(input, dim()));
       break;
     case BinaryOpType::Mul:
-      out = at::cumprod(input, dim());
+      out_t = at::cumprod(input, dim());
       break;
     default:
       NVF_THROW("Unhandled opType() ", opType());
   }
 
   at::ScalarType out_dtype = data_type_to_aten(out()->dtype());
-  if (out.dtype() != out_dtype) {
-    out = out.to(out_dtype);
+  if (out_t.dtype() != out_dtype) {
+    out_t = out_t.to(out_dtype);
   }
 
-  return {out};
+  return {out_t};
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(ScanOp)
