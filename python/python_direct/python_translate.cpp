@@ -6,6 +6,7 @@
  */
 // clang-format on
 #include <bindings.h>
+#include <direct_utils.h>
 #include <python_utils.h>
 #include <translation_names.h>
 
@@ -451,9 +452,8 @@ class PythonPrinter {
 //  1. Map a series of scalar values to `define_vector`
 //  2. Map Squeeze, Reduction, and Broadcast to a single reduction operation
 //     with keepdim argument.
-//  3. Map Broadcast and Expand to `broadcast_in_dim`
-//  4. var_mean
-//  5. var
+//  3. var_mean
+//  4. var
 class PythonTranslator : public OptInConstDispatch {
  public:
   // Returns a map from the values in the CPP fusion to its corresponding
@@ -592,6 +592,19 @@ class PythonTranslator : public OptInConstDispatch {
 
       // short-circuit: skip if already visited
       if (visited.count(e) > 0) {
+        continue;
+      }
+
+      // short-circuit: skip if all outputs are visited
+      // The python translation can be minified by replacing multiple Fusion IR
+      // nodes with a single python operation. For example, broadcast_in_dims
+      // is a composite of BroadcastOp and ExpandOp.
+      bool is_expr_outputs_valid =
+          std::all_of(e->outputs().begin(), e->outputs().end(), [&](Val* v) {
+            return visited_vals_.count(v) > 0;
+          });
+      if (is_expr_outputs_valid) {
+        visited.insert(e);
         continue;
       }
 
@@ -936,17 +949,69 @@ class PythonTranslator : public OptInConstDispatch {
         {wop->outAvg(), wop->outVar(), wop->outN()});
   }
 
+  // Check if the output of the BroadcastOp is an ExpandOp.
+  // If so, return the ExpandOp, otherwise return nullptr.
+  // This is used to minify the python definition by creating a
+  // broadcast_in_dim.
+  ExpandOp* is_broadcast_dim_op(const BroadcastOp* bcast_op) {
+    TensorView* out_tv = getTvOutput(bcast_op);
+    NVF_ERROR(out_tv != nullptr);
+
+    if (out_tv->uses().size() != 1) {
+      return nullptr;
+    }
+    if (!out_tv->uses().at(0)->isA<ExpandOp>()) {
+      return nullptr;
+    }
+    return out_tv->uses().at(0)->as<ExpandOp>();
+  }
+
   void handle(const BroadcastOp* bcast_op) final {
     NVF_ERROR(bcast_op != nullptr);
-    visited_vals_.insert(bcast_op->out());
-    static const std::vector<std::string> broadcast_argument_names = {
-        "is_broadcast_dim"};
-    printer_.generateKwargsOperation(
-        "fd.ops.broadcast",
-        std::make_tuple(bcast_op->in()),
-        broadcast_argument_names,
-        std::make_tuple(bcast_op->getBroadcastDimFlags()),
-        {bcast_op->out()});
+
+    ExpandOp* maybe_expand_op = is_broadcast_dim_op(bcast_op);
+    if (maybe_expand_op == nullptr) {
+      visited_vals_.insert(bcast_op->out());
+      static const std::vector<std::string> broadcast_argument_names = {
+          "is_broadcast_dim"};
+      printer_.generateKwargsOperation(
+          "fd.ops.broadcast",
+          std::make_tuple(bcast_op->in()),
+          broadcast_argument_names,
+          std::make_tuple(bcast_op->getBroadcastDimFlags()),
+          {bcast_op->out()});
+    } else {
+      // Get expanded shape from ExpandOp
+      TensorView* expand_out_tv = maybe_expand_op->out()->as<TensorView>();
+      std::vector<Val*> shape = getShape(expand_out_tv);
+      // Add CPP values to Fusion Definition if necessary
+      std::for_each(
+          shape.begin(), shape.end(), [this](const Val* v) { dispatch(v); });
+
+      // Create broadcast_dims argument from the indices of the non-broadcasted
+      // dimensions from BroadcastOp
+      std::vector<int64_t> broadcast_dims;
+      for (auto&& [i, bcast_dim] :
+           enumerate(bcast_op->getBroadcastDimFlags())) {
+        if (!bcast_dim) {
+          broadcast_dims.push_back(i);
+        }
+      }
+
+      // NOTE Only add output from ExpandOp to visited_vals_ to prevent
+      // calling fd.ops.size on the output from BroadcastOp.
+      visited_vals_.insert(maybe_expand_op->out());
+
+      // Create broadcast_in_dim operation from BroadcastOp and ExpandOp
+      static const std::vector<std::string> broadcast_in_dim_argument_names = {
+          "shape", "broadcast_dims"};
+      printer_.generateKwargsOperation(
+          "fd.ops.broadcast_in_dim",
+          std::make_tuple(bcast_op->in()),
+          broadcast_in_dim_argument_names,
+          std::make_tuple(shape, broadcast_dims),
+          {expand_out_tv});
+    }
   }
 
   void handle(const MatmulOp* matmul_op) final {
@@ -1619,7 +1684,11 @@ class PythonTranslator : public OptInConstDispatch {
   PythonPrinter printer_;
   //! The reference CPP fusion to be translated.
   Fusion* fusion_ = nullptr;
-  //! Set of NvFuser Val's created in the Fusion.
+  //! The set of NvFuser Val's created by the python representation.
+  //! Vals from the Fusion may not appear in the python representation.
+  //! For example, only the output from the ExpandOp is added for
+  //! `fd.ops.broadcast_in_dims`. The BroadcastOp's output is skipped because
+  //! it does not appear in the python representation.
   std::unordered_set<const nvfuser::Val*> visited_vals_;
 };
 

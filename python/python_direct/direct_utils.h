@@ -23,4 +23,7 @@ nvfuser::KernelArgumentHolder from_pyiterable(
 std::vector<at::Tensor> to_tensor_vector(
     const nvfuser::KernelArgumentHolder& outputs);
 
+// Returns the first output of Expr that is a TensorView
+TensorView* getTvOutput(const Expr*);
+
 } // namespace nvfuser::python

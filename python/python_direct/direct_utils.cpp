@@ -48,4 +48,13 @@ std::vector<at::Tensor> to_tensor_vector(const KernelArgumentHolder& outputs) {
   return out_tensors;
 }
 
+TensorView* getTvOutput(const Expr* expr) {
+  for (auto out : expr->outputs()) {
+    if (out->isA<TensorView>()) {
+      return out->as<TensorView>();
+    }
+  }
+  return nullptr;
+}
+
 } // namespace nvfuser::python
