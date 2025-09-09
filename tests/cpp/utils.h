@@ -15,15 +15,14 @@
 
 #include <gtest/gtest.h>
 
-#include <ATen/Context.h>
 #include <ATen/cuda/CUDAContext.h>
 #include <c10/core/GradMode.h>
 #include <c10/cuda/CUDACachingAllocator.h>
 
 #include <codegen.h>
-#include <csrc/exceptions.h>
 #include <device_lower/lower2device.h>
 #include <device_lower/pass/magic_zero.h>
+#include <exceptions.h>
 #include <expr_evaluator.h>
 #include <id_model/id_model.h>
 #include <ir/all_nodes.h>
@@ -411,21 +410,6 @@ class KernelExprVisitor : private kir::IrVisitor {
 
  private:
   std::vector<Expr*> all_exprs_;
-};
-
-class ContextCudnnTF32Disabled {
- public:
-  ContextCudnnTF32Disabled() {
-    flag_ = at::globalContext().allowTF32CuDNN();
-    at::globalContext().setAllowTF32CuDNN(false);
-  }
-
-  ~ContextCudnnTF32Disabled() {
-    at::globalContext().setAllowTF32CuDNN(flag_);
-  }
-
- private:
-  bool flag_;
 };
 
 inline bool maybeClearAllocator(int64_t max_bytes = ((int64_t)1 << 32)) {
