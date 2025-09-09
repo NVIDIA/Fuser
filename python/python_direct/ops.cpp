@@ -13,9 +13,39 @@ namespace nvfuser::python {
 
 namespace {
 
+// ScalarVariant represents a NvFuser Val or python scalar.
+using ScalarVariant = std::variant<Val*, PolymorphicValue::VariantType>;
+
+// This function converts a ScalarVariant to a nvfuser Val.
+Val* convertToVal(
+    ScalarVariant value,
+    std::optional<PrimDataType> dtype = std::nullopt) {
+  // short-circuit: already a NvFuser val
+  if (std::holds_alternative<Val*>(value)) {
+    return std::get<Val*>(value);
+  }
+
+  PolymorphicValue::VariantType pv =
+      std::get<PolymorphicValue::VariantType>(value);
+
+  // short-circuit: PolymorphicValue is empty
+  if (std::holds_alternative<std::monostate>(pv)) {
+    return nullptr;
+  }
+
+  // Create NvFuser Val with desired dtype
+  PolymorphicValue cast_value(
+      dtype.has_value() ? castToDtype(std::move(pv), dtype.value())
+                        : std::move(pv));
+  PrimDataType value_dtype(
+      dtype.has_value() ? dtype.value()
+                        : std::get<PrimDataType>(getDataType(cast_value).type));
+  return IrBuilder::create<Val>(cast_value, value_dtype);
+}
+
 #define NVFUSER_DIRECT_BINDING_UNARY_OP(NAME, OP_NAME, DOCSTRING)      \
-  ops.def(NAME, [](Val* v) -> Val* {                                   \
-    return static_cast<Val* (*)(Val*)>(OP_NAME)(v);                    \
+  ops.def(NAME, [](ScalarVariant v) -> Val* {                          \
+    return static_cast<Val* (*)(Val*)>(OP_NAME)(convertToVal(v));      \
   });                                                                  \
   ops.def(                                                             \
       NAME,                                                            \
@@ -28,22 +58,23 @@ namespace {
 #define NVFUSER_DIRECT_BINDING_BINARY_OP(NAME, OP_NAME, DOCSTRING)       \
   ops.def(                                                               \
       NAME,                                                              \
-      [](Val* lhs, Val* rhs) -> Val* {                                   \
-        return static_cast<Val* (*)(Val*, Val*)>(OP_NAME)(lhs, rhs);     \
+      [](ScalarVariant lhs, ScalarVariant rhs) -> Val* {                 \
+        return static_cast<Val* (*)(Val*, Val*)>(OP_NAME)(               \
+            convertToVal(lhs), convertToVal(rhs));                       \
       },                                                                 \
       py::return_value_policy::reference);                               \
   ops.def(                                                               \
       NAME,                                                              \
-      [](TensorView* lhs, Val* rhs) -> TensorView* {                     \
+      [](TensorView* lhs, ScalarVariant rhs) -> TensorView* {            \
         return static_cast<TensorView* (*)(TensorView*, Val*)>(OP_NAME)( \
-            lhs, rhs);                                                   \
+            lhs, convertToVal(rhs));                                     \
       },                                                                 \
       py::return_value_policy::reference);                               \
   ops.def(                                                               \
       NAME,                                                              \
-      [](Val* lhs, TensorView* rhs) -> TensorView* {                     \
+      [](ScalarVariant lhs, TensorView* rhs) -> TensorView* {            \
         return static_cast<TensorView* (*)(Val*, TensorView*)>(OP_NAME)( \
-            lhs, rhs);                                                   \
+            convertToVal(lhs), rhs);                                     \
       },                                                                 \
       py::return_value_policy::reference);                               \
   ops.def(                                                               \
@@ -58,9 +89,9 @@ namespace {
 #define NVFUSER_DIRECT_BINDING_TERNARY_OP(NAME, OP_NAME, DOCSTRING)            \
   ops.def(                                                                     \
       NAME,                                                                    \
-      [](Val* arg1, Val* arg2, Val* arg3) -> Val* {                            \
+      [](ScalarVariant arg1, ScalarVariant arg2, ScalarVariant arg3) -> Val* { \
         return static_cast<Val* (*)(Val*, Val*, Val*)>(OP_NAME)(               \
-            arg1, arg2, arg3);                                                 \
+            convertToVal(arg1), convertToVal(arg2), convertToVal(arg3));       \
       },                                                                       \
       py::return_value_policy::reference);                                     \
   ops.def(                                                                     \
@@ -75,44 +106,56 @@ namespace {
       py::return_value_policy::reference);                                     \
   ops.def(                                                                     \
       NAME,                                                                    \
-      [](TensorView* arg1, TensorView* arg2, Val* arg3) -> TensorView* {       \
+      [](TensorView* arg1,                                                     \
+         TensorView* arg2,                                                     \
+         ScalarVariant arg3) -> TensorView* {                                  \
         return static_cast<TensorView* (*)(TensorView*, TensorView*, Val*)>(   \
-            OP_NAME)(arg1, arg2, arg3);                                        \
+            OP_NAME)(arg1, arg2, convertToVal(arg3));                          \
       },                                                                       \
       py::return_value_policy::reference);                                     \
   ops.def(                                                                     \
       NAME,                                                                    \
-      [](TensorView* arg1, Val* arg2, TensorView* arg3) -> TensorView* {       \
+      [](TensorView* arg1,                                                     \
+         ScalarVariant arg2,                                                   \
+         TensorView* arg3) -> TensorView* {                                    \
         return static_cast<TensorView* (*)(TensorView*, Val*, TensorView*)>(   \
-            OP_NAME)(arg1, arg2, arg3);                                        \
+            OP_NAME)(arg1, convertToVal(arg2), arg3);                          \
       },                                                                       \
       py::return_value_policy::reference);                                     \
   ops.def(                                                                     \
       NAME,                                                                    \
-      [](Val* arg1, TensorView* arg2, TensorView* arg3) -> TensorView* {       \
+      [](ScalarVariant arg1,                                                   \
+         TensorView* arg2,                                                     \
+         TensorView* arg3) -> TensorView* {                                    \
         return static_cast<TensorView* (*)(Val*, TensorView*, TensorView*)>(   \
-            OP_NAME)(arg1, arg2, arg3);                                        \
+            OP_NAME)(convertToVal(arg1), arg2, arg3);                          \
       },                                                                       \
       py::return_value_policy::reference);                                     \
   ops.def(                                                                     \
       NAME,                                                                    \
-      [](Val* arg1, Val* arg2, TensorView* arg3) -> TensorView* {              \
+      [](ScalarVariant arg1,                                                   \
+         ScalarVariant arg2,                                                   \
+         TensorView* arg3) -> TensorView* {                                    \
         return static_cast<TensorView* (*)(Val*, Val*, TensorView*)>(OP_NAME)( \
-            arg1, arg2, arg3);                                                 \
+            convertToVal(arg1), convertToVal(arg2), arg3);                     \
       },                                                                       \
       py::return_value_policy::reference);                                     \
   ops.def(                                                                     \
       NAME,                                                                    \
-      [](TensorView* arg1, Val* arg2, Val* arg3) -> TensorView* {              \
+      [](TensorView* arg1,                                                     \
+         ScalarVariant arg2,                                                   \
+         ScalarVariant arg3) -> TensorView* {                                  \
         return static_cast<TensorView* (*)(TensorView*, Val*, Val*)>(OP_NAME)( \
-            arg1, arg2, arg3);                                                 \
+            arg1, convertToVal(arg2), convertToVal(arg3));                     \
       },                                                                       \
       py::return_value_policy::reference);                                     \
   ops.def(                                                                     \
       NAME,                                                                    \
-      [](Val* arg1, TensorView* arg2, Val* arg3) -> TensorView* {              \
+      [](ScalarVariant arg1,                                                   \
+         TensorView* arg2,                                                     \
+         ScalarVariant arg3) -> TensorView* {                                  \
         return static_cast<TensorView* (*)(Val*, TensorView*, Val*)>(OP_NAME)( \
-            arg1, arg2, arg3);                                                 \
+            convertToVal(arg1), arg2, convertToVal(arg3));                     \
       },                                                                       \
       DOCSTRING,                                                               \
       py::return_value_policy::reference);
@@ -120,16 +163,18 @@ namespace {
 #define NVFUSER_DIRECT_BINDING_THRESHOLD_LIKE_OP(NAME, OP_NAME, DOCSTRING)     \
   ops.def(                                                                     \
       NAME,                                                                    \
-      [](Val* arg1, Val* arg2, Val* arg3) -> Val* {                            \
+      [](ScalarVariant arg1, ScalarVariant arg2, ScalarVariant arg3) -> Val* { \
         return static_cast<Val* (*)(Val*, Val*, Val*)>(OP_NAME)(               \
-            arg1, arg2, arg3);                                                 \
+            convertToVal(arg1), convertToVal(arg2), convertToVal(arg3));       \
       },                                                                       \
       py::return_value_policy::reference);                                     \
   ops.def(                                                                     \
       NAME,                                                                    \
-      [](TensorView* arg1, Val* arg2, Val* arg3) -> TensorView* {              \
+      [](TensorView* arg1,                                                     \
+         ScalarVariant arg2,                                                   \
+         ScalarVariant arg3) -> TensorView* {                                  \
         return static_cast<TensorView* (*)(TensorView*, Val*, Val*)>(OP_NAME)( \
-            arg1, arg2, arg3);                                                 \
+            arg1, convertToVal(arg2), convertToVal(arg3));                     \
       },                                                                       \
       DOCSTRING,                                                               \
       py::return_value_policy::reference);
@@ -137,65 +182,91 @@ namespace {
 #define NVFUSER_DIRECT_BINDING_TERNARY_WITH_ALPHA_OP(NAME, OP_NAME, DOCSTRING) \
   ops.def(                                                                     \
       NAME,                                                                    \
-      [](Val* arg1, Val* arg2, Val* arg3, Val* arg4) -> Val* {                 \
+      [](ScalarVariant arg1,                                                   \
+         ScalarVariant arg2,                                                   \
+         ScalarVariant arg3,                                                   \
+         ScalarVariant arg4) -> Val* {                                         \
         return static_cast<Val* (*)(Val*, Val*, Val*, Val*)>(OP_NAME)(         \
-            arg1, arg2, arg3, arg4);                                           \
+            convertToVal(arg1),                                                \
+            convertToVal(arg2),                                                \
+            convertToVal(arg3),                                                \
+            convertToVal(arg4));                                               \
       },                                                                       \
       py::return_value_policy::reference);                                     \
   ops.def(                                                                     \
       NAME,                                                                    \
-      [](TensorView* arg1, TensorView* arg2, TensorView* arg3, Val* arg4)      \
-          -> TensorView* {                                                     \
+      [](TensorView* arg1,                                                     \
+         TensorView* arg2,                                                     \
+         TensorView* arg3,                                                     \
+         ScalarVariant arg4) -> TensorView* {                                  \
         return static_cast<                                                    \
             TensorView* (*)(TensorView*, TensorView*, TensorView*, Val*)>(     \
-            OP_NAME)(arg1, arg2, arg3, arg4);                                  \
+            OP_NAME)(arg1, arg2, arg3, convertToVal(arg4));                    \
       },                                                                       \
       py::return_value_policy::reference);                                     \
   ops.def(                                                                     \
       NAME,                                                                    \
-      [](TensorView* arg1, TensorView* arg2, Val* arg3, Val* arg4)             \
-          -> TensorView* {                                                     \
+      [](TensorView* arg1,                                                     \
+         TensorView* arg2,                                                     \
+         ScalarVariant arg3,                                                   \
+         ScalarVariant arg4) -> TensorView* {                                  \
         return static_cast<                                                    \
             TensorView* (*)(TensorView*, TensorView*, Val*, Val*)>(OP_NAME)(   \
-            arg1, arg2, arg3, arg4);                                           \
+            arg1, arg2, convertToVal(arg3), convertToVal(arg4));               \
       },                                                                       \
       py::return_value_policy::reference);                                     \
   ops.def(                                                                     \
       NAME,                                                                    \
-      [](TensorView* arg1, Val* arg2, TensorView* arg3, Val* arg4)             \
-          -> TensorView* {                                                     \
+      [](TensorView* arg1,                                                     \
+         ScalarVariant arg2,                                                   \
+         TensorView* arg3,                                                     \
+         ScalarVariant arg4) -> TensorView* {                                  \
         return static_cast<TensorView* (*)(TensorView*, Val*, Val*, Val*)>(    \
-            OP_NAME)(arg1, arg2, arg3, arg4);                                  \
+            OP_NAME)(arg1, convertToVal(arg2), arg3, convertToVal(arg4));      \
       },                                                                       \
       py::return_value_policy::reference);                                     \
   ops.def(                                                                     \
       NAME,                                                                    \
-      [](Val* arg1, TensorView* arg2, TensorView* arg3, Val* arg4)             \
-          -> TensorView* {                                                     \
+      [](ScalarVariant arg1,                                                   \
+         TensorView* arg2,                                                     \
+         TensorView* arg3,                                                     \
+         ScalarVariant arg4) -> TensorView* {                                  \
         return static_cast<                                                    \
             TensorView* (*)(Val*, TensorView*, TensorView*, Val*)>(OP_NAME)(   \
-            arg1, arg2, arg3, arg4);                                           \
+            convertToVal(arg1), arg2, arg3, convertToVal(arg4));               \
       },                                                                       \
       py::return_value_policy::reference);                                     \
   ops.def(                                                                     \
       NAME,                                                                    \
-      [](Val* arg1, Val* arg2, TensorView* arg3, Val* arg4) -> TensorView* {   \
+      [](ScalarVariant arg1,                                                   \
+         ScalarVariant arg2,                                                   \
+         TensorView* arg3,                                                     \
+         ScalarVariant arg4) -> TensorView* {                                  \
         return static_cast<TensorView* (*)(Val*, Val*, TensorView*, Val*)>(    \
-            OP_NAME)(arg1, arg2, arg3, arg4);                                  \
+            OP_NAME)(                                                          \
+            convertToVal(arg1), convertToVal(arg2), arg3, convertToVal(arg4)); \
       },                                                                       \
       py::return_value_policy::reference);                                     \
   ops.def(                                                                     \
       NAME,                                                                    \
-      [](TensorView* arg1, Val* arg2, Val* arg3, Val* arg4) -> TensorView* {   \
+      [](TensorView* arg1,                                                     \
+         ScalarVariant arg2,                                                   \
+         ScalarVariant arg3,                                                   \
+         ScalarVariant arg4) -> TensorView* {                                  \
         return static_cast<TensorView* (*)(TensorView*, Val*, Val*, Val*)>(    \
-            OP_NAME)(arg1, arg2, arg3, arg4);                                  \
+            OP_NAME)(                                                          \
+            arg1, convertToVal(arg2), convertToVal(arg3), convertToVal(arg4)); \
       },                                                                       \
       py::return_value_policy::reference);                                     \
   ops.def(                                                                     \
       NAME,                                                                    \
-      [](Val* arg1, TensorView* arg2, Val* arg3, Val* arg4) -> TensorView* {   \
+      [](ScalarVariant arg1,                                                   \
+         TensorView* arg2,                                                     \
+         ScalarVariant arg3,                                                   \
+         ScalarVariant arg4) -> TensorView* {                                  \
         return static_cast<TensorView* (*)(Val*, TensorView*, Val*, Val*)>(    \
-            OP_NAME)(arg1, arg2, arg3, arg4);                                  \
+            OP_NAME)(                                                          \
+            convertToVal(arg1), arg2, convertToVal(arg3), convertToVal(arg4)); \
       },                                                                       \
       DOCSTRING,                                                               \
       py::return_value_policy::reference);
@@ -1895,8 +1966,9 @@ void bindCastOps(py::module_& ops) {
       py::return_value_policy::reference);
   ops.def(
       "cast",
-      [](Val* arg, PrimDataType dtype) -> Val* {
-        return static_cast<Val* (*)(DataType, Val*)>(castOp)(dtype, arg);
+      [](ScalarVariant arg, PrimDataType dtype) -> Val* {
+        return static_cast<Val* (*)(DataType, Val*)>(castOp)(
+            dtype, convertToVal(arg));
       },
       py::arg("arg"),
       py::arg("dtype"),
@@ -2752,13 +2824,16 @@ TensorView
 }
 
 template <class ShapeType>
-TensorView* pad_fn(TensorView* arg, ShapeType generic_pad_widths, Val* value) {
+TensorView* pad_fn(
+    TensorView* arg,
+    ShapeType generic_pad_widths,
+    ScalarVariant value) {
   std::vector<Val*> pad_widths =
       SequenceAsVector(generic_pad_widths, /*shape_check=*/false);
   NVF_CHECK(
       (int64_t)pad_widths.size() <= 2 * arg->nDims(),
       "Number of pad widths must be at most twice the input dimension");
-  return pad(arg, pad_widths, value);
+  return pad(arg, pad_widths, convertToVal(value));
 }
 
 void bindIndexingOps(py::module_& ops) {
@@ -3113,17 +3188,25 @@ Notes
 template <class ShapeType>
 TensorView* full_op_fn(
     ShapeType generic_output_shape,
-    Val* fill_value,
+    ScalarVariant fill_value,
     PrimDataType dtype) {
   std::vector<Val*> output_shape = SequenceAsVector(generic_output_shape);
-  return full(output_shape, fill_value, dtype);
+  return full(output_shape, convertToVal(fill_value), dtype);
 }
 
 void bindTensorFactoryOps(py::module_& ops) {
   ops.def(
       "iota",
-      [](Val* length, Val* start, Val* step, PrimDataType dtype)
-          -> TensorView* { return iota(length, start, step, dtype); },
+      [](ScalarVariant length,
+         ScalarVariant start,
+         ScalarVariant step,
+         PrimDataType dtype) -> TensorView* {
+        return iota(
+            convertToVal(length),
+            convertToVal(start),
+            convertToVal(step),
+            dtype);
+      },
       py::arg("length"),
       py::arg("start").none(true) = py::none(),
       py::arg("step").none(true) = py::none(),
@@ -3246,11 +3329,16 @@ void bindSdpaOps(py::module_& ops) {
       [](TensorView* query,
          TensorView* key,
          TensorView* value,
-         Val* dropout_p,
-         Val* is_causal,
-         Val* scale) -> decltype(auto) {
-        auto [output, log_sumexp, philox_seed, philox_offset] =
-            sdpfa_fwd(query, key, value, dropout_p, is_causal, scale);
+         ScalarVariant dropout_p,
+         ScalarVariant is_causal,
+         ScalarVariant scale) -> decltype(auto) {
+        auto [output, log_sumexp, philox_seed, philox_offset] = sdpfa_fwd(
+            query,
+            key,
+            value,
+            convertToVal(dropout_p),
+            convertToVal(is_causal, DataType::Bool),
+            convertToVal(scale));
         return py::make_tuple(output, log_sumexp, philox_seed, philox_offset);
       },
       py::arg("query"),
@@ -3291,11 +3379,11 @@ tuple[TensorView, TensorView, TensorView, TensorView]
          TensorView* value,
          TensorView* output,
          TensorView* log_sumexp,
-         Val* dropout_p,
-         Val* is_causal,
+         ScalarVariant dropout_p,
+         ScalarVariant is_causal,
          TensorView* philox_seed,
          TensorView* philox_offset,
-         Val* scale) -> decltype(auto) {
+         ScalarVariant scale) -> decltype(auto) {
         auto [grad_query, grad_key, grad_value] = sdpfa_bwd(
             grad_output,
             query,
@@ -3303,11 +3391,11 @@ tuple[TensorView, TensorView, TensorView, TensorView]
             value,
             output,
             log_sumexp,
-            dropout_p,
-            is_causal,
+            convertToVal(dropout_p),
+            convertToVal(is_causal, DataType::Bool),
             philox_seed,
             philox_offset,
-            scale);
+            convertToVal(scale));
         return std::make_tuple(grad_query, grad_key, grad_value);
       },
       py::arg("grad_output"),
@@ -3368,8 +3456,8 @@ template <
         Val*,
         bool)>
 TensorView* random_dist_op_fn(
-    Val* arg1,
-    Val* arg2,
+    ScalarVariant arg1,
+    ScalarVariant arg2,
     ShapeType generic_new_shape,
     Val* rng_seed,
     Val* rng_offset,
@@ -3384,8 +3472,8 @@ TensorView* random_dist_op_fn(
   std::vector<Val*> new_shape = SequenceAsVector(generic_new_shape);
   return RandomFuncWithSeed(
       new_shape,
-      arg1,
-      arg2,
+      convertToVal(arg1),
+      convertToVal(arg2),
       dtype,
       rng_seed,
       rng_offset,
