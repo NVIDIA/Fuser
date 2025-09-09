@@ -15,9 +15,7 @@
 
 #include <gtest/gtest.h>
 
-#include <ATen/cuda/CUDAContext.h>
-#include <c10/core/GradMode.h>
-#include <c10/cuda/CUDACachingAllocator.h>
+#include <ATen/cuda/CUDAContextLight.h>
 
 #include <codegen.h>
 #include <device_lower/lower2device.h>
@@ -103,29 +101,11 @@ inline TensorView* makeContigConcreteTensor(
 
 int64_t prime_number(int64_t i);
 
-inline bool deviceMajorMinorCheck(int major, int minor = 0) {
-  auto dev_prop = at::cuda::getCurrentDeviceProperties();
-  if (dev_prop->major < major ||
-      (dev_prop->major == major && dev_prop->minor < minor)) {
-    return false;
-  }
-  return true;
-}
+bool deviceMajorMinorCheck(int major, int minor = 0);
 
-inline int deviceSMCount() {
-  int sm_count = at::cuda::getCurrentDeviceProperties()->multiProcessorCount;
-  return sm_count;
-}
+int deviceSMCount();
 
-inline void clearL2Cache() {
-  c10::NoGradGuard no_grad;
-  auto l2_cache_size = at::cuda::getCurrentDeviceProperties()->l2CacheSize;
-  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-
-  auto l2_elems = l2_cache_size / 4;
-  at::Tensor t0 = at::empty(l2_elems, options);
-  at::Tensor t1 = at::clone(t0);
-}
+void clearL2Cache();
 
 inline TensorView* loweredTv(TensorView* tv, kir::Kernel* kernel) {
   auto used_tvs = kernel->allTvs();
@@ -412,36 +392,7 @@ class KernelExprVisitor : private kir::IrVisitor {
   std::vector<Expr*> all_exprs_;
 };
 
-inline bool maybeClearAllocator(int64_t max_bytes = ((int64_t)1 << 32)) {
-  // check used memory and empty allocator cache if above a set threshold
-  auto allocator = c10::cuda::CUDACachingAllocator::get();
-  if (allocator->initialized()) {
-    int device = 0;
-#if NVF_TORCH_VERSION_NO_LESS(2, 3, 0)
-    // c10::cuda uses DeviceIndex instead of int
-    // https://github.com/pytorch/pytorch/pull/119142
-    c10::DeviceIndex device_index;
-    c10::cuda::GetDevice(&device_index);
-    device = static_cast<int>(device_index);
-#elif NVF_TORCH_VERSION_GREATER(2, 0, 1)
-    // GetDevice was introduced in https://github.com/pytorch/pytorch/pull/94864
-    // in order to properly handle new CUDA 112 behavior
-    c10::cuda::GetDevice(&device);
-#else
-    cudaGetDevice(&device);
-#endif
-
-    auto device_stats = allocator->getDeviceStats(device);
-    // allocated_bytes[] holds multiple statistics but the first is sum across
-    // both small and large blocks
-    if (uint64_t(device_stats.reserved_bytes[0].current) >
-        uint64_t(max_bytes)) {
-      allocator->emptyCache();
-      return true;
-    }
-  }
-  return false;
-}
+bool maybeClearAllocator(int64_t max_bytes = ((int64_t)1 << 32));
 
 //! Returns the seed for std::rand() used for every test.
 size_t getCRandomSeed();
@@ -449,37 +400,14 @@ size_t getCRandomSeed();
 //! Returns the seed for ATen functions like at::randn() used for every test.
 size_t getATenRandomSeed();
 
-inline bool cudaArchGuardShouldSkip(int required_major, int required_minor) {
-  int capability_major = at::cuda::getCurrentDeviceProperties()->major;
-  int capability_minor = at::cuda::getCurrentDeviceProperties()->minor;
+bool cudaArchGuardShouldSkip(int required_major, int required_minor);
 
-  if (capability_major < required_major ||
-      (capability_major == required_major &&
-       capability_minor < required_minor)) {
-    return true;
-  }
-  return false;
-}
-
-inline bool cudaArchGuardShouldSkip(
+bool cudaArchGuardShouldSkip(
     int lower_major, // inclusive
     int lower_minor, // inclusive
     int upper_major, // exclusive
     int upper_minor // exclusive
-) {
-  int capability_major = at::cuda::getCurrentDeviceProperties()->major;
-  int capability_minor = at::cuda::getCurrentDeviceProperties()->minor;
-
-  if (capability_major < lower_major ||
-      (capability_major == lower_major && capability_minor < lower_minor)) {
-    return true;
-  }
-  if (capability_major > upper_major ||
-      (capability_major == upper_major && capability_minor >= upper_minor)) {
-    return true;
-  }
-  return false;
-}
+);
 
 #define NVFUSER_TEST_CUDA_ARCH_GUARD(REQUIRED_MAJOR, REQUIRED_MINOR)          \
   if (cudaArchGuardShouldSkip(REQUIRED_MAJOR, REQUIRED_MINOR)) {              \
