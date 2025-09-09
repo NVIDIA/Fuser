@@ -6463,6 +6463,11 @@ std::vector<PolymorphicValue> ScanOp::evaluate(
       NVF_THROW("Unhandled opType() ", opType());
   }
 
+  at::ScalarType out_dtype = data_type_to_aten(out()->dtype());
+  if (out.dtype() != out_dtype) {
+    out = out.to(out_dtype);
+  }
+
   return {out};
 }
 
