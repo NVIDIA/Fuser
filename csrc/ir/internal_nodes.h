@@ -3374,7 +3374,7 @@ class ScanOp : public Expr {
   }
 
   Val* discountFactor() const {
-    return attributeVal(4);
+    return inputs().size() > 1 ? input(1) : nullptr;
   }
 
   std::vector<PolymorphicValue> evaluate(

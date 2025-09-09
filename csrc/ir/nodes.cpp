@@ -6342,11 +6342,13 @@ ScanOp::ScanOp(
     : Expr(passkey) {
   addOutput(out);
   addInput(in);
+  if (discount_factor != nullptr) {
+    addInput(discount_factor);
+  }
   addAttribute(init);
   addDataAttribute(op_type);
   addDataAttribute(dim);
   addDataAttribute(is_exclusive);
-  addDataAttribute(discount_factor);
 }
 
 std::string ScanOp::toString(int indent_size) const {

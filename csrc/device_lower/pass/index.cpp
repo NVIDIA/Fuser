@@ -1505,6 +1505,18 @@ void IndexLowering::handle(const ScanOp* scop) {
   // result
   prev_sum = where(gt(scan_index, scan_loop->start()), prev_sum, scop->init());
 
+  if (Val* f = scop->discountFactor()) {
+    if (auto* f_tv = dynamic_cast<TensorView*>(f)) {
+      Val* f_ti = lowerSrcIndex(f_tv, scop->out());
+      Val* prev_sum_mul = IrBuilder::create<Val>(f_tv->dtype());
+      IrBuilder::create<BinaryOp>(
+          BinaryOpType::Mul, prev_sum_mul, f_ti, prev_sum);
+      prev_sum = prev_sum_mul;
+    } else {
+      prev_sum = mul(f, prev_sum);
+    }
+  }
+
   Expr* expr = nullptr;
   if (scop->isExclusive()) {
     // For exclusive scan, output[i] should contain the scan of elements [0,

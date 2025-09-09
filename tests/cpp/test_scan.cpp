@@ -498,6 +498,69 @@ TEST_F(ScanTest, KernelExecutorSerialScanMaxExclusive) {
   auto outputs = ke.run({input});
   std::cout << "outputs[0]: " << outputs[0] << std::endl;
 }
+
+TEST_F(ScanTest, KernelExecutorPrefixSum) {
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  std::vector<int64_t> shape = {2, 8};
+  auto tv0 = makeContigConcreteTensor(shape);
+  fusion.addInput(tv0);
+
+  auto tv1 = set(tv0);
+  auto tv2 =
+      prefixSum(tv1, /*dim=*/1, IrBuilder::create<Val>(0.5, DataType::Float));
+  auto tv_output = set(tv2);
+  fusion.addOutput(tv_output);
+
+  // Parallelization strategy
+  for (auto tv : {tv1, tv2, tv_output}) {
+    tv->axis(0)->parallelize(ParallelType::BIDx);
+  }
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  // [1,2,3,4,5,6,7,8], [8,7,6,5,4,3,2,1]
+  auto input =
+      at::tensor({1, 2, 3, 4, 5, 6, 7, 8, 8, 7, 6, 5, 4, 3, 2, 1}, options)
+          .reshape({2, 8});
+
+  KernelExecutor ke;
+  ke.compile(&fusion, {input});
+  auto outputs = ke.run({input});
+  std::cout << "outputs[0]: " << outputs[0] << std::endl;
+}
+
+TEST_F(ScanTest, KernelExecutorPrefixSumTensorDiscount) {
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  std::vector<int64_t> shape = {2, 8};
+  auto tv0 = makeContigConcreteTensor(shape);
+  fusion.addInput(tv0);
+
+  auto tv1 = set(tv0);
+  auto tv2 = prefixSum(tv1, /*dim=*/1, tv1);
+  auto tv_output = set(tv2);
+  fusion.addOutput(tv_output);
+
+  // Parallelization strategy
+  for (auto tv : {tv1, tv2, tv_output}) {
+    tv->axis(0)->parallelize(ParallelType::BIDx);
+  }
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  // [1,2,3,4,5,6,7,8], [8,7,6,5,4,3,2,1]
+  auto input =
+      at::tensor({1, 2, 3, 4, 5, 6, 7, 8, 8, 7, 6, 5, 4, 3, 2, 1}, options)
+          .reshape({2, 8});
+
+  KernelExecutor ke;
+  ke.compile(&fusion, {input});
+  auto outputs = ke.run({input});
+  std::cout << "outputs[0]: " << outputs[0] << std::endl;
+}
 // Parameterized test for different BinaryOpType and data types
 class SerialScanTest
     : public NVFuserTest,
