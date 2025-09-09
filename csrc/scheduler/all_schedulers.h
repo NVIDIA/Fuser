@@ -7,6 +7,7 @@
 // clang-format on
 #pragma once
 #include <scheduler/communication.h>
+#include <scheduler/cutlass.h>
 #include <scheduler/expr_eval_sched.h>
 #include <scheduler/matmul.h>
 #include <scheduler/no_op.h>

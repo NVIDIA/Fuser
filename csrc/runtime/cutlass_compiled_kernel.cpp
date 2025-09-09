@@ -20,6 +20,7 @@
 #include <runtime/cutlass_compiled_kernel.h>
 #include <runtime/executor_kernel_arg.h>
 #include <runtime/executor_params.h>
+#include <scheduler/cutlass.h>
 #include <unistd.h>
 #include <utils.h>
 
@@ -68,20 +69,20 @@ std::string getComputeCapabilityString(int compute_capability) {
 
 CutlassCompiledKernel::CutlassCompiledKernel(
     Fusion* fusion,
-    c10::Device device,
-    SchedulerType scheduler_type,
+    const CutlassParams& params,
     int64_t fusion_id,
     int64_t concrete_id,
     int64_t runtime_id,
     int64_t group_id)
     : CompiledKernelBase(
-          device,
-          scheduler_type,
+          c10::Device(c10::DeviceType::CUDA, at::cuda::current_device()),
+          SchedulerType::Cutlass,
           fusion_id,
           concrete_id,
           runtime_id,
           group_id),
-      fusion_(fusion) {}
+      fusion_(fusion),
+      params_(params) {}
 
 void CutlassCompiledKernel::compile() {
   FUSER_PERF_SCOPE("CutlassCompiledKernel::compile");
@@ -167,7 +168,7 @@ void CutlassCompiledKernel::generateCode() {
   FUSER_PERF_SCOPE("CutlassCompiledKernel::generateCode");
 
   // Generate CUTLASS kernel code using the code generator
-  cutlass_code_ = cutlass_codegen::generateCode(fusion_);
+  cutlass_code_ = cutlass_codegen::generateCode(fusion_, params_);
 
   // Dump the kernel if requested. Note that we do not currently distinguish
   // between the kernel and the entire CUTLASS source file.

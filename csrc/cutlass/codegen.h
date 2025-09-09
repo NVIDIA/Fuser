@@ -7,15 +7,18 @@
 // clang-format on
 #pragma once
 
-#include <fusion.h>
+#include <visibility.h>
 
 #include <string>
 
 namespace nvfuser {
 
+class Fusion;
+class CutlassParams;
+
 namespace cutlass_codegen {
 
-NVF_API std::string generateCode(Fusion* fusion);
+NVF_API std::string generateCode(Fusion* fusion, const CutlassParams& params);
 
 } // namespace cutlass_codegen
 
