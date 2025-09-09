@@ -7,6 +7,18 @@
 // clang-format on
 #pragma once
 
+#include <chrono>
+#include <cstddef>
+#include <string>
+#include <unordered_map>
+#include <vector>
+
+#include <gtest/gtest.h>
+
+#include <ATen/Context.h>
+#include <ATen/cuda/CUDAContext.h>
+#include <c10/cuda/CUDACachingAllocator.h>
+
 #include <codegen.h>
 #include <csrc/exceptions.h>
 #include <device_lower/lower2device.h>
@@ -21,19 +33,6 @@
 #include <runtime/fusion_kernel_runtime.h>
 #include <scheduler/registry.h>
 #include <transform_replay.h>
-
-#include <ATen/Context.h>
-#include <ATen/cuda/CUDAContext.h>
-#include <c10/cuda/CUDACachingAllocator.h>
-#include <torch/torch.h>
-
-#include <gtest/gtest.h>
-
-#include <chrono>
-#include <cstddef>
-#include <string>
-#include <unordered_map>
-#include <vector>
 
 namespace nvfuser {
 
