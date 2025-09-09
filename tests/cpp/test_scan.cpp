@@ -796,95 +796,96 @@ TEST_F(ScanTest, OnlineSumExpXMinusMaxNoScan) {
 //   dp = sum(exp(xpi - m[j]))
 //   d[j] = d[j-1] * exp(m[j-1] - m[j]) + dp
 // return d[N-1]
-// TEST_F(ScanTest, OnlineSumExpXMinusMaxSerialScan) {
-//   EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
-//   Fusion fusion;
-//   FusionGuard fg(&fusion);
+TEST_F(ScanTest, OnlineSumExpXMinusMaxSerialScan) {
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+  Fusion fusion;
+  FusionGuard fg(&fusion);
 
-//   std::vector<int64_t> shape = {4, 8, 1024};
-//   auto tv0 = makeContigConcreteTensor(shape);
-//   fusion.addInput(tv0);
-//   auto tv1 = set(tv0);
-//   auto tv2 = max(tv1, {2}); // mp = max(xpi)
-//   auto tv3 = broadcast(tv2, {false, false, true});
-//   auto tv4 = sub(tv1, tv3);
-//   auto tv5 = exp(tv4);
-//   auto tv6 = sum(tv5, {2}); // dp = sum(exp(xpi - mp))
+  std::vector<int64_t> shape = {4, 8, 1024};
+  auto tv0 = makeContigConcreteTensor(shape);
+  fusion.addInput(tv0);
+  auto tv1 = set(tv0);
+  auto tv2 = max(tv1, {2}); // mp = max(xpi)
+  auto tv3 = broadcast(tv2, {false, false, true});
+  auto tv4 = sub(tv1, tv3);
+  auto tv5 = exp(tv4);
+  auto tv6 = sum(tv5, {2}); // dp = sum(exp(xpi - mp))
 
-//   // Discount factor is exponentiated delta: exp(m[i-1] - m[i])
-//   auto tv7 = scan(tv2, {1}, BinaryOpType::Max, /*is_exclusive=*/true);
-//   auto tv8 = binaryOp(BinaryOpType::Max, tv2, m_old);
-//   auto tv9 = exp(sub(tv7, tv8));
-//   auto tv10 = prefixSum(tv6, {1}, tv9);
-//   fusion.addOutput(tv10);
-//   auto unscheduled_fusion = fusion;
+  // Discount factor is exponentiated delta: exp(m[i-1] - m[i])
+  auto tv7 = scan(tv2, {1}, BinaryOpType::Max, /*is_exclusive=*/true); // m[i-1]
+  auto tv8 = binaryOp(BinaryOpType::Max, tv2, tv7); // m[i]
+  auto tv9 = sub(tv7, tv8); //  exp(m[i-1] - m[i])
+  auto tv10 = exp(tv9);
+  auto tv11 = prefixSum(tv6, {1}, tv10);
+  auto tv12 = set(tv11);
+  fusion.addOutput(tv8);
+  fusion.addOutput(tv12);
+  auto unscheduled_fusion = fusion;
 
-//   int64_t vect = 4, threads = 256;
-//   for (auto tv : {tv1, tv2, tv3, tv4, tv5, tv6}) {
-//     tv->split(2, vect);
-//     tv->split(2, threads);
-//   }
+  int64_t vect = 4, threads = 256;
+  for (auto tv : {tv1, tv2, tv3, tv4, tv5, tv6}) {
+    tv->split(2, vect);
+    tv->split(2, threads);
+  }
 
-//   fusion.printMath();
+  fusion.printMath();
 
-//   // Parallelization strategy
-//   for (auto tv :
-//        {tv1, tv2, tv3, tv4, tv5, tv6, tv7, tv8, tv9, tv10, tv11, tv12, tv13})
-//        {
-//     tv->axis(0)->parallelize(ParallelType::BIDx);
-//   }
-//   for (auto tv : {tv1, tv2, tv3, tv4, tv5, tv6}) {
-//     tv->axis(3)->parallelize(ParallelType::TIDx);
-//   }
-//   tv1->axis(4)->parallelize(ParallelType::Vectorize);
+  // Parallelization strategy
+  for (auto tv :
+       {tv1, tv2, tv3, tv4, tv5, tv6, tv7, tv8, tv9, tv10, tv11, tv12}) {
+    tv->axis(0)->parallelize(ParallelType::BIDx);
+  }
+  for (auto tv : {tv1, tv2, tv3, tv4, tv5, tv6}) {
+    tv->axis(3)->parallelize(ParallelType::TIDx);
+  }
+  tv1->axis(4)->parallelize(ParallelType::Vectorize);
 
-//   // [I1, I2, R, threads, vect]
-//   // thread local reduction
-//   auto tv14 = tv2->rFactor({2, 4});
-//   auto tv15 = tv6->rFactor({2, 4});
-//   std::cout << "tv14: " << tv14->toString() << std::endl;
-//   tv14->printTransforms();
-//   std::cout << "tv15: " << tv15->toString() << std::endl;
-//   tv15->printTransforms();
+  // [I1, I2, R, threads, vect]
+  // thread local reduction
+  auto tv13 = tv2->rFactor({2, 4});
+  auto tv14 = tv6->rFactor({2, 4});
 
-//   // inlineMost also works, want to clearly split the kernel into 2 parts
-//   // block reduction to get mi and di
-//   // online merge of m[] and d[] to get the final m and d
-//   tv6->inlineAt(1);
+  // We don't inline the scans past the scan dimension
+  // std::unordered_set<IterDomain*> uninlineable_ids;
+  // for (TensorView* tv : {tv7, tv8, tv10}) {
+  //   for (IterDomain* id : tv->getLoopDomain()) {
+  //     uninlineable_ids.insert(id);
+  //   }
+  // }
+  tv7->inlineAt(1);
+  tv11->inlineAt(1);
+  inlineMost(std::vector<TensorView*>{
+      tv1, tv2, tv3, tv4, tv5, tv6, tv8, tv9, tv10, tv12, tv13, tv14});
+  // // These TVs are not inlined, but instead we set computeWith on them
+  // for (TensorView* tv : {tv7, tv8, tv11}) {
+  //   tv->computeWith(-1);
+  //   for (Val* v : tv->definition()->inputs()) {
+  //     // By using `uninlineable_ids` above, we prevent producers of scan from
+  //     // inlining with the ScanOp past the scan dim, even though this is
+  //     // desired. Here we do this inlining manually instead.
+  //     v->as<TensorView>()->inlineAt(-1);
+  //   }
+  // }
 
-//   inlineMost(std::vector<TensorView*>{
-//       tv1,
-//       tv2,
-//       tv3,
-//       tv4,
-//       tv5,
-//       tv7,
-//       tv8,
-//       tv9,
-//       tv10,
-//       tv11,
-//       tv12,
-//       tv13,
-//       tv14,
-//       tv15});
-//   fusion.printMath();
+  fusion.printMath();
 
-//   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-//   auto input = at::randn(shape, options);
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto input = at::randn(shape, options);
 
-//   KernelExecutor ke;
-//   ke.compile(&fusion, {input});
-//   auto outputs = ke.run({input});
-//   // equivalent to sum(exp(x - max(x)))
-//   auto input_reshaped = input.reshape({4, 8192});
-//   auto aten_max = at::amax(input_reshaped, {1});
-//   std::cout << "aten_max: " << aten_max << std::endl;
-//   auto aten_exp = at::exp(input_reshaped - aten_max.unsqueeze(1));
-//   auto aten_sum = at::sum(aten_exp, {1});
-//   std::cout << "aten_sum: " << aten_sum << std::endl;
-//   std::cout << "outputs[0]: " << outputs[0] << std::endl;
+  KernelExecutor ke;
+  ke.compile(&fusion, {input});
+  auto outputs = ke.run({input});
+  // equivalent to sum(exp(x - max(x)))
+  auto input_reshaped = input.reshape({4, 8192});
+  auto aten_max = at::amax(input_reshaped, {1});
+  std::cout << "aten_max: " << aten_max << std::endl;
+  auto aten_exp = at::exp(input_reshaped - aten_max.unsqueeze(1));
+  auto aten_sum = at::sum(aten_exp, {1});
+  std::cout << "aten_sum: " << aten_sum << std::endl;
+  std::cout << "outputs[0]: " << outputs[0] << std::endl;
+  std::cout << "outputs[1]: " << outputs[1] << std::endl;
 
-//   EXPECT_TRUE(
-//       at::allclose(outputs[0].as<at::Tensor>(), aten_sum, 1e-5, 1e-8, true));
-// }
+  EXPECT_TRUE(
+      at::allclose(outputs[0].as<at::Tensor>(), aten_sum, 1e-5, 1e-8, true));
+}
 } // namespace nvfuser

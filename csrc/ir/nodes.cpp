@@ -6362,9 +6362,11 @@ std::string ScanOp::toString(int indent_size) const {
       << "        init=" << init()->toInlineString() << ",\n";
   indent(ss, indent_size + 1)
       << "        is_exclusive=" << isExclusive() << ",\n";
-  indent(ss, indent_size + 1)
-      << "        discount_factor=" << discountFactor()->toInlineString()
-      << ")\n";
+  if (discountFactor() != nullptr) {
+    indent(ss, indent_size + 1)
+        << "        discount_factor=" << discountFactor()->toInlineString()
+        << ")\n";
+  }
   return ss.str();
 }
 
