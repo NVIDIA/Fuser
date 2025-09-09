@@ -16,6 +16,7 @@ import random
 import itertools
 import math
 from functools import partial
+from typing import List
 
 
 def test_broadcast_in_dim_with_dynamic_shapes(nvfuser_direct_test):
@@ -620,3 +621,364 @@ def test_cat_qwen2_v2(nvfuser_direct_test):
     ]
 
     nvfuser_direct_test.exec_nvfuser(qwen2_cat_fusion_2, inputs)
+
+
+def test_nanogpt_mha_dpa(nvfuser_direct_test):
+    inputs = [
+        torch.randn(16, 16, 128, 128, device="cuda"),
+        torch.randn(1, 1, 1024, 1024, device="cuda"),
+    ]
+
+    def nvfuser_fusion(fd: FusionDefinition, prob) -> None:
+        T0 = fd.define_tensor(
+            shape=[-1, -1, -1, -1],
+            contiguity=[True, True, True, True],
+            dtype=DataType.Float,
+            is_cpu=False,
+        )
+        T1 = fd.define_tensor(
+            shape=[1, 1, -1, -1],
+            contiguity=[None, None, True, True],
+            dtype=DataType.Float,
+            is_cpu=False,
+        )
+        S2 = fd.define_scalar(0.125000, dtype=DataType.Double)
+        T3 = fd.ops.mul(T0, S2)
+        T4 = fd.ops.slice(
+            T1,
+            start_indices=[0, 0, 0, 0],
+            end_indices=[1, 1, 128, 128],
+            strides=[1, 1, 1, 1],
+        )
+        S5 = fd.define_scalar(0.00000, dtype=DataType.Double)
+        T6 = fd.ops.eq(S5, T4)
+        T7 = fd.ops.broadcast_in_dim(
+            T6, shape=[16, 16, 128, 128], broadcast_dims=[0, 1, 2, 3]
+        )
+        S8 = fd.define_scalar(float("-inf"), dtype=DataType.Double)
+        T9 = fd.ops.where(T7, S8, T3)
+        S10 = fd.define_scalar(-1, dtype=DataType.Int)
+        S11 = fd.define_scalar(4, dtype=DataType.Int)
+        S12 = fd.ops.add(S10, S11)
+        T13 = fd.ops.max(T9, dims=[3], keepdim=False, dtype=DataType.Null)
+        T14 = fd.ops.broadcast_in_dim(
+            T13, shape=[16, 16, 128, 1], broadcast_dims=[0, 1, 2]
+        )
+        T15 = fd.ops.broadcast_in_dim(
+            T14, shape=[16, 16, 128, 128], broadcast_dims=[0, 1, 2, 3]
+        )
+        T16 = fd.ops.sub(T9, T15)
+        T17 = fd.ops.exp(T16)
+        S18 = fd.define_scalar(-1, dtype=DataType.Int)
+        S19 = fd.define_scalar(4, dtype=DataType.Int)
+        S20 = fd.ops.add(S18, S19)
+        T21 = fd.ops.sum(T17, dims=[3], keepdim=False, dtype=DataType.Null)
+        T22 = fd.ops.broadcast_in_dim(
+            T21, shape=[16, 16, 128, 1], broadcast_dims=[0, 1, 2]
+        )
+        T23 = fd.ops.broadcast_in_dim(
+            T22, shape=[16, 16, 128, 128], broadcast_dims=[0, 1, 2, 3]
+        )
+        T24 = fd.ops.div(T17, T23)
+        S25 = fd.define_scalar(16, dtype=DataType.Int)
+        S26 = fd.define_scalar(16, dtype=DataType.Int)
+        S27 = fd.define_scalar(128, dtype=DataType.Int)
+        S28 = fd.define_scalar(128, dtype=DataType.Int)
+        S29 = fd.define_scalar(0.00000, dtype=DataType.Double)
+        S30 = fd.define_scalar(1.00000, dtype=DataType.Double)
+        T31 = fd.ops.uniform(S29, S30, shape=[S25, S26, S27, S28], dtype=DataType.Float)
+        S32 = fd.define_scalar(1.0 - prob, dtype=DataType.Double)
+        T33 = fd.ops.lt(T31, S32)
+        T34 = fd.ops.cast(T33, dtype=DataType.Float)
+        T35 = fd.ops.mul(T24, T34)
+        S36 = fd.define_scalar(1.0 / (1.0 - prob), dtype=DataType.Double)
+        T37 = fd.ops.mul(T35, S36)
+        fd.add_output(T37)
+
+    def torch_def(acts, bias, n_seq_len, n_head_dim, prob):
+        att = acts * (1.0 / math.sqrt(n_head_dim))
+        att = att.masked_fill(bias[:, :, :n_seq_len, :n_seq_len] == 0, float("-inf"))
+        att = torch.nn.functional.softmax(att, dim=-1)
+        att = torch.nn.functional.dropout(att, p=prob)
+        return att
+
+    # NOTE: The dropout probabilities need to be set to 0 elements zeroed out
+    # in order to match implementations as eager and nvFuser do not have matching
+    # blocking.
+    nvf_out, _ = nvfuser_direct_test.exec_nvfuser(
+        partial(nvfuser_fusion, prob=0.0), inputs
+    )
+    eager_out = torch_def(inputs[0], inputs[1], 128, 64, 0.0)
+
+    for idx in range(len(nvf_out)):
+        nvfuser_direct_test.assertEqual(eager_out, nvf_out[idx])
+
+
+def test_nanogpt_split_mha_linears(nvfuser_direct_test):
+    inputs = [
+        torch.randn(16, 128, 3072, device="cuda"),
+    ]
+
+    def nvfuser_fusion_0(fd: FusionDefinition) -> None:
+        T0 = fd.from_pytorch(inputs[0])
+        T0_slice1 = fd.ops.slice(T0, [0, 0, 0], [16, 128, 1024], [1, 1, 1])
+        T0_slice2 = fd.ops.slice(T0, [0, 0, 1024], [16, 128, 2048], [1, 1, 1])
+        T0_slice3 = fd.ops.slice(T0, [0, 0, 2048], [16, 128, 3072], [1, 1, 1])
+        T1_slice1 = fd.ops.reshape(T0_slice1, [16, 128, 16, 64])
+        T1_slice2 = fd.ops.reshape(T0_slice2, [16, 128, 16, 64])
+        T1_slice3 = fd.ops.reshape(T0_slice3, [16, 128, 16, 64])
+        T2_slice1 = fd.ops.permute(T1_slice1, [0, 2, 1, 3])
+        T2_slice2 = fd.ops.permute(T1_slice2, [0, 2, 1, 3])
+        T2_slice3 = fd.ops.permute(T1_slice3, [0, 2, 1, 3])
+        fd.add_output(T2_slice1)
+        fd.add_output(T2_slice2)
+        fd.add_output(T2_slice3)
+
+    def torch_def_0(acts, n_embd, n_head):
+        B, T, C = acts.size()
+        q, k, v = acts.split(n_embd, dim=2)
+        k = k.view(B, T, n_head, (C // 3) // n_head).transpose(1, 2)  # (B, nh, T, hs)
+        q = q.view(B, T, n_head, (C // 3) // n_head).transpose(1, 2)  # (B, nh, T, hs)
+        v = v.view(B, T, n_head, (C // 3) // n_head).transpose(1, 2)  # (B, nh, T, hs)
+        return (
+            q,
+            k,
+            v,
+        )
+
+    def nvfuser_fusion_1(fd: FusionDefinition) -> None:
+        T0 = fd.define_tensor(
+            shape=[-1, -1, -1],
+            contiguity=[True, True, True],
+            dtype=DataType.Float,
+            is_cpu=False,
+        )
+        T1 = fd.ops.slice(
+            T0,
+            start_indices=[0, 0, 0],
+            end_indices=[16, 128, 1024],
+            strides=[1, 1, 1],
+        )
+        T2 = fd.ops.slice(
+            T0,
+            start_indices=[0, 0, 1024],
+            end_indices=[16, 128, 2048],
+            strides=[1, 1, 1],
+        )
+        T3 = fd.ops.slice(
+            T0,
+            start_indices=[0, 0, 2048],
+            end_indices=[16, 128, 3072],
+            strides=[1, 1, 1],
+        )
+        fd.add_output(T1)
+        fd.add_output(T2)
+        fd.add_output(T3)
+
+    def torch_def_1(acts, n_embd, n_head):
+        B, T, C = acts.size()
+        q, k, v = acts.split(n_embd, dim=2)
+        return (
+            q,
+            k,
+            v,
+        )
+
+    tests = [
+        (nvfuser_fusion_0, torch_def_0),
+        (nvfuser_fusion_1, torch_def_1),
+    ]
+
+    for nvf_func, torch_func in tests:
+        nvf_out, _ = nvfuser_direct_test.exec_nvfuser(nvf_func, inputs)
+        eager_out = torch_func(*inputs, 1024, 16)
+        for idx in range(len(eager_out)):
+            nvfuser_direct_test.assertEqual(eager_out[idx], nvf_out[idx])
+
+
+def test_prim_layer_norm_fwd(nvfuser_direct_test):
+    input_size = [64, 128, 1024]
+    dtype = torch.float32
+    device = "cuda"
+    inputs = [
+        torch.randn(*input_size, device=device, requires_grad=True),
+        torch.nn.Parameter(torch.randn(input_size[2], dtype=dtype, device=device)),
+        torch.nn.Parameter(torch.randn(input_size[2], dtype=dtype, device=device)),
+    ]
+
+    def primitive_definition(
+        inputs: torch.Tensor,
+        weight: torch.Tensor,
+        bias: torch.Tensor,
+        normalization_axis: int,
+        keepdim: bool,
+    ) -> torch.Tensor:
+        mean = inputs.mean(normalization_axis, keepdim=keepdim)
+        diff = inputs - mean
+        diff_sq = diff * diff
+        var = diff_sq.mean(normalization_axis, keepdim=keepdim)
+        pre_shift_scale_norm_output = (inputs - mean) / torch.sqrt(var + 1e-12)
+        norm_output = weight * pre_shift_scale_norm_output + bias
+        return norm_output
+
+    def nvfuser_fusion(
+        fd: FusionDefinition,
+        normalization_axis: int,
+        norm_size: int,
+        input_shape: List[int],
+        eps: float,
+        keepDim: bool,
+    ) -> None:
+        inputs = fd.define_tensor(
+            shape=[-1, -1, -1],
+            contiguity=[True, True, True],
+            dtype=DataType.Float,
+        )
+        weights = fd.define_tensor(shape=[-1], contiguity=[True], dtype=DataType.Float)
+        bias = fd.define_tensor(shape=[-1], contiguity=[True], dtype=DataType.Float)
+        sum0 = fd.ops.sum(inputs, dims=[normalization_axis], keepdim=keepDim)
+        norm_const = fd.define_scalar(norm_size)
+        mean = fd.ops.div(sum0, norm_const)
+        diff = fd.ops.sub(inputs, mean)
+        diff_sq = fd.ops.mul(diff, diff)
+        sum1 = fd.ops.sum(diff_sq, dims=[normalization_axis], keepdim=keepDim)
+        var = fd.ops.div(sum1, norm_const)
+        eps_const = fd.define_scalar(eps)
+        var_eps = fd.ops.add(var, eps_const)
+        invstd = fd.ops.rsqrt(var_eps)
+        pre_scale_bias = fd.ops.mul(diff, invstd)
+        weights_bcast = fd.ops.broadcast_in_dim(
+            weights, shape=input_shape, broadcast_dims=[2]
+        )
+        scale = fd.ops.mul(pre_scale_bias, weights_bcast)
+        bias_bcast = fd.ops.broadcast_in_dim(
+            bias, shape=input_shape, broadcast_dims=[2]
+        )
+        out = fd.ops.add(scale, bias_bcast)
+        fd.add_output(out)
+        fd.add_output(mean)
+        fd.add_output(invstd)
+
+    def nvfuser_fusion_var_mean(
+        fd: FusionDefinition,
+        normalization_axis: int,
+        norm_size: int,
+        input_shape: List[int],
+        eps: float,
+        keepDim: bool,
+    ) -> None:
+        inputs = fd.define_tensor(
+            shape=[-1, -1, -1],
+            contiguity=[True, True, True],
+            dtype=DataType.Float,
+        )
+        weights = fd.define_tensor(shape=[-1], contiguity=[True], dtype=DataType.Float)
+        bias = fd.define_tensor(shape=[-1], contiguity=[True], dtype=DataType.Float)
+        var, mean = fd.ops.var_mean(
+            inputs, dims=[normalization_axis], correction=0, keepdim=keepDim
+        )
+        eps_const = fd.define_scalar(eps)
+        var_eps = fd.ops.add(var, eps_const)
+        invstd = fd.ops.rsqrt(var_eps)
+        diff = fd.ops.sub(inputs, mean)
+        pre_scale_bias = fd.ops.mul(diff, invstd)
+        weights_bcast = fd.ops.broadcast_in_dim(
+            weights, shape=input_shape, broadcast_dims=[2]
+        )
+        scale = fd.ops.mul(pre_scale_bias, weights_bcast)
+        bias_bcast = fd.ops.broadcast_in_dim(
+            bias, shape=input_shape, broadcast_dims=[2]
+        )
+        out = fd.ops.add(scale, bias_bcast)
+        fd.add_output(out)
+        fd.add_output(mean)
+        fd.add_output(invstd)
+
+    fusion_func_1 = partial(
+        nvfuser_fusion,
+        normalization_axis=2,
+        norm_size=inputs[0].size()[2],
+        input_shape=inputs[0].size(),
+        eps=1e-12,
+        keepDim=True,
+    )
+    nvf_out, _ = nvfuser_direct_test.exec_nvfuser(fusion_func_1, inputs)
+
+    fusion_func_2 = partial(
+        nvfuser_fusion_var_mean,
+        normalization_axis=2,
+        norm_size=inputs[0].size()[2],
+        input_shape=inputs[0].size(),
+        eps=1e-12,
+        keepDim=True,
+    )
+    nvf_var_mean_out, _ = nvfuser_direct_test.exec_nvfuser(fusion_func_2, inputs)
+
+    eager_out = primitive_definition(inputs[0], inputs[1], inputs[2], 2, True)
+
+    nvfuser_direct_test.assertEqual(eager_out, nvf_out[0])
+    nvfuser_direct_test.assertEqual(eager_out, nvf_var_mean_out[0])
+
+
+def test_prim_rms_norm_fwd(nvfuser_direct_test):
+    input_size = [64, 128, 1024]
+    dtype = torch.float32
+    device = "cuda"
+    inputs = [
+        torch.randn(*input_size, device=device, requires_grad=True),
+        torch.nn.Parameter(torch.randn(input_size[2], dtype=dtype, device=device)),
+    ]
+
+    def primitive_definition(
+        inputs: torch.Tensor,
+        weight: torch.Tensor,
+        normalization_axis: int,
+        keepdim: bool,
+    ) -> torch.Tensor:
+        var = inputs.mul(inputs).mean(normalization_axis, keepdim)
+        pre_shift_scale_norm_output = inputs / torch.sqrt(var + 1e-12)
+        norm_output = weight * pre_shift_scale_norm_output
+        return norm_output
+
+    def nvfuser_fusion(
+        fd: FusionDefinition,
+        normalization_axis: int,
+        norm_size: int,
+        input_shape: List[int],
+        eps: float,
+        keepDim: bool,
+    ) -> None:
+        inputs = fd.define_tensor(
+            shape=[-1, -1, -1],
+            contiguity=[True, True, True],
+            dtype=DataType.Float,
+        )
+        weights = fd.define_tensor(shape=[-1], contiguity=[True], dtype=DataType.Float)
+        inputs_sq = fd.ops.mul(inputs, inputs)
+        sum0 = fd.ops.sum(inputs_sq, dims=[normalization_axis], keepdim=keepDim)
+        norm_const = fd.define_scalar(norm_size)
+        var = fd.ops.div(sum0, norm_const)
+        eps_const = fd.define_scalar(eps)
+        var_eps = fd.ops.add(var, eps_const)
+        invstd = fd.ops.rsqrt(var_eps)
+        pre_scale = fd.ops.mul(inputs, invstd)
+        weights_bcast = fd.ops.broadcast_in_dim(
+            weights, shape=input_shape, broadcast_dims=[2]
+        )
+        out = fd.ops.mul(pre_scale, weights_bcast)
+        fd.add_output(out)
+        fd.add_output(invstd)
+
+    fusion_func = partial(
+        nvfuser_fusion,
+        normalization_axis=2,
+        norm_size=inputs[0].size()[2],
+        input_shape=inputs[0].size(),
+        eps=1e-12,
+        keepDim=True,
+    )
+    nvf_out, _ = nvfuser_direct_test.exec_nvfuser(fusion_func, inputs)
+
+    eager_out = primitive_definition(inputs[0], inputs[1], 2, True)
+
+    nvfuser_direct_test.assertEqual(eager_out, nvf_out[0])
