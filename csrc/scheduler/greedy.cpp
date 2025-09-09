@@ -543,8 +543,8 @@ void propagateReshape(Fusion* fusion) {
 //
 // ArgsortOp, ScanOp: To make sure an ArgsortOp or ScanOp can be done
 // without predicating the output, use a new Local tensor as the
-// output and insert a copy from the Local tensor to the original
-// output.
+// output if the original output is not a Local tensor, and insert a
+// copy from the Local tensor to the original output.
 void insertCopyAfter(Fusion* fusion) {
   for (auto expr :
        ir_utils::getOpsOfType<ArgsortOp, ScanOp, ScatterOp>(fusion)) {
