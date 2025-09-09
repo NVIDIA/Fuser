@@ -13,6 +13,7 @@
 #include <runtime/compiled_kernel.h>
 #include <runtime/executor_kernel_arg.h>
 #include <runtime/executor_params.h>
+#include <scheduler/cutlass.h>
 
 namespace nvfuser {
 
@@ -23,6 +24,7 @@ class CutlassCompiledKernel : public CompiledKernelBase {
   // This constructor does not attempt to lower the fusion
   NVF_API CutlassCompiledKernel(
       Fusion* fusion,
+      const CutlassParams& params,
       c10::Device device = c10::Device(c10::DeviceType::CUDA, 0),
       SchedulerType scheduler_type = SchedulerType::None,
       int64_t fusion_id = 0,
@@ -50,6 +52,8 @@ class CutlassCompiledKernel : public CompiledKernelBase {
 
  private:
   Fusion* fusion_;
+
+  const CutlassParams params_;
 
   std::string cutlass_code_;
   std::string compilation_log_;

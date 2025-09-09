@@ -93,8 +93,10 @@ TEST_F(CutlassExecutorTest, Nvfp4ScaledGemm_CompiledKernel) {
   at::Tensor output_tensor = at::empty({M, N}, options.dtype(at::kBFloat16));
   args.push(output_tensor);
 
+  CutlassParams params;
+
   CutlassCompiledKernel kernel(
-      fusion.get(), c10::Device(c10::DeviceType::CUDA, 0));
+      fusion.get(), params, c10::Device(c10::DeviceType::CUDA, 0));
 
   kernel.compile();
   EXPECT_TRUE(kernel.isCompiled());

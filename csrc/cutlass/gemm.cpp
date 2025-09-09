@@ -12,6 +12,7 @@
 #include <ir/interface_nodes.h>
 #include <ir/internal_nodes.h>
 #include <ir/utils.h>
+#include <scheduler/cutlass.h>
 #include <type.h>
 
 #include <format>
@@ -71,7 +72,9 @@ bool hasNvfp4ScaledMmPattern(Fusion* fusion) {
   return ir_utils::filterByType<ScaledMmaOp>(exprs).size() == 1;
 }
 
-std::string generateNvfp4ScaledMmKernel(Fusion* fusion) {
+std::string generateNvfp4ScaledMmKernel(
+    Fusion* fusion,
+    const CutlassParams& params) {
   NVF_ERROR(fusion != nullptr);
   NVF_ERROR_EQ(
       fusion->outputs().size(),
@@ -131,26 +134,15 @@ struct KernelTraits {
   using ClusterShape = Shape<_{}, _{}, _{}>;
   using PerSmTileShape_MNK = Shape<_{}, _{}, _{}>;
 )",
-      // TODO: Accept heuristic parameters and use them here
-        256,
-        256,
-        256,
-        2,
-        1,
-        1,
-        128,
-        256,
-        256
-        /*params.mma_tile.m,
-          params.mma_tile.n,
-          params.mma_tile.k,
-          params.cluster_shape.m,
-          params.cluster_shape.n,
-          params.cluster_shape.k,
-          params.per_sm_tile.m,
-          params.per_sm_tile.n,
-          params.per_sm_tile.k
-          */);
+      params.mma_tile.m,
+      params.mma_tile.n,
+      params.mma_tile.k,
+      params.cluster_shape.m,
+      params.cluster_shape.n,
+      params.cluster_shape.k,
+      params.per_sm_tile.m,
+      params.per_sm_tile.n,
+      params.per_sm_tile.k);
 
   code += R"(
 };

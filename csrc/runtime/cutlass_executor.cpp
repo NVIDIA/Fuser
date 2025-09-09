@@ -17,6 +17,8 @@
 #include <runtime/cutlass_executor.h>
 #include <type.h>
 
+#include <c10/cuda/CUDAStream.h>
+
 namespace nvfuser {
 
 bool CutlassExecutor::supported(Fusion* fusion) {
@@ -43,17 +45,16 @@ void CutlassExecutor::compile(
   // Clone the fusion
   fusion_ = std::make_unique<Fusion>(*fusion);
 
-  // Create compile options
-  CompileParams cparams;
-
-  // Add CUTLASS include path if available
-  if (const char* cutlass_path = std::getenv("CUTLASS_PATH")) {
-    cparams.include_paths.push_back(std::string(cutlass_path) + "/include");
-  }
-
   // Create and compile the CUTLASS kernel
   cutlass_kernel_ = std::make_unique<CutlassCompiledKernel>(
-      fusion_.get(), cutlass_params, cparams);
+      fusion_.get(),
+      cutlass_params,
+      c10::Device(c10::DeviceType::CUDA, args.getDeviceIndex()),
+      SchedulerType::Cutlass,
+      fusion_id_,
+      concrete_id_,
+      runtime_id_,
+      group_id_);
   cutlass_kernel_->compile();
 }
 
@@ -83,7 +84,8 @@ KernelArgumentHolder CutlassExecutor::run(
     kernel_args.push(arg);
   }
 
-  cutlass_kernel_->run(kernel_args);
+  auto stream = at::cuda::getCurrentCUDAStream();
+  cutlass_kernel_->run(kernel_args, stream);
 
   return outputs;
 }

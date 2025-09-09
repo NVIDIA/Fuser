@@ -326,6 +326,7 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/runtime/allocations.cpp
   ${NVFUSER_SRCS_DIR}/runtime/communication_executor.cpp
   ${NVFUSER_SRCS_DIR}/runtime/compiled_kernel.cpp
+  ${NVFUSER_SRCS_DIR}/runtime/cutlass_executor.cpp
   ${NVFUSER_SRCS_DIR}/runtime/cutlass_compiled_kernel.cpp
   ${NVFUSER_SRCS_DIR}/runtime/executor.cpp
   ${NVFUSER_SRCS_DIR}/runtime/executor_dispatch.cpp
@@ -336,6 +337,7 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/runtime/fusion_executor_cache.cpp
   ${NVFUSER_SRCS_DIR}/runtime/fusion_kernel_runtime.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/cache_policy_refiner.cpp
+  ${NVFUSER_SRCS_DIR}/scheduler/cutlass.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/heuristic.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/greedy.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/mark_aliases.cpp
