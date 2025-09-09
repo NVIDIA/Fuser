@@ -16,6 +16,7 @@
 #include <fusion.h>
 #include <ops/all_ops.h>
 #include <runtime/cutlass_compiled_kernel.h>
+#include <runtime/cutlass_executor.h>
 #include <scheduler/all_schedulers.h>
 #include <scheduler/runtime_info.h>
 #include <scheduler/scheduler_types.h>
@@ -80,45 +81,16 @@ TEST_F(CutlassExecutorTest, Nvfp4ScaledGemm_CompiledKernel) {
   // Create scalar tensors
   at::Tensor at_alpha = at::scalar_tensor(1.5f, options);
 
-  KernelArgumentHolder args;
-  args.push(at_a);
-  args.push(at_b);
-  args.push(at_a_sf);
-  args.push(at_b_sf);
-  args.push(at_alpha);
-
-  // We have to allocate the outputs ourself and add those to args. This will
-  // eventually be the responsibility of the CutlassExecutor
-
-  at::Tensor output_tensor = at::empty({M, N}, options.dtype(at::kBFloat16));
-  args.push(output_tensor);
+  std::vector<c10::IValue> inputs{at_a, at_b, at_a_sf, at_b_sf, at_alpha};
 
   CutlassParams params;
 
-  CutlassCompiledKernel kernel(
-      fusion.get(), params, c10::Device(c10::DeviceType::CUDA, 0));
+  CutlassExecutor ce;
+  ce.compile(fusion.get(), params);
 
-  kernel.compile();
-  EXPECT_TRUE(kernel.isCompiled());
+  KernelArgumentHolder outputs = ce.run(inputs);
 
-  // Run the fusion
-
-  c10::DeviceGuard dg(kernel.device());
-  auto stream = at::cuda::getCurrentCUDAStream();
-  at::cuda::jit::initializeCudaContext();
-
-  kernel.run(args, stream);
-
-  ExpressionEvaluator expr_eval;
-  expr_eval.bind(a, at_a);
-  expr_eval.bind(b, at_b);
-  expr_eval.bind(a_sf, at_a_sf);
-  expr_eval.bind(b_sf, at_b_sf);
-  expr_eval.bind(alpha, at_alpha);
-  PolymorphicValue eval_smm = expr_eval.evaluate(smm.tv);
-
-  EXPECT_TRUE(
-      at::allclose(output_tensor, eval_smm.as<at::Tensor>(), .0001, .0001));
+  testValidate(fusion.get(), outputs, inputs, __LINE__, __FILE__);
 }
 
 } // namespace nvfuser

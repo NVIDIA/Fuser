@@ -30,6 +30,7 @@
 #include <runtime/executor_dispatch.h>
 #include <runtime/executor_kernel_arg.h>
 #include <runtime/fusion_kernel_runtime.h>
+#include <scheduler/heuristic.h>
 #include <tensor_metadata.h>
 
 namespace nvfuser::hir {
@@ -284,12 +285,9 @@ void HostIrEvaluator::handle(PostOnStream* post_ir) {
                hu->fusion_to_execute(), 1, 1, 1, 1, SchedulerType::None)});
       ExecutorAbstract* ea = it2.first->second.get();
       if (ea->isA<KernelExecutor>()) {
+        HeuristicParams params(SchedulerType::None);
         ExecutorDispatch::compile(
-            ea,
-            hu->fusion_to_execute(),
-            input_args,
-            LaunchParams(),
-            CompileParams());
+            ea, hu->fusion_to_execute(), input_args, &params);
       } else {
         ExecutorDispatch::compile(ea, hu->fusion_to_execute());
       }

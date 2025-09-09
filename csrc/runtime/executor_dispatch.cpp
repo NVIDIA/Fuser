@@ -86,9 +86,7 @@ void ExecutorDispatch::compile(
     ExecutorAbstract* executor,
     Fusion* fusion,
     const KernelArgumentHolder& args,
-    const LaunchParams& launch_constraints,
-    CompileParams compile_params,
-    SchedulerType scheduler_type) {
+    const HeuristicParams* params) {
   FUSER_PERF_SCOPE("ExecutorDispatch::compile2");
 
   if (auto ce = dynamic_cast<CommunicationExecutor*>(executor)) {
@@ -100,12 +98,16 @@ void ExecutorDispatch::compile(
     return;
   }
   if (auto ce = dynamic_cast<CutlassExecutor*>(executor)) {
-    ce->compile(fusion, args, launch_constraints, compile_params);
+    const auto* cutlass_params = dynamic_cast<const CutlassParams*>(params);
+    NVF_ERROR(
+        cutlass_params != nullptr,
+        "Expected CutlassParams for CutlassExecutor");
+    ce->compile(fusion, *cutlass_params);
     return;
   }
   if (auto ke = dynamic_cast<KernelExecutor*>(executor)) {
     ke->compile(
-        fusion, args, launch_constraints, compile_params, scheduler_type);
+        fusion, args, params->lparams, params->cparams, params->scheduler_type);
     return;
   }
   NVF_THROW("Unsupported Executor detected.");
@@ -145,7 +147,7 @@ KernelArgumentHolder ExecutorDispatch::run(
     return eee->run(args, outputs);
   }
   if (auto ce = dynamic_cast<CutlassExecutor*>(executor)) {
-    return ce->run(args, outputs, launch_constraints, compile_params);
+    return ce->run(args, outputs);
   }
   if (auto ke = dynamic_cast<KernelExecutor*>(executor)) {
     return ke->run(args, outputs, launch_constraints, compile_params);

@@ -35,9 +35,6 @@ class CutlassExecutor : public ExecutorAbstract {
   //! Compile the fusion into a CUTLASS kernel
   void compile(
       Fusion* fusion,
-      const KernelArgumentHolder& args,
-      const LaunchParams& launch_constraints = LaunchParams(),
-      CompileParams compile_params = CompileParams(),
       const CutlassParams& cutlass_params = CutlassParams());
 
   bool isCompiled() const override;
@@ -45,9 +42,7 @@ class CutlassExecutor : public ExecutorAbstract {
   // Execute the compiled CUTLASS kernel
   KernelArgumentHolder run(
       const KernelArgumentHolder& args,
-      KernelArgumentHolder outputs = {},
-      const LaunchParams& launch_constraints = LaunchParams(),
-      const CompileParams& compile_params = CompileParams());
+      KernelArgumentHolder outputs = {});
 
   const std::unique_ptr<Fusion>& fusion() const {
     return fusion_;

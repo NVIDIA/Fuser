@@ -78,15 +78,13 @@ std::string getComputeCapabilityString(int compute_capability) {
 CutlassCompiledKernel::CutlassCompiledKernel(
     Fusion* fusion,
     const CutlassParams& params,
-    c10::Device device,
-    SchedulerType scheduler_type,
     int64_t fusion_id,
     int64_t concrete_id,
     int64_t runtime_id,
     int64_t group_id)
     : CompiledKernelBase(
-          device,
-          scheduler_type,
+          c10::Device(c10::DeviceType::CUDA, at::cuda::current_device()),
+          SchedulerType::Cutlass,
           fusion_id,
           concrete_id,
           runtime_id,

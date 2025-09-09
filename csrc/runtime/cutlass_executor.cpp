@@ -32,15 +32,10 @@ bool CutlassExecutor::supported(Fusion* fusion) {
 
 void CutlassExecutor::compile(
     Fusion* fusion,
-    const KernelArgumentHolder& args,
-    const LaunchParams& launch_constraints,
-    CompileParams compile_params,
     const CutlassParams& cutlass_params) {
   FUSER_PERF_SCOPE("CutlassExecutor::compile");
 
   NVF_CHECK(!isCompiled(), "Cannot re-compile a CutlassExecutor");
-  // No need to check scheduler type here as CutlassExecutor is only created
-  // when the scheduler type is already known to be Cutlass
 
   // Clone the fusion
   fusion_ = std::make_unique<Fusion>(*fusion);
@@ -49,8 +44,6 @@ void CutlassExecutor::compile(
   cutlass_kernel_ = std::make_unique<CutlassCompiledKernel>(
       fusion_.get(),
       cutlass_params,
-      c10::Device(c10::DeviceType::CUDA, args.getDeviceIndex()),
-      SchedulerType::Cutlass,
       fusion_id_,
       concrete_id_,
       runtime_id_,
@@ -64,9 +57,7 @@ bool CutlassExecutor::isCompiled() const {
 
 KernelArgumentHolder CutlassExecutor::run(
     const KernelArgumentHolder& args,
-    KernelArgumentHolder outputs,
-    const LaunchParams& launch_constraints,
-    const CompileParams& compile_params) {
+    KernelArgumentHolder outputs) {
   FUSER_PERF_SCOPE("CutlassExecutor::run");
 
   NVF_CHECK(isCompiled(), "CutlassExecutor must be compiled before running");
