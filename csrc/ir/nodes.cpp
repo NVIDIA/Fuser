@@ -3388,7 +3388,8 @@ TensorDomain::TensorDomain(
     std::vector<IterDomain*> loop_domain,
     std::optional<std::vector<IterDomain*>> alternate_loop_domain,
     std::vector<std::optional<bool>> contiguity,
-    std::vector<IterDomain*> additional_ids)
+    std::vector<IterDomain*> additional_ids,
+    bool skip_validation)
     : Val(passkey, ValType::TensorDomain, DataType::Null),
       root_domain_(std::move(root_domain)),
       logical_domain_(std::move(logical_domain)),
@@ -3405,18 +3406,21 @@ TensorDomain::TensorDomain(
   NVF_CHECK(
       loop_domain_.empty() == logical_domain_.empty(),
       "logical domain and loop domain can only be both empty or neither empty");
-  validateLoopDomain(logical_domain_, loop_domain_, additional_ids_);
-  if (!root_domain_.empty()) {
-    ir_utils::validateDomainEquivalence(
-        logical_domain_, root_domain_, additional_ids_);
-  }
-  if (!allocation_domain_.empty()) {
-    ir_utils::validateDomainEquivalence(
-        logical_domain_, allocation_domain_, additional_ids_);
-  }
-  if (alternate_loop_domain_.has_value()) {
-    validateLoopDomain(
-        logical_domain_, alternate_loop_domain_.value(), additional_ids_);
+
+  if (!skip_validation) {
+    validateLoopDomain(logical_domain_, loop_domain_, additional_ids_);
+    if (!root_domain_.empty()) {
+      ir_utils::validateDomainEquivalence(
+          logical_domain_, root_domain_, additional_ids_);
+    }
+    if (!allocation_domain_.empty()) {
+      ir_utils::validateDomainEquivalence(
+          logical_domain_, allocation_domain_, additional_ids_);
+    }
+    if (alternate_loop_domain_.has_value()) {
+      validateLoopDomain(
+          logical_domain_, alternate_loop_domain_.value(), additional_ids_);
+    }
   }
 
   // resetDomains initializes other member variables, required by clang-tidy
@@ -6585,5 +6589,59 @@ std::vector<PolymorphicValue> CutlassNvfp4GroupedMmaOp::evaluate(
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(CutlassNvfp4GroupedMmaOp)
+
+PreprocessGroupedMatmulInputSf::PreprocessGroupedMatmulInputSf(
+    IrBuilderPasskey passkey,
+    Val* output,
+    Val* input,
+    Val* input_offsets,
+    Val* output_offsets,
+    BlockScalingFactorLayout layout,
+    Val* k,
+    Val* g)
+    : Expr(passkey) {
+  addInput(input);
+  addInput(input_offsets);
+  addInput(output_offsets);
+  addInput(k);
+  addInput(g);
+  addOutput(output);
+  addDataAttribute(layout);
+}
+
+std::string PreprocessGroupedMatmulInputSf::toString(int indent_size) const {
+  std::stringstream ss;
+  indent(ss, indent_size) << output(0)->toString() << "\n";
+  indent_size++;
+  indent(ss, indent_size) << " = preprocessGroupedMatmulInputSf(\n";
+  indent_size++;
+  indent(ss, indent_size) << "input = " << in()->toString() << ",\n";
+  indent(ss, indent_size) << "input_offsets = " << inputOffsets()->toString()
+                          << ",\n";
+  indent(ss, indent_size) << "output_offsets = " << outputOffsets()->toString()
+                          << ",\n";
+  indent(ss, indent_size) << "layout = "
+                          << (layout() == BlockScalingFactorLayout::Block128x4
+                                  ? "Block128x4"
+                                  : "Unknown")
+                          << "\n";
+  indent_size--;
+  indent(ss, indent_size) << ")\n";
+  return ss.str();
+}
+
+std::string PreprocessGroupedMatmulInputSf::toInlineString(
+    int indent_size) const {
+  NVF_CHECK(false, "PreprocessGroupedMatmulInputSf can not be printed inline");
+}
+
+std::vector<PolymorphicValue> PreprocessGroupedMatmulInputSf::evaluate(
+    const ExpressionEvaluator& ee,
+    const std::vector<PolymorphicValue>& inputs) const {
+  // This is a placeholder, currently we don't have a fallback kernel available
+  NVF_THROW("PreprocessGroupedMatmulInputSf evaluation not yet implemented");
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(PreprocessGroupedMatmulInputSf)
 
 } // namespace nvfuser

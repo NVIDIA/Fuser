@@ -404,6 +404,16 @@ class PythonPrinter {
 //        values for keyword arguments. Use `std::nullopt` for keyword
 //        arguments without default values.
 //
+// How to debug PythonTranslator?
+//  1. Recompile with debug symbols
+//     `export NVFUSER_BUILD_BUILD_TYPE=RelwithDebInfo`
+//  2. Run `gdb python`
+//  3. Catch exception in gdb `(gdb) catch throw`.
+//  4. Run failing test.
+//     `r -m pytest test_python_frontend.py -k [your_failing_test]`
+//  5. At gdb Catchpoint, get backtrace for call stack using `(gdb) bt`.
+//  6. Find and fix failure in PythonTranslate.
+//
 // TODO: Python operations without a corresponding Fusion IR node require
 // pattern matching.
 //  1. Map a series of scalar values to `define_vector`
@@ -1318,12 +1328,26 @@ class PythonTranslator : public OptInConstDispatch {
         KeywordArgument<Val*>{"rng_seed", nullptr},
         KeywordArgument<Val*>{"rng_offset", nullptr},
         KeywordArgument<DataType>{"dtype", DataType::Float});
+
+    Val* first_arg = nullptr;
+    Val* second_arg = nullptr;
+    NVF_ERROR(rop->getParameters().size() == 2 || rop->getParameters().empty());
+    if (rop->getParameters().size() == 2) {
+      first_arg = rop->getParameters().at(0);
+      second_arg = rop->getParameters().at(1);
+    } else {
+      // Default arg1 and arg2 is (0, 1) for both uniform and normal.
+      first_arg = fusion_->zeroVal();
+      second_arg = fusion_->oneVal();
+      // Create 0 and 1 scalar values
+      dispatch(first_arg);
+      dispatch(second_arg);
+    }
+    NVF_ERROR(first_arg != nullptr && second_arg != nullptr);
+
     printer_.generateKwargsOperation(
         rng_op_name,
-        std::make_tuple(
-            rop->getParameters().at(0),
-            rop->getParameters().at(1),
-            rop->getShape()),
+        std::make_tuple(first_arg, second_arg, rop->getShape()),
         default_args,
         std::make_tuple(
             rop->getRNGSeedVal(), rop->getRNGOffsetVal(), rop->dtype()),

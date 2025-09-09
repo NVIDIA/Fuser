@@ -570,8 +570,9 @@ void propagateReshape(Fusion* fusion) {
 // propagation of scheduling from the scatter output tensor.
 //
 // ArgsortOp, ScanOp, TopKOp: To avoid predicating the output, use a
-// new Local tensor as the output and insert a copy from the Local
-// tensor to the original output.
+// new Local tensor as the output if the original output is not a
+// Local tensor, and insert a copy from the Local tensor to the
+// original output.
 void insertCopyAfter(Fusion* fusion) {
   for (auto expr :
        ir_utils::getOpsOfType<ArgsortOp, ScanOp, ScatterOp, TopKOp>(fusion)) {

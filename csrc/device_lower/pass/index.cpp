@@ -381,9 +381,9 @@ void IndexLowering::handle(const ArgsortOp* aop) {
   const auto out = lowerDstIndex(aop->out());
   auto indexed_aop = IrBuilder::create<ArgsortOp>(
       out, in, aop->dim(), aop->isDescending(), aop->isStable());
-  if (aop->predicate()) {
-    indexed_aop = indexed_aop->withPredicate(aop->predicate())->as<ArgsortOp>();
-  }
+  NVF_ERROR(
+      aop->predicate(), "Expected to have a predicate: ", aop->toString());
+  indexed_aop = indexed_aop->withPredicate(aop->predicate())->as<ArgsortOp>();
   pushBack(indexed_aop);
   GpuLower::current()->propagateExprInfo(aop, back());
 }
@@ -1453,9 +1453,9 @@ void IndexLowering::handle(const ScanOp* sop) {
   const auto out = lowerDstIndex(sop->out());
   auto indexed_sop = IrBuilder::create<ScanOp>(
       sop->opType(), sop->init(), out, in, sop->dim());
-  if (sop->predicate()) {
-    indexed_sop = indexed_sop->withPredicate(sop->predicate())->as<ScanOp>();
-  }
+  NVF_ERROR(
+      sop->predicate(), "Expected to have a predicate: ", sop->toString());
+  indexed_sop = indexed_sop->withPredicate(sop->predicate())->as<ScanOp>();
   pushBack(indexed_sop);
   GpuLower::current()->propagateExprInfo(sop, back());
 }
