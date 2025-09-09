@@ -135,12 +135,20 @@ void CutlassScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
 
 bool CutlassScheduler::hasSupportedMatmulPattern(Fusion* fusion) {
   // Only accept ScaledMmaOp for JIT CUTLASS kernels
+  bool has_non_scaled_mma = false;
+  int64_t num_scaled_mmas = 0;
   for (auto expr : fusion->exprs()) {
+    if (!ir_utils::isTvOp(expr)) {
+      continue;
+    }
     if (expr->isA<ScaledMmaOp>()) {
-      return true;
+      num_scaled_mmas++;
+    } else {
+      has_non_scaled_mma = true;
     }
   }
-  return false;
+  // TODO: accept fusions with epilogues
+  return num_scaled_mmas == 1 && !has_non_scaled_mma;
 }
 
 bool CutlassScheduler::hasSupportedEpilogue(Fusion* fusion) {
