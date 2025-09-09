@@ -196,13 +196,6 @@ class CompileTimeChecker : private IterVisitor {
   }
 
   void handle(ArgsortOp* argsort) override {
-    // Due to the current limitations of ArgsortOp codegen, all of the
-    // TIDx threads participate, which means the TID parallelized iter
-    // domain of this ArgsortOp must have an extent that is no less
-    // than any other TID parallelized iter domains. Requiring the
-    // exactness is not necessary but sufficient.
-    needs_exact_block_dim_ = true;
-
     auto out_tv = ir_utils::getTvOutput(argsort);
     checkConstrainedTv(out_tv, {argsort->dim()});
     if (!can_schedule_) {
@@ -543,16 +536,33 @@ void propagateReshape(Fusion* fusion) {
   }
 }
 
-void insertCopyAfterScatter(Fusion* fusion) {
-  for (auto scatter : ir_utils::getOpsOfType<ScatterOp>(fusion)) {
-    auto out_tv = scatter->out()->as<TensorView>();
-    if (out_tv->uses().empty()) {
-      continue;
+// Scatter: For each scatter output, if there's a use of the output,
+// insert a copy between the output and the use (i.e.,
+// cacheAfter). This intermediate copy is used to simplify the
+// propagation of scheduling from the scatter output tensor.
+//
+// ArgsortOp, ScanOp: To make sure an ArgsortOp or ScanOp can be done
+// without predicating the output, use a new Local tensor as the
+// output if the original output is not a Local tensor, and insert a
+// copy from the Local tensor to the original output.
+void insertCopyAfter(Fusion* fusion) {
+  for (auto expr :
+       ir_utils::getOpsOfType<ArgsortOp, ScanOp, ScatterOp>(fusion)) {
+    auto out_tv = expr->output(0)->as<TensorView>();
+    if (expr->isA<ScatterOp>()) {
+      if (out_tv->uses().empty()) {
+        continue;
+      }
+      out_tv->cacheAfter(
+          LoadStoreOpType::Set,
+          CacheOp::Unspecified,
+          /*propagate_allocation_domain=*/false);
+    } else if (expr->isOneOf<ArgsortOp, ScanOp>()) {
+      if (out_tv->getMemoryType() == MemoryType::Local) {
+        continue;
+      }
+      out_tv->cacheBefore(LoadStoreOpType::Set);
     }
-    out_tv->cacheAfter(
-        LoadStoreOpType::Set,
-        CacheOp::Unspecified,
-        /*propagate_allocation_domain=*/false);
   }
 }
 
@@ -609,7 +619,7 @@ class ConstrainedOpScheduler : public OptOutDispatch {
     // tensor, both tensors should use global. Otherwise, use shared.
     // Note that the in_tv tensor should never be produced by another
     // scatter since a copy must have been inserted by
-    // insertCopyAfterScatter.
+    // insertCopyAfter.
     NVF_ERROR(dynamic_cast<ScatterOp*>(in_tv->definition()) == nullptr);
     if (in_tv->isFusionInput() || in_tv->isFusionOutput() ||
         out_tv->isFusionOutput()) {
@@ -623,7 +633,7 @@ class ConstrainedOpScheduler : public OptOutDispatch {
     scheduleScatterAllocationDomains(scatter);
 
     // If there's a use of the scatter output, that must be the copy
-    // op inserted by insertCopyAfterScatter. It is not automatically
+    // op inserted by insertCopyAfter. It is not automatically
     // scheduled as the propagation from the scatter output won't
     // happen because the loop domain of the scatter output is not mapped
     // with its logical domain.
@@ -918,11 +928,7 @@ void GreedyScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
 
   propagateReshape(fusion);
 
-  // For each scatter output, if there's a use of the output, insert a
-  // copy between the output and the use (i.e., cacheAfter). This
-  // intermediate copy is used to simplify the propagation of
-  // scheduling from the scatter output tensor.
-  insertCopyAfterScatter(fusion);
+  insertCopyAfter(fusion);
 
   std::vector<TensorView*> constrained_tvs = getAllConstrainedTvs(fusion);
 

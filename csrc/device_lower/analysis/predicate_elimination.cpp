@@ -915,6 +915,13 @@ class PredicateChcker : public IterVisitor {
     }
   }
 
+  // Disable predicate elimination with argsort ops for now. Note that
+  // it is possible to eliminate predicates for argsort ops by
+  // initializing depedent vals with min or max values.
+  void handle(ArgsortOp* aop) final {
+    needs_predicate_ = true;
+  }
+
  private:
   const PredicateElimination& pred_elimination_;
   const std::unordered_set<const Expr*>& non_predicated_exprs_;
