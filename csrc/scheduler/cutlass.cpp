@@ -6,6 +6,7 @@
  */
 // clang-format on
 
+#include <device_lower/utils.h>
 #include <exceptions.h>
 #include <instrumentation.h>
 #include <ir/all_nodes.h>
@@ -147,7 +148,7 @@ bool CutlassScheduler::hasSupportedMatmulPattern(Fusion* fusion) {
       has_non_scaled_mma = true;
     }
   }
-  // TODO: accept fusions with epilogues
+  // TODO: accept fusions with epilogue
   return num_scaled_mmas == 1 && !has_non_scaled_mma;
 }
 
