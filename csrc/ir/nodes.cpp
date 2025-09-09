@@ -286,29 +286,36 @@ NVFUSER_DEFINE_CLONE_AND_CREATE(GatherOp)
 
 ScatterOp::ScatterOp(
     IrBuilderPasskey passkey,
-    ScatterOpType type,
     Val* out,
     Val* self,
     int64_t dim,
     Val* index,
-    Val* src)
+    Val* src,
+    std::optional<BinaryOpType> accumulate_op)
     : Expr(passkey) {
   addInput(self);
   addInput(index);
   addInput(src);
   addOutput(out);
   addDataAttribute(dim);
-  addDataAttribute(type);
+  // is this accumulate?
+  addDataAttribute(accumulate_op.has_value());
+  if (accumulate_op.has_value()) {
+    addDataAttribute(accumulate_op.value());
+  }
 }
 
 std::string ScatterOp::toString(int indent_size) const {
   std::stringstream ss;
   indent(ss, indent_size) << output(0)->toString() << "\n";
   indent_size++;
-  indent(ss, indent_size) << " =" << getScatterOpType() << "(";
+  indent(ss, indent_size) << " = scatter(";
   ss << "in = " << in()->toString() << ", dim = " << dim()
-     << ", src = " << src()->toString() << ", idx = " << index()->toString()
-     << " )\n";
+     << ", src = " << src()->toString() << ", idx = " << index()->toString();
+  if (accumulate()) {
+    ss << ", accumulate = " << accumulateOp();
+  }
+  ss << " )\n";
   return ss.str();
 }
 
@@ -326,15 +333,47 @@ std::vector<PolymorphicValue> ScatterOp::evaluate(
   const auto& input = inputs.at(0).as<at::Tensor>();
   const auto& index = inputs.at(1).as<at::Tensor>();
   auto dimension = dim();
-  if (src()->isA<TensorView>()) {
-    return {
-        at::scatter(input, dimension, index, inputs.at(2).as<at::Tensor>())};
-  } else {
-    return {at::scatter(
+  if (accumulate()) {
+    std::string accumulate_op_str;
+    switch (accumulateOp()) {
+      case BinaryOpType::Add:
+        accumulate_op_str = "sum";
+        break;
+      case BinaryOpType::Mul:
+        accumulate_op_str = "prod";
+        break;
+      case BinaryOpType::Max:
+        accumulate_op_str = "amax";
+        break;
+      case BinaryOpType::Min:
+        accumulate_op_str = "amin";
+        break;
+      default:
+        NVF_THROW("Unsupported accumulation op: ", accumulateOp());
+    }
+    // at::scatter_reduce doesn't seem to support scalar
+    // src. at::scatter does support but it seems it's deprecated and
+    // only supports add and multiply accumulation.
+    NVF_ERROR(
+        src()->isA<TensorView>(),
+        "at::scatter_reduce does not support scalar src argument");
+    return {at::scatter_reduce(
         input,
         dimension,
         index,
-        PolymorphicValue_functions::toScalar(inputs.back()))};
+        inputs.at(2).as<at::Tensor>(),
+        accumulate_op_str)};
+  } else {
+    if (src()->isA<TensorView>()) {
+      return {
+          at::scatter(input, dimension, index, inputs.at(2).as<at::Tensor>())};
+    } else {
+      return {at::scatter(
+          input,
+          dimension,
+          index,
+          PolymorphicValue_functions::toScalar(inputs.at(2)))};
+    }
   }
 }
 
@@ -3349,7 +3388,8 @@ TensorDomain::TensorDomain(
     std::vector<IterDomain*> loop_domain,
     std::optional<std::vector<IterDomain*>> alternate_loop_domain,
     std::vector<std::optional<bool>> contiguity,
-    std::vector<IterDomain*> additional_ids)
+    std::vector<IterDomain*> additional_ids,
+    bool skip_validation)
     : Val(passkey, ValType::TensorDomain, DataType::Null),
       root_domain_(std::move(root_domain)),
       logical_domain_(std::move(logical_domain)),
@@ -3366,18 +3406,21 @@ TensorDomain::TensorDomain(
   NVF_CHECK(
       loop_domain_.empty() == logical_domain_.empty(),
       "logical domain and loop domain can only be both empty or neither empty");
-  validateLoopDomain(logical_domain_, loop_domain_, additional_ids_);
-  if (!root_domain_.empty()) {
-    ir_utils::validateDomainEquivalence(
-        logical_domain_, root_domain_, additional_ids_);
-  }
-  if (!allocation_domain_.empty()) {
-    ir_utils::validateDomainEquivalence(
-        logical_domain_, allocation_domain_, additional_ids_);
-  }
-  if (alternate_loop_domain_.has_value()) {
-    validateLoopDomain(
-        logical_domain_, alternate_loop_domain_.value(), additional_ids_);
+
+  if (!skip_validation) {
+    validateLoopDomain(logical_domain_, loop_domain_, additional_ids_);
+    if (!root_domain_.empty()) {
+      ir_utils::validateDomainEquivalence(
+          logical_domain_, root_domain_, additional_ids_);
+    }
+    if (!allocation_domain_.empty()) {
+      ir_utils::validateDomainEquivalence(
+          logical_domain_, allocation_domain_, additional_ids_);
+    }
+    if (alternate_loop_domain_.has_value()) {
+      validateLoopDomain(
+          logical_domain_, alternate_loop_domain_.value(), additional_ids_);
+    }
   }
 
   // resetDomains initializes other member variables, required by clang-tidy
@@ -6502,13 +6545,9 @@ std::vector<PolymorphicValue> CutlassNvfp4GroupedMmaOp::evaluate(
       "problem_sizes must have shape (num_experts, 3)");
   int num_experts = problem_sizes.size(0);
 
-  // Calculate output shape and allocate output tensor
-  std::vector<int64_t> output_shape;
-  output_shape = {mat1.size(0), mat2.size(2)};
-  const auto options = at::TensorOptions()
-                           .device(mat1.device())
-                           .dtype(data_type_to_aten(out()->dtype()));
-  at::Tensor result = at::empty(output_shape, options);
+  at::ScalarType out_dtype = data_type_to_aten(out()->dtype());
+  const auto options =
+      at::TensorOptions().device(mat1.device()).dtype(out_dtype);
 
   // Calculate proper stride tensors for the cutlass kernel
   // ab_strides: stride information for input matrices A and B
@@ -6526,10 +6565,9 @@ std::vector<PolymorphicValue> CutlassNvfp4GroupedMmaOp::evaluate(
   c_strides.fill_(n);
 
   // Call the cutlass kernel, note that it expect g,n,k layout on mat2.
-  cutlass_kernels::nvfp4_scaled_grouped_mm(
-      result,
-      mat1.view(at::ScalarType::Byte),
-      mat2.transpose(-1, -2).view(at::ScalarType::Byte),
+  at::Tensor result = cutlass_kernels::nvfp4_scaled_grouped_mm(
+      mat1.view(at::ScalarType::Float4_e2m1fn_x2),
+      mat2.transpose(-1, -2).view(at::ScalarType::Float4_e2m1fn_x2),
       scale1,
       scale2,
       alpha,
@@ -6537,7 +6575,8 @@ std::vector<PolymorphicValue> CutlassNvfp4GroupedMmaOp::evaluate(
       c_strides,
       problem_sizes,
       expert_offsets,
-      sf_offsets);
+      sf_offsets,
+      out_dtype);
 
   if (const auto rfactor_did_idx = getRFactorDeviceDimensionIndex(out());
       rfactor_did_idx != -1) {
@@ -6550,5 +6589,59 @@ std::vector<PolymorphicValue> CutlassNvfp4GroupedMmaOp::evaluate(
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(CutlassNvfp4GroupedMmaOp)
+
+PreprocessGroupedMatmulInputSf::PreprocessGroupedMatmulInputSf(
+    IrBuilderPasskey passkey,
+    Val* output,
+    Val* input,
+    Val* input_offsets,
+    Val* output_offsets,
+    BlockScalingFactorLayout layout,
+    Val* k,
+    Val* g)
+    : Expr(passkey) {
+  addInput(input);
+  addInput(input_offsets);
+  addInput(output_offsets);
+  addInput(k);
+  addInput(g);
+  addOutput(output);
+  addDataAttribute(layout);
+}
+
+std::string PreprocessGroupedMatmulInputSf::toString(int indent_size) const {
+  std::stringstream ss;
+  indent(ss, indent_size) << output(0)->toString() << "\n";
+  indent_size++;
+  indent(ss, indent_size) << " = preprocessGroupedMatmulInputSf(\n";
+  indent_size++;
+  indent(ss, indent_size) << "input = " << in()->toString() << ",\n";
+  indent(ss, indent_size) << "input_offsets = " << inputOffsets()->toString()
+                          << ",\n";
+  indent(ss, indent_size) << "output_offsets = " << outputOffsets()->toString()
+                          << ",\n";
+  indent(ss, indent_size) << "layout = "
+                          << (layout() == BlockScalingFactorLayout::Block128x4
+                                  ? "Block128x4"
+                                  : "Unknown")
+                          << "\n";
+  indent_size--;
+  indent(ss, indent_size) << ")\n";
+  return ss.str();
+}
+
+std::string PreprocessGroupedMatmulInputSf::toInlineString(
+    int indent_size) const {
+  NVF_CHECK(false, "PreprocessGroupedMatmulInputSf can not be printed inline");
+}
+
+std::vector<PolymorphicValue> PreprocessGroupedMatmulInputSf::evaluate(
+    const ExpressionEvaluator& ee,
+    const std::vector<PolymorphicValue>& inputs) const {
+  // This is a placeholder, currently we don't have a fallback kernel available
+  NVF_THROW("PreprocessGroupedMatmulInputSf evaluation not yet implemented");
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(PreprocessGroupedMatmulInputSf)
 
 } // namespace nvfuser

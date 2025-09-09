@@ -23,6 +23,8 @@
 #include <tests/cpp/utils.h>
 #include <tests/cpp/validator.h>
 
+#include <cstdlib>
+
 namespace nvfuser {
 
 using CutlassExecutorTest = NVFuserTest;
@@ -32,6 +34,11 @@ TEST_F(CutlassExecutorTest, Nvfp4ScaledGemm_CompiledKernel) {
   // Skip if not on SM100 or above
   if (at::cuda::getCurrentDeviceProperties()->major < 10) {
     GTEST_SKIP() << "Skipping test on pre-SM100 GPUs";
+  }
+
+  if (!std::getenv("CUTLASS_PATH")) {
+    GTEST_SKIP() << "The CUTLASS_PATH environment variable must be set in "
+                 << "order to run this test";
   }
 
   auto fusion = std::make_unique<Fusion>();

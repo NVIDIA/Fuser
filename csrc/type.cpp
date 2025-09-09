@@ -334,6 +334,14 @@ static const char* val_type2string(ValType t) {
   std::unreachable();
 }
 
+const char* block_sf_layout2string(BlockScalingFactorLayout t) {
+  switch (t) {
+    case BlockScalingFactorLayout::Block128x4:
+      return "block_128_4";
+  }
+  std::unreachable();
+}
+
 const char* predicate_type2string(PredicateType t) {
   switch (t) {
     case PredicateType::Manual:
@@ -756,7 +764,7 @@ static const char* parallel_type2string(ParallelType t) {
     case ParallelType::TIDx:
       return "threadIdx.x";
     case ParallelType::Stream:
-      return "StreamIdx";
+      return "streamIdx";
     case ParallelType::Vectorize:
       return "V";
     case ParallelType::Unroll:
@@ -1439,6 +1447,12 @@ std::ostream& operator<<(std::ostream& out, const ValType vtype) {
   return out << val_type2string(vtype);
 }
 
+std::ostream& operator<<(
+    std::ostream& out,
+    const BlockScalingFactorLayout layout) {
+  return out << block_sf_layout2string(layout);
+}
+
 std::ostream& operator<<(std::ostream& out, const PredicateType ptype) {
   return out << predicate_type2string(ptype);
 }
@@ -1453,13 +1467,6 @@ std::ostream& operator<<(std::ostream& out, const UnaryOpType uotype) {
 
 std::ostream& operator<<(std::ostream& out, const BinaryOpType botype) {
   return out << binary_op_type2string(botype);
-}
-
-std::ostream& operator<<(std::ostream& out, const ScatterOpType sotype) {
-  if (sotype == ScatterOpType::Set) {
-    return out << "scatter";
-  }
-  NVF_THROW("No scatterOp type found for scatterOp.");
 }
 
 std::ostream& operator<<(std::ostream& out, const TernaryOpType totype) {

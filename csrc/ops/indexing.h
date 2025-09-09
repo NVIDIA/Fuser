@@ -32,14 +32,6 @@ NVF_API TensorView* indexPutAccumulate(
 // torch.gather
 NVF_API TensorView* gather(TensorView* input, int64_t dim, TensorView* index);
 
-// TODO: Revisit the interface design. ScatterOpType could be just BinaryOpType
-NVF_API TensorView* scatterOp(
-    ScatterOpType type,
-    TensorView* self,
-    int64_t dim,
-    TensorView* index,
-    Val* src);
-
 // Provides torch.scatter. It is designed to represent the ouf-of-place
 // scatter operation, i.e., the returned tensor, out_tv, is defined as
 // follows:
@@ -72,7 +64,8 @@ NVF_API TensorView* scatter(
     TensorView* self,
     int64_t dim,
     TensorView* index,
-    Val* src);
+    Val* src,
+    std::optional<BinaryOpType> accumulate_op = std::nullopt);
 
 //! numpy.take_along_axis
 //! (https://numpy.org/doc/stable/reference/generated/numpy.take_along_axis.html)
@@ -82,5 +75,14 @@ NVF_API TensorView* takeAlongAxis(
     TensorView* input,
     TensorView* index,
     int64_t dim);
+
+//! Changes the layout of input to satisfy the requirement of grouped matmul on
+//! block scaling factor. see:
+//! https://docs.nvidia.com/cutlass/media/docs/cpp/blackwell_functionality.html#scale-factor-layouts
+NVF_API TensorView* preprocessGroupedMatmulInputSf(
+    TensorView* input,
+    TensorView* input_offsets,
+    TensorView* output_offsets,
+    BlockScalingFactorLayout layout);
 
 } // namespace nvfuser

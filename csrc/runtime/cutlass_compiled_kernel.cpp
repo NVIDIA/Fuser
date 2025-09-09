@@ -49,14 +49,6 @@ std::filesystem::path getCutlassPath() {
   return {"/usr/local/cuda"};
 }
 
-// Get Torch install path from environment or use default
-std::filesystem::path getTorchPath() {
-  if (const char* env_path = std::getenv("TORCH_PATH")) {
-    return std::filesystem::path(env_path);
-  }
-  return "";
-}
-
 // Get compute capability string
 std::string getComputeCapabilityString(int compute_capability) {
   if (compute_capability == 0) {
@@ -127,6 +119,14 @@ void CutlassCompiledKernel::run(
   NVF_ERROR(cuda_function_);
   // Launch the CUTLASS kernel
 
+  // This must match the expected type in the generated kernel
+  struct TensorArg {
+    void* data_ptr;
+    int64_t dim;
+    int64_t* sizes;
+    int64_t* strides = nullptr;
+  };
+
   // TODO: Pattern match and find this ordering automatically (see below for
   // codegen of entry point which will unpack the discovered ordering) For
   // nvfp4_scaled_mm_kernel, we need to call it as a C function Extract
@@ -138,11 +138,16 @@ void CutlassCompiledKernel::run(
       args.size());
 
   // Get tensors from arguments
-  std::vector<void*> arg_pointers;
-  arg_pointers.reserve(args.size());
+  std::vector<TensorArg> tensor_args;
+  tensor_args.reserve(args.size());
   for (const PolymorphicValue& arg : args) {
     if (arg.is<at::Tensor>()) {
-      arg_pointers.push_back((void*)&arg.as<at::Tensor>());
+      auto t = arg.as<at::Tensor>();
+      tensor_args.emplace_back(
+          t.data_ptr(),
+          t.dim(),
+          (int64_t*)t.sizes().data(),
+          (int64_t*)t.strides().data());
     } else {
       NVF_THROW(
           "Non-tensor arguments are not yet supported in "
@@ -151,12 +156,12 @@ void CutlassCompiledKernel::run(
   }
 
   // Define the function signature for the kernel
-  using KernelFunc = void (*)(const std::vector<void*>&, cudaStream_t);
+  using KernelFunc = void (*)(const std::vector<TensorArg>&, cudaStream_t);
 
   auto kernel_func = reinterpret_cast<KernelFunc>(cuda_function_);
 
   // Call the kernel
-  kernel_func(arg_pointers, stream);
+  kernel_func(tensor_args, stream);
 }
 
 void CutlassCompiledKernel::generateCode() {
@@ -201,10 +206,6 @@ std::string getCompileCommand(
   std::vector<std::string> include_paths;
   include_paths.push_back(cutlass_path / "include");
   include_paths.push_back(cutlass_path / "tools" / "util" / "include");
-  const std::filesystem::path torch_path = getTorchPath();
-  include_paths.push_back(torch_path / "include");
-  include_paths.push_back(
-      torch_path / "include" / "torch" / "csrc" / "api" / "include");
 
   compile_cmd = "nvcc";
   compile_cmd += " -forward-unknown-to-host-compiler";
@@ -345,6 +346,12 @@ void CutlassCompiledKernel::loadKernel() {
     if (!cuda_function_) {
       NVF_THROW("Failed to get CUTLASS kernel function: ", dlerror());
     }
+  }
+}
+
+CutlassCompiledKernel::~CutlassCompiledKernel() {
+  if (shared_library_handle_) {
+    dlclose(shared_library_handle_);
   }
 }
 

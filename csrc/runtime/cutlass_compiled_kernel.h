@@ -30,6 +30,8 @@ class CutlassCompiledKernel : public CompiledKernelBase {
       int64_t runtime_id = 0,
       int64_t group_id = 0);
 
+  ~CutlassCompiledKernel();
+
   inline bool isCompiled() const {
     return compiled_;
   }
