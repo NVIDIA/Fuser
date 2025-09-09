@@ -1196,6 +1196,47 @@ def test_issue2275_repro2(nvfuser_direct_test):
     nvf_out, _ = nvfuser_direct_test.exec_nvfuser(fusion_func, inputs)
 
 
+# See https://github.com/NVIDIA/Fuser/issues/2317
+def test_issue2317(nvfuser_direct_test):
+    """
+    Test case for issue #2317: Complex fusion with permute, reshape, and linear operations.
+
+    This test verifies a fusion that performs:
+    1. Permute operation on a 4D tensor (16, 25, 128, 64) -> (16, 128, 25, 64)
+    2. Stride reordering to optimize memory layout
+    3. Reshape to match the shape of the second input tensor (16, 128, 1600)
+    4. Linear transformation using a weight matrix (1600, 1600)
+    5. Element-wise addition with residual connection
+    6. Type casting to BFloat16
+    7. Second linear transformation with residual connection
+
+    The test uses BFloat16 precision and requires Ampere or newer GPU architecture.
+    """
+    inputs = [
+        torch.randn((16, 25, 128, 64), dtype=torch.bfloat16, device="cuda:0"),
+        torch.randn((16, 128, 1600), dtype=torch.bfloat16, device="cuda:0"),
+        torch.randn((1600, 1600), dtype=torch.bfloat16, device="cuda:0"),
+    ]
+
+    def fusion_func(fd: FusionDefinition):
+        T0 = fd.from_pytorch(inputs[0])
+        T1 = fd.from_pytorch(inputs[1])
+        T2 = fd.from_pytorch(inputs[2])
+
+        T10 = fd.ops.permute(T0, dims=[0, 2, 1, 3])
+        T11 = fd.ops.stride_order(T10, stride_order=[3, 2, 1, 0])
+        T16 = fd.ops.reshape(T11, new_shape=T1.shape())
+        T17 = fd.ops.linear(T16, T2)
+        T33 = fd.ops.add(T17, T1)
+
+        T33 = fd.ops.cast(T33, dtype=DataType.BFloat16)
+        T34 = fd.ops.linear(T33, T2)
+        T35 = fd.ops.add(T34, T33)
+        fd.add_output(T35)
+
+    nvf_out, _ = nvfuser_direct_test.exec_nvfuser(fusion_func, inputs)
+
+
 def test_issue2545(nvfuser_direct_test):
     """
     Test for issue 2545 - tests empty tensor handling with concatenation operations.
