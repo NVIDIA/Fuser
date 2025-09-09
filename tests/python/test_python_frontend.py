@@ -5110,15 +5110,15 @@ fd.execute(inputs)
 
     def test_cumsum_int(self):
         inputs = [
-            torch.testing.make_tensor((4,), dtype=torch.int32, device='cuda:0'),
+            torch.testing.make_tensor((4,), dtype=torch.int32, device="cuda:0"),
         ]
 
-        def fusion_func(fd : FusionDefinition):
+        def fusion_func(fd: FusionDefinition):
             T0 = fd.from_pytorch(inputs[0])
             T1 = fd.ops.cumsum(T0, dim=-1)
             T2 = fd.ops.cast(T1, dtype=DataType.Int)
             fd.add_output(T2)
-        
+
         nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
         eager_out = torch.cumsum(inputs[0], dim=-1)
         self.assertEqual(eager_out, nvf_out[0])
