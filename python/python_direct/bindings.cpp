@@ -23,7 +23,18 @@ void initNvFuserPythonBindings(PyObject* module) {
       "translate_fusion",
       &translateFusion,
       py::arg("fusion"),
-      R"(Translate a Fusion to a Python string.)");
+      py::arg("verbose") = false,
+      R"(
+Translate a Fusion to a Python string.
+
+Parameters
+----------
+fusion : Fusion
+    The Fusion to translate.
+verbose : bool
+    Whether to print verbose output that mimics the CPP Fusion IR or to minify
+    the python definition. Defaults to False.
+)");
   nvfuser.def(
       "compute_tensor_descriptor",
       &computeTensorDescriptor,

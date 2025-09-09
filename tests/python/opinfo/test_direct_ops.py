@@ -60,7 +60,12 @@ def torch_correctness_test_fn(fd_fn: Callable, nvf_op: OpInfo, sample: SampleInp
     inputs = parse_args_fusion_execution(nvf_op, *sample.args)
     inputs_cap = deepcopy(inputs)
     nvfuser_result = fd.execute(inputs)
-    assert check_captured_python_definition(nvfuser_result, fd, inputs_cap)
+    assert check_captured_python_definition(
+        nvfuser_result, fd, inputs_cap, verbose=True
+    )
+    assert check_captured_python_definition(
+        nvfuser_result, fd, inputs_cap, verbose=False
+    )
 
     torch_result = nvf_op.reference(*sample.args, **sample.kwargs)
 
@@ -85,7 +90,12 @@ def jax_correctness_test_fn(fd_fn: Callable, nvf_op: OpInfo, sample: SampleInput
     inputs = parse_args_fusion_execution(nvf_op, *sample.args)
     inputs_cap = deepcopy(inputs)
     nvfuser_result = fd.execute(inputs)
-    assert check_captured_python_definition(nvfuser_result, fd, inputs_cap)
+    assert check_captured_python_definition(
+        nvfuser_result, fd, inputs_cap, verbose=True
+    )
+    assert check_captured_python_definition(
+        nvfuser_result, fd, inputs_cap, verbose=False
+    )
 
     jax_sample = sample.jax()
     jax_result = nvf_op.reference(*jax_sample.args, **jax_sample.kwargs)
@@ -117,7 +127,12 @@ def python_correctness_test_fn(fd_fn: Callable, nvf_op: OpInfo, sample: SampleIn
     inputs = parse_args_fusion_execution(nvf_op, *sample.args)
     inputs_cap = deepcopy(inputs)
     nvfuser_result = fd.execute(inputs)
-    assert check_captured_python_definition(nvfuser_result, fd, inputs_cap)
+    assert check_captured_python_definition(
+        nvfuser_result, fd, inputs_cap, verbose=True
+    )
+    assert check_captured_python_definition(
+        nvfuser_result, fd, inputs_cap, verbose=False
+    )
 
     # expect only single result from function
     assert len(nvfuser_result) == 1

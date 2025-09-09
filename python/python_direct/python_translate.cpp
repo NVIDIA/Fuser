@@ -458,14 +458,14 @@ class PythonTranslator : public OptInConstDispatch {
  public:
   // Returns a map from the values in the CPP fusion to its corresponding
   // FusionDefinition State index.
-  static void print(std::ostream& os, Fusion* fusion) {
-    PythonTranslator translator(os, fusion);
+  static void print(std::ostream& os, Fusion* fusion, bool verbose) {
+    PythonTranslator translator(os, fusion, verbose);
     translator.translate();
   }
 
  private:
-  PythonTranslator(std::ostream& os, Fusion* fusion)
-      : printer_(os), fusion_(fusion) {}
+  PythonTranslator(std::ostream& os, Fusion* fusion, bool verbose)
+      : printer_(os), fusion_(fusion), verbose_(verbose) {}
 
   // The new shape for view operation can be dynamic. Check that all dynamic
   // scalar dependencies are handled before the ReshapeOp.
@@ -597,7 +597,7 @@ class PythonTranslator : public OptInConstDispatch {
 
       // short-circuit: skip if all outputs are visited
       // The python translation can be minified by replacing multiple Fusion IR
-      // nodes with a single python operation. For example, broadcast_in_dims
+      // nodes with a single python operation. For example, broadcast_in_dim
       // is a composite of BroadcastOp and ExpandOp.
       bool is_expr_outputs_valid =
           std::all_of(e->outputs().begin(), e->outputs().end(), [&](Val* v) {
@@ -991,10 +991,10 @@ class PythonTranslator : public OptInConstDispatch {
       // Create broadcast_dims argument from the indices of the non-broadcasted
       // dimensions from BroadcastOp
       std::vector<int64_t> broadcast_dims;
-      for (auto&& [i, bcast_dim] :
+      for (auto&& [dim, bcast_dim] :
            enumerate(bcast_op->getBroadcastDimFlags())) {
         if (!bcast_dim) {
-          broadcast_dims.push_back(i);
+          broadcast_dims.push_back(dim);
         }
       }
 
@@ -1684,19 +1684,22 @@ class PythonTranslator : public OptInConstDispatch {
   PythonPrinter printer_;
   //! The reference CPP fusion to be translated.
   Fusion* fusion_ = nullptr;
+  //! Whether to print verbose output that mimics the CPP Fusion IR or to minify
+  //! the python definition.
+  bool verbose_ = false;
   //! The set of NvFuser Val's created by the python representation.
   //! Vals from the Fusion may not appear in the python representation.
   //! For example, only the output from the ExpandOp is added for
-  //! `fd.ops.broadcast_in_dims`. The BroadcastOp's output is skipped because
+  //! `fd.ops.broadcast_in_dim`. The BroadcastOp's output is skipped because
   //! it does not appear in the python representation.
   std::unordered_set<const nvfuser::Val*> visited_vals_;
 };
 
 } // namespace
 
-std::string translateFusion(nvfuser::Fusion* f) {
+std::string translateFusion(nvfuser::Fusion* f, bool verbose) {
   std::stringstream ss;
-  PythonTranslator::print(ss, f);
+  PythonTranslator::print(ss, f, verbose);
   return ss.str();
 }
 

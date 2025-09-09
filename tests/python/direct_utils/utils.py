@@ -31,9 +31,11 @@ def is_pre_blackwell():
 # Get string representation for FusionDefinition
 # Run captured python definition
 # Check that the result of captured python definition matches original results
-def check_captured_python_definition(reference_outputs, fd, inputs, device=None):
+def check_captured_python_definition(
+    reference_outputs, fd, inputs, device=None, verbose=False
+):
     try:
-        fd_str = fd.__repr__()
+        fd_str = fd.__repr__() if verbose else fd.__str__()
         func_name = "nvfuser_fusion"
         exec(fd_str)
 

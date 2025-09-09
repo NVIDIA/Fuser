@@ -101,7 +101,19 @@ class FusionDefinition:
 
     def __repr__(self):
         """
-        Return a string representation of the FusionDefinition.
+        Return a string representation of the CPP Fusion IR.
+
+        Returns
+        -------
+        str
+            A string representation of the FusionDefinition
+        """
+        return translate_fusion(self.fusion, verbose=True)
+
+    def __str__(self):
+        """
+        Return a minified string representation of the FusionDefinition.
+
         Returns
         -------
         str

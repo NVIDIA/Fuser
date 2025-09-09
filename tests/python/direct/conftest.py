@@ -27,6 +27,7 @@ class NVFuserTest(TestCase):
         # Copy inputs because aliased outputs can modify inputs when running
         # FusionDefinition
         inputs_captured = deepcopy(inputs)
+        inputs_captured_verbose = deepcopy(inputs)
 
         # Execute a fusion function and capture the string python definition
         with FusionDefinition() as fd:
@@ -37,7 +38,12 @@ class NVFuserTest(TestCase):
             device=device,
         )
 
-        assert check_captured_python_definition(out, fd, inputs_captured, device)
+        assert check_captured_python_definition(
+            out, fd, inputs_captured_verbose, device, verbose=True
+        )
+        assert check_captured_python_definition(
+            out, fd, inputs_captured, device, verbose=False
+        )
         assert expected_fd_str is None or expected_fd_str in repr(fd)
         return out, fd
 
