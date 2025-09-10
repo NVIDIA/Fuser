@@ -1660,23 +1660,6 @@ std::vector<Val*> Index::getConsumerPerDimLogicalIndex(
   }
 }
 
-std::vector<Val*> Index::getConsumerPerDimRootIndex(
-    TensorView* consumer_tv,
-    const std::vector<ForLoop*>& loops,
-    const std::unordered_set<ForLoop*>& rotated_loops) {
-  NVF_ERROR(
-      !ir_utils::hasRootToLoopLinearTransformations(consumer_tv) ||
-      GpuLower::current()->idModelOptions().consumerIndex() ||
-      GpuLower::current()->tmemInfo().hasTMemTensor());
-  NVF_ERROR(rotated_loops.empty(), "Loop rotation is not supported");
-  const TensorIndexer& indexer = GpuLower::current()->tensorIndexer();
-  return indexer.getIndexFor(
-      consumer_tv->definition(),
-      /*as_consumer=*/true,
-      consumer_tv->getMaybeRootDomain(),
-      loops);
-}
-
 std::vector<Val*> Index::getProducerPerDimLogicalIndex(
     TensorView* producer_tv,
     const TensorView* consumer_tv,

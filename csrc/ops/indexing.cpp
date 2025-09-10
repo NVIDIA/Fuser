@@ -308,16 +308,16 @@ TensorView* preprocessGroupedMatmulInputSf(
 
   // This is used for both root and loop domain on output
   // maps directly to input's logical domain.
-  std::vector<IterDomain*> out_root;
-  out_root.reserve(input_logical_dom.size());
+  std::vector<IterDomain*> out_logical_dom;
+  out_logical_dom.reserve(input_logical_dom.size());
   std::ranges::transform(
-      input_logical_dom, std::back_inserter(out_root), [](IterDomain* id) {
-        return IterDomainBuilder(id).build();
-      });
+      input_logical_dom,
+      std::back_inserter(out_logical_dom),
+      [](IterDomain* id) { return IterDomainBuilder(id).build(); });
 
   // Create the logical domain of output.
-  std::vector<IterDomain*> out_logical;
-  out_logical.reserve(input_logical_dom.size());
+  std::vector<IterDomain*> out_alloc_dom;
+  out_alloc_dom.reserve(input_logical_dom.size());
 
   // only Block128x4 is supported at this point.
   NVF_CHECK_EQ(layout, BlockScalingFactorLayout::Block128x4);
@@ -334,6 +334,10 @@ TensorView* preprocessGroupedMatmulInputSf(
   // layout. Since the actual padding size is data-dependent, we allocate for
   // the maximum padding (reflected on logical/allocation domain).
 
+  // NOTE: We could use resize operations for the padding logic, I think this
+  // might simplify predication. Not doing that for now for simpler
+  // implementation. We'll re-evaluate when we add scheduler support.
+
   // pad row size: num_groups * (row_multiple - 1) + row_size
   auto pad_to_max_extent = [&](IterDomain* id, int multiple) -> IterDomain* {
     auto* maximum_pad_value_per_group =
@@ -343,7 +347,7 @@ TensorView* preprocessGroupedMatmulInputSf(
         SimplifyingIrBuilder::mulExpr(num_groups, maximum_pad_value_per_group));
     return IterDomainBuilder(id).extent(padded_ext).build();
   };
-  out_logical.push_back(pad_to_max_extent(out_root[0], row_multiple));
+  out_alloc_dom.push_back(pad_to_max_extent(out_logical_dom[0], row_multiple));
 
   // pad col size: (col_size + col_multiple - 1) / col_multiple * col_multiple
   auto pad_to_multiple = [&](IterDomain* id, int multiple) -> IterDomain* {
@@ -357,22 +361,18 @@ TensorView* preprocessGroupedMatmulInputSf(
         multiple_val);
     return IterDomainBuilder(id).extent(padded_ext).build();
   };
-  out_logical.push_back(pad_to_multiple(out_root[1], col_multiple));
+  out_alloc_dom.push_back(pad_to_multiple(out_logical_dom[1], col_multiple));
 
-  // Create the output tensor. Validation needs to be skipped, because
-  // (root/loop) doesn't converge with (logical)
+  // Create the output tensor with logical domain matching inputs
   TensorView* out_tv = IrBuilder::create<TensorView>(
       IrBuilder::create<TensorDomain>(
-          /*root_domain=*/out_root,
-          /*logical_domain=*/out_logical,
-          /*allocation=*/std::vector<IterDomain*>(),
-          /*loop_domain=*/out_root,
-          /*alternate_loop_domain=*/std::nullopt,
-          /*contiguity=*/
-          TensorDomain::getContiguityFilledWith(out_logical, true),
-          /*additional_ids=*/std::vector<IterDomain*>(),
-          /*skip_checks=*/true),
-      input->getDataType().value());
+          /*logcial_domain=*/out_logical_dom) input->getDataType()
+          .value());
+  // Set allocation domain with padding logic.
+  out_tv->setAllocationDomain(
+      out_alloc_dom,
+      TensorDomain::getContiguityFilledWith(out_alloc_dom, true));
+  // (root/loop) doesn't converge with (logical)
 
   IrBuilder::create<PreprocessGroupedMatmulInputSf>(
       out_tv,
