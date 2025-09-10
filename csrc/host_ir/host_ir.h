@@ -12,13 +12,10 @@
 #include <ir/builder.h>
 #include <multidevice/communication.h>
 #include <scheduler/heuristic.h>
-#include <atomic>
-
-namespace nvfuser {
 
 // Host Irs are used to represent a host program. They need to be registered in
 // a HostIrContainer. Each Ir represents a Host data or instruction.
-namespace hir {
+namespace nvfuser::hir {
 
 // HostUnit represents a Fusion in the Host Program. In other words, it
 // represents a compute graph (or a segment of a larger compute graph)
@@ -417,6 +414,69 @@ class HirAliasSelect : public Expr {
   }
 };
 
-} // namespace hir
+// This is essentially a LoadStoreOp whose output allocation is stream
+// parallelized. The input and output TensorViews will have the same logical
+// domain except that the input may have extra reduction dimensions. Upon
+// evaluation, the output tensor will be an aliasing slice of the input tensor.
+//
+// I only plan to use ShardByStream around evaluated Exprs (e.g. MatmulOp)
+// because otherwise I would have to change every such Expr to support stream
+// parallelization.
+//
+// I don't plan to use ShardByStream around `LaunchKernel`s.  nvFuser codegen
+// should be able to generate the right indexing by analyzing a
+// stream-parallelized allocation/loop domain. Having the kernel do the indexing
+// has two benefits:
+// 1. Preserve maximum allocation information. With ShardByStream, the input
+// allocation domain will be `[i{5}, i{2}], contiguity=[false, true]`. Without,
+// it will be `[i{5}, i{6}], contiguity=[true, true]`. With the latter, the
+// scheduler knows at compile time that the stride of i{5} is 6. This extra
+// information could help scheduling and codegen.
+// 2. Unify different parallel types. For TIDs or BIDs, we've already been
+// indexing into a global tensor, not a per-thread or per-block "local" tensor.
+// For DIDs, we currently assume the index is always 0 but that'll probably
+// change when nvFuser generates kernel-initiated communication.
+//
+// I considered keeping this a LoadStoreOp but I couldn't figure out a good way
+// to pass in the stream index, which is needed for slicing.
+//
+// This op is similar to HirAliasSelect, but the semantics are slightly
+// different. For example, `out` is for some reason an attribute there. I could
+// merge them into one but I prefer keeping them separated to not slow down
+// MultiDeviceExecutor development.
+class ShardByStream : public Expr {
+ public:
+  using Expr::Expr;
+  ShardByStream(
+      IrBuilderPasskey passkey,
+      TensorView* out,
+      TensorView* in,
+      Val* stream_index);
 
-} // namespace nvfuser
+  ShardByStream(const ShardByStream& other) = delete;
+  ShardByStream& operator=(const ShardByStream& other) = delete;
+  ShardByStream(ShardByStream&& other) = delete;
+  ShardByStream& operator=(ShardByStream&& other) = delete;
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+  const char* getOpString() const override {
+    return "hir::ShardByStream";
+  }
+
+  TensorView* in() const {
+    return inputs().at(0)->as<TensorView>();
+  }
+
+  TensorView* out() const {
+    return outputs().at(0)->as<TensorView>();
+  }
+
+  Val* stream_index() const {
+    return inputs().at(1);
+  }
+};
+
+} // namespace nvfuser::hir

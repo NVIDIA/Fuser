@@ -146,3 +146,31 @@ def pytorch_nvfp4_quantize(a, a_global_scale):
     a_scaled = torch.clamp(a_scaled, -FLOAT4_E2M1_MAX, FLOAT4_E2M1_MAX)
     a_scaled = a_scaled.view(original_shape)
     return to_fp4(a_scaled), scaled_block_scale_fp8
+
+
+def round_up(x, y):
+    return (x + y - 1) // y * y
+
+
+def activation_scale_to_nvfp4(x, g_sf, offsets, blockscale_offsets, block_size):
+    m = x.size(0)
+    k = x.size(1)
+    g = g_sf.size(0)
+    padded_m_size = blockscale_offsets[g - 1] + round_up(m - offsets[g - 1], 128)
+    block_scale = torch.empty(
+        (padded_m_size, k // block_size), dtype=torch.float8_e4m3fn, device="cuda:0"
+    )
+    v_scaled = torch.empty((m, k // 2), dtype=torch.float4_e2m1fn_x2, device="cuda:0")
+    for i in range(len(g_sf)):
+        l = offsets[i]
+        if i == g - 1:
+            r = m
+        else:
+            r = offsets[i + 1]
+        l_sf = blockscale_offsets[i]
+        r_sf = l_sf + r - l
+        v, b_sf = pytorch_nvfp4_quantize(x[l:r], g_sf[i])
+        v_scaled[l:r] = v
+        block_scale[l_sf:r_sf] = linear_to_swizzled_128_4(b_sf)
+
+    return v_scaled, block_scale

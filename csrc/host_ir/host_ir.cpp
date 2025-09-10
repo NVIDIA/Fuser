@@ -19,9 +19,7 @@
 #include <ops/all_ops.h>
 #include <utils.h>
 
-namespace nvfuser {
-
-namespace hir {
+namespace nvfuser::hir {
 
 HostUnit::HostUnit(IrBuilderPasskey passkey, std::unique_ptr<Fusion> fusion)
     : Expr(passkey), fusion_(std::make_unique<Fusion>(*fusion)) {
@@ -413,10 +411,10 @@ NVFUSER_DEFINE_CLONE_AND_CREATE(HirAliasSelect)
 std::string HirAliasSelect::toString(int indent_size) const {
   std::stringstream ss;
   indent(ss, indent_size) << out()->toString() << "\n";
-  indent_size++;
-  indent(ss, indent_size) << " = HirAliasSelect( " << in()->toString()
-                          << ", axis = " << in()->getLogicalDomain().at(axis())
-                          << ", index = " << index()->toString() << " )\n";
+  indent(ss, indent_size + 1)
+      << " = HirAliasSelect( " << in()->toString()
+      << ", axis = " << in()->getLogicalDomain().at(axis())
+      << ", index = " << index()->toString() << " )\n";
   return ss.str();
 }
 
@@ -424,6 +422,32 @@ std::string HirAliasSelect::toInlineString(int indent_size) const {
   NVF_THROW("Cannot be printed inline");
 }
 
-} // namespace hir
+ShardByStream::ShardByStream(
+    IrBuilderPasskey passkey,
+    TensorView* out,
+    TensorView* in,
+    Val* stream_index)
+    : Expr(passkey, {in, stream_index}, {out}, {}) {
+  NVF_ERROR(passkey.ir_container_ != nullptr);
+  NVF_ERROR(passkey.ir_container_->isA<HostIrContainer>());
+  NVF_ERROR_EQ(
+      TensorDomain::noReductions(in->getLogicalDomain()).size(),
+      out->getLogicalDomain().size());
+}
 
-} // namespace nvfuser
+NVFUSER_DEFINE_CLONE_AND_CREATE(ShardByStream)
+
+std::string ShardByStream::toString(int indent_size) const {
+  std::stringstream ss;
+  indent(ss, indent_size) << out()->toString() << " = ShardByStream("
+                          << in()->toString()
+                          << ", stream_index = " << stream_index()->toString()
+                          << ")" << std::endl;
+  return ss.str();
+}
+
+std::string ShardByStream::toInlineString(int indent_size) const {
+  NVF_CHECK(false, "Cannot be printed inline");
+}
+
+} // namespace nvfuser::hir

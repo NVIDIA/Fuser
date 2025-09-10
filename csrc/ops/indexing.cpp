@@ -161,12 +161,12 @@ TensorView* gather(TensorView* inp, int64_t dim, TensorView* index) {
   return out_tensor->as<TensorView>();
 }
 
-TensorView* scatterOp(
-    ScatterOpType type,
+TensorView* scatter(
     TensorView* self,
     int64_t dim,
     TensorView* index,
-    Val* src) {
+    Val* src,
+    std::optional<BinaryOpType> accumulate_op) {
   auto self_dom = TensorDomain::noReductions(self->getLogicalDomain());
   auto idx_dom = TensorDomain::noReductions(index->getLogicalDomain());
 
@@ -215,16 +215,20 @@ TensorView* scatterOp(
           /*skip_loop_validation=*/true),
       self->getDataType().value());
 
-  IrBuilder::create<ScatterOp>(type, out_tensor, self, dim, index, src);
-  return out_tensor->as<TensorView>();
-}
+  if (accumulate_op.has_value()) {
+    NVF_ERROR(
+        accumulate_op.value() == BinaryOpType::Add ||
+            accumulate_op.value() == BinaryOpType::Mul ||
+            accumulate_op.value() == BinaryOpType::Max ||
+            accumulate_op.value() == BinaryOpType::Min,
+        "Unsupported accumulation op: ",
+        accumulate_op.value());
+  }
 
-TensorView* scatter(
-    TensorView* self,
-    int64_t dim,
-    TensorView* index,
-    Val* src) {
-  return scatterOp(ScatterOpType::Set, self, dim, index, src);
+  IrBuilder::create<ScatterOp>(
+      out_tensor, self, dim, index, src, accumulate_op);
+
+  return out_tensor->as<TensorView>();
 }
 
 TensorView* takeAlongAxis(TensorView* inp, TensorView* index, int64_t dim) {
@@ -290,6 +294,96 @@ TensorView* takeAlongAxis(TensorView* inp, TensorView* index, int64_t dim) {
   IrBuilder::create<GatherOp>(out_tensor, inp, dim, index, true);
 
   return out_tensor->as<TensorView>();
+}
+
+TensorView* preprocessGroupedMatmulInputSf(
+    TensorView* input,
+    TensorView* input_offsets,
+    TensorView* output_offsets,
+    BlockScalingFactorLayout layout) {
+  // only support input matrix;
+  auto input_logical_dom =
+      TensorDomain::noReductions(input->getLogicalDomain());
+  NVF_ERROR_EQ(input_logical_dom.size(), 2);
+
+  // This is used for both root and loop domain on output
+  // maps directly to input's logical domain.
+  std::vector<IterDomain*> out_root;
+  out_root.reserve(input_logical_dom.size());
+  std::ranges::transform(
+      input_logical_dom, std::back_inserter(out_root), [](IterDomain* id) {
+        return IterDomainBuilder(id).build();
+      });
+
+  // Create the logical domain of output.
+  std::vector<IterDomain*> out_logical;
+  out_logical.reserve(input_logical_dom.size());
+
+  // only Block128x4 is supported at this point.
+  NVF_CHECK_EQ(layout, BlockScalingFactorLayout::Block128x4);
+  constexpr int col_multiple = 4;
+  constexpr int row_multiple = 128;
+
+  auto* one_val = input->fusion()->oneVal(DataType::Index);
+  std::vector<IterDomain*> offset_logical_dom =
+      TensorDomain::noReductions(input_offsets->getLogicalDomain());
+  Val* num_groups =
+      SimplifyingIrBuilder::subExpr(offset_logical_dom[0]->extent(), one_val);
+
+  // Note: output logical domain handles potential padding required for the
+  // layout. Since the actual padding size is data-dependent, we allocate for
+  // the maximum padding (reflected on logical/allocation domain).
+
+  // pad row size: num_groups * (row_multiple - 1) + row_size
+  auto pad_to_max_extent = [&](IterDomain* id, int multiple) -> IterDomain* {
+    auto* maximum_pad_value_per_group =
+        IrBuilder::create<Val>(multiple - 1, DataType::Index);
+    Val* padded_ext = SimplifyingIrBuilder::addExpr(
+        id->extent(),
+        SimplifyingIrBuilder::mulExpr(num_groups, maximum_pad_value_per_group));
+    return IterDomainBuilder(id).extent(padded_ext).build();
+  };
+  out_logical.push_back(pad_to_max_extent(out_root[0], row_multiple));
+
+  // pad col size: (col_size + col_multiple - 1) / col_multiple * col_multiple
+  auto pad_to_multiple = [&](IterDomain* id, int multiple) -> IterDomain* {
+    Val* ext = id->extent();
+    auto* multiple_val = IrBuilder::create<Val>(multiple, DataType::Index);
+    Val* padded_ext = SimplifyingIrBuilder::mulExpr(
+        SimplifyingIrBuilder::divExpr(
+            SimplifyingIrBuilder::subExpr(
+                SimplifyingIrBuilder::addExpr(ext, multiple_val), one_val),
+            multiple_val),
+        multiple_val);
+    return IterDomainBuilder(id).extent(padded_ext).build();
+  };
+  out_logical.push_back(pad_to_multiple(out_root[1], col_multiple));
+
+  // Create the output tensor. Validation needs to be skipped, because
+  // (root/loop) doesn't converge with (logical)
+  TensorView* out_tv = IrBuilder::create<TensorView>(
+      IrBuilder::create<TensorDomain>(
+          /*root_domain=*/out_root,
+          /*logical_domain=*/out_logical,
+          /*allocation=*/std::vector<IterDomain*>(),
+          /*loop_domain=*/out_root,
+          /*alternate_loop_domain=*/std::nullopt,
+          /*contiguity=*/
+          TensorDomain::getContiguityFilledWith(out_logical, true),
+          /*additional_ids=*/std::vector<IterDomain*>(),
+          /*skip_checks=*/true),
+      input->getDataType().value());
+
+  IrBuilder::create<PreprocessGroupedMatmulInputSf>(
+      out_tv,
+      input,
+      input_offsets,
+      output_offsets,
+      layout,
+      input_logical_dom[1]->getMaybeExpandedExtent(),
+      num_groups);
+
+  return out_tv;
 }
 
 } // namespace nvfuser

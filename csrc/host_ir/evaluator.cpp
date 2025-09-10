@@ -561,7 +561,7 @@ void HostIrEvaluator::handle(kir::Allocate* allocate) {
       allocate->buffer()->isA<TensorView>(),
       "Allocation must be on a TensorView but got ",
       allocate->buffer());
-  TensorView* tv = allocate->buffer()->as<TensorView>();
+  auto* tv = allocate->buffer()->as<TensorView>();
   if (expr_evaluator_.isKnown(tv)) {
     return;
   }
@@ -672,6 +672,34 @@ void HostIrEvaluator::handle(ReductionOp* reduction_op) {
           " in ",
           reduction_op);
   }
+}
+
+void HostIrEvaluator::handle(ShardByStream* shard) {
+  auto* out_tv = shard->out();
+
+  const std::vector<IterDomain*>& allocation_domain =
+      out_tv->getMaybeAllocationDomain();
+  auto i = std::find_if(
+      allocation_domain.begin(),
+      allocation_domain.end(),
+      std::mem_fn(&IterDomain::isStream));
+  NVF_ERROR(
+      i != allocation_domain.end(),
+      "Stream axis not found in allocation domain: ",
+      out_tv);
+  IterDomain* stream_id = *i;
+
+  auto in_tensor = getKnownConcreteValue(shard->in()).as<at::Tensor>();
+  int64_t stream_index =
+      expr_evaluator_.evaluate(shard->stream_index()).as<int64_t>();
+  at::Tensor out_tensor =
+      in_tensor
+          .chunk(
+              stream_id->extent()->evaluate().as<int64_t>(),
+              getShardedLogicalAxis(out_tv, ParallelType::Stream))
+          .at(stream_index);
+
+  expr_evaluator_.bind(out_tv, out_tensor);
 }
 
 void HostIrEvaluator::handle(Deallocate* deallocate) {

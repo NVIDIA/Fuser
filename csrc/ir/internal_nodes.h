@@ -254,12 +254,12 @@ class ScatterOp : public Expr {
   using Expr::Expr;
   ScatterOp(
       IrBuilderPasskey,
-      ScatterOpType type,
       Val* out,
       Val* self,
       int64_t dim,
       Val* index,
-      Val* src);
+      Val* src,
+      std::optional<BinaryOpType> accumulate_op = std::nullopt);
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
@@ -295,8 +295,13 @@ class ScatterOp : public Expr {
 
   IterDomain* getIndexedID() const;
 
-  ScatterOpType getScatterOpType() const {
-    return attribute<ScatterOpType>(1);
+  bool accumulate() const {
+    return attribute<bool>(1);
+  }
+
+  BinaryOpType accumulateOp() const {
+    NVF_ERROR(accumulate());
+    return attribute<BinaryOpType>(2);
   }
 };
 
@@ -2518,11 +2523,12 @@ class ForLoop final : public Expr {
       Val* start,
       Val* stop,
       Val* step,
-      bool vectorize,
-      Val* vectorize_shift,
-      bool unroll_required,
-      CircularBufferLoopStage circular_buffer_loop_stage,
-      int64_t circular_buffer_loop_stage_depth);
+      bool vectorize = false,
+      Val* vectorize_shift = nullptr,
+      bool unroll_required = false,
+      CircularBufferLoopStage circular_buffer_loop_stage =
+          CircularBufferLoopStage::NotApplicable,
+      int64_t circular_buffer_loop_stage_depth = 0);
 
   ForLoop(
       IrBuilderPasskey passkey,
@@ -3439,6 +3445,86 @@ class CutlassNvfp4GroupedMmaOp : public Expr {
 
   TensorView* scalingFactorOffsets() const {
     return input(7)->as<TensorView>();
+  }
+};
+
+//! NOTE -- [ PreprocessGroupedMatmulInputSf ]
+//!
+//! This operation performs a layout change on the input, it's currently used
+//! for block scaling factor accompanying narrow precision inputs.
+//!
+//! PreprocessGroupedMatmulInputSf(TensorView* output, TensorView* input, ...)
+//!
+//!   input:  logical domain:   (i0, i1)
+//!   output: root domain:      (i0, i1)
+//!           logical domain:   (i2, i3)
+//!           loop domain:      (i0, i1)
+//!
+//! 1. This can be viewed as a point-wise operation, since output loop domain
+//! matches the input logical domain.
+//!
+//! 2. Because of the potential padding/swizzle, the logical domain of the
+//! output does not map to input. We don't rely on codegen for indexing, so we
+//! don't care about mapping the logical/allocation of output to anything else.
+//! Indexing will be done in runtime function, utilizing `input_offsets` and
+//! `output_offsets`.
+//!
+//! 3. Output has a root domain that matches the logical domain of the input.
+class PreprocessGroupedMatmulInputSf : public Expr {
+ public:
+  using Expr::Expr;
+
+  PreprocessGroupedMatmulInputSf(
+      IrBuilderPasskey,
+      Val* output,
+      Val* input,
+      Val* input_offsets,
+      Val* output_offsets,
+      BlockScalingFactorLayout layout,
+      Val* k,
+      Val* g);
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  const char* getOpString() const override {
+    return "PreprocessGroupedMatmulInputSf";
+  }
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+  std::vector<PolymorphicValue> evaluate(
+      const ExpressionEvaluator& ee,
+      const std::vector<PolymorphicValue>& inputs) const override;
+
+  Val* out() const {
+    return output(0);
+  }
+
+  Val* in() const {
+    return input(0);
+  }
+
+  TensorView* inputOffsets() const {
+    return input(1)->as<TensorView>();
+  }
+
+  TensorView* outputOffsets() const {
+    return input(2)->as<TensorView>();
+  }
+
+  // get scalar - column size
+  Val* k() const {
+    return input(3);
+  }
+
+  // get scalar - number of groups
+  Val* g() const {
+    return input(4);
+  }
+
+  // get enum - block scaling factor layout
+  BlockScalingFactorLayout layout() const {
+    return attribute<BlockScalingFactorLayout>(0);
   }
 };
 
