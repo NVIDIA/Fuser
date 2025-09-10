@@ -1237,6 +1237,91 @@ def test_issue2317(nvfuser_direct_test):
     nvf_out, _ = nvfuser_direct_test.exec_nvfuser(fusion_func, inputs)
 
 
+def test_issue2354(nvfuser_direct_test):
+    """
+    Test for issue 2354 - tests complex operations with linear and mul operations.
+
+    This test verifies that complex operations work correctly with:
+    - Linear operations with different shapes
+    - Mul operations with different shapes
+    - Proper handling of tensor shapes and operations
+    """
+    inputs = [
+        torch.randn((8, 4), dtype=torch.float32, device="cuda:0"),
+        torch.randn(
+            (
+                6,
+                2,
+                4,
+            ),
+            dtype=torch.float32,
+            device="cuda:0",
+        ),
+    ]
+
+    def fusion_func(fd: FusionDefinition):
+        T0 = fd.define_tensor(
+            shape=[-1, -1],
+            contiguity=[True, True],
+            dtype=DataType.Float,
+            is_cpu=False,
+            stride_order=[1, 0],
+        )
+        T1 = fd.define_tensor(
+            shape=[-1, -1, -1],
+            contiguity=[True, True, True],
+            dtype=DataType.Float,
+            is_cpu=False,
+            stride_order=[2, 1, 0],
+        )
+        T2 = fd.ops.linear(T1, T0)
+        S3 = fd.define_scalar(1.41421, dtype=DataType.Double)
+        T4 = fd.ops.mul(T2, S3)
+        fd.add_output(T2)
+        fd.add_output(T4)
+
+    nvfuser_direct_test.exec_nvfuser(fusion_func, inputs)
+
+
+def test_issue2532(nvfuser_direct_test):
+    """
+    Test for issue 2532 - tests broadcast reduction axis in matmul.
+
+    This test verifies that broadcast reduction axis in matmul works correctly.
+    """
+
+    def fusion_func(fd: FusionDefinition) -> None:
+        T0 = fd.define_tensor(
+            shape=[-1, -1, 1],
+            contiguity=[True, None, True],
+            dtype=DataType.Float,
+            is_cpu=False,
+            stride_order=[2, 0, 1],
+        )
+        T1 = fd.define_tensor(
+            shape=[-1, 1, -1],
+            contiguity=[True, None, True],
+            dtype=DataType.Float,
+            is_cpu=False,
+            stride_order=[2, 1, 0],
+        )
+        T2 = fd.ops.sum(T1, dims=[0, 1], keepdim=False, dtype=DataType.Null)
+        T3 = fd.ops.matmul(T0, T1)
+        T4 = fd.ops.sum(T3, dims=[0], keepdim=False, dtype=DataType.Null)
+        fd.add_output(T2)
+        fd.add_output(T4)
+
+    inputs = [
+        torch.randn((2 * 32,), dtype=torch.float32, device="cuda:0").as_strided(
+            (2, 32, 1), (32, 1, 32)
+        ),
+        torch.randn((2 * 16,), dtype=torch.float32, device="cuda:0").as_strided(
+            (2, 1, 16), (16, 16, 1)
+        ),
+    ]
+    nvfuser_direct_test.exec_nvfuser(fusion_func, inputs)
+
+
 def test_issue2545(nvfuser_direct_test):
     """
     Test for issue 2545 - tests empty tensor handling with concatenation operations.
@@ -1453,6 +1538,50 @@ def test_issue3292(nvfuser_direct_test):
         fd.add_output(T223)
 
     nvf_out, _ = nvfuser_direct_test.exec_nvfuser(fusion_func, inputs)
+
+
+def test_issue3369(nvfuser_direct_test):
+    """
+    Test for issue 3369 - tests square linear operations.
+
+    This test verifies that square linear operations work correctly.
+    """
+
+    def nvfuser_fusion_id28(fd: FusionDefinition) -> None:
+        T0 = fd.define_tensor(
+            shape=[5, 5],
+            contiguity=[True, True],
+            dtype=DataType.Float,
+            is_cpu=False,
+            stride_order=[1, 0],
+        )
+        T1 = fd.define_tensor(
+            shape=[5, 5],
+            contiguity=[True, True],
+            dtype=DataType.Float,
+            is_cpu=False,
+            stride_order=[1, 0],
+        )
+        T2 = fd.define_tensor(
+            shape=[5],
+            contiguity=[True],
+            dtype=DataType.Float,
+            is_cpu=False,
+            stride_order=[0],
+        )
+        T3 = fd.ops.linear(T0, T1, T2)
+        fd.add_output(T3)
+
+    with FusionDefinition() as fd:
+        nvfuser_fusion_id28(fd)
+
+    inputs = [
+        torch.testing.make_tensor((5, 5), dtype=torch.float32, device="cuda:0"),
+        torch.testing.make_tensor((5, 5), dtype=torch.float32, device="cuda:0"),
+        torch.testing.make_tensor((5,), dtype=torch.float32, device="cuda:0"),
+    ]
+    fd.validate(inputs)
+    nvf_out, _ = nvfuser_direct_test.exec_nvfuser(nvfuser_fusion_id28, inputs)
 
 
 def test_issue4444(nvfuser_direct_test):

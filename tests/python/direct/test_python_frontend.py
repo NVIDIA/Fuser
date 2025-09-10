@@ -319,86 +319,6 @@ def test_broadcast_mixing(nvfuser_direct_test):
     nvfuser_direct_test.assertEqual(eager_out, nvf_out[0])
 
 
-def test_matmul(nvfuser_direct_test):
-    m = 24
-    n = 16
-    k = 8
-    inputs = [
-        torch.randn(m, k, device="cuda", dtype=torch.bfloat16),
-        torch.randn(k, n, device="cuda", dtype=torch.bfloat16),
-    ]
-
-    def fusion_func(fd: FusionDefinition) -> None:
-        t0 = fd.from_pytorch(inputs[0])
-        t1 = fd.from_pytorch(inputs[1])
-        t2 = fd.ops.matmul(t0, t1)
-        fd.add_output(t2)
-
-    nvf_out, _ = nvfuser_direct_test.exec_nvfuser(fusion_func, inputs)
-    eager_out = torch.matmul(inputs[0], inputs[1])
-    nvfuser_direct_test.assertEqual(eager_out, nvf_out[0])
-
-
-def test_linear_without_bias(nvfuser_direct_test):
-    m = 24
-    n = 16
-    k = 8
-    inputs = [
-        torch.randn(m, k, device="cuda", dtype=torch.bfloat16),
-        torch.randn(n, k, device="cuda", dtype=torch.bfloat16),
-    ]
-
-    def fusion_func(fd: FusionDefinition) -> None:
-        t0 = fd.from_pytorch(inputs[0])
-        t1 = fd.from_pytorch(inputs[1])
-        t2 = fd.ops.linear(t0, t1)
-        fd.add_output(t2)
-
-    # Check that bias is not included with linear
-    fd_str = """def nvfuser_fusion(fd : FusionDefinition) -> None :
-    tv0 = fd.define_tensor(shape=[-1, -1], contiguity=[True, True], dtype=DataType.BFloat16, is_cpu=False)
-    tv1 = fd.define_tensor(shape=[-1, -1], contiguity=[True, True], dtype=DataType.BFloat16, is_cpu=False)
-    tv2 = fd.ops.linear(tv0, tv1)
-    fd.add_output(tv2)"""
-
-    nvf_out, _ = nvfuser_direct_test.exec_nvfuser(
-        fusion_func, inputs, expected_fd_str=fd_str
-    )
-    eager_out = torch.nn.functional.linear(inputs[0], inputs[1])
-    nvfuser_direct_test.assertEqual(eager_out, nvf_out[0])
-
-
-def test_linear_with_bias(nvfuser_direct_test):
-    m = 24
-    n = 16
-    k = 8
-    inputs = [
-        torch.randn(m, k, device="cuda", dtype=torch.bfloat16),
-        torch.randn(n, k, device="cuda", dtype=torch.bfloat16),
-        torch.randn(n, device="cuda", dtype=torch.bfloat16),
-    ]
-
-    def fusion_func(fd: FusionDefinition) -> None:
-        t0 = fd.from_pytorch(inputs[0])
-        t1 = fd.from_pytorch(inputs[1])
-        t2 = fd.from_pytorch(inputs[2])
-        t3 = fd.ops.linear(t0, t1, t2)
-        fd.add_output(t3)
-
-    fd_str = """def nvfuser_fusion(fd : FusionDefinition) -> None :
-    tv0 = fd.define_tensor(shape=[-1, -1], contiguity=[True, True], dtype=DataType.BFloat16, is_cpu=False)
-    tv1 = fd.define_tensor(shape=[-1, -1], contiguity=[True, True], dtype=DataType.BFloat16, is_cpu=False)
-    tv2 = fd.define_tensor(shape=[-1], contiguity=[True], dtype=DataType.BFloat16, is_cpu=False)
-    tv3 = fd.ops.linear(tv0, tv1, bias=tv2)
-    fd.add_output(tv3)"""
-
-    nvf_out, _ = nvfuser_direct_test.exec_nvfuser(
-        fusion_func, inputs, expected_fd_str=fd_str
-    )
-    eager_out = torch.nn.functional.linear(inputs[0], inputs[1], inputs[2])
-    nvfuser_direct_test.assertEqual(eager_out, nvf_out[0])
-
-
 def test_tensor_ndim(nvfuser_direct_test):
     shape = [2 for i in range(12)]
     new_shape = shape[:9]
@@ -2574,3 +2494,30 @@ def test_all_dim_var_mean(nvfuser_direct_test):
         )
         torch_result = torch.var_mean(inputs[0], [0, 1, 2], bool(correction))
         nvfuser_direct_test.assertEqual(fuser_result, torch_result)
+
+
+def test_validate_precomputed_values(nvfuser_direct_test):
+    # This test is from legacy test_nan.py
+    def fusion_func(fd: FusionDefinition):
+        T0 = fd.define_tensor(
+            shape=[-1, -1],
+            contiguity=[True, True],
+            dtype=DataType.Float,
+            is_cpu=False,
+        )
+
+        S1 = fd.define_scalar(None, dtype=DataType.Double)
+        T2 = fd.ops.ge(T0, S1)
+        fd.add_output(T2)
+
+    outs, _ = nvfuser_direct_test.exec_nvfuser(
+        fusion_func,
+        [
+            torch.randn((10,), dtype=torch.float32, device="cuda:0").as_strided(
+                (2, 5), (5, 1)
+            ),
+            float("nan"),
+        ],
+    )
+    # Comparing any number to NaN results in False.
+    torch.testing.assert_close(outs[0].cpu(), torch.full((2, 5), False))
