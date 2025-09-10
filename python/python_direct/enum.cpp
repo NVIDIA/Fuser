@@ -20,6 +20,7 @@ void bindEnums(py::module& nvfuser) {
       .value("Double", DataType::Double)
       .value("Float", DataType::Float)
       .value("Half", DataType::Half)
+      .value("Index", DataType::Index)
       .value("Int", DataType::Int)
       .value("Int32", DataType::Int32)
       .value("UInt64", DataType::UInt64)
