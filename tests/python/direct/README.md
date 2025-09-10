@@ -31,19 +31,19 @@ The `tests/python/direct` directory contains the following test files:
 - **Legacy-Only Tests**: 15 tests (not yet migrated)
 - **Total Direct Tests**: 175 tests across 4 files
 - **Shared Tests**: 83 tests between legacy and direct frontend
-- **Direct-Only Tests**: 39 tests (new functionality)
+- **Direct-Only Tests**: 36 tests (new functionality)
 
 #### Migrated legacy tests files
 - test_alias.py
 - test_define.py
 - test_embedding.py
+- test_matmul.py
 - test_python_frontend.py
 - test_repro.py
 - test_sdpa.py
 
 #### Remaining legacy test files
-- test_inline_definitions.py
-- test_matmul.py
+- test_inline_definitions.py --- Inline definitions is not supported in direct bindings.
 - test_moe.py
 - test_nan.py
 - test_narrow_precision.py
@@ -53,6 +53,15 @@ The `tests/python/direct` directory contains the following test files:
 
 #### Legacy-Only test files
 - test_schedule_ops.py
+
+## test_matmul.py
+- `test_matmul`
+- `test_linear_with_bias` - Tests linear layers with bias python representation.
+- `test_linear_without_bias` - Tests linear layers without bias representation.
+- `test_linear`
+- `test_linear_slice`
+- `test_matmul_operandA_2d_operandB_3d` - Renamed from legacy `test_2d_x_3d`
+- `test_matmul_stride`
 
 ## test_python_frontend.py
 
@@ -83,9 +92,6 @@ The following tests exist in `tests/python/direct/test_python_frontend.py` but a
 - `test_cummin` - Tests cumulative minimum operations
 - `test_cumprod` - Tests cumulative product operations
 - `test_embedding` - Tests embedding operations; 32 variants; Moved from legacy `test_embedding.py` to direct `test_python_frontend.py`
-- `test_linear_with_bias` - Tests linear layers with bias
-- `test_linear_without_bias` - Tests linear layers without bias
-- `test_matmul` - Tests matrix multiplication
 
 ### Migrated tests in `tests/python/direct/test_python_frontend.py` from `tests/python/test_define.py`
 - `test_define_contiguous_tensor` - corresponds with `TestDefine::test_contiguous`
@@ -180,7 +186,7 @@ Both test files contain these 83 common tests:
 - `test_where_dtypes` - Where operations with different data types
 - `test_zero_size_dim` - Tests zero size dimensions
 
-#### test_high_complexity.py
+## test_high_complexity.py
 The following 10 tests are moved from `tests/python/test_python_frontend.py` to `tests/python/direct/test_high_complexity.py`:
 
 - `test_broadcast_in_dim_with_dynamic_shapes` - Tests broadcasting with dynamic shapes
@@ -194,7 +200,7 @@ The following 10 tests are moved from `tests/python/test_python_frontend.py` to 
 - `test_prim_layer_norm_fwd` - Tests layer normalization forward pass
 - `test_prim_rms_norm_fwd` - Tests RMS normalization forward pass
 
-#### test_repro.py
+## test_repro.py
 The following 19 issue-specific tests have been migrated from the main frontend to the direct frontend and are now available in `tests/python/direct/test_repro.py`:
 
 - `test_issue1129` - Tests fix for issue 1129 (reshape and index_select with strided tensors)
@@ -212,6 +218,8 @@ The following 19 issue-specific tests have been migrated from the main frontend 
 - `test_issue2275_repro1` - Tests fix for issue 2275 (unpadded concatenation operations with complex tensor manipulations); Maps to legacy `test_unpadded_catop_issue2275_repro1`
 - `test_issue2275_repro2` - Tests fix for issue 2275 (unpadded concatenation operations with trigonometric functions); Maps to legacy `test_unpadded_catop_issue2275_repro2`
 - `test_issue2317` - Tests fix for issue 2317 (reduction transpose scheduling); Maps to legacy `test_reduction_transpose_sched_issue2317`
+- `test_issue2354` - Renamed from legacy `test_matmul_issue_2354` in `test_matmul.py`
+- `test_issue2532` - Renamed from legacy `test_repro_issue2532` in `test_matmul.py`
 - `test_issue2545` - Tests fix for issue 2545 (complex operations with empty tensors and concatenation); Maps to legacy `test_remove_empty_issue_2545`
 - `test_issue2549` - Tests fix for issue 2549 (broadcast_in_dim and division operations); Maps to `test_fix_2549`
 - `test_issue2755` - Tests fix for issue 2755 (slice operations with negation)
