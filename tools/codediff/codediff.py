@@ -22,6 +22,7 @@ import re
 import subprocess
 import sys
 
+import cxxfilt
 from dataclasses_json import dataclass_json
 
 
@@ -707,35 +708,62 @@ class TestDiff:
     kernel_diffs: list[KernelDiff] | None = None
 
 
+filename_pattern = re.compile(r"__tmp_\w+")
+kernel_pattern = re.compile(r"(?P<prefix>kernel|nvfuser)_\d+")
+
+
+def sanitize_symbol_name(symb: str) -> str:
+    """
+    Replace mangled kernel names like
+      _ZN76_GLOBAL__N__00000000_37___tmp_kernel_pointwise_f0_c1_r0_g0_cu_8995cef2_3255329nvfuser_pointwise_f0_c1_r0_g0ENS_6TensorIfLi2ELi2EEES1_S1_
+    or
+      _ZN76_GLOBAL__N__00000000_37___tmp_kernel_4_cu_8995cef2_3255329nvfuser_4ENS_6TensorIfLi2ELi2EEES1_S1_
+
+    This function first demangles the name, then parses each piece to check
+    for common patterns to replace. This lets us replace stuff like "kernel_4"
+    with "kernel_N" or "nvfuser_4" with "nvfuser_N". Note that this does not
+    "mangle" the name back since there does not seem to be a useful utility
+    for doing so and cxxfilt only does demangling. As this is only for diff
+    purposes, the report will only show the demangled names in the diff
+    portions, but clicking on the original code will show the actual original
+    mangled symbol names.
+    """
+    suffix = ""
+    while len(symb) > 0:
+        # PTX sometimes refers to local variables as
+        # <demangled_function_name>_<variable_name>. For example,
+        #   ZN3nvf9nvfuser_8ENS_6TensorINS_6__halfELi3ELi3EEES2_NS_9TensorMapES3_NS0_IS1_Li2ELi2EEE_param_4
+        # Represents
+        #   nvf::nvfuser_8(nvf::Tensor<nvf::__half, 3, 3>, nvf::Tensor<nvf::__half, 3, 3>, nvf::TensorMap, nvf::TensorMap, nvf::Tensor<nvf::__half, 2, 2>)_param_4
+        # Here we loop, cutting off more and more suffix until we are able to
+        # demangle in order to demangle to something like the above
+        try:
+            d = cxxfilt.demangle(symb)
+            break
+        except cxxfilt.InvalidName:
+            suffix = symb[-1] + suffix
+            symb = symb[:-1]
+    # Replace "__tmp_kernel_pointwise_f0_c1_r0_g0_cu" or "__tmp_kernel_4" with "__tmp_filename"
+    d = re.sub(filename_pattern, "__tmp_filename", d)
+    # Replace "kernel_4" or "nvfuser_8" with "kernel_N"
+    d = re.sub(kernel_pattern, lambda m: f"{m.groupdict()['prefix']}_N", d)
+    return d + suffix
+
+
+# Mangled symbol names start with _Z in the Itanium ABI
+# https://itanium-cxx-abi.github.io/cxx-abi/abi.html#mangling
+symbol_pattern = re.compile(r"\b_Z\w+\b")
+comment_pattern = re.compile(r"//.*$")
+
+
 def sanitize_ptx_lines(lines: list[str]) -> list[str]:
     """Remove comments and remove kernel id"""
     sanitary_lines = []
     for l in lines:
-        # Replace mangled kernel names like
-        #   _ZN76_GLOBAL__N__00000000_37___tmp_kernel_pointwise_f0_c1_r0_g0_cu_8995cef2_3255329nvfuser_pointwise_f0_c1_r0_g0ENS_6TensorIfLi2ELi2EEES1_S1_
-        # or
-        #   _ZN76_GLOBAL__N__00000000_37___tmp_kernel_4_cu_8995cef2_3255329nvfuser_4ENS_6TensorIfLi2ELi2EEES1_S1_
-        # with
-        #   _ZN11kernelscope6kernelENS_6TensorIfLi2ELi2EEES1_S1_
-
-        # demangle first two parts after _ZN and replace with "kernelscope" and "kernel"
-        m = re.match(r"^(?P<prefix>^.*\b_Z?ZN)(?P<scopenamelen>\d+)_", l)
-        if m is not None:
-            d = m.groupdict()
-            scopenamelen = int(d["scopenamelen"])
-            # demangle second part in remainder after scope name
-            remainder = l[(len(d["prefix"]) + len(d["scopenamelen"]) + scopenamelen) :]
-            mrem = re.match(r"^(?P<varnamelen>\d+)", remainder)
-            if mrem is not None:
-                drem = mrem.groupdict()
-                varnamelen = int(drem["varnamelen"])
-                remainder = (
-                    "6kernel" + remainder[len(drem["varnamelen"]) + varnamelen :]
-                )
-            l = d["prefix"] + "11kernelscope" + remainder
+        l = re.sub(symbol_pattern, lambda m: sanitize_symbol_name(m.group()), l)
 
         # Remove comments. This fixes mismatches in PTX "callseq" comments, which appear to be non-repeatable.
-        l = re.sub(r"//.*$", "", l)
+        l = re.sub(comment_pattern, "", l)
         sanitary_lines.append(l)
     return sanitary_lines
 
