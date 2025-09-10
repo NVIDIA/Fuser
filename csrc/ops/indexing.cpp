@@ -372,7 +372,6 @@ TensorView* preprocessGroupedMatmulInputSf(
   out_tv->setAllocationDomain(
       out_alloc_dom,
       TensorDomain::getContiguityFilledWith(out_alloc_dom, true));
-  // (root/loop) doesn't converge with (logical)
 
   IrBuilder::create<PreprocessGroupedMatmulInputSf>(
       out_tv,
