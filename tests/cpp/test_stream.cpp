@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 
+#include <ATen/ops/randn.h>
 #include <ATen/ops/zeros_like.h>
 
 #include <fusion.h>
@@ -22,18 +23,19 @@ TEST_F(StreamTest, AddPerStream) {
   fusion.addInput(in);
   fusion.addOutput(out);
 
-  in->outer_split(0, c);
-  in->axis(0)->parallelize(ParallelType::Stream);
-  out->outer_split(0, c);
-  out->axis(0)->parallelize(ParallelType::Stream);
+  in->outer_split(1, c);
+  in->axis(1)->parallelize(ParallelType::Stream);
+  out->outer_split(1, c);
+  out->axis(1)->parallelize(ParallelType::Stream);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA);
-  auto in_tensor = at::randn({c * 2, 5}, options);
-  auto out_tensor = at::zeros_like(in_tensor);
+  at::Tensor in_tensor = at::randn({5, c * 2}, options);
+  at::Tensor out_tensor = at::zeros_like(in_tensor);
 
   KernelExecutor ke;
   ke.compile(&fusion, {in_tensor});
-  ke.run({in_tensor, 1}, {out_tensor});
+  constexpr int64_t kStreamIndex = 1;
+  ke.run({in_tensor, kStreamIndex}, {out_tensor});
 
   std::cout << "in_tensor: " << in_tensor << std::endl;
   std::cout << "out_tensor: " << out_tensor << std::endl;

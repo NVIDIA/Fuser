@@ -5168,6 +5168,8 @@ ForLoop::ForLoop(
   if (step == nullptr) {
     if (iter_domain->isThread()) {
       step = NamedScalar::getParallelDim(iter_domain->getParallelType());
+    } else if (iter_domain->isStream()) {
+      step = iter_domain->extent();
     } else {
       step = FusionGuard::getCurFusion()->oneVal();
     }
