@@ -153,6 +153,37 @@ std::string genReinterpretCast(const CastType& type, const ArgType& arg) {
   return genCall("reinterpret_cast", type, arg);
 }
 
+std::string getMinimumValue(DataType v) {
+  switch (std::get<PrimDataType>(v.type)) {
+    case (DataType::Double):
+    case (DataType::Float):
+    case (DataType::Half):
+    case DataType::BFloat16:
+      return std::string("NEG_INFINITY");
+    case DataType::Int:
+      return std::to_string(std::numeric_limits<int64_t>::min());
+    case DataType::Int32:
+      return std::to_string(std::numeric_limits<int32_t>::min());
+    default:
+      NVF_THROW("Unexpected type: ", v);
+  }
+}
+std::string getMaximumValue(DataType v) {
+  switch (std::get<PrimDataType>(v.type)) {
+    case (DataType::Double):
+    case (DataType::Float):
+    case (DataType::Half):
+    case DataType::BFloat16:
+      return std::string("INFINITY");
+    case DataType::Int:
+      return std::to_string(std::numeric_limits<int64_t>::max());
+    case DataType::Int32:
+      return std::to_string(std::numeric_limits<int32_t>::max());
+    default:
+      NVF_THROW("Unexpected type: ", v);
+  }
+}
+
 class CudaKernelGenerator : private kir::ConstIrVisitor {
   static constexpr const char* kTab = "  ";
 
@@ -1422,10 +1453,6 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
           "Parallel type ",
           pt,
           " used in the fusion must be also used in the argsort");
-      // Argsort only supports static dimension for now.
-      NVF_ERROR(
-          parallel_dimension_map.isExact(pt),
-          "Argsort only supports exact dimension for now");
       auto pt_extent = parallel_dimension_map.get(pt);
       NVF_ERROR(
           pt_extent->isConstInt(),
@@ -1452,20 +1479,33 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
 
     // Call the runtime argsort function
     ArgumentBuilder func_args;
+
+    // The output tensor is assumed to be a register tensor, and thus
+    // its storage should always be available without predication
+    NVF_ERROR_EQ(
+        output->view()->getMemoryType(),
+        MemoryType::Local,
+        "Argsort output must be a Local tensor: ",
+        output->toString());
     func_args.arg("*(int64_t(*)[")
         .append(items_per_thread)
         .append("])")
         .append("(&")
         .append(genInline(output))
         .append(")");
-    func_args.arg("*(")
-        .append(input->dtype())
-        .append("(*)[")
-        .append(std::to_string(items_per_thread))
-        .append("])")
-        .append("(&")
+
+    NVF_ERROR(aop->predicate() != nullptr && aop->predicate()->hasValue());
+    // {pred ? input : (isDescending ? min : max)}
+    func_args.arg("{")
+        .append(genInline(aop->predicate()))
+        .append(" ? ")
         .append(genInline(input))
-        .append(")");
+        .append(" : ")
+        .append(
+            aop->isDescending() ? getMinimumValue(input->dtype())
+                                : getMaximumValue(input->dtype()))
+        .append("}");
+
     func_args.arg(aop->isDescending() ? "true" : "false"); // descending flag
     func_args.arg(genComputeBlockDim());
 
@@ -1612,20 +1652,16 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
         .append("(*)[")
         .append(items_per_thread)
         .append("])")
-        .append("(")
-        .append(
-            genVariableName(output_values) + ".array + " +
-            genInline(output_values->index()))
+        .append("(&")
+        .append(genInline(output_values))
         .append(")");
 
     // Second argument: top_indices output array
     func_args.arg("*(int64_t(*)[")
         .append(items_per_thread)
         .append("])")
-        .append("(")
-        .append(
-            genVariableName(output_indices) + ".array + " +
-            genInline(output_indices->index()))
+        .append("(&")
+        .append(genInline(output_indices))
         .append(")");
 
     // Third argument: input data array
@@ -1634,9 +1670,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
         .append("(*)[")
         .append(std::to_string(items_per_thread))
         .append("])")
-        .append("(")
-        .append(
-            genVariableName(input) + ".array + " + genInline(input->index()))
+        .append("(&")
+        .append(genInline(input))
         .append(")");
 
     // Fourth argument: k value
@@ -1701,7 +1736,14 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     // Call the runtime scan function
     ArgumentBuilder func_args;
 
-    // First argument: scan output array
+    // First argument: scan output array.
+    // The output tensor is assumed to be a register tensor, and thus
+    // its storage should always be available without predication.
+    NVF_ERROR_EQ(
+        output->view()->getMemoryType(),
+        MemoryType::Local,
+        "Scan output must be a Local tensor: ",
+        output->toString());
     func_args.arg("*(")
         .append(input->dtype())
         .append("(*)[")
@@ -1712,14 +1754,14 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
         .append(")");
 
     // Second argument: input data array
-    func_args.arg("*(")
-        .append(input->dtype())
-        .append("(*)[")
-        .append(std::to_string(items_per_thread))
-        .append("])")
-        .append("(&")
+    NVF_ERROR(scan->predicate() != nullptr && scan->predicate()->hasValue());
+    func_args.arg("{")
+        .append(genInline(scan->predicate()))
+        .append(" ? ")
         .append(genInline(input))
-        .append(")");
+        .append(" : ")
+        .append(genInline(scan->init()))
+        .append("}");
 
     // Third argument: init value
     func_args.arg(genInline(scan->init()));

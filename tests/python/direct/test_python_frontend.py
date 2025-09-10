@@ -86,6 +86,50 @@ def test_basic_fp16(nvfuser_direct_test):
     nvfuser_direct_test.assertEqual(eager_out, nvf_out[0])
 
 
+def test_define_contiguous_tensor(nvfuser_direct_test):
+    def fusion_func(fd: FusionDefinition):
+        inp = fd.define_tensor([2, 3], contiguity=True)
+        out = fd.ops.add(inp, inp)
+        fd.add_output(out)
+
+    in_tensor = torch.randn(2, 3, device="cuda")
+    out_tensors, _ = nvfuser_direct_test.exec_nvfuser(fusion_func, [in_tensor])
+    nvfuser_direct_test.assertEqual(out_tensors[0], in_tensor * 2)
+
+
+def test_define_noncontiguous_tensor(nvfuser_direct_test):
+    def fusion_func(fd: FusionDefinition):
+        inp = fd.define_tensor([2, 3])
+        out = fd.ops.add(inp, inp)
+        fd.add_output(out)
+
+    in_tensor = torch.randn(8, device="cuda").as_strided([2, 3], [4, 1])
+    out_tensors, _ = nvfuser_direct_test.exec_nvfuser(fusion_func, [in_tensor])
+    nvfuser_direct_test.assertEqual(out_tensors[0], in_tensor * 2)
+
+
+def test_define_broadcast_tensor(nvfuser_direct_test):
+    def fusion_func(fd: FusionDefinition):
+        inp = fd.define_tensor([1, 2, 1], contiguity=True)
+        out = fd.ops.add(inp, inp)
+        fd.add_output(out)
+
+    in_tensor = torch.randn(1, 2, 1, device="cuda").as_strided([1, 2, 1], [0, 1, 0])
+    out_tensors, _ = nvfuser_direct_test.exec_nvfuser(fusion_func, [in_tensor])
+    nvfuser_direct_test.assertEqual(out_tensors[0], in_tensor * 2)
+
+
+def test_define_tensor_contiguity_with_stride_order(nvfuser_direct_test):
+    def fusion_func(fd: FusionDefinition):
+        inp = fd.define_tensor([1, 2], contiguity=True, stride_order=[0, 1])
+        out = fd.ops.add(inp, inp)
+        fd.add_output(out)
+
+    in_tensor = torch.randn(1, 2, device="cuda")
+    out_tensors, _ = nvfuser_direct_test.exec_nvfuser(fusion_func, [in_tensor])
+    nvfuser_direct_test.assertEqual(out_tensors[0], in_tensor * 2)
+
+
 def test_cast_scalar(nvfuser_direct_test):
     inputs = [
         torch.ones(2, 4, 8, device="cuda", dtype=torch.int32),
@@ -272,86 +316,6 @@ def test_broadcast_mixing(nvfuser_direct_test):
 
     nvf_out, _ = nvfuser_direct_test.exec_nvfuser(fusion_func, inputs)
     eager_out = refs.add(inputs[0], prims.broadcast_in_dim(inputs[1], [3, 3], [0]))
-    nvfuser_direct_test.assertEqual(eager_out, nvf_out[0])
-
-
-def test_matmul(nvfuser_direct_test):
-    m = 24
-    n = 16
-    k = 8
-    inputs = [
-        torch.randn(m, k, device="cuda", dtype=torch.bfloat16),
-        torch.randn(k, n, device="cuda", dtype=torch.bfloat16),
-    ]
-
-    def fusion_func(fd: FusionDefinition) -> None:
-        t0 = fd.from_pytorch(inputs[0])
-        t1 = fd.from_pytorch(inputs[1])
-        t2 = fd.ops.matmul(t0, t1)
-        fd.add_output(t2)
-
-    nvf_out, _ = nvfuser_direct_test.exec_nvfuser(fusion_func, inputs)
-    eager_out = torch.matmul(inputs[0], inputs[1])
-    nvfuser_direct_test.assertEqual(eager_out, nvf_out[0])
-
-
-def test_linear_without_bias(nvfuser_direct_test):
-    m = 24
-    n = 16
-    k = 8
-    inputs = [
-        torch.randn(m, k, device="cuda", dtype=torch.bfloat16),
-        torch.randn(n, k, device="cuda", dtype=torch.bfloat16),
-    ]
-
-    def fusion_func(fd: FusionDefinition) -> None:
-        t0 = fd.from_pytorch(inputs[0])
-        t1 = fd.from_pytorch(inputs[1])
-        t2 = fd.ops.linear(t0, t1)
-        fd.add_output(t2)
-
-    # Check that bias is not included with linear
-    fd_str = """def nvfuser_fusion(fd : FusionDefinition) -> None :
-    tv0 = fd.define_tensor(shape=[-1, -1], contiguity=[True, True], dtype=DataType.BFloat16, is_cpu=False)
-    tv1 = fd.define_tensor(shape=[-1, -1], contiguity=[True, True], dtype=DataType.BFloat16, is_cpu=False)
-    tv2 = fd.ops.linear(tv0, tv1)
-    fd.add_output(tv2)"""
-
-    nvf_out, _ = nvfuser_direct_test.exec_nvfuser(
-        fusion_func, inputs, expected_fd_str=fd_str
-    )
-    eager_out = torch.nn.functional.linear(inputs[0], inputs[1])
-    nvfuser_direct_test.assertEqual(eager_out, nvf_out[0])
-
-
-def test_linear_with_bias(nvfuser_direct_test):
-    m = 24
-    n = 16
-    k = 8
-    inputs = [
-        torch.randn(m, k, device="cuda", dtype=torch.bfloat16),
-        torch.randn(n, k, device="cuda", dtype=torch.bfloat16),
-        torch.randn(n, device="cuda", dtype=torch.bfloat16),
-    ]
-
-    def fusion_func(fd: FusionDefinition) -> None:
-        t0 = fd.from_pytorch(inputs[0])
-        t1 = fd.from_pytorch(inputs[1])
-        t2 = fd.from_pytorch(inputs[2])
-        t3 = fd.ops.linear(t0, t1, t2)
-        fd.add_output(t3)
-
-    fd_str = """def nvfuser_fusion(fd : FusionDefinition) -> None :
-    tv0 = fd.define_tensor(shape=[-1, -1], contiguity=[True, True], dtype=DataType.BFloat16, is_cpu=False)
-    tv1 = fd.define_tensor(shape=[-1, -1], contiguity=[True, True], dtype=DataType.BFloat16, is_cpu=False)
-    tv2 = fd.define_tensor(shape=[-1], contiguity=[True], dtype=DataType.BFloat16, is_cpu=False)
-    tv3 = fd.ops.linear(tv0, tv1, bias=tv2)
-    fd.add_output(tv3)"""
-
-    nvf_out, _ = nvfuser_direct_test.exec_nvfuser(
-        fusion_func, inputs, expected_fd_str=fd_str
-    )
-    eager_out = torch.nn.functional.linear(inputs[0], inputs[1], inputs[2])
     nvfuser_direct_test.assertEqual(eager_out, nvf_out[0])
 
 

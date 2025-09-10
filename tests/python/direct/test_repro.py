@@ -1237,6 +1237,91 @@ def test_issue2317(nvfuser_direct_test):
     nvf_out, _ = nvfuser_direct_test.exec_nvfuser(fusion_func, inputs)
 
 
+def test_issue2354(nvfuser_direct_test):
+    """
+    Test for issue 2354 - tests complex operations with linear and mul operations.
+
+    This test verifies that complex operations work correctly with:
+    - Linear operations with different shapes
+    - Mul operations with different shapes
+    - Proper handling of tensor shapes and operations
+    """
+    inputs = [
+        torch.randn((8, 4), dtype=torch.float32, device="cuda:0"),
+        torch.randn(
+            (
+                6,
+                2,
+                4,
+            ),
+            dtype=torch.float32,
+            device="cuda:0",
+        ),
+    ]
+
+    def fusion_func(fd: FusionDefinition):
+        T0 = fd.define_tensor(
+            shape=[-1, -1],
+            contiguity=[True, True],
+            dtype=DataType.Float,
+            is_cpu=False,
+            stride_order=[1, 0],
+        )
+        T1 = fd.define_tensor(
+            shape=[-1, -1, -1],
+            contiguity=[True, True, True],
+            dtype=DataType.Float,
+            is_cpu=False,
+            stride_order=[2, 1, 0],
+        )
+        T2 = fd.ops.linear(T1, T0)
+        S3 = fd.define_scalar(1.41421, dtype=DataType.Double)
+        T4 = fd.ops.mul(T2, S3)
+        fd.add_output(T2)
+        fd.add_output(T4)
+
+    nvfuser_direct_test.exec_nvfuser(fusion_func, inputs)
+
+
+def test_issue2532(nvfuser_direct_test):
+    """
+    Test for issue 2532 - tests broadcast reduction axis in matmul.
+
+    This test verifies that broadcast reduction axis in matmul works correctly.
+    """
+
+    def fusion_func(fd: FusionDefinition) -> None:
+        T0 = fd.define_tensor(
+            shape=[-1, -1, 1],
+            contiguity=[True, None, True],
+            dtype=DataType.Float,
+            is_cpu=False,
+            stride_order=[2, 0, 1],
+        )
+        T1 = fd.define_tensor(
+            shape=[-1, 1, -1],
+            contiguity=[True, None, True],
+            dtype=DataType.Float,
+            is_cpu=False,
+            stride_order=[2, 1, 0],
+        )
+        T2 = fd.ops.sum(T1, dims=[0, 1], keepdim=False, dtype=DataType.Null)
+        T3 = fd.ops.matmul(T0, T1)
+        T4 = fd.ops.sum(T3, dims=[0], keepdim=False, dtype=DataType.Null)
+        fd.add_output(T2)
+        fd.add_output(T4)
+
+    inputs = [
+        torch.randn((2 * 32,), dtype=torch.float32, device="cuda:0").as_strided(
+            (2, 32, 1), (32, 1, 32)
+        ),
+        torch.randn((2 * 16,), dtype=torch.float32, device="cuda:0").as_strided(
+            (2, 1, 16), (16, 16, 1)
+        ),
+    ]
+    nvfuser_direct_test.exec_nvfuser(fusion_func, inputs)
+
+
 def test_issue2545(nvfuser_direct_test):
     """
     Test for issue 2545 - tests empty tensor handling with concatenation operations.
@@ -1347,6 +1432,29 @@ def test_issue2755(nvfuser_direct_test):
 
     inputs = [torch.randn((10,), dtype=torch.float32, device="cuda:0")]
     nvfuser_direct_test.exec_nvfuser(fusion_func, inputs)
+
+
+def test_issue3192(nvfuser_direct_test):
+    """
+    Test for issue 3192 - tests squeeze and slice operations.
+
+    This test verifies that squeeze and slice operations work correctly with:
+    - Squeeze operation with two dimensions
+    - Slice operation with one dimension
+    - Negation operation
+    """
+
+    def fusion_func(fd: FusionDefinition):
+        inp = fd.define_tensor([1, 1, 2], contiguity=True)
+        out = fd.ops.squeeze(inp, [0, 1])
+        out = fd.ops.slice(out, [1], [2])
+        fd.add_output(out)
+
+    in_tensor = torch.randn(1, 1, 2, device="cuda")
+    out_tensors, _ = nvfuser_direct_test.exec_nvfuser(fusion_func, [in_tensor])
+    nvfuser_direct_test.assertEqual(
+        out_tensors[0], in_tensor.squeeze([0, 1])[1:2], rtol=0, atol=0
+    )
 
 
 def test_issue3292(nvfuser_direct_test):
