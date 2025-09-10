@@ -583,9 +583,10 @@ for i in range(3):
   out_2 = mlp2(in_2, up_w_2, down_w_2, i)
 ```
 
-Similar to [GEMM-communication overlap], nvFuser can assign different loop
-iterations to different CUDA streams to enable overlapping. I've omitted those
-details here for brevity.
+Similar to [GEMM-communication
+overlap](#overlap-communication-with-gemm-via-decomposition), nvFuser can
+assign different loop iterations to different CUDA streams to enable
+overlapping. I've omitted those details here for brevity.
 
 ### Context Parallelism (CP)
 
