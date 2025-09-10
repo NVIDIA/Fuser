@@ -4411,11 +4411,10 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     // since its index value is const 0;
     func_args.arg("&").append(genInline(output));
     func_args.arg("&").append(genInline(input));
-    auto logical_index = output->logical_index();
-    NVF_ERROR_EQ(logical_index.size(), 2);
-    func_args.arg(genInline(logical_index[0]));
-    func_args.arg(genInline(logical_index[1]));
-
+    // index lowering for PreprocessGroupedMatmulInputSf stored logical index
+    // into its attribute position 1 and 2.
+    func_args.arg(genInline(layout_op->attributeVal(1)));
+    func_args.arg(genInline(layout_op->attributeVal(2)));
     func_args.arg("&").append(
         genVariableName(layout_op->inputOffsets()) + "[0]");
     func_args.arg("&").append(

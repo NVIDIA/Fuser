@@ -112,14 +112,12 @@ TensorIndex::TensorIndex(
     IrBuilderPasskey passkey,
     const TensorView* view,
     Val* index,
-    DataType dtype,
-    std::vector<Val*> logical_index)
+    DataType dtype)
     : Val(passkey,
           ValType::TensorIndex,
           dtype != DataType::Null ? dtype : view->getDataType().value()),
       view_(view),
-      index_(index),
-      logical_index_(std::move(logical_index)) {
+      index_(index) {
   NVF_ERROR(passkey.ir_container_ != nullptr);
   NVF_ERROR(
       passkey.ir_container_->isA<kir::Kernel>(),

@@ -6603,7 +6603,9 @@ PreprocessGroupedMatmulInputSf::PreprocessGroupedMatmulInputSf(
     Val* output_offsets,
     BlockScalingFactorLayout layout,
     Val* k,
-    Val* g)
+    Val* g,
+    Val* row_idx,
+    Val* col_idx)
     : Expr(passkey) {
   addInput(input);
   addInput(input_offsets);
@@ -6612,6 +6614,12 @@ PreprocessGroupedMatmulInputSf::PreprocessGroupedMatmulInputSf(
   addInput(g);
   addOutput(output);
   addDataAttribute(layout);
+  if (row_idx != nullptr) {
+    addAttribute(row_idx);
+  }
+  if (col_idx != nullptr) {
+    addAttribute(col_idx);
+  }
 }
 
 std::string PreprocessGroupedMatmulInputSf::toString(int indent_size) const {

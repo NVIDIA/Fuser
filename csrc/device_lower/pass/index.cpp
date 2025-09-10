@@ -2849,13 +2849,13 @@ void IndexLowering::handle(
   auto* out_tv = preprocess_op->out()->as<TensorView>();
   std::vector<Val*> root_index =
       Index::getConsumerPerDimRootIndex(out_tv, for_loops_, getRotatedLoop());
+  NVF_ERROR(
+      root_index.size() == 2,
+      "only matrices are supported in PreprocessGroupedMatmulInputSf");
   // NOTE: use const zero for index, this always give the base pointer to
-  // output, because indexing is done with root_index in the runtime function.
+  // output, because indexing is done with root_index passed as op attribute.
   auto* out = IrBuilder::create<kir::TensorIndex>(
-      out_tv,
-      GpuLower::current()->kernel()->zeroVal(),
-      DataType::Null,
-      root_index);
+      out_tv, GpuLower::current()->kernel()->zeroVal(), DataType::Null);
 
   pushBack(IrBuilder::create<PreprocessGroupedMatmulInputSf>(
       out,
@@ -2864,8 +2864,9 @@ void IndexLowering::handle(
       preprocess_op->outputOffsets(),
       preprocess_op->layout(),
       preprocess_op->k(),
-      preprocess_op->g()));
-
+      preprocess_op->g(),
+      root_index[0],
+      root_index[1]));
   GpuLower::current()->propagateExprInfo(preprocess_op, back());
 }
 
