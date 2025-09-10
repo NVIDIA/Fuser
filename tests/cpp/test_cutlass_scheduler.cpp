@@ -70,6 +70,8 @@ TEST_F(CutlassExecutorTest, Nvfp4ScaledGemm_CompiledKernel) {
 
   fusion->addOutput(smm.tv);
 
+  // Note that K is the size of the _packed_ tensors, so the actual number of
+  // scalars is 2*K
   constexpr int64_t M = 8192, N = 8192, K = 8192;
 
   // Create actual tensor data for inputs
@@ -80,7 +82,12 @@ TEST_F(CutlassExecutorTest, Nvfp4ScaledGemm_CompiledKernel) {
   at::Tensor at_a = at::empty({M, K}, options.dtype(at::kFloat4_e2m1fn_x2));
   at::Tensor at_b = at::empty({N, K}, options.dtype(at::kFloat4_e2m1fn_x2)).t();
 
-  // Create scale tensors in Float format (as expected by the fusion)
+  // For nvfp4, the scale factor block size is 16 and the actual scale factors
+  // are FP8 provided in the ue4m3 format (i.e. e4m3 but guaranteed
+  // non-negative). The tensors at_a and at_b have _x2 types so each position
+  // holds two packed 4-bit values. As mentioned above, this effectively means
+  // the number of scalars corresponds to using 2*K instead of K. When we
+  // compute 2*K / 16 we get K / 8.
   at::Tensor at_a_sf = at::empty({M, K / 8}, options.dtype(at::kFloat8_e4m3fn));
   at::Tensor at_b_sf = at::empty({N, K / 8}, options.dtype(at::kFloat8_e4m3fn));
 
