@@ -77,8 +77,8 @@ namespace nvfuser {
 
 #if (CUDA_VERSION >= 11080)
 #define NVF_DRIVER_API_WRAPPER_CUDA_118(fn) \
-  fn(cuOccupancyMaxActiveClusters, 11080)
-fn(cuLaunchKernelEx, 11080)
+  fn(cuOccupancyMaxActiveClusters, 11080);  \
+  fn(cuLaunchKernelEx, 11080)
 #else
 #define NVF_DRIVER_API_WRAPPER_CUDA_118(fn)
 #endif
@@ -98,7 +98,7 @@ fn(cuLaunchKernelEx, 11080)
 #define DECLARE_DRIVER_API_WRAPPER(funcName, version) \
   extern decltype(::funcName)* funcName
 
-    NVF_ALL_DRIVER_API_WRAPPER(DECLARE_DRIVER_API_WRAPPER);
+NVF_ALL_DRIVER_API_WRAPPER(DECLARE_DRIVER_API_WRAPPER);
 
 #undef DECLARE_DRIVER_API_WRAPPER
 
