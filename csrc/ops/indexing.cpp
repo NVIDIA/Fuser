@@ -366,8 +366,8 @@ TensorView* preprocessGroupedMatmulInputSf(
   // Create the output tensor with logical domain matching inputs
   TensorView* out_tv = IrBuilder::create<TensorView>(
       IrBuilder::create<TensorDomain>(
-          /*logcial_domain=*/out_logical_dom) input->getDataType()
-          .value());
+          /*logcial_domain=*/out_logical_dom),
+      input->getDataType().value());
   // Set allocation domain with padding logic.
   out_tv->setAllocationDomain(
       out_alloc_dom,

@@ -167,10 +167,6 @@ void OptOutMutator::mutate(TensorDomain* td) {
     return;
   }
 
-  // We skip checks in TensorDomain constructor. This is because mutation could
-  // update TensorView with domain that doesn't matching
-  // root/logical/allocation/loop domain. Any sparse operation, like scatter or
-  // PreprocessGroupedMatmulInputSf in the graph would fail the check.
   Val* mutated_val = IrBuilder::createInContainer<TensorDomain>(
       td->container(),
       root_dom,
@@ -179,8 +175,7 @@ void OptOutMutator::mutate(TensorDomain* td) {
       domain,
       alternate_domain,
       td->contiguity(),
-      additional_ids,
-      true);
+      additional_ids);
   registerMutation(td, mutated_val);
 }
 
