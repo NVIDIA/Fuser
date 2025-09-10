@@ -5161,9 +5161,10 @@ ForLoop::ForLoop(
   NVF_ERROR(isIntegralType(index->dtype()));
   addInput(index);
   addInput(iter_domain);
-  if (start == nullptr &&
-      (iter_domain->isThread() || iter_domain->isStream())) {
-    start = NamedScalar::getParallelIndex(iter_domain->getParallelType());
+  if (start == nullptr) {
+    if (iter_domain->isThread() || iter_domain->isStream()) {
+      start = NamedScalar::getParallelIndex(iter_domain->getParallelType());
+    }
   }
   if (step == nullptr) {
     if (iter_domain->isThread()) {
