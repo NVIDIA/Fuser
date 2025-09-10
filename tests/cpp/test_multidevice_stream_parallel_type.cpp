@@ -140,7 +140,16 @@ TEST_F(MultiDeviceStreamParallelTypeTest, ReduceScatter) {
       << "Output: " << output << "\nExpected: " << expected_output;
 }
 
-TEST_F(MultiDeviceStreamParallelTypeTest, AG_matmul) {
+class AGMatmulTest : public MultiDeviceStreamParallelTypeTest,
+                     public testing::WithParamInterface<bool> {};
+
+TEST_P(AGMatmulTest, CollectiveBasedPipeline) {
+  bool insert_resharding_after = GetParam();
+  if (insert_resharding_after) {
+    EnableOptionsGuard::getCurOptions().set(
+        EnableOption::InsertReshardingAfter);
+  }
+
   constexpr int64_t M = 32768;
   constexpr int64_t K = 32768;
   constexpr int64_t N = 1024;
@@ -174,14 +183,25 @@ TEST_F(MultiDeviceStreamParallelTypeTest, AG_matmul) {
 
   const hir::HostIrContainer& container =
       executor.hostIrEvaluator()->container();
-  EXPECT_THAT(
-      container.topLevelExprs(),
-      ElementsAre(
-          IsA<kir::Allocate>(),
-          IsA<kir::Allocate>(),
-          IsA<hir::GetCurrentStream>(),
-          IsA<ForLoop>(),
-          IsA<ForLoop>()));
+  if (!insert_resharding_after) {
+    EXPECT_THAT(
+        container.topLevelExprs(),
+        ElementsAre(
+            IsA<kir::Allocate>(),
+            IsA<kir::Allocate>(),
+            IsA<hir::GetCurrentStream>(),
+            IsA<ForLoop>(),
+            IsA<ForLoop>()));
+  } else {
+    EXPECT_THAT(
+        container.topLevelExprs(),
+        ElementsAre(
+            IsA<MatmulOp>(),
+            IsA<kir::Allocate>(),
+            IsA<hir::GetCurrentStream>(),
+            IsA<ForLoop>(),
+            IsA<ForLoop>()));
+  }
 
   auto tensor_options =
       at::TensorOptions().dtype(at::kFloat).device(communicator_->device());
@@ -195,6 +215,14 @@ TEST_F(MultiDeviceStreamParallelTypeTest, AG_matmul) {
   auto t2_ref = at::matmul(t0_unsharded, t1);
   EXPECT_TRUE(torch::allclose(t2_ref, t2, 1e-2, 1e-2));
 }
+
+INSTANTIATE_TEST_SUITE_P(
+    ,
+    AGMatmulTest,
+    testing::Bool(),
+    [](const testing::TestParamInfo<bool>& info) {
+      return info.param ? "AG_after_Matmul" : "AG_before_Matmul";
+    });
 
 TEST_F(MultiDeviceStreamParallelTypeTest, matmul_AR) {
   constexpr int64_t M = 32768;

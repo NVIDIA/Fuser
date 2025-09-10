@@ -846,4 +846,10 @@ std::vector<IterDomain*> getReachableIds(
     const std::vector<IterDomain*>& domain,
     const std::vector<IterDomain*>& dependencies);
 
+// Replay the logical-allocation transformations of a scatter output
+// tensor to a list of logical iter domains for another tensor.
+std::vector<IterDomain*> propagateScatterAllocationDomain(
+    TensorView* scatter_out,
+    const std::vector<IterDomain*>& to_logical_domain);
+
 } // namespace nvfuser::ir_utils

@@ -187,6 +187,8 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/compute_at.cpp
   ${NVFUSER_SRCS_DIR}/compute_at_map.cpp
   ${NVFUSER_SRCS_DIR}/contiguity.cpp
+  ${NVFUSER_SRCS_DIR}/cutlass/codegen.cpp
+  ${NVFUSER_SRCS_DIR}/cutlass/gemm.cpp
   ${NVFUSER_SRCS_DIR}/debug.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/analysis/bank_conflict.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/analysis/circular_buffer.cpp
@@ -624,7 +626,8 @@ install(DIRECTORY "${NVFUSER_SRCS_DIR}/"
   DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/nvfuser"
   FILES_MATCHING
   PATTERN "*.h"
-  PATTERN "csrc/C++20/type_traits"
+  PATTERN "csrc/C++20/compare"
+  PATTERN "csrc/C++23/utility"
   PATTERN "csrc/struct.inl")
 
 # TODO guard including flatbuffers headers
@@ -666,7 +669,7 @@ if(BUILD_PYTHON)
     "${PYTHON_EXECUTABLE}" ${NVFUSER_PYTHON_DIR}/tools/gen_nvfuser_version.py nvfuser
     DEPENDS ${NVFUSER_PYTHON_DIR}/tools/gen_nvfuser_version.py
     DEPENDS ${NVFUSER_PYTHON_DIR}/version.txt
-    WORKING_DIRECTORY ${NVFUSER_ROOT}/tools/
+    WORKING_DIRECTORY ${NVFUSER_PYTHON_DIR}/tools/
   )
   add_custom_target(
     gen_nvfuser_version ALL
@@ -787,7 +790,7 @@ if(BUILD_PYTHON)
     "${PYTHON_EXECUTABLE}" ${NVFUSER_PYTHON_DIR}/tools/gen_nvfuser_version.py nvfuser_direct
     DEPENDS ${NVFUSER_PYTHON_DIR}/tools/gen_nvfuser_version.py
     DEPENDS ${NVFUSER_PYTHON_DIR}/version.txt
-    WORKING_DIRECTORY ${NVFUSER_ROOT}/tools/
+    WORKING_DIRECTORY ${NVFUSER_PYTHON_DIR}/tools/
   )
   add_custom_target(
     gen_nvfuser_direct_version ALL
@@ -1136,8 +1139,12 @@ if(BUILD_TEST)
   add_test(test_reshape "${NVFUSER_ROOT}/tests/cpp/test_reshape.cpp" "")
   list(APPEND TEST_BINARIES test_reshape)
 
+  add_test(test_layout_op ${NVFUSER_ROOT}/tests/cpp/test_layout_op.cpp "")
+  list(APPEND TEST_BINARIES test_layout_op)
+
   set(MATMUL_TEST_SRCS)
   list(APPEND MATMUL_TEST_SRCS
+    ${NVFUSER_ROOT}/tests/cpp/test_cutlass_scheduler.cpp
     ${NVFUSER_ROOT}/tests/cpp/test_translate_mma.cpp
     ${NVFUSER_ROOT}/tests/cpp/test_matmul.cpp
     ${NVFUSER_ROOT}/tests/cpp/test_matmul_aten_evaluation.cpp
@@ -1164,9 +1171,10 @@ if(BUILD_TEST)
 
   set(HOSTIR_TEST_SRCS)
   list(APPEND HOSTIR_TEST_SRCS
-    ${NVFUSER_ROOT}/tests/cpp/test_host_irs.cpp
+    ${NVFUSER_ROOT}/tests/cpp/test_host_ir_evaluator.cpp
     ${NVFUSER_ROOT}/tests/cpp/test_host_ir_integration.cpp
     ${NVFUSER_ROOT}/tests/cpp/test_host_ir_stream_lowering.cpp
+    ${NVFUSER_ROOT}/tests/cpp/test_host_irs.cpp
   )
   add_test(test_host_ir "${HOSTIR_TEST_SRCS}" "")
   list(APPEND TEST_BINARIES test_host_ir)
@@ -1324,6 +1332,7 @@ list(APPEND NVFUSER_RUNTIME_FILES
   ${NVFUSER_ROOT}/runtime/block_sync_atomic.cu
   ${NVFUSER_ROOT}/runtime/block_sync_default.cu
   ${NVFUSER_ROOT}/runtime/block_welford_outer.cu
+  ${NVFUSER_ROOT}/runtime/block_layout.cu
   ${NVFUSER_ROOT}/runtime/broadcast.cu
   ${NVFUSER_ROOT}/runtime/casts.cu
   ${NVFUSER_ROOT}/runtime/cluster.cu

@@ -174,6 +174,7 @@ class IrBuilder {
 class SimplifyingIrBuilder : public IrBuilder {
  public:
   static Val* negExpr(Val* val);
+  static Val* absExpr(Val* val);
   static Val* logicalNotExpr(Val* val);
   static Val* bitwiseNotExpr(Val* val);
   static Val* maybeCastExpr(DataType dtype, Val* val);

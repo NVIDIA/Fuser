@@ -125,6 +125,7 @@ bool isTvOp(const Expr* expr) {
           SliceOp,
           CatOp,
           ScanOp,
+          PreprocessGroupedMatmulInputSf,
           kir::AllocTMem,
           kir::GridReduction,
           kir::GroupedGridReduction,

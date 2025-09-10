@@ -466,10 +466,10 @@ TensorView* arange(Val* start, Val* end, Val* step, DataType dtype) {
   step = maybeCastOp(dtype, step);
   // Make sure no negative value is passed to ceilDiv as the device
   // implementation of ceilDiv assumes positive inputs
-  auto distance =
-      abs(sub(end_for_size_computation, start_for_size_computation));
-  auto abs_step = abs(step_for_size_computation);
-  auto length = ceilDiv(distance, abs_step);
+  auto distance = SimplifyingIrBuilder::absExpr(SimplifyingIrBuilder::subExpr(
+      end_for_size_computation, start_for_size_computation));
+  auto abs_step = SimplifyingIrBuilder::absExpr(step_for_size_computation);
+  auto length = SimplifyingIrBuilder::ceilDivExpr(distance, abs_step);
   if (!isIntegralType(length->dtype())) {
     length = maybeCastOp(DataType::Index, length);
   }

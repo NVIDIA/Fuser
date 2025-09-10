@@ -49,6 +49,8 @@ bool checkCanSchedule(Fusion* fusion, SchedulerType scheduler_type) {
           GroupedMmaOp,
           ScaledMmaOp,
           CutlassNvfp4GroupedMmaOp,
+          // TODO: remove this once we have a scheduler for it
+          PreprocessGroupedMatmulInputSf,
           TopKOp,
           ScanOp>(fusion)) {
     scheduler_debug_utils::canScheduleRejectReason(

@@ -117,7 +117,7 @@ void getDriverEntryPoint(
 
 namespace nvfuser {
 
-ALL_DRIVER_API_WRAPPER(DEFINE_DRIVER_API_WRAPPER);
+NVF_ALL_DRIVER_API_WRAPPER(DEFINE_DRIVER_API_WRAPPER);
 
 } // namespace nvfuser
 
