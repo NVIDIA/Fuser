@@ -220,7 +220,7 @@ bool needsPredicateSharedMemAccess(const Expr* expr) {
   //    if(pred)
   //      T1[i] = T0[i] + ...
   // Note that we'd be able to reuse buffer of T0 for T1 but
-  // if we initialze T1 we cannot do that and thus the
+  // if we initialize T1 we cannot do that and thus the
   // kernel would not fit in smaller devices.
   for (auto producer : ir_utils::filterByType<TensorView>(expr->inputs())) {
     if (auto producer_def = producer->definition(); producer_def != nullptr &&
