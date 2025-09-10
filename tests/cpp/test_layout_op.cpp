@@ -134,4 +134,45 @@ TEST_F(LayoutOpTest, ManualKernel) {
       t2));
 }
 
+TEST_F(LayoutOpTest, SchedulerKernel) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  auto inp = makeSymbolicTensor(2);
+  auto offsets = makeSymbolicTensor(1, DataType::Int32);
+  auto rounded_offsets = makeSymbolicTensor(1, DataType::Int32);
+  fusion.addInput(inp);
+  fusion.addInput(offsets);
+  fusion.addInput(rounded_offsets);
+
+  auto inp_tv = set(inp);
+  auto out_tv = preprocessGroupedMatmulInputSf(
+      inp_tv, offsets, rounded_offsets, BlockScalingFactorLayout::Block128x4);
+  // NOTE: output of preprocessGroupedMatmulInputSf needs to be on global
+  // memory, because we do indexing on output inside the runtime function.
+  fusion.addOutput(out_tv);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  int m = 512;
+  int k = 9; // note: padded column size would be 12
+  auto t0 = at::randn({m, k}, options);
+  // tokens per group are [100, 150, 262] respectively, so each group would be
+  // padded to multiple of 128. Hence the total output row span would cover a
+  // length of 128 + 256 + 384 = 768.
+  auto t1 = at::tensor({0, 100, 250, 512}, options.dtype(at::kInt));
+  auto t2 = at::tensor({0, 128, 384, 768}, options.dtype(at::kInt));
+
+  // naive scheduling.
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs({t0, t1, t2});
+
+  ASSERT_TRUE(validateGroupedLayout(
+      BlockScalingFactorLayout::Block128x4,
+      outputs[0].as<at::Tensor>(),
+      t0,
+      t1,
+      t2));
+}
+
 } // namespace nvfuser
