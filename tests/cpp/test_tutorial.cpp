@@ -495,7 +495,7 @@ TEST_F(Tutorial, Reshape) {
     // tv1 = unsqueeze(reshape(squeeze(tv0)));
     ASSERT_TRUE(tv1->definition()->isA<BroadcastOp>());
     auto reshape_output = tv1->definition()->input(0)->as<TensorView>();
-    ASSERT_TRUE(reshape_output->definition()->isA<ViewOp>());
+    ASSERT_TRUE(reshape_output->definition()->isA<ReshapeOp>());
     auto squeeze_output =
         reshape_output->definition()->input(0)->as<TensorView>();
     ASSERT_TRUE(squeeze_output->definition()->isA<SqueezeOp>());

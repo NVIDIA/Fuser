@@ -102,8 +102,19 @@ void insertSegmentSetAfter(
   TensorView* copy = segment_set(use_of);
   // Inherit the allocation domain from `use_of`. This is important to pass
   // AliasTest.Bookend_SegmentSetPreservesAllocation.
-  TransformReplay::selfReplay(
-      use_of->domain(), copy->domain(), /*ignore_reductions=*/true);
+  // TODO: Replay from scatter output doesn't work as the loop domain
+  // is not mapped to its logical domain. We might want to either extend
+  // selfReplay or create a new API that can propagate the allocation
+  // domain only.
+  if (!use_of->isDefinitionType<ScatterOp>()) {
+    TransformReplay::selfReplay(
+        use_of->domain(), copy->domain(), /*ignore_reductions=*/true);
+  } else if (use_of->hasAllocation()) {
+    copy->setAllocationDomain(
+        ir_utils::propagateScatterAllocationDomain(
+            use_of, copy->getLogicalDomain()),
+        true);
+  }
   std::for_each(first_user, last_user, [&](const Use& use) {
     ir_utils::replaceValInExprInputs(use.user, use_of, copy);
   });

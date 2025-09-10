@@ -510,12 +510,14 @@ void HostIrEvaluator::handle(LoadStoreOp* load_store_op) {
   NVF_ERROR(
       load_store_op->opType() == LoadStoreOpType::Set ||
       load_store_op->opType() == LoadStoreOpType::SegmenterSet);
-  NVF_ERROR(
-      load_store_op->out()->isA<TensorView>(), "out must be a TensorView");
-  auto* out_tv = load_store_op->out()->as<TensorView>();
-  auto in_tensor = getKnownConcreteValue(load_store_op->in()).as<at::Tensor>();
 
-  at::Tensor t;
+  NVF_ERROR(load_store_op->in()->isA<TensorView>());
+  auto* in_tv = load_store_op->in()->as<TensorView>();
+
+  NVF_ERROR(load_store_op->out()->isA<TensorView>());
+  auto* out_tv = load_store_op->out()->as<TensorView>();
+
+  auto t = getKnownConcreteValue(in_tv).as<at::Tensor>();
   if (out_tv->hasRoot()) {
     std::optional<std::vector<int64_t>> permutation =
         ir_utils::computePermutation(
@@ -525,14 +527,11 @@ void HostIrEvaluator::handle(LoadStoreOp* load_store_op) {
         "The logical domain of a Set.Permute is supposed to be a permutation"
         " of the root domain: ",
         out_tv);
-    t = in_tensor.permute(*permutation);
-  } else {
-    t = in_tensor;
+    t = t.permute(*permutation);
   }
 
   if (expr_evaluator_.isKnown(out_tv)) {
-    auto out_tensor =
-        getKnownConcreteValue(load_store_op->out()).as<at::Tensor>();
+    auto out_tensor = getKnownConcreteValue(out_tv).as<at::Tensor>();
     out_tensor.copy_(t, /*non_blocking=*/true);
   } else {
     // For completeness, we may check if out_tv's allocation matches `t` and
@@ -562,7 +561,7 @@ void HostIrEvaluator::handle(kir::Allocate* allocate) {
       allocate->buffer()->isA<TensorView>(),
       "Allocation must be on a TensorView but got ",
       allocate->buffer());
-  TensorView* tv = allocate->buffer()->as<TensorView>();
+  auto* tv = allocate->buffer()->as<TensorView>();
   if (expr_evaluator_.isKnown(tv)) {
     return;
   }
@@ -570,13 +569,16 @@ void HostIrEvaluator::handle(kir::Allocate* allocate) {
       getBufferInfos(expr_evaluator_, PrimDataType::Int, {tv}).at(0);
   c10::Device device =
       communicator_ ? communicator_->device() : at::Device("cuda:0");
-  auto tensor = at::native::empty_strided_cuda(
+  at::Tensor tensor = at::native::empty_strided_cuda(
       info.shape_info.logical_sizes,
       info.shape_info.logical_strides,
       info.type,
       c10::nullopt,
       device,
       c10::nullopt);
+  if (allocate->zeroInit()) {
+    tensor.zero_();
+  }
   expr_evaluator_.bind(tv, tensor);
 }
 
@@ -670,6 +672,34 @@ void HostIrEvaluator::handle(ReductionOp* reduction_op) {
           " in ",
           reduction_op);
   }
+}
+
+void HostIrEvaluator::handle(ShardByStream* shard) {
+  auto* out_tv = shard->out();
+
+  const std::vector<IterDomain*>& allocation_domain =
+      out_tv->getMaybeAllocationDomain();
+  auto i = std::find_if(
+      allocation_domain.begin(),
+      allocation_domain.end(),
+      std::mem_fn(&IterDomain::isStream));
+  NVF_ERROR(
+      i != allocation_domain.end(),
+      "Stream axis not found in allocation domain: ",
+      out_tv);
+  IterDomain* stream_id = *i;
+
+  auto in_tensor = getKnownConcreteValue(shard->in()).as<at::Tensor>();
+  int64_t stream_index =
+      expr_evaluator_.evaluate(shard->stream_index()).as<int64_t>();
+  at::Tensor out_tensor =
+      in_tensor
+          .chunk(
+              stream_id->extent()->evaluate().as<int64_t>(),
+              getShardedLogicalAxis(out_tv, ParallelType::Stream))
+          .at(stream_index);
+
+  expr_evaluator_.bind(out_tv, out_tensor);
 }
 
 void HostIrEvaluator::handle(Deallocate* deallocate) {

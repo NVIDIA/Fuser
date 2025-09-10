@@ -1246,7 +1246,7 @@ TEST_F(PresegTest, FusionTestCastOptimizationMetaOp6) {
         2);
     auto expr_iter =
         std::find_if(new_exprs.begin(), new_exprs.end(), [](Expr* new_expr) {
-          return new_expr->isA<ViewOp>();
+          return new_expr->isA<ReshapeOp>();
         });
     EXPECT_TRUE(
         expr_iter != new_exprs.end() &&

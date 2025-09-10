@@ -626,4 +626,23 @@ TEST_F(TopKTest, IndicesOnly) {
   EXPECT_TRUE(ref_values.equal(topk_values));
 }
 
+TEST_F(TopKTest, ZeroDimensionalInput) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeSymbolicTensor(0);
+  fusion.addInput(tv0);
+
+  auto tv1 = topk(tv0, fusion.oneVal(DataType::Int), -1).indices;
+  fusion.addOutput(tv1);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({}, options);
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs({t0});
+  testValidate(executor_cache.fusion(), outputs, {t0}, __LINE__, __FILE__);
+}
+
 } // namespace nvfuser

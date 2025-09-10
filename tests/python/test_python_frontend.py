@@ -1232,6 +1232,20 @@ class TestNvFuserFrontend(NVFuserTest):
         eager_out0 = torch.triu(inputs[0], -1)
         self.assertEqual(eager_out0, nvf_out[0])
 
+    def test_cumsum(self):
+        inputs = [
+            torch.randn(8, 16, device="cuda"),
+        ]
+
+        def fusion_func(fd: FusionDefinition):
+            t0 = fd.from_pytorch(inputs[0])
+            t1 = fd.ops.cumsum(t0, 0)
+            fd.add_output(t1)
+
+        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
+        eager_out = torch.cumsum(inputs[0], dim=0)
+        self.assertEqual(nvf_out[0], eager_out)
+
     def test_complex_rsqrt(self):
         inputs = [
             torch.randn(4, device="cuda", dtype=torch.complex64),
@@ -5092,6 +5106,21 @@ fd.execute(inputs)
 
         nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
         eager_out = torch.scatter(x, scatter_dim, ind, src)
+        self.assertEqual(eager_out, nvf_out[0])
+
+    def test_cumsum_int(self):
+        inputs = [
+            torch.testing.make_tensor((4,), dtype=torch.int32, device="cuda:0"),
+        ]
+
+        def fusion_func(fd: FusionDefinition):
+            T0 = fd.from_pytorch(inputs[0])
+            T1 = fd.ops.cumsum(T0, dim=-1)
+            T2 = fd.ops.cast(T1, dtype=DataType.Int)
+            fd.add_output(T2)
+
+        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
+        eager_out = torch.cumsum(inputs[0], dim=-1)
         self.assertEqual(eager_out, nvf_out[0])
 
 

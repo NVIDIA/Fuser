@@ -6,12 +6,20 @@
  */
 // clang-format on
 
+#include <vector>
+
+#include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
 #include <ops/all_ops.h>
+#include <preseg_passes/propagate_shardings.h>
 #include <tests/cpp/utils.h>
+#include <tests/cpp/validator.h>
 
 namespace nvfuser {
+
+using testing::_;
+using testing::ElementsAre;
 
 using RingBasedOverlapTest = NVFuserTest;
 
@@ -31,7 +39,7 @@ TEST_F(RingBasedOverlapTest, ColumnAndSequenceParallelLinear_Forward) {
   fusion->addOutput(out);
 
   const auto mesh = DeviceMesh::createForNumDevices(d);
-  for (auto* tv : {in, w, out}) {
+  for (auto* tv : {in, w}) {
     tv->setDeviceMesh(mesh);
   }
 
@@ -39,8 +47,6 @@ TEST_F(RingBasedOverlapTest, ColumnAndSequenceParallelLinear_Forward) {
   in->axis(0)->parallelize(ParallelType::DIDx);
   w->outer_split(0, d);
   w->axis(0)->parallelize(ParallelType::DIDx);
-  out->outer_split(1, d);
-  out->axis(1)->parallelize(ParallelType::DIDx);
 
   out->outer_split(0, d);
   // A Swizzle is needed to represent a cyclic shift needed for ring-based
@@ -53,27 +59,54 @@ TEST_F(RingBasedOverlapTest, ColumnAndSequenceParallelLinear_Forward) {
   //   [t, h]
   //   /\.
   //  d
+  // (deviceIdx.x)
   //    |
   //    | set
   //    |
   //   [t, h]                                  [4h,  h]
   //   /\                                      /\.
-  //  s                                       d
+  //  d                                       d
+  // (streamIdx + deviceIdx.x) % deviceDim.x
+  //  | swizzle
+  //  s
+  // (streamIdx)
   //                      |
   //                      | linear
   //                      |
   //                   [t, 4h, r{h}]
   //                   /\  /\.
-  //                  s*  d
+  //                  d   d
+  //          swizzle |
+  //                  s*
   //
   // Notes for this test and many other RingBasedOverlapTest below:
   // - A `set` from `/d` to `/s` (or vice versa) will be lowered to a
-  // cyclic-shift communication like XLA's CollectivePermute.
-  // - All `s`s are parallelized on `Stream` and all `d`s are parallelized on
-  // `DIDx`.
+  // cyclic-shift communication like XLA's CollectivePermute. In the example
+  // above, in the first iteration (i.e. streamIdx = 0), `set` does nothing
+  // because the input `deviceIdx.x` equals the output `deviceIdx.x`. In the
+  // second iteration (i.e. streamIdx = 1), `set` sends data from device i to
+  // device (i-1)%deviceDim.x. This is captured by the math of the swizzle.
+  // According to the logical domain mapping, the input deviceIdx.x equals
+  // (streamIdx + the output deviceIdx.x) % deviceDim.x. Equivalently, the
+  // output deviceIdx.x equals (the input deviceIdx.x - streamIdx) %
+  // deviceDim.x.
+  // - All leaf `s`s are parallelized on `Stream` and all leaf `d`s are
+  // parallelized on `DIDx`.
   // - `s*`s are parallelized on `Stream` in loop but replicated in allocation.
   // Fusion inputs/outputs can't be allocated per stream because the
   // user of a FusionDefinition can't inline external ops into a loop inside.
+
+  preseg_passes::OptimizationPass<
+      preseg_passes::PropagateShardingsPass>::runPass(fusion.get());
+
+  EXPECT_THAT(
+      out->getLoopDomain(),
+      ElementsAre(
+          IsParallelized(ParallelType::Stream),
+          _,
+          IsParallelized(ParallelType::DIDx),
+          _,
+          _));
 }
 
 TEST_F(RingBasedOverlapTest, ColumnAndSequenceParallelLinear_WeightGrad) {
@@ -92,14 +125,13 @@ TEST_F(RingBasedOverlapTest, ColumnAndSequenceParallelLinear_WeightGrad) {
   fusion->addOutput(w);
 
   const auto mesh = DeviceMesh::createForNumDevices(d);
-  for (auto* tv : {in, w, out}) {
+  for (auto* tv : {in, out}) {
     tv->setDeviceMesh(mesh);
   }
 
   in->outer_split(0, d);
   in->axis(0)->parallelize(ParallelType::DIDx);
-  w->outer_split(0, d);
-  w->axis(0)->parallelize(ParallelType::DIDx);
+
   out->outer_split(1, d);
   out->axis(1)->parallelize(ParallelType::DIDx);
 
@@ -140,6 +172,17 @@ TEST_F(RingBasedOverlapTest, ColumnAndSequenceParallelLinear_WeightGrad) {
   // same loop as `matmul` as an add, saving time and memory. It's not yet
   // clear to me how to implement this in host IR lowering, so I recommend we
   // go with `s*` for now for simplicity.
+
+  preseg_passes::OptimizationPass<
+      preseg_passes::PropagateShardingsPass>::runPass(fusion.get());
+
+  EXPECT_THAT(
+      out->getLoopDomain(),
+      ElementsAre(
+          IsParallelized(ParallelType::Stream),
+          _,
+          IsParallelized(ParallelType::DIDx),
+          _));
 }
 
 TEST_F(RingBasedOverlapTest, ColumnAndSequenceParallelLinear_InputGrad) {
@@ -162,17 +205,8 @@ TEST_F(RingBasedOverlapTest, ColumnAndSequenceParallelLinear_InputGrad) {
     tv->setDeviceMesh(mesh);
   }
 
-  in->outer_split(0, d);
-  in->axis(0)->parallelize(ParallelType::DIDx);
-  // For computing input gradients, `in` is the output and its reduction
-  // dimension needs to be sharded.
-  in->outer_split(-1, d);
-  in->axis(-2)->parallelize(ParallelType::DIDx);
-  w->outer_split(0, d);
-  w->axis(0)->parallelize(ParallelType::DIDx);
   out->outer_split(1, d);
   out->axis(1)->parallelize(ParallelType::DIDx);
-
   // This is debatable. On the one hand, we want to express the intention to
   // stream-parallelize the sequence dimension. On the other hand, we want to
   // avoid parallelizing a fusion input because a fusion input doesn't have a
@@ -180,11 +214,19 @@ TEST_F(RingBasedOverlapTest, ColumnAndSequenceParallelLinear_InputGrad) {
   out->outer_split(0, d);
   out->axis(0)->parallelize(ParallelType::Stream);
 
+  w->outer_split(0, d);
+  w->axis(0)->parallelize(ParallelType::DIDx);
+
+  in->outer_split(0, d);
+  in->axis(0)->parallelize(ParallelType::DIDx);
+
   // Fusion IR before segmentation will look like this:
   //
   //   [t, 4h]                                 [4h,  h]
   //   /\  /\                                   /\.
-  //  s*  d                                    d
+  //  d   d                                    d
+  //  |
+  //  s*
   //                      |
   //                      | matmul
   //                      |
@@ -192,17 +234,19 @@ TEST_F(RingBasedOverlapTest, ColumnAndSequenceParallelLinear_InputGrad) {
   //                          /  \.
   //                 [t, h, d, r{4h/d}]
   //                 /\.
+  //                d
+  //                |
   //                s
+  //                     |
+  //                     | set
+  //                     |
+  //                  [t, h, d]
+  //                  /\.    |
+  //                 d       s*
   //                     |
   //                     | sum
   //                     |
   //                  [t, h, r{d}]
-  //                  /\.
-  //                 s
-  //                     |
-  //                     | set
-  //                     |
-  //                  [t, h]
   //                  /\.
   //                 d
 }
@@ -259,19 +303,17 @@ TEST_F(RingBasedOverlapTest, RowAndSequenceParallelLinear_WeightGrad) {
   fusion->addOutput(w);
 
   const auto mesh = DeviceMesh::createForNumDevices(d);
-  for (auto* tv : {in, w, out}) {
+  for (auto* tv : {in, out}) {
     tv->setDeviceMesh(mesh);
   }
 
   in->outer_split(1, d);
   in->axis(1)->parallelize(ParallelType::DIDx);
-  w->outer_split(1, d);
-  w->axis(1)->parallelize(ParallelType::DIDx);
+  in->outer_split(0, d);
+  in->axis(0)->parallelize(ParallelType::Stream);
+
   out->outer_split(0, d);
   out->axis(0)->parallelize(ParallelType::DIDx);
-
-  w->outer_split(-1, d);
-  w->axis(-2)->parallelize(ParallelType::Stream);
 
   // Fusion IR before segmentation will be slightly different from
   // `ColumnAndSequenceParallelLinear_WeightGrad`:
@@ -306,6 +348,23 @@ TEST_F(RingBasedOverlapTest, RowAndSequenceParallelLinear_WeightGrad) {
   //                   [h, 4h, r{s}]
   //                       /\.
   //                      d
+
+  preseg_passes::OptimizationPass<
+      preseg_passes::PropagateShardingsPass>::runPass(fusion.get());
+
+  // Due to lack of DecomposeReshardingsPass, `w` looks like the following:
+  //
+  //                   [h, 4h, r{t}]
+  //                       /\  /\.
+  //                      d   s
+  EXPECT_THAT(
+      w->getLoopDomain(),
+      ElementsAre(
+          _,
+          IsParallelized(ParallelType::DIDx),
+          _,
+          IsParallelized(ParallelType::Stream),
+          _));
 }
 
 TEST_F(RingBasedOverlapTest, RowAndSequenceParallelLinear_InputGrad) {
@@ -324,12 +383,10 @@ TEST_F(RingBasedOverlapTest, RowAndSequenceParallelLinear_InputGrad) {
   fusion->addOutput(in);
 
   const auto mesh = DeviceMesh::createForNumDevices(d);
-  for (auto* tv : {in, w, out}) {
+  for (auto* tv : {w, out}) {
     tv->setDeviceMesh(mesh);
   }
 
-  in->outer_split(1, d);
-  in->axis(1)->parallelize(ParallelType::DIDx);
   w->outer_split(1, d);
   w->axis(1)->parallelize(ParallelType::DIDx);
   out->outer_split(0, d);
@@ -340,6 +397,16 @@ TEST_F(RingBasedOverlapTest, RowAndSequenceParallelLinear_InputGrad) {
 
   // Fusion IR before segmentation will be similar to
   // `ColumnAndSequenceParallelLinear_Forward`.
+  preseg_passes::OptimizationPass<
+      preseg_passes::PropagateShardingsPass>::runPass(fusion.get());
+  EXPECT_THAT(
+      in->getLoopDomain(),
+      ElementsAre(
+          IsParallelized(ParallelType::Stream),
+          _,
+          IsParallelized(ParallelType::DIDx),
+          _,
+          _));
 }
 
 // We can apply collective-based overlapping to the above patterns as well. The
@@ -369,24 +436,20 @@ TEST_F(CollectiveBasedOverlapTest, RowParallelLinear_Forward) {
   TensorView* w = makeContigConcreteTensor({h, h * 4}, DataType::BFloat16);
   TensorView* out = linear(in, w, nullptr);
 
-  fusion->addInput(out);
+  fusion->addInput(in);
   fusion->addInput(w);
-  fusion->addOutput(in);
+  fusion->addOutput(out);
 
   const auto mesh = DeviceMesh::createForNumDevices(d);
-  for (auto* tv : {in, w, out}) {
+  for (auto* tv : {in, w}) {
     tv->setDeviceMesh(mesh);
   }
-
-  in->outer_split(1, d);
-  in->axis(1)->parallelize(ParallelType::DIDx);
+  in->outer_split(0, d);
+  in->axis(0)->parallelize(ParallelType::Stream);
+  in->outer_split(2, d);
+  in->axis(3)->parallelize(ParallelType::DIDx);
   w->outer_split(1, d);
   w->axis(1)->parallelize(ParallelType::DIDx);
-  out->outer_split(-1, d);
-  out->axis(-2)->parallelize(ParallelType::DIDx);
-
-  out->outer_split(0, d);
-  out->axis(0)->parallelize(ParallelType::Stream);
 
   // Fusion IR before segmentation will look like this:
   //
@@ -407,6 +470,22 @@ TEST_F(CollectiveBasedOverlapTest, RowParallelLinear_Forward) {
   //                  [t, h, r{d}]
   //                  /\.
   //                 s*
+
+  preseg_passes::OptimizationPass<
+      preseg_passes::PropagateShardingsPass>::runPass(fusion.get());
+  // Due to lack of DecomposeReshardingsPass, `out` looks like the following:
+  //
+  //                  [t, h, r{4h}]
+  //                  /\      /\.
+  //                 s       d
+  EXPECT_THAT(
+      out->getLoopDomain(),
+      ElementsAre(
+          IsParallelized(ParallelType::Stream),
+          _,
+          _,
+          IsParallelized(ParallelType::DIDx),
+          _));
 }
 
 } // namespace nvfuser

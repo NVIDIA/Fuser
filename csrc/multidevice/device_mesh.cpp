@@ -130,7 +130,7 @@ DeviceIdxType DeviceMesh::maxDeviceId() const {
 int64_t DeviceMesh::parallelTypeToAxis(ParallelType parallel_type) const {
   NVF_ERROR(
       isParallelTypeDeviceDim(parallel_type),
-      "Attempting to index into DeviceMesh with a non-device parallel type",
+      "Attempting to index into DeviceMesh with a non-device parallel type: ",
       parallel_type);
   int64_t offset = static_cast<int64_t>(parallel_type) -
       static_cast<int64_t>(ParallelType::DIDx);

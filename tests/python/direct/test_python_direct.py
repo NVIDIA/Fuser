@@ -3,9 +3,67 @@
 # SPDX-License-Identifier: BSD-3-Clause
 # Owner(s): ["module: nvfuser"]
 
-from nvfuser_direct import FusionDefinition, DataType
+from nvfuser_direct import FusionDefinition, DataType, version
 import torch
 import pytest
+import io
+import re
+from contextlib import redirect_stdout, redirect_stderr
+
+
+def test_python_version_API():
+    from nvfuser_direct.nvfuser_direct_version import Version
+
+    assert version() > "0.0.0"
+    assert version() > Version("0.0.0")
+
+
+def test_fusion_not_defined():
+    inputs = [
+        torch.randn(4, 4, device="cpu"),
+    ]
+
+    # A FusionDefinition object is constructed but not defined, should trip an error
+    try:
+        fd = FusionDefinition()
+        out = fd.execute(inputs)
+        raise RuntimeError("Expecting an error for an empty FusionDefinition!")
+    except NotImplementedError as e:
+        assert (
+            "Fusion does not exist! Use `with FusionDefinition() as fd: ...` to define a fusion."
+            in str(e)
+        )
+
+
+def test_fusion_empty():
+    inputs = [
+        torch.randn(4, 4, device="cpu"),
+    ]
+
+    # A FusionDefinition object is constructed but not defined, should trip an error
+    with pytest.raises(NotImplementedError, match="Fusion is empty!"):
+        with FusionDefinition() as fd:
+            pass
+        out = fd.execute(inputs)
+
+
+def test_from_pytorch_fails_on_cpu_tensor():
+    inputs = [
+        torch.randn(4, 4, device="cpu"),
+    ]
+
+    stdout_capture = io.StringIO()
+    stderr_capture = io.StringIO()
+    error_msg = (
+        "Found unsupported device cpu, only scalar CPU or CUDA tensors are supported"
+    )
+    with pytest.raises(ValueError, match=error_msg), redirect_stdout(
+        stdout_capture
+    ), redirect_stderr(stderr_capture):
+        with FusionDefinition() as fd:
+            t0 = fd.from_pytorch(inputs[0])
+            t1 = fd.ops.relu(t0)
+            fd.add_output(t1)
 
 
 def test_fusion_definition_print():
@@ -174,13 +232,36 @@ def nvfuser_fusion(fd : FusionDefinition) -> None :
     fd.add_output(tv4)
 with FusionDefinition() as fd:
     nvfuser_fusion(fd)
+"""
 
+    expected_inputs = """
 inputs = [
     torch.testing.make_tensor((2, 4, 8), dtype=torch.float32, device='cuda:0'),
     torch.testing.make_tensor((2, 4, 8), dtype=torch.float32, device='cuda:0'),
 ]
 fd.execute(inputs)\n"""
-    assert expected_repro in fd.repro_script_for(inputs)
+
+    # fd.repro_script_for(inputs) should have input arguments
+    repro_with_inputs = fd.repro_script_for(inputs)
+    assert expected_repro in repro_with_inputs
+    assert expected_inputs in repro_with_inputs
+
+    # fd.repro_script_for() should NOT have input arguments
+    repro_without_inputs = fd.repro_script_for()
+    assert expected_repro in repro_without_inputs
+    assert expected_inputs not in repro_without_inputs
+
+    # Check last_repro_script fails gracefully.
+    with pytest.raises(
+        AssertionError,
+        match=r"fd.last_repro_script\(\) cannot provide a repro because fd.execute\(inputs, save_repro_state=True\) was not executed!",
+    ):
+        fd.last_repro_script()
+
+    # Test fd.execute(inputs, save_repro_inputs=True) ; fd.last_repro_script()
+    fd.execute(inputs, save_repro_inputs=True)
+    last_repro = fd.last_repro_script()
+    assert repro_with_inputs == last_repro
 
 
 def test_define_tensor():
@@ -235,3 +316,87 @@ def test_execute_with_different_device():
     outputs = fd.execute(inputs, device="cuda:1")
     assert len(outputs) == 1
     assert outputs[0].device.index == 1
+
+
+def test_enable_disable_options():
+    m = 24
+    n = 16
+    k = 8
+    inps = [
+        torch.randn(m, k, device="cuda", dtype=torch.float),
+        torch.randn(k, n, device="cuda", dtype=torch.float),
+    ]
+
+    def fusion_func(fd: FusionDefinition, inps) -> None:
+        t0 = fd.from_pytorch(inps[0])
+        t1 = fd.from_pytorch(inps[1])
+        t2 = fd.ops.matmul(t0, t1)
+        fd.add_output(t2)
+
+    with FusionDefinition() as fd:
+        fusion_func(fd, inps=inps)
+
+    # By default, matmul will be be run through expr_eval scheduler.
+    # Through setting the enable and disable options as below,
+    # we can execute it through matmul scheduler. The above fusion will not
+    # be accepted by the matmul scheduler since the outputs are of type Float and raises a RuntimeError.
+    # Note: We use this error-based test since for compatible dtypes (float16/bfloat16),
+    # the matmul scheduler ran into a scheduling error on H100. This test might be more robust against
+    # changes in matmul scheduler in the interim.
+
+    with pytest.raises(
+        RuntimeError, match="Can not find a scheduler to schedule fusion segment"
+    ):
+        fd.execute(
+            inps, _enable_options=["fuse_matmul"], _disable_options=["matmul_expr_eval"]
+        )
+
+
+# Test that we properly raise an error when passing inputs with the wrong types
+def test_mismatched_input_types():
+    scalar_inp = 2.0
+    tensor_inp = torch.rand((15,), dtype=torch.float32, device="cuda:0")
+
+    def fusion_func(fd: FusionDefinition):
+        T0 = fd.define_tensor(
+            shape=[-1],
+            contiguity=[True],
+            dtype=DataType.Float,
+            is_cpu=False,
+            stride_order=[0],
+        )
+        s0 = fd.define_scalar()
+        T1 = fd.ops.mul(T0, s0)
+        fd.add_output(T1)
+
+    with FusionDefinition() as fd:
+        fusion_func(fd)
+
+    with pytest.raises(
+        Exception,
+        match="Expected input 0, .*, to be an at::Tensor but got scalar 2",
+    ):
+        nvf_out = fd.execute([scalar_inp, scalar_inp])
+
+    with pytest.raises(
+        Exception,
+        match=re.escape(
+            "Expected input 1, d2, to be a scalar but got float tensor of rank 1"
+        ),
+    ):
+        nvf_out = fd.execute([tensor_inp, tensor_inp])
+
+    with pytest.raises(
+        Exception,
+        match="Expected input 0, .*, to be bound to a tensor of dtype float, but got a tensor of dtype __half",
+    ):
+        wrong_tensor_inp = torch.rand((15,), dtype=torch.float16, device="cuda:0")
+        nvf_out = fd.execute([wrong_tensor_inp, 2.0])
+
+    with pytest.raises(
+        Exception,
+        match=re.escape(
+            "Scalar value (2,1) is not compatible with the expected data type: double."
+        ),
+    ):
+        nvf_out = fd.execute([tensor_inp, 2.0 + 1.0j])

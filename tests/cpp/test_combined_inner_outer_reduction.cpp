@@ -1483,7 +1483,7 @@ TEST_F(CombinedSchedulerTest, ThunderLayerNormBackward) {
 // https://nvbugspro.nvidia.com/bug/5374766
 // when view ops are present, project buffer to inputs is disabled and warp
 // specialized approach is not used.
-TEST_F(CombinedSchedulerTest, ViewOps) {
+TEST_F(CombinedSchedulerTest, ReshapeOps) {
   NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
   EnableOptionsGuard opt_guard;
   EnableOptionsGuard::getCurOptions().set(
@@ -1498,7 +1498,7 @@ TEST_F(CombinedSchedulerTest, ViewOps) {
   fusion->addInput(tv0);
   fusion->addInput(tv1);
 
-  // ViewOp: reshape from 2D to 3D
+  // ReshapeOp: reshape from 2D to 3D
   // 512 * 32 = 16384 elements, reshape to {128, 4, 32} = 16384 elements
   auto tv2 = reshape(tv0, {512, 32}, {128, 4, 32});
   auto tv3 = reshape(tv1, {512, 32}, {128, 4, 32});
@@ -1536,7 +1536,7 @@ TEST_F(CombinedSchedulerTest, ViewOps) {
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
   auto cg_outputs = executor_cache.runFusionWithInputs(args);
 
-  // Verify that ViewOp disables warp specialized approach
+  // Verify that ReshapeOp disables warp specialized approach
   auto runtime = executor_cache.getMostRecentKernelRuntime();
   HeuristicParams* heur =
       runtime->schedulerHeuristics()->heuristicsList().at(0).get();

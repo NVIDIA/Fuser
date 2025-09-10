@@ -1711,6 +1711,38 @@ TensorView
     A new tensor containing the sum of elements along the specified dimensions.
 )")
   ops.def(
+      "var",
+      [](TensorView* arg,
+         const std::vector<int64_t>& dims,
+         int64_t correction,
+         bool keepdim) -> TensorView* {
+        return variance(arg, dims, correction, keepdim);
+      },
+      py::arg("arg"),
+      py::arg("dims"),
+      py::arg("correction") = 1,
+      py::arg("keepdim") = false,
+      R"(
+Reduce a tensor by computing the variance along specified dimensions.
+
+Parameters
+----------
+arg : TensorView
+    Input tensor to reduce.
+dims : list or tuple
+    Dimensions to reduce over.
+correction : int, optional
+    The correction factor to apply to the variance. Default is 1.
+keepdim : bool, optional
+    Whether to keep the reduced dimensions with size 1. Default is False.
+
+Returns
+-------
+TensorView
+    A tensor containing the variance along the specified dimensions.
+)",
+      py::return_value_policy::reference);
+  ops.def(
       "var_mean",
       [](TensorView* arg,
          const std::vector<int64_t>& dims,
@@ -2315,11 +2347,12 @@ TensorView* slice_fn(
     }
   }
 
+  size_t num_dims = TensorDomain::noReductions(arg->getLogicalDomain()).size();
   NVF_CHECK(
-      arg->nDims() == (int64_t)start_vec.size(),
+      num_dims == start_vec.size(),
       "Number of tensor dimensions does not match slice dimensions! "
       "Tensor-dims: ",
-      arg->nDims(),
+      num_dims,
       " Slice-dims: ",
       start_vec.size());
   NVF_CHECK(
@@ -2330,7 +2363,7 @@ TensorView* slice_fn(
       end_vec.size());
 
   std::vector<Slice> vec_slice;
-  for (const auto idx : arange(arg->domain()->noReductions().size())) {
+  for (const auto idx : arange(num_dims)) {
     // NOTE: there's an extra move, we can use emplace_back if we go write
     // some constructors for Slice.
     Val* start_idx = start_vec.at(idx);
@@ -2455,8 +2488,10 @@ TensorView
   ops.def(
       "permute",
       [](TensorView* arg, std::vector<int64_t>& dims) -> TensorView* {
+        size_t num_dims =
+            TensorDomain::noReductions(arg->getLogicalDomain()).size();
         NVF_CHECK(
-            arg->nDims() == (int64_t)dims.size(),
+            num_dims == dims.size(),
             "Operator permute expects `dims` argument to have the same length "
             "as input!");
         return permute(arg, dims);

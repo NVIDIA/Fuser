@@ -544,7 +544,7 @@ TEST_F(MoveSplitCatTest, MultiplePairs) {
   EXPECT_THAT(exprs, Contains(IsPermute()).Times(1));
   // The two reshapes in region 1 stay as is and the two reshapes in region 2
   // are merged. Therefore, three reshapes in total.
-  EXPECT_THAT(exprs, Contains(IsA<ViewOp>()).Times(3));
+  EXPECT_THAT(exprs, Contains(IsA<ReshapeOp>()).Times(3));
 }
 
 TEST_F(MoveSplitCatTest, MultipleCatsOnSameSplit) {

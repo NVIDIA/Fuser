@@ -1829,6 +1829,72 @@ def triu_error_generator(op: OpInfo, dtype: torch.dtype, requires_grad: bool = F
         ), RuntimeError, f"input tensor for triu must have 2 or more dims, but got {len(shape)} dims"
 
 
+def cumsum_input_generator(op: OpInfo, dtype: torch.dtype, requires_grad: bool = False):
+    make_arg = partial(
+        make_tensor,
+        device="cuda",
+        dtype=dtype,
+        requires_grad=requires_grad,
+        low=-2,
+        high=3,
+    )
+
+    # shape, dim
+    cases = (
+        ((4, 4), 0),
+        ((5,), 0),
+        ((8, 1, 6), 1),
+        ((8, 7, 5, 1), 2),
+        ((8, 7, 5, 1), -1),
+        ((8, 7, 5, 1), -2),
+    )
+
+    for shape, dim in cases:
+        yield SampleInput(make_arg(shape), dim)
+
+
+def cumsum_error_generator(
+    op: OpInfo,
+    dtype: torch.dtype,
+    requires_grad: bool = False,
+):
+    """
+    Generate test cases that should produce errors for cumsum operation.
+
+    Yields:
+        Tuples of (SampleInput, expected_exception_type, error_message_pattern)
+    """
+    make_arg = partial(
+        make_tensor,
+        device="cuda",
+        dtype=dtype,
+        requires_grad=requires_grad,
+        low=-2,
+        high=3,
+    )
+
+    # Invalid dimension: out of bounds positive
+    input_shape = (4, 4)
+    yield SampleInput(
+        make_arg(input_shape), 2
+    ), RuntimeError, "Tried to access out of boundary index"
+
+    # Invalid dimension: out of bounds negative
+    yield SampleInput(
+        make_arg(input_shape), -3
+    ), RuntimeError, "Tried to access out of boundary index"
+
+    # Invalid dimension type: float instead of int
+    yield SampleInput(
+        make_arg(input_shape), 0.5
+    ), TypeError, "cumsum(): incompatible function arguments"
+
+    # Invalid input: 0-dim tensor (scalar)
+    yield SampleInput(
+        make_arg(()), 0
+    ), RuntimeError, "Tried to access out of boundary index 0. total index: 0"
+
+
 def grouped_mm_input_generator(
     op: OpInfo, dtype: torch.dtype, requires_grad: bool = False, **kwargs
 ):

@@ -188,7 +188,7 @@ def test_llama4_moe_thunderfx():
     assert expected.dtype == torch.bfloat16
     assert expected.is_cuda
 
-    tmodel = thunderfx(model, nv_enable_linear=True)
+    tmodel = thunderfx(model, nv_enable_linear=True, nv_enable_scatter=True)
 
     with torch.no_grad():
         actual = tmodel(inp)

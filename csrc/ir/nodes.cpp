@@ -286,29 +286,36 @@ NVFUSER_DEFINE_CLONE_AND_CREATE(GatherOp)
 
 ScatterOp::ScatterOp(
     IrBuilderPasskey passkey,
-    ScatterOpType type,
     Val* out,
     Val* self,
     int64_t dim,
     Val* index,
-    Val* src)
+    Val* src,
+    std::optional<BinaryOpType> accumulate_op)
     : Expr(passkey) {
   addInput(self);
   addInput(index);
   addInput(src);
   addOutput(out);
   addDataAttribute(dim);
-  addDataAttribute(type);
+  // is this accumulate?
+  addDataAttribute(accumulate_op.has_value());
+  if (accumulate_op.has_value()) {
+    addDataAttribute(accumulate_op.value());
+  }
 }
 
 std::string ScatterOp::toString(int indent_size) const {
   std::stringstream ss;
   indent(ss, indent_size) << output(0)->toString() << "\n";
   indent_size++;
-  indent(ss, indent_size) << " =" << getScatterOpType() << "(";
+  indent(ss, indent_size) << " = scatter(";
   ss << "in = " << in()->toString() << ", dim = " << dim()
-     << ", src = " << src()->toString() << ", idx = " << index()->toString()
-     << " )\n";
+     << ", src = " << src()->toString() << ", idx = " << index()->toString();
+  if (accumulate()) {
+    ss << ", accumulate = " << accumulateOp();
+  }
+  ss << " )\n";
   return ss.str();
 }
 
@@ -326,15 +333,47 @@ std::vector<PolymorphicValue> ScatterOp::evaluate(
   const auto& input = inputs.at(0).as<at::Tensor>();
   const auto& index = inputs.at(1).as<at::Tensor>();
   auto dimension = dim();
-  if (src()->isA<TensorView>()) {
-    return {
-        at::scatter(input, dimension, index, inputs.at(2).as<at::Tensor>())};
-  } else {
-    return {at::scatter(
+  if (accumulate()) {
+    std::string accumulate_op_str;
+    switch (accumulateOp()) {
+      case BinaryOpType::Add:
+        accumulate_op_str = "sum";
+        break;
+      case BinaryOpType::Mul:
+        accumulate_op_str = "prod";
+        break;
+      case BinaryOpType::Max:
+        accumulate_op_str = "amax";
+        break;
+      case BinaryOpType::Min:
+        accumulate_op_str = "amin";
+        break;
+      default:
+        NVF_THROW("Unsupported accumulation op: ", accumulateOp());
+    }
+    // at::scatter_reduce doesn't seem to support scalar
+    // src. at::scatter does support but it seems it's deprecated and
+    // only supports add and multiply accumulation.
+    NVF_ERROR(
+        src()->isA<TensorView>(),
+        "at::scatter_reduce does not support scalar src argument");
+    return {at::scatter_reduce(
         input,
         dimension,
         index,
-        PolymorphicValue_functions::toScalar(inputs.back()))};
+        inputs.at(2).as<at::Tensor>(),
+        accumulate_op_str)};
+  } else {
+    if (src()->isA<TensorView>()) {
+      return {
+          at::scatter(input, dimension, index, inputs.at(2).as<at::Tensor>())};
+    } else {
+      return {at::scatter(
+          input,
+          dimension,
+          index,
+          PolymorphicValue_functions::toScalar(inputs.at(2)))};
+    }
   }
 }
 
@@ -2312,7 +2351,8 @@ std::vector<PolymorphicValue> ViewAsScalar::evaluate(
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(ViewAsScalar)
 
-ViewOp::ViewOp(IrBuilderPasskey passkey, Val* out, Val* in) : Expr(passkey) {
+ReshapeOp::ReshapeOp(IrBuilderPasskey passkey, Val* out, Val* in)
+    : Expr(passkey) {
   NVF_ERROR(
       in->isA<TensorView>(),
       in->toString(),
@@ -2325,18 +2365,18 @@ ViewOp::ViewOp(IrBuilderPasskey passkey, Val* out, Val* in) : Expr(passkey) {
   addInput(in);
 }
 
-std::string ViewOp::toString(int indent_size) const {
+std::string ReshapeOp::toString(int indent_size) const {
   std::stringstream ss;
   indent(ss, indent_size) << out()->toString() << " = view( "
                           << in()->toString() << " )\n";
   return ss.str();
 }
 
-std::string ViewOp::toInlineString(int indent_size) const {
+std::string ReshapeOp::toInlineString(int indent_size) const {
   NVF_CHECK(false, "Tensor op can not be printed inline");
 }
 
-std::vector<PolymorphicValue> ViewOp::evaluate(
+std::vector<PolymorphicValue> ReshapeOp::evaluate(
     const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
   NVF_ERROR(inputs.size() == 1);
@@ -2345,14 +2385,14 @@ std::vector<PolymorphicValue> ViewOp::evaluate(
   const auto& [out_shape, _] = inferShapeOfOutput(out(), ee);
   // TODO: check allocation domain and contiguity.
 
-  // Use `at::Tensor::reshape` instead of `at::Tensor::view` because `ViewOp`
+  // Use `at::Tensor::reshape` instead of `at::Tensor::view` because `ReshapeOp`
   // doesn't always produce an alias. For example, when merging an expanded
-  // `IterType::Broadcast` and an `IterType::Iteration`, `ViewOp` has to realize
-  // the expand.
+  // `IterType::Broadcast` and an `IterType::Iteration`, `ReshapeOp` has to
+  // realize the expand.
   return {in_tensor.reshape(out_shape)};
 }
 
-NVFUSER_DEFINE_CLONE_AND_CREATE(ViewOp)
+NVFUSER_DEFINE_CLONE_AND_CREATE(ReshapeOp)
 
 LoadStoreOp::LoadStoreOp(
     IrBuilderPasskey passkey,
@@ -3348,7 +3388,8 @@ TensorDomain::TensorDomain(
     std::vector<IterDomain*> loop_domain,
     std::optional<std::vector<IterDomain*>> alternate_loop_domain,
     std::vector<std::optional<bool>> contiguity,
-    std::vector<IterDomain*> additional_ids)
+    std::vector<IterDomain*> additional_ids,
+    bool skip_validation)
     : Val(passkey, ValType::TensorDomain, DataType::Null),
       root_domain_(std::move(root_domain)),
       logical_domain_(std::move(logical_domain)),
@@ -3365,18 +3406,21 @@ TensorDomain::TensorDomain(
   NVF_CHECK(
       loop_domain_.empty() == logical_domain_.empty(),
       "logical domain and loop domain can only be both empty or neither empty");
-  validateLoopDomain(logical_domain_, loop_domain_, additional_ids_);
-  if (!root_domain_.empty()) {
-    ir_utils::validateDomainEquivalence(
-        logical_domain_, root_domain_, additional_ids_);
-  }
-  if (!allocation_domain_.empty()) {
-    ir_utils::validateDomainEquivalence(
-        logical_domain_, allocation_domain_, additional_ids_);
-  }
-  if (alternate_loop_domain_.has_value()) {
-    validateLoopDomain(
-        logical_domain_, alternate_loop_domain_.value(), additional_ids_);
+
+  if (!skip_validation) {
+    validateLoopDomain(logical_domain_, loop_domain_, additional_ids_);
+    if (!root_domain_.empty()) {
+      ir_utils::validateDomainEquivalence(
+          logical_domain_, root_domain_, additional_ids_);
+    }
+    if (!allocation_domain_.empty()) {
+      ir_utils::validateDomainEquivalence(
+          logical_domain_, allocation_domain_, additional_ids_);
+    }
+    if (alternate_loop_domain_.has_value()) {
+      validateLoopDomain(
+          logical_domain_, alternate_loop_domain_.value(), additional_ids_);
+    }
   }
 
   // resetDomains initializes other member variables, required by clang-tidy
@@ -4889,6 +4933,39 @@ std::string SdpaFwdOp::toInlineString(int indent_size) const {
   NVF_CHECK(false, "Tensor op can not be printed inline");
 }
 
+namespace spda_meta {
+
+std::tuple<
+    at::Tensor,
+    at::Tensor,
+    at::Tensor,
+    at::Tensor,
+    c10::SymInt,
+    c10::SymInt,
+    at::Tensor,
+    at::Tensor,
+    at::Tensor>
+_scaled_dot_product_flash_attention_meta(const at::Tensor& query) {
+  const auto sizes = query.sizes();
+  const int batch_size = sizes[0];
+  int num_heads = sizes[1];
+  int seqlen_q = sizes[2];
+  auto logsumexp = at::empty(
+      {batch_size, num_heads, seqlen_q}, query.options().dtype(at::kFloat));
+  return std::make_tuple(
+      query,
+      logsumexp,
+      at::Tensor(),
+      at::Tensor(),
+      c10::SymInt(seqlen_q),
+      c10::SymInt(seqlen_q),
+      at::Tensor(),
+      at::Tensor(),
+      at::Tensor());
+}
+
+} // namespace spda_meta
+
 std::vector<PolymorphicValue> SdpaFwdOp::evaluate(
     const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
@@ -4960,15 +5037,16 @@ std::vector<PolymorphicValue> SdpaFwdOp::evaluate(
        key_seq_len,
        philox_seed,
        philox_offset,
-       debug_attn_mask] =
-          at::_scaled_dot_product_flash_attention(
-              query,
-              key,
-              value,
-              dropout_p,
-              is_causal,
-              /*return_debug_mask=*/false,
-              scale);
+       debug_attn_mask] = query.is_meta()
+      ? spda_meta::_scaled_dot_product_flash_attention_meta(query)
+      : at::_scaled_dot_product_flash_attention(
+            query,
+            key,
+            value,
+            dropout_p,
+            is_causal,
+            /*return_debug_mask=*/false,
+            scale);
 
   // If the inputs were padded, slice the output to restore the original
   // size
@@ -6367,27 +6445,208 @@ std::vector<PolymorphicValue> ScanOp::evaluate(
 
   NVF_ERROR(inputs.size() == 1);
 
-  at::Tensor out;
+  at::Tensor out_t;
   switch (opType()) {
     case BinaryOpType::Add:
-      out = at::cumsum(input, dim());
+      out_t = at::cumsum(input, dim());
       break;
     case BinaryOpType::Max:
-      out = std::get<0>(at::cummax(input, dim()));
+      out_t = std::get<0>(at::cummax(input, dim()));
       break;
     case BinaryOpType::Min:
-      out = std::get<0>(at::cummin(input, dim()));
+      out_t = std::get<0>(at::cummin(input, dim()));
       break;
     case BinaryOpType::Mul:
-      out = at::cumprod(input, dim());
+      out_t = at::cumprod(input, dim());
       break;
     default:
       NVF_THROW("Unhandled opType() ", opType());
   }
 
-  return {out};
+  at::ScalarType out_dtype = data_type_to_aten(out()->dtype());
+  if (out_t.dtype() != out_dtype) {
+    out_t = out_t.to(out_dtype);
+  }
+
+  return {out_t};
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(ScanOp)
+
+CutlassNvfp4GroupedMmaOp::CutlassNvfp4GroupedMmaOp(
+    IrBuilderPasskey passkey,
+    Val* out_mat,
+    Val* mat1,
+    Val* mat2,
+    Val* scale1,
+    Val* scale2,
+    Val* alpha,
+    Val* problem_sizes,
+    Val* expert_offsets,
+    Val* sf_offsets)
+    : Expr(passkey) {
+  NVF_ERROR(out_mat->isA<TensorView>(), "Output matrix must be a TensorView");
+  NVF_ERROR(mat1->isA<TensorView>(), "First input must be a TensorView");
+  NVF_ERROR(mat2->isA<TensorView>(), "Second input must be a TensorView");
+  NVF_ERROR(scale1->isA<TensorView>(), "Scale1 must be a TensorView");
+  NVF_ERROR(scale2->isA<TensorView>(), "Scale2 must be a TensorView");
+  NVF_ERROR(alpha->isA<TensorView>(), "Alpha must be a TensorView");
+  NVF_ERROR(
+      problem_sizes->isA<TensorView>(), "Problem sizes must be a TensorView");
+  NVF_ERROR(
+      expert_offsets->isA<TensorView>(), "Expert offsets must be a TensorView");
+  NVF_ERROR(sf_offsets->isA<TensorView>(), "SF offsets must be a TensorView");
+
+  addOutput(out_mat);
+  addInput(mat1);
+  addInput(mat2);
+  addInput(scale1);
+  addInput(scale2);
+  addInput(alpha);
+  addInput(problem_sizes);
+  addInput(expert_offsets);
+  addInput(sf_offsets);
+}
+
+std::string CutlassNvfp4GroupedMmaOp::toString(int indent_size) const {
+  std::stringstream ss;
+  indent(ss, indent_size) << out();
+  ss << " = CutlassNvfp4GroupedMmaOp(";
+  ss << "mat1=" << matrix1() << ", ";
+  ss << "mat2=" << matrix2() << ", ";
+  ss << "scale1=" << scale1() << ", ";
+  ss << "scale2=" << scale2() << ", ";
+  ss << "alpha=" << alpha() << ", ";
+  ss << "problem_sizes=" << problemSizes() << ", ";
+  ss << "expert_offsets=" << expertOffsets() << ", ";
+  ss << "sf_offsets=" << scalingFactorOffsets() << ")\n";
+  return ss.str();
+}
+
+std::string CutlassNvfp4GroupedMmaOp::toInlineString(int indent_size) const {
+  NVF_THROW("Tensor op can not be printed inline.");
+}
+
+std::vector<PolymorphicValue> CutlassNvfp4GroupedMmaOp::evaluate(
+    const ExpressionEvaluator& ee,
+    const std::vector<PolymorphicValue>& inputs) const {
+#if NVFUSER_CUTLASS_KERNEL_ENABLED
+  const auto& mat1 = inputs[0].as<at::Tensor>();
+  const auto& mat2 = inputs[1].as<at::Tensor>();
+  const auto& scale1 = inputs[2].as<at::Tensor>();
+  const auto& scale2 = inputs[3].as<at::Tensor>();
+  const auto& alpha = inputs[4].as<at::Tensor>();
+  const auto& problem_sizes = inputs[5].as<at::Tensor>();
+  const auto& expert_offsets = inputs[6].as<at::Tensor>();
+  const auto& sf_offsets = inputs[7].as<at::Tensor>();
+  NVF_CHECK(
+      mat1.scalar_type() == at::ScalarType::Float4_e2m1fn_x2 &&
+      mat2.scalar_type() == at::ScalarType::Float4_e2m1fn_x2);
+
+  // Validate problem_sizes tensor
+  NVF_CHECK(problem_sizes.dim() == 2, "problem_sizes must be a 2D tensor");
+  NVF_CHECK(
+      problem_sizes.size(1) == 3,
+      "problem_sizes must have shape (num_experts, 3)");
+  int num_experts = problem_sizes.size(0);
+
+  at::ScalarType out_dtype = data_type_to_aten(out()->dtype());
+  const auto options =
+      at::TensorOptions().device(mat1.device()).dtype(out_dtype);
+
+  // Calculate proper stride tensors for the cutlass kernel
+  // ab_strides: stride information for input matrices A and B
+  // c_strides: stride information for output matrix C
+  // Note: mat1 is packed fp4x2.
+  int k = mat1.size(1) * 2;
+  int n = mat2.size(2);
+  auto ab_strides =
+      at::empty({num_experts}, options.dtype(at::ScalarType::Long));
+  auto c_strides =
+      at::empty({num_experts}, options.dtype(at::ScalarType::Long));
+  // FIXME: this could be done outside and provided as input to avoid two kernel
+  // launches.
+  ab_strides.fill_(k);
+  c_strides.fill_(n);
+
+  // Call the cutlass kernel, note that it expect g,n,k layout on mat2.
+  at::Tensor result = cutlass_kernels::nvfp4_scaled_grouped_mm(
+      mat1.view(at::ScalarType::Float4_e2m1fn_x2),
+      mat2.transpose(-1, -2).view(at::ScalarType::Float4_e2m1fn_x2),
+      scale1,
+      scale2,
+      alpha,
+      ab_strides,
+      c_strides,
+      problem_sizes,
+      expert_offsets,
+      sf_offsets,
+      out_dtype);
+
+  if (const auto rfactor_did_idx = getRFactorDeviceDimensionIndex(out());
+      rfactor_did_idx != -1) {
+    result = result.unsqueeze(rfactor_did_idx);
+  }
+  return {result};
+#else
+  NVF_THROW("CutlassNvfp4GroupedMmaOp requires CUTLASS kernels to be enabled");
+#endif
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(CutlassNvfp4GroupedMmaOp)
+
+PreprocessGroupedMatmulInputSf::PreprocessGroupedMatmulInputSf(
+    IrBuilderPasskey passkey,
+    Val* output,
+    Val* input,
+    Val* input_offsets,
+    Val* output_offsets,
+    BlockScalingFactorLayout layout,
+    Val* k,
+    Val* g)
+    : Expr(passkey) {
+  addInput(input);
+  addInput(input_offsets);
+  addInput(output_offsets);
+  addInput(k);
+  addInput(g);
+  addOutput(output);
+  addDataAttribute(layout);
+}
+
+std::string PreprocessGroupedMatmulInputSf::toString(int indent_size) const {
+  std::stringstream ss;
+  indent(ss, indent_size) << output(0)->toString() << "\n";
+  indent_size++;
+  indent(ss, indent_size) << " = preprocessGroupedMatmulInputSf(\n";
+  indent_size++;
+  indent(ss, indent_size) << "input = " << in()->toString() << ",\n";
+  indent(ss, indent_size) << "input_offsets = " << inputOffsets()->toString()
+                          << ",\n";
+  indent(ss, indent_size) << "output_offsets = " << outputOffsets()->toString()
+                          << ",\n";
+  indent(ss, indent_size) << "layout = "
+                          << (layout() == BlockScalingFactorLayout::Block128x4
+                                  ? "Block128x4"
+                                  : "Unknown")
+                          << "\n";
+  indent_size--;
+  indent(ss, indent_size) << ")\n";
+  return ss.str();
+}
+
+std::string PreprocessGroupedMatmulInputSf::toInlineString(
+    int indent_size) const {
+  NVF_CHECK(false, "PreprocessGroupedMatmulInputSf can not be printed inline");
+}
+
+std::vector<PolymorphicValue> PreprocessGroupedMatmulInputSf::evaluate(
+    const ExpressionEvaluator& ee,
+    const std::vector<PolymorphicValue>& inputs) const {
+  // This is a placeholder, currently we don't have a fallback kernel available
+  NVF_THROW("PreprocessGroupedMatmulInputSf evaluation not yet implemented");
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(PreprocessGroupedMatmulInputSf)
 
 } // namespace nvfuser

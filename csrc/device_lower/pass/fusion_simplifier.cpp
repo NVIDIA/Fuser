@@ -66,7 +66,7 @@ class LoadStoreOpInserter : private kir::ExprMutator {
             container, LoadStoreOpType::Set, out, in));
   }
 
-  void handle(ViewOp* vop) final {
+  void handle(ReshapeOp* vop) final {
     auto out = vop->out();
     auto in = vop->in();
     auto container = out->container();

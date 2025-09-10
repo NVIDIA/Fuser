@@ -89,6 +89,7 @@ bool isTvOp(const Expr* expr) {
           ArgsortOp,
           GroupedMmaOp,
           ScaledMmaOp,
+          CutlassNvfp4GroupedMmaOp,
           TopKOp,
           UnaryOp,
           BinaryOp,
@@ -119,11 +120,12 @@ bool isTvOp(const Expr* expr) {
           ExpandOp,
           RepeatOp,
           ViewAsScalar,
-          ViewOp,
+          ReshapeOp,
           PadOp,
           SliceOp,
           CatOp,
           ScanOp,
+          PreprocessGroupedMatmulInputSf,
           kir::AllocTMem,
           kir::GridReduction,
           kir::GroupedGridReduction,
@@ -2087,7 +2089,10 @@ IterDomain* getConcreteLoopID(IterDomain* id) {
 
   // Currently, the concrete loop ID uses the IdModel loop
   // promotion only when opted in.
-  if (GpuLower::current()->idModelOptions().loop()) {
+  if ((GpuLower::hasCurrent() &&
+       GpuLower::current()->idModelOptions().loop()) ||
+      (!GpuLower::hasCurrent() && FusionInfoGuard::current()->hasIdModel() &&
+       FusionInfoGuard::current()->idModel().hasIdGraph(IdMappingMode::LOOP))) {
     // If enabled, the concret ID should be basically just the
     // promotion ID itself. However, just to reduce literacl changes
     // of generated kernels so that the CI diff check could report
@@ -2143,8 +2148,13 @@ bool isWarpSpecializedLoop(ForLoop* loop) {
 }
 
 bool isCopyOnly(Expr* expr) {
-  return expr
-      ->isOneOf<LoadStoreOp, BroadcastOp, SqueezeOp, SliceOp, PadOp, ViewOp>();
+  return expr->isOneOf<
+      LoadStoreOp,
+      BroadcastOp,
+      SqueezeOp,
+      SliceOp,
+      PadOp,
+      ReshapeOp>();
 }
 
 bool isCopyOnly(Val* val) {

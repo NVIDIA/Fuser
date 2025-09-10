@@ -5,7 +5,7 @@
 import sys
 import traceback
 import warnings
-from typing import Iterable
+from typing import Iterable, Optional
 
 if "nvfuser" in sys.modules:
     warnings.warn(
@@ -50,7 +50,7 @@ def execute_with_dtensors(fd, in_dtensors: Iterable[DTensor]) -> list[DTensor]:
                 common_mesh_dim_names == mesh_dim_names
             ), f"All DTensor inputs must have the same mesh dim names. Got {common_mesh_dim_names} and {mesh_dim_names}"
 
-    out_tensors = fd.execute(in_tensors, auto_schedule=True)
+    out_tensors = fd.execute(in_tensors)
     out_shardings = fd.fec.get_output_shardings()
     assert len(out_tensors) == len(out_shardings)
 
@@ -240,7 +240,37 @@ class FusionDefinition:
         ), "If device argument is passed it must be a CUDA device"
         return device.index
 
-    def execute(self, inputs, *, device=None, auto_schedule=True) -> list[torch.Tensor]:
+    def validate_definition(self):
+        """
+        Validate that the FusionDefinition is defined.
+
+        Returns
+        -------
+        bool
+            True if the FusionDefinition is defined, False otherwise
+        str
+            The error message if the FusionDefinition is not defined
+        """
+        if self._fusion is None:
+            return (
+                False,
+                "Fusion does not exist! Use `with FusionDefinition() as fd: ...` to define a fusion.",
+            )
+
+        if len(self._fusion.outputs()) == 0 or len(self._fusion.vals()) == 0:
+            return False, "Fusion is empty!"
+
+        return True, None
+
+    def execute(
+        self,
+        inputs,
+        *,
+        device=None,
+        save_repro_inputs=False,
+        _enable_options: list[str] = [],
+        _disable_options: list[str] = [],
+    ) -> list[torch.Tensor]:
         """
         Execute the fusion with the given inputs.
 
@@ -250,8 +280,12 @@ class FusionDefinition:
             Input tensors and scalars to the fusion
         device : torch.device, optional
             Device to execute the fusion on
-        auto_schedule : bool, default=True
-            Whether to use automatic scheduling
+        save_repro_inputs : bool, default=False
+            Whether to save the inputs for last_repro_script() to provide a reproduction script.
+        _enable_options : list of str, default=[]
+            A list of enable options. An alternative to setting NVFUSER_ENABLE environment variable.
+        _disable_options : list of str, default=[]
+            A list of disable options. An alternative to setting NVFUSER_DISABLE environment variable.
 
         Returns
         -------
@@ -259,15 +293,33 @@ class FusionDefinition:
             Output tensors from the fusion
         """
 
-        if auto_schedule:
-            if not hasattr(self, "fec"):
-                self.fec = FusionExecutorCache(self._fusion)
-                # A copy of fusion is created after construction FusionExecutorCache
-                # Delete the _fusion and reference the fusion inside FusionExecutorCache
-                del self._fusion
-            return self.fec.execute(inputs, device=self._get_device_index(device))
-        else:
-            raise RuntimeError("Manual scheduling is not supported yet.")
+        if save_repro_inputs:
+            from torch._subclasses.fake_tensor import FakeTensorMode
+
+            fake_mode = FakeTensorMode()
+            self.fake_inputs = [fake_mode.from_tensor(inp) for inp in inputs]
+
+        if not hasattr(self, "fec"):
+            is_valid, error_message = self.validate_definition()
+            if not is_valid:
+                raise NotImplementedError(error_message)
+
+            self.fec = FusionExecutorCache(self._fusion)
+            # A copy of fusion is created after construction FusionExecutorCache
+            # Delete the _fusion and reference the fusion inside FusionExecutorCache
+            del self._fusion
+        return self.fec.execute(
+            inputs,
+            device=self._get_device_index(device),
+            _enable_options=_enable_options,
+            _disable_options=_disable_options,
+        )
+
+    def last_repro_script(self) -> str:
+        assert (
+            hasattr(self, "fake_inputs") and self.fake_inputs is not None
+        ), "fd.last_repro_script() cannot provide a repro because fd.execute(inputs, save_repro_state=True) was not executed!"
+        return self.repro_script_for(self.fake_inputs)
 
     def repro_script_for(self, inputs: list | None = None) -> str:
         """
@@ -379,3 +431,85 @@ class FusionDefinition:
         )
         self.fusion.add_input(tv)
         return tv
+
+    def validate(
+        self,
+        inputs: list[torch.Tensor],
+        reference_outputs: Optional[list[torch.Tensor]] = None,
+        device: Optional[torch.device] = None,
+        **kwargs,
+    ):
+        """
+        Validates the fusion outputs against the provided reference outputs.
+        Tolerances are determined based on datatype and reduction size.
+
+        Parameters
+        ----------
+        inputs : list of torch.Tensor
+            A list of inputs expected by the fusion definition
+        reference_outputs : list of torch.Tensor, optional
+            A list of reference outputs to validate against
+        device : torch.device, optional
+            The device to execute the fusion on
+        **kwargs : dict, optional
+            Additional keyword arguments to pass to the execute method
+
+        Returns
+        -------
+        None
+        """
+        fusion_outputs = self.execute(inputs, device=device, **kwargs)
+        assert (
+            hasattr(self, "fec") and self.fec is not None
+        ), "FusionExecutorCache is not initialized"
+
+        if reference_outputs is None:
+            return self.fec.validate_with_auto_inferred_outputs(fusion_outputs, inputs)
+
+        assert len(fusion_outputs) == len(
+            reference_outputs
+        ), f"Expected {len(fusion_outputs)} reference outputs for validation."
+
+        tolerance_values = self.fec.get_val_tolerances(inputs)
+        assert len(tolerance_values) == len(
+            fusion_outputs
+        ), f"Missing tolerance values, expected {len(fusion_outputs)}, got {len(tolerance_values)}"
+
+        for inx, fusion_output in enumerate(fusion_outputs):
+            atol, rtol = tolerance_values[inx]
+            reference_output = reference_outputs[inx]
+
+            assert (
+                reference_output.shape == fusion_output.shape
+            ), "Mismatch in reference and fusion output dimensions"
+
+            if torch.is_floating_point(fusion_output) or torch.is_complex(
+                fusion_output
+            ):
+                assert torch.allclose(
+                    fusion_output, reference_output, atol=atol, rtol=rtol
+                ), f"Max error: {torch.abs(torch.max(fusion_output - reference_output))}, \
+                    Absolute tolerance: {atol}, Relative tolerance: {rtol}"
+            else:
+                assert torch.equal(
+                    fusion_output, reference_output
+                ), "Mismatch in reference and fusion output values for non-floating point datatypes"
+
+
+from .nvfuser_direct_version import __version__
+
+
+def version():
+    r"""returns nvfuser_direct version in format of a string 'm.n.p+git[7d-sha]'.
+
+    We strip the git[7d-sha] and convert the string to
+    `nvfuser_version.Version` for comparison. e.g. you can use it as:
+        import nvfuser_direct
+        print(nvfuser_direct.version())              # 0.0.1+git21df524
+        nvfuser_direct.version() == '0.0.1`          # True
+        nvfuser_direct.version() > '0.0.0`           # True
+
+        from nvfuser_direct_version import Version
+        nvfuser_direct.version() < Version('1.0.0')  # True
+    """
+    return __version__

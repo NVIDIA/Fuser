@@ -466,10 +466,10 @@ TensorView* arange(Val* start, Val* end, Val* step, DataType dtype) {
   step = maybeCastOp(dtype, step);
   // Make sure no negative value is passed to ceilDiv as the device
   // implementation of ceilDiv assumes positive inputs
-  auto distance =
-      abs(sub(end_for_size_computation, start_for_size_computation));
-  auto abs_step = abs(step_for_size_computation);
-  auto length = ceilDiv(distance, abs_step);
+  auto distance = SimplifyingIrBuilder::absExpr(SimplifyingIrBuilder::subExpr(
+      end_for_size_computation, start_for_size_computation));
+  auto abs_step = SimplifyingIrBuilder::absExpr(step_for_size_computation);
+  auto length = SimplifyingIrBuilder::ceilDivExpr(distance, abs_step);
   if (!isIntegralType(length->dtype())) {
     length = maybeCastOp(DataType::Index, length);
   }
@@ -1743,11 +1743,6 @@ WelfordResult::WelfordResult(
   NVF_ERROR(avg->definition()->sameAs(n->definition()));
 }
 
-TopKResult::TopKResult(TensorView* in_values, TensorView* in_indices)
-    : values(in_values), indices(in_indices) {
-  NVF_ERROR(values->definition()->sameAs(indices->definition()));
-}
-
 // COMPOUND OPERATIONS
 
 // add_alpha
@@ -2273,6 +2268,16 @@ TensorView* argsort(
     int64_t dim,
     bool descending,
     bool stable) {
+  const std::vector<IterDomain*> logical_dom =
+      TensorDomain::noReductions(inp->getLogicalDomain());
+
+  // Argsort of zero-dim tensor is allowed
+  if (logical_dom.empty()) {
+    return zeros({}, DataType::Int);
+  }
+
+  dim = wrapDim(dim, std::ssize(logical_dom));
+
   Val* out = ops::newValLike(inp, DataType::Int);
   IrBuilder::create<ArgsortOp>(out, inp, dim, descending, stable);
   return out->as<TensorView>();
@@ -2504,6 +2509,26 @@ TopKResult topk(
     bool sorted,
     bool maybe_symbolic) {
   auto inp_domain = TensorDomain::noReductions(inp->getLogicalDomain());
+
+  // When the input is a zero-dimensional tensor, dim must be either
+  // 0 or -1, and k must be 1.
+  if (inp_domain.empty()) {
+    NVF_ERROR(
+        dim == 0 || dim == -1,
+        "Invalid dimension to compute top-k of an zero-dimensinal tensor: ",
+        dim);
+
+    // Note that unless k is const, it is not possible to validate
+    // it's indeed 1. We need some way to register a condition to
+    // validate with actual fusion inputs like GpuLower::validate.
+    if (k->isConstScalar()) {
+      NVF_ERROR(k->isOneInt(), "Invalid k of topk: ", k->toString());
+    }
+    auto out_idx = zeros({}, DataType::Int);
+    auto out_val = set(inp);
+    return TopKResult(out_val, out_idx);
+  }
+
   dim = wrapDim(dim, std::ssize(inp_domain));
 
   NVF_CHECK(

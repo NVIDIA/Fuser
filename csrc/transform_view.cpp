@@ -950,7 +950,7 @@ TensorView* applyViewTransforms(
       orig_tv->getDataType().value());
   consumer->setDeviceMesh(orig_tv->getDeviceMesh());
 
-  IrBuilder::createInContainer<ViewOp>(
+  IrBuilder::createInContainer<ReshapeOp>(
       orig_tv->container(), consumer, post_reduce_tv);
 
   return consumer;

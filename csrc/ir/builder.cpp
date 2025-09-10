@@ -11,13 +11,11 @@
 #include <ir/cloner.h>
 #include <ir/utils.h>
 #include <kernel.h>
-#include <C++20/compare>
 
 #include <ir/all_nodes.h>
 #include <ir/container.h>
 #include <type_promotion.h>
 
-#include <complex>
 #include <cstdint>
 
 namespace nvfuser {
@@ -312,6 +310,19 @@ Val* SimplifyingIrBuilder::negExpr(Val* val) {
     return IrBuilder::create<Val>(-val->value(), val->dtype());
   }
   return IrBuilder::negExpr(val);
+}
+
+Val* SimplifyingIrBuilder::absExpr(Val* val) {
+  if (val->isZeroInt()) {
+    return val->container()->zeroVal(val->dtype());
+  } else if (val->isConst()) {
+    auto const_val = val->value();
+    if (const_val < 0) {
+      const_val = -const_val;
+    }
+    return IrBuilder::create<Val>(const_val, val->dtype());
+  }
+  return IrBuilder::absExpr(val);
 }
 
 Val* SimplifyingIrBuilder::logicalNotExpr(Val* val) {

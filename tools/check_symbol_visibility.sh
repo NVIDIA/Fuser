@@ -99,7 +99,7 @@ check_extension_symbols() {
 
     # Get undefined nvfuser symbols from this extension
     local undefined_file="$TEMP_DIR/${ext_name}_undefined_symbols.txt"
-    nm -u "$ext_file" | grep nvfuser | awk '{print $2}' | sort > "$undefined_file"
+    nm -uD "$ext_file" | grep nvfuser | awk '{print $2}' | sort > "$undefined_file"
     local undefined_count=$(wc -l < "$undefined_file")
     echo "Found $undefined_count undefined nvfuser symbols in $ext_name"
 

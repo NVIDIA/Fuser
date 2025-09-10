@@ -303,3 +303,35 @@ def test_sdpa_loop_split(multidevice_direct_test, qkv_format: QkvFormat):
         [expected_out, expected_q_grad, expected_k_grad, expected_v_grad],
     ):
         assert_close(actual, expected)
+
+
+@pytest.mark.mpi
+def test_privatize_squeeze(multidevice_direct_test):
+    d = multidevice_direct_test.size
+    mesh = nvfuser.multidevice.DeviceMesh(torch.arange(d))
+
+    def _definition(fd: FusionDefinition):
+        inp = fd.define_tensor((-1, -1, -1), dtype=DataType.BFloat16)
+        tv1 = fd.ops.broadcast(inp, [True, False, False, False])
+        tv2 = fd.ops.squeeze(tv1, dims=[0])
+        tv3 = fd.ops.cast(tv2, dtype=DataType.Float)
+        tv4 = fd.ops.sum(tv3, dims=[0])
+        tv5 = fd.ops.sum(tv3, dims=[1])
+        fd.add_output(tv4)
+        fd.add_output(tv5)
+
+    def _multidevice_schedule(fd: FusionDefinition):
+        for t in fd.fusion.inputs():
+            t.set_device_mesh(mesh)
+            t.split(0, d, inner_split=False)
+            t.axis(0).parallelize(nvfuser.ParallelType.mesh_x)
+
+    with FusionDefinition() as fd:
+        _definition(fd)
+        _multidevice_schedule(fd)
+
+    unsharded = torch.randn(d * 3, 5, 6, dtype=torch.bfloat16)
+    sharded = multidevice_direct_test.shard_tensor(unsharded, 0, mesh)
+    out1, out2 = fd.execute([sharded])
+    torch.testing.assert_close(out1.cpu(), unsharded.to(torch.float).sum(0))
+    torch.testing.assert_close(out2, sharded.to(torch.float).sum(1))

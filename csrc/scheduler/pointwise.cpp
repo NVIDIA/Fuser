@@ -213,7 +213,7 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
           data_cache, [&fusion, &largest_out]() {
             // NOTE: reorder_map is only applied for fusion without view
             // op yet.
-            if (!ir_utils::getViewOps(fusion).empty()) {
+            if (!ir_utils::getReshapeOps(fusion).empty()) {
               return std::make_unique<std::unordered_map<int64_t, int64_t>>();
             }
             return std::make_unique<std::unordered_map<int64_t, int64_t>>(
@@ -781,7 +781,7 @@ bool PointWiseScheduler::canScheduleCompileTime(Fusion* fusion) {
     return false;
   }
 
-  if (!ir_utils::getViewOps(fusion).empty()) {
+  if (!ir_utils::getReshapeOps(fusion).empty()) {
     ComputeAtMap ca_map(fusion);
     if (registry_utils::requiresForwardViewReplay(fusion, ca_map)) {
       scheduler_debug_utils::canScheduleRejectReason(
@@ -867,7 +867,7 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
   int64_t rhs_i = -1;
   int64_t lhs_i = -1;
 
-  if (!ir_utils::getViewOps(fusion).empty()) {
+  if (!ir_utils::getReshapeOps(fusion).empty()) {
     ComputeAtMap ca_map(fusion);
     // Propagate reshape transforms through the graph, expecially the reference.
     scheduler_utils::propagateReshapeTransforms(fusion, ca_map);

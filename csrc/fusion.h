@@ -75,7 +75,7 @@ enum class AllocationType : int {
   ReuseBuffer,
   // This is used to cheaply compute the output tensor using
   // `ExpressionEvaluator` (instead of a kernel) for:
-  // 1. PointerArithmetics: For example, the output of a ViewOp is merely a
+  // 1. PointerArithmetics: For example, the output of a ReshapeOp is merely a
   // pointer arithmetic of the input.  In this case, aliased_io is a non-null
   // tensor.
   // 2. To evaluate output tensors which are not aliases. For example, default

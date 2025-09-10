@@ -404,6 +404,16 @@ class PythonPrinter {
 //        values for keyword arguments. Use `std::nullopt` for keyword
 //        arguments without default values.
 //
+// How to debug PythonTranslator?
+//  1. Recompile with debug symbols
+//     `export NVFUSER_BUILD_BUILD_TYPE=RelwithDebInfo`
+//  2. Run `gdb python`
+//  3. Catch exception in gdb `(gdb) catch throw`.
+//  4. Run failing test.
+//     `r -m pytest test_python_frontend.py -k [your_failing_test]`
+//  5. At gdb Catchpoint, get backtrace for call stack using `(gdb) bt`.
+//  6. Find and fix failure in PythonTranslate.
+//
 // TODO: Python operations without a corresponding Fusion IR node require
 // pattern matching.
 //  1. Map a series of scalar values to `define_vector`
@@ -411,6 +421,7 @@ class PythonPrinter {
 //     with keepdim argument.
 //  3. Map Broadcast and Expand to `broadcast_in_dim`
 //  4. var_mean
+//  5. var
 class PythonTranslator : public OptInConstDispatch {
  public:
   // Returns a map from the values in the CPP fusion to its corresponding
@@ -425,8 +436,8 @@ class PythonTranslator : public OptInConstDispatch {
       : printer_(os), fusion_(fusion) {}
 
   // The new shape for view operation can be dynamic. Check that all dynamic
-  // scalar dependencies are handled before the ViewOp.
-  bool checkViewShapeDependency(const ViewOp* vop) {
+  // scalar dependencies are handled before the ReshapeOp.
+  bool checkViewShapeDependency(const ReshapeOp* vop) {
     const std::vector<IterDomain*>& logical_out_domain =
         vop->out()->as<TensorView>()->domain()->logical();
     std::vector<Val*> logical_domain_extents;
@@ -501,7 +512,7 @@ class PythonTranslator : public OptInConstDispatch {
   // Check that all of the expression's inputs are defined in FusionDefinition.
   bool checkExpressionDependencies(Expr* e) {
     // short-circuit: Found a view operation without all its shape dependencies.
-    if (e->isA<ViewOp>() && !checkViewShapeDependency(e->as<ViewOp>())) {
+    if (e->isA<ReshapeOp>() && !checkViewShapeDependency(e->as<ReshapeOp>())) {
       return false;
     }
     return std::all_of(
@@ -526,7 +537,7 @@ class PythonTranslator : public OptInConstDispatch {
     // Scalar expressions are not handled by Fusion::exprs, so gather them
     // manually.
     for (Expr* e : to_visit) {
-      if (e->isA<ViewOp>() || e->isA<ExpandOp>() || e->isA<FullOp>()) {
+      if (e->isA<ReshapeOp>() || e->isA<ExpandOp>() || e->isA<FullOp>()) {
         std::vector<Expr*> extent_definitions =
             gatherScalarExpressions(e->output(0)->as<TensorView>());
         to_visit.insert(
@@ -732,7 +743,7 @@ class PythonTranslator : public OptInConstDispatch {
   // Utility functions
 
   // Create a vector for the logical domain of TensorView.
-  // Used with ViewOp and ExpandOp handlers
+  // Used with ReshapeOp and ExpandOp handlers
   std::vector<Val*> getShape(TensorView* tv) {
     const std::vector<IterDomain*>& logical_out_domain =
         tv->domain()->logical();
@@ -1140,7 +1151,7 @@ class PythonTranslator : public OptInConstDispatch {
         {sop->out()});
   }
 
-  void handle(const ViewOp* vop) final {
+  void handle(const ReshapeOp* vop) final {
     NVF_ERROR(vop != nullptr);
 
     // Get extent's for output's logical domain
@@ -1317,12 +1328,26 @@ class PythonTranslator : public OptInConstDispatch {
         KeywordArgument<Val*>{"rng_seed", nullptr},
         KeywordArgument<Val*>{"rng_offset", nullptr},
         KeywordArgument<DataType>{"dtype", DataType::Float});
+
+    Val* first_arg = nullptr;
+    Val* second_arg = nullptr;
+    NVF_ERROR(rop->getParameters().size() == 2 || rop->getParameters().empty());
+    if (rop->getParameters().size() == 2) {
+      first_arg = rop->getParameters().at(0);
+      second_arg = rop->getParameters().at(1);
+    } else {
+      // Default arg1 and arg2 is (0, 1) for both uniform and normal.
+      first_arg = fusion_->zeroVal();
+      second_arg = fusion_->oneVal();
+      // Create 0 and 1 scalar values
+      dispatch(first_arg);
+      dispatch(second_arg);
+    }
+    NVF_ERROR(first_arg != nullptr && second_arg != nullptr);
+
     printer_.generateKwargsOperation(
         rng_op_name,
-        std::make_tuple(
-            rop->getParameters().at(0),
-            rop->getParameters().at(1),
-            rop->getShape()),
+        std::make_tuple(first_arg, second_arg, rop->getShape()),
         default_args,
         std::make_tuple(
             rop->getRNGSeedVal(), rop->getRNGOffsetVal(), rop->dtype()),

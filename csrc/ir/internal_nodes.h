@@ -254,12 +254,12 @@ class ScatterOp : public Expr {
   using Expr::Expr;
   ScatterOp(
       IrBuilderPasskey,
-      ScatterOpType type,
       Val* out,
       Val* self,
       int64_t dim,
       Val* index,
-      Val* src);
+      Val* src,
+      std::optional<BinaryOpType> accumulate_op = std::nullopt);
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
@@ -295,8 +295,13 @@ class ScatterOp : public Expr {
 
   IterDomain* getIndexedID() const;
 
-  ScatterOpType getScatterOpType() const {
-    return attribute<ScatterOpType>(1);
+  bool accumulate() const {
+    return attribute<bool>(1);
+  }
+
+  BinaryOpType accumulateOp() const {
+    NVF_ERROR(accumulate());
+    return attribute<BinaryOpType>(2);
   }
 };
 
@@ -1624,16 +1629,16 @@ class ViewAsScalar : public Expr {
   }
 };
 
-class NVF_API ViewOp : public Expr {
+class NVF_API ReshapeOp : public Expr {
  public:
   using Expr::Expr;
 
-  ViewOp(IrBuilderPasskey, Val* out, Val* in);
+  ReshapeOp(IrBuilderPasskey, Val* out, Val* in);
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
   const char* getOpString() const override {
-    return "ViewOp";
+    return "ReshapeOp";
   }
 
   std::string toString(int indent_size = 0) const override;
@@ -2518,11 +2523,12 @@ class ForLoop final : public Expr {
       Val* start,
       Val* stop,
       Val* step,
-      bool vectorize,
-      Val* vectorize_shift,
-      bool unroll_required,
-      CircularBufferLoopStage circular_buffer_loop_stage,
-      int64_t circular_buffer_loop_stage_depth);
+      bool vectorize = false,
+      Val* vectorize_shift = nullptr,
+      bool unroll_required = false,
+      CircularBufferLoopStage circular_buffer_loop_stage =
+          CircularBufferLoopStage::NotApplicable,
+      int64_t circular_buffer_loop_stage_depth = 0);
 
   ForLoop(
       IrBuilderPasskey passkey,
@@ -3370,6 +3376,156 @@ class ScanOp : public Expr {
   std::vector<PolymorphicValue> evaluate(
       const ExpressionEvaluator& ee,
       const std::vector<PolymorphicValue>& inputs) const override;
+};
+
+class CutlassNvfp4GroupedMmaOp : public Expr {
+ public:
+  using Expr::Expr;
+
+  CutlassNvfp4GroupedMmaOp(
+      IrBuilderPasskey,
+      Val* out_mat,
+      Val* mat1,
+      Val* mat2,
+      Val* scale1,
+      Val* scale2,
+      Val* alpha,
+      Val* problem_sizes,
+      Val* expert_offsets,
+      Val* sf_offsets);
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  const char* getOpString() const override {
+    return "CutlassNvfp4GroupedMmaOp";
+  }
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+  std::vector<PolymorphicValue> evaluate(
+      const ExpressionEvaluator& ee,
+      const std::vector<PolymorphicValue>& inputs) const override;
+
+  // Get output matrix
+  TensorView* out() const {
+    return output(0)->as<TensorView>();
+  }
+
+  // Get first input matrix
+  TensorView* matrix1() const {
+    return input(0)->as<TensorView>();
+  }
+
+  // Get second input matrix
+  TensorView* matrix2() const {
+    return input(1)->as<TensorView>();
+  }
+
+  // Get scale factor for first input matrix, returns nullptr if not present
+  TensorView* scale1() const {
+    return input(2)->as<TensorView>();
+  }
+
+  // Get scale factor for second input matrix, returns nullptr if not present
+  TensorView* scale2() const {
+    return input(3)->as<TensorView>();
+  }
+
+  TensorView* alpha() const {
+    return input(4)->as<TensorView>();
+  }
+
+  TensorView* problemSizes() const {
+    return input(5)->as<TensorView>();
+  }
+
+  TensorView* expertOffsets() const {
+    return input(6)->as<TensorView>();
+  }
+
+  TensorView* scalingFactorOffsets() const {
+    return input(7)->as<TensorView>();
+  }
+};
+
+//! NOTE -- [ PreprocessGroupedMatmulInputSf ]
+//!
+//! This operation performs a layout change on the input, it's currently used
+//! for block scaling factor accompanying narrow precision inputs.
+//!
+//! PreprocessGroupedMatmulInputSf(TensorView* output, TensorView* input, ...)
+//!
+//!   input:  logical domain:   (i0, i1)
+//!   output: root domain:      (i0, i1)
+//!           logical domain:   (i2, i3)
+//!           loop domain:      (i0, i1)
+//!
+//! 1. This can be viewed as a point-wise operation, since output loop domain
+//! matches the input logical domain.
+//!
+//! 2. Because of the potential padding/swizzle, the logical domain of the
+//! output does not map to input. We don't rely on codegen for indexing, so we
+//! don't care about mapping the logical/allocation of output to anything else.
+//! Indexing will be done in runtime function, utilizing `input_offsets` and
+//! `output_offsets`.
+//!
+//! 3. Output has a root domain that matches the logical domain of the input.
+class PreprocessGroupedMatmulInputSf : public Expr {
+ public:
+  using Expr::Expr;
+
+  PreprocessGroupedMatmulInputSf(
+      IrBuilderPasskey,
+      Val* output,
+      Val* input,
+      Val* input_offsets,
+      Val* output_offsets,
+      BlockScalingFactorLayout layout,
+      Val* k,
+      Val* g);
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  const char* getOpString() const override {
+    return "PreprocessGroupedMatmulInputSf";
+  }
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+  std::vector<PolymorphicValue> evaluate(
+      const ExpressionEvaluator& ee,
+      const std::vector<PolymorphicValue>& inputs) const override;
+
+  Val* out() const {
+    return output(0);
+  }
+
+  Val* in() const {
+    return input(0);
+  }
+
+  TensorView* inputOffsets() const {
+    return input(1)->as<TensorView>();
+  }
+
+  TensorView* outputOffsets() const {
+    return input(2)->as<TensorView>();
+  }
+
+  // get scalar - column size
+  Val* k() const {
+    return input(3);
+  }
+
+  // get scalar - number of groups
+  Val* g() const {
+    return input(4);
+  }
+
+  // get enum - block scaling factor layout
+  BlockScalingFactorLayout layout() const {
+    return attribute<BlockScalingFactorLayout>(0);
+  }
 };
 
 } // namespace nvfuser
