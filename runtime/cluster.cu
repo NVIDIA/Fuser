@@ -145,6 +145,8 @@ __device__ __forceinline__ T warpReduce(T val, Func reduction_op) {
 // 2. All warps async store reduction results to its and clustered CTA's shared
 // memories
 // 3. All warps read from its CTA's shared memory and do a warp reduction
+// TODO: we can represent this cluster reduction in fusion IR after we have new
+// parallel types to represent warp reduction
 template <int CLUSTER_SIZE, int WARPS_PER_BLOCK, typename T, typename Func>
 __device__ __forceinline__ void clusterReduce(
     T& res,
@@ -165,7 +167,7 @@ __device__ __forceinline__ void clusterReduce(
   // 2. All warps store their results to distributed shared memory
   // Each warp uses N threads to write to N CTAs, e.g. thread-i write to CTA-i
   // Buffer layout: reduction_buffer[CLUSTER_SIZE][WARPS_PER_BLOCK]
-  if (threadIdx.x == 0) {
+  if (warp_idx == 0 && Hopper::electSync(4294967295U)) {
     uint32_t expected_bytes = WARPS_PER_BLOCK * CLUSTER_SIZE * sizeof(T);
     mbarrier::arriveExpectTX(barrier_smem_addr, expected_bytes);
   }

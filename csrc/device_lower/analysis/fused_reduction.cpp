@@ -120,17 +120,8 @@ class FusionInspector : private IterVisitor {
       reduction_dep_[out].insert(rop);
     }
 
-    // manage cluster dim for codegen
     if (out->domain()->hasClusterReduction()) {
-      auto id = std::find_if(
-          out->getLoopDomain().begin(),
-          out->getLoopDomain().end(),
-          [](IterDomain* id) {
-            return id->isReduction() && id->isClusteredBlockDim();
-          });
-      if (id != out->getLoopDomain().end()) {
-        cluster_reduction_count_++;
-      }
+      cluster_reduction_count_++;
     }
   }
   void handle(WelfordOp* wop) final {

@@ -36,6 +36,10 @@ class ClusterReductionConverter : public kir::ExprMutator {
   void handle(ReductionOp* rop) final {
     // Only convert single-output reductions marked for cluster reduction
     if (ir_utils::getTvOutput(rop)->domain()->hasClusterReduction()) {
+      // cluster reduction is only supported for all-reduce
+      NVF_ERROR(
+          rop->isAllreduce(),
+          "Cluster reduction is only supported for all-reduce");
       // Extract reduction parameters
       auto out = rop->out();
       auto in = rop->in();

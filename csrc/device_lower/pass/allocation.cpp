@@ -1315,13 +1315,6 @@ class AllocationInserter : public kir::ExprMutator {
   }
 
   void dispatch(Expr* expr) override {
-    // Insert cluster reduction mbarrier on first expression at top-level scope
-    if (GpuLower::current()->clusterReductionCount() >= 1 &&
-        !cluster_mbarrier_inserted_ && scope_.empty()) {
-      insertClusterReductionMBarrier(expr);
-      cluster_mbarrier_inserted_ = true;
-    }
-
     if (!ir_utils::isTvOp(expr) || expr->isA<kir::Allocate>() ||
         expr->isA<kir::AllocTMem>()) {
       ExprMutator::dispatch(expr);
@@ -1691,12 +1684,15 @@ class AllocationInserter : public kir::ExprMutator {
 
   AllocationInserter(const std::vector<Expr*>& exprs)
       : gpu_lower_(GpuLower::current()) {
+    // insert cluster reduction mbarrier at top-level scope
+    if (GpuLower::current()->clusterReductionCount() >= 1) {
+      insertClusterReductionMBarrier(exprs.at(0));
+    }
     kir::ExprMutator::traverseAndInsert(exprs);
   }
 
  private:
   GpuLower* gpu_lower_ = nullptr;
-  bool cluster_mbarrier_inserted_ = false;
 
  public:
   static std::vector<Expr*> insert(const std::vector<Expr*>& exprs) {
