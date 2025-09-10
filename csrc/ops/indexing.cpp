@@ -366,16 +366,16 @@ TensorView* preprocessGroupedMatmulInputSf(
   // Create the output tensor with logical domain matching inputs
   TensorView* out_tv = IrBuilder::create<TensorView>(
       IrBuilder::create<TensorDomain>(
-         /*root_domain=*/std::vector<IterDomain*>(),
-         /*logical_domain=*/out_logical_dom,
-         /*allocation=*/out_alloc_dom,
-         /*loop_domain=*/out_logical_dom,
-         /*alternate_loop_domain=*/std::nullopt,
-         /*contiguity=*/
-         TensorDomain::getContiguityFilledWith(out_alloc_dom, true),
-         /*additional_ids=*/std::vector<IterDomain*>(),
-         /*skip_checks=*/true),
-     input->getDataType().value());
+          /*root_domain=*/std::vector<IterDomain*>(),
+          /*logical_domain=*/out_logical_dom,
+          /*allocation=*/out_alloc_dom,
+          /*loop_domain=*/out_logical_dom,
+          /*alternate_loop_domain=*/std::nullopt,
+          /*contiguity=*/
+          TensorDomain::getContiguityFilledWith(out_alloc_dom, true),
+          /*additional_ids=*/std::vector<IterDomain*>(),
+          /*skip_checks=*/true),
+      input->getDataType().value());
 
   IrBuilder::create<PreprocessGroupedMatmulInputSf>(
       out_tv,
