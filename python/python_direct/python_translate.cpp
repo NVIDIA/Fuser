@@ -974,8 +974,11 @@ class PythonTranslator : public OptInConstDispatch {
       TensorView* expand_out_tv = maybe_expand_op->out()->as<TensorView>();
       std::vector<Val*> shape = getShape(expand_out_tv);
       // Add CPP values to Fusion Definition if necessary
-      std::for_each(
-          shape.begin(), shape.end(), [this](const Val* v) { dispatch(v); });
+      std::for_each(shape.begin(), shape.end(), [this](const Val* v) {
+        if (!isPythonScalar(v)) {
+          dispatch(v);
+        }
+      });
 
       // Create broadcast_dims argument from the indices of the non-broadcasted
       // dimensions from BroadcastOp

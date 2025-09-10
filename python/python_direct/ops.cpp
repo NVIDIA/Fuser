@@ -2364,7 +2364,10 @@ tuple
 }
 
 template <class ITERABLE>
-std::vector<Val*> define_vector_fn(ITERABLE& values, bool shape_check) {
+std::vector<Val*> define_vector_fn(
+    ITERABLE& values,
+    bool shape_check,
+    bool is_index) {
   std::vector<Val*> args;
   size_t idx = 0;
   for (const auto& item : values) {
@@ -2378,7 +2381,8 @@ std::vector<Val*> define_vector_fn(ITERABLE& values, bool shape_check) {
           idx,
           " was neither symbolic(-1), zero_element(0), broadcast(1), or "
           "static(>1).");
-      args.emplace_back(IrBuilder::create<Val>(int_value, DataType::Int));
+      args.emplace_back(IrBuilder::create<Val>(
+          int_value, (is_index) ? DataType::Index : DataType::Int));
     } else if (py::isinstance<Val>(item)) {
       args.emplace_back(py::cast<Val*>(item));
     } else {
@@ -2393,21 +2397,31 @@ std::vector<Val*> define_vector_fn(ITERABLE& values, bool shape_check) {
 }
 
 template <class ShapeType>
-std::vector<Val*> SequenceAsVector(ShapeType shape, bool shape_check = true) {
+std::vector<Val*> SequenceAsVector(
+    ShapeType shape,
+    bool shape_check = true,
+    bool is_index = false) {
   static_assert(
       std::is_same_v<ShapeType, py::list> ||
       std::is_same_v<ShapeType, py::tuple>);
-  return define_vector_fn<ShapeType>(shape, /*shape_check=*/shape_check);
+  return define_vector_fn<ShapeType>(
+      shape, /*shape_check=*/shape_check, /*is_index=*/is_index);
 }
 
 template <class ShapeType>
 TensorView* reshape_fn(TensorView* arg, ShapeType generic_new_shape) {
-  return reshape(arg, SequenceAsVector(generic_new_shape));
+  return reshape(
+      arg,
+      SequenceAsVector(
+          generic_new_shape, /*shape_check=*/true, /*is_index=*/true));
 }
 
 template <class ShapeType>
 TensorView* expand_fn(TensorView* arg, ShapeType generic_new_shape) {
-  return expand(arg, SequenceAsVector(generic_new_shape));
+  return expand(
+      arg,
+      SequenceAsVector(
+          generic_new_shape, /*shape_check=*/true, /*is_index=*/true));
 }
 
 template <class ShapeType>
@@ -2415,7 +2429,8 @@ TensorView* broadcast_in_dim_fn(
     TensorView* arg,
     ShapeType generic_output_shape,
     std::vector<int64_t>& broadcast_dims) {
-  std::vector<Val*> output_shape = SequenceAsVector(generic_output_shape);
+  std::vector<Val*> output_shape = SequenceAsVector(
+      generic_output_shape, /*shape_check=*/true, /*is_index=*/true);
   NVF_CHECK(
       output_shape.size() >= broadcast_dims.size(),
       "broadcast_dims vector size is too big for output shape!");
