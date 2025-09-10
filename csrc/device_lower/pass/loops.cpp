@@ -37,7 +37,7 @@ LoopNestGenerator::LoopNestGenerator(const std::vector<Expr*>& exprs) {
 namespace {
 
 kir::ForLoop* openForHelper(kir::ForLoop* scope, IterDomain* id) {
-  kir::ForLoop* new_scope = IrBuilder::create<kir::ForLoop>(id);
+  auto* new_scope = IrBuilder::create<kir::ForLoop>(id);
   if (scope != nullptr) {
     scope->body().insert(0, new_scope);
   }
@@ -95,7 +95,7 @@ void LoopNestGenerator::handle(Expr* expr) {
     return;
   }
 
-  TensorView* out_tv = expr->output(0)->as<TensorView>();
+  auto* out_tv = expr->output(0)->as<TensorView>();
 
   // Grab the loop structure
   NVF_ERROR(

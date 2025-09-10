@@ -116,10 +116,10 @@ IndexingParameters getLinearIndexParameters(
   auto& loop_domain = loop_indexing.loopDomains();
   auto& loop_index_map = index_parameters.initial_concrete_id_index;
 
-  for (auto loop_idx : arange(loops.size())) {
-    auto loop = loops[loop_idx];
-    auto index_domain = GpuLower::current()->info().caMap().getConcreteMappedID(
-        loop_domain[loop_idx], IdMappingMode::EXACT);
+  for (auto [loop_idx, loop] : enumerate(loops)) {
+    IterDomain* index_domain =
+        GpuLower::current()->info().caMap().getConcreteMappedID(
+            loop_domain[loop_idx], IdMappingMode::EXACT);
     loop_index_map[index_domain] = loop->indexOrStartIfTrivial();
     if (rotated_loops.count(loop) > 0) {
       loop_index_map[index_domain] = SimplifyingIrBuilder::addExpr(
