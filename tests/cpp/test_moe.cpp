@@ -97,15 +97,14 @@ TEST_P(SgLangMoETest, ComputeProblemSizes) {
 
     KernelExecutor ke;
     ke.compile(&fusion, {t0});
-
-    GTEST_SKIP() << "Missing predication. Fix pending: "
-                    "https://github.com/NVIDIA/Fuser/pull/5107";
     auto outputs = ke.run({t0});
     testValidate(&fusion, outputs, {t0}, __LINE__, __FILE__);
   } else {
+    EnableOptionsGuard::getCurOptions().set(EnableOption::GreedyScheduler);
     FusionExecutorCache executor_cache(std::move(fusion_ptr));
     auto outputs = executor_cache.runFusionWithInputs({t0});
     testValidate(executor_cache.fusion(), outputs, {t0}, __LINE__, __FILE__);
+    EXPECT_FALSE(executor_cache.getMostRecentKernelRuntime()->isSegmented());
   }
 }
 
