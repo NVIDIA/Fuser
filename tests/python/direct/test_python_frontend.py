@@ -2521,3 +2521,88 @@ def test_validate_precomputed_values(nvfuser_direct_test):
     )
     # Comparing any number to NaN results in False.
     torch.testing.assert_close(outs[0].cpu(), torch.full((2, 5), False))
+
+
+def test_cpu_add(nvfuser_direct_test):
+    """
+    Tests that CPU scalar tensor can be instantiated using fd.from_pytorch
+
+    Migrated from `test_cpu_add` in legacy test_pointwise.py
+    """
+    inputs = [
+        torch.tensor(2.0, device="cpu", dtype=torch.float),
+        torch.randn(3, device="cuda", dtype=torch.float),
+    ]
+
+    def fusion_func(fd: FusionDefinition):
+        t0 = fd.from_pytorch(inputs[0])
+        s0 = fd.from_pytorch(inputs[1])
+        t1 = fd.ops.add(t0, s0)
+        fd.add_output(t1)
+
+    nvf_out, _ = nvfuser_direct_test.exec_nvfuser(fusion_func, inputs)
+    nvfuser_direct_test.assertEqual(nvf_out[0], inputs[0] + inputs[1])
+
+
+def test_full_with_cpu_inputs(nvfuser_direct_test):
+    """
+    This example contains CPU scalar only fusion inputs.
+    The `full` op does not take any fusion inputs but generates a
+    CUDA tensor. This is a nvFuser supported fusion since the final
+    output is a CUDA tensor.
+    """
+    inputs = [
+        torch.tensor(2.0, device="cpu", dtype=torch.float),
+    ]
+
+    def fusion_func(fd: FusionDefinition):
+        tv0 = fd.from_pytorch(inputs[0])
+        s0 = fd.define_scalar(3.0)
+        tv1 = fd.ops.full(shape=[2, 2], fill_value=s0, dtype=DataType.Float)
+        t2 = fd.ops.mul(tv0, tv1)  # CPU scalar * CUDA tensor = CUDA tensor
+        fd.add_output(t2)
+
+    # fd.validate expects inputs and outputs to be on CUDA device
+    nvf_out, _ = nvfuser_direct_test.exec_nvfuser(fusion_func, inputs)
+
+
+def test_input_forwarding_device(nvfuser_direct_test):
+    """
+    If fusion segment do not consist of any exprs, no kernel is
+    launched and the output is on the correct device.
+    """
+    inputs = [torch.tensor(2.0, device="cpu", dtype=torch.float)]
+
+    def fusion_func(fd: FusionDefinition):
+        tv0 = fd.from_pytorch(inputs[0])
+        fd.add_output(tv0)
+
+    out, _ = nvfuser_direct_test.exec_nvfuser(fusion_func, inputs)
+    assert out[0].is_cpu
+
+
+def test_single_segment_multi_device():
+    """
+    Test single segment with CPU and CUDA outputs
+    """
+    inputs = [
+        torch.tensor(2.0, device="cpu", dtype=torch.float),
+        torch.tensor(3.0, device="cuda", dtype=torch.float),
+    ]
+
+    def fusion_func(fd: FusionDefinition):
+        tv0 = fd.from_pytorch(inputs[0])
+        s0 = fd.define_scalar(3.0)
+        tv1 = fd.ops.add(tv0, s0)
+        tv2 = fd.from_pytorch(inputs[1])
+        tv3 = fd.ops.add(tv1, tv2)
+        fd.add_output(tv1)
+        fd.add_output(tv2)
+
+    with FusionDefinition() as fd:
+        fusion_func(fd)
+
+    with pytest.raises(
+        RuntimeError, match="KernelExecutor does not support the Fusion provided."
+    ):
+        _ = fd.execute(inputs)
