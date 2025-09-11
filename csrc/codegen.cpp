@@ -1689,6 +1689,10 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     indent() << genCall("topk::blockTopK", template_args, func_args) << ";\n";
   }
 
+  void handle(const BlockQuantizationOp* bqop) {
+    return;
+  }
+
   void handle(const ScanOp* scan) final {
     NVF_ERROR(isAligned(), "Scan with divergent threads not supported");
 
