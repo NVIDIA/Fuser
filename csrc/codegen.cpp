@@ -491,9 +491,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
           auto space_type = kernel_summary.largest_smem_data_type;
           indent() << "nvfuser_index_t block_size = "
                       "blockDim.x*blockDim.y*blockDim.z;\n";
-          indent() << space_type << " *shared_mem_var = "
-                   << "static_cast<" << space_type << "*>("
-                   << "shared_mem);\n";
+          indent() << space_type << " *shared_mem_var = " << "static_cast<"
+                   << space_type << "*>(" << "shared_mem);\n";
           indent() << space_type
                    << " *shared_mem_avg = shared_mem_var + block_size;\n";
           indent() << space_type
@@ -1376,9 +1375,9 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       case BinaryOpType::Add:
         if (sop->in()->dtype() == DataType::Int) {
           // atomicAdd does not provide an overload for int64_t
-          code_ << "atomicAdd("
-                << "reinterpret_cast<unsigned long long*>(&" << dst << "), "
-                << "static_cast<unsigned long long>(" << src << "));\n";
+          code_ << "atomicAdd(" << "reinterpret_cast<unsigned long long*>(&"
+                << dst << "), " << "static_cast<unsigned long long>(" << src
+                << "));\n";
         } else {
           code_ << "atomicAdd(" << "&" << dst << ", " << src << ");\n";
         }
@@ -1689,6 +1688,55 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     indent() << genCall("topk::blockTopK", template_args, func_args) << ";\n";
   }
 
+  void handle(const BlockQuantizationOp* bqop) final {
+    const auto input = bqop->in()->as<kir::TensorIndex>();
+    // const auto output_scales = bqop->blockScales()->as<kir::TensorIndex>();
+    // const auto output_quantized =
+    //     bqop->quantizedOutput()->as<kir::TensorIndex>();
+
+    const auto output_scales = bqop->blockScales()->toString();
+    const auto output_quantized = bqop->quantizedOutput()->toString();
+
+    emplate arguments for the block quantization function
+    ArgumentBuilder template_args;
+
+    // Get the vectorization size for items per thread
+    int64_t vector_word_size = ir_utils::getVectorizeSize(input->view());
+    bool is_vector_op = vectorize_scope_ && vector_word_size != 1;
+    if (is_vector_op) {
+      template_args.arg(vector_word_size); // ITEMS_PER_THREAD
+    } else {
+      template_args.arg(1); // ITEMS_PER_THREAD
+    }
+
+    // Function arguments
+    ArgumentBuilder func_args;
+
+    // First argument: input data array
+    func_args.arg("*(")
+        .append(input->dtype())
+        .append("(*)[")
+        .append(std::to_string(is_vector_op ? vector_word_size : 1))
+        .append("])")
+        .append("(&")
+        .append(genInline(input))
+        .append(")");
+
+    // Second argument: quantized output array
+    func_args.arg("*(")
+        .append("Array<__e2m1, 4, 4>")
+        .append("*)")
+        .append("(&")
+        .append(output_quantized)
+        .append(")");
+
+    // Third argument: scales output (FP8 E4M3)
+    func_args.arg("*(__e4m3*)") end("(&") end(output_scales) end(")");
+
+    indent() << genCall("bq::block_quantize_to_nvfp4", template_args, func_args)
+             << ";\n";
+  }
+
   void handle(const ScanOp* scan) final {
     NVF_ERROR(isAligned(), "Scan with divergent threads not supported");
 
@@ -1770,8 +1818,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     // This is slightly different from getReductionOp
     std::stringstream lambda;
     lambda << "[](const " << input->dtype() << "& a, const " << input->dtype()
-           << "& b) "
-           << "{ return "
+           << "& b) " << "{ return "
            << genBinaryOp(scan->opType(), input->dtype(), "a", "b") << "; }";
     func_args.arg(lambda.str());
 
@@ -2205,8 +2252,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     const bool has_grid_reduce = domain->hasGridReduction();
 
     if (!has_block_reduce && !has_grid_reduce) {
-      indent() << "welfordCombine ("
-               << "\n";
+      indent() << "welfordCombine (" << "\n";
       indent() << kTab << gen(out_avg) << ",\n";
       indent() << kTab << gen(out_var) << ",\n";
       indent() << kTab << gen(out_N) << ",\n";
@@ -4071,8 +4117,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
                       // actual argument value like T0[i * 4 + j].
                       << (as_utility ? prefix + std::to_string(counter)
                                      : gen(register_))
-                      << "[" << i << "]"
-                      << ")";
+                      << "[" << i << "]" << ")";
                 }
               } else {
                 (*asm_target) << "\"" << constraint << "\"(";
@@ -4453,3 +4498,4 @@ std::string generateCudaKernel(
 
 } // namespace codegen
 } // namespace nvfuser
+    

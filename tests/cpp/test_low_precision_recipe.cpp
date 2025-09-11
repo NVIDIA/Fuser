@@ -108,6 +108,135 @@ constexpr double F8E4M3_MAX = 448.0;
 class NVFP4QuantizeTest : public BlackwellBase,
                           public ::testing::WithParamInterface<DataType> {};
 
+class BQTest : public BlackwellBase {};
+
+TEST_F(BQTest, BasicTest) {
+  // Basic test implementation
+  std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  auto tv_data_hp = makeContigTensor(2, DataType::Float);
+  fusion->addInput(tv_data_hp);
+
+  auto t0 = set(tv_data_hp);
+  auto quantization_results = block_quantize(t0);
+  auto t1 = set(quantization_results.block_scales);
+  auto t2 = set(quantization_results.quantized_tensor);
+  fusion->addOutput(t1);
+  fusion->addOutput(t2);
+
+  t0->setMemoryType(MemoryType::Local);
+  t1->setMemoryType(MemoryType::Global);
+  t2->setMemoryType(MemoryType::Global);
+  quantization_results.quantized_tensor->setMemoryType(MemoryType::Local);
+  quantization_results.block_scales->setMemoryType(MemoryType::Local);
+
+  auto view_out_tv = quantization_results.block_scales->definition()
+                         ->input(0)
+                         ->as<TensorView>();
+
+  t0->split(-1, 16);
+  for (auto t :
+       {t0,
+        t1,
+        t2,
+        quantization_results.quantized_tensor,
+        quantization_results.block_scales,
+        view_out_tv}) {
+    t->split(-1, 4);
+    t->split(0, 64);
+
+    if (t != view_out_tv) {
+      t->axis(-1)->parallelize(ParallelType::Vectorize);
+    }
+    t->axis(-2)->parallelize(ParallelType::TIDx);
+    t->axis(-3)->parallelize(ParallelType::TIDy);
+    t->axis(-4)->parallelize(ParallelType::BIDx);
+    t->axis(-5)->parallelize(ParallelType::BIDy);
+  }
+
+  fusion->print();
+
+  // Create input tensor
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto input = at::randn({64, 256}, options);
+
+  // Execute the fusion
+  KernelExecutor ke;
+  ke.compile(fusion.get(), {input});
+  auto outputs = ke.run({input});
+
+  // Verify we got the expected outputs
+
+  auto block_scales_output = outputs[0].as<at::Tensor>();
+  auto quantized_tensor_output = outputs[1].as<at::Tensor>();
+
+  // Basic shape checks
+  EXPECT_EQ(block_scales_output.dim(), 2);
+  EXPECT_EQ(quantized_tensor_output.dim(), 2);
+
+  SUCCEED();
+}
+
+TEST_F(BQTest, BasicTest2) {
+  // Basic test implementation
+  std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  auto tv_data_hp = makeContigTensor(2, DataType::Float);
+  fusion->addInput(tv_data_hp);
+
+  auto t0 = set(tv_data_hp);
+  auto quantization_results = block_quantize(t0);
+  auto t1 = set(quantization_results.block_scales);
+  auto t2 = set(quantization_results.quantized_tensor);
+  fusion->addOutput(t1);
+  fusion->addOutput(t2);
+
+  t0->setMemoryType(MemoryType::Local);
+  t1->setMemoryType(MemoryType::Global);
+  t2->setMemoryType(MemoryType::Global);
+  quantization_results.quantized_tensor->setMemoryType(MemoryType::Local);
+  quantization_results.block_scales->setMemoryType(MemoryType::Local);
+
+  for (auto t : {t0, t1, t2, quantization_results.quantized_tensor}) {
+    t->split(-1, 16);
+    t->split(-1, 4);
+    t->split(0, 64);
+
+    t->axis(-1)->parallelize(ParallelType::Vectorize);
+    t->axis(-2)->parallelize(ParallelType::TIDx);
+    t->axis(-3)->parallelize(ParallelType::TIDy);
+    t->axis(-4)->parallelize(ParallelType::BIDx);
+    t->axis(-5)->parallelize(ParallelType::BIDy);
+  }
+
+  // quantization_results.block_scales->split(0, 64);
+  // quantization_results.block_scales->axis(-1)->parallelize(ParallelType::TIDy);
+  // quantization_results.block_scales->axis(-2)->parallelize(ParallelType::BIDx);
+  // quantization_results.block_scales->axis(-3)->parallelize(ParallelType::BIDy);
+
+  // Create input tensor
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto input = at::randn({64, 256}, options);
+
+  // Execute the fusion
+  KernelExecutor ke;
+  ke.compile(fusion.get(), {input});
+  auto outputs = ke.run({input});
+
+  // Verify we got the expected outputs
+
+  auto block_scales_output = outputs[0].as<at::Tensor>();
+  auto quantized_tensor_output = outputs[1].as<at::Tensor>();
+
+  // Basic shape checks
+  EXPECT_EQ(block_scales_output.dim(), 2);
+  EXPECT_EQ(quantized_tensor_output.dim(), 2);
+
+  SUCCEED();
+}
+
 TEST_P(NVFP4QuantizeTest, WithoutPerTensorAmax) {
   auto data_hp_dtype = GetParam();
 

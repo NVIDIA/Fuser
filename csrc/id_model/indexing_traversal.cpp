@@ -289,6 +289,24 @@ IndexingTraversal::ExprPath IndexingTraversal::getExprsBetween(
   auto from_groups = graph.toGroups(from_domains);
   auto to_groups = graph.toGroups(to_domains);
 
+  static int cnt = 0;
+  if (expr->isA<BlockQuantizationOp>()) {
+    std::cout << "hit " + std::to_string(cnt++) + "\n";
+    std::cout << "from_domains: ";
+    for (const auto& domain : from_domains) {
+      std::cout << domain->toString() << " ";
+    }
+    std::cout << "\n";
+    std::cout << "to_domains: ";
+    for (const auto& domain : to_domains) {
+      std::cout << domain->toString() << " ";
+    }
+    std::cout << "\n";
+
+    expr->fusion()->print();
+    graph.dumpGraphvizDotGraph("graph" + std::to_string(cnt) + ".dot");
+  }
+
   IndexingTraversal traversal(
       expr,
       graph,

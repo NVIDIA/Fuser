@@ -1336,7 +1336,7 @@ bool hasTrivialAllocationDomain(const TensorView* tv) {
       TensorDomain::noBroadcasts(TensorDomain::noReductions(alloc));
 }
 bool hasUniformSiblings(Expr* expr) {
-  return !expr->isOneOf<SdpaFwdOp, SdpaBwdOp>();
+  return !expr->isOneOf<SdpaFwdOp, SdpaBwdOp, BlockQuantizationOp>();
 }
 
 bool hasRootToLoopLinearTransformations(const TensorView* tv) {
@@ -1488,6 +1488,11 @@ ForLoop* createRangeLoop(int64_t size) {
 }
 
 TensorView* getTvOutput(const Expr* expr) {
+  if (expr->isA<BlockQuantizationOp>()) {
+    // BlockQuantizationOp has multiple outputs
+    return getTv(expr->as<BlockQuantizationOp>()->quantizedOutput());
+  }
+
   for (auto out : expr->outputs()) {
     if (auto tv = getTv(out)) {
       return tv;

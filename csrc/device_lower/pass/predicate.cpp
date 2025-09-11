@@ -48,6 +48,9 @@ class ConditionalFromPredicateModifier : public kir::ExprMutator {
   using kir::ExprMutator::handle;
 
   void dispatch(Expr* expr) final {
+    if (expr->isA<BlockQuantizationOp>()) {
+      return;
+    }
     if (expr != nullptr && expr->predicate() != nullptr) {
       // Replace expr predicate with bool conditional
       auto conditional = generateConditional(expr->predicate());
@@ -67,13 +70,17 @@ class ConditionalFromPredicateModifier : public kir::ExprMutator {
           auto vec_expr = ite->thenBody()[0];
           NVF_ERROR(
               vec_expr->isA<UnaryOp>() || vec_expr->isA<LoadStoreOp>() ||
-                  vec_expr->isA<TernaryOp>() || vec_expr->isA<IndexSelectOp>(),
+                  vec_expr->isA<TernaryOp>() ||
+                  vec_expr->isA<IndexSelectOp>() ||
+                  vec_expr->isA<BlockQuantizationOp>(),
               "Vectorize predicate exprs only supported on set operations.");
           NVF_ERROR(
-              ir_utils::isTvOp(vec_expr),
+              ir_utils::isTvOp(vec_expr) ||
+                  vec_expr->isA<BlockQuantizationOp>(),
               "Vectorize predicate exprs only supported on tensor view "
               "operations.");
-          if (!vec_expr->inputs()[0]->isConstScalar()) {
+          if (!vec_expr->inputs()[0]->isConstScalar() &&
+              !vec_expr->isA<BlockQuantizationOp>()) {
             conditional = SimplifyingIrBuilder::logicalAndExpr(
                 conditional,
                 GpuLower::current()->info().threadPredicateMap().getPredicate(

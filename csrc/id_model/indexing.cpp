@@ -836,8 +836,11 @@ ExprPath<ExprGroup> TensorIndexer::getIndexingPath(
 ExprPath<ExprGroup> TensorIndexer::getPredicateIndexingPath(
     TensorView* tv,
     const Expr* expr) const {
+  auto tv_new = expr->isA<BlockQuantizationOp>()
+      ? expr->as<BlockQuantizationOp>()->quantizedOutput()->as<TensorView>()
+      : tv;
   const std::vector<IterDomain*>& predicate_domains =
-      getPredicateDomains(tv, expr);
+      getPredicateDomains(tv_new, expr);
   return getIndexingPath(expr, predicate_domains);
 }
 

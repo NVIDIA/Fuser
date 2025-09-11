@@ -280,6 +280,7 @@ class AllocationDomainSetup : private kir::IrVisitor {
       // aliasTensorProducer, in which case it will not be allocated.
       NVF_ERROR(
           producer_tv->isFusionInput() ||
+              producer_tv->definition()->isA<BlockQuantizationOp>() ||
               GpuLower::current()->getTensorProducerAlias(producer_tv) !=
                   nullptr,
           "Expected a fusion input or aliased tensor but found: ",
@@ -308,6 +309,7 @@ class AllocationDomainSetup : private kir::IrVisitor {
         // doesn't have an unrolling loop, so the allocation info
         // obtained from that expression would fail to give the
         // correct allocation domains.
+
         auto [alloc_domains, contiguity] =
             getAllocationDomainsAndContiguity(out_tv, for_loops_);
         auto alloc_info =
