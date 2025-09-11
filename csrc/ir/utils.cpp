@@ -1339,7 +1339,7 @@ bool hasTrivialAllocationDomain(const TensorView* tv) {
       alloc | TensorDomain::kNoReductions | TensorDomain::kNoBroadcasts);
 }
 bool hasUniformSiblings(Expr* expr) {
-  return !expr->isOneOf<SdpaFwdOp, SdpaBwdOp>();
+  return !expr->isOneOf<SdpaFwdOp, SdpaBwdOp, BlockQuantizationOp>();
 }
 
 bool isPartitionedLoop(const TensorView* tv, IterDomain* id) {
@@ -1516,6 +1516,11 @@ kir::ForLoop* createRangeLoop(int64_t size) {
 }
 
 TensorView* getTvOutput(const Expr* expr) {
+  if (expr->isA<BlockQuantizationOp>()) {
+    // BlockQuantizationOp has multiple outputs
+    return getTv(expr->as<BlockQuantizationOp>()->quantizedOutput());
+  }
+
   for (auto out : expr->outputs()) {
     if (auto tv = getTv(out)) {
       return tv;

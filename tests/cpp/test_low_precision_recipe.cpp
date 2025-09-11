@@ -10,6 +10,8 @@
 
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
+#include <iomanip>
+#include <iostream>
 
 #include <fusion.h>
 #include <ops/all_ops.h>
@@ -105,8 +107,233 @@ constexpr double F4_E2M1_MAX = 6.0;
 constexpr double E4M3_EPS = 0.015625;
 constexpr double F8E4M3_MAX = 448.0;
 
+// Helper function to create tensor where input[r][c] = c
+at::Tensor createStructuredTensor(
+    std::vector<int64_t> shape,
+    at::TensorOptions options) {
+  auto tensor = at::zeros(shape, options);
+  if (shape.size() == 2) {
+    int64_t rows = shape[0];
+    int64_t cols = shape[1];
+    for (int64_t r = 0; r < rows; ++r) {
+      for (int64_t c = 0; c < cols; ++c) {
+        tensor[r][c] = static_cast<float>(c);
+      }
+    }
+  }
+  return tensor;
+}
+
 class NVFP4QuantizeTest : public BlackwellBase,
                           public ::testing::WithParamInterface<DataType> {};
+
+class BQTest : public BlackwellBase {};
+
+// Naoya, please use this test.
+TEST_F(BQTest, ScheduleAsPointwise) {
+  // Basic test implementation
+  std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  auto tv_data_hp = makeContigTensor(2, DataType::Float);
+  fusion->addInput(tv_data_hp);
+
+  // t0 is 2D
+  auto t0 = set(tv_data_hp);
+  auto quantization_results = block_quantize(t0);
+
+  // t1 and t2 are 2D.
+  fusion->addOutput(quantization_results.quantized_tensor);
+  fusion->addOutput(quantization_results.block_scales);
+
+  t0->setMemoryType(MemoryType::Local);
+
+  // This is the 3D input to the BQ Op.
+  auto view_out_tv = quantization_results.block_scales->definition()
+                         ->input(0)
+                         ->as<TensorView>();
+
+  for (auto t :
+       {tv_data_hp,
+        t0,
+        view_out_tv,
+        quantization_results.quantized_tensor,
+        quantization_results.block_scales}) {
+    // Merge all dims.
+    t->merge(-2);
+    if (t->getLoopDomain().size() >= 2) {
+      t->merge(-2);
+    }
+
+    // split by 4.
+    // I -> I/4, 4
+    t->split(-1, 4);
+    // I//4, 4 -> I/4, 1, 4
+    t->split(-2, 1);
+    // I//4, 1, 4 -> I/512, 128, 1, 4
+    t->split(-3, 128);
+
+    if (t != tv_data_hp) {
+      // Don't vectorize the outputs of reshape
+      if (t != view_out_tv && t != quantization_results.block_scales) {
+        t->axis(-1)->parallelize(ParallelType::Vectorize);
+      }
+      //  I/512(BIDx), 128(TIDx), 1, 4(v)
+      t->axis(-3)->parallelize(ParallelType::TIDx);
+      t->axis(-4)->parallelize(ParallelType::BIDx);
+    }
+  }
+
+  fusion->print();
+
+  // Create input tensor
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto input = createStructuredTensor({32, 16}, options);
+
+  // Execute the fusion
+  KernelExecutor ke;
+  ke.compile(fusion.get(), {input});
+  auto outputs = ke.run({input});
+
+  // Verify we got the expected outputs
+
+  auto block_scales_output = outputs[0].as<at::Tensor>();
+  auto quantized_tensor_output = outputs[1].as<at::Tensor>();
+
+  // Move tensors from GPU to CPU
+  auto block_scales_cpu = block_scales_output.cpu();
+  auto quantized_tensor_cpu = quantized_tensor_output.cpu();
+
+  // Print first 32 bytes of block_scales_output in hex format
+  const uint8_t* block_scales_data =
+      static_cast<const uint8_t*>(block_scales_cpu.data_ptr());
+  std::cout << "block_scales_output first 32 bytes (hex): ";
+  for (int i = 0;
+       i < std::min(
+               32,
+               static_cast<int>(
+                   block_scales_cpu.numel() * block_scales_cpu.element_size()));
+       ++i) {
+    std::cout << std::hex << std::setw(2) << std::setfill('0')
+              << static_cast<int>(block_scales_data[i]) << " ";
+  }
+  std::cout << std::dec << std::endl;
+
+  // Print first 32 bytes of quantized_tensor_output in hex format
+  const uint8_t* quantized_data =
+      static_cast<const uint8_t*>(quantized_tensor_cpu.data_ptr());
+  std::cout << "quantized_tensor_output first 32 bytes (hex): ";
+  for (int i = 0; i <
+       std::min(32,
+                static_cast<int>(
+                    quantized_tensor_cpu.numel() *
+                    quantized_tensor_cpu.element_size()));
+       ++i) {
+    std::cout << std::hex << std::setw(2) << std::setfill('0')
+              << static_cast<int>(quantized_data[i]) << " ";
+  }
+  std::cout << std::dec << std::endl;
+
+  // Basic shape checks
+  EXPECT_EQ(block_scales_output.dim(), 3);
+  EXPECT_EQ(quantized_tensor_output.dim(), 3);
+
+  SUCCEED();
+}
+
+TEST_F(BQTest, BasicTest) {
+  // Basic test implementation
+  std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  auto tv_data_hp = makeContigTensor(2, DataType::Float);
+  fusion->addInput(tv_data_hp);
+
+  // t0 is 2D
+  auto t0 = set(tv_data_hp);
+  auto quantization_results = block_quantize(t0);
+
+  // This is 3D - with a bcast dim at the end
+  auto block_scale_pre_reshape = quantization_results.block_scales->definition()
+                                     ->input(0)
+                                     ->as<TensorView>();
+  // This is 3D
+  auto quantized_tensor_pre_reshape =
+      quantization_results.quantized_tensor->definition()
+          ->input(0)
+          ->as<TensorView>();
+
+  // t1 and t2 are 2D.
+  auto t1 = set(quantization_results.block_scales);
+  auto t2 = set(quantization_results.quantized_tensor);
+  fusion->addOutput(t1);
+  fusion->addOutput(t2);
+
+  t0->setMemoryType(MemoryType::Local);
+  t1->setMemoryType(MemoryType::Global);
+  t2->setMemoryType(MemoryType::Global);
+  quantization_results.quantized_tensor->setMemoryType(MemoryType::Local);
+  quantization_results.block_scales->setMemoryType(MemoryType::Local);
+
+  // This is 3D
+  auto view_out_tv =
+      block_scale_pre_reshape->definition()->input(0)->as<TensorView>();
+
+  // Let's first split the inner dim of the 2D tensors.
+  for (auto t :
+       {t0,
+        t1,
+        t2,
+        quantization_results.quantized_tensor,
+        quantization_results.block_scales}) {
+    t->split(-1, /*block size*/ 16);
+  }
+
+  for (auto t :
+       {t0,
+        t1,
+        t2,
+        quantized_tensor_pre_reshape,
+        block_scale_pre_reshape,
+        quantization_results.quantized_tensor,
+        quantization_results.block_scales,
+        view_out_tv}) {
+    t->split(-1, 4);
+    t->split(0, 64);
+
+    if (t != view_out_tv && t != quantization_results.block_scales &&
+        t != quantization_results.quantized_tensor) {
+      t->axis(-1)->parallelize(ParallelType::Vectorize);
+    }
+
+    t->axis(-2)->parallelize(ParallelType::TIDx);
+    t->axis(-3)->parallelize(ParallelType::TIDy);
+    t->axis(-4)->parallelize(ParallelType::BIDx);
+    t->axis(-5)->parallelize(ParallelType::BIDy);
+  }
+
+  fusion->print();
+
+  // Create input tensor
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto input = at::randn({64, 256}, options);
+
+  // Execute the fusion
+  KernelExecutor ke;
+  ke.compile(fusion.get(), {input});
+  auto outputs = ke.run({input});
+
+  // Verify we got the expected outputs
+
+  auto block_scales_output = outputs[0].as<at::Tensor>();
+  auto quantized_tensor_output = outputs[1].as<at::Tensor>();
+
+  // Basic shape checks
+  EXPECT_EQ(block_scales_output.dim(), 2);
+  EXPECT_EQ(quantized_tensor_output.dim(), 2);
+
+  SUCCEED();
+}
 
 TEST_P(NVFP4QuantizeTest, WithoutPerTensorAmax) {
   auto data_hp_dtype = GetParam();
@@ -151,11 +378,40 @@ TEST_P(NVFP4QuantizeTest, WithoutPerTensorAmax) {
 
   FusionExecutorCache fec(std::move(fusion));
 
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto input = createStructuredTensor({32, 16}, options);
+
   std::vector<at::Tensor> inputs;
-  inputs.push_back(
-      at::randn({1024, 1024}, at::device(at::kCUDA).dtype(at::kFloat))
-          .to(data_type_to_aten(data_hp_dtype)));
+  // inputs.push_back(at::randn({64, 256},
+  // at::device(at::kCUDA).dtype(at::kFloat))
+  //                      .to(data_type_to_aten(data_hp_dtype)));a
+
+  inputs.push_back(input);
   auto outputs = fec.runFusionWithInputs(inputs);
+
+  at::Tensor scales = outputs[0].as<at::Tensor>();
+  at::Tensor scales_cpu = scales.cpu();
+
+  // Get pointer to underlying data and treat as uint8_t
+  uint8_t* scales_data_ptr = reinterpret_cast<uint8_t*>(scales_cpu.data_ptr());
+
+  for (int i = 0; i < std::min(32, 32); ++i) {
+    std::cout << std::hex << std::setw(2) << std::setfill('0')
+              << static_cast<int>(scales_data_ptr[i]) << " ";
+  }
+  std::cout << std::dec << std::endl;
+
+  at::Tensor q_vals = outputs[1].as<at::Tensor>();
+  at::Tensor q_vals_cpu = q_vals.cpu();
+
+  // Get pointer to underlying data and treat as uint8_t
+  uint8_t* q_vals_data_ptr = reinterpret_cast<uint8_t*>(q_vals_cpu.data_ptr());
+
+  for (int i = 0; i < std::min(32, 32); ++i) {
+    std::cout << std::hex << std::setw(2) << std::setfill('0')
+              << static_cast<int>(q_vals_data_ptr[i]) << " ";
+  }
+  std::cout << std::dec << std::endl;
 
   FusionKernelRuntime* runtime = fec.getMostRecentKernelRuntime();
 
