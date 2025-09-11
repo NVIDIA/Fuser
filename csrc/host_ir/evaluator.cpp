@@ -188,8 +188,13 @@ void HostIrEvaluator::handle(LaunchKernel* launch_kernel) {
   if (!cache_id.is<std::monostate>()) {
     args.setCacheId(static_cast<size_t>(cache_id.as<int64_t>()));
   }
-  for (auto& input : launch_kernel->inputs()) {
+  for (Val* input : launch_kernel->inputs()) {
     args.push(getKnownConcreteValue(input));
+  }
+
+  if (Val* stream_index = launch_kernel->streamIndex();
+      stream_index != nullptr) {
+    args.push(getKnownConcreteValue(stream_index));
   }
 
   // All output buffers are known already, pass them to the executor
@@ -227,15 +232,13 @@ void HostIrEvaluator::handle(PostOnStream* post_ir) {
   bool use_preallocated_outputs = std::all_of(
       post_ir->outputs().begin(),
       post_ir->outputs().end(),
-      [this](Val* output) { return this->expr_evaluator_.isKnown(output); });
+      [this](Val* output) { return expr_evaluator_.isKnown(output); });
   NVF_ERROR(
       use_preallocated_outputs ||
           std::all_of(
               post_ir->outputs().begin(),
               post_ir->outputs().end(),
-              [this](Val* output) {
-                return !this->expr_evaluator_.isKnown(output);
-              }),
+              [this](Val* output) { return !expr_evaluator_.isKnown(output); }),
       "outputs must be all or none preallocated in expr ",
       post_ir);
   if (use_preallocated_outputs) {

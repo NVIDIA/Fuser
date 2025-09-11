@@ -64,6 +64,7 @@ TEST_F(HostIrEvaluatorTest, LaunchKernel) {
         CompileParams(),
         std::vector<Val*>{in},
         std::vector<Val*>{out},
+        nullptr,
         cache_id);
 
     hic->addInput(in);
@@ -213,15 +214,60 @@ TEST_F(HostIrEvaluatorTest, AddInLoop) {
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA);
   at::Tensor in_tensor = at::randn({5, c * 2}, options);
-  at::Tensor out_tensor = at::zeros_like(in_tensor);
 
-  KernelExecutor ke;
-  ke.compile(&fusion, {in_tensor});
-  constexpr int64_t kStreamIndex = 1;
-  ke.run({in_tensor, kStreamIndex}, {out_tensor});
+  auto hic = std::make_unique<HostIrContainer>();
+  {
+    FusionGuard fg(hic.get());
+    IrCloner ir_cloner(hic.get());
+    auto* in = ir_cloner.clone(fusion.inputs().at(0))->as<TensorView>();
+    auto* out = ir_cloner.clone(fusion.outputs().at(0))->as<TensorView>();
+    hic->addInput(in);
+    hic->addOutput(out);
 
+    auto* allocate_out = IrBuilder::create<kir::Allocate>(
+        out, MemoryType::Global, std::vector<Val*>({}), /*zero_init=*/true);
+
+    auto* stream_index = IrBuilder::create<Val>(DataType::Index);
+
+    auto* for_loop = IrBuilder::create<ForLoop>(
+        out->axis(1),
+        stream_index,
+        /*start=*/hic->oneVal(DataType::Index),
+        /*stop=*/IrBuilder::create<Val>(c, DataType::Index),
+        /*step=*/hic->oneVal());
+
+    auto ke = std::make_unique<KernelExecutor>();
+    ke->compile(&fusion, {in_tensor});
+    hic->addKernelExecutor(std::move(ke));
+
+    auto* cache_id =
+        IrBuilder::create<NamedScalar>("cacheId", DataType::UInt64);
+    auto* launch_kernel = IrBuilder::create<LaunchKernel>(
+        0,
+        LaunchParams(),
+        CompileParams(),
+        std::vector<Val*>{in, stream_index},
+        std::vector<Val*>{out},
+        nullptr,
+        cache_id);
+    for_loop->body().push_back(launch_kernel);
+
+    hic->pushBackTopLevelExprs(allocate_out);
+    hic->pushBackTopLevelExprs(for_loop);
+  }
+
+  HostIrEvaluator hie(std::move(hic));
+  KernelArgumentHolder ins(in_tensor);
+  ins.setCacheId(0);
+  KernelArgumentHolder outs = hie.runWithInputs(ins);
+  auto out_tensor = outs[0].as<at::Tensor>();
+
+  at::Tensor expected_out_tensor = in_tensor + in_tensor;
+  expected_out_tensor.chunk(c, 1)[0].zero_();
   std::cout << "in_tensor: " << in_tensor << std::endl;
   std::cout << "out_tensor: " << out_tensor << std::endl;
+  std::cout << "expected_out_tensor: " << expected_out_tensor << std::endl;
+  EXPECT_TRUE(at::allclose(out_tensor, expected_out_tensor));
 }
 
 } // namespace nvfuser::hir

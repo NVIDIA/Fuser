@@ -126,11 +126,13 @@ LaunchKernel::LaunchKernel(
     const CompileParams& compile_params,
     const std::vector<Val*>& inputs,
     const std::vector<Val*>& outputs,
+    Val* stream_index,
     Val* cache_id)
     : Expr(passkey, inputs, outputs, {}) {
   addDataAttribute(group_id);
   addDataAttribute(launch_constraints);
   addDataAttribute(compile_params);
+  addAttribute(stream_index);
   addAttribute(cache_id);
 }
 
@@ -144,6 +146,8 @@ std::string LaunchKernel::toString(int indent_size) const {
       << "Inputs: {" << toDelimitedString(inputs()) << "}," << std::endl;
   indent(ss, indent_size + 1)
       << "Outputs: {" << toDelimitedString(outputs()) << "}," << std::endl;
+  indent(ss, indent_size + 1)
+      << "Stream Index: " << streamIndex()->toString() << "," << std::endl;
   indent(ss, indent_size) << ")" << std::endl;
   return ss.str();
 }

@@ -116,6 +116,7 @@ std::unique_ptr<hir::HostIrContainer> lowerSegmentedFusionToHostIr(
             ke->compiledKernel()->compileParams(),
             in_clone,
             out_clone,
+            nullptr,
             cache_id);
         for (auto* val : out_clone) {
           NVF_ERROR(
