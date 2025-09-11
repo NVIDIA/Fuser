@@ -31,9 +31,41 @@ The `tests/python/direct` directory contains the following test files:
 - **Legacy-Only Tests**: 15 tests (not yet migrated)
 - **Total Direct Tests**: 175 tests across 4 files
 - **Shared Tests**: 83 tests between legacy and direct frontend
-- **Direct-Only Tests**: 39 tests (new functionality)
+- **Direct-Only Tests**: 36 tests (new functionality)
 
-### Legacy-Only Tests (Not in Direct)
+#### Migrated legacy tests files
+- test_alias.py
+- test_define.py
+- test_embedding.py
+- test_matmul.py
+- test_nan.py
+- test_optimization_passes.py
+- test_pointwise.py
+- test_python_frontend.py
+- test_repro.py
+- test_sdpa.py
+
+#### Remaining legacy test files
+- test_inline_definitions.py --- Inline definitions is not supported in direct bindings.
+- test_narrow_precision.py
+
+#### Legacy-Only test files
+- test_moe.py --- Uses neither legacy nor direct nvfuser python frontend
+- test_normalization.py --- InstanceNorm3dNVFuser is defined in nvfuser.contrib.nn.normalization
+- test_schedule_ops.py --- Scheduling API will be different in direct bindings
+
+## test_matmul.py
+- `test_matmul`
+- `test_linear_with_bias` - Tests linear layers with bias python representation.
+- `test_linear_without_bias` - Tests linear layers without bias representation.
+- `test_linear`
+- `test_linear_slice`
+- `test_matmul_operandA_2d_operandB_3d` - Renamed from legacy `test_2d_x_3d`
+- `test_matmul_stride`
+
+## test_python_frontend.py
+
+### Legacy-Only Tests from test_python_frontend.py (Not in Direct)
 The following 15 tests only exist in legacy frontend:
 
 - `test_def_op_in_schedule` - Tests operation definition in schedules; scheduling and definition are not separate.
@@ -59,10 +91,22 @@ The following tests exist in `tests/python/direct/test_python_frontend.py` but a
 - `test_cummax` - Tests cumulative maximum operations
 - `test_cummin` - Tests cumulative minimum operations
 - `test_cumprod` - Tests cumulative product operations
-- `test_embedding` - Tests embedding operations; 32 variants
-- `test_linear_with_bias` - Tests linear layers with bias
-- `test_linear_without_bias` - Tests linear layers without bias
-- `test_matmul` - Tests matrix multiplication
+- `test_embedding` - Tests embedding operations; 32 variants; Moved from legacy `test_embedding.py` to direct `test_python_frontend.py`
+
+### Migrated tests in `tests/python/direct/test_python_frontend.py` from `tests/python/test_define.py`
+- `test_define_contiguous_tensor` - corresponds with `TestDefine::test_contiguous`
+- `test_define_noncontiguous_tensor` - corresponds with `TestDefine::test_noncontiguous`
+- `test_define_broadcast_tensor` - corresponds with `TestDefine::test_broadcast`
+- `test_define_tensor_contiguity_with_stride_order` - corresponds with `TestDefine::test_contiguity_with_stride_order`
+
+### Migrated tests in `tests/python/direct/test_python_frontend.py` from `tests/python/test_pointwise.py`
+- `test_cpu_add`
+- `test_full_with_cpu_inputs`
+- `test_input_forwarding_device`
+- `test_single_segment_multi_device`
+
+### Migrated tests in `tests/python/direct/test_python_frontend.py` from `tests/python/test_nan.py`
+- `test_validate_precomputed_values`
 
 ### Shared Tests in `tests/python/direct/test_python_frontend.py` and `tests/python/test_python_frontend.py`
 
@@ -151,7 +195,7 @@ Both test files contain these 83 common tests:
 - `test_where_dtypes` - Where operations with different data types
 - `test_zero_size_dim` - Tests zero size dimensions
 
-#### test_high_complexity.py
+## test_high_complexity.py
 The following 10 tests are moved from `tests/python/test_python_frontend.py` to `tests/python/direct/test_high_complexity.py`:
 
 - `test_broadcast_in_dim_with_dynamic_shapes` - Tests broadcasting with dynamic shapes
@@ -164,8 +208,9 @@ The following 10 tests are moved from `tests/python/test_python_frontend.py` to 
 - `test_nanogpt_split_mha_linears` - Tests NanoGPT split MHA linear layers
 - `test_prim_layer_norm_fwd` - Tests layer normalization forward pass
 - `test_prim_rms_norm_fwd` - Tests RMS normalization forward pass
+- `test_litgpt_variants_gpt_neox_like` - Migrated from legacy `test_optimization_passes.py`
 
-#### test_repro.py
+## test_repro.py
 The following 19 issue-specific tests have been migrated from the main frontend to the direct frontend and are now available in `tests/python/direct/test_repro.py`:
 
 - `test_issue1129` - Tests fix for issue 1129 (reshape and index_select with strided tensors)
@@ -183,9 +228,20 @@ The following 19 issue-specific tests have been migrated from the main frontend 
 - `test_issue2275_repro1` - Tests fix for issue 2275 (unpadded concatenation operations with complex tensor manipulations); Maps to legacy `test_unpadded_catop_issue2275_repro1`
 - `test_issue2275_repro2` - Tests fix for issue 2275 (unpadded concatenation operations with trigonometric functions); Maps to legacy `test_unpadded_catop_issue2275_repro2`
 - `test_issue2317` - Tests fix for issue 2317 (reduction transpose scheduling); Maps to legacy `test_reduction_transpose_sched_issue2317`
+- `test_issue2354` - Renamed from legacy `test_matmul_issue_2354` in `test_matmul.py`
+- `test_issue2395` --- Migrated from `test_issue_2395` in legacy test_pointwise.py
+- `test_issue2532` - Renamed from legacy `test_repro_issue2532` in `test_matmul.py`
 - `test_issue2545` - Tests fix for issue 2545 (complex operations with empty tensors and concatenation); Maps to legacy `test_remove_empty_issue_2545`
 - `test_issue2549` - Tests fix for issue 2549 (broadcast_in_dim and division operations); Maps to `test_fix_2549`
+- `test_issue2664_repro1` --- Migrated from `test_inplace_issue2664` in legacy test_pointwise.py
+- `test_issue2664_repro2` --- Migrated from `test_inplace_post_bcast` in legacy test_pointwise.py
+- `test_issue2664_repro3` --- Migrated from `test_multi_inplace` in legacy test_pointwise.py
+- `test_issue2664_repro4` --- Migrated from `test_implicit_bcast_inplace` in legacy test_pointwise.py
 - `test_issue2755` - Tests fix for issue 2755 (slice operations with negation)
+- `test_issue2853` --- Migrated from legacy test_pointwise.py
+- `test_issue3192` - Mapped from legacy `test_squeeze_issue_3192` in `test_alias.py`
+- `test_issue3227` --- Migrated from `test_bcast_different_extent` in legacy test_pointwise.py
+- `test_issue3369` - Mapped from legacy `test_square_linear` in `test_optimization_passes.py`
 - `test_issue3292` - Tests fix for issue 3292 (complex tensor operations with manual normalization and padding)
 
 The following tests are from the original `tests/python/test_repro.py`.

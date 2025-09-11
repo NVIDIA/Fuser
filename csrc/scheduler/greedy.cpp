@@ -38,7 +38,8 @@ namespace {
 
 // These are the current supported constrained ops.
 std::vector<Expr*> getAllConstrainedOps(Fusion* fusion) {
-  return ir_utils::getOpsOfType<ArgsortOp, PadOp, ScanOp, ScatterOp>(fusion);
+  return ir_utils::getOpsOfType<ArgsortOp, PadOp, ScanOp, ScatterOp, TopKOp>(
+      fusion);
 }
 
 std::vector<TensorView*> getAllConstrainedTvs(Fusion* fusion) {
@@ -187,7 +188,8 @@ class CompileTimeChecker : private IterVisitor {
             ArgsortOp,
             ScanOp,
             PadOp,
-            ScatterOp>();
+            ScatterOp,
+            TopKOp>();
     if (!can_schedule_) {
       setRejectReason("Unsupported operation: " + expr->toString());
       return;
@@ -317,6 +319,28 @@ class CompileTimeChecker : private IterVisitor {
 
   void handle(PadOp* pad) override {
     checkConstrainedTv(ir_utils::getTvOutput(pad), pad->getPaddedAxes());
+  }
+
+  void handle(TopKOp* topk) override {
+    // Due to the current limitations of TopKOp codegen, all of the
+    // TIDx threads participate, which means the TID parallelized iter
+    // domain of this TopKOp must have an extent that is no less
+    // than any other TID parallelized iter domains. Requiring the
+    // exactness is not necessary but sufficient.
+    needs_exact_block_dim_ = true;
+
+    auto out_tv = ir_utils::getTvOutput(topk);
+    checkConstrainedTv(out_tv, {topk->dim()});
+
+    // Only static dim supported for now.
+    auto topk_id = out_tv->getLogicalDomain().at(topk->dim());
+    if (!topk_id->extent()->isConstInt()) {
+      can_schedule_ = false;
+      std::stringstream reason;
+      reason << "Symbolic dimension not supported yet: " << topk->toString();
+      setRejectReason(reason.str());
+      return;
+    }
   }
 
   // Check if the logical IDs of the given constrained tv can be
@@ -468,6 +492,10 @@ class RunTimeChecker : private IterVisitor {
     checkConstrainedTv(ir_utils::getTvOutput(scan), {scan->dim()});
   }
 
+  void handle(TopKOp* topk) override {
+    checkConstrainedTv(ir_utils::getTvOutput(topk), {topk->dim()});
+  }
+
   // Since all constrained IDs are flattened and parallelized with
   // TIDx, the extent of flattened ID must not exceed the maximum
   // number of threads per thread block.
@@ -541,15 +569,15 @@ void propagateReshape(Fusion* fusion) {
 // cacheAfter). This intermediate copy is used to simplify the
 // propagation of scheduling from the scatter output tensor.
 //
-// ArgsortOp, ScanOp: To make sure an ArgsortOp or ScanOp can be done
-// without predicating the output, use a new Local tensor as the
-// output if the original output is not a Local tensor, and insert a
-// copy from the Local tensor to the original output.
+// ArgsortOp, ScanOp, TopKOp: To avoid predicating the output, use a
+// new Local tensor as the output if the original output is not a
+// Local tensor, and insert a copy from the Local tensor to the
+// original output.
 void insertCopyAfter(Fusion* fusion) {
   for (auto expr :
-       ir_utils::getOpsOfType<ArgsortOp, ScanOp, ScatterOp>(fusion)) {
-    auto out_tv = expr->output(0)->as<TensorView>();
+       ir_utils::getOpsOfType<ArgsortOp, ScanOp, ScatterOp, TopKOp>(fusion)) {
     if (expr->isA<ScatterOp>()) {
+      auto out_tv = expr->output(0)->as<TensorView>();
       if (out_tv->uses().empty()) {
         continue;
       }
@@ -557,11 +585,14 @@ void insertCopyAfter(Fusion* fusion) {
           LoadStoreOpType::Set,
           CacheOp::Unspecified,
           /*propagate_allocation_domain=*/false);
-    } else if (expr->isOneOf<ArgsortOp, ScanOp>()) {
-      if (out_tv->getMemoryType() == MemoryType::Local) {
-        continue;
+    } else if (expr->isOneOf<ArgsortOp, ScanOp, TopKOp>()) {
+      auto outputs = expr->outputs();
+      for (auto out_tv : ir_utils::filterByType<TensorView>(outputs)) {
+        if (out_tv->getMemoryType() == MemoryType::Local) {
+          continue;
+        }
+        out_tv->cacheBefore(LoadStoreOpType::Set);
       }
-      out_tv->cacheBefore(LoadStoreOpType::Set);
     }
   }
 }
@@ -659,6 +690,12 @@ class ConstrainedOpScheduler : public OptOutDispatch {
     }
   }
 
+  void handle(TopKOp* topk) override {
+    auto topk_dim = topk->dim();
+    auto out_tv = ir_utils::getTvOutput(topk);
+    scheduleConstrainedTv(out_tv, {topk_dim});
+  }
+
   void scheduleConstrainedTv(
       TensorView* tv,
       const std::vector<int64_t>& constrained_logical_id_offsets) {
@@ -749,9 +786,26 @@ std::unordered_map<TensorView*, TensorView*> partitionFusion(
 
   std::unordered_map<TensorView*, TensorView*> tv_to_constrained_tv_map;
 
-  // Register self mappings for constrained tensors
+  // Register self and sibling mappings for constrained tensors
   for (auto tv : constrained_tvs) {
-    tv_to_constrained_tv_map.emplace(tv, tv);
+    NVF_ERROR(
+        tv_to_constrained_tv_map.emplace(tv, tv).second,
+        "Already mapped: ",
+        tv->toString());
+
+    if (auto def = tv->definition();
+        def != nullptr && def->outputs().size() > 1) {
+      for (const auto out_tv :
+           ir_utils::filterByType<TensorView>(def->outputs())) {
+        if (out_tv == tv) {
+          continue;
+        }
+        NVF_ERROR(
+            tv_to_constrained_tv_map.emplace(out_tv, tv).second,
+            "Already mapped: ",
+            tv->toString());
+      }
+    }
   }
 
   // Propagate source reference through a given expr. Returns true if
