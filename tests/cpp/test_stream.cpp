@@ -37,8 +37,15 @@ TEST_F(StreamTest, AddPerStream) {
   constexpr int64_t kStreamIndex = 1;
   ke.run({in_tensor, kStreamIndex}, {out_tensor});
 
-  std::cout << "in_tensor: " << in_tensor << std::endl;
-  std::cout << "out_tensor: " << out_tensor << std::endl;
+  at::Tensor expected_out_tensor = in_tensor + in_tensor;
+  std::vector<at::Tensor> chunks = expected_out_tensor.chunk(c, 1);
+  for (auto [i, chunk] : enumerate(chunks)) {
+    if (i != kStreamIndex) {
+      chunk.zero_();
+    }
+  }
+  EXPECT_TRUE(at::allclose(out_tensor, expected_out_tensor))
+      << out_tensor << " != " << expected_out_tensor;
 }
 
 } // namespace nvfuser
