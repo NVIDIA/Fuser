@@ -59,6 +59,7 @@
 #include <nvfuser_resources/bf16_support.h>
 #include <nvfuser_resources/bit.h>
 #include <nvfuser_resources/block_layout.h>
+#include <nvfuser_resources/block_quantization_kernels.h>
 #include <nvfuser_resources/block_reduction.h>
 #include <nvfuser_resources/block_sync_atomic.h>
 #include <nvfuser_resources/block_sync_default.h>
@@ -297,10 +298,9 @@ std::string disassembleBinary(
     // so I have to dump the stdin to a temp file and let nvdisasm read it. I am
     // hoping that nvdisasm will support reading from stdin one day.
     std::stringstream ss;
-    ss << "export PATH=$PATH:/usr/local/cuda/bin;"
-       << "TMPFILE=$(mktemp);"
-       << "cat>$TMPFILE;"
-       << "nvdisasm $TMPFILE " << nvdisasm_args << "; rm $TMPFILE";
+    ss << "export PATH=$PATH:/usr/local/cuda/bin;" << "TMPFILE=$(mktemp);"
+       << "cat>$TMPFILE;" << "nvdisasm $TMPFILE " << nvdisasm_args
+       << "; rm $TMPFILE";
     auto command = ss.str();
     execl("/bin/bash", "bash", "-c", command.c_str(), NULL);
 
@@ -1097,6 +1097,8 @@ std::string _getStructuredCode(
   if (has_block_layout) {
     code += nvfuser_resources::block_layout_cu;
   }
+
+  code += nvfuser_resources::block_quantization_kernels_cu;
 
   code += "\nnamespace " + CompiledKernel::kernelNamespace() + " {\n\n";
   code += kernel_str;

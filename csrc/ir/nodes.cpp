@@ -6298,4 +6298,36 @@ std::vector<PolymorphicValue> PreprocessGroupedMatmulInputSf::evaluate(
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(PreprocessGroupedMatmulInputSf)
 
+BlockQuantizationOp::BlockQuantizationOp(
+    IrBuilderPasskey passkey,
+    Val* output_scales,
+    Val* output,
+    Val* input)
+    : Expr(passkey) {
+  addInput(input);
+  addOutput(output);
+  addOutput(output_scales);
+}
+
+std::string BlockQuantizationOp::toString(int indent_size) const {
+  std::stringstream ss;
+  indent(ss, indent_size) << "(" << blockScales()->toString() << ", "
+                          << quantizedOutput()->toString()
+                          << ") = block_quantize(" << in()->toString() << ")\n";
+  return ss.str();
+}
+
+std::string BlockQuantizationOp::toInlineString(int indent_size) const {
+  NVF_CHECK(false, "BlockQuantizationOp can not be printed inline");
+}
+
+std::vector<PolymorphicValue> BlockQuantizationOp::evaluate(
+    const ExpressionEvaluator& ee,
+    const std::vector<PolymorphicValue>& inputs) const {
+  // This is a placeholder, currently we don't have a fallback kernel available
+  NVF_THROW("BlockQuantizationOp evaluation not yet implemented");
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(BlockQuantizationOp)
+
 } // namespace nvfuser

@@ -108,6 +108,199 @@ constexpr double F8E4M3_MAX = 448.0;
 class NVFP4QuantizeTest : public BlackwellBase,
                           public ::testing::WithParamInterface<DataType> {};
 
+class BQTest : public BlackwellBase {};
+
+// Naoya, please use this test.
+TEST_F(BQTest, ScheduleAsPointwise) {
+  // Basic test implementation
+  std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  auto tv_data_hp = makeContigTensor(2, DataType::Float);
+  fusion->addInput(tv_data_hp);
+
+  // t0 is 2D
+  auto t0 = set(tv_data_hp);
+  auto quantization_results = block_quantize(t0);
+
+  // t1 and t2 are 2D.
+  auto t1 = set(quantization_results.block_scales);
+  auto t2 = set(quantization_results.quantized_tensor);
+  fusion->addOutput(t1);
+  fusion->addOutput(t2);
+
+  t0->setMemoryType(MemoryType::Local);
+  t1->setMemoryType(MemoryType::Global);
+  t2->setMemoryType(MemoryType::Global);
+  quantization_results.quantized_tensor->setMemoryType(MemoryType::Local);
+  quantization_results.block_scales->setMemoryType(MemoryType::Local);
+
+  // This is the 3D input to the BQ Op.
+  auto view_out_tv = quantization_results.block_scales->definition()
+                         ->input(0)
+                         ->as<TensorView>();
+
+  for (auto t :
+       {tv_data_hp,
+        t0,
+        view_out_tv,
+        t2,
+        quantization_results.quantized_tensor}) {
+    // Merge all dims.
+    t->merge(-2);
+    if (t->getLoopDomain().size() >= 2) {
+      t->merge(-2);
+    }
+
+    // split by 4.
+    // I -> I/4, 4
+    t->split(-1, 4);
+    // I//4, 4 -> I/4, 1, 4
+    t->split(-2, 1);
+    // I//4, 1, 4 -> I/512, 128, 1, 4
+    t->split(-3, 128);
+
+    if (t != tv_data_hp) {
+      // Don't vectorize the outputs of reshape
+      if (t != view_out_tv) {
+        t->axis(-1)->parallelize(ParallelType::Vectorize);
+      }
+      //  I/512(BIDx), 128(TIDx), 1, 4(v)
+      t->axis(-3)->parallelize(ParallelType::TIDx);
+      t->axis(-4)->parallelize(ParallelType::BIDx);
+    }
+  }
+
+  for (auto t : {quantization_results.block_scales, t1}) {
+    t->split(-1, 16);
+    t->merge(0, 1);
+    t->merge(0, 1);
+    t->merge(0, 1);
+
+    t->split(0, 4);
+    t->split(0, 128);
+
+    t->axis(1)->parallelize(ParallelType::TIDx);
+    t->axis(0)->parallelize(ParallelType::BIDx);
+  }
+
+  fusion->print();
+
+  // Create input tensor
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto input = at::randn({64, 256}, options);
+
+  // Execute the fusion
+  KernelExecutor ke;
+  ke.compile(fusion.get(), {input});
+  auto outputs = ke.run({input});
+
+  // Verify we got the expected outputs
+
+  auto block_scales_output = outputs[0].as<at::Tensor>();
+  auto quantized_tensor_output = outputs[1].as<at::Tensor>();
+
+  // Basic shape checks
+  EXPECT_EQ(block_scales_output.dim(), 3);
+  EXPECT_EQ(quantized_tensor_output.dim(), 3);
+
+  SUCCEED();
+}
+
+TEST_F(BQTest, BasicTest) {
+  // Basic test implementation
+  std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  auto tv_data_hp = makeContigTensor(2, DataType::Float);
+  fusion->addInput(tv_data_hp);
+
+  // t0 is 2D
+  auto t0 = set(tv_data_hp);
+  auto quantization_results = block_quantize(t0);
+
+  // This is 3D - with a bcast dim at the end
+  auto block_scale_pre_reshape = quantization_results.block_scales->definition()
+                                     ->input(0)
+                                     ->as<TensorView>();
+  // This is 3D
+  auto quantized_tensor_pre_reshape =
+      quantization_results.quantized_tensor->definition()
+          ->input(0)
+          ->as<TensorView>();
+
+  // t1 and t2 are 2D.
+  auto t1 = set(quantization_results.block_scales);
+  auto t2 = set(quantization_results.quantized_tensor);
+  fusion->addOutput(t1);
+  fusion->addOutput(t2);
+
+  t0->setMemoryType(MemoryType::Local);
+  t1->setMemoryType(MemoryType::Global);
+  t2->setMemoryType(MemoryType::Global);
+  quantization_results.quantized_tensor->setMemoryType(MemoryType::Local);
+  quantization_results.block_scales->setMemoryType(MemoryType::Local);
+
+  // This is 3D
+  auto view_out_tv =
+      block_scale_pre_reshape->definition()->input(0)->as<TensorView>();
+
+  // Let's first split the inner dim of the 2D tensors.
+  for (auto t :
+       {t0,
+        t1,
+        t2,
+        quantization_results.quantized_tensor,
+        quantization_results.block_scales}) {
+    t->split(-1, /*block size*/ 16);
+  }
+
+  for (auto t :
+       {t0,
+        t1,
+        t2,
+        quantized_tensor_pre_reshape,
+        block_scale_pre_reshape,
+        quantization_results.quantized_tensor,
+        quantization_results.block_scales,
+        view_out_tv}) {
+    t->split(-1, 4);
+    t->split(0, 64);
+
+    if (t != view_out_tv && t != quantization_results.block_scales &&
+        t != quantization_results.quantized_tensor) {
+      t->axis(-1)->parallelize(ParallelType::Vectorize);
+    }
+
+    t->axis(-2)->parallelize(ParallelType::TIDx);
+    t->axis(-3)->parallelize(ParallelType::TIDy);
+    t->axis(-4)->parallelize(ParallelType::BIDx);
+    t->axis(-5)->parallelize(ParallelType::BIDy);
+  }
+
+  fusion->print();
+
+  // Create input tensor
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto input = at::randn({64, 256}, options);
+
+  // Execute the fusion
+  KernelExecutor ke;
+  ke.compile(fusion.get(), {input});
+  auto outputs = ke.run({input});
+
+  // Verify we got the expected outputs
+
+  auto block_scales_output = outputs[0].as<at::Tensor>();
+  auto quantized_tensor_output = outputs[1].as<at::Tensor>();
+
+  // Basic shape checks
+  EXPECT_EQ(block_scales_output.dim(), 2);
+  EXPECT_EQ(quantized_tensor_output.dim(), 2);
+
+  SUCCEED();
+}
+
 TEST_P(NVFP4QuantizeTest, WithoutPerTensorAmax) {
   auto data_hp_dtype = GetParam();
 
