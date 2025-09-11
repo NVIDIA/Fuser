@@ -26,15 +26,6 @@ namespace kir {
 
 namespace {
 
-bool isStreamParallelized(const std::vector<IterDomain*>& domain) {
-  for (auto* id : domain) {
-    if (id->getParallelType() == ParallelType::Stream) {
-      return true;
-    }
-  }
-  return false;
-}
-
 //! Scan all primary expressions in the Kernel IR and build
 //! lists of specialized nodes and other interesting information
 class KernelIrScanner : private IrVisitor {
@@ -43,19 +34,19 @@ class KernelIrScanner : private IrVisitor {
     index_type_ = kernel->indexType();
 
     summary_.stream_parallelized = [&]() {
-      for (auto* in_tv : ir_utils::filterByType<TensorView>(kernel->inputs())) {
-        if (isStreamParallelized(in_tv->getLoopDomain())) {
-          return true;
-        }
-      }
-      for (auto* out_tv :
-           ir_utils::filterByType<TensorView>(kernel->outputs())) {
-        if (isStreamParallelized(out_tv->getLoopDomain())) {
-          return true;
+      for (const auto& ios : {kernel->inputs(), kernel->outputs()}) {
+        for (auto* tv : ir_utils::filterByType<TensorView>(ios)) {
+          if (std::any_of(
+                  tv->getLoopDomain().begin(),
+                  tv->getLoopDomain().end(),
+                  std::mem_fn(&IterDomain::isStream))) {
+            return true;
+          }
         }
       }
       return false;
     }();
+
     IrVisitor::handle(kernel->topLevelExprs());
   }
 
@@ -459,9 +450,10 @@ void Kernel::finalize(std::vector<Expr*> top_level_exprs) {
       GpuLower::current()->minDeviceVersionReason();
   summary_.dec_inc_register_usage = GpuLower::current()->decIncRegisterUsage();
 
-  // Parameters are ordered to match KernelExecutor::run:
-  // first inputs, then (if needed) stream index, then outputs, then
-  // intermediates.
+  // Parameters are ordered to match KernelExecutor::run: first inputs, then (if
+  // needed) stream index, then outputs, then intermediates. The stream index
+  // can be considered as a special input, so it's added between regular inputs
+  // and outputs.
   parameters_ = GpuLower::current()->allKnownVals();
   if (summary_.stream_parallelized) {
     parameters_.push_back(NamedScalar::getParallelIndex(ParallelType::Stream));

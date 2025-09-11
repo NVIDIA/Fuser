@@ -719,7 +719,11 @@ void KernelExecutor::initializeExecutorEntry(
       launch_params.bdimx());
 
   std::vector<GlobalBufferInfo> input_info;
-  NVF_ERROR_LE(std::ssize(compiled_kernel_->kernel()->inputs()), args.size());
+  NVF_ERROR_LE(
+      std::ssize(compiled_kernel_->kernel()->inputs()),
+      args.size(),
+      "`args` may contain more entries than regular inputs, e.g., the stream "
+      "index.");
   for (const auto& [input, arg] :
        zip(compiled_kernel_->kernel()->inputs(), args)) {
     auto* input_tv = dynamic_cast<TensorView*>(input);
