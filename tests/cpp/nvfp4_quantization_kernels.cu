@@ -461,8 +461,7 @@ cudaError_t fp_conversion_kernel_execute(
       nvfp4_types::__e2m1** h_output_e2m1,                                     \
       nvfp4_types::__e4m3** h_output_e4m3);
 
-// Explicit template instantiations for common configurations (BLOCK_DIM_X is
-// always 4)
+// Explicit template instantiations for common configurations
 INSTANTIATE_FP_CONVERSION_KERNEL(4, 1)
 INSTANTIATE_FP_CONVERSION_KERNEL(4, 4)
 INSTANTIATE_FP_CONVERSION_KERNEL(4, 8)

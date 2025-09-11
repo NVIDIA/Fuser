@@ -26,8 +26,7 @@ __device__ __inline__ void quadMaxReduction(
  * Templated CUDA kernel for float to FP4/FP8 conversion with vectorized loads
  *
  * Template Parameters:
- * - BLOCK_DIM_X: Block dimension in X direction (must be 4 for vectorized
- * loads)
+ * - BLOCK_DIM_X: Block dimension in X direction
  * - BLOCK_DIM_Y: Block dimension in Y direction
  *
  * Parameters:
