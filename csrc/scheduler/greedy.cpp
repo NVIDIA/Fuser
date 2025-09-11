@@ -21,6 +21,7 @@
 #include <scheduler/greedy.h>
 #include <scheduler/mark_aliases.h>
 #include <scheduler/runtime_info.h>
+#include <scheduler/tools/inlining.h>
 #include <scheduler/tools/loop_domain_scheduler.h>
 #include <scheduler/tools/maxinfo_propagator.h>
 #include <scheduler/utils.h>
@@ -185,6 +186,8 @@ class CompileTimeChecker : private IterVisitor {
             FullOp,
             ReshapeOp,
             IotaOp,
+            BroadcastOp,
+            SqueezeOp,
             ArgsortOp,
             ScanOp,
             PadOp,
@@ -602,16 +605,19 @@ class ConstrainedOpScheduler : public OptOutDispatch {
   static void run(
       Fusion* fusion,
       const std::vector<TensorView*>& constrained_out_tvs,
-      const ValGraph& exact_graph) {
-    ConstrainedOpScheduler scheduler(fusion, constrained_out_tvs, exact_graph);
+      const ValGraph& exact_graph,
+      std::unordered_set<IterDomain*>& uninlinable_ids) {
+    ConstrainedOpScheduler scheduler(
+        fusion, constrained_out_tvs, exact_graph, uninlinable_ids);
   }
 
  private:
   ConstrainedOpScheduler(
       Fusion* fusion,
       const std::vector<TensorView*>& constrained_out_tvs,
-      const ValGraph& exact_graph)
-      : exact_graph_(exact_graph) {
+      const ValGraph& exact_graph,
+      std::unordered_set<IterDomain*>& uninlinable_ids)
+      : exact_graph_(exact_graph), uninlinable_ids_(uninlinable_ids) {
     for (auto constrained_tv : constrained_out_tvs) {
       dispatch(constrained_tv->definition());
     }
@@ -704,6 +710,14 @@ class ConstrainedOpScheduler : public OptOutDispatch {
     const auto& constrained_loop_id_offsets =
         getDependentLoopIds(tv, constrained_logical_id_offsets);
 
+    // Don't inline constrained IDs. For example, like reduction IDs,
+    // argsort'ed IDs should never be inlined into its consumers.
+    for (const auto constrained_logical_id_offset :
+         constrained_logical_id_offsets) {
+      uninlinable_ids_.insert(
+          tv->getLogicalDomain().at(constrained_logical_id_offset));
+    }
+
     // Move the constrained_logical_ids innermost
     std::unordered_map<int64_t, int64_t> old2new;
     for (const auto [i, offset] : enumerate(constrained_loop_id_offsets)) {
@@ -758,6 +772,7 @@ class ConstrainedOpScheduler : public OptOutDispatch {
 
  private:
   const ValGraph& exact_graph_;
+  std::unordered_set<IterDomain*>& uninlinable_ids_;
   ValGroups ref_unconstrained_domain_;
 };
 
@@ -992,8 +1007,11 @@ void GreedyScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
   IdModel id_model(fusion);
   const auto& exact_graph = id_model.buildExactGraph();
 
+  std::unordered_set<IterDomain*> uninlinable_ids;
+
   // Schedule all constrained tensors
-  ConstrainedOpScheduler::run(fusion, constrained_tvs, exact_graph);
+  ConstrainedOpScheduler::run(
+      fusion, constrained_tvs, exact_graph, uninlinable_ids);
 
   // Need to fetch constrained ops again as cacheAfter/Before may be used
   // TODO: Cleanup.
@@ -1002,6 +1020,17 @@ void GreedyScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
   // Partition the fusion
   auto tv_to_ref_map =
       partitionFusion(fusion, {constrained_tvs.begin(), constrained_tvs.end()});
+  if (isDebugDumpEnabled(DebugDumpOption::SchedulerVerbose)) {
+    std::unordered_map<TensorView*, std::unordered_set<TensorView*>> ref_to_tvs;
+    for (const auto& [tv, ref] : tv_to_ref_map) {
+      ref_to_tvs[ref].insert(tv);
+    }
+    scheduler_debug_utils::log("[Greedy scheduler] partitioned fusion:");
+    for (const auto& [ref, tvs] : ref_to_tvs) {
+      scheduler_debug_utils::log(
+          "Ref: ", ref->toString(), ": ", toDelimitedString(tvs));
+    }
+  }
 
   // Propagate the schedule of each constrained tv to its disjoint set
   for (auto constrained_tv : constrained_tvs) {
@@ -1020,6 +1049,8 @@ void GreedyScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
     scheduler_utils::parallelizeAllLike(
         constrained_tv, -1, {tvs_to_transform.begin(), tvs_to_transform.end()});
   }
+
+  inlineMost(uninlinable_ids);
 
   // Resolve conflicts. Find conflicting producer-consumer pairs
   // and insert memory promotion
