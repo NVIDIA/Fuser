@@ -24,6 +24,9 @@ void IrVisitor::handle(ForLoop* fl) {
   scope_exprs_.push_back(fl);
   auto body_exprs = std::vector<Expr*>(fl->body().exprs());
   for (auto expr : body_exprs) {
+    // if (expr->isA<BlockQuantizationOp>()) {
+    //   continue;
+    // }
     dispatch(expr);
   }
   scope_exprs_.pop_back();

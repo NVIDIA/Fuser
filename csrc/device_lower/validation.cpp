@@ -47,7 +47,10 @@ class ValidateSiblings : public IterVisitor {
   using IterVisitor::handle;
 
   void dispatch(Expr* expr) final {
-    if (!ir_utils::isTvOp(expr) || expr->outputs().size() < 2) {
+    // Skip BlockQuantization.
+    // It has sibling outputs which differ from each other
+    if (!ir_utils::isTvOp(expr) || expr->outputs().size() < 2 ||
+        expr->isA<BlockQuantizationOp>()) {
       IterVisitor::dispatch(expr);
       return;
     }
@@ -707,9 +710,12 @@ class VectorizeValidator : public OptInDispatch {
     }
 
     auto ldst = dynamic_cast<LoadStoreOp*>(tv->definition());
+    auto is_block_quantization_op =
+        dynamic_cast<BlockQuantizationOp*>(tv->definition());
     bool is_ldmatrix_trans =
         ldst != nullptr && mma_utils::isLdMatrixTranspose(ldst);
-    if (!is_ldmatrix_trans && name.compare("consumer") != 0) {
+    if (!is_ldmatrix_trans && name.compare("consumer") != 0 &&
+        !is_block_quantization_op) {
       // ldmatrix.trans is a hardware transpose instruction that can do
       // "vectorized" read from discontiguous memory
       // We don't think allocation domain of consumer is used in allocation. We
@@ -1016,7 +1022,8 @@ void validateAndCollectVectorizeInfo(Fusion* fusion) {
               (def->isA<ReductionOp>() &&
                def->as<ReductionOp>()->serialGridReductionRequested()) ||
               (def->isA<UnaryOp>() &&
-               def->as<UnaryOp>()->getUnaryOpType() == UnaryOpType::Cast),
+               def->as<UnaryOp>()->getUnaryOpType() == UnaryOpType::Cast) ||
+              def->isA<BlockQuantizationOp>(),
           "Vectorized accesses cannot be inline with computation: ",
           (def == nullptr ? tv->toString() : def->toString()));
     }

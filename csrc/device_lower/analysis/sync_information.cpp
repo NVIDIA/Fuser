@@ -232,6 +232,10 @@ SyncMap::SyncMap(Fusion* fusion, bool error_on_failure) {
           continue;
         }
 
+        if (expr->isA<BroadcastOp>() && producer_i == producer->nDims() - 2) {
+          continue;
+        }
+
         producer_parallel_ids[getParallelTypeBitMapOffset(producer_ptype)] =
             producer_axis;
       }
@@ -499,7 +503,10 @@ SyncMap::SyncMap(Fusion* fusion, bool error_on_failure) {
         if (error_on_failure) {
           if (raw_dims.hasBID()) {
             NVF_ERROR(
-                producer->getMemoryType() == MemoryType::Global,
+                producer->getMemoryType() == MemoryType::Global ||
+                    consumer->definition()->isA<BlockQuantizationOp>() ||
+                    // producer->definition()->isA<BlockQuantizationOp>() ||
+                    consumer->uses()[0]->isA<BlockQuantizationOp>(),
                 "Inconsistent parallelization found between T",
                 producer->name(),
                 " (",
@@ -516,6 +523,8 @@ SyncMap::SyncMap(Fusion* fusion, bool error_on_failure) {
             NVF_ERROR(
                 ir_utils::isLdMatrixOp(producer->definition()) ||
                     ir_utils::isStMatrixOp(consumer->definition()) ||
+                    consumer->definition()->isA<BlockQuantizationOp>() ||
+                    producer->definition()->isA<BlockQuantizationOp>() ||
                     producer->getMemoryType() == MemoryType::Global ||
                     producer->getMemoryType() == MemoryType::Shared ||
                     producer->getMemoryType() == MemoryType::Tensor,

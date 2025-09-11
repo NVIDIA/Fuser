@@ -251,6 +251,7 @@ class AllocationDomainSetup : private kir::IrVisitor {
       // aliasTensorProducer, in which case it will not be allocated.
       NVF_ERROR(
           producer_tv->isFusionInput() ||
+              producer_tv->definition()->isA<BlockQuantizationOp>() ||
               GpuLower::current()->getTensorProducerAlias(producer_tv) !=
                   nullptr,
           "Expected a fusion input or aliased tensor but found: ",
