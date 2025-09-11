@@ -6,7 +6,7 @@
  */
 // clang-format on
 #include <ATen/ATen.h>
-#include <ATen/cuda/CUDAContext.h>
+#include <ATen/cuda/CUDAContextLight.h>
 #include <ATen/native/cuda/jit_utils.h>
 #include <c10/core/DeviceGuard.h>
 #include <c10/core/ScalarType.h>
@@ -75,7 +75,7 @@ TEST_F(CutlassExecutorTest, Nvfp4ScaledGemm_CompiledKernel) {
   constexpr int64_t M = 8192, N = 8192, K = 8192;
 
   // Create actual tensor data for inputs
-  auto options = at::TensorOptions().dtype(torch::kFloat).device(at::kCUDA, 0);
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
 
   // For the operands, we use nvfp4 which packs two values into
   // each byte. When declaring one of these we need to provide the "packed size"
