@@ -6,6 +6,9 @@
 */
 // clang-format on
 #include <cuda_profiler_api.h>
+
+#include <torch/torch.h>
+
 #include <fusion.h>
 #include <host_ir/container.h>
 #include <host_ir/evaluator.h>
@@ -135,7 +138,7 @@ TEST_P(MultiDeviceHostIrTest, SingleFusionSingleComm) {
        {communication->outputs().back(), output}});
 
   // validate the obtained results
-  EXPECT_TRUE(torch::allclose(ref_output, outputs.back().as<at::Tensor>()));
+  EXPECT_TRUE(at::allclose(ref_output, outputs.back().as<at::Tensor>()));
 }
 
 TEST_P(MultiDeviceHostIrTest, SingleCommTwoFusionAndWait) {
@@ -234,7 +237,7 @@ TEST_P(MultiDeviceHostIrTest, SingleCommTwoFusionAndWait) {
        {communication->outputs().back(), output}});
 
   // validate the obtained results
-  EXPECT_TRUE(torch::allclose(ref_output, outputs.back().as<at::Tensor>()));
+  EXPECT_TRUE(at::allclose(ref_output, outputs.back().as<at::Tensor>()));
 }
 
 INSTANTIATE_TEST_SUITE_P(
@@ -308,7 +311,7 @@ TEST_F(P2PCommHostIrTest, RingPairwiseExchange) {
 
   // validate the obtained results
   at::Tensor ref_output = send_buffer_aten + (recv_peer - my_device_index);
-  EXPECT_TRUE(torch::allclose(ref_output, outputs.back().as<at::Tensor>()));
+  EXPECT_TRUE(at::allclose(ref_output, outputs.back().as<at::Tensor>()));
 }
 
 TEST_F(P2PCommHostIrTest, CoalescedRingPairwiseExchange) {
@@ -358,14 +361,14 @@ TEST_F(P2PCommHostIrTest, CoalescedRingPairwiseExchange) {
 
   // validate the obtained results
   at::Tensor ref_output = send_buffer_aten + (recv_peer - my_device_index);
-  EXPECT_TRUE(torch::allclose(ref_output, outputs.back().as<at::Tensor>()));
+  EXPECT_TRUE(at::allclose(ref_output, outputs.back().as<at::Tensor>()));
 }
 
 TEST_F(MultiDeviceTest, ShareIpcMemHandles) {
   static constexpr int kTensorSize = 4;
   static constexpr int kNumRepetitions = 10;
 
-  if (communicator_->size() < 2 || torch::cuda::device_count() < 2) {
+  if (communicator_->size() < 2 || at::cuda::device_count() < 2) {
     GTEST_SKIP() << "This test needs at least 2 GPUs and 2 ranks.";
   }
 
@@ -425,7 +428,7 @@ TEST_F(MultiDeviceTest, ShareIpcMemHandles) {
     torch::cuda::synchronize();
     communicator_->barrier();
     at::Tensor ref_recv_tensor = generate_tensor(repetition, recv_peer);
-    EXPECT_TRUE(torch::allclose(recv_tensor, ref_recv_tensor))
+    EXPECT_TRUE(at::allclose(recv_tensor, ref_recv_tensor))
         << "Rank " << my_rank << " failed at repetition " << repetition
         << " with recv tensor " << recv_tensor << " and ref_recv_tensor "
         << ref_recv_tensor;

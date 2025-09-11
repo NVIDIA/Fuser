@@ -208,7 +208,7 @@ TEST_P(CommunicationTest, Broadcast) {
 }
 
 TEST_P(CommunicationTest, SendRecv) {
-  if (communicator_->size() < 2 || torch::cuda::device_count() < 2) {
+  if (communicator_->size() < 2 || at::cuda::device_count() < 2) {
     GTEST_SKIP() << "This test needs at least 2 GPUs and 2 ranks.";
   }
 
@@ -420,7 +420,7 @@ TEST_F(P2PCommunicationTest, CudaComm) {
   static constexpr int kTensorSize = 8;
   static constexpr int kNumRepetitions = 32;
 
-  if (communicator_->size() < 2 || torch::cuda::device_count() < 2) {
+  if (communicator_->size() < 2 || at::cuda::device_count() < 2) {
     GTEST_SKIP() << "This test needs at least 2 GPUs and 2 ranks.";
   }
 
@@ -479,7 +479,7 @@ TEST_F(P2PCommunicationTest, CudaComm) {
 
     auto ref = at::arange(kTensorSize, tensor_options) + repetition * 10 +
         100 * recv_peer;
-    EXPECT_TRUE(torch::allclose(recv_tensor, ref))
+    EXPECT_TRUE(at::allclose(recv_tensor, ref))
         << "Rank " << my_rank << " failed at repetition " << repetition
         << " with recv tensor " << recv_tensor << " and ref " << ref;
   }

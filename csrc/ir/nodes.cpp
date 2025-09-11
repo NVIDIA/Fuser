@@ -5,6 +5,15 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <complex>
+#include <iterator>
+#include <numeric>
+#include <sstream>
+#include <string>
+
+#include <torch/nn/functional/embedding.h>
+#include <torch/nn/options/embedding.h>
+
 #include <device_lower/lower2device.h>
 #include <disjoint_set.h>
 #include <dynamic_transform.h>
@@ -27,14 +36,6 @@
 #if NVFUSER_CUTLASS_KERNEL_ENABLED
 #include <nvf_cutlass.h>
 #endif
-
-#include <torch/nn/options/embedding.h>
-
-#include <complex>
-#include <iterator>
-#include <numeric>
-#include <sstream>
-#include <string>
 
 namespace nvfuser {
 

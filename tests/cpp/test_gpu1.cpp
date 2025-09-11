@@ -2897,8 +2897,8 @@ TEST_F(NVFuserTest, Fp4CopyKernelFusionExecutorCache) {
   FusionExecutorCache fec(std::move(fusion));
 
   auto options = at::TensorOptions().dtype(torch::kUInt8).device(at::kCUDA, 0);
-  at::Tensor input = at::randint(0, 256, {1024 * 1024}, options)
-                         .view(torch::kFloat4_e2m1fn_x2);
+  at::Tensor input =
+      at::randint(0, 256, {1024 * 1024}, options).view(at::kFloat4_e2m1fn_x2);
 
   auto outputs = fec.runFusionWithInputs({input});
 
