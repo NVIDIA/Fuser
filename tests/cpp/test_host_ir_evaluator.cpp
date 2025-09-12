@@ -10,8 +10,8 @@
 // specifically for host IRs utilized solely within FusionExecutorCache.
 #include <gtest/gtest.h>
 
-#include <ATen/ops/randn.h>
 #include <ATen/ops/matmul.h>
+#include <ATen/ops/randn.h>
 
 #include <fusion.h>
 #include <host_ir/container.h>
@@ -155,8 +155,7 @@ TEST_F(HostIrEvaluatorTest, MatmulInLoop) {
         out, MemoryType::Global, std::vector<Val*>({}), /*zero_init=*/true);
 
     auto* stream_index = IrBuilder::create<Val>(DataType::Index);
-    auto* for_loop =
-        IrBuilder::create<hir::ForLoop>(stream_index, out->axis(1));
+    auto* for_loop = IrBuilder::create<ForLoop>(stream_index, out->axis(1));
 
     TensorView* loop_w = set(w);
     loop_w->outer_split(1, c);
@@ -229,12 +228,7 @@ TEST_F(HostIrEvaluatorTest, AddInLoop) {
 
     auto* stream_index = IrBuilder::create<Val>(DataType::Index);
 
-    auto* for_loop = IrBuilder::create<ForLoop>(
-        out->axis(1),
-        stream_index,
-        /*start=*/hic->oneVal(DataType::Index),
-        /*stop=*/IrBuilder::create<Val>(c, DataType::Index),
-        /*step=*/hic->oneVal());
+    auto* for_loop = IrBuilder::create<ForLoop>(stream_index, out->axis(1));
 
     auto ke = std::make_unique<KernelExecutor>();
     ke->compile(&fusion, {in_tensor});
@@ -263,11 +257,8 @@ TEST_F(HostIrEvaluatorTest, AddInLoop) {
   auto out_tensor = outs[0].as<at::Tensor>();
 
   at::Tensor expected_out_tensor = in_tensor + in_tensor;
-  expected_out_tensor.chunk(c, 1)[0].zero_();
-  std::cout << "in_tensor: " << in_tensor << std::endl;
-  std::cout << "out_tensor: " << out_tensor << std::endl;
-  std::cout << "expected_out_tensor: " << expected_out_tensor << std::endl;
-  EXPECT_TRUE(at::allclose(out_tensor, expected_out_tensor));
+  EXPECT_TRUE(at::allclose(out_tensor, expected_out_tensor))
+      << out_tensor << " vs " << expected_out_tensor;
 }
 
 } // namespace nvfuser::hir
