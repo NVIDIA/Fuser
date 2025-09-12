@@ -313,4 +313,30 @@ __device__ void staticWarpAllReduceTIDX(
     reduction_op(out, reduce_val);
   }
 }
+
+// specialization for bfloat16 due to lack of shfl.sync.bfly.b16.
+// conver to float to use shfl.sync.bfly.f32.
+template <bool SINGLE_WARP, bool Aligned, typename Func, typename BlockDimT>
+__device__ void warpReduceTIDX(
+    __bfloat& out,
+    const __bfloat& inp_val,
+    Func reduction_op,
+    float* shared_mem,
+    bool read_write_pred,
+    __bfloat init_val,
+    BlockDimT block_dim) {
+  float out_fp32 = __bfloat2float(out);
+  float inp_val_fp32 = __bfloat2float(inp_val);
+  float init_val_fp32 = __bfloat2float(init_val);
+  auto reduction_op_fp32 = [](float& a, float b) { a = fmaxf(a, b); };
+  warpReduceTIDX<SINGLE_WARP, Aligned, float>(
+      out_fp32,
+      inp_val_fp32,
+      reduction_op_fp32,
+      shared_mem,
+      read_write_pred,
+      init_val_fp32,
+      block_dim);
+  out = __float2bfloat(out_fp32);
+}
 } // namespace warp
