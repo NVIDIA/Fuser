@@ -450,4 +450,26 @@ std::string ShardByStream::toInlineString(int indent_size) const {
   NVF_CHECK(false, "Cannot be printed inline");
 }
 
+ForLoop::ForLoop(IrBuilderPasskey passkey, Val* index, IterDomain* iter_domain)
+    : Expr(passkey, {index, iter_domain}, {}, {}) {
+  NVF_ERROR(passkey.ir_container_ != nullptr);
+  NVF_ERROR(passkey.ir_container_->isA<HostIrContainer>());
+
+  addDataAttribute(Scope(this));
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(ForLoop)
+
+std::string ForLoop::toString(int indent_size) const {
+  std::stringstream ss;
+  indent(ss, indent_size) << "FOR " << index()->toString() << " in "
+                          << iter_domain()->toString() << ":\n"
+                          << body().toString(indent_size + 1);
+  return ss.str();
+}
+
+std::string ForLoop::toInlineString(int indent_size) const {
+  NVF_CHECK(false, "Cannot be printed inline");
+}
+
 } // namespace nvfuser::hir
