@@ -80,6 +80,41 @@ TEST_F(HostIrEvaluatorTest, LaunchKernel) {
   EXPECT_TRUE(out_tensor.equal(in_tensor));
 }
 
+TEST_F(HostIrEvaluatorTest, ShardByStream) {
+  constexpr int64_t c = 3;
+
+  auto hic = std::make_unique<HostIrContainer>();
+  {
+    FusionGuard fg(hic.get());
+    TensorView* in = makeSymbolicTensor(2);
+    TensorView* out = set(in);
+    hic->addInput(in);
+    hic->addOutput(out);
+
+    in->outer_split(1, c);
+    in->axis(1)->parallelize(ParallelType::Stream);
+    out->outer_split(1, c);
+    out->axis(1)->parallelize(ParallelType::Stream);
+    out->setAllocationDomain(out->getLoopDomain(), {false, true, true});
+
+    auto* stream_index = hic->oneVal(DataType::Index);
+    auto shard = IrBuilder::create<ShardByStream>(out, in, stream_index);
+    hic->pushBackTopLevelExprs(shard);
+  }
+
+  at::Tensor in_tensor =
+      at::randn({5, c * 2}, at::dtype(at::kFloat).device(at::kCUDA));
+  at::Tensor expected_out_tensor = in_tensor.chunk(c, 1)[1];
+
+  HostIrEvaluator hie(std::move(hic));
+  KernelArgumentHolder ins(in_tensor);
+  ins.setCacheId(0);
+  KernelArgumentHolder outs = hie.runWithInputs(ins);
+  auto out_tensor = outs[0].as<at::Tensor>();
+  EXPECT_TRUE(out_tensor.equal(expected_out_tensor))
+      << out_tensor << " vs " << expected_out_tensor;
+}
+
 TEST_F(HostIrEvaluatorTest, AddInLoop) {
   constexpr int64_t c = 3;
 
@@ -113,17 +148,8 @@ TEST_F(HostIrEvaluatorTest, AddInLoop) {
         out, MemoryType::Global, std::vector<Val*>({}), /*zero_init=*/true);
 
     auto* stream_index = IrBuilder::create<Val>(DataType::Index);
-    // `start` is set to one intentially because I wanted to harden the test for
-    // the for loop. Imagine a buggy nvFuser that completely ignores allocation
-    // domain being stream parallelized. It would make each loop iteration
-    // overwrite the entire tensor instead of a slice. This bug wouldn't be
-    // captured by the test if the for loop started from 0.
-    auto* for_loop = IrBuilder::create<kir::ForLoop>(
-        out->axis(1),
-        stream_index,
-        /*start=*/hic->oneVal(DataType::Index),
-        /*stop=*/IrBuilder::create<Val>(c, DataType::Index),
-        /*step=*/hic->oneVal());
+    auto* for_loop =
+        IrBuilder::create<hir::ForLoop>(stream_index, out->axis(1));
 
     TensorView* loop_in = set(in);
     loop_in->outer_split(1, c);
@@ -155,7 +181,6 @@ TEST_F(HostIrEvaluatorTest, AddInLoop) {
   at::Tensor in_tensor =
       at::randn({5, c * 2}, at::dtype(at::kFloat).device(at::kCUDA));
   at::Tensor expected_out_tensor = in_tensor + in_tensor;
-  expected_out_tensor.chunk(c, 1)[0].zero_();
 
   HostIrEvaluator hie(std::move(hic));
   KernelArgumentHolder ins(in_tensor);
@@ -164,10 +189,7 @@ TEST_F(HostIrEvaluatorTest, AddInLoop) {
   auto out_tensor = outs[0].as<at::Tensor>();
 
   EXPECT_TRUE(at::allclose(out_tensor, expected_out_tensor))
-      << "out_tensor: " << std::endl
-      << out_tensor << std::endl
-      << "expected_out_tensor: " << std::endl
-      << expected_out_tensor << std::endl;
+      << out_tensor << " vs " << expected_out_tensor;
 }
 
 } // namespace nvfuser::hir

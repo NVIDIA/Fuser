@@ -7,6 +7,11 @@
 // clang-format on
 #pragma once
 
+#include <cstdint>
+#include <string>
+#include <unordered_set>
+#include <vector>
+
 #include <exceptions.h>
 #include <ir/all_nodes.h>
 #include <ir/base_nodes.h>
@@ -16,12 +21,6 @@
 #include <type.h>
 #include <utils.h>
 #include <visibility.h>
-
-#include <cstdint>
-#include <string>
-#include <unordered_map>
-#include <unordered_set>
-#include <vector>
 
 namespace nvfuser {
 

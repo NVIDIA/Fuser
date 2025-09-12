@@ -442,6 +442,19 @@ void HostIrEvaluator::handle(kir::ForLoop* for_loop) {
   }
 }
 
+void HostIrEvaluator::handle(hir::ForLoop* for_loop) {
+  IterDomain* id = for_loop->iter_domain();
+  auto start = expr_evaluator_.evaluate(id->start()).as<int64_t>();
+  auto stop = expr_evaluator_.evaluate(id->extent()).as<int64_t>();
+
+  for (auto i = start; i < stop; i++) {
+    expr_evaluator_.bind(for_loop->index(), i);
+    for (Expr* e : for_loop->body().exprs()) {
+      dispatch(e);
+    }
+  }
+}
+
 void HostIrEvaluator::handle(StartCoalescing* start_coalescing) {
   auto backend = communicator_->getWorld();
   NVF_ERROR(
