@@ -5139,6 +5139,7 @@ void Scope::clear() {
   exprs_.clear();
 }
 
+#if 0
 ForLoop::ForLoop(
     IrBuilderPasskey passkey,
     IterDomain* iter_domain,
@@ -5487,11 +5488,21 @@ IterDomain* returnFirstIfRankThree(const TensorView* tv) {
 }
 } // namespace
 
-bool ForLoop::hasRuntimeReductionFunctions() const {
-  return RuntimeReductionFinder::exists(this);
-}
+// kir::ForLoop::hasRuntimeReductionFunctions moved
 
-NVFUSER_DEFINE_CLONE_AND_CREATE(ForLoop)
+// ForLoop clone/create moved to kir::ForLoop
+#endif
+
+// Provide definition outside disabled block
+IterDomain* returnFirstIfRankThree(const TensorView* tv) {
+  const auto& logical_domain =
+      TensorDomain::noReductions(tv->getLogicalDomain());
+  if (logical_domain.size() == 3) {
+    return logical_domain.at(0);
+  } else {
+    return nullptr;
+  }
+}
 
 SdpaBwdOp::SdpaBwdOp(
     IrBuilderPasskey passkey,
