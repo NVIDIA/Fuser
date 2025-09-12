@@ -2453,7 +2453,7 @@ std::string LoadStoreOp::toString(int indent_size) const {
   std::string optype = load_store_type2string(opType());
   std::string modifier = "";
   { // Get modifier
-    TensorView* tv = dynamic_cast<TensorView*>(out());
+    auto* tv = dynamic_cast<TensorView*>(out());
     if (auto ti = dynamic_cast<kir::TensorIndex*>(out())) {
       tv = ti->view();
     }
