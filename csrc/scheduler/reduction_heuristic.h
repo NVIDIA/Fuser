@@ -48,6 +48,8 @@ class ReductionParams : public HeuristicParams {
   bool cross_block_inner_reduction = false;
   // Reduce across the grid?
   bool cross_grid_inner_reduction = false;
+  // Reduce across the cluster?
+  bool cross_cluster_reduction = false;
   // Unrolling/Vectorization factor for inner reduction dimension
   int64_t unroll_factor_inner_reduction = 1;
 
@@ -123,8 +125,12 @@ class ReductionParams : public HeuristicParams {
   // Use computeWith to persistent buffers
   bool compute_persistent_buffer_with_first_consumer = false;
 
+  // When a dimension is set to static, it indicates the corresponding launch
+  // parameter must be set in the params and the kernel only works with these
+  // launch parameters.
   bool static_bdimx = false;
   bool static_bdimy = false;
+  bool static_gdimx = false;
 
   bool isUnrolled() const {
     return unroll_factor_inner_reduction > 1 || unroll_factor_iter_dom > 1 ||
@@ -229,13 +235,18 @@ class ReductionParams : public HeuristicParams {
         other->tma_warp_specialized == tma_warp_specialized &&
         other->is_non_circular_buffer_gmem_to_regs ==
             is_non_circular_buffer_gmem_to_regs &&
-        other->is_circular_buffer_regs_cached == is_circular_buffer_regs_cached;
+        other->is_circular_buffer_regs_cached ==
+            is_circular_buffer_regs_cached &&
+        other->cross_cluster_reduction == cross_cluster_reduction;
 
     if (other->static_bdimy || static_bdimy) {
       attr_equal = attr_equal && other->lparams.bdimy() == lparams.bdimy();
     }
     if (other->static_bdimx || static_bdimx) {
       attr_equal = attr_equal && other->lparams.bdimx() == lparams.bdimx();
+    }
+    if (other->static_gdimx || static_gdimx) {
+      attr_equal = attr_equal && other->lparams.gdimx() == lparams.gdimx();
     }
     return attr_equal;
   }
@@ -302,6 +313,9 @@ class ReductionParams : public HeuristicParams {
     if (cross_block_inner_reduction) {
       ss << "cross block - " << block_dim_inner_reduction << " / ";
       ss << (pad_inner_reduction_to_warp ? " pad to warp / " : "");
+    }
+    if (cross_cluster_reduction) {
+      ss << "cross cluster - " << grid_dim_inner_reduction << " / ";
     }
     if (cross_grid_inner_reduction) {
       ss << "cross grid - " << grid_dim_inner_reduction << " / ";

@@ -15,6 +15,7 @@
 #include <device_lower/pass/alias_memory.h>
 #include <device_lower/pass/allocation.h>
 #include <device_lower/pass/circular_buffer.h>
+#include <device_lower/pass/cluster_reduction.h>
 #include <device_lower/pass/expr_sort.h>
 #include <device_lower/pass/fusion_simplifier.h>
 #include <device_lower/pass/grid_serialization.h>
@@ -219,6 +220,7 @@ GpuLower::GpuLower(Fusion* fusion, const CompileParams& cparams)
            {"insertAllocations", insertAllocations},
            {"setInplaceAlias", setInplaceAlias},
            {"reuseMemoryAllocations", reuseMemoryAllocations},
+           {"convertToClusterReduction", convertToClusterReduction},
            {"CircularBufferPass", CircularBufferPass::run},
            {"insertRawThreadSynchronization", insertRawThreadSynchronization},
            {"insertWarThreadSynchronization", insertWarThreadSynchronization},

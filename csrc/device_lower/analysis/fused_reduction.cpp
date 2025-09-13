@@ -61,6 +61,9 @@ class FusionInspector : private IterVisitor {
   FusionInspector(Fusion* fusion)
       : has_warp_specialization_(checkWarpSpecialization(fusion)) {
     traverse(fusion);
+    if (cluster_reduction_count_ > 0) {
+      GpuLower::current()->setClusterReductionCount(cluster_reduction_count_);
+    }
   }
 
   static bool checkWarpSpecialization(Fusion* fusion) {
@@ -107,6 +110,7 @@ class FusionInspector : private IterVisitor {
     if (out->getMemoryType() == MemoryType::Local &&
         (is_static_warp_reduction(out, has_warp_specialization_) ||
          out->domain()->hasGridReduction() ||
+         out->domain()->hasClusterReduction() ||
          std::any_of(
              out->getLoopDomain().begin(),
              out->getLoopDomain().end(),
@@ -114,6 +118,10 @@ class FusionInspector : private IterVisitor {
                return id->getParallelType() == ParallelType::Group;
              }))) {
       reduction_dep_[out].insert(rop);
+    }
+
+    if (out->domain()->hasClusterReduction()) {
+      cluster_reduction_count_++;
     }
   }
   void handle(WelfordOp* wop) final {
@@ -266,6 +274,9 @@ class FusionInspector : private IterVisitor {
   std::unordered_map<TensorView*, std::unordered_set<Expr*>> reduction_dep_;
   //! Whether this fusion has warp specialization enabled
   const bool has_warp_specialization_;
+  //! Track number of cluster reductions, used for mbarrier allocation
+  //! as for each cluster reduction, we need to allocate a mbarrier
+  int64_t cluster_reduction_count_ = 0;
 };
 
 //! Transform a fusion to use the fused reduction kernel.
