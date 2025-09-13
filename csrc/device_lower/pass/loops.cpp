@@ -95,7 +95,7 @@ void LoopNestGenerator::handle(Expr* expr) {
     return;
   }
 
-  TensorView* out_tv = expr->output(0)->as<TensorView>();
+  auto* out_tv = expr->output(0)->as<TensorView>();
 
   // Grab the loop structure
   NVF_ERROR(

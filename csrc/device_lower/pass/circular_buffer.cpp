@@ -450,7 +450,7 @@ class CloneTmaCircularBufferLoopAndInsertSync
     if (!id_def->isA<Split>()) {
       return nullptr;
     }
-    Split* id_def_split = id_def->as<Split>();
+    auto* id_def_split = id_def->as<Split>();
     if (id_def_split->factor() != inner_loop->stop()) {
       return nullptr;
     }
@@ -1009,7 +1009,7 @@ class CloneTmaCircularBufferLoopAndInsertSync
   Val* getSizeOfTmaLoad(LoadStoreOp* ldst) {
     NVF_ERROR(ldst != nullptr);
 
-    TensorView* consumer_tv = ldst->out()->as<TensorView>();
+    auto* consumer_tv = ldst->out()->as<TensorView>();
     NVF_ERROR(
         GpuLower::current()->consumerToTMAInfo().count(consumer_tv),
         "Unable to find TMA info for consumer_tv: ",

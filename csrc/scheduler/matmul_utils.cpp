@@ -582,7 +582,7 @@ ProblemShape getProblemShape(
   ProblemShape shape{1, 1, 1, 1};
   for (const auto& [g, dom] : dim_roles) {
     NVF_ERROR(!g->empty());
-    IterDomain* id = g->front()->as<IterDomain>();
+    auto* id = g->front()->as<IterDomain>();
     const PolymorphicValue extent =
         runtime_info.expressionEvaluator().evaluate(id->extent());
     NVF_ERROR(

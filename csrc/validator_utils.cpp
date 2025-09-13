@@ -373,7 +373,7 @@ void testValidate(
   for (auto i : arange(non_hidden_outputs.size())) {
     Val* out = non_hidden_outputs[i];
     NVF_ERROR(out->isA<TensorView>());
-    TensorView* out_tv = out->as<TensorView>();
+    auto* out_tv = out->as<TensorView>();
 
     NVF_ERROR(
         fusion_outputs[i].is<at::Tensor>(),
