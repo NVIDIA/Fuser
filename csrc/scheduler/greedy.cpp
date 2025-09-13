@@ -980,6 +980,9 @@ void GreedyScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
 
   scheduler_utils::clearMemorySpace(fusion);
 
+  // Cache inputs
+  auto cached_inputs = scheduler_utils::cacheInputs(fusion, true);
+
   propagateReshape(fusion);
 
   insertCopyAfter(fusion);

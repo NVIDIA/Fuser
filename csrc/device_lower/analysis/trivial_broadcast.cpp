@@ -88,6 +88,20 @@ void ConcretizedBroadcastDomains::handle(BroadcastOp* bop) {
   }
 }
 
+// TopKOp with K=1 introduces a new broadcast ID
+void ConcretizedBroadcastDomains::handle(TopKOp* top) {
+  auto out_value = top->outValues()->as<TensorView>();
+  auto k_value_id = out_value->getLogicalDomain().at(top->dim());
+  if (k_value_id->isBroadcast()) {
+    broadcast_origin_map_.emplace(
+        k_value_id, std::unordered_set<IterDomain*>({k_value_id}));
+    auto k_indices_id =
+        top->outIndices()->as<TensorView>()->getLogicalDomain().at(top->dim());
+    broadcast_origin_map_.emplace(
+        k_indices_id, std::unordered_set<IterDomain*>({k_indices_id}));
+  }
+}
+
 void ConcretizedBroadcastDomains::dispatch(Expr* expr) {
   IterVisitor::dispatch(expr);
 
