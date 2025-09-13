@@ -5577,9 +5577,9 @@ TEST_F(HopperMatmulTest, HSH_NT_SingleMathGroupSyncCheck) {
         kir::IrVisitor::handle(kernel->topLevelExprs());
       }
 
-      ForLoop* getInnerNonTrivialLoop() {
+      kir::ForLoop* getInnerNonTrivialLoop() {
         for (int64_t pos = (int64_t)for_loops_.size() - 1; pos >= 0; --pos) {
-          ForLoop* loop = for_loops_.at(pos);
+          kir::ForLoop* loop = for_loops_.at(pos);
           if (!loop->isTrivial()) {
             return loop;
           }
@@ -5604,7 +5604,7 @@ TEST_F(HopperMatmulTest, HSH_NT_SingleMathGroupSyncCheck) {
 
       void handle(kir::Asm* aop) {
         if (aop->code().find("wgmma.wait_group") != std::string::npos) {
-          ForLoop* loop = getInnerNonTrivialLoop();
+          kir::ForLoop* loop = getInnerNonTrivialLoop();
           if (loop != nullptr) {
             // We don't need a sync for the wait that is placed at the end of
             // the top scope of the kernel
@@ -5615,7 +5615,7 @@ TEST_F(HopperMatmulTest, HSH_NT_SingleMathGroupSyncCheck) {
       }
 
      private:
-      ForLoop* wait_loop_ = nullptr;
+      kir::ForLoop* wait_loop_ = nullptr;
       bool next_expr_must_be_sync_ = false;
       bool passed_ = true;
     };

@@ -643,13 +643,13 @@ namespace {
 // Then, return the index of the for-loop in the stack of for-loops.
 int64_t getForLoopIndex(
     TensorView* tv,
-    const std::vector<ForLoop*>& loops,
+    const std::vector<kir::ForLoop*>& loops,
     bool is_inner_most_axis) {
   int64_t axis_position = is_inner_most_axis
       ? getInnerMostCircularBufferPosition(tv)
       : getOuterMostCircularBufferPosition(tv);
   IterDomain* axis = tv->axis(axis_position);
-  ForLoop* fl = CircularBufferInfo::getCircularBufferLoop(axis, loops);
+  kir::ForLoop* fl = CircularBufferInfo::getCircularBufferLoop(axis, loops);
   auto fl_it = std::find(loops.begin(), loops.end(), fl);
   return (int64_t)std::distance(loops.begin(), fl_it);
 }
@@ -658,7 +658,7 @@ int64_t getForLoopIndex(
 
 Val* CircularBufferInfo::getLinearIndex(
     TensorView* circular_buffer_tv,
-    const std::vector<ForLoop*>& loops) const {
+    const std::vector<kir::ForLoop*>& loops) const {
   int64_t compute_at_loop_index =
       getForLoopIndex(circular_buffer_tv, loops, /*is_inner_most_axis=*/true);
 
@@ -693,7 +693,7 @@ Val* CircularBufferInfo::getLinearIndex(
 }
 
 Val* CircularBufferInfo::getLinearIndexRelativeForLoopStack(
-    const std::vector<ForLoop*>& loops,
+    const std::vector<kir::ForLoop*>& loops,
     int64_t insertion_position,
     int64_t start_loop_index) const {
   NVF_ERROR(insertion_position > 0);
@@ -732,9 +732,9 @@ Val* CircularBufferInfo::getLinearIndexRelativeForLoopStack(
   return index;
 }
 
-ForLoop* CircularBufferInfo::getCircularBufferLoop(
+kir::ForLoop* CircularBufferInfo::getCircularBufferLoop(
     IterDomain* axis,
-    const std::vector<ForLoop*>& loops,
+    const std::vector<kir::ForLoop*>& loops,
     bool ignore_prologue) {
   auto loop_it = std::find_if(loops.begin(), loops.end(), [&](const auto loop) {
     return FusionInfoGuard::current()->caMap().areMapped(
@@ -750,9 +750,9 @@ ForLoop* CircularBufferInfo::getCircularBufferLoop(
   }
 }
 
-ForLoop* CircularBufferInfo::getCircularBufferLoop(
+kir::ForLoop* CircularBufferInfo::getCircularBufferLoop(
     const TensorView* tv,
-    const std::vector<ForLoop*>& loops,
+    const std::vector<kir::ForLoop*>& loops,
     bool ignore_prologue) const {
   IterDomain* axis = getCircularBufferAxis(tv);
 
@@ -764,7 +764,7 @@ ForLoop* CircularBufferInfo::getCircularBufferLoop(
 }
 
 std::unordered_set<const TensorView*> CircularBufferInfo::getCircularBufferTvs(
-    ForLoop* axis) const {
+    kir::ForLoop* axis) const {
   return getCircularBufferTvs(axis->iter_domain());
 }
 

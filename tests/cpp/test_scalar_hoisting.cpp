@@ -67,10 +67,10 @@ TEST_F(ScalarHoistTest, IndexHoist1) {
   // intended. Validation could be also done by just string comparison
   // as the parser test, but updating such tests would be tedious.
   for (auto top_level_loop :
-       ir_utils::filterByType<ForLoop>(kernel->topLevelExprs())) {
+       ir_utils::filterByType<kir::ForLoop>(kernel->topLevelExprs())) {
     auto innermost_loop = top_level_loop;
-    while (auto first_expr_loop =
-               dynamic_cast<ForLoop*>(innermost_loop->body().exprs().at(0))) {
+    while (auto first_expr_loop = dynamic_cast<kir::ForLoop*>(
+               innermost_loop->body().exprs().at(0))) {
       innermost_loop = first_expr_loop;
     }
     const auto& exprs = innermost_loop->body().exprs();

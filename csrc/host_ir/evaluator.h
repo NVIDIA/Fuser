@@ -96,7 +96,7 @@ class NVF_API HostIrEvaluator final : public OptOutDispatch {
   void handle(Communication*) override;
   void handle(P2PCommunication*) override;
   void handle(Wait*) override;
-  void handle(ForLoop*) override;
+  void handle(kir::ForLoop*) override;
   void handle(StartCoalescing*) override;
   void handle(EndCoalescing*) override;
   void handle(kir::IfThenElse*) override;

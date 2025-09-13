@@ -27,7 +27,7 @@ namespace nvfuser {
 // but for now, here's a workaround to get a correct loop index
 Val* getLoopIndexOfCircularBufferLoop(
     IterDomain* loop_id,
-    const std::vector<ForLoop*>& for_loops,
+    const std::vector<kir::ForLoop*>& for_loops,
     const IdModel& id_model);
 
 // For a circular-buffering expr, the producer loop index needs to be
@@ -35,7 +35,7 @@ Val* getLoopIndexOfCircularBufferLoop(
 // if it's applicable. Otherwise, nullptr is returned.
 Val* getLoopIndexOffsetForProducerOfCircularBuffer(
     const Expr* expr,
-    const ForLoop* for_loop,
+    const kir::ForLoop* for_loop,
     const IdModel& id_model);
 
 // Get the additional offset for a circular buffer. This offset will
@@ -45,12 +45,12 @@ Val* getLoopIndexOffsetForProducerOfCircularBuffer(
 Val* getOffsetForCircularBufferTensor(
     TensorView* circular_buffer_tv,
     bool as_consumer,
-    const std::vector<ForLoop*>& for_loops);
+    const std::vector<kir::ForLoop*>& for_loops);
 
 // Find the circular buffering stage of a given circular buffered tensor
 CircularBufferLoopStage getCircularBufferLoopStage(
     const TensorView* circular_buffer_tv,
-    const std::vector<ForLoop*>& for_loops,
+    const std::vector<kir::ForLoop*>& for_loops,
     const ValGraph& loop_graph);
 
 } // namespace nvfuser

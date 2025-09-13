@@ -424,7 +424,7 @@ std::unordered_set<Val*> allConsumerValsOf(Val* val) {
 
 } // namespace
 
-void HostIrEvaluator::handle(ForLoop* for_loop) {
+void HostIrEvaluator::handle(kir::ForLoop* for_loop) {
   auto start = expr_evaluator_.evaluate(for_loop->start()).as<int64_t>();
   auto step = expr_evaluator_.evaluate(for_loop->step()).as<int64_t>();
   auto stop = expr_evaluator_.evaluate(for_loop->stop()).as<int64_t>();

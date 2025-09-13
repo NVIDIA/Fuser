@@ -81,8 +81,8 @@ namespace {
 // omit the predicate for a parallel type.
 std::vector<IterDomain*> getUnswitchProtectedParallelLoopIds(
     const Expr* expr,
-    const std::vector<ForLoop*>& loops,
-    ForLoop* unswitched_loop) {
+    const std::vector<kir::ForLoop*>& loops,
+    kir::ForLoop* unswitched_loop) {
   if (unswitched_loop == nullptr) {
     return {};
   }
@@ -100,7 +100,7 @@ std::vector<IterDomain*> getUnswitchProtectedParallelLoopIds(
       loops.begin(),
       loops.end(),
       std::back_inserter(loop_ids),
-      [&](ForLoop* loop) {
+      [&](kir::ForLoop* loop) {
         return getLoopPromotion(loop->iter_domain(), id_model);
       });
 
@@ -219,8 +219,8 @@ std::vector<IterDomain*> getUnswitchProtectedParallelLoopIds(
 std::unordered_map<ParallelType, ParallelizedDomainPredicate::PredicateInfo>
 ParallelizedDomainPredicate::getPredicateMap(
     const Expr* expr,
-    const std::vector<ForLoop*>& loops,
-    ForLoop* unswitched_loop) {
+    const std::vector<kir::ForLoop*>& loops,
+    kir::ForLoop* unswitched_loop) {
   const auto gpu_lower = GpuLower::current();
   auto output_tvs = ir_utils::getTvs(expr->outputs());
 
@@ -332,7 +332,7 @@ ParallelizedDomainPredicate::getPredicateMap(
 
 Val* ParallelizedDomainPredicate::getPredicate(
     const Expr* expr,
-    const std::vector<ForLoop*>& loops) {
+    const std::vector<kir::ForLoop*>& loops) {
   DEBUG_PRINT_SCOPE_NAME(
       "ParallelizedDomainPredicate::getPredicate", "expr = ", expr);
   auto pred_map = getPredicateMap(expr, loops);
@@ -596,7 +596,7 @@ Val* createElectSyncPredicate(kir::Predicate* pred, bool is_async_warp) {
 
 Val* createSingleExpressionElectSync(
     kir::Predicate* pred,
-    const std::vector<ForLoop*>& loops) {
+    const std::vector<kir::ForLoop*>& loops) {
   NVF_ERROR(pred->expr() != nullptr);
   NVF_ERROR(
       ir_utils::isCpAsyncBulk(pred->expr()) ||
@@ -612,9 +612,11 @@ Val* createSingleExpressionElectSync(
   auto pred_map =
       ParallelizedDomainPredicate::getPredicateMap(pred->expr(), loops);
 
-  bool is_async_warp = std::any_of(loops.begin(), loops.end(), [](ForLoop* fl) {
-    return fl->circularBufferLoopStage() == CircularBufferLoopStage::AsyncWarp;
-  });
+  bool is_async_warp =
+      std::any_of(loops.begin(), loops.end(), [](kir::ForLoop* fl) {
+        return fl->circularBufferLoopStage() ==
+            CircularBufferLoopStage::AsyncWarp;
+      });
 
   Val* parallel_dom_pred = GpuLower::current()->kernel()->trueVal();
   for (auto pt : {ParallelType::TIDx, ParallelType::TIDy, ParallelType::TIDz}) {
@@ -671,7 +673,7 @@ Val* createSingleExpressionElectSync(
 //  2. TMA expression does not use ParallelType::TIDy or ParallelType::TIDz.
 Val* createMultipleExpressionElectSync(
     kir::Predicate* pred,
-    const std::vector<ForLoop*>& loops) {
+    const std::vector<kir::ForLoop*>& loops) {
   NVF_ERROR(pred->expr() == nullptr);
 
   Val* zero = IrBuilder::create<Val>(0L, PrimDataType::UInt64);
@@ -681,7 +683,7 @@ Val* createMultipleExpressionElectSync(
   // Determine if warp specialized tma load expression.
   ParallelType async_warp_on = ParallelType::Serial;
   auto async_warp_loop_it =
-      std::find_if(loops.begin(), loops.end(), [](ForLoop* fl) {
+      std::find_if(loops.begin(), loops.end(), [](kir::ForLoop* fl) {
         return fl->circularBufferLoopStage() ==
             CircularBufferLoopStage::AsyncWarp;
       });
@@ -720,7 +722,7 @@ Val* createMultipleExpressionElectSync(
 // ElectSync and Inline predicate.
 OneDimTmaPredicateInfo PredicateCompute::OneDimTmaLoadExpectArrive(
     kir::Predicate* pred,
-    const std::vector<ForLoop*>& current_loops) {
+    const std::vector<kir::ForLoop*>& current_loops) {
   FUSER_PERF_SCOPE("GpuLower::Lower::OneDimTmaLoadExpectArrive");
   auto expr = pred->expr();
   NVF_ERROR(expr != nullptr);
@@ -729,7 +731,7 @@ OneDimTmaPredicateInfo PredicateCompute::OneDimTmaLoadExpectArrive(
   auto pval_inline = getInlinePredicate(
       expr,
       current_loops,
-      /*rotated_loop_=*/std::unordered_set<ForLoop*>{},
+      /*rotated_loop_=*/std::unordered_set<kir::ForLoop*>{},
       /*thread_pred=*/nullptr,
       PredicateType::Inline);
   // We want to merge [pval_inline] with [pval_elect_sync].
@@ -740,7 +742,7 @@ OneDimTmaPredicateInfo PredicateCompute::OneDimTmaLoadExpectArrive(
   std::unordered_map<Val*, Val*> replace_map;
   const auto& loops = pred->tma1dLoadLoops();
   auto circular_loop_iter =
-      std::find_if(loops.begin(), loops.end(), [](ForLoop* fl) {
+      std::find_if(loops.begin(), loops.end(), [](kir::ForLoop* fl) {
         return fl->circularBufferLoopStage() ==
             CircularBufferLoopStage::AsyncWarp;
       });
@@ -752,7 +754,9 @@ OneDimTmaPredicateInfo PredicateCompute::OneDimTmaLoadExpectArrive(
     // skip the loops that are already in the current loop nest since their
     // indices are accessible.
     if (std::any_of(
-            current_loops.begin(), current_loops.end(), [&](ForLoop* loop) {
+            current_loops.begin(),
+            current_loops.end(),
+            [&](kir::ForLoop* loop) {
               return loop->iter_domain() == fl->iter_domain();
             })) {
       one_dim_tma_pred_info.loop_indices_circular_to_predicate.push_back(
@@ -786,7 +790,7 @@ OneDimTmaPredicateInfo PredicateCompute::OneDimTmaLoadExpectArrive(
 // predicates MBarrierWaitParity for 1d tma load
 Val* PredicateCompute::OneDimTmaWaitParity(
     kir::Predicate* pred,
-    const std::vector<ForLoop*>& current_loops,
+    const std::vector<kir::ForLoop*>& current_loops,
     const OneDimTmaPredicateInfo& one_dim_tma_pred_info) {
   FUSER_PERF_SCOPE("GpuLower::Lower::OneDimTmaWaitParity");
   auto expr = pred->expr();
@@ -797,8 +801,8 @@ Val* PredicateCompute::OneDimTmaWaitParity(
   // predicate OneDimTmaLoadExpectArrive  .
   NVF_ERROR(expr->isA<kir::MBarrierWaitParity>())
   auto inline_pred_1d_tma = one_dim_tma_pred_info.inline_pred_val;
-  auto circular_loop_iter =
-      std::find_if(current_loops.begin(), current_loops.end(), [](ForLoop* fl) {
+  auto circular_loop_iter = std::find_if(
+      current_loops.begin(), current_loops.end(), [](kir::ForLoop* fl) {
         return fl->circularBufferLoopStage() ==
             CircularBufferLoopStage::ComputeWarp;
       });
@@ -817,7 +821,7 @@ Val* PredicateCompute::OneDimTmaWaitParity(
 
 Val* PredicateCompute::getElectSyncPredicate(
     kir::Predicate* pred,
-    const std::vector<ForLoop*>& loops) {
+    const std::vector<kir::ForLoop*>& loops) {
   FUSER_PERF_SCOPE("GpuLower::Lower::getElectSyncPredicate");
 
   // Short-Circuit: A single expression is associated with the predicate.
@@ -830,8 +834,8 @@ Val* PredicateCompute::getElectSyncPredicate(
 
 Val* PredicateCompute::getInlinePredicate(
     const Expr* expr,
-    const std::vector<ForLoop*>& loops,
-    const std::unordered_set<ForLoop*>& rotated_loops,
+    const std::vector<kir::ForLoop*>& loops,
+    const std::unordered_set<kir::ForLoop*>& rotated_loops,
     Val* thread_pred,
     PredicateType pred_type) {
   DEBUG_PRINT_SCOPE(
@@ -952,8 +956,8 @@ Val* PredicateCompute::getInlinePredicate(
 }
 
 Val* UnswitchPredicate::get(
-    const std::vector<ForLoop*>& outer_loops,
-    ForLoop* unrolled_loop) {
+    const std::vector<kir::ForLoop*>& outer_loops,
+    kir::ForLoop* unrolled_loop) {
   FUSER_PERF_SCOPE("GpuLower::Lower::UnswitchPredicate::get");
 
   UnswitchPredicate up(outer_loops, unrolled_loop);
@@ -1128,7 +1132,7 @@ void UnswitchPredicate::addParallelizedDomainPredicates(Expr* tv_expr) {
   }
 }
 
-void UnswitchPredicate::openLoop(ForLoop* fl) {
+void UnswitchPredicate::openLoop(kir::ForLoop* fl) {
   FUSER_PERF_SCOPE("GpuLower::Lower::UnswitchPredicate::openLoop");
 
   for_loops_.push_back(fl);
@@ -1138,7 +1142,7 @@ void UnswitchPredicate::openLoop(ForLoop* fl) {
       predicateOn(expr);
     } else if (auto ite = dynamic_cast<kir::IfThenElse*>(expr)) {
       openIte(ite);
-    } else if (auto for_loop = dynamic_cast<ForLoop*>(expr)) {
+    } else if (auto for_loop = dynamic_cast<kir::ForLoop*>(expr)) {
       openLoop(for_loop);
     }
   }
@@ -1176,7 +1180,7 @@ void UnswitchPredicate::openIte(kir::IfThenElse* ite) {
       predicateOn(expr);
     } else if (auto ite = dynamic_cast<kir::IfThenElse*>(expr)) {
       openIte(ite);
-    } else if (auto for_loop = dynamic_cast<ForLoop*>(expr)) {
+    } else if (auto for_loop = dynamic_cast<kir::ForLoop*>(expr)) {
       openLoop(for_loop);
     }
   }
@@ -1316,8 +1320,8 @@ void UnswitchPredicate::mergeUnswitchPredicates(
 }
 
 UnswitchPredicate::UnswitchPredicate(
-    std::vector<ForLoop*> outer_loops,
-    ForLoop* unrolled_loop)
+    std::vector<kir::ForLoop*> outer_loops,
+    kir::ForLoop* unrolled_loop)
     : for_loops_(std::move(outer_loops)), unrolled_loop_(unrolled_loop) {
   openLoop(unrolled_loop);
   finalize();

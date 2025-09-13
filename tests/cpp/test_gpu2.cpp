@@ -5424,7 +5424,7 @@ TEST_F(NVFuserTest, FusionWARSyncAliasedSmem_CUDA) {
   // Make sure a WAR sync is inserted at the end of the outer loop
   GpuLower gpulw(&fusion);
   for (const auto& kir_node : gpulw.run()->topLevelExprs()) {
-    if (auto loop = dynamic_cast<ForLoop*>(kir_node)) {
+    if (auto loop = dynamic_cast<kir::ForLoop*>(kir_node)) {
       const auto& body = loop->body().exprs();
       NVF_CHECK(!body.empty());
       auto last_expr = dynamic_cast<kir::BlockSync*>(body.back());

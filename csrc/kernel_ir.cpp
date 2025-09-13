@@ -16,6 +16,7 @@
 #include <ir/utils.h>
 #include <kernel.h>
 #include <kernel_ir.h>
+#include <kernel_ir_dispatch.h>
 #include <type.h>
 
 #include <cctype>
@@ -39,6 +40,309 @@ inline const char* optionalBoolLiteral(std::optional<bool> optional_value) {
 }
 
 } // namespace
+
+// kir::ForLoop definitions moved from ir/nodes.cpp
+ForLoop::ForLoop(
+    IrBuilderPasskey passkey,
+    IterDomain* iter_domain,
+    Val* index,
+    Val* start,
+    Val* stop,
+    Val* step,
+    bool vectorize,
+    Val* vectorize_shift,
+    bool unroll_required,
+    CircularBufferLoopStage circular_buffer_loop_stage,
+    int64_t circular_buffer_loop_stage_depth)
+    : Expr(passkey) {
+  NVF_ERROR(passkey.ir_container_ != nullptr);
+  NVF_ERROR(
+      passkey.ir_container_->isA<kir::Kernel>() ||
+          passkey.ir_container_->isA<hir::HostIrContainer>(),
+      "IR type only valid for Kernel or Host container.");
+  NVF_ERROR(isIntegralType(index->dtype()));
+  addInput(index);
+  addInput(iter_domain);
+  if (start == nullptr && iter_domain->isThread()) {
+    start = NamedScalar::getParallelIndex(iter_domain->getParallelType());
+  }
+  if (step == nullptr) {
+    if (iter_domain->isThread()) {
+      step = NamedScalar::getParallelDim(iter_domain->getParallelType());
+    } else {
+      step = FusionGuard::getCurFusion()->oneVal();
+    }
+  }
+  NVF_ERROR(
+      index->dtype() == DataType::Index, "Loop index must be an index type.");
+  NVF_ERROR(
+      start == nullptr || start->dtype() == DataType::Index,
+      "Loop start must be an index type.");
+  NVF_ERROR(
+      step->dtype() == DataType::Index, "Loop step must be an index type.");
+  NVF_ERROR(
+      stop == nullptr || stop->dtype() == DataType::Index,
+      "Loop stop must be an index type.");
+  addAttribute(start);
+  addAttribute(stop);
+  addAttribute(step);
+  addDataAttribute(vectorize);
+  addAttribute(vectorize_shift);
+  addDataAttribute(unroll_required);
+  addDataAttribute(circular_buffer_loop_stage);
+  addDataAttribute(circular_buffer_loop_stage_depth);
+  addDataAttribute(Scope(this));
+}
+
+ForLoop::ForLoop(
+    IrBuilderPasskey passkey,
+    IterDomain* iter_domain,
+    Val* index,
+    CircularBufferLoopStage circular_buffer_loop_stage,
+    int64_t circular_buffer_loop_stage_depth)
+    : ForLoop(
+          passkey,
+          iter_domain,
+          index,
+          nullptr,
+          nullptr,
+          nullptr,
+          !iter_domain->isBroadcast() &&
+              isParallelTypeVectorize(iter_domain->getParallelType()),
+          nullptr,
+          false,
+          circular_buffer_loop_stage,
+          circular_buffer_loop_stage_depth) {}
+
+ForLoop::ForLoop(IrBuilderPasskey passkey, IterDomain* iter_domain)
+    : ForLoop(
+          passkey,
+          iter_domain,
+          GpuLower::current()->getLoopIndexVariable(iter_domain),
+          CircularBufferLoopStage::NotApplicable,
+          0) {}
+
+ForLoop::ForLoop(IrBuilderPasskey passkey, const ForLoop* other)
+    : ForLoop(
+          passkey,
+          other->iter_domain(),
+          other->index(),
+          other->start(),
+          other->stop(),
+          other->step(),
+          other->vectorize(),
+          other->vectorize_shift(),
+          other->isUnrollRequired(),
+          other->circularBufferLoopStage(),
+          other->circularBufferLoopStageDepth()) {}
+
+std::string ForLoop::toString(int indent_size) const {
+  std::stringstream ss;
+  indent(ss, indent_size) << "FOR " << index()->toString() << " in "
+                          << iter_domain()->toString() << ":\n"
+                          << body().toString(indent_size + 1);
+  return ss.str();
+}
+
+std::string ForLoop::toInlineString(int /*indent_size*/) const {
+  NVF_CHECK(false, "Tensor op can not be printed inline");
+}
+
+bool ForLoop::isUnrollable() const {
+  return start()->isConstScalar() && stop()->isConstScalar() &&
+      !iter_domain()->isThread() && !iter_domain()->isDeviceDim() &&
+      !iter_domain()->isBroadcast() && !vectorize();
+}
+
+bool ForLoop::isUnrolled() const {
+  if (isUnrollRequired() && !isUnrollable()) {
+    if (!iter_domain()->isBroadcast() && !vectorize()) {
+      TORCH_WARN(
+          "Unroll required but not possible. Register allocation disabled. "
+          "Loop index: ",
+          index()->toString(),
+          ", ",
+          toString());
+    }
+    return false;
+  }
+
+  if (start()->isZeroInt() && stop()->isOneInt()) {
+    return false;
+  }
+
+  if (isUnrollRequired()) {
+    return true;
+  }
+
+  if (!isUnrollable()) {
+    return false;
+  }
+
+  if (iter_domain()->getParallelType() == ParallelType::Unswitch) {
+    return false;
+  }
+
+  if (hasRuntimeReductionFunctions()) {
+    return false;
+  }
+
+  return true;
+}
+
+Val* ForLoop::start() const {
+  if (attributeVal(0) != nullptr) {
+    return attributeVal(0);
+  } else {
+    NVF_ERROR(iter_domain() != nullptr);
+    return iter_domain()->start();
+  }
+}
+
+Val* ForLoop::stop() const {
+  if (attributeVal(1) != nullptr) {
+    return attributeVal(1);
+  } else {
+    NVF_ERROR(iter_domain() != nullptr);
+    return iter_domain()->extent();
+  }
+}
+
+Val* ForLoop::step() const {
+  NVF_ERROR(attributeVal(2) != nullptr);
+  return attributeVal(2);
+}
+
+Val* ForLoop::simplifiedStop() const {
+  if (simplified_stop_ == nullptr) {
+    simplified_stop_ = GpuLower::hasCurrent()
+        ? GpuLower::current()->commonScalarMap().hoistScalar(stop(), {})
+        : stop();
+  }
+  return simplified_stop_;
+}
+
+bool ForLoop::isTrivial() const {
+  if (vectorize() || iter_domain()->isBroadcast() ||
+      iter_domain()->isStride() || iter_domain()->isMma() ||
+      iter_domain()->isBulk() || iter_domain()->isDeviceDim()) {
+    return true;
+  }
+
+  if (index()->isConstScalar() || index()->definition() != nullptr) {
+    return true;
+  }
+
+  if (stop() == iter_domain()->extent() && iter_domain()->isThread()) {
+    return true;
+  }
+
+  if (start()->isZeroInt() && simplifiedStop()->isOneInt() &&
+      step()->isOneInt()) {
+    return true;
+  }
+
+  if (start()->definition() != nullptr &&
+      start()->definition()->isA<BinaryOp>() &&
+      start()->definition()->as<BinaryOp>()->getBinaryOpType() ==
+          BinaryOpType::Sub &&
+      start()->definition()->as<BinaryOp>()->lhs() == stop() &&
+      start()->definition()->as<BinaryOp>()->rhs()->isOneInt()) {
+    return true;
+  }
+
+  if (start()->isConstScalar() && simplifiedStop()->isConstScalar() &&
+      start()->evaluate().as<int64_t>() + 1 ==
+          simplifiedStop()->evaluate().as<int64_t>() &&
+      step()->isOneInt()) {
+    return true;
+  }
+
+  return false;
+}
+
+namespace {
+
+class ExprFinder : kir::ConstIrVisitor {
+ public:
+  static bool exists(
+      const Expr* expr,
+      const std::unordered_set<std::type_index>& expr_types) {
+    ExprFinder finder(expr_types);
+    finder.handle(std::vector<const Expr*>{expr});
+    return finder.is_found_;
+  }
+
+ private:
+  ExprFinder(const std::unordered_set<std::type_index>& expr_types)
+      : expr_types_(expr_types) {}
+
+  using kir::ConstIrVisitor::handle;
+
+  void dispatch(const Expr* expr) final {
+    if (expr_types_.find(typeid(*expr)) != expr_types_.end()) {
+      is_found_ = true;
+      return;
+    }
+    kir::ConstIrVisitor::dispatch(expr);
+  }
+
+ private:
+  const std::unordered_set<std::type_index>& expr_types_;
+  bool is_found_ = false;
+};
+
+} // namespace
+
+bool ForLoop::isGroup() const {
+  if (iter_domain()->getParallelType() != ParallelType::Group) {
+    return false;
+  }
+
+  return ExprFinder::exists(
+      this,
+      {typeid(GroupedReductionOp),
+       typeid(kir::GroupedGridReduction),
+       typeid(kir::GroupedGridWelford)});
+}
+
+namespace {
+
+class RuntimeReductionFinder : kir::ConstIrVisitor {
+ public:
+  static bool exists(const Expr* expr) {
+    NVF_CHECK(expr->container()->isA<kir::Kernel>());
+    RuntimeReductionFinder finder;
+    finder.handle(std::vector<const Expr*>{expr});
+    return finder.is_found_;
+  }
+
+ private:
+  using kir::ConstIrVisitor::handle;
+
+  void dispatch(const Expr* expr) final {
+    if (expr->isA<ReductionOp>() || expr->isA<WelfordOp>() ||
+        expr->isA<kir::GridReduction>() ||
+        expr->isA<kir::GroupedGridReduction>() ||
+        expr->isA<kir::GridWelford>() || expr->isA<kir::GroupedGridWelford>() ||
+        expr->isA<GroupedReductionOp>()) {
+      is_found_ = true;
+      return;
+    }
+    kir::ConstIrVisitor::dispatch(expr);
+  }
+
+ private:
+  bool is_found_ = false;
+};
+
+} // namespace
+
+bool ForLoop::hasRuntimeReductionFunctions() const {
+  return RuntimeReductionFinder::exists(this);
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(ForLoop)
 
 Predicate::Predicate(
     IrBuilderPasskey passkey,

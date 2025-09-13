@@ -28,7 +28,7 @@ class MagicZeroInserter : public kir::ExprMutator {
  private:
   struct InsertionInfo {
     Scope* scope = nullptr;
-    ForLoop* fl = nullptr;
+    kir::ForLoop* fl = nullptr;
   };
 
   MagicZeroInserter(const std::vector<Expr*>& exprs) {
@@ -38,7 +38,7 @@ class MagicZeroInserter : public kir::ExprMutator {
     kir::ExprMutator::traverseAndInsert(exprs);
   }
 
-  void handle(ForLoop* fl) final {
+  void handle(kir::ForLoop* fl) final {
     if (fl->isUnrolled()) {
       if (scope_.empty()) {
         kir::ExprMutator::registerInsertAfter(
@@ -105,7 +105,10 @@ Val* maybeUnwrapMagicZero(Val* val) {
   }
 }
 
-bool needsMagicZero(ForLoop* loop, IterDomain* reference_domain, Val* ind) {
+bool needsMagicZero(
+    kir::ForLoop* loop,
+    IterDomain* reference_domain,
+    Val* ind) {
   if (!GpuLower::current()->isNvFuserZeroEnabled()) {
     return false;
   }
@@ -124,7 +127,7 @@ bool needsMagicZero(ForLoop* loop, IterDomain* reference_domain, Val* ind) {
 }
 
 void protectNonPredicateIndexWithMagicZero(
-    const std::vector<ForLoop*>& loops,
+    const std::vector<kir::ForLoop*>& loops,
     const std::vector<IterDomain*>& loop_domains,
     std::unordered_map<IterDomain*, Val*>& concrete_loop_idx_map) {
   if (!GpuLower::current()->isNvFuserZeroEnabled()) {
@@ -188,7 +191,7 @@ IndexMagicZeroInfo protectIndexByReplacingLoopIndex(
 IndexMagicZeroInfo protectPredicateIndexWithMagicZero(
     Val* index,
     const IndexFromIdGraph& id_graph,
-    const std::vector<ForLoop*>& loops) {
+    const std::vector<kir::ForLoop*>& loops) {
   if (!GpuLower::current()->isNvFuserZeroEnabled()) {
     IndexMagicZeroInfo not_proteced;
     not_proteced.index = index;

@@ -36,8 +36,8 @@ LoopNestGenerator::LoopNestGenerator(const std::vector<Expr*>& exprs) {
 
 namespace {
 
-ForLoop* openForHelper(ForLoop* scope, IterDomain* id) {
-  ForLoop* new_scope = IrBuilder::create<ForLoop>(id);
+kir::ForLoop* openForHelper(kir::ForLoop* scope, IterDomain* id) {
+  kir::ForLoop* new_scope = IrBuilder::create<kir::ForLoop>(id);
   if (scope != nullptr) {
     scope->body().insert(0, new_scope);
   }
@@ -118,8 +118,8 @@ void LoopNestGenerator::handle(Expr* expr) {
   }
 
   for (auto loop : loop_structure) {
-    auto find_it =
-        std::find_if(for_loops_.begin(), for_loops_.end(), [loop](ForLoop* fl) {
+    auto find_it = std::find_if(
+        for_loops_.begin(), for_loops_.end(), [loop](kir::ForLoop* fl) {
           return fl->iter_domain() == loop;
         });
     if (find_it == for_loops_.end()) {

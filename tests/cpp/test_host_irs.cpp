@@ -387,7 +387,7 @@ TEST_P(HostIrTest, ForLoops) {
   auto* start = IrBuilder::create<Val>(kForLoopStart, DataType::Index);
   auto* stop = IrBuilder::create<Val>(kForLoopStop, DataType::Index);
   auto* step = IrBuilder::create<Val>(kForLoopStep, DataType::Index);
-  auto* for_loop = IrBuilder::create<ForLoop>(
+  auto* for_loop = IrBuilder::create<kir::ForLoop>(
       /*iter_domain=*/makeContigConcreteTensor({0})->axis(0), // unused
       index,
       start,
@@ -1199,7 +1199,7 @@ TEST_F(AllocationTest, inHostForLoop) {
   auto hic = std::make_unique<HostIrContainer>();
   FusionGuard fg(hic.get());
 
-  auto* for_loop = IrBuilder::create<ForLoop>(
+  auto* for_loop = IrBuilder::create<kir::ForLoop>(
       /*IterDomain=*/makeContigConcreteTensor({0})->axis(0), // unused
       /*index=*/IrBuilder::create<Val>(DataType::Index),
       /*start=*/hic->zeroVal(),

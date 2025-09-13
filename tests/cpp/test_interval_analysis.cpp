@@ -328,7 +328,7 @@ TEST_F(IntervalAnalysisTest, SerialLoops) {
   Val* start = kernel.zeroVal();
   auto* id = IterDomainBuilder(start, ext).extent(ext).build();
   Val* index = IrBuilder::create<Val>(DataType::Index);
-  auto* loop = IrBuilder::create<ForLoop>(
+  auto* loop = IrBuilder::create<kir::ForLoop>(
       id,
       index,
       /*circular_buffer_loop_stage=*/CircularBufferLoopStage::NotApplicable,
@@ -364,7 +364,7 @@ TEST_F(IntervalAnalysisTest, ParallelLoops) {
                  .parallel_type(ParallelType::TIDx)
                  .build();
   Val* index = IrBuilder::create<Val>(DataType::Index);
-  auto* loop = IrBuilder::create<ForLoop>(
+  auto* loop = IrBuilder::create<kir::ForLoop>(
       id,
       index,
       /*circular_buffer_loop_stage=*/CircularBufferLoopStage::NotApplicable,

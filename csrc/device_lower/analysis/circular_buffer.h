@@ -105,22 +105,22 @@ class CircularBufferInfo {
   //! Get a loop that matches with a given circular-buffer axis. If
   //! ignore_prologue is true, a matched loop is ignored if it's a
   //! prologue loop.
-  static ForLoop* getCircularBufferLoop(
+  static kir::ForLoop* getCircularBufferLoop(
       IterDomain* axis,
-      const std::vector<ForLoop*>& loops,
+      const std::vector<kir::ForLoop*>& loops,
       bool ignore_prologue = false);
 
   //! Get a loop that matches with the circular-buffer axis of a given
   //! circular-buffered tensor. If ignore_prologue is true, a matched
   //! loop is ignored if it's a prologue loop.
-  ForLoop* getCircularBufferLoop(
+  kir::ForLoop* getCircularBufferLoop(
       const TensorView* tv,
-      const std::vector<ForLoop*>& loops,
+      const std::vector<kir::ForLoop*>& loops,
       bool ignore_prologue = false) const;
 
   //! Get the circular-buffered tensors for the given loop/axis.
   std::unordered_set<const TensorView*> getCircularBufferTvs(
-      ForLoop* axis) const;
+      kir::ForLoop* axis) const;
   std::unordered_set<const TensorView*> getCircularBufferTvs(
       IterDomain* axis) const;
 
@@ -167,14 +167,14 @@ class CircularBufferInfo {
   //! stack maps to the circular_buffer_tv's loop domain.
   Val* getLinearIndex(
       TensorView* circular_buffer_tv,
-      const std::vector<ForLoop*>& loops) const;
+      const std::vector<kir::ForLoop*>& loops) const;
 
   //! Get the linearized index used for selecting the circular buffering stage
   //! and calculating mbarrier parity. The index includes all serial for-loops
   //! from outer-most to inner-most circular buffer axis. Assume the for_loop
   //! stack can be anything to the left of the insertion position.
   Val* getLinearIndexRelativeForLoopStack(
-      const std::vector<ForLoop*>& loops,
+      const std::vector<kir::ForLoop*>& loops,
       int64_t insertion_position,
       int64_t start = 0) const;
 

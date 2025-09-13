@@ -136,7 +136,7 @@ class ScalarBoundsCalculator : kir::IrVisitor {
 
   using kir::IrVisitor::handle;
 
-  void handle(ForLoop* loop) final;
+  void handle(kir::ForLoop* loop) final;
   void handle(LoadStoreOp* lsop) final;
   void handle(UnaryOp* uop) final;
   void handle(BinaryOp* bop) final;
