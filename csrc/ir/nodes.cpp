@@ -8,6 +8,7 @@
 #include <complex>
 #include <iterator>
 #include <numeric>
+#include <ranges>
 #include <sstream>
 #include <string>
 
@@ -33,6 +34,7 @@
 #include <transform_rfactor.h>
 #include <transform_view.h>
 #include <type.h>
+#include <utils.h>
 #if NVFUSER_CUTLASS_KERNEL_ENABLED
 #include <nvf_cutlass.h>
 #endif
@@ -2453,7 +2455,7 @@ std::string LoadStoreOp::toString(int indent_size) const {
   std::string optype = load_store_type2string(opType());
   std::string modifier = "";
   { // Get modifier
-    auto* tv = dynamic_cast<TensorView*>(out());
+    TensorView* tv = dynamic_cast<TensorView*>(out());
     if (auto ti = dynamic_cast<kir::TensorIndex*>(out())) {
       tv = ti->view();
     }
@@ -2673,7 +2675,7 @@ bool IterDomain::sameAs(const Statement* other) const {
     return false;
   }
 
-  const auto* other_id = other->as<IterDomain>();
+  const IterDomain* other_id = other->as<IterDomain>();
 
   // Here're the data fields of IterDomain:
   // start_
@@ -3493,7 +3495,7 @@ bool TensorDomain::sameAs(const Statement* const other) const {
     return false;
   }
 
-  const auto* other_td = other->as<TensorDomain>();
+  const TensorDomain* other_td = other->as<TensorDomain>();
 
   if (nDims() != other_td->nDims()) {
     return false;
@@ -3893,35 +3895,35 @@ void TensorDomain::resize(
 
 std::vector<IterDomain*> TensorDomain::noReductions(
     const std::vector<IterDomain*>& td) {
-  std::vector<IterDomain*> noReductionDomain;
-  std::copy_if(
-      td.begin(),
-      td.end(),
-      std::back_inserter(noReductionDomain),
-      [](IterDomain* id) { return !id->isReduction() && !id->isStride(); });
-  return noReductionDomain;
+  auto filtered = td | std::views::filter([](IterDomain* id) {
+    return !id->isReduction() && !id->isStride();
+  });
+  std::vector<IterDomain*> result;
+  result.reserve(td.size());
+  std::ranges::copy(filtered, std::back_inserter(result));
+  return result;
 }
 
 std::vector<IterDomain*> TensorDomain::noBroadcasts(
     const std::vector<IterDomain*>& td) {
-  std::vector<IterDomain*> noBroadcastDomain;
-  std::copy_if(
-      td.begin(),
-      td.end(),
-      std::back_inserter(noBroadcastDomain),
-      [](IterDomain* id) { return !id->isBroadcast(); });
-  return noBroadcastDomain;
+  auto filtered = td | std::views::filter([](IterDomain* id) {
+    return !id->isBroadcast();
+  });
+  std::vector<IterDomain*> result;
+  result.reserve(td.size());
+  std::ranges::copy(filtered, std::back_inserter(result));
+  return result;
 }
 
 std::vector<IterDomain*> TensorDomain::noDevices(
     const std::vector<IterDomain*>& td) {
-  std::vector<IterDomain*> noDeviceDomain;
-  std::copy_if(
-      td.begin(),
-      td.end(),
-      std::back_inserter(noDeviceDomain),
-      [](IterDomain* id) { return !id->isDeviceDim(); });
-  return noDeviceDomain;
+  auto filtered = td | std::views::filter([](IterDomain* id) {
+    return !id->isDeviceDim();
+  });
+  std::vector<IterDomain*> result;
+  result.reserve(td.size());
+  std::ranges::copy(filtered, std::back_inserter(result));
+  return result;
 }
 
 /*static*/ std::vector<std::optional<bool>> TensorDomain::

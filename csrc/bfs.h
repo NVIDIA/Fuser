@@ -13,6 +13,7 @@
 #include <algorithm>
 #include <deque>
 #include <ostream>
+#include <ranges>
 #include <unordered_map>
 #include <unordered_set>
 #include <variant>
@@ -411,12 +412,12 @@ class BFS {
             inputs.begin(), inputs.end(), [&](const ValT& input) -> bool {
               return isDependencySatisfied(input);
             })) {
+      auto filtered_inputs = inputs | std::views::filter([&](const ValT& input) -> bool {
+        return isVisited(input);
+      });
       std::vector<NodeType> prev_nodes;
-      std::copy_if(
-          inputs.begin(),
-          inputs.end(),
-          std::back_inserter(prev_nodes),
-          [&](const ValT& input) -> bool { return isVisited(input); });
+      prev_nodes.reserve(inputs.size());
+      std::ranges::copy(filtered_inputs, std::back_inserter(prev_nodes));
       return std::make_pair(Direction::Forward, prev_nodes);
     }
 
@@ -426,12 +427,12 @@ class BFS {
             outputs.begin(), outputs.end(), [&](const ValT& output) -> bool {
               return isDependencySatisfied(output);
             })) {
+      auto filtered_outputs = outputs | std::views::filter([&](const ValT& output) -> bool {
+        return isVisited(output);
+      });
       std::vector<NodeType> prev_nodes;
-      std::copy_if(
-          outputs.begin(),
-          outputs.end(),
-          std::back_inserter(prev_nodes),
-          [&](const ValT& output) -> bool { return isVisited(output); });
+      prev_nodes.reserve(outputs.size());
+      std::ranges::copy(filtered_outputs, std::back_inserter(prev_nodes));
       return std::make_pair(Direction::Backward, prev_nodes);
     }
 
@@ -612,12 +613,12 @@ class BFSWithPermissiveDependence
             inputs.begin(), inputs.end(), [&](const ValT& input) -> bool {
               return this->isDependencySatisfied(input);
             })) {
+      auto filtered_inputs = inputs | std::views::filter([&](const ValT& input) -> bool {
+        return this->isVisited(input);
+      });
       std::vector<NodeType> prev_nodes;
-      std::copy_if(
-          inputs.begin(),
-          inputs.end(),
-          std::back_inserter(prev_nodes),
-          [&](const ValT& input) -> bool { return this->isVisited(input); });
+      prev_nodes.reserve(inputs.size());
+      std::ranges::copy(filtered_inputs, std::back_inserter(prev_nodes));
       return std::make_pair(Direction::Forward, prev_nodes);
     }
 
@@ -627,12 +628,12 @@ class BFSWithPermissiveDependence
             outputs.begin(), outputs.end(), [&](const ValT& output) -> bool {
               return this->isDependencySatisfied(output);
             })) {
+      auto filtered_outputs = outputs | std::views::filter([&](const ValT& output) -> bool {
+        return this->isVisited(output);
+      });
       std::vector<NodeType> prev_nodes;
-      std::copy_if(
-          outputs.begin(),
-          outputs.end(),
-          std::back_inserter(prev_nodes),
-          [&](const ValT& output) -> bool { return this->isVisited(output); });
+      prev_nodes.reserve(outputs.size());
+      std::ranges::copy(filtered_outputs, std::back_inserter(prev_nodes));
       return std::make_pair(Direction::Backward, prev_nodes);
     }
     return std::nullopt;
