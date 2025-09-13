@@ -473,7 +473,7 @@ class CloneTmaCircularBufferLoopAndInsertSync
     // Check that outer_loop matches known invariants for persistent kernel.
     IterDomain* outer_id =
         lower_utils::getConcreteLoopID(outer_loop->iterDomain());
-    Split* persistent_split = dynamic_cast<Split*>(outer_id->definition());
+    auto* persistent_split = dynamic_cast<Split*>(outer_id->definition());
     NVF_ERROR(
         persistent_split != nullptr,
         "Expected ",
@@ -904,7 +904,7 @@ class CloneTmaCircularBufferLoopAndInsertSync
     const auto& ldst_mbarrier_map = GpuLower::current()->mbarrierMap();
     std::unordered_map<TensorView*, kir::MBarrierWaitParity*> wait_exprs;
     for (auto tv : circular_buffer_load_tvs_) {
-      LoadStoreOp* ldst = dynamic_cast<LoadStoreOp*>(tv->definition());
+      auto* ldst = dynamic_cast<LoadStoreOp*>(tv->definition());
       auto mbarrier_it = ldst_mbarrier_map.find(ldst);
       if (mbarrier_it == ldst_mbarrier_map.end()) {
         // This circular buffer tensor does not use mbarrier to synchronize.
@@ -932,7 +932,7 @@ class CloneTmaCircularBufferLoopAndInsertSync
         if (circular_buffer_load_tvs_.count(tv) == 0) {
           continue;
         }
-        LoadStoreOp* ldst = dynamic_cast<LoadStoreOp*>(tv->definition());
+        auto* ldst = dynamic_cast<LoadStoreOp*>(tv->definition());
         if (ldst == nullptr) {
           continue;
         }

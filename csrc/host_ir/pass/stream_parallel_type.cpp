@@ -539,7 +539,7 @@ void StreamParallelType::passImplementation(Fusion* fusion) {
 
   // Set up the fusion environment and build the ID model
   FusionGuard fg(fusion);
-  hir::HostIrContainer* hic = dynamic_cast<hir::HostIrContainer*>(fusion);
+  auto* hic = dynamic_cast<hir::HostIrContainer*>(fusion);
   NVF_CHECK(hic, "Expected HostIrContainer");
 
   IdModel id_model(fusion);
