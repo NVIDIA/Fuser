@@ -32,6 +32,21 @@ class KernelIrScanner : private IrVisitor {
  public:
   explicit KernelIrScanner(const Kernel* kernel) {
     index_type_ = kernel->indexType();
+
+    summary_.stream_parallelized = [&]() {
+      for (const auto& ios : {kernel->inputs(), kernel->outputs()}) {
+        for (auto* tv : ir_utils::filterByType<TensorView>(ios)) {
+          if (std::any_of(
+                  tv->getLoopDomain().begin(),
+                  tv->getLoopDomain().end(),
+                  std::mem_fn(&IterDomain::isStream))) {
+            return true;
+          }
+        }
+      }
+      return false;
+    }();
+
     IrVisitor::handle(kernel->topLevelExprs());
   }
 
@@ -438,7 +453,15 @@ void Kernel::finalize(std::vector<Expr*> top_level_exprs) {
   summary_.min_device_version_reason =
       GpuLower::current()->minDeviceVersionReason();
   summary_.dec_inc_register_usage = GpuLower::current()->decIncRegisterUsage();
+
+  // Parameters are ordered to match KernelExecutor::run: first inputs, then (if
+  // needed) stream index, then outputs, then intermediates. The stream index
+  // can be considered as a special input, so it's added between regular inputs
+  // and outputs.
   parameters_ = GpuLower::current()->allKnownVals();
+  if (summary_.stream_parallelized) {
+    parameters_.push_back(NamedScalar::getParallelIndex(ParallelType::Stream));
+  }
   parameters_.insert(parameters_.end(), outputs().begin(), outputs().end());
   for (auto alloc : summary_.global_allocations) {
     if (alloc->alias() != nullptr) {

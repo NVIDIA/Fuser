@@ -935,7 +935,7 @@ void ComputeAtMap::allocateIndexVariables() {
     ParallelType ptype = ParallelType::Serial;
 
     // We don't allocate any index variable for domains which
-    // are parallelized accross devices
+    // are parallelized across devices
     if (auto result = std::find_if(
             loop_disjoint_set->vector().begin(),
             loop_disjoint_set->vector().end(),
@@ -953,7 +953,7 @@ void ComputeAtMap::allocateIndexVariables() {
     if (auto result = std::find_if(
             loop_disjoint_set->vector().begin(),
             loop_disjoint_set->vector().end(),
-            [](IterDomain* id) { return id->isThread(); });
+            [](IterDomain* id) { return id->isThread() || id->isStream(); });
         result != loop_disjoint_set->vector().end()) {
       ptype = (*result)->getParallelType();
       loop_index_variable_map_[loop_disjoint_set.get()] =

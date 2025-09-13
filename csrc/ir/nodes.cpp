@@ -5160,12 +5160,15 @@ ForLoop::ForLoop(
   NVF_ERROR(isIntegralType(index->dtype()));
   addInput(index);
   addInput(iter_domain);
-  if (start == nullptr && iter_domain->isThread()) {
+  if (start == nullptr &&
+      (iter_domain->isThread() || iter_domain->isStream())) {
     start = NamedScalar::getParallelIndex(iter_domain->getParallelType());
   }
   if (step == nullptr) {
     if (iter_domain->isThread()) {
       step = NamedScalar::getParallelDim(iter_domain->getParallelType());
+    } else if (iter_domain->isStream()) {
+      step = iter_domain->extent();
     } else {
       step = FusionGuard::getCurFusion()->oneVal();
     }
@@ -5253,7 +5256,8 @@ bool ForLoop::isUnrollable() const {
   // vectorized.
   return start()->isConstScalar() && stop()->isConstScalar() &&
       !iter_domain()->isThread() && !iter_domain()->isDeviceDim() &&
-      !iter_domain()->isBroadcast() && !vectorize();
+      !iter_domain()->isStream() && !iter_domain()->isBroadcast() &&
+      !vectorize();
 }
 
 bool ForLoop::isUnrolled() const {
@@ -5339,7 +5343,8 @@ bool ForLoop::isTrivial() const {
   // These loops are not materialized
   if (vectorize() || iter_domain()->isBroadcast() ||
       iter_domain()->isStride() || iter_domain()->isMma() ||
-      iter_domain()->isBulk() || iter_domain()->isDeviceDim()) {
+      iter_domain()->isBulk() || iter_domain()->isDeviceDim() ||
+      iter_domain()->isStream()) {
     return true;
   }
 

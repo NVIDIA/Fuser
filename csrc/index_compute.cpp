@@ -28,8 +28,6 @@
 #include <transform_iter.h>
 #include <transform_replay.h>
 
-#include <memory>
-
 namespace nvfuser {
 
 bool IndexCompute::hasUnswitchedDependentDomains(IterDomain* id) const {
@@ -1327,17 +1325,16 @@ std::vector<Val*> Index::getGlobalProducerStridedIndices(
       alloc_dom.size(), GpuLower::current()->kernel()->zeroVal());
   for (const auto i : arange(alloc_dom.size())) {
     Val* alloc_ind = alloc_indices.at(i);
-
     if (alloc_ind->isZeroInt()) {
       continue;
+    }
+
+    auto strided_ind = SimplifyingIrBuilder::mulExpr(alloc_ind, strides[i]);
+    if (i == alloc_dom.size() - 1 && vectorize_shift != nullptr) {
+      strided_inds[i] =
+          SimplifyingIrBuilder::addExpr(strided_ind, vectorize_shift);
     } else {
-      auto strided_ind = SimplifyingIrBuilder::mulExpr(alloc_ind, strides[i]);
-      if (i == alloc_dom.size() - 1 && vectorize_shift != nullptr) {
-        strided_inds[i] =
-            SimplifyingIrBuilder::addExpr(strided_ind, vectorize_shift);
-      } else {
-        strided_inds[i] = strided_ind;
-      }
+      strided_inds[i] = strided_ind;
     }
   }
 

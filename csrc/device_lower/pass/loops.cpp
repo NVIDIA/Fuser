@@ -37,7 +37,7 @@ LoopNestGenerator::LoopNestGenerator(const std::vector<Expr*>& exprs) {
 namespace {
 
 ForLoop* openForHelper(ForLoop* scope, IterDomain* id) {
-  ForLoop* new_scope = IrBuilder::create<ForLoop>(id);
+  auto* new_scope = IrBuilder::create<ForLoop>(id);
   if (scope != nullptr) {
     scope->body().insert(0, new_scope);
   }
