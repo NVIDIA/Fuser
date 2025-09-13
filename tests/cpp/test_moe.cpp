@@ -97,23 +97,18 @@ TEST_P(SgLangMoETest, ComputeProblemSizes) {
 
     KernelExecutor ke;
     ke.compile(&fusion, {t0});
-
-    GTEST_SKIP() << "Missing predication. Fix pending: "
-                    "https://github.com/NVIDIA/Fuser/pull/5107";
     auto outputs = ke.run({t0});
     testValidate(&fusion, outputs, {t0}, __LINE__, __FILE__);
   } else {
+    EnableOptionsGuard::getCurOptions().set(EnableOption::GreedyScheduler);
     FusionExecutorCache executor_cache(std::move(fusion_ptr));
     auto outputs = executor_cache.runFusionWithInputs({t0});
     testValidate(executor_cache.fusion(), outputs, {t0}, __LINE__, __FILE__);
+    EXPECT_FALSE(executor_cache.getMostRecentKernelRuntime()->isSegmented());
   }
 }
 
 TEST_P(SgLangMoETest, ComputeExpertOffsets) {
-  if (manual_scheduling) {
-    GTEST_SKIP() << "No manual scheduling implemented";
-  }
-
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
@@ -150,17 +145,15 @@ TEST_P(SgLangMoETest, ComputeExpertOffsets) {
     auto outputs = ke.run({t0});
     testValidate(&fusion, outputs, {t0}, __LINE__, __FILE__);
   } else {
+    EnableOptionsGuard::getCurOptions().set(EnableOption::GreedyScheduler);
     FusionExecutorCache executor_cache(std::move(fusion_ptr));
     auto outputs = executor_cache.runFusionWithInputs({t0});
     testValidate(executor_cache.fusion(), outputs, {t0}, __LINE__, __FILE__);
+    EXPECT_FALSE(executor_cache.getMostRecentKernelRuntime()->isSegmented());
   }
 }
 
 TEST_P(SgLangMoETest, ComputeExpertBlockScaleOffsets) {
-  if (manual_scheduling) {
-    GTEST_SKIP() << "No manual scheduling implemented";
-  }
-
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
@@ -215,10 +208,12 @@ TEST_P(SgLangMoETest, ComputeExpertBlockScaleOffsets) {
     auto outputs = ke.run({t0});
     testValidate(&fusion, outputs, {t0}, {t2, t6}, __LINE__, __FILE__);
   } else {
+    EnableOptionsGuard::getCurOptions().set(EnableOption::GreedyScheduler);
     FusionExecutorCache executor_cache(std::move(fusion_ptr));
     auto outputs = executor_cache.runFusionWithInputs({t0});
     testValidate(
         executor_cache.fusion(), outputs, {t0}, {t2, t6}, __LINE__, __FILE__);
+    EXPECT_FALSE(executor_cache.getMostRecentKernelRuntime()->isSegmented());
   }
 }
 
@@ -273,8 +268,10 @@ TEST_P(SgLangMoETest, ComputeArgSort) {
     ke.compile(&fusion, {t0});
     outputs = ke.run({t0});
   } else {
+    EnableOptionsGuard::getCurOptions().set(EnableOption::GreedyScheduler);
     FusionExecutorCache executor_cache(std::move(fusion_ptr));
     outputs = executor_cache.runFusionWithInputs({t0});
+    EXPECT_FALSE(executor_cache.getMostRecentKernelRuntime()->isSegmented());
   }
 
   auto t2 = at::argsort(t0.flatten(), true, 0, true);
