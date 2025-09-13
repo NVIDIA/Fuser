@@ -112,7 +112,7 @@ bool ResizeScheduler::canScheduleCompileTime(Fusion* fusion) {
 
   // Slicing of or to a broadcast ID is not allowed yet.
   for (auto resize_tensor_op : resize_tensor_ops) {
-    TensorView* out_tv = resize_tensor_op->output(0)->as<TensorView>();
+    auto* out_tv = resize_tensor_op->output(0)->as<TensorView>();
     for (auto logical_id : out_tv->getLogicalDomain()) {
       auto* resize = dynamic_cast<Resize*>(logical_id->definition());
       if (resize == nullptr) {

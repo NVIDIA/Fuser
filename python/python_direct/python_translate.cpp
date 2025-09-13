@@ -657,7 +657,7 @@ class PythonTranslator : public OptInConstDispatch {
     // all TensorViews for an iterDomain whose extent matches the desired
     // value and then use size op.
     for (const nvfuser::Val* tv_val : tensors()) {
-      const TensorView* tv = tv_val->as<TensorView>();
+      const auto* tv = tv_val->as<TensorView>();
 
       // Get extents for each IterDomain
       std::vector<IterDomain*> filtered_logical_domain =
@@ -1143,7 +1143,7 @@ class PythonTranslator : public OptInConstDispatch {
                         });
     std::vector<int64_t> squeeze_dims(filter_range.begin(), filter_range.end());
 
-    TensorView* in_tv = sop->in()->as<TensorView>();
+    auto* in_tv = sop->in()->as<TensorView>();
     NVF_ERROR(in_tv != nullptr);
 
     // TODO: Use std::ranges::zip_view AND std::ranges::any_of with cpp23
@@ -1171,7 +1171,7 @@ class PythonTranslator : public OptInConstDispatch {
     NVF_ERROR(vop != nullptr);
 
     // Get extent's for output's logical domain
-    TensorView* out_tv = vop->out()->as<TensorView>();
+    auto* out_tv = vop->out()->as<TensorView>();
     std::vector<Val*> new_shape = getShape(out_tv);
 
     // TODO Check if new_shape is a vector of symbolic fusion inputs
@@ -1194,8 +1194,8 @@ class PythonTranslator : public OptInConstDispatch {
 
   void handle(const ExpandOp* eop) final {
     NVF_ERROR(eop != nullptr);
-    TensorView* in_tv = eop->in()->as<TensorView>();
-    TensorView* out_tv = eop->out()->as<TensorView>();
+    auto* in_tv = eop->in()->as<TensorView>();
+    auto* out_tv = eop->out()->as<TensorView>();
     NVF_ERROR(in_tv->nDims() == out_tv->nDims());
     std::vector<Val*> shape = getShape(out_tv);
 
@@ -1374,7 +1374,7 @@ class PythonTranslator : public OptInConstDispatch {
   // created instead of a CastOp.
   void handle(const LoadStoreOp* lsop) final {
     if (lsop->out()->isA<TensorView>()) {
-      TensorView* out_tv = lsop->out()->as<TensorView>();
+      auto* out_tv = lsop->out()->as<TensorView>();
       NVF_ERROR(!(out_tv->hasRoot() && out_tv->hasAllocation()));
 
       // short-circuit: lsop is a permutation.
@@ -1401,7 +1401,7 @@ class PythonTranslator : public OptInConstDispatch {
   }
 
   void handlePermute(const LoadStoreOp* lsop) {
-    TensorView* out_tv = lsop->out()->as<TensorView>();
+    auto* out_tv = lsop->out()->as<TensorView>();
 
     std::optional<std::vector<int64_t>> new2old = ir_utils::computePermutation(
         out_tv->getRootDomain(), out_tv->getLogicalDomain());
@@ -1418,7 +1418,7 @@ class PythonTranslator : public OptInConstDispatch {
   }
 
   void handleStrideOrder(const LoadStoreOp* lsop) {
-    TensorView* out_tv = lsop->out()->as<TensorView>();
+    auto* out_tv = lsop->out()->as<TensorView>();
     visited_vals_.insert(lsop->out());
     static const std::vector<std::string> argument_names = {"stride_order"};
     printer_.generateKwargsOperation(
@@ -1431,7 +1431,7 @@ class PythonTranslator : public OptInConstDispatch {
 
   void handle(const FullOp* fop) final {
     NVF_ERROR(fop != nullptr);
-    TensorView* out_tv = fop->output(0)->as<TensorView>();
+    auto* out_tv = fop->output(0)->as<TensorView>();
     visited_vals_.insert(out_tv);
 
     // Fill value can be dynamic so create it
@@ -1449,7 +1449,7 @@ class PythonTranslator : public OptInConstDispatch {
 
   void handle(const IotaOp* iop) final {
     NVF_ERROR(iop != nullptr);
-    TensorView* out_tv = iop->output(0)->as<TensorView>();
+    auto* out_tv = iop->output(0)->as<TensorView>();
     visited_vals_.insert(out_tv);
 
     dispatch(iop->length());
@@ -1471,7 +1471,7 @@ class PythonTranslator : public OptInConstDispatch {
 
   void handle(const IndexSelectOp* isop) final {
     NVF_ERROR(isop != nullptr);
-    TensorView* out_tv = isop->output(0)->as<TensorView>();
+    auto* out_tv = isop->output(0)->as<TensorView>();
     visited_vals_.insert(out_tv);
     static const std::vector<std::string> argument_names = {"dim"};
     printer_.generateKwargsOperation(
@@ -1484,7 +1484,7 @@ class PythonTranslator : public OptInConstDispatch {
 
   void handle(const SelectOp* sop) final {
     NVF_ERROR(sop != nullptr);
-    TensorView* out_tv = sop->output(0)->as<TensorView>();
+    auto* out_tv = sop->output(0)->as<TensorView>();
     visited_vals_.insert(out_tv);
     static const std::vector<std::string> argument_names = {"dim"};
     printer_.generateKwargsOperation(
@@ -1497,7 +1497,7 @@ class PythonTranslator : public OptInConstDispatch {
 
   void handle(const ScatterOp* sop) final {
     NVF_ERROR(sop != nullptr);
-    TensorView* out_tv = sop->output(0)->as<TensorView>();
+    auto* out_tv = sop->output(0)->as<TensorView>();
     visited_vals_.insert(out_tv);
     static const std::vector<std::string> argument_names = {"dim"};
     printer_.generateKwargsOperation(
@@ -1510,7 +1510,7 @@ class PythonTranslator : public OptInConstDispatch {
 
   void handle(const GatherOp* gop) final {
     NVF_ERROR(gop != nullptr);
-    TensorView* out_tv = gop->output(0)->as<TensorView>();
+    auto* out_tv = gop->output(0)->as<TensorView>();
     visited_vals_.insert(out_tv);
     static const std::vector<std::string> argument_names = {"dim"};
     printer_.generateKwargsOperation(
@@ -1540,7 +1540,7 @@ class PythonTranslator : public OptInConstDispatch {
   void handle(const ArgsortOp* argsortop) final {
     NVF_ERROR(argsortop != nullptr);
 
-    TensorView* out_tv = argsortop->output(0)->as<TensorView>();
+    auto* out_tv = argsortop->output(0)->as<TensorView>();
     visited_vals_.insert(out_tv);
     static const auto default_args = std::make_tuple(
         KeywordArgument<decltype(argsortop->dim())>{"dim", std::nullopt},

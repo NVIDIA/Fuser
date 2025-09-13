@@ -201,7 +201,7 @@ std::vector<Expr*> groupStreamParallelRegions(
         "Each expr should have at most one output.");
 
     // Get the output tensor and check for stream parallelization
-    TensorView* output = expr->output(0)->as<TensorView>();
+    auto* output = expr->output(0)->as<TensorView>();
     IterDomain* stream_axis = getStreamAxis(output->getLoopDomain());
 
     // If no stream axis found, keep the expression as is
