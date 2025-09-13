@@ -740,6 +740,16 @@ at::Tensor transformFromAllocationToLogical(
   tensor = BackwardTraverseFromAllocToLogical(tensor, ee, frontier)
                .run(logical, alloc);
   NVF_ERROR(frontier.size() == logical.size());
+
+  // give up on producing right shape/stride when allocation domain has
+  // transformation that cannot be represented via permutation. This is
+  // currently used by PreprocessGroupedMatmulInputSf, where output is padded.
+  std::set<IterDomain*> frontier_set(frontier.begin(), frontier.end());
+  std::set<IterDomain*> logical_set(logical.begin(), logical.end());
+  if (frontier_set != logical_set) {
+    return tensor;
+  }
+
   // Now that all affine transformations are handled, and frontiers should
   // contain the same set of IDs as logical. We still need to do a final
   // permutation so that their orders are also consistent.

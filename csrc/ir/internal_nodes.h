@@ -3474,6 +3474,7 @@ class PreprocessGroupedMatmulInputSf : public Expr {
  public:
   using Expr::Expr;
 
+  // NOTE: row_idx and col_idx are used only for index lowering.
   PreprocessGroupedMatmulInputSf(
       IrBuilderPasskey,
       Val* output,
@@ -3482,7 +3483,9 @@ class PreprocessGroupedMatmulInputSf : public Expr {
       Val* output_offsets,
       BlockScalingFactorLayout layout,
       Val* k,
-      Val* g);
+      Val* g,
+      Val* row_idx = nullptr,
+      Val* col_idx = nullptr);
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
