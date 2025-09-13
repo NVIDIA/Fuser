@@ -7,6 +7,7 @@
 // clang-format on
 #include <compute_at_map.h>
 
+#include <ranges>
 #include <device_lower/lower2device.h>
 #include <disjoint_set.h>
 #include <ir/utils.h>
@@ -590,12 +591,12 @@ void IterDomainGraph::build(Fusion* fusion) {
   // consistent with eachother.
 
   auto all_tvs = fusion->allTvs();
+  auto filtered_tvs = all_tvs | std::views::filter([](TensorView* tv) {
+    return !tv->isFusionInput() && tv->hasRoot();
+  });
   std::vector<TensorView*> all_consumer_tvs;
-  std::copy_if(
-      all_tvs.begin(),
-      all_tvs.end(),
-      std::back_inserter(all_consumer_tvs),
-      [](TensorView* tv) { return !tv->isFusionInput() && tv->hasRoot(); });
+  all_consumer_tvs.reserve(all_tvs.size());
+  std::ranges::copy(filtered_tvs, std::back_inserter(all_consumer_tvs));
 
   // IterDomains could have multiple uses defined in the fusion if multiple
   // transformations were redefined (more than one transform propagation pass
@@ -692,12 +693,12 @@ void IterDomainGraph::build(Fusion* fusion) {
       // Only need to be concerned here with mapping across root iter
       // domains, so isolate out those.
       auto all_exact_map_ids = exact_nodes_.getDisjointSetOf(first_logical_id);
+      auto filtered_rf_ids = all_exact_map_ids.vector() | std::views::filter([](IterDomain* id) {
+        return id->isRFactorProduct();
+      });
       std::vector<IterDomain*> exact_map_rf_ids;
-      std::copy_if(
-          all_exact_map_ids.vector().begin(),
-          all_exact_map_ids.vector().end(),
-          std::back_inserter(exact_map_rf_ids),
-          [](IterDomain* id) { return id->isRFactorProduct(); });
+      exact_map_rf_ids.reserve(all_exact_map_ids.vector().size());
+      std::ranges::copy(filtered_rf_ids, std::back_inserter(exact_map_rf_ids));
 
       for (auto exact_map_rf_id : exact_map_rf_ids) {
         if (exact_map_rf_id == first_logical_id) {

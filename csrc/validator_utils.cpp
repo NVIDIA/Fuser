@@ -7,6 +7,7 @@
 // clang-format on
 #include <validator_utils.h>
 
+#include <ranges>
 #include <unordered_map>
 
 #include <ATen/cuda/CUDAContext.h>
@@ -322,17 +323,15 @@ void testValidate(
     const ValidationConstants& tolerances) {
   FusionGuard fg(fusion);
 
+  auto filtered = fusion->outputs() | std::views::filter([fusion](Val* out) {
+    // Returns true when `out` is **not** an aliased output that's hidden
+    // from integration. Hidden outputs won't show up in `fusion_outputs`
+    // for us to compare, so we skip them.
+    return !fusion->getOutputAlias(out).hide_output;
+  });
   std::vector<Val*> non_hidden_outputs;
-  std::copy_if(
-      fusion->outputs().begin(),
-      fusion->outputs().end(),
-      std::back_inserter(non_hidden_outputs),
-      [fusion](Val* out) {
-        // Returns true when `out` is **not** an aliased output that's hidden
-        // from integration. Hidden outputs won't show up in `fusion_outputs`
-        // for us to compare, so we skip them.
-        return !fusion->getOutputAlias(out).hide_output;
-      });
+  non_hidden_outputs.reserve(fusion->outputs().size());
+  std::ranges::copy(filtered, std::back_inserter(non_hidden_outputs));
 
   auto expr_eval = bindInputsAndLaunchParams(fusion, aten_inputs, lparams);
 
@@ -373,7 +372,7 @@ void testValidate(
   for (auto i : arange(non_hidden_outputs.size())) {
     Val* out = non_hidden_outputs[i];
     NVF_ERROR(out->isA<TensorView>());
-    auto* out_tv = out->as<TensorView>();
+    TensorView* out_tv = out->as<TensorView>();
 
     NVF_ERROR(
         fusion_outputs[i].is<at::Tensor>(),

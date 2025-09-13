@@ -7,6 +7,7 @@
 // clang-format on
 #include <device_lower/utils.h>
 
+#include <ranges>
 #include <ATen/cuda/CUDAContext.h>
 #include <device_lower/analysis/thread_predicate.h>
 #include <device_lower/lower2device.h>
@@ -65,14 +66,12 @@ std::vector<IterDomain*> iterDomainInputsOfOrderedAs(
   std::unordered_set<IterDomain*> inputs_set(
       inputs_vec.begin(), inputs_vec.end());
 
+  auto filtered = order | std::views::filter([&inputs_set](const auto& id) {
+    return inputs_set.find(id) != inputs_set.end();
+  });
   std::vector<IterDomain*> ordered_inputs;
-  std::copy_if(
-      order.begin(),
-      order.end(),
-      std::back_inserter(ordered_inputs),
-      [&inputs_set](const auto& id) {
-        return inputs_set.find(id) != inputs_set.end();
-      });
+  ordered_inputs.reserve(order.size());
+  std::ranges::copy(filtered, std::back_inserter(ordered_inputs));
 
   return ordered_inputs;
 }
@@ -2111,7 +2110,7 @@ IterDomain* getConcreteLoopID(IterDomain* id) {
 
     // Try to see if the CA concrete domain can be used instead
     for (auto loop_val : *loop_group) {
-      auto* loop_id = loop_val->as<IterDomain>();
+      IterDomain* loop_id = loop_val->as<IterDomain>();
       if (ca_map.idExistsInMap(loop_id, IdMappingMode::LOOP)) {
         auto ca_map_concrete =
             ca_map.getConcreteMappedID(loop_id, IdMappingMode::LOOP);

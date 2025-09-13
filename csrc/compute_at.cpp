@@ -12,6 +12,7 @@
 #include <ir/iostream.h>
 #include <ir/utils.h>
 #include <logical_domain_map.h>
+#include <ranges>
 #include <scheduler/tools/inlining.h>
 #include <transform_iter.h>
 
@@ -184,12 +185,14 @@ std::unordered_set<TensorView*> getPropagationSubgraph(
   auto result_vals = DependencyCheck::getAllDependentVals({producer});
   result_vals.emplace(producer);
   auto result_tvs = ir_utils::filterByType<TensorView>(result_vals);
+  auto filtered_tvs = result_tvs | std::views::filter([](TensorView* tv) {
+    return !tv->uses().empty();
+  });
   std::unordered_set<TensorView*> result;
-  std::copy_if(
-      result_tvs.begin(),
-      result_tvs.end(),
-      std::inserter(result, result.begin()),
-      [](TensorView* tv) { return !tv->uses().empty(); });
+  // Note: Can't use std::ranges::copy with FilteredView due to range adaptor closure constraints
+  for (auto tv : filtered_tvs) {
+    result.insert(tv);
+  }
   result = pullInSiblings(result);
   return result;
 }
