@@ -64,7 +64,6 @@ TEST_F(HostIrEvaluatorTest, LaunchKernel) {
         CompileParams(),
         std::vector<Val*>{in},
         std::vector<Val*>{out},
-        nullptr,
         cache_id);
 
     hic->addInput(in);
@@ -242,7 +241,6 @@ TEST_F(HostIrEvaluatorTest, AddInLoop) {
         CompileParams(),
         std::vector<Val*>{in, stream_index},
         std::vector<Val*>{out},
-        nullptr,
         cache_id);
     for_loop->body().push_back(launch_kernel);
 

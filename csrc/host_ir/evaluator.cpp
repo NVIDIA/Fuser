@@ -192,11 +192,6 @@ void HostIrEvaluator::handle(LaunchKernel* launch_kernel) {
     args.push(getKnownConcreteValue(input));
   }
 
-  if (Val* stream_index = launch_kernel->streamIndex();
-      stream_index != nullptr) {
-    args.push(getKnownConcreteValue(stream_index));
-  }
-
   // All output buffers are known already, pass them to the executor
   KernelArgumentHolder outputs;
   for (Val* output : launch_kernel->outputs()) {
