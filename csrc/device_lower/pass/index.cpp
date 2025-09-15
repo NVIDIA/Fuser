@@ -2842,4 +2842,32 @@ void IndexLowering::handle(const CatOp* cat) {
   GpuLower::current()->propagateExprInfo(cat, expr);
 }
 
+void IndexLowering::handle(
+    const PreprocessGroupedMatmulInputSf* preprocess_op) {
+  const auto in = lowerSrcIndex(preprocess_op->in(), preprocess_op->out());
+
+  auto* out_tv = preprocess_op->out()->as<TensorView>();
+  std::vector<Val*> logical_index = Index::getConsumerPerDimLogicalIndex(
+      out_tv, for_loops_, getRotatedLoop());
+  NVF_ERROR(
+      logical_index.size() == 2,
+      "only matrices are supported in PreprocessGroupedMatmulInputSf");
+  // NOTE: use const zero for index, this always give the base pointer to
+  // output, because indexing is done with logical_index passed as op attribute.
+  auto* out = IrBuilder::create<kir::TensorIndex>(
+      out_tv, GpuLower::current()->kernel()->zeroVal(), DataType::Null);
+
+  pushBack(IrBuilder::create<PreprocessGroupedMatmulInputSf>(
+      out,
+      in,
+      preprocess_op->inputOffsets(),
+      preprocess_op->outputOffsets(),
+      preprocess_op->layout(),
+      preprocess_op->k(),
+      preprocess_op->g(),
+      logical_index[0],
+      logical_index[1]));
+  GpuLower::current()->propagateExprInfo(preprocess_op, back());
+}
+
 } // namespace nvfuser
