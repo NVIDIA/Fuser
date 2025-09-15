@@ -231,7 +231,7 @@ class UnswitchInElseChecker : public kir::IrVisitor {
     within_else_ = prev_within_else;
   }
 
-  void handle(ForLoop* for_loop) final {
+  void handle(kir::ForLoop* for_loop) final {
     if (for_loop->iter_domain()->getParallelType() == ParallelType::Unswitch) {
       found_in_else_ = found_in_else_ || within_else_;
     }
@@ -274,8 +274,8 @@ class PredicateMagicZeroChecker : public kir::IrVisitor {
       }
     }
 
-    if (expr->isA<ForLoop>()) {
-      handle(expr->as<ForLoop>());
+    if (expr->isA<kir::ForLoop>()) {
+      handle(expr->as<kir::ForLoop>());
     } else if (expr->isA<kir::IfThenElse>()) {
       handle(expr->as<kir::IfThenElse>());
     } else {

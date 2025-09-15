@@ -118,7 +118,7 @@ TEST_F(HostIrEvaluatorTest, AddInLoop) {
     // domain being stream parallelized. It would make each loop iteration
     // overwrite the entire tensor instead of a slice. This bug wouldn't be
     // captured by the test if the for loop started from 0.
-    auto* for_loop = IrBuilder::create<ForLoop>(
+    auto* for_loop = IrBuilder::create<kir::ForLoop>(
         out->axis(1),
         stream_index,
         /*start=*/hic->oneVal(DataType::Index),

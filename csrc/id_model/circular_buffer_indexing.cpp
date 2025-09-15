@@ -13,9 +13,9 @@ namespace nvfuser {
 
 Val* getLoopIndexOfCircularBufferLoop(
     IterDomain* loop_id,
-    const std::vector<ForLoop*>& for_loops,
+    const std::vector<kir::ForLoop*>& for_loops,
     const IdModel& id_model) {
-  ForLoop* fl = indexing_utils::getForLoop(
+  kir::ForLoop* fl = indexing_utils::getForLoop(
       loop_id, for_loops, id_model.idGraph(IdMappingMode::LOOP));
 
   // It's possible that there's no corresponding ForLoop, i.e,
@@ -38,7 +38,7 @@ Val* getLoopIndexOfCircularBufferLoop(
 
 Val* getLoopIndexOffsetForProducerOfCircularBuffer(
     const Expr* expr,
-    const ForLoop* for_loop,
+    const kir::ForLoop* for_loop,
     const IdModel& id_model) {
   NVF_ERROR(for_loop != nullptr);
 
@@ -90,7 +90,7 @@ Val* getLoopIndexOffsetForProducerOfCircularBuffer(
 Val* getOffsetForCircularBufferTensor(
     TensorView* circular_buffer_tv,
     bool as_consumer,
-    const std::vector<ForLoop*>& for_loops) {
+    const std::vector<kir::ForLoop*>& for_loops) {
   NVF_ERROR(circular_buffer_tv->isCircularBuffered());
 
   const auto gpu_lower = GpuLower::current();
@@ -153,7 +153,7 @@ Val* getOffsetForCircularBufferTensor(
 
 CircularBufferLoopStage getCircularBufferLoopStage(
     const TensorView* circular_buffer_tv,
-    const std::vector<ForLoop*>& for_loops,
+    const std::vector<kir::ForLoop*>& for_loops,
     const ValGraph& loop_graph) {
   NVF_ERROR(
       GpuLower::hasCurrent(),

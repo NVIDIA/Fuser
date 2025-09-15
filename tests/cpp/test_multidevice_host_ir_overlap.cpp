@@ -322,7 +322,7 @@ TEST_F(
   auto* start = hic->zeroVal();
   auto* stop = IrBuilder::create<Val>(params.S, DataType::Index);
   auto* step = hic->oneVal();
-  auto* for_loop = IrBuilder::create<ForLoop>(
+  auto* for_loop = IrBuilder::create<kir::ForLoop>(
       /*IterDomain=*/tva->axis(0),
       /*index=*/j,
       start,
@@ -386,7 +386,7 @@ TEST_F(
   auto* stop_stream =
       IrBuilder::create<Val>(params.number_of_streams, DataType::Index);
   auto* step_stream = hic->oneVal();
-  auto* for_loop_stream = IrBuilder::create<ForLoop>(
+  auto* for_loop_stream = IrBuilder::create<kir::ForLoop>(
       /*IterDomain=*/makeContigConcreteTensor({params.number_of_streams})
           ->axis(0),
       /*index=*/i_stream,
@@ -534,7 +534,7 @@ TEST_F(
   auto* start_i = hic->zeroVal();
   auto* stop_i = tva_reshaped->axis(1)->extent();
   auto* step_i = hic->oneVal();
-  auto* for_loop_i = IrBuilder::create<ForLoop>(
+  auto* for_loop_i = IrBuilder::create<kir::ForLoop>(
       /*IterDomain=*/tva_reshaped->axis(1),
       /*index=*/i,
       start_i,
@@ -551,7 +551,7 @@ TEST_F(
   auto* start_j = hic->zeroVal();
   auto* stop_j = tva_reshaped->axis(0)->extent();
   auto* step_j = hic->oneVal();
-  auto* for_loop_j = IrBuilder::create<ForLoop>(
+  auto* for_loop_j = IrBuilder::create<kir::ForLoop>(
       /*IterDomain=*/tva_reshaped->axis(0),
       /*index=*/j,
       start_j,
@@ -623,7 +623,7 @@ TEST_F(
   auto* stop_stream =
       IrBuilder::create<Val>(params.number_of_streams, DataType::Index);
   auto* step_stream = hic->oneVal();
-  auto* for_loop_stream = IrBuilder::create<ForLoop>(
+  auto* for_loop_stream = IrBuilder::create<kir::ForLoop>(
       /*IterDomain=*/makeContigConcreteTensor({params.number_of_streams})
           ->axis(0),
       /*index=*/i_stream,
@@ -817,7 +817,7 @@ TEST_F(AllgatherOverlapTest, AllgatherBasedPipeliningHostIrImplementation) {
   auto* start = hic->zeroVal();
   auto* stop = IrBuilder::create<Val>(params.S, DataType::Index);
   auto* step = hic->oneVal();
-  auto* for_loop = IrBuilder::create<ForLoop>(
+  auto* for_loop = IrBuilder::create<kir::ForLoop>(
       /*IterDomain=*/tva->axis(0),
       /*index=*/j,
       start,
@@ -881,7 +881,7 @@ TEST_F(AllgatherOverlapTest, AllgatherBasedPipeliningHostIrImplementation) {
   auto* stop_stream =
       IrBuilder::create<Val>(params.number_of_streams, DataType::Index);
   auto* step_stream = hic->oneVal();
-  auto* for_loop_stream = IrBuilder::create<ForLoop>(
+  auto* for_loop_stream = IrBuilder::create<kir::ForLoop>(
       /*IterDomain=*/makeContigConcreteTensor({params.number_of_streams})
           ->axis(0),
       /*index=*/i_stream,
@@ -1113,7 +1113,7 @@ TEST_F(
   auto* start_i = hic->zeroVal();
   auto* stop_i = tva->axis(1)->extent();
   auto* step_i = hic->oneVal();
-  auto* for_loop_i = IrBuilder::create<ForLoop>(
+  auto* for_loop_i = IrBuilder::create<kir::ForLoop>(
       /*IterDomain=*/tva->axis(1),
       /*index=*/i,
       start_i,
@@ -1129,7 +1129,7 @@ TEST_F(
   auto* start_j = hic->zeroVal();
   auto* stop_j = tva->axis(0)->extent();
   auto* step_j = hic->oneVal();
-  auto* for_loop_j = IrBuilder::create<ForLoop>(
+  auto* for_loop_j = IrBuilder::create<kir::ForLoop>(
       /*IterDomain=*/tva->axis(0),
       /*index=*/j,
       start_j,
@@ -1237,7 +1237,7 @@ TEST_F(
   auto* stop_stream =
       IrBuilder::create<Val>(params.number_of_streams, DataType::Index);
   auto* step_stream = hic->oneVal();
-  auto* for_loop_stream = IrBuilder::create<ForLoop>(
+  auto* for_loop_stream = IrBuilder::create<kir::ForLoop>(
       /*IterDomain=*/makeContigConcreteTensor({params.number_of_streams})
           ->axis(0),
       /*index=*/i_stream,
@@ -1296,7 +1296,7 @@ TEST_F(
   auto* start_i = hic->zeroVal();
   auto* stop_i = tva->axis(1)->extent();
   auto* step_i = hic->oneVal();
-  auto* for_loop_i = IrBuilder::create<ForLoop>(
+  auto* for_loop_i = IrBuilder::create<kir::ForLoop>(
       /*IterDomain=*/tva->axis(1),
       /*index=*/i,
       start_i,
@@ -1312,7 +1312,7 @@ TEST_F(
   auto* start_j = hic->zeroVal();
   auto* stop_j = tva->axis(0)->extent();
   auto* step_j = hic->oneVal();
-  auto* for_loop_j = IrBuilder::create<ForLoop>(
+  auto* for_loop_j = IrBuilder::create<kir::ForLoop>(
       /*IterDomain=*/tva->axis(0),
       /*index=*/j,
       start_j,
@@ -1412,7 +1412,7 @@ TEST_F(
   auto* stop_stream =
       IrBuilder::create<Val>(params.number_of_streams, DataType::Index);
   auto* step_stream = hic->oneVal();
-  auto* for_loop_stream = IrBuilder::create<ForLoop>(
+  auto* for_loop_stream = IrBuilder::create<kir::ForLoop>(
       /*IterDomain=*/makeContigConcreteTensor({params.number_of_streams})
           ->axis(0),
       /*index=*/i_stream,
