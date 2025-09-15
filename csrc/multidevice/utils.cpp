@@ -562,6 +562,8 @@ bool isResharding(const Expr* expr) {
   for (auto* input : ir_utils::filterByType<TensorView>(expr->inputs())) {
     for (auto* output : ir_utils::filterByType<TensorView>(expr->outputs())) {
       if (haveDifferentShardings(input, output)) {
+        debug() << "Resharding found between " << input->toString() << " and "
+                << output->toString() << std::endl;
         return true;
       }
     }

@@ -12,6 +12,7 @@
 #include <gtest/gtest.h>
 
 #include <ops/all_ops.h>
+#include <preseg_passes/decompose_reshardings.h>
 #include <preseg_passes/propagate_shardings.h>
 #include <tests/cpp/utils.h>
 #include <tests/cpp/validator.h>
@@ -431,7 +432,7 @@ TEST_F(CollectiveBasedOverlapTest, RowParallelLinear_Forward) {
   in->outer_split(0, d);
   in->axis(0)->parallelize(ParallelType::Stream);
   in->outer_split(2, d);
-  in->axis(3)->parallelize(ParallelType::DIDx);
+  in->axis(2)->parallelize(ParallelType::DIDx);
   w->outer_split(1, d);
   w->axis(1)->parallelize(ParallelType::DIDx);
 
@@ -457,19 +458,12 @@ TEST_F(CollectiveBasedOverlapTest, RowParallelLinear_Forward) {
 
   preseg_passes::OptimizationPass<
       preseg_passes::PropagateShardingsPass>::runPass(fusion.get());
-  // Due to lack of DecomposeReshardingsPass, `out` looks like the following:
-  //
-  //                  [t, h, r{4h}]
-  //                  /\      /\.
-  //                 s       d
+  preseg_passes::OptimizationPass<
+      preseg_passes::DecomposeReshardingsPass>::runPass(fusion.get());
+
   EXPECT_THAT(
-      out->getLoopDomain(),
-      ElementsAre(
-          IsParallelized(ParallelType::Stream),
-          _,
-          _,
-          IsParallelized(ParallelType::DIDx),
-          _));
+      fusion->outputs().at(0)->as<TensorView>()->getLoopDomain(),
+      ElementsAre(IsParallelized(ParallelType::Stream), _, _, _));
 }
 
 } // namespace nvfuser
