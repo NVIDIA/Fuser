@@ -5,6 +5,10 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <iostream>
+
+#include <ATen/cuda/CUDAContext.h>
+
 #include <debug.h>
 #include <device_lower/lower2device.h>
 #include <instrumentation.h>
@@ -14,11 +18,6 @@
 #include <kernel.h>
 #include <kernel_ir_dispatch.h>
 #include <type.h>
-
-#include <ATen/cuda/CUDAContext.h>
-
-#include <iostream>
-#include <unordered_set>
 
 namespace nvfuser {
 
@@ -33,15 +32,27 @@ class KernelIrScanner : private IrVisitor {
   explicit KernelIrScanner(const Kernel* kernel) {
     index_type_ = kernel->indexType();
 
+    // If any TensorView in a kernel is stream-parallel, all non-trivial outputs
+    // of the kernel should be stream-parallel. Otherwise, they wouldn't have
+    // been grouped into the same segment. Therefore, we only need to check the
+    // outputs, not all TensorViews in the kernel.
     summary_.stream_parallelized = [&]() {
-      for (const auto& ios : {kernel->inputs(), kernel->outputs()}) {
-        for (auto* tv : ir_utils::filterByType<TensorView>(ios)) {
-          if (std::any_of(
-                  tv->getLoopDomain().begin(),
-                  tv->getLoopDomain().end(),
-                  std::mem_fn(&IterDomain::isStream))) {
-            return true;
-          }
+      for (auto* out : kernel->outputs()) {
+        auto* out_tv = dynamic_cast<TensorView*>(out);
+        NVF_ERROR(
+            out_tv != nullptr,
+            "Expected a kernel output to be a TensorView, but found ",
+            out);
+
+        if (out_tv->isCpuScalar()) {
+          continue;
+        }
+
+        if (std::any_of(
+                out_tv->getLoopDomain().begin(),
+                out_tv->getLoopDomain().end(),
+                std::mem_fn(&IterDomain::isStream))) {
+          return true;
         }
       }
       return false;
