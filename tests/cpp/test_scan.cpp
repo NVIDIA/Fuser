@@ -888,4 +888,276 @@ TEST_F(ScanTest, OnlineSumExpXMinusMaxSerialScan) {
   EXPECT_TRUE(
       at::allclose(outputs[0].as<at::Tensor>(), aten_sum, 1e-5, 1e-8, true));
 }
+
+// Online normalizer for softmax: https://arxiv.org/abs/1805.02867
+
+// Given x[i] for i=0 .. N-1:
+
+//   m[-1] = -infinity
+//   d[-1] = 0
+//   for j = 0 .. N-1
+//     m[j] = max(m[j-1], x[j])
+//     d[j] = d[j-1] * exp(m[j-1] - m[j]) + exp(x[j] - m[j])
+
+// sum(exp(x[i] - max(x)))
+// is equivalent to:
+// m[i] = max(m[i-1], x[i])
+// d[i] = d[i-1] * exp(m[i-1] - m[i]) + exp(x[i] - m[i])
+// return d[N-1]
+TEST_F(ScanTest, OnlineSumExpXMinusMaxSerialScan2) {
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  std::vector<int64_t> shape = {2};
+  auto tv0 = makeContigConcreteTensor(shape);
+  fusion.addInput(tv0);
+  auto tv1 = set(tv0);
+  // m[i-1]
+  auto tv2 = scan(tv1, {0}, BinaryOpType::Max, /*is_exclusive=*/true);
+  // m[i]
+  auto tv3 = binaryOp(BinaryOpType::Max, tv2, tv1);
+  //  exp(m[i-1] - m[i])
+  auto tv4 = sub(tv2, tv3);
+  auto tv5 = exp(tv4);
+  auto tv6 = sub(tv1, tv3);
+  auto tv7 = exp(tv6);
+  auto tv8 = prefixSum(tv7, {0}, tv5);
+  auto tv9 = set(tv8);
+  auto tv10 = set(tv3);
+  fusion.addOutput(tv10);
+  fusion.addOutput(tv9);
+  auto unscheduled_fusion = fusion;
+
+  fusion.printMath();
+
+  // exclusive scan can't inline both consumer (tv2) and producer (tv1)
+  // inclusive scan can't inline consumer (tv8)
+  inlineMost(std::vector<TensorView*>{tv3, tv4, tv5, tv6, tv7, tv9, tv10});
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto input = at::randn(shape, options);
+
+  KernelExecutor ke;
+  ke.compile(&fusion, {input});
+  auto outputs = ke.run({input});
+  auto aten_max = at::amax(input, {0});
+  std::cout << "aten_max: " << aten_max << std::endl;
+  auto aten_exp = at::exp(input - aten_max.unsqueeze(0));
+  auto aten_sum = at::sum(aten_exp, {0});
+  std::cout << "input: " << input << std::endl;
+  std::cout << "aten_sum: " << aten_sum << std::endl;
+  std::cout << "outputs[0]: " << outputs[0] << std::endl;
+  std::cout << "outputs[1]: " << outputs[1] << std::endl;
+  std::cout << "outputs[2]: " << outputs[2] << std::endl;
+  std::cout << "outputs[3]: " << outputs[3] << std::endl;
+  std::cout << "outputs[4]: " << outputs[4] << std::endl;
+
+  EXPECT_TRUE(
+      at::allclose(outputs[0].as<at::Tensor>(), aten_sum, 1e-5, 1e-8, true));
+}
+
+// This is a simplified version of FlashAttention that does not circular buffer
+// the inputs or use mma instructions, but has the same general computation
+// pattern.
+//
+// Dao et al. 2022. FlashAttention: Fast and Memory-Efficient Exact Attention
+// with IO-Awareness. https://arxiv.org/abs/2205.14135
+TEST_F(ScanTest, BlockedQKTranspose) {
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  int64_t N = 12; // sequence length
+  int64_t D = 5; // hidden dimension size
+  int64_t Br = 2; // block size for rows
+  int64_t Bc = 3; // block size for columns
+  int64_t Tr = N / Br; // Total number of row blocks for Q, 4
+  int64_t Tc = N / Bc; // Total number of column blocks for K^T, 8
+  // [N,D] --> [Tr, Br, D]
+  auto Q = makeConcreteTensor({Tr, Br, 1, 1, D});
+  auto K = makeConcreteTensor({1, 1, Tc, Bc, D});
+  fusion->addInput(Q);
+  fusion->addInput(K);
+
+  // Sij = Q_i @ K_j^T
+  // QK --> [Tr, Br, Tc, Bc, D]
+  auto QK = mul(Q, K);
+  // S --> [Tr, Br, Tc, Bc]
+  auto S = sum(QK, {4});
+
+  fusion->addOutput(S);
+  fusion->printMath();
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto aQ = at::randn({Tr, Br, 1, 1, D}, options);
+  auto aK = at::randn({1, 1, Tc, Bc, D}, options);
+  auto aten_Q = aQ.reshape({N, D});
+  auto aten_K = aK.reshape({N, D});
+  auto aten_S =
+      at::matmul(aten_Q, aten_K.transpose(-2, -1)).reshape({Tr, Br, Tc, Bc});
+  std::cout << "aten_S: " << aten_S << std::endl;
+  KernelExecutor ke;
+  ke.compile(fusion.get(), {aQ, aK});
+  auto outputs = ke.run({aQ, aK});
+  std::cout << "outputs[0]: " << outputs[0] << std::endl;
+  EXPECT_TRUE(
+      at::allclose(outputs[0].as<at::Tensor>(), aten_S, 1e-4, 1e-6, true));
+}
+
+TEST_F(ScanTest, BlockedQKTransposeV) {
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  int64_t N = 12; // sequence length
+  int64_t D = 5; // hidden dimension size
+  int64_t Br = 2; // block size for rows
+  int64_t Bc = 3; // block size for columns
+  int64_t Tr = N / Br; // Total number of row blocks for Q, 4
+  int64_t Tc = N / Bc; // Total number of column blocks for K^T, 8
+  // [N,D] --> [Tr, Br, D] for Q and [Tc, Bc, D] for K,V
+  auto Q = makeConcreteTensor({Tr, Br, 1, 1, D});
+  auto K = makeConcreteTensor({1, 1, Tc, Bc, D});
+  auto V = makeConcreteTensor({1, 1, Tc, Bc, D});
+  fusion->addInput(Q);
+  fusion->addInput(K);
+  fusion->addInput(V);
+
+  // Sij = Q_i @ K_j^T (this computes attention scores)
+  // QK --> [Tr, Br, Tc, Bc, D]
+  auto QK = mul(Q, K);
+  // S --> [Tr, Br, Tc, Bc] (sum over hidden dimension for dot product)
+  auto S = sum(QK, {4});
+
+  // Apply attention weights S to values V
+  // S: [Tr, Br, Tc, Bc], V: [1, 1, Tc, Bc, D]
+  // Need to broadcast S to [Tr, Br, Tc, Bc, 1] and multiply with V
+  auto S_bcast =
+      broadcast(S, {false, false, false, false, true}); // [Tr, Br, Tc, Bc, 1]
+  auto SV = mul(S_bcast, V); // [Tr, Br, Tc, Bc, D]
+
+  // Sum over key/value sequence dimensions (Tc, Bc) to get final output
+  auto O = sum(SV, {2, 3}); // [Tr, Br, D]
+
+  fusion->addOutput(O);
+  fusion->printMath();
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto aQ = at::randn({Tr, Br, 1, 1, D}, options);
+  auto aK = at::randn({1, 1, Tc, Bc, D}, options);
+  auto aV = at::randn({1, 1, Tc, Bc, D}, options);
+
+  KernelExecutor ke;
+  ke.compile(fusion.get(), {aQ, aK, aV});
+  auto outputs = ke.run({aQ, aK, aV});
+  std::cout << "outputs[0]: " << outputs[0] << std::endl;
+
+  auto aten_Q = aQ.reshape({N, D});
+  auto aten_K = aK.reshape({N, D});
+  auto aten_V = aV.reshape({N, D});
+  auto aten_S = at::matmul(aten_Q, aten_K.transpose(-2, -1));
+  auto aten_O = at::matmul(aten_S, aten_V).reshape({Tr, Br, D});
+  std::cout << "aten_O: " << aten_O << std::endl;
+
+  EXPECT_TRUE(
+      at::allclose(outputs[0].as<at::Tensor>(), aten_O, 1e-4, 1e-6, true));
+}
+// TEST_F(ScanTest, OnlineSoftmax) {
+//   EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+
+//   auto fusion = std::make_unique<Fusion>();
+//   FusionGuard fg(fusion.get());
+
+//   auto x = makeSymbolicTensor(1);
+//   fusion->addInput(x);
+//   auto x_cache = set(x);
+//   int64_t scan_dim = 0;
+
+//   // Online normalizer for softmax: https://arxiv.org/abs/1805.02867
+//   //
+//   // Given x[i] for i=0 .. N-1:
+//   //
+//   //   m[-1] = -infinity
+//   //   d[-1] = 0
+//   //   for j = 0 .. N-1
+//   //     m[j] = max(m[j-1], x[j])
+//   //     d[j] = d[j-1] * exp(m[j-1] - m[j]) + exp(x[j] - m[j])
+//   //
+//   // Final denominator is d[N-1]
+//   TensorView* m_prev =  scan(x_cache, {scan_dim}, BinaryOpType::Max,
+//   /*is_exclusive=*/true); // m[i-1] TensorView* m =
+//   binaryOp(BinaryOpType::Max, x_cache, m_prev);
+//   // normalize by running max and exponentiate
+//   TensorView* exp_x_m = exp(sub(x_cache, m));
+//   // Discount factor is exponentiated delta: exp(m[i-1] - m[i])
+//   TensorView* discount = exp(sub(m_prev, m));
+
+//   auto denoms = prefixSum(exp_x_m, scan_dim, discount);
+
+//   auto norm_factor = reductionOp(
+//       BinaryOpType::RHS,
+//       {scan_dim},
+//       /*init=*/fusion->zeroVal(DataType::Float),
+//       denoms);
+
+//   auto full_max = reductionOp(
+//       BinaryOpType::RHS,
+//       {scan_dim},
+//       /*init=*/neg_infty,
+//       m);
+
+//   auto max_bcast = broadcast(full_max, {true});
+//   auto norm_factor_bcast = broadcast(norm_factor, {true});
+//   // Recompute numerator
+//   auto numer = exp(sub(set(x), max_bcast));
+
+//   auto result = div(numer, norm_factor_bcast);
+
+//   fusion->addOutput(result);
+
+//   // Don't cache inputs for this fusion because we will need to recompute
+//   // exp((x-m)) using the final max in a separate loop so caching would mean
+//   // we'd need to hold the whole tensor in registers. Instead, we manually
+//   call
+//   // set(x) twice in the definition above to give us two separate caches.
+//   scheduler_utils::cacheAndForkOutputs(fusion.get(), /*unroll=*/true);
+
+//   // We don't inline the scans past the scan dimension
+//   std::unordered_set<IterDomain*> uninlineable_ids;
+//   for (TensorView* tv : {m, m_prev, denoms}) {
+//     for (IterDomain* id : tv->getLoopDomain()) {
+//       uninlineable_ids.insert(id);
+//     }
+//   }
+
+//   inlineMost(uninlineable_ids);
+
+//   // These TVs are not inlined, but instead we set computeWith on them
+//   for (TensorView* tv : {m, m_prev, denoms}) {
+//     tv->computeWith(-1);
+//     for (Val* v : tv->definition()->inputs()) {
+//       // By using `uninlineable_ids` above, we prevent producers of scan from
+//       // inlining with the ScanOp past the scan dim, even though this is
+//       // desired. Here we do this inlining manually instead.
+//       v->as<TensorView>()->inlineAt(-1);
+//     }
+//   }
+
+//   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+//   at::Tensor t0 = at::randn({32}, options);
+
+//   KernelExecutor ke;
+//   ke.compile(fusion.get(), {t0});
+
+//   auto cg_outputs = ke.run({t0});
+
+//   auto ref = at::softmax(t0, 0);
+//   EXPECT_TRUE(at::allclose(cg_outputs[0].as<at::Tensor>(), ref))
+//       << " returned " << cg_outputs[0].as<at::Tensor>().item()
+//       << " but expected " << ref.item();
+
+//   // Test automatic evaluation also
+//   testValidate(fusion.get(), cg_outputs, {t0}, __LINE__, __FILE__);
+// }
 } // namespace nvfuser
