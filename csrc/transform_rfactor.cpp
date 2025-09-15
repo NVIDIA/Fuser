@@ -88,12 +88,12 @@ class ReplayRFactor : public ReplayTransformations {
     if (Split* split = dynamic_cast<Split*>(expr)) {
       splitId(logical_domain_, split, static_logical_ids_);
       splitId(allocation_domain_, split, static_allocation_ids_);
-    }
-    if (Merge* merge = dynamic_cast<Merge*>(expr)) {
+    } else if (Merge* merge = dynamic_cast<Merge*>(expr)) {
       mergeId(logical_domain_, merge, static_logical_ids_);
       mergeId(allocation_domain_, merge, static_allocation_ids_);
+    } else {
+      NVF_THROW("Unrecognized expression: ", expr->toString());
     }
-    NVF_ERROR("Unrecognized expression: ", expr->toString());
   }
 
   // Took a good bit of this from ReplayTransformations::handle(Split...)
@@ -490,10 +490,7 @@ std::pair<TensorDomain*, TensorDomain*> TransformRFactor::runReplay(
         /*ignore_ids=*/{},
         /*propagate_padding=*/false,
         /*propagate_parallelization=*/false);
-    producer_domain->setAllocationDomain(
-        new_producer_allocation_domain,
-        TensorDomain::getContiguityFilledWith(
-            new_producer_allocation_domain, true));
+    producer_domain->setAllocationDomain(new_producer_allocation_domain, true);
   }
 
   // Producer has been finished, now work on consumer.
@@ -554,10 +551,7 @@ std::pair<TensorDomain*, TensorDomain*> TransformRFactor::runReplay(
         /*ignore_ids=*/rfactor_axes,
         /*propagate_padding=*/false,
         /*propagate_parallelization=*/false);
-    consumer_domain->setAllocationDomain(
-        new_consumer_allocation_domain,
-        TensorDomain::getContiguityFilledWith(
-            new_consumer_allocation_domain, true));
+    consumer_domain->setAllocationDomain(new_consumer_allocation_domain, true);
   }
 
   return std::make_pair(producer_domain, consumer_domain);
