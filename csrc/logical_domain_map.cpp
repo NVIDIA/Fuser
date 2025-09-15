@@ -770,7 +770,7 @@ void UnmappableReductionDomains::handleReductionOutput(TensorView* out_tv) {
 
 void UnmappableReductionDomains::handle(ReductionOp* op) {
   // Builds a map from reduction domains to consumer domains.
-  TensorView* out_tv = op->out()->as<TensorView>();
+  auto* out_tv = op->out()->as<TensorView>();
   handleReductionOutput(out_tv);
 }
 
@@ -783,7 +783,7 @@ void UnmappableReductionDomains::handle(GroupedReductionOp* op) {
 
 void UnmappableReductionDomains::handle(MmaOp* mma) {
   // Builds a map from reduction domains to consumer domains.
-  TensorView* out_tv = mma->out()->as<TensorView>();
+  auto* out_tv = mma->out()->as<TensorView>();
   handleReductionOutput(out_tv);
 }
 
@@ -1490,11 +1490,11 @@ void ComputeAtLogicalDomainMapBuilder::handle(SqueezeOp* op) {
 }
 
 void ComputeAtLogicalDomainMapBuilder::handle(ViewAsScalar* op) {
-  const TensorView* out_tv = op->output(0)->as<TensorView>();
+  const auto* out_tv = op->output(0)->as<TensorView>();
   const TensorDomain* out_td = out_tv->domain();
   const auto& out_root = out_td->maybeRoot();
 
-  const TensorView* in_tv = op->input(0)->as<TensorView>();
+  const auto* in_tv = op->input(0)->as<TensorView>();
   const TensorDomain* in_td = in_tv->domain();
 
   std::vector<IterDomain*> in_logical =

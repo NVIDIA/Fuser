@@ -793,7 +793,7 @@ class AllocationDomainSetup : private kir::IrVisitor {
     const ExprGroups& merge_outer_uses = exact_graph.getUses(merge_outer_group);
     ExprGroup reverse_merge;
     for (const auto& merge_outer_use : merge_outer_uses) {
-      Merge* merge = dynamic_cast<Merge*>(merge_outer_use->front());
+      auto* merge = dynamic_cast<Merge*>(merge_outer_use->front());
       if (merge == nullptr) {
         continue;
       }

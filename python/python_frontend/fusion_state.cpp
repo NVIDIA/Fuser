@@ -79,7 +79,7 @@ std::vector<Val*> getExtents(Fusion* fusion) {
     if (!v->isA<TensorView>()) {
       continue;
     }
-    TensorView* tv = v->as<TensorView>();
+    auto* tv = v->as<TensorView>();
     std::vector<IterDomain*> logical_dom =
         TensorDomain::noReductions(tv->getLogicalDomain());
     std::transform(
