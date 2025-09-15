@@ -183,9 +183,16 @@ TEST_F(HostIrEvaluatorTest, InplaceUpdateInLoop) {
     }
 
     ke->setGroupId(0);
+    // The shapes are used for compilation; the content doesn't matter.
     ke->compile(&fusion, {in_tensor, 1});
   }
 
+  // x = torch.zeros(10)
+  // for loop_index in range(3):
+  //   y = loop_index * 2
+  //   y = y + 1
+  //   x.add_(y)  # y = 1, then 3, then 5
+  // torch.testing.assert_close(x, torch.full((10,), 9.0))
   auto hic = std::make_unique<HostIrContainer>();
   {
     hic->addKernelExecutor(std::move(ke));
