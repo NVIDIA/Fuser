@@ -118,7 +118,7 @@ TEST_F(HostIrEvaluatorTest, AddInLoop) {
     // domain being stream parallelized. It would make each loop iteration
     // overwrite the entire tensor instead of a slice. This bug wouldn't be
     // captured by the test if the for loop started from 0.
-    auto* for_loop = IrBuilder::create<ForLoop>(
+    auto* for_loop = IrBuilder::create<kir::ForLoop>(
         out->axis(1),
         stream_index,
         /*start=*/hic->oneVal(DataType::Index),
@@ -163,7 +163,7 @@ TEST_F(HostIrEvaluatorTest, AddInLoop) {
   KernelArgumentHolder outs = hie.runWithInputs(ins);
   auto out_tensor = outs[0].as<at::Tensor>();
 
-  EXPECT_TRUE(torch::allclose(out_tensor, expected_out_tensor))
+  EXPECT_TRUE(at::allclose(out_tensor, expected_out_tensor))
       << "out_tensor: " << std::endl
       << out_tensor << std::endl
       << "expected_out_tensor: " << std::endl

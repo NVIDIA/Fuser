@@ -19,12 +19,12 @@ namespace indexing_utils {
 // Get a matching ForLoop for a given loop iter domain. There may not
 // be such a loop if this loop-nest is for initializing a reduction
 // buffer.
-inline ForLoop* getForLoop(
+inline kir::ForLoop* getForLoop(
     IterDomain* loop_id,
-    const std::vector<ForLoop*>& for_loops,
+    const std::vector<kir::ForLoop*>& for_loops,
     const ValGraph& loop_graph) {
   auto it = std::find_if(
-      for_loops.begin(), for_loops.end(), [&](ForLoop* for_loop) -> bool {
+      for_loops.begin(), for_loops.end(), [&](kir::ForLoop* for_loop) -> bool {
         IterDomain* for_loop_id = for_loop->iter_domain();
         return loop_graph.disjointValSets().strictAreMapped(
             loop_id, for_loop_id);
@@ -40,7 +40,7 @@ inline ForLoop* getForLoop(
 // if a loop is parallelized, unswitching doesn't mean anything as we
 // don't unswitch threading dimensions, e.g., "threadIdx.x + ... < N"
 // is generated rather than "blockDim.x + ... < N".
-inline bool isEffectiveUnswitchLoop(ForLoop* fl) {
+inline bool isEffectiveUnswitchLoop(kir::ForLoop* fl) {
   // Threaded domain is not unswitched
   if (fl->iter_domain()->isThread() || fl->iter_domain()->isDeviceDim()) {
     return false;

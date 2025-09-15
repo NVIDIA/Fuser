@@ -1194,26 +1194,20 @@ KernelArgumentHolder KernelExecutor::run(
     }
   }
 
-  if (args.size() != std::ssize(compiled_kernel_->kernel()->parameters())) {
-    NVF_ERROR(
-        has_tma_ || has_rng_,
-        "No TMA or RNG found in the kernel, but detected an argument size "
-        "mismatch.");
-    // If args don't match one of two things is happening. We need to add TMA
-    // related args or RNG related args. Resolve these scenarios.
-    if (has_tma_) {
-      // Resolving TMA requires binding all values and evaluating the TMA
-      // arguments
-      //
-      // Resolving TMA also resolves RNG, so if TMA exists the resolveRNGSeed
-      // function shouldn't also be called.
-      args = resolveTMA(*executor_entry, args);
-    } else if (has_rng_) {
-      // Resolving RNG seed requires evaluating and adding those values, but
-      // doesn't require binding all values as getting RNG seed and offset
-      // doesn't depend on other values
-      args = resolveRNGSeed(compiled_kernel_->kernel(), args);
-    }
+  if (has_tma_) {
+    // Resolving TMA requires binding all values and evaluating the TMA
+    // arguments
+    //
+    // Resolving TMA also resolves RNG, so if TMA exists the resolveRNGSeed
+    // function shouldn't also be called.
+    args = resolveTMA(*executor_entry, args);
+  }
+
+  if (has_rng_) {
+    // Resolving RNG seed requires evaluating and adding those values, but
+    // doesn't require binding all values as getting RNG seed and offset
+    // doesn't depend on other values
+    args = resolveRNGSeed(compiled_kernel_->kernel(), args);
   }
 
   computeArgs(*executor_entry, args);

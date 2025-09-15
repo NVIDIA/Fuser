@@ -298,6 +298,10 @@ class KernelIrScanner : private IrVisitor {
     summary_.has_argsort = true;
   }
 
+  void handle(PreprocessGroupedMatmulInputSf* aop) final {
+    summary_.has_preprocess_grouped_matmul_input_sf = true;
+  }
+
   void handle(TopKOp* top) final {
     summary_.has_topk = true;
   }
@@ -374,7 +378,7 @@ class ValidateAllocation : private OptOutConstDispatch {
   // during in the allocation lowering if it's thread-parallel and not
   // allocated on shared or global memories, or if it's block-parallel
   // ando not allocated on global memory.
-  void validate(const ForLoop* for_loop) {
+  void validate(const kir::ForLoop* for_loop) {
     const auto loop_id = for_loop->iter_domain();
     for (const auto& allocations : live_allocations_) {
       for (const auto& allocate : allocations) {
@@ -402,7 +406,7 @@ class ValidateAllocation : private OptOutConstDispatch {
     }
   }
 
-  void handle(const ForLoop* for_loop) final {
+  void handle(const kir::ForLoop* for_loop) final {
     if (for_loop->stop() != for_loop->iter_domain()->extent() &&
         isParallelTypeThread(for_loop->iter_domain()->getParallelType())) {
       validate(for_loop);

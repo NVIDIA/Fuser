@@ -1070,11 +1070,11 @@ std::vector<TMADim> run(
 } // namespace collapse_tma_domain
 
 TMAInfo getTMAInfo(LoadStoreOp* ldst) {
-  TensorView* producer_tv = ldst->in()->as<TensorView>();
+  auto* producer_tv = ldst->in()->as<TensorView>();
   // In case the producer is aliased, use the alias instead
   producer_tv = GpuLower::current()->getMaybeTensorProducerAlias(producer_tv);
 
-  TensorView* consumer_tv = ldst->out()->as<TensorView>();
+  auto* consumer_tv = ldst->out()->as<TensorView>();
   TensorView *smem_tv = nullptr, *gmem_tv = nullptr;
   if (producer_tv->getMemoryType() == MemoryType::Shared) {
     NVF_ERROR(consumer_tv->getMemoryType() == MemoryType::Global);

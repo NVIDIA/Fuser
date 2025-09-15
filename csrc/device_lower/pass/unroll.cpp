@@ -22,10 +22,10 @@ namespace nvfuser {
 namespace {
 
 // Provide a new for loop matching the one provided
-ForLoop* cloneLoopNest(const ForLoop* for_loop) {
-  const auto new_loop = IrBuilder::create<ForLoop>(for_loop);
+kir::ForLoop* cloneLoopNest(const kir::ForLoop* for_loop) {
+  const auto new_loop = IrBuilder::create<kir::ForLoop>(for_loop);
   for (auto expr : for_loop->body().exprs()) {
-    if (auto nested_for_loop = dynamic_cast<ForLoop*>(expr)) {
+    if (auto nested_for_loop = dynamic_cast<kir::ForLoop*>(expr)) {
       expr = cloneLoopNest(nested_for_loop);
     }
     new_loop->body().push_back(expr);
@@ -164,7 +164,7 @@ void UnrollPass::dispatch(Expr* expr) {
     kir::Predicate* pred = nullptr;
     if (!unswitched_loop_ &&
         std::any_of(
-            for_loops_.begin(), for_loops_.end(), [](const ForLoop* fl) {
+            for_loops_.begin(), for_loops_.end(), [](const kir::ForLoop* fl) {
               return fl->iter_domain()->getParallelType() ==
                   ParallelType::Vectorize;
             })) {
@@ -234,7 +234,7 @@ void UnrollPass::dispatch(Expr* expr) {
       GpuLower::current()->propagateExprInfo(expr, expr_with_predicate);
     }
     inline_ite->thenBody().push_back(expr_with_predicate);
-  } else if (auto for_loop = dynamic_cast<ForLoop*>(expr)) {
+  } else if (auto for_loop = dynamic_cast<kir::ForLoop*>(expr)) {
     handle(for_loop);
   } else if (auto ite = dynamic_cast<kir::IfThenElse*>(expr)) {
     if (ite->predicate()->predicate_type() == PredicateType::ElectSync) {
@@ -250,7 +250,7 @@ void UnrollPass::dispatch(Expr* expr) {
 
 // We should factor our actual predicate generation from unrolling but insering
 // IR nodes "unroll_pred" or "inline_pred", then generate those later.
-void UnrollPass::handle(ForLoop* fl) {
+void UnrollPass::handle(kir::ForLoop* fl) {
   // Setup for loop scoping
   const bool is_unroll =
       fl->iter_domain()->getParallelType() == ParallelType::Unroll ||
@@ -293,7 +293,7 @@ void UnrollPass::handle(ForLoop* fl) {
   kir::IfThenElse* unroll_ite = IrBuilder::create<kir::IfThenElse>(unroll_pred);
 
   // Get the loop nest for the unrolled path
-  ForLoop* unrolled_loop_nest = cloneLoopNest(fl);
+  kir::ForLoop* unrolled_loop_nest = cloneLoopNest(fl);
   unroll_ite->thenBody().push_back(unrolled_loop_nest);
 
   // Thread predicates are not removed from the expressions. Visit
@@ -309,7 +309,7 @@ void UnrollPass::handle(ForLoop* fl) {
   scope_exprs_.pop_back();
 
   // Loop nest for inlined path
-  ForLoop* inlined_loop = cloneLoopNest(fl);
+  kir::ForLoop* inlined_loop = cloneLoopNest(fl);
 
   // Add inline predicates for inlined loop nest
   scope_.push_back(&unroll_ite->elseBody());
@@ -330,8 +330,8 @@ void UnrollPass::handle(ForLoop* fl) {
   }
 }
 
-bool UnrollPass::canOmitElseClause(ForLoop* fl) {
-  std::vector<ForLoop*> loops({fl});
+bool UnrollPass::canOmitElseClause(kir::ForLoop* fl) {
+  std::vector<kir::ForLoop*> loops({fl});
 
   const auto& pred_map = GpuLower::current()->info().threadPredicateMap();
 
@@ -389,7 +389,7 @@ bool UnrollPass::canOmitElseClause(ForLoop* fl) {
     // The unswitch predicate is sufficient for this loop. Proceed to
     // nested loops.
     for (auto nested_loop :
-         ir_utils::filterByType<ForLoop>(loop->body().exprs())) {
+         ir_utils::filterByType<kir::ForLoop>(loop->body().exprs())) {
       loops.push_back(nested_loop);
     }
   }

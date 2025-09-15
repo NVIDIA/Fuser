@@ -131,6 +131,16 @@ std::pair<std::unordered_set<IterDomain*>, bool> getNonMappingDomainInfo(
       non_mapping_ids.insert(producer_logical.at(topk_dim));
       has_consumer_id = true;
     }
+  } else if (
+      auto* preprocess_op = dynamic_cast<PreprocessGroupedMatmulInputSf*>(
+          consumer_tv->definition())) {
+    if (producer_tv != preprocess_op->in()) {
+      auto producer_logical =
+          TensorDomain::noReductions(producer_tv->getLogicalDomain());
+      non_mapping_ids.insert(producer_logical.begin(), producer_logical.end());
+      // we are not mapping anything, `has_consumer_id` doesn't matter.
+      has_consumer_id = false;
+    }
   }
 
   return std::make_pair(non_mapping_ids, has_consumer_id);
@@ -760,7 +770,7 @@ void UnmappableReductionDomains::handleReductionOutput(TensorView* out_tv) {
 
 void UnmappableReductionDomains::handle(ReductionOp* op) {
   // Builds a map from reduction domains to consumer domains.
-  TensorView* out_tv = op->out()->as<TensorView>();
+  auto* out_tv = op->out()->as<TensorView>();
   handleReductionOutput(out_tv);
 }
 
@@ -773,7 +783,7 @@ void UnmappableReductionDomains::handle(GroupedReductionOp* op) {
 
 void UnmappableReductionDomains::handle(MmaOp* mma) {
   // Builds a map from reduction domains to consumer domains.
-  TensorView* out_tv = mma->out()->as<TensorView>();
+  auto* out_tv = mma->out()->as<TensorView>();
   handleReductionOutput(out_tv);
 }
 
@@ -1480,11 +1490,11 @@ void ComputeAtLogicalDomainMapBuilder::handle(SqueezeOp* op) {
 }
 
 void ComputeAtLogicalDomainMapBuilder::handle(ViewAsScalar* op) {
-  const TensorView* out_tv = op->output(0)->as<TensorView>();
+  const auto* out_tv = op->output(0)->as<TensorView>();
   const TensorDomain* out_td = out_tv->domain();
   const auto& out_root = out_td->maybeRoot();
 
-  const TensorView* in_tv = op->input(0)->as<TensorView>();
+  const auto* in_tv = op->input(0)->as<TensorView>();
   const TensorDomain* in_td = in_tv->domain();
 
   std::vector<IterDomain*> in_logical =

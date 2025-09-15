@@ -135,6 +135,7 @@ if(BUILD_CUTLASS)
 
     set(NVFUSER_CUTLASS_SRCS)
     list(APPEND NVFUSER_CUTLASS_SRCS
+        ${NVFUSER_CUTLASS}/group_mm.cu
         ${NVFUSER_CUTLASS}/nvfp4_scaled_mm.cu
         ${NVFUSER_CUTLASS}/nvfp4_scaled_mm_blockscale.cu
         ${NVFUSER_CUTLASS}/nvfp4_scaled_group_mm.cu
@@ -326,6 +327,7 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/runtime/allocations.cpp
   ${NVFUSER_SRCS_DIR}/runtime/communication_executor.cpp
   ${NVFUSER_SRCS_DIR}/runtime/compiled_kernel.cpp
+  ${NVFUSER_SRCS_DIR}/runtime/cutlass_compiled_kernel.cpp
   ${NVFUSER_SRCS_DIR}/runtime/executor.cpp
   ${NVFUSER_SRCS_DIR}/runtime/executor_dispatch.cpp
   ${NVFUSER_SRCS_DIR}/runtime/executor_kernel_arg.cpp
@@ -1139,6 +1141,9 @@ if(BUILD_TEST)
   add_test(test_reshape "${NVFUSER_ROOT}/tests/cpp/test_reshape.cpp" "")
   list(APPEND TEST_BINARIES test_reshape)
 
+  add_test(test_layout_op ${NVFUSER_ROOT}/tests/cpp/test_layout_op.cpp "")
+  list(APPEND TEST_BINARIES test_layout_op)
+
   set(MATMUL_TEST_SRCS)
   list(APPEND MATMUL_TEST_SRCS
     ${NVFUSER_ROOT}/tests/cpp/test_cutlass_scheduler.cpp
@@ -1329,6 +1334,7 @@ list(APPEND NVFUSER_RUNTIME_FILES
   ${NVFUSER_ROOT}/runtime/block_sync_atomic.cu
   ${NVFUSER_ROOT}/runtime/block_sync_default.cu
   ${NVFUSER_ROOT}/runtime/block_welford_outer.cu
+  ${NVFUSER_ROOT}/runtime/block_layout.cu
   ${NVFUSER_ROOT}/runtime/broadcast.cu
   ${NVFUSER_ROOT}/runtime/casts.cu
   ${NVFUSER_ROOT}/runtime/cluster.cu

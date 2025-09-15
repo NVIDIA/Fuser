@@ -32,8 +32,8 @@ namespace nvfuser {
 namespace scope_utils {
 
 //! Create an **empty** Forloop and copy the metadata.
-ForLoop* cloneForLoop(ForLoop* for_loop) {
-  return IrBuilder::create<ForLoop>(for_loop);
+kir::ForLoop* cloneForLoop(kir::ForLoop* for_loop) {
+  return IrBuilder::create<kir::ForLoop>(for_loop);
 }
 
 //! Create an **empty** IfThenElse and copy the metadata.
@@ -125,6 +125,7 @@ bool isTvOp(const Expr* expr) {
           SliceOp,
           CatOp,
           ScanOp,
+          PreprocessGroupedMatmulInputSf,
           kir::AllocTMem,
           kir::GridReduction,
           kir::GroupedGridReduction,
@@ -438,7 +439,7 @@ class ExprFlattener : private kir::IrVisitor {
   using kir::IrVisitor::handle;
 
   void dispatch(Expr* expr) final {
-    if (expr->isA<ForLoop>() || expr->isA<kir::IfThenElse>()) {
+    if (expr->isA<kir::ForLoop>() || expr->isA<kir::IfThenElse>()) {
       kir::IrVisitor::dispatch(expr);
     } else {
       flat_exprs_.push_back(expr);
@@ -755,10 +756,10 @@ std::optional<int64_t> getStageSlicePosition(const TensorView* tv) {
 // Returns true if the for_loops contain a loop with the given
 // CircularBufferLoopStage.
 bool containsCircularBufferStage(
-    const std::vector<ForLoop*>& for_loops,
+    const std::vector<kir::ForLoop*>& for_loops,
     CircularBufferLoopStage stage_type) {
   return std::any_of(
-      for_loops.begin(), for_loops.end(), [stage_type](const ForLoop* fl) {
+      for_loops.begin(), for_loops.end(), [stage_type](const kir::ForLoop* fl) {
         return fl->circularBufferLoopStage() == stage_type;
       });
 }
@@ -834,7 +835,7 @@ kir::Allocate* allocGlobalBufferForGridComm(
 
 AllocPosInfo getAllocPosInfo(
     const TensorView* tv,
-    const std::vector<ForLoop*>& for_loops,
+    const std::vector<kir::ForLoop*>& for_loops,
     const std::unordered_map<IterDomain*, IterDomain*>& id_map,
     bool use_id_map) {
   DEBUG_PRINT_SCOPE(tv);
@@ -1092,7 +1093,7 @@ bool isReductionInitExpr(const Expr* expr) {
   return true;
 }
 
-bool predicateAtEnd(ForLoop* loop) {
+bool predicateAtEnd(kir::ForLoop* loop) {
   auto loop_id = loop->iter_domain();
   auto split = dynamic_cast<Split*>(loop_id->definition());
   if (split == nullptr) {
@@ -2110,7 +2111,7 @@ IterDomain* getConcreteLoopID(IterDomain* id) {
 
     // Try to see if the CA concrete domain can be used instead
     for (auto loop_val : *loop_group) {
-      IterDomain* loop_id = loop_val->as<IterDomain>();
+      auto* loop_id = loop_val->as<IterDomain>();
       if (ca_map.idExistsInMap(loop_id, IdMappingMode::LOOP)) {
         auto ca_map_concrete =
             ca_map.getConcreteMappedID(loop_id, IdMappingMode::LOOP);
@@ -2138,7 +2139,7 @@ bool allMmaInputsGuardedByMBarrier(const MmaOp* mma) {
       ir_utils::isCpAsyncBulkLoad(ir_utils::getTv(mma->inB())->definition());
 }
 
-bool isWarpSpecializedLoop(ForLoop* loop) {
+bool isWarpSpecializedLoop(kir::ForLoop* loop) {
   return std::holds_alternative<WarpSpecialized>(
       GpuLower::current()
           ->circularBufferInfo()

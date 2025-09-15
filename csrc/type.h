@@ -22,6 +22,7 @@
 #include <cuda_runtime_api.h>
 
 #include <c10/core/ScalarType.h>
+#include <torch/version.h>
 
 #include <exceptions.h>
 #include <macros.h>
@@ -1172,5 +1173,15 @@ enum class TMemRegisterDataPath {
 std::ostream& operator<<(std::ostream&, TMemRegisterDataPath);
 
 std::ostream& operator<<(std::ostream&, cudaDriverEntryPointQueryResult);
+
+// Layout for block scaling factor used by mx-format with narrow precision, this
+// indicates how to index into block scaling factor. see:
+// https://docs.nvidia.com/cutlass/media/docs/cpp/blackwell_functionality.html#scale-factor-layouts
+enum class BlockScalingFactorLayout {
+  Block128x4,
+};
+
+const char* block_sf_layout2string(BlockScalingFactorLayout t);
+std::ostream& operator<<(std::ostream&, const BlockScalingFactorLayout);
 
 } // namespace nvfuser

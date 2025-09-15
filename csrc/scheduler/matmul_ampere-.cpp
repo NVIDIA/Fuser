@@ -956,7 +956,7 @@ void AmpereMinus::schedulePrologues() {
     std::unordered_set<TensorView*>
         mma_input_set; // to prevent double insertion
     for (TensorView* mma_result : mma_results_) {
-      MmaOp* mma = dynamic_cast<MmaOp*>(mma_result->definition());
+      auto* mma = dynamic_cast<MmaOp*>(mma_result->definition());
       NVF_ERROR(mma != nullptr);
       TensorView* mma_input = nullptr;
       if (operand_type == MmaOperand::A) {

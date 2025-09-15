@@ -246,7 +246,7 @@ void fillTensorWithNan(at::Tensor& t) {
       break;
 #if NVF_TORCH_VERSION_NO_LESS(2, 8, 0)
     case at::ScalarType::Float4_e2m1fn_x2:
-      t.view(torch::kByte).fill_(0xFF);
+      t.view(at::kByte).fill_(0xFF);
       break;
 #endif
     case at::ScalarType::ComplexHalf:

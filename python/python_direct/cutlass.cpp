@@ -61,6 +61,16 @@ void bindGemm(py::module_& cutlass) {
 
 void bindGroupedGemm(py::module_& cutlass) {
   cutlass.def(
+      "grouped_mm",
+      &cutlass_kernels::grouped_mm,
+      R"(Computes grouped matmul and returns bf16 or fp16 output tensor.
+         grouped_mm(Tensor a,
+                    Tensor b,
+                    Tensor ab_strides,
+                    Tensor c_strides,
+                    Tensor problem_sizes,
+                    Tensor expert_offsets) -> Tensor output)");
+  cutlass.def(
       "nvfp4_scaled_grouped_mm",
       &cutlass_kernels::nvfp4_scaled_grouped_mm,
       R"(Computes nvfp4 grouped matmul and returns bf16 or fp16 output tensor.
