@@ -2453,7 +2453,7 @@ std::string LoadStoreOp::toString(int indent_size) const {
   std::string optype = load_store_type2string(opType());
   std::string modifier = "";
   { // Get modifier
-    TensorView* tv = dynamic_cast<TensorView*>(out());
+    auto* tv = dynamic_cast<TensorView*>(out());
     if (auto ti = dynamic_cast<kir::TensorIndex*>(out())) {
       tv = ti->view();
     }
@@ -2673,7 +2673,7 @@ bool IterDomain::sameAs(const Statement* other) const {
     return false;
   }
 
-  const IterDomain* other_id = other->as<IterDomain>();
+  const auto* other_id = other->as<IterDomain>();
 
   // Here're the data fields of IterDomain:
   // start_
@@ -3493,7 +3493,7 @@ bool TensorDomain::sameAs(const Statement* const other) const {
     return false;
   }
 
-  const TensorDomain* other_td = other->as<TensorDomain>();
+  const auto* other_td = other->as<TensorDomain>();
 
   if (nDims() != other_td->nDims()) {
     return false;

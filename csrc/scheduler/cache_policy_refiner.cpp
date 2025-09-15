@@ -53,7 +53,7 @@ bool isLoadGlobalToLocal(const Expr* expr) {
   if (!expr->isA<LoadStoreOp>()) {
     return false;
   }
-  const LoadStoreOp* ldst = expr->as<LoadStoreOp>();
+  const auto* ldst = expr->as<LoadStoreOp>();
 
   if (ldst->opType() != LoadStoreOpType::Set) {
     return false;
@@ -93,7 +93,7 @@ const Expr* findExpand(const LoadStoreOp* ldst) {
       if (!def_out->isA<TensorView>()) {
         continue;
       }
-      const TensorView* def_out_tv = def_out->as<TensorView>();
+      const auto* def_out_tv = def_out->as<TensorView>();
 
       for (const Expr* use : def_out->uses()) {
         if (use->isA<ExpandOp>()) {

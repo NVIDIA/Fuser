@@ -2538,7 +2538,7 @@ TEST_F(MatmulSchedulerPluginTest, BasicMatmul) {
   HeuristicParams* heur = runtime->getMostRecentExecutorLog().params.get();
   ASSERT_NE(heur, nullptr);
   ASSERT_TRUE(heur->isA<MatmulParams>());
-  MatmulParams* mmheur = heur->as<MatmulParams>();
+  auto* mmheur = heur->as<MatmulParams>();
   EXPECT_EQ(mmheur->circular_buffer_options.smem_circular_buffer_stage, 0);
 
   testValidate(

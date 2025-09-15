@@ -1685,7 +1685,7 @@ TEST_F(NVFuserTest, FusionComputeAtCommonConsumer2_CUDA) {
         val->getValType().value() != ValType::TensorView) {
       continue;
     }
-    TensorView* tv = val->as<TensorView>();
+    auto* tv = val->as<TensorView>();
     NVF_CHECK(tv->nDims() == computeAtTarget->nDims());
     if (tv == tv5) {
       NVF_CHECK(tv->getComputeAtPosition() == 0);
@@ -1775,7 +1775,7 @@ TEST_F(NVFuserTest, FusionComputeAtCommonConsumer3_CUDA) {
   for (Val* val : fusion.vals()) {
     if (!val->isFusionInput() &&
         val->getValType().value() == ValType::TensorView) {
-      TensorView* tv = val->as<TensorView>();
+      auto* tv = val->as<TensorView>();
       tv->axis(1)->parallelize(ParallelType::Unroll);
       tv->axis(-1)->parallelize(ParallelType::TIDx);
     }
