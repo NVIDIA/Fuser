@@ -1275,7 +1275,7 @@ TEST_F(NVFuserTest, FusionGroupAllreduce5_CUDA) {
 
   auto t0 = at::randn(shape, options_float);
   auto t4 = at::randn(shape, options_double);
-  auto t8 = torch::randint(0, 1000, shape, options_long);
+  auto t8 = at::randint(0, 1000, shape, options_long);
   auto t12 = at::randn(shape, options_complex_float);
   auto t16 = at::randn(shape, options_complex_double);
   KernelArgumentHolder inputs({t0, t4, t8, t12, t16});

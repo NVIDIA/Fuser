@@ -1758,8 +1758,8 @@ class MatmulPatternMatcher : IterVisitor {
       // Float, but the Fusion was segmented and casts to half precision were
       // inserted at the segmentation edge (see
       // castInputOutputToLowerPrecision in fusion_segmenter.cpp).
-      TensorView* ltv = dynamic_cast<TensorView*>(bop->lhs());
-      TensorView* rtv = dynamic_cast<TensorView*>(bop->rhs());
+      auto* ltv = dynamic_cast<TensorView*>(bop->lhs());
+      auto* rtv = dynamic_cast<TensorView*>(bop->rhs());
       if (ltv == nullptr || rtv == nullptr) {
         // Found a scalar input
         return;

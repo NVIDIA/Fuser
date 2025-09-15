@@ -2111,7 +2111,7 @@ IterDomain* getConcreteLoopID(IterDomain* id) {
 
     // Try to see if the CA concrete domain can be used instead
     for (auto loop_val : *loop_group) {
-      IterDomain* loop_id = loop_val->as<IterDomain>();
+      auto* loop_id = loop_val->as<IterDomain>();
       if (ca_map.idExistsInMap(loop_id, IdMappingMode::LOOP)) {
         auto ca_map_concrete =
             ca_map.getConcreteMappedID(loop_id, IdMappingMode::LOOP);

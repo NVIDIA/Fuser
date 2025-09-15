@@ -6,6 +6,8 @@
  */
 // clang-format on
 
+#include <torch/torch.h>
+
 #include <host_ir/container.h>
 #include <host_ir/evaluator.h>
 #include <host_ir/host_ir.h>

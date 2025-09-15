@@ -411,7 +411,7 @@ struct SliceOpRecord : RecordFunctor {
   }
 
   void operator()(FusionState& fd) final {
-    TensorView* arg = fd.getFusionState(args_.at(0).index)->as<TensorView>();
+    auto* arg = fd.getFusionState(args_.at(0).index)->as<TensorView>();
     const std::vector<Val*>& start = fd.getFusionStateVector(args_.at(1).index);
     const std::vector<Val*>& end = fd.getFusionStateVector(args_.at(2).index);
     const std::vector<Val*>& stride =
@@ -482,7 +482,7 @@ struct ReshapeOpRecord : RecordFunctor {
   }
 
   void operator()(FusionState& fd) final {
-    TensorView* arg = fd.getFusionState(args_.at(0).index)->as<TensorView>();
+    auto* arg = fd.getFusionState(args_.at(0).index)->as<TensorView>();
     const std::vector<Val*>& new_shape =
         fd.getFusionStateVector(args_.at(1).index);
     auto output = reshape(arg, new_shape);

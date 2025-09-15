@@ -1065,7 +1065,7 @@ void GreedyScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
     std::ranges::copy_if(
         tv->uses(), std::back_inserter(uses_to_update), [&](Expr* use) {
           return std::ranges::any_of(use->outputs(), [&](Val* out) {
-            TensorView* out_tv = dynamic_cast<TensorView*>(out);
+            auto* out_tv = dynamic_cast<TensorView*>(out);
             if (out_tv == nullptr) {
               return false;
             }

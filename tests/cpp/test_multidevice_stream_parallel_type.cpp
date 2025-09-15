@@ -6,6 +6,7 @@
 */
 // clang-format on
 #include <cuda_profiler_api.h>
+
 #include <fusion.h>
 #include <host_ir/container.h>
 #include <host_ir/evaluator.h>
@@ -56,7 +57,7 @@ TEST_F(MultiDeviceStreamParallelTypeTest, Allgather) {
   auto output =
       executor.runWithInput(KernelArgumentHolder({input}))[0].as<at::Tensor>();
 
-  EXPECT_TRUE(torch::allclose(output, unsharded_input, 1e-2, 1e-2))
+  EXPECT_TRUE(at::allclose(output, unsharded_input, 1e-2, 1e-2))
       << "Output: " << output << "\nExpected: " << unsharded_input;
 }
 
@@ -95,7 +96,7 @@ TEST_F(MultiDeviceStreamParallelTypeTest, Allreduce) {
       executor.runWithInput(KernelArgumentHolder({input}))[0].as<at::Tensor>();
 
   auto expected_output = unsharded_input.sum(1);
-  EXPECT_TRUE(torch::allclose(output, expected_output, 1e-2, 1e-2))
+  EXPECT_TRUE(at::allclose(output, expected_output, 1e-2, 1e-2))
       << "Output: " << output << "\nExpected: " << expected_output;
 }
 
@@ -136,7 +137,7 @@ TEST_F(MultiDeviceStreamParallelTypeTest, ReduceScatter) {
       executor.runWithInput(KernelArgumentHolder({input}))[0].as<at::Tensor>();
 
   auto expected_output = shardTensor(unsharded_input.sum(1), /*axis=*/1, mesh);
-  EXPECT_TRUE(torch::allclose(output, expected_output, 1e-2, 1e-2))
+  EXPECT_TRUE(at::allclose(output, expected_output, 1e-2, 1e-2))
       << "Output: " << output << "\nExpected: " << expected_output;
 }
 
@@ -213,7 +214,7 @@ TEST_P(AGMatmulTest, CollectiveBasedPipeline) {
   auto t2 = executor.runWithInput({t0, t1})[0].as<at::Tensor>();
 
   auto t2_ref = at::matmul(t0_unsharded, t1);
-  EXPECT_TRUE(torch::allclose(t2_ref, t2, 1e-2, 1e-2));
+  EXPECT_TRUE(at::allclose(t2_ref, t2, 1e-2, 1e-2));
 }
 
 INSTANTIATE_TEST_SUITE_P(
@@ -286,7 +287,7 @@ TEST_F(MultiDeviceStreamParallelTypeTest, matmul_AR) {
   auto t2 = executor.runWithInput({t0, t1})[0].as<at::Tensor>();
 
   auto t2_ref = at::sum(at::matmul(t0_unsharded, t1_unsharded), {1});
-  EXPECT_TRUE(torch::allclose(t2_ref, t2, 1e-2, 1e-2));
+  EXPECT_TRUE(at::allclose(t2_ref, t2, 1e-2, 1e-2));
 }
 
 TEST_F(MultiDeviceStreamParallelTypeTest, matmul_RS_through_bcast) {
@@ -366,7 +367,7 @@ TEST_F(MultiDeviceStreamParallelTypeTest, matmul_RS_through_bcast) {
       at::sum(t2_unreduced_unsharded, {1}); // {S, D, M / (S * D), N}
   auto t2_ref =
       shardTensor(t2_unreduced, /*axis=*/1, mesh); // {S, M / (S * D), N}
-  EXPECT_TRUE(torch::allclose(t2_ref, t2, 1e-1, 1e-1))
+  EXPECT_TRUE(at::allclose(t2_ref, t2, 1e-1, 1e-1))
       << "Output: " << t2 << " Expected: " << t2_ref;
 }
 
@@ -404,7 +405,7 @@ TEST_F(MultiDeviceStreamParallelTypeTest, AllgatherP2p) {
   auto output =
       executor.runWithInput(KernelArgumentHolder({input}))[0].as<at::Tensor>();
 
-  EXPECT_TRUE(torch::allclose(output, unsharded_input, 1e-2, 1e-2))
+  EXPECT_TRUE(at::allclose(output, unsharded_input, 1e-2, 1e-2))
       << "Output: " << output << "\nExpected: " << unsharded_input;
 }
 
@@ -460,7 +461,7 @@ TEST_F(MultiDeviceStreamParallelTypeTest, AG_matmul_P2p) {
   auto t2 = executor.runWithInput({t0, t1})[0].as<at::Tensor>();
 
   auto t2_ref = at::matmul(t0_unsharded, t1);
-  EXPECT_TRUE(torch::allclose(t2_ref, t2, 1e-2, 1e-2));
+  EXPECT_TRUE(at::allclose(t2_ref, t2, 1e-2, 1e-2));
 }
 
 } // namespace nvfuser

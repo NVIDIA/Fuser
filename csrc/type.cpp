@@ -7,10 +7,10 @@
 // clang-format on
 #include <type.h>
 
-#include <ATen/cuda/CUDAContext.h>
-
 #include <sstream>
 #include <unordered_set>
+
+#include <ATen/cuda/CUDAContextLight.h>
 
 #include <ir/all_nodes.h>
 #include <tensor_metadata.h>
