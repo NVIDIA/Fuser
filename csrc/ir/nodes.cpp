@@ -5163,6 +5163,12 @@ ForLoop::ForLoop(
     if (iter_domain->isThread()) {
       step = NamedScalar::getParallelDim(iter_domain->getParallelType());
     } else if (iter_domain->isStream()) {
+      // `streamIdx` is a fixed kernel input (like `threadIdx`) that doesn't
+      // vary during execution of the kernel. Therefore, we emit a "trivial"
+      // for-loop of the form:
+      // ```
+      // for (nvfuser_index_t i0 = streamIdx; i0 < n_streams; i0 += n_streams)
+      // ```
       step = iter_domain->extent();
     } else {
       step = FusionGuard::getCurFusion()->oneVal();
