@@ -52,7 +52,7 @@ TEST_F(StreamTest, AddPerStream) {
     }
   }
   EXPECT_TRUE(at::allclose(out_tensor, expected_out_tensor))
-      << out_tensor << " != " << expected_out_tensor;
+      << out_tensor << " vs " << expected_out_tensor;
 }
 
 } // namespace nvfuser
