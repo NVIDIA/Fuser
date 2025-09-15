@@ -1534,7 +1534,7 @@ TEST_F(PresegTest, UnsafeReduce_Basic) {
   FusionExecutorCache executor_cache(std::move(fusion));
   auto outputs = executor_cache.runFusionWithInputs({t0});
 
-  to kernel_runtime = executor_cache.getMostRecentKernelRuntime();
+  auto kernel_runtime = executor_cache.getMostRecentKernelRuntime();
 
   CHECK(!kernel_runtime->isSegmented());
 
@@ -1577,11 +1577,9 @@ TEST_F(PresegTest, UnsafeReduce_DistantSibling) {
   FusionExecutorCache executor_cache(std::move(fusion));
   auto outputs = executor_cache.runFusionWithInputs({t0});
 
-  ernel_runtime = executor_cache.getMostRecentKernelRuntime();
+  auto kernel_runtime = executor_cache.getMostRecentKernelRuntime();
 
-  NV
-
-      K(!kernel_runtime->isSegmented());
+  CHECK(!kernel_runtime->isSegmented());
 
   auto& groups = kernel_runtime->fusionSegments()->groups();
 
@@ -1616,9 +1614,7 @@ TEST_F(PresegTest, UnsafeReduce_Softmax) {
   TensorView* tv4 = sum(tv3, {0});
   TensorView* tv5 = add(tv4, tv2);
 
-  fusi
-
-      dOutput(tv5);
+  fusion->addOutput(tv5);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({2048}, options);
@@ -1627,13 +1623,9 @@ TEST_F(PresegTest, UnsafeReduce_Softmax) {
   FusionExecutorCache executor_cache(std::move(fusion));
   auto outputs = executor_cache.runFusionWithInputs({t0});
 
-  auto k
+  auto kernel_runtime = executor_cache.getMostRecentKernelRuntime();
 
-      runtime = executor_cache.getMostRecentKernelRuntime();
-
-  NVF_CHEC
-
-  nel_runtime->isSegmented());
+  CHECK(!kernel_runtime->isSegmented());
 
   auto& groups = kernel_runtime->fusionSegments()->groups();
 
@@ -1674,13 +1666,9 @@ TEST_F(PresegTest, UnsafeReduce_NoRepair) {
   FusionExecutorCache executor_cache(std::move(fusion));
   auto outputs = executor_cache.runFusionWithInputs({t0});
 
-  auto kerne
+  auto kernel_runtime = executor_cache.getMostRecentKernelRuntime();
 
-      ime = executor_cache.getMostRecentKernelRuntime();
-
-  NVF_CHECK(!k
-
-                 runtime->isSegmented());
+  CHECK(!kernel_runtime->isSegmented());
 
   auto& groups = kernel_runtime->fusionSegments()->groups();
 
@@ -1721,15 +1709,11 @@ TEST_F(PresegTest, UnsafeReduce_IncompatibleShapes) {
   t0[0] = std::numeric_limits<float>::quiet_NaN();
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto outputs = executor_cache.runFusionWithInputs({t0, t1});
+  auto outputs = executor_cache.runFusionWithInputs({t0});
 
-  auto kernel_ru
+  auto kernel_runtime = executor_cache.getMostRecentKernelRuntime();
 
-      = executor_cache.getMostRecentKernelRuntime();
-
-  NVF_CHECK(!kerne
-
-                 ime->isSegmented());
+  CHECK(!kernel_runtime->isSegmented());
 
   auto& groups = kernel_runtime->fusionSegments()->groups();
 
@@ -1771,14 +1755,9 @@ TEST_F(PresegTest, UnsafeReduce_BlockedRepair) {
   FusionExecutorCache executor_cache(std::move(fusion));
   auto outputs = executor_cache.runFusionWithInputs({t0});
 
-  auto kernel_runtim
+  auto kernel_runtime = executor_cache.getMostRecentKernelRuntime();
 
-      ecutor_cache.getMostRecentKernelRuntime();
-
-  NVF_CHECK(
-      !kernel_ru
-
-      > isSegmented());
+  CHECK(!kernel_runtime->isSegmented());
 
   auto& groups = kernel_runtime->fusionSegments()->groups();
 
