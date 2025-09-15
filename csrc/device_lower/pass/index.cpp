@@ -1460,12 +1460,19 @@ void IndexLowering::handle(const ScanOp* scop) {
   }
 
   // thread loacal serial scan
+  // Find index for the scanDim IterDomain loop, so that we can modify the index
+  // by subtracting one.
+  int scan_id_alloc_pos = -1;
   const std::vector<IterDomain*>& alloc_dom =
       scop->in()->as<TensorView>()->getMaybeAllocationDomain();
-  auto it = std::find(alloc_dom.begin(), alloc_dom.end(), scan_id);
-  auto scan_alloc_id = (it != alloc_dom.end()) ? *it : nullptr;
+  for (size_t alloc_pos = 0; alloc_pos < alloc_dom.size(); ++alloc_pos) {
+    if (alloc_dom.at(alloc_pos) == scan_id) {
+      scan_id_alloc_pos = alloc_pos;
+      break;
+    }
+  }
   NVF_ERROR(
-      scan_alloc_id != nullptr,
+      scan_id_alloc_pos != -1,
       "Could not find scanned ID in allocation domain. ",
       "Scan dimensions must not be merged or split during scheduling");
   ValGraph& id_graph = GpuLower::current()->tensorIndexer().traversalGraph();
@@ -1485,9 +1492,10 @@ void IndexLowering::handle(const ScanOp* scop) {
       scan_loop->iter_domain(), for_loops_);
   Val* lagged_index = sub(scan_index, GpuLower::current()->kernel()->oneVal());
   // This gives us the previously computed value along the scanned dimension
-  Val* prev_sum_tensor = lowerDstIndex(
-      scop->out(),
-      /*override_index=*/{{scan_alloc_id, lagged_index}});
+  IterDomain* scan_alloc_id = alloc_dom.at(scan_id_alloc_pos);
+  auto override_map =
+      std::unordered_map<IterDomain*, Val*>{{scan_alloc_id, lagged_index}};
+  Val* prev_sum_tensor = lowerDstIndex(scop->out(), override_map);
 
   // Cache the current input value to a scalar for easier manipulation
   Val* current_val = IrBuilder::create<Val>(scop->in()->dtype());
@@ -1507,11 +1515,31 @@ void IndexLowering::handle(const ScanOp* scop) {
 
   if (Val* f = scop->discountFactor()) {
     if (auto* f_tv = dynamic_cast<TensorView*>(f)) {
-      Val* f_ti = lowerSrcIndex(f_tv, scop->out());
-      Val* prev_sum_mul = IrBuilder::create<Val>(f_tv->dtype());
-      IrBuilder::create<BinaryOp>(
-          BinaryOpType::Mul, prev_sum_mul, f_ti, prev_sum);
-      prev_sum = prev_sum_mul;
+      if (scop->isExclusive()) {
+        auto discount_alloc_id =
+            f_tv->getMaybeAllocationDomain().at(scan_id_alloc_pos);
+        auto input_override_map = std::unordered_map<IterDomain*, Val*>{
+            {discount_alloc_id, lagged_index}};
+        Val* f_ti = lowerSrcIndex(f_tv, scop->out(), input_override_map);
+        Val* prev_discount_val = IrBuilder::create<Val>(scop->in()->dtype());
+        IrBuilder::create<LoadStoreOp>(
+            LoadStoreOpType::Set, prev_discount_val, f_ti);
+        prev_discount_val = where(
+            gt(scan_index, scan_loop->start()),
+            prev_discount_val,
+            scop->init());
+        Val* prev_sum_mul = IrBuilder::create<Val>(f_tv->dtype());
+        IrBuilder::create<BinaryOp>(
+            BinaryOpType::Mul, prev_sum_mul, prev_discount_val, prev_sum);
+        prev_sum = prev_sum_mul;
+      } else {
+        Val* f_ti = lowerSrcIndex(f_tv, scop->out());
+        Val* prev_sum_mul = IrBuilder::create<Val>(f_tv->dtype());
+        IrBuilder::create<BinaryOp>(
+            BinaryOpType::Mul, prev_sum_mul, f_ti, prev_sum);
+        prev_sum = prev_sum_mul;
+      }
+
     } else {
       prev_sum = mul(f, prev_sum);
     }
@@ -1521,9 +1549,11 @@ void IndexLowering::handle(const ScanOp* scop) {
   if (scop->isExclusive()) {
     // For exclusive scan, output[i] should contain the scan of elements [0,
     // i-1] Get the previous input value (input[i-1])
-    const auto prev_input_tensor = lowerDstIndex(
-        scop->in(),
-        /*override_index=*/{{scan_alloc_id, lagged_index}});
+    auto input_override_map =
+        std::unordered_map<IterDomain*, Val*>{{scan_alloc_id, lagged_index}};
+    const auto prev_input_tensor =
+        lowerSrcIndex(scop->in(), scop->out(), input_override_map);
+
     Val* prev_input_val = IrBuilder::create<Val>(scop->in()->dtype());
     IrBuilder::create<LoadStoreOp>(
         LoadStoreOpType::Set, prev_input_val, prev_input_tensor);

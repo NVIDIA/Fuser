@@ -821,7 +821,8 @@ NVF_API TensorView* scan(
 NVF_API TensorView* prefixSum(
     TensorView* tv,
     int64_t dim,
-    Val* discount = nullptr);
+    Val* discount = nullptr,
+    bool is_exclusive = false);
 
 //! Another alias for PyTorch's cumsum
 NVF_API inline TensorView* cumsum(TensorView* tv, int64_t dim) {

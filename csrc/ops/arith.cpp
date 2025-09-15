@@ -2639,12 +2639,16 @@ TensorView* scan(
   return out_tv;
 }
 
-TensorView* prefixSum(TensorView* tv, int64_t dim, Val* discount) {
+TensorView* prefixSum(
+    TensorView* tv,
+    int64_t dim,
+    Val* discount,
+    bool is_exclusive) {
   return scan(
       tv,
       dim,
       BinaryOpType::Add,
-      /*is_exclusive=*/false,
+      /*is_exclusive=*/is_exclusive,
       /*init=*/tv->fusion()->zeroVal(tv->dtype()),
       /*discount=*/discount);
 }

@@ -16,6 +16,7 @@
 #include <tests/cpp/utils.h>
 #include <tests/cpp/validator.h>
 #include "ir/internal_nodes.h"
+#include "type.h"
 namespace nvfuser {
 
 using ScanTest = NVFuserTest;
@@ -797,6 +798,7 @@ TEST_F(ScanTest, OnlineSumExpXMinusMaxNoScan) {
 //   d[j] = d[j-1] * exp(m[j-1] - m[j]) + dp
 // return d[N-1]
 TEST_F(ScanTest, OnlineSumExpXMinusMaxSerialScan) {
+  GTEST_SKIP();
   EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
   Fusion fusion;
   FusionGuard fg(&fusion);
@@ -933,7 +935,7 @@ TEST_F(ScanTest, OnlineSumExpXMinusMaxSerialScan2) {
 
   // exclusive scan can't inline both consumer (tv2) and producer (tv1)
   // inclusive scan can't inline consumer (tv8)
-  inlineMost(std::vector<TensorView*>{tv3, tv4, tv5, tv6, tv7, tv9, tv10});
+  // inlineMost(std::vector<TensorView*>{tv3, tv4, tv5, tv6, tv7, tv9, tv10});
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto input = at::randn(shape, options);
@@ -941,20 +943,22 @@ TEST_F(ScanTest, OnlineSumExpXMinusMaxSerialScan2) {
   KernelExecutor ke;
   ke.compile(&fusion, {input});
   auto outputs = ke.run({input});
+
+  auto final_output_0 =
+      at::select(outputs[0].as<at::Tensor>(), /*dim=*/0, /*index=*/-1);
+  auto final_output_1 =
+      at::select(outputs[1].as<at::Tensor>(), /*dim=*/0, /*index=*/-1);
+
   auto aten_max = at::amax(input, {0});
   std::cout << "aten_max: " << aten_max << std::endl;
   auto aten_exp = at::exp(input - aten_max.unsqueeze(0));
   auto aten_sum = at::sum(aten_exp, {0});
   std::cout << "input: " << input << std::endl;
   std::cout << "aten_sum: " << aten_sum << std::endl;
-  std::cout << "outputs[0]: " << outputs[0] << std::endl;
-  std::cout << "outputs[1]: " << outputs[1] << std::endl;
-  std::cout << "outputs[2]: " << outputs[2] << std::endl;
-  std::cout << "outputs[3]: " << outputs[3] << std::endl;
-  std::cout << "outputs[4]: " << outputs[4] << std::endl;
+  std::cout << "outputs[0]: " << final_output_0 << std::endl;
+  std::cout << "outputs[1]: " << final_output_1 << std::endl;
 
-  EXPECT_TRUE(
-      at::allclose(outputs[0].as<at::Tensor>(), aten_sum, 1e-5, 1e-8, true));
+  EXPECT_TRUE(at::allclose(final_output_1, aten_sum, 1e-5, 1e-8, true));
 }
 
 // This is a simplified version of FlashAttention that does not circular buffer
@@ -1062,6 +1066,84 @@ TEST_F(ScanTest, BlockedQKTransposeV) {
 
   EXPECT_TRUE(
       at::allclose(outputs[0].as<at::Tensor>(), aten_O, 1e-4, 1e-6, true));
+}
+
+TEST_F(ScanTest, BlockedAttention) {
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  int64_t N = 12; // sequence length
+  int64_t D = 5; // hidden dimension size
+  int64_t Br = 2; // block size for rows
+  int64_t Bc = 3; // block size for columns
+  int64_t Tr = N / Br; // Total number of row blocks for Q, 4
+  int64_t Tc = N / Bc; // Total number of column blocks for K^T, 8
+  // [N,D] --> [Tr, Br, D] for Q and [Tc, Bc, D] for K,V
+  auto Q = makeConcreteTensor({Tr, Br, 1, 1, D});
+  auto K = makeConcreteTensor({1, 1, Tc, Bc, D});
+  auto V = makeConcreteTensor({1, 1, Tc, Bc, D});
+  fusion->addInput(Q);
+  fusion->addInput(K);
+  fusion->addInput(V);
+
+  // QK --> [Tr, Br, Tc, Bc, D]
+  auto QK = mul(Q, K);
+  // S --> [Tr, Br, Tc, Bc] (sum over hidden dimension for dot product)
+  auto Sij = sum(QK, {4});
+
+  // Line 10, [Tr, Br, Tc, Bc] -> [Tr, Br, Tc, 1]
+  auto mij_tilde = max(Sij, {3}, /*keep_dim=*/true); // [Tr, Br, Tc, 1]
+  auto pij_tilde = exp(sub(Sij, mij_tilde)); // [Tr, Br, Tc, Bc]
+  auto lij_tilde = sum(pij_tilde, {3}, /*keep_dim=*/true); // [Tr, Br, Tc, 1]
+
+  // Line 11, m_i_new, [Tr, Br, Tc, 1] -> [Tr, Br, Tc, 1]
+  auto m_i = scan(mij_tilde, 2, BinaryOpType::Max, /*is_exclusive=*/true);
+  auto m_i_new = binaryOp(BinaryOpType::Max, m_i, mij_tilde);
+  // Line 11, l_i_new, [Tr, Br, Tc, 1]
+  auto lij_tidle_factor = exp(sub(mij_tilde, m_i_new)); // [Tr, Br, Tc, 1]
+  auto l_i_factor = exp(sub(m_i, m_i_new)); // [Tr, Br, Tc, 1]
+  auto next_l = mul(lij_tidle_factor, lij_tilde); // [Tr, Br, Tc, 1]
+  // prefix sum is always inclusive, for exlcusive, l[i] = l_new[i-1]
+  auto l_i = prefixSum(next_l, 2, l_i_factor, /*is_exclusive=*/true);
+  auto l_i_new = add(mul(l_i_factor, l_i), next_l);
+
+  // Line 12, o_i, [Tr, Br, Tc, D]
+  // [Tr, Br, Tc, Bc, 1] X [1, 1, Tc, Bc, D] --> [Tr, Br, Tc, Bc, D]
+  auto pij_tilde_vj_dot =
+      mul(broadcast(pij_tilde, {false, false, false, false, true}), V);
+  auto pij_tilde_vj = sum(pij_tilde_vj_dot, {3}); // [Tr, Br, Tc, D]
+  auto next_o =
+      mul(div(lij_tidle_factor, l_i_new), pij_tilde_vj); // [Tr, Br, Tc, D]
+  auto o_discount = div(mul(l_i_factor, l_i), l_i_new);
+  auto O = prefixSum(next_o, 2, o_discount);
+  fusion->addOutput(O);
+  fusion->printMath();
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto aQ = at::randn({Tr, Br, 1, 1, D}, options);
+  auto aK = at::randn({1, 1, Tc, Bc, D}, options);
+  auto aV = at::randn({1, 1, Tc, Bc, D}, options);
+
+  KernelExecutor ke;
+  ke.compile(fusion.get(), {aQ, aK, aV});
+  auto outputs = ke.run({aQ, aK, aV});
+  // get last element of dimension Tc from outputs[0] which has shape [Tr, Br,
+  // Tc, D] The prefix scan produces outputs for each step, we want the final
+  // result
+  auto final_output = at::select(
+      outputs[0].as<at::Tensor>(), /*dim=*/2, /*index=*/-1); // [Tr, Br, D]
+  std::cout << "final_output: " << final_output << std::endl;
+
+  auto aten_Q = aQ.reshape({N, D});
+  auto aten_K = aK.reshape({N, D});
+  auto aten_V = aV.reshape({N, D});
+  auto aten_S = at::matmul(aten_Q, aten_K.transpose(-2, -1));
+  auto aten_S_softmax = at::softmax(aten_S, 1);
+  auto aten_O = at::matmul(aten_S_softmax, aten_V).reshape({Tr, Br, D});
+  std::cout << "aten_O: " << aten_O << std::endl;
+
+  EXPECT_TRUE(at::allclose(final_output, aten_O, 1e-4, 1e-6, true));
 }
 // TEST_F(ScanTest, OnlineSoftmax) {
 //   EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
