@@ -22,6 +22,72 @@ __device__ __inline__ void quadMaxReduction(
   // At this point, all threads in a quad hold the maximum value for that quad.
 }
 
+// TODO: Add a template parameter for input type.
+// For now we just work on float.
+// This also assumes a block of 16. That should be a
+// template parameter.
+template <int ITERMS_PER_THREAD>
+__device__ void block_quantize_to_nvfp4(
+    float (&input)[ITERMS_PER_THREAD],
+    Array<__e2m1, 4, 4>& output,
+    __e4m3& fp8_output) {
+  assert(blockDim.x % 4 == 0);
+  assert(blockDim.z == 1 && gridDim.z == 1);
+  static_assert(
+      ITERMS_PER_THREAD % 4 == 0, "ITERMS_PER_THREAD must be multiple of 4");
+
+  Array<float, 4, 4> vec4;
+  vec4.set(0.0f); // Initialize to zero like nvfuser does
+
+  for (auto i = 0; i < ITERMS_PER_THREAD; i++) {
+    vec4[i] = input[i];
+  }
+
+  float local_max = NEG_INFINITY;
+#pragma unroll
+  for (int i = 0; i < 4; ++i) {
+    local_max = nv_fmax(local_max, fabsf(vec4[i]));
+  }
+
+  // Perform block(16 elements)-wide reduction (max)
+  // across 4- threads
+  float block_max = NEG_INFINITY;
+  quadMaxReduction(input, local_max);
+  block_max = local_max;
+
+  float scaled_max = block_max / 6.000000000e+00f;
+  float clamped_max = clamp(
+      scaled_max, 1.562500000e-02f, 4.480000000e+02f); // Clamp between 0 and 1
+
+  __e4m3 clamped_max_fp8 = __float2e4m3(clamped_max);
+
+  float clamped_max_converted = __e4m32float(clamped_max_fp8);
+
+  // Convert back from FP8 to float using __e4m32float
+  fp8_output = clamped_max_fp8;
+
+  Array<float, 4, 4> clamped_vals;
+#pragma unroll
+  for (int i = 0; i < 4; ++i) {
+    float scaled_val = vec4[i] / clamped_max_converted;
+    clamped_vals[i] = clamp(scaled_val, -6.000000000e+00f, 6.000000000e+00f);
+  }
+
+  Array<__e2m1, 4, 1> fp4_vals;
+  *reinterpret_cast<Array<__e2m1, 4, 4>*>(&fp4_vals[0]) =
+      __float2e2m1(*reinterpret_cast<Array<float, 4, 4>*>(&clamped_vals[0]));
+
+  Array<__e2m1, 4, 4> fp4_vals_aligned;
+#pragma unroll
+  for (int i = 0; i < 4; ++i) {
+    fp4_vals_aligned[i] = fp4_vals[i];
+  }
+
+  for (auto i = 0; i < ITERMS_PER_THREAD; ++i) {
+    output[i] = fp4_vals_aligned[i];
+  }
+}
+
 /**
  * Templated CUDA kernel for float to FP4/FP8 conversion with vectorized loads
  *
@@ -86,51 +152,9 @@ __global__ void float_to_nvfp4_conversion_kernel(
         &vec4.array[0], const_cast<float*>(&input[total_offset]));
   }
 
-  // Calculate the max of the values in vec4
-  float local_max = NEG_INFINITY;
-#pragma unroll
-  for (int i = 0; i < 4; ++i) {
-    local_max = nv_fmax(local_max, fabsf(vec4[i]));
-  }
-
-  // Perform block-wide maximum reduction across threads
-  float block_max = NEG_INFINITY;
-  quadMaxReduction(input, local_max);
-  block_max = local_max;
-
-  float scaled_max = block_max / 6.000000000e+00f;
-  float clamped_max = clamp(
-      scaled_max, 1.562500000e-02f, 4.480000000e+02f); // Clamp between 0 and 1
-
-  __e4m3 clamped_max_fp8 = __float2e4m3(clamped_max);
-
-  // Convert back from FP8 to float using __e4m32float
-  float clamped_max_converted = __e4m32float(clamped_max_fp8);
-
-  // Broadcast clamped_max_converted from thread 0 in X dimension to all threads
-  float broadcasted_clamped_max = NEG_INFINITY;
-  broadcasted_clamped_max = clamped_max_converted;
-
-  // Process vec4 array: divide each element by broadcasted_clamped_max and
-  // clamp
-  Array<float, 4, 4> clamped_vals;
-#pragma unroll
-  for (int i = 0; i < 4; ++i) {
-    float scaled_val = vec4[i] / broadcasted_clamped_max;
-    clamped_vals[i] = clamp(scaled_val, -6.000000000e+00f, 6.000000000e+00f);
-  }
-
-  // Convert clamped_vals to FP4 E2M1 format using nvfuser-style vectorized
-  // operations T10 corresponds to clamped_vals, T11 corresponds to fp4_vals
-  Array<__e2m1, 4, 1> fp4_vals;
-  *reinterpret_cast<Array<__e2m1, 4, 4>*>(&fp4_vals[0]) =
-      __float2e2m1(*reinterpret_cast<Array<float, 4, 4>*>(&clamped_vals[0]));
-
+  __e4m3 clamped_max_fp8;
   Array<__e2m1, 4, 4> fp4_vals_aligned;
-#pragma unroll
-  for (int i = 0; i < 4; ++i) {
-    fp4_vals_aligned[i] = fp4_vals[i];
-  }
+  block_quantize_to_nvfp4<4>(vec4.array, fp4_vals_aligned, clamped_max_fp8);
 
   // Write back the clamped max value if this is thread 0 in X dimension
   if (threadIdx.x % 4 == 0) {
@@ -147,5 +171,6 @@ __global__ void float_to_nvfp4_conversion_kernel(
         &output_e2m1[total_offset / 2], &fp4_vals_aligned.array[0]);
   }
 }
+
 } // namespace bq
 } // namespace nvf
