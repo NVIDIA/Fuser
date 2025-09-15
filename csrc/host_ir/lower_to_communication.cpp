@@ -30,8 +30,10 @@ c10d::ReduceOp::RedOpType getC10dReduceOpType(BinaryOpType op) {
       return c10d::ReduceOp::RedOpType::SUM;
     case BinaryOpType::Mul:
       return c10d::ReduceOp::RedOpType::PRODUCT;
+    case BinaryOpType::UnsafeMin:
     case BinaryOpType::Min:
       return c10d::ReduceOp::RedOpType::MIN;
+    case BinaryOpType::UnsafeMax:
     case BinaryOpType::Max:
       return c10d::ReduceOp::RedOpType::MAX;
     case BinaryOpType::BitwiseAnd:

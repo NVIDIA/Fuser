@@ -995,6 +995,15 @@ class ReductionOp : public Expr {
     return attribute<BinaryOpType>(1);
   }
 
+  void markUnsafe() {
+    if (attribute<BinaryOpType>(1) == BinaryOpType::Max) {
+      attribute<BinaryOpType>(1) = BinaryOpType::UnsafeMax;
+    }
+    if (attribute<BinaryOpType>(1) == BinaryOpType::Min) {
+      attribute<BinaryOpType>(1) = BinaryOpType::UnsafeMin;
+    }
+  }
+
   bool isAllreduce() const {
     return attribute<bool>(2);
   }

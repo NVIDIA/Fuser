@@ -192,9 +192,11 @@ std::string toString(const BinaryOp* bop) {
     case BinaryOpType::Gcd:
       return "gcd";
       break;
+    case BinaryOpType::UnsafeMax:
     case BinaryOpType::Max:
       return "maximum";
       break;
+    case BinaryOpType::UnsafeMin:
     case BinaryOpType::Min:
       return "minimum";
       break;
@@ -246,9 +248,11 @@ std::string toString(const ReductionOp* rop) {
     case BinaryOpType::Mul:
       return "prod";
       break;
+    case BinaryOpType::UnsafeMax:
     case BinaryOpType::Max:
       return "max";
       break;
+    case BinaryOpType::UnsafeMin:
     case BinaryOpType::Min:
       return "min";
       break;
@@ -270,9 +274,11 @@ std::string toString(const ScanOp* sop) {
     case BinaryOpType::Mul:
       return "cumprod";
       break;
+    case BinaryOpType::UnsafeMax:
     case BinaryOpType::Max:
       return "cummax";
       break;
+    case BinaryOpType::UnsafeMin:
     case BinaryOpType::Min:
       return "cummin";
       break;

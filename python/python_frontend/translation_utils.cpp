@@ -59,9 +59,11 @@ serde::RecordType getSerdeType(const ReductionOp* rop) {
     case BinaryOpType::Mul:
       return serde::RecordType::ReductionProd;
       break;
+    case BinaryOpType::UnsafeMax:
     case BinaryOpType::Max:
       return serde::RecordType::ReductionMax;
       break;
+    case BinaryOpType::UnsafeMin:
     case BinaryOpType::Min:
       return serde::RecordType::ReductionMin;
       break;

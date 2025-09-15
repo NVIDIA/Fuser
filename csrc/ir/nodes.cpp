@@ -751,9 +751,11 @@ std::vector<PolymorphicValue> BinaryOp::evaluate(
     case BinaryOpType::LE:
       return {le(lhs, rhs)};
       break;
+    case BinaryOpType::UnsafeMax:
     case BinaryOpType::Max:
       return {max(lhs, rhs)};
       break;
+    case BinaryOpType::UnsafeMin:
     case BinaryOpType::Min:
       return {min(lhs, rhs)};
       break;
@@ -1657,9 +1659,11 @@ std::vector<PolymorphicValue> ReductionOp::evaluate(
     case BinaryOpType::Add:
       return {at::sum(input, reduction_axes)};
       break;
+    case BinaryOpType::UnsafeMax:
     case BinaryOpType::Max:
       return {at::amax(input, reduction_axes)};
       break;
+    case BinaryOpType::UnsafeMin:
     case BinaryOpType::Min:
       return {at::amin(input, reduction_axes)};
       break;
@@ -1751,6 +1755,7 @@ std::vector<PolymorphicValue> GroupedReductionOp::evaluate(
       case BinaryOpType::Add:
         grouped_reduction_out.emplace_back(at::sum(in_tensor, reduction_axes));
         break;
+      case BinaryOpType::UnsafeMax:
       case BinaryOpType::Max:
         grouped_reduction_out.emplace_back(at::amax(in_tensor, reduction_axes));
         break;
@@ -6451,6 +6456,7 @@ std::vector<PolymorphicValue> ScanOp::evaluate(
     case BinaryOpType::Add:
       out_t = at::cumsum(input, dim());
       break;
+    case BinaryOpType::UnsafeMax:
     case BinaryOpType::Max:
       out_t = std::get<0>(at::cummax(input, dim()));
       break;

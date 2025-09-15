@@ -659,9 +659,11 @@ void HostIrEvaluator::handle(ReductionOp* reduction_op) {
     case BinaryOpType::Add:
       at::sum_out(output, input, reduction_axes);
       return;
+    case BinaryOpType::UnsafeMax:
     case BinaryOpType::Max:
       at::amax_out(output, input, reduction_axes);
       return;
+    case BinaryOpType::UnsafeMin:
     case BinaryOpType::Min:
       at::amin_out(output, input, reduction_axes);
       return;

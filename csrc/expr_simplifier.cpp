@@ -505,7 +505,8 @@ inline bool isAssociativeAndCommutative(BinaryOpType type) {
       type == BinaryOpType::LogicalAnd || type == BinaryOpType::LogicalOr ||
       type == BinaryOpType::BitwiseAnd || type == BinaryOpType::BitwiseOr ||
       type == BinaryOpType::BitwiseXor || type == BinaryOpType::Max ||
-      type == BinaryOpType::Min || type == BinaryOpType::Gcd;
+      type == BinaryOpType::UnsafeMax || type == BinaryOpType::Min ||
+      type == BinaryOpType::UnsafeMin || type == BinaryOpType::Gcd;
 }
 
 // No-op term `e` is a special number that, for all x:
@@ -635,8 +636,10 @@ const char* FlattenedAssocCommOp::getOpString() const {
       return "FlattenedBitwiseOr";
     case BinaryOpType::BitwiseXor:
       return "FlattenedBitwiseXor";
+    case BinaryOpType::UnsafeMax:
     case BinaryOpType::Max:
       return "FlattenedMax";
+    case BinaryOpType::UnsafeMin:
     case BinaryOpType::Min:
       return "FlattenedMin";
     default:
@@ -796,11 +799,13 @@ std::vector<PolymorphicValue> FlattenedAssocCommOp::evaluate(
         result = result ^ i;
       }
       break;
+    case BinaryOpType::UnsafeMin:
     case BinaryOpType::Min:
       for (const auto& i : inputs_) {
         result = min(result, i);
       }
       break;
+    case BinaryOpType::UnsafeMax:
     case BinaryOpType::Max:
       for (const auto& i : inputs_) {
         result = max(result, i);
@@ -1904,7 +1909,8 @@ Val* eliminateTrivialComputation(Val* value, const Context& context) {
     { // b && b -> b, b || b -> b, max(i, i) -> i, min(i, i) -> i
       if (op == BinaryOpType::LogicalAnd || op == BinaryOpType::LogicalOr ||
           op == BinaryOpType::BitwiseAnd || op == BinaryOpType::BitwiseOr ||
-          op == BinaryOpType::Max || op == BinaryOpType::Min) {
+          op == BinaryOpType::Max || op == BinaryOpType::UnsafeMax ||
+          op == BinaryOpType::Min || op == BinaryOpType::UnsafeMin) {
         std::vector<Val*> dedup_input;
         for (auto v : fop->inputs()) {
           bool found_dup = false;
@@ -1924,18 +1930,23 @@ Val* eliminateTrivialComputation(Val* value, const Context& context) {
       }
     }
     { // max(a, b) -> a if a >= b, min(a, b) -> b if a >= b
-      if (op == BinaryOpType::Max || op == BinaryOpType::Min) {
+      if (op == BinaryOpType::Max || op == BinaryOpType::UnsafeMax ||
+          op == BinaryOpType::Min || op == BinaryOpType::UnsafeMin) {
         std::vector<Val*> simplified_input;
         for (auto v : fop->inputs()) {
           bool found_redundant = false;
           for (auto& v2 : simplified_input) {
-            if ((op == BinaryOpType::Max && prove::lessEqual(v, v2, context)) ||
-                (op == BinaryOpType::Min && prove::lessEqual(v2, v, context))) {
+            if (((op == BinaryOpType::Max || op == BinaryOpType::UnsafeMax) &&
+                 prove::lessEqual(v, v2, context)) ||
+                ((op == BinaryOpType::Min || op == BinaryOpType::UnsafeMin) &&
+                 prove::lessEqual(v2, v, context))) {
               found_redundant = true;
               break;
             } else if (
-                (op == BinaryOpType::Max && prove::lessEqual(v2, v, context)) ||
-                (op == BinaryOpType::Min && prove::lessEqual(v, v2, context))) {
+                ((op == BinaryOpType::Max || op == BinaryOpType::UnsafeMax) &&
+                 prove::lessEqual(v2, v, context)) ||
+                ((op == BinaryOpType::Min || op == BinaryOpType::UnsafeMin) &&
+                 prove::lessEqual(v, v2, context))) {
               found_redundant = true;
               v2 = v;
               break;
