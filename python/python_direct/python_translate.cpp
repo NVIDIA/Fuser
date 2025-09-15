@@ -192,8 +192,6 @@ class PythonPrinter {
     for (auto&& [i, val] : enumerate(vec)) {
       if constexpr (is_optional_v<T>) {
         ss << toString(val, /*skip_none=*/false);
-      } else if constexpr (std::is_same_v<T, nvfuser::Val*>) {
-        ss << toString(val, /*is_lvalue=*/false);
       } else {
         ss << toString(val);
       }
@@ -214,6 +212,10 @@ class PythonPrinter {
       if (val == nullptr) {
         ss << "_";
       } else {
+        NVF_ERROR(
+            !isPythonScalar(val),
+            "A constant scalar Val* cannot be an output lvalue. Got\t",
+            val->toString());
         ss << toString(val, /*is_lvalue=*/true);
       }
       if (i < vec.size() - 1) {
@@ -608,9 +610,7 @@ class PythonTranslator : public OptInConstDispatch {
           std::back_inserter(scalars),
           [](Val* v) { return v->isScalar(); });
       std::for_each(scalars.begin(), scalars.end(), [this](const Val* v) {
-        if (!isPythonScalar(v)) {
-          dispatch(v);
-        }
+        dispatch(v);
       });
 
       // short-circuit: add to back of stack if not all of the expression's
@@ -683,6 +683,10 @@ class PythonTranslator : public OptInConstDispatch {
     }
     // short-circuit: value already exists in FusionDefinition
     if (visited_vals_.count(v) > 0) {
+      return;
+    }
+    // short-circuit: print python scalar directly
+    if (isPythonScalar(v)) {
       return;
     }
     visited_vals_.insert(v);
@@ -1215,9 +1219,7 @@ class PythonTranslator : public OptInConstDispatch {
     static const std::vector<std::string> reshape_argument_names = {
         "new_shape"};
     std::for_each(new_shape.begin(), new_shape.end(), [this](const Val* v) {
-      if (!isPythonScalar(v)) {
-        dispatch(v);
-      }
+      dispatch(v);
     });
     visited_vals_.insert(vop->out());
     printer_.generateKwargsOperation(
@@ -1391,9 +1393,6 @@ class PythonTranslator : public OptInConstDispatch {
       // Default arg1 and arg2 is (0, 1) for both uniform and normal.
       first_arg = fusion_->zeroVal();
       second_arg = fusion_->oneVal();
-      // Create 0 and 1 scalar values
-      dispatch(first_arg);
-      dispatch(second_arg);
     }
     NVF_ERROR(first_arg != nullptr && second_arg != nullptr);
 

@@ -22,6 +22,10 @@ Val* convertToVal(
     std::optional<PrimDataType> dtype = std::nullopt) {
   // short-circuit: already a NvFuser val
   if (std::holds_alternative<Val*>(value)) {
+    Val* v = std::get<Val*>(value);
+    NVF_ERROR(
+        dtype == std::nullopt ||
+        std::get<PrimDataType>(v->dtype().type) == dtype.value());
     return std::get<Val*>(value);
   }
 
