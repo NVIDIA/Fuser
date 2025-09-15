@@ -23,8 +23,7 @@
 #include <iostream>
 #include <regex>
 
-namespace nvfuser {
-namespace kir {
+namespace nvfuser::kir {
 
 namespace {
 
@@ -41,7 +40,6 @@ inline const char* optionalBoolLiteral(std::optional<bool> optional_value) {
 
 } // namespace
 
-// kir::ForLoop definitions moved from ir/nodes.cpp
 ForLoop::ForLoop(
     IrBuilderPasskey passkey,
     IterDomain* iter_domain,
@@ -2068,5 +2066,4 @@ std::string RNGOp::toInlineString(int indent_size) const {
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(RNGOp)
 
-} // namespace kir
-} // namespace nvfuser
+} // namespace nvfuser::kir
