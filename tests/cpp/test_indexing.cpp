@@ -1549,8 +1549,8 @@ TEST_F(IndexingTest, AlmostExactTraversalWithNonOneBroadcast) {
           getLoopIndices(consumer_tv, indexer_, for_loops_);
       TensorView* tv2 = tv;
       TensorView* tv3 = consumer_tv;
-      IterDomain* id11 = tv3->axis(1)->definition()->input(0)->as<IterDomain>();
-      IterDomain* id9 = id11->definition()->input(1)->as<IterDomain>();
+      auto* id11 = tv3->axis(1)->definition()->input(0)->as<IterDomain>();
+      auto* id9 = id11->definition()->input(1)->as<IterDomain>();
       Val* id11_idx = addExpr(
           mulExpr(loop_indices.at(1), tv3->axis(2)->extent()),
           loop_indices.at(2));

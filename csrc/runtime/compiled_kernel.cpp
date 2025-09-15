@@ -58,6 +58,7 @@
 #include <nvfuser_resources/basic_type_traits.h>
 #include <nvfuser_resources/bf16_support.h>
 #include <nvfuser_resources/bit.h>
+#include <nvfuser_resources/block_layout.h>
 #include <nvfuser_resources/block_reduction.h>
 #include <nvfuser_resources/block_sync_atomic.h>
 #include <nvfuser_resources/block_sync_default.h>
@@ -200,56 +201,6 @@ class NvrtcCompileDriver {
  private:
   std::vector<std::string> options_;
 };
-
-// Query the target GPU version number NVRTC compiles CUDA kernels for
-void queryTargetGPUVersion(
-    const cudaDeviceProp* const prop,
-    int64_t& major,
-    int64_t& minor,
-    bool& compile_to_sass) {
-  using CudaVersion = std::pair<int, int>;
-  CudaVersion nvrtc_version;
-  NVFUSER_NVRTC_SAFE_CALL(
-      nvrtcVersion(&nvrtc_version.first, &nvrtc_version.second));
-
-  NVF_CHECK(
-      nvrtc_version.first >= 6,
-      "NVRTC versions less than 6 are not supported. Is: ",
-      nvrtc_version.first);
-
-  // Version supported by device
-  // Usually any lower version works too but is less efficient
-  const CudaVersion dev_version = CudaVersion(prop->major, prop->minor);
-  // Maximum version supported by the driver, cap dev_version to this
-  CudaVersion max_dev_version;
-  if (nvrtc_version.first <= 7) { // 7 supports 2-5.x
-    max_dev_version = CudaVersion(5, 0);
-  } else if (nvrtc_version.first <= 8) { // 8 supports 2-6.x
-    max_dev_version = CudaVersion(6, 0);
-  } else if (nvrtc_version.first <= 9) { // 9 supports 3-7.2
-    max_dev_version = CudaVersion(7, 2);
-  } else if (nvrtc_version.first <= 10) { // 10 supports 3-7.5
-    max_dev_version = CudaVersion(7, 5);
-  } else if (nvrtc_version == CudaVersion(11, 0)) { // 11.0 supports 3-8.0
-    max_dev_version = CudaVersion(8, 0);
-  } else if (nvrtc_version.first == 11 && nvrtc_version.second < 8) {
-    max_dev_version = CudaVersion(8, 6);
-  } else {
-    // If the driver version is unknown (i.e. newer than this code)
-    // assume the driver supports this device
-    max_dev_version = dev_version;
-  }
-  if (dev_version > max_dev_version) {
-    major = max_dev_version.first;
-    minor = max_dev_version.second;
-    // if we are clamping major/minor, sass is not compatible
-    compile_to_sass = false;
-  } else {
-    major = dev_version.first;
-    minor = dev_version.second;
-    compile_to_sass = true;
-  }
-}
 
 #if defined(__linux__)
 std::string disassembleBinary(
@@ -1158,7 +1109,8 @@ std::string _getStructuredCode(
     std::string kernel_name,
     bool has_argsort = false,
     bool has_topk = false,
-    bool has_scan = false) {
+    bool has_scan = false,
+    bool has_block_layout = false) {
   // generating cuda code;
   std::string code = "";
 
@@ -1194,6 +1146,9 @@ std::string _getStructuredCode(
   if (has_topk) {
     code += nvfuser_resources::topk_cu;
   }
+  if (has_block_layout) {
+    code += nvfuser_resources::block_layout_cu;
+  }
 
   code += "\nnamespace " + CompiledKernel::kernelNamespace() + " {\n\n";
   code += kernel_str;
@@ -1222,6 +1177,55 @@ std::string _getStructuredCode(
 
 } // namespace
 
+void queryTargetGPUVersion(
+    const cudaDeviceProp* const prop,
+    int64_t& major,
+    int64_t& minor,
+    bool& compile_to_sass) {
+  using CudaVersion = std::pair<int, int>;
+  CudaVersion nvrtc_version;
+  NVFUSER_NVRTC_SAFE_CALL(
+      nvrtcVersion(&nvrtc_version.first, &nvrtc_version.second));
+
+  NVF_CHECK(
+      nvrtc_version.first >= 6,
+      "NVRTC versions less than 6 are not supported. Is: ",
+      nvrtc_version.first);
+
+  // Version supported by device
+  // Usually any lower version works too but is less efficient
+  const CudaVersion dev_version = CudaVersion(prop->major, prop->minor);
+  // Maximum version supported by the driver, cap dev_version to this
+  CudaVersion max_dev_version;
+  if (nvrtc_version.first <= 7) { // 7 supports 2-5.x
+    max_dev_version = CudaVersion(5, 0);
+  } else if (nvrtc_version.first <= 8) { // 8 supports 2-6.x
+    max_dev_version = CudaVersion(6, 0);
+  } else if (nvrtc_version.first <= 9) { // 9 supports 3-7.2
+    max_dev_version = CudaVersion(7, 2);
+  } else if (nvrtc_version.first <= 10) { // 10 supports 3-7.5
+    max_dev_version = CudaVersion(7, 5);
+  } else if (nvrtc_version == CudaVersion(11, 0)) { // 11.0 supports 3-8.0
+    max_dev_version = CudaVersion(8, 0);
+  } else if (nvrtc_version.first == 11 && nvrtc_version.second < 8) {
+    max_dev_version = CudaVersion(8, 6);
+  } else {
+    // If the driver version is unknown (i.e. newer than this code)
+    // assume the driver supports this device
+    max_dev_version = dev_version;
+  }
+  if (dev_version > max_dev_version) {
+    major = max_dev_version.first;
+    minor = max_dev_version.second;
+    // if we are clamping major/minor, sass is not compatible
+    compile_to_sass = false;
+  } else {
+    major = dev_version.first;
+    minor = dev_version.second;
+    compile_to_sass = true;
+  }
+}
+
 NVF_API CompiledKernel::CompiledKernel(
     Fusion* fusion,
     CompileParams compile_params,
@@ -1233,14 +1237,15 @@ NVF_API CompiledKernel::CompiledKernel(
     int64_t group_id,
     const std::vector<std::function<void(GpuLower*)>>& pre_lowering_hooks,
     const std::vector<std::function<void(kir::Kernel*)>>& post_lowering_hooks)
-    : compile_params_(compile_params),
-      scheduler_type_(scheduler_type),
-      fusion_id_(fusion_id),
-      concrete_id_(concrete_id),
-      runtime_id_(runtime_id),
-      group_id_(group_id),
-      lowered_(std::make_unique<GpuLower>(fusion, compile_params)),
-      device_(device) {
+    : CompiledKernelBase(
+          device,
+          scheduler_type,
+          fusion_id,
+          concrete_id,
+          runtime_id,
+          group_id),
+      compile_params_(compile_params),
+      lowered_(std::make_unique<GpuLower>(fusion, compile_params)) {
   FUSER_PERF_SCOPE("CompiledKernel::CompiledKernel");
 
   // TODO: No hooks can be sent because this is in the constructor
@@ -1439,14 +1444,15 @@ std::string CompiledKernel::getStructuredCode() const {
       kernelName(),
       kernel()->summary().has_argsort,
       kernel()->summary().has_topk,
-      kernel()->summary().has_scan);
+      kernel()->summary().has_scan,
+      kernel()->summary().has_preprocess_grouped_matmul_input_sf);
 }
 
 std::string CompiledKernel::disassembledKernelSASS() const {
   return disassembleBinary(compiled_kernel_->cubin, "-c");
 }
 
-void CompiledKernel::createKernelId() {
+void CompiledKernelBase::createKernelId() {
   NVF_ERROR(fusion_id_ > -1, "Invalid fusion_id.");
   NVF_ERROR(concrete_id_ > -1, "Invalid concrete_id.");
   NVF_ERROR(runtime_id_ > -1, "Invalid runtime_id.");

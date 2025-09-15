@@ -7,10 +7,10 @@
 // clang-format on
 #include <type.h>
 
-#include <ATen/cuda/CUDAContext.h>
-
 #include <sstream>
 #include <unordered_set>
+
+#include <ATen/cuda/CUDAContextLight.h>
 
 #include <ir/all_nodes.h>
 #include <tensor_metadata.h>
@@ -330,6 +330,14 @@ static const char* val_type2string(ValType t) {
       return "TensorIndex";
     case ValType::Stream:
       return "Stream";
+  }
+  std::unreachable();
+}
+
+const char* block_sf_layout2string(BlockScalingFactorLayout t) {
+  switch (t) {
+    case BlockScalingFactorLayout::Block128x4:
+      return "block_128_4";
   }
   std::unreachable();
 }
@@ -1439,6 +1447,12 @@ std::ostream& operator<<(std::ostream& out, const ValType vtype) {
   return out << val_type2string(vtype);
 }
 
+std::ostream& operator<<(
+    std::ostream& out,
+    const BlockScalingFactorLayout layout) {
+  return out << block_sf_layout2string(layout);
+}
+
 std::ostream& operator<<(std::ostream& out, const PredicateType ptype) {
   return out << predicate_type2string(ptype);
 }
@@ -1453,13 +1467,6 @@ std::ostream& operator<<(std::ostream& out, const UnaryOpType uotype) {
 
 std::ostream& operator<<(std::ostream& out, const BinaryOpType botype) {
   return out << binary_op_type2string(botype);
-}
-
-std::ostream& operator<<(std::ostream& out, const ScatterOpType sotype) {
-  if (sotype == ScatterOpType::Set) {
-    return out << "scatter";
-  }
-  NVF_THROW("No scatterOp type found for scatterOp.");
 }
 
 std::ostream& operator<<(std::ostream& out, const TernaryOpType totype) {

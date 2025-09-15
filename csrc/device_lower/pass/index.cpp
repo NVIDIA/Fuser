@@ -367,20 +367,24 @@ void IndexLowering::handle(const ScatterOp* sop) {
   auto lowered_out = lowerDstIndex(sop->out(), override_index);
 
   pushBack(IrBuilder::create<ScatterOp>(
-      sop->getScatterOpType(),
       /*out=*/lowered_out,
       /*self=*/lowered_out,
       sop->dim(),
       lowered_index,
-      lowered_src));
+      lowered_src,
+      sop->accumulate() ? std::optional(sop->accumulateOp()) : std::nullopt));
   GpuLower::current()->propagateExprInfo(sop, back());
 }
 
 void IndexLowering::handle(const ArgsortOp* aop) {
   const auto in = lowerSrcIndex(aop->in(), aop->out());
   const auto out = lowerDstIndex(aop->out());
-  pushBack(IrBuilder::create<ArgsortOp>(
-      out, in, aop->dim(), aop->isDescending(), aop->isStable()));
+  auto indexed_aop = IrBuilder::create<ArgsortOp>(
+      out, in, aop->dim(), aop->isDescending(), aop->isStable());
+  NVF_ERROR(
+      aop->predicate(), "Expected to have a predicate: ", aop->toString());
+  indexed_aop = indexed_aop->withPredicate(aop->predicate())->as<ArgsortOp>();
+  pushBack(indexed_aop);
   GpuLower::current()->propagateExprInfo(aop, back());
 }
 
@@ -1447,8 +1451,12 @@ void IndexLowering::handleGroupedGridWelford(
 void IndexLowering::handle(const ScanOp* sop) {
   const auto in = lowerSrcIndex(sop->in(), sop->out());
   const auto out = lowerDstIndex(sop->out());
-  pushBack(IrBuilder::create<ScanOp>(
-      sop->opType(), sop->init(), out, in, sop->dim()));
+  auto indexed_sop = IrBuilder::create<ScanOp>(
+      sop->opType(), sop->init(), out, in, sop->dim());
+  NVF_ERROR(
+      sop->predicate(), "Expected to have a predicate: ", sop->toString());
+  indexed_sop = indexed_sop->withPredicate(sop->predicate())->as<ScanOp>();
+  pushBack(indexed_sop);
   GpuLower::current()->propagateExprInfo(sop, back());
 }
 
@@ -1943,7 +1951,7 @@ void IndexLowering::handle(const LoadStoreOp* ldst) {
     bool is_tma_ldmatrix = false;
     if (ir_utils::isLdMatrixOp(ldst)) {
       NVF_ERROR(ldst->in()->isA<TensorView>());
-      TensorView* in_tv = ldst->in()->as<TensorView>();
+      auto* in_tv = ldst->in()->as<TensorView>();
       NVF_ERROR(in_tv->definition() != nullptr);
       is_tma_ldmatrix = ir_utils::isCpAsyncBulkLoad(in_tv->definition());
       if (is_tma_ldmatrix) {
@@ -2019,7 +2027,7 @@ void IndexLowering::handle(const LoadStoreOp* ldst) {
 
       // Get the index for the output of stmatrix.
       NVF_ERROR(ldst->out()->isA<TensorView>());
-      TensorView* out_tv = ldst->out()->as<TensorView>();
+      auto* out_tv = ldst->out()->as<TensorView>();
       MmaInputSmemSwizzle swizzle = getSwizzle(out_tv);
       switch (swizzle) {
         case MmaInputSmemSwizzle::None: {
@@ -2410,7 +2418,7 @@ namespace {
 Val* indexBlackwellMmaOutput(
     const MmaOp* mma,
     const std::vector<ForLoop*>& for_loops) {
-  TensorView* tmem_tv = mma->out()->as<TensorView>();
+  auto* tmem_tv = mma->out()->as<TensorView>();
   NVF_ERROR(tmem_tv->getMemoryType() == MemoryType::Tensor, "Invalid tmem_tv");
   const auto& tmem_info = GpuLower::current()->tmemInfo();
   const auto& tensor_indexer = GpuLower::current()->tensorIndexer();

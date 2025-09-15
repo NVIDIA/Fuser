@@ -20,8 +20,6 @@
 #include <tests/cpp/utils.h>
 #include <tests/cpp/validator.h>
 
-#include <torch/torch.h>
-
 namespace nvfuser {
 
 using AllocationDomainTest = NVFuserTest;

@@ -8,6 +8,7 @@
 #include <ATen/Functions.h>
 #include <c10/cuda/CUDAStream.h>
 #include <c10/util/ArrayRef.h>
+
 #include <fusion.h>
 #include <host_ir/container.h>
 #include <host_ir/evaluator.h>
@@ -292,7 +293,7 @@ TEST_F(
       auto tc_j = tc_.select(0, j);
 
       // local compute
-      torch::matmul_out(tc_locally_reduced_j, ta_j, tb_);
+      at::matmul_out(tc_locally_reduced_j, ta_j, tb_);
       // communication
       world_communicator_->_reduce_scatter_base(tc_j, tc_locally_reduced_j)
           ->wait();
@@ -498,7 +499,7 @@ TEST_F(
             number_of_steps_per_ring_;
 
         // local compute
-        torch::matmul_out(src_buffer_j, ta_j, tb_);
+        at::matmul_out(src_buffer_j, ta_j, tb_);
         // communication
         std::vector<at::Tensor> src = {src_buffer_j};
         std::vector<at::Tensor> dst = {dst_buffer_j};
@@ -511,7 +512,7 @@ TEST_F(
       }
     }
     synchronizeStreams(streams);
-    torch::sum_out(tc_reshaped_, dst_buffer_, 0);
+    at::sum_out(tc_reshaped_, dst_buffer_, 0);
   }
 }
 
@@ -753,7 +754,7 @@ class AllgatherOverlapTest : public MultiDeviceTest {
   void validate() {
     // compute the expected output for data correctness validation
     auto tc_unsharded_expected_ =
-        torch::matmul(ta_unsharded_, tb_unsharded_.cpu());
+        at::matmul(ta_unsharded_, tb_unsharded_.cpu());
     EXPECT_TRUE(
         tc_unsharded_.cpu().allclose(tc_unsharded_expected_, 1e-1, 1e-1))
         << "Unexpected results, obtained: " << tc_unsharded_
@@ -786,7 +787,7 @@ TEST_F(AllgatherOverlapTest, AllgatherBasedPipeliningATenImplementation) {
       // local compute
       auto tc_j = tc_unsharded_.select(
           0, j); // num_devices_, params.M / (num_devices_ * params.S), params.N
-      torch::matmul_out(
+      at::matmul_out(
           tc_j,
           ta_allgathered_j,
           tb_unsharded_); // num_devices_, params.M / (num_devices_ * params.S),
@@ -1034,7 +1035,7 @@ class RingAllgatherOverlapTest : public MultiDeviceTest {
   void validate() {
     // compute the expected output for data correctness validation
     auto tc_unsharded_expected_ =
-        torch::matmul(ta_unsharded_, tb_unsharded_.cpu());
+        at::matmul(ta_unsharded_, tb_unsharded_.cpu());
     EXPECT_TRUE(
         tc_unsharded_.cpu().allclose(tc_unsharded_expected_, 1e-1, 1e-1))
         << "Unexpected results, obtained: " << tc_unsharded_
@@ -1083,7 +1084,7 @@ TEST_F(
           world_communicator_->recv(dst, recv_rank, 0);
           comms_req = world_communicator_->endCoalescing();
         }
-        torch::matmul_out(tc_j, ta_j_curr_slice, tb_unsharded_);
+        at::matmul_out(tc_j, ta_j_curr_slice, tb_unsharded_);
       }
     }
     synchronizeStreams(streams);

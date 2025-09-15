@@ -322,7 +322,7 @@ TensorView* maybeDoReplacement(TensorView* orig) {
     // The second op was simply a "Set" operation, so we just skip it
     replacement = first->output(0)->as<TensorView>();
   } else {
-    TensorView* input_tv = first->input(0)->as<TensorView>();
+    auto* input_tv = first->input(0)->as<TensorView>();
     switch (simple_op_type_opt.value()) {
       case AxisOp::PRESERVE:
         // This is equivalent to a set Op

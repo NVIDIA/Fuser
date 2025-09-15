@@ -670,7 +670,7 @@ int64_t HopperPlus::numCGAs() const {
 void HopperPlus::inspectPrologues() const {
   for (TensorView* mma_result : mma_results_) {
     for (Val* v : mma_result->definition()->inputs()) {
-      TensorView* op_input = v->as<TensorView>();
+      auto* op_input = v->as<TensorView>();
 
       // We currently require all operands to lie in smem, meaning we cannot yet
       // handle any prologue computation. This includes `BroadcastOp` which
@@ -857,7 +857,7 @@ void Blackwell::scheduleEpilogueWithoutSmemEpilogue() {
     propagate_to.push_back(c);
   }
   for (Val* dv : fusion_->outputs()) {
-    TensorView* d = dv->as<TensorView>();
+    auto* d = dv->as<TensorView>();
     NVF_ERROR(d->definition() && d->definition()->isA<LoadStoreOp>());
 
     // Apply the default scheduling that is common to all register
@@ -921,7 +921,7 @@ void Hopper::scheduleEpilogueWithoutSmemEpilogue() {
     propagate_to.push_back(c);
   }
   for (Val* dv : fusion_->outputs()) {
-    TensorView* d = dv->as<TensorView>();
+    auto* d = dv->as<TensorView>();
     NVF_ERROR(d->definition() && d->definition()->isA<LoadStoreOp>());
 
     // Apply the default scheduling that is common to all register
@@ -1038,9 +1038,9 @@ void Hopper::scheduleEpilogueWithSmemEpilogue() {
 
   // Manually schedule register cache and output TensorView
   for (Val* dv : fusion_->outputs()) {
-    TensorView* d = dv->as<TensorView>();
+    auto* d = dv->as<TensorView>();
     NVF_ERROR(d->definition() && d->definition()->isA<LoadStoreOp>());
-    TensorView* dc = d->definition()->input(0)->as<TensorView>();
+    auto* dc = d->definition()->input(0)->as<TensorView>();
     NVF_ERROR(dc != nullptr);
 
     // The chain of operations storing data to global memory:
@@ -1207,9 +1207,9 @@ void Blackwell::scheduleEpilogueWithSmemEpilogue() {
   //   dc (registers) -> d_smem -> [tma_store] -> d (gmem)
   // We schedule d_smem and propagate it back.
   for (Val* dv : fusion_->outputs()) {
-    TensorView* d = dv->as<TensorView>();
+    auto* d = dv->as<TensorView>();
     NVF_ERROR(d->definition() && d->definition()->isA<LoadStoreOp>());
-    TensorView* dc = d->definition()->input(0)->as<TensorView>();
+    auto* dc = d->definition()->input(0)->as<TensorView>();
     TensorView* d_smem = cacheBefore(d, LoadStoreOpType::Set);
     dc->setMemoryType(MemoryType::Local);
     d_smem->setMemoryType(MemoryType::Shared);

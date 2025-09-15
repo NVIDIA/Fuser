@@ -59,24 +59,39 @@ TEST_F(RingBasedOverlapTest, ColumnAndSequenceParallelLinear_Forward) {
   //   [t, h]
   //   /\.
   //  d
+  // (deviceIdx.x)
   //    |
   //    | set
   //    |
   //   [t, h]                                  [4h,  h]
   //   /\                                      /\.
-  //  s                                       d
+  //  d                                       d
+  // (streamIdx + deviceIdx.x) % deviceDim.x
+  //  | swizzle
+  //  s
+  // (streamIdx)
   //                      |
   //                      | linear
   //                      |
   //                   [t, 4h, r{h}]
   //                   /\  /\.
-  //                  s*  d
+  //                  d   d
+  //          swizzle |
+  //                  s*
   //
   // Notes for this test and many other RingBasedOverlapTest below:
   // - A `set` from `/d` to `/s` (or vice versa) will be lowered to a
-  // cyclic-shift communication like XLA's CollectivePermute.
-  // - All `s`s are parallelized on `Stream` and all `d`s are parallelized on
-  // `DIDx`.
+  // cyclic-shift communication like XLA's CollectivePermute. In the example
+  // above, in the first iteration (i.e. streamIdx = 0), `set` does nothing
+  // because the input `deviceIdx.x` equals the output `deviceIdx.x`. In the
+  // second iteration (i.e. streamIdx = 1), `set` sends data from device i to
+  // device (i-1)%deviceDim.x. This is captured by the math of the swizzle.
+  // According to the logical domain mapping, the input deviceIdx.x equals
+  // (streamIdx + the output deviceIdx.x) % deviceDim.x. Equivalently, the
+  // output deviceIdx.x equals (the input deviceIdx.x - streamIdx) %
+  // deviceDim.x.
+  // - All leaf `s`s are parallelized on `Stream` and all leaf `d`s are
+  // parallelized on `DIDx`.
   // - `s*`s are parallelized on `Stream` in loop but replicated in allocation.
   // Fusion inputs/outputs can't be allocated per stream because the
   // user of a FusionDefinition can't inline external ops into a loop inside.
@@ -190,17 +205,8 @@ TEST_F(RingBasedOverlapTest, ColumnAndSequenceParallelLinear_InputGrad) {
     tv->setDeviceMesh(mesh);
   }
 
-  in->outer_split(0, d);
-  in->axis(0)->parallelize(ParallelType::DIDx);
-  // For computing input gradients, `in` is the output and its reduction
-  // dimension needs to be sharded.
-  in->outer_split(-1, d);
-  in->axis(-2)->parallelize(ParallelType::DIDx);
-  w->outer_split(0, d);
-  w->axis(0)->parallelize(ParallelType::DIDx);
   out->outer_split(1, d);
   out->axis(1)->parallelize(ParallelType::DIDx);
-
   // This is debatable. On the one hand, we want to express the intention to
   // stream-parallelize the sequence dimension. On the other hand, we want to
   // avoid parallelizing a fusion input because a fusion input doesn't have a
@@ -208,11 +214,19 @@ TEST_F(RingBasedOverlapTest, ColumnAndSequenceParallelLinear_InputGrad) {
   out->outer_split(0, d);
   out->axis(0)->parallelize(ParallelType::Stream);
 
+  w->outer_split(0, d);
+  w->axis(0)->parallelize(ParallelType::DIDx);
+
+  in->outer_split(0, d);
+  in->axis(0)->parallelize(ParallelType::DIDx);
+
   // Fusion IR before segmentation will look like this:
   //
   //   [t, 4h]                                 [4h,  h]
   //   /\  /\                                   /\.
-  //  s*  d                                    d
+  //  d   d                                    d
+  //  |
+  //  s*
   //                      |
   //                      | matmul
   //                      |
@@ -220,17 +234,19 @@ TEST_F(RingBasedOverlapTest, ColumnAndSequenceParallelLinear_InputGrad) {
   //                          /  \.
   //                 [t, h, d, r{4h/d}]
   //                 /\.
+  //                d
+  //                |
   //                s
+  //                     |
+  //                     | set
+  //                     |
+  //                  [t, h, d]
+  //                  /\.    |
+  //                 d       s*
   //                     |
   //                     | sum
   //                     |
   //                  [t, h, r{d}]
-  //                  /\.
-  //                 s
-  //                     |
-  //                     | set
-  //                     |
-  //                  [t, h]
   //                  /\.
   //                 d
 }

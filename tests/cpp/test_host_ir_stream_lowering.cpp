@@ -5,7 +5,13 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+
+#include <algorithm>
+#include <iostream>
+
 #include <gtest/gtest.h>
+
+#include <torch/torch.h>
 
 #include <fusion.h>
 #include <host_ir/container.h>
@@ -19,9 +25,6 @@
 #include <multidevice/executor.h>
 #include <ops/all_ops.h>
 #include <tests/cpp/utils.h>
-
-#include <algorithm>
-#include <iostream>
 
 namespace nvfuser {
 
@@ -324,7 +327,7 @@ TEST_F(HirLowerStreamTest, Matmul_M) {
 
   torch::cuda::synchronize();
   auto expected_output = at::matmul(a_aten, b_aten);
-  EXPECT_TRUE(torch::allclose(output, expected_output, 1e-2, 1e-2))
+  EXPECT_TRUE(at::allclose(output, expected_output, 1e-2, 1e-2))
       << "Output: " << output << " Expected: " << expected_output;
 }
 
@@ -362,7 +365,7 @@ TEST_F(HirLowerStreamTest, BatchedMatmul) {
 
   torch::cuda::synchronize();
   auto expected_output = at::matmul(a_aten, b_aten);
-  EXPECT_TRUE(torch::allclose(output, expected_output, 1e-2, 1e-2))
+  EXPECT_TRUE(at::allclose(output, expected_output, 1e-2, 1e-2))
       << "Output: " << output << " Expected: " << expected_output;
 }
 
@@ -400,7 +403,7 @@ TEST_F(HirLowerStreamTest, Matmul_N) {
 
   torch::cuda::synchronize();
   auto expected_output = at::matmul(a_aten, b_aten);
-  EXPECT_TRUE(torch::allclose(output, expected_output, 1e-2, 1e-2))
+  EXPECT_TRUE(at::allclose(output, expected_output, 1e-2, 1e-2))
       << "Output: " << output << " Expected: " << expected_output;
 }
 
@@ -744,7 +747,7 @@ TEST_F(MultiDeviceExecutorLowerStreamTest, Matmul_M) {
 
   torch::cuda::synchronize();
   auto expected_output = at::matmul(a_aten, b_aten);
-  EXPECT_TRUE(torch::allclose(output, expected_output, 1e-2, 1e-2))
+  EXPECT_TRUE(at::allclose(output, expected_output, 1e-2, 1e-2))
       << "Output: " << output << " Expected: " << expected_output;
 }
 
@@ -778,7 +781,7 @@ TEST_F(MultiDeviceExecutorLowerStreamTest, BatchedMatmul) {
 
   torch::cuda::synchronize();
   auto expected_output = at::matmul(a_aten, b_aten);
-  EXPECT_TRUE(torch::allclose(output, expected_output, 1e-2, 1e-2))
+  EXPECT_TRUE(at::allclose(output, expected_output, 1e-2, 1e-2))
       << "Output: " << output << " Expected: " << expected_output;
 }
 
@@ -812,7 +815,7 @@ TEST_F(MultiDeviceExecutorLowerStreamTest, Matmul_N) {
 
   torch::cuda::synchronize();
   auto expected_output = at::matmul(a_aten, b_aten);
-  EXPECT_TRUE(torch::allclose(output, expected_output, 1e-2, 1e-2))
+  EXPECT_TRUE(at::allclose(output, expected_output, 1e-2, 1e-2))
       << "Output: " << output << " Expected: " << expected_output;
 }
 

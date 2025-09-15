@@ -22,6 +22,7 @@
 #include <cuda_runtime_api.h>
 
 #include <c10/core/ScalarType.h>
+#include <torch/version.h>
 
 #include <exceptions.h>
 #include <macros.h>
@@ -650,8 +651,6 @@ enum class BinaryOpType {
   Complex
 };
 
-enum class ScatterOpType { Set };
-
 enum class RNGOpType {
   Uniform, // Uniform in [0, 1)
   UniformRange, // Uniform in [low, high]
@@ -1006,7 +1005,6 @@ NVF_API std::ostream& operator<<(std::ostream&, const DataType);
 std::ostream& operator<<(std::ostream&, const UnaryOpType);
 NVF_API std::ostream& operator<<(std::ostream&, const BinaryOpType);
 std::ostream& operator<<(std::ostream&, const TernaryOpType);
-std::ostream& operator<<(std::ostream&, const ScatterOpType);
 std::ostream& operator<<(std::ostream&, const RNGOpType);
 NVF_API std::ostream& operator<<(std::ostream&, const ParallelType);
 NVF_API std::ostream& operator<<(std::ostream&, const MemoryType);
@@ -1175,5 +1173,15 @@ enum class TMemRegisterDataPath {
 std::ostream& operator<<(std::ostream&, TMemRegisterDataPath);
 
 std::ostream& operator<<(std::ostream&, cudaDriverEntryPointQueryResult);
+
+// Layout for block scaling factor used by mx-format with narrow precision, this
+// indicates how to index into block scaling factor. see:
+// https://docs.nvidia.com/cutlass/media/docs/cpp/blackwell_functionality.html#scale-factor-layouts
+enum class BlockScalingFactorLayout {
+  Block128x4,
+};
+
+const char* block_sf_layout2string(BlockScalingFactorLayout t);
+std::ostream& operator<<(std::ostream&, const BlockScalingFactorLayout);
 
 } // namespace nvfuser
