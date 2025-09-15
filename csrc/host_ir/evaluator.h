@@ -58,7 +58,7 @@ class NVF_API HostIrEvaluator final : public OptOutDispatch {
   // Used by FusionExecutorCache, the main stack.
   KernelArgumentHolder runWithInputs(const KernelArgumentHolder& args);
 
-  // Used by MultiDeviceExecutor.
+  // Only used by MultiDeviceExecutor.
   KernelArgumentHolder runWithInput(
       const std::unordered_map<Val*, PolymorphicValue>& val_to_PValue);
 
@@ -78,6 +78,7 @@ class NVF_API HostIrEvaluator final : public OptOutDispatch {
     return container_->print(os);
   };
 
+  // Only used by MultiDeviceExecutor.
   const auto& getFusionExecutorCaches() {
     return fec_;
   };
@@ -117,10 +118,10 @@ class NVF_API HostIrEvaluator final : public OptOutDispatch {
 
   PolymorphicValue getKnownConcreteValue(Val* val) const {
     NVF_ERROR(
-        expr_evaluator_.isKnown(val),
-        "value ",
+        expr_evaluator_.isKnown(val) || val->isConst(),
+        "Value ",
         val->toString(),
-        "must be precomputed before being retrieved");
+        " must be precomputed before being retrieved.");
     return expr_evaluator_.evaluate(val);
   }
 

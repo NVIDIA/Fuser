@@ -615,14 +615,20 @@ void HostIrEvaluator::handle(HirAliasSelect* hir_alias_select) {
 }
 
 void HostIrEvaluator::handle(BinaryOp* binary_op) {
-  if (!expr_evaluator_.isKnown(binary_op->outputs().at(0))) {
+  if (binary_op->out()->isScalar()) {
     return unhandled(binary_op);
   }
 
-  auto lhs = getKnownConcreteValue(binary_op->inputs().at(0)).as<at::Tensor>();
-  auto rhs = getKnownConcreteValue(binary_op->inputs().at(1)).as<at::Tensor>();
-  auto output =
-      getKnownConcreteValue(binary_op->outputs().at(0)).as<at::Tensor>();
+  if (!expr_evaluator_.isKnown(binary_op->out())) {
+    return unhandled(binary_op);
+  }
+
+  // The output is a pre-allocated TensorView. Therefore, we use `at::*_out` to
+  // write the result to the pre-allocated tensor. This should happen only for
+  // MultiDeviceExecutor.
+  auto lhs = getKnownConcreteValue(binary_op->lhs()).as<at::Tensor>();
+  auto rhs = getKnownConcreteValue(binary_op->rhs()).as<at::Tensor>();
+  auto output = getKnownConcreteValue(binary_op->out()).as<at::Tensor>();
 
   switch (binary_op->getBinaryOpType()) {
     case BinaryOpType::Add:
@@ -726,31 +732,23 @@ void HostIrEvaluator::handle(Deallocate* deallocate) {
 void HostIrEvaluator::unhandled(Statement* stmt) {
   NVF_ERROR(stmt->isA<Expr>(), stmt, " must be an Expr");
   auto* expr = stmt->as<Expr>();
-  std::vector<PolymorphicValue> inputs;
-  for (auto input : expr->inputs()) {
+  std::vector<PolymorphicValue> concrete_inputs;
+  for (Val* input : expr->inputs()) {
     if (input->isA<TensorView>()) {
       // Tensor inputs must be already computed at this point
-      inputs.push_back(getKnownConcreteValue(input));
+      concrete_inputs.push_back(getKnownConcreteValue(input));
     } else {
-      inputs.push_back(expr_evaluator_.evaluate(input));
+      concrete_inputs.push_back(expr_evaluator_.evaluate(input));
     }
   }
 
-  // Check that there is no pre-allocated output
-  NVF_ERROR(
-      std::all_of(
-          expr->outputs().begin(),
-          expr->outputs().end(),
-          [this](Val* output) {
-            return !this->expr_evaluator_.isKnown(output);
-          }),
-      "Do not support pre-allocated outputs for the op ",
-      expr);
   // using ExpressionEvaluator::evaluate to evaluate the output is not valid
   // here if the output or one of its producer is an alias
-  auto concrete_outputs = expr->evaluate(expr_evaluator_, inputs);
-  for (int64_t i : c10::irange(expr->outputs().size())) {
-    expr_evaluator_.bind(expr->output(i), concrete_outputs.at(i));
+  std::vector<PolymorphicValue> concrete_outputs =
+      expr->evaluate(expr_evaluator_, concrete_inputs);
+  for (auto&& [output, concrete_output] :
+       zip(expr->outputs(), concrete_outputs)) {
+    expr_evaluator_.bind(output, concrete_output);
   }
 }
 
