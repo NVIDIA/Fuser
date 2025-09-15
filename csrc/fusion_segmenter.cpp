@@ -2047,65 +2047,69 @@ class SegmentedGroupTaskGraphConverter {
     all_tasks_.emplace_back(inputs, outputs, temp_space);
   }
 
+  int64_t getNumElements(TensorView* tv) {
+    // Assume all tensors the same shape if no runtime_info is given
+    int64_t numel = 1;
+    if (tv->isCpuScalar()) {
+      // runtime_info_ will not include sizes of GPU scalars and sine they do
+      // not result in any GPU allocation we count them as empty.
+      return 0;
+    } else if (
+        runtime_info_ == nullptr || !tv->isFusionInput() || isShareded(tv)) {
+      // Use ExpressionEvaluator for computed tensors assuming they are
+      // contiguous
+      for (IterDomain* id : tv->getMaybeAllocationDomain()) {
+        if (id->isBroadcast() || id->isReduction() || id->isDeviceDim()) {
+          continue;
+        }
+        PolymorphicValue pv =
+            runtime_info_->expressionEvaluator().evaluate(id->extent());
+        // If we can't determine the size of this dimension, just assume
+        // it's 2. This way we will give precedence to tensors with
+        // allocation domains that have more concrete IDs.
+        int64_t dim_size = pv.is<int64_t>() ? pv.as<int64_t>() : 2;
+        numel *= dim_size;
+      }
+    }
+    // Get the actual size of the tensor allocation
+    const std::vector<int64_t>& sizes =
+        runtime_info_->getInputAllocationSizes(tv);
+    const std::vector<int64_t>& strides =
+        runtime_info_->getInputAllocationStrides(tv);
+    NVF_ERROR_EQ(sizes.size(), strides.size());
+
+    numel = 1;
+    for (auto [size, stride] : zip(sizes, strides)) {
+      if (size == 0) {
+        // Check for empty tensors
+        numel = 0;
+        break;
+      }
+      numel += (size - 1) * stride;
+    }
+    return numel;
+  }
+
   TaskGraph::DataId maybeRegisterTv(TensorView* tv) {
     auto it = tv2dataid_.find(tv);
-    if (it == tv2dataid_.end()) {
-      // Register this TV
-      TaskGraph::DataId new_id = (TaskGraph::DataId)all_data_.size();
-      tv2dataid_[tv] = new_id;
-
-      // Assume all tensors the same shape if no runtime_info is given
-      int64_t numel = 1;
-      if (tv->isCpuScalar()) {
-        // runtime_info_ will not include sizes of GPU scalars and sine they do
-        // not result in any GPU allocation we count them as empty.
-        numel = 0;
-      } else if (runtime_info_ != nullptr) {
-        // Get the actual size of the tensor allocation
-        if (tv->isFusionInput() && !isSharded(tv)) {
-          const std::vector<int64_t>& sizes =
-              runtime_info_->getInputAllocationSizes(tv);
-          const std::vector<int64_t>& strides =
-              runtime_info_->getInputAllocationStrides(tv);
-
-          numel = 1;
-          for (auto [size, stride] : zip(sizes, strides)) {
-            if (size == 0) {
-              // Check for empty tensors
-              numel = 0;
-              break;
-            }
-            numel += (size - 1) * stride;
-          }
-        } else {
-          // Use ExpressionEvaluator for computed tensors assuming they are
-          // contiguous
-          for (IterDomain* id : tv->getMaybeAllocationDomain()) {
-            if (id->isBroadcast() || id->isReduction() || id->isDeviceDim()) {
-              continue;
-            }
-            PolymorphicValue pv =
-                runtime_info_->expressionEvaluator().evaluate(id->extent());
-            // If we can't determine the size of this dimension, just assume
-            // it's 2. This way we will give precedence to tensors with
-            // allocation domains that have more concrete IDs.
-            int64_t dim_size = pv.is<int64_t>() ? pv.as<int64_t>() : 2;
-            numel *= dim_size;
-          }
-        }
-      }
-      TaskGraph::Size size = numel * dataTypeSizeByte(tv->dtype());
-
-      all_data_.emplace_back(
-          /*definition=*/std::nullopt,
-          /*uses=*/std::vector<TaskGraph::TaskId>{},
-          /*aliases_input=*/std::nullopt,
-          size,
-          /*can_free=*/true);
-      return new_id;
-    } else {
+    if (it != tv2dataid_.end()) {
+      // tv is already registered
       return it->second;
     }
+
+    // Register this TV
+    auto new_id = static_cast<TaskGraph::DataId>(std::ssize_t(all_data_));
+    tv2dataid_[tv] = new_id;
+
+    TaskGraph::Size size = getNumElements(tv) * dataTypeSizeByte(tv->dtype());
+
+    all_data_.emplace_back(
+        /*definition=*/std::nullopt,
+        /*uses=*/std::vector<TaskGraph::TaskId>{},
+        /*aliases_input=*/std::nullopt,
+        size,
+        /*can_free=*/true);
+    return new_id;
   }
 
  private:
