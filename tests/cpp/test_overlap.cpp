@@ -463,7 +463,11 @@ TEST_F(CollectiveBasedOverlapTest, RowParallelLinear_Forward) {
 
   EXPECT_THAT(
       fusion->outputs().at(0)->as<TensorView>()->getLoopDomain(),
-      ElementsAre(IsParallelized(ParallelType::Stream), _, _, _));
+      ElementsAre(
+          IsParallelized(ParallelType::Stream),
+          _,
+          _,
+          IsParallelized(ParallelType::DIDx)));
 }
 
 } // namespace nvfuser
