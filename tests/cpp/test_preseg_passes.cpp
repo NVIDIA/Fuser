@@ -1513,4 +1513,290 @@ TEST_P(TranslateNoReductionMatmulTest, Test) {
           HeuristicIs(SchedulerType::PointWise)));
 }
 
+TEST_F(PresegTest, UnsafeReduce_Basic) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  TensorView* tv0 = makeSymbolicTensor(1);
+
+  fusion->addInput(tv0);
+
+  TensorView* tv1 = max(tv0, {0});
+  TensorView* tv2 = sum(tv0, {0});
+
+  TensorView* tv3 = add(tv1, tv2);
+  fusion->addOutput(tv3);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({2048}, options);
+  t0[0] = std::numeric_limits<float>::quiet_NaN();
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto outputs = executor_cache.runFusionWithInputs({t0});
+
+  to kernel_runtime = executor_cache.getMostRecentKernelRuntime();
+
+  CHECK(!kernel_runtime->isSegmented());
+
+  auto& groups = kernel_runtime->fusionSegments()->groups();
+
+  bool any_safe_max = false;
+  bool any_unsafe_max = false;
+
+  for (const auto& kir_node : groups[0]->exprs()) {
+    if (auto rop = dynamic_cast<ReductionOp*>(kir_node)) {
+      any_safe_max |= rop->getReductionOpType() == BinaryOpType::Max;
+      any_unsafe_max |= rop->getReductionOpType() == BinaryOpType::UnsafeMax;
+    }
+  }
+
+  NVF_CHECK(!any_safe_max);
+  NVF_CHECK(any_unsafe_max);
+
+  testValidate(executor_cache.fusion(), outputs, {t0}, __LINE__, __FILE__);
+}
+
+TEST_F(PresegTest, UnsafeReduce_DistantSibling) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  TensorView* tv0 = makeSymbolicTensor(1);
+
+  fusion->addInput(tv0);
+
+  TensorView* tv1 = add(max(tv0, {0}), tv0);
+  TensorView* tv2 = sum(abs(exp(tv0)), {0});
+
+  TensorView* tv3 = add(tv1, tv2);
+  fusion->addOutput(tv3);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({2048}, options);
+  t0[0] = std::numeric_limits<float>::quiet_NaN();
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto outputs = executor_cache.runFusionWithInputs({t0});
+
+  ernel_runtime = executor_cache.getMostRecentKernelRuntime();
+
+  NV
+
+      K(!kernel_runtime->isSegmented());
+
+  auto& groups = kernel_runtime->fusionSegments()->groups();
+
+  bool any_safe_max = false;
+  bool any_unsafe_max = false;
+
+  for (const auto& kir_node : groups[0]->exprs()) {
+    if (auto rop = dynamic_cast<ReductionOp*>(kir_node)) {
+      any_safe_max |= rop->getReductionOpType() == BinaryOpType::Max;
+      any_unsafe_max |= rop->getReductionOpType() == BinaryOpType::UnsafeMax;
+    }
+  }
+
+  NVF_CHECK(!any_safe_max);
+  NVF_CHECK(any_unsafe_max);
+
+  testValidate(executor_cache.fusion(), outputs, {t0}, __LINE__, __FILE__);
+}
+
+TEST_F(PresegTest, UnsafeReduce_Softmax) {
+  // Direct parent, single safe-reduction
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  TensorView* tv0 = makeSymbolicTensor(1);
+
+  fusion->addInput(tv0);
+
+  TensorView* tv1 = max(tv0, {0});
+  TensorView* tv2 = add(tv1, tv0);
+  TensorView* tv3 = exp(tv2);
+  TensorView* tv4 = sum(tv3, {0});
+  TensorView* tv5 = add(tv4, tv2);
+
+  fusi
+
+      dOutput(tv5);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({2048}, options);
+  t0[0] = std::numeric_limits<float>::quiet_NaN();
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto outputs = executor_cache.runFusionWithInputs({t0});
+
+  auto k
+
+      runtime = executor_cache.getMostRecentKernelRuntime();
+
+  NVF_CHEC
+
+  nel_runtime->isSegmented());
+
+  auto& groups = kernel_runtime->fusionSegments()->groups();
+
+  bool any_safe_max = false;
+  bool any_unsafe_max = false;
+
+  for (const auto& kir_node : groups[0]->exprs()) {
+    if (auto rop = dynamic_cast<ReductionOp*>(kir_node)) {
+      any_safe_max |= rop->getReductionOpType() == BinaryOpType::Max;
+      any_unsafe_max |= rop->getReductionOpType() == BinaryOpType::UnsafeMax;
+    }
+  }
+
+  NVF_CHECK(!any_safe_max);
+  NVF_CHECK(any_unsafe_max);
+
+  testValidate(executor_cache.fusion(), outputs, {t0}, __LINE__, __FILE__);
+}
+
+TEST_F(PresegTest, UnsafeReduce_NoRepair) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  TensorView* tv0 = makeSymbolicTensor(1);
+
+  fusion->addInput(tv0);
+
+  TensorView* tv2 = max(tv0, {0});
+  TensorView* tv3 = abs(exp(tv0));
+
+  TensorView* tv4 = add(tv2, tv3);
+  fusion->addOutput(tv4);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({2048}, options);
+  t0[0] = std::numeric_limits<float>::quiet_NaN();
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto outputs = executor_cache.runFusionWithInputs({t0});
+
+  auto kerne
+
+      ime = executor_cache.getMostRecentKernelRuntime();
+
+  NVF_CHECK(!k
+
+                 runtime->isSegmented());
+
+  auto& groups = kernel_runtime->fusionSegments()->groups();
+
+  bool any_safe_max = false;
+  bool any_unsafe_max = false;
+
+  for (const auto& kir_node : groups[0]->exprs()) {
+    if (auto rop = dynamic_cast<ReductionOp*>(kir_node)) {
+      any_safe_max |= rop->getReductionOpType() == BinaryOpType::Max;
+      any_unsafe_max |= rop->getReductionOpType() == BinaryOpType::UnsafeMax;
+    }
+  }
+
+  NVF_CHECK(any_safe_max);
+  NVF_CHECK(!any_unsafe_max);
+
+  testValidate(executor_cache.fusion(), outputs, {t0}, __LINE__, __FILE__);
+}
+
+TEST_F(PresegTest, UnsafeReduce_IncompatibleShapes) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  TensorView* tv0 = makeSymbolicTensor(2);
+  TensorView* tv1 = makeSymbolicTensor(2);
+
+  fusion->addInput(tv0);
+
+  TensorView* tv2 = add(max(tv0, {0}), tv1);
+  TensorView* tv3 = sum(abs(exp(tv0)), {1});
+
+  TensorView* tv4 = add(tv2, tv3);
+  fusion->addOutput(tv4);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({512, 512}, options);
+  at::Tensor t1 = at::randn({512, 512}, options);
+  t0[0] = std::numeric_limits<float>::quiet_NaN();
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto outputs = executor_cache.runFusionWithInputs({t0, t1});
+
+  auto kernel_ru
+
+      = executor_cache.getMostRecentKernelRuntime();
+
+  NVF_CHECK(!kerne
+
+                 ime->isSegmented());
+
+  auto& groups = kernel_runtime->fusionSegments()->groups();
+
+  bool any_safe_max = false;
+  bool any_unsafe_max = false;
+
+  for (const auto& kir_node : groups[0]->exprs()) {
+    if (auto rop = dynamic_cast<ReductionOp*>(kir_node)) {
+      any_safe_max |= rop->getReductionOpType() == BinaryOpType::Max;
+      any_unsafe_max |= rop->getReductionOpType() == BinaryOpType::UnsafeMax;
+    }
+  }
+
+  NVF_CHECK(any_safe_max);
+  NVF_CHECK(!any_unsafe_max);
+
+  testValidate(executor_cache.fusion(), outputs, {t0, t1}, __LINE__, __FILE__);
+}
+
+TEST_F(PresegTest, UnsafeReduce_BlockedRepair) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  TensorView* tv0 = makeSymbolicTensor(1);
+
+  fusion->addInput(tv0);
+
+  TensorView* tv2 = max(tv0, {0});
+  TensorView* tv3 = sum(abs(exp(tv0)), {0});
+  TensorView* tv4 = max(tv3, {0});
+
+  TensorView* tv5 = add(tv2, tv4);
+  fusion->addOutput(tv5);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({2048}, options);
+  t0[0] = std::numeric_limits<float>::quiet_NaN();
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto outputs = executor_cache.runFusionWithInputs({t0});
+
+  auto kernel_runtim
+
+      ecutor_cache.getMostRecentKernelRuntime();
+
+  NVF_CHECK(
+      !kernel_ru
+
+      > isSegmented());
+
+  auto& groups = kernel_runtime->fusionSegments()->groups();
+
+  bool any_safe_max = false;
+  bool any_unsafe_max = false;
+
+  for (const auto& kir_node : groups[0]->exprs()) {
+    if (auto rop = dynamic_cast<ReductionOp*>(kir_node)) {
+      any_safe_max |= rop->getReductionOpType() == BinaryOpType::Max;
+      any_unsafe_max |= rop->getReductionOpType() == BinaryOpType::UnsafeMax;
+    }
+  }
+
+  NVF_CHECK(any_safe_max);
+  NVF_CHECK(any_unsafe_max);
+
+  testValidate(executor_cache.fusion(), outputs, {t0}, __LINE__, __FILE__);
+}
+
 } // namespace nvfuser::preseg_passes
+                          
