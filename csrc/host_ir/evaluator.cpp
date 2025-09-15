@@ -614,23 +614,26 @@ void HostIrEvaluator::handle(HirAliasSelect* hir_alias_select) {
   expr_evaluator_.bind(hir_alias_select->out(), input.select(axis, index));
 }
 
-void HostIrEvaluator::handle(BinaryOp* binary_op) {
-  if (binary_op->out()->isScalar()) {
-    return unhandled(binary_op);
+void HostIrEvaluator::handle(BinaryOp* binary) {
+  if (binary->out()->isScalar()) {
+    return unhandled(binary);
   }
 
-  if (!expr_evaluator_.isKnown(binary_op->out())) {
-    return unhandled(binary_op);
+  if (!expr_evaluator_.isKnown(binary->out())) {
+    return unhandled(binary);
   }
 
   // The output is a pre-allocated TensorView. Therefore, we use `at::*_out` to
   // write the result to the pre-allocated tensor. This should happen only for
-  // MultiDeviceExecutor.
-  auto lhs = getKnownConcreteValue(binary_op->lhs()).as<at::Tensor>();
-  auto rhs = getKnownConcreteValue(binary_op->rhs()).as<at::Tensor>();
-  auto output = getKnownConcreteValue(binary_op->out()).as<at::Tensor>();
+  // MultiDeviceExecutor. In FusionExecutorCache, such binary operations are
+  // lowered to CUDA kernels and therefore won't appear in host IR.
+  NVF_ERROR(binary->lhs()->isA<TensorView>());
+  auto lhs = getKnownConcreteValue(binary->lhs()).as<at::Tensor>();
+  NVF_ERROR(binary->rhs()->isA<TensorView>());
+  auto rhs = getKnownConcreteValue(binary->rhs()).as<at::Tensor>();
+  auto output = getKnownConcreteValue(binary->out()).as<at::Tensor>();
 
-  switch (binary_op->getBinaryOpType()) {
+  switch (binary->getBinaryOpType()) {
     case BinaryOpType::Add:
       at::add_out(output, lhs, rhs);
       break;
@@ -646,9 +649,9 @@ void HostIrEvaluator::handle(BinaryOp* binary_op) {
     default:
       NVF_THROW(
           "Unexpected operator type: ",
-          binary_op->getBinaryOpType(),
+          binary->getBinaryOpType(),
           " in ",
-          binary_op);
+          binary);
   }
 }
 
