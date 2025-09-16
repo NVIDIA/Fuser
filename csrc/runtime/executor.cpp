@@ -718,12 +718,14 @@ void KernelExecutor::initializeExecutorEntry(
       "Expected blockDim.x >= 32 but found ",
       launch_params.bdimx());
 
-  std::vector<GlobalBufferInfo> input_info;
   NVF_ERROR_LE(
       std::ssize(compiled_kernel_->kernel()->inputs()),
       args.size(),
       "`args` may contain more entries than regular inputs, e.g., the stream "
       "index.");
+
+  std::vector<GlobalBufferInfo> input_info;
+  input_info.reserve(compiled_kernel_->kernel()->inputs().size());
   for (const auto& [input, arg] :
        zip(compiled_kernel_->kernel()->inputs(), args)) {
     auto* input_tv = dynamic_cast<TensorView*>(input);
