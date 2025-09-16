@@ -107,6 +107,8 @@ class SchedulerTopologyChecker {
 
   static bool hasResizeAndIndexOps(Fusion* fusion);
 
+  static bool hasConsumerOfNonIndexableOps(Fusion* fusion);
+
   // Checks if a series of reshape ops creates a cycle in the ID
   // graph. It is not currently supported. For example,
   // propagateReshapeTransforms won't work as it won't find any
