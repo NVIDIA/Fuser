@@ -201,7 +201,7 @@ std::vector<Expr*> groupStreamParallelRegions(
         "Each expr should have at most one output.");
 
     // Get the output tensor and check for stream parallelization
-    TensorView* output = expr->output(0)->as<TensorView>();
+    auto* output = expr->output(0)->as<TensorView>();
     IterDomain* stream_axis = getStreamAxis(output->getLoopDomain());
 
     // If no stream axis found, keep the expression as is
@@ -539,7 +539,7 @@ void StreamParallelType::passImplementation(Fusion* fusion) {
 
   // Set up the fusion environment and build the ID model
   FusionGuard fg(fusion);
-  hir::HostIrContainer* hic = dynamic_cast<hir::HostIrContainer*>(fusion);
+  auto* hic = dynamic_cast<hir::HostIrContainer*>(fusion);
   NVF_CHECK(hic, "Expected HostIrContainer");
 
   IdModel id_model(fusion);

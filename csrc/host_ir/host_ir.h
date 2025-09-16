@@ -483,7 +483,7 @@ class ForLoop : public Expr {
  public:
   using Expr::Expr;
 
-  ForLoop(IrBuilderPasskey passkey, Val* index, IterDomain* iter_domain);
+  ForLoop(IrBuilderPasskey passkey, Val* index, Val* start, Val* stop);
 
   ForLoop(const ForLoop& other) = delete;
   ForLoop& operator=(const ForLoop& other) = delete;
@@ -502,8 +502,12 @@ class ForLoop : public Expr {
     return inputs().at(0);
   }
 
-  IterDomain* iter_domain() const {
-    return inputs().at(1)->as<IterDomain>();
+  Val* start() const {
+    return inputs().at(1);
+  }
+
+  Val* stop() const {
+    return inputs().at(2);
   }
 
   const Scope& body() const {
@@ -514,5 +518,7 @@ class ForLoop : public Expr {
     return attribute<Scope>(0);
   }
 };
+
+ForLoop* createForLoopFromIterDomain(Val* index, IterDomain* iter_domain);
 
 } // namespace nvfuser::hir

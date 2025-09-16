@@ -23,8 +23,7 @@
 #include <iostream>
 #include <regex>
 
-namespace nvfuser {
-namespace kir {
+namespace nvfuser::kir {
 
 namespace {
 
@@ -41,7 +40,6 @@ inline const char* optionalBoolLiteral(std::optional<bool> optional_value) {
 
 } // namespace
 
-// kir::ForLoop definitions moved from ir/nodes.cpp
 ForLoop::ForLoop(
     IrBuilderPasskey passkey,
     IterDomain* iter_domain,
@@ -63,12 +61,22 @@ ForLoop::ForLoop(
   NVF_ERROR(isIntegralType(index->dtype()));
   addInput(index);
   addInput(iter_domain);
-  if (start == nullptr && iter_domain->isThread()) {
-    start = NamedScalar::getParallelIndex(iter_domain->getParallelType());
+  if (start == nullptr) {
+    if (iter_domain->isThread() || iter_domain->isStream()) {
+      start = NamedScalar::getParallelIndex(iter_domain->getParallelType());
+    }
   }
   if (step == nullptr) {
     if (iter_domain->isThread()) {
       step = NamedScalar::getParallelDim(iter_domain->getParallelType());
+    } else if (iter_domain->isStream()) {
+      // `streamIdx` is a fixed kernel input (like `threadIdx`) that doesn't
+      // vary during execution of the kernel. Therefore, we emit a "trivial"
+      // for-loop of the form:
+      // ```
+      // for (nvfuser_index_t i0 = streamIdx; i0 < n_streams; i0 += n_streams)
+      // ```
+      step = iter_domain->extent();
     } else {
       step = FusionGuard::getCurFusion()->oneVal();
     }
@@ -151,7 +159,8 @@ std::string ForLoop::toInlineString(int /*indent_size*/) const {
 bool ForLoop::isUnrollable() const {
   return start()->isConstScalar() && stop()->isConstScalar() &&
       !iter_domain()->isThread() && !iter_domain()->isDeviceDim() &&
-      !iter_domain()->isBroadcast() && !vectorize();
+      !iter_domain()->isStream() && !iter_domain()->isBroadcast() &&
+      !vectorize();
 }
 
 bool ForLoop::isUnrolled() const {
@@ -225,7 +234,8 @@ Val* ForLoop::simplifiedStop() const {
 bool ForLoop::isTrivial() const {
   if (vectorize() || iter_domain()->isBroadcast() ||
       iter_domain()->isStride() || iter_domain()->isMma() ||
-      iter_domain()->isBulk() || iter_domain()->isDeviceDim()) {
+      iter_domain()->isBulk() || iter_domain()->isDeviceDim() ||
+      iter_domain()->isStream()) {
     return true;
   }
 
@@ -546,8 +556,7 @@ Allocate::Allocate(
 std::string Allocate::toString(int indent_size) const {
   std::stringstream ss;
   indent(ss, indent_size) << buffer()->toString();
-  ss << " = ALLOCATE("
-     << "buffer=" << buffer()->toString() << ", "
+  ss << " = ALLOCATE(" << "buffer=" << buffer()->toString() << ", "
      << "mem_type=" << memoryType() << ", "
      << "size=" << size()->toInlineString() << ", "
      << "zero_init=" << boolLiteral(zeroInit()) << ", "
@@ -2068,5 +2077,4 @@ std::string RNGOp::toInlineString(int indent_size) const {
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(RNGOp)
 
-} // namespace kir
-} // namespace nvfuser
+} // namespace nvfuser::kir

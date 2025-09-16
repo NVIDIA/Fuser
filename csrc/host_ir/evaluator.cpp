@@ -441,9 +441,8 @@ void HostIrEvaluator::handle(kir::ForLoop* for_loop) {
 }
 
 void HostIrEvaluator::handle(hir::ForLoop* for_loop) {
-  IterDomain* id = for_loop->iter_domain();
-  auto start = expr_evaluator_.evaluate(id->start()).as<int64_t>();
-  auto stop = expr_evaluator_.evaluate(id->extent()).as<int64_t>();
+  auto start = expr_evaluator_.evaluate(for_loop->start()).as<int64_t>();
+  auto stop = expr_evaluator_.evaluate(for_loop->stop()).as<int64_t>();
 
   for (auto i = start; i < stop; i++) {
     expr_evaluator_.bind(for_loop->index(), i);

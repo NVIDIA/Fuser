@@ -5,6 +5,10 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <iostream>
+
+#include <ATen/cuda/CUDAContext.h>
+
 #include <debug.h>
 #include <device_lower/lower2device.h>
 #include <instrumentation.h>
@@ -15,25 +19,11 @@
 #include <kernel_ir_dispatch.h>
 #include <type.h>
 
-#include <ATen/cuda/CUDAContext.h>
-
-#include <iostream>
-#include <unordered_set>
-
 namespace nvfuser {
 
 namespace kir {
 
 namespace {
-
-bool isStreamParallelized(const std::vector<IterDomain*>& domain) {
-  for (auto* id : domain) {
-    if (id->getParallelType() == ParallelType::Stream) {
-      return true;
-    }
-  }
-  return false;
-}
 
 //! Scan all primary expressions in the Kernel IR and build
 //! lists of specialized nodes and other interesting information
@@ -42,20 +32,32 @@ class KernelIrScanner : private IrVisitor {
   explicit KernelIrScanner(const Kernel* kernel) {
     index_type_ = kernel->indexType();
 
+    // If any TensorView in a kernel is stream-parallel, all non-trivial outputs
+    // of the kernel should be stream-parallel. Otherwise, they wouldn't have
+    // been grouped into the same segment. Therefore, we only need to check the
+    // outputs, not all TensorViews in the kernel.
     summary_.stream_parallelized = [&]() {
-      for (auto* in_tv : ir_utils::filterByType<TensorView>(kernel->inputs())) {
-        if (isStreamParallelized(in_tv->getLoopDomain())) {
-          return true;
+      for (auto* out : kernel->outputs()) {
+        auto* out_tv = dynamic_cast<TensorView*>(out);
+        NVF_ERROR(
+            out_tv != nullptr,
+            "Expected a kernel output to be a TensorView, but found ",
+            out);
+
+        if (out_tv->isCpuScalar()) {
+          continue;
         }
-      }
-      for (auto* out_tv :
-           ir_utils::filterByType<TensorView>(kernel->outputs())) {
-        if (isStreamParallelized(out_tv->getLoopDomain())) {
+
+        if (std::any_of(
+                out_tv->getLoopDomain().begin(),
+                out_tv->getLoopDomain().end(),
+                std::mem_fn(&IterDomain::isStream))) {
           return true;
         }
       }
       return false;
     }();
+
     IrVisitor::handle(kernel->topLevelExprs());
   }
 
@@ -463,9 +465,10 @@ void Kernel::finalize(std::vector<Expr*> top_level_exprs) {
       GpuLower::current()->minDeviceVersionReason();
   summary_.dec_inc_register_usage = GpuLower::current()->decIncRegisterUsage();
 
-  // Parameters are ordered to match KernelExecutor::run:
-  // first inputs, then (if needed) stream index, then outputs, then
-  // intermediates.
+  // Parameters are ordered to match KernelExecutor::run: first inputs, then (if
+  // needed) stream index, then outputs, then intermediates. The stream index
+  // can be considered as a special input, so it's added between regular inputs
+  // and outputs.
   parameters_ = GpuLower::current()->allKnownVals();
   if (summary_.stream_parallelized) {
     parameters_.push_back(NamedScalar::getParallelIndex(ParallelType::Stream));

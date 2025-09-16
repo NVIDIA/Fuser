@@ -189,8 +189,8 @@ T* IrBuilder::clone(const T* src, IrCloner* ir_cloner) {
       "Cloner doesn't have a valid container to store cloned object.");
 
   T* dest = new T(src, ir_cloner);
-  const Statement* src_stmt = dynamic_cast<const Statement*>(src);
-  Statement* dest_stmt = dynamic_cast<Statement*>(dest);
+  const auto* src_stmt = dynamic_cast<const Statement*>(src);
+  auto* dest_stmt = dynamic_cast<Statement*>(dest);
 
   auto dest_container = ir_cloner->container();
   auto src_container = src_stmt->container();
