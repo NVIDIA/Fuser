@@ -43,6 +43,34 @@ struct KeywordArgument {
   std::optional<T> default_value;
 };
 
+// Check if the NvFuser Val can be represented as a Python scalar.
+bool isPythonScalar(const Val* v) {
+  // short_circuit: Symbolic values are not Python scalars.
+  if (v->isSymbolic()) {
+    return false;
+  }
+
+  // Check if the dtype is compatible with a Python scalar.
+  // e.g., Python scalar cannot distiguish between ComplexDouble and
+  // ComplexFloat. In this case, define_scalar must be used to specify custom
+  // dtype.
+  PrimDataType value_dtype(std::get<PrimDataType>(v->dtype().type));
+  switch (value_dtype) {
+    case PrimDataType::Bool:
+      return true;
+    case PrimDataType::Int:
+    case PrimDataType::Index:
+      return true;
+    case PrimDataType::ComplexDouble:
+      return true;
+    case PrimDataType::Double:
+      return true;
+    default:
+      return false;
+  }
+  return false;
+}
+
 class PythonPrinter {
  public:
   PythonPrinter(std::ostream& os) : os_(os) {}
@@ -115,12 +143,14 @@ class PythonPrinter {
   }
 
   // Generate a unique name for a Val. Map val to name to track Val's lifetime.
-  std::string toString(const nvfuser::Val* v) {
+  std::string toString(const nvfuser::Val* v, bool is_lvalue = false) {
     std::stringstream ss;
     if (v == nullptr) {
       return "None";
     } else if (v->isA<TensorView>()) {
       ss << "tv" << v->name();
+    } else if (!is_lvalue && isPythonScalar(v)) {
+      ss << toString(v->value());
     } else {
       ss << "c" << v->name();
     }
@@ -182,7 +212,11 @@ class PythonPrinter {
       if (val == nullptr) {
         ss << "_";
       } else {
-        ss << toString(val);
+        NVF_ERROR(
+            !isPythonScalar(val),
+            "A constant scalar Val* cannot be an output lvalue. Got\t",
+            val->toString());
+        ss << toString(val, /*is_lvalue=*/true);
       }
       if (i < vec.size() - 1) {
         ss << ", ";
@@ -517,7 +551,7 @@ class PythonTranslator : public OptInConstDispatch {
     }
     return std::all_of(
         e->inputs().begin(), e->inputs().end(), [&](const Val* v) {
-          return visited_vals_.count(v) > 0;
+          return isPythonScalar(v) || visited_vals_.count(v) > 0;
         });
   }
 
@@ -649,6 +683,10 @@ class PythonTranslator : public OptInConstDispatch {
     }
     // short-circuit: value already exists in FusionDefinition
     if (visited_vals_.count(v) > 0) {
+      return;
+    }
+    // short-circuit: print python scalar directly
+    if (isPythonScalar(v)) {
       return;
     }
     visited_vals_.insert(v);
@@ -1355,9 +1393,6 @@ class PythonTranslator : public OptInConstDispatch {
       // Default arg1 and arg2 is (0, 1) for both uniform and normal.
       first_arg = fusion_->zeroVal();
       second_arg = fusion_->oneVal();
-      // Create 0 and 1 scalar values
-      dispatch(first_arg);
-      dispatch(second_arg);
     }
     NVF_ERROR(first_arg != nullptr && second_arg != nullptr);
 
