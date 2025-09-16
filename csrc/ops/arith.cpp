@@ -2615,7 +2615,9 @@ ScanResult scan(
     in_tv = maybeCastOp(dtype, in_tv);
     discount_factor = maybeCastOp(dtype, discount_factor);
   }
-
+  new_dom.at((size_t)dim) = IterDomainBuilder(new_dom.at((size_t)dim))
+                                .iter_type(IterType::Scan)
+                                .build();
   auto* td = IrBuilder::create<TensorDomain>(
       new_dom, TensorDomain::getContiguityFilledWith(new_dom, true));
 

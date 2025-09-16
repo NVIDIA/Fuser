@@ -1562,7 +1562,7 @@ void IndexLowering::handle(const ScanOp* scop) {
     auto* cond_store = IrBuilder::create<kir::IfThenElse>(manual_pred);
     pushBack(cond_store);
     auto* save_red_op =
-        rBuilder::create<LoadStoreOp>(LoadStoreOpType::Set, red_ti, out);
+        IrBuilder::create<LoadStoreOp>(LoadStoreOpType::Set, red_ti, out);
     cond_store->thenBody().push_back(save_red_op);
     GpuLower::current()->propagateExprInfo(scop, save_red_op);
   }
@@ -2951,4 +2951,3 @@ void IndexLowering::handle(const CatOp* cat) {
 }
 
 } // namespace nvfuser
- 

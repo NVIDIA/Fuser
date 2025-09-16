@@ -50,7 +50,20 @@ bool mayRequireAllocation(const TensorView* tv, IterDomain* id) {
   // remain size one.
   // - Reduction: Check the original ID, not the promotion, which may
   //   be a reduction ID even though the original ID is not a reduction
-  return !isPartitionedLoop(tv, id) && !isSizeOneDomain(id) &&
+  // - Reduction: Check the original ID, not the promotion, which may
+  //   be a reduction ID even though the original ID is not a reduction
+
+  if (id->isScan()) {
+    // Allocate IterType::Scan IDs only if they are outputs or not computeWith.
+    // We know tv must not have computeAt past the scan id, so without
+    // computeWith, we know the expression won't be inlined and we'll need to
+    // allocate the scan id.
+    if (tv->isFusionOutput()) {
+      return true;
+    }
+    return !tv->hasComputeWith();
+  }
+  turn !isPartitionedLoop(tv, id) && !isSizeOneDomain(id) &&
       !id->isReduction() && !id->isStride();
 }
 
@@ -1162,7 +1175,8 @@ class AllocationInserter : public kir::ExprMutator {
     std::vector<IterDomain*> init_dims;
     for (const auto axis_i : arange(info.alloc_pos, info.buffer->nDims())) {
       if (info.buffer->axis(axis_i)->isReduction() ||
-          info.buffer->axis(axis_i)->isBroadcast()) {
+          info.buffer->axis(axis_i)->isBroadcast() ||
+          info.buffer->axis(axis_i)->isScan()) {
         continue;
       }
       auto concrete_id =
@@ -1203,7 +1217,8 @@ class AllocationInserter : public kir::ExprMutator {
     info.allocation_domains =
         std::make_unique<std::vector<IterDomain*>>(alloc_ids);
 
-    if (alloc_dims.empty() && !info.buffer->domain()->noReductions().empty()) {
+    if (alloc_dims.empty() &&
+        !TensorDomain::noScans(info.buffer->domain()->noReductions()).empty()) {
       alloc_dims.push_back(info.buffer->container()->oneVal());
     }
 
@@ -1900,3 +1915,4 @@ std::vector<Expr*> insertAllocations(const std::vector<Expr*>& exprs) {
 }
 
 } // namespace nvfuser
+  

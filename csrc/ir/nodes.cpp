@@ -3880,6 +3880,17 @@ std::vector<IterDomain*> TensorDomain::noDevices(
   return noDeviceDomain;
 }
 
+std::vector<IterDomain*> TensorDomain::noScans(
+    const std::vector<IterDomain*>& td) {
+  std::vector<IterDomain*> noReductionDomain;
+  std::copy_if(
+      td.begin(),
+      td.end(),
+      std::back_inserter(noReductionDomain),
+      [](IterDomain* id) { return !id->isReduction() && !id->isStride(); });
+  return noReductionDomain;
+}
+
 /*static*/ std::vector<std::optional<bool>> TensorDomain::
     getContiguityFilledWith(
         const std::vector<IterDomain*>& allocation_domain,
@@ -6379,7 +6390,7 @@ std::string ScanOp::toString(int indent_size) const {
       << "        has_exclusive_output=" << hasExclusiveOutput() << ",\n";
   indent(ss, indent_size + 1)
       << "        has_reduction_output=" << hasReductionOutput() << ",\n";
-  scountFactor() != nullptr) {
+  if (discountFactor() != nullptr) {
     indent(ss, indent_size + 1)
         << "        discount_factor=" << discountFactor()->toInlineString()
         << ")\n";
@@ -6548,4 +6559,3 @@ std::vector<PolymorphicValue> CutlassNvfp4GroupedMmaOp::evaluate(
 NVFUSER_DEFINE_CLONE_AND_CREATE(CutlassNvfp4GroupedMmaOp)
 
 } // namespace nvfuser
-      

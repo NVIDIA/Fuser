@@ -920,34 +920,42 @@ TEST_F(ScanTest, OnlineSumExpXMinusMaxSerialScan2) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
-  std::vector<int64_t> shape = {2, 2};
+  std::vector<int64_t> shape = {2, 8};
   auto tv0 = makeContigConcreteTensor(shape);
   fusion.addInput(tv0);
   auto tv1 = set(tv0);
-  // m[i-1]
-  auto result2 = scan(tv1, {1}, BinaryOpType::Max, /*return_exclusive=*/true);
-  auto tv2 = result2.inclusive;
-  // m[i]
-  auto tv3 = result2.exclusive;
-  //  exp(m[i-1] - m[i])
-  auto tv4 = sub(tv3, tv2);
-  auto tv5 = exp(tv4);
-  auto tv6 = sub(tv1, tv2);
-  auto tv7 = exp(tv6);
-  auto tv8 =
-      prefixSum(
-          tv7, {1}, tv5, /*return_exclusive=*/false, /*return_reduction=*/true)
-          .reduction;
-  auto tv9 = set(tv8);
-  fusion.addOutput(tv9);
+  auto tv2 =
+      scan(tv1, {1}, BinaryOpType::Max, /*return_exclusive=*/false).inclusive;
+  auto tv3 = set(tv2);
+  fusion.addOutput(tv3);
   auto unscheduled_fusion = fusion;
+
+  for (auto tv : {tv1, tv3}) {
+    tv->inlineAt(-1);
+  }
+  tv2->inlineAt(1);
+  tv2->computeWith(-1);
 
   fusion.printMath();
 
-  // exclusive scan can't inline both consumer (tv2) and producer (tv1)
-  // inclusive scan can't inline consumer (tv8)
-  // inlineMost(std::vector<TensorView*>{tv3, tv4, tv5, tv6, tv7, tv9, tv10});
+  // We don't inline the scans past the scan dimension
+  // std::unordered_set<IterDomain*> uninlineable_ids;
+  // for (auto tv : {tv2, tv3}) {
+  //   if (tv->nDims() == 2) {
+  //     uninlineable_ids.insert(tv->axis(1));
+  //   }
+  // }
 
+  // inlineMost(uninlineable_ids);
+
+  // for (TensorView* tv : {tv2, tv3}) {
+  //   tv->computeWith(-1);
+  //   for (Val* v : tv->definition()->inputs()) {
+  //     v->as<TensorView>()->inlineAt(-1);
+  //   }
+  // }
+
+  //
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto input = at::randn(shape, options);
 

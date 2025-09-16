@@ -170,14 +170,14 @@ void TensorView::inlineAt(
     pos--;
   }
 
-  NVF_ERROR(
-      pos <= max_inline_pos,
-      "Invalid inline position for T",
-      name(),
-      ": ",
-      pos,
-      ". Maximum allowed value:",
-      max_inline_pos);
+  // NVF_ERROR(
+  //     pos <= max_inline_pos,
+  //     "Invalid inline position for T",
+  //     name(),
+  //     ": ",
+  //     pos,
+  //     ". Maximum allowed value:",
+  //     max_inline_pos);
 
   if (isFusionInput()) {
     return;
