@@ -40,6 +40,104 @@ bool AnyInputStatus(
   return false;
 }
 
+static std::vector<int64_t> GetReductionAxes(ReductionOp* rop) {
+  auto out = rop->output(0)->as<TensorView>();
+  std::vector<int64_t> reduction_axes;
+  int64_t pos = -1;
+  for (IterDomain* out_id : out->getLogicalDomain()) {
+    ++pos;
+    if (out_id->isReduction()) {
+      reduction_axes.push_back(pos);
+    }
+  }
+  return reduction_axes;
+}
+
+bool AreReducingOverSameAxes(ReductionOp* rop1, ReductionOp* rop2) {
+  std::vector<int64_t> rop1Axes = GetReductionAxes(rop1);
+  std::vector<int64_t> rop2Axes = GetReductionAxes(rop2);
+
+  return std::ranges::equal(rop1Axes, rop2Axes);
+}
+
+bool AnalyzeMinMaxOp(ReductionOp* targetRop) {
+  Fusion* fusion = targetRop->fusion();
+
+  NanStatusMap statusMap;
+
+  // Mark parent tv as repaired
+  auto parentTv = targetRop->input(0)->as<TensorView>();
+  statusMap[parentTv] = NanStatus::GOOD_DEFAULT;
+
+  // Mark targetRop outputs as squelched
+  auto candidateTv = targetRop->output(0)->as<TensorView>();
+  statusMap[candidateTv] = NanStatus::BAD_REDUCED;
+
+  // Propagate NanStatus downstream
+  auto traversal =
+      StmtSort::getExprsBetween({targetRop->input(0)}, fusion->outputs());
+  for (Expr* expr : traversal) {
+    if (expr == targetRop) {
+      // Skip the target rop. We already marked its status.
+      continue;
+    }
+
+    bool anyGood = AnyInputStatus(expr, statusMap, NanStatus::GOOD_REDUCED);
+    bool anyBad = AnyInputStatus(expr, statusMap, NanStatus::BAD_REDUCED);
+
+    NanStatus currStatus = NanStatus::NONE;
+    if (anyGood) {
+      currStatus = NanStatus::GOOD_REDUCED;
+    } else if (anyBad) {
+      currStatus = NanStatus::BAD_REDUCED;
+    } else if (AnyInputStatus(expr, statusMap, NanStatus::GOOD_DEFAULT)) {
+      currStatus = NanStatus::GOOD_DEFAULT;
+    }
+
+    if (auto currRop = dynamic_cast<ReductionOp*>(expr); currRop) {
+      auto reduction_type = targetRop->getReductionOpType();
+      if (reduction_type == BinaryOpType::Min &&
+          reduction_type == BinaryOpType::Max) {
+        return false;
+      }
+
+      if (currStatus == NanStatus::GOOD_REDUCED ||
+          currStatus == NanStatus::GOOD_BROADCASTED) {
+        return false;
+      }
+
+      if (!AreReducingOverSameAxes(targetRop, currRop)) {
+        return false;
+      }
+
+      if (currStatus == NanStatus::GOOD_DEFAULT) {
+        currStatus = NanStatus::GOOD_REDUCED;
+      }
+    }
+
+    // Propagate NanStatus for this expr to all outputs.
+    auto output_tvs = ir_utils::filterByType<TensorView>(expr->outputs());
+    for (TensorView* tv : output_tvs) {
+      statusMap[tv] = currStatus;
+    }
+  }
+
+  // Check whether any bad status reached output nodes
+  auto output_tvs = ir_utils::filterByType<TensorView>(fusion->outputs());
+  for (TensorView* tv : output_tvs) {
+    auto it = statusMap.find(tv);
+    if (it == statusMap.end()) {
+      continue;
+    }
+
+    if (it->second == NanStatus::BAD_REDUCED) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
 void UnsafeReducePass::runPass(Fusion* fusion) {
   FusionGuard fusion_guard(fusion);
 
@@ -67,62 +165,7 @@ void UnsafeReducePass::runPass(Fusion* fusion) {
       continue;
     }
 
-    NanStatusMap statusMap;
-
-    // Mark parent tv as repaired
-    auto parentTv = targetRop->input(0)->as<TensorView>();
-    statusMap[parentTv] = NanStatus::GOOD_DEFAULT;
-
-    // Mark targetRop outputs as squelched
-    auto candidateTv = targetRop->output(0)->as<TensorView>();
-    statusMap[candidateTv] = NanStatus::BAD_REDUCED;
-
-    // Propagate NanStatus downstream
-    auto traversal =
-        StmtSort::getExprsBetween({targetRop->input(0)}, fusion->outputs());
-    for (Expr* expr : traversal) {
-      if (expr == targetRop) {
-        // Skip the target rop. We already marked its status.
-        continue;
-      }
-
-      bool anyGood = AnyInputStatus(expr, statusMap, NanStatus::GOOD_REDUCED);
-      bool anyBad = AnyInputStatus(expr, statusMap, NanStatus::BAD_REDUCED);
-
-      NanStatus currStatus = NanStatus::NONE;
-      if (anyGood) {
-        currStatus = NanStatus::GOOD_REDUCED;
-      } else if (anyBad) {
-        currStatus = NanStatus::BAD_REDUCED;
-      } else if (AnyInputStatus(expr, statusMap, NanStatus::GOOD_DEFAULT)) {
-        currStatus = NanStatus::GOOD_DEFAULT;
-      }
-
-      auto* currRop = dynamic_cast<ReductionOp*>(expr);
-      if (currStatus == NanStatus::GOOD_DEFAULT && currRop) {
-        currStatus = NanStatus::GOOD_REDUCED;
-      }
-
-      // Propagate NanStatus for this expr to all outputs.
-      auto output_tvs = ir_utils::filterByType<TensorView>(expr->outputs());
-      for (TensorView* tv : output_tvs) {
-        statusMap[tv] = currStatus;
-      }
-    }
-
-    // Check whether any bad status reached output nodes
-    bool badOutput = false;
-    auto output_tvs = ir_utils::filterByType<TensorView>(fusion->outputs());
-    for (TensorView* tv : output_tvs) {
-      auto it = statusMap.find(tv);
-      if (it == statusMap.end()) {
-        continue;
-      }
-
-      badOutput |= it->second == NanStatus::BAD_REDUCED;
-    }
-
-    if (!badOutput) {
+    if (AnalyzeMinMaxOp(targetRop)) {
       targetRop->markUnsafe();
     }
   }

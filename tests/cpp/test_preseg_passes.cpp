@@ -1639,8 +1639,8 @@ TEST_F(PresegTest, UnsafeReduce_Softmax) {
     }
   }
 
-  NVF_CHECK(!any_safe_max);
-  NVF_CHECK(any_unsafe_max);
+  NVF_CHECK(any_safe_max);
+  NVF_CHECK(!any_unsafe_max);
 
   testValidate(executor_cache.fusion(), outputs, {t0}, __LINE__, __FILE__);
 }
@@ -1693,44 +1693,42 @@ TEST_F(PresegTest, UnsafeReduce_IncompatibleShapes) {
   FusionGuard fg(fusion.get());
 
   TensorView* tv0 = makeSymbolicTensor(2);
-  TensorView* tv1 = makeSymbolicTensor(2);
 
   fusion->addInput(tv0);
 
-  TensorView* tv2 = add(max(tv0, {0}), tv1);
-  TensorView* tv3 = sum(abs(exp(tv0)), {1});
+  TensorView* tv2 = max(tv0, {0});
+  TensorView* tv3 = sum(tv0, {1});
 
   TensorView* tv4 = add(tv2, tv3);
   fusion->addOutput(tv4);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({512, 512}, options);
-  at::Tensor t1 = at::randn({512, 512}, options);
-  t0[0] = std::numeric_limits<float>::quiet_NaN();
+  t0[0][0] = std::numeric_limits<float>::quiet_NaN();
 
   FusionExecutorCache executor_cache(std::move(fusion));
   auto outputs = executor_cache.runFusionWithInputs({t0});
 
   auto kernel_runtime = executor_cache.getMostRecentKernelRuntime();
 
-  CHECK(!kernel_runtime->isSegmented());
-
   auto& groups = kernel_runtime->fusionSegments()->groups();
 
   bool any_safe_max = false;
   bool any_unsafe_max = false;
 
-  for (const auto& kir_node : groups[0]->exprs()) {
-    if (auto rop = dynamic_cast<ReductionOp*>(kir_node)) {
-      any_safe_max |= rop->getReductionOpType() == BinaryOpType::Max;
-      any_unsafe_max |= rop->getReductionOpType() == BinaryOpType::UnsafeMax;
+  for (const auto& group : groups) {
+    for (const auto& kir_node : group->exprs()) {
+      if (auto rop = dynamic_cast<ReductionOp*>(kir_node)) {
+        any_safe_max |= rop->getReductionOpType() == BinaryOpType::Max;
+        any_unsafe_max |= rop->getReductionOpType() == BinaryOpType::UnsafeMax;
+      }
     }
   }
 
   NVF_CHECK(any_safe_max);
   NVF_CHECK(!any_unsafe_max);
 
-  testValidate(executor_cache.fusion(), outputs, {t0, t1}, __LINE__, __FILE__);
+  testValidate(executor_cache.fusion(), outputs, {t0}, __LINE__, __FILE__);
 }
 
 TEST_F(PresegTest, UnsafeReduce_BlockedRepair) {
