@@ -1454,7 +1454,13 @@ void IndexLowering::handle(const ScanOp* scop) {
   // short circuit for parallelized scan, use blockScan
   if (scan_id->isParallelized()) {
     pushBack(IrBuilder::create<ScanOp>(
-        scop->opType(), scop->init(), out, in, scop->dim()));
+        scop->opType(),
+        scop->init(),
+        out->as<TensorView>(),
+        nullptr,
+        in->as<TensorView>(),
+        scop->dim(),
+        scop->discountFactor()));
     GpuLower::current()->propagateExprInfo(scop, back());
     return;
   }
@@ -1513,65 +1519,34 @@ void IndexLowering::handle(const ScanOp* scop) {
   // result
   prev_sum = where(gt(scan_index, scan_loop->start()), prev_sum, scop->init());
 
-  if (Val* f = scop->discountFactor()) {
-    if (auto* f_tv = dynamic_cast<TensorView*>(f)) {
-      if (scop->isExclusive()) {
-        auto discount_alloc_id =
-            f_tv->getMaybeAllocationDomain().at(scan_id_alloc_pos);
-        auto input_override_map = std::unordered_map<IterDomain*, Val*>{
-            {discount_alloc_id, lagged_index}};
-        Val* f_ti = lowerSrcIndex(f_tv, scop->out(), input_override_map);
-        Val* prev_discount_val = IrBuilder::create<Val>(scop->in()->dtype());
-        IrBuilder::create<LoadStoreOp>(
-            LoadStoreOpType::Set, prev_discount_val, f_ti);
-        prev_discount_val = where(
-            gt(scan_index, scan_loop->start()),
-            prev_discount_val,
-            scop->init());
-        Val* prev_sum_mul = IrBuilder::create<Val>(f_tv->dtype());
-        IrBuilder::create<BinaryOp>(
-            BinaryOpType::Mul, prev_sum_mul, prev_discount_val, prev_sum);
-        prev_sum = prev_sum_mul;
-      } else {
-        Val* f_ti = lowerSrcIndex(f_tv, scop->out());
-        Val* prev_sum_mul = IrBuilder::create<Val>(f_tv->dtype());
-        IrBuilder::create<BinaryOp>(
-            BinaryOpType::Mul, prev_sum_mul, f_ti, prev_sum);
-        prev_sum = prev_sum_mul;
-      }
+  // Handle exclusive scan output if present
+  if (TensorView* exc = scop->outExclusive()) {
+    const auto exc_ti = lowerDstIndex(exc);
+    auto* save_exc_op =
+        IrBuilder::create<LoadStoreOp>(LoadStoreOpType::Set, exc_ti, prev_sum);
+    pushBack(save_exc_op);
+    GpuLower::current()->propagateExprInfo(scop, save_exc_op);
+  }
 
+  // Apply discount factor for the current iteration
+  if (Val* f = scop->discountFactor()) {
+    Val* f_scalar = f;
+    if (auto* f_tv = dynamic_cast<TensorView*>(f)) {
+      Val* f_ti = lowerSrcIndex(f_tv, scop->out());
+      Val* prev_sum_mul = IrBuilder::create<Val>(f_tv->dtype());
+      IrBuilder::create<BinaryOp>(
+          BinaryOpType::Mul, prev_sum_mul, f_ti, prev_sum);
+      prev_sum = prev_sum_mul;
     } else {
-      prev_sum = mul(f, prev_sum);
+      prev_sum = mul(f_scalar, prev_sum);
     }
   }
 
-  Expr* expr = nullptr;
-  if (scop->isExclusive()) {
-    // For exclusive scan, output[i] should contain the scan of elements [0,
-    // i-1] Get the previous input value (input[i-1])
-    auto input_override_map =
-        std::unordered_map<IterDomain*, Val*>{{scan_alloc_id, lagged_index}};
-    const auto prev_input_tensor =
-        lowerSrcIndex(scop->in(), scop->out(), input_override_map);
-
-    Val* prev_input_val = IrBuilder::create<Val>(scop->in()->dtype());
-    IrBuilder::create<LoadStoreOp>(
-        LoadStoreOpType::Set, prev_input_val, prev_input_tensor);
-
-    // For the first position, use init value instead of previous input
-    prev_input_val =
-        where(gt(scan_index, scan_loop->start()), prev_input_val, scop->init());
-
-    // Exclusive scan: combine accumulated result with previous input
-    expr = IrBuilder::create<BinaryOp>(
-        scop->opType(), out, prev_sum, prev_input_val);
-  } else {
-    // For inclusive scan, output[i] should contain the scan of elements [0, i]
-    // This equals: prev_sum (accumulated [0, i-1]) op current_input_val
-    // (element at i)
-    expr =
-        IrBuilder::create<BinaryOp>(scop->opType(), out, prev_sum, current_val);
-  }
+  // For inclusive scan, output[i] should contain the scan of elements [0, i]
+  // This equals: prev_sum (accumulated [0, i-1]) op current_input_val (element
+  // at i)
+  Expr* expr =
+      IrBuilder::create<BinaryOp>(scop->opType(), out, prev_sum, current_val);
 
   pushBack(expr);
   GpuLower::current()->propagateExprInfo(scop, expr);

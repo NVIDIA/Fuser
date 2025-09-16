@@ -3333,10 +3333,10 @@ class ScanOp : public Expr {
       IrBuilderPasskey,
       BinaryOpType op_type,
       Val* init,
-      Val* out,
-      Val* in,
+      TensorView* out_inclusive,
+      TensorView* out_exclusive,
+      TensorView* in,
       int64_t dim,
-      bool is_exclusive = false,
       Val* discount_factor = nullptr);
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
@@ -3349,12 +3349,22 @@ class ScanOp : public Expr {
   std::string toInlineString(int indent_size = 0) const override;
 
   //! Returns the inclusive scan output
-  Val* out() const {
-    return output(0);
+  TensorView* out() const {
+    return output(0)->as<TensorView>();
   }
 
-  Val* in() const {
-    return input(0);
+  //! Returns the exclusive scan output (may be nullptr)
+  TensorView* outExclusive() const {
+    return outputs().size() > 1 ? output(1)->as<TensorView>() : nullptr;
+  }
+
+  //! Returns true if this ScanOp produces an exclusive output
+  bool hasExclusiveOutput() const {
+    return outputs().size() > 1;
+  }
+
+  TensorView* in() const {
+    return input(0)->as<TensorView>();
   }
 
   Val* init() const {
@@ -3367,10 +3377,6 @@ class ScanOp : public Expr {
 
   int64_t dim() const {
     return attribute<int64_t>(2);
-  }
-
-  bool isExclusive() const {
-    return attribute<bool>(3);
   }
 
   Val* discountFactor() const {

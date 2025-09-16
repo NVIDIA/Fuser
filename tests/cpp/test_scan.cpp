@@ -29,8 +29,8 @@ TEST_F(ScanTest, BasicScanAdd) {
 
   auto tv0 = makeConcreteTensor({4, 8});
   fusion.addInput(tv0);
-  auto tv_result = scan(tv0, /*dim=*/1, BinaryOpType::Add);
-  fusion.addOutput(tv_result);
+  auto result = scan(tv0, /*dim=*/1, BinaryOpType::Add);
+  fusion.addOutput(result.inclusive);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor input = at::randn({4, 8}, options);
@@ -49,8 +49,8 @@ TEST_F(ScanTest, BasicScanMax) {
 
   auto tv0 = makeConcreteTensor({4, 8});
   fusion.addInput(tv0);
-  auto tv_result = scan(tv0, /*dim=*/1, BinaryOpType::Max);
-  fusion.addOutput(tv_result);
+  auto result = scan(tv0, /*dim=*/1, BinaryOpType::Max);
+  fusion.addOutput(result.inclusive);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor input = at::randn({4, 8}, options);
@@ -69,8 +69,8 @@ TEST_F(ScanTest, BasicScanMin) {
 
   auto tv0 = makeConcreteTensor({4, 8});
   fusion.addInput(tv0);
-  auto tv_result = scan(tv0, /*dim=*/1, BinaryOpType::Min);
-  fusion.addOutput(tv_result);
+  auto result = scan(tv0, /*dim=*/1, BinaryOpType::Min);
+  fusion.addOutput(result.inclusive);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor input = at::randn({4, 8}, options);
@@ -89,8 +89,8 @@ TEST_F(ScanTest, BasicScanMul) {
 
   auto tv0 = makeConcreteTensor({4, 8});
   fusion.addInput(tv0);
-  auto tv_result = scan(tv0, /*dim=*/1, BinaryOpType::Mul);
-  fusion.addOutput(tv_result);
+  auto result = scan(tv0, /*dim=*/1, BinaryOpType::Mul);
+  fusion.addOutput(result.inclusive);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor input = at::randn({4, 8}, options);
@@ -109,8 +109,8 @@ TEST_F(ScanTest, ScanDifferentDimensions) {
 
   auto tv0 = makeConcreteTensor({2, 4, 6});
   fusion.addInput(tv0);
-  auto tv_result = scan(tv0, /*dim=*/0, BinaryOpType::Add);
-  fusion.addOutput(tv_result);
+  auto result = scan(tv0, /*dim=*/0, BinaryOpType::Add);
+  fusion.addOutput(result.inclusive);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor input = at::randn({2, 4, 6}, options);
@@ -129,8 +129,8 @@ TEST_F(ScanTest, Scan1D) {
 
   auto tv0 = makeConcreteTensor({10});
   fusion.addInput(tv0);
-  auto tv_result = scan(tv0, /*dim=*/0, BinaryOpType::Add);
-  fusion.addOutput(tv_result);
+  auto result = scan(tv0, /*dim=*/0, BinaryOpType::Add);
+  fusion.addOutput(result.inclusive);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor input = at::randn({10}, options);
@@ -158,7 +158,8 @@ TEST_F(ScanTest, ScanWithSimpleArithmetic) {
   auto tv1 = add(tv0, IrBuilder::create<Val>(1.0));
 
   // Scan operation
-  auto tv2 = scan(tv1, /*dim=*/1, BinaryOpType::Add);
+  auto result2 = scan(tv1, /*dim=*/1, BinaryOpType::Add);
+  auto tv2 = result2.inclusive;
 
   fusion.addOutput(tv2);
 
@@ -187,7 +188,8 @@ TEST_F(ScanTest, ScanWithArithmeticOps) {
   auto tv3 = sub(tv2, IrBuilder::create<Val>(0.5));
 
   // Scan operation
-  auto tv4 = scan(tv3, /*dim=*/1, BinaryOpType::Add);
+  auto result4 = scan(tv3, /*dim=*/1, BinaryOpType::Add);
+  auto tv4 = result4.inclusive;
 
   // Additional operation after scan
   auto tv5 = div(tv4, IrBuilder::create<Val>(3.0));
@@ -222,12 +224,12 @@ class ScanCodeGenTest : public NVFuserTest,
 
     auto tv1 = set(tv0);
     // Create scan operation along dimension 1
-    auto tv_result = scan(tv1, /*dim=*/1, BinaryOpType::Add);
-    auto tv_output = set(tv_result);
+    auto result = scan(tv1, /*dim=*/1, BinaryOpType::Add);
+    auto tv_output = set(result.inclusive);
     fusion.addOutput(tv_output);
 
     // Parallelization strategy - all tensors get same parallelization
-    for (auto tv : {tv1, tv_result, tv_output}) {
+    for (auto tv : {tv1, result.inclusive, tv_output}) {
       tv->axis(0)->parallelize(ParallelType::BIDx);
       tv->axis(1)->parallelize(ParallelType::TIDx);
     }
@@ -282,12 +284,12 @@ TEST_F(ScanTest, KernelExecutorScanAdd) {
 
   auto tv1 = set(tv0);
   // Create scan operation along dimension 1, Add operation
-  auto tv_result = scan(tv1, /*dim=*/1, BinaryOpType::Add);
-  auto tv_output = set(tv_result);
+  auto result = scan(tv1, /*dim=*/1, BinaryOpType::Add);
+  auto tv_output = set(result.inclusive);
   fusion.addOutput(tv_output);
 
   // Parallelization strategy
-  for (auto tv : {tv1, tv_result, tv_output}) {
+  for (auto tv : {tv1, result.inclusive, tv_output}) {
     tv->axis(0)->parallelize(ParallelType::BIDx);
     tv->axis(1)->parallelize(ParallelType::TIDx);
   }
@@ -314,12 +316,12 @@ TEST_F(ScanTest, KernelExecutorScanMax) {
 
   auto tv1 = set(tv0);
   // Create scan operation along dimension 1, Max operation
-  auto tv_result = scan(tv1, /*dim=*/1, BinaryOpType::Max);
-  auto tv_output = set(tv_result);
+  auto result = scan(tv1, /*dim=*/1, BinaryOpType::Max);
+  auto tv_output = set(result.inclusive);
   fusion.addOutput(tv_output);
 
   // Parallelization strategy
-  for (auto tv : {tv1, tv_result, tv_output}) {
+  for (auto tv : {tv1, result.inclusive, tv_output}) {
     tv->axis(0)->parallelize(ParallelType::BIDx);
     tv->axis(1)->parallelize(ParallelType::TIDx);
   }
@@ -346,12 +348,12 @@ TEST_F(ScanTest, KernelExecutorScanMin) {
 
   auto tv1 = set(tv0);
   // Create scan operation along dimension 1, Min operation
-  auto tv_result = scan(tv1, /*dim=*/1, BinaryOpType::Min);
-  auto tv_output = set(tv_result);
+  auto result = scan(tv1, /*dim=*/1, BinaryOpType::Min);
+  auto tv_output = set(result.inclusive);
   fusion.addOutput(tv_output);
 
   // Parallelization strategy
-  for (auto tv : {tv1, tv_result, tv_output}) {
+  for (auto tv : {tv1, result.inclusive, tv_output}) {
     tv->axis(0)->parallelize(ParallelType::BIDx);
     tv->axis(1)->parallelize(ParallelType::TIDx);
   }
@@ -378,12 +380,12 @@ TEST_F(ScanTest, KernelExecutorScanMul) {
 
   auto tv1 = set(tv0);
   // Create scan operation along dimension 1, Mul operation
-  auto tv_result = scan(tv1, /*dim=*/1, BinaryOpType::Mul);
-  auto tv_output = set(tv_result);
+  auto result = scan(tv1, /*dim=*/1, BinaryOpType::Mul);
+  auto tv_output = set(result.inclusive);
   fusion.addOutput(tv_output);
 
   // Parallelization strategy
-  for (auto tv : {tv1, tv_result, tv_output}) {
+  for (auto tv : {tv1, result.inclusive, tv_output}) {
     tv->axis(0)->parallelize(ParallelType::BIDx);
     tv->axis(1)->parallelize(ParallelType::TIDx);
   }
@@ -411,13 +413,15 @@ TEST_F(ScanTest, KernelExecutorMultipleScan) {
   auto tv1 = set(tv0);
 
   // First scan operation (Add)
-  auto tv_scan1 = scan(tv1, /*dim=*/1, BinaryOpType::Add);
+  auto result_scan1 = scan(tv1, /*dim=*/1, BinaryOpType::Add);
+  auto tv_scan1 = result_scan1.inclusive;
 
   // Add operation between scans
   auto tv_add = add(tv_scan1, IrBuilder::create<Val>(1.0));
 
   // Second scan operation (Max)
-  auto tv_scan2 = scan(tv_add, /*dim=*/1, BinaryOpType::Max);
+  auto result_scan2 = scan(tv_add, /*dim=*/1, BinaryOpType::Max);
+  auto tv_scan2 = result_scan2.inclusive;
 
   auto tv_output = set(tv_scan2);
   fusion.addOutput(tv_output);
@@ -450,12 +454,12 @@ TEST_F(ScanTest, KernelExecutorSerialScanMax) {
 
   auto tv1 = set(tv0);
   // Create scan operation along dimension 1, Mul operation
-  auto tv_result = scan(tv1, /*dim=*/1, BinaryOpType::Max);
-  auto tv_output = set(tv_result);
+  auto result = scan(tv1, /*dim=*/1, BinaryOpType::Max);
+  auto tv_output = set(result.inclusive);
   fusion.addOutput(tv_output);
 
   // Parallelization strategy
-  for (auto tv : {tv1, tv_result, tv_output}) {
+  for (auto tv : {tv1, result.inclusive, tv_output}) {
     tv->axis(0)->parallelize(ParallelType::BIDx);
   }
 
@@ -479,7 +483,9 @@ TEST_F(ScanTest, KernelExecutorSerialScanMaxExclusive) {
   fusion.addInput(tv0);
 
   auto tv1 = set(tv0);
-  auto tv2 = scan(tv1, /*dim=*/1, BinaryOpType::Max, /*is_exclusive=*/true);
+  auto result =
+      scan(tv1, /*dim=*/1, BinaryOpType::Max, /*return_exclusive=*/true);
+  auto tv2 = result.exclusive;
   auto tv_output = set(tv2);
   fusion.addOutput(tv_output);
 
@@ -511,7 +517,8 @@ TEST_F(ScanTest, KernelExecutorPrefixSum) {
 
   auto tv1 = set(tv0);
   auto tv2 =
-      prefixSum(tv1, /*dim=*/1, IrBuilder::create<Val>(0.5, DataType::Float));
+      prefixSum(tv1, /*dim=*/1, IrBuilder::create<Val>(0.5, DataType::Float))
+          .inclusive;
   auto tv_output = set(tv2);
   fusion.addOutput(tv_output);
 
@@ -542,7 +549,7 @@ TEST_F(ScanTest, KernelExecutorPrefixSumTensorDiscount) {
   fusion.addInput(tv0);
 
   auto tv1 = set(tv0);
-  auto tv2 = prefixSum(tv1, /*dim=*/1, tv1);
+  auto tv2 = prefixSum(tv1, /*dim=*/1, tv1).inclusive;
   auto tv_output = set(tv2);
   fusion.addOutput(tv_output);
 
@@ -582,12 +589,12 @@ TEST_P(SerialScanTest, BinaryOpTypeAndDataType) {
 
   auto tv1 = set(tv0);
   // Create scan operation along dimension 1 with parameterized operation
-  auto tv_result = scan(tv1, /*dim=*/1, binary_op_type);
-  auto tv_output = set(tv_result);
+  auto result = scan(tv1, /*dim=*/1, binary_op_type);
+  auto tv_output = set(result.inclusive);
   fusion.addOutput(tv_output);
 
   // Parallelization strategy
-  for (auto tv : {tv1, tv_result, tv_output}) {
+  for (auto tv : {tv1, result.inclusive, tv_output}) {
     tv->axis(0)->parallelize(ParallelType::BIDx);
   }
 
@@ -814,11 +821,13 @@ TEST_F(ScanTest, OnlineSumExpXMinusMaxSerialScan) {
   auto tv6 = sum(tv5, {2}); // dp = sum(exp(xpi - mp))
 
   // Discount factor is exponentiated delta: exp(m[i-1] - m[i])
-  auto tv7 = scan(tv2, {1}, BinaryOpType::Max, /*is_exclusive=*/true); // m[i-1]
+  auto result7 =
+      scan(tv2, {1}, BinaryOpType::Max, /*return_exclusive=*/true); // m[i-1]
+  auto tv7 = result7.exclusive;
   auto tv8 = binaryOp(BinaryOpType::Max, tv2, tv7); // m[i]
   auto tv9 = sub(tv7, tv8); //  exp(m[i-1] - m[i])
   auto tv10 = exp(tv9);
-  auto tv11 = prefixSum(tv6, {1}, tv10);
+  auto tv11 = prefixSum(tv6, {1}, tv10).inclusive;
   auto tv12 = set(tv11);
   fusion.addOutput(tv8);
   fusion.addOutput(tv12);
@@ -916,7 +925,8 @@ TEST_F(ScanTest, OnlineSumExpXMinusMaxSerialScan2) {
   fusion.addInput(tv0);
   auto tv1 = set(tv0);
   // m[i-1]
-  auto tv2 = scan(tv1, {0}, BinaryOpType::Max, /*is_exclusive=*/true);
+  auto result2 = scan(tv1, {0}, BinaryOpType::Max, /*return_exclusive=*/true);
+  auto tv2 = result2.exclusive;
   // m[i]
   auto tv3 = binaryOp(BinaryOpType::Max, tv2, tv1);
   //  exp(m[i-1] - m[i])
@@ -924,7 +934,7 @@ TEST_F(ScanTest, OnlineSumExpXMinusMaxSerialScan2) {
   auto tv5 = exp(tv4);
   auto tv6 = sub(tv1, tv3);
   auto tv7 = exp(tv6);
-  auto tv8 = prefixSum(tv7, {0}, tv5);
+  auto tv8 = prefixSum(tv7, {0}, tv5).inclusive;
   auto tv9 = set(tv8);
   auto tv10 = set(tv3);
   fusion.addOutput(tv10);
@@ -1098,15 +1108,18 @@ TEST_F(ScanTest, BlockedAttention) {
   auto lij_tilde = sum(pij_tilde, {3}, /*keep_dim=*/true); // [Tr, Br, Tc, 1]
 
   // Line 11, m_i_new, [Tr, Br, Tc, 1] -> [Tr, Br, Tc, 1]
-  auto m_i = scan(mij_tilde, 2, BinaryOpType::Max, /*is_exclusive=*/true);
-  auto m_i_new = binaryOp(BinaryOpType::Max, m_i, mij_tilde);
+  auto m_i_result =
+      scan(mij_tilde, 2, BinaryOpType::Max, /*return_exclusive=*/true);
+  auto m_i = m_i_result.exclusive;
+  auto m_i_new = m_i_result.inclusive;
   // Line 11, l_i_new, [Tr, Br, Tc, 1]
   auto lij_tidle_factor = exp(sub(mij_tilde, m_i_new)); // [Tr, Br, Tc, 1]
   auto l_i_factor = exp(sub(m_i, m_i_new)); // [Tr, Br, Tc, 1]
   auto next_l = mul(lij_tidle_factor, lij_tilde); // [Tr, Br, Tc, 1]
   // prefix sum is always inclusive, for exlcusive, l[i] = l_new[i-1]
-  auto l_i = prefixSum(next_l, 2, l_i_factor, /*is_exclusive=*/true);
-  auto l_i_new = add(mul(l_i_factor, l_i), next_l);
+  auto l_i_result = prefixSum(next_l, 2, l_i_factor, /*return_exclusive=*/true);
+  auto l_i = l_i_result.exclusive;
+  auto l_i_new = l_i_result.inclusive;
 
   // Line 12, o_i, [Tr, Br, Tc, D]
   // [Tr, Br, Tc, Bc, 1] X [1, 1, Tc, Bc, D] --> [Tr, Br, Tc, Bc, D]
@@ -1116,7 +1129,7 @@ TEST_F(ScanTest, BlockedAttention) {
   auto next_o =
       mul(div(lij_tidle_factor, l_i_new), pij_tilde_vj); // [Tr, Br, Tc, D]
   auto o_discount = div(mul(l_i_factor, l_i), l_i_new);
-  auto O = prefixSum(next_o, 2, o_discount);
+  auto O = prefixSum(next_o, 2, o_discount).inclusive;
   fusion->addOutput(O);
   fusion->printMath();
 

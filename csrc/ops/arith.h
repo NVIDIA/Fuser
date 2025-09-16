@@ -154,6 +154,19 @@ struct TopKResult {
       : values(in_values), indices(in_indices) {}
 };
 
+//! Auxiliary struct holding the result of a scan operation.
+//!
+//! Contains two TensorViews:
+//! - inclusive: tensor containing the inclusive scan result (always present)
+//! - exclusive: tensor containing the exclusive scan result (optional)
+//!
+//! The inclusive scan is always computed, while the exclusive scan is only
+//! computed when requested.
+struct ScanResult {
+  TensorView* inclusive = nullptr; //!< The inclusive scan result
+  TensorView* exclusive = nullptr; //!< The exclusive scan result (optional)
+};
+
 //! Welford operator on specified axes. This is currently the only scan op with
 //! multiple outputs that is supported. May consider generalization if more scan
 //! ops are added.
@@ -798,35 +811,46 @@ NVF_API TopKResult topk(
     bool sorted = false,
     bool maybe_symbolic = true);
 
-//! Computes an inclusive scan of a tensor in a single dimension.
+//! Computes scan operations of a tensor in a single dimension.
 //!
-//! Given a 1D input tensor x, this computes the output
-//! recursively via
+//! Always computes an inclusive scan and optionally computes an exclusive scan.
+//! Returns a ScanResult containing the inclusive scan (always) and exclusive
+//! scan (if requested).
 //!
-//!   y = scan(x, 0, Add, zeroVal())
-//!
+//! Given a 1D input tensor x, the inclusive scan computes:
 //!   y[0] = x[0]
 //!   y[i] = y[i-1] + x[i] for 0 < i < n
 //!
 //! If the dimension being scanned is an expanded broadcast, we throw an error.
-NVF_API TensorView* scan(
+NVF_API ScanResult scan(
     TensorView* in_tv,
     int64_t dim,
     BinaryOpType op_type,
-    bool is_exclusive = false,
+    bool return_exclusive = false,
     Val* init = nullptr,
     Val* discount = nullptr);
 
-//! This is an alias for scan(tv, dim, BinaryOpType::Add, zeroVal())
-NVF_API TensorView* prefixSum(
+//! Computes prefix sum with optional exclusive output, returning ScanResult
+//!
+//! This function always computes an inclusive prefix sum and optionally
+//! computes an exclusive prefix sum when return_exclusive is true.
+//!
+//! \param tv Input tensor
+//! \param dim Dimension along which to perform the prefix sum
+//! \param discount Discount factor for weighted prefix sums
+//! \param return_exclusive If true, also compute and return exclusive prefix
+//! sum
+//! \return ScanResult containing inclusive prefix sum (always) and exclusive
+//! prefix sum (if requested)
+NVF_API ScanResult prefixSum(
     TensorView* tv,
     int64_t dim,
     Val* discount = nullptr,
-    bool is_exclusive = false);
+    bool return_exclusive = false);
 
 //! Another alias for PyTorch's cumsum
 NVF_API inline TensorView* cumsum(TensorView* tv, int64_t dim) {
-  return prefixSum(tv, dim);
+  return prefixSum(tv, dim).inclusive;
 }
 
 } // namespace nvfuser

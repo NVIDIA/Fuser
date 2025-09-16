@@ -2579,11 +2579,11 @@ TopKResult topk(
       out_values->as<TensorView>(), out_indices->as<TensorView>());
 }
 
-TensorView* scan(
+ScanResult scan(
     TensorView* in_tv,
     int64_t dim,
     BinaryOpType op_type,
-    bool is_exclusive,
+    bool return_exclusive,
     Val* init,
     Val* discount_factor) {
   const std::vector<IterDomain*> logical_dom =
@@ -2599,7 +2599,8 @@ TensorView* scan(
     NVF_ERROR(
         !scan_id->hasExpandedExtent(),
         "Closed-form scan of expanded dimension is not yet implemented");
-    return set(in_tv);
+    auto result_tv = set(in_tv);
+    return ScanResult(result_tv, return_exclusive ? set(in_tv) : nullptr);
   }
 
   DataType dtype = in_tv->dtype();
@@ -2613,42 +2614,50 @@ TensorView* scan(
     in_tv = maybeCastOp(dtype, in_tv);
     discount_factor = maybeCastOp(dtype, discount_factor);
   }
-  // new_dom.at((size_t)dim) = IterDomainBuilder(new_dom.at((size_t)dim))
-  //                               .iter_type(IterType::Scan)
-  //                               .build();
 
   auto* td = IrBuilder::create<TensorDomain>(
       new_dom, TensorDomain::getContiguityFilledWith(new_dom, true));
-  auto out_tv = IrBuilder::create<TensorView>(td, in_tv->dtype());
+
+  // Always create inclusive scan output
+  auto inclusive_tv = IrBuilder::create<TensorView>(td, dtype);
 
   if (init == nullptr) {
     init = ops::binOpIdentity(op_type, dtype);
     NVF_ERROR(init != nullptr);
   }
 
+  ScanResult result;
+  result.inclusive = inclusive_tv;
+
+  if (return_exclusive) {
+    // Create exclusive scan output
+    result.exclusive = ops::newOutputTV({result.inclusive}, dtype);
+  }
+
+  // Create single scan operation with both outputs (exclusive may be nullptr)
   IrBuilder::createInContainer<ScanOp>(
       in_tv->container(),
       op_type,
       init,
-      out_tv,
+      result.inclusive,
+      result.exclusive,
       in_tv,
       dim,
-      is_exclusive,
       discount_factor);
 
-  return out_tv;
+  return result;
 }
 
-TensorView* prefixSum(
+ScanResult prefixSum(
     TensorView* tv,
     int64_t dim,
     Val* discount,
-    bool is_exclusive) {
+    bool return_exclusive) {
   return scan(
       tv,
       dim,
       BinaryOpType::Add,
-      /*is_exclusive=*/is_exclusive,
+      /*return_exclusive=*/return_exclusive,
       /*init=*/tv->fusion()->zeroVal(tv->dtype()),
       /*discount=*/discount);
 }

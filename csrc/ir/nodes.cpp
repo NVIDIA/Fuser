@@ -6334,13 +6334,16 @@ ScanOp::ScanOp(
     IrBuilderPasskey passkey,
     BinaryOpType op_type,
     Val* init,
-    Val* out,
-    Val* in,
+    TensorView* out_inclusive,
+    TensorView* out_exclusive,
+    TensorView* in,
     int64_t dim,
-    bool is_exclusive,
     Val* discount_factor)
     : Expr(passkey) {
-  addOutput(out);
+  addOutput(out_inclusive);
+  if (out_exclusive != nullptr) {
+    addOutput(out_exclusive);
+  }
   addInput(in);
   if (discount_factor != nullptr) {
     addInput(discount_factor);
@@ -6348,7 +6351,6 @@ ScanOp::ScanOp(
   addAttribute(init);
   addDataAttribute(op_type);
   addDataAttribute(dim);
-  addDataAttribute(is_exclusive);
 }
 
 std::string ScanOp::toString(int indent_size) const {
@@ -6361,7 +6363,7 @@ std::string ScanOp::toString(int indent_size) const {
   indent(ss, indent_size + 1)
       << "        init=" << init()->toInlineString() << ",\n";
   indent(ss, indent_size + 1)
-      << "        is_exclusive=" << isExclusive() << ",\n";
+      << "        has_exclusive_output=" << hasExclusiveOutput() << ",\n";
   if (discountFactor() != nullptr) {
     indent(ss, indent_size + 1)
         << "        discount_factor=" << discountFactor()->toInlineString()
