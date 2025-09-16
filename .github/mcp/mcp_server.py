@@ -111,7 +111,7 @@ def run_targeted_tests(
     target_branch: str = "devel", selected_tests: str | None = None
 ) -> str:
     """
-    This function checks for changes in the Cpp files, against a target_branch.
+    This function checks for changes in the Python files, against a target_branch.
     It then finds the corresponding existent tests, and runs only that subset.
 
     Args:
@@ -141,15 +141,14 @@ def run_targeted_tests(
         "--name-only",
         f"{target_branch}...HEAD",
         "--",
-        "*.cpp",
-        "*.h",
+        "*.py",
     ]
     success, diff_content, stderr = run_command(diff_command, PROJECT_ROOT)
     if not success:
         return f"Failed to get the diff against {target_branch}. Error: {stderr}"
     if not diff_content.strip():
         return (
-            f"No Cpp files have been changed against {target_branch}. No tests to run."
+            f"No Python files have been changed against {target_branch}. No tests to run."
         )
 
     # TODO: should we have a simple heuristic search based on regex from changed files?
