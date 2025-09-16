@@ -1,3 +1,3 @@
 # IdMappingMode
 
-Source: [IdMappingMode (Enum)](../csrc/type.h#L734)
+Source: [IdMappingMode (Enum)](../../csrc/type.h#L734)

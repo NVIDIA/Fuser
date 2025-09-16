@@ -1,3 +1,3 @@
 # GatherOp
 
-Source: [GatherOp](../csrc/ir/internal_nodes.h#L188)
+Source: [GatherOp](../../csrc/ir/internal_nodes.h#L188)

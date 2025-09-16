@@ -1,3 +1,3 @@
 # LaunchConfigType
 
-Source: [LaunchConfigType (Enum)](../csrc/type.h#L1107)
+Source: [LaunchConfigType (Enum)](../../csrc/type.h#L1107)

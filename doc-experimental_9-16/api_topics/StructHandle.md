@@ -1,3 +1,3 @@
 # StructHandle
 
-Source: [StructHandle](../csrc/polymorphic_value.h#L177)
+Source: [StructHandle](../../csrc/polymorphic_value.h#L177)

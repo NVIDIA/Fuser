@@ -1,3 +1,3 @@
 # ValidateAllocation
 
-Source: [ValidateAllocation](../csrc/kernel.cpp#L325)
+Source: [ValidateAllocation](../../csrc/kernel.cpp#L325)

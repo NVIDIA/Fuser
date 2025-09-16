@@ -1,3 +1,3 @@
 # DispatchSplit
 
-Source: [DispatchSplit](../csrc/scheduler/tools/abstract_tensor.h#L47)
+Source: [DispatchSplit](../../csrc/scheduler/tools/abstract_tensor.h#L47)

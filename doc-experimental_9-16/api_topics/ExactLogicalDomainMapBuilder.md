@@ -1,3 +1,3 @@
 # ExactLogicalDomainMapBuilder
 
-Source: [ExactLogicalDomainMapBuilder](../csrc/logical_domain_map.cpp#L1617)
+Source: [ExactLogicalDomainMapBuilder](../../csrc/logical_domain_map.cpp#L1617)

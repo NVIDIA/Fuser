@@ -1,3 +1,3 @@
 # TensorShapeInfo
 
-Source: [TensorShapeInfo](../csrc/runtime/allocations.h#L25)
+Source: [TensorShapeInfo](../../csrc/runtime/allocations.h#L25)

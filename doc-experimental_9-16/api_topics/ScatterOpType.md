@@ -1,3 +1,3 @@
 # ScatterOpType
 
-Source: [ScatterOpType (Enum)](../csrc/type.h#L653)
+Source: [ScatterOpType (Enum)](../../csrc/type.h#L653)

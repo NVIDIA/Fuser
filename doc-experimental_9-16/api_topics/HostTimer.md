@@ -1,3 +1,3 @@
 # HostTimer
 
-Source: [HostTimer](../csrc/fusion_profiler.h#L58)
+Source: [HostTimer](../../csrc/fusion_profiler.h#L58)

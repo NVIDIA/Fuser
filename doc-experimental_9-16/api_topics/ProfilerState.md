@@ -1,3 +1,3 @@
 # ProfilerState
 
-Source: [ProfilerState (Enum)](../csrc/fusion_profiler.h#L25)
+Source: [ProfilerState (Enum)](../../csrc/fusion_profiler.h#L25)

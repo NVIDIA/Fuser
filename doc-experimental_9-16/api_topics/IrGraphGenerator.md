@@ -1,3 +1,3 @@
 # IrGraphGenerator
 
-Source: [IrGraphGenerator](../csrc/ir/graphviz.h#L40)
+Source: [IrGraphGenerator](../../csrc/ir/graphviz.h#L40)

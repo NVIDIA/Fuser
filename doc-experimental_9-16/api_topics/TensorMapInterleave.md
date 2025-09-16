@@ -1,3 +1,3 @@
 # TensorMapInterleave
 
-Source: [TensorMapInterleave (Enum)](../csrc/tma.h#L87)
+Source: [TensorMapInterleave (Enum)](../../csrc/tma.h#L87)

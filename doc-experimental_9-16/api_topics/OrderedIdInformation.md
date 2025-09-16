@@ -1,3 +1,3 @@
 # OrderedIdInformation
 
-Source: [OrderedIdInformation](../csrc/contiguity.h#L30)
+Source: [OrderedIdInformation](../../csrc/contiguity.h#L30)

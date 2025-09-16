@@ -1,3 +1,3 @@
 # GlobalBufferInfo
 
-Source: [GlobalBufferInfo](../csrc/runtime/allocations.h#L33)
+Source: [GlobalBufferInfo](../../csrc/runtime/allocations.h#L33)

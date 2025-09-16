@@ -1,3 +1,3 @@
 # MatmulInputs
 
-Source: [MatmulInputs](../csrc/ir/utils.h#L28)
+Source: [MatmulInputs](../../csrc/ir/utils.h#L28)

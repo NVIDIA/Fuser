@@ -1,3 +1,3 @@
 # WelfordResult
 
-Source: [WelfordResult](../csrc/ops/arith.h#L126)
+Source: [WelfordResult](../../csrc/ops/arith.h#L126)

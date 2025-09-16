@@ -1,3 +1,3 @@
 # TensorIndex
 
-Source: [TensorIndex](../csrc/kernel_ir.h#L170)
+Source: [TensorIndex](../../csrc/kernel_ir.h#L170)

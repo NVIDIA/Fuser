@@ -1,3 +1,3 @@
 # SchedulerEntry
 
-Source: [SchedulerEntry](../csrc/scheduler/registry.h#L25)
+Source: [SchedulerEntry](../../csrc/scheduler/registry.h#L25)

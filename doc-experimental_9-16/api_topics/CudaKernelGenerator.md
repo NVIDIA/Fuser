@@ -1,3 +1,3 @@
 # CudaKernelGenerator
 
-Source: [CudaKernelGenerator](../csrc/codegen.cpp#L156)
+Source: [CudaKernelGenerator](../../csrc/codegen.cpp#L156)

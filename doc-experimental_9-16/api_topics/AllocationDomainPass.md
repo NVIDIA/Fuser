@@ -1,3 +1,3 @@
 # AllocationDomainPass
 
-Source: [AllocationDomainPass](../csrc/preseg_passes/allocation_order_inference.h#L20)
+Source: [AllocationDomainPass](../../csrc/preseg_passes/allocation_order_inference.h#L20)

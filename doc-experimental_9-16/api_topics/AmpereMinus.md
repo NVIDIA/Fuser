@@ -1,3 +1,3 @@
 # AmpereMinus
 
-Source: [AmpereMinus](../csrc/scheduler/matmul_ampere-.h#L70)
+Source: [AmpereMinus](../../csrc/scheduler/matmul_ampere-.h#L70)

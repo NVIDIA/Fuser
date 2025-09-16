@@ -1,3 +1,3 @@
 # Index
 
-Source: [Index](../csrc/index_compute.h#L429)
+Source: [Index](../../csrc/index_compute.h#L429)

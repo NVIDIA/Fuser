@@ -1,3 +1,3 @@
 # IrBuilder
 
-Source: [IrBuilder](../csrc/ir/builder.h#L31)
+Source: [IrBuilder](../../csrc/ir/builder.h#L31)

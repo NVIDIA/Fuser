@@ -1,3 +1,3 @@
 # TypePromotionConfig
 
-Source: [TypePromotionConfig](../csrc/type_promotion.h#L16)
+Source: [TypePromotionConfig](../../csrc/type_promotion.h#L16)

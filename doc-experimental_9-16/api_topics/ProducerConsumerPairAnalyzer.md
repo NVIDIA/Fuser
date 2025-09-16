@@ -1,3 +1,3 @@
 # ProducerConsumerPairAnalyzer
 
-Source: [ProducerConsumerPairAnalyzer](../csrc/device_lower/analysis/predicate_elimination.cpp#L233)
+Source: [ProducerConsumerPairAnalyzer](../../csrc/device_lower/analysis/predicate_elimination.cpp#L233)

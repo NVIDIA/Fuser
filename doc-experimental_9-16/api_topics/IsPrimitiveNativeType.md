@@ -1,3 +1,3 @@
 # IsPrimitiveNativeType
 
-Source: [IsPrimitiveNativeType](../csrc/type.h#L377)
+Source: [IsPrimitiveNativeType](../../csrc/type.h#L377)

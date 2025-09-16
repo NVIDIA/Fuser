@@ -1,3 +1,3 @@
 # KernelSummary
 
-Source: [KernelSummary](../csrc/kernel.h#L35)
+Source: [KernelSummary](../../csrc/kernel.h#L35)

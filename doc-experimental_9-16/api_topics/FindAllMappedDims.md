@@ -1,3 +1,3 @@
 # FindAllMappedDims
 
-Source: [FindAllMappedDims](../csrc/scheduler/utils.h#L418)
+Source: [FindAllMappedDims](../../csrc/scheduler/utils.h#L418)

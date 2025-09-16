@@ -1,3 +1,3 @@
 # FusionProfiler
 
-Source: [FusionProfiler](../csrc/fusion_profiler.h#L241)
+Source: [FusionProfiler](../../csrc/fusion_profiler.h#L241)

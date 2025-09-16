@@ -1,3 +1,3 @@
 # TensorIndexer
 
-Source: [TensorIndexer](../csrc/id_model/indexing.h#L49)
+Source: [TensorIndexer](../../csrc/id_model/indexing.h#L49)

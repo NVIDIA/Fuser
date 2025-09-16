@@ -1,3 +1,3 @@
 # KernelIndexMode
 
-Source: [KernelIndexMode (Enum)](../csrc/type.h#L274)
+Source: [KernelIndexMode (Enum)](../../csrc/type.h#L274)

@@ -1,3 +1,3 @@
 # KernelInternalProxy
 
-Source: [KernelInternalProxy](../csrc/kernel.h#L309)
+Source: [KernelInternalProxy](../../csrc/kernel.h#L309)

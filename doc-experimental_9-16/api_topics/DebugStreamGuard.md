@@ -1,3 +1,3 @@
 # DebugStreamGuard
 
-Source: [DebugStreamGuard](../csrc/debug.h#L32)
+Source: [DebugStreamGuard](../../csrc/debug.h#L32)

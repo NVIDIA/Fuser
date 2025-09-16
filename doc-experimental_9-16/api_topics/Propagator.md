@@ -1,3 +1,3 @@
 # Propagator
 
-Source: [Propagator](../csrc/scheduler/tools/maxinfo_propagator.h#L56)
+Source: [Propagator](../../csrc/scheduler/tools/maxinfo_propagator.h#L56)

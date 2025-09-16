@@ -1,3 +1,3 @@
 # ReductionSizeMapper
 
-Source: [ReductionSizeMapper](../csrc/validator_utils.h#L60)
+Source: [ReductionSizeMapper](../../csrc/validator_utils.h#L60)

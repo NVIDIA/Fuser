@@ -1,3 +1,3 @@
 # IrBuilderPasskey
 
-Source: [IrBuilderPasskey](../csrc/ir/builder_passkey.h#L16)
+Source: [IrBuilderPasskey](../../csrc/ir/builder_passkey.h#L16)

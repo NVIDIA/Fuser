@@ -1,3 +1,3 @@
 # ResizeExclusivityInfo
 
-Source: [ResizeExclusivityInfo](../csrc/scheduler/tools/resize_utils.h#L103)
+Source: [ResizeExclusivityInfo](../../csrc/scheduler/tools/resize_utils.h#L103)

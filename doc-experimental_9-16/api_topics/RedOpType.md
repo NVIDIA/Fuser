@@ -1,3 +1,3 @@
 # RedOpType
 
-Source: [RedOpType (Enum)](../csrc/multidevice/c10d_mock.h#L37)
+Source: [RedOpType (Enum)](../../csrc/multidevice/c10d_mock.h#L37)

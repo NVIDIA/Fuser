@@ -1,3 +1,3 @@
 # Swizzle
 
-Source: [Swizzle](../csrc/ir/internal_nodes.h#L1790)
+Source: [Swizzle](../../csrc/ir/internal_nodes.h#L1790)

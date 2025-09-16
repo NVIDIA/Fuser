@@ -1,3 +1,3 @@
 # ResizeScheduler
 
-Source: [ResizeScheduler](../csrc/scheduler/resize.h#L19)
+Source: [ResizeScheduler](../../csrc/scheduler/resize.h#L19)

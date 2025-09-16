@@ -1,3 +1,3 @@
 # PointwiseParams
 
-Source: [PointwiseParams](../csrc/scheduler/pointwise_heuristic.h#L20)
+Source: [PointwiseParams](../../csrc/scheduler/pointwise_heuristic.h#L20)

@@ -1,3 +1,3 @@
 # GroupedWelfordOp
 
-Source: [GroupedWelfordOp](../csrc/ir/internal_nodes.h#L1314)
+Source: [GroupedWelfordOp](../../csrc/ir/internal_nodes.h#L1314)

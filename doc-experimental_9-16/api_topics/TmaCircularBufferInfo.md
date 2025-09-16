@@ -1,3 +1,3 @@
 # TmaCircularBufferInfo
 
-Source: [TmaCircularBufferInfo](../csrc/device_lower/pass/circular_buffer.h#L168)
+Source: [TmaCircularBufferInfo](../../csrc/device_lower/pass/circular_buffer.h#L168)

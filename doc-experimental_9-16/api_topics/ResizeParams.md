@@ -1,3 +1,3 @@
 # ResizeParams
 
-Source: [ResizeParams](../csrc/scheduler/resize_heuristic.h#L19)
+Source: [ResizeParams](../../csrc/scheduler/resize_heuristic.h#L19)

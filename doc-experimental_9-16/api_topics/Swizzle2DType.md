@@ -1,3 +1,3 @@
 # Swizzle2DType
 
-Source: [Swizzle2DType (Enum)](../csrc/type.h#L833)
+Source: [Swizzle2DType (Enum)](../../csrc/type.h#L833)

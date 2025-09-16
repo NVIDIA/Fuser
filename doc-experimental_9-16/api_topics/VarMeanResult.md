@@ -1,3 +1,3 @@
 # VarMeanResult
 
-Source: [VarMeanResult](../csrc/ops/normalization.h#L49)
+Source: [VarMeanResult](../../csrc/ops/normalization.h#L49)

@@ -1,3 +1,3 @@
 # TernaryOpType
 
-Source: [TernaryOpType (Enum)](../csrc/type.h#L669)
+Source: [TernaryOpType (Enum)](../../csrc/type.h#L669)

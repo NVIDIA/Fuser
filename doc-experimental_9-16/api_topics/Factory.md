@@ -1,3 +1,3 @@
 # Factory
 
-Source: [Factory](../csrc/serde/factory.h#L24)
+Source: [Factory](../../csrc/serde/factory.h#L24)

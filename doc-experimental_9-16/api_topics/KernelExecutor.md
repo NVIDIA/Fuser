@@ -1,3 +1,3 @@
 # KernelExecutor
 
-Source: [KernelExecutor](../csrc/runtime/executor.h#L87)
+Source: [KernelExecutor](../../csrc/runtime/executor.h#L87)

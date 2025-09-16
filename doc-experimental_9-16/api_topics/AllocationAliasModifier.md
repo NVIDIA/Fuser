@@ -1,3 +1,3 @@
 # AllocationAliasModifier
 
-Source: [AllocationAliasModifier](../csrc/device_lower/pass/alias_memory.cpp#L1447)
+Source: [AllocationAliasModifier](../../csrc/device_lower/pass/alias_memory.cpp#L1447)

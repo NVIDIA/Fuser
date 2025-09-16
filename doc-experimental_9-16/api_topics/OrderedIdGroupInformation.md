@@ -1,3 +1,3 @@
 # OrderedIdGroupInformation
 
-Source: [OrderedIdGroupInformation](../csrc/id_model/contiguity.h#L17)
+Source: [OrderedIdGroupInformation](../../csrc/id_model/contiguity.h#L17)

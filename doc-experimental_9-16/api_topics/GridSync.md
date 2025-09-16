@@ -1,3 +1,3 @@
 # GridSync
 
-Source: [GridSync](../csrc/kernel_ir.h#L550)
+Source: [GridSync](../../csrc/kernel_ir.h#L550)

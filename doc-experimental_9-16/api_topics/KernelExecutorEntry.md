@@ -1,3 +1,3 @@
 # KernelExecutorEntry
 
-Source: [KernelExecutorEntry](../csrc/runtime/executor.h#L62)
+Source: [KernelExecutorEntry](../../csrc/runtime/executor.h#L62)

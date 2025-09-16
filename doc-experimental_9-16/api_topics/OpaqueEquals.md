@@ -1,3 +1,3 @@
 # OpaqueEquals
 
-Source: [OpaqueEquals](../csrc/opaque_type.h#L23)
+Source: [OpaqueEquals](../../csrc/opaque_type.h#L23)

@@ -1,3 +1,3 @@
 # VectorizedTensorValidation
 
-Source: [VectorizedTensorValidation](../csrc/runtime/executor_utils.h#L121)
+Source: [VectorizedTensorValidation](../../csrc/runtime/executor_utils.h#L121)

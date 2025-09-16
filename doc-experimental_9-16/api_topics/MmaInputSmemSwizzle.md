@@ -1,3 +1,3 @@
 # MmaInputSmemSwizzle
 
-Source: [MmaInputSmemSwizzle (Enum)](../csrc/mma_type.h#L321)
+Source: [MmaInputSmemSwizzle (Enum)](../../csrc/mma_type.h#L321)

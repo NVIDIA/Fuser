@@ -1,3 +1,3 @@
 # ContigIDs
 
-Source: [ContigIDs](../csrc/contiguity.h#L188)
+Source: [ContigIDs](../../csrc/contiguity.h#L188)

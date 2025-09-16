@@ -1,3 +1,3 @@
 # ScopeInfo
 
-Source: [ScopeInfo](../csrc/device_lower/pass/alias_memory.cpp#L396)
+Source: [ScopeInfo](../../csrc/device_lower/pass/alias_memory.cpp#L396)

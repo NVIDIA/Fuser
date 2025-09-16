@@ -1,3 +1,3 @@
 # Resize
 
-Source: [Resize](../csrc/ir/internal_nodes.h#L1932)
+Source: [Resize](../../csrc/ir/internal_nodes.h#L1932)

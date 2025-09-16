@@ -1,3 +1,3 @@
 # DisjointSets
 
-Source: [DisjointSets](../csrc/disjoint_set.h#L296)
+Source: [DisjointSets](../../csrc/disjoint_set.h#L296)

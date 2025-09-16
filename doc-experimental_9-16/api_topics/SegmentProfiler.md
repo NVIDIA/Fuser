@@ -1,3 +1,3 @@
 # SegmentProfiler
 
-Source: [SegmentProfiler](../csrc/fusion_profiler.h#L188)
+Source: [SegmentProfiler](../../csrc/fusion_profiler.h#L188)

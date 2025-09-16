@@ -1,3 +1,3 @@
 # LogicalDomainMap
 
-Source: [LogicalDomainMap](../csrc/logical_domain_map.h#L20)
+Source: [LogicalDomainMap](../../csrc/logical_domain_map.h#L20)

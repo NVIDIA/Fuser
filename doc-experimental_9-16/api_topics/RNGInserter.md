@@ -1,3 +1,3 @@
 # RNGInserter
 
-Source: [RNGInserter](../csrc/device_lower/pass/rng.cpp#L30)
+Source: [RNGInserter](../../csrc/device_lower/pass/rng.cpp#L30)

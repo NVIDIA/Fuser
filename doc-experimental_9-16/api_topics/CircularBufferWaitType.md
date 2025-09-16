@@ -1,3 +1,3 @@
 # CircularBufferWaitType
 
-Source: [CircularBufferWaitType (Enum)](../csrc/device_lower/pass/allocation.cpp#L938)
+Source: [CircularBufferWaitType (Enum)](../../csrc/device_lower/pass/allocation.cpp#L938)

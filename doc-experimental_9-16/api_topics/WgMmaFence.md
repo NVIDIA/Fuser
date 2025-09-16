@@ -1,3 +1,3 @@
 # WgMmaFence
 
-Source: [WgMmaFence](../csrc/kernel_ir.h#L595)
+Source: [WgMmaFence](../../csrc/kernel_ir.h#L595)

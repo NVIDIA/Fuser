@@ -1,3 +1,3 @@
 # AdjustLastDim
 
-Source: [AdjustLastDim](../csrc/type.h#L964)
+Source: [AdjustLastDim](../../csrc/type.h#L964)

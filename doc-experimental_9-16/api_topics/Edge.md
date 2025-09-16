@@ -1,3 +1,3 @@
 # Edge
 
-Source: [Edge](../csrc/graph_traversal.h#L64)
+Source: [Edge](../../csrc/graph_traversal.h#L64)

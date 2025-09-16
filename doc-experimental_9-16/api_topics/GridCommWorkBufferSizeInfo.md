@@ -1,3 +1,3 @@
 # GridCommWorkBufferSizeInfo
 
-Source: [GridCommWorkBufferSizeInfo](../csrc/device_lower/pass/index.cpp#L449)
+Source: [GridCommWorkBufferSizeInfo](../../csrc/device_lower/pass/index.cpp#L449)

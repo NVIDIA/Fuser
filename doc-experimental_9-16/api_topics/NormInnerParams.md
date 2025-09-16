@@ -1,3 +1,3 @@
 # NormInnerParams
 
-Source: [NormInnerParams](../csrc/scheduler/normalization_inner.cpp#L162)
+Source: [NormInnerParams](../../csrc/scheduler/normalization_inner.cpp#L162)

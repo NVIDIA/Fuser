@@ -1,3 +1,3 @@
 # AllreduceOptions
 
-Source: [AllreduceOptions](../csrc/multidevice/c10d_mock.h#L73)
+Source: [AllreduceOptions](../../csrc/multidevice/c10d_mock.h#L73)

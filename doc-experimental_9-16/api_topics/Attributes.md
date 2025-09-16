@@ -1,3 +1,3 @@
 # Attributes
 
-Source: [Attributes](../csrc/ir/internal_nodes.h#L751)
+Source: [Attributes](../../csrc/ir/internal_nodes.h#L751)

@@ -1,3 +1,3 @@
 # ForwardNormResult
 
-Source: [ForwardNormResult](../csrc/ops/normalization.h#L27)
+Source: [ForwardNormResult](../../csrc/ops/normalization.h#L27)

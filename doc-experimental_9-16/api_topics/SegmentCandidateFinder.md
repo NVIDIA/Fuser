@@ -1,3 +1,3 @@
 # SegmentCandidateFinder
 
-Source: [SegmentCandidateFinder](../csrc/fusion_segmenter.h#L534)
+Source: [SegmentCandidateFinder](../../csrc/fusion_segmenter.h#L534)

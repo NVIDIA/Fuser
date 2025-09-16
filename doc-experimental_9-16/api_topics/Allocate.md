@@ -1,3 +1,3 @@
 # Allocate
 
-Source: [Allocate](../csrc/kernel_ir.h#L286)
+Source: [Allocate](../../csrc/kernel_ir.h#L286)

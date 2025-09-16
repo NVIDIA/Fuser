@@ -1,3 +1,3 @@
 # ViewAsScalar
 
-Source: [ViewAsScalar](../csrc/ir/internal_nodes.h#L1595)
+Source: [ViewAsScalar](../../csrc/ir/internal_nodes.h#L1595)

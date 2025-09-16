@@ -1,3 +1,3 @@
 # ParallelTypeBitmap
 
-Source: [ParallelTypeBitmap](../csrc/parallel_type_bitmap.h#L40)
+Source: [ParallelTypeBitmap](../../csrc/parallel_type_bitmap.h#L40)

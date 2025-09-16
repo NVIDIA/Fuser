@@ -1,3 +1,3 @@
 # InternalBoundarySelector
 
-Source: [InternalBoundarySelector](../csrc/scheduler/tools/maxinfo_propagator.h#L309)
+Source: [InternalBoundarySelector](../../csrc/scheduler/tools/maxinfo_propagator.h#L309)

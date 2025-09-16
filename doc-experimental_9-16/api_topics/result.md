@@ -1,3 +1,3 @@
 # result
 
-Source: [result](../csrc/ops/normalization.cpp#L285)
+Source: [result](../../csrc/ops/normalization.cpp#L285)

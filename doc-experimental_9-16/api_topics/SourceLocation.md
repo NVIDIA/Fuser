@@ -1,3 +1,3 @@
 # SourceLocation
 
-Source: [SourceLocation](../csrc/exceptions.h#L40)
+Source: [SourceLocation](../../csrc/exceptions.h#L40)

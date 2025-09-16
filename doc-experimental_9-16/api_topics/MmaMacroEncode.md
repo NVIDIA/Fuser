@@ -1,3 +1,3 @@
 # MmaMacroEncode
 
-Source: [MmaMacroEncode](../csrc/mma_type.h#L82)
+Source: [MmaMacroEncode](../../csrc/mma_type.h#L82)

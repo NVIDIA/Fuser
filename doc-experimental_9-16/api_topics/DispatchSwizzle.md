@@ -1,3 +1,3 @@
 # DispatchSwizzle
 
-Source: [DispatchSwizzle](../csrc/scheduler/tools/abstract_tensor.h#L148)
+Source: [DispatchSwizzle](../../csrc/scheduler/tools/abstract_tensor.h#L148)

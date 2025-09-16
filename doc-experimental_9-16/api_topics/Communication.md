@@ -1,3 +1,3 @@
 # Communication
 
-Source: [Communication](../csrc/multidevice/communication.h#L46)
+Source: [Communication](../../csrc/multidevice/communication.h#L46)

@@ -1,3 +1,3 @@
 # MultiDeviceExecutorParams
 
-Source: [MultiDeviceExecutorParams](../csrc/multidevice/executor.h#L24)
+Source: [MultiDeviceExecutorParams](../../csrc/multidevice/executor.h#L24)

@@ -1,3 +1,3 @@
 # SimplifyingIrBuilder
 
-Source: [SimplifyingIrBuilder](../csrc/ir/builder.h#L174)
+Source: [SimplifyingIrBuilder](../../csrc/ir/builder.h#L174)

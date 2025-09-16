@@ -1,3 +1,3 @@
 # BackwardNormResult
 
-Source: [BackwardNormResult](../csrc/ops/normalization.h#L33)
+Source: [BackwardNormResult](../../csrc/ops/normalization.h#L33)

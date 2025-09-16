@@ -1,3 +1,3 @@
 # ComputeAtMode
 
-Source: [ComputeAtMode (Enum)](../csrc/ir/interface_nodes.h#L60)
+Source: [ComputeAtMode (Enum)](../../csrc/ir/interface_nodes.h#L60)

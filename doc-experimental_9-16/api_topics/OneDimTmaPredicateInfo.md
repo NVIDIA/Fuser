@@ -1,3 +1,3 @@
 # OneDimTmaPredicateInfo
 
-Source: [OneDimTmaPredicateInfo](../csrc/predicate_compute.h#L19)
+Source: [OneDimTmaPredicateInfo](../../csrc/predicate_compute.h#L19)

@@ -1,3 +1,3 @@
 # LocalAllocationInfo
 
-Source: [LocalAllocationInfo](../csrc/device_lower/pass/allocation.h#L27)
+Source: [LocalAllocationInfo](../../csrc/device_lower/pass/allocation.h#L27)

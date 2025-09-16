@@ -1,3 +1,3 @@
 # SegmentedGroup
 
-Source: [SegmentedGroup](../csrc/fusion_segmenter.h#L58)
+Source: [SegmentedGroup](../../csrc/fusion_segmenter.h#L58)

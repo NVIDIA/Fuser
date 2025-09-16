@@ -1,3 +1,3 @@
 # IrPrinter
 
-Source: [IrPrinter](../csrc/ir/printer.h#L30)
+Source: [IrPrinter](../../csrc/ir/printer.h#L30)

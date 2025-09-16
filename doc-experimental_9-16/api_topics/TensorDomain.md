@@ -1,3 +1,3 @@
 # TensorDomain
 
-Source: [TensorDomain](../csrc/ir/internal_base_nodes.h#L415)
+Source: [TensorDomain](../../csrc/ir/internal_base_nodes.h#L415)

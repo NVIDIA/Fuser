@@ -1,3 +1,3 @@
 # TensorViewBuilder
 
-Source: [TensorViewBuilder](../csrc/ir/interface_nodes.h#L973)
+Source: [TensorViewBuilder](../../csrc/ir/interface_nodes.h#L973)

@@ -1,3 +1,3 @@
 # KernelIndexTypeCompute
 
-Source: [KernelIndexTypeCompute](../csrc/utils.h#L473)
+Source: [KernelIndexTypeCompute](../../csrc/utils.h#L473)

@@ -1,3 +1,3 @@
 # GroupedGridReduction
 
-Source: [GroupedGridReduction](../csrc/kernel_ir.h#L1117)
+Source: [GroupedGridReduction](../../csrc/kernel_ir.h#L1117)

@@ -1,3 +1,3 @@
 # CombineReductions
 
-Source: [CombineReductions](../csrc/fusion_segmenter.cpp#L3021)
+Source: [CombineReductions](../../csrc/fusion_segmenter.cpp#L3021)

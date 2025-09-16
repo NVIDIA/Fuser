@@ -1,3 +1,3 @@
 # EmbeddingFwdOp
 
-Source: [EmbeddingFwdOp](../csrc/ir/internal_nodes.h#L2765)
+Source: [EmbeddingFwdOp](../../csrc/ir/internal_nodes.h#L2765)

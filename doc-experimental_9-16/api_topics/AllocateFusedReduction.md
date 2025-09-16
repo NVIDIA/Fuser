@@ -1,3 +1,3 @@
 # AllocateFusedReduction
 
-Source: [AllocateFusedReduction](../csrc/kernel_ir.h#L1449)
+Source: [AllocateFusedReduction](../../csrc/kernel_ir.h#L1449)

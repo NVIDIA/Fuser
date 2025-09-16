@@ -1,3 +1,3 @@
 # SdpaBwdOp
 
-Source: [SdpaBwdOp](../csrc/ir/internal_nodes.h#L2671)
+Source: [SdpaBwdOp](../../csrc/ir/internal_nodes.h#L2671)

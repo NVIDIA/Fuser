@@ -1,3 +1,3 @@
 # BackwardRMSNormResult
 
-Source: [BackwardRMSNormResult](../csrc/ops/normalization.h#L44)
+Source: [BackwardRMSNormResult](../../csrc/ops/normalization.h#L44)

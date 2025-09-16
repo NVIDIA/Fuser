@@ -1,3 +1,3 @@
 # DispatchParallelize
 
-Source: [DispatchParallelize](../csrc/scheduler/tools/abstract_tensor.h#L321)
+Source: [DispatchParallelize](../../csrc/scheduler/tools/abstract_tensor.h#L321)

@@ -1,3 +1,3 @@
 # OptionsGuard
 
-Source: [OptionsGuard](../csrc/options.h#L246)
+Source: [OptionsGuard](../../csrc/options.h#L246)

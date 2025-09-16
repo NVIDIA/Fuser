@@ -1,3 +1,3 @@
 # CompileTimeEmptyString
 
-Source: [CompileTimeEmptyString](../csrc/exceptions.h#L48)
+Source: [CompileTimeEmptyString](../../csrc/exceptions.h#L48)

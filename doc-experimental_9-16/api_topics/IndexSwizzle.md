@@ -1,3 +1,3 @@
 # IndexSwizzle
 
-Source: [IndexSwizzle](../csrc/index_compute.h#L330)
+Source: [IndexSwizzle](../../csrc/index_compute.h#L330)

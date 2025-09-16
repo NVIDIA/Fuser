@@ -1,3 +1,3 @@
 # ArrayType
 
-Source: [ArrayType](../csrc/type.h#L122)
+Source: [ArrayType](../../csrc/type.h#L122)

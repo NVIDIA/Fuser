@@ -1,3 +1,3 @@
 # HeuristicParams
 
-Source: [HeuristicParams](../csrc/scheduler/heuristic.h#L24)
+Source: [HeuristicParams](../../csrc/scheduler/heuristic.h#L24)

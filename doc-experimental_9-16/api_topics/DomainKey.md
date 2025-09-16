@@ -1,3 +1,3 @@
 # DomainKey
 
-Source: [DomainKey](../csrc/logical_domain_map.h#L174)
+Source: [DomainKey](../../csrc/logical_domain_map.h#L174)

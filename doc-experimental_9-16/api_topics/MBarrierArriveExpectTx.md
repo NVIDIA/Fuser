@@ -1,3 +1,3 @@
 # MBarrierArriveExpectTx
 
-Source: [MBarrierArriveExpectTx](../csrc/kernel_ir.h#L746)
+Source: [MBarrierArriveExpectTx](../../csrc/kernel_ir.h#L746)

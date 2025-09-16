@@ -1,3 +1,3 @@
 # NormOuterParams
 
-Source: [NormOuterParams](../csrc/scheduler/normalization_outer.cpp#L194)
+Source: [NormOuterParams](../../csrc/scheduler/normalization_outer.cpp#L194)

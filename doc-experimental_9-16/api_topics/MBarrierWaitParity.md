@@ -1,3 +1,3 @@
 # MBarrierWaitParity
 
-Source: [MBarrierWaitParity](../csrc/kernel_ir.h#L803)
+Source: [MBarrierWaitParity](../../csrc/kernel_ir.h#L803)

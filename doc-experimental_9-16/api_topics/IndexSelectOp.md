@@ -1,3 +1,3 @@
 # IndexSelectOp
 
-Source: [IndexSelectOp](../csrc/ir/internal_nodes.h#L97)
+Source: [IndexSelectOp](../../csrc/ir/internal_nodes.h#L97)

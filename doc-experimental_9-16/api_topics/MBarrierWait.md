@@ -1,3 +1,3 @@
 # MBarrierWait
 
-Source: [MBarrierWait](../csrc/kernel_ir.h#L780)
+Source: [MBarrierWait](../../csrc/kernel_ir.h#L780)

@@ -1,3 +1,3 @@
 # MemoryType
 
-Source: [MemoryType (Enum)](../csrc/type.h#L720)
+Source: [MemoryType (Enum)](../../csrc/type.h#L720)

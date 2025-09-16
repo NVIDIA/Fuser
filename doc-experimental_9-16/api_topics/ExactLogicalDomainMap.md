@@ -1,3 +1,3 @@
 # ExactLogicalDomainMap
 
-Source: [ExactLogicalDomainMap](../csrc/logical_domain_map.h#L560)
+Source: [ExactLogicalDomainMap](../../csrc/logical_domain_map.h#L560)

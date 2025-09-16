@@ -1,3 +1,3 @@
 # OuterReductionParams
 
-Source: [OuterReductionParams](../csrc/scheduler/reduction.cpp#L810)
+Source: [OuterReductionParams](../../csrc/scheduler/reduction.cpp#L810)

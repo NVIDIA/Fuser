@@ -1,3 +1,3 @@
 # GridBroadcast
 
-Source: [GridBroadcast](../csrc/kernel_ir.h#L1208)
+Source: [GridBroadcast](../../csrc/kernel_ir.h#L1208)

@@ -1,3 +1,3 @@
 # IrTransformPrinter
 
-Source: [IrTransformPrinter](../csrc/ir/printer.h#L62)
+Source: [IrTransformPrinter](../../csrc/ir/printer.h#L62)

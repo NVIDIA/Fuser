@@ -1,3 +1,3 @@
 # PrimDataType
 
-Source: [PrimDataType (Enum)](../csrc/type.h#L82)
+Source: [PrimDataType (Enum)](../../csrc/type.h#L82)

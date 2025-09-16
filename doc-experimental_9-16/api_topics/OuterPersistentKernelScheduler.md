@@ -1,3 +1,3 @@
 # OuterPersistentKernelScheduler
 
-Source: [OuterPersistentKernelScheduler](../csrc/scheduler/normalization_outer.h#L28)
+Source: [OuterPersistentKernelScheduler](../../csrc/scheduler/normalization_outer.h#L28)

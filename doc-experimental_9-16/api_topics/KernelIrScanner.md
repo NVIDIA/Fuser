@@ -1,3 +1,3 @@
 # KernelIrScanner
 
-Source: [KernelIrScanner](../csrc/kernel.cpp#L31)
+Source: [KernelIrScanner](../../csrc/kernel.cpp#L31)

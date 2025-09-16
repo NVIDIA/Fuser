@@ -1,3 +1,3 @@
 # AllocationInfo
 
-Source: [AllocationInfo](../csrc/device_lower/pass/alias_memory.cpp#L558)
+Source: [AllocationInfo](../../csrc/device_lower/pass/alias_memory.cpp#L558)

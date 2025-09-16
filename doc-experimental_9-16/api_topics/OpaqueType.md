@@ -1,3 +1,3 @@
 # OpaqueType
 
-Source: [OpaqueType](../csrc/type.h#L171)
+Source: [OpaqueType](../../csrc/type.h#L171)

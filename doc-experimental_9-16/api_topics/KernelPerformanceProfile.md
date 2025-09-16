@@ -1,3 +1,3 @@
 # KernelPerformanceProfile
 
-Source: [KernelPerformanceProfile](../csrc/kernel.h#L152)
+Source: [KernelPerformanceProfile](../../csrc/kernel.h#L152)

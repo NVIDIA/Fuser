@@ -1,3 +1,3 @@
 # MatmulDimRole
 
-Source: [MatmulDimRole (Enum)](../csrc/mma_type.h#L26)
+Source: [MatmulDimRole (Enum)](../../csrc/mma_type.h#L26)

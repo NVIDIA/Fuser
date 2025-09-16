@@ -1,3 +1,3 @@
 # MBarrierInit
 
-Source: [MBarrierInit](../csrc/kernel_ir.h#L671)
+Source: [MBarrierInit](../../csrc/kernel_ir.h#L671)

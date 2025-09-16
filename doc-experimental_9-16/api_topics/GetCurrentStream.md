@@ -1,3 +1,3 @@
 # GetCurrentStream
 
-Source: [GetCurrentStream](../csrc/host_ir/host_ir.h#L227)
+Source: [GetCurrentStream](../../csrc/host_ir/host_ir.h#L227)

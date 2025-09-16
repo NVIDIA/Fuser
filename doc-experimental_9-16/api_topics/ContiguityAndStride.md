@@ -1,3 +1,3 @@
 # ContiguityAndStride
 
-Source: [ContiguityAndStride](../csrc/device_lower/analysis/tensor_memory.cpp#L346)
+Source: [ContiguityAndStride](../../csrc/device_lower/analysis/tensor_memory.cpp#L346)

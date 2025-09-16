@@ -1,3 +1,3 @@
 # NamedScalar
 
-Source: [NamedScalar](../csrc/ir/internal_nodes.h#L1979)
+Source: [NamedScalar](../../csrc/ir/internal_nodes.h#L1979)

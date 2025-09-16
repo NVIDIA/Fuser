@@ -1,3 +1,3 @@
 # _str_wrapper
 
-Source: [_str_wrapper](../csrc/exceptions.h#L95)
+Source: [_str_wrapper](../../csrc/exceptions.h#L95)

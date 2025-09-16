@@ -1,3 +1,3 @@
 # MappedDomain
 
-Source: [MappedDomain](../csrc/scheduler/vectorize_helper.h#L198)
+Source: [MappedDomain](../../csrc/scheduler/vectorize_helper.h#L198)

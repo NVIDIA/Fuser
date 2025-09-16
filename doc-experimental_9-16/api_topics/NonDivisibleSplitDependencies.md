@@ -1,3 +1,3 @@
 # NonDivisibleSplitDependencies
 
-Source: [NonDivisibleSplitDependencies](../csrc/contiguity.h#L159)
+Source: [NonDivisibleSplitDependencies](../../csrc/contiguity.h#L159)

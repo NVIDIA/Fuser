@@ -1,3 +1,3 @@
 # BinaryOpType
 
-Source: [BinaryOpType (Enum)](../csrc/type.h#L606)
+Source: [BinaryOpType (Enum)](../../csrc/type.h#L606)

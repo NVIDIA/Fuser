@@ -1,3 +1,3 @@
 # PointerType
 
-Source: [PointerType](../csrc/type.h#L128)
+Source: [PointerType](../../csrc/type.h#L128)

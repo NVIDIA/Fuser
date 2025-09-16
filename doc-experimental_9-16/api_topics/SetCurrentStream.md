@@ -1,3 +1,3 @@
 # SetCurrentStream
 
-Source: [SetCurrentStream](../csrc/host_ir/host_ir.h#L202)
+Source: [SetCurrentStream](../../csrc/host_ir/host_ir.h#L202)

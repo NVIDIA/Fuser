@@ -1,3 +1,3 @@
 # SegmentCandidateFinderOptions
 
-Source: [SegmentCandidateFinderOptions](../csrc/fusion_segmenter.h#L498)
+Source: [SegmentCandidateFinderOptions](../../csrc/fusion_segmenter.h#L498)

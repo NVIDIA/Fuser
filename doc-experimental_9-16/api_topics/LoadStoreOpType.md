@@ -1,3 +1,3 @@
 # LoadStoreOpType
 
-Source: [LoadStoreOpType (Enum)](../csrc/type.h#L772)
+Source: [LoadStoreOpType (Enum)](../../csrc/type.h#L772)

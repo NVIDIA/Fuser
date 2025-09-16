@@ -1,3 +1,3 @@
 # Predicate
 
-Source: [Predicate](../csrc/kernel_ir.h#L70)
+Source: [Predicate](../../csrc/kernel_ir.h#L70)

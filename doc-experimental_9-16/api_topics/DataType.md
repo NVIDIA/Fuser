@@ -1,3 +1,3 @@
 # DataType
 
-Source: [DataType](../csrc/type.h#L187)
+Source: [DataType](../../csrc/type.h#L187)

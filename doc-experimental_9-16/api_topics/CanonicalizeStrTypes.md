@@ -1,3 +1,3 @@
 # CanonicalizeStrTypes
 
-Source: [CanonicalizeStrTypes](../csrc/exceptions.h#L59)
+Source: [CanonicalizeStrTypes](../../csrc/exceptions.h#L59)
