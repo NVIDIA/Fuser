@@ -31,6 +31,7 @@
 #include <c10/cuda/CUDAMathCompat.h>
 #include <c10/util/Exception.h>
 
+#include <chrono>
 #include <filesystem>
 #include <fstream>
 #include <string>
@@ -311,8 +312,20 @@ void CutlassCompiledKernel::compileWithNVCC() {
   // Execute nvcc compilation and capture output
   std::string full_cmd = compile_cmd + " 2>&1 > " + log_file.string();
 
+  using Clock = std::chrono::high_resolution_clock;
+  auto start = Clock::now();
+
   int result = -1;
   result = system(full_cmd.c_str());
+
+  auto stop = Clock::now();
+  if (isDebugDumpEnabled(DebugDumpOption::CutlassCompile)) {
+    debug() << "Compiling CUTLASS kernel took "
+            << (std::chrono::duration_cast<std::chrono::milliseconds>(
+                    stop - start) *
+                .001)
+            << " seconds" << std::endl;
+  }
 
   if (result != 0) {
     // Read compilation output for error details
