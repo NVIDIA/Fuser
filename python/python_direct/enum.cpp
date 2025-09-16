@@ -54,6 +54,19 @@ void bindEnums(py::module& nvfuser) {
       nvfuser, "CommunicatorBackend", py::module_local())
       .value("nccl", CommunicatorBackend::kNccl)
       .value("ucc", CommunicatorBackend::kUcc);
+
+  py::enum_<SchedulerType>(nvfuser, "SchedulerType")
+      .value("none", SchedulerType::None)
+      .value("no_op", SchedulerType::NoOp)
+      .value("pointwise", SchedulerType::PointWise)
+      .value("matmul", SchedulerType::Matmul)
+      .value("reduction", SchedulerType::Reduction)
+      .value("inner_persistent", SchedulerType::InnerPersistent)
+      .value("inner_outer_persistent", SchedulerType::InnerOuterPersistent)
+      .value("outer_persistent", SchedulerType::OuterPersistent)
+      .value("transpose", SchedulerType::Transpose)
+      .value("expr_eval", SchedulerType::ExprEval)
+      .value("resize", SchedulerType::Resize);
 }
 
 } // namespace nvfuser::python
