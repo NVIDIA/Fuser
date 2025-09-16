@@ -1,3 +1,10 @@
 # Allocate
 
-Source: [Allocate](../../csrc/kernel_ir.h#L286)
+Source: [Allocate](../../../csrc/kernel_ir.h)
+
+## Synopsis
+- **Kind**: class (inherits from [Expr](../../csrc/ir/base_nodes.h#L505))
+- **File**: `csrc/kernel_ir.h`
+
+## Purpose
+- Kernel IR expression node used during lowering/codegen.

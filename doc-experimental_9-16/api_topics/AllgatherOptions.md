@@ -1,3 +1,10 @@
 # AllgatherOptions
 
-Source: [AllgatherOptions](../../csrc/multidevice/c10d_mock.h#L63)
+Source: [AllgatherOptions](../../../csrc/multidevice/c10d_mock.h)
+
+## Synopsis
+- **Kind**: struct
+- **File**: `csrc/multidevice/c10d_mock.h`
+
+## Purpose
+- Utility or analysis type within nvFuser.
