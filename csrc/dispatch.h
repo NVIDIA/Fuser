@@ -170,7 +170,8 @@ class Val;
   f(ShareMemHandles);                 \
   f(HirAliasSelect);                  \
   f(ShardByStream);                   \
-  f(Deallocate);
+  f(Deallocate);                      \
+  f(ForLoop);
 
 // Forward declarations for all Val and Expr types
 

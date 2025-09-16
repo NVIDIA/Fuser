@@ -118,12 +118,10 @@ TEST_F(HostIrEvaluatorTest, AddInLoop) {
     // domain being stream parallelized. It would make each loop iteration
     // overwrite the entire tensor instead of a slice. This bug wouldn't be
     // captured by the test if the for loop started from 0.
-    auto* for_loop = IrBuilder::create<kir::ForLoop>(
-        out->axis(1),
+    auto* for_loop = IrBuilder::create<ForLoop>(
         stream_index,
         /*start=*/hic->oneVal(DataType::Index),
-        /*stop=*/IrBuilder::create<Val>(c, DataType::Index),
-        /*step=*/hic->oneVal());
+        /*stop=*/IrBuilder::create<Val>(c, DataType::Index));
 
     TensorView* loop_in = set(in);
     loop_in->outer_split(1, c);
@@ -164,10 +162,7 @@ TEST_F(HostIrEvaluatorTest, AddInLoop) {
   auto out_tensor = outs[0].as<at::Tensor>();
 
   EXPECT_TRUE(at::allclose(out_tensor, expected_out_tensor))
-      << "out_tensor: " << std::endl
-      << out_tensor << std::endl
-      << "expected_out_tensor: " << std::endl
-      << expected_out_tensor << std::endl;
+      << out_tensor << " vs " << expected_out_tensor;
 }
 
 } // namespace nvfuser::hir

@@ -479,4 +479,46 @@ class ShardByStream : public Expr {
   }
 };
 
+class ForLoop : public Expr {
+ public:
+  using Expr::Expr;
+
+  ForLoop(IrBuilderPasskey passkey, Val* index, Val* start, Val* stop);
+
+  ForLoop(const ForLoop& other) = delete;
+  ForLoop& operator=(const ForLoop& other) = delete;
+  ForLoop(ForLoop&& other) = delete;
+  ForLoop& operator=(ForLoop&& other) = delete;
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+  const char* getOpString() const override {
+    return "hir::ForLoop";
+  }
+
+  Val* index() const {
+    return inputs().at(0);
+  }
+
+  Val* start() const {
+    return inputs().at(1);
+  }
+
+  Val* stop() const {
+    return inputs().at(2);
+  }
+
+  const Scope& body() const {
+    return attribute<Scope>(0);
+  }
+
+  Scope& body() {
+    return attribute<Scope>(0);
+  }
+};
+
+ForLoop* createForLoopFromIterDomain(Val* index, IterDomain* iter_domain);
+
 } // namespace nvfuser::hir
