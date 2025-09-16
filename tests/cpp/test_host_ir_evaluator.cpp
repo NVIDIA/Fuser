@@ -145,6 +145,8 @@ TEST_F(HostIrEvaluatorTest, MatmulInLoop) {
         IrBuilder::create<ShardByStream>(loop_out, out, stream_index);
     for_loop->body().push_back(shard_out);
 
+    // By default, MatmulOp is computed by ExpressionEvaluator so it appears in
+    // host IR.
     auto* mm = IrBuilder::create<MatmulOp>(loop_out, in, loop_w);
     for_loop->body().push_back(mm);
 
