@@ -575,7 +575,7 @@ inline bool dependenciesSatisfied(
   return true;
 }
 
-//! Check if a conditional scope, i.e., ForLoop or IfThenElse, is
+//! Check if a conditional scope, i.e., kir::ForLoop or IfThenElse, is
 //! guaranteed not to cause thread divergence
 bool isAlignedScopeExpr(const Expr* expr);
 
@@ -778,9 +778,9 @@ bool isRecursivelyDefined(Val* val);
 // instance of Expr is counted as a single operation.
 int64_t getOperationCount(Val* val);
 
-// Create a ForLoop IR node that represents:
+// Create a kir::ForLoop IR node that represents:
 //   for (int i = 0; i < size; i++)
-ForLoop* createRangeLoop(int64_t size);
+kir::ForLoop* createRangeLoop(int64_t size);
 
 // Returns the first output of Expr that is a TensorView
 TensorView* getTvOutput(const Expr*);
@@ -845,5 +845,11 @@ getReshapeInputAndOutputIds(TensorView* reshape_out_tv);
 std::vector<IterDomain*> getReachableIds(
     const std::vector<IterDomain*>& domain,
     const std::vector<IterDomain*>& dependencies);
+
+// Replay the logical-allocation transformations of a scatter output
+// tensor to a list of logical iter domains for another tensor.
+std::vector<IterDomain*> propagateScatterAllocationDomain(
+    TensorView* scatter_out,
+    const std::vector<IterDomain*>& to_logical_domain);
 
 } // namespace nvfuser::ir_utils

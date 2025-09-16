@@ -1259,7 +1259,7 @@ bool isAlignedScopeExpr(const Expr* expr) {
       return false;
     }
 
-  } else if (auto fl = dynamic_cast<const ForLoop*>(expr)) {
+  } else if (auto fl = dynamic_cast<const kir::ForLoop*>(expr)) {
     // If the start, stop, step are not thread dependent
     //  then this for loop should be thread independent.
     if (getRegisterType(fl->start()) == RegisterType::GeneralPurpose ||
@@ -1466,13 +1466,13 @@ int64_t getOperationCount(Val* val) {
   return num_ops;
 }
 
-ForLoop* createRangeLoop(int64_t size) {
+kir::ForLoop* createRangeLoop(int64_t size) {
   Val* loop_start = IrBuilder::create<Val>(0L, PrimDataType::Index);
   Val* loop_index = IrBuilder::create<Val>(PrimDataType::Index);
   Val* loop_stop = IrBuilder::create<Val>(size, DataType::Index);
   IterDomainBuilder loop_domain_builder(loop_start, loop_stop);
 
-  ForLoop* loop = IrBuilder::create<ForLoop>(
+  kir::ForLoop* loop = IrBuilder::create<kir::ForLoop>(
       loop_domain_builder.build(),
       loop_index,
       loop_start,
@@ -1696,6 +1696,34 @@ std::vector<IterDomain*> getReachableIds(
         return std::ranges::find(vals, id) != vals.end();
       });
   return dependent_ids;
+}
+
+std::vector<IterDomain*> propagateScatterAllocationDomain(
+    TensorView* scatter_out,
+    const std::vector<IterDomain*>& to_logical_domain) {
+  NVF_ERROR_EQ(
+      scatter_out->getLogicalDomain().size(),
+      to_logical_domain.size(),
+      "Mismatching tensor rank");
+  if (!scatter_out->hasAllocation()) {
+    return to_logical_domain;
+  }
+
+  // Only permutation is considered for now
+  auto logical_to_alloc = ir_utils::computePermutation(
+      scatter_out->getLogicalDomain(), scatter_out->getMaybeAllocationDomain());
+  NVF_ERROR(
+      logical_to_alloc.has_value(),
+      "Allocation domain of scatter output must be a permutation of logical "
+      "domain: ",
+      scatter_out->toString(),
+      ", logical: ",
+      toDelimitedString(scatter_out->getLogicalDomain()),
+      ", allocation: ",
+      toDelimitedString(scatter_out->getAllocationDomain()));
+
+  return ir_utils::applyPermutation(
+      to_logical_domain, logical_to_alloc.value());
 }
 
 } // namespace nvfuser::ir_utils

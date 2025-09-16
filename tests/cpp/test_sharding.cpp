@@ -452,10 +452,10 @@ TEST_F(ShardingTest, PropagationDoesNotOverwrite) {
 
   // Verify tv3 is sharded like tv0, and tv2 like tv1.
   // Backpropagation should not overwrite tv2's sharding.
-  EXPECT_EQ(getShardedLoopAxis(tv0, ParallelType::DIDx), 0);
-  EXPECT_EQ(getShardedLoopAxis(tv1, ParallelType::DIDy), 0);
-  EXPECT_EQ(getShardedLoopAxis(tv2, ParallelType::DIDy), 0);
-  EXPECT_EQ(getShardedLoopAxis(tv3, ParallelType::DIDx), 0);
+  EXPECT_THAT(tv0->axis(0), IsParallelized(ParallelType::DIDx));
+  EXPECT_THAT(tv1->axis(0), IsParallelized(ParallelType::DIDy));
+  EXPECT_THAT(tv2->axis(0), IsParallelized(ParallelType::DIDy));
+  EXPECT_THAT(tv3->axis(0), IsParallelized(ParallelType::DIDx));
 }
 
 TEST_F(ShardingTest, BackpropagateToShardedTvs) {

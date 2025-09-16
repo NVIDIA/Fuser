@@ -5,17 +5,19 @@
 
 import torch
 
-from nvfuser import (
+from nvfuser_direct import (
     FusionDefinition,
     DataType,
 )
-from nvfuser.pytorch_utils import torch_dtype_to_nvfuser_dtype
-from python.utils import (
+from nvfuser_direct.pytorch_utils import torch_dtype_to_nvfuser_dtype
+from python.direct_utils import (
     FLOAT4_E2M1_MAX,
     FLOAT8_E4M3_MAX,
     pytorch_nvfp4_quantize,
     is_pre_blackwell,
     linear_to_swizzled_128_4,
+    round_up,
+    activation_scale_to_nvfp4,
 )
 
 import pytest
@@ -37,6 +39,7 @@ def nvfp4_quantize(x):
 @pytest.mark.parametrize("config", [[128, 256, 512], [128, 256, 512]])
 @pytest.mark.parametrize("out_dtype", [torch.bfloat16])
 def test_scaled_mm(
+    nvfuser_direct_test,
     config,
     out_dtype,
 ):
@@ -91,10 +94,7 @@ def test_scaled_mm(
         )
         fd.add_output(out)
 
-    with FusionDefinition() as fd:
-        nvfuser_fusion_id0(fd)
-
-    o = fd.execute(inputs)[0]
+    o, _ = nvfuser_direct_test.exec_nvfuser(nvfuser_fusion_id0, inputs)
 
     ref_o = (
         torch._scaled_mm(
@@ -108,35 +108,7 @@ def test_scaled_mm(
         )
         * alpha
     )
-    assert o.allclose(ref_o, 1e-2, 1e-2)
-
-
-def round_up(x, y):
-    return (x + y - 1) // y * y
-
-
-def activation_scale_to_nvfp4(x, g_sf, offsets, blockscale_offsets, block_size):
-    m = x.size(0)
-    k = x.size(1)
-    g = g_sf.size(0)
-    padded_m_size = blockscale_offsets[g - 1] + round_up(m - offsets[g - 1], 128)
-    block_scale = torch.empty(
-        (padded_m_size, k // block_size), dtype=torch.float8_e4m3fn, device="cuda:0"
-    )
-    v_scaled = torch.empty((m, k // 2), dtype=torch.float4_e2m1fn_x2, device="cuda:0")
-    for i in range(len(g_sf)):
-        l = offsets[i]
-        if i == g - 1:
-            r = m
-        else:
-            r = offsets[i + 1]
-        l_sf = blockscale_offsets[i]
-        r_sf = l_sf + r - l
-        v, b_sf = pytorch_nvfp4_quantize(x[l:r], g_sf[i])
-        v_scaled[l:r] = v
-        block_scale[l_sf:r_sf] = linear_to_swizzled_128_4(b_sf)
-
-    return v_scaled, block_scale
+    assert o[0].allclose(ref_o, 1e-2, 1e-2)
 
 
 @pytest.mark.skipif(
@@ -146,6 +118,7 @@ def activation_scale_to_nvfp4(x, g_sf, offsets, blockscale_offsets, block_size):
 @pytest.mark.parametrize("tokens_per_expert_neg_one", [[115, 144, 8]])
 @pytest.mark.parametrize("out_dtype", [torch.bfloat16])
 def test_cutlass_nvfp4_grouped_mm(
+    nvfuser_direct_test,
     config,
     tokens_per_expert_neg_one,
     out_dtype,
@@ -257,9 +230,6 @@ def test_cutlass_nvfp4_grouped_mm(
         )
         fd.add_output(out)
 
-    with FusionDefinition() as fd:
-        nvfuser_fusion_id0(fd)
-
     inputs = [
         mat1.view(torch.float4_e2m1fn_x2),
         mat2_scaled.view(torch.float4_e2m1fn_x2).transpose(-1, -2),
@@ -271,7 +241,7 @@ def test_cutlass_nvfp4_grouped_mm(
         blockscale_offsets,
     ]
 
-    o = fd.execute(inputs)[0]
+    o, _ = nvfuser_direct_test.exec_nvfuser(nvfuser_fusion_id0, inputs)
 
     o_decomposed_ref = torch.empty(m, n, dtype=torch.bfloat16, device="cuda:0")
     for i in range(g):
@@ -282,7 +252,8 @@ def test_cutlass_nvfp4_grouped_mm(
         else:
             r = offsets[i + 1]
         r_sf = round_up(tokens_per_expert[i], 128) + l_sf
-        # for some reason I cannot feed mat2_gs[i] as alpha in the torch kernel. this triggers a cublas invalid value error
+        # For some reason I cannot feed mat2_gs[i] as alpha in the torch kernel.
+        # This triggers a cublas invalid value error.
         o_decomposed_ref[l:r] = (
             torch._scaled_mm(
                 mat1[l:r],
@@ -296,4 +267,4 @@ def test_cutlass_nvfp4_grouped_mm(
             * mat2_gs[i]
         )
 
-    assert torch.allclose(o_decomposed_ref, o, atol=1e-2, rtol=1e-2)
+    assert torch.allclose(o_decomposed_ref, o[0], atol=1e-2, rtol=1e-2)

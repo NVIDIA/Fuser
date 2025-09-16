@@ -5,7 +5,11 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <iostream>
+
 #include <gtest/gtest.h>
+
+#include <c10/cuda/CUDAStream.h>
 
 #include <fusion.h>
 #include <fusion_segmenter.h>
@@ -19,14 +23,7 @@
 #include <runtime/executor_kernel_arg.h>
 #include <tests/cpp/utils.h>
 
-#include <algorithm>
-#include <iostream>
-
-#include <c10/cuda/CUDAStream.h>
-
-namespace nvfuser {
-
-namespace hir {
+namespace nvfuser::hir {
 
 using HostIrTestParams = std::tuple<bool>;
 using HostIrTest = NVFuserFixtureParamTest<HostIrTestParams>;
@@ -139,7 +136,7 @@ TEST_P(HostIrTest, SingleFusion) {
   auto outputs = hie.runWithInput({{post_on_stream->inputs().at(0), t0}});
 
   // validate the obtained results
-  EXPECT_TRUE(torch::allclose(ref_output, outputs[0].as<at::Tensor>()));
+  EXPECT_TRUE(at::allclose(ref_output, outputs[0].as<at::Tensor>()));
 }
 
 /*
@@ -237,7 +234,7 @@ TEST_P(HostIrTest, TwoFusions) {
   auto outputs = hie.runWithInput({{post_on_stream_0->inputs().at(0), t0}});
 
   // validate the obtained results
-  EXPECT_TRUE(torch::allclose(ref_output, outputs[0].as<at::Tensor>()));
+  EXPECT_TRUE(at::allclose(ref_output, outputs[0].as<at::Tensor>()));
 }
 
 /*
@@ -367,7 +364,7 @@ TEST_P(HostIrTest, ThreeFusions) {
   auto outputs = hie.runWithInput({{post_on_stream_0->inputs().at(0), t0_0}});
 
   // validate the obtained results
-  EXPECT_TRUE(torch::allclose(t2_2, outputs[0].as<at::Tensor>()));
+  EXPECT_TRUE(at::allclose(t2_2, outputs[0].as<at::Tensor>()));
 }
 
 // This unit test the for-loop IR by implementing a program that could be
@@ -390,8 +387,8 @@ TEST_P(HostIrTest, ForLoops) {
   auto* start = IrBuilder::create<Val>(kForLoopStart, DataType::Index);
   auto* stop = IrBuilder::create<Val>(kForLoopStop, DataType::Index);
   auto* step = IrBuilder::create<Val>(kForLoopStep, DataType::Index);
-  auto* for_loop = IrBuilder::create<ForLoop>(
-      /*IterDomain=*/makeContigConcreteTensor({0})->axis(0), // unused
+  auto* for_loop = IrBuilder::create<kir::ForLoop>(
+      /*iter_domain=*/makeContigConcreteTensor({0})->axis(0), // unused
       index,
       start,
       stop,
@@ -444,7 +441,7 @@ TEST_P(HostIrTest, ForLoops) {
   HostIrEvaluator hie(std::move(hic), &Communicator::getInstance(), params);
 
   auto options = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
-  at::Tensor buffer_at = torch::tensor({kInitialValue}, options);
+  at::Tensor buffer_at = at::tensor({kInitialValue}, options);
 
   hie.runWithInput({{buffer_input, buffer_at}});
 
@@ -453,7 +450,7 @@ TEST_P(HostIrTest, ForLoops) {
   for (int j = kForLoopStart; j < kForLoopStop; j += kForLoopStep) {
     expected_result_data += j;
   }
-  at::Tensor expected_result = torch::tensor({expected_result_data}, options);
+  at::Tensor expected_result = at::tensor({expected_result_data}, options);
 
   EXPECT_TRUE(expected_result.equal(buffer_at));
 }
@@ -510,7 +507,7 @@ TEST_P(HostIrTest, PreAllocatedOutputs) {
        {post_on_stream->outputs().at(0), output}});
 
   // validate the obtained results
-  EXPECT_TRUE(torch::allclose(ref_output, output))
+  EXPECT_TRUE(at::allclose(ref_output, output))
       << "Output: " << output << " Expected: " << ref_output;
 }
 
@@ -726,7 +723,7 @@ TEST_P(StreamHostIrTest, SingleFusionMultipleStreams) {
 
   // validate the obtained results
   for (int i = 0; i < n_iterations; i++) {
-    EXPECT_TRUE(torch::allclose(ref_output, outputs[i].as<at::Tensor>()));
+    EXPECT_TRUE(at::allclose(ref_output, outputs[i].as<at::Tensor>()));
   }
   EXPECT_NE(
       c10::cuda::getDefaultCUDAStream(0), c10::cuda::getCurrentCUDAStream(0));
@@ -794,7 +791,7 @@ TEST_P(SliceHostIrTest, SlicingTensor) {
 
   HostIrEvaluator hie(std::move(hic));
 
-  auto options = at::TensorOptions().device(at::kCUDA, 0).dtype(torch::kFloat);
+  auto options = at::TensorOptions().device(at::kCUDA, 0).dtype(at::kFloat);
   auto t0 = at::randn(input_sizes, options);
   std::unordered_map<Val*, PolymorphicValue> concrete_input_buffers = {
       {hie.inputs().at(0), t0}};
@@ -851,7 +848,7 @@ TEST_F(MatmulHostIrTest, HostIr) {
 
   HostIrEvaluator hie(std::move(hic));
 
-  auto options = at::TensorOptions().device(at::kCUDA, 0).dtype(torch::kFloat);
+  auto options = at::TensorOptions().device(at::kCUDA, 0).dtype(at::kFloat);
   auto t0 = at::randn({H, M, K}, options);
   auto t1 = at::randn({H, K, N}, options);
   std::unordered_map<Val*, PolymorphicValue> concrete_input_buffers = {
@@ -888,7 +885,7 @@ TEST_F(MatmulHostIrTest, HostIrMatmulOut) {
 
   HostIrEvaluator hie(std::move(hic));
 
-  auto options = at::TensorOptions().device(at::kCUDA, 0).dtype(torch::kFloat);
+  auto options = at::TensorOptions().device(at::kCUDA, 0).dtype(at::kFloat);
   at::Tensor t0 = at::randn({H, M, K}, options);
   at::Tensor t1 = at::randn({H, K, N}, options);
   at::Tensor t2 = at::randn({H, M, N}, options);
@@ -928,7 +925,7 @@ TEST_F(LinearHostIrTest, HostIr) {
 
   HostIrEvaluator hie(std::move(hic));
 
-  auto options = at::TensorOptions().device(at::kCUDA, 0).dtype(torch::kFloat);
+  auto options = at::TensorOptions().device(at::kCUDA, 0).dtype(at::kFloat);
   auto in_at = at::randn({B, M, K}, options);
   auto weight_at = at::randn({N, K}, options);
   auto bias_at = at::randn({N}, options);
@@ -970,7 +967,7 @@ TEST_F(LinearHostIrTest, HostIrLinearOut) {
 
   HostIrEvaluator hie(std::move(hic));
 
-  auto options = at::TensorOptions().device(at::kCUDA, 0).dtype(torch::kFloat);
+  auto options = at::TensorOptions().device(at::kCUDA, 0).dtype(at::kFloat);
   auto in_at = at::randint(5, {B, M, K}, options);
   auto weight_at = at::randint(5, {N, K}, options);
   auto bias_at = at::randint(5, {N}, options);
@@ -1020,7 +1017,7 @@ TEST_P(SelectHostIrTest, SelectingTensor) {
 
   HostIrEvaluator hie(std::move(hic));
 
-  auto options = at::TensorOptions().device(at::kCUDA, 0).dtype(torch::kFloat);
+  auto options = at::TensorOptions().device(at::kCUDA, 0).dtype(at::kFloat);
   auto t0 = at::randn(input_sizes, options);
   std::unordered_map<Val*, PolymorphicValue> concrete_input_buffers = {
       {hie.inputs().at(0), t0}};
@@ -1072,7 +1069,7 @@ TEST_F(ViewTest, SimpleReshape) {
 
   HostIrEvaluator hie(std::move(hic));
 
-  auto options = at::TensorOptions().device(at::kCUDA, 0).dtype(torch::kFloat);
+  auto options = at::TensorOptions().device(at::kCUDA, 0).dtype(at::kFloat);
   constexpr int64_t kX = 32;
   constexpr int64_t kY = 64;
   auto t0 = at::randn({kX, kY}, options);
@@ -1103,7 +1100,7 @@ TEST_F(ReductionHostIrTest, Sum) {
 
   HostIrEvaluator hie(std::move(hic));
 
-  auto options = at::TensorOptions().device(at::kCUDA, 0).dtype(torch::kFloat);
+  auto options = at::TensorOptions().device(at::kCUDA, 0).dtype(at::kFloat);
   auto t0 = at::randn({kTensorSize}, options);
   std::unordered_map<Val*, PolymorphicValue> concrete_input_buffers = {
       {tv0, t0}};
@@ -1161,8 +1158,7 @@ TEST_F(IfThenElseTest, HostIr) {
       {.use_fusion_executor_cache = true});
 
   for (auto boolean : {true, false}) {
-    auto options =
-        at::TensorOptions().device(at::kCUDA, 0).dtype(torch::kFloat);
+    auto options = at::TensorOptions().device(at::kCUDA, 0).dtype(at::kFloat);
     auto at_buffer = at::ones(1, options);
     std::unordered_map<Val*, PolymorphicValue> concrete_inputs = {
         {input_bool, boolean}, {input_buffer, at_buffer}};
@@ -1203,7 +1199,7 @@ TEST_F(AllocationTest, inHostForLoop) {
   auto hic = std::make_unique<HostIrContainer>();
   FusionGuard fg(hic.get());
 
-  auto* for_loop = IrBuilder::create<ForLoop>(
+  auto* for_loop = IrBuilder::create<kir::ForLoop>(
       /*IterDomain=*/makeContigConcreteTensor({0})->axis(0), // unused
       /*index=*/IrBuilder::create<Val>(DataType::Index),
       /*start=*/hic->zeroVal(),
@@ -1257,7 +1253,7 @@ TEST_F(HirAliasSelectHostIrTest, SelectingTensor) {
 
   HostIrEvaluator hie(std::move(hic));
 
-  auto options = at::TensorOptions().device(at::kCUDA, 0).dtype(torch::kFloat);
+  auto options = at::TensorOptions().device(at::kCUDA, 0).dtype(at::kFloat);
   auto in_aten = at::randn(input_sizes, options);
   std::unordered_map<Val*, PolymorphicValue> concrete_input_buffers = {
       {in, in_aten}};
@@ -1449,6 +1445,4 @@ TEST_F(HirReductionOpTest, NonPreAllocatedOutputs) {
       << "Expected output: " << expected_out;
 }
 
-} // namespace hir
-
-} // namespace nvfuser
+} // namespace nvfuser::hir

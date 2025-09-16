@@ -347,7 +347,7 @@ std::vector<Val*> maybeMovePadBeforeDefinition(
             {pad->getPadWidths()},
             TensorDomain::noReductions(
                 pad->out()->as<TensorView>()->getLogicalDomain()));
-        PadOp* new_pad_op = new_pad_in->definition()->as<PadOp>();
+        auto* new_pad_op = new_pad_in->definition()->as<PadOp>();
         stack.push_back(new_pad_op);
         simple_pad_set.insert(new_pad_op);
         return new_pad_in;

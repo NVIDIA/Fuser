@@ -5,7 +5,12 @@
 * SPDX-License-Identifier: BSD-3-Clause
 */
 // clang-format on
+
+// This file contains integration tests that run fusions through
+// FusionExecutorCache with host IR lowering turned on.
+#include <gmock/gmock-matchers.h>
 #include <gmock/gmock-more-matchers.h>
+#include <gtest/gtest.h>
 
 #include <fusion.h>
 #include <global_allocator.h>
@@ -16,61 +21,9 @@
 #include <tests/cpp/utils.h>
 #include <tests/cpp/validator.h>
 
-namespace nvfuser {
-
-namespace hir {
+namespace nvfuser::hir {
 
 using testing::Contains;
-using HostIrEvaluatorTest = NVFuserTest;
-
-// This test manually creates a HostIrContainer with LaunchKernels and runs it
-// using HostIrEvaluator.
-TEST_F(HostIrEvaluatorTest, LaunchKernel) {
-  Fusion fusion;
-  FusionGuard fg(&fusion);
-  TensorView* in = makeSymbolicTensor(2);
-  fusion.addInput(in);
-
-  TensorView* out = set(in);
-  fusion.addOutput(out);
-
-  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::Tensor t0 = at::randn({32, 32}, options);
-  auto ke = std::make_unique<KernelExecutor>();
-  ke->setGroupId(0);
-  ke->compile(&fusion, {t0});
-
-  auto hic = std::make_unique<HostIrContainer>();
-  FusionGuard::setCurFusion(hic.get());
-
-  hic->addKernelExecutor(std::move(ke));
-
-  IrCloner ir_cloner(hic.get());
-  auto hic_in = ir_cloner.clone(in);
-  auto hic_out = ir_cloner.clone(out);
-
-  hic->addInput(hic_in);
-  hic->addOutput(hic_out);
-
-  auto allocate = IrBuilder::create<kir::Allocate>(hic_out, MemoryType::Global);
-  auto* cache_id = IrBuilder::create<NamedScalar>("cacheId", DataType::UInt64);
-  auto launch_kernel = IrBuilder::create<LaunchKernel>(
-      0,
-      LaunchParams(),
-      CompileParams(),
-      std::vector<Val*>{hic_in},
-      std::vector<Val*>{hic_out},
-      cache_id);
-
-  hic->pushBackTopLevelExprs(allocate);
-  hic->pushBackTopLevelExprs(launch_kernel);
-
-  HostIrEvaluator hie(std::move(hic));
-
-  auto outputs = hie.runWithInput({{hic_in, t0}});
-
-  EXPECT_TRUE(outputs[0].as<at::Tensor>().equal(t0));
-}
 
 class HostIrIntegrationTest : public NVFuserTest {
  protected:
@@ -246,10 +199,10 @@ TEST_F(HostIrIntegrationTest, InsertDeallocations) {
   const int64_t max_memory_allocated = maxMemoryAllocated(device_index);
 
   FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
-  const std::vector<Expr*>& hicExprs =
+  const std::vector<Expr*>& exprs =
       runtime->getHostIrContainer().topLevelExprs();
 
-  EXPECT_THAT(hicExprs, Contains(IsA<Deallocate>()).Times(2));
+  EXPECT_THAT(exprs, Contains(IsA<Deallocate>()).Times(2));
 
   testValidate(
       executor_cache.fusion(),
@@ -321,6 +274,4 @@ TEST_F(HostIrIntegrationTest, ExcludeOutputsFromDeallocations) {
       }));
 }
 
-} // namespace hir
-
-} // namespace nvfuser
+} // namespace nvfuser::hir

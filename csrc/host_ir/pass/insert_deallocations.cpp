@@ -13,7 +13,7 @@ namespace nvfuser::hir_pass {
 
 void InsertDeallocations::passImplementation(Fusion* fusion) {
   FusionGuard fg(fusion);
-  hir::HostIrContainer* hic = dynamic_cast<hir::HostIrContainer*>(fusion);
+  auto* hic = dynamic_cast<hir::HostIrContainer*>(fusion);
   NVF_CHECK(hic, "Expected HostIrContainer");
 
   const std::vector<Expr*>& top_level_exprs = hic->topLevelExprs();

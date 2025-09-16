@@ -49,6 +49,8 @@ class NVF_API ConcretizedBroadcastDomains : private IterVisitor {
 
   void handle(BroadcastOp* bop) final;
 
+  void handle(TopKOp* top) final;
+
   void dispatch(Expr* expr) final;
 
   void markAsConcretized(

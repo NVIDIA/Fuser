@@ -142,11 +142,17 @@ struct KernelSummary {
   //! Do we have any argsort op?
   bool has_argsort = false;
 
+  //! Do we have any preprocess op?
+  bool has_preprocess_grouped_matmul_input_sf = false;
+
   //! Do we have any topk op?
   bool has_topk = false;
 
   //! Do we have any scan op?
   bool has_scan = false;
+
+  //! Do the kernel need streamIdx?
+  bool stream_parallelized = false;
 };
 
 class KernelPerformanceProfile {

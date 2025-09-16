@@ -108,7 +108,7 @@ struct IndexingParameters {
 // Initial loop index map for global producer or consumer case.
 IndexingParameters getLinearIndexParameters(
     const LoopIndexing& loop_indexing,
-    const std::unordered_set<ForLoop*>& rotated_loops,
+    const std::unordered_set<kir::ForLoop*>& rotated_loops,
     bool index_producer = false) {
   IndexingParameters index_parameters;
 
@@ -116,10 +116,10 @@ IndexingParameters getLinearIndexParameters(
   auto& loop_domain = loop_indexing.loopDomains();
   auto& loop_index_map = index_parameters.initial_concrete_id_index;
 
-  for (auto loop_idx : arange(loops.size())) {
-    auto loop = loops[loop_idx];
-    auto index_domain = GpuLower::current()->info().caMap().getConcreteMappedID(
-        loop_domain[loop_idx], IdMappingMode::EXACT);
+  for (auto [loop_idx, loop] : enumerate(loops)) {
+    IterDomain* index_domain =
+        GpuLower::current()->info().caMap().getConcreteMappedID(
+            loop_domain[loop_idx], IdMappingMode::EXACT);
     loop_index_map[index_domain] = loop->indexOrStartIfTrivial();
     if (rotated_loops.count(loop) > 0) {
       loop_index_map[index_domain] = SimplifyingIrBuilder::addExpr(
@@ -169,7 +169,7 @@ IndexingParameters getLinearIndexParameters(
 // Initial index parameters for shared and local case
 IndexingParameters getNonGlobalInitialIndexParameters(
     const LoopIndexing& loop_indexing,
-    const std::unordered_set<ForLoop*>& rotated_loops,
+    const std::unordered_set<kir::ForLoop*>& rotated_loops,
     const TensorView* consumer_tv,
     bool index_producer = false,
     const TensorView* producer_tv = nullptr,
@@ -191,10 +191,10 @@ IndexingParameters getNonGlobalInitialIndexParameters(
   auto alloc_info = lower_utils::getAllocPosInfo(
       alloc_tv, loops, alloc_id_map, index_producer);
 
-  std::unordered_map<ForLoop*, Val*> loop_to_ind_map;
-  std::unordered_set<ForLoop*> zero_loops;
+  std::unordered_map<kir::ForLoop*, Val*> loop_to_ind_map;
+  std::unordered_set<kir::ForLoop*> zero_loops;
 
-  ForLoop* circular_buffer_loop = nullptr;
+  kir::ForLoop* circular_buffer_loop = nullptr;
 
   if (index_producer) {
     circular_buffer_loop =
@@ -242,7 +242,7 @@ IndexingParameters getNonGlobalInitialIndexParameters(
 
 // Check if this loop is actually unswitched, meaning an initial index
 // of the maximum value from a non-size-one range is used.
-bool trackUnswitchedDomain(ForLoop* loop) {
+bool trackUnswitchedDomain(kir::ForLoop* loop) {
   // Loop index has only one valid value per thread, which means the
   // loop is not actually unswitched
   if (loop->isTrivial()) {
@@ -277,9 +277,9 @@ bool trackUnswitchedDomain(ForLoop* loop) {
 //! the 3 variants.
 IndexingParameters getPredicateInitialIndexParameters(
     const LoopIndexing& loop_indexing,
-    const std::unordered_set<ForLoop*>& rotated_loops,
+    const std::unordered_set<kir::ForLoop*>& rotated_loops,
     TensorView* consumer_tv,
-    ForLoop* unswitch_or_vec_loop,
+    kir::ForLoop* unswitch_or_vec_loop,
     IterDomain* circular_buffer_axis,
     bool is_start_predicate) {
   IndexingParameters index_parameters;
@@ -291,7 +291,7 @@ IndexingParameters getPredicateInitialIndexParameters(
       loops.size() <= loop_domains.size(),
       "Loop domain didn't replay all loops");
 
-  std::unordered_map<ForLoop*, Val*> loop_to_ind_map;
+  std::unordered_map<kir::ForLoop*, Val*> loop_to_ind_map;
 
   // Fill initial index with each forloop's index.
   for (auto fl : loops) {
@@ -458,7 +458,7 @@ IndexingParameters getPredicateInitialIndexParameters(
 } // namespace
 
 LoopIndexing LoopIndexingAnalysis::fromLoopAndConsumer(
-    const std::vector<ForLoop*>& loops,
+    const std::vector<kir::ForLoop*>& loops,
     const TensorView* consumer_tv) {
   LoopIndexingAnalysis analysis(loops, consumer_tv);
   return analysis.getLoopIndexing(loops);
@@ -473,7 +473,7 @@ VectorOfUniqueEntries<IterDomain*> LoopIndexingAnalysis::
 }
 
 LoopIndexingAnalysis::LoopIndexingAnalysis(
-    const std::vector<ForLoop*>& loops,
+    const std::vector<kir::ForLoop*>& loops,
     const TensorView* consumer_tv)
     : consumer_tv_(consumer_tv) {
   // Validate consistency in given loop nest
@@ -484,7 +484,7 @@ LoopIndexingAnalysis::LoopIndexingAnalysis(
       loops.begin(),
       loops.end(),
       std::back_inserter(initial_loop_domain_ids_),
-      [](ForLoop* fl) { return fl->iter_domain(); });
+      [](kir::ForLoop* fl) { return fl->iter_domain(); });
 
   run();
 }
@@ -549,7 +549,7 @@ void LoopIndexingAnalysis::run() {
 }
 
 void LoopIndexingAnalysis::validateLoopStructure(
-    const std::vector<ForLoop*>& loops) {
+    const std::vector<kir::ForLoop*>& loops) {
   // Throw an error when two loops are mapped with each other, which
   // violates an assumption that unique mappings between concrete
   // IterDomains and the IterDomains of the loop structure must be
@@ -770,8 +770,8 @@ void LoopIndexingAnalysis::constructLoopDomains() {
 }
 
 IndexFromIdGraph getTensorIndexFromIdGraph(
-    const std::vector<ForLoop*>& loops,
-    const std::unordered_set<ForLoop*>& rotated_loops,
+    const std::vector<kir::ForLoop*>& loops,
+    const std::unordered_set<kir::ForLoop*>& rotated_loops,
     const TensorView* consumer_tv,
     const TensorView* producer_tv,
     bool is_global,
@@ -923,10 +923,10 @@ IndexFromIdGraph getTensorIndexFromIdGraph(
 }
 
 IndexFromIdGraph getPredicateIndexingFromIdGraph(
-    const std::vector<ForLoop*>& loops,
-    const std::unordered_set<ForLoop*>& rotated_loops,
+    const std::vector<kir::ForLoop*>& loops,
+    const std::unordered_set<kir::ForLoop*>& rotated_loops,
     TensorView* consumer_tv,
-    ForLoop* unswitch_or_vec_loop,
+    kir::ForLoop* unswitch_or_vec_loop,
     IterDomain* circular_buffer_axis,
     bool is_start_predicate) {
   // Run replay pass on the loop nest to generate the deterministic
