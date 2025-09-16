@@ -2419,7 +2419,7 @@ Val* indexBlackwellMmaOutput(
     const MmaOp* mma,
     const std::vector<kir::ForLoop*>& for_loops) {
   auto* tmem_tv = mma->out()->as<TensorView>();
-  NVF_ERROR(tmem_tv->getMemoryType() == MemoryType::Tensor, "Invalid tmem_tv");
+  NVF_ERROR_EQ(tmem_tv->getMemoryType(), MemoryType::Tensor);
   const auto& tmem_info = GpuLower::current()->tmemInfo();
   const auto& tensor_indexer = GpuLower::current()->tensorIndexer();
 
