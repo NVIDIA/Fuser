@@ -99,6 +99,12 @@ bool checkCanSchedule(Fusion* fusion, SchedulerType scheduler_type) {
     return false;
   }
 
+  if (registry_utils::SchedulerTopologyChecker::hasConsumerOfNonIndexableOps(fusion)) {
+    scheduler_debug_utils::canScheduleRejectReason(
+        scheduler_type, "Fusion has consumer of non indexable ops.");
+    return false;
+  }
+
   return true;
 }
 

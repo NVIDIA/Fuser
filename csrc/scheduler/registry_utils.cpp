@@ -1030,6 +1030,17 @@ bool SchedulerTopologyChecker::hasResizeAndIndexOps(Fusion* fusion) {
   return false;
 }
 
+bool SchedulerTopologyChecker::hasConsumerOfNonIndexableOps(Fusion* fusion) {
+  for (auto expr : fusion->exprs()) {
+    if (expr->isOneOf<PreprocessGroupedMatmulInputSf>()) {
+       if (!ir_utils::getTvOutput(expr)->uses().empty()) {
+         return true;
+       }
+    }
+  }
+  return false;
+}
+
 namespace {
 
 // Return true when there's a producer-consumer relationship among a
