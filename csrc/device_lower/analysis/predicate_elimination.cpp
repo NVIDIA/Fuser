@@ -42,7 +42,7 @@ void assertOnWarpOps(const Expr* expr) {
   // Prohibit predicates for LdMatrix expressions in Mma k main loop;
   // Allow predicates for general LdMatrix usage.
   if (ir_utils::isLdMatrixOp(expr)) {
-    const LoadStoreOp* ldst = expr->as<LoadStoreOp>();
+    const auto* ldst = expr->as<LoadStoreOp>();
     TensorView* in_tv = ir_utils::getTv(ldst->in());
     NVF_ERROR(in_tv != nullptr);
 

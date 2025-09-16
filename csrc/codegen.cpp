@@ -395,7 +395,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
         var_name_ss << "_duplicate_" << duplicate_counter++;
       }
 
-      if (const auto tv = dynamic_cast<TensorView*>(param)) {
+      if (const auto* tv = dynamic_cast<TensorView*>(param)) {
         if (tv->isCpuScalar()) {
           code_ << " CpuScalarTensor<" << param->dtype() << "> "
                 << var_name_ss.str();
@@ -4377,6 +4377,57 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
 
   void handle(const kir::Return* ret) final {
     indent() << "return;\n";
+  }
+
+  void handle(const PreprocessGroupedMatmulInputSf* layout_op) final {
+    const auto output = layout_op->out()->as<kir::TensorIndex>();
+    const auto input = layout_op->in()->as<kir::TensorIndex>();
+    ArgumentBuilder template_args;
+    template_args.arg(input->view()->dtype()); // DataT
+    template_args.arg(layout_op->inputOffsets()->dtype()); // OffsetsDataT
+    switch (layout_op->layout()) {
+      case BlockScalingFactorLayout::Block128x4:
+        template_args.arg(32); // block_row_outer
+        template_args.arg(4); // block_row_inner
+        template_args.arg(4); // block_col
+        break;
+      default:
+        NVF_THROW("unrecognized layout");
+        break;
+    }
+
+    int64_t vector_word_size = ir_utils::getVectorizeSize(output->view());
+    bool is_vector_op = vectorize_scope_ && vector_word_size != 1;
+    // TODO: Implement vectorized load/store. Currently vectorization is done
+    // via unrolled for loop.
+    if (is_vector_op) {
+      template_args.arg(vector_word_size);
+    } else {
+      template_args.arg(1);
+    }
+
+    ArgumentBuilder func_args;
+    // NOTE: genInline(output) always point to the beginning of the buffer,
+    // since its index value is const 0;
+    func_args.arg("&").append(genInline(output));
+    func_args.arg("&").append(genInline(input));
+    // index lowering for PreprocessGroupedMatmulInputSf stored logical index
+    // into its attribute position 1 and 2.
+    func_args.arg(genInline(layout_op->attributeVal(1)));
+    func_args.arg(genInline(layout_op->attributeVal(2)));
+    func_args.arg("&").append(
+        genVariableName(layout_op->inputOffsets()) + "[0]");
+    func_args.arg("&").append(
+        genVariableName(layout_op->outputOffsets()) + "[0]");
+
+    func_args.arg(genInline(layout_op->k()));
+    func_args.arg(genInline(layout_op->g()));
+
+    indent() << genCall(
+                    "block_layout::preprocessGroupedMatmulInputSf",
+                    template_args,
+                    func_args)
+             << ";\n";
   }
 
  private:

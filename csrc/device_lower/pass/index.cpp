@@ -1951,7 +1951,7 @@ void IndexLowering::handle(const LoadStoreOp* ldst) {
     bool is_tma_ldmatrix = false;
     if (ir_utils::isLdMatrixOp(ldst)) {
       NVF_ERROR(ldst->in()->isA<TensorView>());
-      TensorView* in_tv = ldst->in()->as<TensorView>();
+      auto* in_tv = ldst->in()->as<TensorView>();
       NVF_ERROR(in_tv->definition() != nullptr);
       is_tma_ldmatrix = ir_utils::isCpAsyncBulkLoad(in_tv->definition());
       if (is_tma_ldmatrix) {
@@ -2027,7 +2027,7 @@ void IndexLowering::handle(const LoadStoreOp* ldst) {
 
       // Get the index for the output of stmatrix.
       NVF_ERROR(ldst->out()->isA<TensorView>());
-      TensorView* out_tv = ldst->out()->as<TensorView>();
+      auto* out_tv = ldst->out()->as<TensorView>();
       MmaInputSmemSwizzle swizzle = getSwizzle(out_tv);
       switch (swizzle) {
         case MmaInputSmemSwizzle::None: {
@@ -2418,8 +2418,8 @@ namespace {
 Val* indexBlackwellMmaOutput(
     const MmaOp* mma,
     const std::vector<kir::ForLoop*>& for_loops) {
-  TensorView* tmem_tv = mma->out()->as<TensorView>();
-  NVF_ERROR(tmem_tv->getMemoryType() == MemoryType::Tensor, "Invalid tmem_tv");
+  auto* tmem_tv = mma->out()->as<TensorView>();
+  NVF_ERROR_EQ(tmem_tv->getMemoryType(), MemoryType::Tensor);
   const auto& tmem_info = GpuLower::current()->tmemInfo();
   const auto& tensor_indexer = GpuLower::current()->tensorIndexer();
 
@@ -2840,6 +2840,34 @@ void IndexLowering::handle(const CatOp* cat) {
 
   pushBack(expr);
   GpuLower::current()->propagateExprInfo(cat, expr);
+}
+
+void IndexLowering::handle(
+    const PreprocessGroupedMatmulInputSf* preprocess_op) {
+  const auto in = lowerSrcIndex(preprocess_op->in(), preprocess_op->out());
+
+  auto* out_tv = preprocess_op->out()->as<TensorView>();
+  std::vector<Val*> logical_index = Index::getConsumerPerDimLogicalIndex(
+      out_tv, for_loops_, getRotatedLoop());
+  NVF_ERROR(
+      logical_index.size() == 2,
+      "only matrices are supported in PreprocessGroupedMatmulInputSf");
+  // NOTE: use const zero for index, this always give the base pointer to
+  // output, because indexing is done with logical_index passed as op attribute.
+  auto* out = IrBuilder::create<kir::TensorIndex>(
+      out_tv, GpuLower::current()->kernel()->zeroVal(), DataType::Null);
+
+  pushBack(IrBuilder::create<PreprocessGroupedMatmulInputSf>(
+      out,
+      in,
+      preprocess_op->inputOffsets(),
+      preprocess_op->outputOffsets(),
+      preprocess_op->layout(),
+      preprocess_op->k(),
+      preprocess_op->g(),
+      logical_index[0],
+      logical_index[1]));
+  GpuLower::current()->propagateExprInfo(preprocess_op, back());
 }
 
 } // namespace nvfuser
