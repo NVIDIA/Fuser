@@ -127,12 +127,23 @@ def run_targeted_tests(
         ]
         if not tests_to_run:
             return "No valid tests were provided to run."
-        # TODO how do we run tests here?
-        test_command = ["pytest", "complete", "me"]
-        success, test_output, stderr = run_command(test_command, BUILD_DIR)
-        if not success:
-            return f"Tests failed. Error: {stderr}\n\nTest Output:\n{test_output}"
-        return f"Tests passed successfully.\n\nTest Output:\n{test_output}"
+        
+        # Run tests using the nvfuser recipe
+        # Separate Python and C++ tests
+        python_tests = [test for test in tests_to_run if test.endswith('.py') or 'python' in test.lower()]
+        cpp_tests = [test for test in tests_to_run if not test.endswith('.py') and 'python' not in test.lower()]
+        
+        results = []
+        
+        if python_tests:
+            results.append("=== Running Python Tests ===")
+            results.append(_run_python_tests(python_tests))
+        
+        if cpp_tests:
+            results.append("=== Running C++ Tests ===")
+            results.append(_run_cpp_tests(cpp_tests))
+        
+        return "\n\n".join(results)
 
     # retrieve all the files that have been changed wrt to HEAD
     diff_command = [
@@ -140,22 +151,55 @@ def run_targeted_tests(
         "diff",
         "--name-only",
         f"{target_branch}...HEAD",
-        "--",
-        "*.py",
     ]
     success, diff_content, stderr = run_command(diff_command, PROJECT_ROOT)
     if not success:
         return f"Failed to get the diff against {target_branch}. Error: {stderr}"
     if not diff_content.strip():
         return (
-            f"No Python files have been changed against {target_branch}. No tests to run."
+            f"No files have been changed against {target_branch}. No tests to run."
         )
 
-    # TODO: should we have a simple heuristic search based on regex from changed files?
-    # changed_files = diff_content.strip().split("\n")
-
-    # detect all the possibel tests from Fuser/tests/cpp
-    return _generate_test_selection_prompt(diff_content.strip())
+    # Analyze changed files to determine which tests to run
+    changed_files = diff_content.strip().split("\n")
+    python_tests = []
+    cpp_tests = []
+    
+    for file_path in changed_files:
+        if file_path.endswith('.py'):
+            # For Python files, try to find corresponding test files
+            file_name = pathlib.Path(file_path).stem
+            test_file = f"test_{file_name}.py"
+            if (PROJECT_ROOT / "tests" / "python" / test_file).exists():
+                python_tests.append(test_file)
+            else:
+                # If no specific test file, add a general pattern
+                python_tests.append(file_name)
+        elif file_path.endswith(('.cpp', '.h', '.cu')):
+            # For C++ files, try to find corresponding test executables
+            file_name = pathlib.Path(file_path).stem
+            test_executable = f"test_{file_name}"
+            if (BUILD_DIR / "bin" / test_executable).exists():
+                cpp_tests.append(file_name)
+            else:
+                # If no specific test executable, add a general pattern
+                cpp_tests.append(file_name)
+    
+    # Run the detected tests
+    results = []
+    
+    if python_tests:
+        results.append("=== Running Python Tests (detected from changes) ===")
+        results.append(_run_python_tests(python_tests))
+    
+    if cpp_tests:
+        results.append("=== Running C++ Tests (detected from changes) ===")
+        results.append(_run_cpp_tests(cpp_tests))
+    
+    if not python_tests and not cpp_tests:
+        return "No relevant tests found for the changed files. Changed files:\n" + "\n".join(changed_files)
+    
+    return "\n\n".join(results)
 
 
 @mcp.tool()
@@ -338,6 +382,91 @@ TEST_F(TestGenerated, TestModifiedFunctionality) {
 '''
     
     return test_code
+
+
+def _run_python_tests(test_patterns: list[str]) -> str:
+    """
+    Run Python tests using the nvfuser recipe.
+    
+    Args:
+        test_patterns (list[str]): List of test patterns or test files to run.
+    
+    Returns:
+        str: Results of running the tests.
+    """
+    test_results = []
+    
+    for test in test_patterns:
+        if test.endswith('.py'):
+            # It's a test file, run it directly
+            test_file_path = PROJECT_ROOT / "tests" / "python" / test
+            if test_file_path.exists():
+                test_command = [
+                    "python", 
+                    str(test_file_path), 
+                    "-vs"
+                ]
+            else:
+                test_results.append(f"❌ Test file {test} not found at {test_file_path}")
+                continue
+        else:
+            # It's a test pattern, run with -k filter
+            test_command = [
+                "python", 
+                "-m", 
+                "pytest", 
+                "tests/python/", 
+                "-vs", 
+                "-k", 
+                test
+            ]
+        
+        success, test_output, stderr = run_command(test_command, PROJECT_ROOT)
+        if success:
+            test_results.append(f"✅ {test} - PASSED\n{test_output}")
+        else:
+            test_results.append(f"❌ {test} - FAILED\nError: {stderr}\nOutput: {test_output}")
+    
+    return "\n\n".join(test_results)
+
+
+def _run_cpp_tests(test_patterns: list[str]) -> str:
+    """
+    Run C++ tests using the nvfuser recipe.
+    
+    Args:
+        test_patterns (list[str]): List of test patterns or test executables to run.
+    
+    Returns:
+        str: Results of running the tests.
+    """
+    test_results = []
+    
+    for test in test_patterns:
+        # Look for test executables in the build directory
+        test_executable = BUILD_DIR / "bin" / f"test_{test}"
+        
+        if test_executable.exists():
+            test_command = [
+                str(test_executable),
+                "--gtest_filter=*"
+            ]
+        else:
+            # Try to find any test executable that matches the pattern
+            test_executable = BUILD_DIR / "bin" / test
+            if test_executable.exists():
+                test_command = [str(test_executable)]
+            else:
+                test_results.append(f"❌ Test executable {test} not found in {BUILD_DIR / 'bin'}")
+                continue
+        
+        success, test_output, stderr = run_command(test_command, BUILD_DIR)
+        if success:
+            test_results.append(f"✅ {test} - PASSED\n{test_output}")
+        else:
+            test_results.append(f"❌ {test} - FAILED\nError: {stderr}\nOutput: {test_output}")
+    
+    return "\n\n".join(test_results)
 
 
 def _generate_unit_test_prompt(diff_content: str) -> str:
