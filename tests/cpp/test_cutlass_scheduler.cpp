@@ -30,7 +30,7 @@ namespace nvfuser {
 using CutlassExecutorTest = NVFuserTest;
 
 // Test Cutlass scheduler with simple nvfp4 block-scaled GEMM
-TEST_F(CutlassExecutorTest, Nvfp4ScaledGemm_CompiledKernel) {
+TEST_F(CutlassExecutorTest, Nvfp4ScaledGemm_Executor) {
   // Skip if not on SM100 or above
   if (at::cuda::getCurrentDeviceProperties()->major < 10) {
     GTEST_SKIP() << "Skipping test on pre-SM100 GPUs";
