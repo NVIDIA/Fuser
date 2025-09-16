@@ -308,6 +308,10 @@ const PolymorphicValue& ExpressionEvaluator::getValue(
   return null_;
 }
 
+void ExpressionEvaluator::invalidate(const Val* value) {
+  known_values_.erase(value);
+}
+
 void ExpressionEvaluator::print() const {
   using namespace PolymorphicValue_functions;
 
