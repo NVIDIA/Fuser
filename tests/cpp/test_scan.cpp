@@ -920,24 +920,25 @@ TEST_F(ScanTest, OnlineSumExpXMinusMaxSerialScan2) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
-  std::vector<int64_t> shape = {2};
+  std::vector<int64_t> shape = {2, 2};
   auto tv0 = makeContigConcreteTensor(shape);
   fusion.addInput(tv0);
   auto tv1 = set(tv0);
   // m[i-1]
-  auto result2 = scan(tv1, {0}, BinaryOpType::Max, /*return_exclusive=*/true);
-  auto tv2 = result2.exclusive;
+  auto result2 = scan(tv1, {1}, BinaryOpType::Max, /*return_exclusive=*/true);
+  auto tv2 = result2.inclusive;
   // m[i]
-  auto tv3 = binaryOp(BinaryOpType::Max, tv2, tv1);
+  auto tv3 = result2.exclusive;
   //  exp(m[i-1] - m[i])
-  auto tv4 = sub(tv2, tv3);
+  auto tv4 = sub(tv3, tv2);
   auto tv5 = exp(tv4);
-  auto tv6 = sub(tv1, tv3);
+  auto tv6 = sub(tv1, tv2);
   auto tv7 = exp(tv6);
-  auto tv8 = prefixSum(tv7, {0}, tv5).inclusive;
+  auto tv8 =
+      prefixSum(
+          tv7, {1}, tv5, /*return_exclusive=*/false, /*return_reduction=*/true)
+          .reduction;
   auto tv9 = set(tv8);
-  auto tv10 = set(tv3);
-  fusion.addOutput(tv10);
   fusion.addOutput(tv9);
   auto unscheduled_fusion = fusion;
 
@@ -954,21 +955,11 @@ TEST_F(ScanTest, OnlineSumExpXMinusMaxSerialScan2) {
   ke.compile(&fusion, {input});
   auto outputs = ke.run({input});
 
-  auto final_output_0 =
-      at::select(outputs[0].as<at::Tensor>(), /*dim=*/0, /*index=*/-1);
-  auto final_output_1 =
-      at::select(outputs[1].as<at::Tensor>(), /*dim=*/0, /*index=*/-1);
-
-  auto aten_max = at::amax(input, {0});
-  std::cout << "aten_max: " << aten_max << std::endl;
-  auto aten_exp = at::exp(input - aten_max.unsqueeze(0));
-  auto aten_sum = at::sum(aten_exp, {0});
-  std::cout << "input: " << input << std::endl;
-  std::cout << "aten_sum: " << aten_sum << std::endl;
-  std::cout << "outputs[0]: " << final_output_0 << std::endl;
-  std::cout << "outputs[1]: " << final_output_1 << std::endl;
-
-  EXPECT_TRUE(at::allclose(final_output_1, aten_sum, 1e-5, 1e-8, true));
+  auto aten_max = at::amax(input, {1});
+  auto aten_exp = at::exp(input - aten_max.unsqueeze(1));
+  auto aten_sum = at::sum(aten_exp, {1});
+  EXPECT_TRUE(
+      at::allclose(outputs[0].as<at::Tensor>(), aten_sum, 1e-5, 1e-8, true));
 }
 
 // This is a simplified version of FlashAttention that does not circular buffer

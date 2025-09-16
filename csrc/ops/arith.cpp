@@ -2585,7 +2585,8 @@ ScanResult scan(
     BinaryOpType op_type,
     bool return_exclusive,
     Val* init,
-    Val* discount_factor) {
+    Val* discount_factor,
+    bool return_reduction) {
   const std::vector<IterDomain*> logical_dom =
       TensorDomain::noReductions(in_tv->getLogicalDomain());
 
@@ -2634,13 +2635,26 @@ ScanResult scan(
     result.exclusive = ops::newOutputTV({result.inclusive}, dtype);
   }
 
-  // Create single scan operation with both outputs (exclusive may be nullptr)
+  if (return_reduction) {
+    std::vector<IterDomain*> red_dom = ops::newOutputDomain({in_tv});
+    red_dom.at((size_t)dim) = IterDomainBuilder(red_dom.at((size_t)dim))
+                                  .iter_type(IterType::Reduction)
+                                  .build();
+    auto* red_td = IrBuilder::create<TensorDomain>(
+        red_dom, TensorDomain::getContiguityFilledWith(red_dom, true));
+
+    result.reduction = IrBuilder::create<TensorView>(red_td, dtype);
+  }
+
+  // Create single scan operation with all outputs (exclusive and reduction may
+  // be nullptr)
   IrBuilder::createInContainer<ScanOp>(
       in_tv->container(),
       op_type,
       init,
       result.inclusive,
       result.exclusive,
+      result.reduction,
       in_tv,
       dim,
       discount_factor);
@@ -2652,14 +2666,16 @@ ScanResult prefixSum(
     TensorView* tv,
     int64_t dim,
     Val* discount,
-    bool return_exclusive) {
+    bool return_exclusive,
+    bool return_reduction) {
   return scan(
       tv,
       dim,
       BinaryOpType::Add,
       /*return_exclusive=*/return_exclusive,
       /*init=*/tv->fusion()->zeroVal(tv->dtype()),
-      /*discount=*/discount);
+      /*discount=*/discount,
+      /*return_reduction=*/return_reduction);
 }
 
 } // namespace nvfuser

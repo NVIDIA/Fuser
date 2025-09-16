@@ -159,12 +159,14 @@ struct TopKResult {
 //! Contains two TensorViews:
 //! - inclusive: tensor containing the inclusive scan result (always present)
 //! - exclusive: tensor containing the exclusive scan result (optional)
-//!
-//! The inclusive scan is always computed, while the exclusive scan is only
-//! computed when requested.
+//! - reduction: tensor containing the reduction result (optional), reduction
+//! result is the last element along the inclusive scan dimension The inclusive
+//! scan is always computed, while the exclusive scan is only computed when
+//! requested.
 struct ScanResult {
   TensorView* inclusive = nullptr; //!< The inclusive scan result
   TensorView* exclusive = nullptr; //!< The exclusive scan result (optional)
+  TensorView* reduction = nullptr; //!< The reduction result (optional)
 };
 
 //! Welford operator on specified axes. This is currently the only scan op with
@@ -828,7 +830,8 @@ NVF_API ScanResult scan(
     BinaryOpType op_type,
     bool return_exclusive = false,
     Val* init = nullptr,
-    Val* discount = nullptr);
+    Val* discount = nullptr,
+    bool return_reduction = false);
 
 //! Computes prefix sum with optional exclusive output, returning ScanResult
 //!
@@ -840,13 +843,15 @@ NVF_API ScanResult scan(
 //! \param discount Discount factor for weighted prefix sums
 //! \param return_exclusive If true, also compute and return exclusive prefix
 //! sum
+//! \param return_reduction If true, also compute and return reduction result
 //! \return ScanResult containing inclusive prefix sum (always) and exclusive
-//! prefix sum (if requested)
+//! prefix sum (if requested) and reduction result (if requested)
 NVF_API ScanResult prefixSum(
     TensorView* tv,
     int64_t dim,
     Val* discount = nullptr,
-    bool return_exclusive = false);
+    bool return_exclusive = false,
+    bool return_reduction = false);
 
 //! Another alias for PyTorch's cumsum
 NVF_API inline TensorView* cumsum(TensorView* tv, int64_t dim) {

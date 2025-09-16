@@ -1457,7 +1457,8 @@ void IndexLowering::handle(const ScanOp* scop) {
         scop->opType(),
         scop->init(),
         out->as<TensorView>(),
-        nullptr,
+        scop->outExclusive(),
+        scop->outReduction(),
         in->as<TensorView>(),
         scop->dim(),
         scop->discountFactor()));
@@ -1550,6 +1551,21 @@ void IndexLowering::handle(const ScanOp* scop) {
 
   pushBack(expr);
   GpuLower::current()->propagateExprInfo(scop, expr);
+
+  // Handle reduction result output if present
+  // The reduction result is the final value at the last iteration
+  if (TensorView* red = scop->outReduction()) {
+    const auto red_ti = lowerDstIndex(red);
+    Val* is_last_iter =
+        eq(scan_index, sub(scan_loop->stop(), scan_loop->step()));
+    auto* manual_pred = IrBuilder::create<kir::Predicate>(is_last_iter);
+    auto* cond_store = IrBuilder::create<kir::IfThenElse>(manual_pred);
+    pushBack(cond_store);
+    auto* save_red_op =
+        rBuilder::create<LoadStoreOp>(LoadStoreOpType::Set, red_ti, out);
+    cond_store->thenBody().push_back(save_red_op);
+    GpuLower::current()->propagateExprInfo(scop, save_red_op);
+  }
 }
 
 void IndexLowering::handle(const kir::MBarrierInit* minit) {
@@ -2935,3 +2951,4 @@ void IndexLowering::handle(const CatOp* cat) {
 }
 
 } // namespace nvfuser
+ 

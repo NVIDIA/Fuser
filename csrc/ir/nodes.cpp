@@ -6336,6 +6336,7 @@ ScanOp::ScanOp(
     Val* init,
     TensorView* out_inclusive,
     TensorView* out_exclusive,
+    TensorView* out_reduction,
     TensorView* in,
     int64_t dim,
     Val* discount_factor)
@@ -6344,6 +6345,9 @@ ScanOp::ScanOp(
   if (out_exclusive != nullptr) {
     addOutput(out_exclusive);
   }
+  if (out_reduction != nullptr) {
+    addOutput(out_reduction);
+  }
   addInput(in);
   if (discount_factor != nullptr) {
     addInput(discount_factor);
@@ -6351,11 +6355,20 @@ ScanOp::ScanOp(
   addAttribute(init);
   addDataAttribute(op_type);
   addDataAttribute(dim);
+  // Store flags to track which optional outputs are present
+  addDataAttribute(out_exclusive != nullptr);
+  addDataAttribute(out_reduction != nullptr);
 }
 
 std::string ScanOp::toString(int indent_size) const {
   std::stringstream ss;
   indent(ss, indent_size) << out()->toString();
+  if (outExclusive() != nullptr) {
+    ss << ", " << outExclusive()->toString();
+  }
+  if (outReduction() != nullptr) {
+    ss << ", " << outReduction()->toString();
+  }
   ss << "\n";
   indent(ss, indent_size + 1) << " = scan(" << in()->toString() << ",\n";
   indent(ss, indent_size + 1) << "        dim=" << dim() << ",\n";
@@ -6364,7 +6377,9 @@ std::string ScanOp::toString(int indent_size) const {
       << "        init=" << init()->toInlineString() << ",\n";
   indent(ss, indent_size + 1)
       << "        has_exclusive_output=" << hasExclusiveOutput() << ",\n";
-  if (discountFactor() != nullptr) {
+  indent(ss, indent_size + 1)
+      << "        has_reduction_output=" << hasReductionOutput() << ",\n";
+  scountFactor() != nullptr) {
     indent(ss, indent_size + 1)
         << "        discount_factor=" << discountFactor()->toInlineString()
         << ")\n";
@@ -6533,3 +6548,4 @@ std::vector<PolymorphicValue> CutlassNvfp4GroupedMmaOp::evaluate(
 NVFUSER_DEFINE_CLONE_AND_CREATE(CutlassNvfp4GroupedMmaOp)
 
 } // namespace nvfuser
+      

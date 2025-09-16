@@ -3335,6 +3335,7 @@ class ScanOp : public Expr {
       Val* init,
       TensorView* out_inclusive,
       TensorView* out_exclusive,
+      TensorView* out_reduction,
       TensorView* in,
       int64_t dim,
       Val* discount_factor = nullptr);
@@ -3355,12 +3356,27 @@ class ScanOp : public Expr {
 
   //! Returns the exclusive scan output (may be nullptr)
   TensorView* outExclusive() const {
-    return outputs().size() > 1 ? output(1)->as<TensorView>() : nullptr;
+    return hasExclusiveOutput() ? output(1)->as<TensorView>() : nullptr;
+  }
+
+  //! Returns the reduction output (may be nullptr)
+  TensorView* outReduction() const {
+    if (!hasReductionOutput()) {
+      return nullptr;
+    }
+    // Reduction output position depends on whether exclusive is present
+    int reduction_pos = hasExclusiveOutput() ? 2 : 1;
+    return output(reduction_pos)->as<TensorView>();
   }
 
   //! Returns true if this ScanOp produces an exclusive output
   bool hasExclusiveOutput() const {
-    return outputs().size() > 1;
+    return attribute<bool>(3); // exclusive flag stored at position 3
+  }
+
+  //! Returns true if this ScanOp produces a reduction output
+  bool hasReductionOutput() const {
+    return attribute<bool>(4); // reduction flag stored at position 4
   }
 
   TensorView* in() const {
