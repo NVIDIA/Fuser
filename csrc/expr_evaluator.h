@@ -65,6 +65,7 @@ class ExpressionEvaluator {
     return known_values_.count(value) > 0;
   }
 
+  // Only used for MultiDeviceExecutor.
   void invalidate(const Val* value);
 
   //! Debugging helper, prints all the currently known values
