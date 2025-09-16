@@ -6,7 +6,7 @@
  */
 // clang-format on
 #include <ATen/ATen.h>
-#include <ATen/cuda/CUDAContext.h>
+#include <ATen/cuda/CUDAContextLight.h>
 #include <ATen/native/cuda/jit_utils.h>
 #include <c10/core/DeviceGuard.h>
 #include <c10/core/ScalarType.h>
@@ -71,19 +71,24 @@ TEST_F(CutlassExecutorTest, Nvfp4ScaledGemm_CompiledKernel) {
 
   fusion->addOutput(smm.tv);
 
+  // Note that K is the actual problem size independent of data type, not the
+  // packed size.
   constexpr int64_t M = 8192, N = 8192, K = 8192;
 
   // Create actual tensor data for inputs
-  auto options = at::TensorOptions().dtype(torch::kFloat).device(at::kCUDA, 0);
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
 
-  // Create nvfp4 tensors by creating uint8 tensors and viewing them as
-  // Float4_e2m1fn_x2
-  at::Tensor at_a = at::empty({M, K}, options.dtype(at::kFloat4_e2m1fn_x2));
-  at::Tensor at_b = at::empty({N, K}, options.dtype(at::kFloat4_e2m1fn_x2)).t();
+  // For the operands, we use nvfp4 which packs two values into
+  // each byte. When declaring one of these we need to provide the "packed size"
+  at::Tensor at_a = at::empty({M, K / 2}, options.dtype(at::kFloat4_e2m1fn_x2));
+  at::Tensor at_b =
+      at::empty({N, K / 2}, options.dtype(at::kFloat4_e2m1fn_x2)).t();
 
-  // Create scale tensors in Float format (as expected by the fusion)
-  at::Tensor at_a_sf = at::empty({M, K / 8}, options.dtype(at::kFloat8_e4m3fn));
-  at::Tensor at_b_sf = at::empty({N, K / 8}, options.dtype(at::kFloat8_e4m3fn));
+  constexpr int64_t SCALING_BLOCK_SIZE = 16;
+  at::Tensor at_a_sf =
+      at::empty({M, K / SCALING_BLOCK_SIZE}, options.dtype(at::kFloat8_e4m3fn));
+  at::Tensor at_b_sf =
+      at::empty({N, K / SCALING_BLOCK_SIZE}, options.dtype(at::kFloat8_e4m3fn));
 
   // Create scalar tensors
   at::Tensor at_alpha = at::scalar_tensor(1.5f, options);

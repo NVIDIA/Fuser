@@ -58,7 +58,7 @@ class NVF_API HostIrEvaluator final : public OptOutDispatch {
   // Used by FusionExecutorCache, the main stack.
   KernelArgumentHolder runWithInputs(const KernelArgumentHolder& args);
 
-  // Used by MultiDeviceExecutor.
+  // Only used by MultiDeviceExecutor.
   KernelArgumentHolder runWithInput(
       const std::unordered_map<Val*, PolymorphicValue>& val_to_PValue);
 
@@ -78,6 +78,7 @@ class NVF_API HostIrEvaluator final : public OptOutDispatch {
     return container_->print(os);
   };
 
+  // Only used by MultiDeviceExecutor.
   const auto& getFusionExecutorCaches() {
     return fec_;
   };
@@ -96,7 +97,8 @@ class NVF_API HostIrEvaluator final : public OptOutDispatch {
   void handle(Communication*) override;
   void handle(P2PCommunication*) override;
   void handle(Wait*) override;
-  void handle(ForLoop*) override;
+  void handle(kir::ForLoop*) override;
+  void handle(hir::ForLoop*) override;
   void handle(StartCoalescing*) override;
   void handle(EndCoalescing*) override;
   void handle(kir::IfThenElse*) override;
@@ -114,20 +116,9 @@ class NVF_API HostIrEvaluator final : public OptOutDispatch {
 
   c10::cuda::CUDAStream getCUDAStream(Stream* stream);
 
-  PolymorphicValue getKnownConcreteValue(Val* val) const {
-    NVF_ERROR(
-        expr_evaluator_.isKnown(val),
-        "value ",
-        val->toString(),
-        "must be precomputed before being retrieved");
-    return expr_evaluator_.evaluate(val);
-  }
+  PolymorphicValue getKnownConcreteValue(Val* val) const;
 
-  at::Tensor getKnownTensorOrUndefined(Val* val) const {
-    return expr_evaluator_.isKnown(val)
-        ? expr_evaluator_.evaluate(val).as<at::Tensor>()
-        : at::Tensor();
-  }
+  at::Tensor getKnownTensorOrUndefined(Val* val) const;
 
   void validate() const;
 

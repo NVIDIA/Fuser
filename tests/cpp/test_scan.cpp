@@ -436,4 +436,35 @@ TEST_F(ScanTest, KernelExecutorMultipleScan) {
   testValidate(&fusion, outputs, {input}, __LINE__, __FILE__);
 }
 
+TEST_F(ScanTest, Predication) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  std::vector<int64_t> shape = {100};
+
+  auto tv0 = makeContigConcreteTensor(shape);
+  fusion.addInput(tv0);
+
+  auto tv1 = scan(tv0, -1, BinaryOpType::Add);
+  auto tv2 = set(tv1);
+  fusion.addOutput(tv2);
+
+  // Non-divisible split. 128 threads will be launched. The last 28
+  // threads need to be predicated out.
+  for (auto tv : {tv1, tv2}) {
+    tv->split(0, 32);
+    tv->axis(0)->parallelize(ParallelType::TIDy);
+    tv->axis(1)->parallelize(ParallelType::TIDx);
+  }
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn(shape, options);
+
+  KernelExecutor ke;
+  ke.compile(&fusion, {t0});
+  auto outputs = ke.run({t0});
+  testValidate(&fusion, outputs, {t0}, __LINE__, __FILE__);
+}
+
 } // namespace nvfuser

@@ -226,8 +226,7 @@ def nvfuser_fusion(fd : FusionDefinition) -> None :
     tv0 = fd.define_tensor(shape=[-1, -1, -1], contiguity=[True, True, True], dtype=DataType.Float, is_cpu=False)
     tv1 = fd.define_tensor(shape=[-1, -1, -1], contiguity=[True, True, True], dtype=DataType.Float, is_cpu=False)
     tv2 = fd.ops.add(tv0, tv1)
-    c7 = fd.define_scalar(3.00000, dtype=DataType.Double)
-    tv3 = fd.ops.mul(tv2, c7)
+    tv3 = fd.ops.mul(tv2, 3.00000)
     tv4 = fd.ops.sum(tv3, dims=[1], dtype=DataType.Float)
     fd.add_output(tv4)
 with FusionDefinition() as fd:

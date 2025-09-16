@@ -2498,147 +2498,7 @@ class Scope {
   Expr* owner_ = nullptr;
 };
 
-//! ForLoop provides scoping around an int iterator from 0 to range. Exprs
-//! placed in its body are considered inside the scope of the for loop. In the
-//! future the implementation should look quite different so that we can do
-//! proper dependency annalysis like in Fusion.
-//!
-//! TODO(kir): this is not a real expression
-//!
-//! ForLoop may represent a part of an iteration domain representend
-//! by iter_domain_. In that case, the loop extent field, extent_, may
-//! be smaller than the extent of iter_domain_.
-class ForLoop final : public Expr {
- public:
-  using Expr::Expr;
-
-  //! By default, start and stop are the same as those of iter_domain.
-  //! Step is one by default.
-  //!
-  //! TODO: cleaner way to set options?
-  ForLoop(
-      IrBuilderPasskey passkey,
-      IterDomain* iter_domain,
-      Val* index,
-      Val* start,
-      Val* stop,
-      Val* step,
-      bool vectorize = false,
-      Val* vectorize_shift = nullptr,
-      bool unroll_required = false,
-      CircularBufferLoopStage circular_buffer_loop_stage =
-          CircularBufferLoopStage::NotApplicable,
-      int64_t circular_buffer_loop_stage_depth = 0);
-
-  ForLoop(
-      IrBuilderPasskey passkey,
-      IterDomain* iter_domain,
-      Val* index,
-      CircularBufferLoopStage circular_buffer_loop_stage,
-      int64_t circular_buffer_loop_stage_depth);
-
-  ForLoop(IrBuilderPasskey passkey, IterDomain* iter_domain);
-
-  ForLoop(IrBuilderPasskey passkey, const ForLoop* other);
-
-  NVFUSER_DECLARE_CLONE_AND_CREATE
-
-  const char* getOpString() const override {
-    return "ForLoop";
-  }
-
-  std::string toString(int indent_size = 0) const override;
-  std::string toInlineString(int indent_size = 0) const override;
-
-  Val* index() const {
-    return input(0);
-  }
-
-  IterDomain* iterDomain() const {
-    return input(1)->as<IterDomain>();
-  }
-
-  Val* indexOrStartIfTrivial() const {
-    return isTrivial() ? start() : index();
-  }
-
-  Val* start() const;
-
-  Val* stop() const;
-
-  Val* step() const;
-
-  Val* simplifiedStop() const;
-
-  // [pre | vectorize | post] <= inner-most, merged root domain
-  // shift_ is applied to vectorize and post sections.
-  Val* vectorize_shift() const {
-    return attributeVal(4);
-  }
-
-  IterDomain* iter_domain() const {
-    return input(1)->as<IterDomain>();
-  }
-
-  // TODO: Return pointer instead of reference to be more consistent
-  Scope& body() {
-    return attribute<Scope>(8);
-  }
-
-  const Scope& body() const {
-    return attribute<Scope>(8);
-  }
-
-  bool empty() const {
-    return body().empty();
-  }
-
-  // vectorize is true when the for-loop contains a vectorize set
-  // the flag is used to omit the for-loop from the kernel
-  bool vectorize() const {
-    return attribute<bool>(3);
-  }
-
-  //! True if unrolled (i.e., "#pragma unroll" is attached)
-  bool isUnrolled() const;
-
-  //! True if unroll is required for avoiding stack allocation
-  bool isUnrollRequired() const {
-    return attribute<bool>(5);
-  }
-
-  //! Set unrolling required
-  void requireUnroll() {
-    attribute<bool>(5) = true;
-  }
-
-  //! True if no actual for-loop is materialized
-  bool isTrivial() const;
-
-  //! True if loop is grouped reduction/welford
-  bool isGroup() const;
-
-  //! True if loop needs to call a runtime reduction function
-  bool hasRuntimeReductionFunctions() const;
-
-  //! Returns the stage of a circular buffered iterdomain
-  //!  that this for loop materializes.
-  auto circularBufferLoopStage() const {
-    return attribute<CircularBufferLoopStage>(6);
-  }
-  auto circularBufferLoopStageDepth() const {
-    return attribute<int64_t>(7);
-  }
-
- private:
-  //! Returns if a loop could be unrolled.
-  bool isUnrollable() const;
-
-  //! Not storing this as an attribute because this is only a cache for
-  //! simplifiedStop. We are not interested in keeping this across clone/serde,
-  //! etc.
-  mutable Val* simplified_stop_ = nullptr;
-};
+// ForLoop moved to kernel_ir.{h,cpp} as kir::ForLoop
 
 /*
 SDPA bwd node with same functionality
@@ -3474,6 +3334,7 @@ class PreprocessGroupedMatmulInputSf : public Expr {
  public:
   using Expr::Expr;
 
+  // NOTE: row_idx and col_idx are used only for index lowering.
   PreprocessGroupedMatmulInputSf(
       IrBuilderPasskey,
       Val* output,
@@ -3482,7 +3343,9 @@ class PreprocessGroupedMatmulInputSf : public Expr {
       Val* output_offsets,
       BlockScalingFactorLayout layout,
       Val* k,
-      Val* g);
+      Val* g,
+      Val* row_idx = nullptr,
+      Val* col_idx = nullptr);
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
