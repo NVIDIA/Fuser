@@ -16,7 +16,6 @@
 #include <ir/printer.h>
 #include <ir/utils.h>
 #include <kernel.h>
-#include <kernel_ir.h>
 #include <kernel_ir_dispatch.h>
 #include <type.h>
 

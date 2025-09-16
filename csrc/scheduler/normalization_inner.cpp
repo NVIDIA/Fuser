@@ -15,7 +15,6 @@
 #include <scheduler/utils.h>
 
 #include <ATen/cuda/CUDAContext.h>
-#include "utils.h"
 
 namespace nvfuser {
 using PersistentKernelProperties =

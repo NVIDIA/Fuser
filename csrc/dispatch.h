@@ -121,8 +121,7 @@ class Val;
   f(SdpaBwdOp);                      \
   f(EmbeddingFwdOp);                 \
   f(Communication);                  \
-  f(P2PCommunication);               \
-  f(ForLoop);
+  f(P2PCommunication);
 #define DISPATCH_FOR_ALL_KIR_EXPRS(f) \
   f(Allocate);                        \
   f(AllocTMem);                       \
@@ -200,9 +199,6 @@ DISPATCH_FOR_ALL_HIR_EXPRS(M)
 #undef M
 
 } // namespace hir
-
-// Backward compatibility typedef after ForLoop was moved to kir namespace
-using ForLoop = kir::ForLoop;
 
 namespace assoc_comm {
 class FlattenedAssocCommOp;
