@@ -809,7 +809,7 @@ Val* ContiguousInnerDimensionsMapper::getContigMergeOfInnerSize(
     Val* num_devices = of_tv->container()->oneVal();
     for (Expr* expr : exprs | std::views::reverse) {
       validateDeviceSplit(expr);
-      Split* split = expr->as<Split>();
+      auto* split = expr->as<Split>();
       logical_id = split->in();
       num_devices = SimplifyingIrBuilder::mulExpr(num_devices, split->factor());
     }

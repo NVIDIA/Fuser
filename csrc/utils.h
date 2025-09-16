@@ -24,7 +24,6 @@
 
 #include <ATen/ATen.h>
 #include <c10/core/thread_pool.h>
-#include <torch/torch.h>
 
 #include <debug.h>
 #include <exceptions.h>

@@ -2021,7 +2021,6 @@ TEST_P(ClusterReductionTest, SoftmaxDtypeClusterSize) {
   }
   auto unscheduled_fusion_copy = fusion;
 
-  torch::cuda::manual_seed(0);
   auto options =
       at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
   auto t0 = at::randn({x, y}, options).clamp(-2, 2);

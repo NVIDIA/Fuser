@@ -74,21 +74,23 @@ void validateParallelizationOfTensor(TensorView* tv) {
       thread_pred.limited_types.toString());
 }
 
-// Return true when consumer_id of consumer_tv can accommodate
+// Return true when producer_id of producer_tv can accommodate
 // incoherent data dependencies.
 bool allowIncoherentDependency(
-    TensorView* consumer_tv,
-    IterDomain* consumer_id) {
-  auto def = consumer_tv->definition();
-  NVF_ERROR(def != nullptr);
-
+    Expr* def,
+    TensorView* producer_tv,
+    IterDomain* producer_id) {
   // In the case of topk, the dependency of the topk IDs are taken
-  // care by the topk operation itself.
+  // care by the topk operation itself. Note that a producer loop ID
+  // are used here. When the topk ID of the consumer tensor is a
+  // broadcast ID, it may not be considered paralellized if not
+  // concretized, and consumer_id in SyncMap::SyncMap can be nullptr.
   if (auto topk = dynamic_cast<TopKOp*>(def)) {
     auto topk_loop_ids = ir_utils::getReachableIds(
-        consumer_tv->getLoopDomain(),
-        {consumer_tv->getLogicalDomain().at(topk->dim())});
-    if (std::ranges::find(topk_loop_ids, consumer_id) != topk_loop_ids.end()) {
+        producer_tv->getLoopDomain(),
+        {TensorDomain::noReductions(producer_tv->getLogicalDomain())
+             .at(topk->dim())});
+    if (std::ranges::find(topk_loop_ids, producer_id) != topk_loop_ids.end()) {
       return true;
     }
   }
@@ -404,7 +406,7 @@ SyncMap::SyncMap(Fusion* fusion, bool error_on_failure) {
 
           // Certain operations resolve data dependencies by
           // themselves, thus not requiring a RAW sync
-          if (allowIncoherentDependency(consumer, c_id)) {
+          if (allowIncoherentDependency(expr, producer, p_id)) {
             continue;
           }
 

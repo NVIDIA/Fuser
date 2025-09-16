@@ -174,8 +174,8 @@ class ConditionalFromPredicateModifier : public kir::ExprMutator {
             pred->predicate_type());
       }
       case PredicateType::Vectorize: {
-        std::vector<ForLoop*> outer_loops;
-        ForLoop* vectorized_loop = nullptr;
+        std::vector<kir::ForLoop*> outer_loops;
+        kir::ForLoop* vectorized_loop = nullptr;
         for (auto loop : for_loops_) {
           if (loop->iter_domain()->getParallelType() ==
               ParallelType::Vectorize) {
@@ -232,7 +232,7 @@ class ConditionalFromPredicateModifier : public kir::ExprMutator {
   }
 
   // Keep track of the loop in which the currently visiting expr is a rotated.
-  std::unordered_set<ForLoop*> rotated_loop_;
+  std::unordered_set<kir::ForLoop*> rotated_loop_;
   // Stores combined predicate value, inline predicate value and circular buffer
   // loop index for one dim tma load.
   OneDimTmaPredicateInfo one_dim_tma_predicate_info_;

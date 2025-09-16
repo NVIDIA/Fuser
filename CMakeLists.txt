@@ -135,6 +135,7 @@ if(BUILD_CUTLASS)
 
     set(NVFUSER_CUTLASS_SRCS)
     list(APPEND NVFUSER_CUTLASS_SRCS
+        ${NVFUSER_CUTLASS}/group_mm.cu
         ${NVFUSER_CUTLASS}/nvfp4_scaled_mm.cu
         ${NVFUSER_CUTLASS}/nvfp4_scaled_mm_blockscale.cu
         ${NVFUSER_CUTLASS}/nvfp4_scaled_group_mm.cu
@@ -327,6 +328,7 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/runtime/allocations.cpp
   ${NVFUSER_SRCS_DIR}/runtime/communication_executor.cpp
   ${NVFUSER_SRCS_DIR}/runtime/compiled_kernel.cpp
+  ${NVFUSER_SRCS_DIR}/runtime/cutlass_compiled_kernel.cpp
   ${NVFUSER_SRCS_DIR}/runtime/executor.cpp
   ${NVFUSER_SRCS_DIR}/runtime/executor_dispatch.cpp
   ${NVFUSER_SRCS_DIR}/runtime/executor_kernel_arg.cpp
@@ -964,6 +966,7 @@ list(APPEND JIT_TEST_SRCS
   ${NVFUSER_ROOT}/tests/cpp/test_sharding.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_smem_reuse.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_statement_guard.cpp
+  ${NVFUSER_ROOT}/tests/cpp/test_stream.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_swizzle.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_tensor_factories.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_tmem.cpp

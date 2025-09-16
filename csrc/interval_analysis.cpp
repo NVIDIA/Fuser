@@ -490,7 +490,7 @@ void ScalarBoundsCalculator::dispatch(Expr* expr) {
     }
   }
 
-  if (!expr->isA<ForLoop>() &&
+  if (!expr->isA<kir::ForLoop>() &&
       std::all_of(
           expr->outputs().begin(), expr->outputs().end(), [](Val* outp) {
             return !outp->isIntegralScalar();
@@ -513,7 +513,7 @@ void ScalarBoundsCalculator::dispatch(Expr* expr) {
   // Inline scalar expressions might not have their inputs processed yet
   // The following loop ensures that all inputs to expr have recorded bounds.
   std::vector<Val*> immediate_inputs = expr->inputs();
-  if (auto* loop = dynamic_cast<ForLoop*>(expr)) {
+  if (auto* loop = dynamic_cast<kir::ForLoop*>(expr)) {
     immediate_inputs.push_back(loop->start());
     immediate_inputs.push_back(loop->stop());
     immediate_inputs.push_back(loop->step());
@@ -545,7 +545,7 @@ int64_t ScalarBoundsCalculator::evalInt(Val* val) {
   return expr_eval_.evaluate(val).as<int64_t>();
 }
 
-void ScalarBoundsCalculator::handle(ForLoop* loop) {
+void ScalarBoundsCalculator::handle(kir::ForLoop* loop) {
   // Set bounds for the loop variable
   BoundedInt start = bounds_.at(loop->start());
   BoundedInt stop = bounds_.at(loop->stop());

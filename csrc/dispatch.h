@@ -121,8 +121,8 @@ class Val;
   f(SdpaBwdOp);                      \
   f(EmbeddingFwdOp);                 \
   f(Communication);                  \
-  f(ForLoop);                        \
-  f(P2PCommunication);
+  f(P2PCommunication);               \
+  f(ForLoop);
 #define DISPATCH_FOR_ALL_KIR_EXPRS(f) \
   f(Allocate);                        \
   f(AllocTMem);                       \
@@ -146,6 +146,7 @@ class Val;
   f(AsyncWait);                       \
   f(AsyncCommit);                     \
   f(ClusterReductionOp);              \
+  f(ForLoop);                         \
   f(IfThenElse);                      \
   f(GridReduction);                   \
   f(GroupedGridReduction);            \
@@ -172,7 +173,8 @@ class Val;
   f(ShareMemHandles);                 \
   f(HirAliasSelect);                  \
   f(ShardByStream);                   \
-  f(Deallocate);
+  f(Deallocate);                      \
+  f(ForLoop);
 
 // Forward declarations for all Val and Expr types
 
@@ -198,6 +200,9 @@ DISPATCH_FOR_ALL_HIR_EXPRS(M)
 #undef M
 
 } // namespace hir
+
+// Backward compatibility typedef after ForLoop was moved to kir namespace
+using ForLoop = kir::ForLoop;
 
 namespace assoc_comm {
 class FlattenedAssocCommOp;

@@ -395,7 +395,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
         var_name_ss << "_duplicate_" << duplicate_counter++;
       }
 
-      if (const auto tv = dynamic_cast<TensorView*>(param)) {
+      if (const auto* tv = dynamic_cast<TensorView*>(param)) {
         if (tv->isCpuScalar()) {
           code_ << " CpuScalarTensor<" << param->dtype() << "> "
                 << var_name_ss.str();
@@ -617,7 +617,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       // This expr should just be an individul expr with no nested
       // scope
       NVF_ERROR(
-          !stmt->isA<kir::IfThenElse>() && !stmt->isA<ForLoop>(),
+          !stmt->isA<kir::IfThenElse>() && !stmt->isA<kir::ForLoop>(),
           "Invalid expr: ",
           stmt->toString());
     } else {
@@ -2732,7 +2732,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
         grouped_loops_.begin(),
         grouped_loops_.end(),
         std::back_inserter(loop_indices),
-        [](const ForLoop* loop) { return loop->index(); });
+        [](const kir::ForLoop* loop) { return loop->index(); });
 
     // All combinations of loop index integer values
     const auto index_val_sets = getGroupedLoopIndexConcreteIntSets();
@@ -3432,7 +3432,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
              << reduction_name << ";\n";
   }
 
-  void handleTrivialLoop(const ForLoop* loop) {
+  void handleTrivialLoop(const kir::ForLoop* loop) {
     if (loop->vectorize()) {
       vectorize_scope_ = true;
     }
@@ -3663,7 +3663,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
         " which is handled by its own handler");
   }
 
-  void handle(const ForLoop* loop) final {
+  void handle(const kir::ForLoop* loop) final {
     if (loop->isTrivial()) {
       handleTrivialLoop(loop);
       return;
@@ -4429,6 +4429,57 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     current_group_reduction_id_++;
   }
 
+  void handle(const PreprocessGroupedMatmulInputSf* layout_op) final {
+    const auto output = layout_op->out()->as<kir::TensorIndex>();
+    const auto input = layout_op->in()->as<kir::TensorIndex>();
+    ArgumentBuilder template_args;
+    template_args.arg(input->view()->dtype()); // DataT
+    template_args.arg(layout_op->inputOffsets()->dtype()); // OffsetsDataT
+    switch (layout_op->layout()) {
+      case BlockScalingFactorLayout::Block128x4:
+        template_args.arg(32); // block_row_outer
+        template_args.arg(4); // block_row_inner
+        template_args.arg(4); // block_col
+        break;
+      default:
+        NVF_THROW("unrecognized layout");
+        break;
+    }
+
+    int64_t vector_word_size = ir_utils::getVectorizeSize(output->view());
+    bool is_vector_op = vectorize_scope_ && vector_word_size != 1;
+    // TODO: Implement vectorized load/store. Currently vectorization is done
+    // via unrolled for loop.
+    if (is_vector_op) {
+      template_args.arg(vector_word_size);
+    } else {
+      template_args.arg(1);
+    }
+
+    ArgumentBuilder func_args;
+    // NOTE: genInline(output) always point to the beginning of the buffer,
+    // since its index value is const 0;
+    func_args.arg("&").append(genInline(output));
+    func_args.arg("&").append(genInline(input));
+    // index lowering for PreprocessGroupedMatmulInputSf stored logical index
+    // into its attribute position 1 and 2.
+    func_args.arg(genInline(layout_op->attributeVal(1)));
+    func_args.arg(genInline(layout_op->attributeVal(2)));
+    func_args.arg("&").append(
+        genVariableName(layout_op->inputOffsets()) + "[0]");
+    func_args.arg("&").append(
+        genVariableName(layout_op->outputOffsets()) + "[0]");
+
+    func_args.arg(genInline(layout_op->k()));
+    func_args.arg(genInline(layout_op->g()));
+
+    indent() << genCall(
+                    "block_layout::preprocessGroupedMatmulInputSf",
+                    template_args,
+                    func_args)
+             << ";\n";
+  }
+
  private:
   // Our generated string has two parts: a utilities section that contains PTX
   // wrappers and other definitions derived from kernel IR, and a kernel section
@@ -4464,7 +4515,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
   //! should be inlined.
   std::unordered_set<const Val*> alloc_set_;
   //! Keep track of grouped loops
-  std::deque<const ForLoop*> grouped_loops_;
+  std::deque<const kir::ForLoop*> grouped_loops_;
   //! Used to replace symbolic indices with concrete values
   std::unordered_map<const Val*, int64_t> index_replacement_map_;
   //! Keep track of thread alignment property

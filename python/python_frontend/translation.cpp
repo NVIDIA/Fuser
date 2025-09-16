@@ -707,7 +707,7 @@ class FusionTranslator : public OptInConstDispatch {
 
   // Map ReductionOp to python frontend
   void handle(const ReductionOp* rop) final {
-    TensorView* out_tv = rop->out()->as<TensorView>();
+    auto* out_tv = rop->out()->as<TensorView>();
 
     // The min and max reduction operations expect the dtype argument to by
     // PrimDataType::Null
@@ -741,17 +741,17 @@ class FusionTranslator : public OptInConstDispatch {
     NVF_ERROR(wop->initN()->evaluate().as<int64_t>() == 0);
 
     NVF_ERROR(wop->outAvg()->isA<TensorView>());
-    TensorView* out_avg_tv = wop->outAvg()->as<TensorView>();
+    auto* out_avg_tv = wop->outAvg()->as<TensorView>();
     Tensor out_avg = fd_->defineTensor(out_avg_tv->nDims());
     map_val_to_fd_index_.emplace(wop->outAvg(), out_avg());
 
     NVF_ERROR(wop->outVar()->isA<TensorView>());
-    TensorView* out_var_tv = wop->outVar()->as<TensorView>();
+    auto* out_var_tv = wop->outVar()->as<TensorView>();
     Tensor out_var = fd_->defineTensor(out_var_tv->nDims());
     map_val_to_fd_index_.emplace(wop->outVar(), out_var());
 
     NVF_ERROR(wop->outN()->isA<TensorView>());
-    TensorView* out_N_tv = wop->outN()->as<TensorView>();
+    auto* out_N_tv = wop->outN()->as<TensorView>();
     Tensor out_N = fd_->defineTensor(out_N_tv->nDims());
     map_val_to_fd_index_.emplace(wop->outN(), out_N());
 
@@ -779,7 +779,7 @@ class FusionTranslator : public OptInConstDispatch {
 
   // Add DimsOpRecord to create permutation in FusionDefinition
   void handlePermute(const LoadStoreOp* lsop) {
-    TensorView* out_tv = lsop->out()->as<TensorView>();
+    auto* out_tv = lsop->out()->as<TensorView>();
 
     std::optional<std::vector<int64_t>> new2old = ir_utils::computePermutation(
         out_tv->getRootDomain(), out_tv->getLogicalDomain());
@@ -829,7 +829,7 @@ class FusionTranslator : public OptInConstDispatch {
   // Map ReshapeOp to python frontend
   void handle(const ReshapeOp* vop) final {
     // Get extent's for output's logical domain
-    TensorView* out_tv = vop->out()->as<TensorView>();
+    auto* out_tv = vop->out()->as<TensorView>();
     Vector new_shape = getShape(out_tv);
 
     Tensor output = fd_->defineTensor(out_tv->nDims());
@@ -842,8 +842,8 @@ class FusionTranslator : public OptInConstDispatch {
 
   // Map ExpandOp to python frontend
   void handle(const ExpandOp* eop) final {
-    TensorView* in_tv = eop->in()->as<TensorView>();
-    TensorView* out_tv = eop->out()->as<TensorView>();
+    auto* in_tv = eop->in()->as<TensorView>();
+    auto* out_tv = eop->out()->as<TensorView>();
     NVF_ERROR(in_tv->nDims() == out_tv->nDims());
     Vector new_shape = getShape(out_tv);
 
@@ -967,7 +967,7 @@ class FusionTranslator : public OptInConstDispatch {
 
   // Map RNGOp to RandomDistOpRecord
   void handle(const RNGOp* rop) final {
-    TensorView* out_tv = rop->output(0)->as<TensorView>();
+    auto* out_tv = rop->output(0)->as<TensorView>();
     Tensor output = fd_->defineTensor(out_tv->nDims());
     map_val_to_fd_index_.emplace(out_tv, output());
 
@@ -1032,7 +1032,7 @@ class FusionTranslator : public OptInConstDispatch {
 
   // Map LinearOp to python frontend
   void handle(const LinearOp* lop) final {
-    TensorView* out_tv = lop->out()->as<TensorView>();
+    auto* out_tv = lop->out()->as<TensorView>();
     Tensor output = fd_->defineTensor(out_tv->nDims());
     map_val_to_fd_index_.emplace(out_tv, output());
 
@@ -1061,7 +1061,7 @@ class FusionTranslator : public OptInConstDispatch {
 
   // Map FullOp to python frontend
   void handle(const FullOp* fop) final {
-    TensorView* out_tv = fop->output(0)->as<TensorView>();
+    auto* out_tv = fop->output(0)->as<TensorView>();
     Vector tensor_shape = getShape(out_tv);
 
     Scalar fill_value = createScalar(fop->getFillValue());
@@ -1078,7 +1078,7 @@ class FusionTranslator : public OptInConstDispatch {
 
   // Map IotaOp to python frontend
   void handle(const IotaOp* iop) final {
-    TensorView* out_tv = iop->output(0)->as<TensorView>();
+    auto* out_tv = iop->output(0)->as<TensorView>();
     Tensor output = fd_->defineTensor(out_tv->nDims());
     map_val_to_fd_index_.emplace(out_tv, output());
 
@@ -1096,7 +1096,7 @@ class FusionTranslator : public OptInConstDispatch {
 
   // Map IndexSelectOp to IndexSelectOpRecord
   void handle(const IndexSelectOp* isop) final {
-    TensorView* out_tv = isop->output(0)->as<TensorView>();
+    auto* out_tv = isop->output(0)->as<TensorView>();
     Tensor output = fd_->defineTensor(out_tv->nDims());
     map_val_to_fd_index_.emplace(out_tv, output());
 
@@ -1109,7 +1109,7 @@ class FusionTranslator : public OptInConstDispatch {
 
   // Map SelectOp to IndexSelectOpRecord
   void handle(const SelectOp* sop) final {
-    TensorView* out_tv = sop->output(0)->as<TensorView>();
+    auto* out_tv = sop->output(0)->as<TensorView>();
     Tensor output = fd_->defineTensor(out_tv->nDims());
     map_val_to_fd_index_.emplace(out_tv, output());
 
@@ -1122,7 +1122,7 @@ class FusionTranslator : public OptInConstDispatch {
 
   // Map ScatterOp to python frontend
   void handle(const ScatterOp* sop) final {
-    TensorView* out_tv = sop->output(0)->as<TensorView>();
+    auto* out_tv = sop->output(0)->as<TensorView>();
     Tensor output = fd_->defineTensor(out_tv->nDims());
     map_val_to_fd_index_.emplace(out_tv, output());
 
@@ -1136,7 +1136,7 @@ class FusionTranslator : public OptInConstDispatch {
 
   // Map ArgsortOp to python frontend
   void handle(const ArgsortOp* argsortop) final {
-    TensorView* out_tv = argsortop->output(0)->as<TensorView>();
+    auto* out_tv = argsortop->output(0)->as<TensorView>();
     Tensor output = fd_->defineTensor(out_tv->nDims());
     map_val_to_fd_index_.emplace(out_tv, output());
 
@@ -1341,7 +1341,7 @@ class FusionTranslator : public OptInConstDispatch {
 
   // Map GatherOp to python frontend
   void handle(const GatherOp* gop) final {
-    TensorView* out_tv = gop->output(0)->as<TensorView>();
+    auto* out_tv = gop->output(0)->as<TensorView>();
     Tensor output = fd_->defineTensor(out_tv->nDims());
     map_val_to_fd_index_.emplace(out_tv, output());
 

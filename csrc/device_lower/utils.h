@@ -30,7 +30,7 @@ class ValGraph;
 namespace scope_utils {
 
 //! Create an **empty** Forloop and copy the metadata.
-ForLoop* cloneForLoop(ForLoop* for_loop);
+kir::ForLoop* cloneForLoop(kir::ForLoop* for_loop);
 
 //! Create an **empty** IfThenElse and copy the metadata.
 kir::IfThenElse* cloneIfThenElse(kir::IfThenElse* ite);
@@ -183,7 +183,7 @@ std::optional<int64_t> getStageSlicePosition(const TensorView* tv);
 // Returns true if the for_loops contain a loop with the given
 // CircularBufferLoopStage.
 bool containsCircularBufferStage(
-    const std::vector<ForLoop*>& for_loops,
+    const std::vector<kir::ForLoop*>& for_loops,
     CircularBufferLoopStage stage_type);
 } // namespace ir_utils
 
@@ -202,7 +202,7 @@ kir::Allocate* allocGlobalBufferForGridComm(
 struct AllocPosInfo {
   // The for loop that the initialization of this allocation must be
   // placed in, nullptr if not within a loop
-  ForLoop* init_for_loop = nullptr;
+  kir::ForLoop* init_for_loop = nullptr;
 
   // Keep track of the actual allocation loop. This can be different
   // from init_for_loop only with unswitched shared memory allocations,
@@ -211,7 +211,7 @@ struct AllocPosInfo {
   // outside lower_allocation is likely looking for init_for_loop which is
   // more directly related to how large an allocation is and how it's used.
   // (see issue #1133).
-  ForLoop* alloc_for_loop = nullptr;
+  kir::ForLoop* alloc_for_loop = nullptr;
 
   // The allocation position relative to buffer IDs, it could be outside the
   // compute at position if it's shared memory with a compute at inside an
@@ -223,7 +223,7 @@ struct AllocPosInfo {
 // used if we're looking at a producer tensor but loops on a consumer tensor.
 AllocPosInfo getAllocPosInfo(
     const TensorView* tv,
-    const std::vector<ForLoop*>& loops,
+    const std::vector<kir::ForLoop*>& loops,
     const std::unordered_map<IterDomain*, IterDomain*>& id_map = {},
     bool use_id_map = false);
 
@@ -290,7 +290,7 @@ bool isReductionInitExpr(const Expr* expr);
 // the split input IterDomain may be an output IterDomain of a
 // non-divisible split, we still need to predicate each loop iteration
 // value.
-bool predicateAtEnd(ForLoop* loop);
+bool predicateAtEnd(kir::ForLoop* loop);
 
 // Given linear_g and domain, prove that linear_g is linear with respect to
 // domain and return the stride. linear_g is linear with respect to domain if
@@ -377,7 +377,7 @@ bool allMmaInputsGuardedByMBarrier(const MmaOp* mma);
 
 // Check if the given ForLoop is a warp specialized loop by checking
 // the circular buffer type of the loop domain.
-bool isWarpSpecializedLoop(ForLoop* loop);
+bool isWarpSpecializedLoop(kir::ForLoop* loop);
 
 // Check if the given Expr is only a data copy, and no math is done on it.
 // For example, set, broadcast, squeeze, slice, pad, reshape, etc.

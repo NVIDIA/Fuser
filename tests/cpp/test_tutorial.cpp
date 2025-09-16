@@ -468,7 +468,7 @@ TEST_F(Tutorial, Reshape) {
     ASSERT_TRUE(tv1->hasRoot());
     ASSERT_EQ(tv1->getLogicalDomain().size(), 1);
     ASSERT_TRUE(tv1->getLogicalDomain().at(0)->definition()->isA<Merge>());
-    Merge* tv1_merge = tv1->getLogicalDomain().at(0)->definition()->as<Merge>();
+    auto* tv1_merge = tv1->getLogicalDomain().at(0)->definition()->as<Merge>();
     ASSERT_EQ(tv1_merge->inner(), tv1->getRootDomain().at(1));
     ASSERT_EQ(tv1_merge->outer(), tv1->getRootDomain().at(0));
   }

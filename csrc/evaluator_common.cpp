@@ -88,7 +88,7 @@ void collectBufferSizes(
   for (auto expr : exprs) {
     if (auto allocate = dynamic_cast<kir::Allocate*>(expr)) {
       into.push_back(allocate->size());
-    } else if (auto for_loop = dynamic_cast<ForLoop*>(expr)) {
+    } else if (auto for_loop = dynamic_cast<kir::ForLoop*>(expr)) {
       collectBufferSizes(into, for_loop->body().exprs());
     } else if (auto ite = dynamic_cast<kir::IfThenElse*>(expr)) {
       collectBufferSizes(into, ite->thenBody().exprs());
