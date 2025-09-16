@@ -116,20 +116,9 @@ class NVF_API HostIrEvaluator final : public OptOutDispatch {
 
   c10::cuda::CUDAStream getCUDAStream(Stream* stream);
 
-  PolymorphicValue getKnownConcreteValue(Val* val) const {
-    NVF_ERROR(
-        expr_evaluator_.isKnown(val) || val->isConst(),
-        "Value ",
-        val->toString(),
-        " must be precomputed before being retrieved.");
-    return expr_evaluator_.evaluate(val);
-  }
+  PolymorphicValue getKnownConcreteValue(Val* val) const;
 
-  at::Tensor getKnownTensorOrUndefined(Val* val) const {
-    return expr_evaluator_.isKnown(val)
-        ? expr_evaluator_.evaluate(val).as<at::Tensor>()
-        : at::Tensor();
-  }
+  at::Tensor getKnownTensorOrUndefined(Val* val) const;
 
   void validate() const;
 

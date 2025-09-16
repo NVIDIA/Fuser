@@ -188,7 +188,7 @@ void HostIrEvaluator::handle(LaunchKernel* launch_kernel) {
   if (!cache_id.is<std::monostate>()) {
     args.setCacheId(static_cast<size_t>(cache_id.as<int64_t>()));
   }
-  for (auto& input : launch_kernel->inputs()) {
+  for (Val* input : launch_kernel->inputs()) {
     args.push(getKnownConcreteValue(input));
   }
 
@@ -753,6 +753,21 @@ void HostIrEvaluator::unhandled(Statement* stmt) {
        zip(expr->outputs(), concrete_outputs)) {
     expr_evaluator_.bind(output, concrete_output);
   }
+}
+
+PolymorphicValue HostIrEvaluator::getKnownConcreteValue(Val* val) const {
+  NVF_ERROR(
+      expr_evaluator_.isKnown(val) || val->isConst(),
+      "Value ",
+      val->toString(),
+      " must be precomputed before being retrieved.");
+  return expr_evaluator_.evaluate(val);
+}
+
+at::Tensor HostIrEvaluator::getKnownTensorOrUndefined(Val* val) const {
+  return expr_evaluator_.isKnown(val)
+      ? expr_evaluator_.evaluate(val).as<at::Tensor>()
+      : at::Tensor();
 }
 
 } // namespace nvfuser::hir

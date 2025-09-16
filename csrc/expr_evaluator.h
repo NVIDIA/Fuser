@@ -65,9 +65,7 @@ class ExpressionEvaluator {
     return known_values_.count(value) > 0;
   }
 
-  void invalidate(const Val* value) {
-    known_values_.erase(value);
-  }
+  void invalidate(const Val* value);
 
   //! Debugging helper, prints all the currently known values
   void print() const;
