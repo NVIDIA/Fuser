@@ -412,6 +412,14 @@ class PredicateChcker : public IterVisitor {
   using IterVisitor::handle;
 
   void dispatch(Expr* expr) final {
+    if (std::ranges::any_of(expr->outputs(), [](Val* out) {
+          auto tv = dynamic_cast<TensorView*>(out);
+          return tv != nullptr && tv->getMemoryType() == MemoryType::Global;
+        })) {
+      needs_predicate_ = true;
+      return;
+    }
+
     const bool needs_predicate_smem_access =
         needsPredicateSharedMemAccess(expr);
     needs_predicate_ = predicateIntDiv(expr) || needs_predicate_smem_access ||
