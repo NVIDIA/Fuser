@@ -14,21 +14,28 @@
 #include <fusion_guard.h>
 #include <ir/interface_nodes.h>
 #include <ops/arith.h>
+#include <runtime/fusion_executor_cache.h>
 #include <tests/cpp/utils.h>
+#include <tests/cpp/validator.h>
 
 namespace nvfuser {
 
-using StreamTest = NVFuserTest;
+class StreamTest : public NVFuserTest {
+ protected:
+  StreamTest() {
+    EnableOptionsGuard::getCurOptions().set(EnableOption::HostIrLowering);
+  }
+};
 
 TEST_F(StreamTest, AddPerStream) {
   constexpr int64_t c = 3;
-  Fusion fusion;
-  FusionGuard fg(&fusion);
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
 
   TensorView* in = makeContigTensor(2);
   TensorView* out = add(in, in);
-  fusion.addInput(in);
-  fusion.addOutput(out);
+  fusion->addInput(in);
+  fusion->addOutput(out);
 
   in->outer_split(1, c);
   in->axis(1)->parallelize(ParallelType::Stream);
@@ -37,22 +44,14 @@ TEST_F(StreamTest, AddPerStream) {
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA);
   at::Tensor in_tensor = at::randn({5, c * 2}, options);
-  at::Tensor out_tensor = at::zeros_like(in_tensor);
 
-  KernelExecutor ke;
-  ke.compile(&fusion, {in_tensor});
-  constexpr int64_t kStreamIndex = 1;
-  ke.run({in_tensor, kStreamIndex}, {out_tensor});
+  FusionExecutorCache executor_cache(std::move(fusion));
+  KernelArgumentHolder out_tensors =
+      executor_cache.runFusionWithInputs({in_tensor});
+  auto out_tensor = out_tensors[0].as<at::Tensor>();
 
-  at::Tensor expected_out_tensor = in_tensor + in_tensor;
-  std::vector<at::Tensor> chunks = expected_out_tensor.chunk(c, 1);
-  for (auto [i, chunk] : enumerate(chunks)) {
-    if (i != kStreamIndex) {
-      chunk.zero_();
-    }
-  }
-  EXPECT_TRUE(at::allclose(out_tensor, expected_out_tensor))
-      << out_tensor << " vs " << expected_out_tensor;
+  testValidate(
+      executor_cache.fusion(), {out_tensor}, {in_tensor}, __LINE__, __FILE__);
 }
 
 } // namespace nvfuser
