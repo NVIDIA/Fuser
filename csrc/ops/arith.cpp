@@ -2640,7 +2640,7 @@ ScanResult scan(
   if (return_reduction) {
     std::vector<IterDomain*> red_dom = ops::newOutputDomain({in_tv});
     red_dom.at((size_t)dim) = IterDomainBuilder(red_dom.at((size_t)dim))
-                                  .iter_type(IterType::Reduction)
+                                  .iter_type(IterType::Scan)
                                   .build();
     auto* red_td = IrBuilder::create<TensorDomain>(
         red_dom, TensorDomain::getContiguityFilledWith(red_dom, true));

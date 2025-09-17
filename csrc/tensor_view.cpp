@@ -293,14 +293,16 @@ void TensorView::computeWith(int64_t pos, bool best_effort) {
       toString());
 
   pos = nvfuser::wrapDim(pos, nDims() + 1);
+  std::cout << "\ncomputeWith pos: " << pos << std::endl;
 
   const int64_t max_inline_pos =
       (int64_t)MaxPosCalculator({}, true).getMaxPosAll(this, best_effort);
 
+  std::cout << "max_inline_pos: " << max_inline_pos << std::endl;
   if (best_effort) {
     pos = std::min(max_inline_pos, pos);
   }
-
+  std::cout << "pos: " << pos << std::endl;
   // hoist inner most broadcast
   while (pos > 0 && axis(pos - 1)->isBroadcast()) {
     pos--;

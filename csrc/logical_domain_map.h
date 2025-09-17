@@ -13,6 +13,7 @@
 #include <iter_visitor.h>
 #include <utils.h>
 #include <visibility.h>
+#include "ir/internal_nodes.h"
 
 namespace nvfuser {
 
@@ -514,6 +515,10 @@ class ComputeAtLogicalDomainMapBuilder : private BackwardVisitor {
   }
 
   void handle(SliceOp* op) override {
+    mapPointwiseLikeOp(op);
+  }
+
+  void handle(ScanOp* op) override {
     mapPointwiseLikeOp(op);
   }
 

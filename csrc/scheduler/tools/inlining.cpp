@@ -227,15 +227,21 @@ size_t MaxPosCalculator::getMaxPosAll(
     TensorView* tv,
     bool best_effort,
     bool check_siblings) {
+  std::cout << "getMaxPosAll for tv: " << tv->name() << std::endl;
   auto max_pos = getMaxPosSelf(tv, best_effort, false, false, false);
+  std::cout << "getMaxPosSelf: " << max_pos << std::endl;
   for (auto consumer_tv : ir_utils::consumerTvsOf(tv)) {
     max_pos = std::min<size_t>(
         max_pos, getMaxProducerPosFromConsumer(tv, consumer_tv, best_effort));
+    std::cout << "max_pos: " << max_pos
+              << " consumer_tv: " << consumer_tv->toString() << std::endl;
   }
   if (check_siblings) {
     for (auto sibling_tv : ir_utils::siblingTvsOf(tv)) {
       max_pos = std::min<size_t>(
           max_pos, getMaxPosAll(sibling_tv, best_effort, false));
+      std::cout << "max_pos: " << max_pos
+                << " sibling_tv: " << sibling_tv->toString() << std::endl;
     }
   }
   return max_pos;

@@ -1110,19 +1110,19 @@ TEST_F(ScanTest, SumExpScan) {
   auto tv6 = sub(tv1, tv2);
   auto tv7 = exp(tv6);
   auto scan_res2 = prefixSum(
-      tv7, {1}, tv5, /*return_exclusive=*/false, /*return_reduction=*/true);
+      tv7, {1}, tv5, /*return_exclusive=*/false, /*return_reduction=*/false);
   auto tv8 = scan_res2.inclusive;
-  auto tv9 = scan_res2.reduction;
-  auto tv10 = set(tv8);
-  auto tv11 = set(tv9);
+  // auto tv9 = scan_res2.reduction;
+  auto tv9 = set(tv8);
+  auto tv10 = max(tv9, {1});
+  auto tv11 = set(tv10);
   fusion.addOutput(tv11);
-  fusion.addOutput(tv10);
   auto unscheduled_fusion = fusion;
 
   fusion.printMath();
 
   // Same as InclusiveScan
-  const auto& scan_outputs = {tv2, tv3, tv8, tv9};
+  const auto& scan_outputs = {tv2, tv3, tv8};
 
   // Similar to InclusiveScan and InclusiveExclusiveScan
   // Avoid inlining the scanned dimensions
@@ -1141,15 +1141,18 @@ TEST_F(ScanTest, SumExpScan) {
   // manual inline the producers
   for (auto tv : scan_outputs) {
     int compute_with_pos = -1;
-    if (tv == tv9 || tv == tv8) {
-      compute_with_pos = 1;
-    }
     tv->computeWith(compute_with_pos);
     std::cout << "\ntv: " << tv->toString() << std::endl;
     for (auto v : tv->definition()->inputs()) {
       std::cout << "pv: " << v->toString() << std::endl;
       v->as<TensorView>()->inlineAt(-1);
     }
+  }
+
+  IdModel id_model(&fusion, /*build_graphs=*/true, /*allow_self_mapping=*/true);
+  const ValGraph& exact_graph = id_model.idGraph(IdMappingMode::EXACT);
+  for (auto dis_joint_set : exact_graph.disjointValSets().disjointSets()) {
+    std::cout << "dis_joint_set: " << dis_joint_set->toString() << std::endl;
   }
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);

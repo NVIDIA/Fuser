@@ -377,6 +377,19 @@ std::vector<TensorView*> consumerTvsOf(const TensorView* tv) {
 }
 
 std::vector<TensorView*> siblingTvsOf(const TensorView* tv) {
+  // For scanOp, don't treat reduction output as sibling of scan outputs
+  if (tv->definition()->isA<ScanOp>()) {
+    auto scan_op = tv->definition()->as<ScanOp>();
+    std::cout << "siblingTvsOf scan_op: " << scan_op->toString() << std::endl;
+    if (tv == scan_op->out() && scan_op->hasExclusiveOutput()) {
+      return {scan_op->outExclusive()};
+    } else if (tv == scan_op->outExclusive()) {
+      return {scan_op->out()};
+    } else {
+      return {};
+    }
+  }
+
   auto sibling_vals = siblingValsOf(tv);
   auto sibling_tvs = ir_utils::filterByType<TensorView>(sibling_vals);
   return {sibling_tvs.begin(), sibling_tvs.end()};
