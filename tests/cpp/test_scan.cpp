@@ -1355,101 +1355,251 @@ TEST_F(ScanTest, BlockedAttention) {
 
   EXPECT_TRUE(at::allclose(final_output, aten_O, 1e-4, 1e-6, true));
 }
-// TEST_F(ScanTest, OnlineSoftmax) {
-//   EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
 
-//   auto fusion = std::make_unique<Fusion>();
-//   FusionGuard fg(fusion.get());
+TEST_F(ScanTest, BlockedAttentionInline) {
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
 
-//   auto x = makeSymbolicTensor(1);
-//   fusion->addInput(x);
-//   auto x_cache = set(x);
-//   int64_t scan_dim = 0;
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  int64_t N = 12; // sequence length
+  int64_t D = 5; // hidden dimension size
+  int64_t Br = 2; // block size for rows
+  int64_t Bc = 3; // block size for columns
+  int64_t Tr = N / Br; // Total number of row blocks for Q, 4
+  int64_t Tc = N / Bc; // Total number of column blocks for K^T, 8
+  // [N,D] --> [Tr, Br, D] for Q and [Tc, Bc, D] for K,V
+  auto Q = makeConcreteTensor({Tr, Br, 1, 1, D});
+  auto K = makeConcreteTensor({1, 1, Tc, Bc, D});
+  auto V = makeConcreteTensor({1, 1, Tc, Bc, D});
+  fusion->addInput(Q);
+  fusion->addInput(K);
+  fusion->addInput(V);
 
-//   // Online normalizer for softmax: https://arxiv.org/abs/1805.02867
-//   //
-//   // Given x[i] for i=0 .. N-1:
-//   //
-//   //   m[-1] = -infinity
-//   //   d[-1] = 0
-//   //   for j = 0 .. N-1
-//   //     m[j] = max(m[j-1], x[j])
-//   //     d[j] = d[j-1] * exp(m[j-1] - m[j]) + exp(x[j] - m[j])
-//   //
-//   // Final denominator is d[N-1]
-//   TensorView* m_prev =  scan(x_cache, {scan_dim}, BinaryOpType::Max,
-//   /*is_exclusive=*/true); // m[i-1] TensorView* m =
-//   binaryOp(BinaryOpType::Max, x_cache, m_prev);
-//   // normalize by running max and exponentiate
-//   TensorView* exp_x_m = exp(sub(x_cache, m));
-//   // Discount factor is exponentiated delta: exp(m[i-1] - m[i])
-//   TensorView* discount = exp(sub(m_prev, m));
+  // {Tr, Br, 1, 1, D} --> {Tr, 1, Br, 1, D}
+  Q->reorder({{1, 2}, {2, 1}});
+  // {1, 1, Tc, Bc, D} --> {1, Tc, 1, Bc, D}
+  K->reorder({{1, 2}, {2, 1}});
+  // {1, 1, Tc, Bc, D} --> {1, Tc, 1, Bc, D}
+  V->reorder({{1, 2}, {2, 1}});
 
-//   auto denoms = prefixSum(exp_x_m, scan_dim, discount);
+  // QK --> [Tr, Tc, Br, Bc, D]
+  auto QK = mul(Q, K);
+  // S --> [Tr, Tc, Br, Bc] (sum over hidden dimension for dot product)
+  auto Sij = sum(QK, {4});
 
-//   auto norm_factor = reductionOp(
-//       BinaryOpType::RHS,
-//       {scan_dim},
-//       /*init=*/fusion->zeroVal(DataType::Float),
-//       denoms);
+  // Line 10, [Tr, Tc, Br, Bc] -> [Tr, Tc, Br, 1]
+  auto mij_tilde = max(Sij, {3}, /*keep_dim=*/true); // [Tr, Br, Tc, 1]
+  // auto pij_tilde = exp(sub(Sij, mij_tilde)); // [Tr, Tc, Br, Bc]
+  // auto lij_tilde = sum(pij_tilde, {3}, /*keep_dim=*/true); // [Tr, Tc, Br, 1]
 
-//   auto full_max = reductionOp(
-//       BinaryOpType::RHS,
-//       {scan_dim},
-//       /*init=*/neg_infty,
-//       m);
+  // Line 11, m_i_new, [Tr, Tc, Br, 1]
+  auto m_i_result =
+      scan(mij_tilde, 1, BinaryOpType::Max, /*return_exclusive=*/true);
+  auto m_i = m_i_result.exclusive;
+  auto m_i_new = m_i_result.inclusive;
+  // Line 11, l_i_new, [Tr, Tc, Br, 1]
+  // auto lij_tidle_factor = exp(sub(mij_tilde, m_i_new));
+  // auto l_i_factor = exp(sub(m_i, m_i_new));
+  // auto next_l = mul(lij_tidle_factor, lij_tilde);
+  // // [Tr, Tc, Br, 1]
+  // auto l_i_result = prefixSum(next_l, 1, l_i_factor,
+  // /*return_exclusive=*/true); auto l_i = l_i_result.exclusive; auto l_i_new =
+  // l_i_result.inclusive;
 
-//   auto max_bcast = broadcast(full_max, {true});
-//   auto norm_factor_bcast = broadcast(norm_factor, {true});
-//   // Recompute numerator
-//   auto numer = exp(sub(set(x), max_bcast));
+  // Line 12, o_i, [Tr, Tc, Br, D]
+  // [Tr, Tc, Br, Bc, 1] X [1, Tc, 1, Bc, D] --> [Tr, Tc, Br, Bc, D]
+  // auto pij_tilde_vj_dot =
+  //     mul(broadcast(pij_tilde, {false, false, false, false, true}), V);
+  // auto pij_tilde_vj = sum(pij_tilde_vj_dot, {3}); // [Tr, Tc, Br, D]
+  // auto next_o =
+  //     mul(div(lij_tidle_factor, l_i_new), pij_tilde_vj); // [Tr, Tc, Br, D]
+  // auto o_discount = div(mul(l_i_factor, l_i), l_i_new);
+  // auto O = prefixSum(next_o, 1, o_discount).inclusive;
+  // auto O_final = max(O, {2});
+  // fusion->addOutput(O_final);
 
-//   auto result = div(numer, norm_factor_bcast);
+  fusion->addOutput(set(m_i));
+  fusion->addOutput(set(m_i_new));
+  fusion->printMath();
 
-//   fusion->addOutput(result);
+  // Same as InclusiveScan
+  const auto& scan_outputs = {m_i, m_i_new};
 
-//   // Don't cache inputs for this fusion because we will need to recompute
-//   // exp((x-m)) using the final max in a separate loop so caching would mean
-//   // we'd need to hold the whole tensor in registers. Instead, we manually
-//   call
-//   // set(x) twice in the definition above to give us two separate caches.
-//   scheduler_utils::cacheAndForkOutputs(fusion.get(), /*unroll=*/true);
+  // Similar to InclusiveScan and InclusiveExclusiveScan
+  // Avoid inlining the scanned dimensions
+  std::unordered_set<IterDomain*> uninlineable_ids;
+  for (auto tv : scan_outputs) {
+    for (auto id : tv->getLoopDomain()) {
+      if (id->isScan()) {
+        uninlineable_ids.insert(id);
+      }
+    }
+  }
+  // use inlineMost to auto detect max inline position
+  inlineMost(uninlineable_ids);
 
-//   // We don't inline the scans past the scan dimension
-//   std::unordered_set<IterDomain*> uninlineable_ids;
-//   for (TensorView* tv : {m, m_prev, denoms}) {
-//     for (IterDomain* id : tv->getLoopDomain()) {
-//       uninlineable_ids.insert(id);
-//     }
-//   }
+  // control compute position
+  // manual inline the producers
+  for (auto tv : scan_outputs) {
+    int compute_with_pos = -1;
+    tv->computeWith(compute_with_pos);
+    std::cout << "\ntv: " << tv->toString() << std::endl;
+    for (auto v : tv->definition()->inputs()) {
+      std::cout << "pv: " << v->toString() << std::endl;
+      v->as<TensorView>()->inlineAt(-1);
+    }
+  }
 
-//   inlineMost(uninlineable_ids);
+  IdModel id_model(
+      fusion.get(), /*build_graphs=*/true, /*allow_self_mapping=*/true);
+  const ValGraph& exact_graph = id_model.idGraph(IdMappingMode::EXACT);
+  for (auto dis_joint_set : exact_graph.disjointValSets().disjointSets()) {
+    std::cout << "dis_joint_set: " << dis_joint_set->toString() << std::endl;
+  }
 
-//   // These TVs are not inlined, but instead we set computeWith on them
-//   for (TensorView* tv : {m, m_prev, denoms}) {
-//     tv->computeWith(-1);
-//     for (Val* v : tv->definition()->inputs()) {
-//       // By using `uninlineable_ids` above, we prevent producers of scan from
-//       // inlining with the ScanOp past the scan dim, even though this is
-//       // desired. Here we do this inlining manually instead.
-//       v->as<TensorView>()->inlineAt(-1);
-//     }
-//   }
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto aQ = at::randn({Tr, Br, 1, 1, D}, options);
+  auto aK = at::randn({1, 1, Tc, Bc, D}, options);
+  auto aV = at::randn({1, 1, Tc, Bc, D}, options);
 
-//   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-//   at::Tensor t0 = at::randn({32}, options);
+  KernelExecutor ke;
+  ke.compile(fusion.get(), {aQ, aK, aV});
+  auto outputs = ke.run({aQ, aK, aV});
+  // get last element of dimension Tc from outputs[0] which has shape [Tr, Br,
+  // Tc, D] The prefix scan produces outputs for each step, we want the final
+  // result
+  auto final_output = at::select(
+      outputs[0].as<at::Tensor>(), /*dim=*/2, /*index=*/-1); // [Tr, Br, D]
+  std::cout << "final_output: " << final_output << std::endl;
 
-//   KernelExecutor ke;
-//   ke.compile(fusion.get(), {t0});
+  auto aten_Q = aQ.reshape({N, D});
+  auto aten_K = aK.reshape({N, D});
+  auto aten_V = aV.reshape({N, D});
+  auto aten_S = at::matmul(aten_Q, aten_K.transpose(-2, -1));
+  auto aten_S_softmax = at::softmax(aten_S, 1);
+  auto aten_O = at::matmul(aten_S_softmax, aten_V).reshape({Tr, Br, D});
+  std::cout << "aten_O: " << aten_O << std::endl;
 
-//   auto cg_outputs = ke.run({t0});
+  EXPECT_TRUE(at::allclose(final_output, aten_O, 1e-4, 1e-6, true));
+}
 
-//   auto ref = at::softmax(t0, 0);
-//   EXPECT_TRUE(at::allclose(cg_outputs[0].as<at::Tensor>(), ref))
-//       << " returned " << cg_outputs[0].as<at::Tensor>().item()
-//       << " but expected " << ref.item();
+TEST_F(ScanTest, BlockedAttentionInline2) {
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
 
-//   // Test automatic evaluation also
-//   testValidate(fusion.get(), cg_outputs, {t0}, __LINE__, __FILE__);
-// }
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  int64_t N = 20; // sequence length
+  int64_t D = 6; // hidden dimension size
+  int64_t Br = 10; // block size for rows
+  int64_t Bc = 5; // block size for columns
+  int64_t Tr = N / Br; // 6, Total number of row blocks for Q, 4
+  int64_t Tc = N / Bc; // 4, Total number of column blocks for K^T, 8
+  // [N,D] --> [Tr, Br, D] for Q and [Tc, Bc, D] for K,V
+  auto Q = makeConcreteTensor({Tr, Br, 1, 1, D});
+  auto K = makeConcreteTensor({1, 1, Tc, Bc, D});
+  auto V = makeConcreteTensor({1, 1, Tc, Bc, D});
+  fusion->addInput(Q);
+  fusion->addInput(K);
+  fusion->addInput(V);
+
+  // QK --> [Tr, Br, Tc, Bc, D] --> [2, 10, 4, 5, 6]
+  auto QK = mul(Q, K);
+  // S --> [Tr, Br, Tc, Bc] (sum over hidden dimension for dot product)
+  // Sij is consumed by both max and sub, needs to store reduction dimension
+  // in max(Sij, {3}), which is Bc
+  auto Sij = sum(QK, {4});
+
+  // Line 10, [Tr, Br, Tc, Bc] -> [Tr, Br, Tc, 1]
+  auto mij_tilde_raw = max(Sij, {3}, /*keep_dim=*/true); // [Tr, Br, Tc, 1]
+  // expr sort error if directly pass mij_tilde_raw to scan
+  auto mij_tilde = set(mij_tilde_raw);
+  auto pij_tilde = exp(sub(Sij, mij_tilde)); // [Tr, Br, Tc, Bc]
+  auto lij_tilde = sum(pij_tilde, {3}, /*keep_dim=*/true); // [Tr, Br, Tc, 1]
+
+  // Line 11, m_i_new, [Tr, Br, Tc, 1] -> [Tr, Br, Tc, 1]
+  auto m_i_result =
+      scan(mij_tilde, 2, BinaryOpType::Max, /*return_exclusive=*/true);
+  auto m_i = m_i_result.exclusive;
+  auto m_i_new = m_i_result.inclusive;
+
+  // Line 11, l_i_new, [Tr, Br, Tc, 1]
+  auto lij_tidle_factor = exp(sub(mij_tilde, m_i_new)); // [Tr, Br, Tc, 1]
+  auto l_i_factor = exp(sub(m_i, m_i_new)); // [Tr, Br, Tc, 1]
+  auto next_l = mul(lij_tidle_factor, lij_tilde); // [Tr, Br, Tc, 1]
+  // prefix sum is always inclusive, for exlcusive, l[i] = l_new[i-1]
+  auto l_i_result = prefixSum(next_l, 2, l_i_factor, /*return_exclusive=*/true);
+  auto l_i = l_i_result.exclusive;
+  auto l_i_new = l_i_result.inclusive;
+  auto lij_div_l_i_new = div(lij_tilde, l_i_new);
+  fusion->addOutput(set(l_i));
+  fusion->addOutput(set(lij_div_l_i_new));
+  // Line 12, o_i, [Tr, Br, Tc, D]
+  // [Tr, Br, Tc, Bc, 1] X [1, 1, Tc, Bc, D] --> [Tr, Br, Tc, Bc, D]
+  auto pij_tilde_bcast =
+      broadcast(pij_tilde, {false, false, false, false, true});
+  auto pij_tilde_vj_dot = mul(pij_tilde_bcast, V);
+  auto pij_tilde_vj = sum(pij_tilde_vj_dot, {3}); // [Tr, Br, Tc, D]
+
+  auto next_o = mul(lij_div_l_i_new, set(pij_tilde_vj)); // [Tr, Br, Tc, D]
+  // // auto o_discount = div(mul(l_i_factor, l_i), l_i_new);
+  // // // [Tr, Br, Tc, D]
+  // // auto O = prefixSum(next_o, 2, o_discount).inclusive;
+  // // // [Tr, Br, D]
+  // // auto O_final = max(O, {2});
+  fusion->addOutput(next_o);
+  // fusion->printMath();
+
+  // Same as InclusiveScan
+  const auto& scan_outputs = {m_i, m_i_new, l_i, l_i_new};
+
+  // Similar to InclusiveScan and InclusiveExclusiveScan
+  // Avoid inlining the scanned dimensions
+  std::unordered_set<IterDomain*> uninlineable_ids;
+  for (auto tv : scan_outputs) {
+    for (auto id : tv->getLoopDomain()) {
+      if (id->isScan()) {
+        uninlineable_ids.insert(id);
+      }
+    }
+  }
+  // use inlineMost to auto detect max inline position
+  inlineMost(uninlineable_ids);
+
+  // control compute position
+  // manual inline the producers
+  for (auto tv : scan_outputs) {
+    int compute_with_pos = -1;
+    tv->computeWith(compute_with_pos);
+    std::cout << "\ntv: " << tv->toString() << std::endl;
+    for (auto v : tv->definition()->inputs()) {
+      std::cout << "pv: " << v->toString() << std::endl;
+      v->as<TensorView>()->inlineAt(-1);
+    }
+  }
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto aQ = at::randn({Tr, Br, 1, 1, D}, options);
+  auto aK = at::randn({1, 1, Tc, Bc, D}, options);
+  auto aV = at::randn({1, 1, Tc, Bc, D}, options);
+
+  KernelExecutor ke;
+  ke.compile(fusion.get(), {aQ, aK, aV});
+  auto outputs = ke.run({aQ, aK, aV});
+  // get last element of dimension Tc from outputs[0] which has shape [Tr, Br,
+  // Tc, D] The prefix scan produces outputs for each step, we want the final
+  // result
+  auto final_output = at::select(
+      outputs[0].as<at::Tensor>(), /*dim=*/2, /*index=*/-1); // [Tr, Br, D]
+  std::cout << "final_output: " << final_output << std::endl;
+
+  auto aten_Q = aQ.reshape({N, D});
+  auto aten_K = aK.reshape({N, D});
+  auto aten_V = aV.reshape({N, D});
+  auto aten_S = at::matmul(aten_Q, aten_K.transpose(-2, -1));
+  auto aten_S_softmax = at::softmax(aten_S, 1);
+  auto aten_O = at::matmul(aten_S_softmax, aten_V).reshape({Tr, Br, D});
+  std::cout << "aten_O: " << aten_O << std::endl;
+
+  EXPECT_TRUE(at::allclose(final_output, aten_O, 1e-4, 1e-6, true));
+}
 } // namespace nvfuser
