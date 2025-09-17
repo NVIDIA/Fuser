@@ -140,4 +140,28 @@ TEST_F(LayoutOpTest, ManualKernel) {
       t2));
 }
 
+TEST_F(LayoutOpTest, LogicalAndAllocationSizes) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  auto inp = makeSymbolicTensor(2);
+  fusion.addInput(inp);
+  auto out = set(inp);
+  fusion.addOutput(out);
+  // padding output to multiple of 16.
+  out->split(1, 16);
+  out->setAllocationDomain(out->getLoopDomain(), true);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  int m = 512;
+  int k = 9; // note: padded column size would be 16
+  auto t0 = at::randn({m, k}, options);
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto cg_outputs = executor_cache.runFusionWithInputs({t0});
+  EXPECT_TRUE(t0.equal(cg_outputs[0].as<at::Tensor>()));
+  // TODO: assert on size and strides as part of the test.
+}
+
 } // namespace nvfuser
