@@ -236,10 +236,9 @@ class CompileTimeChecker : private IterVisitor {
     auto inp = scatter->in()->as<TensorView>();
     auto out = scatter->out()->as<TensorView>();
 
-    if (out->getLogicalDomain().size() != 1) {
+    if (!scatter->exactSizes()) {
       can_schedule_ = false;
-      setRejectReason(
-          "Scatter with multi-dimensional tensors is not yet supported");
+      setRejectReason("Non-exact scatter is not yet supported");
       return;
     }
 
