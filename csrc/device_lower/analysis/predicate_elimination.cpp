@@ -412,13 +412,15 @@ class PredicateChcker : public IterVisitor {
   using IterVisitor::handle;
 
   void dispatch(Expr* expr) final {
-    // Do not attempt to omit predicates if a gmem tensor is involved.
+    // Do not attempt to omit predicates if a gmem tensor is involved
+    // unless this is a TMA op
     auto is_gmem_tv = [](Val* val) {
       auto tv = dynamic_cast<TensorView*>(val);
       return tv != nullptr && tv->getMemoryType() == MemoryType::Global;
     };
-    if (std::ranges::any_of(expr->outputs(), is_gmem_tv) ||
-        std::ranges::any_of(expr->inputs(), is_gmem_tv)) {
+    if (!ir_utils::isCpAsyncBulkTensorTile(expr) &&
+        (std::ranges::any_of(expr->outputs(), is_gmem_tv) ||
+         std::ranges::any_of(expr->inputs(), is_gmem_tv))) {
       needs_predicate_ = true;
       return;
     }
