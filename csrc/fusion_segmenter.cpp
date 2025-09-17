@@ -2103,11 +2103,6 @@ std::vector<SegmentedGroup*> optimalTopoSort(
     const std::vector<SegmentedGroup*>& groups,
     SchedulerRuntimeInfo* runtime_info) {
   FUSER_PERF_SCOPE("optimalTopoSort");
-  if (groups.size() == 1) {
-    // Skip setting up the graph and doing the whole analysis when there's just
-    // a single group
-    return {groups.front()};
-  }
 
   TaskGraph graph =
       SegmentedGroupTaskGraphConverter::convert(groups, runtime_info);
