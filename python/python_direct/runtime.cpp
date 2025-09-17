@@ -174,7 +174,7 @@ the fusion.
           },
           py::arg("from_outputs_only") = true,
           R"(
-Print arithmetic expressions in the fusion.
+Return a string representing the arithmetic expressions in the fusion.
 
 Parameters
 ----------
@@ -200,7 +200,7 @@ str
           },
           py::arg("compile_params") = CompileParams(),
           R"(
-Lower the fusion and print the generated CUDA kernel.
+Lower the fusion and return the generated CUDA kernel as a string.
 
 Parameters
 ----------
@@ -211,7 +211,7 @@ Default is default-constructed CompileParams.
 Returns
 -------
 str
-The CUDA kernel as a string.
+    The CUDA kernel as a string.
 )");
 }
 
