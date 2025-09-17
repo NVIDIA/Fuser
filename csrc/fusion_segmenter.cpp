@@ -1895,7 +1895,8 @@ std::pair<IrCloner, std::unique_ptr<Fusion>> SegmentedFusion::makeFusion(
       NVF_ERROR(clone_tv != nullptr && clone_tv->isA<TensorView>());
       view_tvs.push_back(clone_tv->as<TensorView>());
     } else if (inp->isDefinitionType<PreprocessGroupedMatmulInputSf>()) {
-      // There's no point of replaying allocation domain if we cannot index into TV anyway.
+      // There's no point of replaying allocation domain if we cannot index into
+      // TV anyway.
       // TODO: check all uses are safe
       auto* tv_ptr = clone_tv->as<TensorView>();
       tv_ptr->setAllocationDomain(tv_ptr->getLogicalDomain(), true);

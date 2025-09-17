@@ -1033,9 +1033,9 @@ bool SchedulerTopologyChecker::hasResizeAndIndexOps(Fusion* fusion) {
 bool SchedulerTopologyChecker::hasConsumerOfNonIndexableOps(Fusion* fusion) {
   for (auto expr : fusion->exprs()) {
     if (expr->isOneOf<PreprocessGroupedMatmulInputSf>()) {
-       if (!ir_utils::getTvOutput(expr)->uses().empty()) {
-         return true;
-       }
+      if (!ir_utils::getTvOutput(expr)->uses().empty()) {
+        return true;
+      }
     }
   }
   return false;

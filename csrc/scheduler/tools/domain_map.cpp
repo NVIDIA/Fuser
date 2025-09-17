@@ -58,8 +58,10 @@ bool canIgnoreIndexedInputDomainID(
                ->isBroadcast()) {
         return false;
       }
-    } else if (auto layout = dynamic_cast<PreprocessGroupedMatmulInputSf*>(use)) {
-      if (input_tv == layout->inputOffsets() || input_tv == layout->outputOffsets()) {
+    } else if (
+        auto layout = dynamic_cast<PreprocessGroupedMatmulInputSf*>(use)) {
+      if (input_tv == layout->inputOffsets() ||
+          input_tv == layout->outputOffsets()) {
         continue;
       }
     } else {
