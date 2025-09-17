@@ -149,9 +149,11 @@ TEST_F(LayoutOpTest, LogicalAndAllocationSizes) {
   fusion.addInput(inp);
   auto out = set(inp);
   fusion.addOutput(out);
-  // padding output to multiple of 16.
+  // padding output to multiple of 16
   out->split(1, 16);
   out->setAllocationDomain(out->getLoopDomain(), true);
+  // restore loop domain
+  out->merge(1);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   int m = 512;
@@ -161,7 +163,7 @@ TEST_F(LayoutOpTest, LogicalAndAllocationSizes) {
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
   auto cg_outputs = executor_cache.runFusionWithInputs({t0});
   EXPECT_TRUE(t0.equal(cg_outputs[0].as<at::Tensor>()));
-  // TODO: assert on size and strides as part of the test.
+  // TODO: assert on size and strides as part of the test
 }
 
 } // namespace nvfuser
