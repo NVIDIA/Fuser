@@ -351,7 +351,7 @@ class AnalyzeViewTransformation {
     const int64_t original_num_elements = std::accumulate(
         original_view_.begin(), original_view_.end(), 1, std::multiplies<>());
     const int64_t new_num_elements = std::accumulate(
-        new_view_.begin(), new_view.end(), 1, std::multiplies<>());
+        new_view_.begin(), new_view_.end(), 1, std::multiplies<>());
     NVF_ERROR(
         original_num_elements == new_num_elements,
         "Total element counts across view operation must match: ",
