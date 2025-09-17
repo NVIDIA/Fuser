@@ -534,11 +534,11 @@ class TaskSorter {
     Clock::time_point start = Clock::now();
 
     for (int64_t iter : arange(10000000)) {
+      result_.iterations = iter;
       if (iter % 64 == 0) {
         Clock::time_point end = Clock::now();
         if (std::chrono::duration_cast<std::chrono::microseconds>(end - start)
                 .count() > max_time_us_) {
-          result_.iterations = iter;
           break;
         }
       }
@@ -595,6 +595,24 @@ class TaskSorter {
 
     // Record our best found steps
     result_.steps = best_steps;
+
+    if (isDebugDumpEnabled(DebugDumpOption::TaskGraph)) {
+      Clock::time_point stop = Clock::now();
+      debug() << "Found these steps in "
+              << (std::chrono::duration_cast<std::chrono::milliseconds>(
+                      stop - start)
+                      .count())
+              << " ms:\n";
+      for (const TaskGraph::Step& step : result_.steps) {
+        debug() << "  " << step << "\n";
+      }
+      debug() << "The search contained " << result_.iterations
+              << " iterations and was ";
+      if (!result_.exhaustive) {
+        debug() << "NOT ";
+      }
+      debug() << "exhaustive" << std::endl;
+    }
 
     // Validate final result
     NVF_ERROR(result_.steps.size() == (size_t)graph_.numTasks());

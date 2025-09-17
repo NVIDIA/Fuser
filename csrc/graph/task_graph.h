@@ -128,7 +128,7 @@ class TaskGraph {
     std::vector<Step> steps;
 
     //! Number of iterations computed
-    int64_t iterations;
+    int64_t iterations = 0;
 
     //! Whether the search was exhaustive. If not, then it was likely cut off
     //! early because of an iteration limit.
