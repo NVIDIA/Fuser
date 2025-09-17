@@ -1,10 +1,11 @@
 # AliasInfo
 
-Source: [AliasInfo](../../../csrc/fusion.h)
+Source: [AliasInfo](../../../csrc/fusion.h#L86)
 
 ## Synopsis
 - **Kind**: struct
 - **File**: `csrc/fusion.h`
+- **Approx. size**: ~37 lines
 
 ## Purpose
-- Core fusion container/IR root object.
+- Utility or analysis type contributing to scheduling/lowering.

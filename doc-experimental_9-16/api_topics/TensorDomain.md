@@ -3,7 +3,7 @@
 Source: [TensorDomain](../../csrc/ir/internal_base_nodes.h#L415)
 
 ## Synopsis
-- **Kind**: class (inherits from `Val`)
+- **Kind**: class (inherits from [Val](../../csrc/ir/base_nodes.h#L224))
 - **File**: `csrc/ir/internal_base_nodes.h`
 - **What it represents**: An ordered set of `IterDomain*` axes describing a tensor’s iteration spaces at different stages (root, logical, allocation, loop)
 - **Key domains tracked**:
@@ -22,12 +22,12 @@ Source: [TensorDomain](../../csrc/ir/internal_base_nodes.h#L415)
   - Contiguity modeling: `contiguity()`, `setAllocationDomain(..., contiguity)`
 
 ## Purpose
-- **Role**: Binds together multiple `IterDomain` views of a tensor, capturing how axes evolve from definition to scheduled loop structure and how they map to memory layout.
+- **Role**: Binds together multiple [IterDomain](../../csrc/ir/internal_base_nodes.h#L83) views of a tensor, capturing how axes evolve from definition to scheduled loop structure and how they map to memory layout.
 - **Scheduling**: Central orchestration of axis transformations for code generation—split/merge/reorder/swizzle/resize drive the loop nest and parallelization mappings.
 - **Interoperability**: Provides utilities to query and align domains between producers and consumers during scheduling and lowering.
 
 ## Practical usage
-Typically manipulated via `TensorView` high-level APIs, which internally update the underlying `TensorDomain`:
+Typically manipulated via [TensorView](../../csrc/ir/interface_nodes.h#L383) high-level APIs, which internally update the underlying [TensorDomain](../../csrc/ir/internal_base_nodes.h#L415):
 
 ```cpp
 // tv: TensorView*
@@ -47,4 +47,4 @@ tv->merge(0, 1);
 
 ## See also
 - [IterDomain](../../csrc/ir/internal_base_nodes.h#L83): 1D axis descriptor used to build the domains above
-- [TensorView](../../csrc/ir/interface_nodes.h#L383): user-facing tensor IR node that owns a `TensorDomain`
+- [TensorView](../../csrc/ir/interface_nodes.h#L383): user-facing tensor IR node that owns a [TensorDomain](../../csrc/ir/internal_base_nodes.h#L415)
