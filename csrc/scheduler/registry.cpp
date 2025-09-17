@@ -64,9 +64,6 @@ bool checkCanSchedule(Fusion* fusion, SchedulerType scheduler_type) {
     return false;
   }
 
-  // TODO: check PreprocessGroupedMatmulInputSf's output is in global memory /
-  // fusion output
-
   // Fusions with `MatmulOp, LinearOp, MmaOp` can only be accepted by Matmul
   // scheduler.
   if (scheduler_type != SchedulerType::Matmul &&
@@ -100,6 +97,8 @@ bool checkCanSchedule(Fusion* fusion, SchedulerType scheduler_type) {
     return false;
   }
 
+  // check PreprocessGroupedMatmulInputSf's output is in global memory by
+  // forcing it as a fusion segment output
   if (registry_utils::SchedulerTopologyChecker::hasConsumerOfNonIndexableOps(
           fusion)) {
     scheduler_debug_utils::canScheduleRejectReason(

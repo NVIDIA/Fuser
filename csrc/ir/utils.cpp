@@ -778,12 +778,6 @@ bool isIndexSelectLookupTv(const TensorView* tv) {
         return true;
       }
     }
-    if (expr->isA<PreprocessGroupedMatmulInputSf>()) {
-      auto layout = expr->as<PreprocessGroupedMatmulInputSf>();
-      if (tv == layout->inputOffsets() || tv == layout->outputOffsets()) {
-        return true;
-      }
-    }
   }
   return false;
 }

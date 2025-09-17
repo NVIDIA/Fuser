@@ -611,11 +611,12 @@ PersistentBufferInfo persistentBuffers(Fusion* fusion) {
     }
 
     for (auto consumer : consumers) {
-      if (dynamic_cast<SelectOp*>(consumer->definition()) ||
-          dynamic_cast<IndexSelectOp*>(consumer->definition()) ||
-          dynamic_cast<GatherOp*>(consumer->definition()) ||
-          dynamic_cast<PreprocessGroupedMatmulInputSf*>(
-              consumer->definition())) {
+      if (consumer->definition()
+              ->isOneOf<
+                  SelectOp,
+                  IndexSelectOp,
+                  GatherOp,
+                  PreprocessGroupedMatmulInputSf>()) {
         continue;
       }
       auto mappable_roots =
@@ -1319,9 +1320,20 @@ std::vector<std::pair<TensorView*, int64_t>> cacheInputs(
       }
       return use->as<GatherOp>()->lookupTv() == tv;
     };
+
+    // TODO: we might need to explicitly promote offsets to global memory
+    // We expect offsets to remain in global memory.
+    auto isPreprocessGroupedMatmulInputSfOffsets = [tv](Expr* use) {
+      if (!use->isA<PreprocessGroupedMatmulInputSf>()) {
+        return false;
+      }
+      auto layout = use->as<PreprocessGroupedMatmulInputSf>();
+      return tv == layout->inputOffsets() || tv == layout->outputOffsets();
+    };
     std::vector<Expr*> cached_uses;
     for (auto use : tv->uses()) {
-      if (!use->isOneOf<PadOp, SliceOp>() && !isGatherLookUpTvInUse(use)) {
+      if (!use->isOneOf<PadOp, SliceOp>() && !isGatherLookUpTvInUse(use) &&
+          !isPreprocessGroupedMatmulInputSfOffsets(use)) {
         cached_uses.push_back(use);
       }
     }
@@ -1356,9 +1368,10 @@ std::vector<std::pair<TensorView*, int64_t>> cacheAndForkOutputs(
 
     if (output->definition() == nullptr ||
         // the output of ScatterOp must on the global memory due to the random
-        // or atomic access.
-        output->definition()->isA<ScatterOp>() ||
-        output->definition()->isA<PreprocessGroupedMatmulInputSf>()) {
+        // or atomic access. Similarly, PreprocessGroupedMatmulInputSf requires
+        // direct write to global memory because of random access.
+        output->definition()
+            ->isOneOf<ScatterOp, PreprocessGroupedMatmulInputSf>()) {
       continue;
     }
     if (!output->uses().empty()) {
