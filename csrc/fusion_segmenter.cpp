@@ -2047,45 +2047,28 @@ class SegmentedGroupTaskGraphConverter {
     all_tasks_.emplace_back(inputs, outputs, temp_space);
   }
 
-  int64_t getNumElements(TensorView* tv) {
-    // Assume all tensors the same shape if no runtime_info is given
-    int64_t numel = 1;
+  int64_t getNumAllocatedElements(TensorView* tv) {
     if (tv->isCpuScalar()) {
-      // runtime_info_ will not include sizes of GPU scalars and sine they do
-      // not result in any GPU allocation we count them as empty.
+      // Since CPU scalars do not result in any GPU allocation we count them as
+      // empty.
       return 0;
-    } else if (
-        runtime_info_ == nullptr || !tv->isFusionInput() || isShareded(tv)) {
-      // Use ExpressionEvaluator for computed tensors assuming they are
-      // contiguous
-      for (IterDomain* id : tv->getMaybeAllocationDomain()) {
-        if (id->isBroadcast() || id->isReduction() || id->isDeviceDim()) {
-          continue;
-        }
-        PolymorphicValue pv =
-            runtime_info_->expressionEvaluator().evaluate(id->extent());
-        // If we can't determine the size of this dimension, just assume
-        // it's 2. This way we will give precedence to tensors with
-        // allocation domains that have more concrete IDs.
-        int64_t dim_size = pv.is<int64_t>() ? pv.as<int64_t>() : 2;
-        numel *= dim_size;
-      }
     }
-    // Get the actual size of the tensor allocation
-    const std::vector<int64_t>& sizes =
-        runtime_info_->getInputAllocationSizes(tv);
-    const std::vector<int64_t>& strides =
-        runtime_info_->getInputAllocationStrides(tv);
-    NVF_ERROR_EQ(sizes.size(), strides.size());
-
-    numel = 1;
-    for (auto [size, stride] : zip(sizes, strides)) {
-      if (size == 0) {
-        // Check for empty tensors
-        numel = 0;
-        break;
+    int64_t numel = 1;
+    // Use ExpressionEvaluator for computed tensors assuming they are
+    // contiguous
+    for (IterDomain* id : tv->getMaybeAllocationDomain()) {
+      if (id->isBroadcast() || id->isReduction() || id->isDeviceDim()) {
+        continue;
       }
-      numel += (size - 1) * stride;
+      PolymorphicValue pv = std::monostate{};
+      if (runtime_info_ != nullptr) {
+        pv = runtime_info_->expressionEvaluator().evaluate(id->extent());
+      }
+      // If we can't determine the size of this dimension, just assume
+      // it's 2. This way we will give precedence to tensors with
+      // allocation domains that have more concrete IDs.
+      int64_t dim_size = pv.is<int64_t>() ? pv.as<int64_t>() : 2;
+      numel *= dim_size;
     }
     return numel;
   }
@@ -2098,10 +2081,11 @@ class SegmentedGroupTaskGraphConverter {
     }
 
     // Register this TV
-    auto new_id = static_cast<TaskGraph::DataId>(std::ssize_t(all_data_));
+    auto new_id = static_cast<TaskGraph::DataId>(std::ssize(all_data_));
     tv2dataid_[tv] = new_id;
 
-    TaskGraph::Size size = getNumElements(tv) * dataTypeSizeByte(tv->dtype());
+    TaskGraph::Size size =
+        getNumAllocatedElements(tv) * dataTypeSizeByte(tv->dtype());
 
     all_data_.emplace_back(
         /*definition=*/std::nullopt,
