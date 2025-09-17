@@ -649,13 +649,17 @@ class BackwardTraverseFromAllocToLogical {
       }
     }
 
+    // NOTE: split implies ceilDiv, which means tensor_new_shape have artificially padded extent. We use expr_eval to slice out the padding session.
+    int64_t in_extent = ee_.evaluate(in).as<int64_t>();
     if (areDimsToBeMergedContiguous(tensor_, new_shape)) {
       tensor_ = tensor_.view(new_shape);
+      if (in_extent != tensor_.size(left)) {
+        tensor_ = tensor.slice(left, 0, in_extent);
+      }
     } else {
       auto [tensor_new_shape, tensor_new_strides] =
           getShapeAndStrideAfterDimMerged(tensor_, new_shape);
-      // NOTE: split implies ceilDiv, which means tensor_new_shape have artificially padded extent. We use expr_eval to slice out the padding session.
-      tensor_new_shape[left] = ee_.evaluate(in).as<int64_t>();
+      tensor_new_shape[left] = in_extent;
       tensor_ = tensor_.as_strided(tensor_new_shape, tensor_new_strides);
     }
 
