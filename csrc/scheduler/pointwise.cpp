@@ -232,7 +232,8 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
   }
   // We always cacheBefore output at the beginning of the scheduling. And after
   // cacheBefore, the reference tensor will have all reduction IDs removed.
-  ref_loop = TensorDomain::noDevices(TensorDomain::noReductions(ref_loop));
+  ref_loop = TensorDomain::noStream(
+      TensorDomain::noDevices(TensorDomain::noReductions(ref_loop)));
 
   std::vector<int64_t> elem_counts;
   elem_counts.reserve(ref_loop.size());
@@ -357,7 +358,7 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
 
   auto& view_disjoint_sets = broadcast_info.get().view_disjoint_set_ids;
   auto& broadcast_bit_multiples = broadcast_info.get().broadcast_multiples;
-  NVF_ERROR(broadcast_bit_multiples.size() == ref_loop.size());
+  NVF_ERROR_EQ(broadcast_bit_multiples.size(), ref_loop.size());
 
   int64_t dtype_sum_bit = 0;
   for (auto inp : ir_utils::filterByType<TensorView>(fusion->inputs())) {

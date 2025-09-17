@@ -111,18 +111,49 @@ void lowerSegment(
       }
 
       // Add the LaunchKernel instruction.
+      IterDomain* stream_id = nullptr;
+      for (auto* out : cloned_outs) {
+        auto* tv = out->as<TensorView>();
+        auto i = std::find_if(
+            tv->getLoopDomain().begin(),
+            tv->getLoopDomain().end(),
+            [](IterDomain* id) {
+              return id->getParallelType() == ParallelType::Stream;
+            });
+        if (i == tv->getLoopDomain().end()) {
+          continue;
+        }
+        stream_id = *i;
+      }
+
       KernelExecutor& ke = hic.getKernelExecutor(group_id);
       // Needed for KernelExecutor. Should be removed once #4927 is fixed.
       auto* cache_id =
           IrBuilder::create<NamedScalar>("cacheId", DataType::UInt64);
-      auto launch_kernel = IrBuilder::create<hir::LaunchKernel>(
-          group_id,
-          launch_params,
-          ke.compiledKernel()->compileParams(),
-          cloned_ins,
-          cloned_outs,
-          cache_id);
-      hic.pushBackTopLevelExprs(launch_kernel);
+      if (stream_id == nullptr) {
+        auto launch_kernel = IrBuilder::create<hir::LaunchKernel>(
+            group_id,
+            launch_params,
+            ke.compiledKernel()->compileParams(),
+            cloned_ins,
+            cloned_outs,
+            cache_id);
+        hic.pushBackTopLevelExprs(launch_kernel);
+      } else {
+        auto* stream_index = IrBuilder::create<Val>(DataType::Index);
+        auto* for_loop =
+            hir::createForLoopFromIterDomain(stream_index, stream_id);
+        cloned_ins.push_back(stream_index);
+        auto launch_kernel = IrBuilder::create<hir::LaunchKernel>(
+            group_id,
+            launch_params,
+            ke.compiledKernel()->compileParams(),
+            cloned_ins,
+            cloned_outs,
+            cache_id);
+        for_loop->body().push_back(launch_kernel);
+        hic.pushBackTopLevelExprs(for_loop);
+      }
   }
 }
 } // namespace

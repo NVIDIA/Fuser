@@ -3903,35 +3903,42 @@ void TensorDomain::resize(
 
 std::vector<IterDomain*> TensorDomain::noReductions(
     const std::vector<IterDomain*>& td) {
-  std::vector<IterDomain*> noReductionDomain;
+  std::vector<IterDomain*> filtered;
   std::copy_if(
-      td.begin(),
-      td.end(),
-      std::back_inserter(noReductionDomain),
-      [](IterDomain* id) { return !id->isReduction() && !id->isStride(); });
-  return noReductionDomain;
+      td.begin(), td.end(), std::back_inserter(filtered), [](IterDomain* id) {
+        return !id->isReduction() && !id->isStride();
+      });
+  return filtered;
 }
 
 std::vector<IterDomain*> TensorDomain::noBroadcasts(
     const std::vector<IterDomain*>& td) {
-  std::vector<IterDomain*> noBroadcastDomain;
+  std::vector<IterDomain*> filtered;
   std::copy_if(
-      td.begin(),
-      td.end(),
-      std::back_inserter(noBroadcastDomain),
-      [](IterDomain* id) { return !id->isBroadcast(); });
-  return noBroadcastDomain;
+      td.begin(), td.end(), std::back_inserter(filtered), [](IterDomain* id) {
+        return !id->isBroadcast();
+      });
+  return filtered;
 }
 
 std::vector<IterDomain*> TensorDomain::noDevices(
     const std::vector<IterDomain*>& td) {
-  std::vector<IterDomain*> noDeviceDomain;
+  std::vector<IterDomain*> filtered;
   std::copy_if(
-      td.begin(),
-      td.end(),
-      std::back_inserter(noDeviceDomain),
-      [](IterDomain* id) { return !id->isDeviceDim(); });
-  return noDeviceDomain;
+      td.begin(), td.end(), std::back_inserter(filtered), [](IterDomain* id) {
+        return !id->isDeviceDim();
+      });
+  return filtered;
+}
+
+std::vector<IterDomain*> TensorDomain::noStream(
+    const std::vector<IterDomain*>& td) {
+  std::vector<IterDomain*> filtered;
+  std::copy_if(
+      td.begin(), td.end(), std::back_inserter(filtered), [](IterDomain* id) {
+        return !id->isStream();
+      });
+  return filtered;
 }
 
 /*static*/ std::vector<std::optional<bool>> TensorDomain::

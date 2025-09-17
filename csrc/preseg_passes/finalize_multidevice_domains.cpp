@@ -112,28 +112,14 @@ void setLoopAndAllocationDomain(TensorView* tv, bool is_resharding) {
     return;
   }
 
-  // Most schedulers require DIDx to be at the front of the loop domain.
-  auto old2new = reorderParallelizedToFront(tv);
-  auto new2old = ir_utils::normalizeOld2New(old2new, tv->nDims());
-  std::vector<std::optional<bool>> reordered_contiguity;
-  std::transform(
-      new2old.begin(),
-      new2old.end(),
-      std::back_inserter(reordered_contiguity),
-      [&new_contiguity](int64_t i) -> std::optional<bool> {
-        return new_contiguity[i];
-      });
-  tv->setAllocationDomain(tv->getLoopDomain(), reordered_contiguity);
+  // Most schedulers require Stream and DIDx to be at the front of the loop
+  // domain.
+  reorderParallelizedToFront(tv);
 }
 
 } // namespace
 
 void FinalizeMultideviceDomainsPass::runPass(Fusion* fusion) {
-  bool has_mesh = validateMeshes(fusion);
-  if (!has_mesh) {
-    return;
-  }
-
   for (Expr* expr : fusion->exprs()) {
     auto inputs = ir_utils::filterByType<TensorView>(expr->inputs());
     auto outputs = ir_utils::filterByType<TensorView>(expr->outputs());

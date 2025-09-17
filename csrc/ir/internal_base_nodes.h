@@ -491,7 +491,7 @@ class NVF_API TensorDomain : public Val {
   }
 
   int64_t nDims() const {
-    return static_cast<int64_t>(loop_domain_.size());
+    return std::ssize(loop_domain_);
   }
 
   bool sameAs(const Statement* other) const override;
@@ -623,7 +623,7 @@ class NVF_API TensorDomain : public Val {
     return std::find(loop().begin(), loop().end(), id) != loop().end();
   }
 
-  // Check if id is an intial loop ID.
+  // Check if id is an initial loop ID.
   bool isInitialLoop(const IterDomain* id) const {
     return std::find(initialLoop().begin(), initialLoop().end(), id) !=
         loop().end();
@@ -733,6 +733,7 @@ class NVF_API TensorDomain : public Val {
   static std::vector<IterDomain*> noReductions(const std::vector<IterDomain*>&);
   static std::vector<IterDomain*> noBroadcasts(const std::vector<IterDomain*>&);
   static std::vector<IterDomain*> noDevices(const std::vector<IterDomain*>&);
+  static std::vector<IterDomain*> noStream(const std::vector<IterDomain*>&);
   // Usage example: `domain | TensorDomain::kNoDevices`. Unlike noDevices, this
   // returns a view so is more efficient. However, make sure `domain` outlives
   // the view.
@@ -742,6 +743,8 @@ class NVF_API TensorDomain : public Val {
       [](IterDomain* id) { return !id->isReduction() && !id->isStride(); });
   inline static constexpr auto kNoBroadcasts =
       std::views::filter([](IterDomain* id) { return !id->isBroadcast(); });
+  inline static constexpr auto kNoStreams =
+      std::views::filter([](IterDomain* id) { return !id->isStream(); });
 
   static bool hasBroadcast(const std::vector<IterDomain*>&);
   static bool hasReduction(const std::vector<IterDomain*>&);
