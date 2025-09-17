@@ -358,6 +358,9 @@ class CompileTimeChecker : private IterVisitor {
 
     ValGroups constrained_domain;
     ValGroups unconstrained_domain;
+
+    std::vector<IterDomain*> unconstrained_ids;
+
     for (const auto& [i, logical_id] : enumerate(logical_domain)) {
       if (constrained_logical_id_offset_set.contains(i)) {
         const auto& logical_id_group = exact_graph_.toGroup(logical_id);
@@ -365,15 +368,26 @@ class CompileTimeChecker : private IterVisitor {
         // Keep track of all constrained IDs as well for reshape analysis
         all_constrained_domain_.pushBack(logical_id_group);
       } else {
+        // Broadcast should not matter for scheduling
+        if (logical_id->isBroadcast()) {
+          continue;
+        }
         unconstrained_domain.pushBack(exact_graph_.toGroup(logical_id));
+        unconstrained_ids.push_back(logical_id);
       }
     }
+
+    std::cerr << "checkConstrainedTv: " << tv->toString()
+              << ", unconstrained: " << toDelimitedString(unconstrained_ids)
+              << "\n";
 
     // All the unconstrained iter domains would be flattened and
     // parallelized with BIDx. The BIDx parallelized iter
     // domain must be mapped across the fusion to avoid the grid
     // synchronization. For the mapping, the exact graph is used for
     // now since BroadcastOp is not yet allowed.
+    // TODO: Update the comment
+
     if (unique_unconstrained_domain_.has_value()) {
       if (unique_unconstrained_domain_->set() != unconstrained_domain.set()) {
         can_schedule_ = false;
@@ -1013,6 +1027,9 @@ void GreedyScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
   ConstrainedOpScheduler::run(
       fusion, constrained_tvs, exact_graph, uninlinable_ids);
 
+  std::cerr << "Uninlinable IDs: " << toDelimitedString(uninlinable_ids)
+            << "\n";
+
   // Need to fetch constrained ops again as cacheAfter/Before may be used
   // TODO: Cleanup.
   constrained_tvs = getAllConstrainedTvs(fusion);
@@ -1054,6 +1071,9 @@ void GreedyScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
 
   // Resolve conflicts. Find conflicting producer-consumer pairs
   // and insert memory promotion
+
+  fusion->print();
+  std::cout << std::endl;
 
   VectorOfUniqueEntries<TensorView*> tvs_to_upload_to_smem;
   const auto sync_map = buildSyncMap(fusion);
@@ -1112,6 +1132,14 @@ void GreedyScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
     for (auto tv_use : uses_to_update) {
       ir_utils::replaceValInExprInputs(tv_use, tv, copy);
     }
+  }
+
+  // If a new copy op is inserted, inlining positions need to be
+  // reset. We could probably fix up only tensours around  those newly
+  // inserted ones, but here's just a quick approach
+  if (!tvs_to_upload_to_smem.empty()) {
+    resetInlining(fusion);
+    inlineMost(uninlinable_ids);
   }
 
   markAliases(fusion);
