@@ -16,6 +16,7 @@
 #include <tests/cpp/utils.h>
 #include <tests/cpp/validator.h>
 #include "ir/internal_nodes.h"
+#include "ir/utils.h"
 #include "type.h"
 namespace nvfuser {
 
@@ -496,9 +497,10 @@ TEST_F(ScanTest, KernelExecutorSerialScanMaxExclusive) {
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   // [1,2,3,4,5,6,7,8], [8,7,6,5,4,3,2,1]
-  auto input =
-      at::tensor({1, 2, 3, 4, 5, 6, 7, 8, 8, 7, 6, 5, 4, 3, 2, 1}, options)
-          .reshape({2, 8});
+  auto input = torch::tensor(
+      {{1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f, 7.0f, 8.0f},
+       {8.0f, 7.0f, 6.0f, 5.0f, 4.0f, 3.0f, 2.0f, 1.0f}},
+      options);
 
   KernelExecutor ke;
   ke.compile(&fusion, {input});
@@ -529,9 +531,10 @@ TEST_F(ScanTest, KernelExecutorPrefixSum) {
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   // [1,2,3,4,5,6,7,8], [8,7,6,5,4,3,2,1]
-  auto input =
-      at::tensor({1, 2, 3, 4, 5, 6, 7, 8, 8, 7, 6, 5, 4, 3, 2, 1}, options)
-          .reshape({2, 8});
+  auto input = torch::tensor(
+      {{1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f, 7.0f, 8.0f},
+       {8.0f, 7.0f, 6.0f, 5.0f, 4.0f, 3.0f, 2.0f, 1.0f}},
+      options);
 
   KernelExecutor ke;
   ke.compile(&fusion, {input});
@@ -560,9 +563,10 @@ TEST_F(ScanTest, KernelExecutorPrefixSumTensorDiscount) {
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   // [1,2,3,4,5,6,7,8], [8,7,6,5,4,3,2,1]
-  auto input =
-      at::tensor({1, 2, 3, 4, 5, 6, 7, 8, 8, 7, 6, 5, 4, 3, 2, 1}, options)
-          .reshape({2, 8});
+  auto input = torch::tensor(
+      {{1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f, 7.0f, 8.0f},
+       {8.0f, 7.0f, 6.0f, 5.0f, 4.0f, 3.0f, 2.0f, 1.0f}},
+      options);
 
   KernelExecutor ke;
   ke.compile(&fusion, {input});
@@ -930,26 +934,90 @@ TEST_F(ScanTest, InclusiveScan) {
   fusion.addOutput(tv3);
   auto unscheduled_fusion = fusion;
 
+  // tv2 is a consumer of scan, don't inline the scan dim as its previous value
+  // is required for the current iteration
+  int scan_dim = 1;
   for (auto tv : {tv1, tv3}) {
     tv->inlineAt(-1);
   }
-  tv2->inlineAt(1);
+  tv2->inlineAt(scan_dim);
+  /*========== Generated code ======================
+  Array<float, 8, 1> T2;
+  #pragma unroll
+  for(nvfuser_index_t i2 = 0; i2 < 8; ++i2) {
+    Array<float, 1, 1> T1;
+    T1[0] = 0;
+    T1[0]
+       = T0[(i1 + (i2 + nvfuser_zero))];
+    T2[i2] = fmax(
+      ((i2 > 0) ? (T2[(-1 + i2)]) : NEG_INFINITY),
+      (T1[0]));
+  }
+  #pragma unroll
+  for(nvfuser_index_t i3 = 0; i3 < 8; ++i3) {
+    T3[(i1 + (i3 + nvfuser_zero))]
+       = T2[i3];
+  }
+  ===============================================*/
+  // To aviod the scanned domain is allocated, compute with its consumer.
   tv2->computeWith(-1);
-
+  /*========== Generated code ======================
+  Array<float, 1, 1> T2;
+  #pragma unroll
+  for(nvfuser_index_t i2 = 0; i2 < 8; ++i2) {
+    nvfuser_index_t i3;
+    i3 = i1 + (i2 + nvfuser_zero);
+    Array<float, 1, 1> T1;
+    T1[0] = 0;
+    T1[0]
+       = T0[i3];
+    T2[0] = fmax(
+      ((i2 > 0) ? (T2[0]) : NEG_INFINITY),
+      (T1[0]));
+    T3[i3]
+       = T2[0];
+  }
+  ===============================================*/
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  auto input =
-      at::tensor({1, 2, 3, 4, 5, 6, 7, 8, 8, 7, 6, 5, 4, 3, 2, 1}, options)
-          .reshape({2, 8});
+  auto input = torch::tensor(
+      {{1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f, 7.0f, 8.0f},
+       {8.0f, 7.0f, 6.0f, 5.0f, 4.0f, 3.0f, 2.0f, 1.0f}},
+      options);
   KernelExecutor ke;
   ke.compile(&fusion, {input});
   auto outputs = ke.run({input});
   // inclusive scan
-  auto aten_output =
-      at::tensor({1, 2, 3, 4, 5, 6, 7, 8, 8, 8, 8, 8, 8, 8, 8, 8}, options)
-          .reshape({2, 8});
+  auto aten_output = torch::tensor(
+      {{1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f, 7.0f, 8.0f},
+       {8.0f, 8.0f, 8.0f, 8.0f, 8.0f, 8.0f, 8.0f, 8.0f}},
+      options);
   EXPECT_TRUE(
       at::allclose(outputs[0].as<at::Tensor>(), aten_output, 1e-5, 1e-8, true));
 }
+
+// for(nvfuser_index_t i0 = 0; i0 < 2; ++i0) {
+//   nvfuser_index_t i1;
+//   i1 = 8 * i0;
+//   Array<float, 1, 1> T2;
+//   Array<float, 1, 1> T3;
+//   #pragma unroll
+//   for(nvfuser_index_t i2 = 0; i2 < 8; ++i2) {
+//     nvfuser_index_t i3;
+//     i3 = i1 + (i2 + nvfuser_zero);
+//     Array<float, 1, 1> T1;
+//     T1[0] = 0;
+//     T1[0]
+//        = T0[i3];
+//     T3[0] = ((i2 > 0) ? (T2[0]) : NEG_INFINITY);
+//     T2[0] = fmax(
+//       ((i2 > 0) ? (T2[0]) : NEG_INFINITY),
+//       (T1[0]));
+//     T4[i3]
+//        = T2[0];
+//     T5[i3]
+//        = T3[0];
+//   }
+// }
 TEST_F(ScanTest, InclusiveExclusiveScan) {
   EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
   Fusion fusion;
@@ -968,43 +1036,39 @@ TEST_F(ScanTest, InclusiveExclusiveScan) {
   fusion.addOutput(tv5);
   auto unscheduled_fusion = fusion;
 
-  for (auto tv : {tv1, tv4, tv5}) {
+  // Same as InclusiveScan
+  // use inlineAt to control allocation position.
+  // use computeWith to avoid allocating the scanned domain.
+  int scan_dim = 1;
+  const auto& scan_outputs = {tv2, tv3};
+  const auto& all_other_tvs = ir_utils::allTvsExcept(
+      &fusion, {scan_outputs.begin(), scan_outputs.end()});
+  for (auto tv : all_other_tvs) {
     tv->inlineAt(-1);
   }
-  for (auto tv : {tv2, tv3}) {
-    tv->inlineAt(1);
+  for (auto tv : scan_outputs) {
+    tv->inlineAt(scan_dim);
     tv->computeWith(-1);
   }
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto input = torch::tensor(
-      {{1, 2, 3, 4, 5, 6, 7, 8}, {8, 7, 6, 5, 4, 3, 2, 1}}, options);
+      {{1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f, 7.0f, 8.0f},
+       {8.0f, 7.0f, 6.0f, 5.0f, 4.0f, 3.0f, 2.0f, 1.0f}},
+      options);
   KernelExecutor ke;
   ke.compile(&fusion, {input});
   auto outputs = ke.run({input});
   // inclusive scan
-  auto aten_inclusive =
-      at::tensor({1, 2, 3, 4, 5, 6, 7, 8, 8, 8, 8, 8, 8, 8, 8, 8}, options)
-          .reshape({2, 8});
-  auto aten_exclusive = at::tensor(
-                            {-std::numeric_limits<float>::infinity(),
-                             1,
-                             2,
-                             3,
-                             4,
-                             5,
-                             6,
-                             7,
-                             -std::numeric_limits<float>::infinity(),
-                             8,
-                             8,
-                             8,
-                             8,
-                             8,
-                             8,
-                             8},
-                            options)
-                            .reshape({2, 8});
+  auto aten_inclusive = torch::tensor(
+      {{1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f, 7.0f, 8.0f},
+       {8.0f, 8.0f, 8.0f, 8.0f, 8.0f, 8.0f, 8.0f, 8.0f}},
+      options);
+  auto neg_inf = -std::numeric_limits<float>::infinity();
+  auto aten_exclusive = torch::tensor(
+      {{neg_inf, 1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f, 7.0f},
+       {neg_inf, 8.0f, 8.0f, 8.0f, 8.0f, 8.0f, 8.0f, 8.0f}},
+      options);
   EXPECT_TRUE(at::allclose(
       outputs[0].as<at::Tensor>(), aten_inclusive, 1e-5, 1e-8, true));
   EXPECT_TRUE(at::allclose(
@@ -1026,38 +1090,67 @@ TEST_F(ScanTest, InclusiveExclusiveScan) {
 // m[i] = max(m[i-1], x[i])
 // d[i] = d[i-1] * exp(m[i-1] - m[i]) + exp(x[i] - m[i])
 // return d[N-1]
-TEST_F(ScanTest, OnlineSumExpXMinusMaxSerialScan2) {
+TEST_F(ScanTest, SumExpScan) {
   EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
   Fusion fusion;
   FusionGuard fg(&fusion);
 
-  std::vector<int64_t> shape = {2, 2};
+  std::vector<int64_t> shape = {2, 8};
   auto tv0 = makeContigConcreteTensor(shape);
   fusion.addInput(tv0);
   auto tv1 = set(tv0);
   // m[i-1]
-  auto result2 = scan(tv1, {1}, BinaryOpType::Max, /*return_exclusive=*/true);
-  auto tv2 = result2.inclusive;
+  auto scan_res1 = scan(tv1, {1}, BinaryOpType::Max, /*return_exclusive=*/true);
+  auto tv2 = scan_res1.inclusive;
   // m[i]
-  auto tv3 = result2.exclusive;
+  auto tv3 = scan_res1.exclusive;
   //  exp(m[i-1] - m[i])
   auto tv4 = sub(tv3, tv2);
   auto tv5 = exp(tv4);
   auto tv6 = sub(tv1, tv2);
   auto tv7 = exp(tv6);
-  auto tv8 =
-      prefixSum(
-          tv7, {1}, tv5, /*return_exclusive=*/false, /*return_reduction=*/true)
-          .reduction;
-  auto tv9 = set(tv8);
-  fusion.addOutput(tv9);
+  auto scan_res2 = prefixSum(
+      tv7, {1}, tv5, /*return_exclusive=*/false, /*return_reduction=*/true);
+  auto tv8 = scan_res2.inclusive;
+  auto tv9 = scan_res2.reduction;
+  auto tv10 = set(tv8);
+  auto tv11 = set(tv9);
+  fusion.addOutput(tv11);
+  fusion.addOutput(tv10);
   auto unscheduled_fusion = fusion;
 
   fusion.printMath();
 
-  // exclusive scan can't inline both consumer (tv2) and producer (tv1)
-  // inclusive scan can't inline consumer (tv8)
-  // inlineMost(std::vector<TensorView*>{tv3, tv4, tv5, tv6, tv7, tv9, tv10});
+  // Same as InclusiveScan
+  const auto& scan_outputs = {tv2, tv3, tv8, tv9};
+
+  // Similar to InclusiveScan and InclusiveExclusiveScan
+  // Avoid inlining the scanned dimensions
+  std::unordered_set<IterDomain*> uninlineable_ids;
+  for (auto tv : scan_outputs) {
+    for (auto id : tv->getLoopDomain()) {
+      if (id->isScan()) {
+        uninlineable_ids.insert(id);
+      }
+    }
+  }
+  // use inlineMost to auto detect max inline position
+  inlineMost(uninlineable_ids);
+
+  // control compute position
+  // manual inline the producers
+  for (auto tv : scan_outputs) {
+    int compute_with_pos = -1;
+    if (tv == tv9 || tv == tv8) {
+      compute_with_pos = 1;
+    }
+    tv->computeWith(compute_with_pos);
+    std::cout << "\ntv: " << tv->toString() << std::endl;
+    for (auto v : tv->definition()->inputs()) {
+      std::cout << "pv: " << v->toString() << std::endl;
+      v->as<TensorView>()->inlineAt(-1);
+    }
+  }
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto input = at::randn(shape, options);

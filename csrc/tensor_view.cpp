@@ -26,6 +26,9 @@
 #include <transform_iter.h>
 #include <transform_replay.h>
 
+#include <iostream>
+#include <unordered_set>
+
 namespace nvfuser {
 
 namespace {
@@ -201,18 +204,30 @@ void TensorView::inlineAt(
 }
 
 void TensorView::updateMaxProducerPosition(MaxPosCalculator* calc) {
+  std::cout << "DEBUG: updateMaxProducerPosition called for " << toString()
+            << " (current max_producer_pos_: " << max_producer_pos_ << ")"
+            << std::endl;
+
   std::unique_ptr<MaxPosCalculator> calc_owner;
   if (calc == nullptr) {
     calc_owner = std::make_unique<MaxPosCalculator>();
     calc = calc_owner.get();
   }
 
+  auto old_max_producer_pos = max_producer_pos_;
   for (auto producer : ir_utils::producerTvsOf(this)) {
-    max_producer_pos_ = std::max(
-        max_producer_pos_,
-        calc->getConsumerPosAlignedToProducerCA(
-            this, producer, producer->getComputePosition(this)));
+    auto producer_pos = producer->getComputePosition(this);
+    auto aligned_pos =
+        calc->getConsumerPosAlignedToProducerCA(this, producer, producer_pos);
+    std::cout << "DEBUG:   Producer " << producer->toString()
+              << " compute_pos: " << producer_pos
+              << ", aligned_pos: " << aligned_pos << std::endl;
+    max_producer_pos_ = std::max(max_producer_pos_, aligned_pos);
   }
+
+  std::cout << "DEBUG: updateMaxProducerPosition for " << toString()
+            << " changed from " << old_max_producer_pos << " to "
+            << max_producer_pos_ << std::endl;
 
   maybe_max_producer_pos_ = max_producer_pos_;
 
@@ -361,6 +376,14 @@ const std::vector<TensorView*>& TensorView::getComputeWithConsumers() const {
 int64_t TensorView::getComputePosition(const TensorView* consumer) const {
   if (hasResolvedComputeWith() && isComputedWith(consumer)) {
     return getComputeWithPosition();
+  } else if (hasResolvedComputeWith()) {
+    // If this tensor has resolved computeWith, use the computeWith position
+    // for producer position calculations even for non-computeWith consumers
+    std::cout << "DEBUG: Using computeWith position "
+              << getComputeWithPosition() << " instead of computeAt position "
+              << getComputeAtPosition() << " for " << toString() << " -> "
+              << consumer->toString() << std::endl;
+    return getComputeWithPosition();
   } else {
     return getComputeAtPosition();
   }
@@ -371,7 +394,11 @@ bool TensorView::resolveComputeWith(const std::vector<Expr*>& sorted_exprs) {
 
   auto siblings = ir_utils::filterByType<TensorView>(definition()->outputs());
 
+  std::cout << "DEBUG: resolveComputeWith called for " << toString()
+            << std::endl;
+  std::cout << "DEBUG: Found " << siblings.size() << " siblings:" << std::endl;
   for (auto sibling : siblings) {
+    std::cout << "DEBUG:   - " << sibling->toString() << std::endl;
     NVF_ERROR(
         sibling->hasComputeWith(),
         "Invlaid attempt to resolve computeWith: ",
@@ -380,6 +407,7 @@ bool TensorView::resolveComputeWith(const std::vector<Expr*>& sorted_exprs) {
 
   // It may have been already resolved through its siblings
   if (hasResolvedComputeWith()) {
+    std::cout << "DEBUG: Already resolved, returning false" << std::endl;
     return false;
   }
 
@@ -388,22 +416,81 @@ bool TensorView::resolveComputeWith(const std::vector<Expr*>& sorted_exprs) {
     use_set.insert(sibling->uses().begin(), sibling->uses().end());
   }
 
+  std::cout << "DEBUG: Searching for computeWith target in "
+            << sorted_exprs.size() << " expressions" << std::endl;
+
   for (auto expr : sorted_exprs) {
     if (!use_set.count(expr)) {
       continue;
     }
+
+    std::cout << "DEBUG: Found computeWith target expression: "
+              << expr->toString() << std::endl;
 
     // First use found. Set it as the computeWith target tensor
     std::vector<TensorView*> use_out_tvs{
         ir_utils::filterByType<TensorView>(expr->outputs()).begin(),
         ir_utils::filterByType<TensorView>(expr->outputs()).end()};
 
+    std::cout << "DEBUG: ComputeWith target tensors:" << std::endl;
+    for (auto tv : use_out_tvs) {
+      std::cout << "DEBUG:   - " << tv->toString()
+                << " (produce_pos before: " << tv->getMaxProducerPosition()
+                << ")" << std::endl;
+    }
+
     for (auto sibling : siblings) {
       sibling->compute_with_consumers_ = use_out_tvs;
     }
 
+    std::cout << "DEBUG: Updating producer positions for primary targets:"
+              << std::endl;
     for (auto consumer_tv : compute_with_consumers_) {
+      std::cout << "DEBUG:   Updating " << consumer_tv->toString()
+                << " (before: " << consumer_tv->getMaxProducerPosition() << ")"
+                << std::endl;
       consumer_tv->updateMaxProducerPosition();
+      std::cout << "DEBUG:   Updated to: "
+                << consumer_tv->getMaxProducerPosition() << std::endl;
+    }
+
+    // Also update producer positions for all consumers of sibling tensors
+    // This ensures tensors like T5 (consuming T3) also get updated
+    std::unordered_set<TensorView*> updated_consumers;
+    for (auto consumer_tv : compute_with_consumers_) {
+      updated_consumers.insert(consumer_tv);
+    }
+
+    std::cout << "DEBUG: Checking additional consumers of sibling tensors:"
+              << std::endl;
+    for (auto sibling : siblings) {
+      std::cout << "DEBUG:   Checking uses of sibling " << sibling->toString()
+                << std::endl;
+      for (auto use : sibling->uses()) {
+        std::cout << "DEBUG:     Use expression: " << use->toString()
+                  << std::endl;
+        for (auto output : use->outputs()) {
+          if (auto output_tv = dynamic_cast<TensorView*>(output)) {
+            std::cout << "DEBUG:       Output tensor: " << output_tv->toString()
+                      << " (produce_pos: "
+                      << output_tv->getMaxProducerPosition() << ")"
+                      << std::endl;
+            if (updated_consumers.find(output_tv) == updated_consumers.end()) {
+              std::cout << "DEBUG:       Updating additional consumer "
+                        << output_tv->toString()
+                        << " (before: " << output_tv->getMaxProducerPosition()
+                        << ")" << std::endl;
+              output_tv->updateMaxProducerPosition();
+              std::cout << "DEBUG:       Updated to: "
+                        << output_tv->getMaxProducerPosition() << std::endl;
+              updated_consumers.insert(output_tv);
+            } else {
+              std::cout << "DEBUG:       Already updated, skipping"
+                        << std::endl;
+            }
+          }
+        }
+      }
     }
 
     return true;

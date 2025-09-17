@@ -161,11 +161,13 @@ IterType promoteIterType(IterType type1, IterType type2) {
       "Invalid IterType: ",
       type2);
 
-  // Do not propagate GatherScatter and VectorComponent
-  if (type1 == IterType::VectorComponent || type1 == IterType::GatherScatter) {
+  // Do not propagate Scan, GatherScatter and VectorComponent
+  if (type1 == IterType::VectorComponent || type1 == IterType::GatherScatter ||
+      type1 == IterType::Scan) {
     type1 = IterType::Iteration;
   }
-  if (type2 == IterType::VectorComponent || type2 == IterType::GatherScatter) {
+  if (type2 == IterType::VectorComponent || type2 == IterType::GatherScatter ||
+      type2 == IterType::Scan) {
     type2 = IterType::Iteration;
   }
 
