@@ -3,8 +3,9 @@
 # SPDX-License-Identifier: BSD-3-Clause
 # Owner(s): ["module: nvfuser"]
 
+import pytest
 import torch
-from nvfuser_direct import FusionDefinition, ParallelType
+from nvfuser_direct import FusionDefinition, ParallelType, TensorView
 
 verbose_ = False
 
@@ -139,3 +140,94 @@ def test_tutorial_memcpy_scheduled():
     t0 = torch.randn(32, 32, dtype=torch.float, device="cuda:0")
     outputs = fd.manual_execute([t0])
     assert outputs[0].equal(t0)
+
+
+def test_tutorial_reduction():
+    def fusion_func(fd: FusionDefinition) -> TensorView:
+        # Create a 2D tensor
+        tv0 = fd.define_tensor(shape=[-1, -1])
+
+        # Reduce the second dimension
+        tv1 = fd.ops.sum(tv0, dims=[1])
+        fd.add_output(tv1)
+
+        return tv1
+
+    with FusionDefinition() as fd0:
+        ref_tv = fusion_func(fd0)
+
+        # At this point, nothing is parallelized. The reduction is done by
+        # a single thread sequentially.
+
+        if verbose_:
+            print(fd0.fusion.print_math())
+            print(fd0.fusion.print_kernel())
+
+        # Block-parallel reduction
+        ref_tv.axis(1).parallelize(ParallelType.block_x)
+
+        if verbose_:
+            print(fd0.fusion.print_math())
+            print(fd0.fusion.print_kernel())
+
+    t0 = torch.randn(10, 1024, dtype=torch.float, device="cuda:0")
+    ref = t0.sum(dim=1)
+
+    fd0.manual_validate([t0], [ref])
+
+    # Create another FusionDefinition with same math but different schedule.
+    with FusionDefinition() as fd1:
+        ref_tv = fusion_func(fd1)
+
+        # Next, use the same fusion but parallelize the reduction with
+        # thread blocks
+        ref_tv.axis(1).parallelize(ParallelType.grid_x)
+
+        if verbose_:
+            print(fd1.fusion.print_math())
+            print(fd1.fusion.print_kernel())
+
+    fd1.manual_validate([t0], [ref])
+
+    # Create another FusionDefinition with same math but different schedule.
+    with FusionDefinition() as fd2:
+        ref_tv = fusion_func(fd2)
+
+        # We can also parallelize the first axis as well. For example,
+        # here's how threadIdx.x is used for the reduction and threadIdx.y
+        # is used for the outer non-reduction domain
+        ref_tv.axis(0).parallelize(ParallelType.block_y)
+        ref_tv.axis(1).parallelize(ParallelType.block_x)
+
+        if verbose_:
+            print(fd2.fusion.print_math())
+            print(fd2.fusion.print_kernel())
+
+    # Running this fusion, however, should fail as it would require thread
+    # blocks of shape 1024x10, i.e., the same shape as the input tensor, which
+    # is too large in CUDA.
+    with pytest.raises(RuntimeError):
+        fd2.manual_validate([t0], [ref])
+
+    # Try again with a smaller input. This should launch a kernel
+    # with thread blocks of shape 32x10
+    t1 = torch.randn(10, 32, dtype=torch.float, device="cuda:0")
+    fd2.manual_validate([t1], [t1.sum(dim=1)])
+
+    # Create another FusionDefinition with same math but different schedule.
+    with FusionDefinition() as fd3:
+        ref_tv = fusion_func(fd3)
+
+        # We can of course mix BIDx and TIDx.
+        ref_tv.axis(0).parallelize(ParallelType.grid_x)
+        ref_tv.axis(1).parallelize(ParallelType.block_x)
+
+        if verbose_:
+            print(fd3.fusion.print_math())
+            print(fd3.fusion.print_kernel())
+
+    # The original input should not fail in this case. The kernel will be
+    # launched with 10 thread blocks, each of which has 1024 threads. Try
+    # running this test with NVFUSER_DUMP=launch_param to see the launch
+    # configuration of each kernel lauch
+    fd3.manual_validate([t0], [ref])
