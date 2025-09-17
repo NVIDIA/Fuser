@@ -1751,7 +1751,7 @@ void eraseInputDistinctRootDomains(Fusion* fusion) {
   // Holds all Val replacements across all inputs
   std::unordered_map<Val*, Val*> replacement_map;
 
-  for (auto tv : ir_utils::filterByType<TensorView>(fusion->inputs())) {
+  for (auto* tv : ir_utils::filterByType<TensorView>(fusion->inputs())) {
     // Create a new logical domain and replacement TensorDomain.
     // Given an logical domain, create a new IterDomain.
     // Otherwise, clone the previous IterDomain
@@ -1785,7 +1785,7 @@ void eraseInputDistinctRootDomains(Fusion* fusion) {
     }
 
     TensorDomain* new_td = nullptr;
-    if (tv->domain()->hasAllocation()) {
+    if (tv->getLoopDomain() != tv->getLogicalDomain()) {
       // we need to reorder the logical domain into allocation domain
       // consistently with the mapping from the old TensorView logical domain to
       // its allocation domain
@@ -1794,7 +1794,7 @@ void eraseInputDistinctRootDomains(Fusion* fusion) {
         old_to_new.emplace(logical[i], new_logical_domain[i]);
       }
 
-      ReplayTransformations replay(tv->getAllocationDomain(), old_to_new);
+      ReplayTransformations replay(tv->getLoopDomain(), old_to_new);
       // Without this,
       // https://github.com/NVIDIA/Fuser/blob/e613929a6c21b3095c8817b01b8f177096a26e60/csrc/transform_iter.cpp#L299
       // tries to look for root IDs in the map, which shouldn't exist because
@@ -1804,21 +1804,27 @@ void eraseInputDistinctRootDomains(Fusion* fusion) {
       // as the new logical so there aren't any expressions between them.
 
       std::vector<IterDomain*> new_alloc;
-      new_alloc.reserve(tv->getAllocationDomain().size());
-      for (IterDomain* alloc_id : tv->getAllocationDomain()) {
-        IterDomain* new_alloc_id = replay.getReplay().at(alloc_id);
-        // ReplayTransformations replay transforms but not paralelization, so
-        // we have to manually parallelize the new allocation ID. In other
-        // places, parallelization is usually done through parallelizeAllLike.
-        new_alloc_id->parallelize(alloc_id->getParallelType());
-        new_alloc.push_back(new_alloc_id);
+      if (tv->hasAllocation()) {
+        new_alloc.reserve(tv->getAllocationDomain().size());
+        for (IterDomain* alloc_id : tv->getAllocationDomain()) {
+          IterDomain* new_alloc_id = replay.getReplay().at(alloc_id);
+          // ReplayTransformations replay transforms but not paralelization, so
+          // we have to manually parallelize the new allocation ID. In other
+          // places, parallelization is usually done through parallelizeAllLike.
+          new_alloc_id->parallelize(alloc_id->getParallelType());
+          new_alloc.push_back(new_alloc_id);
+        }
       }
+      // Otherwise new_alloc stays empty, indicating allocation is the same as
+      // logical.
 
       std::vector<IterDomain*> new_loop;
-      if (tv->getLoopDomain() == tv->getAllocationDomain()) {
-        new_loop = new_alloc;
-      } else {
-        new_loop = new_logical_domain;
+      // Loop domain is required when constructing a TensorDomain.
+      new_loop.reserve(tv->getLoopDomain().size());
+      for (IterDomain* loop_id : tv->getLoopDomain()) {
+        IterDomain* new_loop_id = replay.getReplay().at(loop_id);
+        new_loop_id->parallelize(loop_id->getParallelType());
+        new_loop.push_back(new_loop_id);
       }
 
       new_td = IrBuilder::create<TensorDomain>(
