@@ -1760,13 +1760,10 @@ void eraseInputDistinctRootDomains(Fusion* fusion) {
     new_logical_domain.reserve(logical.size());
 
     // Does the logical domain contain all concrete sized extents?
-    bool tv_is_concrete = true;
-    for (auto id : logical) {
-      if (!id->extent()->isConstScalar()) {
-        tv_is_concrete = false;
-        break;
-      }
-    }
+    bool tv_is_concrete = std::all_of(
+      logical.begin(), 
+      logical.end(), 
+      [](IterDomain* id) { return id->extent()->isConstScalar(); });
 
     for (const auto& id : logical) {
       if (id->isRFactorProduct()) {
@@ -1775,20 +1772,38 @@ void eraseInputDistinctRootDomains(Fusion* fusion) {
             ? IrBuilder::create<Val>(DataType::Index)
             : id->extent();
         replacement_map.emplace(id->extent(), domain_extent);
+        if (id->isReduction()) {
+          continue;
+        }
         new_logical_domain.push_back(IterDomainBuilder(id)
                                          .extent(domain_extent)
                                          .resetSchedulingParams()
                                          .build());
       } else {
+        if (id->isReduction()) {
+          continue;
+        }
         new_logical_domain.push_back(id->cloneWithoutRFactor());
       }
     }
 
     TensorDomain* new_td = IrBuilder::create<TensorDomain>(new_logical_domain);
     if (!tv->domain()->hasAllocation()) {
-      new_td->setContiguity(tv->domain()->contiguity());
+      const std::vector<std::optional<bool>> old_contiguity = tv->domain()->contiguity();
+
+      std::vector<std::optional<bool>> no_red_contiguity;
+      no_red_contiguity.reserve(old_contiguity.size());
+
+      for (const auto& [alloc_id, contiguity] : zip(tv->getLogicalDomain(), old_contiguity)) {
+        if (alloc_id->isReduction()) {
+          continue;
+        }
+        no_red_contiguity.push_back(contiguity);
+      }
+      new_td->setContiguity(no_red_contiguity);
     }
-    TransformReplay::selfReplay(tv->domain(), new_td);
+
+    TransformReplay::selfReplay(tv->domain(), new_td, true);
     // if (tv->domain()->hasAllocation()) {
     //   // we need to reorder the logical domain into allocation domain
     //   // consistently with the mapping from the old TensorView logical domain to
@@ -1837,29 +1852,29 @@ void eraseInputDistinctRootDomains(Fusion* fusion) {
     // }
 
     // Remove reduction domains from new_td
-    if (new_td->hasReduction()) {
-      std::vector<std::optional<bool>> no_red_contiguity;
-      for (size_t i : arange(new_td->maybeAllocation().size())) {
-        if (new_td->maybeAllocation()[i]->isReduction()) {
-          continue;
-        }
-        no_red_contiguity.push_back(new_td->contiguity()[i]);
-      }
-      if (new_td->hasAllocation()) {
-        const std::vector<IterDomain*> new_logical =
-            TensorDomain::noReductions(new_td->logical());
-        new_td = IrBuilder::create<TensorDomain>(
-            /*root_domain=*/std::vector<IterDomain*>{},
-            /*logical_domain=*/new_logical,
-            /*allocation=*/TensorDomain::noReductions(new_td->allocation()),
-            /*loop_domain=*/TensorDomain::noReductions(new_td->loop()),
-            /*contiguity=*/no_red_contiguity);
-      } else {
-        new_td = IrBuilder::create<TensorDomain>(
-            /*logical_domain=*/TensorDomain::noReductions(new_td->logical()),
-            /*contiguity=*/no_red_contiguity);
-      }
-    }
+    // if (new_td->hasReduction()) {
+    //   std::vector<std::optional<bool>> no_red_contiguity;
+    //   for (size_t i : arange(new_td->maybeAllocation().size())) {
+    //     if (new_td->maybeAllocation()[i]->isReduction()) {
+    //       continue;
+    //     }
+    //     no_red_contiguity.push_back(new_td->contiguity()[i]);
+    //   }
+    //   if (new_td->hasAllocation()) {
+    //     const std::vector<IterDomain*> new_logical =
+    //         TensorDomain::noReductions(new_td->logical());
+    //     new_td = IrBuilder::create<TensorDomain>(
+    //         /*root_domain=*/std::vector<IterDomain*>{},
+    //         /*logical_domain=*/new_logical,
+    //         /*allocation=*/TensorDomain::noReductions(new_td->allocation()),
+    //         /*loop_domain=*/TensorDomain::noReductions(new_td->loop()),
+    //         /*contiguity=*/no_red_contiguity);
+    //   } else {
+    //     new_td = IrBuilder::create<TensorDomain>(
+    //         /*logical_domain=*/TensorDomain::noReductions(new_td->logical()),
+    //         /*contiguity=*/no_red_contiguity);
+    //   }
+    // }
 
     replacement_map.emplace(tv->domain(), new_td);
   }
