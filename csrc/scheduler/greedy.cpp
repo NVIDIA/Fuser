@@ -238,7 +238,8 @@ class CompileTimeChecker : private IterVisitor {
 
     if (!scatter->exactSizes()) {
       can_schedule_ = false;
-      setRejectReason("Non-exact scatter is not yet supported");
+      setRejectReason(
+          "Non-exact scatter is not yet supported");
       return;
     }
 
