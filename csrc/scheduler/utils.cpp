@@ -613,7 +613,8 @@ PersistentBufferInfo persistentBuffers(Fusion* fusion) {
     for (auto consumer : consumers) {
       if (dynamic_cast<SelectOp*>(consumer->definition()) ||
           dynamic_cast<IndexSelectOp*>(consumer->definition()) ||
-          dynamic_cast<GatherOp*>(consumer->definition())) {
+          dynamic_cast<GatherOp*>(consumer->definition()) ||
+          dynamic_cast<PreprocessGroupedMatmulInputSf*>(consumer->definition())) {
         continue;
       }
       auto mappable_roots =
