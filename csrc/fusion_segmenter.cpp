@@ -1994,8 +1994,6 @@ class SegmentedGroupTaskGraphConverter {
       : runtime_info_(runtime_info) {}
 
   void processGroup(SegmentedGroup* group) {
-    TaskGraph::TaskId task_id = (TaskGraph::TaskId)all_tasks_.size();
-
     // When there are aliased inputs, they will appear as _outputs_ of the
     // SegmentedGroup. To avoid actually adding those as outputs, we record them
     // here first
@@ -2016,7 +2014,6 @@ class SegmentedGroupTaskGraphConverter {
         // Ignore scalar inputs
         TaskGraph::DataId data_id = maybeRegisterTv(tv);
         TaskGraph::Data& data = all_data_.at((size_t)data_id);
-        data.uses.push_back(task_id);
         data.can_free = !tv->isFusionInput();
         inputs.push_back(data_id);
       }
@@ -2031,7 +2028,6 @@ class SegmentedGroupTaskGraphConverter {
         }
         TaskGraph::DataId data_id = maybeRegisterTv(tv);
         TaskGraph::Data& data = all_data_.at((size_t)data_id);
-        data.definition = task_id;
         if (auto* aliased_input_tv = dynamic_cast<TensorView*>(
                 tv->fusion()->getOutputAlias(tv).aliased_io)) {
           data.aliases_input = maybeRegisterTv(aliased_input_tv);
