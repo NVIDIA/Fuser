@@ -47,8 +47,8 @@ TEST_F(MultiDeviceStreamParallelTypeTest, Allgather) {
       ElementsAre(
           IsA<kir::Allocate>(),
           IsA<hir::GetCurrentStream>(),
-          IsA<ForLoop>(),
-          IsA<ForLoop>()));
+          IsA<kir::ForLoop>(),
+          IsA<kir::ForLoop>()));
 
   auto options =
       at::TensorOptions().device(at::kCUDA, communicator_->deviceId());
@@ -85,8 +85,8 @@ TEST_F(MultiDeviceStreamParallelTypeTest, Allreduce) {
       ElementsAre(
           IsA<kir::Allocate>(),
           IsA<hir::GetCurrentStream>(),
-          IsA<ForLoop>(),
-          IsA<ForLoop>()));
+          IsA<kir::ForLoop>(),
+          IsA<kir::ForLoop>()));
 
   auto options =
       at::TensorOptions().device(at::kCUDA, communicator_->deviceId());
@@ -125,8 +125,8 @@ TEST_F(MultiDeviceStreamParallelTypeTest, ReduceScatter) {
       ElementsAre(
           IsA<kir::Allocate>(),
           IsA<hir::GetCurrentStream>(),
-          IsA<ForLoop>(),
-          IsA<ForLoop>()));
+          IsA<kir::ForLoop>(),
+          IsA<kir::ForLoop>()));
 
   auto options =
       at::TensorOptions().device(at::kCUDA, communicator_->deviceId());
@@ -191,8 +191,8 @@ TEST_P(AGMatmulTest, CollectiveBasedPipeline) {
             IsA<kir::Allocate>(),
             IsA<kir::Allocate>(),
             IsA<hir::GetCurrentStream>(),
-            IsA<ForLoop>(),
-            IsA<ForLoop>()));
+            IsA<kir::ForLoop>(),
+            IsA<kir::ForLoop>()));
   } else {
     EXPECT_THAT(
         container.topLevelExprs(),
@@ -200,8 +200,8 @@ TEST_P(AGMatmulTest, CollectiveBasedPipeline) {
             IsA<MatmulOp>(),
             IsA<kir::Allocate>(),
             IsA<hir::GetCurrentStream>(),
-            IsA<ForLoop>(),
-            IsA<ForLoop>()));
+            IsA<kir::ForLoop>(),
+            IsA<kir::ForLoop>()));
   }
 
   auto tensor_options =
@@ -274,8 +274,8 @@ TEST_F(MultiDeviceStreamParallelTypeTest, matmul_AR) {
           IsA<kir::Allocate>(),
           IsA<kir::Allocate>(),
           IsA<hir::GetCurrentStream>(),
-          IsA<ForLoop>(),
-          IsA<ForLoop>()));
+          IsA<kir::ForLoop>(),
+          IsA<kir::ForLoop>()));
 
   auto tensor_options =
       at::TensorOptions().dtype(at::kFloat).device(communicator_->device());
@@ -347,8 +347,8 @@ TEST_F(MultiDeviceStreamParallelTypeTest, matmul_RS_through_bcast) {
           IsA<kir::Allocate>(),
           IsA<kir::Allocate>(),
           IsA<hir::GetCurrentStream>(),
-          IsA<ForLoop>(),
-          IsA<ForLoop>()));
+          IsA<kir::ForLoop>(),
+          IsA<kir::ForLoop>()));
 
   auto tensor_options =
       at::TensorOptions().dtype(at::kFloat).device(communicator_->device());
@@ -395,8 +395,8 @@ TEST_F(MultiDeviceStreamParallelTypeTest, AllgatherP2p) {
       ElementsAre(
           IsA<kir::Allocate>(),
           IsA<hir::GetCurrentStream>(),
-          IsA<ForLoop>(),
-          IsA<ForLoop>()));
+          IsA<kir::ForLoop>(),
+          IsA<kir::ForLoop>()));
 
   auto options =
       at::TensorOptions().device(at::kCUDA, communicator_->deviceId());
@@ -448,8 +448,8 @@ TEST_F(MultiDeviceStreamParallelTypeTest, AG_matmul_P2p) {
           IsA<kir::Allocate>(),
           IsA<kir::Allocate>(),
           IsA<hir::GetCurrentStream>(),
-          IsA<ForLoop>(),
-          IsA<ForLoop>()));
+          IsA<kir::ForLoop>(),
+          IsA<kir::ForLoop>()));
 
   auto tensor_options =
       at::TensorOptions().dtype(at::kFloat).device(communicator_->device());

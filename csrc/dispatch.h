@@ -121,7 +121,6 @@ class Val;
   f(SdpaBwdOp);                      \
   f(EmbeddingFwdOp);                 \
   f(Communication);                  \
-  f(ForLoop);                        \
   f(P2PCommunication);
 #define DISPATCH_FOR_ALL_KIR_EXPRS(f) \
   f(Allocate);                        \
@@ -144,6 +143,7 @@ class Val;
   f(BlockSerializeRelease);           \
   f(AsyncWait);                       \
   f(AsyncCommit);                     \
+  f(ForLoop);                         \
   f(IfThenElse);                      \
   f(GridReduction);                   \
   f(GroupedGridReduction);            \
@@ -170,7 +170,8 @@ class Val;
   f(ShareMemHandles);                 \
   f(HirAliasSelect);                  \
   f(ShardByStream);                   \
-  f(Deallocate);
+  f(Deallocate);                      \
+  f(ForLoop);
 
 // Forward declarations for all Val and Expr types
 

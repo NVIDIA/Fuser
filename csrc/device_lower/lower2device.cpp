@@ -69,7 +69,7 @@ class KIRCleaner : public OptOutDispatch {
  private:
   using OptOutDispatch::handle;
   void dispatch(Expr* expr) final {
-    if (expr->isA<ForLoop>() || expr->isA<kir::IfThenElse>()) {
+    if (expr->isA<kir::ForLoop>() || expr->isA<kir::IfThenElse>()) {
       OptOutDispatch::dispatch(expr);
     } else {
       // Any non-scoping expr is not considered nop
@@ -77,7 +77,7 @@ class KIRCleaner : public OptOutDispatch {
     }
   }
 
-  void handle(ForLoop* fl) final {
+  void handle(kir::ForLoop* fl) final {
     auto exprs = fl->body().exprs();
     fl->body().clear();
     for (auto expr : exprs) {

@@ -43,7 +43,7 @@ class RNGInserter : public kir::ExprMutator {
 
   struct InsertionInfo {
     Scope* scope = nullptr;
-    ForLoop* fl = nullptr;
+    kir::ForLoop* fl = nullptr;
   };
 
   RNGInserter(const std::vector<Expr*>& _exprs) : exprs(_exprs) {

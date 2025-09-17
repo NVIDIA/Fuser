@@ -966,6 +966,7 @@ list(APPEND JIT_TEST_SRCS
   ${NVFUSER_ROOT}/tests/cpp/test_sharding.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_smem_reuse.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_statement_guard.cpp
+  ${NVFUSER_ROOT}/tests/cpp/test_stream.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_swizzle.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_task_graph.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_tensor_factories.cpp

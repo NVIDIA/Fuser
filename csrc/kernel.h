@@ -150,6 +150,9 @@ struct KernelSummary {
 
   //! Do we have any scan op?
   bool has_scan = false;
+
+  //! Do the kernel need streamIdx?
+  bool stream_parallelized = false;
 };
 
 class KernelPerformanceProfile {

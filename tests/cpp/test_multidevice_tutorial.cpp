@@ -1031,7 +1031,7 @@ TEST_F(MultiDeviceTutorial, HostIrKernekPipelining) {
   // Let us create the main for-loop of the program. Its index will be used in
   // the for-loop's body.
   auto* index = IrBuilder::create<Val>(DataType::Index);
-  auto* for_loop = IrBuilder::create<ForLoop>(
+  auto* for_loop = IrBuilder::create<kir::ForLoop>(
       tv2->axis(0),
       index,
       /*start=*/hic->zeroVal(),
