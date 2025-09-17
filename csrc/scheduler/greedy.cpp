@@ -37,9 +37,16 @@ namespace nvfuser {
 namespace {
 
 // These are the current supported constrained ops.
+bool isConstrainedOp(Expr* expr) {
+  return expr != nullptr &&
+      expr->isOneOf<ArgsortOp, PadOp, ScanOp, ScatterOp, TopKOp>();
+}
+
 std::vector<Expr*> getAllConstrainedOps(Fusion* fusion) {
-  return ir_utils::getOpsOfType<ArgsortOp, PadOp, ScanOp, ScatterOp, TopKOp>(
-      fusion);
+  std::vector<Expr*> ops;
+  std::ranges::copy_if(
+      fusion->exprs(), std::back_inserter(ops), isConstrainedOp);
+  return ops;
 }
 
 std::vector<TensorView*> getAllConstrainedTvs(Fusion* fusion) {
@@ -57,7 +64,7 @@ std::vector<TensorView*> getAllConstrainedTvs(Fusion* fusion) {
     // a fusion input. Fusion inputs don't need to be scheduled, so they
     // shouldn't impose any constraint.
     for (auto inp : scatter->inputs()) {
-      if (!inp->isFusionInput()) {
+      if (!inp->isFusionInput() && inp->isA<TensorView>()) {
         constrained_tvs.push_back(inp->as<TensorView>());
       }
     }
@@ -238,8 +245,7 @@ class CompileTimeChecker : private IterVisitor {
 
     if (!scatter->exactSizes()) {
       can_schedule_ = false;
-      setRejectReason(
-          "Non-exact scatter is not yet supported");
+      setRejectReason("Non-exact scatter is not yet supported");
       return;
     }
 
@@ -327,7 +333,9 @@ class CompileTimeChecker : private IterVisitor {
     // domain of this TopKOp must have an extent that is no less
     // than any other TID parallelized iter domains. Requiring the
     // exactness is not necessary but sufficient.
-    needs_exact_block_dim_ = true;
+    
+    // TODO
+    // needs_exact_block_dim_ = true;
 
     auto out_tv = ir_utils::getTvOutput(topk);
     checkConstrainedTv(out_tv, {topk->dim()});
@@ -567,24 +575,42 @@ void propagateReshape(Fusion* fusion) {
 // Scatter: For each scatter output, if there's a use of the output,
 // insert a copy between the output and the use (i.e.,
 // cacheAfter). This intermediate copy is used to simplify the
-// propagation of scheduling from the scatter output tensor.
+// propagation of scheduling from the scatter output tensor. Similary,
+// since scatter inputs need to be scheduled in a particular way, they
+// are considered constrained for the scatter op, but they may be also
+// produced by another constrained op, which may have different
+// scheduling constraints. In order to avoid sheduling the same tensor
+// for two different constrained ops, insert a copy for such inputs as
+// well.
 //
 // ArgsortOp, ScanOp, TopKOp: To avoid predicating the output, use a
 // new Local tensor as the output if the original output is not a
 // Local tensor, and insert a copy from the Local tensor to the
 // original output.
 void insertCopyAfter(Fusion* fusion) {
-  for (auto expr :
-       ir_utils::getOpsOfType<ArgsortOp, ScanOp, ScatterOp, TopKOp>(fusion)) {
+  for (auto expr : getAllConstrainedOps(fusion)) {
     if (expr->isA<ScatterOp>()) {
       auto out_tv = expr->output(0)->as<TensorView>();
-      if (out_tv->uses().empty()) {
-        continue;
+      if (!out_tv->uses().empty()) {
+        out_tv->cacheAfter(
+            LoadStoreOpType::Set,
+            CacheOp::Unspecified,
+            /*propagate_allocation_domain=*/false);
       }
-      out_tv->cacheAfter(
-          LoadStoreOpType::Set,
-          CacheOp::Unspecified,
-          /*propagate_allocation_domain=*/false);
+      // If an input is produced by a constrained op, make sure it can
+      // be scheduled independently from the another constrained op
+      // by creating a copy
+      for (const auto inp_tv :
+           ir_utils::filterByType<TensorView>(expr->inputs())) {
+        if (isConstrainedOp(inp_tv->definition())) {
+          inp_tv->cacheAfter(
+              LoadStoreOpType::Set,
+              CacheOp::Unspecified,
+              /*propagate_allocation_domain=*/false);
+        }
+      }
+      std::cerr << "After copying: " << out_tv->definition()->toString();
+
     } else if (expr->isOneOf<ArgsortOp, ScanOp, TopKOp>()) {
       auto outputs = expr->outputs();
       for (auto out_tv : ir_utils::filterByType<TensorView>(outputs)) {
@@ -637,13 +663,14 @@ class ConstrainedOpScheduler : public OptOutDispatch {
     auto scatter_dim = scatter->dim();
     auto in_tv = ir_utils::getTvInput(scatter);
     auto index_tv = scatter->index()->as<TensorView>();
-    auto src_tv = scatter->src()->as<TensorView>();
     auto out_tv = ir_utils::getTvOutput(scatter);
 
     scheduleConstrainedTv(out_tv, {scatter_dim});
     scheduleConstrainedTv(index_tv, {scatter_dim});
     scheduleConstrainedTv(in_tv, {scatter_dim});
-    scheduleConstrainedTv(src_tv, {scatter_dim});
+    if (scatter->src()->isA<TensorView>()) {
+      scheduleConstrainedTv(scatter->src()->as<TensorView>(), {scatter_dim});
+    }
 
     // Setting the memory type.
     // If either of the input and output needs to be a global memory
@@ -986,6 +1013,11 @@ void GreedyScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
   propagateReshape(fusion);
 
   insertCopyAfter(fusion);
+
+  std::cerr << "Copy inserted\n";
+  std::cout << std::endl;
+  fusion->printMath();
+  std::cout << std::endl;
 
   std::vector<TensorView*> constrained_tvs = getAllConstrainedTvs(fusion);
 
