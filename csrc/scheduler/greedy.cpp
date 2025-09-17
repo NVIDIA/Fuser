@@ -359,8 +359,6 @@ class CompileTimeChecker : private IterVisitor {
     ValGroups constrained_domain;
     ValGroups unconstrained_domain;
 
-    std::vector<IterDomain*> unconstrained_ids;
-
     for (const auto& [i, logical_id] : enumerate(logical_domain)) {
       if (constrained_logical_id_offset_set.contains(i)) {
         const auto& logical_id_group = exact_graph_.toGroup(logical_id);
@@ -373,7 +371,6 @@ class CompileTimeChecker : private IterVisitor {
           continue;
         }
         unconstrained_domain.pushBack(exact_graph_.toGroup(logical_id));
-        unconstrained_ids.push_back(logical_id);
       }
     }
 
