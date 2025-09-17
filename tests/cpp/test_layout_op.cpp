@@ -68,6 +68,8 @@ bool validateGroupedLayout(
 
 } // namespace
 
+using testing::UnorderedElementsAre;
+
 class LayoutOpTest : public NVFuserTest {
  protected:
   void SetUp() override {
