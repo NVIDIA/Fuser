@@ -91,6 +91,41 @@ T2_g_float[iS6{2}, iS7{4}, iS8{8}]
 } // %kernel_math \n\n"""
     assert fd.fusion.print_math() == prescheduled_fusion_definition
 
+    # Test CUDA kernel representation
+    cuda_kernel = """// Codegen generated code
+__global__ void CUDAGeneratedKernel(Tensor<float, 3, 3> T0, Tensor<float, 3, 3> T1, Tensor<float, 3, 3> T2) {
+  NVFUSER_DEFINE_MAGIC_ZERO;
+  #pragma unroll
+  for(nvfuser_index_t i0 = 0LL; i0 < 2LL; ++i0) {
+    nvfuser_index_t i1;
+    i1 = T0.alloc_stride[0LL] * i0;
+    nvfuser_index_t i2;
+    i2 = T1.alloc_stride[0LL] * i0;
+    nvfuser_index_t i3;
+    i3 = 32LL * i0;
+    #pragma unroll
+    for(nvfuser_index_t i4 = 0LL; i4 < 4LL; ++i4) {
+      nvfuser_index_t i5;
+      i5 = i1 + (T0.alloc_stride[1LL] * i4);
+      nvfuser_index_t i6;
+      i6 = i2 + (T1.alloc_stride[1LL] * i4);
+      nvfuser_index_t i7;
+      i7 = i3 + (8LL * i4);
+      #pragma unroll
+      for(nvfuser_index_t i8 = 0LL; i8 < 8LL; ++i8) {
+        nvfuser_index_t i9;
+        i9 = i8 + nvfuser_zero;
+        T2[(i7 + i9)]
+          = T0[(i5 + (T0.alloc_stride[2LL] * i9))]
+          + T1[(i6 + (T1.alloc_stride[2LL] * i9))];
+      }
+    }
+  }
+  NVFUSER_UPDATE_MAGIC_ZERO;
+}
+"""
+    assert fd.fusion.print_kernel() == cuda_kernel
+
     # Test TensorView string representation
     assert str(tv0) == r"T0_g_float[iS0{2}, iS1{4}, iS2{8}]"
     assert str(tv1) == r"T1_g_float[iS3{2}, iS4{4}, iS5{8}]"

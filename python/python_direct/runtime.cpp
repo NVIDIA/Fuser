@@ -187,6 +187,31 @@ Returns
 -------
 str
     The fusion intermediate representation (IR) as a string.
+)")
+      .def(
+          "print_kernel",
+          [](Fusion& f, const CompileParams& compile_params) {
+            // Send debug messages to stringstream
+            std::stringstream ss;
+            DebugStreamGuard dsg(ss);
+
+            f.printKernel(compile_params);
+            return ss.str();
+          },
+          py::arg("compile_params") = CompileParams(),
+          R"(
+Lower the fusion and print the generated CUDA kernel.
+
+Parameters
+----------
+compile_params : CompileParams, optional
+Parameters to control the compilation process.
+Default is default-constructed CompileParams.
+
+Returns
+-------
+str
+The CUDA kernel as a string.
 )");
 }
 
