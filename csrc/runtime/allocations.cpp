@@ -649,7 +649,7 @@ class BackwardTraverseFromAllocToLogical {
       }
     }
 
-    // NOTE: split implies ceilDiv, which means tensor_new_shape have artificially padded extent. We use expr_eval to slice out the padding session.
+    // NOTE: split implies ceilDiv, which means its outputs ID has artificially padded extent. We use expr_eval to slice out the padding session, so that the logical domain would remain the correct extent instead of padding sizes.
     int64_t in_extent = ee_.evaluate(in->extent()).as<int64_t>();
     if (areDimsToBeMergedContiguous(tensor_, new_shape)) {
       tensor_ = tensor_.view(new_shape);
