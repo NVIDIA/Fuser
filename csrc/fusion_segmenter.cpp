@@ -2084,7 +2084,7 @@ class SegmentedGroupTaskGraphConverter {
     all_data_.emplace_back(
         /*definition=*/std::nullopt,
         /*uses=*/std::vector<TaskGraph::TaskId>{},
-        /*aliases_input=*/std::nullopt,
+        /*aliases_input=*/-1,
         size,
         /*can_free=*/true);
     return new_id;

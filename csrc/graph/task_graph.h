@@ -55,12 +55,15 @@ class TaskGraph {
   struct Data {
     std::optional<TaskId> definition;
     std::vector<TaskId> uses;
-    //! If set, this means we do not allocate a new output when executing this
-    //! Data's definition, instead we re-use the space from the specified input.
-    //! Note that this implies an ordering constraint which we will check, since
-    //! the definition must be the last use of the aliased input.
-    std::optional<DataId> aliases_input;
-    Size size;
+
+    //! If set to something other than -1, this means we do not allocate a new
+    //! output when executing this Data's definition, instead we re-use the
+    //! space from the specified input. Note that this implies an ordering
+    //! constraint which we will check, since the definition must be the last
+    //! use of the aliased input.
+    DataId aliases_input = -1;
+
+    Size size = 1;
 
     //! This indicates whether we are able to free this data after its last use.
     //! For a segmented fusion, unsegmented fusion inputs and outputs cannot be

@@ -123,7 +123,7 @@ TEST_F(TaskGraphTest, SharedIntermediateWithAlias) {
   std::vector<TaskGraph::Data> data = inferData(tasks);
 
   {
-    data.at(2).aliases_input = std::nullopt;
+    data.at(2).aliases_input = -1;
     data.at(3).aliases_input = 0;
     auto graph = TaskGraph(tasks, data);
     const TaskGraph::SortResult result = graph.findOptimalOrder();
@@ -137,7 +137,7 @@ TEST_F(TaskGraphTest, SharedIntermediateWithAlias) {
 
   { // When 2 aliases the input instead, we should switch the order
     data.at(2).aliases_input = 0;
-    data.at(3).aliases_input = std::nullopt;
+    data.at(3).aliases_input = -1;
     auto graph = TaskGraph(tasks, data);
     const TaskGraph::SortResult result = graph.findOptimalOrder();
 

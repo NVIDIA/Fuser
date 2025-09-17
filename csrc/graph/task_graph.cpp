@@ -79,8 +79,8 @@ TaskGraph::TaskGraph(
       DataId d = data.definition.value();
       NVF_ERROR(d >= 0 && (size_t)d < tasks_.size());
     }
-    if (data.aliases_input.has_value()) {
-      DataId a = data.aliases_input.value();
+    if (data.aliases_input != -1) {
+      DataId a = data.aliases_input;
       NVF_ERROR(a >= 0 && (size_t)a < data_.size());
     }
     for (TaskId use : data.uses) {
@@ -149,8 +149,8 @@ std::string TaskGraph::toMermaid() const {
 
   // Declare nodes with shapes and labels
   for (const auto& [data_id, data] : enumerate(data_)) {
-    if (data.aliases_input.has_value()) {
-      is_aliased_input.at(data.aliases_input.value()) = true;
+    if (data.aliases_input != -1) {
+      is_aliased_input.at(data.aliases_input) = true;
     }
     ss << "    d" << data_id << "([\"d" << data_id;
     if (print_data_size || data.size == 0) {
@@ -192,9 +192,9 @@ std::string TaskGraph::toMermaid() const {
   ss << "\n";
   for (const auto& [data_id, data] : enumerate(data_)) {
     // Create edges for aliases
-    if (data.aliases_input.has_value()) {
+    if (data.aliases_input != -1) {
       ss << "    d" << data_id << " alias" << data_id << "@--> d"
-         << data.aliases_input.value() << ";\n";
+         << data.aliases_input << ";\n";
       ss << "    class alias" << data_id << " aliasEdge;\n";
     }
 
@@ -239,11 +239,11 @@ void TaskGraph::validateSteps(const std::vector<Step>& steps) const {
     // Allocate outputs
     for (const DataId output_id : task.outputs) {
       const Data& output = getData(output_id);
-      if (output.aliases_input.has_value()) {
+      if (output.aliases_input != -1) {
         // Check that the aliased input has no further uses
         // Note that we will decrement this use count later in this function
         NVF_ERROR(
-            future_uses.at((size_t)output.aliases_input.value()) == 1,
+            future_uses.at((size_t)output.aliases_input) == 1,
             "Tried to execute segment that would overwrite input alias before "
             "some of its uses");
       } else {
@@ -301,10 +301,10 @@ TaskGraph TaskGraph::convertAliasesToDependencies() const {
     Task& task = tasks.at(task_id);
     for (DataId output_id : task.outputs) {
       Data& output = data.at((size_t)output_id);
-      if (output.aliases_input.has_value()) {
-        DataId& alias_id = output.aliases_input.value();
+      if (output.aliases_input != -1) {
+        DataId alias_id = output.aliases_input;
         // Reset the aliases_input flag before modifying the data vector
-        output.aliases_input = std::nullopt;
+        output.aliases_input = -1;
         Data& alias = data.at((size_t)alias_id);
         NVF_ERROR_EQ(
             output.size,
@@ -330,7 +330,7 @@ TaskGraph TaskGraph::convertAliasesToDependencies() const {
           data.emplace_back(
               /*definition=*/std::optional<TaskId>{use_id},
               /*uses=*/std::vector<TaskId>{task_id},
-              /*aliases_input=*/std::nullopt,
+              /*aliases_input=*/-1,
               /*size=*/0,
               /*can_free=*/true);
 
@@ -371,7 +371,7 @@ class TaskSorter {
     if (debug_) {
       const bool has_aliasing = std::ranges::any_of(
           arange(orig_graph_.numData()), [&](TaskGraph::DataId data_id) {
-            return orig_graph_.getData(data_id).aliases_input.has_value();
+            return orig_graph_.getData(data_id).aliases_input != -1;
           });
       if (has_aliasing) {
         debug() << "Aliasing detected in task graph. Original graph:\n";
@@ -643,9 +643,7 @@ std::string TaskGraph::Data::toString() const {
      << (definition.has_value() ? std::to_string(definition.value()) : "none");
   ss << ", uses={" << uses << "}";
   ss << ", size=" << size;
-  ss << ", aliases_input="
-     << (aliases_input.has_value() ? std::to_string(aliases_input.value())
-                                   : "none");
+  ss << ", aliases_input=" << aliases_input;
   ss << ", can_free=" << (can_free ? "yes" : "no");
   ss << "}";
   return ss.str();
