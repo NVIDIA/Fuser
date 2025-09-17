@@ -32,6 +32,23 @@ TaskGraph::TaskGraph(
       data.size() <= std::numeric_limits<TaskGraph::DataId>::max(),
       "There are too many data objects to represent with TaskGraph::DataId");
 
+  // Fill in Data uses and definitions
+  for (TaskId task_id : arange(numTasks())) {
+    const Task& task = tasks_.at((size_t)task_id);
+    for (DataId output_id : task.outputs) {
+      data_.at((size_t)output_id).definition = task_id;
+    }
+    for (DataId input_id : task.inputs) {
+      Data& input = data_.at(input_id);
+      if (std::find(input.uses.begin(), input.uses.end(), task_id) ==
+          input.uses.end()) {
+        input.uses.push_back(task_id);
+      }
+    }
+  }
+
+  validateGraph();
+
   // Initialize the counts of future uses of data and unmet dependencies of
   // tasks. These are the out-degrees of Data and in-degrees of Tasks,
   // respectively.
@@ -68,6 +85,39 @@ TaskGraph::TaskGraph(
     }
     for (TaskId use : data.uses) {
       NVF_ERROR(use >= 0 && (size_t)use < tasks_.size());
+    }
+  }
+}
+
+void TaskGraph::validateGraph() const {
+  for (TaskId task_id : arange(numTasks())) {
+    const Task& task = tasks_.at((size_t)task_id);
+    for (DataId output_id : task.outputs) {
+      const Data& output = getData(output_id);
+      NVF_ERROR(
+          output.definition.has_value() &&
+          output.definition.value() == task_id);
+    }
+    for (DataId input_id : task.inputs) {
+      const Data& input = getData(input_id);
+      NVF_ERROR(
+          std::find(input.uses.begin(), input.uses.end(), task_id) !=
+          input.uses.end());
+    }
+  }
+
+  for (const auto& [data_id, data] : enumerate(data_)) {
+    if (data.definition.has_value()) {
+      const Task& def = getTask(data.definition.value());
+      NVF_ERROR(
+          std::find(def.outputs.begin(), def.outputs.end(), data_id) !=
+          def.outputs.end());
+    }
+    for (const TaskId use_id : data.uses) {
+      const Task& use = getTask(use_id);
+      NVF_ERROR(
+          std::find(use.inputs.begin(), use.inputs.end(), data_id) !=
+          use.inputs.end());
     }
   }
 }

@@ -71,6 +71,11 @@ class TaskGraph {
     std::string toString() const;
   };
 
+  //! Note that the Tasks provided here must have accurate inputs, outputs, and
+  //! temporary space. The Data must have accurate aliases_input, size, and
+  //! can_free fields. However, uses and definitions can be empty in which case
+  //! they will be filled in automatically. Any pre-existing definitions or uses
+  //! will be checked for consistency.
   TaskGraph(const std::vector<Task>& tasks, const std::vector<Data>& data);
 
   //! This represents the execution of a single Task in a given ordering. It
@@ -108,6 +113,8 @@ class TaskGraph {
   Size getInitialAllocation() const {
     return initial_allocation_;
   }
+
+  void validateGraph() const;
 
   //! Given a list of steps, recompute the active space and high water mark.
   //! This is useful for validating that our backtracking algorithm does not
@@ -150,7 +157,7 @@ class TaskGraph {
 
  private:
   const std::vector<Task> tasks_;
-  const std::vector<Data> data_;
+  std::vector<Data> data_;
 
   //! How much data is allocated by data that has no definition, i.e. input data
   Size initial_allocation_ = 0;
