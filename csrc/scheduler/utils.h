@@ -682,10 +682,16 @@ void applyTransforms(
 // This is somewhat similar to orderTiledConcreteIdAsRoot
 std::vector<int64_t> domainReorderAsLogicalMap(TensorView* tv);
 
+// Generates an old to new map to reorder tv's logical domain as its allocation
+// order. This only handles the simple case where allocation is a permutation of
+// loop domain, otherwise, the function returns an empty container.
+std::unordered_map<int64_t, int64_t> maybeReorderLogicalAsAllocationMap(
+    TensorView* tv);
+
 // Generates an old to new map to reorder tv's loop domain as its allocation
 // order. This only handles the simple case where allocation is a permutation of
 // loop domain, otherwise, the function returns an empty container.
-std::unordered_map<int64_t, int64_t> maybeReorderAsAllocationMap(
+std::unordered_map<int64_t, int64_t> maybeReorderLoopAsAllocationMap(
     TensorView* tv);
 
 // Assumes view's are consistent as detected by

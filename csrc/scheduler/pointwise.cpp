@@ -207,26 +207,40 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
 
   const auto device_multiprocessor_count = static_cast<int64_t>(
       at::cuda::getCurrentDeviceProperties()->multiProcessorCount);
+  
+  bool has_reshapes = !ir_utils::getReshapeOps(fusion).empty();
 
-  auto reorder_map_entry =
+  auto logical_reorder_map_entry =
       HeuristicDataCacheEntry<HeuristicCompileTime::LogicalReorderMap>(
           data_cache, [&fusion, &largest_out]() {
             // NOTE: reorder_map is only applied for fusion without view
             // op yet.
-            if (!ir_utils::getReshapeOps(fusion).empty()) {
+            if (has_reshapes) {
               return std::make_unique<std::unordered_map<int64_t, int64_t>>();
             }
             return std::make_unique<std::unordered_map<int64_t, int64_t>>(
-                scheduler_utils::maybeReorderAsAllocationMap(largest_out));
+                scheduler_utils::maybeReorderLogicalAsAllocationMap(largest_out));
           });
-  const std::unordered_map<int64_t, int64_t>& reorder_map =
-      reorder_map_entry.get();
+  auto loop_reorder_map_entry =
+      HeuristicDataCacheEntry<HeuristicCompileTime::LoopReorderMap>(
+          data_cache, [&fusion, &largest_out]() {
+            if (has_reshapes) {
+              return std::make_unique<std::unordered_map<int64_t, int64_t>>();
+            }
+            return std::make_unique<std::unordered_map<int64_t, int64_t>>(
+                scheduler_utils::maybeReorderLoopAsAllocationMap(largest_out));
+          });
+
+  const std::unordered_map<int64_t, int64_t>& logical_reorder_map =
+      logical_reorder_map_entry.get();
+  const std::unordered_map<int64_t, int64_t>& loop_reorder_map =
+      loop_reorder_map_entry.get();
 
   std::vector<IterDomain*> ref_loop = largest_out->getLoopDomain();
   // reorder of root to align with logical map should always help with indexing,
   // even when vectorization isn't used.
-  if (!reorder_map.empty()) {
-    ref_loop = TensorDomain::orderedAs(ref_loop, reorder_map);
+  if (!loop_reorder_map.empty()) {
+    ref_loop = TensorDomain::orderedAs(ref_loop, loop_reorder_map);
   }
   // We always cacheBefore output at the beginning of the scheduling. And after
   // cacheBefore, the reference tensor will have all reduction IDs removed.
@@ -482,7 +496,7 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
           data_cache,
           break_point,
           /*max_vectorization_size_in_bit=*/128,
-          reorder_map));
+          logical_reorder_map));
 
   // get unroll factor:
 
@@ -535,8 +549,8 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
             << std::endl
             << "vectorize_factor: " << params->vectorization_factor << std::endl
             << "\n"
-            << "reorder_map: ";
-    for (auto [i, j] : reorder_map) {
+            << "logical_reorder_map: ";
+    for (auto [i, j] : logical_reorder_map) {
       debug() << "(" << i << ", " << j << "), ";
     }
     debug() << "\nbroadcast_byte_multiples: ";
@@ -958,10 +972,10 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
     // Don't need to worry about view transformations, just merge reference tv
     // as we normally would.
 
-    std::unordered_map<int64_t, int64_t> reorder_map =
-        scheduler_utils::maybeReorderAsAllocationMap(reference_tv);
-    if (!reorder_map.empty()) {
-      reference_tv->reorder(reorder_map);
+    std::unordered_map<int64_t, int64_t> loop_reorder_map =
+        scheduler_utils::maybeReorderLoopAsAllocationMap(reference_tv);
+    if (!loop_reorder_map.empty()) {
+      reference_tv->reorder(loop_reorder_map);
     }
     reorderDIDToFront(reference_tv);
 

@@ -2260,14 +2260,46 @@ std::vector<int64_t> domainReorderAsLogicalMap(TensorView* tv) {
   return *permutation;
 }
 
-std::unordered_map<int64_t, int64_t> maybeReorderAsAllocationMap(
+std::unordered_map<int64_t, int64_t> maybeReorderLogicalAsAllocationMap(
     TensorView* tv) {
   std::unordered_map<int64_t, int64_t> ret;
   if (!tv->hasAllocation()) {
     return ret;
   }
-  const auto& alloc_dom = tv->getAllocationDomain();
+  const auto& logical_dom = tv->getLogicalDomain();
+  const auto& [alloc_dom, _] = canonicalizeLayout(tv);
+  if (alloc_dom == logical_dom) {
+    return ret;
+  }
+  if (!std::is_permutation(
+          alloc_dom.begin(), alloc_dom.end(), logical_dom.begin())) {
+    return ret;
+  }
+  std::unordered_map<IterDomain*, int64_t> alloc_index;
+  std::unordered_map<IterDomain*, int64_t> rfactor_index;
+  for (auto i : arange((int64_t)alloc_dom.size())) {
+    alloc_index[alloc_dom[i]] = i;
+    rfactor_index[loop_dom[i]] = i;
+  }
+  for (auto iter_dom : alloc_dom) {
+    ret[rfactor_index[iter_dom]] = alloc_index[iter_dom];
+  }
+  return ret;
+}
+
+std::unordered_map<int64_t, int64_t> maybeReorderLoopAsAllocationMap(
+    TensorView* tv) {
+  std::unordered_map<int64_t, int64_t> ret;
+  if (!tv->hasAllocation()) {
+    return ret;
+  }
   const auto& loop_dom = tv->getLoopDomain();
+  auto transform_exprs = DependencyCheck::getAllExprsBetween(
+    {tv->getAllocationDomain().begin(), tv->getAllocationDomain().end()},
+    {loop_dom.begin(), loop_dom.end()});
+  std::vector<IterDomain*> alloc_dom = tv->getAllocationDomain();
+  applyTransforms(alloc_dom, transform_exprs);
+  
   if (alloc_dom == loop_dom) {
     return ret;
   }
@@ -2286,6 +2318,7 @@ std::unordered_map<int64_t, int64_t> maybeReorderAsAllocationMap(
   }
   return ret;
 }
+
 
 void propagateReshapeTransforms(Fusion* fusion, const ComputeAtMap& ca_map) {
   std::unordered_set<std::shared_ptr<VectorOfUniqueEntries<IterDomain*>>>
