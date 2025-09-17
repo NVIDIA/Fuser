@@ -146,7 +146,7 @@ std::pair<std::unordered_set<IterDomain*>, bool> getNonMappingDomainInfo(
       auto producer_logical =
           TensorDomain::noReductions(producer_tv->getLogicalDomain());
       for (const auto& [i, p_id] : enumerate(producer_logical)) {
-        if (i == sop->dim() || !sop->exactSizes()) {
+        if ((int64_t)i == sop->dim() || !sop->exactSizes()) {
           non_mapping_ids.insert(p_id);
         }
       }
