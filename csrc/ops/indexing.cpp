@@ -184,7 +184,7 @@ TensorView* scatter(
   dim = wrapDim(dim, (int64_t)self_dom.size());
 
   bool is_exact = true;
-  for (const auto i : arange(self_dom.size())) {
+  for (const auto i : arange(std::ssize(self_dom))) {
     if (i == dim) {
       continue;
     }
@@ -216,7 +216,7 @@ TensorView* scatter(
   std::vector<IterDomain*> out_loop;
   out_loop.reserve(idx_dom.size());
   for (const auto& [i, idx_id] : enumerate(idx_dom)) {
-    if (i == dim || !is_exact) {
+    if ((int64_t)i == dim || !is_exact) {
       out_loop.push_back(IterDomainBuilder(idx_id).build());
     } else {
       out_loop.push_back(out_logical.at(i));
