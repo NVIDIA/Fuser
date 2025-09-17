@@ -1896,10 +1896,39 @@ std::pair<IrCloner, std::unique_ptr<Fusion>> SegmentedFusion::makeFusion(
       view_tvs.push_back(clone_tv->as<TensorView>());
     } else if (inp->isDefinitionType<PreprocessGroupedMatmulInputSf>()) {
       // There's no point of replaying allocation domain if we cannot index into
-      // TV anyway.
-      // TODO: check all uses are safe
+      // the given TV anyway. We erase the allocation domain because Transform
+      // Replay cannot handle the allocation domain transformation represented
+      // padding yet.
       auto* tv_ptr = clone_tv->as<TensorView>();
       tv_ptr->setAllocationDomain(tv_ptr->getLogicalDomain(), true);
+      // check all uses are safe, this is to ensure that consumer of the
+      // operation wouldn't try to index into the given tensor relying on
+      // allocation domain.
+      for (auto* use = tv_ptr->uses()) {
+        TORCH_WARN(
+            use->isA<CutlassNvfp4GroupedMmaOp>(),
+            "use of output from PreprocessGroupedMatmulInputSf is unsafe by "
+            "operation:",
+            use->toString(0));
+        auto* layout_op = use->as<CutlassNvfp4GroupedMmaOp>();
+        TORCH_WARN(
+            std::all(
+                layout_op->inputs().begin(),
+                layout_op->inputs().end(),
+                [&](const Val* input) {
+                  // we can only use output from PreprocessGroupedMatmulInputSf
+                  // as block scaling factor
+                  return layout_op->scale1() == input ||
+                      layout_op->scale2() == input || input != tv_ptr;
+                }
+
+                ),
+            "use of output from PreprocessGroupedMatmulInputSf is unsafe by "
+            "operation:",
+            use->toString(0),
+            " as argument: ",
+            tv_ptr->toString(0));
+      }
     }
   }
 

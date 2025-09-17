@@ -60,6 +60,8 @@ bool canIgnoreIndexedInputDomainID(
       }
     } else if (
         auto layout = dynamic_cast<PreprocessGroupedMatmulInputSf*>(use)) {
+      // since we don't index into offsets, scheduler doesn't need to cover
+      // offset TVs ID.
       if (input_tv == layout->inputOffsets() ||
           input_tv == layout->outputOffsets()) {
         continue;
