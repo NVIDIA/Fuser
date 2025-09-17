@@ -776,21 +776,15 @@ std::unordered_set<TensorView*> getTvsWithDifferentSharding(
   return ret;
 }
 
-void validateDeviceSplit(Expr* expr) {
-  NVF_ERROR(expr != nullptr, "Expected a valid expression.");
-  auto* split = dynamic_cast<Split*>(expr);
-  NVF_ERROR(
-      split != nullptr,
-      "Only split expressions are supported for producing device ids: ",
-      expr->toString());
-  NVF_ERROR(
-      split->outer()->isDeviceDim(),
-      "Expected the outer dimension to be a device dimension: ",
-      expr->toString());
-  NVF_ERROR(
-      !split->innerSplit(),
-      "Inner split by device dimension is not supported: ",
-      expr->toString());
+bool isValidateDeviceSplit(Expr* expr) {
+  if (expr == nullptr || !expr->isA<Split>()) {
+    return false;
+  }
+  auto* split = expr->as<Split>();
+  if (split == nullptr || !split->outer()->isDeviceDim() || split->innerSplit()) {
+    return false;
+  }
+  return true;
 }
 
 IterDomain* projectShardedAllocationToLogical(
@@ -806,7 +800,7 @@ IterDomain* projectShardedAllocationToLogical(
 
   IterDomain* logical_id = allocation_id;
   for (Expr* expr : exprs | std::views::reverse) {
-    validateDeviceSplit(expr);
+    NVF_ERROR(isValidateDeviceSplit(expr), "invalid device split: " expr->toString());
     logical_id = expr->as<Split>()->in();
   }
   return logical_id;
@@ -825,7 +819,7 @@ IterDomain* projectLogicalToShardedAllocation(
        tv->getMaybeAllocationDomain().end()});
   IterDomain* allocation_id = logical_id;
   for (auto expr : exprs) {
-    validateDeviceSplit(expr);
+    NVF_ERROR(isValidateDeviceSplit(expr), "invalid device split: " expr->toString());
     allocation_id = expr->as<Split>()->inner();
   }
   return allocation_id;

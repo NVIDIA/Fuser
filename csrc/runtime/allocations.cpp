@@ -654,6 +654,8 @@ class BackwardTraverseFromAllocToLogical {
     } else {
       auto [tensor_new_shape, tensor_new_strides] =
           getShapeAndStrideAfterDimMerged(tensor_, new_shape);
+      // NOTE: split implies ceilDiv, which means tensor_new_shape have artificially padded extent. We use expr_eval to slice out the padding session.
+      tensor_new_shape[left] = ee.evaluate(in)->as<int64_t>();
       tensor_ = tensor_.as_strided(tensor_new_shape, tensor_new_strides);
     }
 

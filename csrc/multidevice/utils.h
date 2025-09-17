@@ -169,7 +169,7 @@ std::vector<int64_t> unshardedSizes(
 
 // Validate the expression is a valid DID split: expr is an outer split with
 // device dim as the outer dimension.
-void validateDeviceSplit(Expr* expr);
+bool isValidateDeviceSplit(Expr* expr);
 
 // Find the producing logical id of the given allocation id traversing
 // through device splits. For unsharded allocation_id, logical_id is the same as
