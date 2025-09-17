@@ -323,7 +323,7 @@ TEST_F(LayoutOpTest, SchedulerKernelWithExplicitQuantization) {
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   int m = 512;
-  int k = 9; // note: padded column size would be 12
+  int k = 9*16; // note: padded column size needs to be a multiple of 16
   auto t0 = at::randn({m, k}, options);
   // tokens per group are [100, 150, 262] respectively, so each group would be
   // padded to multiple of 128. Hence the total output row span would cover a
