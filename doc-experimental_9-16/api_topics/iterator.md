@@ -1,3 +1,3 @@
-# iterator
+# Iterator
 
-Source: [iterator](../../csrc/utils.h#L636)
+Source: [Iterator](../../csrc/parallel_type_bitmap.h#L45)
