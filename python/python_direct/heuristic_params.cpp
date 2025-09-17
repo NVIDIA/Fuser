@@ -14,7 +14,8 @@
 namespace nvfuser::python {
 
 void bindHeuristicParams(py::module& nvfuser) {
-  py::class_<LaunchParams> launch_parameters(nvfuser, "LaunchParams");
+  py::class_<LaunchParams> launch_parameters(
+      nvfuser, "LaunchParams", py::module_local());
   launch_parameters.def(
       py::init<int64_t, int64_t, int64_t, int64_t, int64_t, int64_t>());
   launch_parameters.def(
@@ -56,7 +57,7 @@ void bindHeuristicParams(py::module& nvfuser) {
         self.bindUnsafe(val, ParallelType::BIDz);
       });
 
-#define DEFINECLASS(type) py::class_<type>(nvfuser, #type)
+#define DEFINECLASS(type) py::class_<type>(nvfuser, #type, py::module_local())
 
 #define TOSTRINGTOPLEVEL(type) \
   def("__repr__", [](const type& self) { return toString(self); })

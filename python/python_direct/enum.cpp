@@ -55,7 +55,7 @@ void bindEnums(py::module& nvfuser) {
       .value("nccl", CommunicatorBackend::kNccl)
       .value("ucc", CommunicatorBackend::kUcc);
 
-  py::enum_<SchedulerType>(nvfuser, "SchedulerType")
+  py::enum_<SchedulerType>(nvfuser, "SchedulerType", py::module_local())
       .value("none", SchedulerType::None)
       .value("no_op", SchedulerType::NoOp)
       .value("pointwise", SchedulerType::PointWise)
