@@ -800,7 +800,7 @@ IterDomain* projectShardedAllocationToLogical(
 
   IterDomain* logical_id = allocation_id;
   for (Expr* expr : exprs | std::views::reverse) {
-    NVF_ERROR(isValidateDeviceSplit(expr), "invalid device split: " expr->toString());
+    NVF_ERROR(isValidateDeviceSplit(expr), "invalid device split: ", expr->toString());
     logical_id = expr->as<Split>()->in();
   }
   return logical_id;
@@ -819,7 +819,7 @@ IterDomain* projectLogicalToShardedAllocation(
        tv->getMaybeAllocationDomain().end()});
   IterDomain* allocation_id = logical_id;
   for (auto expr : exprs) {
-    NVF_ERROR(isValidateDeviceSplit(expr), "invalid device split: " expr->toString());
+    NVF_ERROR(isValidateDeviceSplit(expr), "invalid device split: ", expr->toString());
     allocation_id = expr->as<Split>()->inner();
   }
   return allocation_id;
