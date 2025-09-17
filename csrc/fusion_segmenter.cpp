@@ -1999,11 +1999,9 @@ class SegmentedGroupTaskGraphConverter {
     // here first
     std::unordered_set<TensorView*> aliased_input_tvs;
     for (Val* v : group->outputs()) {
-      if (auto* tv = dynamic_cast<TensorView*>(v)) {
-        if (auto* aliased_input_tv = dynamic_cast<TensorView*>(
-                tv->fusion()->getOutputAlias(tv).aliased_io)) {
-          aliased_input_tvs.insert(aliased_input_tv);
-        }
+      if (auto* aliased_input_tv = dynamic_cast<TensorView*>(
+              v->fusion()->getOutputAlias(v).aliased_io)) {
+        aliased_input_tvs.insert(aliased_input_tv);
       }
     }
 
