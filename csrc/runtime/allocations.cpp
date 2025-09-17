@@ -654,7 +654,7 @@ class BackwardTraverseFromAllocToLogical {
     if (areDimsToBeMergedContiguous(tensor_, new_shape)) {
       tensor_ = tensor_.view(new_shape);
       if (in_extent != tensor_.size(left)) {
-        tensor_ = tensor.slice(left, 0, in_extent);
+        tensor_ = tensor_.slice(left, 0, in_extent);
       }
     } else {
       auto [tensor_new_shape, tensor_new_strides] =
