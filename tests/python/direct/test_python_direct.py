@@ -166,6 +166,12 @@ def test_fusion_execution_cache():
     results = fd.execute(inputs)
     assert torch.allclose(results[0], inputs[0] + inputs[1])
 
+    with pytest.raises(
+        AssertionError,
+        match=r"FusionExecutorCache already exists! Use execute\(\) to execute the fusion.",
+    ):
+        fd.manual_execute(inputs)
+
     # Test fusion math representation after compilation
     prescheduled_fusion_definition = """Inputs:
   T0_g_float[iS0{2}, iS1{4}, iS2{8}]
@@ -235,6 +241,33 @@ __global__ void nvfuser_pointwise_f0_c1_r0_g0(Tensor<float, 3, 3> T0, Tensor<flo
   }
 }\n"""
     assert fd.fec.get_cuda_kernel(inputs) == cuda_kernel
+
+
+def test_kernel_executor():
+    with FusionDefinition() as fd:
+        tv0 = fd.define_tensor(
+            shape=[2, 4, 8],
+        )
+        tv1 = fd.define_tensor(
+            shape=[2, 4, 8],
+        )
+        tv2 = fd.ops.add(tv0, tv1)
+        fd.add_output(tv2)
+
+    # Test fusion execution
+    inputs = [
+        torch.randn(2, 4, 8, device="cuda"),
+        torch.randn(2, 4, 8, device="cuda"),
+    ]
+    results = fd.manual_execute(inputs)
+    assert torch.allclose(results[0], inputs[0] + inputs[1])
+    assert fd.ke.is_compiled()
+
+    with pytest.raises(
+        AssertionError,
+        match=r"KernelExecutor already exists! Use manual_execute\(\) to execute the fusion.",
+    ):
+        fd.execute(inputs)
 
 
 def test_repro_script_for():
