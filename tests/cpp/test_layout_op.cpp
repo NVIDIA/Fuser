@@ -312,13 +312,13 @@ TEST_F(LayoutOpTest, SchedulerKernelWithExplicitQuantization) {
 
   auto reshaped_inp = reshape(inp, {inp->axis(0)->extent(), remainder, block_size});
   auto blocked_sf = max(reshaped_inp, {2});
-  auto scaled_output = div(reshaped_inp, broadcast(blocked_sf, {false, false, true}));
-  // scaled_output = castOp(DataType::Float4_e2m1fn, scaled_output);
+  auto scaled_output = reshape(div(reshaped_inp, broadcast(blocked_sf, {false, false, true})), {inp->axis(0)->extent(), inp->axis(1)->extent()});
+  // NOTE: output needs to be casted to DataType::Float4_e2m1fn, skipping that for simplicity
   fusion.addOutput(scaled_output);
 
   auto out_blocked_sf_fp8 = preprocessGroupedMatmulInputSf(
       blocked_sf, offsets, rounded_offsets, BlockScalingFactorLayout::Block128x4);
-  // out_blocked_sf_fp8 = castOp(DataType::Float8_e4m3fn, out_blocked_sf_fp8);
+  // NOTE: output needs to be casted to DataType::Float8_e4m3fn, skipping that for simplicity
   fusion.addOutput(out_blocked_sf_fp8);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
@@ -331,9 +331,31 @@ TEST_F(LayoutOpTest, SchedulerKernelWithExplicitQuantization) {
   auto t1 = at::tensor({0, 100, 250, 512}, options.dtype(at::kInt));
   auto t2 = at::tensor({0, 128, 384, 768}, options.dtype(at::kInt));
 
-  // naive scheduling.
+  // automatic scheduling.
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
   auto outputs = executor_cache.runFusionWithInputs({t0, t1, t2});
+
+  // producing reference
+  auto ref_reshaped_inp = t0.view({m, k / 16, 16});
+  auto ref_block_sf = ref_reshaped_inp.amax(-1);
+  auto ref_scaled_out = (ref_reshaped_inp / ref_block_sf.unsqueeze(-1)).view({m, k});
+
+  // check scaled output
+  EXPECT_TRUE(at::allclose(ref_scaled_out, outputs[0].as<at::Tensor>()));
+  // check block scaling factor
+  ASSERT_TRUE(validateGroupedLayout(
+      BlockScalingFactorLayout::Block128x4,
+      outputs[1].as<at::Tensor>(),
+      ref_block_sf,
+      t1,
+      t2));
+
+EXPECT_THAT(
+    executor_cache.getMostRecentKernelRuntime()->fusionSegments()->groups(),
+    UnorderedElementsAre(
+	HeuristicIs(SchedulerType::InnerPersistent),
+	HeuristicIs(SchedulerType::ExprEval)
+));
 }
 
 } // namespace nvfuser
