@@ -165,7 +165,8 @@ TEST_F(LayoutOpTest, LogicalAndAllocationSizes) {
   EXPECT_TRUE(t0.equal(cg_outputs[0].as<at::Tensor>()));
   // output should remain the correct logical size
   EXPECT_EQ(cg_outputs[0].as<at::Tensor>().sizes(), {512, 9});
-  // padding on the inner dimension is represented as stride on the outer dimension
+  // padding on the inner dimension is represented as stride on the outer
+  // dimension
   EXPECT_EQ(cg_outputs[0].as<at::Tensor>().strides(), {16, 1});
 }
 

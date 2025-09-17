@@ -275,7 +275,8 @@ KernelArgumentHolder allocateOutputs(
     if (output_alias_to_input_map.at(out_idx) == -1) {
       at::Tensor alloc_tensor;
       if (!out_info.shape_info.allocation_sizes.empty()) {
-        // TODO: should allocate based on allocation size & stride and restride with logical size & stride afterwards.
+        // TODO: should allocate based on allocation size & stride and restride
+        // with logical size & stride afterwards.
         alloc_tensor = at::native::empty_strided_cuda(
             out_info.shape_info.allocation_sizes,
             out_info.shape_info.allocation_strides,
@@ -649,7 +650,10 @@ class BackwardTraverseFromAllocToLogical {
       }
     }
 
-    // NOTE: split implies ceilDiv, which means its outputs ID has artificially padded extent. We use expr_eval to slice out the padding session, so that the logical domain would remain the correct extent instead of padding sizes.
+    // NOTE: split implies ceilDiv, which means its outputs ID has artificially
+    // padded extent. We use expr_eval to slice out the padding session, so that
+    // the logical domain would remain the correct extent instead of padding
+    // sizes.
     int64_t in_extent = ee_.evaluate(in->extent()).as<int64_t>();
     if (areDimsToBeMergedContiguous(tensor_, new_shape)) {
       tensor_ = tensor_.view(new_shape);
