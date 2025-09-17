@@ -106,17 +106,6 @@ std::unique_ptr<HeuristicParams> CutlassScheduler::computeHeuristics(
   // TODO: Implement actual heuristics based on problem size, GPU arch, etc.
   // Once libheuristics is available via pycutlass wheel, integrate it here
 
-  // Set launch parameters
-  // TODO: set dimensions based on other heuristic params
-  int64_t block_dim_x = 384;
-  params->lparams = LaunchParams(
-      LaunchParams::UNINITIALIZED_VAL, // gdimx
-      LaunchParams::UNINITIALIZED_VAL, // gdimy
-      LaunchParams::UNINITIALIZED_VAL, // gdimz
-      block_dim_x, // bdimx
-      1, // bdimy
-      1); // bdimz
-
   return params;
 }
 
