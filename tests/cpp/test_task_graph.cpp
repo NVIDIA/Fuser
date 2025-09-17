@@ -40,6 +40,12 @@ std::vector<TaskGraph::Data> inferData(const Tasks& tasks) {
   }
 
   // Detect inputs and outputs and ensure they are not freed
+  //
+  // Note that any Data without a definition is treated as an input.
+  // Additionally, only Data that has no uses is considered an output. In the
+  // general case we could have outputs that are used in other Tasks, but these
+  // will need to be handled manually, since the intention of this tool is to
+  // enable common graph patterns to be built quickly.
   for (TaskGraph::Data& data : all_data) {
     data.size = 1;
     data.can_free = data.definition.has_value() && !data.uses.empty();
