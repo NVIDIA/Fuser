@@ -355,7 +355,8 @@ void TransformReplay::selfReplay(
       NVF_ERROR_EQ(
           (it->second->isBroadcast() || it->second->isReduction()),
           !contiguity.has_value(),
-          "Contiguity should be nullopt iff broadcast or reduction.");
+          "Contiguity should be nullopt iff broadcast or reduction, true/false "
+          "otherwise.");
       new_contiguity.push_back(contiguity);
       it->second->parallelize(alloc_id->getParallelType());
       new_alloc_domain.push_back(it->second);
