@@ -915,7 +915,7 @@ TEST_F(ScanTest, OnlineSumExpXMinusMaxSerialScan) {
 // m[i] = max(m[i-1], x[i])
 // d[i] = d[i-1] * exp(m[i-1] - m[i]) + exp(x[i] - m[i])
 // return d[N-1]
-TEST_F(ScanTest, OnlineSumExpXMinusMaxSerialScan2) {
+TEST_F(ScanTest, InclusiveScan) {
   EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
   Fusion fusion;
   FusionGuard fg(&fusion);
@@ -936,26 +936,129 @@ TEST_F(ScanTest, OnlineSumExpXMinusMaxSerialScan2) {
   tv2->inlineAt(1);
   tv2->computeWith(-1);
 
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto input =
+      at::tensor({1, 2, 3, 4, 5, 6, 7, 8, 8, 7, 6, 5, 4, 3, 2, 1}, options)
+          .reshape({2, 8});
+  KernelExecutor ke;
+  ke.compile(&fusion, {input});
+  auto outputs = ke.run({input});
+  // inclusive scan
+  auto aten_output =
+      at::tensor({1, 2, 3, 4, 5, 6, 7, 8, 8, 8, 8, 8, 8, 8, 8, 8}, options)
+          .reshape({2, 8});
+  EXPECT_TRUE(
+      at::allclose(outputs[0].as<at::Tensor>(), aten_output, 1e-5, 1e-8, true));
+}
+TEST_F(ScanTest, InclusiveExclusiveScan) {
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  std::vector<int64_t> shape = {2, 8};
+  auto tv0 = makeContigConcreteTensor(shape);
+  fusion.addInput(tv0);
+  auto tv1 = set(tv0);
+  auto res_scan = scan(tv1, {1}, BinaryOpType::Max, /*return_exclusive=*/true);
+  auto tv2 = res_scan.inclusive;
+  auto tv3 = res_scan.exclusive;
+  auto tv4 = set(tv2);
+  auto tv5 = set(tv3);
+  fusion.addOutput(tv4);
+  fusion.addOutput(tv5);
+  auto unscheduled_fusion = fusion;
+
+  for (auto tv : {tv1, tv4, tv5}) {
+    tv->inlineAt(-1);
+  }
+  for (auto tv : {tv2, tv3}) {
+    tv->inlineAt(1);
+    tv->computeWith(-1);
+  }
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto input = torch::tensor(
+      {{1, 2, 3, 4, 5, 6, 7, 8}, {8, 7, 6, 5, 4, 3, 2, 1}}, options);
+  KernelExecutor ke;
+  ke.compile(&fusion, {input});
+  auto outputs = ke.run({input});
+  // inclusive scan
+  auto aten_inclusive =
+      at::tensor({1, 2, 3, 4, 5, 6, 7, 8, 8, 8, 8, 8, 8, 8, 8, 8}, options)
+          .reshape({2, 8});
+  auto aten_exclusive = at::tensor(
+                            {-std::numeric_limits<float>::infinity(),
+                             1,
+                             2,
+                             3,
+                             4,
+                             5,
+                             6,
+                             7,
+                             -std::numeric_limits<float>::infinity(),
+                             8,
+                             8,
+                             8,
+                             8,
+                             8,
+                             8,
+                             8},
+                            options)
+                            .reshape({2, 8});
+  EXPECT_TRUE(at::allclose(
+      outputs[0].as<at::Tensor>(), aten_inclusive, 1e-5, 1e-8, true));
+  EXPECT_TRUE(at::allclose(
+      outputs[1].as<at::Tensor>(), aten_exclusive, 1e-5, 1e-8, true));
+}
+
+// Online normalizer for softmax: https://arxiv.org/abs/1805.02867
+
+// Given x[i] for i=0 .. N-1:
+
+//   m[-1] = -infinity
+//   d[-1] = 0
+//   for j = 0 .. N-1
+//     m[j] = max(m[j-1], x[j])
+//     d[j] = d[j-1] * exp(m[j-1] - m[j]) + exp(x[j] - m[j])
+
+// sum(exp(x[i] - max(x)))
+// is equivalent to:
+// m[i] = max(m[i-1], x[i])
+// d[i] = d[i-1] * exp(m[i-1] - m[i]) + exp(x[i] - m[i])
+// return d[N-1]
+TEST_F(ScanTest, OnlineSumExpXMinusMaxSerialScan2) {
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  std::vector<int64_t> shape = {2, 2};
+  auto tv0 = makeContigConcreteTensor(shape);
+  fusion.addInput(tv0);
+  auto tv1 = set(tv0);
+  // m[i-1]
+  auto result2 = scan(tv1, {1}, BinaryOpType::Max, /*return_exclusive=*/true);
+  auto tv2 = result2.inclusive;
+  // m[i]
+  auto tv3 = result2.exclusive;
+  //  exp(m[i-1] - m[i])
+  auto tv4 = sub(tv3, tv2);
+  auto tv5 = exp(tv4);
+  auto tv6 = sub(tv1, tv2);
+  auto tv7 = exp(tv6);
+  auto tv8 =
+      prefixSum(
+          tv7, {1}, tv5, /*return_exclusive=*/false, /*return_reduction=*/true)
+          .reduction;
+  auto tv9 = set(tv8);
+  fusion.addOutput(tv9);
+  auto unscheduled_fusion = fusion;
+
   fusion.printMath();
 
-  // We don't inline the scans past the scan dimension
-  // std::unordered_set<IterDomain*> uninlineable_ids;
-  // for (auto tv : {tv2, tv3}) {
-  //   if (tv->nDims() == 2) {
-  //     uninlineable_ids.insert(tv->axis(1));
-  //   }
-  // }
+  // exclusive scan can't inline both consumer (tv2) and producer (tv1)
+  // inclusive scan can't inline consumer (tv8)
+  // inlineMost(std::vector<TensorView*>{tv3, tv4, tv5, tv6, tv7, tv9, tv10});
 
-  // inlineMost(uninlineable_ids);
-
-  // for (TensorView* tv : {tv2, tv3}) {
-  //   tv->computeWith(-1);
-  //   for (Val* v : tv->definition()->inputs()) {
-  //     v->as<TensorView>()->inlineAt(-1);
-  //   }
-  // }
-
-  //
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto input = at::randn(shape, options);
 
@@ -969,7 +1072,6 @@ TEST_F(ScanTest, OnlineSumExpXMinusMaxSerialScan2) {
   EXPECT_TRUE(
       at::allclose(outputs[0].as<at::Tensor>(), aten_sum, 1e-5, 1e-8, true));
 }
-
 // This is a simplified version of FlashAttention that does not circular buffer
 // the inputs or use mma instructions, but has the same general computation
 // pattern.

@@ -63,7 +63,7 @@ bool mayRequireAllocation(const TensorView* tv, IterDomain* id) {
     }
     return !tv->hasComputeWith();
   }
-  turn !isPartitionedLoop(tv, id) && !isSizeOneDomain(id) &&
+  return !isPartitionedLoop(tv, id) && !isSizeOneDomain(id) &&
       !id->isReduction() && !id->isStride();
 }
 
@@ -1915,4 +1915,3 @@ std::vector<Expr*> insertAllocations(const std::vector<Expr*>& exprs) {
 }
 
 } // namespace nvfuser
-  
