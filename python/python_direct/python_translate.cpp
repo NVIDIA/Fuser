@@ -43,6 +43,34 @@ struct KeywordArgument {
   std::optional<T> default_value;
 };
 
+// Check if the NvFuser Val can be represented as a Python scalar.
+bool isPythonScalar(const Val* v) {
+  // short_circuit: Symbolic values are not Python scalars.
+  if (v->isSymbolic()) {
+    return false;
+  }
+
+  // Check if the dtype is compatible with a Python scalar.
+  // e.g., Python scalar cannot distiguish between ComplexDouble and
+  // ComplexFloat. In this case, define_scalar must be used to specify custom
+  // dtype.
+  PrimDataType value_dtype(std::get<PrimDataType>(v->dtype().type));
+  switch (value_dtype) {
+    case PrimDataType::Bool:
+      return true;
+    case PrimDataType::Int:
+    case PrimDataType::Index:
+      return true;
+    case PrimDataType::ComplexDouble:
+      return true;
+    case PrimDataType::Double:
+      return true;
+    default:
+      return false;
+  }
+  return false;
+}
+
 class PythonPrinter {
  public:
   PythonPrinter(std::ostream& os) : os_(os) {}
@@ -115,12 +143,14 @@ class PythonPrinter {
   }
 
   // Generate a unique name for a Val. Map val to name to track Val's lifetime.
-  std::string toString(const nvfuser::Val* v) {
+  std::string toString(const nvfuser::Val* v, bool is_lvalue = false) {
     std::stringstream ss;
     if (v == nullptr) {
       return "None";
     } else if (v->isA<TensorView>()) {
       ss << "tv" << v->name();
+    } else if (!is_lvalue && isPythonScalar(v)) {
+      ss << toString(v->value());
     } else {
       ss << "c" << v->name();
     }
@@ -182,7 +212,11 @@ class PythonPrinter {
       if (val == nullptr) {
         ss << "_";
       } else {
-        ss << toString(val);
+        NVF_ERROR(
+            !isPythonScalar(val),
+            "A constant scalar Val* cannot be an output lvalue. Got\t",
+            val->toString());
+        ss << toString(val, /*is_lvalue=*/true);
       }
       if (i < vec.size() - 1) {
         ss << ", ";
@@ -517,7 +551,7 @@ class PythonTranslator : public OptInConstDispatch {
     }
     return std::all_of(
         e->inputs().begin(), e->inputs().end(), [&](const Val* v) {
-          return visited_vals_.count(v) > 0;
+          return isPythonScalar(v) || visited_vals_.count(v) > 0;
         });
   }
 
@@ -651,13 +685,17 @@ class PythonTranslator : public OptInConstDispatch {
     if (visited_vals_.count(v) > 0) {
       return;
     }
+    // short-circuit: print python scalar directly
+    if (isPythonScalar(v)) {
+      return;
+    }
     visited_vals_.insert(v);
 
     // Since scalars can come from TensorView dimension sizes, search through
     // all TensorViews for an iterDomain whose extent matches the desired
     // value and then use size op.
     for (const nvfuser::Val* tv_val : tensors()) {
-      const TensorView* tv = tv_val->as<TensorView>();
+      const auto* tv = tv_val->as<TensorView>();
 
       // Get extents for each IterDomain
       std::vector<IterDomain*> filtered_logical_domain =
@@ -1004,6 +1042,22 @@ class PythonTranslator : public OptInConstDispatch {
     }
   }
 
+  void handle(const CutlassNvfp4GroupedMmaOp* cmm_op) final {
+    NVF_ERROR(cmm_op != nullptr);
+    visited_vals_.insert(cmm_op->out());
+    printer_.generateOperation(
+        "fd.ops.cutlass_nvfp4_grouped_mm",
+        {cmm_op->matrix1(),
+         cmm_op->matrix2(),
+         cmm_op->scale1(),
+         cmm_op->scale2(),
+         cmm_op->alpha(),
+         cmm_op->problemSizes(),
+         cmm_op->expertOffsets(),
+         cmm_op->scalingFactorOffsets()},
+        {cmm_op->out()});
+  }
+
   void handle(const ScaledMmaOp* smm_op) final {
     NVF_ERROR(smm_op != nullptr);
     TensorView* out_tv = smm_op->out();
@@ -1127,7 +1181,7 @@ class PythonTranslator : public OptInConstDispatch {
                         });
     std::vector<int64_t> squeeze_dims(filter_range.begin(), filter_range.end());
 
-    TensorView* in_tv = sop->in()->as<TensorView>();
+    auto* in_tv = sop->in()->as<TensorView>();
     NVF_ERROR(in_tv != nullptr);
 
     // TODO: Use std::ranges::zip_view AND std::ranges::any_of with cpp23
@@ -1155,7 +1209,7 @@ class PythonTranslator : public OptInConstDispatch {
     NVF_ERROR(vop != nullptr);
 
     // Get extent's for output's logical domain
-    TensorView* out_tv = vop->out()->as<TensorView>();
+    auto* out_tv = vop->out()->as<TensorView>();
     std::vector<Val*> new_shape = getShape(out_tv);
 
     // TODO Check if new_shape is a vector of symbolic fusion inputs
@@ -1178,8 +1232,8 @@ class PythonTranslator : public OptInConstDispatch {
 
   void handle(const ExpandOp* eop) final {
     NVF_ERROR(eop != nullptr);
-    TensorView* in_tv = eop->in()->as<TensorView>();
-    TensorView* out_tv = eop->out()->as<TensorView>();
+    auto* in_tv = eop->in()->as<TensorView>();
+    auto* out_tv = eop->out()->as<TensorView>();
     NVF_ERROR(in_tv->nDims() == out_tv->nDims());
     std::vector<Val*> shape = getShape(out_tv);
 
@@ -1339,9 +1393,6 @@ class PythonTranslator : public OptInConstDispatch {
       // Default arg1 and arg2 is (0, 1) for both uniform and normal.
       first_arg = fusion_->zeroVal();
       second_arg = fusion_->oneVal();
-      // Create 0 and 1 scalar values
-      dispatch(first_arg);
-      dispatch(second_arg);
     }
     NVF_ERROR(first_arg != nullptr && second_arg != nullptr);
 
@@ -1358,7 +1409,7 @@ class PythonTranslator : public OptInConstDispatch {
   // created instead of a CastOp.
   void handle(const LoadStoreOp* lsop) final {
     if (lsop->out()->isA<TensorView>()) {
-      TensorView* out_tv = lsop->out()->as<TensorView>();
+      auto* out_tv = lsop->out()->as<TensorView>();
       NVF_ERROR(!(out_tv->hasRoot() && out_tv->hasAllocation()));
 
       // short-circuit: lsop is a permutation.
@@ -1385,7 +1436,7 @@ class PythonTranslator : public OptInConstDispatch {
   }
 
   void handlePermute(const LoadStoreOp* lsop) {
-    TensorView* out_tv = lsop->out()->as<TensorView>();
+    auto* out_tv = lsop->out()->as<TensorView>();
 
     std::optional<std::vector<int64_t>> new2old = ir_utils::computePermutation(
         out_tv->getRootDomain(), out_tv->getLogicalDomain());
@@ -1402,7 +1453,7 @@ class PythonTranslator : public OptInConstDispatch {
   }
 
   void handleStrideOrder(const LoadStoreOp* lsop) {
-    TensorView* out_tv = lsop->out()->as<TensorView>();
+    auto* out_tv = lsop->out()->as<TensorView>();
     visited_vals_.insert(lsop->out());
     static const std::vector<std::string> argument_names = {"stride_order"};
     printer_.generateKwargsOperation(
@@ -1415,7 +1466,7 @@ class PythonTranslator : public OptInConstDispatch {
 
   void handle(const FullOp* fop) final {
     NVF_ERROR(fop != nullptr);
-    TensorView* out_tv = fop->output(0)->as<TensorView>();
+    auto* out_tv = fop->output(0)->as<TensorView>();
     visited_vals_.insert(out_tv);
 
     // Fill value can be dynamic so create it
@@ -1433,7 +1484,7 @@ class PythonTranslator : public OptInConstDispatch {
 
   void handle(const IotaOp* iop) final {
     NVF_ERROR(iop != nullptr);
-    TensorView* out_tv = iop->output(0)->as<TensorView>();
+    auto* out_tv = iop->output(0)->as<TensorView>();
     visited_vals_.insert(out_tv);
 
     dispatch(iop->length());
@@ -1455,7 +1506,7 @@ class PythonTranslator : public OptInConstDispatch {
 
   void handle(const IndexSelectOp* isop) final {
     NVF_ERROR(isop != nullptr);
-    TensorView* out_tv = isop->output(0)->as<TensorView>();
+    auto* out_tv = isop->output(0)->as<TensorView>();
     visited_vals_.insert(out_tv);
     static const std::vector<std::string> argument_names = {"dim"};
     printer_.generateKwargsOperation(
@@ -1468,7 +1519,7 @@ class PythonTranslator : public OptInConstDispatch {
 
   void handle(const SelectOp* sop) final {
     NVF_ERROR(sop != nullptr);
-    TensorView* out_tv = sop->output(0)->as<TensorView>();
+    auto* out_tv = sop->output(0)->as<TensorView>();
     visited_vals_.insert(out_tv);
     static const std::vector<std::string> argument_names = {"dim"};
     printer_.generateKwargsOperation(
@@ -1481,7 +1532,7 @@ class PythonTranslator : public OptInConstDispatch {
 
   void handle(const ScatterOp* sop) final {
     NVF_ERROR(sop != nullptr);
-    TensorView* out_tv = sop->output(0)->as<TensorView>();
+    auto* out_tv = sop->output(0)->as<TensorView>();
     visited_vals_.insert(out_tv);
     static const std::vector<std::string> argument_names = {"dim"};
     printer_.generateKwargsOperation(
@@ -1494,7 +1545,7 @@ class PythonTranslator : public OptInConstDispatch {
 
   void handle(const GatherOp* gop) final {
     NVF_ERROR(gop != nullptr);
-    TensorView* out_tv = gop->output(0)->as<TensorView>();
+    auto* out_tv = gop->output(0)->as<TensorView>();
     visited_vals_.insert(out_tv);
     static const std::vector<std::string> argument_names = {"dim"};
     printer_.generateKwargsOperation(
@@ -1524,7 +1575,7 @@ class PythonTranslator : public OptInConstDispatch {
   void handle(const ArgsortOp* argsortop) final {
     NVF_ERROR(argsortop != nullptr);
 
-    TensorView* out_tv = argsortop->output(0)->as<TensorView>();
+    auto* out_tv = argsortop->output(0)->as<TensorView>();
     visited_vals_.insert(out_tv);
     static const auto default_args = std::make_tuple(
         KeywordArgument<decltype(argsortop->dim())>{"dim", std::nullopt},

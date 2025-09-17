@@ -22,6 +22,7 @@
 #include <cuda_runtime_api.h>
 
 #include <c10/core/ScalarType.h>
+#include <torch/version.h>
 
 #include <exceptions.h>
 #include <macros.h>

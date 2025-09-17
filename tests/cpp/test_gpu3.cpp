@@ -5,9 +5,17 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <csrc/exceptions.h>
+#include <algorithm>
+#include <cmath>
+#include <sstream>
+
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
+
+#include <ATen/cuda/CUDAContext.h>
+#include <ATen/cuda/Exceptions.h>
+#include <c10/cuda/CUDACachingAllocator.h>
+#include <c10/cuda/CUDAStream.h>
 
 #include <codegen.h>
 #include <debug.h>
@@ -15,6 +23,7 @@
 #include <device_lower/pass/magic_zero.h>
 #include <device_lower/pass/replace_size.h>
 #include <disjoint_set.h>
+#include <exceptions.h>
 #include <expr_evaluator.h>
 #include <fusion.h>
 #include <fusion_segmenter.h>
@@ -30,6 +39,7 @@
 #include <kernel_ir_dispatch.h>
 #include <logical_domain_map.h>
 #include <ops/all_ops.h>
+#include <parallel_dimension_map.h>
 #include <runtime/executor.h>
 #include <runtime/executor_params.h>
 #include <runtime/fusion_executor_cache.h>
@@ -43,19 +53,6 @@
 #include <tests/cpp/validator.h>
 #include <transform_replay.h>
 #include <transform_rfactor.h>
-
-#include <torch/csrc/jit/api/function_impl.h>
-#include <torch/csrc/jit/codegen/cuda/interface.h>
-#include <torch/torch.h>
-
-#include <ATen/cuda/CUDAContext.h>
-#include <ATen/cuda/Exceptions.h>
-#include <c10/cuda/CUDAStream.h>
-
-#include <algorithm>
-#include <cmath>
-#include <sstream>
-#include "parallel_dimension_map.h"
 
 namespace nvfuser {
 

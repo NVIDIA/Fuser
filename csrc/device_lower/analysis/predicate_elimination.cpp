@@ -42,7 +42,7 @@ void assertOnWarpOps(const Expr* expr) {
   // Prohibit predicates for LdMatrix expressions in Mma k main loop;
   // Allow predicates for general LdMatrix usage.
   if (ir_utils::isLdMatrixOp(expr)) {
-    const LoadStoreOp* ldst = expr->as<LoadStoreOp>();
+    const auto* ldst = expr->as<LoadStoreOp>();
     TensorView* in_tv = ir_utils::getTv(ldst->in());
     NVF_ERROR(in_tv != nullptr);
 
@@ -412,6 +412,19 @@ class PredicateChcker : public IterVisitor {
   using IterVisitor::handle;
 
   void dispatch(Expr* expr) final {
+    // Do not attempt to omit predicates if a gmem tensor is involved
+    // unless this is a TMA op
+    auto is_gmem_tv = [](Val* val) {
+      auto tv = dynamic_cast<TensorView*>(val);
+      return tv != nullptr && tv->getMemoryType() == MemoryType::Global;
+    };
+    if (!ir_utils::isCpAsyncBulkTensorTile(expr) &&
+        (std::ranges::any_of(expr->outputs(), is_gmem_tv) ||
+         std::ranges::any_of(expr->inputs(), is_gmem_tv))) {
+      needs_predicate_ = true;
+      return;
+    }
+
     const bool needs_predicate_smem_access =
         needsPredicateSharedMemAccess(expr);
     needs_predicate_ = predicateIntDiv(expr) || needs_predicate_smem_access ||

@@ -5,10 +5,14 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <csrc/exceptions.h>
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
+#include <ATen/cuda/CUDAContext.h>
+#include <ATen/cuda/Exceptions.h>
+#include <c10/cuda/CUDAStream.h>
+
+#include <exceptions.h>
 #include <ir/all_nodes.h>
 #include <ir/utils.h>
 #include <ops/all_ops.h>
@@ -20,12 +24,6 @@
 #include <preseg_passes/translate_repeat_to_expand.h>
 #include <tests/cpp/utils.h>
 #include <tests/cpp/validator.h>
-
-#include <torch/torch.h>
-
-#include <ATen/cuda/CUDAContext.h>
-#include <ATen/cuda/Exceptions.h>
-#include <c10/cuda/CUDAStream.h>
 
 namespace nvfuser::preseg_passes {
 

@@ -205,7 +205,7 @@ class XorFinder : private kir::IrVisitor {
     if (found || !visited.insert(expr).second) {
       return;
     }
-    if (expr->isA<ForLoop>() || expr->isA<kir::IfThenElse>()) {
+    if (expr->isA<kir::ForLoop>() || expr->isA<kir::IfThenElse>()) {
       kir::IrVisitor::dispatch(expr);
       return;
     }
@@ -249,7 +249,7 @@ class TMAPredicateChecker : private kir::IrVisitor {
   using kir::IrVisitor::dispatch;
 
   void dispatch(Expr* expr) final {
-    if (expr->isA<ForLoop>() || expr->isA<kir::IfThenElse>()) {
+    if (expr->isA<kir::ForLoop>() || expr->isA<kir::IfThenElse>()) {
       kir::Predicate* prev_pred = nullptr;
       if (expr->isA<kir::IfThenElse>()) {
         auto ite = expr->as<kir::IfThenElse>();
@@ -366,7 +366,7 @@ class TMADimChecker : private kir::IrVisitor {
   using kir::IrVisitor::dispatch;
 
   void dispatch(Expr* expr) final {
-    if (expr->isA<ForLoop>() || expr->isA<kir::IfThenElse>()) {
+    if (expr->isA<kir::ForLoop>() || expr->isA<kir::IfThenElse>()) {
       kir::IrVisitor::dispatch(expr);
       return;
     }
@@ -1566,9 +1566,9 @@ TEST_F(TMAMiscTest, StoreSyncInsertion) {
     auto fl_it = std::find_if(
         kernel->topLevelExprs().begin(),
         kernel->topLevelExprs().end(),
-        [](Expr* expr) { return expr->isA<ForLoop>(); });
+        [](Expr* expr) { return expr->isA<kir::ForLoop>(); });
     ASSERT_NE(fl_it, kernel->topLevelExprs().end());
-    const auto& body = (*fl_it)->as<ForLoop>()->body().exprs();
+    const auto& body = (*fl_it)->as<kir::ForLoop>()->body().exprs();
     EXPECT_TRUE(is_wait(body.back()));
     EXPECT_EQ(body.back()->input(0)->value(), 0);
     EXPECT_TRUE(is_commit(body.at(body.size() - 2)));
@@ -1625,12 +1625,12 @@ TEST_F(TMAMiscTest, StoreSyncInsertion) {
         kernel->topLevelExprs().begin(),
         kernel->topLevelExprs().end(),
         [](Expr* expr) {
-          auto fl = dynamic_cast<ForLoop*>(expr);
+          auto fl = dynamic_cast<kir::ForLoop*>(expr);
           return fl != nullptr &&
               fl->circularBufferLoopStage() == CircularBufferLoopStage::Main;
         });
     ASSERT_NE(fl_it, kernel->topLevelExprs().end());
-    const auto& body = (*fl_it)->as<ForLoop>()->body().exprs();
+    const auto& body = (*fl_it)->as<kir::ForLoop>()->body().exprs();
     EXPECT_TRUE(is_wait(body.back()));
     EXPECT_EQ(body.back()->input(0)->value(), 5);
     EXPECT_TRUE(is_commit(body.at(body.size() - 2)));
