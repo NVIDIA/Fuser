@@ -1062,9 +1062,9 @@ TEST_F(MultiDeviceTest, OuterReductionShardedInnerDimension) {
 
   fusion->addOutput(tv7);
   std::vector<at::Tensor> inputs = {
-      at::randn({b, s, h, e / h}, tensor_options.dtype(at::kBFloat16)),
-      at::randn({b, s, h, e / h}, tensor_options.dtype(at::kBFloat16)),
-      at::randn({b, s, h, e / h}, tensor_options.dtype(at::kBFloat16))};
+      at::ones({b, s, h, e / h}, tensor_options.dtype(at::kBFloat16)),
+      at::ones({b, s, h, e / h}, tensor_options.dtype(at::kBFloat16)),
+      at::ones({b, s, h, e / h}, tensor_options.dtype(at::kBFloat16))};
 
   std::vector<at::Tensor> sharded_inputs = {
       shardTensor(inputs[0], 2, mesh),
@@ -1079,7 +1079,7 @@ TEST_F(MultiDeviceTest, OuterReductionShardedInnerDimension) {
       at::cat({sharded_inputs[0], sharded_inputs[1], sharded_inputs[2]}, -1)
           .view({b, s, 3 * e / d})
           .sum(c10::IntArrayRef({0, 1}));
-  EXPECT_TRUE(at::allclose(nvf_out, ref_out, 1e-3, 1e-3));
+  EXPECT_TRUE(at::allclose(nvf_out, ref_out));
 
   FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
 
