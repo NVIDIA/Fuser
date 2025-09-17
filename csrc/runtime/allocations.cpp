@@ -275,8 +275,8 @@ KernelArgumentHolder allocateOutputs(
     if (output_alias_to_input_map.at(out_idx) == -1) {
       at::Tensor alloc_tensor;
       if (!out_info.shape_info.allocation_sizes.empty()) {
-        // TODO: should allocate based on allocation size & stride and restride
-        // with logical size & stride afterwards.
+        // allocate based on allocation size & stride and restride with logical
+        // size & stride afterwards.
         alloc_tensor = at::native::empty_strided_cuda(
             out_info.shape_info.allocation_sizes,
             out_info.shape_info.allocation_strides,
