@@ -542,27 +542,21 @@ TEST_F(GreedySchedulerTest, ConstrainedIDAndSqueeze) {
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
 
-  std::vector<int64_t> shape{4, 128};
+  std::vector<int64_t> shape{4, 128, 1};
 
-  auto tv0 = makeContigConcreteTensor({shape[0]});
+  auto tv0 = makeContigConcreteTensor(shape);
   fusion.addInput(tv0);
-  auto tv1 = makeContigConcreteTensor(shape);
-  fusion.addInput(tv1);
 
-  auto tv2 = broadcast(tv0, {false, true});
-  auto tv3 = add(tv2, tv1);
-  auto tv4 = flatten(tv3);
-  auto tv5 = argsort(tv4, -1, /*descending=*/true, /*stable=*/true);
-  auto tv6 = mul(tv5, IrBuilder::create<Val>(100));
-  fusion.addOutput(tv6);
+  auto tv1 = squeeze(tv0, {-1});
+  auto tv2 = argsort(tv1, -1);
+  fusion.addOutput(tv2);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  auto t0 = at::randn({shape[0]}, options);
-  auto t1 = at::randn(shape, options);
+  auto t0 = at::randn(shape, options);
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto outputs = executor_cache.runFusionWithInputs({t0, t1});
-  testValidate(executor_cache.fusion(), outputs, {t0, t1}, __LINE__, __FILE__);
+  auto outputs = executor_cache.runFusionWithInputs({t0});
+  testValidate(executor_cache.fusion(), outputs, {t0}, __LINE__, __FILE__);
 
   EXPECT_FALSE(executor_cache.getMostRecentKernelRuntime()->isSegmented());
 }

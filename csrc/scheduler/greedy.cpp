@@ -1120,7 +1120,7 @@ void GreedyScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
   }
 
   // If a new copy op is inserted, inlining positions need to be
-  // reset. We could probably fix up only tensours around  those newly
+  // reset. We could probably fix up only tensors around those newly
   // inserted ones, but here's just a quick approach
   if (!tvs_to_upload_to_smem.empty()) {
     resetInlining(fusion);
