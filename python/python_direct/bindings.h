@@ -24,6 +24,9 @@ void bindEnums(py::module& nvfuser);
 // Add bindings for Fusion and FusionExecutorCache
 void bindRuntime(py::module& nvfuser);
 
+// Add bindings for LaunchParams, CompileParams, and HeuristicParams
+void bindHeuristicParams(py::module& nvfuser);
+
 // Add bindings for CPP Fusion Operations
 void bindOperations(py::module& nvfuser);
 

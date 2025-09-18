@@ -414,7 +414,8 @@ void clone(FusionDefinition& from, FusionDefinition& to) {
 
 namespace {
 void defineHeuristicParamBindings(py::module& nvfuser) {
-  py::class_<LaunchParams> launch_parameters(nvfuser, "LaunchParams");
+  py::class_<LaunchParams> launch_parameters(
+      nvfuser, "LaunchParams", py::module_local());
   launch_parameters.def(
       py::init<int64_t, int64_t, int64_t, int64_t, int64_t, int64_t>());
   launch_parameters.def(
@@ -456,7 +457,7 @@ void defineHeuristicParamBindings(py::module& nvfuser) {
         self.bindUnsafe(val, ParallelType::BIDz);
       });
 
-#define DEFINECLASS(type) py::class_<type>(nvfuser, #type)
+#define DEFINECLASS(type) py::class_<type>(nvfuser, #type, py::module_local())
 
 #define TOSTRINGTOPLEVEL(type) \
   def("__repr__", [](const type& self) { return toString(self); })
@@ -718,7 +719,7 @@ void initNvFuserPythonBindings(PyObject* module) {
       .value("global", MemoryType::Global);
 
   //! Scheduler Type for scheduling
-  py::enum_<SchedulerType>(nvfuser, "SchedulerType")
+  py::enum_<SchedulerType>(nvfuser, "SchedulerType", py::module_local())
       .value("none", SchedulerType::None)
       .value("no_op", SchedulerType::NoOp)
       .value("pointwise", SchedulerType::PointWise)
