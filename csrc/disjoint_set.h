@@ -293,7 +293,7 @@ class VectorOfUniqueEntries {
 //! DisjointSet::*AreMapped(a,b) checks if a and b belong to the same disjoint
 //! set
 template <typename T, typename Hash = std::hash<T>>
-class DisjointSets {
+class NVF_API DisjointSets {
  public:
   using DisjointSet = std::shared_ptr<VectorOfUniqueEntries<T, Hash>>;
   using DisjointSetMap = std::unordered_map<T, DisjointSet, Hash>;
@@ -416,7 +416,7 @@ class DisjointSets {
 
   // Will assert if provided entry0 is not in any disjoint set, otherwise
   // returns if entry0 and entry1 are in the same disjoint set.
-  bool strictAreMapped(T entry0, T entry1) const {
+  NVF_API bool strictAreMapped(T entry0, T entry1) const {
     auto entry_it = disjointSetMap().find(entry0);
     NVF_ERROR(
         entry_it != disjointSetMap().end(),

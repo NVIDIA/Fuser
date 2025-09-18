@@ -52,7 +52,7 @@ namespace nvfuser {
 // only tested with IterDomain. Some of the routines might need to be
 // extended for other Val types.
 
-class ValGraph {
+class NVF_API ValGraph {
  public:
   ValGraph() = default;
 
@@ -66,7 +66,7 @@ class ValGraph {
       : propagate_through_exprs_(propagate_through_exprs) {}
 
   // Returns the disjoint val set.
-  const DisjointSets<Val*>& disjointValSets() const {
+  NVF_API const DisjointSets<Val*>& disjointValSets() const {
     return disjoint_vals_;
   }
 
@@ -230,7 +230,7 @@ class ValGraph {
 
   // Set val0 and val1 to mapped in this graph, attempt to propagate
   // new mapping through val0/val1 definitions/uses.
-  void mapVals(Val* val0, Val* val1);
+  NVF_API void mapVals(Val* val0, Val* val1);
 
   // Checks if expr0 and expr1 should map together, maps them together, and if
   // expression propagation is on, propagates mapping through
