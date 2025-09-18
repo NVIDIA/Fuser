@@ -388,29 +388,34 @@ bool TensorView::resolveComputeWith(const std::vector<Expr*>& sorted_exprs) {
     use_set.insert(sibling->uses().begin(), sibling->uses().end());
   }
 
+  // Collect all consumer tensors from all use expressions
+  std::vector<TensorView*> all_use_out_tvs;
   for (auto expr : sorted_exprs) {
     if (!use_set.count(expr)) {
       continue;
     }
 
-    // First use found. Set it as the computeWith target tensor
-    std::vector<TensorView*> use_out_tvs{
-        ir_utils::filterByType<TensorView>(expr->outputs()).begin(),
-        ir_utils::filterByType<TensorView>(expr->outputs()).end()};
-
-    for (auto sibling : siblings) {
-      sibling->compute_with_consumers_ = use_out_tvs;
-    }
-
-    for (auto consumer_tv : compute_with_consumers_) {
-      consumer_tv->updateMaxProducerPosition();
-    }
-
-    return true;
+    // Collect outputs from this use expression
+    auto expr_out_tvs = ir_utils::filterByType<TensorView>(expr->outputs());
+    all_use_out_tvs.insert(
+        all_use_out_tvs.end(), expr_out_tvs.begin(), expr_out_tvs.end());
   }
 
-  // No expr found
-  NVF_THROW("No use expr found in the sorted expr list: ", toString());
+  // If no use expressions found, throw error
+  if (all_use_out_tvs.empty()) {
+    NVF_THROW("No use expr found in the sorted expr list: ", toString());
+  }
+
+  // Set all collected consumer tensors as computeWith targets
+  for (auto sibling : siblings) {
+    sibling->compute_with_consumers_ = all_use_out_tvs;
+  }
+
+  for (auto consumer_tv : compute_with_consumers_) {
+    consumer_tv->updateMaxProducerPosition();
+  }
+
+  return true;
 }
 
 void TensorView::clearComputeWith() {

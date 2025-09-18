@@ -1219,10 +1219,8 @@ TEST_F(ScanTest, BlockedAttentionInline2) {
   // [Tr, Tc, Br, 1, 1] = [Tr, Tc, Br, Bc, 1]
   auto row_max_sij = max(sij, {3}, /*keep_dim=*/true);
   // [Tr, Tc, Br, 1, 1] = scan([Tr, Tc, Br, 1, 1])
-  auto m_i_result =
+  auto [m_i_new, m_i, _] =
       scan(row_max_sij, 1, BinaryOpType::Max, /*return_exclusive=*/true);
-  auto m_i = m_i_result.exclusive;
-  auto m_i_new = m_i_result.inclusive;
   // [Tr, Tc, Br, Bc, 1] = [Tr, Tc, Br, Bc, 1], [Tr, Tc, Br, 1, 1]
   auto pij_tilde = exp(sub(sij, m_i_new));
   // [Tr, Tc, Br, 1, 1] = sum([Tr, Tc, Br, Bc, 1])
@@ -1346,11 +1344,11 @@ TEST_F(ScanTest, ScanMiddleDimensionExclusive) {
 
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
-  auto t0 = makeConcreteTensor({2, 3, 4});
+  auto t0 = makeConcreteTensor({2, 3});
   fusion->addInput(t0);
 
   auto t1 = set(t0);
-  auto [t2, t3, _] = scan(t1, 1, BinaryOpType::Max, /*return_exclusive=*/true);
+  auto [t2, t3, _] = scan(t1, 0, BinaryOpType::Max, /*return_exclusive=*/true);
   auto t4 = set(t2);
   auto t5 = set(t3);
   fusion->addOutput(t4);
@@ -1380,11 +1378,13 @@ TEST_F(ScanTest, ScanMiddleDimensionExclusive) {
   }
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  auto aten_t0 = at::randn({2, 3, 4}, options);
+  auto aten_t0 = at::randn({2, 3}, options);
 
   KernelExecutor ke;
   ke.compile(fusion.get(), {aten_t0});
   auto outputs = ke.run({aten_t0});
+  std::cout << "outputs: " << outputs[0].as<at::Tensor>() << std::endl;
+  std::cout << "outputs: " << outputs[1].as<at::Tensor>() << std::endl;
   testValidate(fusion.get(), outputs, {aten_t0}, __LINE__, __FILE__);
 }
 } // namespace nvfuser
