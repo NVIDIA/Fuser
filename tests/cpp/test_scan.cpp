@@ -16,6 +16,7 @@
 
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
+#include "ops/alias.h"
 
 namespace nvfuser {
 
@@ -1219,8 +1220,9 @@ TEST_F(ScanTest, BlockedAttentionInline2) {
   // [Tr, Tc, Br, 1, 1] = [Tr, Tc, Br, Bc, 1]
   auto row_max_sij = max(sij, {3}, /*keep_dim=*/true);
   // [Tr, Tc, Br, 1, 1] = scan([Tr, Tc, Br, 1, 1])
+  // Without set(row_max_sij), scan input is missing in the generated code, why?
   auto [m_i_new, m_i, _] =
-      scan(row_max_sij, 1, BinaryOpType::Max, /*return_exclusive=*/true);
+      scan(set(row_max_sij), 1, BinaryOpType::Max, /*return_exclusive=*/true);
   // [Tr, Tc, Br, Bc, 1] = [Tr, Tc, Br, Bc, 1], [Tr, Tc, Br, 1, 1]
   auto pij_tilde = exp(sub(sij, m_i_new));
   // [Tr, Tc, Br, 1, 1] = sum([Tr, Tc, Br, Bc, 1])
@@ -1228,13 +1230,11 @@ TEST_F(ScanTest, BlockedAttentionInline2) {
   // [Tr, Tc, Br, 1, 1] = [Tr, Tc, Br, 1, 1]
   auto l_i_discount = exp(sub(m_i, m_i_new));
   // [Tr, Tc, Br, 1, 1] = [Tr, Tc, Br, 1, 1]
-  auto l_i = prefixSum(row_sum_pij_tilde, 1, l_i_discount).inclusive;
-  // [Tr, Tc, Br, 1, 1] = [Tr, Tc, Br, 1, 1]
-  auto O_i_discount = reciprocal(l_i_discount);
+  auto l_i = prefixSum(set(row_sum_pij_tilde), 1, l_i_discount).inclusive;
   // [Tr, Tc, Br, 1, D] = sum([Tr, Tc, Br, Bc, 1] X [1, Tc, 1, Bc, D])
   auto O_i_val = sum(mul(pij_tilde, V), {3}, /*keep_dim=*/true);
   // [Tr, Tc, Br, 1, D] = [Tr, Tc, Br, 1, 1] X [Tr, Tc, Br, 1, D]
-  auto O_i = prefixSum(O_i_val, 1, O_i_discount).inclusive;
+  auto O_i = prefixSum(set(O_i_val), 1, l_i_discount).inclusive;
   // [Tr, Tc, Br, 1, D] = [Tr, Tc, Br, 1, D] / [Tr, Tc, Br, 1, 1]
   auto O_i_final = div(O_i, l_i);
 
@@ -1275,6 +1275,11 @@ TEST_F(ScanTest, BlockedAttentionInline2) {
   KernelExecutor ke;
   ke.compile(fusion.get(), {aQ, aK, aV});
   auto outputs = ke.run({aQ, aK, aV});
+
+  for (auto output : outputs) {
+    std::cout << "\n======================output: " << output.as<at::Tensor>()
+              << std::endl;
+  }
   // [Tr, Br, 1, D] = [Tr, Tc, Br, 1, D]
   auto final_output =
       at::select(outputs[0].as<at::Tensor>(), /*dim=*/1, /*index=*/-1);
