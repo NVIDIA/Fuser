@@ -35,7 +35,7 @@ struct QuantizedTensor {
   at::Tensor global_scale;
 };
 
-at::Tensor pack_uint4(at::Tensor uint8_data) {
+at::Tensor packUint4(at::Tensor uint8_data) {
   std::vector<int64_t> down_shape = uint8_data.sizes().vec();
   down_shape.back() /= 2;
 
@@ -56,7 +56,7 @@ constexpr int64_t _n_ones(int64_t n) {
   return (1 << n) - 1;
 }
 
-at::Tensor _f32_to_floatx_unpacked(at::Tensor x, int64_t ebits, int64_t mbits) {
+at::Tensor unpackAnyFloatingPointToFp32(at::Tensor x, int64_t ebits, int64_t mbits) {
   NVF_ERROR(x.scalar_type() == at::kFloat);
   NVF_ERROR(1 + ebits + mbits <= 8);
 
@@ -165,7 +165,7 @@ at::Tensor _f32_to_floatx_unpacked(at::Tensor x, int64_t ebits, int64_t mbits) {
   return x.to(at::kByte);
 }
 
-at::Tensor to_fp4(at::Tensor x) {
+at::Tensor toFp4(at::Tensor x) {
   // from torch.testing._internal.common_quantized import
   // _f32_to_floatx_unpacked
   x = _f32_to_floatx_unpacked(x.to(at::kFloat), /*ebits=*/2, /*mbits=*/1);
@@ -174,7 +174,7 @@ at::Tensor to_fp4(at::Tensor x) {
   return x;
 }
 
-std::pair<at::Tensor, at::Tensor> pytorch_nvfp4_quantize(
+std::pair<at::Tensor, at::Tensor> pytorchNvfp4Quantize(
     const at::Tensor a,
     const at::Tensor a_global_scale) {
   constexpr double FLOAT8_E4M3_EPS = 0.125;
@@ -210,7 +210,7 @@ std::pair<at::Tensor, at::Tensor> pytorch_nvfp4_quantize(
   return {to_fp4(a_scaled), scaled_block_scale_fp8};
 }
 
-QuantizedTensor quantize_nvfp4(const at::Tensor x) {
+QuantizedTensor quantizeNvfp4(const at::Tensor x) {
   constexpr double FLOAT8_E4M3_MAX = 0.015625;
   constexpr double FLOAT4_E2M1_MAX = 6.0;
 
