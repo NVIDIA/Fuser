@@ -1591,14 +1591,14 @@ namespace {
 // Check the val (in) is the output of broadcast.
 // Then check the output of the broadcast is 3D (4D for bmm).
 bool hasValidBroadcastOp(TensorView* bcast_out) {
-  // First check the tensorsview is 3D (4D)
+  // First check the TensorView is 3D (4D)
   // and has one broadcast dim.
   // Ignore device dimensions in this analysis.
   auto non_device_dims = std::ranges::distance(
       bcast_out->getLoopDomain() | TensorDomain::kNoDevices);
   if (!((non_device_dims == 3 || non_device_dims == 4) &&
-        TensorDomain::noDevices(bcast_out->domain()->noBroadcasts()).size() ==
-            non_device_dims - 1)) {
+        std::ssize(TensorDomain::noDevices(
+            bcast_out->domain()->noBroadcasts())) == non_device_dims - 1)) {
     return false;
   }
 
