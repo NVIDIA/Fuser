@@ -807,11 +807,20 @@ Val* ContiguousInnerDimensionsMapper::getContigMergeOfInnerSize(
         {alloc_iid});
     IterDomain* logical_id = alloc_iid;
     Val* num_devices = of_tv->container()->oneVal();
+    bool only_valid_device_split = true;
     for (Expr* expr : exprs | std::views::reverse) {
-      validateDeviceSplit(expr);
+      if (!isValidateDeviceSplit(expr)) {
+        only_valid_device_split = false;
+        break;
+      }
       auto* split = expr->as<Split>();
       logical_id = split->in();
       num_devices = SimplifyingIrBuilder::mulExpr(num_devices, split->factor());
+    }
+
+    // Non device split could lead to padding, which prevents vectorization
+    if (!only_valid_device_split) {
+      break;
     }
 
     // Mapping order isn't correct, cannot expand vectorization dimension.
