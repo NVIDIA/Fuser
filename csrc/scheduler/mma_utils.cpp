@@ -1595,7 +1595,7 @@ bool hasValidBroadcastOp(TensorView* bcast_out) {
   // and has one broadcast dim.
   // Ignore device dimensions in this analysis.
   auto non_device_dims = std::ranges::distance(
-      bcast_out->getLoopDomain() | TensorDomain::skipDevices);
+      bcast_out->getLoopDomain() | TensorDomain::kNoDevices);
   if (!((non_device_dims == 3 || non_device_dims == 4) &&
         TensorDomain::noDevices(bcast_out->domain()->noBroadcasts()).size() ==
             non_device_dims - 1)) {

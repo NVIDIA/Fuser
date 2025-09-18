@@ -1803,7 +1803,7 @@ BroadcastMultipleInformation getBroadcastMultiples(
     std::vector<bool> mapped_axes(ref_root_domain.size(), false);
 
     auto in_out_tv_domain =
-        in_out_tv->getMaybeRootDomain() | TensorDomain::skipDevices;
+        in_out_tv->getMaybeRootDomain() | TensorDomain::kNoDevices;
 
     for (const auto ref_i : arange(ref_root_domain.size())) {
       auto ref_id = ref_root_domain[ref_i];
