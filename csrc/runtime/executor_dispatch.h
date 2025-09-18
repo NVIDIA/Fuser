@@ -15,6 +15,8 @@
 
 namespace nvfuser {
 
+class HeuristicParams;
+
 // Simple stateless dispatch system for KernelExecutor, CommunicationExecutor,
 // and ExprEvalExecutor
 class ExecutorDispatch {
@@ -40,9 +42,7 @@ class ExecutorDispatch {
       ExecutorAbstract* executor,
       Fusion* fusion,
       const KernelArgumentHolder& args,
-      const LaunchParams& launch_constraints,
-      CompileParams compile_params,
-      SchedulerType scheduler_type = SchedulerType::None);
+      const HeuristicParams* params);
 
   static bool isCompiled(const ExecutorAbstract* executor);
 
