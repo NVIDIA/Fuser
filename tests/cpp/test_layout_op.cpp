@@ -70,6 +70,41 @@ class LayoutOpTest : public NVFuserTest {
   }
 };
 
+
+TEST_F(LayoutOpTest, LogicalAndAllocationSizes) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  auto inp = makeSymbolicTensor(2);
+  fusion.addInput(inp);
+  auto out = set(inp);
+  fusion.addOutput(out);
+  // padding output to multiple of 16
+  out->split(1, 16);
+  out->setAllocationDomain(out->getLoopDomain(), true);
+  // restore loop domain
+  out->merge(1);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  int m = 512;
+  int k = 9; // note: padded column size would be 16
+  auto t0 = at::randn({m, k}, options);
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto cg_outputs = executor_cache.runFusionWithInputs({t0});
+  // padding on the inner dimension is represented as stride on the outer
+  // dimension
+  EXPECT_EQ(
+      cg_outputs[0].as<at::Tensor>().strides(), std::vector<int64_t>({16, 1}));
+  // We need to slice because output buffer shape is not right
+  EXPECT_TRUE(t0.equal(cg_outputs[0].as<at::Tensor>().slice(1, 0, k)));
+  // TODO: enable this when output buffer shape is fixed.
+  // output should remain the correct logical size
+  // EXPECT_EQ(
+  //     cg_outputs[0].as<at::Tensor>().sizes(), std::vector<int64_t>({512, 9}));
+}
+
 TEST_F(LayoutOpTest, CppApi) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
