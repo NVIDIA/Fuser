@@ -27,8 +27,14 @@ bool validateGroupedLayout(
   NVF_ERROR(BlockScalingFactorLayout::Block128x4 == layout);
   int num_group = expert_offsets.size(0) - 1;
 
+  // validate output logical shape
+  EXPECT_EQ(out.sizes(), ref.sizes());
+
   // take length of reference for un-padded k size.
   int k = ref.size(1);
+  int padded_k = (k + 4 - 1) / 4 * 4;
+  int padded_m = sf_offsets[num_group].item().to<int>();
+  out.as_strided_({padded_m, padded_k}, {padded_k, 1});
 
   // We validate each group individually
   for (int i = 0; i < num_group; ++i) {
