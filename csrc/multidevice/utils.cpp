@@ -9,6 +9,7 @@
 #include <device_lower/utils.h>
 #include <expr_simplifier.h>
 #include <instrumentation.h>
+#include <ranges>
 #include <ir/container.h>
 #include <ir/internal_base_nodes.h>
 #include <ir/internal_nodes.h>
@@ -651,12 +652,12 @@ void shardBetween(
   std::vector<TensorView*> to_tvs;
   for (auto expr : from) {
     auto outputs = ir_utils::filterByType<TensorView>(expr->outputs());
-    std::copy(outputs.begin(), outputs.end(), std::back_inserter(from_tvs));
+    std::ranges::copy(outputs, std::back_inserter(from_tvs));
   }
 
   for (auto expr : to) {
     auto outputs = ir_utils::filterByType<TensorView>(expr->outputs());
-    std::copy(outputs.begin(), outputs.end(), std::back_inserter(to_tvs));
+    std::ranges::copy(outputs, std::back_inserter(to_tvs));
   }
 
   shardBetween(from_tvs, to_tvs, ref);
