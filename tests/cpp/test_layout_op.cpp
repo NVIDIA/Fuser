@@ -70,7 +70,6 @@ class LayoutOpTest : public NVFuserTest {
   }
 };
 
-
 TEST_F(LayoutOpTest, LogicalAndAllocationSizes) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
@@ -102,7 +101,37 @@ TEST_F(LayoutOpTest, LogicalAndAllocationSizes) {
   // TODO: enable this when output buffer shape is fixed.
   // output should remain the correct logical size
   // EXPECT_EQ(
-  //     cg_outputs[0].as<at::Tensor>().sizes(), std::vector<int64_t>({512, 9}));
+  //     cg_outputs[0].as<at::Tensor>().sizes(), std::vector<int64_t>({512,
+  //     9}));
+}
+
+TEST_F(LayoutOpTest, AllocationDomainSplitVectorizationFactor) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  auto inp = makeSymbolicTensor(3);
+  fusion.addInput(inp);
+  auto out = set(inp);
+  fusion.addOutput(out);
+  // split would prevent vectorization
+  out->split(1, 16);
+  out->setAllocationDomain(out->getLoopDomain(), true);
+  // restore loop domain
+  out->merge(1);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  // because of the split on the middle dimension, we only have the fastest
+  // dimension participating in vectorization.
+  auto t0 = at::randn({512, 128, 2}, options);
+
+  // NOTE force pointwise scheduler here just for testing purpose
+  auto cg_results =
+      scheduleAndRun(fusion_ptr.get(), SchedulerType::PointWise, {t0});
+  auto pparams = cg_results.heuristic_params->as<PointwiseParams>();
+  EXPECT_EQ(pparams->vectorization_factor, 2);
+
+  testValidate(fusion_ptr.get(), cg_results.outputs, {t0}, __LINE__, __FILE__);
 }
 
 TEST_F(LayoutOpTest, CppApi) {
