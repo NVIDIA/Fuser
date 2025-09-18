@@ -36,12 +36,13 @@ struct QuantizedTensor {
 };
 
 at::Tensor pack_uint4(at::Tensor uint8_data) {
+  std::vector<int64_t> down_shape = uint8_data.sizes().vec();
+  down_shape.back() /= 2;
+
   // converting to uint8 for operations
   NVF_ERROR(uint8_data.size(-1) % 2 == 0);
   uint8_data = uint8_data.contiguous().view(-1);
 
-  std::vector<int64_t> down_shape = uint8_data.sizes().vec();
-  down_shape.back() /= 2;
   at::indexing::TensorIndex shifted_range = at::indexing::Slice(
       /*start_index=*/1, /*stop_index=*/std::nullopt, /*step_index=*/2);
   at::indexing::TensorIndex unshifted_range = at::indexing::Slice(
@@ -174,8 +175,8 @@ at::Tensor to_fp4(at::Tensor x) {
 }
 
 std::pair<at::Tensor, at::Tensor> pytorch_nvfp4_quantize(
-    at::Tensor a,
-    at::Tensor a_global_scale) {
+    const at::Tensor a,
+    const at::Tensor a_global_scale) {
   constexpr double FLOAT8_E4M3_EPS = 0.125;
   constexpr double FLOAT8_E4M3_MAX = 0.015625;
   constexpr double FLOAT4_E2M1_MAX = 6.0;
@@ -187,27 +188,29 @@ std::pair<at::Tensor, at::Tensor> pytorch_nvfp4_quantize(
   NVF_ERROR(a.is_contiguous(), "Only contiguous tensors are supported.");
 
   const auto& original_shape = a.sizes();
-  auto a_fp32 = a.to(at::kFloat).reshape({original_shape[0], -1, BLOCK_SIZE});
+  const auto a_fp32 =
+      a.to(at::kFloat).reshape({original_shape[0], -1, BLOCK_SIZE});
 
   // Find absolute maximum along blockwise dimension
-  auto max_abs = a_fp32.abs().amax(/*dim=*/-1);
-  auto block_scale_fp32 = (max_abs / FLOAT4_E2M1_MAX).to(at::kFloat);
+  const auto max_abs = a_fp32.abs().amax(/*dim=*/-1);
+  const auto block_scale_fp32 = (max_abs / FLOAT4_E2M1_MAX).to(at::kFloat);
 
-  auto scaled_block_scale_fp32 = block_scale_fp32 * a_global_scale;
-  auto scaled_block_scale_fp8 = at::clamp(
-                                    scaled_block_scale_fp32,
-                                    /*min=*/FLOAT8_E4M3_EPS,
-                                    /*max=*/FLOAT8_E4M3_MAX)
-                                    .to(at::kFloat8_e4m3fn);
-  auto scaled_block_scale_fp8_fp32 = scaled_block_scale_fp8.to(at::kFloat);
-  auto total_scale = scaled_block_scale_fp8_fp32 / a_global_scale;
+  const auto scaled_block_scale_fp32 = block_scale_fp32 * a_global_scale;
+  const auto scaled_block_scale_fp8 = at::clamp(
+                                          scaled_block_scale_fp32,
+                                          /*min=*/FLOAT8_E4M3_EPS,
+                                          /*max=*/FLOAT8_E4M3_MAX)
+                                          .to(at::kFloat8_e4m3fn);
+  const auto scaled_block_scale_fp8_fp32 =
+      scaled_block_scale_fp8.to(at::kFloat);
+  const auto total_scale = scaled_block_scale_fp8_fp32 / a_global_scale;
   auto a_scaled = a_fp32 / total_scale.unsqueeze(-1);
   a_scaled = at::clamp(a_scaled, -FLOAT4_E2M1_MAX, FLOAT4_E2M1_MAX);
   a_scaled = a_scaled.view(original_shape);
   return {to_fp4(a_scaled), scaled_block_scale_fp8};
 }
 
-QuantizedTensor quantize_nvfp4(at::Tensor x) {
+QuantizedTensor quantize_nvfp4(const at::Tensor x) {
   constexpr double FLOAT8_E4M3_MAX = 0.015625;
   constexpr double FLOAT4_E2M1_MAX = 6.0;
 
