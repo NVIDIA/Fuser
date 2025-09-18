@@ -31,6 +31,7 @@
 
 #include <algorithm>
 #include <queue>
+#include <ranges>
 #include "ir/interface_nodes.h"
 #include "scheduler/tools/loop_domain_scheduler.h"
 #include "type.h"
@@ -1802,7 +1803,7 @@ BroadcastMultipleInformation getBroadcastMultiples(
     std::vector<bool> mapped_axes(ref_root_domain.size(), false);
 
     auto in_out_tv_domain =
-        TensorDomain::noDevices(in_out_tv->getMaybeRootDomain());
+        in_out_tv->getMaybeRootDomain() | TensorDomain::skipDevices;
     auto in_out_tv_domain_list = std::list<IterDomain*>(
         in_out_tv_domain.begin(), in_out_tv_domain.end());
 
