@@ -52,29 +52,32 @@ at::Tensor packUint4(at::Tensor uint8_data) {
       .view(down_shape);
 }
 
-constexpr int64_t _n_ones(int64_t n) {
+constexpr int64_t lowBitsMask(int64_t n) {
   return (1 << n) - 1;
 }
 
-at::Tensor unpackAnyFloatingPointToFp32(at::Tensor x, int64_t ebits, int64_t mbits) {
+at::Tensor unpackAnyFloatingPointToFp32(
+    at::Tensor x,
+    int64_t ebits,
+    int64_t mbits) {
   NVF_ERROR(x.scalar_type() == at::kFloat);
   NVF_ERROR(1 + ebits + mbits <= 8);
 
   constexpr int64_t EBITS_F32 = 8;
   constexpr int64_t MBITS_F32 = 23;
-  constexpr int64_t F32_EXP_BIAS = _n_ones(EBITS_F32 - 1);
+  constexpr int64_t F32_EXP_BIAS = lowBitsMask(EBITS_F32 - 1);
 
   // calculate constants
-  const int64_t exp_bias = _n_ones(ebits - 1);
-  const int64_t max_int = _n_ones(ebits + mbits);
+  const int64_t exp_bias = lowBitsMask(ebits - 1);
+  const int64_t max_int = lowBitsMask(ebits + mbits);
   const int64_t sign_mask = 1 << (ebits + mbits);
 
   // TODO document this better
-  const int64_t magic_adder = _n_ones(MBITS_F32 - mbits - 1);
+  const int64_t magic_adder = lowBitsMask(MBITS_F32 - mbits - 1);
 
   // all E bits and M bits are 1s
-  const int64_t max_normal =
-      (1 << (_n_ones(ebits) - exp_bias)) * (_n_ones(mbits + 1) / (1 << mbits));
+  const int64_t max_normal = (1 << (lowBitsMask(ebits) - exp_bias)) *
+      (lowBitsMask(mbits + 1) / (1 << mbits));
 
   // E bits = 1, M bits = 0
   const int64_t min_normal = 1 << (1 - exp_bias);
@@ -166,10 +169,8 @@ at::Tensor unpackAnyFloatingPointToFp32(at::Tensor x, int64_t ebits, int64_t mbi
 }
 
 at::Tensor toFp4(at::Tensor x) {
-  // from torch.testing._internal.common_quantized import
-  // _f32_to_floatx_unpacked
-  x = _f32_to_floatx_unpacked(x.to(at::kFloat), /*ebits=*/2, /*mbits=*/1);
-  x = pack_uint4(x);
+  x = unpackAnyFloatingPointToFp32(x.to(at::kFloat), /*ebits=*/2, /*mbits=*/1);
+  x = packUint4(x);
   x = x.view(at::kFloat4_e2m1fn_x2);
   return x;
 }
@@ -207,7 +208,7 @@ std::pair<at::Tensor, at::Tensor> pytorchNvfp4Quantize(
   auto a_scaled = a_fp32 / total_scale.unsqueeze(-1);
   a_scaled = at::clamp(a_scaled, -FLOAT4_E2M1_MAX, FLOAT4_E2M1_MAX);
   a_scaled = a_scaled.view(original_shape);
-  return {to_fp4(a_scaled), scaled_block_scale_fp8};
+  return {toFp4(a_scaled), scaled_block_scale_fp8};
 }
 
 QuantizedTensor quantizeNvfp4(const at::Tensor x) {
@@ -217,7 +218,7 @@ QuantizedTensor quantizeNvfp4(const at::Tensor x) {
   auto x_global_scale =
       ((FLOAT8_E4M3_MAX * FLOAT4_E2M1_MAX) / x.abs().max()).to(at::kFloat);
 
-  auto [x_u8, x_scale] = pytorch_nvfp4_quantize(x, x_global_scale);
+  auto [x_u8, x_scale] = pytorchNvfp4Quantize(x, x_global_scale);
   return {x_u8, x_scale, x_global_scale};
 }
 
@@ -270,8 +271,8 @@ TEST_F(CutlassExecutorTest, Nvfp4ScaledGemm_Executor) {
   // Create actual tensor data for inputs
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
 
-  QuantizedTensor qa = quantize_nvfp4(at::randn({M, K}, options));
-  QuantizedTensor qb = quantize_nvfp4(at::randn({N, K}, options));
+  QuantizedTensor qa = quantizeNvfp4(at::randn({M, K}, options));
+  QuantizedTensor qb = quantizeNvfp4(at::randn({N, K}, options));
 
   at::Tensor at_a = qa.elts;
   at::Tensor at_b = qb.elts.t();
