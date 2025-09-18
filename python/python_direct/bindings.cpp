@@ -24,6 +24,7 @@ void initNvFuserPythonBindings(PyObject* module) {
   bindOperations(nvfuser);
   bindScheduleOperators(nvfuser);
   bindMultiDevice(nvfuser);
+  bindIdModel(nvfuser);
   nvfuser.def(
       "translate_fusion",
       &translateFusion,
