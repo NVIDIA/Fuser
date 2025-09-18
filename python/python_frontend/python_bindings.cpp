@@ -4173,7 +4173,13 @@ void initNvFuserPythonBindings(PyObject* module) {
 }
 
 void cleanup() {
-  Communicator::getInstance().cleanup();
+  auto& c = Communicator::getInstance();
+  // In the transition period, both nvfuser and nvfuser_direct may be imported
+  // and share one Communicator singleton.  Without the is_available check,
+  // each tries to call Communicator::cleanup() at process exit.
+  if (c.is_available()) {
+    c.cleanup();
+  }
 }
 
 } // namespace nvfuser::python_frontend
