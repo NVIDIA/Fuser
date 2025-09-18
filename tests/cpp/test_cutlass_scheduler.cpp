@@ -29,6 +29,195 @@ namespace nvfuser {
 
 using CutlassExecutorTest = NVFuserTest;
 
+struct QuantizedTensor {
+  at::Tensor elts;
+  at::Tensor block_scale;
+  at::Tensor global_scale;
+};
+
+at::Tensor pack_uint4(at::Tensor uint8_data) {
+  // converting to uint8 for operations
+  NVF_ERROR(uint8_data.size(-1) % 2 == 0);
+  uint8_data = uint8_data.contiguous().view(-1);
+
+  std::vector<int64_t> down_shape = uint8_data.sizes().vec();
+  down_shape.back() /= 2;
+  at::indexing::TensorIndex shifted_range = at::indexing::Slice(
+      /*start_index=*/1, /*stop_index=*/std::nullopt, /*step_index=*/2);
+  at::indexing::TensorIndex unshifted_range = at::indexing::Slice(
+      /*start_index=*/0, /*stop_index=*/std::nullopt, /*step_index=*/2);
+  return (uint8_data.index({shifted_range}).bitwise_left_shift(4) |
+          uint8_data.index({unshifted_range}))
+      .view(down_shape);
+}
+
+constexpr int64_t _n_ones(int64_t n) {
+  return (1 << n) - 1;
+}
+
+at::Tensor _f32_to_floatx_unpacked(at::Tensor x, int64_t ebits, int64_t mbits) {
+  NVF_ERROR(x.scalar_type() == at::kFloat);
+  NVF_ERROR(1 + ebits + mbits <= 8);
+
+  constexpr int64_t EBITS_F32 = 8;
+  constexpr int64_t MBITS_F32 = 23;
+  constexpr int64_t F32_EXP_BIAS = _n_ones(EBITS_F32 - 1);
+
+  // calculate constants
+  const int64_t exp_bias = _n_ones(ebits - 1);
+  const int64_t max_int = _n_ones(ebits + mbits);
+  const int64_t sign_mask = 1 << (ebits + mbits);
+
+  // TODO document this better
+  const int64_t magic_adder = _n_ones(MBITS_F32 - mbits - 1);
+
+  // all E bits and M bits are 1s
+  const int64_t max_normal =
+      (1 << (_n_ones(ebits) - exp_bias)) * (_n_ones(mbits + 1) / (1 << mbits));
+
+  // E bits = 1, M bits = 0
+  const int64_t min_normal = 1 << (1 - exp_bias);
+
+  const int64_t denorm_exp = (
+      // exp bias conversion between formats
+      (F32_EXP_BIAS - exp_bias)
+      // mantissa length difference between formats
+      + (MBITS_F32 - mbits)
+      // add one to encoded exponent for denormalized numbers
+      + 1);
+  const int64_t denorm_mask_int = denorm_exp << MBITS_F32;
+
+  // reinterpret int32 as float32
+  auto options = at::TensorOptions().dtype(at::kInt).device(x.device());
+  at::Tensor denorm_mask_float =
+      at::scalar_tensor(denorm_mask_int, options.dtype(at::kInt))
+          .view(at::kFloat);
+
+  // save the sign
+  // Note that we have torch.uint32, but some ops like cpu bit shifts
+  // do not work on it. So, we stay in int32.
+  x = x.view(at::kInt);
+  at::Tensor sign = x.bitwise_and(0x80000000);
+
+  // set everything to positive, will add sign back at the end
+  x = x.bitwise_xor(sign);
+
+  // TODO: can the branch floating point comparisons below be done without
+  // converting to float? probably but need to verify
+  x = x.view(at::kFloat);
+
+  // rewrite saturate/denorm/norm branches without explicit data dependent
+  // control flow, to be more compiler friendly
+  const at::Tensor saturate_mask = x >= max_normal;
+  const at::Tensor denormal_mask =
+      saturate_mask.logical_not().logical_and(x < min_normal);
+  const at::Tensor normal_mask =
+      saturate_mask.logical_or(denormal_mask).logical_not();
+
+  //
+  // branch 1: saturate to max val - handled later in the code which combines
+  //   the branches
+  //
+
+  //
+  // branch 2: to conversion to denormal as well as rounding up to normal
+  //
+  at::Tensor denormal_x = x + denorm_mask_float;
+  denormal_x = denormal_x.view(at::kInt);
+  denormal_x -= denorm_mask_int;
+  denormal_x = denormal_x.to(at::kByte);
+
+  //
+  // branch 3: stay in normal range, adjust the exponent and round
+  //
+  at::Tensor normal_x = x.view(at::kInt);
+  // resulting mantissa is odd
+  at::Tensor mant_odd =
+      normal_x.bitwise_right_shift(MBITS_F32 - mbits).bitwise_and(1);
+  // update exponent, rounding bias part 1
+  int64_t val_to_add = ((exp_bias - F32_EXP_BIAS) << MBITS_F32) + magic_adder;
+  normal_x += val_to_add;
+  // rounding bias part 2
+  normal_x += mant_odd;
+  // take the bits!
+  normal_x = normal_x.bitwise_right_shift(MBITS_F32 - mbits);
+  normal_x = normal_x.to(at::kByte);
+
+  //
+  // combine the branches
+  //
+  x = at::full_like(x, max_int, options);
+  x = at::where(denormal_mask, denormal_x, x);
+  x = at::where(normal_mask, normal_x, x);
+
+  // add sign back
+  at::Tensor sign_lp =
+      sign.bitwise_right_shift(MBITS_F32 + EBITS_F32 - mbits - ebits);
+  sign_lp = sign_lp.to(at::kByte);
+  // Right shift of a negative signed integer can fill the least significant
+  // bits with either 1s or 0s, depending on the implementation. Since PyTorch
+  // doesn't have an uint32 dtype, we mask out these bits to get just the
+  // f4 sign bit
+  sign_lp = sign_lp.bitwise_and(sign_mask);
+  x = x.bitwise_or(sign_lp);
+
+  return x.to(at::kByte);
+}
+
+at::Tensor to_fp4(at::Tensor x) {
+  // from torch.testing._internal.common_quantized import
+  // _f32_to_floatx_unpacked
+  x = _f32_to_floatx_unpacked(x.to(at::kFloat), /*ebits=*/2, /*mbits=*/1);
+  x = pack_uint4(x);
+  x = x.view(at::kFloat4_e2m1fn_x2);
+  return x;
+}
+
+std::pair<at::Tensor, at::Tensor> pytorch_nvfp4_quantize(
+    at::Tensor a,
+    at::Tensor a_global_scale) {
+  constexpr double FLOAT8_E4M3_EPS = 0.125;
+  constexpr double FLOAT8_E4M3_MAX = 0.015625;
+  constexpr double FLOAT4_E2M1_MAX = 6.0;
+  constexpr int64_t BLOCK_SIZE = 16;
+  NVF_ERROR(
+      a.size(-1) % BLOCK_SIZE == 0,
+      "The inner-most dim must be divisible by block_size; Padding is not "
+      "implemented.");
+  NVF_ERROR(a.is_contiguous(), "Only contiguous tensors are supported.");
+
+  const auto& original_shape = a.sizes();
+  auto a_fp32 = a.to(at::kFloat).reshape({original_shape[0], -1, BLOCK_SIZE});
+
+  // Find absolute maximum along blockwise dimension
+  auto max_abs = a_fp32.abs().amax(/*dim=*/-1);
+  auto block_scale_fp32 = (max_abs / FLOAT4_E2M1_MAX).to(at::kFloat);
+
+  auto scaled_block_scale_fp32 = block_scale_fp32 * a_global_scale;
+  auto scaled_block_scale_fp8 = at::clamp(
+                                    scaled_block_scale_fp32,
+                                    /*min=*/FLOAT8_E4M3_EPS,
+                                    /*max=*/FLOAT8_E4M3_MAX)
+                                    .to(at::kFloat8_e4m3fn);
+  auto scaled_block_scale_fp8_fp32 = scaled_block_scale_fp8.to(at::kFloat);
+  auto total_scale = scaled_block_scale_fp8_fp32 / a_global_scale;
+  auto a_scaled = a_fp32 / total_scale.unsqueeze(-1);
+  a_scaled = at::clamp(a_scaled, -FLOAT4_E2M1_MAX, FLOAT4_E2M1_MAX);
+  a_scaled = a_scaled.view(original_shape);
+  return {to_fp4(a_scaled), scaled_block_scale_fp8};
+}
+
+QuantizedTensor quantize_nvfp4(at::Tensor x) {
+  constexpr double FLOAT8_E4M3_MAX = 0.015625;
+  constexpr double FLOAT4_E2M1_MAX = 6.0;
+
+  auto x_global_scale =
+      ((FLOAT8_E4M3_MAX * FLOAT4_E2M1_MAX) / x.abs().max()).to(at::kFloat);
+
+  auto [x_u8, x_scale] = pytorch_nvfp4_quantize(x, x_global_scale);
+  return {x_u8, x_scale, x_global_scale};
+}
+
 // Test Cutlass scheduler with simple nvfp4 block-scaled GEMM
 TEST_F(CutlassExecutorTest, Nvfp4ScaledGemm_Executor) {
   // Skip if not on SM100 or above
@@ -78,20 +267,17 @@ TEST_F(CutlassExecutorTest, Nvfp4ScaledGemm_Executor) {
   // Create actual tensor data for inputs
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
 
-  // For the operands, we use nvfp4 which packs two values into
-  // each byte. When declaring one of these we need to provide the "packed size"
-  at::Tensor at_a = at::empty({M, K / 2}, options.dtype(at::kFloat4_e2m1fn_x2));
-  at::Tensor at_b =
-      at::empty({N, K / 2}, options.dtype(at::kFloat4_e2m1fn_x2)).t();
+  QuantizedTensor qa = quantize_nvfp4(at::randn({M, K}, options));
+  QuantizedTensor qb = quantize_nvfp4(at::randn({N, K}, options));
 
-  constexpr int64_t SCALING_BLOCK_SIZE = 16;
-  at::Tensor at_a_sf =
-      at::empty({M, K / SCALING_BLOCK_SIZE}, options.dtype(at::kFloat8_e4m3fn));
-  at::Tensor at_b_sf =
-      at::empty({N, K / SCALING_BLOCK_SIZE}, options.dtype(at::kFloat8_e4m3fn));
+  at::Tensor at_a = qa.elts;
+  at::Tensor at_b = qb.elts.t();
+
+  at::Tensor at_a_sf = qa.block_scale;
+  at::Tensor at_b_sf = qb.block_scale;
 
   // Create scalar tensors
-  at::Tensor at_alpha = at::scalar_tensor(1.5f, options);
+  at::Tensor at_alpha = 1.0 / (qa.global_scale * qb.global_scale);
 
   std::vector<c10::IValue> inputs{at_a, at_b, at_a_sf, at_b_sf, at_alpha};
 
