@@ -139,15 +139,6 @@ struct TensorArg {
 namespace {
 using namespace cute;
 
-// Helper function to compute ceil(x / y)
-inline int64_t ceilDiv(int64_t x, int64_t y) {
-  return (x + y - 1) / y;
-}
-
-inline int64_t roundUp(int64_t x, int64_t y) {
-  return ceilDiv(x, y) * y;
-}
-
 // Kernel configuration traits for different output data types
 // Defines tile shapes and cluster configurations.
 struct KernelTraits {
