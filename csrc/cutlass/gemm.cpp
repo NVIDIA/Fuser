@@ -139,6 +139,61 @@ struct TensorArg {
 namespace {
 using namespace cute;
 
+// Helper function to compute ceil(x / y)
+inline int64_t ceilDiv(int64_t x, int64_t y) {
+  return (x + y - 1) / y;
+}
+
+inline int64_t roundUp(int64_t x, int64_t y) {
+  return ceilDiv(x, y) * y;
+}
+
+std::tuple<int64_t, int64_t, int64_t> validateInputsNvfp4ScaledMm(
+    const TensorArg& a,
+    const TensorArg& b,
+    const TensorArg& scales_a,
+    const TensorArg& scales_b,
+    const TensorArg& alpha,
+    bool skip_checks) {
+  // Validate matrix dimensions
+  NVF_ERROR(a.dim == 2, "Operand A must be a matrix.");
+  NVF_ERROR(b.dim == 2, "Operand B must be a matrix.");
+  NVF_ERROR(
+      a.sizes[1] == b.sizes[1],
+      "A and B shapes cannot be multiplied");
+
+  const int64_t m = a.sizes[0];
+  const int64_t n = b.sizes[0];
+  const int64_t k = a.sizes[1] * 2;
+
+  std::tuple<int64_t, int64_t, int64_t> ret = {m, n, k};
+
+  if (skip_checks) {
+    return ret;
+  }
+
+  // Calculate rounded dimensions for scale matrix validation
+  int64_t rounded_m = roundUp(m, 128);
+  int64_t rounded_n = roundUp(n, 128);
+  int64_t rounded_k = roundUp(k / 16, 4);
+
+  // Validate scale matrix properties
+  NVF_ERROR(scales_a.dim == 2, "Blockscale scale_a must be a matrix.");
+  NVF_ERROR(scales_b.dim == 2, "Blockscale scale_b must be a matrix.");
+  NVF_ERROR(
+      scales_a.sizes[1] == scales_b.sizes[1],
+      "scale_a and scale_b shapes cannot be multiplied because the inner-most "
+      "dimensions are not equal.")
+  NVF_ERROR(
+      scales_a.sizes[0] == rounded_m && scales_a.sizes[1] == rounded_k,
+      "scale_a must be padded and swizzled to the correct shape");
+  NVF_ERROR(
+      scales_b.sizes[0] == rounded_n && scales_b.sizes[1] == rounded_k,
+      "scale_b must be padded and swizzled to the correct shape");
+
+  return ret;
+}
+
 // Kernel configuration traits for different output data types
 // Defines tile shapes and cluster configurations.
 struct KernelTraits {
@@ -377,6 +432,13 @@ void runGemm(
 
   auto arguments = args_from_options<Fp4GemmSm100>(
       output, a, b, scales_a, scales_b, alpha, m, n, k);
+
+  constexpr bool skip_checks = false;
+  auto [vm, vn, vk] =
+      validateInputsNvfp4ScaledMm(a, b, scales_a, scales_b, alpha, skip_checks);
+  NVF_ERROR(vm == m, "m mismatch");
+  NVF_ERROR(vn == n, "n mismatch");
+  NVF_ERROR(vk == k, "k mismatch");
 
   size_t workspace_size = Fp4GemmSm100::Gemm::get_workspace_size(arguments);
   NVF_ERROR(workspace_size == 0,
