@@ -200,6 +200,7 @@ TEST_F(ComputeWithTest, ComputeWith2) {
   auto output_tv4 = div(exp_tv1_copy, bcast_sum_tv3);
 
   fusion.addOutput(output_tv4);
+  fusion.printMath();
 
   auto input_tv0_cache = input_tv0->cacheAfter();
 
@@ -217,6 +218,8 @@ TEST_F(ComputeWithTest, ComputeWith2) {
   input_tv0_cache->axis(0)->parallelize(ParallelType::BIDx);
   input_tv0_cache->axis(1)->parallelize(ParallelType::TIDx);
   scheduler_utils::parallelizeAllLike(input_tv0_cache);
+
+  fusion.printMath();
 
   GpuLower gpulw(&fusion);
   // Lowering should automatcially pick the first consumer of the

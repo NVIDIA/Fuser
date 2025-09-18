@@ -514,6 +514,9 @@ void GpuLower::analysis(Fusion* fusion) {
   validateReductions(fusion_);
   dumpExprsIfEnabled(fusion_->exprs(), "validateReductions");
 
+  validateScans(fusion_);
+  dumpExprsIfEnabled(fusion_->exprs(), "validateScans");
+
   // Compute thread predicates. Depends on parallel_dimension_map_
   info().set(std::make_unique<ThreadPredicateMap>(fusion_));
   dumpExprsIfEnabled(fusion_->exprs(), "build thread_pred_map_");

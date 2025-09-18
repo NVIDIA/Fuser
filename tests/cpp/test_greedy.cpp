@@ -321,7 +321,7 @@ TEST_F(GreedySchedulerTest, ScanNonLocalOutput) {
   fusion.addInput(tv0);
 
   auto tv1 = add(tv0, fusion.oneVal(DataType::Int));
-  auto tv2 = scan(tv1, -1, BinaryOpType::Add);
+  auto tv2 = scan(tv1, -1, BinaryOpType::Add).inclusive;
   fusion.addOutput(tv2);
 
   auto options = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
