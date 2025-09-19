@@ -859,17 +859,7 @@ void DynamicTransformConcretizer::concretize() {
         logical_dom,
         layout_op->g(),
         layout_op->layout());
-Val* mutated_td = IrBuilder::createInContainer<TensorDomain>(
-    out_tv->container(),
-    out_tv->getMaybeLogicalDomain(),
-    logical_dom,
-    alloc_dom,
-    out_tv->getLoopDomain(),
-    out_tv->getAlternateLoopDomain(),
-    out_tv->getContiguity(),
-    out_tv->getInitialLoopDomain(),
-    true);
-    out_tv->setDomain(mutated_td);
+    out_tv->setAllocationDomain(alloc_dom, true, true);
   }
 
   for (Val* outp : info_->fusion()->outputs()) {
