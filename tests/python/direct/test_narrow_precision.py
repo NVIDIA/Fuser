@@ -10,11 +10,12 @@ from nvfuser_direct import (
     DataType,
 )
 from nvfuser_direct.pytorch_utils import torch_dtype_to_nvfuser_dtype
-from python.direct_utils import (
+#from python.direct_utils import (
+from narrow_precision import (
     FLOAT4_E2M1_MAX,
     FLOAT8_E4M3_MAX,
     pytorch_nvfp4_quantize,
-    is_pre_blackwell,
+    #is_pre_blackwell,
     linear_to_swizzled_128_4,
     round_up,
     activation_scale_to_nvfp4,
@@ -32,10 +33,10 @@ def nvfp4_quantize(x):
     return x_u8, x_scale, x_global_scale
 
 
-# cannot use opinfo test, because the input tensor dtype and fusion definition dtype doesn't match
-@pytest.mark.skipif(
-    is_pre_blackwell(), reason="Only supported on blackwell and newer devices."
-)
+## cannot use opinfo test, because the input tensor dtype and fusion definition dtype doesn't match
+#@pytest.mark.skipif(
+#    is_pre_blackwell(), reason="Only supported on blackwell and newer devices."
+#)
 @pytest.mark.parametrize("config", [[128, 256, 512], [128, 256, 512]])
 @pytest.mark.parametrize("out_dtype", [torch.bfloat16])
 def test_scaled_mm(
@@ -111,9 +112,9 @@ def test_scaled_mm(
     assert o[0].allclose(ref_o, 1e-2, 1e-2)
 
 
-@pytest.mark.skipif(
-    is_pre_blackwell(), reason="Only supported on blackwell and newer devices."
-)
+#@pytest.mark.skipif(
+#    is_pre_blackwell(), reason="Only supported on blackwell and newer devices."
+#)
 @pytest.mark.parametrize("config", [[1024, 128, 256]])
 @pytest.mark.parametrize("tokens_per_expert_neg_one", [[115, 144, 8]])
 @pytest.mark.parametrize("out_dtype", [torch.bfloat16])
@@ -270,13 +271,14 @@ def test_cutlass_nvfp4_grouped_mm(
     assert torch.allclose(o_decomposed_ref, o[0], atol=1e-2, rtol=1e-2)
 
 
-@pytest.mark.skipif(
-    is_pre_blackwell(), reason="Only supported on blackwell and newer devices."
-)
-@pytest.mark.parametrize("config", [[1024, 128, 16*9]])
-@pytest.mark.parametrize("tokens_per_expert_neg_one", [[115, 144, 8]])
-@pytest.mark.parametrize("out_dtype", [torch.bfloat16])
-def test_layout_op_and_cutlass_nvfp4_grouped_mm(
+#@pytest.mark.skipif(
+#    is_pre_blackwell(), reason="Only supported on blackwell and newer devices."
+#)
+#@pytest.mark.parametrize("config", [[1024, 128, 16*9]])
+#@pytest.mark.parametrize("tokens_per_expert_neg_one", [[115, 144, 8]])
+#@pytest.mark.parametrize("out_dtype", [torch.bfloat16])
+#def test_layout_op_and_cutlass_nvfp4_grouped_mm(
+def test(
     nvfuser_direct_test,
     config,
     tokens_per_expert_neg_one,
@@ -401,7 +403,8 @@ def test_layout_op_and_cutlass_nvfp4_grouped_mm(
         blockscale_offsets,
     ]
 
-    o, _ = nvfuser_direct_test.exec_nvfuser(nvfuser_fusion_id0, inputs)
+    #o, _ = nvfuser_direct_test.exec_nvfuser(nvfuser_fusion_id0, inputs)
+    o, _ = nvfuser_direct_test(nvfuser_fusion_id0, inputs)
 
     # quantization for activation is needed for reference.
     # note: following sglang implementation, not computing global scaling factor for mat1
@@ -435,3 +438,24 @@ def test_layout_op_and_cutlass_nvfp4_grouped_mm(
         )
 
     assert torch.allclose(o_decomposed_ref, o[0], atol=1e-2, rtol=1e-2)
+
+def fn(
+    fusion_func,
+    inputs,
+    *,
+    device=None,
+):
+    # Copy inputs because aliased outputs can modify inputs when running
+    # FusionDefinition
+
+    # Execute a fusion function and capture the string python definition
+    with FusionDefinition() as fd:
+        fusion_func(fd)
+    torch.manual_seed(0)
+    out = fd.execute(
+        inputs,
+        device=device,
+    )
+    return out, fd
+
+test(fn, [1024, 128, 16*9], [115, 144, 8], [torch.bfloat16])
