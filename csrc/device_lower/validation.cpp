@@ -206,14 +206,22 @@ void validateCpAsyncBulk(const std::vector<TensorView*>& tvs) {
   }
 }
 
-bool isInnermost(IterDomain* base_id, IterDomain* id) {
-  auto exprs = DependencyCheck::getAllExprsBetween({base_id}, {id});
+// Check if id is derived from base_id and corresponds to the
+// innermost subregion of base_id. The split/merge exprs between
+// based_id and id must not include any ID that is not produced from
+// base_id.
+bool isInnermost(IterDomain* base_id, IterDomain* maybe_innermost_id) {
+  auto exprs =
+      DependencyCheck::getAllExprsBetween({base_id}, {maybe_innermost_id});
 
   std::deque<IterDomain*> frontier;
   frontier.push_back(base_id);
 
   for (auto expr : exprs) {
+    // expr is skipped if any of the inputs is missing.
     if (auto merge = dynamic_cast<Merge*>(expr)) {
+      // Check if this merge is logically contiguous merge, that is,
+      // both of the two inputs are adjacent to each other
       auto outer_it = std::ranges::find(frontier, merge->outer());
       if (outer_it == frontier.end()) {
         continue;
@@ -224,9 +232,13 @@ bool isInnermost(IterDomain* base_id, IterDomain* id) {
       }
       auto outer_pos = std::distance(frontier.begin(), outer_it);
       auto inner_pos = std::distance(frontier.begin(), inner_it);
-      // Non contig merge
+
       bool is_contig = outer_pos + 1 == inner_pos;
       frontier.erase(inner_it);
+
+      // If it's contig, we can continue the analysis by proceeding to
+      // the output. If not, no further analysis is possible, so the
+      // two inputs are just removed from the frontier list
       if (is_contig) {
         frontier[outer_pos] = merge->out();
       } else {
@@ -242,7 +254,10 @@ bool isInnermost(IterDomain* base_id, IterDomain* id) {
     }
   }
 
-  return !frontier.empty() && frontier.back() == id;
+  // Once the traversal is done, if the target id located at the
+  // rightmost position of the frontier list, it is guaranteed to
+  // correspond to the innermost subregion of the base ID.
+  return !frontier.empty() && frontier.back() == maybe_innermost_id;
 }
 
 // Expr-specific validaion
