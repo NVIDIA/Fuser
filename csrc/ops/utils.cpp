@@ -639,8 +639,10 @@ Val* binOpIdentity(BinaryOpType op_type, DataType dtype) {
       return fusion->zeroVal(dtype);
     case BinaryOpType::Mul:
       return fusion->oneVal(dtype);
+    case BinaryOpType::UnsafeMin:
     case BinaryOpType::Min:
       return getMaximumValue(dtype);
+    case BinaryOpType::UnsafeMax:
     case BinaryOpType::Max:
       return getMinimumValue(dtype);
     case BinaryOpType::LogicalAnd:
