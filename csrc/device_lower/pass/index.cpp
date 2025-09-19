@@ -372,6 +372,7 @@ void IndexLowering::handle(const ScatterOp* sop) {
       sop->dim(),
       lowered_index,
       lowered_src,
+      sop->exactSizes(),
       sop->accumulate() ? std::optional(sop->accumulateOp()) : std::nullopt));
   GpuLower::current()->propagateExprInfo(sop, back());
 }

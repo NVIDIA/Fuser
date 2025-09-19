@@ -215,6 +215,28 @@ TensorView
     A TensorView with the split axes in its loop domain.
 )")
       .def(
+          "merge",
+          static_cast<TensorView* (TensorView::*)(int64_t, int64_t)>(
+              &TensorView::merge),
+          py::arg("axis_o"),
+          py::arg("axis_i"),
+          py::return_value_policy::reference,
+          R"(
+Merge two axes into one axis.
+
+Parameters
+----------
+axis_o : int
+    The outer axis to merge.
+axis_i : int
+    The inner axis to merge.
+
+Returns
+-------
+TensorView
+    A TensorView with the merged axes in its loop domain.
+)")
+      .def(
           "rfactor",
           static_cast<TensorView* (TensorView::*)(const std::vector<int64_t>&)>(
               &TensorView::rFactor),

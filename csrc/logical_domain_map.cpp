@@ -141,6 +141,17 @@ std::pair<std::unordered_set<IterDomain*>, bool> getNonMappingDomainInfo(
       // we are not mapping anything, `has_consumer_id` doesn't matter.
       has_consumer_id = false;
     }
+  } else if (auto sop = dynamic_cast<ScatterOp*>(consumer_tv->definition())) {
+    if (producer_tv != sop->in()) {
+      auto producer_logical =
+          TensorDomain::noReductions(producer_tv->getLogicalDomain());
+      for (const auto& [i, p_id] : enumerate(producer_logical)) {
+        if ((int64_t)i == sop->dim() || !sop->exactSizes()) {
+          non_mapping_ids.insert(p_id);
+        }
+      }
+      has_consumer_id = true;
+    }
   }
 
   return std::make_pair(non_mapping_ids, has_consumer_id);
@@ -153,15 +164,6 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseLogicalDomainMap::map(
     const TensorDomain* consumer,
     const std::unordered_set<IterDomain*>& dims_to_map,
     bool producer_to_consumer) const {
-  // In the case of scatter, nothing is guaranteed to map except for
-  // the self producer. Note that in PyTorch even non-indexed
-  // dimensions of index and src tensors are not guaranteed to have
-  // the same extent as the self/out tensors.
-  if (auto sop = dynamic_cast<ScatterOp*>(consumer_tv_->definition());
-      sop != nullptr && producer_tv_ != sop->in()) {
-    return {};
-  }
-
   std::vector<bool> broadcast_flags;
   if (auto* bop = dynamic_cast<BroadcastOp*>(consumer_tv_->definition())) {
     broadcast_flags = bop->getBroadcastDimFlags();
@@ -1370,7 +1372,7 @@ void ComputeAtLogicalDomainMapBuilder::mapPointwiseLikeOp(Expr* expr) {
   if (expr->outputs().size() > 1) {
     NVF_ERROR(
         expr->isA<WelfordOp>() || expr->isA<GroupedReductionOp>() ||
-            expr->isA<GroupedWelfordOp>(),
+            expr->isA<GroupedWelfordOp>() || expr->isA<TopKOp>(),
         "Unknown multi-output Expr type ",
         expr->getOpString(),
         " is found");
