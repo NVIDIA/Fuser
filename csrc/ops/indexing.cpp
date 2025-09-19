@@ -357,7 +357,8 @@ std::vector<IterDomain*> layoutAllocationDomain(
     Val* padded_ext = SimplifyingIrBuilder::addExpr(
         id->extent(),
         SimplifyingIrBuilder::mulExpr(num_groups, maximum_pad_value_per_group));
-    return IterDomainBuilder(id).extent(padded_ext).build();
+    // set it as IterType::Symbolic to avoid domain validation errors
+    return IterDomainBuilder(id).extent(padded_ext).iter_type(IterType::Symbolic).build();
   };
   alloc_dom.push_back(pad_to_max_extent(logical_dom[0], row_multiple));
 
@@ -372,7 +373,8 @@ std::vector<IterDomain*> layoutAllocationDomain(
                 SimplifyingIrBuilder::addExpr(ext, multiple_val), one_val),
             multiple_val),
         multiple_val);
-    return IterDomainBuilder(id).extent(padded_ext).build();
+    // set it as IterType::Symbolic to avoid domain validation errors
+    return IterDomainBuilder(id).extent(padded_ext).iter_type(IterType::Symbolic).build();
   };
   alloc_dom.push_back(pad_to_multiple(logical_dom[1], col_multiple));
 
@@ -408,6 +410,7 @@ TensorView* preprocessGroupedMatmulInputSf(
   std::vector<IterDomain*> out_alloc_dom = 
       layoutAllocationDomain(out_logical_dom, num_groups, layout);
 
+  // TODO: try if revert to vanilla TensorDomain constructor and call set allocation domain later
   // Create the output tensor with logical domain matching inputs
   TensorView* out_tv = IrBuilder::create<TensorView>(
       IrBuilder::create<TensorDomain>(
