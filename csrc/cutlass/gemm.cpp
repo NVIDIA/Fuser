@@ -426,7 +426,8 @@ extern "C" void run_kernel(
 
   int64_t m = a.sizes[0];
   int64_t n = b.sizes[1];
-  int64_t k = a.sizes[1];
+  int64_t k = a.sizes[1] * 2;
+  NVF_ERROR(b.sizes[0] == a.sizes[1], "Mismatched K dims");
 
   runGemm(output, a, b, scales_a, scales_b, alpha, m, n, k, stream);
 }
