@@ -8,6 +8,7 @@
 #pragma once
 
 #include <compute_at_map.h>
+#include <device_lower/analysis/default_val.h>
 #include <device_lower/analysis/fused_reduction.h>
 #include <device_lower/analysis/padded_parallel_dimensions.h>
 #include <device_lower/analysis/thread_predicate.h>
@@ -114,6 +115,11 @@ class FusionInfo {
 
   FUSION_INFO_DEFINE_FUNCTIONS(IdModel, id_model, idModel);
 
+  FUSION_INFO_DEFINE_FUNCTIONS(
+      TensorDefaultVal,
+      tensor_default_val,
+      tensorDefaultVal);
+
  private:
   FUSION_INFO_DEFINE_FIELD(
       ConcretizedBroadcastDomains,
@@ -132,6 +138,8 @@ class FusionInfo {
   FUSION_INFO_DEFINE_FIELD(ComputeAtMap, ca_map);
 
   FUSION_INFO_DEFINE_FIELD(IdModel, id_model);
+
+  FUSION_INFO_DEFINE_FIELD(TensorDefaultVal, tensor_default_val);
 };
 
 #undef FUSION_INFO_DEFINE_FUNCTIONS

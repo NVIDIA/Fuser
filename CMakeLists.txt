@@ -193,6 +193,7 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/debug.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/analysis/bank_conflict.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/analysis/circular_buffer.cpp
+  ${NVFUSER_SRCS_DIR}/device_lower/analysis/default_val.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/analysis/device_version.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/analysis/divisible_split.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/analysis/fused_reduction.cpp

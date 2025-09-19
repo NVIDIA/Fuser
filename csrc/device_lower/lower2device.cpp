@@ -456,6 +456,10 @@ void GpuLower::analysis(Fusion* fusion) {
   replaceSymbolicSizes(fusion_);
   dumpExprsIfEnabled(fusion_->exprs(), "replaceSymbolicSizes");
 
+  // Does not need to be placed here as it has no dependency to any other
+  // analysis.
+  info().set(std::make_unique<TensorDefaultVal>(fusion_));
+
   // New IterDomains may be created, so it is expected that generated
   // code may use diffrent variable names
   if (idModelOptions().buildIdModel()) {

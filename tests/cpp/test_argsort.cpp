@@ -6,6 +6,7 @@
  */
 // clang-format on
 #include <csrc/exceptions.h>
+#include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
 #include <device_lower/lower2device.h>
@@ -126,13 +127,14 @@ TEST_F(ArgsortTest, Predication) {
   auto tv0 = makeContigConcreteTensor(shape);
   fusion.addInput(tv0);
 
-  auto tv1 = argsort(tv0, -1);
-  auto tv2 = set(tv1);
-  fusion.addOutput(tv2);
+  auto tv1 = set(tv0);
+  auto tv2 = argsort(tv1, -1);
+  auto tv3 = set(tv2);
+  fusion.addOutput(tv3);
 
   // Non-divisible split. 128 threads will be launched. The last 28
   // threads need to be predicated out.
-  for (auto tv : {tv1, tv2}) {
+  for (auto tv : {tv1, tv2, tv3}) {
     tv->split(0, 32);
     tv->axis(0)->parallelize(ParallelType::TIDy);
     tv->axis(1)->parallelize(ParallelType::TIDx);
@@ -145,6 +147,148 @@ TEST_F(ArgsortTest, Predication) {
   ke.compile(&fusion, {t0});
   auto outputs = ke.run({t0});
   testValidate(&fusion, outputs, {t0}, __LINE__, __FILE__);
+}
+
+TEST_F(ArgsortTest, Grouping) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  std::vector<int64_t> shape = {10, 101};
+
+  auto tv0 = makeContigConcreteTensor(shape);
+  fusion.addInput(tv0);
+
+  auto tv1 = set(tv0);
+  auto tv2 = argsort(tv1, -1);
+  auto tv3 = set(tv2);
+  fusion.addOutput(tv3);
+
+  const int64_t items_per_thread = 4;
+
+  for (auto tv : {tv1, tv2, tv3}) {
+    // [i0, i1]
+    tv->split(-1, items_per_thread);
+    // [i0, i1/S, S]
+
+    tv->axis(0)->parallelize(ParallelType::BIDx);
+    tv->axis(-2)->parallelize(ParallelType::TIDx);
+    if (tv->definition()->isA<ArgsortOp>()) {
+      tv->axis(-1)->parallelize(ParallelType::Group);
+    }
+  }
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn(shape, options);
+
+  KernelExecutor ke;
+  ke.compile(&fusion, {t0});
+  auto outputs = ke.run({t0});
+  testValidate(&fusion, outputs, {t0}, __LINE__, __FILE__);
+}
+
+// Grouping must be done with the innermost subregion of the argsort ID
+TEST_F(ArgsortTest, InvalidGrouping) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  std::vector<int64_t> shape = {10, 101};
+
+  auto tv0 = makeContigConcreteTensor(shape);
+  fusion.addInput(tv0);
+
+  auto tv1 = set(tv0);
+  auto tv2 = argsort(tv1, -1);
+  auto tv3 = set(tv2);
+  fusion.addOutput(tv3);
+
+  const int64_t items_per_thread = 4;
+
+  for (auto tv : {tv1, tv2, tv3}) {
+    // [i0, i1]
+    tv->split(-1, items_per_thread, true);
+    // [i0, S, i1/S]
+
+    tv->axis(0)->parallelize(ParallelType::BIDx);
+    tv->axis(-1)->parallelize(ParallelType::TIDx);
+    if (tv->definition()->isA<ArgsortOp>()) {
+      tv->axis(-2)->parallelize(ParallelType::Group);
+    }
+  }
+
+  // The use of the group type is invalid. GpuLower should issue an
+  // exception.
+  EXPECT_THAT(
+      [&]() { GpuLower lower(&fusion); },
+      testing::ThrowsMessage<nvfuser::nvfError>(
+          testing::HasSubstr("Invalid ID to group")));
+}
+
+// Outer argsort with grouping. Scheduling is not ideal at all but
+// should work.
+TEST_F(ArgsortTest, OuterArgsortWithGrouping) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  std::vector<int64_t> shape = {10, 20};
+
+  auto tv0 = makeContigConcreteTensor(shape);
+  fusion.addInput(tv0);
+
+  auto tv1 = set(tv0);
+  auto tv2 = argsort(tv1, 0);
+  auto tv3 = set(tv2);
+  fusion.addOutput(tv3);
+
+  const int64_t items_per_thread = 4;
+
+  for (auto tv : {tv1, tv2, tv3}) {
+    // [i0, i1]
+    tv->split(0, items_per_thread);
+    // [i0/S, S, i1]
+
+    // The argsort dimension must be parallelized with TID, so map BID
+    // to the inner dimension, which is not ideal but this is required
+    // for now.
+    tv->axis(0)->parallelize(ParallelType::TIDx);
+    tv->axis(2)->parallelize(ParallelType::BIDx);
+    if (tv->definition()->isA<ArgsortOp>()) {
+      tv->axis(1)->parallelize(ParallelType::Group);
+    }
+  }
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn(shape, options);
+
+  KernelExecutor ke;
+  ke.compile(&fusion, {t0});
+  auto outputs = ke.run({t0});
+  testValidate(&fusion, outputs, {t0}, __LINE__, __FILE__);
+}
+
+TEST_F(ArgsortTest, TMP) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  std::vector<int64_t> shape = {10, 20};
+
+  auto tv0 = makeContigConcreteTensor(shape);
+  fusion.addInput(tv0);
+
+  auto tv1 = set(tv0);
+  fusion.addOutput(tv1);
+
+  tv1->merge(0);
+  tv1->split(0, 4);
+
+  auto exprs = DependencyCheck::getAllExprsBetween(
+      {tv1->getLogicalDomain().back()}, {tv1->getLoopDomain().back()});
+  for (auto expr : exprs) {
+    std::cerr << expr->toString();
+  }
 }
 
 } // namespace nvfuser

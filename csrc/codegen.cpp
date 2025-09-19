@@ -1426,14 +1426,21 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
           return std::ranges::find(sorted_ids, id) != sorted_ids.end();
         });
 
-    // At this moment, we only support argsort on thread parallelized
-    // dimensions. No serial dimension is allowed either.
     ParallelTypeBitmap sorted_parallel_types;
+    IterDomain* grouped_id = nullptr;
     for (auto id : sorted_loop_ids) {
-      NVF_ERROR(
-          isParallelTypeThreadDim(id->getParallelType()),
-          "Argsort on non-thread dimension is not supported");
-      sorted_parallel_types.set(id->getParallelType());
+      if (isParallelTypeThreadDim(id->getParallelType())) {
+        sorted_parallel_types.set(id->getParallelType());
+      } else if (id->getParallelType() == ParallelType::Group) {
+        NVF_ERROR(
+            grouped_id == nullptr,
+            "Multiple grouped IDs not supported: ",
+            aop->toString());
+        grouped_id = id;
+      } else {
+        NVF_THROW(
+            "Invalid parallel type: ", id->toString(), " of ", aop->toString());
+      }
     }
 
     // TID parallel types must only be used for the sorted IDs with the static
@@ -1469,8 +1476,9 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       }
     }
 
-    // TODO: support ITEMS_PER_THREAD > 1
-    constexpr int items_per_thread = 1;
+    const int64_t items_per_thread = grouped_id != nullptr
+        ? grouped_id->extent()->evaluate().as<int64_t>()
+        : 1;
 
     const auto input = aop->in()->as<kir::TensorIndex>();
 
@@ -1479,33 +1487,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
 
     // Call the runtime argsort function
     ArgumentBuilder func_args;
-
-    // The output tensor is assumed to be a register tensor, and thus
-    // its storage should always be available without predication
-    NVF_ERROR_EQ(
-        output->view()->getMemoryType(),
-        MemoryType::Local,
-        "Argsort output must be a Local tensor: ",
-        output->toString());
-    func_args.arg("*(int64_t(*)[")
-        .append(items_per_thread)
-        .append("])")
-        .append("(&")
-        .append(genInline(output))
-        .append(")");
-
-    NVF_ERROR(aop->predicate() != nullptr && aop->predicate()->hasValue());
-    // {pred ? input : (isDescending ? min : max)}
-    func_args.arg("{")
-        .append(genInline(aop->predicate()))
-        .append(" ? ")
-        .append(genInline(input))
-        .append(" : ")
-        .append(
-            aop->isDescending() ? getMinimumValue(input->dtype())
-                                : getMaximumValue(input->dtype()))
-        .append("}");
-
+    func_args.arg(genVariableNameConvertAlignedArray(output));
+    func_args.arg(genVariableNameConvertAlignedArray(input));
     func_args.arg(aop->isDescending() ? "true" : "false"); // descending flag
     func_args.arg(genComputeBlockDim());
 
