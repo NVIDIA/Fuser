@@ -676,9 +676,11 @@ void NaiveValueMachine::runBinaryOp(int index) {
     case BinaryOpType::BitwiseXor:
       dest = lhs ^ rhs;
       break;
+    case BinaryOpType::UnsafeMax:
     case BinaryOpType::Max:
       dest = lhs > rhs ? lhs : rhs;
       break;
+    case BinaryOpType::UnsafeMin:
     case BinaryOpType::Min:
       dest = lhs < rhs ? lhs : rhs;
       break;

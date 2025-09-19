@@ -49,4 +49,26 @@ TEST_F(MathOptTest, FastMathTanh) {
   EXPECT_TRUE(ptx_string.find("tanh.approx.f32") != std::string::npos);
 }
 
+TEST_F(MathOptTest, UnsafeMax) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  auto tv0 = makeSymbolicTensor(1);
+  fusion->addInput(tv0);
+  auto tv1 = max(tv0, {0});
+  tv1->definition()->as<ReductionOp>()->markUnsafe();
+  fusion->addOutput(tv1);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({32}, options);
+
+  KernelExecutor ke;
+  ke.compile(fusion.get(), {t0});
+
+  std::string kernel_code = ke.compiledKernel()->kernelString();
+
+  // Validate that unsafe max is used by checking the generated code
+  EXPECT_TRUE(kernel_code.find("unsafe_fmax") != std::string::npos);
+}
+
 } // namespace nvfuser
