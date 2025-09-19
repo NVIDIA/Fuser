@@ -852,7 +852,7 @@ void DynamicTransformConcretizer::concretize() {
   // OptOutMutator only updates ID, but not exprs on its extent. Concretization on the allocation domain of layout op output needs to be manually replaced, because they are not connect by ID ops.
   auto exprs = info_->fusion()->exprs();
   for (auto* layout_op : ir_utils::filterByType<PreprocessGroupedMatmulInputSf>(exprs)) {
-    auto* out_tv = layout_op->out()->as<TensorView*>();
+    auto* out_tv = layout_op->out()->as<TensorView>();
     std::vector<IterDomain*> logical_dom = TensorDomain::noReductions(out_tv->getLogicalDomain());
     std::vector<IterDomain*> alloc_dom = 
         layoutAllocationDomain(
