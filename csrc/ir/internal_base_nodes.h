@@ -738,6 +738,8 @@ class NVF_API TensorDomain : public Val {
   // the view.
   inline static constexpr auto kNoDevices =
       std::views::filter([](auto* id) { return !id->isDeviceDim(); });
+  inline static constexpr auto kNoReductions =
+      std::views::filter([](auto* id) { return !id->isReduction(); });
 
   static bool hasBroadcast(const std::vector<IterDomain*>&);
   static bool hasReduction(const std::vector<IterDomain*>&);
