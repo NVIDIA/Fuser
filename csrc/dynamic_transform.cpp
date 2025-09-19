@@ -859,7 +859,7 @@ void DynamicTransformConcretizer::concretize() {
         logical_dom,
         layout_op->g(),
         layout_op->layout());
-    out_tv->setAllocationDomain(alloc_dom, true, true);
+    out_tv->domain()->setAllocationDomain(alloc_dom, true, true);
   }
 
   for (Val* outp : info_->fusion()->outputs()) {
