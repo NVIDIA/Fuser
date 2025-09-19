@@ -1753,18 +1753,23 @@ void eraseInputDistinctRootDomains(Fusion* fusion) {
 
   for (auto tv : ir_utils::filterByType<TensorView>(fusion->inputs())) {
     // Create a new logical domain and replacement TensorDomain.
-    // Given an logical domain, create a new IterDomain.
-    // Otherwise, clone the previous IterDomain
     std::vector<IterDomain*> new_logical_domain;
+
+    // Ignore reduction ids for new tensordomain.
     auto logical = TensorDomain::noReductions(tv->getLogicalDomain());
     new_logical_domain.reserve(logical.size());
 
     // Does the logical domain contain all concrete sized extents?
-    bool tv_is_concrete =
-        std::all_of(logical.begin(), logical.end(), [](IterDomain* id) {
-          return id->extent()->isConstScalar();
-        });
+    bool tv_is_concrete = true;
+    for (auto id : logical) {
+      if (!id->extent()->isConstScalar()) {
+        tv_is_concrete = false;
+        break;
+      }
+    }
 
+    // Given an rfactor IterDomain, create a new IterDomain.
+    // Otherwise, clone the previous IterDomain
     for (const auto& id : logical) {
       if (id->isRFactorProduct()) {
         // Create new symbolic extents for logical iterDomains
@@ -1784,13 +1789,15 @@ void eraseInputDistinctRootDomains(Fusion* fusion) {
     TensorDomain* new_td = IrBuilder::create<TensorDomain>(new_logical_domain);
     TransformReplay::selfReplay(tv->domain(), new_td, true);
     if (!tv->domain()->hasAllocation()) {
+      // The default contiguity for new_td is false. `selfReplay` does not
+      // replay contiguity when no allocation domain is present.
       const std::vector<std::optional<bool>> old_contiguity =
           tv->domain()->contiguity();
       std::vector<std::optional<bool>> no_red_contiguity;
       no_red_contiguity.reserve(old_contiguity.size());
-      for (const auto& [alloc_id, contiguity] :
+      for (const auto& [id, contiguity] :
            zip(tv->getLogicalDomain(), old_contiguity)) {
-        if (alloc_id->isReduction()) {
+        if (id->isReduction()) {
           continue;
         }
         no_red_contiguity.push_back(contiguity);
