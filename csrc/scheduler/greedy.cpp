@@ -37,6 +37,14 @@ namespace nvfuser {
 
 namespace {
 
+int64_t getItemsPerThread() {
+  auto x = getenv("ITEMS_PER_THREAD");
+  if (x == nullptr) {
+    return 1;
+  }
+  return std::atoi(x);
+}
+
 // These are the current supported constrained ops.
 std::vector<Expr*> getAllConstrainedOps(Fusion* fusion) {
   return ir_utils::getOpsOfType<ArgsortOp, PadOp, ScanOp, ScatterOp, TopKOp>(
@@ -477,6 +485,7 @@ class RunTimeChecker : private IterVisitor {
       : runtime_info_(runtime_info),
         max_threads_per_block_(
             at::cuda::getCurrentDeviceProperties()->maxThreadsPerBlock) {
+    std::cerr << "Max threads: " << max_threads_per_block_ << "\n";
     traverse(fusion);
   }
 
@@ -521,11 +530,13 @@ class RunTimeChecker : private IterVisitor {
       size_of_constrained_ids *= extent_val.as<int64_t>();
     }
 
-    if (size_of_constrained_ids > max_threads_per_block_) {
+    if (size_of_constrained_ids >
+        max_threads_per_block_ * getItemsPerThread()) {
       std::stringstream reason;
       reason << "Extent of constrained logical IDs, " << size_of_constrained_ids
-             << ", exceeds the maxinum number of threads per thread block, "
-             << max_threads_per_block_;
+             << ", exceeds the maxinum number of threads per thread block "
+                "times the number of items per thread, "
+             << max_threads_per_block_ << " * " << getItemsPerThread();
       setRejectReason(reason.str());
       can_schedule_ = false;
     }
@@ -630,7 +641,7 @@ class ConstrainedOpScheduler : public OptOutDispatch {
   void handle(ArgsortOp* argsort) override {
     auto out_tv = ir_utils::getTvOutput(argsort);
     auto dim = argsort->dim();
-    scheduleConstrainedTv(out_tv, {dim});
+    scheduleConstrainedTv(out_tv, {dim}, /*support_grouping=*/true);
   }
 
   void handle(PadOp* pad) override {
@@ -708,7 +719,8 @@ class ConstrainedOpScheduler : public OptOutDispatch {
 
   void scheduleConstrainedTv(
       TensorView* tv,
-      const std::vector<int64_t>& constrained_logical_id_offsets) {
+      const std::vector<int64_t>& constrained_logical_id_offsets,
+      bool support_grouping = false) {
     NVF_ERROR(!constrained_logical_id_offsets.empty());
 
     const auto& constrained_loop_id_offsets =
@@ -734,11 +746,21 @@ class ConstrainedOpScheduler : public OptOutDispatch {
       tv->flatten(-std::ssize(constrained_loop_id_offsets), -1);
     }
 
-    // Parallelize the flattened constrained id
-    tv->axis(-1)->parallelize(ParallelType::TIDx);
+    const bool has_unconstrained_ids = tv->getLoopDomain().size() > 1;
+    int64_t num_constrained_loop_ids = 1;
+
+    if (support_grouping && getItemsPerThread() > 1) {
+      tv->split(-1, getItemsPerThread());
+      ++num_constrained_loop_ids;
+    }
+
+    tv->axis(-2)->parallelize(ParallelType::TIDx);
+    if (support_grouping) {
+      tv->axis(-1)->parallelize(ParallelType::Group);
+    }
 
     // All done if there's no unconstrained ID
-    if (tv->getLoopDomain().size() == 1) {
+    if (!has_unconstrained_ids) {
       return;
     }
 
@@ -751,11 +773,13 @@ class ConstrainedOpScheduler : public OptOutDispatch {
     if (ref_unconstrained_domain_.empty()) {
       ref_unconstrained_domain_ =
           exact_graph_.toGroups(std::vector<IterDomain*>{
-              tv->getLoopDomain().begin(), tv->getLoopDomain().end() - 1});
+              tv->getLoopDomain().begin(),
+              tv->getLoopDomain().end() - num_constrained_loop_ids});
     } else {
       std::vector<int64_t> permutation;
       permutation.reserve(ref_unconstrained_domain_.size());
-      for (const auto i : arange(tv->getLoopDomain().size() - 1)) {
+      for (const auto i :
+           arange(tv->getLoopDomain().size() - num_constrained_loop_ids)) {
         auto id = tv->getLoopDomain().at(i);
         auto ref_it = std::ranges::find_if(
             ref_unconstrained_domain_,
@@ -770,8 +794,11 @@ class ConstrainedOpScheduler : public OptOutDispatch {
       tv->reorder(permutation);
     }
 
-    tv->flatten(0, std::ssize(tv->getLoopDomain()) - 2);
+    tv->flatten(
+        0, std::ssize(tv->getLoopDomain()) - 1 - num_constrained_loop_ids);
     tv->axis(0)->parallelize(ParallelType::BIDx);
+
+    std::cerr << "Scheduled: " << tv->toString() << "\n";
   }
 
  private:
@@ -1051,7 +1078,10 @@ void GreedyScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
     tree.traverse(&tp);
 
     scheduler_utils::parallelizeAllLike(
-        constrained_tv, -1, {tvs_to_transform.begin(), tvs_to_transform.end()});
+        constrained_tv,
+        -1,
+        {tvs_to_transform.begin(), tvs_to_transform.end()},
+        {ParallelType::BIDx, ParallelType::TIDx});
   }
 
   inlineMost(uninlinable_ids);
