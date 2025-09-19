@@ -1985,6 +1985,8 @@ class SegmentedGroupTaskGraphConverter {
     for (SegmentedGroup* group : groups) {
       conv.processGroup(group);
     }
+    std::cout << conv.all_tasks_ << std::endl;
+    std::cout << conv.all_data_ << std::endl;
     return TaskGraph(conv.all_tasks_, conv.all_data_);
   }
 
@@ -2080,8 +2082,16 @@ class SegmentedGroupTaskGraphConverter {
     auto new_id = static_cast<TaskGraph::DataId>(std::ssize(all_data_));
     tv2dataid_[tv] = new_id;
 
+    // If the TV is of type Index, we don't know if it will be 8 bytes or 4
+    // bytes until we are given input
+    DataType dtype = tv->dtype();
+    if (dtype == DataType::Index) {
+      // If we don't have runtime info, assume it is 64-bit
+      dtype = runtime_info_ != nullptr ? runtime_info_->getIndexType()
+                                       : DataType::Int;
+    }
     TaskGraph::Size size =
-        getNumAllocatedElements(tv) * dataTypeSizeByte(tv->dtype());
+        getNumAllocatedElements(tv) * dataTypeSizeByte(dtype);
 
     all_data_.emplace_back(
         /*definition=*/std::nullopt,
