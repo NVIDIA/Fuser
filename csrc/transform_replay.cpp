@@ -818,6 +818,7 @@ std::pair<TensorDomain*, int64_t> TransformReplay::replayCasP(
           ", requested in replay.");
       continue;
     }
+    it->second->parallelize(p_id->getParallelType());
     new_loop.push_back(it->second);
     used_loop.emplace(it->second);
   }
@@ -839,6 +840,7 @@ std::pair<TensorDomain*, int64_t> TransformReplay::replayCasP(
         continue;
       }
       if (used_loop.find(id) == used_loop.end()) {
+        id->parallelize(p_id->getParallelType());
         new_loop.push_back(id);
         used_loop.emplace(id);
       }
@@ -850,6 +852,7 @@ std::pair<TensorDomain*, int64_t> TransformReplay::replayCasP(
     if (consumer_replayed_loop.getUnorderedLeafIDs().find(id) !=
         consumer_replayed_loop.getUnorderedLeafIDs().end()) {
       if (used_loop.find(id) == used_loop.end()) {
+        id->parallelize(id->getParallelType());
         new_loop.push_back(id);
         used_loop.emplace(id);
       }
@@ -859,6 +862,7 @@ std::pair<TensorDomain*, int64_t> TransformReplay::replayCasP(
   // Add axes in (4)
   for (auto id : consumer_replayed_loop.getLeafIDs()) {
     if (used_loop.find(id) == used_loop.end()) {
+      id->parallelize(id->getParallelType());
       new_loop.push_back(id);
     }
   }
