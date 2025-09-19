@@ -252,6 +252,9 @@ class GatherOp : public Expr {
 class ScatterOp : public Expr {
  public:
   using Expr::Expr;
+
+  // exact_sizes: true when non-scatter axes of all inputs are
+  // guaranteed to have the same extents
   ScatterOp(
       IrBuilderPasskey,
       Val* out,
@@ -259,6 +262,7 @@ class ScatterOp : public Expr {
       int64_t dim,
       Val* index,
       Val* src,
+      bool exact_sizes,
       std::optional<BinaryOpType> accumulate_op = std::nullopt);
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
@@ -295,13 +299,17 @@ class ScatterOp : public Expr {
 
   IterDomain* getIndexedID() const;
 
-  bool accumulate() const {
+  bool exactSizes() const {
     return attribute<bool>(1);
+  }
+
+  bool accumulate() const {
+    return attribute<bool>(2);
   }
 
   BinaryOpType accumulateOp() const {
     NVF_ERROR(accumulate());
-    return attribute<BinaryOpType>(2);
+    return attribute<BinaryOpType>(3);
   }
 };
 
