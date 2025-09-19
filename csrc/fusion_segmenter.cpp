@@ -2018,9 +2018,12 @@ class SegmentedGroupTaskGraphConverter {
     std::vector<TaskGraph::DataId> outputs;
     for (Val* v : group->outputs()) {
       if (auto* tv = dynamic_cast<TensorView*>(v)) {
-        if (aliased_input_tvs.count(tv)) {
+        if (aliased_input_tvs.count(tv) || tv->isFusionInput()) {
           // These are counted as outputs but are actually _inputs_ to this
           // group
+          // Note that we skip setting alias links in the graph when the input
+          // is simply forwarded to the outputs unchanged.
+          // See AliasTest.TrivialInputForwarding for an example of this
           continue;
         }
         TaskGraph::DataId data_id = maybeRegisterTv(tv);
