@@ -58,6 +58,9 @@ class NvfuserVersion(str):
             NvfuserVersion._convert_to_version(other)
         )
 
+    def _say_hello_to_version(self):
+        print("Hello, version!")
+
 
 for cmp_method in ["__gt__", "__lt__", "__eq__", "__ge__", "__le__"]:
     setattr(
