@@ -309,7 +309,9 @@ int64_t numDeviceDims(const TensorView* tv) {
   return std::count_if(
       tv->getLoopDomain().begin(),
       tv->getLoopDomain().end(),
-      [](IterDomain* id) { return id->isDeviceDim() && !id->isReduction(); });
+      [](IterDomain* id) {
+        return (id->isDeviceDim() || id->isStream()) && !id->isReduction();
+      });
 }
 
 namespace {
@@ -730,8 +732,15 @@ std::unordered_map<int64_t, int64_t> reorderDIDToFront(TensorView* tv) {
   std::unordered_map<int64_t, int64_t> order_map;
   int64_t current_pos = 0;
 
-  for (auto pos : arange(tv->nDims())) {
-    if (tv->axis(pos)->isDeviceDim()) {
+  for (auto [pos, id] : enumerate(tv->getLoopDomain())) {
+    if (id->isStream()) {
+      order_map[pos] = current_pos;
+      current_pos++;
+    }
+  }
+
+  for (auto [pos, id] : enumerate(tv->getLoopDomain())) {
+    if (id->isDeviceDim()) {
       order_map[pos] = current_pos;
       current_pos++;
     }
