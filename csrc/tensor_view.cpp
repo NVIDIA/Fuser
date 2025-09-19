@@ -231,6 +231,12 @@ void TensorView::updateMaxProducerPosition(MaxPosCalculator* calc) {
   }
 }
 
+void TensorView::clearComputePosition() {
+  compute_at_pos_ = 0;
+  clearComputeWith();
+  max_producer_pos_ = 0;
+}
+
 TensorView* TensorView::computeAt(
     TensorView* consumer,
     int64_t position,

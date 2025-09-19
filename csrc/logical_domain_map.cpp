@@ -1372,7 +1372,7 @@ void ComputeAtLogicalDomainMapBuilder::mapPointwiseLikeOp(Expr* expr) {
   if (expr->outputs().size() > 1) {
     NVF_ERROR(
         expr->isA<WelfordOp>() || expr->isA<GroupedReductionOp>() ||
-            expr->isA<GroupedWelfordOp>(),
+            expr->isA<GroupedWelfordOp>() || expr->isA<TopKOp>(),
         "Unknown multi-output Expr type ",
         expr->getOpString(),
         " is found");
