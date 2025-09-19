@@ -331,7 +331,7 @@ std::vector<IterDomain*> layoutAllocationDomain(
   constexpr int col_multiple = 4;
   constexpr int row_multiple = 128;
 
-  auto* one_val = input->fusion()->oneVal(DataType::Index);
+  auto* one_val = num_groups->fusion()->oneVal(DataType::Index);
 
   // Note: output logical domain handles potential padding required for the
   // layout. Since the actual padding size is data-dependent, we allocate for
@@ -397,11 +397,6 @@ TensorView* preprocessGroupedMatmulInputSf(
       input_logical_dom,
       std::back_inserter(out_logical_dom),
       [](IterDomain* id) { return IterDomainBuilder(id).build(); });
-
-  // only Block128x4 is supported at this point.
-  NVF_CHECK_EQ(layout, BlockScalingFactorLayout::Block128x4);
-  constexpr int col_multiple = 4;
-  constexpr int row_multiple = 128;
 
   auto* one_val = input->fusion()->oneVal(DataType::Index);
   std::vector<IterDomain*> offset_logical_dom =

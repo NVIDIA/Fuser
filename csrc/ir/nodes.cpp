@@ -4082,11 +4082,14 @@ void TensorDomain::setAlternateLoopDomain(
 
 void TensorDomain::setAllocationDomain(
     std::vector<IterDomain*> new_allocation_domain,
-    std::vector<std::optional<bool>> new_contiguity) {
+    std::vector<std::optional<bool>> new_contiguity,
+    bool skip_validation) {
   validateContiguity(new_allocation_domain, new_contiguity);
 
-  ir_utils::validateDomainEquivalence(
-      logical_domain_, new_allocation_domain, additional_ids_);
+  if (!skip_validation) {
+    ir_utils::validateDomainEquivalence(
+        logical_domain_, new_allocation_domain, additional_ids_);
+  }
 
   allocation_domain_ = std::move(new_allocation_domain);
   contiguity_ = std::move(new_contiguity);
