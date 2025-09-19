@@ -363,18 +363,21 @@ def test_layout_op_and_cutlass_nvfp4_grouped_mm(
         blockscale_offsets = fd.define_tensor(
             shape=[-1], contiguity=True, dtype=DataType.Int32, is_cpu=False
         )
-        m_size = fd.ops.size(mat, 0);
-        k_size = fd.ops.size(mat, 1);
+        m_size = fd.ops.size(mat1, 0);
+        k_size = fd.ops.size(mat1, 1);
         k_tile_size = fd.ops.div(k_size, 16);
         # using primitive operations to handle quantization
         reshaped_mat1 = fd.ops.reshape(mat1, [m_size, k_tile_size, 16])
         scale1 = fd.ops.max(reshaped_mat1, 2)
-        reshaped_scaled_mat1 = fd.ops.div(reshaped_mat1, scale1)
+        broadcast_scale1 = fd.ops.broadcast(scale1, [False, False, True])
+        reshaped_scaled_mat1 = fd.ops.div(reshaped_mat1, broadcast_scale1)
         scaled_mat1 = fd.ops.reshape(reshaped_scaled_mat1, [m_size, k_size])
         # should I clamp here before cast?!
-        fp4_mat1 = fd.ops.cast(scaled_mat1, DataType.Float4_e2m1fn_x2)
+        fp4_mat1 = fd.ops.cast(scaled_mat1, DataType.Float4_e2m1fn)
         fp8_scale1 = fd.ops.cast(scale1, DataType.Float8_e4m3fn)
+        # NOTE: I need to add an entry for translation rule to print out this
         layout_fp8_scale1 = fd.ops.preprocess_grouped_matmul_input_sf(fp8_scale1, offsets, blockscale_offsets)
+        # NOTE: it's not working with the grouped_mm. Looks like segmentation is a bit different. But I think it's also exposing some dependency issue above.
         out = fd.ops.cutlass_nvfp4_grouped_mm(
             fp4_mat1,
             mat2,
