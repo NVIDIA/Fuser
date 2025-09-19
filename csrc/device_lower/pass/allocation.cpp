@@ -1246,7 +1246,7 @@ class AllocationInserter : public kir::ExprMutator {
 
       auto out_tv = out->as<TensorView>();
       auto default_val =
-          FusionInfoGuard::current()->tensorDefaultVal().get(out_tv);
+          FusionInfoGuard::current()->tensorInitVal().get(out_tv);
 
       // Check if out_tv must also be initialized for predicate
       // elimination. If so, the two initialization values must match
