@@ -258,8 +258,6 @@ TEST_F(GreedySchedulerTest, ArgsortArith) {
   EXPECT_FALSE(executor_cache.getMostRecentKernelRuntime()->isSegmented());
 }
 
-// Currently, argsort requires TIDx to be exact, so this fusion is
-// currently segmented.
 TEST_F(GreedySchedulerTest, ArgsortPadScan) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
@@ -397,8 +395,6 @@ TEST_F(GreedySchedulerTest, TopK) {
   EXPECT_FALSE(executor_cache.getMostRecentKernelRuntime()->isSegmented());
 }
 
-// Similar to ArgsortPadScan, this is segmented due to the exactness
-// requirement of TopKOp
 TEST_F(GreedySchedulerTest, TopKPad) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
@@ -427,9 +423,7 @@ TEST_F(GreedySchedulerTest, TopKPad) {
   auto outputs = executor_cache.runFusionWithInputs({t0});
   testValidate(executor_cache.fusion(), outputs, {t0}, __LINE__, __FILE__);
 
-  // TODO: Extend the greedy scheduler to accept the fusion without
-  // segmentation
-  EXPECT_TRUE(executor_cache.getMostRecentKernelRuntime()->isSegmented());
+  EXPECT_FALSE(executor_cache.getMostRecentKernelRuntime()->isSegmented());
 }
 
 // Extracted from test_moe.py
