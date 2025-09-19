@@ -1485,10 +1485,26 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     template_args.arg(input->dtype()); // DataT
     template_args.arg(items_per_thread); // ITEMS_PER_THREAD
 
-    // Call the runtime argsort function
     ArgumentBuilder func_args;
-    func_args.arg(genVariableNameConvertAlignedArray(output));
-    func_args.arg(genVariableNameConvertAlignedArray(input));
+    // Both inputs and outputs are guaranteed to be allocated as a
+    // contiguous chunk of buffer of size items_per_thread. Predicates
+    // are not used here because out-of-bounds elements are initizlied
+    // to the max or min value accordingly.
+    func_args.arg("*(int64_t(*)[")
+        .append(items_per_thread)
+        .append("])")
+        .append("(&")
+        .append(genInline(output))
+        .append(")");
+    func_args.arg("*(")
+        .append(input->dtype())
+        .append("(*)[")
+        .append(items_per_thread)
+        .append("])")
+        .append("(&")
+        .append(genInline(input))
+        .append(")");
+
     func_args.arg(aop->isDescending() ? "true" : "false"); // descending flag
     func_args.arg(genComputeBlockDim());
 

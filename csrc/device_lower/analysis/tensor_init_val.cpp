@@ -6,7 +6,7 @@
  */
 // clang-format on
 
-#include <device_lower/analysis/default_val.h>
+#include <device_lower/analysis/tensor_init_val.h>
 #include <fusion.h>
 #include <ir/internal_nodes.h>
 #include <ir/utils.h>

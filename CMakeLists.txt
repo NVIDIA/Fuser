@@ -193,7 +193,6 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/debug.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/analysis/bank_conflict.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/analysis/circular_buffer.cpp
-  ${NVFUSER_SRCS_DIR}/device_lower/analysis/default_val.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/analysis/device_version.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/analysis/divisible_split.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/analysis/fused_reduction.cpp
@@ -203,6 +202,7 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/device_lower/analysis/padded_parallel_dimensions.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/analysis/predicate_elimination.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/analysis/sync_information.cpp
+  ${NVFUSER_SRCS_DIR}/device_lower/analysis/tensor_init_val.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/analysis/tensor_memory.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/analysis/tensor_producer_aliases.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/analysis/thread_predicate.cpp

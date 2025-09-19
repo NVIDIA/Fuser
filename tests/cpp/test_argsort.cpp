@@ -268,27 +268,4 @@ TEST_F(ArgsortTest, OuterArgsortWithGrouping) {
   testValidate(&fusion, outputs, {t0}, __LINE__, __FILE__);
 }
 
-TEST_F(ArgsortTest, TMP) {
-  auto fusion_ptr = std::make_unique<Fusion>();
-  Fusion& fusion = *fusion_ptr.get();
-  FusionGuard fg(&fusion);
-
-  std::vector<int64_t> shape = {10, 20};
-
-  auto tv0 = makeContigConcreteTensor(shape);
-  fusion.addInput(tv0);
-
-  auto tv1 = set(tv0);
-  fusion.addOutput(tv1);
-
-  tv1->merge(0);
-  tv1->split(0, 4);
-
-  auto exprs = DependencyCheck::getAllExprsBetween(
-      {tv1->getLogicalDomain().back()}, {tv1->getLoopDomain().back()});
-  for (auto expr : exprs) {
-    std::cerr << expr->toString();
-  }
-}
-
 } // namespace nvfuser

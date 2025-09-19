@@ -8,9 +8,9 @@
 #pragma once
 
 #include <compute_at_map.h>
-#include <device_lower/analysis/default_val.h>
 #include <device_lower/analysis/fused_reduction.h>
 #include <device_lower/analysis/padded_parallel_dimensions.h>
+#include <device_lower/analysis/tensor_init_val.h>
 #include <device_lower/analysis/thread_predicate.h>
 #include <device_lower/analysis/trivial_broadcast.h>
 #include <id_model/id_model.h>

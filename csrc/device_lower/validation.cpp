@@ -245,6 +245,10 @@ bool isInnermost(IterDomain* base_id, IterDomain* id) {
   return !frontier.empty() && frontier.back() == id;
 }
 
+// Expr-specific validaion
+//
+// TODO: Move individual validations to here, e.g.,
+// validateCpAsyncBulk can be moved here
 class ExprValidator : public OptOutDispatch {
  public:
   static void validate(Fusion* fusion) {
@@ -265,7 +269,9 @@ class ExprValidator : public OptOutDispatch {
     auto inp_tv = ir_utils::getTvInput(aop);
     auto out_tv = ir_utils::getTvOutput(aop);
 
-    // Both input and output must be Local tensors
+    // Both input and output must be Local tensors. The local input
+    // tensor is initialized to the max or min value so that
+    // out-of-bounds items do not affect the results
     NVF_ERROR_EQ(inp_tv->getMemoryType(), MemoryType::Local);
     NVF_ERROR_EQ(out_tv->getMemoryType(), MemoryType::Local);
 
@@ -296,10 +302,8 @@ class ExprValidator : public OptOutDispatch {
 
       // The output is allocated on registers, so the allocation
       // domain should be just the same as the loop domain. The
-      // grouped ID must have the unit stride
-      auto grouped_id_it =
-          std::ranges::find(out_tv->getLoopDomain(), grouped_id);
-      // All inner IDs must not contribute to the allocation
+      // grouped ID must have the unit stride, which means all of the
+      // inner IDs must not contribute to the allocation
       validateUnitStride(out_tv, out_tv->getLoopDomain(), grouped_id);
 
       // All of the inputs per thread must be provided to the device
