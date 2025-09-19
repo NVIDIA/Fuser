@@ -80,8 +80,11 @@ TEST_F(LayoutOpTest, LogicalAndAllocationSizes) {
   auto out = set(inp);
   fusion.addOutput(out);
   // padding output to multiple of 16 on allocation domain
-  auto&& [io, ii] = IterDomain::split(out->axis(1), IrBuilder::create<Val>(16L, DataType::Index), true);
-  // NOTE: this doesn't feel right, we have to mark contiguity on axis(0) as `false` to avoid accidntal indexing collapsing, this should be figured out by indexing from the ceilDiv.
+  auto&& [io, ii] = IterDomain::split(
+      out->axis(1), IrBuilder::create<Val>(16L, DataType::Index), true);
+  // NOTE: this doesn't feel right, we have to mark contiguity on axis(0) as
+  // `false` to avoid accidntal indexing collapsing, this should be figured out
+  // by indexing from the ceilDiv.
   out->setAllocationDomain({out->axis(0), io, ii}, {false, true, true});
 
   // Tow issues with split and merge approach:
