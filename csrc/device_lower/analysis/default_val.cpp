@@ -14,40 +14,44 @@
 
 namespace nvfuser {
 
-TensorDefaultVal::TensorDefaultVal(Fusion* fusion) {
-  for (auto expr: fusion->exprs()) {
+TensorInitVal::TensorInitVal(Fusion* fusion) {
+  for (auto expr : fusion->exprs()) {
     dispatch(expr);
   }
 }
 
-void TensorDefaultVal::handle(ArgsortOp* aop) {
+void TensorInitVal::handle(ArgsortOp* aop) {
   // It is already validated that the input is exclusively used by
   // this argsort op, so it's free to initialize it for this op
   auto inp_tv = ir_utils::getTvInput(aop);
-  
-  Val* default_val = nullptr;
+
+  Val* init_val = nullptr;
   if (aop->isDescending()) {
-    default_val = ops::getMinimumValue(inp_tv->dtype());
+    init_val = ops::getMinimumValue(inp_tv->dtype());
   } else {
-    default_val = ops::getMaximumValue(inp_tv->dtype());
+    init_val = ops::getMaximumValue(inp_tv->dtype());
   }
 
-  registerDefaultVal(inp_tv, default_val);
+  registerInitVal(inp_tv, init_val);
 }
 
-void TensorDefaultVal::registerDefaultVal(TensorView* tv, Val* val) {
-  auto inserted = default_val_map_.emplace(tv, val).second;
+void TensorInitVal::registerInitVal(TensorView* tv, Val* val) {
+  auto inserted = init_val_map_.emplace(tv, val).second;
   if (!inserted) {
-    NVF_ERROR(default_val_map_[tv]->sameAs(val),
-              "Duplicate setting of default val for ", tv->toString(),
-              ". ", default_val_map_[tv]->toString(), " vs ",
-              val->toString());
+    NVF_ERROR(
+        init_val_map_[tv]->sameAs(val),
+        "Duplicate setting of init val for ",
+        tv->toString(),
+        ". ",
+        init_val_map_[tv]->toString(),
+        " vs ",
+        val->toString());
   }
 }
 
-Val* TensorDefaultVal::get(TensorView* tv) const {
-  auto it = default_val_map_.find(tv);
-  if (it != default_val_map_.end()) {
+Val* TensorInitVal::get(TensorView* tv) const {
+  auto it = init_val_map_.find(tv);
+  if (it != init_val_map_.end()) {
     return it->second;
   } else {
     return nullptr;

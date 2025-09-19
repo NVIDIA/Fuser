@@ -17,19 +17,25 @@ class Fusion;
 class Val;
 class TensorView;
 
-class TensorDefaultVal : public OptOutDispatch {
+// Certain ops need inputs and outputs to be initialized with some
+// values. This class holds a map of default values of tensors.
+//
+// For example, to lower the ArgsortOp, the current implementation
+// requires the input tensor to be initialized with the maximum value
+// if it's a descending sort.
+class TensorInitVal : public OptOutDispatch {
  public:
-  TensorDefaultVal(Fusion* fusion);
-  
+  TensorInitVal(Fusion* fusion);
+
   Val* get(TensorView* tv) const;
 
  private:
   void handle(ArgsortOp* aop) final;
 
-  void registerDefaultVal(TensorView* tv, Val* val);
+  void registerInitVal(TensorView* tv, Val* val);
 
  private:
-  std::unordered_map<TensorView*, Val*> default_val_map_;
+  std::unordered_map<TensorView*, Val*> init_val_map_;
 };
 
 } // namespace nvfuser

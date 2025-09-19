@@ -116,7 +116,7 @@ class FusionInfo {
   FUSION_INFO_DEFINE_FUNCTIONS(IdModel, id_model, idModel);
 
   FUSION_INFO_DEFINE_FUNCTIONS(
-      TensorDefaultVal,
+      TensorInitVal,
       tensor_default_val,
       tensorDefaultVal);
 
@@ -139,7 +139,7 @@ class FusionInfo {
 
   FUSION_INFO_DEFINE_FIELD(IdModel, id_model);
 
-  FUSION_INFO_DEFINE_FIELD(TensorDefaultVal, tensor_default_val);
+  FUSION_INFO_DEFINE_FIELD(TensorInitVal, tensor_default_val);
 };
 
 #undef FUSION_INFO_DEFINE_FUNCTIONS

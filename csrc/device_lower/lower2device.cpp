@@ -458,7 +458,7 @@ void GpuLower::analysis(Fusion* fusion) {
 
   // Does not need to be placed here as it has no dependency to any other
   // analysis.
-  info().set(std::make_unique<TensorDefaultVal>(fusion_));
+  info().set(std::make_unique<TensorInitVal>(fusion_));
 
   // New IterDomains may be created, so it is expected that generated
   // code may use diffrent variable names
