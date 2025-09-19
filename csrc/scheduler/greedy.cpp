@@ -412,10 +412,10 @@ class CompileTimeChecker : private IterVisitor {
         all_constrained_domain_.pushBack(id_group);
       } else {
         // Broadcast should not matter for scheduling
-        if (logical_id->isBroadcast()) {
+        if (id->isBroadcast()) {
           continue;
         }
-        unconstrained_domain.pushBack(exact_graph_.toGroup(logical_id));
+        unconstrained_domain.pushBack(exact_graph_.toGroup(id));
       }
     }
 
