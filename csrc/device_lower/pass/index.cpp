@@ -1899,9 +1899,7 @@ Val* indexTMemLdSt(
         consumer_tv->definition(), consumer_tv == tmem_tv, domain, for_loops);
     Val* stride = tmem_tv->fusion()->oneVal();
     Val* index = tmem_tv->fusion()->zeroVal();
-    for (const auto& [id, idx] :
-         zip(std::ranges::views::reverse(domain),
-             std::ranges::views::reverse(indices))) {
+    for (auto [id, idx] : zip(domain, indices) | std::views::reverse) {
       index = SimplifyingIrBuilder::addExpr(
           index, SimplifyingIrBuilder::mulExpr(idx, stride));
       stride = SimplifyingIrBuilder::mulExpr(stride, id->extent());

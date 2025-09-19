@@ -10,6 +10,7 @@
 #include <exceptions.h>
 #include <ir/base_nodes.h>
 #include <optional>
+#include <ranges>
 
 //! IR header hierarchy
 //! 1. utils.h - PolymorphicBase and NonCopyable
@@ -732,6 +733,11 @@ class NVF_API TensorDomain : public Val {
   static std::vector<IterDomain*> noReductions(const std::vector<IterDomain*>&);
   static std::vector<IterDomain*> noBroadcasts(const std::vector<IterDomain*>&);
   static std::vector<IterDomain*> noDevices(const std::vector<IterDomain*>&);
+  // Usage example: `domain | TensorDomain::kNoDevices`. Unlike noDevices, this
+  // returns a view so is more efficient. However, make sure `domain` outlives
+  // the view.
+  inline static constexpr auto kNoDevices =
+      std::views::filter([](auto* id) { return !id->isDeviceDim(); });
 
   static bool hasBroadcast(const std::vector<IterDomain*>&);
   static bool hasReduction(const std::vector<IterDomain*>&);

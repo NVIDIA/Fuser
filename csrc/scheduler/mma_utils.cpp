@@ -22,7 +22,9 @@
 #include <scheduler/tools/abstract_tensor.h>
 #include <scheduler/utils.h>
 #include <type.h>
+#include <utils.h>
 #include <val_graph.h>
+#include <ranges>
 #include <variant>
 
 namespace nvfuser {
@@ -1589,14 +1591,14 @@ namespace {
 // Check the val (in) is the output of broadcast.
 // Then check the output of the broadcast is 3D (4D for bmm).
 bool hasValidBroadcastOp(TensorView* bcast_out) {
-  // First check the tensorsview is 3D (4D)
+  // First check the TensorView is 3D (4D)
   // and has one broadcast dim.
   // Ignore device dimensions in this analysis.
-  auto non_device_dims =
-      TensorDomain::noDevices(bcast_out->getLoopDomain()).size();
+  auto non_device_dims = std::ranges::distance(
+      bcast_out->getLoopDomain() | TensorDomain::kNoDevices);
   if (!((non_device_dims == 3 || non_device_dims == 4) &&
-        TensorDomain::noDevices(bcast_out->domain()->noBroadcasts()).size() ==
-            non_device_dims - 1)) {
+        std::ssize(TensorDomain::noDevices(
+            bcast_out->domain()->noBroadcasts())) == non_device_dims - 1)) {
     return false;
   }
 
@@ -1774,10 +1776,10 @@ class MatmulPatternMatcher : IterVisitor {
 
       // These sizes should match since ops::maybeBroadcast places
       // BroadcastOps for implicit broadcasting.
-      NVF_ERROR(lrf.size() == rrf.size());
+      NVF_ERROR_EQ(lrf.size(), rrf.size());
       const std::vector<IterDomain*>& red_root = TensorDomain::noDevices(
           rop->out()->as<TensorView>()->getMaybeRootDomain());
-      NVF_ERROR(red_root.size() == lrf.size());
+      NVF_ERROR_EQ(red_root.size(), lrf.size());
       // Find innermost M or N dimension in output
       // We will assume for now that the output logical domain matches the
       // fusion output's allocation domain; in particular that the innermost
@@ -1787,10 +1789,8 @@ class MatmulPatternMatcher : IterVisitor {
       bool lhs_is_A = true;
       bool has_m = false, has_n = false;
       // Loop backwards to find inner-most Iteration domain in output
-      for (int64_t i = (int64_t)red_root.size() - 1; i >= 0; --i) {
-        IterDomain* lhs_id = lrf[(size_t)i];
-        IterDomain* rhs_id = rrf[(size_t)i];
-        IterDomain* out_id = red_root[(size_t)i];
+      for (auto [lhs_id, rhs_id, out_id] :
+           zip(lrf, rrf, red_root) | std::views::reverse) {
         if (out_id->isIteration()) {
           if (lhs_id->isBroadcast() != rhs_id->isBroadcast()) {
             // This is either an M or N dimension
