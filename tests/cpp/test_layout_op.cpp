@@ -107,17 +107,14 @@ TEST_F(LayoutOpTest, LogicalAndAllocationSizes) {
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
   auto cg_outputs = executor_cache.runFusionWithInputs({t0});
+  EXPECT_TRUE(t0.equal(cg_outputs[0].as<at::Tensor>()));
+  // output should remain the correct logical size
+  EXPECT_EQ(
+      cg_outputs[0].as<at::Tensor>().sizes(), std::vector<int64_t>({512, 9}));
   // padding on the inner dimension is represented as stride on the outer
   // dimension
   EXPECT_EQ(
       cg_outputs[0].as<at::Tensor>().strides(), std::vector<int64_t>({16, 1}));
-  // We need to slice because output buffer shape is not right
-  EXPECT_TRUE(t0.equal(cg_outputs[0].as<at::Tensor>().slice(1, 0, k)));
-  // TODO: enable this when output buffer shape is fixed.
-  // output should remain the correct logical size
-  // EXPECT_EQ(
-  //     cg_outputs[0].as<at::Tensor>().sizes(), std::vector<int64_t>({512,
-  //     9}));
 }
 
 TEST_F(LayoutOpTest, AllocationDomainSplitVectorizationFactor) {
