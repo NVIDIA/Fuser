@@ -776,7 +776,7 @@ std::unordered_set<TensorView*> getTvsWithDifferentSharding(
   return ret;
 }
 
-bool isValidateDeviceSplit(Expr* expr) {
+bool isValidDeviceSplit(Expr* expr) {
   if (expr == nullptr || !expr->isA<Split>()) {
     return false;
   }
@@ -802,7 +802,7 @@ IterDomain* projectShardedAllocationToLogical(
   IterDomain* logical_id = allocation_id;
   for (Expr* expr : exprs | std::views::reverse) {
     NVF_ERROR(
-        isValidateDeviceSplit(expr),
+        isValidDeviceSplit(expr),
         "invalid device split: ",
         expr->toString());
     logical_id = expr->as<Split>()->in();
@@ -824,7 +824,7 @@ IterDomain* projectLogicalToShardedAllocation(
   IterDomain* allocation_id = logical_id;
   for (auto expr : exprs) {
     NVF_ERROR(
-        isValidateDeviceSplit(expr),
+        isValidDeviceSplit(expr),
         "invalid device split: ",
         expr->toString());
     allocation_id = expr->as<Split>()->inner();
