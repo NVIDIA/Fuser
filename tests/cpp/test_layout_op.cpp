@@ -79,11 +79,17 @@ TEST_F(LayoutOpTest, LogicalAndAllocationSizes) {
   fusion.addInput(inp);
   auto out = set(inp);
   fusion.addOutput(out);
-  // padding output to multiple of 16
-  out->split(1, 16);
-  out->setAllocationDomain(out->getLoopDomain(), true);
-  // restore loop domain
-  out->merge(1);
+  // padding output to multiple of 16 on allocation domain
+  auto&& [io, ii] = IterDomain::split(out->axis(1), IrBuilder::create<Val>(16L, DataType::Index), true);
+  // NOTE: this doesn't feel right, we have to mark contiguity on axis(0) as `false` to avoid accidntal indexing collapsing, this should be figured out by indexing from the ceilDiv.
+  out->setAllocationDomain({out->axis(0), io, ii}, {false, true, true});
+
+  // Tow issues with split and merge approach:
+  // 1. This causes predication to expand to the padded region.
+  // 2. Indexing with allocation domain set as `true` is wrong.
+  // out->split(1, 16);  // padding output to multiple of 16
+  // out->setAllocationDomain(out->getLoopDomain(), true);
+  // out->merge(1);  // restore loop domain
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   int m = 512;

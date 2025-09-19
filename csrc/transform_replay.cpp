@@ -288,10 +288,10 @@ void TransformReplay::selfReplay(
   // We use `self_loop` as the target domain because loop post-dominates
   // allocation.
   const std::vector<IterDomain*>& self_loop = self->loop();
-  ReplaySelf replay(self_loop, axis_map);
 
   // Replay loop.
   if (self_loop != self->logical()) {
+    ReplaySelf replay(self_loop, axis_map);
     std::vector<IterDomain*> new_loop;
     if (ignore_reductions) {
       for (auto* id : new_self->logical()) {
@@ -321,6 +321,7 @@ void TransformReplay::selfReplay(
   // Replay allocation.
   if (self->hasAllocation()) {
     const std::vector<IterDomain*>& self_allocation = self->allocation();
+    ReplaySelf replay(self_allocation, axis_map);
     const std::vector<std::optional<bool>>& self_contiguity =
         self->contiguity();
     NVF_ERROR_EQ(self_allocation.size(), self_contiguity.size());
