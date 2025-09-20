@@ -1,0 +1,195 @@
+// clang-format off
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2025-present NVIDIA CORPORATION & AFFILIATES.
+ * All rights reserved.
+ * SPDX-License-Identifier: BSD-3-Clause
+ */
+// clang-format on
+#pragma once
+
+#include <cstdint>
+#include <optional>
+#include <ostream>
+#include <string>
+#include <vector>
+
+namespace nvfuser {
+
+//! A task graph is a stripped-down representation of a data flow graph. It was
+//! originally intended to model runtime order optimization during segmentation,
+//! but might have applications in other contexts.
+//!
+//! TensorViews are represented as Data and each contains a size and might be
+//! aliased to another Data, modeling input/output aliasing in a Fusion. A
+//! segment from a segmented fusion is represented here as a Task. Every task
+//! has inputs and outputs and also might require some temporary space to do its
+//! computation. For example when doing grid reductions we require a gmem buffer
+//! that is freed after the segment is computed.
+//!
+//! We model execution using the Step struct. A vector of Steps is simply a
+//! runtime ordering of Tasks, but with some extra state that helps us track
+//! memory allocation across the execution. Specifically, our model usually only
+//! allocates Data upon its first use and immediately deallocates in after its
+//! last use. The only exception is if the Data is marked can_free=false, which
+//! would be the case for unsegmented Fusion inputs or outputs whose lifetimes
+//! must extend past the execution of the entire graph.
+class TaskGraph {
+ public:
+  using TaskId = int16_t;
+  using DataId = int16_t;
+  using Size = int64_t;
+
+  //! A Task consumes some input Data and produces some output Data. To do so,
+  //! it might use some intermediate space.
+  struct Task {
+    std::vector<DataId> inputs;
+    std::vector<DataId> outputs;
+    //! This amount of temporary space is required only while executing the Task
+    //! and is immediately freed afterward
+    Size temp_space = 0;
+
+    std::string toString() const;
+  };
+
+  //! A Data object represents a TensorView with a given size.
+  struct Data {
+    std::optional<TaskId> definition;
+    std::vector<TaskId> uses;
+
+    //! If set to something other than -1, this means we do not allocate a new
+    //! output when executing this Data's definition, instead we re-use the
+    //! space from the specified input. Note that this implies an ordering
+    //! constraint which we will check, since the definition must be the last
+    //! use of the aliased input.
+    DataId aliases_input = -1;
+
+    Size size = 1;
+
+    //! This indicates whether we are able to free this data after its last use.
+    //! For a segmented fusion, unsegmented fusion inputs and outputs cannot be
+    //! freed (with the exception of an aliased input), while any intermediate
+    //! tensors should be freed as soon as possible.
+    bool can_free = true;
+
+    std::string toString() const;
+  };
+
+  //! Note that the Tasks provided here must have accurate inputs, outputs, and
+  //! temporary space. The Data must have accurate aliases_input, size, and
+  //! can_free fields. However, uses and definitions can be empty in which case
+  //! they will be filled in automatically. Any pre-existing definitions or uses
+  //! will be checked for consistency.
+  TaskGraph(const std::vector<Task>& tasks, const std::vector<Data>& data);
+
+  //! This represents the execution of a single Task in a given ordering. It
+  //! tracks some cumulative state representing the amount of space required up
+  //! to this point.
+  struct Step {
+    TaskId task;
+
+    //! This is the sum of all Data that is active _after_ execution of this
+    //! task and after any inputs with no more uses are freed.
+    Size allocated;
+
+    //! This is the maximum active space used until this step is completed.
+    Size high_water_mark;
+
+    std::string toString() const;
+  };
+
+  TaskId numTasks() const {
+    return (TaskId)tasks_.size();
+  }
+
+  const Task& getTask(TaskId id) const {
+    return tasks_.at((size_t)id);
+  }
+
+  TaskId numData() const {
+    return (DataId)data_.size();
+  }
+
+  const Data& getData(DataId id) const {
+    return data_.at((size_t)id);
+  }
+
+  Size getInitialAllocation() const {
+    return initial_allocation_;
+  }
+
+  void validateGraph() const;
+
+  //! Given a list of steps, recompute the active space and high water mark.
+  //! This is useful for validating that our backtracking algorithm does not
+  //! corrupt this data. Raises an exception if corruption is detected.
+  void validateSteps(const std::vector<Step>& steps) const;
+
+  struct SortResult {
+    std::vector<Step> steps;
+
+    //! Number of iterations computed
+    int64_t iterations = 0;
+
+    //! Whether the search was exhaustive. If not, then it was likely cut off
+    //! early because of an iteration limit.
+    bool exhaustive = false;
+
+    std::string toString() const;
+  };
+
+  //! This converts a graph that has aliases into one that has no aliases but
+  //! has the same task order dependencies and the same memory requirements for
+  //! any execution order. This is done by adding new Data nodes that have zero
+  //! size in order to enforce the constraint that the last use of an aliased
+  //! input must be the one that overwrites that input.
+  //!
+  //! This conversion is mainly used to simplify algorithms so that they can
+  //! guarantee the aliasing condition without needing to explicitly handle
+  //! aliasing.
+  TaskGraph convertAliasesToDependencies() const;
+
+  //! This does an exhaustive search of all possible orderings using a modified
+  //! Kahn's algorithm to efficiently traverse the set of possible topological
+  //! orderings.
+  SortResult findOptimalOrder(bool validate = true) const;
+
+  std::string toString() const;
+
+  //! Generates a string in the mermaid language for rendering online
+  std::string toMermaid() const;
+
+ private:
+  const std::vector<Task> tasks_;
+  std::vector<Data> data_;
+
+  //! How much data is allocated by data that has no definition, i.e. input data
+  Size initial_allocation_ = 0;
+
+  std::vector<TaskId> num_uses_;
+  std::vector<DataId> num_dependencies_;
+};
+
+inline std::ostream& operator<<(std::ostream& os, const TaskGraph::Task& task) {
+  os << task.toString();
+  return os;
+}
+inline std::ostream& operator<<(std::ostream& os, const TaskGraph::Data& data) {
+  os << data.toString();
+  return os;
+}
+inline std::ostream& operator<<(std::ostream& os, const TaskGraph& graph) {
+  os << graph.toString();
+  return os;
+}
+inline std::ostream& operator<<(std::ostream& os, const TaskGraph::Step& step) {
+  os << step.toString();
+  return os;
+}
+inline std::ostream& operator<<(
+    std::ostream& os,
+    const TaskGraph::SortResult& result) {
+  os << result.toString();
+  return os;
+}
+
+} // namespace nvfuser
