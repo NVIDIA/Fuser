@@ -351,6 +351,10 @@ void parallelizeAllLike(
               reference_id->getMaybeSizeAfterPadding());
         }
       }
+      // propagate clustered blocks
+      if (reference_id->isClusteredBlockDim()) {
+        tv->axis(i)->setClusteredBlocks(true);
+      }
     }
   }
 }
@@ -3217,6 +3221,14 @@ void buildAllocationDomainForSharedMemoryTvs(Fusion* fusion) {
     }
     buildAllocationDomainFromLoopIds(tv);
   }
+}
+
+// https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html?#thread-block-clusters
+// There is no device attribute for max cluster size, use a hardcoded value for
+// now.
+int64_t getMaxClusterSize() {
+  const auto sm_major = at::cuda::getCurrentDeviceProperties()->major;
+  return sm_major >= 9 ? 8 : 1;
 }
 } // namespace scheduler_utils
 } // namespace nvfuser

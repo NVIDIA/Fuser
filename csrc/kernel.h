@@ -151,6 +151,8 @@ struct KernelSummary {
   //! Do we have any scan op?
   bool has_scan = false;
 
+  //! Do we have any clustered blocks?
+  bool has_cluster_reduction = false;
   //! Do the kernel need streamIdx?
   bool stream_parallelized = false;
 };

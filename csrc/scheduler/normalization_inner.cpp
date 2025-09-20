@@ -27,7 +27,8 @@ std::pair<int64_t, int64_t> getPersistentBufferSizeBit(
     SchedulerRuntimeInfo& runtime_info,
     HeuristicDataCache* data_cache,
     const std::vector<TensorView*>& reduction_tvs,
-    const bool can_use_smem_persistent) {
+    const bool can_use_smem_persistent,
+    const bool is_3d_reduction) {
   auto persistent_buffer_info_entry =
       HeuristicDataCacheEntry<HeuristicCompileTime::PersistentBufferInfo>(
           data_cache, [&fusion]() {
@@ -65,6 +66,10 @@ std::pair<int64_t, int64_t> getPersistentBufferSizeBit(
           persistent_buffer_info,
           can_use_smem_persistent,
           project_persistent_buffers);
+  if (!is_3d_reduction) {
+    available_persistent_buffer_size_bit *=
+        scheduler_utils::getMaxClusterSize();
+  }
   return std::make_pair(
       persistent_buffer_size_bit, available_persistent_buffer_size_bit);
 }
@@ -524,6 +529,80 @@ void innerPersistentHeuristic2D(
       LaunchParams::UNINITIALIZED_VAL,
       LaunchParams::UNINITIALIZED_VAL,
       best_heuristic.bdimy,
+      LaunchParams::UNINITIALIZED_VAL);
+}
+
+void innerPersistentHeuristicCluster(
+    const PersistentKernelProperties& properties,
+    ReductionParams* rparams) {
+  // Inner reduction domain
+  // vect x TID x persistent_batch x BID
+  int64_t vectorize_factor = properties.vectorize_factor;
+  int64_t after_vect = properties.total_reduction_numel / vectorize_factor;
+  int64_t bdimx = 256;
+  int64_t after_vect_bdimx = ceilDiv(after_vect, bdimx);
+  const int64_t buffer_bits_per_batch =
+      properties.max_persistent_buffer_size_bit /
+      properties.total_reduction_numel * vectorize_factor;
+
+  // Given blocks per cluster and estimate blocks per sm from register usage
+  // Regsiters are used for indexing, computations, and buffering inputs.
+  auto getBlocksPerSM = [&](int64_t blocks_per_cluster) {
+    constexpr int64_t register_overhead = 16;
+    int64_t persistent_batch = ceilDiv(after_vect_bdimx, blocks_per_cluster);
+    int64_t register_per_thread = register_overhead +
+        ceilDiv(buffer_bits_per_batch * persistent_batch,
+                scheduler_utils::bits_per_register);
+    return scheduler_utils::safeDiv(
+        getThreadsPerSMGivenRegPerThread(register_per_thread), bdimx);
+  };
+
+  // Start with 4 blocks each with 8 warps, then we have 32 warps per cluster.
+  // After warp reduction, there are 32 warp reduction results, they can be
+  // reduced within a single warp without serial reduction.
+  int64_t blocks_per_cluster = 4;
+  int64_t blocks_per_sm = getBlocksPerSM(blocks_per_cluster);
+
+  // If occupancy is less then 37.5%, check with more blocks per cluster
+  if (blocks_per_sm < 3) {
+    const int64_t max_bpc = scheduler_utils::getMaxClusterSize();
+    for (int64_t bpc = blocks_per_cluster * 2; bpc <= max_bpc; bpc *= 2) {
+      int64_t bpsm = getBlocksPerSM(bpc);
+      if (bpsm > blocks_per_sm) {
+        blocks_per_sm = bpsm;
+        blocks_per_cluster = bpc;
+      }
+    }
+  }
+  int64_t persistent_batch = ceilDiv(after_vect_bdimx, blocks_per_cluster);
+
+  rparams->cross_block_inner_reduction = true;
+  rparams->cross_grid_inner_reduction = true;
+  rparams->block_dim_inner_reduction = ParallelType::TIDx;
+  rparams->pad_inner_reduction_to_warp = true;
+  rparams->batches_per_block_inner_reduction = persistent_batch;
+  rparams->unroll_factor_inner_reduction = vectorize_factor;
+  rparams->vectorize_inner_reduction = vectorize_factor > 1;
+
+  // cluster reduction is true, the blocks in grid_dim_inner_reduction are
+  // grouped into a cluster.
+  rparams->cross_cluster_reduction = true;
+  rparams->grid_dim_inner_reduction = ParallelType::BIDx;
+
+  // Iter
+  rparams->grid_dim_iter_dom = ParallelType::BIDy;
+  rparams->multiple_reds_per_blk = false;
+  rparams->unroll_factor_iter_dom = 1;
+
+  // Static bdimx and gdimx indicates this kernel should only be used with these
+  // specific launch parameters.
+  rparams->static_bdimx = true;
+  rparams->lparams = LaunchParams(
+      blocks_per_cluster,
+      LaunchParams::UNINITIALIZED_VAL,
+      LaunchParams::UNINITIALIZED_VAL,
+      bdimx,
+      LaunchParams::UNINITIALIZED_VAL,
       LaunchParams::UNINITIALIZED_VAL);
 }
 
@@ -1076,9 +1155,15 @@ std::unique_ptr<ReductionParams> getInnerPersistentHeuristics(
   rparams->fastest_dim = true;
   rparams->project_persistent_buffers = prop.project_persistent_buffers;
   rparams->cparams.index_type = prop.index_type;
-
   // specific heuristics for different cases
-  if (prop.max_persistent_buffer_size_bit >
+  // use cluster reduction when buffer size is larger than register size and
+  // the reduction is not 3D.
+  if (scheduler_utils::getMaxClusterSize() > 1 &&
+      prop.max_persistent_buffer_size_bit >
+          scheduler_utils::register_file_size_bit) {
+    innerPersistentHeuristicCluster(prop, rparams.get());
+  } else if (
+      prop.max_persistent_buffer_size_bit >
       scheduler_utils::register_file_size_bit) {
     rparams->tag = "Shared Memory Inner Persistent Heuristic.\n";
     // all persistent buffers are moved to shared memory
@@ -1131,10 +1216,12 @@ bool InnerPersistentKernelScheduler::canScheduleRunTime(
   const int64_t warp_size = at::cuda::getCurrentDeviceProperties()->warpSize;
 
   // check reduction properties, don't use shared memory persistent if 3D
-  // reduction
-  bool can_use_smem_persistent =
-      properties.total_reduction_numel == properties.inner_most_dimension_numel;
-
+  // reduction or device supports cluster reduction.
+  bool can_use_smem_persistent = (properties.total_reduction_numel ==
+                                  properties.inner_most_dimension_numel) &&
+      scheduler_utils::getMaxClusterSize() == 1;
+  bool is_3d_reduction =
+      properties.total_reduction_numel != properties.inner_most_dimension_numel;
   // pair of persistent_buffer_size_bit and available_persistent_buffer_size_bit
   const std::pair<int64_t, int64_t> buffer_size_bit =
       getPersistentBufferSizeBit(
@@ -1142,7 +1229,8 @@ bool InnerPersistentKernelScheduler::canScheduleRunTime(
           runtime_info,
           data_cache,
           reduction_tvs,
-          can_use_smem_persistent);
+          can_use_smem_persistent,
+          is_3d_reduction);
   const int64_t persistent_buffer_size_bit = buffer_size_bit.first;
   const int64_t available_persistent_buffer_size_bit = buffer_size_bit.second;
 
