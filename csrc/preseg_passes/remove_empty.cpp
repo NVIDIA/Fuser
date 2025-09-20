@@ -115,7 +115,8 @@ class EmptyTensorRemover : public DeadCodeRemover {
   //! Gets a vector of extents for noReduction(tv->getLogicalDomain())
   static std::vector<Val*> noReductionShape(TensorView* tv) {
     std::vector<Val*> shape;
-    for (auto id : TensorDomain::noReductions(tv->getLogicalDomain())) {
+    for (IterDomain* id :
+         tv->getLogicalDomain() | TensorDomain::kNoReductions) {
       shape.push_back(id->getMaybeExpandedExtent());
     }
     return shape;
