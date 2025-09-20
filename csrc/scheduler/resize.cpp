@@ -24,6 +24,7 @@
 #include <val_graph_visitor.h>
 
 #include <memory>
+#include <ranges>
 
 namespace nvfuser {
 
@@ -295,7 +296,7 @@ void prepareForBackwardTransformPropagation(TensorView* ref_tv) {
     }
 
     const auto tv_logical =
-        graph.toGroups(TensorDomain::noBroadcasts(tv->getLogicalDomain()));
+        graph.toGroups(tv->getLogicalDomain() | TensorDomain::kNoBroadcasts);
 
     auto all_visited = ValGraphBFS::getExprGroupsBetween(
                            graph,
