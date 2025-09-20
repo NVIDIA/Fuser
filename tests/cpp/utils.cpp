@@ -5,6 +5,8 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <algorithm>
+#include <ranges>
 #include <regex>
 #include <sstream>
 #include <string>
@@ -570,12 +572,13 @@ TensorView* canonicalizeInputToBMNK(
     TensorView* tv,
     MmaLayout layout,
     MmaOperand operand) {
-  auto lgnob = TensorDomain::noBroadcasts(tv->getLogicalDomain());
+  auto lgnob = tv->getLogicalDomain() | TensorDomain::kNoBroadcasts;
+  const auto lgnob_count = std::ranges::distance(lgnob);
   NVF_ERROR(
-      lgnob.size() == 2 || lgnob.size() == 3,
+      lgnob_count == 2 || lgnob_count == 3,
       "Expected 2 or 3 domains, got ",
-      lgnob.size());
-  bool has_batch = lgnob.size() == 3;
+      lgnob_count);
+  bool has_batch = lgnob_count == 3;
   bool already_broadcasted = tv->hasBroadcast();
 
   // Step 1: insert permute as needed.
@@ -659,12 +662,13 @@ TensorView* biasEpilogue(TensorView* tensor, TensorView* bias) {
       "Tensors to have bias applied needs to have 2 or more domains, got ",
       tensor->nDims());
 
-  const auto concrete = TensorDomain::noReductions(
-      TensorDomain::noBroadcasts(tensor->getLoopDomain()));
+  auto concrete = tensor->getLoopDomain() | TensorDomain::kNoReductions |
+      TensorDomain::kNoBroadcasts;
+  const auto concrete_count = std::ranges::distance(concrete);
 
   TensorView *biasb = nullptr, *biased = nullptr;
 
-  switch (concrete.size()) {
+  switch (concrete_count) {
     case 2:
       // regular matmul (non-strided batch gemm)
       NVF_CHECK(
@@ -694,7 +698,7 @@ TensorView* biasEpilogue(TensorView* tensor, TensorView* bias) {
           false,
           "Only tensors with two (matmul) or three (strided batch matmul) "
           "concrete domains have support for bias epilogue enabled, got ",
-          concrete.size());
+          concrete_count);
   }
 
   biased = add(tensor, biasb);

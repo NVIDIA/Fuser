@@ -22,6 +22,8 @@
 #include <scheduler/utils.h>
 #include <scheduler/vectorize_helper.h>
 
+#include <ranges>
+
 namespace nvfuser {
 
 namespace {
@@ -248,10 +250,9 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
   }
 
   // If zero dimensional or zero size, return default parameters
-  if (TensorDomain::noDevices(
-          TensorDomain::noReductions(
-              TensorDomain::noBroadcasts(largest_out->getLoopDomain())))
-          .empty() ||
+  if (std::ranges::empty(
+          largest_out->getLoopDomain() | TensorDomain::kNoReductions |
+          TensorDomain::kNoBroadcasts | TensorDomain::kNoDevices) ||
       n_elems == 0) {
     auto vectorizable_inputs_outputs_entry = HeuristicDataCacheEntry<
         HeuristicCompileTime::VectorizableInputsAndOutputs>(data_cache, []() {

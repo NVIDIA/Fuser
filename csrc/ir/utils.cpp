@@ -16,6 +16,7 @@
 #include <scheduler/mma_utils.h>
 
 #include <limits>
+#include <ranges>
 #include <set>
 
 namespace nvfuser::ir_utils {
@@ -1332,8 +1333,10 @@ bool hasTrivialAllocationDomain(const TensorView* tv) {
   }
   const std::vector<IterDomain*>& alloc = tv->getMaybeAllocationDomain();
   const std::vector<IterDomain*>& logical = tv->getLogicalDomain();
-  return TensorDomain::noBroadcasts(TensorDomain::noReductions(logical)) ==
-      TensorDomain::noBroadcasts(TensorDomain::noReductions(alloc));
+
+  return std::ranges::equal(
+      logical | TensorDomain::kNoReductions | TensorDomain::kNoBroadcasts,
+      alloc | TensorDomain::kNoReductions | TensorDomain::kNoBroadcasts);
 }
 bool hasUniformSiblings(Expr* expr) {
   return !expr->isOneOf<SdpaFwdOp, SdpaBwdOp>();

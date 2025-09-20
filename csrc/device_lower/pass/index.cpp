@@ -2206,7 +2206,7 @@ static Val* constructBlackwellMatrixDescriptor(
 ValGroup getInnerMmaLoopGroup(TensorView* tv, const MmaOp* mma) {
   ValGraph& id_graph = GpuLower::current()->tensorIndexer().traversalGraph();
   auto alloc_domain = id_graph.toGroups(
-      TensorDomain::noBroadcasts(tv->getMaybeAllocationDomain()));
+      tv->getMaybeAllocationDomain() | TensorDomain::kNoBroadcasts);
   auto loop_domain =
       id_graph.toGroups(mma->out()->as<TensorView>()->getLoopDomain());
 
@@ -2345,7 +2345,7 @@ Val* getInnerStrideBytes(TensorView* tv, const MmaOp* mma) {
 Val* getOuterStrideBytes(TensorView* tv, const MmaOp* mma) {
   ValGraph& id_graph = GpuLower::current()->tensorIndexer().traversalGraph();
   auto logical_domain =
-      id_graph.toGroups(TensorDomain::noBroadcasts(tv->getLogicalDomain()));
+      id_graph.toGroups(tv->getLogicalDomain() | TensorDomain::kNoBroadcasts);
   auto loop_domain =
       id_graph.toGroups(mma->out()->as<TensorView>()->getLoopDomain());
   auto alloc_domain = id_graph.toGroups(tv->getMaybeAllocationDomain());
