@@ -12,15 +12,17 @@
 #include <logical_domain_map.h>
 #include <preseg_passes/allocation_order_inference.h>
 
+#include <ranges>
+
 namespace nvfuser::preseg_passes {
 
 namespace {
 
 // returns non-broadcast & non-reduction iter domains in tv's allocation
 // domain.
-std::vector<IterDomain*> nonTrivialIterDomains(const TensorView* tv) {
-  return TensorDomain::noReductions(
-      TensorDomain::noBroadcasts(tv->getMaybeAllocationDomain()));
+auto nonTrivialIterDomains(const TensorView* tv) {
+  return tv->getMaybeAllocationDomain() | TensorDomain::kNoReductions |
+      TensorDomain::kNoBroadcasts;
 }
 
 // counts the number of non-broadcast & non-reduction iter domains in tv's
@@ -316,18 +318,18 @@ void inferAllocationOrder(
       // found multiple candidate with the same iterdomain count
       if (non_trivial_iter_count[tv] == non_bc_high_water_mark &&
           ref != nullptr) {
-        std::vector<IterDomain*> ref_alloc_non_trivial =
-            nonTrivialIterDomains(ref);
-        std::vector<IterDomain*> tv_alloc_non_trivial =
-            nonTrivialIterDomains(tv);
+        auto ref_alloc_non_trivial = nonTrivialIterDomains(ref);
+        auto tv_alloc_non_trivial = nonTrivialIterDomains(tv);
+        auto ref_size = std::ranges::distance(ref_alloc_non_trivial);
+        auto tv_size = std::ranges::distance(tv_alloc_non_trivial);
         NVF_ERROR(
-            ref_alloc_non_trivial.size() == tv_alloc_non_trivial.size(),
+            ref_size == tv_size,
             "candidates of allocation order reference should have identical "
             "non-trivial ID size");
         // ensure that there's no ambiguity on permutation mapping from multiple
         // references. we need both ref candidates to have the same mapping on
         // allocation domain
-        for (const auto& [id_ref, id] :
+        for (auto [id_ref, id] :
              zip(ref_alloc_non_trivial, tv_alloc_non_trivial)) {
           if (!val_sets.permissiveAreMapped(id_ref, id)) {
             // reset ref to nullptr, while keeping the iterdomain count high
