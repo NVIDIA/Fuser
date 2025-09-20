@@ -746,6 +746,17 @@ inline bool isMemorySharedAcross(
   }
 }
 
+// True if a given domain is a loop domain of a given tensor and its
+// loop is partitioned with respect to the memory type of the tensor
+bool isPartitionedLoop(const TensorView* tv, IterDomain* id);
+
+inline bool isSizeOneDomain(IterDomain* id) {
+  return id->isBroadcast() || id->extent()->isOneInt();
+}
+
+// True if a given domain of a tensor *may* require allocation
+bool mayRequireAllocation(const TensorView* tv, IterDomain* id);
+
 //! Check if the given tv has a root domain -> loop domain linear
 //! transformation. This is a temporary check used to incrementally enable
 //! IdModel. Eventually, this should be removed.

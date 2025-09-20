@@ -313,7 +313,8 @@ bool ForLoop::isGroup() const {
       this,
       {typeid(GroupedReductionOp),
        typeid(kir::GroupedGridReduction),
-       typeid(kir::GroupedGridWelford)});
+       typeid(kir::GroupedGridWelford),
+       typeid(ArgsortOp)});
 }
 
 namespace {
