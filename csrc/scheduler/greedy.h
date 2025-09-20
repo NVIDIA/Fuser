@@ -145,6 +145,31 @@ class HeuristicDataCache;
 //
 // There are still a number of limitations. For a full list of issues
 // we plan to address, see https://github.com/NVIDIA/Fuser/issues/5030.
+
+class GreedyParams : public HeuristicParams {
+ public:
+  GreedyParams();
+
+  using HeuristicParams::HeuristicParams;
+
+  bool sameAs(const HeuristicParams* other_base) const override;
+
+  std::string toString() const override;
+
+  size_t hash() const override;
+
+  std::unique_ptr<HeuristicParams> clone() const override;
+
+  // Updates mappings by transferring parameters for old_tv to
+  // new_tv. Mappings for old_tv are removed.
+  void transferParams(TensorView* old_tv, TensorView* new_tv);
+
+  // Number of items per thread for constrained tensors. If not
+  // mapped, a single item should be assigned to each thread. Map from
+  // tensor names as pointers may not be kept the same
+  std::unordered_map<StmtNameType, int64_t> tv_to_item_per_thread;
+};
+
 class GreedyScheduler : public SchedulerEntry {
  public:
   bool canScheduleCompileTime(Fusion* fusion) override;
