@@ -2639,10 +2639,20 @@ ScanResult scan(
     red_dom.at((size_t)dim) = IterDomainBuilder(red_dom.at((size_t)dim))
                                   .iter_type(IterType::Reduction)
                                   .build();
+    // red_dom.at((size_t)dim) = IterDomainBuilder(red_dom.at((size_t)dim))
+    //                               .extent(tv->fusion()->oneVal())
+    //                               .iter_type(IterType::Broadcast)
+    //                               .build();
+    // red_dom.at((size_t)dim) = IterDomainBuilder(red_dom.at((size_t)dim))
+    //                               .extent(tv->fusion()->oneVal())
+    //                               .iter_type(IterType::GatherScatter)
+    //                               .build();
     auto* red_td = IrBuilder::create<TensorDomain>(
         red_dom, TensorDomain::getContiguityFilledWith(red_dom, true));
 
     result.reduction = IrBuilder::create<TensorView>(red_td, tv->dtype());
+
+    // result.reduction = newForReduction(tv, {(unsigned int)dim});
   }
 
   IrBuilder::createInContainer<ScanOp>(

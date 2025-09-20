@@ -13,6 +13,7 @@
 #include <transform_iter.h>
 
 #include <utility>
+#include "ir/internal_nodes.h"
 
 namespace nvfuser {
 
@@ -227,17 +228,29 @@ size_t MaxPosCalculator::getMaxPosAll(
     TensorView* tv,
     bool best_effort,
     bool check_siblings) {
-  auto max_pos = getMaxPosSelf(tv, best_effort, false, false, false);
+  std::cout << "\ngetMaxPosAll tv: " << tv->toString() << std::endl;
+  bool allow_reduction = tv->definition()->isA<ScanOp>();
+  bool allow_unmappable = tv->definition()->isA<ScanOp>();
+  auto max_pos =
+      getMaxPosSelf(tv, best_effort, allow_reduction, false, allow_unmappable);
+  std::cout << "self max_pos: " << max_pos << std::endl;
   for (auto consumer_tv : ir_utils::consumerTvsOf(tv)) {
     max_pos = std::min<size_t>(
         max_pos, getMaxProducerPosFromConsumer(tv, consumer_tv, best_effort));
+    std::cout << "consumer max_pos: " << max_pos << ", "
+              << consumer_tv->toString() << std::endl;
   }
   if (check_siblings) {
     for (auto sibling_tv : ir_utils::siblingTvsOf(tv)) {
+      std::cout << "--check sibling tv: " << sibling_tv->toString()
+                << std::endl;
       max_pos = std::min<size_t>(
           max_pos, getMaxPosAll(sibling_tv, best_effort, false));
+      std::cout << "--check sibling max_pos: " << max_pos << ", "
+                << sibling_tv->toString() << std::endl;
     }
   }
+  std::cout << "final max_pos: " << max_pos << std::endl;
   return max_pos;
 }
 

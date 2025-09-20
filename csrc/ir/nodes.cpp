@@ -6156,7 +6156,7 @@ std::vector<PolymorphicValue> ScanOp::evaluate(
     const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
   auto input = inputs.at(0).as<at::Tensor>();
-
+  std::vector<PolymorphicValue> outputs;
   if (discountFactor() == nullptr) {
     NVF_ERROR(inputs.size() == 1);
 
@@ -6182,16 +6182,20 @@ std::vector<PolymorphicValue> ScanOp::evaluate(
       default:
         NVF_THROW("Unhandled opType() ", opType());
     }
-    if (outExclusive() == nullptr) {
-      return {out_inclusive};
-    } else {
+    outputs.push_back(out_inclusive);
+    if (outExclusive()) {
       std::vector<int64_t> pad_widths(2 * ((int64_t)input.dim() - dim()), 0L);
       pad_widths[pad_widths.size() - 2] = 1L;
       pad_widths[pad_widths.size() - 1] = -1L;
       at::Tensor out_exclusive =
           at::pad(out_inclusive, pad_widths, "constant", identity);
-      return {out_inclusive, out_exclusive};
+      outputs.push_back(out_exclusive);
     }
+    if (outReduction()) {
+      at::Tensor out_reduction = at::select(out_inclusive, dim(), -1);
+      outputs.push_back(out_reduction);
+    }
+    return outputs;
   } else {
     // auto discount_factor = inputs.at(1).as<at::Tensor>();
     NVF_ERROR(inputs.size() == 2);

@@ -855,7 +855,8 @@ AllocPosInfo getAllocPosInfo(
       break;
     }
 
-    if (tv->axis(info.alloc_pos)->isReduction()) {
+    if (tv->axis(info.alloc_pos)->isReduction() &&
+        !tv->definition()->isA<ScanOp>()) {
       const auto outputs = FusionGuard::getCurFusion()->getTerminatingOutputs();
       NVF_ERROR(
           std::find(outputs.begin(), outputs.end(), tv) != outputs.end(),
