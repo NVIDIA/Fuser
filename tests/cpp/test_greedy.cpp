@@ -258,8 +258,6 @@ TEST_F(GreedySchedulerTest, ArgsortArith) {
   EXPECT_FALSE(executor_cache.getMostRecentKernelRuntime()->isSegmented());
 }
 
-// Currently, argsort requires TIDx to be exact, so this fusion is
-// currently segmented.
 TEST_F(GreedySchedulerTest, ArgsortPadScan) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
@@ -397,8 +395,6 @@ TEST_F(GreedySchedulerTest, TopK) {
   EXPECT_FALSE(executor_cache.getMostRecentKernelRuntime()->isSegmented());
 }
 
-// Similar to ArgsortPadScan, this is segmented due to the exactness
-// requirement of TopKOp
 TEST_F(GreedySchedulerTest, TopKPad) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
@@ -427,9 +423,7 @@ TEST_F(GreedySchedulerTest, TopKPad) {
   auto outputs = executor_cache.runFusionWithInputs({t0});
   testValidate(executor_cache.fusion(), outputs, {t0}, __LINE__, __FILE__);
 
-  // TODO: Extend the greedy scheduler to accept the fusion without
-  // segmentation
-  EXPECT_TRUE(executor_cache.getMostRecentKernelRuntime()->isSegmented());
+  EXPECT_FALSE(executor_cache.getMostRecentKernelRuntime()->isSegmented());
 }
 
 // Extracted from test_moe.py
@@ -466,7 +460,10 @@ T29_g___bfloat[iS76{2048}, bS77{1}]
 T35_g___bfloat[iS91{2048}, bS92{1}]
    = Set( T29_g___bfloat[iS76{2048}, bS77{1}], cache_op=Streaming )
 (26)
-}
+T8_l_int[iS20{2048}, iS21{128}]
+   = full({2048, 128}, 0);
+T30_l_int[iS80{2048}, bS81{1}]
+   = scatter(in = T8_l_int[iS20{2048}, iS21{128}], dim = 1, src = 1, idx = T20_l_int64_t[iS55{2048}, bS56{1}] )
 */
 // clang-format on
 TEST_F(GreedySchedulerTest, TopKLlama4) {
@@ -482,7 +479,11 @@ TEST_F(GreedySchedulerTest, TopKLlama4) {
       tv0, fusion.oneVal(DataType::Int), 1, /*largest=*/true, /*sorted=*/true);
   auto t19 = topk_result.values;
   auto t20 = topk_result.indices;
-  fusion.addOutput(t20);
+  auto t8 = zeros(
+      {IrBuilder::create<Val>(shape[0]), IrBuilder::create<Val>(shape[1])},
+      DataType::Int);
+  auto t30 = scatter(t8, 1, t20, fusion.oneVal(DataType::Int));
+  fusion.addOutput(t30);
   auto t24 = castOp(DataType::Float, t19);
   auto t25 = neg(t24);
   auto t26 = exp(t25);
