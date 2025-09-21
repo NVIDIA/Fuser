@@ -7,6 +7,8 @@
 // clang-format on
 #include <transform_view.h>
 
+#include <ranges>
+
 #include <fusion.h>
 #include <instrumentation.h>
 #include <ir/builder.h>
@@ -777,9 +779,9 @@ AnalyzeViewResult analyzeView(
     return {std::vector<bool>(new_sizes.size(), true), {}, {}};
   }
 
-  NVF_ERROR(
-      TensorDomain::noReductions(original_view_tv->getLogicalDomain()).size() ==
-      original_sizes.size());
+  const auto logical_rank = std::ranges::distance(
+      original_view_tv->getLogicalDomain() | TensorDomain::kNoReductions);
+  NVF_ERROR(logical_rank == original_sizes.size());
 
   // Fill -1 dimension in new_std::vector<int64_t> with size infered from all
   // other values

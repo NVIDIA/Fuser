@@ -5,6 +5,8 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <ranges>
+
 #include <bindings.h>
 #include <ops/all_ops.h>
 #include <ops/arith.h>
@@ -2484,7 +2486,8 @@ TensorView* slice_fn(
     }
   }
 
-  size_t num_dims = TensorDomain::noReductions(arg->getLogicalDomain()).size();
+  const auto num_dims = std::ranges::distance(
+      arg->getLogicalDomain() | TensorDomain::kNoReductions);
   NVF_CHECK(
       num_dims == start_vec.size(),
       "Number of tensor dimensions does not match slice dimensions! "
@@ -2625,8 +2628,8 @@ TensorView
   ops.def(
       "permute",
       [](TensorView* arg, std::vector<int64_t>& dims) -> TensorView* {
-        size_t num_dims =
-            TensorDomain::noReductions(arg->getLogicalDomain()).size();
+        const auto num_dims = std::ranges::distance(
+            arg->getLogicalDomain() | TensorDomain::kNoReductions);
         NVF_CHECK(
             num_dims == dims.size(),
             "Operator permute expects `dims` argument to have the same length "
@@ -2796,8 +2799,8 @@ list of Val
         if (stride_order.empty()) {
           return output;
         }
-        size_t ndims =
-            TensorDomain::noReductions(arg->getLogicalDomain()).size();
+        const auto ndims = std::ranges::distance(
+            arg->getLogicalDomain() | TensorDomain::kNoReductions);
         NVF_CHECK(
             ndims == stride_order.size(),
             "Operator stride_order expects `stride_order` argument to have the "
