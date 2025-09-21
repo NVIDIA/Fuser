@@ -2488,13 +2488,10 @@ TensorView* slice_fn(
 
   const auto num_dims = std::ranges::distance(
       arg->getLogicalDomain() | TensorDomain::kNoReductions);
-  NVF_CHECK(
-      num_dims == start_vec.size(),
-      "Number of tensor dimensions does not match slice dimensions! "
-      "Tensor-dims: ",
+  NVF_CHECK_EQ(
       num_dims,
-      " Slice-dims: ",
-      start_vec.size());
+      std::ssize(start_vec),
+      "Number of tensor dimensions does not match slice dimensions!");
   NVF_CHECK(
       start_vec.size() == end_vec.size(),
       "Slice indexing attribute dimensions don't match! Start Indices: ",
@@ -2630,8 +2627,9 @@ TensorView
       [](TensorView* arg, std::vector<int64_t>& dims) -> TensorView* {
         const auto num_dims = std::ranges::distance(
             arg->getLogicalDomain() | TensorDomain::kNoReductions);
-        NVF_CHECK(
-            num_dims == dims.size(),
+        NVF_CHECK_EQ(
+            num_dims,
+            std::ssize(dims),
             "Operator permute expects `dims` argument to have the same length "
             "as input!");
         return permute(arg, dims);
@@ -2801,8 +2799,9 @@ list of Val
         }
         const auto ndims = std::ranges::distance(
             arg->getLogicalDomain() | TensorDomain::kNoReductions);
-        NVF_CHECK(
-            ndims == stride_order.size(),
+        NVF_CHECK_EQ(
+            ndims,
+            std::ssize(stride_order),
             "Operator stride_order expects `stride_order` argument to have the "
             "same length as input!");
         std::vector<IterDomain*> allocation_domain =

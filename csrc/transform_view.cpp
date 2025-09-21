@@ -781,7 +781,7 @@ AnalyzeViewResult analyzeView(
 
   const auto logical_rank = std::ranges::distance(
       original_view_tv->getLogicalDomain() | TensorDomain::kNoReductions);
-  NVF_ERROR(logical_rank == original_sizes.size());
+  NVF_ERROR_EQ(logical_rank, std::ssize(original_sizes));
 
   // Fill -1 dimension in new_std::vector<int64_t> with size infered from all
   // other values
