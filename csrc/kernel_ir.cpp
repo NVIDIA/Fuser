@@ -235,12 +235,7 @@ bool ForLoop::isTrivial() const {
   if (vectorize() || iter_domain()->isBroadcast() ||
       iter_domain()->isStride() || iter_domain()->isMma() ||
       iter_domain()->isBulk() || iter_domain()->isDeviceDim() ||
-      iter_domain()->isStream()) {
-    return true;
-  }
-
-  if (getenv("GROUP") &&
-      iter_domain()->getParallelType() == ParallelType::Group) {
+      iter_domain()->isStream() || isGroup()) {
     return true;
   }
 
