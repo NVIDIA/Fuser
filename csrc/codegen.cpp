@@ -2102,6 +2102,17 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     }
   }
 
+  void handle(const kir::GroupedLoadStoreOp* ldst) final {
+    NVF_ERROR(!print_inline_, "Inline printing not supported");
+    kir::TensorIndex* out_ti = ldst->out();
+    indent() << "#pragma unroll\n";
+    indent() << "for (int i = 0; i < " << ldst->groupSize() << "; ++i) {\n";
+    indent() << kTab << genVariableName(out_ti->view()) << "[("
+             << genInline(out_ti->index()) << ") + i]"
+             << " = " << gen(ldst->in()) << ";\n";
+    indent() << "}\n";
+  }
+
   void genBlockWelford(const WelfordOp* wop) {
     NVF_ERROR(
         ir_utils::getTvOutput(wop)->domain()->hasBlockReduction(),
@@ -3438,10 +3449,14 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
   void handleTrivialLoop(const kir::ForLoop* loop) {
     if (loop->vectorize()) {
       vectorize_scope_ = true;
+    } else if (loop->isGroup()) {
+      grouped_loops_.push_back(loop);
     }
     kir::ConstIrVisitor::handle(loop);
     if (loop->vectorize()) {
       vectorize_scope_ = false;
+    } else if (loop->isGroup()) {
+      grouped_loops_.pop_back();
     }
   }
 
@@ -3669,15 +3684,6 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
   void handle(const kir::ForLoop* loop) final {
     if (loop->isTrivial()) {
       handleTrivialLoop(loop);
-      return;
-    }
-
-    // If a loop is grouped, no loop is created, but it isn't
-    // considered trivial as the loop trip count is not one.
-    if (loop->isGroup()) {
-      grouped_loops_.push_back(loop);
-      kir::ConstIrVisitor::handle(loop);
-      grouped_loops_.pop_back();
       return;
     }
 

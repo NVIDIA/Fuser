@@ -1772,5 +1772,35 @@ class RNGOp : public Expr {
   }
 };
 
+class GroupedLoadStoreOp : public Expr {
+ public:
+  using Expr::Expr;
+
+  GroupedLoadStoreOp(
+      IrBuilderPasskey,
+      TensorIndex* out,
+      Val* in,
+      int64_t group_size);
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+
+  const char* getOpString() const override {
+    return "GroupedLoadStoreOp";
+  }
+
+  TensorIndex* out() const {
+    return output(0)->as<TensorIndex>();
+  }
+
+  Val* in() const {
+    return input(0);
+  }
+
+  int64_t groupSize() const;
+};
+
 } // namespace kir
 } // namespace nvfuser

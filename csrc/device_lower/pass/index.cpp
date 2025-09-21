@@ -1937,6 +1937,20 @@ Val* indexTMemLdSt(
 void IndexLowering::handle(const LoadStoreOp* ldst) {
   Val* in = nullptr;
   Val* out = nullptr;
+
+  // TODO: This function should be refactored to make the overall
+  // logic simpler to follow. Too many things are clamped into this
+  // single function, which makes it maintain and extend the code.
+
+  // Scalar set mainly used for initializing grouped tensors
+  if (auto out_tv = dynamic_cast<TensorView*>(ldst->out()); out_tv != nullptr &&
+      ir_utils::isParallelizedBy(out_tv->getLoopDomain(),
+                                 ParallelType::Group) &&
+      ldst->in()->isScalar()) {
+    handleGroupedLoadStoreOp(ldst);
+    return;
+  }
+
   if (ir_utils::isCpAsyncBulk(ldst)) {
     if (ir_utils::isCpAsyncBulkLoad(ldst)) {
       handleCpAsyncBulkLoad(ldst);
@@ -2116,6 +2130,25 @@ void IndexLowering::handle(const LoadStoreOp* ldst) {
     pushBack(new_ldst);
     GpuLower::current()->propagateExprInfo(ldst, back());
   }
+}
+
+void IndexLowering::handleGroupedLoadStoreOp(const LoadStoreOp* ldst) {
+  NVF_ERROR(ldst->in()->isScalar());
+  auto group_id_it = std::ranges::find_if(
+      ldst->out()->as<TensorView>()->getLoopDomain(), [](IterDomain* id) {
+        return id->getParallelType() == ParallelType::Group;
+      });
+  NVF_ERROR(
+      group_id_it != ldst->out()->as<TensorView>()->getLoopDomain().end());
+  auto group_size = (*group_id_it)->extent()->evaluate().as<int64_t>();
+
+  auto out = lowerDstIndex(ldst->out())->as<kir::TensorIndex>();
+
+  auto new_ldst =
+      IrBuilder::create<kir::GroupedLoadStoreOp>(out, ldst->in(), group_size);
+
+  pushBack(new_ldst);
+  GpuLower::current()->propagateExprInfo(ldst, back());
 }
 
 // Reference:
