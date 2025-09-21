@@ -17,6 +17,9 @@
 #include <polymorphic_value.h>
 #include <tensor_metadata.h>
 
+#include <iterator>
+#include <ranges>
+
 namespace nvfuser {
 
 namespace {
@@ -223,10 +226,12 @@ void validateAllocationSizesAndStrides(
     c10::IntArrayRef sizes,
     c10::IntArrayRef strides) {
   NVF_ERROR(alloc_dom.size() == contiguity.size());
+  const int64_t sizes_ndims = std::ssize(sizes);
+  const int64_t strides_ndims = std::ssize(strides);
   checkAllEqual(
-      {TensorDomain::noReductions(alloc_dom).size(),
-       sizes.size(),
-       strides.size()});
+      {std::ranges::distance(alloc_dom | TensorDomain::kNoReductions),
+       sizes_ndims,
+       strides_ndims});
 
   int64_t expected_stride_if_contiguous = 1;
   auto dim_index = static_cast<int64_t>(sizes.size());
