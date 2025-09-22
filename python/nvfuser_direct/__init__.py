@@ -425,6 +425,7 @@ class FusionDefinition:
         """
         Define an nvFuser input tensor from a PyTorch tensor.
         This method creates a symbolic tensor for dynamic shape usage by default.
+
         Parameters
         ----------
         tensor : torch.Tensor
@@ -432,10 +433,12 @@ class FusionDefinition:
         static_sizes : bool, default=False
             Whether to interpret sizes as static rather than symbolic
             for dynamic shape usage
+
         Returns
         -------
         Tensor
             The defined nvFuser tensor
+
         Raises
         ------
         ValueError
