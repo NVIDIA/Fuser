@@ -8,7 +8,7 @@ Information tracking struct that enables nvFuser's spanning tree algorithm to pr
 
 ## Overview
 
-DomainInfo serves as the core information payload for [MaxLogicalDomainInfoSpanningTree](../../csrc/scheduler/tools/maxinfo_propagator.h#L167), implementing Prim's algorithm with semantic information preservation rather than traditional cost minimization. It tracks domain mapping completeness across tensor transforms, bridges root and logical domain representations, and provides quantified metrics for algorithmic traversal decisions.
+DomainInfo serves as the core information payload for [MaxLogicalDomainInfoSpanningTree](../../../csrc/scheduler/tools/maxinfo_propagator.h#L167), implementing Prim's algorithm with semantic information preservation rather than traditional cost minimization. It tracks domain mapping completeness across tensor transforms, bridges root and logical domain representations, and provides quantified metrics for algorithmic traversal decisions.
 
 This enables transform-safe coordination across complex tensor DAGs where maintaining domain correspondence is critical for scheduling correctness. Unlike traditional graph algorithms that optimize for distance or cost, DomainInfo guides traversal toward paths that preserve maximum semantic information about tensor domain relationships.
 
@@ -21,11 +21,11 @@ This enables transform-safe coordination across complex tensor DAGs where mainta
 
 ## Source Location
 
-**Primary Definition**: [`../../csrc/scheduler/tools/maxinfo_propagator.h#L212`](../../csrc/scheduler/tools/maxinfo_propagator.h#L212)
+**Primary Definition**: [`../../../csrc/scheduler/tools/maxinfo_propagator.h#L212`](../../../csrc/scheduler/tools/maxinfo_propagator.h#L212)
 
-**Implementation**: [`../../csrc/scheduler/tools/maxinfo_propagator.cpp#L170`](../../csrc/scheduler/tools/maxinfo_propagator.cpp#L170)
+**Implementation**: [`../../../csrc/scheduler/tools/maxinfo_propagator.cpp#L170`](../../../csrc/scheduler/tools/maxinfo_propagator.cpp#L170)
 
-**Context**: DomainInfo is a specialized Information struct within [MaxLogicalDomainInfoSpanningTree](../../csrc/scheduler/tools/maxinfo_propagator.h#L167), part of nvFuser's transform propagation infrastructure used throughout the scheduler system.
+**Context**: DomainInfo is a specialized Information struct within [MaxLogicalDomainInfoSpanningTree](../../../csrc/scheduler/tools/maxinfo_propagator.h#L167), part of nvFuser's transform propagation infrastructure used throughout the scheduler system.
 
 ## Core Concepts
 
@@ -61,7 +61,7 @@ Each IDInfo maintains completeness state and tracks which domains preserve refer
 
 ```cpp
 struct IDInfo {
-  std::unordered_set<[IterDomain](../../csrc/ir/internal_base_nodes.h#L83)*> mapped_ids;  // Domain IDs preserving reference info
+  std::unordered_set<[IterDomain](../../../csrc/ir/internal_base_nodes.h#L83)*> mapped_ids;  // Domain IDs preserving reference info
   bool is_complete;   // Can reference ID be fully reconstructed?
   bool is_logical;    // Are mapped_ids from root or logical domain?
 };
@@ -114,10 +114,10 @@ tv3->axis(0)->parallelize(ParallelType::BIDx);  // Block parallelism
 tv3->axis(-1)->parallelize(ParallelType::TIDx); // Thread parallelism
 
 // Build spanning tree for safe traversal order
-[MaxLogicalDomainInfoSpanningTree](../../csrc/scheduler/tools/maxinfo_propagator.h#L167) tree(tv3);
+[MaxLogicalDomainInfoSpanningTree](../../../csrc/scheduler/tools/maxinfo_propagator.h#L167) tree(tv3);
 
 // Create propagator to apply transforms
-[TransformPropagator](../../csrc/transform_replay.h#L296) tp(tv3);
+[TransformPropagator](../../../csrc/transform_replay.h#L296) tp(tv3);
 
 // Execute coordinated propagation across DAG
 tree.traverse(&tp);  // Visits each tensor once in safe order
@@ -160,7 +160,7 @@ struct DomainInfo : public Information {
 ```
 
 **IDInfo Components:**
-- `mapped_ids`: Set of [IterDomain](../../csrc/ir/internal_base_nodes.h#L83)* preserving reference tensor information
+- `mapped_ids`: Set of [IterDomain](../../../csrc/ir/internal_base_nodes.h#L83)* preserving reference tensor information
 - `is_complete`: Whether reference domain fully reconstructable from mapped_ids
 - `is_logical`: Whether mapped_ids reference root (false) or logical (true) domains
 
@@ -201,12 +201,12 @@ bool DomainInfo::operator<(const Information& r) const {
 Root to logical domain mapping handles transformation paths:
 
 ```cpp
-std::unordered_set<[IterDomain](../../csrc/ir/internal_base_nodes.h#L83)*> mapRootToLogical(
-    [TensorView](../../csrc/ir/interface_nodes.h#L383)* tv,
-    const std::unordered_set<[IterDomain](../../csrc/ir/internal_base_nodes.h#L83)*>& root_ids,
+std::unordered_set<[IterDomain](../../../csrc/ir/internal_base_nodes.h#L83)*> mapRootToLogical(
+    [TensorView](../../../csrc/ir/interface_nodes.h#L383)* tv,
+    const std::unordered_set<[IterDomain](../../../csrc/ir/internal_base_nodes.h#L83)*>& root_ids,
     bool propagate_through_resize) {
 
-  std::unordered_set<[IterDomain](../../csrc/ir/internal_base_nodes.h#L83)*> mapped_logical_ids;
+  std::unordered_set<[IterDomain](../../../csrc/ir/internal_base_nodes.h#L83)*> mapped_logical_ids;
   const auto& logical_dom = tv->getLogicalDomain();
 
   for (auto id : logical_dom) {
@@ -239,17 +239,17 @@ std::unordered_set<[IterDomain](../../csrc/ir/internal_base_nodes.h#L83)*> mapRo
 The fundamental pattern for coordinated transform application:
 
 ```cpp
-void applyTransformPropagation([TensorView](../../csrc/ir/interface_nodes.h#L383)* reference_tv) {
+void applyTransformPropagation([TensorView](../../../csrc/ir/interface_nodes.h#L383)* reference_tv) {
   // Apply desired transforms to reference tensor
   reference_tv->split(1, 128);  // Create tiling structure
   reference_tv->axis(0)->parallelize(ParallelType::BIDx);
   reference_tv->axis(-1)->parallelize(ParallelType::TIDx);
 
   // Create spanning tree for information-preserving traversal
-  [MaxLogicalDomainInfoSpanningTree](../../csrc/scheduler/tools/maxinfo_propagator.h#L167) tree(reference_tv);
+  [MaxLogicalDomainInfoSpanningTree](../../../csrc/scheduler/tools/maxinfo_propagator.h#L167) tree(reference_tv);
 
   // Create transform propagator
-  [TransformPropagator](../../csrc/transform_replay.h#L296) propagator(reference_tv);
+  [TransformPropagator](../../../csrc/transform_replay.h#L296) propagator(reference_tv);
 
   // Execute coordinated propagation
   tree.traverse(&propagator);
@@ -273,8 +273,8 @@ void PointWiseScheduler::schedule(Fusion* fusion) {
   reference_tv->split(0, 4);
 
   // Use DomainInfo-based propagation for consistency
-  [MaxLogicalDomainInfoSpanningTree](../../csrc/scheduler/tools/maxinfo_propagator.h#L167) tree(reference_tv);
-  [TransformPropagator](../../csrc/transform_replay.h#L296) tp(reference_tv);
+  [MaxLogicalDomainInfoSpanningTree](../../../csrc/scheduler/tools/maxinfo_propagator.h#L167) tree(reference_tv);
+  [TransformPropagator](../../../csrc/transform_replay.h#L296) tp(reference_tv);
   tree.traverse(&tp);
 
   applyPointwiseOptimizations(fusion);
@@ -288,11 +288,11 @@ Manual scheduling through Python bindings supports both full and selective propa
 ```cpp
 if (selected_tensors.empty()) {
   // Propagate to entire fusion
-  [MaxLogicalDomainInfoSpanningTree](../../csrc/scheduler/tools/maxinfo_propagator.h#L167)(reference_tv).traverse(&propagator);
+  [MaxLogicalDomainInfoSpanningTree](../../../csrc/scheduler/tools/maxinfo_propagator.h#L167)(reference_tv).traverse(&propagator);
 } else {
   // Propagate to selected subset
   SetSelector selector({selected_tv_set.begin(), selected_tv_set.end()});
-  [MaxLogicalDomainInfoSpanningTree](../../csrc/scheduler/tools/maxinfo_propagator.h#L167)(reference_tv, &selector)
+  [MaxLogicalDomainInfoSpanningTree](../../../csrc/scheduler/tools/maxinfo_propagator.h#L167)(reference_tv, &selector)
       .traverse(&propagator);
 }
 ```
@@ -322,10 +322,10 @@ void basicTransformPropagation() {
   tv3->split(0, 128);  // Split outer dimension
 
   // Create spanning tree for information-preserving traversal
-  [MaxLogicalDomainInfoSpanningTree](../../csrc/scheduler/tools/maxinfo_propagator.h#L167) tree(tv3);
+  [MaxLogicalDomainInfoSpanningTree](../../../csrc/scheduler/tools/maxinfo_propagator.h#L167) tree(tv3);
 
   // Create propagator to apply transforms
-  [TransformPropagator](../../csrc/transform_replay.h#L296) tp(tv3);
+  [TransformPropagator](../../../csrc/transform_replay.h#L296) tp(tv3);
 
   // Execute propagation - applies split(0,128) to tv0,tv1,tv2
   // where domains correspond to tv3's reference domain
@@ -366,10 +366,10 @@ void manualSchedulingExample() {
     tv3->axis(-1)->parallelize(ParallelType::TIDx);  // Thread dimension
 
     // Create spanning tree for transform propagation
-    [MaxLogicalDomainInfoSpanningTree](../../csrc/scheduler/tools/maxinfo_propagator.h#L167) tree(tv3);
+    [MaxLogicalDomainInfoSpanningTree](../../../csrc/scheduler/tools/maxinfo_propagator.h#L167) tree(tv3);
 
     // Create propagator applying tv3's transforms to other tensors
-    [TransformPropagator](../../csrc/transform_replay.h#L296) tp(tv3);
+    [TransformPropagator](../../../csrc/transform_replay.h#L296) tp(tv3);
 
     // Execute propagation - visits tv0, tv1, tv2 with corresponding transforms
     tree.traverse(&tp);
@@ -392,15 +392,15 @@ Custom propagator for inspecting traversal decisions:
 
 ```cpp
 void debugDomainInfo() {
-  [MaxLogicalDomainInfoSpanningTree](../../csrc/scheduler/tools/maxinfo_propagator.h#L167) tree(reference_tv);
+  [MaxLogicalDomainInfoSpanningTree](../../../csrc/scheduler/tools/maxinfo_propagator.h#L167) tree(reference_tv);
 
   // Custom debug propagator to inspect traversal
-  struct DebugPropagator : public [MaxInfoSpanningTree](../../csrc/scheduler/tools/maxinfo_propagator.h#L44)::Propagator {
-    void propagateC2P([TensorView](../../csrc/ir/interface_nodes.h#L383)* from, [TensorView](../../csrc/ir/interface_nodes.h#L383)* to) override {
+  struct DebugPropagator : public [MaxInfoSpanningTree](../../../csrc/scheduler/tools/maxinfo_propagator.h#L44)::Propagator {
+    void propagateC2P([TensorView](../../../csrc/ir/interface_nodes.h#L383)* from, [TensorView](../../../csrc/ir/interface_nodes.h#L383)* to) override {
       std::cout << "C2P: " << from->toString() << " -> " << to->toString() << "\\n";
 
       // Inspect domain info at each step
-      auto info = [MaxLogicalDomainInfoSpanningTree](../../csrc/scheduler/tools/maxinfo_propagator.h#L167)::getReferenceIDInfo(to);
+      auto info = [MaxLogicalDomainInfoSpanningTree](../../../csrc/scheduler/tools/maxinfo_propagator.h#L167)::getReferenceIDInfo(to);
       std::cout << "  Domain info entries: " << info->info.size() << "\\n";
 
       for (const auto& id_info : info->info) {
@@ -410,11 +410,11 @@ void debugDomainInfo() {
       }
     }
 
-    void propagateP2C([TensorView](../../csrc/ir/interface_nodes.h#L383)* from, [TensorView](../../csrc/ir/interface_nodes.h#L383)* to) override {
+    void propagateP2C([TensorView](../../../csrc/ir/interface_nodes.h#L383)* from, [TensorView](../../../csrc/ir/interface_nodes.h#L383)* to) override {
       std::cout << "P2C: " << from->toString() << " -> " << to->toString() << "\\n";
     }
 
-    void propagateSibling([TensorView](../../csrc/ir/interface_nodes.h#L383)* from, [TensorView](../../csrc/ir/interface_nodes.h#L383)* to) override {
+    void propagateSibling([TensorView](../../../csrc/ir/interface_nodes.h#L383)* from, [TensorView](../../../csrc/ir/interface_nodes.h#L383)* to) override {
       std::cout << "Sibling: " << from->toString() << " -> " << to->toString() << "\\n";
     }
   };
@@ -450,7 +450,7 @@ void validateDomainCompleteness(const DomainInfo& info) {
 }
 
 // Resize operation handling
-[MaxLogicalDomainInfoSpanningTree](../../csrc/scheduler/tools/maxinfo_propagator.h#L167) tree(
+[MaxLogicalDomainInfoSpanningTree](../../../csrc/scheduler/tools/maxinfo_propagator.h#L167) tree(
     reference_tv,
     nullptr,  // default selector
     false     // don't propagate through resize for inlining
@@ -462,45 +462,45 @@ void validateDomainCompleteness(const DomainInfo& info) {
 Extending traversal behavior for specialized use cases:
 
 ```cpp
-class TypeSelector : public [MaxInfoSpanningTree](../../csrc/scheduler/tools/maxinfo_propagator.h#L44)::Selector {
+class TypeSelector : public [MaxInfoSpanningTree](../../../csrc/scheduler/tools/maxinfo_propagator.h#L44)::Selector {
   DataType target_type_;
 public:
   TypeSelector(DataType type) : target_type_(type) {}
 
-  bool allowC2P([TensorView](../../csrc/ir/interface_nodes.h#L383)* from, [TensorView](../../csrc/ir/interface_nodes.h#L383)* to) override {
+  bool allowC2P([TensorView](../../../csrc/ir/interface_nodes.h#L383)* from, [TensorView](../../../csrc/ir/interface_nodes.h#L383)* to) override {
     return to->dtype() == target_type_;
   }
 
-  bool allowP2C([TensorView](../../csrc/ir/interface_nodes.h#L383)* from, [TensorView](../../csrc/ir/interface_nodes.h#L383)* to) override {
+  bool allowP2C([TensorView](../../../csrc/ir/interface_nodes.h#L383)* from, [TensorView](../../../csrc/ir/interface_nodes.h#L383)* to) override {
     return to->dtype() == target_type_;
   }
 
-  bool allowSibling([TensorView](../../csrc/ir/interface_nodes.h#L383)* from, [TensorView](../../csrc/ir/interface_nodes.h#L383)* to) override {
+  bool allowSibling([TensorView](../../../csrc/ir/interface_nodes.h#L383)* from, [TensorView](../../../csrc/ir/interface_nodes.h#L383)* to) override {
     return true;  // Always allow sibling propagation
   }
 };
 
 // Usage
 TypeSelector float_only(DataType::Float);
-[MaxLogicalDomainInfoSpanningTree](../../csrc/scheduler/tools/maxinfo_propagator.h#L167) tree(reference_tv, &float_only);
+[MaxLogicalDomainInfoSpanningTree](../../../csrc/scheduler/tools/maxinfo_propagator.h#L167) tree(reference_tv, &float_only);
 ```
 
 ## Related Components
 
-### [MaxLogicalDomainInfoSpanningTree](../../csrc/scheduler/tools/maxinfo_propagator.h#L167)
+### [MaxLogicalDomainInfoSpanningTree](../../../csrc/scheduler/tools/maxinfo_propagator.h#L167)
 **Relationship**: DomainInfo serves as the Information payload for this spanning tree implementation
-**Location**: [`../../csrc/scheduler/tools/maxinfo_propagator.h#L167`](../../csrc/scheduler/tools/maxinfo_propagator.h#L167)
+**Location**: [`../../../csrc/scheduler/tools/maxinfo_propagator.h#L167`](../../../csrc/scheduler/tools/maxinfo_propagator.h#L167)
 **Algorithm**: Implements Prim's algorithm using DomainInfo comparison for maximum information preservation
 
-### [TransformPropagator](../../csrc/transform_replay.h#L296) Integration
+### [TransformPropagator](../../../csrc/transform_replay.h#L296) Integration
 **Relationship**: Visitor pattern collaboration - spanning tree provides traversal order, propagator applies transforms
 **Usage**: `tree.traverse(&propagator)` executes coordinated transform application
 
 ### Scheduler System Architecture
 **Integration Points**:
-- **PointWise Scheduler**: [`../../csrc/scheduler/pointwise.cpp`](../../csrc/scheduler/pointwise.cpp)
-- **Reduction Scheduler**: [`../../csrc/scheduler/reduction_utils.cpp`](../../csrc/scheduler/reduction_utils.cpp)
-- **Transpose Scheduler**: [`../../csrc/scheduler/transpose.cpp`](../../csrc/scheduler/transpose.cpp)
-- **Python Frontend**: [`../../python/python_frontend/schedule_bindings.cpp`](../../python/python_frontend/schedule_bindings.cpp)
+- **PointWise Scheduler**: [`../../../csrc/scheduler/pointwise.cpp`](../../../csrc/scheduler/pointwise.cpp)
+- **Reduction Scheduler**: [`../../../csrc/scheduler/reduction_utils.cpp`](../../../csrc/scheduler/reduction_utils.cpp)
+- **Transpose Scheduler**: [`../../../csrc/scheduler/transpose.cpp`](../../../csrc/scheduler/transpose.cpp)
+- **Python Frontend**: [`../../../python/python_frontend/schedule_bindings.cpp`](../../../python/python_frontend/schedule_bindings.cpp)
 
 **Role**: DomainInfo enables consistent transform propagation across all scheduler types, maintaining mathematical correctness in complex DAG scenarios.
