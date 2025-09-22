@@ -2089,7 +2089,8 @@ GroupedLoadStoreOp::GroupedLoadStoreOp(
 std::string GroupedLoadStoreOp::toString(int indent_size) const {
   std::stringstream ss;
   indent(ss, indent_size) << out()->toString() << "\n";
-  indent(ss, indent_size + 1) << " = " << "( " << in()->toString() << " )\n";
+  indent(ss, indent_size + 1)
+      << " = " << in()->toString() << ", group size: " << groupSize() << "\n";
   return ss.str();
 }
 

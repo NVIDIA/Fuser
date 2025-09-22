@@ -2082,6 +2082,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     }
   }
 
+  // No for-loop is created for grouped loops, so just create a new
+  // one for assigning the input scalar for the group_size values
   void handle(const kir::GroupedLoadStoreOp* ldst) final {
     NVF_ERROR(!print_inline_, "Inline printing not supported");
     kir::TensorIndex* out_ti = ldst->out();
