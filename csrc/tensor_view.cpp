@@ -1205,13 +1205,10 @@ TensorView* TensorView::cacheFork() {
       "computeAt");
 
   // This domain will be the producer, so create the consumer
-  std::vector<IterDomain*> logical_domain;
-  logical_domain.reserve(getLogicalDomain().size());
-  for (IterDomain* id : getLogicalDomain() | TensorDomain::kNoReductions) {
-    logical_domain.push_back(id);
-  }
+  std::vector<IterDomain*> logical_domain =
+      TensorDomain::noReductions(getLogicalDomain());
 
-  TensorView* new_output = IrBuilder::createInContainer<TensorView>(
+  auto* new_output = IrBuilder::createInContainer<TensorView>(
       container(),
       IrBuilder::createInContainer<TensorDomain>(
           container(),

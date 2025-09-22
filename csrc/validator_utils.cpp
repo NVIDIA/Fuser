@@ -365,9 +365,8 @@ void testValidate(
 
       const auto logical_ndims = std::ranges::distance(
           fusion_input_tv->getLogicalDomain() | TensorDomain::kNoReductions);
-      NVF_ERROR(
-          at_tensor.dim() == logical_ndims,
-          "Dimensionality mismatch in inputs.");
+      NVF_ERROR_EQ(
+          at_tensor.dim(), logical_ndims, "Dimensionality mismatch in inputs.");
     }
   }
 

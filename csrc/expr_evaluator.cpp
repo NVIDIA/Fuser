@@ -140,15 +140,13 @@ void ExpressionEvaluator::bindTensorDomain(
     const bool evaluate_validate) {
   auto logical_domain = tv->getLogicalDomain() | TensorDomain::kNoReductions;
   const auto logical_rank = std::ranges::distance(logical_domain);
-  NVF_ERROR(
-      t.dim() == logical_rank,
+  NVF_ERROR_EQ(
+      t.dim(),
+      logical_rank,
       "Expected ",
       getInputPosString(tv),
       tv->toString(),
-      ", to be bound to a tensor of rank ",
-      logical_rank,
-      ", but got a tensor of rank ",
-      t.dim());
+      ", to be bound to a tensor of equal rank.");
 
   std::vector<int64_t> logical_sizes = unshardedSizes(tv, t.sizes());
   adjustEvaluatorSizes(tv, logical_sizes);

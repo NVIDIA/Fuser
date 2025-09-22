@@ -1768,13 +1768,12 @@ BroadcastMultipleInformation getBroadcastMultiples(
 
   // We always cacheBefore output at the beginning of the scheduling. And after
   // cacheBefore, the reference tensor will have all reduction IDs removed.
-  auto ref_root_domain_view = reference_tv->getLogicalDomain() |
-      TensorDomain::kNoReductions | TensorDomain::kNoDevices;
-  std::vector<IterDomain*> ref_root_domain;
-  ref_root_domain.reserve(std::ranges::distance(ref_root_domain_view));
-  for (IterDomain* id : ref_root_domain_view) {
-    ref_root_domain.push_back(id);
-  }
+  std::vector<IterDomain*> ref_root_domain = [&]() {
+    auto ref_root_domain_view = reference_tv->getLogicalDomain() |
+        TensorDomain::kNoReductions | TensorDomain::kNoDevices;
+    return std::vector<IterDomain*>(
+        ref_root_domain_view.begin(), ref_root_domain_view.end());
+  }();
 
   if (!logical_reorder_map.empty()) {
     ref_root_domain =
