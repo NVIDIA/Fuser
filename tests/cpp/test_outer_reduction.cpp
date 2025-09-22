@@ -2204,6 +2204,9 @@ TEST_F(OuterReductionTest, IterGroupedBlockReduction) {
       rparams->lparams);
 }
 
+// Repro for https://github.com/NVIDIA/Fuser/issues/5206. Grouped
+// calls should not implicitly assume inputs and outputs are fully
+// inlined.
 TEST_F(OuterReductionTest, IterGroupedBlockReductionNotFullyInlined) {
   Fusion fusion;
   FusionGuard fg(&fusion);
@@ -2239,9 +2242,6 @@ TEST_F(OuterReductionTest, IterGroupedBlockReductionNotFullyInlined) {
   // Inline the producer of the reduction just before the serial ID
   tv1->inlineAt(3);
 
-  fusion.print();
-  fusion.printKernel();
-
   std::vector<int64_t> shape({32, 2048});
 
   auto options =
@@ -2252,8 +2252,7 @@ TEST_F(OuterReductionTest, IterGroupedBlockReductionNotFullyInlined) {
   ke.compile(&fusion, {t0});
   auto outputs = ke.run({t0});
 
-  testValidate(
-      &fusion, outputs, {t0}, __LINE__, __FILE__, "");
+  testValidate(&fusion, outputs, {t0}, __LINE__, __FILE__, "");
 }
 
 namespace {
