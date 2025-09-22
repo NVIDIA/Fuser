@@ -308,26 +308,6 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     return val_to_name_.at(v);
   }
 
-  // If the variable is an aligned array, append ".array" to use the reguar
-  // array. This avoid the type mismatch in template functions when one of the
-  // arguments is an aligned array (Array<T,N>) while the other is a regular
-  // array T[N].
-  std::string genVariableNameConvertAlignedArray(Val* v) {
-    TensorView* tv = nullptr;
-    if (v->isA<kir::TensorIndex>()) {
-      tv = v->as<kir::TensorIndex>()->view();
-    } else if (v->isA<TensorView>()) {
-      tv = v->as<TensorView>();
-    }
-    if (tv &&
-        (aligned_array_of_regs_.count(tv) ||
-         tv->getMemoryType() == MemoryType::Local)) {
-      return genVariableName(tv).append(".array");
-    } else {
-      return genVariableName(v);
-    }
-  }
-
   // Generates the kernel function declaration
   void genDeclaration(const std::string& kernel_name) {
     code_ << "__global__ void ";
@@ -3614,8 +3594,20 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       BinaryOpType reduction_op_type,
       kir::Predicate* read_pred) {
     ArgumentBuilder func_args;
-    func_args.arg(genVariableNameConvertAlignedArray(output));
-    func_args.arg(genVariableNameConvertAlignedArray(input));
+    func_args.arg("*(")
+        .append(output->dtype())
+        .append("(*)[")
+        .append(num_grouped_iterations)
+        .append("])(&")
+        .append(genInline(output))
+        .append(")");
+    func_args.arg("*(")
+        .append(input->dtype())
+        .append("(*)[")
+        .append(num_grouped_iterations)
+        .append("])(&")
+        .append(genInline(input))
+        .append(")");
     func_args.arg(genReductionOp(reduction_op_type, output->dtype()));
     if (has_independent_compute_warp_groups_) {
       func_args.arg(
