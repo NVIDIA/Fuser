@@ -212,7 +212,8 @@ void insertReshardingSetsAfter(Fusion* fusion) {
       //
       //   input [i0, DIDx(i1)] -> op -> output [Stream(i0), i1] -> set ->
       //   new_output [Stream(i0), i1]
-      shardAllLike(new_output, {output}, {ParallelType::Stream});
+      scheduler_utils::parallelizeAllLike(
+          new_output, {output}, {ParallelType::Stream});
     }
   }
 }
