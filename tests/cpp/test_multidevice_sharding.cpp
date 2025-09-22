@@ -10,7 +10,7 @@
 
 #include <fusion.h>
 #include <ops/all_ops.h>
-#include <preseg_passes/mark_aliases_prepare.h>
+#include <preseg_passes/finalize_multidevice_domains.h>
 #include <preseg_passes/optimization_pass.h>
 #include <runtime/fusion_executor_cache.h>
 #include <tests/cpp/multidevice.h>
@@ -1111,6 +1111,43 @@ TEST_F(MultiDeviceTest, OuterReductionShardedInnerDimension) {
   for (auto* val : scheduled_fusion->outputs()) {
     EXPECT_TRUE(is_vectorized(val->as<TensorView>()));
   }
+}
+
+TEST_F(MultiDeviceTest, AllocationPermutationOfLoop) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  const int d = communicator_->size();
+  auto mesh = DeviceMesh::createForNumDevices(d);
+
+  TensorView* tv0 = makeContigConcreteTensor({5, 3 * d});
+  TensorView* tv1 = set(tv0);
+
+  fusion->addInput(tv0);
+  fusion->addOutput(tv1);
+
+  for (auto* tv : {tv0, tv1}) {
+    tv->setDeviceMesh(mesh);
+    tv->outer_split(1, d);
+    tv->axis(1)->parallelize(ParallelType::DIDx);
+    // DIDx is outermost in loop but not in allocation domain
+    tv->setAllocationDomain(tv->getLoopDomain(), true);
+    reorderDIDToFront(tv);
+  }
+
+  // Disable the pass to verify we can run a fusion where allocation domain
+  // is a permutation of loop domain. This pass can currently not be modified
+  // due to other issues listed in Issue: #4381
+  preseg_passes::OptimizationPassGuard<
+      preseg_passes::FinalizeMultideviceDomainsPass>
+      optimization_guard(false);
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  at::Tensor inp = at::randn({5, 3 * d}, tensor_options);
+  at::Tensor sharded_inp = shardTensor(inp, -1, mesh);
+  at::Tensor nvf_out =
+      executor_cache.runFusionWithInputs({sharded_inp})[0].as<at::Tensor>();
+  EXPECT_TRUE(at::allclose(nvf_out, sharded_inp));
 }
 
 } // namespace nvfuser
