@@ -94,10 +94,10 @@ class FusionDefinition:
 
     @property
     def fusion(self):
-        if not hasattr(self, "fec"):
-            return self._fusion
-        else:
+        if hasattr(self, "fec"):
             return self.fec.fusion()
+        else:
+            return self._fusion
 
     def __repr__(self):
         """
@@ -272,7 +272,8 @@ class FusionDefinition:
         _disable_options: list[str] = [],
     ) -> list[torch.Tensor]:
         """
-        Execute the fusion with the given inputs.
+        Execute the fusion with the given inputs. The fusion is automatically
+        scheduled and supports input caching.
 
         Parameters
         ----------
@@ -299,6 +300,9 @@ class FusionDefinition:
             fake_mode = FakeTensorMode()
             self.fake_inputs = [fake_mode.from_tensor(inp) for inp in inputs]
 
+        assert not hasattr(
+            self, "ke"
+        ), "KernelExecutor already exists! Use manual_execute() to execute the fusion."
         if not hasattr(self, "fec"):
             is_valid, error_message = self.validate_definition()
             if not is_valid:
@@ -314,6 +318,28 @@ class FusionDefinition:
             _enable_options=_enable_options,
             _disable_options=_disable_options,
         )
+
+    def manual_execute(self, inputs):
+        """
+        Execute the fusion with the given inputs.
+
+        Parameters
+        ----------
+        inputs : list of torch.Tensor
+            Input tensors to the fusion
+
+        Returns
+        -------
+        list of torch.Tensor
+            Output tensors from the fusion
+        """
+        assert not hasattr(
+            self, "fec"
+        ), "FusionExecutorCache already exists! Use execute() to execute the fusion."
+        if not hasattr(self, "ke"):
+            self.ke = KernelExecutor()
+            self.ke.compile(self.fusion, inputs)
+        return self.ke.run(inputs)
 
     def last_repro_script(self) -> str:
         assert (

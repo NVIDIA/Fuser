@@ -292,6 +292,7 @@ ScatterOp::ScatterOp(
     int64_t dim,
     Val* index,
     Val* src,
+    bool exact_sizes,
     std::optional<BinaryOpType> accumulate_op)
     : Expr(passkey) {
   addInput(self);
@@ -299,6 +300,7 @@ ScatterOp::ScatterOp(
   addInput(src);
   addOutput(out);
   addDataAttribute(dim);
+  addDataAttribute(exact_sizes);
   // is this accumulate?
   addDataAttribute(accumulate_op.has_value());
   if (accumulate_op.has_value()) {

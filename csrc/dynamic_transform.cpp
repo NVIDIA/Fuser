@@ -1388,7 +1388,8 @@ static bool hasTrivialReduction(
   p2c_map.mapBroadcast(true);
   auto p2c = p2c_map.mapProducerToConsumer();
   int64_t pos = -1;
-  for (IterDomain* in_id : TensorDomain::noReductions(in->getLogicalDomain())) {
+  for (IterDomain* in_id :
+       in->getLogicalDomain() | TensorDomain::kNoReductions) {
     ++pos;
     auto out_it = p2c.find(in_id);
     if (out_it == p2c.end()) {

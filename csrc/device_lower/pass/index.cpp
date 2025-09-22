@@ -372,6 +372,7 @@ void IndexLowering::handle(const ScatterOp* sop) {
       sop->dim(),
       lowered_index,
       lowered_src,
+      sop->exactSizes(),
       sop->accumulate() ? std::optional(sop->accumulateOp()) : std::nullopt));
   GpuLower::current()->propagateExprInfo(sop, back());
 }
@@ -1929,9 +1930,7 @@ Val* indexTMemLdSt(
         consumer_tv->definition(), consumer_tv == tmem_tv, domain, for_loops);
     Val* stride = tmem_tv->fusion()->oneVal();
     Val* index = tmem_tv->fusion()->zeroVal();
-    for (const auto& [id, idx] :
-         zip(std::ranges::views::reverse(domain),
-             std::ranges::views::reverse(indices))) {
+    for (auto [id, idx] : zip(domain, indices) | std::views::reverse) {
       index = SimplifyingIrBuilder::addExpr(
           index, SimplifyingIrBuilder::mulExpr(idx, stride));
       stride = SimplifyingIrBuilder::mulExpr(stride, id->extent());
@@ -2238,7 +2237,7 @@ static Val* constructBlackwellMatrixDescriptor(
 ValGroup getInnerMmaLoopGroup(TensorView* tv, const MmaOp* mma) {
   ValGraph& id_graph = GpuLower::current()->tensorIndexer().traversalGraph();
   auto alloc_domain = id_graph.toGroups(
-      TensorDomain::noBroadcasts(tv->getMaybeAllocationDomain()));
+      tv->getMaybeAllocationDomain() | TensorDomain::kNoBroadcasts);
   auto loop_domain =
       id_graph.toGroups(mma->out()->as<TensorView>()->getLoopDomain());
 
@@ -2377,7 +2376,7 @@ Val* getInnerStrideBytes(TensorView* tv, const MmaOp* mma) {
 Val* getOuterStrideBytes(TensorView* tv, const MmaOp* mma) {
   ValGraph& id_graph = GpuLower::current()->tensorIndexer().traversalGraph();
   auto logical_domain =
-      id_graph.toGroups(TensorDomain::noBroadcasts(tv->getLogicalDomain()));
+      id_graph.toGroups(tv->getLogicalDomain() | TensorDomain::kNoBroadcasts);
   auto loop_domain =
       id_graph.toGroups(mma->out()->as<TensorView>()->getLoopDomain());
   auto alloc_domain = id_graph.toGroups(tv->getMaybeAllocationDomain());

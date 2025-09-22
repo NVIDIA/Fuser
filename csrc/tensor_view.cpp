@@ -231,6 +231,12 @@ void TensorView::updateMaxProducerPosition(MaxPosCalculator* calc) {
   }
 }
 
+void TensorView::clearComputePosition() {
+  compute_at_pos_ = 0;
+  clearComputeWith();
+  max_producer_pos_ = 0;
+}
+
 TensorView* TensorView::computeAt(
     TensorView* consumer,
     int64_t position,
@@ -1110,7 +1116,7 @@ TensorView* TensorView::cacheBefore(LoadStoreOpType op_type) {
   // This domain will be the consumer which needs a new domain, so replace the
   // producers domain with this domain.
 
-  TensorView* producer = IrBuilder::createInContainer<TensorView>(
+  auto* producer = IrBuilder::createInContainer<TensorView>(
       container(),
       IrBuilder::createInContainer<TensorDomain>(container(), domain()),
       getDataType().value());

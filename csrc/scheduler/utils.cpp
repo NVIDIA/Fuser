@@ -31,6 +31,7 @@
 
 #include <algorithm>
 #include <queue>
+#include <ranges>
 #include "ir/interface_nodes.h"
 #include "scheduler/tools/loop_domain_scheduler.h"
 #include "type.h"
@@ -1806,9 +1807,7 @@ BroadcastMultipleInformation getBroadcastMultiples(
     std::vector<bool> mapped_axes(ref_root_domain.size(), false);
 
     auto in_out_tv_domain =
-        TensorDomain::noDevices(in_out_tv->getMaybeRootDomain());
-    auto in_out_tv_domain_list = std::list<IterDomain*>(
-        in_out_tv_domain.begin(), in_out_tv_domain.end());
+        in_out_tv->getMaybeRootDomain() | TensorDomain::kNoDevices;
 
     for (const auto ref_i : arange(ref_root_domain.size())) {
       auto ref_id = ref_root_domain[ref_i];
@@ -1826,13 +1825,13 @@ BroadcastMultipleInformation getBroadcastMultiples(
       std::vector<IterDomain*> mapped_ids;
       if (!ref_id_has_view_transforms) {
         auto mapped_it = std::find_if(
-            in_out_tv_domain_list.begin(),
-            in_out_tv_domain_list.end(),
+            in_out_tv_domain.begin(),
+            in_out_tv_domain.end(),
             [&ref_id, &ca_map](IterDomain* in_out_tv_id) {
               return ca_map.areMapped(
                   in_out_tv_id, ref_id, IdMappingMode::EXACT);
             });
-        if (mapped_it != in_out_tv_domain_list.end()) {
+        if (mapped_it != in_out_tv_domain.end()) {
           mapped_ids.push_back(*mapped_it);
         }
       } else {
