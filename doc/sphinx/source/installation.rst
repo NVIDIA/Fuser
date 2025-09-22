@@ -2,7 +2,7 @@ Installation
 ============
 
 Installing nvFuser
------------------
+------------------
 
 You can install nvFuser using pip:
 
@@ -11,7 +11,7 @@ You can install nvFuser using pip:
    pip install nvFuser
 
 Building from Source
--------------------
+--------------------
 
 To build nvFuser from source:
 
@@ -35,7 +35,7 @@ To build nvFuser from source:
       python setup.py install
 
 Requirements
------------
+------------
 
 * Python 3.8 or higher
 * PyTorch 2.0 or higher

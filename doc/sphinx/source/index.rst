@@ -21,3 +21,4 @@ Indices and tables
    :caption: Python API documentation
 
    api/common
+   api/enum
