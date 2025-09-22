@@ -1550,11 +1550,11 @@ TensorView* min(
 }
 
 std::vector<Val*> shape(TensorView* inp) {
-  auto iter_domains = TensorDomain::noReductions(inp->getLogicalDomain());
+  auto logical_domain = inp->getLogicalDomain() | TensorDomain::kNoReductions;
   std::vector<Val*> shape;
 
-  shape.reserve(iter_domains.size());
-  for (auto id : iter_domains) {
+  shape.reserve(std::ranges::distance(logical_domain));
+  for (IterDomain* id : logical_domain) {
     shape.push_back(id->getMaybeExpandedExtent());
   }
 

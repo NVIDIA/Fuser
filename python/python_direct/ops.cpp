@@ -2487,14 +2487,12 @@ TensorView* slice_fn(
     }
   }
 
-  size_t num_dims = TensorDomain::noReductions(arg->getLogicalDomain()).size();
-  NVF_CHECK(
-      num_dims == start_vec.size(),
-      "Number of tensor dimensions does not match slice dimensions! "
-      "Tensor-dims: ",
+  const auto num_dims = std::ranges::distance(
+      arg->getLogicalDomain() | TensorDomain::kNoReductions);
+  NVF_CHECK_EQ(
       num_dims,
-      " Slice-dims: ",
-      start_vec.size());
+      std::ssize(start_vec),
+      "Number of tensor dimensions does not match slice dimensions!");
   NVF_CHECK(
       start_vec.size() == end_vec.size(),
       "Slice indexing attribute dimensions don't match! Start Indices: ",
@@ -2628,10 +2626,11 @@ TensorView
   ops.def(
       "permute",
       [](TensorView* arg, std::vector<int64_t>& dims) -> TensorView* {
-        size_t num_dims =
-            TensorDomain::noReductions(arg->getLogicalDomain()).size();
-        NVF_CHECK(
-            num_dims == dims.size(),
+        const auto num_dims = std::ranges::distance(
+            arg->getLogicalDomain() | TensorDomain::kNoReductions);
+        NVF_CHECK_EQ(
+            num_dims,
+            std::ssize(dims),
             "Operator permute expects `dims` argument to have the same length "
             "as input!");
         return permute(arg, dims);
@@ -2799,10 +2798,11 @@ list of Val
         if (stride_order.empty()) {
           return output;
         }
-        size_t ndims =
-            TensorDomain::noReductions(arg->getLogicalDomain()).size();
-        NVF_CHECK(
-            ndims == stride_order.size(),
+        const auto ndims = std::ranges::distance(
+            arg->getLogicalDomain() | TensorDomain::kNoReductions);
+        NVF_CHECK_EQ(
+            ndims,
+            std::ssize(stride_order),
             "Operator stride_order expects `stride_order` argument to have the "
             "same length as input!");
         std::vector<IterDomain*> allocation_domain =

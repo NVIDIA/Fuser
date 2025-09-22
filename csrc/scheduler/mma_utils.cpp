@@ -10,6 +10,11 @@
 #include <ranges>
 #include <variant>
 
+#include <scheduler/mma_utils.h>
+
+#include <ranges>
+#include <variant>
+
 #include <ATen/cuda/CUDAContext.h>
 
 #include <device_lower/utils.h>
@@ -1927,7 +1932,8 @@ class MatmulTranslator : public OptInDispatch {
   }
 
   TensorView* getBroadcastInnerToRank(TensorView* tv, int64_t rank) {
-    size_t tv_rank = TensorDomain::noReductions(tv->getLogicalDomain()).size();
+    const auto tv_rank = std::ranges::distance(
+        tv->getLogicalDomain() | TensorDomain::kNoReductions);
 
     // broadcast inner on inp to match rank with other.
     if ((int64_t)tv_rank < rank) {
@@ -1941,7 +1947,8 @@ class MatmulTranslator : public OptInDispatch {
   }
 
   TensorView* getUnsqueeze(TensorView* tv, int64_t dim) {
-    size_t tv_rank = TensorDomain::noReductions(tv->getLogicalDomain()).size();
+    const auto tv_rank = std::ranges::distance(
+        tv->getLogicalDomain() | TensorDomain::kNoReductions);
     std::vector<bool> bcast_dims(tv_rank + 1, false);
     if (dim < 0) {
       dim += (int64_t)tv_rank + 1;

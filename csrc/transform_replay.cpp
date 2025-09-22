@@ -1436,7 +1436,7 @@ Expr* replayExprWithNewInput(Expr* e, Val* new_in) {
     new_out_root.reserve(old_domain->maybeRoot().size());
     int64_t i = 0;
     for (IterDomain* in_logical_id :
-         TensorDomain::noReductions(new_in_tv->getLogicalDomain())) {
+         new_in_tv->getLogicalDomain() | TensorDomain::kNoReductions) {
       // Copy the `rf` flag from `old_domain` and everything else from
       // `in_logical_id`.
       new_out_root.push_back(
