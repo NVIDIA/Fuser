@@ -5,6 +5,8 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <ranges>
+
 #include <bindings.h>
 #include <python_utils.h>
 
@@ -120,7 +122,8 @@ void bindInterfaceNodes(py::module& nvfuser) {
       .def_property_readonly(
           "ndim",
           [](TensorView* self) {
-            return TensorDomain::noReductions(self->getLogicalDomain()).size();
+            return std::ranges::distance(
+                self->getLogicalDomain() | TensorDomain::kNoReductions);
           },
           R"(
 Get the number of dimensions in this tensor.

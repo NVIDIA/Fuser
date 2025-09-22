@@ -5365,7 +5365,7 @@ RuntimeWorkSpace prepareRuntimeOrder(const SegmentedFusion& segmented_fusion) {
   for (auto* input_tv :
        ir_utils::filterByType<TensorView>(segmented_fusion.inputs())) {
     for (IterDomain* logical_id :
-         TensorDomain::noReductions(input_tv->getLogicalDomain())) {
+         input_tv->getLogicalDomain() | TensorDomain::kNoReductions) {
       runtime_workspace.group_extent_binding_order.push_back(
           logical_id->getMaybeExpandedExtent());
     }

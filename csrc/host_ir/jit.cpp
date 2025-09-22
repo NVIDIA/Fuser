@@ -36,6 +36,8 @@
 #include <runtime/fusion_kernel_runtime.h>
 #include <val_graph_visitor.h>
 
+#include <ranges>
+
 namespace nvfuser {
 
 // cacheId, inputTensors, outputTensors
@@ -488,9 +490,10 @@ void inferTensorShapesAndStrides(
   }
 
   // Check if sizes and strides are the same size as logical domain
-  NVF_ERROR_EQ(sizes.size(), TensorDomain::noReductions(logical_domain).size());
-  NVF_ERROR_EQ(
-      strides.size(), TensorDomain::noReductions(logical_domain).size());
+  const auto logical_ndims =
+      std::ranges::distance(logical_domain | TensorDomain::kNoReductions);
+  NVF_ERROR_EQ(sizes.size(), logical_ndims);
+  NVF_ERROR_EQ(strides.size(), logical_ndims);
 }
 
 void unpackInputs(
