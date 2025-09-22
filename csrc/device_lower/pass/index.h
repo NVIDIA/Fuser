@@ -72,7 +72,6 @@ class IndexLowering : private OptOutConstDispatch {
   void handle(const PreprocessGroupedMatmulInputSf*) final;
 
   void handle(const kir::Asm*) final;
-  void handle(const kir::ClusterReductionOp*) final;
   void handle(const kir::ForLoop*) final;
   void handle(const kir::IfThenElse*) final;
   void handle(const kir::Allocate*) final;
@@ -136,6 +135,7 @@ class IndexLowering : private OptOutConstDispatch {
   //! Called by handleGridReduction, this returns true if rop is lowered as a
   //! serial grid reduction.
   void handleSerialGridReduction(const ReductionOp* rop, Val* out, Val* in);
+  void handleClusterReduction(const ReductionOp* rop, Val* out, Val* in);
 
   void handleBlockReduction(
       const GroupedReductionOp* rop,
@@ -203,6 +203,9 @@ class IndexLowering : private OptOutConstDispatch {
   std::unordered_map<TensorView*, kir::Allocate*> work_buffer_map_;
   std::unordered_map<TensorView*, kir::AllocateFusedReduction*>
       fused_reduction_map_;
+
+  // Track mbarrier index assignment for cluster reductions
+  int64_t current_cluster_index_ = 0;
 };
 
 } // namespace nvfuser

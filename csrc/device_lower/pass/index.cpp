@@ -8,6 +8,7 @@
 #include <device_lower/analysis/index_compute.h>
 #include <device_lower/analysis/tma.h>
 #include <device_lower/lower2device.h>
+#include <device_lower/utils.h>
 #include <id_model/schedule.h>
 #include <index_compute.h>
 #include <ir/iostream.h>
@@ -625,6 +626,7 @@ void IndexLowering::handle(const ReductionOp* rop) {
   const auto out_domain = out_tv->domain();
 
   const bool has_block_reduce = out_domain->hasBlockReduction();
+  const bool has_cluster_reduce = out_domain->hasClusterReduction();
   const bool has_grid_reduce = out_domain->hasGridReduction();
 
   const auto out = lowerDstIndex(rop->out());
@@ -632,6 +634,8 @@ void IndexLowering::handle(const ReductionOp* rop) {
 
   if (has_grid_reduce) {
     handleGridReduction(rop, out, in);
+  } else if (has_cluster_reduce) {
+    handleClusterReduction(rop, out, in);
   } else if (has_block_reduce) {
     handleBlockReduction(rop, out, in);
   } else {
@@ -639,37 +643,6 @@ void IndexLowering::handle(const ReductionOp* rop) {
         IrBuilder::create<BinaryOp>(rop->getReductionOpType(), out, out, in));
     GpuLower::current()->propagateExprInfo(rop, back());
   }
-}
-
-void IndexLowering::handle(const kir::ClusterReductionOp* cop) {
-  // Lower indices for cluster reduction operation
-  const auto out = lowerDstIndex(cop->out());
-  const auto in = lowerSrcIndex(cop->in(), cop->out());
-  const auto init = lowerSrcIndex(cop->init(), cop->out());
-
-  // Convert mbarrier to shared memory address (similar to MBarrierInit)
-  Val* mbarrier_addr = nullptr;
-  if (cop->mbarrier()->isA<TensorView>()) {
-    mbarrier_addr =
-        lower_utils::u32IndexScalarSmemTv(cop->mbarrier()->as<TensorView>());
-  } else if (cop->mbarrier()->isA<kir::TensorIndex>()) {
-    mbarrier_addr = lower_utils::u32IndexScalarSmemTv(
-        cop->mbarrier()->as<kir::TensorIndex>());
-  } else {
-    NVF_THROW("Unexpected ClusterReductionOp mbarrier type.");
-  }
-
-  // Create indexed ClusterReductionOp with lowered indices
-  auto indexed_cop = IrBuilder::create<kir::ClusterReductionOp>(
-      out,
-      in,
-      cop->getReductionOpType(),
-      init,
-      mbarrier_addr,
-      cop->isAllreduce());
-
-  pushBack(indexed_cop);
-  GpuLower::current()->propagateExprInfo(cop, back());
 }
 
 void IndexLowering::handleBlockReduction(
@@ -690,6 +663,44 @@ void IndexLowering::handleBlockReduction(
   }
 
   pushBack(indexed_rop);
+  GpuLower::current()->propagateExprInfo(rop, back());
+}
+
+void IndexLowering::handleClusterReduction(
+    const ReductionOp* rop,
+    Val* out,
+    Val* in) {
+  NVF_ERROR(ir_utils::isTvOp(rop));
+
+  // cluster reduction is only supported for all-reduce
+  NVF_ERROR(
+      rop->isAllreduce(), "Cluster reduction is only supported for all-reduce");
+
+  // Get mbarrier allocated during allocation pass
+  auto cluster_mbarrier_tv = GpuLower::current()->clusterReductionMBarrier();
+  NVF_CHECK(
+      cluster_mbarrier_tv != nullptr,
+      "Cluster mbarrier must be allocated for cluster reductions");
+
+  // Index into mbarrier array for this reduction
+  auto mbarrier = IrBuilder::create<kir::TensorIndex>(
+      cluster_mbarrier_tv,
+      IrBuilder::create<Val>(current_cluster_index_, DataType::Index));
+  current_cluster_index_++;
+
+  // Convert mbarrier to shared memory address (similar to MBarrierInit)
+  Val* mbarrier_addr = lower_utils::u32IndexScalarSmemTv(mbarrier);
+
+  // Create ClusterReductionOp with lowered indices
+  auto cluster_reduction = IrBuilder::create<kir::ClusterReductionOp>(
+      out,
+      in,
+      rop->getReductionOpType(),
+      lowerSrcIndex(rop->init(), rop->out()),
+      mbarrier_addr,
+      /*is_all_reduce=*/true);
+
+  pushBack(cluster_reduction);
   GpuLower::current()->propagateExprInfo(rop, back());
 }
 
