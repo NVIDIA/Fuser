@@ -121,7 +121,7 @@ void benchmarkP2PCommunication() {
 
     // Calculate data transfer size
     double data_size_mb =
-        (current_tensor_size * dtype_size) / (1024.0 * 1024.0);
+        (current_tensor_size * dtype_size) / 1e6;
 
     // Warmup
     for (int i = 0; i < kWarmupReps; i++) {
@@ -144,7 +144,7 @@ void benchmarkP2PCommunication() {
     double avg_time_us =
         duration.count() / static_cast<double>(kNumRepetitions);
     double bandwidth_gb_s =
-        (2 * current_tensor_size * dtype_size / (1024.0 * 1024.0 * 1024.0)) /
+        (2 * current_tensor_size * dtype_size / 1e9) /
         (avg_time_us / 1e6);
 
     if (my_rank == 0) {
@@ -154,7 +154,7 @@ void benchmarkP2PCommunication() {
         size_str = std::to_string(static_cast<int>(data_size_mb)) + " MB";
       } else {
         size_str =
-            std::to_string(static_cast<int>(data_size_mb * 1024)) + " KB";
+            std::to_string(static_cast<int>(data_size_mb * 1e3)) + " KB";
       }
 
       // Print table row
