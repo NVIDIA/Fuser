@@ -365,9 +365,13 @@ def test(
         blockscale_offsets = fd.define_tensor(
             shape=[-1], contiguity=True, dtype=DataType.Int32, is_cpu=False
         )
-        m_size = fd.ops.size(mat1, 0);
-        k_size = fd.ops.size(mat1, 1);
-        k_tile_size = fd.ops.div(k_size, 16);
+        # TODO: fix dynamic shape in issue https://github.com/NVIDIA/Fuser/issues/5199
+        m_size = m
+        k_size = k
+        k_tile_size = k_size //  16;
+        # m_size = fd.ops.size(mat1, 0)
+        # k_size = fd.ops.size(mat1, 1)
+        # k_tile_size = fd.ops.div(k_size, 16)
         # using primitive operations to handle quantization
         reshaped_mat1 = fd.ops.reshape(mat1, [m_size, k_tile_size, 16])
         scale1 = fd.ops.max(reshaped_mat1, 2)
