@@ -2204,6 +2204,58 @@ TEST_F(OuterReductionTest, IterGroupedBlockReduction) {
       rparams->lparams);
 }
 
+TEST_F(OuterReductionTest, IterGroupedBlockReductionNotFullyInlined) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  DataType dtype = DataType::Half;
+
+  auto tv0 = makeContigTensor(2, dtype);
+  fusion.addInput(tv0);
+
+  auto tv1 = castOp(DataType::Float, tv0);
+  auto tv2 = sum(tv1, {0});
+  auto tv3 = castOp(dtype, tv2);
+  fusion.addOutput(tv3);
+
+  // [i0, i1]
+  tv2->split(-1, 4);
+  // [i0, i1/4, 4]
+  tv2->split(-2, 2);
+  // [i0, i1/4/2, 2, 4]
+  tv2->split(-3, 8);
+  // [i0, i1/4/2/8, 8, 2, 4]
+
+  TransformPropagatorWithCheck propagator(tv2);
+  MaxLogicalDomainInfoSpanningTree(tv2).traverse(&propagator);
+
+  tv2->axis(0)->parallelize(ParallelType::TIDy);
+  tv2->axis(1)->parallelize(ParallelType::BIDx);
+  tv2->axis(2)->parallelize(ParallelType::TIDx);
+  scheduler_utils::parallelizeAllLike(tv2, {tv1, tv3});
+  tv2->axis(-1)->parallelize(ParallelType::Group);
+  // [TIDy, BIDx, TIDx, Serial, Group]
+
+  // Inline the producer of the reduction just before the serial ID
+  tv1->inlineAt(3);
+
+  fusion.print();
+  fusion.printKernel();
+
+  std::vector<int64_t> shape({32, 2048});
+
+  auto options =
+      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
+  auto t0 = at::randn(shape, options);
+
+  KernelExecutor ke;
+  ke.compile(&fusion, {t0});
+  auto outputs = ke.run({t0});
+
+  testValidate(
+      &fusion, outputs, {t0}, __LINE__, __FILE__, "");
+}
+
 namespace {
 void shmooTestsOfIterGroupedBlockOrGridReduction(
     DataType dtype,
