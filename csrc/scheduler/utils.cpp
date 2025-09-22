@@ -3223,12 +3223,18 @@ void buildAllocationDomainForSharedMemoryTvs(Fusion* fusion) {
   }
 }
 
-// https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html?#thread-block-clusters
-// There is no device attribute for max cluster size, use a hardcoded value for
-// now.
+// TODO: move getMaxActiveClusters to here
+// Given a cluster size starting from 16, if we can get at least 1 active
+// cluster, then we can use the given cluster size. Otherwise, reduce by half
+// and try again.
 int64_t getMaxClusterSize() {
-  const auto sm_major = at::cuda::getCurrentDeviceProperties()->major;
-  return sm_major >= 9 ? 8 : 1;
+  int cluster_size = 16;
+  while (cluster_size > 1 &&
+         matmul_utils::getMaxActiveClusters(
+             MatmulParams::ClusterDims{cluster_size, 1}) < 1) {
+    cluster_size /= 2;
+  }
+  return cluster_size;
 }
 } // namespace scheduler_utils
 } // namespace nvfuser
