@@ -40,6 +40,8 @@ namespace {
 // Utility function to get the total size of the given IDs if all
 // extents are statically known
 std::optional<int64_t> getMaybeStaticSize(const std::vector<IterDomain*>& ids) {
+  NVF_ERROR(!ids.empty());
+
   bool all_static_ids = true;
   int64_t static_size = 1;
 
@@ -169,8 +171,7 @@ class CompileTimeChecker : private IterVisitor {
       can_schedule_ = false;
       setRejectReason(
           "Found constrained ops for which all threads must participate "
-          "without predication but "
-          "not guaranteed");
+          "without predication but not guaranteed");
     }
 
     // Make sure constrained and unconstrained ids are
@@ -341,14 +342,15 @@ class CompileTimeChecker : private IterVisitor {
     // not be parallelized with TID.
     auto out_tv = ir_utils::getTvOutput(scatter);
     checkDomainConstraints(
-        out_tv->getLoopDomain(), {constrained_out_logical_dim});
+        out_tv->domain()->initialLoop(), {constrained_out_logical_dim});
 
     // In addition, the index and src tensors are not allowed to use
     // TID with the scatter dim. Their logical domains are not mapped
     // with the logical domains of the input and output tensors, so
     // they need to be checked separately.
     checkDomainConstraints(
-        scatter->index()->as<TensorView>()->getLogicalDomain(),
+        TensorDomain::noReduction(
+            scatter->index()->as<TensorView>()->getLogicalDomain()),
         {constrained_out_logical_dim});
     // Index and src tensors are mapped, so just checking index should
     // be sufficient.
