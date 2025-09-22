@@ -78,11 +78,12 @@ TensorView* getAccTv(Fusion* fusion) {
       acc = expr->output(0)->as<TensorView>();
     }
   }
-  return nullptr;
+  return acc;
 }
 
 bool hasEpilogue(Fusion* fusion) {
   TensorView* acc = getAccTv(fusion);
+  NVF_ERROR(acc != nullptr);
   return !acc->isFusionOutput() && fusion->outputs().size() == 1;
 }
 
