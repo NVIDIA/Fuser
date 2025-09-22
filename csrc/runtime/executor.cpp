@@ -1289,6 +1289,12 @@ KernelArgumentHolder KernelExecutor::run(
       attribute.value.clusterDim.z = 1;
       config.attrs = &attribute;
       config.numAttrs = 1;
+      if (attribute.value.clusterDim.x == 16) {
+        NVFUSER_CUDA_SAFE_CALL(cuFuncSetAttribute(
+            compiled_kernel_->cudaExecutable()->function,
+            CU_FUNC_ATTRIBUTE_NON_PORTABLE_CLUSTER_SIZE_ALLOWED,
+            1));
+      }
       NVFUSER_CUDA_SAFE_CALL(cuLaunchKernelEx(
           &config,
           compiled_kernel_->cudaExecutable()->function,

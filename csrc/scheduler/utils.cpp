@@ -3228,6 +3228,10 @@ void buildAllocationDomainForSharedMemoryTvs(Fusion* fusion) {
 // cluster, then we can use the given cluster size. Otherwise, reduce by half
 // and try again.
 int64_t getMaxClusterSize() {
+  // return 1 for pre-Hopper devices
+  if (at::cuda::getCurrentDeviceProperties()->major < 9) {
+    return 1;
+  }
   int cluster_size = 16;
   while (cluster_size > 1 &&
          matmul_utils::getMaxActiveClusters(

@@ -2060,7 +2060,7 @@ INSTANTIATE_TEST_SUITE_P(
             DataType::BFloat16,
             DataType::Float,
             DataType::Double),
-        ::testing::Values(2, 3, 4, 5, 6, 7, 8)),
+        ::testing::Values(2, 3, 4, 5, 6, 7, 8, 16)),
     [](const testing::TestParamInfo<ClusterReductionTestParams>& info) {
       std::stringstream ss;
       ss << "is_softmax_" << std::get<0>(info.param);
