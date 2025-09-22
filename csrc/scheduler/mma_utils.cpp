@@ -5,6 +5,10 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <scheduler/mma_utils.h>
+
+#include <ranges>
+#include <variant>
 
 #include <ATen/cuda/CUDAContext.h>
 
@@ -18,14 +22,11 @@
 #include <ops/all_ops.h>
 #include <ops/utils.h>
 #include <options.h>
-#include <scheduler/mma_utils.h>
 #include <scheduler/tools/abstract_tensor.h>
 #include <scheduler/utils.h>
 #include <type.h>
 #include <utils.h>
 #include <val_graph.h>
-#include <ranges>
-#include <variant>
 
 namespace nvfuser {
 
@@ -1597,9 +1598,10 @@ bool hasValidBroadcastOp(TensorView* bcast_out) {
   // Ignore device dimensions in this analysis.
   auto non_device_dims = std::ranges::distance(
       bcast_out->getLoopDomain() | TensorDomain::kNoDevices);
+  auto non_device_non_bcast = bcast_out->getLoopDomain() |
+      TensorDomain::kNoBroadcasts | TensorDomain::kNoDevices;
   if (!((non_device_dims == 3 || non_device_dims == 4) &&
-        std::ssize(TensorDomain::noDevices(
-            bcast_out->domain()->noBroadcasts())) == non_device_dims - 1)) {
+        std::ranges::distance(non_device_non_bcast) == non_device_dims - 1)) {
     return false;
   }
 

@@ -5,9 +5,13 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <device_lower/pass/allocation.h>
+
+#include <ranges>
+#include <unordered_set>
+
 #include <bfs.h>
 #include <device_lower/lower2device.h>
-#include <device_lower/pass/allocation.h>
 #include <expr_evaluator.h>
 #include <expr_simplifier.h>
 #include <id_model/utils.h>
@@ -16,8 +20,6 @@
 #include <ir/utils.h>
 #include <kernel_ir.h>
 #include <kernel_ir_dispatch.h>
-
-#include <unordered_set>
 
 namespace nvfuser {
 
@@ -1203,7 +1205,9 @@ class AllocationInserter : public kir::ExprMutator {
     info.allocation_domains =
         std::make_unique<std::vector<IterDomain*>>(alloc_ids);
 
-    if (alloc_dims.empty() && !info.buffer->domain()->noReductions().empty()) {
+    if (alloc_dims.empty() &&
+        !std::ranges::empty(
+            info.buffer->getLoopDomain() | TensorDomain::kNoReductions)) {
       alloc_dims.push_back(info.buffer->container()->oneVal());
     }
 

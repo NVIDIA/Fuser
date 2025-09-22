@@ -5,11 +5,14 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <ops/alias.h>
+
+#include <ranges>
+
 #include <expr_evaluator.h>
 #include <expr_simplifier.h>
 #include <ir/builder.h>
 #include <ir/utils.h>
-#include <ops/alias.h>
 #include <ops/arith.h>
 #include <ops/utils.h>
 #include <transform_view.h>
@@ -254,7 +257,11 @@ TensorView* squeeze(
     const std::vector<int64_t>& dims,
     bool squeeze_expanded) {
   NVF_ERROR(x != nullptr, "Input is invalid.");
-  auto x_dom = x->domain()->noReductions();
+  std::vector<IterDomain*> x_dom;
+  x_dom.reserve(x->getLoopDomain().size());
+  for (auto id : x->getLoopDomain() | TensorDomain::kNoReductions) {
+    x_dom.push_back(id);
+  }
   const auto ndims = static_cast<int64_t>(x_dom.size());
 
   NVF_ERROR(
@@ -349,7 +356,8 @@ TensorView* squeeze(
 
 TensorView* unsqueeze(TensorView* x, int64_t dim) {
   NVF_ERROR(x != nullptr, "Input is invalid.");
-  const auto ndims = static_cast<int64_t>(x->domain()->noReductions().size());
+  const auto ndims = static_cast<int64_t>(
+      std::ranges::distance(x->getLoopDomain() | TensorDomain::kNoReductions));
 
   if (dim < 0) {
     dim = ndims + dim + 1;
@@ -439,7 +447,8 @@ TensorView* permute(
 
 TensorView* transpose(TensorView* x, int64_t dim0, int64_t dim1) {
   NVF_ERROR(x != nullptr, "Input is invalid.");
-  const auto ndims = static_cast<int64_t>(x->domain()->noReductions().size());
+  const auto ndims = static_cast<int64_t>(
+      std::ranges::distance(x->getLoopDomain() | TensorDomain::kNoReductions));
 
   if (dim0 < 0) {
     dim0 = ndims + dim0;
@@ -470,7 +479,8 @@ TensorView* transpose(TensorView* x, int64_t dim0, int64_t dim1) {
 
 TensorView* transpose(TensorView* x) {
   NVF_ERROR(x != nullptr, "Input is invalid.");
-  const auto ndims = static_cast<int64_t>(x->domain()->noReductions().size());
+  const auto ndims = static_cast<int64_t>(
+      std::ranges::distance(x->getLoopDomain() | TensorDomain::kNoReductions));
 
   NVF_CHECK(
       ndims <= 2,
