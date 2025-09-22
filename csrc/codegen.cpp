@@ -2569,8 +2569,20 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     const auto sync_buffer = grop->sync_buffer()->buffer()->as<TensorView>();
 
     ArgumentBuilder func_args(block_nest_level_ + 1, kTab);
-    func_args.arg(genVariableNameConvertAlignedArray(output));
-    func_args.arg(genVariableNameConvertAlignedArray(input));
+    func_args.arg("*(")
+        .append(data_type)
+        .append("(*)[")
+        .append(num_grouped_iterations)
+        .append("])(&")
+        .append(genInline(output))
+        .append(")");
+    func_args.arg("*(")
+        .append(data_type)
+        .append("(*)[")
+        .append(num_grouped_iterations)
+        .append("])(&")
+        .append(genInline(input))
+        .append(")");
     func_args.arg(genReductionOp(op_type, data_type));
     func_args.arg("&").append(genVariableName(work_buffer)).append("[0]");
     func_args.arg("&").append(genVariableName(sync_buffer)).append("[0]");
@@ -2820,11 +2832,6 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
                     .at(expr_index)
                     ->buffer()
                     ->isA<TensorView>());
-
-      // for (const auto& group_index : arange(index_replacement_maps.size())) {
-      //  Set the index replacement map with the concrete values of
-      //  indices of grouped loops.
-      // index_replacement_map_ = index_replacement_maps.at(group_index);
 
       auto expr_out =
           grouped_grop->outputs().at(expr_index)->as<kir::TensorIndex>();
@@ -3135,14 +3142,31 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     ArgumentBuilder func_args;
 
     // outputs
-    func_args.arg(genVariableNameConvertAlignedArray(output.get(0)));
-    func_args.arg(genVariableNameConvertAlignedArray(output.get(1)));
-    func_args.arg(genVariableNameConvertAlignedArray(output.get(2)));
+    for (const auto& out : output) {
+      func_args.arg("*(")
+          .append(out->dtype())
+          .append("(*)[")
+          .append(num_grouped_iterations)
+          .append("])(&")
+          .append(genInline(out))
+          .append(")");
+    }
+
     // inputs
-    func_args.arg(genVariableNameConvertAlignedArray(input.get(0)));
-    func_args.arg(genVariableNameConvertAlignedArray(input.get(1)));
-    func_args.arg(genVariableNameConvertAlignedArray(input.get(2)))
-        .append("[0]");
+    for (const auto& [i, inp] : enumerate(input)) {
+      if (i == 2) {
+        func_args.arg(genInline(inp));
+      } else {
+        func_args.arg("*(")
+            .append(inp->dtype())
+            .append("(*)[")
+            .append(num_grouped_iterations)
+            .append("])(&")
+            .append(genInline(inp))
+            .append(")");
+      }
+    }
+
     // block_dim
     func_args.arg(genComputeBlockDim());
 
