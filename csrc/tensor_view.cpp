@@ -1170,7 +1170,7 @@ TensorView* TensorView::cacheBefore(LoadStoreOpType op_type) {
     // to selfReplay, which targets replay of loop and allocation.
     TransformReplay::selfReplay(producer->domain(), consumer->domain(), true);
     // remove allocation domain from cached TV
-    producer->setAllocationDomain(producer->getMaybeAllocationDomain(), true);
+    producer->setAllocationDomain(producer->getLogicalDomain(), true);
   } else if (producer->hasAllocation()) {
     consumer->setAllocationDomain(
         ir_utils::propagateScatterAllocationDomain(
