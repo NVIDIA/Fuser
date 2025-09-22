@@ -1035,6 +1035,24 @@ if(BUILD_TEST)
     ${NVFUSER_ROOT}/third_party/googletest/googletest/include
     ${NVFUSER_ROOT}/third_party/googletest/googlemock/include
   )
+
+  set(CLUSTER_TEST_KERNELS "cluster_test_kernels")
+  add_library(${CLUSTER_TEST_KERNELS} SHARED
+    ${NVFUSER_ROOT}/tests/cpp/cluster_runtime_test/cluster_test_kernels.cu
+    ${NVFUSER_ROOT}/tests/cpp/cluster_runtime_test/cluster_test_helper.cpp
+  )
+
+  # CUDA 11 does not support C++20, so hard code C++17 here
+  set_property(TARGET ${CLUSTER_TEST_KERNELS} PROPERTY CXX_STANDARD 17)
+  target_link_libraries(${CLUSTER_TEST_KERNELS} PRIVATE torch ${TORCH_LIBRARIES})
+  target_include_directories(${CLUSTER_TEST_KERNELS} PRIVATE "${NVFUSER_ROOT}")
+  target_include_directories(${CLUSTER_TEST_KERNELS} PRIVATE
+    ${CMAKE_SOURCE_DIR}/csrc
+  )
+  target_include_directories(${CLUSTER_TEST_KERNELS} SYSTEM PRIVATE
+    ${NVFUSER_ROOT}/third_party/googletest/googletest/include
+    ${NVFUSER_ROOT}/third_party/googletest/googlemock/include
+  )
 endif()
 
 function(add_test_without_main TEST_NAME TEST_SRC ADDITIONAL_LINK)
@@ -1098,6 +1116,13 @@ if(BUILD_TEST)
   )
   add_test(test_scan "${SCAN_TEST_SRCS}" ${SCAN_TEST_KERNELS})
   list(APPEND TEST_BINARIES test_scan)
+
+  set(CLUSTER_TEST_SRCS)
+  list(APPEND CLUSTER_TEST_SRCS
+    ${NVFUSER_ROOT}/tests/cpp/cluster_runtime_test/test_cluster_device_func.cpp
+  )
+  add_test(test_cluster "${CLUSTER_TEST_SRCS}" ${CLUSTER_TEST_KERNELS})
+  list(APPEND TEST_BINARIES test_cluster)
 
   set(TOPK_TEST_SRCS)
   list(APPEND TOPK_TEST_SRCS

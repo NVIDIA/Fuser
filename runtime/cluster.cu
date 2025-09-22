@@ -12,30 +12,30 @@ namespace cluster {
 // The optional .relaxed qualifier on barrier.cluster.arrive specifies that
 // there are no memory ordering and visibility guarantees provided for the
 // memory accesses performed prior to barrier.cluster.arrive.
-void clusterArriveRelaxed() {
+__device__ void clusterArriveRelaxed() {
   asm volatile("barrier.cluster.arrive.relaxed.aligned;" : :);
 }
 
 // A thread arrives at barrier but it does not have to wait for threads in other
 // participating warps.
-void clusterArrive() {
+__device__ void clusterArrive() {
   asm volatile("barrier.cluster.arrive.aligned;" : :);
 }
 
 // A thread waits for all non-exited threads of the cluster to perform
 // cluster_arrive.
-void clusterWait() {
+__device__ void clusterWait() {
   asm volatile("barrier.cluster.wait.aligned;" : :);
 }
 
 // Synchronize threads in cluster
-void clusterSync() {
+__device__ void clusterSync() {
   clusterArrive();
   clusterWait();
 }
 
 // Returns the dim3 grid size in terms of number of clusters.
-dim3 clusterGridDims() {
+__device__ dim3 clusterGridDims() {
   uint32_t x, y, z;
   asm volatile("mov.u32 %0, %%nclusterid.x;" : "=r"(x) :);
   asm volatile("mov.u32 %0, %%nclusterid.y;" : "=r"(y) :);
@@ -44,7 +44,7 @@ dim3 clusterGridDims() {
 }
 
 // Returns the dim3 cluster rank in the grid.
-dim3 clusterIdInGrid() {
+__device__ dim3 clusterIdInGrid() {
   uint32_t x, y, z;
   asm volatile("mov.u32 %0, %%clusterid.x;" : "=r"(x) :);
   asm volatile("mov.u32 %0, %%clusterid.y;" : "=r"(y) :);
@@ -53,7 +53,7 @@ dim3 clusterIdInGrid() {
 }
 
 // Returns the relative dim3 block rank local to the cluster.
-dim3 blockIdInCluster() {
+__device__ dim3 blockIdInCluster() {
   uint32_t x, y, z;
   asm volatile("mov.u32 %0, %%cluster_ctaid.x;" : "=r"(x) :);
   asm volatile("mov.u32 %0, %%cluster_ctaid.y;" : "=r"(y) :);
@@ -62,7 +62,7 @@ dim3 blockIdInCluster() {
 }
 
 // Returns the dim3 cluster shape.
-dim3 clusterShape() {
+__device__ dim3 clusterShape() {
   uint32_t x, y, z;
   asm volatile("mov.u32 %0, %%cluster_nctaid.x;" : "=r"(x) :);
   asm volatile("mov.u32 %0, %%cluster_nctaid.y;" : "=r"(y) :);
@@ -71,14 +71,14 @@ dim3 clusterShape() {
 }
 
 // Get 1D ctaid in a cluster.
-uint32_t blockRankInCluster() {
+__device__ uint32_t blockRankInCluster() {
   uint32_t rank;
   asm volatile("mov.u32 %0, %%cluster_ctarank;" : "=r"(rank) :);
   return rank;
 }
 
 // Set the destination block-ID in cluster for a given SMEM Address
-uint32_t mapSharedRank(uint32_t smemAddr, uint32_t rank) {
+__device__ uint32_t mapSharedRank(uint32_t smemAddr, uint32_t rank) {
   uint32_t result;
   asm volatile("mapa.shared::cluster.u32  %0, %1, %2;"
                : "=r"(result)
@@ -178,10 +178,10 @@ __device__ __forceinline__ void clusterReduce(
     storeSharedRemote<T>(
         warp_sum, buffer_addr, barrier_smem_addr, peer_cta_rank_in_cluster);
   }
-  mbarrier::wait(barrier_smem_addr, 0);
+  mbarrier::waitParity(barrier_smem_addr, 0);
   // 3. Each CTA has a copy of the warp reduction results from all warps in the
   // cluster
-  //    Finish reduction with a warp reduction
+  // Finish reduction with a warp reduction
   T block_reduce_val = init;
   constexpr int num_iter = (WARPS_PER_BLOCK * CLUSTER_SIZE + 31) / 32;
 #pragma unroll
