@@ -1704,9 +1704,7 @@ TEST_F(ReductionTest, GroupedReductionChannelsLastBatchNormLike) {
 }
 
 // Test the grouped grid allreduce with BN-like outer reductions
-TEST_F(
-    ReductionTest,
-    GroupedReductionPersistentChannelsLastBatchNormLike) {
+TEST_F(ReductionTest, GroupedReductionPersistentChannelsLastBatchNormLike) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
