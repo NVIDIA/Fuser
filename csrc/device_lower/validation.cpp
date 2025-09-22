@@ -206,7 +206,7 @@ void validateCpAsyncBulk(const std::vector<TensorView*>& tvs) {
   }
 }
 
-// Check if id is derived from base_id and corresponds to the
+// Check if maybe_innermost_id is derived from base_id and corresponds to the
 // innermost subregion of base_id. The split/merge exprs between
 // based_id and id must not include any ID that is not produced from
 // base_id.
@@ -334,9 +334,9 @@ class ExprValidator : public OptOutDispatch {
       //
       // Here, the input is required to have a loop ID that is exactly
       // mapped with the grouped loop ID of the output, and that
-      // producer loop ID is required to use the Serial parallel
-      // type. Furthermore, like the output, none of the inner loop
-      // IDs must not contribute to the allocation of the input so that the
+      // producer loop ID must be indeed allocated, i.e., not parallelized.
+      // Furthermore, like the output, none of the inner loop
+      // IDs is allowed to contribute to the allocation of the input so that the
       // grouped ID has a unit stride.
       //
       // The requirement of the input being transformed exactly in the
@@ -351,14 +351,18 @@ class ExprValidator : public OptOutDispatch {
           grouped_id->toString());
       auto producer_grouped_id = producer_grouped_id_it->second;
 
-      auto loop_id_it =
-          std::ranges::find(inp_tv->getLoopDomain(), producer_grouped_id);
       NVF_ERROR(
-          loop_id_it != inp_tv->getLoopDomain().end(),
+          std::ranges::find(inp_tv->getLoopDomain(), producer_grouped_id) !=
+              inp_tv->getLoopDomain().end(),
           "Corresponding grouped producer ID is not a loop ID: ",
           producer_grouped_id->toString(),
           " of ",
           inp_tv->toString());
+
+      NVF_ERROR(
+          ir_utils::mayRequireAllocation(inp_tv, producer_grouped_id),
+          "The corresponding producer loop ID for grouping must be actualy "
+          "allocated without parallelization");
 
       // Make sure all inner loop IDs should not contribute to the
       // allocation
