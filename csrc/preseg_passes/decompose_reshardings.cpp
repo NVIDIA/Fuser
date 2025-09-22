@@ -193,6 +193,26 @@ void insertReshardingSetsAfter(Fusion* fusion) {
       // [DIDx(i0), i1] instead of [DIDx(i0), DIDx(i1)] when sharding using
       // input as the reference.
       shardAllLike(input, {output}, allParallelTypes());
+
+      // The previous sharding propagation may have overwritten the stream
+      // parallelization. We need to propagate it back.
+      //
+      // Consider a reshard case typical of GEMM+AG (when AG occurs after GEMM):
+      //
+      //   input [i0, DIDx(i1)] -> op -> output [Stream(i0), i1]
+      //
+      // This is decomposed into:
+      //
+      //   input [i0, DIDx(i1)] -> op -> output [i0, DIDx(i1)] -> set ->
+      //   new_output [Stream(i0), i1
+      // 
+      // After sharding using input as the reference, the output is sharded as
+      // [i0, i1]. We need to propagate the stream parallelization back to the
+      // output, in order to obtain:
+      //
+      //   input [i0, DIDx(i1)] -> op -> output [Stream(i0), i1] -> set ->
+      //   new_output [Stream(i0), i1]
+      shardAllLike(new_output, {output}, {ParallelType::Stream});
     }
   }
 }

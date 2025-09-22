@@ -1,2 +1,16 @@
 CompileFlags:
-    CompilationDatabase: python/build
+  CompilationDatabase: python/build
+  Add:
+    - -I/opt/pytorch/Fuser/csrc
+    - -I/usr/local/cuda/include
+    - -isystem/usr/local/lib/python3.12/dist-packages/torch/include
+    - -isystem/usr/local/lib/python3.12/dist-packages/torch/include/torch/csrc/api/include
+    - -DNVFUSER_DISTRIBUTED
+    - -DUSE_DISTRIBUTED
+    - -DUSE_C10D_GLOO
+    - -DUSE_C10D_MPI
+    - -DUSE_C10D_NCCL
+    - -DUSE_C10D_UCC
+    - -DUSE_RPC
+    - -DUSE_TENSORPIPE
+    - -DTORCH_CUDA_BUILD_MAIN_LIB

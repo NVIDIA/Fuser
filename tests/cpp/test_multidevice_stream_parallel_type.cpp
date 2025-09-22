@@ -15,6 +15,8 @@
 #include <preseg_passes/reorder_sharded_axis.h>
 #include <tests/cpp/multidevice.h>
 #include <tests/cpp/validator.h>
+#include "host_ir/host_ir.h"
+#include "multidevice/communication.h"
 
 namespace nvfuser {
 
@@ -184,24 +186,45 @@ TEST_P(AGMatmulTest, CollectiveBasedPipeline) {
 
   const hir::HostIrContainer& container =
       executor.hostIrEvaluator()->container();
-  if (!insert_resharding_after) {
+
+  EXPECT_THAT(
+      container.topLevelExprs(),
+      ElementsAre(
+          IsA<kir::Allocate>(),
+          IsA<kir::Allocate>(),
+          IsA<hir::GetCurrentStream>(),
+          IsA<kir::ForLoop>(),
+          IsA<kir::ForLoop>()));
+  
+  auto for_loop = container.topLevelExprs().at(4)->as<kir::ForLoop>();
+  if (insert_resharding_after) {
     EXPECT_THAT(
-        container.topLevelExprs(),
+        for_loop->body().exprs(),
         ElementsAre(
+            IsA<hir::SetCurrentStream>(),
+            IsA<hir::HirAliasSelect>(),
+            IsA<hir::HirAliasSelect>(),
+            IsA<MatmulOp>(),
+            IsA<hir::HirAliasSelect>(),
             IsA<kir::Allocate>(),
-            IsA<kir::Allocate>(),
-            IsA<hir::GetCurrentStream>(),
-            IsA<kir::ForLoop>(),
-            IsA<kir::ForLoop>()));
+            IsA<Communication>(),
+            IsA<hir::Wait>(),
+            IsA<hir::SetCurrentStream>(),
+            IsA<hir::Synchronize>()));
   } else {
     EXPECT_THAT(
-        container.topLevelExprs(),
+        for_loop->body().exprs(),
         ElementsAre(
-            IsA<MatmulOp>(),
+            IsA<hir::SetCurrentStream>(),
+            IsA<hir::HirAliasSelect>(),
+            IsA<hir::HirAliasSelect>(),
             IsA<kir::Allocate>(),
-            IsA<hir::GetCurrentStream>(),
-            IsA<kir::ForLoop>(),
-            IsA<kir::ForLoop>()));
+            IsA<Communication>(),
+            IsA<hir::Wait>(),
+            IsA<hir::HirAliasSelect>(),
+            IsA<MatmulOp>(),
+            IsA<hir::SetCurrentStream>(),
+            IsA<hir::Synchronize>()));
   }
 
   auto tensor_options =
