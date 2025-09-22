@@ -30,6 +30,7 @@
 #include <runtime/executor_dispatch.h>
 #include <runtime/executor_kernel_arg.h>
 #include <runtime/fusion_kernel_runtime.h>
+#include <scheduler/heuristic.h>
 #include <tensor_metadata.h>
 
 namespace nvfuser::hir {
@@ -188,7 +189,7 @@ void HostIrEvaluator::handle(LaunchKernel* launch_kernel) {
   if (!cache_id.is<std::monostate>()) {
     args.setCacheId(static_cast<size_t>(cache_id.as<int64_t>()));
   }
-  for (auto& input : launch_kernel->inputs()) {
+  for (Val* input : launch_kernel->inputs()) {
     args.push(getKnownConcreteValue(input));
   }
 
@@ -227,15 +228,13 @@ void HostIrEvaluator::handle(PostOnStream* post_ir) {
   bool use_preallocated_outputs = std::all_of(
       post_ir->outputs().begin(),
       post_ir->outputs().end(),
-      [this](Val* output) { return this->expr_evaluator_.isKnown(output); });
+      [this](Val* output) { return expr_evaluator_.isKnown(output); });
   NVF_ERROR(
       use_preallocated_outputs ||
           std::all_of(
               post_ir->outputs().begin(),
               post_ir->outputs().end(),
-              [this](Val* output) {
-                return !this->expr_evaluator_.isKnown(output);
-              }),
+              [this](Val* output) { return !expr_evaluator_.isKnown(output); }),
       "outputs must be all or none preallocated in expr ",
       post_ir);
   if (use_preallocated_outputs) {
@@ -284,12 +283,9 @@ void HostIrEvaluator::handle(PostOnStream* post_ir) {
                hu->fusion_to_execute(), 1, 1, 1, 1, SchedulerType::None)});
       ExecutorAbstract* ea = it2.first->second.get();
       if (ea->isA<KernelExecutor>()) {
+        HeuristicParams default_params(SchedulerType::None);
         ExecutorDispatch::compile(
-            ea,
-            hu->fusion_to_execute(),
-            input_args,
-            LaunchParams(),
-            CompileParams());
+            ea, hu->fusion_to_execute(), input_args, &default_params);
       } else {
         ExecutorDispatch::compile(ea, hu->fusion_to_execute());
       }
@@ -424,7 +420,7 @@ std::unordered_set<Val*> allConsumerValsOf(Val* val) {
 
 } // namespace
 
-void HostIrEvaluator::handle(ForLoop* for_loop) {
+void HostIrEvaluator::handle(kir::ForLoop* for_loop) {
   auto start = expr_evaluator_.evaluate(for_loop->start()).as<int64_t>();
   auto step = expr_evaluator_.evaluate(for_loop->step()).as<int64_t>();
   auto stop = expr_evaluator_.evaluate(for_loop->stop()).as<int64_t>();
@@ -438,6 +434,18 @@ void HostIrEvaluator::handle(ForLoop* for_loop) {
     expr_evaluator_.bind(for_loop->index(), i);
     for (Expr* expr : for_loop->body().exprs()) {
       dispatch(expr);
+    }
+  }
+}
+
+void HostIrEvaluator::handle(hir::ForLoop* for_loop) {
+  auto start = expr_evaluator_.evaluate(for_loop->start()).as<int64_t>();
+  auto stop = expr_evaluator_.evaluate(for_loop->stop()).as<int64_t>();
+
+  for (auto i = start; i < stop; i++) {
+    expr_evaluator_.bind(for_loop->index(), i);
+    for (Expr* e : for_loop->body().exprs()) {
+      dispatch(e);
     }
   }
 }
@@ -602,17 +610,26 @@ void HostIrEvaluator::handle(HirAliasSelect* hir_alias_select) {
   expr_evaluator_.bind(hir_alias_select->out(), input.select(axis, index));
 }
 
-void HostIrEvaluator::handle(BinaryOp* binary_op) {
-  if (!expr_evaluator_.isKnown(binary_op->outputs().at(0))) {
-    return unhandled(binary_op);
+void HostIrEvaluator::handle(BinaryOp* binary) {
+  if (binary->out()->isScalar()) {
+    return unhandled(binary);
   }
 
-  auto lhs = getKnownConcreteValue(binary_op->inputs().at(0)).as<at::Tensor>();
-  auto rhs = getKnownConcreteValue(binary_op->inputs().at(1)).as<at::Tensor>();
-  auto output =
-      getKnownConcreteValue(binary_op->outputs().at(0)).as<at::Tensor>();
+  if (!expr_evaluator_.isKnown(binary->out())) {
+    return unhandled(binary);
+  }
 
-  switch (binary_op->getBinaryOpType()) {
+  // The output is a pre-allocated TensorView. Therefore, we use `at::*_out` to
+  // write the result to the pre-allocated tensor. This should happen only for
+  // MultiDeviceExecutor. In FusionExecutorCache, such binary operations are
+  // lowered to CUDA kernels and therefore won't appear in host IR.
+  NVF_ERROR(binary->lhs()->isA<TensorView>());
+  auto lhs = getKnownConcreteValue(binary->lhs()).as<at::Tensor>();
+  NVF_ERROR(binary->rhs()->isA<TensorView>());
+  auto rhs = getKnownConcreteValue(binary->rhs()).as<at::Tensor>();
+  auto output = getKnownConcreteValue(binary->out()).as<at::Tensor>();
+
+  switch (binary->getBinaryOpType()) {
     case BinaryOpType::Add:
       at::add_out(output, lhs, rhs);
       break;
@@ -628,9 +645,9 @@ void HostIrEvaluator::handle(BinaryOp* binary_op) {
     default:
       NVF_THROW(
           "Unexpected operator type: ",
-          binary_op->getBinaryOpType(),
+          binary->getBinaryOpType(),
           " in ",
-          binary_op);
+          binary);
   }
 }
 
@@ -714,32 +731,39 @@ void HostIrEvaluator::handle(Deallocate* deallocate) {
 void HostIrEvaluator::unhandled(Statement* stmt) {
   NVF_ERROR(stmt->isA<Expr>(), stmt, " must be an Expr");
   auto* expr = stmt->as<Expr>();
-  std::vector<PolymorphicValue> inputs;
-  for (auto input : expr->inputs()) {
+  std::vector<PolymorphicValue> concrete_inputs;
+  for (Val* input : expr->inputs()) {
     if (input->isA<TensorView>()) {
       // Tensor inputs must be already computed at this point
-      inputs.push_back(getKnownConcreteValue(input));
+      concrete_inputs.push_back(getKnownConcreteValue(input));
     } else {
-      inputs.push_back(expr_evaluator_.evaluate(input));
+      concrete_inputs.push_back(expr_evaluator_.evaluate(input));
     }
   }
 
-  // Check that there is no pre-allocated output
-  NVF_ERROR(
-      std::all_of(
-          expr->outputs().begin(),
-          expr->outputs().end(),
-          [this](Val* output) {
-            return !this->expr_evaluator_.isKnown(output);
-          }),
-      "Do not support pre-allocated outputs for the op ",
-      expr);
   // using ExpressionEvaluator::evaluate to evaluate the output is not valid
   // here if the output or one of its producer is an alias
-  auto concrete_outputs = expr->evaluate(expr_evaluator_, inputs);
-  for (int64_t i : c10::irange(expr->outputs().size())) {
-    expr_evaluator_.bind(expr->output(i), concrete_outputs.at(i));
+  std::vector<PolymorphicValue> concrete_outputs =
+      expr->evaluate(expr_evaluator_, concrete_inputs);
+  for (auto&& [output, concrete_output] :
+       zip(expr->outputs(), concrete_outputs)) {
+    expr_evaluator_.bind(output, concrete_output);
   }
+}
+
+PolymorphicValue HostIrEvaluator::getKnownConcreteValue(Val* val) const {
+  NVF_ERROR(
+      expr_evaluator_.isKnown(val) || val->isConst(),
+      "Value ",
+      val->toString(),
+      " must be precomputed before being retrieved.");
+  return expr_evaluator_.evaluate(val);
+}
+
+at::Tensor HostIrEvaluator::getKnownTensorOrUndefined(Val* val) const {
+  return expr_evaluator_.isKnown(val)
+      ? expr_evaluator_.evaluate(val).as<at::Tensor>()
+      : at::Tensor();
 }
 
 } // namespace nvfuser::hir

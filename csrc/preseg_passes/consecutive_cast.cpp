@@ -86,7 +86,7 @@ Val* replayMetaOnNewInput(
   } else if (meta->isA<ReshapeOp>()) {
     // replay transformation for ReshapeOp
     NVF_ERROR(meta->output(0)->isA<TensorView>());
-    TensorView* meta_tv_out = meta->output(0)->as<TensorView>();
+    auto* meta_tv_out = meta->output(0)->as<TensorView>();
 
     const std::vector<IterDomain*>& meta_tv_out_root_domain =
         meta_tv_out->getMaybeRootDomain();
@@ -339,7 +339,7 @@ void castOptimizationPass(Fusion* fusion) {
 
         // compute logical_dom to alloc_dom permutation
         if (expr_out->isA<TensorView>()) {
-          TensorView* expr_out_tv = expr_out->as<TensorView>();
+          auto* expr_out_tv = expr_out->as<TensorView>();
           expr_out_allocation_permutation = ir_utils::computePermutation(
               expr_out_tv->getLogicalDomain(),
               expr_out_tv->getMaybeAllocationDomain());

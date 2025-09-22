@@ -6,6 +6,7 @@
  */
 // clang-format on
 
+#include <expr_simplifier.h>
 #include <ir/all_nodes.h>
 #include <ir/builder.h>
 #include <ir/iostream.h>
@@ -182,6 +183,22 @@ TensorView* scatter(
       "dimensions in scatter like ops.");
   dim = wrapDim(dim, (int64_t)self_dom.size());
 
+  bool is_exact = true;
+  for (const auto i : arange(std::ssize(self_dom))) {
+    if (i == dim) {
+      continue;
+    }
+    Val* self_id_size = self_dom.at(i)->getMaybeExpandedExtent();
+    Val* idx_id_size = idx_dom.at(i)->getMaybeExpandedExtent();
+    auto same_size =
+        simplifyExpr(SimplifyingIrBuilder::eqExpr(self_id_size, idx_id_size));
+    if (same_size->isTrue()) {
+      continue;
+    }
+    is_exact = false;
+    break;
+  }
+
   // The shape of output tensor is same as self tensor.
   std::vector<IterDomain*> out_logical;
   for (const auto i : arange(self_dom.size())) {
@@ -195,13 +212,16 @@ TensorView* scatter(
   }
 
   // Create the loop domain based on the logical domain of the index
-  // tensor.
+  // tensor. For non-scatter axes, reuse the logical IDs if exact.
   std::vector<IterDomain*> out_loop;
   out_loop.reserve(idx_dom.size());
-  std::ranges::transform(
-      idx_dom, std::back_inserter(out_loop), [](IterDomain* id) {
-        return IterDomainBuilder(id).build();
-      });
+  for (const auto& [i, idx_id] : enumerate(idx_dom)) {
+    if ((int64_t)i == dim || !is_exact) {
+      out_loop.push_back(IterDomainBuilder(idx_id).build());
+    } else {
+      out_loop.push_back(out_logical.at(i));
+    }
+  }
 
   // Create the output tensor. The validation of the loop domain needs
   // to be skipped as it is not guaranteed to be equivalent to the
@@ -226,7 +246,7 @@ TensorView* scatter(
   }
 
   IrBuilder::create<ScatterOp>(
-      out_tensor, self, dim, index, src, accumulate_op);
+      out_tensor, self, dim, index, src, is_exact, accumulate_op);
 
   return out_tensor->as<TensorView>();
 }
@@ -308,16 +328,16 @@ TensorView* preprocessGroupedMatmulInputSf(
 
   // This is used for both root and loop domain on output
   // maps directly to input's logical domain.
-  std::vector<IterDomain*> out_root;
-  out_root.reserve(input_logical_dom.size());
+  std::vector<IterDomain*> out_logical_dom;
+  out_logical_dom.reserve(input_logical_dom.size());
   std::ranges::transform(
-      input_logical_dom, std::back_inserter(out_root), [](IterDomain* id) {
-        return IterDomainBuilder(id).build();
-      });
+      input_logical_dom,
+      std::back_inserter(out_logical_dom),
+      [](IterDomain* id) { return IterDomainBuilder(id).build(); });
 
   // Create the logical domain of output.
-  std::vector<IterDomain*> out_logical;
-  out_logical.reserve(input_logical_dom.size());
+  std::vector<IterDomain*> out_alloc_dom;
+  out_alloc_dom.reserve(input_logical_dom.size());
 
   // only Block128x4 is supported at this point.
   NVF_CHECK_EQ(layout, BlockScalingFactorLayout::Block128x4);
@@ -334,6 +354,10 @@ TensorView* preprocessGroupedMatmulInputSf(
   // layout. Since the actual padding size is data-dependent, we allocate for
   // the maximum padding (reflected on logical/allocation domain).
 
+  // NOTE: We could use resize operations for the padding logic, I think this
+  // might simplify predication. Not doing that for now for simpler
+  // implementation. We'll re-evaluate when we add scheduler support.
+
   // pad row size: num_groups * (row_multiple - 1) + row_size
   auto pad_to_max_extent = [&](IterDomain* id, int multiple) -> IterDomain* {
     auto* maximum_pad_value_per_group =
@@ -343,7 +367,7 @@ TensorView* preprocessGroupedMatmulInputSf(
         SimplifyingIrBuilder::mulExpr(num_groups, maximum_pad_value_per_group));
     return IterDomainBuilder(id).extent(padded_ext).build();
   };
-  out_logical.push_back(pad_to_max_extent(out_root[0], row_multiple));
+  out_alloc_dom.push_back(pad_to_max_extent(out_logical_dom[0], row_multiple));
 
   // pad col size: (col_size + col_multiple - 1) / col_multiple * col_multiple
   auto pad_to_multiple = [&](IterDomain* id, int multiple) -> IterDomain* {
@@ -357,19 +381,18 @@ TensorView* preprocessGroupedMatmulInputSf(
         multiple_val);
     return IterDomainBuilder(id).extent(padded_ext).build();
   };
-  out_logical.push_back(pad_to_multiple(out_root[1], col_multiple));
+  out_alloc_dom.push_back(pad_to_multiple(out_logical_dom[1], col_multiple));
 
-  // Create the output tensor. Validation needs to be skipped, because
-  // (root/loop) doesn't converge with (logical)
+  // Create the output tensor with logical domain matching inputs
   TensorView* out_tv = IrBuilder::create<TensorView>(
       IrBuilder::create<TensorDomain>(
-          /*root_domain=*/out_root,
-          /*logical_domain=*/out_logical,
-          /*allocation=*/std::vector<IterDomain*>(),
-          /*loop_domain=*/out_root,
+          /*root_domain=*/std::vector<IterDomain*>(),
+          /*logical_domain=*/out_logical_dom,
+          /*allocation=*/out_alloc_dom,
+          /*loop_domain=*/out_logical_dom,
           /*alternate_loop_domain=*/std::nullopt,
           /*contiguity=*/
-          TensorDomain::getContiguityFilledWith(out_logical, true),
+          TensorDomain::getContiguityFilledWith(out_alloc_dom, true),
           /*additional_ids=*/std::vector<IterDomain*>(),
           /*skip_checks=*/true),
       input->getDataType().value());

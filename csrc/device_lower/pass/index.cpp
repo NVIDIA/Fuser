@@ -148,10 +148,10 @@ void IndexLowering::handle(const kir::IfThenElse* ite) {
   }
 }
 
-void IndexLowering::handle(const ForLoop* for_loop) {
+void IndexLowering::handle(const kir::ForLoop* for_loop) {
   const auto prev_scope = active_scope_;
 
-  auto new_for_loop = IrBuilder::create<ForLoop>(for_loop);
+  auto new_for_loop = IrBuilder::create<kir::ForLoop>(for_loop);
   pushBack(new_for_loop);
 
   active_scope_ = &new_for_loop->body();
@@ -372,6 +372,7 @@ void IndexLowering::handle(const ScatterOp* sop) {
       sop->dim(),
       lowered_index,
       lowered_src,
+      sop->exactSizes(),
       sop->accumulate() ? std::optional(sop->accumulateOp()) : std::nullopt));
   GpuLower::current()->propagateExprInfo(sop, back());
 }
@@ -462,7 +463,7 @@ struct GridCommWorkBufferSizeInfo {
 // The buffer is expanded for privatization when not persistent or grouped.
 GridCommWorkBufferSizeInfo getGridCommWorkBufferSize(
     const TensorDomain* td,
-    const std::vector<ForLoop*>& for_loops,
+    const std::vector<kir::ForLoop*>& for_loops,
     bool is_persistent) {
   // The buffer size is the number of thread blocks multiplied by the
   // number of threads not used for reduction domains.
@@ -536,7 +537,7 @@ GridCommWorkBufferSizeInfo getGridCommWorkBufferSize(
 
 Val* getGridSyncBufferSize(
     const TensorDomain* td,
-    const std::vector<ForLoop*>& for_loops,
+    const std::vector<kir::ForLoop*>& for_loops,
     bool is_persistent) {
   // See the comment above for getGridCommWorkBufferSize.
   Val* buffer_size = GpuLower::current()->kernel()->oneVal();
@@ -574,7 +575,7 @@ Val* getGridSyncBufferSize(
   return buffer_size;
 }
 
-Val* getEntranceCountGridReduce(std::vector<ForLoop*>& for_loops) {
+Val* getEntranceCountGridReduce(std::vector<kir::ForLoop*>& for_loops) {
   Val* grid_reduction_entrances = GpuLower::current()->kernel()->oneVal();
 
   for (const auto loop : for_loops) {
@@ -595,7 +596,7 @@ Val* getEntranceCountGridReduce(std::vector<ForLoop*>& for_loops) {
 // Linear indexing of for loops for multiple entrances into grid reduce
 // TODO: What happens if there's a broadcast that's resolved (not present in the
 // grid reduce) but the global buffer isn't expanded?
-Val* getEntranceLinIndGridReduce(std::vector<ForLoop*>& for_loops) {
+Val* getEntranceLinIndGridReduce(std::vector<kir::ForLoop*>& for_loops) {
   Val* linear_index = GpuLower::current()->kernel()->zeroVal();
 
   for (const auto loop : for_loops) {
@@ -1729,7 +1730,7 @@ namespace {
 // Final offset: cumulative_offset + offset_from_threadIdx.y
 Val* hardCodedSharedMemoryIndexForLdStMatrix(
     TensorView* smem_tv,
-    const ForLoop* outer_loop,
+    const kir::ForLoop* outer_loop,
     const int64_t m_tile,
     const int64_t n_tile,
     const int64_t m,
@@ -1873,7 +1874,7 @@ Val* hardCodedSharedMemoryIndexForLdStMatrix(
 Val* indexTMemLdSt(
     TensorView* tmem_tv,
     TensorView* consumer_tv,
-    const std::vector<ForLoop*>& for_loops) {
+    const std::vector<kir::ForLoop*>& for_loops) {
   NVF_ERROR(tmem_tv->getMemoryType() == MemoryType::Tensor, "Invalid tmem_tv");
   const auto& tmem_info = GpuLower::current()->tmemInfo();
   const auto& tensor_indexer = GpuLower::current()->tensorIndexer();
@@ -1898,9 +1899,7 @@ Val* indexTMemLdSt(
         consumer_tv->definition(), consumer_tv == tmem_tv, domain, for_loops);
     Val* stride = tmem_tv->fusion()->oneVal();
     Val* index = tmem_tv->fusion()->zeroVal();
-    for (const auto& [id, idx] :
-         zip(std::ranges::views::reverse(domain),
-             std::ranges::views::reverse(indices))) {
+    for (auto [id, idx] : zip(domain, indices) | std::views::reverse) {
       index = SimplifyingIrBuilder::addExpr(
           index, SimplifyingIrBuilder::mulExpr(idx, stride));
       stride = SimplifyingIrBuilder::mulExpr(stride, id->extent());
@@ -1951,7 +1950,7 @@ void IndexLowering::handle(const LoadStoreOp* ldst) {
     bool is_tma_ldmatrix = false;
     if (ir_utils::isLdMatrixOp(ldst)) {
       NVF_ERROR(ldst->in()->isA<TensorView>());
-      TensorView* in_tv = ldst->in()->as<TensorView>();
+      auto* in_tv = ldst->in()->as<TensorView>();
       NVF_ERROR(in_tv->definition() != nullptr);
       is_tma_ldmatrix = ir_utils::isCpAsyncBulkLoad(in_tv->definition());
       if (is_tma_ldmatrix) {
@@ -2027,7 +2026,7 @@ void IndexLowering::handle(const LoadStoreOp* ldst) {
 
       // Get the index for the output of stmatrix.
       NVF_ERROR(ldst->out()->isA<TensorView>());
-      TensorView* out_tv = ldst->out()->as<TensorView>();
+      auto* out_tv = ldst->out()->as<TensorView>();
       MmaInputSmemSwizzle swizzle = getSwizzle(out_tv);
       switch (swizzle) {
         case MmaInputSmemSwizzle::None: {
@@ -2207,7 +2206,7 @@ static Val* constructBlackwellMatrixDescriptor(
 ValGroup getInnerMmaLoopGroup(TensorView* tv, const MmaOp* mma) {
   ValGraph& id_graph = GpuLower::current()->tensorIndexer().traversalGraph();
   auto alloc_domain = id_graph.toGroups(
-      TensorDomain::noBroadcasts(tv->getMaybeAllocationDomain()));
+      tv->getMaybeAllocationDomain() | TensorDomain::kNoBroadcasts);
   auto loop_domain =
       id_graph.toGroups(mma->out()->as<TensorView>()->getLoopDomain());
 
@@ -2346,7 +2345,7 @@ Val* getInnerStrideBytes(TensorView* tv, const MmaOp* mma) {
 Val* getOuterStrideBytes(TensorView* tv, const MmaOp* mma) {
   ValGraph& id_graph = GpuLower::current()->tensorIndexer().traversalGraph();
   auto logical_domain =
-      id_graph.toGroups(TensorDomain::noBroadcasts(tv->getLogicalDomain()));
+      id_graph.toGroups(tv->getLogicalDomain() | TensorDomain::kNoBroadcasts);
   auto loop_domain =
       id_graph.toGroups(mma->out()->as<TensorView>()->getLoopDomain());
   auto alloc_domain = id_graph.toGroups(tv->getMaybeAllocationDomain());
@@ -2417,9 +2416,9 @@ namespace {
 
 Val* indexBlackwellMmaOutput(
     const MmaOp* mma,
-    const std::vector<ForLoop*>& for_loops) {
-  TensorView* tmem_tv = mma->out()->as<TensorView>();
-  NVF_ERROR(tmem_tv->getMemoryType() == MemoryType::Tensor, "Invalid tmem_tv");
+    const std::vector<kir::ForLoop*>& for_loops) {
+  auto* tmem_tv = mma->out()->as<TensorView>();
+  NVF_ERROR_EQ(tmem_tv->getMemoryType(), MemoryType::Tensor);
   const auto& tmem_info = GpuLower::current()->tmemInfo();
   const auto& tensor_indexer = GpuLower::current()->tensorIndexer();
 
@@ -2840,6 +2839,34 @@ void IndexLowering::handle(const CatOp* cat) {
 
   pushBack(expr);
   GpuLower::current()->propagateExprInfo(cat, expr);
+}
+
+void IndexLowering::handle(
+    const PreprocessGroupedMatmulInputSf* preprocess_op) {
+  const auto in = lowerSrcIndex(preprocess_op->in(), preprocess_op->out());
+
+  auto* out_tv = preprocess_op->out()->as<TensorView>();
+  std::vector<Val*> logical_index = Index::getConsumerPerDimLogicalIndex(
+      out_tv, for_loops_, getRotatedLoop());
+  NVF_ERROR(
+      logical_index.size() == 2,
+      "only matrices are supported in PreprocessGroupedMatmulInputSf");
+  // NOTE: use const zero for index, this always give the base pointer to
+  // output, because indexing is done with logical_index passed as op attribute.
+  auto* out = IrBuilder::create<kir::TensorIndex>(
+      out_tv, GpuLower::current()->kernel()->zeroVal(), DataType::Null);
+
+  pushBack(IrBuilder::create<PreprocessGroupedMatmulInputSf>(
+      out,
+      in,
+      preprocess_op->inputOffsets(),
+      preprocess_op->outputOffsets(),
+      preprocess_op->layout(),
+      preprocess_op->k(),
+      preprocess_op->g(),
+      logical_index[0],
+      logical_index[1]));
+  GpuLower::current()->propagateExprInfo(preprocess_op, back());
 }
 
 } // namespace nvfuser

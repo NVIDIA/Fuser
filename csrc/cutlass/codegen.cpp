@@ -15,12 +15,14 @@ namespace nvfuser {
 
 class Fusion;
 
+class CutlassParams;
+
 namespace cutlass_codegen {
 
-std::string generateCode(Fusion* fusion) {
+std::string generateCode(Fusion* fusion, const CutlassParams& params) {
   // TODO: match patterns and dispatch to different generators here
   if (hasNvfp4ScaledMmPattern(fusion)) {
-    return generateNvfp4ScaledMmKernel(fusion);
+    return generateNvfp4ScaledMmKernel(fusion, params);
   } else {
     NVF_THROW("Unsupported Fusion pattern for CUTLASS executor");
   }

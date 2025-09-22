@@ -1339,12 +1339,10 @@ void validateScatter(Fusion* fusion) {
     auto in_tv = sop->in()->as<TensorView>();
     auto out_tv = sop->out()->as<TensorView>();
 
-    // TensorIndexer currently only supports scatter with 1D tensors
-    // due to the non-exactness of non-indexed IDs.
-    NVF_ERROR_EQ(
-        out_tv->getLogicalDomain().size(),
-        1,
-        "Scatter with multi-dimensional tensors is not yet supported: ",
+    // TensorIndexer currently only supports exact scatter ops
+    NVF_ERROR(
+        sop->exactSizes(),
+        "Non-exact scatter is not yet supported: ",
         sop->toString());
 
     // Scatter is implemented as an in-place op. To lower it safely, it

@@ -16,6 +16,7 @@
 #include <scheduler/mma_utils.h>
 
 #include <limits>
+#include <ranges>
 #include <set>
 
 namespace nvfuser::ir_utils {
@@ -1259,7 +1260,7 @@ bool isAlignedScopeExpr(const Expr* expr) {
       return false;
     }
 
-  } else if (auto fl = dynamic_cast<const ForLoop*>(expr)) {
+  } else if (auto fl = dynamic_cast<const kir::ForLoop*>(expr)) {
     // If the start, stop, step are not thread dependent
     //  then this for loop should be thread independent.
     if (getRegisterType(fl->start()) == RegisterType::GeneralPurpose ||
@@ -1332,8 +1333,10 @@ bool hasTrivialAllocationDomain(const TensorView* tv) {
   }
   const std::vector<IterDomain*>& alloc = tv->getMaybeAllocationDomain();
   const std::vector<IterDomain*>& logical = tv->getLogicalDomain();
-  return TensorDomain::noBroadcasts(TensorDomain::noReductions(logical)) ==
-      TensorDomain::noBroadcasts(TensorDomain::noReductions(alloc));
+
+  return std::ranges::equal(
+      logical | TensorDomain::kNoReductions | TensorDomain::kNoBroadcasts,
+      alloc | TensorDomain::kNoReductions | TensorDomain::kNoBroadcasts);
 }
 bool hasUniformSiblings(Expr* expr) {
   return !expr->isOneOf<SdpaFwdOp, SdpaBwdOp>();
@@ -1466,13 +1469,13 @@ int64_t getOperationCount(Val* val) {
   return num_ops;
 }
 
-ForLoop* createRangeLoop(int64_t size) {
+kir::ForLoop* createRangeLoop(int64_t size) {
   Val* loop_start = IrBuilder::create<Val>(0L, PrimDataType::Index);
   Val* loop_index = IrBuilder::create<Val>(PrimDataType::Index);
   Val* loop_stop = IrBuilder::create<Val>(size, DataType::Index);
   IterDomainBuilder loop_domain_builder(loop_start, loop_stop);
 
-  ForLoop* loop = IrBuilder::create<ForLoop>(
+  kir::ForLoop* loop = IrBuilder::create<kir::ForLoop>(
       loop_domain_builder.build(),
       loop_index,
       loop_start,

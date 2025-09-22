@@ -73,8 +73,7 @@ void validateValWithConcreteValue(
         t.dim());
     NVF_CHECK(
         (value->dtype() == DataType::Index &&
-         (t.scalar_type() == torch::kInt64 ||
-          t.scalar_type() == torch::kInt32)) ||
+         (t.scalar_type() == at::kLong || t.scalar_type() == at::kInt)) ||
             (t.scalar_type() == data_type_to_aten(value->dtype())),
         "Expected ",
         getInputPosString(tv),
@@ -307,6 +306,10 @@ const PolymorphicValue& ExpressionEvaluator::getValue(
   }
 
   return null_;
+}
+
+void ExpressionEvaluator::invalidate(const Val* value) {
+  known_values_.erase(value);
 }
 
 void ExpressionEvaluator::print() const {
