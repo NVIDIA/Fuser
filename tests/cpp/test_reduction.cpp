@@ -1211,7 +1211,7 @@ TEST_F(ReductionTest, GroupAllreduce4) {
       ke.compiledKernel()->kernel(), outputs, {t0}, {ref}, __LINE__, __FILE__);
 }
 
-// Variation of FusionGroupAllreduce5 but with different
+// Variation of GroupAllreduce5 but with different
 // types. Exercise grouped allreduces with different types.
 TEST_F(ReductionTest, GroupAllreduce5) {
   Fusion fusion;
@@ -1706,7 +1706,7 @@ TEST_F(ReductionTest, GroupedReductionChannelsLastBatchNormLike) {
 // Test the grouped grid allreduce with BN-like outer reductions
 TEST_F(
     ReductionTest,
-    FusionGroupedReductionPersistentChannelsLastBatchNormLike) {
+    GroupedReductionPersistentChannelsLastBatchNormLike) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
