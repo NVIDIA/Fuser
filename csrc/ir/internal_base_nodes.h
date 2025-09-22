@@ -475,7 +475,7 @@ class NVF_API TensorDomain : public Val {
   }
 
   int64_t nDims() const {
-    return static_cast<int64_t>(loop_domain_.size());
+    return std::ssize(loop_domain_);
   }
 
   bool sameAs(const Statement* other) const override;
@@ -606,7 +606,7 @@ class NVF_API TensorDomain : public Val {
     return std::find(loop().begin(), loop().end(), id) != loop().end();
   }
 
-  // Check if id is an intial loop ID.
+  // Check if id is an initial loop ID.
   bool isInitialLoop(const IterDomain* id) const {
     return std::find(initialLoop().begin(), initialLoop().end(), id) !=
         loop().end();
