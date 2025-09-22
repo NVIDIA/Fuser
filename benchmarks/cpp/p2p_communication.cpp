@@ -54,7 +54,7 @@ void benchmarkP2PCommunication() {
     // Table header
     std::cout << std::left << std::setw(15) << "Message Size" << std::setw(12)
               << "Elements" << std::setw(15) << "Latency (μs)" << std::setw(18)
-              << "Bandwidth (GB/s)" << std::endl;
+              << "BiBandwidth (GB/s)" << std::endl;
     std::cout << std::string(60, '-') << std::endl;
   }
 
@@ -111,7 +111,7 @@ void benchmarkP2PCommunication() {
     // Create tensors
     at::TensorOptions tensor_options =
         at::TensorOptions().device(at::kCUDA, my_rank);
-    at::Tensor send_tensor = at::empty({current_tensor_size}, tensor_options);
+    at::Tensor send_tensor = at::rand({current_tensor_size}, tensor_options);
     at::Tensor recv_tensor = at::empty({current_tensor_size}, tensor_options);
 
     std::unordered_map<Val*, PolymorphicValue> inputs = {
@@ -125,7 +125,6 @@ void benchmarkP2PCommunication() {
 
     // Warmup
     for (int i = 0; i < kWarmupReps; i++) {
-      send_tensor.copy_(at::arange(current_tensor_size, tensor_options) + i);
       executor.runWithInput(inputs);
     }
 
@@ -134,7 +133,6 @@ void benchmarkP2PCommunication() {
     auto start_time = std::chrono::high_resolution_clock::now();
 
     for (int rep = 0; rep < kNumRepetitions; rep++) {
-      send_tensor.copy_(at::arange(current_tensor_size, tensor_options) + rep);
       executor.runWithInput(inputs);
     }
 
@@ -146,7 +144,7 @@ void benchmarkP2PCommunication() {
     double avg_time_us =
         duration.count() / static_cast<double>(kNumRepetitions);
     double bandwidth_gb_s =
-        (current_tensor_size * dtype_size / (1024.0 * 1024.0 * 1024.0)) /
+        (2 * current_tensor_size * dtype_size / (1024.0 * 1024.0 * 1024.0)) /
         (avg_time_us / 1e6);
 
     if (my_rank == 0) {
