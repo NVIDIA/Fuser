@@ -1919,7 +1919,7 @@ std::pair<IrCloner, std::unique_ptr<Fusion>> SegmentedFusion::makeFusion(
         TORCH_WARN(
             "use of output from PreprocessGroupedMatmulInputSf is unsafe by "
             "operation:",
-            use->toString(0));
+            use->toString());
         continue;
       }
       if (std::any_of(
@@ -1936,9 +1936,9 @@ std::pair<IrCloner, std::unique_ptr<Fusion>> SegmentedFusion::makeFusion(
         TORCH_WARN(
             "use of output from PreprocessGroupedMatmulInputSf is unsafe by "
             "operation:",
-            use->toString(0),
+            use->toString(),
             " as argument: ",
-            tv->toString(0));
+            tv->toString());
       }
     }
   }
