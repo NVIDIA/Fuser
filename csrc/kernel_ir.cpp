@@ -498,7 +498,8 @@ Allocate::Allocate(
     NVF_ERROR(buffer->isA<TensorView>());
     NVF_ERROR_EQ(buffer->as<TensorView>()->getMemoryType(), memory_type);
     const auto domain = buffer->as<TensorView>()->domain();
-    for (auto axis : TensorDomain::noReductions(domain->maybeAllocation())) {
+    for (IterDomain* axis :
+         domain->maybeAllocation() | TensorDomain::kNoReductions) {
       shape.push_back(axis->extent());
     }
   }
