@@ -65,6 +65,37 @@ std::string dtypeToCutlass(const DataType& dtype) {
   }
 }
 
+bool hasEpilogue(Fusion* fusion) {
+  return true;
+}
+
+//! This is a tree data structure that reflects the EVT we will generate
+class EVTModel {
+ public:
+  struct Node {
+    std::string name;
+    std::vector<Node*> inputs;
+  };
+
+  Node* makeNode(const std::string& name) {
+    Node* new_node = nodes_up_.emplace_back(new Node(name)).get();
+    nodes_.push_back(new_node);
+    return new_node;
+  }
+
+ private:
+  std::deque<std::unique_ptr<Node>> nodes_up_;
+  std::vector<Node*> nodes_;
+};
+
+std::string genEVT(Fusion* fusion) {
+  std::stringstream ss;
+  ss << "cutlass::epilogue::fusion::Sm90EVT<";
+
+  ss << ">";
+  return def;
+}
+
 } // namespace
 
 bool hasNvfp4ScaledMmPattern(Fusion* fusion) {
@@ -217,6 +248,30 @@ struct Fp4GemmSm100 {
   using ClusterShape = typename KernelTraits::ClusterShape;
   using PerSmTileShape_MNK = typename KernelTraits::PerSmTileShape_MNK;
 
+)";
+  if (hasEpilogue(fusion)) {
+    code += "  using EVTop = " + genEVT(fusion) + ";\n";
+    code += R"(
+  using CollectiveEpilogue =
+      typename cutlass::epilogue::collective::CollectiveBuilder<
+          ArchTag,
+          OperatorClass,
+          PerSmTileShape_MNK,
+          ClusterShape,
+          cutlass::epilogue::collective::EpilogueTileAuto,
+          ElementAccumulator,
+          ElementAccumulator,
+          ElementC,
+          LayoutCTag,
+          AlignmentC,
+          ElementD,
+          LayoutDTag,
+          AlignmentD,
+          cutlass::epilogue::collective::EpilogueScheduleAuto,
+          EVTOp>::CollectiveOp;
+)";
+  } else {
+    code += R"(
   using CollectiveEpilogue =
       typename cutlass::epilogue::collective::CollectiveBuilder<
           ArchTag,
@@ -233,6 +288,9 @@ struct Fp4GemmSm100 {
           LayoutDTag,
           AlignmentD,
           cutlass::epilogue::collective::EpilogueScheduleAuto>::CollectiveOp;
+)";
+  }
+  code += R"(
 
   using CollectiveMainloop =
       typename cutlass::gemm::collective::CollectiveBuilder<
