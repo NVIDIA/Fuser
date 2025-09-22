@@ -2821,35 +2821,46 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
                     ->buffer()
                     ->isA<TensorView>());
 
-      for (const auto& group_index : arange(index_replacement_maps.size())) {
-        // Set the index replacement map with the concrete values of
-        // indices of grouped loops.
-        index_replacement_map_ = index_replacement_maps.at(group_index);
+      // for (const auto& group_index : arange(index_replacement_maps.size())) {
+      //  Set the index replacement map with the concrete values of
+      //  indices of grouped loops.
+      // index_replacement_map_ = index_replacement_maps.at(group_index);
 
+      auto expr_out =
+          grouped_grop->outputs().at(expr_index)->as<kir::TensorIndex>();
+      auto expr_inp =
+          grouped_grop->inputs().at(expr_index)->as<kir::TensorIndex>();
+      // global_work_buffer
+      const auto work_buffer = grouped_grop->reduction_buffers()
+                                   .at(expr_index)
+                                   ->buffer()
+                                   ->as<TensorView>();
+      auto iv = grouped_grop->initVal(expr_index);
+
+      for (const auto& group_index : arange(index_replacement_maps.size())) {
         types.arg(data_type);
 
-        // out
-        outputs.arg(gen(grouped_grop->outputs().at(expr_index)));
+        outputs.arg(genVariableName(expr_out->view()))
+            .append("[(")
+            .append(genInline(expr_out->index()))
+            .append(") + ")
+            .append(group_index)
+            .append("]");
 
-        // inp
-        inputs.arg(gen(grouped_grop->inputs().at(expr_index)));
+        inputs.arg(genVariableName(expr_inp->view()))
+            .append("[(")
+            .append(genInline(expr_inp->index()))
+            .append(") + ")
+            .append(group_index)
+            .append("]");
 
-        // global_work_buffer
-        const auto work_buffer = grouped_grop->reduction_buffers()
-                                     .at(expr_index)
-                                     ->buffer()
-                                     ->as<TensorView>();
-        // Separate Work buffer is used for each reduction.
-        auto work_buffer_offset = group_index == 0
-            ? "0"
-            : (genInline(grouped_grop->buffer_stride()) + " * " +
-               std::to_string(group_index));
         work_bufs.arg("&")
             .append(genVariableName(work_buffer))
-            .append("[")
-            .append(work_buffer_offset)
+            .append("[(")
+            .append(genInline(grouped_grop->buffer_stride()).append(") * "))
+            .append(group_index)
             .append("]");
-        auto iv = (grouped_grop->initVal(expr_index));
+
         // Python scalar only has double, int64_t and complex double, there is
         // no float, int32 and complex float. PyTorch scalar has the same design
         // as python scalar, so the dtype might not match explicit type
@@ -2859,6 +2870,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
         } else {
           init_vals.arg(genInline(iv));
         }
+
         reduction_ops.arg(genReductionOp(
             grouped_grop->getReductionOpType(expr_index),
             grouped_grop->output(expr_index)->dtype()));
@@ -2878,8 +2890,6 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
         } else {
           write_preds.arg(read_pred);
         }
-
-        index_replacement_map_.clear();
       }
     }
 
@@ -2961,10 +2971,6 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       const auto& init = init_vals.at(expr_index);
 
       for (const auto& group_index : arange(index_replacement_maps.size())) {
-        // Set the index replacement map with the concrete values of
-        // indices of grouped loops.
-        index_replacement_map_ = index_replacement_maps.at(group_index);
-
         data_types.arg(data_type);
         index_types.arg(index_type);
 
@@ -2975,9 +2981,28 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
 
         // Setup arguments for avg, var, and N
         for (const auto i : arange(3)) {
-          out_args[i].arg(gen(output.get(i)));
-          in_args[i].arg(gen(input.get(i)));
+          auto out_ti = output.get(i)->as<kir::TensorIndex>();
+          out_args[i]
+              .arg(genVariableName(out_ti->view()))
+              .append("[(")
+              .append(genInline(out_ti->index()))
+              .append(") + ")
+              .append(group_index)
+              .append("]");
+          if (auto in_ti = dynamic_cast<kir::TensorIndex*>(input.get(i))) {
+            in_args[i]
+                .arg(genVariableName(in_ti->view()))
+                .append("[(")
+                .append(genInline(in_ti->index()))
+                .append(") + ")
+                .append(group_index)
+                .append("]");
+          } else {
+            NVF_ERROR(input.get(i)->isScalar());
+            in_args[i].arg(gen(input.get(i)));
+          }
           init_args[i].arg(gen(init.get(i)));
+
           const auto work_buffer = grouped_gwop->reduction_buffers()[i]
                                        .at(expr_index)
                                        ->buffer()
@@ -2985,8 +3010,9 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
           work_bufs[i]
               .arg("&")
               .append(genVariableName(work_buffer))
-              .append("[")
-              .append(work_buffer_offset)
+              .append("[(")
+              .append(genInline(grouped_gwop->buffer_stride()).append(") * "))
+              .append(group_index)
               .append("]");
         }
 

@@ -503,9 +503,12 @@ GridCommWorkBufferSizeInfo getGridCommWorkBufferSize(
   bool is_doubled = false;
 
   for (auto fl : for_loops) {
-    // Buffer size of parallelized domains are already taken care
-    if (fl->isTrivial() || fl->iter_domain()->isReduction() ||
-        fl->iter_domain()->isThread()) {
+    // Buffer size of parallelized domains are already taken
+    // care. Note that while we do not create for-loops for grouped
+    // iter domains, its size needs to be accounted to expand the
+    // buffer.
+    if ((fl->isTrivial() && !fl->isGroup()) ||
+        fl->iter_domain()->isReduction() || fl->iter_domain()->isThread()) {
       continue;
     }
     // If persistent, i.e., allreduce, only IterDomains with
@@ -2134,13 +2137,15 @@ void IndexLowering::handle(const LoadStoreOp* ldst) {
 
 void IndexLowering::handleGroupedLoadStoreOp(const LoadStoreOp* ldst) {
   NVF_ERROR(ldst->in()->isScalar());
-  auto group_id_it = std::ranges::find_if(
-      ldst->out()->as<TensorView>()->getLoopDomain(), [](IterDomain* id) {
-        return id->getParallelType() == ParallelType::Group;
-      });
-  NVF_ERROR(
-      group_id_it != ldst->out()->as<TensorView>()->getLoopDomain().end());
-  auto group_size = (*group_id_it)->extent()->evaluate().as<int64_t>();
+
+  int64_t group_size = 1;
+  for (const auto& loop_id : ldst->out()->as<TensorView>()->getLoopDomain()) {
+    if (loop_id->getParallelType() == ParallelType::Group) {
+      group_size *= loop_id->extent()->evaluate().as<int64_t>();
+    }
+  }
+
+  NVF_ERROR(group_size > 1);
 
   auto out = lowerDstIndex(ldst->out())->as<kir::TensorIndex>();
 
