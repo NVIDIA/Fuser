@@ -4439,7 +4439,7 @@ std::vector<Expr*> get_upcasts_and_squeezes(SegmentedGroup* group) {
 bool needsToSqueezeExpanded(
     TensorView* x,
     const std::vector<bool>& to_squeeze) {
-  auto non_reduction_ids = x->getLoopDomain() | TensorDomain::kNoReductions;
+  auto non_reduction_ids = x->getLogicalDomain() | TensorDomain::kNoReductions;
   NVF_ERROR_EQ(
       std::ranges::distance(non_reduction_ids),
       std::ssize(to_squeeze),
