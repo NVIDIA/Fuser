@@ -349,7 +349,7 @@ class CompileTimeChecker : private IterVisitor {
     // with the logical domains of the input and output tensors, so
     // they need to be checked separately.
     checkDomainConstraints(
-        TensorDomain::noReduction(
+        TensorDomain::noReductions(
             scatter->index()->as<TensorView>()->getLogicalDomain()),
         {constrained_out_logical_dim});
     // Index and src tensors are mapped, so just checking index should
