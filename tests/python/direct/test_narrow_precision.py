@@ -13,6 +13,7 @@ from nvfuser_direct.pytorch_utils import torch_dtype_to_nvfuser_dtype
 #from python.direct_utils import (
 from narrow_precision import (
     FLOAT4_E2M1_MAX,
+    FLOAT8_E4M3_EPS,
     FLOAT8_E4M3_MAX,
     pytorch_nvfp4_quantize,
     #is_pre_blackwell,
@@ -115,10 +116,11 @@ def test_scaled_mm(
 #@pytest.mark.skipif(
 #    is_pre_blackwell(), reason="Only supported on blackwell and newer devices."
 #)
-@pytest.mark.parametrize("config", [[1024, 128, 256]])
-@pytest.mark.parametrize("tokens_per_expert_neg_one", [[115, 144, 8]])
-@pytest.mark.parametrize("out_dtype", [torch.bfloat16])
-def test_cutlass_nvfp4_grouped_mm(
+#@pytest.mark.parametrize("config", [[1024, 128, 256]])
+#@pytest.mark.parametrize("tokens_per_expert_neg_one", [[115, 144, 8]])
+#@pytest.mark.parametrize("out_dtype", [torch.bfloat16])
+#def test_cutlass_nvfp4_grouped_mm(
+def test1(
     nvfuser_direct_test,
     config,
     tokens_per_expert_neg_one,
@@ -242,7 +244,8 @@ def test_cutlass_nvfp4_grouped_mm(
         blockscale_offsets,
     ]
 
-    o, _ = nvfuser_direct_test.exec_nvfuser(nvfuser_fusion_id0, inputs)
+    #o, _ = nvfuser_direct_test.exec_nvfuser(nvfuser_fusion_id0, inputs)
+    o, _ = nvfuser_direct_test(nvfuser_fusion_id0, inputs)
 
     o_decomposed_ref = torch.empty(m, n, dtype=torch.bfloat16, device="cuda:0")
     for i in range(g):
@@ -374,9 +377,16 @@ def test(
         # k_tile_size = fd.ops.div(k_size, 16)
         # using primitive operations to handle quantization
         reshaped_mat1 = fd.ops.reshape(mat1, [m_size, k_tile_size, 16])
-        scale1 = fd.ops.max(reshaped_mat1, 2)
+
+        scale1 = fd.ops.abs(reshaped_mat1)
+        scale1 = fd.ops.max(scale1, 2)
+        scale1 = fd.ops.div(scale1, FLOAT4_E2M1_MAX)
+        scale1 = fd.ops.clamp(scale1, FLOAT8_E4M3_EPS, FLOAT8_E4M3_MAX)
+
         broadcast_scale1 = fd.ops.broadcast(scale1, [False, False, True])
         reshaped_scaled_mat1 = fd.ops.div(reshaped_mat1, broadcast_scale1)
+        reshaped_scaled_mat1 = fd.ops.clamp(reshaped_scaled_mat1, -FLOAT8_E4M3_MAX, FLOAT8_E4M3_MAX)
+
         scaled_mat1 = fd.ops.reshape(reshaped_scaled_mat1, [m_size, k_size])
         # should I clamp here before cast?!
         fp4_mat1 = fd.ops.cast(scaled_mat1, DataType.Float4_e2m1fn)
@@ -396,6 +406,8 @@ def test(
             DataType.BFloat16,
         )
         fd.add_output(out)
+        fd.add_output(fp4_mat1)
+        fd.add_output(layout_fp8_scale1)
 
     inputs = [
         mat1,
@@ -441,6 +453,7 @@ def test(
             * mat2_gs[i]
         )
 
+    breakpoint()
     assert torch.allclose(o_decomposed_ref, o[0], atol=1e-2, rtol=1e-2)
 
 def fn(
