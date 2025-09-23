@@ -6,7 +6,8 @@
  */
 // clang-format on
 
-#include "cutlass/gemm.h"
+#include <cutlass/evt.h>
+#include <cutlass/gemm.h>
 #include <dispatch.h>
 #include <exceptions.h>
 #include <fusion.h>
@@ -107,6 +108,7 @@ std::string generateNvfp4ScaledMmKernel(
       R"(
 #include "cutlass/cutlass.h"
 #include "cutlass/epilogue/collective/collective_builder.hpp"
+#include "cutlass/epilogue/fusion/sm90_visitor_load_tma_warpspecialized.hpp"
 #include "cutlass/gemm/collective/collective_builder.hpp"
 #include "cutlass/gemm/device/gemm_universal_adapter.h"
 #include "cutlass/gemm/kernel/gemm_universal.hpp"
@@ -219,8 +221,11 @@ struct Fp4GemmSm100 {
   using PerSmTileShape_MNK = typename KernelTraits::PerSmTileShape_MNK;
 
 )";
-  if (hasEpilogue(fusion)) {
-    code += "  using EVTop = " + genEVT(fusion) + ";\n";
+  const mma_utils::DataWrapperOpt<EVTModel> model_opt = extractEVTModel(fusion);
+  const bool has_evt = model_opt.isValid();
+  if (has_evt) {
+    const EVTModel& evt_model = model_opt.getData();
+    code += "  using EVTop = " + evt_model.defString() + ";\n";
     code += R"(
   using CollectiveEpilogue =
       typename cutlass::epilogue::collective::CollectiveBuilder<

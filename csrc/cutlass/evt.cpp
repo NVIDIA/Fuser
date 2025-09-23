@@ -6,14 +6,15 @@
  */
 // clang-format on
 
-#include "cutlass/gemm.h"
+#include <cutlass/evt.h>
+#include <device_lower/utils.h>
 #include <dispatch.h>
 #include <exceptions.h>
 #include <fusion.h>
 #include <ir/interface_nodes.h>
 #include <ir/internal_nodes.h>
 #include <ir/utils.h>
-#include <scheduler/cutlass.h>
+#include <scheduler/mma_utils.h>
 #include <type.h>
 
 #include <format>
@@ -40,12 +41,6 @@ TensorView* getAccTv(Fusion* fusion) {
   return acc;
 }
 
-bool hasEpilogue(Fusion* fusion) {
-  TensorView* acc = getAccTv(fusion);
-  NVF_ERROR(acc != nullptr);
-  return !acc->isFusionOutput() && fusion->outputs().size() == 1;
-}
-
 //! This converts the epilogue of a matmul fusion into an Epilogue Visitor Tree
 //! (EVT). We model the tree using the EVTModel class above.
 //! https://dx.doi.org/doi/10.1145/3620666.3651369
@@ -55,12 +50,23 @@ class EVTConverter : OptInDispatch {
     run();
   }
 
-  const EVTModel& model() const {
+  EVTModel& model() {
     return model_;
+  }
+
+  const std::string& failureReason() const {
+    return failure_reason_;
   }
 
  private:
   void run() {
+    // Start by making nodes for the accumulator and for any epilogue inputs
+    TensorView* acc = getAccTv(fusion_);
+    val_nodes_.emplace(
+        acc, model_.makeNode("cutlass::epilogue::fusion::Sm90AccFetch"));
+
+    // TODO: add load nodes for epilogue inputs
+
     for (Expr* expr :
          StmtSort::getExprsBetween({getAccTv(fusion_)}, fusion_->outputs())) {
       dispatch(expr);
@@ -72,16 +78,37 @@ class EVTConverter : OptInDispatch {
     return val_nodes_.at(val);
   }
 
-  using OptInDispatch::handle;
+  using OptInDispatch::dispatch;
+
+  void dispatch(Expr* expr) {
+    if (!ir_utils::isTvOp(expr)) {
+      return;
+    }
+    OptInDispatch::dispatch(expr);
+  }
+
+  void handle(LoadStoreOp* uop) {}
 
   void handle(UnaryOp* uop) {
     // TODO: translate all of the supported UnaryOpTypes
+    EVTModel::Node* node =
+        model_.makeNode("cutlass::epilogue::fusion::Sm90Compute");
+    std::string op_name;
+    switch (uop->getUnaryOpType()) {
+      case UnaryOpType::Relu:
+        op_name = "epilogue::thread::ReLU";
+        break;
+      default:
+        NVF_THROW("Unhandled unary op type: ", uop->getUnaryOpType());
+    }
+    node->inputs.push_back(model_.makeNode("cutlass::" + op_name));
+
+    node->inputs.push_back(getNodeFor(uop->in()));
+    val_nodes_.emplace(uop->out(), node);
   }
 
   void handle(BinaryOp* bop) {
     // TODO: translate all of the supported BinaryOpTypes
-    EVTModel::Node* node =
-        model_.makeNode("cutlass::epilogue::fusion::Sm90Compute");
     std::string op_name;
     switch (bop->getBinaryOpType()) {
       case BinaryOpType::Add:
@@ -99,14 +126,17 @@ class EVTConverter : OptInDispatch {
       default:
         NVF_THROW("Unhandled binary op type: ", bop->getBinaryOpType());
     }
-    node->inputs.push_back(model_.makeNode("cutlass::" + op_name));
+    // This node and its inputs is essentially a function signature
+    EVTModel::Node* func_node =
+        model_.makeNode("cutlass::epilogue::fusion::Sm90Compute");
+    func_node->inputs.push_back(model_.makeNode("cutlass::" + op_name));
 
     node->inputs.push_back(getNodeFor(bop->lhs()));
     node->inputs.push_back(getNodeFor(bop->rhs()));
 
     // https://github.com/NVIDIA/cutlass/blob/2b8dff1f90605452c378c02298dd0cacaf65753c/include/cutlass/numeric_conversion.h#L56
     node->inputs.push_back(
-        model_.makeNode("cutlass::FloatRoundStyle::round_toward_zero"));
+        model_.makeNode("cutlass::FloatRoundStyle::round_to_nearest"));
 
     val_nodes_.emplace(bop->out(), node);
   }
@@ -115,21 +145,20 @@ class EVTConverter : OptInDispatch {
   Fusion* fusion_;
   EVTModel model_;
   std::unordered_map<Val*, EVTModel::Node*> val_nodes_;
+  std::string failure_reason_;
 };
 
 } // namespace
 
-EVTModel EVTModel::copy() const {
-  EVTModel new_model;
-
+EVTModel::EVTModel(const EVTModel& model) {
   std::unordered_map<Node*, Node*> old2new;
 
-  for (const auto& node_up : nodes_up_) {
-    Node* new_node = new_model.makeNode(node_up->name);
+  for (const auto& node_up : model.nodes_up_) {
+    Node* new_node = makeNode(node_up->name);
     old2new.emplace(node_up.get(), new_node);
   }
   // Loop again now that have old2new fully populated
-  for (const auto& node_up : nodes_up_) {
+  for (const auto& node_up : model.nodes_up_) {
     // Fill in new_node->inputs
     Node* new_node = old2new.at(node_up.get());
     new_node->inputs.reserve(node_up->inputs.size());
@@ -137,18 +166,43 @@ EVTModel EVTModel::copy() const {
       new_node->inputs.push_back(old2new.at(inp));
     }
   }
-
-  new_model.setRoot(old2new.at(root_));
-  return new_model;
+  setRoot(old2new.at(model.root()));
 }
 
-EVTModel extractEVTModel(Fusion* fusion) {
+// TODO: accept a "depth" argument and format the output prettily
+std::string EVTModel::defString(Node* node) const {
+  if (node == nullptr) {
+    node = root_;
+  }
+  NVF_ERROR(node != nullptr);
+  std::stringstream ss;
+  ss << node->name;
+  if (!node->inputs.empty()) {
+    ss << "<";
+    bool first = true;
+    for (Node* input : node->inputs) {
+      if (!first) {
+        ss << ", ";
+      }
+      first = false;
+      ss << defString(input);
+    }
+    ss << ">";
+  }
+  return ss.str();
+}
+
+// TODO: DataWrapperOpt belongs in scheduler_utils
+mma_utils::DataWrapperOpt<EVTModel> extractEVTModel(Fusion* fusion) {
   EVTConverter conv(fusion);
-  return conv.model().copy();
+  if (!conv.failureReason().empty()) {
+    return {conv.failureReason().c_str()};
+  }
+  return std::move(conv.model());
 }
 
 std::string genEVT(Fusion* fusion) {
-
+  EVTConverter conv(fusion);
   std::stringstream ss;
   ss << "cutlass::epilogue::fusion::Sm90EVT<";
   ss << conv.model().defString();

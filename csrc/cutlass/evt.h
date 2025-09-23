@@ -7,6 +7,8 @@
 // clang-format on
 #pragma once
 
+#include <scheduler/mma_utils.h>
+
 #include <deque>
 #include <memory>
 #include <string>
@@ -14,17 +16,30 @@
 
 namespace nvfuser {
 
-class Fusion
+class Fusion;
 
 namespace cutlass_codegen {
 
-//! This is a tree data structure that reflects the EVT we will generate
+//! This is a tree data structure that mimics the CUTLASS EVT we will generate
 class EVTModel {
  public:
-  EVTModel copy() const;
+  EVTModel() = default;
 
+  EVTModel(const EVTModel& m);
+
+  EVTModel(EVTModel&& m) = default;
+
+  EVTModel& operator=(const EVTModel& m) = default;
+
+  ~EVTModel() = default;
+
+  //! Nodes are generic cutlass templated classes. We do not distinguish tree
+  //! visitors from topo visitors, or compute nodes from load or store nodes,
+  //! etc. Each Node is defined by its type name and a list of template
+  //! parameters, which we call inputs. These objects are owned by EVTModel and
+  //! can be created using makeNode.
   struct Node {
-    std::string name;
+    const std::string name;
     std::vector<Node*> inputs;
   };
 
@@ -41,35 +56,18 @@ class EVTModel {
     root_ = new_root;
   }
 
-  // TODO: accept a "depth" argument and format the output prettily
-  std::string defString(Node* node = nullptr) const {
-    if (node == nullptr) {
-      node = root_;
-    }
-    NVF_ERROR(node != nullptr);
-    std::stringstream ss;
-    ss << node->name;
-    if (!node->inputs.empty()) {
-      ss << "<";
-      bool first = true;
-      for (Node* input : node->inputs) {
-        if (!first) {
-          ss << ", ";
-        }
-        first = false;
-        ss << defString(input);
-      }
-      ss << ">";
-    }
-    return ss.str();
-  }
+  //! Generate the C++ code used to define the EVT type
+  std::string defString(Node* node = nullptr) const;
+
+  // TODO: Generate the arguments to be used as args.epilogue.thread
+  // std::string argString(Node* node = nullptr) const;
 
  private:
   std::deque<std::unique_ptr<Node>> nodes_up_;
   Node* root_;
 };
 
-EVTModel extractEVTModel(Fusion* fusion);
+mma_utils::DataWrapperOpt<EVTModel> extractEVTModel(Fusion* fusion);
 
 } // namespace cutlass_codegen
 
