@@ -349,7 +349,7 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
 
   auto broadcast_info = HeuristicDataCacheEntry<
       HeuristicCompileTime::BroadcastMultiples>(
-      data_cache, [&largest_out, &index_type]() {
+      data_cache, [&largest_out, &index_type, &reorder_map]() {
         return std::make_unique<scheduler_utils::BroadcastMultipleInformation>(
             scheduler_utils::getBroadcastMultiples(
                 largest_out, index_type, reorder_map));
