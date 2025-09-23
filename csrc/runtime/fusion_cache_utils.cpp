@@ -68,7 +68,10 @@ KernelArgumentHolder ArgumentManager::translateValsToArgs(
   return holder;
 }
 
-void resetAllocationDomainAndContiguity(TensorView* tv, const std::vector<int64_t>& sizes, const std::vector<int64_t>& strides) {
+void resetAllocationDomainAndContiguity(
+    TensorView* tv,
+    const std::vector<int64_t>& sizes,
+    const std::vector<int64_t>& strides) {
   struct Dim {
     int64_t size;
     int64_t stride;
@@ -76,14 +79,16 @@ void resetAllocationDomainAndContiguity(TensorView* tv, const std::vector<int64_
   };
   std::vector<Dim> dims;
   dims.reserve(sizes.size());
-  const auto& no_reduction_domain = TensorDomain::noReductions(tv->getLogicalDomain());
+  const auto& no_reduction_domain =
+      TensorDomain::noReductions(tv->getLogicalDomain());
   NVF_ERROR(
       no_reduction_domain.size() == sizes.size(),
       "Sizes and logical domain must have the same number of dimensions");
   NVF_ERROR(
       no_reduction_domain.size() == strides.size(),
       "Strides and logical domain must have the same number of dimensions");
-  for (auto [size, stride, id] : views::zip_view(sizes, strides, no_reduction_domain)) {
+  for (auto [size, stride, id] :
+       views::zip_view(sizes, strides, no_reduction_domain)) {
     dims.push_back({size, stride, id});
   }
   // Sort by stride in descending order
@@ -101,9 +106,11 @@ void resetAllocationDomainAndContiguity(TensorView* tv, const std::vector<int64_
     sorted_sizes.push_back(dim.size);
     sorted_strides.push_back(dim.stride);
   }
-  std::vector<std::optional<bool>> contiguity = computeContiguity(sorted_sizes, sorted_strides);
-  // Device parallelized dimension always has size 1, so contiguity inference will treat it as broadcast.
-  // But it is actually not broadcast, so we need to fix its contiguity to true.
+  std::vector<std::optional<bool>> contiguity =
+      computeContiguity(sorted_sizes, sorted_strides);
+  // Device parallelized dimension always has size 1, so contiguity inference
+  // will treat it as broadcast. But it is actually not broadcast, so we need to
+  // fix its contiguity to true.
   for (auto [index, id] : views::enumerate_view(no_reduction_domain)) {
     if (id->isDeviceDim()) {
       contiguity[index] = true;
