@@ -17,6 +17,9 @@
 #include <polymorphic_value.h>
 #include <tensor_metadata.h>
 
+#include <iterator>
+#include <ranges>
+
 namespace nvfuser {
 
 namespace {
@@ -222,11 +225,11 @@ void validateAllocationSizesAndStrides(
     const std::vector<std::optional<bool>>& contiguity,
     c10::IntArrayRef sizes,
     c10::IntArrayRef strides) {
-  NVF_ERROR(alloc_dom.size() == contiguity.size());
+  NVF_ERROR_EQ(alloc_dom.size(), contiguity.size());
   checkAllEqual(
-      {TensorDomain::noReductions(alloc_dom).size(),
-       sizes.size(),
-       strides.size()});
+      {std::ranges::distance(alloc_dom | TensorDomain::kNoReductions),
+       std::ssize(sizes),
+       std::ssize(strides)});
 
   int64_t expected_stride_if_contiguous = 1;
   auto dim_index = static_cast<int64_t>(sizes.size());
@@ -295,7 +298,7 @@ inferAndValidateAllocationSizesAndStrides(
   std::vector<int64_t> logical_sizes = unshardedSizes(tv, tensor.sizes());
   std::unordered_map<IterDomain*, std::pair<int64_t, int64_t>> active_ids;
   int64_t dim_index = 0;
-  for (IterDomain* id : TensorDomain::noReductions(logical)) {
+  for (IterDomain* id : logical | TensorDomain::kNoReductions) {
     active_ids[id] = {logical_sizes.at(dim_index), tensor.stride(dim_index)};
     dim_index++;
   }
@@ -310,7 +313,7 @@ inferAndValidateAllocationSizesAndStrides(
   std::vector<int64_t> allocation_strides;
   allocation_sizes.reserve(alloc.size());
   allocation_strides.reserve(alloc.size());
-  for (IterDomain* id : TensorDomain::noReductions(alloc)) {
+  for (IterDomain* id : alloc | TensorDomain::kNoReductions) {
     if (id->isDeviceDim()) {
       allocation_sizes.push_back(1);
     } else {

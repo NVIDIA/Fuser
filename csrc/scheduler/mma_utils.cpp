@@ -6,6 +6,11 @@
  */
 // clang-format on
 
+#include <scheduler/mma_utils.h>
+
+#include <ranges>
+#include <variant>
+
 #include <ATen/cuda/CUDAContext.h>
 
 #include <device_lower/utils.h>
@@ -18,14 +23,11 @@
 #include <ops/all_ops.h>
 #include <ops/utils.h>
 #include <options.h>
-#include <scheduler/mma_utils.h>
 #include <scheduler/tools/abstract_tensor.h>
 #include <scheduler/utils.h>
 #include <type.h>
 #include <utils.h>
 #include <val_graph.h>
-#include <ranges>
-#include <variant>
 
 namespace nvfuser {
 
@@ -1515,7 +1517,8 @@ TensorRolesMapOpt getTensorRoles(
 
   const auto findDims = [&dim_roles, &graph](TensorView* tv) {
     DimPresence has;
-    for (IterDomain* id : TensorDomain::noReductions(tv->getLogicalDomain())) {
+    for (IterDomain* id :
+         tv->getLogicalDomain() | TensorDomain::kNoReductions) {
       if (id->isBroadcast() || id->isDeviceDim()) {
         continue;
       }
@@ -1924,7 +1927,8 @@ class MatmulTranslator : public OptInDispatch {
   }
 
   TensorView* getBroadcastInnerToRank(TensorView* tv, int64_t rank) {
-    size_t tv_rank = TensorDomain::noReductions(tv->getLogicalDomain()).size();
+    const auto tv_rank = std::ranges::distance(
+        tv->getLogicalDomain() | TensorDomain::kNoReductions);
 
     // broadcast inner on inp to match rank with other.
     if ((int64_t)tv_rank < rank) {
@@ -1938,7 +1942,8 @@ class MatmulTranslator : public OptInDispatch {
   }
 
   TensorView* getUnsqueeze(TensorView* tv, int64_t dim) {
-    size_t tv_rank = TensorDomain::noReductions(tv->getLogicalDomain()).size();
+    const auto tv_rank = std::ranges::distance(
+        tv->getLogicalDomain() | TensorDomain::kNoReductions);
     std::vector<bool> bcast_dims(tv_rank + 1, false);
     if (dim < 0) {
       dim += (int64_t)tv_rank + 1;

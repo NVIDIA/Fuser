@@ -89,6 +89,8 @@ namespace {
 // Utility function to get the total size of the given IDs if all
 // extents are statically known
 std::optional<int64_t> getMaybeStaticSize(const std::vector<IterDomain*>& ids) {
+  NVF_ERROR(!ids.empty());
+
   bool all_static_ids = true;
   int64_t static_size = 1;
 
@@ -218,8 +220,7 @@ class CompileTimeChecker : private IterVisitor {
       can_schedule_ = false;
       setRejectReason(
           "Found constrained ops for which all threads must participate "
-          "without predication but "
-          "not guaranteed");
+          "without predication but not guaranteed");
     }
 
     // Make sure constrained and unconstrained ids are
@@ -390,14 +391,15 @@ class CompileTimeChecker : private IterVisitor {
     // not be parallelized with TID.
     auto out_tv = ir_utils::getTvOutput(scatter);
     checkDomainConstraints(
-        out_tv->getLoopDomain(), {constrained_out_logical_dim});
+        out_tv->domain()->initialLoop(), {constrained_out_logical_dim});
 
     // In addition, the index and src tensors are not allowed to use
     // TID with the scatter dim. Their logical domains are not mapped
     // with the logical domains of the input and output tensors, so
     // they need to be checked separately.
     checkDomainConstraints(
-        scatter->index()->as<TensorView>()->getLogicalDomain(),
+        TensorDomain::noReductions(
+            scatter->index()->as<TensorView>()->getLogicalDomain()),
         {constrained_out_logical_dim});
     // Index and src tensors are mapped, so just checking index should
     // be sufficient.
@@ -745,7 +747,13 @@ void propagateReshape(Fusion* fusion) {
 // Scatter: For each scatter output, if there's a use of the output,
 // insert a copy between the output and the use (i.e.,
 // cacheAfter). This intermediate copy is used to simplify the
-// propagation of scheduling from the scatter output tensor.
+// propagation of scheduling from the scatter output tensor. Similary,
+// since scatter inputs need to be scheduled in a particular way, they
+// are considered constrained for the scatter op, but they may be also
+// produced by another constrained op, which may have different
+// scheduling constraints. In order to avoid sheduling the same tensor
+// for two different constrained ops, insert a copy for such inputs as
+// well.
 //
 // ArgsortOp, ScanOp, TopKOp: To avoid predicating the output, use a
 // new Local tensor as the output if the original output is not a

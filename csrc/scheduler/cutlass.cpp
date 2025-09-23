@@ -22,11 +22,9 @@ namespace nvfuser {
 std::string CutlassParams::toString() const {
   std::stringstream ss;
   ss << "CutlassParams (" << scheduler_type << ")\n";
-  ss << "  MMA Tile: " << mma_tile.m << "x" << mma_tile.n << "x" << mma_tile.k;
-  ss << "  Per-SM MMA Tile: " << per_sm_tile.m << "x" << per_sm_tile.n << "x"
-     << per_sm_tile.k;
-  ss << "  Cluster shape: " << cluster_shape.m << "x" << cluster_shape.n << "x"
-     << cluster_shape.k << "\n";
+  ss << "  MMA Tile: " << mma_tile.toVector() << "\n";
+  ss << "  Per-SM MMA Tile: " << per_sm_tile.toVector() << "\n";
+  ss << "  Cluster shape: " << cluster_shape.toVector() << "\n";
   return ss.str();
 }
 
@@ -48,10 +46,9 @@ bool CutlassParams::sameAs(const HeuristicParams* other) const {
     return false;
   }
   const auto* other_cutlass = other->as<CutlassParams>();
-  return mma_tile == other_cutlass->mma_tile &&
+  return cparams == other->cparams && mma_tile == other_cutlass->mma_tile &&
       per_sm_tile == other_cutlass->per_sm_tile &&
-      cluster_shape == other_cutlass->cluster_shape &&
-      HeuristicParams::sameAs(other);
+      cluster_shape == other_cutlass->cluster_shape;
 }
 
 std::unique_ptr<HeuristicParams> CutlassParams::clone() const {
@@ -105,6 +102,10 @@ std::unique_ptr<HeuristicParams> CutlassScheduler::computeHeuristics(
   // For now, use default parameters
   // TODO: Implement actual heuristics based on problem size, GPU arch, etc.
   // Once libheuristics is available via pycutlass wheel, integrate it here
+
+  if (isDebugDumpEnabled(DebugDumpOption::SchedulerDebug)) {
+    debug() << params->toString() << std::endl;
+  }
 
   return params;
 }

@@ -235,7 +235,7 @@ bool ForLoop::isTrivial() const {
   if (vectorize() || iter_domain()->isBroadcast() ||
       iter_domain()->isStride() || iter_domain()->isMma() ||
       iter_domain()->isBulk() || iter_domain()->isDeviceDim() ||
-      iter_domain()->isStream()) {
+      iter_domain()->isStream() || isGroup()) {
     return true;
   }
 
@@ -305,16 +305,7 @@ class ExprFinder : kir::ConstIrVisitor {
 } // namespace
 
 bool ForLoop::isGroup() const {
-  if (iter_domain()->getParallelType() != ParallelType::Group) {
-    return false;
-  }
-
-  return ExprFinder::exists(
-      this,
-      {typeid(GroupedReductionOp),
-       typeid(kir::GroupedGridReduction),
-       typeid(kir::GroupedGridWelford),
-       typeid(ArgsortOp)});
+  return iter_domain()->getParallelType() == ParallelType::Group;
 }
 
 namespace {
@@ -498,7 +489,8 @@ Allocate::Allocate(
     NVF_ERROR(buffer->isA<TensorView>());
     NVF_ERROR_EQ(buffer->as<TensorView>()->getMemoryType(), memory_type);
     const auto domain = buffer->as<TensorView>()->domain();
-    for (auto axis : TensorDomain::noReductions(domain->maybeAllocation())) {
+    for (IterDomain* axis :
+         domain->maybeAllocation() | TensorDomain::kNoReductions) {
       shape.push_back(axis->extent());
     }
   }
@@ -2077,5 +2069,39 @@ std::string RNGOp::toInlineString(int indent_size) const {
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(RNGOp)
+
+GroupedLoadStoreOp::GroupedLoadStoreOp(
+    IrBuilderPasskey passkey,
+    TensorIndex* out,
+    Val* in,
+    int64_t group_size)
+    : Expr(passkey) {
+  NVF_ERROR(
+      passkey.ir_container_->isA<kir::Kernel>(),
+      "IR type only valid for Kernel container.");
+  NVF_ERROR(
+      in->isScalar(), "Expected to have a scalar input: ", in->toString());
+  addOutput(out);
+  addInput(in);
+  addDataAttribute(group_size);
+}
+
+std::string GroupedLoadStoreOp::toString(int indent_size) const {
+  std::stringstream ss;
+  indent(ss, indent_size) << out()->toString() << "\n";
+  indent(ss, indent_size + 1)
+      << " = " << in()->toString() << ", group size: " << groupSize() << "\n";
+  return ss.str();
+}
+
+std::string GroupedLoadStoreOp::toInlineString(int indent_size) const {
+  NVF_THROW("Inline printing not supported");
+}
+
+int64_t GroupedLoadStoreOp::groupSize() const {
+  return attribute<int64_t>(0);
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(GroupedLoadStoreOp)
 
 } // namespace nvfuser::kir
