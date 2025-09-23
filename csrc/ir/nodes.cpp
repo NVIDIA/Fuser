@@ -3796,8 +3796,11 @@ void TensorDomain::reorder(
 std::vector<IterDomain*> TensorDomain::orderedAs(
     const std::vector<IterDomain*>& dom,
     const std::unordered_map<int64_t, int64_t>& old2new_) {
-  NVF_ERROR(
-      !dom.empty() || old2new_.empty(), "Tried to reorder a 0-dim domain");
+  if (old2new_.empty()) {
+    return dom;
+  }
+
+  NVF_ERROR(!dom.empty(), "Tried to reorder a 0-dim domain");
 
   // Eventhough these checks are already in TensorView, we want to redo them as
   // we can enter this function from other places, not through TensorView

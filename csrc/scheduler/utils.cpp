@@ -1695,9 +1695,7 @@ DisjointLogicalSetInfo getDisjointLogicalSetsOf(
   }
 
   DisjointLogicalSetInfo info;
-  if (!logical_reorder_map.empty()) {
-    logical_dom = TensorDomain::orderedAs(logical_dom, logical_reorder_map);
-  }
+  logical_dom = TensorDomain::orderedAs(logical_dom, logical_reorder_map);
 
   // Start naming id's based on 0 so the inner most dimension will always be
   // 0, then as groups are discovered marching to the left their id will
@@ -1768,19 +1766,17 @@ BroadcastMultipleInformation getBroadcastMultiples(
 
   // We always cacheBefore output at the beginning of the scheduling. And after
   // cacheBefore, the reference tensor will have all reduction IDs removed.
-  std::vector<IterDomain*> ref_root_domain = [&]() {
-    auto ref_root_domain_view = reference_tv->getLogicalDomain() |
+  std::vector<IterDomain*> ref_logical_domain = [&]() {
+    auto ref_logical_domain_view = reference_tv->getLogicalDomain() |
         TensorDomain::kNoReductions | TensorDomain::kNoDevices;
     return std::vector<IterDomain*>(
-        ref_root_domain_view.begin(), ref_root_domain_view.end());
+        ref_logical_domain_view.begin(), ref_logical_domain_view.end());
   }();
 
-  if (!logical_reorder_map.empty()) {
-    ref_root_domain =
-        TensorDomain::orderedAs(ref_root_domain, logical_reorder_map);
-  }
+  ref_logical_domain =
+      TensorDomain::orderedAs(ref_logical_domain, logical_reorder_map);
 
-  std::vector<BroadcastMultiple> multiples(ref_root_domain.size());
+  std::vector<BroadcastMultiple> multiples(ref_logical_domain.size());
 
   auto disjoint_logical_sets = disjointLogicalSets(fusion);
   auto disjoint_set_information = scheduler_utils::getDisjointLogicalSetsOf(
