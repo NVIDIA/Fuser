@@ -91,8 +91,6 @@ class EVTConverter : OptInDispatch {
 
   void handle(UnaryOp* uop) {
     // TODO: translate all of the supported UnaryOpTypes
-    EVTModel::Node* node =
-        model_.makeNode("cutlass::epilogue::fusion::Sm90Compute");
     std::string op_name;
     switch (uop->getUnaryOpType()) {
       case UnaryOpType::Relu:
@@ -101,10 +99,25 @@ class EVTConverter : OptInDispatch {
       default:
         NVF_THROW("Unhandled unary op type: ", uop->getUnaryOpType());
     }
-    node->inputs.push_back(model_.makeNode("cutlass::" + op_name));
+    // This node and its inputs is essentially a function signature
+    EVTModel::Node* func_node =
+        model_.makeNode("cutlass::epilogue::fusion::Sm90Compute");
+    func_node->inputs.push_back(model_.makeNode("cutlass::" + op_name));
+    // TODO: infer type of inputs from dtypes
+    func_node->inputs.push_back(model_.makeNode("float"));
+    // types of inputs
+    // rounding mode
+    // https://github.com/NVIDIA/cutlass/blob/2b8dff1f90605452c378c02298dd0cacaf65753c/include/cutlass/numeric_conversion.h#L56
+    func_node->inputs.push_back(
+        model_.makeNode("cutlass::FloatRoundStyle::round_to_nearest"));
 
-    node->inputs.push_back(getNodeFor(uop->in()));
-    val_nodes_.emplace(uop->out(), node);
+    // We combine the signature with tree visitor node
+    EVTModel::Node* visitor_node =
+        model_.makeNode("cutlass::epilogue::fusion::Sm90EVT");
+    visitor_node->inputs.push_back(func_node);
+    visitor_node->inputs.push_back(getNodeFor(uop->in()));
+
+    val_nodes_.emplace(uop->out(), visitor_node);
   }
 
   void handle(BinaryOp* bop) {
@@ -130,15 +143,23 @@ class EVTConverter : OptInDispatch {
     EVTModel::Node* func_node =
         model_.makeNode("cutlass::epilogue::fusion::Sm90Compute");
     func_node->inputs.push_back(model_.makeNode("cutlass::" + op_name));
-
-    node->inputs.push_back(getNodeFor(bop->lhs()));
-    node->inputs.push_back(getNodeFor(bop->rhs()));
-
+    // TODO: infer type of inputs from dtypes
+    func_node->inputs.push_back(model_.makeNode("float"));
+    func_node->inputs.push_back(model_.makeNode("float"));
+    // types of inputs
+    // rounding mode
     // https://github.com/NVIDIA/cutlass/blob/2b8dff1f90605452c378c02298dd0cacaf65753c/include/cutlass/numeric_conversion.h#L56
-    node->inputs.push_back(
+    func_node->inputs.push_back(
         model_.makeNode("cutlass::FloatRoundStyle::round_to_nearest"));
 
-    val_nodes_.emplace(bop->out(), node);
+    // We combine the signature with tree visitor node
+    EVTModel::Node* visitor_node =
+        model_.makeNode("cutlass::epilogue::fusion::Sm90EVT");
+    visitor_node->inputs.push_back(func_node);
+    visitor_node->inputs.push_back(getNodeFor(bop->lhs()));
+    visitor_node->inputs.push_back(getNodeFor(bop->rhs()));
+
+    val_nodes_.emplace(bop->out(), visitor_node);
   }
 
  private:

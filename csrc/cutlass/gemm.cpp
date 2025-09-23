@@ -112,6 +112,7 @@ std::string generateNvfp4ScaledMmKernel(
 #include "cutlass/gemm/collective/collective_builder.hpp"
 #include "cutlass/gemm/device/gemm_universal_adapter.h"
 #include "cutlass/gemm/kernel/gemm_universal.hpp"
+#include "cutlass/numeric_conversion.h"
 #include "cutlass/util/packed_stride.hpp"
 
 #define NVF_THROW(msg) throw std::runtime_error(msg);
