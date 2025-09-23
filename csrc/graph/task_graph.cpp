@@ -707,7 +707,7 @@ TaskGraph::SortResult TaskGraph::findOptimalOrder(bool validate) const {
       *this,
       validate,
       /*max_time_us=*/100000,
-      /*debug=*/isDebugDumpEnabled(DebugDumpOption::TaskGraph));
+      isDebugDumpEnabled(DebugDumpOption::TaskGraph));
   return sorter.result();
 }
 
