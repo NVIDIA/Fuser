@@ -87,7 +87,7 @@ TEST_F(LayoutOpTest, LogicalAndAllocationSizes) {
   // by indexing from the ceilDiv.
   out->setAllocationDomain({out->axis(0), io, ii}, {false, true, true});
 
-  // Tow issues with split and merge approach:
+  // Two issues with split and merge approach:
   // 1. This causes predication to expand to the padded region.
   // 2. Indexing with allocation domain set as `true` is wrong.
   // out->split(1, 16);  // padding output to multiple of 16
