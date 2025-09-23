@@ -20,5 +20,6 @@ Indices and tables
    :hidden:
    :caption: Python API documentation
 
-   api/common
+   api/general
+   api/ops
    api/enum

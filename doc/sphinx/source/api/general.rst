@@ -3,7 +3,7 @@
 
     See LICENSE for license information.
 
-Common API
+General
 ==========
 
 This section documents the common API components of nvFuser.
