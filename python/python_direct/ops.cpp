@@ -3510,6 +3510,7 @@ void bindRandomOps(py::module_& ops) {
       py::arg("dtype") = DataType::Float,
       R"(
 Create a tensor with normal distribution.
+
 Parameters
 ----------
 mean : Val
@@ -3554,6 +3555,7 @@ The tensor with normal distribution.
       py::arg("dtype") = DataType::Float,
       R"(
 Create a tensor with uniform distribution.
+
 Parameters
 ----------
 minval : Val
@@ -3572,7 +3574,7 @@ dtype : PrimDataType, optional
 Returns
 -------
 TensorView
-The tensor with normal distribution.
+The tensor with uniform distribution.
       )",
       py::return_value_policy::reference);
 }
@@ -3580,6 +3582,10 @@ The tensor with normal distribution.
 } // namespace
 
 void bindOperations(py::module& nvfuser) {
+  // suppress auto-generated signatures for sphinx documentation
+  py::options options;
+  options.disable_function_signatures();
+
   py::module_ nvf_ops = nvfuser.def_submodule(
       "ops", "This submodule contains all operations for NvFuser.");
   bindUnaryOps(nvf_ops);
