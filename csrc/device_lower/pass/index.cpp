@@ -1945,7 +1945,7 @@ void IndexLowering::handle(const LoadStoreOp* ldst) {
   // logic simpler to follow. Too many things are clamped into this
   // single function, which makes it maintain and extend the code.
 
-  // Convert a scalar set for a grouped tensor to GroupledLoadStoreOp
+  // Convert a scalar set for a grouped tensor to GroupedLoadStoreOp
   if (auto out_tv = dynamic_cast<TensorView*>(ldst->out()); out_tv != nullptr &&
       ir_utils::isParallelizedBy(out_tv->getLoopDomain(),
                                  ParallelType::Group) &&
