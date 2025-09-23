@@ -1729,4 +1729,9 @@ std::vector<IterDomain*> propagateScatterAllocationDomain(
       to_logical_domain, logical_to_alloc.value());
 }
 
+bool isParallelizedBy(const std::vector<IterDomain*>& ids, ParallelType pt) {
+  return std::ranges::any_of(
+      ids, [&](IterDomain* id) { return id->getParallelType() == pt; });
+}
+
 } // namespace nvfuser::ir_utils

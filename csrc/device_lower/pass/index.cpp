@@ -503,9 +503,12 @@ GridCommWorkBufferSizeInfo getGridCommWorkBufferSize(
   bool is_doubled = false;
 
   for (auto fl : for_loops) {
-    // Buffer size of parallelized domains are already taken care
-    if (fl->isTrivial() || fl->iter_domain()->isReduction() ||
-        fl->iter_domain()->isThread()) {
+    // Buffer size of parallelized domains are already taken
+    // care. Note that while we do not create for-loops for grouped
+    // iter domains, its size needs to be accounted to expand the
+    // buffer.
+    if ((fl->isTrivial() && !fl->isGroup()) ||
+        fl->iter_domain()->isReduction() || fl->iter_domain()->isThread()) {
       continue;
     }
     // If persistent, i.e., allreduce, only IterDomains with
@@ -1937,6 +1940,20 @@ Val* indexTMemLdSt(
 void IndexLowering::handle(const LoadStoreOp* ldst) {
   Val* in = nullptr;
   Val* out = nullptr;
+
+  // TODO: This function should be refactored to make the overall
+  // logic simpler to follow. Too many things are clamped into this
+  // single function, which makes it maintain and extend the code.
+
+  // Convert a scalar set for a grouped tensor to GroupedLoadStoreOp
+  if (auto out_tv = dynamic_cast<TensorView*>(ldst->out()); out_tv != nullptr &&
+      ir_utils::isParallelizedBy(out_tv->getLoopDomain(),
+                                 ParallelType::Group) &&
+      ldst->in()->isScalar()) {
+    handleGroupedLoadStoreOp(ldst);
+    return;
+  }
+
   if (ir_utils::isCpAsyncBulk(ldst)) {
     if (ir_utils::isCpAsyncBulkLoad(ldst)) {
       handleCpAsyncBulkLoad(ldst);
@@ -2116,6 +2133,27 @@ void IndexLowering::handle(const LoadStoreOp* ldst) {
     pushBack(new_ldst);
     GpuLower::current()->propagateExprInfo(ldst, back());
   }
+}
+
+void IndexLowering::handleGroupedLoadStoreOp(const LoadStoreOp* ldst) {
+  NVF_ERROR(ldst->in()->isScalar());
+
+  int64_t group_size = 1;
+  for (const auto& loop_id : ldst->out()->as<TensorView>()->getLoopDomain()) {
+    if (loop_id->getParallelType() == ParallelType::Group) {
+      group_size *= loop_id->extent()->evaluate().as<int64_t>();
+    }
+  }
+
+  NVF_ERROR(group_size > 1);
+
+  auto out = lowerDstIndex(ldst->out())->as<kir::TensorIndex>();
+
+  auto new_ldst =
+      IrBuilder::create<kir::GroupedLoadStoreOp>(out, ldst->in(), group_size);
+
+  pushBack(new_ldst);
+  GpuLower::current()->propagateExprInfo(ldst, back());
 }
 
 // Reference:

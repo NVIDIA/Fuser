@@ -308,26 +308,6 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     return val_to_name_.at(v);
   }
 
-  // If the variable is an aligned array, append ".array" to use the reguar
-  // array. This avoid the type mismatch in template functions when one of the
-  // arguments is an aligned array (Array<T,N>) while the other is a regular
-  // array T[N].
-  std::string genVariableNameConvertAlignedArray(Val* v) {
-    TensorView* tv = nullptr;
-    if (v->isA<kir::TensorIndex>()) {
-      tv = v->as<kir::TensorIndex>()->view();
-    } else if (v->isA<TensorView>()) {
-      tv = v->as<TensorView>();
-    }
-    if (tv &&
-        (aligned_array_of_regs_.count(tv) ||
-         tv->getMemoryType() == MemoryType::Local)) {
-      return genVariableName(tv).append(".array");
-    } else {
-      return genVariableName(v);
-    }
-  }
-
   // Generates the kernel function declaration
   void genDeclaration(const std::string& kernel_name) {
     code_ << "__global__ void ";
@@ -2102,6 +2082,19 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     }
   }
 
+  // No for-loop is created for grouped loops, so just create a new
+  // one for assigning the input scalar for the group_size values
+  void handle(const kir::GroupedLoadStoreOp* ldst) final {
+    NVF_ERROR(!print_inline_, "Inline printing not supported");
+    kir::TensorIndex* out_ti = ldst->out();
+    indent() << "#pragma unroll\n";
+    indent() << "for (int i = 0; i < " << ldst->groupSize() << "; ++i) {\n";
+    indent() << kTab << genVariableName(out_ti->view()) << "[("
+             << genInline(out_ti->index()) << ") + i]"
+             << " = " << gen(ldst->in()) << ";\n";
+    indent() << "}\n";
+  }
+
   void genBlockWelford(const WelfordOp* wop) {
     NVF_ERROR(
         ir_utils::getTvOutput(wop)->domain()->hasBlockReduction(),
@@ -2558,8 +2551,20 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     const auto sync_buffer = grop->sync_buffer()->buffer()->as<TensorView>();
 
     ArgumentBuilder func_args(block_nest_level_ + 1, kTab);
-    func_args.arg(genVariableNameConvertAlignedArray(output));
-    func_args.arg(genVariableNameConvertAlignedArray(input));
+    func_args.arg("*(")
+        .append(data_type)
+        .append("(*)[")
+        .append(num_grouped_iterations)
+        .append("])(&")
+        .append(genInline(output))
+        .append(")");
+    func_args.arg("*(")
+        .append(data_type)
+        .append("(*)[")
+        .append(num_grouped_iterations)
+        .append("])(&")
+        .append(genInline(input))
+        .append(")");
     func_args.arg(genReductionOp(op_type, data_type));
     func_args.arg("&").append(genVariableName(work_buffer)).append("[0]");
     func_args.arg("&").append(genVariableName(sync_buffer)).append("[0]");
@@ -2810,35 +2815,41 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
                     ->buffer()
                     ->isA<TensorView>());
 
-      for (const auto& group_index : arange(index_replacement_maps.size())) {
-        // Set the index replacement map with the concrete values of
-        // indices of grouped loops.
-        index_replacement_map_ = index_replacement_maps.at(group_index);
+      auto expr_out =
+          grouped_grop->outputs().at(expr_index)->as<kir::TensorIndex>();
+      auto expr_inp =
+          grouped_grop->inputs().at(expr_index)->as<kir::TensorIndex>();
+      // global_work_buffer
+      const auto work_buffer = grouped_grop->reduction_buffers()
+                                   .at(expr_index)
+                                   ->buffer()
+                                   ->as<TensorView>();
+      auto iv = grouped_grop->initVal(expr_index);
 
+      for (const auto& group_index : arange(index_replacement_maps.size())) {
         types.arg(data_type);
 
-        // out
-        outputs.arg(gen(grouped_grop->outputs().at(expr_index)));
+        outputs.arg(genVariableName(expr_out->view()))
+            .append("[(")
+            .append(genInline(expr_out->index()))
+            .append(") + ")
+            .append(group_index)
+            .append("]");
 
-        // inp
-        inputs.arg(gen(grouped_grop->inputs().at(expr_index)));
+        inputs.arg(genVariableName(expr_inp->view()))
+            .append("[(")
+            .append(genInline(expr_inp->index()))
+            .append(") + ")
+            .append(group_index)
+            .append("]");
 
-        // global_work_buffer
-        const auto work_buffer = grouped_grop->reduction_buffers()
-                                     .at(expr_index)
-                                     ->buffer()
-                                     ->as<TensorView>();
-        // Separate Work buffer is used for each reduction.
-        auto work_buffer_offset = group_index == 0
-            ? "0"
-            : (genInline(grouped_grop->buffer_stride()) + " * " +
-               std::to_string(group_index));
         work_bufs.arg("&")
             .append(genVariableName(work_buffer))
-            .append("[")
-            .append(work_buffer_offset)
+            .append("[(")
+            .append(genInline(grouped_grop->buffer_stride()).append(") * "))
+            .append(group_index)
             .append("]");
-        auto iv = (grouped_grop->initVal(expr_index));
+
         // Python scalar only has double, int64_t and complex double, there is
         // no float, int32 and complex float. PyTorch scalar has the same design
         // as python scalar, so the dtype might not match explicit type
@@ -2848,6 +2859,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
         } else {
           init_vals.arg(genInline(iv));
         }
+
         reduction_ops.arg(genReductionOp(
             grouped_grop->getReductionOpType(expr_index),
             grouped_grop->output(expr_index)->dtype()));
@@ -2867,8 +2879,6 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
         } else {
           write_preds.arg(read_pred);
         }
-
-        index_replacement_map_.clear();
       }
     }
 
@@ -2950,10 +2960,6 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       const auto& init = init_vals.at(expr_index);
 
       for (const auto& group_index : arange(index_replacement_maps.size())) {
-        // Set the index replacement map with the concrete values of
-        // indices of grouped loops.
-        index_replacement_map_ = index_replacement_maps.at(group_index);
-
         data_types.arg(data_type);
         index_types.arg(index_type);
 
@@ -2964,9 +2970,28 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
 
         // Setup arguments for avg, var, and N
         for (const auto i : arange(3)) {
-          out_args[i].arg(gen(output.get(i)));
-          in_args[i].arg(gen(input.get(i)));
+          auto out_ti = output.get(i)->as<kir::TensorIndex>();
+          out_args[i]
+              .arg(genVariableName(out_ti->view()))
+              .append("[(")
+              .append(genInline(out_ti->index()))
+              .append(") + ")
+              .append(group_index)
+              .append("]");
+          if (auto in_ti = dynamic_cast<kir::TensorIndex*>(input.get(i))) {
+            in_args[i]
+                .arg(genVariableName(in_ti->view()))
+                .append("[(")
+                .append(genInline(in_ti->index()))
+                .append(") + ")
+                .append(group_index)
+                .append("]");
+          } else {
+            NVF_ERROR(input.get(i)->isScalar());
+            in_args[i].arg(gen(input.get(i)));
+          }
           init_args[i].arg(gen(init.get(i)));
+
           const auto work_buffer = grouped_gwop->reduction_buffers()[i]
                                        .at(expr_index)
                                        ->buffer()
@@ -2974,8 +2999,9 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
           work_bufs[i]
               .arg("&")
               .append(genVariableName(work_buffer))
-              .append("[")
-              .append(work_buffer_offset)
+              .append("[(")
+              .append(genInline(grouped_gwop->buffer_stride()).append(") * "))
+              .append(group_index)
               .append("]");
         }
 
@@ -3098,14 +3124,31 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     ArgumentBuilder func_args;
 
     // outputs
-    func_args.arg(genVariableNameConvertAlignedArray(output.get(0)));
-    func_args.arg(genVariableNameConvertAlignedArray(output.get(1)));
-    func_args.arg(genVariableNameConvertAlignedArray(output.get(2)));
+    for (const auto& out : output) {
+      func_args.arg("*(")
+          .append(out->dtype())
+          .append("(*)[")
+          .append(num_grouped_iterations)
+          .append("])(&")
+          .append(genInline(out))
+          .append(")");
+    }
+
     // inputs
-    func_args.arg(genVariableNameConvertAlignedArray(input.get(0)));
-    func_args.arg(genVariableNameConvertAlignedArray(input.get(1)));
-    func_args.arg(genVariableNameConvertAlignedArray(input.get(2)))
-        .append("[0]");
+    for (const auto& [i, inp] : enumerate(input)) {
+      if (i == 2) {
+        func_args.arg(genInline(inp));
+      } else {
+        func_args.arg("*(")
+            .append(inp->dtype())
+            .append("(*)[")
+            .append(num_grouped_iterations)
+            .append("])(&")
+            .append(genInline(inp))
+            .append(")");
+      }
+    }
+
     // block_dim
     func_args.arg(genComputeBlockDim());
 
@@ -3438,10 +3481,14 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
   void handleTrivialLoop(const kir::ForLoop* loop) {
     if (loop->vectorize()) {
       vectorize_scope_ = true;
+    } else if (loop->isGroup()) {
+      grouped_loops_.push_back(loop);
     }
     kir::ConstIrVisitor::handle(loop);
     if (loop->vectorize()) {
       vectorize_scope_ = false;
+    } else if (loop->isGroup()) {
+      grouped_loops_.pop_back();
     }
   }
 
@@ -3476,8 +3523,20 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     template_args.arg(num_grouped_iterations);
 
     ArgumentBuilder func_args;
-    func_args.arg(genVariableNameConvertAlignedArray(output->view()));
-    func_args.arg(genVariableNameConvertAlignedArray(input->view()));
+    func_args.arg("*(")
+        .append(data_type)
+        .append("(*)[")
+        .append(num_grouped_iterations)
+        .append("])(&")
+        .append(genInline(output))
+        .append(")");
+    func_args.arg("*(")
+        .append(data_type)
+        .append("(*)[")
+        .append(num_grouped_iterations)
+        .append("])(&")
+        .append(genInline(input))
+        .append(")");
     func_args.arg(genReductionOp(reduction_op_type, output->dtype()));
     func_args.arg(genStaticCast(genPtrType(data_type), "shared_mem"));
     NVF_ERROR(read_pred != nullptr && read_pred->hasValue());
@@ -3537,8 +3596,20 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       BinaryOpType reduction_op_type,
       kir::Predicate* read_pred) {
     ArgumentBuilder func_args;
-    func_args.arg(genVariableNameConvertAlignedArray(output));
-    func_args.arg(genVariableNameConvertAlignedArray(input));
+    func_args.arg("*(")
+        .append(output->dtype())
+        .append("(*)[")
+        .append(num_grouped_iterations)
+        .append("])(&")
+        .append(genInline(output))
+        .append(")");
+    func_args.arg("*(")
+        .append(input->dtype())
+        .append("(*)[")
+        .append(num_grouped_iterations)
+        .append("])(&")
+        .append(genInline(input))
+        .append(")");
     func_args.arg(genReductionOp(reduction_op_type, output->dtype()));
     if (has_independent_compute_warp_groups_) {
       func_args.arg(
@@ -3669,15 +3740,6 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
   void handle(const kir::ForLoop* loop) final {
     if (loop->isTrivial()) {
       handleTrivialLoop(loop);
-      return;
-    }
-
-    // If a loop is grouped, no loop is created, but it isn't
-    // considered trivial as the loop trip count is not one.
-    if (loop->isGroup()) {
-      grouped_loops_.push_back(loop);
-      kir::ConstIrVisitor::handle(loop);
-      grouped_loops_.pop_back();
       return;
     }
 

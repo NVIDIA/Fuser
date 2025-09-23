@@ -852,4 +852,6 @@ std::vector<IterDomain*> propagateScatterAllocationDomain(
     TensorView* scatter_out,
     const std::vector<IterDomain*>& to_logical_domain);
 
+bool isParallelizedBy(const std::vector<IterDomain*>& ids, ParallelType pt);
+
 } // namespace nvfuser::ir_utils

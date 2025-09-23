@@ -157,6 +157,8 @@ class IndexLowering : private OptOutConstDispatch {
       const std::vector<WelfordTriplet>& input_vals,
       const std::vector<WelfordTriplet>& init_vals);
 
+  void handleGroupedLoadStoreOp(const LoadStoreOp* ldst);
+
   // Allocate a unique buffer for grid reductions and broadcast. A
   // buffer is uniquely allocated for each output tensor of an
   // expression.
