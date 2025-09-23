@@ -5230,8 +5230,6 @@ std::vector<PolymorphicValue> SdpaBwdOp::evaluate(
   }
   const auto dropout_p = inputs.at(6).as<double>();
   const auto is_causal = inputs.at(7).as<bool>();
-  const auto philox_seed = inputs.at(8).as<at::Tensor>();
-  const auto philox_offset = inputs.at(9).as<at::Tensor>();
 
   // Flash attention requires the last dimension to be padded to 8.
   // https://github.com/pytorch/pytorch/blob/c27882ffa8c1c7e4cf8ebc6c2f879e5b6c8814ad/aten/src/ATen/native/transformers/attention.cpp#L675-L677
@@ -5253,31 +5251,41 @@ std::vector<PolymorphicValue> SdpaBwdOp::evaluate(
   // ATen reference:
   // https://github.com/pytorch/pytorch/blob/c27882ffa8c1c7e4cf8ebc6c2f879e5b6c8814ad/aten/src/ATen/native/transformers/attention.cpp#L680-L681
   // cum_seq_q/k are undefined tensors for non-nested input tensors.
-  auto [grad_query, grad_key, grad_value] =
-      at::_scaled_dot_product_flash_attention_backward(
-          /*grad_output=*/pad_last_dim(bwd_inputs[0], 8),
-          /*query=*/pad_last_dim(bwd_inputs[1], 8),
-          /*key=*/pad_last_dim(bwd_inputs[2], 8),
-          /*value=*/pad_last_dim(bwd_inputs[3], 8),
-          /*output=*/pad_last_dim(bwd_inputs[4], 8),
-          /*logsumexp=*/bwd_inputs[5],
-          /*cum_seq_q=*/at::Tensor(),
-          /*cum_seq_k=*/at::Tensor(),
-          // Note: ATen implementation expects max_q/max_k as scalars.
-          /*max_q=*/bwd_inputs[1].size(2),
-          /*max_k=*/bwd_inputs[2].size(2),
-          /*dropout_p=*/dropout_p,
-          /*is_causal=*/is_causal,
-          /*philox_seed=*/philox_seed,
-          /*philox_offset=*/philox_offset,
-          /*scale=*/scale);
+  at::Tensor grad_query, grad_key, grad_value;
+  if (bwd_inputs[0].is_meta()) {
+    // Meta path: produce tensors with correct shapes/strides
+    grad_query = at::empty_like(bwd_inputs[1]);
+    grad_key = at::empty_like(bwd_inputs[2]);
+    grad_value = at::empty_like(bwd_inputs[3]);
+  } else {
+    const auto philox_seed = inputs.at(8).as<at::Tensor>();
+    const auto philox_offset = inputs.at(9).as<at::Tensor>();
+    std::tie(grad_query, grad_key, grad_value) =
+        at::_scaled_dot_product_flash_attention_backward(
+            /*grad_output=*/pad_last_dim(bwd_inputs[0], 8),
+            /*query=*/pad_last_dim(bwd_inputs[1], 8),
+            /*key=*/pad_last_dim(bwd_inputs[2], 8),
+            /*value=*/pad_last_dim(bwd_inputs[3], 8),
+            /*output=*/pad_last_dim(bwd_inputs[4], 8),
+            /*logsumexp=*/bwd_inputs[5],
+            /*cum_seq_q=*/at::Tensor(),
+            /*cum_seq_k=*/at::Tensor(),
+            // Note: ATen implementation expects max_q/max_k as scalars.
+            /*max_q=*/bwd_inputs[1].size(2),
+            /*max_k=*/bwd_inputs[2].size(2),
+            /*dropout_p=*/dropout_p,
+            /*is_causal=*/is_causal,
+            /*philox_seed=*/philox_seed,
+            /*philox_offset=*/philox_offset,
+            /*scale=*/scale);
+  }
 
-  // If the inputs were padded, slice the gradsto restore the original size
+  // If the inputs were padded, slice the grads to restore the original size
   auto slice_last_dim = [last_dim_size](at::Tensor output) -> at::Tensor {
     if (output.size(-1) != last_dim_size) {
-      return output;
+      return output.slice(-1, 0, last_dim_size);
     }
-    return output.slice(-1, 0, last_dim_size);
+    return output;
   };
 
   // Add device dimension back to outputs.
