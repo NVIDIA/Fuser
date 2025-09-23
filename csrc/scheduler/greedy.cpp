@@ -720,6 +720,9 @@ class HeuristicsBuilder : private IterVisitor {
       size_of_constrained_ids *= extent_val.as<int64_t>();
     }
 
+    // TODO: The maximum allowed number of threads are launched even
+    // when grouping is supported. This should be revisited for
+    // performance optimization.
     const int64_t bdim =
         at::cuda::getCurrentDeviceProperties()->maxThreadsPerBlock;
 
