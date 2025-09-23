@@ -1137,7 +1137,7 @@ TEST_F(MultiDeviceTest, AllocationPermutationOfLoop) {
 
   // Disable the pass to verify we can run a fusion where allocation domain
   // is a permutation of loop domain. This pass can currently not be modified
-  // due to other issues listed in Issue: #4381
+  // due to other issues listed in #4381.
   preseg_passes::OptimizationPassGuard<
       preseg_passes::FinalizeMultideviceDomainsPass>
       optimization_guard(false);
