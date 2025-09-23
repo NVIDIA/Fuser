@@ -68,6 +68,41 @@ KernelArgumentHolder ArgumentManager::translateValsToArgs(
   return holder;
 }
 
+void resetAllocationDomainAndContiguity(TensorView* tv, const std::vector<int64_t>& sizes, const std::vector<int64_t>& strides) {
+  struct Dim {
+    int64_t size;
+    int64_t stride;
+    IterDomain* id;
+  };
+  for (auto [size, stride, id] : zip_view(sizes, strides, TensorDomain::noReductions(tv->getLogicalDomain()))) {
+    dims.push_back({size, stride, id});
+  }
+  // Sort by stride in descending order
+  std::sort(dims.begin(), dims.end(), [](const Dim& a, const Dim& b) {
+    return a.stride > b.stride;
+  });
+  std::vector<IterDomain*> allocation_domain;
+  std::vector<int64_t> sorted_sizes;
+  std::vector<int64_t> sorted_strides;
+  allocation_domain.reserve(tv->getLogicalDomain().size());
+  sorted_sizes.reserve(tv->getLogicalDomain().size());
+  sorted_strides.reserve(tv->getLogicalDomain().size());
+  for (const auto& dim : dims) {
+    allocation_domain.push_back(dim.id);
+    sorted_sizes.push_back(dim.size);
+    sorted_strides.push_back(dim.stride);
+  }
+  std::vector<std::optional<bool>> contiguity = computeContiguity(sorted_sizes, sorted_strides);
+  // Add reduction IDs to allocation domain to the back
+  for (auto id : tv->getLogicalDomain()) {
+    if (id->isReduction()) {
+      allocation_domain.push_back(id);
+      contiguity.push_back(std::nullopt);
+    }
+  }
+  tv->setAllocationDomain(allocation_domain, contiguity);
+}
+
 void ArgumentManager::updateWithSegmentOutputs(
     const std::vector<Val*>& group_outputs,
     const KernelArgumentHolder& group_runtime_outputs,
@@ -87,20 +122,7 @@ void ArgumentManager::updateWithSegmentOutputs(
           group_runtime_outputs[group_out_i].as<at::Tensor>();
       const std::vector<int64_t> sizes = tensor.sizes().vec();
       const std::vector<int64_t> strides = tensor.strides().vec();
-      std::vector<std::optional<bool>> contiguity_without_reduction =
-          computeContiguity(sizes, strides);
-      std::vector<std::optional<bool>> contiguity;
-      contiguity.reserve(tv->domain()->maybeAllocation().size());
-      int64_t index_with_reduction = 0;
-      for (const auto id : tv->domain()->maybeAllocation()) {
-        if (id->isReduction()) {
-          contiguity.push_back(std::nullopt);
-        } else {
-          contiguity.push_back(
-              contiguity_without_reduction[index_with_reduction++]);
-        }
-      }
-      tv->domain()->setContiguity(contiguity);
+      resetAllocationDomainAndContiguity(tv, sizes, strides);
     }
   }
 
