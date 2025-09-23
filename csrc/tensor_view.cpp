@@ -1163,14 +1163,16 @@ TensorView* TensorView::cacheBefore(LoadStoreOpType op_type) {
   // consumer tensor needs to copy the whole producer tensor, so the
   // loop domain must be based on the logical domain.
   if (!producer->definition()->isA<ScatterOp>()) {
-    // NOTE(jiej): Refactoed from using TransformReplay::replayCasP doesn't
+    // NOTE: Refactoed from using TransformReplay::replayCasP doesn't
     // replay transformation between logical to allocation. The map only works
     // when the transformations are also on the path from logical to loop. I
     // cannot comprehend what that replay code was doing and decided to switch
     // to selfReplay, which targets replay of loop and allocation.
     TransformReplay::selfReplay(producer->domain(), consumer->domain(), true);
-    // remove allocation domain from cached TV
-    producer->setAllocationDomain(producer->getLogicalDomain(), true);
+    // TODO: remove allocation domain from cached TV
+    // technically we shouldn't let output allocation domain to dictate layout
+    // of the cache. But existing scheduler expects the behavior and allocation
+    // domain to be preserved on the cache
   } else if (producer->hasAllocation()) {
     consumer->setAllocationDomain(
         ir_utils::propagateScatterAllocationDomain(
