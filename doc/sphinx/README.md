@@ -1,3 +1,9 @@
+<!--
+ * SPDX-FileCopyrightText: Copyright (c) 2025-present NVIDIA CORPORATION & AFFILIATES.
+ * All rights reserved.
+ * SPDX-License-Identifier: BSD-3-Clause
+-->
+
 ### Building documentation
 
 NvFuser uses [Sphinx](https://www.sphinx-doc.org/en/master/) for documentation.
