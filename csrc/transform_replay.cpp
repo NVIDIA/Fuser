@@ -318,51 +318,53 @@ void TransformReplay::selfReplay(
     new_self->setLoopDomain(new_loop);
   }
 
-  // Replay allocation.
+  // Replay maybeAllocation and contiguity.
+  const std::vector<IterDomain*>& self_allocation = self->maybeAllocation();
+  const std::vector<std::optional<bool>>& self_contiguity = self->contiguity();
+  NVF_ERROR_EQ(self_allocation.size(), self_contiguity.size());
+
+  std::vector<IterDomain*> new_alloc_domain;
+  std::vector<std::optional<bool>> new_contiguity;
+  new_alloc_domain.reserve(self_allocation.size());
+  new_contiguity.reserve(self_contiguity.size());
+
+  // Push back the reduction IDs that are not mapped
+  if (ignore_reductions) {
+    for (auto* id : new_self->logical()) {
+      if (id->isReduction()) {
+        new_alloc_domain.push_back(id);
+        // NOLINTNEXTLINE(modernize-use-emplace)
+        new_contiguity.push_back(std::nullopt);
+      }
+    }
+  }
+
+  // Pushing the mapped IDs and corresponding contiguity flags
+  for (auto&& [alloc_id, contiguity] : zip(self_allocation, self_contiguity)) {
+    if (ignore_reductions && alloc_id->isReduction()) {
+      continue;
+    }
+    auto it = replay.getReplay().find(alloc_id);
+    NVF_ERROR(
+        it != replay.getReplay().end(),
+        "failed to replay IterDomain: ",
+        alloc_id);
+    NVF_ERROR_EQ(
+        (it->second->isBroadcast() || it->second->isReduction()),
+        !contiguity.has_value(),
+        "Contiguity should be nullopt iff broadcast or reduction, true/false "
+        "otherwise.");
+    new_contiguity.push_back(contiguity);
+    it->second->parallelize(alloc_id->getParallelType());
+    new_alloc_domain.push_back(it->second);
+  }
+
+  // The allocation domain is set only if the original domain has an allocation
+  // domain. Else, we simply set the contiguity.
   if (self->hasAllocation()) {
-    const std::vector<IterDomain*>& self_allocation = self->allocation();
-    const std::vector<std::optional<bool>>& self_contiguity =
-        self->contiguity();
-    NVF_ERROR_EQ(self_allocation.size(), self_contiguity.size());
-
-    std::vector<IterDomain*> new_alloc_domain;
-    std::vector<std::optional<bool>> new_contiguity;
-    new_alloc_domain.reserve(self_allocation.size());
-    new_contiguity.reserve(self_contiguity.size());
-
-    // Push back the reduction IDs that are not mapped
-    if (ignore_reductions) {
-      for (auto* id : new_self->logical()) {
-        if (id->isReduction()) {
-          new_alloc_domain.push_back(id);
-          // NOLINTNEXTLINE(modernize-use-emplace)
-          new_contiguity.push_back(std::nullopt);
-        }
-      }
-    }
-
-    // Pushing the mapped IDs and corresponding contiguity flags
-    for (auto&& [alloc_id, contiguity] :
-         zip(self_allocation, self_contiguity)) {
-      if (ignore_reductions && alloc_id->isReduction()) {
-        continue;
-      }
-      auto it = replay.getReplay().find(alloc_id);
-      NVF_ERROR(
-          it != replay.getReplay().end(),
-          "failed to replay IterDomain: ",
-          alloc_id);
-      NVF_ERROR_EQ(
-          (it->second->isBroadcast() || it->second->isReduction()),
-          !contiguity.has_value(),
-          "Contiguity should be nullopt iff broadcast or reduction, true/false "
-          "otherwise.");
-      new_contiguity.push_back(contiguity);
-      it->second->parallelize(alloc_id->getParallelType());
-      new_alloc_domain.push_back(it->second);
-    }
-
     new_self->setAllocationDomain(new_alloc_domain, new_contiguity);
+  } else {
+    new_self->setContiguity(new_contiguity);
   }
 }
 
