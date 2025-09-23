@@ -202,6 +202,7 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/device_lower/analysis/padded_parallel_dimensions.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/analysis/predicate_elimination.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/analysis/sync_information.cpp
+  ${NVFUSER_SRCS_DIR}/device_lower/analysis/tensor_init_val.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/analysis/tensor_memory.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/analysis/tensor_producer_aliases.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/analysis/thread_predicate.cpp
