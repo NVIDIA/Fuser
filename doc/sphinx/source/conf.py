@@ -8,11 +8,18 @@ copyright = "2025, NVIDIA"
 author = "NVIDIA"
 
 extensions = [
+    "myst_parser",
+    "sphinx.ext.mathjax",
     "sphinx.ext.autodoc",
     "sphinx.ext.napoleon",
     "sphinx.ext.viewcode",
     "sphinx.ext.intersphinx",
     "sphinx_toolbox.more_autodoc.overloads",
+]
+
+myst_enable_extensions = [
+    "dollarmath",
+    "html_image",
 ]
 
 templates_path = ["_templates"]
@@ -25,6 +32,12 @@ html_sidebars = {
         'globaltoc.html',
         'searchbox.html'
     ]
+}
+
+source_suffix = {
+    '.rst': 'restructuredtext',
+    '.txt': 'markdown',
+    '.md': 'markdown',
 }
 
 # Hide overload type signatures (from "sphinx_toolbox.more_autodoc.overload")
