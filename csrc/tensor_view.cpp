@@ -1168,7 +1168,10 @@ TensorView* TensorView::cacheBefore(LoadStoreOpType op_type) {
     // when the transformations are also on the path from logical to loop. I
     // cannot comprehend what that replay code was doing and decided to switch
     // to selfReplay, which targets replay of loop and allocation.
-    TransformReplay::selfReplay(producer->domain(), consumer->domain(), /*ignore_reductions=*/true);
+    // NOTE: producer and consumer is linked by a LoadStoreOp, otherwise we
+    // cannot use selfReplay on general pari of producer-consumer TVs.
+    TransformReplay::selfReplay(
+        producer->domain(), consumer->domain(), /*ignore_reductions=*/true);
     // TODO: remove allocation domain from cached TV
     // technically we shouldn't let output allocation domain to dictate layout
     // of the cache. But existing scheduler expects the behavior and allocation
