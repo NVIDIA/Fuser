@@ -3616,10 +3616,11 @@ void TensorDomain::setContiguity(
   NVF_ERROR(
       maybeAllocation().size() == contig.size(),
       "Invalid size of contiguity vector");
-  for (auto i : arange(contig.size())) {
-    NVF_CHECK(
-        maybeAllocation().at(i)->isBroadcast() != contig.at(i).has_value(),
-        "The contiguity of a broadcast dimension must be None. "
+  for (const auto& [alloc_id, contiguity] : zip(maybeAllocation(), contig)) {
+    NVF_ERROR_EQ(
+        (alloc_id->isBroadcast() || alloc_id->isReduction()),
+        !contiguity.has_value(),
+        "The contiguity of a broadcast/reduction dimension must be None. "
         "The contiguity of a non-broadcast dimension must be true/false");
   }
 

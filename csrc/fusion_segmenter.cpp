@@ -1787,22 +1787,6 @@ void eraseInputDistinctRootDomains(Fusion* fusion) {
     auto* new_td = IrBuilder::create<TensorDomain>(new_logical_domain);
     TransformReplay::selfReplay(
         tv->domain(), new_td, /*ignore_reductions=*/true);
-    if (!tv->domain()->hasAllocation()) {
-      // The default contiguity for new_td is false. `selfReplay` does not
-      // replay contiguity when no allocation domain is present.
-      const std::vector<std::optional<bool>> old_contiguity =
-          tv->domain()->contiguity();
-      std::vector<std::optional<bool>> no_red_contiguity;
-      no_red_contiguity.reserve(old_contiguity.size());
-      for (const auto& [id, contiguity] :
-           zip(tv->getLogicalDomain(), old_contiguity)) {
-        if (id->isReduction()) {
-          continue;
-        }
-        no_red_contiguity.push_back(contiguity);
-      }
-      new_td->setContiguity(no_red_contiguity);
-    }
 
     replacement_map.emplace(tv->domain(), new_td);
   }
