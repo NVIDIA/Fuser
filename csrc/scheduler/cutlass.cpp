@@ -101,48 +101,88 @@ namespace {
 
 static thread_local void* nvmmh_handle = nullptr;
 
-#define ALL_NVMMH_API_WRAPPER(fn)        \
-  fn(nvMatmulHeuristicsCreate);          \
-  fn(nvMatmulHeuristicsDestroy);         \
-  fn(nvMatmulHeuristicsGetStatusString); \
-  fn(nvMatmulHeuristicsGetVersionMajor); \
-  fn(nvMatmulHeuristicsGetVersionMinor); \
-  fn(nvMatmulHeuristicsGetVersionPatch);
+namespace nvmmh_func {
+#define ALL_NVMMH_API_WRAPPER(fn)                 \
+  fn(nvMatmulHeuristicsCreate);                   \
+  fn(nvMatmulHeuristicsDestroy);                  \
+  fn(nvMatmulHeuristicsGetStatusString);          \
+  fn(nvMatmulHeuristicsGetVersionMajor);          \
+  fn(nvMatmulHeuristicsGetVersionMinor);          \
+  fn(nvMatmulHeuristicsGetVersionPatch);          \
+  fn(nvMatmulHeuristicsBackendCreate);            \
+  fn(nvMatmulHeuristicsLoadInternalDiscoverySet); \
+  fn(nvMatmulHeuristicsGetGemmConfigEx);
 
 #define DECLARE_STATIC_FUNCTION_HANDLE(func) \
-  static thread_local decltype(&func) nvmmh_func = nullptr;
+  [[maybe_unused]] static thread_local decltype(&func) func = nullptr;
 
 ALL_NVMMH_API_WRAPPER(DECLARE_STATIC_FUNCTION_HANDLE);
 
 #undef DECLARE_STATIC_FUNCTION_HANDLE
+
+} // namespace nvmmh_func
+
+#define NVMMH_SAFE_CALL(x)                                       \
+  do {                                                           \
+    nvmmhStatus_t _result = nvmmh_func::x;                       \
+    NVF_ERROR(                                                   \
+        _result == NVMMH_STATUS_SUCCESS,                         \
+        "NVMMH error: " #x "failed with error ",                 \
+        nvmmh_func::nvMatmulHeuristicsGetStatusString(_result)); \
+  } while (0)
 
 bool initNVMMH() {
   if (nvmmh_handle != nullptr) {
     return true;
   }
 
-  constexpr const char* libname =
-      "libnvMatmulHeuristics.so." NVMMH_VERSION_MAJOR;
+// Stringify already-expanded s
+#define STRINGIFY(s) #s
+// Force expansion of s
+#define EXPAND_AND_STRINGIFY(s) STRINGIFY(s)
+  constexpr std::string_view libname =
+      "libnvMatmulHeuristics.so." EXPAND_AND_STRINGIFY(NVMMH_VERSION_MAJOR);
+#undef STRINGIFY
+#undef EXPAND_AND_STRINGIFY
 
-  nvmmh_handle = dlopen(libname, RTLD_LAZY);
-  debug() << "nvmmh_handle=" << nvmmh_handle << std::endl;
+  nvmmh_handle = dlopen(libname.data(), RTLD_LAZY);
   if (nvmmh_handle == nullptr) {
     TORCH_WARN_ONCE("Could not link to ", libname);
+    return false;
+  }
+
+#define DEFINE_NVMMH_SYMBOL(func)                                      \
+  if (nvmmh_func::func == nullptr) {                                   \
+    nvmmh_func::func =                                                 \
+        reinterpret_cast<decltype(&func)>(dlsym(nvmmh_handle, #func)); \
   }
 
   // TODO: check that version of lib matches version we compiled against
+  DEFINE_NVMMH_SYMBOL(nvMatmulHeuristicsGetVersionMajor)
+  DEFINE_NVMMH_SYMBOL(nvMatmulHeuristicsGetVersionMinor)
+  unsigned lib_major = nvmmh_func::nvMatmulHeuristicsGetVersionMajor();
+  unsigned lib_minor = nvmmh_func::nvMatmulHeuristicsGetVersionMinor();
+  if (lib_major != NVMMH_VERSION_MAJOR || lib_minor != NVMMH_VERSION_MINOR) {
+    TORCH_WARN_ONCE(
+        "nvFuser was compiled against nvMatmulHeuristics version ",
+        NVMMH_VERSION_MAJOR,
+        ".",
+        NVMMH_VERSION_MINOR,
+        " but found nvMatmulHeuristics shared library version ",
+        lib_major,
+        ".",
+        lib_minor,
+        ". Exactly matching versions are required");
+  }
+
+  ALL_NVMMH_API_WRAPPER(DEFINE_NVMMH_SYMBOL);
+
+#undef DEFINE_NVMMH_SYMBOL
+
+  return true;
 }
 
 #undef ALL_NVMMH_API_WRAPPER
-
-#define NVMMH_SAFE_CALL(x)                           \
-  do {                                               \
-    nvmmhStatus_t _result = nvmmh_x;                 \
-    NVF_ERROR(                                       \
-        _result == NVMMH_STATUS_SUCCESS,             \
-        "NVMMH error: " #x "failed with error ",     \
-        nvMatmulHeuristicsGetStatusString(_result)); \
-  } while (0)
 
 #else // HAS_NVMMH_INCLUDE
 
@@ -171,6 +211,67 @@ std::unique_ptr<HeuristicParams> CutlassScheduler::computeHeuristics(
   // TODO: Implement actual heuristics based on problem size, GPU arch, etc.
   // Once libheuristics is available via pycutlass wheel, integrate it here
   if (initNVMMH()) {
+    nvmmhHandle_t handle = nullptr;
+    NVMMH_SAFE_CALL(nvMatmulHeuristicsCreate(&handle));
+
+    nvmmhBackend_t backend;
+    NVMMH_SAFE_CALL(
+        nvMatmulHeuristicsBackendCreate(&backend, NVMMH_TARGET_CUTLASS));
+
+    // TODO: inspect both inputs and outputs to set problem precision using
+    // nvMatmulHeuristics convention
+    DataType out_dtype = fusion->outputs().front()->dtype();
+    NVF_ERROR(out_dtype == DataType::Half || out_dtype == DataType::BFloat16);
+    const std::string precision =
+        out_dtype == DataType::BFloat16 ? "OOT" : "OOH";
+    const nvmmhMatmulLayout_t layout = NVMMH_MATMUL_LAYOUT_TN_ROW_MAJOR;
+
+    unsigned status = nvmmh_func::nvMatmulHeuristicsLoadInternalDiscoverySet(
+        handle,
+        precision.c_str(),
+        NVMMH_TARGET_CUTLASS,
+        layout,
+        /*hardwareDescriptor=*/nullptr);
+    if (status != NVMMH_STATUS_SUCCESS) {
+      TORCH_WARN_ONCE(
+          "WARNING: could not load nvMatmulHeuristics internal discovery set "
+          "for precision ",
+          precision);
+    }
+
+    nvmmhKernelConfiguration_t configs[1];
+
+    // TODO: Get these using IdModel and runtime_info
+    constexpr uint32_t M = 8192, N = 8192, K = 8192, Batch = 1;
+    nvmmhMatmulProblem_t problem{M, N, K, Batch, layout};
+
+    unsigned num_configs = nvmmh_func::nvMatmulHeuristicsGetGemmConfigEx(
+        handle,
+        precision.c_str(),
+        /*flags=*/NVMMH_FLAG_REFINE_CANDIDATES_USING_TIMING_MODEL |
+            NVMMH_FLAG_PERF_MODEL_BASED_AUTO_TUNING |
+            NVMMH_FLAG_AUTO_TUNE_THE_PERF_MODEL,
+        backend,
+        /*problemIn=*/&problem,
+        /*kernelConfigOut=*/configs,
+        /*requestedConfigurations=*/1,
+        /*hardwareDescriptor=*/nullptr);
+
+    NVF_ERROR(
+        num_configs > 0, "nvMatmulHeuristics did not find any kernel configs");
+
+    const nvmmhKernelConfiguration_t& config = configs[0];
+
+    params->cluster_shape.m = config.cluster[0];
+    params->cluster_shape.n = config.cluster[1];
+    params->per_sm_tile.m = config.cta[0];
+    params->per_sm_tile.n = config.cta[1];
+    params->per_sm_tile.k = config.cta[2];
+    params->mma_tile.m = config.cta[0] * config.cluster[0];
+    params->mma_tile.n = config.cta[1] * config.cluster[1];
+    params->mma_tile.k = config.cta[2];
+
+    NVMMH_SAFE_CALL(nvMatmulHeuristicsDestroy(&handle));
   }
 
   if (isDebugDumpEnabled(DebugDumpOption::SchedulerDebug)) {
