@@ -18,8 +18,9 @@ Indices and tables
 
 .. toctree::
    :hidden:
-   :caption: Python API documentation
+   :caption: Python API
 
    api/general
    api/ops
+   api/multidevice
    api/enum
