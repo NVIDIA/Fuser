@@ -60,9 +60,9 @@ Make sure you build nvfuser every time you edit the source file.
 
 We'll be adding more tools to run the entire test suite or individual tests, so stay tuned!
 
-## How to use (Cursor)
+## How to use (Cursor v.1.6)
 
-To add a new MCP server in cursor, go to the command palette (`cmd + shift + P`) and search for "Open MCP Settings". In the MCP settings click on "Add new global MCP server":
+To add a new MCP server in cursor, go to the command palette (`cmd + shift + P`) and search for "Open MCP Settings". In the MCP settings click on "Add Custom MCP":
 ![mcp-settings-cursor](mcp-settings-cursor.png)
 
 You can then copy the content of [cursor_mcp_template.json](cursor_mcp_template.json). Update `"command": "python"` with the full `python` you want to use for running the server, and the same for `python` in the `args`.

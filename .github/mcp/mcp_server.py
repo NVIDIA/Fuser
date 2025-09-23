@@ -2,13 +2,17 @@ import subprocess
 import pathlib
 import argparse
 
-# server.py
 from mcp.server.fastmcp import FastMCP
 
 # Create an MCP server
 mcp = FastMCP("Nvfuser Dev MCP Server")
 PROJECT_ROOT = pathlib.Path(__file__).parent.parent.parent
 BUILD_DIR = PROJECT_ROOT / "build"
+
+
+@mcp.tool()
+def test_mcp_is_running() -> str:
+    return "Yes, MCP is running!"
 
 
 def run_command(command: list[str], cwd: pathlib.Path) -> str:
