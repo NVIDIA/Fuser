@@ -15,6 +15,8 @@
 #include <scheduler/runtime_info.h>
 #include <scheduler/utils.h>
 
+#include <dlfcn.h>
+
 namespace nvfuser {
 
 // CutlassParams implementation
@@ -91,6 +93,72 @@ bool CutlassScheduler::canScheduleRunTime(
   return true;
 }
 
+namespace {
+
+#ifdef HAS_NVMMH_INCLUDE
+
+#include <nvMatmulHeuristics.h>
+
+static thread_local void* nvmmh_handle = nullptr;
+
+#define ALL_NVMMH_API_WRAPPER(fn)        \
+  fn(nvMatmulHeuristicsCreate);          \
+  fn(nvMatmulHeuristicsDestroy);         \
+  fn(nvMatmulHeuristicsGetStatusString); \
+  fn(nvMatmulHeuristicsGetVersionMajor); \
+  fn(nvMatmulHeuristicsGetVersionMinor); \
+  fn(nvMatmulHeuristicsGetVersionPatch);
+
+#define DECLARE_STATIC_FUNCTION_HANDLE(func) \
+  static thread_local decltype(&func) nvmmh_func = nullptr;
+
+ALL_NVMMH_API_WRAPPER(DECLARE_STATIC_FUNCTION_HANDLE);
+
+#undef DECLARE_STATIC_FUNCTION_HANDLE
+
+bool initNVMMH() {
+  if (nvmmh_handle != nullptr) {
+    return true;
+  }
+
+  constexpr const char* libname =
+      "libnvMatmulHeuristics.so." NVMMH_VERSION_MAJOR;
+
+  nvmmh_handle = dlopen(libname, RTLD_LAZY);
+  debug() << "nvmmh_handle=" << nvmmh_handle << std::endl;
+  if (nvmmh_handle == nullptr) {
+    TORCH_WARN_ONCE("Could not link to ", libname);
+  }
+
+  // TODO: check that version of lib matches version we compiled against
+}
+
+#undef ALL_NVMMH_API_WRAPPER
+
+#define NVMMH_SAFE_CALL(x)                           \
+  do {                                               \
+    nvmmhStatus_t _result = nvmmh_x;                 \
+    NVF_ERROR(                                       \
+        _result == NVMMH_STATUS_SUCCESS,             \
+        "NVMMH error: " #x "failed with error ",     \
+        nvMatmulHeuristicsGetStatusString(_result)); \
+  } while (0)
+
+#else // HAS_NVMMH_INCLUDE
+
+bool initNVMMH() {
+  TORCH_WARN_ONCE("nvFuser was built without nvMatmulHeurisitcs support");
+  return false;
+}
+
+#define NVMMH_SAFE_CALL(x)         \
+  NVF_THROW("Attempted to call " x \
+            " but nvFuser was not built with nvMatmulHeuristics support");
+
+#endif // HAS_NVMMH_INCLUDE
+
+} // namespace
+
 std::unique_ptr<HeuristicParams> CutlassScheduler::computeHeuristics(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
@@ -102,6 +170,8 @@ std::unique_ptr<HeuristicParams> CutlassScheduler::computeHeuristics(
   // For now, use default parameters
   // TODO: Implement actual heuristics based on problem size, GPU arch, etc.
   // Once libheuristics is available via pycutlass wheel, integrate it here
+  if (initNVMMH()) {
+  }
 
   if (isDebugDumpEnabled(DebugDumpOption::SchedulerDebug)) {
     debug() << params->toString() << std::endl;
