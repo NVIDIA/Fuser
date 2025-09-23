@@ -52,7 +52,7 @@ bool GreedyParams::sameAs(const HeuristicParams* other_base) const {
 
 std::string GreedyParams::toString() const {
   std::stringstream ss;
-  ss << "\n===== Greedy Parameters ========\n";
+  ss << "\n========= Greedy Parameters ========\n";
   for (const auto& [tv_name, nitems] : tv_to_item_per_thread) {
     ss << "t" << tv_name << " -> items per thread: " << nitems << "\n";
   }
@@ -662,18 +662,14 @@ class HeuristicsBuilder : private IterVisitor {
  public:
   static std::unique_ptr<GreedyParams> run(
       Fusion* fusion,
-      SchedulerRuntimeInfo& runtime_info,
-      HeuristicDataCache* data_cache) {
-    HeuristicsBuilder builder(fusion, runtime_info, data_cache);
+      SchedulerRuntimeInfo& runtime_info) {
+    HeuristicsBuilder builder(fusion, runtime_info);
     return std::move(builder.params_);
   }
 
  private:
-  HeuristicsBuilder(
-      Fusion* fusion,
-      SchedulerRuntimeInfo& runtime_info,
-      HeuristicDataCache* data_cache)
-      : runtime_info_(runtime_info), data_cache_(data_cache) {
+  HeuristicsBuilder(Fusion* fusion, SchedulerRuntimeInfo& runtime_info)
+      : runtime_info_(runtime_info) {
     params_ = std::make_unique<GreedyParams>();
     params_->cparams.index_type = runtime_info.getIndexType();
 
@@ -716,7 +712,6 @@ class HeuristicsBuilder : private IterVisitor {
 
  private:
   SchedulerRuntimeInfo& runtime_info_;
-  HeuristicDataCache* data_cache_ = nullptr;
 
   std::unique_ptr<GreedyParams> params_;
 };
@@ -770,21 +765,17 @@ void propagateReshape(Fusion* fusion) {
 // scheduling constraints.
 void insertCopies(Fusion* fusion, GreedyParams& greedy_params) {
   for (auto expr : getAllConstrainedOps(fusion)) {
-    // Copy inputs and outputs first here because expr may be
-    // invalidated when inserting copies
-    const auto original_outputs = expr->outputs();
-    const auto original_inputs = expr->outputs();
-    auto original_out_tv = ir_utils::getTvOutput(expr);
-
     if (expr->isA<ScatterOp>()) {
-      if (!original_out_tv->uses().empty()) {
-        original_out_tv->cacheAfter(
+      auto out_tv = ir_utils::getTvOutput(expr);
+      if (!out_tv->uses().empty()) {
+        out_tv->cacheAfter(
             LoadStoreOpType::Set,
             CacheOp::Unspecified,
             /*propagate_allocation_domain=*/false);
       }
     } else if (expr->isOneOf<ArgsortOp, ScanOp, TopKOp>()) {
-      for (auto out_tv : ir_utils::filterByType<TensorView>(original_outputs)) {
+      auto outputs = expr->outputs();
+      for (auto out_tv : ir_utils::filterByType<TensorView>(outputs)) {
         if (out_tv->getMemoryType() == MemoryType::Local) {
           continue;
         }
@@ -802,7 +793,7 @@ void insertCopies(Fusion* fusion, GreedyParams& greedy_params) {
     // by creating a copy
     if (expr->isOneOf<ArgsortOp, ScanOp, ScatterOp, TopKOp>()) {
       for (const auto inp_tv :
-           ir_utils::filterByType<TensorView>(original_inputs)) {
+           ir_utils::filterByType<TensorView>(expr->inputs())) {
         if (isConstrainedOp(inp_tv->definition()) ||
             inp_tv->uses().size() > 1) {
           // Insert an exclusive copy
@@ -844,7 +835,7 @@ class ConstrainedOpScheduler : public OptOutDispatch {
   void handle(ArgsortOp* argsort) override {
     auto out_tv = ir_utils::getTvOutput(argsort);
     auto dim = argsort->dim();
-    scheduleConstrainedTv(out_tv, {dim});
+    scheduleConstrainedTv(out_tv, {dim}, /*support_grouping=*/true);
   }
 
   void handle(PadOp* pad) override {
@@ -1064,7 +1055,7 @@ std::unordered_map<TensorView*, TensorView*> partitionFusion(
     }
   }
 
-  // The inputs of a constrained op may need to be grouped togher for
+  // The inputs of a constrained op may need to be grouped together for
   // consistent scheduling.
   for (auto expr : all_exprs) {
     // Put all inputs of these ops together with the output. This is
@@ -1244,7 +1235,15 @@ std::unique_ptr<HeuristicParams> GreedyScheduler::computeHeuristics(
     HeuristicDataCache* data_cache) {
   FUSER_PERF_SCOPE("GreedyScheduler::computeHeuristics");
 
-  return HeuristicsBuilder::run(fusion, runtime_info, data_cache);
+  // TODO: use data_cache
+
+  auto params = HeuristicsBuilder::run(fusion, runtime_info);
+
+  if (isDebugDumpEnabled(DebugDumpOption::SchedulerDebug)) {
+    debug() << params->toString() << std::endl;
+  }
+
+  return params;
 }
 
 void GreedyScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
