@@ -93,6 +93,11 @@ void resetAllocationDomainAndContiguity(TensorView* tv, const std::vector<int64_
     sorted_strides.push_back(dim.stride);
   }
   std::vector<std::optional<bool>> contiguity = computeContiguity(sorted_sizes, sorted_strides);
+  for (auto id : tv->getLogicalDomain()) {
+    if (id->isBroadcast()) {
+      contiguity.push_back(std::nullopt);
+    }
+  }
   // Add reduction IDs to allocation domain to the back
   for (auto id : tv->getLogicalDomain()) {
     if (id->isReduction()) {
