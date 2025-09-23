@@ -34,7 +34,10 @@ bool validateGroupedLayout(
   // take length of reference for un-padded k size.
   int k = ref.size(1);
   int padded_k = (k + 4 - 1) / 4 * 4;
-  int padded_m = sf_offsets[num_group].item().to<int>();
+  int m_offset_last = sf_offsets[num_group-1].item().to<int>();
+  int m_last = expert_offsets[num_group-1].item().to<int>() - expert_offsets[num_group-2].item().to<int>();
+  int padded_m = m_offset_last + (m_last + 127) / 128 * 128;
+
   out.as_strided_({padded_m, padded_k}, {padded_k, 1});
 
   // We validate each group individually
