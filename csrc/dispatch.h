@@ -148,6 +148,7 @@ class Val;
   f(ForLoop);                         \
   f(IfThenElse);                      \
   f(GridReduction);                   \
+  f(GroupedLoadStoreOp);              \
   f(GroupedGridReduction);            \
   f(GridBroadcast);                   \
   f(GridWelford);                     \

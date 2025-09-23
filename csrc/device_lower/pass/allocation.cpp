@@ -22,37 +22,6 @@
 namespace nvfuser {
 
 namespace {
-// True if a given domain is a loop domain of a given tensor and its
-// loop is partitioned with respect to the memory type of the tensor
-bool isPartitionedLoop(const TensorView* tv, IterDomain* id) {
-  // False if id is not a loop ID
-  if (std::find(tv->getLoopDomain().begin(), tv->getLoopDomain().end(), id) ==
-      tv->getLoopDomain().end()) {
-    return false;
-  }
-
-  // If the memory of this domain is partitioned with respect to the
-  // parallel type of the domain, there's no allocation for the domain
-  return ir_utils::isMemoryPartitionedAcross(
-      tv->getMemoryType(), id->getParallelType());
-}
-
-bool isSizeOneDomain(IterDomain* id) {
-  return id->isBroadcast() || id->extent()->isOneInt();
-}
-
-// True if a given domain of a tensor *may* require allocation
-bool mayRequireAllocation(const TensorView* tv, IterDomain* id) {
-  // Conditions to consider:
-  // - Fully partitioned
-  // - Size one: Allocation is done based on the promotion ID, but as
-  // long as the original ID has size one, its allocation should
-  // remain size one.
-  // - Reduction: Check the original ID, not the promotion, which may
-  //   be a reduction ID even though the original ID is not a reduction
-  return !isPartitionedLoop(tv, id) && !isSizeOneDomain(id) &&
-      !id->isReduction() && !id->isStride();
-}
 
 // Get the allocation stride of a given allocation domain
 Val* getStrideOfGlobalMemoryTensor(TensorView* tv, int64_t alloc_dim) {
@@ -386,7 +355,7 @@ class AllocationDomainSetup : private kir::IrVisitor {
     std::vector<IterDomain*> actual_allocation_ids;
     std::vector<std::optional<bool>> actual_contiguity;
     for (auto [i, id] : enumerate(allocation_domains)) {
-      if (mayRequireAllocation(tv, id)) {
+      if (ir_utils::mayRequireAllocation(tv, id)) {
         actual_allocation_ids.push_back(id);
         actual_contiguity.push_back(contiguity.at(i));
       }
@@ -464,7 +433,7 @@ class AllocationDomainSetup : private kir::IrVisitor {
       auto allocation_domain = allocation_domains.at(dim);
       auto promotion_domain = promoted_allocation_domains.at(dim);
 
-      if (!mayRequireAllocation(tv, allocation_domain)) {
+      if (!ir_utils::mayRequireAllocation(tv, allocation_domain)) {
         continue;
       }
 
@@ -494,7 +463,7 @@ class AllocationDomainSetup : private kir::IrVisitor {
     for (const auto i : arange(allocation_domains.size())) {
       auto allocation_domain = allocation_domains.at(i);
       auto promotion_domain = promoted_allocation_domains.at(i);
-      if (!mayRequireAllocation(tv, allocation_domain)) {
+      if (!ir_utils::mayRequireAllocation(tv, allocation_domain)) {
         continue;
       }
       auto stride = strides.at(i);
@@ -760,7 +729,7 @@ class AllocationDomainSetup : private kir::IrVisitor {
       for (auto out : expr->outputs()) {
         auto it = equiv_domain_set.find(out->as<IterDomain>());
         if (it == equiv_domain_set.end() &&
-            mayRequireAllocation(tv, out->as<IterDomain>())) {
+            ir_utils::mayRequireAllocation(tv, out->as<IterDomain>())) {
           // missing dependency
           return std::nullopt;
         }
@@ -1333,7 +1302,25 @@ class AllocationInserter : public kir::ExprMutator {
 
       auto out_tv = out->as<TensorView>();
       auto default_val =
-          gpu_lower_->predicateElimination().getInitValue(out_tv);
+          FusionInfoGuard::current()->tensorInitVal().get(out_tv);
+
+      // Check if out_tv must also be initialized for predicate
+      // elimination. If so, the two initialization values must match
+      if (auto init_for_pred_elimination =
+              gpu_lower_->predicateElimination().getInitValue(out_tv)) {
+        if (default_val != nullptr) {
+          NVF_ERROR(
+              default_val->sameAs(init_for_pred_elimination),
+              "Conflicting default val for ",
+              out_tv->toString(),
+              ". ",
+              default_val->toString(),
+              " vs ",
+              init_for_pred_elimination->toString());
+        } else {
+          default_val = init_for_pred_elimination;
+        }
+      }
 
       Val* init = nullptr;
       if (out_tv->dtype() == DataType::Float4_e2m1fn) {
