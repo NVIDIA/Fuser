@@ -7,6 +7,8 @@
 // clang-format on
 #include <validator_utils.h>
 
+#include <iterator>
+#include <ranges>
 #include <unordered_map>
 
 #include <ATen/cuda/CUDAContext.h>
@@ -361,12 +363,10 @@ void testValidate(
       auto fusion_input_tv = fusion->inputs()[i]->as<TensorView>();
       auto at_tensor = aten_inputs[i].as<at::Tensor>();
 
-      NVF_ERROR(
-          at_tensor.dim() ==
-              static_cast<int64_t>(TensorDomain::noReductions(
-                                       fusion_input_tv->getLogicalDomain())
-                                       .size()),
-          "Dimensionality mismatch in inputs.");
+      const auto logical_ndims = std::ranges::distance(
+          fusion_input_tv->getLogicalDomain() | TensorDomain::kNoReductions);
+      NVF_ERROR_EQ(
+          at_tensor.dim(), logical_ndims, "Dimensionality mismatch in inputs.");
     }
   }
 
@@ -389,12 +389,11 @@ void testValidate(
 
     int64_t reduction_size = reduction_sizes.at(out_tv);
 
+    const auto output_ndims = std::ranges::distance(
+        out_tv->getLogicalDomain() | TensorDomain::kNoReductions);
     NVF_ERROR(
         aten_output_tensor.dim() == fusion_output_tensor.dim() &&
-            fusion_output_tensor.dim() ==
-                static_cast<int64_t>(
-                    TensorDomain::noReductions(out_tv->getLogicalDomain())
-                        .size()),
+            fusion_output_tensor.dim() == output_ndims,
         "Dimensionality mismatch in outputs: ",
         aten_output_tensor.sizes(),
         " vs ",
