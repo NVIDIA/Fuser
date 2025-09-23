@@ -624,12 +624,34 @@ class RunTimeChecker : private IterVisitor {
       size_of_constrained_ids *= extent_val.as<int64_t>();
     }
 
-    const int64_t bdim = max_threads_per_block_;
-    int64_t max_supported_size = bdim;
+    // The maximum supported size depends on several factors. The hard
+    // limit is the shared memory capacity since the kernel launch
+    // would just fail if the shared memory usage exceeds the
+    // available size. The next important limit would be the register
+    // usage as we would not want to have excessive register spilling.
+    //
+    // At this moment, not all constrained ops supports grouping. If
+    // grouping is not supported, the limit is simply set as the
+    // maximum number of threads per thread block. This is likely
+    // a sufficient condition even for shared memory, although not
+    // guaranteed.
+    //
+    // When grouping is supported, up to half of the shared memory
+    // capacity is allowed for now. This is a pretty rough estimate
+    // and does not guarantee the safety of kernel launches nor avoids
+    // register spilling but is used for now since more accurate
+    // estimation of shared memory usage remains to be done, and the
+    // register spilling is not a functional concern.
+    //
+    // TODO: More accurate estimation of resource requirements
+    int64_t max_supported_size = max_threads_per_block_;
     if (support_grouping) {
-      auto regs_per_thread =
-          at::cuda::getCurrentDeviceProperties()->regsPerBlock / bdim;
-      max_supported_size = bdim * regs_per_thread;
+      auto available_shmem_capacity =
+          at::cuda::getCurrentDeviceProperties()->sharedMemPerBlock / 2;
+      // TODO: don't assume it's always float.
+      auto element_size = sizeof(float);
+      max_supported_size =
+          static_cast<int64_t>(available_shmem_capacity / element_size);
     }
 
     if (size_of_constrained_ids > max_supported_size) {
@@ -680,6 +702,9 @@ class HeuristicsBuilder : private IterVisitor {
     addHeuristicsFor(ir_utils::getTvOutput(argsort), {argsort->dim()});
   }
 
+  // Currently, the only heuristic parameter is the number of items
+  // per thread. Add the parameter for ops that supports multiple
+  // items per thread.
   void addHeuristicsFor(
       TensorView* constrained_tv,
       const std::vector<int64_t>& constrained_id_offsets) {
@@ -866,7 +891,7 @@ class ConstrainedOpScheduler : public OptOutDispatch {
     // tensor, both tensors should use global. Otherwise, use shared.
     // Note that the in_tv tensor should never be produced by another
     // scatter since a copy must have been inserted by
-    // insertCopy.
+    // insertCopies.
     NVF_ERROR(dynamic_cast<ScatterOp*>(in_tv->definition()) == nullptr);
     if (in_tv->isFusionInput() || in_tv->isFusionOutput() ||
         out_tv->isFusionOutput()) {
@@ -880,7 +905,7 @@ class ConstrainedOpScheduler : public OptOutDispatch {
     scheduleScatterAllocationDomains(scatter);
 
     // If there's a use of the scatter output, that must be the copy
-    // op inserted by insertCopy. It is not automatically
+    // op inserted by insertCopies. It is not automatically
     // scheduled as the propagation from the scatter output won't
     // happen because the loop domain of the scatter output is not mapped
     // with its logical domain.
