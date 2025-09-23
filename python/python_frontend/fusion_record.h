@@ -422,9 +422,6 @@ struct SliceOpRecord : RecordFunctor {
     for (auto [start_idx, end_idx, stride_idx] : zip(start, end, stride)) {
       // NOTE: there's an extra move, we can use emplace_back if we go write
       // some constructors for Slice.
-      Val* start_idx = start.at(idx);
-      Val* end_idx = end.at(idx);
-      Val* stride_idx = stride.at(idx);
       NVF_CHECK(
           !start_idx->isConstInt() || start_idx->evaluate().as<int64_t>() >= 0,
           "Slice operation start_indices must be greater than or equal to 0. "
@@ -3669,4 +3666,3 @@ struct equal_to<RecordFunctor*> {
   }
 };
 } // namespace std
- 
