@@ -68,6 +68,8 @@ bool validateGroupedLayout(
 
 } // namespace
 
+using testing::UnorderedElementsAre;
+
 class LayoutOpTest : public NVFuserTest {
  protected:
   void SetUp() override {
@@ -211,6 +213,162 @@ TEST_F(LayoutOpTest, ManualKernel) {
       t0,
       t1,
       t2));
+}
+
+TEST_F(LayoutOpTest, SchedulerKernel) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  auto inp = makeSymbolicTensor(2);
+  auto offsets = makeSymbolicTensor(1, DataType::Int32);
+  auto rounded_offsets = makeSymbolicTensor(1, DataType::Int32);
+  fusion.addInput(inp);
+  fusion.addInput(offsets);
+  fusion.addInput(rounded_offsets);
+
+  auto out_tv = preprocessGroupedMatmulInputSf(
+      inp, offsets, rounded_offsets, BlockScalingFactorLayout::Block128x4);
+  fusion.addOutput(out_tv);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  int m = 512;
+  int k = 9; // note: padded column size would be 12
+  auto t0 = at::randn({m, k}, options);
+  // tokens per group are [100, 150, 262] respectively, so each group would be
+  // padded to multiple of 128. Hence the total output row span would cover a
+  // length of 128 + 256 + 384 = 768.
+  auto t1 = at::tensor({0, 100, 250, 512}, options.dtype(at::kInt));
+  auto t2 = at::tensor({0, 128, 384, 768}, options.dtype(at::kInt));
+
+  // naive scheduling.
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs({t0, t1, t2});
+
+  ASSERT_TRUE(validateGroupedLayout(
+      BlockScalingFactorLayout::Block128x4,
+      outputs[0].as<at::Tensor>(),
+      t0,
+      t1,
+      t2));
+}
+
+TEST_F(LayoutOpTest, SchedulerKernelWithConsumer) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  auto inp = makeSymbolicTensor(2);
+  auto offsets = makeSymbolicTensor(1, DataType::Int32);
+  auto rounded_offsets = makeSymbolicTensor(1, DataType::Int32);
+  fusion.addInput(inp);
+  fusion.addInput(offsets);
+  fusion.addInput(rounded_offsets);
+
+  auto out_tv = preprocessGroupedMatmulInputSf(
+      inp, offsets, rounded_offsets, BlockScalingFactorLayout::Block128x4);
+  fusion.addOutput(out_tv);
+
+  // FIXME: this is undefined and we should error out.
+  // FIXME: add validation for relu_tv.
+  // TODO: consumer of output from PreprocessGroupedMatmulInputSf needs to be
+  // segmented, because indexing won't work on lowerSrcIndex. So this needs to
+  // be changed into some other operation that would go through expr_eval
+  // instead. Maybe a matmul or something like that.
+  auto relu_tv = relu(out_tv);
+  fusion.addOutput(relu_tv);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  int m = 512;
+  int k = 9; // note: padded column size would be 12
+  auto t0 = at::randn({m, k}, options);
+  // tokens per group are [100, 150, 262] respectively, so each group would be
+  // padded to multiple of 128. Hence the total output row span would cover a
+  // length of 128 + 256 + 384 = 768.
+  auto t1 = at::tensor({0, 100, 250, 512}, options.dtype(at::kInt));
+  auto t2 = at::tensor({0, 128, 384, 768}, options.dtype(at::kInt));
+
+  // naive scheduling.
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs({t0, t1, t2});
+
+  ASSERT_TRUE(validateGroupedLayout(
+      BlockScalingFactorLayout::Block128x4,
+      outputs[0].as<at::Tensor>(),
+      t0,
+      t1,
+      t2));
+}
+
+TEST_F(LayoutOpTest, SchedulerKernelWithExplicitQuantizationPattern) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  auto inp = makeSymbolicTensor(2);
+  auto offsets = makeSymbolicTensor(1, DataType::Int32);
+  auto rounded_offsets = makeSymbolicTensor(1, DataType::Int32);
+  fusion.addInput(inp);
+  fusion.addInput(offsets);
+  fusion.addInput(rounded_offsets);
+
+  auto block_size = IrBuilder::create<Val>(16, DataType::Int);
+  auto remainder = ceilDiv(inp->axis(1)->extent(), block_size);
+
+  auto reshaped_inp =
+      reshape(inp, {inp->axis(0)->extent(), remainder, block_size});
+  auto blocked_sf = max(reshaped_inp, {2});
+  auto scaled_output = reshape(
+      div(reshaped_inp, broadcast(blocked_sf, {false, false, true})),
+      {inp->axis(0)->extent(), inp->axis(1)->extent()});
+  // NOTE: output needs to be casted to DataType::Float4_e2m1fn, skipping that
+  // for simplicity
+  fusion.addOutput(scaled_output);
+
+  auto out_blocked_sf_fp8 = preprocessGroupedMatmulInputSf(
+      blocked_sf,
+      offsets,
+      rounded_offsets,
+      BlockScalingFactorLayout::Block128x4);
+  // NOTE: output needs to be casted to DataType::Float8_e4m3fn, skipping that
+  // for simplicity
+  fusion.addOutput(out_blocked_sf_fp8);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  int m = 512;
+  int k = 9 * 16; // note: padded column size needs to be a multiple of 16
+  auto t0 = at::randn({m, k}, options);
+  // tokens per group are [100, 150, 262] respectively, so each group would be
+  // padded to multiple of 128. Hence the total output row span would cover a
+  // length of 128 + 256 + 384 = 768.
+  auto t1 = at::tensor({0, 100, 250, 512}, options.dtype(at::kInt));
+  auto t2 = at::tensor({0, 128, 384, 768}, options.dtype(at::kInt));
+
+  // automatic scheduling.
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs({t0, t1, t2});
+
+  // producing reference
+  auto ref_reshaped_inp = t0.view({m, k / 16, 16});
+  auto ref_block_sf = ref_reshaped_inp.amax(-1);
+  auto ref_scaled_out =
+      (ref_reshaped_inp / ref_block_sf.unsqueeze(-1)).view({m, k});
+
+  // check scaled output
+  EXPECT_TRUE(at::allclose(ref_scaled_out, outputs[0].as<at::Tensor>()));
+  // check block scaling factor
+  ASSERT_TRUE(validateGroupedLayout(
+      BlockScalingFactorLayout::Block128x4,
+      outputs[1].as<at::Tensor>(),
+      ref_block_sf,
+      t1,
+      t2));
+
+  EXPECT_THAT(
+      executor_cache.getMostRecentKernelRuntime()->fusionSegments()->groups(),
+      UnorderedElementsAre(
+          HeuristicIs(SchedulerType::InnerPersistent),
+          HeuristicIs(SchedulerType::ExprEval)));
 }
 
 } // namespace nvfuser
