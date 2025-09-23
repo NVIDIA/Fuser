@@ -4437,8 +4437,9 @@ std::vector<Expr*> get_upcasts_and_squeezes(SegmentedGroup* group) {
 bool needs_to_squeeze_expanded(
     TensorView* x,
     const std::vector<bool>& to_squeeze) {
-  auto x_dom = x->domain()->noReductions();
-  const auto ndims = static_cast<int64_t>(x_dom.size());
+  const auto& x_dom = TensorDomain::noReductions(x->getLogicalDomain());
+  const auto ndims = x_dom.size();
+  NVF_ERROR_EQ(ndims, to_squeeze.size());
   for (const auto idx : arange(ndims)) {
     // If the dimension is not expanded, no need to squeeze
     if (!to_squeeze[idx]) {
