@@ -168,7 +168,7 @@ TEST_P(NVFP4QuantizeTest, WithoutPerTensorAmax) {
           HeuristicIs(SchedulerType::InnerPersistent)));
 }
 
-TEST_P(NVFP4QuantizeTest, SwizzledOuputAndWithoutPerTensorAmax) {
+TEST_P(NVFP4QuantizeTest, SwizzledOutputAndWithoutPerTensorAmax) {
   auto data_hp_dtype = GetParam();
 
   std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
