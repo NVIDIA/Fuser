@@ -67,6 +67,10 @@ bool validateGroupedLayout(
         expert_offsets[i].item().to<int>(),
         expert_offsets[i].item().to<int>() + m_g);
     if (!at::allclose(restored_out_g, ref_g)) {
+      std::cout << "failed at group: " << i << std::endl;
+      std::cout << "out_g:\n" << out_g << std::endl;
+      std::cout << "ref_g:\n" << ref_g << std::endl;
+      std::cout << "restored_out_g:\n" << restored_out_g << std::endl;
       return false;
     }
   }
@@ -197,7 +201,8 @@ TEST_F(LayoutOpTest, ManualKernel) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   int m = 512;
   int k = 9; // note: padded column size would be 12
-  auto t0 = at::randn({m, k}, options);
+  // auto t0 = at::randn({m, k}, options);
+  auto t0 = at::arange(m*k, options).reshape({m, k});
   // tokens per group are [100, 150, 262] respectively, so each group would be
   // padded to multiple of 128. Hence the total output row span would cover a
   // length of 128 + 256 + 384 = 768.
