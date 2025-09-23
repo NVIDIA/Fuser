@@ -102,11 +102,13 @@ void resetAllocationDomainAndContiguity(TensorView* tv, const std::vector<int64_
     sorted_strides.push_back(dim.stride);
   }
   std::vector<std::optional<bool>> contiguity = computeContiguity(sorted_sizes, sorted_strides);
-  // for (auto [index, id] : views::enumerate_view(TensorDomain::noReductions(tv->getLogicalDomain()))) {
-  //   if (id->isBroadcast()) {
-  //     contiguity[index] = std::nullopt;
-  //   }
-  // }
+  // Device parallelized dimension always has size 1, so contiguity inference will treat it as broadcast.
+  // But it is actually not broadcast, so we need to fix its contiguity to true.
+  for (auto [index, id] : views::enumerate_view(no_reduction_domain)) {
+    if (id->isDeviceDim()) {
+      contiguity[index] = true;
+    }
+  }
   // Add reduction IDs to allocation domain to the back
   for (auto id : tv->getLogicalDomain()) {
     if (id->isReduction()) {
