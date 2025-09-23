@@ -60,6 +60,13 @@ class NvfuserVersion(str):
 
     def _say_hello_to_version(self):
         print("Hello, version!")
+    
+    def _say_something_to_version(self):
+        print("Something to version!")
+        return "Something"
+    
+    def _say_goodbye_to_version(self):
+        print("Goodbye, version!")
 
 
 for cmp_method in ["__gt__", "__lt__", "__eq__", "__ge__", "__le__"]:
