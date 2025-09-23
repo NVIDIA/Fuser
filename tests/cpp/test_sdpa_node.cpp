@@ -566,6 +566,11 @@ TEST_F(SDPATest, NonCausalAttnConcreteBwd) {
     ee.bind(executor_cache.fusion()->inputs().at(3), v.to(at::kMeta));
     ee.bind(executor_cache.fusion()->inputs().at(4), output.to(at::kMeta));
     ee.bind(executor_cache.fusion()->inputs().at(5), log_sumexp.to(at::kMeta));
+    // Bind RNG state for meta evaluation to unlock node evaluate
+    ee.bind(
+        executor_cache.fusion()->inputs().at(6), philox_seed.to(at::kMeta));
+    ee.bind(
+        executor_cache.fusion()->inputs().at(7), philox_offset.to(at::kMeta));
     auto grad_query_meta =
         ee.evaluate(executor_cache.fusion()->outputs().at(0)).as<at::Tensor>();
     auto grad_key_meta =
@@ -697,6 +702,11 @@ TEST_F(SDPATest, NonCausalAttnSymbolicBwd) {
     ee.bind(executor_cache.fusion()->inputs().at(3), v.to(at::kMeta));
     ee.bind(executor_cache.fusion()->inputs().at(4), output.to(at::kMeta));
     ee.bind(executor_cache.fusion()->inputs().at(5), log_sumexp.to(at::kMeta));
+    // Bind RNG state for meta evaluation to unlock node evaluate
+    ee.bind(
+        executor_cache.fusion()->inputs().at(6), philox_seed.to(at::kMeta));
+    ee.bind(
+        executor_cache.fusion()->inputs().at(7), philox_offset.to(at::kMeta));
     auto grad_query_meta =
         ee.evaluate(executor_cache.fusion()->outputs().at(0)).as<at::Tensor>();
     auto grad_key_meta =
