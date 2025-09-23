@@ -959,7 +959,7 @@ class Generator : public std::ranges::view_interface<Generator<T>> {
 //     the size of the next non-broadcast dimension
 //   - False otherwise
 std::vector<std::optional<bool>> computeContiguity(
-  const std::vector<int64_t>& sizes,
-  const std::vector<int64_t>& strides);
+    const std::vector<int64_t>& sizes,
+    const std::vector<int64_t>& strides);
 
 } // namespace nvfuser
