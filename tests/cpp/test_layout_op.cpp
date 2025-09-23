@@ -124,10 +124,9 @@ TEST_F(LayoutOpTest, AllocationDomainSplitVectorizationFactor) {
   auto out = set(inp);
   fusion.addOutput(out);
   // split would prevent vectorization
-  out->split(1, 16);
-  out->setAllocationDomain(out->getLoopDomain(), true);
-  // restore loop domain
-  out->merge(1);
+  auto&& [io, ii] = IterDomain::split(
+      out->axis(1), IrBuilder::create<Val>(16L, DataType::Index), true);
+  out->setAllocationDomain({out->axis(0), io, ii}, {false, true, true});
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   // because of the split on the middle dimension, we only have the fastest
