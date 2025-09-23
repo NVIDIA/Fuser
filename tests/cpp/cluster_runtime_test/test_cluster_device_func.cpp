@@ -20,6 +20,7 @@ using ClusterDeviceFuncTest = NVFuserTest;
 
 // Basic functionality test for storeSharedRemote<float>
 TEST_F(ClusterDeviceFuncTest, BasicStoreSharedRemoteFloat) {
+  NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
   constexpr int num_blocks = 2;
   constexpr int threads_per_block = 32;
   constexpr int total_elements = num_blocks * threads_per_block;
