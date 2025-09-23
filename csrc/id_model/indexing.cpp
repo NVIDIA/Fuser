@@ -352,6 +352,7 @@ std::unordered_map<Val*, Val*> TensorIndexer::getIndexReplacementMap(
     // of the domain, for predication, so the replacement is not
     // always done with zero.
     if (loop_id->getParallelType() == ParallelType::Vectorize ||
+        loop_id->getParallelType() == ParallelType::Group ||
         loop_id->getParallelType() == ParallelType::Bulk ||
         loop_id->getParallelType() == ParallelType::Mma) {
       replacement_index = loop_id->fusion()->zeroVal();

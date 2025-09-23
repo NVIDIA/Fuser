@@ -7,6 +7,7 @@
 // clang-format on
 #include <type.h>
 
+#include <ranges>
 #include <sstream>
 #include <unordered_set>
 
@@ -76,9 +77,10 @@ DataType metaDataTypeOf(const Val* v) {
     return PointerType{std::make_shared<DataType>(tv->dtype())};
   }
 
-  size_t dim = TensorDomain::noReductions(tv->getLogicalDomain()).size();
-  size_t alloc_dim =
-      TensorDomain::noReductions(tv->getMaybeAllocationDomain()).size();
+  const auto dim = std::ranges::distance(
+      tv->getLogicalDomain() | TensorDomain::kNoReductions);
+  const auto alloc_dim = std::ranges::distance(
+      tv->getMaybeAllocationDomain() | TensorDomain::kNoReductions);
   return globalTensorMetaData(tv->dtype().type, dim, alloc_dim);
 }
 
