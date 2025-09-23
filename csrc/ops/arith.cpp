@@ -1662,8 +1662,8 @@ WelfordResult Welford(
   NVF_CHECK(!axes.empty(), "No reduction axis specified");
 
   // Check and collect reduction axes
-  auto non_reduction_ids = tv->getLoopDomain() | TensorDomain::kNoReductions;
-  const auto ndims = std::ranges::distance(non_reduction_ids);
+  const auto& tv_root = TensorDomain::noReductions(tv->getLoopDomain());
+  const auto ndims = std::ssize(tv_root);
   std::vector<unsigned int> uint_axes = ops::canonicalizeAxes(axes, ndims);
   std::sort(uint_axes.begin(), uint_axes.end());
 
@@ -1671,7 +1671,8 @@ WelfordResult Welford(
   std::vector<int64_t> reduction_axes;
   std::vector<bool> is_trivial_reduction(ndims, false);
   int offset = 0;
-  for (auto [axis, id] : zip(uint_axes, non_reduction_ids)) {
+  for (auto axis : uint_axes) {
+    IterDomain* id = tv_root.at(axis);
     is_trivial_reduction[axis] = id->isBroadcast() &&
         !id->hasExpandedExtent() && id->extent()->isOneInt();
     if (!is_trivial_reduction[axis]) {

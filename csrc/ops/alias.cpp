@@ -305,8 +305,9 @@ TensorView* squeeze(
   auto x_dom = TensorDomain::noReductions(x->getLogicalDomain());
   const auto ndims = std::ssize(x_dom);
 
-  NVF_ERROR(
-      ndims == (int64_t)to_squeeze.size(),
+  NVF_ERROR_EQ(
+      ndims,
+      std::ssize(to_squeeze),
       "Invalid to_squeeze for squeeze: ",
       to_squeeze,
       ". Input tensor: ",
@@ -335,7 +336,7 @@ TensorView* squeeze(
     }
   }
 
-  auto out = IrBuilder::create<TensorView>(
+  auto* out = IrBuilder::create<TensorView>(
       IrBuilder::create<TensorDomain>(
           out_domain, TensorDomain::getContiguityFilledWith(out_domain, true)),
       *x->getDataType());
@@ -343,8 +344,7 @@ TensorView* squeeze(
     out->setDeviceMesh(x->getDeviceMesh());
   }
 
-  if (std::none_of(
-          to_squeeze.begin(), to_squeeze.end(), [](bool b) { return b; })) {
+  if (std::none_of(to_squeeze.begin(), to_squeeze.end(), std::identity())) {
     // If we did not squeeze any axes, this is just set()
     IrBuilder::create<LoadStoreOp>(LoadStoreOpType::Set, out, x);
   } else {
