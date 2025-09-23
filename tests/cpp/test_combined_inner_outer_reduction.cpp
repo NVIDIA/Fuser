@@ -1066,7 +1066,7 @@ class TmaWarpSpecializedTest
         runtime->schedulerHeuristics()->heuristicsList().at(0).get();
     ASSERT_NE(heur, nullptr);
     ASSERT_TRUE(heur->isA<ReductionParams>());
-    ReductionParams* rparams = heur->as<ReductionParams>();
+    auto* rparams = heur->as<ReductionParams>();
     EXPECT_TRUE(rparams->computation_warp_groups > 1);
   }
 

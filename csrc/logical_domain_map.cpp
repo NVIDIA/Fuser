@@ -12,6 +12,8 @@
 #include <logical_domain_map.h>
 #include <ops/utils.h>
 
+#include <ranges>
+
 #include <sstream>
 
 namespace nvfuser {
@@ -131,6 +133,27 @@ std::pair<std::unordered_set<IterDomain*>, bool> getNonMappingDomainInfo(
       non_mapping_ids.insert(producer_logical.at(topk_dim));
       has_consumer_id = true;
     }
+  } else if (
+      auto* preprocess_op = dynamic_cast<PreprocessGroupedMatmulInputSf*>(
+          consumer_tv->definition())) {
+    if (producer_tv != preprocess_op->in()) {
+      auto producer_logical =
+          TensorDomain::noReductions(producer_tv->getLogicalDomain());
+      non_mapping_ids.insert(producer_logical.begin(), producer_logical.end());
+      // we are not mapping anything, `has_consumer_id` doesn't matter.
+      has_consumer_id = false;
+    }
+  } else if (auto sop = dynamic_cast<ScatterOp*>(consumer_tv->definition())) {
+    if (producer_tv != sop->in()) {
+      auto producer_logical =
+          TensorDomain::noReductions(producer_tv->getLogicalDomain());
+      for (const auto& [i, p_id] : enumerate(producer_logical)) {
+        if ((int64_t)i == sop->dim() || !sop->exactSizes()) {
+          non_mapping_ids.insert(p_id);
+        }
+      }
+      has_consumer_id = true;
+    }
   }
 
   return std::make_pair(non_mapping_ids, has_consumer_id);
@@ -143,15 +166,6 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseLogicalDomainMap::map(
     const TensorDomain* consumer,
     const std::unordered_set<IterDomain*>& dims_to_map,
     bool producer_to_consumer) const {
-  // In the case of scatter, nothing is guaranteed to map except for
-  // the self producer. Note that in PyTorch even non-indexed
-  // dimensions of index and src tensors are not guaranteed to have
-  // the same extent as the self/out tensors.
-  if (auto sop = dynamic_cast<ScatterOp*>(consumer_tv_->definition());
-      sop != nullptr && producer_tv_ != sop->in()) {
-    return {};
-  }
-
   std::vector<bool> broadcast_flags;
   if (auto* bop = dynamic_cast<BroadcastOp*>(consumer_tv_->definition())) {
     broadcast_flags = bop->getBroadcastDimFlags();
@@ -445,7 +459,8 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseLogicalDomainMap::map(
 
   // TODO: refactor to use getNonMappingDomainInfo instead.
   if (auto* op = dynamic_cast<GroupedMmaOp*>(consumer_tv_->definition())) {
-    bool has_g = TensorDomain::noReductions(consumer_root).size() == 3;
+    bool has_g =
+        std::ranges::distance(consumer_root | TensorDomain::kNoReductions) == 3;
     int64_t ndims_out = std::ssize(consumer_root);
     // [rk] is the reduction axis for the matmul operation, it only exists if k
     // is not broadcast.
@@ -760,7 +775,7 @@ void UnmappableReductionDomains::handleReductionOutput(TensorView* out_tv) {
 
 void UnmappableReductionDomains::handle(ReductionOp* op) {
   // Builds a map from reduction domains to consumer domains.
-  TensorView* out_tv = op->out()->as<TensorView>();
+  auto* out_tv = op->out()->as<TensorView>();
   handleReductionOutput(out_tv);
 }
 
@@ -773,7 +788,7 @@ void UnmappableReductionDomains::handle(GroupedReductionOp* op) {
 
 void UnmappableReductionDomains::handle(MmaOp* mma) {
   // Builds a map from reduction domains to consumer domains.
-  TensorView* out_tv = mma->out()->as<TensorView>();
+  auto* out_tv = mma->out()->as<TensorView>();
   handleReductionOutput(out_tv);
 }
 
@@ -1360,7 +1375,7 @@ void ComputeAtLogicalDomainMapBuilder::mapPointwiseLikeOp(Expr* expr) {
   if (expr->outputs().size() > 1) {
     NVF_ERROR(
         expr->isA<WelfordOp>() || expr->isA<GroupedReductionOp>() ||
-            expr->isA<GroupedWelfordOp>(),
+            expr->isA<GroupedWelfordOp>() || expr->isA<TopKOp>(),
         "Unknown multi-output Expr type ",
         expr->getOpString(),
         " is found");
@@ -1480,11 +1495,11 @@ void ComputeAtLogicalDomainMapBuilder::handle(SqueezeOp* op) {
 }
 
 void ComputeAtLogicalDomainMapBuilder::handle(ViewAsScalar* op) {
-  const TensorView* out_tv = op->output(0)->as<TensorView>();
+  const auto* out_tv = op->output(0)->as<TensorView>();
   const TensorDomain* out_td = out_tv->domain();
   const auto& out_root = out_td->maybeRoot();
 
-  const TensorView* in_tv = op->input(0)->as<TensorView>();
+  const auto* in_tv = op->input(0)->as<TensorView>();
   const TensorDomain* in_td = in_tv->domain();
 
   std::vector<IterDomain*> in_logical =
@@ -1548,8 +1563,7 @@ void ComputeAtLogicalDomainMapBuilder::handle(RNGOp* rop) {
 
 void ComputeAtLogicalDomainMapBuilder::handle(TensorView* tv) {
   const TensorDomain* td = tv->domain();
-  const auto logical = TensorDomain::noReductions(td->logical());
-  for (auto id : logical) {
+  for (IterDomain* id : td->logical() | TensorDomain::kNoReductions) {
     if (id->isBroadcast()) {
       initializeBcastMap(tv, id);
     }
@@ -1560,7 +1574,7 @@ void ComputeAtLogicalDomainMapBuilder::handle(TensorView* tv) {
   // each of the logical axes to the dependent root axes.
   if (td->hasViewLikeRFactor()) {
     std::unordered_set<Val*> root_set({td->root().begin(), td->root().end()});
-    for (auto logical_id : logical) {
+    for (IterDomain* logical_id : td->logical() | TensorDomain::kNoReductions) {
       if (!logical_id->isRFactorProduct()) {
         continue;
       }

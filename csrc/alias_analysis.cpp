@@ -163,7 +163,7 @@ void AliasFinder::handle(const ReshapeOp* view) {
 }
 
 void AliasFinder::handle(const LoadStoreOp* set) {
-  TensorView* in = dynamic_cast<TensorView*>(set->in());
+  auto* in = dynamic_cast<TensorView*>(set->in());
   if (in == nullptr) {
     return;
   }
@@ -268,7 +268,7 @@ void AliasFinder::handle(const SliceOp* slice) {
 }
 
 void AliasFinder::handle(const BroadcastOp* bcast) {
-  TensorView* in = dynamic_cast<TensorView*>(bcast->in());
+  auto* in = dynamic_cast<TensorView*>(bcast->in());
   if (in == nullptr) {
     return;
   }
@@ -296,7 +296,7 @@ void AliasFinder::handle(const BroadcastOp* bcast) {
 }
 
 void AliasFinder::handle(const SqueezeOp* squeeze) {
-  TensorView* in = dynamic_cast<TensorView*>(squeeze->in());
+  auto* in = dynamic_cast<TensorView*>(squeeze->in());
   if (in == nullptr) {
     return;
   }

@@ -8,6 +8,7 @@
 #include <ATen/Functions.h>
 #include <c10/cuda/CUDAStream.h>
 #include <c10/util/ArrayRef.h>
+
 #include <fusion.h>
 #include <host_ir/container.h>
 #include <host_ir/evaluator.h>
@@ -292,7 +293,7 @@ TEST_F(
       auto tc_j = tc_.select(0, j);
 
       // local compute
-      torch::matmul_out(tc_locally_reduced_j, ta_j, tb_);
+      at::matmul_out(tc_locally_reduced_j, ta_j, tb_);
       // communication
       world_communicator_->_reduce_scatter_base(tc_j, tc_locally_reduced_j)
           ->wait();
@@ -321,7 +322,7 @@ TEST_F(
   auto* start = hic->zeroVal();
   auto* stop = IrBuilder::create<Val>(params.S, DataType::Index);
   auto* step = hic->oneVal();
-  auto* for_loop = IrBuilder::create<ForLoop>(
+  auto* for_loop = IrBuilder::create<kir::ForLoop>(
       /*IterDomain=*/tva->axis(0),
       /*index=*/j,
       start,
@@ -385,7 +386,7 @@ TEST_F(
   auto* stop_stream =
       IrBuilder::create<Val>(params.number_of_streams, DataType::Index);
   auto* step_stream = hic->oneVal();
-  auto* for_loop_stream = IrBuilder::create<ForLoop>(
+  auto* for_loop_stream = IrBuilder::create<kir::ForLoop>(
       /*IterDomain=*/makeContigConcreteTensor({params.number_of_streams})
           ->axis(0),
       /*index=*/i_stream,
@@ -498,7 +499,7 @@ TEST_F(
             number_of_steps_per_ring_;
 
         // local compute
-        torch::matmul_out(src_buffer_j, ta_j, tb_);
+        at::matmul_out(src_buffer_j, ta_j, tb_);
         // communication
         std::vector<at::Tensor> src = {src_buffer_j};
         std::vector<at::Tensor> dst = {dst_buffer_j};
@@ -511,7 +512,7 @@ TEST_F(
       }
     }
     synchronizeStreams(streams);
-    torch::sum_out(tc_reshaped_, dst_buffer_, 0);
+    at::sum_out(tc_reshaped_, dst_buffer_, 0);
   }
 }
 
@@ -533,7 +534,7 @@ TEST_F(
   auto* start_i = hic->zeroVal();
   auto* stop_i = tva_reshaped->axis(1)->extent();
   auto* step_i = hic->oneVal();
-  auto* for_loop_i = IrBuilder::create<ForLoop>(
+  auto* for_loop_i = IrBuilder::create<kir::ForLoop>(
       /*IterDomain=*/tva_reshaped->axis(1),
       /*index=*/i,
       start_i,
@@ -550,7 +551,7 @@ TEST_F(
   auto* start_j = hic->zeroVal();
   auto* stop_j = tva_reshaped->axis(0)->extent();
   auto* step_j = hic->oneVal();
-  auto* for_loop_j = IrBuilder::create<ForLoop>(
+  auto* for_loop_j = IrBuilder::create<kir::ForLoop>(
       /*IterDomain=*/tva_reshaped->axis(0),
       /*index=*/j,
       start_j,
@@ -622,7 +623,7 @@ TEST_F(
   auto* stop_stream =
       IrBuilder::create<Val>(params.number_of_streams, DataType::Index);
   auto* step_stream = hic->oneVal();
-  auto* for_loop_stream = IrBuilder::create<ForLoop>(
+  auto* for_loop_stream = IrBuilder::create<kir::ForLoop>(
       /*IterDomain=*/makeContigConcreteTensor({params.number_of_streams})
           ->axis(0),
       /*index=*/i_stream,
@@ -753,7 +754,7 @@ class AllgatherOverlapTest : public MultiDeviceTest {
   void validate() {
     // compute the expected output for data correctness validation
     auto tc_unsharded_expected_ =
-        torch::matmul(ta_unsharded_, tb_unsharded_.cpu());
+        at::matmul(ta_unsharded_, tb_unsharded_.cpu());
     EXPECT_TRUE(
         tc_unsharded_.cpu().allclose(tc_unsharded_expected_, 1e-1, 1e-1))
         << "Unexpected results, obtained: " << tc_unsharded_
@@ -786,7 +787,7 @@ TEST_F(AllgatherOverlapTest, AllgatherBasedPipeliningATenImplementation) {
       // local compute
       auto tc_j = tc_unsharded_.select(
           0, j); // num_devices_, params.M / (num_devices_ * params.S), params.N
-      torch::matmul_out(
+      at::matmul_out(
           tc_j,
           ta_allgathered_j,
           tb_unsharded_); // num_devices_, params.M / (num_devices_ * params.S),
@@ -816,7 +817,7 @@ TEST_F(AllgatherOverlapTest, AllgatherBasedPipeliningHostIrImplementation) {
   auto* start = hic->zeroVal();
   auto* stop = IrBuilder::create<Val>(params.S, DataType::Index);
   auto* step = hic->oneVal();
-  auto* for_loop = IrBuilder::create<ForLoop>(
+  auto* for_loop = IrBuilder::create<kir::ForLoop>(
       /*IterDomain=*/tva->axis(0),
       /*index=*/j,
       start,
@@ -880,7 +881,7 @@ TEST_F(AllgatherOverlapTest, AllgatherBasedPipeliningHostIrImplementation) {
   auto* stop_stream =
       IrBuilder::create<Val>(params.number_of_streams, DataType::Index);
   auto* step_stream = hic->oneVal();
-  auto* for_loop_stream = IrBuilder::create<ForLoop>(
+  auto* for_loop_stream = IrBuilder::create<kir::ForLoop>(
       /*IterDomain=*/makeContigConcreteTensor({params.number_of_streams})
           ->axis(0),
       /*index=*/i_stream,
@@ -1034,7 +1035,7 @@ class RingAllgatherOverlapTest : public MultiDeviceTest {
   void validate() {
     // compute the expected output for data correctness validation
     auto tc_unsharded_expected_ =
-        torch::matmul(ta_unsharded_, tb_unsharded_.cpu());
+        at::matmul(ta_unsharded_, tb_unsharded_.cpu());
     EXPECT_TRUE(
         tc_unsharded_.cpu().allclose(tc_unsharded_expected_, 1e-1, 1e-1))
         << "Unexpected results, obtained: " << tc_unsharded_
@@ -1083,7 +1084,7 @@ TEST_F(
           world_communicator_->recv(dst, recv_rank, 0);
           comms_req = world_communicator_->endCoalescing();
         }
-        torch::matmul_out(tc_j, ta_j_curr_slice, tb_unsharded_);
+        at::matmul_out(tc_j, ta_j_curr_slice, tb_unsharded_);
       }
     }
     synchronizeStreams(streams);
@@ -1112,7 +1113,7 @@ TEST_F(
   auto* start_i = hic->zeroVal();
   auto* stop_i = tva->axis(1)->extent();
   auto* step_i = hic->oneVal();
-  auto* for_loop_i = IrBuilder::create<ForLoop>(
+  auto* for_loop_i = IrBuilder::create<kir::ForLoop>(
       /*IterDomain=*/tva->axis(1),
       /*index=*/i,
       start_i,
@@ -1128,7 +1129,7 @@ TEST_F(
   auto* start_j = hic->zeroVal();
   auto* stop_j = tva->axis(0)->extent();
   auto* step_j = hic->oneVal();
-  auto* for_loop_j = IrBuilder::create<ForLoop>(
+  auto* for_loop_j = IrBuilder::create<kir::ForLoop>(
       /*IterDomain=*/tva->axis(0),
       /*index=*/j,
       start_j,
@@ -1236,7 +1237,7 @@ TEST_F(
   auto* stop_stream =
       IrBuilder::create<Val>(params.number_of_streams, DataType::Index);
   auto* step_stream = hic->oneVal();
-  auto* for_loop_stream = IrBuilder::create<ForLoop>(
+  auto* for_loop_stream = IrBuilder::create<kir::ForLoop>(
       /*IterDomain=*/makeContigConcreteTensor({params.number_of_streams})
           ->axis(0),
       /*index=*/i_stream,
@@ -1295,7 +1296,7 @@ TEST_F(
   auto* start_i = hic->zeroVal();
   auto* stop_i = tva->axis(1)->extent();
   auto* step_i = hic->oneVal();
-  auto* for_loop_i = IrBuilder::create<ForLoop>(
+  auto* for_loop_i = IrBuilder::create<kir::ForLoop>(
       /*IterDomain=*/tva->axis(1),
       /*index=*/i,
       start_i,
@@ -1311,7 +1312,7 @@ TEST_F(
   auto* start_j = hic->zeroVal();
   auto* stop_j = tva->axis(0)->extent();
   auto* step_j = hic->oneVal();
-  auto* for_loop_j = IrBuilder::create<ForLoop>(
+  auto* for_loop_j = IrBuilder::create<kir::ForLoop>(
       /*IterDomain=*/tva->axis(0),
       /*index=*/j,
       start_j,
@@ -1411,7 +1412,7 @@ TEST_F(
   auto* stop_stream =
       IrBuilder::create<Val>(params.number_of_streams, DataType::Index);
   auto* step_stream = hic->oneVal();
-  auto* for_loop_stream = IrBuilder::create<ForLoop>(
+  auto* for_loop_stream = IrBuilder::create<kir::ForLoop>(
       /*IterDomain=*/makeContigConcreteTensor({params.number_of_streams})
           ->axis(0),
       /*index=*/i_stream,

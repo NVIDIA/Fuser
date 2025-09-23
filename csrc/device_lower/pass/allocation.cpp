@@ -22,37 +22,6 @@
 namespace nvfuser {
 
 namespace {
-// True if a given domain is a loop domain of a given tensor and its
-// loop is partitioned with respect to the memory type of the tensor
-bool isPartitionedLoop(const TensorView* tv, IterDomain* id) {
-  // False if id is not a loop ID
-  if (std::find(tv->getLoopDomain().begin(), tv->getLoopDomain().end(), id) ==
-      tv->getLoopDomain().end()) {
-    return false;
-  }
-
-  // If the memory of this domain is partitioned with respect to the
-  // parallel type of the domain, there's no allocation for the domain
-  return ir_utils::isMemoryPartitionedAcross(
-      tv->getMemoryType(), id->getParallelType());
-}
-
-bool isSizeOneDomain(IterDomain* id) {
-  return id->isBroadcast() || id->extent()->isOneInt();
-}
-
-// True if a given domain of a tensor *may* require allocation
-bool mayRequireAllocation(const TensorView* tv, IterDomain* id) {
-  // Conditions to consider:
-  // - Fully partitioned
-  // - Size one: Allocation is done based on the promotion ID, but as
-  // long as the original ID has size one, its allocation should
-  // remain size one.
-  // - Reduction: Check the original ID, not the promotion, which may
-  //   be a reduction ID even though the original ID is not a reduction
-  return !isPartitionedLoop(tv, id) && !isSizeOneDomain(id) &&
-      !id->isReduction() && !id->isStride();
-}
 
 // Get the allocation stride of a given allocation domain
 Val* getStrideOfGlobalMemoryTensor(TensorView* tv, int64_t alloc_dim) {
@@ -206,7 +175,7 @@ class AllocationDomainSetup : private kir::IrVisitor {
   std::pair<std::vector<IterDomain*>, std::vector<std::optional<bool>>>
   usePresetAllocationDomain(
       TensorView* tv,
-      const std::vector<ForLoop*>& for_loops) {
+      const std::vector<kir::ForLoop*>& for_loops) {
     if (tv->getMemoryType() == MemoryType::Global) {
       auto allocation_domains = tv->getAllocationDomain();
       auto contiguity = tv->domain()->contiguity();
@@ -330,7 +299,7 @@ class AllocationDomainSetup : private kir::IrVisitor {
   std::pair<std::vector<IterDomain*>, std::vector<std::optional<bool>>>
   getAllocationDomainsAndContiguity(
       TensorView* tv,
-      const std::vector<ForLoop*>& for_loops) {
+      const std::vector<kir::ForLoop*>& for_loops) {
     if (canUsePresetAllocationDomain(tv)) {
       return usePresetAllocationDomain(tv, for_loops);
     }
@@ -386,7 +355,7 @@ class AllocationDomainSetup : private kir::IrVisitor {
     std::vector<IterDomain*> actual_allocation_ids;
     std::vector<std::optional<bool>> actual_contiguity;
     for (auto [i, id] : enumerate(allocation_domains)) {
-      if (mayRequireAllocation(tv, id)) {
+      if (ir_utils::mayRequireAllocation(tv, id)) {
         actual_allocation_ids.push_back(id);
         actual_contiguity.push_back(contiguity.at(i));
       }
@@ -464,7 +433,7 @@ class AllocationDomainSetup : private kir::IrVisitor {
       auto allocation_domain = allocation_domains.at(dim);
       auto promotion_domain = promoted_allocation_domains.at(dim);
 
-      if (!mayRequireAllocation(tv, allocation_domain)) {
+      if (!ir_utils::mayRequireAllocation(tv, allocation_domain)) {
         continue;
       }
 
@@ -494,7 +463,7 @@ class AllocationDomainSetup : private kir::IrVisitor {
     for (const auto i : arange(allocation_domains.size())) {
       auto allocation_domain = allocation_domains.at(i);
       auto promotion_domain = promoted_allocation_domains.at(i);
-      if (!mayRequireAllocation(tv, allocation_domain)) {
+      if (!ir_utils::mayRequireAllocation(tv, allocation_domain)) {
         continue;
       }
       auto stride = strides.at(i);
@@ -760,7 +729,7 @@ class AllocationDomainSetup : private kir::IrVisitor {
       for (auto out : expr->outputs()) {
         auto it = equiv_domain_set.find(out->as<IterDomain>());
         if (it == equiv_domain_set.end() &&
-            mayRequireAllocation(tv, out->as<IterDomain>())) {
+            ir_utils::mayRequireAllocation(tv, out->as<IterDomain>())) {
           // missing dependency
           return std::nullopt;
         }
@@ -793,7 +762,7 @@ class AllocationDomainSetup : private kir::IrVisitor {
     const ExprGroups& merge_outer_uses = exact_graph.getUses(merge_outer_group);
     ExprGroup reverse_merge;
     for (const auto& merge_outer_use : merge_outer_uses) {
-      Merge* merge = dynamic_cast<Merge*>(merge_outer_use->front());
+      auto* merge = dynamic_cast<Merge*>(merge_outer_use->front());
       if (merge == nullptr) {
         continue;
       }
@@ -939,7 +908,7 @@ enum class CircularBufferWaitType { ReadAfterWrite, WriteAfterRead };
 
 // This function creates kir::Loop with range based on stage depth. It is
 // used for mbarrier initialization and invalidation.
-ForLoop* createStageDepthForLoop(ForLoop* circular_buffer_loop) {
+kir::ForLoop* createStageDepthForLoop(kir::ForLoop* circular_buffer_loop) {
   int64_t stage_depth =
       GpuLower::current()
           ->circularBufferInfo()
@@ -957,11 +926,11 @@ ForLoop* createStageDepthForLoop(ForLoop* circular_buffer_loop) {
 //   }
 // }
 Expr* initializeCircularBufferMbarrier(
-    ForLoop* circular_buffer_loop,
+    kir::ForLoop* circular_buffer_loop,
     TensorView* all_mbarriers,
     CircularBufferWaitType wait_type) {
   NVF_ERROR(circular_buffer_loop != nullptr);
-  ForLoop* loop = createStageDepthForLoop(circular_buffer_loop);
+  kir::ForLoop* loop = createStageDepthForLoop(circular_buffer_loop);
 
   int64_t stage_depth =
       GpuLower::current()
@@ -1031,11 +1000,11 @@ Expr* initializeCircularBufferMbarrier(
 //   }
 // }
 Expr* invalidateCircularBufferMbarrier(
-    ForLoop* circular_buffer_loop,
+    kir::ForLoop* circular_buffer_loop,
     TensorView* all_mbarriers,
     CircularBufferWaitType wait_type) {
   NVF_ERROR(circular_buffer_loop != nullptr);
-  ForLoop* loop = createStageDepthForLoop(circular_buffer_loop);
+  kir::ForLoop* loop = createStageDepthForLoop(circular_buffer_loop);
 
   int64_t stage_depth =
       GpuLower::current()
@@ -1073,7 +1042,7 @@ class AllocationInserter : public kir::ExprMutator {
   struct AllocationInformation {
     // The for loop that the initialization of this allocation must be
     // placed in, nullptr if not within a loop
-    ForLoop* init_for_loop = nullptr;
+    kir::ForLoop* init_for_loop = nullptr;
 
     // The expression that the initialization of this allocation must
     // be placed before
@@ -1083,7 +1052,7 @@ class AllocationInserter : public kir::ExprMutator {
     // from init_for_loop only with unswitched shared memory allocations,
     // which are moved outer loops to avoid duplicated allocations
     // (see issue #1133).
-    ForLoop* alloc_for_loop = nullptr;
+    kir::ForLoop* alloc_for_loop = nullptr;
 
     // The expression that this allocation must be placed
     // before. Similar to alloc_for_loop, this is different from
@@ -1111,7 +1080,7 @@ class AllocationInserter : public kir::ExprMutator {
     info.alloc_for_loop = loop_alloc_info.alloc_for_loop;
     info.alloc_pos = loop_alloc_info.alloc_pos;
 
-    auto next_fl = [](ForLoop* fl, const std::vector<ForLoop*> fls) {
+    auto next_fl = [](kir::ForLoop* fl, const std::vector<kir::ForLoop*> fls) {
       for (auto i : arange(fls.size())) {
         if (fl == fls[i]) {
           if (i + 1 < fls.size()) {
@@ -1175,7 +1144,7 @@ class AllocationInserter : public kir::ExprMutator {
          init_loop_it != init_dims.rend();
          ++init_loop_it) {
       auto id = *init_loop_it;
-      ForLoop* new_loop = IrBuilder::create<ForLoop>(id);
+      kir::ForLoop* new_loop = IrBuilder::create<kir::ForLoop>(id);
       new_loop->body().push_back(init_expr);
       init_expr = new_loop;
     }
@@ -1277,7 +1246,25 @@ class AllocationInserter : public kir::ExprMutator {
 
       auto out_tv = out->as<TensorView>();
       auto default_val =
-          gpu_lower_->predicateElimination().getInitValue(out_tv);
+          FusionInfoGuard::current()->tensorInitVal().get(out_tv);
+
+      // Check if out_tv must also be initialized for predicate
+      // elimination. If so, the two initialization values must match
+      if (auto init_for_pred_elimination =
+              gpu_lower_->predicateElimination().getInitValue(out_tv)) {
+        if (default_val != nullptr) {
+          NVF_ERROR(
+              default_val->sameAs(init_for_pred_elimination),
+              "Conflicting default val for ",
+              out_tv->toString(),
+              ". ",
+              default_val->toString(),
+              " vs ",
+              init_for_pred_elimination->toString());
+        } else {
+          default_val = init_for_pred_elimination;
+        }
+      }
 
       Val* init = nullptr;
       if (out_tv->dtype() == DataType::Float4_e2m1fn) {
@@ -1427,7 +1414,7 @@ class AllocationInserter : public kir::ExprMutator {
     //    inval mbarrier
     //    block_sync
     //
-    // * The circular buffer case is handled in handle(ForLoop* fl) and the
+    // * The circular buffer case is handled in handle(kir::ForLoop* fl) and the
     // circular buffering pass.
     // * Assume that the tma load is in ComputeWarp if it is not circular
     // buffered.
@@ -1466,7 +1453,7 @@ class AllocationInserter : public kir::ExprMutator {
     }
   }
 
-  void handle(ForLoop* fl) final {
+  void handle(kir::ForLoop* fl) final {
     ExprMutator::handle(fl);
 
     // If fl is a circular buffered loop, the we should lowering the loop as:
@@ -1754,8 +1741,8 @@ std::vector<Expr*> insertTMemRegionAllocsAndDeallocs(
 
       // A map:
       //   expr -> the regions that this expr is accessing
-      // Note that if expr is a container such as ForLoop or IfThenElse, then
-      // the mapped regions will be all the regions the contained exprs are
+      // Note that if expr is a container such as kir::ForLoop or IfThenElse,
+      // then the mapped regions will be all the regions the contained exprs are
       // accessing.
       //
       // This map only contain information of accesses that we have discovered,
@@ -1812,7 +1799,7 @@ std::vector<Expr*> insertTMemRegionAllocsAndDeallocs(
         // If expr is a trivial for loop, then we don't need to move the
         // deallocation after it. This is because the trivial is not generated
         // in the final code.
-        if (auto fl = dynamic_cast<ForLoop*>(expr)) {
+        if (auto fl = dynamic_cast<kir::ForLoop*>(expr)) {
           if (fl->isTrivial()) {
             return;
           }

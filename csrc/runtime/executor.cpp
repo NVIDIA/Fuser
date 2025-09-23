@@ -718,40 +718,48 @@ void KernelExecutor::initializeExecutorEntry(
       "Expected blockDim.x >= 32 but found ",
       launch_params.bdimx());
 
+  NVF_ERROR_LE(
+      std::ssize(compiled_kernel_->kernel()->inputs()),
+      args.size(),
+      "`args` may contain more entries than regular inputs, e.g., the stream "
+      "index.");
+
   std::vector<GlobalBufferInfo> input_info;
-  NVF_ERROR_EQ(std::ssize(compiled_kernel_->kernel()->inputs()), args.size());
-  for (auto inp_idx : arange(compiled_kernel_->kernel()->inputs().size())) {
-    auto input = compiled_kernel_->kernel()->inputs()[inp_idx];
-    if (auto input_tv = dynamic_cast<TensorView*>(input)) {
-      auto at_tensor = args[inp_idx].as<at::Tensor>();
-
-      std::vector<int64_t> alloc_sizes;
-      std::vector<int64_t> alloc_strides;
-      if (input_tv->hasAllocation()) {
-        std::tie(alloc_sizes, alloc_strides) =
-            inferAndValidateAllocationSizesAndStrides(
-                at_tensor, input_tv, expr_eval);
-      }
-
-      TensorShapeInfo shape_info;
-      shape_info.logical_sizes = args[inp_idx].as<at::Tensor>().sizes().vec();
-      shape_info.logical_strides =
-          args[inp_idx].as<at::Tensor>().strides().vec();
-      if (isSharded(input_tv)) {
-        shape_info.unsharded_logical_sizes =
-            unshardedSizes(input_tv, shape_info.logical_sizes);
-      }
-      shape_info.allocation_sizes = alloc_sizes;
-      shape_info.allocation_strides = alloc_strides;
-      GlobalBufferInfo info{
-          input_tv,
-          shape_info,
-          data_type_to_aten(input_tv->dtype()),
-          false,
-          false,
-          false};
-      input_info.emplace_back(info);
+  input_info.reserve(compiled_kernel_->kernel()->inputs().size());
+  for (const auto& [input, arg] :
+       zip(compiled_kernel_->kernel()->inputs(), args)) {
+    auto* input_tv = dynamic_cast<TensorView*>(input);
+    if (input_tv == nullptr) {
+      continue;
     }
+
+    auto arg_tensor = arg.as<at::Tensor>();
+
+    std::vector<int64_t> alloc_sizes;
+    std::vector<int64_t> alloc_strides;
+    if (input_tv->hasAllocation()) {
+      std::tie(alloc_sizes, alloc_strides) =
+          inferAndValidateAllocationSizesAndStrides(
+              arg_tensor, input_tv, expr_eval);
+    }
+
+    TensorShapeInfo shape_info;
+    shape_info.logical_sizes = arg_tensor.sizes().vec();
+    shape_info.logical_strides = arg_tensor.strides().vec();
+    if (isSharded(input_tv)) {
+      shape_info.unsharded_logical_sizes =
+          unshardedSizes(input_tv, shape_info.logical_sizes);
+    }
+    shape_info.allocation_sizes = alloc_sizes;
+    shape_info.allocation_strides = alloc_strides;
+    GlobalBufferInfo info{
+        input_tv,
+        shape_info,
+        data_type_to_aten(input_tv->dtype()),
+        false,
+        false,
+        false};
+    input_info.emplace_back(info);
   }
 
   std::vector<GlobalBufferInfo> output_info;
@@ -1188,26 +1196,20 @@ KernelArgumentHolder KernelExecutor::run(
     }
   }
 
-  if (args.size() != std::ssize(compiled_kernel_->kernel()->parameters())) {
-    NVF_ERROR(
-        has_tma_ || has_rng_,
-        "No TMA or RNG found in the kernel, but detected an argument size "
-        "mismatch.");
-    // If args don't match one of two things is happening. We need to add TMA
-    // related args or RNG related args. Resolve these scenarios.
-    if (has_tma_) {
-      // Resolving TMA requires binding all values and evaluating the TMA
-      // arguments
-      //
-      // Resolving TMA also resolves RNG, so if TMA exists the resolveRNGSeed
-      // function shouldn't also be called.
-      args = resolveTMA(*executor_entry, args);
-    } else if (has_rng_) {
-      // Resolving RNG seed requires evaluating and adding those values, but
-      // doesn't require binding all values as getting RNG seed and offset
-      // doesn't depend on other values
-      args = resolveRNGSeed(compiled_kernel_->kernel(), args);
-    }
+  if (has_tma_) {
+    // Resolving TMA requires binding all values and evaluating the TMA
+    // arguments
+    //
+    // Resolving TMA also resolves RNG, so if TMA exists the resolveRNGSeed
+    // function shouldn't also be called.
+    args = resolveTMA(*executor_entry, args);
+  }
+
+  if (has_rng_) {
+    // Resolving RNG seed requires evaluating and adding those values, but
+    // doesn't require binding all values as getting RNG seed and offset
+    // doesn't depend on other values
+    args = resolveRNGSeed(compiled_kernel_->kernel(), args);
   }
 
   computeArgs(*executor_entry, args);

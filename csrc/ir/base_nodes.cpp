@@ -332,7 +332,7 @@ bool Expr::sameAs(const Statement* other) const {
   if (!other->isA<Expr>()) {
     return false;
   }
-  const Expr* other_expr = other->as<Expr>();
+  const auto* other_expr = other->as<Expr>();
   if (!sameOp(other_expr)) {
     return false;
   }

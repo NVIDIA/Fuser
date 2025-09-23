@@ -5,6 +5,8 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <ranges>
+
 #include <bindings.h>
 #include <python_utils.h>
 
@@ -120,7 +122,8 @@ void bindInterfaceNodes(py::module& nvfuser) {
       .def_property_readonly(
           "ndim",
           [](TensorView* self) {
-            return TensorDomain::noReductions(self->getLogicalDomain()).size();
+            return std::ranges::distance(
+                self->getLogicalDomain() | TensorDomain::kNoReductions);
           },
           R"(
 Get the number of dimensions in this tensor.
@@ -213,6 +216,28 @@ Returns
 -------
 TensorView
     A TensorView with the split axes in its loop domain.
+)")
+      .def(
+          "merge",
+          static_cast<TensorView* (TensorView::*)(int64_t, int64_t)>(
+              &TensorView::merge),
+          py::arg("axis_o"),
+          py::arg("axis_i"),
+          py::return_value_policy::reference,
+          R"(
+Merge two axes into one axis.
+
+Parameters
+----------
+axis_o : int
+    The outer axis to merge.
+axis_i : int
+    The inner axis to merge.
+
+Returns
+-------
+TensorView
+    A TensorView with the merged axes in its loop domain.
 )")
       .def(
           "rfactor",

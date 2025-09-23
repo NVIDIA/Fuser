@@ -6,12 +6,12 @@ import pytest_benchmark
 import torch
 from typing import List, Callable, Union
 import numpy as np
-from nvfuser import FusionDefinition, FusionCache
-from nvfuser.pytorch_utils import DEVICE_PROPERTIES
+from nvfuser_direct import FusionDefinition, FusionCache
+from nvfuser_direct.pytorch_utils import DEVICE_PROPERTIES
 import warnings
 import thunder
 from thunder.executors.nvfuserex import nvfuserex
-from nvfuser.benchmark_utils import FusionProfileTimer, CuptiTimer
+from nvfuser_direct.benchmark_utils import FusionProfileTimer, CuptiTimer
 
 # These variables can be overwritten through CLI commands
 # --benchmark-rounds=rounds --benchmark-warmup-rounds=warmup_rounds

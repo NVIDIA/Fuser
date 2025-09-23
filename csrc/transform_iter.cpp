@@ -296,7 +296,7 @@ void ReplayTransformations::runReplay() {
           val->getValType().value() == ValType::IterDomain,
           "Expected IterDomain only for Replay Transformations, but found ",
           val);
-      IterDomain* id = val->as<IterDomain>();
+      auto* id = val->as<IterDomain>();
       NVF_ERROR(
           id_map_.find(id) != id_map_.end(),
           "Could not find required input: ",

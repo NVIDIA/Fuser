@@ -35,6 +35,15 @@ bool checkCanSchedule(Fusion* fusion, SchedulerType scheduler_type) {
 
   FusionGuard fg(fusion);
 
+  // These ops are supported only by the ExprEval or Cutlass schedulers. All
+  // others should reject them
+  if (scheduler_type != SchedulerType::Greedy &&
+      scheduler_type != SchedulerType::Cutlass &&
+      ir_utils::hasOpsOfType<ScaledMmaOp>(fusion)) {
+    scheduler_debug_utils::canScheduleRejectReason(
+        scheduler_type, "Has unsupported ops");
+  }
+
   // These ops are  are only accepted in `ExprEval`
   // scheduler, all other schedulers should reject them.
   // TODO: remove IndexPutAccumulateOp
@@ -47,8 +56,9 @@ bool checkCanSchedule(Fusion* fusion, SchedulerType scheduler_type) {
           IndexPutAccumulateOp,
           ArgsortOp,
           GroupedMmaOp,
-          ScaledMmaOp,
           CutlassNvfp4GroupedMmaOp,
+          // TODO: remove this once we have a scheduler for it
+          PreprocessGroupedMatmulInputSf,
           TopKOp,
           ScanOp>(fusion)) {
     scheduler_debug_utils::canScheduleRejectReason(
@@ -124,6 +134,8 @@ std::unique_ptr<SchedulerEntry> SchedulerEntry::makeSchedulerInstance(
       return std::make_unique<GreedyScheduler>();
     case SchedulerType::Communication:
       return std::make_unique<CommunicationScheduler>();
+    case SchedulerType::Cutlass:
+      return std::make_unique<CutlassScheduler>();
     default:
       NVF_THROW("unreachable");
   }

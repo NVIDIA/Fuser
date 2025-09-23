@@ -626,7 +626,7 @@ std::unordered_map<ValGroup, IterDomain*> LoopPromotionMapBuilder::
   for (const ValGroup& iel_group : iel_graph.disjointValSets().disjointSets()) {
     NVF_ERROR(!iel_group->empty());
 
-    IterDomain* iel_group_id = iel_group->front()->as<IterDomain>();
+    auto* iel_group_id = iel_group->front()->as<IterDomain>();
 
     if (!iel_group_id->isBroadcast()) {
       continue;
@@ -1306,7 +1306,7 @@ std::unordered_map<ValGroup, IterDomain*> LoopPromotionMapBuilder::
     bool is_const = false;
 
     for (Val* val : *loop_group) {
-      IterDomain* loop_id = val->as<IterDomain>();
+      auto* loop_id = val->as<IterDomain>();
 
       // Ignore broadcast if this group also has non-broadcast
       // IDs. See the above comment on has_both_broadcast_and_concrete

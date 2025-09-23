@@ -26,8 +26,8 @@ namespace {
 // recursively clone all exprs in its scope.
 Expr* recursivelyClone(Expr* expr) {
   NVF_ERROR(expr != nullptr);
-  if (auto fl = dynamic_cast<ForLoop*>(expr)) {
-    auto new_loop = IrBuilder::create<ForLoop>(fl);
+  if (auto fl = dynamic_cast<kir::ForLoop*>(expr)) {
+    auto new_loop = IrBuilder::create<kir::ForLoop>(fl);
     for (auto e : fl->body().exprs()) {
       new_loop->body().push_back(recursivelyClone(e));
     }
@@ -140,7 +140,7 @@ class RotateLoop : kir::ExprMutator {
             });
       };
       bool should_select_this = false;
-      if (auto fl = dynamic_cast<ForLoop*>(expr)) {
+      if (auto fl = dynamic_cast<kir::ForLoop*>(expr)) {
         should_select_this = !fl->empty() && entireScopeSelected(fl->body());
       } else if (auto ite = dynamic_cast<kir::IfThenElse*>(expr)) {
         should_select_this = !ite->empty() &&
@@ -205,7 +205,7 @@ class RotateLoop : kir::ExprMutator {
   //     unselected
   //     unselected
   //   }
-  bool validateSelection(ForLoop* fl) {
+  bool validateSelection(kir::ForLoop* fl) {
     class IsCircularBufferLoad : public kir::IrVisitor {
      public:
       bool operator()(Expr* expr) {
@@ -214,7 +214,7 @@ class RotateLoop : kir::ExprMutator {
         return result_;
       }
 
-      IsCircularBufferLoad(ForLoop* loop) : loop_(loop) {}
+      IsCircularBufferLoad(kir::ForLoop* loop) : loop_(loop) {}
 
      private:
       using kir::IrVisitor::handle;
@@ -240,7 +240,7 @@ class RotateLoop : kir::ExprMutator {
 
      private:
       bool result_ = true;
-      ForLoop* const loop_ = nullptr;
+      kir::ForLoop* const loop_ = nullptr;
     } is_circular_buffer_load(fl);
 
     bool seen_unselected = false;
@@ -301,7 +301,7 @@ class RotateLoop : kir::ExprMutator {
   //       selected2(i + 1);
   //     }
   //   }
-  void rotate(ForLoop* fl) {
+  void rotate(kir::ForLoop* fl) {
     if (isDebugDumpEnabled(DebugDumpOption::LoopRotation)) {
       debug() << "[Loop rotation] Rotating loop:" << std::endl
               << fl->toString() << std::endl;
@@ -313,7 +313,7 @@ class RotateLoop : kir::ExprMutator {
     // Currently, all existing predicates should be able to cover the condition
     // of start < end, so no predicate here. In the future, if we decide that
     // we need to predicate this, then we should add an kir::IfThenElse here.
-    auto prologue = IrBuilder::create<ForLoop>(
+    auto prologue = IrBuilder::create<kir::ForLoop>(
         fl->iter_domain(),
         fl->start(),
         fl->circularBufferLoopStage(),
@@ -350,7 +350,7 @@ class RotateLoop : kir::ExprMutator {
     // main
     auto rotated = IrBuilder::create<kir::IfThenElse>(
         IrBuilder::create<kir::Predicate>(PredicateType::LoopRotation));
-    auto main = IrBuilder::create<ForLoop>(fl);
+    auto main = IrBuilder::create<kir::ForLoop>(fl);
     for (auto expr : fl->body().exprs()) {
       if (selection_.count(expr) == 0) {
         main->body().push_back(expr);
@@ -368,7 +368,7 @@ class RotateLoop : kir::ExprMutator {
 
   using kir::ExprMutator::handle;
 
-  void handle(ForLoop* fl) final {
+  void handle(kir::ForLoop* fl) final {
     ExprMutator::handle(fl);
     expandSelection(fl);
     auto id = fl->iter_domain();
