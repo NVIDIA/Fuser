@@ -10,6 +10,7 @@
 #include <compute_at_map.h>
 #include <device_lower/analysis/fused_reduction.h>
 #include <device_lower/analysis/padded_parallel_dimensions.h>
+#include <device_lower/analysis/tensor_init_val.h>
 #include <device_lower/analysis/thread_predicate.h>
 #include <device_lower/analysis/trivial_broadcast.h>
 #include <id_model/id_model.h>
@@ -114,6 +115,8 @@ class FusionInfo {
 
   FUSION_INFO_DEFINE_FUNCTIONS(IdModel, id_model, idModel);
 
+  FUSION_INFO_DEFINE_FUNCTIONS(TensorInitVal, tensor_init_val, tensorInitVal);
+
  private:
   FUSION_INFO_DEFINE_FIELD(
       ConcretizedBroadcastDomains,
@@ -132,6 +135,8 @@ class FusionInfo {
   FUSION_INFO_DEFINE_FIELD(ComputeAtMap, ca_map);
 
   FUSION_INFO_DEFINE_FIELD(IdModel, id_model);
+
+  FUSION_INFO_DEFINE_FIELD(TensorInitVal, tensor_init_val);
 };
 
 #undef FUSION_INFO_DEFINE_FUNCTIONS
