@@ -156,8 +156,8 @@ class DynamicTransformInitialInfoBuilder : public IterVisitor {
       info_.dynamic_reshaped_tvs_.push_back(out_tv);
 
       // Input and output extent expressions both affect concretization
-      for (const auto& id :
-           TensorDomain::noReductions(inp_tv->getLogicalDomain())) {
+      for (IterDomain* id :
+           inp_tv->getLogicalDomain() | TensorDomain::kNoReductions) {
         loop_dynamic_vals_.push_back(id->getMaybeExpandedExtent());
       }
       for (const auto& id : out_tv->getLogicalDomain()) {
