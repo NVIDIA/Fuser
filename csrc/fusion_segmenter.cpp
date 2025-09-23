@@ -1757,21 +1757,18 @@ void eraseInputDistinctRootDomains(Fusion* fusion) {
     std::vector<IterDomain*> new_logical_domain;
 
     // Ignore reduction ids for new tensordomain.
-    auto logical = TensorDomain::noReductions(tv->getLogicalDomain());
-    new_logical_domain.reserve(logical.size());
+    auto logical = tv->getLogicalDomain() | TensorDomain::kNoReductions;
+    new_logical_domain.reserve(std::ranges::distance(logical));
 
     // Does the logical domain contain all concrete sized extents?
-    bool tv_is_concrete = true;
-    for (auto id : logical) {
-      if (!id->extent()->isConstScalar()) {
-        tv_is_concrete = false;
-        break;
-      }
-    }
+    bool tv_is_concrete =
+        std::all_of(logical.begin(), logical.end(), [](IterDomain* id) {
+          return id->extent()->isConstScalar();
+        });
 
     // Given an rfactor IterDomain, create a new IterDomain.
     // Otherwise, clone the previous IterDomain
-    for (const auto& id : logical) {
+    for (IterDomain* id : logical) {
       if (id->isRFactorProduct()) {
         // Create new symbolic extents for logical iterDomains
         auto domain_extent = (!tv_is_concrete)
@@ -1787,8 +1784,9 @@ void eraseInputDistinctRootDomains(Fusion* fusion) {
       }
     }
 
-    TensorDomain* new_td = IrBuilder::create<TensorDomain>(new_logical_domain);
-    TransformReplay::selfReplay(tv->domain(), new_td, true);
+    auto* new_td = IrBuilder::create<TensorDomain>(new_logical_domain);
+    TransformReplay::selfReplay(
+        tv->domain(), new_td, /*ignore_reductions=*/true);
     if (!tv->domain()->hasAllocation()) {
       // The default contiguity for new_td is false. `selfReplay` does not
       // replay contiguity when no allocation domain is present.
