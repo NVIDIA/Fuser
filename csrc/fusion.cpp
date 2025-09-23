@@ -5,12 +5,16 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <fusion.h>
+
+#include <iterator>
+#include <ranges>
+
 #include <codegen.h>
 #include <debug.h>
 #include <device_lower/analysis/bank_conflict.h>
 #include <device_lower/lower2device.h>
 #include <disjoint_set.h>
-#include <fusion.h>
 #include <fusion_segmenter.h>
 #include <host_ir/container.h>
 #include <instrumentation.h>
@@ -24,8 +28,6 @@
 #include <ops/arith.h>
 #include <runtime/executor_params.h>
 #include <transform_replay.h>
-
-#include <iterator>
 
 namespace nvfuser {
 
@@ -348,13 +350,11 @@ bool Fusion::isNoOp() {
   }
 
   for (auto out_tv : ir_utils::filterByType<TensorView>(outputs())) {
-    const std::vector<IterDomain*>& logical_dom =
-        TensorDomain::noReductions(out_tv->getLogicalDomain());
-    const bool size_zero =
-        std::any_of(logical_dom.begin(), logical_dom.end(), [](IterDomain* id) {
-          return id->extent()->isConstScalar() &&
-              id->extent()->evaluate().as<int64_t>() == 0;
-        });
+    auto logical_dom = out_tv->getLogicalDomain() | TensorDomain::kNoReductions;
+    const bool size_zero = std::ranges::any_of(logical_dom, [](IterDomain* id) {
+      return id->extent()->isConstScalar() &&
+          id->extent()->evaluate().as<int64_t>() == 0;
+    });
     if (!size_zero) {
       return false;
     }
