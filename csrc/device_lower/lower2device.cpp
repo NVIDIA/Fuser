@@ -69,7 +69,7 @@ class KIRCleaner : public OptOutDispatch {
  private:
   using OptOutDispatch::handle;
   void dispatch(Expr* expr) final {
-    if (expr->isA<ForLoop>() || expr->isA<kir::IfThenElse>()) {
+    if (expr->isA<kir::ForLoop>() || expr->isA<kir::IfThenElse>()) {
       OptOutDispatch::dispatch(expr);
     } else {
       // Any non-scoping expr is not considered nop
@@ -77,7 +77,7 @@ class KIRCleaner : public OptOutDispatch {
     }
   }
 
-  void handle(ForLoop* fl) final {
+  void handle(kir::ForLoop* fl) final {
     auto exprs = fl->body().exprs();
     fl->body().clear();
     for (auto expr : exprs) {
@@ -455,6 +455,10 @@ void GpuLower::analysis(Fusion* fusion) {
   // Replaces integers that are tensor sizes by named scalars as "T0.size[0]"
   replaceSymbolicSizes(fusion_);
   dumpExprsIfEnabled(fusion_->exprs(), "replaceSymbolicSizes");
+
+  // Does not need to be placed here as it has no dependency to any other
+  // analysis.
+  info().set(std::make_unique<TensorInitVal>(fusion_));
 
   // New IterDomains may be created, so it is expected that generated
   // code may use diffrent variable names

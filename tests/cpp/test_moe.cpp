@@ -59,10 +59,6 @@ class SgLangMoETest : public NVFuserFixtureParamTest<MoEConfig> {
 };
 
 TEST_P(SgLangMoETest, ComputeProblemSizes) {
-  if (manual_scheduling) {
-    GTEST_SKIP() << "No manual scheduling implemented";
-  }
-
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
@@ -78,23 +74,41 @@ TEST_P(SgLangMoETest, ComputeProblemSizes) {
 
   auto tv3 = ones({IrBuilder::create<Val>(num_tokens * topk)}, DataType::Int);
 
-  auto tv4 = indexPutAccumulate(tv2, tv1, tv3);
+  auto tv4 = scatter(tv2, 0, tv1, tv3, BinaryOpType::Add);
 
   fusion.addOutput(tv4);
 
   auto options = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
   auto t0 = at::randint(0, num_experts, {num_tokens, topk}, options);
 
-  FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto outputs = executor_cache.runFusionWithInputs({t0});
-  testValidate(executor_cache.fusion(), outputs, {t0}, __LINE__, __FILE__);
+  if (manual_scheduling) {
+    auto tv4_cache = tv4->cacheBefore();
+
+    // Scheduling all tensors as 1D tensors
+    for (auto tv : fusion.allTvs()) {
+      tv->flatten();
+      tv->axis(0)->parallelize(ParallelType::TIDx);
+    }
+
+    tv2->setMemoryType(MemoryType::Shared);
+    tv2->setAllocationDomain(tv2->getLogicalDomain(), true);
+    tv4_cache->setMemoryType(MemoryType::Shared);
+    tv4_cache->setAllocationDomain(tv4_cache->getLogicalDomain(), true);
+
+    KernelExecutor ke;
+    ke.compile(&fusion, {t0});
+    auto outputs = ke.run({t0});
+    testValidate(&fusion, outputs, {t0}, __LINE__, __FILE__);
+  } else {
+    EnableOptionsGuard::getCurOptions().set(EnableOption::GreedyScheduler);
+    FusionExecutorCache executor_cache(std::move(fusion_ptr));
+    auto outputs = executor_cache.runFusionWithInputs({t0});
+    testValidate(executor_cache.fusion(), outputs, {t0}, __LINE__, __FILE__);
+    EXPECT_FALSE(executor_cache.getMostRecentKernelRuntime()->isSegmented());
+  }
 }
 
 TEST_P(SgLangMoETest, ComputeExpertOffsets) {
-  if (manual_scheduling) {
-    GTEST_SKIP() << "No manual scheduling implemented";
-  }
-
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
@@ -131,17 +145,15 @@ TEST_P(SgLangMoETest, ComputeExpertOffsets) {
     auto outputs = ke.run({t0});
     testValidate(&fusion, outputs, {t0}, __LINE__, __FILE__);
   } else {
+    EnableOptionsGuard::getCurOptions().set(EnableOption::GreedyScheduler);
     FusionExecutorCache executor_cache(std::move(fusion_ptr));
     auto outputs = executor_cache.runFusionWithInputs({t0});
     testValidate(executor_cache.fusion(), outputs, {t0}, __LINE__, __FILE__);
+    EXPECT_FALSE(executor_cache.getMostRecentKernelRuntime()->isSegmented());
   }
 }
 
 TEST_P(SgLangMoETest, ComputeExpertBlockScaleOffsets) {
-  if (manual_scheduling) {
-    GTEST_SKIP() << "No manual scheduling implemented";
-  }
-
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
@@ -196,10 +208,12 @@ TEST_P(SgLangMoETest, ComputeExpertBlockScaleOffsets) {
     auto outputs = ke.run({t0});
     testValidate(&fusion, outputs, {t0}, {t2, t6}, __LINE__, __FILE__);
   } else {
+    EnableOptionsGuard::getCurOptions().set(EnableOption::GreedyScheduler);
     FusionExecutorCache executor_cache(std::move(fusion_ptr));
     auto outputs = executor_cache.runFusionWithInputs({t0});
     testValidate(
         executor_cache.fusion(), outputs, {t0}, {t2, t6}, __LINE__, __FILE__);
+    EXPECT_FALSE(executor_cache.getMostRecentKernelRuntime()->isSegmented());
   }
 }
 
@@ -254,8 +268,10 @@ TEST_P(SgLangMoETest, ComputeArgSort) {
     ke.compile(&fusion, {t0});
     outputs = ke.run({t0});
   } else {
+    EnableOptionsGuard::getCurOptions().set(EnableOption::GreedyScheduler);
     FusionExecutorCache executor_cache(std::move(fusion_ptr));
     outputs = executor_cache.runFusionWithInputs({t0});
+    EXPECT_FALSE(executor_cache.getMostRecentKernelRuntime()->isSegmented());
   }
 
   auto t2 = at::argsort(t0.flatten(), true, 0, true);

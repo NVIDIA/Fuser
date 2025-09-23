@@ -98,7 +98,7 @@ void PipelineTest::validate(bool validate_with_prescribed_values) {
         << "Strides are not equal: Ref: " << ref_output.strides()
         << " Output: " << obtained_output.strides() << std::endl;
 
-    EXPECT_TRUE(torch::allclose(ref_output, obtained_output))
+    EXPECT_TRUE(at::allclose(ref_output, obtained_output))
         << "Device " << communicator_->deviceId() << " has unexpected output "
         << i << " corresponding to tv " << output_tv
         << ". Expected values: " << ref_output

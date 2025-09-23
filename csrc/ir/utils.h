@@ -575,7 +575,7 @@ inline bool dependenciesSatisfied(
   return true;
 }
 
-//! Check if a conditional scope, i.e., ForLoop or IfThenElse, is
+//! Check if a conditional scope, i.e., kir::ForLoop or IfThenElse, is
 //! guaranteed not to cause thread divergence
 bool isAlignedScopeExpr(const Expr* expr);
 
@@ -746,6 +746,17 @@ inline bool isMemorySharedAcross(
   }
 }
 
+// True if a given domain is a loop domain of a given tensor and its
+// loop is partitioned with respect to the memory type of the tensor
+bool isPartitionedLoop(const TensorView* tv, IterDomain* id);
+
+inline bool isSizeOneDomain(IterDomain* id) {
+  return id->isBroadcast() || id->extent()->isOneInt();
+}
+
+// True if a given domain of a tensor *may* require allocation
+bool mayRequireAllocation(const TensorView* tv, IterDomain* id);
+
 //! Check if the given tv has a root domain -> loop domain linear
 //! transformation. This is a temporary check used to incrementally enable
 //! IdModel. Eventually, this should be removed.
@@ -778,9 +789,9 @@ bool isRecursivelyDefined(Val* val);
 // instance of Expr is counted as a single operation.
 int64_t getOperationCount(Val* val);
 
-// Create a ForLoop IR node that represents:
+// Create a kir::ForLoop IR node that represents:
 //   for (int i = 0; i < size; i++)
-ForLoop* createRangeLoop(int64_t size);
+kir::ForLoop* createRangeLoop(int64_t size);
 
 // Returns the first output of Expr that is a TensorView
 TensorView* getTvOutput(const Expr*);
@@ -851,5 +862,7 @@ std::vector<IterDomain*> getReachableIds(
 std::vector<IterDomain*> propagateScatterAllocationDomain(
     TensorView* scatter_out,
     const std::vector<IterDomain*>& to_logical_domain);
+
+bool isParallelizedBy(const std::vector<IterDomain*>& ids, ParallelType pt);
 
 } // namespace nvfuser::ir_utils

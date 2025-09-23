@@ -13,10 +13,10 @@
 namespace nvfuser {
 
 class Expr;
-class ForLoop;
 class Scope;
 
 namespace kir {
+class ForLoop;
 class Predicate;
 class TensorIndex;
 class IfThenElse;

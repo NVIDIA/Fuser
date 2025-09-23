@@ -27,13 +27,13 @@ std::vector<IterDomain*> getPredicateDomains(
 // loop.
 std::unordered_map<Val*, Val*> getPredicateIndexReplacementMap(
     TensorView* tv,
-    const std::vector<ForLoop*>& for_loops,
+    const std::vector<kir::ForLoop*>& for_loops,
     const std::unordered_map<ValGroup, Val*>& index_map,
     const ValGraph& traversal_graph,
     const ExprPath<ExprGroup>& traversal_path,
     const IdModel& id_model,
     bool is_start_predicate,
-    ForLoop* unswitched_loop = nullptr);
+    kir::ForLoop* unswitched_loop = nullptr);
 
 // Check if a given ExprGroup is a split that needs an additional
 // predicate due to its non-divisibility.

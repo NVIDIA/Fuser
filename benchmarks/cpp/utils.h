@@ -21,7 +21,6 @@
 
 #include <ATen/cuda/CUDAContext.h>
 #include <c10/cuda/CUDAStream.h>
-#include <torch/torch.h>
 
 #include <cuda_runtime.h>
 

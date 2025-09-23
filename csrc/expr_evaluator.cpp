@@ -6,12 +6,15 @@
  */
 // clang-format on
 
+#include <expr_evaluator.h>
+
 #include <functional>
 #include <iostream>
+#include <iterator>
+#include <ranges>
 
 #include <debug.h>
 #include <evaluator_common.h>
-#include <expr_evaluator.h>
 #include <instrumentation.h>
 #include <ir/all_nodes.h>
 #include <ir/iostream.h>
@@ -19,6 +22,7 @@
 #include <logical_domain_map.h>
 #include <multidevice/utils.h>
 #include <polymorphic_value.h>
+#include <utils.h>
 
 namespace nvfuser {
 
@@ -60,8 +64,8 @@ void validateValWithConcreteValue(
         ", to be an at::Tensor but got scalar ",
         concrete_value);
     const auto& t = concrete_value.as<at::Tensor>();
-    int64_t expect_dim =
-        std::ssize(TensorDomain::noReductions(tv->getLogicalDomain()));
+    const auto expect_dim = std::ranges::distance(
+        tv->getLogicalDomain() | TensorDomain::kNoReductions);
     NVF_CHECK(
         t.dim() == expect_dim,
         "Expected ",
@@ -73,8 +77,7 @@ void validateValWithConcreteValue(
         t.dim());
     NVF_CHECK(
         (value->dtype() == DataType::Index &&
-         (t.scalar_type() == torch::kInt64 ||
-          t.scalar_type() == torch::kInt32)) ||
+         (t.scalar_type() == at::kLong || t.scalar_type() == at::kInt)) ||
             (t.scalar_type() == data_type_to_aten(value->dtype())),
         "Expected ",
         getInputPosString(tv),
@@ -135,22 +138,20 @@ void ExpressionEvaluator::bindTensorDomain(
     const TensorView* tv,
     const at::Tensor& t,
     const bool evaluate_validate) {
-  auto logical_domain = TensorDomain::noReductions(tv->getLogicalDomain());
-  NVF_ERROR(
-      t.dim() == (int64_t)logical_domain.size(),
+  auto logical_domain = tv->getLogicalDomain() | TensorDomain::kNoReductions;
+  const auto logical_rank = std::ranges::distance(logical_domain);
+  NVF_ERROR_EQ(
+      t.dim(),
+      logical_rank,
       "Expected ",
       getInputPosString(tv),
       tv->toString(),
-      ", to be bound to a tensor of rank ",
-      logical_domain.size(),
-      ", but got a tensor of rank ",
-      t.dim());
+      ", to be bound to a tensor of equal rank.");
 
   std::vector<int64_t> logical_sizes = unshardedSizes(tv, t.sizes());
   adjustEvaluatorSizes(tv, logical_sizes);
 
-  for (auto i : arange(t.dim())) {
-    auto id = logical_domain[i];
+  for (const auto& [i, id] : enumerate(logical_domain)) {
     if (id->isBroadcast()) {
       bind_(id->extent(), 1, evaluate_validate);
       if (id->hasExpandedExtent()) {
@@ -307,6 +308,10 @@ const PolymorphicValue& ExpressionEvaluator::getValue(
   }
 
   return null_;
+}
+
+void ExpressionEvaluator::invalidate(const Val* value) {
+  known_values_.erase(value);
 }
 
 void ExpressionEvaluator::print() const {

@@ -42,7 +42,7 @@ namespace {
 std::vector<Val*> getLoopIndices(
     TensorView* tv,
     const TensorIndexer& indexer,
-    const std::vector<ForLoop*>& for_loops) {
+    const std::vector<kir::ForLoop*>& for_loops) {
   std::vector<Val*> loop_indices;
   for (const auto& loop_id : tv->getLoopDomain()) {
     loop_indices.push_back(indexer.getLoopIndex(loop_id, for_loops));
@@ -179,7 +179,7 @@ class AbstractGetReference {
     return nullptr;
   }
 
-  void setForLoops(const std::vector<ForLoop*>& for_loops) {
+  void setForLoops(const std::vector<kir::ForLoop*>& for_loops) {
     for_loops_ = for_loops;
   }
 
@@ -200,7 +200,7 @@ class AbstractGetReference {
   const IdModel& id_model_;
   // These could be getLinearIndex parameters, but it's just easier to
   // add them here since the function signature doesn't need to change.
-  std::vector<ForLoop*> for_loops_;
+  std::vector<kir::ForLoop*> for_loops_;
   CircularBufferLoopStage circular_buffer_loop_stage_ =
       CircularBufferLoopStage::NotApplicable;
 };
@@ -225,7 +225,7 @@ class IndexValidator : public kir::IrVisitor {
     if (auto loop_it = std::find_if(
             for_loops_.begin(),
             for_loops_.end(),
-            [](ForLoop* fl) {
+            [](kir::ForLoop* fl) {
               return fl->circularBufferLoopStage() !=
                   CircularBufferLoopStage::NotApplicable;
             });
@@ -338,7 +338,7 @@ class PredicateIndexValidator : public kir::IrVisitor {
     if (auto loop_it = std::find_if(
             for_loops_.begin(),
             for_loops_.end(),
-            [](ForLoop* fl) {
+            [](kir::ForLoop* fl) {
               return fl->circularBufferLoopStage() !=
                   CircularBufferLoopStage::NotApplicable;
             });
@@ -1549,8 +1549,8 @@ TEST_F(IndexingTest, AlmostExactTraversalWithNonOneBroadcast) {
           getLoopIndices(consumer_tv, indexer_, for_loops_);
       TensorView* tv2 = tv;
       TensorView* tv3 = consumer_tv;
-      IterDomain* id11 = tv3->axis(1)->definition()->input(0)->as<IterDomain>();
-      IterDomain* id9 = id11->definition()->input(1)->as<IterDomain>();
+      auto* id11 = tv3->axis(1)->definition()->input(0)->as<IterDomain>();
+      auto* id9 = id11->definition()->input(1)->as<IterDomain>();
       Val* id11_idx = addExpr(
           mulExpr(loop_indices.at(1), tv3->axis(2)->extent()),
           loop_indices.at(2));

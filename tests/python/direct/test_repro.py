@@ -4,6 +4,7 @@
 # Owner(s): ["module: nvfuser"]
 
 import torch
+import pytest
 from nvfuser_direct import FusionDefinition, DataType
 
 # Use smaller range for torch.testing.make_tensor for nvfuser_direct.validate
@@ -1196,6 +1197,207 @@ def test_issue2275_repro2(nvfuser_direct_test):
     nvf_out, _ = nvfuser_direct_test.exec_nvfuser(fusion_func, inputs)
 
 
+# See https://github.com/NVIDIA/Fuser/issues/2317
+def test_issue2317(nvfuser_direct_test):
+    """
+    Test case for issue #2317: Complex fusion with permute, reshape, and linear operations.
+
+    This test verifies a fusion that performs:
+    1. Permute operation on a 4D tensor (16, 25, 128, 64) -> (16, 128, 25, 64)
+    2. Stride reordering to optimize memory layout
+    3. Reshape to match the shape of the second input tensor (16, 128, 1600)
+    4. Linear transformation using a weight matrix (1600, 1600)
+    5. Element-wise addition with residual connection
+    6. Type casting to BFloat16
+    7. Second linear transformation with residual connection
+
+    The test uses BFloat16 precision and requires Ampere or newer GPU architecture.
+    """
+    inputs = [
+        torch.randn((16, 25, 128, 64), dtype=torch.bfloat16, device="cuda:0"),
+        torch.randn((16, 128, 1600), dtype=torch.bfloat16, device="cuda:0"),
+        torch.randn((1600, 1600), dtype=torch.bfloat16, device="cuda:0"),
+    ]
+
+    def fusion_func(fd: FusionDefinition):
+        T0 = fd.from_pytorch(inputs[0])
+        T1 = fd.from_pytorch(inputs[1])
+        T2 = fd.from_pytorch(inputs[2])
+
+        T10 = fd.ops.permute(T0, dims=[0, 2, 1, 3])
+        T11 = fd.ops.stride_order(T10, stride_order=[3, 2, 1, 0])
+        T16 = fd.ops.reshape(T11, new_shape=T1.shape())
+        T17 = fd.ops.linear(T16, T2)
+        T33 = fd.ops.add(T17, T1)
+
+        T33 = fd.ops.cast(T33, dtype=DataType.BFloat16)
+        T34 = fd.ops.linear(T33, T2)
+        T35 = fd.ops.add(T34, T33)
+        fd.add_output(T35)
+
+    nvf_out, _ = nvfuser_direct_test.exec_nvfuser(fusion_func, inputs)
+
+
+def test_issue2354(nvfuser_direct_test):
+    """
+    Test for issue 2354 - tests complex operations with linear and mul operations.
+
+    This test verifies that complex operations work correctly with:
+    - Linear operations with different shapes
+    - Mul operations with different shapes
+    - Proper handling of tensor shapes and operations
+    """
+    inputs = [
+        torch.randn((8, 4), dtype=torch.float32, device="cuda:0"),
+        torch.randn(
+            (
+                6,
+                2,
+                4,
+            ),
+            dtype=torch.float32,
+            device="cuda:0",
+        ),
+    ]
+
+    def fusion_func(fd: FusionDefinition):
+        T0 = fd.define_tensor(
+            shape=[-1, -1],
+            contiguity=[True, True],
+            dtype=DataType.Float,
+            is_cpu=False,
+            stride_order=[1, 0],
+        )
+        T1 = fd.define_tensor(
+            shape=[-1, -1, -1],
+            contiguity=[True, True, True],
+            dtype=DataType.Float,
+            is_cpu=False,
+            stride_order=[2, 1, 0],
+        )
+        T2 = fd.ops.linear(T1, T0)
+        S3 = fd.define_scalar(1.41421, dtype=DataType.Double)
+        T4 = fd.ops.mul(T2, S3)
+        fd.add_output(T2)
+        fd.add_output(T4)
+
+    nvfuser_direct_test.exec_nvfuser(fusion_func, inputs)
+
+
+def test_issue2395(nvfuser_direct_test):
+    """
+    Test for issue 2395 - tests complex operations with strided tensors and multiple data types.
+
+    Migrated from `test_issue_2395` in legacy test_pointwise.py
+
+    This test verifies that complex operations work correctly with:
+    - Large strided tensors with complex memory layouts
+    - Multiple data types (Float32 and BFloat16)
+    - Complex tensor operations (permute, reshape, slice, sum, mul, neg, add)
+    - Broadcasting operations with different shapes
+    - Padding operations with scalar values
+    - Multiple output tensors from a single fusion
+    - Proper handling of tensor contiguity and stride order
+    """
+
+    def create_fusion(fd: FusionDefinition) -> None:
+        cond0 = fd.define_tensor(
+            shape=[-1, -1, -1],
+            contiguity=[True, True, None],
+            dtype=DataType.Bool,
+            is_cpu=False,
+            stride_order=[2, 1, 0],
+        )
+        values = fd.define_tensor(
+            shape=[-1, -1, -1],
+            contiguity=[True, True, True],
+            dtype=DataType.Float,
+            is_cpu=False,
+            stride_order=[2, 1, 0],
+        )
+        cond1 = fd.define_tensor(
+            shape=[-1, -1],
+            contiguity=[True, True],
+            dtype=DataType.Bool,
+            is_cpu=False,
+            stride_order=[1, 0],
+        )
+        cond1 = fd.ops.broadcast_in_dim(
+            cond1, shape=[16, 16, 32], broadcast_dims=[0, 1]
+        )
+        sliced = fd.ops.slice(
+            values,
+            start_indices=[0, 0, 16],
+            end_indices=[16, 16, 32],
+            strides=[1, 1, 1],
+        )
+        zero = fd.define_scalar(0.00000, dtype=DataType.Double)
+        masked = fd.ops.where(cond1, zero, values)
+        masked = fd.ops.where(cond0, zero, masked)
+        fd.add_output(sliced)
+        fd.add_output(masked)
+
+    ins = [
+        torch.randint(0, 2, (256,), dtype=torch.bool, device="cuda:0").as_strided(
+            (16, 16, 32), (16, 1, 0)
+        ),
+        torch.randn((8192,), dtype=torch.float32, device="cuda:0").as_strided(
+            (16, 16, 32), (512, 32, 1)
+        ),
+        torch.randint(0, 2, (256,), dtype=torch.bool, device="cuda:0").as_strided(
+            (16, 16), (16, 1)
+        ),
+    ]
+    outs, _ = nvfuser_direct_test.exec_nvfuser(create_fusion, ins)
+
+    nvfuser_direct_test.assertEqual(outs[0], ins[1][:, :, 16:], rtol=0, atol=0)
+    nvfuser_direct_test.assertEqual(
+        outs[1],
+        torch.where(
+            torch.logical_or(ins[0] == 1, ins[2].unsqueeze(-1) == 1), 0, ins[1]
+        ),
+    )
+
+
+def test_issue2532(nvfuser_direct_test):
+    """
+    Test for issue 2532 - tests broadcast reduction axis in matmul.
+
+    This test verifies that broadcast reduction axis in matmul works correctly.
+    """
+
+    def fusion_func(fd: FusionDefinition) -> None:
+        T0 = fd.define_tensor(
+            shape=[-1, -1, 1],
+            contiguity=[True, None, True],
+            dtype=DataType.Float,
+            is_cpu=False,
+            stride_order=[2, 0, 1],
+        )
+        T1 = fd.define_tensor(
+            shape=[-1, 1, -1],
+            contiguity=[True, None, True],
+            dtype=DataType.Float,
+            is_cpu=False,
+            stride_order=[2, 1, 0],
+        )
+        T2 = fd.ops.sum(T1, dims=[0, 1], keepdim=False, dtype=DataType.Null)
+        T3 = fd.ops.matmul(T0, T1)
+        T4 = fd.ops.sum(T3, dims=[0], keepdim=False, dtype=DataType.Null)
+        fd.add_output(T2)
+        fd.add_output(T4)
+
+    inputs = [
+        torch.randn((2 * 32,), dtype=torch.float32, device="cuda:0").as_strided(
+            (2, 32, 1), (32, 1, 32)
+        ),
+        torch.randn((2 * 16,), dtype=torch.float32, device="cuda:0").as_strided(
+            (2, 1, 16), (16, 16, 1)
+        ),
+    ]
+    nvfuser_direct_test.exec_nvfuser(fusion_func, inputs)
+
+
 def test_issue2545(nvfuser_direct_test):
     """
     Test for issue 2545 - tests empty tensor handling with concatenation operations.
@@ -1277,6 +1479,196 @@ def test_issue2549(nvfuser_direct_test):
     nvfuser_direct_test.assertEqual(nvf_out[0], b / a)
 
 
+def test_issue2664_repro1(nvfuser_direct_test):
+    """
+    Test for issue 2664 - tests broadcast in dim and inplace update.
+
+    Migrated from `test_inplace_issue2664` in legacy test_pointwise.py
+
+    Example 1: Repro from https://github.com/NVIDIA/Fuser/issues/2664
+    T4 (scalar) is broadcasted and used in mul computation. It is also used to update T2 inplace.
+    This causes a RW race. In this case, the aliased tensor is a producer of bcast op.
+    """
+
+    def nvfuser_fusion_id0(fd: FusionDefinition) -> None:
+        T1 = fd.define_tensor(
+            shape=[-1],
+            contiguity=[True],
+            dtype=DataType.Float,
+            is_cpu=False,
+            stride_order=[0],
+        )
+        T2 = fd.define_tensor(
+            shape=[], contiguity=[], dtype=DataType.Float, is_cpu=False
+        )
+        S3 = fd.define_scalar(1.00000, dtype=DataType.Double)
+        T4 = fd.ops.add(T2, S3)
+        S5 = fd.define_scalar(4194304, dtype=DataType.Int)
+        T7 = fd.ops.broadcast_in_dim(T4, shape=[S5], broadcast_dims=[])
+        T8 = fd.ops.mul(T1, T7)
+        fd.add_output(T4, T2)
+        fd.add_output(T8)
+
+    inputs = [
+        torch.randn((4194304,), dtype=torch.float32, device="cuda:0").as_strided(
+            (4194304,), (1,)
+        ),
+        torch.randn((1,), dtype=torch.float32, device="cuda:0").as_strided((), ()),
+    ]
+    # Reference out = T4 (aliased to inputs[-1]), T8
+    ref_out = [inputs[-1] + 1.0, (inputs[-1] + 1.0) * inputs[0]]
+
+    out, _ = nvfuser_direct_test.exec_nvfuser(nvfuser_fusion_id0, inputs)
+
+    torch.testing.assert_close(inputs[-1], ref_out[0])
+    torch.testing.assert_close(out[0], ref_out[1])
+
+
+def test_issue2664_repro2(nvfuser_direct_test):
+    """
+    Test for issue 2664 - tests broadcast in dim and inplace update.
+
+    Migrated from `test_inplace_post_bcast` in legacy test_pointwise.py
+
+    Example 2 for Issue 2664:
+    T2 is broadcasted and used in mul/add compute. It is also summed (T8) and used to inplace update T2.
+    In this case, the aliased tensor (T8) is a consumer of the bcast op.
+    """
+
+    def fusion_func(fd: FusionDefinition) -> None:
+        T1 = fd.define_tensor(
+            shape=[-1],
+            contiguity=[True],
+            dtype=DataType.Float,
+            is_cpu=False,
+            stride_order=[0],
+        )
+        T2 = fd.define_tensor(
+            shape=[], contiguity=[], dtype=DataType.Float, is_cpu=False
+        )
+        S5 = fd.define_scalar(4194304, dtype=DataType.Int)
+        T7 = fd.ops.broadcast_in_dim(T2, shape=[S5], broadcast_dims=[])
+        T8 = fd.ops.sum(T7, dims=[0], keepdim=False)
+        T9 = fd.ops.mul(T1, T7)
+        T10 = fd.ops.add(T1, T7)
+        fd.add_output(T8, T2)
+        fd.add_output(T9)
+        fd.add_output(T10)
+
+    inputs = [
+        torch.randn((4194304,), dtype=torch.float32, device="cuda:0").as_strided(
+            (4194304,), (1,)
+        ),
+        torch.randn((1,), dtype=torch.float32, device="cuda:0").as_strided((), ()),
+    ]
+
+    # Reference out = T8 (aliased to inputs[-1]), T9, T10
+    ref_out = [
+        inputs[-1] * inputs[0].size(0),
+        inputs[-1] * inputs[0],
+        inputs[0] + inputs[1],
+    ]
+
+    out, _ = nvfuser_direct_test.exec_nvfuser(fusion_func, inputs)
+
+    nvfuser_direct_test.assertEqual(inputs[-1], ref_out[0])
+    nvfuser_direct_test.assertEqual(out[0], ref_out[1])
+    nvfuser_direct_test.assertEqual(out[1], ref_out[2])
+
+
+def test_issue2664_repro3(nvfuser_direct_test):
+    """
+    Test for issue 2664 - tests broadcast in dim and inplace update.
+
+    Migrated from `test_multi_inplace` in legacy test_pointwise.py
+
+    Example 3 for Issue 2664: This case involves two inplace updates.
+    T7 is aliased to T2: T7 is not a producer/consumer of the bcast op, but the aliased input T2 is a producer of the bcast op.
+    T6 is aliased to T3: T6 is a consumer of the bcast op.
+    """
+
+    def fusion_func(fd: FusionDefinition) -> None:
+        T1 = fd.define_tensor(
+            shape=[-1],
+            contiguity=[True],
+            dtype=DataType.Float,
+            is_cpu=False,
+            stride_order=[0],
+        )
+        T2 = fd.define_tensor(
+            shape=[], contiguity=[], dtype=DataType.Float, is_cpu=False
+        )
+        T3 = fd.define_tensor(
+            shape=[], contiguity=[], dtype=DataType.Float, is_cpu=False
+        )
+        T4 = fd.ops.broadcast_in_dim(T2, shape=T1.shape(), broadcast_dims=[])
+        T5 = fd.ops.add(T1, T4)
+        T6 = fd.ops.sum(T5, dims=[0], keepdim=False)
+        S0 = fd.define_scalar(1.00000, dtype=DataType.Double)
+        T7 = fd.ops.add(T3, S0)
+        fd.add_output(T6, T3)
+        fd.add_output(T7, T2)
+
+    inputs = [
+        torch.randn((4194304,), dtype=torch.float32, device="cuda:0").as_strided(
+            (4194304,), (1,)
+        ),
+        torch.randn((1,), dtype=torch.float32, device="cuda:0").as_strided((), ()),
+        torch.randn((1,), dtype=torch.float32, device="cuda:0").as_strided((), ()),
+    ]
+
+    # Reference out = T6 (aliased to inputs[2]), T7 (aliased to inputs[1])
+    ref_out = [inputs[-1] + 1.0, (inputs[0] + inputs[1]).sum(dim=-1)]
+
+    out, _ = nvfuser_direct_test.exec_nvfuser(fusion_func, inputs)
+
+    nvfuser_direct_test.assertEqual(inputs[1], ref_out[0])
+    nvfuser_direct_test.assertEqual(inputs[2], ref_out[1])
+
+
+def test_issue2664_repro4(nvfuser_direct_test):
+    """
+    Test for issue 2664 - tests broadcast in dim and inplace update.
+
+    Migrated from `test_implicit_bcast_inplace` in legacy test_pointwise.py
+
+    Example 4 for Issue 2664: There is no explicit broadcast. However, the
+    aliased input has a broadcast dimension that is concretized in the fusion.
+    T0 has a implicit broadcast which is used in add(T3) and neg (T4). T4 is
+    used to inplace update T0, which causes RW race.
+    """
+
+    def fusion_func(fd: FusionDefinition) -> None:
+        T0 = fd.define_tensor(
+            shape=[-1, 1],
+            contiguity=[True, None],
+            dtype=DataType.Float,
+            is_cpu=False,
+            stride_order=[1, 0],
+        )
+        T1 = fd.define_tensor(
+            shape=[-1, -1],
+            contiguity=[True, True],
+            dtype=DataType.Float,
+            is_cpu=False,
+            stride_order=[1, 0],
+        )
+        T3 = fd.ops.add(T1, T0)
+        T4 = fd.ops.neg(T0)
+        fd.add_output(T3)
+        fd.add_output(T4, T0)
+
+    inputs = [
+        torch.randn((4194304, 1), dtype=torch.float32, device="cuda:0"),
+        torch.randn((4194304, 128), dtype=torch.float32, device="cuda:0"),
+    ]
+    ref_out = [inputs[0] + inputs[1], -inputs[0]]
+    out, _ = nvfuser_direct_test.exec_nvfuser(fusion_func, inputs)
+
+    nvfuser_direct_test.assertEqual(ref_out[0], out[0])
+    nvfuser_direct_test.assertEqual(ref_out[1], inputs[0])
+
+
 def test_issue2755(nvfuser_direct_test):
     """
     Test for issue 2755 - tests slice operations with negation.
@@ -1306,6 +1698,140 @@ def test_issue2755(nvfuser_direct_test):
 
     inputs = [torch.randn((10,), dtype=torch.float32, device="cuda:0")]
     nvfuser_direct_test.exec_nvfuser(fusion_func, inputs)
+
+
+def test_issue2853(nvfuser_direct_test):
+    """
+    Test for issue 2853 - tests that an error is raised if there are segments
+    with CPU outputs.
+
+    See https://github.com/NVIDIA/Fuser/issues/2853.
+    """
+    inputs = [
+        torch.tensor(2.0, device="cpu", dtype=torch.float),
+        torch.randn(3, device="cuda", dtype=torch.float),
+    ]
+
+    def fusion_func(fd: FusionDefinition):
+        tv0 = fd.from_pytorch(inputs[0])  # CPU scalar tensor
+        tv1 = fd.from_pytorch(inputs[1])  # CUDA input
+        s0 = fd.define_scalar(3.0)
+        # CPU scalar only segment that should raise an error
+        t2 = fd.ops.add(tv0, s0)  # Should be a CPU scalar tensor
+        t3 = fd.ops.add(tv1, s0)
+        fd.add_output(t2)
+        fd.add_output(t3)
+
+    with FusionDefinition() as fd:
+        fusion_func(fd)
+
+    with pytest.raises(
+        RuntimeError, match="KernelExecutor does not support the Fusion provided."
+    ):
+        _ = fd.execute(inputs)
+
+
+def test_issue3192(nvfuser_direct_test):
+    """
+    Test for issue 3192 - tests squeeze and slice operations.
+
+    This test verifies that squeeze and slice operations work correctly with:
+    - Squeeze operation with two dimensions
+    - Slice operation with one dimension
+    - Negation operation
+    """
+
+    def fusion_func(fd: FusionDefinition):
+        inp = fd.define_tensor([1, 1, 2], contiguity=True)
+        out = fd.ops.squeeze(inp, [0, 1])
+        out = fd.ops.slice(out, [1], [2])
+        fd.add_output(out)
+
+    in_tensor = torch.randn(1, 1, 2, device="cuda")
+    out_tensors, _ = nvfuser_direct_test.exec_nvfuser(fusion_func, [in_tensor])
+    nvfuser_direct_test.assertEqual(
+        out_tensors[0], in_tensor.squeeze([0, 1])[1:2], rtol=0, atol=0
+    )
+
+
+def test_issue3227(nvfuser_direct_test):
+    """
+    Test for issue 3227 - tests broadcast to different extents.
+
+    Migrated from `test_bcast_different_extent` in legacy test_pointwise.py
+
+    This test verifies that broadcast operations work correctly with:
+    - Different extents for broadcasting
+    - Multiple broadcast operations in sequence
+    - Proper handling of tensor shapes and operations
+    """
+
+    def nvfuser_fusion(fd: FusionDefinition) -> None:
+        T0 = fd.define_tensor(
+            shape=[1, 4, 2, 3],
+            contiguity=[None, True, True, True],
+            dtype=DataType.Float,
+            is_cpu=False,
+            stride_order=[3, 2, 1, 0],
+        )
+        T1 = fd.define_tensor(
+            shape=[1, 5, 2, 3],
+            contiguity=[None, True, True, True],
+            dtype=DataType.Float,
+            is_cpu=False,
+            stride_order=[3, 2, 1, 0],
+        )
+        T2 = fd.define_tensor(
+            shape=[1, 2, 3],
+            contiguity=[None, True, True],
+            dtype=DataType.Float,
+            is_cpu=False,
+            stride_order=[2, 1, 0],
+        )
+        S1 = fd.define_scalar(1, dtype=DataType.Int)
+        S2 = fd.define_scalar(1, dtype=DataType.Int)
+        S3 = fd.define_scalar(2, dtype=DataType.Int)
+        S4 = fd.define_scalar(3, dtype=DataType.Int)
+        T3 = fd.ops.broadcast_in_dim(
+            T2, shape=[S1, S2, S3, S4], broadcast_dims=[1, 2, 3]
+        )
+        # bcast T2 to [1, 4, 2, 3]
+        S5 = fd.define_scalar(1, dtype=DataType.Int)
+        S6 = fd.define_scalar(4, dtype=DataType.Int)
+        S7 = fd.define_scalar(2, dtype=DataType.Int)
+        S8 = fd.define_scalar(3, dtype=DataType.Int)
+        T4 = fd.ops.broadcast_in_dim(
+            T3, shape=[S5, S6, S7, S8], broadcast_dims=[0, 1, 2, 3]
+        )
+        # bcast T2 to [1, 5, 2, 3]
+        S9 = fd.define_scalar(1, dtype=DataType.Int)
+        S10 = fd.define_scalar(5, dtype=DataType.Int)
+        S11 = fd.define_scalar(2, dtype=DataType.Int)
+        S12 = fd.define_scalar(3, dtype=DataType.Int)
+        T5 = fd.ops.broadcast_in_dim(
+            T3, shape=[S9, S10, S11, S12], broadcast_dims=[0, 1, 2, 3]
+        )
+        # add with T0
+        T6 = fd.ops.add(T4, T0)
+        # add with T1
+        T7 = fd.ops.add(T5, T1)
+        fd.add_output(T6)
+        fd.add_output(T7)
+
+    inputs = [
+        torch.rand(24, dtype=torch.float32, device="cuda:0").as_strided(
+            (1, 4, 2, 3), (24, 6, 3, 1)
+        ),
+        torch.rand(30, dtype=torch.float32, device="cuda:0").as_strided(
+            (1, 5, 2, 3), (30, 6, 3, 1)
+        ),
+        torch.rand(6, dtype=torch.float32, device="cuda:0").as_strided(
+            (1, 2, 3), (6, 3, 1)
+        ),
+    ]
+    nvf_out, _ = nvfuser_direct_test.exec_nvfuser(nvfuser_fusion, inputs)
+    nvfuser_direct_test.assertEqual(nvf_out[0], inputs[0] + inputs[2])
+    nvfuser_direct_test.assertEqual(nvf_out[1], inputs[1] + inputs[2])
 
 
 def test_issue3292(nvfuser_direct_test):
@@ -1389,6 +1915,50 @@ def test_issue3292(nvfuser_direct_test):
         fd.add_output(T223)
 
     nvf_out, _ = nvfuser_direct_test.exec_nvfuser(fusion_func, inputs)
+
+
+def test_issue3369(nvfuser_direct_test):
+    """
+    Test for issue 3369 - tests square linear operations.
+
+    This test verifies that square linear operations work correctly.
+    """
+
+    def nvfuser_fusion_id28(fd: FusionDefinition) -> None:
+        T0 = fd.define_tensor(
+            shape=[5, 5],
+            contiguity=[True, True],
+            dtype=DataType.Float,
+            is_cpu=False,
+            stride_order=[1, 0],
+        )
+        T1 = fd.define_tensor(
+            shape=[5, 5],
+            contiguity=[True, True],
+            dtype=DataType.Float,
+            is_cpu=False,
+            stride_order=[1, 0],
+        )
+        T2 = fd.define_tensor(
+            shape=[5],
+            contiguity=[True],
+            dtype=DataType.Float,
+            is_cpu=False,
+            stride_order=[0],
+        )
+        T3 = fd.ops.linear(T0, T1, T2)
+        fd.add_output(T3)
+
+    with FusionDefinition() as fd:
+        nvfuser_fusion_id28(fd)
+
+    inputs = [
+        torch.testing.make_tensor((5, 5), dtype=torch.float32, device="cuda:0"),
+        torch.testing.make_tensor((5, 5), dtype=torch.float32, device="cuda:0"),
+        torch.testing.make_tensor((5,), dtype=torch.float32, device="cuda:0"),
+    ]
+    fd.validate(inputs)
+    nvf_out, _ = nvfuser_direct_test.exec_nvfuser(nvfuser_fusion_id28, inputs)
 
 
 def test_issue4444(nvfuser_direct_test):

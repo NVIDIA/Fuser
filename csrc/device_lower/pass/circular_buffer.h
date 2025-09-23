@@ -221,7 +221,7 @@ class HopperPingPongMbarriers {
 
   //! Track persistent for-loop. Its index variable determines the phase of
   //! ping-pong mbarriers.
-  void trackPersistentForLoop(ForLoop* loop) {
+  void trackPersistentForLoop(kir::ForLoop* loop) {
     persistent_for_loop_ = loop;
   }
 
@@ -232,7 +232,7 @@ class HopperPingPongMbarriers {
   //!     mbarrier::init(...);
   //!   }
   //! }
-  ForLoop* initializePingPongMbarrier();
+  kir::ForLoop* initializePingPongMbarrier();
 
   //! This helper function invalidates ping-pong mbarriers.
   //!
@@ -241,11 +241,12 @@ class HopperPingPongMbarriers {
   //!     mbarrier::inval(...);
   //!   }
   //! }
-  ForLoop* invalidatePingPongMbarrier();
+  kir::ForLoop* invalidatePingPongMbarrier();
 
   //! This helper function allocates, initializes and invalidates ping-pong
   //! mbarriers.
-  std::tuple<kir::Allocate*, ForLoop*, ForLoop*> createPingPongMbarrier();
+  std::tuple<kir::Allocate*, kir::ForLoop*, kir::ForLoop*>
+  createPingPongMbarrier();
 
   //! Create a IfThenElse where the last warp group releases the TensorCore and
   //! Epilogue mbarriers for the first independent warp group.
@@ -282,7 +283,7 @@ class HopperPingPongMbarriers {
   int64_t num_warp_groups_ = 0;
   ParallelType ws_axis_ = ParallelType::Serial;
   TensorView* mbarriers_ = nullptr;
-  ForLoop* persistent_for_loop_ = nullptr;
+  kir::ForLoop* persistent_for_loop_ = nullptr;
 };
 
 class CircularBufferPass {

@@ -5,13 +5,17 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <algorithm>
+#include <ranges>
 #include <regex>
 #include <sstream>
 #include <string>
 #include <string_view>
 
+#include <ATen/cuda/CUDAContextLight.h>
 #include <c10/core/Allocator.h>
 #include <c10/core/CachingDeviceAllocator.h>
+#include <c10/core/GradMode.h>
 #include <c10/cuda/CUDACachingAllocator.h>
 
 #include <exceptions.h>
@@ -568,12 +572,13 @@ TensorView* canonicalizeInputToBMNK(
     TensorView* tv,
     MmaLayout layout,
     MmaOperand operand) {
-  auto lgnob = TensorDomain::noBroadcasts(tv->getLogicalDomain());
+  auto lgnob = tv->getLogicalDomain() | TensorDomain::kNoBroadcasts;
+  const auto lgnob_count = std::ranges::distance(lgnob);
   NVF_ERROR(
-      lgnob.size() == 2 || lgnob.size() == 3,
+      lgnob_count == 2 || lgnob_count == 3,
       "Expected 2 or 3 domains, got ",
-      lgnob.size());
-  bool has_batch = lgnob.size() == 3;
+      lgnob_count);
+  bool has_batch = lgnob_count == 3;
   bool already_broadcasted = tv->hasBroadcast();
 
   // Step 1: insert permute as needed.
@@ -657,12 +662,13 @@ TensorView* biasEpilogue(TensorView* tensor, TensorView* bias) {
       "Tensors to have bias applied needs to have 2 or more domains, got ",
       tensor->nDims());
 
-  const auto concrete = TensorDomain::noReductions(
-      TensorDomain::noBroadcasts(tensor->getLoopDomain()));
+  auto concrete = tensor->getLoopDomain() | TensorDomain::kNoReductions |
+      TensorDomain::kNoBroadcasts;
+  const auto concrete_count = std::ranges::distance(concrete);
 
   TensorView *biasb = nullptr, *biased = nullptr;
 
-  switch (concrete.size()) {
+  switch (concrete_count) {
     case 2:
       // regular matmul (non-strided batch gemm)
       NVF_CHECK(
@@ -692,7 +698,7 @@ TensorView* biasEpilogue(TensorView* tensor, TensorView* bias) {
           false,
           "Only tensors with two (matmul) or three (strided batch matmul) "
           "concrete domains have support for bias epilogue enabled, got ",
-          concrete.size());
+          concrete_count);
   }
 
   biased = add(tensor, biasb);
@@ -972,6 +978,93 @@ int64_t memoryAllocated(const c10::DeviceIndex device) {
       allocator->getDeviceStats(device);
 
   return device_stats.allocated_bytes.at(kAggregateStatsIndex).current;
+}
+
+bool maybeClearAllocator(int64_t max_bytes) {
+  // check used memory and empty allocator cache if above a set threshold
+  auto allocator = c10::cuda::CUDACachingAllocator::get();
+  if (allocator->initialized()) {
+    int device = 0;
+#if NVF_TORCH_VERSION_NO_LESS(2, 3, 0)
+    // c10::cuda uses DeviceIndex instead of int
+    // https://github.com/pytorch/pytorch/pull/119142
+    c10::DeviceIndex device_index;
+    c10::cuda::GetDevice(&device_index);
+    device = static_cast<int>(device_index);
+#elif NVF_TORCH_VERSION_GREATER(2, 0, 1)
+    // GetDevice was introduced in https://github.com/pytorch/pytorch/pull/94864
+    // in order to properly handle new CUDA 112 behavior
+    c10::cuda::GetDevice(&device);
+#else
+    cudaGetDevice(&device);
+#endif
+
+    auto device_stats = allocator->getDeviceStats(device);
+    // allocated_bytes[] holds multiple statistics but the first is sum across
+    // both small and large blocks
+    if (uint64_t(device_stats.reserved_bytes[0].current) >
+        uint64_t(max_bytes)) {
+      allocator->emptyCache();
+      return true;
+    }
+  }
+  return false;
+}
+
+bool deviceMajorMinorCheck(int major, int minor) {
+  auto dev_prop = at::cuda::getCurrentDeviceProperties();
+  if (dev_prop->major < major ||
+      (dev_prop->major == major && dev_prop->minor < minor)) {
+    return false;
+  }
+  return true;
+}
+
+int deviceSMCount() {
+  int sm_count = at::cuda::getCurrentDeviceProperties()->multiProcessorCount;
+  return sm_count;
+}
+
+void clearL2Cache() {
+  c10::NoGradGuard no_grad;
+  auto l2_cache_size = at::cuda::getCurrentDeviceProperties()->l2CacheSize;
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+
+  auto l2_elems = l2_cache_size / 4;
+  at::Tensor t0 = at::empty(l2_elems, options);
+  at::Tensor t1 = at::clone(t0);
+}
+
+bool cudaArchGuardShouldSkip(int required_major, int required_minor) {
+  int capability_major = at::cuda::getCurrentDeviceProperties()->major;
+  int capability_minor = at::cuda::getCurrentDeviceProperties()->minor;
+
+  if (capability_major < required_major ||
+      (capability_major == required_major &&
+       capability_minor < required_minor)) {
+    return true;
+  }
+  return false;
+}
+
+bool cudaArchGuardShouldSkip(
+    int lower_major, // inclusive
+    int lower_minor, // inclusive
+    int upper_major, // exclusive
+    int upper_minor // exclusive
+) {
+  int capability_major = at::cuda::getCurrentDeviceProperties()->major;
+  int capability_minor = at::cuda::getCurrentDeviceProperties()->minor;
+
+  if (capability_major < lower_major ||
+      (capability_major == lower_major && capability_minor < lower_minor)) {
+    return true;
+  }
+  if (capability_major > upper_major ||
+      (capability_major == upper_major && capability_minor >= upper_minor)) {
+    return true;
+  }
+  return false;
 }
 
 } // namespace nvfuser

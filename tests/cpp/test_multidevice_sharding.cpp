@@ -546,9 +546,9 @@ TEST_F(MultiDeviceTest, ShardTensor_OuterSplit) {
 
   EXPECT_THAT(sharded.sizes(), ElementsAre(2, 3));
   at::Tensor expected = unsharded.view({2, d, 3}).index(
-      {torch::indexing::Slice(),
+      {at::indexing::Slice(),
        communicator_->deviceId(),
-       torch::indexing::Slice()});
+       at::indexing::Slice()});
   EXPECT_TRUE(at::equal(sharded, expected));
 }
 

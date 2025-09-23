@@ -70,7 +70,7 @@ void setLoopAndAllocationDomain(TensorView* tv, bool is_resharding) {
       {tv->getLoopDomain().begin(), tv->getLoopDomain().end()});
 
   for (auto* expr : transform_exprs) {
-    Split* split = dynamic_cast<Split*>(expr);
+    auto* split = dynamic_cast<Split*>(expr);
     NVF_ERROR(
         split != nullptr,
         "Expected all transform exprs to be a split between allocation and "

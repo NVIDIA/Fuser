@@ -69,9 +69,10 @@ class IndexLowering : private OptOutConstDispatch {
   void handle(const PadOp*) final;
   void handle(const SliceOp*) final;
   void handle(const CatOp*) final;
+  void handle(const PreprocessGroupedMatmulInputSf*) final;
 
   void handle(const kir::Asm*) final;
-  void handle(const ForLoop*) final;
+  void handle(const kir::ForLoop*) final;
   void handle(const kir::IfThenElse*) final;
   void handle(const kir::Allocate*) final;
   void handle(const kir::AllocTMem*) final;
@@ -96,7 +97,7 @@ class IndexLowering : private OptOutConstDispatch {
   void generate(const std::vector<Expr*>& exprs);
 
   // Get the loop in which the currently visiting expr is a rotated expr.
-  const std::unordered_set<ForLoop*>& getRotatedLoop() const {
+  const std::unordered_set<kir::ForLoop*>& getRotatedLoop() const {
     return rotated_loop_;
   }
 
@@ -156,6 +157,8 @@ class IndexLowering : private OptOutConstDispatch {
       const std::vector<WelfordTriplet>& input_vals,
       const std::vector<WelfordTriplet>& init_vals);
 
+  void handleGroupedLoadStoreOp(const LoadStoreOp* ldst);
+
   // Allocate a unique buffer for grid reductions and broadcast. A
   // buffer is uniquely allocated for each output tensor of an
   // expression.
@@ -189,10 +192,10 @@ class IndexLowering : private OptOutConstDispatch {
 
   // Track for loops to send to indexing. Similar to what's done in
   // kir::IrVisitor
-  std::vector<ForLoop*> for_loops_;
+  std::vector<kir::ForLoop*> for_loops_;
 
   // Keep track of the loop in which the currently visiting expr is a rotated.
-  std::unordered_set<ForLoop*> rotated_loop_;
+  std::unordered_set<kir::ForLoop*> rotated_loop_;
 
   // Maps to keep track of allocated buffers and objects that must be
   // allocated only once

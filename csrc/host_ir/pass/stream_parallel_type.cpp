@@ -76,11 +76,11 @@ bool canMergeWithPreviousForLoop(
     IterDomain* stream_axis,
     const IdModel& id_model) {
   return !new_top_level_exprs.empty() &&
-      new_top_level_exprs.back()->isA<ForLoop>() &&
+      new_top_level_exprs.back()->isA<kir::ForLoop>() &&
       areIdsMapped(
           id_model,
           stream_axis,
-          new_top_level_exprs.back()->as<ForLoop>()->iterDomain());
+          new_top_level_exprs.back()->as<kir::ForLoop>()->iterDomain());
 }
 
 // Finds where a stream axis appears in a tensor's logical domain
@@ -201,7 +201,7 @@ std::vector<Expr*> groupStreamParallelRegions(
         "Each expr should have at most one output.");
 
     // Get the output tensor and check for stream parallelization
-    TensorView* output = expr->output(0)->as<TensorView>();
+    auto* output = expr->output(0)->as<TensorView>();
     IterDomain* stream_axis = getStreamAxis(output->getLoopDomain());
 
     // If no stream axis found, keep the expression as is
@@ -223,10 +223,10 @@ std::vector<Expr*> groupStreamParallelRegions(
     if (canMergeWithPreviousForLoop(
             new_top_level_exprs, stream_axis, id_model)) {
       // Merge with existing for-loop by adding the expression to its body
-      new_top_level_exprs.back()->as<ForLoop>()->body().push_back(expr);
+      new_top_level_exprs.back()->as<kir::ForLoop>()->body().push_back(expr);
     } else {
       // Create a new for-loop for stream parallelization
-      auto* for_loop = IrBuilder::create<ForLoop>(
+      auto* for_loop = IrBuilder::create<kir::ForLoop>(
           stream_axis,
           /*index=*/NamedScalar::getParallelIndex(ParallelType::Stream),
           /*start=*/FusionGuard::getCurFusion()->zeroVal(),
@@ -253,10 +253,10 @@ std::vector<Expr*> addTensorAllocations(
   std::vector<Expr*> new_top_level_exprs;
 
   for (auto* expr : top_level_exprs) {
-    if (expr->isA<ForLoop>()) {
+    if (expr->isA<kir::ForLoop>()) {
       // add allocations for tensors produced in the loop that have a stream
       // axes
-      auto* for_loop = expr->as<ForLoop>();
+      auto* for_loop = expr->as<kir::ForLoop>();
       for (auto* body_expr : for_loop->body().exprs()) {
         for (auto* output :
              ir_utils::filterByType<TensorView>(body_expr->outputs())) {
@@ -281,11 +281,11 @@ std::vector<Expr*> processForLoopBodies(
   TensorSlicingCache tensor_slicing_cache;
 
   for (auto* expr : top_level_exprs) {
-    if (!expr->isA<ForLoop>()) {
+    if (!expr->isA<kir::ForLoop>()) {
       continue;
     }
 
-    auto* for_loop = expr->as<ForLoop>();
+    auto* for_loop = expr->as<kir::ForLoop>();
     std::vector<Expr*> new_loop_body;
 
     // Lambda to process a tensor in a for-loop body
@@ -436,12 +436,12 @@ std::vector<Expr*> addStreamManagement(std::vector<Expr*> top_level_exprs) {
   // Process each top-level expression
   for (auto* top_level_expr : top_level_exprs) {
     // Skip non-for-loop expressions
-    if (!top_level_expr->isA<ForLoop>()) {
+    if (!top_level_expr->isA<kir::ForLoop>()) {
       new_top_level_exprs.push_back(top_level_expr);
       continue;
     }
 
-    auto* for_loop = top_level_expr->as<ForLoop>();
+    auto* for_loop = top_level_expr->as<kir::ForLoop>();
 
     // Get the current stream before entering the loop
     auto* get_current_stream = IrBuilder::create<hir::GetCurrentStream>();
@@ -449,7 +449,7 @@ std::vector<Expr*> addStreamManagement(std::vector<Expr*> top_level_exprs) {
     new_top_level_exprs.push_back(get_current_stream);
 
     // Create a new for-loop for getting the current stream
-    auto* for_loop_initial_sync = IrBuilder::create<ForLoop>(
+    auto* for_loop_initial_sync = IrBuilder::create<kir::ForLoop>(
         for_loop->iterDomain(),
         for_loop->index(),
         for_loop->start(),
@@ -539,7 +539,7 @@ void StreamParallelType::passImplementation(Fusion* fusion) {
 
   // Set up the fusion environment and build the ID model
   FusionGuard fg(fusion);
-  hir::HostIrContainer* hic = dynamic_cast<hir::HostIrContainer*>(fusion);
+  auto* hic = dynamic_cast<hir::HostIrContainer*>(fusion);
   NVF_CHECK(hic, "Expected HostIrContainer");
 
   IdModel id_model(fusion);
