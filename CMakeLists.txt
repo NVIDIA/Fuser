@@ -1170,6 +1170,7 @@ if(BUILD_TEST)
   set(TUTORIAL_SRCS)
   list(APPEND TUTORIAL_SRCS
     ${NVFUSER_ROOT}/tests/cpp/test_tutorial.cpp
+    ${NVFUSER_ROOT}/tests/cpp/tutorial_cute_tv_layout.cpp
     ${NVFUSER_ROOT}/tests/cpp/tutorial_tmem.cpp
     ${NVFUSER_ROOT}/tests/cpp/tutorial_ldmatrix_stmatrix.cpp)
   add_test(test_tutorial "${TUTORIAL_SRCS}" "")
