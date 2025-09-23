@@ -76,7 +76,14 @@ void resetAllocationDomainAndContiguity(TensorView* tv, const std::vector<int64_
   };
   std::vector<Dim> dims;
   dims.reserve(sizes.size());
-  for (auto [size, stride, id] : views::zip_view(sizes, strides, TensorDomain::noReductions(tv->getLogicalDomain()))) {
+  const auto& no_reduction_domain = TensorDomain::noReductions(tv->getLogicalDomain());
+  NVF_ERROR(
+      no_reduction_domain.size() == sizes.size(),
+      "Sizes and logical domain must have the same number of dimensions");
+  NVF_ERROR(
+      no_reduction_domain.size() == strides.size(),
+      "Strides and logical domain must have the same number of dimensions");
+  for (auto [size, stride, id] : views::zip_view(sizes, strides, no_reduction_domain)) {
     dims.push_back({size, stride, id});
   }
   // Sort by stride in descending order
