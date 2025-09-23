@@ -16,6 +16,7 @@
 #include <id_model/id_model.h>
 #include <id_model/schedule.h>
 #include <instrumentation.h>
+#include <ir/allocation_utils.h>
 #include <ir/builder.h>
 #include <ir/utils.h>
 #include <logical_domain_map.h>
@@ -2267,7 +2268,9 @@ std::unordered_map<int64_t, int64_t> maybeReorderLogicalAsAllocationMap(
     return ret;
   }
   const auto& logical_dom = tv->getLogicalDomain();
-  const auto& [alloc_dom, _] = canonicalizeLayout(tv);
+  std::optional<Layout> layout = canonicalizeLayout(tv);
+  NVF_ERROR(layout.has_value());
+  const auto& alloc_dom = layout->allocation_domain();
   if (alloc_dom == logical_dom) {
     return ret;
   }
@@ -2279,7 +2282,7 @@ std::unordered_map<int64_t, int64_t> maybeReorderLogicalAsAllocationMap(
   std::unordered_map<IterDomain*, int64_t> rfactor_index;
   for (auto i : arange((int64_t)alloc_dom.size())) {
     alloc_index[alloc_dom[i]] = i;
-    rfactor_index[loop_dom[i]] = i;
+    rfactor_index[logical_dom[i]] = i;
   }
   for (auto iter_dom : alloc_dom) {
     ret[rfactor_index[iter_dom]] = alloc_index[iter_dom];
@@ -2295,11 +2298,11 @@ std::unordered_map<int64_t, int64_t> maybeReorderLoopAsAllocationMap(
   }
   const auto& loop_dom = tv->getLoopDomain();
   auto transform_exprs = DependencyCheck::getAllExprsBetween(
-    {tv->getAllocationDomain().begin(), tv->getAllocationDomain().end()},
-    {loop_dom.begin(), loop_dom.end()});
+      {tv->getAllocationDomain().begin(), tv->getAllocationDomain().end()},
+      {loop_dom.begin(), loop_dom.end()});
   std::vector<IterDomain*> alloc_dom = tv->getAllocationDomain();
   applyTransforms(alloc_dom, transform_exprs);
-  
+
   if (alloc_dom == loop_dom) {
     return ret;
   }
@@ -2318,7 +2321,6 @@ std::unordered_map<int64_t, int64_t> maybeReorderLoopAsAllocationMap(
   }
   return ret;
 }
-
 
 void propagateReshapeTransforms(Fusion* fusion, const ComputeAtMap& ca_map) {
   std::unordered_set<std::shared_ptr<VectorOfUniqueEntries<IterDomain*>>>

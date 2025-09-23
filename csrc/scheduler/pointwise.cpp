@@ -207,34 +207,29 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
 
   const auto device_multiprocessor_count = static_cast<int64_t>(
       at::cuda::getCurrentDeviceProperties()->multiProcessorCount);
-  
+
   bool has_reshapes = !ir_utils::getReshapeOps(fusion).empty();
 
   auto logical_reorder_map_entry =
       HeuristicDataCacheEntry<HeuristicCompileTime::LogicalReorderMap>(
-          data_cache, [&fusion, &largest_out]() {
+          data_cache, [&fusion, &largest_out, &has_reshapes]() {
             // NOTE: reorder_map is only applied for fusion without view
             // op yet.
             if (has_reshapes) {
               return std::make_unique<std::unordered_map<int64_t, int64_t>>();
             }
             return std::make_unique<std::unordered_map<int64_t, int64_t>>(
-                scheduler_utils::maybeReorderLogicalAsAllocationMap(largest_out));
+                scheduler_utils::maybeReorderLogicalAsAllocationMap(
+                    largest_out));
           });
-  auto loop_reorder_map_entry =
-      HeuristicDataCacheEntry<HeuristicCompileTime::LoopReorderMap>(
-          data_cache, [&fusion, &largest_out]() {
-            if (has_reshapes) {
-              return std::make_unique<std::unordered_map<int64_t, int64_t>>();
-            }
-            return std::make_unique<std::unordered_map<int64_t, int64_t>>(
-                scheduler_utils::maybeReorderLoopAsAllocationMap(largest_out));
-          });
+  std::unordered_map<int64_t, int64_t> loop_reorder_map;
+  if (!has_reshapes) {
+    loop_reorder_map =
+        scheduler_utils::maybeReorderLoopAsAllocationMap(largest_out);
+  }
 
   const std::unordered_map<int64_t, int64_t>& logical_reorder_map =
       logical_reorder_map_entry.get();
-  const std::unordered_map<int64_t, int64_t>& loop_reorder_map =
-      loop_reorder_map_entry.get();
 
   std::vector<IterDomain*> ref_loop = largest_out->getLoopDomain();
   // reorder of root to align with logical map should always help with indexing,

@@ -92,38 +92,8 @@ void setLoopAndAllocationDomain(TensorView* tv, bool is_resharding) {
     new_contiguity.push_back(contiguity);
   }
 
-  std::optional<std::vector<int64_t>> permutation =
-      ir_utils::computePermutation(new_allocation_domain, tv->getLoopDomain());
-  NVF_ERROR(
-      permutation.has_value(),
-      "Failed to find a valid permutation for reordering ",
-      tv->getLoopDomain(),
-      " as ",
-      new_allocation_domain);
-  tv->reorder(permutation.value());
-
-  if (is_resharding) {
-    // Resharding expressions have specific requirements on position of
-    // gathered/scattered dimensions in the allocation domain that is ensured
-    // by ReorderShardedAxisPass. So we do not move the DIDx to the front in
-    // this case. For example, in reduce-scatter, the scattered axis is the
-    // outer-most dimension in communication input and output.
-    tv->setAllocationDomain(tv->getLoopDomain(), new_contiguity);
-    return;
-  }
-
-  // Most schedulers require DIDx to be at the front of the loop domain.
-  auto old2new = reorderDIDToFront(tv);
-  auto new2old = ir_utils::normalizeOld2New(old2new, tv->nDims());
-  std::vector<std::optional<bool>> reordered_contiguity;
-  std::transform(
-      new2old.begin(),
-      new2old.end(),
-      std::back_inserter(reordered_contiguity),
-      [&new_contiguity](int64_t i) -> std::optional<bool> {
-        return new_contiguity[i];
-      });
-  tv->setAllocationDomain(tv->getLoopDomain(), reordered_contiguity);
+  tv->setAllocationDomain(new_allocation_domain, new_contiguity);
+  reorderDIDToFront(tv);
 }
 
 } // namespace

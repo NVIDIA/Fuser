@@ -265,7 +265,6 @@ template class HeuristicDataCacheEntry<HeuristicCompileTime::InnerMostDimInfo>;
 template class HeuristicDataCacheEntry<
     HeuristicCompileTime::CanScheduleTranspose>;
 template class HeuristicDataCacheEntry<HeuristicCompileTime::LogicalReorderMap>;
-template class HeuristicDataCacheEntry<HeuristicCompileTime::LoopReorderMap>;
 template class HeuristicDataCacheEntry<
     HeuristicCompileTime::VectorizationBreakPointOfReductionProducer>;
 template class NVF_API
