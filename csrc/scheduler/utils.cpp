@@ -5,10 +5,13 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <scheduler/normalization_utils.h>
-#include <scheduler/registry.h>
 #include <scheduler/utils.h>
-#include <scheduler/vectorize_helper.h>
+
+#include <algorithm>
+#include <queue>
+#include <ranges>
+
+#include <ATen/cuda/CUDAContext.h>
 
 #include <bfs.h>
 #include <contiguity.h>
@@ -17,24 +20,21 @@
 #include <id_model/schedule.h>
 #include <instrumentation.h>
 #include <ir/builder.h>
+#include <ir/interface_nodes.h>
 #include <ir/utils.h>
 #include <logical_domain_map.h>
 #include <multidevice/utils.h>
 #include <ops/all_ops.h>
 #include <scheduler/mma_utils.h>
+#include <scheduler/normalization_utils.h>
+#include <scheduler/registry.h>
 #include <scheduler/runtime_info.h>
+#include <scheduler/tools/loop_domain_scheduler.h>
+#include <scheduler/vectorize_helper.h>
 #include <transform_iter.h>
 #include <transform_replay.h>
+#include <type.h>
 #include <val_graph_visitor.h>
-
-#include <ATen/cuda/CUDAContext.h>
-
-#include <algorithm>
-#include <queue>
-#include <ranges>
-#include "ir/interface_nodes.h"
-#include "scheduler/tools/loop_domain_scheduler.h"
-#include "type.h"
 
 namespace nvfuser {
 namespace scheduler_utils {
@@ -1772,8 +1772,12 @@ BroadcastMultipleInformation getBroadcastMultiples(
 
   // We always cacheBefore output at the beginning of the scheduling. And after
   // cacheBefore, the reference tensor will have all reduction IDs removed.
-  auto ref_root_domain = TensorDomain::noDevices(
-      TensorDomain::noReductions(reference_tv->getLogicalDomain()));
+  std::vector<IterDomain*> ref_root_domain = [&]() {
+    auto ref_root_domain_view = reference_tv->getLogicalDomain() |
+        TensorDomain::kNoReductions | TensorDomain::kNoDevices;
+    return std::vector<IterDomain*>(
+        ref_root_domain_view.begin(), ref_root_domain_view.end());
+  }();
 
   if (!logical_reorder_map.empty()) {
     ref_root_domain =
