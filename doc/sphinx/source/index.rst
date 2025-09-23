@@ -27,7 +27,7 @@ Indices and tables
 
 .. toctree::
    :hidden:
-   :caption: Math 
+   :caption: Math
 
    math/abstract-algebra.md
    math/integer-division.md
@@ -38,7 +38,7 @@ Indices and tables
 .. toctree::
    :hidden:
    :caption: Dev
-   
+
    dev/debug.md
    dev/host_ir_jit.md
    dev/ldmatrix_stmatrix.md

@@ -25,4 +25,3 @@ Sharding
 
 .. autoclass:: nvfuser_direct.multidevice.Sharding
    :members:
-
