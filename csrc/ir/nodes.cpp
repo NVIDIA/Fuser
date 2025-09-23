@@ -5,6 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <algorithm>
 #include <complex>
 #include <iterator>
 #include <numeric>
@@ -3248,9 +3249,6 @@ TensorDomain::TensorDomain(
           contiguity.empty() ? getContiguityFilledWith(maybeAllocation(), false)
                              : std::move(contiguity)) {
   validateContiguity(maybeAllocation(), contiguity_);
-
-  // resetDomains initializes other member variables, required by clang-tidy
-  resetDomains();
 }
 
 TensorDomain::TensorDomain(
@@ -3285,9 +3283,6 @@ TensorDomain::TensorDomain(
     }
   }
   validateContiguity(maybeAllocation(), contiguity_);
-
-  // resetDomains initializes other member variables, required by clang-tidy
-  resetDomains();
 }
 
 TensorDomain::TensorDomain(
@@ -3312,9 +3307,6 @@ TensorDomain::TensorDomain(
         "empty");
     validateLoopDomain(logical_domain_, loop_domain_, additional_ids_);
   }
-
-  // resetDomains initializes other member variables, required by clang-tidy
-  resetDomains();
 }
 
 TensorDomain::TensorDomain(
@@ -3341,9 +3333,6 @@ TensorDomain::TensorDomain(
     ir_utils::validateDomainEquivalence(
         logical_domain_, root_domain_, additional_ids_);
   }
-
-  // resetDomains initializes other member variables, required by clang-tidy
-  resetDomains();
 }
 
 TensorDomain::TensorDomain(
@@ -3378,9 +3367,6 @@ TensorDomain::TensorDomain(
     ir_utils::validateDomainEquivalence(
         logical_domain_, allocation_domain_, additional_ids_);
   }
-
-  // resetDomains initializes other member variables, required by clang-tidy
-  resetDomains();
 }
 
 TensorDomain::TensorDomain(
@@ -3425,9 +3411,6 @@ TensorDomain::TensorDomain(
           logical_domain_, alternate_loop_domain_.value(), additional_ids_);
     }
   }
-
-  // resetDomains initializes other member variables, required by clang-tidy
-  resetDomains();
 }
 
 TensorDomain::TensorDomain(IrBuilderPasskey passkey, const TensorDomain* src)
@@ -3439,10 +3422,7 @@ TensorDomain::TensorDomain(IrBuilderPasskey passkey, const TensorDomain* src)
       alternate_loop_domain_(src->alternate_loop_domain_),
       initial_loop_domain_(src->initial_loop_domain_),
       additional_ids_(src->additional_ids_),
-      no_bcast_domain_(src->no_bcast_domain_),
-      no_reduction_domain_(src->no_reduction_domain_),
-      contiguity_(src->contiguity_),
-      has_reduction_(src->has_reduction_) {}
+      contiguity_(src->contiguity_) {}
 
 TensorDomain::TensorDomain(const TensorDomain* src, IrCloner* ir_cloner)
     : Val(src, ir_cloner),
@@ -3453,10 +3433,7 @@ TensorDomain::TensorDomain(const TensorDomain* src, IrCloner* ir_cloner)
       alternate_loop_domain_(ir_cloner->clone(src->alternate_loop_domain_)),
       initial_loop_domain_(ir_cloner->clone(src->initial_loop_domain_)),
       additional_ids_(ir_cloner->clone(src->additional_ids_)),
-      no_bcast_domain_(ir_cloner->clone(src->no_bcast_domain_)),
-      no_reduction_domain_(ir_cloner->clone(src->no_reduction_domain_)),
-      contiguity_(src->contiguity()),
-      has_reduction_(src->has_reduction_) {}
+      contiguity_(src->contiguity()) {}
 
 NVFUSER_DEFINE_CLONE(TensorDomain)
 
@@ -3464,6 +3441,20 @@ bool TensorDomain::hasBlockBroadcast() const {
   return std::any_of(
       loop_domain_.begin(), loop_domain_.end(), [](IterDomain* id) {
         return id->isBroadcast() && id->isThreadDim();
+      });
+}
+
+bool TensorDomain::hasReduction() const {
+  return std::any_of(
+      loop_domain_.begin(), loop_domain_.end(), [](IterDomain* id) {
+        return id->isReduction();
+      });
+}
+
+bool TensorDomain::hasBroadcast() const {
+  return std::any_of(
+      loop_domain_.begin(), loop_domain_.end(), [](IterDomain* id) {
+        return id->isBroadcast();
       });
 }
 
@@ -3475,9 +3466,8 @@ bool TensorDomain::hasGridBroadcast() const {
 }
 
 bool TensorDomain::operator==(const TensorDomain& other) const {
-  // Checks equality of each class field. Should not be necessary to
-  // check no_bcast_domain_ and no_reduction_domain_ as they are just
-  // derived from domain_.
+  // Checks equality of each class field. Derived domains such as reduction or
+  // broadcast views are computed on demand from these fields.
   return root_domain_ == other.root_domain_ &&
       loop_domain_ == other.loop_domain_ &&
       alternate_loop_domain_ == other.alternate_loop_domain_ &&
@@ -3755,7 +3745,6 @@ void TensorDomain::split(int64_t axis, Val* factor, bool inner_split) {
   loop_domain_.erase(loop_domain_.begin() + axis);
   loop_domain_.insert(loop_domain_.begin() + axis, split_ids.second);
   loop_domain_.insert(loop_domain_.begin() + axis, split_ids.first);
-  resetDomains();
 }
 
 // Merge "axis_o" and "axis_i" into 1 dimension
@@ -3781,7 +3770,6 @@ void TensorDomain::merge(int64_t axis_o, int64_t axis_i) {
   loop_domain_.erase(loop_domain_.begin() + td_inner_pos);
   loop_domain_.erase(loop_domain_.begin() + td_outer_pos);
   loop_domain_.insert(loop_domain_.begin() + td_outer_pos, merged_id);
-  resetDomains();
 }
 
 // Reorder axes according to map[old_pos] = new_pos
@@ -3790,7 +3778,6 @@ void TensorDomain::reorder(
   NVF_ERROR(
       nDims() != 0 || old2new_.empty(), "Tried to reorder a 0-dim domain");
   loop_domain_ = orderedAs(loop_domain_, old2new_);
-  resetDomains();
 }
 
 std::vector<IterDomain*> TensorDomain::orderedAs(
@@ -3833,8 +3820,6 @@ void TensorDomain::swizzle(SwizzleType swizzle_type, int64_t x, int64_t y) {
 
   loop_domain_.erase(loop_domain_.begin() + y);
   loop_domain_.insert(loop_domain_.begin() + y, axis_out_y);
-
-  resetDomains();
 }
 
 void TensorDomain::swizzle(
@@ -3860,8 +3845,6 @@ void TensorDomain::swizzle(
 
   loop_domain_.erase(loop_domain_.begin() + y);
   loop_domain_.insert(loop_domain_.begin() + y, axis_out_y);
-
-  resetDomains();
 }
 
 void TensorDomain::resize(
@@ -3881,7 +3864,6 @@ void TensorDomain::resize(
       /*mark_as_rfactor=*/false,
       iter_type);
   loop_domain_.at(axis) = resized_id;
-  resetDomains();
 }
 
 std::vector<IterDomain*> TensorDomain::noReductions(
@@ -4031,7 +4013,6 @@ void TensorDomain::setLoopDomain(std::vector<IterDomain*> new_loop_domain) {
   validateLoopDomain(logical(), new_loop_domain, additionalIDs());
   loop_domain_ = std::move(new_loop_domain);
   initial_loop_domain_ = loop_domain_;
-  resetDomains();
 }
 
 void TensorDomain::setAlternateLoopDomain(
