@@ -15,8 +15,8 @@
 #include <preseg_passes/reorder_sharded_axis.h>
 #include <tests/cpp/multidevice.h>
 #include <tests/cpp/validator.h>
-#include "host_ir/host_ir.h"
-#include "multidevice/communication.h"
+#include <host_ir/host_ir.h>
+#include <multidevice/communication.h>
 
 namespace nvfuser {
 

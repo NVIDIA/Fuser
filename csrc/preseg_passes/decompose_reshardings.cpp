@@ -210,7 +210,7 @@ void insertReshardingSetsAfter(Fusion* fusion) {
       // [i0, i1]. We need to propagate the stream parallelization back to the
       // output, in order to obtain:
       //
-      //   input [i0, DIDx(i1)] -> op -> output [Stream(i0), i1] -> set ->
+      //   input [i0, DIDx(i1)] -> op -> output [Stream(i0), DIDx(i1)] -> set ->
       //   new_output [Stream(i0), i1]
       scheduler_utils::parallelizeAllLike(
           new_output, {output}, {ParallelType::Stream});
