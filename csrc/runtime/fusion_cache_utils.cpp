@@ -74,6 +74,8 @@ void resetAllocationDomainAndContiguity(TensorView* tv, const std::vector<int64_
     int64_t stride;
     IterDomain* id;
   };
+  std::vector<Dim> dims;
+  dims.reserve(sizes.size());
   for (auto [size, stride, id] : views::zip_view(sizes, strides, TensorDomain::noReductions(tv->getLogicalDomain()))) {
     dims.push_back({size, stride, id});
   }
