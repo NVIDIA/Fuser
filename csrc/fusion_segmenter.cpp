@@ -4443,9 +4443,10 @@ bool needsToSqueezeExpanded(
   NVF_ERROR_EQ(
       std::ranges::distance(non_reduction_ids),
       std::ssize(to_squeeze),
-      "Invalid to_squeeze for squeeze: size mismatch with tensor domain. "
-      "Tensor: ",
-      x->toString());
+      "Logical domain doesn't match to_squeeze: ",
+      x->getLogicalDomain(),
+      " vs ",
+      to_squeeze);
   for (auto [id, squeeze] : zip(non_reduction_ids, to_squeeze)) {
     if (squeeze && id->hasExpandedExtent()) {
       return true;
