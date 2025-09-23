@@ -74,7 +74,7 @@ void resetAllocationDomainAndContiguity(TensorView* tv, const std::vector<int64_
     int64_t stride;
     IterDomain* id;
   };
-  for (auto [size, stride, id] : zip_view(sizes, strides, TensorDomain::noReductions(tv->getLogicalDomain()))) {
+  for (auto [size, stride, id] : views::zip_view(sizes, strides, TensorDomain::noReductions(tv->getLogicalDomain()))) {
     dims.push_back({size, stride, id});
   }
   // Sort by stride in descending order
@@ -93,7 +93,7 @@ void resetAllocationDomainAndContiguity(TensorView* tv, const std::vector<int64_
     sorted_strides.push_back(dim.stride);
   }
   std::vector<std::optional<bool>> contiguity = computeContiguity(sorted_sizes, sorted_strides);
-  for (auto [index, id] : enumerate_view(TensorDomain::noReductions(tv->getLogicalDomain()))) {
+  for (auto [index, id] : views::enumerate_view(TensorDomain::noReductions(tv->getLogicalDomain()))) {
     if (id->isBroadcast()) {
       contiguity[index] = std::nullopt;
     }
