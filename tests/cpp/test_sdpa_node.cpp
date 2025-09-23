@@ -557,6 +557,29 @@ TEST_F(SDPATest, NonCausalAttnConcreteBwd) {
           philox_offset,
           /*scale=*/scale);
 
+  // Meta-device shape/stride validation for backward outputs
+  {
+    ExpressionEvaluator ee;
+    ee.bind(executor_cache.fusion()->inputs().at(0), grad_out.to(at::kMeta));
+    ee.bind(executor_cache.fusion()->inputs().at(1), q.to(at::kMeta));
+    ee.bind(executor_cache.fusion()->inputs().at(2), k.to(at::kMeta));
+    ee.bind(executor_cache.fusion()->inputs().at(3), v.to(at::kMeta));
+    ee.bind(executor_cache.fusion()->inputs().at(4), output.to(at::kMeta));
+    ee.bind(executor_cache.fusion()->inputs().at(5), log_sumexp.to(at::kMeta));
+    auto grad_query_meta =
+        ee.evaluate(executor_cache.fusion()->outputs().at(0)).as<at::Tensor>();
+    auto grad_key_meta =
+        ee.evaluate(executor_cache.fusion()->outputs().at(1)).as<at::Tensor>();
+    auto grad_value_meta =
+        ee.evaluate(executor_cache.fusion()->outputs().at(2)).as<at::Tensor>();
+    EXPECT_EQ(ref_grad_query.sizes(), grad_query_meta.sizes());
+    EXPECT_EQ(ref_grad_key.sizes(), grad_key_meta.sizes());
+    EXPECT_EQ(ref_grad_value.sizes(), grad_value_meta.sizes());
+    EXPECT_EQ(ref_grad_query.strides(), grad_query_meta.strides());
+    EXPECT_EQ(ref_grad_key.strides(), grad_key_meta.strides());
+    EXPECT_EQ(ref_grad_value.strides(), grad_value_meta.strides());
+  }
+
   testValidate(
       executor_cache.fusion(),
       out,
@@ -664,6 +687,29 @@ TEST_F(SDPATest, NonCausalAttnSymbolicBwd) {
           philox_seed,
           philox_offset,
           /*scale=*/scale);
+
+  // Meta-device shape/stride validation for backward outputs
+  {
+    ExpressionEvaluator ee;
+    ee.bind(executor_cache.fusion()->inputs().at(0), grad_out.to(at::kMeta));
+    ee.bind(executor_cache.fusion()->inputs().at(1), q.to(at::kMeta));
+    ee.bind(executor_cache.fusion()->inputs().at(2), k.to(at::kMeta));
+    ee.bind(executor_cache.fusion()->inputs().at(3), v.to(at::kMeta));
+    ee.bind(executor_cache.fusion()->inputs().at(4), output.to(at::kMeta));
+    ee.bind(executor_cache.fusion()->inputs().at(5), log_sumexp.to(at::kMeta));
+    auto grad_query_meta =
+        ee.evaluate(executor_cache.fusion()->outputs().at(0)).as<at::Tensor>();
+    auto grad_key_meta =
+        ee.evaluate(executor_cache.fusion()->outputs().at(1)).as<at::Tensor>();
+    auto grad_value_meta =
+        ee.evaluate(executor_cache.fusion()->outputs().at(2)).as<at::Tensor>();
+    EXPECT_EQ(ref_grad_query.sizes(), grad_query_meta.sizes());
+    EXPECT_EQ(ref_grad_key.sizes(), grad_key_meta.sizes());
+    EXPECT_EQ(ref_grad_value.sizes(), grad_value_meta.sizes());
+    EXPECT_EQ(ref_grad_query.strides(), grad_query_meta.strides());
+    EXPECT_EQ(ref_grad_key.strides(), grad_key_meta.strides());
+    EXPECT_EQ(ref_grad_value.strides(), grad_value_meta.strides());
+  }
 
   testValidate(
       executor_cache.fusion(),
