@@ -7,6 +7,7 @@ import pytest
 import torch
 from nvfuser_direct import (
     FusionDefinition,
+    IdMappingMode,
     ParallelType,
     TensorView,
     Merge,
@@ -15,8 +16,9 @@ from nvfuser_direct import (
     SqueezeOp,
     ReshapeOp,
 )
+from nvfuser_direct import idm
 
-verbose_ = False
+verbose_ = True
 
 
 def test_tutorial_memcpy():
@@ -508,3 +510,65 @@ def test_tutorial_reshape():
         # Note that all the transformations of squeeze_output are scheduling
         # transformations, thus it should not have a root domain
         assert not squeeze_output.has_root()
+
+
+def test_tutorial_id_model_reshape_analysis():
+    """
+    Demonstration of using IdModel for analyzing equivalence of reshape ops
+    """
+    with FusionDefinition() as fd:
+        # Use the static reshape to avoid reshape concretization.
+        tv0 = fd.define_tensor(shape=[10, 20])
+        tv1 = fd.define_tensor(shape=[10, 20])
+
+        # While the reshape operations are equivalent, we do not know if the two
+        # inputs are the same. There is not an operation allowing us to infer
+        # equivalence. e.g., tv0 + tv1.
+        tv2 = fd.ops.reshape(tv0, [20, 10])
+        tv3 = fd.ops.reshape(tv1, [20, 10])
+        fd.add_output(tv2)
+        fd.add_output(tv3)
+
+    id_model = idm.IdModel(fd.fusion)
+    exact_graph = id_model.maybe_build_graph(IdMappingMode.exact)
+
+    if verbose_:
+        print(id_model)
+        print(exact_graph)
+        print(exact_graph.disjoint_val_sets())
+
+    # As mentioned above, we do not know any relationship between tv0 and tv1.
+    # They should not be mapped in exact graph.
+    assert len(tv0.get_logical_domain()) == len(tv1.get_logical_domain())
+    for tv0_id, tv1_id in zip(tv0.get_logical_domain(), tv1.get_logical_domain()):
+        assert not exact_graph.disjoint_val_sets().strict_are_mapped(tv0_id, tv1_id)
+
+    # Thus, the outputs of the reshape ops are not mapped either
+    assert len(tv2.get_loop_domain()) == len(tv3.get_loop_domain())
+    for tv2_id, tv3_id in zip(tv2.get_loop_domain(), tv3.get_loop_domain()):
+        assert not exact_graph.disjoint_val_sets().strict_are_mapped(tv2_id, tv3_id)
+
+    # Now, suppose we can say the inputs are exactly mapped. We can manually
+    # add mappings:
+    for tv0_id, tv1_id in zip(tv0.get_logical_domain(), tv1.get_logical_domain()):
+        exact_graph.map_vals(tv0_id, tv1_id)
+
+    # Now, tv2 and tv3 should be fully mapped, including their root,
+    # intermediate and loop domains.
+
+    # Check the root domains.
+    assert len(tv2.get_root_domain()) == len(tv3.get_root_domain())
+    for tv2_id, tv3_id in zip(tv2.get_root_domain(), tv3.get_root_domain()):
+        assert exact_graph.disjoint_val_sets().strict_are_mapped(tv2_id, tv3_id)
+
+    # The reshape consists of a merge and split. The output of the merge should
+    # be mapped as well
+    assert exact_graph.disjoint_val_sets().strict_are_mapped(
+        tv2.get_root_domain()[0].uses()[0].output(0),
+        tv3.get_root_domain()[0].uses()[0].output(0),
+    )
+
+    # The next operation is split. Its outputs, which are the loop domains,
+    # should be mapped too.
+    for tv2_id, tv3_id in zip(tv2.get_loop_domain(), tv3.get_loop_domain()):
+        assert exact_graph.disjoint_val_sets().strict_are_mapped(tv2_id, tv3_id)
