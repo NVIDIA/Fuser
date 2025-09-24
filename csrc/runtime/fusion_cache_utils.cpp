@@ -118,11 +118,13 @@ void resetAllocationDomainAndContiguity(
   std::vector<std::optional<bool>> contiguity_without_reduction =
       computeContiguity(sorted_sizes, sorted_strides);
   std::vector<std::optional<bool>> contiguity; // with reduction
-  // Device parallelized dimension always has size 1, so contiguity inference
-  // will treat it as broadcast. But it is actually not broadcast, so we need to
-  // fix its contiguity to true.
+  // Note that computeContiguity gets contiguity based on sizes and strides,
+  // This may not always be accurate. For example, size 1 dimension is not
+  // necessarily broadcast: it can also be a device parallelized dimension,
+  // or just a dynamic size N where N happens to be 1. For this case, we need
+  // to actually check the IterType of the IterDomain and fix the contiguity.
   for (auto [index, id] : views::enumerate_view(no_reduction_domain)) {
-    if (id->isDeviceDim()) {
+    if (!id->isBroadcast()) {
       contiguity_without_reduction[index] = true;
     }
   }
