@@ -408,6 +408,7 @@ def test(
         fd.add_output(out)
         fd.add_output(fp4_mat1)
         fd.add_output(layout_fp8_scale1)
+        fd.add_output(fp8_scale1)
 
     inputs = [
         mat1,
@@ -426,7 +427,7 @@ def test(
     # note: following sglang implementation, not computing global scaling factor for mat1
     #       similarly, we don't need to apply mat1_gs to alpha
     mat1_gs = torch.ones((g,), dtype=torch.float32, device="cuda:0")
-    mat1_fp4, scale1 = activation_scale_to_nvfp4(
+    mat1_fp4, scale1, vanilla_s1 = activation_scale_to_nvfp4(
         mat1, mat1_gs, offsets, blockscale_offsets, BLOCK_SIZE
     )
     o_decomposed_ref = torch.empty(m, n, dtype=torch.bfloat16, device="cuda:0")
@@ -452,6 +453,12 @@ def test(
             )
             * mat2_gs[i]
         )
+    assert mat1_fp4.view(torch.uint8) == o[1].view(torch.uint8)
+    assert o[3] == vanilla_s1
+
+    # a very rough and wrong way to validate
+    mask = scale1 != 0
+    masked_s1 = torch.where(mask, o[2], 0)
 
     breakpoint()
     assert torch.allclose(o_decomposed_ref, o[0], atol=1e-2, rtol=1e-2)
