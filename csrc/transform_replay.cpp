@@ -253,7 +253,7 @@ void TransformReplay::selfReplay(
 
   std::vector<IterDomain*> self_logical = self->logical();
   std::vector<IterDomain*> new_self_logical = new_self->logical();
-  NVF_ERROR_GE(self_logical.size(), new_self.logical());
+  NVF_ERROR_GE(self_logical.size(), new_self_logical.size());
   if (ignore_reductions) {
     self_logical = TensorDomain::noReductions(self_logical);
     new_self_logical = TensorDomain::noReductions(new_self_logical);
