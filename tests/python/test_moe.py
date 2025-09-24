@@ -12,6 +12,17 @@ import torch.nn.functional as F
 
 from thunder.dynamo import thunderfx
 
+from python.direct_utils import (
+    FLOAT4_E2M1_MAX,
+    FLOAT8_E4M3_EPS,
+    FLOAT8_E4M3_MAX,
+    pytorch_nvfp4_quantize,
+    is_pre_blackwell,
+    linear_to_swizzled_128_4,
+    round_up,
+    activation_scale_to_nvfp4,
+    dequantize_to_dtype,
+)
 
 # Sizes used in Llama 4 Maverick
 @dataclass
@@ -43,7 +54,6 @@ def _group_sizes_from_offsets(offsets: torch.Tensor) -> list[int]:
         prev = offset
     return group_sizes
 
-
 # Required otherwise, there is a graph-break.
 _grouped_mm = torch.compiler.allow_in_graph(torch._grouped_mm)
 
@@ -62,17 +72,65 @@ def grouped_mm(a: torch.Tensor, b: torch.Tensor, offsets: torch.Tensor) -> torch
     return torch.cat(group_outs)
 
 
+@torch.library.custom_op("nvf_cutlass::f16a_nvfp4weight_scaled_grouped_mm", mutates_args=())
+def nvfuser_f16a_nvfp4weight_scaled_grouped_mm(
+    activation: torch.Tensor,
+    fp4_weight: torch.Tensor,
+    weight_scaling_factor: torch.Tensor,
+    global_scale: torch.Tensor,
+    offsets: torch.Tensor,
+    blockscale_offsets: torch.Tensor,
+    problem_sizes: torch.Tensor,
+) -> torch.Tensor:
+    hp_weight = torch.empty(
+        (fp4_weight.size(0), fp4_weight.size(1), fp4_weight.size(2) * 2),
+        device=activation.device,
+        dtype=activation.dtype,
+    )
+    for i in range(fp4_weight.size(0)):
+        hp_weight[i] = dequantize_to_dtype(
+            fp4_weight[i], weight_scaling_factor[i], global_scale[i], activation.dtype, fp4_weight.device, 16
+        )
+    return grouped_mm(activation, hp_weight, offsets)
+
+@torch.library.register_fake("nvf_cutlass::f16a_nvfp4weight_scaled_grouped_mm")
+def _(
+    activation: torch.Tensor,
+    fp4_weight: torch.Tensor,
+    weight_scaling_factor: torch.Tensor,
+    global_scale: torch.Tensor,
+    offsets: torch.Tensor,
+    blockscale_offsets: torch.Tensor,
+    problem_sizes: torch.Tensor,
+) -> torch.Tensor:
+    return torch.empty((activation.size(0), fp4_weight.size(1)), device=activation.device, dtype=activation.dtype)
+
+
 class GroupedLinear(nn.Module):
     def __init__(self, groups: int, in_features: int, out_features: int):
         super().__init__()
         self.weight = nn.Parameter(torch.empty(groups, in_features, out_features))
         # Initialize the weight in the same way as nn.Linear
         nn.init.kaiming_uniform_(self.weight, a=math.sqrt(5))
+        self.alpha = torch.empty((groups,), dtype=torch.float32)
+        self.fp4_weight = torch.empty((groups, in_features, out_features // 2), dtype=torch.float4_e2m1fn_x2)
+        self.b_sf = torch.empty((groups, round_up(in_features, 128), round_up(out_features, 4)), dtype=torch.float8_e4m3fn)
+
+        self.k = torch.tensor(in_features, dtype=torch.int32).unsqueeze(-1).expand((groups, 1))
+        self.n = torch.tensor(out_features, dtype=torch.int32).unsqueeze(-1).expand((groups, 1))
+        for i in range(groups):
+            self.alpha[i] = FLOAT4_E2M1_MAX * FLOAT8_E4M3_MAX / self.weight[i].max()
+            scaled_mat2_i, bs_mat2_i = pytorch_nvfp4_quantize(self.weight[i], self.alpha[i])
+            self.fp4_weight[i] = scaled_mat2_i
+            self.b_sf[i] = linear_to_swizzled_128_4(bs_mat2_i)
 
     def forward(
-        self, hidden_states: torch.Tensor, offsets: torch.Tensor
+        self, hidden_states: torch.Tensor, offsets: torch.Tensor, blockscale_offsets: torch.Tensor, tokens_per_expert: torch.Tensor
     ) -> torch.Tensor:
-        return grouped_mm(hidden_states, self.weight, offsets)
+        problem_sizes = torch.cat((tokens_per_expert.unsqueeze(-1), self.n, self.k), dim=1)
+
+        # return grouped_mm(hidden_states, self.weight, offsets)
+        return torch.ops.nvf_cutlass.f16a_nvfp4weight_scaled_grouped_mm(hidden_states, self.fp4_weight, self.b_sf, self.alpha, offsets, blockscale_offsets, problem_sizes)
 
 
 class GroupedSwiGLU(nn.Module):
@@ -83,12 +141,12 @@ class GroupedSwiGLU(nn.Module):
         self.down_proj = GroupedLinear(groups, intermediate_size, hidden_size)
 
     def forward(
-        self, hidden_states: torch.Tensor, offsets: torch.Tensor
+        self, hidden_states: torch.Tensor, offsets: torch.Tensor, blockscale_offsets: torch.Tensor, tokens_per_expert: torch.Tensor
     ) -> torch.Tensor:
         return self.down_proj(
-            F.silu(self.gate_proj(hidden_states, offsets))
-            * self.up_proj(hidden_states, offsets),
-            offsets,
+            F.silu(self.gate_proj(hidden_states, offsets, blockscale_offsets, tokens_per_expert))
+            * self.up_proj(hidden_states, offsets, blockscale_offsets, tokens_per_expert),
+            offsets, blockscale_offsets, tokens_per_expert
         )
 
 
@@ -130,8 +188,11 @@ class Llama4MoE(nn.Module):
         # Without `torch.int32`, we see `RuntimeError: Offsets tensor must be integer (int32) tensor, but got torch.int64.`
         # from PyTorch when calling _grouped_mm.
         offsets = torch.cumsum(tokens_per_expert, 0, dtype=torch.int32)  # [n]
+        rounded_tokens_per_expert = (tokens_per_expert + 127) // 128 * 128
+        blockscale_offsets = torch.cumsum(rounded_tokens_per_expert, 0, dtype=torch.int32)  # [n]
+
         outs_sorted_by_expert_id = self.routed_experts(
-            tokens_sorted_by_expert_id, offsets
+            tokens_sorted_by_expert_id, offsets, blockscale_offsets, tokens_per_expert
         )  # [s, h]
 
         token_ids_sorted_by_expert_inverse_id = torch.argsort(
