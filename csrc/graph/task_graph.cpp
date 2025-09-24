@@ -591,7 +591,7 @@ class TaskSorter {
       if (steps_.size() == (size_t)graph_.numTasks() && hwm < best_hwm) {
         best_steps = steps_;
       }
-    }
+    } // for iter
 
     // Record our best found steps
     result_.steps = best_steps;
