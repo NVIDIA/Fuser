@@ -2673,14 +2673,16 @@ ScanResult prefixSum(
     TensorView* tv,
     int64_t dim,
     Val* discount_factor,
-    bool return_exclusive) {
+    bool return_exclusive,
+    bool return_reduction) {
   return scan(
       tv,
       dim,
       BinaryOpType::Add,
       return_exclusive,
       /*discount_factor=*/discount_factor,
-      /*init=*/tv->fusion()->zeroVal(tv->dtype()));
+      /*init=*/tv->fusion()->zeroVal(tv->dtype()),
+      return_reduction);
 }
 
 } // namespace nvfuser

@@ -229,8 +229,11 @@ size_t MaxPosCalculator::getMaxPosAll(
     bool best_effort,
     bool check_siblings) {
   std::cout << "\ngetMaxPosAll tv: " << tv->toString() << std::endl;
-  bool allow_reduction = tv->definition()->isA<ScanOp>();
-  bool allow_unmappable = tv->definition()->isA<ScanOp>();
+  bool is_rhs_reduction = tv->definition()->isA<ReductionOp>() &&
+      tv->definition()->as<ReductionOp>()->getReductionOpType() ==
+          BinaryOpType::RHS;
+  bool allow_reduction = tv->definition()->isA<ScanOp>() || is_rhs_reduction;
+  bool allow_unmappable = tv->definition()->isA<ScanOp>() || is_rhs_reduction;
   auto max_pos =
       getMaxPosSelf(tv, best_effort, allow_reduction, false, allow_unmappable);
   std::cout << "self max_pos: " << max_pos << std::endl;

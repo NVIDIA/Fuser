@@ -854,9 +854,11 @@ AllocPosInfo getAllocPosInfo(
       DEBUG_LOG("Break at info.alloc_pos = ", info.alloc_pos);
       break;
     }
-
+    bool is_rhs_reduction = tv->definition()->isA<ReductionOp>() &&
+        tv->definition()->as<ReductionOp>()->getReductionOpType() ==
+            BinaryOpType::RHS;
     if (tv->axis(info.alloc_pos)->isReduction() &&
-        !tv->definition()->isA<ScanOp>()) {
+        !tv->definition()->isA<ScanOp>() && !is_rhs_reduction) {
       const auto outputs = FusionGuard::getCurFusion()->getTerminatingOutputs();
       NVF_ERROR(
           std::find(outputs.begin(), outputs.end(), tv) != outputs.end(),
