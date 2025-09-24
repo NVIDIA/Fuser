@@ -838,7 +838,8 @@ TEST_F(SegmentationTest, RevertPrivatizedUpcast) {
     auto ke = dynamic_cast<KernelExecutor*>(executor.get());
     ASSERT_NE(ke, nullptr);
     kir::Kernel* kernel = ke->compiledKernel()->kernel();
-    std::cout << "Kernel: " << kernel->toString() << std::endl;
+    std::cout << "Kernel: " << *kernel << std::endl;
+    kernel->print();
     int64_t num_upcast_ops = 0;
     for (auto expr : KernelExprVisitor::getAllExprs(kernel)) {
       auto uop = dynamic_cast<UnaryOp*>(expr);
