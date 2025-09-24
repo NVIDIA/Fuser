@@ -5,14 +5,16 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <fusion_segmenter.h>
+
 #include <algorithm>
+#include <ranges>
 #include <sstream>
 
 #include <debug.h>
 #include <device_lower/utils.h>
 #include <disjoint_set.h>
 #include <fusion.h>
-#include <fusion_segmenter.h>
 #include <instrumentation.h>
 #include <ir/all_nodes.h>
 #include <ir/cloner.h>
@@ -4413,23 +4415,22 @@ std::vector<Expr*> get_upcasts_and_squeezes(SegmentedGroup* group) {
 //!  @return true if at least one expanded dimension needs to be squeezed, false
 //!  otherwise.
 //!
-bool needs_to_squeeze_expanded(
+bool needsToSqueezeExpanded(
     TensorView* x,
     const std::vector<bool>& to_squeeze) {
-  auto x_dom = x->domain()->noReductions();
-  const auto ndims = static_cast<int64_t>(x_dom.size());
-  for (const auto idx : arange(ndims)) {
-    // If the dimension is not expanded, no need to squeeze
-    if (!to_squeeze[idx]) {
-      continue;
-    }
-
-    // If the dimension is expanded, we need to squeeze it
-    if (x_dom[idx]->hasExpandedExtent()) {
+  auto non_reduction_ids = x->getLogicalDomain() | TensorDomain::kNoReductions;
+  NVF_ERROR_EQ(
+      std::ranges::distance(non_reduction_ids),
+      std::ssize(to_squeeze),
+      "Logical domain doesn't match to_squeeze: ",
+      x->getLogicalDomain(),
+      " vs ",
+      to_squeeze);
+  for (auto [id, squeeze] : zip(non_reduction_ids, to_squeeze)) {
+    if (squeeze && id->hasExpandedExtent()) {
       return true;
     }
   }
-
   return false;
 }
 
@@ -4510,7 +4511,7 @@ bool SegmentCandidateFinder::privatizeUpCastOrSqueezeOp() {
         out_tv_clone = squeeze(
             squeeze_op->input(0)->as<TensorView>(),
             squeeze_op->getSqueezeDimFlags(),
-            needs_to_squeeze_expanded(
+            needsToSqueezeExpanded(
                 squeeze_op->input(0)->as<TensorView>(),
                 squeeze_op->getSqueezeDimFlags()));
       }
@@ -5344,7 +5345,7 @@ RuntimeWorkSpace prepareRuntimeOrder(const SegmentedFusion& segmented_fusion) {
   for (auto* input_tv :
        ir_utils::filterByType<TensorView>(segmented_fusion.inputs())) {
     for (IterDomain* logical_id :
-         TensorDomain::noReductions(input_tv->getLogicalDomain())) {
+         input_tv->getLogicalDomain() | TensorDomain::kNoReductions) {
       runtime_workspace.group_extent_binding_order.push_back(
           logical_id->getMaybeExpandedExtent());
     }

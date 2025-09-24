@@ -5,6 +5,8 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <ranges>
+
 #include <bindings.h>
 #include <python_utils.h>
 
@@ -57,11 +59,58 @@ Returns
 -------
 bool
     True if the value is a TensorView, False otherwise.
+)")
+      .def(
+          "definition",
+          &Val::definition,
+          R"(
+Get the definition of this expression.
+
+Returns
+-------
+Expr
+    The definition of this expression.
 )");
 
   // Expr
   py::class_<Expr, Statement, std::unique_ptr<Expr, py::nodelete>>(
-      nvfuser, "Expr");
+      nvfuser, "Expr")
+      .def(
+          "input",
+          &Expr::input,
+          py::arg("index"),
+          py::return_value_policy::reference,
+          R"(
+Get the input of this expression.
+
+Parameters
+----------
+index : int
+    The index of the input.
+
+Returns
+-------
+Expr
+    The input of this expression.
+)")
+      .def(
+          "output",
+          &Expr::output,
+          py::arg("index"),
+          py::return_value_policy::reference,
+          R"(
+Get the output of this expression.
+
+Parameters
+----------
+index : int
+    The index of the output.
+
+Returns
+-------
+Expr
+    The output of this expression.
+)");
 }
 
 void bindInternalBaseNodes(py::module& nvfuser) {
@@ -120,7 +169,8 @@ void bindInterfaceNodes(py::module& nvfuser) {
       .def_property_readonly(
           "ndim",
           [](TensorView* self) {
-            return TensorDomain::noReductions(self->getLogicalDomain()).size();
+            return std::ranges::distance(
+                self->getLogicalDomain() | TensorDomain::kNoReductions);
           },
           R"(
 Get the number of dimensions in this tensor.
@@ -160,6 +210,14 @@ Returns
 list of Val
     The shape of this tensor.
 )")
+      .def("has_root", &TensorView::hasRoot, R"(
+Check if this tensor has a root domain.
+
+Returns
+-------
+bool
+    True if the tensor has a root domain, False otherwise.
+)")
       .def(
           "domain",
           &TensorView::domain,
@@ -177,6 +235,17 @@ TensorDomain
     - Loop domain (The for-loop structure for the tensor.)
 )")
       .def(
+          "get_logical_domain",
+          &TensorView::getLogicalDomain,
+          R"(
+Get the logical domain of this tensor.
+
+Returns
+-------
+list of IterDomain
+    The logical iteration domain.
+)")
+      .def(
           "get_loop_domain",
           &TensorView::getLoopDomain,
           R"(
@@ -186,6 +255,17 @@ Returns
 -------
 list of IterDomain
     The loop iteration domains.
+)")
+      .def(
+          "get_root_domain",
+          &TensorView::getRootDomain,
+          R"(
+Get the root domain of this tensor.
+
+Returns
+-------
+list of IterDomain
+    The root iteration domains.
 )")
       .def(
           "split",

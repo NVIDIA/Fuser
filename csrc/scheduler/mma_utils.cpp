@@ -5,6 +5,15 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <scheduler/mma_utils.h>
+
+#include <ranges>
+#include <variant>
+
+#include <scheduler/mma_utils.h>
+
+#include <ranges>
+#include <variant>
 
 #include <ATen/cuda/CUDAContext.h>
 
@@ -18,14 +27,11 @@
 #include <ops/all_ops.h>
 #include <ops/utils.h>
 #include <options.h>
-#include <scheduler/mma_utils.h>
 #include <scheduler/tools/abstract_tensor.h>
 #include <scheduler/utils.h>
 #include <type.h>
 #include <utils.h>
 #include <val_graph.h>
-#include <ranges>
-#include <variant>
 
 namespace nvfuser {
 
@@ -1597,9 +1603,10 @@ bool hasValidBroadcastOp(TensorView* bcast_out) {
   // Ignore device dimensions in this analysis.
   auto non_device_dims = std::ranges::distance(
       bcast_out->getLoopDomain() | TensorDomain::kNoDevices);
+  auto non_device_non_bcast = bcast_out->getLoopDomain() |
+      TensorDomain::kNoBroadcasts | TensorDomain::kNoDevices;
   if (!((non_device_dims == 3 || non_device_dims == 4) &&
-        std::ssize(TensorDomain::noDevices(
-            bcast_out->domain()->noBroadcasts())) == non_device_dims - 1)) {
+        std::ranges::distance(non_device_non_bcast) == non_device_dims - 1)) {
     return false;
   }
 
@@ -1925,7 +1932,8 @@ class MatmulTranslator : public OptInDispatch {
   }
 
   TensorView* getBroadcastInnerToRank(TensorView* tv, int64_t rank) {
-    size_t tv_rank = TensorDomain::noReductions(tv->getLogicalDomain()).size();
+    const auto tv_rank = std::ranges::distance(
+        tv->getLogicalDomain() | TensorDomain::kNoReductions);
 
     // broadcast inner on inp to match rank with other.
     if ((int64_t)tv_rank < rank) {
@@ -1939,7 +1947,8 @@ class MatmulTranslator : public OptInDispatch {
   }
 
   TensorView* getUnsqueeze(TensorView* tv, int64_t dim) {
-    size_t tv_rank = TensorDomain::noReductions(tv->getLogicalDomain()).size();
+    const auto tv_rank = std::ranges::distance(
+        tv->getLogicalDomain() | TensorDomain::kNoReductions);
     std::vector<bool> bcast_dims(tv_rank + 1, false);
     if (dim < 0) {
       dim += (int64_t)tv_rank + 1;
