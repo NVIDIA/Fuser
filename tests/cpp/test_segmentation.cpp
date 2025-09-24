@@ -855,6 +855,128 @@ TEST_F(SegmentationTest, RevertPrivatizedUpcast) {
   }
 }
 
+%Kernel {
+  (T1_g___bfloat[iS66{( ceilDiv(( (( (( getMetaData(T1) )).logical_size ))[0] ), blockDim.y) )}, iS67{blockDim.y}, iS72{( ceilDiv(( ceilDiv(( (( (( getMetaData(T1) )).logical_size ))[1] ), 8) ), blockDim.x) )}, iS71{blockDim.x}, iS73{1}, iS69{8}]) 
+  -> 
+  (T5_g_float[iblockIdx.x82{( ceilDiv(( (( (( getMetaData(T1) )).logical_size ))[0] ), blockDim.y) )}, ithreadIdx.y83{blockDim.y}] ca_pos( 2 ) produce_pos( 2 ),
+   T4_g_float[iblockIdx.x84{( ceilDiv(( (( (( getMetaData(T1) )).logical_size ))[0] ), blockDim.y) )}, ithreadIdx.y85{blockDim.y}] ca_pos( 2 ) produce_pos( 2 )) :
+i175 = ALLOCATE(buffer=i175, mem_type=register, size=1, zero_init=false, resets_to_zero=false)
+i175 = ceilDiv(i172, blockDim.x);
+i718 = ALLOCATE(buffer=i718, mem_type=register, size=1, zero_init=false, resets_to_zero=false)
+i718 = 8 * threadIdx.x;
+i728 = ALLOCATE(buffer=i728, mem_type=register, size=1, zero_init=false, resets_to_zero=false)
+i728 = i722 + i726;
+i730 = ALLOCATE(buffer=i730, mem_type=register, size=1, zero_init=false, resets_to_zero=false)
+i730 = 8 * blockDim.x;
+i1396 = ALLOCATE(buffer=i1396, mem_type=register, size=1, zero_init=false, resets_to_zero=false)
+i1396 = threadIdx.y + i1394;
+b1876 = ALLOCATE(buffer=b1876, mem_type=register, size=1, zero_init=false, resets_to_zero=false)
+b1876 = i1396 < i1875;
+i1877 = ALLOCATE(buffer=i1877, mem_type=register, size=1, zero_init=false, resets_to_zero=false)
+i1877 = 7 + i718;
+b2680 = ALLOCATE(buffer=b2680, mem_type=register, size=1, zero_init=false, resets_to_zero=false)
+b2680 = b510 && b1876;
+T5_g_float[iblockIdx.x82{( ceilDiv(( (( (( getMetaData(T1) )).logical_size ))[0] ), blockDim.y) )}, ithreadIdx.y83{blockDim.y}] ca_pos( 2 ) produce_pos( 2 ) = ALLOCATE(buffer=T5_g_float[iblockIdx.x82{( ceilDiv(( (( (( getMetaData(T1) )).logical_size ))[0] ), blockDim.y) )}, ithreadIdx.y83{blockDim.y}] ca_pos( 2 ) produce_pos( 2 ), mem_type=global, size=( (( (( getMetaData(T1) )).logical_size ))[0] ), zero_init=false, resets_to_zero=false)
+T4_g_float[iblockIdx.x84{( ceilDiv(( (( (( getMetaData(T1) )).logical_size ))[0] ), blockDim.y) )}, ithreadIdx.y85{blockDim.y}] ca_pos( 2 ) produce_pos( 2 ) = ALLOCATE(buffer=T4_g_float[iblockIdx.x84{( ceilDiv(( (( (( getMetaData(T1) )).logical_size ))[0] ), blockDim.y) )}, ithreadIdx.y85{blockDim.y}] ca_pos( 2 ) produce_pos( 2 ), mem_type=global, size=( (( (( getMetaData(T1) )).logical_size ))[0] ), zero_init=false, resets_to_zero=false)
+FOR blockIdx.x in iblockIdx.x84{( ceilDiv(( (( (( getMetaData(T1) )).logical_size ))[0] ), blockDim.y) )}:
+  FOR threadIdx.y in ithreadIdx.y85{blockDim.y}:
+    T10_l_float[iblockIdx.x30{( ceilDiv(( (( (( getMetaData(T1) )).logical_size ))[0] ), blockDim.y) )}, ithreadIdx.y31{blockDim.y}, rS36{( ceilDiv(( ceilDiv(( (( (( getMetaData(T1) )).logical_size ))[1] ), 8) ), blockDim.x) )}rf, ithreadIdx.x35{blockDim.x}rf, rUS37{1}rf, rS33{8}rf] ca_pos( 2 ) produce_pos( 6 ) = ALLOCATE(buffer=T10_l_float[iblockIdx.x30{( ceilDiv(( (( (( getMetaData(T1) )).logical_size ))[0] ), blockDim.y) )}, ithreadIdx.y31{blockDim.y}, rS36{( ceilDiv(( ceilDiv(( (( (( getMetaData(T1) )).logical_size ))[1] ), 8) ), blockDim.x) )}rf, ithreadIdx.x35{blockDim.x}rf, rUS37{1}rf, rS33{8}rf] ca_pos( 2 ) produce_pos( 6 ), mem_type=register, size=1, zero_init=false, resets_to_zero=false)
+    FOR threadIdx.x in ithreadIdx.x93{blockDim.x}rf:
+      IF Inline true:
+        T10_l[0] view( T10 )
+           = Set.Permute( float(0), cache_op=Streaming )
+    T11_l_float[iblockIdx.x88{( ceilDiv(( (( (( getMetaData(T1) )).logical_size ))[0] ), blockDim.y) )}, ithreadIdx.y89{blockDim.y}, rS94{( ceilDiv(( ceilDiv(( (( (( getMetaData(T1) )).logical_size ))[1] ), 8) ), blockDim.x) )}rf, ithreadIdx.x93{blockDim.x}rf, rUS95{1}rf, rS91{8}rf] ca_pos( 2 ) produce_pos( 6 ) = ALLOCATE(buffer=T11_l_float[iblockIdx.x88{( ceilDiv(( (( (( getMetaData(T1) )).logical_size ))[0] ), blockDim.y) )}, ithreadIdx.y89{blockDim.y}, rS94{( ceilDiv(( ceilDiv(( (( (( getMetaData(T1) )).logical_size ))[1] ), 8) ), blockDim.x) )}rf, ithreadIdx.x93{blockDim.x}rf, rUS95{1}rf, rS91{8}rf] ca_pos( 2 ) produce_pos( 6 ), mem_type=register, size=1, zero_init=false, resets_to_zero=false)
+    FOR threadIdx.x in ithreadIdx.x93{blockDim.x}rf:
+      IF Inline true:
+        T11_l[0] view( T11 )
+           = Set.Permute( float(0), cache_op=Streaming )
+    FOR i223 in rS94{( ceilDiv(( ceilDiv(( (( (( getMetaData(T1) )).logical_size ))[1] ), 8) ), blockDim.x) )}rf:
+      i732 = ALLOCATE(buffer=i732, mem_type=register, size=1, zero_init=false, resets_to_zero=false)
+      i732 = i730 * i223;
+      i734 = ALLOCATE(buffer=i734, mem_type=register, size=1, zero_init=false, resets_to_zero=false)
+      i734 = i728 + i732;
+      b1880 = ALLOCATE(buffer=b1880, mem_type=register, size=1, zero_init=false, resets_to_zero=false)
+      b1880 = b1876 && b1879;
+      FOR threadIdx.x in ithreadIdx.x93{blockDim.x}rf:
+        IF Unswitch ( ( ( threadIdx.y + ( blockDim.y * blockIdx.x ) ) < ( (( (( getMetaData(T1) )).logical_size ))[0] ) ) && ( ( ( 7 + ( 8 * threadIdx.x ) ) + ( ( 8 * blockDim.x ) * i223 ) ) < ( (( (( getMetaData(T1) )).logical_size ))[1] ) ) ):
+          FOR i224 in rUS95{1}rf:
+            T7_l___bfloat[iblockIdx.x58{( ceilDiv(( (( (( getMetaData(T1) )).logical_size ))[0] ), blockDim.y) )}, ithreadIdx.y59{blockDim.y}, iS64{( ceilDiv(( ceilDiv(( (( (( getMetaData(T1) )).logical_size ))[1] ), 8) ), blockDim.x) )}, ithreadIdx.x63{blockDim.x}, iUS65{1}, iV61{8}] ca_pos( 5 ) = ALLOCATE(buffer=T7_l___bfloat[iblockIdx.x58{( ceilDiv(( (( (( getMetaData(T1) )).logical_size ))[0] ), blockDim.y) )}, ithreadIdx.y59{blockDim.y}, iS64{( ceilDiv(( ceilDiv(( (( (( getMetaData(T1) )).logical_size ))[1] ), 8) ), blockDim.x) )}, ithreadIdx.x63{blockDim.x}, iUS65{1}, iV61{8}] ca_pos( 5 ), mem_type=register, size=8, zero_init=false, resets_to_zero=false)
+            FOR i221 in iV61{8}:
+              IF Manual true:
+                T7_l[0] view( T7 )
+                   = Set( 0, cache_op=Streaming )
+            FOR i221 in iV61{8}:
+              IF Manual true:
+                T7_l[0] view( T7 )
+                   = Set( T1_g[( ( ( ( 8 * threadIdx.x ) + ( ( (( (( getMetaData(T1) )).logical_size ))[1] ) * threadIdx.y ) ) + ( ( blockDim.y * ( (( (( getMetaData(T1) )).logical_size ))[1] ) ) * blockIdx.x ) ) + ( ( 8 * blockDim.x ) * i223 ) )] view( T1 ), cache_op=Streaming )
+            FOR i222 in rS91{8}rf:
+              T2_l___bfloat[iblockIdx.x50{( ceilDiv(( (( (( getMetaData(T1) )).logical_size ))[0] ), blockDim.y) )}, ithreadIdx.y51{blockDim.y}, iS56{( ceilDiv(( ceilDiv(( (( (( getMetaData(T1) )).logical_size ))[1] ), 8) ), blockDim.x) )}, ithreadIdx.x55{blockDim.x}, iUS57{1}, iS53{8}] ca_pos( 6 ) produce_pos( 5 ) = ALLOCATE(buffer=T2_l___bfloat[iblockIdx.x50{( ceilDiv(( (( (( getMetaData(T1) )).logical_size ))[0] ), blockDim.y) )}, ithreadIdx.y51{blockDim.y}, iS56{( ceilDiv(( ceilDiv(( (( (( getMetaData(T1) )).logical_size ))[1] ), 8) ), blockDim.x) )}, ithreadIdx.x55{blockDim.x}, iUS57{1}, iS53{8}] ca_pos( 6 ) produce_pos( 5 ), mem_type=register, size=1, zero_init=false, resets_to_zero=false)
+              IF Manual true:
+                T2_l[0] view( T2 )
+                   = Set( T7_l[i222] view( T7 ), cache_op=Streaming )
+              T3_l_float[iblockIdx.x42{( ceilDiv(( (( (( getMetaData(T1) )).logical_size ))[0] ), blockDim.y) )}, ithreadIdx.y43{blockDim.y}, iS48{( ceilDiv(( ceilDiv(( (( (( getMetaData(T1) )).logical_size ))[1] ), 8) ), blockDim.x) )}, ithreadIdx.x47{blockDim.x}, iUS49{1}, iS45{8}] ca_pos( 6 ) produce_pos( 6 ) = ALLOCATE(buffer=T3_l_float[iblockIdx.x42{( ceilDiv(( (( (( getMetaData(T1) )).logical_size ))[0] ), blockDim.y) )}, ithreadIdx.y43{blockDim.y}, iS48{( ceilDiv(( ceilDiv(( (( (( getMetaData(T1) )).logical_size ))[1] ), 8) ), blockDim.x) )}, ithreadIdx.x47{blockDim.x}, iUS49{1}, iS45{8}] ca_pos( 6 ) produce_pos( 6 ), mem_type=register, size=1, zero_init=false, resets_to_zero=false)
+              IF Manual true:
+                T3_l[0] view( T3 )
+                   = __bfloat2float(T2_l[0] view( T2 ));
+              IF Manual true:
+                T10_l[0] view( T10 )
+                   = T10_l[0] view( T10 )
+                   + T3_l[0] view( T3 );
+              IF Manual true:
+                T11_l[0] view( T11 )
+                   = T11_l[0] view( T11 )
+                   + T3_l[0] view( T3 );
+        ELSE:
+          FOR i224 in rUS95{1}rf:
+            T7_l___bfloat[iblockIdx.x58{( ceilDiv(( (( (( getMetaData(T1) )).logical_size ))[0] ), blockDim.y) )}, ithreadIdx.y59{blockDim.y}, iS64{( ceilDiv(( ceilDiv(( (( (( getMetaData(T1) )).logical_size ))[1] ), 8) ), blockDim.x) )}, ithreadIdx.x63{blockDim.x}, iUS65{1}, iV61{8}] ca_pos( 5 ) = ALLOCATE(buffer=T7_l___bfloat[iblockIdx.x58{( ceilDiv(( (( (( getMetaData(T1) )).logical_size ))[0] ), blockDim.y) )}, ithreadIdx.y59{blockDim.y}, iS64{( ceilDiv(( ceilDiv(( (( (( getMetaData(T1) )).logical_size ))[1] ), 8) ), blockDim.x) )}, ithreadIdx.x63{blockDim.x}, iUS65{1}, iV61{8}] ca_pos( 5 ), mem_type=register, size=8, zero_init=false, resets_to_zero=false)
+            FOR i221 in iV61{8}:
+              IF Vectorize true:
+                T7_l[0] view( T7 )
+                   = Set( 0, cache_op=Streaming )
+            FOR i221 in iV61{8}:
+              IF Vectorize ( ( ( threadIdx.y + ( blockDim.y * blockIdx.x ) ) < ( (( (( getMetaData(T1) )).logical_size ))[0] ) ) && ( ( ( 7 + ( 8 * threadIdx.x ) ) + ( ( 8 * blockDim.x ) * i223 ) ) < ( (( (( getMetaData(T1) )).logical_size ))[1] ) ) ):
+                T7_l[0] view( T7 )
+                   = Set( T1_g[( ( ( ( 8 * threadIdx.x ) + ( ( (( (( getMetaData(T1) )).logical_size ))[1] ) * threadIdx.y ) ) + ( ( blockDim.y * ( (( (( getMetaData(T1) )).logical_size ))[1] ) ) * blockIdx.x ) ) + ( ( 8 * blockDim.x ) * i223 ) )] view( T1 ), cache_op=Streaming )
+            FOR i222 in rS91{8}rf:
+              T2_l___bfloat[iblockIdx.x50{( ceilDiv(( (( (( getMetaData(T1) )).logical_size ))[0] ), blockDim.y) )}, ithreadIdx.y51{blockDim.y}, iS56{( ceilDiv(( ceilDiv(( (( (( getMetaData(T1) )).logical_size ))[1] ), 8) ), blockDim.x) )}, ithreadIdx.x55{blockDim.x}, iUS57{1}, iS53{8}] ca_pos( 6 ) produce_pos( 5 ) = ALLOCATE(buffer=T2_l___bfloat[iblockIdx.x50{( ceilDiv(( (( (( getMetaData(T1) )).logical_size ))[0] ), blockDim.y) )}, ithreadIdx.y51{blockDim.y}, iS56{( ceilDiv(( ceilDiv(( (( (( getMetaData(T1) )).logical_size ))[1] ), 8) ), blockDim.x) )}, ithreadIdx.x55{blockDim.x}, iUS57{1}, iS53{8}] ca_pos( 6 ) produce_pos( 5 ), mem_type=register, size=1, zero_init=false, resets_to_zero=false)
+              IF Inline true:
+                T2_l[0] view( T2 )
+                   = Set( T7_l[i222] view( T7 ), cache_op=Streaming )
+              T3_l_float[iblockIdx.x42{( ceilDiv(( (( (( getMetaData(T1) )).logical_size ))[0] ), blockDim.y) )}, ithreadIdx.y43{blockDim.y}, iS48{( ceilDiv(( ceilDiv(( (( (( getMetaData(T1) )).logical_size ))[1] ), 8) ), blockDim.x) )}, ithreadIdx.x47{blockDim.x}, iUS49{1}, iS45{8}] ca_pos( 6 ) produce_pos( 6 ) = ALLOCATE(buffer=T3_l_float[iblockIdx.x42{( ceilDiv(( (( (( getMetaData(T1) )).logical_size ))[0] ), blockDim.y) )}, ithreadIdx.y43{blockDim.y}, iS48{( ceilDiv(( ceilDiv(( (( (( getMetaData(T1) )).logical_size ))[1] ), 8) ), blockDim.x) )}, ithreadIdx.x47{blockDim.x}, iUS49{1}, iS45{8}] ca_pos( 6 ) produce_pos( 6 ), mem_type=register, size=1, zero_init=false, resets_to_zero=false)
+              IF Inline true:
+                T3_l[0] view( T3 )
+                   = __bfloat2float(T2_l[0] view( T2 ));
+              IF Inline ( ( ( threadIdx.y + ( blockDim.y * blockIdx.x ) ) < ( (( (( getMetaData(T1) )).logical_size ))[0] ) ) && ( ( ( 7 + ( 8 * threadIdx.x ) ) + ( ( 8 * blockDim.x ) * i223 ) ) < ( (( (( getMetaData(T1) )).logical_size ))[1] ) ) ):
+                T10_l[0] view( T10 )
+                   = T10_l[0] view( T10 )
+                   + T3_l[0] view( T3 );
+              IF Inline ( ( ( threadIdx.y + ( blockDim.y * blockIdx.x ) ) < ( (( (( getMetaData(T1) )).logical_size ))[0] ) ) && ( ( ( 7 + ( 8 * threadIdx.x ) ) + ( ( 8 * blockDim.x ) * i223 ) ) < ( (( (( getMetaData(T1) )).logical_size ))[1] ) ) ):
+                T11_l[0] view( T11 )
+                   = T11_l[0] view( T11 )
+                   + T3_l[0] view( T3 );
+    T8_l_float[iblockIdx.x40{( ceilDiv(( (( (( getMetaData(T1) )).logical_size ))[0] ), blockDim.y) )}, ithreadIdx.y41{blockDim.y}, rthreadIdx.x39{blockDim.x}] ca_pos( 2 ) produce_pos( 2 ) = ALLOCATE(buffer=T8_l_float[iblockIdx.x40{( ceilDiv(( (( (( getMetaData(T1) )).logical_size ))[0] ), blockDim.y) )}, ithreadIdx.y41{blockDim.y}, rthreadIdx.x39{blockDim.x}] ca_pos( 2 ) produce_pos( 2 ), mem_type=register, size=1, zero_init=false, resets_to_zero=false)
+    IF Inline true:
+      T8_l[0] view( T8 )
+         = Set( float(0), cache_op=Streaming )
+    FOR threadIdx.x in rthreadIdx.x39{blockDim.x}:
+      T8_l[0] view( T8 )
+         = reduction( T10_l[0] view( T10 ), op = add, initial value = float(0), allreduce = false )
+    IF Inline ( ( threadIdx.x == 0 ) && ( ( threadIdx.y + ( blockDim.y * blockIdx.x ) ) < ( (( (( getMetaData(T1) )).logical_size ))[0] ) ) ):
+      T5_g[( threadIdx.y + ( blockDim.y * blockIdx.x ) )] view( T5 )
+         = Set( T8_l[0] view( T8 ), cache_op=Streaming )
+    T9_l_float[iblockIdx.x98{( ceilDiv(( (( (( getMetaData(T1) )).logical_size ))[0] ), blockDim.y) )}, ithreadIdx.y99{blockDim.y}, rthreadIdx.x97{blockDim.x}] ca_pos( 2 ) produce_pos( 2 ) = ALLOCATE(buffer=T9_l_float[iblockIdx.x98{( ceilDiv(( (( (( getMetaData(T1) )).logical_size ))[0] ), blockDim.y) )}, ithreadIdx.y99{blockDim.y}, rthreadIdx.x97{blockDim.x}] ca_pos( 2 ) produce_pos( 2 ), mem_type=register, size=1, zero_init=false, resets_to_zero=false)
+    IF Inline true:
+      T9_l[0] view( T9 )
+         = Set( float(0), cache_op=Streaming )
+    FOR threadIdx.x in rthreadIdx.x97{blockDim.x}:
+      T9_l[0] view( T9 )
+         = reduction( T11_l[0] view( T11 ), op = add, initial value = float(0), allreduce = false )
+    IF Inline ( ( threadIdx.x == 0 ) && ( ( threadIdx.y + ( blockDim.y * blockIdx.x ) ) < ( (( (( getMetaData(T1) )).logical_size ))[0] ) ) ):
+      T4_g[( threadIdx.y + ( blockDim.y * blockIdx.x ) )] view( T4 )
+         = Set( T9_l[0] view( T9 ), cache_op=Streaming )
+
+} // %Kernel.
+
 // Unlike PrivatizeUpcast, verify replicated upcast ops are
 // consolidated back as they are grouped into the same segment
 /**

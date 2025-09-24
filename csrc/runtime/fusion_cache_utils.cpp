@@ -106,7 +106,7 @@ void resetAllocationDomainAndContiguity(
     sorted_sizes.push_back(dim.size);
     sorted_strides.push_back(dim.stride);
   }
-  bool allocation_domain_is_logical = allocation_domain == no_reduction_domain;
+  bool allocation_domain_is_correct = allocation_domain == TensorDomain::noReductions(tv->getMaybeAllocationDomain());
   std::vector<std::optional<bool>> contiguity_without_reduction =
       computeContiguity(sorted_sizes, sorted_strides);
   std::vector<std::optional<bool>> contiguity;
@@ -118,9 +118,9 @@ void resetAllocationDomainAndContiguity(
       contiguity_without_reduction[index] = true;
     }
   }
-  if (allocation_domain_is_logical) {
+  if (allocation_domain_is_correct) {
     int64_t index = 0;
-    for (auto id : tv->getLogicalDomain()) {
+    for (auto id : tv->getMaybeAllocationDomain()) {
       if (id->isReduction()) {
         contiguity.push_back(std::nullopt);
       } else {
