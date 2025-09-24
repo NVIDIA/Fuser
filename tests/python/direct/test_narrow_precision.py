@@ -456,10 +456,11 @@ def test(
     assert mat1_fp4.view(torch.uint8).equal(o[1].view(torch.uint8))
     assert o[3].equal(vanilla_s1)
 
-    # a very rough and wrong way to validate
+    # a very rough and wrong way to validate scale
     mask = scale1 != 0
     buffer_s1 = o[2].as_strided(scale1.size(), scale1.stride())
     masked_s1 = torch.where(mask, buffer_s1, 0)
+    assert masked_s1.equal(scale1)
 
     breakpoint()
     assert torch.allclose(o_decomposed_ref, o[0], atol=1e-2, rtol=1e-2)
