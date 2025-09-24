@@ -838,16 +838,6 @@ TEST_F(SegmentationTest, RevertPrivatizedUpcast) {
     auto ke = dynamic_cast<KernelExecutor*>(executor.get());
     ASSERT_NE(ke, nullptr);
     kir::Kernel* kernel = ke->compiledKernel()->kernel();
-    for (auto v : kernel->inputs()) {
-      auto tv = dynamic_cast<TensorView*>(v);
-      if (tv == nullptr) {
-        continue;
-      }
-      std::cout << "Input: " << tv->toString() << std::endl;
-      tv->printTransforms();
-    }
-    std::cout << "Kernel: " << *kernel << std::endl;
-    kernel->print();
     int64_t num_upcast_ops = 0;
     for (auto expr : KernelExprVisitor::getAllExprs(kernel)) {
       auto uop = dynamic_cast<UnaryOp*>(expr);
@@ -859,7 +849,10 @@ TEST_F(SegmentationTest, RevertPrivatizedUpcast) {
 
       ++num_upcast_ops;
     }
-    EXPECT_EQ(num_upcast_ops, 1);
+    // There is an unswitched IfThenElse in the generated kernel, and in each
+    // of its branches, there is an upcast op with tv1 as its producer. So we
+    // should have two upcast ops.
+    EXPECT_EQ(num_upcast_ops, 2);
   }
 }
 
