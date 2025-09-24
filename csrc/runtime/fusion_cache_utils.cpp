@@ -106,24 +106,39 @@ void resetAllocationDomainAndContiguity(
     sorted_sizes.push_back(dim.size);
     sorted_strides.push_back(dim.stride);
   }
-  std::vector<std::optional<bool>> contiguity =
+  bool allocation_domain_is_logical = allocation_domain == no_reduction_domain;
+  std::vector<std::optional<bool>> contiguity_without_reduction =
       computeContiguity(sorted_sizes, sorted_strides);
+  std::vector<std::optional<bool>> contiguity;
   // Device parallelized dimension always has size 1, so contiguity inference
   // will treat it as broadcast. But it is actually not broadcast, so we need to
   // fix its contiguity to true.
   for (auto [index, id] : views::enumerate_view(no_reduction_domain)) {
     if (id->isDeviceDim()) {
-      contiguity[index] = true;
+      contiguity_without_reduction[index] = true;
     }
   }
-  // Add reduction IDs to allocation domain to the back
-  for (auto id : tv->getLogicalDomain()) {
-    if (id->isReduction()) {
-      allocation_domain.push_back(id);
-      contiguity.push_back(std::nullopt);
+  if (allocation_domain_is_logical) {
+    int64_t index = 0;
+    for (auto id : tv->getLogicalDomain()) {
+      if (id->isReduction()) {
+        contiguity.push_back(std::nullopt);
+      } else {
+        contiguity.push_back(contiguity_without_reduction[index++]);
+      }
     }
+    tv->setContiguity(contiguity);
+  } else {
+    contiguity = contiguity_without_reduction;
+    // Add reduction IDs to allocation domain to the back
+    for (auto id : tv->getLogicalDomain()) {
+      if (id->isReduction()) {
+        allocation_domain.push_back(id);
+        contiguity.push_back(std::nullopt);
+      }
+    }
+    tv->setAllocationDomain(allocation_domain, contiguity);
   }
-  tv->setAllocationDomain(allocation_domain, contiguity);
 }
 
 void ArgumentManager::updateWithSegmentOutputs(
