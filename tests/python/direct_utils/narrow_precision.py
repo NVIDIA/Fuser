@@ -79,7 +79,7 @@ def linear_to_swizzled_128_4(a_sf_linear: torch.Tensor):
     # details about layout requirement on block-wise scaling factor
     # https://docs.nvidia.com/cutlass/media/docs/cpp/blackwell_functionality.html#scale-factor-layouts
     tmp = torch.reshape(a_sf_padded, (m_tiles, 4, 32, k_tiles, 4))
-    return tmp.transpose(1, 3).reshape(mn_padded, k_padded)[:mn, :sf_k]
+    return tmp.transpose(1, 3).reshape(mn_padded, k_padded)
 
 
 def dequantize_to_dtype(
@@ -137,11 +137,11 @@ def pytorch_nvfp4_quantize(a, a_global_scale):
     block_scale_fp32 = (max_abs / FLOAT4_E2M1_MAX).float()
 
     scaled_block_scale_fp32 = block_scale_fp32 * a_global_scale
-    scaled_block_scale_fp8 = torch.clamp(
+    scaled_block_scale_fp32 = torch.clamp(
         scaled_block_scale_fp32, min=FLOAT8_E4M3_EPS, max=FLOAT8_E4M3_MAX
-    ).to(torch.float8_e4m3fn)
-    scaled_block_scale_fp8_fp32 = scaled_block_scale_fp8.to(torch.float)
-    total_scale = scaled_block_scale_fp8_fp32 / a_global_scale
+    )
+    scaled_block_scale_fp8 = scaled_block_scale_fp32.to(torch.float8_e4m3fn)
+    total_scale = scaled_block_scale_fp32 / a_global_scale
     a_scaled = a_fp32 / total_scale.unsqueeze(-1)
     a_scaled = torch.clamp(a_scaled, -FLOAT4_E2M1_MAX, FLOAT4_E2M1_MAX)
     a_scaled = a_scaled.view(original_shape)
@@ -168,7 +168,7 @@ def activation_scale_to_nvfp4(x, g_sf, offsets, blockscale_offsets, block_size):
         else:
             r = offsets[i + 1]
         l_sf = blockscale_offsets[i]
-        r_sf = l_sf + r - l
+        r_sf = l_sf + (r - l + 127) // 128 * 128
         v, b_sf = pytorch_nvfp4_quantize(x[l:r], g_sf[i])
         v_scaled[l:r] = v
         block_scale[l_sf:r_sf] = linear_to_swizzled_128_4(b_sf)
