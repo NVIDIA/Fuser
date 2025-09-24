@@ -1790,7 +1790,7 @@ void eraseInputDistinctRootDomains(Fusion* fusion) {
         tv->getLogicalDomain(),
         tv->getLoopDomain(),
         /*additional_ids=*/{},
-        /*ignore_broadcast=*/true);
+        /*ignore_broadcast=*/false);
     bool has_disjoint_loop_logical = compare_result.dom0_has_unreachable_ids ||
         compare_result.dom1_has_unreachable_ids;
 
