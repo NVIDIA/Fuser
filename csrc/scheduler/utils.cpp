@@ -1766,17 +1766,17 @@ BroadcastMultipleInformation getBroadcastMultiples(
 
   // We always cacheBefore output at the beginning of the scheduling. And after
   // cacheBefore, the reference tensor will have all reduction IDs removed.
-  std::vector<IterDomain*> ref_logical_domain = [&]() {
-    auto ref_logical_domain_view = reference_tv->getLogicalDomain() |
+  std::vector<IterDomain*> ref_root_domain = [&]() {
+    auto ref_root_domain_view = reference_tv->getLogicalDomain() |
         TensorDomain::kNoReductions | TensorDomain::kNoDevices;
     return std::vector<IterDomain*>(
-        ref_logical_domain_view.begin(), ref_logical_domain_view.end());
+        ref_root_domain_view.begin(), ref_root_domain_view.end());
   }();
 
-  ref_logical_domain =
-      TensorDomain::orderedAs(ref_logical_domain, logical_reorder_map);
+  ref_root_domain =
+      TensorDomain::orderedAs(ref_root_domain, logical_reorder_map);
 
-  std::vector<BroadcastMultiple> multiples(ref_logical_domain.size());
+  std::vector<BroadcastMultiple> multiples(ref_root_domain.size());
 
   auto disjoint_logical_sets = disjointLogicalSets(fusion);
   auto disjoint_set_information = scheduler_utils::getDisjointLogicalSetsOf(
