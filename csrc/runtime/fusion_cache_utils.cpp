@@ -118,10 +118,18 @@ void resetAllocationDomainAndContiguity(
     sorted_sizes.push_back(dim.size);
     sorted_strides.push_back(dim.stride);
   }
+  std::cout << "sorted_allocation_domain: " << ir_utils::toString(sorted_allocation_domain) << std::endl;
+  std::cout << "sorted_sizes: " << sorted_sizes << std::endl;
+  std::cout << "sorted_strides: " << sorted_strides << std::endl;
   bool allocation_domain_is_correct = sorted_allocation_domain ==
       TensorDomain::noReductions(tv->getMaybeAllocationDomain());
   std::vector<std::optional<bool>> contiguity_without_reduction =
       computeContiguity(sorted_sizes, sorted_strides);
+  std::cout << "contiguity_without_reduction: ";
+  for (auto contiguity : contiguity_without_reduction) {
+    std::cout << (contiguity.has_value() ? (contiguity.value() ? "t" : "f") : "n") << " ";
+  }
+  std::cout << std::endl;
   std::vector<std::optional<bool>> contiguity; // with reduction
   // Note that computeContiguity gets contiguity based on sizes and strides,
   // This may not always be accurate. For example, size 1 dimension is not
