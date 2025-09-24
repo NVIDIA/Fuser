@@ -161,7 +161,7 @@ def activation_scale_to_nvfp4(x, g_sf, offsets, blockscale_offsets, block_size):
         (padded_m_size, k // block_size), dtype=torch.float8_e4m3fn, device="cuda:0"
     )
     v_scaled = torch.empty((m, k // 2), dtype=torch.float4_e2m1fn_x2, device="cuda:0")
-    vanilla_scale = torch.empty((m, k // block_size), dtype=torch.float4_e2m1fn_x2, device="cuda:0")
+    vanilla_scale = torch.empty((m, k // block_size), dtype=torch.float8_e4m3fn, device="cuda:0")
     for i in range(len(g_sf)):
         l = offsets[i]
         if i == g - 1:
