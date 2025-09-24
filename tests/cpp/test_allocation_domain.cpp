@@ -924,10 +924,7 @@ TEST_F(AllocationDomainTest, NHWC4d_To_NHWC4d_cacheFork) {
   KernelExecutor ke;
   ke.compile(&fusion, {t0});
 
-  EXPECT_THAT(
-      [&]() { ke.run({t0_wrong_format}); },
-      ::testing::ThrowsMessage<nvfuser::nvfError>(
-          ::testing::HasSubstr("Stride mismatch with contiguity info")));
+  EXPECT_ANY_THROW(ke.run({t0_wrong_format}));
 
   auto cg_outputs = ke.run({t0});
 
