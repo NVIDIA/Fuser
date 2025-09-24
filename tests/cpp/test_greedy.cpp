@@ -617,4 +617,36 @@ TEST_F(GreedySchedulerTest, UnconstrainedIDAndSqueeze) {
   EXPECT_FALSE(executor_cache.getMostRecentKernelRuntime()->isSegmented());
 }
 
+// Test translating scatter + sum to scatter-accumulate
+TEST_F(GreedySchedulerTest, TranslateScatterAndReductionToScatterAccumulate) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  const int64_t m = 128;
+  const int64_t n = 1024;
+
+  // Each element is [0, m).
+  auto tv0 = makeContigConcreteTensor({n, 1}, DataType::Int);
+  fusion.addInput(tv0);
+
+  auto tv1 = set(tv0);
+  auto tv2 = zeros(
+      {IrBuilder::create<Val>(n), IrBuilder::create<Val>(m)}, DataType::Int);
+  auto tv3 = scatter(tv2, 1, tv1, fusion.oneVal(DataType::Int));
+  auto tv4 = sum(tv3, {0});
+  fusion.addOutput(tv4);
+
+  fusion.printMath();
+
+  auto options = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
+  auto t0 = at::randint(0, m, {n, 1}, options);
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs({t0});
+  testValidate(executor_cache.fusion(), outputs, {t0}, __LINE__, __FILE__);
+
+  EXPECT_FALSE(executor_cache.getMostRecentKernelRuntime()->isSegmented());
+}
+
 } // namespace nvfuser
