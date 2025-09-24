@@ -906,4 +906,45 @@ INSTANTIATE_TEST_SUITE_P(
          << std::get<1>(info.param);
       return sanitizeTestName(ss.str());
     });
+
+// fusion inputs are bfloat16 and float32.
+// Usually used in mixed precision training, e.g. RMSNorm in
+// https://github.com/karpathy/llama2.c/blob/master/model.py
+TEST_F(NVFuserTest, InnerPersistentMixedPrecision) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+
+  auto x = makeContigConcreteTensor({1024, 2048}, DataType::BFloat16);
+  auto weight = makeContigConcreteTensor({2048}, DataType::Float);
+  fusion.addInput(x);
+  fusion.addInput(weight);
+
+  auto tv1 = castOp(DataType::Float, x);
+  auto tv2 = sum(tv1, {1});
+  auto tv3 = broadcast(tv2, {false, true});
+  auto tv4 = add(tv1, tv3);
+  auto tv5 = broadcast(weight, {true, false});
+  auto tv6 = mul(tv4, tv5);
+  fusion.addOutput(tv6);
+  auto fusion_copy = fusion;
+
+  auto options_float =
+      at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto options_bf16 =
+      at::TensorOptions().dtype(at::kBFloat16).device(at::kCUDA, 0);
+  auto t0 = at::randn({1024, 2048}, options_bf16);
+  auto t1 = at::randn({2048}, options_float);
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs({t0, t1});
+  auto runtime = executor_cache.getMostRecentKernelRuntime();
+  HeuristicParams* heur =
+      runtime->schedulerHeuristics()->heuristicsList().at(0).get();
+  ASSERT_NE(heur, nullptr);
+  ASSERT_TRUE(heur->isA<ReductionParams>());
+  ASSERT_EQ(
+      heur->as<ReductionParams>()->unroll_factor_inner_reduction,
+      getMaxVectorizationSizeInBit() / dataTypeSizeBit(DataType::Float));
+  testValidate(&fusion_copy, outputs, {t0, t1}, __LINE__, __FILE__);
+}
 } // namespace nvfuser
