@@ -1613,7 +1613,7 @@ class PythonTranslator : public OptInConstDispatch {
         {eop->out()});
   }
 
-  void handle(const PreprocessGroupedmatmulInputSf* layout_op) final {
+  void handle(const PreprocessGroupedMatmulInputSf* layout_op) final {
     NVF_ERROR(layout_op != nullptr);
     visited_vals_.insert(layout_op->output(0));
     printer_.generateOperation(
