@@ -958,7 +958,7 @@ class Generator : public std::ranges::view_interface<Generator<T>> {
 //     the same as the stride of the next non-broadcast dimension multiplied by
 //     the size of the next non-broadcast dimension
 //   - False otherwise
-std::vector<std::optional<bool>> computeContiguity(
+NVF_API std::vector<std::optional<bool>> computeContiguity(
     const std::vector<int64_t>& sizes,
     const std::vector<int64_t>& strides);
 
