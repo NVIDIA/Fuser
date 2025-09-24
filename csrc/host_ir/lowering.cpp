@@ -104,20 +104,16 @@ std::unique_ptr<hir::HostIrContainer> lowerSegmentedFusionToHostIr(
             group_id,
             "The group ID of the kernel executor doesn't match the group ID of "
             "the segment.");
-        // Add a LaunchKernel instruction to the container.
-        auto in_clone = ir_cloner.clone(group->inputs());
-        auto out_clone = ir_cloner.clone(group->outputs());
+
+        // Copy the input/output TensorViews to the container.
+        auto inputs_clone = ir_cloner.clone(group->inputs());
+        auto outputs_clone = ir_cloner.clone(group->outputs());
         for (auto* out : ir_utils::filterByType<TensorView>(group->outputs())) {
           recomputeTv(out, ir_cloner);
         }
-        auto launch_kernel = IrBuilder::create<hir::LaunchKernel>(
-            group_id,
-            launch_params_per_segment.at(group_id),
-            ke->compiledKernel()->compileParams(),
-            in_clone,
-            out_clone,
-            cache_id);
-        for (auto* val : out_clone) {
+
+        // Allocate the output TensorViews.
+        for (auto* val : outputs_clone) {
           NVF_ERROR(
               val->isA<TensorView>(),
               "Output must be a TensorView but got ",
@@ -131,11 +127,54 @@ std::unique_ptr<hir::HostIrContainer> lowerSegmentedFusionToHostIr(
               " must not be an alias, got ",
               alias_info.toString());
           auto* tv = val->as<TensorView>();
-          auto* allocate =
-              IrBuilder::create<kir::Allocate>(tv, MemoryType::Global);
+          auto* allocate = IrBuilder::create<kir::Allocate>(
+              tv,
+              MemoryType::Global,
+              std::vector<Val*>({}),
+              /*zero_init=*/true);
           hic->pushBackTopLevelExprs(allocate);
         }
-        hic->pushBackTopLevelExprs(launch_kernel);
+
+        // Add the LaunchKernel instruction.
+        IterDomain* stream_id = nullptr;
+        for (auto* val : outputs_clone) {
+          auto* tv = val->as<TensorView>();
+          auto i = std::find_if(
+              tv->getLoopDomain().begin(),
+              tv->getLoopDomain().end(),
+              [](IterDomain* id) {
+                return id->getParallelType() == ParallelType::Stream;
+              });
+          if (i == tv->getLoopDomain().end()) {
+            continue;
+          }
+          stream_id = *i;
+        }
+
+        if (stream_id == nullptr) {
+          auto launch_kernel = IrBuilder::create<hir::LaunchKernel>(
+              group_id,
+              launch_params_per_segment.at(group_id),
+              ke->compiledKernel()->compileParams(),
+              inputs_clone,
+              outputs_clone,
+              cache_id);
+          hic->pushBackTopLevelExprs(launch_kernel);
+        } else {
+          auto* stream_index = IrBuilder::create<Val>(DataType::Index);
+          auto* for_loop =
+              hir::createForLoopFromIterDomain(stream_index, stream_id);
+          inputs_clone.push_back(stream_index);
+          auto launch_kernel = IrBuilder::create<hir::LaunchKernel>(
+              group_id,
+              launch_params_per_segment.at(group_id),
+              ke->compiledKernel()->compileParams(),
+              inputs_clone,
+              outputs_clone,
+              cache_id);
+          for_loop->body().push_back(launch_kernel);
+          hic->pushBackTopLevelExprs(for_loop);
+        }
     }
   }
 
