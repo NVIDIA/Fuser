@@ -247,10 +247,7 @@ class TransformReplay {
   // In practice, `ignore_reductions=true` is used more often than `false`. I
   // made `false` default merely because a true "self" replay needn't and
   // shouldn't ignore anything.
-  static void selfReplay(
-      const TensorDomain* self,
-      TensorDomain* new_self,
-      bool ignore_reductions = false);
+  static void selfReplay(const TensorDomain* self, TensorDomain* new_self);
 
   // Returns the loop position in producer that matches with `consumer_pos` in
   // consumer. Returns -1 if matching is impossible. This function can be used
