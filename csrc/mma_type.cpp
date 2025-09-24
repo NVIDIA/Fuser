@@ -96,9 +96,9 @@ std::string toString(const GemmTile& tile) {
 
 std::string toString(const MatMulTileOptions& opts) {
   std::stringstream ss;
-  ss << "MatMulTileOptions: "
-     << "warp tile " << toString(opts.warp_tile) << ", "
-     << "CTA tile " << toString(opts.cta_tile);
+  ss << "MatMulTileOptions:\n  CTA tile " << toString(opts.cta_tile)
+     << "\n  warp tile " << toString(opts.warp_tile) << "\n  epilogue tile "
+     << toString(opts.epilogue_tile);
   return ss.str();
 }
 
