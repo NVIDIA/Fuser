@@ -124,7 +124,7 @@ void resetAllocationDomainAndContiguity(
   // or just a dynamic size N where N happens to be 1. For this case, we need
   // to actually check the IterType of the IterDomain and fix the contiguity.
   for (auto [index, id] : views::enumerate_view(sorted_allocation_domain)) {
-    if (!id->isBroadcast()) {
+    if (!id->isBroadcast() && !contiguity_without_reduction[index].has_value()) {
       contiguity_without_reduction[index] = true;
     }
   }
