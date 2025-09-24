@@ -68,6 +68,87 @@ KernelArgumentHolder ArgumentManager::translateValsToArgs(
   return holder;
 }
 
+// When a fusion segment is executed by ExprEvalExecutor, the output
+// sizes and strides are determined by PyTorch, which might be different from
+// how we infer them. In this case, PyTorch is the ground truth, so we should
+// use PyTorch's result to reset the allocation domain and contiguity.
+void resetAllocationDomainAndContiguity(
+    TensorView* tv,
+    const std::vector<int64_t>& sizes,
+    const std::vector<int64_t>& strides) {
+  struct Dim {
+    int64_t size;
+    int64_t stride;
+    IterDomain* id;
+  };
+  // sizes and strides should be in the order of the logical domain
+  // We sort the dimensions by stride in descending order to get the correct
+  // stride order.
+  std::vector<Dim> dims;
+  dims.reserve(sizes.size());
+  const auto& no_reduction_domain =
+      TensorDomain::noReductions(tv->getLogicalDomain());
+  NVF_ERROR(
+      no_reduction_domain.size() == sizes.size(),
+      "Sizes and logical domain must have the same number of dimensions");
+  NVF_ERROR(
+      no_reduction_domain.size() == strides.size(),
+      "Strides and logical domain must have the same number of dimensions");
+  for (auto [size, stride, id] :
+       views::zip_view(sizes, strides, no_reduction_domain)) {
+    dims.push_back({size, stride, id});
+  }
+  // Sort by stride in descending order
+  std::sort(dims.begin(), dims.end(), [](const Dim& a, const Dim& b) {
+    return a.stride > b.stride;
+  });
+  std::vector<IterDomain*> sorted_allocation_domain;
+  std::vector<int64_t> sorted_sizes;
+  std::vector<int64_t> sorted_strides;
+  sorted_allocation_domain.reserve(tv->getLogicalDomain().size());
+  sorted_sizes.reserve(tv->getLogicalDomain().size());
+  sorted_strides.reserve(tv->getLogicalDomain().size());
+  for (const auto& dim : dims) {
+    sorted_allocation_domain.push_back(dim.id);
+    sorted_sizes.push_back(dim.size);
+    sorted_strides.push_back(dim.stride);
+  }
+  bool allocation_domain_is_correct = sorted_allocation_domain ==
+      TensorDomain::noReductions(tv->getMaybeAllocationDomain());
+  std::vector<std::optional<bool>> contiguity_without_reduction =
+      computeContiguity(sorted_sizes, sorted_strides);
+  std::vector<std::optional<bool>> contiguity; // with reduction
+  // Device parallelized dimension always has size 1, so contiguity inference
+  // will treat it as broadcast. But it is actually not broadcast, so we need to
+  // fix its contiguity to true.
+  for (auto [index, id] : views::enumerate_view(no_reduction_domain)) {
+    if (id->isDeviceDim()) {
+      contiguity_without_reduction[index] = true;
+    }
+  }
+  if (allocation_domain_is_correct) {
+    int64_t index = 0;
+    for (auto id : tv->getMaybeAllocationDomain()) {
+      if (id->isReduction()) {
+        contiguity.push_back(std::nullopt);
+      } else {
+        contiguity.push_back(contiguity_without_reduction[index++]);
+      }
+    }
+    tv->setContiguity(contiguity);
+  } else {
+    contiguity = contiguity_without_reduction;
+    // Add reduction IDs to allocation domain to the back
+    for (auto id : tv->getLogicalDomain()) {
+      if (id->isReduction()) {
+        sorted_allocation_domain.push_back(id);
+        contiguity.push_back(std::nullopt);
+      }
+    }
+    tv->setAllocationDomain(sorted_allocation_domain, contiguity);
+  }
+}
+
 void ArgumentManager::updateWithSegmentOutputs(
     const std::vector<Val*>& group_outputs,
     const KernelArgumentHolder& group_runtime_outputs,
@@ -87,20 +168,7 @@ void ArgumentManager::updateWithSegmentOutputs(
           group_runtime_outputs[group_out_i].as<at::Tensor>();
       const std::vector<int64_t> sizes = tensor.sizes().vec();
       const std::vector<int64_t> strides = tensor.strides().vec();
-      std::vector<std::optional<bool>> contiguity_without_reduction =
-          computeContiguity(sizes, strides);
-      std::vector<std::optional<bool>> contiguity;
-      contiguity.reserve(tv->domain()->maybeAllocation().size());
-      int64_t index_with_reduction = 0;
-      for (const auto id : tv->domain()->maybeAllocation()) {
-        if (id->isReduction()) {
-          contiguity.push_back(std::nullopt);
-        } else {
-          contiguity.push_back(
-              contiguity_without_reduction[index_with_reduction++]);
-        }
-      }
-      tv->domain()->setContiguity(contiguity);
+      resetAllocationDomainAndContiguity(tv, sizes, strides);
     }
   }
 

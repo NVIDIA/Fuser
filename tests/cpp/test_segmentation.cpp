@@ -849,7 +849,10 @@ TEST_F(SegmentationTest, RevertPrivatizedUpcast) {
 
       ++num_upcast_ops;
     }
-    EXPECT_EQ(num_upcast_ops, 1);
+    // There is an unswitched IfThenElse in the generated kernel, and in each
+    // of its branches, there is an upcast op with tv1 as its producer. So we
+    // should have two upcast ops.
+    EXPECT_EQ(num_upcast_ops, 2);
   }
 }
 

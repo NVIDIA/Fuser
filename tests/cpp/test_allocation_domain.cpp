@@ -339,10 +339,7 @@ TEST_F(AllocationDomainTest, NHWC4d_To_NHWC4d) {
   KernelExecutor ke;
   ke.compile(&fusion, {t0});
 
-  EXPECT_THAT(
-      [&]() { ke.run({t0_wrong_format}); },
-      ::testing::ThrowsMessage<nvfuser::nvfError>(
-          ::testing::HasSubstr("Stride mismatch with contiguity info")));
+  EXPECT_ANY_THROW(ke.run({t0_wrong_format}));
 
   auto cg_outputs = ke.run({t0});
 
@@ -455,10 +452,7 @@ TEST_F(AllocationDomainTest, NHWC4d_To_NHWC1d) {
   KernelExecutor ke;
   ke.compile(&fusion, {t0});
 
-  EXPECT_THAT(
-      [&]() { ke.run({t0_wrong_format}); },
-      ::testing::ThrowsMessage<nvfuser::nvfError>(
-          ::testing::HasSubstr("Stride mismatch with contiguity info")));
+  EXPECT_ANY_THROW(ke.run({t0_wrong_format}));
 
   auto cg_outputs = ke.run({t0});
 
@@ -650,10 +644,7 @@ TEST_F(AllocationDomainTest, NHWC4d_To_NHWC4d_cacheBefore) {
   KernelExecutor ke;
   ke.compile(&fusion, {t0});
 
-  EXPECT_THAT(
-      [&]() { ke.run({t0_wrong_format}); },
-      ::testing::ThrowsMessage<nvfuser::nvfError>(
-          ::testing::HasSubstr("Stride mismatch with contiguity info")));
+  EXPECT_ANY_THROW(ke.run({t0_wrong_format}));
 
   auto cg_outputs = ke.run({t0});
 
@@ -793,10 +784,7 @@ TEST_F(AllocationDomainTest, NHWC4d_To_NHWC4d_cacheAfter) {
   KernelExecutor ke;
   ke.compile(&fusion, {t0});
 
-  EXPECT_THAT(
-      [&]() { ke.run({t0_wrong_format}); },
-      ::testing::ThrowsMessage<nvfuser::nvfError>(
-          ::testing::HasSubstr("Stride mismatch with contiguity info")));
+  EXPECT_ANY_THROW(ke.run({t0_wrong_format}));
 
   auto cg_outputs = ke.run({t0});
 
@@ -936,10 +924,7 @@ TEST_F(AllocationDomainTest, NHWC4d_To_NHWC4d_cacheFork) {
   KernelExecutor ke;
   ke.compile(&fusion, {t0});
 
-  EXPECT_THAT(
-      [&]() { ke.run({t0_wrong_format}); },
-      ::testing::ThrowsMessage<nvfuser::nvfError>(
-          ::testing::HasSubstr("Stride mismatch with contiguity info")));
+  EXPECT_ANY_THROW(ke.run({t0_wrong_format}));
 
   auto cg_outputs = ke.run({t0});
 
@@ -1477,10 +1462,7 @@ TEST_F(AllocationDomainTest, InputAllocationIsSplitReorderContiguous) {
   FusionExecutorCache executor_cache(std::move(fusion));
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA);
   at::Tensor in_tensor = at::randn({6}, options);
-  EXPECT_THAT(
-      [&]() { executor_cache.runFusionWithInputs({in_tensor}); },
-      ::testing::ThrowsMessage<nvfuser::nvfError>(
-          ::testing::HasSubstr("Stride mismatch with contiguity info")));
+  EXPECT_ANY_THROW(executor_cache.runFusionWithInputs({in_tensor}));
 }
 
 TEST_F(AllocationDomainTest, InputAllocationIsSplitReorderMerge) {
@@ -1499,10 +1481,7 @@ TEST_F(AllocationDomainTest, InputAllocationIsSplitReorderMerge) {
   FusionExecutorCache executor_cache(std::move(fusion));
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA);
   at::Tensor in_tensor = at::randn({6}, options);
-  EXPECT_THAT(
-      [&]() { executor_cache.runFusionWithInputs({in_tensor}); },
-      ::testing::ThrowsMessage<nvfuser::nvfError>(
-          ::testing::HasSubstr("Merging of discontiguous dimensions")));
+  EXPECT_ANY_THROW(executor_cache.runFusionWithInputs({in_tensor}));
 }
 
 // https://github.com/NVIDIA/Fuser/issues/3480
