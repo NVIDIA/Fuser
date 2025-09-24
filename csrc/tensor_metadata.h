@@ -113,7 +113,7 @@ std::pair<std::vector<int64_t>, std::vector<int64_t>>
 inferAndValidateAllocationSizesAndStrides(
     const at::Tensor& tensor,
     TensorView* tv,
-    ExpressionEvaluator ee);
+    const ExpressionEvaluator& ee);
 
 // Validates the sizes and strides of the tensors against the TensorViews.
 void validateSizesAndStrides(
