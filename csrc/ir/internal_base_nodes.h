@@ -7,10 +7,11 @@
 // clang-format on
 #pragma once
 
-#include <exceptions.h>
-#include <ir/base_nodes.h>
 #include <optional>
 #include <ranges>
+
+#include <exceptions.h>
+#include <ir/base_nodes.h>
 
 //! IR header hierarchy
 //! 1. utils.h - PolymorphicBase and NonCopyable
@@ -516,18 +517,14 @@ class NVF_API TensorDomain : public Val {
     return toDelimitedString(contiguity(), /*delim=*/" ");
   }
 
-  bool hasReduction() const {
-    return has_reduction_;
-  }
+  bool hasReduction() const;
 
   bool hasBlockReduction() const;
   bool hasGridReduction() const;
   bool hasBlockBroadcast() const;
   bool hasGridBroadcast() const;
 
-  bool hasBroadcast() const {
-    return no_bcast_domain_.size() != loop_domain_.size();
-  }
+  bool hasBroadcast() const;
 
   bool hasRoot() const {
     return !root_domain_.empty();
@@ -545,14 +542,6 @@ class NVF_API TensorDomain : public Val {
   bool hasSymbolicAxis() const;
 
   std::optional<int64_t> getReductionAxis() const;
-
-  const std::vector<IterDomain*>& noReductions() const {
-    return no_reduction_domain_;
-  }
-
-  const std::vector<IterDomain*>& noBroadcasts() const {
-    return no_bcast_domain_;
-  }
 
   // The input logical domain. The root domain of a consumer should equal the
   // logical domain of its producer ignoring reduction dimensions.
@@ -670,12 +659,6 @@ class NVF_API TensorDomain : public Val {
         std::move(new_allocation_domain), std::move(contiguity_flags));
   }
 
-  void resetDomains() {
-    no_reduction_domain_ = noReductions(loop_domain_);
-    no_bcast_domain_ = noBroadcasts(loop_domain_);
-    has_reduction_ = hasReduction(loop_domain_);
-  }
-
   // i here is int, as we want to accept negative value and ::size_type can be a
   // uint.
   IterDomain* axis(int64_t i) const;
@@ -774,10 +757,7 @@ class NVF_API TensorDomain : public Val {
   std::vector<IterDomain*> initial_loop_domain_;
   std::vector<IterDomain*> additional_ids_;
 
-  std::vector<IterDomain*> no_bcast_domain_;
-  std::vector<IterDomain*> no_reduction_domain_;
   std::vector<std::optional<bool>> contiguity_;
-  bool has_reduction_ = false;
 };
 
 } // namespace nvfuser

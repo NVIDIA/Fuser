@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: BSD-3-Clause
 import pytest
 from .core import BENCHMARK_CONFIG
-from nvfuser_direct.pytorch_utils import DEVICE_PROPERTIES
+from nvfuser.pytorch_utils import DEVICE_PROPERTIES
 
 
 def pytest_addoption(parser):
@@ -142,7 +142,7 @@ def pytest_collection_modifyitems(session, config, items):
     default.
     """
 
-    from nvfuser_direct.pytorch_utils import retry_on_oom_or_skip_test
+    from nvfuser.pytorch_utils import retry_on_oom_or_skip_test
 
     executors = ["eager", "torchcompile", "thunder", "thunder-torchcompile"]
 
