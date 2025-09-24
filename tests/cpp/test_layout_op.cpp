@@ -29,13 +29,13 @@ bool validateGroupedLayout(
 
   // validate output logical shape
   EXPECT_EQ(out.sizes(), ref.sizes());
-  int m = out.size(1);
 
   // take length of reference for un-padded k size.
+  int m = ref.size(0);
   int k = ref.size(1);
   int padded_k = (k + 4 - 1) / 4 * 4;
   int m_offset_last = sf_offsets[num_group-1].item().to<int>();
-  int m_last = expert_offsets[num_group-1].item().to<int>() - expert_offsets[num_group-2].item().to<int>();
+  int m_last = m - expert_offsets[num_group-1].item().to<int>();
   int padded_m = m_offset_last + (m_last + 127) / 128 * 128;
 
   out.as_strided_({padded_m, padded_k}, {padded_k, 1});
@@ -44,7 +44,7 @@ bool validateGroupedLayout(
   for (int i = 0; i < num_group; ++i) {
     int start_idx = sf_offsets[i].item().to<int>();
 
-    int m_g = i + 1 < num_group ? expert_offsets[i + 1].item().to<int>() : m -
+    int m_g = (i + 1 < num_group ? expert_offsets[i + 1].item().to<int>() : m) -
         expert_offsets[i].item().to<int>();
 
     int padded_m_g = std::ceil(m_g / 128.0) * 128;
