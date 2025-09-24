@@ -2012,7 +2012,7 @@ class SegmentedGroupTaskGraphConverter {
       if (auto* tv = dynamic_cast<TensorView*>(v)) {
         // Ignore scalar inputs
         TaskGraph::DataId data_id = maybeRegisterTv(tv);
-        TaskGraph::Data& data = all_data_.at((size_t)data_id);
+        TaskGraph::Data& data = all_data_.at(data_id);
         data.can_free = !tv->isFusionInput();
         inputs.push_back(data_id);
       }
