@@ -76,11 +76,6 @@ void resetAllocationDomainAndContiguity(
     TensorView* tv,
     const std::vector<int64_t>& sizes,
     const std::vector<int64_t>& strides) {
-  std::cout << "resetAllocationDomainAndContiguity" << std::endl;
-  std::cout << "tv: " << tv->toString() << std::endl;
-  tv->printTransforms();
-  std::cout << "sizes: " << sizes << std::endl;
-  std::cout << "strides: " << strides << std::endl;
   struct Dim {
     int64_t size;
     int64_t stride;
@@ -118,18 +113,10 @@ void resetAllocationDomainAndContiguity(
     sorted_sizes.push_back(dim.size);
     sorted_strides.push_back(dim.stride);
   }
-  std::cout << "sorted_allocation_domain: " << ir_utils::toString(sorted_allocation_domain) << std::endl;
-  std::cout << "sorted_sizes: " << sorted_sizes << std::endl;
-  std::cout << "sorted_strides: " << sorted_strides << std::endl;
   bool allocation_domain_is_correct = sorted_allocation_domain ==
       TensorDomain::noReductions(tv->getMaybeAllocationDomain());
   std::vector<std::optional<bool>> contiguity_without_reduction =
       computeContiguity(sorted_sizes, sorted_strides);
-  std::cout << "contiguity_without_reduction: ";
-  for (auto contiguity : contiguity_without_reduction) {
-    std::cout << (contiguity.has_value() ? (contiguity.value() ? "t" : "f") : "n") << " ";
-  }
-  std::cout << std::endl;
   std::vector<std::optional<bool>> contiguity; // with reduction
   // Note that computeContiguity gets contiguity based on sizes and strides,
   // This may not always be accurate. For example, size 1 dimension is not
@@ -138,14 +125,10 @@ void resetAllocationDomainAndContiguity(
   // to actually check the IterType of the IterDomain and fix the contiguity.
   for (auto [index, id] : views::enumerate_view(sorted_allocation_domain)) {
     if (!id->isBroadcast()) {
-      std::cout << "id: " << id->toString() << " is not broadcast" << std::endl;
-      std::cout << "contiguity_without_reduction[index]: " << contiguity_without_reduction[index] << std::endl;
       contiguity_without_reduction[index] = true;
-      std::cout << "contiguity_without_reduction[index]: " << contiguity_without_reduction[index] << std::endl;
     }
   }
   if (allocation_domain_is_correct) {
-    std::cout << "allocation_domain_is_correct" << std::endl;
     int64_t index = 0;
     for (auto id : tv->getMaybeAllocationDomain()) {
       if (id->isReduction()) {
@@ -154,14 +137,8 @@ void resetAllocationDomainAndContiguity(
         contiguity.push_back(contiguity_without_reduction[index++]);
       }
     }
-    std::cout << "contiguity: ";
-    for (auto contiguity : contiguity) {
-      std::cout << (contiguity.has_value() ? (contiguity.value() ? "t" : "f") : "n") << " ";
-    }
-    std::cout << std::endl;
     tv->setContiguity(contiguity);
   } else {
-    std::cout << "allocation_domain_is_not_correct" << std::endl;
     contiguity = contiguity_without_reduction;
     // Add reduction IDs to allocation domain to the back
     for (auto id : tv->getLogicalDomain()) {
@@ -170,12 +147,6 @@ void resetAllocationDomainAndContiguity(
         contiguity.push_back(std::nullopt);
       }
     }
-    std::cout << "sorted_allocation_domain: " << ir_utils::toString(sorted_allocation_domain) << std::endl;
-    std::cout << "contiguity: ";
-    for (auto contiguity : contiguity) {
-      std::cout << (contiguity.has_value() ? (contiguity.value() ? "t" : "f") : "n") << " ";
-    }
-    std::cout << std::endl;
     tv->setAllocationDomain(sorted_allocation_domain, contiguity);
   }
 }
