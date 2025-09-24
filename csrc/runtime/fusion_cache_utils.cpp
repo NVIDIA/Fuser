@@ -123,7 +123,7 @@ void resetAllocationDomainAndContiguity(
   // necessarily broadcast: it can also be a device parallelized dimension,
   // or just a dynamic size N where N happens to be 1. For this case, we need
   // to actually check the IterType of the IterDomain and fix the contiguity.
-  for (auto [index, id] : views::enumerate_view(no_reduction_domain)) {
+  for (auto [index, id] : views::enumerate_view(sorted_allocation_domain)) {
     if (!id->isBroadcast()) {
       contiguity_without_reduction[index] = true;
     }
