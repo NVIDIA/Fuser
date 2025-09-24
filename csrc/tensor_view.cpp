@@ -5,6 +5,9 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <iterator>
+#include <ranges>
+
 #include <compute_at.h>
 #include <device_lower/analysis/circular_buffer.h>
 #include <device_lower/lower2device.h>
@@ -1116,7 +1119,7 @@ TensorView* TensorView::cacheBefore(LoadStoreOpType op_type) {
   // This domain will be the consumer which needs a new domain, so replace the
   // producers domain with this domain.
 
-  TensorView* producer = IrBuilder::createInContainer<TensorView>(
+  auto* producer = IrBuilder::createInContainer<TensorView>(
       container(),
       IrBuilder::createInContainer<TensorDomain>(container(), domain()),
       getDataType().value());
@@ -1124,13 +1127,10 @@ TensorView* TensorView::cacheBefore(LoadStoreOpType op_type) {
   // Set domain of consumer
   TensorView* consumer = this;
 
-  size_t i = 0;
-  auto no_reduction_logical_domain =
-      TensorDomain::noReductions(getLogicalDomain());
-  std::vector<IterDomain*> new_logical_domain(
-      no_reduction_logical_domain.size());
-  for (const auto& dom : no_reduction_logical_domain) {
-    new_logical_domain[i++] = dom->cloneWithoutRFactor();
+  std::vector<IterDomain*> new_logical_domain;
+  new_logical_domain.reserve(getLogicalDomain().size());
+  for (IterDomain* dom : getLogicalDomain() | TensorDomain::kNoReductions) {
+    new_logical_domain.push_back(dom->cloneWithoutRFactor());
   }
 
   // Warning: allocation domain is temporarily discarded. It will be recovered
@@ -1205,9 +1205,10 @@ TensorView* TensorView::cacheFork() {
       "computeAt");
 
   // This domain will be the producer, so create the consumer
-  auto logical_domain = TensorDomain::noReductions(getLogicalDomain());
+  std::vector<IterDomain*> logical_domain =
+      TensorDomain::noReductions(getLogicalDomain());
 
-  TensorView* new_output = IrBuilder::createInContainer<TensorView>(
+  auto* new_output = IrBuilder::createInContainer<TensorView>(
       container(),
       IrBuilder::createInContainer<TensorDomain>(
           container(),
@@ -1299,13 +1300,10 @@ TensorView* TensorView::cacheAfter(
   // Create Consumer Domain
   // Keep Broadcast Axis (Permanent)
   // Remove Reduction Axis
-  size_t i = 0;
-  auto no_reduction_logical_domain =
-      TensorDomain::noReductions(getLogicalDomain());
-  std::vector<IterDomain*> new_logical_domain(
-      no_reduction_logical_domain.size());
-  for (const auto& dom : no_reduction_logical_domain) {
-    new_logical_domain[i++] = dom->cloneWithoutRFactor();
+  std::vector<IterDomain*> new_logical_domain;
+  new_logical_domain.reserve(getLogicalDomain().size());
+  for (IterDomain* dom : getLogicalDomain() | TensorDomain::kNoReductions) {
+    new_logical_domain.push_back(dom->cloneWithoutRFactor());
   }
 
   // This domain will be the producer, so create the consumer

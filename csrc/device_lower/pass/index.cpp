@@ -503,9 +503,12 @@ GridCommWorkBufferSizeInfo getGridCommWorkBufferSize(
   bool is_doubled = false;
 
   for (auto fl : for_loops) {
-    // Buffer size of parallelized domains are already taken care
-    if (fl->isTrivial() || fl->iter_domain()->isReduction() ||
-        fl->iter_domain()->isThread()) {
+    // Buffer size of parallelized domains are already taken
+    // care. Note that while we do not create for-loops for grouped
+    // iter domains, its size needs to be accounted to expand the
+    // buffer.
+    if ((fl->isTrivial() && !fl->isGroup()) ||
+        fl->iter_domain()->isReduction() || fl->iter_domain()->isThread()) {
       continue;
     }
     // If persistent, i.e., allreduce, only IterDomains with
@@ -1899,9 +1902,7 @@ Val* indexTMemLdSt(
         consumer_tv->definition(), consumer_tv == tmem_tv, domain, for_loops);
     Val* stride = tmem_tv->fusion()->oneVal();
     Val* index = tmem_tv->fusion()->zeroVal();
-    for (const auto& [id, idx] :
-         zip(std::ranges::views::reverse(domain),
-             std::ranges::views::reverse(indices))) {
+    for (auto [id, idx] : zip(domain, indices) | std::views::reverse) {
       index = SimplifyingIrBuilder::addExpr(
           index, SimplifyingIrBuilder::mulExpr(idx, stride));
       stride = SimplifyingIrBuilder::mulExpr(stride, id->extent());
@@ -1939,6 +1940,20 @@ Val* indexTMemLdSt(
 void IndexLowering::handle(const LoadStoreOp* ldst) {
   Val* in = nullptr;
   Val* out = nullptr;
+
+  // TODO: This function should be refactored to make the overall
+  // logic simpler to follow. Too many things are clamped into this
+  // single function, which makes it maintain and extend the code.
+
+  // Convert a scalar set for a grouped tensor to GroupedLoadStoreOp
+  if (auto out_tv = dynamic_cast<TensorView*>(ldst->out()); out_tv != nullptr &&
+      ir_utils::isParallelizedBy(out_tv->getLoopDomain(),
+                                 ParallelType::Group) &&
+      ldst->in()->isScalar()) {
+    handleGroupedLoadStoreOp(ldst);
+    return;
+  }
+
   if (ir_utils::isCpAsyncBulk(ldst)) {
     if (ir_utils::isCpAsyncBulkLoad(ldst)) {
       handleCpAsyncBulkLoad(ldst);
@@ -2120,6 +2135,27 @@ void IndexLowering::handle(const LoadStoreOp* ldst) {
   }
 }
 
+void IndexLowering::handleGroupedLoadStoreOp(const LoadStoreOp* ldst) {
+  NVF_ERROR(ldst->in()->isScalar());
+
+  int64_t group_size = 1;
+  for (const auto& loop_id : ldst->out()->as<TensorView>()->getLoopDomain()) {
+    if (loop_id->getParallelType() == ParallelType::Group) {
+      group_size *= loop_id->extent()->evaluate().as<int64_t>();
+    }
+  }
+
+  NVF_ERROR(group_size > 1);
+
+  auto out = lowerDstIndex(ldst->out())->as<kir::TensorIndex>();
+
+  auto new_ldst =
+      IrBuilder::create<kir::GroupedLoadStoreOp>(out, ldst->in(), group_size);
+
+  pushBack(new_ldst);
+  GpuLower::current()->propagateExprInfo(ldst, back());
+}
+
 // Reference:
 // https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#asynchronous-warpgroup-level-matrix-shared-memory-layout-matrix-descriptor
 // https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#tcgen05-shared-memory-descriptor
@@ -2208,7 +2244,7 @@ static Val* constructBlackwellMatrixDescriptor(
 ValGroup getInnerMmaLoopGroup(TensorView* tv, const MmaOp* mma) {
   ValGraph& id_graph = GpuLower::current()->tensorIndexer().traversalGraph();
   auto alloc_domain = id_graph.toGroups(
-      TensorDomain::noBroadcasts(tv->getMaybeAllocationDomain()));
+      tv->getMaybeAllocationDomain() | TensorDomain::kNoBroadcasts);
   auto loop_domain =
       id_graph.toGroups(mma->out()->as<TensorView>()->getLoopDomain());
 
@@ -2347,7 +2383,7 @@ Val* getInnerStrideBytes(TensorView* tv, const MmaOp* mma) {
 Val* getOuterStrideBytes(TensorView* tv, const MmaOp* mma) {
   ValGraph& id_graph = GpuLower::current()->tensorIndexer().traversalGraph();
   auto logical_domain =
-      id_graph.toGroups(TensorDomain::noBroadcasts(tv->getLogicalDomain()));
+      id_graph.toGroups(tv->getLogicalDomain() | TensorDomain::kNoBroadcasts);
   auto loop_domain =
       id_graph.toGroups(mma->out()->as<TensorView>()->getLoopDomain());
   auto alloc_domain = id_graph.toGroups(tv->getMaybeAllocationDomain());
