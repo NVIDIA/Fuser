@@ -76,6 +76,11 @@ void resetAllocationDomainAndContiguity(
     TensorView* tv,
     const std::vector<int64_t>& sizes,
     const std::vector<int64_t>& strides) {
+  std::cout << "resetAllocationDomainAndContiguity" << std::endl;
+  std::cout << "tv: " << tv->toString() << std::endl;
+  tv->printTransforms();
+  std::cout << "sizes: " << sizes << std::endl;
+  std::cout << "strides: " << strides << std::endl;
   struct Dim {
     int64_t size;
     int64_t stride;
