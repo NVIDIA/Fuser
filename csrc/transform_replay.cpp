@@ -251,14 +251,14 @@ void TransformReplay::selfReplay(
     bool ignore_reductions) {
   FUSER_PERF_SCOPE("TransformReplay::selfReplay");
 
-  std::vector<IterDomain*> new_self_logical = new_self->logical();
   std::vector<IterDomain*> self_logical = self->logical();
+  std::vector<IterDomain*> new_self_logical = new_self->logical();
+  NVF_ERROR_GE(self_logical.size(), new_self.logical());
   if (ignore_reductions) {
-    new_self_logical = TensorDomain::noReductions(new_self_logical);
     self_logical = TensorDomain::noReductions(self_logical);
+    new_self_logical = TensorDomain::noReductions(new_self_logical);
   }
-
-  NVF_ERROR_EQ(new_self_logical.size(), self_logical.size());
+  NVF_ERROR_EQ(self_logical.size(), new_self_logical.size());
 
   IterDomainMap axis_map;
   for (auto&& [id, new_id] : zip(self_logical, new_self_logical)) {
