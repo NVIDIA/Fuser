@@ -138,10 +138,14 @@ void resetAllocationDomainAndContiguity(
   // to actually check the IterType of the IterDomain and fix the contiguity.
   for (auto [index, id] : views::enumerate_view(no_reduction_domain)) {
     if (!id->isBroadcast()) {
+      std::cout << "id: " << id->toString() << " is not broadcast" << std::endl;
+      std::cout << "contiguity_without_reduction[index]: " << contiguity_without_reduction[index] << std::endl;
       contiguity_without_reduction[index] = true;
+      std::cout << "contiguity_without_reduction[index]: " << contiguity_without_reduction[index] << std::endl;
     }
   }
   if (allocation_domain_is_correct) {
+    std::cout << "allocation_domain_is_correct" << std::endl;
     int64_t index = 0;
     for (auto id : tv->getMaybeAllocationDomain()) {
       if (id->isReduction()) {
@@ -152,6 +156,7 @@ void resetAllocationDomainAndContiguity(
     }
     tv->setContiguity(contiguity);
   } else {
+    std::cout << "allocation_domain_is_not_correct" << std::endl;
     contiguity = contiguity_without_reduction;
     // Add reduction IDs to allocation domain to the back
     for (auto id : tv->getLogicalDomain()) {
@@ -162,6 +167,11 @@ void resetAllocationDomainAndContiguity(
     }
     tv->setAllocationDomain(sorted_allocation_domain, contiguity);
   }
+  std::cout << "contiguity: ";
+  for (auto contiguity : contiguity) {
+    std::cout << (contiguity.has_value() ? (contiguity.value() ? "t" : "f") : "n") << " ";
+  }
+  std::cout << std::endl;
 }
 
 void ArgumentManager::updateWithSegmentOutputs(
