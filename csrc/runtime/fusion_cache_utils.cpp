@@ -154,6 +154,11 @@ void resetAllocationDomainAndContiguity(
         contiguity.push_back(contiguity_without_reduction[index++]);
       }
     }
+    std::cout << "contiguity: ";
+    for (auto contiguity : contiguity) {
+      std::cout << (contiguity.has_value() ? (contiguity.value() ? "t" : "f") : "n") << " ";
+    }
+    std::cout << std::endl;
     tv->setContiguity(contiguity);
   } else {
     std::cout << "allocation_domain_is_not_correct" << std::endl;
@@ -165,13 +170,14 @@ void resetAllocationDomainAndContiguity(
         contiguity.push_back(std::nullopt);
       }
     }
+    std::cout << "sorted_allocation_domain: " << ir_utils::toString(sorted_allocation_domain) << std::endl;
+    std::cout << "contiguity: ";
+    for (auto contiguity : contiguity) {
+      std::cout << (contiguity.has_value() ? (contiguity.value() ? "t" : "f") : "n") << " ";
+    }
+    std::cout << std::endl;
     tv->setAllocationDomain(sorted_allocation_domain, contiguity);
   }
-  std::cout << "contiguity: ";
-  for (auto contiguity : contiguity) {
-    std::cout << (contiguity.has_value() ? (contiguity.value() ? "t" : "f") : "n") << " ";
-  }
-  std::cout << std::endl;
 }
 
 void ArgumentManager::updateWithSegmentOutputs(
