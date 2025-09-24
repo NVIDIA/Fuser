@@ -242,8 +242,7 @@ def test_cutlass_nvfp4_grouped_mm(
         blockscale_offsets,
     ]
 
-    #o, _ = nvfuser_direct_test.exec_nvfuser(nvfuser_fusion_id0, inputs)
-    o, _ = nvfuser_direct_test(nvfuser_fusion_id0, inputs)
+    o, _ = nvfuser_direct_test.exec_nvfuser(nvfuser_fusion_id0, inputs)
 
     o_decomposed_ref = torch.empty(m, n, dtype=torch.bfloat16, device="cuda:0")
     for i in range(g):
@@ -276,7 +275,7 @@ def test_cutlass_nvfp4_grouped_mm(
     is_pre_blackwell(), reason="Only supported on blackwell and newer devices."
 )
 #@pytest.mark.parametrize("config", [[1024, 128, 16*9]])
-pytest.mark.parametrize("config", [[1024, 128, 256]])
+@pytest.mark.parametrize("config", [[1024, 128, 256]])
 @pytest.mark.parametrize("tokens_per_expert_neg_one", [[115, 144, 8]])
 @pytest.mark.parametrize("out_dtype", [torch.bfloat16])
 def test_layout_op_and_cutlass_nvfp4_grouped_mm(
@@ -415,8 +414,7 @@ def test_layout_op_and_cutlass_nvfp4_grouped_mm(
         blockscale_offsets,
     ]
 
-    #o, _ = nvfuser_direct_test.exec_nvfuser(nvfuser_fusion_id0, inputs)
-    o, _ = nvfuser_direct_test(nvfuser_fusion_id0, inputs)
+    o, _ = nvfuser_direct_test.exec_nvfuser(nvfuser_fusion_id0, inputs)
 
     # quantization for activation is needed for reference.
     # note: following sglang implementation, not computing global scaling factor for mat1
