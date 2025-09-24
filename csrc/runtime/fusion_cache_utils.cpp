@@ -68,6 +68,10 @@ KernelArgumentHolder ArgumentManager::translateValsToArgs(
   return holder;
 }
 
+// When a fusion segment is executed by ExprEvalExecutor, the output
+// sizes and strides are determined by PyTorch, which might be different from
+// how we infer them. In this case, PyTorch is the ground truth, so we should
+// use PyTorch's result to reset the allocation domain and contiguity.
 void resetAllocationDomainAndContiguity(
     TensorView* tv,
     const std::vector<int64_t>& sizes,
@@ -77,6 +81,9 @@ void resetAllocationDomainAndContiguity(
     int64_t stride;
     IterDomain* id;
   };
+  // sizes and strides should be in the order of the logical domain
+  // We sort the dimensions by stride in descending order to get the correct
+  // stride order.
   std::vector<Dim> dims;
   dims.reserve(sizes.size());
   const auto& no_reduction_domain =
@@ -95,21 +102,21 @@ void resetAllocationDomainAndContiguity(
   std::sort(dims.begin(), dims.end(), [](const Dim& a, const Dim& b) {
     return a.stride > b.stride;
   });
-  std::vector<IterDomain*> allocation_domain;
+  std::vector<IterDomain*> sorted_allocation_domain;
   std::vector<int64_t> sorted_sizes;
   std::vector<int64_t> sorted_strides;
-  allocation_domain.reserve(tv->getLogicalDomain().size());
+  sorted_allocation_domain.reserve(tv->getLogicalDomain().size());
   sorted_sizes.reserve(tv->getLogicalDomain().size());
   sorted_strides.reserve(tv->getLogicalDomain().size());
   for (const auto& dim : dims) {
-    allocation_domain.push_back(dim.id);
+    sorted_allocation_domain.push_back(dim.id);
     sorted_sizes.push_back(dim.size);
     sorted_strides.push_back(dim.stride);
   }
-  bool allocation_domain_is_correct = allocation_domain == TensorDomain::noReductions(tv->getMaybeAllocationDomain());
+  bool allocation_domain_is_correct = sorted_allocation_domain == TensorDomain::noReductions(tv->getMaybeAllocationDomain());
   std::vector<std::optional<bool>> contiguity_without_reduction =
       computeContiguity(sorted_sizes, sorted_strides);
-  std::vector<std::optional<bool>> contiguity;
+  std::vector<std::optional<bool>> contiguity; // with reduction
   // Device parallelized dimension always has size 1, so contiguity inference
   // will treat it as broadcast. But it is actually not broadcast, so we need to
   // fix its contiguity to true.
@@ -133,11 +140,11 @@ void resetAllocationDomainAndContiguity(
     // Add reduction IDs to allocation domain to the back
     for (auto id : tv->getLogicalDomain()) {
       if (id->isReduction()) {
-        allocation_domain.push_back(id);
+        sorted_allocation_domain.push_back(id);
         contiguity.push_back(std::nullopt);
       }
     }
-    tv->setAllocationDomain(allocation_domain, contiguity);
+    tv->setAllocationDomain(sorted_allocation_domain, contiguity);
   }
 }
 
