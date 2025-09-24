@@ -76,6 +76,11 @@ void resetAllocationDomainAndContiguity(
     TensorView* tv,
     const std::vector<int64_t>& sizes,
     const std::vector<int64_t>& strides) {
+  std::cout << "resetAllocationDomainAndContiguity" << std::endl;
+  std::cout << "tv: " << tv->toString() << std::endl;
+  tv->printTransforms();
+  std::cout << "sizes: " << sizes << std::endl;
+  std::cout << "strides: " << strides << std::endl;
   struct Dim {
     int64_t size;
     int64_t stride;
@@ -113,6 +118,9 @@ void resetAllocationDomainAndContiguity(
     sorted_sizes.push_back(dim.size);
     sorted_strides.push_back(dim.stride);
   }
+  std::cout << "sorted_allocation_domain: " << ir_utils::toString(sorted_allocation_domain) << std::endl;
+  std::cout << "sorted_sizes: " << sorted_sizes << std::endl;
+  std::cout << "sorted_strides: " << sorted_strides << std::endl;
   bool allocation_domain_is_correct = sorted_allocation_domain ==
       TensorDomain::noReductions(tv->getMaybeAllocationDomain());
   std::vector<std::optional<bool>> contiguity_without_reduction =
@@ -128,6 +136,11 @@ void resetAllocationDomainAndContiguity(
       contiguity_without_reduction[index] = true;
     }
   }
+  std::cout << "contiguity_without_reduction: ";
+  for (auto contiguity : contiguity_without_reduction) {
+    std::cout << (contiguity.has_value() ? (contiguity.value() ? "t" : "f") : "n") << " ";
+  }
+  std::cout << std::endl;
   if (allocation_domain_is_correct) {
     int64_t index = 0;
     for (auto id : tv->getMaybeAllocationDomain()) {
@@ -139,6 +152,7 @@ void resetAllocationDomainAndContiguity(
     }
     tv->setContiguity(contiguity);
   } else {
+    std::cout << "allocation_domain_is_not_correct" << std::endl;
     contiguity = contiguity_without_reduction;
     // Add reduction IDs to allocation domain to the back
     for (auto id : tv->getLogicalDomain()) {
@@ -147,6 +161,11 @@ void resetAllocationDomainAndContiguity(
         contiguity.push_back(std::nullopt);
       }
     }
+    std::cout << "contiguity: ";
+    for (auto contiguity : contiguity) {
+      std::cout << (contiguity.has_value() ? (contiguity.value() ? "t" : "f") : "n") << " ";
+    }
+    std::cout << std::endl;
     tv->setAllocationDomain(sorted_allocation_domain, contiguity);
   }
 }
