@@ -838,6 +838,14 @@ TEST_F(SegmentationTest, RevertPrivatizedUpcast) {
     auto ke = dynamic_cast<KernelExecutor*>(executor.get());
     ASSERT_NE(ke, nullptr);
     kir::Kernel* kernel = ke->compiledKernel()->kernel();
+    for (auto v : kernel->inputs()) {
+      auto tv = dynamic_cast<TensorView*>(v);
+      if (tv == nullptr) {
+        continue;
+      }
+      std::cout << "Input: " << tv->toString() << std::endl;
+      tv->printTransforms();
+    }
     std::cout << "Kernel: " << *kernel << std::endl;
     kernel->print();
     int64_t num_upcast_ops = 0;
