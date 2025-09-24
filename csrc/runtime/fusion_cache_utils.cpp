@@ -113,7 +113,8 @@ void resetAllocationDomainAndContiguity(
     sorted_sizes.push_back(dim.size);
     sorted_strides.push_back(dim.stride);
   }
-  bool allocation_domain_is_correct = sorted_allocation_domain == TensorDomain::noReductions(tv->getMaybeAllocationDomain());
+  bool allocation_domain_is_correct = sorted_allocation_domain ==
+      TensorDomain::noReductions(tv->getMaybeAllocationDomain());
   std::vector<std::optional<bool>> contiguity_without_reduction =
       computeContiguity(sorted_sizes, sorted_strides);
   std::vector<std::optional<bool>> contiguity; // with reduction
