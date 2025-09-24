@@ -1785,23 +1785,57 @@ void eraseInputDistinctRootDomains(Fusion* fusion) {
     }
 
     auto* new_td = IrBuilder::create<TensorDomain>(new_logical_domain);
-    TransformReplay::selfReplay(
-        tv->domain(), new_td, /*ignore_reductions=*/true);
-    if (!tv->domain()->hasAllocation()) {
-      // The default contiguity for new_td is false. `selfReplay` does not
-      // replay contiguity when no allocation domain is present.
-      const std::vector<std::optional<bool>> old_contiguity =
-          tv->domain()->contiguity();
-      std::vector<std::optional<bool>> no_red_contiguity;
-      no_red_contiguity.reserve(old_contiguity.size());
-      for (const auto& [id, contiguity] :
-           zip(tv->getLogicalDomain(), old_contiguity)) {
-        if (id->isReduction()) {
-          continue;
+
+    auto compare_result = ir_utils::compareDomains(
+        tv->getLogicalDomain(),
+        tv->getLoopDomain(),
+        /*additional_ids=*/{},
+        /*ignore_broadcast=*/true);
+    bool has_disjoint_loop_logical = compare_result.dom0_has_unreachable_ids ||
+        compare_result.dom1_has_unreachable_ids;
+
+    if (has_disjoint_loop_logical) {
+      // NOTE: This is only the case for scatter outputs, for which loop and
+      // logical are disjoint. Consequently, the loop domain cannot be replayed.
+      // Since this scatter output is a fusion input to this segment, its loop
+      // domain is immaterial now and we can skip replaying it.
+      NVF_ERROR(
+          std::any_of(
+              tv->getLogicalDomain().begin(),
+              tv->getLogicalDomain().end(),
+              [](IterDomain* id) { return id->isGatherScatter(); }),
+          "Disjoint loop and logical are only permitted for scatter outputs, ",
+          tv->domain()->toString(0, false));
+      NVF_ERROR(
+          !isSharded(tv),
+          "Sharding is not permitted when loop domain is disjoint from logical "
+          "domain, ",
+          tv->domain()->toString(0, false));
+      // Only replay allocation. Contiguity is
+      // set to `true` since the scatter output is contiguous.
+      new_td->setAllocationDomain(
+          ir_utils::propagateScatterAllocationDomain(tv, new_logical_domain),
+          true);
+    } else {
+      // Replay both loop and allocation domains.
+      TransformReplay::selfReplay(
+          tv->domain(), new_td, /*ignore_reductions=*/true);
+      if (!tv->domain()->hasAllocation()) {
+        // The default contiguity for new_td is false. `selfReplay` does not
+        // replay contiguity when no allocation domain is present.
+        const std::vector<std::optional<bool>> old_contiguity =
+            tv->domain()->contiguity();
+        std::vector<std::optional<bool>> no_red_contiguity;
+        no_red_contiguity.reserve(old_contiguity.size());
+        for (const auto& [id, contiguity] :
+             zip(tv->getLogicalDomain(), old_contiguity)) {
+          if (id->isReduction()) {
+            continue;
+          }
+          no_red_contiguity.push_back(contiguity);
         }
-        no_red_contiguity.push_back(contiguity);
+        new_td->setContiguity(no_red_contiguity);
       }
-      new_td->setContiguity(no_red_contiguity);
     }
 
     replacement_map.emplace(tv->domain(), new_td);
