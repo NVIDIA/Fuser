@@ -206,6 +206,195 @@ void validateCpAsyncBulk(const std::vector<TensorView*>& tvs) {
   }
 }
 
+// Check if maybe_innermost_id is derived from base_id and corresponds to the
+// innermost subregion of base_id. The split/merge exprs between
+// based_id and id must not include any ID that is not produced from
+// base_id.
+bool isInnermost(IterDomain* base_id, IterDomain* maybe_innermost_id) {
+  auto exprs =
+      DependencyCheck::getAllExprsBetween({base_id}, {maybe_innermost_id});
+
+  std::deque<IterDomain*> frontier;
+  frontier.push_back(base_id);
+
+  for (auto expr : exprs) {
+    // expr is skipped if any of the inputs is missing.
+    if (auto merge = dynamic_cast<Merge*>(expr)) {
+      // Check if this merge is logically contiguous merge, that is,
+      // both of the two inputs are adjacent to each other
+      auto outer_it = std::ranges::find(frontier, merge->outer());
+      if (outer_it == frontier.end()) {
+        continue;
+      }
+      auto inner_it = std::ranges::find(frontier, merge->inner());
+      if (inner_it == frontier.end()) {
+        continue;
+      }
+      auto outer_pos = std::distance(frontier.begin(), outer_it);
+      auto inner_pos = std::distance(frontier.begin(), inner_it);
+
+      bool is_contig = outer_pos + 1 == inner_pos;
+      frontier.erase(inner_it);
+
+      // If it's contig, we can continue the analysis by proceeding to
+      // the output. If not, no further analysis is possible, so the
+      // two inputs are just removed from the frontier list
+      if (is_contig) {
+        frontier[outer_pos] = merge->out();
+      } else {
+        frontier.erase(outer_it);
+      }
+    } else if (auto split = dynamic_cast<Split*>(expr)) {
+      auto in_it = std::ranges::find(frontier, split->in());
+      if (in_it == frontier.end()) {
+        continue;
+      }
+      frontier.insert(in_it + 1, split->inner());
+      *in_it = split->outer();
+    }
+  }
+
+  // Once the traversal is done, if the target id located at the
+  // rightmost position of the frontier list, it is guaranteed to
+  // correspond to the innermost subregion of the base ID.
+  return !frontier.empty() && frontier.back() == maybe_innermost_id;
+}
+
+// Expr-specific validaion
+//
+// TODO: Move individual validations to here, e.g.,
+// validateCpAsyncBulk can be moved here
+class ExprValidator : public OptOutDispatch {
+ public:
+  static void validate(Fusion* fusion) {
+    ExprValidator validator(fusion);
+  }
+
+ private:
+  ExprValidator(Fusion* fusion) {
+    for (auto expr : fusion->exprs()) {
+      dispatch(expr);
+    }
+  }
+
+  // The lowering of ArgsortOp depends on specific scheduling
+  // assumptions. This tight coupling isn't ideal, but it's not a
+  // problem for now.
+  void handle(ArgsortOp* aop) final {
+    auto inp_tv = ir_utils::getTvInput(aop);
+    auto out_tv = ir_utils::getTvOutput(aop);
+
+    // Both input and output must be Local tensors. The local input
+    // tensor is initialized to the max or min value so that
+    // out-of-bounds items do not affect the results
+    NVF_ERROR_EQ(inp_tv->getMemoryType(), MemoryType::Local);
+    NVF_ERROR_EQ(out_tv->getMemoryType(), MemoryType::Local);
+
+    // The input will be initialized for this argsort. To avoid any
+    // potential conflict of initialization, require the input to be
+    // exclusively used by the argsort
+    NVF_ERROR_EQ(inp_tv->uses().size(), 1);
+
+    IterDomain* grouped_id = nullptr;
+    for (const auto& loop_id : out_tv->getLoopDomain()) {
+      if (loop_id->getParallelType() == ParallelType::Group) {
+        NVF_ERROR(grouped_id == nullptr, "Multiple IDs found to be grouped");
+        grouped_id = loop_id;
+      }
+    }
+
+    if (grouped_id != nullptr) {
+      // If it's grouped, it must correspond to the innermost subregion
+      // of the logical argsort ID
+      IterDomain* argsort_logical_id =
+          out_tv->getLogicalDomain().at(aop->dim());
+      NVF_ERROR(
+          isInnermost(argsort_logical_id, grouped_id),
+          "Invalid ID to group: ",
+          grouped_id->toString(),
+          " of ",
+          aop->toString());
+
+      // The output is allocated on registers, so the allocation
+      // domain should be just the same as the loop domain. The
+      // grouped ID must have the unit stride, which means all of the
+      // inner IDs must not contribute to the allocation
+      validateUnitStride(out_tv, out_tv->getLoopDomain(), grouped_id);
+
+      // All of the inputs per thread must be provided to the device
+      // function as a contiguous chunk of memory where each element
+      // has a unit stride within its allocated buffer. More
+      // concretely, the input would be passed to the device function
+      // as follows:
+      //
+      //  // Each thread computes 8 argsort elements
+      //  float T1[8];
+      //  ...
+      //  blockArgsort(..., T1, ...);
+      //
+      // Here, the input is required to have a loop ID that is exactly
+      // mapped with the grouped loop ID of the output, and that
+      // producer loop ID must be indeed allocated, i.e., not parallelized.
+      // Furthermore, like the output, none of the inner loop
+      // IDs is allowed to contribute to the allocation of the input so that the
+      // grouped ID has a unit stride.
+      //
+      // The requirement of the input being transformed exactly in the
+      // same as the output is a sufficient but not required
+      // condition. It could be relaxed if necessary.
+      const auto& c2p_replay = BestEffortReplay::replayPasC(
+          inp_tv, out_tv, -1, PairwiseLogicalDomainMap(inp_tv, out_tv));
+      auto producer_grouped_id_it = c2p_replay.getReplay().find(grouped_id);
+      NVF_ERROR(
+          producer_grouped_id_it != c2p_replay.getReplay().end(),
+          "No corresponding producer ID for the grouped consumer ID found: ",
+          grouped_id->toString());
+      auto producer_grouped_id = producer_grouped_id_it->second;
+
+      NVF_ERROR(
+          std::ranges::find(inp_tv->getLoopDomain(), producer_grouped_id) !=
+              inp_tv->getLoopDomain().end(),
+          "Corresponding grouped producer ID is not a loop ID: ",
+          producer_grouped_id->toString(),
+          " of ",
+          inp_tv->toString());
+
+      NVF_ERROR(
+          ir_utils::mayRequireAllocation(inp_tv, producer_grouped_id),
+          "The corresponding producer loop ID for grouping must be actualy "
+          "allocated without parallelization");
+
+      // Make sure all inner loop IDs should not contribute to the
+      // allocation
+      validateUnitStride(inp_tv, inp_tv->getLoopDomain(), producer_grouped_id);
+    }
+  }
+
+  static void validateUnitStride(
+      TensorView* tv,
+      const std::vector<IterDomain*>& alloc_domain,
+      IterDomain* id) {
+    auto it = std::ranges::find(alloc_domain, id);
+    NVF_ERROR(
+        it != alloc_domain.end(),
+        "ID, ",
+        id->toString(),
+        " not found in ",
+        toDelimitedString(alloc_domain));
+    ++it;
+    for (; it != alloc_domain.end(); ++it) {
+      NVF_ERROR(
+          !ir_utils::mayRequireAllocation(tv, *it),
+          "Not guaranteed to have a unit stride: ",
+          id->toString(),
+          " of ",
+          tv->toString(),
+          " due to ",
+          (*it)->toString());
+    }
+  }
+};
+
 } // namespace
 
 void validateIr(Fusion* fusion) {
@@ -228,6 +417,8 @@ void validateIr(Fusion* fusion) {
 
   auto all_tvs = fusion->allTvs();
   validateCpAsyncBulk(all_tvs);
+
+  ExprValidator::validate(fusion);
 }
 
 namespace {
@@ -1199,13 +1390,11 @@ void validateAndConvertIterDomainGrouping(Fusion* fusion) {
         tv->toString());
 
     NVF_CHECK(
-        tv->definition()->isA<ReductionOp>() ||
-            tv->definition()->isA<GroupedReductionOp>() ||
-            tv->definition()->isA<WelfordOp>() ||
-            tv->definition()->isA<GroupedWelfordOp>(),
-        "Invalid use of ParallelType::Group. Only ReductionOp, "
-        "GroupedReductionOp, WelfordOp and GroupedWelfordOp are allowed. ",
-        tv->definition()->toString());
+        def->isA<ReductionOp>() || def->isA<GroupedReductionOp>() ||
+            def->isA<WelfordOp>() || def->isA<GroupedWelfordOp>() ||
+            def->isA<ArgsortOp>(),
+        "Invalid use of ParallelType::Group: ",
+        def->toString());
 
     // Convert ReductionOp to GroupedReductionOp
     if (tv->definition()->isA<ReductionOp>()) {
@@ -1339,12 +1528,10 @@ void validateScatter(Fusion* fusion) {
     auto in_tv = sop->in()->as<TensorView>();
     auto out_tv = sop->out()->as<TensorView>();
 
-    // TensorIndexer currently only supports scatter with 1D tensors
-    // due to the non-exactness of non-indexed IDs.
-    NVF_ERROR_EQ(
-        out_tv->getLogicalDomain().size(),
-        1,
-        "Scatter with multi-dimensional tensors is not yet supported: ",
+    // TensorIndexer currently only supports exact scatter ops
+    NVF_ERROR(
+        sop->exactSizes(),
+        "Non-exact scatter is not yet supported: ",
         sop->toString());
 
     // Scatter is implemented as an in-place op. To lower it safely, it

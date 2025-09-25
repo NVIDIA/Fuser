@@ -245,11 +245,11 @@ def test_slice_error_checks(nvfuser_direct_test):
     checks = [
         (
             check_start_indices,
-            "Slice operation start_indices must be greater than or equal to 0. .*",
+            "Slice operation start_indices must be greater than or equal to 0..*",
         ),
         (
             check_end_indices,
-            "Slice operation end_indices must be greater than or equal to start_indices. .*",
+            "Slice operation end_indices must be greater than or equal to start_indices..*",
         ),
         (
             check_strides,
@@ -257,19 +257,19 @@ def test_slice_error_checks(nvfuser_direct_test):
         ),
         (
             check_tensor_dims,
-            "Number of tensor dimensions does not match slice dimensions! .*",
+            "Number of tensor dimensions does not match slice dimensions!.*",
         ),
         (
             check_slice_dims_start,
-            "Slice start_indices and strides don't match! .*",
+            "Slice start_indices and strides don't match!.*",
         ),
         (
             check_slice_dims_end,
-            "Slice indexing attribute dimensions don't match! .*",
+            "Slice indexing attribute dimensions don't match!.*",
         ),
         (
             check_slice_dims_stride,
-            "Slice start_indices and strides don't match! .*",
+            "Slice start_indices and strides don't match!.*",
         ),
         (check_nostrides, None),
         (legal, None),

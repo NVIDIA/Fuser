@@ -5,10 +5,13 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <scheduler/normalization_utils.h>
-#include <scheduler/registry.h>
 #include <scheduler/utils.h>
-#include <scheduler/vectorize_helper.h>
+
+#include <algorithm>
+#include <queue>
+#include <ranges>
+
+#include <ATen/cuda/CUDAContext.h>
 
 #include <bfs.h>
 #include <contiguity.h>
@@ -18,23 +21,21 @@
 #include <instrumentation.h>
 #include <ir/allocation_utils.h>
 #include <ir/builder.h>
+#include <ir/interface_nodes.h>
 #include <ir/utils.h>
 #include <logical_domain_map.h>
 #include <multidevice/utils.h>
 #include <ops/all_ops.h>
 #include <scheduler/mma_utils.h>
+#include <scheduler/normalization_utils.h>
+#include <scheduler/registry.h>
 #include <scheduler/runtime_info.h>
+#include <scheduler/tools/loop_domain_scheduler.h>
+#include <scheduler/vectorize_helper.h>
 #include <transform_iter.h>
 #include <transform_replay.h>
+#include <type.h>
 #include <val_graph_visitor.h>
-
-#include <ATen/cuda/CUDAContext.h>
-
-#include <algorithm>
-#include <queue>
-#include "ir/interface_nodes.h"
-#include "scheduler/tools/loop_domain_scheduler.h"
-#include "type.h"
 
 namespace nvfuser {
 namespace scheduler_utils {
@@ -1768,8 +1769,12 @@ BroadcastMultipleInformation getBroadcastMultiples(
 
   // We always cacheBefore output at the beginning of the scheduling. And after
   // cacheBefore, the reference tensor will have all reduction IDs removed.
-  auto ref_root_domain = TensorDomain::noDevices(
-      TensorDomain::noReductions(reference_tv->getLogicalDomain()));
+  std::vector<IterDomain*> ref_root_domain = [&]() {
+    auto ref_root_domain_view = reference_tv->getLogicalDomain() |
+        TensorDomain::kNoReductions | TensorDomain::kNoDevices;
+    return std::vector<IterDomain*>(
+        ref_root_domain_view.begin(), ref_root_domain_view.end());
+  }();
 
   if (!logical_reorder_map.empty()) {
     ref_root_domain =
@@ -1803,9 +1808,7 @@ BroadcastMultipleInformation getBroadcastMultiples(
     std::vector<bool> mapped_axes(ref_root_domain.size(), false);
 
     auto in_out_tv_domain =
-        TensorDomain::noDevices(in_out_tv->getMaybeRootDomain());
-    auto in_out_tv_domain_list = std::list<IterDomain*>(
-        in_out_tv_domain.begin(), in_out_tv_domain.end());
+        in_out_tv->getMaybeRootDomain() | TensorDomain::kNoDevices;
 
     for (const auto ref_i : arange(ref_root_domain.size())) {
       auto ref_id = ref_root_domain[ref_i];
@@ -1823,13 +1826,13 @@ BroadcastMultipleInformation getBroadcastMultiples(
       std::vector<IterDomain*> mapped_ids;
       if (!ref_id_has_view_transforms) {
         auto mapped_it = std::find_if(
-            in_out_tv_domain_list.begin(),
-            in_out_tv_domain_list.end(),
+            in_out_tv_domain.begin(),
+            in_out_tv_domain.end(),
             [&ref_id, &ca_map](IterDomain* in_out_tv_id) {
               return ca_map.areMapped(
                   in_out_tv_id, ref_id, IdMappingMode::EXACT);
             });
-        if (mapped_it != in_out_tv_domain_list.end()) {
+        if (mapped_it != in_out_tv_domain.end()) {
           mapped_ids.push_back(*mapped_it);
         }
       } else {

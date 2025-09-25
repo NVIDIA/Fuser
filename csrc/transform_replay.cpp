@@ -572,8 +572,8 @@ std::pair<TensorDomain*, int64_t> TransformReplay::replayPasC(
    *
    */
 
-  std::vector<IterDomain*> new_IDs;
-  std::unordered_set<IterDomain*> used_IDs;
+  std::vector<IterDomain*> new_loop;
+  std::unordered_set<IterDomain*> used_loop;
   // Add axes in (1)
   for (auto c_id : target_consumer_ids) {
     auto it = replay_PasC.getReplay().find(c_id);
@@ -585,11 +585,11 @@ std::pair<TensorDomain*, int64_t> TransformReplay::replayPasC(
           ", requested in replay.");
       continue;
     }
-    new_IDs.push_back(it->second);
-    used_IDs.emplace(it->second);
+    new_loop.push_back(it->second);
+    used_loop.emplace(it->second);
   }
 
-  int64_t producer_pos = (int64_t)new_IDs.size();
+  int64_t producer_pos = std::ssize(new_loop);
 
   // Add axes in (2)
   for (auto c_id : consumer->getLoopDomain()) {
@@ -602,9 +602,9 @@ std::pair<TensorDomain*, int64_t> TransformReplay::replayPasC(
           producer_replayed_loop.getUnorderedLeafIDs().end()) {
         continue;
       }
-      if (used_IDs.find(id) == used_IDs.end()) {
-        new_IDs.push_back(id);
-        used_IDs.emplace(id);
+      if (used_loop.find(id) == used_loop.end()) {
+        new_loop.push_back(id);
+        used_loop.emplace(id);
       }
     }
   }
@@ -613,17 +613,17 @@ std::pair<TensorDomain*, int64_t> TransformReplay::replayPasC(
   for (auto id : producer->getLoopDomain()) {
     if (producer_replayed_loop.getUnorderedLeafIDs().find(id) !=
         producer_replayed_loop.getUnorderedLeafIDs().end()) {
-      if (used_IDs.find(id) == used_IDs.end()) {
-        new_IDs.push_back(id);
-        used_IDs.emplace(id);
+      if (used_loop.find(id) == used_loop.end()) {
+        new_loop.push_back(id);
+        used_loop.emplace(id);
       }
     }
   }
 
   // Add axes in (4)
   for (auto id : producer_replayed_loop.getLeafIDs()) {
-    if (used_IDs.find(id) == used_IDs.end()) {
-      new_IDs.push_back(id);
+    if (used_loop.find(id) == used_loop.end()) {
+      new_loop.push_back(id);
     }
   }
 
@@ -637,7 +637,7 @@ std::pair<TensorDomain*, int64_t> TransformReplay::replayPasC(
       producer->getRootDomain(),
       producer->getLogicalDomain(),
       producer->getAllocationDomain(),
-      new_IDs,
+      new_loop,
       producer->domain()->contiguity());
   return {replayed, producer_pos};
 }
@@ -806,8 +806,8 @@ std::pair<TensorDomain*, int64_t> TransformReplay::replayCasP(
    * TODO: Should (2) and (3) be swapped?
    */
 
-  std::vector<IterDomain*> new_IDs;
-  std::unordered_set<IterDomain*> used_IDs;
+  std::vector<IterDomain*> new_loop;
+  std::unordered_set<IterDomain*> used_loop;
   // Add axes in (1)
   for (auto p_id : target_producer_ids) {
     auto it = replay_CasP.getReplay().find(p_id);
@@ -819,14 +819,14 @@ std::pair<TensorDomain*, int64_t> TransformReplay::replayCasP(
           ", requested in replay.");
       continue;
     }
-    new_IDs.push_back(it->second);
-    used_IDs.emplace(it->second);
+    new_loop.push_back(it->second);
+    used_loop.emplace(it->second);
   }
 
   // pay attention to consumer pos, it should be the actual replayed axis,
   // otherwise further replay may lead to error where the mapped ID is missing.
   // see https://github.com/NVIDIA/Fuser/issues/2593
-  int64_t consumer_pos = (int64_t)new_IDs.size();
+  int64_t consumer_pos = std::ssize(new_loop);
 
   // Add axes in (2)
   for (auto p_id : producer->getLoopDomain()) {
@@ -839,9 +839,9 @@ std::pair<TensorDomain*, int64_t> TransformReplay::replayCasP(
           consumer_replayed_loop.getUnorderedLeafIDs().end()) {
         continue;
       }
-      if (used_IDs.find(id) == used_IDs.end()) {
-        new_IDs.push_back(id);
-        used_IDs.emplace(id);
+      if (used_loop.find(id) == used_loop.end()) {
+        new_loop.push_back(id);
+        used_loop.emplace(id);
       }
     }
   }
@@ -850,17 +850,17 @@ std::pair<TensorDomain*, int64_t> TransformReplay::replayCasP(
   for (auto id : consumer->getLoopDomain()) {
     if (consumer_replayed_loop.getUnorderedLeafIDs().find(id) !=
         consumer_replayed_loop.getUnorderedLeafIDs().end()) {
-      if (used_IDs.find(id) == used_IDs.end()) {
-        new_IDs.push_back(id);
-        used_IDs.emplace(id);
+      if (used_loop.find(id) == used_loop.end()) {
+        new_loop.push_back(id);
+        used_loop.emplace(id);
       }
     }
   }
 
   // Add axes in (4)
   for (auto id : consumer_replayed_loop.getLeafIDs()) {
-    if (used_IDs.find(id) == used_IDs.end()) {
-      new_IDs.push_back(id);
+    if (used_loop.find(id) == used_loop.end()) {
+      new_loop.push_back(id);
     }
   }
 
@@ -870,7 +870,7 @@ std::pair<TensorDomain*, int64_t> TransformReplay::replayCasP(
         consumer->getRootDomain(),
         consumer->getLogicalDomain(),
         consumer->getAllocationDomain(),
-        new_IDs,
+        new_loop,
         consumer->domain()->contiguity());
 
     return {replayed, consumer_pos};
@@ -888,12 +888,12 @@ std::pair<TensorDomain*, int64_t> TransformReplay::replayCasP(
       consumer->getRootDomain(),
       consumer->getLogicalDomain(),
       /*allocation=*/std::vector<IterDomain*>{},
-      /*loop=*/new_IDs,
+      /*loop=*/new_loop,
       consumer->domain()->contiguity());
 
   if (producer->hasAllocation()) {
     auto replay_CasP = BestEffortReplay(
-        new_IDs,
+        new_loop,
         producer->getLoopDomain(),
         logical_map.mapProducerToConsumer(producer->domain(), replayed));
     const auto& p2c_map = replay_CasP.getReplay();
@@ -1437,7 +1437,7 @@ Expr* replayExprWithNewInput(Expr* e, Val* new_in) {
     new_out_root.reserve(old_domain->maybeRoot().size());
     int64_t i = 0;
     for (IterDomain* in_logical_id :
-         TensorDomain::noReductions(new_in_tv->getLogicalDomain())) {
+         new_in_tv->getLogicalDomain() | TensorDomain::kNoReductions) {
       // Copy the `rf` flag from `old_domain` and everything else from
       // `in_logical_id`.
       new_out_root.push_back(

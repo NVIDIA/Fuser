@@ -258,8 +258,6 @@ TEST_F(GreedySchedulerTest, ArgsortArith) {
   EXPECT_FALSE(executor_cache.getMostRecentKernelRuntime()->isSegmented());
 }
 
-// Currently, argsort requires TIDx to be exact, so this fusion is
-// currently segmented.
 TEST_F(GreedySchedulerTest, ArgsortPadScan) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
@@ -397,8 +395,6 @@ TEST_F(GreedySchedulerTest, TopK) {
   EXPECT_FALSE(executor_cache.getMostRecentKernelRuntime()->isSegmented());
 }
 
-// Similar to ArgsortPadScan, this is segmented due to the exactness
-// requirement of TopKOp
 TEST_F(GreedySchedulerTest, TopKPad) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
@@ -427,9 +423,7 @@ TEST_F(GreedySchedulerTest, TopKPad) {
   auto outputs = executor_cache.runFusionWithInputs({t0});
   testValidate(executor_cache.fusion(), outputs, {t0}, __LINE__, __FILE__);
 
-  // TODO: Extend the greedy scheduler to accept the fusion without
-  // segmentation
-  EXPECT_TRUE(executor_cache.getMostRecentKernelRuntime()->isSegmented());
+  EXPECT_FALSE(executor_cache.getMostRecentKernelRuntime()->isSegmented());
 }
 
 // Extracted from test_moe.py
@@ -466,7 +460,10 @@ T29_g___bfloat[iS76{2048}, bS77{1}]
 T35_g___bfloat[iS91{2048}, bS92{1}]
    = Set( T29_g___bfloat[iS76{2048}, bS77{1}], cache_op=Streaming )
 (26)
-}
+T8_l_int[iS20{2048}, iS21{128}]
+   = full({2048, 128}, 0);
+T30_l_int[iS80{2048}, bS81{1}]
+   = scatter(in = T8_l_int[iS20{2048}, iS21{128}], dim = 1, src = 1, idx = T20_l_int64_t[iS55{2048}, bS56{1}] )
 */
 // clang-format on
 TEST_F(GreedySchedulerTest, TopKLlama4) {
@@ -482,7 +479,11 @@ TEST_F(GreedySchedulerTest, TopKLlama4) {
       tv0, fusion.oneVal(DataType::Int), 1, /*largest=*/true, /*sorted=*/true);
   auto t19 = topk_result.values;
   auto t20 = topk_result.indices;
-  fusion.addOutput(t20);
+  auto t8 = zeros(
+      {IrBuilder::create<Val>(shape[0]), IrBuilder::create<Val>(shape[1])},
+      DataType::Int);
+  auto t30 = scatter(t8, 1, t20, fusion.oneVal(DataType::Int));
+  fusion.addOutput(t30);
   auto t24 = castOp(DataType::Float, t19);
   auto t25 = neg(t24);
   auto t26 = exp(t25);
@@ -505,6 +506,115 @@ TEST_F(GreedySchedulerTest, TopKLlama4) {
       testing::UnorderedElementsAre(
           HeuristicIs(SchedulerType::ExprEval),
           HeuristicIs(SchedulerType::Greedy)));
+}
+
+TEST_F(GreedySchedulerTest, ConstrainedIDAndBroadcast) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  std::vector<int64_t> shape{4, 128};
+
+  auto tv0 = makeContigConcreteTensor({shape[0]});
+  fusion.addInput(tv0);
+  auto tv1 = makeContigConcreteTensor(shape);
+  fusion.addInput(tv1);
+
+  auto tv2 = broadcast(tv0, {false, true});
+  auto tv3 = add(tv2, tv1);
+  auto tv4 = flatten(tv3);
+  auto tv5 = argsort(tv4, -1, /*descending=*/true, /*stable=*/true);
+  auto tv6 = mul(tv5, IrBuilder::create<Val>(100));
+  fusion.addOutput(tv6);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({shape[0]}, options);
+  auto t1 = at::randn(shape, options);
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs({t0, t1});
+  testValidate(executor_cache.fusion(), outputs, {t0, t1}, __LINE__, __FILE__);
+
+  EXPECT_FALSE(executor_cache.getMostRecentKernelRuntime()->isSegmented());
+}
+
+TEST_F(GreedySchedulerTest, ConstrainedIDAndSqueeze) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  std::vector<int64_t> shape{4, 128, 1};
+
+  auto tv0 = makeContigConcreteTensor(shape);
+  fusion.addInput(tv0);
+
+  auto tv1 = squeeze(tv0, {-1});
+  auto tv2 = argsort(tv1, -1);
+  fusion.addOutput(tv2);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn(shape, options);
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs({t0});
+  testValidate(executor_cache.fusion(), outputs, {t0}, __LINE__, __FILE__);
+
+  EXPECT_FALSE(executor_cache.getMostRecentKernelRuntime()->isSegmented());
+}
+
+TEST_F(GreedySchedulerTest, UnconstrainedIDAndBroadcast) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  std::vector<int64_t> shape{4, 8, 128};
+
+  auto tv0 = makeContigConcreteTensor({shape[0], shape[2]});
+  fusion.addInput(tv0);
+  auto tv1 = makeContigConcreteTensor(shape);
+  fusion.addInput(tv1);
+
+  auto tv2 = broadcast(tv0, {false, true, false});
+  auto tv3 = add(tv2, tv1);
+  auto tv4 = flatten(tv3, 0, 1);
+  auto tv5 = argsort(tv4, -1, /*descending=*/true, /*stable=*/true);
+  auto tv6 = mul(tv5, IrBuilder::create<Val>(100));
+  fusion.addOutput(tv6);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({shape[0], shape[2]}, options);
+  auto t1 = at::randn(shape, options);
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs({t0, t1});
+  testValidate(executor_cache.fusion(), outputs, {t0, t1}, __LINE__, __FILE__);
+
+  EXPECT_FALSE(executor_cache.getMostRecentKernelRuntime()->isSegmented());
+}
+
+TEST_F(GreedySchedulerTest, UnconstrainedIDAndSqueeze) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  std::vector<int64_t> shape{1, 128};
+
+  auto tv0 = makeContigConcreteTensor(shape);
+  fusion.addInput(tv0);
+
+  auto tv1 = argsort(tv0, -1);
+  auto tv2 = squeeze(tv1, {0});
+  auto tv3 = cumsum(tv2, -1);
+  fusion.addOutput(tv3);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn(shape, options);
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs({t0});
+  testValidate(executor_cache.fusion(), outputs, {t0}, __LINE__, __FILE__);
+
+  EXPECT_FALSE(executor_cache.getMostRecentKernelRuntime()->isSegmented());
 }
 
 } // namespace nvfuser

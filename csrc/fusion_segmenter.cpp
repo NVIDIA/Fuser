@@ -5,14 +5,16 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <fusion_segmenter.h>
+
 #include <algorithm>
+#include <ranges>
 #include <sstream>
 
 #include <debug.h>
 #include <device_lower/utils.h>
 #include <disjoint_set.h>
 #include <fusion.h>
-#include <fusion_segmenter.h>
 #include <instrumentation.h>
 #include <ir/all_nodes.h>
 #include <ir/cloner.h>
@@ -298,7 +300,8 @@ void SegmentedGroup::finalize() {
     if (auto tv = dynamic_cast<TensorView*>(i)) {
       // We do not need to add scalars which are the extents of already-added
       // input TensorViews
-      for (auto id : TensorDomain::noReductions(tv->getLogicalDomain())) {
+      for (IterDomain* id :
+           tv->getLogicalDomain() | TensorDomain::kNoReductions) {
         input_set.insert(id->getMaybeExpandedExtent());
       }
     }
@@ -1753,11 +1756,11 @@ void eraseInputDistinctRootDomains(Fusion* fusion) {
 
   for (auto tv : ir_utils::filterByType<TensorView>(fusion->inputs())) {
     // Create a new logical domain and replacement TensorDomain.
-    // Given an logical domain, create a new IterDomain.
-    // Otherwise, clone the previous IterDomain
     std::vector<IterDomain*> new_logical_domain;
-    auto logical = TensorDomain::noReductions(tv->getLogicalDomain());
-    new_logical_domain.reserve(logical.size());
+
+    // Ignore reduction ids for new tensordomain.
+    auto logical = tv->getLogicalDomain() | TensorDomain::kNoReductions;
+    new_logical_domain.reserve(std::ranges::distance(logical));
 
     // Does the logical domain contain all concrete sized extents?
     bool tv_is_concrete =
@@ -1765,7 +1768,9 @@ void eraseInputDistinctRootDomains(Fusion* fusion) {
           return id->extent()->isConstScalar();
         });
 
-    for (const auto& id : logical) {
+    // Given an rfactor IterDomain, create a new IterDomain.
+    // Otherwise, clone the previous IterDomain
+    for (IterDomain* id : logical) {
       if (id->isRFactorProduct()) {
         // Create new symbolic extents for logical iterDomains
         auto domain_extent = (!tv_is_concrete)
@@ -1781,21 +1786,58 @@ void eraseInputDistinctRootDomains(Fusion* fusion) {
       }
     }
 
-    TensorDomain* new_td = IrBuilder::create<TensorDomain>(new_logical_domain);
-    TransformReplay::selfReplay(tv->domain(), new_td, true);
-    if (!tv->domain()->hasAllocation()) {
-      const std::vector<std::optional<bool>> old_contiguity =
-          tv->domain()->contiguity();
-      std::vector<std::optional<bool>> no_red_contiguity;
-      no_red_contiguity.reserve(old_contiguity.size());
-      for (const auto& [alloc_id, contiguity] :
-           zip(tv->getLogicalDomain(), old_contiguity)) {
-        if (alloc_id->isReduction()) {
-          continue;
+    auto* new_td = IrBuilder::create<TensorDomain>(new_logical_domain);
+
+    auto compare_result = ir_utils::compareDomains(
+        tv->getLogicalDomain(),
+        tv->getLoopDomain(),
+        /*additional_ids=*/{},
+        /*ignore_broadcast=*/false);
+    bool has_disjoint_loop_logical = compare_result.dom0_has_unreachable_ids ||
+        compare_result.dom1_has_unreachable_ids;
+
+    if (has_disjoint_loop_logical) {
+      // NOTE: This is only the case for scatter outputs, for which loop and
+      // logical are disjoint. Consequently, the loop domain cannot be replayed.
+      // Since this scatter output is a fusion input to this segment, its loop
+      // domain is immaterial now and we can skip replaying it.
+      NVF_ERROR(
+          std::any_of(
+              tv->getLogicalDomain().begin(),
+              tv->getLogicalDomain().end(),
+              [](IterDomain* id) { return id->isGatherScatter(); }),
+          "Disjoint loop and logical are only permitted for scatter outputs, ",
+          tv->domain()->toString(0, false));
+      NVF_ERROR(
+          !isSharded(tv),
+          "Sharding is not permitted when loop domain is disjoint from logical "
+          "domain, ",
+          tv->domain()->toString(0, false));
+      // Only replay allocation. Contiguity is
+      // set to `true` since the scatter output is contiguous.
+      new_td->setAllocationDomain(
+          ir_utils::propagateScatterAllocationDomain(tv, new_logical_domain),
+          true);
+    } else {
+      // Replay both loop and allocation domains.
+      TransformReplay::selfReplay(
+          tv->domain(), new_td, /*ignore_reductions=*/true);
+      if (!tv->domain()->hasAllocation()) {
+        // The default contiguity for new_td is false. `selfReplay` does not
+        // replay contiguity when no allocation domain is present.
+        const std::vector<std::optional<bool>> old_contiguity =
+            tv->domain()->contiguity();
+        std::vector<std::optional<bool>> no_red_contiguity;
+        no_red_contiguity.reserve(old_contiguity.size());
+        for (const auto& [id, contiguity] :
+             zip(tv->getLogicalDomain(), old_contiguity)) {
+          if (id->isReduction()) {
+            continue;
+          }
+          no_red_contiguity.push_back(contiguity);
         }
-        no_red_contiguity.push_back(contiguity);
+        new_td->setContiguity(no_red_contiguity);
       }
-      new_td->setContiguity(no_red_contiguity);
     }
 
     replacement_map.emplace(tv->domain(), new_td);
@@ -4374,23 +4416,22 @@ std::vector<Expr*> get_upcasts_and_squeezes(SegmentedGroup* group) {
 //!  @return true if at least one expanded dimension needs to be squeezed, false
 //!  otherwise.
 //!
-bool needs_to_squeeze_expanded(
+bool needsToSqueezeExpanded(
     TensorView* x,
     const std::vector<bool>& to_squeeze) {
-  auto x_dom = x->domain()->noReductions();
-  const auto ndims = static_cast<int64_t>(x_dom.size());
-  for (const auto idx : arange(ndims)) {
-    // If the dimension is not expanded, no need to squeeze
-    if (!to_squeeze[idx]) {
-      continue;
-    }
-
-    // If the dimension is expanded, we need to squeeze it
-    if (x_dom[idx]->hasExpandedExtent()) {
+  auto non_reduction_ids = x->getLogicalDomain() | TensorDomain::kNoReductions;
+  NVF_ERROR_EQ(
+      std::ranges::distance(non_reduction_ids),
+      std::ssize(to_squeeze),
+      "Logical domain doesn't match to_squeeze: ",
+      x->getLogicalDomain(),
+      " vs ",
+      to_squeeze);
+  for (auto [id, squeeze] : zip(non_reduction_ids, to_squeeze)) {
+    if (squeeze && id->hasExpandedExtent()) {
       return true;
     }
   }
-
   return false;
 }
 
@@ -4471,7 +4512,7 @@ bool SegmentCandidateFinder::privatizeUpCastOrSqueezeOp() {
         out_tv_clone = squeeze(
             squeeze_op->input(0)->as<TensorView>(),
             squeeze_op->getSqueezeDimFlags(),
-            needs_to_squeeze_expanded(
+            needsToSqueezeExpanded(
                 squeeze_op->input(0)->as<TensorView>(),
                 squeeze_op->getSqueezeDimFlags()));
       }
@@ -4900,7 +4941,8 @@ void SegmentCandidateFinder::resolveScalarsInGroup(SegmentedGroup* group) {
   std::unordered_set<Val*> visited;
 
   const auto processTV = [&to_visit](TensorView* tv) {
-    for (auto id : TensorDomain::noReductions(tv->getMaybeRootDomain())) {
+    for (IterDomain* id :
+         tv->getMaybeRootDomain() | TensorDomain::kNoReductions) {
       to_visit.push_back(id->getMaybeExpandedExtent());
     }
     if (tv->domain()->hasRoot()) {
@@ -4936,7 +4978,8 @@ void SegmentCandidateFinder::resolveScalarsInGroup(SegmentedGroup* group) {
   // we avoid adding them as separate scalar inputs.
   for (auto e : group->producer_edges) {
     if (const auto tv = dynamic_cast<TensorView*>(e->val)) {
-      for (auto id : TensorDomain::noReductions(tv->getLogicalDomain())) {
+      for (IterDomain* id :
+           tv->getLogicalDomain() | TensorDomain::kNoReductions) {
         visited.insert(id->getMaybeExpandedExtent());
       }
     }
@@ -4987,7 +5030,7 @@ void SegmentCandidateFinder::resolveScalarsInGroup(SegmentedGroup* group) {
     input_set.insert(inp);
     if (auto tv = dynamic_cast<TensorView*>(inp)) {
       for (IterDomain* id :
-           TensorDomain::noReductions(tv->getLogicalDomain())) {
+           tv->getLogicalDomain() | TensorDomain::kNoReductions) {
         // Extents of inputs will already be bound. This prevents adding them
         // as redundant inputs.
         input_set.insert(id->getMaybeExpandedExtent());
@@ -5303,7 +5346,7 @@ RuntimeWorkSpace prepareRuntimeOrder(const SegmentedFusion& segmented_fusion) {
   for (auto* input_tv :
        ir_utils::filterByType<TensorView>(segmented_fusion.inputs())) {
     for (IterDomain* logical_id :
-         TensorDomain::noReductions(input_tv->getLogicalDomain())) {
+         input_tv->getLogicalDomain() | TensorDomain::kNoReductions) {
       runtime_workspace.group_extent_binding_order.push_back(
           logical_id->getMaybeExpandedExtent());
     }
