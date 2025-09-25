@@ -252,12 +252,15 @@ void TransformReplay::selfReplay(
 
   std::vector<IterDomain*> self_logical = self->logical();
   std::vector<IterDomain*> new_self_logical = new_self->logical();
-  bool ignore_new_reductions = false;
+  bool ignore_reductions;
   if (self_logical.size() > new_self_logical.size()) {
     self_logical = TensorDomain::noReductions(self_logical);
+    ignore_reductions = true;
   } else if (self_logical.size() < new_self_logical.size()) {
     new_self_logical = TensorDomain::noReductions(new_self_logical);
-    ignore_new_reductions = true;
+    ignore_reductions = true;
+  } else {
+    ignore_reductions = false;
   }
   NVF_ERROR_EQ(self_logical.size(), new_self_logical.size());
 
@@ -294,7 +297,7 @@ void TransformReplay::selfReplay(
   // Replay loop.
   if (self_loop != self->logical()) {
     std::vector<IterDomain*> new_loop;
-    if (ignore_new_reductions) {
+    if (ignore_reductions) {
       for (auto* id : new_self->logical()) {
         if (id->isReduction()) {
           new_loop.push_back(id);
@@ -303,6 +306,9 @@ void TransformReplay::selfReplay(
     }
 
     for (IterDomain* loop_id : self_loop) {
+      if (ignore_reductions && loop_id->isReduction()) {
+        continue;
+      }
       auto it = replay.getReplay().find(loop_id);
       NVF_ERROR(
           it != replay.getReplay().end(),
@@ -328,7 +334,7 @@ void TransformReplay::selfReplay(
     new_contiguity.reserve(self_contiguity.size());
 
     // Push back the reduction IDs that are not mapped
-    if (ignore_new_reductions) {
+    if (ignore_reductions) {
       for (auto* id : new_self->logical()) {
         if (id->isReduction()) {
           new_alloc_domain.push_back(id);
@@ -341,6 +347,9 @@ void TransformReplay::selfReplay(
     // Pushing the mapped IDs and corresponding contiguity flags
     for (auto&& [alloc_id, contiguity] :
          zip(self_allocation, self_contiguity)) {
+      if (ignore_reductions && alloc_id->isReduction()) {
+        continue;
+      }
       auto it = replay.getReplay().find(alloc_id);
       NVF_ERROR(
           it != replay.getReplay().end(),
