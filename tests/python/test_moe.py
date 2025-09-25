@@ -199,3 +199,5 @@ def test_llama4_moe_thunderfx():
     # print(tmodel.last_traces)
 
     torch.testing.assert_close(actual, expected, atol=1e-2, rtol=1e-2)
+
+test_llama4_moe_thunderfx()
