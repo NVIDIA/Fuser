@@ -329,7 +329,7 @@ class CompileTimeChecker : private IterVisitor {
     // not be parallelized with TID.
     auto out_tv = ir_utils::getTvOutput(scatter);
     checkDomainConstraints(
-        out_tv->domain()->initialLoop(), {constrained_out_logical_dim});
+        out_tv->domain()->logical(), {constrained_out_logical_dim});
 
     // In addition, the index and src tensors are not allowed to use
     // TID with the scatter dim. Their logical domains are not mapped
