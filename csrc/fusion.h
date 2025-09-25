@@ -269,10 +269,10 @@ class NVF_API Fusion : public IrContainer {
   // those of type `ReuseBuffer` are marked in fusion definitions.
   NVF_API void aliasOutputToInput(Val* output, Val* input, AllocationType type);
 
-  //! Returns the aliased input of a given output along with an `AliasInfo`
-  //! describing how they alias. Returns <nullptr,nullptr> when `output` is not
-  //! aliased.
   const AliasInfo& getOutputAlias(const Val* output) const;
+  const std::unordered_map<const Val*, AliasInfo>& getOutputAliases() const {
+    return io_alias_;
+  }
 
   bool isTVUseInfoValid() {
     return all_tv_uses_valid_;
