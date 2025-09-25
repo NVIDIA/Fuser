@@ -326,7 +326,11 @@ class CompileTimeChecker : private IterVisitor {
     auto constrained_out_logical_dim = scatter->dim();
 
     // For the scatter in and out tensors, the scatter dimension must
-    // not be parallelized with TID.
+    // not be parallelized with TID. Note that if the input is not
+    // produced within this fusion and the output is not further used,
+    // it doesn't matter. In that case, the scatter op should not be
+    // considered constrained from the beginning.
+    // TODO: Exclude such scatter ops from constrained ops
     auto out_tv = ir_utils::getTvOutput(scatter);
     checkDomainConstraints(
         out_tv->domain()->logical(), {constrained_out_logical_dim});
