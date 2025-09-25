@@ -102,13 +102,18 @@ void insertSegmentSetAfter(
   TensorView* copy = segment_set(use_of);
   // Inherit the allocation domain from `use_of`. This is important to pass
   // AliasTest.Bookend_SegmentSetPreservesAllocation.
-  TensorDomain* replayed_domain =
-      TransformReplay::replayCasP(
-          copy, use_of, -1, TransformReplayOptions().replayAllocation())
-          .first;
-  if (replayed_domain->hasAllocation()) {
+  // TODO: Replay from scatter output doesn't work as the loop domain
+  // is not mapped to its logical domain. We might want to either extend
+  // selfReplay or create a new API that can propagate the allocation
+  // domain only.
+  if (!use_of->isDefinitionType<ScatterOp>()) {
+    TransformReplay::selfReplay(
+        use_of->domain(), copy->domain(), /*ignore_reductions=*/true);
+  } else if (use_of->hasAllocation()) {
     copy->setAllocationDomain(
-        replayed_domain->allocation(), replayed_domain->contiguity());
+        ir_utils::propagateScatterAllocationDomain(
+            use_of, copy->getLogicalDomain()),
+        true);
   }
   std::for_each(first_user, last_user, [&](const Use& use) {
     ir_utils::replaceValInExprInputs(use.user, use_of, copy);
@@ -147,12 +152,16 @@ void MarkAliasesPreparePass::runPass(Fusion* fusion) {
       continue;
     }
 
-    const Layout preferred_layout = analysis.preferredLayout(tv);
+    const auto preferred_layout = analysis.preferredLayout(tv);
+    NVF_ERROR(
+        preferred_layout.has_value(),
+        "No preferred layout for an alias TV: ",
+        tv);
     tv->setAllocationDomain(
-        preferred_layout.allocation_domain, preferred_layout.contiguity);
+        preferred_layout->allocation_domain(), preferred_layout->contiguity());
     if (isDebugDumpEnabled(DebugDumpOption::PreSegmenterLogging)) {
       debug() << "Set the layout of " << ir_utils::varName(tv) << " to "
-              << preferred_layout.toString() << std::endl;
+              << preferred_layout->toString() << std::endl;
     }
   }
 

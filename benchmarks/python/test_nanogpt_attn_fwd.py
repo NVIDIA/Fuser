@@ -85,6 +85,7 @@ def nanogpt_attn_fwd_iobytes(size: tuple, dtype: torch.dtype):
 
 @pytest.mark.parametrize("size", generate_attn_inputs())
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)
+@pytest.mark.inner_persistent
 def test_nanogpt_attn_fwd_nvf_benchmark(
     benchmark,
     size: tuple,
@@ -130,6 +131,7 @@ def test_nanogpt_attn_fwd_nvf_benchmark(
 @pytest.mark.parametrize("executor", DEFAULT_EXECUTORS)
 @pytest.mark.parametrize("size", generate_attn_inputs())
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)
+@pytest.mark.inner_persistent
 def test_nanogpt_attn_fwd_baseline_benchmark(
     benchmark,
     size: tuple,
@@ -140,7 +142,9 @@ def test_nanogpt_attn_fwd_baseline_benchmark(
         clear_dynamo_cache()
     batch_size, seq_len, nh, n_embd = size
     dropout_p = 0.2
-    inputs = torch.randn(batch_size, nh, seq_len, seq_len, device="cuda", dtype=dtype)
+    inputs = torch.randn(
+        batch_size, nh, seq_len, seq_len, device="cuda", dtype=dtype, requires_grad=True
+    )
     bias = torch.tril(torch.ones(seq_len, seq_len, device="cuda")).view(
         1, 1, seq_len, seq_len
     )

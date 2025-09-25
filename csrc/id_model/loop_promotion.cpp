@@ -280,9 +280,32 @@ bool isLoopGraphUniform(const IdModel& id_model) {
           id_model.idGraph(IdMappingMode::LOOP).toGroup(loop_id);
       const auto all_exact_groups =
           id_model.idGraph(IdMappingMode::EXACT).toGroups(*loop_group);
-      if (all_exact_groups.size() > 1) {
-        return false;
+      if (all_exact_groups.size() == 1) {
+        continue;
       }
+
+      // Some more trivial cases
+      //
+      // If there's only one exact group that is not broadcast and all
+      // the other groups are broadcast, the non-broadcast group is
+      // the concrete group
+      bool unique_concrete_group_found = false;
+      for (const auto& eg : all_exact_groups) {
+        if (eg->front()->as<IterDomain>()->isBroadcast()) {
+          continue;
+        } else if (unique_concrete_group_found) {
+          unique_concrete_group_found = false;
+          break;
+        } else {
+          unique_concrete_group_found = true;
+        }
+      }
+
+      if (unique_concrete_group_found) {
+        continue;
+      }
+
+      return false;
     }
   }
 
@@ -603,7 +626,7 @@ std::unordered_map<ValGroup, IterDomain*> LoopPromotionMapBuilder::
   for (const ValGroup& iel_group : iel_graph.disjointValSets().disjointSets()) {
     NVF_ERROR(!iel_group->empty());
 
-    IterDomain* iel_group_id = iel_group->front()->as<IterDomain>();
+    auto* iel_group_id = iel_group->front()->as<IterDomain>();
 
     if (!iel_group_id->isBroadcast()) {
       continue;
@@ -654,9 +677,9 @@ std::unordered_map<ValGroup, IterDomain*> LoopPromotionMapBuilder::
     if (loop_exact_resolved_intersection.size() > 1) {
       // Ambiguous promotion. This should not happen.
       std::stringstream err_msg;
-      err_msg
-          << "Invalid multiple broadcast resolution within shared loops detected, group:\n  "
-          << iel_group->toString() << "\nIs being broadcasted to:";
+      err_msg << "Invalid multiple broadcast resolution within shared loops "
+                 "detected, group:\n  "
+              << iel_group->toString() << "\nIs being broadcasted to:";
       for (const ValGroup& entry : loop_exact_resolved_intersection) {
         err_msg << "\n  " << entry->toString();
       }
@@ -683,9 +706,9 @@ std::unordered_map<ValGroup, IterDomain*> LoopPromotionMapBuilder::
 
     if (promoted_iel_groups.size() > 1) {
       std::stringstream err_msg;
-      err_msg
-          << "Invalid multiple broadcast resolution within shared loops detected, group:\n  "
-          << iel_group->toString() << "\nIs being broadcasted to:";
+      err_msg << "Invalid multiple broadcast resolution within shared loops "
+                 "detected, group:\n  "
+              << iel_group->toString() << "\nIs being broadcasted to:";
       for (const ValGroup& entry : promoted_iel_groups) {
         err_msg << "\n  " << entry->toString();
       }
@@ -1260,6 +1283,17 @@ std::unordered_map<ValGroup, IterDomain*> LoopPromotionMapBuilder::
        loop_graph.disjointValSets().disjointSets()) {
     NVF_ERROR(!loop_group->empty());
 
+    // Loop groups may contain a single non-broadcast exact group as
+    // well as broadcast exact groups. In that case, the broadcast IDs
+    // should be all ignored.
+    const bool has_both_broadcast_and_concrete =
+        std::ranges::any_of(
+            *loop_group,
+            [](Val* val) { return val->as<IterDomain>()->isBroadcast(); }) &&
+        std::ranges::any_of(*loop_group, [](Val* val) {
+          return !val->as<IterDomain>()->isBroadcast();
+        });
+
     // Any domain of this loop group can be the promotion ID. Try to
     // find the simplest one, which means:
     //
@@ -1272,7 +1306,15 @@ std::unordered_map<ValGroup, IterDomain*> LoopPromotionMapBuilder::
     bool is_const = false;
 
     for (Val* val : *loop_group) {
-      IterDomain* loop_id = val->as<IterDomain>();
+      auto* loop_id = val->as<IterDomain>();
+
+      // Ignore broadcast if this group also has non-broadcast
+      // IDs. See the above comment on has_both_broadcast_and_concrete
+      // as well as isLoopGraphUniform.
+      if (has_both_broadcast_and_concrete && loop_id->isBroadcast()) {
+        continue;
+      }
+
       auto this_num_exprs =
           (int64_t)StmtSort::getExprsTo({loop_id->extent()}).size();
       auto this_is_const = loop_id->extent()->isConstInt();

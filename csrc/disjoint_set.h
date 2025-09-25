@@ -110,6 +110,11 @@ class VectorOfUniqueEntries {
     return intersection;
   }
 
+  bool hasIntersect(const VectorOfUniqueEntries<T, Hash>& other) const {
+    return std::ranges::any_of(
+        vector(), [&](const auto& entry) { return other.has(entry); });
+  }
+
   // Returns a new VectorOfUniqueEntries with entries that are in this but not
   // in other.
   VectorOfUniqueEntries<T, Hash> computeSubtract(
@@ -288,7 +293,7 @@ class VectorOfUniqueEntries {
 //! DisjointSet::*AreMapped(a,b) checks if a and b belong to the same disjoint
 //! set
 template <typename T, typename Hash = std::hash<T>>
-class DisjointSets {
+class NVF_API DisjointSets {
  public:
   using DisjointSet = std::shared_ptr<VectorOfUniqueEntries<T, Hash>>;
   using DisjointSetMap = std::unordered_map<T, DisjointSet, Hash>;
@@ -417,7 +422,8 @@ class DisjointSets {
         entry_it != disjointSetMap().end(),
         "Strict mapping failed on element: ",
         abstractToString(entry0),
-        " either an error occurred, or non strict mapping should have been used.");
+        " either an error occurred, or non strict mapping should have been "
+        "used.");
     return entry_it->second->has(entry1);
   }
 

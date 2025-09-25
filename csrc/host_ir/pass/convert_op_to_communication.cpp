@@ -22,7 +22,7 @@ namespace nvfuser::hir_pass {
 
 void ConvertOpToCommunication::passImplementation(Fusion* fusion) {
   FusionGuard fg(fusion);
-  hir::HostIrContainer* hic = dynamic_cast<hir::HostIrContainer*>(fusion);
+  auto* hic = dynamic_cast<hir::HostIrContainer*>(fusion);
   NVF_CHECK(hic, "Expected HostIrContainer");
   DeviceIdxType my_device_index = Communicator::getInstance().deviceId();
 
@@ -32,13 +32,12 @@ void ConvertOpToCommunication::passImplementation(Fusion* fusion) {
       return new_top_level_exprs.push_back(top_level_expr);
     }
     for (auto* expr : nvfuser::convertSingleOpToCommunication(
-             top_level_expr, my_device_index, params_)) {
+             top_level_expr, my_device_index, params_.communicator_backend)) {
       // Allocate the recv buffers of communications
       if (expr->isA<Communication>()) {
         auto* communication = expr->as<Communication>();
         TensorView* tv = communication->out();
-        if (tv->getDeviceMesh().has(my_device_index) &&
-            hic->alias().count(tv) == 0) {
+        if (tv->getDeviceMesh().has(my_device_index)) {
           auto* allocate =
               IrBuilder::create<kir::Allocate>(tv, MemoryType::Global);
           new_top_level_exprs.push_back(allocate);
@@ -54,8 +53,8 @@ void ConvertOpToCommunication::passImplementation(Fusion* fusion) {
 
   std::vector<Expr*> new_top_level_exprs;
   for (auto top_level_expr : hic->topLevelExprs()) {
-    if (top_level_expr->isA<ForLoop>()) {
-      auto* for_loop = top_level_expr->as<ForLoop>();
+    if (top_level_expr->isA<kir::ForLoop>()) {
+      auto* for_loop = top_level_expr->as<kir::ForLoop>();
       std::vector<Expr*> new_for_loop_body;
       for (auto* expr : for_loop->body().exprs()) {
         handle_top_level_expr(expr, new_for_loop_body);

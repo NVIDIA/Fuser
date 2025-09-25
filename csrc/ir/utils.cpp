@@ -16,6 +16,7 @@
 #include <scheduler/mma_utils.h>
 
 #include <limits>
+#include <ranges>
 #include <set>
 
 namespace nvfuser::ir_utils {
@@ -62,7 +63,8 @@ std::vector<int64_t> normalizeNew2Old(
           new2old.begin(),
           new2old.end(),
           [ndims](int64_t entry) { return entry < 0 || entry >= ndims; }),
-      "New2Old axes are not within the number of dimensions of the provided domain.\t",
+      "New2Old axes are not within the number of dimensions of the provided "
+      "domain.\t",
       new2old);
 
   // Going to use sets, to see if any duplicate values are in the map.
@@ -109,7 +111,8 @@ std::vector<int64_t> normalizeOld2New(
             return entry.first < 0 || entry.first >= ndims ||
                 entry.second < 0 || entry.second >= ndims;
           }),
-      "Reorder axes are not within the number of dimensions of the provided domain.");
+      "Reorder axes are not within the number of dimensions of the provided "
+      "domain.");
 
   // Going to use sets, to see if any duplicate values are in the map.
 
@@ -185,7 +188,7 @@ namespace ValReplacement {
 // Creates a new Expr substituting current with producer
 struct SubstituteInExpr : public OptOutMutator {
  public:
-  static Expr* subsitute(Expr* expr, Val* reference, Val* substitute) {
+  static Expr* substitute(Expr* expr, Val* reference, Val* substitute) {
     NVF_ERROR(
         expr != nullptr && reference != nullptr && substitute != nullptr,
         "Nullptr arg found.");
@@ -215,7 +218,7 @@ struct SubstituteInExpr : public OptOutMutator {
 
 Expr* replaceValInExprInputs(Expr* expr, Val* reference, Val* substitute) {
   FusionGuard fg(expr->fusion());
-  return ValReplacement::SubstituteInExpr::subsitute(
+  return ValReplacement::SubstituteInExpr::substitute(
       expr, reference, substitute);
 }
 
@@ -630,18 +633,18 @@ bool isSegmentSet(const Expr* e) {
   return false;
 }
 
-std::vector<ViewOp*> getViewOps(Fusion* fusion) {
+std::vector<ReshapeOp*> getReshapeOps(Fusion* fusion) {
   auto all_exprs = fusion->exprs();
 
-  auto all_view_ops = ir_utils::filterByType<ViewOp>(all_exprs);
+  auto all_view_ops = ir_utils::filterByType<ReshapeOp>(all_exprs);
 
-  std::vector<ViewOp*> view_ops;
+  std::vector<ReshapeOp*> view_ops;
 
   std::copy_if(
       all_view_ops.begin(),
       all_view_ops.end(),
       std::back_inserter(view_ops),
-      [](ViewOp* view) {
+      [](ReshapeOp* view) {
         return std::any_of(
             view->outputs().begin(), view->outputs().end(), [](Val* v) {
               if (!v->isA<TensorView>()) {
@@ -791,16 +794,11 @@ bool isIndexSelectIndicesTv(const TensorView* tv) {
   return false;
 }
 
-bool isGatherLookupTv(const Val* tv) {
-  for (auto expr : tv->uses()) {
-    if (expr->isA<GatherOp>()) {
-      auto idx_sel = expr->as<GatherOp>();
-      if (idx_sel->lookupTv() == tv) {
-        return true;
-      }
-    }
-  }
-  return false;
+bool isAndOnlyIsGatherLookupTv(const Val* tv) {
+  return !tv->uses().empty() &&
+      std::all_of(tv->uses().begin(), tv->uses().end(), [tv](Expr* expr) {
+        return expr->isA<GatherOp>() && expr->as<GatherOp>()->lookupTv() == tv;
+      });
 }
 
 std::string varName(const Val* val) {
@@ -1025,14 +1023,15 @@ CompareDomainResult compareDomains(
       toDelimitedString(dom1));
 
   dom0.insert(dom0.end(), additional_ids.begin(), additional_ids.end());
-  auto exprs =
-      getExprsBetween<IRBFS>(
-          {dom0.begin(), dom0.end()}, {dom1.begin(), dom1.end()}, false)
-          .first;
+  auto dom0_to_dom1_exprs = getExprsBetween<IRBFS>(
+                                {dom0.begin(), dom0.end()},
+                                {dom1.begin(), dom1.end()},
+                                /*require_all_to_visited=*/false)
+                                .first;
 
   std::unordered_set<Val*> frontier(dom0.begin(), dom0.end());
 
-  for (auto [expr, direction] : exprs) {
+  for (auto [expr, direction] : dom0_to_dom1_exprs) {
     NVF_ERROR(
         std::all_of(expr->inputs().begin(), expr->inputs().end(), [](Val* v) {
           return v->isA<IterDomain>();
@@ -1261,7 +1260,7 @@ bool isAlignedScopeExpr(const Expr* expr) {
       return false;
     }
 
-  } else if (auto fl = dynamic_cast<const ForLoop*>(expr)) {
+  } else if (auto fl = dynamic_cast<const kir::ForLoop*>(expr)) {
     // If the start, stop, step are not thread dependent
     //  then this for loop should be thread independent.
     if (getRegisterType(fl->start()) == RegisterType::GeneralPurpose ||
@@ -1334,11 +1333,38 @@ bool hasTrivialAllocationDomain(const TensorView* tv) {
   }
   const std::vector<IterDomain*>& alloc = tv->getMaybeAllocationDomain();
   const std::vector<IterDomain*>& logical = tv->getLogicalDomain();
-  return TensorDomain::noBroadcasts(TensorDomain::noReductions(logical)) ==
-      TensorDomain::noBroadcasts(TensorDomain::noReductions(alloc));
+
+  return std::ranges::equal(
+      logical | TensorDomain::kNoReductions | TensorDomain::kNoBroadcasts,
+      alloc | TensorDomain::kNoReductions | TensorDomain::kNoBroadcasts);
 }
 bool hasUniformSiblings(Expr* expr) {
   return !expr->isOneOf<SdpaFwdOp, SdpaBwdOp>();
+}
+
+bool isPartitionedLoop(const TensorView* tv, IterDomain* id) {
+  // False if id is not a loop ID
+  if (std::find(tv->getLoopDomain().begin(), tv->getLoopDomain().end(), id) ==
+      tv->getLoopDomain().end()) {
+    return false;
+  }
+
+  // If the memory of this domain is partitioned with respect to the
+  // parallel type of the domain, there's no allocation for the domain
+  return ir_utils::isMemoryPartitionedAcross(
+      tv->getMemoryType(), id->getParallelType());
+}
+
+bool mayRequireAllocation(const TensorView* tv, IterDomain* id) {
+  // Conditions to consider:
+  // - Fully partitioned
+  // - Size one: Allocation is done based on the promotion ID, but as
+  // long as the original ID has size one, its allocation should
+  // remain size one.
+  // - Reduction: Check the original ID, not the promotion, which may
+  //   be a reduction ID even though the original ID is not a reduction
+  return !isPartitionedLoop(tv, id) && !isSizeOneDomain(id) &&
+      !id->isReduction() && !id->isStride();
 }
 
 bool hasRootToLoopLinearTransformations(const TensorView* tv) {
@@ -1468,13 +1494,13 @@ int64_t getOperationCount(Val* val) {
   return num_ops;
 }
 
-ForLoop* createRangeLoop(int64_t size) {
+kir::ForLoop* createRangeLoop(int64_t size) {
   Val* loop_start = IrBuilder::create<Val>(0L, PrimDataType::Index);
   Val* loop_index = IrBuilder::create<Val>(PrimDataType::Index);
   Val* loop_stop = IrBuilder::create<Val>(size, DataType::Index);
   IterDomainBuilder loop_domain_builder(loop_start, loop_stop);
 
-  ForLoop* loop = IrBuilder::create<ForLoop>(
+  kir::ForLoop* loop = IrBuilder::create<kir::ForLoop>(
       loop_domain_builder.build(),
       loop_index,
       loop_start,
@@ -1549,8 +1575,8 @@ std::vector<IterDomain*> strideOrderToAllocation(
   return allocation_domain;
 }
 
-std::optional<std::pair<int64_t, int64_t>> getPrecisionOfProducerConsumerTensors(
-    UnaryOp* uop) {
+std::optional<std::pair<int64_t, int64_t>>
+getPrecisionOfProducerConsumerTensorsBit(UnaryOp* uop) {
   NVF_CHECK(uop != nullptr);
   NVF_CHECK(
       uop->getUnaryOpType() == UnaryOpType::Cast,
@@ -1575,12 +1601,12 @@ std::optional<std::pair<int64_t, int64_t>> getPrecisionOfProducerConsumerTensors
   }
 
   return std::make_pair(
-      primDataTypeSize(*inp_prim_type), primDataTypeSize(*out_prim_type));
+      primDataTypeSizeBit(*inp_prim_type), primDataTypeSizeBit(*out_prim_type));
 }
 
 int64_t getTMemLdStVectorizeSize(TensorView* consumer_tv) {
   int64_t vec_size = ir_utils::getVectorizeSize(consumer_tv);
-  int64_t dtype_size = dataTypeSize(consumer_tv->dtype());
+  int64_t dtype_size = dataTypeSizeByte(consumer_tv->dtype());
   int64_t vec_size_in_bytes = vec_size * dtype_size;
   constexpr int64_t tmem_unit_size_bytes = 4;
   NVF_ERROR(
@@ -1594,6 +1620,143 @@ int64_t getTMemLdStVectorizeSize(TensorView* consumer_tv) {
       ", vec_size_in_bytes: ",
       vec_size_in_bytes);
   return vec_size_in_bytes / tmem_unit_size_bytes;
+}
+
+TVDomainGuard::TVDomainGuard(TensorView* tv, TensorDomain* td)
+    : tv_(tv), prev_domain_(tv_->domain()) {
+  tv_->setDomain(td);
+}
+
+TVDomainGuard::TVDomainGuard(TVDomainGuard&& guard)
+    : tv_(nullptr), prev_domain_(guard.prev_domain_) {
+  std::swap(tv_, guard.tv_);
+}
+
+TVDomainGuard::~TVDomainGuard() {
+  if (tv_ != nullptr) {
+    tv_->setDomain(prev_domain_);
+  }
+}
+
+ir_utils::TVDomainGuard overrideContiguityGuard(
+    TensorView* tv,
+    bool contiguity) {
+  // Use domain guard to ignore the contiguity of the given tv.
+  TensorDomain* domain_with_specified_contiguity =
+      IrBuilder::create<TensorDomain>(
+          tv->getRootDomain(),
+          tv->getLogicalDomain(),
+          tv->getAllocationDomain(),
+          tv->getLoopDomain(),
+          TensorDomain::getContiguityFilledWith(
+              tv->getMaybeAllocationDomain(), contiguity));
+
+  return ir_utils::TVDomainGuard(tv, domain_with_specified_contiguity);
+}
+
+ir_utils::TVDomainGuard allocateToLogicalDomainGuard(
+    TensorView* tv,
+    bool contiguity) {
+  // Use domain guard to ignore the contiguity of the given tv.
+  TensorDomain* domain_with_specified_contiguity =
+      IrBuilder::create<TensorDomain>(
+          tv->getRootDomain(),
+          tv->getLogicalDomain(),
+          tv->getLoopDomain(),
+          TensorDomain::getContiguityFilledWith(
+              tv->getLogicalDomain(), contiguity));
+
+  return ir_utils::TVDomainGuard(tv, domain_with_specified_contiguity);
+}
+
+std::pair<std::vector<IterDomain*>, std::vector<IterDomain*>>
+getReshapeInputAndOutputIds(TensorView* reshape_out_tv) {
+  NVF_ERROR(
+      reshape_out_tv->definition() != nullptr &&
+          reshape_out_tv->definition()->isA<ReshapeOp>(),
+      "Not a reshape output: ",
+      reshape_out_tv->toString());
+
+  auto all_reshape_exprs = DependencyCheck::getAllExprsBetween(
+      {reshape_out_tv->getRootDomain().begin(),
+       reshape_out_tv->getRootDomain().end()},
+      {reshape_out_tv->getLogicalDomain().begin(),
+       reshape_out_tv->getLogicalDomain().end()});
+
+  std::vector<IterDomain*> reshaped_root_ids;
+  std::vector<IterDomain*> reshaped_logical_ids;
+  for (auto expr : all_reshape_exprs) {
+    std::ranges::copy(
+        expr->inputs() | std::views::filter([&](Val* inp) {
+          return inp->isA<IterDomain>() &&
+              std::ranges::find(
+                  reshape_out_tv->getRootDomain(), inp->as<IterDomain>()) !=
+              reshape_out_tv->getRootDomain().end();
+        }) | std::views::transform([](Val* inp) {
+          return inp->as<IterDomain>();
+        }),
+        std::back_inserter(reshaped_root_ids));
+    std::ranges::copy(
+        expr->outputs() | std::views::filter([&](Val* out) {
+          return out->isA<IterDomain>() &&
+              std::ranges::find(
+                  reshape_out_tv->getLogicalDomain(), out->as<IterDomain>()) !=
+              reshape_out_tv->getLogicalDomain().end();
+        }) | std::views::transform([](Val* out) {
+          return out->as<IterDomain>();
+        }),
+        std::back_inserter(reshaped_logical_ids));
+  }
+
+  return std::make_pair(reshaped_root_ids, reshaped_logical_ids);
+}
+
+std::vector<IterDomain*> getReachableIds(
+    const std::vector<IterDomain*>& domain,
+    const std::vector<IterDomain*>& dependencies) {
+  auto vals = getValsBetween<IRBFS>(
+      {domain.begin(), domain.end()},
+      {dependencies.begin(), dependencies.end()});
+
+  std::vector<IterDomain*> dependent_ids;
+  std::ranges::copy_if(
+      domain, std::back_inserter(dependent_ids), [&](IterDomain* id) {
+        return std::ranges::find(vals, id) != vals.end();
+      });
+  return dependent_ids;
+}
+
+std::vector<IterDomain*> propagateScatterAllocationDomain(
+    TensorView* scatter_out,
+    const std::vector<IterDomain*>& to_logical_domain) {
+  NVF_ERROR_EQ(
+      scatter_out->getLogicalDomain().size(),
+      to_logical_domain.size(),
+      "Mismatching tensor rank");
+  if (!scatter_out->hasAllocation()) {
+    return to_logical_domain;
+  }
+
+  // Only permutation is considered for now
+  auto logical_to_alloc = ir_utils::computePermutation(
+      scatter_out->getLogicalDomain(), scatter_out->getMaybeAllocationDomain());
+  NVF_ERROR(
+      logical_to_alloc.has_value(),
+      "Allocation domain of scatter output must be a permutation of logical "
+      "domain: ",
+      scatter_out->toString(),
+      ", logical: ",
+      toDelimitedString(scatter_out->getLogicalDomain()),
+      ", allocation: ",
+      toDelimitedString(scatter_out->getAllocationDomain()));
+
+  return ir_utils::applyPermutation(
+      to_logical_domain, logical_to_alloc.value());
+}
+
+bool isParallelizedBy(const std::vector<IterDomain*>& ids, ParallelType pt) {
+  return std::ranges::any_of(
+      ids, [&](IterDomain* id) { return id->getParallelType() == pt; });
 }
 
 } // namespace nvfuser::ir_utils

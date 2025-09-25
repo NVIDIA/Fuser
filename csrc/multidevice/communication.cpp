@@ -5,13 +5,16 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <c10/cuda/CUDAStream.h>
+#if defined(NVFUSER_DISTRIBUTED) && defined(USE_C10D_NCCL)
+#include <torch/csrc/distributed/c10d/ProcessGroupNCCL.hpp>
+#endif
+
 #include <ir/cloner.h>
 #include <ir/iostream.h>
 #include <ir/printer.h>
 #include <multidevice/communication.h>
-#if defined(NVFUSER_DISTRIBUTED) && defined(USE_C10D_NCCL)
-#include <torch/csrc/distributed/c10d/ProcessGroupNCCL.hpp>
-#endif
+#include <multidevice/utils.h>
 #include <utils.h>
 
 namespace nvfuser {
@@ -69,18 +72,47 @@ void assertBuffersHaveSameSize(
   const auto shape = (bufs1.empty() ? bufs2 : bufs1).at(0).sizes();
   for (const auto& bufs : {bufs1, bufs2}) {
     for (const auto& buf : bufs) {
-      NVF_ERROR(
-          buf.sizes() == shape,
-          "all buffers must have the same shape, but got: ",
-          buf.sizes(),
-          " vs ",
-          shape);
+      NVF_ERROR_EQ(buf.sizes(), shape, "all buffers must have the same shape");
     }
   }
 }
 
-void doLocalCopy(const at::Tensor& dst, const at::Tensor& src) {
-  dst.view_as(src).copy_(src, /*non_blocking=*/true);
+// View `t` as a compact tensor that's 1D and contiguous. All non-broadcast
+// dimensions of `t` must be contiguous. Note that this definition is different
+// from torch.Tensor.is_contiguous in that torch.Tensor.is_contiguous doesn't
+// allow expanded broadcast dimensions (aka internal overlapping).
+at::Tensor viewAsCompact(at::Tensor t) {
+  int64_t n_elements = t.numel();
+  for (auto [size, stride] : zip(t.sizes(), t.strides())) {
+    if (stride == 0) {
+      NVF_ERROR(
+          n_elements % size == 0,
+          "n_bytes is expected to be divisible by size, but got ",
+          n_elements,
+          " and ",
+          size);
+      n_elements /= size;
+    }
+  }
+  return t.as_strided(/*sizes=*/{n_elements}, /*strides=*/{1});
+}
+
+// Copy `src` to `dst`. `src` and `dst` must satisfy `isTvContiguous`.
+void doLocalCopy(at::Tensor dst, at::Tensor src) {
+  NVF_ERROR_EQ(dst.numel(), src.numel());
+
+  // I can't use `Tensor::copy_` because it doesn't alow `dst` to have expanded
+  // broadcasts.
+  dst = viewAsCompact(dst);
+  src = viewAsCompact(src);
+  NVF_ERROR_EQ(dst.numel(), src.numel());
+
+  cudaMemcpyAsync(
+      dst.data_ptr(),
+      src.data_ptr(),
+      dst.numel() * dst.element_size(),
+      cudaMemcpyDeviceToDevice,
+      at::cuda::getCurrentCUDAStream().stream());
 }
 
 template <typename T>
@@ -97,7 +129,6 @@ T getInitialValue(c10d::ReduceOp::RedOpType op) {
       return std::numeric_limits<T>::max();
     default:
       NVF_THROW("unsupported reduction op type");
-      return 0;
   }
 }
 
@@ -145,7 +176,6 @@ Communication::Communication(
     Team team,
     DeviceIdxType root,
     RedOpType red_op,
-    int64_t scattered_axis,
     CommunicatorBackend backend)
     : Expr(passkey) {
   NVF_ERROR(
@@ -161,7 +191,6 @@ Communication::Communication(
   addDataAttribute(team);
   addDataAttribute(root);
   addDataAttribute(red_op);
-  addDataAttribute(scattered_axis);
   addDataAttribute(backend);
 
   validate();
@@ -175,8 +204,6 @@ void Communication::validate() {
       " is not expected by CommunicationType ",
       type());
   NVF_ERROR(isReduction(type()) == (reduceOp() != RedOpType::UNUSED))
-  NVF_ERROR(
-      (type() == CommunicationType::ReduceScatter) == (scatteredAxis() >= 0));
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(Communication)
@@ -196,8 +223,8 @@ int64_t Communication::getRootRelativeIndex() {
 std::string Communication::toInlineString(const int indent_size) const {
   std::stringstream ss;
   indent(ss, indent_size) << "Communication " << name() << " ("
-                          << "type=" << type() << ", "
-                          << "team=(" << team() << ")";
+                          << "type=" << type() << ", " << "team=(" << team()
+                          << ")";
   if (hasRoot(type())) {
     ss << ", root=" << root();
   }
@@ -248,9 +275,8 @@ NVFUSER_DEFINE_CLONE_AND_CREATE(P2PCommunication)
 std::string P2PCommunication::toInlineString(const int indent_size) const {
   std::stringstream ss;
   indent(ss, indent_size) << "P2PCommunication " << name() << " ("
-                          << "type=" << type() << ", "
-                          << "buffer=" << buffer() << ", "
-                          << "peer=" << peer() << ", "
+                          << "type=" << type() << ", " << "buffer=" << buffer()
+                          << ", " << "peer=" << peer() << ", "
                           << "backend=" << backend() << ")";
   return ss.str();
 }
@@ -328,16 +354,6 @@ c10::intrusive_ptr<c10d::Work> postGather(
       output_tensors, input_tensors, {.rootRank = root_relative_index});
 }
 
-namespace {
-bool isTvContiguous(const TensorView* tv) {
-  // Reduction and broadcast axis do not have a contiguity value.
-  return std::all_of(
-      tv->getContiguity().begin(),
-      tv->getContiguity().end(),
-      [](std::optional<bool> c) { return c.value_or(true); });
-}
-} // namespace
-
 c10::intrusive_ptr<c10d::Work> postAllgather(
     Communication* communication,
     DeviceIdxType my_device_index,
@@ -347,18 +363,16 @@ c10::intrusive_ptr<c10d::Work> postAllgather(
   // input and output tensors maybe strided (tensor with shape [m, n, k] and
   // strides [1, k*m, m]), so we flatten them to match the ProcessGroupNCCL
   // contiguity requirements. Presegmentation pass `makeReshardingContiguous`
-  // ensures that the tvs are contiguous and HostIrExecutor validates the tensor
-  // against the tv allocation domain.
+  // ensures that the tvs are contiguous. CommunicationExecutor and
+  // HostIrEvaluator validate the tensor against the tv allocation domain.
 
   NVF_ERROR(
       isTvContiguous(communication->in()), "Input tensor is not contiguous");
   NVF_ERROR(
       isTvContiguous(communication->out()), "Output tensor is not contiguous");
 
-  auto flattened_output_tensor =
-      output_tensor.as_strided({output_tensor.numel()}, {1});
-  auto flattened_input_tensor =
-      input_tensor.as_strided({input_tensor.numel()}, {1});
+  auto flattened_output_tensor = viewAsCompact(output_tensor);
+  auto flattened_input_tensor = viewAsCompact(input_tensor);
   auto splits = at::tensor_split(
       flattened_output_tensor, communication->team_size(), /*dim=*/0);
   assertBuffersHaveSameSize({flattened_input_tensor}, splits);
@@ -378,33 +392,44 @@ c10::intrusive_ptr<c10d::Work> postScatter(
     c10d::Backend* backend,
     at::Tensor input_tensor,
     at::Tensor output_tensor) {
-  if (my_device_index == communication->root() &&
-      !communication->out()->getDeviceMesh().has(communication->root())) {
-    output_tensor = at::empty_like(input_tensor.slice(0, 0, 1));
-  }
+  NVF_ERROR(
+      isTvContiguous(communication->in()), "Input tensor is not contiguous");
+  NVF_ERROR(
+      isTvContiguous(communication->out()), "Output tensor is not contiguous");
+
+  auto output_device_mesh = communication->out()->getDeviceMesh();
+  NVF_ERROR(
+      output_device_mesh.has(communication->root()),
+      "communication->root() ",
+      communication->root(),
+      " is not in the output device mesh ",
+      output_device_mesh,
+      ".");
+
+  std::vector<std::vector<at::Tensor>> input_tensors;
+
+  output_tensor = viewAsCompact(output_tensor);
   std::vector<at::Tensor> output_tensors({output_tensor});
 
-  auto root_relative_index = communication->getRootRelativeIndex();
-  std::vector<std::vector<at::Tensor>> input_tensors;
   if (my_device_index == communication->root()) {
+    auto splits = at::tensor_split(
+        viewAsCompact(input_tensor),
+        output_device_mesh.size(),
+        /*dim=*/0);
+
     input_tensors.resize(1);
-    int64_t j = 0;
-    for (auto i : arange(communication->team().size())) {
-      if (root_relative_index == static_cast<DeviceIdxType>(i) &&
-          !communication->out()->getDeviceMesh().has(communication->root())) {
-        input_tensors.front().push_back(output_tensor);
-        continue;
-      }
-      input_tensors.front().push_back(input_tensor.slice(0, j, j + 1));
-      j++;
+    for (const auto& split : splits) {
+      input_tensors.front().push_back(split);
     }
 
-    assertBufferCount(input_tensors[0], communication->team().size());
+    assertBufferCount(input_tensors[0], output_device_mesh.size());
     assertBuffersHaveSameSize(input_tensors[0], output_tensors);
   }
 
   return backend->scatter(
-      output_tensors, input_tensors, {.rootRank = root_relative_index});
+      output_tensors,
+      input_tensors,
+      {.rootRank = communication->getRootRelativeIndex()});
 }
 
 c10::intrusive_ptr<c10d::Work> postReduce(
@@ -443,6 +468,19 @@ c10::intrusive_ptr<c10d::Work> postAllreduce(
     c10d::Backend* backend,
     at::Tensor input_tensor,
     at::Tensor output_tensor) {
+  NVF_ERROR(
+      isTvContiguous(communication->in()),
+      "Input tensor is not contiguous: ",
+      communication->in(),
+      " contiguity: ",
+      communication->in()->domain()->getContiguityString());
+  NVF_ERROR(
+      isTvContiguous(communication->out()),
+      "Output tensor is not contiguous: ",
+      communication->out(),
+      " contiguity: ",
+      communication->out()->domain()->getContiguityString());
+
   doLocalCopy(output_tensor, input_tensor);
   std::vector<at::Tensor> output_tensors({output_tensor});
 
@@ -456,40 +494,32 @@ c10::intrusive_ptr<c10d::Work> postReduceScatter(
     c10d::Backend* backend,
     at::Tensor input_tensor,
     at::Tensor output_tensor) {
-  const auto scattered_axis = communication->scatteredAxis();
   NVF_ERROR(
-      scattered_axis >= 0,
-      "scattered_axis is expected to be non-negative: ",
-      scattered_axis);
+      isTvContiguous(communication->in()),
+      "Input tensor is not contiguous: ",
+      communication->in(),
+      " contiguity: ",
+      communication->in()->domain()->getContiguityString());
+  NVF_ERROR(
+      isTvContiguous(communication->out()),
+      "Output tensor is not contiguous: ",
+      communication->out(),
+      " contiguity: ",
+      communication->out()->domain()->getContiguityString());
 
-  std::vector<at::Tensor> input_tensors = at::tensor_split(
-      input_tensor, communication->team_size(), scattered_axis);
-  // We could have checked the output shape as well if reduction_axis is
-  // available. It's not always available via
-  // `communication->out()->getReductionAxis()` for manually constructed host
-  // IRs like
-  // https://github.com/NVIDIA/Fuser/blob/89c47f695b296eb4ffd27984bd4c953fc3f3264b/tests/cpp/test_multidevice_overlap.cpp#L347.
-  assertBuffersHaveSameSize(input_tensors, {});
+  auto flattened_input_tensor = viewAsCompact(input_tensor);
+  auto flattened_output_tensor = viewAsCompact(output_tensor);
+  auto splits = at::tensor_split(
+      flattened_input_tensor, communication->team_size(), /*dim=*/0);
+  assertBuffersHaveSameSize(splits, {flattened_output_tensor});
 
   // reduce_scatter primitive in c10d induces extra buffering time to copy the
   // user's input tensors to an internal source buffer. It is therefore always
   // preferable to use _reduce_scatter_base (which does not perform any extra
-  // copy) when the tensors are stored contiguously (i.e., when
-  // scattered_axis==0). Note however than only nccl supports
-  // _reduce_scatter_base, not ucc.
-#if defined(NVFUSER_DISTRIBUTED) && defined(USE_C10D_NCCL)
-  if (scattered_axis == 0 &&
-      backend->getBackendName() == c10d::NCCL_BACKEND_NAME) {
-    return backend->_reduce_scatter_base(
-        output_tensor, input_tensor, {.reduceOp = communication->reduceOp()});
-  }
-#endif
-
-  std::vector<std::vector<at::Tensor>> input_tensors_vec({input_tensors});
-  std::vector<at::Tensor> output_tensor_vec({output_tensor});
-  return backend->reduce_scatter(
-      output_tensor_vec,
-      input_tensors_vec,
+  // copy) when the tensors are stored contiguously
+  return backend->_reduce_scatter_base(
+      flattened_output_tensor,
+      flattened_input_tensor,
       {.reduceOp = communication->reduceOp()});
 }
 
@@ -546,6 +576,12 @@ c10::intrusive_ptr<c10d::Work> postSingleCommunication(
     return nullptr;
   }
   NVF_ERROR(backend != nullptr);
+
+  if (isDebugDumpEnabled(DebugDumpOption::Communication)) {
+    debug() << "Posting " << communication->toInlineString()
+            << " with input_tensor " << input_tensor.sizes()
+            << " and output_tensor " << output_tensor.sizes() << std::endl;
+  }
 
   switch (communication->type()) {
     case CommunicationType::Gather:
@@ -628,7 +664,6 @@ c10::intrusive_ptr<c10d::Work> postSingleCommunication(
       return postRecv(communication, my_device_index, peer, backend, buffer);
     default:
       NVF_THROW("Wrong communication type: ", communication->type());
-      return nullptr;
   }
 }
 

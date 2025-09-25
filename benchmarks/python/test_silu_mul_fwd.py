@@ -34,6 +34,7 @@ def silu_mul_fwd_fusion(fd: FusionDefinition, dtype: DataType):
 
 @pytest.mark.parametrize("size", generate_input_sizes(dims=2))
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)
+@pytest.mark.pointwise
 def test_silu_mul_fwd_nvf_benchmark(
     benchmark,
     size: tuple,
@@ -56,6 +57,7 @@ def test_silu_mul_fwd_nvf_benchmark(
 @pytest.mark.parametrize("executor", DEFAULT_EXECUTORS)
 @pytest.mark.parametrize("size", generate_input_sizes(dims=2))
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)
+@pytest.mark.pointwise
 def test_silu_mul_fwd_baseline_benchmark(
     benchmark,
     size: tuple,
@@ -64,7 +66,10 @@ def test_silu_mul_fwd_baseline_benchmark(
 ):
     if executor == "torchcompile":
         clear_dynamo_cache()
-    inputs = [torch.randn(*size, device="cuda", dtype=dtype) for _ in range(2)]
+    inputs = [
+        torch.randn(*size, device="cuda", dtype=dtype, requires_grad=True)
+        for _ in range(2)
+    ]
 
     benchmark_fn = with_executor(executor, silu_mul)
 

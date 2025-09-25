@@ -74,7 +74,7 @@ static void NvFuserScheduler_Softmax(
 
   benchmark_state.SetBytesProcessed(
       int64_t(benchmark_state.iterations()) *
-      (2 * aten_input.numel() * int64_t(dataTypeSize(dtype))));
+      (2 * aten_input.numel() * dataTypeSizeByte(dtype)));
 }
 
 // Warp softmax comparison
@@ -111,7 +111,7 @@ static void NvFuserScheduler_Softmax_WarpReduceReference(
 
   benchmark_state.SetBytesProcessed(
       int64_t(benchmark_state.iterations()) *
-      (2 * args[0].as<at::Tensor>().numel() * int64_t(dataTypeSize(dtype))));
+      (2 * args[0].as<at::Tensor>().numel() * dataTypeSizeByte(dtype)));
 }
 
 static void NvFuserScheduler_Softmax_WarpReduce(
@@ -157,7 +157,7 @@ static void NvFuserScheduler_Softmax_WarpReduce(
 
   benchmark_state.SetBytesProcessed(
       int64_t(benchmark_state.iterations()) *
-      (2 * args[0].as<at::Tensor>().numel() * int64_t(dataTypeSize(dtype))));
+      (2 * args[0].as<at::Tensor>().numel() * dataTypeSizeByte(dtype)));
 }
 
 BENCHMARK(NvFuserScheduler_Softmax_WarpReduce)
@@ -201,7 +201,7 @@ static void Baseline_Softmax(
 
   benchmark_state.SetBytesProcessed(
       int64_t(benchmark_state.iterations()) *
-      (2 * aten_input.numel() * int64_t(dataTypeSize(dtype))));
+      (2 * aten_input.numel() * dataTypeSizeByte(dtype)));
 }
 
 static void Baseline_Softmax_Outer_fp32(benchmark::State& benchmark_state) {

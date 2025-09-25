@@ -551,14 +551,16 @@ bool ValGraph::mapThroughExpr(Expr* first, Expr* second, bool forward) {
 
   NVF_ERROR(
       propagate_through_exprs_,
-      "Asked to propagate expression mappings on a graph that has propagate_exprs_ disabled.");
+      "Asked to propagate expression mappings on a graph that has "
+      "propagate_exprs_ disabled.");
 
   const auto& first_ids = forward ? first->outputs() : first->inputs();
   const auto& second_ids = forward ? second->outputs() : second->inputs();
 
   NVF_ERROR(
       first_ids.size() == second_ids.size(),
-      "This should be unreachable, if transformation expressions match, their number of inputs and outputs should as well.\n However found:\n",
+      "This should be unreachable, if transformation expressions match, their "
+      "number of inputs and outputs should as well.\n However found:\n",
       first->toString(),
       "\nand\n",
       second->toString());

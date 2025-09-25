@@ -51,4 +51,22 @@ class MultiDeviceTest : public NVFuserTest {
   bool disable_skip;
 };
 
+// This macro is supposed to be used in a test case of a MultiDeviceTest or its
+// `SetUp` method, which have access to GTEST_SKIP and communicator_. It's not
+// made a function because that function wouldn't be able to skip the test by
+// calling GTEST_SKIP.
+#define SKIP_IF_NOT_ENOUGH_DEVICES(fusion)                          \
+  do {                                                              \
+    const auto num_devices = communicator_->size();                 \
+    for (auto* tv : fusion->allTvs()) {                             \
+      const DeviceMesh& mesh = tv->getDeviceMesh();                 \
+      for (const auto device_id : mesh.vector()) {                  \
+        if (device_id >= num_devices) {                             \
+          GTEST_SKIP() << tv->toString() << ") requires more than " \
+                       << num_devices << " devices.";               \
+        }                                                           \
+      }                                                             \
+    }                                                               \
+  } while (0)
+
 } // namespace nvfuser

@@ -349,6 +349,10 @@ void DomainMap::eraseifInputMappedThroughRootDomainAndIndexing(
       for (auto producer_of_producer_it = indexed_id_multimap_range.first;
            producer_of_producer_it != indexed_id_multimap_range.second;
            ++producer_of_producer_it) {
+        if (producer_sets.has(producer_of_producer_it->second)) {
+          // Prevent infinite recursion
+          continue;
+        }
         current_sets.pushBack(producer_of_producer_it->second);
       }
     }
@@ -517,7 +521,8 @@ int64_t TransposeDomainMap::getInnerLeafDim(
       // it and support with mapping it to out.
       NVF_ERROR(
           !merge->inner()->extent()->isOneInt(),
-          "merge with size-1 dimension is supposed to be translated to squeeze by reshape");
+          "merge with size-1 dimension is supposed to be translated to squeeze "
+          "by reshape");
       if (merge->inner() == mapped_id) {
         mapped_id = merge->out();
       }

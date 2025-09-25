@@ -6,7 +6,6 @@
  */
 // clang-format on
 #pragma once
-#include <device_lower/lower2device.h>
 #include <exceptions.h>
 #include <fusion.h>
 #include <ir/all_nodes.h>
@@ -22,6 +21,13 @@ namespace nvfuser {
 class PrecomputedValues;
 class KernelArgumentHolder;
 struct TensorArgAbstract;
+
+//! adjust evaluator sizes for dtype with non-regular width.
+//! This is necessary to compensate fp4, fp6, where the at::Tensor size doesn't
+//! match the logical domain of TensorView
+void adjustEvaluatorSizes(
+    const TensorView* tv,
+    std::vector<int64_t>& unsharded_sizes);
 
 //! NaiveValueMachine:
 //!  This is an un-optimized runtime for evaluating a

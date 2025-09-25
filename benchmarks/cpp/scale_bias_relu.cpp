@@ -143,7 +143,7 @@ static void NvFuserScheduler_SBR(
   const size_t channels = input_shape[3];
   benchmark_state.SetBytesProcessed(
       int64_t(benchmark_state.iterations()) * (channels * 2 + size * 2) *
-      int64_t(dataTypeSize(dtype)));
+      dataTypeSizeByte(dtype));
 }
 
 static void Baseline_SBR(benchmark::State& benchmark_state, DataType dtype) {
@@ -184,7 +184,7 @@ static void Baseline_SBR(benchmark::State& benchmark_state, DataType dtype) {
   const size_t channels = input_shape[3];
   benchmark_state.SetBytesProcessed(
       int64_t(benchmark_state.iterations()) * (channels * 2 + size * 2) *
-      int64_t(dataTypeSize(dtype)));
+      dataTypeSizeByte(dtype));
 }
 
 //------------------------------------------------------------------------------
@@ -221,7 +221,7 @@ static void NvFuserScheduler_SBR_Norm(
   const size_t channels = input_shape[3];
   benchmark_state.SetBytesProcessed(
       int64_t(benchmark_state.iterations()) * (channels * 4 + size * 2) *
-      int64_t(dataTypeSize(dtype)));
+      dataTypeSizeByte(dtype));
 }
 
 static void Baseline_SBR_Norm(
@@ -265,7 +265,7 @@ static void Baseline_SBR_Norm(
   const size_t channels = input_shape[3];
   benchmark_state.SetBytesProcessed(
       int64_t(benchmark_state.iterations()) * (channels * 4 + size * 2) *
-      int64_t(dataTypeSize(dtype)));
+      dataTypeSizeByte(dtype));
 }
 
 //------------------------------------------------------------------------------

@@ -9,8 +9,10 @@
 
 #include <disjoint_set.h>
 #include <ir/all_nodes.h>
+#include <val_graph_nodes.h>
 
 #include <iostream>
+#include <ranges>
 #include <string>
 #include <type_traits>
 #include <unordered_map>
@@ -51,11 +53,6 @@ namespace nvfuser {
 // only tested with IterDomain. Some of the routines might need to be
 // extended for other Val types.
 
-using ValGroup = std::shared_ptr<VectorOfUniqueEntries<Val*>>;
-using ValGroups = VectorOfUniqueEntries<ValGroup>;
-using ExprGroup = std::shared_ptr<VectorOfUniqueEntries<Expr*>>;
-using ExprGroups = VectorOfUniqueEntries<ExprGroup>;
-
 class NVF_API ValGraph {
  public:
   ValGraph() = default;
@@ -91,21 +88,25 @@ class NVF_API ValGraph {
   // Convert Val to its ValGroup, assert that it exists.
   const ValGroup& toGroup(Val* val) const;
 
-  // Convert a vector-like container of Val* or Expr* to their
-  // ValGroups or ExprGroups. The vector-like container type must
-  // define the element type as value_type
-  template <
-      typename ContainerType,
-      typename ElementType = typename std::remove_pointer<
-          typename ContainerType::value_type>::type,
-      typename RetType = typename std::conditional<
-          std::is_base_of<Val, ElementType>::value,
-          ValGroups,
-          ExprGroups>::type,
-      typename = std::enable_if_t<
-          std::is_base_of<Val, ElementType>::value ||
-          std::is_base_of<Expr, ElementType>::value>>
-  RetType toGroups(const ContainerType& entries) const {
+  // Convert a range of Val* or Expr* to ValGroups / ExprGroups.
+  template <std::ranges::input_range Range>
+  auto toGroups(Range entries) const {
+    using RawValue = std::ranges::range_value_t<Range>;
+    static_assert(
+        std::is_pointer_v<RawValue>,
+        "toGroups expects a range of pointers to Val or Expr");
+
+    using ElementType = std::remove_pointer_t<RawValue>;
+    static_assert(
+        std::is_base_of_v<Val, ElementType> ||
+            std::is_base_of_v<Expr, ElementType>,
+        "toGroups expects pointers to Val or Expr types");
+
+    using RetType = std::conditional_t<
+        std::is_base_of_v<Val, ElementType>,
+        ValGroups,
+        ExprGroups>;
+
     RetType groups;
     for (auto entry : entries) {
       groups.pushBack(toGroup(entry));

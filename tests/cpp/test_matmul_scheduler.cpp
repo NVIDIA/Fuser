@@ -216,9 +216,9 @@ TEST_P(PrecisionParametrizedTest, EpilogueBias) {
 
   checkUnsegmentedVectorization(
       executor_cache,
-      16l / dataTypeSize(in_type),
-      16l / dataTypeSize(in_type),
-      16l / dataTypeSize(out_type));
+      16l / dataTypeSizeByte(in_type),
+      16l / dataTypeSizeByte(in_type),
+      16l / dataTypeSizeByte(out_type));
 
   // NOTE: increasted absolute tolerance to silence false negative verification
   //       caused by different way of calculating reference
@@ -304,9 +304,9 @@ TEST_P(PrecisionParametrizedTest, EpilogueRelu) {
 
   checkUnsegmentedVectorization(
       executor_cache,
-      16l / dataTypeSize(in_type),
-      16l / dataTypeSize(in_type),
-      16l / dataTypeSize(out_type));
+      16l / dataTypeSizeByte(in_type),
+      16l / dataTypeSizeByte(in_type),
+      16l / dataTypeSizeByte(out_type));
 
   NVF_CHECK(
       at::allclose(outputs[0].as<at::Tensor>(), t4, abs_err_thr, rel_err_thr));
@@ -408,9 +408,9 @@ TEST_P(PrecisionParametrizedTest, EpilogueBiasRelu) {
 
   checkUnsegmentedVectorization(
       executor_cache,
-      16l / dataTypeSize(in_type),
-      16l / dataTypeSize(in_type),
-      16l / dataTypeSize(out_type));
+      16l / dataTypeSizeByte(in_type),
+      16l / dataTypeSizeByte(in_type),
+      16l / dataTypeSizeByte(out_type));
 
   // NOTE: increasted absolute tolerance to silence false negative verification
   //       caused by different way of calculating reference D tensor results
@@ -499,9 +499,9 @@ TEST_P(PrecisionParametrizedTest, EpilogueReluAux) {
 
   checkUnsegmentedVectorization(
       executor_cache,
-      16l / dataTypeSize(in_type),
-      16l / dataTypeSize(in_type),
-      16l / dataTypeSize(out_type));
+      16l / dataTypeSizeByte(in_type),
+      16l / dataTypeSizeByte(in_type),
+      16l / dataTypeSizeByte(out_type));
 
   // D tensor results
   NVF_CHECK(
@@ -612,9 +612,9 @@ TEST_P(PrecisionParametrizedTest, EpilogueBiasReluAux) {
 
   checkUnsegmentedVectorization(
       executor_cache,
-      16l / dataTypeSize(in_type),
-      16l / dataTypeSize(in_type),
-      16l / dataTypeSize(out_type));
+      16l / dataTypeSizeByte(in_type),
+      16l / dataTypeSizeByte(in_type),
+      16l / dataTypeSizeByte(out_type));
 
   // NOTE: increasted absolute tolerance to silence false negative verification
   //       caused by different way of calculating reference D tensor results
@@ -702,9 +702,9 @@ TEST_P(PrecisionParametrizedTest, EpilogueGelu) {
 
   checkUnsegmentedVectorization(
       executor_cache,
-      16l / dataTypeSize(in_type),
-      16l / dataTypeSize(in_type),
-      16l / dataTypeSize(out_type));
+      16l / dataTypeSizeByte(in_type),
+      16l / dataTypeSizeByte(in_type),
+      16l / dataTypeSizeByte(out_type));
 
   NVF_CHECK(
       at::allclose(outputs[0].as<at::Tensor>(), t4, abs_err_thr, rel_err_thr));
@@ -791,9 +791,9 @@ TEST_P(PrecisionParametrizedTest, EpilogueGeluAux) {
 
   checkUnsegmentedVectorization(
       executor_cache,
-      16l / dataTypeSize(in_type),
-      16l / dataTypeSize(in_type),
-      16l / dataTypeSize(out_type));
+      16l / dataTypeSizeByte(in_type),
+      16l / dataTypeSizeByte(in_type),
+      16l / dataTypeSizeByte(out_type));
 
   // D tensor results
   NVF_CHECK(
@@ -897,9 +897,9 @@ TEST_P(PrecisionParametrizedTest, EpilogueBiasGelu) {
 
   checkUnsegmentedVectorization(
       executor_cache,
-      16l / dataTypeSize(in_type),
-      16l / dataTypeSize(in_type),
-      16l / dataTypeSize(out_type));
+      16l / dataTypeSizeByte(in_type),
+      16l / dataTypeSizeByte(in_type),
+      16l / dataTypeSizeByte(out_type));
 
   // NOTE: increasted absolute tolerance to silence false negative verification
   //       caused by different way of calculating reference
@@ -1007,9 +1007,9 @@ TEST_P(PrecisionParametrizedTest, EpilogueBiasGeluAux) {
 
   checkUnsegmentedVectorization(
       executor_cache,
-      16l / dataTypeSize(in_type),
-      16l / dataTypeSize(in_type),
-      16l / dataTypeSize(out_type));
+      16l / dataTypeSizeByte(in_type),
+      16l / dataTypeSizeByte(in_type),
+      16l / dataTypeSizeByte(out_type));
 
   // NOTE: increasted absolute tolerance to silence false negative verification
   //       caused by different way of calculating reference D tensor results
@@ -2528,7 +2528,8 @@ TEST_F(MatmulSchedulerPluginTest, BasicMatmul) {
 
   NVF_CHECK(
       !runtime->isSegmented(),
-      "fusion got segmented, expected to match whole fusion with single segment");
+      "fusion got segmented, expected to match whole fusion with single "
+      "segment");
 
   NVF_CHECK(
       isSchedulerInUse(runtime, SchedulerType::Matmul),
@@ -2537,7 +2538,7 @@ TEST_F(MatmulSchedulerPluginTest, BasicMatmul) {
   HeuristicParams* heur = runtime->getMostRecentExecutorLog().params.get();
   ASSERT_NE(heur, nullptr);
   ASSERT_TRUE(heur->isA<MatmulParams>());
-  MatmulParams* mmheur = heur->as<MatmulParams>();
+  auto* mmheur = heur->as<MatmulParams>();
   EXPECT_EQ(mmheur->circular_buffer_options.smem_circular_buffer_stage, 0);
 
   testValidate(
@@ -3329,7 +3330,6 @@ class HopperPlusMatmulSchedulerTest
       NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(9, 0, 10, 0);
     } else {
       NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(10, 0, 11, 0);
-      GTEST_SKIP() << "Blackwell tests are not supported yet";
     }
 
     if (a_k_inner) {

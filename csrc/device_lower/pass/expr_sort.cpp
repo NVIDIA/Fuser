@@ -301,10 +301,6 @@ class ExprSegmentationSorter {
   // segment group doesn't map to any of the dimensions of its neighbors.
   bool interIterUpdate();
 
-  // Reset the ExprSortPayload of the groups so we can traverse and identify
-  // merge candidates.
-  void resetTraversal();
-
   // Reset the set levels of each group. This is what's used to identify which
   // nodes can be merged together.
   void resetLevels();
@@ -360,8 +356,6 @@ class ExprSegmentationSorter {
   // invalidate any entries on insertion/deletion.
   std::list<std::unique_ptr<ExprGroupConnections>> edges_;
   std::list<std::unique_ptr<ExprGroup>> groups_;
-
-  std::deque<ExprGroup*> to_visit_;
 
   std::vector<std::pair<ExprGroup*, ExprGroup*>> to_merge_;
 
@@ -593,60 +587,43 @@ void ExprGroup::clearTraversalInfo() {
   payload()->merged = false;
 }
 
-void ExprSegmentationSorter::resetTraversal() {
-  for (auto& group : groups_) {
-    // Start traversal at input groups
-    if (group->producerEdges().empty()) {
-      to_visit_.push_back(group.get());
-    }
-    group->clearTraversalInfo();
-  }
-}
-
 // Level is maximum distance from inputs. It's the metric used to select what
 // nodes can be merged while maintaining a DAG
 void ExprSegmentationSorter::resetLevels() {
-  std::vector<ExprGroup*> next_to_visit;
+  std::deque<ExprGroup*> to_visit;
+  std::unordered_map<ExprGroup*, int64_t> num_producer_edges;
 
-  while (!to_visit_.empty()) {
-    auto visit = to_visit_.front();
-    to_visit_.pop_front();
-
-    // All inputs processed?
-    bool ready = true;
-    if (!visit->producerEdges().empty()) {
-      ready = std::all_of(
-          visit->producerEdges().begin(),
-          visit->producerEdges().end(),
-          [&](ExprGroupConnections* dep) {
-            return dep->from->payload()->visited;
-          });
+  for (auto& group : groups_) {
+    group->payload()->level = 0;
+    if ((num_producer_edges[group.get()] =
+             std::ssize(group->producerEdges())) == 0) {
+      // Start by visiting groups that have no producer edges.
+      to_visit.push_back(group.get());
     }
+    group->clearTraversalInfo();
+  }
 
-    if (!ready) {
-      // In case traversal doesn't complete because there's an error in the
-      // DAG topology.
-      next_to_visit.push_back(visit);
-      continue;
-    }
+  int64_t num_visited = 0;
+  while (!to_visit.empty()) {
+    ExprGroup* visiting = to_visit.front();
+    to_visit.pop_front();
+    num_visited++;
 
-    visit->payload()->visited = true;
-
-    to_visit_.insert(
-        to_visit_.end(), next_to_visit.begin(), next_to_visit.end());
-    next_to_visit.clear();
-
-    for (auto out : visit->consumerEdges()) {
-      to_visit_.push_back(out->to);
-    }
-
-    visit->payload()->level = 0;
-    for (auto inp : visit->producerEdges()) {
-      visit->payload()->level =
-          std::max(visit->payload()->level, inp->from->payload()->level + 1);
+    for (ExprGroupConnections* out : visiting->consumerEdges()) {
+      ExprGroup* consumer = out->to;
+      consumer->payload()->level =
+          std::max(consumer->payload()->level, visiting->payload()->level + 1);
+      // After visiting a group, decrement the number of producer edges of each
+      // consumer. When that number reaches 0, add the consumer to the visit
+      // list.
+      if ((--num_producer_edges.at(consumer)) == 0) {
+        to_visit.push_back(consumer);
+      }
     }
   }
-  NVF_ERROR(next_to_visit.empty(), "Error in graph, is not a DAG.");
+
+  NVF_ERROR(
+      num_visited == std::ssize(groups_), "Error in graph, is not a DAG.");
 }
 
 ExprGroup* ExprSegmentationSorter::makeEmptyGroup(bool is_scalar_only) {
@@ -1088,7 +1065,8 @@ bool ExprSegmentationSorter::interIterUpdate() {
     NVF_ERROR(
         !fallback_mode_enabled_,
         "Couldn't succcessfully sort out the fusion expressions. ",
-        "There are remaining connections of the hierarchical segmentation which should have been ",
+        "There are remaining connections of the hierarchical segmentation "
+        "which should have been ",
         "flattened to a single ordered group, or disjoint ordered groups.\n",
         toString());
     // We didn't finish, but we haven't tried the fallback, try again with that.
@@ -1359,9 +1337,9 @@ bool ExprSegmentationSorter::supportedMerge(ExprGroup* sg1, ExprGroup* sg2) {
   if (!both_empty) {
     if (producer_ca_domain.empty() || consumer_pa_domain.empty()) {
       if (isDebugDumpEnabled(DebugDumpOption::ExprSortVerbose)) {
-        debug()
-            << "Not supported as only either of producer CA or consumer PA domain is empty."
-            << std::endl;
+        debug() << "Not supported as only either of producer CA or consumer PA "
+                   "domain is empty."
+                << std::endl;
       }
       return false;
     }
@@ -1370,11 +1348,11 @@ bool ExprSegmentationSorter::supportedMerge(ExprGroup* sg1, ExprGroup* sg2) {
     if (!loopReady(producer_ca_domain.back()) ||
         !loopReady(consumer_pa_domain.back())) {
       if (isDebugDumpEnabled(DebugDumpOption::ExprSortVerbose)) {
-        debug()
-            << "Not supported as innermost loop dependencies are not yet resolved. "
-            << ". Producer ready: " << loopReady(producer_ca_domain.back())
-            << ". Consumer ready: " << loopReady(consumer_pa_domain.back())
-            << std::endl;
+        debug() << "Not supported as innermost loop dependencies are not yet "
+                   "resolved. "
+                << ". Producer ready: " << loopReady(producer_ca_domain.back())
+                << ". Consumer ready: " << loopReady(consumer_pa_domain.back())
+                << std::endl;
       }
       return false;
     }
@@ -1421,9 +1399,9 @@ bool ExprSegmentationSorter::supportedMerge(ExprGroup* sg1, ExprGroup* sg2) {
 
     if (!producer_consumer_mapped) {
       if (isDebugDumpEnabled(DebugDumpOption::ExprSortVerbose)) {
-        debug()
-            << "Not supported as the producer CA and consumer CA domains are not mapped"
-            << std::endl;
+        debug() << "Not supported as the producer CA and consumer CA domains "
+                   "are not mapped"
+                << std::endl;
       }
       return false;
     }
@@ -1566,7 +1544,6 @@ void ExprSegmentationSorter::sort() {
       bool merged_nodes = true;
       while (merged_nodes) {
         // Reset stateful traversal details in ExprGroups
-        resetTraversal();
         resetLevels();
 
         for (bool preferred_merge_only : {true, false}) {
@@ -1618,9 +1595,8 @@ void ExprSegmentationSorter::sort() {
     } else {
       // fallback_mode_enabled = true
       // Reset stateful traversal details in ExprGroups as we'll exclude merge
-      // options that were already ruled out and therefore need traversal and
-      // levels reset.
-      resetTraversal();
+      // options that were already ruled out and therefore need traversal info
+      // and levels reset.
       resetLevels();
 
       if (isDebugDumpEnabled(DebugDumpOption::ExprSortVerbose)) {

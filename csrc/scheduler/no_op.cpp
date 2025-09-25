@@ -6,7 +6,6 @@
  */
 // clang-format on
 
-#include <host_ir/lower.h>
 #include <ir/utils.h>
 #include <multidevice/utils.h>
 #include <scheduler/debug_utils.h>
@@ -14,6 +13,9 @@
 #include <scheduler/no_op.h>
 #include <scheduler/registry_utils.h>
 #include <scheduler/runtime_info.h>
+
+#include <algorithm>
+#include <ranges>
 
 namespace nvfuser {
 
@@ -39,10 +41,9 @@ bool NoOpScheduler::canScheduleCompileTime(Fusion* fusion) {
     for (auto output :
          ir_utils::filterByType<TensorView>(reduction->outputs())) {
       auto concrete_dimension =
-          TensorDomain::noReductions(output->getLogicalDomain());
-      auto all_nonzero = std::none_of(
-          concrete_dimension.begin(),
-          concrete_dimension.end(),
+          output->getLogicalDomain() | TensorDomain::kNoReductions;
+      auto all_nonzero = std::ranges::none_of(
+          concrete_dimension,
           [](IterDomain* id) { return id->extent()->isZeroInt(); });
       if (all_nonzero) {
         scheduler_debug_utils::canScheduleRejectReason(
@@ -54,9 +55,9 @@ bool NoOpScheduler::canScheduleCompileTime(Fusion* fusion) {
 
   // Check that all outputs are either broadcast or ignored reduction.
   for (auto out_tv : ir_utils::filterByType<TensorView>(fusion->outputs())) {
-    auto concrete_dimension = TensorDomain::noReductions(
-        TensorDomain::noBroadcasts(out_tv->getLoopDomain()));
-    if (!concrete_dimension.empty()) {
+    auto concrete_dimension = out_tv->getLoopDomain() |
+        TensorDomain::kNoReductions | TensorDomain::kNoBroadcasts;
+    if (!std::ranges::empty(concrete_dimension)) {
       scheduler_debug_utils::canScheduleRejectReason(
           schedulerType(), "output has a concrete dimension");
       return false;

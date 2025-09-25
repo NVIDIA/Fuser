@@ -19,9 +19,7 @@
 #include <ops/all_ops.h>
 #include <utils.h>
 
-namespace nvfuser {
-
-namespace hir {
+namespace nvfuser::hir {
 
 HostUnit::HostUnit(IrBuilderPasskey passkey, std::unique_ptr<Fusion> fusion)
     : Expr(passkey), fusion_(std::make_unique<Fusion>(*fusion)) {
@@ -123,15 +121,17 @@ bool PostOnStream::sameAs(const Statement* other) const {
 
 LaunchKernel::LaunchKernel(
     IrBuilderPasskey passkey,
-    int64_t hic_executor_index,
+    int64_t group_id,
     const LaunchParams& launch_constraints,
     const CompileParams& compile_params,
     const std::vector<Val*>& inputs,
-    const std::vector<Val*>& outputs)
+    const std::vector<Val*>& outputs,
+    Val* cache_id)
     : Expr(passkey, inputs, outputs, {}) {
-  addDataAttribute(hic_executor_index);
+  addDataAttribute(group_id);
   addDataAttribute(launch_constraints);
   addDataAttribute(compile_params);
+  addAttribute(cache_id);
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(LaunchKernel)
@@ -139,7 +139,7 @@ NVFUSER_DEFINE_CLONE_AND_CREATE(LaunchKernel)
 std::string LaunchKernel::toString(int indent_size) const {
   std::stringstream ss;
   indent(ss, indent_size) << "LaunchKernel(" << std::endl;
-  indent(ss, indent_size + 1) << "Index: " << getIndex() << "," << std::endl;
+  indent(ss, indent_size + 1) << "Group ID: " << groupId() << "," << std::endl;
   indent(ss, indent_size + 1)
       << "Inputs: {" << toDelimitedString(inputs()) << "}," << std::endl;
   indent(ss, indent_size + 1)
@@ -341,7 +341,7 @@ NVFUSER_DEFINE_CLONE_AND_CREATE(EndCoalescing)
 
 std::string EndCoalescing::toString(int indent_size) const {
   std::stringstream ss;
-  indent(ss, indent_size) << "EndCoalescing" << std::endl;
+  indent(ss, indent_size) << "EndCoalescing " << name() << std::endl;
   return ss.str();
 }
 
@@ -411,10 +411,10 @@ NVFUSER_DEFINE_CLONE_AND_CREATE(HirAliasSelect)
 std::string HirAliasSelect::toString(int indent_size) const {
   std::stringstream ss;
   indent(ss, indent_size) << out()->toString() << "\n";
-  indent_size++;
-  indent(ss, indent_size) << " = HirAliasSelect( " << in()->toString()
-                          << ", axis = " << in()->getLogicalDomain().at(axis())
-                          << ", index = " << index()->toString() << " )\n";
+  indent(ss, indent_size + 1)
+      << " = HirAliasSelect( " << in()->toString()
+      << ", axis = " << in()->getLogicalDomain().at(axis())
+      << ", index = " << index()->toString() << " )\n";
   return ss.str();
 }
 
@@ -422,6 +422,60 @@ std::string HirAliasSelect::toInlineString(int indent_size) const {
   NVF_THROW("Cannot be printed inline");
 }
 
-} // namespace hir
+ShardByStream::ShardByStream(
+    IrBuilderPasskey passkey,
+    TensorView* out,
+    TensorView* in,
+    Val* stream_index)
+    : Expr(passkey, {in, stream_index}, {out}, {}) {
+  NVF_ERROR(passkey.ir_container_ != nullptr);
+  NVF_ERROR(passkey.ir_container_->isA<HostIrContainer>());
+  NVF_ERROR_EQ(
+      TensorDomain::noReductions(in->getLogicalDomain()).size(),
+      out->getLogicalDomain().size());
+}
 
-} // namespace nvfuser
+NVFUSER_DEFINE_CLONE_AND_CREATE(ShardByStream)
+
+std::string ShardByStream::toString(int indent_size) const {
+  std::stringstream ss;
+  indent(ss, indent_size) << out()->toString() << " = ShardByStream("
+                          << in()->toString()
+                          << ", stream_index = " << stream_index()->toString()
+                          << ")" << std::endl;
+  return ss.str();
+}
+
+std::string ShardByStream::toInlineString(int indent_size) const {
+  NVF_CHECK(false, "Cannot be printed inline");
+}
+
+ForLoop::ForLoop(IrBuilderPasskey passkey, Val* index, Val* start, Val* stop)
+    : Expr(passkey, {index, start, stop}, {}, {}) {
+  NVF_ERROR(passkey.ir_container_ != nullptr);
+  NVF_ERROR(passkey.ir_container_->isA<HostIrContainer>());
+
+  addDataAttribute(Scope(this));
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(ForLoop)
+
+std::string ForLoop::toString(int indent_size) const {
+  std::stringstream ss;
+  indent(ss, indent_size) << "FOR " << index()->toString() << " from "
+                          << start()->toString() << " to " << stop()->toString()
+                          << ":\n"
+                          << body().toString(indent_size + 1);
+  return ss.str();
+}
+
+std::string ForLoop::toInlineString(int indent_size) const {
+  NVF_CHECK(false, "Cannot be printed inline");
+}
+
+ForLoop* createForLoopFromIterDomain(Val* index, IterDomain* iter_domain) {
+  return IrBuilder::create<ForLoop>(
+      index, iter_domain->start(), iter_domain->stop());
+}
+
+} // namespace nvfuser::hir

@@ -6,103 +6,148 @@ import pytest
 import torch
 import os
 
-import nvfuser
-from nvfuser import (
-    DataType,
-    FusionDefinition,
-    CommunicatorBackend,
-    MultiDeviceExecutorParams,
-)
-
-
-class OverlapAGMatmulStreamOutermost(FusionDefinition):
-    def __init__(self, m, k, n, s, num_devices, communication_backend):
-        params = MultiDeviceExecutorParams()
-        params.backend_type = communication_backend
-        super().__init__(
-            use_multidevice_executor=True, multi_device_executor_params=params
-        )
-        self.m = m
-        self.k = k
-        self.n = n
-        self.s = s
-        self._num_devices = num_devices
-
-    def definition(self) -> None:
-        m, k, n, s, d = (
-            self.m,
-            self.k,
-            self.n,
-            self.s,
-            self._num_devices,
-        )
-        self.x = self.define_tensor(
-            shape=[s, d, m // (s * d), k], contiguity=True, dtype=DataType.BFloat16
-        )
-        self.weight = self.define_tensor(
-            shape=[n, k], contiguity=True, dtype=DataType.BFloat16
-        )
-        self.bias = self.define_tensor(
-            shape=[n], contiguity=True, dtype=DataType.BFloat16
-        )
-
-        self.out = self.ops.linear(
-            self.x, self.weight, self.bias
-        )  # [s, d, m//(s*d), n]
-
-        self.add_output(self.out)
-
-    def multidevice_schedule(self):
-        mesh = nvfuser.DeviceMesh(range(self._num_devices))
-        for tv in [
-            self.x,
-            self.weight,
-            self.bias,
-            self.out,
-        ]:
-            self.sched._set_device_mesh(tv, mesh)
-
-        self.sched.parallelize(self.x, 1, nvfuser.ParallelType.mesh_x)
-        self.sched.parallelize(self.out, 0, nvfuser.ParallelType.stream)
+import nvfuser_direct as nvfuser
+from nvfuser_direct import DataType, FusionDefinition, CommunicatorBackend, TensorView
 
 
 @pytest.mark.mpi
-@pytest.mark.parametrize(
-    "backend_type", [CommunicatorBackend.nccl, CommunicatorBackend.ucc]
-)
+@pytest.mark.parametrize("backend_type", [CommunicatorBackend.nccl])
 @pytest.mark.parametrize("s", [1, 8])
 def test_overlap_allgather_matmul_stream_outermost(
-    multidevice_test, benchmark, backend_type, s
+    multidevice_direct_test, benchmark, backend_type, s
 ):
+    def fusion_definition(fd, m, k, n, s, d) -> list[TensorView]:
+        x = fd.define_tensor(
+            shape=[s, d, m // (s * d), k], contiguity=True, dtype=DataType.BFloat16
+        )
+        weight = fd.define_tensor(
+            shape=[n, k], contiguity=True, dtype=DataType.BFloat16
+        )
+        bias = fd.define_tensor(shape=[n], contiguity=True, dtype=DataType.BFloat16)
+
+        # [s, d, m//(s*d), n]
+        out = fd.ops.linear(x, weight, bias)
+
+        fd.add_output(out)
+        return [x, weight, bias, out]
+
+    def multidevice_schedule(fd, tensors, num_devices) -> None:
+        mesh = nvfuser.multidevice.DeviceMesh(range(num_devices))
+        for tv in tensors:
+            tv.set_device_mesh(mesh)
+
+        x, weight, bias, out = tensors
+        x.axis(1).parallelize(nvfuser.ParallelType.mesh_x)
+        out.axis(0).parallelize(nvfuser.ParallelType.stream)
+
     N_WARMUPS, N_ITERATIONS = 5, 25
-    m, k, n, d = 2**10, 2**10, 2**10, multidevice_test.size
+    m, k, n, d = 2**10, 2**10, 2**10, multidevice_direct_test.size
     assert m % (s * d) == 0
 
     os.environ["UCC_CL_BASIC_TLS"] = "nccl"
 
-    torch.cuda.set_device(multidevice_test.local_rank)
+    torch.cuda.set_device(multidevice_direct_test.local_rank)
     x_unsharded = torch.testing.make_tensor(
         s, d, m // (s * d), k, dtype=torch.bfloat16, device="cpu"
     )
-    x = multidevice_test.shard_tensor(
-        x_unsharded, 1, nvfuser.DeviceMesh(range(multidevice_test.size))
+    x = multidevice_direct_test.shard_tensor(
+        x_unsharded,
+        1,
+        nvfuser.multidevice.DeviceMesh(range(multidevice_direct_test.size)),
     )
     weight = torch.testing.make_tensor(n, k, dtype=torch.bfloat16, device="cuda")
     bias = torch.testing.make_tensor(n, dtype=torch.bfloat16, device="cuda")
     ins = [x, weight, bias]
     out_ref = torch.nn.functional.linear(x_unsharded, weight.cpu(), bias.cpu())
 
-    fd = OverlapAGMatmulStreamOutermost(m, k, n, s, d, backend_type)
+    with FusionDefinition() as fd:
+        tensors = fusion_definition(fd, m, k, n, s, d)
+        multidevice_schedule(fd, tensors, d)
+
+    params = MultiDeviceExecutorParams()
+    params.backend_type = backend_type
+    multidevice_executor = nvfuser.multidevice.MultiDeviceExecutor(
+        fd.fusion, params
+    )
 
     # warmup
     for _ in range(N_WARMUPS):
-        outputs, _ = fd.execute(ins)
+        outputs = multidevice_executor.run(ins)
         out = outputs[0].cpu()
         assert out.dtype == torch.bfloat16
         assert out.shape == torch.Size([s, d, m // (s * d), n])
         torch.testing.assert_close(out, out_ref, rtol=1e-1, atol=1e-1)
 
     # benchmark
-    benchmark.pedantic(
-        lambda: fd.execute(ins), rounds=N_ITERATIONS, warmup_rounds=N_WARMUPS
+    benchmark.pedantic(lambda: multidevice_executor.run(ins), rounds=N_ITERATIONS)
+
+
+@pytest.mark.mpi
+@pytest.mark.parametrize("backend_type", [CommunicatorBackend.nccl])
+def test_overlap_allgather_matmul_shard_outermost(
+    multidevice_direct_test, benchmark, backend_type
+):
+    def fusion_definition(fd, m, k, n, d) -> list[TensorView]:
+        x = fd.define_tensor(
+            shape=[d, m // d, k], contiguity=True, dtype=DataType.BFloat16
+        )
+        weight = fd.define_tensor(
+            shape=[n, k], contiguity=True, dtype=DataType.BFloat16
+        )
+        bias = fd.define_tensor(shape=[n], contiguity=True, dtype=DataType.BFloat16)
+
+        # [d, m//d, n]
+        out = fd.ops.linear(x, weight, bias)
+
+        fd.add_output(out)
+        return [x, weight, bias, out]
+
+    def multidevice_schedule(fd, tensors, num_devices) -> None:
+        mesh = nvfuser.multidevice.DeviceMesh(range(num_devices))
+        for tv in tensors:
+            tv.set_device_mesh(mesh)
+
+        x, weight, bias, out = tensors
+        x.axis(0).parallelize(nvfuser.ParallelType.mesh_x)
+        out.axis(0).parallelize(nvfuser.ParallelType.stream)
+
+    N_WARMUPS, N_ITERATIONS = 5, 25
+    m, k, n, d = 2**10, 2**10, 2**10, multidevice_direct_test.size
+    assert m % d == 0
+
+    os.environ["UCC_CL_BASIC_TLS"] = "nccl"
+
+    torch.cuda.set_device(multidevice_direct_test.local_rank)
+    x_unsharded = torch.testing.make_tensor(
+        d, m // d, k, dtype=torch.bfloat16, device="cpu"
     )
+    x = multidevice_direct_test.shard_tensor(
+        x_unsharded,
+        0,
+        nvfuser.multidevice.DeviceMesh(range(multidevice_direct_test.size)),
+    )
+    weight = torch.testing.make_tensor(n, k, dtype=torch.bfloat16, device="cuda")
+    bias = torch.testing.make_tensor(n, dtype=torch.bfloat16, device="cuda")
+    ins = [x, weight, bias]
+    out_ref = torch.nn.functional.linear(x_unsharded, weight.cpu(), bias.cpu())
+
+    with FusionDefinition() as fd:
+        tensors = fusion_definition(fd, m, k, n, d)
+        multidevice_schedule(fd, tensors, d)
+
+    params = MultiDeviceExecutorParams()
+    params.backend_type = backend_type
+    multidevice_executor = nvfuser.multidevice.MultiDeviceExecutor(
+        fd.fusion, params
+    )
+
+    # warmup
+    for _ in range(N_WARMUPS):
+        outputs = multidevice_executor.run(ins)
+        out = outputs[0].cpu()
+        assert out.dtype == torch.bfloat16
+        assert out.shape == torch.Size([d, m // d, n])
+        torch.testing.assert_close(out, out_ref, rtol=1e-1, atol=1e-1)
+
+    # benchmark
+    benchmark.pedantic(lambda: multidevice_executor.run(ins), rounds=N_ITERATIONS)

@@ -813,4 +813,150 @@ TEST_F(ExprEvalTest, TensorMetadataPrecomputedValues) {
   checkIntValue(evaluator, logical_size_1, 4);
 }
 
+TEST_F(ExprEvalTest, NamedScalar) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+  auto* cache_id = IrBuilder::create<NamedScalar>("cacheId", DataType::UInt64);
+
+  ExpressionEvaluator evaluator;
+  constexpr int64_t kCacheIdValue = 1;
+  evaluator.bind("cacheId", kCacheIdValue);
+  PolymorphicValue cache_id_pvalue = evaluator.evaluate(cache_id);
+  EXPECT_EQ(cache_id_pvalue.as<int64_t>(), kCacheIdValue);
+}
+
+// TODO: extend to other TernaryOps
+TEST_F(ExprEvalTest, TernaryOpsWhere) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeContigTensor(2, DataType::Bool);
+  auto tv1 = makeContigTensor(2);
+  auto tv2 = makeContigTensor(2);
+  fusion.addInput(tv0);
+  fusion.addInput(tv1);
+  fusion.addInput(tv2);
+  // tensor, tensor, tensor
+  auto tv3 = where(tv0, tv1, tv2);
+  // tensor, tensor, scalar
+  auto tv4 = where(tv0, tv1, IrBuilder::create<Val>(1.0));
+  // tensor, scalar, tensor
+  auto tv5 = where(tv0, IrBuilder::create<Val>(1.0), tv2);
+  // tensor, scalar, scalar
+  auto tv6 =
+      where(tv0, IrBuilder::create<Val>(2.0), IrBuilder::create<Val>(1.0));
+  // scalar, tensor, scalar
+  auto tv7 =
+      where(IrBuilder::create<Val>(true), tv1, IrBuilder::create<Val>(2.0));
+  // scalar, scalar, tensor
+  auto tv8 =
+      where(IrBuilder::create<Val>(false), IrBuilder::create<Val>(2.0), tv2);
+  // scalar, tensor, tensor
+  auto tv9 = where(IrBuilder::create<Val>(true), tv1, tv2);
+  // scalar, scalar, scalar
+  auto tv10 = where(
+      IrBuilder::create<Val>(true),
+      IrBuilder::create<Val>(2.0),
+      IrBuilder::create<Val>(1.0));
+
+  fusion.addOutput(tv3);
+  fusion.addOutput(tv4);
+  fusion.addOutput(tv5);
+  fusion.addOutput(tv6);
+  fusion.addOutput(tv7);
+  fusion.addOutput(tv8);
+  fusion.addOutput(tv9);
+  // avoid non-tensor output which is not supported yet
+  fusion.addOutput(add(tv1, tv10));
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({3, 2}, options) > 0.5;
+  auto t1 = at::randn({3, 2}, options);
+  auto t2 = at::randn({3, 2}, options);
+
+  ExpressionEvaluator evaluator;
+  evaluator.bind(tv0, t0);
+  evaluator.bind(tv1, t1);
+  evaluator.bind(tv2, t2);
+
+  at::Tensor out1 = evaluator.evaluate(tv3).as<at::Tensor>();
+  at::Tensor out2 = evaluator.evaluate(tv4).as<at::Tensor>();
+  at::Tensor out3 = evaluator.evaluate(tv5).as<at::Tensor>();
+  at::Tensor out4 = evaluator.evaluate(tv6).as<at::Tensor>();
+  at::Tensor out5 = evaluator.evaluate(tv7).as<at::Tensor>();
+  at::Tensor out6 = evaluator.evaluate(tv8).as<at::Tensor>();
+  at::Tensor out7 = evaluator.evaluate(tv9).as<at::Tensor>();
+  at::Tensor out8 = evaluator.evaluate(add(tv1, tv10)).as<at::Tensor>();
+
+  // verify results
+  EXPECT_TRUE(at::allclose(out1, at::where(t0, t1, t2)));
+  EXPECT_TRUE(at::allclose(out2, at::where(t0, t1, 1.0)));
+  EXPECT_TRUE(at::allclose(out3, at::where(t0, 1.0, t2)));
+  EXPECT_TRUE(at::allclose(out4, at::where(t0, 2.0, 1.0)));
+  EXPECT_TRUE(at::allclose(out5, t1));
+  EXPECT_TRUE(at::allclose(out6, t2));
+  EXPECT_TRUE(at::allclose(out7, t1));
+  EXPECT_TRUE(at::allclose(out8, t1.add(2.0)));
+}
+
+TEST_F(ExprEvalTest, Pow) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeContigTensor(2);
+  auto tv1 = makeContigTensor(2);
+  fusion.addInput(tv0);
+  fusion.addInput(tv1);
+
+  // Test all combinations of pow operations
+  // tensor, scalar (int64_t)
+  auto tv2 = pow(tv0, IrBuilder::create<Val>(2L));
+  // tensor, scalar (double)
+  auto tv3 = pow(tv0, IrBuilder::create<Val>(2.0));
+  // tensor, tensor
+  auto tv4 = pow(tv0, tv1);
+  // scalar, scalar (int64_t, int64_t)
+  auto tv5 = pow(IrBuilder::create<Val>(3L), IrBuilder::create<Val>(2L));
+  // scalar, scalar (double, double)
+  auto tv6 = pow(IrBuilder::create<Val>(3.0), IrBuilder::create<Val>(2.0));
+  // scalar, scalar (int64_t, double)
+  auto tv7 = pow(IrBuilder::create<Val>(3L), IrBuilder::create<Val>(2.0));
+  // scalar, scalar (double, int64_t)
+  auto tv8 = pow(IrBuilder::create<Val>(3.0), IrBuilder::create<Val>(2L));
+  // avoid non-tensor output which is not supported yet
+  auto tv9 = add(tv0, add(add(add(tv5, tv6), tv7), tv8));
+  // scalar, tensor
+  auto tv10 = pow(IrBuilder::create<Val>(3.0), tv0);
+  fusion.addOutput(tv2);
+  fusion.addOutput(tv3);
+  fusion.addOutput(tv4);
+  fusion.addOutput(tv9);
+  fusion.addOutput(tv10);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({3, 2}, options);
+  auto t1 = at::randn({3, 2}, options);
+
+  ExpressionEvaluator evaluator;
+  evaluator.bind(tv0, t0);
+  evaluator.bind(tv1, t1);
+
+  // Evaluate all outputs
+  at::Tensor out1 = evaluator.evaluate(tv2).as<at::Tensor>();
+  at::Tensor out2 = evaluator.evaluate(tv3).as<at::Tensor>();
+  at::Tensor out3 = evaluator.evaluate(tv4).as<at::Tensor>();
+  at::Tensor out9 = evaluator.evaluate(tv9).as<at::Tensor>();
+  at::Tensor out10 = evaluator.evaluate(tv10).as<at::Tensor>();
+  EXPECT_TRUE(at::allclose(out1, at::pow(t0, 2)));
+  EXPECT_TRUE(at::allclose(out2, at::pow(t0, 2.0)));
+  // Needs explicit equal_nan=true
+  EXPECT_TRUE(at::allclose(out3, at::pow(t0, t1), 1e-5, 1e-8, true));
+  EXPECT_TRUE(at::allclose(
+      out9,
+      t0.add(std::pow(3L, 2L))
+          .add(std::pow(3.0, 2.0))
+          .add(std::pow(3L, 2.0))
+          .add(std::pow(3.0, 2L))));
+  EXPECT_TRUE(at::allclose(out10, at::pow(3.0, t0), 1e-5, 1e-8, true));
+}
 } // namespace nvfuser

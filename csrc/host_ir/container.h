@@ -24,16 +24,9 @@ namespace hir {
 // structure.
 class HostIrContainer final : public Fusion {
  public:
-  // num_kernel_executors is only needed when the container has LaunchKernel
-  // instructions.
-  explicit HostIrContainer(int64_t num_kernel_executors = 0);
+  HostIrContainer() = default;
   HostIrContainer(const HostIrContainer&) = delete;
   HostIrContainer& operator=(const HostIrContainer&) = delete;
-
-  // Do not have a definition here as it requires the definition of
-  // KernelExecutor due to kernel_executors_.
-  // NOLINTNEXTLINE (modernize-use-equals-default)
-  ~HostIrContainer() override;
 
   //! Print to an output stream
   std::ostream& print(std::ostream& os) const;
@@ -41,39 +34,22 @@ class HostIrContainer final : public Fusion {
   void resetTopLevelExprs(std::vector<Expr*> exprs) {
     top_level_exprs_ = std::move(exprs);
   }
-
   const std::vector<Expr*>& topLevelExprs() const;
-
   void pushBackTopLevelExprs(Expr* expr);
-
   void insertExprAfter(int64_t index, Expr* expr);
 
   void addKernelExecutor(std::unique_ptr<KernelExecutor> ke);
-
-  bool hasKernelExecutor(int64_t group_id) const {
-    return kernel_executors_.at(group_id) != nullptr;
-  }
-
-  KernelExecutor* getKernelExecutor(int64_t group_id) const;
+  bool hasKernelExecutor(int64_t group_id) const;
+  KernelExecutor& getKernelExecutor(int64_t group_id) const;
 
   Stream* getDefaultStream();
 
-  void markAlias(TensorView* original, const TensorView* new_alias) {
-    while (alias_.count(original)) {
-      original = alias_[original]->as<TensorView>();
-    }
-    alias_[new_alias] = original;
-  }
-
-  const auto& alias() const {
-    return alias_;
-  }
-
  private:
   std::vector<Expr*> top_level_exprs_;
+  // Indexed by group ID. This way, parallel compilation can write to disjoint
+  // locations without having to precompute a global index.
   std::vector<std::unique_ptr<KernelExecutor>> kernel_executors_;
   Stream* default_stream_ = nullptr;
-  std::unordered_map<const Val*, Val*> alias_;
 };
 
 } // namespace hir

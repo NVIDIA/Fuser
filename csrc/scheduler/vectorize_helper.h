@@ -317,6 +317,7 @@ int64_t getVectorizationFactor(
     TensorView* reference_tv,
     HeuristicDataCache* data_cache,
     int64_t break_point,
+    int64_t max_vectorization_size_in_bit = 128,
     const std::unordered_map<int64_t, int64_t>& logical_reorder = {});
 
 int64_t getVectorizationFactorTransposeGroup(

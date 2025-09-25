@@ -100,8 +100,8 @@ class LowerToInlinePtx : public kir::ExprMutator {
       return;
     } else if (ir_utils::isCpAsyncOp(ldst)) {
       auto out_tv = ldst->out()->as<kir::TensorIndex>()->view();
-      auto vec_size =
-          ir_utils::getVectorizeSize(out_tv) * dataTypeSize(out_tv->dtype());
+      auto vec_size = ir_utils::getVectorizeSize(out_tv) *
+          dataTypeSizeByte(out_tv->dtype());
       std::stringstream ss;
       ss << "cp.async.";
       if (ldst->cacheOp() == CacheOp::AllLevels) {
@@ -258,7 +258,7 @@ class LowerToInlinePtx : public kir::ExprMutator {
     for (auto fl : for_loops_) {
       // Skip non-reduction loops.
       if (!std::ranges::any_of(reduction_ids, [fl](IterDomain* id) {
-            return GpuLower::current()
+            return FusionInfoGuard::current()
                 ->idModel()
                 .idGraph(IdMappingMode::LOOP)
                 .disjointValSets()

@@ -32,7 +32,7 @@ class OrderedIdInformation : public OptInDispatch {
   static OrderedIdInformation get(
       const std::vector<IterDomain*>& ids,
       const std::vector<IterDomain*>& alloc_domain,
-      std::shared_ptr<const ConcretizedBroadcastDomains> concrete_info) {
+      const ConcretizedBroadcastDomains* concrete_info) {
     OrderedIdInformation info(alloc_domain, concrete_info);
     info.traverseTo(ids);
     return info;
@@ -59,11 +59,14 @@ class OrderedIdInformation : public OptInDispatch {
     return id_to_alloc_ids_.find(id);
   }
 
+  void setCurrentDirection(Direction dir) {
+    current_direction_ = dir;
+  }
+
  protected:
   OrderedIdInformation(
       const std::vector<IterDomain*>& alloc_domain,
-      std::shared_ptr<const ConcretizedBroadcastDomains> concrete_info =
-          nullptr);
+      const ConcretizedBroadcastDomains* concrete_info = nullptr);
 
   void traverseTo(const std::vector<IterDomain*>& ids);
 
@@ -125,6 +128,9 @@ class OrderedIdInformation : public OptInDispatch {
   // for intermediate storage, not to return.
   std::vector<IterDomain*> active_ids_;
 
+  // Current traversal direction
+  Direction current_direction_ = Direction::Forward;
+
   // IterDomains in this set exclusively consume all the uses of their
   // allocations. For example: [i0, i1] split(0, f)->merge(1) [ceilDiv(i0, f),
   // f*i1] neither iter domains exclusively consume the allocations. With
@@ -142,7 +148,7 @@ class OrderedIdInformation : public OptInDispatch {
   // TODO: This constraint is more conservative than necessary as it's only if
   // the domain is concretized within the local indexing, not in the entire
   // fusion.
-  std::shared_ptr<const ConcretizedBroadcastDomains> concrete_info_;
+  const ConcretizedBroadcastDomains* concrete_info_;
 
   // TODO: Temporary WAR to do ContigIDGroup-specific processing
   bool using_id_graph_ = false;
@@ -234,8 +240,8 @@ class ContigIDs : public OptInDispatch {
       const std::unordered_set<IterDomain*>& final_ids,
       const std::unordered_map<IterDomain*, Val*>& index_map,
       const std::unordered_set<Split*>& divisible_splits,
-      std::shared_ptr<const ComputeAtMap> ca_map,
-      std::shared_ptr<const ConcretizedBroadcastDomains> concrete_info,
+      const ComputeAtMap* ca_map,
+      const ConcretizedBroadcastDomains* concrete_info,
       std::unordered_map<IterDomain*, IterDomain*> p2c_id_map = {},
       bool ignore_indexability = false,
       bool ignore_consistent_ordering = false);
@@ -319,8 +325,10 @@ class ContigIDs : public OptInDispatch {
   // contiguous through divisible splits.
   const std::unordered_set<Split*>& divisible_splits_;
 
-  std::shared_ptr<const ComputeAtMap> ca_map_;
-  std::shared_ptr<const ConcretizedBroadcastDomains> concrete_info_;
+  std::unique_ptr<ComputeAtMap> own_ca_map_;
+  const ComputeAtMap* ca_map_;
+  std::unique_ptr<ConcretizedBroadcastDomains> own_concrete_info_;
+  const ConcretizedBroadcastDomains* concrete_info_;
 
   //! Producer-to-consumer index map in the case of analyzing replayed
   //! producer tensors

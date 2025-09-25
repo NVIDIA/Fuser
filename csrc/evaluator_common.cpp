@@ -88,7 +88,7 @@ void collectBufferSizes(
   for (auto expr : exprs) {
     if (auto allocate = dynamic_cast<kir::Allocate*>(expr)) {
       into.push_back(allocate->size());
-    } else if (auto for_loop = dynamic_cast<ForLoop*>(expr)) {
+    } else if (auto for_loop = dynamic_cast<kir::ForLoop*>(expr)) {
       collectBufferSizes(into, for_loop->body().exprs());
     } else if (auto ite = dynamic_cast<kir::IfThenElse*>(expr)) {
       collectBufferSizes(into, ite->thenBody().exprs());
@@ -129,6 +129,32 @@ std::vector<Val*> collectRuntimeUsedValues(Fusion* fusion) {
 }
 
 } // namespace
+
+void adjustEvaluatorSizes(
+    const TensorView* tv,
+    std::vector<int64_t>& unsharded_sizes) {
+  const auto adjust_last_dim = getLastDimAdjustment(tv->dtype());
+  // Early return when no adjustment is needed.
+  if (adjust_last_dim.denominator == 1 && adjust_last_dim.numerator == 1) {
+    return;
+  }
+  // Adjust the inner most dimension of the logical domain to support DataType
+  // that is not supported by PyTorch. See the comment of getLastDimAdjustment
+  // in type.h for more details.
+  NVF_ERROR(!unsharded_sizes.empty(), "DataType not supported");
+  int64_t last_id_index = -1;
+  for (const auto& [i, id] : enumerate(tv->getLogicalDomain())) {
+    if (id == tv->getMaybeAllocationDomain().back()) {
+      last_id_index = i;
+      break;
+    }
+  }
+  NVF_ERROR(
+      last_id_index != -1,
+      "could not find the last ID in allocation for sub byte data types.");
+  unsharded_sizes[last_id_index] =
+      adjust_last_dim.fromATenToNVF(unsharded_sizes[last_id_index]);
+}
 
 PrecomputedValues::PrecomputedValues(Fusion* fusion) : fusion_(fusion) {
   FUSER_PERF_SCOPE("PrecomputedValues::PrecomputedValues");
@@ -334,7 +360,8 @@ void PrecomputedValues::validate() {
     NVF_ERROR(
         isSame(values_[it.first], it.second),
         "Precomputed values failed to validate.",
-        "\nSomething unexpected changed between the compilation and execution.\n",
+        "\nSomething unexpected changed between the compilation and "
+        "execution.\n",
         values_[it.first],
         " != ",
         it.second);
@@ -352,6 +379,8 @@ void PrecomputedValues::bindTensorMetaData(
       "Something went wrong configuring launch. Inputs do not match.");
 
   std::vector<int64_t> logical_sizes = unshardedSizes(tv, tensor.sizes());
+  adjustEvaluatorSizes(tv, logical_sizes);
+
   for (const auto dim : arange(static_cast<int64_t>(logical_domain.size()))) {
     IterDomain* id = logical_domain[dim];
     const auto dim_size = logical_sizes.at(dim);

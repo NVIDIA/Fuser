@@ -6,12 +6,15 @@
  */
 // clang-format on
 
+#include <expr_evaluator.h>
+
 #include <functional>
 #include <iostream>
+#include <iterator>
+#include <ranges>
 
 #include <debug.h>
 #include <evaluator_common.h>
-#include <expr_evaluator.h>
 #include <instrumentation.h>
 #include <ir/all_nodes.h>
 #include <ir/iostream.h>
@@ -19,6 +22,7 @@
 #include <logical_domain_map.h>
 #include <multidevice/utils.h>
 #include <polymorphic_value.h>
+#include <utils.h>
 
 namespace nvfuser {
 
@@ -60,8 +64,8 @@ void validateValWithConcreteValue(
         ", to be an at::Tensor but got scalar ",
         concrete_value);
     const auto& t = concrete_value.as<at::Tensor>();
-    auto expect_dim =
-        (int64_t)TensorDomain::noReductions(tv->getLogicalDomain()).size();
+    const auto expect_dim = std::ranges::distance(
+        tv->getLogicalDomain() | TensorDomain::kNoReductions);
     NVF_CHECK(
         t.dim() == expect_dim,
         "Expected ",
@@ -71,17 +75,17 @@ void validateValWithConcreteValue(
         expect_dim,
         ", but got a tensor of rank ",
         t.dim());
-    auto actual_dtype = aten_to_data_type(t.scalar_type());
     NVF_CHECK(
-        (value->dtype() == DataType::Index && isIntegralType(actual_dtype)) ||
-            (value->dtype() == actual_dtype),
+        (value->dtype() == DataType::Index &&
+         (t.scalar_type() == at::kLong || t.scalar_type() == at::kInt)) ||
+            (t.scalar_type() == data_type_to_aten(value->dtype())),
         "Expected ",
         getInputPosString(tv),
         tv->toString(),
         ", to be bound to a tensor of dtype ",
         value->dtype(),
         ", but got a tensor of dtype ",
-        actual_dtype);
+        aten_to_data_type(concrete_value.as<at::Tensor>().scalar_type()));
     // Intermediate tensorviews marked as CPU scalars will be created as meta
     // tensors during compilation. For example, for fusions containing SDPA fwd
     // and bwd, some outputs of the fwd op (philox seed, philox offset) are CPU
@@ -134,20 +138,20 @@ void ExpressionEvaluator::bindTensorDomain(
     const TensorView* tv,
     const at::Tensor& t,
     const bool evaluate_validate) {
-  auto logical_domain = TensorDomain::noReductions(tv->getLogicalDomain());
-  NVF_ERROR(
-      t.dim() == (int64_t)logical_domain.size(),
+  auto logical_domain = tv->getLogicalDomain() | TensorDomain::kNoReductions;
+  const auto logical_rank = std::ranges::distance(logical_domain);
+  NVF_ERROR_EQ(
+      t.dim(),
+      logical_rank,
       "Expected ",
       getInputPosString(tv),
       tv->toString(),
-      ", to be bound to a tensor of rank ",
-      logical_domain.size(),
-      ", but got a tensor of rank ",
-      t.dim());
+      ", to be bound to a tensor of equal rank.");
 
   std::vector<int64_t> logical_sizes = unshardedSizes(tv, t.sizes());
-  for (auto i : arange(t.dim())) {
-    auto id = logical_domain[i];
+  adjustEvaluatorSizes(tv, logical_sizes);
+
+  for (const auto& [i, id] : enumerate(logical_domain)) {
     if (id->isBroadcast()) {
       bind_(id->extent(), 1, evaluate_validate);
       if (id->hasExpandedExtent()) {
@@ -257,6 +261,7 @@ PolymorphicValue ExpressionEvaluator::evaluate(const Val* value) const {
 const PolymorphicValue& ExpressionEvaluator::evaluate(
     const Val* value,
     std::unordered_map<const Val*, PolymorphicValue>& known_values) const {
+  FUSER_PERF_SCOPE("ExpressionEvaluator::evaluate");
   if (precomputed_values_ && precomputed_values_->hasValidValues()) {
     if (precomputed_values_->getMaybeValueFor(value).hasValue()) {
       return precomputed_values_->getMaybeValueFor(value);
@@ -266,8 +271,7 @@ const PolymorphicValue& ExpressionEvaluator::evaluate(
   std::reference_wrapper<const PolymorphicValue> maybe_concrete_value =
       getValue(value, known_values);
   if (!maybe_concrete_value.get().hasValue()) {
-    if (auto def = value->definition()) {
-      FUSER_PERF_SCOPE("ExpressionEvaluator::evaluate");
+    if (auto* def = value->definition()) {
       auto outputs = def->evaluate(*this, known_values);
       for (auto i : arange(def->outputs().size())) {
         known_values[def->output(i)] = std::move(outputs[i]);
@@ -304,6 +308,10 @@ const PolymorphicValue& ExpressionEvaluator::getValue(
   }
 
   return null_;
+}
+
+void ExpressionEvaluator::invalidate(const Val* value) {
+  known_values_.erase(value);
 }
 
 void ExpressionEvaluator::print() const {
@@ -352,10 +360,10 @@ void handlePropagateError(
   }
 
   std::stringstream err_msg;
-  err_msg
-      << "When trying to propagate constant tensor sizes through the graph a conflict was found with "
-      << sizes.size()
-      << " different sizes across dimensions that are expected to match.\n";
+  err_msg << "When trying to propagate constant tensor sizes through the graph "
+             "a conflict was found with "
+          << sizes.size()
+          << " different sizes across dimensions that are expected to match.\n";
 
   // Track which size is associated with which TV and IterDomain
   std::unordered_map<
@@ -426,9 +434,9 @@ void handlePropagateError(
                   << (tv1_is_consumer ? tv2_error.str() : tv1_error.str());
           err_msg << "  For Consumer"
                   << (tv1_is_consumer ? tv1_error.str() : tv2_error.str());
-          err_msg
-              << "  With producer-consumer relationship through the expression: "
-              << relationship << "\n";
+          err_msg << "  With producer-consumer relationship through the "
+                     "expression: "
+                  << relationship << "\n";
         }
       }
     }
@@ -450,7 +458,8 @@ void handlePropagateError(
     err_msg
         << "Something went wrong trying to detect what went wrong!"
         << " There should have been ID's in TVs that should match, but don't."
-        << " Somehow IDs were registered with the exact graph that aren't used in the Fusion."
+        << " Somehow IDs were registered with the exact graph that aren't used "
+           "in the Fusion."
         << std::endl;
   }
 

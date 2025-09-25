@@ -45,7 +45,7 @@ constexpr CommunicatorBackend comm_backend_default = CommunicatorBackend::kUcc;
 #endif
 constexpr int comm_server_local_rank_default = 0;
 
-class Communicator {
+class NVF_API Communicator {
  public:
   static Communicator& getInstance();
 
@@ -57,7 +57,7 @@ class Communicator {
   void cleanup();
 
   // returns if distributed config is available
-  auto is_available() const {
+  bool is_available() const {
     return is_available_;
   }
 

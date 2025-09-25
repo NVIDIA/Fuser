@@ -42,7 +42,11 @@ jobs:
             github.actor == 'protonu' ||
             github.actor == 'cowanmeg' ||
             github.actor == 'nsarka' ||
-            github.actor == 'syed-ahmed'
+            github.actor == 'syed-ahmed' ||
+            github.actor == 'mattwalsh' ||
+            github.actor == 'wolfcomos' ||
+            github.actor == 'tbqh' ||
+            github.actor == 'mdavis36'
           )
     steps:
       - name: Check if comment is issued by authorized person

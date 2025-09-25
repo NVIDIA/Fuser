@@ -89,7 +89,7 @@ static void NvFuserScheduler_LayerNorm(
   benchmark_state.SetBytesProcessed(
       int64_t(benchmark_state.iterations()) *
       (2 * input.numel() + weight.numel() + bias.numel()) *
-      int64_t(dataTypeSize(dtype)));
+      dataTypeSizeByte(dtype));
 }
 
 //------------------------------------------------------------------------------
@@ -129,7 +129,7 @@ static void Baseline_LayerNorm(
   benchmark_state.SetBytesProcessed(
       int64_t(benchmark_state.iterations()) *
       (2 * input.numel() + weight.numel() + bias.numel()) *
-      int64_t(dataTypeSize(dtype)));
+      dataTypeSizeByte(dtype));
 }
 
 static void Baseline_LayerNorm_fp32(benchmark::State& benchmark_state) {
@@ -167,7 +167,7 @@ static void NvFuserScheduler_TIMM_LayerNorm(
   benchmark_state.SetBytesProcessed(
       int64_t(benchmark_state.iterations()) *
       (2 * input.numel() + weight.numel() + bias.numel()) *
-      int64_t(dataTypeSize(dtype)));
+      dataTypeSizeByte(dtype));
 }
 
 static void Baseline_TIMM_LayerNorm(
@@ -208,7 +208,7 @@ static void Baseline_TIMM_LayerNorm(
   benchmark_state.SetBytesProcessed(
       int64_t(benchmark_state.iterations()) *
       (2 * input.numel() + weight.numel() + bias.numel()) *
-      int64_t(dataTypeSize(dtype)));
+      dataTypeSizeByte(dtype));
 }
 //------------------------------------------------------------------------------
 

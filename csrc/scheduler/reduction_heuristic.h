@@ -56,6 +56,10 @@ class ReductionParams : public HeuristicParams {
 
   // vectorize instead of unroll
   bool vectorize_inner_reduction = false;
+
+  // vectorize casts
+  bool vectorize_casts = true;
+
   // Split grid dim for iteration axis in case it's too large for cuda
   bool split_grid_dim_inner_reduction = false;
   // Pad inner dimension to nearest warp
@@ -140,8 +144,20 @@ class ReductionParams : public HeuristicParams {
   // TMA warp specialized, only used in inner-outer persistent scheduler
   bool tma_warp_specialized = false;
 
+  // Whether the heuristic is good enough to use warp specialized
+  bool is_good_ws_heuristic = false;
+
+  // Directly load from gmem to regs
+  bool is_non_circular_buffer_gmem_to_regs = true;
+
+  // Further cache TMA loaded buffer to regs
+  bool is_circular_buffer_regs_cached = true;
+
   // Circular buffer used in tma warp specialized normalization
   CircularBufferOptions circular_buffer_options;
+
+  // Number of independent warp groups for computation, parallelized by TIDy
+  int64_t computation_warp_groups = 1;
 
   // partial result of outer reduction is written to gmem then read back in a
   // different parallel pattern set the vectorization factor of its read and
@@ -209,7 +225,11 @@ class ReductionParams : public HeuristicParams {
         other->unroll_factor_top_of_vectorization ==
             unroll_factor_top_of_vectorization &&
         other->vectorization_factor_tmp_gmem_write ==
-            vectorization_factor_tmp_gmem_write;
+            vectorization_factor_tmp_gmem_write &&
+        other->tma_warp_specialized == tma_warp_specialized &&
+        other->is_non_circular_buffer_gmem_to_regs ==
+            is_non_circular_buffer_gmem_to_regs &&
+        other->is_circular_buffer_regs_cached == is_circular_buffer_regs_cached;
 
     if (other->static_bdimy || static_bdimy) {
       attr_equal = attr_equal && other->lparams.bdimy() == lparams.bdimy();
@@ -338,7 +358,11 @@ class ReductionParams : public HeuristicParams {
         static_cast<size_t>(unroll_factor_outer_reduction) << (bits - 22) ^
         static_cast<size_t>(compute_persistent_buffer_with_first_consumer)
             << (bits - 23) ^
-        static_cast<size_t>(unroll_factor_top_of_vectorization) << (bits - 24);
+        static_cast<size_t>(unroll_factor_top_of_vectorization) << (bits - 24) ^
+        static_cast<size_t>(tma_warp_specialized) << (bits - 25) ^
+        static_cast<size_t>(is_non_circular_buffer_gmem_to_regs)
+            << (bits - 26) ^
+        static_cast<size_t>(is_circular_buffer_regs_cached) << (bits - 27);
     return attr_hash;
   }
 

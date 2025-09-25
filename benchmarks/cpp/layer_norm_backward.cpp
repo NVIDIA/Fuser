@@ -108,7 +108,7 @@ static void NvFuserScheduler_LayerNorm_BWD(
       int64_t(benchmark_state.iterations()) *
       (3 * input.numel() + weight.numel() + bias.numel() + mean.numel() +
        rstd.numel()) *
-      int64_t(dataTypeSize(dtype)));
+      dataTypeSizeByte(dtype));
 }
 
 //------------------------------------------------------------------------------
@@ -158,7 +158,7 @@ static void Baseline_LayerNorm_BWD(
       int64_t(benchmark_state.iterations()) *
       (3 * input.numel() + weight.numel() + bias.numel() + mean.numel() +
        rstd.numel()) *
-      int64_t(dataTypeSize(dtype)));
+      dataTypeSizeByte(dtype));
 }
 
 static void Baseline_LayerNorm_BWD_fp32(benchmark::State& benchmark_state) {

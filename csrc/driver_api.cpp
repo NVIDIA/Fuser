@@ -65,14 +65,15 @@ namespace {
 void getDriverEntryPoint(
     const char* symbol,
     unsigned int version,
-    void** entry_point) {
+    void** entry_point,
+    cudaDriverEntryPointQueryResult* query_result) {
 #if (CUDA_VERSION >= 12050)
   NVFUSER_CUDA_RT_SAFE_CALL(cudaGetDriverEntryPointByVersion(
-      symbol, entry_point, version, cudaEnableDefault));
+      symbol, entry_point, version, cudaEnableDefault, query_result));
 #else
   (void)version;
-  NVFUSER_CUDA_RT_SAFE_CALL(
-      cudaGetDriverEntryPoint(symbol, entry_point, cudaEnableDefault));
+  NVFUSER_CUDA_RT_SAFE_CALL(cudaGetDriverEntryPoint(
+      symbol, entry_point, cudaEnableDefault, query_result));
 #endif
 }
 } // namespace
@@ -82,14 +83,22 @@ void getDriverEntryPoint(
   template <typename ReturnType, typename... Args>              \
   struct funcName##Loader {                                     \
     static ReturnType lazilyLoadAndInvoke(Args... args) {       \
-      static decltype(::funcName)* entry_point;                 \
-      static std::once_flag once;                               \
-      std::call_once(                                           \
-          once,                                                 \
-          getDriverEntryPoint,                                  \
-          #funcName,                                            \
-          version,                                              \
-          reinterpret_cast<void**>(&entry_point));              \
+      static auto* entry_point = [&]() {                        \
+        decltype(::funcName)* entry_point;                      \
+        cudaDriverEntryPointQueryResult query_result;           \
+        getDriverEntryPoint(                                    \
+            #funcName,                                          \
+            version,                                            \
+            reinterpret_cast<void**>(&entry_point),             \
+            &query_result);                                     \
+        NVF_CHECK(                                              \
+            query_result == cudaDriverEntryPointSuccess,        \
+            "Failed to get the entry point for ",               \
+            #funcName,                                          \
+            ": ",                                               \
+            query_result);                                      \
+        return entry_point;                                     \
+      }();                                                      \
       return entry_point(args...);                              \
     }                                                           \
     /* This ctor is just a CTAD helper, it is only used in a */ \
@@ -108,7 +117,7 @@ void getDriverEntryPoint(
 
 namespace nvfuser {
 
-ALL_DRIVER_API_WRAPPER(DEFINE_DRIVER_API_WRAPPER);
+NVF_ALL_DRIVER_API_WRAPPER(DEFINE_DRIVER_API_WRAPPER);
 
 } // namespace nvfuser
 

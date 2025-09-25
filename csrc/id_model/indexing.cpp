@@ -76,6 +76,34 @@ void TensorIndexer::buildLoopIndexMap() {
 
       loop_index_map_[loop_group] = loop_index;
     }
+
+    if (!tv_output->getAlternateLoopDomain().has_value()) {
+      continue;
+    }
+
+    const std::vector<IterDomain*>& alternate_loop_domain =
+        tv_output->getAlternateLoopDomain().value();
+    const std::vector<IterDomain*>& loop_domain = tv_output->getLoopDomain();
+    // NOTE For scheduling ldmatrix and stmatrix, the assumption is the original
+    // and alternate loop domains have the same number of iterDomains. This
+    // assertion may not be strictly necessary.
+    NVF_ERROR(alternate_loop_domain.size() == loop_domain.size());
+    for (auto&& [alt_loop_id, loop_id] :
+         zip(alternate_loop_domain, loop_domain)) {
+      const ValGroup& alt_loop_group =
+          id_model_.idGraph(IdMappingMode::LOOP).toGroup(alt_loop_id);
+      if (loop_index_map_.find(alt_loop_group) != loop_index_map_.end()) {
+        // Index already assigned for alternate loop iterDomain
+        continue;
+      }
+      // Map alternate loop iterDomain to the index variable for the original
+      // loop iterDomain.
+      const ValGroup& loop_group =
+          id_model_.idGraph(IdMappingMode::LOOP).toGroup(loop_id);
+      auto loop_index_iter = loop_index_map_.find(loop_group);
+      NVF_ERROR(loop_index_iter != loop_index_map_.end());
+      loop_index_map_[alt_loop_group] = loop_index_iter->second;
+    }
   }
 }
 
@@ -86,7 +114,7 @@ const AllocationDomainInfo& TensorIndexer::getIndexAllocationInfo(
 
 Val* TensorIndexer::getLoopIndex(
     IterDomain* loop_id,
-    const std::vector<ForLoop*>& for_loops) const {
+    const std::vector<kir::ForLoop*>& for_loops) const {
   // loop_id must be a loop domain.
   const auto& loop_group =
       id_model_.idGraph(IdMappingMode::LOOP).toGroup(loop_id);
@@ -109,7 +137,7 @@ Val* TensorIndexer::getLoopIndex(
 
 std::unordered_map<ValGroup, Val*> TensorIndexer::getInitialIndexMap(
     const std::vector<IterDomain*>& loop_domains,
-    const std::vector<ForLoop*>& for_loops) const {
+    const std::vector<kir::ForLoop*>& for_loops) const {
   std::unordered_map<ValGroup, Val*> initial_index_map;
 
   // For a given list of the loop domains, assign its corresponding
@@ -143,7 +171,7 @@ std::vector<Val*> TensorIndexer::getIndexFor(
     const Expr* expr,
     bool as_consumer,
     const std::vector<IterDomain*>& index_ids,
-    const std::vector<ForLoop*>& for_loops,
+    const std::vector<kir::ForLoop*>& for_loops,
     bool use_magic_zero) const {
   auto info = computeIndex(expr, index_ids, for_loops);
   const auto& replacement_map = getIndexReplacementMap(
@@ -175,7 +203,7 @@ std::vector<Val*> TensorIndexer::getIndexFor(
 Val* TensorIndexer::getLinearIndex(
     TensorView* tv,
     const Expr* expr,
-    const std::vector<ForLoop*>& for_loops,
+    const std::vector<kir::ForLoop*>& for_loops,
     const std::unordered_map<IterDomain*, Val*>& override_index) const {
   NVF_ERROR(tv != nullptr);
   NVF_ERROR(expr != nullptr);
@@ -251,9 +279,11 @@ std::vector<IterDomain*> TensorIndexer::getLoopDomains(const Expr* expr) const {
 IndexingInfo TensorIndexer::computeIndex(
     const Expr* expr,
     const std::vector<IterDomain*>& index_ids,
-    const std::vector<ForLoop*>& for_loops) const {
-  const auto loop_ids = getLoopIds(expr, id_model_);
-  const ExprPath<ExprGroup> traversal_path = getIndexingPath(expr, index_ids);
+    const std::vector<kir::ForLoop*>& for_loops,
+    bool use_alternate_loop_domain) const {
+  const auto loop_ids = getLoopIds(expr, id_model_, use_alternate_loop_domain);
+  const ExprPath<ExprGroup> traversal_path =
+      getIndexingPath(expr, index_ids, use_alternate_loop_domain);
   const std::unordered_map<ValGroup, Val*> initial_index_map =
       getInitialIndexMap(loop_ids, for_loops);
 
@@ -309,7 +339,7 @@ std::unordered_map<Val*, Val*> TensorIndexer::getIndexReplacementMap(
     const Expr* expr,
     bool as_consumer,
     const std::vector<IterDomain*>& loop_domains,
-    const std::vector<ForLoop*>& for_loops,
+    const std::vector<kir::ForLoop*>& for_loops,
     const std::unordered_map<ValGroup, Val*>& index_map) const {
   std::unordered_map<Val*, Val*> replacement_map;
 
@@ -322,11 +352,12 @@ std::unordered_map<Val*, Val*> TensorIndexer::getIndexReplacementMap(
     // of the domain, for predication, so the replacement is not
     // always done with zero.
     if (loop_id->getParallelType() == ParallelType::Vectorize ||
+        loop_id->getParallelType() == ParallelType::Group ||
         loop_id->getParallelType() == ParallelType::Bulk ||
         loop_id->getParallelType() == ParallelType::Mma) {
       replacement_index = loop_id->fusion()->zeroVal();
     } else {
-      ForLoop* for_loop = indexing_utils::getForLoop(
+      kir::ForLoop* for_loop = indexing_utils::getForLoop(
           loop_id, for_loops, id_model_.idGraph(IdMappingMode::LOOP));
 
       // for_loop is nullptr if no matching loop is found, which
@@ -365,11 +396,225 @@ std::unordered_map<Val*, Val*> TensorIndexer::getIndexReplacementMap(
   return replacement_map;
 }
 
+ValGroups TensorIndexer::getNonDivisibleIdsToPredicate(
+    TensorView* tv,
+    const IndexingInfo& index_info) const {
+  const auto& non_div_info = GpuLower::current()->nonDivisiblePredicateInfo();
+
+  ValGroups ids_to_predicate;
+
+  if (auto it = non_div_info.idsToPredicate().find(tv);
+      it != non_div_info.idsToPredicate().end()) {
+    ids_to_predicate = it->second;
+  }
+
+  // Make sure all IDs have indices
+  for (const auto& id_group : ids_to_predicate) {
+    NVF_ERROR(
+        index_info.index_map.contains(id_group),
+        "Index not found for non-divisible predicate: ",
+        nvfuser::toString(id_group));
+  }
+
+  // In addition to splits in the indexing traversal path, there can
+  // be additional splits that need to be predicated. For example,
+  //
+  // auto tv0 = makeContigConcreteTensor({8});
+  // fusion.addInput(tv0);
+  // auto tv1 = sum(tv0, {0});
+  // fusion.addOutput(tv1);
+  //
+  // [r0(8)]
+  // tv1->split(0, 1);
+  // [r1(8), r2(1)]
+  // tv1->split(1, 4);
+  // [r1(8), r3(1), r4(4)]
+  //
+  // The predicate of tv1 is generated by the index of r0, which is
+  // mapped with r1. So, the predicate would just be `i0 < 8`, where
+  // i0 is the loop index of the outermost loop. However, this is not
+  // enough because of the innermost loop of size 4. Suppose its loop
+  // index is i2, the tensor also needs to be predicated with `i2 <
+  // 1`. This is because the split of r2 is not divisible. This
+  // non-divisible split would be automatically included if indexing
+  // were done using the exact graph since it'd be included in the
+  // indexing traversal path. However, since indexing uses the
+  // almost-exact graph, no traversal is actually necessary as r0 is
+  // mapped with one of the loop IDs, r1.
+  //
+  // The reason certain non-divisible splits are missed is because
+  // size-one IDs, like r2 in the above example, may not need to be
+  // traversed in the almost-exact graph. In order to find such IDs,
+  // we visit each ID group on the path and see if it has a pattern
+  // like r0, that is, it is used by a split of a factor 1 and one of
+  // its outputs is in the same group in the almost-exact graph. For
+  // each of the splits, the size-one output ID is potentially
+  // problematic as it may be further split in a non-divisible way and
+  // the ID is not in the indexing path, those non-divisible splits
+  // are never detected by NonDivisibleSplitInfo.
+  //
+  // See PredicateIndexingTest.AdditionalNonDivisibleSplit and
+  // PredicateIndexingTest.AdditionalNonDivisibleSplitAfterDivisibleSplit
+  // for concrete examples.
+
+  // The first step here is to find this pattern and gather all
+  // potentially problematic IDs.
+
+  // Grab all involved ID groups.
+  auto from_groups = traversalGraph().toGroups(index_info.loop_ids);
+  auto to_groups = traversalGraph().toGroups(index_info.index_ids);
+  std::vector<ValGroup> all_visited_groups = getValsBetween<ValGraphBFS>(
+      index_info.traversal_path,
+      from_groups.vector(),
+      to_groups.vector(),
+      traversalGraph());
+
+  // For each of the visited groups, look for the pattern like the
+  // above split of r0 to r1 and r2. Specifically, we want to find an
+  // ID that is split and one of the outputs is mapped with the split
+  // input in the AlmostExact graph.
+
+  // It's conceptually easier to use the Exact graph.
+  const auto& exact_graph = id_model_.idGraph(IdMappingMode::EXACT);
+
+  // All potentially problematic IDs
+  ValGroups exact_groups_to_check;
+
+  for (const auto& almost_exact_group : all_visited_groups) {
+    // Find all Exact groups included in the AlmostExact group
+    ValGroups covered_exact_groups;
+    for (const auto& val : *almost_exact_group) {
+      // Additional IDs may be created without getting added to the
+      // exact graph, e.g., IDs for TMA and TMem, so
+      // exact_graph.toGroup may fail. Should be safe to ignore them.
+      if (exact_graph.hasGroup(val)) {
+        covered_exact_groups.pushBack(exact_graph.toGroup(val));
+      }
+    }
+
+    // If all of the IDs are exact mapped, this node should not need
+    // to be examined further
+    if (covered_exact_groups.size() == 1) {
+      continue;
+    }
+
+    // Look for an exact ID group that is used by a split and one of
+    // the outputs is mapped in the almost-exact graph
+    for (const auto& covered_exact_group : covered_exact_groups) {
+      for (const auto& use_eg : exact_graph.getUses(covered_exact_group)) {
+        auto split = dynamic_cast<Split*>(use_eg->front());
+        if (split == nullptr) {
+          continue;
+        }
+        bool inner_mapped = almost_exact_group->has(split->inner());
+        bool outer_mapped = almost_exact_group->has(split->outer());
+
+        NVF_ERROR(
+            !inner_mapped || !outer_mapped,
+            "Both outputs of a split are mapped with the input");
+
+        if (!inner_mapped && !outer_mapped) {
+          continue;
+        }
+
+        // This corresponds to r2 in the above example
+        IterDomain* unmapped_output = inner_mapped
+            ? split->outer()->as<IterDomain>()
+            : split->inner()->as<IterDomain>();
+
+        // The unmapped output should be size one.
+        NVF_ERROR(unmapped_output->extent()->isOneInt());
+
+        // If there's no use, there's nothing to predicate
+        if (exact_graph.getUses(exact_graph.toGroup(unmapped_output)).empty()) {
+          continue;
+        }
+
+        exact_groups_to_check.pushBack(exact_graph.toGroup(unmapped_output));
+      }
+    }
+  }
+
+  // For each r2-like ID, check if there's any non-divisible split
+  // in the path from the loop IDs. Not all of them may need to be
+  // predicated. Similar to what NonDivisiblePredicateInfo does, we
+  // should be able to minimize IDs to predicate, but here for
+  // simplicity all of non-divisible splits are predicated
+  for (const auto& exact_group_to_check : exact_groups_to_check) {
+    const auto path = ValGraphPermissiveBFS::getExprGroupsBetween(
+                          exact_graph,
+                          {exact_group_to_check},
+                          exact_graph.toGroups(index_info.loop_ids),
+                          /*require_all_to_visited=*/false)
+                          .first;
+
+    for (const auto& [expr_g, dir] : path) {
+      auto split = dynamic_cast<Split*>(expr_g->front());
+      if (split == nullptr) {
+        continue;
+      }
+
+      // Note that the above traversal is from group_to_check to the
+      // loop domain, so the actual indexing direction is the opposite
+      if (dir == Direction::Backward) {
+        continue;
+      }
+
+      if (GpuLower::current()->divisibleSplitSet().contains(split) ||
+          simplifyExpr(split->isDivisible())->isTrue()) {
+        continue;
+      }
+
+      ids_to_predicate.pushBack(traversalGraph().toGroup(split->in()));
+    }
+  }
+
+  return ids_to_predicate;
+}
+
+void TensorIndexer::updateIndexInfoForNonDivisibleSplits(
+    const Expr* expr,
+    const std::vector<kir::ForLoop*>& for_loops,
+    const ValGroups& non_divisible_ids,
+    IndexingInfo& index_info) const {
+  // Non-divisible split input IDs need to be predicated but may not
+  // be included in the traversal path. Grab all IDs that are
+  // currently missing indices and do another traversal
+
+  if (non_divisible_ids.empty()) {
+    return;
+  }
+
+  auto& index_map = index_info.index_map;
+
+  std::vector<IterDomain*> additional_ids_to_predicate;
+  for (const auto& id_group : non_divisible_ids) {
+    auto idx_it = index_map.find(id_group);
+    if (idx_it != index_map.end()) {
+      continue;
+    }
+
+    additional_ids_to_predicate.push_back(id_group->front()->as<IterDomain>());
+  }
+
+  const auto additional_index_info =
+      computeIndex(expr, additional_ids_to_predicate, for_loops);
+
+  // Merge additional_index_info.index_map to index_info.index_map
+  index_map.insert(
+      additional_index_info.index_map.begin(),
+      additional_index_info.index_map.end());
+
+  index_info.loop_group_dependencies.insert(
+      additional_index_info.loop_group_dependencies.begin(),
+      additional_index_info.loop_group_dependencies.end());
+}
+
 std::vector<PredicateInfo> TensorIndexer::getPredicates(
     TensorView* tv,
     const Expr* expr,
-    const std::vector<ForLoop*>& for_loops,
-    ForLoop* unswitched_loop) const {
+    const std::vector<kir::ForLoop*>& for_loops,
+    kir::ForLoop* unswitched_loop) const {
   const auto& zero_val = tv->fusion()->zeroVal();
 
   const std::vector<IterDomain*>& predicate_domains =
@@ -379,8 +624,7 @@ std::vector<PredicateInfo> TensorIndexer::getPredicates(
     return {};
   }
 
-  const IndexingInfo& index_info =
-      computeIndex(expr, predicate_domains, for_loops);
+  IndexingInfo index_info = computeIndex(expr, predicate_domains, for_loops);
 
   const auto& index_map = index_info.index_map;
 
@@ -526,40 +770,44 @@ std::vector<PredicateInfo> TensorIndexer::getPredicates(
   // If this is a reduction init expr, then no need to take care of
   // non divisible splits
   if (!lower_utils::isReductionInitExpr(expr)) {
-    const auto& non_div_info = GpuLower::current()->nonDivisiblePredicateInfo();
-    if (auto it = non_div_info.idsToPredicate().find(tv);
-        it != non_div_info.idsToPredicate().end()) {
-      for (const ValGroup& vg : it->second) {
-        IterDomain* id_to_predicate = vg->front()->as<IterDomain>();
-        PredicateInfo info;
-        info.loop_stage_ = loop_stage;
-        // The start predicate should always be true
-        info.start_offset_ = zero_val;
-        info.start_predicate_ = id_to_predicate->fusion()->trueVal();
+    const auto non_divisible_ids =
+        getNonDivisibleIdsToPredicate(tv, index_info);
 
-        info.stop_offset_ = zero_val;
+    updateIndexInfoForNonDivisibleSplits(
+        expr, for_loops, non_divisible_ids, index_info);
 
-        auto idx_it = index_map.find(vg);
-        NVF_ERROR(
-            idx_it != index_map.end(),
-            "Index not found for non-divisible ID group: ",
-            vg->front()->toString());
+    for (const ValGroup& id_group_to_predicate : non_divisible_ids) {
+      IterDomain* id_to_predicate =
+          id_group_to_predicate->front()->as<IterDomain>();
+      PredicateInfo info;
+      info.loop_stage_ = loop_stage;
+      // The start predicate should always be true
+      info.start_offset_ = zero_val;
+      info.start_predicate_ = id_to_predicate->fusion()->trueVal();
 
-        auto idx = ir_utils::replaceValRecursively(
-            idx_it->second, replacement_map_stop);
-        info.stop_predicate_ =
-            SimplifyingIrBuilder::ltExpr(idx, id_to_predicate->extent());
-        info.predicated_domains_ = {id_to_predicate};
+      info.stop_offset_ = zero_val;
 
-        const ValGroups& loop_deps = index_info.loop_group_dependencies.at(vg);
-        for (const auto& loop_dep : loop_deps) {
-          info.loop_domains_.insert(loop_dep->front()->as<IterDomain>());
-        }
+      auto idx_it = index_map.find(id_group_to_predicate);
+      NVF_ERROR(
+          idx_it != index_map.end(),
+          "Index not found for non-divisible ID group: ",
+          id_group_to_predicate->front()->toString());
 
-        protectPredicatesWithMagicZero(info);
+      auto idx =
+          ir_utils::replaceValRecursively(idx_it->second, replacement_map_stop);
+      info.stop_predicate_ =
+          SimplifyingIrBuilder::ltExpr(idx, id_to_predicate->extent());
+      info.predicated_domains_ = {id_to_predicate};
 
-        info_vec.emplace_back(info);
+      const ValGroups& loop_deps =
+          index_info.loop_group_dependencies.at(id_group_to_predicate);
+      for (const auto& loop_dep : loop_deps) {
+        info.loop_domains_.insert(loop_dep->front()->as<IterDomain>());
       }
+
+      protectPredicatesWithMagicZero(info);
+
+      info_vec.emplace_back(info);
     }
   }
 
@@ -568,7 +816,8 @@ std::vector<PredicateInfo> TensorIndexer::getPredicates(
 
 ExprPath<ExprGroup> TensorIndexer::getIndexingPath(
     const Expr* expr,
-    const std::vector<IterDomain*>& index_ids) const {
+    const std::vector<IterDomain*>& index_ids,
+    bool use_alternate_loop_domain) const {
   // Exclude broadcast IDs as their indices should always be zero
   // and they may not be reachable from the loop domain
   std::vector<IterDomain*> non_broadcast_index_ids;
@@ -581,7 +830,7 @@ ExprPath<ExprGroup> TensorIndexer::getIndexingPath(
   return IndexingTraversal::getExprsBetween(
       expr,
       traversalGraph(),
-      getLoopIds(expr, id_model_),
+      getLoopIds(expr, id_model_, use_alternate_loop_domain),
       non_broadcast_index_ids);
 }
 
@@ -636,9 +885,9 @@ std::pair<std::vector<ValGroup>, std::vector<Val*>> TensorIndexer::
       {contig_strides.begin(), contig_strides.end()}};
 }
 
-std::vector<ForLoop*> TensorIndexer::getUsedForLoopsOf(
+std::vector<kir::ForLoop*> TensorIndexer::getUsedForLoopsOf(
     const std::vector<Val*>& indices,
-    const std::vector<ForLoop*>& for_loops) const {
+    const std::vector<kir::ForLoop*>& for_loops) const {
   // Grab the loop indices
   std::vector<Val*> loop_indices;
   loop_indices.reserve(for_loops.size());
@@ -651,7 +900,7 @@ std::vector<ForLoop*> TensorIndexer::getUsedForLoopsOf(
   const auto dep_vals = DependencyCheck::getAllValsBetween(
       {loop_indices.begin(), loop_indices.end()}, indices);
 
-  std::vector<ForLoop*> dep_loops;
+  std::vector<kir::ForLoop*> dep_loops;
   for (auto [i, for_loop] : enumerate(for_loops)) {
     auto initial_loop_index = loop_indices.at(i);
     if (std::find(dep_vals.begin(), dep_vals.end(), initial_loop_index) !=
@@ -664,12 +913,46 @@ std::vector<ForLoop*> TensorIndexer::getUsedForLoopsOf(
 }
 
 void TensorIndexer::ensureStaticIndexing(
-    const std::vector<ForLoop*>& for_loops,
+    const std::vector<kir::ForLoop*>& for_loops,
     Val* index) const {
   for (auto for_loop : getUsedForLoopsOf({index}, for_loops)) {
     for_loop->requireUnroll();
   }
 }
+
+namespace {
+
+// Use alternate loop domain for the shared memory tensor for ldmatrix and
+// stmatrix.
+bool isSharedMemoryTvForLdStMatrix(TensorView* tv, const Expr* expr) {
+  // short-circuit: not (ldmatrix or stmatrix)
+  if (!ir_utils::isLdMatrixOp(expr) && !ir_utils::isStMatrixOp(expr)) {
+    return false;
+  }
+  // short-circuit: only the shared memory TensorView uses alternate loop
+  // domain. For ldmatrix, it is the input TensorView. For stmatrix, it is the
+  // output TensorView.
+  if (tv->getMemoryType() != MemoryType::Shared) {
+    return false;
+  }
+
+  TensorView* output_tv = ir_utils::getTvOutput(expr);
+  NVF_ERROR(output_tv != nullptr);
+
+  // alternate_loop_domain is optional for ldmatrix.
+  if (ir_utils::isLdMatrixOp(expr)) {
+    return output_tv->getAlternateLoopDomain().has_value();
+  }
+
+  NVF_ERROR(
+      output_tv->getAlternateLoopDomain().has_value(),
+      "Expected the alternate loop domain to be defined for the output "
+      "TensorView of ",
+      expr->toString());
+  return true;
+}
+
+} // namespace
 
 std::pair<std::vector<Val*>, std::vector<Val*>> TensorIndexer::
     getContigIndexFor(
@@ -677,7 +960,7 @@ std::pair<std::vector<Val*>, std::vector<Val*>> TensorIndexer::
         const Expr* expr,
         bool as_consumer,
         const AllocationDomainInfo& alloc_info,
-        const std::vector<ForLoop*>& for_loops,
+        const std::vector<kir::ForLoop*>& for_loops,
         const std::unordered_map<IterDomain*, Val*>& override_index) const {
   std::vector<IterDomain*> indexed_ids;
   indexed_ids.reserve(alloc_info.ids.size());
@@ -686,9 +969,10 @@ std::pair<std::vector<Val*>, std::vector<Val*>> TensorIndexer::
       indexed_ids.push_back(id);
     }
   }
-  auto index_info = computeIndex(expr, indexed_ids, for_loops);
+  auto index_info = computeIndex(
+      expr, indexed_ids, for_loops, isSharedMemoryTvForLdStMatrix(tv, expr));
   for (const auto& [indexed_id, index] : override_index) {
-    index_info.index_map.emplace(traversalGraph().toGroup(indexed_id), index);
+    index_info.index_map[traversalGraph().toGroup(indexed_id)] = index;
   }
   const auto& index_map = index_info.index_map;
   auto replacement_map = getIndexReplacementMap(
@@ -747,7 +1031,7 @@ std::pair<std::vector<Val*>, std::vector<Val*>> TensorIndexer::
 
 std::vector<Val*> TensorIndexer::protectIndicesWithMagicZero(
     const std::vector<Val*>& indices,
-    const std::vector<ForLoop*>& for_loops) const {
+    const std::vector<kir::ForLoop*>& for_loops) const {
   if (!GpuLower::current()->isNvFuserZeroEnabled()) {
     return indices;
   }
@@ -809,11 +1093,6 @@ bool TensorIndexer::isSupported(Fusion* fusion) {
       for (const auto& id : tv->domain()->allIDs()) {
         if (auto swizzle2d = dynamic_cast<Swizzle2D*>(id->definition())) {
           reason << "Swizzle2D not supported: " << swizzle2d->toString();
-          break;
-        } else if (ir_utils::isIndexedConsumerID(tv, id)) {
-          reason << "Indirect indexing of consumer ID not supported: "
-                 << tv->toString() << ", " << id->toString() << ", "
-                 << tv->definition()->toString();
           break;
         }
       }

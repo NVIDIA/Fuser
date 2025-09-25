@@ -16,32 +16,43 @@
 
 namespace nvfuser {
 
-#define DECLARE_DRIVER_API_WRAPPER(funcName, version) \
-  extern decltype(::funcName)* funcName
-
 // List of driver APIs that you want the magic to happen.
 //
-// The second argument is the CUDA_VERSION **requested** for the driver API.
-// It's fine if the **actual** CUDA_VERSION is larger than this. For max
-// compatibility, this requested CUDA_VERSION should be as low as possible, as
-// long as it supports the capabilities that nvFuser requires.
+// The second argument is the **requested** driver API version.
+// It must be lower than or equal to the **actual** driver API version. For max
+// compatibility, this requested version should be as low as possible
+// while still supporting the capabilities required by nvFuser.
+//
+// Using the actual driver API version can break forward compatibility.
+// Consider the following situation: cuFoo, an imaginary CUDA driver API
+// function, is versioned in its symbol name. nvFuser relies on the behavior of
+// cuFoo_v2, which is used by CUDA 12. The user upgrades their driver to CUDA
+// 13 that introduces cuFoo_v3, which has a different behavior from _v2. In
+// this case, `cudaGetDriverEntryPointByVersion(...,13000)` returns cuFoo_v3,
+// which breaks nvFuser as is because it still relies on the _v2 behavior.
+// Instead, `cudaGetDriverEntryPointByVersion(...,12000)` still returns
+// cuFoo_v2 despite of the CUDA 13 upgrade so nvFuser still functions.
 //
 // nvFuser is expected to support only CUDA_VERSION >= 11000, so I didn't try
-// to go lower than that.
-#define ALL_DRIVER_API_WRAPPER_CUDA(fn) \
-  fn(cuDeviceGetAttribute, 11000);      \
-  fn(cuDeviceGetName, 11000);           \
-  fn(cuFuncGetAttribute, 11000);        \
-  fn(cuFuncSetAttribute, 11000);        \
-  fn(cuGetErrorName, 11000);            \
-  fn(cuGetErrorString, 11000);          \
-  fn(cuLaunchCooperativeKernel, 11000); \
-  fn(cuLaunchKernel, 11000);            \
-  fn(cuModuleGetFunction, 11000);       \
-  fn(cuModuleLoadDataEx, 11000);        \
-  fn(cuModuleUnload, 11000);            \
-  fn(cuMemGetAddressRange, 11000);      \
-  fn(cuOccupancyMaxActiveBlocksPerMultiprocessor, 11000)
+// to go lower than that. When we increase the minimum supported version, we
+// can accordingly increase the requested versions. However, we don't have to
+// unless new driver capabilities are needed.
+#define NVF_ALL_DRIVER_API_WRAPPER_VERSION_INDEPENDENT(fn) \
+  fn(cuDeviceGetAttribute, 11000);                         \
+  fn(cuDeviceGetName, 11000);                              \
+  fn(cuFuncGetAttribute, 11000);                           \
+  fn(cuFuncSetAttribute, 11000);                           \
+  fn(cuGetErrorName, 11000);                               \
+  fn(cuGetErrorString, 11000);                             \
+  fn(cuLaunchCooperativeKernel, 11000);                    \
+  fn(cuLaunchKernel, 11000);                               \
+  fn(cuModuleGetFunction, 11000);                          \
+  fn(cuModuleLoadData, 11000);                             \
+  fn(cuModuleLoadDataEx, 11000);                           \
+  fn(cuModuleUnload, 11000);                               \
+  fn(cuMemGetAddressRange, 11000);                         \
+  fn(cuOccupancyMaxActiveBlocksPerMultiprocessor, 11000);  \
+  fn(cuOccupancyAvailableDynamicSMemPerBlock, 11000)
 
 // Stream memory operations (e.g. cuStreamWriteValue32) are specified for both
 // 11 and 12+. In CUDA 11, these operations require NVreg_EnableStreamMemOPs=1
@@ -53,21 +64,40 @@ namespace nvfuser {
 // integrated into the vanilla APIs and are therefore removed. Refer to
 // https://docs.nvidia.com/cuda/archive/11.7.1/cuda-driver-api/group__CUDA__MEMOP.html
 #if (CUDA_VERSION >= 12000)
-#define ALL_DRIVER_API_WRAPPER(fn) \
-  ALL_DRIVER_API_WRAPPER_CUDA(fn); \
-  fn(cuStreamWaitValue32, 12000);  \
-  fn(cuStreamWriteValue32, 12000); \
-  fn(cuTensorMapEncodeTiled, 12000)
+#define NVF_STREAM_DRIVER_API_WRAPPER(fn) \
+  fn(cuStreamWaitValue32, 12000);         \
+  fn(cuStreamWriteValue32, 12000)
 #elif (CUDA_VERSION >= 11000)
-#define ALL_DRIVER_API_WRAPPER(fn) \
-  ALL_DRIVER_API_WRAPPER_CUDA(fn); \
-  fn(cuStreamWaitValue32, 11000);  \
+#define NVF_STREAM_DRIVER_API_WRAPPER(fn) \
+  fn(cuStreamWaitValue32, 11000);         \
   fn(cuStreamWriteValue32, 11000)
 #else
 #error "CUDA_VERSION < 11000 isn't supported."
 #endif
 
-ALL_DRIVER_API_WRAPPER(DECLARE_DRIVER_API_WRAPPER);
+#if (CUDA_VERSION >= 11080)
+#define NVF_DRIVER_API_WRAPPER_CUDA_118(fn) \
+  fn(cuOccupancyMaxActiveClusters, 11080)
+#else
+#define NVF_DRIVER_API_WRAPPER_CUDA_118(fn)
+#endif
+
+#if (CUDA_VERSION >= 12000)
+#define NVF_DRIVER_API_WRAPPER_CUDA_120(fn) fn(cuTensorMapEncodeTiled, 12000)
+#else
+#define NVF_DRIVER_API_WRAPPER_CUDA_120(fn)
+#endif
+
+#define NVF_ALL_DRIVER_API_WRAPPER(fn)                \
+  NVF_ALL_DRIVER_API_WRAPPER_VERSION_INDEPENDENT(fn); \
+  NVF_STREAM_DRIVER_API_WRAPPER(fn);                  \
+  NVF_DRIVER_API_WRAPPER_CUDA_118(fn);                \
+  NVF_DRIVER_API_WRAPPER_CUDA_120(fn)
+
+#define DECLARE_DRIVER_API_WRAPPER(funcName, version) \
+  extern decltype(::funcName)* funcName
+
+NVF_ALL_DRIVER_API_WRAPPER(DECLARE_DRIVER_API_WRAPPER);
 
 #undef DECLARE_DRIVER_API_WRAPPER
 

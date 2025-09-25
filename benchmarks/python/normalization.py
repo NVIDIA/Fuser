@@ -443,8 +443,8 @@ def norm_fwd_baseline_benchmark(
 
     # Size is assumed to be in the order N, C, ...
     inputs = torch.randn(size, device="cuda", dtype=dtype, requires_grad=True)
-    weight = torch.randn(size[1], device="cuda", dtype=dtype)
-    bias = torch.randn(size[1], device="cuda", dtype=dtype)
+    weight = torch.randn(size[1], device="cuda", dtype=dtype, requires_grad=True)
+    bias = torch.randn(size[1], device="cuda", dtype=dtype, requires_grad=True)
 
     running_mean = torch.zeros(size[1], device="cuda", dtype=dtype)
     running_var = torch.ones(size[1], device="cuda", dtype=dtype)
@@ -479,8 +479,8 @@ def norm_bwd_baseline_benchmark(
 
     # Size is assumed to be in the order N, C, ...
     inputs = torch.randn(size, device="cuda", dtype=dtype, requires_grad=True)
-    weight = torch.randn(size[1], device="cuda", dtype=dtype)
-    bias = torch.randn(size[1], device="cuda", dtype=dtype)
+    weight = torch.randn(size[1], device="cuda", dtype=dtype, requires_grad=True)
+    bias = torch.randn(size[1], device="cuda", dtype=dtype, requires_grad=True)
 
     running_mean = torch.zeros(size[1], device="cuda", dtype=dtype)
     running_var = torch.ones(size[1], device="cuda", dtype=dtype)

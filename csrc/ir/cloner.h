@@ -13,6 +13,7 @@
 #include <ir/builder.h>
 #include <visibility.h>
 
+#include <optional>
 #include <tuple>
 #include <unordered_map>
 #include <unordered_set>
@@ -73,6 +74,14 @@ class IrCloner {
       copy.push_back(clone(p));
     }
     return copy;
+  }
+
+  template <class T>
+  std::optional<T> clone(const std::optional<T>& optional_container) {
+    if (!optional_container.has_value()) {
+      return std::nullopt;
+    }
+    return clone(optional_container.value());
   }
 
   template <class T>
@@ -180,8 +189,8 @@ T* IrBuilder::clone(const T* src, IrCloner* ir_cloner) {
       "Cloner doesn't have a valid container to store cloned object.");
 
   T* dest = new T(src, ir_cloner);
-  const Statement* src_stmt = dynamic_cast<const Statement*>(src);
-  Statement* dest_stmt = dynamic_cast<Statement*>(dest);
+  const auto* src_stmt = dynamic_cast<const Statement*>(src);
+  auto* dest_stmt = dynamic_cast<Statement*>(dest);
 
   auto dest_container = ir_cloner->container();
   auto src_container = src_stmt->container();

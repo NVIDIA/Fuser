@@ -3129,4 +3129,56 @@ TEST_F(IdModelTest, BroadcastOnlyNoLoopPromotion) {
       << promotion_id->toString();
 }
 
+// Scatter output uses unique mapping schemes
+TEST_F(IdModelTest, ScatterLoopMapping) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+
+  auto tv0 = makeContigTensor(1);
+  fusion.addInput(tv0);
+  auto tv1 = makeContigTensor(1, DataType::Int);
+  fusion.addInput(tv1);
+  auto tv2 = makeContigTensor(1);
+  fusion.addInput(tv2);
+
+  auto tv3 = set(tv0);
+  auto tv4 = set(tv1);
+  auto tv5 = set(tv2);
+
+  auto tv6 = scatter(tv3, 0, tv4, tv5);
+  fusion.addOutput(tv6);
+
+  tv4->split(0, 4);
+  tv6->split(0, 4);
+
+  IdModel id_model(&fusion);
+  const auto& exact_graph = id_model.buildExactGraph();
+
+  // The loop domain should not be mapped with the logical domain
+  EXPECT_FALSE(exact_graph.disjointValSets().strictAreMapped(
+      tv6->domain()->initialLoop().at(0), tv3->getLogicalDomain().at(0)));
+
+  // Check if the initial loop domain are mapped with the logical
+  // domains of the index and src tensors
+  EXPECT_EQ(
+      tv6->domain()->initialLoop().size(), tv4->getLogicalDomain().size());
+  EXPECT_EQ(
+      tv6->domain()->initialLoop().size(), tv5->getLogicalDomain().size());
+  for (const auto i : arange(tv6->domain()->initialLoop().size())) {
+    EXPECT_TRUE(exact_graph.disjointValSets().strictAreMapped(
+        tv6->domain()->initialLoop().at(i), tv4->getLogicalDomain().at(i)));
+    EXPECT_TRUE(exact_graph.disjointValSets().strictAreMapped(
+        tv6->domain()->initialLoop().at(i), tv5->getLogicalDomain().at(i)));
+  }
+
+  // Since the output and index tensors have the same split, their
+  // loop domains should be mapped
+  EXPECT_EQ(tv6->getLoopDomain().size(), tv4->getLoopDomain().size());
+  for (const auto i : arange(tv6->getLogicalDomain().size())) {
+    EXPECT_TRUE(exact_graph.disjointValSets().strictAreMapped(
+        tv6->getLoopDomain().at(i), tv4->getLoopDomain().at(i)));
+  }
+}
+
 } // namespace nvfuser

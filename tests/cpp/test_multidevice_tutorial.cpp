@@ -6,8 +6,10 @@
  */
 // clang-format on
 
+#include <torch/torch.h>
+
 #include <host_ir/container.h>
-#include <host_ir/executor.h>
+#include <host_ir/evaluator.h>
 #include <host_ir/host_ir.h>
 #include <ir/iostream.h>
 #include <multidevice/communicator.h>
@@ -26,10 +28,10 @@ class MultiDeviceTutorial : public MultiDeviceTest {
   void SetUp() {
     MultiDeviceTest::SetUp();
     if (!communicator_->is_available()) {
-      GTEST_SKIP()
-          << "Distributed setting not available. "
-          << "Make sure you are on a node with n>1 GPUs and run "
-          << "`mpirun -np n -x NVFUSER_TUTORIAL_VERBOSE=1 tutorial_multidevice`";
+      GTEST_SKIP() << "Distributed setting not available. "
+                   << "Make sure you are on a node with n>1 GPUs and run "
+                   << "`mpirun -np n -x NVFUSER_TUTORIAL_VERBOSE=1 "
+                      "tutorial_multidevice`";
     }
   }
 
@@ -889,23 +891,18 @@ TEST_F(MultiDeviceTutorial, HostIrGemmReduceScatter) {
   FusionGuard fg(hic.get());
 
   constexpr int64_t kNDims = 2;
-  TensorView* tva = makeSymbolicTensor(kNDims);
-  TensorView* tvb = makeSymbolicTensor(kNDims);
+  TensorView* tva = makeContigTensor(kNDims);
+  TensorView* tvb = makeContigTensor(kNDims);
   // some ops, like MatMulOp are natively supported as HostIrs, and do not need
   // to be implemented as a Fusion
   TensorView* tvc = matmul(tva, tvb);
   Expr* matmul_op = tvc->definition();
 
-  TensorView* tvd = makeSymbolicTensor(kNDims);
+  TensorView* tvd = makeContigTensor(kNDims);
   // Before defining the communication (reduce-scatter) that produces tvd from
   // tvc, it is required to set tvd and tvc device mesh (this might be removed
   // in the future)
-  std::vector<int64_t> all_devices(communicator_->size());
-  std::iota(
-      all_devices.begin(),
-      all_devices.end(),
-      0); // all_devices = [0,1,..., communicator_->size()-1]
-  DeviceMesh mesh_full(all_devices);
+  auto mesh_full = DeviceMesh::createForNumDevices(communicator_->size());
   tvc->setDeviceMesh(mesh_full);
   tvd->setDeviceMesh(mesh_full);
 
@@ -913,10 +910,9 @@ TEST_F(MultiDeviceTutorial, HostIrGemmReduceScatter) {
       CommunicationType::ReduceScatter,
       /*out=*/tvd,
       /*in=*/tvc,
-      /*team=*/all_devices,
+      /*team=*/mesh_full.vector(),
       /*(unused)root=*/-1,
-      RedOpType::SUM,
-      /*scattered_axis=*/0);
+      RedOpType::SUM);
 
   // Since communications are non-blocking, it is always required to wait for a
   // posted communication. Node that "wait" blocks the stream but not the CPU
@@ -1035,7 +1031,7 @@ TEST_F(MultiDeviceTutorial, HostIrKernekPipelining) {
   // Let us create the main for-loop of the program. Its index will be used in
   // the for-loop's body.
   auto* index = IrBuilder::create<Val>(DataType::Index);
-  auto* for_loop = IrBuilder::create<ForLoop>(
+  auto* for_loop = IrBuilder::create<kir::ForLoop>(
       tv2->axis(0),
       index,
       /*start=*/hic->zeroVal(),

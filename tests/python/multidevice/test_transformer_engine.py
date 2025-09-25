@@ -2,48 +2,12 @@
 # All rights reserved.
 # SPDX-License-Identifier: BSD-3-Clause
 
-import os
 import pytest
 import torch
 import torch.distributed as dist
 import transformer_engine.pytorch as te
+from benchmark_utils import get_benchmark_fns
 from enum import auto, Enum
-from functools import partial
-from mpi4py import MPI
-
-
-class MpiTest:
-    def __init__(self):
-        self._communicator = MPI.COMM_WORLD
-        self._local_size = int(os.environ["OMPI_COMM_WORLD_LOCAL_SIZE"])
-        self._local_rank = int(os.environ["OMPI_COMM_WORLD_LOCAL_RANK"])
-
-    @property
-    def size(self):
-        return self._communicator.size
-
-    @property
-    def rank(self):
-        return self._communicator.rank
-
-    @property
-    def local_size(self):
-        return self._local_size
-
-    @property
-    def local_rank(self):
-        return self._local_rank
-
-    def barrier(self):
-        self._communicator.barrier()
-
-
-@pytest.fixture(scope="session")
-def mpi_test():
-    fixture = MpiTest()
-    yield fixture
-    # Sync all ranks after each test for isolation.
-    fixture.barrier()
 
 
 class ComputeType(Enum):
@@ -77,8 +41,16 @@ class Parallelism(Enum):
 )
 @pytest.mark.parametrize(
     "overlap",
-    [False, True],
-    ids=["nonoverlap", "overlap"],
+    [
+        pytest.param(False, id="nonoverlap"),
+        pytest.param(
+            True,
+            id="overlap",
+            marks=pytest.mark.skip(
+                reason="`RuntimeError: /workspace/TransformerEngine/transformer_engine/common/comm_gemm_overlap/userbuffers/userbuffers-host.cpp:321 in function create_communicator_grouped2: CUDA Error: invalid argument` in jit_python_distributed_tests_20_H100_TNVF"
+            ),
+        ),
+    ],
 )
 def test_transformer_layer(
     setup_default_process_group,
@@ -100,9 +72,6 @@ def test_transformer_layer(
     dtype = torch.bfloat16
 
     size = dist.get_world_size()
-    rank = dist.get_rank()
-
-    torch.cuda.set_device(rank)
 
     transformer_layer = te.TransformerLayer(
         hidden_size,
@@ -146,60 +115,34 @@ def test_transformer_layer(
 
     match compute_type:
         case ComputeType.FORWARD:
-
-            def benchmark_fn(profile):
-                if profile:
-                    torch.cuda.cudart().cudaProfilerStart()
-
-                y = transformer_layer(x)
-                torch.cuda.synchronize()
-
-                if profile:
-                    torch.cuda.cudart().cudaProfilerStop()
-                return y
-
-            # Warmup.
-            y = benchmark_fn(False)
+            warmup_fn, benchmark_fn = get_benchmark_fns(lambda: transformer_layer(x))
+            y = warmup_fn()
             assert y.size() == torch.Size(
                 [batch_size, local_sequence_length, hidden_size]
             )
 
-            benchmark.pedantic(benchmark_fn, args=(True,), rounds=5)
+            benchmark.pedantic(benchmark_fn, rounds=5)
         case ComputeType.BACKWARD:
-            # Due to
-            # https://github.com/Lightning-AI/lightning-thunder/issues/701, a
-            # limitation in TransformerEngine, we can't repeatedly call
+            # Due to https://github.com/NVIDIA/TransformerEngine/issues/990, we can't repeatedly call
             # torch.autograd.backward to benchmark just backprop. As a
             # workaround, the code below runs forward before each backprop but
             # only measure the backprop time.
-            def setup_fn(profile):
+            def setup_fn():
                 y = transformer_layer(x)
                 dy = torch.rand_like(y)
                 torch.cuda.synchronize()
-                # Unlike for forward, I can't pass `profile` directly to
-                # `benchmark_fn` because `benchmark.pedantic` is not allowed to
-                # take both `setup` and `args`. Therefore, we pass `profile` to
-                # `setup_fn`, which in turn passes iit through to
-                # `benchmark_fn`.
-                return (y, dy, profile), {}
+                return (y, dy), {}
 
-            def benchmark_fn(y, dy, profile):
-                if profile:
-                    torch.cuda.cudart().cudaProfilerStart()
+            warmup_fn, benchmark_fn = get_benchmark_fns(
+                lambda y, dy: torch.autograd.backward(y, dy)
+            )
 
-                torch.autograd.backward(y, dy)
-                torch.cuda.synchronize()
-
-                if profile:
-                    torch.cuda.cudart().cudaProfilerStop()
-
-            # Warmup.
-            args, kwargs = setup_fn(False)
-            benchmark_fn(*args, **kwargs)
+            args, kwargs = setup_fn()
+            warmup_fn(*args, **kwargs)
 
             benchmark.pedantic(
                 benchmark_fn,
-                setup=partial(setup_fn, True),
+                setup=setup_fn,
                 rounds=5,
             )
 

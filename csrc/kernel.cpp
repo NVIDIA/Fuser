@@ -5,19 +5,19 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <iostream>
+
+#include <ATen/cuda/CUDAContext.h>
+
 #include <debug.h>
 #include <device_lower/lower2device.h>
 #include <instrumentation.h>
 #include <ir/iostream.h>
+#include <ir/printer.h>
 #include <ir/utils.h>
 #include <kernel.h>
 #include <kernel_ir_dispatch.h>
 #include <type.h>
-
-#include <ATen/cuda/CUDAContext.h>
-
-#include <iostream>
-#include <unordered_set>
 
 namespace nvfuser {
 
@@ -31,6 +31,33 @@ class KernelIrScanner : private IrVisitor {
  public:
   explicit KernelIrScanner(const Kernel* kernel) {
     index_type_ = kernel->indexType();
+
+    // If any TensorView in a kernel is stream-parallel, all non-trivial outputs
+    // of the kernel should be stream-parallel. Otherwise, they wouldn't have
+    // been grouped into the same segment. Therefore, we only need to check the
+    // outputs, not all TensorViews in the kernel.
+    summary_.stream_parallelized = [&]() {
+      for (auto* out : kernel->outputs()) {
+        auto* out_tv = dynamic_cast<TensorView*>(out);
+        NVF_ERROR(
+            out_tv != nullptr,
+            "Expected a kernel output to be a TensorView, but found ",
+            out);
+
+        if (out_tv->isCpuScalar()) {
+          continue;
+        }
+
+        if (std::any_of(
+                out_tv->getLoopDomain().begin(),
+                out_tv->getLoopDomain().end(),
+                std::mem_fn(&IterDomain::isStream))) {
+          return true;
+        }
+      }
+      return false;
+    }();
+
     IrVisitor::handle(kernel->topLevelExprs());
   }
 
@@ -50,9 +77,16 @@ class KernelIrScanner : private IrVisitor {
     NVF_ERROR(
         num_grouped_iterations == 2 || num_grouped_iterations == 4 ||
             num_grouped_iterations == 8 || num_grouped_iterations == 16,
-        "Iteration grouped reduction only support grouping 2, 4, 8, or 16 iterations, but found ",
+        "Iteration grouped reduction only support grouping 2, 4, 8, or 16 "
+        "iterations, but found ",
         num_grouped_iterations);
     return num_grouped_iterations;
+  }
+
+  void checkWarpReduction(const Val* out, const Val* in) {
+    summary_.all_block_reductions_are_warp_reduction =
+        summary_.all_block_reductions_are_warp_reduction &&
+        ir_utils::getMaybeWarpReductionDim(out, in).has_value();
   }
 
   using IrVisitor::dispatch;
@@ -105,7 +139,9 @@ class KernelIrScanner : private IrVisitor {
   void handle(Allocate* allocate) final {
     switch (allocate->memoryType()) {
       case MemoryType::Global:
-        summary_.global_allocations.push_back(allocate);
+        if (!allocate->buffer()->isFusionOutput()) {
+          summary_.global_allocations.push_back(allocate);
+        }
         break;
       case MemoryType::Shared:
         summary_.dynamic_smem_allocations.push_back(allocate);
@@ -133,7 +169,7 @@ class KernelIrScanner : private IrVisitor {
     if (domain->hasBlockReduction() || domain->hasGridReduction() ||
         tv->getMemoryType() == MemoryType::Shared) {
       const auto data_type = tv->dtype();
-      const size_t type_size = dataTypeSize(data_type, index_type_);
+      const size_t type_size = dataTypeSizeByte(data_type, index_type_);
       if (type_size > max_smem_type_size_) {
         max_smem_type_size_ = type_size;
         summary_.largest_smem_data_type = data_type;
@@ -147,12 +183,16 @@ class KernelIrScanner : private IrVisitor {
     auto out_dom = welford_op->outAvg()->as<TensorIndex>()->view()->domain();
     summary_.has_block_welford =
         summary_.has_block_welford || out_dom->hasBlockReduction();
+    summary_.all_block_reductions_are_warp_reduction = false;
   }
 
   // TODO: need to split into IterGroupedReductionOp and ExprGroupedReductionOp?
   // May extend to support both iteration and expr grouped block reductions.
   // Grouped grid reductions are handled by GroupedGridReduction.
   void handle(GroupedReductionOp* grouped_rop) final {
+    // check if we have a warp reduction
+    checkWarpReduction(grouped_rop->output(0), grouped_rop->input(0));
+
     // skip expr grouped reduction
     if (grouped_rop->numHorizontallyGroupedExprs() > 1) {
       return;
@@ -168,9 +208,14 @@ class KernelIrScanner : private IrVisitor {
     summary_.has_welford = true;
     summary_.has_grid_welford = true;
     summary_.has_grid_reductions = true;
+    summary_.all_block_reductions_are_warp_reduction = false;
     if (grid_welford->welford_op()->isAllreduce()) {
       summary_.has_cooperative_grid_reduction = true;
     }
+  }
+
+  void handle(ReductionOp* rop) final {
+    checkWarpReduction(rop->out(), rop->in());
   }
 
   void handle(GridReduction* grid_reduction) final {
@@ -179,6 +224,7 @@ class KernelIrScanner : private IrVisitor {
     // workspace.
     summary_.has_grid_reductions =
         grid_reduction->serialReductionTensor() == nullptr;
+    summary_.all_block_reductions_are_warp_reduction = false;
     if (grid_reduction->isAllreduce()) {
       summary_.has_cooperative_grid_reduction = true;
     }
@@ -186,6 +232,7 @@ class KernelIrScanner : private IrVisitor {
 
   void handle(GroupedGridReduction* grid_reduction) final {
     summary_.has_grid_reductions = true;
+    summary_.all_block_reductions_are_warp_reduction = false;
     if (grid_reduction->isAllreduce()) {
       summary_.has_cooperative_grid_reduction = true;
     } else if (grid_reduction->numHorizontallyGroupedExprs() == 1) {
@@ -201,12 +248,14 @@ class KernelIrScanner : private IrVisitor {
     summary_.has_welford = true;
     summary_.has_grid_welford = true;
     summary_.has_grid_reductions = true;
+    summary_.all_block_reductions_are_warp_reduction = false;
     if (grid_welford->isAllreduce()) {
       summary_.has_cooperative_grid_reduction = true;
     }
     if (grid_welford->useOuterOpt()) {
       summary_.has_outer_grouped_grid_welford = true;
-      const auto& par_dim_map = GpuLower::current()->parallelDimensionMap();
+      const auto& par_dim_map =
+          GpuLower::current()->info().parallelDimensionMap();
       auto tidx_val = par_dim_map.get(ParallelType::TIDx);
       auto tidy_val = par_dim_map.get(ParallelType::TIDy);
       NVF_ERROR(
@@ -232,8 +281,10 @@ class KernelIrScanner : private IrVisitor {
 
   void handle(BroadcastOp* bop) final {
     const ParallelTypeBitmap parallel_types =
-        GpuLower::current()->threadPredMap().getParallelBroadcastDomains(
-            bop->out()->as<TensorIndex>()->view());
+        GpuLower::current()
+            ->info()
+            .threadPredicateMap()
+            .getParallelBroadcastDomains(bop->out()->as<TensorIndex>()->view());
     summary_.broadcast_parallel_types.emplace(bop, parallel_types);
     // Do we have block broadcasts?
     summary_.has_block_broadcasts =
@@ -241,6 +292,22 @@ class KernelIrScanner : private IrVisitor {
     // Do we have grid broadcasts?
     summary_.has_grid_broadcasts =
         summary_.has_grid_broadcasts || parallel_types.hasBID();
+  }
+
+  void handle(ArgsortOp* aop) final {
+    summary_.has_argsort = true;
+  }
+
+  void handle(PreprocessGroupedMatmulInputSf* aop) final {
+    summary_.has_preprocess_grouped_matmul_input_sf = true;
+  }
+
+  void handle(TopKOp* top) final {
+    summary_.has_topk = true;
+  }
+
+  void handle(ScanOp* scan) final {
+    summary_.has_scan = true;
   }
 
   void handle(IfThenElse* ite) final {
@@ -252,6 +319,10 @@ class KernelIrScanner : private IrVisitor {
     }
     // Run default handle
     IrVisitor::handle(ite);
+  }
+
+  void handle(MmaOp* mma_op) final {
+    summary_.has_mma_op = true;
   }
 
  private:
@@ -307,7 +378,7 @@ class ValidateAllocation : private OptOutConstDispatch {
   // during in the allocation lowering if it's thread-parallel and not
   // allocated on shared or global memories, or if it's block-parallel
   // ando not allocated on global memory.
-  void validate(const ForLoop* for_loop) {
+  void validate(const kir::ForLoop* for_loop) {
     const auto loop_id = for_loop->iter_domain();
     for (const auto& allocations : live_allocations_) {
       for (const auto& allocate : allocations) {
@@ -316,7 +387,7 @@ class ValidateAllocation : private OptOutConstDispatch {
           continue;
         }
         for (const auto& axis : tv->getLoopDomain()) {
-          if (!GpuLower::current()->caMap()->areMapped(
+          if (!GpuLower::current()->info().caMap().areMapped(
                   loop_id, axis, IdMappingMode::LOOP)) {
             continue;
           }
@@ -335,7 +406,7 @@ class ValidateAllocation : private OptOutConstDispatch {
     }
   }
 
-  void handle(const ForLoop* for_loop) final {
+  void handle(const kir::ForLoop* for_loop) final {
     if (for_loop->stop() != for_loop->iter_domain()->extent() &&
         isParallelTypeThread(for_loop->iter_domain()->getParallelType())) {
       validate(for_loop);
@@ -376,7 +447,8 @@ Kernel::Kernel(Fusion* fusion, PrimDataType index_type)
 void Kernel::finalize(std::vector<Expr*> top_level_exprs) {
   NVF_ERROR(top_level_exprs_.empty());
   top_level_exprs_ = std::move(top_level_exprs);
-  warp_padded_parallel_info_ = GpuLower::current()->getWarpPaddedParallelInfo();
+  padded_parallel_dimensions_ =
+      FusionInfoGuard::current()->paddedParallelDimensions();
   profile_ = GpuLower::current()->profile();
   ValidateAllocation::validate(this);
   analyze();
@@ -385,15 +457,27 @@ void Kernel::finalize(std::vector<Expr*> top_level_exprs) {
   summary_.vectorized_accesses = GpuLower::current()->vectorizedAccesses();
   summary_.vectorized_set_info = GpuLower::current()->vectorizedSetInfo();
   summary_.sync_map = GpuLower::current()->syncMap();
-  summary_.parallel_dimension_map = GpuLower::current()->parallelDimensionMap();
+  summary_.parallel_dimension_map =
+      GpuLower::current()->info().parallelDimensionMap();
   summary_.circular_buffer_info = GpuLower::current()->circularBufferInfo();
   summary_.min_device_version = GpuLower::current()->minDeviceVersion();
   summary_.min_device_version_reason =
       GpuLower::current()->minDeviceVersionReason();
   summary_.dec_inc_register_usage = GpuLower::current()->decIncRegisterUsage();
+
+  // Parameters are ordered to match KernelExecutor::run: first inputs, then (if
+  // needed) stream index, then outputs, then intermediates. The stream index
+  // can be considered as a special input, so it's added between regular inputs
+  // and outputs.
   parameters_ = GpuLower::current()->allKnownVals();
+  if (summary_.stream_parallelized) {
+    parameters_.push_back(NamedScalar::getParallelIndex(ParallelType::Stream));
+  }
   parameters_.insert(parameters_.end(), outputs().begin(), outputs().end());
   for (auto alloc : summary_.global_allocations) {
+    if (alloc->alias() != nullptr) {
+      continue;
+    }
     parameters_.push_back(alloc->buffer());
   }
 }

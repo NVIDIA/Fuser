@@ -5,11 +5,17 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+
+#include <algorithm>
+#include <iostream>
+
 #include <gtest/gtest.h>
+
+#include <torch/torch.h>
 
 #include <fusion.h>
 #include <host_ir/container.h>
-#include <host_ir/executor.h>
+#include <host_ir/evaluator.h>
 #include <host_ir/host_ir.h>
 #include <host_ir/lower.h>
 #include <host_ir/pass/stream_parallel_type.h>
@@ -19,9 +25,6 @@
 #include <multidevice/executor.h>
 #include <ops/all_ops.h>
 #include <tests/cpp/utils.h>
-
-#include <algorithm>
-#include <iostream>
 
 namespace nvfuser {
 
@@ -84,8 +87,8 @@ TEST_F(HirLowerStreamTest, SingleSetOp) {
   EXPECT_EQ(hic->topLevelExprs().size(), 4);
   EXPECT_TRUE(hic->topLevelExprs().at(0)->isA<kir::Allocate>());
   EXPECT_TRUE(hic->topLevelExprs().at(1)->isA<hir::GetCurrentStream>());
-  EXPECT_TRUE(hic->topLevelExprs().at(2)->isA<ForLoop>());
-  EXPECT_TRUE(hic->topLevelExprs().at(3)->isA<ForLoop>());
+  EXPECT_TRUE(hic->topLevelExprs().at(2)->isA<kir::ForLoop>());
+  EXPECT_TRUE(hic->topLevelExprs().at(3)->isA<kir::ForLoop>());
 
   HostIrEvaluator hie(std::move(hic));
 
@@ -115,8 +118,8 @@ TEST_F(HirLowerStreamTest, SingleSetOpNonOutermost) {
   EXPECT_EQ(hic->topLevelExprs().size(), 4);
   EXPECT_TRUE(hic->topLevelExprs().at(0)->isA<kir::Allocate>());
   EXPECT_TRUE(hic->topLevelExprs().at(1)->isA<hir::GetCurrentStream>());
-  EXPECT_TRUE(hic->topLevelExprs().at(2)->isA<ForLoop>());
-  EXPECT_TRUE(hic->topLevelExprs().at(3)->isA<ForLoop>());
+  EXPECT_TRUE(hic->topLevelExprs().at(2)->isA<kir::ForLoop>());
+  EXPECT_TRUE(hic->topLevelExprs().at(3)->isA<kir::ForLoop>());
 
   HostIrEvaluator hie(std::move(hic));
 
@@ -149,8 +152,8 @@ TEST_F(HirLowerStreamTest, SingleBinaryOp) {
   EXPECT_EQ(hic->topLevelExprs().size(), 4);
   EXPECT_TRUE(hic->topLevelExprs().at(0)->isA<kir::Allocate>());
   EXPECT_TRUE(hic->topLevelExprs().at(1)->isA<hir::GetCurrentStream>());
-  EXPECT_TRUE(hic->topLevelExprs().at(2)->isA<ForLoop>());
-  EXPECT_TRUE(hic->topLevelExprs().at(3)->isA<ForLoop>());
+  EXPECT_TRUE(hic->topLevelExprs().at(2)->isA<kir::ForLoop>());
+  EXPECT_TRUE(hic->topLevelExprs().at(3)->isA<kir::ForLoop>());
 
   HostIrEvaluator hie(std::move(hic));
 
@@ -186,8 +189,8 @@ TEST_F(HirLowerStreamTest, TwoSetOps) {
   EXPECT_TRUE(hic->topLevelExprs().at(0)->isA<kir::Allocate>());
   EXPECT_TRUE(hic->topLevelExprs().at(1)->isA<kir::Allocate>());
   EXPECT_TRUE(hic->topLevelExprs().at(2)->isA<hir::GetCurrentStream>());
-  EXPECT_TRUE(hic->topLevelExprs().at(3)->isA<ForLoop>());
-  EXPECT_TRUE(hic->topLevelExprs().at(4)->isA<ForLoop>());
+  EXPECT_TRUE(hic->topLevelExprs().at(3)->isA<kir::ForLoop>());
+  EXPECT_TRUE(hic->topLevelExprs().at(4)->isA<kir::ForLoop>());
 
   HostIrEvaluator hie(std::move(hic));
 
@@ -224,13 +227,13 @@ TEST_F(HirLowerStreamTest, ThreeSetOpsWithDisjointsForLoops) {
   EXPECT_EQ(hic->topLevelExprs().size(), 9);
   EXPECT_TRUE(hic->topLevelExprs().at(0)->isA<kir::Allocate>());
   EXPECT_TRUE(hic->topLevelExprs().at(1)->isA<hir::GetCurrentStream>());
-  EXPECT_TRUE(hic->topLevelExprs().at(2)->isA<ForLoop>());
-  EXPECT_TRUE(hic->topLevelExprs().at(3)->isA<ForLoop>());
+  EXPECT_TRUE(hic->topLevelExprs().at(2)->isA<kir::ForLoop>());
+  EXPECT_TRUE(hic->topLevelExprs().at(3)->isA<kir::ForLoop>());
   EXPECT_TRUE(hic->topLevelExprs().at(4)->isA<LoadStoreOp>());
   EXPECT_TRUE(hic->topLevelExprs().at(5)->isA<kir::Allocate>());
   EXPECT_TRUE(hic->topLevelExprs().at(6)->isA<hir::GetCurrentStream>());
-  EXPECT_TRUE(hic->topLevelExprs().at(7)->isA<ForLoop>());
-  EXPECT_TRUE(hic->topLevelExprs().at(8)->isA<ForLoop>());
+  EXPECT_TRUE(hic->topLevelExprs().at(7)->isA<kir::ForLoop>());
+  EXPECT_TRUE(hic->topLevelExprs().at(8)->isA<kir::ForLoop>());
 
   HostIrEvaluator hie(std::move(hic));
 
@@ -275,8 +278,8 @@ TEST_F(HirLowerStreamTest, Reduction) {
   EXPECT_EQ(hic->topLevelExprs().size(), 4);
   EXPECT_TRUE(hic->topLevelExprs().at(0)->isA<kir::Allocate>());
   EXPECT_TRUE(hic->topLevelExprs().at(1)->isA<hir::GetCurrentStream>());
-  EXPECT_TRUE(hic->topLevelExprs().at(2)->isA<ForLoop>());
-  EXPECT_TRUE(hic->topLevelExprs().at(3)->isA<ForLoop>());
+  EXPECT_TRUE(hic->topLevelExprs().at(2)->isA<kir::ForLoop>());
+  EXPECT_TRUE(hic->topLevelExprs().at(3)->isA<kir::ForLoop>());
 
   HostIrEvaluator hie(std::move(hic));
 
@@ -310,8 +313,8 @@ TEST_F(HirLowerStreamTest, Matmul_M) {
   EXPECT_EQ(hic->topLevelExprs().size(), 4);
   EXPECT_TRUE(hic->topLevelExprs().at(0)->isA<kir::Allocate>());
   EXPECT_TRUE(hic->topLevelExprs().at(1)->isA<hir::GetCurrentStream>());
-  EXPECT_TRUE(hic->topLevelExprs().at(2)->isA<ForLoop>());
-  EXPECT_TRUE(hic->topLevelExprs().at(3)->isA<ForLoop>());
+  EXPECT_TRUE(hic->topLevelExprs().at(2)->isA<kir::ForLoop>());
+  EXPECT_TRUE(hic->topLevelExprs().at(3)->isA<kir::ForLoop>());
 
   HostIrEvaluator hie(std::move(hic));
 
@@ -324,7 +327,7 @@ TEST_F(HirLowerStreamTest, Matmul_M) {
 
   torch::cuda::synchronize();
   auto expected_output = at::matmul(a_aten, b_aten);
-  EXPECT_TRUE(torch::allclose(output, expected_output, 1e-2, 1e-2))
+  EXPECT_TRUE(at::allclose(output, expected_output, 1e-2, 1e-2))
       << "Output: " << output << " Expected: " << expected_output;
 }
 
@@ -348,8 +351,8 @@ TEST_F(HirLowerStreamTest, BatchedMatmul) {
   EXPECT_EQ(hic->topLevelExprs().size(), 4);
   EXPECT_TRUE(hic->topLevelExprs().at(0)->isA<kir::Allocate>());
   EXPECT_TRUE(hic->topLevelExprs().at(1)->isA<hir::GetCurrentStream>());
-  EXPECT_TRUE(hic->topLevelExprs().at(2)->isA<ForLoop>());
-  EXPECT_TRUE(hic->topLevelExprs().at(3)->isA<ForLoop>());
+  EXPECT_TRUE(hic->topLevelExprs().at(2)->isA<kir::ForLoop>());
+  EXPECT_TRUE(hic->topLevelExprs().at(3)->isA<kir::ForLoop>());
 
   HostIrEvaluator hie(std::move(hic));
 
@@ -362,7 +365,7 @@ TEST_F(HirLowerStreamTest, BatchedMatmul) {
 
   torch::cuda::synchronize();
   auto expected_output = at::matmul(a_aten, b_aten);
-  EXPECT_TRUE(torch::allclose(output, expected_output, 1e-2, 1e-2))
+  EXPECT_TRUE(at::allclose(output, expected_output, 1e-2, 1e-2))
       << "Output: " << output << " Expected: " << expected_output;
 }
 
@@ -386,8 +389,8 @@ TEST_F(HirLowerStreamTest, Matmul_N) {
   EXPECT_EQ(hic->topLevelExprs().size(), 4);
   EXPECT_TRUE(hic->topLevelExprs().at(0)->isA<kir::Allocate>());
   EXPECT_TRUE(hic->topLevelExprs().at(1)->isA<hir::GetCurrentStream>());
-  EXPECT_TRUE(hic->topLevelExprs().at(2)->isA<ForLoop>());
-  EXPECT_TRUE(hic->topLevelExprs().at(3)->isA<ForLoop>());
+  EXPECT_TRUE(hic->topLevelExprs().at(2)->isA<kir::ForLoop>());
+  EXPECT_TRUE(hic->topLevelExprs().at(3)->isA<kir::ForLoop>());
 
   HostIrEvaluator hie(std::move(hic));
 
@@ -400,7 +403,7 @@ TEST_F(HirLowerStreamTest, Matmul_N) {
 
   torch::cuda::synchronize();
   auto expected_output = at::matmul(a_aten, b_aten);
-  EXPECT_TRUE(torch::allclose(output, expected_output, 1e-2, 1e-2))
+  EXPECT_TRUE(at::allclose(output, expected_output, 1e-2, 1e-2))
       << "Output: " << output << " Expected: " << expected_output;
 }
 
@@ -523,12 +526,13 @@ TEST_F(MultiDeviceExecutorLowerStreamTest, SingleSetOp) {
 
   MultiDeviceExecutor executor(std::move(fusion), Communicator::getInstance());
 
-  hir::HostIrContainer* container = executor.hostIrEvaluator()->container();
-  EXPECT_EQ(container->topLevelExprs().size(), 4);
-  EXPECT_TRUE(container->topLevelExprs().at(0)->isA<kir::Allocate>());
-  EXPECT_TRUE(container->topLevelExprs().at(1)->isA<hir::GetCurrentStream>());
-  EXPECT_TRUE(container->topLevelExprs().at(2)->isA<ForLoop>());
-  EXPECT_TRUE(container->topLevelExprs().at(3)->isA<ForLoop>());
+  const hir::HostIrContainer& container =
+      executor.hostIrEvaluator()->container();
+  EXPECT_EQ(container.topLevelExprs().size(), 4);
+  EXPECT_TRUE(container.topLevelExprs().at(0)->isA<kir::Allocate>());
+  EXPECT_TRUE(container.topLevelExprs().at(1)->isA<hir::GetCurrentStream>());
+  EXPECT_TRUE(container.topLevelExprs().at(2)->isA<kir::ForLoop>());
+  EXPECT_TRUE(container.topLevelExprs().at(3)->isA<kir::ForLoop>());
 
   auto options = at::TensorOptions().device(at::kCUDA, 0);
   at::Tensor input = at::rand({4, 8}, options);
@@ -551,12 +555,13 @@ TEST_F(MultiDeviceExecutorLowerStreamTest, SingleSetOpNonOutermost) {
 
   MultiDeviceExecutor executor(std::move(fusion), Communicator::getInstance());
 
-  hir::HostIrContainer* container = executor.hostIrEvaluator()->container();
-  EXPECT_EQ(container->topLevelExprs().size(), 4);
-  EXPECT_TRUE(container->topLevelExprs().at(0)->isA<kir::Allocate>());
-  EXPECT_TRUE(container->topLevelExprs().at(1)->isA<hir::GetCurrentStream>());
-  EXPECT_TRUE(container->topLevelExprs().at(2)->isA<ForLoop>());
-  EXPECT_TRUE(container->topLevelExprs().at(3)->isA<ForLoop>());
+  const hir::HostIrContainer& container =
+      executor.hostIrEvaluator()->container();
+  EXPECT_EQ(container.topLevelExprs().size(), 4);
+  EXPECT_TRUE(container.topLevelExprs().at(0)->isA<kir::Allocate>());
+  EXPECT_TRUE(container.topLevelExprs().at(1)->isA<hir::GetCurrentStream>());
+  EXPECT_TRUE(container.topLevelExprs().at(2)->isA<kir::ForLoop>());
+  EXPECT_TRUE(container.topLevelExprs().at(3)->isA<kir::ForLoop>());
 
   auto options = at::TensorOptions().device(at::kCUDA, 0);
   at::Tensor input = at::rand({4, 8}, options);
@@ -581,12 +586,13 @@ TEST_F(MultiDeviceExecutorLowerStreamTest, SingleBinaryOp) {
 
   MultiDeviceExecutor executor(std::move(fusion), Communicator::getInstance());
 
-  hir::HostIrContainer* container = executor.hostIrEvaluator()->container();
-  EXPECT_EQ(container->topLevelExprs().size(), 4);
-  EXPECT_TRUE(container->topLevelExprs().at(0)->isA<kir::Allocate>());
-  EXPECT_TRUE(container->topLevelExprs().at(1)->isA<hir::GetCurrentStream>());
-  EXPECT_TRUE(container->topLevelExprs().at(2)->isA<ForLoop>());
-  EXPECT_TRUE(container->topLevelExprs().at(3)->isA<ForLoop>());
+  const hir::HostIrContainer& container =
+      executor.hostIrEvaluator()->container();
+  EXPECT_EQ(container.topLevelExprs().size(), 4);
+  EXPECT_TRUE(container.topLevelExprs().at(0)->isA<kir::Allocate>());
+  EXPECT_TRUE(container.topLevelExprs().at(1)->isA<hir::GetCurrentStream>());
+  EXPECT_TRUE(container.topLevelExprs().at(2)->isA<kir::ForLoop>());
+  EXPECT_TRUE(container.topLevelExprs().at(3)->isA<kir::ForLoop>());
 
   auto options = at::TensorOptions().device(at::kCUDA, 0);
   at::Tensor tv0_input = at::rand({4, 4}, options);
@@ -612,13 +618,14 @@ TEST_F(MultiDeviceExecutorLowerStreamTest, TwoSetOps) {
 
   MultiDeviceExecutor executor(std::move(fusion), Communicator::getInstance());
 
-  hir::HostIrContainer* container = executor.hostIrEvaluator()->container();
-  EXPECT_EQ(container->topLevelExprs().size(), 5);
-  EXPECT_TRUE(container->topLevelExprs().at(0)->isA<kir::Allocate>());
-  EXPECT_TRUE(container->topLevelExprs().at(1)->isA<kir::Allocate>());
-  EXPECT_TRUE(container->topLevelExprs().at(2)->isA<hir::GetCurrentStream>());
-  EXPECT_TRUE(container->topLevelExprs().at(3)->isA<ForLoop>());
-  EXPECT_TRUE(container->topLevelExprs().at(4)->isA<ForLoop>());
+  const hir::HostIrContainer& container =
+      executor.hostIrEvaluator()->container();
+  EXPECT_EQ(container.topLevelExprs().size(), 5);
+  EXPECT_TRUE(container.topLevelExprs().at(0)->isA<kir::Allocate>());
+  EXPECT_TRUE(container.topLevelExprs().at(1)->isA<kir::Allocate>());
+  EXPECT_TRUE(container.topLevelExprs().at(2)->isA<hir::GetCurrentStream>());
+  EXPECT_TRUE(container.topLevelExprs().at(3)->isA<kir::ForLoop>());
+  EXPECT_TRUE(container.topLevelExprs().at(4)->isA<kir::ForLoop>());
 
   auto options = at::TensorOptions().device(at::kCUDA, 0);
   at::Tensor input = at::rand({4, 8}, options);
@@ -644,17 +651,18 @@ TEST_F(MultiDeviceExecutorLowerStreamTest, ThreeSetOpsWithDisjointsForLoops) {
 
   MultiDeviceExecutor executor(std::move(fusion), Communicator::getInstance());
 
-  hir::HostIrContainer* container = executor.hostIrEvaluator()->container();
-  EXPECT_EQ(container->topLevelExprs().size(), 9);
-  EXPECT_TRUE(container->topLevelExprs().at(0)->isA<kir::Allocate>());
-  EXPECT_TRUE(container->topLevelExprs().at(1)->isA<hir::GetCurrentStream>());
-  EXPECT_TRUE(container->topLevelExprs().at(2)->isA<ForLoop>());
-  EXPECT_TRUE(container->topLevelExprs().at(3)->isA<ForLoop>());
-  EXPECT_TRUE(container->topLevelExprs().at(4)->isA<LoadStoreOp>());
-  EXPECT_TRUE(container->topLevelExprs().at(5)->isA<kir::Allocate>());
-  EXPECT_TRUE(container->topLevelExprs().at(6)->isA<hir::GetCurrentStream>());
-  EXPECT_TRUE(container->topLevelExprs().at(7)->isA<ForLoop>());
-  EXPECT_TRUE(container->topLevelExprs().at(8)->isA<ForLoop>());
+  const hir::HostIrContainer& container =
+      executor.hostIrEvaluator()->container();
+  EXPECT_EQ(container.topLevelExprs().size(), 9);
+  EXPECT_TRUE(container.topLevelExprs().at(0)->isA<kir::Allocate>());
+  EXPECT_TRUE(container.topLevelExprs().at(1)->isA<hir::GetCurrentStream>());
+  EXPECT_TRUE(container.topLevelExprs().at(2)->isA<kir::ForLoop>());
+  EXPECT_TRUE(container.topLevelExprs().at(3)->isA<kir::ForLoop>());
+  EXPECT_TRUE(container.topLevelExprs().at(4)->isA<LoadStoreOp>());
+  EXPECT_TRUE(container.topLevelExprs().at(5)->isA<kir::Allocate>());
+  EXPECT_TRUE(container.topLevelExprs().at(6)->isA<hir::GetCurrentStream>());
+  EXPECT_TRUE(container.topLevelExprs().at(7)->isA<kir::ForLoop>());
+  EXPECT_TRUE(container.topLevelExprs().at(8)->isA<kir::ForLoop>());
 
   auto options = at::TensorOptions().device(at::kCUDA, 0);
   at::Tensor input = at::rand({4, 8}, options);
@@ -690,12 +698,13 @@ TEST_F(MultiDeviceExecutorLowerStreamTest, Reduction) {
 
   MultiDeviceExecutor executor(std::move(fusion), Communicator::getInstance());
 
-  hir::HostIrContainer* container = executor.hostIrEvaluator()->container();
-  EXPECT_EQ(container->topLevelExprs().size(), 4);
-  EXPECT_TRUE(container->topLevelExprs().at(0)->isA<kir::Allocate>());
-  EXPECT_TRUE(container->topLevelExprs().at(1)->isA<hir::GetCurrentStream>());
-  EXPECT_TRUE(container->topLevelExprs().at(2)->isA<ForLoop>());
-  EXPECT_TRUE(container->topLevelExprs().at(3)->isA<ForLoop>());
+  const hir::HostIrContainer& container =
+      executor.hostIrEvaluator()->container();
+  EXPECT_EQ(container.topLevelExprs().size(), 4);
+  EXPECT_TRUE(container.topLevelExprs().at(0)->isA<kir::Allocate>());
+  EXPECT_TRUE(container.topLevelExprs().at(1)->isA<hir::GetCurrentStream>());
+  EXPECT_TRUE(container.topLevelExprs().at(2)->isA<kir::ForLoop>());
+  EXPECT_TRUE(container.topLevelExprs().at(3)->isA<kir::ForLoop>());
 
   auto options = at::TensorOptions().device(at::kCUDA, 0);
   at::Tensor input = at::rand({4, 8, 2}, options);
@@ -721,12 +730,13 @@ TEST_F(MultiDeviceExecutorLowerStreamTest, Matmul_M) {
 
   MultiDeviceExecutor executor(std::move(fusion), Communicator::getInstance());
 
-  hir::HostIrContainer* container = executor.hostIrEvaluator()->container();
-  EXPECT_EQ(container->topLevelExprs().size(), 4);
-  EXPECT_TRUE(container->topLevelExprs().at(0)->isA<kir::Allocate>());
-  EXPECT_TRUE(container->topLevelExprs().at(1)->isA<hir::GetCurrentStream>());
-  EXPECT_TRUE(container->topLevelExprs().at(2)->isA<ForLoop>());
-  EXPECT_TRUE(container->topLevelExprs().at(3)->isA<ForLoop>());
+  const hir::HostIrContainer& container =
+      executor.hostIrEvaluator()->container();
+  EXPECT_EQ(container.topLevelExprs().size(), 4);
+  EXPECT_TRUE(container.topLevelExprs().at(0)->isA<kir::Allocate>());
+  EXPECT_TRUE(container.topLevelExprs().at(1)->isA<hir::GetCurrentStream>());
+  EXPECT_TRUE(container.topLevelExprs().at(2)->isA<kir::ForLoop>());
+  EXPECT_TRUE(container.topLevelExprs().at(3)->isA<kir::ForLoop>());
 
   constexpr int64_t M = 8, K = 4, N = 2;
   auto options = at::TensorOptions().device(at::kCUDA, 0);
@@ -737,7 +747,7 @@ TEST_F(MultiDeviceExecutorLowerStreamTest, Matmul_M) {
 
   torch::cuda::synchronize();
   auto expected_output = at::matmul(a_aten, b_aten);
-  EXPECT_TRUE(torch::allclose(output, expected_output, 1e-2, 1e-2))
+  EXPECT_TRUE(at::allclose(output, expected_output, 1e-2, 1e-2))
       << "Output: " << output << " Expected: " << expected_output;
 }
 
@@ -754,12 +764,13 @@ TEST_F(MultiDeviceExecutorLowerStreamTest, BatchedMatmul) {
 
   MultiDeviceExecutor executor(std::move(fusion), Communicator::getInstance());
 
-  hir::HostIrContainer* container = executor.hostIrEvaluator()->container();
-  EXPECT_EQ(container->topLevelExprs().size(), 4);
-  EXPECT_TRUE(container->topLevelExprs().at(0)->isA<kir::Allocate>());
-  EXPECT_TRUE(container->topLevelExprs().at(1)->isA<hir::GetCurrentStream>());
-  EXPECT_TRUE(container->topLevelExprs().at(2)->isA<ForLoop>());
-  EXPECT_TRUE(container->topLevelExprs().at(3)->isA<ForLoop>());
+  const hir::HostIrContainer& container =
+      executor.hostIrEvaluator()->container();
+  EXPECT_EQ(container.topLevelExprs().size(), 4);
+  EXPECT_TRUE(container.topLevelExprs().at(0)->isA<kir::Allocate>());
+  EXPECT_TRUE(container.topLevelExprs().at(1)->isA<hir::GetCurrentStream>());
+  EXPECT_TRUE(container.topLevelExprs().at(2)->isA<kir::ForLoop>());
+  EXPECT_TRUE(container.topLevelExprs().at(3)->isA<kir::ForLoop>());
 
   constexpr int64_t B = 16, M = 8, K = 4, N = 2;
   auto options = at::TensorOptions().device(at::kCUDA, 0);
@@ -770,7 +781,7 @@ TEST_F(MultiDeviceExecutorLowerStreamTest, BatchedMatmul) {
 
   torch::cuda::synchronize();
   auto expected_output = at::matmul(a_aten, b_aten);
-  EXPECT_TRUE(torch::allclose(output, expected_output, 1e-2, 1e-2))
+  EXPECT_TRUE(at::allclose(output, expected_output, 1e-2, 1e-2))
       << "Output: " << output << " Expected: " << expected_output;
 }
 
@@ -787,12 +798,13 @@ TEST_F(MultiDeviceExecutorLowerStreamTest, Matmul_N) {
 
   MultiDeviceExecutor executor(std::move(fusion), Communicator::getInstance());
 
-  hir::HostIrContainer* container = executor.hostIrEvaluator()->container();
-  EXPECT_EQ(container->topLevelExprs().size(), 4);
-  EXPECT_TRUE(container->topLevelExprs().at(0)->isA<kir::Allocate>());
-  EXPECT_TRUE(container->topLevelExprs().at(1)->isA<hir::GetCurrentStream>());
-  EXPECT_TRUE(container->topLevelExprs().at(2)->isA<ForLoop>());
-  EXPECT_TRUE(container->topLevelExprs().at(3)->isA<ForLoop>());
+  const hir::HostIrContainer& container =
+      executor.hostIrEvaluator()->container();
+  EXPECT_EQ(container.topLevelExprs().size(), 4);
+  EXPECT_TRUE(container.topLevelExprs().at(0)->isA<kir::Allocate>());
+  EXPECT_TRUE(container.topLevelExprs().at(1)->isA<hir::GetCurrentStream>());
+  EXPECT_TRUE(container.topLevelExprs().at(2)->isA<kir::ForLoop>());
+  EXPECT_TRUE(container.topLevelExprs().at(3)->isA<kir::ForLoop>());
 
   constexpr int64_t M = 8, K = 4, N = 2;
   auto options = at::TensorOptions().device(at::kCUDA, 0);
@@ -803,7 +815,7 @@ TEST_F(MultiDeviceExecutorLowerStreamTest, Matmul_N) {
 
   torch::cuda::synchronize();
   auto expected_output = at::matmul(a_aten, b_aten);
-  EXPECT_TRUE(torch::allclose(output, expected_output, 1e-2, 1e-2))
+  EXPECT_TRUE(at::allclose(output, expected_output, 1e-2, 1e-2))
       << "Output: " << output << " Expected: " << expected_output;
 }
 

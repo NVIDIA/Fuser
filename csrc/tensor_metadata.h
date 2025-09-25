@@ -115,4 +115,10 @@ inferAndValidateAllocationSizesAndStrides(
     TensorView* tv,
     ExpressionEvaluator ee);
 
+// Validates the sizes and strides of the tensors against the TensorViews.
+void validateSizesAndStrides(
+    const std::vector<at::Tensor>& tensors,
+    const std::vector<TensorView*>& tvs,
+    const ExpressionEvaluator& ee);
+
 } // namespace nvfuser

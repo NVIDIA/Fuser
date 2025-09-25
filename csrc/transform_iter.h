@@ -133,9 +133,9 @@ class ReplayTransformations : public IterVisitor {
   // NOLINTNEXTLINE(cppcoreguidelines-non-private-member-variables-in-classes)
   std::unordered_map<IterDomain*, size_t> loop_ids_;
 
- private:
   bool error_on_failure_ = true;
 
+ private:
   // Indicates if we want to replay swizzle ops on the replayed
   //  tensor.
   // The swizzle op will be replayed if true,

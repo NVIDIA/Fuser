@@ -7,19 +7,6 @@
 // clang-format on
 #pragma once
 
-#include <ATen/ATen.h>
-#include <exceptions.h>
-#include <torch/csrc/jit/ir/ir.h>
-#include <torch/torch.h>
-#include <visibility.h>
-
-#include <debug.h>
-#include <mma_type.h>
-#include <tma.h>
-#include <type.h>
-
-#include <c10/core/thread_pool.h>
-
 #include <concepts>
 #include <coroutine>
 #include <deque>
@@ -35,15 +22,17 @@
 #include <unordered_map>
 #include <vector>
 
-#define NVF_TORCH_VERSION_GREATER(major, minor, patch)                \
-  TORCH_VERSION_MAJOR > major ||                                      \
-      (TORCH_VERSION_MAJOR == major && TORCH_VERSION_MINOR > minor || \
-       (TORCH_VERSION_MINOR == minor && TORCH_VERSION_PATCH > patch))
+#include <ATen/ATen.h>
+#include <c10/core/thread_pool.h>
 
-#define NVF_TORCH_VERSION_NO_LESS(major, minor, patch)                \
-  TORCH_VERSION_MAJOR > major ||                                      \
-      (TORCH_VERSION_MAJOR == major && TORCH_VERSION_MINOR > minor || \
-       (TORCH_VERSION_MINOR == minor && TORCH_VERSION_PATCH >= patch))
+#include <debug.h>
+#include <exceptions.h>
+#include <mma_type.h>
+#include <options.h>
+#include <tma.h>
+#include <type.h>
+#include <visibility.h>
+#include <C++23/utility>
 
 //! IR header hierarchy
 //! 1. ** utils.h ** - PolymorphicBase and NonCopyable
@@ -53,6 +42,9 @@
 //! 5. ir/internal_nodes.h ** - Any internal-only IR nodes
 
 namespace nvfuser {
+
+//! Warp specialization padded threads count
+constexpr int64_t kWarpSpecializationPaddedThreads = 128;
 
 class KernelArgumentHolder;
 
@@ -78,6 +70,9 @@ int8_t NVF_API getCommonDeviceCUDA(
 int64_t getRegPerThreadGivenThreadsPerSM(int64_t threads_per_sm);
 
 int64_t getThreadsPerSMGivenRegPerThread(int64_t reg_per_thread);
+
+// Get the maximum vectorization size in bits for the current CUDA device
+int64_t getMaxVectorizationSizeInBit();
 
 // Check if fallback path should be used which will dispatch to eager mode if
 // any errors are encountered. Helpful for debugging.
@@ -248,29 +243,6 @@ struct Printer {
   }
 };
 
-#if 0
-
-// Waiting for C++20....
-
-#include <concepts>
-
-template<typename T>
-concept Printable = requires(T a)
-{
-  { std::stringstream{} << a } -> std::convertible_to<std::stringstream>;
-};
-
-template <Printable T>
-struct Printer<T> {
-  static std::string toString(const T& value) {
-    std::stringstream ss;
-    ss << value;
-    return ss.str();
-  }
-};
-
-#else
-
 #define SPECIALIZE_PRINTER(T)                     \
   template <>                                     \
   struct Printer<T> {                             \
@@ -312,8 +284,6 @@ SPECIALIZE_PRINTER(std::vector<uint64_t>);
 SPECIALIZE_PRINTER(std::optional<bool>);
 
 #undef SPECIALIZE_PRINTER
-
-#endif // if 0
 
 // Stringification with delimiter
 template <typename Iterator>
@@ -546,15 +516,19 @@ inline void hashCombine(size_t& hash, size_t new_hash) {
 
 //! A wrapper to std::getenv. env_name is prepended with NVFUSER_.
 NVF_API const char* getNvFuserEnv(
-    const char* env_name,
+    const std::string& env_name,
     const char* default_value = nullptr);
 
 // Returns the mapped value or the default.
-template <typename K, typename V>
-V getOrDefault(
-    const std::unordered_map<K, V>& map,
-    const K& key,
-    const V& default_value = V()) {
+template <
+    typename MapKey,
+    typename Value,
+    typename Key,
+    typename = std::enable_if_t<std::is_convertible_v<Key, MapKey>>>
+Value getOrDefault(
+    const std::unordered_map<MapKey, Value>& map,
+    const Key& key,
+    const Value& default_value = Value()) {
   const auto i = map.find(key);
   return i == map.end() ? default_value : i->second;
 }
@@ -758,7 +732,7 @@ class enumerate_view : public std::ranges::view_interface<enumerate_view<V>> {
         std::forward_iterator_tag>;
 
     base_iterator current_;
-    std::size_t index_;
+    int64_t index_;
 
     iterator_base() = default;
     iterator_base(base_iterator current, std::size_t index)
@@ -835,7 +809,7 @@ enumerate_view(R&&) -> enumerate_view<std::views::all_t<R>>;
 // Helper function
 auto enumerate(std::ranges::viewable_range auto&& r) {
   return enumerate_view{std::forward<decltype(r)>(r)};
-};
+}
 
 } // namespace views
 

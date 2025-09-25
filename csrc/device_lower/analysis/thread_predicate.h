@@ -42,9 +42,6 @@ namespace nvfuser {
 //! tensor.
 class ThreadPredicateMap {
  public:
-  using SourceMap =
-      std::unordered_map<ParallelType, std::unordered_set<const TensorView*>>;
-
   //! Thread predicate information for each tensor
   struct PredicateInfo {
     // Parallel types where only one thread/block is valid.
@@ -82,12 +79,8 @@ class ThreadPredicateMap {
     }
   };
 
-  using MapType = std::unordered_map<const TensorView*, PredicateInfo>;
-
-  using const_iterator = MapType::const_iterator;
-
   //! Build a map from each tensor to PredicateInfo.
-  void build(Fusion* fusion);
+  ThreadPredicateMap(Fusion* fusion);
 
   //! Get a PredicateInfo for a given tensor. If it's an output of
   //! a parallel broadcast, unmask the limited_types_ bit of the
@@ -127,11 +120,17 @@ class ThreadPredicateMap {
   ParallelTypeBitmap getRedundantConsumerType(Expr* expr) const;
 
  private:
+  void build(Fusion* fusion);
+
   // Update the thread_predicates bitset based on provided Expr
   void updateBitSet(const Expr*);
   void avoidConcretizedBroadcastRedundantWrite(const TensorView* out_tv);
-  const_iterator find(const TensorView* tv) const;
-  const_iterator end() const;
+  auto find(const TensorView* tv) const {
+    return thread_predicates_.find(tv);
+  }
+  auto end() const {
+    return thread_predicates_.end();
+  }
 
   const PredicateInfo& at(const TensorView* tv) const;
   PredicateInfo& at(const TensorView* tv);
@@ -150,7 +149,7 @@ class ThreadPredicateMap {
   void populateRedundantUseMap(Fusion* fusion);
 
  private:
-  MapType thread_predicates_;
+  std::unordered_map<const TensorView*, PredicateInfo> thread_predicates_;
   //! Keep track of updated tensors that need predicates to be computed
   std::unordered_set<const TensorView*> updated_tvs_;
 };

@@ -476,7 +476,6 @@ TEST_F(DistributedMatmulTest, RowParallelLinear) {
   auto mesh = DeviceMesh::createForNumDevices(d);
   for (auto tv : {x, w, y, local_y}) {
     tv->setDeviceMesh(mesh);
-    tv->setAllocationDomain(tv->getLoopDomain(), true);
   }
 
   FusionExecutorCache executor_cache(std::move(fusion));

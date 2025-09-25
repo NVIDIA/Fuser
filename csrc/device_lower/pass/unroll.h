@@ -61,7 +61,7 @@ class UnrollPass : kir::ExprMutator {
   // Take the incoming exprs and run loop unrolling, returning the new IR
   static std::vector<Expr*> runPass(const std::vector<Expr*>& exprs);
 
-  static bool canOmitElseClause(ForLoop* fl);
+  static bool canOmitElseClause(kir::ForLoop* fl);
 
  private:
   void registerReplace(Expr* reference, Expr* new_expr);
@@ -75,7 +75,7 @@ class UnrollPass : kir::ExprMutator {
 
   using kir::ExprMutator::handle;
 
-  void handle(ForLoop* fl) final;
+  void handle(kir::ForLoop* fl) final;
 
   void dispatch(Expr* expr) final;
 
@@ -93,6 +93,18 @@ class UnrollPass : kir::ExprMutator {
   // As we generate inline predicates check if we actually generated a
   // non-trivial one.
   bool non_trivial_pred_found_ = false;
+
+  // Keep track of the ite whose predicate is ElectSync
+  kir::IfThenElse* current_elect_sync_ite_ = nullptr;
+
+  // For circular buffered 1d TMA load, needs to replace ElectSync predicate
+  // with PredicateType::OneDimTmaLoadExpectArrive. This bool avoids duplicated
+  // replacement since multiple loads shared one predicate.
+  bool one_dim_tma_predicate_added_ = false;
+
+  // Need scope to replace ElectSync predicate with
+  // PredicateType::OneDimTmaLoadExpectArrive
+  Scope* elect_sync_scope_;
 };
 
 } // namespace nvfuser

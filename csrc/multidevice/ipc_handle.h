@@ -20,11 +20,11 @@ enum class IpcSemaphore : cuuint32_t { kReady, kInUse };
 // device.
 class IpcHandle {
  public:
-  IpcHandle(at::Tensor tensor);
-  ~IpcHandle();
+  NVF_API IpcHandle(at::Tensor tensor);
+  NVF_API ~IpcHandle();
 
   // This constructor is used when importing a remote Ipc Handle
-  IpcHandle(std::vector<uint8_t> data);
+  NVF_API IpcHandle(std::vector<uint8_t> data);
 
   void* ptr() const {
     return ptr_;

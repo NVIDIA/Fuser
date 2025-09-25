@@ -266,7 +266,8 @@ TEST_F(MatmulSASSTest, AmpereModifiers) {
                 NVF_CHECK(
                     i.modifiers() == expect,
                     "Modifiers for LDGSTS has changed. "
-                    "Please manually check if the new modifiers makes sense and update this test. "
+                    "Please manually check if the new modifiers makes sense "
+                    "and update this test. "
                     "Expect: ",
                     expect,
                     " Get: ",
@@ -277,7 +278,8 @@ TEST_F(MatmulSASSTest, AmpereModifiers) {
                 NVF_CHECK(
                     i.modifiers() == expect,
                     "Modifiers for LDGDEPBAR has changed. "
-                    "Please manually check if the new modifiers makes sense and update this test. "
+                    "Please manually check if the new modifiers makes sense "
+                    "and update this test. "
                     "Expect: ",
                     expect,
                     " Get: ",
@@ -292,14 +294,16 @@ TEST_F(MatmulSASSTest, AmpereModifiers) {
                     i.modifiers() == expect1 || i.modifiers() == expect2 ||
                         i.modifiers() == expect3 || i.modifiers() == expect4,
                     "Modifiers for LDGDEPBAR has changed. "
-                    "Please manually check if the new modifiers makes sense and update this test.");
+                    "Please manually check if the new modifiers makes sense "
+                    "and update this test.");
                 found_LDSM = true;
               } else if (i.opCode() == "HMMA") {
                 const std::vector<std::string> expect = {"16816", "F32"};
                 NVF_CHECK(
                     i.modifiers() == expect,
                     "Modifiers for HMMA has changed. "
-                    "Please manually check if the new modifiers makes sense and update this test. "
+                    "Please manually check if the new modifiers makes sense "
+                    "and update this test. "
                     "Expect: ",
                     expect,
                     " Get: ",
@@ -311,7 +315,8 @@ TEST_F(MatmulSASSTest, AmpereModifiers) {
                 NVF_CHECK(
                     i.modifiers() == expect,
                     "Modifiers for BAR has changed. "
-                    "Please manually check if the new modifiers makes sense and update this test. "
+                    "Please manually check if the new modifiers makes sense "
+                    "and update this test. "
                     "Expect: ",
                     expect,
                     " Get: ",
@@ -322,7 +327,8 @@ TEST_F(MatmulSASSTest, AmpereModifiers) {
                 NVF_CHECK(
                     i.modifiers() == expect,
                     "Modifiers for DEPBAR has changed. "
-                    "Please manually check if the new modifiers makes sense and update this test. "
+                    "Please manually check if the new modifiers makes sense "
+                    "and update this test. "
                     "Expect: ",
                     expect,
                     " Get: ",
@@ -360,8 +366,8 @@ TEST_F(MatmulSASSTest, AmpereModifiersSharedMemoryEpilogue) {
           {DataType::Half, DataType::Half, DataType::Float},
           ignore_occupancy_drop);
   if (!use_smem_epilogue) {
-    GTEST_SKIP()
-        << "Test skipped due to the device's constrained shared memory capacity.";
+    GTEST_SKIP() << "Test skipped due to the device's constrained shared "
+                    "memory capacity.";
   }
   // Keep multiples of 8 to keep vectorizable.
   int M = 504, N = 136, K = 248;
@@ -401,7 +407,8 @@ TEST_F(MatmulSASSTest, AmpereModifiersSharedMemoryEpilogue) {
                 NVF_CHECK(
                     i.modifiers() == expect,
                     "Modifiers for LDGSTS has changed. "
-                    "Please manually check if the new modifiers makes sense and update this test. "
+                    "Please manually check if the new modifiers makes sense "
+                    "and update this test. "
                     "Expect: ",
                     expect,
                     " Get: ",
@@ -412,7 +419,8 @@ TEST_F(MatmulSASSTest, AmpereModifiersSharedMemoryEpilogue) {
                 NVF_CHECK(
                     i.modifiers() == expect,
                     "Modifiers for LDGDEPBAR has changed. "
-                    "Please manually check if the new modifiers makes sense and update this test. "
+                    "Please manually check if the new modifiers makes sense "
+                    "and update this test. "
                     "Expect: ",
                     expect,
                     " Get: ",
@@ -427,14 +435,16 @@ TEST_F(MatmulSASSTest, AmpereModifiersSharedMemoryEpilogue) {
                     i.modifiers() == expect1 || i.modifiers() == expect2 ||
                         i.modifiers() == expect3 || i.modifiers() == expect4,
                     "Modifiers for LDGDEPBAR has changed. "
-                    "Please manually check if the new modifiers makes sense and update this test.");
+                    "Please manually check if the new modifiers makes sense "
+                    "and update this test.");
                 found_LDSM = true;
               } else if (i.opCode() == "HMMA") {
                 const std::vector<std::string> expect = {"16816", "F32"};
                 NVF_CHECK(
                     i.modifiers() == expect,
                     "Modifiers for HMMA has changed. "
-                    "Please manually check if the new modifiers makes sense and update this test. "
+                    "Please manually check if the new modifiers makes sense "
+                    "and update this test. "
                     "Expect: ",
                     expect,
                     " Get: ",
@@ -446,7 +456,8 @@ TEST_F(MatmulSASSTest, AmpereModifiersSharedMemoryEpilogue) {
                 NVF_CHECK(
                     i.modifiers() == expect,
                     "Modifiers for BAR has changed. "
-                    "Please manually check if the new modifiers makes sense and update this test. "
+                    "Please manually check if the new modifiers makes sense "
+                    "and update this test. "
                     "Expect: ",
                     expect,
                     " Get: ",
@@ -457,7 +468,8 @@ TEST_F(MatmulSASSTest, AmpereModifiersSharedMemoryEpilogue) {
                 NVF_CHECK(
                     i.modifiers() == expect,
                     "Modifiers for DEPBAR has changed. "
-                    "Please manually check if the new modifiers makes sense and update this test. "
+                    "Please manually check if the new modifiers makes sense "
+                    "and update this test. "
                     "Expect: ",
                     expect,
                     " Get: ",
@@ -516,7 +528,8 @@ TEST_F(MatmulSASSTest, AmpereEpilogueBinaryOpMul) {
                 NVF_CHECK(
                     i.modifiers() == expect,
                     "Modifiers for LDGSTS has changed. "
-                    "Please manually check if the new modifiers makes sense and update this test. "
+                    "Please manually check if the new modifiers makes sense "
+                    "and update this test. "
                     "Expect: ",
                     expect,
                     " Get: ",
@@ -527,7 +540,8 @@ TEST_F(MatmulSASSTest, AmpereEpilogueBinaryOpMul) {
                 NVF_CHECK(
                     i.modifiers() == expect,
                     "Modifiers for LDGDEPBAR has changed. "
-                    "Please manually check if the new modifiers makes sense and update this test. "
+                    "Please manually check if the new modifiers makes sense "
+                    "and update this test. "
                     "Expect: ",
                     expect,
                     " Get: ",
@@ -542,14 +556,16 @@ TEST_F(MatmulSASSTest, AmpereEpilogueBinaryOpMul) {
                     i.modifiers() == expect1 || i.modifiers() == expect2 ||
                         i.modifiers() == expect3 || i.modifiers() == expect4,
                     "Modifiers for LDGDEPBAR has changed. "
-                    "Please manually check if the new modifiers makes sense and update this test.");
+                    "Please manually check if the new modifiers makes sense "
+                    "and update this test.");
                 found_LDSM = true;
               } else if (i.opCode() == "HMMA") {
                 const std::vector<std::string> expect = {"16816", "F32"};
                 NVF_CHECK(
                     i.modifiers() == expect,
                     "Modifiers for HMMA has changed. "
-                    "Please manually check if the new modifiers makes sense and update this test. "
+                    "Please manually check if the new modifiers makes sense "
+                    "and update this test. "
                     "Expect: ",
                     expect,
                     " Get: ",
@@ -561,7 +577,8 @@ TEST_F(MatmulSASSTest, AmpereEpilogueBinaryOpMul) {
                 NVF_CHECK(
                     i.modifiers() == expect,
                     "Modifiers for BAR has changed. "
-                    "Please manually check if the new modifiers makes sense and update this test. "
+                    "Please manually check if the new modifiers makes sense "
+                    "and update this test. "
                     "Expect: ",
                     expect,
                     " Get: ",
@@ -572,7 +589,8 @@ TEST_F(MatmulSASSTest, AmpereEpilogueBinaryOpMul) {
                 NVF_CHECK(
                     i.modifiers() == expect,
                     "Modifiers for DEPBAR has changed. "
-                    "Please manually check if the new modifiers makes sense and update this test. "
+                    "Please manually check if the new modifiers makes sense "
+                    "and update this test. "
                     "Expect: ",
                     expect,
                     " Get: ",

@@ -7,19 +7,21 @@
 // clang-format on
 
 #include <host_ir/pass/insert_deallocations.h>
+#include <ir/utils.h>
 
 namespace nvfuser::hir_pass {
 
 void InsertDeallocations::passImplementation(Fusion* fusion) {
   FusionGuard fg(fusion);
-  hir::HostIrContainer* hic = dynamic_cast<hir::HostIrContainer*>(fusion);
+  auto* hic = dynamic_cast<hir::HostIrContainer*>(fusion);
   NVF_CHECK(hic, "Expected HostIrContainer");
 
   const std::vector<Expr*>& top_level_exprs = hic->topLevelExprs();
   std::for_each(top_level_exprs.begin(), top_level_exprs.end(), [](Expr* expr) {
     NVF_ERROR(
         !expr->isA<hir::Deallocate>(),
-        "Expected hostir container to not have deallocate, but found one anyways");
+        "Expected hostir container to not have deallocate, but found one "
+        "anyways");
   });
   std::unordered_map<TensorView*, int64_t> last_use;
   for (auto&& [i, expr] : enumerate(top_level_exprs)) {
@@ -30,6 +32,14 @@ void InsertDeallocations::passImplementation(Fusion* fusion) {
       auto tv = val->as<TensorView>();
       last_use[tv] = i;
     }
+  }
+
+  for (auto* in : ir_utils::filterByType<TensorView>(hic->inputs())) {
+    last_use.erase(in);
+  }
+
+  for (auto* out : ir_utils::filterByType<TensorView>(hic->outputs())) {
+    last_use.erase(out);
   }
 
   std::vector<std::pair<int64_t, TensorView*>> last_use_by_index;

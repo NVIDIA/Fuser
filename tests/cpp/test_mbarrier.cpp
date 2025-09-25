@@ -70,7 +70,7 @@ TEST_F(MBarrierTest, Simple) {
 
     Val* mbarrier_address = SimplifyingIrBuilder::mulExpr(
         dynamic_smem_allocations.at(0)->size(),
-        dataTypeSize(dynamic_smem_allocations.at(0)->buffer()->dtype()));
+        dataTypeSizeByte(dynamic_smem_allocations.at(0)->buffer()->dtype()));
     mbarrier_alloc->setAddress(mbarrier_address);
 
     auto smem_alloc_it = std::find_if(

@@ -138,7 +138,7 @@ class IndexPutAccumulateOp : public Expr {
   // logical ID groups of IndexPutAccumulateOp
   // args:
   //     acc   [ ID_indexed_g0, ID_g0 ]
-  //     index [ ID_indexing_g1, ID_broadcast ]
+  //     index [ ID_indexing_g1 ]
   //     value [ ID_indexing_g1, ID_g0 ]
   // output:
   //     out   [ ID_indexed_g0, ID_g0 ]
@@ -181,11 +181,11 @@ class IndexPutAccumulateOp : public Expr {
   IterDomain* getIndexingIDOfValue() const;
 
   // return ID_indexing_g1 from index, for IndexPutAccumulate, there's only one
-  // indexing ID, while the remaining ID is broadcast
+  // indexing ID at this moment
   IterDomain* getIndexingID() const;
 };
 
-class NVF_API GatherOp : public Expr {
+class GatherOp : public Expr {
  public:
   using Expr::Expr;
 
@@ -233,17 +233,37 @@ class NVF_API GatherOp : public Expr {
   }
 };
 
+// ScatterOp represents an out-of-place scatter operation as part of a
+// compute definition. However, its scheduling definition is always
+// based on the logical domain of the index input tensor. More
+// specifically, from the viewpoint of PyTorch/Thunder, the output
+// input and output tensors correspond to different tensors, however,
+// from the scheduling point of view, the output tensor always has a
+// loop domain that is derived from the logical domain of the index
+// logical domain.
+//
+// IMPLEMENTATION NOTE: This is currently implemented using the
+// initial loop domain of TensorDomain. To build a valid ScatterOp, the
+// TensorDomain of the output tensor must have a loop domain that is differnt
+// from the logical domain. The initial loop domain, kept tracked as
+// TensorDomain::initial_loop_, is used to augment the Exact graph by
+// adding mappings with the logical domain of the index and src input
+// tensors.
 class ScatterOp : public Expr {
  public:
   using Expr::Expr;
+
+  // exact_sizes: true when non-scatter axes of all inputs are
+  // guaranteed to have the same extents
   ScatterOp(
       IrBuilderPasskey,
-      ScatterOpType type,
       Val* out,
       Val* self,
       int64_t dim,
       Val* index,
-      Val* src);
+      Val* src,
+      bool exact_sizes,
+      std::optional<BinaryOpType> accumulate_op = std::nullopt);
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
@@ -257,16 +277,20 @@ class ScatterOp : public Expr {
       const ExpressionEvaluator& ee,
       const std::vector<PolymorphicValue>& inputs) const override;
 
-  TensorView* selfTv() const {
-    return input(0)->as<TensorView>();
+  Val* in() const {
+    return input(0);
   }
 
-  TensorView* indexTv() const {
-    return input(1)->as<TensorView>();
+  Val* out() const {
+    return output(0);
   }
 
-  TensorView* srcTv() const {
-    return input(2)->as<TensorView>();
+  Val* index() const {
+    return input(1);
+  }
+
+  Val* src() const {
+    return input(2);
   }
 
   int64_t dim() const {
@@ -275,8 +299,17 @@ class ScatterOp : public Expr {
 
   IterDomain* getIndexedID() const;
 
-  ScatterOpType getScatterOpType() const {
-    return attribute<ScatterOpType>(1);
+  bool exactSizes() const {
+    return attribute<bool>(1);
+  }
+
+  bool accumulate() const {
+    return attribute<bool>(2);
+  }
+
+  BinaryOpType accumulateOp() const {
+    NVF_ERROR(accumulate());
+    return attribute<BinaryOpType>(3);
   }
 };
 
@@ -362,7 +395,7 @@ class EyeOp : public Expr {
 //!   2) Negation i.e. val * -1
 //!   3) Reduction across a dimension i.e. val.sum(axis=2)
 //!   4) split/merge
-class NVF_API UnaryOp : public Expr {
+class UnaryOp : public Expr {
  public:
   using Expr::Expr;
 
@@ -402,7 +435,7 @@ class NVF_API UnaryOp : public Expr {
 //! and produce a single output. Examples include:
 //!  1) Add/mul/div/mod/sub (A * B)
 //!  2) LT (A < B)
-class NVF_API BinaryOp : public Expr {
+class BinaryOp : public Expr {
  public:
   using Expr::Expr;
 
@@ -504,10 +537,7 @@ class ArrayConstruct : public Expr {
  public:
   using Expr::Expr;
 
-  NVF_API ArrayConstruct(
-      IrBuilderPasskey,
-      Val* output,
-      std::vector<Val*> inputs);
+  ArrayConstruct(IrBuilderPasskey, Val* output, std::vector<Val*> inputs);
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
@@ -593,7 +623,7 @@ class StructConstruct : public Expr {
  public:
   using Expr::Expr;
 
-  NVF_API StructConstruct(
+  StructConstruct(
       IrBuilderPasskey,
       Val* output,
       const std::vector<std::pair<std::string, Val*>>& fields);
@@ -728,7 +758,7 @@ class TensorConstruct : public Expr {
 //! A specialization for random number generator (RNG) operations. RNG
 //! operations take in no tensor input and produce a single output.
 class RNGOp : public Expr {
-  int64_t getOutputDims() const;
+  NVF_API int64_t getOutputDims() const;
 
  public:
   struct Attributes {
@@ -806,7 +836,7 @@ class RNGOp : public Expr {
                                             : nullptr;
   }
 
-  bool isDeterministic() const {
+  bool isDeterministic() const override {
     return inputs().size() == getOutputDims() + getNumParameters() + 2;
   }
 
@@ -935,7 +965,7 @@ class NVF_API SqueezeOp : public Expr {
 //! Output's axes marked as reduction will be reduced to produce an output
 //! tensor. The output tensors size will be the size of all
 //! non-reduction/non-broadcast dimensions.
-class NVF_API ReductionOp : public Expr {
+class ReductionOp : public Expr {
  public:
   using Expr::Expr;
 
@@ -1182,7 +1212,7 @@ class WelfordTriplet {
 };
 
 //! Welford Scan operation.
-class NVF_API WelfordOp : public Expr {
+class WelfordOp : public Expr {
  public:
   using Expr::Expr;
   static constexpr int kNumAttrs = 4;
@@ -1416,7 +1446,7 @@ class GroupedWelfordOp : public Expr {
 };
 
 //! Fused Matmul operation
-class NVF_API MmaOp : public Expr {
+class MmaOp : public Expr {
  public:
   using AxesData = std::vector<int64_t>;
   using Expr::Expr;
@@ -1507,7 +1537,7 @@ class NVF_API MmaOp : public Expr {
 };
 
 //! The semantics are identical to torch.broadcast_to.
-class ExpandOp : public Expr {
+class NVF_API ExpandOp : public Expr {
  public:
   using Expr::Expr;
 
@@ -1515,7 +1545,7 @@ class ExpandOp : public Expr {
       IrBuilderPasskey,
       TensorView* out,
       TensorView* in,
-      std::vector<Val*> _expanded_extents);
+      const std::vector<Val*>& expanded_extents);
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
@@ -1532,10 +1562,6 @@ class ExpandOp : public Expr {
 
   TensorView* in() const {
     return input(0)->as<TensorView>();
-  }
-
-  std::vector<Val*> expanded_extents() const {
-    return {inputs().begin() + 1, inputs().end()};
   }
 
   std::vector<PolymorphicValue> evaluate(
@@ -1611,16 +1637,16 @@ class ViewAsScalar : public Expr {
   }
 };
 
-class NVF_API ViewOp : public Expr {
+class NVF_API ReshapeOp : public Expr {
  public:
   using Expr::Expr;
 
-  ViewOp(IrBuilderPasskey, Val* out, Val* in);
+  ReshapeOp(IrBuilderPasskey, Val* out, Val* in);
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
   const char* getOpString() const override {
-    return "ViewOp";
+    return "ReshapeOp";
   }
 
   std::string toString(int indent_size = 0) const override;
@@ -1645,7 +1671,7 @@ class NVF_API ViewOp : public Expr {
 //!
 //! The main usage of this op is to facilitate generation of hardware
 //!   accelerated memory ops, i.e. ldmatrix, cp.async and more to come.
-class NVF_API LoadStoreOp : public Expr {
+class LoadStoreOp : public Expr {
  public:
   using Expr::Expr;
 
@@ -1822,7 +1848,7 @@ class Swizzle : public Expr {
 };
 
 //! Applies 2D swizzles on a rectangular tile defined by 2 iterdomains.
-class NVF_API Swizzle2D : public Expr {
+class Swizzle2D : public Expr {
  public:
   using Expr::Expr;
 
@@ -1916,7 +1942,7 @@ class NVF_API Swizzle2D : public Expr {
 };
 
 //! IterDomain expression to resize
-class NVF_API Resize : public Expr {
+class Resize : public Expr {
  public:
   using Expr::Expr;
 
@@ -1963,7 +1989,7 @@ class NVF_API Resize : public Expr {
 //! - blockDim.z
 //! - T3.stride[2]
 //!
-class NVF_API NamedScalar : public Val {
+class NamedScalar : public Val {
  public:
   NamedScalar(IrBuilderPasskey passkey, std::string name, DataType dtype);
 
@@ -2087,7 +2113,7 @@ class PadOp : public Expr {
   std::pair<Val*, Val*> getPadWidths(int64_t axis) const;
 
   //! Return the pad widths of all dimensions, including non-padded ones
-  std::vector<Val*> getPadWidths() const;
+  NVF_API std::vector<Val*> getPadWidths() const;
 
  private:
   //! Offset of pad_width inputs in the input vector
@@ -2111,6 +2137,8 @@ struct Slice {
   Val* start = nullptr;
   Val* stop = nullptr;
   Val* step = nullptr;
+
+  std::string toString() const;
 };
 
 class SliceOp : public Expr {
@@ -2144,7 +2172,7 @@ class SliceOp : public Expr {
   }
 
   //! Get normalized ranges for SliceOp.
-  std::vector<Slice> getRanges() const;
+  NVF_API std::vector<Slice> getRanges() const;
 
  private:
   //! Offset of ranges input in the input vector
@@ -2163,7 +2191,7 @@ class SliceOp : public Expr {
   }
 };
 
-class NVF_API CatOp : public Expr {
+class CatOp : public Expr {
  public:
   using Expr::Expr;
 
@@ -2274,7 +2302,7 @@ class LinearOp : public Expr {
   }
 
   TensorView* bias() const {
-    if (has_bias()) {
+    if (hasBias()) {
       return input(2)->as<TensorView>();
     } else {
       return nullptr;
@@ -2285,7 +2313,7 @@ class LinearOp : public Expr {
       const ExpressionEvaluator& ee,
       const std::vector<PolymorphicValue>& inputs) const override;
 
-  bool has_bias() const {
+  bool hasBias() const {
     return inputs().size() == 3;
   }
 };
@@ -2478,146 +2506,7 @@ class Scope {
   Expr* owner_ = nullptr;
 };
 
-//! ForLoop provides scoping around an int iterator from 0 to range. Exprs
-//! placed in its body are considered inside the scope of the for loop. In the
-//! future the implementation should look quite different so that we can do
-//! proper dependency annalysis like in Fusion.
-//!
-//! TODO(kir): this is not a real expression
-//!
-//! ForLoop may represent a part of an iteration domain representend
-//! by iter_domain_. In that case, the loop extent field, extent_, may
-//! be smaller than the extent of iter_domain_.
-class ForLoop final : public Expr {
- public:
-  using Expr::Expr;
-
-  //! By default, start and stop are the same as those of iter_domain.
-  //! Step is one by default.
-  //!
-  //! TODO: cleaner way to set options?
-  ForLoop(
-      IrBuilderPasskey passkey,
-      IterDomain* iter_domain,
-      Val* index,
-      Val* start,
-      Val* stop,
-      Val* step,
-      bool vectorize,
-      Val* vectorize_shift,
-      bool unroll_required,
-      CircularBufferLoopStage circular_buffer_loop_stage,
-      int64_t circular_buffer_loop_stage_depth);
-
-  ForLoop(
-      IrBuilderPasskey passkey,
-      IterDomain* iter_domain,
-      Val* index,
-      CircularBufferLoopStage circular_buffer_loop_stage,
-      int64_t circular_buffer_loop_stage_depth);
-
-  ForLoop(IrBuilderPasskey passkey, IterDomain* iter_domain);
-
-  ForLoop(IrBuilderPasskey passkey, const ForLoop* other);
-
-  NVFUSER_DECLARE_CLONE_AND_CREATE
-
-  const char* getOpString() const override {
-    return "ForLoop";
-  }
-
-  std::string toString(int indent_size = 0) const override;
-  std::string toInlineString(int indent_size = 0) const override;
-
-  Val* index() const {
-    return input(0);
-  }
-
-  IterDomain* iterDomain() const {
-    return input(1)->as<IterDomain>();
-  }
-
-  Val* indexOrStartIfTrivial() const {
-    return isTrivial() ? start() : index();
-  }
-
-  Val* start() const;
-
-  Val* stop() const;
-
-  Val* step() const;
-
-  Val* simplifiedStop() const;
-
-  // [pre | vectorize | post] <= inner-most, merged root domain
-  // shift_ is applied to vectorize and post sections.
-  Val* vectorize_shift() const {
-    return attributeVal(4);
-  }
-
-  IterDomain* iter_domain() const {
-    return input(1)->as<IterDomain>();
-  }
-
-  // TODO: Return pointer instead of reference to be more consistent
-  Scope& body() {
-    return attribute<Scope>(8);
-  }
-
-  const Scope& body() const {
-    return attribute<Scope>(8);
-  }
-
-  bool empty() const {
-    return body().empty();
-  }
-
-  // vectorize is true when the for-loop contains a vectorize set
-  // the flag is used to omit the for-loop from the kernel
-  bool vectorize() const {
-    return attribute<bool>(3);
-  }
-
-  //! True if unrolled (i.e., "#pragma unroll" is attached)
-  bool isUnrolled() const;
-
-  //! True if unroll is required for avoiding stack allocation
-  bool isUnrollRequired() const {
-    return attribute<bool>(5);
-  }
-
-  //! Set unrolling required
-  void requireUnroll() {
-    attribute<bool>(5) = true;
-  }
-
-  //! True if no actual for-loop is materialized
-  bool isTrivial() const;
-
-  //! True if loop is grouped reduction/welford
-  bool isGroup() const;
-
-  //! True if loop needs to call a runtime reduction function
-  bool hasRuntimeReductionFunctions() const;
-
-  //! Returns the stage of a circular buffered iterdomain
-  //!  that this for loop materializes.
-  auto circularBufferLoopStage() const {
-    return attribute<CircularBufferLoopStage>(6);
-  }
-  auto circularBufferLoopStageDepth() const {
-    return attribute<int64_t>(7);
-  }
-
- private:
-  //! Returns if a loop could be unrolled.
-  bool isUnrollable() const;
-
-  //! Not storing this as an attribute because this is only a cache for
-  //! simplifiedStop. We are not interested in keeping this across clone/serde,
-  //! etc.
-  mutable Val* simplified_stop_ = nullptr;
-};
+// ForLoop moved to kernel_ir.{h,cpp} as kir::ForLoop
 
 /*
 SDPA bwd node with same functionality
@@ -2820,6 +2709,694 @@ class EmbeddingFwdOp : public Expr {
   std::vector<PolymorphicValue> evaluate(
       const ExpressionEvaluator& ee,
       const std::vector<PolymorphicValue>& inputs) const override;
+};
+
+class ArgsortOp : public Expr {
+ public:
+  using Expr::Expr;
+
+  ArgsortOp(
+      IrBuilderPasskey,
+      Val* out,
+      Val* in,
+      int64_t dim,
+      bool descending = false,
+      bool stable = false);
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  const char* getOpString() const override {
+    return "ArgsortOp";
+  }
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+  std::vector<PolymorphicValue> evaluate(
+      const ExpressionEvaluator& ee,
+      const std::vector<PolymorphicValue>& inputs) const override;
+
+  Val* out() const {
+    return output(0);
+  }
+  Val* in() const {
+    return input(0);
+  }
+  int64_t dim() const {
+    return attribute<int64_t>(0);
+  }
+  bool isDescending() const {
+    return attribute<bool>(1);
+  }
+  bool isStable() const {
+    return attribute<bool>(2);
+  }
+};
+
+//! NOTE -- [ Grouped Matrix Multiplication semantics ]
+//!
+//! This operation performs a grouped matrix multiplication.
+//!
+//! Parameters:
+//! - out_mat: output tensor
+//! - out_scale: output block scaling factor tensor
+//! - out_gamma: output global scaling factor tensor
+//! - matrix1: first input tensor matrix
+//! - matrix2: second input tensor matrix
+//! - offsets: 1D offsets tensor, specifying the ending index of each group
+//! - scale1: scale tensor for matrix1 (optional)
+//! - scale2: scale tensor for matrix2 (optional)
+//! - alpha: alpha tensor (optional)
+//! - bias: bias tensor (optional)
+//! - beta: beta tensor (optional)
+//!
+//! The math operation is roughly two steps:
+//! out =
+//!   alpha * grouped_mm(dequant(mat1, scale1), dequant(mat2, scale2), offsets)
+//!   + beta * bias
+//! out_mat, out_scale, out_gamma = Quantization(out)
+//!
+//! Post quantization only applies when out_scale / out_gamma is not nullptr;
+//!
+//! Regarding the grouped mm semantics:
+//!
+//! The offsets tensor is a vector tensor of length `num_groups` that specifies
+//! the ending index of each group in the matrix1 and matrix2 tensors.
+//!
+//! Given the number of groups as G, the operation conceptually runs G matmuls.
+//! There are three configurations of grouping, reflected by ranks of input
+//! matrices:
+//!
+//! Note 0: f(0) = 0 : offset[0]
+//!         f(i) = offset(i-1) : offset(i), when i >= 1;
+//!         f(i) is a slice with length equal to offsets[i] - offsets[i-1]
+//! Note 1: scales don't need to follow broadcast rules against corresponding
+//!         matrices on the k-dimension. Hardware uses blocked scale factors.
+//!         so the corresponding scale factor on k-dimension is shared by fixed
+//!         number of consecutive elements.
+//!         e.g. Given k as the size of k-dimension on input matrices, and the
+//!         scale factor has size k' on k-dimension.
+//!         For mxfp8, k' = k // 32. Each scale factor is shared by 32
+//!         consecutive elements.
+//! Note 2: output could have a reduction axis rk if k is not broadcast on
+//! inputs.
+//!
+//!     Case 1: grouped k-dimension:
+//!       inputs: mat1[ m, k ] @ mat2[ k, n ] , offsets[ g ]
+//!               scale1[ g, m, k' ], scale2[ g, k', n]
+//!       requires: offsets[g-1] == k
+//!       output: out[ g, m, n, [rk]]
+//!
+//!       math:
+//!       for i in range(g):
+//!         out[ i, 0:m, 0:n ] = (mat1[ 0:m, f(i) ] * scale1[ i, 0:m, 0:k' ])
+//!                             @(mat2[ f(i), 0:n ] * scale2[ i, 0:k', 0:n ])
+//!
+//!     Case 2: grouped m-dimension:
+//!       inputs: mat1[ m, k ] @ mat2[ g, k, n ] , offsets[ g ]
+//!               scale1[ m, k' ], scale2[ g, k', n ]
+//!       requires: offsets[g-1] == m
+//!       output: out[ m, n, [rk]]
+//!
+//!       math:
+//!       for i in range(g):
+//!         out[ f(i), 0:n ] = (mat1[ f(i), 0:k ] * scale1[ f(i), 0:k' ])
+//!                           @(mat2[ i, 0:k, 0:n ] * scale2[ i, 0:k', 0:n ])
+//!
+//!     Case 3: grouped n-dimension:
+//!       inputs: mat1[ g, m, k ] @ mat2[ k, n ] , offsets[ g ]
+//!               scale1[ g, m, k' ], scale2[ k', n ]
+//!       requires: offsets[g-1] == n
+//!       output: out[ m, n, [rk]]
+//!
+//!       math:
+//!       for i in range(g):
+//!         out[ 0:m, f(i) ] = (mat1[ i, 0:m, 0:k ] * scale1[ i, 0:m, 0:k' ])
+//!                           @(mat2[ 0:k, f(i) ] * scale2[ 0:k', f(i) ])
+//!
+class GroupedMmaOp : public Expr {
+ public:
+  using Expr::Expr;
+
+  GroupedMmaOp(
+      IrBuilderPasskey,
+      Val* out_mat,
+      Val* out_scale,
+      Val* out_gamma,
+      Val* mat1,
+      Val* mat2,
+      Val* offsets,
+      Val* scale1 = nullptr,
+      Val* scale2 = nullptr,
+      Val* alpha = nullptr,
+      Val* bias = nullptr,
+      Val* beta = nullptr);
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  const char* getOpString() const override {
+    return "GroupedMmaOp";
+  }
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+  std::vector<PolymorphicValue> evaluate(
+      const ExpressionEvaluator& ee,
+      const std::vector<PolymorphicValue>& inputs) const override;
+
+  // Get output matrix
+  TensorView* out() const {
+    return output(0)->as<TensorView>();
+  }
+
+  // Get output block scaling factor
+  TensorView* outScale() const {
+    if (outputs().size() > 1) {
+      return output(1)->as<TensorView>();
+    }
+    return nullptr;
+  }
+
+  // Get output global scaling factor
+  TensorView* outGamma() const {
+    if (outputs().size() > 2) {
+      return output(2)->as<TensorView>();
+    }
+    return nullptr;
+  }
+
+  // Get first input matrix
+  TensorView* matrix1() const {
+    return input(0)->as<TensorView>();
+  }
+
+  // Get second input matrix
+  TensorView* matrix2() const {
+    return input(1)->as<TensorView>();
+  }
+
+  // Get group offset input vector
+  TensorView* offsets() const {
+    return input(2)->as<TensorView>();
+  }
+
+  // Get scale factor for first input matrix, returns nullptr if not present
+  TensorView* scale1() const {
+    if (hasScale()) {
+      return input(attribute<int64_t>(0))->as<TensorView>();
+    }
+    return nullptr;
+  }
+
+  // Get scale factor for second input matrix, returns nullptr if not present
+  TensorView* scale2() const {
+    if (hasScale()) {
+      return input(attribute<int64_t>(0) + 1)->as<TensorView>();
+    }
+    return nullptr;
+  }
+
+  TensorView* alpha() const {
+    if (hasAlpha()) {
+      return input(attribute<int64_t>(1))->as<TensorView>();
+    }
+    return nullptr;
+  }
+
+  TensorView* bias() const {
+    if (hasBias()) {
+      return input(attribute<int64_t>(2))->as<TensorView>();
+    }
+    return nullptr;
+  }
+
+  TensorView* beta() const {
+    if (hasBeta()) {
+      return input(attribute<int64_t>(3))->as<TensorView>();
+    }
+    return nullptr;
+  }
+
+  // True if scale factors are present
+  bool hasScale() const {
+    return attribute<int64_t>(0) != -1;
+  }
+
+  int64_t scale1Offset() const {
+    return attribute<int64_t>(0);
+  }
+
+  // True if scale factors are present
+  bool hasAlpha() const {
+    return attribute<int64_t>(1) != -1;
+  }
+
+  int64_t alphaOffset() const {
+    return attribute<int64_t>(1);
+  }
+
+  // True if bias is present
+  bool hasBias() const {
+    return attribute<int64_t>(2) != -1;
+  }
+
+  int64_t biasOffset() const {
+    return attribute<int64_t>(2);
+  }
+
+  // True if beta is present
+  bool hasBeta() const {
+    return attribute<int64_t>(3) != -1;
+  }
+
+  int64_t betaOffset() const {
+    return attribute<int64_t>(0);
+  }
+
+  int64_t scale2Offset() const {
+    return attribute<int64_t>(0) + 1;
+  }
+
+  // Get the IterDomain for the k-dimension of the first input matrix
+  IterDomain* getKDimOfMatrix1() const;
+
+  // Get the IterDomain for the k-dimension of the second input matrix
+  IterDomain* getKDimOfMatrix2() const;
+
+  // Get the IterDomain for the group dimension of the first input matrix,
+  // returns nullptr if not present
+  IterDomain* getGroupDimOfMatrix1() const;
+
+  // Get the IterDomain for the group dimension of the second input matrix,
+  // returns nullptr if not present
+  IterDomain* getGroupDimOfMatrix2() const;
+
+  // Get the IterDomain for the group dimension of the output matrix, returns
+  // nullptr if not present
+  IterDomain* getGroupDimOfOutput() const;
+};
+
+//! NOTE -- [ Scaled Matrix Multiplication semantics ]
+//!
+//! This operation performs a matrix multiplication.
+//!
+//! Parameters:
+//! - out_mat: [output] tensor matrix
+//! - out_scale: [output] block scaling factor tensor
+//! - out_gamma: [output] global scaling factor tensor
+//! - matrix1: first input tensor matrix
+//! - matrix2: second input tensor matrix
+//! - scale1: scale tensor for matrix1
+//! - scale2: scale tensor for matrix2
+//! - alpha: alpha tensor (optional)
+//! - bias: bias tensor (optional)
+//! - beta: beta tensor (optional)
+//!
+//! The math operation is conceptually:
+//!   out =
+//!       alpha * (dequant(mat1, scale1) @ dequant(mat2, scale2), offsets)
+//!       + beta * bias
+//!   out_mat, out_scale, out_gamma = Quantization(out)
+//!
+//! TODO: This operation is here to support non-codegen kernel. The block
+//! semantics in scaling factor have implementation/hardware-specific padding
+//! and alignment requirement. We haven't mapped it to out_scale/out_gamma yet.
+class ScaledMmaOp : public Expr {
+ public:
+  using Expr::Expr;
+
+  ScaledMmaOp(
+      IrBuilderPasskey,
+      Val* out_mat,
+      Val* out_scale,
+      Val* out_gamma,
+      Val* mat1,
+      Val* mat2,
+      Val* scale1,
+      Val* scale2,
+      Val* alpha = nullptr,
+      Val* bias = nullptr,
+      Val* beta = nullptr);
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  const char* getOpString() const override {
+    return "ScaledMmaOp";
+  }
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+  std::vector<PolymorphicValue> evaluate(
+      const ExpressionEvaluator& ee,
+      const std::vector<PolymorphicValue>& inputs) const override;
+
+  // Get output matrix
+  TensorView* out() const {
+    return output(0)->as<TensorView>();
+  }
+
+  // Get output block scaling factor
+  TensorView* outScale() const {
+    if (outputs().size() > 1) {
+      return output(1)->as<TensorView>();
+    }
+    return nullptr;
+  }
+
+  // Get output global scaling factor
+  TensorView* outGamma() const {
+    if (outputs().size() > 2) {
+      return output(2)->as<TensorView>();
+    }
+    return nullptr;
+  }
+
+  // Get first input matrix
+  TensorView* matrix1() const {
+    return input(0)->as<TensorView>();
+  }
+
+  // Get second input matrix
+  TensorView* matrix2() const {
+    return input(1)->as<TensorView>();
+  }
+
+  // Get scale factor for first input matrix, returns nullptr if not present
+  TensorView* scale1() const {
+    return input(2)->as<TensorView>();
+  }
+
+  // Get scale factor for second input matrix, returns nullptr if not present
+  TensorView* scale2() const {
+    return input(3)->as<TensorView>();
+  }
+
+  TensorView* alpha() const {
+    if (hasAlpha()) {
+      return input(attribute<int64_t>(0))->as<TensorView>();
+    }
+    return nullptr;
+  }
+
+  TensorView* bias() const {
+    if (hasBias()) {
+      return input(attribute<int64_t>(1))->as<TensorView>();
+    }
+    return nullptr;
+  }
+
+  TensorView* beta() const {
+    if (hasBeta()) {
+      return input(attribute<int64_t>(2))->as<TensorView>();
+    }
+    return nullptr;
+  }
+
+  // True if scale factors are present
+  bool hasAlpha() const {
+    return attribute<int64_t>(0) != -1;
+  }
+
+  int64_t alphaOffset() const {
+    return attribute<int64_t>(0);
+  }
+
+  // True if bias is present
+  bool hasBias() const {
+    return attribute<int64_t>(1) != -1;
+  }
+
+  int64_t biasOffset() const {
+    return attribute<int64_t>(1);
+  }
+
+  // True if beta is present
+  bool hasBeta() const {
+    return attribute<int64_t>(2) != -1;
+  }
+
+  int64_t betaOffset() const {
+    return attribute<int64_t>(2);
+  }
+};
+
+//! TopK operation that finds the k largest or smallest elements
+//! along a specified dimension.
+//!
+//! This operation returns two outputs:
+//! - values: the k largest/smallest values along the specified dimension
+//! - indices: the indices of those values in the original tensor
+//!
+//! Parameters:
+//! - dim: dimension along which to find top-k elements
+//! - largest: if true, return largest elements; if false, return smallest
+//! - sorted: if true, return elements in sorted order
+class NVF_API TopKOp : public Expr {
+ public:
+  using Expr::Expr;
+
+  TopKOp(
+      IrBuilderPasskey,
+      Val* out_values,
+      Val* out_indices,
+      Val* in,
+      Val* k,
+      int64_t dim,
+      bool largest,
+      bool sorted);
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  const char* getOpString() const override {
+    return "TopKOp";
+  }
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+  std::vector<PolymorphicValue> evaluate(
+      const ExpressionEvaluator& ee,
+      const std::vector<PolymorphicValue>& inputs) const override;
+
+  Val* outValues() const {
+    return output(0);
+  }
+  Val* outIndices() const {
+    return output(1);
+  }
+  Val* in() const {
+    return input(0);
+  }
+  Val* k() const {
+    return input(1);
+  }
+  int64_t dim() const {
+    return attribute<int64_t>(0);
+  }
+  bool isLargest() const {
+    return attribute<bool>(1);
+  }
+  bool isSorted() const {
+    return attribute<bool>(2);
+  }
+};
+
+class ScanOp : public Expr {
+ public:
+  using Expr::Expr;
+
+  ScanOp(
+      IrBuilderPasskey,
+      BinaryOpType op_type,
+      Val* init,
+      Val* out,
+      Val* in,
+      int64_t dim);
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  const char* getOpString() const override {
+    return "ScanOp";
+  }
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+
+  //! Returns the inclusive scan output
+  Val* out() const {
+    return output(0);
+  }
+
+  Val* in() const {
+    return input(0);
+  }
+
+  Val* init() const {
+    return attributeVal(0);
+  }
+
+  BinaryOpType opType() const {
+    return attribute<BinaryOpType>(1);
+  }
+
+  int64_t dim() const {
+    return attribute<int64_t>(2);
+  }
+
+  std::vector<PolymorphicValue> evaluate(
+      const ExpressionEvaluator& ee,
+      const std::vector<PolymorphicValue>& inputs) const override;
+};
+
+class CutlassNvfp4GroupedMmaOp : public Expr {
+ public:
+  using Expr::Expr;
+
+  CutlassNvfp4GroupedMmaOp(
+      IrBuilderPasskey,
+      Val* out_mat,
+      Val* mat1,
+      Val* mat2,
+      Val* scale1,
+      Val* scale2,
+      Val* alpha,
+      Val* problem_sizes,
+      Val* expert_offsets,
+      Val* sf_offsets);
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  const char* getOpString() const override {
+    return "CutlassNvfp4GroupedMmaOp";
+  }
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+  std::vector<PolymorphicValue> evaluate(
+      const ExpressionEvaluator& ee,
+      const std::vector<PolymorphicValue>& inputs) const override;
+
+  // Get output matrix
+  TensorView* out() const {
+    return output(0)->as<TensorView>();
+  }
+
+  // Get first input matrix
+  TensorView* matrix1() const {
+    return input(0)->as<TensorView>();
+  }
+
+  // Get second input matrix
+  TensorView* matrix2() const {
+    return input(1)->as<TensorView>();
+  }
+
+  // Get scale factor for first input matrix, returns nullptr if not present
+  TensorView* scale1() const {
+    return input(2)->as<TensorView>();
+  }
+
+  // Get scale factor for second input matrix, returns nullptr if not present
+  TensorView* scale2() const {
+    return input(3)->as<TensorView>();
+  }
+
+  TensorView* alpha() const {
+    return input(4)->as<TensorView>();
+  }
+
+  TensorView* problemSizes() const {
+    return input(5)->as<TensorView>();
+  }
+
+  TensorView* expertOffsets() const {
+    return input(6)->as<TensorView>();
+  }
+
+  TensorView* scalingFactorOffsets() const {
+    return input(7)->as<TensorView>();
+  }
+};
+
+//! NOTE -- [ PreprocessGroupedMatmulInputSf ]
+//!
+//! This operation performs a layout change on the input, it's currently used
+//! for block scaling factor accompanying narrow precision inputs.
+//!
+//! PreprocessGroupedMatmulInputSf(TensorView* output, TensorView* input, ...)
+//!
+//!   input:  logical domain:   (i0, i1)
+//!   output: root domain:      (i0, i1)
+//!           logical domain:   (i2, i3)
+//!           loop domain:      (i0, i1)
+//!
+//! 1. This can be viewed as a point-wise operation, since output loop domain
+//! matches the input logical domain.
+//!
+//! 2. Because of the potential padding/swizzle, the logical domain of the
+//! output does not map to input. We don't rely on codegen for indexing, so we
+//! don't care about mapping the logical/allocation of output to anything else.
+//! Indexing will be done in runtime function, utilizing `input_offsets` and
+//! `output_offsets`.
+//!
+//! 3. Output has a root domain that matches the logical domain of the input.
+class PreprocessGroupedMatmulInputSf : public Expr {
+ public:
+  using Expr::Expr;
+
+  // NOTE: row_idx and col_idx are used only for index lowering.
+  PreprocessGroupedMatmulInputSf(
+      IrBuilderPasskey,
+      Val* output,
+      Val* input,
+      Val* input_offsets,
+      Val* output_offsets,
+      BlockScalingFactorLayout layout,
+      Val* k,
+      Val* g,
+      Val* row_idx = nullptr,
+      Val* col_idx = nullptr);
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  const char* getOpString() const override {
+    return "PreprocessGroupedMatmulInputSf";
+  }
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+  std::vector<PolymorphicValue> evaluate(
+      const ExpressionEvaluator& ee,
+      const std::vector<PolymorphicValue>& inputs) const override;
+
+  Val* out() const {
+    return output(0);
+  }
+
+  Val* in() const {
+    return input(0);
+  }
+
+  TensorView* inputOffsets() const {
+    return input(1)->as<TensorView>();
+  }
+
+  TensorView* outputOffsets() const {
+    return input(2)->as<TensorView>();
+  }
+
+  // get scalar - column size
+  Val* k() const {
+    return input(3);
+  }
+
+  // get scalar - number of groups
+  Val* g() const {
+    return input(4);
+  }
+
+  // get enum - block scaling factor layout
+  BlockScalingFactorLayout layout() const {
+    return attribute<BlockScalingFactorLayout>(0);
+  }
 };
 
 } // namespace nvfuser

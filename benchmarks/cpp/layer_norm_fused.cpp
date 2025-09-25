@@ -110,7 +110,7 @@ static void NvFuserScheduler_LayerNormFused(
       int64_t(benchmark_state.iterations()) *
       (2 * tv1.numel() + tv0.numel() + tv2.numel() + tv3.numel() +
        tv4.numel()) *
-      int64_t(dataTypeSize(dtype)));
+      dataTypeSizeByte(dtype));
 }
 
 //------------------------------------------------------------------------------
@@ -158,7 +158,7 @@ static void Baseline_LayerNormFused(
   benchmark_state.SetBytesProcessed(
       int64_t(benchmark_state.iterations()) *
       (2 * t1.numel() + t0.numel() + t2.numel() + t3.numel() + t4.numel()) *
-      int64_t(dataTypeSize(dtype)));
+      dataTypeSizeByte(dtype));
 }
 
 //------------------------------------------------------------------------------

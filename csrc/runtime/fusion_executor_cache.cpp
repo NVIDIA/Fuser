@@ -42,6 +42,8 @@ FusionExecutorCache::FusionExecutorCache(
       fusion_id_{fusion_id},
       auto_schedule_(auto_schedule) {}
 
+FusionExecutorCache::~FusionExecutorCache() = default;
+
 KernelArgumentHolder FusionExecutorCache::runFusionWithInputs(
     KernelArgumentHolder args,
     std::optional<PrimDataType> forced_index_type,
@@ -57,7 +59,6 @@ KernelArgumentHolder FusionExecutorCache::runFusionWithInputs(
   auto kernel_runtime = getKernelRuntimeFor(args, forced_index_type);
 
   if (isProfilerEnabled()) {
-    FusionProfiler::start(!isProfilerEnabledWithCupti());
     FusionProfiler::createSegments(kernel_runtime->executors().size());
   }
 
@@ -316,7 +317,8 @@ void FusionExecutorCache::disableLaunchParamCache() {
         if (auto ke = dynamic_cast<KernelExecutor*>(executor.get())) {
           NVF_CHECK(
               ke->compiledKernel(),
-              "Tried to disable parameter cache of uninitialized CompiledKernel.");
+              "Tried to disable parameter cache of uninitialized "
+              "CompiledKernel.");
           ke->compiledKernel()->disableLaunchParamCache();
         }
       }

@@ -673,7 +673,8 @@ class HandleExpr {
         });
     NVF_ERROR(
         from_it != frontier_.end(),
-        "The TMA domain must be equivalent to the allocation domain of the gmem tensor, but ",
+        "The TMA domain must be equivalent to the allocation domain of the "
+        "gmem tensor, but ",
         from[0]->toString(),
         " is not on the path.");
     if (auto split = dynamic_cast<Split*>(expr->front())) {
@@ -683,7 +684,7 @@ class HandleExpr {
           SimplifyingIrBuilder::modExpr(
               from[0]->front()->as<IterDomain>()->extent(), split->factor()),
           split->fusion()->zeroVal());
-      GpuLower::current()->validate(
+      NVFUSER_LOWER_VALIDATE(
           is_divisible,
           "Invalid view in TMA: the extent of ",
           from[0]->toString(),
@@ -712,7 +713,8 @@ class HandleExpr {
         });
     NVF_ERROR(
         outer_it != frontier_.end(),
-        "The TMA domain must be equivalent to the allocation domain of the gmem tensor, but ",
+        "The TMA domain must be equivalent to the allocation domain of the "
+        "gmem tensor, but ",
         outer->toString(),
         " is not on the path.");
     auto inner = from[1];
@@ -743,7 +745,8 @@ class HandleExpr {
     bool is_supported_expr = expr->front()->isOneOf<Split, Merge>();
     NVF_ERROR(
         is_supported_expr,
-        "TMA domain must be a view of the allocation domain of the gmem tensor, but ",
+        "TMA domain must be a view of the allocation domain of the gmem "
+        "tensor, but ",
         expr->toString(),
         " is not a valid expression for view.");
     auto from_ = from(expr, direction);
@@ -1067,11 +1070,11 @@ std::vector<TMADim> run(
 } // namespace collapse_tma_domain
 
 TMAInfo getTMAInfo(LoadStoreOp* ldst) {
-  TensorView* producer_tv = ldst->in()->as<TensorView>();
+  auto* producer_tv = ldst->in()->as<TensorView>();
   // In case the producer is aliased, use the alias instead
   producer_tv = GpuLower::current()->getMaybeTensorProducerAlias(producer_tv);
 
-  TensorView* consumer_tv = ldst->out()->as<TensorView>();
+  auto* consumer_tv = ldst->out()->as<TensorView>();
   TensorView *smem_tv = nullptr, *gmem_tv = nullptr;
   if (producer_tv->getMemoryType() == MemoryType::Shared) {
     NVF_ERROR(consumer_tv->getMemoryType() == MemoryType::Global);
@@ -1127,7 +1130,7 @@ TMAInfo getTMAInfo(LoadStoreOp* ldst) {
       bulk_groups,
       nonbulk_groups,
       inferred_dims,
-      dataTypeSize(gmem_tv->dtype()),
+      dataTypeSizeByte(gmem_tv->dtype()),
       swizzle);
   return TMAInfo(std::move(final_tma_domain), swizzle, gmem_tv);
 }
@@ -1197,7 +1200,8 @@ std::unordered_map<TensorView*, const TMAInfo> getConsumerToTMAInfoMap(
         NVF_ERROR(
             result.emplace(ir_utils::getTvOutput(ldst), getTMAInfo(ldst))
                 .second,
-            "Ambiguous TMA information, likely something is wrong in the Fusion IR");
+            "Ambiguous TMA information, likely something is wrong in the "
+            "Fusion IR");
       }
     }
   }

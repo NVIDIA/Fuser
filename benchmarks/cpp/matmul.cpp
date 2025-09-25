@@ -228,7 +228,7 @@ static void Baseline_Matmul(
 
 size_t getSmemSize(GemmTile cta_tile, int stage_number) {
   return ((cta_tile.m * cta_tile.k) + (cta_tile.n * cta_tile.k)) *
-      dataTypeSize(DataType::Half) * stage_number;
+      dataTypeSizeByte(DataType::Half) * stage_number;
 }
 
 // TODO: this part eventually will be automated by heuristics
@@ -403,7 +403,8 @@ static void NvFuserScheduler_Matmul(
 
   if (cudaArchGuardShouldSkip(8, 0, 9, 0)) {
     benchmark_state.SkipWithError(
-        "This Fusion includes broadcasts on the operands, which is not supported on Hopper+");
+        "This Fusion includes broadcasts on the operands, which is not "
+        "supported on Hopper+");
     return;
   }
 

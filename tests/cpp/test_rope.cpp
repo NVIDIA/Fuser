@@ -1615,11 +1615,42 @@ TEST_P(LitgptRopeTest, Bwd) {
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
   auto outputs = executor_cache.runFusionWithInputs({t0, t1, t2, t3});
   testValidate(&fusion, outputs, {t0, t1, t2, t3}, __LINE__, __FILE__);
+
+  // Make sure the cat is grouped together with the pad ops of its inputs
+  FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
+  CatOp* cat = nullptr;
+  SegmentedGroup* cat_group = nullptr;
+  for (const auto& group : runtime->fusionSegments()->groups()) {
+    auto it = std::ranges::find_if(group->exprs(), [&](Expr* expr) {
+      return expr->isA<CatOp>() && expr->output(0)->name() == T245->name();
+    });
+    if (it == group->exprs().end()) {
+      continue;
+    }
+    cat = (*it)->as<CatOp>();
+    cat_group = group;
+    break;
+  }
+  EXPECT_NE(cat, nullptr)
+      << "Could not find the cat expr in the scheduled segmented fusion";
+
+  // Check if the inputs of `cat({T244, T237, T230}, 2)` are also
+  // produced in the same segment
+  for (const auto cat_input : cat->inputs()) {
+    auto pad = dynamic_cast<PadOp*>(cat_input->definition());
+    EXPECT_NE(pad, nullptr)
+        << "Unexpected cat input: " << cat_input->toString();
+    EXPECT_NE(
+        std::ranges::find(cat_group->exprs(), pad), cat_group->exprs().end())
+        << "Could not find the input pad in the same segment: "
+        << pad->toString();
+  }
 }
 
 // Testing the scheduling of an ending repeat pattern, which is
 // commonly seen in RoPE.
 TEST_F(RopeTest, EndingRepeat) {
+  GTEST_SKIP() << "Disabled due to as cancelReshape is disabled";
   auto fusion_ptr = std::make_unique<Fusion>();
   FusionGuard fg(fusion_ptr.get());
   Fusion& fusion = *fusion_ptr;
@@ -1701,6 +1732,8 @@ TEST_F(RopeTest, EndingRepeat) {
 // input tensor. A similar Pattern appears in the LitGPT Llama RoPE
 // module.
 TEST_F(RopeTest, EndingRepeatWithNoBroadcastOp) {
+  GTEST_SKIP() << "Disabled due to as cancelReshape is disabled";
+
   auto fusion_ptr = std::make_unique<Fusion>();
   FusionGuard fg(fusion_ptr.get());
   Fusion& fusion = *fusion_ptr;

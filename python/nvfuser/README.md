@@ -20,7 +20,7 @@ with FusionDefinition() as fd :
     t0 = fd.define_tensor(shape=[-1, 1, -1],
                           contiguity=[True, None, True],
                           dtype=DataType.Float)
-    t1 = fd.define_tensor(3)
+    t1 = fd.define_tensor([-1, -1, -1])
     c0 = fd.define_scalar(3.0)
 
     t2 = fd.ops.add(t0, t1)
@@ -52,19 +52,20 @@ nvf_out = fd.execute([input1, input2])[0]
 ### `FusionDefinition` Context Manager - Interface for Defining Fusions
 * `execute([inputs])`:  Allows you to execute the currently defined fusion with a list of given inputs and returns a list of tensors.
 * `id()`: Returns the fusion id for a given definition.
-* `print()`: Prints the `FusionDefinition` as a python function.
-* `print_ir()`: Prints the low level IR for the currently defined fusion.
+* `fusion_ir()`: Returns the Fusion IR (Intermediate Representation) as a string.
+* `last_cuda_code(intrinsic_code=False)`: Returns the generated CUDA code for the last executed inputs.
+* `debug_output()`: Returns debug output if capture_debug_output=True was used during execution.
 
 #### Defining Input Tensors
 _All intermediate tensors are created by operations.  Constant tensors do not exist._
 
 There are 3 ways to define tensors that will be enumerated below.
 
-##### 1.) Defining tensors by the number of input dimensions only
-This interface tells nvFuser that the tensor has a given number of symbolic dimensions that are not necessarily contiguous in memory.  The user also has the ability to specify a data type.  The default type is `Float`.
+##### 1.) Defining tensors with symbolic dimensions
+This interface tells nvFuser that the tensor has symbolic dimensions that are not necessarily contiguous in memory. Use `-1` for each symbolic dimension. The user also has the ability to specify a data type. The default type is `Float`.
 ```python
-t0 = fd.define_tensor(3)
-t1 = fd.define_tensor(3, DataType.Half)
+t0 = fd.define_tensor([-1, -1, -1])                        # 3D tensor
+t1 = fd.define_tensor([-1, -1], dtype=DataType.Half)       # 2D tensor
 ```
 
 ##### 2.) Defining tensors by a list of concrete sizes and a list of strides
@@ -92,10 +93,20 @@ s0 = fd.define_scalar(dtype=DataType.Half)
 
 #### Defining Constant Scalars
 
-Constants can be of types: `Bool`, `ComplexDouble`, `Double`, or `Int`.  The definition only takes a constant and the type is inferred by the constant.
+Constants can be of types: `Bool`, `ComplexDouble`, `Double`, or `Int`.  The definition only takes a constant and the type is inferred by the constant's type.
 
 ```python
 c0 = fd.define_scalar(3.0)
+```
+
+**Note**: you cannot use Python literals directly:
+```python
+# Correct - define scalar constant first
+scalar_const = fd.define_scalar(2.0)
+result = fd.ops.mul(tensor, scalar_const)
+
+# Incorrect - this will cause a TypeError
+result = fd.ops.mul(tensor, 2.0)  # ERROR!
 ```
 
 #### Defining Operations
@@ -104,6 +115,8 @@ Operators are added with the following notation:
 ```python
 output = fd.ops.foo(arg1, ... )
 ```
+
+
 You can see a supported list of operations with the following query:
 ```python
 python -c "from nvfuser import FusionDefinition; help(FusionDefinition.Operators)"
@@ -118,11 +131,68 @@ add_output(output: Tensor)
 add_output(output: Scalar)
 ```
 
+# Complete Working Example
+
+Here's a complete, tested example that demonstrates correct API usage:
+
+```python
+import torch
+from nvfuser import FusionDefinition, DataType
+
+def main():
+    # Check CUDA availability
+    if not torch.cuda.is_available():
+        print("CUDA is not available. nvfuser requires CUDA.")
+        return
+
+    # Define a fusion that computes (x + y) * 2
+    with FusionDefinition() as fd:
+        # Define input tensors with explicit shapes
+        x = fd.define_tensor([-1, -1], dtype=DataType.Float)  # 2D tensor
+        y = fd.define_tensor([-1, -1], dtype=DataType.Float)  # 2D tensor
+
+        # Define operations
+        sum_result = fd.ops.add(x, y)       # x + y
+        two = fd.define_scalar(2.0)         # scalar constant
+        final_result = fd.ops.mul(sum_result, two)  # (x + y) * 2
+
+        # Mark output
+        fd.add_output(final_result)
+
+    # Create input tensors on GPU
+    input_x = torch.ones(3, 4, device='cuda', dtype=torch.float32)
+    input_y = torch.ones(3, 4, device='cuda', dtype=torch.float32) * 2
+
+    # Execute the fusion
+    nvf_result = fd.execute([input_x, input_y])[0]
+
+    # Compare with PyTorch eager execution
+    eager_result = (input_x + input_y) * 2.0
+
+    print(f"Results match: {torch.allclose(nvf_result, eager_result)}")
+
+    # Get debug information (only available after execution)
+    print(f"Fusion ID: {fd.id()}")
+    print(f"Fusion IR:\n{fd.fusion_ir()}")
+
+if __name__ == "__main__":
+    main()
+```
+
 # Debug Information
 **Query a list of supported operations:**
 ```python
 python -c "from nvfuser import FusionDefinition; help(FusionDefinition.Operators)"
 ```
+
+**Get debug information after execution:**
+```python
+# These methods require the fusion to be executed first
+print(f"Fusion ID: {fd.id()}")
+print(f"Fusion IR:\n{fd.fusion_ir()}")
+print(f"Generated CUDA code:\n{fd.last_cuda_code()}")
+```
+
 **View the fusion definitions that are executed by setting an environment variable:**
 ```python
 export NVFUSER_DUMP=python_definition

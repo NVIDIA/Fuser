@@ -6,6 +6,7 @@
  */
 // clang-format on
 
+#include <expr_simplifier.h>
 #include <ir/all_nodes.h>
 #include <ir/builder.h>
 #include <ir/iostream.h>
@@ -99,7 +100,12 @@ TensorView* indexSelect(
   return out;
 }
 
-// This is a restricted version of torch.index_put(..., accumulate=true)
+// This is a restricted version of PyTorch's Tensor.index_put(indices,
+// values, accumulate=true). We only support a 1-D index tensor at
+// this moment. The 1-D index tensor is assumed to index dimension
+// 0. The shape of the value tensor must be
+// [index_tv->axis(0)->extent(), acc_tv->axis(1)->extent(),
+// acc_tv->axis(2)->extent(), ...].
 TensorView* indexPutAccumulate(
     TensorView* acc_tv,
     TensorView* index_tv,
@@ -108,11 +114,6 @@ TensorView* indexPutAccumulate(
   NVF_CHECK(
       dtype != DataType::Null, "Invalid datatype provided for new value.");
 
-  // broadcast index_tv if applicable
-  if (index_tv->nDims() == 1) {
-    index_tv = unsqueeze(index_tv, -1);
-  }
-
   std::vector<IterDomain*> acc_domain =
       TensorDomain::noReductions(acc_tv->getLogicalDomain());
   std::vector<IterDomain*> index_domain =
@@ -120,19 +121,10 @@ TensorView* indexPutAccumulate(
   std::vector<IterDomain*> value_domain =
       TensorDomain::noReductions(value_tv->getLogicalDomain());
 
-  NVF_CHECK(acc_domain.size() == 2);
-  NVF_CHECK(index_domain.size() == 2);
-  NVF_CHECK(index_domain.at(1)->isBroadcast());
-  NVF_CHECK(value_domain.size() == 2);
-  // IndexPutAccumulateOp semantics
-  //
-  // Producers:
-  //     accumulate [ vocab, hidden ]
-  //     broadcast_index [ seq, broadcast ]
-  //     value [ seq, hidden ]
-  // Consumers:
-  //     output [ vocab, hidden ]
-  TensorView* out = ops::newValLike(acc_tv, dtype)->as<TensorView>();
+  NVF_CHECK(acc_domain.size() == value_domain.size());
+  NVF_CHECK(index_domain.size() == 1);
+
+  auto* out = ops::newValLike(acc_tv, dtype)->as<TensorView>();
   IrBuilder::create<IndexPutAccumulateOp>(out, acc_tv, index_tv, value_tv);
   return out;
 }
@@ -145,7 +137,8 @@ TensorView* gather(TensorView* inp, int64_t dim, TensorView* index) {
       !inp_domain.empty(), "torch.gather can not be applied to 0d tensor.");
   NVF_CHECK(
       idx_domain.size() == inp_domain.size(),
-      "the input and index tensor must have the same dimensions for torch.gather");
+      "the input and index tensor must have the same dimensions for "
+      "torch.gather");
   dim = wrapDim(dim, (int64_t)idx_domain.size());
 
   std::vector<IterDomain*> out_domain;
@@ -169,27 +162,47 @@ TensorView* gather(TensorView* inp, int64_t dim, TensorView* index) {
   return out_tensor->as<TensorView>();
 }
 
-// torch.scatter torch.scatter_add
-TensorView* scatterOp(
-    ScatterOpType type,
+TensorView* scatter(
     TensorView* self,
     int64_t dim,
     TensorView* index,
-    TensorView* src) {
+    Val* src,
+    std::optional<BinaryOpType> accumulate_op) {
   auto self_dom = TensorDomain::noReductions(self->getLogicalDomain());
   auto idx_dom = TensorDomain::noReductions(index->getLogicalDomain());
-  auto src_dom = TensorDomain::noReductions(src->getLogicalDomain());
 
   NVF_CHECK(!self_dom.empty(), "scatter can not be applied to 0d tensor.");
   NVF_CHECK(
-      self_dom.size() == idx_dom.size() && self_dom.size() == src_dom.size(),
-      "self, index and src tensor should all have the same number of dimensions in scatter like ops.");
+      self_dom.size() == idx_dom.size() &&
+          (!src->isA<TensorView>() ||
+           self_dom.size() ==
+               TensorDomain::noReductions(
+                   src->as<TensorView>()->getLogicalDomain())
+                   .size()),
+      "self, index and src tensor should all have the same number of "
+      "dimensions in scatter like ops.");
   dim = wrapDim(dim, (int64_t)self_dom.size());
 
+  bool is_exact = true;
+  for (const auto i : arange(std::ssize(self_dom))) {
+    if (i == dim) {
+      continue;
+    }
+    Val* self_id_size = self_dom.at(i)->getMaybeExpandedExtent();
+    Val* idx_id_size = idx_dom.at(i)->getMaybeExpandedExtent();
+    auto same_size =
+        simplifyExpr(SimplifyingIrBuilder::eqExpr(self_id_size, idx_id_size));
+    if (same_size->isTrue()) {
+      continue;
+    }
+    is_exact = false;
+    break;
+  }
+
   // The shape of output tensor is same as self tensor.
-  std::vector<IterDomain*> out_domain;
+  std::vector<IterDomain*> out_logical;
   for (const auto i : arange(self_dom.size())) {
-    out_domain.push_back(
+    out_logical.push_back(
         IterDomainBuilder(self_dom[i])
             .iter_type(
                 self_dom[i]->getIterType() == IterType::Iteration
@@ -198,21 +211,44 @@ TensorView* scatterOp(
             .build());
   }
 
+  // Create the loop domain based on the logical domain of the index
+  // tensor. For non-scatter axes, reuse the logical IDs if exact.
+  std::vector<IterDomain*> out_loop;
+  out_loop.reserve(idx_dom.size());
+  for (const auto& [i, idx_id] : enumerate(idx_dom)) {
+    if ((int64_t)i == dim || !is_exact) {
+      out_loop.push_back(IterDomainBuilder(idx_id).build());
+    } else {
+      out_loop.push_back(out_logical.at(i));
+    }
+  }
+
+  // Create the output tensor. The validation of the loop domain needs
+  // to be skipped as it is not guaranteed to be equivalent to the
+  // logical domain.
   TensorView* out_tensor = IrBuilder::create<TensorView>(
       IrBuilder::create<TensorDomain>(
-          out_domain, TensorDomain::getContiguityFilledWith(out_domain, true)),
+          /*logical_domain=*/out_logical,
+          /*loop_domain=*/out_loop,
+          /*contiguity=*/
+          TensorDomain::getContiguityFilledWith(out_logical, true),
+          /*skip_loop_validation=*/true),
       self->getDataType().value());
 
-  IrBuilder::create<ScatterOp>(type, out_tensor, self, dim, index, src);
-  return out_tensor->as<TensorView>();
-}
+  if (accumulate_op.has_value()) {
+    NVF_ERROR(
+        accumulate_op.value() == BinaryOpType::Add ||
+            accumulate_op.value() == BinaryOpType::Mul ||
+            accumulate_op.value() == BinaryOpType::Max ||
+            accumulate_op.value() == BinaryOpType::Min,
+        "Unsupported accumulation op: ",
+        accumulate_op.value());
+  }
 
-TensorView* scatter(
-    TensorView* self,
-    int64_t dim,
-    TensorView* index,
-    TensorView* src) {
-  return scatterOp(ScatterOpType::Set, self, dim, index, src);
+  IrBuilder::create<ScatterOp>(
+      out_tensor, self, dim, index, src, is_exact, accumulate_op);
+
+  return out_tensor->as<TensorView>();
 }
 
 TensorView* takeAlongAxis(TensorView* inp, TensorView* index, int64_t dim) {
@@ -223,7 +259,8 @@ TensorView* takeAlongAxis(TensorView* inp, TensorView* index, int64_t dim) {
       !inp_domain.empty(), "take_along_axis can not be applied to 0d tensor.");
   NVF_CHECK(
       idx_domain.size() == inp_domain.size(),
-      "The input and index tensor must have the same dimensions for take_along_axis");
+      "The input and index tensor must have the same dimensions for "
+      "take_along_axis");
 
   dim = wrapDim(dim, (int64_t)idx_domain.size());
 
@@ -277,6 +314,99 @@ TensorView* takeAlongAxis(TensorView* inp, TensorView* index, int64_t dim) {
   IrBuilder::create<GatherOp>(out_tensor, inp, dim, index, true);
 
   return out_tensor->as<TensorView>();
+}
+
+TensorView* preprocessGroupedMatmulInputSf(
+    TensorView* input,
+    TensorView* input_offsets,
+    TensorView* output_offsets,
+    BlockScalingFactorLayout layout) {
+  // only support input matrix;
+  auto input_logical_dom =
+      TensorDomain::noReductions(input->getLogicalDomain());
+  NVF_ERROR_EQ(input_logical_dom.size(), 2);
+
+  // This is used for both root and loop domain on output
+  // maps directly to input's logical domain.
+  std::vector<IterDomain*> out_logical_dom;
+  out_logical_dom.reserve(input_logical_dom.size());
+  std::ranges::transform(
+      input_logical_dom,
+      std::back_inserter(out_logical_dom),
+      [](IterDomain* id) { return IterDomainBuilder(id).build(); });
+
+  // Create the logical domain of output.
+  std::vector<IterDomain*> out_alloc_dom;
+  out_alloc_dom.reserve(input_logical_dom.size());
+
+  // only Block128x4 is supported at this point.
+  NVF_CHECK_EQ(layout, BlockScalingFactorLayout::Block128x4);
+  constexpr int col_multiple = 4;
+  constexpr int row_multiple = 128;
+
+  auto* one_val = input->fusion()->oneVal(DataType::Index);
+  std::vector<IterDomain*> offset_logical_dom =
+      TensorDomain::noReductions(input_offsets->getLogicalDomain());
+  Val* num_groups =
+      SimplifyingIrBuilder::subExpr(offset_logical_dom[0]->extent(), one_val);
+
+  // Note: output logical domain handles potential padding required for the
+  // layout. Since the actual padding size is data-dependent, we allocate for
+  // the maximum padding (reflected on logical/allocation domain).
+
+  // NOTE: We could use resize operations for the padding logic, I think this
+  // might simplify predication. Not doing that for now for simpler
+  // implementation. We'll re-evaluate when we add scheduler support.
+
+  // pad row size: num_groups * (row_multiple - 1) + row_size
+  auto pad_to_max_extent = [&](IterDomain* id, int multiple) -> IterDomain* {
+    auto* maximum_pad_value_per_group =
+        IrBuilder::create<Val>(multiple - 1, DataType::Index);
+    Val* padded_ext = SimplifyingIrBuilder::addExpr(
+        id->extent(),
+        SimplifyingIrBuilder::mulExpr(num_groups, maximum_pad_value_per_group));
+    return IterDomainBuilder(id).extent(padded_ext).build();
+  };
+  out_alloc_dom.push_back(pad_to_max_extent(out_logical_dom[0], row_multiple));
+
+  // pad col size: (col_size + col_multiple - 1) / col_multiple * col_multiple
+  auto pad_to_multiple = [&](IterDomain* id, int multiple) -> IterDomain* {
+    Val* ext = id->extent();
+    auto* multiple_val = IrBuilder::create<Val>(multiple, DataType::Index);
+    Val* padded_ext = SimplifyingIrBuilder::mulExpr(
+        SimplifyingIrBuilder::divExpr(
+            SimplifyingIrBuilder::subExpr(
+                SimplifyingIrBuilder::addExpr(ext, multiple_val), one_val),
+            multiple_val),
+        multiple_val);
+    return IterDomainBuilder(id).extent(padded_ext).build();
+  };
+  out_alloc_dom.push_back(pad_to_multiple(out_logical_dom[1], col_multiple));
+
+  // Create the output tensor with logical domain matching inputs
+  TensorView* out_tv = IrBuilder::create<TensorView>(
+      IrBuilder::create<TensorDomain>(
+          /*root_domain=*/std::vector<IterDomain*>(),
+          /*logical_domain=*/out_logical_dom,
+          /*allocation=*/out_alloc_dom,
+          /*loop_domain=*/out_logical_dom,
+          /*alternate_loop_domain=*/std::nullopt,
+          /*contiguity=*/
+          TensorDomain::getContiguityFilledWith(out_alloc_dom, true),
+          /*additional_ids=*/std::vector<IterDomain*>(),
+          /*skip_checks=*/true),
+      input->getDataType().value());
+
+  IrBuilder::create<PreprocessGroupedMatmulInputSf>(
+      out_tv,
+      input,
+      input_offsets,
+      output_offsets,
+      layout,
+      input_logical_dom[1]->getMaybeExpandedExtent(),
+      num_groups);
+
+  return out_tv;
 }
 
 } // namespace nvfuser

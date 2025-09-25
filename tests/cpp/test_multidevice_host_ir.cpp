@@ -6,9 +6,12 @@
 */
 // clang-format on
 #include <cuda_profiler_api.h>
+
+#include <torch/torch.h>
+
 #include <fusion.h>
 #include <host_ir/container.h>
-#include <host_ir/executor.h>
+#include <host_ir/evaluator.h>
 #include <host_ir/pass/stream_parallel_type.h>
 #include <ir/all_nodes.h>
 #include <ops/all_ops.h>
@@ -135,7 +138,7 @@ TEST_P(MultiDeviceHostIrTest, SingleFusionSingleComm) {
        {communication->outputs().back(), output}});
 
   // validate the obtained results
-  EXPECT_TRUE(torch::allclose(ref_output, outputs.back().as<at::Tensor>()));
+  EXPECT_TRUE(at::allclose(ref_output, outputs.back().as<at::Tensor>()));
 }
 
 TEST_P(MultiDeviceHostIrTest, SingleCommTwoFusionAndWait) {
@@ -186,8 +189,8 @@ TEST_P(MultiDeviceHostIrTest, SingleCommTwoFusionAndWait) {
   auto post_compute =
       IrBuilder::create<PostOnStream>(hu, compute_inputs, compute_outputs);
   // [Step 5)b.] Create Communication Ir representing executing the Fusion
-  TensorView* communication_input = tv1->as<TensorView>();
-  TensorView* communication_output = tv2->as<TensorView>();
+  auto* communication_input = tv1->as<TensorView>();
+  auto* communication_output = tv2->as<TensorView>();
   for (auto tv : {communication_input, communication_output}) {
     // Allgather requires contiguous input and output tensors
     tv->setContiguity(true);
@@ -234,7 +237,7 @@ TEST_P(MultiDeviceHostIrTest, SingleCommTwoFusionAndWait) {
        {communication->outputs().back(), output}});
 
   // validate the obtained results
-  EXPECT_TRUE(torch::allclose(ref_output, outputs.back().as<at::Tensor>()));
+  EXPECT_TRUE(at::allclose(ref_output, outputs.back().as<at::Tensor>()));
 }
 
 INSTANTIATE_TEST_SUITE_P(
@@ -308,7 +311,7 @@ TEST_F(P2PCommHostIrTest, RingPairwiseExchange) {
 
   // validate the obtained results
   at::Tensor ref_output = send_buffer_aten + (recv_peer - my_device_index);
-  EXPECT_TRUE(torch::allclose(ref_output, outputs.back().as<at::Tensor>()));
+  EXPECT_TRUE(at::allclose(ref_output, outputs.back().as<at::Tensor>()));
 }
 
 TEST_F(P2PCommHostIrTest, CoalescedRingPairwiseExchange) {
@@ -358,145 +361,14 @@ TEST_F(P2PCommHostIrTest, CoalescedRingPairwiseExchange) {
 
   // validate the obtained results
   at::Tensor ref_output = send_buffer_aten + (recv_peer - my_device_index);
-  EXPECT_TRUE(torch::allclose(ref_output, outputs.back().as<at::Tensor>()));
-}
-
-using OverlapDistributedMatmulTest = MultiDeviceTest;
-
-TEST_F(OverlapDistributedMatmulTest, AG_matmul) {
-  // Disable StreamParallelType and ReorderShardedAxisPass pass temporarily as
-  // proper stream lowering gets implemented
-  hir_pass::OptimizationPassGuard<hir_pass::StreamParallelType> guard(false);
-  preseg_passes::OptimizationPassGuard<preseg_passes::ReorderShardedAxisPass>
-      guard2(false);
-
-  constexpr int64_t M = 32768;
-  constexpr int64_t K = 32768;
-  constexpr int64_t N = 1024;
-  constexpr int64_t S = 8;
-  const int64_t D = communicator_->size();
-  if (M % (D * S) != 0) {
-    GTEST_SKIP() << "M must be a multiple of D * S, but got M = " << M
-                 << ", D = " << D << ", S = " << S;
-  }
-
-  auto fusion = std::make_unique<Fusion>();
-  FusionGuard fg(fusion.get());
-
-  TensorView* tv0 = makeContigTensor(4); //[S, DIDx(D), M/(S*D), K]
-  TensorView* tv1 = makeContigTensor(2); //[K, N]
-  TensorView* tv2 = matmul(tv0, tv1); //[S, D, M/(S*D), N]
-
-  fusion->addInput(tv0);
-  fusion->addInput(tv1);
-  fusion->addOutput(tv2);
-
-  auto mesh = DeviceMesh::createForNumDevices(D);
-  tv0->setDeviceMesh(mesh);
-  tv1->setDeviceMesh(mesh);
-  tv2->setDeviceMesh(mesh);
-
-  tv0->axis(1)->parallelize(ParallelType::DIDx);
-  tv2->axis(0)->parallelize(ParallelType::Stream);
-
-  MultiDeviceExecutor executor(std::move(fusion), *communicator_);
-
-  auto tensor_options =
-      at::TensorOptions().dtype(at::kFloat).device(communicator_->device());
-  auto t0_unsharded = at::randn({S, D, M / (S * D), K}, tensor_options);
-  auto t0 = t0_unsharded.slice(
-      1, communicator_->deviceId(), communicator_->deviceId() + 1);
-  auto t1 = at::randn({K, N}, tensor_options);
-  auto t2_ref = at::matmul(t0_unsharded, t1);
-
-  at::Tensor t2;
-
-  constexpr int64_t kNumberOfIterations = 2;
-  constexpr int64_t kNumberOfWarmupIterations = 1;
-  for (auto i : arange(kNumberOfIterations)) {
-    if (i == kNumberOfWarmupIterations) {
-      cudaProfilerStart();
-    }
-    t2 = executor.runWithInput({t0, t1})[0].as<at::Tensor>();
-  }
-  cudaProfilerStop();
-
-  EXPECT_TRUE(torch::allclose(t2_ref, t2, 1e-2, 1e-2));
-}
-
-TEST_F(OverlapDistributedMatmulTest, AG_linear) {
-  // Disable StreamParallelType and ReorderShardedAxisPass pass temporarily as
-  // proper stream lowering gets implemented
-  hir_pass::OptimizationPassGuard<hir_pass::StreamParallelType> guard(false);
-  preseg_passes::OptimizationPassGuard<preseg_passes::ReorderShardedAxisPass>
-      guard2(false);
-
-  constexpr int64_t M = 32768;
-  constexpr int64_t K = 32768;
-  constexpr int64_t N = 1024;
-  constexpr int64_t S = 8;
-  const int64_t D = communicator_->size();
-  if (M % (D * S) != 0) {
-    GTEST_SKIP() << "M must be a multiple of D * S, but got M = " << M
-                 << ", D = " << D << ", S = " << S;
-  }
-
-  auto fusion = std::make_unique<Fusion>();
-  FusionGuard fg(fusion.get());
-
-  TensorView* in = makeContigTensor(4); //[S, DIDx(D), M/(S*D), K]
-  TensorView* weight = makeContigTensor(2); //[N, K]
-  TensorView* bias = makeContigTensor(1); //[N]
-  TensorView* out = linear(in, weight, bias); //[S, D, M/(S*D), N]
-
-  fusion->addInput(in);
-  fusion->addInput(weight);
-  fusion->addInput(bias);
-  fusion->addOutput(out);
-
-  auto mesh = DeviceMesh::createForNumDevices(D);
-  in->setDeviceMesh(mesh);
-  weight->setDeviceMesh(mesh);
-  bias->setDeviceMesh(mesh);
-  out->setDeviceMesh(mesh);
-
-  in->axis(1)->parallelize(ParallelType::DIDx);
-  out->axis(0)->parallelize(ParallelType::Stream);
-
-  MultiDeviceExecutor executor(std::move(fusion), *communicator_);
-
-  auto tensor_options =
-      at::TensorOptions().dtype(at::kFloat).device(communicator_->device());
-  at::Tensor in_at_unsharded =
-      at::randn({S, D, M / (S * D), K}, tensor_options);
-  at::Tensor in_at = in_at_unsharded.slice(
-      1, communicator_->deviceId(), communicator_->deviceId() + 1);
-  at::Tensor weight_at = at::randn({N, K}, tensor_options);
-  at::Tensor bias_at = at::randn({N}, tensor_options);
-  at::Tensor out_ref = at::linear(in_at_unsharded, weight_at, bias_at);
-
-  at::Tensor out_at;
-
-  constexpr int64_t kNumberOfIterations = 2;
-  constexpr int64_t kNumberOfWarmupIterations = 1;
-  for (auto i : arange(kNumberOfIterations)) {
-    if (i == kNumberOfWarmupIterations) {
-      cudaProfilerStart();
-    }
-    out_at =
-        executor.runWithInput({in_at, weight_at, bias_at})[0].as<at::Tensor>();
-  }
-  torch::cuda::synchronize();
-  cudaProfilerStop();
-
-  EXPECT_TRUE(torch::allclose(out_ref, out_at, 1e-1, 1e-1));
+  EXPECT_TRUE(at::allclose(ref_output, outputs.back().as<at::Tensor>()));
 }
 
 TEST_F(MultiDeviceTest, ShareIpcMemHandles) {
   static constexpr int kTensorSize = 4;
   static constexpr int kNumRepetitions = 10;
 
-  if (communicator_->size() < 2 || torch::cuda::device_count() < 2) {
+  if (communicator_->size() < 2 || at::cuda::device_count() < 2) {
     GTEST_SKIP() << "This test needs at least 2 GPUs and 2 ranks.";
   }
 
@@ -556,7 +428,7 @@ TEST_F(MultiDeviceTest, ShareIpcMemHandles) {
     torch::cuda::synchronize();
     communicator_->barrier();
     at::Tensor ref_recv_tensor = generate_tensor(repetition, recv_peer);
-    EXPECT_TRUE(torch::allclose(recv_tensor, ref_recv_tensor))
+    EXPECT_TRUE(at::allclose(recv_tensor, ref_recv_tensor))
         << "Rank " << my_rank << " failed at repetition " << repetition
         << " with recv tensor " << recv_tensor << " and ref_recv_tensor "
         << ref_recv_tensor;

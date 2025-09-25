@@ -400,7 +400,8 @@ MaxLogicalDomainInfoSpanningTree::getReferenceIDInfo(
   }
   NVF_CHECK(
       loop_pos >= 0 && loop_pos <= int64_t(tv->nDims()),
-      "MaxLogicalDomainInfoSpanningTree called on an loop_pos outside valid range.");
+      "MaxLogicalDomainInfoSpanningTree called on an loop_pos outside valid "
+      "range.");
   DomainInfo result;
   const auto& logical_domain = tv->getLogicalDomain();
   const auto& loop_domain = tv->getLoopDomain();

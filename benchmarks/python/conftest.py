@@ -61,6 +61,13 @@ def pytest_addoption(parser):
         help="Number of inputs to randomly sample for each benchmark.",
     )
 
+    parser.addoption(
+        "--with-nsys",
+        action="store_true",
+        default=False,
+        help="Run benchmark scripts with nsys. Disable all other profilers.",
+    )
+
 
 @pytest.fixture
 def disable_validation(request):
@@ -87,8 +94,12 @@ def pytest_configure(config):
     BENCHMARK_CONFIG["warmup_rounds"] = int(
         config.getoption("--benchmark-warmup-rounds")
     )
+    BENCHMARK_CONFIG["with_nsys"] = config.getoption("--with-nsys")
+
     if config.getoption("--benchmark-num-inputs"):
         BENCHMARK_CONFIG["num_inputs"] = int(config.getoption("--benchmark-num-inputs"))
+
+    # Scheduler markers may become stale and are not 100% accurate.
     config.addinivalue_line(
         "markers",
         "inner_outer_persistent: mark tests using inner_outer_persistent scheduler if not being segmented.",
@@ -99,7 +110,27 @@ def pytest_configure(config):
     )
     config.addinivalue_line(
         "markers",
+        "outer_persistent: mark tests using outer_persistent scheduler if not being segmented.",
+    )
+    config.addinivalue_line(
+        "markers",
+        "reduction: mark tests using reduction scheduler if not being segmented.",
+    )
+    config.addinivalue_line(
+        "markers",
+        "matmul: mark tests using matmul scheduler if not being segmented.",
+    )
+    config.addinivalue_line(
+        "markers",
         "resize: mark tests using resize scheduler if not being segmented.",
+    )
+    config.addinivalue_line(
+        "markers",
+        "transpose: mark tests using transpose scheduler if not being segmented.",
+    )
+    config.addinivalue_line(
+        "markers",
+        "pointwise: mark tests using pointwise scheduler if not being segmented.",
     )
 
 

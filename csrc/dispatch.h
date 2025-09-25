@@ -68,53 +68,59 @@ class Val;
 #define DISPATCH_FOR_ALL_KIR_VALS(f) f(Predicate) f(TensorIndex)
 #define DISPATCH_FOR_ALL_HIR_VALS(f) f(Stream)
 
-#define DISPATCH_FOR_ALL_EXPRS(f) \
-  f(FullOp);                      \
-  f(IotaOp);                      \
-  f(EyeOp);                       \
-  f(UnaryOp);                     \
-  f(BinaryOp);                    \
-  f(TernaryOp);                   \
-  f(ArrayConstruct);              \
-  f(StructConstruct);             \
-  f(GetAttr);                     \
-  f(GetItem);                     \
-  f(ReverseArray);                \
-  f(GetMetaData);                 \
-  f(TensorConstruct);             \
-  f(SelectOp);                    \
-  f(IndexSelectOp);               \
-  f(IndexPutAccumulateOp);        \
-  f(GatherOp);                    \
-  f(ScatterOp);                   \
-  f(RNGOp);                       \
-  f(ReductionOp);                 \
-  f(GroupedReductionOp);          \
-  f(WelfordOp);                   \
-  f(GroupedWelfordOp);            \
-  f(LoadStoreOp);                 \
-  f(MmaOp);                       \
-  f(BroadcastOp);                 \
-  f(SqueezeOp);                   \
-  f(ExpandOp);                    \
-  f(RepeatOp);                    \
-  f(ViewAsScalar);                \
-  f(ViewOp);                      \
-  f(CatOp);                       \
-  f(PadOp);                       \
-  f(SliceOp);                     \
-  f(Split);                       \
-  f(Merge);                       \
-  f(Swizzle);                     \
-  f(Swizzle2D);                   \
-  f(Resize);                      \
-  f(MatmulOp);                    \
-  f(LinearOp);                    \
-  f(SdpaFwdOp);                   \
-  f(SdpaBwdOp);                   \
-  f(EmbeddingFwdOp);              \
-  f(Communication);               \
-  f(ForLoop);                     \
+#define DISPATCH_FOR_ALL_EXPRS(f)    \
+  f(FullOp);                         \
+  f(IotaOp);                         \
+  f(EyeOp);                          \
+  f(UnaryOp);                        \
+  f(BinaryOp);                       \
+  f(TernaryOp);                      \
+  f(ArrayConstruct);                 \
+  f(StructConstruct);                \
+  f(GetAttr);                        \
+  f(GetItem);                        \
+  f(ReverseArray);                   \
+  f(GetMetaData);                    \
+  f(TensorConstruct);                \
+  f(SelectOp);                       \
+  f(IndexSelectOp);                  \
+  f(IndexPutAccumulateOp);           \
+  f(GatherOp);                       \
+  f(ScatterOp);                      \
+  f(RNGOp);                          \
+  f(ReductionOp);                    \
+  f(GroupedReductionOp);             \
+  f(WelfordOp);                      \
+  f(GroupedWelfordOp);               \
+  f(LoadStoreOp);                    \
+  f(MmaOp);                          \
+  f(BroadcastOp);                    \
+  f(SqueezeOp);                      \
+  f(ExpandOp);                       \
+  f(RepeatOp);                       \
+  f(ViewAsScalar);                   \
+  f(ReshapeOp);                      \
+  f(CatOp);                          \
+  f(PadOp);                          \
+  f(SliceOp);                        \
+  f(Split);                          \
+  f(ArgsortOp);                      \
+  f(GroupedMmaOp);                   \
+  f(ScaledMmaOp);                    \
+  f(CutlassNvfp4GroupedMmaOp);       \
+  f(PreprocessGroupedMatmulInputSf); \
+  f(TopKOp);                         \
+  f(ScanOp);                         \
+  f(Merge);                          \
+  f(Swizzle);                        \
+  f(Swizzle2D);                      \
+  f(Resize);                         \
+  f(MatmulOp);                       \
+  f(LinearOp);                       \
+  f(SdpaFwdOp);                      \
+  f(SdpaBwdOp);                      \
+  f(EmbeddingFwdOp);                 \
+  f(Communication);                  \
   f(P2PCommunication);
 #define DISPATCH_FOR_ALL_KIR_EXPRS(f) \
   f(Allocate);                        \
@@ -137,8 +143,10 @@ class Val;
   f(BlockSerializeRelease);           \
   f(AsyncWait);                       \
   f(AsyncCommit);                     \
+  f(ForLoop);                         \
   f(IfThenElse);                      \
   f(GridReduction);                   \
+  f(GroupedLoadStoreOp);              \
   f(GroupedGridReduction);            \
   f(GridBroadcast);                   \
   f(GridWelford);                     \
@@ -162,7 +170,9 @@ class Val;
   f(EndCoalescing);                   \
   f(ShareMemHandles);                 \
   f(HirAliasSelect);                  \
-  f(Deallocate);
+  f(ShardByStream);                   \
+  f(Deallocate);                      \
+  f(ForLoop);
 
 // Forward declarations for all Val and Expr types
 
@@ -195,7 +205,7 @@ class FlattenedAssocCommOp;
 
 // By default, all IR nodes are handled in this dispatch, and will call an empty
 // function on all nodes.
-class OptOutConstDispatch : public PolymorphicBase {
+class NVF_API OptOutConstDispatch : public PolymorphicBase {
  protected:
   virtual void unhandled(const Statement*) {}
 
@@ -247,7 +257,7 @@ class NVF_API OptOutDispatch : public PolymorphicBase {
 #undef M
 };
 
-class OptInConstDispatch : public OptOutConstDispatch {
+class NVF_API OptInConstDispatch : public OptOutConstDispatch {
  public:
   using OptOutConstDispatch::handle;
 

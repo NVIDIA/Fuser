@@ -105,7 +105,10 @@ void MultiDeviceTest::validate(
         output_tensor.dtype() == expected_outputs[i].dtype(),
         "Output ",
         i,
-        " has a mismatching data type.");
+        " has a mismatching data type: ",
+        output_tensor.dtype(),
+        " vs. ",
+        expected_outputs[i].dtype());
 
     const double atol = atols[i];
     // These default rtols are copied from

@@ -68,7 +68,8 @@ TEST_F(NVFuserTest, KernelDb_Query_CUDA) {
     std::string code;
     ASSERT_TRUE(copy_from_text_file(code_path, code));
     const std::string compiler_args(
-        "--std=c++14 --gpu-architecture=sm_80 -default-device --fmad=true -DNDEBUG --ptxas-options --maxrregcount=255");
+        "--std=c++14 --gpu-architecture=sm_80 -default-device --fmad=true "
+        "-DNDEBUG --ptxas-options --maxrregcount=255");
     std::string dummy_name;
     std::vector<char> dummy_cubin(0);
 

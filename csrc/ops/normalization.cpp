@@ -13,11 +13,18 @@
 
 namespace nvfuser {
 
+int nonNegativeAxis(int axis, size_t ndims) {
+  return (axis >= 0) ? axis : ((int)ndims + axis);
+}
+
 Val* numFeatures(
     TensorView* x,
     const std::vector<int64_t>& dims,
     int64_t ndims) {
   Val* num_features = IrBuilder::createInContainer<Val>(x->container(), 1.0);
+  if (ndims == 0) {
+    return num_features;
+  }
   for (const auto dim : dims) {
     const int64_t axis = wrapDim(dim, ndims);
     num_features = mul(num_features, x->getLoopDomain()[axis]->extent());
@@ -124,6 +131,11 @@ VarMeanResult variance_mean(
   auto zero_val = IrBuilder::createInContainer<Val>(x->container(), 0);
   auto denom = sub(num_features, correction_val);
   denom = where(ge(denom, zero_val), denom, zero_val);
+
+  // Welford op can't handle 0-dim tensors, so we need to handle them separately
+  if (x->nDims() == 0) {
+    return {variance(x, dims, correction, keepdim), mean(x, dims, keepdim)};
+  }
 
   auto welford_out = Welford(x, dims);
   auto mean = welford_out.avg;
@@ -581,7 +593,8 @@ ForwardNormResult batch_norm(
       // Note: kTraining is true here!
       NVF_ERROR(
           kTraining,
-          "When running stats are provided, batch stats should only be computed during training");
+          "When running stats are provided, batch stats should only be "
+          "computed during training");
 
       auto rev_momentum =
           sub(IrBuilder::createInContainer<Val>(x->container(), 1.0), momentum);
@@ -608,7 +621,8 @@ ForwardNormResult batch_norm(
         auto input_to_cast = unary_op->input(0);
         NVF_ERROR(
             input_to_cast->isFusionInput(),
-            "IO_tensor batch_norm::running_stats can only updating input tensor to fusion");
+            "IO_tensor batch_norm::running_stats can only updating input "
+            "tensor to fusion");
         auto rm_dtype = input_to_cast->getDataType();
         NVF_ERROR(
             rm_dtype.has_value(),

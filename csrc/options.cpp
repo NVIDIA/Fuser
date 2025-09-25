@@ -106,6 +106,7 @@ std::unordered_map<DebugDumpOption, std::vector<std::string>> Options<
       {"cuda_full", DebugDumpOption::CudaFull},
       {"cuda_kernel", DebugDumpOption::CudaKernel},
       {"cuda_to_file", DebugDumpOption::CudaToFile},
+      {"cutlass_compile", DebugDumpOption::CutlassCompile},
       {"draw_segmented_fusion", DebugDumpOption::FusionSegmentsDrawing},
       {"expr_simplify", DebugDumpOption::ExprSimplification},
       {"expr_sort", DebugDumpOption::ExprSort},
@@ -122,6 +123,7 @@ std::unordered_map<DebugDumpOption, std::vector<std::string>> Options<
       {"global_zeroed_memory", DebugDumpOption::GlobalZeroedMemory},
       {"host_ir_lowering_logging", DebugDumpOption::HostIrLoweringLogging},
       {"host_ir", DebugDumpOption::HostIr},
+      {"host_ir_jit", DebugDumpOption::HostIrJit},
       {"index_type", DebugDumpOption::IndexType},
       {"indexing_verbose", DebugDumpOption::IndexingVerbose},
       {"kernel_args", DebugDumpOption::KernelArgs},
@@ -144,9 +146,11 @@ std::unordered_map<DebugDumpOption, std::vector<std::string>> Options<
       {"segmented_fusion", DebugDumpOption::FusionSegments},
       {"segmenter_logging", DebugDumpOption::FusionSegmenterLog},
       {"scheduler_params", DebugDumpOption::SchedulerDebug},
+      {"dynamic_shared_memory", DebugDumpOption::DynamicSharedMemory},
       {"scheduler_verbose", DebugDumpOption::SchedulerVerbose},
       {"sync_map", DebugDumpOption::SyncMap},
-      {"transform_propagator", DebugDumpOption::TransformPropagator}};
+      {"transform_propagator", DebugDumpOption::TransformPropagator},
+      {"communication", DebugDumpOption::Communication}};
 
   return parseEnvOptions("DUMP", available_options);
 }
@@ -154,8 +158,10 @@ std::unordered_map<DebugDumpOption, std::vector<std::string>> Options<
 const std::unordered_map<std::string, EnableOption>& getEnableOptions() {
   static const std::unordered_map<std::string, EnableOption> available_options =
       {
+          {"cutlass_scheduler", EnableOption::CutlassScheduler},
           {"fuse_matmul", EnableOption::FuseMatmul},
           {"fuse_multiple_matmuls", EnableOption::FuseMultipleMatmuls},
+          {"greedy_scheduler", EnableOption::GreedyScheduler},
           {"id_model", EnableOption::IdModel},
           {"id_model_extra_validation", EnableOption::IdModelExtraValidation},
           {"io_to_lower_precision", EnableOption::IoToLowerPrecision},
@@ -170,6 +176,8 @@ const std::unordered_map<std::string, EnableOption>& getEnableOptions() {
           {"warn_register_spill", EnableOption::WarnRegisterSpill},
           {"ws_normalization", EnableOption::WarpSpecializedNormalization},
           {"host_ir_lowering", EnableOption::HostIrLowering},
+          {"insert_resharding_after", EnableOption::InsertReshardingAfter},
+          {"fast_math", EnableOption::FastMath},
       };
   return available_options;
 }
@@ -205,6 +213,7 @@ const std::unordered_map<std::string, DisableOption>& getDisableOptions() {
           {"index_hoist", DisableOption::IndexHoist},
           {"magic_zero", DisableOption::MagicZero},
           {"matmul_expr_eval", DisableOption::MatmulExprEval},
+          {"nvrtc_caching", DisableOption::NvrtcCaching},
           {"nvtx", DisableOption::Nvtx},
           {"parallel_compile", DisableOption::ParallelCompile},
           {"parallel_serde", DisableOption::ParallelSerde},
@@ -228,7 +237,9 @@ std::unordered_map<DisableOption, std::vector<std::string>> Options<
 
   if (options.count(DisableOption::Fma)) {
     TORCH_WARN(
-        "fmad is disabled for nvrtc, which could negatively affect performance. Try removing `fma` from env variable NVFUSER_DISABLE for optimal performance.");
+        "fmad is disabled for nvrtc, which could negatively affect "
+        "performance. Try removing `fma` from env variable NVFUSER_DISABLE for "
+        "optimal performance.");
   }
 
   return options;

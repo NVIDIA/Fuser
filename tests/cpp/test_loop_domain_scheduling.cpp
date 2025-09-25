@@ -406,7 +406,7 @@ TEST_F(LoopDomainSchedulingTest, ScheduleLoopDomainsBy1) {
 
   auto resize = tv3->getLogicalDomain().at(0)->definition()->as<Resize>();
 
-  scheduler_tools::scheduleLoopDomainsBy({tv1, tv2, tv4}, resize);
+  scheduler_tools::scheduleLoopDomainsBy({tv1, tv2, tv4}, {resize});
 
   // tv1 and tv2 should have the same loop domain as tv3's loop domain
   IdModel id_model(&fusion, /*build_graphs=*/false);
@@ -442,7 +442,7 @@ TEST_F(LoopDomainSchedulingTest, ScheduleLoopDomainsBy1) {
   auto tv1_loop_domain = tv1->getLoopDomain();
   tv2->split(0, 2);
   auto tv2_loop_domain = tv2->getLoopDomain();
-  scheduler_tools::scheduleLoopDomainsBy({tv1, tv2}, resize);
+  scheduler_tools::scheduleLoopDomainsBy({tv1, tv2}, {resize});
 
   EXPECT_EQ(tv1->getLoopDomain(), tv1_loop_domain);
   EXPECT_EQ(tv2->getLoopDomain(), tv2_loop_domain);
@@ -469,7 +469,7 @@ TEST_F(LoopDomainSchedulingTest, ScheduleLoopDomainsBy2) {
 
   // Propagating the merge to tv2, which should also insert the merge
   // output at the outer position.
-  scheduler_tools::scheduleLoopDomainsBy({tv2}, tv1_merge);
+  scheduler_tools::scheduleLoopDomainsBy({tv2}, {tv1_merge});
   auto tv2_merge = dynamic_cast<Merge*>(tv2->axis(0)->definition());
   EXPECT_NE(tv2_merge, nullptr);
 

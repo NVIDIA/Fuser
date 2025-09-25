@@ -67,21 +67,21 @@ struct UserSchedule {
   }
 
   //! Return if we can schedule FusionDefinition with heuristic.
-  bool canSchedule(const SchedulerType& heuristic);
+  NVF_API bool canSchedule(const SchedulerType& heuristic);
 
   //! Return if we can schedule FusionDefinition with heuristic along with any
   //! debug messages from canScheduleRejectReason.
-  std::tuple<bool, std::string> canScheduleDebug(
+  NVF_API std::tuple<bool, std::string> canScheduleDebug(
       const SchedulerType& scheduler_type);
 
   //! Create scheduler and get heuristic parameters for fusion.
-  HeuristicParams* computeHeuristics(SchedulerType scheduler_type);
+  NVF_API HeuristicParams* computeHeuristics(SchedulerType scheduler_type);
 
   //! Schedule fusion with selected heuristics and scheduler.
-  void schedule();
+  NVF_API void schedule();
 
   //! Schedule fusion with heuristic.
-  void scheduleWithType(SchedulerType scheduler_type);
+  NVF_API void scheduleWithType(SchedulerType scheduler_type);
 };
 
 //! \struct FusionSchedules

@@ -24,6 +24,7 @@
 #include <val_graph_visitor.h>
 
 #include <memory>
+#include <ranges>
 
 namespace nvfuser {
 
@@ -67,6 +68,15 @@ bool ResizeScheduler::canScheduleCompileTime(Fusion* fusion) {
     return false;
   }
 
+  for (auto tv : fusion->allTvs()) {
+    if (tv->dtype() != DataType::Index &&
+        dataTypeSizeBit(tv->dtype()) % 8 != 0) {
+      scheduler_debug_utils::canScheduleRejectReason(
+          schedulerType(), "Does not support sub-byte data types.");
+      return false;
+    }
+  }
+
   if (!scheduler_tools::hasResizeBasedOps(fusion)) {
     scheduler_debug_utils::canScheduleRejectReason(
         schedulerType(), "No resize op to schedule");
@@ -103,9 +113,9 @@ bool ResizeScheduler::canScheduleCompileTime(Fusion* fusion) {
 
   // Slicing of or to a broadcast ID is not allowed yet.
   for (auto resize_tensor_op : resize_tensor_ops) {
-    TensorView* out_tv = resize_tensor_op->output(0)->as<TensorView>();
+    auto* out_tv = resize_tensor_op->output(0)->as<TensorView>();
     for (auto logical_id : out_tv->getLogicalDomain()) {
-      Resize* resize = dynamic_cast<Resize*>(logical_id->definition());
+      auto* resize = dynamic_cast<Resize*>(logical_id->definition());
       if (resize == nullptr) {
         continue;
       }
@@ -239,8 +249,7 @@ std::unique_ptr<HeuristicParams> ResizeScheduler::computeHeuristics(
       runtime_info,
       ref_tv,
       data_cache,
-      (int64_t)ref_tv->getLogicalDomain().size() - 1,
-      {});
+      (int64_t)ref_tv->getLogicalDomain().size() - 1);
 
   return params;
 }
@@ -287,7 +296,7 @@ void prepareForBackwardTransformPropagation(TensorView* ref_tv) {
     }
 
     const auto tv_logical =
-        graph.toGroups(TensorDomain::noBroadcasts(tv->getLogicalDomain()));
+        graph.toGroups(tv->getLogicalDomain() | TensorDomain::kNoBroadcasts);
 
     auto all_visited = ValGraphBFS::getExprGroupsBetween(
                            graph,
@@ -407,8 +416,22 @@ void ResizeScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
     // The tensors are going to be reordered to align with the largest
     // input. To make it work, merge operations for reshape should be
     // cancelled.
-    scheduler_tools::cancelReshapeInLoopDomains(
-        largest_input, /*skip_innermost_id=*/true);
+
+    // Disabled for now to avoid scheduling errors in some HF
+    // models. Up to 10% perf loss is observed with the RoPE
+    // benchmarks. To re-enable the optimization, it probably makes
+    // more sense to first address the issue due to cyclic exact
+    // graphs. That is, scheduleLoopDomainsLike is potentially fairly
+    // powerful but due to cycles, only the update mode is used when
+    // propagating transformations from the reference tensor. This
+    // restriction makes it difficult to use more aggressive
+    // scheduling like setting the loop domain of a reshape output
+    // tensor as its root domain, which is what
+    // cancelReshapeInLoopDomains does. See test_reshape_cancellation
+    // for a repro.
+    //
+    // scheduler_tools::cancelReshapeInLoopDomains(
+    // largest_input, /*skip_innermost_id=*/true);
   }
 
   // Propagate Resize ops to producer tensors. This is safe as this
@@ -516,7 +539,9 @@ void ResizeScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
   if (vec_factor > 1) {
     NVF_ERROR(
         ref_tv->axis(-1) == ref_tv->getLogicalDomain().back(),
-        "Vectorization is assumed to be done with the innermost logical ID at this moment, which is expected to remain at the innermost position in the loop domain. Logical domain: ",
+        "Vectorization is assumed to be done with the innermost logical ID at "
+        "this moment, which is expected to remain at the innermost position in "
+        "the loop domain. Logical domain: ",
         toDelimitedString(ref_tv->getLogicalDomain()),
         ". Current loop domain: ",
         toDelimitedString(ref_tv->getLoopDomain()));
@@ -563,7 +588,7 @@ void ResizeScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
   // IDs. When propagating the loop domain of the reference tensor,
   // which has the repeat ID, the full loop domain is propagated only
   // to the tensors that have IDs that are mapped with the repeat
-  // ID. For the rest of the tensros, the repeat ID is dropped and
+  // ID. For the rest of the tensors, the repeat ID is dropped and
   // only the remaining loop domain is propagated.
   if (repeat_id_moved_to_outermost) {
     const auto& [tvs_with_repeat_id, tvs_without_repeat_id] = partitionTvsById(

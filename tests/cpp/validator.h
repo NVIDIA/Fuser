@@ -20,46 +20,21 @@
 #include <validator_utils.h>
 
 namespace nvfuser {
-
-// Validation will look through the fusion and figure out how many elements were
-// reduced to create each output. It will then compute a tolernace to use for
-// allclose based on experimental results. The experimental results were based
-// on adding two tensors then summing them. This of course has an assumption
-// that we're always summing values between -2 and 2. If we start summing values
-// larger than that this approach might not hold.
-// If aten_outputs is empty, then infer the expected outputs from the fusion
-// using expr evaluator.
-//
-// `fusion_outputs` is the return value of
-// `FusionExecutorCache::runFusionWithInputs(aten_inputs)`. It's not
-// always `fusion->outputs().size()` because `runFusionWithInputs`
-// hides outputs that are inputs in-place updated.
-void testValidate(
-    Fusion* fusion,
-    const KernelArgumentHolder& fusion_outputs,
-    const KernelArgumentHolder& aten_inputs,
-    std::vector<at::Tensor> aten_outputs,
-    int line_number,
-    const char* file_name,
-    std::string err_msg = "",
-    const LaunchParams& lparams = LaunchParams(),
-    const ValidationConstants& tolerances = ValidationConstants());
-
-// The variant with automatically inferred aten outputs. The `evaluate` method
-// of the exprs in the fusion must be overriden to handle at::Tensor.
-void testValidate(
-    Fusion* fusion,
-    const KernelArgumentHolder& fusion_outputs,
-    const KernelArgumentHolder& aten_inputs,
-    int line_number,
-    const char* file_name,
-    std::string err_msg = "",
-    const LaunchParams& lparams = LaunchParams(),
-    const ValidationConstants& tolerances = ValidationConstants());
-
 // A gmock matcher for matching heuristics.
-MATCHER_P(HeuristicIs, heuristic, "") {
-  return arg->schedulerType() == heuristic;
+MATCHER_P(HeuristicIs, expected, "") {
+  const SchedulerType actual = arg->schedulerType();
+  if (actual != expected) {
+    *result_listener << "Expected " << expected << " but got " << actual;
+  }
+  return actual == expected;
+}
+
+MATCHER_P(IsParallelized, expected, "") {
+  const ParallelType actual = arg->getParallelType();
+  if (actual != expected) {
+    *result_listener << "Expected " << expected << " but got " << actual;
+  }
+  return actual == expected;
 }
 
 // Matches any subclass of T.

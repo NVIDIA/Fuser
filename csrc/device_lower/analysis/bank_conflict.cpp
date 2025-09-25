@@ -7,6 +7,7 @@
 // clang-format on
 #include <device_lower/analysis/bank_conflict.h>
 
+#include <device_lower/utils.h>
 #include <expr_evaluator.h>
 #include <ir/utils.h>
 #include <kernel_ir.h>
@@ -77,7 +78,7 @@ int64_t getLdMatrixNumThreads(int64_t word_size) {
 }
 
 std::vector<int64_t> evaluateAddressesOnFirstPhase(
-    const std::vector<ForLoop*>& for_loops,
+    const std::vector<kir::ForLoop*>& for_loops,
     ExpressionEvaluator expr_eval_common,
     LoadStoreOp* ldst,
     bool is_producer) {
@@ -100,7 +101,7 @@ std::vector<int64_t> evaluateAddressesOnFirstPhase(
     num_threads = (bdimx ? bdimx.as<int64_t>() : 1) *
         (bdimy ? bdimy.as<int64_t>() : 1) * (bdimz ? bdimz.as<int64_t>() : 1);
   }
-  int64_t dtype_size = (int64_t)dataTypeSize(*(ti->getDataType()));
+  int64_t dtype_size = dataTypeSizeByte(*(ti->getDataType()));
   int64_t word_size_bytes = dtype_size * word_size;
   int64_t phase_size =
       std::min(num_threads, getPhaseSize((int64_t)word_size_bytes));
@@ -227,7 +228,7 @@ class BankConflictInfo : public kir::IrVisitor {
   using kir::IrVisitor::handle;
 
   void dispatch(Expr* expr) final {
-    if (expr->isA<ForLoop>() || expr->isA<kir::IfThenElse>()) {
+    if (expr->isA<kir::ForLoop>() || expr->isA<kir::IfThenElse>()) {
       kir::IrVisitor::dispatch(expr);
       return;
     }

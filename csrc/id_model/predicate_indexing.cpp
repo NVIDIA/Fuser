@@ -21,9 +21,22 @@ std::vector<IterDomain*> getPredicateDomains(
   // domains need to be predicated. Note that the non-divisible split
   // info does not seem to cover non-divisible reduction rfactor
   // splits.
-  std::vector<IterDomain*> predicate_domains = consumer_tv->hasReduction()
+  // NOTE: PreprocessGroupedMatmulInputSf's logical domain is specialized to
+  // handle padding logic and shouldn't be used for predicate.
+  std::vector<IterDomain*> predicate_domains =
+      consumer_tv->hasReduction() || expr->isA<PreprocessGroupedMatmulInputSf>()
       ? consumer_tv->getMaybeRootDomain()
       : consumer_tv->getLogicalDomain();
+
+  // Scatter is executed over the index tensor, so the logical domain
+  // of the index needs to be predicated
+  if (expr->isA<ScatterOp>()) {
+    auto index_input = expr->as<ScatterOp>()->index();
+    if (index_input->isA<kir::TensorIndex>()) {
+      index_input = index_input->as<kir::TensorIndex>()->view();
+    }
+    predicate_domains = index_input->as<TensorView>()->getLogicalDomain();
+  }
 
   // Broadcast domains should not need to be predicated. Note that
   // unlike indexing for TensorIndex, reduction domains do need to be
@@ -181,13 +194,13 @@ void ensurePropagationOfMinMaxPredicates(
 
 std::unordered_map<Val*, Val*> getPredicateIndexReplacementMap(
     TensorView* tv,
-    const std::vector<ForLoop*>& for_loops,
+    const std::vector<kir::ForLoop*>& for_loops,
     const std::unordered_map<ValGroup, Val*>& index_map,
     const ValGraph& traversal_graph,
     const ExprPath<ExprGroup>& traversal_path,
     const IdModel& id_model,
     bool is_start_predicate,
-    ForLoop* unswitched_loop) {
+    kir::ForLoop* unswitched_loop) {
   std::unordered_map<Val*, Val*> replacement_map;
 
   // For an iter domain of index i, it is valid to use N-1 instead of
@@ -207,7 +220,7 @@ std::unordered_map<Val*, Val*> getPredicateIndexReplacementMap(
   // valid to use 0 since the splits involved to create the iter
   // domain are all guaranteed to be divisible.
   auto predicate_at_end =
-      [&](ForLoop* fl, IterDomain* loop_id, bool within_unswitch) -> Val* {
+      [&](kir::ForLoop* fl, IterDomain* loop_id, bool within_unswitch) -> Val* {
     // Don't replace thread indices even when unswitched
     if (!fl->iter_domain()->isThread() &&
         (fl->iter_domain()->getParallelType() == ParallelType::Vectorize ||
@@ -225,14 +238,17 @@ std::unordered_map<Val*, Val*> getPredicateIndexReplacementMap(
   // main loop of circular buffering, increment the index by
   // (number_of_stages - 1) since the main loop has a read that is
   // (number_of_stages - 1) elements ahead.
-  auto replace_for_circular_buffering = [&](ForLoop* fl,
+  // Only required for pipelined circular buffering, for warp specialized
+  // circular buffering, there is no prologue or epilog loop.
+  auto replace_for_circular_buffering = [&](kir::ForLoop* fl,
                                             Val* original_index) -> Val* {
     auto circular_buffer_axis =
         GpuLower::current()->circularBufferInfo().getCircularBufferAxis(tv);
     if (circular_buffer_axis == nullptr ||
         !id_model.idGraph(IdMappingMode::LOOP)
              .disjointValSets()
-             .strictAreMapped(fl->iter_domain(), circular_buffer_axis)) {
+             .strictAreMapped(fl->iter_domain(), circular_buffer_axis) ||
+        lower_utils::isWarpSpecializedLoop(fl)) {
       return nullptr;
     }
 

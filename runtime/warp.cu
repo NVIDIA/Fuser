@@ -181,10 +181,20 @@ __device__ __forceinline__ void packedWarpReduce(
   }
 }
 
+// [Static] indicates the CTA shape is known at compile time.
+// [AllReduce] indicates the reduction is fused with broadcast.
+// [SINGLE_WARP] flags whether the CTA has only one warp.
+// [Aligned] flags whether all threads in the CTA are participating in the
+// reduction.
+// [N] indicates number of input elements per thread
+// [n_threads] is the number of threads participating in the reduction, when
+// used in kernel warp specialized on TIDx, there are 128 padded threads, it
+// equals to blockDim.x - 128. Typical usage in warp specialized normalization:
+// SINGLE_WARP = false, Aligned = false, n_threads = 128, 256
 template <
     bool SINGLE_WARP,
     bool Aligned,
-    int N, // Number of elements per input array
+    int N,
     int n_threads,
     typename T,
     typename Func>
@@ -247,5 +257,60 @@ __device__ void iterGroupedStaticWarpAllReduce(
   // needs sync, otherwise other warps may access shared memory before this
   // reduction is done.
   block_sync::sync<Aligned>(block_dim, barrier_id);
+}
+
+// [Static] indicates the CTA shape is known at compile time.
+// [AllReduce] indicates the reduction is fused with broadcast.
+// [SINGLE_WARP] flags whether the CTA has only one warp.
+// [Aligned] flags whether all threads in the CTA are participating in the
+// reduction.
+// [n_threads] is the number of threads participating in the reduction, when
+// used in kernel warp specialized on TIDx, there are 128 padded threads, it
+// equals to blockDim.x - 128. Typical usage in warp specialized normalization:
+// SINGLE_WARP = false, Aligned = false, n_threads = 128, 256
+template <
+    bool SINGLE_WARP,
+    bool Aligned,
+    int n_threads,
+    typename T,
+    typename Func>
+__device__ void staticWarpAllReduceTIDX(
+    T& out,
+    const T& inp_val,
+    Func reduction_op,
+    T* shared_mem,
+    uint32_t barrier_id = 1) {
+  constexpr int WARP_SIZE = 32;
+  constexpr dim3 block_dim = dim3(n_threads, 1, 1);
+  constexpr unsigned int num_of_warps = n_threads / WARP_SIZE;
+  T reduce_val = inp_val;
+  // Reduce within each warp
+  for (int i = 16; i >= 1; i /= 2) {
+    reduction_op(reduce_val, shfl_xor(reduce_val, i, WARP_SIZE));
+  }
+
+  // Reduce across warp if needed
+  // Load value to shared mem
+  if constexpr (!SINGLE_WARP) {
+    unsigned int warp_idx = threadIdx.x / WARP_SIZE;
+    unsigned int lane_idx = threadIdx.x % WARP_SIZE;
+
+    if (lane_idx == 0) {
+      shared_mem[warp_idx] = reduce_val;
+    }
+    block_sync::sync<Aligned>(block_dim, barrier_id);
+
+    // All reduce
+    out = shared_mem[0];
+#pragma unroll
+    for (int i = 1; i < num_of_warps; i++) {
+      out += shared_mem[i];
+    }
+    // needs sync, otherwise other warps may access shared memory before this
+    // reduction is done.
+    block_sync::sync<Aligned>(block_dim, barrier_id);
+  } else {
+    reduction_op(out, reduce_val);
+  }
 }
 } // namespace warp

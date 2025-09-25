@@ -10,6 +10,7 @@
 
 #include <expr_evaluator.h>
 #include <instrumentation.h>
+#include <ir/iostream.h>
 #include <multidevice/utils.h>
 #include <polymorphic_value.h>
 #include <runtime/executor.h>
@@ -98,11 +99,20 @@ int64_t computeSharedMemory(
 
       const auto first_byte = smem_offset + address_val.as<int64_t>();
       const auto data_size =
-          dataTypeSize(smem_alloc->buffer()->dtype(), index_type);
+          dataTypeSizeByte(smem_alloc->buffer()->dtype(), index_type);
       const int64_t size_bytes = size_val.as<int64_t>() * data_size;
       const auto last_byte = first_byte + size_bytes;
 
       total = std::max(total, last_byte);
+      // First byte may not equal to last byte of the previous buffer since
+      // shared memory is forced to align at 128 Bytes. See PR-3023.
+      // https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html#table-alignment-multi-dim-tma
+      if (isDebugDumpEnabled(DebugDumpOption::DynamicSharedMemory)) {
+        debug() << "buffer: " << smem_alloc->buffer()->toString()
+                << ", first_byte: " << first_byte
+                << ", last_byte: " << last_byte << ", size: " << size_bytes
+                << std::endl;
+      }
     }
   }
   return total;
@@ -144,8 +154,8 @@ std::vector<int64_t> getContiguousStrides(
 // Infer the size and stride of each dimension
 std::pair<std::vector<int64_t>, std::vector<int64_t>> inferShape(
     const TensorView* tv,
-    std::vector<Val*> symbolic_sizes,
-    std::vector<bool> expand_flags,
+    const std::vector<Val*>& symbolic_sizes,
+    const std::vector<bool>& expand_flags,
     const ExpressionEvaluator& expr_eval) {
   FUSER_PERF_SCOPE("fusion_executor::allocations::inferShape");
 
@@ -158,13 +168,26 @@ std::pair<std::vector<int64_t>, std::vector<int64_t>> inferShape(
         inferred_val.hasValue(),
         "Could not launch kernel as program could not infer ",
         symbolic_size->toInlineString(),
-        "(",
+        " (",
         symbolic_size->toString(),
         ") for the buffer ",
         tv->toString());
 
     auto concrete_size = inferred_val.as<int64_t>();
     concrete_sizes.at(i) = concrete_size;
+  }
+
+  // Adjust the last dimension of the logical domain to support DataType
+  // that is not supported by PyTorch. See the comment of getLastDimAdjustment
+  // in type.h for more details.
+  const auto adjust_last_dim = getLastDimAdjustment(tv->dtype());
+  if (!concrete_sizes.empty()) {
+    auto& last_dim = concrete_sizes.back();
+    last_dim = adjust_last_dim.fromNVFToATen(last_dim);
+  } else {
+    NVF_ERROR(
+        adjust_last_dim.denominator == 1 && adjust_last_dim.numerator == 1,
+        "DataType not supported");
   }
 
   auto strides = getContiguousStrides(concrete_sizes, expand_flags);
@@ -218,8 +241,14 @@ void fillTensorWithNan(at::Tensor& t) {
     case at::ScalarType::BFloat16:
     case at::ScalarType::Float8_e4m3fn:
     case at::ScalarType::Float8_e5m2:
+    case at::ScalarType::Float8_e8m0fnu:
       t.fill_(std::nan(""));
       break;
+#if NVF_TORCH_VERSION_NO_LESS(2, 8, 0)
+    case at::ScalarType::Float4_e2m1fn_x2:
+      t.view(at::kByte).fill_(0xFF);
+      break;
+#endif
     case at::ScalarType::ComplexHalf:
     case at::ScalarType::ComplexFloat:
     case at::ScalarType::ComplexDouble:
@@ -275,7 +304,8 @@ KernelArgumentHolder allocateOutputs(
       out_tensors[out_idx] = ee.evaluate(out_info.tv);
     } else {
       NVF_THROW(
-          "Unexpected allocation path, internal logic around allocations must be incorrect.");
+          "Unexpected allocation path, internal logic around allocations must "
+          "be incorrect.");
     }
   }
   return out_tensors;
@@ -284,28 +314,127 @@ KernelArgumentHolder allocateOutputs(
 std::vector<GlobalBufferInfo> getBufferInfos(
     ExpressionEvaluator& expr_eval,
     DataType index_dtype,
-    const std::vector<Val*>& fusion_outputs) {
+    const std::vector<Val*>& tvs) {
   FUSER_PERF_SCOPE("fusion_executor::allocations::getBufferInfos");
-  std::vector<GlobalBufferInfo> output_buffer_infos;
-  output_buffer_infos.reserve(fusion_outputs.size());
-  for (const auto out : fusion_outputs) {
+  std::vector<GlobalBufferInfo> buffer_infos;
+  buffer_infos.reserve(tvs.size());
+  for (Val* v : tvs) {
+    auto* tv = dynamic_cast<TensorView*>(v);
     NVF_ERROR(
-        out->isA<TensorView>(),
-        "Cannot allocate outputs that are not tensors.");
+        tv != nullptr, "Cannot allocate outputs that are not tensors: ", v);
 
     GlobalBufferInfo info;
-    info.tv = out->as<TensorView>();
-    info.shape_info = inferTensorShapes(info.tv, expr_eval);
-    auto dtype =
-        (info.tv->dtype() == DataType::Index ? index_dtype : info.tv->dtype());
+    info.tv = tv;
+    info.shape_info = inferTensorShapes(tv, expr_eval);
+    auto dtype = (tv->dtype() == DataType::Index ? index_dtype : tv->dtype());
     info.type = data_type_to_aten(dtype);
 
-    output_buffer_infos.emplace_back(info);
+    buffer_infos.emplace_back(info);
   }
-  return output_buffer_infos;
+  return buffer_infos;
 }
 
 namespace {
+
+// Helper function to see if the dimension of a tensor
+// which are being merged via the vector new_shape are
+// contiguous or not. This function only allows for two dims
+// to be merged - and the -1 in new_shape indicates the
+// dimension to be merged with the next one.
+bool areDimsToBeMergedContiguous(
+    const at::Tensor& tensor,
+    const std::vector<int64_t>& new_shape) {
+  // Assert that new_shape contains at most one -1
+  NVF_ERROR(
+      std::count(new_shape.begin(), new_shape.end(), -1) <= 1,
+      "new_shape can contain at most one -1");
+
+  auto it = std::find(new_shape.begin(), new_shape.end(), -1);
+  if (it == new_shape.end()) {
+    return true;
+  }
+  size_t merge_dim = std::distance(new_shape.begin(), it);
+
+  if (merge_dim == new_shape.size() - 1) {
+    return true;
+  }
+
+  auto strides = tensor.strides();
+  auto sizes = tensor.sizes();
+
+  // Get the size and stride at merge_dim and merge_dim + 1
+  NVF_ERROR(
+      merge_dim + 1 < sizes.size(), "merge_dim+1 out of bounds for sizes");
+  auto size_outer = sizes[merge_dim];
+  auto stride_outer = strides[merge_dim];
+  auto size_inner = sizes[merge_dim + 1];
+  auto stride_inner = strides[merge_dim + 1];
+
+  // We are just squeezing out a dim.
+  // For example we can call view on the tensor with shape
+  // [1, 1536, 2, 128] and strides [393216, 1, 196608, 1536]
+  // Then we should be able to merge the dims [1, 1536].
+  if (size_outer == 1 || size_inner == 1) {
+    return true;
+  }
+
+  if (stride_outer == size_inner * stride_inner) {
+    return true;
+  }
+
+  return false;
+}
+
+// Helper function to compute the shape and strides needed for merging
+// dimensions in a tensor. Used when merging dimensions in the allocation domain
+// that may have been permuted, making them non-contiguous.
+//
+// For example, if a tensor has shape [8, 16, 4, 32, 4] and strides [8192, 512,
+// 4, 16, 1] after a permute, and we want to merge the [4, 32] dimensions,
+// view() would fail since they are non-contiguous. This function computes the
+// correct shape and strides to use with as_strided() instead.
+//
+// Args:
+//   tensor: The input tensor whose dimensions will be merged
+//   new_shape: Target shape with -1 indicating dimensions to merge with the
+//   next dim
+//
+// Returns:
+//   A pair containing:
+//   - The final shape after merging dimensions
+//   - The strides needed for as_strided() to properly merge the dimensions
+std::pair<std::vector<int64_t>, std::vector<int64_t>>
+getShapeAndStrideAfterDimMerged(
+    const at::Tensor& tensor,
+    const std::vector<int64_t>& new_shape) {
+  // Copy tensor shape into std::vector<int64_t>
+  std::vector<int64_t> tensor_shape_vec(
+      tensor.sizes().begin(), tensor.sizes().end());
+  std::vector<int64_t> tensor_new_shape;
+  for (size_t idx = 0; idx < new_shape.size(); ++idx) {
+    if (new_shape[idx] != -1) {
+      tensor_new_shape.push_back(new_shape[idx]);
+    } else {
+      // Multiply the corresponding entry and the next entry in
+      // tensor_shape_vec
+      NVF_ERROR(
+          idx + 1 < tensor_shape_vec.size(),
+          "Index out of bounds for -1 handling in new_shape");
+      tensor_new_shape.push_back(
+          tensor_shape_vec[idx] * tensor_shape_vec[idx + 1]);
+    }
+  }
+
+  // Compute cumulative product from highest index to 0-th index
+  std::vector<int64_t> tensor_new_strides(tensor_new_shape.size(), 1);
+  int64_t prod = 1;
+  for (int i = static_cast<int>(tensor_new_shape.size()) - 1; i >= 0; --i) {
+    prod *= tensor_new_shape[i];
+    tensor_new_strides[i] = prod;
+  }
+
+  return {tensor_new_shape, tensor_new_strides};
+}
 
 class ForwardTraverseFromAllocToLogical {
   at::Tensor tensor_;
@@ -402,7 +531,15 @@ class ForwardTraverseFromAllocToLogical {
         new_shape.emplace_back(tensor_.size(i));
       }
     }
-    tensor_ = tensor_.view(new_shape);
+
+    if (areDimsToBeMergedContiguous(tensor_, new_shape)) {
+      tensor_ = tensor_.view(new_shape);
+    } else {
+      auto [tensor_new_shape, tensor_new_strides] =
+          getShapeAndStrideAfterDimMerged(tensor_, new_shape);
+      tensor_ = tensor_.as_strided(tensor_new_shape, tensor_new_strides);
+    }
+
     // update frontier
     if (inner_dim < outer_dim) {
       *inner_it = out;
@@ -487,6 +624,7 @@ class BackwardTraverseFromAllocToLogical {
       }
       tensor_ = tensor_.permute(dims);
     }
+
     std::vector<int64_t> new_shape;
     for (auto i : arange(tensor_.dim())) {
       if (i == left) {
@@ -495,7 +633,15 @@ class BackwardTraverseFromAllocToLogical {
         new_shape.emplace_back(tensor_.size(i));
       }
     }
-    tensor_ = tensor_.view(new_shape);
+
+    if (areDimsToBeMergedContiguous(tensor_, new_shape)) {
+      tensor_ = tensor_.view(new_shape);
+    } else {
+      auto [tensor_new_shape, tensor_new_strides] =
+          getShapeAndStrideAfterDimMerged(tensor_, new_shape);
+      tensor_ = tensor_.as_strided(tensor_new_shape, tensor_new_strides);
+    }
+
     // update frontier
     if (inner_dim < outer_dim) {
       *inner_it = in;
@@ -594,6 +740,16 @@ at::Tensor transformFromAllocationToLogical(
   tensor = BackwardTraverseFromAllocToLogical(tensor, ee, frontier)
                .run(logical, alloc);
   NVF_ERROR(frontier.size() == logical.size());
+
+  // give up on producing right shape/stride when allocation domain has
+  // transformation that cannot be represented via permutation. This is
+  // currently used by PreprocessGroupedMatmulInputSf, where output is padded.
+  std::set<IterDomain*> frontier_set(frontier.begin(), frontier.end());
+  std::set<IterDomain*> logical_set(logical.begin(), logical.end());
+  if (frontier_set != logical_set) {
+    return tensor;
+  }
+
   // Now that all affine transformations are handled, and frontiers should
   // contain the same set of IDs as logical. We still need to do a final
   // permutation so that their orders are also consistent.

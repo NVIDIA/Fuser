@@ -5,12 +5,16 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <fusion.h>
+
+#include <iterator>
+#include <ranges>
+
 #include <codegen.h>
 #include <debug.h>
 #include <device_lower/analysis/bank_conflict.h>
 #include <device_lower/lower2device.h>
 #include <disjoint_set.h>
-#include <fusion.h>
 #include <fusion_segmenter.h>
 #include <host_ir/container.h>
 #include <instrumentation.h>
@@ -24,8 +28,6 @@
 #include <ops/arith.h>
 #include <runtime/executor_params.h>
 #include <transform_replay.h>
-
-#include <iterator>
 
 namespace nvfuser {
 
@@ -238,7 +240,8 @@ void Fusion::addInput(Val* input) {
   } else if (input->getValType().value() == ValType::Others) {
     NVF_CHECK(
         !input->isConst(),
-        "Immediate scalar value cannot be added as an input. It is not necessary to pass it as an input.");
+        "Immediate scalar value cannot be added as an input. It is not "
+        "necessary to pass it as an input.");
   }
 
   NVF_CHECK(
@@ -347,13 +350,11 @@ bool Fusion::isNoOp() {
   }
 
   for (auto out_tv : ir_utils::filterByType<TensorView>(outputs())) {
-    const std::vector<IterDomain*>& logical_dom =
-        TensorDomain::noReductions(out_tv->getLogicalDomain());
-    const bool size_zero =
-        std::any_of(logical_dom.begin(), logical_dom.end(), [](IterDomain* id) {
-          return id->extent()->isConstScalar() &&
-              id->extent()->evaluate().as<int64_t>() == 0;
-        });
+    auto logical_dom = out_tv->getLogicalDomain() | TensorDomain::kNoReductions;
+    const bool size_zero = std::ranges::any_of(logical_dom, [](IterDomain* id) {
+      return id->extent()->isConstScalar() &&
+          id->extent()->evaluate().as<int64_t>() == 0;
+    });
     if (!size_zero) {
       return false;
     }
@@ -411,7 +412,7 @@ std::ostream& Fusion::print(std::ostream& os, bool include_tensor_transforms)
   }
 
   os << "\n%kernel {\n";
-  IrMathPrinter op_exprs(os);
+  IrPrinter op_exprs(os);
   op_exprs.handle(this);
   if (include_tensor_transforms) {
     os << "\nTransformPrinter : \n";
@@ -652,7 +653,7 @@ void Fusion::resetTvUses() {
   is_during_update_uses_ = false;
 }
 
-std::vector<Val*> Fusion::usedMathVals() {
+std::vector<Val*> Fusion::usedMathVals() const {
   // Note that using fusion->inputs() as the argument for the first
   // parameter of getAllValsBetween does not grab all used vals as
   // there can be vals that are created inside a fusion without using
@@ -764,7 +765,8 @@ void Fusion::aliasOutputToInput(
     const AllocationType type) {
   NVF_CHECK(
       type != AllocationType::New,
-      "New is returned automatically for a missing key. Don't add it explicitly.");
+      "New is returned automatically for a missing key. Don't add it "
+      "explicitly.");
 
   if (type == AllocationType::Evaluate) {
     NVF_CHECK(
@@ -794,7 +796,9 @@ void Fusion::aliasOutputToInput(
       output->isA<TensorView>() && input->isA<TensorView>(),
       "aliasing output to input is only supported for TensorView");
   TransformReplay::selfReplay(
-      input->as<TensorView>()->domain(), output->as<TensorView>()->domain());
+      input->as<TensorView>()->domain(),
+      output->as<TensorView>()->domain(),
+      /*ignore_reductions=*/true);
 
   // Let integration hide any output that wasn't a fusion output when
   // `aliasOutputToInput` was called. For example, running mean and var for

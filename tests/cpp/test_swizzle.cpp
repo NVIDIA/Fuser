@@ -5,10 +5,12 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <csrc/exceptions.h>
+#include <torch/torch.h>
+
 #include <gtest/gtest.h>
 
 #include <device_lower/analysis/bank_conflict.h>
+#include <exceptions.h>
 #include <ops/all_ops.h>
 #include <runtime/fusion_executor_cache.h>
 #include <scheduler/tools/abstract_tensor.h>
@@ -440,7 +442,8 @@ TEST_F(LegacySwizzleTest, TransposeBankConflictSwizzle1) {
         "Expecting no bank conflict after swizzle, but got ",
         bank_conflict_info.size(),
         "bank conflicting expressions.",
-        ". Something in our lowering or bank conflict checker must have changed, ",
+        ". Something in our lowering or bank conflict checker must have "
+        "changed, ",
         "please update them or this test consistently.");
   }
 }
@@ -571,7 +574,7 @@ TEST_F(LegacySwizzleTest, SwizzleExampleCyclicShift) {
   //    5   6  7  8       8   5   6   7
   //    9  10 11 12  =>   11  12  9  10
   //    13 14 15 16       14  15  16 13
-  auto options = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
+  auto options = at::TensorOptions().dtype(at::kInt).device(at::kCUDA, 0);
   auto input = torch::tensor(
       {{1, 2, 3, 4}, {5, 6, 7, 8}, {9, 10, 11, 12}, {13, 14, 15, 16}}, options);
   auto expect = torch::tensor(

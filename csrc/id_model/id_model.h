@@ -104,7 +104,7 @@ StatefulInliningInfo buildStatefulInliningInfo(
 // IdMappingMode::LOOP
 //   Subgraph of the permissive graph. Maps only CA and their
 //   dependent domains.
-class IdModel : public PolymorphicBase {
+class NVF_API IdModel : public PolymorphicBase {
  public:
   // Sometimes fusion inputs or outputs are disconnected from expressions, in
   // those cases we still may want to send in some additional tensor views from
@@ -213,6 +213,9 @@ class IdModel : public PolymorphicBase {
 
   // Build a graph if not already built
   ValGraph& maybeBuildGraph(IdMappingMode mode);
+
+  // Query if the specified graph is already built
+  bool hasGraph(IdMappingMode mode) const;
 
   // Remove a graph if already built
   void removeGraph(IdMappingMode mode);

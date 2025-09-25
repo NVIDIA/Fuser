@@ -59,7 +59,6 @@ namespace nvfuser {
 
 class Fusion;
 class TensorView;
-class WelfordResult;
 
 class SegmentCandidateFinder;
 class SegmentedFusion;
@@ -76,7 +75,7 @@ enum class AllocationType : int {
   ReuseBuffer,
   // This is used to cheaply compute the output tensor using
   // `ExpressionEvaluator` (instead of a kernel) for:
-  // 1. PointerArithmetics: For example, the output of a ViewOp is merely a
+  // 1. PointerArithmetics: For example, the output of a ReshapeOp is merely a
   // pointer arithmetic of the input.  In this case, aliased_io is a non-null
   // tensor.
   // 2. To evaluate output tensors which are not aliases. For example, default
@@ -224,7 +223,7 @@ class NVF_API Fusion : public IrContainer {
   //! outputs, however, when a multi-output expression exists, and only
   //! some of the outputs are used, the remaining unused outputs are
   //! also included as they must show up in the final code.
-  std::vector<Val*> usedMathVals();
+  std::vector<Val*> usedMathVals() const;
 
   //! Returns all vals that are produced by used math expressions and
   //!  also do not have further consumers.
@@ -534,7 +533,8 @@ std::any defaultCloneFunction(IrCloner& cloner, std::any data) {
   // will be unreadable.
   static_assert(
       std::is_convertible_v<decltype(cloned_data), T>,
-      "IrCloner::clone returns a data type that is not compatible with the original managed data type. "
+      "IrCloner::clone returns a data type that is not compatible with the "
+      "original managed data type. "
       "Likely you will need to check IrCloner::clone for your data type.");
   // Convert the result of the clone back to T before assigning to std::any.
   // This ensures the type of the std::any does not change over the clone of

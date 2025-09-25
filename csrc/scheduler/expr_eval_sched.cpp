@@ -64,10 +64,17 @@ bool ExprEvalScheduler::canScheduleCompileTime(Fusion* fusion) {
   // TODO: remove IndexPutAccumulateOp
   if (exprs.front()
           ->isOneOf<
+              ScatterOp,
               SdpaFwdOp,
               SdpaBwdOp,
               EmbeddingFwdOp,
-              IndexPutAccumulateOp>()) {
+              IndexPutAccumulateOp,
+              ArgsortOp,
+              GroupedMmaOp,
+              ScaledMmaOp,
+              CutlassNvfp4GroupedMmaOp,
+              TopKOp,
+              ScanOp>()) {
     return true;
   }
 
@@ -75,7 +82,8 @@ bool ExprEvalScheduler::canScheduleCompileTime(Fusion* fusion) {
     if (isOptionDisabled(DisableOption::MatmulExprEval)) {
       scheduler_debug_utils::canScheduleRejectReason(
           schedulerType(),
-          "Matmul ATen evaluation was disabled by NVFUSER_DISABLE=matmul_expr_eval");
+          "Matmul ATen evaluation was disabled by "
+          "NVFUSER_DISABLE=matmul_expr_eval");
       return false;
     }
     return true;
@@ -83,7 +91,8 @@ bool ExprEvalScheduler::canScheduleCompileTime(Fusion* fusion) {
 
   scheduler_debug_utils::canScheduleRejectReason(
       schedulerType(),
-      "Fusion must contain only a single expression of type MatmulOp/LinearOp/SdpaFwdOp/SdpaBwdOp");
+      "Fusion must contain only a single expression of type "
+      "MatmulOp/LinearOp/SdpaFwdOp/SdpaBwdOp");
   return false;
 }
 

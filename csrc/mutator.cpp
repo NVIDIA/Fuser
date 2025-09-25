@@ -85,7 +85,8 @@ void OptOutMutator::registerMutation(Val* val, Val* mutation) {
       mutation->toString(),
       " (",
       mutation->toInlineString(),
-      "), which is not allowed as it would result in a recursive definition of ",
+      "), which is not allowed as it would result in a recursive definition "
+      "of ",
       mutation->toString());
 
   mutations_[val] = mutation;
@@ -157,18 +158,29 @@ void OptOutMutator::mutate(TensorDomain* td) {
   std::vector<IterDomain*> domain = updateIdVec(td->loop());
   std::vector<IterDomain*> additional_ids = updateIdVec(td->additionalIDs());
 
+  std::optional<std::vector<IterDomain*>> alternate_domain = std::nullopt;
+  if (td->alternateLoop().has_value()) {
+    alternate_domain = updateIdVec(td->alternateLoop().value());
+  }
+
   if (!mutated) {
     return;
   }
 
+  // We skip checks in TensorDomain constructor. This is because mutation could
+  // update TensorView with domain that doesn't matching
+  // root/logical/allocation/loop domain. Any sparse operation, like scatter or
+  // PreprocessGroupedMatmulInputSf in the graph would fail the check.
   Val* mutated_val = IrBuilder::createInContainer<TensorDomain>(
       td->container(),
       root_dom,
       logical_dom,
       allocation_dom,
       domain,
+      alternate_domain,
       td->contiguity(),
-      additional_ids);
+      additional_ids,
+      true);
   registerMutation(td, mutated_val);
 }
 
