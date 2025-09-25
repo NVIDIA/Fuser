@@ -178,8 +178,7 @@ def test_llama4_moe_thunderfx():
     # as it doesn't have a grad-rule for the same.
     model.requires_grad_(False)
 
-    #batch_size, seq_len = 1, 2048
-    batch_size, seq_len = 1, 1024
+    batch_size, seq_len = 1, 2048
     inp = torch.randn(
         batch_size, seq_len, config.hidden_size, dtype=torch.bfloat16, device="cuda"
     )
@@ -200,5 +199,3 @@ def test_llama4_moe_thunderfx():
     # print(tmodel.last_traces)
 
     torch.testing.assert_close(actual, expected, atol=1e-2, rtol=1e-2)
-
-test_llama4_moe_thunderfx()
