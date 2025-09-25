@@ -763,6 +763,18 @@ std::vector<Val*> Fusion::getTerminatingOutputs() const {
   return terminating_outputs;
 }
 
+std::ostream& operator<<(std::ostream& os, AllocationType type) {
+  switch (type) {
+    case AllocationType::Evaluate:
+      return os << "Evaluate";
+    case AllocationType::New:
+      return os << "New";
+    case AllocationType::ReuseBuffer:
+      return os << "ReuseBuffer";
+  }
+  std::unreachable();
+}
+
 std::ostream& operator<<(std::ostream& os, OutputVisibility visibility) {
   switch (visibility) {
     case OutputVisibility::kVisible:
@@ -827,10 +839,6 @@ void Fusion::aliasOutputToInput(
   if (!output->isFusionOutput()) {
     addOutputInternal(output);
   }
-}
-
-const AliasInfo& Fusion::getOutputAlias(const Val* output) const {
-  return io_alias_.get(output);
 }
 
 bool Fusion::hasDynamicTransform() {

@@ -7,10 +7,16 @@
 // clang-format on
 #pragma once
 
+#include <any>
+#include <string>
+#include <unordered_map>
+#include <unordered_set>
+#include <vector>
+
 #include <ATen/core/ivalue.h>
-#include <exceptions.h>
 
 #include <debug.h>
+#include <exceptions.h>
 #include <fusion_guard.h>
 #include <ir/base_nodes.h>
 #include <ir/cloner.h>
@@ -18,12 +24,6 @@
 #include <iter_visitor.h>
 #include <runtime/executor_params.h>
 #include <visibility.h>
-
-#include <any>
-#include <string>
-#include <unordered_map>
-#include <unordered_set>
-#include <vector>
 
 namespace nvfuser {
 
@@ -83,12 +83,14 @@ enum class AllocationType : int {
   Evaluate,
 };
 
+std::ostream& operator<<(std::ostream& os, AllocationType);
+
 enum class OutputVisibility : int {
   kHidden,
   kVisible,
 };
 
-std::ostream& operator<<(std::ostream& os, OutputVisibility visibility);
+std::ostream& operator<<(std::ostream& os, OutputVisibility);
 
 struct AliasInfo {
   AllocationType type;
@@ -106,25 +108,16 @@ struct AliasInfo {
     return !(*this == other);
   }
 
+  // FIXME: make this a operator<<
   std::string toString() const {
     std::stringstream ss;
-    ss << "AliasInfo{\n";
-    ss << "  type = ";
-    switch (type) {
-      case AllocationType::Evaluate:
-        ss << "Evaluate";
-        break;
-      case AllocationType::New:
-        ss << "New";
-        break;
-      case AllocationType::ReuseBuffer:
-        ss << "ReuseBuffer";
-        break;
-    }
-    ss << ",\n  aliased_io = "
-       << (aliased_io == nullptr ? "nullptr" : aliased_io->toString()) << ",\n";
-    ss << "  visibility = " << visibility << "\n";
-    ss << "}\n";
+    ss << "AliasInfo{" << std::endl;
+    ss << "  type = " << type << "," << std::endl;
+    ss << "  aliased_io = "
+       << (aliased_io == nullptr ? "nullptr" : aliased_io->toString()) << ","
+       << std::endl;
+    ss << "  visibility = " << visibility << std::endl;
+    ss << "}" << std::endl;
     return ss.str();
   }
 };
@@ -310,10 +303,12 @@ class NVF_API Fusion : public IrContainer {
   // those of type `ReuseBuffer` are marked in fusion definitions.
   NVF_API void aliasOutputToInput(Val* output, Val* input, AllocationType type);
 
-  //! Returns the aliased input of a given output along with an `AliasInfo`
-  //! describing how they alias. Returns <nullptr,nullptr> when `output` is not
-  //! aliased.
-  const AliasInfo& getOutputAlias(const Val* output) const;
+  const AliasInfoMap& getOutputAliases() const {
+    return io_alias_;
+  }
+  const AliasInfo& getOutputAlias(const Val* output) const {
+    return getOutputAliases().get(output);
+  }
 
   bool isTVUseInfoValid() {
     return all_tv_uses_valid_;
