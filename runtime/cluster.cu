@@ -145,7 +145,7 @@ __device__ __forceinline__ T warpReduce(T val, Func reduction_op) {
 // memories
 // 3. All warps read from its CTA's shared memory and do a warp reduction
 // TODO: we can represent this cluster reduction in fusion IR after we have new
-// parallel types to represent warp reduction
+// parallel types to represent warp reduction.
 template <int CLUSTER_SIZE, int WARPS_PER_BLOCK, typename T, typename Func>
 __device__ __forceinline__ void clusterReduce(
     T& res,
@@ -177,7 +177,11 @@ __device__ __forceinline__ void clusterReduce(
     storeSharedRemote<T>(
         warp_sum, buffer_addr, barrier_smem_addr, peer_cta_rank_in_cluster);
   }
+
+  // mbarrier is not repeatedly used, parity phase is set to 0. Otherwise,
+  // should flip parity phase, e.g. when used in persistent CTA kernels.
   mbarrier::waitParity(barrier_smem_addr, 0);
+
   // 3. Each CTA has a copy of the warp reduction results from all warps in the
   // cluster
   // Finish reduction with a warp reduction
