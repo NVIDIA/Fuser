@@ -18,6 +18,9 @@ void initNvFuserPythonBindings(PyObject* module);
 // Add bindings for Fusion IR
 void bindFusionIr(py::module& nvfuser);
 
+// Add bindings for Internal Fusion and Kernel IR
+void bindInternalIr(py::module& nvfuser);
+
 // Add bindings for Enums
 void bindEnums(py::module& nvfuser);
 
@@ -30,8 +33,14 @@ void bindHeuristicParams(py::module& nvfuser);
 // Add bindings for CPP Fusion Operations
 void bindOperations(py::module& nvfuser);
 
+// Add bindings for CPP Schedule Operators
+void bindScheduleOperators(py::module& nvfuser);
+
 // Add bindings for MultiDevice features
 void bindMultiDevice(py::module& nvfuser);
+
+// Add bindings for IdModel and ValGraph
+void bindIdModel(py::module& nvfuser);
 
 // Translate a CPP Fusion to a bindings python function
 std::string translateFusion(Fusion* f);
