@@ -345,8 +345,6 @@ void HostIrEvaluator::handle(P2PCommunication* communication) {
 
   at::Tensor buffer = getKnownTensorOrUndefined(communication->buffer());
 
-  std::cout << "rank: " << communicator_->deviceId() << " handling p2p communication: " << communication << " peer: " << expr_evaluator_.evaluate(communication->peer()).as<int64_t>() << std::endl;
-
   CommunicatorBackend backend_type = communication->backend();
   if (backend_type == CommunicatorBackend::kCuda) {
     const P2pIpcHandle& p2p_ipc_handle = ipc_handle_cache_.get(communication);
@@ -436,7 +434,6 @@ void HostIrEvaluator::handle(kir::ForLoop* for_loop) {
     }
     expr_evaluator_.bind(for_loop->index(), i);
     for (Expr* expr : for_loop->body().exprs()) {
-      std::cout << "rank: " << communicator_->deviceId() << ", iteration: " << i << " dispatching expr: " << expr<< std::endl;
       dispatch(expr);
     }
   }
@@ -476,7 +473,6 @@ void HostIrEvaluator::handle(kir::IfThenElse* if_then_else) {
   const auto& scope =
       predicate ? if_then_else->thenBody() : if_then_else->elseBody();
   for (Expr* expr : scope.exprs()) {
-    std::cout << "rank: " << communicator_->deviceId() << " dispatching expr: " << expr<< std::endl;
     dispatch(expr);
   }
 }
