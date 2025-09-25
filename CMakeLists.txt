@@ -106,7 +106,7 @@ if(BUILD_CUTLASS)
     FetchContent_Declare(
       repo-cutlass
       GIT_REPOSITORY https://github.com/NVIDIA/cutlass
-      GIT_TAG        f115c3f85467d5d9619119d1dbeb9c03c3d73864
+      GIT_TAG        f3fde58372d33e9a5650ba7b80fc48b3b49d40c8
       GIT_SHALLOW    OFF
     )
     FetchContent_Populate(repo-cutlass)
