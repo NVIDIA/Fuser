@@ -2284,8 +2284,8 @@ std::unordered_map<int64_t, int64_t> maybeReorderLogicalAsAllocationMap(
       ir_utils::computePermutation(alloc_domain, logical_domain);
   int64_t idx = 0;
   std::transform(
-      *permutation.begin(),
-      *permutation.end(),
+      (*permutation).begin(),
+      (*permutation).end(),
       std::inserter(reorder_map, reorder_map.end()),
       [&idx](const int64_t v) { return std::make_pair(idx++, v); });
   return reorder_map;
@@ -2311,14 +2311,15 @@ std::unordered_map<int64_t, int64_t> maybeReorderLoopAsAllocationMap(
       ir_utils::computePermutation(alloc_domain, loop_domain);
   NVF_ERROR(
       permutation.has_value(),
-      "Failed to find a valid permutation for reordering",
+      "Failed to find a valid permutation for reordering loop domain [",
       toDelimitedString(loop_domain),
-      " as ",
-      toDelimitedString(alloc_domain));
+      "] as allocation domain [",
+      toDelimitedString(alloc_domain),
+      "]");
   int64_t idx = 0;
   std::transform(
-      *permutation.begin(),
-      *permutation.end(),
+      (*permutation).begin(),
+      (*permutation).end(),
       std::inserter(reorder_map, reorder_map.end()),
       [&idx](const int64_t v) { return std::make_pair(idx++, v); });
   return reorder_map;
