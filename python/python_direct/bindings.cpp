@@ -23,6 +23,9 @@ void initNvFuserPythonBindings(PyObject* module) {
   bindRuntime(nvfuser);
   bindOperations(nvfuser);
   bindScheduleOperators(nvfuser);
+  // Create multidevice submodule first, then pass both modules so
+  // MultiDeviceExecutorParams can be exposed at the top level and the
+  // classes/functions under the multidevice namespace.
   bindMultiDevice(nvfuser);
   bindIdModel(nvfuser);
   nvfuser.def(

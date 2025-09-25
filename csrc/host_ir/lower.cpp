@@ -152,7 +152,7 @@ std::unique_ptr<hir::HostIrContainer> HostIrLower::lower(
     tv->setMemoryType(MemoryType::Global);
   }
 
-  hir_pass::StreamParallelType().runPass(hic.get());
+  hir_pass::StreamParallelType(params_).runPass(hic.get());
 
   hir_pass::ConvertOpToCommunication(params_).runPass(hic.get());
 

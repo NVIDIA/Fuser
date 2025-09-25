@@ -8,6 +8,7 @@
 #include <cuda_utils.h>
 #include <multidevice/communicator.h>
 #include <multidevice/ipc_handle.h>
+#include <iostream>
 
 namespace nvfuser {
 
@@ -97,6 +98,9 @@ void IpcHandleCache::exchangeHandles(
     const std::vector<P2PCommunication*>& communications) {
   Communicator* communicator = &Communicator::getInstance();
   const int64_t my_rank = communicator->deviceId();
+  std::cout << "[rank " << my_rank
+            << "] exchangeHandles start: communications="
+            << communications.size() << std::endl;
 
   std::vector<P2PCommunication*> non_cached_communications;
   for (auto communication : communications) {
@@ -104,16 +108,21 @@ void IpcHandleCache::exchangeHandles(
         expr_evaluator_.evaluate(communication->peer()).as<int64_t>() !=
             my_rank,
         "send to self not supported");
-    if (find(communication) != nullptr) {
+    if (find(communication) != nullptr && false) {
       continue;
     }
     non_cached_communications.push_back(communication);
   }
+  std::cout << "[rank " << my_rank
+            << "] non_cached_communications="
+            << non_cached_communications.size() << std::endl;
 
   // put memhandles to TCP store
   std::unordered_map<P2PCommunication*, std::unique_ptr<IpcHandle>>
       local_ipc_handles;
   auto store = communicator->getTcpStore();
+  std::cout << "[rank " << my_rank
+            << "] putting local ipc handles to store" << std::endl;
   for (P2PCommunication* communication : non_cached_communications) {
     at::Tensor tensor =
         expr_evaluator_.evaluate(communication->buffer()).as<at::Tensor>();
@@ -122,8 +131,11 @@ void IpcHandleCache::exchangeHandles(
     auto buffer_handle = std::make_unique<IpcHandle>(tensor);
     auto key = getTcpStoreKey(communication, my_rank);
     // TODO: use multiSet
+    std::cout << "[rank " << my_rank << "] set key=" << key << std::endl;
     store->set(key, toBytes(*buffer_handle));
     local_ipc_handles.emplace(communication, std::move(buffer_handle));
+    std::cout << "[rank " << my_rank << "] stored local handle for key="
+              << key << std::endl;
   }
 
   // get memhandles from TCP store
@@ -133,21 +145,30 @@ void IpcHandleCache::exchangeHandles(
     std::string key = getTcpStoreKey(communication, peer);
     // TCP store get is blocking until a timeout
     // TODO: use multiGet
+    std::cout << "[rank " << my_rank << "] waiting for key=" << key
+              << " from peer=" << peer << std::endl;
     auto peer_ipc_handle = std::make_unique<IpcHandle>(store->get(key));
+    std::cout << "[rank " << my_rank << "] got key=" << key << std::endl;
     store->deleteKey(key);
+    std::cout << "[rank " << my_rank << "] deleted key=" << key
+              << std::endl;
     auto& local_ipc_handle = local_ipc_handles.at(communication);
 
     auto ipc_handles = std::make_unique<P2pIpcHandle>(
         std::move(local_ipc_handle), std::move(peer_ipc_handle));
 
     insert(communication, std::move(ipc_handles));
+    std::cout << "[rank " << my_rank
+              << "] inserted P2pIpcHandle for key=" << key << std::endl;
   }
 
   // a barrier is needed here to ensure all ranks have received the
   // memhandles and the keys are deleted from the store before the next call to
   // exchangeHandles, otherwise there is a correctness issue
   // TODO: precisely select what ranks need to wait on that barrier.
+  std::cout << "[rank " << my_rank << "] entering barrier" << std::endl;
   communicator->barrier();
+  std::cout << "[rank " << my_rank << "] exited barrier" << std::endl;
 }
 
 } // namespace nvfuser

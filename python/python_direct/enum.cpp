@@ -53,7 +53,8 @@ void bindEnums(py::module& nvfuser) {
   py::enum_<CommunicatorBackend>(
       nvfuser, "CommunicatorBackend", py::module_local())
       .value("nccl", CommunicatorBackend::kNccl)
-      .value("ucc", CommunicatorBackend::kUcc);
+      .value("ucc", CommunicatorBackend::kUcc)
+      .value("cuda", CommunicatorBackend::kCuda);
 
   py::enum_<SchedulerType>(nvfuser, "SchedulerType", py::module_local())
       .value("none", SchedulerType::None)

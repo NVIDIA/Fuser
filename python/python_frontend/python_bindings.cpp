@@ -654,24 +654,6 @@ void defineHeuristicParamBindings(py::module& nvfuser) {
 #undef PARAM
 #undef INITPARAMS
 
-  py::class_<MultiDeviceExecutorParams>(nvfuser, "MultiDeviceExecutorParams")
-      .def(py::init<>())
-      .def_property(
-          "use_allocation_cache",
-          [](const MultiDeviceExecutorParams& self) {
-            return self.executor.use_allocation_cache;
-          },
-          [](MultiDeviceExecutorParams& self, bool value) {
-            self.executor.use_allocation_cache = value;
-          })
-      .def_property(
-          "backend_type",
-          [](const MultiDeviceExecutorParams& self) {
-            return self.lower.communicator_backend;
-          },
-          [](MultiDeviceExecutorParams& self, CommunicatorBackend value) {
-            self.lower.communicator_backend = value;
-          });
 }
 
 } // namespace
@@ -754,7 +736,8 @@ void initNvFuserPythonBindings(PyObject* module) {
   py::enum_<CommunicatorBackend>(
       nvfuser, "CommunicatorBackend", py::module_local())
       .value("nccl", CommunicatorBackend::kNccl)
-      .value("ucc", CommunicatorBackend::kUcc);
+      .value("ucc", CommunicatorBackend::kUcc)
+      .value("cuda", CommunicatorBackend::kCuda);
 
   nvfuser.def("compute_contiguity", computeContiguity);
   nvfuser.def("compute_tensor_descriptor", computeTensorDescriptor);

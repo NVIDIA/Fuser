@@ -503,7 +503,7 @@ set_target_properties(codegen_internal PROPERTIES
 
   # this is to find pip installed nvrtc.so
   INSTALL_RPATH
-  "$ORIGIN/../../nvidia/cuda_runtime/lib:$ORIGIN/../../nvidia/cuda_nvrtc/lib:$ORIGIN/../../nvidia/cuda_cupti/lib:$ORIGIN/../../torch/lib"
+  "${CMAKE_INSTALL_PREFIX}/lib:$ORIGIN/../../nvidia/cuda_runtime/lib:$ORIGIN/../../nvidia/cuda_nvrtc/lib:$ORIGIN/../../nvidia/cuda_cupti/lib:$ORIGIN/../../torch/lib"
   POSITION_INDEPENDENT_CODE Yes
   VISIBILITY_INLINES_HIDDEN Yes
 )
@@ -762,7 +762,7 @@ if(BUILD_PYTHON)
   endif()
 
   set_target_properties(nvfuser PROPERTIES
-    INSTALL_RPATH "$ORIGIN:$ORIGIN/lib:$ORIGIN/../build:$ORIGIN/../nvfuser_common/lib"
+    INSTALL_RPATH "${CMAKE_INSTALL_PREFIX}/lib:$ORIGIN:$ORIGIN/lib:$ORIGIN/../nvfuser_common/lib:$ORIGIN/../build"
   )
   install(TARGETS nvfuser DESTINATION lib)
 
@@ -892,7 +892,7 @@ if(BUILD_PYTHON)
   endif()
 
   set_target_properties(nvfuser_direct PROPERTIES
-    INSTALL_RPATH "$ORIGIN:$ORIGIN/../build:$ORIGIN/../nvfuser_common/lib"
+    INSTALL_RPATH "${CMAKE_INSTALL_PREFIX}/lib:$ORIGIN:$ORIGIN/../nvfuser_common/lib:$ORIGIN/../build"
   )
   install(TARGETS nvfuser_direct DESTINATION lib)
 endif()
