@@ -1267,7 +1267,40 @@ KernelArgumentHolder KernelExecutor::run(
               << ", occupancy=" << oss.str() << std::endl;
     }
 
-    if (!compiled_kernel_->kernel()->summary().has_cooperative_grid_reduction) {
+    const auto& kernel_summary = compiled_kernel_->kernel()->summary();
+
+    // cluster reduction uses DSMEM
+    if (kernel_summary.has_cluster_reduction) {
+      FUSER_PERF_SCOPE("ExecutorRunFusion::cuLaunchKernelEx");
+      CUlaunchConfig config = {};
+      config.gridDimX = launch_params_.gdimx();
+      config.gridDimY = launch_params_.gdimy();
+      config.gridDimZ = launch_params_.gdimz();
+      config.blockDimX = launch_params_.bdimx();
+      config.blockDimY = launch_params_.bdimy();
+      config.blockDimZ = launch_params_.bdimz();
+      config.sharedMemBytes = launch_params_.smem();
+      config.hStream = stream;
+
+      CUlaunchAttribute attribute;
+      attribute.id = CU_LAUNCH_ATTRIBUTE_CLUSTER_DIMENSION;
+      attribute.value.clusterDim.x = launch_params_.gdimx();
+      attribute.value.clusterDim.y = 1;
+      attribute.value.clusterDim.z = 1;
+      config.attrs = &attribute;
+      config.numAttrs = 1;
+      if (attribute.value.clusterDim.x == 16) {
+        NVFUSER_CUDA_SAFE_CALL(cuFuncSetAttribute(
+            compiled_kernel_->cudaExecutable()->function,
+            CU_FUNC_ATTRIBUTE_NON_PORTABLE_CLUSTER_SIZE_ALLOWED,
+            1));
+      }
+      NVFUSER_CUDA_SAFE_CALL(cuLaunchKernelEx(
+          &config,
+          compiled_kernel_->cudaExecutable()->function,
+          executor_entry->arg_ptrs.data(),
+          nullptr));
+    } else if (!kernel_summary.has_cooperative_grid_reduction) {
       FUSER_PERF_SCOPE("ExecutorRunFusion::cuLaunchKernel");
       NVFUSER_CUDA_SAFE_CALL(cuLaunchKernel(
           compiled_kernel_->cudaExecutable()->function,

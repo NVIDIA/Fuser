@@ -2508,12 +2508,14 @@ IterDomainBuilder::IterDomainBuilder(const IterDomain* id)
       iter_type_(id->getIterType()),
       is_rfactor_domain_(id->isRFactorProduct()),
       is_padded_dimension_(id->hasPaddingToMultipleOfWarp()),
+      is_clustered_dimension_(id->isClusteredBlockDim()),
       padded_to_size_(id->getMaybeSizeAfterPadding()) {}
 
 IterDomainBuilder& IterDomainBuilder::resetSchedulingParams() {
   parallel_type_ = ParallelType::Serial;
   is_rfactor_domain_ = false;
   is_padded_dimension_ = false;
+  is_clustered_dimension_ = false;
   padded_to_size_ = std::nullopt;
   return *this;
 }
@@ -2571,6 +2573,12 @@ IterDomainBuilder& IterDomainBuilder::padded_to_size(
   return *this;
 }
 
+IterDomainBuilder& IterDomainBuilder::is_clustered_blocks(
+    bool _is_clustered_blocks) {
+  is_clustered_dimension_ = _is_clustered_blocks;
+  return *this;
+}
+
 IterDomain* IterDomainBuilder::build() const {
   NVF_ERROR(
       start_ != nullptr && extent_ != nullptr,
@@ -2588,6 +2596,7 @@ IterDomain::IterDomain(
     IterType iter_type,
     bool is_rfactor_domain,
     bool is_padded_dimension,
+    bool is_clustered_blocks,
     std::optional<int64_t> padded_to_size)
     : Val(passkey, ValType::IterDomain),
       start_(start),
@@ -2600,6 +2609,7 @@ IterDomain::IterDomain(
       iter_type_(iter_type),
       is_rfactor_domain_(is_rfactor_domain),
       is_padded_dimension_(is_padded_dimension),
+      is_clustered_dimension_(is_clustered_blocks),
       padded_to_size_(padded_to_size) {
   // NOTE: We previously asserted !(isRFactorProduct() && isBroadcast()), i.e.
   // that an IterDomain could not be both a broadcast and an logical domain.
@@ -2649,6 +2659,7 @@ IterDomain::IterDomain(IrBuilderPasskey passkey, const IterDomainBuilder& args)
           args.iter_type_,
           args.is_rfactor_domain_,
           args.is_padded_dimension_,
+          args.is_clustered_dimension_,
           args.padded_to_size_) {}
 
 IterDomain::IterDomain(const IterDomain* src, IrCloner* ir_cloner)
@@ -2663,6 +2674,7 @@ IterDomain::IterDomain(const IterDomain* src, IrCloner* ir_cloner)
       iter_type_(src->iter_type_),
       is_rfactor_domain_(src->is_rfactor_domain_),
       is_padded_dimension_(src->is_padded_dimension_),
+      is_clustered_dimension_(src->is_clustered_dimension_),
       padded_to_size_(src->padded_to_size_) {}
 
 NVFUSER_DEFINE_CLONE(IterDomain)
@@ -2703,6 +2715,7 @@ bool IterDomain::sameAs(const Statement* other) const {
       getParallelType() == other_id->getParallelType() &&
       getIterType() == other_id->getIterType() &&
       hasPaddingToMultipleOfWarp() == other_id->hasPaddingToMultipleOfWarp() &&
+      isClusteredBlockDim() == other_id->isClusteredBlockDim() &&
       getMaybeSizeAfterPadding() == other_id->getMaybeSizeAfterPadding();
 }
 
@@ -2728,6 +2741,9 @@ std::string IterDomain::toString(int indent_size) const {
   }
   if (hasPaddingToMultipleOfWarp()) {
     ss << "_p";
+  }
+  if (isClusteredBlockDim()) {
+    ss << "_c";
   }
   return ss.str();
 }
@@ -3155,7 +3171,6 @@ Val* IterDomain::stop() const {
 }
 
 namespace {
-
 void validateContiguity(
     const std::vector<IterDomain*>& allocation_domain,
     const std::vector<std::optional<bool>>& contiguity) {
@@ -3648,7 +3663,16 @@ bool TensorDomain::hasBlockReduction() const {
 bool TensorDomain::hasGridReduction() const {
   return std::any_of(
       loop_domain_.begin(), loop_domain_.end(), [](IterDomain* id) {
-        return id->isReduction() && id->isBlockDim();
+        return id->isReduction() && id->isBlockDim() &&
+            !id->isClusteredBlockDim();
+      });
+}
+
+bool TensorDomain::hasClusterReduction() const {
+  return std::any_of(
+      loop_domain_.begin(), loop_domain_.end(), [](IterDomain* id) {
+        return id->isReduction() && id->isBlockDim() &&
+            id->isClusteredBlockDim();
       });
 }
 
@@ -4432,7 +4456,7 @@ std::string PadOp::toString(int indent_size) const {
   std::stringstream ss;
   indent(ss, indent_size) << out()->toString() << "\n";
   indent(ss, indent_size) << "   = pad( " << in()->toString() << ", {"
-                          << toDelimitedString(getPadWidths()) << "} )\n";
+                          << toDelimitedString(getPadWidths()) << "}" << " )\n";
   return ss.str();
 }
 
@@ -4723,12 +4747,12 @@ namespace {
 // When the contracting dimension is sharded, each device has a partial
 // matmul output and is followed by an allreduce. For loop split, this is
 // represented as an rfactored reduction. For example, for matmul, the local
-// logical domain after the rfactor is: i{DIDx}, i{M}, i{N}, r{K//d}. Unsqueeze
-// the rfactored DID axis to correctly bind with the logical domain. See
-// tests/python/test_multidevice.py/test_matmul_allreduce_loop_split
+// logical domain after the rfactor is: i{DIDx}, i{M}, i{N}, r{K//d}.
+// Unsqueeze the rfactored DID axis to correctly bind with the logical domain.
+// See tests/python/test_multidevice.py/test_matmul_allreduce_loop_split
 int64_t getRFactorDeviceDimensionIndex(const TensorView* tv) {
-  // Filter out reduction dimensions so the index to `logical` directly maps to
-  // an at::Tensor axis.
+  // Filter out reduction dimensions so the index to `logical` directly maps
+  // to an at::Tensor axis.
   auto logical = TensorDomain::noReductions(tv->getLogicalDomain());
   int64_t rfactor_did_idx = -1;
   for (auto idx : arange(static_cast<int64_t>(logical.size()))) {

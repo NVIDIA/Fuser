@@ -17,8 +17,8 @@
 #include <scheduler/utils.h>
 #include <tests/cpp/utils.h>
 #include <tests/cpp/validator.h>
-#include "ir/internal_nodes.h"
-#include "ir/utils.h"
+#include "ops/arith.h"
+#include "type.h"
 namespace nvfuser {
 
 using testing::Contains;
@@ -1256,6 +1256,10 @@ TEST_F(PersistentBufferTest, SmemPersistentNotSupportedIn3DReduction) {
 }
 
 TEST_F(PersistentBufferTest, SmemPersistent2DReduction) {
+  // Skip hopper and above as they use cluster reduction
+  if (at::cuda::getCurrentDeviceProperties()->major >= 9) {
+    GTEST_SKIP();
+  }
   // 1024 elements is added to ensure the buffer size is larger than
   // max allowed register file size to trigger the use of smem persistent buffer
   // or segmentation.
@@ -1353,6 +1357,10 @@ TEST_F(PersistentBufferTest, GetResolutionIssue1123) {
 }
 
 TEST_F(PersistentBufferTest, InnerPersistentNotEnoughSharedMemory) {
+  // Skip hopper and above as they use cluster reduction
+  if (at::cuda::getCurrentDeviceProperties()->major >= 9) {
+    GTEST_SKIP();
+  }
   auto fusion_ptr = std::make_unique<Fusion>();
   auto& fusion = *fusion_ptr;
   FusionGuard fg(fusion_ptr.get());
@@ -1447,6 +1455,10 @@ TEST_F(PersistentBufferTest, InnerPersistentNotEnoughSharedMemory) {
 using TestParam = std::tuple<DataType, int64_t>;
 using LayerNormSharedMemoryTest = NVFuserFixtureParamTest<TestParam>;
 TEST_P(LayerNormSharedMemoryTest, FusionLayerNormSharedMemoryBuffer_CUDA) {
+  // Skip hopper and above as they use cluster reduction
+  if (at::cuda::getCurrentDeviceProperties()->major >= 9) {
+    GTEST_SKIP();
+  }
   auto [dtype, hidden_size] = GetParam();
 
   std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
@@ -1968,5 +1980,148 @@ TEST_F(PersistentBufferTest, BufferGatherLookupTv) {
   EXPECT_TRUE(index_tv_uses.at(0)->isA<LoadStoreOp>());
 
   testValidate(&unscheduled_fusion_copy, outputs, {t0, t1});
+}
+
+// Test cluster reduction with different models, dtype, and cluster size
+// is_softmax: true for softmax, false for simple norm
+// softmax uses cluster reduction twice in a single kernel with op max and add
+using ClusterReductionTestParams =
+    std::tuple</*is_softmax*/ bool, DataType, /*blocks_per_cluster=*/int64_t>;
+using ClusterReductionTest =
+    NVFuserFixtureParamTest<ClusterReductionTestParams>;
+TEST_P(ClusterReductionTest, SoftmaxDtypeClusterSize) {
+  NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
+  // reduction domain is scheduled as:
+  // [blocks_per_cluster, batches_per_block, threads_per_block, vect_factor]
+  auto [is_softmax, dtype, blocks_per_cluster] = GetParam();
+  constexpr int batches_per_block = 2;
+  constexpr int threads_per_block = 256;
+  const int vect_factor = 128 / dataTypeSizeBit(dtype);
+  int y =
+      threads_per_block * blocks_per_cluster * vect_factor * batches_per_block;
+  // use two waves
+  int x = (deviceSMCount() * 2 + blocks_per_cluster - 1) / blocks_per_cluster;
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+  auto tv0 = makeContigTensor(2, dtype);
+  fusion.addInput(tv0);
+  auto tv1 = maybeCastOp(DataType::Float, tv0);
+  if (is_softmax) {
+    auto tv2 = softmax(tv1, 1);
+    auto tv3 = maybeCastOp(DataType::BFloat16, tv2);
+    fusion.addOutput(tv3);
+  } else {
+    auto tv2 = sum(tv1, {1});
+    auto tv3 = broadcast(tv2, {false, true});
+    auto tv4 = add(tv1, tv3);
+    auto tv5 = maybeCastOp(DataType::BFloat16, tv4);
+    fusion.addOutput(tv5);
+  }
+  auto unscheduled_fusion_copy = fusion;
+
+  auto options =
+      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
+  auto t0 = at::randn({x, y}, options).clamp(-2, 2);
+  SchedulerRuntimeInfo runtime_info(fusion_ptr.get(), {t0});
+  auto scheduler =
+      SchedulerEntry::makeSchedulerInstance(SchedulerType::InnerPersistent);
+  auto heuristic_params =
+      scheduler->computeHeuristics(fusion_ptr.get(), runtime_info);
+  auto rparams = heuristic_params->as<ReductionParams>();
+  rparams->cross_cluster_reduction = true;
+  rparams->cross_grid_inner_reduction = true;
+  rparams->grid_dim_inner_reduction = ParallelType::BIDx;
+  rparams->grid_dim_iter_dom = ParallelType::BIDy;
+  rparams->batches_per_block_inner_reduction = batches_per_block;
+  rparams->static_bdimx = true;
+  rparams->static_gdimx = true;
+  rparams->lparams = LaunchParams(
+      blocks_per_cluster,
+      LaunchParams::UNINITIALIZED_VAL,
+      LaunchParams::UNINITIALIZED_VAL,
+      threads_per_block,
+      LaunchParams::UNINITIALIZED_VAL,
+      LaunchParams::UNINITIALIZED_VAL);
+
+  scheduler->schedule(fusion_ptr.get(), heuristic_params.get());
+  KernelExecutor ke;
+  ke.compile(fusion_ptr.get(), {t0});
+  auto outputs =
+      ke.run({t0}, {}, heuristic_params->as<ReductionParams>()->lparams);
+  testValidate(&unscheduled_fusion_copy, outputs, {t0});
+}
+INSTANTIATE_TEST_SUITE_P(
+    PersistentBufferTest,
+    ClusterReductionTest,
+    ::testing::Combine(
+        ::testing::Values(true, false),
+        ::testing::Values(
+            DataType::BFloat16,
+            DataType::Float,
+            DataType::Double),
+        ::testing::Values(2, 3, 4, 5, 6, 7, 8, 16)),
+    [](const testing::TestParamInfo<ClusterReductionTestParams>& info) {
+      std::stringstream ss;
+      ss << "is_softmax_" << std::get<0>(info.param);
+      ss << "_dtype_" << std::get<1>(info.param);
+      ss << "_cluster_" << std::get<2>(info.param);
+      return sanitizeTestName(ss.str());
+    });
+
+TEST_F(ClusterReductionTest, InvalidClusterSize) {
+  NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+  const int64_t vect = 8, bdimx = 128, persistent_batch = 2;
+  // set a illegel cluster size to trigger the error
+  const int64_t cluster_size = 17;
+  const int64_t reduction_size = vect * bdimx * persistent_batch * cluster_size;
+  DataType dtype = DataType::BFloat16;
+  auto tv0 = makeContigTensor(2, dtype);
+  fusion.addInput(tv0);
+  auto tv1 = maybeCastOp(DataType::Float, tv0);
+  auto tv2 = sum(tv1, {1});
+  auto tv3 = broadcast(tv2, {false, true});
+  auto tv4 = add(tv1, tv3);
+  auto tv5 = maybeCastOp(DataType::BFloat16, tv4);
+  fusion.addOutput(tv5);
+  auto unscheduled_fusion_copy = fusion;
+
+  // [I, R]
+  tv2->split(1, 8);
+  // [I, R/8, 8]
+  tv2->split(1, 128);
+  // [I, R/8/128, 128, 8]
+  tv2->split(1, 2, false);
+  // [I, 2, R/8/128/2, 128, 8]
+  // [BIDy, Serial, BIDx(cluster), TIDx, Vectorize for IO]
+  tv2->axis(-2)->parallelize(ParallelType::TIDx);
+  tv2->axis(-3)->parallelize(ParallelType::BIDx);
+  tv2->axis(-3)->setClusteredBlocks(true);
+  tv2->axis(0)->parallelize(ParallelType::BIDy);
+
+  auto reference = tv2->rFactor({-1, -4});
+
+  TransformPropagatorWithCheck propagator(reference);
+  MaxLogicalDomainInfoSpanningTree(reference).traverse(&propagator);
+  scheduler_utils::parallelizeAllLike(reference);
+
+  tv1->axis(-1)->parallelize(ParallelType::Vectorize);
+  tv5->axis(-1)->parallelize(ParallelType::Vectorize);
+
+  auto options =
+      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
+  auto t0 = at::randn({256, reduction_size}, options);
+
+  KernelExecutor ke;
+  ke.compile(fusion_ptr.get(), {t0});
+  EXPECT_THAT(
+      [&]() { ke.run({t0}); },
+      ::testing::ThrowsMessage<nvfuser::nvfError>(
+          ::testing::HasSubstr("Clustered domain size must be less than or "
+                               "equal to max allowed cluster size and larger "
+                               "than 1.")));
 }
 } // namespace nvfuser
