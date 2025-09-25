@@ -76,7 +76,7 @@ void resetAllocationDomainAndContiguity(
     TensorView* tv,
     const at::Tensor& tensor) {
   const auto [sizes, strides] = inferAndValidateAllocationSizesAndStrides(tensor, tv, ExpressionEvaluator());
-  const contiguity = computeContiguity(sizes, strides);
+  auto contiguity = computeContiguity(sizes, strides);
   tv->setContiguity(contiguity);
   // struct Dim {
   //   int64_t size;
