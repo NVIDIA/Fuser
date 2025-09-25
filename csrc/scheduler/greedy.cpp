@@ -589,7 +589,8 @@ class RunTimeChecker : private IterVisitor {
 
   void handle(ScanOp* scan) override {
     checkDomainConstraints(
-        ir_utils::getTvOutput(scan)->getLogicalDomain(), {scan->dim()});
+        ir_utils::getTvOutput(scan)->getLogicalDomain(),
+        {scan->dim()},
         /*support_grouping=*/true);
   }
 
