@@ -345,24 +345,6 @@ std::vector<PolymorphicValue> ScatterOp::evaluate(
       std::string accumulate_op_str;
       switch (accumulateOp()) {
         case BinaryOpType::Add:
-          accumulate_op_str = "add";
-          break;
-        case BinaryOpType::Mul:
-          accumulate_op_str = "multiply";
-          break;
-        default:
-          NVF_THROW("Unsupported accumulation op: ", accumulateOp());
-      }
-      return {at::scatter(
-          input,
-          dimension,
-          index,
-          PolymorphicValue_functions::toScalar(inputs.at(2)),
-          accumulate_op_str)};
-    } else {
-      std::string accumulate_op_str;
-      switch (accumulateOp()) {
-        case BinaryOpType::Add:
           accumulate_op_str = "sum";
           break;
         case BinaryOpType::Mul:
@@ -382,6 +364,24 @@ std::vector<PolymorphicValue> ScatterOp::evaluate(
           dimension,
           index,
           inputs.at(2).as<at::Tensor>(),
+          accumulate_op_str)};
+    } else {
+      std::string accumulate_op_str;
+      switch (accumulateOp()) {
+        case BinaryOpType::Add:
+          accumulate_op_str = "add";
+          break;
+        case BinaryOpType::Mul:
+          accumulate_op_str = "multiply";
+          break;
+        default:
+          NVF_THROW("Unsupported accumulation op: ", accumulateOp());
+      }
+      return {at::scatter(
+          input,
+          dimension,
+          index,
+          PolymorphicValue_functions::toScalar(inputs.at(2)),
           accumulate_op_str)};
     }
   } else {
