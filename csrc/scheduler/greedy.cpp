@@ -16,6 +16,7 @@
 #include <instrumentation.h>
 #include <ir/utils.h>
 #include <iter_visitor.h>
+#include <ops/all_ops.h>
 #include <options.h>
 #include <scheduler/debug_utils.h>
 #include <scheduler/greedy.h>
@@ -168,8 +169,7 @@ class CompileTimeChecker : private IterVisitor {
              all_exact_constrained_sizes_, [&](int64_t constrained_size) {
                return constrained_size < largest_constrained_size_;
              }))) {
-      can_schedule_ = false;
-      setRejectReason(
+      reject(
           "Found constrained ops for which all threads must participate "
           "without predication but not guaranteed");
     }
@@ -194,11 +194,9 @@ class CompileTimeChecker : private IterVisitor {
           Direction::Forward,
           exact_graph_);
       if (!common_reachable_ids.empty()) {
-        can_schedule_ = false;
-        std::stringstream reason;
-        reason << "Constrained and unconstrained IDs are merged at: "
-               << nvfuser::toString(common_reachable_ids);
-        setRejectReason(reason.str());
+        reject(
+            "Constrained and unconstrained IDs are merged at: ",
+            nvfuser::toString(common_reachable_ids));
       }
     }
   }
@@ -228,7 +226,7 @@ class CompileTimeChecker : private IterVisitor {
             ScatterOp,
             TopKOp>();
     if (!can_schedule_) {
-      setRejectReason("Unsupported operation: " + expr->toString());
+      reject("Unsupported operation: ", expr->toString());
       return;
     }
     IterVisitor::dispatch(expr);
@@ -245,10 +243,7 @@ class CompileTimeChecker : private IterVisitor {
     // CudaKernelGenerator::handle(ArgsortOp*)
     auto sorted_id = out_tv->getLogicalDomain().at(argsort->dim());
     if (!sorted_id->extent()->isConstInt()) {
-      can_schedule_ = false;
-      std::stringstream reason;
-      reason << "Symbolic dimension not supported yet: " << argsort->toString();
-      setRejectReason(reason.str());
+      reject("Symbolic dimension not supported yet: ", argsort->toString());
       return;
     }
   }
@@ -261,10 +256,7 @@ class CompileTimeChecker : private IterVisitor {
     // CudaKernelGenerator::handle(ScanOp*)
     auto scan_id = out_tv->getLogicalDomain().at(scan->dim());
     if (!scan_id->extent()->isConstInt()) {
-      can_schedule_ = false;
-      std::stringstream reason;
-      reason << "Symbolic dimension not supported yet: " << scan->toString();
-      setRejectReason(reason.str());
+      reject("Symbolic dimension not supported yet: ", scan->toString());
       return;
     }
   }
@@ -274,17 +266,14 @@ class CompileTimeChecker : private IterVisitor {
     auto out = scatter->out()->as<TensorView>();
 
     if (!scatter->exactSizes()) {
-      can_schedule_ = false;
-      setRejectReason("Non-exact scatter is not yet supported");
+      reject("Non-exact scatter is not yet supported");
       return;
     }
 
     // Scatter input tensor is only allowed to be used by this scatter
     // op itself due to the input-output aliasing
     if (inp->uses().size() != 1) {
-      can_schedule_ = false;
-      setRejectReason(
-          "Scatter input can only be used by the scatter op itself");
+      reject("Scatter input can only be used by the scatter op itself");
       return;
     }
 
@@ -296,9 +285,7 @@ class CompileTimeChecker : private IterVisitor {
     if (inp->hasAllocation() && out->hasAllocation() &&
         (exact_graph_.toGroups(inp->getAllocationDomain()) !=
          exact_graph_.toGroups(out->getAllocationDomain()))) {
-      can_schedule_ = false;
-      setRejectReason(
-          "Scatter input and output do not have the same allocation domain");
+      reject("Scatter input and output do not have the same allocation domain");
       return;
     }
 
@@ -307,26 +294,26 @@ class CompileTimeChecker : private IterVisitor {
     // be lifted.
     if (inp->hasAllocation() &&
         inp->getAllocationDomain() != inp->getLogicalDomain()) {
-      can_schedule_ = false;
-      std::stringstream ss;
-      ss << "Scatter input has an allocation domain that is not the same as "
-            "the logical domain: "
-         << inp->toString()
-         << ", allocation: " << toDelimitedString(inp->getAllocationDomain())
-         << ", logical: " << toDelimitedString(inp->getLogicalDomain());
-      setRejectReason(ss.str());
+      reject(
+          "Scatter input has an allocation domain that is not the same as the "
+          "logical domain: ",
+          inp->toString(),
+          ", allocation: ",
+          toDelimitedString(inp->getAllocationDomain()),
+          ", logical: ",
+          toDelimitedString(inp->getLogicalDomain()));
       return;
     }
     if (out->hasAllocation() &&
         out->getAllocationDomain() != out->getLogicalDomain()) {
-      can_schedule_ = false;
-      std::stringstream ss;
-      ss << "Scatter out has an allocation domain that is not the same as the "
-            "logical domain: "
-         << out->toString()
-         << ", allocation: " << toDelimitedString(out->getAllocationDomain())
-         << ", logical: " << toDelimitedString(out->getLogicalDomain());
-      setRejectReason(ss.str());
+      reject(
+          "Scatter out has an allocation domain that is not the same as the "
+          "logical domain: ",
+          out->toString(),
+          ", allocation: ",
+          toDelimitedString(out->getAllocationDomain()),
+          ", logical: ",
+          toDelimitedString(out->getLogicalDomain()));
       return;
     }
 
@@ -381,10 +368,7 @@ class CompileTimeChecker : private IterVisitor {
     // Only static dim supported for now.
     auto topk_id = out_tv->getLogicalDomain().at(topk->dim());
     if (!topk_id->extent()->isConstInt()) {
-      can_schedule_ = false;
-      std::stringstream reason;
-      reason << "Symbolic dimension not supported yet: " << topk->toString();
-      setRejectReason(reason.str());
+      reject("Symbolic dimension not supported yet: ", topk->toString());
       return;
     }
   }
@@ -428,13 +412,13 @@ class CompileTimeChecker : private IterVisitor {
     // now since BroadcastOp is not yet allowed.
     if (unique_unconstrained_domain_.has_value()) {
       if (unique_unconstrained_domain_->set() != unconstrained_domain.set()) {
-        can_schedule_ = false;
-        std::stringstream reason;
-        reason << "Mismatched unconstrained IDs detected with "
-               << toDelimitedString(domain_to_check) << ": "
-               << nvfuser::toString(unconstrained_domain)
-               << ". Ref: " << nvfuser::toString(*unique_unconstrained_domain_);
-        setRejectReason(reason.str());
+        reject(
+            "Mismatched unconstrained IDs detected with ",
+            toDelimitedString(domain_to_check),
+            ": ",
+            nvfuser::toString(unconstrained_domain),
+            ". Ref: ",
+            nvfuser::toString(*unique_unconstrained_domain_));
         unique_unconstrained_domain_.reset();
       }
     } else {
@@ -476,20 +460,22 @@ class CompileTimeChecker : private IterVisitor {
         }
       }
       if (num_reshape_exprs > 1) {
-        can_schedule_ = false;
-        std::stringstream ss;
-        ss << "Potentially conflicting reshape found for "
-           << nvfuser::toString(val_group);
-        setRejectReason(ss.str());
+        reject(
+            "Potentially conflicting reshape found for ",
+            nvfuser::toString(val_group));
         return;
       }
     }
   }
 
-  void setRejectReason(const std::string& reason) {
+  template <typename... Args>
+  void reject(Args&&... args) {
+    can_schedule_ = false;
     // Only keeps the first reason
     if (reject_reason_.empty()) {
-      reject_reason_ = reason;
+      std::stringstream reason;
+      ((reason << args << " "), ...);
+      reject_reason_ = reason.str();
     }
   }
 
@@ -538,56 +524,71 @@ class RunTimeChecker : private IterVisitor {
   }
 
   void handle(ArgsortOp* argsort) override {
-    checkConstrainedTv(ir_utils::getTvOutput(argsort), {argsort->dim()});
+    checkDomainConstraints(
+        ir_utils::getTvOutput(argsort)->getLogicalDomain(), {argsort->dim()});
   }
 
   void handle(PadOp* pad) override {
-    checkConstrainedTv(ir_utils::getTvOutput(pad), pad->getPaddedAxes());
+    checkDomainConstraints(
+        ir_utils::getTvOutput(pad)->getLogicalDomain(), pad->getPaddedAxes());
   }
 
   void handle(ScanOp* scan) override {
-    checkConstrainedTv(ir_utils::getTvOutput(scan), {scan->dim()});
+    checkDomainConstraints(
+        ir_utils::getTvOutput(scan)->getLogicalDomain(), {scan->dim()});
   }
 
   void handle(TopKOp* topk) override {
-    checkConstrainedTv(ir_utils::getTvOutput(topk), {topk->dim()});
+    checkDomainConstraints(
+        ir_utils::getTvOutput(topk)->getLogicalDomain(), {topk->dim()});
+  }
+
+  void handle(ScatterOp* scatter) override {
+    auto out = ir_utils::getTvOutput(scatter);
+    auto index = scatter->index()->as<TensorView>();
+
+    checkDomainConstraints(out->getLogicalDomain(), {scatter->dim()});
+    checkDomainConstraints(
+        TensorDomain::noReductions(index->getLogicalDomain()),
+        {scatter->dim()});
   }
 
   // Since all constrained IDs are flattened and parallelized with
   // TIDx, the extent of flattened ID must not exceed the maximum
   // number of threads per thread block.
-  void checkConstrainedTv(
-      TensorView* tv,
-      const std::vector<int64_t>& constrained_logical_id_offsets) {
+  void checkDomainConstraints(
+      const std::vector<IterDomain*>& domain,
+      const std::vector<int64_t>& constrained_id_offsets) {
     int64_t size_of_constrained_ids = 1;
-    for (const auto i : constrained_logical_id_offsets) {
-      auto logical_id = tv->getLogicalDomain().at(i);
-      auto extent_val =
-          runtime_info_.expressionEvaluator().evaluate(logical_id->extent());
+    for (const auto i : constrained_id_offsets) {
+      auto constrained_id = domain.at(i);
+      auto extent_val = runtime_info_.expressionEvaluator().evaluate(
+          constrained_id->extent());
       NVF_ERROR(
           extent_val.hasValue(),
-          "Cannot infer the extent of a constrained logical ID: ",
-          logical_id->toString());
+          "Cannot infer the extent of a constrained ID: ",
+          constrained_id->toString());
       size_of_constrained_ids *= extent_val.as<int64_t>();
     }
 
     if (size_of_constrained_ids > max_threads_per_block_) {
-      std::stringstream reason;
-      reason << "Extent of constrained logical IDs, " << size_of_constrained_ids
-             << ", exceeds the maxinum number of threads per thread block, "
-             << max_threads_per_block_;
-      setRejectReason(reason.str());
-      can_schedule_ = false;
+      reject(
+          "Extent of constrained logical IDs, ",
+          size_of_constrained_ids,
+          ", exceeds the maxinum number of threads per thread block, ",
+          max_threads_per_block_);
     }
   }
 
-  void setRejectReason(const std::string& reason) {
+  template <typename... Args>
+  void reject(Args&&... args) {
+    can_schedule_ = false;
     // Only keeps the first reason
-    if (!reject_reason_.empty()) {
-      return;
+    if (reject_reason_.empty()) {
+      std::stringstream reason;
+      ((reason << args << " "), ...);
+      reject_reason_ = reason.str();
     }
-
-    reject_reason_ = reason;
   }
 
  private:
@@ -1068,6 +1069,8 @@ void GreedyScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
 
   // Cache inputs
   auto cached_inputs = scheduler_utils::cacheInputs(fusion, true);
+  // Cache and fork outputs
+  auto cached_outputs = scheduler_utils::cacheAndForkOutputs(fusion, true);
 
   propagateReshape(fusion);
 
