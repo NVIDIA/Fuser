@@ -777,10 +777,13 @@ if(BUILD_PYTHON)
     ${NVFUSER_PYTHON_DIRECT_BINDINGS}/enum.cpp
     ${NVFUSER_PYTHON_DIRECT_BINDINGS}/heuristic_params.cpp
     ${NVFUSER_PYTHON_DIRECT_BINDINGS}/ir.cpp
+    ${NVFUSER_PYTHON_DIRECT_BINDINGS}/internal_ir.cpp
     ${NVFUSER_PYTHON_DIRECT_BINDINGS}/multidevice.cpp
     ${NVFUSER_PYTHON_DIRECT_BINDINGS}/ops.cpp
     ${NVFUSER_PYTHON_DIRECT_BINDINGS}/cutlass.cpp
     ${NVFUSER_PYTHON_DIRECT_BINDINGS}/runtime.cpp
+    ${NVFUSER_PYTHON_DIRECT_BINDINGS}/schedule.cpp
+    ${NVFUSER_PYTHON_DIRECT_BINDINGS}/id_model.cpp
     ${NVFUSER_PYTHON_DIRECT_BINDINGS}/direct_utils.cpp
     ${NVFUSER_PYTHON_DIRECT_BINDINGS}/python_translate.cpp
   )
@@ -1170,6 +1173,7 @@ if(BUILD_TEST)
   set(TUTORIAL_SRCS)
   list(APPEND TUTORIAL_SRCS
     ${NVFUSER_ROOT}/tests/cpp/test_tutorial.cpp
+    ${NVFUSER_ROOT}/tests/cpp/tutorial_cute_tv_layout.cpp
     ${NVFUSER_ROOT}/tests/cpp/tutorial_tmem.cpp
     ${NVFUSER_ROOT}/tests/cpp/tutorial_ldmatrix_stmatrix.cpp)
   add_test(test_tutorial "${TUTORIAL_SRCS}" "")

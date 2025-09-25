@@ -67,6 +67,13 @@ void bindEnums(py::module& nvfuser) {
       .value("transpose", SchedulerType::Transpose)
       .value("expr_eval", SchedulerType::ExprEval)
       .value("resize", SchedulerType::Resize);
+
+  py::enum_<IdMappingMode>(nvfuser, "IdMappingMode")
+      .value("exact", IdMappingMode::EXACT)
+      .value("almost_exact", IdMappingMode::ALMOSTEXACT)
+      .value("broadcast", IdMappingMode::BROADCAST)
+      .value("permissive", IdMappingMode::PERMISSIVE)
+      .value("loop", IdMappingMode::LOOP);
 }
 
 } // namespace nvfuser::python

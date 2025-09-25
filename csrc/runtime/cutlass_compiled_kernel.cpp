@@ -168,6 +168,13 @@ void CutlassCompiledKernel::run(
 void CutlassCompiledKernel::generateCode() {
   FUSER_PERF_SCOPE("CutlassCompiledKernel::generateCode");
 
+  cutlass_code_ = getStructuredCodeFromExternalFiles(getGlobalFusionCount());
+  if (!cutlass_code_.empty()) {
+    debug() << "Found external cutlass code:\n";
+    debug() << cutlass_code_ << std::endl;
+    return;
+  }
+
   // Generate CUTLASS kernel code using the code generator
   cutlass_code_ = cutlass_codegen::generateCode(fusion_, params_);
 
@@ -289,6 +296,8 @@ std::string getCompileCommand(
 
 void CutlassCompiledKernel::compileWithNVCC() {
   FUSER_PERF_SCOPE("CutlassCompiledKernel::compileWithNVCC");
+
+  NVF_ERROR(!cutlass_code_.empty());
 
   // Create temporary directory for compilation
   temp_dir_ = std::filesystem::temp_directory_path() /
