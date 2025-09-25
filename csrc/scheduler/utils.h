@@ -683,14 +683,14 @@ void applyTransforms(
 std::vector<int64_t> domainReorderAsLogicalMap(TensorView* tv);
 
 // Generates an old to new map to reorder tv's logical domain as its allocation
-// order. This only handles the simple case where allocation is a permutation of
-// loop domain, otherwise, the function returns an empty container.
+// order. Allocation domain is canonicalized to find a permutation of the
+// logical domain that satisfies the order in allocation domain.
 std::unordered_map<int64_t, int64_t> maybeReorderLogicalAsAllocationMap(
     TensorView* tv);
 
 // Generates an old to new map to reorder tv's loop domain as its allocation
-// order. This only handles the simple case where allocation is a permutation of
-// loop domain, otherwise, the function returns an empty container.
+// order. Allocation domain is transformed to find a permutation of the loop
+// domain that satisfies the order in allocation domain.
 std::unordered_map<int64_t, int64_t> maybeReorderLoopAsAllocationMap(
     TensorView* tv);
 

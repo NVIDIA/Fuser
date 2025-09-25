@@ -2266,63 +2266,62 @@ std::vector<int64_t> domainReorderAsLogicalMap(TensorView* tv) {
 
 std::unordered_map<int64_t, int64_t> maybeReorderLogicalAsAllocationMap(
     TensorView* tv) {
-  std::unordered_map<int64_t, int64_t> ret;
+  std::unordered_map<int64_t, int64_t> reorder_map;
   if (!tv->hasAllocation()) {
-    return ret;
+    return reorder_map;
   }
-  const auto& logical_dom = tv->getLogicalDomain();
+  const auto& logical_domain = tv->getLogicalDomain();
   std::optional<Layout> layout = canonicalizeLayout(tv);
-  NVF_ERROR(layout.has_value());
-  const auto& alloc_dom = layout->allocation_domain();
-  if (alloc_dom == logical_dom) {
-    return ret;
+  NVF_ERROR(
+      layout.has_value(),
+      "Failed to canonicalize layout of ",
+      tv->domain()->toString(0, false));
+  const auto& alloc_domain = layout->allocation_domain();
+  if (alloc_domain == logical_domain) {
+    return reorder_map;
   }
-  if (!std::is_permutation(
-          alloc_dom.begin(), alloc_dom.end(), logical_dom.begin())) {
-    return ret;
-  }
-  std::unordered_map<IterDomain*, int64_t> alloc_index;
-  std::unordered_map<IterDomain*, int64_t> rfactor_index;
-  for (auto i : arange((int64_t)alloc_dom.size())) {
-    alloc_index[alloc_dom[i]] = i;
-    rfactor_index[logical_dom[i]] = i;
-  }
-  for (auto iter_dom : alloc_dom) {
-    ret[rfactor_index[iter_dom]] = alloc_index[iter_dom];
-  }
-  return ret;
+  std::optional<std::vector<int64_t>> permutation =
+      ir_utils::computePermutation(alloc_domain, logical_domain);
+  int64_t idx = 0;
+  std::transform(
+      *permutation.begin(),
+      *permutation.end(),
+      std::inserter(reorder_map, reorder_map.end()),
+      [&idx](const int64_t v) { return std::make_pair(idx++, v); });
+  return reorder_map;
 }
 
 std::unordered_map<int64_t, int64_t> maybeReorderLoopAsAllocationMap(
     TensorView* tv) {
-  std::unordered_map<int64_t, int64_t> ret;
+  std::unordered_map<int64_t, int64_t> reorder_map;
   if (!tv->hasAllocation()) {
-    return ret;
+    return reorder_map;
   }
-  const auto& loop_dom = tv->getLoopDomain();
+  const std::vector<IterDomain*>& loop_domain = tv->getLoopDomain();
+  std::vector<IterDomain*> alloc_domain = tv->getAllocationDomain();
   auto transform_exprs = DependencyCheck::getAllExprsBetween(
-      {tv->getAllocationDomain().begin(), tv->getAllocationDomain().end()},
-      {loop_dom.begin(), loop_dom.end()});
-  std::vector<IterDomain*> alloc_dom = tv->getAllocationDomain();
-  applyTransforms(alloc_dom, transform_exprs);
+      {alloc_domain.begin(), alloc_domain.end()},
+      {loop_domain.begin(), loop_domain.end()});
+  applyTransforms(alloc_domain, transform_exprs);
 
-  if (alloc_dom == loop_dom) {
-    return ret;
+  if (alloc_domain == loop_domain) {
+    return reorder_map;
   }
-  if (!std::is_permutation(
-          alloc_dom.begin(), alloc_dom.end(), loop_dom.begin())) {
-    return ret;
-  }
-  std::unordered_map<IterDomain*, int64_t> alloc_index;
-  std::unordered_map<IterDomain*, int64_t> rfactor_index;
-  for (auto i : arange((int64_t)alloc_dom.size())) {
-    alloc_index[alloc_dom[i]] = i;
-    rfactor_index[loop_dom[i]] = i;
-  }
-  for (auto iter_dom : alloc_dom) {
-    ret[rfactor_index[iter_dom]] = alloc_index[iter_dom];
-  }
-  return ret;
+  std::optional<std::vector<int64_t>> permutation =
+      ir_utils::computePermutation(alloc_domain, loop_domain);
+  NVF_ERROR(
+      permutation.has_value(),
+      "Failed to find a valid permutation for reordering",
+      toDelimitedString(loop_domain),
+      " as ",
+      toDelimitedString(alloc_domain));
+  int64_t idx = 0;
+  std::transform(
+      *permutation.begin(),
+      *permutation.end(),
+      std::inserter(reorder_map, reorder_map.end()),
+      [&idx](const int64_t v) { return std::make_pair(idx++, v); });
+  return reorder_map;
 }
 
 void propagateReshapeTransforms(Fusion* fusion, const ComputeAtMap& ca_map) {
