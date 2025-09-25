@@ -106,7 +106,7 @@ if(BUILD_CUTLASS)
     FetchContent_Declare(
       repo-cutlass
       GIT_REPOSITORY https://github.com/NVIDIA/cutlass
-      GIT_TAG        f115c3f85467d5d9619119d1dbeb9c03c3d73864
+      GIT_TAG        f3fde58372d33e9a5650ba7b80fc48b3b49d40c8
       GIT_SHALLOW    OFF
     )
     FetchContent_Populate(repo-cutlass)
@@ -172,6 +172,9 @@ if(BUILD_CUTLASS)
       CUDA_ARCHITECTURES "100a"
     )
     install(TARGETS nvf_cutlass EXPORT NvfuserTargets DESTINATION lib)
+    install(DIRECTORY ${repo-cutlass_SOURCE_DIR}/include/cute DESTINATION include)
+    install(DIRECTORY ${repo-cutlass_SOURCE_DIR}/include/cutlass DESTINATION include)
+    install(DIRECTORY ${repo-cutlass_SOURCE_DIR}/tools/util/include/cutlass DESTINATION include)
 
   endif()
 endif()
@@ -767,9 +770,9 @@ if(BUILD_PYTHON)
   install(TARGETS nvfuser DESTINATION lib)
 
   # ------------------------------------------------
-  # build nvfuser next python library
+  # build nvfuser direct python library
   # ------------------------------------------------
-  # nvfuser next bindings API sources
+  # nvfuser direct bindings API sources
   set(NVFUSER_PYTHON_DIRECT_SRCS)
   list(APPEND NVFUSER_PYTHON_DIRECT_SRCS
     ${NVFUSER_PYTHON_DIRECT_BINDINGS}/extension.cpp

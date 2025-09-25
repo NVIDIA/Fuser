@@ -583,6 +583,8 @@ def run(config, version_tag, relative_path):
             "include/nvfuser/flatbuffers/*.h",
             "include/nvfuser/host_ir/*.h",
             "include/nvfuser/id_model/*.h",
+            "include/cute/**/*",
+            "include/cutlass/**/*",
             "share/cmake/nvfuser/NvfuserConfig*",
             # TODO(crcrpar): it'd be better to ship the following two binaries.
             # Would need some change in CMakeLists.txt.
