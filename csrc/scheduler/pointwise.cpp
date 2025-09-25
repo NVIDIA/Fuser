@@ -221,13 +221,11 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
               return std::make_unique<std::unordered_map<int64_t, int64_t>>();
             }
             return std::make_unique<std::unordered_map<int64_t, int64_t>>(
-                scheduler_utils::maybeReorderLogicalAsAllocationMap(
-                    largest_out));
+                scheduler_utils::reorderLogicalAsAllocationMap(largest_out));
           });
   std::unordered_map<int64_t, int64_t> loop_reorder_map;
   if (!has_reshapes) {
-    loop_reorder_map =
-        scheduler_utils::maybeReorderLoopAsAllocationMap(largest_out);
+    loop_reorder_map = scheduler_utils::reorderLoopAsAllocationMap(largest_out);
   }
 
   const std::unordered_map<int64_t, int64_t>& logical_reorder_map =
@@ -971,7 +969,7 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
     // as we normally would.
 
     std::unordered_map<int64_t, int64_t> loop_reorder_map =
-        scheduler_utils::maybeReorderLoopAsAllocationMap(reference_tv);
+        scheduler_utils::reorderLoopAsAllocationMap(reference_tv);
     if (!loop_reorder_map.empty()) {
       reference_tv->reorder(loop_reorder_map);
     }

@@ -2264,7 +2264,7 @@ std::vector<int64_t> domainReorderAsLogicalMap(TensorView* tv) {
   return *permutation;
 }
 
-std::unordered_map<int64_t, int64_t> maybeReorderLogicalAsAllocationMap(
+std::unordered_map<int64_t, int64_t> reorderLogicalAsAllocationMap(
     TensorView* tv) {
   std::unordered_map<int64_t, int64_t> reorder_map;
   if (!tv->hasAllocation()) {
@@ -2291,7 +2291,7 @@ std::unordered_map<int64_t, int64_t> maybeReorderLogicalAsAllocationMap(
   return reorder_map;
 }
 
-std::unordered_map<int64_t, int64_t> maybeReorderLoopAsAllocationMap(
+std::unordered_map<int64_t, int64_t> reorderLoopAsAllocationMap(
     TensorView* tv) {
   std::unordered_map<int64_t, int64_t> reorder_map;
   if (!tv->hasAllocation()) {
