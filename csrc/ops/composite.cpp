@@ -14,6 +14,8 @@
 #include <ops/utils.h>
 #include <transform_view.h>
 
+#include <ranges>
+
 namespace nvfuser {
 
 ForwardDropoutResult dropout(TensorView* x, Val* prob) {
@@ -171,8 +173,8 @@ TensorView* newForLinear(
 } // namespace
 
 TensorView* linear(TensorView* input, TensorView* weight, TensorView* bias) {
-  auto input_ndims =
-      TensorDomain::noReductions(input->getLogicalDomain()).size();
+  const auto input_ndims = std::ranges::distance(
+      input->getLogicalDomain() | TensorDomain::kNoReductions);
   NVF_CHECK(input_ndims > 0, "Input A must be at least 1D.");
 
   // `linear` previously supported 1D weight and 0D bias. The support was
@@ -185,8 +187,8 @@ TensorView* linear(TensorView* input, TensorView* weight, TensorView* bias) {
   // unsqueeze followed by a 2D/1D linear followed by a squeeze. It'll likely
   // be the same speed because nvFuser treats squeezes and unsqueezes as meta
   // ops and run them on the host.
-  auto weight_ndims =
-      TensorDomain::noReductions(weight->getLogicalDomain()).size();
+  const auto weight_ndims = std::ranges::distance(
+      weight->getLogicalDomain() | TensorDomain::kNoReductions);
   NVF_CHECK(
       weight_ndims >= 2,
       "Input B must be at least 2D. The last two dimensions represent out "
@@ -202,7 +204,8 @@ TensorView* linear(TensorView* input, TensorView* weight, TensorView* bias) {
 
   if (bias != nullptr) {
     NVF_CHECK(
-        !TensorDomain::noReductions(bias->getLogicalDomain()).empty(),
+        !std::ranges::empty(
+            bias->getLogicalDomain() | TensorDomain::kNoReductions),
         "Input bias must be at least 1D. The last dimension represents out "
         "features. The extra, preceding dimensions are expected to be "
         "parallelized on DIDs during scheduling: ",

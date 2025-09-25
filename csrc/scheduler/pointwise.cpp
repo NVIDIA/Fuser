@@ -22,6 +22,8 @@
 #include <scheduler/utils.h>
 #include <scheduler/vectorize_helper.h>
 
+#include <ranges>
+
 namespace nvfuser {
 
 namespace {
@@ -232,24 +234,25 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
   // cacheBefore, the reference tensor will have all reduction IDs removed.
   ref_loop = TensorDomain::noDevices(TensorDomain::noReductions(ref_loop));
 
-  std::vector<int64_t> elem_counts(ref_loop.size(), 1);
+  std::vector<int64_t> elem_counts;
+  elem_counts.reserve(ref_loop.size());
   int64_t n_elems = 1;
-  for (size_t ref_i = 0; ref_i < ref_loop.size(); ref_i++) {
-    auto inferred_val =
-        runtime_info.expressionEvaluator().evaluate(ref_loop[ref_i]->extent());
+  for (IterDomain* ref_id : ref_loop) {
+    auto extent_pvalue =
+        runtime_info.expressionEvaluator().evaluate(ref_id->extent());
     NVF_ERROR(
-        inferred_val.hasValue(),
+        extent_pvalue.hasValue(),
         "Error inferring size for pointwise scheduler: ",
-        ref_loop[ref_i]->extent()->toInlineString());
-    elem_counts[ref_i] = inferred_val.as<int64_t>();
-    n_elems *= elem_counts[ref_i];
+        ref_id->extent()->toInlineString());
+    auto extent = extent_pvalue.as<int64_t>();
+    elem_counts.push_back(extent);
+    n_elems *= extent;
   }
 
   // If zero dimensional or zero size, return default parameters
-  if (TensorDomain::noDevices(
-          TensorDomain::noReductions(
-              TensorDomain::noBroadcasts(largest_out->getLoopDomain())))
-          .empty() ||
+  if (std::ranges::empty(
+          largest_out->getLoopDomain() | TensorDomain::kNoReductions |
+          TensorDomain::kNoBroadcasts | TensorDomain::kNoDevices) ||
       n_elems == 0) {
     auto vectorizable_inputs_outputs_entry = HeuristicDataCacheEntry<
         HeuristicCompileTime::VectorizableInputsAndOutputs>(data_cache, []() {

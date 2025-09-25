@@ -89,15 +89,18 @@ class FusionDefinition:
         # Monkey patching nvfuser_direct.ops submodule to mimic python_frontend
         # FusionDefinition.ops API. This is to maintain backwards compatibilty.
         self.ops = ops
+        # Monkey patching nvfuser_direct.schedule submodule to mimic python_frontend
+        # FusionDefinition.schedule API. This is to maintain backwards compatibilty.
+        self.sched = schedule
         self._fusion = None
         self._fusion_guard = None
 
     @property
     def fusion(self):
-        if not hasattr(self, "fec"):
-            return self._fusion
-        else:
+        if hasattr(self, "fec"):
             return self.fec.fusion()
+        else:
+            return self._fusion
 
     def __repr__(self):
         """
@@ -272,7 +275,8 @@ class FusionDefinition:
         _disable_options: list[str] = [],
     ) -> list[torch.Tensor]:
         """
-        Execute the fusion with the given inputs.
+        Execute the fusion with the given inputs. The fusion is automatically
+        scheduled and supports input caching.
 
         Parameters
         ----------
@@ -299,6 +303,9 @@ class FusionDefinition:
             fake_mode = FakeTensorMode()
             self.fake_inputs = [fake_mode.from_tensor(inp) for inp in inputs]
 
+        assert not hasattr(
+            self, "ke"
+        ), "KernelExecutor already exists! Use manual_execute() to execute the fusion."
         if not hasattr(self, "fec"):
             is_valid, error_message = self.validate_definition()
             if not is_valid:
@@ -314,6 +321,32 @@ class FusionDefinition:
             _enable_options=_enable_options,
             _disable_options=_disable_options,
         )
+
+    def manual_execute(self, inputs):
+        """
+        Execute the fusion with the given inputs.
+
+        Parameters
+        ----------
+        inputs : list of torch.Tensor
+            Input tensors to the fusion
+
+        Returns
+        -------
+        list of torch.Tensor
+            Output tensors from the fusion
+        """
+        assert not hasattr(
+            self, "fec"
+        ), "FusionExecutorCache already exists! Use execute() to execute the fusion."
+
+        if not hasattr(self, "ke"):
+            self.ke = KernelExecutor()
+
+        if not self.ke.is_compiled():
+            self.ke.compile(self.fusion, inputs)
+
+        return self.ke.run(inputs)
 
     def last_repro_script(self) -> str:
         assert (
@@ -441,7 +474,8 @@ class FusionDefinition:
     ):
         """
         Validates the fusion outputs against the provided reference outputs.
-        Tolerances are determined based on datatype and reduction size.
+        Outputs are obtained using execute method, which uses the
+        FusionExecutorCache with automatic scheduling.
 
         Parameters
         ----------
@@ -459,18 +493,61 @@ class FusionDefinition:
         None
         """
         fusion_outputs = self.execute(inputs, device=device, **kwargs)
-        assert (
-            hasattr(self, "fec") and self.fec is not None
-        ), "FusionExecutorCache is not initialized"
+        self._validate(self.fec.fusion(), fusion_outputs, reference_outputs, inputs)
 
+    def manual_validate(
+        self,
+        inputs: list[torch.Tensor],
+        reference_outputs: Optional[list[torch.Tensor]] = None,
+    ):
+        """
+        Validates the fusion outputs against the provided reference outputs.
+        Outputs are obtained using execute method, which uses the
+        FusionExecutorCache with automatic scheduling.
+
+        Parameters
+        ----------
+        inputs : list of torch.Tensor
+            A list of inputs expected by the fusion definition
+        reference_outputs : list of torch.Tensor, optional
+            A list of reference outputs to validate against
+
+        Returns
+        -------
+        None
+        """
+        fusion_outputs = self.manual_execute(inputs)
+        self._validate(self.fusion, fusion_outputs, reference_outputs, inputs)
+
+    def _validate(self, fusion, fusion_outputs, reference_outputs, inputs):
+        """
+        A helper function to validate the fusion outputs against the provided
+        reference outputs. Tolerances are determined based on datatype and
+        reduction size.
+
+        Parameters
+        ----------
+        fusion : Fusion
+            The fusion to validate
+        fusion_outputs : list of torch.Tensor
+            A list of fusion outputs to validate
+        reference_outputs : list of torch.Tensor, optional
+            A list of reference outputs to validate against
+        inputs : list of torch.Tensor
+            A list of inputs expected by the fusion definition
+
+        Returns
+        -------
+        None
+        """
         if reference_outputs is None:
-            return self.fec.validate_with_auto_inferred_outputs(fusion_outputs, inputs)
+            return validate_with_auto_inferred_outputs(fusion, fusion_outputs, inputs)
 
         assert len(fusion_outputs) == len(
             reference_outputs
         ), f"Expected {len(fusion_outputs)} reference outputs for validation."
 
-        tolerance_values = self.fec.get_val_tolerances(inputs)
+        tolerance_values = get_val_tolerances(fusion, inputs)
         assert len(tolerance_values) == len(
             fusion_outputs
         ), f"Missing tolerance values, expected {len(fusion_outputs)}, got {len(tolerance_values)}"

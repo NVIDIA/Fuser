@@ -461,4 +461,10 @@ void inlineSelectedAt(
   }
 }
 
+void resetInlining(Fusion* fusion) {
+  for (auto tv : fusion->allTvs()) {
+    tv->clearComputePosition();
+  }
+}
+
 } // namespace nvfuser

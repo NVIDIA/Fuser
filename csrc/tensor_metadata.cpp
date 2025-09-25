@@ -17,6 +17,9 @@
 #include <polymorphic_value.h>
 #include <tensor_metadata.h>
 
+#include <iterator>
+#include <ranges>
+
 namespace nvfuser {
 
 namespace {
@@ -222,11 +225,11 @@ void validateAllocationSizesAndStrides(
     const std::vector<std::optional<bool>>& contiguity,
     c10::IntArrayRef sizes,
     c10::IntArrayRef strides) {
-  NVF_ERROR(alloc_dom.size() == contiguity.size());
+  NVF_ERROR_EQ(alloc_dom.size(), contiguity.size());
   checkAllEqual(
-      {TensorDomain::noReductions(alloc_dom).size(),
-       sizes.size(),
-       strides.size()});
+      {std::ranges::distance(alloc_dom | TensorDomain::kNoReductions),
+       std::ssize(sizes),
+       std::ssize(strides)});
 
   int64_t expected_stride_if_contiguous = 1;
   auto dim_index = static_cast<int64_t>(sizes.size());
@@ -246,25 +249,25 @@ void validateAllocationSizesAndStrides(
     if (alloc_id->isBroadcast()) {
       NVF_CHECK(!contiguity[domain_index].has_value());
       if (alloc_id->hasExpandedExtent()) {
-        NVF_CHECK(
-            stride == 0,
+        NVF_CHECK_EQ(
+            stride,
+            0,
             "Expecting an expanded dimension on dimension ",
-            dim_index,
-            " but found stride ",
-            stride);
+            dim_index);
       }
       continue;
     }
 
     if (alloc_id->isDeviceDim()) {
-      NVF_CHECK(size == 1);
+      NVF_CHECK_EQ(size, 1);
       continue;
     }
 
     NVF_CHECK(contiguity[domain_index].has_value());
     if (*contiguity[domain_index]) {
-      NVF_CHECK(
-          stride == expected_stride_if_contiguous,
+      NVF_CHECK_EQ(
+          stride,
+          expected_stride_if_contiguous,
           "Stride mismatch with contiguity info. ",
           " allocation domain: ",
           ir_utils::toString(alloc_dom),
@@ -275,11 +278,7 @@ void validateAllocationSizesAndStrides(
           "; contiguity: ",
           toDelimitedString(contiguity),
           "; dim: ",
-          domain_index,
-          "; expected stride: ",
-          expected_stride_if_contiguous,
-          "; actual stride: ",
-          stride);
+          domain_index);
     }
     expected_stride_if_contiguous = stride * size;
   }
@@ -299,7 +298,7 @@ inferAndValidateAllocationSizesAndStrides(
   std::vector<int64_t> logical_sizes = unshardedSizes(tv, tensor.sizes());
   std::unordered_map<IterDomain*, std::pair<int64_t, int64_t>> active_ids;
   int64_t dim_index = 0;
-  for (IterDomain* id : TensorDomain::noReductions(logical)) {
+  for (IterDomain* id : logical | TensorDomain::kNoReductions) {
     active_ids[id] = {logical_sizes.at(dim_index), tensor.stride(dim_index)};
     dim_index++;
   }
@@ -314,7 +313,7 @@ inferAndValidateAllocationSizesAndStrides(
   std::vector<int64_t> allocation_strides;
   allocation_sizes.reserve(alloc.size());
   allocation_strides.reserve(alloc.size());
-  for (IterDomain* id : TensorDomain::noReductions(alloc)) {
+  for (IterDomain* id : alloc | TensorDomain::kNoReductions) {
     if (id->isDeviceDim()) {
       allocation_sizes.push_back(1);
     } else {

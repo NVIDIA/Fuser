@@ -293,7 +293,7 @@ class VectorOfUniqueEntries {
 //! DisjointSet::*AreMapped(a,b) checks if a and b belong to the same disjoint
 //! set
 template <typename T, typename Hash = std::hash<T>>
-class DisjointSets {
+class NVF_API DisjointSets {
  public:
   using DisjointSet = std::shared_ptr<VectorOfUniqueEntries<T, Hash>>;
   using DisjointSetMap = std::unordered_map<T, DisjointSet, Hash>;

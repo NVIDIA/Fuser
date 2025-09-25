@@ -113,4 +113,7 @@ NVF_API void inlineSelectedAt(
     bool best_effort = false,
     const std::unordered_set<IterDomain*>& uninlinable_ids = {});
 
+// Reset inlining of all tensors
+void resetInlining(Fusion* fusion);
+
 } // namespace nvfuser

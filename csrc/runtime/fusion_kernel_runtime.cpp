@@ -273,9 +273,7 @@ void FusionKernelRuntime::deserialize(
           executors_.at(group_id).get(),
           fusion_to_run.get(),
           args_metadata_,
-          heuristic_params->lparams,
-          heuristic_params->cparams,
-          heuristic_params->scheduler_type);
+          heuristic_params);
     }
   }
 }
@@ -780,9 +778,7 @@ void FusionKernelRuntime::compileKernel(
       executors_.at(group_id).get(),
       fusion_to_run.get(),
       args,
-      heuristic_params->lparams,
-      heuristic_params->cparams,
-      heuristic_params->scheduler_type);
+      heuristic_params);
 }
 
 const std::vector<std::unique_ptr<HeuristicParams>>& FusionKernelRuntime::

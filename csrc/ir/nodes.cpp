@@ -5,6 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <algorithm>
 #include <complex>
 #include <iterator>
 #include <numeric>
@@ -292,6 +293,7 @@ ScatterOp::ScatterOp(
     int64_t dim,
     Val* index,
     Val* src,
+    bool exact_sizes,
     std::optional<BinaryOpType> accumulate_op)
     : Expr(passkey) {
   addInput(self);
@@ -299,6 +301,7 @@ ScatterOp::ScatterOp(
   addInput(src);
   addOutput(out);
   addDataAttribute(dim);
+  addDataAttribute(exact_sizes);
   // is this accumulate?
   addDataAttribute(accumulate_op.has_value());
   if (accumulate_op.has_value()) {
@@ -3246,9 +3249,6 @@ TensorDomain::TensorDomain(
           contiguity.empty() ? getContiguityFilledWith(maybeAllocation(), false)
                              : std::move(contiguity)) {
   validateContiguity(maybeAllocation(), contiguity_);
-
-  // resetDomains initializes other member variables, required by clang-tidy
-  resetDomains();
 }
 
 TensorDomain::TensorDomain(
@@ -3283,9 +3283,6 @@ TensorDomain::TensorDomain(
     }
   }
   validateContiguity(maybeAllocation(), contiguity_);
-
-  // resetDomains initializes other member variables, required by clang-tidy
-  resetDomains();
 }
 
 TensorDomain::TensorDomain(
@@ -3310,9 +3307,6 @@ TensorDomain::TensorDomain(
         "empty");
     validateLoopDomain(logical_domain_, loop_domain_, additional_ids_);
   }
-
-  // resetDomains initializes other member variables, required by clang-tidy
-  resetDomains();
 }
 
 TensorDomain::TensorDomain(
@@ -3339,9 +3333,6 @@ TensorDomain::TensorDomain(
     ir_utils::validateDomainEquivalence(
         logical_domain_, root_domain_, additional_ids_);
   }
-
-  // resetDomains initializes other member variables, required by clang-tidy
-  resetDomains();
 }
 
 TensorDomain::TensorDomain(
@@ -3376,9 +3367,6 @@ TensorDomain::TensorDomain(
     ir_utils::validateDomainEquivalence(
         logical_domain_, allocation_domain_, additional_ids_);
   }
-
-  // resetDomains initializes other member variables, required by clang-tidy
-  resetDomains();
 }
 
 TensorDomain::TensorDomain(
@@ -3423,9 +3411,6 @@ TensorDomain::TensorDomain(
           logical_domain_, alternate_loop_domain_.value(), additional_ids_);
     }
   }
-
-  // resetDomains initializes other member variables, required by clang-tidy
-  resetDomains();
 }
 
 TensorDomain::TensorDomain(IrBuilderPasskey passkey, const TensorDomain* src)
@@ -3437,10 +3422,7 @@ TensorDomain::TensorDomain(IrBuilderPasskey passkey, const TensorDomain* src)
       alternate_loop_domain_(src->alternate_loop_domain_),
       initial_loop_domain_(src->initial_loop_domain_),
       additional_ids_(src->additional_ids_),
-      no_bcast_domain_(src->no_bcast_domain_),
-      no_reduction_domain_(src->no_reduction_domain_),
-      contiguity_(src->contiguity_),
-      has_reduction_(src->has_reduction_) {}
+      contiguity_(src->contiguity_) {}
 
 TensorDomain::TensorDomain(const TensorDomain* src, IrCloner* ir_cloner)
     : Val(src, ir_cloner),
@@ -3451,10 +3433,7 @@ TensorDomain::TensorDomain(const TensorDomain* src, IrCloner* ir_cloner)
       alternate_loop_domain_(ir_cloner->clone(src->alternate_loop_domain_)),
       initial_loop_domain_(ir_cloner->clone(src->initial_loop_domain_)),
       additional_ids_(ir_cloner->clone(src->additional_ids_)),
-      no_bcast_domain_(ir_cloner->clone(src->no_bcast_domain_)),
-      no_reduction_domain_(ir_cloner->clone(src->no_reduction_domain_)),
-      contiguity_(src->contiguity()),
-      has_reduction_(src->has_reduction_) {}
+      contiguity_(src->contiguity()) {}
 
 NVFUSER_DEFINE_CLONE(TensorDomain)
 
@@ -3462,6 +3441,20 @@ bool TensorDomain::hasBlockBroadcast() const {
   return std::any_of(
       loop_domain_.begin(), loop_domain_.end(), [](IterDomain* id) {
         return id->isBroadcast() && id->isThreadDim();
+      });
+}
+
+bool TensorDomain::hasReduction() const {
+  return std::any_of(
+      loop_domain_.begin(), loop_domain_.end(), [](IterDomain* id) {
+        return id->isReduction();
+      });
+}
+
+bool TensorDomain::hasBroadcast() const {
+  return std::any_of(
+      loop_domain_.begin(), loop_domain_.end(), [](IterDomain* id) {
+        return id->isBroadcast();
       });
 }
 
@@ -3473,9 +3466,8 @@ bool TensorDomain::hasGridBroadcast() const {
 }
 
 bool TensorDomain::operator==(const TensorDomain& other) const {
-  // Checks equality of each class field. Should not be necessary to
-  // check no_bcast_domain_ and no_reduction_domain_ as they are just
-  // derived from domain_.
+  // Checks equality of each class field. Derived domains such as reduction or
+  // broadcast views are computed on demand from these fields.
   return root_domain_ == other.root_domain_ &&
       loop_domain_ == other.loop_domain_ &&
       alternate_loop_domain_ == other.alternate_loop_domain_ &&
@@ -3611,16 +3603,7 @@ std::string TensorDomain::toInlineString(int indent_size) const {
 
 void TensorDomain::setContiguity(
     const std::vector<std::optional<bool>>& contig) {
-  NVF_ERROR(
-      maybeAllocation().size() == contig.size(),
-      "Invalid size of contiguity vector");
-  for (auto i : arange(contig.size())) {
-    NVF_CHECK(
-        maybeAllocation().at(i)->isBroadcast() != contig.at(i).has_value(),
-        "The contiguity of a broadcast dimension must be None. "
-        "The contiguity of a non-broadcast dimension must be true/false");
-  }
-
+  validateContiguity(maybeAllocation(), contig);
   contiguity_ = contig;
 }
 
@@ -3762,7 +3745,6 @@ void TensorDomain::split(int64_t axis, Val* factor, bool inner_split) {
   loop_domain_.erase(loop_domain_.begin() + axis);
   loop_domain_.insert(loop_domain_.begin() + axis, split_ids.second);
   loop_domain_.insert(loop_domain_.begin() + axis, split_ids.first);
-  resetDomains();
 }
 
 // Merge "axis_o" and "axis_i" into 1 dimension
@@ -3788,7 +3770,6 @@ void TensorDomain::merge(int64_t axis_o, int64_t axis_i) {
   loop_domain_.erase(loop_domain_.begin() + td_inner_pos);
   loop_domain_.erase(loop_domain_.begin() + td_outer_pos);
   loop_domain_.insert(loop_domain_.begin() + td_outer_pos, merged_id);
-  resetDomains();
 }
 
 // Reorder axes according to map[old_pos] = new_pos
@@ -3797,7 +3778,6 @@ void TensorDomain::reorder(
   NVF_ERROR(
       nDims() != 0 || old2new_.empty(), "Tried to reorder a 0-dim domain");
   loop_domain_ = orderedAs(loop_domain_, old2new_);
-  resetDomains();
 }
 
 std::vector<IterDomain*> TensorDomain::orderedAs(
@@ -3840,8 +3820,6 @@ void TensorDomain::swizzle(SwizzleType swizzle_type, int64_t x, int64_t y) {
 
   loop_domain_.erase(loop_domain_.begin() + y);
   loop_domain_.insert(loop_domain_.begin() + y, axis_out_y);
-
-  resetDomains();
 }
 
 void TensorDomain::swizzle(
@@ -3867,8 +3845,6 @@ void TensorDomain::swizzle(
 
   loop_domain_.erase(loop_domain_.begin() + y);
   loop_domain_.insert(loop_domain_.begin() + y, axis_out_y);
-
-  resetDomains();
 }
 
 void TensorDomain::resize(
@@ -3888,7 +3864,6 @@ void TensorDomain::resize(
       /*mark_as_rfactor=*/false,
       iter_type);
   loop_domain_.at(axis) = resized_id;
-  resetDomains();
 }
 
 std::vector<IterDomain*> TensorDomain::noReductions(
@@ -4038,7 +4013,6 @@ void TensorDomain::setLoopDomain(std::vector<IterDomain*> new_loop_domain) {
   validateLoopDomain(logical(), new_loop_domain, additionalIDs());
   loop_domain_ = std::move(new_loop_domain);
   initial_loop_domain_ = loop_domain_;
-  resetDomains();
 }
 
 void TensorDomain::setAlternateLoopDomain(
@@ -5237,8 +5211,6 @@ std::vector<PolymorphicValue> SdpaBwdOp::evaluate(
   }
   const auto dropout_p = inputs.at(6).as<double>();
   const auto is_causal = inputs.at(7).as<bool>();
-  const auto philox_seed = inputs.at(8).as<at::Tensor>();
-  const auto philox_offset = inputs.at(9).as<at::Tensor>();
 
   // Flash attention requires the last dimension to be padded to 8.
   // https://github.com/pytorch/pytorch/blob/c27882ffa8c1c7e4cf8ebc6c2f879e5b6c8814ad/aten/src/ATen/native/transformers/attention.cpp#L675-L677
@@ -5260,31 +5232,41 @@ std::vector<PolymorphicValue> SdpaBwdOp::evaluate(
   // ATen reference:
   // https://github.com/pytorch/pytorch/blob/c27882ffa8c1c7e4cf8ebc6c2f879e5b6c8814ad/aten/src/ATen/native/transformers/attention.cpp#L680-L681
   // cum_seq_q/k are undefined tensors for non-nested input tensors.
-  auto [grad_query, grad_key, grad_value] =
-      at::_scaled_dot_product_flash_attention_backward(
-          /*grad_output=*/pad_last_dim(bwd_inputs[0], 8),
-          /*query=*/pad_last_dim(bwd_inputs[1], 8),
-          /*key=*/pad_last_dim(bwd_inputs[2], 8),
-          /*value=*/pad_last_dim(bwd_inputs[3], 8),
-          /*output=*/pad_last_dim(bwd_inputs[4], 8),
-          /*logsumexp=*/bwd_inputs[5],
-          /*cum_seq_q=*/at::Tensor(),
-          /*cum_seq_k=*/at::Tensor(),
-          // Note: ATen implementation expects max_q/max_k as scalars.
-          /*max_q=*/bwd_inputs[1].size(2),
-          /*max_k=*/bwd_inputs[2].size(2),
-          /*dropout_p=*/dropout_p,
-          /*is_causal=*/is_causal,
-          /*philox_seed=*/philox_seed,
-          /*philox_offset=*/philox_offset,
-          /*scale=*/scale);
+  at::Tensor grad_query, grad_key, grad_value;
+  if (bwd_inputs[0].is_meta()) {
+    // Meta path: produce tensors with correct shapes/strides
+    grad_query = at::empty_like(bwd_inputs[1]);
+    grad_key = at::empty_like(bwd_inputs[2]);
+    grad_value = at::empty_like(bwd_inputs[3]);
+  } else {
+    const auto philox_seed = inputs.at(8).as<at::Tensor>();
+    const auto philox_offset = inputs.at(9).as<at::Tensor>();
+    std::tie(grad_query, grad_key, grad_value) =
+        at::_scaled_dot_product_flash_attention_backward(
+            /*grad_output=*/pad_last_dim(bwd_inputs[0], 8),
+            /*query=*/pad_last_dim(bwd_inputs[1], 8),
+            /*key=*/pad_last_dim(bwd_inputs[2], 8),
+            /*value=*/pad_last_dim(bwd_inputs[3], 8),
+            /*output=*/pad_last_dim(bwd_inputs[4], 8),
+            /*logsumexp=*/bwd_inputs[5],
+            /*cum_seq_q=*/at::Tensor(),
+            /*cum_seq_k=*/at::Tensor(),
+            // Note: ATen implementation expects max_q/max_k as scalars.
+            /*max_q=*/bwd_inputs[1].size(2),
+            /*max_k=*/bwd_inputs[2].size(2),
+            /*dropout_p=*/dropout_p,
+            /*is_causal=*/is_causal,
+            /*philox_seed=*/philox_seed,
+            /*philox_offset=*/philox_offset,
+            /*scale=*/scale);
+  }
 
-  // If the inputs were padded, slice the gradsto restore the original size
+  // If the inputs were padded, slice the grads to restore the original size
   auto slice_last_dim = [last_dim_size](at::Tensor output) -> at::Tensor {
     if (output.size(-1) != last_dim_size) {
-      return output;
+      return output.slice(-1, 0, last_dim_size);
     }
-    return output.slice(-1, 0, last_dim_size);
+    return output;
   };
 
   // Add device dimension back to outputs.

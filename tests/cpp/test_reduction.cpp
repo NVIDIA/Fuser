@@ -73,7 +73,9 @@ void validateNoParallelBroadcastExist(kir::Kernel* kernel) {
 
 } // namespace
 
-TEST_F(NVFuserTest, FusionGridAllreduce1_CUDA) {
+using ReductionTest = NVFuserTest;
+
+TEST_F(ReductionTest, GridAllreduce1) {
   const int nx = 999;
   const int tidx = 128;
   const int bidx = 4;
@@ -124,7 +126,7 @@ TEST_F(NVFuserTest, FusionGridAllreduce1_CUDA) {
   testValidate(&fusion, cg_outputs, {t0}, {ref}, __LINE__, __FILE__);
 }
 
-TEST_F(NVFuserTest, FusionGridAllreduce2_CUDA) {
+TEST_F(ReductionTest, GridAllreduce2) {
   const int nx = 99;
   const int tidx = 32;
 
@@ -175,7 +177,7 @@ TEST_F(NVFuserTest, FusionGridAllreduce2_CUDA) {
 
 // Grid reduction with serial non-reduction axis. The global work
 // buffer is circular buffered.
-TEST_F(NVFuserTest, FusionGridAllreduce3_CUDA) {
+TEST_F(ReductionTest, GridAllreduce3) {
   const int nx = 100;
   const int ny = 5000;
   const int tidx = 128;
@@ -222,7 +224,7 @@ TEST_F(NVFuserTest, FusionGridAllreduce3_CUDA) {
 }
 
 // Indirect reduction and broadcast
-TEST_F(NVFuserTest, FusionGridAllreduce4_CUDA) {
+TEST_F(ReductionTest, GridAllreduce4) {
   const int nx = 999;
   const int tidx = 128;
 
@@ -267,7 +269,7 @@ TEST_F(NVFuserTest, FusionGridAllreduce4_CUDA) {
 }
 
 // Unused block dimension in the kernel
-TEST_F(NVFuserTest, FusionGridAllreduce5_CUDA) {
+TEST_F(ReductionTest, GridAllreduce5) {
   const int nx = 999;
   const int tidx = 128;
   const int iter = 2;
@@ -328,7 +330,7 @@ TEST_F(NVFuserTest, FusionGridAllreduce5_CUDA) {
   testValidate(&fusion, cg_outputs, {t0, t5}, {ref, t5}, __LINE__, __FILE__);
 }
 
-TEST_F(NVFuserTest, FusionGridAllreduce6_CUDA) {
+TEST_F(ReductionTest, GridAllreduce6) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -382,7 +384,7 @@ TEST_F(NVFuserTest, FusionGridAllreduce6_CUDA) {
       ke.compiledKernel()->kernel(), outputs, {t0}, {ref}, __LINE__, __FILE__);
 }
 
-TEST_F(NVFuserTest, FusionGridAllreduceWelford1_CUDA) {
+TEST_F(ReductionTest, GridAllreduceWelford1) {
   const int nx = 999;
   const int tidx = 128;
 
@@ -430,7 +432,7 @@ TEST_F(NVFuserTest, FusionGridAllreduceWelford1_CUDA) {
 
 // Grid welford reduction with serial non-reduction axis. The global
 // work buffer is circular buffered.
-TEST_F(NVFuserTest, FusionGridAllreduceWelford2_CUDA) {
+TEST_F(ReductionTest, GridAllreduceWelford2) {
   const int nx = 100;
   const int ny = 5000;
   const int tidx = 128;
@@ -479,7 +481,7 @@ TEST_F(NVFuserTest, FusionGridAllreduceWelford2_CUDA) {
 
 // Persistent batchnorm. Uses the fused reduction for grid welford and
 // broadcast.
-TEST_F(NVFuserTest, FusionFusedReductionBatchnorm_CUDA) {
+TEST_F(ReductionTest, FusedReductionBatchnorm) {
   const std::vector<int64_t> input_shape{256, 2048, 14, 14};
 
   std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
@@ -630,7 +632,7 @@ TEST_F(NVFuserTest, FusionFusedReductionBatchnorm_CUDA) {
 }
 
 // Simple grouped reduction
-TEST_F(NVFuserTest, FusionGroupedReduction1_CUDA) {
+TEST_F(ReductionTest, GroupedReduction1) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -665,7 +667,7 @@ TEST_F(NVFuserTest, FusionGroupedReduction1_CUDA) {
 }
 
 // Grouping reductions with different ops
-TEST_F(NVFuserTest, FusionGroupedReduction2_CUDA) {
+TEST_F(ReductionTest, GroupedReduction2) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -711,7 +713,7 @@ TEST_F(NVFuserTest, FusionGroupedReduction2_CUDA) {
 }
 
 // Grouped reduction with different types
-TEST_F(NVFuserTest, FusionGroupedReduction3_CUDA) {
+TEST_F(ReductionTest, GroupedReduction3) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -755,7 +757,7 @@ TEST_F(NVFuserTest, FusionGroupedReduction3_CUDA) {
 }
 
 // Testing validation
-TEST_F(NVFuserTest, FusionGroupedReduction4_CUDA) {
+TEST_F(ReductionTest, GroupedReduction4) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -776,7 +778,7 @@ TEST_F(NVFuserTest, FusionGroupedReduction4_CUDA) {
 }
 
 // Testing validation
-TEST_F(NVFuserTest, FusionGroupedReduction5_CUDA) {
+TEST_F(ReductionTest, GroupedReduction5) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -798,7 +800,7 @@ TEST_F(NVFuserTest, FusionGroupedReduction5_CUDA) {
 }
 
 // Grouping 3 reductions
-TEST_F(NVFuserTest, FusionGroupedReduction6_CUDA) {
+TEST_F(ReductionTest, GroupedReduction6) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -841,7 +843,7 @@ TEST_F(NVFuserTest, FusionGroupedReduction6_CUDA) {
       ke.compiledKernel()->kernel(), outputs, {t0}, __LINE__, __FILE__);
 }
 
-TEST_F(NVFuserTest, FusionGroupedReduction7_CUDA) {
+TEST_F(ReductionTest, GroupedReduction7) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -860,7 +862,7 @@ TEST_F(NVFuserTest, FusionGroupedReduction7_CUDA) {
 }
 
 // Grouping rfactor'ed reductions
-TEST_F(NVFuserTest, FusionGroupedReductionRfactor1_CUDA) {
+TEST_F(ReductionTest, GroupedReductionRfactor1) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -908,7 +910,7 @@ TEST_F(NVFuserTest, FusionGroupedReductionRfactor1_CUDA) {
 }
 
 // Rfactoring grouped reductions
-TEST_F(NVFuserTest, FusionGroupedReductionRfactor2_CUDA) {
+TEST_F(ReductionTest, GroupedReductionRfactor2) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -954,7 +956,7 @@ TEST_F(NVFuserTest, FusionGroupedReductionRfactor2_CUDA) {
 }
 
 // Group reductions of tensors that have computeAt positions set
-TEST_F(NVFuserTest, FusionGroupedReductionAfterComputeAt_CUDA) {
+TEST_F(ReductionTest, GroupedReductionAfterComputeAt) {
   Fusion fusion;
   FusionGuard fg(&fusion);
   auto tv0 = makeSymbolicTensor(2);
@@ -1000,7 +1002,7 @@ TEST_F(NVFuserTest, FusionGroupedReductionAfterComputeAt_CUDA) {
       ke.compiledKernel()->kernel(), outputs, {t0}, {ref}, __LINE__, __FILE__);
 }
 
-TEST_F(NVFuserTest, FusionGroupAllreduce1_CUDA) {
+TEST_F(ReductionTest, GroupAllreduce1) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -1043,7 +1045,7 @@ TEST_F(NVFuserTest, FusionGroupAllreduce1_CUDA) {
 }
 
 // Grid reductionso of different types
-TEST_F(NVFuserTest, FusionGroupAllreduce2_CUDA) {
+TEST_F(ReductionTest, GroupAllreduce2) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -1098,7 +1100,7 @@ TEST_F(NVFuserTest, FusionGroupAllreduce2_CUDA) {
 }
 
 // Grouping 3 grid allreduces
-TEST_F(NVFuserTest, FusionGroupAllreduce3_CUDA) {
+TEST_F(ReductionTest, GroupAllreduce3) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -1152,7 +1154,7 @@ TEST_F(NVFuserTest, FusionGroupAllreduce3_CUDA) {
 }
 
 // Grouping 8 grid allreduces
-TEST_F(NVFuserTest, FusionGroupAllreduce4_CUDA) {
+TEST_F(ReductionTest, GroupAllreduce4) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -1209,9 +1211,9 @@ TEST_F(NVFuserTest, FusionGroupAllreduce4_CUDA) {
       ke.compiledKernel()->kernel(), outputs, {t0}, {ref}, __LINE__, __FILE__);
 }
 
-// Variation of FusionGroupAllreduce5_CUDA but with different
+// Variation of GroupAllreduce5 but with different
 // types. Exercise grouped allreduces with different types.
-TEST_F(NVFuserTest, FusionGroupAllreduce5_CUDA) {
+TEST_F(ReductionTest, GroupAllreduce5) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -1302,7 +1304,7 @@ TEST_F(NVFuserTest, FusionGroupAllreduce5_CUDA) {
 }
 
 // Persistent batchnorm backward with grouped allreduce
-TEST_F(NVFuserTest, FusionPersistentBNBackwardAllreduce_CUDA) {
+TEST_F(ReductionTest, PersistentBNBackwardAllreduce) {
   const std::vector<int64_t> shape({64, 1024, 14, 14});
 
   Fusion fusion;
@@ -1514,7 +1516,7 @@ TEST_F(NVFuserTest, FusionPersistentBNBackwardAllreduce_CUDA) {
       __FILE__);
 }
 
-TEST_F(NVFuserTest, FusionGroupedReductionReEntrant1_CUDA) {
+TEST_F(ReductionTest, GroupedReductionReEntrant1) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -1575,7 +1577,7 @@ TEST_F(NVFuserTest, FusionGroupedReductionReEntrant1_CUDA) {
 
 // Channels-last batch norm with vectorization. Relies on re-entrant
 // GroupedGridReduction
-TEST_F(NVFuserTest, FusionGroupedReductionChannelsLastBatchNormLike_CUDA) {
+TEST_F(ReductionTest, GroupedReductionChannelsLastBatchNormLike) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -1702,9 +1704,7 @@ TEST_F(NVFuserTest, FusionGroupedReductionChannelsLastBatchNormLike_CUDA) {
 }
 
 // Test the grouped grid allreduce with BN-like outer reductions
-TEST_F(
-    NVFuserTest,
-    FusionGroupedReductionPersistentChannelsLastBatchNormLike_CUDA) {
+TEST_F(ReductionTest, GroupedReductionPersistentChannelsLastBatchNormLike) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -1842,7 +1842,7 @@ TEST_F(
       __FILE__);
 }
 
-TEST_F(NVFuserTest, FusionCrossIterationGroupedGridAllreduce1_CUDA) {
+TEST_F(ReductionTest, CrossIterationGroupedGridAllreduce1) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -1918,7 +1918,7 @@ TEST_F(NVFuserTest, FusionCrossIterationGroupedGridAllreduce1_CUDA) {
 }
 
 // Test grouping of two domains
-TEST_F(NVFuserTest, FusionCrossIterationGroupedGridAllreduce2_CUDA) {
+TEST_F(ReductionTest, CrossIterationGroupedGridAllreduce2) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -1997,7 +1997,7 @@ TEST_F(NVFuserTest, FusionCrossIterationGroupedGridAllreduce2_CUDA) {
 }
 
 // Group both expressions and iterations
-TEST_F(NVFuserTest, FusionCrossIterationGroupedGridAllreduce3_CUDA) {
+TEST_F(ReductionTest, CrossIterationGroupedGridAllreduce3) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -2084,7 +2084,7 @@ TEST_F(NVFuserTest, FusionCrossIterationGroupedGridAllreduce3_CUDA) {
 }
 
 // ParallelType::Group with computeAt
-TEST_F(NVFuserTest, FusionCrossIterationGroupedGridAllreduce4_CUDA) {
+TEST_F(ReductionTest, CrossIterationGroupedGridAllreduce4) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -2174,7 +2174,7 @@ TEST_F(NVFuserTest, FusionCrossIterationGroupedGridAllreduce4_CUDA) {
       ke.compiledKernel()->kernel(), outputs, {t0}, {ref}, __LINE__, __FILE__);
 }
 
-TEST_F(NVFuserTest, FusionCrossIterationGroupedGridAllreduceWelford1_CUDA) {
+TEST_F(ReductionTest, CrossIterationGroupedGridAllreduceWelford1) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -2237,7 +2237,7 @@ TEST_F(NVFuserTest, FusionCrossIterationGroupedGridAllreduceWelford1_CUDA) {
 }
 
 // Test grouping of two domains
-TEST_F(NVFuserTest, FusionCrossIterationGroupedGridAllreduceWelford2_CUDA) {
+TEST_F(ReductionTest, CrossIterationGroupedGridAllreduceWelford2) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -2303,7 +2303,7 @@ TEST_F(NVFuserTest, FusionCrossIterationGroupedGridAllreduceWelford2_CUDA) {
 }
 
 // Follows the pattern of persistent outer grid welford in batchnorm
-TEST_F(NVFuserTest, FusionCrossIterationGroupedGridAllreduceWelfordShmoo_CUDA) {
+TEST_F(ReductionTest, CrossIterationGroupedGridAllreduceWelfordShmoo) {
   struct Params {
     int N;
     int H;
@@ -2481,7 +2481,7 @@ TEST_F(NVFuserTest, FusionCrossIterationGroupedGridAllreduceWelfordShmoo_CUDA) {
   }
 }
 
-TEST_F(NVFuserTest, FusionGeluBwdReduction_CUDA) {
+TEST_F(ReductionTest, GeluBwdReduction) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -2547,7 +2547,7 @@ TEST_F(NVFuserTest, FusionGeluBwdReduction_CUDA) {
 
 // Test gathering for lookup as is done in the cross_entropy pattern
 // See https://github.com/NVIDIA/Fuser/issues/151
-TEST_F(NVFuserTest, FusionCrossEntropyGatherPattern_CUDA) {
+TEST_F(ReductionTest, CrossEntropyGatherPattern) {
   const int batch_size = 16384;
   const int num_classes = 60;
   const int tidx = 128;
@@ -2598,7 +2598,7 @@ TEST_F(NVFuserTest, FusionCrossEntropyGatherPattern_CUDA) {
       __FILE__);
 }
 
-TEST_F(NVFuserTest, FusionTensorRankLimit) {
+TEST_F(ReductionTest, TensorRankLimit) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 

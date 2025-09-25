@@ -764,7 +764,6 @@ class NVF_API TensorView : public Val {
   friend MostInlinedTransformPropagator;
   friend TransformReplay;
   friend OptOutMutator;
-  friend class InlineBatchingGuard;
   friend class ir_utils::TVDomainGuard;
 
   // Inline the computation of this tensor into its consumer at the given
@@ -834,6 +833,10 @@ class NVF_API TensorView : public Val {
   // when we modify producer-consumer relationship of a scheduled tensor, for
   // example, grouping multiple reductions.
   void updateMaxProducerPosition(MaxPosCalculator* calc = nullptr);
+
+  // Initialize compute and prodocuer positions. Fusion can result in
+  // an inconsistent state. Use with extreme care.
+  void clearComputePosition();
 
   // Commit the current changes in loop domain into rFactor domain. This
   // function can be used to do implicit transpose and view, but today, only

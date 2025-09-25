@@ -15,7 +15,6 @@
 #include <runtime/executor_kernel_arg.h>
 #include <runtime/fusion_executor_cache.h>
 #include <runtime/fusion_kernel_runtime.h>
-#include <validator_utils.h>
 
 namespace nvfuser::python {
 
@@ -174,7 +173,7 @@ the fusion.
           },
           py::arg("from_outputs_only") = true,
           R"(
-Print arithmetic expressions in the fusion.
+Return a string representing the arithmetic expressions in the fusion.
 
 Parameters
 ----------
@@ -187,6 +186,31 @@ Returns
 -------
 str
     The fusion intermediate representation (IR) as a string.
+)")
+      .def(
+          "print_kernel",
+          [](Fusion& f, const CompileParams& compile_params) {
+            // Send debug messages to stringstream
+            std::stringstream ss;
+            DebugStreamGuard dsg(ss);
+
+            f.printKernel(compile_params);
+            return ss.str();
+          },
+          py::arg("compile_params") = CompileParams(),
+          R"(
+Lower the fusion and return the generated CUDA kernel as a string.
+
+Parameters
+----------
+compile_params : CompileParams, optional
+Parameters to control the compilation process.
+Default is default-constructed CompileParams.
+
+Returns
+-------
+str
+    The CUDA kernel as a string.
 )");
 }
 
@@ -294,51 +318,6 @@ Returns
 -------
 list of torch.Tensor
     The output tensors produced by the fusion.
-)")
-      .def(
-          "validate_with_auto_inferred_outputs",
-          [](FusionExecutorCache& self,
-             const py::iterable& fusion_outputs,
-             const py::iterable& args) {
-            return testValidate(
-                self.fusion(),
-                from_pyiterable(fusion_outputs),
-                from_pyiterable(args));
-          },
-          py::arg("fusion_outputs"),
-          py::arg("args"),
-          R"(
-Validate the fusion outputs with auto inferred outputs.
-
-Parameters
-----------
-fusion_outputs : iterable
-    The fusion outputs to validate.
-args : iterable
-    The arguments to validate the fusion outputs with.
-
-Returns
--------
-None
-)")
-      .def(
-          "get_val_tolerances",
-          [](FusionExecutorCache& self, const py::iterable& args) {
-            return getValTolerances(self.fusion(), from_pyiterable(args));
-          },
-          py::arg("args"),
-          R"(
-Get the validation tolerances for the fusion.
-
-Parameters
-----------
-args : iterable
-    The arguments to get the validation tolerances for.
-
-Returns
--------
-list of tuple of float
-    The validation tolerances for the fusion.
 )")
       .def(
           "is_compiled",
@@ -482,11 +461,133 @@ list of Sharding
 )");
 }
 
+void bindKernelExecutor(py::module& nvfuser) {
+  py::class_<KernelExecutor>(nvfuser, "KernelExecutor")
+      .def(
+          py::init<int64_t, int64_t, int64_t, int64_t>(),
+          R"(
+               Create a new KernelExecutor.
+
+               A KernelExecutor is responsible for compiling and executing CUDA kernels.
+               It manages the compilation process, kernel caching, and runtime execution.
+
+               Parameters
+               ----------
+               fusion_id : int, optional
+                   A unique identifier for the fusion. Used for caching compiled kernels.
+                   Default is 0.
+               concrete_id : int, optional
+                   A unique identifier for the concrete implementation of the fusion.
+                   Used for caching compiled kernels.
+                   Default is 0.
+               runtime_id : int, optional
+                   A unique identifier for the runtime instance.
+                   Used for caching compiled kernels.
+                   Default is 0.
+               group_id : int, optional
+                   A unique identifier for the group of operations.
+                   Used for segmented fusions.
+                   Default is 0.
+
+               Examples
+               --------
+               >>> executor = KernelExecutor()
+               >>> executor.compile(fusion)
+               >>> outputs = executor.run(inputs)
+             )",
+          py::arg("fusion_id") = 0,
+          py::arg("concrete_id") = 0,
+          py::arg("runtime_id") = 0,
+          py::arg("group_id") = 0)
+      .def(
+          "compile",
+          [](KernelExecutor& self,
+             Fusion* fusion,
+             const py::iterable& args,
+             const LaunchParams& launch_constraints,
+             const CompileParams& compile_params,
+             SchedulerType scheduler_type) {
+            self.compile(
+                fusion,
+                from_pyiterable(args),
+                launch_constraints,
+                compile_params,
+                scheduler_type);
+          },
+          R"(
+              Compile a fusion into a CUDA kernel.
+
+              Parameters
+              ----------
+              fusion : Fusion
+                  The fusion to compile.
+              args : KernelArgumentHolder, optional
+                  The kernel arguments. If empty, will be populated during run.
+              launch_constraints : LaunchParams, optional
+                  Constraints for kernel launch parameters.
+              compile_params : CompileParams, optional
+                  Parameters for kernel compilation.
+              scheduler_type : SchedulerType, optional
+                  The type of scheduler to use (default: None).
+
+              Returns
+              -------
+              None
+            )",
+          py::arg("fusion"),
+          py::arg("args") = py::list(),
+          py::arg("launch_constraints") = LaunchParams(),
+          py::arg("compile_params") = CompileParams(),
+          py::arg("scheduler_type") = SchedulerType::None)
+      .def(
+          "run",
+          [](KernelExecutor& self,
+             const py::iterable& args,
+             const LaunchParams& launch_constraints,
+             const CompileParams& compile_params) {
+            KernelArgumentHolder outputs = self.run(
+                from_pyiterable(args), {}, launch_constraints, compile_params);
+            return to_tensor_vector(outputs);
+          },
+          R"(
+              Run the compiled kernel with the given arguments.
+
+              Parameters
+              ----------
+              args : KernelArgumentHolder
+                  The input arguments for the kernel.
+              launch_constraints : LaunchParams, optional
+                  Constraints for kernel launch parameters.
+              compile_params : CompileParams, optional
+                  Parameters for kernel compilation.
+
+              Returns
+              -------
+              KernelArgumentHolder
+                  The output arguments containing the results.
+            )",
+          py::arg("args"),
+          py::arg("launch_constraints") = LaunchParams(),
+          py::arg("compile_params") = CompileParams())
+      .def(
+          "is_compiled",
+          &KernelExecutor::isCompiled,
+          R"(
+               Check if the kernel has been compiled.
+
+               Returns
+               -------
+               bool
+                   True if the kernel has been compiled, False otherwise.
+             )");
+}
+
 } // namespace
 
 void bindRuntime(py::module& nvfuser) {
   bindFusion(nvfuser);
   bindFusionExecutorCache(nvfuser);
+  bindKernelExecutor(nvfuser);
 }
 
 } // namespace nvfuser::python

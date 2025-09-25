@@ -7,6 +7,8 @@
 // clang-format on
 #include <index_compute.h>
 
+#include <ranges>
+
 #include <ATen/cuda/CUDAContext.h>
 
 #include <contiguity.h>
@@ -2101,7 +2103,8 @@ Val* Index::getProducerStridedIndices(
     const std::unordered_map<IterDomain*, Val*>& override_index,
     bool generate_pointer) {
   FUSER_PERF_SCOPE("GpuLower::Lower::Index::getProducerStridedIndices");
-  if (producer->domain()->noReductions().empty()) {
+  if (std::ranges::empty(
+          producer->getLoopDomain() | TensorDomain::kNoReductions)) {
     if (generate_pointer) {
       return IrBuilder::baseAddressExpr(producer);
     } else {
@@ -2278,7 +2281,8 @@ Val* Index::getConsumerStridedIndices(
     const std::unordered_set<kir::ForLoop*>& rotated_loops,
     bool generate_pointer) {
   FUSER_PERF_SCOPE("GpuLower::Lower::Index::getConsumerStridedIndices");
-  if (consumer->domain()->noReductions().empty()) {
+  if (std::ranges::empty(
+          consumer->getLoopDomain() | TensorDomain::kNoReductions)) {
     if (generate_pointer) {
       return IrBuilder::baseAddressExpr(consumer);
     } else {

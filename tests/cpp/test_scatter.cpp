@@ -168,7 +168,69 @@ TEST_F(ScatterTest, GridCounting) {
   testValidate(&fusion, outputs, {t0}, __LINE__, __FILE__);
 }
 
-TEST_F(ScatterTest, BlockCountingWithShmem2D) {
+TEST_P(ScatterTest, BlockCountingWithShmem2DExact) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  const std::vector<int64_t> self_shape{4, 100};
+  const std::vector<int64_t> index_shape{4, 10};
+
+  auto tv0 = makeContigConcreteTensor(index_shape, DataType::Int);
+  fusion.addInput(tv0);
+
+  auto tv1 = set(tv0);
+  auto tv2 = zeros(
+      {IrBuilder::create<Val>(self_shape[0]),
+       IrBuilder::create<Val>(self_shape[1])},
+      DataType::Int);
+  auto tv3 = ones(
+      {IrBuilder::create<Val>(index_shape[0]),
+       IrBuilder::create<Val>(index_shape[1])},
+      DataType::Int);
+  auto tv4 = scatter(tv2, 1, tv1, tv3);
+  auto tv5 = set(tv4);
+  fusion.addOutput(tv5);
+
+  auto options = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
+  auto t0 = at::randperm(self_shape[1], options)
+                .slice(0, 0, index_shape[1])
+                .repeat({index_shape[0], 1});
+
+  if (manual_scheduling) {
+    for (auto tv : fusion.allTvs()) {
+      tv->axis(0)->parallelize(ParallelType::BIDx);
+      tv->axis(1)->parallelize(ParallelType::TIDx);
+    }
+
+    // Scatter input must use the same memory as the output
+    tv2->setMemoryType(MemoryType::Shared);
+    tv2->setAllocationDomain(tv2->getLogicalDomain(), true);
+    tv4->setMemoryType(MemoryType::Shared);
+    tv4->setAllocationDomain(tv4->getLogicalDomain(), true);
+
+    KernelExecutor ke;
+    ke.compile(&fusion, {t0});
+    auto outputs = ke.run({t0});
+
+    testValidate(&fusion, outputs, {t0}, __LINE__, __FILE__);
+  } else {
+    FusionExecutorCache executor_cache(std::move(fusion_ptr));
+    auto outputs = executor_cache.runFusionWithInputs({t0});
+    testValidate(executor_cache.fusion(), outputs, {t0}, __LINE__, __FILE__);
+    FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
+    // All ops should be taken care the greedy scheduler, but there's
+    // an additional segment due to a segmenter_set. Not sure why it
+    // gets inserted.
+    EXPECT_THAT(
+        runtime->fusionSegments()->groups(),
+        testing::UnorderedElementsAre(
+            HeuristicIs(SchedulerType::ExprEval),
+            HeuristicIs(SchedulerType::Greedy)));
+  }
+}
+
+TEST_F(ScatterTest, BlockCountingWithShmem2DNonExact) {
   // Scatter allows the non-indexed domains of the index tensor to
   // have smaller extents, which causes indexing error as there's not
   // traversal path. It is not currently supported.
@@ -209,7 +271,9 @@ TEST_F(ScatterTest, BlockCountingWithShmem2D) {
   tv4->setAllocationDomain(tv4->getLogicalDomain(), true);
 
   auto options = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
-  auto t0 = at::randperm(self_shape[1], options).slice(0, 0, index_shape[1]);
+  auto t0 = at::randperm(self_shape[1], options)
+                .slice(0, 0, index_shape[1])
+                .repeat({index_shape[0], 1});
 
   KernelExecutor ke;
   ke.compile(&fusion, {t0});

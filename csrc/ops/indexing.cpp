@@ -6,6 +6,7 @@
  */
 // clang-format on
 
+#include <expr_simplifier.h>
 #include <ir/all_nodes.h>
 #include <ir/builder.h>
 #include <ir/iostream.h>
@@ -182,6 +183,22 @@ TensorView* scatter(
       "dimensions in scatter like ops.");
   dim = wrapDim(dim, (int64_t)self_dom.size());
 
+  bool is_exact = true;
+  for (const auto i : arange(std::ssize(self_dom))) {
+    if (i == dim) {
+      continue;
+    }
+    Val* self_id_size = self_dom.at(i)->getMaybeExpandedExtent();
+    Val* idx_id_size = idx_dom.at(i)->getMaybeExpandedExtent();
+    auto same_size =
+        simplifyExpr(SimplifyingIrBuilder::eqExpr(self_id_size, idx_id_size));
+    if (same_size->isTrue()) {
+      continue;
+    }
+    is_exact = false;
+    break;
+  }
+
   // The shape of output tensor is same as self tensor.
   std::vector<IterDomain*> out_logical;
   for (const auto i : arange(self_dom.size())) {
@@ -195,13 +212,16 @@ TensorView* scatter(
   }
 
   // Create the loop domain based on the logical domain of the index
-  // tensor.
+  // tensor. For non-scatter axes, reuse the logical IDs if exact.
   std::vector<IterDomain*> out_loop;
   out_loop.reserve(idx_dom.size());
-  std::ranges::transform(
-      idx_dom, std::back_inserter(out_loop), [](IterDomain* id) {
-        return IterDomainBuilder(id).build();
-      });
+  for (const auto& [i, idx_id] : enumerate(idx_dom)) {
+    if ((int64_t)i == dim || !is_exact) {
+      out_loop.push_back(IterDomainBuilder(idx_id).build());
+    } else {
+      out_loop.push_back(out_logical.at(i));
+    }
+  }
 
   // Create the output tensor. The validation of the loop domain needs
   // to be skipped as it is not guaranteed to be equivalent to the
@@ -226,7 +246,7 @@ TensorView* scatter(
   }
 
   IrBuilder::create<ScatterOp>(
-      out_tensor, self, dim, index, src, accumulate_op);
+      out_tensor, self, dim, index, src, is_exact, accumulate_op);
 
   return out_tensor->as<TensorView>();
 }

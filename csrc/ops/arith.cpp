@@ -5,6 +5,10 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <ops/arith.h>
+
+#include <cfloat>
+#include <ranges>
 
 #include <expr_evaluator.h>
 #include <ir/all_nodes.h>
@@ -12,12 +16,9 @@
 #include <ir/iostream.h>
 #include <ir/utils.h>
 #include <ops/alias.h>
-#include <ops/arith.h>
 #include <ops/utils.h>
 #include <type.h>
 #include <type_promotion.h>
-
-#include <cfloat>
 
 namespace nvfuser {
 
@@ -1241,7 +1242,8 @@ namespace {
 // PyTorch accepts reductions of zero-dimensional tensors, which are
 // just ignored.
 TensorView* reductionOpZeroDimTensor(TensorView* inp) {
-  NVF_ERROR(inp->domain()->noReductions().empty());
+  NVF_ERROR(
+      std::ranges::empty(inp->getLoopDomain() | TensorDomain::kNoReductions));
   return set(inp);
 }
 
@@ -1274,12 +1276,15 @@ TensorView* reductionOpRaw(
   NVF_CHECK(!axes.empty(), "No reduction axis specified");
 
   // PyTorch allows reduction of 0-dim tensors
-  if (tv->domain()->noReductions().empty()) {
+  if (std::ranges::empty(tv->getLoopDomain() | TensorDomain::kNoReductions)) {
     return reductionOpZeroDimTensor(tv);
   }
 
+  const auto non_reduction_ndims = static_cast<int64_t>(
+      std::ranges::distance(tv->getLoopDomain() | TensorDomain::kNoReductions));
+
   std::vector<unsigned int> uint_axes =
-      ops::canonicalizeAxes(axes, (int64_t)tv->domain()->noReductions().size());
+      ops::canonicalizeAxes(axes, non_reduction_ndims);
 
   TensorView* out = newForReduction(tv, uint_axes, dtype);
   const auto out_type = out->getDataType().value();
@@ -1545,11 +1550,11 @@ TensorView* min(
 }
 
 std::vector<Val*> shape(TensorView* inp) {
-  auto iter_domains = TensorDomain::noReductions(inp->getLogicalDomain());
+  auto logical_domain = inp->getLogicalDomain() | TensorDomain::kNoReductions;
   std::vector<Val*> shape;
 
-  shape.reserve(iter_domains.size());
-  for (auto id : iter_domains) {
+  shape.reserve(std::ranges::distance(logical_domain));
+  for (IterDomain* id : logical_domain) {
     shape.push_back(id->getMaybeExpandedExtent());
   }
 
@@ -1615,8 +1620,10 @@ WelfordResult WelfordRaw(
   }
 
   // Check and collect reduction axes
+  const auto non_reduction_ndims = static_cast<int64_t>(
+      std::ranges::distance(tv->getLoopDomain() | TensorDomain::kNoReductions));
   std::vector<unsigned int> uint_axes =
-      ops::canonicalizeAxes(axes, (int64_t)tv->domain()->noReductions().size());
+      ops::canonicalizeAxes(axes, non_reduction_ndims);
   // Create tensor outputs
   TensorView* out_avg = newForReduction(tv, uint_axes);
   TensorView* out_var = newForReduction(tv, uint_axes);
@@ -1655,8 +1662,8 @@ WelfordResult Welford(
   NVF_CHECK(!axes.empty(), "No reduction axis specified");
 
   // Check and collect reduction axes
-  auto tv_root = tv->domain()->noReductions();
-  const auto ndims = (int64_t)tv_root.size();
+  const auto& tv_root = TensorDomain::noReductions(tv->getLoopDomain());
+  const auto ndims = std::ssize(tv_root);
   std::vector<unsigned int> uint_axes = ops::canonicalizeAxes(axes, ndims);
   std::sort(uint_axes.begin(), uint_axes.end());
 
@@ -1665,7 +1672,7 @@ WelfordResult Welford(
   std::vector<bool> is_trivial_reduction(ndims, false);
   int offset = 0;
   for (auto axis : uint_axes) {
-    auto id = tv_root[axis];
+    IterDomain* id = tv_root.at(axis);
     is_trivial_reduction[axis] = id->isBroadcast() &&
         !id->hasExpandedExtent() && id->extent()->isOneInt();
     if (!is_trivial_reduction[axis]) {
@@ -2204,7 +2211,9 @@ TensorView* fusedMultiplySum(
       axes.size() == 1, "Single axis reduction only for mma op instantiation.")
 
   std::vector<unsigned int> uint_axes = ops::canonicalizeAxes(
-      axes, (int64_t)tv_a->domain()->noReductions().size());
+      axes,
+      std::ranges::distance(
+          tv_a->getLoopDomain() | TensorDomain::kNoReductions));
 
   TensorView* out = newForMma(tv_a, tv_b, uint_axes);
 

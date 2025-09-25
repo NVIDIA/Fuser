@@ -470,6 +470,10 @@ class ComputeAtLogicalDomainMapBuilder : private BackwardVisitor {
     mapPointwiseLikeOp(op);
   }
 
+  void handle(ScatterOp* op) override {
+    mapPointwiseLikeOp(op);
+  }
+
   void handle(ReductionOp* op) override {
     mapPointwiseLikeOp(op);
   }
@@ -523,6 +527,18 @@ class ComputeAtLogicalDomainMapBuilder : private BackwardVisitor {
   }
 
   void handle(EmbeddingFwdOp* op) override {
+    mapPointwiseLikeOp(op);
+  }
+
+  void handle(ArgsortOp* op) override {
+    mapPointwiseLikeOp(op);
+  }
+
+  void handle(ScanOp* op) override {
+    mapPointwiseLikeOp(op);
+  }
+
+  void handle(TopKOp* op) override {
     mapPointwiseLikeOp(op);
   }
 

@@ -16,6 +16,7 @@
 #include <scheduler/mma_utils.h>
 
 #include <limits>
+#include <ranges>
 #include <set>
 
 namespace nvfuser::ir_utils {
@@ -1332,11 +1333,38 @@ bool hasTrivialAllocationDomain(const TensorView* tv) {
   }
   const std::vector<IterDomain*>& alloc = tv->getMaybeAllocationDomain();
   const std::vector<IterDomain*>& logical = tv->getLogicalDomain();
-  return TensorDomain::noBroadcasts(TensorDomain::noReductions(logical)) ==
-      TensorDomain::noBroadcasts(TensorDomain::noReductions(alloc));
+
+  return std::ranges::equal(
+      logical | TensorDomain::kNoReductions | TensorDomain::kNoBroadcasts,
+      alloc | TensorDomain::kNoReductions | TensorDomain::kNoBroadcasts);
 }
 bool hasUniformSiblings(Expr* expr) {
   return !expr->isOneOf<SdpaFwdOp, SdpaBwdOp>();
+}
+
+bool isPartitionedLoop(const TensorView* tv, IterDomain* id) {
+  // False if id is not a loop ID
+  if (std::find(tv->getLoopDomain().begin(), tv->getLoopDomain().end(), id) ==
+      tv->getLoopDomain().end()) {
+    return false;
+  }
+
+  // If the memory of this domain is partitioned with respect to the
+  // parallel type of the domain, there's no allocation for the domain
+  return ir_utils::isMemoryPartitionedAcross(
+      tv->getMemoryType(), id->getParallelType());
+}
+
+bool mayRequireAllocation(const TensorView* tv, IterDomain* id) {
+  // Conditions to consider:
+  // - Fully partitioned
+  // - Size one: Allocation is done based on the promotion ID, but as
+  // long as the original ID has size one, its allocation should
+  // remain size one.
+  // - Reduction: Check the original ID, not the promotion, which may
+  //   be a reduction ID even though the original ID is not a reduction
+  return !isPartitionedLoop(tv, id) && !isSizeOneDomain(id) &&
+      !id->isReduction() && !id->isStride();
 }
 
 bool hasRootToLoopLinearTransformations(const TensorView* tv) {
@@ -1724,6 +1752,11 @@ std::vector<IterDomain*> propagateScatterAllocationDomain(
 
   return ir_utils::applyPermutation(
       to_logical_domain, logical_to_alloc.value());
+}
+
+bool isParallelizedBy(const std::vector<IterDomain*>& ids, ParallelType pt) {
+  return std::ranges::any_of(
+      ids, [&](IterDomain* id) { return id->getParallelType() == pt; });
 }
 
 } // namespace nvfuser::ir_utils

@@ -7,6 +7,8 @@
 // clang-format on
 #include <transform_view.h>
 
+#include <ranges>
+
 #include <fusion.h>
 #include <instrumentation.h>
 #include <ir/builder.h>
@@ -351,7 +353,7 @@ class AnalyzeViewTransformation {
     const int64_t original_num_elements = std::accumulate(
         original_view_.begin(), original_view_.end(), 1, std::multiplies<>());
     const int64_t new_num_elements = std::accumulate(
-        new_view_.begin(), new_view.end(), 1, std::multiplies<>());
+        new_view_.begin(), new_view_.end(), 1, std::multiplies<>());
     NVF_ERROR(
         original_num_elements == new_num_elements,
         "Total element counts across view operation must match: ",
@@ -777,9 +779,9 @@ AnalyzeViewResult analyzeView(
     return {std::vector<bool>(new_sizes.size(), true), {}, {}};
   }
 
-  NVF_ERROR(
-      TensorDomain::noReductions(original_view_tv->getLogicalDomain()).size() ==
-      original_sizes.size());
+  const auto logical_rank = std::ranges::distance(
+      original_view_tv->getLogicalDomain() | TensorDomain::kNoReductions);
+  NVF_ERROR_EQ(logical_rank, std::ssize(original_sizes));
 
   // Fill -1 dimension in new_std::vector<int64_t> with size infered from all
   // other values

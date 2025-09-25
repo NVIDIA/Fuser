@@ -78,13 +78,13 @@ struct MultiDeviceExecutorParams {
 
 class MultiDeviceExecutor {
  public:
-  MultiDeviceExecutor(
+  NVF_API MultiDeviceExecutor(
       std::unique_ptr<Fusion> fusion,
       Communicator& comm = Communicator::getInstance(),
       MultiDeviceExecutorParams params = MultiDeviceExecutorParams());
 
   // Run the fusion on several devices with the given global inputs
-  KernelArgumentHolder runWithInput(const KernelArgumentHolder& inputs);
+  NVF_API KernelArgumentHolder runWithInput(const KernelArgumentHolder& inputs);
 
   // Returns the Communicator
   Communicator* comm() const {
@@ -92,7 +92,7 @@ class MultiDeviceExecutor {
   }
 
   //! Print to default debugging output stream
-  std::ostream& print(std::ostream& os = debug());
+  NVF_API std::ostream& print(std::ostream& os = debug());
 
   const auto& getFusionExecutorCaches() {
     return host_ir_executor_->getFusionExecutorCaches();

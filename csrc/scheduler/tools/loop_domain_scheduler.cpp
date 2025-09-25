@@ -14,6 +14,7 @@
 #include <scheduler/tools/loop_domain_scheduler.h>
 #include <val_graph_visitor.h>
 
+#include <ranges>
 #include <unordered_set>
 
 namespace nvfuser {
@@ -405,9 +406,10 @@ ValGraphBFS::ExprPath LoopDomainScheduler::getReplayPath(TensorView* tv) const {
   //
   // In the case of the update mode, the target should be just the
   // current loop domain of the tensor.
-  ValGroups tv_target_domains = graph().toGroups(TensorDomain::noBroadcasts(
-      update_loop_domain_only_ ? tv->getLoopDomain()
-                               : tv->getMaybeRootDomain()));
+  ValGroups tv_target_domains = graph().toGroups(
+      (update_loop_domain_only_ ? tv->getLoopDomain()
+                                : tv->getMaybeRootDomain()) |
+      TensorDomain::kNoBroadcasts);
 
   // If all the target domains are an ancestor of the reference
   // domains, just a single backward BFS should be enough to find a

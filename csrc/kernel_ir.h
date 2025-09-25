@@ -1772,5 +1772,45 @@ class RNGOp : public Expr {
   }
 };
 
+// Only used for initializing a tensor that is produced by a grouped
+// operation such as the grouped outer reduction. Since the
+// initialization is done by a scalar, most commoly by zero, the input
+// has to be a scalar Val.
+//
+// Since this is meant to be used just for initialization, it could be
+// named like GroupedInitOp too.
+class GroupedLoadStoreOp : public Expr {
+ public:
+  using Expr::Expr;
+
+  // The group size is the aggregate size of all grouped iter
+  // domains. For example, the output has two grouped iter domains
+  // with extents 2 and 4, the group size would be 8.
+  GroupedLoadStoreOp(
+      IrBuilderPasskey,
+      TensorIndex* out,
+      Val* in,
+      int64_t group_size);
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+
+  const char* getOpString() const override {
+    return "GroupedLoadStoreOp";
+  }
+
+  TensorIndex* out() const {
+    return output(0)->as<TensorIndex>();
+  }
+
+  Val* in() const {
+    return input(0);
+  }
+
+  int64_t groupSize() const;
+};
+
 } // namespace kir
 } // namespace nvfuser
