@@ -69,13 +69,15 @@ IrCloner Fusion::copy(const Fusion* from, Fusion* to) {
   }
 
   // TODO: put this into ir_cloner instead
-  for (const auto& [output, alias_info] : from->io_alias_) {
-    Val* copied_output = ir_cloner.clone(output);
-    Val* copied_input = ir_cloner.clone(alias_info.aliased_io);
-    to->io_alias_[copied_output] = {
-        .type = alias_info.type,
-        .aliased_io = copied_input,
-        .hide_output = alias_info.hide_output};
+  for (Val* out : from->outputs_) {
+    const AliasInfo& alias = from->io_alias_.get(out);
+    if (alias.type == AllocationType::New) {
+      continue;
+    }
+
+    Val* copied_out = ir_cloner.clone(out);
+    Val* copied_in = ir_cloner.clone(alias.aliased_io);
+    to->io_alias_.add(copied_out, copied_in, alias.type, alias.visibility);
   }
 
   to->all_tv_uses_valid_ = from->all_tv_uses_valid_;
@@ -272,15 +274,17 @@ void Fusion::addOutputInternal(Val* output) {
 void Fusion::addOutput(Val* output) {
   // special handling for returning aliased output. We just need to remove its
   // existing entry in the outputs_ used for inplace update
-  if (io_alias_.count(output) != 0) {
+  AliasInfo alias = io_alias_.get(output);
+  if (alias.type != AllocationType::New) {
     // if previous output is only added for aliasing purpose, we should remove
     // the previous entry and add a new one. Otherwise, it may be positioned
     // wrong in the output list.
-    if (io_alias_[output].hide_output) {
+    if (alias.visibility == OutputVisibility::kHidden) {
       removeOutput(output);
     }
     // output shouldn't be hidden any more
-    io_alias_[output].hide_output = false;
+    alias.visibility = OutputVisibility::kVisible;
+    io_alias_.add(output, alias.aliased_io, alias.type, alias.visibility);
   }
 
   addOutputInternal(output);
@@ -333,10 +337,10 @@ void Fusion::replaceOutput(Val* output, Val* replacement) {
 
   // Temporary WAR for issue #1112
   // (https://github.com/csarofeen/pytorch/issues/1112)
-  if (io_alias_.count(output) != 0) {
-    auto input = io_alias_[output];
+  AliasInfo alias = io_alias_.get(output);
+  if (alias.type != AllocationType::New) {
     io_alias_.erase(output);
-    io_alias_[replacement] = input;
+    io_alias_.add(replacement, alias.aliased_io, alias.type, alias.visibility);
   }
 }
 
@@ -759,6 +763,15 @@ std::vector<Val*> Fusion::getTerminatingOutputs() const {
   return terminating_outputs;
 }
 
+std::ostream& operator<<(std::ostream& os, OutputVisibility visibility) {
+  switch (visibility) {
+    case OutputVisibility::kVisible:
+      return os << "Visible";
+    case OutputVisibility::kHidden:
+      return os << "Hidden";
+  }
+}
+
 void Fusion::aliasOutputToInput(
     Val* output,
     Val* input,
@@ -772,8 +785,7 @@ void Fusion::aliasOutputToInput(
     NVF_CHECK(
         output->isFusionOutput(),
         "Only fusion outputs can be expression evaluated.");
-    io_alias_[output] =
-        AliasInfo{.type = type, .aliased_io = input, .hide_output = false};
+    io_alias_.add(output, input, type, OutputVisibility::kVisible);
     return;
   }
 
@@ -803,10 +815,12 @@ void Fusion::aliasOutputToInput(
   // Let integration hide any output that wasn't a fusion output when
   // `aliasOutputToInput` was called. For example, running mean and var for
   // batch norm.
-  io_alias_[output] = AliasInfo{
-      .type = type,
-      .aliased_io = input,
-      .hide_output = !output->isFusionOutput()};
+  io_alias_.add(
+      output,
+      input,
+      type,
+      !output->isFusionOutput() ? OutputVisibility::kHidden
+                                : OutputVisibility::kVisible);
 
   // only add output when it's not in outputs_
   if (!output->isFusionOutput()) {
@@ -815,12 +829,7 @@ void Fusion::aliasOutputToInput(
 }
 
 const AliasInfo& Fusion::getOutputAlias(const Val* output) const {
-  static AliasInfo no_alias_info{
-      .type = AllocationType::New, .aliased_io = nullptr, .hide_output = false};
-  if (auto search = io_alias_.find(output); search != io_alias_.end()) {
-    return search->second;
-  }
-  return no_alias_info;
+  return io_alias_.get(output);
 }
 
 bool Fusion::hasDynamicTransform() {
