@@ -1762,29 +1762,8 @@ void eraseInputDistinctRootDomains(Fusion* fusion) {
     auto logical = tv->getLogicalDomain();
     new_logical_domain.reserve(logical.size());
 
-    // Does the logical domain contain all concrete sized extents?
-    bool tv_is_concrete = true;
-    for (auto id : logical) {
-      if (!id->extent()->isConstScalar()) {
-        tv_is_concrete = false;
-        break;
-      }
-    }
-
     for (const auto& id : logical) {
-      if (id->isRFactorProduct()) {
-        // Create new symbolic extents for logical iterDomains
-        auto domain_extent = (!tv_is_concrete)
-            ? IrBuilder::create<Val>(DataType::Index)
-            : id->extent();
-        replacement_map.emplace(id->extent(), domain_extent);
-        new_logical_domain.push_back(IterDomainBuilder(id)
-                                         .extent(domain_extent)
-                                         .resetSchedulingParams()
-                                         .build());
-      } else {
-        new_logical_domain.push_back(id->cloneWithoutRFactor());
-      }
+      new_logical_domain.push_back(id->cloneWithoutRFactor());
     }
 
     TensorDomain* new_td = nullptr;
