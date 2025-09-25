@@ -31,7 +31,6 @@
 
 #include <ATen/cuda/CUDAContext.h>
 
-#include <iterator>
 #include <ranges>
 #include <vector>
 
@@ -140,14 +139,6 @@ std::vector<int64_t> getDependentLoopIds(
   return loop_id_offsets;
 }
 
-struct ScatterAccumulateInfo {
-  ScatterOp* scatter;
-  ReductionOp* reduction;
-  FullOp* full;
-  IterDomain* scatter_out_id;
-  IterDomain* scatter_index_id;
-};
-
 class CompileTimeChecker : private IterVisitor {
  public:
   static bool run(Fusion* fusion, const ValGraph& exact_graph) {
@@ -233,8 +224,7 @@ class CompileTimeChecker : private IterVisitor {
             ScanOp,
             PadOp,
             ScatterOp,
-            TopKOp,
-            ReductionOp>();
+            TopKOp>();
     if (!can_schedule_) {
       reject("Unsupported operation: ", expr->toString());
       return;
@@ -327,8 +317,6 @@ class CompileTimeChecker : private IterVisitor {
       return;
     }
 
-    auto out_tv = ir_utils::getTvOutput(scatter);
-
     // In the case of scatter, the scatter dimension doesn't need to
     // be parallelized with TID, but we need to make sure it isn't
     // parallelized with BID. In that sense, categorizing it as a
@@ -342,6 +330,7 @@ class CompileTimeChecker : private IterVisitor {
     // out tensor is not mapped with the logical domain, we still need
     // to make sure the logical is also schedulable as the input and
     // also the consumer of the output need to be schedulable.
+    auto out_tv = ir_utils::getTvOutput(scatter);
     checkDomainConstraints(
         out_tv->domain()->logical(), {constrained_out_logical_dim});
 
@@ -383,15 +372,6 @@ class CompileTimeChecker : private IterVisitor {
     auto topk_id = out_tv->getLogicalDomain().at(topk->dim());
     if (!topk_id->extent()->isConstInt()) {
       reject("Symbolic dimension not supported yet: ", topk->toString());
-      return;
-    }
-  }
-
-  // Currently, only scatter + sum is supported, which is then
-  // translated to ScatterOp with accumulation
-  void handle(ReductionOp* reduction) override {
-    if (!scatter_accumulate_reductions_.contains(reduction)) {
-      reject("Unsupported reduciton: ", reduction->toString());
       return;
     }
   }
@@ -518,9 +498,6 @@ class CompileTimeChecker : private IterVisitor {
   int64_t largest_constrained_size_ = -1;
   // Sizes of iter domains where all threads must participate without predicate
   std::unordered_set<int64_t> all_exact_constrained_sizes_;
-
-  // ReductionOps that can be translated to Scatter with accumulation
-  std::unordered_set<ReductionOp*> scatter_accumulate_reductions_;
 };
 
 class RunTimeChecker : private IterVisitor {
