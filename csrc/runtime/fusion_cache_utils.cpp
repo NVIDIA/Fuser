@@ -94,8 +94,7 @@ void resetAllocationDomainAndContiguity(
   NVF_ERROR(
       no_reduction_domain.size() == strides.size(),
       "Strides and logical domain must have the same number of dimensions");
-  for (auto [size, stride, id] :
-       views::zip_view(sizes, strides, no_reduction_domain)) {
+  for (auto [size, stride, id] : zip(sizes, strides, no_reduction_domain)) {
     dims.push_back({size, stride, id});
   }
   // Sort by stride in descending order
@@ -123,7 +122,7 @@ void resetAllocationDomainAndContiguity(
   // necessarily broadcast: it can also be a device parallelized dimension,
   // or just a dynamic size N where N happens to be 1. For this case, we need
   // to actually check the IterType of the IterDomain and fix the contiguity.
-  for (auto [index, id] : views::enumerate_view(sorted_allocation_domain)) {
+  for (auto [index, id] : enumerate(sorted_allocation_domain)) {
     if (!id->isBroadcast() && !contiguity_without_reduction[index].has_value()) {
       contiguity_without_reduction[index] = true;
     }
