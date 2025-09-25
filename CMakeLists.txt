@@ -770,9 +770,9 @@ if(BUILD_PYTHON)
   install(TARGETS nvfuser DESTINATION lib)
 
   # ------------------------------------------------
-  # build nvfuser next python library
+  # build nvfuser direct python library
   # ------------------------------------------------
-  # nvfuser next bindings API sources
+  # nvfuser direct bindings API sources
   set(NVFUSER_PYTHON_DIRECT_SRCS)
   list(APPEND NVFUSER_PYTHON_DIRECT_SRCS
     ${NVFUSER_PYTHON_DIRECT_BINDINGS}/extension.cpp
