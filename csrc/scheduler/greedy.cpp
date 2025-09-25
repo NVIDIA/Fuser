@@ -148,181 +148,6 @@ struct ScatterAccumulateInfo {
   IterDomain* scatter_index_id;
 };
 
-// Look for the pattern like below:
-//
-// index = [m, 1];
-// scatter_inp = zeros([m, n]); // [m, n]
-// scatter_out = scatter(scatter_inp, 1, index, src=1);
-// reduction_out = scatter_out.sum(0); // [n]
-//
-// It will be translated as:
-//
-// index = index.squeeze(-1) // [m]
-// scatter_inp = zeros([n]); // [n]
-// scatter_out = scatter(scatter_inp, 0, index, src=1, BinaryOpType::Add)
-//
-// To find if a ScatterOp is a candidate for the above
-// scatter-accumulate pattern, the following conditions are checked:
-//
-// - Scatter input must be 2D
-// - Scatter is not scatter-accumulate
-// - All ops must be exclusively used by the ops of this pattern
-// except for the last output
-// - Full op initializes the scatter input using the same value as
-// the reduction init value
-// - Scatter-accumulate must be deterministic, which means, for
-// example, the data type must be integer
-// - The scatter dimension of the index tensor must be a broadcast
-//
-// Additionally, upcast may be automatically inserted between
-// scatter and reduction. Skip upcast if any
-std::pair<std::optional<ScatterAccumulateInfo>, std::string>
-getMaybeScatterAccumulate(ScatterOp* scatter) {
-  auto fail = []<typename... Args>(Args&&... args) {
-    std::stringstream reason;
-    ((reason << args << " "), ...);
-    return std::make_pair(std::nullopt, reason.str());
-  };
-
-  auto scatter_in = scatter->in()->as<TensorView>();
-  auto scatter_out = scatter->out()->as<TensorView>();
-
-  if (std::ssize(scatter_out->getLogicalDomain()) != 2) {
-    return fail(
-        "Unsupported scatter + reduction pattern. Invalid scatter: ",
-        scatter->toString());
-  }
-
-  if (scatter->accumulate()) {
-    return fail(
-        "Unsupported scatter + reduction pattern due to: ",
-        scatter->toString());
-  }
-
-  // Scatter output must not be used outside of this op sequence
-  if (scatter_out->uses().size() != 1) {
-    return fail(
-        "Unsupported scatter + reduction pattern due to multiple uses of "
-        "scatter output: ",
-        scatter->toString());
-  }
-
-  // Scatter input must be created by a FullOp with the same value
-  // as the reduction init value
-  auto full = dynamic_cast<FullOp*>(scatter_in->definition());
-  if (full == nullptr) {
-    return fail(
-        "Unsupported scatter + reduction pattern due to missing full op");
-  }
-
-  // The full shape will be replaced with a 1D tensor of the same
-  // size as the scatter dimension, and thus the output must not be
-  // used by anything else.
-  if (full->output(0)->uses().size() > 1) {
-    return fail(
-        "Unsupported scatter + reduction pattern due to multiple uses of full "
-        "output: ",
-        full->toString());
-  }
-
-  auto scatter_out_use = scatter_out->uses().at(0);
-
-  // int32_t is automatically upcast to int64_t before reduction.
-  if (auto cast = dynamic_cast<UnaryOp*>(scatter_out_use); cast != nullptr &&
-      cast->getUnaryOpType() == UnaryOpType::Cast &&
-      cast->in()->dtype() == DataType::Int32 &&
-      cast->out()->dtype() == DataType::Int) {
-    if (cast->output(0)->uses().size() != 1) {
-      return fail(
-          "Unsupported scatter + reduction pattern due to multiple uses of "
-          "cast output: ",
-          cast->toString());
-    }
-    scatter_out_use = cast->output(0)->uses().at(0);
-  }
-
-  auto reduction = dynamic_cast<ReductionOp*>(scatter_out_use);
-
-  if (reduction == nullptr) {
-    return fail("Unsupported scatter + reduction pattern. No reduction found.");
-  }
-
-  auto reduction_out = reduction->out()->as<TensorView>();
-
-  if (!full->getFillValue()->sameAs(reduction->init())) {
-    return fail(
-        "Unsupported scatter + reduction pattern due to invalid full op: ",
-        full->toString());
-  }
-
-  auto reduction_type = reduction->getReductionOpType();
-
-  const bool is_deterministic =
-      !isFloatingPointType(reduction->in()->dtype()) ||
-      reduction_type == BinaryOpType::Max ||
-      reduction_type == BinaryOpType::Min;
-
-  if (!is_deterministic) {
-    return fail(
-        "Unsupported scatter + reduction pattern due to: not deterministic");
-  }
-
-  // Scatter dimension of the index tensor must be a size-one
-  // dimension.
-  auto index_logical = TensorDomain::noReductions(
-      scatter->index()->as<TensorView>()->getLogicalDomain());
-  IterDomain* index_scatter_dim = index_logical.at(scatter->dim());
-  if (!index_scatter_dim->extent()->isOneInt()) {
-    return fail(
-        "Unsupported scatter + reduction pattern due to: invalid index "
-        "tensor: ",
-        scatter->index()->toString());
-  }
-
-  // The non-scatter dimension must must be reduced
-  NVF_ERROR_EQ(
-      scatter_out->getLogicalDomain().size(),
-      reduction_out->getLogicalDomain().size());
-  for (const auto& [scatter_logical_id, reduction_logical_id] :
-       zip(scatter_out->getLogicalDomain(),
-           reduction_out->getLogicalDomain())) {
-    if (scatter_out->getLogicalDomain().at(scatter->dim()) ==
-        scatter_logical_id) {
-      // scatter dimension -> should not be reduced
-      if (reduction_logical_id->isReduction()) {
-        return fail(
-            "Unsupported scatter + reduction pattern due to: scatter dimension "
-            "should not be reduced: ",
-            scatter_out->toString(),
-            ", ",
-            reduction_out->toString());
-      }
-    } else {
-      // Non scatter dimension -> should be reduced
-      if (!reduction_logical_id->isReduction()) {
-        return fail(
-            "Unsupported scatter + reduction pattern due to: non-scatter "
-            "dimension should be reduced: ",
-            scatter_out->toString(),
-            ", ",
-            reduction_out->toString());
-      }
-    }
-  }
-
-  // At this point, it should be safe to translate scatter +
-  // reduction to scatter-accumulate as long as the new
-  // scatter-accumualte is schedulable. Note that both scatter in and
-  // index must be 2D
-  auto scatter_out_id = scatter_out->getLogicalDomain().at(scatter->dim());
-  auto scatter_index_id = index_logical.at(scatter->dim() == 0 ? 1 : 0);
-
-  return {
-      ScatterAccumulateInfo{
-          scatter, reduction, full, scatter_out_id, scatter_index_id},
-      ""};
-}
-
 class CompileTimeChecker : private IterVisitor {
  public:
   static bool run(Fusion* fusion, const ValGraph& exact_graph) {
@@ -502,45 +327,34 @@ class CompileTimeChecker : private IterVisitor {
       return;
     }
 
-    const auto& [scatter_accum_info, reason] =
-        getMaybeScatterAccumulate(scatter);
-
     auto out_tv = ir_utils::getTvOutput(scatter);
 
-    if (!scatter_accum_info.has_value()) {
-      // In the case of scatter, the scatter dimension doesn't need to
-      // be parallelized with TID, but we need to make sure it isn't
-      // parallelized with BID. In that sense, categorizing it as a
-      // constrained ID may be too restrictive.
-      // TODO: Consider introducing another group of IDs that are semi
-      // constrained.
-      auto constrained_out_logical_dim = scatter->dim();
+    // In the case of scatter, the scatter dimension doesn't need to
+    // be parallelized with TID, but we need to make sure it isn't
+    // parallelized with BID. In that sense, categorizing it as a
+    // constrained ID may be too restrictive.
+    // TODO: Consider introducing another group of IDs that are semi
+    // constrained.
+    auto constrained_out_logical_dim = scatter->dim();
 
-      // For the scatter in and out tensors, the scatter dimension must
-      // not be parallelized with BID. Note that the loop domain of the
-      // out tensor is not mapped with the logical domain, we still need
-      // to make sure the logical is also schedulable as the input and
-      // also the consumer of the output need to be schedulable.
-      checkDomainConstraints(
-          out_tv->domain()->logical(), {constrained_out_logical_dim});
+    // For the scatter in and out tensors, the scatter dimension must
+    // not be parallelized with BID. Note that the loop domain of the
+    // out tensor is not mapped with the logical domain, we still need
+    // to make sure the logical is also schedulable as the input and
+    // also the consumer of the output need to be schedulable.
+    checkDomainConstraints(
+        out_tv->domain()->logical(), {constrained_out_logical_dim});
 
-      // In addition, the index and src tensors are not allowed to use
-      // BID with the scatter dim. Their logical domains are not mapped
-      // with the logical domains of the input and output tensors, so
-      // they need to be checked separately.
-      checkDomainConstraints(
-          TensorDomain::noReductions(
-              scatter->index()->as<TensorView>()->getLogicalDomain()),
-          {constrained_out_logical_dim});
-      // Index and src tensors are mapped, so just checking index should
-      // be sufficient.
-    } else {
-      // This will be translated to a 1D scatter-accumulate
-      checkDomainConstraints({scatter_accum_info->scatter_out_id}, {0});
-      checkDomainConstraints({scatter_accum_info->scatter_index_id}, {0});
-
-      scatter_accumulate_reductions_.insert(scatter_accum_info->reduction);
-    }
+    // In addition, the index and src tensors are not allowed to use
+    // BID with the scatter dim. Their logical domains are not mapped
+    // with the logical domains of the input and output tensors, so
+    // they need to be checked separately.
+    checkDomainConstraints(
+        TensorDomain::noReductions(
+            scatter->index()->as<TensorView>()->getLogicalDomain()),
+        {constrained_out_logical_dim});
+    // Index and src tensors are mapped, so just checking index should
+    // be sufficient.
   }
 
   void handle(PadOp* pad) override {
@@ -759,17 +573,10 @@ class RunTimeChecker : private IterVisitor {
     auto out = ir_utils::getTvOutput(scatter);
     auto index = scatter->index()->as<TensorView>();
 
-    const auto& [scatter_accum_info, reason] =
-        getMaybeScatterAccumulate(scatter);
-    if (!scatter_accum_info.has_value()) {
-      checkDomainConstraints(out->getLogicalDomain(), {scatter->dim()});
-      checkDomainConstraints(
-          TensorDomain::noReductions(index->getLogicalDomain()),
-          {scatter->dim()});
-    } else {
-      checkDomainConstraints({scatter_accum_info->scatter_out_id}, {0});
-      checkDomainConstraints({scatter_accum_info->scatter_index_id}, {0});
-    }
+    checkDomainConstraints(out->getLogicalDomain(), {scatter->dim()});
+    checkDomainConstraints(
+        TensorDomain::noReductions(index->getLogicalDomain()),
+        {scatter->dim()});
   }
 
   // Since all constrained IDs are flattened and parallelized with
@@ -889,55 +696,6 @@ void insertCopyAfter(Fusion* fusion) {
     }
   }
 }
-
-// Translate the scatter and reduciton pattern to
-// scatter-accumulate. See also the comment at
-// getMaybeScatterAccumulate.
-class TranslateScatterAccumulate : public OptOutDispatch {
- public:
-  static void run(Fusion* fusion) {
-    TranslateScatterAccumulate translator(fusion);
-  }
-
- private:
-  TranslateScatterAccumulate(Fusion* fusion) {
-    for (auto expr : fusion->exprs()) {
-      dispatch(expr);
-    }
-  }
-
-  void handle(ScatterOp* sop) final {
-    const auto& [info, reason] = getMaybeScatterAccumulate(sop);
-
-    if (!info.has_value()) {
-      return;
-    }
-
-    auto scatter_dim = sop->dim();
-
-    // Squeeze the broadcast of the index input
-    auto index_tv = sop->index()->as<TensorView>();
-    index_tv = squeeze(index_tv, {scatter_dim});
-
-    // Src can be a scalar. If it's a tensor, squeeze it as well
-    auto src = sop->src();
-    if (auto src_tv = dynamic_cast<TensorView*>(src)) {
-      src = squeeze(src_tv, {scatter_dim});
-    }
-
-    // Create a new scatter input of size [n]
-    auto scatter_inp = full(
-        {info->scatter_out_id->extent()},
-        info->full->getFillValue(),
-        info->full->output(0)->dtype());
-
-    auto scatter_out = scatter(
-        scatter_inp, 0, index_tv, src, info->reduction->getReductionOpType());
-
-    ir_utils::replaceValInAllExprInputsAndFusionOutputs(
-        info->reduction->out(), scatter_out);
-  }
-};
 
 class ConstrainedOpScheduler : public OptOutDispatch {
  public:
@@ -1339,8 +1097,6 @@ void GreedyScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
   auto cached_inputs = scheduler_utils::cacheInputs(fusion, true);
   // Cache and fork outputs
   auto cached_outputs = scheduler_utils::cacheAndForkOutputs(fusion, true);
-
-  TranslateScatterAccumulate::run(fusion);
 
   propagateReshape(fusion);
 

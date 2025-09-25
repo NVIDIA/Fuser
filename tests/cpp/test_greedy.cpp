@@ -637,7 +637,10 @@ TEST_F(GreedySchedulerTest, TranslateScatterAndReductionToScatterAccumulate) {
   auto tv4 = sum(tv3, {0});
   fusion.addOutput(tv4);
 
-  fusion.printMath();
+  // Just to force the bottom-up segmenter to kick in and test if the
+  // above ops can be fused
+  auto tv5 = segment_set(tv0);
+  fusion.addOutput(tv5);
 
   auto options = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
   auto t0 = at::randint(0, m, {n, 1}, options);
@@ -646,7 +649,56 @@ TEST_F(GreedySchedulerTest, TranslateScatterAndReductionToScatterAccumulate) {
   auto outputs = executor_cache.runFusionWithInputs({t0});
   testValidate(executor_cache.fusion(), outputs, {t0}, __LINE__, __FILE__);
 
-  EXPECT_FALSE(executor_cache.getMostRecentKernelRuntime()->isSegmented());
+  // There must not be a reduction segment
+  FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
+  EXPECT_THAT(
+      runtime->fusionSegments()->groups(),
+      testing::UnorderedElementsAre(
+          HeuristicIs(SchedulerType::ExprEval),
+          HeuristicIs(SchedulerType::Greedy)));
+}
+
+TEST_F(
+    GreedySchedulerTest,
+    TranslateScatterAndReductionToScatterAccumulateWithCast) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  const int64_t m = 128;
+  const int64_t n = 1024;
+
+  // Each element is [0, m).
+  auto tv0 = makeContigConcreteTensor({n, 1}, DataType::Int32);
+  fusion.addInput(tv0);
+
+  auto tv1 = set(tv0);
+  auto tv2 = zeros(
+      {IrBuilder::create<Val>(n), IrBuilder::create<Val>(m)}, DataType::Int32);
+  auto tv3 = scatter(tv2, 1, tv1, fusion.oneVal(DataType::Int32));
+  auto tv4 = castOp(DataType::Int, tv3);
+  auto tv5 = sum(tv4, {0});
+  fusion.addOutput(tv5);
+
+  // Just to force the bottom-up segmenter to kick in and test if the
+  // above ops can be fused
+  auto tv6 = segment_set(tv0);
+  fusion.addOutput(tv6);
+
+  auto options = at::TensorOptions().dtype(at::kInt).device(at::kCUDA, 0);
+  auto t0 = at::randint(0, m, {n, 1}, options);
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs({t0});
+  testValidate(executor_cache.fusion(), outputs, {t0}, __LINE__, __FILE__);
+
+  // There must not be a reduction segment
+  FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
+  EXPECT_THAT(
+      runtime->fusionSegments()->groups(),
+      testing::UnorderedElementsAre(
+          HeuristicIs(SchedulerType::ExprEval),
+          HeuristicIs(SchedulerType::Greedy)));
 }
 
 } // namespace nvfuser
