@@ -172,6 +172,9 @@ if(BUILD_CUTLASS)
       CUDA_ARCHITECTURES "100a"
     )
     install(TARGETS nvf_cutlass EXPORT NvfuserTargets DESTINATION lib)
+    install(DIRECTORY ${repo-cutlass_SOURCE_DIR}/include/cute DESTINATION include)
+    install(DIRECTORY ${repo-cutlass_SOURCE_DIR}/include/cutlass DESTINATION include)
+    install(DIRECTORY ${repo-cutlass_SOURCE_DIR}/tools/util/include/cutlass DESTINATION include)
 
   endif()
 endif()
