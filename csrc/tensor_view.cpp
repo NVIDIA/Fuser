@@ -323,12 +323,7 @@ void TensorView::computeWith(int64_t pos, bool best_effort) {
     return;
   }
 
-  // Update the siblings together
-  auto siblings = ir_utils::filterByType<TensorView>(definition()->outputs());
-
-  for (auto sibling : siblings) {
-    sibling->clearComputeWith();
-  }
+  clearComputeWith();
 
   // If the given position is the same as the computeAt position, this
   // is a no-op
@@ -336,9 +331,7 @@ void TensorView::computeWith(int64_t pos, bool best_effort) {
     return;
   }
 
-  for (auto sibling : siblings) {
-    sibling->compute_with_pos_ = (unsigned int)pos;
-  }
+  compute_with_pos_ = (unsigned int)pos;
 
   for (auto consumer : ir_utils::consumerTvsOf(this)) {
     consumer->updateMaxProducerPosition();
@@ -377,15 +370,7 @@ int64_t TensorView::getComputePosition(const TensorView* consumer) const {
 
 bool TensorView::resolveComputeWith(const std::vector<Expr*>& sorted_exprs) {
   NVF_ERROR(container()->isA<kir::Kernel>(), "Function invalid for fusion.");
-
   auto siblings = ir_utils::filterByType<TensorView>(definition()->outputs());
-
-  for (auto sibling : siblings) {
-    NVF_ERROR(
-        sibling->hasComputeWith(),
-        "Invlaid attempt to resolve computeWith: ",
-        sibling->toString());
-  }
 
   // It may have been already resolved through its siblings
   if (hasResolvedComputeWith()) {
@@ -394,6 +379,9 @@ bool TensorView::resolveComputeWith(const std::vector<Expr*>& sorted_exprs) {
 
   std::unordered_set<Expr*> use_set;
   for (auto sibling : siblings) {
+    if (!sibling->hasComputeWith()) {
+      continue;
+    }
     use_set.insert(sibling->uses().begin(), sibling->uses().end());
   }
 
@@ -408,6 +396,9 @@ bool TensorView::resolveComputeWith(const std::vector<Expr*>& sorted_exprs) {
         ir_utils::filterByType<TensorView>(expr->outputs()).end()};
 
     for (auto sibling : siblings) {
+      if (!sibling->hasComputeWith()) {
+        continue;
+      }
       sibling->compute_with_consumers_ = use_out_tvs;
     }
 

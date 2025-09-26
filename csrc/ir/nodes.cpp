@@ -828,7 +828,9 @@ std::string BinaryOp::toString(int indent_size) const {
   }
 
   ss << " = ";
-  printHelper(ss, indent_size, lhs()->toString(), rhs()->toString());
+  // Use inline strings so scalar temps print their defining expressions
+  printHelper(
+      ss, indent_size, lhs()->toInlineString(), rhs()->toInlineString());
   ss << ";\n";
   return ss.str();
 }
@@ -1666,6 +1668,7 @@ std::vector<PolymorphicValue> ReductionOp::evaluate(
     case BinaryOpType::Min:
       return {at::amin(input, reduction_axes)};
       break;
+
     default:
       NVF_CHECK(
           false,
@@ -6051,25 +6054,43 @@ NVFUSER_DEFINE_CLONE_AND_CREATE(ScaledMmaOp)
 ScanOp::ScanOp(
     IrBuilderPasskey passkey,
     BinaryOpType op_type,
+    Val* output_inclusive,
+    Val* output_exclusive,
+    Val* input,
+    Val* discount_factor,
     Val* init,
-    Val* out,
-    Val* in,
     int64_t dim)
     : Expr(passkey) {
-  addOutput(out);
-  addInput(in);
-  addAttribute(init);
+  addOutput(output_inclusive);
+  if (output_exclusive != nullptr) {
+    addOutput(output_exclusive);
+  }
+  addInput(input);
+  if (discount_factor != nullptr) {
+    addInput(discount_factor);
+  }
   addDataAttribute(op_type);
   addDataAttribute(dim);
+  addDataAttribute(output_exclusive != nullptr);
+  addAttribute(init);
 }
 
 std::string ScanOp::toString(int indent_size) const {
   std::stringstream ss;
   indent(ss, indent_size) << out()->toString();
+  if (hasExclusive()) {
+    ss << ",\n";
+    indent(ss, indent_size) << outExclusive()->toString();
+  }
+  // reduction output removed
   ss << "\n";
-  indent(ss, indent_size + 1) << " = scan(" << in()->toString() << ",\n";
+  indent(ss, indent_size + 1) << " = scan(" << opType() << ",\n";
+  indent(ss, indent_size + 1) << "        " << in()->toString() << ",\n";
   indent(ss, indent_size + 1) << "        dim=" << dim() << ",\n";
-  indent(ss, indent_size + 1) << "        op_type=" << opType() << ",\n";
+  if (discountFactor() != nullptr) {
+    indent(ss, indent_size + 1)
+        << "        discount_factor=" << discountFactor()->toString() << ",\n";
+  }
   indent(ss, indent_size + 1)
       << "        init=" << init()->toInlineString() << ")\n";
   return ss.str();
@@ -6083,33 +6104,122 @@ std::vector<PolymorphicValue> ScanOp::evaluate(
     const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
   auto input = inputs.at(0).as<at::Tensor>();
+  std::vector<PolymorphicValue> outputs;
+  if (discountFactor() == nullptr) {
+    NVF_ERROR(inputs.size() == 1);
 
-  NVF_ERROR(inputs.size() == 1);
+    at::Tensor out_inclusive;
+    float identity;
+    switch (opType()) {
+      case BinaryOpType::Add:
+        out_inclusive = at::cumsum(input, dim());
+        identity = 0.0;
+        break;
+      case BinaryOpType::Max:
+        out_inclusive = std::get<0>(at::cummax(input, dim()));
+        identity = -std::numeric_limits<float>::infinity();
+        break;
+      case BinaryOpType::Min:
+        out_inclusive = std::get<0>(at::cummin(input, dim()));
+        identity = std::numeric_limits<float>::infinity();
+        break;
+      case BinaryOpType::Mul:
+        out_inclusive = at::cumprod(input, dim());
+        identity = 1.0;
+        break;
+      default:
+        NVF_THROW("Unhandled opType() ", opType());
+    }
+    outputs.push_back(out_inclusive);
+    if (outExclusive()) {
+      std::vector<int64_t> pad_widths(2 * ((int64_t)input.dim() - dim()), 0L);
+      pad_widths[pad_widths.size() - 2] = 1L;
+      pad_widths[pad_widths.size() - 1] = -1L;
+      at::Tensor out_exclusive =
+          at::pad(out_inclusive, pad_widths, "constant", identity);
+      outputs.push_back(out_exclusive);
+    }
+    // reduction output removed
+    return outputs;
+  } else {
+    // auto discount_factor = inputs.at(1).as<at::Tensor>();
+    NVF_ERROR(inputs.size() == 2);
 
-  at::Tensor out_t;
-  switch (opType()) {
-    case BinaryOpType::Add:
-      out_t = at::cumsum(input, dim());
-      break;
-    case BinaryOpType::Max:
-      out_t = std::get<0>(at::cummax(input, dim()));
-      break;
-    case BinaryOpType::Min:
-      out_t = std::get<0>(at::cummin(input, dim()));
-      break;
-    case BinaryOpType::Mul:
-      out_t = at::cumprod(input, dim());
-      break;
-    default:
-      NVF_THROW("Unhandled opType() ", opType());
+    const PolymorphicValue& df = inputs.at(1);
+
+    NVF_ERROR(df.hasValue());
+
+    at::Tensor out = at::zeros_like(input);
+    at::Tensor out_exclusive;
+
+    if (outExclusive() != nullptr) {
+      out_exclusive = at::ones_like(out);
+      PolymorphicValue init_pv = init()->value();
+      if (init_pv.is<int64_t>()) {
+        out_exclusive *= init_pv.as<int64_t>();
+      } else if (init_pv.is<double>()) {
+        out_exclusive *= init_pv.as<double>();
+      } else {
+        NVF_THROW("Unsupported type for evaluation: ", init()->dtype());
+      }
+    }
+
+    at::Tensor cur;
+    std::vector<at::indexing::TensorIndex> slice_pos;
+    slice_pos.reserve((size_t)input.dim());
+    for ([[maybe_unused]] int64_t i : arange(input.dim())) {
+      slice_pos.push_back(at::indexing::Slice());
+    }
+    for (int64_t i : arange(input.size(dim()))) {
+      slice_pos.at((size_t)dim()) = at::indexing::TensorIndex((int64_t)i);
+
+      at::Tensor next_slice = input.index(slice_pos);
+
+      if (i == 0) {
+        cur = next_slice;
+      } else {
+        if (outExclusive() != nullptr) {
+          out_exclusive.index(slice_pos).copy_(cur);
+        }
+
+        if (df.is<double>()) {
+          cur *= df.as<double>();
+        } else if (df.is<int64_t>()) {
+          cur *= df.as<int64_t>();
+        } else if (df.is<at::Tensor>()) {
+          // TODO: handle case where dim() is broadcast in discount factor
+          cur *= df.as<at::Tensor>().index(slice_pos);
+        } else {
+          NVF_THROW("Unhandled discount factor type");
+        }
+
+        switch (opType()) {
+          case BinaryOpType::Add:
+            cur += next_slice;
+            break;
+          case BinaryOpType::Max:
+            cur = cur.maximum(next_slice);
+            break;
+          case BinaryOpType::Min:
+            cur = cur.minimum(next_slice);
+            break;
+          case BinaryOpType::Mul:
+            cur *= next_slice;
+            break;
+          default:
+            NVF_THROW("Unhandled opType() ", opType());
+        }
+      }
+
+      out.index(slice_pos).copy_(cur);
+    }
+
+    if (outExclusive() == nullptr) {
+      return {out};
+    } else {
+      return {out, out_exclusive};
+    }
   }
-
-  at::ScalarType out_dtype = data_type_to_aten(out()->dtype());
-  if (out_t.dtype() != out_dtype) {
-    out_t = out_t.to(out_dtype);
-  }
-
-  return {out_t};
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(ScanOp)

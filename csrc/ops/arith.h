@@ -798,25 +798,49 @@ NVF_API TopKResult topk(
     bool sorted = false,
     bool maybe_symbolic = true);
 
+struct ScanResult {
+  TensorView* inclusive = nullptr;
+  TensorView* exclusive = nullptr;
+};
+
 //! Computes an inclusive scan of a tensor in a single dimension.
 //!
-//! Given a 1D input tensor x, this computes the output
+//! Given a 1D input tensor x and discount factor f, this computes the output
 //! recursively via
 //!
-//!   y = scan(x, 0, Add, zeroVal())
+//!   y = scan(x, 0, Add, false, f, zeroVal())
+//!
+//!   y[0] = x[0]
+//!   y[i] = f*y[i-1] + x[i] for 0 < i < n
+//!
+//! Note that the discount factor can also be a TensorView, in which case we
+//! compute
+//!
+//!   y[0] = x[0]
+//!   y[i] = f[i]*y[i-1] + x[i] for 0 < i < n
+//!
+//! Notice that the first discount factor in the scanned dimension is ignored.
+//!
+//! If `discount_factor` is null, then we compute the regular prefix sum:
 //!
 //!   y[0] = x[0]
 //!   y[i] = y[i-1] + x[i] for 0 < i < n
 //!
 //! If the dimension being scanned is an expanded broadcast, we throw an error.
-NVF_API TensorView* scan(
-    TensorView* in_tv,
+NVF_API ScanResult scan(
+    TensorView* tv,
     int64_t dim,
     BinaryOpType op_type,
+    bool return_exclusive = false,
+    Val* discount_factor = nullptr,
     Val* init = nullptr);
 
-//! This is an alias for scan(tv, dim, BinaryOpType::Add, zeroVal())
-NVF_API TensorView* prefixSum(TensorView* tv, int64_t dim);
+//! This is an alias for scan(tv, dim, BinaryOpType::Add, false,
+//! discount_factor, zeroVal())
+NVF_API TensorView* prefixSum(
+    TensorView* tv,
+    int64_t dim,
+    Val* discount_factor = nullptr);
 
 //! Another alias for PyTorch's cumsum
 NVF_API inline TensorView* cumsum(TensorView* tv, int64_t dim) {

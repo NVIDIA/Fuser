@@ -78,4 +78,6 @@ void validate1dTmaLoad(Fusion* fusion);
 
 void validateScatter(Fusion* fusion);
 
+//! Validate scheduling of ScanOp inputs and outputs
+void validateScans(Fusion* fusion);
 } // namespace nvfuser

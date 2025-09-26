@@ -331,9 +331,7 @@ Val* convertToVal(
       NAME,                                                               \
       [](TensorView* arg, int dim, Val* init) -> TensorView* {            \
         BinaryOpType op_type = OP_TYPE;                                   \
-        return static_cast<                                               \
-            TensorView* (*)(TensorView*, int64_t, BinaryOpType, Val*)>(   \
-            OP_NAME)(arg, dim, op_type, init);                            \
+        return OP_NAME(arg, dim, op_type, init).inclusive;                \
       },                                                                  \
       py::arg("arg"),                                                     \
       py::arg("dim"),                                                     \

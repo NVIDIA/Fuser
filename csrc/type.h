@@ -726,7 +726,8 @@ enum class IterType {
   Stride,
   GatherScatter,
   VectorComponent,
-  Symbolic
+  Symbolic,
+  Scan
 };
 
 // Used for Iteration Domain mapping modes in ComputeAtMap
