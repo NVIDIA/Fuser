@@ -1141,15 +1141,15 @@ TensorView* TensorView::cacheBefore(LoadStoreOpType op_type) {
 
   // copy non-reduction IDs onto logical and loop
   std::ranges::copy_if(
-      consumer->domain()->logical(),
+      domain()->logical(),
       std::back_inserter(logical_dom),
       [](IterDomain* id) {return !id->isReduction();});
   std::ranges::copy_if(
-      consumer->domain()->loop(),
+      domain()->loop(),
       std::back_inserter(loop_dom),
       [](IterDomain* id) {return !id->isReduction();});
   // TODO: test this with broadcast?!
-  for (auto&& [id, c] : std::views::zip(consumer->domain()->hasAllocation() ? consumer->domain()->allocation : consumer->domain()->logical, domain()->contiguity())) {
+  for (auto&& [id, c] : std::views::zip(domain()->hasAllocation() ? domain()->allocation : domain()->logical, domain()->contiguity())) {
     if (id->isReduction()) {
       continue;
     }
@@ -1165,7 +1165,7 @@ TensorView* TensorView::cacheBefore(LoadStoreOpType op_type) {
       logical_dom,
       alloc_dom,
       loop_dom,
-      contiguity);
+      contiguity));
 
   // TODO: figure out scatter special handling.
   // if (!producer->definition()->isA<ScatterOp>()) {
