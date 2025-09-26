@@ -1677,6 +1677,39 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     const auto output = scan->out()->as<kir::TensorIndex>();
     const auto input = scan->in()->as<kir::TensorIndex>();
 
+    auto scan_logical_id = output->view()->getLogicalDomain().at(scan->dim());
+    auto scan_ids = DependencyCheck::getAllValsBetween(
+        {scan_logical_id},
+        {output->view()->getLoopDomain().begin(),
+         output->view()->getLoopDomain().end()});
+    std::vector<IterDomain*> scan_loop_ids;
+    std::ranges::copy_if(
+        output->view()->getLoopDomain(),
+        std::back_inserter(scan_loop_ids),
+        [&](IterDomain* id) {
+          return std::ranges::find(scan_ids, id) != scan_ids.end();
+        });
+
+    ParallelTypeBitmap scan_parallel_types;
+    IterDomain* grouped_id = nullptr;
+    for (auto id : scan_loop_ids) {
+      if (isParallelTypeThreadDim(id->getParallelType())) {
+        scan_parallel_types.set(id->getParallelType());
+      } else if (id->getParallelType() == ParallelType::Group) {
+        NVF_ERROR(
+            grouped_id == nullptr,
+            "Multiple grouped IDs not supported: ",
+            scan->toString());
+        grouped_id = id;
+      } else {
+        NVF_THROW(
+            "Invalid parallel type: ",
+            id->toString(),
+            " of ",
+            scan->toString());
+      }
+    }
+
     // Build template arguments following TopKOp pattern
     ArgumentBuilder template_args;
     for (const auto pt : kParallelTypeTIDs) {
@@ -1686,6 +1719,13 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
         continue;
       }
 
+      // If a parallel type used in the fusion, it must be also used in the
+      // argsort.
+      NVF_ERROR(
+          scan_parallel_types.get(pt),
+          "Parallel type ",
+          pt,
+          " used in the fusion must be also used in the scan");
       // Scan supports static dimensions
       auto pt_extent = parallel_dimension_map.get(pt);
       NVF_ERROR(
@@ -1703,8 +1743,9 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       }
     }
 
-    // TODO: support ITEMS_PER_THREAD > 1
-    constexpr int items_per_thread = 1;
+    const int64_t items_per_thread = grouped_id != nullptr
+        ? grouped_id->extent()->evaluate().as<int64_t>()
+        : 1;
 
     template_args.arg(input->dtype()); // DataT
     template_args.arg(items_per_thread); // ITEMS_PER_THREAD
@@ -1715,32 +1756,26 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     // Call the runtime scan function
     ArgumentBuilder func_args;
 
-    // First argument: scan output array.
-    // The output tensor is assumed to be a register tensor, and thus
-    // its storage should always be available without predication.
-    NVF_ERROR_EQ(
-        output->view()->getMemoryType(),
-        MemoryType::Local,
-        "Scan output must be a Local tensor: ",
-        output->toString());
+    // Both inputs and outputs are guaranteed to be allocated as a
+    // contiguous chunk of buffer of size items_per_thread. Predicates
+    // are not used here because out-of-bounds elements are initizlied
+    // to the max or min value accordingly.
     func_args.arg("*(")
-        .append(input->dtype())
+        .append(output->dtype())
         .append("(*)[")
         .append(items_per_thread)
         .append("])")
         .append("(&")
         .append(genInline(output))
         .append(")");
-
-    // Second argument: input data array
-    NVF_ERROR(scan->predicate() != nullptr && scan->predicate()->hasValue());
-    func_args.arg("{")
-        .append(genInline(scan->predicate()))
-        .append(" ? ")
+    func_args.arg("*(")
+        .append(input->dtype())
+        .append("(*)[")
+        .append(items_per_thread)
+        .append("])")
+        .append("(&")
         .append(genInline(input))
-        .append(" : ")
-        .append(genInline(scan->init()))
-        .append("}");
+        .append(")");
 
     // Third argument: init value
     func_args.arg(genInline(scan->init()));
