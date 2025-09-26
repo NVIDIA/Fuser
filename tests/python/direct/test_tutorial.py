@@ -595,7 +595,6 @@ def test_tutorial_basic_tma_example1(nvfuser_direct_test):
     shared memory tensor and the fusion output.
     """
 
-    # TODO create CompileParams constructor
     # cache_after, cache_before
     # set_memory_type
 
