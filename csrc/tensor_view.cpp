@@ -1149,7 +1149,7 @@ TensorView* TensorView::cacheBefore(LoadStoreOpType op_type) {
       std::back_inserter(loop_dom),
       [](IterDomain* id) {return !id->isReduction();});
   // TODO: test this with broadcast?!
-  for (auto&& [id, c] : std::views::zip(domain()->hasAllocation() ? domain()->allocation : domain()->logical, domain()->contiguity())) {
+  for (auto&& [id, c] : std::zip(domain()->hasAllocation() ? domain()->allocation() : domain()->logical(), domain()->contiguity())) {
     if (id->isReduction()) {
       continue;
     }
