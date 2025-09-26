@@ -950,7 +950,6 @@ list(APPEND JIT_TEST_SRCS
   ${NVFUSER_ROOT}/tests/cpp/test_outer_reduction.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_overlap.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_persistent_buffer.cpp
-  ${NVFUSER_ROOT}/tests/cpp/test_cluster.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_pointwise.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_polymorphic_value.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_predicate_elimination.cpp
@@ -1124,6 +1123,7 @@ if(BUILD_TEST)
 
   set(CLUSTER_TEST_SRCS)
   list(APPEND CLUSTER_TEST_SRCS
+    ${NVFUSER_ROOT}/tests/cpp/test_cluster.cpp
     ${NVFUSER_ROOT}/tests/cpp/cluster_runtime_test/test_cluster_device_func.cpp
   )
   add_test(test_cluster "${CLUSTER_TEST_SRCS}" ${CLUSTER_TEST_KERNELS})

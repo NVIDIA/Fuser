@@ -1289,12 +1289,25 @@ KernelArgumentHolder KernelExecutor::run(
       attribute.value.clusterDim.z = 1;
       config.attrs = &attribute;
       config.numAttrs = 1;
-      if (attribute.value.clusterDim.x == 16) {
+      // TO request more than 8 clusters, need to set non-portable cluster size
+      // allowed
+      if (attribute.value.clusterDim.x > 8) {
         NVFUSER_CUDA_SAFE_CALL(cuFuncSetAttribute(
             compiled_kernel_->cudaExecutable()->function,
             CU_FUNC_ATTRIBUTE_NON_PORTABLE_CLUSTER_SIZE_ALLOWED,
             1));
       }
+      // CUDA guide recommends checking max active clusters before launching
+      // https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html#thread-block-clusters
+      int num_clusters = 0;
+      NVFUSER_CUDA_SAFE_CALL(cuOccupancyMaxActiveClusters(
+          &num_clusters,
+          compiled_kernel_->cudaExecutable()->function,
+          &config));
+      NVF_ERROR(
+          num_clusters > 0,
+          "Failed to launch kernel with cluster dimensions: ",
+          attribute.value.clusterDim.x);
       NVFUSER_CUDA_SAFE_CALL(cuLaunchKernelEx(
           &config,
           compiled_kernel_->cudaExecutable()->function,
