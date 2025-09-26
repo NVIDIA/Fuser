@@ -86,7 +86,7 @@ def build_nvfuser() -> str:
 
 @mcp.tool()
 def run_targeted_tests(
-    target_branch: str = "devel", selected_tests: str | None = None
+    target_branch: str = "main", selected_tests: str | None = None
 ) -> str:
     """
     This function checks for changes in the Python files, against a target_branch.
@@ -142,7 +142,7 @@ def run_targeted_tests(
 
 
 @mcp.tool()
-def propose_unit_tests(file_path: str, target_branch: str = "devel") -> str:
+def propose_unit_tests(file_path: str, target_branch: str = "main") -> str:
     """
     Analyse the changes in a specific file and propose unit tests to cover those changes.
 
