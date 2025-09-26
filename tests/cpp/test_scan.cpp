@@ -7,13 +7,17 @@
 // clang-format on
 #include <csrc/exceptions.h>
 #include <fusion.h>
-#include <gmock/gmock-matchers.h>
-#include <gtest/gtest.h>
 #include <ops/all_ops.h>
 #include <runtime/executor.h>
 #include <runtime/fusion_executor_cache.h>
+#include <scheduler/tools/inlining.h>
 #include <tests/cpp/utils.h>
 #include <tests/cpp/validator.h>
+
+#include <gmock/gmock-matchers.h>
+#include <gtest/gtest.h>
+#include "id_model/id_model.h"
+#include "ops/alias.h"
 
 namespace nvfuser {
 
@@ -27,7 +31,7 @@ TEST_F(ScanTest, BasicScanAdd) {
 
   auto tv0 = makeConcreteTensor({4, 8});
   fusion.addInput(tv0);
-  auto tv_result = scan(tv0, /*dim=*/1, BinaryOpType::Add);
+  auto tv_result = scan(tv0, /*dim=*/1, BinaryOpType::Add).inclusive;
   fusion.addOutput(tv_result);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
@@ -47,7 +51,7 @@ TEST_F(ScanTest, BasicScanMax) {
 
   auto tv0 = makeConcreteTensor({4, 8});
   fusion.addInput(tv0);
-  auto tv_result = scan(tv0, /*dim=*/1, BinaryOpType::Max);
+  auto tv_result = scan(tv0, /*dim=*/1, BinaryOpType::Max).inclusive;
   fusion.addOutput(tv_result);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
@@ -67,7 +71,7 @@ TEST_F(ScanTest, BasicScanMin) {
 
   auto tv0 = makeConcreteTensor({4, 8});
   fusion.addInput(tv0);
-  auto tv_result = scan(tv0, /*dim=*/1, BinaryOpType::Min);
+  auto tv_result = scan(tv0, /*dim=*/1, BinaryOpType::Min).inclusive;
   fusion.addOutput(tv_result);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
@@ -87,7 +91,7 @@ TEST_F(ScanTest, BasicScanMul) {
 
   auto tv0 = makeConcreteTensor({4, 8});
   fusion.addInput(tv0);
-  auto tv_result = scan(tv0, /*dim=*/1, BinaryOpType::Mul);
+  auto tv_result = scan(tv0, /*dim=*/1, BinaryOpType::Mul).inclusive;
   fusion.addOutput(tv_result);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
@@ -107,7 +111,7 @@ TEST_F(ScanTest, ScanDifferentDimensions) {
 
   auto tv0 = makeConcreteTensor({2, 4, 6});
   fusion.addInput(tv0);
-  auto tv_result = scan(tv0, /*dim=*/0, BinaryOpType::Add);
+  auto tv_result = scan(tv0, /*dim=*/0, BinaryOpType::Add).inclusive;
   fusion.addOutput(tv_result);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
@@ -127,7 +131,7 @@ TEST_F(ScanTest, Scan1D) {
 
   auto tv0 = makeConcreteTensor({10});
   fusion.addInput(tv0);
-  auto tv_result = scan(tv0, /*dim=*/0, BinaryOpType::Add);
+  auto tv_result = scan(tv0, /*dim=*/0, BinaryOpType::Add).inclusive;
   fusion.addOutput(tv_result);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
@@ -156,7 +160,7 @@ TEST_F(ScanTest, ScanWithSimpleArithmetic) {
   auto tv1 = add(tv0, IrBuilder::create<Val>(1.0));
 
   // Scan operation
-  auto tv2 = scan(tv1, /*dim=*/1, BinaryOpType::Add);
+  auto tv2 = scan(tv1, /*dim=*/1, BinaryOpType::Add).inclusive;
 
   fusion.addOutput(tv2);
 
@@ -185,7 +189,7 @@ TEST_F(ScanTest, ScanWithArithmeticOps) {
   auto tv3 = sub(tv2, IrBuilder::create<Val>(0.5));
 
   // Scan operation
-  auto tv4 = scan(tv3, /*dim=*/1, BinaryOpType::Add);
+  auto tv4 = scan(tv3, /*dim=*/1, BinaryOpType::Add).inclusive;
 
   // Additional operation after scan
   auto tv5 = div(tv4, IrBuilder::create<Val>(3.0));
@@ -220,7 +224,7 @@ class ScanCodeGenTest : public NVFuserTest,
 
     auto tv1 = set(tv0);
     // Create scan operation along dimension 1
-    auto tv_result = scan(tv1, /*dim=*/1, BinaryOpType::Add);
+    auto tv_result = scan(tv1, /*dim=*/1, BinaryOpType::Add).inclusive;
     auto tv_output = set(tv_result);
     fusion.addOutput(tv_output);
 
@@ -280,7 +284,7 @@ TEST_F(ScanTest, KernelExecutorScanAdd) {
 
   auto tv1 = set(tv0);
   // Create scan operation along dimension 1, Add operation
-  auto tv_result = scan(tv1, /*dim=*/1, BinaryOpType::Add);
+  auto tv_result = scan(tv1, /*dim=*/1, BinaryOpType::Add).inclusive;
   auto tv_output = set(tv_result);
   fusion.addOutput(tv_output);
 
@@ -312,7 +316,7 @@ TEST_F(ScanTest, KernelExecutorScanMax) {
 
   auto tv1 = set(tv0);
   // Create scan operation along dimension 1, Max operation
-  auto tv_result = scan(tv1, /*dim=*/1, BinaryOpType::Max);
+  auto tv_result = scan(tv1, /*dim=*/1, BinaryOpType::Max).inclusive;
   auto tv_output = set(tv_result);
   fusion.addOutput(tv_output);
 
@@ -344,7 +348,7 @@ TEST_F(ScanTest, KernelExecutorScanMin) {
 
   auto tv1 = set(tv0);
   // Create scan operation along dimension 1, Min operation
-  auto tv_result = scan(tv1, /*dim=*/1, BinaryOpType::Min);
+  auto tv_result = scan(tv1, /*dim=*/1, BinaryOpType::Min).inclusive;
   auto tv_output = set(tv_result);
   fusion.addOutput(tv_output);
 
@@ -376,7 +380,7 @@ TEST_F(ScanTest, KernelExecutorScanMul) {
 
   auto tv1 = set(tv0);
   // Create scan operation along dimension 1, Mul operation
-  auto tv_result = scan(tv1, /*dim=*/1, BinaryOpType::Mul);
+  auto tv_result = scan(tv1, /*dim=*/1, BinaryOpType::Mul).inclusive;
   auto tv_output = set(tv_result);
   fusion.addOutput(tv_output);
 
@@ -409,13 +413,13 @@ TEST_F(ScanTest, KernelExecutorMultipleScan) {
   auto tv1 = set(tv0);
 
   // First scan operation (Add)
-  auto tv_scan1 = scan(tv1, /*dim=*/1, BinaryOpType::Add);
+  auto tv_scan1 = scan(tv1, /*dim=*/1, BinaryOpType::Add).inclusive;
 
   // Add operation between scans
   auto tv_add = add(tv_scan1, IrBuilder::create<Val>(1.0));
 
   // Second scan operation (Max)
-  auto tv_scan2 = scan(tv_add, /*dim=*/1, BinaryOpType::Max);
+  auto tv_scan2 = scan(tv_add, /*dim=*/1, BinaryOpType::Max).inclusive;
 
   auto tv_output = set(tv_scan2);
   fusion.addOutput(tv_output);
@@ -446,7 +450,7 @@ TEST_F(ScanTest, Predication) {
   auto tv0 = makeContigConcreteTensor(shape);
   fusion.addInput(tv0);
 
-  auto tv1 = scan(tv0, -1, BinaryOpType::Add);
+  auto tv1 = scan(tv0, -1, BinaryOpType::Add).inclusive;
   auto tv2 = set(tv1);
   fusion.addOutput(tv2);
 
@@ -467,4 +471,224 @@ TEST_F(ScanTest, Predication) {
   testValidate(&fusion, outputs, {t0}, __LINE__, __FILE__);
 }
 
+TEST_F(ScanTest, ScanSerialInclusive) {
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  auto t0 = makeConcreteTensor({8});
+  fusion->addInput(t0);
+  auto t1 = set(t0);
+  auto t2 = scan(t1, 0, BinaryOpType::Max).inclusive;
+  auto t3 = set(t2);
+  fusion->addOutput(t3);
+  fusion->printMath();
+
+  const auto inclusive_scan_outputs = {t2};
+  std::unordered_set<IterDomain*> uninlineable_ids;
+  for (auto tv : inclusive_scan_outputs) {
+    for (auto id : tv->getLoopDomain()) {
+      if (id->isScan()) {
+        uninlineable_ids.insert(id);
+      }
+    }
+  }
+  inlineMost(uninlineable_ids);
+  for (auto tv : inclusive_scan_outputs) {
+    tv->computeWith(-1);
+    for (auto v : tv->definition()->inputs()) {
+      v->as<TensorView>()->inlineAt(-1);
+    }
+  }
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto aten_t0 = at::randn({8}, options);
+
+  KernelExecutor ke;
+  ke.compile(fusion.get(), {aten_t0});
+  auto outputs = ke.run({aten_t0});
+  testValidate(fusion.get(), outputs, {aten_t0}, __LINE__, __FILE__);
+}
+
+TEST_F(ScanTest, ScanSerialInclusiveExclusive) {
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  auto t0 = makeConcreteTensor({8});
+  fusion->addInput(t0);
+  auto t1 = set(t0);
+  auto [t2, t3] = scan(t1, 0, BinaryOpType::Max, true);
+  auto t4 = set(t2);
+  auto t5 = set(t3);
+  fusion->addOutput(t4);
+  fusion->addOutput(t5);
+
+  const auto inclusive_scan_outputs = {t2};
+
+  std::unordered_set<IterDomain*> uninlineable_ids;
+  for (auto tv : inclusive_scan_outputs) {
+    for (auto id : tv->getLoopDomain()) {
+      if (id->isScan()) {
+        uninlineable_ids.insert(id);
+      }
+    }
+  }
+  inlineMost(uninlineable_ids);
+  t3->inlineAt(-1);
+  for (auto tv : inclusive_scan_outputs) {
+    tv->computeWith(-1);
+    for (auto v : tv->definition()->inputs()) {
+      v->as<TensorView>()->inlineAt(-1);
+    }
+  }
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto aten_t0 = at::randn({8}, options);
+
+  KernelExecutor ke;
+  ke.compile(fusion.get(), {aten_t0});
+  auto outputs = ke.run({aten_t0});
+  testValidate(fusion.get(), outputs, {aten_t0}, __LINE__, __FILE__);
+}
+
+TEST_F(ScanTest, ScanSerialInclusiveDiscount) {
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  auto t0 = makeConcreteTensor({8});
+  auto t1 = makeConcreteTensor({8});
+  fusion->addInput(t0);
+  fusion->addInput(t1);
+  auto t2 = set(t0);
+  auto t3 = set(t1);
+  auto t4 = scan(
+                t2,
+                0,
+                BinaryOpType::Max,
+                /*return_exclusive=*/false,
+                t3,
+                /*init=*/nullptr)
+                .inclusive;
+  auto t5 = set(t4);
+  fusion->addOutput(t5);
+  fusion->printMath();
+
+  const auto inclusive_scan_outputs = {t4};
+  std::unordered_set<IterDomain*> uninlineable_ids;
+  for (auto tv : inclusive_scan_outputs) {
+    for (auto id : tv->getLoopDomain()) {
+      if (id->isScan()) {
+        uninlineable_ids.insert(id);
+      }
+    }
+  }
+  inlineMost(uninlineable_ids);
+  for (auto tv : inclusive_scan_outputs) {
+    tv->computeWith(-1);
+    for (auto v : tv->definition()->inputs()) {
+      v->as<TensorView>()->inlineAt(-1);
+    }
+  }
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto aten_t0 = at::randn({8}, options);
+  auto aten_t1 = at::randn({8}, options);
+
+  KernelExecutor ke;
+  ke.compile(fusion.get(), {aten_t0, aten_t1});
+  auto outputs = ke.run({aten_t0, aten_t1});
+  testValidate(fusion.get(), outputs, {aten_t0, aten_t1}, __LINE__, __FILE__);
+}
+
+// test we can generate flash attention v2 style kernel using scan and block
+// tiling. matmul is simulated with sum(dot product). no op to get last element
+// of scan result, at::select is used to get the final result for validation
+TEST_F(ScanTest, FlashAttentionV2NoMmaNoScanReduction) {
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  int64_t N = 20; // sequence length
+  int64_t D = 6; // hidden dimension size
+  int64_t Br = 10; // block size for rows
+  int64_t Bc = 5; // block size for columns
+  int64_t Tr = N / Br; // 2, Total number of row blocks for Q
+  int64_t Tc = N / Bc; // 4, Total number of column blocks for K^T
+  // [N,D] --> [Tr, Br, D] for Q and [Tc, Bc, D] for K,V
+  auto Q = makeConcreteTensor({Tr, 1, Br, 1, D});
+  auto K = makeConcreteTensor({1, Tc, 1, Bc, D});
+  auto V = makeConcreteTensor({1, Tc, 1, Bc, D});
+  fusion->addInput(Q);
+  fusion->addInput(K);
+  fusion->addInput(V);
+
+  // [Tr, Tc, Br, Bc, 1] = sum([Tr, 1, Br, 1, D] X [1, Tc, 1, Bc, D])
+  auto sij = sum(mul(Q, K), {4}, /*keep_dim=*/true);
+  // [Tr, Tc, Br, 1, 1] = [Tr, Tc, Br, Bc, 1]
+  auto row_max_sij = max(sij, {3}, /*keep_dim=*/true);
+  // [Tr, Tc, Br, 1, 1] = scan([Tr, Tc, Br, 1, 1])
+  auto [m_i, m_i_old] =
+      scan(set(row_max_sij), 1, BinaryOpType::Max, /*return_exclusive=*/true);
+  // [Tr, Tc, Br, Bc, 1] = [Tr, Tc, Br, Bc, 1], [Tr, Tc, Br, 1, 1]
+  auto pij_tilde = exp(sub(sij, m_i));
+  // [Tr, Tc, Br, 1, 1] = sum([Tr, Tc, Br, Bc, 1])
+  auto row_sum_pij_tilde = sum(pij_tilde, {3}, /*keep_dim=*/true);
+  // [Tr, Tc, Br, 1, 1] = [Tr, Tc, Br, 1, 1]
+  auto l_i_discount = exp(sub(m_i_old, m_i));
+  // [Tr, Tc, Br, 1, 1] = [Tr, Tc, Br, 1, 1]
+  auto l_i = prefixSum(set(row_sum_pij_tilde), 1, l_i_discount);
+  // [Tr, Tc, Br, 1, D] = sum([Tr, Tc, Br, Bc, 1] X [1, Tc, 1, Bc, D])
+  auto O_i_val = sum(mul(pij_tilde, V), {3}, /*keep_dim=*/true);
+  // [Tr, Tc, Br, 1, D] = [Tr, Tc, Br, 1, 1] X [Tr, Tc, Br, 1, D]
+  auto O_i = prefixSum(set(O_i_val), 1, l_i_discount);
+  // [Tr, Tc, Br, 1, D] = [Tr, Tc, Br, 1, D] / [Tr, Tc, Br, 1, 1]
+  auto O_i_final = div(O_i, l_i);
+
+  fusion->addOutput(set(O_i_final));
+  fusion->printMath();
+
+  const auto& scan_outputs = {m_i, l_i, O_i};
+  std::unordered_set<IterDomain*> uninlineable_ids;
+  for (auto tv : scan_outputs) {
+    for (auto id : tv->getLoopDomain()) {
+      if (id->isScan()) {
+        uninlineable_ids.insert(id);
+      }
+    }
+  }
+  inlineMost(uninlineable_ids);
+  m_i_old->inlineAt(-1);
+  for (auto tv : scan_outputs) {
+    tv->computeWith(-1);
+    for (auto v : tv->definition()->inputs()) {
+      v->as<TensorView>()->inlineAt(-1);
+    }
+  }
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto aQ = at::randn({Tr, 1, Br, 1, D}, options);
+  auto aK = at::randn({1, Tc, 1, Bc, D}, options);
+  auto aV = at::randn({1, Tc, 1, Bc, D}, options);
+
+  KernelExecutor ke;
+  ke.compile(fusion.get(), {aQ, aK, aV});
+  auto outputs = ke.run({aQ, aK, aV});
+
+  // [Tr, Br, 1, D] = [Tr, Tc, Br, 1, D]
+  // [Tr, Br, D] = [Tr, Br, 1, D]
+  auto final_output =
+      at::select(outputs[0].as<at::Tensor>(), /*dim=*/1, /*index=*/-1);
+  final_output =
+      at::select(final_output, /*dim=*/2, /*index=*/-1); // [Tr, Br, D]
+  final_output = final_output.reshape({N, D});
+
+  auto aten_Q = aQ.reshape({N, D});
+  auto aten_K = aK.reshape({N, D});
+  auto aten_V = aV.reshape({N, D});
+  auto aten_S = at::matmul(aten_Q, aten_K.transpose(-2, -1));
+  auto aten_S_softmax = at::softmax(aten_S, 1);
+  auto aten_O = at::matmul(aten_S_softmax, aten_V);
+  EXPECT_TRUE(at::allclose(final_output, aten_O, 1e-4, 1e-6, true));
+}
 } // namespace nvfuser

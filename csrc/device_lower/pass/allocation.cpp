@@ -1133,7 +1133,8 @@ class AllocationInserter : public kir::ExprMutator {
     std::vector<IterDomain*> init_dims;
     for (const auto axis_i : arange(info.alloc_pos, info.buffer->nDims())) {
       if (info.buffer->axis(axis_i)->isReduction() ||
-          info.buffer->axis(axis_i)->isBroadcast()) {
+          info.buffer->axis(axis_i)->isBroadcast() ||
+          info.buffer->axis(axis_i)->isScan()) {
         continue;
       }
       auto concrete_id =

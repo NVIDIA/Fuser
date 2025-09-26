@@ -1455,13 +1455,117 @@ void IndexLowering::handleGroupedGridWelford(
 void IndexLowering::handle(const ScanOp* sop) {
   const auto in = lowerSrcIndex(sop->in(), sop->out());
   const auto out = lowerDstIndex(sop->out());
-  auto indexed_sop = IrBuilder::create<ScanOp>(
-      sop->opType(), sop->init(), out, in, sop->dim());
+
+  bool is_parallel_scan = std::any_of(
+      sop->out()->getLoopDomain().begin(),
+      sop->out()->getLoopDomain().end(),
+      [](IterDomain* id) { return id->isParallelized() && id->isScan(); });
+  // short circuit for parallelized scan, use blockScan
+  if (is_parallel_scan) {
+    const auto in = lowerSrcIndex(sop->in(), sop->out());
+    const auto out = lowerDstIndex(sop->out());
+    auto indexed_sop = IrBuilder::create<ScanOp>(
+        sop->opType(),
+        out,
+        sop->outExclusive(),
+        in,
+        sop->discountFactor(),
+        sop->init(),
+        sop->dim());
+    NVF_ERROR(
+        sop->predicate(), "Expected to have a predicate: ", sop->toString());
+    indexed_sop = indexed_sop->withPredicate(sop->predicate())->as<ScanOp>();
+    pushBack(indexed_sop);
+    GpuLower::current()->propagateExprInfo(sop, back());
+    return;
+  }
+
+  // thread loacal serial scan
+  // Find index for the scanDim IterDomain loop, so that we can modify the index
+  // by subtracting one.
+  IterDomain* scan_id = TensorDomain::noReductions(
+                            sop->in()->as<TensorView>()->getLogicalDomain())
+                            .at((size_t)sop->dim());
+  int scan_id_alloc_pos = -1;
+  const std::vector<IterDomain*>& alloc_dom =
+      sop->in()->as<TensorView>()->getMaybeAllocationDomain();
+  for (size_t alloc_pos = 0; alloc_pos < alloc_dom.size(); ++alloc_pos) {
+    if (alloc_dom.at(alloc_pos) == scan_id) {
+      scan_id_alloc_pos = alloc_pos;
+      break;
+    }
+  }
   NVF_ERROR(
-      sop->predicate(), "Expected to have a predicate: ", sop->toString());
-  indexed_sop = indexed_sop->withPredicate(sop->predicate())->as<ScanOp>();
-  pushBack(indexed_sop);
-  GpuLower::current()->propagateExprInfo(sop, back());
+      scan_id_alloc_pos != -1,
+      "Could not find scanned ID in allocation domain. ",
+      "Scan dimensions must not be merged or split during scheduling");
+  ValGraph& id_graph = GpuLower::current()->tensorIndexer().traversalGraph();
+  const ValGroup& scan_group = id_graph.toGroup(scan_id);
+  kir::ForLoop* scan_loop = nullptr;
+  for (kir::ForLoop* loop : for_loops_) {
+    if (id_graph.toGroup(loop->iter_domain()) == scan_group) {
+      scan_loop = loop;
+      break;
+    }
+  }
+  NVF_ERROR(
+      scan_loop != nullptr,
+      "Could not find for loop with scanned ID. ",
+      "Scan dimensions must not be merged or split during scheduling");
+  Val* scan_index = GpuLower::current()->tensorIndexer().getLoopIndex(
+      scan_loop->iter_domain(), for_loops_);
+  Val* lagged_index = sub(scan_index, GpuLower::current()->kernel()->oneVal());
+  // This gives us the previously computed value along the scanned dimension
+  IterDomain* scan_alloc_id = alloc_dom.at(scan_id_alloc_pos);
+  auto override_map =
+      std::unordered_map<IterDomain*, Val*>{{scan_alloc_id, lagged_index}};
+  Val* prev_sum_tensor = lowerDstIndex(sop->out(), override_map);
+  // Cache the current input value to a scalar for easier manipulation
+  Val* current_val = IrBuilder::create<Val>(sop->in()->dtype());
+  IrBuilder::create<LoadStoreOp>(LoadStoreOpType::Set, current_val, in);
+  // Convert prev_sum_tensor to a scalar Val so that we don't need to allocate a
+  // new TensorView for it. This holds the accumulated result from the previous
+  // iteration.
+  Val* prev_sum = IrBuilder::create<Val>(sop->out()->dtype());
+  IrBuilder::create<LoadStoreOp>(
+      LoadStoreOpType::Set, prev_sum, prev_sum_tensor);
+  // For the first iteration (scan_index == scan_loop->start()), use the init
+  // value For subsequent iterations, use the previously computed accumulated
+  // result
+  prev_sum = where(gt(scan_index, scan_loop->start()), prev_sum, sop->init());
+  // Handle exclusive scan output if present
+  if (TensorView* exc = sop->outExclusive()) {
+    const auto exc_ti = lowerDstIndex(exc);
+    auto* save_exc_op =
+        IrBuilder::create<LoadStoreOp>(LoadStoreOpType::Set, exc_ti, prev_sum);
+    pushBack(save_exc_op);
+    GpuLower::current()->propagateExprInfo(sop, save_exc_op);
+  }
+
+  // Apply discount factor for the current iteration
+  if (Val* f = sop->discountFactor()) {
+    Val* f_scalar = f;
+    if (auto* f_tv = dynamic_cast<TensorView*>(f)) {
+      Val* f_ti = lowerSrcIndex(f_tv, sop->out());
+      Val* prev_sum_mul = IrBuilder::create<Val>(f_tv->dtype());
+      IrBuilder::create<BinaryOp>(
+          BinaryOpType::Mul, prev_sum_mul, f_ti, prev_sum);
+      prev_sum = prev_sum_mul;
+    } else {
+      prev_sum = mul(f_scalar, prev_sum);
+    }
+  }
+
+  // For inclusive scan, output[i] should contain the scan of elements [0, i]
+  // This equals: prev_sum (accumulated [0, i-1]) op current_input_val (element
+  // at i)
+  Expr* expr =
+      IrBuilder::create<BinaryOp>(sop->opType(), out, prev_sum, current_val);
+
+  pushBack(expr);
+  GpuLower::current()->propagateExprInfo(sop, expr);
+
+  // reduction output removed
 }
 
 void IndexLowering::handle(const kir::MBarrierInit* minit) {
