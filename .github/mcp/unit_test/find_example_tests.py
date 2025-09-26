@@ -22,6 +22,7 @@ def find_example_tests(source_file_path: str) -> str:
         str: The content of the found test file, or a default message if not found.
     """
     file_stem = pathlib.Path(source_file_path).stem
+    print(f"Finding example tests for {source_file_path}, with stem {file_stem}")
     candidate_names = [
         f"test_{file_stem}.cpp",
         f"{file_stem}_test.cpp",

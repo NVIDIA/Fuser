@@ -142,36 +142,58 @@ def run_targeted_tests(
 
 
 @mcp.tool()
-def propose_unit_tests(file_path: str, target_branch: str = "main") -> str:
+def propose_unit_tests(target_branch: str = "main") -> str:
     """
-    Analyse the changes in a specific file and propose unit tests to cover those changes.
+    Analyse the new code changes and propose unit tests to cover those changes.
 
     Args:
-        file_path (str): The path to the file to analyze.
         target_branch (str): The branch to compare against, defaults to "devel".
 
     Returns:
         str: A proposed unit test or a message indicating no changes were found.
     """
-    source_file = pathlib.Path(file_path)
-    if not source_file.exists():
-        return f"File {file_path} does not exist."
-
-    # get the diff
+    # get the list of all files changed against target_branch
     diff_command = [
         "git",
         "diff",
+        "--name-only",
         f"{target_branch}...HEAD",
-        "--",
-        str(source_file),
     ]
-    success, diff_content, stderr = run_command(diff_command, PROJECT_ROOT)
+    success, changed_files, stderr = run_command(diff_command, PROJECT_ROOT)
     if not success:
-        return f"Failed to get diff for {file_path} against {target_branch}. Error: {stderr}"
+        return f"Failed to get diff against {target_branch}. Error: {stderr}"
     
     if not diff_content.strip():
-        return f"No changes found in {file_path} against {target_branch}."
+        return f"No changes found against {target_branch}."
+    
+    # filter out the files to exclude mcp directory 
+    excluded_folder = ".github/mcp"
+    changed_files = [ f for f in changed_files.strip().split("\n") if not f.startswith(excluded_folder) ]
 
+    if not changed_files: 
+        return "No relevant chagnes found against {target_branch}."
+    
+    # now for-loop against each file 
+    all_proposals = [] 
+    for file_path in changed_files: 
+        source_file = PROJECT_ROOT / file_path
+        if not source_file.exists():
+            return f"File {file_path} does not exist."
+        diff_command = [
+            "git", "diff", f"{target_branch}...HEAD", "--", str(source_file)
+        ]
+        success, diff_content, stderr = run_command(diff_command, PROJECT_ROOT)
+
+        if not diff_content.strip():
+            # skip this case 
+            continue 
+        if not success:
+            return f"Failed to get diff for {file_path} against {target_branch}. Error: {stderr}"
+        # Find an existing test to use as a style guide
+        example_test_content = find_example_tests(source_file)
+        proposal_prompt = generate_unit_test_prompt(diff_content, file_path, example_test_content)
+        # the prompt will run within the agent 
+        all_proposals.append(f"## {file_path}\n\n{proposal_prompt}")
     # Find an existing test to use as a style guide
     example_test_content = find_example_tests(file_path)
     return generate_unit_test_prompt(diff_content, file_path, example_test_content)
