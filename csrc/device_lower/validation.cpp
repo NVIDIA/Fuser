@@ -311,15 +311,16 @@ class ExprValidator : public OptOutDispatch {
     NVF_ERROR_EQ(inp_tv->getMemoryType(), MemoryType::Local);
     NVF_ERROR_EQ(out_tv->getMemoryType(), MemoryType::Local);
 
-    // The input will be initialized for this op. To avoid any
-    // potential conflict of initialization, require the input to be
-    // exclusively used by the argsort
-    NVF_ERROR_EQ(inp_tv->uses().size(), 1);
-
     // If not grouped, no more validation to do
     if (grouped_id == nullptr) {
       return;
     }
+
+    // The input will be initialized for this op. To avoid any
+    // potential conflict of initialization, require the input to be
+    // exclusively used by the grouped op.
+    NVF_ERROR_EQ(
+        inp_tv->uses().size(), 1, "Invalid tensor uses: ", inp_tv->toString());
 
     // If it's grouped, it must correspond to the innermost subregion
     // of the logical ID to group
