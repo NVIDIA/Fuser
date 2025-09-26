@@ -982,7 +982,7 @@ int64_t getVectorizationFactor(
       data_cache, [&reference_tv]() {
         return std::make_unique<std::vector<TensorView*>>(
             scheduler_utils::getInputsOutputsWithInnerDim(
-                reference_tv, true, true));
+                reference_tv, /*inner_only=*/true, /*vectorize_pass=*/true));
       });
 
   auto& vectorizable_inputs_outputs = vectorizable_inputs_outputs_entry.get();
