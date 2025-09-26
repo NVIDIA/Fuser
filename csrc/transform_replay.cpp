@@ -363,9 +363,10 @@ void TransformReplay::selfReplay(
       }
       NVF_ERROR(id, "failed to replay IterDomain: ", alloc_id);
       NVF_ERROR_EQ(
-          id->isBroadcast(),
+          (it->second->isBroadcast() || it->second->isReduction()),
           !contiguity.has_value(),
-          "Contiguity should be nullopt iff broadcast.");
+          "Contiguity should be nullopt iff broadcast or reduction, true/false "
+          "otherwise.");
       new_contiguity.push_back(contiguity);
       id->parallelize(alloc_id->getParallelType());
       new_alloc_domain.push_back(id);

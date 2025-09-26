@@ -858,7 +858,7 @@ class RNGOp : public Expr {
 //! Broadcast in to match out. The semantics are identical to torch.unsqueeze.
 //! is_broadcast_dims are relative to out. Where
 //! is_broadcast_dims.size() == out->nDims().
-class BroadcastOp : public Expr {
+class NVF_API BroadcastOp : public Expr {
  public:
   using Expr::Expr;
 
@@ -909,7 +909,7 @@ class BroadcastOp : public Expr {
 //! Squeeze in to match out. is_squeeze_dims are relative to in. Where
 //! is_squeeze_dims.size() == in->nDims(). Squeeze is the opposite of
 //! broadcast.
-class SqueezeOp : public Expr {
+class NVF_API SqueezeOp : public Expr {
  public:
   using Expr::Expr;
 
@@ -1726,7 +1726,7 @@ class LoadStoreOp : public Expr {
 //! Representation a split on an IterDomain by "factor"
 //! inner_split dictates if the factor section of the split should be inside the
 //! remainer or outside.
-class Split : public Expr {
+class NVF_API Split : public Expr {
  public:
   using Expr::Expr;
 
@@ -1770,7 +1770,7 @@ class Split : public Expr {
 //! dictate which will be traversed first (inner). Both IterDomains must be of
 //! the same iter or reduction type, as well as the same parallelization
 //! strategy if there is one
-class Merge : public Expr {
+class NVF_API Merge : public Expr {
  public:
   using Expr::Expr;
 

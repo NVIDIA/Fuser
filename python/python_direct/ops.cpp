@@ -2426,7 +2426,8 @@ TensorView* broadcast_in_dim_fn(
       output_shape.size() >= broadcast_dims.size(),
       "broadcast_dims vector size is too big for output shape!");
 
-  const auto arg_ndims = arg->domain()->noReductions().size();
+  const auto arg_ndims = static_cast<size_t>(std::ranges::distance(
+      arg->getLoopDomain() | TensorDomain::kNoReductions));
   NVF_CHECK(
       output_shape.size() >= broadcast_dims.size(),
       "The new shape is expected to be greater-then-or-equal to the input: ",
