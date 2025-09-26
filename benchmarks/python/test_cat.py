@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: BSD-3-Clause
 import pytest
 import torch
-from nvfuser import FusionDefinition, DataType
+from nvfuser_direct import FusionDefinition, DataType
 from .core import run_benchmark, with_executor
 
 # These tests are sourced from automation added into thunder.
