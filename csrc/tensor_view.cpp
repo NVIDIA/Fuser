@@ -1115,18 +1115,30 @@ TensorView* TensorView::cacheBefore(LoadStoreOpType op_type) {
         "before computeAt.");
   }
 
-  // Create Producer Domain
-  // This domain will be the consumer which needs a new domain, so replace the
-  // producers domain with this domain.
+  // TODO: 1. test reshape; 2. test reduction
+  // We want the producer domain to preserve `root` & `logical`
+  // meanwhile, we want consumer Tensor to preserve `logical` & `allocation` (while erasing all reductions).
 
+  // Create Producer Domain
+  // We only need root for full self replay.
   auto* producer = IrBuilder::createInContainer<TensorView>(
       container(),
-      IrBuilder::createInContainer<TensorDomain>(container(), domain()),
+      IrBuilder::createInContainer<TensorDomain>(container(),
+        IterDomain::clone(domain()->root()),
+        IterDomain::clone(domain()->logical()),
+        IterDomain::clone(domain()->logical())),
       getDataType().value());
 
   // Set domain of consumer
   TensorView* consumer = this;
 
+  // replay from `root`->`loop` on producer
+  TransformReplay::fullSelfReplay(producer->domain(), consumer->domain());
+
+  // clean up consumer domain to wipe out root and all reduction IDs
+  // TODO: figure out scatter special handling.
+
+  /* FIXME
   std::vector<IterDomain*> new_logical_domain;
   new_logical_domain.reserve(getLogicalDomain().size());
   for (IterDomain* dom : getLogicalDomain() | TensorDomain::kNoReductions) {
@@ -1139,6 +1151,7 @@ TensorView* TensorView::cacheBefore(LoadStoreOpType op_type) {
       container(),
       new_logical_domain,
       TensorDomain::getContiguityFilledWith(new_logical_domain, true)));
+   */
 
   // Insert producer - Cache_Before (CB) - before this TV.
   // Before: Prev TV -> [Definition Op] -> This TV
@@ -1157,6 +1170,7 @@ TensorView* TensorView::cacheBefore(LoadStoreOpType op_type) {
   // definition_ is no longer valid
   // setDefinition(nullptr);
 
+  /* FIXME
   // We do not want to reproduce the loop domain if it's for
   // scatter. Recall that the loop domain of the scatter op is derived
   // from the logical domain of the scatter index tensor. Here, the
@@ -1173,6 +1187,7 @@ TensorView* TensorView::cacheBefore(LoadStoreOpType op_type) {
             producer, consumer->getLogicalDomain()),
         true);
   }
+   */
 
   if (consumer->hasDeviceMesh()) {
     producer->setDeviceMesh(consumer->getDeviceMesh());
