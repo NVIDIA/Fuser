@@ -1124,7 +1124,7 @@ TensorView* TensorView::cacheBefore(LoadStoreOpType op_type) {
   std::vector<IterDomain*> root = IterDomain::clone(domain()->hasRoot()?domain()->root():domain()->logical());
   auto* producer = IrBuilder::createInContainer<TensorView>(
       container(),
-      IrBuilder::createInContainer<TensorDomain>(container(), root, root, root),
+      IrBuilder::createInContainer<TensorDomain>(container(), root, root, root, TensorDomain::getContiguityFilledWith(new_logical_domain, true)),
       getDataType().value());
 
 
