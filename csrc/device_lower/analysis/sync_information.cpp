@@ -62,16 +62,17 @@ void validateParallelizationOfTensor(TensorView* tv) {
 
   auto predicated_parallel_types = pt_map & thread_pred.limited_types;
 
-  NVF_ERROR(
-      predicated_parallel_types.none(),
-      "Invalid parallelization of tensor t",
-      tv->name(),
-      ". The tensor is parallelized with ",
-      predicated_parallel_types.toString(),
-      ", but it's invalid to use the types as the tensor is also predicated "
-      "with them.",
-      ", thread pred: ",
-      thread_pred.limited_types.toString());
+  for (auto pt : predicated_parallel_types) {
+    NVF_ERROR(
+        thread_pred.parallel_type_splits.contains(pt),
+        "Invalid parallelization of tensor T",
+        tv->name(),
+        ". The tensor is parallelized with ",
+        predicated_parallel_types.toString(),
+        ", but it's also predicated with the same parallel type: ",
+        pt,
+        ", which is not allowed except it's a split parallel type.");
+  }
 }
 
 // Return true when producer_id of producer_tv can accommodate
@@ -229,6 +230,10 @@ SyncMap::SyncMap(Fusion* fusion, bool error_on_failure) {
 
         // Producer reductions shouldn't map to consumers
         if (producer_axis->isReduction()) {
+          continue;
+        }
+
+        if (expr->isA<BroadcastOp>() && producer_i == producer->nDims() - 2) {
           continue;
         }
 
@@ -499,7 +504,10 @@ SyncMap::SyncMap(Fusion* fusion, bool error_on_failure) {
         if (error_on_failure) {
           if (raw_dims.hasBID()) {
             NVF_ERROR(
-                producer->getMemoryType() == MemoryType::Global,
+                producer->getMemoryType() == MemoryType::Global ||
+                    consumer->definition()->isA<BlockQuantizationOp>() ||
+                    // producer->definition()->isA<BlockQuantizationOp>() ||
+                    consumer->uses()[0]->isA<BlockQuantizationOp>(),
                 "Inconsistent parallelization found between T",
                 producer->name(),
                 " (",
@@ -516,6 +524,8 @@ SyncMap::SyncMap(Fusion* fusion, bool error_on_failure) {
             NVF_ERROR(
                 ir_utils::isLdMatrixOp(producer->definition()) ||
                     ir_utils::isStMatrixOp(consumer->definition()) ||
+                    consumer->definition()->isA<BlockQuantizationOp>() ||
+                    producer->definition()->isA<BlockQuantizationOp>() ||
                     producer->getMemoryType() == MemoryType::Global ||
                     producer->getMemoryType() == MemoryType::Shared ||
                     producer->getMemoryType() == MemoryType::Tensor,
