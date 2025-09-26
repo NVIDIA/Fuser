@@ -1121,7 +1121,11 @@ TensorView* TensorView::cacheBefore(LoadStoreOpType op_type) {
 
   // Create Producer Domain
   // We only need root for full self replay.
-  std::vector<IterDomain*> root = IterDomain::clone(domain()->hasRoot()?domain()->root():domain()->logical());
+  std::vector<IterDomain*> root;
+  std::ranges::transform(domain()->hasRoot()?domain()->root():domain()->logical(), std::back_inserter(root), [&](IterDomain* id) {
+      return IrBuilder::createInContainer<IterDomain>(container(), id);
+  });
+  
   auto* producer = IrBuilder::createInContainer<TensorView>(
       container(),
       IrBuilder::createInContainer<TensorDomain>(container(), root, root, root, TensorDomain::getContiguityFilledWith(root, true)),
@@ -1139,21 +1143,22 @@ TensorView* TensorView::cacheBefore(LoadStoreOpType op_type) {
 
   // copy non-reduction IDs onto logical and loop
   std::ranges::copy_if(
-      domain()->logical(),
+      domain()->logical() | std::views::transform([](IterDomain* id) { return id->resetRFactorProduct(); },
       std::back_inserter(logical_dom),
       [](IterDomain* id) {return !id->isReduction();});
   std::ranges::copy_if(
-      domain()->loop(),
+      domain()->loop() | std::views::transform([](IterDomain* id) { return id->resetRFactorProduct(); },
       std::back_inserter(loop_dom),
       [](IterDomain* id) {return !id->isReduction();});
-  // TODO: test this with broadcast?!
   for (auto&& [id, c] : zip(domain()->hasAllocation() ? domain()->allocation() : domain()->logical(), domain()->contiguity())) {
     if (id->isReduction()) {
       continue;
     }
+    id->resetRFactorProduct();
     alloc_dom.push_back(id);
     contiguity.push_back(c);
   }
+  // TODO: We also need to clear all rfactor across IDs between logical->loop and logical->allocation.
 
   // Set domain of consumer
   TensorView* consumer = this;

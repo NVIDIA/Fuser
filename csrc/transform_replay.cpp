@@ -106,7 +106,7 @@ class ReplaySelf : public ReplayTransformations {
         id_inner_mapped,
         " however one or both are not loop nodes.");
 
-    IterDomain* merged_id = IterDomain::merge(id_outer_mapped, id_inner_mapped);
+    IterDomain* merged_id = IterDomain::merge(id_outer_mapped, id_inner_mapped, m->out()->isRFactorProduct());
 
     // Remove inputs from the loop IDs
     loop_ids_.erase(id_outer_mapped);
