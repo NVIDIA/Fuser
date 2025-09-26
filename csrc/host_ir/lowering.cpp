@@ -103,7 +103,7 @@ void lowerSegment(
             "Output ",
             out->toString(),
             " must not be an alias, got ",
-            alias.toString());
+            alias);
         auto* tv = out->as<TensorView>();
         auto* allocate =
             IrBuilder::create<kir::Allocate>(tv, MemoryType::Global);

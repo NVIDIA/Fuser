@@ -107,20 +107,9 @@ struct AliasInfo {
   bool operator!=(const AliasInfo& other) const {
     return !(*this == other);
   }
-
-  // FIXME: make this a operator<<
-  std::string toString() const {
-    std::stringstream ss;
-    ss << "AliasInfo{" << std::endl;
-    ss << "  type = " << type << "," << std::endl;
-    ss << "  aliased_io = "
-       << (aliased_io == nullptr ? "nullptr" : aliased_io->toString()) << ","
-       << std::endl;
-    ss << "  visibility = " << visibility << std::endl;
-    ss << "}" << std::endl;
-    return ss.str();
-  }
 };
+
+std::ostream& operator<<(std::ostream& os, AliasInfo);
 
 class AliasInfoMap {
  public:

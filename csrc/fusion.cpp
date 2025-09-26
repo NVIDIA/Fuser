@@ -785,6 +785,15 @@ std::ostream& operator<<(std::ostream& os, OutputVisibility visibility) {
   std::unreachable();
 }
 
+std::ostream& operator<<(std::ostream& os, AliasInfo alias) {
+  os << "AliasInfo{" << std::endl;
+  os << "  type = " << alias.type << "," << std::endl;
+  os << "  aliased_io = " << alias.aliased_io << "," << std::endl;
+  os << "  visibility = " << alias.visibility << std::endl;
+  os << "}" << std::endl;
+  return os;
+}
+
 void Fusion::aliasOutputToInput(
     Val* output,
     Val* input,
