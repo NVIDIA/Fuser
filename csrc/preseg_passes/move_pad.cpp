@@ -184,7 +184,9 @@ bool zeroIsFixedPoint(UnaryOpType t) {
 bool zeroIsIdentity(BinaryOpType t) {
   switch (t) {
     case BinaryOpType::Add:
+    case BinaryOpType::FMax:
     case BinaryOpType::Max:
+    case BinaryOpType::FMin:
     case BinaryOpType::Min:
     case BinaryOpType::Mul:
     case BinaryOpType::Sub:

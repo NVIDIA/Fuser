@@ -49,4 +49,31 @@ TEST_F(MathOptTest, FastMathTanh) {
   EXPECT_TRUE(ptx_string.find("tanh.approx.f32") != std::string::npos);
 }
 
+// TEST_F(MathOptTest, MaxNanProp) {}
+// TEST_F(MathOptTest, FMaxNanSquelch) {}
+// TEST_F(MathOptTest, FMaxAllNanProp) {}
+
+TEST_F(MathOptTest, UnsafeMax) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  auto tv0 = makeSymbolicTensor(1);
+  fusion->addInput(tv0);
+  Val* init =
+      ops::binOpIdentity(BinaryOpType::FMax, tv0->getDataType().value());
+  auto tv1 = reductionOp(BinaryOpType::FMax, {0}, init, tv0);
+  fusion->addOutput(tv1);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({32}, options);
+
+  KernelExecutor ke;
+  ke.compile(fusion.get(), {t0});
+
+  std::string kernel_code = ke.compiledKernel()->kernelString();
+
+  // Validate that fmax is used by checking the generated code
+  EXPECT_TRUE(kernel_code.find("fmax(") != std::string::npos);
+}
+
 } // namespace nvfuser

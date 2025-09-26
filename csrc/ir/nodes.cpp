@@ -753,9 +753,13 @@ std::vector<PolymorphicValue> BinaryOp::evaluate(
     case BinaryOpType::LE:
       return {le(lhs, rhs)};
       break;
+    case BinaryOpType::FMax:
+      return {fmax(lhs, rhs)};
     case BinaryOpType::Max:
       return {max(lhs, rhs)};
       break;
+    case BinaryOpType::FMin:
+      return {fmin(lhs, rhs)};
     case BinaryOpType::Min:
       return {min(lhs, rhs)};
       break;
@@ -1659,9 +1663,27 @@ std::vector<PolymorphicValue> ReductionOp::evaluate(
     case BinaryOpType::Add:
       return {at::sum(input, reduction_axes)};
       break;
+    case BinaryOpType::FMax: {
+      auto nans = at::all(at::isnan(input), reduction_axes);
+      auto removed_nans = at::nan_to_num(
+          input, /*nan=*/-std::numeric_limits<double>::infinity());
+      return {at::where(
+          nans,
+          std::numeric_limits<double>::quiet_NaN(),
+          at::amax(removed_nans, reduction_axes))};
+    } break;
     case BinaryOpType::Max:
       return {at::amax(input, reduction_axes)};
       break;
+    case BinaryOpType::FMin: {
+      auto nans = at::all(at::isnan(input), reduction_axes);
+      auto removed_nans = at::nan_to_num(
+          input, /*nan=*/std::numeric_limits<double>::infinity());
+      return {at::where(
+          nans,
+          std::numeric_limits<double>::quiet_NaN(),
+          at::amin(removed_nans, reduction_axes))};
+    } break;
     case BinaryOpType::Min:
       return {at::amin(input, reduction_axes)};
       break;
@@ -6111,9 +6133,11 @@ std::vector<PolymorphicValue> ScanOp::evaluate(
     case BinaryOpType::Add:
       out_t = at::cumsum(input, dim());
       break;
+    case BinaryOpType::FMax:
     case BinaryOpType::Max:
       out_t = std::get<0>(at::cummax(input, dim()));
       break;
+    case BinaryOpType::FMin:
     case BinaryOpType::Min:
       out_t = std::get<0>(at::cummin(input, dim()));
       break;
