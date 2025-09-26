@@ -4745,8 +4745,7 @@ namespace {
 // Unsqueeze the rfactored DID axis to correctly bind with the logical domain.
 // See tests/python/test_multidevice.py/test_matmul_allreduce_loop_split
 int64_t getRFactorDeviceDimensionIndex(const TensorView* tv) {
-  // Filter out reduction dimensions so the index to `logical` directly maps
-  // to an at::Tensor axis.
+  // Filter out reduction dimensions so the index to `logical` directly maps to an at::Tensor axis.
   auto logical = TensorDomain::noReductions(tv->getLogicalDomain());
   int64_t rfactor_did_idx = -1;
   for (auto idx : arange(static_cast<int64_t>(logical.size()))) {
