@@ -385,6 +385,26 @@ TensorView
     A TensorView with the merged axes in its loop domain.
 )")
       .def(
+          "reorder",
+          [](TensorView* self, std::unordered_map<int64_t, int64_t>& old2new) {
+            return self->reorder(old2new);
+          },
+          py::arg("old2new") = py::dict(),
+          py::return_value_policy::reference,
+          R"(
+Reorder the axes of this tensor.
+
+Parameters
+----------
+old2new : dict of int to int
+    The new order of the axes.
+
+Returns
+-------
+TensorView
+    A TensorView with the reordered axes in its loop domain.
+)")
+      .def(
           "rfactor",
           static_cast<TensorView* (TensorView::*)(const std::vector<int64_t>&)>(
               &TensorView::rFactor),
