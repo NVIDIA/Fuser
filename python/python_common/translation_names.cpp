@@ -192,8 +192,14 @@ std::string toString(const BinaryOp* bop) {
     case BinaryOpType::Gcd:
       return "gcd";
       break;
+    case BinaryOpType::FMax:
+      return "fmaximum";
+      break;
     case BinaryOpType::Max:
       return "maximum";
+      break;
+    case BinaryOpType::FMin:
+      return "fminimum";
       break;
     case BinaryOpType::Min:
       return "minimum";
@@ -246,8 +252,14 @@ std::string toString(const ReductionOp* rop) {
     case BinaryOpType::Mul:
       return "prod";
       break;
+    case BinaryOpType::FMax:
+      return "fmax";
+      break;
     case BinaryOpType::Max:
       return "max";
+      break;
+    case BinaryOpType::FMin:
+      return "fmin";
       break;
     case BinaryOpType::Min:
       return "min";
@@ -270,8 +282,14 @@ std::string toString(const ScanOp* sop) {
     case BinaryOpType::Mul:
       return "cumprod";
       break;
+    case BinaryOpType::FMax:
+      return "cumfmax";
+      break;
     case BinaryOpType::Max:
       return "cummax";
+      break;
+    case BinaryOpType::FMin:
+      return "cumfmin";
       break;
     case BinaryOpType::Min:
       return "cummin";

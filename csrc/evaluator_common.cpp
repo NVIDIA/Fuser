@@ -676,11 +676,17 @@ void NaiveValueMachine::runBinaryOp(int index) {
     case BinaryOpType::BitwiseXor:
       dest = lhs ^ rhs;
       break;
+    case BinaryOpType::FMax:
+      dest = fmax(lhs, rhs);
+      break;
     case BinaryOpType::Max:
-      dest = lhs > rhs ? lhs : rhs;
+      dest = max(lhs, rhs);
+      break;
+    case BinaryOpType::FMin:
+      dest = fmin(lhs, rhs);
       break;
     case BinaryOpType::Min:
-      dest = lhs < rhs ? lhs : rhs;
+      dest = min(lhs, rhs);
       break;
     case BinaryOpType::Gcd:
       dest = gcd(lhs, rhs);

@@ -640,8 +640,12 @@ Val* binOpIdentity(BinaryOpType op_type, DataType dtype) {
       return fusion->zeroVal(dtype);
     case BinaryOpType::Mul:
       return fusion->oneVal(dtype);
+    case BinaryOpType::FMin:
+      return IrBuilder::create<Val>(std::numeric_limits<double>::quiet_NaN());
     case BinaryOpType::Min:
       return getMaximumValue(dtype);
+    case BinaryOpType::FMax:
+      return IrBuilder::create<Val>(std::numeric_limits<double>::quiet_NaN());
     case BinaryOpType::Max:
       return getMinimumValue(dtype);
     case BinaryOpType::LogicalAnd:

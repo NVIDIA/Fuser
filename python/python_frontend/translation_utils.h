@@ -201,9 +201,11 @@ std::function<ResultType(ArgTypes...)> getFunction(const BinaryOp* bop) {
     case BinaryOpType::Gcd:
       return wrap_function(gcd);
       break;
+    case BinaryOpType::FMin:
     case BinaryOpType::Min:
       return wrap_function(minimum);
       break;
+    case BinaryOpType::FMax:
     case BinaryOpType::Max:
       return wrap_function(maximum);
       break;
@@ -274,9 +276,11 @@ std::function<ResultType(ArgTypes...)> getFunction(const ReductionOp* rop) {
     case BinaryOpType::Mul:
       return prod;
       break;
+    case BinaryOpType::FMax:
     case BinaryOpType::Max:
       return max;
       break;
+    case BinaryOpType::FMin:
     case BinaryOpType::Min:
       return min;
       break;
