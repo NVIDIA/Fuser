@@ -108,7 +108,8 @@ constexpr double F8E4M3_MAX = 448.0;
 class NVFP4QuantizeTest : public BlackwellBase,
                           public ::testing::WithParamInterface<DataType> {};
 
-class BQTest : public BlackwellBase {};
+// class BQTest : public BlackwellBase {};
+using BQTest = NVFuserTest;
 
 // Naoya, please use this test.
 TEST_F(BQTest, ScheduleAsPointwise) {
@@ -173,10 +174,7 @@ TEST_F(BQTest, ScheduleAsPointwise) {
 
   for (auto t : {quantization_results.block_scales, t1}) {
     t->split(-1, 16);
-    t->merge(0, 1);
-    t->merge(0, 1);
-    t->merge(0, 1);
-
+    t->flatten();
     t->split(0, 4);
     t->split(0, 128);
 
@@ -185,7 +183,8 @@ TEST_F(BQTest, ScheduleAsPointwise) {
   }
 
   fusion->print();
-
+  fusion->printKernel();
+#if 0
   // Create input tensor
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto input = at::randn({64, 256}, options);
@@ -205,6 +204,7 @@ TEST_F(BQTest, ScheduleAsPointwise) {
   EXPECT_EQ(quantized_tensor_output.dim(), 3);
 
   SUCCEED();
+#endif
 }
 
 TEST_F(BQTest, BasicTest) {

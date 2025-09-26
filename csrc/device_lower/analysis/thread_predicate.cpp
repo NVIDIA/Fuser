@@ -25,15 +25,19 @@ Val* getPredicatePerParallelType(
     ParallelType pt,
     const ThreadPredicateMap::PredicateInfo& pred_info) {
   auto pt_dim = GpuLower::current()->info().parallelDimensionMap().get(pt);
+  const auto has_split = pred_info.parallel_type_splits.contains(pt);
 
   // If pt is not used or is proven to be one, no need to predicate.
   if (pt_dim == nullptr || pt_dim->isOneInt()) {
     return GpuLower::current()->kernel()->trueVal();
   }
+
   // When BID needs to be predicated, that means it's an output of a grid
   // reduction and only the last block index in that dimension has the right
   // value from the grid reduce.
   if (isParallelTypeBlockDim(pt) && pred_info.limited_types.get(pt)) {
+    NVF_ERROR(
+        !has_split, "Splitting of grid parallel types is not supported: ", pt);
     return SimplifyingIrBuilder::eqExpr(
         NamedScalar::getParallelIndex(pt),
         SimplifyingIrBuilder::subExpr(
@@ -55,9 +59,14 @@ Val* getPredicatePerParallelType(
     return pred;
   }
 
+  Val* index = NamedScalar::getParallelIndex(pt);
+  if (has_split) {
+    index = SimplifyingIrBuilder::modExpr(
+        index, IrBuilder::create<Val>(pred_info.parallel_type_splits.at(pt)));
+  }
+
   return SimplifyingIrBuilder::eqExpr(
-      NamedScalar::getParallelIndex(pt),
-      GpuLower::current()->kernel()->zeroVal());
+      index, GpuLower::current()->kernel()->zeroVal());
 }
 
 } // namespace
@@ -220,7 +229,7 @@ void ThreadPredicateMap::updateBitSet(const Expr* expr) {
   }
 
   // Which predicates were set for the inputs
-  ParallelTypeBitmap input_preds;
+  ParallelTypeBitmap input_limited_preds;
 
   // Which dims are reductions in inputs
   ParallelTypeBitmap input_reductions;
@@ -236,6 +245,9 @@ void ThreadPredicateMap::updateBitSet(const Expr* expr) {
         }
       });
 
+  // Split factors of parallel types
+  std::unordered_map<ParallelType, int64_t> type_splits;
+
   // Run through inputs and update bitsets
   for (const auto* inp : expr->inputs()) {
     if (!ir_utils::isTV(inp)) {
@@ -246,10 +258,9 @@ void ThreadPredicateMap::updateBitSet(const Expr* expr) {
 
     // If tv_inp was an output of a multi-output expression, just change it to a
     // consistent sibling to use a single predicate name.
-    if (auto tv_def = tv_inp->definition()) {
-      if (tv_def->outputs().size() > 1) {
-        tv_inp = ir_utils::getTvOutput(tv_def);
-      }
+    if (auto tv_def = tv_inp->definition(); tv_def != nullptr &&
+        tv_def->outputs().size() > 1 && !tv_def->isA<BlockQuantizationOp>()) {
+      tv_inp = ir_utils::getTvOutput(tv_def);
     }
 
     NVF_ERROR(
@@ -318,23 +329,91 @@ void ThreadPredicateMap::updateBitSet(const Expr* expr) {
       this_input_preds &= ~raw_sync_reset_mask;
     }
 
-    input_preds |= this_input_preds;
+    input_limited_preds |= this_input_preds;
 
     id_reductions |=
         getReductionPredicateForUnusedParallelTypes(tv_inp, at(tv_inp));
 
     // Accumulate
     input_reductions |= id_reductions;
+
+    // This is a WAR for the scaling output of the block scaling op,
+    // where only every N tidx threads of the blocking factor have valid
+    // results
+    for (const auto& [pt, factor] : pred_info.parallel_type_splits) {
+      if (!type_splits.emplace(pt, factor).second) {
+        // Just allowing only when using the same factor
+        NVF_ERROR_EQ(
+            type_splits.at(pt),
+            factor,
+            "Non-matched split factor of parallel type: ",
+            pt);
+      }
+    }
   }
 
   // Update map for this tv, before accumulating to other inputs
   // Add any reductions this id has to any input predicates
-  auto output_preds = input_preds | input_reductions;
+  auto output_limited_preds = input_limited_preds | input_reductions;
 
   // Run through outputs and set bitset predicates
   for (auto* out_tv : ir_utils::filterByType<TensorView>(expr->outputs())) {
     auto redundant_types = avoidRedundantWrites(out_tv);
-    update(out_tv, output_preds, redundant_types);
+
+    if (auto block_quantize = dynamic_cast<const BlockQuantizationOp*>(expr);
+        block_quantize != nullptr && out_tv == block_quantize->blockScales()) {
+      // Assumes quantization is done using only TIDx
+      const auto quantization_pt = ParallelType::TIDx;
+      output_limited_preds.set(quantization_pt);
+
+      auto parallel_loop_id_it =
+          std::ranges::find_if(out_tv->getLoopDomain(), [&](IterDomain* id) {
+            return id->getParallelType() == quantization_pt;
+          });
+      NVF_ERROR(parallel_loop_id_it != out_tv->getLoopDomain().end());
+      IterDomain* parallel_loop_id = *parallel_loop_id_it;
+      int64_t stride = 1;
+
+      // If the parallel loop ID is not a logical ID, traverse back to the
+      // logical and compute the stride of the loop ID
+      if (std::ranges::find(out_tv->getLogicalDomain(), parallel_loop_id) ==
+          out_tv->getLogicalDomain().end()) {
+        auto logical_to_loop = DependencyCheck::getAllExprsBetween(
+            {out_tv->getLogicalDomain().back()}, {parallel_loop_id});
+        auto current_id = parallel_loop_id;
+        for (const auto& expr : logical_to_loop | std::views::reverse) {
+          if (auto split = dynamic_cast<Split*>(expr)) {
+            if (current_id == split->outer()) {
+              // Assuming the split factor is all constant
+              stride *= split->factor()->evaluate().as<int64_t>();
+              current_id = split->in();
+            } else if (current_id == split->inner()) {
+              current_id = split->in();
+            }
+          } else if (auto merge = dynamic_cast<Merge*>(expr)) {
+            if (merge->out() == current_id) {
+              current_id = merge->inner();
+            }
+          } else {
+            NVF_THROW("Unsupported expr: ", expr->toString());
+          }
+        }
+      }
+
+      auto thread_split_factor = block_quantize->blockSize() / stride;
+      // Must be divisible
+      NVF_ERROR_EQ(block_quantize->blockSize() % stride, 0);
+
+      if (thread_split_factor > 1) {
+        // Assume there's no split of split
+        NVF_ERROR(
+            type_splits.emplace(quantization_pt, thread_split_factor).second,
+            "Split of split not supported: ",
+            quantization_pt);
+      }
+    }
+
+    update(out_tv, output_limited_preds, redundant_types, type_splits);
   }
 }
 
@@ -733,7 +812,7 @@ void ThreadPredicateMap::build(Fusion* fusion) {
   // Initialize mapping for input tensors
   for (auto inp : fusion->inputs()) {
     if (auto tv = dynamic_cast<const TensorView*>(inp)) {
-      update(tv, ParallelTypeBitmap(), ParallelTypeBitmap());
+      update(tv, ParallelTypeBitmap(), ParallelTypeBitmap(), {});
     }
   }
   for (auto expr : fusion->exprs()) {
@@ -788,8 +867,9 @@ ParallelTypeBitmap ThreadPredicateMap::getPredicatedParallelTypes(
 bool ThreadPredicateMap::update(
     const TensorView* tv,
     const ParallelTypeBitmap& limited_types,
-    const ParallelTypeBitmap& redundant_types) {
-  return update(tv, {limited_types, redundant_types});
+    const ParallelTypeBitmap& redundant_types,
+    const std::unordered_map<ParallelType, int64_t>& type_splits) {
+  return update(tv, {limited_types, redundant_types, type_splits});
 }
 
 bool ThreadPredicateMap::update(

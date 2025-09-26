@@ -3432,6 +3432,11 @@ class BlockQuantizationOp : public Expr {
   std::vector<PolymorphicValue> evaluate(
       const ExpressionEvaluator& ee,
       const std::vector<PolymorphicValue>& inputs) const override;
+
+  // TODO: This should be an attribute
+  int64_t blockSize() const {
+    return 16;
+  }
 };
 
 } // namespace nvfuser
