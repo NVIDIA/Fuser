@@ -1141,13 +1141,15 @@ TensorView* TensorView::cacheBefore(LoadStoreOpType op_type) {
   std::vector<IterDomain*> loop_dom;
   std::vector<std::optional<bool>> contiguity;
 
+  // NOTE: I need to clear definition otherwise BestEffortReplay will not work with dangling sources
+  // create an issue for this, use the example from ./bin/test_nvfuser --gtest_filter="PointwiseTest.VectorizeWithBroadcastAndReshape1"
   // copy non-reduction IDs onto logical and loop
   std::ranges::copy_if(
-      domain()->logical() | std::views::transform([](IterDomain* id) { return id->resetRFactorProduct(); },
+      domain()->logical() | std::views::transform([](IterDomain* id) { id->setDefinition(nullptr); return id->resetRFactorProduct(); }),
       std::back_inserter(logical_dom),
       [](IterDomain* id) {return !id->isReduction();});
   std::ranges::copy_if(
-      domain()->loop() | std::views::transform([](IterDomain* id) { return id->resetRFactorProduct(); },
+      domain()->loop() | std::views::transform([](IterDomain* id) { return id->resetRFactorProduct(); }),
       std::back_inserter(loop_dom),
       [](IterDomain* id) {return !id->isReduction();});
   for (auto&& [id, c] : zip(domain()->hasAllocation() ? domain()->allocation() : domain()->logical(), domain()->contiguity())) {
