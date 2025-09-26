@@ -321,9 +321,6 @@ void TransformReplay::selfReplay(
   // Replay allocation.
   if (self->hasAllocation()) {
     const std::vector<IterDomain*>& self_allocation = self->allocation();
-    // replay on allocation, for cases when the transformation is not on path to
-    // loop.
-    ReplaySelf allocation_dom_replay(self_allocation, axis_map);
     const std::vector<std::optional<bool>>& self_contiguity =
         self->contiguity();
     NVF_ERROR_EQ(self_allocation.size(), self_contiguity.size());
@@ -350,26 +347,19 @@ void TransformReplay::selfReplay(
       if (ignore_reductions && alloc_id->isReduction()) {
         continue;
       }
-      IterDomain* id = nullptr;
-      // NOTE: try to use replay on loop domain first, to avoid unnecessarily
-      // duplicated transformation
-      for (const auto& re :
-           {replay.getReplay(), allocation_dom_replay.getReplay()}) {
-        auto it = re.find(alloc_id);
-        if (it != re.end()) {
-          id = it->second;
-          break;
-        }
-      }
-      NVF_ERROR(id, "failed to replay IterDomain: ", alloc_id);
+      auto it = replay.getReplay().find(alloc_id);
+      NVF_ERROR(
+          it != replay.getReplay().end(),
+          "failed to replay IterDomain: ",
+          alloc_id);
       NVF_ERROR_EQ(
           (it->second->isBroadcast() || it->second->isReduction()),
           !contiguity.has_value(),
           "Contiguity should be nullopt iff broadcast or reduction, true/false "
           "otherwise.");
       new_contiguity.push_back(contiguity);
-      id->parallelize(alloc_id->getParallelType());
-      new_alloc_domain.push_back(id);
+      it->second->parallelize(alloc_id->getParallelType());
+      new_alloc_domain.push_back(it->second);
     }
 
     new_self->setAllocationDomain(new_alloc_domain, new_contiguity);
