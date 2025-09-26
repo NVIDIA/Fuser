@@ -365,6 +365,7 @@ std::vector<KernelArgumentHolder> FusionKernelRuntime::prepareInputs(
       group_runtime_inputs.setCacheId(group_cache_id.value());
     }
 
+    KernelArgumentHolder group_runtime_outputs;
     const auto& heuristic_params = heuristics->at(group_to_run->groupId());
     const bool is_expr_eval =
         heuristic_params->scheduler_type == SchedulerType::ExprEval;
@@ -383,7 +384,7 @@ std::vector<KernelArgumentHolder> FusionKernelRuntime::prepareInputs(
       // TODO: inferOutputSizes doesn't seem to strictly require a Fusion for
       // each segment. Consider using the complete fusion instead.
       auto fusion_to_run = segmented_fusion_->makeFusion(group_to_run).second;
-      auto group_runtime_outputs =
+      group_runtime_outputs =
           inferOutputSizes(fusion_to_run.get(), group_runtime_inputs);
     }
 
