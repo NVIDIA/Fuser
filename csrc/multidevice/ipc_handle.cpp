@@ -144,6 +144,9 @@ void IpcHandleCache::exchangeHandles(
     insert(communication, std::move(ipc_handles));
   }
 
+  if (non_cached_communications.empty()) {
+    return;
+  }
   // a barrier is needed here to ensure all ranks have received the
   // memhandles and the keys are deleted from the store before the next call to
   // exchangeHandles, otherwise there is a correctness issue

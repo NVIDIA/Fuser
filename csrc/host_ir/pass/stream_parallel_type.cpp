@@ -342,7 +342,7 @@ std::vector<Expr*> processForLoopBodies(
 
       auto* my_device_id =
           IrBuilder::create<NamedScalar>("rank", DataType::Int);
-      auto tensor_index = mod(add(my_device_id, for_loop->index()), for_loop->stop());
+      auto tensor_index = communicator_backend == CommunicatorBackend::kCuda ? mod(add(my_device_id, for_loop->index()), for_loop->stop()) : for_loop->index();
       if (needs_p2p_handling) {
         NVF_ERROR(
             body_expr->isA<LoadStoreOp>() &&
