@@ -118,6 +118,26 @@ __device__ __bfloat fmax(__bfloat a, __bfloat b) {
   return __float2bfloat(fmax(a_float, b_float));
 }
 
+__device__ double unsafe_fmax(double a, double b) {
+  return a > b ? a : b;
+}
+
+__device__ float unsafe_fmax(float a, float b) {
+  return a > b ? a : b;
+}
+
+__device__ __half unsafe_fmax(__half a, __half b) {
+  auto a_float = __half2float(a);
+  auto b_float = __half2float(b);
+  return __float2half(unsafe_fmax(a_float, b_float));
+}
+
+__device__ __bfloat unsafe_fmax(__bfloat a, __bfloat b) {
+  auto a_float = __bfloat2float(a);
+  auto b_float = __bfloat2float(b);
+  return __float2bfloat(unsafe_fmax(a_float, b_float));
+}
+
 template <typename T>
 __device__ T abs(T a) {
   return a > 0 ? a : -a;

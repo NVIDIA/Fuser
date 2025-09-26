@@ -569,8 +569,12 @@ static const char* binary_op_type2string(BinaryOpType t) {
       return "fmod";
     case BinaryOpType::Max:
       return "fmax";
+    case BinaryOpType::UnsafeMax:
+      return "unsafe_fmax";
     case BinaryOpType::Min:
       return "fmin";
+    case BinaryOpType::UnsafeMin:
+      return "unsafe_fmin";
     case BinaryOpType::Mul:
       return "mul";
     case BinaryOpType::Nextafter:
@@ -629,8 +633,12 @@ static const char* binary_op_integer_op2string(BinaryOpType t) {
   switch (t) {
     case BinaryOpType::Max:
       return "max";
+    case BinaryOpType::UnsafeMax:
+      return "unsafe_max";
     case BinaryOpType::Min:
       return "min";
+    case BinaryOpType::UnsafeMin:
+      return "unsafe_min";
     case BinaryOpType::Fmod:
       return "fmod";
     default:
@@ -643,8 +651,12 @@ static const char* binary_op_bool_op2string(BinaryOpType t) {
   switch (t) {
     case BinaryOpType::Max:
       return "max";
+    case BinaryOpType::UnsafeMax:
+      return "unsafe_max";
     case BinaryOpType::Min:
       return "min";
+    case BinaryOpType::UnsafeMin:
+      return "unsafe_min";
     default:
       break;
   }

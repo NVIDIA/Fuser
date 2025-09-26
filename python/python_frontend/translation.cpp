@@ -711,8 +711,11 @@ class FusionTranslator : public OptInConstDispatch {
 
     // The min and max reduction operations expect the dtype argument to by
     // PrimDataType::Null
-    PrimDataType dtype = (rop->getReductionOpType() == BinaryOpType::Min ||
-                          rop->getReductionOpType() == BinaryOpType::Max)
+    PrimDataType dtype =
+        (rop->getReductionOpType() == BinaryOpType::Min ||
+         rop->getReductionOpType() == BinaryOpType::UnsafeMin ||
+         rop->getReductionOpType() == BinaryOpType::Max ||
+         rop->getReductionOpType() == BinaryOpType::UnsafeMax)
         ? PrimDataType::Null
         : std::get<PrimDataType>(rop->out()->dtype().type);
 
