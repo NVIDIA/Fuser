@@ -577,7 +577,9 @@ class RunTimeChecker : private IterVisitor {
 
   void handle(ArgsortOp* argsort) override {
     checkDomainConstraints(
-        ir_utils::getTvOutput(argsort)->getLogicalDomain(), {argsort->dim()});
+        ir_utils::getTvOutput(argsort)->getLogicalDomain(),
+        {argsort->dim()},
+        /*support_grouping=*/true);
   }
 
   void handle(PadOp* pad) override {
