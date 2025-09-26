@@ -272,10 +272,10 @@ void Fusion::addOutputInternal(Val* output) {
 }
 
 void Fusion::addOutput(Val* output) {
-  // special handling for returning aliased output. We just need to remove its
+  // Special handling for returning aliased output. We just need to remove its
   // existing entry in the outputs_ used for inplace update
-  AliasInfo alias = io_alias_.get(output);
-  if (alias.type != AllocationType::New) {
+  if (io_alias_.get(output).type != AllocationType::New) {
+    AliasInfo& alias = io_alias_.mutable_at(output);
     // if previous output is only added for aliasing purpose, we should remove
     // the previous entry and add a new one. Otherwise, it may be positioned
     // wrong in the output list.
@@ -284,7 +284,6 @@ void Fusion::addOutput(Val* output) {
     }
     // output shouldn't be hidden any more
     alias.visibility = OutputVisibility::kVisible;
-    io_alias_.add(output, alias.aliased_io, alias.type, alias.visibility);
   }
 
   addOutputInternal(output);
@@ -785,13 +784,39 @@ std::ostream& operator<<(std::ostream& os, OutputVisibility visibility) {
   std::unreachable();
 }
 
-std::ostream& operator<<(std::ostream& os, AliasInfo alias) {
+std::ostream& operator<<(std::ostream& os, const AliasInfo& alias) {
   os << "AliasInfo{" << std::endl;
   os << "  type = " << alias.type << "," << std::endl;
   os << "  aliased_io = " << alias.aliased_io << "," << std::endl;
   os << "  visibility = " << alias.visibility << std::endl;
   os << "}" << std::endl;
   return os;
+}
+
+void AliasInfoMap::add(
+    Val* out,
+    Val* in,
+    AllocationType type,
+    OutputVisibility visibility) {
+  auto [_, inserted] = aliases_.try_emplace(
+      out, AliasInfo{.type = type, .aliased_io = in, .visibility = visibility});
+  NVF_ERROR(
+      inserted,
+      "The map already has an AliasInfo for ",
+      out,
+      ": ",
+      aliases_.at(out));
+}
+
+const AliasInfo& AliasInfoMap::get(const Val* v) const {
+  static AliasInfo no_alias_info{
+      .type = AllocationType::New,
+      .aliased_io = nullptr,
+      .visibility = OutputVisibility::kVisible};
+  if (auto search = aliases_.find(v); search != aliases_.end()) {
+    return search->second;
+  }
+  return no_alias_info;
 }
 
 void Fusion::aliasOutputToInput(
