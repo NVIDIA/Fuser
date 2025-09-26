@@ -58,6 +58,7 @@ class IterDomainBuilder {
   IterDomainBuilder& iter_type(IterType _iter_type);
   IterDomainBuilder& is_rfactor_domain(bool _is_rfactor_domain);
   IterDomainBuilder& is_padded_dimension(bool _is_padded_dimension);
+  IterDomainBuilder& is_clustered_blocks(bool _is_clustered_blocks);
   IterDomainBuilder& padded_to_size(std::optional<int64_t> _padded_to_size);
 
   IterDomain* build() const;
@@ -75,6 +76,7 @@ class IterDomainBuilder {
   // Only relevant at scheduling time or compile time.
   bool is_rfactor_domain_ = false;
   bool is_padded_dimension_ = false;
+  bool is_clustered_dimension_ = false;
   std::optional<int64_t> padded_to_size_ = std::nullopt;
 };
 
@@ -98,6 +100,7 @@ class NVF_API IterDomain : public Val {
       IterType iter_type,
       bool is_rfactor_domain,
       bool is_padded_dimension,
+      bool is_clustered_blocks,
       std::optional<int64_t> padded_to_size);
 
   IterDomain(const IterDomain* src, IrCloner* ir_cloner);
@@ -306,6 +309,19 @@ class NVF_API IterDomain : public Val {
     return is_padded_dimension_;
   }
 
+  //! Sets whether this IterDomain uses CUDA thread block clusters (Hopper+).
+  void setClusteredBlocks(bool is_clustered_blocks) {
+    NVF_CHECK(
+        parallel_type_ == ParallelType::BIDx,
+        "setClusteredBlocks: only support set BIDx parallel type");
+    is_clustered_dimension_ = is_clustered_blocks;
+  }
+
+  //! Returns whether this IterDomain uses clustered blocks.
+  bool isClusteredBlockDim() const {
+    return is_clustered_dimension_;
+  }
+
   //! Returns a concrete value if this iterdomain
   //!  has been padded to a statical size.
   std::optional<int64_t> getMaybeSizeAfterPadding() const {
@@ -397,6 +413,7 @@ class NVF_API IterDomain : public Val {
   IterType iter_type_ = IterType::Iteration;
   bool is_rfactor_domain_ = false;
   bool is_padded_dimension_ = false;
+  bool is_clustered_dimension_ = false;
   std::optional<int64_t> padded_to_size_ = std::nullopt;
 };
 
@@ -520,6 +537,7 @@ class NVF_API TensorDomain : public Val {
   bool hasReduction() const;
 
   bool hasBlockReduction() const;
+  bool hasClusterReduction() const;
   bool hasGridReduction() const;
   bool hasBlockBroadcast() const;
   bool hasGridBroadcast() const;
