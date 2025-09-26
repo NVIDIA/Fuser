@@ -17,7 +17,7 @@
 #include <kernel_ir.h>
 #include <ops/all_ops.h>
 #include <ops/utils.h>
-#include "multidevice/multidevice.h"
+#include <multidevice/utils.h>
 
 namespace nvfuser::hir_pass {
 

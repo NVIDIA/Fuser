@@ -50,7 +50,8 @@ void lowerToScatter(
     TensorView* input_tv,
     TensorView* output_tv,
     const CommunicatorBackend backend,
-    std::vector<Expr*>& comms) {
+    std::vector<Expr*>& comms,
+    Val* tag) {
   const DeviceMesh& receiver_mesh = output_tv->getDeviceMesh();
   NVF_ERROR(
       receiver_mesh.rank() == 1,
@@ -76,7 +77,8 @@ void lowerToScatter(
       team,
       root,
       c10d::ReduceOp::RedOpType::UNUSED,
-      backend));
+      backend,
+      tag));
 }
 
 // Adds zero or multiple Gather communications to the vector 'comms'
@@ -87,7 +89,8 @@ void lowerToGather(
     TensorView* input_tv,
     TensorView* output_tv,
     const CommunicatorBackend backend,
-    std::vector<Expr*>& comms) {
+    std::vector<Expr*>& comms,
+    Val* tag) {
   // we create as many 'Gathers' as there are devices in the receiver mesh
   const DeviceMesh& sender_mesh = input_tv->getDeviceMesh();
   NVF_ERROR(
@@ -106,7 +109,8 @@ void lowerToGather(
         team,
         root,
         c10d::ReduceOp::RedOpType::UNUSED,
-        backend));
+        backend,
+        tag));
   }
 }
 
@@ -116,7 +120,8 @@ void lowerToAllgather(
     TensorView* output_tv,
     const CommunicatorBackend backend,
     std::vector<Expr*>& comms,
-    DeviceIdxType my_device_idx) {
+    DeviceIdxType my_device_idx,
+    Val* tag) {
   const DeviceMesh& mesh = input_tv->getDeviceMesh();
   Team team = mesh.getSlice(my_device_idx, ParallelType::DIDx);
   comms.push_back(IrBuilder::create<Communication>(
@@ -126,7 +131,8 @@ void lowerToAllgather(
       team,
       /*root=*/-1,
       c10d::ReduceOp::RedOpType::UNUSED,
-      backend));
+      backend,
+      tag));
 }
 
 // Adds one or zero Broadcast communication to the vector 'comms'
@@ -135,7 +141,8 @@ void lowerToBroadcast(
     TensorView* output_tv,
     DeviceIdxType root,
     const CommunicatorBackend backend,
-    std::vector<Expr*>& comms) {
+    std::vector<Expr*>& comms,
+    Val* tag) {
   const DeviceMesh& mesh = output_tv->getDeviceMesh();
   NVF_ERROR(
       mesh.rank() == 1, "Broadcast only supported a 1D mesh. Given ", mesh);
@@ -150,7 +157,8 @@ void lowerToBroadcast(
       team,
       root,
       c10d::ReduceOp::RedOpType::UNUSED,
-      backend));
+      backend,
+      tag));
 }
 
 // Adds several Broadcast or SendRecv communications to the vector 'comms'
@@ -161,7 +169,8 @@ void lowerToBroadcastOrSendRecv(
     TensorView* input_tv,
     TensorView* output_tv,
     const CommunicatorBackend backend,
-    std::vector<Expr*>& comms) {
+    std::vector<Expr*>& comms,
+    Val* tag) {
   const DeviceMesh& sender_mesh = input_tv->getDeviceMesh();
   const DeviceMesh& receiver_mesh = output_tv->getDeviceMesh();
   NVF_ERROR(
@@ -191,7 +200,8 @@ void lowerToBroadcastOrSendRecv(
           Team({sender, receiver}),
           /*root=*/sender,
           c10d::ReduceOp::RedOpType::UNUSED,
-          backend));
+          backend,
+          tag));
     }
   } else {
     // Either of the following two cases is happening.
@@ -205,7 +215,8 @@ void lowerToBroadcastOrSendRecv(
         output_tv,
         /*root=*/sender_mesh.at(0),
         backend,
-        comms);
+        comms,
+        tag);
   }
 }
 
@@ -214,7 +225,8 @@ void lowerToReduce(
     TensorView* output_tv,
     BinaryOpType op_type,
     const CommunicatorBackend backend,
-    std::vector<Expr*>& comms) {
+    std::vector<Expr*>& comms,
+    Val* tag) {
   const DeviceMesh& receiver_mesh = output_tv->getDeviceMesh();
   const DeviceMesh& sender_mesh = input_tv->getDeviceMesh();
   NVF_ERROR(
@@ -239,7 +251,8 @@ void lowerToReduce(
         team,
         root,
         reduce_op_type,
-        backend));
+        backend,
+        tag));
   }
 }
 
@@ -249,7 +262,8 @@ void lowerToAllreduce(
     BinaryOpType op_type,
     const CommunicatorBackend backend,
     std::vector<Expr*>& comms,
-    DeviceIdxType my_device_idx) {
+    DeviceIdxType my_device_idx,
+    Val* tag) {
   const DeviceMesh& mesh = input_tv->getDeviceMesh();
   Team team = mesh.getSlice(my_device_idx, ParallelType::DIDx);
   comms.push_back(IrBuilder::create<Communication>(
@@ -259,7 +273,8 @@ void lowerToAllreduce(
       team,
       /*root=*/-1,
       getC10dReduceOpType(op_type),
-      backend));
+      backend,
+      tag));
 }
 
 void lowerToReduceScatter(
@@ -268,7 +283,8 @@ void lowerToReduceScatter(
     BinaryOpType op_type,
     const CommunicatorBackend backend,
     std::vector<Expr*>& comms,
-    DeviceIdxType my_device_idx) {
+    DeviceIdxType my_device_idx,
+    Val* tag) {
   const DeviceMesh& mesh = input_tv->getDeviceMesh();
   Team team = mesh.getSlice(my_device_idx, ParallelType::DIDx);
 
@@ -279,7 +295,8 @@ void lowerToReduceScatter(
       /*team=*/team,
       /*root=*/-1,
       getC10dReduceOpType(op_type),
-      backend));
+      backend,
+      tag));
 }
 
 IterDomain* getLogicalFromLoopId(TensorView* tv, IterDomain* loop_id) {
@@ -491,7 +508,8 @@ bool isCommunicationLayoutCompliant(Expr* expr) {
 std::vector<Expr*> convertSingleOpToCommunication(
     Expr* e,
     DeviceIdxType my_device_idx,
-    const CommunicatorBackend backend) {
+    const CommunicatorBackend backend,
+    Val* tag) {
   FusionGuard fg(e->fusion());
 
   std::vector<Expr*> comms;
@@ -522,16 +540,17 @@ std::vector<Expr*> convertSingleOpToCommunication(
 
   if (e->isA<LoadStoreOp>()) {
     if (!is_input_sharded && is_output_sharded) {
-      lowerToScatter(input_tv, output_tv, backend, comms);
+      lowerToScatter(input_tv, output_tv, backend, comms, tag);
     } else if (is_input_sharded && !is_output_sharded) {
       if (same_mesh) {
-        lowerToAllgather(input_tv, output_tv, backend, comms, my_device_idx);
+        lowerToAllgather(
+            input_tv, output_tv, backend, comms, my_device_idx, tag);
       } else {
-        lowerToGather(input_tv, output_tv, backend, comms);
+        lowerToGather(input_tv, output_tv, backend, comms, tag);
       }
     } else {
       // TODO(#4604): This is problematic for 2D sharding.
-      lowerToBroadcastOrSendRecv(input_tv, output_tv, backend, comms);
+      lowerToBroadcastOrSendRecv(input_tv, output_tv, backend, comms, tag);
     }
   } else {
     BinaryOpType op_type = [&]() {
@@ -559,13 +578,13 @@ std::vector<Expr*> convertSingleOpToCommunication(
           "Insert a Set operation before or after the reduction to reshard ot "
           "another device mesh");
       lowerToReduceScatter(
-          input_tv, output_tv, op_type, backend, comms, my_device_idx);
+          input_tv, output_tv, op_type, backend, comms, my_device_idx, tag);
     } else {
       if (same_mesh) {
         lowerToAllreduce(
-            input_tv, output_tv, op_type, backend, comms, my_device_idx);
+            input_tv, output_tv, op_type, backend, comms, my_device_idx, tag);
       } else {
-        lowerToReduce(input_tv, output_tv, op_type, backend, comms);
+        lowerToReduce(input_tv, output_tv, op_type, backend, comms, tag);
       }
     }
   }
