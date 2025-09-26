@@ -695,7 +695,7 @@ std::unordered_map<Val*, PolymorphicValue> FusionKernelRuntime::
     }
 
     args_manager.updateWithSegmentOutputs(
-        group_to_run->outputs(), group_runtime_outputs, run_order_id);
+        group_to_run->outputs(), group_runtime_outputs, run_order_id, true);
   }
 
   if (isProfilerEnabled()) {
