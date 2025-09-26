@@ -58,55 +58,56 @@ void benchmarkP2PCommunication() {
     std::cout << std::string(60, '-') << std::endl;
   }
 
+  // Create fusion definition and executor once, outside the loop
+  auto container = std::make_unique<hir::HostIrContainer>();
+  FusionGuard fg(container.get());
+
+  // Create the P2P communication setup
+  auto* send_peer_val = IrBuilder::create<Val>(send_peer, DataType::Int);
+  auto* recv_peer_val = IrBuilder::create<Val>(recv_peer, DataType::Int);
+
+  auto* send_tv = TensorViewBuilder()
+                      .ndims(1)
+                      .dtype(DataType::Float)
+                      .contiguity(true)
+                      .build();
+  auto* recv_tv = TensorViewBuilder()
+                      .ndims(1)
+                      .dtype(DataType::Float)
+                      .contiguity(true)
+                      .build();
+  ;
+  container->addInput(send_tv);
+  container->addInput(recv_tv);
+
+  auto send = IrBuilder::create<P2PCommunication>(
+      P2PCommunicationType::SEND,
+      send_tv,
+      send_peer_val,
+      CommunicatorBackend::kCuda);
+  auto recv = IrBuilder::create<P2PCommunication>(
+      P2PCommunicationType::RECV,
+      recv_tv,
+      recv_peer_val,
+      CommunicatorBackend::kCuda);
+
+  std::vector<P2PCommunication*> grouped_communications = {send, recv};
+  auto share_mem_handles = IrBuilder::create<hir::ShareMemHandles>(
+      std::move(grouped_communications));
+  auto wait_send = IrBuilder::create<hir::Wait>(send);
+  auto wait_recv = IrBuilder::create<hir::Wait>(recv);
+
+  container->pushBackTopLevelExprs(share_mem_handles);
+  container->pushBackTopLevelExprs(send);
+  container->pushBackTopLevelExprs(recv);
+  container->pushBackTopLevelExprs(wait_send);
+  container->pushBackTopLevelExprs(wait_recv);
+
+  hir::HostIrEvaluator executor(std::move(container), communicator);
+
   // Test each tensor size
   for (size_t size_idx = 0; size_idx < tensor_sizes.size(); size_idx++) {
     const int current_tensor_size = tensor_sizes[size_idx];
-
-    auto container = std::make_unique<hir::HostIrContainer>();
-    FusionGuard fg(container.get());
-
-    // Create the P2P communication setup
-    auto* send_peer_val = IrBuilder::create<Val>(send_peer, DataType::Int);
-    auto* recv_peer_val = IrBuilder::create<Val>(recv_peer, DataType::Int);
-
-    auto* send_tv = TensorViewBuilder()
-                        .ndims(1)
-                        .dtype(DataType::Float)
-                        .contiguity(true)
-                        .build();
-    auto* recv_tv = TensorViewBuilder()
-                        .ndims(1)
-                        .dtype(DataType::Float)
-                        .contiguity(true)
-                        .build();
-    ;
-    container->addInput(send_tv);
-    container->addInput(recv_tv);
-
-    auto send = IrBuilder::create<P2PCommunication>(
-        P2PCommunicationType::SEND,
-        send_tv,
-        send_peer_val,
-        CommunicatorBackend::kCuda);
-    auto recv = IrBuilder::create<P2PCommunication>(
-        P2PCommunicationType::RECV,
-        recv_tv,
-        recv_peer_val,
-        CommunicatorBackend::kCuda);
-
-    std::vector<P2PCommunication*> grouped_communications = {send, recv};
-    auto share_mem_handles = IrBuilder::create<hir::ShareMemHandles>(
-        std::move(grouped_communications));
-    auto wait_send = IrBuilder::create<hir::Wait>(send);
-    auto wait_recv = IrBuilder::create<hir::Wait>(recv);
-
-    container->pushBackTopLevelExprs(share_mem_handles);
-    container->pushBackTopLevelExprs(send);
-    container->pushBackTopLevelExprs(recv);
-    container->pushBackTopLevelExprs(wait_send);
-    container->pushBackTopLevelExprs(wait_recv);
-
-    hir::HostIrEvaluator executor(std::move(container), communicator);
 
     // Create tensors
     at::TensorOptions tensor_options =
