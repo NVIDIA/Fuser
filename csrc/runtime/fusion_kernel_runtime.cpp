@@ -366,7 +366,7 @@ std::vector<KernelArgumentHolder> FusionKernelRuntime::prepareInputs(
     }
 
     KernelArgumentHolder group_runtime_outputs;
-    const auto& heuristic_params = heuristics->at(group_to_run->groupId());
+    const auto& heuristic_params = heuristics_->at(group_to_run->groupId());
     const bool is_expr_eval =
         heuristic_params->scheduler_type == SchedulerType::ExprEval;
     if (is_expr_eval) {
