@@ -1129,7 +1129,7 @@ TensorView* TensorView::cacheBefore(LoadStoreOpType op_type) {
 
 
   // replay from `root`->`loop` on producer
-  TransformReplay::fullSelfReplay(producer->domain(), domain());
+  producer->setDomain(TransformReplay::fullSelfReplay(producer->domain(), domain()));
 
   // clean up consumer domain to wipe out root and all reduction IDs
   std::vector<IterDomain*> logical_dom;
