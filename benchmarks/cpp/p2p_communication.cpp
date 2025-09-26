@@ -24,9 +24,9 @@ namespace nvfuser {
 
 void benchmarkP2PCommunication() {
   // Test powers of 2 tensor sizes from 2^10 to 2^32
-  std::vector<long> tensor_sizes;
+  std::vector<int64_t> tensor_sizes;
   for (int power = 10; power <= 32; power++) {
-    tensor_sizes.push_back(1L << power);
+    tensor_sizes.push_back(1LL << power);
   }
 
   static constexpr int kNumRepetitions = 100;
@@ -106,7 +106,7 @@ void benchmarkP2PCommunication() {
   hir::HostIrEvaluator executor(std::move(container), communicator);
 
   // Test each tensor size
-  for (long current_tensor_size : tensor_sizes) {
+  for (int64_t current_tensor_size : tensor_sizes) {
     // Create tensors
     at::TensorOptions tensor_options =
         at::TensorOptions().device(at::kCUDA, my_rank);
