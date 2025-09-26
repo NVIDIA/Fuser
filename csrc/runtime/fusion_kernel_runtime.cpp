@@ -365,15 +365,31 @@ std::vector<KernelArgumentHolder> FusionKernelRuntime::prepareInputs(
       group_runtime_inputs.setCacheId(group_cache_id.value());
     }
 
-    // TODO: inferOutputSizes doesn't seem to strictly require a Fusion for
-    // each segment. Consider using the complete fusion instead.
-    auto fusion_to_run = segmented_fusion_->makeFusion(group_to_run).second;
-    auto group_runtime_outputs =
-        inferOutputSizes(fusion_to_run.get(), group_runtime_inputs);
+    const auto& heuristic_params = heuristics->at(group_to_run->groupId());
+    const bool is_expr_eval =
+        heuristic_params->scheduler_type == SchedulerType::ExprEval;
+    if (is_expr_eval) {
+      // For expr evaluated fusion, the striding rules follow that of ATen.
+      ExpressionEvaluator eval_fusion;
+      for (auto [i, v] : enumerate(group_to_run->inputs())) {
+        auto tensor_pv = args_manager.checkTensorMap(v);
+        eval_fusion.bind(fusion_to_run->inputs()[i], tensor_pv);
+      }
+      for (auto v : fusion_to_run->outputs()) {
+        auto result = eval_fusion.evaluate(v);
+        group_runtime_outputs.push(result);
+      }
+    } else {
+      // TODO: inferOutputSizes doesn't seem to strictly require a Fusion for
+      // each segment. Consider using the complete fusion instead.
+      auto fusion_to_run = segmented_fusion_->makeFusion(group_to_run).second;
+      auto group_runtime_outputs =
+          inferOutputSizes(fusion_to_run.get(), group_runtime_inputs);
+    }
 
     // map output args to tensor map
     args_manager.updateWithSegmentOutputs(
-        group_to_run->outputs(), group_runtime_outputs, run_order_id);
+        group_to_run->outputs(), group_runtime_outputs, run_order_id, is_expr_eval);
   }
 
   return all_runtime_inputs;
