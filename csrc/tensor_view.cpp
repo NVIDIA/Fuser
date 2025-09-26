@@ -1121,12 +1121,10 @@ TensorView* TensorView::cacheBefore(LoadStoreOpType op_type) {
 
   // Create Producer Domain
   // We only need root for full self replay.
+  std::vector<IterDomain*> root = IterDomain::clone(domain()->hasRoot()?domain()->root():domain()->logical());
   auto* producer = IrBuilder::createInContainer<TensorView>(
       container(),
-      IrBuilder::createInContainer<TensorDomain>(container(),
-        IterDomain::clone(domain()->root()),
-        IterDomain::clone(domain()->logical()),
-        IterDomain::clone(domain()->logical())),
+      IrBuilder::createInContainer<TensorDomain>(container(), root, root, root),
       getDataType().value());
 
 
