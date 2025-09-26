@@ -770,6 +770,7 @@ std::ostream& operator<<(std::ostream& os, OutputVisibility visibility) {
     case OutputVisibility::kHidden:
       return os << "Hidden";
   }
+  std::unreachable();
 }
 
 void Fusion::aliasOutputToInput(
