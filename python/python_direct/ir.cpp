@@ -279,6 +279,63 @@ list of IterDomain
     The root iteration domains.
 )")
       .def(
+          "cache_after",
+          &TensorView::cacheAfter,
+          py::arg("op_type") = LoadStoreOpType::Set,
+          py::arg("cache_op") = CacheOp::Unspecified,
+          py::arg("propagate_allocation_domain") = true,
+          py::arg("cached_uses") = py::list(),
+          py::return_value_policy::reference,
+          R"(
+      Cache the TensorView after the specified operation.
+
+      Parameters
+      ----------
+      op_type : LoadStoreOpType, optional
+          The type of load/store operation (default: Set).
+      cache_op : CacheOp, optional
+          The type of cache operation (default: Unspecified).
+
+      Returns
+      -------
+      TensorView
+          The new cached TensorView.
+    )")
+      .def(
+          "cache_before",
+          &TensorView::cacheBefore,
+          py::arg("op_type") = LoadStoreOpType::Set,
+          py::return_value_policy::reference,
+          R"(
+      Cache the TensorView before the specified operation.
+
+      Parameters
+      ----------
+      op_type : LoadStoreOpType, optional
+          The type of load/store operation (default: Set).
+
+      Returns
+      -------
+      TensorView
+          The new cached TensorView.
+    )")
+      .def(
+          "set_memory_type",
+          &TensorView::setMemoryType,
+          py::arg("memory_type"),
+          R"(
+      Set the memory type for the TensorView.
+
+      Parameters
+      ----------
+      memory_type : MemoryType
+          The memory type to set.
+
+      Returns
+      -------
+      None
+    )")
+      .def(
           "split",
           static_cast<TensorView* (TensorView::*)(int64_t, int64_t, bool)>(
               &TensorView::split),
