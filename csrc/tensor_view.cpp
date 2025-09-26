@@ -1129,14 +1129,48 @@ TensorView* TensorView::cacheBefore(LoadStoreOpType op_type) {
         IterDomain::clone(domain()->logical())),
       getDataType().value());
 
-  // Set domain of consumer
-  TensorView* consumer = this;
 
   // replay from `root`->`loop` on producer
-  TransformReplay::fullSelfReplay(producer->domain(), consumer->domain());
+  TransformReplay::fullSelfReplay(producer->domain(), domain());
 
   // clean up consumer domain to wipe out root and all reduction IDs
+  std::vector<IterDomain*> logical_dom;
+  std::vector<IterDomain*> alloc_dom;
+  std::vector<IterDomain*> loop_dom;
+  std::vector<std::optional<bool>> contiguity;
+
+  // copy non-reduction IDs onto logical and loop
+  std::ranges::copy_if(
+      consumer->domain()->logical(),
+      std::back_inserter(logical_dom),
+      [](IterDomain* id) {return !id->isReduction();});
+  std::ranges::copy_if(
+      consumer->domain()->loop(),
+      std::back_inserter(loop_dom),
+      [](IterDomain* id) {return !id->isReduction();});
+  // TODO: test this with broadcast?!
+  for (auto&& [id, c] : std::views::zip(consumer->domain()->hasAllocation() ? consumer->domain()->allocation : consumer->domain()->logical, domain()->contiguity())) {
+    if (id->isReduction()) {
+      continue;
+    }
+    alloc_dom.push_back(id);
+    contiguity.push_back(c);
+  }
+
+  // Set domain of consumer
+  TensorView* consumer = this;
+  consumer->setDomain(IrBuilder::createInContainer<TensorDomain>(
+      container(),
+      std::vector<IterDomain*>{},
+      logical_dom,
+      alloc_dom,
+      loop_dom,
+      contiguity);
+
   // TODO: figure out scatter special handling.
+  // if (!producer->definition()->isA<ScatterOp>()) {
+  // } else {
+  // }
 
   /* FIXME
   std::vector<IterDomain*> new_logical_domain;
