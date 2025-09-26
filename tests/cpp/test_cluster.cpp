@@ -25,7 +25,7 @@ class ClusterReductionTest : public NVFuserTest {
   }
 };
 
-TEST_F(ClusterReductionTest, ManusalScheduledSimpleFusion) {
+TEST_F(ClusterReductionTest, ManualScheduledSimpleFusion) {
   auto fusion_ptr = std::make_unique<Fusion>();
   auto& fusion = *fusion_ptr;
   FusionGuard fg(fusion_ptr.get());
