@@ -1196,7 +1196,7 @@ def test_tutorial_vectorize_store_pointwise_tma(nvfuser_direct_test):
 
         # Propagate common parallel dimensions
         reference_tv.axis(1).parallelize(ParallelType.grid_x)
-        fd.sched.parallelize_all_like(reference_tv)
+        fd.sched.parallelize_like(reference_tv)
 
         tv2b.axis(-2).parallelize(ParallelType.block_x)
 
@@ -1224,14 +1224,14 @@ def test_tutorial_vectorize_store_pointwise_tma(nvfuser_direct_test):
         dim0 = 16384
         dim1 = 16384
 
-        # Compile with KernelExecutor directly to avoid scheduling
-        index32bit = CompileParams(
-            index_type=DataType.Int32, maxrregcount=255, enable_magic_zero=False
-        )
-        t0 = torch.randn(dim0, dim1, dtype=torch.float, device="cuda:0")
-        t1 = torch.randn(dim0, dim1, dtype=torch.float, device="cuda:0")
-        t2 = t0 + t1
-        ke = KernelExecutor()
-        ke.compile(fd.fusion, [t0, t1], compile_params=index32bit)
-        outputs = ke.run([t0, t1])
-        assert outputs[0].equal(t2)
+    # Compile with KernelExecutor directly to avoid scheduling
+    index32bit = CompileParams(
+        index_type=DataType.Int32, maxrregcount=255, enable_magic_zero=False
+    )
+    t0 = torch.randn(dim0, dim1, dtype=torch.float, device="cuda:0")
+    t1 = torch.randn(dim0, dim1, dtype=torch.float, device="cuda:0")
+    t2 = t0 + t1
+    ke = KernelExecutor()
+    ke.compile(fd.fusion, [t0, t1], compile_params=index32bit)
+    outputs = ke.run([t0, t1])
+    assert outputs[0].equal(t2)
