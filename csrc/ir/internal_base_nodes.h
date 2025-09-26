@@ -58,7 +58,6 @@ class IterDomainBuilder {
   IterDomainBuilder& iter_type(IterType _iter_type);
   IterDomainBuilder& is_rfactor_domain(bool _is_rfactor_domain);
   IterDomainBuilder& is_padded_dimension(bool _is_padded_dimension);
-  IterDomainBuilder& is_clustered_blocks(bool _is_clustered_blocks);
   IterDomainBuilder& padded_to_size(std::optional<int64_t> _padded_to_size);
 
   IterDomain* build() const;

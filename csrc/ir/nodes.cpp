@@ -2573,12 +2573,6 @@ IterDomainBuilder& IterDomainBuilder::padded_to_size(
   return *this;
 }
 
-IterDomainBuilder& IterDomainBuilder::is_clustered_blocks(
-    bool _is_clustered_blocks) {
-  is_clustered_dimension_ = _is_clustered_blocks;
-  return *this;
-}
-
 IterDomain* IterDomainBuilder::build() const {
   NVF_ERROR(
       start_ != nullptr && extent_ != nullptr,
