@@ -125,3 +125,31 @@ def test_cross_entropy_mini_benchmark_bwd(benchmark, executor: str, vocab_size: 
     outputs = fwd_fn(inputs)
     grads = SyntheticMiniModel.grads()
     run_benchmark(benchmark, unary_bwd_torch, [outputs, grads, *inputs])
+
+
+@pytest.mark.parametrize(
+    "executor", ["eager", "torchcompile", "thunder", "thunder-torchcompile"]
+)
+@pytest.mark.parametrize("vocab_size", SyntheticMiniModel.generate_vocab_sizes())
+def test_softmax_fwd(benchmark, executor: str, vocab_size: int):
+    if executor == "torchcompile":
+        clear_dynamo_cache()
+
+    # picking a value that doesn't OOM for large vocab sizes
+    batch_size = 1024
+
+    def mini_model(logits):
+        logits = logits.to(dtype=torch.float32)
+        return torch.nn.functional.softmax(logits, dim=-1)
+
+    input = torch.randn(
+        1,
+        batch_size,
+        vocab_size,
+        device="cuda",
+        dtype=torch.bfloat16,
+        requires_grad=True,
+    )
+
+    fwd_fn = with_executor(executor, mini_model)
+    run_benchmark(benchmark, fwd_fn, input)
