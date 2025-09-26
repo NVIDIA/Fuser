@@ -83,7 +83,7 @@ void resetAllocationDomainAndContiguity(
     if (id->isReduction()) {
       contiguity.push_back(std::nullopt);
     } else if (!id->isBroadcast() &&
-          !contiguity_without_reduction[index].has_value()) {
+        !contiguity_without_reduction[index].has_value()) {
       contiguity.push_back(false);
       index++;
     } else {
