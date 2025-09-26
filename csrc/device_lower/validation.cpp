@@ -667,7 +667,7 @@ class VectorizeValidator : public OptInDispatch {
       TensorView* tv,
       std::string name,
       int64_t vector_word_size_bit) {
-    if (!canUsePresetAllocationDomain(tv)) {
+    if (!ir_utils::canUsePresetAllocationDomain(tv)) {
       return;
     }
     // aten_element_size_bit is the minimum unit (one element) of tv's
