@@ -4132,7 +4132,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
                       // actual argument value like T0[i * 4 + j].
                       << (as_utility ? prefix + std::to_string(counter)
                                      : gen(register_))
-                      << "[" << i << "]" << ")";
+                      << "[" << i << "]"
+                      << ")";
                 }
               } else {
                 (*asm_target) << "\"" << constraint << "\"(";
