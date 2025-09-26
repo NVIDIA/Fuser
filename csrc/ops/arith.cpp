@@ -1168,10 +1168,10 @@ NVFUSER_DEFINE_BINARY_COMPARE_OP(ne, NE)
 // TODO: How do we adjust this so we can reduce to a single scalar value?
 TensorView* newForReduction(
     TensorView* tv,
-    const std::vector<unsigned int>& axes,
+    const std::vector<int64_t>& axes,
     DataType data_type) {
   auto orig_domain = TensorDomain::noReductions(tv->getLogicalDomain());
-  std::set<unsigned int> axes_set(axes.begin(), axes.end());
+  std::set<int64_t> axes_set(axes.begin(), axes.end());
 
   std::vector<IterDomain*> new_domain;
 
@@ -1180,7 +1180,7 @@ TensorView* newForReduction(
       "Asked for output of reduction, but no reduction axis provided.");
 
   NVF_ERROR(
-      (*(axes_set.rbegin())) < orig_domain.size(),
+      (*(axes_set.rbegin())) < std::ssize(orig_domain),
       "Error setting up reduction, reduction axis (",
       *(axes_set.rbegin()),
       ") is outside nDims (",
@@ -1189,7 +1189,7 @@ TensorView* newForReduction(
       "views.");
 
   auto reduced_axis_iter = axes_set.begin();
-  for (const auto dim : arange(orig_domain.size())) {
+  for (auto dim : arange(std::ssize(orig_domain))) {
     bool is_reduction = false;
     if (reduced_axis_iter != axes_set.end() && *reduced_axis_iter == dim) {
       is_reduction = true;
@@ -1283,10 +1283,10 @@ TensorView* reductionOpRaw(
   const auto non_reduction_ndims = static_cast<int64_t>(
       std::ranges::distance(tv->getLoopDomain() | TensorDomain::kNoReductions));
 
-  std::vector<unsigned int> uint_axes =
+  std::vector<int64_t> canonicalized_axes =
       ops::canonicalizeAxes(axes, non_reduction_ndims);
 
-  TensorView* out = newForReduction(tv, uint_axes, dtype);
+  TensorView* out = newForReduction(tv, canonicalized_axes, dtype);
   const auto out_type = out->getDataType().value();
   const auto init_type = init->getDataType().value();
   NVF_CHECK(
@@ -1303,7 +1303,7 @@ TensorView* reductionOpRaw(
   if (keep_dim) {
     auto tv_logical = TensorDomain::noReductions(tv->getLogicalDomain());
     std::vector<bool> is_broadcast(tv_logical.size(), false);
-    for (auto axis : uint_axes) {
+    for (auto axis : canonicalized_axes) {
       is_broadcast.at(axis) = true;
     }
     out = broadcast(out, is_broadcast);
@@ -1314,20 +1314,23 @@ TensorView* reductionOpRaw(
 namespace {
 
 TensorView* maybeFullInsteadOfReduction(
-    const std::vector<unsigned int>& axes, // sorted
+    const std::vector<int64_t>& axes, // sorted
     Val* init,
     TensorView* tv,
     bool keep_dim,
     DataType dtype) {
   auto tv_logical = TensorDomain::noReductions(tv->getLogicalDomain());
-  const auto ndims = tv_logical.size();
+  const auto ndims = std::ssize(tv_logical);
   for (auto i : axes) {
     if (tv_logical.at(i)->extent()->isZeroInt()) {
       std::vector<IterDomain*> new_root;
-      new_root.reserve(keep_dim ? ndims : ndims - axes.size());
-      int cur_pos = 0;
+      const auto reserve_size = keep_dim ? ndims : ndims - std::ssize(axes);
+      NVF_ERROR_GE(reserve_size, 0);
+      new_root.reserve(reserve_size);
+      int64_t cur_pos = 0;
       for (auto j : arange(ndims)) {
-        bool is_reduction = cur_pos < (int)axes.size() && axes.at(cur_pos) == j;
+        const bool is_reduction =
+            cur_pos < std::ssize(axes) && axes.at(cur_pos) == j;
         if (is_reduction) {
           cur_pos++;
           if (keep_dim) {
@@ -1389,13 +1392,13 @@ TensorView* reductionOp(
     return reductionOpZeroDimTensor(tv);
   }
 
-  std::vector<unsigned int> uint_axes = ops::canonicalizeAxes(axes, ndims);
-  std::sort(uint_axes.begin(), uint_axes.end());
+  std::vector<int64_t> canonicalized_axes = ops::canonicalizeAxes(axes, ndims);
+  std::sort(canonicalized_axes.begin(), canonicalized_axes.end());
 
   // In PyTorch, reduction of a size-0 tensor is effectively creating a tensor
   // filled with the init value.
-  auto maybe_full =
-      maybeFullInsteadOfReduction(uint_axes, init, tv, keep_dim, dtype);
+  auto maybe_full = maybeFullInsteadOfReduction(
+      canonicalized_axes, init, tv, keep_dim, dtype);
   if (maybe_full != nullptr) {
     return maybe_full;
   }
@@ -1423,13 +1426,13 @@ TensorView* reductionOp(
       reduction_op_type != BinaryOpType::Mul &&
       reduction_op_type != BinaryOpType::BitwiseXor;
   int64_t offset = 0;
-  for (unsigned int axis : uint_axes) {
+  for (auto axis : canonicalized_axes) {
     auto id = tv_logical[axis];
     if (id->isBroadcast()) {
-      is_squeeze[axis] = true;
+      is_squeeze.at(axis) = true;
       offset--;
     } else {
-      reduction_axes.push_back((int64_t)axis + offset);
+      reduction_axes.push_back(axis + offset);
     }
   }
 
@@ -1447,7 +1450,7 @@ TensorView* reductionOp(
 
   if (!expand_reductions_are_trivial) {
     Val* factor = nullptr;
-    for (auto axis : uint_axes) {
+    for (auto axis : canonicalized_axes) {
       IterDomain* id = tv_logical[axis];
       if (id->isBroadcast() && id->hasExpandedExtent()) {
         factor =
@@ -1622,12 +1625,12 @@ WelfordResult WelfordRaw(
   // Check and collect reduction axes
   const auto non_reduction_ndims = static_cast<int64_t>(
       std::ranges::distance(tv->getLoopDomain() | TensorDomain::kNoReductions));
-  std::vector<unsigned int> uint_axes =
+  std::vector<int64_t> canonicalized_axes =
       ops::canonicalizeAxes(axes, non_reduction_ndims);
   // Create tensor outputs
-  TensorView* out_avg = newForReduction(tv, uint_axes);
-  TensorView* out_var = newForReduction(tv, uint_axes);
-  TensorView* out_N = newForReduction(tv, uint_axes, DataType::Index);
+  TensorView* out_avg = newForReduction(tv, canonicalized_axes);
+  TensorView* out_var = newForReduction(tv, canonicalized_axes);
+  TensorView* out_N = newForReduction(tv, canonicalized_axes, DataType::Index);
 
   IrBuilder::create<WelfordOp>(
       out_avg,
@@ -1664,19 +1667,19 @@ WelfordResult Welford(
   // Check and collect reduction axes
   const auto& tv_root = TensorDomain::noReductions(tv->getLoopDomain());
   const auto ndims = std::ssize(tv_root);
-  std::vector<unsigned int> uint_axes = ops::canonicalizeAxes(axes, ndims);
-  std::sort(uint_axes.begin(), uint_axes.end());
+  std::vector<int64_t> canonicalized_axes = ops::canonicalizeAxes(axes, ndims);
+  std::sort(canonicalized_axes.begin(), canonicalized_axes.end());
 
   // Squeeze before reduction
   std::vector<int64_t> reduction_axes;
-  std::vector<bool> is_trivial_reduction(ndims, false);
-  int offset = 0;
-  for (auto axis : uint_axes) {
+  std::vector<bool> is_trivial_reduction(tv_root.size(), false);
+  int64_t offset = 0;
+  for (auto axis : canonicalized_axes) {
     IterDomain* id = tv_root.at(axis);
-    is_trivial_reduction[axis] = id->isBroadcast() &&
+    is_trivial_reduction.at(axis) = id->isBroadcast() &&
         !id->hasExpandedExtent() && id->extent()->isOneInt();
-    if (!is_trivial_reduction[axis]) {
-      reduction_axes.push_back((int)axis + offset);
+    if (!is_trivial_reduction.at(axis)) {
+      reduction_axes.push_back(axis + offset);
     } else {
       offset--;
     }
@@ -2124,7 +2127,7 @@ namespace {
 static TensorView* newForMma(
     TensorView* tv_a,
     TensorView* tv_b,
-    const std::vector<unsigned int>& axes,
+    const std::vector<int64_t>& axes,
     DataType data_type = DataType::Float) {
   auto orig_domain_a = TensorDomain::noReductions(tv_a->getLogicalDomain());
   auto orig_domain_b = TensorDomain::noReductions(tv_b->getLogicalDomain());
@@ -2133,18 +2136,18 @@ static TensorView* newForMma(
       orig_domain_a.size() == orig_domain_b.size(),
       "MMA op: need matching dim input");
 
-  std::vector<bool> is_reduction;
-  is_reduction.resize(orig_domain_a.size(), false);
-  for (unsigned int ax : axes) {
+  const auto num_dims = std::ssize(orig_domain_a);
+  std::vector<bool> is_reduction(num_dims, false);
+  for (auto ax : axes) {
     NVF_CHECK(
-        ax < is_reduction.size(),
+        ax >= 0 && ax < num_dims,
         "Error setting up reduction, reduction axis (",
         ax,
         ") is outside nDims (",
         orig_domain_a.size(),
         "). Keep in mind reductions are relative to root domains, not modified "
         "views.");
-    is_reduction[ax] = true;
+    is_reduction.at(ax) = true;
   }
   std::vector<IterDomain*> new_domain;
 
@@ -2152,8 +2155,8 @@ static TensorView* newForMma(
       !axes.empty(),
       "Asked for output of reduction, but no reduction axis provided.");
 
-  for (const int64_t dim : c10::irange(orig_domain_a.size())) {
-    bool dim_is_reduction = is_reduction.at((size_t)dim);
+  for (auto dim : arange(num_dims)) {
+    bool dim_is_reduction = is_reduction.at(dim);
 
     const IterDomain* id = orig_domain_a[dim]->isBroadcast()
         ? orig_domain_b[dim]
@@ -2210,12 +2213,12 @@ TensorView* fusedMultiplySum(
   NVF_CHECK(
       axes.size() == 1, "Single axis reduction only for mma op instantiation.")
 
-  std::vector<unsigned int> uint_axes = ops::canonicalizeAxes(
+  std::vector<int64_t> canonicalized_axes = ops::canonicalizeAxes(
       axes,
-      std::ranges::distance(
-          tv_a->getLoopDomain() | TensorDomain::kNoReductions));
+      static_cast<int64_t>(std::ranges::distance(
+          tv_a->getLoopDomain() | TensorDomain::kNoReductions)));
 
-  TensorView* out = newForMma(tv_a, tv_b, uint_axes);
+  TensorView* out = newForMma(tv_a, tv_b, canonicalized_axes);
 
   if (init == nullptr) {
     init = IrBuilder::create<Val>(0.0, out->dtype());
