@@ -131,24 +131,12 @@ struct AliasInfo {
 
 class AliasInfoMap {
  public:
-  void add(
-      Val* out,
-      Val* in,
-      AllocationType type,
-      OutputVisibility visibility) {
-    aliases_[out] =
-        AliasInfo{.type = type, .aliased_io = in, .visibility = visibility};
-  }
+  void add(Val* out, Val* in, AllocationType type, OutputVisibility visibility);
 
-  const AliasInfo& get(const Val* v) const {
-    static AliasInfo no_alias_info{
-        .type = AllocationType::New,
-        .aliased_io = nullptr,
-        .visibility = OutputVisibility::kVisible};
-    if (auto search = aliases_.find(v); search != aliases_.end()) {
-      return search->second;
-    }
-    return no_alias_info;
+  const AliasInfo& get(const Val* v) const;
+
+  AliasInfo& mutable_at(const Val* v) {
+    return aliases_.at(v);
   }
 
   void erase(const Val* v) {
