@@ -163,7 +163,7 @@ def propose_unit_tests(target_branch: str = "main") -> str:
     if not success:
         return f"Failed to get diff against {target_branch}. Error: {stderr}"
     
-    if not diff_content.strip():
+    if not changed_files.strip():
         return f"No changes found against {target_branch}."
     
     # filter out the files to exclude mcp directory 
