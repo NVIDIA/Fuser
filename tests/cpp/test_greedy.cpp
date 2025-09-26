@@ -30,6 +30,19 @@ class GreedySchedulerTest : public NVFuserTest {
   }
 };
 
+class GreedySchedulerTestConstraintSize
+    : public GreedySchedulerTest,
+      public ::testing::WithParamInterface<int64_t> {
+ protected:
+  void SetUp() override {
+    GreedySchedulerTest::SetUp();
+    size = GetParam();
+  }
+
+ protected:
+  int64_t size = 0;
+};
+
 // Scan, followed by pad. Same fusion as
 // SgLangMoETest.ComputeExpertOffsets
 TEST_F(GreedySchedulerTest, ScanPad1D) {
@@ -616,5 +629,38 @@ TEST_F(GreedySchedulerTest, UnconstrainedIDAndSqueeze) {
 
   EXPECT_FALSE(executor_cache.getMostRecentKernelRuntime()->isSegmented());
 }
+
+TEST_P(GreedySchedulerTestConstraintSize, ArgsortLargeConstrainedIDs) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  std::vector<int64_t> shape = {10, size};
+  auto tv0 = makeContigConcreteTensor(shape);
+  fusion.addInput(tv0);
+
+  auto tv1 = argsort(tv0, -1);
+  auto tv2 = add(tv1, fusion.oneVal());
+  fusion.addOutput(tv2);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn(shape, options);
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs({t0});
+  testValidate(executor_cache.fusion(), outputs, {t0}, __LINE__, __FILE__);
+
+  EXPECT_FALSE(executor_cache.getMostRecentKernelRuntime()->isSegmented());
+}
+
+INSTANTIATE_TEST_SUITE_P(
+    ,
+    GreedySchedulerTestConstraintSize,
+    testing::Values(1024, 2048, 4096),
+    [](const testing::TestParamInfo<int64_t>& info) {
+      std::ostringstream os;
+      os << info.param;
+      return os.str();
+    });
 
 } // namespace nvfuser
