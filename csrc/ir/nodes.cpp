@@ -4456,7 +4456,7 @@ std::string PadOp::toString(int indent_size) const {
   std::stringstream ss;
   indent(ss, indent_size) << out()->toString() << "\n";
   indent(ss, indent_size) << "   = pad( " << in()->toString() << ", {"
-                          << toDelimitedString(getPadWidths()) << "}" << " )\n";
+                          << toDelimitedString(getPadWidths()) << "} )\n";
   return ss.str();
 }
 

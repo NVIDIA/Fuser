@@ -107,10 +107,10 @@ class FusionInspector : private IterVisitor {
 
       return reduction_count == 1 && has_valid_tidx_reduction;
     };
+    bool is_cluster_reduction = out->domain()->hasClusterReduction();
     if (out->getMemoryType() == MemoryType::Local &&
         (is_static_warp_reduction(out, has_warp_specialization_) ||
-         out->domain()->hasGridReduction() ||
-         out->domain()->hasClusterReduction() ||
+         out->domain()->hasGridReduction() || is_cluster_reduction ||
          std::any_of(
              out->getLoopDomain().begin(),
              out->getLoopDomain().end(),
@@ -120,7 +120,7 @@ class FusionInspector : private IterVisitor {
       reduction_dep_[out].insert(rop);
     }
 
-    if (out->domain()->hasClusterReduction()) {
+    if (is_cluster_reduction) {
       cluster_reduction_count_++;
     }
   }

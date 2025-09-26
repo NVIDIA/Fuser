@@ -44,15 +44,16 @@ TEST_F(ClusterReductionTest, ManusalScheduledSimpleFusion) {
   auto unscheduled_fusion_copy = fusion;
 
   // [I, R]
-  tv2->split(1, 8);
-  // [I, R/8, 8]
-  tv2->split(1, 128);
-  // [I, R/8/128, 128, 8]
-  tv2->split(1, 2, false);
-  // [I, 2, R/8/128/2, 128, 8]
-  // [BIDy, Serial, BIDx(cluster), TIDx, Vectorize for IO]
+  tv2->split(1, vect);
+  // [I, R/vect, vect]
+  tv2->split(1, bdimx);
+  // [I, R/vect/bdimx, bdimx, vect]
+  tv2->split(1, persistent_batch, false);
+  // [I, persistent_batch, R/vect/bdimx/persistent_batch, bdimx, vect]
+  // [BIDy, Serial, BIDx(cluster), TIDx, Vectorize or Serial]
   tv2->axis(-2)->parallelize(ParallelType::TIDx);
   tv2->axis(-3)->parallelize(ParallelType::BIDx);
+  // set clustered blocks to use cluster reduction
   tv2->axis(-3)->setClusteredBlocks(true);
   tv2->axis(0)->parallelize(ParallelType::BIDy);
 
@@ -72,6 +73,7 @@ TEST_F(ClusterReductionTest, ManusalScheduledSimpleFusion) {
   KernelExecutor ke;
   ke.compile(fusion_ptr.get(), {t0});
   auto outputs = ke.run({t0});
+  EXPECT_TRUE(ke.compiledKernel()->kernel()->summary().has_cluster_reduction);
   testValidate(&unscheduled_fusion_copy, outputs, {t0});
 }
 
