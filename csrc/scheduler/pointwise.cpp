@@ -214,7 +214,7 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
 
   auto logical_reorder_map_entry =
       HeuristicDataCacheEntry<HeuristicCompileTime::LogicalReorderMap>(
-          data_cache, [&fusion, &largest_out, &has_reshapes]() {
+          data_cache, [&largest_out, &has_reshapes]() {
             // NOTE: reorder_map is only applied for fusion without view
             // op yet.
             if (has_reshapes) {
