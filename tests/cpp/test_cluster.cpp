@@ -54,7 +54,7 @@ TEST_F(ClusterReductionTest, ManusalScheduledSimpleFusion) {
   tv2->axis(-2)->parallelize(ParallelType::TIDx);
   tv2->axis(-3)->parallelize(ParallelType::BIDx);
   // set clustered blocks to use cluster reduction
-  tv2->axis(-3)->setClusteredBlocks(true);
+  tv2->axis(-3)->setClusteredBlocks();
   tv2->axis(0)->parallelize(ParallelType::BIDy);
 
   auto reference = tv2->rFactor({-1, -4});

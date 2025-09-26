@@ -340,7 +340,7 @@ std::vector<IterDomain*> replayDomain(
     }
     if (propagate_clustered_blocks) {
       if (replay_id->isClusteredBlockDim()) {
-        target_id->setClusteredBlocks(true);
+        target_id->setClusteredBlocks();
       }
     }
     target_domain.push_back(target_id);
