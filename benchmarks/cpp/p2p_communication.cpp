@@ -128,21 +128,27 @@ void benchmarkP2PCommunication() {
       executor.runWithInput(inputs);
     }
 
-    // Benchmark
-    NVFUSER_CUDA_RT_SAFE_CALL(cudaDeviceSynchronize());
-    auto start_time = std::chrono::high_resolution_clock::now();
+    // Benchmark using CUDA events for accurate GPU timing
+    cudaEvent_t start_event, end_event;
+    NVFUSER_CUDA_RT_SAFE_CALL(cudaEventCreate(&start_event));
+    NVFUSER_CUDA_RT_SAFE_CALL(cudaEventCreate(&end_event));
+
+    NVFUSER_CUDA_RT_SAFE_CALL(cudaEventRecord(start_event));
 
     for (int rep = 0; rep < kNumRepetitions; rep++) {
       executor.runWithInput(inputs);
     }
 
-    NVFUSER_CUDA_RT_SAFE_CALL(cudaDeviceSynchronize());
-    auto end_time = std::chrono::high_resolution_clock::now();
+    NVFUSER_CUDA_RT_SAFE_CALL(cudaEventRecord(end_event));
+    NVFUSER_CUDA_RT_SAFE_CALL(cudaEventSynchronize(end_event));
 
-    auto duration = std::chrono::duration_cast<std::chrono::microseconds>(
-        end_time - start_time);
-    double avg_time_us =
-        duration.count() / static_cast<double>(kNumRepetitions);
+    float elapsed_time_ms;
+    NVFUSER_CUDA_RT_SAFE_CALL(cudaEventElapsedTime(&elapsed_time_ms, start_event, end_event));
+    double avg_time_us = (elapsed_time_ms * 1000.0) / static_cast<double>(kNumRepetitions);
+
+    // Clean up events
+    NVFUSER_CUDA_RT_SAFE_CALL(cudaEventDestroy(start_event));
+    NVFUSER_CUDA_RT_SAFE_CALL(cudaEventDestroy(end_event));
     double bandwidth_gb_s =
         (2 * current_tensor_size * dtype_size / 1e9) /
         (avg_time_us / 1e6);
