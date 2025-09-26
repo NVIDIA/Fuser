@@ -601,4 +601,94 @@ TEST_F(ScanTest, ScanSerialInclusiveDiscount) {
   auto outputs = ke.run({aten_t0, aten_t1});
   testValidate(fusion.get(), outputs, {aten_t0, aten_t1}, __LINE__, __FILE__);
 }
+
+// test we can generate flash attention v2 style kernel using scan and block
+// tiling. matmul is simulated with sum(dot product). no op to get last element
+// of scan result, at::select is used to get the final result for validation
+TEST_F(ScanTest, FlashAttentionV2NoMmaNoScanReduction) {
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  int64_t N = 20; // sequence length
+  int64_t D = 6; // hidden dimension size
+  int64_t Br = 10; // block size for rows
+  int64_t Bc = 5; // block size for columns
+  int64_t Tr = N / Br; // 2, Total number of row blocks for Q
+  int64_t Tc = N / Bc; // 4, Total number of column blocks for K^T
+  // [N,D] --> [Tr, Br, D] for Q and [Tc, Bc, D] for K,V
+  auto Q = makeConcreteTensor({Tr, 1, Br, 1, D});
+  auto K = makeConcreteTensor({1, Tc, 1, Bc, D});
+  auto V = makeConcreteTensor({1, Tc, 1, Bc, D});
+  fusion->addInput(Q);
+  fusion->addInput(K);
+  fusion->addInput(V);
+
+  // [Tr, Tc, Br, Bc, 1] = sum([Tr, 1, Br, 1, D] X [1, Tc, 1, Bc, D])
+  auto sij = sum(mul(Q, K), {4}, /*keep_dim=*/true);
+  // [Tr, Tc, Br, 1, 1] = [Tr, Tc, Br, Bc, 1]
+  auto row_max_sij = max(sij, {3}, /*keep_dim=*/true);
+  // [Tr, Tc, Br, 1, 1] = scan([Tr, Tc, Br, 1, 1])
+  auto [m_i, m_i_old] =
+      scan(set(row_max_sij), 1, BinaryOpType::Max, /*return_exclusive=*/true);
+  // [Tr, Tc, Br, Bc, 1] = [Tr, Tc, Br, Bc, 1], [Tr, Tc, Br, 1, 1]
+  auto pij_tilde = exp(sub(sij, m_i));
+  // [Tr, Tc, Br, 1, 1] = sum([Tr, Tc, Br, Bc, 1])
+  auto row_sum_pij_tilde = sum(pij_tilde, {3}, /*keep_dim=*/true);
+  // [Tr, Tc, Br, 1, 1] = [Tr, Tc, Br, 1, 1]
+  auto l_i_discount = exp(sub(m_i_old, m_i));
+  // [Tr, Tc, Br, 1, 1] = [Tr, Tc, Br, 1, 1]
+  auto l_i = prefixSum(set(row_sum_pij_tilde), 1, l_i_discount);
+  // [Tr, Tc, Br, 1, D] = sum([Tr, Tc, Br, Bc, 1] X [1, Tc, 1, Bc, D])
+  auto O_i_val = sum(mul(pij_tilde, V), {3}, /*keep_dim=*/true);
+  // [Tr, Tc, Br, 1, D] = [Tr, Tc, Br, 1, 1] X [Tr, Tc, Br, 1, D]
+  auto O_i = prefixSum(set(O_i_val), 1, l_i_discount);
+  // [Tr, Tc, Br, 1, D] = [Tr, Tc, Br, 1, D] / [Tr, Tc, Br, 1, 1]
+  auto O_i_final = div(O_i, l_i);
+
+  fusion->addOutput(set(O_i_final));
+  fusion->printMath();
+
+  const auto& scan_outputs = {m_i, l_i, O_i};
+  std::unordered_set<IterDomain*> uninlineable_ids;
+  for (auto tv : scan_outputs) {
+    for (auto id : tv->getLoopDomain()) {
+      if (id->isScan()) {
+        uninlineable_ids.insert(id);
+      }
+    }
+  }
+  inlineMost(uninlineable_ids);
+  m_i_old->inlineAt(-1);
+  for (auto tv : scan_outputs) {
+    tv->computeWith(-1);
+    for (auto v : tv->definition()->inputs()) {
+      v->as<TensorView>()->inlineAt(-1);
+    }
+  }
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto aQ = at::randn({Tr, 1, Br, 1, D}, options);
+  auto aK = at::randn({1, Tc, 1, Bc, D}, options);
+  auto aV = at::randn({1, Tc, 1, Bc, D}, options);
+
+  KernelExecutor ke;
+  ke.compile(fusion.get(), {aQ, aK, aV});
+  auto outputs = ke.run({aQ, aK, aV});
+
+  // [Tr, Br, 1, D] = [Tr, Tc, Br, 1, D]
+  // [Tr, Br, D] = [Tr, Br, 1, D]
+  auto final_output =
+      at::select(outputs[0].as<at::Tensor>(), /*dim=*/1, /*index=*/-1);
+  final_output =
+      at::select(final_output, /*dim=*/2, /*index=*/-1); // [Tr, Br, D]
+  final_output = final_output.reshape({N, D});
+
+  auto aten_Q = aQ.reshape({N, D});
+  auto aten_K = aK.reshape({N, D});
+  auto aten_V = aV.reshape({N, D});
+  auto aten_S = at::matmul(aten_Q, aten_K.transpose(-2, -1));
+  auto aten_S_softmax = at::softmax(aten_S, 1);
+  auto aten_O = at::matmul(aten_S_softmax, aten_V);
+  EXPECT_TRUE(at::allclose(final_output, aten_O, 1e-4, 1e-6, true));
+}
 } // namespace nvfuser
