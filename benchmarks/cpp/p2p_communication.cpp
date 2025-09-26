@@ -34,7 +34,7 @@ void benchmarkP2PCommunication() {
 
   // Initialize multidevice environment
   auto communicator = &Communicator::getInstance();
-  if (communicator->size() < 2 || torch::cuda::device_count() < 2) {
+  if (communicator->size() < 2) {
     std::cout << "Skipping benchmark: need at least 2 GPUs and 2 ranks."
               << std::endl;
     return;
