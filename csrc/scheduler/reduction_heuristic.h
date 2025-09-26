@@ -230,6 +230,8 @@ class ReductionParams : public HeuristicParams {
             vectorization_factor_tmp_gmem_write &&
         other->tma_warp_specialized == tma_warp_specialized &&
         other->is_good_ws_heuristic == is_good_ws_heuristic &&
+        other->is_non_circular_buffer_gmem_to_regs ==
+            is_non_circular_buffer_gmem_to_regs &&
         other->is_circular_buffer_regs_cached ==
             is_circular_buffer_regs_cached &&
         other->circular_buffer_options == circular_buffer_options;
