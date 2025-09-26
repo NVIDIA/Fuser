@@ -365,6 +365,7 @@ std::vector<KernelArgumentHolder> FusionKernelRuntime::prepareInputs(
       group_runtime_inputs.setCacheId(group_cache_id.value());
     }
 
+    Fusion* fusion_to_run = group_to_run->getFusion();
     KernelArgumentHolder group_runtime_outputs;
     const auto& heuristic_params = heuristics_->at(group_to_run->groupId());
     const bool is_expr_eval =
