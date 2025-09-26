@@ -446,13 +446,14 @@ TEST_F(ScanTest, Predication) {
   auto tv0 = makeContigConcreteTensor(shape);
   fusion.addInput(tv0);
 
-  auto tv1 = scan(tv0, -1, BinaryOpType::Add);
-  auto tv2 = set(tv1);
-  fusion.addOutput(tv2);
+  auto tv1 = set(tv0);
+  auto tv2 = scan(tv1, -1, BinaryOpType::Add);
+  auto tv3 = set(tv2);
+  fusion.addOutput(tv3);
 
   // Non-divisible split. 128 threads will be launched. The last 28
   // threads need to be predicated out.
-  for (auto tv : {tv1, tv2}) {
+  for (auto tv : {tv1, tv2, tv3}) {
     tv->split(0, 32);
     tv->axis(0)->parallelize(ParallelType::TIDy);
     tv->axis(1)->parallelize(ParallelType::TIDx);
