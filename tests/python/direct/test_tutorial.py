@@ -18,6 +18,10 @@ from nvfuser_direct import (
 )
 from nvfuser_direct import idm
 
+from python.direct_utils import (
+    is_pre_hopper,
+)
+
 verbose_ = True
 
 
@@ -572,3 +576,92 @@ def test_tutorial_id_model_reshape_analysis():
     # should be mapped too.
     for tv2_id, tv3_id in zip(tv2.get_loop_domain(), tv3.get_loop_domain()):
         assert exact_graph.disjoint_val_sets().strict_are_mapped(tv2_id, tv3_id)
+
+
+@pytest.mark.skipif(
+    is_pre_hopper(), reason="Only supported on Hopper and newer devices."
+)
+def test_tutorial_basic_tma_example1(nvfuser_direct_test):
+    """
+    This tutorial uses copy kernels to demonstrate how to schedule TMA.
+    Please note that this is not a guide on how to use TMA to achieve SOL.
+    Instead, it is a demonstration on the degree of freedoms we have in a
+    TMA schedule and how a schedule is translated into generated code in the
+    kernel. I also want the readers to focus on the schedule of TMA. The
+    other parts of the kernel that is scheduled is not important here.
+    Indeed, I picked a random, valid schedule. For the example about TMA
+    load, please focus on the schedule of the shared memory tensor. For the
+    example about TMA store, please focus on the allocation domain of the
+    shared memory tensor and the fusion output.
+    """
+
+    # TODO create CompileParams constructor
+    # cache_after, cache_before
+    # set_memory_type
+
+    # In this example, we treat the fusion as 1D, which is similar to how we
+    # generally schedule pointwise fusions. We use a single 1D TMA instruction to
+    # load the entire CTA tile to shared memory.
+    # CTA tile size = TMA tile size = 256
+    with FusionDefinition() as fd:
+        tv0 = fd.define_tensor(shape=[-1, -1, -1])
+        tv1 = fd.ops.set(tv0)
+        fd.add_output(tv1)
+
+        smem_cache = tv0.cache_after(LoadStoreOpType.CpAsyncBulkTensorTile)
+        smem_cache.set_memory_type(MemoryType.Shared)
+
+        # For TMA load, both the shared memory layout and the loop nest and
+        # parallelization of TMA are specified by the consumer: smem_cache
+
+        # Step 1: define TMA domain
+        # We want to treat the entire tensor as 1D so define the TMA domain as
+        # [I0*I1*I2]
+        smem_cache.merge(0)
+        smem_cache.merge(0)
+        # Note that the TMA domain only exists in people's mind, there is no need to
+        # set anything here.
+
+        # Step 2: define box
+        smem_cache.split(0, 256)
+        # [I0*I1*I2/256, 256]
+        # partitioned IterDomain: I0*I1*I2
+        # coordinate IterDomain: I0*I1*I2/256
+        # box IterDomain: 256
+
+        # Step 3: define tile
+        # We use dense tile here, so tile == box. Nothing to do here.
+
+        # Step 4: schedule the shared memory tensor
+        # By default, the allocation domain is the logical domain, which is already
+        # in good shape for this case.
+
+        # Step 5: schedule the consumer tensor
+        smem_cache.axis(0).parallelize(ParallelType.grid_x)
+        smem_cache.axis(1).parallelize(ParallelType.tma)
+        # [BIDx, Bulk]
+
+        # Schedule the smem->gmem part
+        tv1.merge(0)
+        tv1.merge(0)
+        tv1.split(0, 256)
+        tv1.axis(0).parallelize(ParallelType.grid_x)
+        tv1.axis(1).parallelize(ParallelType.block_x)
+
+    if verbose_:
+        print(fd.fusion.print_math())
+        print(fd.fusion.print_kernel())
+        # TMA will be generated like:
+        # Note that the coordinate is in number of items, smem address is in
+        # bytes
+        #
+        # if (threadIdx.x == 0) {
+        #   Hopper::cpAsyncBulkTensorTileG2S(
+        #       coordinate = {256 * blockIdx.x},
+        #       smem_addr = toSmem(T2));
+        # }
+
+    index32bit = CompileParams(DataType.Int32, 255, False)
+    t0 = torch.randn(3, 300, dtype=torch.float, device="cuda:0")
+    outputs = fd.manual_execute([t0], index32bit)
+    assert outputs[0].equal(t0)
