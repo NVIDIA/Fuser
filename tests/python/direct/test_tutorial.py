@@ -15,6 +15,11 @@ from nvfuser_direct import (
     BroadcastOp,
     SqueezeOp,
     ReshapeOp,
+    LoadStoreOpType,
+    MemoryType,
+    DataType,
+    CompileParams,
+    KernelExecutor,
 )
 from nvfuser_direct import idm
 
@@ -595,20 +600,17 @@ def test_tutorial_basic_tma_example1(nvfuser_direct_test):
     shared memory tensor and the fusion output.
     """
 
-    # cache_after, cache_before
-    # set_memory_type
-
     # In this example, we treat the fusion as 1D, which is similar to how we
     # generally schedule pointwise fusions. We use a single 1D TMA instruction to
     # load the entire CTA tile to shared memory.
     # CTA tile size = TMA tile size = 256
     with FusionDefinition() as fd:
-        tv0 = fd.define_tensor(shape=[-1, -1, -1])
-        tv1 = fd.ops.set(tv0)
-        fd.add_output(tv1)
+        input = fd.define_tensor(shape=[-1, -1, -1], contiguity=[True, True, True])
+        output = fd.ops.set(input)
+        fd.add_output(output)
 
-        smem_cache = tv0.cache_after(LoadStoreOpType.CpAsyncBulkTensorTile)
-        smem_cache.set_memory_type(MemoryType.Shared)
+        smem_cache = input.cache_after(LoadStoreOpType.tma)
+        smem_cache.set_memory_type(MemoryType.shared)
 
         # For TMA load, both the shared memory layout and the loop nest and
         # parallelization of TMA are specified by the consumer: smem_cache
@@ -616,8 +618,8 @@ def test_tutorial_basic_tma_example1(nvfuser_direct_test):
         # Step 1: define TMA domain
         # We want to treat the entire tensor as 1D so define the TMA domain as
         # [I0*I1*I2]
-        smem_cache.merge(0)
-        smem_cache.merge(0)
+        smem_cache.merge(0, 1)
+        smem_cache.merge(0, 1)
         # Note that the TMA domain only exists in people's mind, there is no need to
         # set anything here.
 
@@ -641,11 +643,11 @@ def test_tutorial_basic_tma_example1(nvfuser_direct_test):
         # [BIDx, Bulk]
 
         # Schedule the smem->gmem part
-        tv1.merge(0)
-        tv1.merge(0)
-        tv1.split(0, 256)
-        tv1.axis(0).parallelize(ParallelType.grid_x)
-        tv1.axis(1).parallelize(ParallelType.block_x)
+        output.merge(0, 1)
+        output.merge(0, 1)
+        output.split(0, 256)
+        output.axis(0).parallelize(ParallelType.grid_x)
+        output.axis(1).parallelize(ParallelType.block_x)
 
     if verbose_:
         print(fd.fusion.print_math())
@@ -660,7 +662,11 @@ def test_tutorial_basic_tma_example1(nvfuser_direct_test):
         #       smem_addr = toSmem(T2));
         # }
 
-    index32bit = CompileParams(DataType.Int32, 255, False)
-    t0 = torch.randn(3, 300, dtype=torch.float, device="cuda:0")
-    outputs = fd.manual_execute([t0], index32bit)
+    index32bit = CompileParams(
+        index_type=DataType.Int32, maxrregcount=255, enable_magic_zero=False
+    )
+    t0 = torch.randn(5, 3, 300, dtype=torch.float, device="cuda:0")
+    ke = KernelExecutor()
+    ke.compile(fd.fusion, [t0], compile_params=index32bit)
+    outputs = ke.run([t0])
     assert outputs[0].equal(t0)
