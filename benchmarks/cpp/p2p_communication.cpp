@@ -121,8 +121,7 @@ void benchmarkP2PCommunication() {
     auto dtype_size = send_tensor.element_size();
 
     // Calculate data transfer size
-    double data_size_mb =
-        (current_tensor_size * dtype_size) / 1e6;
+    double data_size_mb = (current_tensor_size * dtype_size) / 1e6;
 
     // Warmup
     for (int i = 0; i < kWarmupReps; i++) {
@@ -144,15 +143,16 @@ void benchmarkP2PCommunication() {
     NVFUSER_CUDA_RT_SAFE_CALL(cudaEventSynchronize(end_event));
 
     float elapsed_time_ms;
-    NVFUSER_CUDA_RT_SAFE_CALL(cudaEventElapsedTime(&elapsed_time_ms, start_event, end_event));
-    double avg_time_us = (elapsed_time_ms * 1000.0) / static_cast<double>(kNumRepetitions);
+    NVFUSER_CUDA_RT_SAFE_CALL(
+        cudaEventElapsedTime(&elapsed_time_ms, start_event, end_event));
+    double avg_time_us =
+        (elapsed_time_ms * 1000.0) / static_cast<double>(kNumRepetitions);
 
     // Clean up events
     NVFUSER_CUDA_RT_SAFE_CALL(cudaEventDestroy(start_event));
     NVFUSER_CUDA_RT_SAFE_CALL(cudaEventDestroy(end_event));
     double bandwidth_gb_s =
-        (2 * current_tensor_size * dtype_size / 1e9) /
-        (avg_time_us / 1e6);
+        (2 * current_tensor_size * dtype_size / 1e9) / (avg_time_us / 1e6);
 
     if (my_rank == 0) {
       // Format message size with units
@@ -160,8 +160,7 @@ void benchmarkP2PCommunication() {
       if (data_size_mb >= 1.0) {
         size_str = std::to_string(static_cast<int>(data_size_mb)) + " MB";
       } else {
-        size_str =
-            std::to_string(static_cast<int>(data_size_mb * 1e3)) + " KB";
+        size_str = std::to_string(static_cast<int>(data_size_mb * 1e3)) + " KB";
       }
 
       // Print table row
