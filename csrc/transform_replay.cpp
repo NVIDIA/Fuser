@@ -148,7 +148,7 @@ class ReplaySelf : public ReplayTransformations {
     const auto resize_out_logical = resize->out()->isRFactorProduct();
 
     // Mark output IterType
-    const auto resize_out_iter_type = resize->out()->iterType();
+    const auto resize_out_iter_type = resize->out()->getIterType();
 
     auto replayed_out = IterDomain::resize(
         mapped,
