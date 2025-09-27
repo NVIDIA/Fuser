@@ -16,6 +16,43 @@ namespace {
 
 void bindTensorviewScheduleOps(py::module_& schedule) {
   schedule.def(
+      "bounded_transform_backward",
+      [](TensorView* from,
+         int64_t pos,
+         std::vector<TensorView*> to,
+         bool propagate_parallel_type) {
+        using TransformPropagator =
+            scheduler_utils::BoundedDirectionalTransformPropagator;
+        TransformPropagator::Options options;
+        if (propagate_parallel_type) {
+          options.propagateParallelType();
+        }
+        TransformPropagator::backward(from, pos, to, options);
+      },
+      R"(
+      Propagate scheduler transformations from a reference TensorView to other TensorViews.
+
+      Parameters
+      ----------
+      from : TensorView
+          The reference TensorView whose transformations will be propagated.
+      pos : int
+          The position up to which dimensions should be selected. -1 means all dimensions.
+      to : List[TensorView]
+          List of TensorViews to propagate transformations to.
+      propagate_parallel_type : bool
+          Whether to propagate parallel type.
+
+      Returns
+      -------
+      None
+      )",
+      py::arg("from"),
+      py::arg("pos"),
+      py::arg("to"),
+      py::arg("propagate_parallel_type") = false);
+
+  schedule.def(
       "transform_like",
       [](TensorView* reference_tv,
          const std::vector<TensorView*>& selected_tensors) {
