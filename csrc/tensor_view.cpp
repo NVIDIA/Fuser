@@ -1157,7 +1157,9 @@ TensorView* TensorView::cacheBefore(LoadStoreOpType op_type) {
       continue;
     }
     id->resetRFactorProduct();
-    alloc_dom.push_back(id);
+    if (domain()->hasAllocation()) {
+      alloc_dom.push_back(id);
+    }
     contiguity.push_back(c);
   }
   // TODO: We also need to clear all rfactor across IDs between logical->loop and logical->allocation.
