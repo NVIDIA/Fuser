@@ -865,6 +865,6 @@ std::vector<IterDomain*> propagateScatterAllocationDomain(
 
 bool isParallelizedBy(const std::vector<IterDomain*>& ids, ParallelType pt);
 
-bool canUsePresetAllocationDomain(TensorView* tv);
+bool canUsePresetAllocationDomain(const TensorView* tv);
 
 } // namespace nvfuser::ir_utils

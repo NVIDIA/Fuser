@@ -75,6 +75,9 @@ bool AliasFinder::aliasIfCompliant(
     const TensorView* alias,
     TensorView* source,
     Layout&& layout) {
+  if (!ir_utils::canUsePresetAllocationDomain(tv)) {
+    return true;
+  }
   if (!okToRelayout(alias, layout, empty_allocation_as_)) {
     return false;
   }
