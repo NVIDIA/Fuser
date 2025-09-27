@@ -5,12 +5,21 @@
 
 import os
 import sys
+import datetime
 
 sys.path.insert(0, os.path.abspath("../.."))
 
 project = "nvFuser"
-copyright = "2025, NVIDIA"
-author = "NVIDIA"
+author = "NVIDIA CORPORATION & AFFILIATES"
+
+# Copyright statement
+release_year = 2023
+current_year = datetime.date.today().year
+if current_year == release_year:
+    copyright_year = release_year
+else:
+    copyright_year = str(release_year) + "-" + str(current_year)
+copyright = f"{copyright_year}, NVIDIA CORPORATION & AFFILIATES. All rights reserved."
 
 extensions = [
     "myst_parser",
@@ -27,15 +36,23 @@ myst_enable_extensions = [
     "html_image",
 ]
 
+pygments_style = "sphinx"
 templates_path = ["_templates"]
 exclude_patterns = []
 
 html_theme = "sphinx_rtd_theme"
+html_show_sphinx = False
 html_static_path = ["_static"]
 html_sidebars = {"**": ["globaltoc.html", "searchbox.html"]}
+html_css_files = [
+    "css/nvidia_font.css",
+    "css/nvidia_footer.css",
+]
 html_theme_options = {
-    "collapse_navigation": True,
-    "navigation_depth": 4,
+    "collapse_navigation": False,
+    "logo_only": False,
+    "version_selector": False,
+    "language_selector": False,
 }
 
 source_suffix = {
