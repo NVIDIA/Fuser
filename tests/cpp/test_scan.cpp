@@ -587,4 +587,40 @@ TEST_F(ScanTest, OuterScanWithGrouping) {
   testValidate(&fusion, outputs, {t0}, __LINE__, __FILE__);
 }
 
+// Make sure the shared memory work buffer is reused correctly
+TEST_F(ScanTest, BufferSync) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  std::vector<int64_t> shape = {4096};
+  auto tv0 = makeContigConcreteTensor(shape, DataType::Float);
+  fusion.addInput(tv0);
+
+  auto tv1 = set(tv0);
+  auto tv2 = scan(tv1, 0, BinaryOpType::Add);
+  auto tv3 = scan(tv2, 0, BinaryOpType::Add);
+  auto tv4 = scan(tv3, 0, BinaryOpType::Add);
+  auto tv5 = set(tv4);
+  fusion.addOutput(tv5);
+
+  for (auto tv : fusion.allTvs()) {
+    tv->split(0, 4);
+    tv->axis(0)->parallelize(ParallelType::TIDx);
+    if (tv->definition()->isA<ScanOp>()) {
+      tv->axis(1)->parallelize(ParallelType::Group);
+    }
+  }
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randint(0, shape[0], shape, options);
+
+  KernelExecutor ke;
+  ke.compile(&fusion, {t0});
+  auto outputs = ke.run({t0});
+
+  // Verify the output
+  testValidate(&fusion, outputs, {t0}, __LINE__, __FILE__);
+}
+
 } // namespace nvfuser

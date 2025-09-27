@@ -645,4 +645,42 @@ TEST_F(TopKTest, ZeroDimensionalInput) {
   testValidate(executor_cache.fusion(), outputs, {t0}, __LINE__, __FILE__);
 }
 
+// Make sure the shared memory work buffer is reused correctly
+TEST_F(TopKTest, BufferSync) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  std::vector<int64_t> shape = {1024};
+  auto tv0 = makeContigConcreteTensor(shape, DataType::Int);
+  fusion.addInput(tv0);
+
+  auto tv1 = set(tv0);
+  auto tv2 = topk(tv1, fusion.oneVal(DataType::Int), 0).values;
+  auto tv3 = set(tv2);
+  fusion.addOutput(tv3);
+
+  auto tv4 = topk(tv1, fusion.oneVal(DataType::Int), 0).values;
+  auto tv5 = set(tv4);
+  fusion.addOutput(tv5);
+
+  auto tv6 = topk(tv1, fusion.oneVal(DataType::Int), 0).values;
+  auto tv7 = set(tv6);
+  fusion.addOutput(tv7);
+
+  for (auto tv : fusion.allTvs()) {
+    tv->axis(0)->parallelize(ParallelType::TIDx);
+  }
+
+  auto options = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randint(0, shape[0], shape, options);
+
+  KernelExecutor ke;
+  ke.compile(&fusion, {t0});
+  auto outputs = ke.run({t0});
+
+  // Verify the output
+  testValidate(&fusion, outputs, {t0}, __LINE__, __FILE__);
+}
+
 } // namespace nvfuser

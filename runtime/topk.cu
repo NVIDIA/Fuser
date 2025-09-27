@@ -39,6 +39,17 @@ constexpr __device__ bool isIter(int STATE) {
 //   that correspond to the logical domain should be used (via predication)
 // - This implementation sorts ALL elements and returns them in the output
 //   arrays, but the consuming kernel should only read the first k elements
+//
+// IMPLEMENTATION NOTE: This test implementation populates ALL
+// ITEMS_PER_THREAD elements in the output arrays with sorted results.
+// However, in the actual nvFuser-generated kernel, only the first k elements
+// should be consumed from each thread's output arrays (top_values[0..k-1] and
+// top_indices[0..k-1]). The remaining elements beyond index k-1 should be
+// ignored via predication.
+//
+// Note: 'sorted' parameter is currently ignored as CUB BlockRadixSort
+// always produces sorted output. Future optimization could skip sorting
+// when sorted=false by using a selection algorithm instead.
 template <
     int BLOCK_DIM_X,
     int BLOCK_DIM_Y,
@@ -119,16 +130,8 @@ __device__ void blockTopK(
     top_values[i] = cub_utils::NvFuserType<DataT>::get(temp_data[i]);
   }
 
-  // IMPLEMENTATION NOTE: This test implementation populates ALL
-  // ITEMS_PER_THREAD elements in the output arrays with sorted results.
-  // However, in the actual nvFuser-generated kernel, only the first k elements
-  // should be consumed from each thread's output arrays (top_values[0..k-1] and
-  // top_indices[0..k-1]). The remaining elements beyond index k-1 should be
-  // ignored via predication.
-
-  // Note: 'sorted' parameter is currently ignored as CUB BlockRadixSort
-  // always produces sorted output. Future optimization could skip sorting
-  // when sorted=false by using a selection algorithm instead.
+  // Make sure the work buffer can be freely used again
+  __syncthreads();
 }
 
 } // namespace topk

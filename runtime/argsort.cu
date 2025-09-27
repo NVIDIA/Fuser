@@ -94,6 +94,9 @@ __device__ void blockArgsort(
   } else {
     BlockRadixSort(temp_storage).Sort(temp_data, indices);
   }
+
+  // Make sure the work buffer can be freely used again
+  __syncthreads();
 }
 
 } // namespace argsort
