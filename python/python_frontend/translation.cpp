@@ -282,9 +282,8 @@ class FusionTranslator : public OptInConstDispatch {
             handleOutput(v->as<TensorView>(), alias_info);
           }
           // An alias output can also be returned as a fusion output
-          // if it is already aliased or if the output is visible.
-          if (num_visited > 0 ||
-              alias_info.visibility == OutputVisibility::kVisible) {
+          // if it is already aliased or if not hide_output
+          if (num_visited > 0 || !alias_info.hide_output) {
             handleOutput(v->as<TensorView>());
           }
           break;

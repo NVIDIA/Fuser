@@ -83,23 +83,16 @@ enum class AllocationType : int {
   Evaluate,
 };
 
-enum class OutputVisibility : int {
-  kHidden,
-  kVisible,
-};
-
-std::ostream& operator<<(std::ostream& os, OutputVisibility visibility);
-
 struct AliasInfo {
   AllocationType type;
   Val* aliased_io;
   // Whether integration should hide the output from users. This is currently
   // only used for ReuseBuffer.
-  OutputVisibility visibility;
+  bool hide_output;
 
   bool operator==(const AliasInfo& other) const {
     return type == other.type && aliased_io == other.aliased_io &&
-        visibility == other.visibility;
+        hide_output == other.hide_output;
   }
 
   bool operator!=(const AliasInfo& other) const {
@@ -123,32 +116,10 @@ struct AliasInfo {
     }
     ss << ",\n  aliased_io = "
        << (aliased_io == nullptr ? "nullptr" : aliased_io->toString()) << ",\n";
-    ss << "  visibility = " << visibility << "\n";
+    ss << "  hide_output = " << (hide_output ? "true" : "false") << "\n";
     ss << "}\n";
     return ss.str();
   }
-};
-
-class AliasInfoMap {
- public:
-  void add(Val* out, Val* in, AllocationType type, OutputVisibility visibility);
-
-  const AliasInfo& get(const Val* v) const;
-
-  AliasInfo& mutable_at(const Val* v) {
-    return aliases_.at(v);
-  }
-
-  void erase(const Val* v) {
-    aliases_.erase(v);
-  }
-
-  void clear() {
-    aliases_.clear();
-  }
-
- private:
-  std::unordered_map<const Val*, AliasInfo> aliases_;
 };
 
 //! Fusion is mutable but unique. Nodes cannot be copied in any way from one
@@ -527,8 +498,8 @@ class NVF_API Fusion : public IrContainer {
   std::vector<Val*> inputs_;
   std::vector<Val*> outputs_;
 
-  // Aliases between fusion inputs and outputs.
-  AliasInfoMap io_alias_;
+  // io alias pointing from output to input
+  std::unordered_map<const Val*, AliasInfo> io_alias_;
 
   // Records if the current use data in the IR nodes are valid
   //  the states are either all valid or all invalid

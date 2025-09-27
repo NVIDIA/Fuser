@@ -91,7 +91,7 @@ KernelArgumentHolder FusionExecutorCache::runFusionWithInputs(
   KernelArgumentHolder unaliased_outputs;
   for (auto out_index : arange(outputs.size())) {
     Val* out = fusion->outputs()[out_index];
-    if (fusion->getOutputAlias(out).visibility == OutputVisibility::kVisible) {
+    if (!fusion->getOutputAlias(out).hide_output) {
       unaliased_outputs.push(outputs[out_index]);
     }
   }

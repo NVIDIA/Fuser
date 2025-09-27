@@ -645,7 +645,7 @@ class PythonTranslator : public OptInConstDispatch {
           }
           // If not hide_output, then the aliased output is returned as a
           // fusion output.
-          if (alias_info.visibility == OutputVisibility::kVisible) {
+          if (!alias_info.hide_output) {
             handleOutput(v->as<TensorView>());
           }
           break;
