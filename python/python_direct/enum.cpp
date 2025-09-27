@@ -68,6 +68,27 @@ void bindEnums(py::module& nvfuser) {
       .value("expr_eval", SchedulerType::ExprEval)
       .value("resize", SchedulerType::Resize);
 
+  //! LoadStoreOpType used for scheduling
+  py::enum_<LoadStoreOpType>(nvfuser, "LoadStoreOpType")
+      .value("set", LoadStoreOpType::Set)
+      .value("load_matrix", LoadStoreOpType::LdMatrix)
+      .value("cp_async", LoadStoreOpType::CpAsync)
+      .value("tma", LoadStoreOpType::CpAsyncBulkTensorTile);
+
+  //! MemoryType used for scheduling
+  py::enum_<MemoryType>(nvfuser, "MemoryType")
+      .value("tensor", MemoryType::Tensor)
+      .value("local", MemoryType::Local)
+      .value("shared", MemoryType::Shared)
+      .value("global", MemoryType::Global);
+
+  //! CacheOp used for scheduling
+  py::enum_<CacheOp>(nvfuser, "CacheOp")
+      .value("unspecified", CacheOp::Unspecified)
+      .value("all_levels", CacheOp::AllLevels)
+      .value("streaming", CacheOp::Streaming)
+      .value("global", CacheOp::Global);
+
   py::enum_<IdMappingMode>(nvfuser, "IdMappingMode")
       .value("exact", IdMappingMode::EXACT)
       .value("almost_exact", IdMappingMode::ALMOSTEXACT)
