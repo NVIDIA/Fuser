@@ -579,7 +579,7 @@ class RunTimeChecker : private IterVisitor {
     checkDomainConstraints(
         ir_utils::getTvOutput(argsort)->getLogicalDomain(),
         {argsort->dim()},
-        /*support_grouping=*/true);
+        /*support_batching=*/true);
   }
 
   void handle(PadOp* pad) override {
@@ -591,7 +591,7 @@ class RunTimeChecker : private IterVisitor {
     checkDomainConstraints(
         ir_utils::getTvOutput(scan)->getLogicalDomain(),
         {scan->dim()},
-        /*support_grouping=*/true);
+        /*support_batching=*/true);
   }
 
   void handle(TopKOp* topk) override {
@@ -609,13 +609,10 @@ class RunTimeChecker : private IterVisitor {
         {scatter->dim()});
   }
 
-  // Since all constrained IDs are flattened and parallelized with
-  // TIDx, the extent of flattened ID must not exceed the maximum
-  // number of threads per thread block.
   void checkDomainConstraints(
       const std::vector<IterDomain*>& domain,
       const std::vector<int64_t>& constrained_id_offsets,
-      bool support_grouping = false) {
+      bool support_batching = false) {
     int64_t size_of_constrained_ids = 1;
     for (const auto i : constrained_id_offsets) {
       auto constrained_id = domain.at(i);
@@ -634,8 +631,8 @@ class RunTimeChecker : private IterVisitor {
     // available size. The next important limit would be the register
     // usage as we would not want to have excessive register spilling.
     //
-    // At this moment, not all constrained ops supports grouping. If
-    // grouping is not supported, the limit is simply set as the
+    // At this moment, not all constrained ops supports batching. If
+    // batching is not supported, the limit is simply set as the
     // maximum number of threads per thread block. This is likely
     // a sufficient condition even for shared memory, although not
     // guaranteed.
@@ -649,7 +646,7 @@ class RunTimeChecker : private IterVisitor {
     //
     // TODO: More accurate estimation of resource requirements
     int64_t max_supported_size = max_threads_per_block_;
-    if (support_grouping) {
+    if (support_batching) {
       auto available_shmem_capacity =
           at::cuda::getCurrentDeviceProperties()->sharedMemPerBlock / 2;
       // TODO: don't assume it's always float.
