@@ -135,7 +135,7 @@ getMaybeScatterAccumulate(ScatterOp* scatter) {
         scatter->index()->toString());
   }
 
-  // The non-scatter dimension must must be reduced
+  // The non-scatter dimension must be reduced
   NVF_ERROR_EQ(
       scatter_out->getLogicalDomain().size(),
       reduction_out->getLogicalDomain().size());
@@ -173,9 +173,6 @@ getMaybeScatterAccumulate(ScatterOp* scatter) {
   auto scatter_out_id = scatter_out->getLogicalDomain().at(scatter->dim());
   auto scatter_index_id = index_logical.at(scatter->dim() == 0 ? 1 : 0);
 
-  std::cerr << "Scatter-accumulate detected: " << scatter->toString()
-            << reduction->toString();
-
   return {
       ScatterAccumulateInfo{
           scatter, reduction, full, scatter_out_id, scatter_index_id},
@@ -203,10 +200,6 @@ class ScatterAccumulateTranslator : public OptOutMutator {
         fusion->replaceOutput(out, new_out);
       }
     }
-
-    std::cerr << "After translation\n";
-    fusion->printMath();
-    std::cout << std::endl;
   }
 
   void mutate(Expr* expr) final {
@@ -217,6 +210,16 @@ class ScatterAccumulateTranslator : public OptOutMutator {
     }
 
     const auto& [info, reason] = getMaybeScatterAccumulate(sop);
+
+    if (isDebugDumpEnabled(DebugDumpOption::PreSegmenterLogging)) {
+      if (info.has_value()) {
+        debug() << "Scatter-accumulate pattern detected with "
+                << sop->toString();
+      } else {
+        debug() << "Scatter-accumulate pattern not detected with "
+                << sop->toString() << " due to " << reason << std::endl;
+      }
+    }
 
     if (!info.has_value()) {
       OptOutMutator::mutate(expr);
