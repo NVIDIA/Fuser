@@ -46,14 +46,14 @@ bool GreedyParams::sameAs(const HeuristicParams* other_base) const {
   if (other == nullptr) {
     return false;
   }
-  bool attr_equal = tv_to_item_per_thread == other->tv_to_item_per_thread;
+  bool attr_equal = tv_to_batch_size == other->tv_to_batch_size;
   return attr_equal;
 }
 
 std::string GreedyParams::toString() const {
   std::stringstream ss;
   ss << "\n========= Greedy Parameters ========\n";
-  for (const auto& [tv_name, nitems] : tv_to_item_per_thread) {
+  for (const auto& [tv_name, nitems] : tv_to_batch_size) {
     ss << "t" << tv_name << " -> items per thread: " << nitems << "\n";
   }
   ss << "====================================\n";
@@ -62,7 +62,7 @@ std::string GreedyParams::toString() const {
 
 size_t GreedyParams::hash() const {
   size_t x = 0;
-  for (const auto& [tv, size] : tv_to_item_per_thread) {
+  for (const auto& [tv, size] : tv_to_batch_size) {
     x = x ^ std::hash<int64_t>()(size);
   }
   return x;
@@ -73,14 +73,14 @@ std::unique_ptr<HeuristicParams> GreedyParams::clone() const {
 }
 
 void GreedyParams::transferParams(TensorView* old_tv, TensorView* new_tv) {
-  if (auto it = tv_to_item_per_thread.find(old_tv->name());
-      it != tv_to_item_per_thread.end()) {
+  if (auto it = tv_to_batch_size.find(old_tv->name());
+      it != tv_to_batch_size.end()) {
     NVF_ERROR(
-        tv_to_item_per_thread.emplace(new_tv->name(), it->second).second,
+        tv_to_batch_size.emplace(new_tv->name(), it->second).second,
         "Duplicated setting for ",
         new_tv->toString());
     // Remove the old entry
-    tv_to_item_per_thread.erase(old_tv->name());
+    tv_to_batch_size.erase(old_tv->name());
   }
 }
 
@@ -603,10 +603,14 @@ class RunTimeChecker : private IterVisitor {
     auto out = ir_utils::getTvOutput(scatter);
     auto index = scatter->index()->as<TensorView>();
 
-    checkDomainConstraints(out->getLogicalDomain(), {scatter->dim()});
+    checkDomainConstraints(
+        out->getLogicalDomain(),
+        {scatter->dim()},
+        /*support_batching=*/true);
     checkDomainConstraints(
         TensorDomain::noReductions(index->getLogicalDomain()),
-        {scatter->dim()});
+        {scatter->dim()},
+        /*support_batching=*/true);
   }
 
   void checkDomainConstraints(
@@ -637,7 +641,7 @@ class RunTimeChecker : private IterVisitor {
     // a sufficient condition even for shared memory, although not
     // guaranteed.
     //
-    // When grouping is supported, up to half of the shared memory
+    // When batching is supported, up to half of the shared memory
     // capacity is allowed for now. This is a pretty rough estimate
     // and does not guarantee the safety of kernel launches nor avoids
     // register spilling but is used for now since more accurate
@@ -705,19 +709,57 @@ class HeuristicsBuilder : private IterVisitor {
     addHeuristicsFor(ir_utils::getTvOutput(argsort), {argsort->dim()});
   }
 
+  // TODO: Support batching
+  void handle(PadOp* pad) override {
+    setDefaultParameters(ir_utils::getTvOutput(pad));
+  }
+
   void handle(ScanOp* scan) override {
     addHeuristicsFor(ir_utils::getTvOutput(scan), {scan->dim()});
   }
 
-  // Currently, the only heuristic parameter is the number of items
-  // per thread. Add the parameter for ops that supports multiple
-  // items per thread.
+  void handle(ScatterOp* scatter) override {
+    // Set the parameters for constrained tensors scheduled by
+    // ConstrainedOpScheduler. See
+    // ConstrainedOpScheduler::handle(ScatterOp*).
+    auto out_tv = ir_utils::getTvOutput(scatter);
+    addHeuristicsFor(out_tv, {scatter->dim()});
+    addHeuristicsFor(ir_utils::getTvInput(scatter), {scatter->dim()});
+    addHeuristicsFor(scatter->index()->as<TensorView>(), {scatter->dim()});
+    if (auto src_tv = dynamic_cast<TensorView*>(scatter->src())) {
+      addHeuristicsFor(src_tv, {scatter->dim()});
+    }
+    if (!out_tv->uses().empty()) {
+      NVF_ERROR_EQ(out_tv->uses().size(), 1);
+      auto use_of_out = out_tv->uses().at(0);
+      NVF_ERROR(use_of_out->isA<LoadStoreOp>());
+      addHeuristicsFor(ir_utils::getTvOutput(use_of_out), {scatter->dim()});
+    }
+  }
+
+  // TODO: Support batching
+  void handle(TopKOp* topk) override {
+    setDefaultParameters(ir_utils::getTvOutput(topk));
+  }
+
+  void setDefaultParameters(TensorView* tv) {
+    NVF_ERROR(
+        params_->tv_to_batch_size.emplace(tv->name(), 1).second,
+        "Duplicated setting of item per thread factor for ",
+        tv->toString());
+  }
+
+  // Currently, the only heuristic parameter is batching, i.e., the
+  // number of items per thread. Add the parameter for ops that
+  // supports multiple items per thread.
   void addHeuristicsFor(
       TensorView* constrained_tv,
       const std::vector<int64_t>& constrained_id_offsets) {
     int64_t size_of_constrained_ids = 1;
+    const auto logical_domain =
+        TensorDomain::noReductions(constrained_tv->getLogicalDomain());
     for (const auto i : constrained_id_offsets) {
-      auto logical_id = constrained_tv->getLogicalDomain().at(i);
+      auto logical_id = logical_domain.at(i);
       auto extent_val =
           runtime_info_.expressionEvaluator().evaluate(logical_id->extent());
       NVF_ERROR(
@@ -728,21 +770,18 @@ class HeuristicsBuilder : private IterVisitor {
     }
 
     // TODO: The maximum allowed number of threads are launched even
-    // when grouping is supported. This should be revisited for
+    // when batching is supported. This should be revisited for
     // performance optimization.
     const int64_t bdim =
         at::cuda::getCurrentDeviceProperties()->maxThreadsPerBlock;
 
-    auto items_per_thread = ceilDiv(size_of_constrained_ids, bdim);
+    auto batch_size = ceilDiv(size_of_constrained_ids, bdim);
 
-    if (items_per_thread > 1) {
-      NVF_ERROR(
-          params_->tv_to_item_per_thread
-              .emplace(constrained_tv->name(), items_per_thread)
-              .second,
-          "Duplicated setting of item per thread factor for ",
-          constrained_tv->toString());
-    }
+    NVF_ERROR(
+        params_->tv_to_batch_size.emplace(constrained_tv->name(), batch_size)
+            .second,
+        "Duplicated setting of item per thread factor for ",
+        constrained_tv->toString());
   }
 
  private:
@@ -834,6 +873,7 @@ void insertCopies(Fusion* fusion, GreedyParams& greedy_params) {
           // Insert an exclusive copy
           auto inp_copy = set(inp_tv);
           expr = ir_utils::replaceValInExprInputs(expr, inp_tv, inp_copy);
+          greedy_params.transferParams(inp_tv, inp_copy);
         }
       }
     }
@@ -979,13 +1019,15 @@ class ConstrainedOpScheduler : public OptOutDispatch {
     const bool has_unconstrained_ids = tv->getLoopDomain().size() > 1;
     int64_t num_constrained_loop_ids = 1;
 
-    const auto items_per_thread =
-        params_->tv_to_item_per_thread.contains(tv->name())
-        ? params_->tv_to_item_per_thread.at(tv->name())
-        : 1;
+    auto batch_size_it = params_->tv_to_batch_size.find(tv->name());
+    NVF_ERROR(
+        batch_size_it != params_->tv_to_batch_size.end(),
+        "No batch size parameter found for ",
+        tv->toString());
+    const int64_t batch_size = batch_size_it->second;
 
-    if (items_per_thread > 1) {
-      tv->split(-1, items_per_thread);
+    if (batch_size > 1) {
+      tv->split(-1, batch_size);
       ++num_constrained_loop_ids;
       tv->axis(-2)->parallelize(ParallelType::TIDx);
       if (suppot_grouping) {
@@ -1291,8 +1333,14 @@ void GreedyScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
 
   // Cache inputs
   auto cached_inputs = scheduler_utils::cacheInputs(fusion, true);
+  for (const auto& [cache, original] : cached_inputs) {
+    greedy_params.transferParams(original, cache);
+  }
   // Cache and fork outputs
   auto cached_outputs = scheduler_utils::cacheAndForkOutputs(fusion, true);
+  for (const auto& [cache, original] : cached_outputs) {
+    greedy_params.transferParams(original, cache);
+  }
 
   propagateReshape(fusion);
 

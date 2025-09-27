@@ -1259,12 +1259,11 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
   // inputs, cached inputs and outputs will be updated.
   std::unordered_set<TensorView*> inner_most_tensors(
       all_tvs.begin(), all_tvs.end());
-  for (auto cached_input : cached_inputs) {
-    inner_most_tensors.erase(cached_input);
+  for (const auto& [input_cache, original_input] : cached_inputs) {
+    inner_most_tensors.erase(input_cache);
   }
-  for (auto entry : cached_outputs) {
-    auto output = entry.second;
-    inner_most_tensors.erase(output);
+  for (const auto& [output_cache, original_output] : cached_outputs) {
+    inner_most_tensors.erase(original_output);
   }
   // IndexSelectOp reads lookup tv without cache. Because pointwise scheduler
   // doesn't use ParallelType::Unroll, we need to exclude consumer of fusion

@@ -167,7 +167,7 @@ class GreedyParams : public HeuristicParams {
   // Number of items per thread for constrained tensors. If not
   // mapped, a single item should be assigned to each thread. Map from
   // tensor names as pointers may not be kept the same
-  std::unordered_map<StmtNameType, int64_t> tv_to_item_per_thread;
+  std::unordered_map<StmtNameType, int64_t> tv_to_batch_size;
 };
 
 class GreedyScheduler : public SchedulerEntry {

@@ -277,7 +277,7 @@ void commonScheduleBeforeIterDomainTransform(
     Fusion* fusion,
     const ReductionParams* rparams,
     std::vector<TensorView*>& dummy_outputs,
-    std::vector<TensorView*>& cached_inputs,
+    std::vector<std::pair<TensorView*, TensorView*>>& cached_inputs,
     std::vector<TensorView*>& reduction_tvs,
     std::vector<TensorView*>& smem_consumers,
     std::vector<TensorView*>& persistent_buffers,

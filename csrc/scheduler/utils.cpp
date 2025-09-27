@@ -1277,12 +1277,14 @@ void clearMemorySpace(Fusion* fusion) {
 
 // Returns cached after tensors of the fusion inputs if unrolled. Otherwise
 // return empty vector.
-std::vector<TensorView*> cacheInputs(Fusion* fusion, bool unroll) {
+std::vector<std::pair<TensorView*, TensorView*>> cacheInputs(
+    Fusion* fusion,
+    bool unroll) {
   if (!unroll) {
     return {};
   }
 
-  std::vector<TensorView*> cached_inputs;
+  std::vector<std::pair<TensorView*, TensorView*>> cached_inputs;
   // If we're going to unroll, make a cache of the inputs
   auto in_tvs = ir_utils::filterByType<TensorView>(fusion->inputs());
   for (auto tv : in_tvs) {
@@ -1326,7 +1328,7 @@ std::vector<TensorView*> cacheInputs(Fusion* fusion, bool unroll) {
         /*cache_op=*/CacheOp::Unspecified,
         /*propagate_allocation_domain=*/true,
         /*cached_uses=*/cached_uses);
-    cached_inputs.emplace_back(cached_tv);
+    cached_inputs.emplace_back(cached_tv, tv);
   }
   return cached_inputs;
 }
@@ -2473,7 +2475,7 @@ bool revertUseOfInputCache(
     TensorView* consumer,
     TensorView* promoted_producer,
     MemoryType promoted_memory_type,
-    const std::vector<TensorView*>& input_caches) {
+    const std::vector<std::pair<TensorView*, TensorView*>>& input_caches) {
   auto get_copy_src = [](TensorView* tv) -> TensorView* {
     if (auto uop = dynamic_cast<LoadStoreOp*>(tv->definition())) {
       return uop->in()->as<TensorView>();
@@ -2495,8 +2497,10 @@ bool revertUseOfInputCache(
     return false;
   }
 
-  auto cache_it =
-      std::find(input_caches.begin(), input_caches.end(), producer_of_producer);
+  auto cache_it = std::ranges::find_if(
+      input_caches.begin(), input_caches.end(), [&](const auto& pair) {
+        return pair.first == producer_of_producer;
+      });
   if (cache_it == input_caches.end()) {
     return false;
   }
@@ -2565,7 +2569,7 @@ void prepareForMemoryTypePromotion(Fusion* fusion) {
 
 void promoteProducerMemoryTypes(
     Fusion* fusion,
-    const std::vector<TensorView*>& input_caches) {
+    const std::vector<std::pair<TensorView*, TensorView*>>& input_caches) {
   auto non_pwise_pairs = getNonPointwiseProducerConsumerPairs(fusion);
 
   // Just make it simpler to promote memory types. Minimum is

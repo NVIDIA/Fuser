@@ -1313,7 +1313,7 @@ bool compileTimeCheck(Fusion* fusion, SchedulerType scheduler_type) {
 std::vector<TensorView*> movePersistentBufferToSmem(
     Fusion* fusion,
     const ReductionParams* rparams,
-    const std::vector<TensorView*>& cached_inputs,
+    const std::vector<std::pair<TensorView*, TensorView*>>& cached_inputs,
     const std::vector<TensorView*>& persistent_buffers) {
   std::vector<TensorView*> smem_consumers;
   // Transfer the persistent buffer tensors to shared memory. These tensors are
@@ -1364,9 +1364,9 @@ std::vector<TensorView*> movePersistentBufferToSmem(
     // and it is not in [smem_persistent_buffers].
     bool is_cached_input = false;
     bool use_smem = isSharedMemoryPersistent(tv);
-    if (!use_smem &&
-        std::find(cached_inputs.begin(), cached_inputs.end(), tv) !=
-            cached_inputs.end()) {
+    if (!use_smem && std::ranges::find_if(cached_inputs, [&](const auto& pair) {
+                       return tv == pair.first;
+                     }) != cached_inputs.end()) {
       auto input_tv = ir_utils::producerTvsOf(tv).at(0);
       use_smem = isSharedMemoryPersistent(input_tv);
       is_cached_input = true;
@@ -1472,7 +1472,7 @@ void commonScheduleBeforeIterDomainTransform(
     Fusion* fusion,
     const ReductionParams* rparams,
     std::vector<TensorView*>& dummy_outputs,
-    std::vector<TensorView*>& cached_inputs,
+    std::vector<std::pair<TensorView*, TensorView*>>& cached_inputs,
     std::vector<TensorView*>& reduction_tvs,
     std::vector<TensorView*>& smem_consumers,
     std::vector<TensorView*>& persistent_buffers,
@@ -1574,9 +1574,10 @@ void schedulePersistentKernel(
 
   // Grab the reduction, input, and output tensor views. dummy_outputs are
   // helper tensors for persistent buffer projection.
-  std::vector<TensorView*> dummy_outputs, cached_inputs, reduction_tvs,
-      smem_consumers, persistent_buffers;
-  std::vector<std::pair<TensorView*, TensorView*>> cached_outputs;
+  std::vector<TensorView*> dummy_outputs, reduction_tvs, smem_consumers,
+      persistent_buffers;
+  std::vector<std::pair<TensorView*, TensorView*>> cached_inputs,
+      cached_outputs;
   commonScheduleBeforeIterDomainTransform(
       fusion,
       rparams,
@@ -1653,9 +1654,11 @@ void schedulePersistentKernel(
   bool unroll_persistent_cached_inputs = rparams->vectorize_inner_reduction &&
       rparams->fastest_dim && !rparams->schedule_3D;
   if (unroll_persistent_cached_inputs) {
-    for (auto tv : cached_inputs) {
-      if (std::find(persistent_buffers.begin(), persistent_buffers.end(), tv) ==
-          persistent_buffers.end()) {
+    for (const auto& [input_cache, original_input] : cached_inputs) {
+      if (std::find(
+              persistent_buffers.begin(),
+              persistent_buffers.end(),
+              input_cache) == persistent_buffers.end()) {
         continue;
       }
       // Find PersistentBatch domain to unroll, typical case is:
@@ -1665,7 +1668,7 @@ void schedulePersistentKernel(
       // rparams->batches_per_block_inner_reduction, we should have only one
       // such domain.
       int identified_count = 0;
-      for (auto id : tv->getLoopDomain()) {
+      for (auto id : input_cache->getLoopDomain()) {
         if (id->getParallelType() != ParallelType::Serial ||
             !id->definition() || !id->definition()->isA<Split>()) {
           continue;
@@ -1685,7 +1688,7 @@ void schedulePersistentKernel(
           "found ",
           identified_count,
           " in ",
-          tv->toString());
+          input_cache->toString());
     }
   }
 
@@ -1709,8 +1712,8 @@ void schedulePersistentKernel(
     NVF_ERROR(
         rparams->persistent_kernel,
         "computeWith should be only used with persistent kernels");
-    for (const auto persistent_buffer : cached_inputs) {
-      persistent_buffer->computeWith(-1, true);
+    for (const auto& [input_cache, original_input] : cached_inputs) {
+      input_cache->computeWith(-1, true);
     }
   }
 
