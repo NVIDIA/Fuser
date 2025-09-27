@@ -5,6 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+namespace nvf {
 namespace cluster {
 #if (defined(__CUDA_ARCH__) && (__CUDA_ARCH__ >= 900))
 
@@ -200,3 +201,4 @@ __device__ __forceinline__ void clusterReduce(
 }
 #endif // Arch 90
 } // namespace cluster
+} // namespace nvf

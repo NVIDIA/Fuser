@@ -311,7 +311,8 @@ std::vector<IterDomain*> replayDomain(
     const std::unordered_map<IterDomain*, IterDomain*>& replay_to_target_map,
     const std::unordered_set<IterDomain*>& ignore_ids = {},
     bool propagate_padding = false,
-    bool propagate_parallelization = false) {
+    bool propagate_parallelization = false,
+    bool propagate_clustered_blocks = false) {
   std::vector<IterDomain*> target_domain;
   target_domain.reserve(replay_domain.size());
   for (const auto& replay_id :
@@ -335,6 +336,11 @@ std::vector<IterDomain*> replayDomain(
     if (propagate_padding) {
       if (replay_id->hasPaddingToMultipleOfWarp()) {
         target_id->padToMultipleOfWarp(replay_id->getMaybeSizeAfterPadding());
+      }
+    }
+    if (propagate_clustered_blocks) {
+      if (replay_id->isClusteredBlockDim()) {
+        target_id->setClusteredBlocks();
       }
     }
     target_domain.push_back(target_id);
@@ -461,7 +467,8 @@ std::pair<TensorDomain*, TensorDomain*> TransformRFactor::runReplay(
       original_to_producer_id_map,
       /*ignore_ids=*/{},
       /*propagate_padding=*/true,
-      /*propagate_parallelization=*/true);
+      /*propagate_parallelization=*/true,
+      /*propagate_clustered_blocks=*/true);
 
   // Specify the logical domain of the producer which will match the consumer
   // root domain.
@@ -472,7 +479,8 @@ std::pair<TensorDomain*, TensorDomain*> TransformRFactor::runReplay(
       original_to_producer_id_map,
       /*ignore_ids=*/{},
       /*propagate_padding=*/false,
-      /*propagate_parallelization=*/false);
+      /*propagate_parallelization=*/false,
+      /*propagate_clustered_blocks=*/false);
 
   auto* producer_domain = IrBuilder::createInContainer<TensorDomain>(
       original_td->container(),
@@ -534,7 +542,8 @@ std::pair<TensorDomain*, TensorDomain*> TransformRFactor::runReplay(
       original_to_consumer_map,
       /*ignore_ids=*/rfactor_axes,
       /*propagate_padding=*/true,
-      /*propagate_parallelization=*/true);
+      /*propagate_parallelization=*/true,
+      /*propagate_clustered_blocks=*/true);
 
   auto consumer_domain = IrBuilder::createInContainer<TensorDomain>(
       original_td->container(),

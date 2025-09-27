@@ -58,17 +58,17 @@ __global__ void storeSharedRemoteTestKernel(T* input, T* output) {
   if (threadIdx.x == 0) {
     mbarrier::init(mbarrier_addr, 1);
   }
-  cluster::clusterSync();
+  nvf::cluster::clusterSync();
 
   // Each thread writes to its peer CTA's shared memory
-  auto cluster_id = cluster::blockIdInCluster().x;
+  auto cluster_id = nvf::cluster::blockIdInCluster().x;
   if (threadIdx.x == 0) {
     uint32_t expected_bytes = BLOCK_SIZE * sizeof(T);
     mbarrier::arriveExpectTX(mbarrier_addr, expected_bytes);
   }
   uint32_t peer_cta_rank_in_cluster = (cluster_id + 1) % CLUSTER_SIZE;
   uint32_t buffer_addr = toSmem(&shared_data[threadIdx.x]);
-  cluster::storeSharedRemote<T>(
+  nvf::cluster::storeSharedRemote<T>(
       value, buffer_addr, mbarrier_addr, peer_cta_rank_in_cluster);
 
   // wait for all writings are done, then write from shared memory to output
@@ -98,10 +98,10 @@ __global__ void clusterReduceTestKernel(T* input, T* output) {
   if (threadIdx.x == 0) {
     mbarrier::init(mbarrier_addr, 1);
   }
-  cluster::clusterSync();
+  nvf::cluster::clusterSync();
 
   T result;
-  cluster::clusterReduce<CLUSTER_SIZE, WARPS_PER_BLOCK, T, AddOp<T>>(
+  nvf::cluster::clusterReduce<CLUSTER_SIZE, WARPS_PER_BLOCK, T, AddOp<T>>(
       result,
       value,
       static_cast<T>(0),

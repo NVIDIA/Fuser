@@ -1124,6 +1124,7 @@ if(BUILD_TEST)
 
   set(CLUSTER_TEST_SRCS)
   list(APPEND CLUSTER_TEST_SRCS
+    ${NVFUSER_ROOT}/tests/cpp/test_cluster.cpp
     ${NVFUSER_ROOT}/tests/cpp/cluster_runtime_test/test_cluster_device_func.cpp
   )
   add_test(test_cluster "${CLUSTER_TEST_SRCS}" ${CLUSTER_TEST_KERNELS})
