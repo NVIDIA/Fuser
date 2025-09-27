@@ -46,18 +46,17 @@ bool GreedyParams::sameAs(const HeuristicParams* other_base) const {
   if (other == nullptr) {
     return false;
   }
-  bool attr_equal = tv_to_batch_size == other->tv_to_batch_size;
+  bool attr_equal = consumer_to_params == other->consumer_to_params;
   return attr_equal;
 }
 
 std::string GreedyParams::toString() const {
   std::stringstream ss;
   ss << "\n========= Greedy Parameters ========\n";
-  for (const auto& [tv_name, params] : tv_to_batch_size) {
+  for (const auto& [tv_name, params] : consumer_to_params) {
     ss << "t" << tv_name << " (consumer) -> " << params.toString() << "\n";
   }
-  for (const auto& [producer_consumer_pair, params] :
-       producer_tv_to_batch_size) {
+  for (const auto& [producer_consumer_pair, params] : producer_tv_params) {
     ss << "t" << producer_consumer_pair.first << " (producer) for "
        << "t" << producer_consumer_pair.second << " (consumer) -> "
        << params.toString() << "\n";
@@ -68,10 +67,10 @@ std::string GreedyParams::toString() const {
 
 size_t GreedyParams::hash() const {
   size_t x = 0;
-  for (const auto& [tv, size] : tv_to_batch_size) {
+  for (const auto& [tv, size] : consumer_to_params) {
     x = x ^ std::hash<int64_t>()(size.batch_size);
   }
-  for (const auto& [producer_consumer_pair, size] : producer_tv_to_batch_size) {
+  for (const auto& [producer_consumer_pair, size] : producer_tv_params) {
     x = x ^ std::hash<int64_t>()(size.batch_size);
   }
   return x;
@@ -82,27 +81,27 @@ std::unique_ptr<HeuristicParams> GreedyParams::clone() const {
 }
 
 bool GreedyParams::hasConsumerParams(TensorView* consumer_tv) {
-  return tv_to_batch_size.contains(consumer_tv->name());
+  return consumer_to_params.contains(consumer_tv->name());
 }
 
 bool GreedyParams::hasProducerParams(
     TensorView* producer_tv,
     TensorView* consumer_tv) const {
-  return producer_tv_to_batch_size.contains(
+  return producer_tv_params.contains(
       std::make_pair(producer_tv->name(), consumer_tv->name()));
 }
 
 void GreedyParams::transferParams(TensorView* old_tv, TensorView* new_tv) {
-  auto it = tv_to_batch_size.find(old_tv->name());
-  if (it == tv_to_batch_size.end()) {
+  auto it = consumer_to_params.find(old_tv->name());
+  if (it == consumer_to_params.end()) {
     return;
   }
   NVF_ERROR(
-      tv_to_batch_size.emplace(new_tv->name(), it->second).second,
+      consumer_to_params.emplace(new_tv->name(), it->second).second,
       "Duplicated setting for ",
       new_tv->toString());
   // Remove the old entry
-  tv_to_batch_size.erase(old_tv->name());
+  consumer_to_params.erase(old_tv->name());
 }
 
 void GreedyParams::transferParams(
@@ -111,7 +110,7 @@ void GreedyParams::transferParams(
     TensorView* new_producer_tv,
     TensorView* new_consumer_tv) {
   std::vector<std::pair<StmtNameType, StmtNameType>> keys_to_erase;
-  for (const auto& [pair, batch] : producer_tv_to_batch_size) {
+  for (const auto& [pair, batch] : producer_tv_params) {
     if ((old_producer_tv != nullptr && old_producer_tv->name() != pair.first) ||
         (old_consumer_tv != nullptr &&
          old_consumer_tv->name() != pair.second)) {
@@ -123,7 +122,7 @@ void GreedyParams::transferParams(
         new_producer_tv != nullptr ? new_producer_tv->name() : pair.first,
         new_consumer_tv != nullptr ? new_consumer_tv->name() : pair.second);
     NVF_ERROR(
-        producer_tv_to_batch_size.emplace(new_key, batch).second,
+        producer_tv_params.emplace(new_key, batch).second,
         "Duplicated setting for ",
         new_key.first,
         ", ",
@@ -132,15 +131,15 @@ void GreedyParams::transferParams(
     keys_to_erase.emplace_back(pair);
   }
   for (const auto& pair : keys_to_erase) {
-    producer_tv_to_batch_size.erase(pair);
+    producer_tv_params.erase(pair);
   }
 }
 
 void GreedyParams::copyParams(TensorView* old_tv, TensorView* new_tv) {
-  auto it = tv_to_batch_size.find(old_tv->name());
-  NVF_ERROR(it != tv_to_batch_size.end());
+  auto it = consumer_to_params.find(old_tv->name());
+  NVF_ERROR(it != consumer_to_params.end());
   NVF_ERROR(
-      tv_to_batch_size.emplace(new_tv->name(), it->second).second,
+      consumer_to_params.emplace(new_tv->name(), it->second).second,
       "Duplicated setting for ",
       new_tv->toString());
 }
@@ -819,7 +818,7 @@ class HeuristicsBuilder : private IterVisitor {
 
   void setDefaultParameters(TensorView* tv) {
     NVF_ERROR(
-        params_->tv_to_batch_size.emplace(tv->name(), 1).second,
+        params_->consumer_to_params.emplace(tv->name(), 1).second,
         "Duplicated setting of item per thread factor for ",
         tv->toString());
   }
@@ -856,13 +855,14 @@ class HeuristicsBuilder : private IterVisitor {
 
     if (as_consumer) {
       NVF_ERROR(
-          params_->tv_to_batch_size.emplace(constrained_tv->name(), batch_size)
+          params_->consumer_to_params
+              .emplace(constrained_tv->name(), batch_size)
               .second,
           "Duplicated setting of item per thread factor for ",
           constrained_tv->toString());
     } else {
       NVF_ERROR(
-          params_->producer_tv_to_batch_size
+          params_->producer_tv_params
               .emplace(
                   std::make_pair(constrained_tv->name(), consumer->name()),
                   batch_size)

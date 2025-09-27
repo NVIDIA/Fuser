@@ -174,17 +174,17 @@ class GreedyParams : public HeuristicParams {
   std::unique_ptr<HeuristicParams> clone() const override;
 
   const TvParams& getConsumerParams(TensorView* tv) const {
-    return tv_to_batch_size.at(tv->name());
+    return consumer_to_params.at(tv->name());
   }
 
   bool setConsumerParams(TensorView* tv, const TvParams& params) {
-    return tv_to_batch_size.emplace(tv->name(), params).second;
+    return consumer_to_params.emplace(tv->name(), params).second;
   }
 
   const TvParams& getProducerParams(
       TensorView* producer_tv,
       TensorView* consumer_tv) const {
-    return producer_tv_to_batch_size.at(
+    return producer_tv_params.at(
         std::make_pair(producer_tv->name(), consumer_tv->name()));
   }
 
@@ -192,7 +192,7 @@ class GreedyParams : public HeuristicParams {
       TensorView* producer_tv,
       TensorView* consumer_tv,
       const TvParams& params) {
-    return producer_tv_to_batch_size
+    return producer_tv_params
         .emplace(
             std::make_pair(producer_tv->name(), consumer_tv->name()), params)
         .second;
@@ -220,7 +220,7 @@ class GreedyParams : public HeuristicParams {
   // Number of items per thread for constrained tensors. If not
   // mapped, a single item should be assigned to each thread. Map from
   // tensor names as pointers may not be kept the same
-  std::unordered_map<StmtNameType, TvParams> tv_to_batch_size;
+  std::unordered_map<StmtNameType, TvParams> consumer_to_params;
 
   struct NamePairHash {
     std::size_t operator()(
@@ -234,7 +234,7 @@ class GreedyParams : public HeuristicParams {
       std::pair<StmtNameType, StmtNameType>,
       TvParams,
       NamePairHash>
-      producer_tv_to_batch_size;
+      producer_tv_params;
 };
 
 class GreedyScheduler : public SchedulerEntry {
