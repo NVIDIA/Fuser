@@ -384,7 +384,7 @@ class CompileTimeChecker : private IterVisitor {
         out_tv->domain()->logical(), {constrained_out_logical_dim});
 
     // In addition, the index and src tensors are not allowed to use
-    // TID with the scatter dim. Their logical domains are not mapped
+    // BID with the scatter dim. Their logical domains are not mapped
     // with the logical domains of the input and output tensors, so
     // they need to be checked separately.
     checkDomainConstraints(
