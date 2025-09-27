@@ -1119,21 +1119,49 @@ TensorView* TensorView::cacheBefore(LoadStoreOpType op_type) {
   // We want the producer domain to preserve `root` & `logical`
   // meanwhile, we want consumer Tensor to preserve `logical` & `allocation` (while erasing all reductions).
 
-  // Create Producer Domain
-  // We only need root for full self replay.
-  std::vector<IterDomain*> root;
-  std::ranges::transform(domain()->hasRoot()?domain()->root():domain()->logical(), std::back_inserter(root), [&](IterDomain* id) {
-      return IrBuilder::createInContainer<IterDomain>(container(), id);
-  });
+  TensorView producer;
+
+  if (!definition()->isA<ScatterOp>()) {
+    // TODO: is there any way to replay a scatter op?!
+    // scatter output's loop is not connected to its root.
+    NVF_ERROR(domain()->hasRoot(), "scatter output's root is not replayed in cacheBefore");
+
+    std::vector<IterDomain*> logical;
+    std::vector<IterDomain*> loop;
+    std::unordered_map<IterDomain*, IterDomain*> map_cloned_ids;
+
+    std::ranges::transform(domain()->logical(), std::back_inserter(logical), [&](IterDomain* id) {
+        IterDomain* cloned_id = IrBuilder::createInContainer<IterDomain>(container(), id);
+        map_cloned_ids[id] = cloned_id;
+        return cloned_id;
+    });
+    std::ranges::transform(domain()->loop(), std::back_inserter(loop), [&](IterDomain* id) {
+        if (auto it = map_cloned_ids.find(id); it != map_cloned_ids.end()) {
+          // reuse cloned_ids
+          return it->second;
+        }
+        return IrBuilder::createInContainer<IterDomain>(container(), id);
+    });
+    producer = IrBuilder::createInContainer<TensorView>(
+        container(),
+        IrBuilder::createInContainer<TensorDomain>(container(), logical, loop, TensorDomain::getContiguityFilledWith(logical, true)),
+        getDataType().value());
+    // TODO: clean the loop domain of output
+  } else {
+    // Create Producer Domain
+    // We only need root for full self replay.
+    std::vector<IterDomain*> root;
+    std::ranges::transform(domain()->hasRoot()?domain()->root():domain()->logical(), std::back_inserter(root), [&](IterDomain* id) {
+        return IrBuilder::createInContainer<IterDomain>(container(), id);
+    });
   
-  auto* producer = IrBuilder::createInContainer<TensorView>(
-      container(),
-      IrBuilder::createInContainer<TensorDomain>(container(), root, root, root, TensorDomain::getContiguityFilledWith(root, true)),
-      getDataType().value());
-
-
-  // replay from `root`->`loop` on producer
-  producer->setDomain(TransformReplay::fullSelfReplay(producer->domain(), domain()));
+    producer = IrBuilder::createInContainer<TensorView>(
+        container(),
+        IrBuilder::createInContainer<TensorDomain>(container(), root, root, root, TensorDomain::getContiguityFilledWith(root, true)),
+        getDataType().value());
+    // replay from `root`->`loop` on producer
+    producer->setDomain(TransformReplay::fullSelfReplay(producer->domain(), domain()));
+  }
 
   // clean up consumer domain to wipe out root and all reduction IDs
   std::vector<IterDomain*> logical_dom;
