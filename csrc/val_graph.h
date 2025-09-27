@@ -53,7 +53,7 @@ namespace nvfuser {
 // only tested with IterDomain. Some of the routines might need to be
 // extended for other Val types.
 
-class ValGraph {
+class NVF_API ValGraph {
  public:
   ValGraph() = default;
 

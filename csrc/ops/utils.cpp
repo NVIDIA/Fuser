@@ -620,16 +620,17 @@ Val* getMaximumValue(DataType v) {
   return nullptr;
 }
 
-std::vector<unsigned int> canonicalizeAxes(
+std::vector<int64_t> canonicalizeAxes(
     const std::vector<int64_t>& axes,
     int64_t ndims) {
-  std::vector<unsigned int> uint_axes;
-  uint_axes.reserve(axes.size());
+  std::vector<int64_t> canonicalized_axes;
+  canonicalized_axes.reserve(axes.size());
   std::transform(
-      axes.begin(), axes.end(), std::back_inserter(uint_axes), [&](int axis) {
-        return (unsigned int)wrapDim(axis, ndims);
-      });
-  return uint_axes;
+      axes.begin(),
+      axes.end(),
+      std::back_inserter(canonicalized_axes),
+      [&](int64_t axis) { return wrapDim(axis, ndims); });
+  return canonicalized_axes;
 }
 
 Val* binOpIdentity(BinaryOpType op_type, DataType dtype) {

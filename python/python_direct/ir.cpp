@@ -70,6 +70,17 @@ Returns
 -------
 Expr
     The definition of this expression.
+)")
+      .def(
+          "uses",
+          &Val::uses,
+          R"(
+Get the uses of this expression.
+
+Returns
+-------
+Expr
+    The uses of this expression.
 )");
 
   // Expr
