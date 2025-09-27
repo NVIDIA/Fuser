@@ -59,7 +59,8 @@ bool okToRelayout(
     const TensorView* tv,
     const Layout& new_layout,
     const EmptyAllocationAs empty_allocation_as) {
-  if (!ir_utils::canUsePresetAllocationDomain(tv)) {
+  // when using logical domain as the allocation domain, we can basically ignore the layout when it's not used by codegen
+  if (empty_allocation_as == EmptyAllocationAs::kLogical && !ir_utils::canUsePresetAllocationDomain(tv)) {
     return true;
   }
 
