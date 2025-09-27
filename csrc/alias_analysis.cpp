@@ -59,6 +59,10 @@ bool okToRelayout(
     const TensorView* tv,
     const Layout& new_layout,
     const EmptyAllocationAs empty_allocation_as) {
+  if (!ir_utils::canUsePresetAllocationDomain(tv)) {
+    return true;
+  }
+
   if (empty_allocation_as == EmptyAllocationAs::kUndetermined &&
       !tv->hasAllocation()) {
     return true;
@@ -75,9 +79,6 @@ bool AliasFinder::aliasIfCompliant(
     const TensorView* alias,
     TensorView* source,
     Layout&& layout) {
-  if (!ir_utils::canUsePresetAllocationDomain(tv)) {
-    return true;
-  }
   if (!okToRelayout(alias, layout, empty_allocation_as_)) {
     return false;
   }
