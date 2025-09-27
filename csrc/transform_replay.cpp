@@ -147,11 +147,15 @@ class ReplaySelf : public ReplayTransformations {
     // output domain also an rfactor
     const auto resize_out_logical = resize->out()->isRFactorProduct();
 
+    // Mark output IterType
+    const auto resize_out_iter_type = resize->out()->iterType();
+
     auto replayed_out = IterDomain::resize(
         mapped,
         resize->leftExpand(),
         resize->rightExpand(),
-        resize_out_logical);
+        resize_out_logical,
+        resize_out_iter_type);
 
     loop_ids_.erase(mapped);
 
