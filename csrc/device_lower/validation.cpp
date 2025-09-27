@@ -342,8 +342,8 @@ class ExprValidator : public OptOutDispatch {
     // All of the inputs per thread must be provided to the device
     // function as a contiguous chunk of memory where each element
     // has a unit stride within its allocated buffer. More
-    // concretely, the input for argsort would be passed to the device
-    // function as follows:
+    // concretely, for example, in the case of argsort, the input would be
+    // passed to the device function as follows:
     //
     //  // Each thread computes 8 argsort elements
     //  float T1[8];

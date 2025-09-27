@@ -1720,7 +1720,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       }
 
       // If a parallel type used in the fusion, it must be also used in the
-      // argsort.
+      // scan.
       NVF_ERROR(
           scan_parallel_types.get(pt),
           "Parallel type ",
