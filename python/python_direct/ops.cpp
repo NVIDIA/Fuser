@@ -3529,7 +3529,7 @@ dtype : PrimDataType, optional
 Returns
 -------
 TensorView
-The tensor with normal distribution.
+    The tensor with normal distribution.
       )",
       py::return_value_policy::reference);
   ops.def(
@@ -3574,7 +3574,7 @@ dtype : PrimDataType, optional
 Returns
 -------
 TensorView
-The tensor with uniform distribution.
+    The tensor with uniform distribution.
       )",
       py::return_value_policy::reference);
 }

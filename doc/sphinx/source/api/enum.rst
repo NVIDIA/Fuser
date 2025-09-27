@@ -3,27 +3,11 @@
 
     See LICENSE for license information.
 
-Enums and POD classes
-=====================
+Enums
+=====
 
-This section documents the various Enums and POD in NvFuser.
+This section documents the various Enums in NvFuser.
 
-
-LaunchParams
-------------
-.. autoclass:: nvfuser_direct.LaunchParams
-   :members:
-   :undoc-members:
-
-   LaunchParams class hold the grid, block, and dynamic shared memory used when launching a CUDA kernel.
-
-CompileParams
--------------
-.. autoclass:: nvfuser_direct.CompileParams
-   :members:
-   :undoc-members:
-
-   CompileParams hold the parameters used to control cubin generation with NVRTC.
 
 CommunicatorBackend Types
 -------------------------
