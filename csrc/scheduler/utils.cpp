@@ -613,7 +613,8 @@ PersistentBufferInfo persistentBuffers(Fusion* fusion) {
     for (auto consumer : consumers) {
       if (dynamic_cast<SelectOp*>(consumer->definition()) ||
           dynamic_cast<IndexSelectOp*>(consumer->definition()) ||
-          dynamic_cast<GatherOp*>(consumer->definition())) {
+          dynamic_cast<GatherOp*>(consumer->definition()) ||
+          dynamic_cast<PreprocessGroupedMatmulInputSf*>(consumer->definition())) {
         continue;
       }
       auto mappable_roots =
@@ -1342,7 +1343,8 @@ std::vector<std::pair<TensorView*, TensorView*>> cacheAndForkOutputs(
     if (output->definition() == nullptr ||
         // the output of ScatterOp must on the global memory due to the random
         // or atomic access.
-        output->definition()->isA<ScatterOp>()) {
+        output->definition()->isA<ScatterOp>() ||
+        output->definition()->isA<PreprocessGroupedMatmulInputSf>()) {
       continue;
     }
     if (!output->uses().empty()) {

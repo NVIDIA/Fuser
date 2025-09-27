@@ -273,13 +273,29 @@ KernelArgumentHolder allocateOutputs(
   for (auto out_idx : arange(output_infos.size())) {
     auto out_info = output_infos.at(out_idx);
     if (output_alias_to_input_map.at(out_idx) == -1) {
-      auto alloc_tensor = at::native::empty_strided_cuda(
-          out_info.shape_info.logical_sizes,
-          out_info.shape_info.logical_strides,
-          out_info.type,
-          c10::nullopt,
-          device,
-          c10::nullopt);
+      at::Tensor alloc_tensor;
+      if (!out_info.shape_info.allocation_sizes.empty()) {
+        // allocate based on allocation size & stride and restride with logical
+        // size & stride afterwards.
+        alloc_tensor = at::native::empty_strided_cuda(
+            out_info.shape_info.allocation_sizes,
+            out_info.shape_info.allocation_strides,
+            out_info.type,
+            c10::nullopt,
+            device,
+            c10::nullopt);
+        alloc_tensor = alloc_tensor.as_strided_(
+            out_info.shape_info.logical_sizes,
+            out_info.shape_info.logical_strides);
+      } else {
+        alloc_tensor = at::native::empty_strided_cuda(
+            out_info.shape_info.logical_sizes,
+            out_info.shape_info.logical_strides,
+            out_info.type,
+            c10::nullopt,
+            device,
+            c10::nullopt);
+      }
       if (shouldFillAllocationWithNan()) {
         fillTensorWithNan(alloc_tensor);
       }
@@ -429,8 +445,8 @@ getShapeAndStrideAfterDimMerged(
   std::vector<int64_t> tensor_new_strides(tensor_new_shape.size(), 1);
   int64_t prod = 1;
   for (int i = static_cast<int>(tensor_new_shape.size()) - 1; i >= 0; --i) {
-    prod *= tensor_new_shape[i];
     tensor_new_strides[i] = prod;
+    prod *= tensor_new_shape[i];
   }
 
   return {tensor_new_shape, tensor_new_strides};
@@ -634,11 +650,20 @@ class BackwardTraverseFromAllocToLogical {
       }
     }
 
+    // NOTE: split implies ceilDiv, which means its outputs ID has artificially
+    // padded extent. We use expr_eval to slice out the padding session, so that
+    // the logical domain would remain the correct extent instead of padding
+    // sizes.
+    int64_t in_extent = ee_.evaluate(in->extent()).as<int64_t>();
     if (areDimsToBeMergedContiguous(tensor_, new_shape)) {
       tensor_ = tensor_.view(new_shape);
+      if (in_extent != tensor_.size(left)) {
+        tensor_ = tensor_.slice(left, 0, in_extent);
+      }
     } else {
       auto [tensor_new_shape, tensor_new_strides] =
           getShapeAndStrideAfterDimMerged(tensor_, new_shape);
+      tensor_new_shape[left] = in_extent;
       tensor_ = tensor_.as_strided(tensor_new_shape, tensor_new_strides);
     }
 
@@ -747,7 +772,16 @@ at::Tensor transformFromAllocationToLogical(
   std::set<IterDomain*> frontier_set(frontier.begin(), frontier.end());
   std::set<IterDomain*> logical_set(logical.begin(), logical.end());
   if (frontier_set != logical_set) {
-    return tensor;
+    std::vector<int64_t> logical_sizes(logical.size(), 0);
+    std::vector<int64_t> logical_strides(logical.size(), 0);
+    int64_t cur_stride = 1;
+    for (const auto&& [i, id] : enumerate(logical) | std::views::reverse) {
+      int64_t cur_size = ee.evaluate(id->extent()).as<int64_t>();
+      logical_sizes[i] = cur_size;
+      logical_strides[i] = cur_stride;
+      cur_stride *= cur_size;
+    }
+    return tensor.as_strided(logical_sizes, logical_strides);
   }
 
   // Now that all affine transformations are handled, and frontiers should
