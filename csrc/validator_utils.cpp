@@ -212,6 +212,21 @@ int64_t ReductionSizeMapper::getReductionSize(const TensorView* tv) {
       reduction_elements = reduction_elements * inferred_extent.as<int64_t>();
     }
   }
+
+  // In the case of scan, we are not using IterDomainType::Reduction,
+  // but it's effectively a reduction
+  if (auto scan = dynamic_cast<ScanOp*>(tv->definition())) {
+    auto scan_logical_dim = tv->getLogicalDomain().at(scan->dim());
+    auto scan_extent = expr_eval_.evaluate(scan_logical_dim->extent());
+    NVF_ERROR(
+        scan_extent.hasValue(),
+        "Couldn't figure out what the dimension of a scan axis: ",
+        scan_logical_dim->toString(),
+        " in ",
+        tv->toString());
+    NVF_ERROR_EQ(reduction_elements, 1);
+    reduction_elements = scan_extent.as<int64_t>();
+  }
   return reduction_elements;
 }
 

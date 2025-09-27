@@ -589,7 +589,9 @@ class RunTimeChecker : private IterVisitor {
 
   void handle(ScanOp* scan) override {
     checkDomainConstraints(
-        ir_utils::getTvOutput(scan)->getLogicalDomain(), {scan->dim()});
+        ir_utils::getTvOutput(scan)->getLogicalDomain(),
+        {scan->dim()},
+        /*support_grouping=*/true);
   }
 
   void handle(TopKOp* topk) override {
@@ -704,6 +706,10 @@ class HeuristicsBuilder : private IterVisitor {
 
   void handle(ArgsortOp* argsort) override {
     addHeuristicsFor(ir_utils::getTvOutput(argsort), {argsort->dim()});
+  }
+
+  void handle(ScanOp* scan) override {
+    addHeuristicsFor(ir_utils::getTvOutput(scan), {scan->dim()});
   }
 
   // Currently, the only heuristic parameter is the number of items
@@ -877,7 +883,7 @@ class ConstrainedOpScheduler : public OptOutDispatch {
   void handle(ScanOp* scan) override {
     auto scan_dim = scan->dim();
     auto out_tv = ir_utils::getTvOutput(scan);
-    scheduleConstrainedTv(out_tv, {scan_dim});
+    scheduleConstrainedTv(out_tv, {scan_dim}, /*support_grouping=*/true);
   }
 
   void handle(ScatterOp* scatter) override {
