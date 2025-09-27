@@ -164,6 +164,10 @@ class GreedyParams : public HeuristicParams {
   // new_tv. Mappings for old_tv are removed.
   void transferParams(TensorView* old_tv, TensorView* new_tv);
 
+  // Updates mappings by copying parameters for old_tv to
+  // new_tv. Mappings for old_tv are preserved.
+  void copyParams(TensorView* old_tv, TensorView* new_tv);
+
   // Number of items per thread for constrained tensors. If not
   // mapped, a single item should be assigned to each thread. Map from
   // tensor names as pointers may not be kept the same

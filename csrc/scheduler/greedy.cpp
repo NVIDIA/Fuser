@@ -84,6 +84,16 @@ void GreedyParams::transferParams(TensorView* old_tv, TensorView* new_tv) {
   }
 }
 
+void GreedyParams::copyParams(TensorView* old_tv, TensorView* new_tv) {
+  if (auto it = tv_to_batch_size.find(old_tv->name());
+      it != tv_to_batch_size.end()) {
+    NVF_ERROR(
+        tv_to_batch_size.emplace(new_tv->name(), it->second).second,
+        "Duplicated setting for ",
+        new_tv->toString());
+  }
+}
+
 namespace {
 
 // Utility function to get the total size of the given IDs if all
@@ -706,7 +716,10 @@ class HeuristicsBuilder : private IterVisitor {
   }
 
   void handle(ArgsortOp* argsort) override {
-    addHeuristicsFor(ir_utils::getTvOutput(argsort), {argsort->dim()});
+    addHeuristicsFor(
+        ir_utils::getTvOutput(argsort),
+        ir_utils::getTvOutput(argsort)->getLogicalDomain(),
+        {argsort->dim()});
   }
 
   // TODO: Support batching
@@ -715,7 +728,10 @@ class HeuristicsBuilder : private IterVisitor {
   }
 
   void handle(ScanOp* scan) override {
-    addHeuristicsFor(ir_utils::getTvOutput(scan), {scan->dim()});
+    addHeuristicsFor(
+        ir_utils::getTvOutput(scan),
+        ir_utils::getTvOutput(scan)->getLogicalDomain(),
+        {scan->dim()});
   }
 
   void handle(ScatterOp* scatter) override {
@@ -723,17 +739,22 @@ class HeuristicsBuilder : private IterVisitor {
     // ConstrainedOpScheduler. See
     // ConstrainedOpScheduler::handle(ScatterOp*).
     auto out_tv = ir_utils::getTvOutput(scatter);
-    addHeuristicsFor(out_tv, {scatter->dim()});
-    addHeuristicsFor(ir_utils::getTvInput(scatter), {scatter->dim()});
-    addHeuristicsFor(scatter->index()->as<TensorView>(), {scatter->dim()});
+    auto inp_tv = ir_utils::getTvInput(scatter);
+    auto index_tv = scatter->index()->as<TensorView>();
+    addHeuristicsFor(out_tv, out_tv->domain()->initialLoop(), {scatter->dim()});
+    addHeuristicsFor(
+        inp_tv,
+        TensorDomain::noReductions(inp_tv->getLogicalDomain()),
+        {scatter->dim()});
+    addHeuristicsFor(
+        index_tv,
+        TensorDomain::noReductions(index_tv->getLogicalDomain()),
+        {scatter->dim()});
     if (auto src_tv = dynamic_cast<TensorView*>(scatter->src())) {
-      addHeuristicsFor(src_tv, {scatter->dim()});
-    }
-    if (!out_tv->uses().empty()) {
-      NVF_ERROR_EQ(out_tv->uses().size(), 1);
-      auto use_of_out = out_tv->uses().at(0);
-      NVF_ERROR(use_of_out->isA<LoadStoreOp>());
-      addHeuristicsFor(ir_utils::getTvOutput(use_of_out), {scatter->dim()});
+      addHeuristicsFor(
+          src_tv,
+          TensorDomain::noReductions(src_tv->getLogicalDomain()),
+          {scatter->dim()});
     }
   }
 
@@ -754,12 +775,11 @@ class HeuristicsBuilder : private IterVisitor {
   // supports multiple items per thread.
   void addHeuristicsFor(
       TensorView* constrained_tv,
+      const std::vector<IterDomain*>& domain_to_schedule,
       const std::vector<int64_t>& constrained_id_offsets) {
     int64_t size_of_constrained_ids = 1;
-    const auto logical_domain =
-        TensorDomain::noReductions(constrained_tv->getLogicalDomain());
     for (const auto i : constrained_id_offsets) {
-      auto logical_id = logical_domain.at(i);
+      auto logical_id = domain_to_schedule.at(i);
       auto extent_val =
           runtime_info_.expressionEvaluator().evaluate(logical_id->extent());
       NVF_ERROR(
@@ -842,10 +862,13 @@ void insertCopies(Fusion* fusion, GreedyParams& greedy_params) {
     if (expr->isA<ScatterOp>()) {
       auto out_tv = ir_utils::getTvOutput(expr);
       if (!out_tv->uses().empty()) {
-        out_tv->cacheAfter(
+        auto cache = out_tv->cacheAfter(
             LoadStoreOpType::Set,
             CacheOp::Unspecified,
             /*propagate_allocation_domain=*/false);
+        // The cache is scheduled as the input of the scatter. Note
+        // that the output is scheduled based on the index input.
+        greedy_params.copyParams(ir_utils::getTvInput(expr), cache);
       }
     } else if (expr->isOneOf<ArgsortOp, ScanOp, TopKOp>()) {
       auto outputs = expr->outputs();
