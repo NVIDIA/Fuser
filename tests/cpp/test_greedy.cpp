@@ -760,6 +760,57 @@ TEST_P(GreedySchedulerTestConstraintSize, ScanLargeConstrainedIDs) {
   EXPECT_FALSE(executor_cache.getMostRecentKernelRuntime()->isSegmented());
 }
 
+TEST_P(GreedySchedulerTestConstraintSize, ScatterLargeConstrainedIDs) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  std::vector<int64_t> shape = {128};
+  auto tv0 = makeContigConcreteTensor(shape, DataType::Int);
+  fusion.addInput(tv0);
+
+  auto tv1 = makeContigConcreteTensor({size}, DataType::Int);
+  fusion.addInput(tv1);
+
+  auto tv2 =
+      scatter(tv0, 0, tv1, fusion.oneVal(DataType::Int), BinaryOpType::Add);
+  auto tv3 = add(tv2, fusion.oneVal());
+  fusion.addOutput(tv3);
+
+  auto options = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
+  auto t0 = at::zeros({128}, options);
+  auto t1 = at::randint(0, 128, {size}, options);
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs({t0, t1});
+  testValidate(executor_cache.fusion(), outputs, {t0, t1}, __LINE__, __FILE__);
+
+  EXPECT_FALSE(executor_cache.getMostRecentKernelRuntime()->isSegmented());
+}
+
+// Pattern appearing in test_moe.py
+TEST_P(GreedySchedulerTestConstraintSize, ArgsortArgsort) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeContigConcreteTensor({size}, DataType::Int);
+  fusion.addInput(tv0);
+
+  auto tv1 = argsort(tv0, 0);
+  auto tv2 = argsort(tv1, 0);
+  fusion.addOutput(tv1);
+  fusion.addOutput(tv2);
+
+  auto options = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
+  auto t0 = at::randperm(size, options);
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs({t0});
+  testValidate(executor_cache.fusion(), outputs, {t0}, __LINE__, __FILE__);
+  EXPECT_FALSE(executor_cache.getMostRecentKernelRuntime()->isSegmented());
+}
+
 INSTANTIATE_TEST_SUITE_P(
     ,
     GreedySchedulerTestConstraintSize,

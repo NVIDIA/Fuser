@@ -150,6 +150,19 @@ class GreedyParams : public HeuristicParams {
  public:
   GreedyParams();
 
+  struct TvParams {
+    int64_t batch_size;
+    std::string toString() const {
+      return "Items per thread: " + std::to_string(batch_size);
+    }
+    bool operator==(const TvParams& other) const {
+      return batch_size == other.batch_size;
+    }
+    bool operator!=(const TvParams& other) const {
+      return !(batch_size == other.batch_size);
+    }
+  };
+
   using HeuristicParams::HeuristicParams;
 
   bool sameAs(const HeuristicParams* other_base) const override;
@@ -160,9 +173,42 @@ class GreedyParams : public HeuristicParams {
 
   std::unique_ptr<HeuristicParams> clone() const override;
 
+  const TvParams& getConsumerParams(TensorView* tv) const {
+    return tv_to_batch_size.at(tv->name());
+  }
+
+  bool setConsumerParams(TensorView* tv, const TvParams& params) {
+    return tv_to_batch_size.emplace(tv->name(), params).second;
+  }
+
+  const TvParams& getProducerParams(
+      TensorView* producer_tv,
+      TensorView* consumer_tv) const {
+    return producer_tv_to_batch_size.at(
+        std::make_pair(producer_tv->name(), consumer_tv->name()));
+  }
+
+  bool setConsumerParams(
+      TensorView* producer_tv,
+      TensorView* consumer_tv,
+      const TvParams& params) {
+    return producer_tv_to_batch_size
+        .emplace(
+            std::make_pair(producer_tv->name(), consumer_tv->name()), params)
+        .second;
+  }
+
   // Updates mappings by transferring parameters for old_tv to
   // new_tv. Mappings for old_tv are removed.
   void transferParams(TensorView* old_tv, TensorView* new_tv);
+
+  bool hasConsumerParams(TensorView* consumer_tv);
+
+  void transferParams(
+      TensorView* old_producer_tv,
+      TensorView* old_consumer_tv,
+      TensorView* new_producer_tv,
+      TensorView* new_consumer_tv);
 
   // Updates mappings by copying parameters for old_tv to
   // new_tv. Mappings for old_tv are preserved.
@@ -171,7 +217,21 @@ class GreedyParams : public HeuristicParams {
   // Number of items per thread for constrained tensors. If not
   // mapped, a single item should be assigned to each thread. Map from
   // tensor names as pointers may not be kept the same
-  std::unordered_map<StmtNameType, int64_t> tv_to_batch_size;
+  std::unordered_map<StmtNameType, TvParams> tv_to_batch_size;
+
+  struct NamePairHash {
+    std::size_t operator()(
+        const std::pair<StmtNameType, StmtNameType>& pair) const {
+      return std::hash<StmtNameType>{}(pair.first) ^
+          std::hash<StmtNameType>{}(pair.second);
+    }
+  };
+
+  std::unordered_map<
+      std::pair<StmtNameType, StmtNameType>,
+      TvParams,
+      NamePairHash>
+      producer_tv_to_batch_size;
 };
 
 class GreedyScheduler : public SchedulerEntry {

@@ -53,8 +53,14 @@ bool GreedyParams::sameAs(const HeuristicParams* other_base) const {
 std::string GreedyParams::toString() const {
   std::stringstream ss;
   ss << "\n========= Greedy Parameters ========\n";
-  for (const auto& [tv_name, nitems] : tv_to_batch_size) {
-    ss << "t" << tv_name << " -> items per thread: " << nitems << "\n";
+  for (const auto& [tv_name, params] : tv_to_batch_size) {
+    ss << "t" << tv_name << " (consumer) -> " << params.toString() << "\n";
+  }
+  for (const auto& [producer_consumer_pair, params] :
+       producer_tv_to_batch_size) {
+    ss << "t" << producer_consumer_pair.first << " (producer) for "
+       << "t" << producer_consumer_pair.second << " (consumer) -> "
+       << params.toString() << "\n";
   }
   ss << "====================================\n";
   return ss.str();
@@ -63,7 +69,10 @@ std::string GreedyParams::toString() const {
 size_t GreedyParams::hash() const {
   size_t x = 0;
   for (const auto& [tv, size] : tv_to_batch_size) {
-    x = x ^ std::hash<int64_t>()(size);
+    x = x ^ std::hash<int64_t>()(size.batch_size);
+  }
+  for (const auto& [producer_consumer_pair, size] : producer_tv_to_batch_size) {
+    x = x ^ std::hash<int64_t>()(size.batch_size);
   }
   return x;
 }
@@ -72,26 +81,61 @@ std::unique_ptr<HeuristicParams> GreedyParams::clone() const {
   return std::make_unique<GreedyParams>(*this);
 }
 
+bool GreedyParams::hasConsumerParams(TensorView* consumer_tv) {
+  return tv_to_batch_size.contains(consumer_tv->name());
+}
+
 void GreedyParams::transferParams(TensorView* old_tv, TensorView* new_tv) {
-  if (auto it = tv_to_batch_size.find(old_tv->name());
-      it != tv_to_batch_size.end()) {
+  auto it = tv_to_batch_size.find(old_tv->name());
+  if (it == tv_to_batch_size.end()) {
+    return;
+  }
+  NVF_ERROR(
+      tv_to_batch_size.emplace(new_tv->name(), it->second).second,
+      "Duplicated setting for ",
+      new_tv->toString());
+  // Remove the old entry
+  tv_to_batch_size.erase(old_tv->name());
+}
+
+void GreedyParams::transferParams(
+    TensorView* old_producer_tv,
+    TensorView* old_consumer_tv,
+    TensorView* new_producer_tv,
+    TensorView* new_consumer_tv) {
+  std::vector<std::pair<StmtNameType, StmtNameType>> keys_to_erase;
+  for (const auto& [pair, batch] : producer_tv_to_batch_size) {
+    if ((old_producer_tv != nullptr && old_producer_tv->name() != pair.first) ||
+        (old_consumer_tv != nullptr &&
+         old_consumer_tv->name() != pair.second)) {
+      continue;
+    }
+
+    // Use the existing name if new name is nullptr
+    auto new_key = std::make_pair(
+        new_producer_tv != nullptr ? new_producer_tv->name() : pair.first,
+        new_consumer_tv != nullptr ? new_consumer_tv->name() : pair.second);
     NVF_ERROR(
-        tv_to_batch_size.emplace(new_tv->name(), it->second).second,
+        producer_tv_to_batch_size.emplace(new_key, batch).second,
         "Duplicated setting for ",
-        new_tv->toString());
+        new_key.first,
+        ", ",
+        new_key.second);
     // Remove the old entry
-    tv_to_batch_size.erase(old_tv->name());
+    keys_to_erase.emplace_back(pair);
+  }
+  for (const auto& pair : keys_to_erase) {
+    producer_tv_to_batch_size.erase(pair);
   }
 }
 
 void GreedyParams::copyParams(TensorView* old_tv, TensorView* new_tv) {
-  if (auto it = tv_to_batch_size.find(old_tv->name());
-      it != tv_to_batch_size.end()) {
-    NVF_ERROR(
-        tv_to_batch_size.emplace(new_tv->name(), it->second).second,
-        "Duplicated setting for ",
-        new_tv->toString());
-  }
+  auto it = tv_to_batch_size.find(old_tv->name());
+  NVF_ERROR(it != tv_to_batch_size.end());
+  NVF_ERROR(
+      tv_to_batch_size.emplace(new_tv->name(), it->second).second,
+      "Duplicated setting for ",
+      new_tv->toString());
 }
 
 namespace {
@@ -745,16 +789,19 @@ class HeuristicsBuilder : private IterVisitor {
     addHeuristicsFor(
         inp_tv,
         TensorDomain::noReductions(inp_tv->getLogicalDomain()),
-        {scatter->dim()});
+        {scatter->dim()},
+        out_tv);
     addHeuristicsFor(
         index_tv,
         TensorDomain::noReductions(index_tv->getLogicalDomain()),
-        {scatter->dim()});
+        {scatter->dim()},
+        out_tv);
     if (auto src_tv = dynamic_cast<TensorView*>(scatter->src())) {
       addHeuristicsFor(
           src_tv,
           TensorDomain::noReductions(src_tv->getLogicalDomain()),
-          {scatter->dim()});
+          {scatter->dim()},
+          out_tv);
     }
   }
 
@@ -776,7 +823,10 @@ class HeuristicsBuilder : private IterVisitor {
   void addHeuristicsFor(
       TensorView* constrained_tv,
       const std::vector<IterDomain*>& domain_to_schedule,
-      const std::vector<int64_t>& constrained_id_offsets) {
+      const std::vector<int64_t>& constrained_id_offsets,
+      TensorView* consumer = nullptr) {
+    const bool as_consumer = consumer == nullptr;
+
     int64_t size_of_constrained_ids = 1;
     for (const auto i : constrained_id_offsets) {
       auto logical_id = domain_to_schedule.at(i);
@@ -797,11 +847,22 @@ class HeuristicsBuilder : private IterVisitor {
 
     auto batch_size = ceilDiv(size_of_constrained_ids, bdim);
 
-    NVF_ERROR(
-        params_->tv_to_batch_size.emplace(constrained_tv->name(), batch_size)
-            .second,
-        "Duplicated setting of item per thread factor for ",
-        constrained_tv->toString());
+    if (as_consumer) {
+      NVF_ERROR(
+          params_->tv_to_batch_size.emplace(constrained_tv->name(), batch_size)
+              .second,
+          "Duplicated setting of item per thread factor for ",
+          constrained_tv->toString());
+    } else {
+      NVF_ERROR(
+          params_->producer_tv_to_batch_size
+              .emplace(
+                  std::make_pair(constrained_tv->name(), consumer->name()),
+                  batch_size)
+              .second,
+          "Duplicated setting of item per thread factor for ",
+          constrained_tv->toString());
+    }
   }
 
  private:
@@ -868,7 +929,10 @@ void insertCopies(Fusion* fusion, GreedyParams& greedy_params) {
             /*propagate_allocation_domain=*/false);
         // The cache is scheduled as the input of the scatter. Note
         // that the output is scheduled based on the index input.
-        greedy_params.copyParams(ir_utils::getTvInput(expr), cache);
+        greedy_params.setConsumerParams(
+            cache,
+            greedy_params.getProducerParams(
+                ir_utils::getTvInput(expr), out_tv));
       }
     } else if (expr->isOneOf<ArgsortOp, ScanOp, TopKOp>()) {
       auto outputs = expr->outputs();
@@ -881,6 +945,7 @@ void insertCopies(Fusion* fusion, GreedyParams& greedy_params) {
         expr = cache->definition();
         // cache is the new constraint tv. Transfer heuristic params
         // if any
+        NVF_ERROR(greedy_params.hasConsumerParams(out_tv));
         greedy_params.transferParams(out_tv, cache);
       }
     }
@@ -896,7 +961,11 @@ void insertCopies(Fusion* fusion, GreedyParams& greedy_params) {
           // Insert an exclusive copy
           auto inp_copy = set(inp_tv);
           expr = ir_utils::replaceValInExprInputs(expr, inp_tv, inp_copy);
-          greedy_params.transferParams(inp_tv, inp_copy);
+          greedy_params.transferParams(
+              inp_tv,
+              ir_utils::getTvOutput(expr),
+              inp_copy,
+              ir_utils::getTvOutput(expr));
         }
       }
     }
@@ -933,17 +1002,27 @@ class ConstrainedOpScheduler : public OptOutDispatch {
   void handle(ArgsortOp* argsort) override {
     auto out_tv = ir_utils::getTvOutput(argsort);
     auto dim = argsort->dim();
-    scheduleConstrainedTv(out_tv, {dim}, /*support_grouping=*/true);
+    scheduleConstrainedTv(
+        out_tv,
+        {dim},
+        params_->getConsumerParams(out_tv),
+        /*support_grouping=*/true);
   }
 
   void handle(PadOp* pad) override {
-    scheduleConstrainedTv(ir_utils::getTvOutput(pad), pad->getPaddedAxes());
+    auto out_tv = ir_utils::getTvOutput(pad);
+    scheduleConstrainedTv(
+        out_tv, pad->getPaddedAxes(), params_->getConsumerParams(out_tv));
   }
 
   void handle(ScanOp* scan) override {
     auto scan_dim = scan->dim();
     auto out_tv = ir_utils::getTvOutput(scan);
-    scheduleConstrainedTv(out_tv, {scan_dim}, /*support_grouping=*/true);
+    scheduleConstrainedTv(
+        out_tv,
+        {scan_dim},
+        params_->getConsumerParams(out_tv),
+        /*support_grouping=*/true);
   }
 
   void handle(ScatterOp* scatter) override {
@@ -952,11 +1031,16 @@ class ConstrainedOpScheduler : public OptOutDispatch {
     auto index_tv = scatter->index()->as<TensorView>();
     auto out_tv = ir_utils::getTvOutput(scatter);
 
-    scheduleConstrainedTv(out_tv, {scatter_dim});
-    scheduleConstrainedTv(index_tv, {scatter_dim});
-    scheduleConstrainedTv(in_tv, {scatter_dim});
+    scheduleConstrainedTv(
+        out_tv, {scatter_dim}, params_->getConsumerParams(out_tv));
+    scheduleConstrainedTv(
+        index_tv, {scatter_dim}, params_->getProducerParams(index_tv, out_tv));
+    scheduleConstrainedTv(
+        in_tv, {scatter_dim}, params_->getProducerParams(in_tv, out_tv));
     if (scatter->src()->isA<TensorView>()) {
-      scheduleConstrainedTv(scatter->src()->as<TensorView>(), {scatter_dim});
+      auto src_tv = scatter->src()->as<TensorView>();
+      scheduleConstrainedTv(
+          src_tv, {scatter_dim}, params_->getProducerParams(src_tv, out_tv));
     }
 
     // Setting the memory type.
@@ -986,7 +1070,11 @@ class ConstrainedOpScheduler : public OptOutDispatch {
       NVF_ERROR_EQ(out_tv->uses().size(), 1);
       auto use_of_out = out_tv->uses().at(0);
       NVF_ERROR(use_of_out->isA<LoadStoreOp>());
-      scheduleConstrainedTv(ir_utils::getTvOutput(use_of_out), {scatter_dim});
+      auto out_of_use_of_out = ir_utils::getTvOutput(use_of_out);
+      scheduleConstrainedTv(
+          out_of_use_of_out,
+          {scatter_dim},
+          params_->getConsumerParams(out_of_use_of_out));
     }
   }
 
@@ -1007,12 +1095,14 @@ class ConstrainedOpScheduler : public OptOutDispatch {
   void handle(TopKOp* topk) override {
     auto topk_dim = topk->dim();
     auto out_tv = ir_utils::getTvOutput(topk);
-    scheduleConstrainedTv(out_tv, {topk_dim});
+    scheduleConstrainedTv(
+        out_tv, {topk_dim}, params_->getConsumerParams(out_tv));
   }
 
   void scheduleConstrainedTv(
       TensorView* tv,
       const std::vector<int64_t>& constrained_logical_id_offsets,
+      const GreedyParams::TvParams& heuristic_params,
       bool suppot_grouping = false) {
     NVF_ERROR(!constrained_logical_id_offsets.empty());
 
@@ -1042,12 +1132,7 @@ class ConstrainedOpScheduler : public OptOutDispatch {
     const bool has_unconstrained_ids = tv->getLoopDomain().size() > 1;
     int64_t num_constrained_loop_ids = 1;
 
-    auto batch_size_it = params_->tv_to_batch_size.find(tv->name());
-    NVF_ERROR(
-        batch_size_it != params_->tv_to_batch_size.end(),
-        "No batch size parameter found for ",
-        tv->toString());
-    const int64_t batch_size = batch_size_it->second;
+    const int64_t batch_size = heuristic_params.batch_size;
 
     if (batch_size > 1) {
       tv->split(-1, batch_size);
@@ -1352,12 +1437,18 @@ void GreedyScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
   // Heuristics are copied as they may need to be updated
   GreedyParams greedy_params = *dynamic_cast<const GreedyParams*>(params);
 
+  std::cerr << std::endl;
+  std::cout << "Initial\n";
+  fusion->printMath();
+  std::cout << greedy_params.toString();
+  std::cout << std::endl;
+
   scheduler_utils::clearMemorySpace(fusion);
 
   // Cache inputs
   auto cached_inputs = scheduler_utils::cacheInputs(fusion, true);
   for (const auto& [cache, original] : cached_inputs) {
-    greedy_params.transferParams(original, cache);
+    greedy_params.transferParams(original, nullptr, cache, nullptr);
   }
   // Cache and fork outputs
   auto cached_outputs = scheduler_utils::cacheAndForkOutputs(fusion, true);
@@ -1365,9 +1456,21 @@ void GreedyScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
     greedy_params.transferParams(original, cache);
   }
 
+  std::cerr << std::endl;
+  std::cout << "Cache inserted\n";
+  fusion->printMath();
+  std::cout << greedy_params.toString();
+  std::cout << std::endl;
+
   propagateReshape(fusion);
 
   insertCopies(fusion, greedy_params);
+
+  std::cerr << std::endl;
+  std::cout << "Copy inserted\n";
+  fusion->printMath();
+  std::cout << greedy_params.toString();
+  std::cout << std::endl;
 
   std::vector<TensorView*> constrained_tvs = getAllConstrainedTvs(fusion);
 
