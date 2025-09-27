@@ -1759,7 +1759,7 @@ bool isParallelizedBy(const std::vector<IterDomain*>& ids, ParallelType pt) {
       ids, [&](IterDomain* id) { return id->getParallelType() == pt; });
 }
 
-bool canUsePresetAllocationDomain(TensorView* tv) {
+bool canUsePresetAllocationDomain(const TensorView* tv) {
   if (!tv->hasAllocation()) {
     return false;
   }
