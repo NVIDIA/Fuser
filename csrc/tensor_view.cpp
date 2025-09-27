@@ -1119,9 +1119,9 @@ TensorView* TensorView::cacheBefore(LoadStoreOpType op_type) {
   // We want the producer domain to preserve `root` & `logical`
   // meanwhile, we want consumer Tensor to preserve `logical` & `allocation` (while erasing all reductions).
 
-  TensorView producer;
+  TensorView* producer;
 
-  if (!definition()->isA<ScatterOp>()) {
+  if (definition()->isA<ScatterOp>()) {
     // TODO: is there any way to replay a scatter op?!
     // scatter output's loop is not connected to its root.
     NVF_ERROR(domain()->hasRoot(), "scatter output's root is not replayed in cacheBefore");
@@ -1144,9 +1144,9 @@ TensorView* TensorView::cacheBefore(LoadStoreOpType op_type) {
     });
     producer = IrBuilder::createInContainer<TensorView>(
         container(),
-        IrBuilder::createInContainer<TensorDomain>(container(), logical, loop, TensorDomain::getContiguityFilledWith(logical, true)),
+        IrBuilder::createInContainer<TensorDomain>(container(), logical, loop, TensorDomain::getContiguityFilledWith(logical, true), /*skip_loop_validation=*/true),
         getDataType().value());
-    // TODO: clean the loop domain of output
+    // TODO:  we are not replaying the loop domain from consumer to producer, is that the right thing to do?!
   } else {
     // Create Producer Domain
     // We only need root for full self replay.
@@ -1176,10 +1176,16 @@ TensorView* TensorView::cacheBefore(LoadStoreOpType op_type) {
       domain()->logical() | std::views::transform([](IterDomain* id) { id->setDefinition(nullptr); return id->resetRFactorProduct(); }),
       std::back_inserter(logical_dom),
       [](IterDomain* id) {return !id->isReduction();});
+  if (definition()->isA<ScatterOp>()) {
+    // NOTE: this doesn't feel right. we would still want to replay the loop domain
+    // we are basically dropping transformations on loop domain for scatter op during cacheBefore
+    loop_dom = logical_dom;
+  } else {
   std::ranges::copy_if(
       domain()->loop() | std::views::transform([](IterDomain* id) { return id->resetRFactorProduct(); }),
       std::back_inserter(loop_dom),
       [](IterDomain* id) {return !id->isReduction();});
+  }
   for (auto&& [id, c] : zip(domain()->hasAllocation() ? domain()->allocation() : domain()->logical(), domain()->contiguity())) {
     if (id->isReduction()) {
       continue;
