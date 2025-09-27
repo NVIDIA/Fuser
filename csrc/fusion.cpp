@@ -762,6 +762,18 @@ std::vector<Val*> Fusion::getTerminatingOutputs() const {
   return terminating_outputs;
 }
 
+std::ostream& operator<<(std::ostream& os, AllocationType type) {
+  switch (type) {
+    case AllocationType::Evaluate:
+      return os << "Evaluate";
+    case AllocationType::New:
+      return os << "New";
+    case AllocationType::ReuseBuffer:
+      return os << "ReuseBuffer";
+  }
+  std::unreachable();
+}
+
 std::ostream& operator<<(std::ostream& os, OutputVisibility visibility) {
   switch (visibility) {
     case OutputVisibility::kVisible:
@@ -772,19 +784,22 @@ std::ostream& operator<<(std::ostream& os, OutputVisibility visibility) {
   std::unreachable();
 }
 
+std::ostream& operator<<(std::ostream& os, const AliasInfo& alias) {
+  os << "AliasInfo{" << std::endl;
+  os << "  type = " << alias.type << "," << std::endl;
+  os << "  aliased_io = " << alias.aliased_io << "," << std::endl;
+  os << "  visibility = " << alias.visibility << std::endl;
+  os << "}" << std::endl;
+  return os;
+}
+
 void AliasInfoMap::add(
     Val* out,
     Val* in,
     AllocationType type,
     OutputVisibility visibility) {
-  auto [_, inserted] = aliases_.try_emplace(
-      out, AliasInfo{.type = type, .aliased_io = in, .visibility = visibility});
-  NVF_ERROR(
-      inserted,
-      "The map already has an AliasInfo for ",
-      out,
-      ": ",
-      aliases_.at(out).toString());
+  aliases_[out] =
+      AliasInfo{.type = type, .aliased_io = in, .visibility = visibility};
 }
 
 const AliasInfo& AliasInfoMap::get(const Val* v) const {
