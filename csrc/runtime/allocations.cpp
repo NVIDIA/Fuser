@@ -273,13 +273,29 @@ KernelArgumentHolder allocateOutputs(
   for (auto out_idx : arange(output_infos.size())) {
     auto out_info = output_infos.at(out_idx);
     if (output_alias_to_input_map.at(out_idx) == -1) {
-      auto alloc_tensor = at::native::empty_strided_cuda(
-          out_info.shape_info.logical_sizes,
-          out_info.shape_info.logical_strides,
-          out_info.type,
-          c10::nullopt,
-          device,
-          c10::nullopt);
+      at::Tensor alloc_tensor;
+      if (!out_info.shape_info.allocation_sizes.empty()) {
+        // allocate based on allocation size & stride and restride with logical
+        // size & stride afterwards.
+        alloc_tensor = at::native::empty_strided_cuda(
+            out_info.shape_info.allocation_sizes,
+            out_info.shape_info.allocation_strides,
+            out_info.type,
+            c10::nullopt,
+            device,
+            c10::nullopt);
+        alloc_tensor = alloc_tensor.as_strided_(
+            out_info.shape_info.logical_sizes,
+            out_info.shape_info.logical_strides);
+      } else {
+        alloc_tensor = at::native::empty_strided_cuda(
+            out_info.shape_info.logical_sizes,
+            out_info.shape_info.logical_strides,
+            out_info.type,
+            c10::nullopt,
+            device,
+            c10::nullopt);
+      }
       if (shouldFillAllocationWithNan()) {
         fillTensorWithNan(alloc_tensor);
       }
@@ -741,13 +757,22 @@ at::Tensor transformFromAllocationToLogical(
                .run(logical, alloc);
   NVF_ERROR(frontier.size() == logical.size());
 
-  // give up on producing right shape/stride when allocation domain has
+  // give up on producing right stride when allocation domain has
   // transformation that cannot be represented via permutation. This is
   // currently used by PreprocessGroupedMatmulInputSf, where output is padded.
   std::set<IterDomain*> frontier_set(frontier.begin(), frontier.end());
   std::set<IterDomain*> logical_set(logical.begin(), logical.end());
   if (frontier_set != logical_set) {
-    return tensor;
+    std::vector<int64_t> logical_sizes(logical.size(), 0);
+    std::vector<int64_t> logical_strides(logical.size(), 0);
+    int64_t cur_stride = 1;
+    for (const auto&& [i, id] : enumerate(logical) | std::views::reverse) {
+      int64_t cur_size = ee.evaluate(id->extent()).as<int64_t>();
+      logical_sizes[i] = cur_size;
+      logical_strides[i] = cur_stride;
+      cur_stride *= cur_size;
+    }
+    return tensor.as_strided(logical_sizes, logical_strides);
   }
 
   // Now that all affine transformations are handled, and frontiers should
