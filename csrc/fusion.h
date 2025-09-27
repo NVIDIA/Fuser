@@ -284,9 +284,7 @@ class NVF_API Fusion : public IrContainer {
     return io_alias_;
   }
 
-  const AliasInfo& getOutputAlias(const Val* output) const {
-    return getOutputAliases().get(output);
-  }
+  const AliasInfo& getOutputAlias(const Val* output) const;
 
   bool isTVUseInfoValid() {
     return all_tv_uses_valid_;

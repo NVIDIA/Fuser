@@ -875,6 +875,10 @@ void Fusion::aliasOutputToInput(
   }
 }
 
+const AliasInfo& Fusion::getOutputAlias(const Val* output) const {
+  return io_alias_.get(output);
+}
+
 bool Fusion::hasDynamicTransform() {
   return !ir_utils::getTVsWithDynamicTransform(this).empty();
 }
