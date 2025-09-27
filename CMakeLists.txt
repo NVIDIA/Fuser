@@ -324,6 +324,7 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/host_ir/pass/insert_deallocations.cpp
   ${NVFUSER_SRCS_DIR}/preseg_passes/translate_no_reduction_matmul_to_mul_squeeze.cpp
   ${NVFUSER_SRCS_DIR}/preseg_passes/translate_repeat_to_expand.cpp
+  ${NVFUSER_SRCS_DIR}/preseg_passes/translate_scatter_accumulate.cpp
   ${NVFUSER_SRCS_DIR}/rng.cpp
   ${NVFUSER_SRCS_DIR}/runtime/allocations.cpp
   ${NVFUSER_SRCS_DIR}/runtime/communication_executor.cpp
@@ -1039,6 +1040,24 @@ if(BUILD_TEST)
     ${NVFUSER_ROOT}/third_party/googletest/googletest/include
     ${NVFUSER_ROOT}/third_party/googletest/googlemock/include
   )
+
+  set(CLUSTER_TEST_KERNELS "cluster_test_kernels")
+  add_library(${CLUSTER_TEST_KERNELS} SHARED
+    ${NVFUSER_ROOT}/tests/cpp/cluster_runtime_test/cluster_test_kernels.cu
+    ${NVFUSER_ROOT}/tests/cpp/cluster_runtime_test/cluster_test_helper.cpp
+  )
+
+  # CUDA 11 does not support C++20, so hard code C++17 here
+  set_property(TARGET ${CLUSTER_TEST_KERNELS} PROPERTY CXX_STANDARD 17)
+  target_link_libraries(${CLUSTER_TEST_KERNELS} PRIVATE torch ${TORCH_LIBRARIES})
+  target_include_directories(${CLUSTER_TEST_KERNELS} PRIVATE "${NVFUSER_ROOT}")
+  target_include_directories(${CLUSTER_TEST_KERNELS} PRIVATE
+    ${CMAKE_SOURCE_DIR}/csrc
+  )
+  target_include_directories(${CLUSTER_TEST_KERNELS} SYSTEM PRIVATE
+    ${NVFUSER_ROOT}/third_party/googletest/googletest/include
+    ${NVFUSER_ROOT}/third_party/googletest/googlemock/include
+  )
 endif()
 
 function(add_test_without_main TEST_NAME TEST_SRC ADDITIONAL_LINK)
@@ -1102,6 +1121,13 @@ if(BUILD_TEST)
   )
   add_test(test_scan "${SCAN_TEST_SRCS}" ${SCAN_TEST_KERNELS})
   list(APPEND TEST_BINARIES test_scan)
+
+  set(CLUSTER_TEST_SRCS)
+  list(APPEND CLUSTER_TEST_SRCS
+    ${NVFUSER_ROOT}/tests/cpp/cluster_runtime_test/test_cluster_device_func.cpp
+  )
+  add_test(test_cluster "${CLUSTER_TEST_SRCS}" ${CLUSTER_TEST_KERNELS})
+  list(APPEND TEST_BINARIES test_cluster)
 
   set(TOPK_TEST_SRCS)
   list(APPEND TOPK_TEST_SRCS
@@ -1289,8 +1315,9 @@ if(BUILD_NVFUSER_BENCHMARK)
     )
   endif()
 
-  # multidevice transformer benchmark
+  # multidevice transformer and cuda ipc benchmarks
   if(NVFUSER_DISTRIBUTED)
+    # multidevice transformer benchmark
     set(MULTIDEVICE_BENCHMARK_SRCS)
     list(APPEND MULTIDEVICE_BENCHMARK_SRCS
       ${NVFUSER_ROOT}/benchmarks/cpp/transformer.cpp
@@ -1321,7 +1348,35 @@ if(BUILD_NVFUSER_BENCHMARK)
     add_dependencies(nvfuser_multidevice_bench flatc build_flatbuffer_config)
 
     if(NOT MSVC)
-      target_compile_options(nvfuser_bench PRIVATE
+      target_compile_options(nvfuser_multidevice_bench PRIVATE
+        -Wall -Wno-unused-function
+        -Werror -Wno-deprecated-copy
+      )
+    endif()
+
+    # cuda ipc benchmark
+    set(P2P_COMMUNICATION_BENCHMARK_SRCS)
+    list(APPEND P2P_COMMUNICATION_BENCHMARK_SRCS
+      ${NVFUSER_ROOT}/benchmarks/cpp/p2p_communication.cpp
+    )
+    add_executable(nvfuser_p2p_communication_bench ${P2P_COMMUNICATION_BENCHMARK_SRCS})
+    set_target_properties(nvfuser_p2p_communication_bench PROPERTIES
+      C_STANDARD ${NVFUSER_C_STANDARD}
+      CUDA_STANDARD ${NVFUSER_CUDA_STANDARD}
+      CXX_STANDARD ${NVFUSER_CPP_STANDARD}
+      CXX_STANDARD_REQUIRED ON
+      CXX_VISIBILITY_PRESET hidden
+      POSITION_INDEPENDENT_CODE Yes
+      VISIBILITY_INLINES_HIDDEN Yes
+    )
+    target_include_directories(nvfuser_p2p_communication_bench PUBLIC ${NVFUSER_ROOT})
+    target_link_libraries(nvfuser_p2p_communication_bench PRIVATE
+      codegen_internal
+    )
+    add_dependencies(nvfuser_p2p_communication_bench flatc build_flatbuffer_config)
+
+    if(NOT MSVC)
+      target_compile_options(nvfuser_p2p_communication_bench PRIVATE
         -Wall -Wno-unused-function
         -Werror -Wno-deprecated-copy
       )

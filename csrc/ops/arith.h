@@ -97,7 +97,7 @@ NVF_API TensorView* binaryOp(
 // Return a new TensorView consistent with reducing `tv` on specified `axes`
 NVF_API TensorView* newForReduction(
     TensorView* tv,
-    const std::vector<unsigned int>& axes,
+    const std::vector<int64_t>& axes,
     DataType data_type = DataType::Null);
 
 // Perform a reduction operation on v1, initial value for reduction is init,
