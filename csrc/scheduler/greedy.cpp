@@ -85,6 +85,13 @@ bool GreedyParams::hasConsumerParams(TensorView* consumer_tv) {
   return tv_to_batch_size.contains(consumer_tv->name());
 }
 
+bool GreedyParams::hasProducerParams(
+    TensorView* producer_tv,
+    TensorView* consumer_tv) const {
+  return producer_tv_to_batch_size.contains(
+      std::make_pair(producer_tv->name(), consumer_tv->name()));
+}
+
 void GreedyParams::transferParams(TensorView* old_tv, TensorView* new_tv) {
   auto it = tv_to_batch_size.find(old_tv->name());
   if (it == tv_to_batch_size.end()) {
@@ -945,7 +952,6 @@ void insertCopies(Fusion* fusion, GreedyParams& greedy_params) {
         expr = cache->definition();
         // cache is the new constraint tv. Transfer heuristic params
         // if any
-        NVF_ERROR(greedy_params.hasConsumerParams(out_tv));
         greedy_params.transferParams(out_tv, cache);
       }
     }

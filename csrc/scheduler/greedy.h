@@ -210,6 +210,9 @@ class GreedyParams : public HeuristicParams {
       TensorView* new_producer_tv,
       TensorView* new_consumer_tv);
 
+  bool hasProducerParams(TensorView* producer_tv, TensorView* consumer_tv)
+      const;
+
   // Updates mappings by copying parameters for old_tv to
   // new_tv. Mappings for old_tv are preserved.
   void copyParams(TensorView* old_tv, TensorView* new_tv);
