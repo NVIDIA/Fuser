@@ -6,6 +6,8 @@
  */
 // clang-format on
 #include <bindings.h>
+#include <scheduler/tools/inlining.h>
+#include <scheduler/utils.h>
 #include <transform_replay.h>
 
 namespace nvfuser::python {
@@ -48,6 +50,71 @@ void bindTensorviewScheduleOps(py::module_& schedule) {
       None
     )",
       py::arg("reference_tv"),
+      py::arg("selected_tensors") = std::vector<TensorView*>());
+
+  schedule.def(
+      "parallelize_like",
+      [](TensorView* reference_tv,
+         int64_t pos,
+         const std::vector<TensorView*>& selected_tensors,
+         const std::unordered_set<ParallelType>& selected_parallel_types,
+         bool propagate_padding) {
+        scheduler_utils::parallelizeAllLike(
+            reference_tv,
+            pos,
+            selected_tensors,
+            selected_parallel_types,
+            propagate_padding);
+      },
+      R"(
+          Propagate the parallelization from the selected dimensions of the
+          reference tensor to their corresponding dimensions in all selected
+          tensors in the DAG.
+
+          Parameters
+          ----------
+          reference_tv : TensorView
+              The reference TensorView whose parallelization will be propagated.
+          pos : int, optional
+              The position up to which dimensions should be selected. -1 means all dimensions.
+          selected_tensors : List[TensorView], optional
+              List of TensorViews to propagate parallelization to. If empty, propagates to all TensorViews.
+          selected_parallel_types : Set[ParallelType], optional
+              Set of parallel types to propagate. If empty, propagates all parallel types.
+          propagate_padding : bool, optional
+              Whether to propagate padding (default: True).
+
+          Returns
+          -------
+          None
+        )",
+      py::arg("reference_tv"),
+      py::arg("pos") = -1,
+      py::arg("selected_tensors") = std::vector<TensorView*>(),
+      py::arg("selected_parallel_types") = std::unordered_set<ParallelType>(),
+      py::arg("propagate_padding") = true);
+
+  schedule.def(
+      "inline_most",
+      [](const std::vector<TensorView*>& selected_tensors) {
+        if (selected_tensors.empty()) {
+          inlineMost();
+        } else {
+          inlineMost(selected_tensors);
+        }
+      },
+      R"(
+          Inline operations to the right most allowed position for the selected tensors.
+
+          Parameters
+          ----------
+          selected_tensors : List[TensorView], optional
+              List of TensorViews to inline. If empty, inlines all operations.
+
+          Returns
+          -------
+          None
+        )",
       py::arg("selected_tensors") = std::vector<TensorView*>());
 }
 
