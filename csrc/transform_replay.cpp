@@ -238,7 +238,7 @@ TensorDomain* TransformReplay::fullSelfReplay(
           new_self_root->root(),
           new_logical_domain,
           new_domain,
-          self->contiguity());
+          TensorDomain::getContiguityFilledWith(new_logical_domain, true));
     }
   }
 

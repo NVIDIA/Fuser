@@ -1124,7 +1124,7 @@ TensorView* TensorView::cacheBefore(LoadStoreOpType op_type) {
   if (definition()->isA<ScatterOp>()) {
     // TODO: is there any way to replay a scatter op?!
     // scatter output's loop is not connected to its root.
-    NVF_ERROR(domain()->hasRoot(), "scatter output's root is not replayed in cacheBefore");
+    NVF_ERROR(!domain()->hasRoot(), "scatter output's root is not replayed in cacheBefore");
 
     std::vector<IterDomain*> logical;
     std::vector<IterDomain*> loop;
