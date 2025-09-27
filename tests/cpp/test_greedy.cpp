@@ -797,8 +797,8 @@ TEST_P(GreedySchedulerTestConstraintSize, ArgsortArgsort) {
   auto tv0 = makeContigConcreteTensor({size}, DataType::Int);
   fusion.addInput(tv0);
 
-  auto tv1 = argsort(tv0, 0);
-  auto tv2 = argsort(tv1, 0);
+  auto tv1 = argsort(tv0, 0, /*descending=*/false, /*stable=*/true);
+  auto tv2 = argsort(tv1, 0, /*descending=*/false, /*stable=*/true);
   fusion.addOutput(tv1);
   fusion.addOutput(tv2);
 
