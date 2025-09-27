@@ -1820,8 +1820,7 @@ void eraseInputDistinctRootDomains(Fusion* fusion) {
           true);
     } else {
       // Replay both loop and allocation domains.
-      TransformReplay::selfReplay(
-          tv->domain(), new_td, /*ignore_reductions=*/true);
+      TransformReplay::selfReplay(tv->domain(), new_td);
       if (!tv->domain()->hasAllocation()) {
         // The default contiguity for new_td is false. `selfReplay` does not
         // replay contiguity when no allocation domain is present.
