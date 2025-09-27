@@ -70,6 +70,10 @@ class ReplaySelf : public ReplayTransformations {
         s->outer()->getIterType(),
         s->inner()->getIterType());
 
+    // Parallelize type could include device from split.
+    ido->parallelize(s->outer()->getParallelType());
+    idi->parallelize(s->inner()->getParallelType());
+
     // Remove mapped id from loop IDs
     loop_ids_.erase(mapped);
 
