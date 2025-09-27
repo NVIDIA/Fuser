@@ -777,14 +777,8 @@ void AliasInfoMap::add(
     Val* in,
     AllocationType type,
     OutputVisibility visibility) {
-  auto [_, inserted] = aliases_.try_emplace(
-      out, AliasInfo{.type = type, .aliased_io = in, .visibility = visibility});
-  NVF_ERROR(
-      inserted,
-      "The map already has an AliasInfo for ",
-      out,
-      ": ",
-      aliases_.at(out).toString());
+  aliases_[out] =
+      AliasInfo{.type = type, .aliased_io = in, .visibility = visibility};
 }
 
 const AliasInfo& AliasInfoMap::get(const Val* v) const {
