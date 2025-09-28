@@ -87,9 +87,6 @@ void shardBetween(
     const std::vector<Expr*>& to,
     TensorView* ref);
 
-// Returns the devices involved in an expr
-std::set<DeviceIdxType> involvedDevices(Expr* expr);
-
 // Returns the number of device indices present accross all
 // device meshes in the Fusion
 int64_t requestedNumberOfDevices(Fusion*);
