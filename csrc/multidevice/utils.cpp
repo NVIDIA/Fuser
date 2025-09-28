@@ -5,6 +5,11 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <multidevice/utils.h>
+
+#include <algorithm>
+#include <unordered_map>
+#include <vector>
 
 #include <device_lower/utils.h>
 #include <expr_simplifier.h>
@@ -15,7 +20,6 @@
 #include <ir/iostream.h>
 #include <ir/utils.h>
 #include <logical_domain_map.h>
-#include <multidevice/utils.h>
 #include <ops/all_ops.h>
 #include <statement_guard.h>
 #include <transform_replay.h>
@@ -708,17 +712,42 @@ void unshard(Fusion* fusion) {
   }
 }
 
+namespace {
+int64_t rankOfParallelType(ParallelType parallel_type) {
+  switch (parallel_type) {
+    case ParallelType::Stream:
+      return 0;
+    case ParallelType::DIDx:
+    case ParallelType::DIDy:
+    case ParallelType::DIDz:
+      return 1;
+    default:
+      // I could assign them an arbitrary rank but preferred NVF_THROW to catch
+      // unexpected.
+      NVF_THROW("Unexpected parallel type: ", parallel_type);
+  }
+}
+} // namespace
+
 std::unordered_map<int64_t, int64_t> reorderParallelizedToFront(
     TensorView* tv) {
+  std::vector<std::pair<int64_t, int64_t>> rank_to_axis;
+  rank_to_axis.reserve(tv->nDims());
+  for (auto [axis, id] : enumerate(tv->getLoopDomain())) {
+    auto parallel_type = id->getParallelType();
+    if (parallel_type != ParallelType::Serial) {
+      rank_to_axis.emplace_back(rankOfParallelType(parallel_type), axis);
+    }
+  }
+
+  std::stable_sort(rank_to_axis.begin(), rank_to_axis.end());
+
   // old position to new position
   std::unordered_map<int64_t, int64_t> order;
   int64_t current_pos = 0;
-
-  for (const auto pos : arange(tv->nDims())) {
-    if (tv->axis(pos)->isParallelized()) {
-      order[pos] = current_pos;
-      current_pos++;
-    }
+  for (auto [rank, axis] : rank_to_axis) {
+    order[axis] = current_pos;
+    current_pos++;
   }
 
   tv->reorder(order);
