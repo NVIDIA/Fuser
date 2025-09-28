@@ -708,20 +708,21 @@ void unshard(Fusion* fusion) {
   }
 }
 
-std::unordered_map<int64_t, int64_t> reorderDIDToFront(TensorView* tv) {
+std::unordered_map<int64_t, int64_t> reorderParallelizedToFront(
+    TensorView* tv) {
   // old position to new position
-  std::unordered_map<int64_t, int64_t> order_map;
+  std::unordered_map<int64_t, int64_t> order;
   int64_t current_pos = 0;
 
-  for (auto pos : arange(tv->nDims())) {
-    if (tv->axis(pos)->isDeviceDim()) {
-      order_map[pos] = current_pos;
+  for (const auto pos : arange(tv->nDims())) {
+    if (tv->axis(pos)->isParallelized()) {
+      order[pos] = current_pos;
       current_pos++;
     }
   }
 
-  tv->reorder(order_map);
-  return order_map;
+  tv->reorder(order);
+  return order;
 }
 
 std::unordered_set<TensorView*> getTvsWithDifferentSharding(

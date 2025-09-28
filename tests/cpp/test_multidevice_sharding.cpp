@@ -691,7 +691,7 @@ TEST_F(MultiDeviceTest, ViewWithMerge) {
       UnorderedElementsAre(HeuristicIs(SchedulerType::PointWise)));
 }
 
-TEST_F(MultiDeviceTest, ReorderDIDToFront) {
+TEST_F(MultiDeviceTest, ReorderParallelizedToFront) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
@@ -708,7 +708,7 @@ TEST_F(MultiDeviceTest, ReorderDIDToFront) {
     tv->setDeviceMesh(mesh);
     tv->outer_split(-1, d);
     tv->axis(-2)->parallelize(ParallelType::DIDx);
-    reorderDIDToFront(tv);
+    reorderParallelizedToFront(tv);
     NVF_CHECK(tv->axis(0)->isDeviceDim());
   }
 
@@ -1132,7 +1132,7 @@ TEST_F(MultiDeviceTest, AllocationPermutationOfLoop) {
     tv->axis(1)->parallelize(ParallelType::DIDx);
     // DIDx is outermost in loop but not in allocation domain
     tv->setAllocationDomain(tv->getLoopDomain(), true);
-    reorderDIDToFront(tv);
+    reorderParallelizedToFront(tv);
   }
 
   // Disable the pass to verify we can run a fusion where allocation domain
