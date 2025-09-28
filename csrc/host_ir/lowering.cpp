@@ -36,6 +36,19 @@ void recomputeOutputTvs(Expr* e, IrCloner& ir_cloner) {
   }
 }
 
+// Finds the stream IterDomain in the outputs of a segment.
+IterDomain* findStreamIterDomain(const std::vector<Val*>& outs) {
+  for (auto* out : ir_utils::filterByType<TensorView>(outs)) {
+    const std::vector<IterDomain*>& loop = out->getLoopDomain();
+    // FinalizeMultideviceDomains pass puts the stream IterDomain to the
+    // front.
+    if (!loop.empty() && loop.front()->isStream()) {
+      return loop.front();
+    }
+  }
+  return nullptr;
+}
+
 void lowerSegment(
     const SegmentedGroup& group,
     const AliasInfoMap& aliases,
@@ -111,22 +124,8 @@ void lowerSegment(
       }
 
       // Add the LaunchKernel instruction.
-      IterDomain* stream_id = nullptr;
-      for (auto* out : cloned_outs) {
-        auto* tv = out->as<TensorView>();
-        auto i = std::find_if(
-            tv->getLoopDomain().begin(),
-            tv->getLoopDomain().end(),
-            [](IterDomain* id) {
-              return id->getParallelType() == ParallelType::Stream;
-            });
-        if (i == tv->getLoopDomain().end()) {
-          continue;
-        }
-        stream_id = *i;
-      }
-
       KernelExecutor& ke = hic.getKernelExecutor(group_id);
+      IterDomain* stream_id = findStreamIterDomain(cloned_outs);
       // Needed for KernelExecutor. Should be removed once #4927 is fixed.
       auto* cache_id =
           IrBuilder::create<NamedScalar>("cacheId", DataType::UInt64);
