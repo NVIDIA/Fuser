@@ -1,0 +1,53 @@
+name: Deploy Sphinx Docs to GitHub Pages
+
+on:
+  push:
+    # Trigger the workflow when changes are pushed to the 'main' branch
+    branches:
+      - main
+    # Only run on changes to files relevant to the documentation
+    paths:
+      - '**.rst'
+      - '**.md'
+      - '**.py'
+      - 'python/python_direct/**'
+
+jobs:
+  build_and_deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout 🛎️
+        uses: actions/checkout@v4
+
+      - name: Set up Python 🐍
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Install dependencies 📦
+        # You may need to adjust this depending on where your Sphinx requirements are
+        run: |
+          python -m pip install --upgrade pip
+          # Install Sphinx and any other required packages (like 'furo', 'myst-parser', etc.)
+          pip install sphinx sphinx_toolbox sphinx-rtd-theme myst-parser
+
+      - name: Build documentation 🏗️
+        run: |
+          # Change directory to where your conf.py and source files are
+          # Usually, this is the 'docs' folder
+          cd doc/sphinx
+          make html
+          touch build/html/.nojekyll
+
+      - name: Deploy to GitHub Pages 🚀
+        uses: peaceiris/actions-gh-pages@v4
+        if: github.ref == 'refs/heads/main' # Only deploy if the push is to the main branch
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          # The folder containing the generated HTML files
+          publish_dir: doc/sphinx/build/html
+          # Use the dedicated gh-pages branch for deployment
+          publish_branch: gh-pages
+          # KEY ADDITION: Publish the content inside a 'docs' subfolder on the 'gh-pages' branch
+          destination_dir: docs
