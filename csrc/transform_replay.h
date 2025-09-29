@@ -235,8 +235,9 @@ class TransformReplay {
   // between `self` and `new_self`. When self's logical and new_self's logical
   // have the same length, their logical IterDomains have to match exactly,
   // e.g., same extents, same IterTypes and same ParallelTypes. When one of
-  // them is longer than the other, the extra IterDomains must be reductions.
-  // This way, we can still map the rest without ambiguity.
+  // them is longer than the other, the extra IterDomains (and only those) are
+  // reductions.  The remaining IterDomains still map one-to-one without
+  // ambiguity.
   //
   // For example,
   // ```

@@ -268,12 +268,23 @@ void TransformReplay::selfReplay(
     // Allocation of the output of a reduction to a later consumer tensor, which
     // would not have the rfactor flag on.
     //
-    // This function can be used prior to concretization, where we might have
-    // unresolved symbolic ID. So we skip the check if either id or new_id is
-    // symbolic.
+    // This function can be used prior to concretization, where we might have a
+    // broadcast ID map a symbolic ID. Otherwise, the IterTypes must be the
+    // same.
+    auto iter_types_match = [](IterType lhs, IterType rhs) -> bool {
+      if (lhs == rhs) {
+        return true;
+      }
+      if (lhs == IterType::Symbolic && rhs == IterType::Broadcast) {
+        return true;
+      }
+      if (lhs == IterType::Broadcast && rhs == IterType::Symbolic) {
+        return true;
+      }
+      return false;
+    };
     NVF_ERROR(
-        id->isSymbolic() || new_id->isSymbolic() ||
-            id->getIterType() == new_id->getIterType(),
+        iter_types_match(id->getIterType(), new_id->getIterType()),
         "Axes ",
         id,
         " and ",
