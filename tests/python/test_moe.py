@@ -186,8 +186,8 @@ class GroupedLinear(nn.Module):
         self.k = torch.tensor(in_features, dtype=torch.int32, requires_grad=False).unsqueeze(-1).expand((groups, 1))
         self.n = torch.tensor(out_features, dtype=torch.int32, requires_grad=False).unsqueeze(-1).expand((groups, 1))
         for i in range(groups):
-            alpha[i] = FLOAT4_E2M1_MAX * FLOAT8_E4M3_MAX / transposed_weight.max()
-            scaled_mat2_i, bs_mat2_i = pytorch_nvfp4_quantize(transposed_weight, alpha[i])
+            alpha[i] = FLOAT4_E2M1_MAX * FLOAT8_E4M3_MAX / transposed_weight[i].max()
+            scaled_mat2_i, bs_mat2_i = pytorch_nvfp4_quantize(transposed_weight[i], alpha[i])
             fp4_weight[i] = scaled_mat2_i
             b_sf[i] = linear_to_swizzled_128_4(bs_mat2_i)
 
