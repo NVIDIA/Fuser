@@ -1,0 +1,904 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Creating a CuTe TV Layout in NvFuser &mdash; nvFuser 0.2.34 documentation</title>
+      <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=03e43079" />
+      <link rel="stylesheet" type="text/css" href="../_static/css/theme.css?v=e59714d7" />
+      <link rel="stylesheet" type="text/css" href="../_static/css/nvidia_font.css?v=e009355c" />
+      <link rel="stylesheet" type="text/css" href="../_static/css/nvidia_footer.css?v=84031d34" />
+
+  
+      <script src="../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../_static/documentation_options.js?v=b85e2031"></script>
+      <script src="../_static/doctools.js?v=9bcbadda"></script>
+      <script src="../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" > 
+
+          
+          
+          <a href="../index.html" class="icon icon-home">
+            nvFuser
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+
+  <style>
+    /* Sidebar header (and topbar for mobile) */
+    .wy-side-nav-search, .wy-nav-top {
+      background: #76b900;
+    }
+
+    .wy-menu > p > span.caption-text {
+      color: #76b900;
+    }
+
+    .wy-menu-vertical p {
+      height: 32px;
+      line-height: 32px;
+      padding: 0 1.618em;
+      margin: 12px 0 0;
+      display: block;
+      font-weight: 700;
+      text-transform: uppercase;
+      font-size: 85%;
+      white-space: nowrap;
+    }
+
+    .wy-side-nav-search a:link, .wy-nav-top a:link {
+      color: #fff;
+    }
+    .wy-side-nav-search a:visited, .wy-nav-top a:visited {
+      color: #fff;
+    }
+    .wy-side-nav-search a:hover, .wy-nav-top a:hover {
+      color: #fff;
+    }
+
+    .wy-menu-vertical a:link, .wy-menu-vertical a:visited {
+      color: #d9d9d9
+    }
+
+    .wy-menu-vertical a:active {
+      background-color: #76b900
+    }
+
+    .wy-side-nav-search>div.version {
+      color: rgba(0, 0, 0, 0.3)
+    }
+
+    .wy-nav-content {
+      max-width: 1000px;
+    }
+
+    /* override table width restrictions */
+    .wy-table-responsive table td, .wy-table-responsive table th {
+        /* !important prevents the common CSS stylesheets from
+          overriding this as on RTD they are loaded after this stylesheet */
+        white-space: normal !important;
+    }
+
+    .wy-table-responsive {
+        overflow: visible !important;
+    }
+
+  </style>
+  <style>
+  a:link, a:visited {
+    color: #76b900;
+  }
+
+  a:hover {
+    color: #8c0;
+  }
+
+  html.writer-html5 .rst-content dl[class]:not(.option-list):not(.field-list):not(.footnote):not(.glossary):not(.simple)>dt {
+    background: rgba(118, 185, 0, 0.1);
+    color: rgba(59,93,0,1);
+    border-top: solid 3px rgba(59,93,0,1);
+  }
+
+  html.writer-html4 .rst-content dl:not(.docutils) .property, html.writer-html5 .rst-content dl[class]:not(.option-list):not(.field-list):not(.footnote):not(.glossary):not(.simple) .property {
+    text-transform: capitalize;
+    display: inline-block;
+    padding-right: 8px;
+  }
+  </style>
+
+  
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Table of Contents</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../installation.html">Overview</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../installation.html#installation">Installation</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../installation.html#nightly-nvfuser-pip-wheel">Nightly nvfuser pip wheel</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../installation.html#nvfuser-pip-wheel-against-pytorch-stable-release">Nvfuser pip wheel against pytorch stable release</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../installation.html#developer">Developer</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../installation.html#install-from-source">Install From Source:</a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Python API</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../api/general.html">General</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../api/general.html#statement">Statement</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../api/general.html#val">Val</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../api/general.html#expr">Expr</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../api/general.html#iterdomain">IterDomain</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../api/general.html#tensordomain">TensorDomain</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../api/general.html#tensorview">TensorView</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../api/general.html#fusionexecutorcache">FusionExecutorCache</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../api/general.html#kernelexecutor">KernelExecutor</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../api/general.html#fusion-definition">Fusion Definition</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../api/ops.html">Operations</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../api/ops.html#ops">Ops</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../api/multidevice.html">Multidevice</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../api/multidevice.html#communicator">Communicator</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../api/multidevice.html#devicemesh">DeviceMesh</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../api/multidevice.html#sharding">Sharding</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../api/enum.html">Enums</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../api/enum.html#communicatorbackend-types">CommunicatorBackend Types</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../api/enum.html#data-types">Data Types</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../api/enum.html#parallel-types">Parallel Types</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../api/enum.html#scheduler-types">Scheduler Types</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../api/pod_class.html">Data classes</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../api/pod_class.html#launchparams">LaunchParams</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../api/pod_class.html#compileparams">CompileParams</a></li>
+</ul>
+</li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Developer References</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../reading/divisibility-of-split.html">Divisibility of Split</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../reading/divisibility-of-split.html#introduction">Introduction</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../reading/divisibility-of-split.html#predication">Predication</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../reading/divisibility-of-split.html#allocation-and-correctness-model">Allocation and correctness model</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../reading/divisibility-of-split.html#properties-of-split">Properties of split</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../reading/divisibility-of-split.html#merge-then-split-vs-split-then-merge">Merge-then-split vs split-then-merge</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../reading/divisibility-of-split.html#merging-discontiguous-iterdomains">Merging discontiguous IterDomains</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../reading/divisibility-of-split.html#question">Question</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../reading/divisibility-of-split.html#answer">Answer</a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../reading/iterdomain.html">The Mathematical Theory of IterDomain</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../reading/iterdomain.html#iterdomain-transformations">1. IterDomain Transformations</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../reading/iterdomain.html#properties-of-iterdomain-transformations">2. Properties of IterDomain Transformations</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../reading/multigpu.html">Multi-GPU Support in nvFuser</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../reading/multigpu.html#introduction">Introduction</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../reading/multigpu.html#user-api">User API</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../reading/multigpu.html#parallelisms">Parallelisms</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../reading/multigpu.html#tensor-parallelism-tp">Tensor Parallelism (TP)</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../reading/multigpu.html#sharding-propagation">Sharding Propagation</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../reading/multigpu.html#communication-computation-decomposition">Communication-computation Decomposition</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../reading/multigpu.html#sequence-parallelism-sp">Sequence Parallelism (SP)</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../reading/multigpu.html#id1">Sharding Propagation</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../reading/multigpu.html#id2">Communication-computation Decomposition</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../reading/multigpu.html#overlap-communication-with-gemm-via-decomposition">Overlap Communication with GEMM via Decomposition</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../reading/multigpu.html#distributed-data-parallelism-ddp">Distributed Data Parallelism (DDP)</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../reading/multigpu.html#fully-sharded-data-parallelism-fsdp">Fully Sharded Data Parallelism (FSDP)</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../reading/multigpu.html#pipeline-parallelism-pp">Pipeline Parallelism (PP)</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../reading/multigpu.html#context-parallelism-cp">Context Parallelism (CP)</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../reading/tma-modeling-in-depth.html">TMA Modeling In Depth</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../reading/tma-modeling-in-depth.html#what-is-tma">What is TMA?</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../reading/tma-modeling-in-depth.html#correctness-model">Correctness model</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../reading/tma-modeling-in-depth.html#the-unachievability-of-strong-correctness-for-indivisible-element-stride">The unachievability of strong correctness for indivisible element stride</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../reading/tma-modeling-in-depth.html#the-lowering-strategy">The lowering strategy</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="debug.html">Debugging</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="debug.html#debug-a-failing-nvfuser-script">Debug a failing nvFuser script</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="debug.html#nvfuser-dump">NVFUSER_DUMP</a></li>
+<li class="toctree-l3"><a class="reference internal" href="debug.html#gdb">gdb</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="debug.html#debug-memory-corruption-using-asan">Debug memory corruption using <code class="docutils literal notranslate"><span class="pre">asan</span></code></a><ul>
+<li class="toctree-l3"><a class="reference internal" href="debug.html#if-built-with-clang">If built with clang</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="debug.html#debug-memory-leaks-or-excessive-memory-usage">Debug memory leaks or excessive memory usage</a></li>
+<li class="toctree-l2"><a class="reference internal" href="debug.html#debug-slow-kernels">Debug slow kernels</a></li>
+<li class="toctree-l2"><a class="reference internal" href="debug.html#debug-slow-cpu-execution">Debug slow CPU execution</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="visibility.html">Symbol Visibility</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="visibility.html#faq">FAQ</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="visibility.html#should-i-mark-a-method-visible-or-the-whole-class">Should I mark a method visible or the whole class?</a></li>
+<li class="toctree-l3"><a class="reference internal" href="visibility.html#i-see-an-undefined-reference-to-typeinfo-for-class-how-do-i-fix-this">I see an undefined reference to <code class="docutils literal notranslate"><span class="pre">typeinfo</span> <span class="pre">for</span> <span class="pre">&lt;class&gt;</span></code>. How do I fix this?</a></li>
+<li class="toctree-l3"><a class="reference internal" href="visibility.html#i-see-an-undefined-reference-to-vtable-for-class-how-do-i-fix-this">I see an undefined reference to <code class="docutils literal notranslate"><span class="pre">vtable</span> <span class="pre">for</span> <span class="pre">&lt;class&gt;</span></code>. How do I fix this?</a></li>
+<li class="toctree-l3"><a class="reference internal" href="visibility.html#i-see-that-foo-is-visible-but-i-do-not-think-it-needs-to-be">I see that <code class="docutils literal notranslate"><span class="pre">Foo</span></code> is visible but I do not think it needs to be.</a></li>
+<li class="toctree-l3"><a class="reference internal" href="visibility.html#should-i-mark-my-new-method-or-class-as-nvf-api">Should I mark my new method or class as <code class="docutils literal notranslate"><span class="pre">NVF_API</span></code>?</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="visibility.html#symbol-visibility-checking">Symbol Visibility Checking</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="host_ir_jit.html">Host IR JIT Overview</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="host_ir_jit.html#introduction">Introduction</a></li>
+<li class="toctree-l2"><a class="reference internal" href="host_ir_jit.html#jit-compilation-process">JIT Compilation Process</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="host_ir_jit.html#llvm-integration">1. LLVM Integration</a></li>
+<li class="toctree-l3"><a class="reference internal" href="host_ir_jit.html#compilation-pipeline">2. Compilation Pipeline</a></li>
+<li class="toctree-l3"><a class="reference internal" href="host_ir_jit.html#external-function-integration">3. External Function Integration</a></li>
+<li class="toctree-l3"><a class="reference internal" href="host_ir_jit.html#ir-translation">3. IR Translation</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="host_ir_jit.html#runtime-execution">Runtime Execution</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="host_ir_jit.html#function-interface">1. Function Interface</a></li>
+<li class="toctree-l3"><a class="reference internal" href="host_ir_jit.html#execution-flow">2. Execution Flow</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="host_ir_jit.html#configuration-and-build-options">Configuration and Build Options</a></li>
+<li class="toctree-l2"><a class="reference internal" href="host_ir_jit.html#future-integration-plan">Future Integration plan</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="ldmatrix_stmatrix.html">LdMatrix and StMatrix Support in NVFuser</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="ldmatrix_stmatrix.html#what-is-ldmatrix">What is LdMatrix?</a></li>
+<li class="toctree-l2"><a class="reference internal" href="ldmatrix_stmatrix.html#what-is-stmatrix">What is StMatrix?</a></li>
+<li class="toctree-l2"><a class="reference internal" href="ldmatrix_stmatrix.html#general-details">General Details</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="ldmatrix_stmatrix.html#indices-shared-memory-tensor">Indices shared memory tensor</a></li>
+<li class="toctree-l3"><a class="reference internal" href="ldmatrix_stmatrix.html#indices-for-register-tensor">Indices for register tensor</a></li>
+<li class="toctree-l3"><a class="reference internal" href="ldmatrix_stmatrix.html#register-layout-for-one-8x8-matrix-with-16-bit-elements">Register layout for one 8x8 Matrix with 16-bit elements</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="ldmatrix_stmatrix.html#example-1-a-copy-kernel-using-tma-ldmatrix-and-stmatrix">Example 1: A copy kernel using TMA, LdMatrix, and StMatrix.</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="ldmatrix_stmatrix.html#how-to-compute-the-index-into-register-tensorview">How to compute the index into register TensorView?</a></li>
+<li class="toctree-l2"><a class="reference internal" href="ldmatrix_stmatrix.html#how-to-compute-the-index-into-shared-memory-tensorview">How to compute the index into shared memory TensorView?</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="ldmatrix_stmatrix.html#figure-1-loop-domain-for-ldmatrix-and-stmatrix">Figure 1: Loop domain for LdMatrix and StMatrix</a></li>
+<li class="toctree-l3"><a class="reference internal" href="ldmatrix_stmatrix.html#figure-2-tma-shared-memory-allocation-domain">Figure 2: TMA shared memory allocation domain</a></li>
+<li class="toctree-l3"><a class="reference internal" href="ldmatrix_stmatrix.html#figure-3-map-from-ldmatrix-stmatrix-loop-domain-to-tma-shared-memory-allocation-domain">Figure 3: Map from LdMatrix / StMatrix loop domain to TMA shared memory allocation domain</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="ldmatrix_stmatrix.html#derivation-of-figure-3">Derivation of Figure 3</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="ldmatrix_stmatrix.html#code-walkthrough">Code Walkthrough</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="ldmatrix_stmatrix.html#scheduleldstmatrix-function">scheduleLdStMatrix function</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="tma.html">Introduction to TMA Support in NVFuser</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="tma.html#introduction">Introduction</a></li>
+<li class="toctree-l2"><a class="reference internal" href="tma.html#schedule">Schedule</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="tma.html#step-1-define-tma-domain">Step 1: define TMA domain</a></li>
+<li class="toctree-l3"><a class="reference internal" href="tma.html#step-2-define-box">Step 2: define box</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="tma.html#the-canonical-way-to-define-box">The canonical way to define box</a></li>
+<li class="toctree-l4"><a class="reference internal" href="tma.html#define-box-by-mathematical-equivalence">Define box by mathematical equivalence</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="tma.html#step-3-define-tile">Step 3: define tile</a></li>
+<li class="toctree-l3"><a class="reference internal" href="tma.html#step-4-schedule-the-shared-memory-tensor">Step 4: schedule the shared memory tensor</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="tma.html#data-swizzle">Data swizzle</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="tma.html#step-5-schedule-the-consumer-tensor">Step 5: schedule the consumer tensor</a></li>
+<li class="toctree-l3"><a class="reference internal" href="tma.html#code-walk-through">Code walk-through</a></li>
+<li class="toctree-l3"><a class="reference internal" href="tma.html#examples">Examples</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="tma.html#example-1-tma-load-inputs-and-vectorize-store-output-pointwise-kernel">Example 1: tma-load inputs and vectorize-store output pointwise kernel</a></li>
+<li class="toctree-l4"><a class="reference internal" href="tma.html#example-2-broadcast-kernel-with-discontiguous-input">Example 2: broadcast kernel with discontiguous input</a></li>
+<li class="toctree-l4"><a class="reference internal" href="tma.html#example-3-bank-conflict-free-transpose-of-32bit-data">Example 3: bank-conflict-free transpose of 32bit data</a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="tmem.html">Tensor Memory Support in NVFuser</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="tmem.html#review-of-inlining-and-parallelization">Review of inlining and parallelization</a></li>
+<li class="toctree-l2"><a class="reference internal" href="tmem.html#tensor-memory">Tensor memory</a></li>
+<li class="toctree-l2"><a class="reference internal" href="tmem.html#the-loop-domain-of-tmem-load-and-store">The loop domain of TMem load and store</a></li>
+<li class="toctree-l2"><a class="reference internal" href="tmem.html#vectorization-of-tmem-load-and-store">Vectorization of TMem load and store</a></li>
+</ul>
+</li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../index.html">nvFuser</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../index.html" class="icon icon-home" aria-label="Home"></a></li>
+      <li class="breadcrumb-item active">Creating a CuTe TV Layout in NvFuser</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="../_sources/dev/cute_tv_layout.md.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <p>/*</p>
+<blockquote>
+<div><p>[!NOTE]
+This file is both a <span class="xref myst">cpp</span> and
+a Markdown. You may see some strange symbols in the rendered Markdown.</p>
+</div></blockquote>
+<p>Tutorial Difficulty: <strong>Low</strong> because it requires knowledge of (shape, stride)
+tenosr layouts.</p>
+<!--*/
+#pragma GCC diagnostic ignored "-Wcomment"
+// clang-format off
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2025-present NVIDIA CORPORATION & AFFILIATES.
+ * All rights reserved.
+ * SPDX-License-Identifier: BSD-3-Clause
+ */
+// clang-format on
+
+#include <sstream>
+#include <string>
+
+#include <gmock/gmock-matchers.h>
+#include <gtest/gtest.h>
+
+#include <tests/cpp/utils.h>
+#include <tests/cpp/validator.h>
+
+#include <ops/all_ops.h>
+#include <scheduler/mma_utils.h>
+#include <scheduler/tools/abstract_tensor.h>
+#include <scheduler/tools/inlining.h>
+#include <scheduler/utils.h>
+
+#define NOT_IMPLEMENTED GTEST_SKIP() << "Not implemented yet";
+
+namespace nvfuser {
+
+using CuTeTutorial = NVFuserTest;
+
+/* -->
+<section class="tex2jax_ignore mathjax_ignore" id="creating-a-cute-tv-layout-in-nvfuser">
+<h1>Creating a CuTe TV Layout in NvFuser<a class="headerlink" href="#creating-a-cute-tv-layout-in-nvfuser" title="Link to this heading"></a></h1>
+<section id="what-is-cute">
+<h2>What is CuTe?<a class="headerlink" href="#what-is-cute" title="Link to this heading"></a></h2>
+<p>CuTe is a layout algebra and a runtime abstraction for representing and handling
+nested multi-dimensional layouts of threads, blocks, and data. It is used to
+implement high-performance GEMM computation on Nvidia Hardware.</p>
+</section>
+<section id="what-is-a-layout">
+<h2>What is a Layout?<a class="headerlink" href="#what-is-a-layout" title="Link to this heading"></a></h2>
+<p>A layout is a tuple of (Shape, Stride). It represents a mapping from shape
+coordinate space to a 1D index using the stride. This is similar in concept to
+the shape and stride of a PyTorch tensor. A key difference is the shape and
+stride of a CuTe layout can be a nested tuple, allowing it to represent more
+complex layouts.</p>
+</section>
+</section>
+<section class="tex2jax_ignore mathjax_ignore" id="layout-algebra">
+<h1>Layout Algebra<a class="headerlink" href="#layout-algebra" title="Link to this heading"></a></h1>
+<ol class="arabic simple">
+<li><p>Coalesce</p>
+<ul class="simple">
+<li><p>A simplify function to remove redundant shape dimensions without altering
+the Layout’s function.</p></li>
+</ul>
+</li>
+<li><p>Composition</p>
+<ul class="simple">
+<li><p>The composition of Layouts A and B is <code class="docutils literal notranslate"><span class="pre">(A</span> <span class="pre">o</span> <span class="pre">B)(c)</span> <span class="pre">:=</span> <span class="pre">A(B(c))</span></code>.</p></li>
+<li><p>Each coordinate is mapped to Layout B then onto Layout A.</p></li>
+<li><p>The intuition behind composition is Layout B is selecting coordinated from
+Layout B.</p></li>
+</ul>
+</li>
+<li><p>Complement</p>
+<ul class="simple">
+<li><p>Complement represents the rest of the elements not selected by the
+composition of A and B.</p></li>
+</ul>
+</li>
+<li><p>Division (Tiling)</p>
+<ul class="simple">
+<li><p>Logical Divide of Layouts A and B returns the composition of A and B and
+its complement. i.e., the elements of Layout B selected by Layout A.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">logical_divide(A,</span> <span class="pre">B)</span> <span class="pre">=</span> <span class="pre">composition(A,</span> <span class="pre">(B,</span> <span class="pre">complement(B)))</span></code></p></li>
+<li><p>Use case is selecting a tile from a matrix for a given CTA.</p></li>
+</ul>
+</li>
+<li><p>Product (Tiling)</p>
+<ul class="simple">
+<li><p>Logical Product of Layouts A and B returns the original Layout A and a
+transformed Layout B where each element is a replication of Layout A.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">logical_product(A,</span> <span class="pre">B)</span> <span class="pre">=</span> <span class="pre">(A,</span> <span class="pre">composition(complement(A),</span> <span class="pre">B))</span></code></p></li>
+</ul>
+</li>
+</ol>
+<p>Reference: <a class="reference external" href="https://docs.nvidia.com/cutlass/media/docs/cpp/cute/02_layout_algebra.html">CuTe Layout Algebra</a></p>
+<section id="what-is-thread-value-tv-layout">
+<h2>What is Thread-Value (TV) Layout?<a class="headerlink" href="#what-is-thread-value-tv-layout" title="Link to this heading"></a></h2>
+<ul class="simple">
+<li><p>The Thread-Value layout
+<code class="docutils literal notranslate"><span class="pre">((thread_shape,</span> <span class="pre">value_shape),</span> <span class="pre">(thread_stride,</span> <span class="pre">value_stride))</span></code>
+is a mapping of threads and values to an index.</p></li>
+<li><p>The main usage of TV layout is mapping the threads and its values of a CTA to
+the index of a Tensor.</p></li>
+</ul>
+</section>
+</section>
+<section class="tex2jax_ignore mathjax_ignore" id="examples">
+<h1>Examples<a class="headerlink" href="#examples" title="Link to this heading"></a></h1>
+<section id="simple-tv-layout">
+<h2>Simple TV Layout<a class="headerlink" href="#simple-tv-layout" title="Link to this heading"></a></h2>
+<p>Transform (4, 4) column-major tile into shape <code class="docutils literal notranslate"><span class="pre">((2,</span> <span class="pre">2),</span> <span class="pre">(2,</span> <span class="pre">2))</span></code> and
+stride <code class="docutils literal notranslate"><span class="pre">((4,</span> <span class="pre">2),</span> <span class="pre">(8,</span> <span class="pre">1))</span></code></p>
+<p><img alt="Simple TV Layout" src="../_images/simple_tv_layout.svg" /></p>
+<p>Reference:
+https://veitner.bearblog.dev/intuition-behind-hierarchical-layouts/</p>
+<!-- */ //-->\
+<div class="highlight-cpp notranslate"><div class="highlight"><pre><span></span><span class="n">TEST_F</span><span class="p">(</span><span class="n">CuTeTutorial</span><span class="p">,</span><span class="w"> </span><span class="n">SimpleThreadLayout</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">  </span><span class="n">NVFUSER_TEST_CUDA_ARCH_GUARD</span><span class="p">(</span><span class="mi">9</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">);</span>
+<span class="w">  </span><span class="k">const</span><span class="w"> </span><span class="k">auto</span><span class="w"> </span><span class="n">dtype</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">DataType</span><span class="o">::</span><span class="n">BFloat16</span><span class="p">;</span>
+
+<span class="w">  </span><span class="n">DisableOptionsGuard</span><span class="w"> </span><span class="n">disable_options_guard</span><span class="p">;</span>
+<span class="w">  </span><span class="n">DisableOptionsGuard</span><span class="o">::</span><span class="n">getCurOptions</span><span class="p">().</span><span class="n">set</span><span class="p">(</span><span class="n">DisableOption</span><span class="o">::</span><span class="n">MagicZero</span><span class="p">);</span>
+
+<span class="w">  </span><span class="c1">// Fusion Definition</span>
+<span class="w">  </span><span class="n">std</span><span class="o">::</span><span class="n">unique_ptr</span><span class="o">&lt;</span><span class="n">Fusion</span><span class="o">&gt;</span><span class="w"> </span><span class="n">fusion_ptr</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">std</span><span class="o">::</span><span class="n">make_unique</span><span class="o">&lt;</span><span class="n">Fusion</span><span class="o">&gt;</span><span class="p">();</span>
+<span class="w">  </span><span class="n">Fusion</span><span class="o">*</span><span class="w"> </span><span class="n">fusion</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">fusion_ptr</span><span class="p">.</span><span class="n">get</span><span class="p">();</span>
+<span class="w">  </span><span class="n">FusionGuard</span><span class="w"> </span><span class="nf">fg</span><span class="p">(</span><span class="n">fusion</span><span class="p">);</span>
+
+<span class="w">  </span><span class="k">constexpr</span><span class="w"> </span><span class="kt">int</span><span class="w"> </span><span class="n">dim0</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">4</span><span class="p">,</span><span class="w"> </span><span class="n">dim1</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">4</span><span class="p">;</span>
+<span class="w">  </span><span class="n">TensorView</span><span class="o">*</span><span class="w"> </span><span class="n">tv0</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">makeContigConcreteTensor</span><span class="p">({</span><span class="n">dim0</span><span class="p">,</span><span class="w"> </span><span class="n">dim1</span><span class="p">},</span><span class="w"> </span><span class="n">dtype</span><span class="p">);</span>
+<span class="w">  </span><span class="n">fusion</span><span class="o">-&gt;</span><span class="n">addInput</span><span class="p">(</span><span class="n">tv0</span><span class="p">);</span>
+<span class="w">  </span><span class="n">TensorView</span><span class="o">*</span><span class="w"> </span><span class="n">tv1</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">set</span><span class="p">(</span><span class="n">tv0</span><span class="p">);</span>
+<span class="w">  </span><span class="n">fusion</span><span class="o">-&gt;</span><span class="n">addOutput</span><span class="p">(</span><span class="n">tv1</span><span class="p">);</span>
+
+<span class="w">  </span><span class="c1">// Set the allocation domain to column-major.</span>
+<span class="w">  </span><span class="n">tv0</span><span class="o">-&gt;</span><span class="n">setAllocationDomain</span><span class="p">({</span><span class="n">tv0</span><span class="o">-&gt;</span><span class="n">axis</span><span class="p">(</span><span class="mi">1</span><span class="p">),</span><span class="w"> </span><span class="n">tv0</span><span class="o">-&gt;</span><span class="n">axis</span><span class="p">(</span><span class="mi">0</span><span class="p">)},</span><span class="w"> </span><span class="cm">/*new_contiguity=*/</span><span class="nb">true</span><span class="p">);</span>
+<span class="w">  </span><span class="n">tv1</span><span class="o">-&gt;</span><span class="n">reorder</span><span class="p">({</span><span class="mi">1</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">});</span><span class="w"> </span><span class="c1">// traverse rows then column.</span>
+<span class="w">  </span><span class="n">tv1</span><span class="o">-&gt;</span><span class="n">setAllocationDomain</span><span class="p">(</span><span class="n">tv1</span><span class="o">-&gt;</span><span class="n">getLoopDomain</span><span class="p">(),</span><span class="w"> </span><span class="cm">/*new_contiguity=*/</span><span class="nb">true</span><span class="p">);</span>
+
+<span class="w">  </span><span class="n">fusion</span><span class="o">-&gt;</span><span class="n">printKernel</span><span class="p">();</span>
+<span class="w">  </span><span class="cm">/*</span>
+<span class="cm">  // The input and output tensors are column-major with shape (4, 4) and stride (1, 4).</span>
+<span class="cm">  __global__ void CUDAGeneratedKernel(Tensor&lt;__bfloat, 2, 2&gt; T0, Tensor&lt;__bfloat, 2, 2&gt; T1) {</span>
+<span class="cm">      #pragma unroll</span>
+<span class="cm">      for(nvfuser_index_t i0 = 0LL; i0 &lt; 4LL; ++i0) {</span>
+<span class="cm">          nvfuser_index_t i1;</span>
+<span class="cm">          i1 = 4LL * i0;</span>
+<span class="cm">          #pragma unroll</span>
+<span class="cm">          for(nvfuser_index_t i2 = 0LL; i2 &lt; 4LL; ++i2) {</span>
+<span class="cm">              nvfuser_index_t i3;</span>
+<span class="cm">              i3 = i1 + i2;</span>
+<span class="cm">              T1[i3]</span>
+<span class="cm">                   = T0[i3];</span>
+<span class="cm">          }</span>
+<span class="cm">      }</span>
+<span class="cm">  }</span>
+<span class="cm">  */</span>
+
+<span class="w">  </span><span class="c1">// Apply transformations to column-major TensorView</span>
+<span class="w">  </span><span class="n">tv1</span><span class="o">-&gt;</span><span class="n">split</span><span class="p">(</span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">2</span><span class="p">);</span>
+<span class="w">  </span><span class="n">tv1</span><span class="o">-&gt;</span><span class="n">split</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="mi">2</span><span class="p">);</span>
+<span class="w">  </span><span class="c1">// Reorder to organize by Thread-Value Relationship</span>
+<span class="w">  </span><span class="n">tv1</span><span class="o">-&gt;</span><span class="n">reorder</span><span class="p">({{</span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="mi">2</span><span class="p">},</span><span class="w"> </span><span class="p">{</span><span class="mi">1</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">},</span><span class="w"> </span><span class="p">{</span><span class="mi">2</span><span class="p">,</span><span class="w"> </span><span class="mi">1</span><span class="p">}});</span>
+
+<span class="w">  </span><span class="cm">/*</span>
+<span class="cm">  // After splitting and reordering the loop domain of TV1, the loop domain is [2, 2, 2, 2].</span>
+<span class="cm">  // The strides of the loop domain are [4, 2, 8, 1].</span>
+<span class="cm">  //</span>
+<span class="cm">  // How to create CuTe TV layout from NvFuser TensorDomain?</span>
+<span class="cm">  //   1) Reverse ordering from inner to outer loops.</span>
+<span class="cm">  //   2) Gather modes 0 and 1 and 2 and 3 together.</span>
+<span class="cm">  // This creates the shape ((2, 2), (2, 2)) and the stride ((1, 8), (2, 4)),</span>
+<span class="cm">  // which corresponds with the CuTe Thread-Value Layout.</span>
+<span class="cm">  */</span>
+
+<span class="w">  </span><span class="n">fusion</span><span class="o">-&gt;</span><span class="n">printKernel</span><span class="p">();</span>
+<span class="w">  </span><span class="cm">/*</span>
+<span class="cm">  __global__ void CUDAGeneratedKernel(Tensor&lt;__bfloat, 2, 2&gt; T0, Tensor&lt;__bfloat, 2, 2&gt; T1) {</span>
+<span class="cm">    #pragma unroll</span>
+<span class="cm">    for(nvfuser_index_t i0 = 0LL; i0 &lt; 2LL; ++i0) {</span>
+<span class="cm">      nvfuser_index_t i1;</span>
+<span class="cm">      i1 = 4LL * i0;</span>
+<span class="cm">      #pragma unroll</span>
+<span class="cm">      for(nvfuser_index_t i2 = 0LL; i2 &lt; 2LL; ++i2) {</span>
+<span class="cm">        nvfuser_index_t i3;</span>
+<span class="cm">        i3 = 2LL * i2;</span>
+<span class="cm">        nvfuser_index_t i4;</span>
+<span class="cm">        i4 = i1 + i3;</span>
+<span class="cm">        #pragma unroll</span>
+<span class="cm">        for(nvfuser_index_t i5 = 0LL; i5 &lt; 2LL; ++i5) {</span>
+<span class="cm">          nvfuser_index_t i6;</span>
+<span class="cm">          i6 = i4 + (8LL * i5);</span>
+<span class="cm">          bool b7;</span>
+<span class="cm">          b7 = (i0 + (2LL * i5)) &lt; 4LL;</span>
+<span class="cm">          #pragma unroll</span>
+<span class="cm">          for(nvfuser_index_t i8 = 0LL; i8 &lt; 2LL; ++i8) {</span>
+<span class="cm">            nvfuser_index_t i9;</span>
+<span class="cm">            i9 = i6 + i8;</span>
+<span class="cm">            if ((b7 &amp;&amp; ((i3 + i8) &lt; 4LL))) {</span>
+<span class="cm">              T1[i9]</span>
+<span class="cm">                 = T0[i9];</span>
+<span class="cm">            }</span>
+<span class="cm">          }</span>
+<span class="cm">        }</span>
+<span class="cm">      }</span>
+<span class="cm">    }</span>
+<span class="cm">  }</span>
+<span class="cm">  */</span>
+
+<span class="w">  </span><span class="k">auto</span><span class="w"> </span><span class="n">options</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">at</span><span class="o">::</span><span class="n">TensorOptions</span><span class="p">().</span><span class="n">dtype</span><span class="p">(</span><span class="n">at</span><span class="o">::</span><span class="n">kBFloat16</span><span class="p">).</span><span class="n">device</span><span class="p">(</span><span class="n">at</span><span class="o">::</span><span class="n">kCUDA</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">);</span>
+<span class="w">  </span><span class="n">at</span><span class="o">::</span><span class="n">Tensor</span><span class="w"> </span><span class="n">at_tv0</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">at</span><span class="o">::</span><span class="n">randn</span><span class="p">({</span><span class="n">dim0</span><span class="p">,</span><span class="w"> </span><span class="n">dim1</span><span class="p">},</span><span class="w"> </span><span class="n">options</span><span class="p">).</span><span class="n">as_strided</span><span class="p">({</span><span class="n">dim0</span><span class="p">,</span><span class="w"> </span><span class="n">dim1</span><span class="p">},</span><span class="w"> </span><span class="p">{</span><span class="mi">1</span><span class="p">,</span><span class="w"> </span><span class="n">dim0</span><span class="p">});</span>
+
+<span class="w">  </span><span class="n">KernelExecutor</span><span class="w"> </span><span class="n">ke</span><span class="p">;</span>
+<span class="w">  </span><span class="n">ke</span><span class="p">.</span><span class="n">compile</span><span class="p">(</span><span class="n">fusion</span><span class="p">,</span><span class="w"> </span><span class="p">{</span><span class="n">at_tv0</span><span class="p">});</span>
+<span class="w">  </span><span class="n">kir</span><span class="o">::</span><span class="n">Kernel</span><span class="o">*</span><span class="w"> </span><span class="n">kernel</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">ke</span><span class="p">.</span><span class="n">compiledKernel</span><span class="p">()</span><span class="o">-&gt;</span><span class="n">kernel</span><span class="p">();</span>
+<span class="w">  </span><span class="n">ASSERT_TRUE</span><span class="p">(</span><span class="n">kernel</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="k">nullptr</span><span class="p">);</span>
+<span class="w">  </span><span class="k">auto</span><span class="w"> </span><span class="n">cg_outputs</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">ke</span><span class="p">.</span><span class="n">run</span><span class="p">({</span><span class="n">at_tv0</span><span class="p">});</span>
+<span class="w">  </span><span class="n">NVF_CHECK</span><span class="p">(</span><span class="n">at</span><span class="o">::</span><span class="n">allclose</span><span class="p">(</span><span class="n">cg_outputs</span><span class="p">[</span><span class="mi">0</span><span class="p">].</span><span class="n">as</span><span class="o">&lt;</span><span class="n">at</span><span class="o">::</span><span class="n">Tensor</span><span class="o">&gt;</span><span class="p">(),</span><span class="w"> </span><span class="n">at_tv0</span><span class="p">));</span>
+<span class="p">}</span>
+<span class="cm">/*</span>
+</pre></div>
+</div>
+</section>
+<section id="quack-reduction-base">
+<h2>Quack Reduction Base<a class="headerlink" href="#quack-reduction-base" title="Link to this heading"></a></h2>
+<p>Given a static CTA tile, apply 2D thread parallelization using threadIdx.x and
+vectorization.</p>
+<p><img alt="Reduction Base TV Layout" src="../_images/reduction_base_tv_layout.svg" /></p>
+<p>Reference:
+https://github.com/Dao-AILab/quack/blob/main/quack/reduction_base.py#L35-L53</p>
+<!-- */ //-->\
+<div class="highlight-cpp notranslate"><div class="highlight"><pre><span></span><span class="n">TEST_F</span><span class="p">(</span><span class="n">CuTeTutorial</span><span class="p">,</span><span class="w"> </span><span class="n">VectorizeThreadLayout</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">  </span><span class="n">NVFUSER_TEST_CUDA_ARCH_GUARD</span><span class="p">(</span><span class="mi">9</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">);</span>
+<span class="w">  </span><span class="k">const</span><span class="w"> </span><span class="k">auto</span><span class="w"> </span><span class="n">dtype</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">DataType</span><span class="o">::</span><span class="n">BFloat16</span><span class="p">;</span>
+
+<span class="w">  </span><span class="n">DisableOptionsGuard</span><span class="w"> </span><span class="n">disable_options_guard</span><span class="p">;</span>
+<span class="w">  </span><span class="n">DisableOptionsGuard</span><span class="o">::</span><span class="n">getCurOptions</span><span class="p">().</span><span class="n">set</span><span class="p">(</span><span class="n">DisableOption</span><span class="o">::</span><span class="n">MagicZero</span><span class="p">);</span>
+
+<span class="w">  </span><span class="c1">// Fusion Definition</span>
+<span class="w">  </span><span class="n">std</span><span class="o">::</span><span class="n">unique_ptr</span><span class="o">&lt;</span><span class="n">Fusion</span><span class="o">&gt;</span><span class="w"> </span><span class="n">fusion_ptr</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">std</span><span class="o">::</span><span class="n">make_unique</span><span class="o">&lt;</span><span class="n">Fusion</span><span class="o">&gt;</span><span class="p">();</span>
+<span class="w">  </span><span class="n">Fusion</span><span class="o">*</span><span class="w"> </span><span class="n">fusion</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">fusion_ptr</span><span class="p">.</span><span class="n">get</span><span class="p">();</span>
+<span class="w">  </span><span class="n">FusionGuard</span><span class="w"> </span><span class="nf">fg</span><span class="p">(</span><span class="n">fusion</span><span class="p">);</span>
+
+<span class="w">  </span><span class="k">constexpr</span><span class="w"> </span><span class="kt">int</span><span class="w"> </span><span class="n">dim0</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">16</span><span class="p">,</span><span class="w"> </span><span class="n">dim1</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">64</span><span class="p">;</span>
+<span class="w">  </span><span class="n">TensorView</span><span class="o">*</span><span class="w"> </span><span class="n">tv0</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">makeContigConcreteTensor</span><span class="p">({</span><span class="n">dim0</span><span class="p">,</span><span class="w"> </span><span class="n">dim1</span><span class="p">},</span><span class="w"> </span><span class="n">dtype</span><span class="p">);</span>
+<span class="w">  </span><span class="n">fusion</span><span class="o">-&gt;</span><span class="n">addInput</span><span class="p">(</span><span class="n">tv0</span><span class="p">);</span>
+<span class="w">  </span><span class="n">TensorView</span><span class="o">*</span><span class="w"> </span><span class="n">tv1</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">set</span><span class="p">(</span><span class="n">tv0</span><span class="p">);</span>
+<span class="w">  </span><span class="n">fusion</span><span class="o">-&gt;</span><span class="n">addOutput</span><span class="p">(</span><span class="n">tv1</span><span class="p">);</span>
+
+<span class="w">  </span><span class="c1">// Set the allocation domain to column-major.</span>
+<span class="w">  </span><span class="n">tv0</span><span class="o">-&gt;</span><span class="n">setAllocationDomain</span><span class="p">({</span><span class="n">tv0</span><span class="o">-&gt;</span><span class="n">axis</span><span class="p">(</span><span class="mi">1</span><span class="p">),</span><span class="w"> </span><span class="n">tv0</span><span class="o">-&gt;</span><span class="n">axis</span><span class="p">(</span><span class="mi">0</span><span class="p">)},</span><span class="w"> </span><span class="cm">/*new_contiguity=*/</span><span class="nb">true</span><span class="p">);</span>
+<span class="w">  </span><span class="n">tv1</span><span class="o">-&gt;</span><span class="n">reorder</span><span class="p">({</span><span class="mi">1</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">});</span><span class="w"> </span><span class="c1">// traverse rows then column.</span>
+<span class="w">  </span><span class="n">tv1</span><span class="o">-&gt;</span><span class="n">setAllocationDomain</span><span class="p">(</span><span class="n">tv1</span><span class="o">-&gt;</span><span class="n">getLoopDomain</span><span class="p">(),</span><span class="w"> </span><span class="cm">/*new_contiguity=*/</span><span class="nb">true</span><span class="p">);</span>
+
+<span class="w">  </span><span class="n">fusion</span><span class="o">-&gt;</span><span class="n">printKernel</span><span class="p">();</span>
+<span class="w">  </span><span class="cm">/*</span>
+<span class="cm">  // The input and output tensors are column-major with shape (16, 64) and stride (1, 16).</span>
+<span class="cm">  __global__ void CUDAGeneratedKernel(Tensor&lt;__bfloat, 2, 2&gt; T0, Tensor&lt;__bfloat, 2, 2&gt; T1) {</span>
+<span class="cm">    #pragma unroll</span>
+<span class="cm">    for(nvfuser_index_t i0 = 0LL; i0 &lt; 64LL; ++i0) {</span>
+<span class="cm">      nvfuser_index_t i1;</span>
+<span class="cm">      i1 = 16LL * i0;</span>
+<span class="cm">      #pragma unroll</span>
+<span class="cm">      for(nvfuser_index_t i2 = 0LL; i2 &lt; 16LL; ++i2) {</span>
+<span class="cm">        nvfuser_index_t i3;</span>
+<span class="cm">        i3 = i1 + i2;</span>
+<span class="cm">        T1[i3]</span>
+<span class="cm">           = T0[i3];</span>
+<span class="cm">      }</span>
+<span class="cm">    }</span>
+<span class="cm">  }</span>
+<span class="cm">  */</span>
+
+<span class="w">  </span><span class="c1">// Apply transformations to column-major TensorView</span>
+<span class="w">  </span><span class="n">tv1</span><span class="o">-&gt;</span><span class="n">split</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="mi">8</span><span class="p">);</span><span class="w"> </span><span class="c1">// tv1 [8, 8, 16]</span>
+<span class="w">  </span><span class="n">tv1</span><span class="o">-&gt;</span><span class="n">split</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="mi">8</span><span class="p">);</span><span class="w"> </span><span class="c1">// tv1 [1, 8, 8, 16]</span>
+<span class="w">  </span><span class="c1">// Reorder to organize by Thread-Value Relationship</span>
+<span class="w">  </span><span class="c1">// TV Layout T1_g___bfloat[iS6{1}, iS5{8}, iS2{16}, iS7{8}]</span>
+<span class="w">  </span><span class="n">tv1</span><span class="o">-&gt;</span><span class="n">reorder</span><span class="p">({{</span><span class="mi">1</span><span class="p">,</span><span class="w"> </span><span class="mi">3</span><span class="p">},</span><span class="w"> </span><span class="p">{</span><span class="mi">2</span><span class="p">,</span><span class="w"> </span><span class="mi">1</span><span class="p">},</span><span class="w"> </span><span class="p">{</span><span class="mi">3</span><span class="p">,</span><span class="w"> </span><span class="mi">2</span><span class="p">}});</span><span class="w"> </span><span class="c1">// tv1 [1, 8, 16, 8]</span>
+
+<span class="w">  </span><span class="cm">/*</span>
+<span class="cm">  // Row-Major Tensor (16, 64): (64, 1)</span>
+<span class="cm">  // tv1-&gt;split(-1, 8); // tv1 [16, 8, 8]</span>
+<span class="cm">  // tv1-&gt;split(-1, 8); // tv1 [16, 1, 8, 8]</span>
+<span class="cm">  // tv1-&gt;split(0, 16); // tv1 [1, 16, 1, 8, 8]</span>
+<span class="cm">  //</span>
+<span class="cm">  // After splitting and reordering the loop domain of TV1, the loop domain is</span>
+<span class="cm">  // [1, 8, 16, 8]. The strides of the loop domain are [-, 16, 1, 128].</span>
+<span class="cm">  //</span>
+<span class="cm">  // How to create CuTe TV layout from NvFuser TensorDomain?</span>
+<span class="cm">  //   1) Reverse ordering from inner to outer loops.</span>
+<span class="cm">  //   2) Gather modes 0 and 1 and 2 and 3 together.</span>
+<span class="cm">  // This creates the shape ((8, 16), (8, 1)) and the stride ((128, 1), (16, -))</span>
+<span class="cm">  // which corresponds with the CuTe Thread-Value Layout.</span>
+<span class="cm">  */</span>
+
+<span class="w">  </span><span class="n">fusion</span><span class="o">-&gt;</span><span class="n">printKernel</span><span class="p">();</span>
+<span class="w">  </span><span class="cm">/*</span>
+<span class="cm">  __global__ void CUDAGeneratedKernel(Tensor&lt;__bfloat, 2, 2&gt; T0, Tensor&lt;__bfloat, 2, 2&gt; T1) {</span>
+<span class="cm">    #pragma unroll</span>
+<span class="cm">    for(nvfuser_index_t i0 = 0LL; i0 &lt; 8LL; ++i0) {</span>
+<span class="cm">      nvfuser_index_t i1;</span>
+<span class="cm">      i1 = 16LL * i0;</span>
+<span class="cm">      #pragma unroll</span>
+<span class="cm">      for(nvfuser_index_t i2 = 0LL; i2 &lt; 16LL; ++i2) {</span>
+<span class="cm">        nvfuser_index_t i3;</span>
+<span class="cm">        i3 = i1 + i2;</span>
+<span class="cm">        #pragma unroll</span>
+<span class="cm">        for(nvfuser_index_t i4 = 0LL; i4 &lt; 8LL; ++i4) {</span>
+<span class="cm">          nvfuser_index_t i5;</span>
+<span class="cm">          i5 = i3 + (128LL * i4);</span>
+<span class="cm">          if (((i0 + (8LL * i4)) &lt; 64LL)) {</span>
+<span class="cm">            T1[i5]</span>
+<span class="cm">               = T0[i5];</span>
+<span class="cm">          }</span>
+<span class="cm">        }</span>
+<span class="cm">      }</span>
+<span class="cm">    }</span>
+<span class="cm">  }</span>
+<span class="cm">  */</span>
+
+<span class="w">  </span><span class="k">auto</span><span class="w"> </span><span class="n">options</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">at</span><span class="o">::</span><span class="n">TensorOptions</span><span class="p">().</span><span class="n">dtype</span><span class="p">(</span><span class="n">at</span><span class="o">::</span><span class="n">kBFloat16</span><span class="p">).</span><span class="n">device</span><span class="p">(</span><span class="n">at</span><span class="o">::</span><span class="n">kCUDA</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">);</span>
+<span class="w">  </span><span class="n">at</span><span class="o">::</span><span class="n">Tensor</span><span class="w"> </span><span class="n">at_tv0</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">at</span><span class="o">::</span><span class="n">randn</span><span class="p">({</span><span class="n">dim0</span><span class="p">,</span><span class="w"> </span><span class="n">dim1</span><span class="p">},</span><span class="w"> </span><span class="n">options</span><span class="p">).</span><span class="n">as_strided</span><span class="p">({</span><span class="n">dim0</span><span class="p">,</span><span class="w"> </span><span class="n">dim1</span><span class="p">},</span><span class="w"> </span><span class="p">{</span><span class="mi">1</span><span class="p">,</span><span class="w"> </span><span class="n">dim0</span><span class="p">});</span>
+
+<span class="w">  </span><span class="n">KernelExecutor</span><span class="w"> </span><span class="n">ke</span><span class="p">;</span>
+<span class="w">  </span><span class="n">ke</span><span class="p">.</span><span class="n">compile</span><span class="p">(</span><span class="n">fusion</span><span class="p">,</span><span class="w"> </span><span class="p">{</span><span class="n">at_tv0</span><span class="p">});</span>
+<span class="w">  </span><span class="n">kir</span><span class="o">::</span><span class="n">Kernel</span><span class="o">*</span><span class="w"> </span><span class="n">kernel</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">ke</span><span class="p">.</span><span class="n">compiledKernel</span><span class="p">()</span><span class="o">-&gt;</span><span class="n">kernel</span><span class="p">();</span>
+<span class="w">  </span><span class="n">ASSERT_TRUE</span><span class="p">(</span><span class="n">kernel</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="k">nullptr</span><span class="p">);</span>
+<span class="w">  </span><span class="k">auto</span><span class="w"> </span><span class="n">cg_outputs</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">ke</span><span class="p">.</span><span class="n">run</span><span class="p">({</span><span class="n">at_tv0</span><span class="p">});</span>
+<span class="w">  </span><span class="n">NVF_CHECK</span><span class="p">(</span><span class="n">at</span><span class="o">::</span><span class="n">allclose</span><span class="p">(</span><span class="n">cg_outputs</span><span class="p">[</span><span class="mi">0</span><span class="p">].</span><span class="n">as</span><span class="o">&lt;</span><span class="n">at</span><span class="o">::</span><span class="n">Tensor</span><span class="o">&gt;</span><span class="p">(),</span><span class="w"> </span><span class="n">at_tv0</span><span class="p">));</span>
+<span class="p">}</span>
+<span class="cm">/*</span>
+</pre></div>
+</div>
+</section>
+<section id="cute-hopper-mma-atom">
+<h2>CuTe Hopper MMA Atom<a class="headerlink" href="#cute-hopper-mma-atom" title="Link to this heading"></a></h2>
+<p>Create register layout for a (128, 24) C accumulator tile.</p>
+<section id="ptx-wgmma">
+<h3>PTX WGMMA<a class="headerlink" href="#ptx-wgmma" title="Link to this heading"></a></h3>
+<p><img alt="WGMMA .m64nNk16 register fragment layout for accumulator matrix" src="https://docs.nvidia.com/cuda/parallel-thread-execution/_images/wgmma-64N16-D.png" /></p>
+</section>
+<section id="wgmma-thread-value-layout">
+<h3>WGMMA Thread Value Layout<a class="headerlink" href="#wgmma-thread-value-layout" title="Link to this heading"></a></h3>
+<p><img alt="WGMMA (m64, n24) TV Layout" src="../_images/wgmma_tv_layout.svg" /></p>
+<p>References:
+https://docs.nvidia.com/cutlass/media/docs/cpp/cute/0t_mma_atom.html#hopper</p>
+<!-- */ //-->\
+<div class="highlight-cpp notranslate"><div class="highlight"><pre><span></span><span class="n">TEST_F</span><span class="p">(</span><span class="n">CuTeTutorial</span><span class="p">,</span><span class="w"> </span><span class="n">HopperWgmmaThreadLayout</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">  </span><span class="n">NVFUSER_TEST_CUDA_ARCH_GUARD</span><span class="p">(</span><span class="mi">9</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">);</span>
+<span class="w">  </span><span class="k">const</span><span class="w"> </span><span class="k">auto</span><span class="w"> </span><span class="n">dtype</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">DataType</span><span class="o">::</span><span class="n">BFloat16</span><span class="p">;</span>
+
+<span class="w">  </span><span class="n">DisableOptionsGuard</span><span class="w"> </span><span class="n">disable_options_guard</span><span class="p">;</span>
+<span class="w">  </span><span class="n">DisableOptionsGuard</span><span class="o">::</span><span class="n">getCurOptions</span><span class="p">().</span><span class="n">set</span><span class="p">(</span><span class="n">DisableOption</span><span class="o">::</span><span class="n">MagicZero</span><span class="p">);</span>
+
+<span class="w">  </span><span class="c1">// Fusion Definition</span>
+<span class="w">  </span><span class="n">std</span><span class="o">::</span><span class="n">unique_ptr</span><span class="o">&lt;</span><span class="n">Fusion</span><span class="o">&gt;</span><span class="w"> </span><span class="n">fusion_ptr</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">std</span><span class="o">::</span><span class="n">make_unique</span><span class="o">&lt;</span><span class="n">Fusion</span><span class="o">&gt;</span><span class="p">();</span>
+<span class="w">  </span><span class="n">Fusion</span><span class="o">*</span><span class="w"> </span><span class="n">fusion</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">fusion_ptr</span><span class="p">.</span><span class="n">get</span><span class="p">();</span>
+<span class="w">  </span><span class="n">FusionGuard</span><span class="w"> </span><span class="nf">fg</span><span class="p">(</span><span class="n">fusion</span><span class="p">);</span>
+
+<span class="w">  </span><span class="k">constexpr</span><span class="w"> </span><span class="kt">int</span><span class="w"> </span><span class="n">dim0</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">64</span><span class="p">,</span><span class="w"> </span><span class="n">dim1</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">24</span><span class="p">;</span>
+<span class="w">  </span><span class="n">TensorView</span><span class="o">*</span><span class="w"> </span><span class="n">tv0</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">makeContigConcreteTensor</span><span class="p">({</span><span class="n">dim0</span><span class="p">,</span><span class="w"> </span><span class="n">dim1</span><span class="p">},</span><span class="w"> </span><span class="n">dtype</span><span class="p">);</span>
+<span class="w">  </span><span class="n">fusion</span><span class="o">-&gt;</span><span class="n">addInput</span><span class="p">(</span><span class="n">tv0</span><span class="p">);</span>
+<span class="w">  </span><span class="n">TensorView</span><span class="o">*</span><span class="w"> </span><span class="n">tv1</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">set</span><span class="p">(</span><span class="n">tv0</span><span class="p">);</span>
+<span class="w">  </span><span class="n">fusion</span><span class="o">-&gt;</span><span class="n">addOutput</span><span class="p">(</span><span class="n">tv1</span><span class="p">);</span>
+
+<span class="w">  </span><span class="c1">// Set the allocation domain to column-major.</span>
+<span class="w">  </span><span class="n">tv0</span><span class="o">-&gt;</span><span class="n">setAllocationDomain</span><span class="p">({</span><span class="n">tv0</span><span class="o">-&gt;</span><span class="n">axis</span><span class="p">(</span><span class="mi">1</span><span class="p">),</span><span class="w"> </span><span class="n">tv0</span><span class="o">-&gt;</span><span class="n">axis</span><span class="p">(</span><span class="mi">0</span><span class="p">)},</span><span class="w"> </span><span class="cm">/*new_contiguity=*/</span><span class="nb">true</span><span class="p">);</span>
+<span class="w">  </span><span class="n">tv1</span><span class="o">-&gt;</span><span class="n">reorder</span><span class="p">({</span><span class="mi">1</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">});</span><span class="w"> </span><span class="c1">// traverse rows then column.</span>
+<span class="w">  </span><span class="n">tv1</span><span class="o">-&gt;</span><span class="n">setAllocationDomain</span><span class="p">(</span><span class="n">tv1</span><span class="o">-&gt;</span><span class="n">getLoopDomain</span><span class="p">(),</span><span class="w"> </span><span class="cm">/*new_contiguity=*/</span><span class="nb">true</span><span class="p">);</span>
+
+<span class="w">  </span><span class="n">fusion</span><span class="o">-&gt;</span><span class="n">printKernel</span><span class="p">();</span>
+<span class="w">  </span><span class="cm">/*</span>
+<span class="cm">  // The input and output tensors are column-major with shape (16, 64) and stride (1, 16).</span>
+<span class="cm">  __global__ void CUDAGeneratedKernel(Tensor&lt;__bfloat, 2, 2&gt; T0, Tensor&lt;__bfloat, 2, 2&gt; T1) {</span>
+<span class="cm">    #pragma unroll</span>
+<span class="cm">    for(nvfuser_index_t i0 = 0LL; i0 &lt; 64LL; ++i0) {</span>
+<span class="cm">      nvfuser_index_t i1;</span>
+<span class="cm">      i1 = 16LL * i0;</span>
+<span class="cm">      #pragma unroll</span>
+<span class="cm">      for(nvfuser_index_t i2 = 0LL; i2 &lt; 16LL; ++i2) {</span>
+<span class="cm">        nvfuser_index_t i3;</span>
+<span class="cm">        i3 = i1 + i2;</span>
+<span class="cm">        T1[i3]</span>
+<span class="cm">           = T0[i3];</span>
+<span class="cm">      }</span>
+<span class="cm">    }</span>
+<span class="cm">  }</span>
+<span class="cm">  */</span>
+
+<span class="w">  </span><span class="c1">// Apply transformations to column-major TensorView</span>
+<span class="w">  </span><span class="n">tv1</span><span class="o">-&gt;</span><span class="n">split</span><span class="p">(</span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">8</span><span class="p">);</span><span class="w"> </span><span class="c1">// tv1 [24, 8, 8]</span>
+<span class="w">  </span><span class="n">tv1</span><span class="o">-&gt;</span><span class="n">split</span><span class="p">(</span><span class="mi">-2</span><span class="p">,</span><span class="w"> </span><span class="mi">2</span><span class="p">);</span><span class="w"> </span><span class="c1">// tv1 [24, 4, 2, 8]</span>
+<span class="w">  </span><span class="n">tv1</span><span class="o">-&gt;</span><span class="n">split</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="mi">2</span><span class="p">);</span><span class="w"> </span><span class="c1">// tv1 [12, 2, 4, 2, 8]</span>
+<span class="w">  </span><span class="n">tv1</span><span class="o">-&gt;</span><span class="n">split</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="mi">4</span><span class="p">);</span><span class="w"> </span><span class="c1">// tv1 [3, 4, 2, 4, 2, 8]</span>
+<span class="w">  </span><span class="c1">// Reorder to organize by Thread-Value Relationship</span>
+<span class="w">  </span><span class="n">tv1</span><span class="o">-&gt;</span><span class="n">reorder</span><span class="p">({{</span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="mi">5</span><span class="p">},</span><span class="w"> </span><span class="p">{</span><span class="mi">1</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">},</span><span class="w"> </span><span class="p">{</span><span class="mi">2</span><span class="p">,</span><span class="w"> </span><span class="mi">3</span><span class="p">},</span><span class="w"> </span><span class="p">{</span><span class="mi">3</span><span class="p">,</span><span class="w"> </span><span class="mi">2</span><span class="p">},</span><span class="w"> </span><span class="p">{</span><span class="mi">5</span><span class="p">,</span><span class="w"> </span><span class="mi">1</span><span class="p">}});</span>
+<span class="w">  </span><span class="c1">// tv1 [4n, 8m, 4m, 2n, 2m, 3n]</span>
+
+<span class="w">  </span><span class="cm">/*</span>
+<span class="cm">  // After splitting and reordering the loop domain of TV1, the loop domain is</span>
+<span class="cm">  // [4, 8, 4, 2, 2, 3]. The strides of the loop domain are</span>
+<span class="cm">  // [128, 1, 16, 64, 8, 512].</span>
+<span class="cm">  //</span>
+<span class="cm">  // How to create CuTe TV layout from NvFuser TensorDomain?</span>
+<span class="cm">  //   1) Reverse ordering from inner to outer loops.</span>
+<span class="cm">  //   2) Gather modes [0-2] and [3-5] together.</span>
+<span class="cm">  // This creates the shape ((4, 8, 4), (2, 2, 3)) and the stride</span>
+<span class="cm">  // ((128, 1, 16), (64, 8, 512)), which corresponds with the CuTe Thread-Value</span>
+<span class="cm">  // Layout.</span>
+<span class="cm">  */</span>
+
+<span class="w">  </span><span class="n">fusion</span><span class="o">-&gt;</span><span class="n">printKernel</span><span class="p">();</span>
+<span class="w">  </span><span class="cm">/*</span>
+<span class="cm">  __global__ void CUDAGeneratedKernel(Tensor&lt;__bfloat, 2, 2&gt; T0, Tensor&lt;__bfloat, 2, 2&gt; T1) {</span>
+<span class="cm">    #pragma unroll</span>
+<span class="cm">    for(nvfuser_index_t i0 = 0LL; i0 &lt; 4LL; ++i0) {</span>
+<span class="cm">      nvfuser_index_t i1;</span>
+<span class="cm">      i1 = 128LL * i0;</span>
+<span class="cm">      nvfuser_index_t i2;</span>
+<span class="cm">      i2 = 2LL * i0;</span>
+<span class="cm">      #pragma unroll</span>
+<span class="cm">      for(nvfuser_index_t i3 = 0LL; i3 &lt; 8LL; ++i3) {</span>
+<span class="cm">        nvfuser_index_t i4;</span>
+<span class="cm">        i4 = i1 + i3;</span>
+<span class="cm">        #pragma unroll</span>
+<span class="cm">        for(nvfuser_index_t i5 = 0LL; i5 &lt; 4LL; ++i5) {</span>
+<span class="cm">          nvfuser_index_t i6;</span>
+<span class="cm">          i6 = 16LL * i5;</span>
+<span class="cm">          nvfuser_index_t i7;</span>
+<span class="cm">          i7 = i4 + i6;</span>
+<span class="cm">          nvfuser_index_t i8;</span>
+<span class="cm">          i8 = i3 + i6;</span>
+<span class="cm">          #pragma unroll</span>
+<span class="cm">          for(nvfuser_index_t i9 = 0LL; i9 &lt; 2LL; ++i9) {</span>
+<span class="cm">            nvfuser_index_t i10;</span>
+<span class="cm">            i10 = i7 + (64LL * i9);</span>
+<span class="cm">            nvfuser_index_t i11;</span>
+<span class="cm">            i11 = i2 + i9;</span>
+<span class="cm">            #pragma unroll</span>
+<span class="cm">            for(nvfuser_index_t i12 = 0LL; i12 &lt; 2LL; ++i12) {</span>
+<span class="cm">              nvfuser_index_t i13;</span>
+<span class="cm">              i13 = 8LL * i12;</span>
+<span class="cm">              nvfuser_index_t i14;</span>
+<span class="cm">              i14 = i10 + i13;</span>
+<span class="cm">              bool b15;</span>
+<span class="cm">              b15 = (i8 + i13) &lt; 64LL;</span>
+<span class="cm">              #pragma unroll</span>
+<span class="cm">              for(nvfuser_index_t i16 = 0LL; i16 &lt; 3LL; ++i16) {</span>
+<span class="cm">                nvfuser_index_t i17;</span>
+<span class="cm">                i17 = i14 + (512LL * i16);</span>
+<span class="cm">                if ((b15 &amp;&amp; ((i11 + (8LL * i16)) &lt; 24LL))) {</span>
+<span class="cm">                  T1[i17]</span>
+<span class="cm">                     = T0[i17];</span>
+<span class="cm">                }</span>
+<span class="cm">              }</span>
+<span class="cm">            }</span>
+<span class="cm">          }</span>
+<span class="cm">        }</span>
+<span class="cm">      }</span>
+<span class="cm">    }</span>
+<span class="cm">  }</span>
+<span class="cm">  */</span>
+
+
+<span class="w">  </span><span class="k">auto</span><span class="w"> </span><span class="n">options</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">at</span><span class="o">::</span><span class="n">TensorOptions</span><span class="p">().</span><span class="n">dtype</span><span class="p">(</span><span class="n">at</span><span class="o">::</span><span class="n">kBFloat16</span><span class="p">).</span><span class="n">device</span><span class="p">(</span><span class="n">at</span><span class="o">::</span><span class="n">kCUDA</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">);</span>
+<span class="w">  </span><span class="n">at</span><span class="o">::</span><span class="n">Tensor</span><span class="w"> </span><span class="n">at_tv0</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">at</span><span class="o">::</span><span class="n">randn</span><span class="p">({</span><span class="n">dim0</span><span class="p">,</span><span class="w"> </span><span class="n">dim1</span><span class="p">},</span><span class="w"> </span><span class="n">options</span><span class="p">).</span><span class="n">as_strided</span><span class="p">({</span><span class="n">dim0</span><span class="p">,</span><span class="w"> </span><span class="n">dim1</span><span class="p">},</span><span class="w"> </span><span class="p">{</span><span class="mi">1</span><span class="p">,</span><span class="w"> </span><span class="n">dim0</span><span class="p">});</span>
+
+<span class="w">  </span><span class="n">KernelExecutor</span><span class="w"> </span><span class="n">ke</span><span class="p">;</span>
+<span class="w">  </span><span class="n">ke</span><span class="p">.</span><span class="n">compile</span><span class="p">(</span><span class="n">fusion</span><span class="p">,</span><span class="w"> </span><span class="p">{</span><span class="n">at_tv0</span><span class="p">});</span>
+<span class="w">  </span><span class="n">kir</span><span class="o">::</span><span class="n">Kernel</span><span class="o">*</span><span class="w"> </span><span class="n">kernel</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">ke</span><span class="p">.</span><span class="n">compiledKernel</span><span class="p">()</span><span class="o">-&gt;</span><span class="n">kernel</span><span class="p">();</span>
+<span class="w">  </span><span class="n">ASSERT_TRUE</span><span class="p">(</span><span class="n">kernel</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="k">nullptr</span><span class="p">);</span>
+<span class="w">  </span><span class="k">auto</span><span class="w"> </span><span class="n">cg_outputs</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">ke</span><span class="p">.</span><span class="n">run</span><span class="p">({</span><span class="n">at_tv0</span><span class="p">});</span>
+<span class="w">  </span><span class="n">NVF_CHECK</span><span class="p">(</span><span class="n">at</span><span class="o">::</span><span class="n">allclose</span><span class="p">(</span><span class="n">cg_outputs</span><span class="p">[</span><span class="mi">0</span><span class="p">].</span><span class="n">as</span><span class="o">&lt;</span><span class="n">at</span><span class="o">::</span><span class="n">Tensor</span><span class="o">&gt;</span><span class="p">(),</span><span class="w"> </span><span class="n">at_tv0</span><span class="p">));</span>
+<span class="p">}</span>
+<span class="cm">/*</span>
+</pre></div>
+</div>
+<!--*/
+} // namespace nvfuser
+// \-->
+</section>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer>
+
+  <hr/>
+
+  <div role="contentinfo">
+<img src="../_static/NVIDIA-LogoBlack.svg"/>
+<p class="notices">
+<a href="https://www.nvidia.com/en-us/about-nvidia/privacy-policy/" target="_blank">Privacy Policy</a>
+|
+<a href="https://www.nvidia.com/en-us/about-nvidia/privacy-center/" target="_blank">Manage My Privacy</a>
+|
+<a href="https://www.nvidia.com/en-us/preferences/start/" target="_blank">Do Not Sell or Share My Data</a>
+|
+<a href="https://www.nvidia.com/en-us/about-nvidia/terms-of-service/" target="_blank">Terms of Service</a>
+|
+<a href="https://www.nvidia.com/en-us/about-nvidia/accessibility/" target="_blank">Accessibility</a>
+|
+<a href="https://www.nvidia.com/en-us/about-nvidia/company-policies/" target="_blank">Corporate Policies</a>
+|
+<a href="https://www.nvidia.com/en-us/product-security/" target="_blank">Product Security</a>
+|
+<a href="https://www.nvidia.com/en-us/contact/" target="_blank">Contact</a>
+</p>
+
+    <p>&#169; Copyright 2023-2025, NVIDIA CORPORATION &amp; AFFILIATES. All rights reserved..</p>
+
+  </div>
+
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  
+<div class="rst-versions" data-toggle="rst-versions" role="note" aria-label="versions">
+    <span class="rst-current-version" data-toggle="rst-current-version">
+        
+        Version: 0.2.34
+        
+    </span>
+</div><script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

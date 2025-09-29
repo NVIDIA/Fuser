@@ -1,0 +1,896 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Introduction to TMA Support in NVFuser &mdash; nvFuser 0.2.34 documentation</title>
+      <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=03e43079" />
+      <link rel="stylesheet" type="text/css" href="../_static/css/theme.css?v=e59714d7" />
+      <link rel="stylesheet" type="text/css" href="../_static/css/nvidia_font.css?v=e009355c" />
+      <link rel="stylesheet" type="text/css" href="../_static/css/nvidia_footer.css?v=84031d34" />
+
+  
+      <script src="../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../_static/documentation_options.js?v=b85e2031"></script>
+      <script src="../_static/doctools.js?v=9bcbadda"></script>
+      <script src="../_static/sphinx_highlight.js?v=dc90522c"></script>
+      <script>window.MathJax = {"options": {"processHtmlClass": "tex2jax_process|mathjax_process|math|output_area"}}</script>
+      <script defer="defer" src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+    <script src="../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="next" title="Tensor Memory Support in NVFuser" href="tmem.html" />
+    <link rel="prev" title="LdMatrix and StMatrix Support in NVFuser" href="ldmatrix_stmatrix.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" > 
+
+          
+          
+          <a href="../index.html" class="icon icon-home">
+            nvFuser
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+
+  <style>
+    /* Sidebar header (and topbar for mobile) */
+    .wy-side-nav-search, .wy-nav-top {
+      background: #76b900;
+    }
+
+    .wy-menu > p > span.caption-text {
+      color: #76b900;
+    }
+
+    .wy-menu-vertical p {
+      height: 32px;
+      line-height: 32px;
+      padding: 0 1.618em;
+      margin: 12px 0 0;
+      display: block;
+      font-weight: 700;
+      text-transform: uppercase;
+      font-size: 85%;
+      white-space: nowrap;
+    }
+
+    .wy-side-nav-search a:link, .wy-nav-top a:link {
+      color: #fff;
+    }
+    .wy-side-nav-search a:visited, .wy-nav-top a:visited {
+      color: #fff;
+    }
+    .wy-side-nav-search a:hover, .wy-nav-top a:hover {
+      color: #fff;
+    }
+
+    .wy-menu-vertical a:link, .wy-menu-vertical a:visited {
+      color: #d9d9d9
+    }
+
+    .wy-menu-vertical a:active {
+      background-color: #76b900
+    }
+
+    .wy-side-nav-search>div.version {
+      color: rgba(0, 0, 0, 0.3)
+    }
+
+    .wy-nav-content {
+      max-width: 1000px;
+    }
+
+    /* override table width restrictions */
+    .wy-table-responsive table td, .wy-table-responsive table th {
+        /* !important prevents the common CSS stylesheets from
+          overriding this as on RTD they are loaded after this stylesheet */
+        white-space: normal !important;
+    }
+
+    .wy-table-responsive {
+        overflow: visible !important;
+    }
+
+  </style>
+  <style>
+  a:link, a:visited {
+    color: #76b900;
+  }
+
+  a:hover {
+    color: #8c0;
+  }
+
+  html.writer-html5 .rst-content dl[class]:not(.option-list):not(.field-list):not(.footnote):not(.glossary):not(.simple)>dt {
+    background: rgba(118, 185, 0, 0.1);
+    color: rgba(59,93,0,1);
+    border-top: solid 3px rgba(59,93,0,1);
+  }
+
+  html.writer-html4 .rst-content dl:not(.docutils) .property, html.writer-html5 .rst-content dl[class]:not(.option-list):not(.field-list):not(.footnote):not(.glossary):not(.simple) .property {
+    text-transform: capitalize;
+    display: inline-block;
+    padding-right: 8px;
+  }
+  </style>
+
+  
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Table of Contents</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../installation.html">Overview</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../installation.html#installation">Installation</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../installation.html#nightly-nvfuser-pip-wheel">Nightly nvfuser pip wheel</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../installation.html#nvfuser-pip-wheel-against-pytorch-stable-release">Nvfuser pip wheel against pytorch stable release</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../installation.html#developer">Developer</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../installation.html#install-from-source">Install From Source:</a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Python API</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../api/general.html">General</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../api/general.html#statement">Statement</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../api/general.html#val">Val</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../api/general.html#expr">Expr</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../api/general.html#iterdomain">IterDomain</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../api/general.html#tensordomain">TensorDomain</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../api/general.html#tensorview">TensorView</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../api/general.html#fusionexecutorcache">FusionExecutorCache</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../api/general.html#kernelexecutor">KernelExecutor</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../api/general.html#fusion-definition">Fusion Definition</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../api/ops.html">Operations</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../api/ops.html#ops">Ops</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../api/multidevice.html">Multidevice</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../api/multidevice.html#communicator">Communicator</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../api/multidevice.html#devicemesh">DeviceMesh</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../api/multidevice.html#sharding">Sharding</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../api/enum.html">Enums</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../api/enum.html#communicatorbackend-types">CommunicatorBackend Types</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../api/enum.html#data-types">Data Types</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../api/enum.html#parallel-types">Parallel Types</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../api/enum.html#scheduler-types">Scheduler Types</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../api/pod_class.html">Data classes</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../api/pod_class.html#launchparams">LaunchParams</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../api/pod_class.html#compileparams">CompileParams</a></li>
+</ul>
+</li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Developer References</span></p>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="../reading/divisibility-of-split.html">Divisibility of Split</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../reading/divisibility-of-split.html#introduction">Introduction</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../reading/divisibility-of-split.html#predication">Predication</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../reading/divisibility-of-split.html#allocation-and-correctness-model">Allocation and correctness model</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../reading/divisibility-of-split.html#properties-of-split">Properties of split</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../reading/divisibility-of-split.html#merge-then-split-vs-split-then-merge">Merge-then-split vs split-then-merge</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../reading/divisibility-of-split.html#merging-discontiguous-iterdomains">Merging discontiguous IterDomains</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../reading/divisibility-of-split.html#question">Question</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../reading/divisibility-of-split.html#answer">Answer</a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../reading/iterdomain.html">The Mathematical Theory of IterDomain</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../reading/iterdomain.html#iterdomain-transformations">1. IterDomain Transformations</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../reading/iterdomain.html#properties-of-iterdomain-transformations">2. Properties of IterDomain Transformations</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../reading/multigpu.html">Multi-GPU Support in nvFuser</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../reading/multigpu.html#introduction">Introduction</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../reading/multigpu.html#user-api">User API</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../reading/multigpu.html#parallelisms">Parallelisms</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../reading/multigpu.html#tensor-parallelism-tp">Tensor Parallelism (TP)</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../reading/multigpu.html#sharding-propagation">Sharding Propagation</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../reading/multigpu.html#communication-computation-decomposition">Communication-computation Decomposition</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../reading/multigpu.html#sequence-parallelism-sp">Sequence Parallelism (SP)</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../reading/multigpu.html#id1">Sharding Propagation</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../reading/multigpu.html#id2">Communication-computation Decomposition</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../reading/multigpu.html#overlap-communication-with-gemm-via-decomposition">Overlap Communication with GEMM via Decomposition</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../reading/multigpu.html#distributed-data-parallelism-ddp">Distributed Data Parallelism (DDP)</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../reading/multigpu.html#fully-sharded-data-parallelism-fsdp">Fully Sharded Data Parallelism (FSDP)</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../reading/multigpu.html#pipeline-parallelism-pp">Pipeline Parallelism (PP)</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../reading/multigpu.html#context-parallelism-cp">Context Parallelism (CP)</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../reading/tma-modeling-in-depth.html">TMA Modeling In Depth</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../reading/tma-modeling-in-depth.html#what-is-tma">What is TMA?</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../reading/tma-modeling-in-depth.html#correctness-model">Correctness model</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../reading/tma-modeling-in-depth.html#the-unachievability-of-strong-correctness-for-indivisible-element-stride">The unachievability of strong correctness for indivisible element stride</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../reading/tma-modeling-in-depth.html#the-lowering-strategy">The lowering strategy</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="debug.html">Debugging</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="debug.html#debug-a-failing-nvfuser-script">Debug a failing nvFuser script</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="debug.html#nvfuser-dump">NVFUSER_DUMP</a></li>
+<li class="toctree-l3"><a class="reference internal" href="debug.html#gdb">gdb</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="debug.html#debug-memory-corruption-using-asan">Debug memory corruption using <code class="docutils literal notranslate"><span class="pre">asan</span></code></a><ul>
+<li class="toctree-l3"><a class="reference internal" href="debug.html#if-built-with-clang">If built with clang</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="debug.html#debug-memory-leaks-or-excessive-memory-usage">Debug memory leaks or excessive memory usage</a></li>
+<li class="toctree-l2"><a class="reference internal" href="debug.html#debug-slow-kernels">Debug slow kernels</a></li>
+<li class="toctree-l2"><a class="reference internal" href="debug.html#debug-slow-cpu-execution">Debug slow CPU execution</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="visibility.html">Symbol Visibility</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="visibility.html#faq">FAQ</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="visibility.html#should-i-mark-a-method-visible-or-the-whole-class">Should I mark a method visible or the whole class?</a></li>
+<li class="toctree-l3"><a class="reference internal" href="visibility.html#i-see-an-undefined-reference-to-typeinfo-for-class-how-do-i-fix-this">I see an undefined reference to <code class="docutils literal notranslate"><span class="pre">typeinfo</span> <span class="pre">for</span> <span class="pre">&lt;class&gt;</span></code>. How do I fix this?</a></li>
+<li class="toctree-l3"><a class="reference internal" href="visibility.html#i-see-an-undefined-reference-to-vtable-for-class-how-do-i-fix-this">I see an undefined reference to <code class="docutils literal notranslate"><span class="pre">vtable</span> <span class="pre">for</span> <span class="pre">&lt;class&gt;</span></code>. How do I fix this?</a></li>
+<li class="toctree-l3"><a class="reference internal" href="visibility.html#i-see-that-foo-is-visible-but-i-do-not-think-it-needs-to-be">I see that <code class="docutils literal notranslate"><span class="pre">Foo</span></code> is visible but I do not think it needs to be.</a></li>
+<li class="toctree-l3"><a class="reference internal" href="visibility.html#should-i-mark-my-new-method-or-class-as-nvf-api">Should I mark my new method or class as <code class="docutils literal notranslate"><span class="pre">NVF_API</span></code>?</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="visibility.html#symbol-visibility-checking">Symbol Visibility Checking</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="host_ir_jit.html">Host IR JIT Overview</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="host_ir_jit.html#introduction">Introduction</a></li>
+<li class="toctree-l2"><a class="reference internal" href="host_ir_jit.html#jit-compilation-process">JIT Compilation Process</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="host_ir_jit.html#llvm-integration">1. LLVM Integration</a></li>
+<li class="toctree-l3"><a class="reference internal" href="host_ir_jit.html#compilation-pipeline">2. Compilation Pipeline</a></li>
+<li class="toctree-l3"><a class="reference internal" href="host_ir_jit.html#external-function-integration">3. External Function Integration</a></li>
+<li class="toctree-l3"><a class="reference internal" href="host_ir_jit.html#ir-translation">3. IR Translation</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="host_ir_jit.html#runtime-execution">Runtime Execution</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="host_ir_jit.html#function-interface">1. Function Interface</a></li>
+<li class="toctree-l3"><a class="reference internal" href="host_ir_jit.html#execution-flow">2. Execution Flow</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="host_ir_jit.html#configuration-and-build-options">Configuration and Build Options</a></li>
+<li class="toctree-l2"><a class="reference internal" href="host_ir_jit.html#future-integration-plan">Future Integration plan</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="ldmatrix_stmatrix.html">LdMatrix and StMatrix Support in NVFuser</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="ldmatrix_stmatrix.html#what-is-ldmatrix">What is LdMatrix?</a></li>
+<li class="toctree-l2"><a class="reference internal" href="ldmatrix_stmatrix.html#what-is-stmatrix">What is StMatrix?</a></li>
+<li class="toctree-l2"><a class="reference internal" href="ldmatrix_stmatrix.html#general-details">General Details</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="ldmatrix_stmatrix.html#indices-shared-memory-tensor">Indices shared memory tensor</a></li>
+<li class="toctree-l3"><a class="reference internal" href="ldmatrix_stmatrix.html#indices-for-register-tensor">Indices for register tensor</a></li>
+<li class="toctree-l3"><a class="reference internal" href="ldmatrix_stmatrix.html#register-layout-for-one-8x8-matrix-with-16-bit-elements">Register layout for one 8x8 Matrix with 16-bit elements</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="ldmatrix_stmatrix.html#example-1-a-copy-kernel-using-tma-ldmatrix-and-stmatrix">Example 1: A copy kernel using TMA, LdMatrix, and StMatrix.</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="ldmatrix_stmatrix.html#how-to-compute-the-index-into-register-tensorview">How to compute the index into register TensorView?</a></li>
+<li class="toctree-l2"><a class="reference internal" href="ldmatrix_stmatrix.html#how-to-compute-the-index-into-shared-memory-tensorview">How to compute the index into shared memory TensorView?</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="ldmatrix_stmatrix.html#figure-1-loop-domain-for-ldmatrix-and-stmatrix">Figure 1: Loop domain for LdMatrix and StMatrix</a></li>
+<li class="toctree-l3"><a class="reference internal" href="ldmatrix_stmatrix.html#figure-2-tma-shared-memory-allocation-domain">Figure 2: TMA shared memory allocation domain</a></li>
+<li class="toctree-l3"><a class="reference internal" href="ldmatrix_stmatrix.html#figure-3-map-from-ldmatrix-stmatrix-loop-domain-to-tma-shared-memory-allocation-domain">Figure 3: Map from LdMatrix / StMatrix loop domain to TMA shared memory allocation domain</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="ldmatrix_stmatrix.html#derivation-of-figure-3">Derivation of Figure 3</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="ldmatrix_stmatrix.html#code-walkthrough">Code Walkthrough</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="ldmatrix_stmatrix.html#scheduleldstmatrix-function">scheduleLdStMatrix function</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l1 current"><a class="current reference internal" href="#">Introduction to TMA Support in NVFuser</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#introduction">Introduction</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#schedule">Schedule</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#step-1-define-tma-domain">Step 1: define TMA domain</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#step-2-define-box">Step 2: define box</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#the-canonical-way-to-define-box">The canonical way to define box</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#define-box-by-mathematical-equivalence">Define box by mathematical equivalence</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#step-3-define-tile">Step 3: define tile</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#step-4-schedule-the-shared-memory-tensor">Step 4: schedule the shared memory tensor</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#data-swizzle">Data swizzle</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#step-5-schedule-the-consumer-tensor">Step 5: schedule the consumer tensor</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#code-walk-through">Code walk-through</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#examples">Examples</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#example-1-tma-load-inputs-and-vectorize-store-output-pointwise-kernel">Example 1: tma-load inputs and vectorize-store output pointwise kernel</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#example-2-broadcast-kernel-with-discontiguous-input">Example 2: broadcast kernel with discontiguous input</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#example-3-bank-conflict-free-transpose-of-32bit-data">Example 3: bank-conflict-free transpose of 32bit data</a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="tmem.html">Tensor Memory Support in NVFuser</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="tmem.html#review-of-inlining-and-parallelization">Review of inlining and parallelization</a></li>
+<li class="toctree-l2"><a class="reference internal" href="tmem.html#tensor-memory">Tensor memory</a></li>
+<li class="toctree-l2"><a class="reference internal" href="tmem.html#the-loop-domain-of-tmem-load-and-store">The loop domain of TMem load and store</a></li>
+<li class="toctree-l2"><a class="reference internal" href="tmem.html#vectorization-of-tmem-load-and-store">Vectorization of TMem load and store</a></li>
+</ul>
+</li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../index.html">nvFuser</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../index.html" class="icon icon-home" aria-label="Home"></a></li>
+      <li class="breadcrumb-item active">Introduction to TMA Support in NVFuser</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="../_sources/dev/tma.md.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <!--
+ * SPDX-FileCopyrightText: Copyright (c) 2023-present NVIDIA CORPORATION & AFFILIATES.
+ * All rights reserved.
+ * SPDX-License-Identifier: BSD-3-Clause
+-->
+<section class="tex2jax_ignore mathjax_ignore" id="introduction-to-tma-support-in-nvfuser">
+<h1>Introduction to TMA Support in NVFuser<a class="headerlink" href="#introduction-to-tma-support-in-nvfuser" title="Link to this heading"></a></h1>
+<section id="introduction">
+<h2>Introduction<a class="headerlink" href="#introduction" title="Link to this heading"></a></h2>
+<p>TMA is a hardware feature that allows the GPU to load a tile from a tensor of up to 5D.
+The tile can be dense, or strided, as shown in Figure 1 below:</p>
+<p><img alt="Figure 1: TMA dense and strided tile" src="../_images/dense-and-strided-tile.svg" /></p>
+<p>When using phrases like “tile size”, it is important to be clear what we are referring to.
+Here we use two separate words <em>box</em> and <em>tile</em> to refer to different things.</p>
+<p><strong>Definition 1</strong>: In an N-dimensional tensor, a <em>box</em> of size <code class="docutils literal notranslate"><span class="pre">(s1,</span> <span class="pre">s2,</span> <span class="pre">...,</span> <span class="pre">sN)</span></code> at
+<code class="docutils literal notranslate"><span class="pre">(x1,</span> <span class="pre">x2,</span> <span class="pre">...,</span> <span class="pre">xN)</span></code> refers to all the <code class="docutils literal notranslate"><span class="pre">s1*s2*...*sN</span></code> items at <code class="docutils literal notranslate"><span class="pre">(x1,</span> <span class="pre">x2,</span> <span class="pre">...,</span> <span class="pre">xN)</span></code>,
+<code class="docutils literal notranslate"><span class="pre">(x1,</span> <span class="pre">x2,</span> <span class="pre">...,</span> <span class="pre">xN</span> <span class="pre">+</span> <span class="pre">1)</span></code>, …, <code class="docutils literal notranslate"><span class="pre">(x1,</span> <span class="pre">x2,</span> <span class="pre">...,</span> <span class="pre">xN</span> <span class="pre">+</span> <span class="pre">sN</span> <span class="pre">-</span> <span class="pre">1)</span></code>, …, <code class="docutils literal notranslate"><span class="pre">(x1</span> <span class="pre">+</span> <span class="pre">s1</span> <span class="pre">-</span> <span class="pre">1,</span> <span class="pre">x2</span> <span class="pre">+</span> <span class="pre">s2</span> <span class="pre">-</span> <span class="pre">1,</span> <span class="pre">...,</span> <span class="pre">xN</span> <span class="pre">+</span> <span class="pre">sN</span> <span class="pre">-</span> <span class="pre">1)</span></code>.</p>
+<p><strong>Definition 2</strong>: In an N-dimensional tensor, a <em>tile</em> of size <code class="docutils literal notranslate"><span class="pre">(s1,</span> <span class="pre">s2,</span> <span class="pre">...,</span> <span class="pre">sN)</span></code> and stride
+<code class="docutils literal notranslate"><span class="pre">(r1,</span> <span class="pre">r2,</span> <span class="pre">...,</span> <span class="pre">rN)</span></code> at <code class="docutils literal notranslate"><span class="pre">(x1,</span> <span class="pre">x2,</span> <span class="pre">...,</span> <span class="pre">xN)</span></code> refers to all the <code class="docutils literal notranslate"><span class="pre">s1*s2*...*sN</span></code> items at
+<code class="docutils literal notranslate"><span class="pre">(x1,</span> <span class="pre">x2,</span> <span class="pre">...,</span> <span class="pre">xN)</span></code>, <code class="docutils literal notranslate"><span class="pre">(x1,</span> <span class="pre">x2,</span> <span class="pre">...,</span> <span class="pre">xN</span> <span class="pre">+</span> <span class="pre">rN)</span></code>, …, <code class="docutils literal notranslate"><span class="pre">(x1,</span> <span class="pre">x2,</span> <span class="pre">...,</span> <span class="pre">xN</span> <span class="pre">+</span> <span class="pre">rN</span> <span class="pre">*</span> <span class="pre">(sN</span> <span class="pre">-</span> <span class="pre">1))</span></code>,
+…, <code class="docutils literal notranslate"><span class="pre">(x1</span> <span class="pre">+</span> <span class="pre">r1</span> <span class="pre">*</span> <span class="pre">(s1</span> <span class="pre">-</span> <span class="pre">1),</span> <span class="pre">x2</span> <span class="pre">+</span> <span class="pre">r2</span> <span class="pre">*</span> <span class="pre">(s2</span> <span class="pre">-</span> <span class="pre">1),</span> <span class="pre">...,</span> <span class="pre">xN</span> <span class="pre">+</span> <span class="pre">rN</span> <span class="pre">*</span> <span class="pre">(sN</span> <span class="pre">-</span> <span class="pre">1))</span></code>.</p>
+<p>In Figure 1, we have box size <code class="docutils literal notranslate"><span class="pre">(8,</span> <span class="pre">4)</span></code> for both diagram.
+For the diagram on the left, we have tile size <code class="docutils literal notranslate"><span class="pre">(8,</span> <span class="pre">4)</span></code> and stride <code class="docutils literal notranslate"><span class="pre">(1,</span> <span class="pre">1)</span></code>.
+For the diagram on the right, we have tile size <code class="docutils literal notranslate"><span class="pre">(8,</span> <span class="pre">2)</span></code>, and stride <code class="docutils literal notranslate"><span class="pre">(1,</span> <span class="pre">3)</span></code>.</p>
+<p>Note that TMA PTX instructions and CUDA driver API uses column-major,
+and we want to be consistent with them.
+So here we say we have box size <code class="docutils literal notranslate"><span class="pre">(8,</span> <span class="pre">4)</span></code> instead of <code class="docutils literal notranslate"><span class="pre">(4,</span> <span class="pre">8)</span></code>.</p>
+<p>Box and tile for the above example is shown below in Figure 2:</p>
+<p><img alt="Figure 2: Box and tile" src="../_images/box-and-tile.svg" /></p>
+</section>
+<section id="schedule">
+<h2>Schedule<a class="headerlink" href="#schedule" title="Link to this heading"></a></h2>
+<p>In order to use TMA, we need to tell the hardware what is the dimensionality of our tensor.
+Most naively, we can make this dimensionality the size of the allocation domain.
+This naive mental model does provide us an easy way to reason about and start using TMA,
+but unfortunately it is not flexible enough and is not consistent with how we think about scheduling.
+For example, if we want to schedule a fusion containing only pure pointwise (i.e. no broadcasting) operations and all input and output tensors are contiguous,
+regardless of the actual dimensionality of the input and output tensors, in our mental model, we always
+consider this problem as a 1D problem by viewing all tensors as flattened 1D tensor.
+For this case, ideally, we should be using 1D TMA, instead of using the actual dimensionality of the tensor.
+That is, the dimensionality of TMA is not necessarily the same as the dimensionality of the tensor.</p>
+<p>In order to support the flexibility of using a dimensionality of TMA different from the dimensionality of the tensor,
+we design the scheduling of TMA as a multiple-step process:</p>
+<section id="step-1-define-tma-domain">
+<h3>Step 1: define TMA domain<a class="headerlink" href="#step-1-define-tma-domain" title="Link to this heading"></a></h3>
+<p>When a user is ready to schedule the consumer of the TMA expression,
+the user should already have an idea of how the problem should be viewed.
+For example, if the user is scheduling a fusion with only pure pointwise ops,
+the user would want to view the problem as a 1D problem.
+If the user is scheduling a transpose, then the user might want to view the problem as 2D.
+If the user is scheduling a matmul, then the user might want to view the problem as 3D.
+From this view of the problem, the user should have an idea about what are the dimensionalities of tensors.</p>
+<p>For example, if the user wants to schedule a matmul <code class="docutils literal notranslate"><span class="pre">(M1,</span> <span class="pre">M2,</span> <span class="pre">K1,</span> <span class="pre">K2,</span> <span class="pre">K3)</span> <span class="pre">x</span> <span class="pre">(K1,</span> <span class="pre">K2,</span> <span class="pre">K3,</span> <span class="pre">N)</span> <span class="pre">-&gt;</span> <span class="pre">(M1,</span> <span class="pre">M2,</span> <span class="pre">N)</span></code>,
+then in the mind of the user, this matmul will be a 3D problem <code class="docutils literal notranslate"><span class="pre">(M1*M2,</span> <span class="pre">K1*K2*K3,</span> <span class="pre">N)</span></code>.
+In this mental model, the input and output tensors are all 2D:
+<code class="docutils literal notranslate"><span class="pre">(M1*M2,</span> <span class="pre">K1*K2*K3)</span></code>, <code class="docutils literal notranslate"><span class="pre">(K1*K2*K3,</span> <span class="pre">N)</span></code>, and <code class="docutils literal notranslate"><span class="pre">(M1*M2,</span> <span class="pre">N)</span></code>.</p>
+<p>The first step of scheduling TMA is to schedule the consumer of the TMA expression the way matching the mental model of the problem.
+The result domain of this step is called the <em>TMA domain</em>.</p>
+<p>The TMA domain for the above matmul example is shown in the Figure 3 below:</p>
+<p><img alt="Figure 3: The TMA domain of the matmul example" src="../_images/matmul-tma-domain.svg" /></p>
+<p>Please note that the TMA domain is not a member of a TensorDomain like the root/logical/allocation/loop domains.
+Instead, it is a virtual domain that only exists in the user’s mind.</p>
+<p>Also note that the IterDomain expressions between the global tensor’s allocation domain and the TMA domain must be a view,
+for example, we can not merge discontiguous IterDomains (<span class="xref myst">why?</span>), and we can not have indivisible splits either.</p>
+</section>
+<section id="step-2-define-box">
+<h3>Step 2: define box<a class="headerlink" href="#step-2-define-box" title="Link to this heading"></a></h3>
+<p>After having scheduled a TMA domain, the next step is to define box.
+There are two ways of defining box: partitioning and compositing.</p>
+<section id="the-canonical-way-to-define-box">
+<h4>The canonical way to define box<a class="headerlink" href="#the-canonical-way-to-define-box" title="Link to this heading"></a></h4>
+<p>The canonical way to define box is by partitioning.
+It is as simple as: select an IterDomain in the TMA domain, then
+inner split that IterDomain by the box size of that dimension.</p>
+<p>We call this split expression a “<em>boxing split</em>”, the input of this split a “<em>partitioned IterDomain</em>”,
+the inner output of this split a “<em>box IterDomain</em>”, and the outer output of this split a “<em>coordinate IterDomain</em>”.</p>
+<p>For the case of Figure 1, if both box dimensions are defined by partitioning,
+the schedule should look like the Figure 4 below:</p>
+<p><img alt="Figure 4: Boxing by partitioning" src="../_images/box-by-partitioning.svg" /></p>
+<p>Please note that, although in the above example, the split is divisible, this does not have to be the case in general.</p>
+</section>
+<section id="define-box-by-mathematical-equivalence">
+<h4>Define box by mathematical equivalence<a class="headerlink" href="#define-box-by-mathematical-equivalence" title="Link to this heading"></a></h4>
+<p>Ideally, for an arbitrary schedule,
+as long as there exist a canonical way of defining box that is mathematically equivalent to this schedule,
+during lowering, we should be able to automatically translate this schedule to the canonical way and infer all the informations needed for generating a TMA instruction.</p>
+<p>Mathematical equivalence of IterDomain transformations is studied in <span class="xref myst">The Mathematical Theory of IterDomain</span>.</p>
+<p>In practice, supporting all mathematical equivalence is not possible.
+Just like expression simplification, NVFuser does the mathematical equivalence analysis in a best effort manner.
+Some known supported mathematical equivalence are listed below:</p>
+<section id="define-box-by-compositing">
+<h5>Define box by compositing<a class="headerlink" href="#define-box-by-compositing" title="Link to this heading"></a></h5>
+<p>Mathematically, if we merge two IterDomains <code class="docutils literal notranslate"><span class="pre">[I0,</span> <span class="pre">I1]</span></code> together and split with the factor of <code class="docutils literal notranslate"><span class="pre">I1</span></code>’s extent, we get back equivalent IterDomains.
+Visually, we have the Figure 5 below:</p>
+<p><img alt="Figure 5: Merge-split = identity transformation" src="../_images/merge-split.svg" /></p>
+<p>TODO: add a proof to <span class="xref myst">The Mathematical Theory of IterDomain</span></p>
+<p>By taking advantage of this mathematical equivalence property of IterDomain transformations,
+we have the following “define box by compositing” strategy:</p>
+<p>Define box by compositing is to select a slice of IterDomains from the TMA domain and consider the innermost IterDomain(s) in the slice as box.
+The IterDomains within the slice must be contiguous to each other.
+For example, if the TMA domain of a tensor is <code class="docutils literal notranslate"><span class="pre">T[I1{1024},</span> <span class="pre">I2{2},</span> <span class="pre">I3{4},</span> <span class="pre">I4{8}]</span></code>, and the tensor is contiguous,
+then we can select <code class="docutils literal notranslate"><span class="pre">[I3{4},</span> <span class="pre">I4{8}]</span></code> as box IterDomains.
+This defines boxes of size 32, and there are in total 2048 boxes.</p>
+<p>It is helpful to imagine the tensor as its canonical form, as shown in the following Figure 6:</p>
+<p><img alt="Figure 6: Define box by compositing" src="../_images/box-by-compositing.svg" /></p>
+<p>In this mental model, <code class="docutils literal notranslate"><span class="pre">I1</span></code>, <code class="docutils literal notranslate"><span class="pre">I2</span></code>, <code class="docutils literal notranslate"><span class="pre">I3</span></code> and <code class="docutils literal notranslate"><span class="pre">I4</span></code> were first imaginarily merged to form <code class="docutils literal notranslate"><span class="pre">I5</span></code>.
+Then we defined box on <code class="docutils literal notranslate"><span class="pre">I5</span></code> by partitioning.
+The terms used in defining box by partitioning is also valid here,
+the only difference is that these terms now refers to imaginary splits and IterDomains instead of real ones.
+For convenience, we also call <code class="docutils literal notranslate"><span class="pre">[I3,</span> <span class="pre">I4]</span></code> “<em>box IterDomain</em>”
+(Note that we never call <code class="docutils literal notranslate"><span class="pre">I3</span></code> or <code class="docutils literal notranslate"><span class="pre">I4</span></code> itself a box IterDomain,
+we only call <code class="docutils literal notranslate"><span class="pre">I3</span></code> and <code class="docutils literal notranslate"><span class="pre">I4</span></code> together box IterDomain).
+Similarly, we call <code class="docutils literal notranslate"><span class="pre">[I1,</span> <span class="pre">I2]</span></code> “<em>coordinate IterDomain</em>”.</p>
+<p>As we can see in Figure 6, when we define box by compositing,
+the dimensionality of the TMA domain does not equal to the dimensionality of the TMA instruction.
+Instead, the dimensionality of the imaginary TMA domain equals to the dimensionality of TMA instruction.</p>
+<p>Note that the number of IterDomains selected as box in a slice can be arbitrary.
+It can be as small as 0 IterDomains, or as large as the entire slice.
+When 0 IterDomains are selected as box, the box size is implicitly one.
+For this case, we call this box dimension “implicit size-one”.
+When the entire slice is selected as box, the tensor only have one box on that dimension, and the size of the box equals the size of that dimension.
+For this case, we call this box dimension “implicit whole”.</p>
+</section>
+<section id="define-box-by-rotation">
+<h5>Define box by rotation<a class="headerlink" href="#define-box-by-rotation" title="Link to this heading"></a></h5>
+<p>The name “rotation” comes from <a class="reference external" href="https://en.wikipedia.org/wiki/Tree_rotation">tree rotation</a>.
+According to Theorem 2.1 in <span class="xref myst">The Mathematical Theory of IterDomain</span>,
+the IterDomain transformations in the Figure 7 below are equivalent:</p>
+<p><img alt="Figure 7: Equivalence of Split-Split" src="../_images/split-split.svg" /></p>
+<p>We support defining boxes by both rotating left and rotating right.
+For example, in the Figure 8 below:</p>
+<p><img alt="Figure 8: Define box by rotation" src="../_images/box-by-rotation.svg" /></p>
+<p>For the schedule on the left hand side of Figure 8,
+if we define <code class="docutils literal notranslate"><span class="pre">[I3,</span> <span class="pre">I4]</span></code> as the box IterDomain.
+Because the schedule on the left hand side is mathematically equivalent to the schedule on the right hand side,
+we can imagine the schedule on the left hand side as the right hand side,
+and consider <code class="docutils literal notranslate"><span class="pre">I1</span></code> as the box IterDomain.</p>
+<p>Similarly, for the schedule on the right hand side,
+if we define <code class="docutils literal notranslate"><span class="pre">I4</span></code> as the box IterDomain.
+Because the schedule on the right hand side is mathematically equivalent to the schedule on the left hand side,
+we can imagine the schedule on the right hand side as the left hand side,
+and consider <code class="docutils literal notranslate"><span class="pre">I5</span></code> as the coordinate IterDomain.
+Note that in order to be able to rotate the right hand side schedule as the left hand side,
+the split defining <code class="docutils literal notranslate"><span class="pre">I4</span></code> must be divisible.
+However, the split defining <code class="docutils literal notranslate"><span class="pre">I1</span></code> does not have to be divisible.</p>
+<p>This way of thinking is illustrated in the Figure 9 below:</p>
+<p><img alt="Figure 9: Define box by rotation imagined" src="../_images/box-by-rotation-imagined.svg" /></p>
+<p>It is possible to define box by multiple rotation, as shown in the following Figure 10:</p>
+<p><img alt="Figure 10: Define box by rotation imagined" src="../_images/box-by-multiple-rotation.svg" /></p>
+</section>
+<section id="mixing-different-strategies">
+<h5>Mixing different strategies<a class="headerlink" href="#mixing-different-strategies" title="Link to this heading"></a></h5>
+<p>We can use different box defining strategies together at the same time in the same tensor.
+For example, in Figure 11 below:</p>
+<p><img alt="Figure 11: Define box by partitioning and compositing" src="../_images/box-by-partitioning-and-compositing.svg" /></p>
+<p>The TMA domain of the tensor has nine IterDomains.
+The contiguities of these nine IterDomains are <code class="docutils literal notranslate"><span class="pre">(T,</span> <span class="pre">T,</span> <span class="pre">T,</span> <span class="pre">F,</span> <span class="pre">T,</span> <span class="pre">T,</span> <span class="pre">T,</span> <span class="pre">T,</span> <span class="pre">T)</span></code>.
+We scheduled a 5D TMA operation, where in these five dimensions, one of them defines box by partitioning, and others define box by compositing.
+There is no other box defining strategies used.
+Green color means box IterDomain and brown color means coordinate IterDomain.
+The first dimension is <code class="docutils literal notranslate"><span class="pre">[I1,</span> <span class="pre">I2]</span></code>, where <code class="docutils literal notranslate"><span class="pre">I1</span></code> is coordinate IterDomain and <code class="docutils literal notranslate"><span class="pre">I2</span></code> is box IterDomain.
+The second dimension is <code class="docutils literal notranslate"><span class="pre">I3</span></code>, it is the only dimension that defines box by partitioning.
+<code class="docutils literal notranslate"><span class="pre">I3</span></code> is the partitioned IterDomain, <code class="docutils literal notranslate"><span class="pre">I11</span></code> is the box IterDomain, and <code class="docutils literal notranslate"><span class="pre">I10</span></code> is the coordinate IterDomain.
+The third dimension is <code class="docutils literal notranslate"><span class="pre">I4</span></code>, it has no box IterDomain, therefore, the box size is implicitly one.
+The fourth dimension is <code class="docutils literal notranslate"><span class="pre">[I5,</span> <span class="pre">I6]</span></code>, it has no coordinate IterDomain, therefore this dimension only has one box,
+whose size is the product of the extents of <code class="docutils literal notranslate"><span class="pre">I5</span></code> and <code class="docutils literal notranslate"><span class="pre">I6</span></code>.
+The fifth dimension is <code class="docutils literal notranslate"><span class="pre">[I7,</span> <span class="pre">I8,</span> <span class="pre">I9]</span></code>, where <code class="docutils literal notranslate"><span class="pre">I8</span></code> and <code class="docutils literal notranslate"><span class="pre">I9</span></code> are box IterDomain, and <code class="docutils literal notranslate"><span class="pre">I7</span></code> is coordinate IterDomain.
+The imaginary TMA domain has five IterDomains, they are <code class="docutils literal notranslate"><span class="pre">merge(I1,</span> <span class="pre">I2)</span></code>, <code class="docutils literal notranslate"><span class="pre">I3</span></code>, <code class="docutils literal notranslate"><span class="pre">I4</span></code>, <code class="docutils literal notranslate"><span class="pre">merge(I5,</span> <span class="pre">I6)</span></code>, and <code class="docutils literal notranslate"><span class="pre">merge(I7,</span> <span class="pre">I8,</span> <span class="pre">I9)</span></code>.</p>
+</section>
+</section>
+</section>
+<section id="step-3-define-tile">
+<h3>Step 3: define tile<a class="headerlink" href="#step-3-define-tile" title="Link to this heading"></a></h3>
+<p>TMA’s tile can be dense or strided.
+Most commonly, we use dense tile.
+For dense tile, we define the <em>tile IterDomain</em> as the box IterDomain,
+and use the word <em>tile</em> and <em>box</em> interchangeably.</p>
+<p>For strided tile, we do an inner-split on the box IterDomain by the <em>element stride</em>.
+We call this split “<em>striding split</em>”, the inner output of this split “<em>stride IterDomain</em>”,
+and the outer output of this split “<em>tile IterDomain</em>”.
+For the example in Figure 1 on the right hand side, the schedule looks like the Figure 12 below:</p>
+<p><img alt="Figure 12: Strided tile" src="../_images/strided-tile.svg" /></p>
+<p>Note that if the box is defined by compositing,
+the box IterDomain can be a list of IterDomains instead of a single IterDomain.
+If we want to define a strided tile in this case, we need first merge all these IterDomains to get a single box IterDomain then do the striding split.
+It is wrong to just do the striding split on the innermost box IterDomain without merging them first,
+and the former is not equivalent to the latter as discussed in <span class="xref myst">Divisibility of Split</span>.</p>
+<blockquote>
+<div><p>[!WARNING]
+When the element stride does not divide and is smaller than the box size,
+and the tensor size is larger than the box size,
+extra care is needed because there are holes not filled with zero.
+This is called “<strong>The fundamental theorem of TMA correctness</strong>”, or <strong>FTTC</strong> in short.
+See <span class="xref myst">TMA Modeling In Depth</span> for more detail.</p>
+</div></blockquote>
+</section>
+<section id="step-4-schedule-the-shared-memory-tensor">
+<h3>Step 4: schedule the shared memory tensor<a class="headerlink" href="#step-4-schedule-the-shared-memory-tensor" title="Link to this heading"></a></h3>
+<p>So far, we have been focusing on the schedule of the consumer because the consumer dictates the loop nest.
+Let’s now move our attention to the shared memory tensor.
+For TMA load, the shared memory tensor is the consumer.
+For TMA store, the shared memory tensor is the producer.</p>
+<p>One important constraint we must realize is, for TMA,
+the minimum unit that the programmer has control of is a tile.
+We are free to specify where to place different tiles in shared memory,
+but each tile must span a contiguous space.
+Besides the tile must be contiguous in the allocation domain,
+the allocation domain is also required to be a multiple of whole tiles,
+because tile is the minimum unit of a TMA operation.
+If a schedule indicates the opposite, then this schedule is wrong.</p>
+<p>The Figure 13 below shows some invalid schedule on the shared memory tensor:</p>
+<p><img alt="Figure 13: Some invalid smem schedule" src="../_images/invalid-smem-discontiguous.svg" /></p>
+<p>These examples can also be found in unit tests <code class="docutils literal notranslate"><span class="pre">TMADocTest.Figure13*</span></code>.</p>
+<p>These examples have the same reason for being invalid: The tile in shared memory is not contiguous.</p>
+<p>In the example (a), the allocated IterDomains are <code class="docutils literal notranslate"><span class="pre">[I3,</span> <span class="pre">I7,</span> <span class="pre">I8,</span> <span class="pre">I6]</span></code>
+(note that <code class="docutils literal notranslate"><span class="pre">I5</span></code> is parallelized on <code class="docutils literal notranslate"><span class="pre">blockIdx.x</span></code>, it is not allocated on shared memory).
+The tile IterDomains are <code class="docutils literal notranslate"><span class="pre">I7</span></code> and <code class="docutils literal notranslate"><span class="pre">I6</span></code>, there is an <code class="docutils literal notranslate"><span class="pre">I8</span></code> between them,
+making the tile not contiguous in memory.</p>
+<p>In the example (b), the allocated IterDomains are <code class="docutils literal notranslate"><span class="pre">[(partial)</span> <span class="pre">I1,</span> <span class="pre">I2]</span></code>,
+where <code class="docutils literal notranslate"><span class="pre">I2</span></code> contains not only <code class="docutils literal notranslate"><span class="pre">I6</span></code> but also <code class="docutils literal notranslate"><span class="pre">I5</span></code>,
+so <code class="docutils literal notranslate"><span class="pre">I4</span></code> and <code class="docutils literal notranslate"><span class="pre">I6</span></code> is not contiguous in memory.
+Besides, because the boxing split of <code class="docutils literal notranslate"><span class="pre">I2</span></code> is not divisible, <code class="docutils literal notranslate"><span class="pre">I2</span></code> is not a multiple of whole tile.</p>
+<p>In the example (c), the allocated IterDomains are <code class="docutils literal notranslate"><span class="pre">[I3,</span> <span class="pre">I4,</span> <span class="pre">I5,</span> <span class="pre">I6]</span></code>.
+The <code class="docutils literal notranslate"><span class="pre">I5</span></code> between <code class="docutils literal notranslate"><span class="pre">I4</span></code> and <code class="docutils literal notranslate"><span class="pre">I6</span></code> is parallelized on <code class="docutils literal notranslate"><span class="pre">TIDx</span></code>, therefore allocated.
+So <code class="docutils literal notranslate"><span class="pre">I4</span></code> and <code class="docutils literal notranslate"><span class="pre">I6</span></code> is not contiguous in memory.</p>
+<p>In the example (d), the shared memory tensor is the producer.
+Similar to (b), because <code class="docutils literal notranslate"><span class="pre">I2</span></code> contains <code class="docutils literal notranslate"><span class="pre">I5</span></code>, the tile is not contiguous in shared memory.
+Also <code class="docutils literal notranslate"><span class="pre">I2</span></code> is not a multiple of <code class="docutils literal notranslate"><span class="pre">I6</span></code>, which is not allowed as well.</p>
+<p>In the example (e), the allocated IterDomains are <code class="docutils literal notranslate"><span class="pre">[I3,</span> <span class="pre">I4,</span> <span class="pre">I5,</span> <span class="pre">I6]</span></code>.
+The <code class="docutils literal notranslate"><span class="pre">I5</span></code> between <code class="docutils literal notranslate"><span class="pre">I4</span></code> and <code class="docutils literal notranslate"><span class="pre">I6</span></code> makes the tile discontiguous in shared memory.</p>
+<p>The Figure 14 below shows some valid schedule on the shared memory tensor:</p>
+<p><img alt="Figure 14: Some valid smem schedule" src="../_images/valid-smem-contig.svg" /></p>
+<p>These examples can also be found in unit tests <code class="docutils literal notranslate"><span class="pre">TMADocTest.Figure14*</span></code>.</p>
+<p>Example (a) is valid because it flipped the order of <code class="docutils literal notranslate"><span class="pre">I8</span></code> and <code class="docutils literal notranslate"><span class="pre">I7</span></code> to make <code class="docutils literal notranslate"><span class="pre">I7</span></code> inner,
+and the <code class="docutils literal notranslate"><span class="pre">I5</span></code> between <code class="docutils literal notranslate"><span class="pre">I7</span></code> and <code class="docutils literal notranslate"><span class="pre">I6</span></code> is <code class="docutils literal notranslate"><span class="pre">blockIdx.x</span></code> parallelized therefore not allocated.</p>
+<p>Example (b) is valid because <code class="docutils literal notranslate"><span class="pre">I2</span></code> and <code class="docutils literal notranslate"><span class="pre">I6</span></code> are essentially equivalent because the split size is exactly <code class="docutils literal notranslate"><span class="pre">I2</span></code>’s extent.
+Similar argument applies to example (d).</p>
+<p>Example (c) is valid because, although <code class="docutils literal notranslate"><span class="pre">I4</span></code> is a tile IterDomain and there is an <code class="docutils literal notranslate"><span class="pre">I5</span></code> between <code class="docutils literal notranslate"><span class="pre">I4</span></code> and <code class="docutils literal notranslate"><span class="pre">I6</span></code>,
+the extent of <code class="docutils literal notranslate"><span class="pre">I4</span></code> is <code class="docutils literal notranslate"><span class="pre">1</span></code> so it is a trivial IterDomain that we do now care where it is.</p>
+<p>Example (e) is valid because, although there is an <code class="docutils literal notranslate"><span class="pre">I5</span></code> between <code class="docutils literal notranslate"><span class="pre">I4</span></code> and <code class="docutils literal notranslate"><span class="pre">I6</span></code> in the allocation domain,
+because the extent of <code class="docutils literal notranslate"><span class="pre">I5</span></code> is <code class="docutils literal notranslate"><span class="pre">1</span></code> so it is a trivial IterDomain that does not make <code class="docutils literal notranslate"><span class="pre">I4</span></code> and <code class="docutils literal notranslate"><span class="pre">I6</span></code> discontiguous.</p>
+<p>Except for the above mentioned constraints,
+we do not have further limitation on what the allocation domain should look like.
+Especially, as long as we are keeping each tile contiguous in memory, we can view it arbitrarily.</p>
+<p>The following Figure 15 shows some additional valid and invalid schedules:</p>
+<p><img alt="Figure 15: Additional valid and invalid smem schedule" src="../_images/arbitrary-view.svg" /></p>
+<p>These examples can also be found in unit tests <code class="docutils literal notranslate"><span class="pre">TMADocTest.Figure15*</span></code>.</p>
+<p>In the above figure, example (a) and (b) are valid because the allocation domains satisfy the constraint that they must be a multiple of whole tiles and each tile is contiguous in memory.</p>
+<p>Example (c) is invalid because within each tile, the split obtaining <code class="docutils literal notranslate"><span class="pre">I8</span></code> is indivisible,
+therefore it creates holes and makes each tile no longer contiguous.
+Example (d) is invalid because within each tile, the order of <code class="docutils literal notranslate"><span class="pre">I7</span></code> and <code class="docutils literal notranslate"><span class="pre">I8</span></code> is flipped,
+making each tile not contiguous.
+Example (e) is invalid because, although each tile is contiguous in memory,
+the overall allocation domain is not a multiple of whole tiles.</p>
+<p>For TMA store, the flexibility of being able to arbitrarily view the tile can be convenient,
+because the schedule of the shared memory tensor not only defines the memory layout,
+but also defines the loop structure and the parallelization strategy on how the shared memory tensor will be written.
+With this flexibility, we can often just make the loop domain and the allocation domain the same.</p>
+<p>For TMA load, this is not the case.
+The schedule of the shared memory tensor defines how TMA will write shared memory.
+But TMA only cares about the boxing and striding split.
+However you transform the tile IterDomains after they are created by the boxing/striding split will just be ignored.
+We do still need the flexibility to freely choose how we want to read the shared memory,
+but this information is defined in the consumers of the shared memory tensor,
+not the shared memory tensor itself.
+With this in mind, we put a constraint in nvFuser that we disallow transforming tile and non-tile IterDomains together in the consumer of a TMA expression.
+For example, we can not merge or swizzle a tile IterDomain with a non-tile IterDomain.
+This constraint does help us to keep the system simple
+so that we do not need to explicitly store the TMA domain, but instead,
+the TMA domain can be completely inferred from the schedule.</p>
+<blockquote>
+<div><p>[!WARNING]
+Due to the limitation of our current indexing approach,
+Not all valid schedules will be indexable.
+During indexing, currently we need to replay producer as consumer,
+so if the replay is not possible, we can not index it.</p>
+</div></blockquote>
+<blockquote>
+<div><p>[!WARNING]
+We do not have validation on shared memory schedule yet.
+If you scheduled something invalid, likely you will see misaligned address error or silent wrong result.</p>
+</div></blockquote>
+<blockquote>
+<div><p>[!WARNING]
+When using circular buffering with TMA, a single thread is select to launch the TMA load and mbarrier operations.
+In this case, we cannot apply any block parallelization to the consumer TensorView, which will create a thread predicate.
+A compile-time error will occur if you apply circular buffering and block parallelization together.
+See <code class="docutils literal notranslate"><span class="pre">TEST_F(NVFuserTest,</span> <span class="pre">ElectSyncCompatibility)</span></code> for an example.</p>
+</div></blockquote>
+<section id="data-swizzle">
+<h4>Data swizzle<a class="headerlink" href="#data-swizzle" title="Link to this heading"></a></h4>
+<p>So far we have been ignoring the shared memory swizzle feature of TMA and
+assuming that the tile is stored in shared memory contiguously.
+TMA can store a tile in shared memory in a swizzled layout.
+There are four swizzling mode: no swizzle, 32 byte swizzle, 64 byte swizzle, and 128 byte swizzle.
+The no swizzle mode is the the mode that we have been assuming.</p>
+<p>The <code class="docutils literal notranslate"><span class="pre">N</span></code> byte swizzle mode can be considered as the Figure 16 below:</p>
+<p><img alt="Figure 16: Swizzle" src="../_images/swizzle.svg" /></p>
+<p>TMA requires the size of the innermost dimension to be the swizzle size (<code class="docutils literal notranslate"><span class="pre">N</span></code> bytes).
+For example, if using 64 byte swizzle on <code class="docutils literal notranslate"><span class="pre">fp16</span></code> tensors,
+the innermost dimension must have size <span class="math notranslate nohighlight">\(64 / 2 = 32\)</span>.
+Although these swizzle modes work on all dimensionalities of TMA,
+we always view the tile as a 2D matrix <code class="docutils literal notranslate"><span class="pre">(-1,</span> <span class="pre">swizzle</span> <span class="pre">size)</span></code>,
+where the <code class="docutils literal notranslate"><span class="pre">-1</span></code> is the flatten of all dimensions except the innermost dimension.</p>
+<p>After viewing the tile as a 2D matrix, we further divide this matrix as blocks of unit matrices.
+We divide each row into unit of 16 bytes, so each row will have <code class="docutils literal notranslate"><span class="pre">N/16</span></code> units.
+For each column, we divide it into unit of <code class="docutils literal notranslate"><span class="pre">128/N</span></code> rows,
+so each unit row has <code class="docutils literal notranslate"><span class="pre">128/N</span> <span class="pre">*</span> <span class="pre">N</span> <span class="pre">bytes</span> <span class="pre">=</span> <span class="pre">128</span> <span class="pre">bytes</span></code>, which is exactly the width of all 32 banks.
+The unit matrix is the minimum unit of operation when applying swizzles.</p>
+<p>After viewing the tile as blocks of unit matrices, we can apply the xor-swizzle using the following steps:</p>
+<ol class="arabic simple">
+<li><p>For every other unit row, swap each pair of two units.</p></li>
+<li><p>Consider <span class="math notranslate nohighlight">\(2\times 2\)</span> unit matrices as new unit.</p></li>
+<li><p>Repeat 1 and 2 until there is only one unit column, so we have nothing to do further.</p></li>
+</ol>
+<p>The above procedure creates a periodic pattern with period <code class="docutils literal notranslate"><span class="pre">N/16</span></code> unit rows.
+Within each period, the above procedure can be achieved with a single xor operation:
+assuming <code class="docutils literal notranslate"><span class="pre">i</span></code> is the row index and <code class="docutils literal notranslate"><span class="pre">j</span></code> is the column index,
+we can just do <code class="docutils literal notranslate"><span class="pre">(i,</span> <span class="pre">j)</span> <span class="pre">-&gt;</span> <span class="pre">(i,</span> <span class="pre">i</span> <span class="pre">^</span> <span class="pre">j)</span></code>.</p>
+<details>
+<p><strong><summary>Why?</summary></strong></p>
+<p>Xor has the mathematical property that, if a bit in <code class="docutils literal notranslate"><span class="pre">i</span></code> is <code class="docutils literal notranslate"><span class="pre">1</span></code>,
+then the result of the xor operation will be the flip of <code class="docutils literal notranslate"><span class="pre">j</span></code>’s corresponding bit;
+if a bit in <code class="docutils literal notranslate"><span class="pre">i</span></code> is <code class="docutils literal notranslate"><span class="pre">0</span></code>, then the result of the xor operation will be <code class="docutils literal notranslate"><span class="pre">j</span></code>’s corresponding bit unchanged.</p>
+<p>Considering the lowest bit of <code class="docutils literal notranslate"><span class="pre">i</span></code>, it has value <code class="docutils literal notranslate"><span class="pre">1</span></code> every other row.
+When this bit is xor-ed with <code class="docutils literal notranslate"><span class="pre">j</span></code>,
+the result <code class="docutils literal notranslate"><span class="pre">i</span> <span class="pre">^</span> <span class="pre">j</span></code>’s lowest bit will be the flip of the lowest bit of <code class="docutils literal notranslate"><span class="pre">j</span></code> every other row.
+Visually, this corresponding to swapping each pair of unit matrices every other row.</p>
+<p>When we treat <span class="math notranslate nohighlight">\(2\times 2\)</span> unit matrices as new unit, we are effectively doing <code class="docutils literal notranslate"><span class="pre">i</span> <span class="pre">&gt;&gt;</span> <span class="pre">1</span></code> and <code class="docutils literal notranslate"><span class="pre">j</span> <span class="pre">&gt;&gt;</span> <span class="pre">1</span></code>.
+Repeat the step 1 will then use the lowest bit of <code class="docutils literal notranslate"><span class="pre">(i</span> <span class="pre">&gt;&gt;</span> <span class="pre">1)</span> <span class="pre">^</span> <span class="pre">(j</span> <span class="pre">&gt;&gt;</span> <span class="pre">1)</span></code> to control the swapping of the new units.
+This equivalent to use the second lowest bit of <code class="docutils literal notranslate"><span class="pre">i</span> <span class="pre">^</span> <span class="pre">j</span></code> to control the <span class="math notranslate nohighlight">\(2\times 2\)</span> unit matrices.</p>
+<p>When we repeat this process until finished, we are using all bits of <code class="docutils literal notranslate"><span class="pre">i</span> <span class="pre">^</span> <span class="pre">j</span></code>,
+different bits control the flip of pairs of different granularity.</p>
+<p><span class="math notranslate nohighlight">\(\square\)</span></p>
+</details>
+<p>Storing data in swizzled memory format in shared memory is helpful because it makes both row-wise and column-wise memory access free of bank conflict.</p>
+<details>
+<p><strong><summary>Why?</summary></strong></p>
+<p>In the 3-step procedure above, we are only swapping items within each row of unit matrices.
+This procedure never interleave different rows, instead,
+it just reorder the unit matrices within each row itself.
+So each row of unit matrices still occupies the full width of 32 banks.
+Therefore, when a warp is simultenuously accessing a row of unit matrices
+(either by vectorization or by parallelization), it has no bank conflict.</p>
+<p>In the 3-step approach above, the first step swaps half of the items in the first column with half of the items with the second column.
+This operation interleave every pair of columns to make them containing each other evenly.
+If we consider every 2 columns as a unit column, then items between different unit columns still does not interleave.
+But when we consider <span class="math notranslate nohighlight">\(2\times 2\)</span> unit matrices as new unit and do the swap again,
+we are interleaving every pair of unit columns making them containing each other evenly.
+If we repeat this process, each logical column will eventually be evenly distributed to every physical column.
+So when we want to access one logical column, we are actually accessing every physical columns.
+Therefore, when a warp is simultenuously accessing a logical column of unit matrices,
+this access will be distributed to all physical columns, therefore all banks.
+Therefore, this access has no bank conflict.</p>
+<p><span class="math notranslate nohighlight">\(\square\)</span></p>
+</details>
+<p>When we use the automatic swizzling feature of TMA,
+we must make sure that the allocation domain of our shared memory tensor is consistent with the memory format defined by TMA.</p>
+<p>Let <code class="docutils literal notranslate"><span class="pre">s</span></code> be swizzle size (<code class="docutils literal notranslate"><span class="pre">bytes</span> <span class="pre">of</span> <span class="pre">swizzle</span> <span class="pre">/</span> <span class="pre">16</span> <span class="pre">bytes</span></code>).
+The overall structure of the schedule of the allocation domain of the shared memory tensor looks like:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">tile</span> <span class="n">IterDomains</span> <span class="o">=&gt;</span> <span class="n">view</span> <span class="k">as</span> <span class="p">([</span><span class="o">-</span><span class="mi">1</span><span class="p">,</span> <span class="n">s</span><span class="p">,</span> <span class="mi">8</span><span class="o">/</span><span class="n">s</span><span class="p">,</span> <span class="n">s</span><span class="p">,</span> <span class="mi">16</span><span class="n">B</span><span class="p">])</span> <span class="o">=&gt;</span> <span class="n">swizzle</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">3</span><span class="p">)</span> <span class="o">=&gt;</span> <span class="n">arbitrary</span> <span class="n">view</span>
+</pre></div>
+</div>
+<p>For 32 byte swizzle, the above shape is <code class="docutils literal notranslate"><span class="pre">[-1,</span> <span class="pre">2,</span> <span class="pre">4,</span> <span class="pre">2,</span> <span class="pre">16B]</span></code>.
+For 64 byte swizzle, the above shape is <code class="docutils literal notranslate"><span class="pre">[-1,</span> <span class="pre">4,</span> <span class="pre">2,</span> <span class="pre">4,</span> <span class="pre">16B]</span></code>.
+For 128 byte swizzle, the above shape is <code class="docutils literal notranslate"><span class="pre">[-1,</span> <span class="pre">8,</span> <span class="pre">1,</span> <span class="pre">8,</span> <span class="pre">16B]</span></code>,
+where the <code class="docutils literal notranslate"><span class="pre">1</span></code> can be omitted and just use <code class="docutils literal notranslate"><span class="pre">[-1,</span> <span class="pre">8,</span> <span class="pre">8,</span> <span class="pre">16B]</span></code> in practice
+(and be sure that you use the correct axis for swizzle if you do so).</p>
+<p>The Figure 17 below shows an example schedule of the consumer of a TMA load of a <code class="docutils literal notranslate"><span class="pre">fp16</span></code> tensor with 64 byte swizzle:</p>
+<p><img alt="Figure 17: Schedule of 64 byte swizzle" src="../_images/swizzle-schedule.svg" /></p>
+</section>
+</section>
+<section id="step-5-schedule-the-consumer-tensor">
+<h3>Step 5: schedule the consumer tensor<a class="headerlink" href="#step-5-schedule-the-consumer-tensor" title="Link to this heading"></a></h3>
+<p>In nvFuser, the consumer dictates the loop nests and parallelization of an expression,
+and the loop domain of the consumer has the responsibility of specifying these information.</p>
+<p>Most generally, when we enter this step,
+we might see the loop domain of the consumer tensor already scheduled partially,
+as shown in the Figure 18 below:</p>
+<p><img alt="Figure 18: Consumer schedule" src="../_images/consumer-schedule.svg" /></p>
+<p>It is important to note that, tile IterDomains and non-tile IterDomains must be transformed separately in the consumer of a TMA expression.
+Transforming tile IterDomain and non-tile IterDomain together,
+such as merging a tile IterDomain with a non-tile IterDomain, is an error in the schedule.</p>
+<p>We are not interested in further transforming the tile branch in this step,
+because TMA only cares about the boxing and striding split.
+However you transform the tile IterDomains after they are created by the boxing/striding split will just be ignored.
+So we just immediately parallelize all the IterDomains in the loop domain from the tile branch as <code class="docutils literal notranslate"><span class="pre">ParallelType::Bulk</span></code> without doing any transformation.
+Oh, well, I may be wrong.
+Sometimes, merging all of these IterDomains first then parallelize the merged IterDomain as <code class="docutils literal notranslate"><span class="pre">ParallelType::Bulk</span></code> takes less keystrokes.
+So, maybe do the latter instead of the former.
+Anyway, we can just pick whatever the most convenient way to parallelize all these IterDomains as <code class="docutils literal notranslate"><span class="pre">ParallelType::Bulk</span></code>.
+Like <code class="docutils literal notranslate"><span class="pre">ParallelType::Vectorize</span></code>, IterDomains parallelized with <code class="docutils literal notranslate"><span class="pre">ParallelType::Bulk</span></code> will be lowered as trivial loops, so they will not appear in the generated C++ code.</p>
+<blockquote>
+<div><p>[!WARNING]
+Due to the limitation of our current indexing approach,
+the consumer must be transformed the same way as the producer.
+So we need to repeat the schedule of the TMA store’s shared memory tensor’s allocation domain
+in the consumer so that the indexing won’t fail.</p>
+</div></blockquote>
+<p>The interesting thing to us is the non-tile branch,
+because the transformation and parallelization here defines which CTA get which tiles,
+and within each CTA, how do we want to tranfer these tiles
+(do we select a single thread and within this thread use a for loop to transfer all tiles,
+or do we use multiple threads each in charge of transfering one tile,
+or something else?).
+We do have the flexibility to arbitrarily transform and parallelize the non-tile branch,
+and scheduling this is very similar to how we schedule other fusions.</p>
+</section>
+<section id="code-walk-through">
+<h3>Code walk-through<a class="headerlink" href="#code-walk-through" title="Link to this heading"></a></h3>
+<p>Please go to <a class="reference download internal" download="" href="../_downloads/e4b380e4b839bb2959d3e084a05a9650/test_tutorial.cpp"><span class="xref download myst">test_tutorial.cpp</span></a> and search <code class="docutils literal notranslate"><span class="pre">TEST_F(Tutorial,</span> <span class="pre">BasicTMA)</span></code>.</p>
+</section>
+<section id="examples">
+<h3>Examples<a class="headerlink" href="#examples" title="Link to this heading"></a></h3>
+<section id="example-1-tma-load-inputs-and-vectorize-store-output-pointwise-kernel">
+<h4>Example 1: tma-load inputs and vectorize-store output pointwise kernel<a class="headerlink" href="#example-1-tma-load-inputs-and-vectorize-store-output-pointwise-kernel" title="Link to this heading"></a></h4>
+<p>Please go to <a class="reference download internal" download="" href="../_downloads/e4b380e4b839bb2959d3e084a05a9650/test_tutorial.cpp"><span class="xref download myst">test_tutorial.cpp</span></a> and search <code class="docutils literal notranslate"><span class="pre">TEST_F(Tutorial,</span> <span class="pre">VectorizeStorePointwiseTMA)</span></code>.</p>
+<p>Fusion:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">inputs</span><span class="p">:</span>
+<span class="n">T0</span><span class="p">[</span><span class="n">I0</span><span class="p">,</span> <span class="n">I1</span><span class="p">]</span> <span class="n">contiguity</span><span class="p">:</span> <span class="n">T</span><span class="p">,</span> <span class="n">T</span>
+<span class="n">T1</span><span class="p">[</span><span class="n">I0</span><span class="p">,</span> <span class="n">I1</span><span class="p">]</span> <span class="n">contiguity</span><span class="p">:</span> <span class="n">T</span><span class="p">,</span> <span class="n">T</span>
+
+<span class="n">math</span><span class="p">:</span>
+<span class="n">T2</span><span class="p">[</span><span class="n">I0</span><span class="p">,</span> <span class="n">I1</span><span class="p">]</span> <span class="o">=</span> <span class="n">T0</span><span class="p">[</span><span class="n">I0</span><span class="p">,</span> <span class="n">I1</span><span class="p">]</span> <span class="o">+</span> <span class="n">T1</span><span class="p">[</span><span class="n">I0</span><span class="p">,</span> <span class="n">I1</span><span class="p">];</span>
+
+<span class="n">outputs</span><span class="p">:</span>
+<span class="n">T2</span><span class="p">[</span><span class="n">I0</span><span class="p">,</span> <span class="n">I1</span><span class="p">]</span> <span class="n">contiguity</span><span class="p">:</span> <span class="n">T</span><span class="p">,</span> <span class="n">T</span>
+</pre></div>
+</div>
+<p>Schedule:</p>
+<p><img alt="Example 1: tma-load-inputs, vectorize-store-output pointwise" src="../_images/example1.svg" /></p>
+</section>
+<section id="example-2-broadcast-kernel-with-discontiguous-input">
+<h4>Example 2: broadcast kernel with discontiguous input<a class="headerlink" href="#example-2-broadcast-kernel-with-discontiguous-input" title="Link to this heading"></a></h4>
+<p>Please go to <a class="reference download internal" download="" href="../_downloads/e4b380e4b839bb2959d3e084a05a9650/test_tutorial.cpp"><span class="xref download myst">test_tutorial.cpp</span></a> and search <code class="docutils literal notranslate"><span class="pre">TEST_F(Tutorial,</span> <span class="pre">PointwiseBroadcastTMA)</span></code>.</p>
+<p>Fusion:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">inputs</span><span class="p">:</span>
+<span class="n">T0</span><span class="p">[</span><span class="n">I1</span><span class="p">,</span> <span class="n">I2</span><span class="p">,</span> <span class="n">I3</span><span class="p">]</span> <span class="n">contiguity</span><span class="p">:</span> <span class="n">T</span><span class="p">,</span> <span class="n">T</span><span class="p">,</span> <span class="n">T</span>
+<span class="n">T1</span><span class="p">[</span><span class="n">I0</span><span class="p">,</span> <span class="n">I1</span><span class="p">,</span> <span class="n">I2</span><span class="p">,</span> <span class="n">I3</span><span class="p">]</span> <span class="n">contiguity</span><span class="p">:</span> <span class="n">T</span><span class="p">,</span> <span class="n">F</span><span class="p">,</span> <span class="n">T</span><span class="p">,</span> <span class="n">T</span>
+
+<span class="n">math</span><span class="p">:</span>
+<span class="n">T2</span><span class="p">[</span><span class="n">b</span><span class="p">,</span> <span class="n">I1</span><span class="p">,</span> <span class="n">I2</span><span class="p">,</span> <span class="n">I3</span><span class="p">]</span> <span class="o">=</span> <span class="n">broadcast</span><span class="p">(</span><span class="n">T0</span><span class="p">[</span><span class="n">I1</span><span class="p">,</span> <span class="n">I2</span><span class="p">,</span> <span class="n">I3</span><span class="p">])</span>
+<span class="n">T3</span><span class="p">[</span><span class="n">I0</span><span class="p">,</span> <span class="n">I1</span><span class="p">,</span> <span class="n">I2</span><span class="p">,</span> <span class="n">I3</span><span class="p">]</span> <span class="o">=</span> <span class="n">T1</span><span class="p">[</span><span class="n">I0</span><span class="p">,</span> <span class="n">I1</span><span class="p">,</span> <span class="n">I2</span><span class="p">,</span> <span class="n">I3</span><span class="p">]</span> <span class="o">+</span> <span class="n">T2</span><span class="p">[</span><span class="n">b</span><span class="p">,</span> <span class="n">I1</span><span class="p">,</span> <span class="n">I2</span><span class="p">,</span> <span class="n">I3</span><span class="p">]</span>
+
+<span class="n">outputs</span><span class="p">:</span>
+<span class="n">T3</span><span class="p">[</span><span class="n">I0</span><span class="p">,</span> <span class="n">I1</span><span class="p">,</span> <span class="n">I2</span><span class="p">,</span> <span class="n">I3</span><span class="p">]</span> <span class="n">contiguity</span><span class="p">:</span> <span class="n">T</span><span class="p">,</span> <span class="n">T</span><span class="p">,</span> <span class="n">T</span><span class="p">,</span> <span class="n">T</span>
+</pre></div>
+</div>
+<p>Schedule:</p>
+<p><img alt="Example 2: Broadcast + binary Op" src="../_images/example2.svg" /></p>
+</section>
+<section id="example-3-bank-conflict-free-transpose-of-32bit-data">
+<h4>Example 3: bank-conflict-free transpose of 32bit data<a class="headerlink" href="#example-3-bank-conflict-free-transpose-of-32bit-data" title="Link to this heading"></a></h4>
+<p>Fusion:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">inputs</span><span class="p">:</span>
+<span class="n">T0</span><span class="p">[</span><span class="n">I0</span><span class="p">,</span> <span class="n">I1</span><span class="p">]</span> <span class="n">contiguity</span><span class="p">:</span> <span class="n">T</span><span class="p">,</span> <span class="n">T</span>
+
+<span class="n">math</span><span class="p">:</span>
+<span class="n">T1</span><span class="p">[</span><span class="n">I1</span><span class="p">,</span> <span class="n">I0</span><span class="p">]</span> <span class="o">=</span> <span class="n">transpose</span><span class="p">(</span><span class="n">T0</span><span class="p">[</span><span class="n">I0</span><span class="p">,</span> <span class="n">I1</span><span class="p">])</span>
+
+<span class="n">outputs</span><span class="p">:</span>
+<span class="n">T1</span><span class="p">[</span><span class="n">I1</span><span class="p">,</span> <span class="n">I0</span><span class="p">]</span> <span class="n">contiguity</span><span class="p">:</span> <span class="n">T</span><span class="p">,</span> <span class="n">T</span>
+</pre></div>
+</div>
+<p>Schedule:</p>
+<p><img alt="Example 3: Bank-conflict-free transpose" src="../_images/example3.svg" /></p>
+<p>Please go to <a class="reference download internal" download="" href="../_downloads/e4b380e4b839bb2959d3e084a05a9650/test_tutorial.cpp"><span class="xref download myst">test_tutorial.cpp</span></a> and search <code class="docutils literal notranslate"><span class="pre">TEST_F(Tutorial,</span> <span class="pre">TMABankConflictFreeTranspose)</span></code> for code.</p>
+</section>
+</section>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="ldmatrix_stmatrix.html" class="btn btn-neutral float-left" title="LdMatrix and StMatrix Support in NVFuser" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="tmem.html" class="btn btn-neutral float-right" title="Tensor Memory Support in NVFuser" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+<img src="../_static/NVIDIA-LogoBlack.svg"/>
+<p class="notices">
+<a href="https://www.nvidia.com/en-us/about-nvidia/privacy-policy/" target="_blank">Privacy Policy</a>
+|
+<a href="https://www.nvidia.com/en-us/about-nvidia/privacy-center/" target="_blank">Manage My Privacy</a>
+|
+<a href="https://www.nvidia.com/en-us/preferences/start/" target="_blank">Do Not Sell or Share My Data</a>
+|
+<a href="https://www.nvidia.com/en-us/about-nvidia/terms-of-service/" target="_blank">Terms of Service</a>
+|
+<a href="https://www.nvidia.com/en-us/about-nvidia/accessibility/" target="_blank">Accessibility</a>
+|
+<a href="https://www.nvidia.com/en-us/about-nvidia/company-policies/" target="_blank">Corporate Policies</a>
+|
+<a href="https://www.nvidia.com/en-us/product-security/" target="_blank">Product Security</a>
+|
+<a href="https://www.nvidia.com/en-us/contact/" target="_blank">Contact</a>
+</p>
+
+    <p>&#169; Copyright 2023-2025, NVIDIA CORPORATION &amp; AFFILIATES. All rights reserved..</p>
+
+  </div>
+
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  
+<div class="rst-versions" data-toggle="rst-versions" role="note" aria-label="versions">
+    <span class="rst-current-version" data-toggle="rst-current-version">
+        
+        Version: 0.2.34
+        
+    </span>
+</div><script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

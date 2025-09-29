@@ -1,0 +1,975 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>TMA Modeling In Depth &mdash; nvFuser 0.2.34 documentation</title>
+      <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=03e43079" />
+      <link rel="stylesheet" type="text/css" href="../_static/css/theme.css?v=e59714d7" />
+      <link rel="stylesheet" type="text/css" href="../_static/css/nvidia_font.css?v=e009355c" />
+      <link rel="stylesheet" type="text/css" href="../_static/css/nvidia_footer.css?v=84031d34" />
+
+  
+      <script src="../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../_static/documentation_options.js?v=b85e2031"></script>
+      <script src="../_static/doctools.js?v=9bcbadda"></script>
+      <script src="../_static/sphinx_highlight.js?v=dc90522c"></script>
+      <script>window.MathJax = {"options": {"processHtmlClass": "tex2jax_process|mathjax_process|math|output_area"}}</script>
+      <script defer="defer" src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+    <script src="../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="next" title="Debugging" href="../dev/debug.html" />
+    <link rel="prev" title="Multi-GPU Support in nvFuser" href="multigpu.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" > 
+
+          
+          
+          <a href="../index.html" class="icon icon-home">
+            nvFuser
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+
+  <style>
+    /* Sidebar header (and topbar for mobile) */
+    .wy-side-nav-search, .wy-nav-top {
+      background: #76b900;
+    }
+
+    .wy-menu > p > span.caption-text {
+      color: #76b900;
+    }
+
+    .wy-menu-vertical p {
+      height: 32px;
+      line-height: 32px;
+      padding: 0 1.618em;
+      margin: 12px 0 0;
+      display: block;
+      font-weight: 700;
+      text-transform: uppercase;
+      font-size: 85%;
+      white-space: nowrap;
+    }
+
+    .wy-side-nav-search a:link, .wy-nav-top a:link {
+      color: #fff;
+    }
+    .wy-side-nav-search a:visited, .wy-nav-top a:visited {
+      color: #fff;
+    }
+    .wy-side-nav-search a:hover, .wy-nav-top a:hover {
+      color: #fff;
+    }
+
+    .wy-menu-vertical a:link, .wy-menu-vertical a:visited {
+      color: #d9d9d9
+    }
+
+    .wy-menu-vertical a:active {
+      background-color: #76b900
+    }
+
+    .wy-side-nav-search>div.version {
+      color: rgba(0, 0, 0, 0.3)
+    }
+
+    .wy-nav-content {
+      max-width: 1000px;
+    }
+
+    /* override table width restrictions */
+    .wy-table-responsive table td, .wy-table-responsive table th {
+        /* !important prevents the common CSS stylesheets from
+          overriding this as on RTD they are loaded after this stylesheet */
+        white-space: normal !important;
+    }
+
+    .wy-table-responsive {
+        overflow: visible !important;
+    }
+
+  </style>
+  <style>
+  a:link, a:visited {
+    color: #76b900;
+  }
+
+  a:hover {
+    color: #8c0;
+  }
+
+  html.writer-html5 .rst-content dl[class]:not(.option-list):not(.field-list):not(.footnote):not(.glossary):not(.simple)>dt {
+    background: rgba(118, 185, 0, 0.1);
+    color: rgba(59,93,0,1);
+    border-top: solid 3px rgba(59,93,0,1);
+  }
+
+  html.writer-html4 .rst-content dl:not(.docutils) .property, html.writer-html5 .rst-content dl[class]:not(.option-list):not(.field-list):not(.footnote):not(.glossary):not(.simple) .property {
+    text-transform: capitalize;
+    display: inline-block;
+    padding-right: 8px;
+  }
+  </style>
+
+  
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Table of Contents</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../installation.html">Overview</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../installation.html#installation">Installation</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../installation.html#nightly-nvfuser-pip-wheel">Nightly nvfuser pip wheel</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../installation.html#nvfuser-pip-wheel-against-pytorch-stable-release">Nvfuser pip wheel against pytorch stable release</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../installation.html#developer">Developer</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../installation.html#install-from-source">Install From Source:</a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Python API</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../api/general.html">General</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../api/general.html#statement">Statement</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../api/general.html#val">Val</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../api/general.html#expr">Expr</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../api/general.html#iterdomain">IterDomain</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../api/general.html#tensordomain">TensorDomain</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../api/general.html#tensorview">TensorView</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../api/general.html#fusionexecutorcache">FusionExecutorCache</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../api/general.html#kernelexecutor">KernelExecutor</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../api/general.html#fusion-definition">Fusion Definition</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../api/ops.html">Operations</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../api/ops.html#ops">Ops</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../api/multidevice.html">Multidevice</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../api/multidevice.html#communicator">Communicator</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../api/multidevice.html#devicemesh">DeviceMesh</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../api/multidevice.html#sharding">Sharding</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../api/enum.html">Enums</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../api/enum.html#communicatorbackend-types">CommunicatorBackend Types</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../api/enum.html#data-types">Data Types</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../api/enum.html#parallel-types">Parallel Types</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../api/enum.html#scheduler-types">Scheduler Types</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../api/pod_class.html">Data classes</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../api/pod_class.html#launchparams">LaunchParams</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../api/pod_class.html#compileparams">CompileParams</a></li>
+</ul>
+</li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Developer References</span></p>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="divisibility-of-split.html">Divisibility of Split</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="divisibility-of-split.html#introduction">Introduction</a></li>
+<li class="toctree-l2"><a class="reference internal" href="divisibility-of-split.html#predication">Predication</a></li>
+<li class="toctree-l2"><a class="reference internal" href="divisibility-of-split.html#allocation-and-correctness-model">Allocation and correctness model</a></li>
+<li class="toctree-l2"><a class="reference internal" href="divisibility-of-split.html#properties-of-split">Properties of split</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="divisibility-of-split.html#merge-then-split-vs-split-then-merge">Merge-then-split vs split-then-merge</a></li>
+<li class="toctree-l3"><a class="reference internal" href="divisibility-of-split.html#merging-discontiguous-iterdomains">Merging discontiguous IterDomains</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="divisibility-of-split.html#question">Question</a></li>
+<li class="toctree-l4"><a class="reference internal" href="divisibility-of-split.html#answer">Answer</a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="iterdomain.html">The Mathematical Theory of IterDomain</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="iterdomain.html#iterdomain-transformations">1. IterDomain Transformations</a></li>
+<li class="toctree-l2"><a class="reference internal" href="iterdomain.html#properties-of-iterdomain-transformations">2. Properties of IterDomain Transformations</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="multigpu.html">Multi-GPU Support in nvFuser</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="multigpu.html#introduction">Introduction</a></li>
+<li class="toctree-l2"><a class="reference internal" href="multigpu.html#user-api">User API</a></li>
+<li class="toctree-l2"><a class="reference internal" href="multigpu.html#parallelisms">Parallelisms</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="multigpu.html#tensor-parallelism-tp">Tensor Parallelism (TP)</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="multigpu.html#sharding-propagation">Sharding Propagation</a></li>
+<li class="toctree-l4"><a class="reference internal" href="multigpu.html#communication-computation-decomposition">Communication-computation Decomposition</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="multigpu.html#sequence-parallelism-sp">Sequence Parallelism (SP)</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="multigpu.html#id1">Sharding Propagation</a></li>
+<li class="toctree-l4"><a class="reference internal" href="multigpu.html#id2">Communication-computation Decomposition</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="multigpu.html#overlap-communication-with-gemm-via-decomposition">Overlap Communication with GEMM via Decomposition</a></li>
+<li class="toctree-l3"><a class="reference internal" href="multigpu.html#distributed-data-parallelism-ddp">Distributed Data Parallelism (DDP)</a></li>
+<li class="toctree-l3"><a class="reference internal" href="multigpu.html#fully-sharded-data-parallelism-fsdp">Fully Sharded Data Parallelism (FSDP)</a></li>
+<li class="toctree-l3"><a class="reference internal" href="multigpu.html#pipeline-parallelism-pp">Pipeline Parallelism (PP)</a></li>
+<li class="toctree-l3"><a class="reference internal" href="multigpu.html#context-parallelism-cp">Context Parallelism (CP)</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l1 current"><a class="current reference internal" href="#">TMA Modeling In Depth</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#what-is-tma">What is TMA?</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#correctness-model">Correctness model</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#the-unachievability-of-strong-correctness-for-indivisible-element-stride">The unachievability of strong correctness for indivisible element stride</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#the-lowering-strategy">The lowering strategy</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../dev/debug.html">Debugging</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../dev/debug.html#debug-a-failing-nvfuser-script">Debug a failing nvFuser script</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../dev/debug.html#nvfuser-dump">NVFUSER_DUMP</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../dev/debug.html#gdb">gdb</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../dev/debug.html#debug-memory-corruption-using-asan">Debug memory corruption using <code class="docutils literal notranslate"><span class="pre">asan</span></code></a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../dev/debug.html#if-built-with-clang">If built with clang</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../dev/debug.html#debug-memory-leaks-or-excessive-memory-usage">Debug memory leaks or excessive memory usage</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../dev/debug.html#debug-slow-kernels">Debug slow kernels</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../dev/debug.html#debug-slow-cpu-execution">Debug slow CPU execution</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../dev/visibility.html">Symbol Visibility</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../dev/visibility.html#faq">FAQ</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../dev/visibility.html#should-i-mark-a-method-visible-or-the-whole-class">Should I mark a method visible or the whole class?</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../dev/visibility.html#i-see-an-undefined-reference-to-typeinfo-for-class-how-do-i-fix-this">I see an undefined reference to <code class="docutils literal notranslate"><span class="pre">typeinfo</span> <span class="pre">for</span> <span class="pre">&lt;class&gt;</span></code>. How do I fix this?</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../dev/visibility.html#i-see-an-undefined-reference-to-vtable-for-class-how-do-i-fix-this">I see an undefined reference to <code class="docutils literal notranslate"><span class="pre">vtable</span> <span class="pre">for</span> <span class="pre">&lt;class&gt;</span></code>. How do I fix this?</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../dev/visibility.html#i-see-that-foo-is-visible-but-i-do-not-think-it-needs-to-be">I see that <code class="docutils literal notranslate"><span class="pre">Foo</span></code> is visible but I do not think it needs to be.</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../dev/visibility.html#should-i-mark-my-new-method-or-class-as-nvf-api">Should I mark my new method or class as <code class="docutils literal notranslate"><span class="pre">NVF_API</span></code>?</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../dev/visibility.html#symbol-visibility-checking">Symbol Visibility Checking</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../dev/host_ir_jit.html">Host IR JIT Overview</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../dev/host_ir_jit.html#introduction">Introduction</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../dev/host_ir_jit.html#jit-compilation-process">JIT Compilation Process</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../dev/host_ir_jit.html#llvm-integration">1. LLVM Integration</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../dev/host_ir_jit.html#compilation-pipeline">2. Compilation Pipeline</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../dev/host_ir_jit.html#external-function-integration">3. External Function Integration</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../dev/host_ir_jit.html#ir-translation">3. IR Translation</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../dev/host_ir_jit.html#runtime-execution">Runtime Execution</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../dev/host_ir_jit.html#function-interface">1. Function Interface</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../dev/host_ir_jit.html#execution-flow">2. Execution Flow</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../dev/host_ir_jit.html#configuration-and-build-options">Configuration and Build Options</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../dev/host_ir_jit.html#future-integration-plan">Future Integration plan</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../dev/ldmatrix_stmatrix.html">LdMatrix and StMatrix Support in NVFuser</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../dev/ldmatrix_stmatrix.html#what-is-ldmatrix">What is LdMatrix?</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../dev/ldmatrix_stmatrix.html#what-is-stmatrix">What is StMatrix?</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../dev/ldmatrix_stmatrix.html#general-details">General Details</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../dev/ldmatrix_stmatrix.html#indices-shared-memory-tensor">Indices shared memory tensor</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../dev/ldmatrix_stmatrix.html#indices-for-register-tensor">Indices for register tensor</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../dev/ldmatrix_stmatrix.html#register-layout-for-one-8x8-matrix-with-16-bit-elements">Register layout for one 8x8 Matrix with 16-bit elements</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../dev/ldmatrix_stmatrix.html#example-1-a-copy-kernel-using-tma-ldmatrix-and-stmatrix">Example 1: A copy kernel using TMA, LdMatrix, and StMatrix.</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../dev/ldmatrix_stmatrix.html#how-to-compute-the-index-into-register-tensorview">How to compute the index into register TensorView?</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../dev/ldmatrix_stmatrix.html#how-to-compute-the-index-into-shared-memory-tensorview">How to compute the index into shared memory TensorView?</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../dev/ldmatrix_stmatrix.html#figure-1-loop-domain-for-ldmatrix-and-stmatrix">Figure 1: Loop domain for LdMatrix and StMatrix</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../dev/ldmatrix_stmatrix.html#figure-2-tma-shared-memory-allocation-domain">Figure 2: TMA shared memory allocation domain</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../dev/ldmatrix_stmatrix.html#figure-3-map-from-ldmatrix-stmatrix-loop-domain-to-tma-shared-memory-allocation-domain">Figure 3: Map from LdMatrix / StMatrix loop domain to TMA shared memory allocation domain</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../dev/ldmatrix_stmatrix.html#derivation-of-figure-3">Derivation of Figure 3</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../dev/ldmatrix_stmatrix.html#code-walkthrough">Code Walkthrough</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../dev/ldmatrix_stmatrix.html#scheduleldstmatrix-function">scheduleLdStMatrix function</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../dev/tma.html">Introduction to TMA Support in NVFuser</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../dev/tma.html#introduction">Introduction</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../dev/tma.html#schedule">Schedule</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../dev/tma.html#step-1-define-tma-domain">Step 1: define TMA domain</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../dev/tma.html#step-2-define-box">Step 2: define box</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../dev/tma.html#the-canonical-way-to-define-box">The canonical way to define box</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../dev/tma.html#define-box-by-mathematical-equivalence">Define box by mathematical equivalence</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../dev/tma.html#step-3-define-tile">Step 3: define tile</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../dev/tma.html#step-4-schedule-the-shared-memory-tensor">Step 4: schedule the shared memory tensor</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../dev/tma.html#data-swizzle">Data swizzle</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../dev/tma.html#step-5-schedule-the-consumer-tensor">Step 5: schedule the consumer tensor</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../dev/tma.html#code-walk-through">Code walk-through</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../dev/tma.html#examples">Examples</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../dev/tma.html#example-1-tma-load-inputs-and-vectorize-store-output-pointwise-kernel">Example 1: tma-load inputs and vectorize-store output pointwise kernel</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../dev/tma.html#example-2-broadcast-kernel-with-discontiguous-input">Example 2: broadcast kernel with discontiguous input</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../dev/tma.html#example-3-bank-conflict-free-transpose-of-32bit-data">Example 3: bank-conflict-free transpose of 32bit data</a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../dev/tmem.html">Tensor Memory Support in NVFuser</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../dev/tmem.html#review-of-inlining-and-parallelization">Review of inlining and parallelization</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../dev/tmem.html#tensor-memory">Tensor memory</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../dev/tmem.html#the-loop-domain-of-tmem-load-and-store">The loop domain of TMem load and store</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../dev/tmem.html#vectorization-of-tmem-load-and-store">Vectorization of TMem load and store</a></li>
+</ul>
+</li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../index.html">nvFuser</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../index.html" class="icon icon-home" aria-label="Home"></a></li>
+      <li class="breadcrumb-item active">TMA Modeling In Depth</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="../_sources/reading/tma-modeling-in-depth.md.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <!--
+ * SPDX-FileCopyrightText: Copyright (c) 2023-present NVIDIA CORPORATION & AFFILIATES.
+ * All rights reserved.
+ * SPDX-License-Identifier: BSD-3-Clause
+-->
+<section class="tex2jax_ignore mathjax_ignore" id="tma-modeling-in-depth">
+<h1>TMA Modeling In Depth<a class="headerlink" href="#tma-modeling-in-depth" title="Link to this heading"></a></h1>
+<blockquote>
+<div><p>[!NOTE]
+We use <span class="math notranslate nohighlight">\(\div\)</span> for true division, and <span class="math notranslate nohighlight">\(/\)</span> for Euclidean division. For example, <span class="math notranslate nohighlight">\(5\div 2 = 2.5\)</span>, <span class="math notranslate nohighlight">\(5/2=2\)</span>.</p>
+</div></blockquote>
+<p>This document means to provide a deeper insight into how we model TMA, primarily at IterDomain level.
+This document is not an introduction to our TMA support, which can be found <span class="xref myst">here</span>.
+This document does not discuss topics like hardware, performance, computer architecture, etc.,
+instead, we focus on mathematical correctness of our modeling here.
+This document assumes familarity with the <span class="xref myst">introduction doc</span> and <span class="xref myst">“Divisibility of Split”</span>.</p>
+<p>We will focus on tiled TMA here, im2col TMA is not supported yet.</p>
+<section id="what-is-tma">
+<h2>What is TMA?<a class="headerlink" href="#what-is-tma" title="Link to this heading"></a></h2>
+<p>TMA is a hardware feature that allows the GPU to load a tile from a tensor of up to 5D.
+The tile can be dense, or strided, as shown in Figure 1 below (the same figure as in the <span class="xref myst">introduction doc</span>):</p>
+<p><img alt="Figure 1: TMA dense and strided tile" src="../_images/dense-and-strided-tile.svg" /></p>
+<p>Conceptually, we can consider TMA as a function:</p>
+<blockquote>
+<div><p><span class="math notranslate nohighlight">\(\mathrm{tma}(\vec{x}, sa; ga, \vec{gs}, \vec{bs}, \vec{gr}, \vec{er}, op)\)</span>.</p>
+</div></blockquote>
+<p>In the parameter list of the above function signature,
+we intentionally used <code class="docutils literal notranslate"><span class="pre">;</span></code> instead of <code class="docutils literal notranslate"><span class="pre">,</span></code> to separate <span class="math notranslate nohighlight">\(sa\)</span> with <span class="math notranslate nohighlight">\(ga\)</span>.
+we call everything before <code class="docutils literal notranslate"><span class="pre">;</span></code> “inputs”, and everything after <code class="docutils literal notranslate"><span class="pre">;</span></code> except <span class="math notranslate nohighlight">\(op\)</span> “parameters”.
+Also note that, we use column-major when talking about TMA.</p>
+<p>The meanings of inputs, parameters, and <span class="math notranslate nohighlight">\(op\)</span> are:</p>
+<ul class="simple">
+<li><p><span class="math notranslate nohighlight">\(op\)</span> defines the direction of transfer, it can be either “load” (global -&gt; shared) or “store” (shared -&gt; global).</p></li>
+<li><p><span class="math notranslate nohighlight">\(\vec{x}\)</span> is the N-dimensional coordinate of the starting of the box in tensor.
+In the example in Figure 1, it is <span class="math notranslate nohighlight">\((8, 4)\)</span>.</p></li>
+<li><p><span class="math notranslate nohighlight">\(sa\)</span> stands for “Shared memory base Address”.
+In the example in Figure 1, it is the address of the purple item on the top left cornor of the box in shared memory.</p></li>
+<li><p><span class="math notranslate nohighlight">\(ga\)</span> stands for “Global memory base Address”.
+In the example in Figure 1, it is the address of the blue item on the top left cornor of the tensor in global memory.</p></li>
+<li><p><span class="math notranslate nohighlight">\(\vec{gs}\)</span> stands for “Global Size”. It is a vector of the same dimensionality as <span class="math notranslate nohighlight">\(\vec{x}\)</span>.
+In the example in Figure 1, it is <span class="math notranslate nohighlight">\((12, 16)\)</span>.</p></li>
+<li><p><span class="math notranslate nohighlight">\(\vec{bs}\)</span> stands for “Box Size”. It is a vector of the same dimensionality as <span class="math notranslate nohighlight">\(\vec{x}\)</span>.
+In the example in Figure 1, it is <span class="math notranslate nohighlight">\((8, 4)\)</span>.</p></li>
+<li><p><span class="math notranslate nohighlight">\(\vec{gr}\)</span> stands for “Global stRide”. It is a vector of the same dimensionality as <span class="math notranslate nohighlight">\(\vec{x}\)</span>.
+In the example in Figure 1, it is <span class="math notranslate nohighlight">\((1, 14)\)</span>.</p></li>
+<li><p><span class="math notranslate nohighlight">\(\vec{er}\)</span> stands for “Element stRide”. It is a vector of the same dimensionality as <span class="math notranslate nohighlight">\(\vec{x}\)</span>.
+In the example in Figure 1, it is <span class="math notranslate nohighlight">\((1, 1)\)</span> for the left diagram, and <span class="math notranslate nohighlight">\((1, 3)\)</span> for the right diagram.</p></li>
+</ul>
+<p>We call inputs, parameters, and <span class="math notranslate nohighlight">\(op\)</span> differently because in the implementation,
+inputs are provided as operands for the PTX instruction,
+parameters are encoded inside the TensorMap descriptor,
+and <span class="math notranslate nohighlight">\(op\)</span> defines which PTX instruction to use.
+When looking at the kernel level, only <span class="math notranslate nohighlight">\(\vec{x}\)</span> and <span class="math notranslate nohighlight">\(sa\)</span> can change;
+parameters and op are predefined constants.</p>
+<p>The thing that this <span class="math notranslate nohighlight">\(tma\)</span> function does is demonstrated in the CodeBlock 1 below
+(here, assuming the TMA is 2D, we can easily generalize to other dimensionalities):</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">def</span><span class="w"> </span><span class="nf">tma</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">sa</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">ga</span><span class="p">,</span> <span class="n">gs</span><span class="p">,</span> <span class="n">bs</span><span class="p">,</span> <span class="n">gr</span><span class="p">,</span> <span class="n">er</span><span class="p">,</span> <span class="n">op</span><span class="p">):</span>
+    <span class="n">ts</span> <span class="o">=</span> <span class="p">[</span><span class="n">ceildiv</span><span class="p">(</span><span class="n">bs</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="n">er</span><span class="p">[</span><span class="mi">0</span><span class="p">]),</span> <span class="n">ceildiv</span><span class="p">(</span><span class="n">bs</span><span class="p">[</span><span class="mi">1</span><span class="p">],</span> <span class="n">er</span><span class="p">[</span><span class="mi">1</span><span class="p">])]</span> <span class="c1"># tile size</span>
+    <span class="k">for</span> <span class="n">i0</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">ts</span><span class="p">[</span><span class="mi">0</span><span class="p">]):</span>
+        <span class="k">for</span> <span class="n">i1</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">ts</span><span class="p">[</span><span class="mi">1</span><span class="p">]):</span>
+            <span class="n">smem_idx</span> <span class="o">=</span> <span class="n">i1</span> <span class="o">*</span> <span class="n">ts</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">+</span> <span class="n">i0</span>
+            <span class="n">gmem_idx0</span> <span class="o">=</span> <span class="n">x</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">+</span> <span class="n">i0</span> <span class="o">*</span> <span class="n">er</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+            <span class="n">gmem_idx1</span> <span class="o">=</span> <span class="n">x</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="o">+</span> <span class="n">i1</span> <span class="o">*</span> <span class="n">er</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span>
+            <span class="n">gmem_idx</span> <span class="o">=</span> <span class="n">gmem_idx0</span> <span class="o">*</span> <span class="n">gr</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">+</span> <span class="n">gmem_idx1</span> <span class="o">*</span> <span class="n">gr</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span>
+            <span class="k">if</span> <span class="n">op</span> <span class="o">==</span> <span class="s2">&quot;load&quot;</span><span class="p">:</span>
+                <span class="k">if</span> <span class="n">gmem_idx0</span> <span class="o">&lt;</span> <span class="n">gs</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="ow">and</span> <span class="n">gmem_idx1</span> <span class="o">&lt;</span> <span class="n">gs</span><span class="p">[</span><span class="mi">1</span><span class="p">]:</span>
+                    <span class="n">sa</span><span class="p">[</span><span class="n">smem_idx</span><span class="p">]</span> <span class="o">=</span> <span class="n">ga</span><span class="p">[</span><span class="n">gmem_idx</span><span class="p">]</span>
+                <span class="k">else</span><span class="p">:</span>
+                    <span class="n">sa</span><span class="p">[</span><span class="n">smem_idx</span><span class="p">]</span> <span class="o">=</span> <span class="mi">0</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="k">if</span> <span class="n">gmem_idx0</span> <span class="o">&lt;</span> <span class="n">gs</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="ow">and</span> <span class="n">gmem_idx1</span> <span class="o">&lt;</span> <span class="n">gs</span><span class="p">[</span><span class="mi">1</span><span class="p">]:</span>
+                    <span class="n">ga</span><span class="p">[</span><span class="n">gmem_idx</span><span class="p">]</span> <span class="o">=</span> <span class="n">sa</span><span class="p">[</span><span class="n">smem_idx</span><span class="p">]</span>
+</pre></div>
+</div>
+</section>
+<section id="correctness-model">
+<h2>Correctness model<a class="headerlink" href="#correctness-model" title="Link to this heading"></a></h2>
+<p>We all know that TMA has built-in boundary check and automatic zero filling for out-of-boundary items.
+But what does this mean? Does it mean that we don’t need to predicate a TMA expression at all?
+Does it mean that we don’t need to initialize the output buffer of TMA?
+This section discusses these questions.</p>
+<p>First to note is, what we should do depend on how we will use the output of TMA.
+The theory for this is called <span class="xref myst">correctness model</span>.
+Specifically, we are interested in:</p>
+<ul class="simple">
+<li><p>For an unpredicated TMA expression, if we do not initialize the buffer, what correctness model can we achieve? Depending on the schedule, the answer can be different:</p>
+<ul>
+<li><p>What schedule can achieve weak correctness?</p></li>
+<li><p>What schedule can achieve strong correctness?</p></li>
+</ul>
+</li>
+<li><p>In the case where strong correctness is needed, but we have only achieved weak correctness,
+is there any way to upgrade to strong correctness by doing something?</p></li>
+</ul>
+<p>As we can see from CodeBlock 1, TMA has builtin predicates checking that the indices of all partitioned IterDomains are in boundary.
+That is, TMA will never do out-of-boundary access on global memory even if the indices of
+some IterDomains may be out of boundary.
+Therefore, we have:</p>
+<p><strong>Theorem 1:</strong> TMA provides weak correctness regardless of how we schedule, how we initialize the buffer, and how we generate predicates.</p>
+<p>Having weak correctness is great in the sense that,
+if weak correctness is sufficient for us,
+we neither need to predicate nor need to initialize the output of TMA to achieve correct functionality.</p>
+<p>The following example Figure 2 shows a schedule of the consumer of a TMA load.
+From this figure, we can see that, if no additional predicate is used to guard the TMA load expression,
+some holes in allocation domain will be filled with in boundary data,
+and some holes will be filled with out of boundary zeros:</p>
+<p><img alt="Figure 2: Holes in allocation domain filled with in boundary data" src="../_images/weak-correctness-holes-nonzero.svg" /></p>
+<p>A common use case for TMA is to load data for tensor core.
+Because tensor core has unpredicated reduction,
+we want to make sure all holes are filled with zeros so that it has no contribution to the final result.
+This would require our TMA scheduling and lowering strategy to achieve strong correctness.
+In order to achieve strong correctness, we need to make sure that all holes lead to false in TMA’s builtin predicate,
+so that TMA knows these holes should be filled with zero instead of load some data from global memory to fill it,
+and red items in Figure 2 are not allowed.
+That is, in the consumer tensor of TMA load,
+the indices of all IterDomains between the TMA domain and allocation domain should either never go out of boundary (for example, if they are never transformed further, or all their descendants are never resized or indivisibly split) or logically implied by TMA’s builtin predicates.
+This leads to the following definition:</p>
+<p><strong>Definition 1 (TMA-protected IterDomain):</strong> An IterDomain is TMA-protected if it satisfies any of the following conditions:</p>
+<ol class="arabic simple">
+<li><p>It is a partitioned IterDomain.</p></li>
+<li><p>It is the outer output of a split of a TMA-protected IterDomain.</p></li>
+<li><p>It is the output of a merge whose outer input is a TMA-protected IterDomain.</p></li>
+<li><p>It is the output of a resize whose input is a TMA-protected IterDomain and <code class="docutils literal notranslate"><span class="pre">left_expand</span> <span class="pre">&gt;=</span> <span class="pre">0</span> <span class="pre">&amp;&amp;</span> <span class="pre">right_expand</span> <span class="pre">&gt;=</span> <span class="pre">0</span></code>.</p></li>
+<li><p>It is the <code class="docutils literal notranslate"><span class="pre">X</span></code> output of a swizzle whose <code class="docutils literal notranslate"><span class="pre">X</span></code> input a TMA-protected IterDomain.</p></li>
+</ol>
+<p>TMA-protected IterDomain has the following very important property:</p>
+<p><strong>Theorem 4:</strong> If non-TMA-protected IterDomains are in boundary,
+then “TMA’s builtin predicates are satisfied” implies “the indices of all TMA-protected IterDomains are in boundary”.</p>
+<details>
+<p><strong><summary>Proof:</summary></strong></p>
+<p>It is easy to see that the above rules 2-5 maps to Theorem 1-4 in <span class="xref myst">“Divisibility of Split”</span>,
+except that Theorem 1 has an additional requirement for <code class="docutils literal notranslate"><span class="pre">I2</span></code> being in bound,
+which is guaranteed by the statement “if non-TMA-protected IterDomains are in boundary”.
+<span class="math notranslate nohighlight">\(\square\)</span></p>
+</details>
+<p>With the above theorem, we can easily see that,
+if non-TMA-protected IterDomains are in boundary,
+when any of the indices of TMA-protected IterDomains goes out of boundary,
+some partitioned IterDomain’s index will also go out of boundary.
+Therefore, TMA will use zero to fill these regions.
+That is:</p>
+<p><strong>Theorem 5:</strong> A consumer schedule of TMA load provides strong correctness if
+the input IterDomains of all hole-creating expressions between the allocation domain and the TMA domain are TMA-protected,
+and the desired filling value is 0.</p>
+<p>Having strong correctness means that all the out-of-boundary items are filled with zero,
+and cases like Figure 2 could not happen.</p>
+<p>An example of strong correctness is shown in the following Figure 3:</p>
+<p><img alt="Figure 3: Strong correctness" src="../_images/strong-correctness.svg" /></p>
+<p>In this figure, <code class="docutils literal notranslate"><span class="pre">I2</span></code> and <code class="docutils literal notranslate"><span class="pre">I7</span></code> are the only IterDomains that could run out of boundary,
+they are both TMA-protected. So we can achieve strong correctness.</p>
+<p>Another example is the following Figure 4:</p>
+<p><img alt="Figure 4: Strong correctness 2" src="../_images/strong-correctness-2.svg" /></p>
+<p>In this figure, <code class="docutils literal notranslate"><span class="pre">I2</span></code>, <code class="docutils literal notranslate"><span class="pre">I3</span></code> and <code class="docutils literal notranslate"><span class="pre">I10</span></code> are the only IterDomains that could run out of boundary,
+they are all TMA-protected. So we can achieve strong correctness.</p>
+</section>
+<section id="the-unachievability-of-strong-correctness-for-indivisible-element-stride">
+<h2>The unachievability of strong correctness for indivisible element stride<a class="headerlink" href="#the-unachievability-of-strong-correctness-for-indivisible-element-stride" title="Link to this heading"></a></h2>
+<p>Let’s take a look at the example in the following Figure 5:</p>
+<p><img alt="Figure 5: Indivisible strided tile" src="../_images/no-strong-correctness-schedule.svg" /></p>
+<p>TMA-protected IterDomains are <code class="docutils literal notranslate"><span class="pre">I1</span></code>, <code class="docutils literal notranslate"><span class="pre">I2</span></code>, and <code class="docutils literal notranslate"><span class="pre">I3</span></code>.
+We can see that <code class="docutils literal notranslate"><span class="pre">I4</span></code> is indivisibly split but not TMA-protected,
+so there exist out-of-boundary index of <code class="docutils literal notranslate"><span class="pre">I4</span></code> that is not eventually translated to out-of-boundary index of <code class="docutils literal notranslate"><span class="pre">I1</span></code>.
+For example, let <span class="math notranslate nohighlight">\(i_3\)</span>, <span class="math notranslate nohighlight">\(i_4\)</span>, and <span class="math notranslate nohighlight">\(i_1\)</span> be the indices of <code class="docutils literal notranslate"><span class="pre">I3</span></code>, <code class="docutils literal notranslate"><span class="pre">I4</span></code>, and <code class="docutils literal notranslate"><span class="pre">I1</span></code>,
+if <span class="math notranslate nohighlight">\(i_3 = 0\)</span> and <span class="math notranslate nohighlight">\(i_4 = 4\)</span>, then <span class="math notranslate nohighlight">\(i_1 = 4\)</span> is a hole but in-boundary for global memory.
+To make it even worse, the index of <code class="docutils literal notranslate"><span class="pre">I4</span></code> depends on the index of <code class="docutils literal notranslate"><span class="pre">I5</span></code>,
+which is hardware parallelized and the programmer has no access to,
+so it is not even possible to write a <code class="docutils literal notranslate"><span class="pre">if</span></code> check for the boundary of <code class="docutils literal notranslate"><span class="pre">I4</span></code>.
+For this example, the data loaded in shared memory looks like the following Figure 6:</p>
+<p><img alt="Figure 6: Indivisible strided tile data" src="../_images/no-strong-correctness-data.svg" /></p>
+<p>From the above figure, we see that there are two tiles where the first half tile is blue and the second half tile is red.
+However, the granularity on TMA that programmer has control of is per tile.
+There is no way for a programmer to tell the hardware that they want part of a tile to be filled with data but part of it filled with zero even if they are not out of the boundary of global memory.</p>
+<p>The above observation leads to the following theorem:</p>
+<p><strong>Theorem 6:</strong> It is impossible to achieve strong correctness if and only if there exist a dimension that satisfies all of the following conditions:</p>
+<ol class="arabic simple">
+<li><p>The element stride does not divide and is smaller than the box size on that dimension.</p></li>
+<li><p>The box size is smaller than the tensor size on that dimension.</p></li>
+</ol>
+<details>
+<p><strong><summary>Proof:</summary></strong></p>
+<p>Let’s choose a dimension of the tensor to consider, and define some notation first:</p>
+<ul class="simple">
+<li><p>size of dimension: <span class="math notranslate nohighlight">\(S \in \mathbb{Z}^+\)</span></p></li>
+<li><p>box size: <span class="math notranslate nohighlight">\(B \in \mathbb{Z}^+\)</span></p></li>
+<li><p>element stride: <span class="math notranslate nohighlight">\(e \in \mathbb{Z}^+\)</span></p></li>
+<li><p>index of the partitioned ID: <span class="math notranslate nohighlight">\(i_p \in \mathbb{Z}\)</span></p></li>
+<li><p>index of the coordinate ID: <span class="math notranslate nohighlight">\(i_c \in \mathbb{Z}\)</span></p></li>
+<li><p>index of the box ID: <span class="math notranslate nohighlight">\(i_b \in \mathbb{Z}\)</span></p></li>
+<li><p>index of the tile ID: <span class="math notranslate nohighlight">\(i_t \in \mathbb{Z}\)</span></p></li>
+<li><p>index of the stride ID: <span class="math notranslate nohighlight">\(i_s \in \mathbb{Z}\)</span></p></li>
+</ul>
+<p>Then we have:
+$<span class="math notranslate nohighlight">\(i_b = i_t \times e + i_s\)</span><span class="math notranslate nohighlight">\(
+\)</span><span class="math notranslate nohighlight">\(i_p = i_c \times B + i_b\)</span>$</p>
+<p>The builtin predicate for TMA is:
+$<span class="math notranslate nohighlight">\(0 \le i_p &lt; S\)</span>$</p>
+<p>If this dimension makes strong correctness unachievable,
+this means that there exist a tile that part of it contains valid items and part contains holes,
+and there are holes satisfting the builtin predicate of TMA.
+That is:</p>
+<blockquote>
+<div><p><strong>(eq 1)</strong> There exists <span class="math notranslate nohighlight">\(i_s \in \mathbb{Z}\)</span>, <span class="math notranslate nohighlight">\(i_c \in \mathbb{Z}\)</span>, <span class="math notranslate nohighlight">\(i_{t1} \in \mathbb{Z}\)</span>, <span class="math notranslate nohighlight">\(i_{t2} \in \mathbb{Z}\)</span> that satisfies all of the following conditions:</p>
+<ol class="arabic simple">
+<li><p><span class="math notranslate nohighlight">\(0 \le i_s &lt; e\)</span></p></li>
+<li><p><span class="math notranslate nohighlight">\(0 \le i_c &lt; \mathrm{ceilDiv}(S, B)\)</span></p></li>
+<li><p><span class="math notranslate nohighlight">\(0 \le i_{t1}, i_{t2} &lt; \mathrm{ceilDiv}(B, e)\)</span></p></li>
+<li><p><span class="math notranslate nohighlight">\(0 \le i_c \times B + i_{t1} \times e + i_s &lt; S\)</span></p></li>
+<li><p><span class="math notranslate nohighlight">\(0 \le i_c \times B + i_{t2} \times e + i_s &lt; S\)</span></p></li>
+<li><p><span class="math notranslate nohighlight">\(0 \le i_{t1} \times e + i_s &lt; B\)</span></p></li>
+<li><p><span class="math notranslate nohighlight">\(i_{t2} \times e + i_s \ge B\)</span></p></li>
+</ol>
+</div></blockquote>
+<p>Using Theorem 1 in <span class="xref myst">Mathematical Logic</span>, we simplify (eq 1) as:</p>
+<blockquote>
+<div><p><strong>(eq 2)</strong> There exists <span class="math notranslate nohighlight">\(i_s \in \mathbb{Z}\)</span>, <span class="math notranslate nohighlight">\(i_c \in \mathbb{Z}\)</span>, <span class="math notranslate nohighlight">\(i_{t1} \in \mathbb{Z}\)</span>, <span class="math notranslate nohighlight">\(i_{t2} \in \mathbb{Z}\)</span> that satisfies all of the following conditions:</p>
+<ol class="arabic simple">
+<li><p><span class="math notranslate nohighlight">\(0 \le i_s &lt; e\)</span></p></li>
+<li><p><span class="math notranslate nohighlight">\(0 \le i_c &lt; \mathrm{ceilDiv}(S, B)\)</span></p></li>
+<li><p><span class="math notranslate nohighlight">\(0 \le i_{t1}, i_{t2} &lt; \mathrm{ceilDiv}(B, e)\)</span></p></li>
+<li><p><span class="math notranslate nohighlight">\(i_c \times B + i_{t1} \times e + i_s &lt; S\)</span></p></li>
+<li><p><span class="math notranslate nohighlight">\(i_c \times B + i_{t2} \times e + i_s &lt; S\)</span></p></li>
+<li><p><span class="math notranslate nohighlight">\(i_{t1} \times e + i_s &lt; B\)</span></p></li>
+<li><p><span class="math notranslate nohighlight">\(i_{t2} \times e + i_s \ge B\)</span></p></li>
+</ol>
+</div></blockquote>
+<p>Rephrase (eq 2) as:</p>
+<blockquote>
+<div><p><strong>(eq 3)</strong> There exists <span class="math notranslate nohighlight">\(i_s \in \mathbb{Z}\)</span>, <span class="math notranslate nohighlight">\(i_{t1} \in \mathbb{Z}\)</span>, <span class="math notranslate nohighlight">\(i_{t2} \in \mathbb{Z}\)</span> that satisfies all of the following conditions:</p>
+<ol class="arabic simple">
+<li><p><span class="math notranslate nohighlight">\(0 \le i_s &lt; e\)</span></p></li>
+<li><p><span class="math notranslate nohighlight">\(0 \le i_{t1}, i_{t2} &lt; \mathrm{ceilDiv}(B, e)\)</span></p></li>
+<li><p><span class="math notranslate nohighlight">\(i_{t1} \times e + i_s &lt; B\)</span></p></li>
+<li><p><span class="math notranslate nohighlight">\(i_{t2} \times e + i_s \ge B\)</span></p></li>
+<li><p>There exists <span class="math notranslate nohighlight">\(i_c \in \mathbb{Z}\)</span> that satisfies all of the following conditions:</p>
+<ol class="arabic simple">
+<li><p><span class="math notranslate nohighlight">\(0 \le i_c &lt; \mathrm{ceilDiv}(S, B)\)</span></p></li>
+<li><p><span class="math notranslate nohighlight">\(i_c &lt; (S - (i_{t1} \times e + i_s)) \div B\)</span></p></li>
+<li><p><span class="math notranslate nohighlight">\(i_c &lt; (S - (i_{t2} \times e + i_s)) \div B\)</span></p></li>
+</ol>
+</li>
+</ol>
+</div></blockquote>
+<p>The condition 5 in (eq 3) is true if and only if</p>
+<blockquote>
+<div><ul class="simple">
+<li><p><span class="math notranslate nohighlight">\(0 &lt; \mathrm{ceilDiv}(S, B)\)</span>, and</p></li>
+<li><p><span class="math notranslate nohighlight">\(0 &lt; (S - (i_{t1} \times e + i_s)) \div B\)</span>, and</p></li>
+<li><p><span class="math notranslate nohighlight">\(0 &lt; (S - (i_{t2} \times e + i_s)) \div B\)</span></p></li>
+</ul>
+</div></blockquote>
+<p>which can be simplified as</p>
+<blockquote>
+<div><ul class="simple">
+<li><p><span class="math notranslate nohighlight">\(i_{t1} \times e + i_s &lt; S\)</span>, and</p></li>
+<li><p><span class="math notranslate nohighlight">\(i_{t2} \times e + i_s &lt; S\)</span></p></li>
+</ul>
+</div></blockquote>
+<p>So (eq 3) can be simplified as:</p>
+<blockquote>
+<div><p><strong>(eq 4)</strong> There exists <span class="math notranslate nohighlight">\(i_s \in \mathbb{Z}\)</span>, <span class="math notranslate nohighlight">\(i_{t1} \in \mathbb{Z}\)</span>, <span class="math notranslate nohighlight">\(i_{t2} \in \mathbb{Z}\)</span> that satisfies all of the following conditions:</p>
+<ol class="arabic simple">
+<li><p><span class="math notranslate nohighlight">\(0 \le i_s &lt; e\)</span></p></li>
+<li><p><span class="math notranslate nohighlight">\(0 \le i_{t1}, i_{t2} &lt; \mathrm{ceilDiv}(B, e)\)</span></p></li>
+<li><p><span class="math notranslate nohighlight">\(i_{t1} \times e + i_s &lt; B\)</span></p></li>
+<li><p><span class="math notranslate nohighlight">\(i_{t2} \times e + i_s \ge B\)</span></p></li>
+<li><p><span class="math notranslate nohighlight">\(i_{t1} \times e + i_s &lt; S\)</span></p></li>
+<li><p><span class="math notranslate nohighlight">\(i_{t2} \times e + i_s &lt; S\)</span></p></li>
+</ol>
+</div></blockquote>
+<p>Rephrase (eq 4) as:</p>
+<blockquote>
+<div><p><strong>(eq 5)</strong> There exists <span class="math notranslate nohighlight">\(i_s \in \mathbb{Z}\)</span>, <span class="math notranslate nohighlight">\(i_{t2} \in \mathbb{Z}\)</span> that satisfies all of the following conditions:</p>
+<ol class="arabic simple">
+<li><p><span class="math notranslate nohighlight">\(0 \le i_s &lt; e\)</span></p></li>
+<li><p><span class="math notranslate nohighlight">\(0 \le i_{t2} &lt; \mathrm{ceilDiv}(B, e)\)</span></p></li>
+<li><p><span class="math notranslate nohighlight">\(i_{t2} \times e + i_s \ge B\)</span></p></li>
+<li><p><span class="math notranslate nohighlight">\(i_{t2} \times e + i_s &lt; S\)</span></p></li>
+<li><p>There exists <span class="math notranslate nohighlight">\(i_{t1} \in \mathbb{Z}\)</span> that satisfies all of the following conditions:</p>
+<ol class="arabic simple">
+<li><p><span class="math notranslate nohighlight">\(0 \le i_{t1} &lt; \mathrm{ceilDiv}(B, e)\)</span></p></li>
+<li><p><span class="math notranslate nohighlight">\(i_{t1} &lt; (B - i_s) \div e\)</span></p></li>
+<li><p><span class="math notranslate nohighlight">\(i_{t1} &lt; (S - i_s) \div e\)</span></p></li>
+</ol>
+</li>
+</ol>
+</div></blockquote>
+<p>The condition 5 in (eq 5) is equivalent to</p>
+<blockquote>
+<div><ul class="simple">
+<li><p><span class="math notranslate nohighlight">\(0 &lt; \mathrm{ceilDiv}(B, e)\)</span>, and</p></li>
+<li><p><span class="math notranslate nohighlight">\(0 &lt; (B - i_s) \div e\)</span>, and</p></li>
+<li><p><span class="math notranslate nohighlight">\(0 &lt; (S - i_s) \div e\)</span></p></li>
+</ul>
+</div></blockquote>
+<p>which simplifies to</p>
+<blockquote>
+<div><ul class="simple">
+<li><p><span class="math notranslate nohighlight">\(i_s &lt; B\)</span>, and</p></li>
+<li><p><span class="math notranslate nohighlight">\(i_s &lt; S\)</span></p></li>
+</ul>
+</div></blockquote>
+<p>so (eq 5) can be simplified as</p>
+<blockquote>
+<div><p><strong>(eq 6)</strong> There exists <span class="math notranslate nohighlight">\(i_s \in \mathbb{Z}\)</span>, <span class="math notranslate nohighlight">\(i_{t2} \in \mathbb{Z}\)</span> that satisfies all of the following conditions:</p>
+<ol class="arabic simple">
+<li><p><span class="math notranslate nohighlight">\(0 \le i_s &lt; e\)</span></p></li>
+<li><p><span class="math notranslate nohighlight">\(0 \le i_{t2} &lt; \mathrm{ceilDiv}(B, e)\)</span></p></li>
+<li><p><span class="math notranslate nohighlight">\(i_{t2} \times e + i_s \ge B\)</span></p></li>
+<li><p><span class="math notranslate nohighlight">\(i_{t2} \times e + i_s &lt; S\)</span></p></li>
+<li><p><span class="math notranslate nohighlight">\(i_s &lt; B\)</span></p></li>
+<li><p><span class="math notranslate nohighlight">\(i_s &lt; S\)</span></p></li>
+</ol>
+</div></blockquote>
+<p>Rephrase (eq 6) as</p>
+<blockquote>
+<div><p><strong>(eq 7)</strong> There exists <span class="math notranslate nohighlight">\(i_{t2} \in \mathbb{Z}\)</span> that satisfies all of the following conditions:</p>
+<ol class="arabic simple">
+<li><p><span class="math notranslate nohighlight">\(0 \le i_{t2} &lt; \mathrm{ceilDiv}(B, e)\)</span></p></li>
+<li><p>There exists <span class="math notranslate nohighlight">\(i_s \in \mathbb{Z}\)</span> that satisfies all of the following conditions:</p>
+<ol class="arabic simple">
+<li><p><span class="math notranslate nohighlight">\(0 \le i_s &lt; e\)</span></p></li>
+<li><p><span class="math notranslate nohighlight">\(i_s &lt; B\)</span></p></li>
+<li><p><span class="math notranslate nohighlight">\(i_s &lt; S\)</span></p></li>
+<li><p><span class="math notranslate nohighlight">\(B - i_{t2} \times e \le i_s\)</span></p></li>
+<li><p><span class="math notranslate nohighlight">\(i_s &lt; S - i_{t2} \times e\)</span></p></li>
+</ol>
+</li>
+</ol>
+</div></blockquote>
+<p>The condition 2 of (eq 7) is equivalent to</p>
+<blockquote>
+<div><ul class="simple">
+<li><p><span class="math notranslate nohighlight">\(0 &lt; e\)</span>, and</p></li>
+<li><p><span class="math notranslate nohighlight">\(0 &lt; B\)</span>, and</p></li>
+<li><p><span class="math notranslate nohighlight">\(0 &lt; S\)</span>, and</p></li>
+<li><p><span class="math notranslate nohighlight">\(0 &lt; S - i_{t2} \times e\)</span>, and</p></li>
+<li><p><span class="math notranslate nohighlight">\(B - i_{t2} \times e &lt; e\)</span>, and</p></li>
+<li><p><span class="math notranslate nohighlight">\(B - i_{t2} \times e &lt; B\)</span>, and</p></li>
+<li><p><span class="math notranslate nohighlight">\(B - i_{t2} \times e &lt; S\)</span>, and</p></li>
+<li><p><span class="math notranslate nohighlight">\(B - i_{t2} \times e &lt; S - i_{t2} \times e\)</span></p></li>
+</ul>
+</div></blockquote>
+<p>which simplifies to</p>
+<blockquote>
+<div><ul class="simple">
+<li><p><span class="math notranslate nohighlight">\(i_{t2} \times e &lt; S\)</span></p></li>
+<li><p><span class="math notranslate nohighlight">\(B - e &lt; i_{t2} \times e\)</span></p></li>
+<li><p><span class="math notranslate nohighlight">\(0 &lt; i_{t2}\)</span></p></li>
+<li><p><span class="math notranslate nohighlight">\(B &lt; S\)</span></p></li>
+</ul>
+</div></blockquote>
+<p>So (eq 7) can be simplified as</p>
+<blockquote>
+<div><p><strong>(eq 8)</strong> All the following conditions are satisfied:</p>
+<ol class="arabic simple">
+<li><p><span class="math notranslate nohighlight">\(B &lt; S\)</span></p></li>
+<li><p>There exists <span class="math notranslate nohighlight">\(i_{t2} \in \mathbb{Z}\)</span> that satisfies all of the following conditions:</p>
+<ol class="arabic simple">
+<li><p><span class="math notranslate nohighlight">\(0 &lt; i_{t2} &lt; \mathrm{ceilDiv}(B, e)\)</span></p></li>
+<li><p><span class="math notranslate nohighlight">\(i_{t2} \times e &lt; S\)</span></p></li>
+<li><p><span class="math notranslate nohighlight">\(B - e &lt; i_{t2} \times e\)</span></p></li>
+</ol>
+</li>
+</ol>
+</div></blockquote>
+<p>Rephrase (eq 8) as</p>
+<blockquote>
+<div><p><strong>(eq 9)</strong> All the following conditions are satisfied:</p>
+<ol class="arabic simple">
+<li><p><span class="math notranslate nohighlight">\(B &lt; S\)</span></p></li>
+<li><p>There exists <span class="math notranslate nohighlight">\(i_{t2} \in \mathbb{Z}\)</span> that satisfies all of the following conditions:</p>
+<ol class="arabic simple">
+<li><p><span class="math notranslate nohighlight">\(0 &lt; i_{t2}\)</span></p></li>
+<li><p><span class="math notranslate nohighlight">\(B \div e - 1 &lt; i_{t2} &lt; \mathrm{ceilDiv}(B, e)\)</span></p></li>
+<li><p><span class="math notranslate nohighlight">\(i_{t2} &lt; S \div e\)</span></p></li>
+</ol>
+</li>
+</ol>
+</div></blockquote>
+<p>If <span class="math notranslate nohighlight">\(e\)</span> divide <span class="math notranslate nohighlight">\(B\)</span>, then <span class="math notranslate nohighlight">\(\mathrm{ceilDiv}(B, e) = B / e = B \div e\)</span>,
+then <span class="math notranslate nohighlight">\(B \div e - 1 &lt; i_{t2} &lt; \mathrm{ceilDiv}(B, e)\)</span> is not possible
+because there is no other integers between two consecutive integers.
+So (eq 9) can be simplified as</p>
+<blockquote>
+<div><p><strong>(eq 10)</strong> All the following conditions are satisfied:</p>
+<ol class="arabic simple">
+<li><p><span class="math notranslate nohighlight">\(B &lt; S\)</span></p></li>
+<li><p><span class="math notranslate nohighlight">\(e\)</span> does not divide <span class="math notranslate nohighlight">\(B\)</span></p></li>
+<li><p>There exists <span class="math notranslate nohighlight">\(i_{t2} \in \mathbb{Z}\)</span> that satisfies all of the following conditions:</p>
+<ol class="arabic simple">
+<li><p><span class="math notranslate nohighlight">\(0 &lt; i_{t2}\)</span></p></li>
+<li><p><span class="math notranslate nohighlight">\(B \div e - 1 &lt; i_{t2} &lt; \mathrm{ceilDiv}(B, e)\)</span></p></li>
+<li><p><span class="math notranslate nohighlight">\(i_{t2} &lt; S \div e\)</span></p></li>
+</ol>
+</li>
+</ol>
+</div></blockquote>
+<p>which is equivalent to</p>
+<blockquote>
+<div><p><strong>(eq 11)</strong> All the following conditions are satisfied:</p>
+<ol class="arabic simple">
+<li><p><span class="math notranslate nohighlight">\(B &lt; S\)</span></p></li>
+<li><p><span class="math notranslate nohighlight">\(e\)</span> does not divide <span class="math notranslate nohighlight">\(B\)</span></p></li>
+<li><p>There exists <span class="math notranslate nohighlight">\(i_{t2} \in \mathbb{Z}\)</span> that satisfies all of the following conditions:</p>
+<ol class="arabic simple">
+<li><p><span class="math notranslate nohighlight">\(1 \le i_{t2}\)</span></p></li>
+<li><p><span class="math notranslate nohighlight">\(\mathrm{ceilDiv}(B, e) - 1 \le i_{t2} &lt; \mathrm{ceilDiv}(B, e)\)</span></p></li>
+<li><p><span class="math notranslate nohighlight">\(i_{t2} &lt; S \div e\)</span></p></li>
+</ol>
+</li>
+</ol>
+</div></blockquote>
+<p>The condition (3.ii) in (eq 11) is achievable only if <span class="math notranslate nohighlight">\(i_{t2} = \mathrm{ceilDiv}(B, e) - 1\)</span>.
+So (eq 11) is equivalent to</p>
+<blockquote>
+<div><p><strong>(eq 12)</strong> All the following conditions are satisfied:</p>
+<ol class="arabic simple">
+<li><p><span class="math notranslate nohighlight">\(B &lt; S\)</span></p></li>
+<li><p><span class="math notranslate nohighlight">\(e\)</span> does not divide <span class="math notranslate nohighlight">\(B\)</span></p></li>
+<li><p><span class="math notranslate nohighlight">\(\mathrm{ceilDiv}(B, e) \ge 2\)</span></p></li>
+<li><p><span class="math notranslate nohighlight">\(S &gt; e \times (\mathrm{ceilDiv}(B, e) - 1)\)</span></p></li>
+</ol>
+</div></blockquote>
+<p>which simplifies to</p>
+<blockquote>
+<div><p><span class="math notranslate nohighlight">\(e &lt; B &lt; S\)</span> and <span class="math notranslate nohighlight">\(e\)</span> does not divide <span class="math notranslate nohighlight">\(B\)</span></p>
+</div></blockquote>
+<p><span class="math notranslate nohighlight">\(\square\)</span></p>
+</details>
+<p>Now, let’s go back to the example in Figure 5.
+In this example, all the conditions of Theorem 6 are satisfied for the outer dimension,
+so strong correctness is unachievable. What if some condition is violated?</p>
+<p>If the element stride divided the box size, then the striding split would not create any hole at all.</p>
+<p>If the the tensor shape was <code class="docutils literal notranslate"><span class="pre">(4,</span> <span class="pre">2)</span></code> instead of <code class="docutils literal notranslate"><span class="pre">(8,</span> <span class="pre">2)</span></code>,
+which violated the condition that the box size is smaller than the tensor size,
+then the red items in Figure 6 would not exist, because items from <code class="docutils literal notranslate"><span class="pre">8</span></code> to <code class="docutils literal notranslate"><span class="pre">15</span></code> would now be out of boundary.</p>
+<p>If the element stride was <code class="docutils literal notranslate"><span class="pre">5</span></code> instead of <code class="docutils literal notranslate"><span class="pre">3</span></code>,
+the red items in Figure 6 would still exist without extra protextion,
+because the example of <span class="math notranslate nohighlight">\(i_3 = 0\)</span>, <span class="math notranslate nohighlight">\(i_4 = 4\)</span>, and <span class="math notranslate nohighlight">\(i_1 = 4\)</span> mentioned above is still valid.
+However, by lowering smartly, we can add a check for the range of <code class="docutils literal notranslate"><span class="pre">I6</span></code> (i.e. <span class="math notranslate nohighlight">\(i_6 &lt; 4\)</span>) to get rid of the red items.</p>
+</section>
+<section id="the-lowering-strategy">
+<h2>The lowering strategy<a class="headerlink" href="#the-lowering-strategy" title="Link to this heading"></a></h2>
+<p>Theorem 6 is so powerful that it deserve a fancier name “<strong>The fundamental theorem of TMA correctness</strong>”,
+or <strong>FTTC</strong> in short.
+It is powerful because the condition in it is both necessary and sufficient,
+so we have a clear idea on when we can achieve strong correctness,
+and when we have no choice but to raise an error.</p>
+<p>Summarizing the previous two sections, regarding the achievability of strong correctness,
+there are three levels:</p>
+<ol class="arabic simple">
+<li><p><strong>Level 1:</strong> The input IterDomains of all hole-creating IterDomain expressions (indivisible split, resize) are all TMA-protected.</p></li>
+<li><p><strong>Level 2:</strong> Some hole-creating IterDomain expressions’ input IterDomains are not TMA-protected, but the condition of FTTC is false.</p></li>
+<li><p><strong>Level 3:</strong> The condition of FTTC is true.</p></li>
+</ol>
+<p>And our strategies for different correctness model is in the Table 1 below:</p>
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p></p></th>
+<th class="head"><p>Level 1</p></th>
+<th class="head"><p>Level 2</p></th>
+<th class="head"><p>Level 3</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>Weak correctness</p></td>
+<td><p>Automatically achieved. Don’t need to do anything.</p></td>
+<td><p>Don’t have to do anything. But can still predicate TMA-unprotected IterDomains to save memory traffic on holes.</p></td>
+<td><p>Don’t have to do anything. But can still predicate TMA-unprotected IterDomains to save memory traffic on some holes.</p></td>
+</tr>
+<tr class="row-odd"><td><p>Strong correctness</p></td>
+<td><p>Automatically achieved. Don’t need to do anything.</p></td>
+<td><p>Can be achieved by checking TMA-unprotected IterDomains and send violators to out of boundary regions.</p></td>
+<td><p>Unachievable. Raise an error.</p></td>
+</tr>
+</tbody>
+</table>
+<p>If only weak correctness is required, we can generate unpredicated TMA instructions.
+Or, we can instead generate code like below:</p>
+<div class="highlight-C++ notranslate"><div class="highlight"><pre><span></span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">predicates_for_TMA_unprotected_IterDomains</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">  </span><span class="n">tma</span><span class="p">(...);</span>
+<span class="p">}</span>
+</pre></div>
+</div>
+<p>The predicate above is not required, but it can save memory traffic on some holes.</p>
+<p>If strong correctness is required, we need to assert that the condition of FTTC is false,
+because otherwise the generated code would produce wrong results.
+If the condition of FTTC is indeed false,
+then we can achieve strong correctness by generate the following code:</p>
+<div class="highlight-C++ notranslate"><div class="highlight"><pre><span></span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">predicates_for_TMA_unprotected_IterDomains</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">  </span><span class="c1">// Do TMA normally</span>
+<span class="w">  </span><span class="n">tma</span><span class="p">(...);</span>
+<span class="p">}</span><span class="w"> </span><span class="k">else</span><span class="w"> </span><span class="p">{</span>
+<span class="w">  </span><span class="c1">// Manually put the box out of boundary to force zero filling</span>
+<span class="w">  </span><span class="n">tma</span><span class="p">(</span><span class="n">x</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="o">-</span><span class="n">bs</span><span class="p">,</span><span class="w"> </span><span class="p">...);</span>
+<span class="p">}</span>
+</pre></div>
+</div>
+<p>where in the else clause, the <code class="docutils literal notranslate"><span class="pre">tma(x</span> <span class="pre">=</span> <span class="pre">-bs,</span> <span class="pre">...);</span></code> hardcode the coordinate to <code class="docutils literal notranslate"><span class="pre">-bs</span></code>, so that the entire box is outside the region of tensor and TMA will fill zeros to it.</p>
+<p>For example, for the case of the Figure 2 above,
+<code class="docutils literal notranslate"><span class="pre">I5</span></code> is the only TMA-unprotected IterDomain that can contain hole.
+Suppose that the index of <code class="docutils literal notranslate"><span class="pre">I5</span></code> is <span class="math notranslate nohighlight">\(i_5\)</span>, then its predicate is <span class="math notranslate nohighlight">\(0\le i_5 &lt; 2\)</span>.
+The element stride is implicitly one, so the condition of FTTC is false.</p>
+<p>If we only want to achieve weak correctness, then we can generate unpredicated TMA instructions,
+or if we want to save the memory traffic of the red items, we can generate code like below:</p>
+<div class="highlight-C++ notranslate"><div class="highlight"><pre><span></span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">i5</span><span class="w"> </span><span class="o">&gt;=</span><span class="w"> </span><span class="mi">0</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="n">i5</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="mi">2</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">  </span><span class="n">tma</span><span class="p">(...);</span>
+<span class="p">}</span>
+</pre></div>
+</div>
+<p>If we do need to achieve strong correctness, then we should generate code like below:</p>
+<div class="highlight-C++ notranslate"><div class="highlight"><pre><span></span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">i5</span><span class="w"> </span><span class="o">&gt;=</span><span class="w"> </span><span class="mi">0</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="n">i5</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="mi">2</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">  </span><span class="n">tma</span><span class="p">(...);</span>
+<span class="p">}</span><span class="w"> </span><span class="k">else</span><span class="w"> </span><span class="p">{</span>
+<span class="w">  </span><span class="n">tma</span><span class="p">(</span><span class="n">x</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">-2</span><span class="p">,</span><span class="w"> </span><span class="p">...);</span>
+<span class="p">}</span>
+</pre></div>
+</div>
+<p>As another example, let’s take a look at the Figure 5 above.
+The condition of FTTC is true, so we can not achieve strong correctness.
+<code class="docutils literal notranslate"><span class="pre">I4</span></code> is the only TMA-unprotected IterDomain that can contain hole.
+However, we can not predicate it, because it is the box IterDomain,
+and the index of its tile IterDomain (<code class="docutils literal notranslate"><span class="pre">I5</span></code>) is hardware parallelized and the programmer has no access to it.
+So if weak correctness is required, we can just generated an unpredicated TMA.
+But if strong correctness is required, we have to raise an error.</p>
+<p>If the element stride of the example in Figure 5 is 5 instead of 3 (that is, the extent of <code class="docutils literal notranslate"><span class="pre">I6</span></code> is <code class="docutils literal notranslate"><span class="pre">5</span></code>, and the extent of <code class="docutils literal notranslate"><span class="pre">I5</span></code> is <code class="docutils literal notranslate"><span class="pre">1</span></code>),
+then the condition of FTTC is false.
+Still, <code class="docutils literal notranslate"><span class="pre">I4</span></code> is the only TMA-unprotected IterDomain that can contain hole.
+But this time, because its tile IterDomain (<code class="docutils literal notranslate"><span class="pre">I5</span></code>) has extent <code class="docutils literal notranslate"><span class="pre">1</span></code>, so the its index is always <span class="math notranslate nohighlight">\(i_5 = 0\)</span>.
+For this case, the index of <code class="docutils literal notranslate"><span class="pre">I4</span></code> is just the index of <code class="docutils literal notranslate"><span class="pre">I6</span></code>, that is, <span class="math notranslate nohighlight">\(i_4 = i_6\)</span>.</p>
+<p>So for weak correctness, we can generated an unpredicated TMA, or generate code like:</p>
+<div class="highlight-C++ notranslate"><div class="highlight"><pre><span></span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">i6</span><span class="w"> </span><span class="o">&gt;=</span><span class="w"> </span><span class="mi">0</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="n">i6</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="mi">4</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">  </span><span class="n">tma</span><span class="p">(...);</span>
+<span class="p">}</span>
+</pre></div>
+</div>
+<p>to save memory traffic on holes. And for strong correctness, we should generate:</p>
+<div class="highlight-C++ notranslate"><div class="highlight"><pre><span></span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">i6</span><span class="w"> </span><span class="o">&gt;=</span><span class="w"> </span><span class="mi">0</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="n">i6</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="mi">4</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">  </span><span class="n">tma</span><span class="p">(...);</span>
+<span class="p">}</span><span class="w"> </span><span class="k">else</span><span class="w"> </span><span class="p">{</span>
+<span class="w">  </span><span class="n">tma</span><span class="p">(</span><span class="n">x</span><span class="o">=</span><span class="p">(</span><span class="mi">-2</span><span class="p">,</span><span class="w"> </span><span class="mi">-4</span><span class="p">),</span><span class="w"> </span><span class="p">...);</span>
+<span class="p">}</span>
+</pre></div>
+</div>
+<blockquote>
+<div><p>[!WARNING]
+TODO: This strategy is not implemented yet</p>
+</div></blockquote>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="multigpu.html" class="btn btn-neutral float-left" title="Multi-GPU Support in nvFuser" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="../dev/debug.html" class="btn btn-neutral float-right" title="Debugging" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+<img src="../_static/NVIDIA-LogoBlack.svg"/>
+<p class="notices">
+<a href="https://www.nvidia.com/en-us/about-nvidia/privacy-policy/" target="_blank">Privacy Policy</a>
+|
+<a href="https://www.nvidia.com/en-us/about-nvidia/privacy-center/" target="_blank">Manage My Privacy</a>
+|
+<a href="https://www.nvidia.com/en-us/preferences/start/" target="_blank">Do Not Sell or Share My Data</a>
+|
+<a href="https://www.nvidia.com/en-us/about-nvidia/terms-of-service/" target="_blank">Terms of Service</a>
+|
+<a href="https://www.nvidia.com/en-us/about-nvidia/accessibility/" target="_blank">Accessibility</a>
+|
+<a href="https://www.nvidia.com/en-us/about-nvidia/company-policies/" target="_blank">Corporate Policies</a>
+|
+<a href="https://www.nvidia.com/en-us/product-security/" target="_blank">Product Security</a>
+|
+<a href="https://www.nvidia.com/en-us/contact/" target="_blank">Contact</a>
+</p>
+
+    <p>&#169; Copyright 2023-2025, NVIDIA CORPORATION &amp; AFFILIATES. All rights reserved..</p>
+
+  </div>
+
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  
+<div class="rst-versions" data-toggle="rst-versions" role="note" aria-label="versions">
+    <span class="rst-current-version" data-toggle="rst-current-version">
+        
+        Version: 0.2.34
+        
+    </span>
+</div><script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

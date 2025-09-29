@@ -1,0 +1,994 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Multi-GPU Support in nvFuser &mdash; nvFuser 0.2.34 documentation</title>
+      <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=03e43079" />
+      <link rel="stylesheet" type="text/css" href="../_static/css/theme.css?v=e59714d7" />
+      <link rel="stylesheet" type="text/css" href="../_static/css/nvidia_font.css?v=e009355c" />
+      <link rel="stylesheet" type="text/css" href="../_static/css/nvidia_footer.css?v=84031d34" />
+
+  
+      <script src="../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../_static/documentation_options.js?v=b85e2031"></script>
+      <script src="../_static/doctools.js?v=9bcbadda"></script>
+      <script src="../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="next" title="TMA Modeling In Depth" href="tma-modeling-in-depth.html" />
+    <link rel="prev" title="The Mathematical Theory of IterDomain" href="iterdomain.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" > 
+
+          
+          
+          <a href="../index.html" class="icon icon-home">
+            nvFuser
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+
+  <style>
+    /* Sidebar header (and topbar for mobile) */
+    .wy-side-nav-search, .wy-nav-top {
+      background: #76b900;
+    }
+
+    .wy-menu > p > span.caption-text {
+      color: #76b900;
+    }
+
+    .wy-menu-vertical p {
+      height: 32px;
+      line-height: 32px;
+      padding: 0 1.618em;
+      margin: 12px 0 0;
+      display: block;
+      font-weight: 700;
+      text-transform: uppercase;
+      font-size: 85%;
+      white-space: nowrap;
+    }
+
+    .wy-side-nav-search a:link, .wy-nav-top a:link {
+      color: #fff;
+    }
+    .wy-side-nav-search a:visited, .wy-nav-top a:visited {
+      color: #fff;
+    }
+    .wy-side-nav-search a:hover, .wy-nav-top a:hover {
+      color: #fff;
+    }
+
+    .wy-menu-vertical a:link, .wy-menu-vertical a:visited {
+      color: #d9d9d9
+    }
+
+    .wy-menu-vertical a:active {
+      background-color: #76b900
+    }
+
+    .wy-side-nav-search>div.version {
+      color: rgba(0, 0, 0, 0.3)
+    }
+
+    .wy-nav-content {
+      max-width: 1000px;
+    }
+
+    /* override table width restrictions */
+    .wy-table-responsive table td, .wy-table-responsive table th {
+        /* !important prevents the common CSS stylesheets from
+          overriding this as on RTD they are loaded after this stylesheet */
+        white-space: normal !important;
+    }
+
+    .wy-table-responsive {
+        overflow: visible !important;
+    }
+
+  </style>
+  <style>
+  a:link, a:visited {
+    color: #76b900;
+  }
+
+  a:hover {
+    color: #8c0;
+  }
+
+  html.writer-html5 .rst-content dl[class]:not(.option-list):not(.field-list):not(.footnote):not(.glossary):not(.simple)>dt {
+    background: rgba(118, 185, 0, 0.1);
+    color: rgba(59,93,0,1);
+    border-top: solid 3px rgba(59,93,0,1);
+  }
+
+  html.writer-html4 .rst-content dl:not(.docutils) .property, html.writer-html5 .rst-content dl[class]:not(.option-list):not(.field-list):not(.footnote):not(.glossary):not(.simple) .property {
+    text-transform: capitalize;
+    display: inline-block;
+    padding-right: 8px;
+  }
+  </style>
+
+  
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Table of Contents</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../installation.html">Overview</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../installation.html#installation">Installation</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../installation.html#nightly-nvfuser-pip-wheel">Nightly nvfuser pip wheel</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../installation.html#nvfuser-pip-wheel-against-pytorch-stable-release">Nvfuser pip wheel against pytorch stable release</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../installation.html#developer">Developer</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../installation.html#install-from-source">Install From Source:</a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Python API</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../api/general.html">General</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../api/general.html#statement">Statement</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../api/general.html#val">Val</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../api/general.html#expr">Expr</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../api/general.html#iterdomain">IterDomain</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../api/general.html#tensordomain">TensorDomain</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../api/general.html#tensorview">TensorView</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../api/general.html#fusionexecutorcache">FusionExecutorCache</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../api/general.html#kernelexecutor">KernelExecutor</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../api/general.html#fusion-definition">Fusion Definition</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../api/ops.html">Operations</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../api/ops.html#ops">Ops</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../api/multidevice.html">Multidevice</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../api/multidevice.html#communicator">Communicator</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../api/multidevice.html#devicemesh">DeviceMesh</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../api/multidevice.html#sharding">Sharding</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../api/enum.html">Enums</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../api/enum.html#communicatorbackend-types">CommunicatorBackend Types</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../api/enum.html#data-types">Data Types</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../api/enum.html#parallel-types">Parallel Types</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../api/enum.html#scheduler-types">Scheduler Types</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../api/pod_class.html">Data classes</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../api/pod_class.html#launchparams">LaunchParams</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../api/pod_class.html#compileparams">CompileParams</a></li>
+</ul>
+</li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Developer References</span></p>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="divisibility-of-split.html">Divisibility of Split</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="divisibility-of-split.html#introduction">Introduction</a></li>
+<li class="toctree-l2"><a class="reference internal" href="divisibility-of-split.html#predication">Predication</a></li>
+<li class="toctree-l2"><a class="reference internal" href="divisibility-of-split.html#allocation-and-correctness-model">Allocation and correctness model</a></li>
+<li class="toctree-l2"><a class="reference internal" href="divisibility-of-split.html#properties-of-split">Properties of split</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="divisibility-of-split.html#merge-then-split-vs-split-then-merge">Merge-then-split vs split-then-merge</a></li>
+<li class="toctree-l3"><a class="reference internal" href="divisibility-of-split.html#merging-discontiguous-iterdomains">Merging discontiguous IterDomains</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="divisibility-of-split.html#question">Question</a></li>
+<li class="toctree-l4"><a class="reference internal" href="divisibility-of-split.html#answer">Answer</a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="iterdomain.html">The Mathematical Theory of IterDomain</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="iterdomain.html#iterdomain-transformations">1. IterDomain Transformations</a></li>
+<li class="toctree-l2"><a class="reference internal" href="iterdomain.html#properties-of-iterdomain-transformations">2. Properties of IterDomain Transformations</a></li>
+</ul>
+</li>
+<li class="toctree-l1 current"><a class="current reference internal" href="#">Multi-GPU Support in nvFuser</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#introduction">Introduction</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#user-api">User API</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#parallelisms">Parallelisms</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#tensor-parallelism-tp">Tensor Parallelism (TP)</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#sharding-propagation">Sharding Propagation</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#communication-computation-decomposition">Communication-computation Decomposition</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#sequence-parallelism-sp">Sequence Parallelism (SP)</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#id1">Sharding Propagation</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#id2">Communication-computation Decomposition</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#overlap-communication-with-gemm-via-decomposition">Overlap Communication with GEMM via Decomposition</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#distributed-data-parallelism-ddp">Distributed Data Parallelism (DDP)</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#fully-sharded-data-parallelism-fsdp">Fully Sharded Data Parallelism (FSDP)</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#pipeline-parallelism-pp">Pipeline Parallelism (PP)</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#context-parallelism-cp">Context Parallelism (CP)</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="tma-modeling-in-depth.html">TMA Modeling In Depth</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="tma-modeling-in-depth.html#what-is-tma">What is TMA?</a></li>
+<li class="toctree-l2"><a class="reference internal" href="tma-modeling-in-depth.html#correctness-model">Correctness model</a></li>
+<li class="toctree-l2"><a class="reference internal" href="tma-modeling-in-depth.html#the-unachievability-of-strong-correctness-for-indivisible-element-stride">The unachievability of strong correctness for indivisible element stride</a></li>
+<li class="toctree-l2"><a class="reference internal" href="tma-modeling-in-depth.html#the-lowering-strategy">The lowering strategy</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../dev/debug.html">Debugging</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../dev/debug.html#debug-a-failing-nvfuser-script">Debug a failing nvFuser script</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../dev/debug.html#nvfuser-dump">NVFUSER_DUMP</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../dev/debug.html#gdb">gdb</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../dev/debug.html#debug-memory-corruption-using-asan">Debug memory corruption using <code class="docutils literal notranslate"><span class="pre">asan</span></code></a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../dev/debug.html#if-built-with-clang">If built with clang</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../dev/debug.html#debug-memory-leaks-or-excessive-memory-usage">Debug memory leaks or excessive memory usage</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../dev/debug.html#debug-slow-kernels">Debug slow kernels</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../dev/debug.html#debug-slow-cpu-execution">Debug slow CPU execution</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../dev/visibility.html">Symbol Visibility</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../dev/visibility.html#faq">FAQ</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../dev/visibility.html#should-i-mark-a-method-visible-or-the-whole-class">Should I mark a method visible or the whole class?</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../dev/visibility.html#i-see-an-undefined-reference-to-typeinfo-for-class-how-do-i-fix-this">I see an undefined reference to <code class="docutils literal notranslate"><span class="pre">typeinfo</span> <span class="pre">for</span> <span class="pre">&lt;class&gt;</span></code>. How do I fix this?</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../dev/visibility.html#i-see-an-undefined-reference-to-vtable-for-class-how-do-i-fix-this">I see an undefined reference to <code class="docutils literal notranslate"><span class="pre">vtable</span> <span class="pre">for</span> <span class="pre">&lt;class&gt;</span></code>. How do I fix this?</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../dev/visibility.html#i-see-that-foo-is-visible-but-i-do-not-think-it-needs-to-be">I see that <code class="docutils literal notranslate"><span class="pre">Foo</span></code> is visible but I do not think it needs to be.</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../dev/visibility.html#should-i-mark-my-new-method-or-class-as-nvf-api">Should I mark my new method or class as <code class="docutils literal notranslate"><span class="pre">NVF_API</span></code>?</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../dev/visibility.html#symbol-visibility-checking">Symbol Visibility Checking</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../dev/host_ir_jit.html">Host IR JIT Overview</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../dev/host_ir_jit.html#introduction">Introduction</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../dev/host_ir_jit.html#jit-compilation-process">JIT Compilation Process</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../dev/host_ir_jit.html#llvm-integration">1. LLVM Integration</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../dev/host_ir_jit.html#compilation-pipeline">2. Compilation Pipeline</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../dev/host_ir_jit.html#external-function-integration">3. External Function Integration</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../dev/host_ir_jit.html#ir-translation">3. IR Translation</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../dev/host_ir_jit.html#runtime-execution">Runtime Execution</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../dev/host_ir_jit.html#function-interface">1. Function Interface</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../dev/host_ir_jit.html#execution-flow">2. Execution Flow</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../dev/host_ir_jit.html#configuration-and-build-options">Configuration and Build Options</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../dev/host_ir_jit.html#future-integration-plan">Future Integration plan</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../dev/ldmatrix_stmatrix.html">LdMatrix and StMatrix Support in NVFuser</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../dev/ldmatrix_stmatrix.html#what-is-ldmatrix">What is LdMatrix?</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../dev/ldmatrix_stmatrix.html#what-is-stmatrix">What is StMatrix?</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../dev/ldmatrix_stmatrix.html#general-details">General Details</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../dev/ldmatrix_stmatrix.html#indices-shared-memory-tensor">Indices shared memory tensor</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../dev/ldmatrix_stmatrix.html#indices-for-register-tensor">Indices for register tensor</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../dev/ldmatrix_stmatrix.html#register-layout-for-one-8x8-matrix-with-16-bit-elements">Register layout for one 8x8 Matrix with 16-bit elements</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../dev/ldmatrix_stmatrix.html#example-1-a-copy-kernel-using-tma-ldmatrix-and-stmatrix">Example 1: A copy kernel using TMA, LdMatrix, and StMatrix.</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../dev/ldmatrix_stmatrix.html#how-to-compute-the-index-into-register-tensorview">How to compute the index into register TensorView?</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../dev/ldmatrix_stmatrix.html#how-to-compute-the-index-into-shared-memory-tensorview">How to compute the index into shared memory TensorView?</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../dev/ldmatrix_stmatrix.html#figure-1-loop-domain-for-ldmatrix-and-stmatrix">Figure 1: Loop domain for LdMatrix and StMatrix</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../dev/ldmatrix_stmatrix.html#figure-2-tma-shared-memory-allocation-domain">Figure 2: TMA shared memory allocation domain</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../dev/ldmatrix_stmatrix.html#figure-3-map-from-ldmatrix-stmatrix-loop-domain-to-tma-shared-memory-allocation-domain">Figure 3: Map from LdMatrix / StMatrix loop domain to TMA shared memory allocation domain</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../dev/ldmatrix_stmatrix.html#derivation-of-figure-3">Derivation of Figure 3</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../dev/ldmatrix_stmatrix.html#code-walkthrough">Code Walkthrough</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../dev/ldmatrix_stmatrix.html#scheduleldstmatrix-function">scheduleLdStMatrix function</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../dev/tma.html">Introduction to TMA Support in NVFuser</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../dev/tma.html#introduction">Introduction</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../dev/tma.html#schedule">Schedule</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../dev/tma.html#step-1-define-tma-domain">Step 1: define TMA domain</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../dev/tma.html#step-2-define-box">Step 2: define box</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../dev/tma.html#the-canonical-way-to-define-box">The canonical way to define box</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../dev/tma.html#define-box-by-mathematical-equivalence">Define box by mathematical equivalence</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../dev/tma.html#step-3-define-tile">Step 3: define tile</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../dev/tma.html#step-4-schedule-the-shared-memory-tensor">Step 4: schedule the shared memory tensor</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../dev/tma.html#data-swizzle">Data swizzle</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../dev/tma.html#step-5-schedule-the-consumer-tensor">Step 5: schedule the consumer tensor</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../dev/tma.html#code-walk-through">Code walk-through</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../dev/tma.html#examples">Examples</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../dev/tma.html#example-1-tma-load-inputs-and-vectorize-store-output-pointwise-kernel">Example 1: tma-load inputs and vectorize-store output pointwise kernel</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../dev/tma.html#example-2-broadcast-kernel-with-discontiguous-input">Example 2: broadcast kernel with discontiguous input</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../dev/tma.html#example-3-bank-conflict-free-transpose-of-32bit-data">Example 3: bank-conflict-free transpose of 32bit data</a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../dev/tmem.html">Tensor Memory Support in NVFuser</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../dev/tmem.html#review-of-inlining-and-parallelization">Review of inlining and parallelization</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../dev/tmem.html#tensor-memory">Tensor memory</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../dev/tmem.html#the-loop-domain-of-tmem-load-and-store">The loop domain of TMem load and store</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../dev/tmem.html#vectorization-of-tmem-load-and-store">Vectorization of TMem load and store</a></li>
+</ul>
+</li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../index.html">nvFuser</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../index.html" class="icon icon-home" aria-label="Home"></a></li>
+      <li class="breadcrumb-item active">Multi-GPU Support in nvFuser</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="../_sources/reading/multigpu.md.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <!--
+ * SPDX-FileCopyrightText: Copyright (c) 2025-present NVIDIA CORPORATION & AFFILIATES.
+ * All rights reserved.
+ * SPDX-License-Identifier: BSD-3-Clause
+-->
+<section class="tex2jax_ignore mathjax_ignore" id="multi-gpu-support-in-nvfuser">
+<h1>Multi-GPU Support in nvFuser<a class="headerlink" href="#multi-gpu-support-in-nvfuser" title="Link to this heading"></a></h1>
+<section id="introduction">
+<h2>Introduction<a class="headerlink" href="#introduction" title="Link to this heading"></a></h2>
+<p>A key strength of nvFuser has been its ability to automatically optimize CUDA
+kernels by parallelizing them across threads and blocks. This is achieved by
+cleanly separating the <em>definition</em> of what to compute from the <em>schedule</em> that
+determines how to execute it efficiently.</p>
+<p>We believe this principle extends naturally from single-GPU to multi-GPU
+workloads. For instance, online softmax has been the core idea behind
+FlashAttention for single-GPU and context parallelism for multi-GPU. Programmers
+also strive to overlap communication and GEMMs, much like overlaping TMA
+loads/stores with tensor-core operations.</p>
+<p>Therefore, since 2024, we have been generalizing these representations and
+algorithms – originally built for single-GPU execution – to enable efficient
+parallelization of deep learning workloads across multiple GPUs.</p>
+</section>
+<section id="user-api">
+<h2>User API<a class="headerlink" href="#user-api" title="Link to this heading"></a></h2>
+<p>The following example demonstrates how to run a distributed GPT-3 style MLP
+block using nvFuser’s multi-GPU API.</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">def</span><span class="w"> </span><span class="nf">define_fusion</span><span class="p">(</span><span class="n">fd</span><span class="p">:</span> <span class="n">FusionDefinition</span><span class="p">):</span>
+    <span class="n">inp</span> <span class="o">=</span> <span class="n">fd</span><span class="o">.</span><span class="n">define_tensor</span><span class="p">([</span><span class="o">-</span><span class="mi">1</span><span class="p">,</span> <span class="n">h</span><span class="p">])</span>  <span class="c1"># [batch * sequence, hidden]</span>
+    <span class="n">up_w</span> <span class="o">=</span> <span class="n">fd</span><span class="o">.</span><span class="n">define_tensor</span><span class="p">([</span><span class="n">h</span> <span class="o">*</span> <span class="mi">4</span><span class="p">,</span> <span class="n">h</span><span class="p">])</span>
+    <span class="n">out</span> <span class="o">=</span> <span class="n">fd</span><span class="o">.</span><span class="n">ops</span><span class="o">.</span><span class="n">linear</span><span class="p">(</span><span class="n">inp</span><span class="p">,</span> <span class="n">up_w</span><span class="p">)</span>
+
+    <span class="c1"># `gelu` runs a series of pointwise operations. For simplicity, I omit the</span>
+    <span class="c1"># details and treat it as one pointwise operation.</span>
+    <span class="n">out</span> <span class="o">=</span> <span class="n">gelu</span><span class="p">(</span><span class="n">out</span><span class="p">)</span>
+
+    <span class="n">down_w</span> <span class="o">=</span> <span class="n">fd</span><span class="o">.</span><span class="n">define_tensor</span><span class="p">([</span><span class="n">h</span><span class="p">,</span> <span class="n">h</span> <span class="o">*</span> <span class="mi">4</span><span class="p">])</span>
+    <span class="n">out</span> <span class="o">=</span> <span class="n">fd</span><span class="o">.</span><span class="n">ops</span><span class="o">.</span><span class="n">linear</span><span class="p">(</span><span class="n">out</span><span class="p">,</span> <span class="n">down_w</span><span class="p">)</span>
+
+    <span class="n">fd</span><span class="o">.</span><span class="n">add_output</span><span class="p">(</span><span class="n">out</span><span class="p">)</span>
+
+<span class="n">inp_dtensors</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">DTensor</span><span class="p">]</span>
+<span class="n">fdw</span> <span class="o">=</span> <span class="n">FusionDefinitionWrapper</span><span class="p">(</span><span class="n">define_fusion</span><span class="p">)</span>
+<span class="n">out_dtensors</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">DTensor</span><span class="p">]</span> <span class="o">=</span> <span class="n">fdw</span><span class="p">(</span><span class="n">inp_dtensors</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>A user initializes a
+<a class="reference external" href="https://github.com/NVIDIA/Fuser/blob/84c46fed9256b94c4eb9c7aa7f5757056dc88783/tests/python/multidevice/fusion_definition_wrapper.py#L21"><code class="docutils literal notranslate"><span class="pre">FusionDefinitionWrapper</span></code></a>
+with a <strong>single-GPU</strong> fusion definition. Then, they can invoke it with a list
+of three
+<a class="reference external" href="https://docs.pytorch.org/docs/stable/distributed.tensor.html#dtensor-class-apis"><code class="docutils literal notranslate"><span class="pre">DTensor</span></code></a>
+objects – corresponding to the input activations, the up-projection weights,
+and the down-projection weights. The result is a list containing a single
+<code class="docutils literal notranslate"><span class="pre">DTensor</span></code> that represents the output activations of the MLP block.</p>
+<p>Under the hood, nvFuser derives a <strong>multi-GPU</strong> schedule from the definition and
+the input <code class="docutils literal notranslate"><span class="pre">DTensor</span></code>s, then executes that schedule across multiple GPUs. This
+automatically handles sharding and communication and therefore removes the need
+for users to explicitly orchestrate communications such as
+<code class="docutils literal notranslate"><span class="pre">torch.distributed.all_reduce</span></code>.</p>
+<p>By default, nvFuser strives to generate an efficient schedule automatically.
+For performance-critical workloads, however, users can extend <code class="docutils literal notranslate"><span class="pre">define_fusion</span></code>
+with schedules that nvFuser must honor. These are specified through the
+scheduling Python API, using primitives such as <code class="docutils literal notranslate"><span class="pre">TensorView.split</span></code> and
+<code class="docutils literal notranslate"><span class="pre">IterDomain.parallelize</span></code>.</p>
+</section>
+<section id="parallelisms">
+<h2>Parallelisms<a class="headerlink" href="#parallelisms" title="Link to this heading"></a></h2>
+<p>This section walks through several common forms of parallelism and shows how
+they can be represented and implemented in fusion IR. For simplicity, I’ll use
+the above MLP block as the running example. These parallelisms also apply to
+other parts of a Transformer, such as MHA, RMSNorm and embedding layers. For
+clarity, I’ll only cover forward propagation – backpropagation typically shards
+tensors in the same way.</p>
+<section id="tensor-parallelism-tp">
+<h3>Tensor Parallelism (TP)<a class="headerlink" href="#tensor-parallelism-tp" title="Link to this heading"></a></h3>
+<p>To apply <a class="reference external" href="https://docs.nvidia.com/nemo-framework/user-guide/latest/nemotoolkit/features/parallelisms.html#tensor-parallelism">TP</a>,
+the user calls the <code class="docutils literal notranslate"><span class="pre">FusionDefinitionWrapper</span></code> with the following <code class="docutils literal notranslate"><span class="pre">DTensor</span></code>s:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">inp</span></code> with placement <code class="docutils literal notranslate"><span class="pre">Replicated()</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">up_w</span></code> with placement <code class="docutils literal notranslate"><span class="pre">Shard(0)</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">down_w</span></code> with placement <code class="docutils literal notranslate"><span class="pre">Shard(1)</span></code></p></li>
+</ul>
+<p>Therefore, nvFuser starts with the following fusion IR:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span> <span class="n">inp</span><span class="p">:</span> <span class="p">[</span><span class="n">t</span><span class="p">,</span> <span class="n">h</span><span class="p">]</span>                          <span class="n">up_w</span><span class="p">:</span> <span class="p">[</span><span class="mi">4</span><span class="n">h</span><span class="p">,</span>  <span class="n">h</span><span class="p">]</span>
+                                             <span class="o">/</span>\
+                                            <span class="n">d</span>
+                        <span class="o">|</span>
+                        <span class="o">|</span> <span class="n">linear</span>
+                        <span class="o">|</span>
+                     <span class="p">[</span><span class="n">t</span><span class="p">,</span> <span class="mi">4</span><span class="n">h</span><span class="p">,</span> <span class="n">r</span><span class="p">{</span><span class="n">h</span><span class="p">}]</span>
+                        <span class="o">|</span>
+                        <span class="o">|</span> <span class="n">gelu</span>
+                        <span class="o">|</span>
+                     <span class="p">[</span><span class="n">t</span><span class="p">,</span> <span class="mi">4</span><span class="n">h</span><span class="p">]</span>                <span class="n">down_w</span><span class="p">:</span> <span class="p">[</span><span class="n">h</span><span class="p">,</span> <span class="mi">4</span><span class="n">h</span><span class="p">]</span>
+                                                        <span class="o">/</span>\
+                                                       <span class="n">d</span>
+                                       <span class="o">|</span>
+                                       <span class="o">|</span> <span class="n">linear</span>
+                                       <span class="o">|</span>
+                                  <span class="p">[</span><span class="n">t</span><span class="p">,</span> <span class="n">h</span><span class="p">,</span> <span class="n">r</span><span class="p">{</span><span class="mi">4</span><span class="n">h</span><span class="p">}]</span>
+</pre></div>
+</div>
+<section id="sharding-propagation">
+<h4>Sharding Propagation<a class="headerlink" href="#sharding-propagation" title="Link to this heading"></a></h4>
+<p>nvFuser propagates shardings from inputs to outputs:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span> <span class="ow">in</span><span class="p">:</span> <span class="p">[</span><span class="n">t</span><span class="p">,</span> <span class="n">h</span><span class="p">]</span>                           <span class="n">up_w</span><span class="p">:</span> <span class="p">[</span><span class="mi">4</span><span class="n">h</span><span class="p">,</span>  <span class="n">h</span><span class="p">]</span>
+                                             <span class="o">/</span>\
+                                            <span class="n">d</span>
+                        <span class="o">|</span>
+                        <span class="o">|</span> <span class="n">linear</span>
+                        <span class="o">|</span>
+                     <span class="p">[</span><span class="n">t</span><span class="p">,</span> <span class="mi">4</span><span class="n">h</span><span class="p">,</span> <span class="n">r</span><span class="p">{</span><span class="n">h</span><span class="p">}]</span>
+                         <span class="o">/</span>\
+                        <span class="n">d</span>
+                        <span class="o">|</span>
+                        <span class="o">|</span> <span class="n">gelu</span>
+                        <span class="o">|</span>
+                     <span class="p">[</span><span class="n">t</span><span class="p">,</span> <span class="mi">4</span><span class="n">h</span><span class="p">]</span>                <span class="n">down_w</span><span class="p">:</span> <span class="p">[</span><span class="n">h</span><span class="p">,</span> <span class="mi">4</span><span class="n">h</span><span class="p">]</span>
+                         <span class="o">/</span>\                             <span class="o">/</span>\
+                        <span class="n">d</span>                              <span class="n">d</span>
+                                       <span class="o">|</span>
+                                       <span class="o">|</span> <span class="n">linear</span>
+                                       <span class="o">|</span>
+                                  <span class="p">[</span><span class="n">t</span><span class="p">,</span> <span class="n">h</span><span class="p">,</span> <span class="n">r</span><span class="p">{</span><span class="mi">4</span><span class="n">h</span><span class="p">}]</span>
+                                           <span class="o">/</span>\
+                                        <span class="n">r</span><span class="p">{</span><span class="n">d</span><span class="p">}</span>
+</pre></div>
+</div>
+</section>
+<section id="communication-computation-decomposition">
+<h4>Communication-computation Decomposition<a class="headerlink" href="#communication-computation-decomposition" title="Link to this heading"></a></h4>
+<p>After sharding propagation, nvFuser decomposes every Expr that performs both
+communication and computation, because they are initiated by different runtime
+APIs.  In the above fusion IR, the second <code class="docutils literal notranslate"><span class="pre">linear</span></code> performs both intra-GPU GEMM
+and inter-GPU reduction. After decomposition, the fusion IR becomes:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span> <span class="ow">in</span><span class="p">:</span> <span class="p">[</span><span class="n">t</span><span class="p">,</span> <span class="n">h</span><span class="p">]</span>                           <span class="n">up_w</span><span class="p">:</span> <span class="p">[</span><span class="mi">4</span><span class="n">h</span><span class="p">,</span>  <span class="n">h</span><span class="p">]</span>
+                                             <span class="o">/</span>\
+                                            <span class="n">d</span>
+                        <span class="o">|</span>
+                        <span class="o">|</span> <span class="n">linear</span>
+                        <span class="o">|</span>
+                     <span class="p">[</span><span class="n">t</span><span class="p">,</span> <span class="mi">4</span><span class="n">h</span><span class="p">,</span> <span class="n">r</span><span class="p">{</span><span class="n">h</span><span class="p">}]</span>
+                         <span class="o">/</span>\
+                        <span class="n">d</span>
+                        <span class="o">|</span>
+                        <span class="o">|</span> <span class="n">gelu</span>
+                        <span class="o">|</span>
+                     <span class="p">[</span><span class="n">t</span><span class="p">,</span> <span class="mi">4</span><span class="n">h</span><span class="p">]</span>                <span class="n">down_w</span><span class="p">:</span> <span class="p">[</span><span class="n">h</span><span class="p">,</span> <span class="mi">4</span><span class="n">h</span><span class="p">]</span>
+                         <span class="o">/</span>\                             <span class="o">/</span>\
+                        <span class="n">d</span>                              <span class="n">d</span>
+                                       <span class="o">|</span>
+                                       <span class="o">|</span> <span class="n">linear</span>
+                                       <span class="o">|</span>
+                               <span class="p">[</span><span class="n">t</span><span class="p">,</span> <span class="n">h</span><span class="p">,</span> <span class="n">d</span><span class="p">,</span> <span class="n">r</span><span class="p">{</span><span class="mi">4</span><span class="n">h</span><span class="o">/</span><span class="n">d</span><span class="p">}]</span>
+                                       <span class="o">|</span>
+                                       <span class="o">|</span> <span class="nb">sum</span>
+                                       <span class="o">|</span>
+                                  <span class="p">[</span><span class="n">t</span><span class="p">,</span> <span class="n">h</span><span class="p">,</span> <span class="n">r</span><span class="p">{</span><span class="n">d</span><span class="p">}]</span>
+</pre></div>
+</div>
+<p>This fusion IR then goes through segmentation, (intra-GPU) scheduling, device
+lowering, and host IR lowering. Eventually, the <code class="docutils literal notranslate"><span class="pre">linear</span></code>s and the <code class="docutils literal notranslate"><span class="pre">gelu</span></code> become
+CUDA kernels and the <code class="docutils literal notranslate"><span class="pre">sum</span></code> becomes a call to <code class="docutils literal notranslate"><span class="pre">ncclAllReduce</span></code>.</p>
+</section>
+</section>
+<section id="sequence-parallelism-sp">
+<h3>Sequence Parallelism (SP)<a class="headerlink" href="#sequence-parallelism-sp" title="Link to this heading"></a></h3>
+<p><a class="reference external" href="https://docs.nvidia.com/nemo-framework/user-guide/latest/nemotoolkit/features/parallelisms.html#sequence-parallelism">SP</a>
+extends TP by sharding not just the parameters but also input and
+output activations. This comes with the following benefits:</p>
+<ul class="simple">
+<li><p>The program uses less memory for activations.</p></li>
+<li><p>The surrounding operations like LayerNorm and Dropout run faster.</p></li>
+<li><p>This creates more opportunities for communication-computation overlapping.</p></li>
+</ul>
+<p>However, it tends to increase latency so it’s not applied universally.</p>
+<p>To apply SP, the user calls the <code class="docutils literal notranslate"><span class="pre">FusionDefinitionWrapper</span></code> with the following <code class="docutils literal notranslate"><span class="pre">DTensor</span></code>s:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">inp</span></code> with placement <code class="docutils literal notranslate"><span class="pre">Shard(0)</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">up_w</span></code> with placement <code class="docutils literal notranslate"><span class="pre">Shard(0)</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">down_w</span></code> with placement <code class="docutils literal notranslate"><span class="pre">Shard(1)</span></code></p></li>
+</ul>
+<p>As a result, nvFuser starts with the following fusion IR:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span> <span class="n">inp</span><span class="p">:</span> <span class="p">[</span><span class="n">t</span><span class="p">,</span> <span class="n">h</span><span class="p">]</span>                          <span class="n">up_w</span><span class="p">:</span> <span class="p">[</span><span class="mi">4</span><span class="n">h</span><span class="p">,</span>  <span class="n">h</span><span class="p">]</span>
+      <span class="o">/</span> \                                    <span class="o">/</span>\
+     <span class="n">d</span>                                      <span class="n">d</span>
+                        <span class="o">|</span>
+                        <span class="o">|</span> <span class="n">linear</span>
+                        <span class="o">|</span>
+                     <span class="p">[</span><span class="n">t</span><span class="p">,</span> <span class="mi">4</span><span class="n">h</span><span class="p">,</span> <span class="n">r</span><span class="p">{</span><span class="n">h</span><span class="p">}]</span>
+                        <span class="o">|</span>
+                        <span class="o">|</span> <span class="n">gelu</span>
+                        <span class="o">|</span>
+                     <span class="p">[</span><span class="n">t</span><span class="p">,</span> <span class="mi">4</span><span class="n">h</span><span class="p">]</span>                <span class="n">down_w</span><span class="p">:</span> <span class="p">[</span><span class="n">h</span><span class="p">,</span> <span class="mi">4</span><span class="n">h</span><span class="p">]</span>
+                                                        <span class="o">/</span>\
+                                                       <span class="n">d</span>
+                                       <span class="o">|</span>
+                                       <span class="o">|</span> <span class="n">linear</span>
+                                       <span class="o">|</span>
+                                  <span class="p">[</span><span class="n">t</span><span class="p">,</span> <span class="n">h</span><span class="p">,</span> <span class="n">r</span><span class="p">{</span><span class="mi">4</span><span class="n">h</span><span class="p">}]</span>
+</pre></div>
+</div>
+<section id="id1">
+<h4>Sharding Propagation<a class="headerlink" href="#id1" title="Link to this heading"></a></h4>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span> <span class="n">inp</span><span class="p">:</span> <span class="p">[</span><span class="n">t</span><span class="p">,</span> <span class="n">h</span><span class="p">]</span>                          <span class="n">up_w</span><span class="p">:</span> <span class="p">[</span><span class="mi">4</span><span class="n">h</span><span class="p">,</span>  <span class="n">h</span><span class="p">]</span>
+      <span class="o">/</span> \                                    <span class="o">/</span>\
+     <span class="n">d</span>                                      <span class="n">d</span>
+                        <span class="o">|</span>
+                        <span class="o">|</span> <span class="n">linear</span>
+                        <span class="o">|</span>
+                     <span class="p">[</span><span class="n">t</span><span class="p">,</span> <span class="mi">4</span><span class="n">h</span><span class="p">,</span> <span class="n">r</span><span class="p">{</span><span class="n">h</span><span class="p">}]</span>
+                         <span class="o">/</span>\
+                        <span class="n">d</span>
+                        <span class="o">|</span>
+                        <span class="o">|</span> <span class="n">gelu</span>
+                        <span class="o">|</span>
+                     <span class="p">[</span><span class="n">t</span><span class="p">,</span> <span class="mi">4</span><span class="n">h</span><span class="p">]</span>                <span class="n">down_w</span><span class="p">:</span> <span class="p">[</span><span class="n">h</span><span class="p">,</span> <span class="mi">4</span><span class="n">h</span><span class="p">]</span>
+                         <span class="o">/</span>\                             <span class="o">/</span>\
+                        <span class="n">d</span>                              <span class="n">d</span>
+                                       <span class="o">|</span>
+                                       <span class="o">|</span> <span class="n">linear</span>
+                                       <span class="o">|</span>
+                                  <span class="p">[</span><span class="n">t</span><span class="p">,</span> <span class="n">h</span><span class="p">,</span> <span class="n">r</span><span class="p">{</span><span class="mi">4</span><span class="n">h</span><span class="p">}]</span>
+                                  <span class="o">/</span> \      <span class="o">/</span>\
+                                 <span class="n">d</span>      <span class="n">r</span><span class="p">{</span><span class="n">d</span><span class="p">}</span>
+</pre></div>
+</div>
+<p>When nvFuser propagates shardings through the first <code class="docutils literal notranslate"><span class="pre">linear</span></code>, it can choose to
+either follow <code class="docutils literal notranslate"><span class="pre">inp</span></code>’s sharding and split <code class="docutils literal notranslate"><span class="pre">t</span></code> by <code class="docutils literal notranslate"><span class="pre">d</span></code> or follow <code class="docutils literal notranslate"><span class="pre">up_w</span></code> and split
+<code class="docutils literal notranslate"><span class="pre">4h</span></code> by <code class="docutils literal notranslate"><span class="pre">d</span></code>. Currently, our implementation chooses to follow <code class="docutils literal notranslate"><span class="pre">up_w</span></code> so weights
+(usually larger than activations) don’t have to be redistributed.</p>
+<p>The output’s <code class="docutils literal notranslate"><span class="pre">t</span></code> is split by <code class="docutils literal notranslate"><span class="pre">d</span></code>. nvFuser wouldn’t do this automatically if it
+runs the MLP block alone. However, in practice, the MLP block is followed by a
+residual connection. Therefore, <code class="docutils literal notranslate"><span class="pre">t</span></code> being split by <code class="docutils literal notranslate"><span class="pre">d</span></code> can be forward
+propagated through that residual connection and then back propagated through
+the addition.</p>
+</section>
+<section id="id2">
+<h4>Communication-computation Decomposition<a class="headerlink" href="#id2" title="Link to this heading"></a></h4>
+<p>Two <code class="docutils literal notranslate"><span class="pre">Expr</span></code>s in the above figure perform both communication and computation:</p>
+<ol class="arabic simple">
+<li><p>The first <code class="docutils literal notranslate"><span class="pre">linear</span></code> redistributes <code class="docutils literal notranslate"><span class="pre">inp</span></code> and runs a GEMM.</p></li>
+<li><p>The second <code class="docutils literal notranslate"><span class="pre">linear</span></code> runs a GEMM and redistributes the output.</p></li>
+</ol>
+<p>After decomposition, the fusion IR becomes:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span> inp: [t, h]
+      / \
+     d
+     |
+     | set
+     |
+      [t, h]                          up_w: [4h,  h]
+                                             /\
+                                            d
+                        |
+                        | linear
+                        |
+                     [t, 4h, r{h}]
+                         /\
+                        d
+                        |
+                        | gelu
+                        |
+                     [t, 4h]                down_w: [h, 4h]
+                         /\                             /\
+                        d                              d
+`                                      |
+                                       | linear
+                                       |
+                               [t, h, d, r{4h/d}]
+                                       |
+                                       | sum
+                                       |
+                                  [t, h, r{d}]
+                                  / \
+                                 d
+</pre></div>
+</div>
+<p>This fusion IR then goes through the rest of the nvFuser stack. The <code class="docutils literal notranslate"><span class="pre">set</span></code>
+becomes a call to <code class="docutils literal notranslate"><span class="pre">ncclAllGather</span></code> and the <code class="docutils literal notranslate"><span class="pre">sum</span></code> becomes a call to
+<code class="docutils literal notranslate"><span class="pre">ncclReduceScatter</span></code>.</p>
+</section>
+</section>
+<section id="overlap-communication-with-gemm-via-decomposition">
+<h3>Overlap Communication with GEMM via Decomposition<a class="headerlink" href="#overlap-communication-with-gemm-via-decomposition" title="Link to this heading"></a></h3>
+<p><a class="reference external" href="https://dl.acm.org/doi/10.1145/3567955.3567959">This technique</a> is orthogonal
+and can be applied to different types of parallelism (e.g., sequence, tensor,
+and context parallelism) to cut down latency. Instead of running communication
+operations (e.g., Allgather, ReduceScatter) and computation operations (e.g.,
+GEMM) one after another, it breaks them into smaller pieces and overlaps
+communication with computation to reduce wall time.</p>
+<a class="reference internal image-reference" href="../_images/allgather_matmul_overlap.png"><img alt="Figure 1" src="../_images/allgather_matmul_overlap.png" style="width: 600px;" />
+</a>
+<blockquote>
+<div><p><strong>Figure 1.</strong> Overlap allgather with GEMM<a class="footnote-reference brackets" href="#id4" id="id3" role="doc-noteref"><span class="fn-bracket">[</span>1<span class="fn-bracket">]</span></a></p>
+</div></blockquote>
+<p>There are two types of decomposition:</p>
+<ul class="simple">
+<li><p>Collective-based. A large communication collective is decomposed into collectives of the same nature.</p></li>
+<li><p>Ring-based. A large communication collective is decomposed into circular-shift point-to-point communications.</p></li>
+</ul>
+<p>The tradeoffs are:</p>
+<ul class="simple">
+<li><p>Collective-based exposes a fine-grained communication to the critical path.</p></li>
+<li><p>Collective-based is easier to implement in nvFuser because it doesn’t involve circular shift.</p></li>
+<li><p>Ring-based decomposition requires the number of chunks to be a multiple of the number of devices, whereas collective-based decomposition doesn’t.</p></li>
+<li><p>Ring-based decomposition supports canonical layouts better.</p></li>
+</ul>
+<p><a class="reference external" href="https://github.com/NVIDIA/Fuser/blob/main/tests/cpp/test_overlap.cpp#L57">This
+test</a>
+shows how the fusion IR represents a decomposed allgather with GEMM using
+ring-based scheme. This decomposition allows host IR optimizations to assign
+different loop iterations to different CUDA streams, enabling overlapping.</p>
+</section>
+<section id="distributed-data-parallelism-ddp">
+<h3>Distributed Data Parallelism (DDP)<a class="headerlink" href="#distributed-data-parallelism-ddp" title="Link to this heading"></a></h3>
+<p><a class="reference external" href="https://docs.nvidia.com/nemo-framework/user-guide/latest/nemotoolkit/features/parallelisms.html#distributed-data-parallelism">DDP</a>
+shards activations not parameters.</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span> <span class="ow">in</span><span class="p">:</span> <span class="p">[</span><span class="n">t</span><span class="p">,</span> <span class="n">h</span><span class="p">]</span>                           <span class="n">up_w</span><span class="p">:</span> <span class="p">[</span><span class="mi">4</span><span class="n">h</span><span class="p">,</span>  <span class="n">h</span><span class="p">]</span>
+     <span class="o">/</span> \
+    <span class="n">d</span>
+                        <span class="o">|</span>
+                        <span class="o">|</span> <span class="n">linear</span>
+                        <span class="o">|</span>
+                     <span class="p">[</span><span class="n">t</span><span class="p">,</span> <span class="mi">4</span><span class="n">h</span><span class="p">,</span> <span class="n">r</span><span class="p">{</span><span class="n">h</span><span class="p">}]</span>
+                     <span class="o">/</span>\
+                    <span class="n">d</span>
+                        <span class="o">|</span>
+                        <span class="o">|</span> <span class="n">gelu</span>
+                        <span class="o">|</span>
+                     <span class="p">[</span><span class="n">t</span><span class="p">,</span> <span class="mi">4</span><span class="n">h</span><span class="p">]</span>                <span class="n">down_w</span><span class="p">:</span> <span class="p">[</span><span class="n">h</span><span class="p">,</span> <span class="mi">4</span><span class="n">h</span><span class="p">]</span>
+                     <span class="o">/</span>\
+                    <span class="n">d</span>
+                                       <span class="o">|</span>
+                                       <span class="o">|</span> <span class="n">linear</span>
+                                       <span class="o">|</span>
+                                 <span class="p">[</span><span class="n">t</span><span class="p">,</span> <span class="n">h</span><span class="p">,</span> <span class="n">r</span><span class="p">{</span><span class="mi">4</span><span class="n">h</span><span class="p">}]</span>
+                                 <span class="o">/</span> \
+                                <span class="n">d</span>
+</pre></div>
+</div>
+<p>nvFuser adopts the
+<a class="reference external" href="https://docs.pytorch.org/tutorials/recipes/distributed_device_mesh.html">DeviceMesh</a>
+concept from XLA and PyTorch.</p>
+<p>So far, I’ve assumed a one-dimensional <code class="docutils literal notranslate"><span class="pre">DeviceMesh</span></code>. In practice, users
+often want to combine multiple forms of parallelism, which leads to
+multi-dimensional <code class="docutils literal notranslate"><span class="pre">DeviceMesh</span></code>es.</p>
+<p>For example, consider 1,024 GPUs distributed across 128 nodes with 8 GPUs per
+node.  Suppose the user wants to apply DDP across nodes and TP within each node.
+They can define a two-dimensional <code class="docutils literal notranslate"><span class="pre">DeviceMesh</span></code> of shape <code class="docutils literal notranslate"><span class="pre">[128,</span> <span class="pre">8]</span></code>, using
+<code class="docutils literal notranslate"><span class="pre">deviceIdx.y</span></code> (size 128) to shard across nodes and <code class="docutils literal notranslate"><span class="pre">deviceIdx.x</span></code> (size 8) to
+shard across GPUs within a node.</p>
+<p>In this setup, the fusion IR just before segmentation becomes:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span> <span class="ow">in</span><span class="p">:</span> <span class="p">[</span><span class="n">t</span><span class="p">,</span> <span class="n">h</span><span class="p">]</span>                           <span class="n">up_w</span><span class="p">:</span> <span class="p">[</span><span class="mi">4</span><span class="n">h</span><span class="p">,</span>  <span class="n">h</span><span class="p">]</span>
+     <span class="o">/</span> \                                     <span class="o">/</span>\
+    <span class="n">dy</span>                                      <span class="n">dx</span>
+                        <span class="o">|</span>
+                        <span class="o">|</span> <span class="n">linear</span>
+                        <span class="o">|</span>
+                     <span class="p">[</span><span class="n">t</span><span class="p">,</span> <span class="mi">4</span><span class="n">h</span><span class="p">,</span> <span class="n">r</span><span class="p">{</span><span class="n">h</span><span class="p">}]</span>
+                     <span class="o">/</span>\  <span class="o">/</span>\
+                    <span class="n">dy</span>  <span class="n">dx</span>
+                        <span class="o">|</span>
+                        <span class="o">|</span> <span class="n">gelu</span>
+                        <span class="o">|</span>
+                     <span class="p">[</span><span class="n">t</span><span class="p">,</span> <span class="mi">4</span><span class="n">h</span><span class="p">]</span>                <span class="n">down_w</span><span class="p">:</span> <span class="p">[</span><span class="n">h</span><span class="p">,</span> <span class="mi">4</span><span class="n">h</span><span class="p">]</span>
+                     <span class="o">/</span>\  <span class="o">/</span>\                             <span class="o">/</span>\
+                    <span class="n">dy</span>  <span class="n">dx</span>                             <span class="n">dx</span>
+                                       <span class="o">|</span>
+                                       <span class="o">|</span> <span class="n">linear</span>
+                                       <span class="o">|</span>
+                               <span class="p">[</span><span class="n">t</span><span class="p">,</span> <span class="n">h</span><span class="p">,</span> <span class="n">dx</span><span class="p">,</span> <span class="n">r</span><span class="p">{</span><span class="mi">4</span><span class="n">h</span><span class="o">/</span><span class="n">dx</span><span class="p">}]</span>
+                               <span class="o">/</span> \
+                              <span class="n">dy</span>
+                                       <span class="o">|</span>
+                                       <span class="o">|</span> <span class="nb">sum</span>
+                                       <span class="o">|</span>
+                                  <span class="p">[</span><span class="n">t</span><span class="p">,</span> <span class="n">h</span><span class="p">,</span> <span class="n">r</span><span class="p">{</span><span class="n">dx</span><span class="p">}]</span>
+                                  <span class="o">/</span> \
+                                 <span class="n">dy</span>
+</pre></div>
+</div>
+</section>
+<section id="fully-sharded-data-parallelism-fsdp">
+<h3>Fully Sharded Data Parallelism (FSDP)<a class="headerlink" href="#fully-sharded-data-parallelism-fsdp" title="Link to this heading"></a></h3>
+<p><a class="reference external" href="https://docs.pytorch.org/tutorials/intermediate/FSDP_tutorial.html">FSDP</a>
+shards both activations and parameters. Before forward and backward, sharded
+parameters are all-gathered into unsharded parameters.</p>
+<p>For simplicity, I’ll skip sharding propagation and decomposition, and present the
+fusion IR just before segmentation:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span>                                      <span class="n">up_w</span><span class="p">:</span> <span class="p">[</span><span class="mi">4</span><span class="n">h</span><span class="p">,</span>  <span class="n">h</span><span class="p">]</span>
+                                             <span class="o">/</span>\
+                                            <span class="n">d</span>
+                                            <span class="o">|</span>
+                                            <span class="o">|</span> <span class="nb">set</span>
+                                            <span class="o">|</span>
+ <span class="ow">in</span><span class="p">:</span> <span class="p">[</span><span class="n">t</span><span class="p">,</span> <span class="n">h</span><span class="p">]</span>                                 <span class="p">[</span><span class="mi">4</span><span class="n">h</span><span class="p">,</span>  <span class="n">h</span><span class="p">]</span>
+     <span class="o">/</span> \
+    <span class="n">d</span>
+                        <span class="o">|</span>
+                        <span class="o">|</span> <span class="n">linear</span>
+                        <span class="o">|</span>
+                     <span class="p">[</span><span class="n">t</span><span class="p">,</span> <span class="mi">4</span><span class="n">h</span><span class="p">,</span> <span class="n">r</span><span class="p">{</span><span class="n">h</span><span class="p">}]</span>          <span class="n">down_w</span><span class="p">:</span> <span class="p">[</span><span class="n">h</span><span class="p">,</span> <span class="mi">4</span><span class="n">h</span><span class="p">]</span>
+                     <span class="o">/</span>\                                 <span class="o">/</span>\
+                    <span class="n">d</span>                                  <span class="n">d</span>
+                        <span class="o">|</span>                             <span class="o">|</span>
+                        <span class="o">|</span> <span class="n">gelu</span>                        <span class="o">|</span> <span class="nb">set</span>
+                        <span class="o">|</span>                             <span class="o">|</span>
+                     <span class="p">[</span><span class="n">t</span><span class="p">,</span> <span class="mi">4</span><span class="n">h</span><span class="p">]</span>                        <span class="p">[</span><span class="n">h</span><span class="p">,</span> <span class="mi">4</span><span class="n">h</span><span class="p">]</span>
+                     <span class="o">/</span>\
+                    <span class="n">d</span>
+                                       <span class="o">|</span>
+                                       <span class="o">|</span> <span class="n">linear</span>
+                                       <span class="o">|</span>
+                                 <span class="p">[</span><span class="n">t</span><span class="p">,</span> <span class="n">h</span><span class="p">,</span> <span class="n">r</span><span class="p">{</span><span class="mi">4</span><span class="n">h</span><span class="p">}]</span>
+                                 <span class="o">/</span> \
+                                <span class="n">d</span>
+</pre></div>
+</div>
+<p>The two <code class="docutils literal notranslate"><span class="pre">set</span></code>s become calls to <code class="docutils literal notranslate"><span class="pre">ncclAllGather</span></code>. During host IR optimization,
+nvFuser will (a) deallocate all-gathered parameters right after they are used, and
+(b) assign the two allgathers to a different CUDA stream so they can be
+overlapped with computation.</p>
+</section>
+<section id="pipeline-parallelism-pp">
+<h3>Pipeline Parallelism (PP)<a class="headerlink" href="#pipeline-parallelism-pp" title="Link to this heading"></a></h3>
+<p>So far, I’ve assumed all <code class="docutils literal notranslate"><span class="pre">TensorView</span></code>s share the same <code class="docutils literal notranslate"><span class="pre">DeviceMesh</span></code>, spanning all GPUs.
+In practice, they may each use different <code class="docutils literal notranslate"><span class="pre">DeviceMesh</span></code>es and
+a <code class="docutils literal notranslate"><span class="pre">DeviceMesh</span></code> can cover only a subset of GPUs. <a class="reference external" href="https://docs.nvidia.com/nemo-framework/user-guide/latest/nemotoolkit/features/parallelisms.html#pipeline-parallelism">Pipeline
+parallelism</a>
+is a good example of this.</p>
+<p>Consider a model with three MLP blocks (as defined in the <a class="reference internal" href="#user-api"><span class="xref myst">User API</span></a>
+section) executed sequentially<a class="footnote-reference brackets" href="#id6" id="id5" role="doc-noteref"><span class="fn-bracket">[</span>2<span class="fn-bracket">]</span></a>. Suppose the user wants to pipeline-parallelize
+the model on three GPUs, with each GPU holding one MLP block. This setup can be
+expressed in the fusion IR as follows:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span>         <span class="p">[</span><span class="n">t</span><span class="p">,</span> <span class="n">h</span><span class="p">]</span>    <span class="p">[</span><span class="mi">4</span><span class="n">h</span><span class="p">,</span> <span class="n">h</span><span class="p">]</span>    <span class="p">[</span><span class="n">h</span><span class="p">,</span> <span class="mi">4</span><span class="n">h</span><span class="p">]</span>
+        <span class="n">mesh</span><span class="o">=</span><span class="p">{</span><span class="mi">0</span><span class="p">}</span>   <span class="n">mesh</span><span class="o">=</span><span class="p">{</span><span class="mi">0</span><span class="p">}</span>   <span class="n">mesh</span><span class="o">=</span><span class="p">{</span><span class="mi">0</span><span class="p">}</span>
+         <span class="o">/</span> \          <span class="o">|</span>          <span class="o">|</span>
+        <span class="n">s</span><span class="o">*</span>            <span class="o">|</span>          <span class="o">|</span>
+            <span class="o">|---------+----------+</span>
+            <span class="n">mlp0</span>
+            <span class="o">|</span>
+         <span class="p">[</span><span class="n">t</span><span class="p">,</span> <span class="n">h</span><span class="p">]</span>    <span class="p">[</span><span class="mi">4</span><span class="n">h</span><span class="p">,</span> <span class="n">h</span><span class="p">]</span>    <span class="p">[</span><span class="n">h</span><span class="p">,</span> <span class="mi">4</span><span class="n">h</span><span class="p">]</span>
+                   <span class="n">mesh</span><span class="o">=</span><span class="p">{</span><span class="mi">1</span><span class="p">}</span>   <span class="n">mesh</span><span class="o">=</span><span class="p">{</span><span class="mi">1</span><span class="p">}</span>
+                      <span class="o">|</span>          <span class="o">|</span>
+                      <span class="o">|</span>          <span class="o">|</span>
+            <span class="o">|---------+----------+</span>
+            <span class="n">mlp1</span>
+            <span class="o">|</span>
+         <span class="p">[</span><span class="n">t</span><span class="p">,</span> <span class="n">h</span><span class="p">]</span>    <span class="p">[</span><span class="mi">4</span><span class="n">h</span><span class="p">,</span> <span class="n">h</span><span class="p">]</span>    <span class="p">[</span><span class="n">h</span><span class="p">,</span> <span class="mi">4</span><span class="n">h</span><span class="p">]</span>
+                   <span class="n">mesh</span><span class="o">=</span><span class="p">{</span><span class="mi">2</span><span class="p">}</span>   <span class="n">mesh</span><span class="o">=</span><span class="p">{</span><span class="mi">2</span><span class="p">}</span>
+                      <span class="o">|</span>          <span class="o">|</span>
+                      <span class="o">|</span>          <span class="o">|</span>
+            <span class="o">|---------+----------+</span>
+            <span class="n">mlp2</span>
+            <span class="o">|</span>
+         <span class="p">[</span><span class="n">t</span><span class="p">,</span> <span class="n">h</span><span class="p">]</span>
+</pre></div>
+</div>
+<p>For brevity, in the above figure, I encapsulate all the ops in an MLP block
+into a single MLP op.</p>
+<p>The parameters for the first MLP block are placed on DeviceMesh <code class="docutils literal notranslate"><span class="pre">{0}</span></code>, the
+second on <code class="docutils literal notranslate"><span class="pre">{1}</span></code> and the third on <code class="docutils literal notranslate"><span class="pre">{2}</span></code>. The input activations are
+stream-parallelized, meaning that they are split into microbatches and
+processed in a loop. In fusion IR, this is represented in the input
+<code class="docutils literal notranslate"><span class="pre">TensorView</span></code>’s loop domain as an outer split of <code class="docutils literal notranslate"><span class="pre">t</span></code> by <code class="docutils literal notranslate"><span class="pre">s</span></code>, which is
+parallelized on <code class="docutils literal notranslate"><span class="pre">ParallelType::Stream</span></code>. The allocation domain of the input
+<code class="docutils literal notranslate"><span class="pre">TensorView</span></code> remains unsplit because the entire batch stays alive during the
+loop. For conciseness, I use <code class="docutils literal notranslate"><span class="pre">s*</span></code> to represent a split that only exists in loop
+but not in allocation.</p>
+<p>After propagation and decomposition, the fusion IR becomes:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span>   <span class="n">in_0</span><span class="p">:</span> <span class="p">[</span><span class="n">t</span><span class="p">,</span> <span class="n">h</span><span class="p">]</span>    <span class="p">[</span><span class="mi">4</span><span class="n">h</span><span class="p">,</span> <span class="n">h</span><span class="p">]</span>    <span class="p">[</span><span class="n">h</span><span class="p">,</span> <span class="mi">4</span><span class="n">h</span><span class="p">]</span>
+        <span class="n">mesh</span><span class="o">=</span><span class="p">{</span><span class="mi">0</span><span class="p">}</span>   <span class="n">mesh</span><span class="o">=</span><span class="p">{</span><span class="mi">0</span><span class="p">}</span>   <span class="n">mesh</span><span class="o">=</span><span class="p">{</span><span class="mi">0</span><span class="p">}</span>
+         <span class="o">/</span> \          <span class="o">|</span>          <span class="o">|</span>
+        <span class="n">s</span><span class="o">*</span>            <span class="o">|</span>          <span class="o">|</span>
+            <span class="o">|---------+----------+</span>
+            <span class="n">mlp0</span>
+            <span class="o">|</span>
+  <span class="n">out_0</span><span class="p">:</span> <span class="p">[</span><span class="n">t</span><span class="p">,</span> <span class="n">h</span><span class="p">]</span>
+        <span class="n">mesh</span><span class="o">=</span><span class="p">{</span><span class="mi">0</span><span class="p">}</span>
+         <span class="o">/</span> \
+        <span class="n">s</span>
+            <span class="o">|</span>
+            <span class="o">|</span> <span class="nb">set</span>
+            <span class="o">|</span>
+   <span class="n">in_1</span><span class="p">:</span> <span class="p">[</span><span class="n">t</span><span class="p">,</span> <span class="n">h</span><span class="p">]</span>    <span class="p">[</span><span class="mi">4</span><span class="n">h</span><span class="p">,</span> <span class="n">h</span><span class="p">]</span>    <span class="p">[</span><span class="n">h</span><span class="p">,</span> <span class="mi">4</span><span class="n">h</span><span class="p">]</span>
+        <span class="n">mesh</span><span class="o">=</span><span class="p">{</span><span class="mi">1</span><span class="p">}</span>   <span class="n">mesh</span><span class="o">=</span><span class="p">{</span><span class="mi">1</span><span class="p">}</span>   <span class="n">mesh</span><span class="o">=</span><span class="p">{</span><span class="mi">1</span><span class="p">}</span>
+         <span class="o">/</span> \          <span class="o">|</span>          <span class="o">|</span>
+        <span class="n">s</span>             <span class="o">|</span>          <span class="o">|</span>
+            <span class="o">|---------+----------+</span>
+            <span class="n">mlp1</span>
+            <span class="o">|</span>
+  <span class="n">out_1</span><span class="p">:</span> <span class="p">[</span><span class="n">t</span><span class="p">,</span> <span class="n">h</span><span class="p">]</span>
+        <span class="n">mesh</span><span class="o">=</span><span class="p">{</span><span class="mi">1</span><span class="p">}</span>
+         <span class="o">/</span> \
+        <span class="n">s</span>
+            <span class="o">|</span>
+            <span class="o">|</span> <span class="nb">set</span>
+            <span class="o">|</span>
+   <span class="n">in_2</span><span class="p">:</span> <span class="p">[</span><span class="n">t</span><span class="p">,</span> <span class="n">h</span><span class="p">]</span>    <span class="p">[</span><span class="mi">4</span><span class="n">h</span><span class="p">,</span> <span class="n">h</span><span class="p">]</span>    <span class="p">[</span><span class="n">h</span><span class="p">,</span> <span class="mi">4</span><span class="n">h</span><span class="p">]</span>
+        <span class="n">mesh</span><span class="o">=</span><span class="p">{</span><span class="mi">2</span><span class="p">}</span>   <span class="n">mesh</span><span class="o">=</span><span class="p">{</span><span class="mi">2</span><span class="p">}</span>   <span class="n">mesh</span><span class="o">=</span><span class="p">{</span><span class="mi">2</span><span class="p">}</span>
+         <span class="o">/</span> \          <span class="o">|</span>          <span class="o">|</span>
+        <span class="n">s</span>             <span class="o">|</span>          <span class="o">|</span>
+            <span class="o">|---------+----------+</span>
+            <span class="n">mlp2</span>
+            <span class="o">|</span>
+  <span class="n">out_2</span><span class="p">:</span> <span class="p">[</span><span class="n">t</span><span class="p">,</span> <span class="n">h</span><span class="p">]</span>
+        <span class="n">mesh</span><span class="o">=</span><span class="p">{</span><span class="mi">2</span><span class="p">}</span>
+         <span class="o">/</span> \
+        <span class="n">s</span><span class="o">*</span>
+</pre></div>
+</div>
+<p>As a result of decomposition, two <code class="docutils literal notranslate"><span class="pre">set</span></code> operations are added: one to send
+activations from GPU 0 to GPU 1, and the other from GPU 1 to GPU 2.</p>
+<p>This fusion IR is then lowered to the following host IR:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">3</span><span class="p">):</span>
+  <span class="n">out_0</span> <span class="o">=</span> <span class="n">mlp0</span><span class="p">(</span><span class="n">in_0</span><span class="p">,</span> <span class="n">up_w_0</span><span class="p">,</span> <span class="n">down_w_0</span><span class="p">,</span> <span class="n">i</span><span class="p">)</span>
+  <span class="n">send_to</span><span class="p">(</span><span class="n">out_0</span><span class="p">,</span> <span class="mi">1</span><span class="p">)</span>
+  <span class="n">in_1</span> <span class="o">=</span> <span class="n">recv_from</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+  <span class="n">out_1</span> <span class="o">=</span> <span class="n">mlp1</span><span class="p">(</span><span class="n">in_1</span><span class="p">,</span> <span class="n">up_w_1</span><span class="p">,</span> <span class="n">down_w_1</span><span class="p">,</span> <span class="n">i</span><span class="p">)</span>
+  <span class="n">send_to</span><span class="p">(</span><span class="n">out_1</span><span class="p">,</span> <span class="mi">2</span><span class="p">)</span>
+  <span class="n">in_2</span> <span class="o">=</span> <span class="n">recv_from</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
+  <span class="n">out_2</span> <span class="o">=</span> <span class="n">mlp2</span><span class="p">(</span><span class="n">in_2</span><span class="p">,</span> <span class="n">up_w_2</span><span class="p">,</span> <span class="n">down_w_2</span><span class="p">,</span> <span class="n">i</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>Host IR follows an MPMD (Multiple Program, Multiple Data) paradigm. Each GPU’s
+host IR only needs to process the <code class="docutils literal notranslate"><span class="pre">TensorView</span></code>s that live on that GPU. The
+collective host IR above can then be specialized into the following
+GPU-specific host IR:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># GPU 0</span>
+<span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">3</span><span class="p">):</span>
+  <span class="n">out_0</span> <span class="o">=</span> <span class="n">mlp0</span><span class="p">(</span><span class="n">in_0</span><span class="p">,</span> <span class="n">up_w_0</span><span class="p">,</span> <span class="n">down_w_0</span><span class="p">,</span> <span class="n">i</span><span class="p">)</span>
+  <span class="n">send_to</span><span class="p">(</span><span class="n">out_0</span><span class="p">,</span> <span class="mi">1</span><span class="p">)</span>
+
+<span class="c1"># GPU 1</span>
+<span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">3</span><span class="p">):</span>
+  <span class="n">in_1</span> <span class="o">=</span> <span class="n">recv_from</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+  <span class="n">out_1</span> <span class="o">=</span> <span class="n">mlp1</span><span class="p">(</span><span class="n">in_1</span><span class="p">,</span> <span class="n">up_w_1</span><span class="p">,</span> <span class="n">down_w_1</span><span class="p">,</span> <span class="n">i</span><span class="p">)</span>
+  <span class="n">send_to</span><span class="p">(</span><span class="n">out_1</span><span class="p">,</span> <span class="mi">2</span><span class="p">)</span>
+
+<span class="c1"># GPU 2</span>
+<span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">3</span><span class="p">):</span>
+  <span class="n">in_2</span> <span class="o">=</span> <span class="n">recv_from</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
+  <span class="n">out_2</span> <span class="o">=</span> <span class="n">mlp2</span><span class="p">(</span><span class="n">in_2</span><span class="p">,</span> <span class="n">up_w_2</span><span class="p">,</span> <span class="n">down_w_2</span><span class="p">,</span> <span class="n">i</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>Similar to <a class="reference internal" href="#overlap-communication-with-gemm-via-decomposition"><span class="xref myst">GEMM-communication
+overlap</span></a>, nvFuser can
+assign different loop iterations to different CUDA streams to enable
+overlapping. I’ve omitted those details here for brevity.</p>
+</section>
+<section id="context-parallelism-cp">
+<h3>Context Parallelism (CP)<a class="headerlink" href="#context-parallelism-cp" title="Link to this heading"></a></h3>
+<p>Internal design doc: http://nv/nvfuser-cp</p>
+<p>TODO: move some content to public docs</p>
+</section>
+</section>
+</section>
+<hr class="footnotes docutils" />
+<aside class="footnote-list brackets">
+<aside class="footnote brackets" id="id4" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#id3">1</a><span class="fn-bracket">]</span></span>
+<p>Wang et al., <em>Overlap Communication with Dependent Computation via
+Decomposition in Large Deep Learning Models</em>, ASPLOS 2023.
+https://dl.acm.org/doi/pdf/10.1145/3567955.3567959</p>
+</aside>
+<aside class="footnote brackets" id="id6" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#id5">2</a><span class="fn-bracket">]</span></span>
+<p>This is just for illustration. It’s redundant to run two linear layers
+sequentially without a non-linearity in between.</p>
+</aside>
+</aside>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="iterdomain.html" class="btn btn-neutral float-left" title="The Mathematical Theory of IterDomain" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="tma-modeling-in-depth.html" class="btn btn-neutral float-right" title="TMA Modeling In Depth" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+<img src="../_static/NVIDIA-LogoBlack.svg"/>
+<p class="notices">
+<a href="https://www.nvidia.com/en-us/about-nvidia/privacy-policy/" target="_blank">Privacy Policy</a>
+|
+<a href="https://www.nvidia.com/en-us/about-nvidia/privacy-center/" target="_blank">Manage My Privacy</a>
+|
+<a href="https://www.nvidia.com/en-us/preferences/start/" target="_blank">Do Not Sell or Share My Data</a>
+|
+<a href="https://www.nvidia.com/en-us/about-nvidia/terms-of-service/" target="_blank">Terms of Service</a>
+|
+<a href="https://www.nvidia.com/en-us/about-nvidia/accessibility/" target="_blank">Accessibility</a>
+|
+<a href="https://www.nvidia.com/en-us/about-nvidia/company-policies/" target="_blank">Corporate Policies</a>
+|
+<a href="https://www.nvidia.com/en-us/product-security/" target="_blank">Product Security</a>
+|
+<a href="https://www.nvidia.com/en-us/contact/" target="_blank">Contact</a>
+</p>
+
+    <p>&#169; Copyright 2023-2025, NVIDIA CORPORATION &amp; AFFILIATES. All rights reserved..</p>
+
+  </div>
+
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  
+<div class="rst-versions" data-toggle="rst-versions" role="note" aria-label="versions">
+    <span class="rst-current-version" data-toggle="rst-current-version">
+        
+        Version: 0.2.34
+        
+    </span>
+</div><script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

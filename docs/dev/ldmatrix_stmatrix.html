@@ -1,0 +1,1042 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>LdMatrix and StMatrix Support in NVFuser &mdash; nvFuser 0.2.34 documentation</title>
+      <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=03e43079" />
+      <link rel="stylesheet" type="text/css" href="../_static/css/theme.css?v=e59714d7" />
+      <link rel="stylesheet" type="text/css" href="../_static/css/nvidia_font.css?v=e009355c" />
+      <link rel="stylesheet" type="text/css" href="../_static/css/nvidia_footer.css?v=84031d34" />
+
+  
+      <script src="../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../_static/documentation_options.js?v=b85e2031"></script>
+      <script src="../_static/doctools.js?v=9bcbadda"></script>
+      <script src="../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="next" title="Introduction to TMA Support in NVFuser" href="tma.html" />
+    <link rel="prev" title="Host IR JIT Overview" href="host_ir_jit.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" > 
+
+          
+          
+          <a href="../index.html" class="icon icon-home">
+            nvFuser
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+
+  <style>
+    /* Sidebar header (and topbar for mobile) */
+    .wy-side-nav-search, .wy-nav-top {
+      background: #76b900;
+    }
+
+    .wy-menu > p > span.caption-text {
+      color: #76b900;
+    }
+
+    .wy-menu-vertical p {
+      height: 32px;
+      line-height: 32px;
+      padding: 0 1.618em;
+      margin: 12px 0 0;
+      display: block;
+      font-weight: 700;
+      text-transform: uppercase;
+      font-size: 85%;
+      white-space: nowrap;
+    }
+
+    .wy-side-nav-search a:link, .wy-nav-top a:link {
+      color: #fff;
+    }
+    .wy-side-nav-search a:visited, .wy-nav-top a:visited {
+      color: #fff;
+    }
+    .wy-side-nav-search a:hover, .wy-nav-top a:hover {
+      color: #fff;
+    }
+
+    .wy-menu-vertical a:link, .wy-menu-vertical a:visited {
+      color: #d9d9d9
+    }
+
+    .wy-menu-vertical a:active {
+      background-color: #76b900
+    }
+
+    .wy-side-nav-search>div.version {
+      color: rgba(0, 0, 0, 0.3)
+    }
+
+    .wy-nav-content {
+      max-width: 1000px;
+    }
+
+    /* override table width restrictions */
+    .wy-table-responsive table td, .wy-table-responsive table th {
+        /* !important prevents the common CSS stylesheets from
+          overriding this as on RTD they are loaded after this stylesheet */
+        white-space: normal !important;
+    }
+
+    .wy-table-responsive {
+        overflow: visible !important;
+    }
+
+  </style>
+  <style>
+  a:link, a:visited {
+    color: #76b900;
+  }
+
+  a:hover {
+    color: #8c0;
+  }
+
+  html.writer-html5 .rst-content dl[class]:not(.option-list):not(.field-list):not(.footnote):not(.glossary):not(.simple)>dt {
+    background: rgba(118, 185, 0, 0.1);
+    color: rgba(59,93,0,1);
+    border-top: solid 3px rgba(59,93,0,1);
+  }
+
+  html.writer-html4 .rst-content dl:not(.docutils) .property, html.writer-html5 .rst-content dl[class]:not(.option-list):not(.field-list):not(.footnote):not(.glossary):not(.simple) .property {
+    text-transform: capitalize;
+    display: inline-block;
+    padding-right: 8px;
+  }
+  </style>
+
+  
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Table of Contents</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../installation.html">Overview</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../installation.html#installation">Installation</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../installation.html#nightly-nvfuser-pip-wheel">Nightly nvfuser pip wheel</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../installation.html#nvfuser-pip-wheel-against-pytorch-stable-release">Nvfuser pip wheel against pytorch stable release</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../installation.html#developer">Developer</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../installation.html#install-from-source">Install From Source:</a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Python API</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../api/general.html">General</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../api/general.html#statement">Statement</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../api/general.html#val">Val</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../api/general.html#expr">Expr</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../api/general.html#iterdomain">IterDomain</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../api/general.html#tensordomain">TensorDomain</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../api/general.html#tensorview">TensorView</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../api/general.html#fusionexecutorcache">FusionExecutorCache</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../api/general.html#kernelexecutor">KernelExecutor</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../api/general.html#fusion-definition">Fusion Definition</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../api/ops.html">Operations</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../api/ops.html#ops">Ops</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../api/multidevice.html">Multidevice</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../api/multidevice.html#communicator">Communicator</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../api/multidevice.html#devicemesh">DeviceMesh</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../api/multidevice.html#sharding">Sharding</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../api/enum.html">Enums</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../api/enum.html#communicatorbackend-types">CommunicatorBackend Types</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../api/enum.html#data-types">Data Types</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../api/enum.html#parallel-types">Parallel Types</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../api/enum.html#scheduler-types">Scheduler Types</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../api/pod_class.html">Data classes</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../api/pod_class.html#launchparams">LaunchParams</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../api/pod_class.html#compileparams">CompileParams</a></li>
+</ul>
+</li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Developer References</span></p>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="../reading/divisibility-of-split.html">Divisibility of Split</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../reading/divisibility-of-split.html#introduction">Introduction</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../reading/divisibility-of-split.html#predication">Predication</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../reading/divisibility-of-split.html#allocation-and-correctness-model">Allocation and correctness model</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../reading/divisibility-of-split.html#properties-of-split">Properties of split</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../reading/divisibility-of-split.html#merge-then-split-vs-split-then-merge">Merge-then-split vs split-then-merge</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../reading/divisibility-of-split.html#merging-discontiguous-iterdomains">Merging discontiguous IterDomains</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../reading/divisibility-of-split.html#question">Question</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../reading/divisibility-of-split.html#answer">Answer</a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../reading/iterdomain.html">The Mathematical Theory of IterDomain</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../reading/iterdomain.html#iterdomain-transformations">1. IterDomain Transformations</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../reading/iterdomain.html#properties-of-iterdomain-transformations">2. Properties of IterDomain Transformations</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../reading/multigpu.html">Multi-GPU Support in nvFuser</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../reading/multigpu.html#introduction">Introduction</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../reading/multigpu.html#user-api">User API</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../reading/multigpu.html#parallelisms">Parallelisms</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../reading/multigpu.html#tensor-parallelism-tp">Tensor Parallelism (TP)</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../reading/multigpu.html#sharding-propagation">Sharding Propagation</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../reading/multigpu.html#communication-computation-decomposition">Communication-computation Decomposition</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../reading/multigpu.html#sequence-parallelism-sp">Sequence Parallelism (SP)</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../reading/multigpu.html#id1">Sharding Propagation</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../reading/multigpu.html#id2">Communication-computation Decomposition</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../reading/multigpu.html#overlap-communication-with-gemm-via-decomposition">Overlap Communication with GEMM via Decomposition</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../reading/multigpu.html#distributed-data-parallelism-ddp">Distributed Data Parallelism (DDP)</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../reading/multigpu.html#fully-sharded-data-parallelism-fsdp">Fully Sharded Data Parallelism (FSDP)</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../reading/multigpu.html#pipeline-parallelism-pp">Pipeline Parallelism (PP)</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../reading/multigpu.html#context-parallelism-cp">Context Parallelism (CP)</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../reading/tma-modeling-in-depth.html">TMA Modeling In Depth</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../reading/tma-modeling-in-depth.html#what-is-tma">What is TMA?</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../reading/tma-modeling-in-depth.html#correctness-model">Correctness model</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../reading/tma-modeling-in-depth.html#the-unachievability-of-strong-correctness-for-indivisible-element-stride">The unachievability of strong correctness for indivisible element stride</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../reading/tma-modeling-in-depth.html#the-lowering-strategy">The lowering strategy</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="debug.html">Debugging</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="debug.html#debug-a-failing-nvfuser-script">Debug a failing nvFuser script</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="debug.html#nvfuser-dump">NVFUSER_DUMP</a></li>
+<li class="toctree-l3"><a class="reference internal" href="debug.html#gdb">gdb</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="debug.html#debug-memory-corruption-using-asan">Debug memory corruption using <code class="docutils literal notranslate"><span class="pre">asan</span></code></a><ul>
+<li class="toctree-l3"><a class="reference internal" href="debug.html#if-built-with-clang">If built with clang</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="debug.html#debug-memory-leaks-or-excessive-memory-usage">Debug memory leaks or excessive memory usage</a></li>
+<li class="toctree-l2"><a class="reference internal" href="debug.html#debug-slow-kernels">Debug slow kernels</a></li>
+<li class="toctree-l2"><a class="reference internal" href="debug.html#debug-slow-cpu-execution">Debug slow CPU execution</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="visibility.html">Symbol Visibility</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="visibility.html#faq">FAQ</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="visibility.html#should-i-mark-a-method-visible-or-the-whole-class">Should I mark a method visible or the whole class?</a></li>
+<li class="toctree-l3"><a class="reference internal" href="visibility.html#i-see-an-undefined-reference-to-typeinfo-for-class-how-do-i-fix-this">I see an undefined reference to <code class="docutils literal notranslate"><span class="pre">typeinfo</span> <span class="pre">for</span> <span class="pre">&lt;class&gt;</span></code>. How do I fix this?</a></li>
+<li class="toctree-l3"><a class="reference internal" href="visibility.html#i-see-an-undefined-reference-to-vtable-for-class-how-do-i-fix-this">I see an undefined reference to <code class="docutils literal notranslate"><span class="pre">vtable</span> <span class="pre">for</span> <span class="pre">&lt;class&gt;</span></code>. How do I fix this?</a></li>
+<li class="toctree-l3"><a class="reference internal" href="visibility.html#i-see-that-foo-is-visible-but-i-do-not-think-it-needs-to-be">I see that <code class="docutils literal notranslate"><span class="pre">Foo</span></code> is visible but I do not think it needs to be.</a></li>
+<li class="toctree-l3"><a class="reference internal" href="visibility.html#should-i-mark-my-new-method-or-class-as-nvf-api">Should I mark my new method or class as <code class="docutils literal notranslate"><span class="pre">NVF_API</span></code>?</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="visibility.html#symbol-visibility-checking">Symbol Visibility Checking</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="host_ir_jit.html">Host IR JIT Overview</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="host_ir_jit.html#introduction">Introduction</a></li>
+<li class="toctree-l2"><a class="reference internal" href="host_ir_jit.html#jit-compilation-process">JIT Compilation Process</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="host_ir_jit.html#llvm-integration">1. LLVM Integration</a></li>
+<li class="toctree-l3"><a class="reference internal" href="host_ir_jit.html#compilation-pipeline">2. Compilation Pipeline</a></li>
+<li class="toctree-l3"><a class="reference internal" href="host_ir_jit.html#external-function-integration">3. External Function Integration</a></li>
+<li class="toctree-l3"><a class="reference internal" href="host_ir_jit.html#ir-translation">3. IR Translation</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="host_ir_jit.html#runtime-execution">Runtime Execution</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="host_ir_jit.html#function-interface">1. Function Interface</a></li>
+<li class="toctree-l3"><a class="reference internal" href="host_ir_jit.html#execution-flow">2. Execution Flow</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="host_ir_jit.html#configuration-and-build-options">Configuration and Build Options</a></li>
+<li class="toctree-l2"><a class="reference internal" href="host_ir_jit.html#future-integration-plan">Future Integration plan</a></li>
+</ul>
+</li>
+<li class="toctree-l1 current"><a class="current reference internal" href="#">LdMatrix and StMatrix Support in NVFuser</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#what-is-ldmatrix">What is LdMatrix?</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#what-is-stmatrix">What is StMatrix?</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#general-details">General Details</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#indices-shared-memory-tensor">Indices shared memory tensor</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#indices-for-register-tensor">Indices for register tensor</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#register-layout-for-one-8x8-matrix-with-16-bit-elements">Register layout for one 8x8 Matrix with 16-bit elements</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="#example-1-a-copy-kernel-using-tma-ldmatrix-and-stmatrix">Example 1: A copy kernel using TMA, LdMatrix, and StMatrix.</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#how-to-compute-the-index-into-register-tensorview">How to compute the index into register TensorView?</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#how-to-compute-the-index-into-shared-memory-tensorview">How to compute the index into shared memory TensorView?</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#figure-1-loop-domain-for-ldmatrix-and-stmatrix">Figure 1: Loop domain for LdMatrix and StMatrix</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#figure-2-tma-shared-memory-allocation-domain">Figure 2: TMA shared memory allocation domain</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#figure-3-map-from-ldmatrix-stmatrix-loop-domain-to-tma-shared-memory-allocation-domain">Figure 3: Map from LdMatrix / StMatrix loop domain to TMA shared memory allocation domain</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#derivation-of-figure-3">Derivation of Figure 3</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="#code-walkthrough">Code Walkthrough</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#scheduleldstmatrix-function">scheduleLdStMatrix function</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="tma.html">Introduction to TMA Support in NVFuser</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="tma.html#introduction">Introduction</a></li>
+<li class="toctree-l2"><a class="reference internal" href="tma.html#schedule">Schedule</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="tma.html#step-1-define-tma-domain">Step 1: define TMA domain</a></li>
+<li class="toctree-l3"><a class="reference internal" href="tma.html#step-2-define-box">Step 2: define box</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="tma.html#the-canonical-way-to-define-box">The canonical way to define box</a></li>
+<li class="toctree-l4"><a class="reference internal" href="tma.html#define-box-by-mathematical-equivalence">Define box by mathematical equivalence</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="tma.html#step-3-define-tile">Step 3: define tile</a></li>
+<li class="toctree-l3"><a class="reference internal" href="tma.html#step-4-schedule-the-shared-memory-tensor">Step 4: schedule the shared memory tensor</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="tma.html#data-swizzle">Data swizzle</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="tma.html#step-5-schedule-the-consumer-tensor">Step 5: schedule the consumer tensor</a></li>
+<li class="toctree-l3"><a class="reference internal" href="tma.html#code-walk-through">Code walk-through</a></li>
+<li class="toctree-l3"><a class="reference internal" href="tma.html#examples">Examples</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="tma.html#example-1-tma-load-inputs-and-vectorize-store-output-pointwise-kernel">Example 1: tma-load inputs and vectorize-store output pointwise kernel</a></li>
+<li class="toctree-l4"><a class="reference internal" href="tma.html#example-2-broadcast-kernel-with-discontiguous-input">Example 2: broadcast kernel with discontiguous input</a></li>
+<li class="toctree-l4"><a class="reference internal" href="tma.html#example-3-bank-conflict-free-transpose-of-32bit-data">Example 3: bank-conflict-free transpose of 32bit data</a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="tmem.html">Tensor Memory Support in NVFuser</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="tmem.html#review-of-inlining-and-parallelization">Review of inlining and parallelization</a></li>
+<li class="toctree-l2"><a class="reference internal" href="tmem.html#tensor-memory">Tensor memory</a></li>
+<li class="toctree-l2"><a class="reference internal" href="tmem.html#the-loop-domain-of-tmem-load-and-store">The loop domain of TMem load and store</a></li>
+<li class="toctree-l2"><a class="reference internal" href="tmem.html#vectorization-of-tmem-load-and-store">Vectorization of TMem load and store</a></li>
+</ul>
+</li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../index.html">nvFuser</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../index.html" class="icon icon-home" aria-label="Home"></a></li>
+      <li class="breadcrumb-item active">LdMatrix and StMatrix Support in NVFuser</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="../_sources/dev/ldmatrix_stmatrix.md.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <p>/*</p>
+<blockquote>
+<div><p>[!NOTE]
+This file is both a <span class="xref myst">cpp</span> and
+a Markdown. You may see some strange symbols in the rendered Markdown.</p>
+</div></blockquote>
+<p>Tutorial Difficulty: <strong>Moderate-High</strong> because it requires knowledge of
+LdMatrix, StMatrix, TMA, and WGMMA</p>
+<!--*/
+#pragma GCC diagnostic ignored "-Wcomment"
+// clang-format off
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2023-present NVIDIA CORPORATION & AFFILIATES.
+ * All rights reserved.
+ * SPDX-License-Identifier: BSD-3-Clause
+ */
+// clang-format on
+
+#include <sstream>
+#include <string>
+
+#include <gmock/gmock-matchers.h>
+#include <gtest/gtest.h>
+
+#include <tests/cpp/utils.h>
+#include <tests/cpp/validator.h>
+
+#include <ops/all_ops.h>
+#include <scheduler/mma_utils.h>
+#include <scheduler/tools/abstract_tensor.h>
+#include <scheduler/tools/inlining.h>
+#include <scheduler/utils.h>
+
+#define NOT_IMPLEMENTED GTEST_SKIP() << "Not implemented yet";
+
+namespace nvfuser {
+
+/* -->
+<section class="tex2jax_ignore mathjax_ignore" id="ldmatrix-and-stmatrix-support-in-nvfuser">
+<h1>LdMatrix and StMatrix Support in NVFuser<a class="headerlink" href="#ldmatrix-and-stmatrix-support-in-nvfuser" title="Link to this heading"></a></h1>
+<section id="what-is-ldmatrix">
+<h2>What is LdMatrix?<a class="headerlink" href="#what-is-ldmatrix" title="Link to this heading"></a></h2>
+<p>A warp-level instruction to load matrices from shared memory to registers.</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">ldmatrix</span><span class="o">.</span><span class="n">sync</span><span class="o">.</span><span class="n">aligned</span><span class="o">.</span><span class="n">shape</span><span class="o">.</span><span class="n">num</span><span class="p">{</span><span class="o">.</span><span class="n">trans</span><span class="p">}{</span><span class="o">.</span><span class="n">ss</span><span class="p">}</span><span class="o">.</span><span class="n">type</span> <span class="n">r</span><span class="p">,</span> <span class="p">[</span><span class="n">p</span><span class="p">];</span>
+
+<span class="n">ldmatrix</span><span class="o">.</span><span class="n">sync</span><span class="o">.</span><span class="n">aligned</span><span class="o">.</span><span class="n">m8n16</span><span class="o">.</span><span class="n">num</span><span class="p">{</span><span class="o">.</span><span class="n">ss</span><span class="p">}</span><span class="o">.</span><span class="n">dst_fmt</span><span class="o">.</span><span class="n">src_fmt</span>        <span class="n">r</span><span class="p">,</span> <span class="p">[</span><span class="n">p</span><span class="p">];</span>
+<span class="n">ldmatrix</span><span class="o">.</span><span class="n">sync</span><span class="o">.</span><span class="n">aligned</span><span class="o">.</span><span class="n">m16n16</span><span class="o">.</span><span class="n">num</span><span class="o">.</span><span class="n">trans</span><span class="p">{</span><span class="o">.</span><span class="n">ss</span><span class="p">}</span><span class="o">.</span><span class="n">dst_fmt</span><span class="o">.</span><span class="n">src_fmt</span> <span class="n">r</span><span class="p">,</span> <span class="p">[</span><span class="n">p</span><span class="p">];</span>
+
+<span class="o">.</span><span class="n">shape</span>   <span class="o">=</span> <span class="p">{</span><span class="o">.</span><span class="n">m8n8</span><span class="p">,</span> <span class="o">.</span><span class="n">m16n16</span><span class="p">};</span>
+<span class="o">.</span><span class="n">num</span>     <span class="o">=</span> <span class="p">{</span><span class="o">.</span><span class="n">x1</span><span class="p">,</span> <span class="o">.</span><span class="n">x2</span><span class="p">,</span> <span class="o">.</span><span class="n">x4</span><span class="p">};</span>
+<span class="o">.</span><span class="n">ss</span>      <span class="o">=</span> <span class="p">{</span><span class="o">.</span><span class="n">shared</span><span class="p">{::</span><span class="n">cta</span><span class="p">}};</span>
+<span class="o">.</span><span class="n">type</span>    <span class="o">=</span> <span class="p">{</span><span class="o">.</span><span class="n">b16</span><span class="p">,</span> <span class="o">.</span><span class="n">b8</span><span class="p">};</span>
+<span class="o">.</span><span class="n">dst_fmt</span> <span class="o">=</span> <span class="p">{</span> <span class="o">.</span><span class="n">b8x16</span> <span class="p">};</span>
+<span class="o">.</span><span class="n">src_fmt</span> <span class="o">=</span> <span class="p">{</span> <span class="o">.</span><span class="n">b6x16_p32</span><span class="p">,</span> <span class="o">.</span><span class="n">b4x16_p64</span> <span class="p">};</span>
+</pre></div>
+</div>
+<p>Reference: <a class="reference external" href="https://docs.nvidia.com/cuda/parallel-thread-execution/#warp-level-matrix-load-instruction-ldmatrix">LdMatrix PTX</a></p>
+</section>
+<section id="what-is-stmatrix">
+<h2>What is StMatrix?<a class="headerlink" href="#what-is-stmatrix" title="Link to this heading"></a></h2>
+<p>A warp-level instruction to store matrices from registers to shared memory.</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">stmatrix</span><span class="o">.</span><span class="n">sync</span><span class="o">.</span><span class="n">aligned</span><span class="o">.</span><span class="n">shape</span><span class="o">.</span><span class="n">num</span><span class="p">{</span><span class="o">.</span><span class="n">trans</span><span class="p">}{</span><span class="o">.</span><span class="n">ss</span><span class="p">}</span><span class="o">.</span><span class="n">type</span> <span class="p">[</span><span class="n">p</span><span class="p">],</span> <span class="n">r</span><span class="p">;</span>
+
+<span class="o">.</span><span class="n">shape</span>  <span class="o">=</span> <span class="p">{</span><span class="o">.</span><span class="n">m8n8</span><span class="p">,</span> <span class="o">.</span><span class="n">m16n8</span><span class="p">};</span>
+<span class="o">.</span><span class="n">num</span>    <span class="o">=</span> <span class="p">{</span><span class="o">.</span><span class="n">x1</span><span class="p">,</span> <span class="o">.</span><span class="n">x2</span><span class="p">,</span> <span class="o">.</span><span class="n">x4</span><span class="p">};</span>
+<span class="o">.</span><span class="n">ss</span>     <span class="o">=</span> <span class="p">{</span><span class="o">.</span><span class="n">shared</span><span class="p">{::</span><span class="n">cta</span><span class="p">}};</span>
+<span class="o">.</span><span class="n">type</span>   <span class="o">=</span> <span class="p">{</span><span class="o">.</span><span class="n">b16</span><span class="p">,</span> <span class="o">.</span><span class="n">b8</span><span class="p">};</span>
+</pre></div>
+</div>
+<p>Reference: <a class="reference external" href="https://docs.nvidia.com/cuda/parallel-thread-execution/#warp-level-matrix-store-instruction-stmatrix">StMatrix PTX</a></p>
+</section>
+<section id="general-details">
+<h2>General Details<a class="headerlink" href="#general-details" title="Link to this heading"></a></h2>
+<p>For 16-bit element size, the matrix shape is (8, 8).
+The instruction can process one, two, or four (8, 8) matrices per instruction.</p>
+<section id="indices-shared-memory-tensor">
+<h3>Indices shared memory tensor<a class="headerlink" href="#indices-shared-memory-tensor" title="Link to this heading"></a></h3>
+<p>Each thread in the warp specifies a matrix row in shared memory. For LdMatrix,
+the shared memory tensor is an input TensorView. For StMatrix, it is an output
+TensorView.</p>
+<ul class="simple">
+<li><p>Threads 0-7 correspond with matrix rows of first matrix. (x1, x2, and x4)</p></li>
+<li><p>Threads 8-15 correspond with matrix rows of second matrix. (x2 and x4)</p></li>
+<li><p>Threads 16-23 correspond with matrix rows of third matrix. (x4 only)</p></li>
+<li><p>Threads 24-31 correspond with matrix rows of fourth matrix. (x4 only)</p></li>
+</ul>
+</section>
+<section id="indices-for-register-tensor">
+<h3>Indices for register tensor<a class="headerlink" href="#indices-for-register-tensor" title="Link to this heading"></a></h3>
+<p>For an (8, 8) matrix of 16-bit elements, this is the register layout for a warp.
+Each threads stores two adjacent elements along the inner-most dimension.</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">[m(8),</span> <span class="pre">n(8)]</span></code> // An (8, 8) matrix of 16-bit elements</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">[m(8),</span> <span class="pre">no(4),</span> <span class="pre">ni(2)]</span></code>  // Split column dimension by 2</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">[m(8)</span> <span class="pre">*</span> <span class="pre">no(4)</span> <span class="pre">(TDX),</span> <span class="pre">ni[2])</span></code> // Merge row dimension and column stride</p></li>
+</ul>
+</section>
+<section id="register-layout-for-one-8x8-matrix-with-16-bit-elements">
+<h3>Register layout for one 8x8 Matrix with 16-bit elements<a class="headerlink" href="#register-layout-for-one-8x8-matrix-with-16-bit-elements" title="Link to this heading"></a></h3>
+<p><img alt="Register-Layout" src="https://docs.nvidia.com/cuda/parallel-thread-execution/_images/mma-stmatrix-fragments.png" /></p>
+</section>
+</section>
+</section>
+<section class="tex2jax_ignore mathjax_ignore" id="example-1-a-copy-kernel-using-tma-ldmatrix-and-stmatrix">
+<h1>Example 1: A copy kernel using TMA, LdMatrix, and StMatrix.<a class="headerlink" href="#example-1-a-copy-kernel-using-tma-ldmatrix-and-stmatrix" title="Link to this heading"></a></h1>
+<p>The first example is a simple copy kernel using only TMA, LdMatrix, and
+Stmatrix. The next example incorporates wgmma and pointwise computation into a
+fusion.</p>
+<p>The goal for this cuda kernel is to load data from shared memory, produced by
+TMA Load with 128B swizzle, to registers using LdMatrix. After some computation,
+the data is loaded from registers into shared memory, which is consumed by a
+TMA Store with 128B swizzle.</p>
+<section id="how-to-compute-the-index-into-register-tensorview">
+<h2>How to compute the index into register TensorView?<a class="headerlink" href="#how-to-compute-the-index-into-register-tensorview" title="Link to this heading"></a></h2>
+<p>The register index is based on loop domain and is handled by IdModel
+indexing. For LdMatrix, we must set the allocation domain using the
+scheduled loop domain.</p>
+</section>
+<section id="how-to-compute-the-index-into-shared-memory-tensorview">
+<h2>How to compute the index into shared memory TensorView?<a class="headerlink" href="#how-to-compute-the-index-into-shared-memory-tensorview" title="Link to this heading"></a></h2>
+<p>The index into shared memory requires a custom index from loop domain to the
+TMA LoadStoreOp allocation domain.</p>
+<p>Figure 1 shows how the CTA tile is transformed into the loop domain
+for LdMatrix or StMatrix. Figure 2 displays the loop transformations for TMA
+Load or Store operations. Figure 3 illustrates the following steps to compute
+index from LdMatrix or StMatrix loop domain to TMA shared memory allocation
+domain. For the TMA shared memory TensorView, the allocation and loop domain
+are the same.</p>
+<hr class="docutils" />
+<section id="figure-1-loop-domain-for-ldmatrix-and-stmatrix">
+<h3>Figure 1: Loop domain for LdMatrix and StMatrix<a class="headerlink" href="#figure-1-loop-domain-for-ldmatrix-and-stmatrix" title="Link to this heading"></a></h3>
+<p><img alt="Register layout for LdMatrix / StMatrix" src="../_images/ldstmatrix_register_layout.svg" /></p>
+</section>
+<hr class="docutils" />
+<section id="figure-2-tma-shared-memory-allocation-domain">
+<h3>Figure 2: TMA shared memory allocation domain<a class="headerlink" href="#figure-2-tma-shared-memory-allocation-domain" title="Link to this heading"></a></h3>
+<details>
+<p>Let <code class="docutils literal notranslate"><span class="pre">swizzle_bytes</span></code> = 128B.
+The CTA tile is m(128), n(256)</p>
+<p><strong>Step 1:</strong> Split m by two compute warp groups; Split n by four tiles for 128B swizzle</p>
+<ul class="simple">
+<li><p>IterDomain: [mo(2), mi(64), no(4), ni(64)]</p></li>
+</ul>
+<p><strong>Step 2:</strong>  Reorder to create tma box</p>
+<ul class="simple">
+<li><p>IterDomain: [mo(2), no(4), mi(64), ni(64)]</p></li>
+</ul>
+<p><strong>Step 3:</strong> Split mi(64) by max swizzle rows</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">(128B</span> <span class="pre">/</span> <span class="pre">swizzle_bytes)</span> <span class="pre">*</span> <span class="pre">(swizzle_bytes</span> <span class="pre">/</span> <span class="pre">16B)</span> <span class="pre">=</span> <span class="pre">max</span> <span class="pre">swizzle</span> <span class="pre">rows</span> <span class="pre">(8)</span></code></p></li>
+<li><p>IterDomain: mo(2), no(4), mio(8), mii(8), nio(8), nii(8)</p></li>
+</ul>
+<p><strong>Step 4:</strong> Split ni by megabank size (128-bit or 16B or 8 elements)</p>
+<ul class="simple">
+<li><p>ni(64) is 64x2B elements = 128B. 8x2B elements is 16B or 128-bits.</p></li>
+<li><p>IterDomain: [mo(2), no(4), mi(64), nio(8), nii(8)]</p></li>
+</ul>
+<p><strong>Step 5:</strong> Split mii(8) by number of swizzle repetitions</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">(128B</span> <span class="pre">/</span> <span class="pre">swizzle_bytes)</span> <span class="pre">=</span> <span class="pre">number</span> <span class="pre">of</span> <span class="pre">swizzle-repetitions</span></code></p></li>
+<li><p>IterDomain: [mo(2), no(4), mio(8), miio(8), miii(8), nio(8), nii(8)]</p></li>
+</ul>
+<p><strong>Step 6:</strong> Apply XOR swizzle between rows (miio) and megabanks(nio) for swizzle</p>
+<ul class="simple">
+<li><p>IterDomain: mo(2), no(4), mio(8), miio(8), miii(1), nio(8), nii(8)</p></li>
+<li><p>Description for each IterDomain:</p></li>
+</ul>
+<ol class="arabic simple">
+<li><p>TDY</p></li>
+<li><p>Serial</p></li>
+<li><p>Serial</p></li>
+<li><p>Serial</p></li>
+<li><p>Number of rows in swizzle</p></li>
+<li><p>Number of row the swizzle pattern is repeated.</p></li>
+<li><p>Number of megabanks in swizzle.</p></li>
+<li><p>Size of Megabanks.</p></li>
+</ol>
+</details>
+<p><img alt="TMA Shared Memory Layout" src="../_images/tma_layout.svg" /></p>
+</section>
+<hr class="docutils" />
+<section id="figure-3-map-from-ldmatrix-stmatrix-loop-domain-to-tma-shared-memory-allocation-domain">
+<h3>Figure 3: Map from LdMatrix / StMatrix loop domain to TMA shared memory allocation domain<a class="headerlink" href="#figure-3-map-from-ldmatrix-stmatrix-loop-domain-to-tma-shared-memory-allocation-domain" title="Link to this heading"></a></h3>
+<p><img alt="Map Loop Domain toTMA Shared Memory Layout" src="../_images/ldstmatrix_to_tma.svg" /></p>
+<hr class="docutils" />
+<section id="derivation-of-figure-3">
+<h4>Derivation of Figure 3<a class="headerlink" href="#derivation-of-figure-3" title="Link to this heading"></a></h4>
+<p><strong>Step 1:</strong> Derive (8, 8) core matrix components for LdMatrix / StMatrix from
+for-loop indices.</p>
+<p><strong>LdMatrix (8, 8) IterDomain Layout:</strong></p>
+<p><code class="docutils literal notranslate"><span class="pre">mo(2),</span> <span class="pre">no(4),</span> <span class="pre">mio(4),</span> <span class="pre">nio(4),</span> <span class="pre">miio(2),</span> <span class="pre">miii(8),</span> <span class="pre">niio(2),</span> <span class="pre">niii(8)</span></code></p>
+<details>
+<ul class="simple">
+<li><p>Undo last two steps, <strong>Merge And Parallelize</strong> and <strong>Reorder</strong> from Figure 1</p></li>
+<li><p>Merge <code class="docutils literal notranslate"><span class="pre">n_iiio(4)</span></code> and <code class="docutils literal notranslate"><span class="pre">n_iiii(2)</span></code> together to form megabank size IterDomain</p></li>
+</ul>
+</details>
+<p><strong>Step 2:</strong> Merge and reorder components to get the allocation domain for TMA
+LoadStoreOp with 128B swizzle.</p>
+<p><strong>TMA LoadStoreOp with 128B swizzle IterDomain Layout:</strong></p>
+<p><code class="docutils literal notranslate"><span class="pre">mo(2),</span> <span class="pre">no(4),</span> <span class="pre">mio</span> <span class="pre">*</span> <span class="pre">miio</span> <span class="pre">(8),</span> <span class="pre">miiio(8),</span> <span class="pre">miiii(1),</span> <span class="pre">nio</span> <span class="pre">*</span> <span class="pre">niio</span> <span class="pre">(8),</span> <span class="pre">niii(8)</span></code></p>
+<details>
+<ul class="simple">
+<li><p>Merge <code class="docutils literal notranslate"><span class="pre">mio(4)</span></code> and <code class="docutils literal notranslate"><span class="pre">miio(2)</span></code> = 8</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">miii(8)</span></code> is the maximum number of rows in swizzle.</p></li>
+<li><p>Split <code class="docutils literal notranslate"><span class="pre">miii(8)</span></code> into <code class="docutils literal notranslate"><span class="pre">miiio(8)</span></code> and <code class="docutils literal notranslate"><span class="pre">miiii(1)</span></code> by repetitions for 128B swizzle.</p></li>
+<li><p>Merge <code class="docutils literal notranslate"><span class="pre">nio(4)</span></code> and <code class="docutils literal notranslate"><span class="pre">niio(2)</span></code> = 8</p></li>
+</ul>
+</details>
+<p><strong>Step 3:</strong> XOR swizzle <code class="docutils literal notranslate"><span class="pre">m_io(8)</span></code> and <code class="docutils literal notranslate"><span class="pre">(nooi</span> <span class="pre">*</span> <span class="pre">n_o)(8)</span></code> to get new ldmatrix tile
+column.</p>
+<p><strong>Step 4:</strong> Combine index components according to TMA LoadStoreOp to create the
+input index into shared memory.</p>
+</section>
+</section>
+</section>
+<section id="code-walkthrough">
+<h2>Code Walkthrough<a class="headerlink" href="#code-walkthrough" title="Link to this heading"></a></h2>
+<p>The LdStMatrixSet example is a simple copy kernel that load and stores data
+via TMA, LdMatrix, and StMatrix.</p>
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>TensorView</p></th>
+<th class="head"><p>Definition</p></th>
+<th class="head"><p>Memory Space</p></th>
+<th class="head"><p>Notes</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>tv0</p></td>
+<td><p>None</p></td>
+<td><p>Global</p></td>
+<td><p>Input</p></td>
+</tr>
+<tr class="row-odd"><td><p>tv0_smem</p></td>
+<td><p>TMA-Load</p></td>
+<td><p>Shared</p></td>
+<td><p>128B Swizzle</p></td>
+</tr>
+<tr class="row-even"><td><p>tv0_reg</p></td>
+<td><p>LdMatrix</p></td>
+<td><p>Registers</p></td>
+<td><p>None</p></td>
+</tr>
+<tr class="row-odd"><td><p>tv1_smem</p></td>
+<td><p>StMatrix</p></td>
+<td><p>Shared</p></td>
+<td><p>None</p></td>
+</tr>
+<tr class="row-even"><td><p>tv1</p></td>
+<td><p>TMA-Store</p></td>
+<td><p>Global</p></td>
+<td><p>Output; 128B Swizzle</p></td>
+</tr>
+</tbody>
+</table>
+<section id="scheduleldstmatrix-function">
+<h3>scheduleLdStMatrix function<a class="headerlink" href="#scheduleldstmatrix-function" title="Link to this heading"></a></h3>
+<p>The scheduleLdStMatrix function creates and schedules an abstract tensor for a
+TensorView with a ldmatrix or stmatrix definition. The layout is based on the
+register accumulation layout for wgmma and the hard-coded index supported by
+the indexing pass. <!-- */ //-->\</p>
+<div class="highlight-cpp notranslate"><div class="highlight"><pre><span></span><span class="n">AbstractTensor</span><span class="w"> </span><span class="nf">scheduleLdStMatrixBase</span><span class="p">(</span>
+<span class="w">    </span><span class="n">TensorView</span><span class="o">*</span><span class="w"> </span><span class="n">tv</span><span class="p">,</span>
+<span class="w">    </span><span class="n">MmaInputSmemSwizzle</span><span class="w"> </span><span class="n">swizzle</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">  </span><span class="c1">// Assume the input TensorView is block tiled. e.g., The last two iterDomains</span>
+<span class="w">  </span><span class="c1">// are the warp tile except for k dimension.</span>
+<span class="w">  </span><span class="c1">// The CTA tile is (128, 256).</span>
+<span class="w">  </span><span class="c1">// The Warp tile is (64, 256).</span>
+<span class="w">  </span><span class="c1">// The TMA box is (64, 64).</span>
+<span class="w">  </span><span class="c1">// The LdStMatrix.x4 tile is (16, 16).</span>
+<span class="w">  </span><span class="c1">// The core matrix for wgmma and LdStMatrix is (8, 8).</span>
+
+<span class="w">  </span><span class="n">AbstractTensor</span><span class="w"> </span><span class="n">abstract_tensor</span><span class="p">(</span><span class="n">tv</span><span class="o">-&gt;</span><span class="n">getLoopDomain</span><span class="p">());</span>
+<span class="w">  </span><span class="c1">// (GM, GN, cta_m(2), cta_n(1), m(64), n(256))</span>
+
+<span class="w">  </span><span class="c1">// Split by TMA shared memory box</span>
+<span class="w">  </span><span class="n">DataType</span><span class="w"> </span><span class="n">dtype</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">tv</span><span class="o">-&gt;</span><span class="n">getDataType</span><span class="p">().</span><span class="n">value</span><span class="p">();</span>
+<span class="w">  </span><span class="kt">int64_t</span><span class="w"> </span><span class="n">smem_box_size</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">getBytesFromSwizzle</span><span class="p">(</span><span class="n">swizzle</span><span class="p">)</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="n">dataTypeSizeByte</span><span class="p">(</span><span class="n">dtype</span><span class="p">);</span>
+<span class="w">  </span><span class="n">abstract_tensor</span><span class="p">.</span><span class="n">split</span><span class="p">(</span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="n">smem_box_size</span><span class="p">);</span>
+<span class="w">  </span><span class="n">abstract_tensor</span><span class="p">.</span><span class="n">reorder</span><span class="p">({{</span><span class="mi">-2</span><span class="p">,</span><span class="w"> </span><span class="mi">-3</span><span class="p">},</span><span class="w"> </span><span class="p">{</span><span class="mi">-3</span><span class="p">,</span><span class="w"> </span><span class="mi">-2</span><span class="p">}});</span>
+<span class="w">  </span><span class="c1">// (GM, GN, cta_m(2), cta_n(1), no(4), m(64), ni(64))</span>
+
+<span class="w">  </span><span class="c1">// Split by (16, 16) matrix for LdStMatrix.x4</span>
+<span class="w">  </span><span class="kt">int64_t</span><span class="w"> </span><span class="n">ldst_matrix_tile_n</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="n">swizzle</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="n">MmaInputSmemSwizzle</span><span class="o">::</span><span class="n">None</span><span class="p">)</span><span class="w"> </span><span class="o">?</span><span class="w"> </span><span class="mi">8</span><span class="w"> </span><span class="o">:</span><span class="w"> </span><span class="mi">16</span><span class="p">;</span>
+<span class="w">  </span><span class="n">abstract_tensor</span><span class="p">.</span><span class="n">split</span><span class="p">(</span><span class="mi">-2</span><span class="p">,</span><span class="w"> </span><span class="mi">16</span><span class="p">);</span>
+<span class="w">  </span><span class="n">abstract_tensor</span><span class="p">.</span><span class="n">split</span><span class="p">(</span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="n">ldst_matrix_tile_n</span><span class="p">);</span>
+<span class="w">  </span><span class="n">abstract_tensor</span><span class="p">.</span><span class="n">reorder</span><span class="p">({{</span><span class="mi">-2</span><span class="p">,</span><span class="w"> </span><span class="mi">-3</span><span class="p">},</span><span class="w"> </span><span class="p">{</span><span class="mi">-3</span><span class="p">,</span><span class="w"> </span><span class="mi">-2</span><span class="p">}});</span>
+<span class="w">  </span><span class="c1">// (GM, GN, cta_m(2), cta_n(1), no(4), mo(4), nio(4), mi(16), nii(16))</span>
+
+<span class="w">  </span><span class="k">return</span><span class="w"> </span><span class="n">abstract_tensor</span><span class="p">;</span>
+<span class="p">}</span>
+
+<span class="n">AbstractTensor</span><span class="w"> </span><span class="nf">scheduleLdStMatrixSharedMemory</span><span class="p">(</span>
+<span class="w">    </span><span class="k">const</span><span class="w"> </span><span class="n">AbstractTensor</span><span class="o">&amp;</span><span class="w"> </span><span class="n">base_tensor</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">  </span><span class="c1">// Assume the input TensorView is block tiled. e.g., The last two iterDomains</span>
+<span class="w">  </span><span class="c1">// are the warp tile except for k dimension.</span>
+<span class="w">  </span><span class="c1">// The CTA tile is (128, 256).</span>
+<span class="w">  </span><span class="c1">// The Warp tile is (64, 256).</span>
+<span class="w">  </span><span class="c1">// The TMA box is (64, 64).</span>
+<span class="w">  </span><span class="c1">// The LdStMatrix.x4 tile is (16, 16).</span>
+<span class="w">  </span><span class="c1">// The core matrix for wgmma and LdStMatrix is (8, 8).</span>
+
+<span class="w">  </span><span class="c1">// Initial Abstract Tensor</span>
+<span class="w">  </span><span class="n">AbstractTensor</span><span class="w"> </span><span class="n">abstract_tensor</span><span class="p">(</span><span class="n">base_tensor</span><span class="p">);</span>
+<span class="w">  </span><span class="c1">// (GM, GN, cta_m(2), cta_n(1), no(4), mo(4), nio(4), mi(16), nii(16))</span>
+<span class="w">  </span><span class="c1">// Omit (GM, GN, cta_m(2), cta_n(1)) after this for brevity.</span>
+
+<span class="w">  </span><span class="c1">// For shared memory addressing, each thread specifies a row for each (8, 8)</span>
+<span class="w">  </span><span class="c1">// matrix. e.g., For stmatrix.x4, 32 threads move a (16, 16) matrix.</span>
+
+<span class="w">  </span><span class="c1">// Inside the tile box [16, 16], we can think of it as 4 8x8 tiles:</span>
+<span class="w">  </span><span class="c1">// *****************</span>
+<span class="w">  </span><span class="c1">// *       *       *</span>
+<span class="w">  </span><span class="c1">// *       *       *</span>
+<span class="w">  </span><span class="c1">// *  T0   *  T2   *</span>
+<span class="w">  </span><span class="c1">// *       *       *</span>
+<span class="w">  </span><span class="c1">// *       *       *</span>
+<span class="w">  </span><span class="c1">// *****************</span>
+<span class="w">  </span><span class="c1">// *       *       *</span>
+<span class="w">  </span><span class="c1">// *       *       *</span>
+<span class="w">  </span><span class="c1">// *  T1   *  T3   *</span>
+<span class="w">  </span><span class="c1">// *       *       *</span>
+<span class="w">  </span><span class="c1">// *       *       *</span>
+<span class="w">  </span><span class="c1">// *****************</span>
+
+<span class="w">  </span><span class="c1">// Split inner-dimension by 8 to traverse the rows of the (8, 8) matrices.</span>
+<span class="w">  </span><span class="n">abstract_tensor</span><span class="p">.</span><span class="n">split</span><span class="p">(</span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">8</span><span class="p">);</span>
+<span class="w">  </span><span class="c1">// (no(4), mo(4), nio(4), mi(16), niio(2), niii(8))</span>
+
+<span class="w">  </span><span class="c1">// The tile is stored in row-major order, so issue four stmatrix.x4</span>
+<span class="w">  </span><span class="c1">// operations along the M dimension for a 128 thread warp group.</span>
+<span class="w">  </span><span class="c1">// Also, traverse along 16 rows first before moving along column dimension.</span>
+<span class="w">  </span><span class="n">abstract_tensor</span><span class="p">.</span><span class="n">reorder</span><span class="p">({{</span><span class="mi">-5</span><span class="p">,</span><span class="w"> </span><span class="mi">-4</span><span class="p">},</span><span class="w"> </span><span class="p">{</span><span class="mi">-4</span><span class="p">,</span><span class="w"> </span><span class="mi">-5</span><span class="p">},</span><span class="w"> </span><span class="p">{</span><span class="mi">-3</span><span class="p">,</span><span class="w"> </span><span class="mi">-2</span><span class="p">},</span><span class="w"> </span><span class="p">{</span><span class="mi">-2</span><span class="p">,</span><span class="w"> </span><span class="mi">-3</span><span class="p">}});</span>
+<span class="w">  </span><span class="c1">// (no(4), nio(4), mo(4), niio(2), mi(16), niii(8))</span>
+
+<span class="w">  </span><span class="n">abstract_tensor</span><span class="p">.</span><span class="n">merge</span><span class="p">(</span><span class="mi">-4</span><span class="p">,</span><span class="w"> </span><span class="mi">-3</span><span class="p">);</span>
+<span class="w">  </span><span class="n">abstract_tensor</span><span class="p">.</span><span class="n">merge</span><span class="p">(</span><span class="mi">-3</span><span class="p">,</span><span class="w"> </span><span class="mi">-2</span><span class="p">);</span>
+<span class="w">  </span><span class="c1">// (no(4), nio(4), (niio * mo * mi)(128), niii(8))</span>
+
+<span class="w">  </span><span class="c1">// Merge no and nio to create a single serial IterDomain</span>
+<span class="w">  </span><span class="c1">// This ^^^ is an artifact of matmul scheduling functions.</span>
+<span class="w">  </span><span class="n">abstract_tensor</span><span class="p">.</span><span class="n">merge</span><span class="p">(</span><span class="mi">-4</span><span class="p">,</span><span class="w"> </span><span class="mi">-3</span><span class="p">);</span>
+<span class="w">  </span><span class="c1">// (no * nio)(16), (niio * mo * mi)(128), niii(8))</span>
+
+<span class="w">  </span><span class="k">return</span><span class="w"> </span><span class="n">abstract_tensor</span><span class="p">;</span>
+<span class="p">}</span>
+
+<span class="n">AbstractTensor</span><span class="w"> </span><span class="nf">scheduleLdStMatrixRegisters</span><span class="p">(</span><span class="k">const</span><span class="w"> </span><span class="n">AbstractTensor</span><span class="o">&amp;</span><span class="w"> </span><span class="n">base_tensor</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">  </span><span class="c1">// Assume the input TensorView is block tiled. e.g., The last two iterDomains</span>
+<span class="w">  </span><span class="c1">// are the warp tile except for k dimension.</span>
+<span class="w">  </span><span class="c1">// The CTA tile is (128, 256).</span>
+<span class="w">  </span><span class="c1">// The Warp tile is (64, 256).</span>
+<span class="w">  </span><span class="c1">// The TMA box is (64, 64).</span>
+<span class="w">  </span><span class="c1">// The LdStMatrix.x4 tile is (16, 16).</span>
+<span class="w">  </span><span class="c1">// The core matrix for wgmma and LdStMatrix is (8, 8).</span>
+
+<span class="w">  </span><span class="c1">// Initial Abstract Tensor</span>
+<span class="w">  </span><span class="n">AbstractTensor</span><span class="w"> </span><span class="n">abstract_tensor</span><span class="p">(</span><span class="n">base_tensor</span><span class="p">);</span>
+<span class="w">  </span><span class="c1">// (GM, GN, cta_m(2), cta_n(1), no(4), mo(4), nio(4), mi(16), nii(16))</span>
+<span class="w">  </span><span class="c1">// Omit (GM, GN, cta_m(2), cta_n(1)) after this for brevity.</span>
+
+<span class="w">  </span><span class="c1">// Split (16, 16) matrix into four (8, 8) sub-matrices</span>
+<span class="w">  </span><span class="n">abstract_tensor</span><span class="p">.</span><span class="n">split</span><span class="p">(</span><span class="mi">-2</span><span class="p">,</span><span class="w"> </span><span class="mi">8</span><span class="p">);</span>
+<span class="w">  </span><span class="n">abstract_tensor</span><span class="p">.</span><span class="n">split</span><span class="p">(</span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">8</span><span class="p">);</span>
+
+<span class="w">  </span><span class="c1">// Each register handles two adjacent elements.</span>
+<span class="w">  </span><span class="n">abstract_tensor</span><span class="p">.</span><span class="n">split</span><span class="p">(</span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">2</span><span class="p">);</span>
+
+<span class="w">  </span><span class="c1">// The four (8, 8) sub-matrices are traversed in this order to follow the</span>
+<span class="w">  </span><span class="c1">// register layout for wgmma accumulator matrix.</span>
+<span class="w">  </span><span class="c1">// *****************</span>
+<span class="w">  </span><span class="c1">// *       *       *</span>
+<span class="w">  </span><span class="c1">// *       *       *</span>
+<span class="w">  </span><span class="c1">// *   0   *   2   *</span>
+<span class="w">  </span><span class="c1">// *       *       *</span>
+<span class="w">  </span><span class="c1">// *       *       *</span>
+<span class="w">  </span><span class="c1">// *****************</span>
+<span class="w">  </span><span class="c1">// *       *       *</span>
+<span class="w">  </span><span class="c1">// *       *       *</span>
+<span class="w">  </span><span class="c1">// *   1   *   3   *</span>
+<span class="w">  </span><span class="c1">// *       *       *</span>
+<span class="w">  </span><span class="c1">// *       *       *</span>
+<span class="w">  </span><span class="c1">// *****************</span>
+<span class="w">  </span><span class="n">abstract_tensor</span><span class="p">.</span><span class="n">reorder</span><span class="p">({{</span><span class="mi">-5</span><span class="p">,</span><span class="w"> </span><span class="mi">-2</span><span class="p">},</span><span class="w"> </span><span class="p">{</span><span class="mi">-4</span><span class="p">,</span><span class="w"> </span><span class="mi">-5</span><span class="p">},</span><span class="w"> </span><span class="p">{</span><span class="mi">-2</span><span class="p">,</span><span class="w"> </span><span class="mi">-4</span><span class="p">}});</span>
+<span class="w">  </span><span class="c1">// (no(4), mo(4), nio(4), mii(8), niiio(4), niio(2), mio(2), niiii(2))</span>
+
+<span class="w">  </span><span class="c1">// For an (16, 16) matrix, each register will hold 8 values. The LdStMatrix</span>
+<span class="w">  </span><span class="c1">// instruction will load or store these values with a single instruction. We</span>
+<span class="w">  </span><span class="c1">// remove this serial for-loop from the kernel by merging the last three</span>
+<span class="w">  </span><span class="c1">// iterDomains together and then applying ParallelType::Vectorize.</span>
+<span class="w">  </span><span class="n">abstract_tensor</span><span class="p">.</span><span class="n">merge</span><span class="p">(</span><span class="mi">-2</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">);</span>
+<span class="w">  </span><span class="n">abstract_tensor</span><span class="p">.</span><span class="n">merge</span><span class="p">(</span><span class="mi">-2</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">);</span>
+<span class="w">  </span><span class="c1">// (no(4), mo(4), nio(4), mii(8), niiio(4), (niio * mio * niiii)(8))</span>
+
+<span class="w">  </span><span class="c1">// Reorder iterDomains so the serial IterDomain for (CTA_N / TMA_N) and</span>
+<span class="w">  </span><span class="c1">// (TMA_N and LDST_N) are adjacent.</span>
+<span class="w">  </span><span class="n">abstract_tensor</span><span class="p">.</span><span class="n">reorder</span><span class="p">({{</span><span class="mi">-5</span><span class="p">,</span><span class="w"> </span><span class="mi">-4</span><span class="p">},</span><span class="w"> </span><span class="p">{</span><span class="mi">-4</span><span class="p">,</span><span class="w"> </span><span class="mi">-5</span><span class="p">}});</span>
+
+<span class="w">  </span><span class="c1">// Four LdStMatrix.x4 instructions are issued simultaneously to process</span>
+<span class="w">  </span><span class="c1">// (64, 16) tile. Merge mio, miii, and niiio iterDomains together.</span>
+<span class="w">  </span><span class="n">abstract_tensor</span><span class="p">.</span><span class="n">merge</span><span class="p">(</span><span class="mi">-4</span><span class="p">,</span><span class="w"> </span><span class="mi">-3</span><span class="p">);</span>
+<span class="w">  </span><span class="n">abstract_tensor</span><span class="p">.</span><span class="n">merge</span><span class="p">(</span><span class="mi">-3</span><span class="p">,</span><span class="w"> </span><span class="mi">-2</span><span class="p">);</span>
+<span class="w">  </span><span class="c1">// (no(4), nio(4), (mo * mii * niiio)(128), (niio * mio * niiii)(8))</span>
+
+<span class="w">  </span><span class="c1">// Merge no and nio to create a single serial IterDomain</span>
+<span class="w">  </span><span class="c1">// This ^^^ is an artifact of matmul scheduling functions.</span>
+<span class="w">  </span><span class="n">abstract_tensor</span><span class="p">.</span><span class="n">merge</span><span class="p">(</span><span class="mi">-4</span><span class="p">,</span><span class="w"> </span><span class="mi">-3</span><span class="p">);</span>
+<span class="w">  </span><span class="c1">// (no * nio)(16), (mo * mii * niiio)(128), (niio * mio * niiii)(8))</span>
+
+<span class="w">  </span><span class="k">return</span><span class="w"> </span><span class="n">abstract_tensor</span><span class="p">;</span>
+<span class="p">}</span>
+
+<span class="c1">// This test is an example of loading and storing a Tensor using TMA, LdMatrix,</span>
+<span class="c1">// and StMatrix.</span>
+<span class="k">using</span><span class="w"> </span><span class="n">LdStMatrixParams</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">std</span><span class="o">::</span><span class="n">tuple</span><span class="o">&lt;</span><span class="n">MmaInputSmemSwizzle</span><span class="p">,</span><span class="w"> </span><span class="kt">int</span><span class="p">,</span><span class="w"> </span><span class="kt">int</span><span class="o">&gt;</span><span class="p">;</span>
+<span class="k">using</span><span class="w"> </span><span class="n">HopperLdStMatrixTutorial</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">NVFuserFixtureParamTest</span><span class="o">&lt;</span><span class="n">LdStMatrixParams</span><span class="o">&gt;</span><span class="p">;</span>
+<span class="n">TEST_P</span><span class="p">(</span><span class="n">HopperLdStMatrixTutorial</span><span class="p">,</span><span class="w"> </span><span class="n">SetShmoo</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">  </span><span class="n">NVFUSER_TEST_CUDA_ARCH_GUARD</span><span class="p">(</span><span class="mi">9</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">);</span>
+<span class="w">  </span><span class="k">const</span><span class="w"> </span><span class="k">auto</span><span class="w"> </span><span class="n">dtype</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">DataType</span><span class="o">::</span><span class="n">BFloat16</span><span class="p">;</span>
+
+<span class="w">  </span><span class="k">auto</span><span class="o">&amp;</span><span class="w"> </span><span class="p">[</span><span class="n">swizzle</span><span class="p">,</span><span class="w"> </span><span class="n">cta_multiple_m</span><span class="p">,</span><span class="w"> </span><span class="n">cta_multiple_n</span><span class="p">]</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">GetParam</span><span class="p">();</span>
+
+<span class="w">  </span><span class="c1">// Fusion Definition</span>
+<span class="w">  </span><span class="n">Fusion</span><span class="w"> </span><span class="n">fusion</span><span class="p">;</span>
+<span class="w">  </span><span class="n">FusionGuard</span><span class="w"> </span><span class="nf">fg</span><span class="p">(</span><span class="o">&amp;</span><span class="n">fusion</span><span class="p">);</span>
+
+<span class="w">  </span><span class="n">TensorView</span><span class="o">*</span><span class="w"> </span><span class="n">tv0</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">makeContigConcreteTensor</span><span class="p">({</span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">},</span><span class="w"> </span><span class="n">dtype</span><span class="p">);</span><span class="w"> </span><span class="c1">// M, K</span>
+<span class="w">  </span><span class="n">fusion</span><span class="p">.</span><span class="n">addInput</span><span class="p">(</span><span class="n">tv0</span><span class="p">);</span>
+<span class="w">  </span><span class="n">TensorView</span><span class="o">*</span><span class="w"> </span><span class="n">tv1</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">set</span><span class="p">(</span><span class="n">tv0</span><span class="p">);</span>
+<span class="w">  </span><span class="n">fusion</span><span class="p">.</span><span class="n">addOutput</span><span class="p">(</span><span class="n">tv1</span><span class="p">);</span>
+
+<span class="w">  </span><span class="c1">// ===========================================================================</span>
+
+<span class="w">  </span><span class="c1">// Constants</span>
+<span class="w">  </span><span class="k">constexpr</span><span class="w"> </span><span class="kt">int64_t</span><span class="w"> </span><span class="n">warp_m</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">64</span><span class="p">;</span>
+<span class="w">  </span><span class="k">constexpr</span><span class="w"> </span><span class="kt">int64_t</span><span class="w"> </span><span class="n">warp_n</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">256</span><span class="p">;</span>
+<span class="w">  </span><span class="kt">int64_t</span><span class="w"> </span><span class="n">cta_m</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">warp_m</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="n">cta_multiple_m</span><span class="p">;</span>
+<span class="w">  </span><span class="kt">int64_t</span><span class="w"> </span><span class="n">cta_n</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">warp_n</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="n">cta_multiple_n</span><span class="p">;</span>
+<span class="w">  </span><span class="k">constexpr</span><span class="w"> </span><span class="kt">int64_t</span><span class="w"> </span><span class="n">ldst_matrix_tile_m</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">16</span><span class="p">;</span>
+<span class="w">  </span><span class="kt">int64_t</span><span class="w"> </span><span class="n">ldst_matrix_tile_n</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="n">swizzle</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="n">MmaInputSmemSwizzle</span><span class="o">::</span><span class="n">None</span><span class="p">)</span><span class="w"> </span><span class="o">?</span><span class="w"> </span><span class="mi">8</span><span class="w"> </span><span class="o">:</span><span class="w"> </span><span class="mi">16</span><span class="p">;</span>
+<span class="w">  </span><span class="n">fusion</span><span class="p">.</span><span class="n">manage</span><span class="p">(</span><span class="s">&quot;ldst_matrix_m_tile&quot;</span><span class="p">,</span><span class="w"> </span><span class="n">ldst_matrix_tile_m</span><span class="p">);</span>
+<span class="w">  </span><span class="n">fusion</span><span class="p">.</span><span class="n">manage</span><span class="p">(</span><span class="s">&quot;ldst_matrix_n_tile&quot;</span><span class="p">,</span><span class="w"> </span><span class="n">ldst_matrix_tile_n</span><span class="p">);</span>
+<span class="w">  </span><span class="n">fusion</span><span class="p">.</span><span class="n">manage</span><span class="p">(</span><span class="s">&quot;ldst_matrix_m_smem&quot;</span><span class="p">,</span><span class="w"> </span><span class="n">cta_m</span><span class="p">);</span>
+<span class="w">  </span><span class="n">fusion</span><span class="p">.</span><span class="n">manage</span><span class="p">(</span>
+<span class="w">      </span><span class="s">&quot;ldst_matrix_n_smem&quot;</span><span class="p">,</span><span class="w"> </span><span class="n">getBytesFromSwizzle</span><span class="p">(</span><span class="n">swizzle</span><span class="p">)</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="n">dataTypeSizeByte</span><span class="p">(</span><span class="n">dtype</span><span class="p">));</span>
+
+<span class="w">  </span><span class="c1">// ===========================================================================</span>
+<span class="w">  </span><span class="c1">// Create cache intermediate TensorViews</span>
+<span class="w">  </span><span class="c1">// The definition for tv0_smem is tma load, which moves data from shared to</span>
+<span class="w">  </span><span class="c1">// global memory.</span>
+<span class="w">  </span><span class="n">TensorView</span><span class="o">*</span><span class="w"> </span><span class="n">tv0_smem</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">tv0</span><span class="o">-&gt;</span><span class="n">cacheAfter</span><span class="p">();</span>
+<span class="w">  </span><span class="n">tv0_smem</span><span class="o">-&gt;</span><span class="n">definition</span><span class="p">()</span><span class="o">-&gt;</span><span class="n">as</span><span class="o">&lt;</span><span class="n">LoadStoreOp</span><span class="o">&gt;</span><span class="p">()</span><span class="o">-&gt;</span><span class="n">setOpType</span><span class="p">(</span>
+<span class="w">      </span><span class="n">LoadStoreOpType</span><span class="o">::</span><span class="n">CpAsyncBulkTensorTile</span><span class="p">);</span>
+<span class="w">  </span><span class="n">tv0_smem</span><span class="o">-&gt;</span><span class="n">setMemoryType</span><span class="p">(</span><span class="n">MemoryType</span><span class="o">::</span><span class="n">Shared</span><span class="p">);</span>
+
+<span class="w">  </span><span class="c1">// The definition for tv0_reg is ldmatrix, which moves data from shared memory</span>
+<span class="w">  </span><span class="c1">// to registers.</span>
+<span class="w">  </span><span class="n">TensorView</span><span class="o">*</span><span class="w"> </span><span class="n">tv0_reg</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">tv0_smem</span><span class="o">-&gt;</span><span class="n">cacheAfter</span><span class="p">();</span>
+<span class="w">  </span><span class="n">tv0_reg</span><span class="o">-&gt;</span><span class="n">definition</span><span class="p">()</span><span class="o">-&gt;</span><span class="n">as</span><span class="o">&lt;</span><span class="n">LoadStoreOp</span><span class="o">&gt;</span><span class="p">()</span><span class="o">-&gt;</span><span class="n">setOpType</span><span class="p">(</span>
+<span class="w">      </span><span class="n">LoadStoreOpType</span><span class="o">::</span><span class="n">LdMatrix</span><span class="p">);</span>
+
+<span class="w">  </span><span class="c1">// The definition for tv1_smem is stmatrix, which moves data from registers to</span>
+<span class="w">  </span><span class="c1">// shared memory.</span>
+<span class="w">  </span><span class="n">TensorView</span><span class="o">*</span><span class="w"> </span><span class="n">tv1_smem</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">tv1</span><span class="o">-&gt;</span><span class="n">cacheBefore</span><span class="p">();</span>
+<span class="w">  </span><span class="n">tv1_smem</span><span class="o">-&gt;</span><span class="n">definition</span><span class="p">()</span><span class="o">-&gt;</span><span class="n">as</span><span class="o">&lt;</span><span class="n">LoadStoreOp</span><span class="o">&gt;</span><span class="p">()</span><span class="o">-&gt;</span><span class="n">setOpType</span><span class="p">(</span>
+<span class="w">      </span><span class="n">LoadStoreOpType</span><span class="o">::</span><span class="n">StMatrix</span><span class="p">);</span>
+<span class="w">  </span><span class="n">tv1_smem</span><span class="o">-&gt;</span><span class="n">setMemoryType</span><span class="p">(</span><span class="n">MemoryType</span><span class="o">::</span><span class="n">Shared</span><span class="p">);</span>
+
+<span class="w">  </span><span class="c1">// The definition for tv1 is tma store, which moves data from shared to global</span>
+<span class="w">  </span><span class="c1">// memory.</span>
+<span class="w">  </span><span class="n">tv1</span><span class="o">-&gt;</span><span class="n">definition</span><span class="p">()</span><span class="o">-&gt;</span><span class="n">as</span><span class="o">&lt;</span><span class="n">LoadStoreOp</span><span class="o">&gt;</span><span class="p">()</span><span class="o">-&gt;</span><span class="n">setOpType</span><span class="p">(</span>
+<span class="w">      </span><span class="n">LoadStoreOpType</span><span class="o">::</span><span class="n">CpAsyncBulkTensorTile</span><span class="p">);</span>
+
+<span class="w">  </span><span class="c1">// ===========================================================================</span>
+<span class="w">  </span><span class="c1">// General scheduling</span>
+<span class="w">  </span><span class="c1">// Tile reference by cta_tile and warp_tile</span>
+<span class="w">  </span><span class="c1">// (M, N)</span>
+<span class="w">  </span><span class="n">tv1</span><span class="o">-&gt;</span><span class="n">split</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="n">cta_m</span><span class="p">);</span>
+<span class="w">  </span><span class="n">tv1</span><span class="o">-&gt;</span><span class="n">split</span><span class="p">(</span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="n">cta_n</span><span class="p">);</span>
+<span class="w">  </span><span class="n">tv1</span><span class="o">-&gt;</span><span class="n">reorder</span><span class="p">({{</span><span class="mi">-2</span><span class="p">,</span><span class="w"> </span><span class="mi">-3</span><span class="p">},</span><span class="w"> </span><span class="p">{</span><span class="mi">-3</span><span class="p">,</span><span class="w"> </span><span class="mi">-2</span><span class="p">}});</span>
+<span class="w">  </span><span class="c1">// (GM, GN, cta_m(128), cta_n(256))</span>
+
+<span class="w">  </span><span class="n">tv1</span><span class="o">-&gt;</span><span class="n">split</span><span class="p">(</span><span class="mi">-2</span><span class="p">,</span><span class="w"> </span><span class="n">warp_m</span><span class="p">);</span>
+<span class="w">  </span><span class="n">tv1</span><span class="o">-&gt;</span><span class="n">split</span><span class="p">(</span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="n">warp_n</span><span class="p">);</span>
+<span class="w">  </span><span class="n">tv1</span><span class="o">-&gt;</span><span class="n">reorder</span><span class="p">({{</span><span class="mi">-2</span><span class="p">,</span><span class="w"> </span><span class="mi">-3</span><span class="p">},</span><span class="w"> </span><span class="p">{</span><span class="mi">-3</span><span class="p">,</span><span class="w"> </span><span class="mi">-2</span><span class="p">}});</span>
+<span class="w">  </span><span class="c1">// (GM, GN, cta_m(2), cta_n(1), warp_m(64), warp_n(256))</span>
+
+<span class="w">  </span><span class="n">TransformPropagator</span><span class="w"> </span><span class="nf">propagator</span><span class="p">(</span><span class="n">tv1</span><span class="p">);</span>
+<span class="w">  </span><span class="n">MaxLogicalDomainInfoSpanningTree</span><span class="p">(</span><span class="n">tv1</span><span class="p">).</span><span class="n">traverse</span><span class="p">(</span><span class="o">&amp;</span><span class="n">propagator</span><span class="p">);</span>
+
+<span class="w">  </span><span class="n">tv1</span><span class="o">-&gt;</span><span class="n">axis</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span><span class="o">-&gt;</span><span class="n">parallelize</span><span class="p">(</span><span class="n">ParallelType</span><span class="o">::</span><span class="n">BIDx</span><span class="p">);</span>
+<span class="w">  </span><span class="n">tv1</span><span class="o">-&gt;</span><span class="n">axis</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span><span class="o">-&gt;</span><span class="n">parallelize</span><span class="p">(</span><span class="n">ParallelType</span><span class="o">::</span><span class="n">BIDy</span><span class="p">);</span>
+<span class="w">  </span><span class="n">tv1</span><span class="o">-&gt;</span><span class="n">axis</span><span class="p">(</span><span class="mi">2</span><span class="p">)</span><span class="o">-&gt;</span><span class="n">parallelize</span><span class="p">(</span><span class="n">ParallelType</span><span class="o">::</span><span class="n">TIDy</span><span class="p">);</span>
+<span class="w">  </span><span class="n">scheduler_utils</span><span class="o">::</span><span class="n">parallelizeAllLike</span><span class="p">(</span><span class="n">tv1</span><span class="p">);</span>
+
+<span class="w">  </span><span class="c1">// ===========================================================================</span>
+<span class="w">  </span><span class="c1">// Schedule shared memory tensors using TMA Load and Store</span>
+
+<span class="w">  </span><span class="c1">// Schedule output from TMA Load</span>
+<span class="w">  </span><span class="n">mma_utils</span><span class="o">::</span><span class="n">MmaSwizzler</span><span class="o">::</span><span class="n">scheduleTMALoadForMma</span><span class="p">(</span><span class="n">tv0_smem</span><span class="p">,</span><span class="w"> </span><span class="n">swizzle</span><span class="p">);</span>
+
+<span class="w">  </span><span class="c1">// Schedule global memory output from TMA Store</span>
+<span class="w">  </span><span class="n">mma_utils</span><span class="o">::</span><span class="n">scheduleTMAStoreForMmaOutput</span><span class="p">(</span><span class="n">tv1</span><span class="p">,</span><span class="w"> </span><span class="n">swizzle</span><span class="p">);</span>
+
+<span class="w">  </span><span class="c1">// ===========================================================================</span>
+<span class="w">  </span><span class="c1">// Schedule register tensors using LdMatrix and StMatrix</span>
+
+<span class="w">  </span><span class="c1">// NOTE: When using a custom allocation domain, all iterDomains to the left</span>
+<span class="w">  </span><span class="c1">// of the computeAt position must exist in the loop domain. The utility</span>
+<span class="w">  </span><span class="c1">// function for applying swizzle to TMA LoadStoreOp creates the appropriate</span>
+<span class="w">  </span><span class="c1">// TMA Box. Creating the same TMA Box in the loop domain via AbstractTensor</span>
+<span class="w">  </span><span class="c1">// allows for inlining iterDomains that are not identical, causing an</span>
+<span class="w">  </span><span class="c1">// assertion in indexing pass.</span>
+
+<span class="w">  </span><span class="c1">// Move data from tv0_reg to tv1_smem using StMatrix</span>
+<span class="w">  </span><span class="n">AbstractTensor</span><span class="w"> </span><span class="n">tv1_smem_base_tensor</span><span class="w"> </span><span class="o">=</span>
+<span class="w">      </span><span class="n">scheduleLdStMatrixBase</span><span class="p">(</span><span class="n">tv1_smem</span><span class="p">,</span><span class="w"> </span><span class="n">swizzle</span><span class="p">);</span>
+<span class="w">  </span><span class="n">AbstractTensor</span><span class="w"> </span><span class="n">tv1_smem_abstract_tensor</span><span class="w"> </span><span class="o">=</span>
+<span class="w">      </span><span class="n">scheduleLdStMatrixRegisters</span><span class="p">(</span><span class="n">tv1_smem_base_tensor</span><span class="p">);</span>
+<span class="w">  </span><span class="c1">// Create tma store allocation domain with swizzle</span>
+<span class="w">  </span><span class="n">mma_utils</span><span class="o">::</span><span class="n">scheduleTMAStoreForMmaOutput</span><span class="p">(</span><span class="n">tv1_smem</span><span class="p">,</span><span class="w"> </span><span class="n">swizzle</span><span class="p">);</span>
+<span class="w">  </span><span class="n">tv1_smem</span><span class="o">-&gt;</span><span class="n">setLoopDomain</span><span class="p">(</span><span class="n">tv1_smem_abstract_tensor</span><span class="p">.</span><span class="n">as</span><span class="o">&lt;</span><span class="n">IterDomain</span><span class="o">*&gt;</span><span class="p">());</span>
+<span class="w">  </span><span class="c1">// (GM(BDX), GN(BDY), cta_m(2), cta_n(1), (no * nio)(16), (mo * mii *</span>
+<span class="w">  </span><span class="c1">// niiio)(128), (niio * mio * niiii)(8))</span>
+
+<span class="w">  </span><span class="c1">// tv1_smem is the consumer for stmatrix. tv0_reg is the consumer.</span>
+<span class="w">  </span><span class="n">std</span><span class="o">::</span><span class="n">vector</span><span class="o">&lt;</span><span class="n">IterDomain</span><span class="o">*&gt;</span><span class="w"> </span><span class="n">tv1_smem_stmatrix</span><span class="w"> </span><span class="o">=</span>
+<span class="w">      </span><span class="n">scheduleLdStMatrixSharedMemory</span><span class="p">(</span><span class="n">tv1_smem_base_tensor</span><span class="p">).</span><span class="n">as</span><span class="o">&lt;</span><span class="n">IterDomain</span><span class="o">*&gt;</span><span class="p">();</span>
+<span class="w">  </span><span class="n">tv1_smem_stmatrix</span><span class="p">.</span><span class="n">at</span><span class="p">(</span><span class="n">tv1_smem_stmatrix</span><span class="p">.</span><span class="n">size</span><span class="p">()</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="mi">2</span><span class="p">)</span>
+<span class="w">      </span><span class="o">-&gt;</span><span class="n">parallelize</span><span class="p">(</span><span class="n">ParallelType</span><span class="o">::</span><span class="n">TIDx</span><span class="p">);</span>
+<span class="w">  </span><span class="n">tv1_smem_stmatrix</span><span class="p">.</span><span class="n">at</span><span class="p">(</span><span class="n">tv1_smem_stmatrix</span><span class="p">.</span><span class="n">size</span><span class="p">()</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="mi">1</span><span class="p">)</span>
+<span class="w">      </span><span class="o">-&gt;</span><span class="n">parallelize</span><span class="p">(</span><span class="n">ParallelType</span><span class="o">::</span><span class="n">Vectorize</span><span class="p">);</span>
+<span class="w">  </span><span class="n">tv1_smem</span><span class="o">-&gt;</span><span class="n">setAlternateLoopDomain</span><span class="p">(</span><span class="n">tv1_smem_stmatrix</span><span class="p">);</span>
+
+<span class="w">  </span><span class="c1">// Use ParallelType::TIDx to launch four StMatrix.x4 in parallel.</span>
+<span class="w">  </span><span class="c1">// Use ParallelType::Vectorize because StMatrix.x4 stores eight elements per</span>
+<span class="w">  </span><span class="c1">// thread per operation.</span>
+<span class="w">  </span><span class="n">tv1_smem</span><span class="o">-&gt;</span><span class="n">axis</span><span class="p">(</span><span class="mi">-2</span><span class="p">)</span><span class="o">-&gt;</span><span class="n">parallelize</span><span class="p">(</span><span class="n">ParallelType</span><span class="o">::</span><span class="n">TIDx</span><span class="p">);</span>
+<span class="w">  </span><span class="n">tv1_smem</span><span class="o">-&gt;</span><span class="n">axis</span><span class="p">(</span><span class="mi">-1</span><span class="p">)</span><span class="o">-&gt;</span><span class="n">parallelize</span><span class="p">(</span><span class="n">ParallelType</span><span class="o">::</span><span class="n">Vectorize</span><span class="p">);</span>
+<span class="w">  </span><span class="c1">// (GM(BDX), GN(BDY), cta_m(2)(TDY), cta_n(1), (no * nio)(16), (mo * mii *</span>
+<span class="w">  </span><span class="c1">// niiio)(128)(TDX), (niio * mio * niiii)(8)(V))</span>
+
+<span class="w">  </span><span class="c1">// ===========================================================================</span>
+
+<span class="w">  </span><span class="c1">// Move data from tv0_smem to tv0_reg using LdMatrix</span>
+<span class="w">  </span><span class="n">AbstractTensor</span><span class="w"> </span><span class="n">tv0_reg_base_tensor</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">scheduleLdStMatrixBase</span><span class="p">(</span><span class="n">tv0_reg</span><span class="p">,</span><span class="w"> </span><span class="n">swizzle</span><span class="p">);</span>
+<span class="w">  </span><span class="n">AbstractTensor</span><span class="w"> </span><span class="n">tv0_reg_abstract_tensor</span><span class="w"> </span><span class="o">=</span>
+<span class="w">      </span><span class="n">scheduleLdStMatrixRegisters</span><span class="p">(</span><span class="n">tv0_reg_base_tensor</span><span class="p">);</span>
+<span class="w">  </span><span class="n">tv0_reg</span><span class="o">-&gt;</span><span class="n">setLoopDomain</span><span class="p">(</span><span class="n">tv0_reg_abstract_tensor</span><span class="p">.</span><span class="n">as</span><span class="o">&lt;</span><span class="n">IterDomain</span><span class="o">*&gt;</span><span class="p">());</span>
+<span class="w">  </span><span class="c1">// (GM(BDX), GN(BDY), cta_m(2), cta_n(1), (no * nio)(16), (mo * mii *</span>
+<span class="w">  </span><span class="c1">// niiio)(128), (niio * mio * niiii)(8))</span>
+
+<span class="w">  </span><span class="n">std</span><span class="o">::</span><span class="n">vector</span><span class="o">&lt;</span><span class="n">IterDomain</span><span class="o">*&gt;</span><span class="w"> </span><span class="n">tv0_reg_ldmatrix</span><span class="w"> </span><span class="o">=</span>
+<span class="w">      </span><span class="n">scheduleLdStMatrixSharedMemory</span><span class="p">(</span><span class="n">tv0_reg_base_tensor</span><span class="p">).</span><span class="n">as</span><span class="o">&lt;</span><span class="n">IterDomain</span><span class="o">*&gt;</span><span class="p">();</span>
+<span class="w">  </span><span class="n">tv0_reg_ldmatrix</span><span class="p">.</span><span class="n">at</span><span class="p">(</span><span class="n">tv0_reg_ldmatrix</span><span class="p">.</span><span class="n">size</span><span class="p">()</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="mi">2</span><span class="p">)</span>
+<span class="w">      </span><span class="o">-&gt;</span><span class="n">parallelize</span><span class="p">(</span><span class="n">ParallelType</span><span class="o">::</span><span class="n">TIDx</span><span class="p">);</span>
+<span class="w">  </span><span class="n">tv0_reg_ldmatrix</span><span class="p">.</span><span class="n">at</span><span class="p">(</span><span class="n">tv0_reg_ldmatrix</span><span class="p">.</span><span class="n">size</span><span class="p">()</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="mi">1</span><span class="p">)</span>
+<span class="w">      </span><span class="o">-&gt;</span><span class="n">parallelize</span><span class="p">(</span><span class="n">ParallelType</span><span class="o">::</span><span class="n">Vectorize</span><span class="p">);</span>
+<span class="w">  </span><span class="n">tv0_reg</span><span class="o">-&gt;</span><span class="n">setAlternateLoopDomain</span><span class="p">(</span><span class="n">tv0_reg_ldmatrix</span><span class="p">);</span>
+<span class="w">  </span><span class="c1">// tv0_reg is the consumer for ldmatrix and tv0_smem is the producer.</span>
+
+<span class="w">  </span><span class="c1">// Set allocation domain according to loop domain</span>
+<span class="w">  </span><span class="n">tv0_reg</span><span class="o">-&gt;</span><span class="n">setAllocationDomain</span><span class="p">(</span>
+<span class="w">      </span><span class="n">tv0_reg</span><span class="o">-&gt;</span><span class="n">getLoopDomain</span><span class="p">(),</span><span class="w"> </span><span class="cm">/*new_contiguity=*/</span><span class="nb">true</span><span class="p">);</span>
+
+<span class="w">  </span><span class="c1">// Use ParallelType::TIDx to launch four LdMatrix.x4 in parallel.</span>
+<span class="w">  </span><span class="c1">// Use ParallelType::Vectorize because LdMatrix.x4 stores eight elements per</span>
+<span class="w">  </span><span class="c1">// thread per operation.</span>
+<span class="w">  </span><span class="n">tv0_reg</span><span class="o">-&gt;</span><span class="n">axis</span><span class="p">(</span><span class="mi">-2</span><span class="p">)</span><span class="o">-&gt;</span><span class="n">parallelize</span><span class="p">(</span><span class="n">ParallelType</span><span class="o">::</span><span class="n">TIDx</span><span class="p">);</span>
+<span class="w">  </span><span class="n">tv0_reg</span><span class="o">-&gt;</span><span class="n">axis</span><span class="p">(</span><span class="mi">-1</span><span class="p">)</span><span class="o">-&gt;</span><span class="n">parallelize</span><span class="p">(</span><span class="n">ParallelType</span><span class="o">::</span><span class="n">Vectorize</span><span class="p">);</span>
+<span class="w">  </span><span class="c1">// (GM(BDX), GN(BDY), cta_m(2)(TDY), cta_n(1), (no * nio)(16), (mo * mii *</span>
+<span class="w">  </span><span class="c1">// niiio)(128)(TDX), (niio * mio * niiii)(8)(V))</span>
+
+<span class="w">  </span><span class="c1">// ===========================================================================</span>
+
+<span class="w">  </span><span class="n">inlineMost</span><span class="p">();</span>
+
+<span class="w">  </span><span class="c1">// ===========================================================================</span>
+
+<span class="w">  </span><span class="k">constexpr</span><span class="w"> </span><span class="kt">int</span><span class="w"> </span><span class="n">dim0</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">8192</span><span class="p">,</span><span class="w"> </span><span class="n">dim1</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">8192</span><span class="p">;</span>
+<span class="w">  </span><span class="k">auto</span><span class="w"> </span><span class="n">options</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">at</span><span class="o">::</span><span class="n">TensorOptions</span><span class="p">().</span><span class="n">dtype</span><span class="p">(</span><span class="n">at</span><span class="o">::</span><span class="n">kBFloat16</span><span class="p">).</span><span class="n">device</span><span class="p">(</span><span class="n">at</span><span class="o">::</span><span class="n">kCUDA</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">);</span>
+<span class="w">  </span><span class="n">at</span><span class="o">::</span><span class="n">Tensor</span><span class="w"> </span><span class="n">at_tv0</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">at</span><span class="o">::</span><span class="n">randn</span><span class="p">({</span><span class="n">dim0</span><span class="p">,</span><span class="w"> </span><span class="n">dim1</span><span class="p">},</span><span class="w"> </span><span class="n">options</span><span class="p">);</span>
+
+<span class="w">  </span><span class="n">KernelExecutor</span><span class="w"> </span><span class="n">ke</span><span class="p">;</span>
+<span class="w">  </span><span class="n">ke</span><span class="p">.</span><span class="n">compile</span><span class="p">(</span><span class="o">&amp;</span><span class="n">fusion</span><span class="p">,</span><span class="w"> </span><span class="p">{</span><span class="n">at_tv0</span><span class="p">});</span>
+<span class="w">  </span><span class="n">kir</span><span class="o">::</span><span class="n">Kernel</span><span class="o">*</span><span class="w"> </span><span class="n">kernel</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">ke</span><span class="p">.</span><span class="n">compiledKernel</span><span class="p">()</span><span class="o">-&gt;</span><span class="n">kernel</span><span class="p">();</span>
+<span class="w">  </span><span class="n">ASSERT_TRUE</span><span class="p">(</span><span class="n">kernel</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="k">nullptr</span><span class="p">);</span>
+<span class="w">  </span><span class="k">auto</span><span class="w"> </span><span class="n">cg_outputs</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">ke</span><span class="p">.</span><span class="n">run</span><span class="p">({</span><span class="n">at_tv0</span><span class="p">});</span>
+<span class="w">  </span><span class="n">NVF_CHECK</span><span class="p">(</span><span class="n">at</span><span class="o">::</span><span class="n">allclose</span><span class="p">(</span><span class="n">cg_outputs</span><span class="p">[</span><span class="mi">0</span><span class="p">].</span><span class="n">as</span><span class="o">&lt;</span><span class="n">at</span><span class="o">::</span><span class="n">Tensor</span><span class="o">&gt;</span><span class="p">(),</span><span class="w"> </span><span class="n">at_tv0</span><span class="p">));</span>
+<span class="p">}</span>
+<span class="c1">// TODO MmaInputSmemSwizzle::None relies on hard-coded indexing, so it is</span>
+<span class="c1">// disabled.</span>
+<span class="n">INSTANTIATE_TEST_SUITE_P</span><span class="p">(</span>
+<span class="w">    </span><span class="p">,</span>
+<span class="w">    </span><span class="n">HopperLdStMatrixTutorial</span><span class="p">,</span>
+<span class="w">    </span><span class="o">::</span><span class="n">testing</span><span class="o">::</span><span class="n">Combine</span><span class="p">(</span>
+<span class="w">        </span><span class="o">::</span><span class="n">testing</span><span class="o">::</span><span class="n">Values</span><span class="p">(</span>
+<span class="w">            </span><span class="n">MmaInputSmemSwizzle</span><span class="o">::</span><span class="n">B32</span><span class="p">,</span>
+<span class="w">            </span><span class="n">MmaInputSmemSwizzle</span><span class="o">::</span><span class="n">B64</span><span class="p">,</span>
+<span class="w">            </span><span class="n">MmaInputSmemSwizzle</span><span class="o">::</span><span class="n">B128</span><span class="p">),</span>
+<span class="w">        </span><span class="o">::</span><span class="n">testing</span><span class="o">::</span><span class="n">Values</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span><span class="w"> </span><span class="mi">2</span><span class="p">),</span>
+<span class="w">        </span><span class="o">::</span><span class="n">testing</span><span class="o">::</span><span class="n">Values</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span><span class="w"> </span><span class="mi">2</span><span class="p">)),</span>
+<span class="w">    </span><span class="p">[](</span><span class="k">const</span><span class="w"> </span><span class="n">testing</span><span class="o">::</span><span class="n">TestParamInfo</span><span class="o">&lt;</span><span class="n">LdStMatrixParams</span><span class="o">&gt;&amp;</span><span class="w"> </span><span class="n">info</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">      </span><span class="n">std</span><span class="o">::</span><span class="n">stringstream</span><span class="w"> </span><span class="n">ss</span><span class="p">;</span>
+<span class="w">      </span><span class="kt">int64_t</span><span class="w"> </span><span class="n">cta_m</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">64</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="n">std</span><span class="o">::</span><span class="n">get</span><span class="o">&lt;</span><span class="mi">1</span><span class="o">&gt;</span><span class="p">(</span><span class="n">info</span><span class="p">.</span><span class="n">param</span><span class="p">);</span>
+<span class="w">      </span><span class="kt">int64_t</span><span class="w"> </span><span class="n">cta_n</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">256</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="n">std</span><span class="o">::</span><span class="n">get</span><span class="o">&lt;</span><span class="mi">2</span><span class="o">&gt;</span><span class="p">(</span><span class="n">info</span><span class="p">.</span><span class="n">param</span><span class="p">);</span>
+<span class="w">      </span><span class="n">ss</span><span class="w"> </span><span class="o">&lt;&lt;</span><span class="w"> </span><span class="s">&quot;swizzle_&quot;</span><span class="w"> </span><span class="o">&lt;&lt;</span><span class="w"> </span><span class="n">toString</span><span class="p">(</span><span class="n">std</span><span class="o">::</span><span class="n">get</span><span class="o">&lt;</span><span class="mi">0</span><span class="o">&gt;</span><span class="p">(</span><span class="n">info</span><span class="p">.</span><span class="n">param</span><span class="p">))</span><span class="w"> </span><span class="o">&lt;&lt;</span><span class="w"> </span><span class="s">&quot;_cta_m_&quot;</span>
+<span class="w">         </span><span class="o">&lt;&lt;</span><span class="w"> </span><span class="n">cta_m</span><span class="w"> </span><span class="o">&lt;&lt;</span><span class="w"> </span><span class="s">&quot;_cta_n_&quot;</span><span class="w"> </span><span class="o">&lt;&lt;</span><span class="w"> </span><span class="n">cta_n</span><span class="p">;</span>
+<span class="w">      </span><span class="k">return</span><span class="w"> </span><span class="n">sanitizeTestName</span><span class="p">(</span><span class="n">ss</span><span class="p">.</span><span class="n">str</span><span class="p">());</span>
+<span class="w">    </span><span class="p">});</span><span class="w"> </span><span class="cm">/*</span>
+</pre></div>
+</div>
+<!--*/
+} // namespace nvfuser
+// \-->
+</section>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="host_ir_jit.html" class="btn btn-neutral float-left" title="Host IR JIT Overview" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="tma.html" class="btn btn-neutral float-right" title="Introduction to TMA Support in NVFuser" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+<img src="../_static/NVIDIA-LogoBlack.svg"/>
+<p class="notices">
+<a href="https://www.nvidia.com/en-us/about-nvidia/privacy-policy/" target="_blank">Privacy Policy</a>
+|
+<a href="https://www.nvidia.com/en-us/about-nvidia/privacy-center/" target="_blank">Manage My Privacy</a>
+|
+<a href="https://www.nvidia.com/en-us/preferences/start/" target="_blank">Do Not Sell or Share My Data</a>
+|
+<a href="https://www.nvidia.com/en-us/about-nvidia/terms-of-service/" target="_blank">Terms of Service</a>
+|
+<a href="https://www.nvidia.com/en-us/about-nvidia/accessibility/" target="_blank">Accessibility</a>
+|
+<a href="https://www.nvidia.com/en-us/about-nvidia/company-policies/" target="_blank">Corporate Policies</a>
+|
+<a href="https://www.nvidia.com/en-us/product-security/" target="_blank">Product Security</a>
+|
+<a href="https://www.nvidia.com/en-us/contact/" target="_blank">Contact</a>
+</p>
+
+    <p>&#169; Copyright 2023-2025, NVIDIA CORPORATION &amp; AFFILIATES. All rights reserved..</p>
+
+  </div>
+
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  
+<div class="rst-versions" data-toggle="rst-versions" role="note" aria-label="versions">
+    <span class="rst-current-version" data-toggle="rst-current-version">
+        
+        Version: 0.2.34
+        
+    </span>
+</div><script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>
