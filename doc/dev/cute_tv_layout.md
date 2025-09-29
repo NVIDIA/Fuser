@@ -454,6 +454,37 @@ TEST_F(CuTeTutorial, HopperWgmmaThreadLayout) {
   auto cg_outputs = ke.run({at_tv0});
   NVF_CHECK(at::allclose(cg_outputs[0].as<at::Tensor>(), at_tv0));
 }
+
+TEST_F(CuTeTutorial, BulkLoad) {
+  NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
+
+  // Fusion Definition
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  Fusion* fusion = fusion_ptr.get();
+  FusionGuard fg(fusion);
+
+  constexpr at::ScalarType dtype = at::ScalarType::Float;
+  constexpr int dim0 = 32, dim1 = 32;
+  TensorView* tv0 = makeContigConcreteTensor({dim0, dim1}, aten_to_data_type(dtype));
+  fusion->addInput(tv0);
+  TensorView* tv1 = set(tv0);
+  fusion->addOutput(tv1);
+
+  TensorView* tv0_cache = tv0->cacheAfter(LoadStoreOpType::CpAsyncBulk);
+  tv0_cache->setMemoryType(MemoryType::Shared);
+  tv0_cache->axis(0)->parallelize(ParallelType::Bulk);
+  tv0_cache->axis(1)->parallelize(ParallelType::Bulk);
+  inlineMost();
+
+  auto options = at::TensorOptions().dtype(dtype).device(at::kCUDA, 0);
+  at::Tensor at_tv0 = at::randn({dim0, dim1}, options);
+
+  KernelExecutor ke;
+  CompileParams index32bit{DataType::Int32, 255, false};
+  ke.compile(fusion, {at_tv0}, {}, index32bit);
+  auto outputs = ke.run({at_tv0});
+  testValidate(fusion, outputs, {at_tv0}, {at_tv0}, __LINE__, __FILE__);
+}
 /*
 ```
 <!--*/
