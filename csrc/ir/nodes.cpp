@@ -3803,6 +3803,10 @@ std::vector<IterDomain*> TensorDomain::orderedAs(
   NVF_ERROR(
       !dom.empty() || old2new_.empty(), "Tried to reorder a 0-dim domain");
 
+  if (old2new_.empty()) {
+    return dom;
+  }
+
   // Eventhough these checks are already in TensorView, we want to redo them as
   // we can enter this function from other places, not through TensorView
 

@@ -227,9 +227,8 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
   std::vector<IterDomain*> ref_loop = largest_out->getLoopDomain();
   // reorder of root to align with logical map should always help with indexing,
   // even when vectorization isn't used.
-  if (!reorder_map.empty()) {
-    ref_loop = TensorDomain::orderedAs(ref_loop, reorder_map);
-  }
+  ref_loop = TensorDomain::orderedAs(ref_loop, reorder_map);
+
   // We always cacheBefore output at the beginning of the scheduling. And after
   // cacheBefore, the reference tensor will have all reduction IDs removed.
   ref_loop = TensorDomain::noDevices(TensorDomain::noReductions(ref_loop));
@@ -284,7 +283,7 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
       data_cache, [&largest_out]() {
         return std::make_unique<std::vector<TensorView*>>(
             scheduler_utils::getInputsOutputsWithInnerDim(
-                largest_out, true, true));
+                largest_out, /*inner_only=*/true, /*vectorize_pass=*/true));
       });
 
   int64_t max_dtype_size_bit_for_vectorization = 0;
@@ -350,9 +349,10 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
 
   auto broadcast_info = HeuristicDataCacheEntry<
       HeuristicCompileTime::BroadcastMultiples>(
-      data_cache, [&largest_out, &index_type]() {
+      data_cache, [&largest_out, &index_type, &reorder_map]() {
         return std::make_unique<scheduler_utils::BroadcastMultipleInformation>(
-            scheduler_utils::getBroadcastMultiples(largest_out, index_type));
+            scheduler_utils::getBroadcastMultiples(
+                largest_out, index_type, reorder_map));
       });
 
   auto& view_disjoint_sets = broadcast_info.get().view_disjoint_set_ids;
@@ -963,9 +963,7 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
 
     std::unordered_map<int64_t, int64_t> reorder_map =
         scheduler_utils::maybeReorderAsAllocationMap(reference_tv);
-    if (!reorder_map.empty()) {
-      reference_tv->reorder(reorder_map);
-    }
+    reference_tv->reorder(reorder_map);
     reorderDIDToFront(reference_tv);
 
     // Merge right side of break point
