@@ -18,6 +18,14 @@ ConcretizedBroadcastDomains::ConcretizedBroadcastDomains(Fusion* fusion) {
 
   // Initialize the origin map with input broadcast domains
   auto inputs = fusion->inputsAndCreated();
+  auto exprs_ = fusion->exprs();
+
+  auto bq_ops = ir_utils::filterByType<BlockQuantizationOp>(exprs_);
+  if (bq_ops.size() == 1) {
+    inputs.push_back(
+        static_cast<TensorView*>(bq_ops.vector()[0]->blockScales()));
+  }
+
   for (const auto fusion_input_tv :
        ir_utils::filterByType<TensorView>(inputs)) {
     for (auto logical_id : fusion_input_tv->getLogicalDomain()) {
@@ -123,6 +131,10 @@ void ConcretizedBroadcastDomains::dispatch(Expr* expr) {
     for (auto consumer : ir_utils::filterByType<TensorView>(expr->outputs())) {
       auto p2c_map = PairwiseLogicalDomainMap(producer, consumer)
                          .mapProducerToConsumer(&producer_broadcasts);
+      auto consumer_is_block_quantization_scales =
+          expr->isA<BlockQuantizationOp>() &&
+          consumer == expr->as<BlockQuantizationOp>()->blockScales();
+
       for (const auto& kv : p2c_map) {
         auto p_id = kv.first;
         auto c_id = kv.second;
@@ -132,7 +144,8 @@ void ConcretizedBroadcastDomains::dispatch(Expr* expr) {
             !c_id->isBroadcast() && !c_id->isReduction();
         auto it = broadcast_origin_map_.find(p_id);
         NVF_ERROR(
-            it != broadcast_origin_map_.end(),
+            it != broadcast_origin_map_.end() &&
+                !consumer_is_block_quantization_scales,
             "Broadcast origin info not found for producer broadcast domain: ",
             p_id->toString(),
             " of ",
@@ -146,8 +159,10 @@ void ConcretizedBroadcastDomains::dispatch(Expr* expr) {
         } else {
           // Not concretized yet. Propagate forward the origin info.
           auto& consumer_origins = broadcast_origin_map_[c_id];
-          for (auto origin : producer_origins) {
-            consumer_origins.insert(origin);
+          if (!consumer_is_block_quantization_scales) {
+            for (auto origin : producer_origins) {
+              consumer_origins.insert(origin);
+            }
           }
           consumer_origins.insert(c_id);
         }

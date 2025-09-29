@@ -823,4 +823,18 @@ NVF_API inline TensorView* cumsum(TensorView* tv, int64_t dim) {
   return prefixSum(tv, dim);
 }
 
+struct BlockQuantizationResults {
+ public:
+  TensorView* block_scales = nullptr;
+  TensorView* quantized_tensor = nullptr;
+
+  explicit BlockQuantizationResults(
+      TensorView* in_block_scales,
+      TensorView* in_quantized_tensor)
+      : block_scales(in_block_scales), quantized_tensor(in_quantized_tensor) {}
+};
+
+//! Expose block size as a parameter. Currently only supports 16.
+NVF_API BlockQuantizationResults block_quantize(TensorView* input);
+
 } // namespace nvfuser
