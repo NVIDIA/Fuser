@@ -179,12 +179,13 @@ class GroupedLinear(nn.Module):
         # Initialize the weight in the same way as nn.Linear
         nn.init.kaiming_uniform_(self.weight, a=math.sqrt(5))
         alpha = torch.empty((groups,), dtype=torch.float32, requires_grad=False)
-        transposed_weight = self.weight.transpose(-1, -2).contiguous()
         fp4_weight = torch.empty((groups, out_features , in_features // 2), dtype=torch.float4_e2m1fn_x2, requires_grad=False)
         b_sf = torch.empty((groups, round_up(out_features, 128), round_up(in_features // 16, 4)), dtype=torch.float8_e4m3fn, requires_grad=False)
 
         self.k = torch.tensor(in_features, dtype=torch.int32, requires_grad=False).unsqueeze(-1).expand((groups, 1))
         self.n = torch.tensor(out_features, dtype=torch.int32, requires_grad=False).unsqueeze(-1).expand((groups, 1))
+
+        transposed_weight = self.weight.transpose(-1, -2).contiguous()
         for i in range(groups):
             alpha[i] = FLOAT4_E2M1_MAX * FLOAT8_E4M3_MAX / transposed_weight[i].max()
             scaled_mat2_i, bs_mat2_i = pytorch_nvfp4_quantize(transposed_weight[i], alpha[i])
@@ -199,7 +200,7 @@ class GroupedLinear(nn.Module):
         self, hidden_states: torch.Tensor, offsets: torch.Tensor, blockscale_offsets: torch.Tensor, tokens_per_expert: torch.Tensor
     ) -> torch.Tensor:
         if torch.compiler.is_compiling():
-            problem_sizes = torch.cat((tokens_per_expert.unsqueeze(-1), self.n, self.k), dim=1)
+            problem_sizes = torch.cat((tokens_per_expert.unsqueeze(-1), self.n, self.k), dim=1).to(torch.int32)
             return torch.ops.nvf_cutlass.f16a_nvfp4weight_scaled_grouped_mm(hidden_states, self.fp4_weight, self.b_sf, self.alpha, offsets, blockscale_offsets, problem_sizes, self.weight)
 
         return grouped_mm(hidden_states, self.weight, offsets)
