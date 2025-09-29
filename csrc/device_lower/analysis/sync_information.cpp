@@ -505,7 +505,6 @@ SyncMap::SyncMap(Fusion* fusion, bool error_on_failure) {
             NVF_ERROR(
                 producer->getMemoryType() == MemoryType::Global ||
                     consumer->definition()->isA<BlockQuantizationOp>() ||
-                    // producer->definition()->isA<BlockQuantizationOp>() ||
                     consumer->uses()[0]->isA<BlockQuantizationOp>(),
                 "Inconsistent parallelization found between T",
                 producer->name(),
