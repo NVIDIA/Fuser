@@ -81,7 +81,9 @@ def test_overlap_allgather_matmul_stream_outermost(
 
 
 @pytest.mark.mpi
-@pytest.mark.parametrize("backend_type", [CommunicatorBackend.nccl, CommunicatorBackend.cuda])
+@pytest.mark.parametrize(
+    "backend_type", [CommunicatorBackend.nccl, CommunicatorBackend.cuda]
+)
 def test_overlap_allgather_matmul_shard_outermost(
     multidevice_direct_test, benchmark, backend_type
 ):
