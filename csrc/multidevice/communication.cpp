@@ -176,7 +176,8 @@ Communication::Communication(
     Team team,
     DeviceIdxType root,
     RedOpType red_op,
-    CommunicatorBackend backend)
+    CommunicatorBackend backend,
+    Val* tag)
     : Expr(passkey) {
   NVF_ERROR(
       in->getDeviceMesh().size() > 0,
@@ -184,6 +185,10 @@ Communication::Communication(
   NVF_ERROR(
       out->getDeviceMesh().size() > 0,
       "The output mesh size must be greater than 0.");
+  if (tag == nullptr) {
+    tag = passkey.ir_container_->zeroVal(DataType::Index);
+  }
+  NVF_ERROR(tag->dtype() == DataType::Index, "Tag must be an index type.");
 
   addInput(in);
   addOutput(out);
@@ -192,6 +197,7 @@ Communication::Communication(
   addDataAttribute(root);
   addDataAttribute(red_op);
   addDataAttribute(backend);
+  addDataAttribute(tag);
 
   validate();
 }
@@ -235,6 +241,9 @@ std::string Communication::toInlineString(const int indent_size) const {
     ss << ", output=" << out();
   }
   ss << ", backend=" << backend();
+  if (tag() != nullptr) {
+    ss << ", tag=" << tag();
+  }
   ss << ")";
   return ss.str();
 }
