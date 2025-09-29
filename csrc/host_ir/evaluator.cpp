@@ -322,9 +322,10 @@ void HostIrEvaluator::handle(Communication* communication) {
       getKnownTensorOrUndefined(communication->output(0));
 
   CommunicatorBackend backend_type = communication->backend();
-  std::string tag = std::to_string(expr_evaluator_.evaluate(communication->tag()).as<int64_t>());
-  c10d::Backend* backend =
-      communicator_->getBackendForTeam(communication->team(), backend_type, tag);
+  std::string tag = std::to_string(
+      expr_evaluator_.evaluate(communication->tag()).as<int64_t>());
+  c10d::Backend* backend = communicator_->getBackendForTeam(
+      communication->team(), backend_type, tag);
 
   validateSizesAndStrides(
       {input_tensor, output_tensor},

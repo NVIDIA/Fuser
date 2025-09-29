@@ -188,8 +188,7 @@ Communication::Communication(
   if (tag == nullptr) {
     tag = passkey.ir_container_->zeroVal(DataType::Index);
   }
-  NVF_ERROR(
-      tag->dtype() == DataType::Index, "Tag must be an index type.");
+  NVF_ERROR(tag->dtype() == DataType::Index, "Tag must be an index type.");
 
   addInput(in);
   addOutput(out);

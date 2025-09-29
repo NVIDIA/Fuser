@@ -653,7 +653,6 @@ void defineHeuristicParamBindings(py::module& nvfuser) {
 
 #undef PARAM
 #undef INITPARAMS
-
 }
 
 } // namespace

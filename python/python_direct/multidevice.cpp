@@ -167,12 +167,13 @@ void bindMultiDeviceExecutor(py::module& nvfuser) {
   py::class_<MultiDeviceExecutor> multi_device_executor(
       nvfuser, "MultiDeviceExecutor");
   multi_device_executor.def(
-      py::init([](const Fusion& fusion, const MultiDeviceExecutorParams& params) {
-        return std::make_unique<MultiDeviceExecutor>(
-            std::make_unique<Fusion>(fusion),
-            Communicator::getInstance(),
-            params);
-      }),
+      py::init(
+          [](const Fusion& fusion, const MultiDeviceExecutorParams& params) {
+            return std::make_unique<MultiDeviceExecutor>(
+                std::make_unique<Fusion>(fusion),
+                Communicator::getInstance(),
+                params);
+          }),
       R"(
 Create a new MultiDeviceExecutor.
 

@@ -66,9 +66,7 @@ def test_overlap_allgather_matmul_stream_outermost(
 
     params = nvfuser.multidevice.MultiDeviceExecutorParams()
     params.backend_type = backend_type
-    multidevice_executor = nvfuser.multidevice.MultiDeviceExecutor(
-        fd.fusion, params
-    )
+    multidevice_executor = nvfuser.multidevice.MultiDeviceExecutor(fd.fusion, params)
 
     # warmup
     for _ in range(N_WARMUPS):
@@ -138,9 +136,7 @@ def test_overlap_allgather_matmul_shard_outermost(
     params = nvfuser.multidevice.MultiDeviceExecutorParams()
     params.backend_type = backend_type
     params.use_allocation_cache = True
-    multidevice_executor = nvfuser.multidevice.MultiDeviceExecutor(
-        fd.fusion, params
-    )
+    multidevice_executor = nvfuser.multidevice.MultiDeviceExecutor(fd.fusion, params)
 
     # warmup
     for _ in range(N_WARMUPS):

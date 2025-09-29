@@ -15,9 +15,9 @@
 #include <ir/internal_base_nodes.h>
 #include <ir/utils.h>
 #include <kernel_ir.h>
+#include <multidevice/utils.h>
 #include <ops/all_ops.h>
 #include <ops/utils.h>
-#include <multidevice/utils.h>
 
 namespace nvfuser::hir_pass {
 
@@ -342,8 +342,24 @@ std::vector<Expr*> processForLoopBodies(
 
       auto* my_device_id =
           IrBuilder::create<NamedScalar>("rank", DataType::Int);
-      // We need to make indexing different for when the pipeline will result in a p2p with cuda ipc pipeline, or will result in a collective based pipeline. On the one hand, for the case of collective-based pipeline, all ranks must index the tensors uniformly, because the successive collective must be posted in a globally coherent order (this can actually be relaxed by using different process groups, namely, one process group per tile, using tags, but this unfortunately hurts performance). On the other hand, the case with cuda ipc p2p needs a ring pattern wher eeach rank sends and receive to one and only one peer, therefore, indexing must be offset by the rank. This is needed for two reasons, 1) performance-wise, this is a more efficient way to use the network than to have all ranks send or receive to/from one device 2) our semantics of sharing the memhandle can only express this type of scenario. p2p with ProcessGroup backend can relax condition 2) because there is no explicit need to share the memhandle.
-      auto tensor_index = communicator_backend == CommunicatorBackend::kCuda ? mod(add(my_device_id, for_loop->index()), for_loop->stop()) : for_loop->index();
+      // We need to make indexing different for when the pipeline will result in
+      // a p2p ring pipeline backed by cuda ipc, or will result in a collective
+      // based pipeline. On the one hand, for the case of collective-based
+      // pipeline, all ranks must index the tensors uniformly, because the
+      // successive collective must be posted in a globally coherent order (this
+      // can actually be relaxed by using different process groups, namely, one
+      // process group per tile, using tags, but this unfortunately hurts
+      // performance). On the other hand, the case with cuda ipc p2p needs a
+      // ring pattern where each rank sends and receives to one and only one
+      // peer, therefore, indexing must be offset by the rank. This is needed
+      // for two reasons, 1) performance-wise, this is a more efficient way to
+      // use the network than to have all ranks send or receive to/from one
+      // device 2) our semantics of sharing the memory handles can only express
+      // this type of scenario. P2p backend by ProcessGroup can relax condition
+      // 2) because there is no explicit need to share the memhandle.
+      auto tensor_index = communicator_backend == CommunicatorBackend::kCuda
+          ? mod(add(my_device_id, for_loop->index()), for_loop->stop())
+          : for_loop->index();
       if (needs_p2p_handling) {
         NVF_ERROR(
             body_expr->isA<LoadStoreOp>() &&
@@ -366,7 +382,10 @@ std::vector<Expr*> processForLoopBodies(
             "expected a stream parallelized first axis on the output but got ",
             output_tv);
 
-        auto send_peer = (communicator_backend == CommunicatorBackend::kCuda) ? mod(add(for_loop->stop(), sub(my_device_id, for_loop->index())), for_loop->stop()) : for_loop->index();
+        auto send_peer = (communicator_backend == CommunicatorBackend::kCuda)
+            ? mod(add(for_loop->stop(), sub(my_device_id, for_loop->index())),
+                  for_loop->stop())
+            : for_loop->index();
         auto recv_peer = tensor_index;
         auto* is_sending_to_self =
             IrBuilder::create<kir::Predicate>(eq(send_peer, my_device_id));
@@ -377,8 +396,8 @@ std::vector<Expr*> processForLoopBodies(
             input_tv,
             /*dim=*/0,
             /*index=*/FusionGuard::getCurFusion()->zeroVal());
-        auto [slicing_output, is_new_] = tensor_slicing_cache.get(
-            output_tv, /*dim=*/0, /*index=*/recv_peer);
+        auto [slicing_output, is_new_] =
+            tensor_slicing_cache.get(output_tv, /*dim=*/0, /*index=*/recv_peer);
 
         auto* local_copy = IrBuilder::create<LoadStoreOp>(
             LoadStoreOpType::Set, slicing_output->out(), slicing_input->out());
@@ -397,9 +416,9 @@ std::vector<Expr*> processForLoopBodies(
             send_peer,
             communicator_backend);
         if (communicator_backend == CommunicatorBackend::kNccl) {
-          // Using Start/EndCoalescing here is important to 1) avoid hangs because
-          // of a wrong global order of send/recv and 2) enjoy full bi-directional
-          // bandwith.
+          // Using Start/EndCoalescing here is important to 1) avoid hangs
+          // because of a wrong global order of send/recv and 2) enjoy full
+          // bi-directional bandwith.
           auto start_coalescing = IrBuilder::create<hir::StartCoalescing>();
           auto end_coalescing = IrBuilder::create<hir::EndCoalescing>();
           auto wait = IrBuilder::create<hir::Wait>(end_coalescing);
@@ -421,7 +440,10 @@ std::vector<Expr*> processForLoopBodies(
           if_then_else->elseBody().push_back(wait_send);
           if_then_else->elseBody().push_back(wait_recv);
         } else {
-          NVF_THROW("Unsupported communicator backend for lowering stream parallel type into p2p: ", communicator_backend);
+          NVF_THROW(
+              "Unsupported communicator backend for lowering stream parallel "
+              "type into p2p: ",
+              communicator_backend);
         }
 
         new_loop_body.push_back(slicing_output);
@@ -573,7 +595,8 @@ void StreamParallelType::passImplementation(Fusion* fusion) {
   top_level_exprs = addTensorAllocations(std::move(top_level_exprs), id_model);
 
   // Step 3: Process for-loop bodies by slicing tensors
-  top_level_exprs = processForLoopBodies(std::move(top_level_exprs), id_model, params_.communicator_backend);
+  top_level_exprs = processForLoopBodies(
+      std::move(top_level_exprs), id_model, params_.communicator_backend);
 
   // Step 4: Add stream management and synchronization
   top_level_exprs = addStreamManagement(std::move(top_level_exprs));

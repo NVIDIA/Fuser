@@ -27,8 +27,7 @@ class StreamParallelType : public OptimizationPass<StreamParallelType> {
   friend class OptimizationPass<StreamParallelType>;
 
  public:
-  StreamParallelType(
-      const HostIrLowerParams& params = HostIrLowerParams())
+  StreamParallelType(const HostIrLowerParams& params = HostIrLowerParams())
       : params_(params) {}
 
  protected:
