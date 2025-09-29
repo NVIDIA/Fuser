@@ -132,7 +132,6 @@ ALL_NVMMH_API_WRAPPER(DECLARE_STATIC_FUNCTION_HANDLE);
   } while (0)
 
 bool initNVMMH() {
-  std::cout << "initNVMMH" << std::endl;
   if (nvmmh_handle != nullptr) {
     return true;
   }
@@ -201,6 +200,32 @@ bool initNVMMH() {
 
 #endif // HAS_NVMMH
 
+GemmTile getProblemSize(Fusion* fusion, SchedulerRuntimeInfo& runtime_info) {
+  const std::vector<ScaledMmaOp*> scaled_mmas =
+      ir_utils::getOpsOfType<ScaledMmaOp>(fusion);
+
+  NVF_ERROR_EQ(
+      scaled_mmas.size(),
+      1,
+      "Cutlass scheduler expects exactly one ScaledMmaOp");
+
+  ScaledMmaOp* mma = scaled_mmas.front();
+
+  NVF_ERROR(mma->matrix1()->isFusionInput());
+  NVF_ERROR(mma->matrix2()->isFusionInput());
+  const std::vector<int64_t>& a_shape =
+      runtime_info.getInputAllocationSizes(mma->matrix1());
+  const std::vector<int64_t>& b_shape =
+      runtime_info.getInputAllocationSizes(mma->matrix2());
+
+  NVF_ERROR_EQ(a_shape.size(), 2);
+  NVF_ERROR_EQ(b_shape.size(), 2);
+  int64_t m = a_shape.front();
+  int64_t n = b_shape.back();
+  int64_t k = a_shape.back();
+  return {m, n, k};
+}
+
 } // namespace
 
 std::unique_ptr<HeuristicParams> CutlassScheduler::computeHeuristics(
@@ -216,7 +241,6 @@ std::unique_ptr<HeuristicParams> CutlassScheduler::computeHeuristics(
   // Once libheuristics is available via pycutlass wheel, integrate it here
   if (initNVMMH()) {
 #ifdef HAS_NVMMH
-    std::cout << "found NVMMH" << std::endl;
     nvmmhHandle_t handle = nullptr;
     NVMMH_SAFE_CALL(nvMatmulHeuristicsCreate(&handle));
 
@@ -247,9 +271,15 @@ std::unique_ptr<HeuristicParams> CutlassScheduler::computeHeuristics(
 
     nvmmhKernelConfiguration_t configs[1];
 
-    // TODO: Get these using IdModel and runtime_info
-    constexpr uint32_t M = 8192, N = 8192, K = 8192, Batch = 1;
-    nvmmhMatmulProblem_t problem{M, N, K, Batch, layout};
+    const GemmTile problem_size = getProblemSize(fusion, runtime_info);
+    // TODO: support Batch dimension
+    constexpr uint32_t Batch = 1;
+    nvmmhMatmulProblem_t problem{
+        (uint32_t)problem_size.m,
+        (uint32_t)problem_size.n,
+        (uint32_t)problem_size.k,
+        Batch,
+        layout};
 
     unsigned num_configs = nvmmh_func::nvMatmulHeuristicsGetGemmConfigEx(
         handle,
