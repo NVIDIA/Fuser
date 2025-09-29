@@ -176,17 +176,21 @@ class GroupedLinear(nn.Module):
         self.weight = nn.Parameter(torch.empty(groups, in_features, out_features))
         # Initialize the weight in the same way as nn.Linear
         nn.init.kaiming_uniform_(self.weight, a=math.sqrt(5))
-        self.alpha = torch.empty((groups,), dtype=torch.float32)
-        self.fp4_weight = torch.empty((groups, in_features, out_features // 2), dtype=torch.float4_e2m1fn_x2)
-        self.b_sf = torch.empty((groups, round_up(in_features, 128), round_up(out_features // 16, 4)), dtype=torch.float8_e4m3fn)
+        alpha = torch.empty((groups,), dtype=torch.float32, requires_grad=False)
+        fp4_weight = torch.empty((groups, in_features, out_features // 2), dtype=torch.float4_e2m1fn_x2, requires_grad=False)
+        b_sf = torch.empty((groups, round_up(in_features, 128), round_up(out_features // 16, 4)), dtype=torch.float8_e4m3fn, requires_grad=False)
 
-        self.k = torch.tensor(in_features, dtype=torch.int32).unsqueeze(-1).expand((groups, 1))
-        self.n = torch.tensor(out_features, dtype=torch.int32).unsqueeze(-1).expand((groups, 1))
+        self.k = torch.tensor(in_features, dtype=torch.int32, requires_grad=False).unsqueeze(-1).expand((groups, 1))
+        self.n = torch.tensor(out_features, dtype=torch.int32, requires_grad=False).unsqueeze(-1).expand((groups, 1))
         for i in range(groups):
-            self.alpha[i] = FLOAT4_E2M1_MAX * FLOAT8_E4M3_MAX / self.weight[i].max()
-            scaled_mat2_i, bs_mat2_i = pytorch_nvfp4_quantize(self.weight[i], self.alpha[i])
-            self.fp4_weight[i] = scaled_mat2_i
-            self.b_sf[i] = linear_to_swizzled_128_4(bs_mat2_i)
+            alpha[i] = FLOAT4_E2M1_MAX * FLOAT8_E4M3_MAX / self.weight[i].max()
+            scaled_mat2_i, bs_mat2_i = pytorch_nvfp4_quantize(self.weight[i], alpha[i])
+            fp4_weight[i] = scaled_mat2_i
+            b_sf[i] = linear_to_swizzled_128_4(bs_mat2_i)
+
+        self.alpha = nn.Parameter(alpha)
+        self.fp4_weight = nn.Parameter(fp4_weight)
+        self.b_sf = nn.Parameter(b_sf)
 
     def forward(
         self, hidden_states: torch.Tensor, offsets: torch.Tensor, blockscale_offsets: torch.Tensor, tokens_per_expert: torch.Tensor
