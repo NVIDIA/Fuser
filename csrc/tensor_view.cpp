@@ -323,7 +323,12 @@ void TensorView::computeWith(int64_t pos, bool best_effort) {
     return;
   }
 
-  clearComputeWith();
+  // Update the siblings together
+  auto siblings = ir_utils::filterByType<TensorView>(definition()->outputs());
+
+  for (auto sibling : siblings) {
+    sibling->clearComputeWith();
+  }
 
   // If the given position is the same as the computeAt position, this
   // is a no-op
@@ -331,7 +336,9 @@ void TensorView::computeWith(int64_t pos, bool best_effort) {
     return;
   }
 
-  compute_with_pos_ = (unsigned int)pos;
+  for (auto sibling : siblings) {
+    sibling->compute_with_pos_ = (unsigned int)pos;
+  }
 
   for (auto consumer : ir_utils::consumerTvsOf(this)) {
     consumer->updateMaxProducerPosition();
