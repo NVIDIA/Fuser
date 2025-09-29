@@ -365,13 +365,22 @@ TensorView* defineTensor(
 std::tuple<std::vector<int64_t>, PrimDataType> translatePackedDtype(
   const std::vector<int64_t>& shape,
   const PrimDataType dtype,
-  const std::vector<int64_t>& stride_order) -> TensorView* {
-  // TODO: support stride_order
-  NVF_CHECK(stride_order.empty());
+  const std::vector<int64_t>& stride_order) {
+  // NVF_CHECK(stride_order.empty());
   NVF_CHECK(dtype == DataType::Float4_e2m1fn_x2);
 
+  int fastest_dim = -1;
+  for (const auto& [i, val] : enumerate(stride_order)) {
+    if (val == 0) {
+      fastest_dim = i;
+      break;
+    }
+  }
+
+  NVF_CHECK(fastest_dim >= 0, "illegal stride_order: ", stride_order);
+
   std::vector<int64_t> un_packed_shape = shape;
-  un_packed_shape.back() *= 2;
+  un_packed_shape[fastest_dim] *= 2;
   return {un_packed_shape, DataType::Float4_e2m1fn};
 }
 
@@ -454,7 +463,7 @@ void bindDefineTensor(py::module& nvfuser) {
                   is_cpu,
                   stride_order);
             } else {
-              auto&& [new_shape, new_dtype] = translatePackedDtype(shape, dtype, stride_order);
+              auto&& [new_sizes, new_dtype] = translatePackedDtype(sizes, dtype, stride_order);
               return defineTensor(
                   getTensorViewBuilderSizes(new_sizes, static_sizes),
                   contiguity,

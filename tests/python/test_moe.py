@@ -106,9 +106,11 @@ def _(
     problem_sizes: torch.Tensor,
     dropme: torch.Tensor,
 ) -> torch.Tensor:
-    return torch.empty((activation.size(0), fp4_weight.size(2)*2), device=activation.device, dtype=activation.dtype)
+    return torch.empty((activation.size(0), fp4_weight.size(2)), device=activation.device, dtype=activation.dtype)
 
 from thunder.executors.nvfuserex_impl import lcdtype_to_nvdtype, getnv
+
+from nvfuser_direct import DataType
 
 def gmm_nvfuser(
     activation,
@@ -132,7 +134,7 @@ def gmm_nvfuser(
     nv_problem_sizes = getnv(problem_sizes, fd, lc_to_nv_map)
     # dynamic shape support has some concretization issue
     m_size = activation.shape[0]
-    k_size = fp4_weight.shape[2] * 2
+    k_size = activation.shape[1]
     k_tile_size = k_size //  16
 
     reshaped_mat1 = fd.ops.reshape(nv_act, [m_size, k_tile_size, 16])
@@ -177,19 +179,20 @@ class GroupedLinear(nn.Module):
         # Initialize the weight in the same way as nn.Linear
         nn.init.kaiming_uniform_(self.weight, a=math.sqrt(5))
         alpha = torch.empty((groups,), dtype=torch.float32, requires_grad=False)
-        fp4_weight = torch.empty((groups, in_features, out_features // 2), dtype=torch.float4_e2m1fn_x2, requires_grad=False)
-        b_sf = torch.empty((groups, round_up(in_features, 128), round_up(out_features // 16, 4)), dtype=torch.float8_e4m3fn, requires_grad=False)
+        transposed_weight = self.weight.transpose(-1, -2).contiguous()
+        fp4_weight = torch.empty((groups, out_features , in_features // 2), dtype=torch.float4_e2m1fn_x2, requires_grad=False)
+        b_sf = torch.empty((groups, round_up(out_features, 128), round_up(in_features // 16, 4)), dtype=torch.float8_e4m3fn, requires_grad=False)
 
         self.k = torch.tensor(in_features, dtype=torch.int32, requires_grad=False).unsqueeze(-1).expand((groups, 1))
         self.n = torch.tensor(out_features, dtype=torch.int32, requires_grad=False).unsqueeze(-1).expand((groups, 1))
         for i in range(groups):
-            alpha[i] = FLOAT4_E2M1_MAX * FLOAT8_E4M3_MAX / self.weight[i].max()
-            scaled_mat2_i, bs_mat2_i = pytorch_nvfp4_quantize(self.weight[i], alpha[i])
+            alpha[i] = FLOAT4_E2M1_MAX * FLOAT8_E4M3_MAX / transposed_weight.max()
+            scaled_mat2_i, bs_mat2_i = pytorch_nvfp4_quantize(transposed_weight, alpha[i])
             fp4_weight[i] = scaled_mat2_i
             b_sf[i] = linear_to_swizzled_128_4(bs_mat2_i)
 
         self.alpha = nn.Parameter(alpha)
-        self.fp4_weight = nn.Parameter(fp4_weight)
+        self.fp4_weight = nn.Parameter(fp4_weight.transpose(-1, -2))
         self.b_sf = nn.Parameter(b_sf)
 
     def forward(
