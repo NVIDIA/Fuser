@@ -714,6 +714,12 @@ void unshard(Fusion* fusion) {
 
 namespace {
 int64_t rankOfParallelType(ParallelType parallel_type) {
+  // Currently, when reorderParallelizedToFront is called, the loop domain is
+  // expected to be parallelized on only Stream and DIDs. To make the order
+  // convenient for schedulers, we put Stream first, DIDs second, and Serial
+  // last. Stream is before DIDs so we can inline computation and communication
+  // into the same host for-loop. The best order between DIDs is unclear. We'll
+  // decide that when we support 2D sharding, e.g., https://nv/nvfuser-cp
   switch (parallel_type) {
     case ParallelType::Stream:
       return 0;
@@ -722,8 +728,8 @@ int64_t rankOfParallelType(ParallelType parallel_type) {
     case ParallelType::DIDz:
       return 1;
     default:
-      // I could assign them an arbitrary rank but preferred NVF_THROW to catch
-      // unexpected.
+      // I could assign other types an arbitrary rank but I prefer NVF_THROW to
+      // catch unexpected changes in the future.
       NVF_THROW("Unexpected parallel type: ", parallel_type);
   }
 }
@@ -735,6 +741,8 @@ std::unordered_map<int64_t, int64_t> reorderParallelizedToFront(
   rank_to_axis.reserve(tv->nDims());
   for (auto [axis, id] : enumerate(tv->getLoopDomain())) {
     auto parallel_type = id->getParallelType();
+    // We skip ParallelType::Serial because TensorView::reorder automatically
+    // orders unspecified IterDomains to the back stably.
     if (parallel_type != ParallelType::Serial) {
       rank_to_axis.emplace_back(rankOfParallelType(parallel_type), axis);
     }

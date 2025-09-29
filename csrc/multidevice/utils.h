@@ -122,7 +122,10 @@ NVF_API at::Tensor shardTensor(
     const DeviceMesh& mesh,
     DeviceIdxType device_id);
 
-// Reorders a TensorView so that the DID parallelized axis are in front.
+// Reorders a TensorView's loop domain so that parallelized IterDomains are in
+// front, making the order most convenient for (inter-GPU and intra-GPU)
+// schedulers.
+//
 // Returns a map of the old index to the new index.
 std::unordered_map<int64_t, int64_t> reorderParallelizedToFront(TensorView*);
 
