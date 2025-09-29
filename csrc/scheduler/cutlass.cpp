@@ -102,15 +102,16 @@ namespace {
 static thread_local void* nvmmh_handle = nullptr;
 
 namespace nvmmh_func {
-#define ALL_NVMMH_API_WRAPPER(fn)                 \
-  fn(nvMatmulHeuristicsCreate);                   \
-  fn(nvMatmulHeuristicsDestroy);                  \
-  fn(nvMatmulHeuristicsGetStatusString);          \
-  fn(nvMatmulHeuristicsGetVersionMajor);          \
-  fn(nvMatmulHeuristicsGetVersionMinor);          \
-  fn(nvMatmulHeuristicsGetVersionPatch);          \
-  fn(nvMatmulHeuristicsBackendCreate);            \
-  fn(nvMatmulHeuristicsLoadInternalDiscoverySet); \
+#define ALL_NVMMH_API_WRAPPER(fn)                   \
+  fn(nvMatmulHeuristicsCreate);                     \
+  fn(nvMatmulHeuristicsDestroy);                    \
+  fn(nvMatmulHeuristicsGetStatusString);            \
+  fn(nvMatmulHeuristicsGetVersionMajor);            \
+  fn(nvMatmulHeuristicsGetVersionMinor);            \
+  fn(nvMatmulHeuristicsGetVersionPatch);            \
+  fn(nvMatmulHeuristicsBackendCreate);              \
+  fn(nvMatmulHeuristicsBackendSetCallbackProperty); \
+  fn(nvMatmulHeuristicsLoadInternalDiscoverySet);   \
   fn(nvMatmulHeuristicsGetGemmConfigEx);
 
 #define DECLARE_STATIC_FUNCTION_HANDLE(func) \
@@ -226,6 +227,24 @@ GemmTile getProblemSize(Fusion* fusion, SchedulerRuntimeInfo& runtime_info) {
   return {m, n, k};
 }
 
+int isValidScaledGemmConfig(const nvmmhKernelConfiguration_t* result) {
+  std::array<uint16_t, 3> Cta;
+  Cta[0] = result->cta[0];
+  Cta[1] = result->cta[1];
+  Cta[2] = result->cta[2];
+
+  // https://github.com/NVIDIA/cutlass/blob/c6aeb9179c5f74a0fcdbd28527bf4b6ba8c60752/include/cutlass/gemm/collective/builders/sm100_common.inl#L693-L701
+  if (Cta[0] != 128) {
+    return false;
+  }
+
+  if (Cta[1] != 64 && Cta[1] != 128 && Cta[1] != 192 && Cta[1] != 256) {
+    return false;
+  }
+
+  return true;
+}
+
 } // namespace
 
 std::unique_ptr<HeuristicParams> CutlassScheduler::computeHeuristics(
@@ -247,6 +266,11 @@ std::unique_ptr<HeuristicParams> CutlassScheduler::computeHeuristics(
     nvmmhBackend_t backend;
     NVMMH_SAFE_CALL(
         nvMatmulHeuristicsBackendCreate(&backend, NVMMH_TARGET_CUTLASS));
+
+    NVMMH_SAFE_CALL(nvMatmulHeuristicsBackendSetCallbackProperty(
+        backend,
+        NVMMH_CALLBACK_KERNEL_ADDITIONAL_VALIDITY_CHECK,
+        isValidScaledGemmConfig));
 
     // TODO: inspect both inputs and outputs to set problem precision using
     // nvMatmulHeuristics convention
