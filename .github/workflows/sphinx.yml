@@ -1,10 +1,10 @@
-name: Deploy Sphinx Docs to GitHub Pages
+name: Build Python API and Deploy Sphinx Docs to GitHub Pages
 
 on:
   push:
     # Trigger the workflow when changes are pushed to the 'main' branch
     branches:
-      - main
+      - direct_sphinx
     # Only run on changes to files relevant to the documentation
     paths:
       - '**.rst'
@@ -18,6 +18,8 @@ jobs:
 
     steps:
       - name: Checkout 🛎️
+        with:
+          submodules: true
         uses: actions/checkout@v4
 
       - name: Set up Python 🐍
@@ -32,6 +34,16 @@ jobs:
           # Install Sphinx and any other required packages (like 'furo', 'myst-parser', etc.)
           pip install sphinx sphinx_toolbox sphinx-rtd-theme myst-parser
 
+      - name: Build
+        working-directory: ${{ env.working_directory }}
+        run: |
+          tools/apt-install-things.sh &
+          tools/pip-install-things.sh &
+          wait
+          source tools/setup-env.sh
+          cd python
+          python setup.py install --no-cutlass --no-test --no-benchmark --no-ninja
+
       - name: Build documentation 🏗️
         run: |
           # Change directory to where your conf.py and source files are
@@ -42,7 +54,7 @@ jobs:
 
       - name: Deploy to GitHub Pages 🚀
         uses: peaceiris/actions-gh-pages@v4
-        if: github.ref == 'refs/heads/main' # Only deploy if the push is to the main branch
+        if: github.ref == 'refs/heads/direct_sphinx' # Only deploy if the push is to the main branch
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           # The folder containing the generated HTML files
