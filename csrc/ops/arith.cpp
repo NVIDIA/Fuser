@@ -2671,7 +2671,6 @@ BlockQuantizationResults block_quantize(TensorView* input) {
           IterDomainBuilder(
               input->fusion()->zeroVal(), input->fusion()->oneVal())
               .iter_type(IterType::Broadcast)
-              .expanded_extent(IrBuilder::create<Val>(1, DataType::Index))
               .build());
     } else {
       scales_out_domain.push_back(inp_domain[i]->cloneWithoutRFactor());

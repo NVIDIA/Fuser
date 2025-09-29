@@ -49,6 +49,10 @@ class ThreadPredicateMap {
     // Parallel types where only one thread/block is enough.
     ParallelTypeBitmap redundant_types;
 
+    // This is a WAR for representing data distribution of scaling
+    // factor outputs
+    std::unordered_map<ParallelType, int64_t> parallel_type_splits;
+
     // when a loop domain of a Tensor stored in global memory
     // is merged from concretized broadcast logical domain, the broadcasted
     // logical domains should be skipped when writing to global memory.
@@ -75,6 +79,8 @@ class ThreadPredicateMap {
     bool operator==(const PredicateInfo& other) const {
       return limited_types == other.limited_types &&
           redundant_types == other.redundant_types &&
+          parallel_type_splits == other.parallel_type_splits &&
+          broadcast_ld_indices_map == other.broadcast_ld_indices_map &&
           redundant_use_types == other.redundant_use_types;
     }
   };
@@ -139,7 +145,8 @@ class ThreadPredicateMap {
   bool update(
       const TensorView* tv,
       const ParallelTypeBitmap& limited_types,
-      const ParallelTypeBitmap& redundant_types);
+      const ParallelTypeBitmap& redundant_types,
+      const std::unordered_map<ParallelType, int64_t>& type_splits);
 
   //! Update a mapping
   bool update(const TensorView* tv, const PredicateInfo& pred_and_src);

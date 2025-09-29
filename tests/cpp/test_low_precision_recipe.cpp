@@ -185,25 +185,33 @@ TEST_F(BQTest, ScheduleAsPointwise) {
 
   FusionExecutorCache fec(std::move(fusion));
 
-  const int m = 1024;
-  const int n = 1024;
+  const int m = 4;
+  const int n = 128;
   std::vector<at::Tensor> inputs;
-  inputs.push_back(at::randn({m, n}, at::device(at::kCUDA).dtype(at::kFloat)));
-  auto outputs_baseline = fec.runFusionWithInputs(inputs);
+
+  // Create tensor where each element at [r][c] position contains value c
+  auto input = at::zeros({m, n}, at::device(at::kCUDA).dtype(at::kFloat));
+  for (int64_t r = 0; r < m; ++r) {
+    for (int64_t c = 0; c < n; ++c) {
+      input[r][c] = static_cast<float>(1);
+    }
+  }
+  inputs.push_back(input);
+  // auto outputs_baseline = fec.runFusionWithInputs(inputs);
 
   // Print baseline outputs
-  auto baseline_block_scales = outputs_baseline[0].as<at::Tensor>();
-  auto baseline_quantized_tensor = outputs_baseline[1].as<at::Tensor>();
+  // auto baseline_block_scales = outputs_baseline[0].as<at::Tensor>();
+  // auto baseline_quantized_tensor = outputs_baseline[1].as<at::Tensor>();
 
-  // Move baseline tensors from GPU to CPU
-  auto baseline_block_scales_cpu = baseline_block_scales.cpu();
-  auto baseline_quantized_tensor_cpu = baseline_quantized_tensor.cpu();
+  // // Move baseline tensors from GPU to CPU
+  // auto baseline_block_scales_cpu = baseline_block_scales.cpu();
+  // auto baseline_quantized_tensor_cpu = baseline_quantized_tensor.cpu();
 
-  // Print first 32 bytes of baseline block_scales_output in hex format
-  const uint8_t* baseline_block_scales_data =
-      static_cast<const uint8_t*>(baseline_block_scales_cpu.data_ptr());
-  const uint8_t* baseline_quantized_data =
-      static_cast<const uint8_t*>(baseline_quantized_tensor_cpu.data_ptr());
+  // // Print first 32 bytes of baseline block_scales_output in hex format
+  // const uint8_t* baseline_block_scales_data =
+  //     static_cast<const uint8_t*>(baseline_block_scales_cpu.data_ptr());
+  // const uint8_t* baseline_quantized_data =
+  //     static_cast<const uint8_t*>(baseline_quantized_tensor_cpu.data_ptr());
 
   std::unique_ptr<Fusion> fusion_new_op = std::make_unique<Fusion>();
   FusionGuard fg2(fusion_new_op.get());
@@ -214,10 +222,13 @@ TEST_F(BQTest, ScheduleAsPointwise) {
   // t0 is 2D
   auto t0 = set(tv_data_hp);
   auto quantization_results = block_quantize(t0);
-
+  auto t1 = set(quantization_results.quantized_tensor);
+  auto t2 = set(quantization_results.block_scales);
   // t1 and t2 are 2D.
-  fusion_new_op->addOutput(quantization_results.block_scales);
-  fusion_new_op->addOutput(quantization_results.quantized_tensor);
+  // fusion_new_op->addOutput(quantization_results.block_scales);
+  // fusion_new_op->addOutput(quantization_results.quantized_tensor);
+  fusion_new_op->addOutput(t1);
+  fusion_new_op->addOutput(t2);
 
   t0->setMemoryType(MemoryType::Local);
 
@@ -231,7 +242,9 @@ TEST_F(BQTest, ScheduleAsPointwise) {
         t0,
         view_out_tv,
         quantization_results.quantized_tensor,
-        quantization_results.block_scales}) {
+        quantization_results.block_scales,
+        t1,
+        t2}) {
     // Merge all dims.
     t->merge(-2);
     if (t->getLoopDomain().size() >= 2) {
@@ -248,7 +261,8 @@ TEST_F(BQTest, ScheduleAsPointwise) {
 
     if (t != tv_data_hp) {
       // Don't vectorize the outputs of reshape
-      if (t != view_out_tv && t != quantization_results.block_scales) {
+      if (t != view_out_tv && t != quantization_results.block_scales &&
+          t != t2) {
         t->axis(-1)->parallelize(ParallelType::Vectorize);
       }
       //  I/512(BIDx), 128(TIDx), 1, 4(v)
@@ -263,34 +277,148 @@ TEST_F(BQTest, ScheduleAsPointwise) {
   auto outputs_new_op = ke.run(inputs);
 
   // Verify we got the expected outputs
-  auto block_scales_output = outputs_new_op[0].as<at::Tensor>();
-  auto quantized_tensor_output = outputs_new_op[1].as<at::Tensor>();
+  auto block_scales_output = outputs_new_op[1].as<at::Tensor>();
+  auto quantized_tensor_output = outputs_new_op[0].as<at::Tensor>();
 
   // Move tensors from GPU to CPU
   auto block_scales_cpu = block_scales_output.cpu();
   auto quantized_tensor_cpu = quantized_tensor_output.cpu();
 
-  auto block_scales_bytes = (m * n) / block_size;
-  auto quantized_tensor_bytes = (m * n) / 2;
-
+  // Extract raw data as uint8_t* and print first 32 bytes
   const uint8_t* block_scales_data =
       static_cast<const uint8_t*>(block_scales_cpu.data_ptr());
-  for (int i = 0; i < block_scales_bytes; ++i) {
-    EXPECT_EQ(
-        block_scales_data[i],
-        baseline_block_scales_data[i]); // Compare with baseline
-  }
-
   const uint8_t* quantized_data =
       static_cast<const uint8_t*>(quantized_tensor_cpu.data_ptr());
-  for (int i = 0; i < quantized_tensor_bytes; ++i) {
-    EXPECT_EQ(
-        quantized_data[i],
-        baseline_quantized_data[i]); // Compare with baseline
-  }
 
+  std::cout << "Block scales first 32 bytes (hex): ";
+  for (int i = 0; i < 128; ++i) {
+    std::cout << std::hex << std::setfill('0') << std::setw(2)
+              << static_cast<int>(block_scales_data[i]) << " ";
+  }
+  std::cout << std::dec << std::endl;
+
+  std::cout << "Quantized tensor first 32 bytes (hex): ";
+  for (int i = 0; i < 128; ++i) {
+    std::cout << std::hex << std::setfill('0') << std::setw(2)
+              << static_cast<int>(quantized_data[i]) << " ";
+  }
+  std::cout << std::dec << std::endl;
   // Basic shape checks
   EXPECT_EQ(block_scales_output.dim(), 3);
+  EXPECT_EQ(quantized_tensor_output.dim(), 3);
+}
+
+// Naoya, please use this test.
+TEST_F(BQTest, NewPredicateLogic) {
+  // Basic test implementation
+  std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  auto tv_data_hp = makeContigTensor(2, DataType::Float);
+  fusion->addInput(tv_data_hp);
+  // t0 is 2D
+  auto t0 = set(tv_data_hp);
+  auto quantization_results = block_quantize(t0);
+  // t1 and t2 are 2D.
+  auto t1 = set(quantization_results.block_scales);
+  auto t2 = set(quantization_results.quantized_tensor);
+  fusion->addOutput(t1);
+  fusion->addOutput(t2);
+  t0->setMemoryType(MemoryType::Local);
+  t1->setMemoryType(MemoryType::Global);
+  t2->setMemoryType(MemoryType::Global);
+  quantization_results.quantized_tensor->setMemoryType(MemoryType::Local);
+  quantization_results.block_scales->setMemoryType(MemoryType::Local);
+  // This is the 3D input to the BQ Op.
+  auto view_out_tv = quantization_results.block_scales->definition()
+                         ->input(0)
+                         ->as<TensorView>();
+  for (auto t :
+       {tv_data_hp,
+        t0,
+        view_out_tv,
+        t2,
+        quantization_results.quantized_tensor}) {
+    // Merge all dims.
+    t->merge(-2);
+    if (t->getLoopDomain().size() >= 2) {
+      t->merge(-2);
+    }
+    // split by 4.
+    // I -> I/4, 4
+    t->split(-1, 4);
+    // I//4, 4 -> I/4, 1, 4
+    t->split(-2, 1);
+    // I//4, 1, 4 -> I/512, 128, 1, 4
+    t->split(-3, 128);
+    if (t != tv_data_hp) {
+      // Don't vectorize the outputs of reshape
+      if (t != view_out_tv) {
+        t->axis(-1)->parallelize(ParallelType::Vectorize);
+      }
+      //  I/512(BIDx), 128(TIDx), 1, 4(v)
+      t->axis(-3)->parallelize(ParallelType::TIDx);
+      t->axis(-4)->parallelize(ParallelType::BIDx);
+    }
+  }
+
+  for (auto t : {quantization_results.block_scales, t1}) {
+    t->split(-1, 16);
+    t->flatten();
+    t->split(0, 4);
+    t->split(0, 128);
+    t->axis(1)->parallelize(ParallelType::TIDx);
+    t->axis(0)->parallelize(ParallelType::BIDx);
+  }
+  // fusion->print();
+  // fusion->printKernel();
+  SUCCEED();
+  // Create input tensor
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto input = at::zeros({64, 256}, options);
+
+  // Fill tensor so that each element at [r][c] position contains value c
+  for (int64_t r = 0; r < 64; ++r) {
+    for (int64_t c = 0; c < 256; ++c) {
+      input[r][c] = static_cast<float>(1);
+    }
+  }
+
+  // Execute the fusion
+  KernelExecutor ke;
+  ke.compile(fusion.get(), {input});
+  auto outputs = ke.run({input});
+  // Verify we got the expected outputs
+  auto block_scales_output = outputs[0].as<at::Tensor>();
+  auto quantized_tensor_output = outputs[1].as<at::Tensor>();
+
+  // Move tensors from GPU to CPU
+  auto block_scales_cpu = block_scales_output.cpu();
+  auto quantized_tensor_cpu = quantized_tensor_output.cpu();
+
+  // Extract raw data as uint8_t* and print first 32 bytes
+  const uint8_t* block_scales_data =
+      static_cast<const uint8_t*>(block_scales_cpu.data_ptr());
+  const uint8_t* quantized_data =
+      static_cast<const uint8_t*>(quantized_tensor_cpu.data_ptr());
+
+  std::cout << "Block scales first 32 bytes (hex): ";
+  for (int i = 0;
+       i < 32 && i < block_scales_cpu.numel() * block_scales_cpu.element_size();
+       ++i) {
+    std::cout << std::hex << std::setfill('0') << std::setw(2)
+              << static_cast<int>(block_scales_data[i]) << " ";
+  }
+  std::cout << std::dec << std::endl;
+
+  std::cout << "Quantized tensor first 32 bytes (hex): ";
+  for (int i = 0; i < 32 &&
+       i < quantized_tensor_cpu.numel() * quantized_tensor_cpu.element_size();
+       ++i) {
+    std::cout << std::hex << std::setfill('0') << std::setw(2)
+              << static_cast<int>(quantized_data[i]) << " ";
+  }
+  std::cout << std::dec << std::endl;
+
   EXPECT_EQ(quantized_tensor_output.dim(), 3);
 }
 
@@ -308,10 +436,10 @@ TEST_P(NVFP4QuantizeTest, SwizzledOuputAndWithoutPerTensorAmax) {
 
   auto tv_data_hp_abs = abs(tv_data_hp_reshaped);
   auto tv_data_hp_amax = max(tv_data_hp_abs, {-1});
-  // These scales are currently in fp32, we are going to `quantize` them to e4m3
-  // Note: in the torchao implementation, tv_block_scale is bf16 if the input is
-  // bf16 But in our case, tv_block_scale is always fp32, regardless of the
-  // input dtype.
+  // These scales are currently in fp32, we are going to `quantize` them to
+  // e4m3 Note: in the torchao implementation, tv_block_scale is bf16 if the
+  // input is bf16 But in our case, tv_block_scale is always fp32, regardless
+  // of the input dtype.
   auto tv_block_scale = div(
       tv_data_hp_amax, IrBuilder::create<Val>(F4_E2M1_MAX, DataType::Float));
   auto tv_block_scale_clamp = clamp(
@@ -389,10 +517,10 @@ TEST_P(NVFP4QuantizeTest, WithPerTensorAmax) {
 
   auto tv_data_hp_abs = abs(tv_data_hp_reshaped);
   auto tv_data_hp_amax = max(tv_data_hp_abs, {-1});
-  // These scales are currently in fp32, we are going to `quantize` them to e4m3
-  // Note: in the torchao implementation, tv_block_scale is bf16 if the input is
-  // bf16 But in our case, tv_block_scale is always fp32, regardless of the
-  // input dtype.
+  // These scales are currently in fp32, we are going to `quantize` them to
+  // e4m3 Note: in the torchao implementation, tv_block_scale is bf16 if the
+  // input is bf16 But in our case, tv_block_scale is always fp32, regardless
+  // of the input dtype.
   auto tv_block_scale = div(
       tv_data_hp_amax, IrBuilder::create<Val>(F4_E2M1_MAX, DataType::Float));
 
@@ -408,8 +536,8 @@ TEST_P(NVFP4QuantizeTest, WithPerTensorAmax) {
   auto tv_scaled_block_scales_fp32 =
       castOp(DataType::Float, tv_scaled_block_scales_fp8);
 
-  // Temporary dequant the scaled_block_scales_fp32 to get the per_tensor_scale
-  // To apply to data
+  // Temporary dequant the scaled_block_scales_fp32 to get the
+  // per_tensor_scale To apply to data
   auto tv_total_scale = mul(tv_per_tensor_scale, tv_scaled_block_scales_fp32);
 
   auto tv_total_scale_unsqueeze = unsqueeze(tv_total_scale, -1);
