@@ -171,6 +171,11 @@ if(BUILD_CUTLASS)
       VISIBILITY_INLINES_HIDDEN Yes
       CUDA_ARCHITECTURES "100a"
     )
+    # Cutlass kernels take significantly more memory to compile, up to 6GB per
+    # file. So I limit the concurrency to two. We have only a few cutlass kernel
+    # files to compile so this shouldn't affect the total build time.
+    set_property(GLOBAL PROPERTY JOB_POOLS cutlass=2)
+    set_target_properties(nvf_cutlass PROPERTIES JOB_POOL_COMPILE cutlass)
     install(TARGETS nvf_cutlass EXPORT NvfuserTargets DESTINATION lib)
 
   endif()
