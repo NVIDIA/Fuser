@@ -279,6 +279,7 @@ void TransformReplay::selfReplay(
         " and ",
         new_id,
         " do not match for self replay.");
+    NVF_ERROR_EQ(id->isReduction(), new_id->isReduction());
     axis_map[id] = new_id;
   }
 
