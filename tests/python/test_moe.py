@@ -125,17 +125,17 @@ def gmm_nvfuser(
 ):
     nv_act = getnv(activation, fd, lc_to_nv_map)
     nv_fp4_w = getnv(fp4_weight, fd, lc_to_nv_map)
-    nv_sf_w = getnv(sf_w, fd, lc_to_nv_map)
-    nv_alpha = getnv(weight_scaling_factor, fd, lc_to_nv_map)
-    nv_offsets = getnv(global_scale, fd, lc_to_nv_map)
-    nv_blocksf_offsets = getnv(offsets, fd, lc_to_nv_map)
+    nv_sf_w = getnv(weight_scaling_factor, fd, lc_to_nv_map)
+    nv_alpha = getnv(global_scale, fd, lc_to_nv_map)
+    nv_offsets = getnv(offsets, fd, lc_to_nv_map)
+    nv_blocksf_offsets = getnv(blockscale_offsets, fd, lc_to_nv_map)
     nv_problem_sizes = getnv(problem_sizes, fd, lc_to_nv_map)
     # dynamic shape support has some concretization issue
     m_size = activation.shape[0]
     k_size = fp4_weight.shape[2] * 2
     k_tile_size = k_size //  16
 
-    reshaped_mat1 = fd.ops.reshape(activation, [m_size, k_tile_size, 16])
+    reshaped_mat1 = fd.ops.reshape(nv_act, [m_size, k_tile_size, 16])
     scale1 = fd.ops.abs(reshaped_mat1)
     scale1 = fd.ops.max(scale1, 2)
     scale1 = fd.ops.div(scale1, FLOAT4_E2M1_MAX)
@@ -149,7 +149,7 @@ def gmm_nvfuser(
     # should I clamp here before cast?!
     fp4_mat1 = fd.ops.cast(scaled_mat1, DataType.Float4_e2m1fn)
     fp8_scale1 = fd.ops.cast(scale1, DataType.Float8_e4m3fn)
-    layout_fp8_scale1 = fd.ops.preprocess_grouped_matmul_input_sf(fp8_scale1, offsets, blockscale_offsets)
+    layout_fp8_scale1 = fd.ops.preprocess_grouped_matmul_input_sf(fp8_scale1, nv_offsets, nv_blocksf_offsets)
     out = fd.ops.cutlass_nvfp4_grouped_mm(
         fp4_mat1,
         nv_fp4_w,
@@ -167,8 +167,8 @@ def gmm_nvfuser(
 from thunder.torch.custom_op import _register_custom_op
 _sym_of_nvfp4_scaled_grouped_mm = _register_custom_op(nvfuser_f16a_nvfp4weight_scaled_grouped_mm)
 
-#from thunder.torch.custom_op import _register_nvfuser_translator
-#_register_nvfuser_translator(_sym_of_nvfp4_scaled_grouped_mm, gmm_nvfuser)
+from thunder.torch.custom_op import _register_nvfuser_translator
+_register_nvfuser_translator(_sym_of_nvfp4_scaled_grouped_mm, gmm_nvfuser)
 
 class GroupedLinear(nn.Module):
     def __init__(self, groups: int, in_features: int, out_features: int):
