@@ -252,15 +252,13 @@ void TransformReplay::selfReplay(
 
   std::vector<IterDomain*> logical = self->logical();
   std::vector<IterDomain*> new_logical = new_self->logical();
-  bool ignore_reductions;
+
+  // For convenience, automatically remove extra reduction dimensions.
+  bool ignore_reductions = logical.size() != new_logical.size();
   if (logical.size() > new_logical.size()) {
     logical = TensorDomain::noReductions(logical);
-    ignore_reductions = true;
   } else if (logical.size() < new_logical.size()) {
     new_logical = TensorDomain::noReductions(new_logical);
-    ignore_reductions = true;
-  } else {
-    ignore_reductions = false;
   }
   NVF_ERROR_EQ(logical.size(), new_logical.size());
 
