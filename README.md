@@ -56,8 +56,8 @@ git clone https://github.com/NVIDIA/Fuser.git
 cd Fuser
 pip install -r python/requirements.txt
 
-[DEPRECATED] `[MAX_JOBS] python setup.py develop [args]`
 pip install --no-build-isolation -e python -v
+[DEPRECATED] `[MAX_JOBS] python setup.py develop [args]`
 ```
 
 Supported compilers:
