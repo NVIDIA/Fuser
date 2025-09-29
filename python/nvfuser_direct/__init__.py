@@ -89,6 +89,9 @@ class FusionDefinition:
         # Monkey patching nvfuser_direct.ops submodule to mimic python_frontend
         # FusionDefinition.ops API. This is to maintain backwards compatibilty.
         self.ops = ops
+        # Monkey patching nvfuser_direct.schedule submodule to mimic python_frontend
+        # FusionDefinition.schedule API. This is to maintain backwards compatibilty.
+        self.sched = schedule
         self._fusion = None
         self._fusion_guard = None
 

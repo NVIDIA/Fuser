@@ -5,9 +5,20 @@
 
 import pytest
 import torch
-from nvfuser_direct import FusionDefinition, ParallelType, TensorView
+from nvfuser_direct import (
+    FusionDefinition,
+    IdMappingMode,
+    ParallelType,
+    TensorView,
+    Merge,
+    Split,
+    BroadcastOp,
+    SqueezeOp,
+    ReshapeOp,
+)
+from nvfuser_direct import idm
 
-verbose_ = False
+verbose_ = True
 
 
 def test_tutorial_memcpy():
@@ -361,3 +372,203 @@ def test_tutorial_reduction_rfactor():
     t1 = torch.randn(10000000, dtype=torch.float, device="cuda:0")
     ref1 = t1.sum(dim=0)
     fd1.manual_validate([t1], [ref1])
+
+
+def test_tutorial_reshape():
+    with FusionDefinition() as fd:
+        tv0 = fd.define_tensor(shape=[4, 8])
+
+        # Shape of tv0 is assumed to be [4, 8], which is then reshaped to [32]
+        tv1 = fd.ops.reshape(tv0, [32])
+        fd.add_output(tv1)
+
+    if verbose_:
+        # Notice that tv1 has root and logical domains. The root domain has two
+        # IterDomains, whereas the logical domain consists of a single
+        # IterDomain that is an output of a merge operation of the two root
+        # IterDomains.
+        print(fd.fusion.print_math())
+
+    # Check if the tv1 domains are generated as expected
+    assert tv1.has_root()
+    assert len(tv1.get_logical_domain()) == 1
+    # In python, use type() function to check an object's class.
+    # In CPP, use isA template function.
+    tv1_merge = tv1.get_logical_domain()[0].definition()
+    assert type(tv1_merge) is Merge
+    assert tv1_merge.inner() == tv1.get_root_domain()[1]
+    assert tv1_merge.outer() == tv1.get_root_domain()[0]
+
+    # Reshape example with broadcast domains
+    with FusionDefinition() as fd1:
+        # Create a 3D tensor with a broadcast domain
+        tv0 = fd1.define_tensor(shape=[1, 2, 3])
+
+        # tv0 is first squeezed and then reshaped and unsqueezed
+        tv1 = fd1.ops.reshape(tv0, [3, 2, 1])
+        fd1.add_output(tv1)
+
+        if verbose_:
+            print(fd1.fusion.print_math())
+
+        # The fusion should look like:
+        #
+        # tv1 = unsqueeze(reshape(squeeze(tv0)));
+        assert type(tv1.definition()) is BroadcastOp
+        reshape_output = tv1.definition().input(0)
+        assert type(reshape_output.definition()) is ReshapeOp
+        squeeze_output = reshape_output.definition().input(0)
+        assert type(squeeze_output.definition()) is SqueezeOp
+
+        assert reshape_output.has_root()
+        assert len(reshape_output.get_logical_domain()) == 2
+        assert type(reshape_output.get_logical_domain()[0].definition()) is Split
+        reshape_output_split = reshape_output.get_logical_domain()[0].definition()
+        assert reshape_output_split.outer() == reshape_output.get_logical_domain()[0]
+        assert reshape_output_split.inner() == reshape_output.get_logical_domain()[1]
+        assert type(reshape_output_split.input(0).definition()) is Merge
+        reshape_output_merge = reshape_output_split.input(0).definition()
+        assert reshape_output_merge.outer() == reshape_output.get_root_domain()[0]
+        assert reshape_output_merge.inner() == reshape_output.get_root_domain()[1]
+
+        # So far, the fusion has transformations as part of its definition. It can
+        # be further extended with scheduling transformations.
+        reshape_output.merge(0, 1)
+        reshape_output.split(0, 128)
+
+        assert type(reshape_output.get_loop_domain()[0].definition()) is Split
+        assert (
+            reshape_output.get_loop_domain()[0].definition().inner()
+            == reshape_output.get_loop_domain()[1]
+        )
+        assert (
+            type(reshape_output.get_loop_domain()[0].definition().input(0).definition())
+            == Merge
+        )
+        assert (
+            reshape_output.get_loop_domain()[0]
+            .definition()
+            .input(0)
+            .definition()
+            .outer()
+            == reshape_output.get_logical_domain()[0]
+        )
+        assert (
+            reshape_output.get_loop_domain()[0]
+            .definition()
+            .input(0)
+            .definition()
+            .inner()
+            == reshape_output.get_logical_domain()[1]
+        )
+
+        # Here's how we propagate the transformations of reshape_output to all
+        # other tensors in the fusion
+        fd.sched.transform_like(reshape_output)
+
+        # Now, all tensors, including those before the reshape op, should be
+        # transformed to 2D tensors with an inner domain of extent 128.
+        if verbose_:
+            print(fd.fusion.print_math())
+
+        # Notice that all transformations of the reshape tensor, including both the
+        # reshape and scheduling transformations, are propagated. For example,
+        # squeeze_output should have the merge and split for the reshape, followed
+        # by another merge and split for scheduling. Specifically:
+        #
+        # Root domain: [b0, i1, i2]
+        # merge(1, 2) -> [b0, i1*i2]
+        # outer split(1, 3) -> [b0, 3, i1*i2/3]
+        # merge(1, 2) -> [b0, 3*i1*i2/3]
+        # split(1, 128) -> [b0, 3*i1*i2/3/128, 128]
+        assert type(squeeze_output.get_loop_domain()[0].definition()) is Split
+        squeeze_output_second_split = squeeze_output.get_loop_domain()[0].definition()
+        assert (
+            squeeze_output_second_split.outer() == squeeze_output.get_loop_domain()[0]
+        )
+        assert (
+            squeeze_output_second_split.inner() == squeeze_output.get_loop_domain()[1]
+        )
+
+        assert type(squeeze_output_second_split.input(0).definition()) is Merge
+        squeeze_output_second_merge = squeeze_output_second_split.input(0).definition()
+
+        assert type(squeeze_output_second_merge.outer().definition()) is Split
+        squeeze_output_first_split = squeeze_output_second_merge.outer().definition()
+        assert squeeze_output_first_split.outer() == squeeze_output_second_merge.outer()
+        assert squeeze_output_first_split.inner() == squeeze_output_second_merge.inner()
+
+        assert type(squeeze_output_first_split.input(0).definition()) is Merge
+        squeeze_output_first_merge = squeeze_output_first_split.input(0).definition()
+        assert (
+            squeeze_output_first_merge.outer() == squeeze_output.get_logical_domain()[0]
+        )
+        assert (
+            squeeze_output_first_merge.inner() == squeeze_output.get_logical_domain()[1]
+        )
+
+        # Note that all the transformations of squeeze_output are scheduling
+        # transformations, thus it should not have a root domain
+        assert not squeeze_output.has_root()
+
+
+def test_tutorial_id_model_reshape_analysis():
+    """
+    Demonstration of using IdModel for analyzing equivalence of reshape ops
+    """
+    with FusionDefinition() as fd:
+        # Use the static reshape to avoid reshape concretization.
+        tv0 = fd.define_tensor(shape=[10, 20])
+        tv1 = fd.define_tensor(shape=[10, 20])
+
+        # While the reshape operations are equivalent, we do not know if the two
+        # inputs are the same. There is not an operation allowing us to infer
+        # equivalence. e.g., tv0 + tv1.
+        tv2 = fd.ops.reshape(tv0, [20, 10])
+        tv3 = fd.ops.reshape(tv1, [20, 10])
+        fd.add_output(tv2)
+        fd.add_output(tv3)
+
+    id_model = idm.IdModel(fd.fusion)
+    exact_graph = id_model.maybe_build_graph(IdMappingMode.exact)
+
+    if verbose_:
+        print(id_model)
+        print(exact_graph)
+        print(exact_graph.disjoint_val_sets())
+
+    # As mentioned above, we do not know any relationship between tv0 and tv1.
+    # They should not be mapped in exact graph.
+    assert len(tv0.get_logical_domain()) == len(tv1.get_logical_domain())
+    for tv0_id, tv1_id in zip(tv0.get_logical_domain(), tv1.get_logical_domain()):
+        assert not exact_graph.disjoint_val_sets().strict_are_mapped(tv0_id, tv1_id)
+
+    # Thus, the outputs of the reshape ops are not mapped either
+    assert len(tv2.get_loop_domain()) == len(tv3.get_loop_domain())
+    for tv2_id, tv3_id in zip(tv2.get_loop_domain(), tv3.get_loop_domain()):
+        assert not exact_graph.disjoint_val_sets().strict_are_mapped(tv2_id, tv3_id)
+
+    # Now, suppose we can say the inputs are exactly mapped. We can manually
+    # add mappings:
+    for tv0_id, tv1_id in zip(tv0.get_logical_domain(), tv1.get_logical_domain()):
+        exact_graph.map_vals(tv0_id, tv1_id)
+
+    # Now, tv2 and tv3 should be fully mapped, including their root,
+    # intermediate and loop domains.
+
+    # Check the root domains.
+    assert len(tv2.get_root_domain()) == len(tv3.get_root_domain())
+    for tv2_id, tv3_id in zip(tv2.get_root_domain(), tv3.get_root_domain()):
+        assert exact_graph.disjoint_val_sets().strict_are_mapped(tv2_id, tv3_id)
+
+    # The reshape consists of a merge and split. The output of the merge should
+    # be mapped as well
+    assert exact_graph.disjoint_val_sets().strict_are_mapped(
+        tv2.get_root_domain()[0].uses()[0].output(0),
+        tv3.get_root_domain()[0].uses()[0].output(0),
+    )
+
+    # The next operation is split. Its outputs, which are the loop domains,
+    # should be mapped too.
+    for tv2_id, tv3_id in zip(tv2.get_loop_domain(), tv3.get_loop_domain()):
+        assert exact_graph.disjoint_val_sets().strict_are_mapped(tv2_id, tv3_id)

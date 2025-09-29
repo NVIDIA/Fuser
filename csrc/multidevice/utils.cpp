@@ -708,23 +708,6 @@ void unshard(Fusion* fusion) {
   }
 }
 
-std::set<DeviceIdxType> involvedDevices(Expr* expr) {
-  std::set<DeviceIdxType> ret;
-  for (const auto& tvs :
-       {ir_utils::filterByType<TensorView>(expr->inputs()),
-        ir_utils::filterByType<TensorView>(expr->outputs())}) {
-    for (auto* tv : tvs) {
-      if (tv->hasDeviceMesh()) {
-        const auto& mesh = tv->getDeviceMesh().vector();
-        ret.insert(mesh.begin(), mesh.end());
-      } else {
-        ret.insert(0);
-      }
-    }
-  }
-  return ret;
-}
-
 std::unordered_map<int64_t, int64_t> reorderDIDToFront(TensorView* tv) {
   // old position to new position
   std::unordered_map<int64_t, int64_t> order_map;

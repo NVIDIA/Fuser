@@ -7,7 +7,13 @@
 // clang-format on
 #pragma once
 
+#include <algorithm>
+#include <complex>
+#include <ranges>
+#include <variant>
+
 #include <c10/util/complex.h>
+
 #include <debug.h>
 #include <exceptions.h>
 #include <ir/interface_nodes.h>
@@ -20,10 +26,6 @@
 #include <serde/polymorphic_value.h>
 #include <serde/utils.h>
 #include <utils.h>
-
-#include <algorithm>
-#include <complex>
-#include <variant>
 
 namespace nvfuser::python_frontend {
 
@@ -417,12 +419,9 @@ struct SliceOpRecord : RecordFunctor {
     const std::vector<Val*>& stride =
         fd.getFusionStateVector(args_.at(3).index);
     std::vector<Slice> vec_slice;
-    for (const auto idx : arange(arg->domain()->noReductions().size())) {
+    for (auto [start_idx, end_idx, stride_idx] : zip(start, end, stride)) {
       // NOTE: there's an extra move, we can use emplace_back if we go write
       // some constructors for Slice.
-      Val* start_idx = start.at(idx);
-      Val* end_idx = end.at(idx);
-      Val* stride_idx = stride.at(idx);
       NVF_CHECK(
           !start_idx->isConstInt() || start_idx->evaluate().as<int64_t>() >= 0,
           "Slice operation start_indices must be greater than or equal to 0. "
@@ -783,16 +782,16 @@ struct BroadcastInDimOpRecord : RecordFunctor {
     const std::vector<Val*>& output_shape =
         fd.getFusionStateVector(args_.at(1).index);
 
-    const auto& arg_domains_nr = arg->domain()->noReductions();
-    const auto arg_ndims = arg_domains_nr.size();
+    const auto arg_ndims = std::ranges::distance(
+        arg->getLoopDomain() | TensorDomain::kNoReductions);
     NVF_CHECK(
-        output_ndims_ >= arg_ndims,
+        static_cast<int64_t>(output_ndims_) >= arg_ndims,
         "The new shape is expected to be greater-then-or-equal to the input: ",
         output_ndims_,
         " vs ",
         arg_ndims);
     NVF_CHECK(
-        arg_ndims == broadcast_dims_.size(),
+        arg_ndims == std::ssize(broadcast_dims_),
         "The broadcast dimensions should match the input dimensions: ",
         arg_ndims,
         " vs ",
@@ -971,9 +970,10 @@ struct ExpandOpRecord : RecordFunctor {
     const std::vector<Val*>& output_shape =
         fd.getFusionStateVector(args_.at(1).index);
 
-    size_t arg_ndims = arg->domain()->noReductions().size();
+    const auto arg_ndims = std::ranges::distance(
+        arg->getLoopDomain() | TensorDomain::kNoReductions);
     NVF_CHECK(
-        output_shape.size() == arg_ndims,
+        std::ssize(output_shape) == arg_ndims,
         "The new shape is expected to be equal to the input: ",
         output_shape.size(),
         " vs ",

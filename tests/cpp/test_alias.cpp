@@ -52,7 +52,7 @@ TEST_F(AliasTest, View) {
 
   FusionExecutorCache executor_cache(std::move(fusion));
   at::Tensor in_tensor =
-      at::randn({2, 3, 4}, at::dtype(at::kFloat).device(at::kCUDA, 0));
+      at::randn({2, 3, 4}, at::dtype(at::kFloat).device(at::kCUDA));
   auto out_tensors = executor_cache.runFusionWithInputs({in_tensor});
   ASSERT_EQ(out_tensors.size(), 1);
   at::Tensor out_tensor = out_tensors[0].as<at::Tensor>();
@@ -136,7 +136,7 @@ TEST_F(AliasTest, View_NoAliasForIncompliantLayout) {
 
   FusionExecutorCache executor_cache(std::move(fusion));
   at::Tensor in_tensor =
-      at::randn({2, 3, 4}, at::dtype(at::kFloat).device(at::kCUDA, 0));
+      at::randn({2, 3, 4}, at::dtype(at::kFloat).device(at::kCUDA));
   auto out_tensors = executor_cache.runFusionWithInputs({in_tensor});
   ASSERT_EQ(out_tensors.size(), 1);
   at::Tensor out_tensor = out_tensors[0].as<at::Tensor>();
@@ -164,7 +164,7 @@ TEST_F(AliasTest, ViewPermute) {
 
   FusionExecutorCache executor_cache(std::move(fusion));
   at::Tensor in_tensor =
-      at::randn({2, 3, 4}, at::dtype(at::kFloat).device(at::kCUDA, 0));
+      at::randn({2, 3, 4}, at::dtype(at::kFloat).device(at::kCUDA));
   auto out_tensors = executor_cache.runFusionWithInputs({in_tensor});
   ASSERT_EQ(out_tensors.size(), 1);
   at::Tensor out_tensor = out_tensors[0].as<at::Tensor>();
@@ -192,7 +192,7 @@ TEST_F(AliasTest, DuplicateOutputs) {
 
   FusionExecutorCache executor_cache(std::move(fusion));
   at::Tensor in_tensor =
-      at::randn(in_shape, at::dtype(at::kFloat).device(at::kCUDA, 0));
+      at::randn(in_shape, at::dtype(at::kFloat).device(at::kCUDA));
   auto out_tensors = executor_cache.runFusionWithInputs({in_tensor});
   ASSERT_EQ(out_tensors.size(), 2);
   at::Tensor out_tensor_0 = out_tensors[0].as<at::Tensor>();
@@ -327,7 +327,7 @@ TEST_F(AliasTest, DuplicateOutputsSegmentedFusion) {
 
   FusionExecutorCache executor_cache(std::move(fusion));
   at::Tensor in_tensor =
-      at::randn(in_shape, at::dtype(at::kFloat).device(at::kCUDA, 0));
+      at::randn(in_shape, at::dtype(at::kFloat).device(at::kCUDA));
   auto out_tensors = executor_cache.runFusionWithInputs({in_tensor});
   testValidate(
       executor_cache.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
@@ -966,7 +966,7 @@ TEST_F(AliasTest, ReuseBuffer) {
   fusion->addOutput(out);
   fusion->aliasOutputToInput(out, in, AllocationType::ReuseBuffer);
 
-  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA);
   auto tensor = at::randn({10}, options);
   auto expected_tensor = tensor + 1.0;
 
@@ -983,7 +983,7 @@ TEST_F(AliasTest, ReuseBuffer_KernelExecutor) {
   fusion.addInput(in);
   fusion.addOutput(out);
 
-  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA);
   auto tensor = at::randn({10}, options);
   auto expected_tensor = tensor + 1.0;
 
@@ -1020,7 +1020,7 @@ TEST_F(AliasTest, ReuseBuffer_AliasAcrossSegments) {
   TensorView* tv7 = add(tv6, IrBuilder::create<Val>(1.0)); // Group 0
   fusion->addOutput(tv7);
 
-  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA);
   at::Tensor t0 = at::randn({128, 65}, options);
   at::Tensor t1 = at::randn({65}, options);
   at::Tensor t2 = at::randn({128, 65}, options);
@@ -1184,7 +1184,7 @@ TEST_F(AliasTest, KernelExecutor) {
   fusion.aliasOutputToInput(out, in, AllocationType::Evaluate);
 
   ExprEvalExecutor ee;
-  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA);
   at::Tensor t0 = at::randn({10, 10}, options);
   ee.compile(&fusion);
   KernelArgumentHolder args({t0});
@@ -1448,7 +1448,7 @@ TEST_F(AliasTest, Bookend_Issue2375) {
   fusion->addOutput(tv7);
 
   auto options =
-      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
+      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA);
   auto t0 = at::randn(input_shape, options);
 
   FusionExecutorCache executor_cache(std::move(fusion));
@@ -1485,7 +1485,7 @@ TEST_F(AliasTest, Issue2664) {
   fusion->addOutput(tv8);
 
   auto options =
-      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
+      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA);
   auto t1 = at::randn(input_shape, options);
   auto t2 = at::randn({}, options);
   auto aten_out = (t2 + 1.0) * t1;
@@ -1519,7 +1519,7 @@ TEST_F(AliasTest, TrivialInplaceUpdateNoSegmentation) {
 
   FusionExecutorCache executor_cache(std::move(fusion));
   at::Tensor in_tensor =
-      at::randn(in_shape, at::dtype(at::kFloat).device(at::kCUDA, 0));
+      at::randn(in_shape, at::dtype(at::kFloat).device(at::kCUDA));
   at::Tensor original_tensor = in_tensor.clone();
   auto out_tensors = executor_cache.runFusionWithInputs({in_tensor});
   ASSERT_EQ(out_tensors.size(), 1);
@@ -1558,7 +1558,7 @@ TEST_F(AliasTest, ReshapeInplaceUpdateNoSegmentation) {
 
   FusionExecutorCache executor_cache(std::move(fusion));
   at::Tensor in_tensor =
-      at::randn(in_shape, at::dtype(at::kFloat).device(at::kCUDA, 0));
+      at::randn(in_shape, at::dtype(at::kFloat).device(at::kCUDA));
   at::Tensor original_tensor = in_tensor.clone();
   auto out_tensors = executor_cache.runFusionWithInputs({in_tensor});
   ASSERT_EQ(out_tensors.size(), 1);
@@ -1592,7 +1592,7 @@ TEST_F(AliasTest, FusionEmpty) {
   fusion->addOutput(tv0);
   fusion->addOutput(tv1);
 
-  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA);
   at::Tensor t0 = at::randn({10, 10, 10}, options);
   at::Tensor t1 = at::randn({10, 10, 10}, options);
 

@@ -323,6 +323,9 @@ class CompiledKernel : public CompiledKernelBase {
   bool launch_param_cache_disabled_ = false;
 };
 
+// Look for NVFUSER_EXTERNAL_SRC, parse it, and load code if given
+std::string getStructuredCodeFromExternalFiles(const int64_t fusion_id);
+
 // Query the target GPU version number NVRTC compiles CUDA kernels for
 void queryTargetGPUVersion(
     const cudaDeviceProp* const prop,

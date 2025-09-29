@@ -198,6 +198,7 @@ class ReductionParams : public HeuristicParams {
         other->cross_grid_inner_reduction == cross_grid_inner_reduction &&
         other->unroll_factor_inner_reduction == unroll_factor_inner_reduction &&
         other->vectorize_inner_reduction == vectorize_inner_reduction &&
+        other->vectorize_casts == vectorize_casts &&
         other->split_grid_dim_inner_reduction ==
             split_grid_dim_inner_reduction &&
         other->pad_inner_reduction_to_warp == pad_inner_reduction_to_warp &&
@@ -220,6 +221,7 @@ class ReductionParams : public HeuristicParams {
         other->combined_inner_outer == combined_inner_outer &&
         other->tidx_for_outer_reduction == tidx_for_outer_reduction &&
         other->pad_outer_reduction_to_warp == pad_outer_reduction_to_warp &&
+        other->computation_warp_groups == computation_warp_groups &&
         other->vectorization_factor_outer == vectorization_factor_outer &&
         other->combined_split_grid_inner_dim == combined_split_grid_inner_dim &&
         other->unroll_factor_top_of_vectorization ==
@@ -227,9 +229,12 @@ class ReductionParams : public HeuristicParams {
         other->vectorization_factor_tmp_gmem_write ==
             vectorization_factor_tmp_gmem_write &&
         other->tma_warp_specialized == tma_warp_specialized &&
+        other->is_good_ws_heuristic == is_good_ws_heuristic &&
         other->is_non_circular_buffer_gmem_to_regs ==
             is_non_circular_buffer_gmem_to_regs &&
-        other->is_circular_buffer_regs_cached == is_circular_buffer_regs_cached;
+        other->is_circular_buffer_regs_cached ==
+            is_circular_buffer_regs_cached &&
+        other->circular_buffer_options == circular_buffer_options;
 
     if (other->static_bdimy || static_bdimy) {
       attr_equal = attr_equal && other->lparams.bdimy() == lparams.bdimy();

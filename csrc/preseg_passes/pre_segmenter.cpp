@@ -29,6 +29,7 @@
 #include <preseg_passes/segment_inplace_update.h>
 #include <preseg_passes/translate_no_reduction_matmul_to_mul_squeeze.h>
 #include <preseg_passes/translate_repeat_to_expand.h>
+#include <preseg_passes/translate_scatter_accumulate.h>
 
 namespace nvfuser::preseg_passes {
 
@@ -81,6 +82,7 @@ namespace nvfuser::preseg_passes {
   OptimizationPass<SegmentInplaceUpdatePass>::runPass(fusion);
   OptimizationPass<MoveRepeatForwardPass>::runPass(fusion);
   OptimizationPass<MoveGatherPass>::runPass(fusion);
+  OptimizationPass<TranslateScatterAccumulate>::runPass(fusion);
 
   OptimizationPass<PropagateShardingsPass>::runPass(fusion);
   OptimizationPass<DecomposeReshardingsPass>::runPass(fusion);
