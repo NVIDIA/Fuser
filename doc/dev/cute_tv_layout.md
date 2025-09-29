@@ -485,6 +485,87 @@ TEST_F(CuTeTutorial, BulkLoad) {
   auto outputs = ke.run({at_tv0});
   testValidate(fusion, outputs, {at_tv0}, {at_tv0}, __LINE__, __FILE__);
 }
+
+TEST_F(CuTeTutorial, Softmax) {
+  NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
+
+  // Fusion Definition
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  Fusion* fusion = fusion_ptr.get();
+  FusionGuard fg(fusion);
+
+  constexpr at::ScalarType dtype = at::ScalarType::BFloat16;
+  DataType nvf_dtype = aten_to_data_type(dtype);
+  constexpr int dim0 = 16, dim1 = 64;
+  TensorView* tv0 = makeContigConcreteTensor({dim0, dim1}, nvf_dtype);
+  fusion->addInput(tv0);
+  TensorView* tv1 = softmax(tv0, /*dim=*/1);
+  TensorView* tv2 = castOp(nvf_dtype, tv1);
+  fusion->addOutput(tv2);
+
+  // Load input from global to shared memory
+  TensorView* tv0_smem = tv0->cacheAfter();
+  tv0_smem->setMemoryType(MemoryType::Shared);
+
+  // Load input from shared memory to registers
+  tv0_smem->cacheAfter();
+
+  // Store results in registers
+  tv1->cacheBefore();
+
+  std::vector<TensorView*> reduction_tvs = scheduler_utils::getReductionTvs(fusion);
+
+  TensorView* reference_tv = tv2;
+
+  constexpr int64_t num_threads = 128;
+  constexpr int64_t threads_per_row = 8;
+  constexpr int64_t examples_per_cta = num_threads / threads_per_row;
+  const int64_t vectorize = 128 / primDataTypeSizeBit(std::get<PrimDataType>(nvf_dtype.type));
+
+  // Schedule reference_tv
+  //   logical domain: [I1, I2]
+  //         split: [I1, I2/V (width / TIDx), V]
+  reference_tv->split(-1, vectorize);
+  //         split: [I1, I2/V/TPR, TPR (TIDx), V]
+  reference_tv->split(-2, threads_per_row);
+  //         split: [I1/EPC (BIDx), EPC (TIDy), I2/V/TPR, TPR (TIDx), V]
+  reference_tv->split(0, examples_per_cta);
+
+  TransformPropagator propagator(reference_tv);
+  MaxLogicalDomainInfoSpanningTree(reference_tv).traverse(&propagator);
+
+  std::vector<TensorView*> rfactor_tvs;
+  rfactor_tvs.reserve(reduction_tvs.size());
+  std::transform(
+      reduction_tvs.begin(),
+      reduction_tvs.end(),
+      std::back_inserter(rfactor_tvs),
+      [](TensorView* tv) { return tv->rFactor({-3, -1}); });
+  //         rFactor: [I1/EPC, EPC (BIDx), I2/V/TPR (rF), TPR (TIDx), V (rF)]
+
+  // Define Parallelization Schema
+  reference_tv->axis(0)->parallelize(ParallelType::BIDx);
+  reference_tv->axis(1)->parallelize(ParallelType::TIDy);
+  reference_tv->axis(-2)->parallelize(ParallelType::TIDx);
+  scheduler_utils::parallelizeAllLike(reference_tv);
+
+  // Vectorize Cache
+  tv0_smem->axis(-1)->parallelize(ParallelType::Vectorize);
+  reference_tv->axis(-1)->parallelize(ParallelType::Vectorize);
+
+  // InlineMost automatically handles vectorize and tma dimensions
+  inlineMost();
+
+  auto options = at::TensorOptions().dtype(dtype).device(at::kCUDA, 0);
+  at::Tensor at_tv0 = at::randn({dim0, dim1}, options);
+
+  KernelExecutor ke;
+  CompileParams index32bit{DataType::Int32, 255, false};
+  ke.compile(fusion, {at_tv0}, {}, index32bit);
+  auto at_output = at::softmax(at_tv0, /*dim=*/1);
+  auto outputs = ke.run({at_tv0});
+  testValidate(fusion, outputs, {at_tv0}, {at_output}, __LINE__, __FILE__);
+}
 /*
 ```
 <!--*/
