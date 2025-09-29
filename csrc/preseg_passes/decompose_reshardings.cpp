@@ -212,6 +212,13 @@ void insertReshardingSetsAfter(Fusion* fusion) {
       //
       //   input [i0, DIDx(i1)] -> op -> output [Stream(i0), DIDx(i1)] -> set ->
       //   new_output [Stream(i0), i1]
+      // WAR (https://github.com/NVIDIA/Fuser/pull/5205#issuecomment-3324173092)
+      // this pass might incorrectly overwrite output's DIDx parallelization,
+      // which should be avoided. This case shows up if the fusion lowers to a
+      // p2p ring pipeline and the option "reshard_after" is enabled. The proper
+      // fix should be to make parallelizeAllLike smarter and skip the
+      // propagation over a DID parallelization type. We leave this as is as a
+      // temporary solution, as the bug is catched by an assertion.
       scheduler_utils::parallelizeAllLike(
           new_output, {output}, {ParallelType::Stream});
     }
