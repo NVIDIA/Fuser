@@ -1270,6 +1270,7 @@ KernelArgumentHolder KernelExecutor::run(
     const auto& kernel_summary = compiled_kernel_->kernel()->summary();
 
     // cluster reduction uses DSMEM
+    // TODO: CUDA11-CLEANUP, use cuLaunchKernelEx for cuLaunchCooperativeKernel
     if (kernel_summary.has_cluster_reduction) {
       FUSER_PERF_SCOPE("ExecutorRunFusion::cuLaunchKernelEx");
       CUlaunchConfig config = {};
@@ -1289,8 +1290,8 @@ KernelArgumentHolder KernelExecutor::run(
       attribute.value.clusterDim.z = 1;
       config.attrs = &attribute;
       config.numAttrs = 1;
-      // TO request more than 8 clusters, need to set non-portable cluster size
-      // allowed
+      // To request more than 8 CTAs per cluster, need to set non-portable
+      // cluster size allowed
       if (attribute.value.clusterDim.x > 8) {
         NVFUSER_CUDA_SAFE_CALL(cuFuncSetAttribute(
             compiled_kernel_->cudaExecutable()->function,
