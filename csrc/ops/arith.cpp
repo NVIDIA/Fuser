@@ -1263,16 +1263,6 @@ TensorView* reductionOpRaw(
       "Cannot create a reduction operation where the initial value is not a "
       "const scalar.");
 
-  NVF_CHECK(
-      TensorDomain::sameAs(tv->getLogicalDomain(), tv->getLoopDomain()),
-      "Reducing a tensor once it's gone under transformations is not permitted "
-      "at this time. \n",
-      "Please set reductions before calling split/merge/computeAt.\n  "
-      "Logical: ",
-      tv->getLogicalDomain(),
-      "\n  Domain: ",
-      tv->domain()->toString());
-
   NVF_CHECK(!axes.empty(), "No reduction axis specified");
 
   // PyTorch allows reduction of 0-dim tensors
@@ -1371,16 +1361,6 @@ TensorView* reductionOp(
       init->isConstScalar(),
       "Cannot create a reduction operation where the initial value is not a "
       "const scalar.");
-
-  NVF_CHECK(
-      TensorDomain::sameAs(tv->getLogicalDomain(), tv->getLoopDomain()),
-      "Reducing a tensor once it's gone under transformations is not permitted "
-      "at this time. \n",
-      "Please set reductions before calling split/merge/computeAt.\n  "
-      "Logical: ",
-      tv->getLogicalDomain(),
-      "\n  Domain: ",
-      tv->domain()->toString());
 
   NVF_CHECK(!axes.empty(), "No reduction axis specified");
 
