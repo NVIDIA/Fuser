@@ -7,7 +7,7 @@
 
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>General &mdash; nvFuser 0.2.34 documentation</title>
-      <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=03e43079" />
+      <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=fa44fd50" />
       <link rel="stylesheet" type="text/css" href="../_static/css/theme.css?v=e59714d7" />
       <link rel="stylesheet" type="text/css" href="../_static/css/nvidia_font.css?v=e009355c" />
       <link rel="stylesheet" type="text/css" href="../_static/css/nvidia_footer.css?v=84031d34" />
@@ -146,37 +146,325 @@
 <p class="caption" role="heading"><span class="caption-text">Python API</span></p>
 <ul class="current">
 <li class="toctree-l1 current"><a class="current reference internal" href="#">General</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="#statement">Statement</a></li>
-<li class="toctree-l2"><a class="reference internal" href="#val">Val</a></li>
-<li class="toctree-l2"><a class="reference internal" href="#expr">Expr</a></li>
-<li class="toctree-l2"><a class="reference internal" href="#iterdomain">IterDomain</a></li>
-<li class="toctree-l2"><a class="reference internal" href="#tensordomain">TensorDomain</a></li>
-<li class="toctree-l2"><a class="reference internal" href="#tensorview">TensorView</a></li>
-<li class="toctree-l2"><a class="reference internal" href="#fusionexecutorcache">FusionExecutorCache</a></li>
-<li class="toctree-l2"><a class="reference internal" href="#kernelexecutor">KernelExecutor</a></li>
-<li class="toctree-l2"><a class="reference internal" href="#fusion-definition">Fusion Definition</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#statement">Statement</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#nvfuser_direct.Statement"><code class="docutils literal notranslate"><span class="pre">Statement</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="#val">Val</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#nvfuser_direct.Val"><code class="docutils literal notranslate"><span class="pre">Val</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#nvfuser_direct.Val.definition"><code class="docutils literal notranslate"><span class="pre">Val.definition()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#nvfuser_direct.Val.is_symbolic"><code class="docutils literal notranslate"><span class="pre">Val.is_symbolic()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#nvfuser_direct.Val.is_tensor"><code class="docutils literal notranslate"><span class="pre">Val.is_tensor()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#nvfuser_direct.Val.uses"><code class="docutils literal notranslate"><span class="pre">Val.uses()</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="#expr">Expr</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#nvfuser_direct.Expr"><code class="docutils literal notranslate"><span class="pre">Expr</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#nvfuser_direct.Expr.input"><code class="docutils literal notranslate"><span class="pre">Expr.input()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#nvfuser_direct.Expr.output"><code class="docutils literal notranslate"><span class="pre">Expr.output()</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="#iterdomain">IterDomain</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#nvfuser_direct.IterDomain"><code class="docutils literal notranslate"><span class="pre">IterDomain</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#nvfuser_direct.IterDomain.extent"><code class="docutils literal notranslate"><span class="pre">IterDomain.extent()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#nvfuser_direct.IterDomain.parallelize"><code class="docutils literal notranslate"><span class="pre">IterDomain.parallelize()</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="#tensordomain">TensorDomain</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#nvfuser_direct.TensorDomain"><code class="docutils literal notranslate"><span class="pre">TensorDomain</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="#tensorview">TensorView</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#nvfuser_direct.TensorView"><code class="docutils literal notranslate"><span class="pre">TensorView</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#nvfuser_direct.TensorView.axis"><code class="docutils literal notranslate"><span class="pre">TensorView.axis()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#nvfuser_direct.TensorView.domain"><code class="docutils literal notranslate"><span class="pre">TensorView.domain()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#nvfuser_direct.TensorView.get_logical_domain"><code class="docutils literal notranslate"><span class="pre">TensorView.get_logical_domain()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#nvfuser_direct.TensorView.get_loop_domain"><code class="docutils literal notranslate"><span class="pre">TensorView.get_loop_domain()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#nvfuser_direct.TensorView.get_root_domain"><code class="docutils literal notranslate"><span class="pre">TensorView.get_root_domain()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#nvfuser_direct.TensorView.has_root"><code class="docutils literal notranslate"><span class="pre">TensorView.has_root()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#nvfuser_direct.TensorView.merge"><code class="docutils literal notranslate"><span class="pre">TensorView.merge()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#nvfuser_direct.TensorView.ndim"><code class="docutils literal notranslate"><span class="pre">TensorView.ndim</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#nvfuser_direct.TensorView.rfactor"><code class="docutils literal notranslate"><span class="pre">TensorView.rfactor()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#nvfuser_direct.TensorView.set_allocation_domain"><code class="docutils literal notranslate"><span class="pre">TensorView.set_allocation_domain()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#nvfuser_direct.TensorView.set_device_mesh"><code class="docutils literal notranslate"><span class="pre">TensorView.set_device_mesh()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#nvfuser_direct.TensorView.shape"><code class="docutils literal notranslate"><span class="pre">TensorView.shape()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#nvfuser_direct.TensorView.size"><code class="docutils literal notranslate"><span class="pre">TensorView.size()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#nvfuser_direct.TensorView.split"><code class="docutils literal notranslate"><span class="pre">TensorView.split()</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="#fusionexecutorcache">FusionExecutorCache</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#nvfuser_direct.FusionExecutorCache"><code class="docutils literal notranslate"><span class="pre">FusionExecutorCache</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#nvfuser_direct.FusionExecutorCache.execute"><code class="docutils literal notranslate"><span class="pre">FusionExecutorCache.execute()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#nvfuser_direct.FusionExecutorCache.fusion"><code class="docutils literal notranslate"><span class="pre">FusionExecutorCache.fusion()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#nvfuser_direct.FusionExecutorCache.get_cuda_kernel"><code class="docutils literal notranslate"><span class="pre">FusionExecutorCache.get_cuda_kernel()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#nvfuser_direct.FusionExecutorCache.get_most_recent_scheduled_ir"><code class="docutils literal notranslate"><span class="pre">FusionExecutorCache.get_most_recent_scheduled_ir()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#nvfuser_direct.FusionExecutorCache.get_output_shardings"><code class="docutils literal notranslate"><span class="pre">FusionExecutorCache.get_output_shardings()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#nvfuser_direct.FusionExecutorCache.get_scheduled_ir"><code class="docutils literal notranslate"><span class="pre">FusionExecutorCache.get_scheduled_ir()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#nvfuser_direct.FusionExecutorCache.is_compiled"><code class="docutils literal notranslate"><span class="pre">FusionExecutorCache.is_compiled()</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="#kernelexecutor">KernelExecutor</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#nvfuser_direct.KernelExecutor"><code class="docutils literal notranslate"><span class="pre">KernelExecutor</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#nvfuser_direct.KernelExecutor.compile"><code class="docutils literal notranslate"><span class="pre">KernelExecutor.compile()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#nvfuser_direct.KernelExecutor.is_compiled"><code class="docutils literal notranslate"><span class="pre">KernelExecutor.is_compiled()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#nvfuser_direct.KernelExecutor.run"><code class="docutils literal notranslate"><span class="pre">KernelExecutor.run()</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="#fusion-definition">Fusion Definition</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#nvfuser_direct.FusionDefinition"><code class="docutils literal notranslate"><span class="pre">FusionDefinition</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#nvfuser_direct.FusionDefinition.add_output"><code class="docutils literal notranslate"><span class="pre">FusionDefinition.add_output()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#nvfuser_direct.FusionDefinition.define_scalar"><code class="docutils literal notranslate"><span class="pre">FusionDefinition.define_scalar()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#nvfuser_direct.FusionDefinition.define_tensor"><code class="docutils literal notranslate"><span class="pre">FusionDefinition.define_tensor()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#nvfuser_direct.FusionDefinition.define_vector"><code class="docutils literal notranslate"><span class="pre">FusionDefinition.define_vector()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#nvfuser_direct.FusionDefinition.execute"><code class="docutils literal notranslate"><span class="pre">FusionDefinition.execute()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#nvfuser_direct.FusionDefinition.from_pytorch"><code class="docutils literal notranslate"><span class="pre">FusionDefinition.from_pytorch()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#nvfuser_direct.FusionDefinition.fusion"><code class="docutils literal notranslate"><span class="pre">FusionDefinition.fusion</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#nvfuser_direct.FusionDefinition.last_repro_script"><code class="docutils literal notranslate"><span class="pre">FusionDefinition.last_repro_script()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#nvfuser_direct.FusionDefinition.manual_execute"><code class="docutils literal notranslate"><span class="pre">FusionDefinition.manual_execute()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#nvfuser_direct.FusionDefinition.manual_validate"><code class="docutils literal notranslate"><span class="pre">FusionDefinition.manual_validate()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#nvfuser_direct.FusionDefinition.repro_script_for"><code class="docutils literal notranslate"><span class="pre">FusionDefinition.repro_script_for()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#nvfuser_direct.FusionDefinition.validate"><code class="docutils literal notranslate"><span class="pre">FusionDefinition.validate()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#nvfuser_direct.FusionDefinition.validate_definition"><code class="docutils literal notranslate"><span class="pre">FusionDefinition.validate_definition()</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="ops.html">Operations</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="ops.html#ops">Ops</a></li>
+<li class="toctree-l2"><a class="reference internal" href="ops.html#module-nvfuser_direct.ops">Ops</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="ops.html#nvfuser_direct.ops.abs"><code class="docutils literal notranslate"><span class="pre">abs()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="ops.html#nvfuser_direct.ops.acos"><code class="docutils literal notranslate"><span class="pre">acos()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="ops.html#nvfuser_direct.ops.acosh"><code class="docutils literal notranslate"><span class="pre">acosh()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="ops.html#nvfuser_direct.ops.add"><code class="docutils literal notranslate"><span class="pre">add()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="ops.html#nvfuser_direct.ops.addcmul"><code class="docutils literal notranslate"><span class="pre">addcmul()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="ops.html#nvfuser_direct.ops.argsort"><code class="docutils literal notranslate"><span class="pre">argsort()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="ops.html#nvfuser_direct.ops.asin"><code class="docutils literal notranslate"><span class="pre">asin()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="ops.html#nvfuser_direct.ops.asinh"><code class="docutils literal notranslate"><span class="pre">asinh()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="ops.html#nvfuser_direct.ops.atan"><code class="docutils literal notranslate"><span class="pre">atan()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="ops.html#nvfuser_direct.ops.atan2"><code class="docutils literal notranslate"><span class="pre">atan2()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="ops.html#nvfuser_direct.ops.atanh"><code class="docutils literal notranslate"><span class="pre">atanh()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="ops.html#nvfuser_direct.ops.bitwise_and"><code class="docutils literal notranslate"><span class="pre">bitwise_and()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="ops.html#nvfuser_direct.ops.bitwise_left_shift"><code class="docutils literal notranslate"><span class="pre">bitwise_left_shift()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="ops.html#nvfuser_direct.ops.bitwise_not"><code class="docutils literal notranslate"><span class="pre">bitwise_not()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="ops.html#nvfuser_direct.ops.bitwise_or"><code class="docutils literal notranslate"><span class="pre">bitwise_or()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="ops.html#nvfuser_direct.ops.bitwise_right_shift"><code class="docutils literal notranslate"><span class="pre">bitwise_right_shift()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="ops.html#nvfuser_direct.ops.bitwise_xor"><code class="docutils literal notranslate"><span class="pre">bitwise_xor()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="ops.html#nvfuser_direct.ops.broadcast"><code class="docutils literal notranslate"><span class="pre">broadcast()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="ops.html#nvfuser_direct.ops.broadcast_in_dim"><code class="docutils literal notranslate"><span class="pre">broadcast_in_dim()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="ops.html#nvfuser_direct.ops.cast"><code class="docutils literal notranslate"><span class="pre">cast()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="ops.html#nvfuser_direct.ops.ceil"><code class="docutils literal notranslate"><span class="pre">ceil()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="ops.html#nvfuser_direct.ops.clamp"><code class="docutils literal notranslate"><span class="pre">clamp()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="ops.html#nvfuser_direct.ops.complex"><code class="docutils literal notranslate"><span class="pre">complex()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="ops.html#nvfuser_direct.ops.cos"><code class="docutils literal notranslate"><span class="pre">cos()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="ops.html#nvfuser_direct.ops.cosh"><code class="docutils literal notranslate"><span class="pre">cosh()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="ops.html#nvfuser_direct.ops.cummax"><code class="docutils literal notranslate"><span class="pre">cummax()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="ops.html#nvfuser_direct.ops.cummin"><code class="docutils literal notranslate"><span class="pre">cummin()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="ops.html#nvfuser_direct.ops.cumprod"><code class="docutils literal notranslate"><span class="pre">cumprod()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="ops.html#nvfuser_direct.ops.cumsum"><code class="docutils literal notranslate"><span class="pre">cumsum()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="ops.html#nvfuser_direct.ops.cutlass_nvfp4_grouped_mm"><code class="docutils literal notranslate"><span class="pre">cutlass_nvfp4_grouped_mm()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="ops.html#nvfuser_direct.ops.div"><code class="docutils literal notranslate"><span class="pre">div()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="ops.html#nvfuser_direct.ops.embedding_fwd"><code class="docutils literal notranslate"><span class="pre">embedding_fwd()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="ops.html#nvfuser_direct.ops.eq"><code class="docutils literal notranslate"><span class="pre">eq()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="ops.html#nvfuser_direct.ops.erf"><code class="docutils literal notranslate"><span class="pre">erf()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="ops.html#nvfuser_direct.ops.erfc"><code class="docutils literal notranslate"><span class="pre">erfc()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="ops.html#nvfuser_direct.ops.erfcinv"><code class="docutils literal notranslate"><span class="pre">erfcinv()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="ops.html#nvfuser_direct.ops.erfinv"><code class="docutils literal notranslate"><span class="pre">erfinv()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="ops.html#nvfuser_direct.ops.exp"><code class="docutils literal notranslate"><span class="pre">exp()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="ops.html#nvfuser_direct.ops.exp2"><code class="docutils literal notranslate"><span class="pre">exp2()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="ops.html#nvfuser_direct.ops.expand"><code class="docutils literal notranslate"><span class="pre">expand()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="ops.html#nvfuser_direct.ops.expm1"><code class="docutils literal notranslate"><span class="pre">expm1()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="ops.html#nvfuser_direct.ops.floor"><code class="docutils literal notranslate"><span class="pre">floor()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="ops.html#nvfuser_direct.ops.fmod"><code class="docutils literal notranslate"><span class="pre">fmod()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="ops.html#nvfuser_direct.ops.frac"><code class="docutils literal notranslate"><span class="pre">frac()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="ops.html#nvfuser_direct.ops.full"><code class="docutils literal notranslate"><span class="pre">full()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="ops.html#nvfuser_direct.ops.gather"><code class="docutils literal notranslate"><span class="pre">gather()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="ops.html#nvfuser_direct.ops.gcd"><code class="docutils literal notranslate"><span class="pre">gcd()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="ops.html#nvfuser_direct.ops.ge"><code class="docutils literal notranslate"><span class="pre">ge()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="ops.html#nvfuser_direct.ops.grouped_mm"><code class="docutils literal notranslate"><span class="pre">grouped_mm()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="ops.html#nvfuser_direct.ops.gt"><code class="docutils literal notranslate"><span class="pre">gt()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="ops.html#nvfuser_direct.ops.imag"><code class="docutils literal notranslate"><span class="pre">imag()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="ops.html#nvfuser_direct.ops.index_select"><code class="docutils literal notranslate"><span class="pre">index_select()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="ops.html#nvfuser_direct.ops.iota"><code class="docutils literal notranslate"><span class="pre">iota()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="ops.html#nvfuser_direct.ops.isfinite"><code class="docutils literal notranslate"><span class="pre">isfinite()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="ops.html#nvfuser_direct.ops.isinf"><code class="docutils literal notranslate"><span class="pre">isinf()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="ops.html#nvfuser_direct.ops.isnan"><code class="docutils literal notranslate"><span class="pre">isnan()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="ops.html#nvfuser_direct.ops.isneginf"><code class="docutils literal notranslate"><span class="pre">isneginf()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="ops.html#nvfuser_direct.ops.isposinf"><code class="docutils literal notranslate"><span class="pre">isposinf()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="ops.html#nvfuser_direct.ops.isreal"><code class="docutils literal notranslate"><span class="pre">isreal()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="ops.html#nvfuser_direct.ops.le"><code class="docutils literal notranslate"><span class="pre">le()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="ops.html#nvfuser_direct.ops.lerp"><code class="docutils literal notranslate"><span class="pre">lerp()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="ops.html#nvfuser_direct.ops.lgamma"><code class="docutils literal notranslate"><span class="pre">lgamma()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="ops.html#nvfuser_direct.ops.linear"><code class="docutils literal notranslate"><span class="pre">linear()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="ops.html#nvfuser_direct.ops.log"><code class="docutils literal notranslate"><span class="pre">log()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="ops.html#nvfuser_direct.ops.log10"><code class="docutils literal notranslate"><span class="pre">log10()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="ops.html#nvfuser_direct.ops.log1p"><code class="docutils literal notranslate"><span class="pre">log1p()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="ops.html#nvfuser_direct.ops.log2"><code class="docutils literal notranslate"><span class="pre">log2()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="ops.html#nvfuser_direct.ops.logical_and"><code class="docutils literal notranslate"><span class="pre">logical_and()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="ops.html#nvfuser_direct.ops.logical_not"><code class="docutils literal notranslate"><span class="pre">logical_not()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="ops.html#nvfuser_direct.ops.logical_or"><code class="docutils literal notranslate"><span class="pre">logical_or()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="ops.html#nvfuser_direct.ops.logical_right_shift"><code class="docutils literal notranslate"><span class="pre">logical_right_shift()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="ops.html#nvfuser_direct.ops.lt"><code class="docutils literal notranslate"><span class="pre">lt()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="ops.html#nvfuser_direct.ops.matmul"><code class="docutils literal notranslate"><span class="pre">matmul()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="ops.html#nvfuser_direct.ops.max"><code class="docutils literal notranslate"><span class="pre">max()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="ops.html#nvfuser_direct.ops.maximum"><code class="docutils literal notranslate"><span class="pre">maximum()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="ops.html#nvfuser_direct.ops.min"><code class="docutils literal notranslate"><span class="pre">min()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="ops.html#nvfuser_direct.ops.minimum"><code class="docutils literal notranslate"><span class="pre">minimum()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="ops.html#nvfuser_direct.ops.mod"><code class="docutils literal notranslate"><span class="pre">mod()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="ops.html#nvfuser_direct.ops.mul"><code class="docutils literal notranslate"><span class="pre">mul()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="ops.html#nvfuser_direct.ops.ne"><code class="docutils literal notranslate"><span class="pre">ne()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="ops.html#nvfuser_direct.ops.neg"><code class="docutils literal notranslate"><span class="pre">neg()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="ops.html#nvfuser_direct.ops.nextafter"><code class="docutils literal notranslate"><span class="pre">nextafter()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="ops.html#nvfuser_direct.ops.normal"><code class="docutils literal notranslate"><span class="pre">normal()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="ops.html#nvfuser_direct.ops.pad"><code class="docutils literal notranslate"><span class="pre">pad()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="ops.html#nvfuser_direct.ops.permute"><code class="docutils literal notranslate"><span class="pre">permute()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="ops.html#nvfuser_direct.ops.pow"><code class="docutils literal notranslate"><span class="pre">pow()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="ops.html#nvfuser_direct.ops.prod"><code class="docutils literal notranslate"><span class="pre">prod()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="ops.html#nvfuser_direct.ops.rand_like"><code class="docutils literal notranslate"><span class="pre">rand_like()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="ops.html#nvfuser_direct.ops.randn_like"><code class="docutils literal notranslate"><span class="pre">randn_like()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="ops.html#nvfuser_direct.ops.real"><code class="docutils literal notranslate"><span class="pre">real()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="ops.html#nvfuser_direct.ops.reciprocal"><code class="docutils literal notranslate"><span class="pre">reciprocal()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="ops.html#nvfuser_direct.ops.relu"><code class="docutils literal notranslate"><span class="pre">relu()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="ops.html#nvfuser_direct.ops.remainder"><code class="docutils literal notranslate"><span class="pre">remainder()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="ops.html#nvfuser_direct.ops.reshape"><code class="docutils literal notranslate"><span class="pre">reshape()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="ops.html#nvfuser_direct.ops.round"><code class="docutils literal notranslate"><span class="pre">round()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="ops.html#nvfuser_direct.ops.rsqrt"><code class="docutils literal notranslate"><span class="pre">rsqrt()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="ops.html#nvfuser_direct.ops.scaled_mm"><code class="docutils literal notranslate"><span class="pre">scaled_mm()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="ops.html#nvfuser_direct.ops.scatter"><code class="docutils literal notranslate"><span class="pre">scatter()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="ops.html#nvfuser_direct.ops.sdpfa_bwd"><code class="docutils literal notranslate"><span class="pre">sdpfa_bwd()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="ops.html#nvfuser_direct.ops.sdpfa_fwd"><code class="docutils literal notranslate"><span class="pre">sdpfa_fwd()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="ops.html#nvfuser_direct.ops.segment_set"><code class="docutils literal notranslate"><span class="pre">segment_set()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="ops.html#nvfuser_direct.ops.select"><code class="docutils literal notranslate"><span class="pre">select()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="ops.html#nvfuser_direct.ops.set"><code class="docutils literal notranslate"><span class="pre">set()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="ops.html#nvfuser_direct.ops.shape"><code class="docutils literal notranslate"><span class="pre">shape()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="ops.html#nvfuser_direct.ops.sigmoid"><code class="docutils literal notranslate"><span class="pre">sigmoid()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="ops.html#nvfuser_direct.ops.sign"><code class="docutils literal notranslate"><span class="pre">sign()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="ops.html#nvfuser_direct.ops.signbit"><code class="docutils literal notranslate"><span class="pre">signbit()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="ops.html#nvfuser_direct.ops.silu"><code class="docutils literal notranslate"><span class="pre">silu()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="ops.html#nvfuser_direct.ops.sin"><code class="docutils literal notranslate"><span class="pre">sin()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="ops.html#nvfuser_direct.ops.sinh"><code class="docutils literal notranslate"><span class="pre">sinh()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="ops.html#nvfuser_direct.ops.size"><code class="docutils literal notranslate"><span class="pre">size()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="ops.html#nvfuser_direct.ops.slice"><code class="docutils literal notranslate"><span class="pre">slice()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="ops.html#nvfuser_direct.ops.sqrt"><code class="docutils literal notranslate"><span class="pre">sqrt()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="ops.html#nvfuser_direct.ops.squeeze"><code class="docutils literal notranslate"><span class="pre">squeeze()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="ops.html#nvfuser_direct.ops.stride_order"><code class="docutils literal notranslate"><span class="pre">stride_order()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="ops.html#nvfuser_direct.ops.sub"><code class="docutils literal notranslate"><span class="pre">sub()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="ops.html#nvfuser_direct.ops.sum"><code class="docutils literal notranslate"><span class="pre">sum()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="ops.html#nvfuser_direct.ops.take_along_axis"><code class="docutils literal notranslate"><span class="pre">take_along_axis()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="ops.html#nvfuser_direct.ops.tan"><code class="docutils literal notranslate"><span class="pre">tan()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="ops.html#nvfuser_direct.ops.tanh"><code class="docutils literal notranslate"><span class="pre">tanh()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="ops.html#nvfuser_direct.ops.threshold"><code class="docutils literal notranslate"><span class="pre">threshold()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="ops.html#nvfuser_direct.ops.topk"><code class="docutils literal notranslate"><span class="pre">topk()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="ops.html#nvfuser_direct.ops.triu"><code class="docutils literal notranslate"><span class="pre">triu()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="ops.html#nvfuser_direct.ops.truediv"><code class="docutils literal notranslate"><span class="pre">truediv()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="ops.html#nvfuser_direct.ops.trunc"><code class="docutils literal notranslate"><span class="pre">trunc()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="ops.html#nvfuser_direct.ops.uniform"><code class="docutils literal notranslate"><span class="pre">uniform()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="ops.html#nvfuser_direct.ops.var"><code class="docutils literal notranslate"><span class="pre">var()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="ops.html#nvfuser_direct.ops.var_mean"><code class="docutils literal notranslate"><span class="pre">var_mean()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="ops.html#nvfuser_direct.ops.welford"><code class="docutils literal notranslate"><span class="pre">welford()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="ops.html#nvfuser_direct.ops.where"><code class="docutils literal notranslate"><span class="pre">where()</span></code></a></li>
+</ul>
+</li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="multidevice.html">Multidevice</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="multidevice.html#communicator">Communicator</a></li>
-<li class="toctree-l2"><a class="reference internal" href="multidevice.html#devicemesh">DeviceMesh</a></li>
-<li class="toctree-l2"><a class="reference internal" href="multidevice.html#sharding">Sharding</a></li>
+<li class="toctree-l2"><a class="reference internal" href="multidevice.html#communicator">Communicator</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="multidevice.html#nvfuser_direct.multidevice.Communicator"><code class="docutils literal notranslate"><span class="pre">Communicator</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="multidevice.html#nvfuser_direct.multidevice.Communicator.barrier"><code class="docutils literal notranslate"><span class="pre">Communicator.barrier()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="multidevice.html#nvfuser_direct.multidevice.Communicator.instance"><code class="docutils literal notranslate"><span class="pre">Communicator.instance()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="multidevice.html#nvfuser_direct.multidevice.Communicator.local_rank"><code class="docutils literal notranslate"><span class="pre">Communicator.local_rank()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="multidevice.html#nvfuser_direct.multidevice.Communicator.local_size"><code class="docutils literal notranslate"><span class="pre">Communicator.local_size()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="multidevice.html#nvfuser_direct.multidevice.Communicator.rank"><code class="docutils literal notranslate"><span class="pre">Communicator.rank()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="multidevice.html#nvfuser_direct.multidevice.Communicator.size"><code class="docutils literal notranslate"><span class="pre">Communicator.size()</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="multidevice.html#devicemesh">DeviceMesh</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="multidevice.html#nvfuser_direct.multidevice.DeviceMesh"><code class="docutils literal notranslate"><span class="pre">DeviceMesh</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="multidevice.html#nvfuser_direct.multidevice.DeviceMesh.shape"><code class="docutils literal notranslate"><span class="pre">DeviceMesh.shape</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="multidevice.html#nvfuser_direct.multidevice.DeviceMesh.shard_tensor"><code class="docutils literal notranslate"><span class="pre">DeviceMesh.shard_tensor()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="multidevice.html#nvfuser_direct.multidevice.DeviceMesh.size"><code class="docutils literal notranslate"><span class="pre">DeviceMesh.size</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="multidevice.html#sharding">Sharding</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="multidevice.html#nvfuser_direct.multidevice.Sharding"><code class="docutils literal notranslate"><span class="pre">Sharding</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="multidevice.html#nvfuser_direct.multidevice.Sharding.axis_sharded_on"><code class="docutils literal notranslate"><span class="pre">Sharding.axis_sharded_on()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="multidevice.html#nvfuser_direct.multidevice.Sharding.mesh"><code class="docutils literal notranslate"><span class="pre">Sharding.mesh</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="enum.html">Enums</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="enum.html#communicatorbackend-types">CommunicatorBackend Types</a></li>
-<li class="toctree-l2"><a class="reference internal" href="enum.html#data-types">Data Types</a></li>
-<li class="toctree-l2"><a class="reference internal" href="enum.html#parallel-types">Parallel Types</a></li>
-<li class="toctree-l2"><a class="reference internal" href="enum.html#scheduler-types">Scheduler Types</a></li>
+<li class="toctree-l2"><a class="reference internal" href="enum.html#communicatorbackend-types">CommunicatorBackend Types</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="enum.html#nvfuser_direct.CommunicatorBackend"><code class="docutils literal notranslate"><span class="pre">CommunicatorBackend</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="enum.html#nvfuser_direct.CommunicatorBackend.name"><code class="docutils literal notranslate"><span class="pre">CommunicatorBackend.name</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="enum.html#data-types">Data Types</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="enum.html#nvfuser_direct.DataType"><code class="docutils literal notranslate"><span class="pre">DataType</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="enum.html#nvfuser_direct.DataType.name"><code class="docutils literal notranslate"><span class="pre">DataType.name</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="enum.html#parallel-types">Parallel Types</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="enum.html#nvfuser_direct.ParallelType"><code class="docutils literal notranslate"><span class="pre">ParallelType</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="enum.html#nvfuser_direct.ParallelType.name"><code class="docutils literal notranslate"><span class="pre">ParallelType.name</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="enum.html#scheduler-types">Scheduler Types</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="enum.html#nvfuser_direct.SchedulerType"><code class="docutils literal notranslate"><span class="pre">SchedulerType</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="enum.html#nvfuser_direct.SchedulerType.name"><code class="docutils literal notranslate"><span class="pre">SchedulerType.name</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="pod_class.html">Data classes</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="pod_class.html#launchparams">LaunchParams</a></li>
-<li class="toctree-l2"><a class="reference internal" href="pod_class.html#compileparams">CompileParams</a></li>
+<li class="toctree-l2"><a class="reference internal" href="pod_class.html#launchparams">LaunchParams</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="pod_class.html#nvfuser_direct.LaunchParams"><code class="docutils literal notranslate"><span class="pre">LaunchParams</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="pod_class.html#nvfuser_direct.LaunchParams.bdimx"><code class="docutils literal notranslate"><span class="pre">LaunchParams.bdimx</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="pod_class.html#nvfuser_direct.LaunchParams.bdimy"><code class="docutils literal notranslate"><span class="pre">LaunchParams.bdimy</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="pod_class.html#nvfuser_direct.LaunchParams.bdimz"><code class="docutils literal notranslate"><span class="pre">LaunchParams.bdimz</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="pod_class.html#nvfuser_direct.LaunchParams.gdimx"><code class="docutils literal notranslate"><span class="pre">LaunchParams.gdimx</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="pod_class.html#nvfuser_direct.LaunchParams.gdimy"><code class="docutils literal notranslate"><span class="pre">LaunchParams.gdimy</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="pod_class.html#nvfuser_direct.LaunchParams.gdimz"><code class="docutils literal notranslate"><span class="pre">LaunchParams.gdimz</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="pod_class.html#compileparams">CompileParams</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="pod_class.html#nvfuser_direct.CompileParams"><code class="docutils literal notranslate"><span class="pre">CompileParams</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="pod_class.html#nvfuser_direct.CompileParams.enable_magic_zero"><code class="docutils literal notranslate"><span class="pre">CompileParams.enable_magic_zero</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="pod_class.html#nvfuser_direct.CompileParams.enable_ptxas_verbose"><code class="docutils literal notranslate"><span class="pre">CompileParams.enable_ptxas_verbose</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="pod_class.html#nvfuser_direct.CompileParams.index_type"><code class="docutils literal notranslate"><span class="pre">CompileParams.index_type</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="pod_class.html#nvfuser_direct.CompileParams.maxrregcount"><code class="docutils literal notranslate"><span class="pre">CompileParams.maxrregcount</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
 </ul>
 </li>
 </ul>
@@ -369,30 +657,1037 @@
 <p>This section documents the common API components of nvFuser.</p>
 <section id="statement">
 <h2>Statement<a class="headerlink" href="#statement" title="Link to this heading"></a></h2>
+<dl class="py class">
+<dt class="sig sig-object py" id="nvfuser_direct.Statement">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">nvfuser_direct.</span></span><span class="sig-name descname"><span class="pre">Statement</span></span><a class="headerlink" href="#nvfuser_direct.Statement" title="Link to this definition"></a></dt>
+<dd><p>Statement represents a base class for all statements in the nvFuser IR.
+It provides methods for:</p>
+<ul class="simple">
+<li><p>Accessing statement properties</p></li>
+<li><p>Managing statement dependencies</p></li>
+<li><p>Querying statement type and attributes</p></li>
+</ul>
+</dd></dl>
+
 </section>
 <section id="val">
 <h2>Val<a class="headerlink" href="#val" title="Link to this heading"></a></h2>
+<dl class="py class">
+<dt class="sig sig-object py" id="nvfuser_direct.Val">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">nvfuser_direct.</span></span><span class="sig-name descname"><span class="pre">Val</span></span><a class="headerlink" href="#nvfuser_direct.Val" title="Link to this definition"></a></dt>
+<dd><p>Bases: <a class="reference internal" href="#nvfuser_direct.Statement" title="nvfuser_direct._C_DIRECT.Statement"><code class="xref py py-class docutils literal notranslate"><span class="pre">Statement</span></code></a></p>
+<p>Val represents a value in the nvFuser IR. It provides methods for:</p>
+<ul class="simple">
+<li><p>Accessing value properties and type</p></li>
+<li><p>Managing value dependencies</p></li>
+<li><p>Querying value attributes and constraints</p></li>
+</ul>
+<dl class="py method">
+<dt class="sig sig-object py" id="nvfuser_direct.Val.definition">
+<span class="sig-name descname"><span class="pre">definition</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">self</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="#nvfuser_direct.Val" title="nvfuser_direct._C_DIRECT.Val"><span class="pre">nvfuser_direct._C_DIRECT.Val</span></a></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">nvfuser::Expr</span></span></span><a class="headerlink" href="#nvfuser_direct.Val.definition" title="Link to this definition"></a></dt>
+<dd><p>Get the definition of this expression.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>The definition of this expression.</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p><a class="reference internal" href="#nvfuser_direct.Expr" title="nvfuser_direct.Expr">Expr</a></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="nvfuser_direct.Val.is_symbolic">
+<span class="sig-name descname"><span class="pre">is_symbolic</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">self</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="#nvfuser_direct.Val" title="nvfuser_direct._C_DIRECT.Val"><span class="pre">nvfuser_direct._C_DIRECT.Val</span></a></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.13)"><span class="pre">bool</span></a></span></span><a class="headerlink" href="#nvfuser_direct.Val.is_symbolic" title="Link to this definition"></a></dt>
+<dd><p>Check if this value is symbolic (not a concrete value).</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>True if the value is symbolic, False otherwise.</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.13)">bool</a></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="nvfuser_direct.Val.is_tensor">
+<span class="sig-name descname"><span class="pre">is_tensor</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">self</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="#nvfuser_direct.Val" title="nvfuser_direct._C_DIRECT.Val"><span class="pre">nvfuser_direct._C_DIRECT.Val</span></a></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.13)"><span class="pre">bool</span></a></span></span><a class="headerlink" href="#nvfuser_direct.Val.is_tensor" title="Link to this definition"></a></dt>
+<dd><p>Check if this value is a TensorView.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>True if the value is a TensorView, False otherwise.</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.13)">bool</a></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="nvfuser_direct.Val.uses">
+<span class="sig-name descname"><span class="pre">uses</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">self</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="#nvfuser_direct.Val" title="nvfuser_direct._C_DIRECT.Val"><span class="pre">nvfuser_direct._C_DIRECT.Val</span></a></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">list[nvfuser::Expr]</span></span></span><a class="headerlink" href="#nvfuser_direct.Val.uses" title="Link to this definition"></a></dt>
+<dd><p>Get the uses of this expression.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>The uses of this expression.</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p><a class="reference internal" href="#nvfuser_direct.Expr" title="nvfuser_direct.Expr">Expr</a></p>
+</dd>
+</dl>
+</dd></dl>
+
+</dd></dl>
+
 </section>
 <section id="expr">
 <h2>Expr<a class="headerlink" href="#expr" title="Link to this heading"></a></h2>
+<dl class="py class">
+<dt class="sig sig-object py" id="nvfuser_direct.Expr">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">nvfuser_direct.</span></span><span class="sig-name descname"><span class="pre">Expr</span></span><a class="headerlink" href="#nvfuser_direct.Expr" title="Link to this definition"></a></dt>
+<dd><p>Bases: <a class="reference internal" href="#nvfuser_direct.Statement" title="nvfuser_direct._C_DIRECT.Statement"><code class="xref py py-class docutils literal notranslate"><span class="pre">Statement</span></code></a></p>
+<p>Expr represents an expression in the nvFuser IR. It provides methods for:</p>
+<ul class="simple">
+<li><p>Accessing expression operands</p></li>
+<li><p>Managing expression dependencies</p></li>
+<li><p>Querying expression type and attributes</p></li>
+</ul>
+<dl class="py method">
+<dt class="sig sig-object py" id="nvfuser_direct.Expr.input">
+<span class="sig-name descname"><span class="pre">input</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">self</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="#nvfuser_direct.Expr" title="nvfuser_direct._C_DIRECT.Expr"><span class="pre">nvfuser_direct._C_DIRECT.Expr</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">index</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><span class="pre">int</span></a></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference internal" href="#nvfuser_direct.Val" title="nvfuser_direct._C_DIRECT.Val"><span class="pre">nvfuser_direct._C_DIRECT.Val</span></a></span></span><a class="headerlink" href="#nvfuser_direct.Expr.input" title="Link to this definition"></a></dt>
+<dd><p>Get the input of this expression.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>index</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><em>int</em></a>) – The index of the input.</p>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>The input of this expression.</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference internal" href="#nvfuser_direct.Expr" title="nvfuser_direct.Expr">Expr</a></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="nvfuser_direct.Expr.output">
+<span class="sig-name descname"><span class="pre">output</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">self</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="#nvfuser_direct.Expr" title="nvfuser_direct._C_DIRECT.Expr"><span class="pre">nvfuser_direct._C_DIRECT.Expr</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">index</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><span class="pre">int</span></a></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference internal" href="#nvfuser_direct.Val" title="nvfuser_direct._C_DIRECT.Val"><span class="pre">nvfuser_direct._C_DIRECT.Val</span></a></span></span><a class="headerlink" href="#nvfuser_direct.Expr.output" title="Link to this definition"></a></dt>
+<dd><p>Get the output of this expression.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>index</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><em>int</em></a>) – The index of the output.</p>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>The output of this expression.</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference internal" href="#nvfuser_direct.Expr" title="nvfuser_direct.Expr">Expr</a></p>
+</dd>
+</dl>
+</dd></dl>
+
+</dd></dl>
+
 </section>
 <section id="iterdomain">
 <h2>IterDomain<a class="headerlink" href="#iterdomain" title="Link to this heading"></a></h2>
+<dl class="py class">
+<dt class="sig sig-object py" id="nvfuser_direct.IterDomain">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">nvfuser_direct.</span></span><span class="sig-name descname"><span class="pre">IterDomain</span></span><a class="headerlink" href="#nvfuser_direct.IterDomain" title="Link to this definition"></a></dt>
+<dd><p>Bases: <a class="reference internal" href="#nvfuser_direct.Val" title="nvfuser_direct._C_DIRECT.Val"><code class="xref py py-class docutils literal notranslate"><span class="pre">Val</span></code></a></p>
+<p>IterDomain represents an iteration domain in the nvFuser IR. It provides methods for:</p>
+<ul class="simple">
+<li><p>Accessing domain properties (extent, start, stop)</p></li>
+<li><p>Managing domain dependencies</p></li>
+<li><p>Querying domain attributes and constraints</p></li>
+</ul>
+<dl class="py method">
+<dt class="sig sig-object py" id="nvfuser_direct.IterDomain.extent">
+<span class="sig-name descname"><span class="pre">extent</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">self</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="#nvfuser_direct.IterDomain" title="nvfuser_direct._C_DIRECT.IterDomain"><span class="pre">nvfuser_direct._C_DIRECT.IterDomain</span></a></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference internal" href="#nvfuser_direct.Val" title="nvfuser_direct._C_DIRECT.Val"><span class="pre">nvfuser_direct._C_DIRECT.Val</span></a></span></span><a class="headerlink" href="#nvfuser_direct.IterDomain.extent" title="Link to this definition"></a></dt>
+<dd><p>Get the extent of this domain.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>The extent of this domain.</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p><a class="reference internal" href="#nvfuser_direct.Val" title="nvfuser_direct.Val">Val</a></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="nvfuser_direct.IterDomain.parallelize">
+<span class="sig-name descname"><span class="pre">parallelize</span></span><span class="sig-paren">(</span>
+
+<dl>
+<dd><em class="sig-param"><span class="n"><span class="pre">self</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="#nvfuser_direct.IterDomain" title="nvfuser_direct._C_DIRECT.IterDomain"><span class="pre">nvfuser_direct._C_DIRECT.IterDomain</span></a></span></em>,</dd>
+<dd><em class="sig-param"><span class="n"><span class="pre">parallel_type</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="enum.html#nvfuser_direct.ParallelType" title="nvfuser_direct._C_DIRECT.ParallelType"><span class="pre">nvfuser_direct._C_DIRECT.ParallelType</span></a></span></em>,</dd>
+</dl>
+
+<span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.13)"><span class="pre">None</span></a></span></span><a class="headerlink" href="#nvfuser_direct.IterDomain.parallelize" title="Link to this definition"></a></dt>
+<dd><p>Set the parallel type of this domain.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>parallel_type</strong> (<a class="reference internal" href="enum.html#nvfuser_direct.ParallelType" title="nvfuser_direct.ParallelType"><em>ParallelType</em></a>) – The type of parallelization to apply (e.g., BIDx, TIDx, etc.).</p>
+</dd>
+</dl>
+<p class="rubric">Notes</p>
+<p>This is a key function used in scheduling to specify how the domain should be parallelized
+across CUDA threads and blocks.</p>
+</dd></dl>
+
+</dd></dl>
+
 </section>
 <section id="tensordomain">
 <h2>TensorDomain<a class="headerlink" href="#tensordomain" title="Link to this heading"></a></h2>
+<dl class="py class">
+<dt class="sig sig-object py" id="nvfuser_direct.TensorDomain">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">nvfuser_direct.</span></span><span class="sig-name descname"><span class="pre">TensorDomain</span></span><a class="headerlink" href="#nvfuser_direct.TensorDomain" title="Link to this definition"></a></dt>
+<dd><p>Bases: <a class="reference internal" href="#nvfuser_direct.Val" title="nvfuser_direct._C_DIRECT.Val"><code class="xref py py-class docutils literal notranslate"><span class="pre">Val</span></code></a></p>
+<p>TensorDomain represents a tensor domain in the nvFuser IR. It provides methods for:</p>
+<ul class="simple">
+<li><p>Accessing domain dimensions</p></li>
+<li><p>Managing domain properties</p></li>
+<li><p>Querying domain attributes and constraints</p></li>
+</ul>
+</dd></dl>
+
 </section>
 <section id="tensorview">
 <h2>TensorView<a class="headerlink" href="#tensorview" title="Link to this heading"></a></h2>
+<dl class="py class">
+<dt class="sig sig-object py" id="nvfuser_direct.TensorView">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">nvfuser_direct.</span></span><span class="sig-name descname"><span class="pre">TensorView</span></span><a class="headerlink" href="#nvfuser_direct.TensorView" title="Link to this definition"></a></dt>
+<dd><p>Bases: <a class="reference internal" href="#nvfuser_direct.Val" title="nvfuser_direct._C_DIRECT.Val"><code class="xref py py-class docutils literal notranslate"><span class="pre">Val</span></code></a></p>
+<p>TensorView represents a tensor in the fusion definition. It provides methods for:</p>
+<ul class="simple">
+<li><p>Accessing tensor properties (domain, axes, etc.)</p></li>
+<li><p>Performing operations on tensors</p></li>
+<li><p>Managing tensor memory and scheduling</p></li>
+</ul>
+<dl class="py method">
+<dt class="sig sig-object py" id="nvfuser_direct.TensorView.axis">
+<span class="sig-name descname"><span class="pre">axis</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">self</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="#nvfuser_direct.TensorView" title="nvfuser_direct._C_DIRECT.TensorView"><span class="pre">nvfuser_direct._C_DIRECT.TensorView</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">index</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><span class="pre">int</span></a></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference internal" href="#nvfuser_direct.IterDomain" title="nvfuser_direct._C_DIRECT.IterDomain"><span class="pre">nvfuser_direct._C_DIRECT.IterDomain</span></a></span></span><a class="headerlink" href="#nvfuser_direct.TensorView.axis" title="Link to this definition"></a></dt>
+<dd><p>Get the iteration domain at the specified axis.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>index</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><em>int</em></a>) – The axis index.</p>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>The iteration domain at the specified axis.</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference internal" href="#nvfuser_direct.IterDomain" title="nvfuser_direct.IterDomain">IterDomain</a></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="nvfuser_direct.TensorView.domain">
+<span class="sig-name descname"><span class="pre">domain</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">self</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="#nvfuser_direct.TensorView" title="nvfuser_direct._C_DIRECT.TensorView"><span class="pre">nvfuser_direct._C_DIRECT.TensorView</span></a></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference internal" href="#nvfuser_direct.TensorDomain" title="nvfuser_direct._C_DIRECT.TensorDomain"><span class="pre">nvfuser_direct._C_DIRECT.TensorDomain</span></a></span></span><a class="headerlink" href="#nvfuser_direct.TensorView.domain" title="Link to this definition"></a></dt>
+<dd><p>Get the TensorDomain of this tensor.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>The tensor domain object that describes the dimensionality and properties
+of this tensor. The tensor domain contains information about:
+- Root domain (The original dimensions if logical domain contains rFactor iterDomains.)
+- Logical domain (The original dimensions. It may contain rFactor iterDomains.)
+- Allocation domain (How the memory is allocated for the tensor?)
+- Loop domain (The for-loop structure for the tensor.)</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p><a class="reference internal" href="#nvfuser_direct.TensorDomain" title="nvfuser_direct.TensorDomain">TensorDomain</a></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="nvfuser_direct.TensorView.get_logical_domain">
+<span class="sig-name descname"><span class="pre">get_logical_domain</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">self</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="#nvfuser_direct.TensorView" title="nvfuser_direct._C_DIRECT.TensorView"><span class="pre">nvfuser_direct._C_DIRECT.TensorView</span></a></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.13)"><span class="pre">list</span></a><span class="p"><span class="pre">[</span></span><a class="reference internal" href="#nvfuser_direct.IterDomain" title="nvfuser_direct._C_DIRECT.IterDomain"><span class="pre">nvfuser_direct._C_DIRECT.IterDomain</span></a><span class="p"><span class="pre">]</span></span></span></span><a class="headerlink" href="#nvfuser_direct.TensorView.get_logical_domain" title="Link to this definition"></a></dt>
+<dd><p>Get the logical domain of this tensor.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>The logical iteration domain.</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.13)">list</a> of <a class="reference internal" href="#nvfuser_direct.IterDomain" title="nvfuser_direct.IterDomain">IterDomain</a></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="nvfuser_direct.TensorView.get_loop_domain">
+<span class="sig-name descname"><span class="pre">get_loop_domain</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">self</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="#nvfuser_direct.TensorView" title="nvfuser_direct._C_DIRECT.TensorView"><span class="pre">nvfuser_direct._C_DIRECT.TensorView</span></a></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.13)"><span class="pre">list</span></a><span class="p"><span class="pre">[</span></span><a class="reference internal" href="#nvfuser_direct.IterDomain" title="nvfuser_direct._C_DIRECT.IterDomain"><span class="pre">nvfuser_direct._C_DIRECT.IterDomain</span></a><span class="p"><span class="pre">]</span></span></span></span><a class="headerlink" href="#nvfuser_direct.TensorView.get_loop_domain" title="Link to this definition"></a></dt>
+<dd><p>Get the loop domain of this tensor.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>The loop iteration domains.</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.13)">list</a> of <a class="reference internal" href="#nvfuser_direct.IterDomain" title="nvfuser_direct.IterDomain">IterDomain</a></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="nvfuser_direct.TensorView.get_root_domain">
+<span class="sig-name descname"><span class="pre">get_root_domain</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">self</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="#nvfuser_direct.TensorView" title="nvfuser_direct._C_DIRECT.TensorView"><span class="pre">nvfuser_direct._C_DIRECT.TensorView</span></a></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.13)"><span class="pre">list</span></a><span class="p"><span class="pre">[</span></span><a class="reference internal" href="#nvfuser_direct.IterDomain" title="nvfuser_direct._C_DIRECT.IterDomain"><span class="pre">nvfuser_direct._C_DIRECT.IterDomain</span></a><span class="p"><span class="pre">]</span></span></span></span><a class="headerlink" href="#nvfuser_direct.TensorView.get_root_domain" title="Link to this definition"></a></dt>
+<dd><p>Get the root domain of this tensor.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>The root iteration domains.</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.13)">list</a> of <a class="reference internal" href="#nvfuser_direct.IterDomain" title="nvfuser_direct.IterDomain">IterDomain</a></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="nvfuser_direct.TensorView.has_root">
+<span class="sig-name descname"><span class="pre">has_root</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">self</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="#nvfuser_direct.TensorView" title="nvfuser_direct._C_DIRECT.TensorView"><span class="pre">nvfuser_direct._C_DIRECT.TensorView</span></a></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.13)"><span class="pre">bool</span></a></span></span><a class="headerlink" href="#nvfuser_direct.TensorView.has_root" title="Link to this definition"></a></dt>
+<dd><p>Check if this tensor has a root domain.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>True if the tensor has a root domain, False otherwise.</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.13)">bool</a></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="nvfuser_direct.TensorView.merge">
+<span class="sig-name descname"><span class="pre">merge</span></span><span class="sig-paren">(</span>
+
+<dl>
+<dd><em class="sig-param"><span class="n"><span class="pre">self</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="#nvfuser_direct.TensorView" title="nvfuser_direct._C_DIRECT.TensorView"><span class="pre">nvfuser_direct._C_DIRECT.TensorView</span></a></span></em>,</dd>
+<dd><em class="sig-param"><span class="n"><span class="pre">axis_o</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><span class="pre">int</span></a></span></em>,</dd>
+<dd><em class="sig-param"><span class="n"><span class="pre">axis_i</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><span class="pre">int</span></a></span></em>,</dd>
+</dl>
+
+<span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference internal" href="#nvfuser_direct.TensorView" title="nvfuser_direct._C_DIRECT.TensorView"><span class="pre">nvfuser_direct._C_DIRECT.TensorView</span></a></span></span><a class="headerlink" href="#nvfuser_direct.TensorView.merge" title="Link to this definition"></a></dt>
+<dd><p>Merge two axes into one axis.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>axis_o</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><em>int</em></a>) – The outer axis to merge.</p></li>
+<li><p><strong>axis_i</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><em>int</em></a>) – The inner axis to merge.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>A TensorView with the merged axes in its loop domain.</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference internal" href="#nvfuser_direct.TensorView" title="nvfuser_direct.TensorView">TensorView</a></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="nvfuser_direct.TensorView.ndim">
+<em class="property"><span class="pre">property</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">ndim</span></span><a class="headerlink" href="#nvfuser_direct.TensorView.ndim" title="Link to this definition"></a></dt>
+<dd><p>Get the number of dimensions in this tensor.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>The number of dimensions.</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)">int</a></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="nvfuser_direct.TensorView.rfactor">
+<span class="sig-name descname"><span class="pre">rfactor</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">self</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="#nvfuser_direct.TensorView" title="nvfuser_direct._C_DIRECT.TensorView"><span class="pre">nvfuser_direct._C_DIRECT.TensorView</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">axes</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.13)"><span class="pre">list</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><span class="pre">int</span></a><span class="p"><span class="pre">]</span></span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference internal" href="#nvfuser_direct.TensorView" title="nvfuser_direct._C_DIRECT.TensorView"><span class="pre">nvfuser_direct._C_DIRECT.TensorView</span></a></span></span><a class="headerlink" href="#nvfuser_direct.TensorView.rfactor" title="Link to this definition"></a></dt>
+<dd><p>Perform an rfactor transformation on the specified axes.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>axes</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.13)"><em>list</em></a><em> of </em><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><em>int</em></a>)</p></li>
+<li><p><strong>to.</strong> (<em>The axes to apply rfactor</em>)</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p><ul class="simple">
+<li><p><em>TensorView</em></p></li>
+<li><p><em>The newly created rfactor tensor.</em></p></li>
+</ul>
+</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="nvfuser_direct.TensorView.set_allocation_domain">
+<span class="sig-name descname"><span class="pre">set_allocation_domain</span></span><span class="sig-paren">(</span>
+
+<dl>
+<dd><em class="sig-param"><span class="n"><span class="pre">self</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="#nvfuser_direct.TensorView" title="nvfuser_direct._C_DIRECT.TensorView"><span class="pre">nvfuser_direct._C_DIRECT.TensorView</span></a></span></em>,</dd>
+<dd><em class="sig-param"><span class="n"><span class="pre">new_allocation_domain</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.13)"><span class="pre">list</span></a><span class="p"><span class="pre">[</span></span><a class="reference internal" href="#nvfuser_direct.IterDomain" title="nvfuser_direct._C_DIRECT.IterDomain"><span class="pre">nvfuser_direct._C_DIRECT.IterDomain</span></a><span class="p"><span class="pre">]</span></span></span></em>,</dd>
+<dd><em class="sig-param"><span class="n"><span class="pre">new_contiguity</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.13)"><span class="pre">bool</span></a></span></em>,</dd>
+</dl>
+
+<span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.13)"><span class="pre">None</span></a></span></span><a class="headerlink" href="#nvfuser_direct.TensorView.set_allocation_domain" title="Link to this definition"></a></dt>
+<dd><p>Set the allocation domain of this tensor.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>new_allocation_domain</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.13)"><em>list</em></a><em> of </em><a class="reference internal" href="#nvfuser_direct.IterDomain" title="nvfuser_direct.IterDomain"><em>IterDomain</em></a>) – The new allocation iteration domains.</p></li>
+<li><p><strong>new_contiguity</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.13)"><em>bool</em></a>) – The new contiguity flag.</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="nvfuser_direct.TensorView.set_device_mesh">
+<span class="sig-name descname"><span class="pre">set_device_mesh</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">self:</span> <span class="pre">nvfuser_direct._C_DIRECT.TensorView</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">mesh:</span> <span class="pre">nvfuser::DeviceMesh</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.13)"><span class="pre">None</span></a></span></span><a class="headerlink" href="#nvfuser_direct.TensorView.set_device_mesh" title="Link to this definition"></a></dt>
+<dd><p>Set the device mesh of this tensor.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>mesh</strong> (<a class="reference internal" href="multidevice.html#nvfuser_direct.multidevice.DeviceMesh" title="nvfuser_direct.multidevice.DeviceMesh"><em>DeviceMesh</em></a>) – The device mesh to set.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="nvfuser_direct.TensorView.shape">
+<span class="sig-name descname"><span class="pre">shape</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">self</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="#nvfuser_direct.TensorView" title="nvfuser_direct._C_DIRECT.TensorView"><span class="pre">nvfuser_direct._C_DIRECT.TensorView</span></a></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.13)"><span class="pre">list</span></a><span class="p"><span class="pre">[</span></span><a class="reference internal" href="#nvfuser_direct.Val" title="nvfuser_direct._C_DIRECT.Val"><span class="pre">nvfuser_direct._C_DIRECT.Val</span></a><span class="p"><span class="pre">]</span></span></span></span><a class="headerlink" href="#nvfuser_direct.TensorView.shape" title="Link to this definition"></a></dt>
+<dd><p>Get the shape of this tensor.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>The shape of this tensor.</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.13)">list</a> of <a class="reference internal" href="#nvfuser_direct.Val" title="nvfuser_direct.Val">Val</a></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="nvfuser_direct.TensorView.size">
+<span class="sig-name descname"><span class="pre">size</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">self</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="#nvfuser_direct.TensorView" title="nvfuser_direct._C_DIRECT.TensorView"><span class="pre">nvfuser_direct._C_DIRECT.TensorView</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">dim</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><span class="pre">int</span></a></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference internal" href="#nvfuser_direct.Val" title="nvfuser_direct._C_DIRECT.Val"><span class="pre">nvfuser_direct._C_DIRECT.Val</span></a></span></span><a class="headerlink" href="#nvfuser_direct.TensorView.size" title="Link to this definition"></a></dt>
+<dd><p>Get the size of this tensor.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>dim</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><em>int</em></a>) – The dimension in the tensor.</p>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>The size of the dimension.</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)">int</a></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="nvfuser_direct.TensorView.split">
+<span class="sig-name descname"><span class="pre">split</span></span><span class="sig-paren">(</span>
+
+<dl>
+<dd><em class="sig-param"><span class="n"><span class="pre">self</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="#nvfuser_direct.TensorView" title="nvfuser_direct._C_DIRECT.TensorView"><span class="pre">nvfuser_direct._C_DIRECT.TensorView</span></a></span></em>,</dd>
+<dd><em class="sig-param"><span class="n"><span class="pre">axis</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><span class="pre">int</span></a></span></em>,</dd>
+<dd><em class="sig-param"><span class="n"><span class="pre">factor</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><span class="pre">int</span></a></span></em>,</dd>
+<dd><em class="sig-param"><span class="n"><span class="pre">inner_split</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.13)"><span class="pre">bool</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">True</span></span></em>,</dd>
+</dl>
+
+<span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference internal" href="#nvfuser_direct.TensorView" title="nvfuser_direct._C_DIRECT.TensorView"><span class="pre">nvfuser_direct._C_DIRECT.TensorView</span></a></span></span><a class="headerlink" href="#nvfuser_direct.TensorView.split" title="Link to this definition"></a></dt>
+<dd><p>Split an axis into two axes.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>axis</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><em>int</em></a>) – The axis to split.</p></li>
+<li><p><strong>factor</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><em>int</em></a>) – The factor to split by.</p></li>
+<li><p><strong>inner_split</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.13)"><em>bool</em></a><em>, </em><em>optional</em>) – If True, the factor determines the size of the inner domain.
+If False, the factor determines the size of the outer domain.
+Default is True.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>A TensorView with the split axes in its loop domain.</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference internal" href="#nvfuser_direct.TensorView" title="nvfuser_direct.TensorView">TensorView</a></p>
+</dd>
+</dl>
+</dd></dl>
+
+</dd></dl>
+
 </section>
 <section id="fusionexecutorcache">
 <h2>FusionExecutorCache<a class="headerlink" href="#fusionexecutorcache" title="Link to this heading"></a></h2>
+<dl class="py class">
+<dt class="sig sig-object py" id="nvfuser_direct.FusionExecutorCache">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">nvfuser_direct.</span></span><span class="sig-name descname"><span class="pre">FusionExecutorCache</span></span><a class="headerlink" href="#nvfuser_direct.FusionExecutorCache" title="Link to this definition"></a></dt>
+<dd><p>FusionExecutorCache manages the compilation and execution of fusion definitions.
+It provides methods for:</p>
+<ul class="simple">
+<li><p>Compiling fusions</p></li>
+<li><p>Executing fusions with input tensors</p></li>
+<li><p>Accessing compiled kernels and IR</p></li>
+</ul>
+<dl class="py method">
+<dt class="sig sig-object py" id="nvfuser_direct.FusionExecutorCache.execute">
+<span class="sig-name descname"><span class="pre">execute</span></span><span class="sig-paren">(</span>
+
+<dl>
+<dd><em class="sig-param"><span class="n"><span class="pre">self</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="#nvfuser_direct.FusionExecutorCache" title="nvfuser_direct._C_DIRECT.FusionExecutorCache"><span class="pre">nvfuser_direct._C_DIRECT.FusionExecutorCache</span></a></span></em>,</dd>
+<dd><em class="sig-param"><span class="n"><span class="pre">inputs</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Iterable</span></span></em>,</dd>
+<dd><em class="sig-param"><span class="o"><span class="pre">*</span></span></em>,</dd>
+<dd><em class="sig-param"><span class="n"><span class="pre">device</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><span class="pre">int</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.13)"><span class="pre">None</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>,</dd>
+<dd><em class="sig-param"><span class="n"><span class="pre">_enable_options</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.13)"><span class="pre">list</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a><span class="p"><span class="pre">]</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">[]</span></span></em>,</dd>
+<dd><em class="sig-param"><span class="n"><span class="pre">_disable_options</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.13)"><span class="pre">list</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a><span class="p"><span class="pre">]</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">[]</span></span></em>,</dd>
+</dl>
+
+<span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.13)"><span class="pre">list</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.pytorch.org/docs/stable/tensors.html#torch.Tensor" title="(in PyTorch v2.8)"><span class="pre">torch.Tensor</span></a><span class="p"><span class="pre">]</span></span></span></span><a class="headerlink" href="#nvfuser_direct.FusionExecutorCache.execute" title="Link to this definition"></a></dt>
+<dd><p>Execute the fusion with the given inputs.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>inputs</strong> (<em>iterable</em>) – An iterable of input tensors or values.
+All tensor inputs must be on the same device.
+Cpu scalar tensor can interoperate with gpu tensors.</p></li>
+<li><p><strong>device</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><em>int</em></a><em>, </em><em>optional</em>) – The device index to execute the fusion on.
+It must be a non-negative integer less than 256.
+If None, uses the device of the input tensors.
+Default is None.</p></li>
+<li><p><strong>_enable_options</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.13)"><em>list</em></a><em> of </em><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><em>str</em></a><em>, </em><em>optional</em>) – A list of enable options.
+Default is None.</p></li>
+<li><p><strong>_disable_options</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.13)"><em>list</em></a><em> of </em><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><em>str</em></a><em>, </em><em>optional</em>) – A list of disable options.
+Default is None.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>The output tensors produced by the fusion.</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.13)">list</a> of <a class="reference external" href="https://docs.pytorch.org/docs/stable/tensors.html#torch.Tensor" title="(in PyTorch v2.8)">torch.Tensor</a></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="nvfuser_direct.FusionExecutorCache.fusion">
+<span class="sig-name descname"><span class="pre">fusion</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">self</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="#nvfuser_direct.FusionExecutorCache" title="nvfuser_direct._C_DIRECT.FusionExecutorCache"><span class="pre">nvfuser_direct._C_DIRECT.FusionExecutorCache</span></a></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">nvfuser_direct._C_DIRECT.Fusion</span></span></span><a class="headerlink" href="#nvfuser_direct.FusionExecutorCache.fusion" title="Link to this definition"></a></dt>
+<dd><p>Get the underlying fusion object.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>The fusion object being executed by this cache.</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>Fusion</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="nvfuser_direct.FusionExecutorCache.get_cuda_kernel">
+<span class="sig-name descname"><span class="pre">get_cuda_kernel</span></span><span class="sig-paren">(</span>
+
+<dl>
+<dd><em class="sig-param"><span class="n"><span class="pre">self</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="#nvfuser_direct.FusionExecutorCache" title="nvfuser_direct._C_DIRECT.FusionExecutorCache"><span class="pre">nvfuser_direct._C_DIRECT.FusionExecutorCache</span></a></span></em>,</dd>
+<dd><em class="sig-param"><span class="n"><span class="pre">inputs</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Iterable</span></span></em>,</dd>
+<dd><em class="sig-param"><span class="n"><span class="pre">intrinsic_code</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.13)"><span class="pre">bool</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">False</span></span></em>,</dd>
+<dd><em class="sig-param"><span class="n"><span class="pre">device</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><span class="pre">int</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.13)"><span class="pre">None</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">0</span></span></em>,</dd>
+</dl>
+
+<span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a></span></span><a class="headerlink" href="#nvfuser_direct.FusionExecutorCache.get_cuda_kernel" title="Link to this definition"></a></dt>
+<dd><p>Get the CUDA kernel code for the given input configuration.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>inputs</strong> (<em>iterable</em>) – An iterable of input tensors or values.</p></li>
+<li><p><strong>device</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><em>int</em></a><em>, </em><em>optional</em>) – The target device index. Default is 0.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>The generated CUDA kernel code as a string.</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)">str</a></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="nvfuser_direct.FusionExecutorCache.get_most_recent_scheduled_ir">
+<span class="sig-name descname"><span class="pre">get_most_recent_scheduled_ir</span></span><span class="sig-paren">(</span>
+
+<dl>
+<dd><em class="sig-param"><span class="n"><span class="pre">self</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="#nvfuser_direct.FusionExecutorCache" title="nvfuser_direct._C_DIRECT.FusionExecutorCache"><span class="pre">nvfuser_direct._C_DIRECT.FusionExecutorCache</span></a></span></em>,</dd>
+<dd><em class="sig-param"><span class="n"><span class="pre">tensor_transforms</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.13)"><span class="pre">bool</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">False</span></span></em>,</dd>
+</dl>
+
+<span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a></span></span><a class="headerlink" href="#nvfuser_direct.FusionExecutorCache.get_most_recent_scheduled_ir" title="Link to this definition"></a></dt>
+<dd><p>Get the scheduled IR from the most recent execution.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>tensor_transforms</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.13)"><em>bool</em></a><em>, </em><em>optional</em>) – Whether to include tensor transformations in the output. Default is False.</p>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>The scheduled intermediate representation (IR) as a string.</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)">str</a></p>
+</dd>
+</dl>
+<p class="rubric">Notes</p>
+<ul class="simple">
+<li><p>Returns None if execution has occurred yet.</p></li>
+</ul>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="nvfuser_direct.FusionExecutorCache.get_output_shardings">
+<span class="sig-name descname"><span class="pre">get_output_shardings</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">self</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="#nvfuser_direct.FusionExecutorCache" title="nvfuser_direct._C_DIRECT.FusionExecutorCache"><span class="pre">nvfuser_direct._C_DIRECT.FusionExecutorCache</span></a></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">list[nvfuser::Sharding]</span></span></span><a class="headerlink" href="#nvfuser_direct.FusionExecutorCache.get_output_shardings" title="Link to this definition"></a></dt>
+<dd><p>Get the output shardings of the fusion.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>The output shardings of the fusion.</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.13)">list</a> of <a class="reference internal" href="multidevice.html#nvfuser_direct.multidevice.Sharding" title="nvfuser_direct.multidevice.Sharding">Sharding</a></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="nvfuser_direct.FusionExecutorCache.get_scheduled_ir">
+<span class="sig-name descname"><span class="pre">get_scheduled_ir</span></span><span class="sig-paren">(</span>
+
+<dl>
+<dd><em class="sig-param"><span class="n"><span class="pre">self</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="#nvfuser_direct.FusionExecutorCache" title="nvfuser_direct._C_DIRECT.FusionExecutorCache"><span class="pre">nvfuser_direct._C_DIRECT.FusionExecutorCache</span></a></span></em>,</dd>
+<dd><em class="sig-param"><span class="n"><span class="pre">inputs</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Iterable</span></span></em>,</dd>
+<dd><em class="sig-param"><span class="n"><span class="pre">tensor_transforms</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.13)"><span class="pre">bool</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">False</span></span></em>,</dd>
+<dd><em class="sig-param"><span class="n"><span class="pre">device</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><span class="pre">int</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.13)"><span class="pre">None</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">0</span></span></em>,</dd>
+</dl>
+
+<span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a></span></span><a class="headerlink" href="#nvfuser_direct.FusionExecutorCache.get_scheduled_ir" title="Link to this definition"></a></dt>
+<dd><p>Get the scheduled IR for the given input configuration.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>inputs</strong> (<em>iterable</em>) – An iterable of input tensors or values.</p></li>
+<li><p><strong>tensor_transforms</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.13)"><em>bool</em></a><em>, </em><em>optional</em>) – Whether to include tensor transformations in the output. Default is False.</p></li>
+<li><p><strong>device</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><em>int</em></a><em>, </em><em>optional</em>) – The target device index. Default is 0.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>The scheduled intermediate representation (IR) as a string.</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)">str</a></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="nvfuser_direct.FusionExecutorCache.is_compiled">
+<span class="sig-name descname"><span class="pre">is_compiled</span></span><span class="sig-paren">(</span>
+
+<dl>
+<dd><em class="sig-param"><span class="n"><span class="pre">self</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="#nvfuser_direct.FusionExecutorCache" title="nvfuser_direct._C_DIRECT.FusionExecutorCache"><span class="pre">nvfuser_direct._C_DIRECT.FusionExecutorCache</span></a></span></em>,</dd>
+<dd><em class="sig-param"><span class="n"><span class="pre">inputs</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Iterable</span></span></em>,</dd>
+<dd><em class="sig-param"><span class="n"><span class="pre">device</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><span class="pre">int</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.13)"><span class="pre">None</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">0</span></span></em>,</dd>
+</dl>
+
+<span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.13)"><span class="pre">bool</span></a></span></span><a class="headerlink" href="#nvfuser_direct.FusionExecutorCache.is_compiled" title="Link to this definition"></a></dt>
+<dd><p>Check if a compiled kernel exists for the given input configuration.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>inputs</strong> (<em>iterable</em>) – An iterable of input tensors or values to check.</p></li>
+<li><p><strong>device</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><em>int</em></a><em>, </em><em>optional</em>) – The target device index. Default is 0.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>True if a compiled kernel exists for the input configuration.</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.13)">bool</a></p>
+</dd>
+</dl>
+</dd></dl>
+
+</dd></dl>
+
 </section>
 <section id="kernelexecutor">
 <h2>KernelExecutor<a class="headerlink" href="#kernelexecutor" title="Link to this heading"></a></h2>
+<dl class="py class">
+<dt class="sig sig-object py" id="nvfuser_direct.KernelExecutor">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">nvfuser_direct.</span></span><span class="sig-name descname"><span class="pre">KernelExecutor</span></span><a class="headerlink" href="#nvfuser_direct.KernelExecutor" title="Link to this definition"></a></dt>
+<dd><p>KernelExecutor provides a lower-level interface for executing compiled kernels.
+It allows for:</p>
+<ul class="simple">
+<li><p>Manual kernel compilation</p></li>
+<li><p>Direct kernel execution</p></li>
+<li><p>Access to kernel properties and scheduling information</p></li>
+</ul>
+<dl class="py method">
+<dt class="sig sig-object py" id="nvfuser_direct.KernelExecutor.compile">
+<span class="sig-name descname"><span class="pre">compile</span></span><span class="sig-paren">(</span>
+
+<dl>
+<dd><em class="sig-param"><span class="n"><span class="pre">self:</span> <span class="pre">nvfuser_direct._C_DIRECT.KernelExecutor</span></span></em>,</dd>
+<dd><em class="sig-param"><span class="n"><span class="pre">fusion:</span> <span class="pre">nvfuser_direct._C_DIRECT.Fusion</span></span></em>,</dd>
+<dd><em class="sig-param"><span class="n"><span class="pre">args:</span> <span class="pre">Iterable</span> <span class="pre">=</span> <span class="pre">[]</span></span></em>,</dd>
+<dd><em class="sig-param"><span class="n"><span class="pre">launch_constraints:</span> <span class="pre">nvfuser_direct._C_DIRECT.LaunchParams</span> <span class="pre">=</span> <span class="pre">Launch</span> <span class="pre">Parameters:</span> <span class="pre">BlockDim.x</span> <span class="pre">=</span> <span class="pre">-1</span></span></em>,</dd>
+<dd><em class="sig-param"><span class="n"><span class="pre">BlockDim.y</span> <span class="pre">=</span> <span class="pre">-1</span></span></em>,</dd>
+<dd><em class="sig-param"><span class="n"><span class="pre">BlockDim.z</span> <span class="pre">=</span> <span class="pre">-1</span></span></em>,</dd>
+<dd><em class="sig-param"><span class="n"><span class="pre">GridDim.x</span> <span class="pre">=</span> <span class="pre">-1</span></span></em>,</dd>
+<dd><em class="sig-param"><span class="n"><span class="pre">GridDim.y</span> <span class="pre">=</span> <span class="pre">-1</span></span></em>,</dd>
+<dd><em class="sig-param"><span class="n"><span class="pre">GridDim.z</span> <span class="pre">=</span> <span class="pre">-1</span></span></em>,</dd>
+<dd><em class="sig-param"><span class="n"><span class="pre">Smem</span> <span class="pre">Size</span> <span class="pre">=</span> <span class="pre">0</span></span></em>,</dd>
+<dd><em class="sig-param"><span class="n"><span class="pre">compile_params:</span> <span class="pre">nvfuser_direct._C_DIRECT.CompileParams</span> <span class="pre">=</span> <span class="pre">Compile</span> <span class="pre">Parameters:</span> <span class="pre">index_type</span> <span class="pre">=</span> <span class="pre">NotSet</span></span></em>,</dd>
+<dd><em class="sig-param"><span class="n"><span class="pre">maxrregcount</span> <span class="pre">=</span> <span class="pre">255</span></span></em>,</dd>
+<dd><em class="sig-param"><span class="n"><span class="pre">enable_magic_zero</span> <span class="pre">=</span> <span class="pre">1</span></span></em>,</dd>
+<dd><em class="sig-param"><span class="n"><span class="pre">enable_ptxas_verbose</span> <span class="pre">=</span> <span class="pre">0</span></span></em>,</dd>
+<dd><em class="sig-param"><span class="n"><span class="pre">include_paths</span> <span class="pre">=</span></span></em>,</dd>
+<dd><em class="sig-param"><span class="n"><span class="pre">scheduler_type:</span> <span class="pre">nvfuser_direct._C_DIRECT.SchedulerType</span> <span class="pre">=</span> <span class="pre">&lt;SchedulerType.none:</span> <span class="pre">0&gt;</span></span></em>,</dd>
+</dl>
+
+<span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.13)"><span class="pre">None</span></a></span></span><a class="headerlink" href="#nvfuser_direct.KernelExecutor.compile" title="Link to this definition"></a></dt>
+<dd><p>Compile a fusion into a CUDA kernel.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>fusion</strong> (<em>Fusion</em>) – The fusion to compile.</p></li>
+<li><p><strong>args</strong> (<em>KernelArgumentHolder</em><em>, </em><em>optional</em>) – The kernel arguments. If empty, will be populated during run.</p></li>
+<li><p><strong>launch_constraints</strong> (<a class="reference internal" href="pod_class.html#nvfuser_direct.LaunchParams" title="nvfuser_direct.LaunchParams"><em>LaunchParams</em></a><em>, </em><em>optional</em>) – Constraints for kernel launch parameters.</p></li>
+<li><p><strong>compile_params</strong> (<a class="reference internal" href="pod_class.html#nvfuser_direct.CompileParams" title="nvfuser_direct.CompileParams"><em>CompileParams</em></a><em>, </em><em>optional</em>) – Parameters for kernel compilation.</p></li>
+<li><p><strong>scheduler_type</strong> (<a class="reference internal" href="enum.html#nvfuser_direct.SchedulerType" title="nvfuser_direct.SchedulerType"><em>SchedulerType</em></a><em>, </em><em>optional</em>) – The type of scheduler to use (default: None).</p></li>
+</ul>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>None</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="nvfuser_direct.KernelExecutor.is_compiled">
+<span class="sig-name descname"><span class="pre">is_compiled</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">self</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="#nvfuser_direct.KernelExecutor" title="nvfuser_direct._C_DIRECT.KernelExecutor"><span class="pre">nvfuser_direct._C_DIRECT.KernelExecutor</span></a></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.13)"><span class="pre">bool</span></a></span></span><a class="headerlink" href="#nvfuser_direct.KernelExecutor.is_compiled" title="Link to this definition"></a></dt>
+<dd><p>Check if the kernel has been compiled.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>True if the kernel has been compiled, False otherwise.</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.13)">bool</a></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="nvfuser_direct.KernelExecutor.run">
+<span class="sig-name descname"><span class="pre">run</span></span><span class="sig-paren">(</span>
+
+<dl>
+<dd><em class="sig-param"><span class="n"><span class="pre">self:</span> <span class="pre">nvfuser_direct._C_DIRECT.KernelExecutor</span></span></em>,</dd>
+<dd><em class="sig-param"><span class="n"><span class="pre">args:</span> <span class="pre">Iterable</span></span></em>,</dd>
+<dd><em class="sig-param"><span class="n"><span class="pre">launch_constraints:</span> <span class="pre">nvfuser_direct._C_DIRECT.LaunchParams</span> <span class="pre">=</span> <span class="pre">Launch</span> <span class="pre">Parameters:</span> <span class="pre">BlockDim.x</span> <span class="pre">=</span> <span class="pre">-1</span></span></em>,</dd>
+<dd><em class="sig-param"><span class="n"><span class="pre">BlockDim.y</span> <span class="pre">=</span> <span class="pre">-1</span></span></em>,</dd>
+<dd><em class="sig-param"><span class="n"><span class="pre">BlockDim.z</span> <span class="pre">=</span> <span class="pre">-1</span></span></em>,</dd>
+<dd><em class="sig-param"><span class="n"><span class="pre">GridDim.x</span> <span class="pre">=</span> <span class="pre">-1</span></span></em>,</dd>
+<dd><em class="sig-param"><span class="n"><span class="pre">GridDim.y</span> <span class="pre">=</span> <span class="pre">-1</span></span></em>,</dd>
+<dd><em class="sig-param"><span class="n"><span class="pre">GridDim.z</span> <span class="pre">=</span> <span class="pre">-1</span></span></em>,</dd>
+<dd><em class="sig-param"><span class="n"><span class="pre">Smem</span> <span class="pre">Size</span> <span class="pre">=</span> <span class="pre">0</span></span></em>,</dd>
+<dd><em class="sig-param"><span class="n"><span class="pre">compile_params:</span> <span class="pre">nvfuser_direct._C_DIRECT.CompileParams</span> <span class="pre">=</span> <span class="pre">Compile</span> <span class="pre">Parameters:</span> <span class="pre">index_type</span> <span class="pre">=</span> <span class="pre">NotSet</span></span></em>,</dd>
+<dd><em class="sig-param"><span class="n"><span class="pre">maxrregcount</span> <span class="pre">=</span> <span class="pre">255</span></span></em>,</dd>
+<dd><em class="sig-param"><span class="n"><span class="pre">enable_magic_zero</span> <span class="pre">=</span> <span class="pre">1</span></span></em>,</dd>
+<dd><em class="sig-param"><span class="n"><span class="pre">enable_ptxas_verbose</span> <span class="pre">=</span> <span class="pre">0</span></span></em>,</dd>
+<dd><em class="sig-param"><span class="n"><span class="pre">include_paths</span> <span class="pre">=</span></span></em>,</dd>
+</dl>
+
+<span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.13)"><span class="pre">list</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.pytorch.org/docs/stable/tensors.html#torch.Tensor" title="(in PyTorch v2.8)"><span class="pre">torch.Tensor</span></a><span class="p"><span class="pre">]</span></span></span></span><a class="headerlink" href="#nvfuser_direct.KernelExecutor.run" title="Link to this definition"></a></dt>
+<dd><p>Run the compiled kernel with the given arguments.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>args</strong> (<em>KernelArgumentHolder</em>) – The input arguments for the kernel.</p></li>
+<li><p><strong>launch_constraints</strong> (<a class="reference internal" href="pod_class.html#nvfuser_direct.LaunchParams" title="nvfuser_direct.LaunchParams"><em>LaunchParams</em></a><em>, </em><em>optional</em>) – Constraints for kernel launch parameters.</p></li>
+<li><p><strong>compile_params</strong> (<a class="reference internal" href="pod_class.html#nvfuser_direct.CompileParams" title="nvfuser_direct.CompileParams"><em>CompileParams</em></a><em>, </em><em>optional</em>) – Parameters for kernel compilation.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>The output arguments containing the results.</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>KernelArgumentHolder</p>
+</dd>
+</dl>
+</dd></dl>
+
+</dd></dl>
+
 </section>
 <section id="fusion-definition">
 <h2>Fusion Definition<a class="headerlink" href="#fusion-definition" title="Link to this heading"></a></h2>
+<dl class="py class">
+<dt class="sig sig-object py" id="nvfuser_direct.FusionDefinition">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">nvfuser_direct.</span></span><span class="sig-name descname"><span class="pre">FusionDefinition</span></span><a class="reference internal" href="../_modules/nvfuser_direct.html#FusionDefinition"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#nvfuser_direct.FusionDefinition" title="Link to this definition"></a></dt>
+<dd><p>A class for defining and executing fused operations in nvFuser.
+This class provides a context manager interface for defining fused operations,
+managing inputs/outputs, and executing the fusion with PyTorch tensors.
+.. rubric:: Examples</p>
+<div class="doctest highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="k">with</span> <span class="n">FusionDefinition</span><span class="p">()</span> <span class="k">as</span> <span class="n">fd</span><span class="p">:</span>
+<span class="gp">... </span>    <span class="n">t0</span> <span class="o">=</span> <span class="n">fd</span><span class="o">.</span><span class="n">define_tensor</span><span class="p">()</span>
+<span class="gp">... </span>    <span class="n">t1</span> <span class="o">=</span> <span class="n">fd</span><span class="o">.</span><span class="n">ops</span><span class="o">.</span><span class="n">relu</span><span class="p">(</span><span class="n">t0</span><span class="p">)</span>
+<span class="gp">... </span>    <span class="n">fd</span><span class="o">.</span><span class="n">add_output</span><span class="p">(</span><span class="n">t1</span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">outputs</span> <span class="o">=</span> <span class="n">fd</span><span class="o">.</span><span class="n">execute</span><span class="p">([</span><span class="n">input_tensor</span><span class="p">])</span>
+</pre></div>
+</div>
+<p>The DirectFusionDefinition class provides a low-level interface for defining nvFuser operations.
+It exposes two main components:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">ops</span></code>: Contains the operators for defining fusion operations</p></li>
+</ul>
+<dl class="py method">
+<dt class="sig sig-object py" id="nvfuser_direct.FusionDefinition.add_output">
+<span class="sig-name descname"><span class="pre">add_output</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="o"><span class="pre">*</span></span><span class="n"><span class="pre">args</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/nvfuser_direct.html#FusionDefinition.add_output"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#nvfuser_direct.FusionDefinition.add_output" title="Link to this definition"></a></dt>
+<dd><p>Add an output to the fusion.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>*args</strong> – Positional arguments passed to fusion.add_output</p></li>
+<li><p><strong>**kwargs</strong> – Keyword arguments passed to fusion.add_output</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="nvfuser_direct.FusionDefinition.define_scalar">
+<span class="sig-name descname"><span class="pre">define_scalar</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="o"><span class="pre">*</span></span><span class="n"><span class="pre">args</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/nvfuser_direct.html#FusionDefinition.define_scalar"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#nvfuser_direct.FusionDefinition.define_scalar" title="Link to this definition"></a></dt>
+<dd><p>Define a new scalar input for the fusion.
+It is added as a fusion input if it is a symbolic value.
+:param *args: Positional arguments passed to define_scalar
+:param **kwargs: Keyword arguments passed to define_scalar</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>The defined scalar</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>Scalar</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="nvfuser_direct.FusionDefinition.define_tensor">
+<span class="sig-name descname"><span class="pre">define_tensor</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="o"><span class="pre">*</span></span><span class="n"><span class="pre">args</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/nvfuser_direct.html#FusionDefinition.define_tensor"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#nvfuser_direct.FusionDefinition.define_tensor" title="Link to this definition"></a></dt>
+<dd><p>Define a new tensor input for the fusion.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>*args</strong> – Positional arguments passed to define_tensor</p></li>
+<li><p><strong>**kwargs</strong> – Keyword arguments passed to define_tensor</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>The defined tensor</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Tensor</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="nvfuser_direct.FusionDefinition.define_vector">
+<span class="sig-name descname"><span class="pre">define_vector</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">size</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/nvfuser_direct.html#FusionDefinition.define_vector"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#nvfuser_direct.FusionDefinition.define_vector" title="Link to this definition"></a></dt>
+<dd><p>Define a new vector input for the fusion.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>size</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><em>int</em></a>) – The size of the vector</p>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>The defined vector</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.13)">list</a> of Scalar</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="nvfuser_direct.FusionDefinition.execute">
+<span class="sig-name descname"><span class="pre">execute</span></span><span class="sig-paren">(</span>
+
+<dl>
+<dd><em class="sig-param"><span class="n"><span class="pre">inputs</span></span></em>,</dd>
+<dd><em class="sig-param"><span class="o"><span class="pre">*</span></span></em>,</dd>
+<dd><em class="sig-param"><span class="n"><span class="pre">device</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>,</dd>
+<dd><em class="sig-param"><span class="n"><span class="pre">save_repro_inputs</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>,</dd>
+<dd><em class="sig-param"><span class="n"><span class="pre">_enable_options</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.13)"><span class="pre">list</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a><span class="p"><span class="pre">]</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">[]</span></span></em>,</dd>
+<dd><em class="sig-param"><span class="n"><span class="pre">_disable_options</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.13)"><span class="pre">list</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a><span class="p"><span class="pre">]</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">[]</span></span></em>,</dd>
+</dl>
+
+<span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.13)"><span class="pre">list</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.pytorch.org/docs/stable/tensors.html#torch.Tensor" title="(in PyTorch v2.8)"><span class="pre">Tensor</span></a><span class="p"><span class="pre">]</span></span></span></span><a class="reference internal" href="../_modules/nvfuser_direct.html#FusionDefinition.execute"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#nvfuser_direct.FusionDefinition.execute" title="Link to this definition"></a></dt>
+<dd><p>Execute the fusion with the given inputs. The fusion is automatically
+scheduled and supports input caching.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>inputs</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.13)"><em>list</em></a><em> of </em><a class="reference external" href="https://docs.pytorch.org/docs/stable/tensors.html#torch.Tensor" title="(in PyTorch v2.8)"><em>torch.Tensor</em></a>) – Input tensors and scalars to the fusion</p></li>
+<li><p><strong>device</strong> (<a class="reference external" href="https://docs.pytorch.org/docs/stable/tensor_attributes.html#torch.device" title="(in PyTorch v2.8)"><em>torch.device</em></a><em>, </em><em>optional</em>) – Device to execute the fusion on</p></li>
+<li><p><strong>save_repro_inputs</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.13)"><em>bool</em></a><em>, </em><em>default=False</em>) – Whether to save the inputs for last_repro_script() to provide a reproduction script.</p></li>
+<li><p><strong>_enable_options</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.13)"><em>list</em></a><em> of </em><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><em>str</em></a><em>, </em><em>default=</em><em>[</em><em>]</em>) – A list of enable options. An alternative to setting NVFUSER_ENABLE environment variable.</p></li>
+<li><p><strong>_disable_options</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.13)"><em>list</em></a><em> of </em><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><em>str</em></a><em>, </em><em>default=</em><em>[</em><em>]</em>) – A list of disable options. An alternative to setting NVFUSER_DISABLE environment variable.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>Output tensors from the fusion</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.13)">list</a> of <a class="reference external" href="https://docs.pytorch.org/docs/stable/tensors.html#torch.Tensor" title="(in PyTorch v2.8)">torch.Tensor</a></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="nvfuser_direct.FusionDefinition.from_pytorch">
+<span class="sig-name descname"><span class="pre">from_pytorch</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">tensor</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">static_sizes</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/nvfuser_direct.html#FusionDefinition.from_pytorch"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#nvfuser_direct.FusionDefinition.from_pytorch" title="Link to this definition"></a></dt>
+<dd><p>Define an nvFuser input tensor from a PyTorch tensor.
+This method creates a symbolic tensor for dynamic shape usage by default.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>tensor</strong> (<a class="reference external" href="https://docs.pytorch.org/docs/stable/tensors.html#torch.Tensor" title="(in PyTorch v2.8)"><em>torch.Tensor</em></a>) – Input PyTorch tensor to convert</p></li>
+<li><p><strong>static_sizes</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.13)"><em>bool</em></a><em>, </em><em>default=False</em>) – Whether to interpret sizes as static rather than symbolic
+for dynamic shape usage</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>The defined nvFuser tensor</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Tensor</p>
+</dd>
+<dt class="field-even">Raises<span class="colon">:</span></dt>
+<dd class="field-even"><p><a class="reference external" href="https://docs.python.org/3/library/exceptions.html#ValueError" title="(in Python v3.13)"><strong>ValueError</strong></a> – If a CPU non-scalar tensor is provided</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="nvfuser_direct.FusionDefinition.fusion">
+<em class="property"><span class="pre">property</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">fusion</span></span><a class="headerlink" href="#nvfuser_direct.FusionDefinition.fusion" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="nvfuser_direct.FusionDefinition.last_repro_script">
+<span class="sig-name descname"><span class="pre">last_repro_script</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a></span></span><a class="reference internal" href="../_modules/nvfuser_direct.html#FusionDefinition.last_repro_script"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#nvfuser_direct.FusionDefinition.last_repro_script" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="nvfuser_direct.FusionDefinition.manual_execute">
+<span class="sig-name descname"><span class="pre">manual_execute</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">inputs</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/nvfuser_direct.html#FusionDefinition.manual_execute"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#nvfuser_direct.FusionDefinition.manual_execute" title="Link to this definition"></a></dt>
+<dd><p>Execute the fusion with the given inputs.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>inputs</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.13)"><em>list</em></a><em> of </em><a class="reference external" href="https://docs.pytorch.org/docs/stable/tensors.html#torch.Tensor" title="(in PyTorch v2.8)"><em>torch.Tensor</em></a>) – Input tensors to the fusion</p>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>Output tensors from the fusion</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.13)">list</a> of <a class="reference external" href="https://docs.pytorch.org/docs/stable/tensors.html#torch.Tensor" title="(in PyTorch v2.8)">torch.Tensor</a></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="nvfuser_direct.FusionDefinition.manual_validate">
+<span class="sig-name descname"><span class="pre">manual_validate</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">inputs</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.13)"><span class="pre">list</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.pytorch.org/docs/stable/tensors.html#torch.Tensor" title="(in PyTorch v2.8)"><span class="pre">Tensor</span></a><span class="p"><span class="pre">]</span></span></span></em>, <em class="sig-param"><span class="n"><span class="pre">reference_outputs</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.13)"><span class="pre">list</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.pytorch.org/docs/stable/tensors.html#torch.Tensor" title="(in PyTorch v2.8)"><span class="pre">Tensor</span></a><span class="p"><span class="pre">]</span></span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.13)"><span class="pre">None</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/nvfuser_direct.html#FusionDefinition.manual_validate"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#nvfuser_direct.FusionDefinition.manual_validate" title="Link to this definition"></a></dt>
+<dd><p>Validates the fusion outputs against the provided reference outputs.
+Outputs are obtained using execute method, which uses the
+FusionExecutorCache with automatic scheduling.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>inputs</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.13)"><em>list</em></a><em> of </em><a class="reference external" href="https://docs.pytorch.org/docs/stable/tensors.html#torch.Tensor" title="(in PyTorch v2.8)"><em>torch.Tensor</em></a>) – A list of inputs expected by the fusion definition</p></li>
+<li><p><strong>reference_outputs</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.13)"><em>list</em></a><em> of </em><a class="reference external" href="https://docs.pytorch.org/docs/stable/tensors.html#torch.Tensor" title="(in PyTorch v2.8)"><em>torch.Tensor</em></a><em>, </em><em>optional</em>) – A list of reference outputs to validate against</p></li>
+</ul>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>None</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="nvfuser_direct.FusionDefinition.repro_script_for">
+<span class="sig-name descname"><span class="pre">repro_script_for</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">inputs</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.13)"><span class="pre">list</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.13)"><span class="pre">None</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a></span></span><a class="reference internal" href="../_modules/nvfuser_direct.html#FusionDefinition.repro_script_for"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#nvfuser_direct.FusionDefinition.repro_script_for" title="Link to this definition"></a></dt>
+<dd><p>Generate a repro script for the fusion.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>inputs</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.13)"><em>list</em></a><em> of </em><a class="reference external" href="https://docs.pytorch.org/docs/stable/tensors.html#torch.Tensor" title="(in PyTorch v2.8)"><em>torch.Tensor</em></a>) – The list of torch.Tensor inputs to the fusion</p>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>The repro script for the fusion</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)">str</a></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="nvfuser_direct.FusionDefinition.validate">
+<span class="sig-name descname"><span class="pre">validate</span></span><span class="sig-paren">(</span>
+
+<dl>
+<dd><em class="sig-param"><span class="n"><span class="pre">inputs</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.13)"><span class="pre">list</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.pytorch.org/docs/stable/tensors.html#torch.Tensor" title="(in PyTorch v2.8)"><span class="pre">Tensor</span></a><span class="p"><span class="pre">]</span></span></span></em>,</dd>
+<dd><em class="sig-param"><span class="n"><span class="pre">reference_outputs</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.13)"><span class="pre">list</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.pytorch.org/docs/stable/tensors.html#torch.Tensor" title="(in PyTorch v2.8)"><span class="pre">Tensor</span></a><span class="p"><span class="pre">]</span></span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.13)"><span class="pre">None</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>,</dd>
+<dd><em class="sig-param"><span class="n"><span class="pre">device</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.pytorch.org/docs/stable/tensor_attributes.html#torch.device" title="(in PyTorch v2.8)"><span class="pre">device</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.13)"><span class="pre">None</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>,</dd>
+<dd><em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em>,</dd>
+</dl>
+
+<span class="sig-paren">)</span><a class="reference internal" href="../_modules/nvfuser_direct.html#FusionDefinition.validate"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#nvfuser_direct.FusionDefinition.validate" title="Link to this definition"></a></dt>
+<dd><p>Validates the fusion outputs against the provided reference outputs.
+Outputs are obtained using execute method, which uses the
+FusionExecutorCache with automatic scheduling.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>inputs</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.13)"><em>list</em></a><em> of </em><a class="reference external" href="https://docs.pytorch.org/docs/stable/tensors.html#torch.Tensor" title="(in PyTorch v2.8)"><em>torch.Tensor</em></a>) – A list of inputs expected by the fusion definition</p></li>
+<li><p><strong>reference_outputs</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.13)"><em>list</em></a><em> of </em><a class="reference external" href="https://docs.pytorch.org/docs/stable/tensors.html#torch.Tensor" title="(in PyTorch v2.8)"><em>torch.Tensor</em></a><em>, </em><em>optional</em>) – A list of reference outputs to validate against</p></li>
+<li><p><strong>device</strong> (<a class="reference external" href="https://docs.pytorch.org/docs/stable/tensor_attributes.html#torch.device" title="(in PyTorch v2.8)"><em>torch.device</em></a><em>, </em><em>optional</em>) – The device to execute the fusion on</p></li>
+<li><p><strong>**kwargs</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#dict" title="(in Python v3.13)"><em>dict</em></a><em>, </em><em>optional</em>) – Additional keyword arguments to pass to the execute method</p></li>
+</ul>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>None</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="nvfuser_direct.FusionDefinition.validate_definition">
+<span class="sig-name descname"><span class="pre">validate_definition</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../_modules/nvfuser_direct.html#FusionDefinition.validate_definition"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#nvfuser_direct.FusionDefinition.validate_definition" title="Link to this definition"></a></dt>
+<dd><p>Validate that the FusionDefinition is defined.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p><ul class="simple">
+<li><p><em>bool</em> – True if the FusionDefinition is defined, False otherwise</p></li>
+<li><p><em>str</em> – The error message if the FusionDefinition is not defined</p></li>
+</ul>
+</p>
+</dd>
+</dl>
+</dd></dl>
+
+</dd></dl>
+
 </section>
 </section>
 

@@ -7,7 +7,7 @@
 
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>The Mathematical Theory of IterDomain &mdash; nvFuser 0.2.34 documentation</title>
-      <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=03e43079" />
+      <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=fa44fd50" />
       <link rel="stylesheet" type="text/css" href="../_static/css/theme.css?v=e59714d7" />
       <link rel="stylesheet" type="text/css" href="../_static/css/nvidia_font.css?v=e009355c" />
       <link rel="stylesheet" type="text/css" href="../_static/css/nvidia_footer.css?v=84031d34" />
@@ -148,37 +148,325 @@
 <p class="caption" role="heading"><span class="caption-text">Python API</span></p>
 <ul>
 <li class="toctree-l1"><a class="reference internal" href="../api/general.html">General</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="../api/general.html#statement">Statement</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../api/general.html#val">Val</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../api/general.html#expr">Expr</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../api/general.html#iterdomain">IterDomain</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../api/general.html#tensordomain">TensorDomain</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../api/general.html#tensorview">TensorView</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../api/general.html#fusionexecutorcache">FusionExecutorCache</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../api/general.html#kernelexecutor">KernelExecutor</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../api/general.html#fusion-definition">Fusion Definition</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../api/general.html#statement">Statement</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../api/general.html#nvfuser_direct.Statement"><code class="docutils literal notranslate"><span class="pre">Statement</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../api/general.html#val">Val</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../api/general.html#nvfuser_direct.Val"><code class="docutils literal notranslate"><span class="pre">Val</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../api/general.html#nvfuser_direct.Val.definition"><code class="docutils literal notranslate"><span class="pre">Val.definition()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../api/general.html#nvfuser_direct.Val.is_symbolic"><code class="docutils literal notranslate"><span class="pre">Val.is_symbolic()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../api/general.html#nvfuser_direct.Val.is_tensor"><code class="docutils literal notranslate"><span class="pre">Val.is_tensor()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../api/general.html#nvfuser_direct.Val.uses"><code class="docutils literal notranslate"><span class="pre">Val.uses()</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../api/general.html#expr">Expr</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../api/general.html#nvfuser_direct.Expr"><code class="docutils literal notranslate"><span class="pre">Expr</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../api/general.html#nvfuser_direct.Expr.input"><code class="docutils literal notranslate"><span class="pre">Expr.input()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../api/general.html#nvfuser_direct.Expr.output"><code class="docutils literal notranslate"><span class="pre">Expr.output()</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../api/general.html#iterdomain">IterDomain</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../api/general.html#nvfuser_direct.IterDomain"><code class="docutils literal notranslate"><span class="pre">IterDomain</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../api/general.html#nvfuser_direct.IterDomain.extent"><code class="docutils literal notranslate"><span class="pre">IterDomain.extent()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../api/general.html#nvfuser_direct.IterDomain.parallelize"><code class="docutils literal notranslate"><span class="pre">IterDomain.parallelize()</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../api/general.html#tensordomain">TensorDomain</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../api/general.html#nvfuser_direct.TensorDomain"><code class="docutils literal notranslate"><span class="pre">TensorDomain</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../api/general.html#tensorview">TensorView</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../api/general.html#nvfuser_direct.TensorView"><code class="docutils literal notranslate"><span class="pre">TensorView</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../api/general.html#nvfuser_direct.TensorView.axis"><code class="docutils literal notranslate"><span class="pre">TensorView.axis()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../api/general.html#nvfuser_direct.TensorView.domain"><code class="docutils literal notranslate"><span class="pre">TensorView.domain()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../api/general.html#nvfuser_direct.TensorView.get_logical_domain"><code class="docutils literal notranslate"><span class="pre">TensorView.get_logical_domain()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../api/general.html#nvfuser_direct.TensorView.get_loop_domain"><code class="docutils literal notranslate"><span class="pre">TensorView.get_loop_domain()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../api/general.html#nvfuser_direct.TensorView.get_root_domain"><code class="docutils literal notranslate"><span class="pre">TensorView.get_root_domain()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../api/general.html#nvfuser_direct.TensorView.has_root"><code class="docutils literal notranslate"><span class="pre">TensorView.has_root()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../api/general.html#nvfuser_direct.TensorView.merge"><code class="docutils literal notranslate"><span class="pre">TensorView.merge()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../api/general.html#nvfuser_direct.TensorView.ndim"><code class="docutils literal notranslate"><span class="pre">TensorView.ndim</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../api/general.html#nvfuser_direct.TensorView.rfactor"><code class="docutils literal notranslate"><span class="pre">TensorView.rfactor()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../api/general.html#nvfuser_direct.TensorView.set_allocation_domain"><code class="docutils literal notranslate"><span class="pre">TensorView.set_allocation_domain()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../api/general.html#nvfuser_direct.TensorView.set_device_mesh"><code class="docutils literal notranslate"><span class="pre">TensorView.set_device_mesh()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../api/general.html#nvfuser_direct.TensorView.shape"><code class="docutils literal notranslate"><span class="pre">TensorView.shape()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../api/general.html#nvfuser_direct.TensorView.size"><code class="docutils literal notranslate"><span class="pre">TensorView.size()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../api/general.html#nvfuser_direct.TensorView.split"><code class="docutils literal notranslate"><span class="pre">TensorView.split()</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../api/general.html#fusionexecutorcache">FusionExecutorCache</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../api/general.html#nvfuser_direct.FusionExecutorCache"><code class="docutils literal notranslate"><span class="pre">FusionExecutorCache</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../api/general.html#nvfuser_direct.FusionExecutorCache.execute"><code class="docutils literal notranslate"><span class="pre">FusionExecutorCache.execute()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../api/general.html#nvfuser_direct.FusionExecutorCache.fusion"><code class="docutils literal notranslate"><span class="pre">FusionExecutorCache.fusion()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../api/general.html#nvfuser_direct.FusionExecutorCache.get_cuda_kernel"><code class="docutils literal notranslate"><span class="pre">FusionExecutorCache.get_cuda_kernel()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../api/general.html#nvfuser_direct.FusionExecutorCache.get_most_recent_scheduled_ir"><code class="docutils literal notranslate"><span class="pre">FusionExecutorCache.get_most_recent_scheduled_ir()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../api/general.html#nvfuser_direct.FusionExecutorCache.get_output_shardings"><code class="docutils literal notranslate"><span class="pre">FusionExecutorCache.get_output_shardings()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../api/general.html#nvfuser_direct.FusionExecutorCache.get_scheduled_ir"><code class="docutils literal notranslate"><span class="pre">FusionExecutorCache.get_scheduled_ir()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../api/general.html#nvfuser_direct.FusionExecutorCache.is_compiled"><code class="docutils literal notranslate"><span class="pre">FusionExecutorCache.is_compiled()</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../api/general.html#kernelexecutor">KernelExecutor</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../api/general.html#nvfuser_direct.KernelExecutor"><code class="docutils literal notranslate"><span class="pre">KernelExecutor</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../api/general.html#nvfuser_direct.KernelExecutor.compile"><code class="docutils literal notranslate"><span class="pre">KernelExecutor.compile()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../api/general.html#nvfuser_direct.KernelExecutor.is_compiled"><code class="docutils literal notranslate"><span class="pre">KernelExecutor.is_compiled()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../api/general.html#nvfuser_direct.KernelExecutor.run"><code class="docutils literal notranslate"><span class="pre">KernelExecutor.run()</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../api/general.html#fusion-definition">Fusion Definition</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../api/general.html#nvfuser_direct.FusionDefinition"><code class="docutils literal notranslate"><span class="pre">FusionDefinition</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../api/general.html#nvfuser_direct.FusionDefinition.add_output"><code class="docutils literal notranslate"><span class="pre">FusionDefinition.add_output()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../api/general.html#nvfuser_direct.FusionDefinition.define_scalar"><code class="docutils literal notranslate"><span class="pre">FusionDefinition.define_scalar()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../api/general.html#nvfuser_direct.FusionDefinition.define_tensor"><code class="docutils literal notranslate"><span class="pre">FusionDefinition.define_tensor()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../api/general.html#nvfuser_direct.FusionDefinition.define_vector"><code class="docutils literal notranslate"><span class="pre">FusionDefinition.define_vector()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../api/general.html#nvfuser_direct.FusionDefinition.execute"><code class="docutils literal notranslate"><span class="pre">FusionDefinition.execute()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../api/general.html#nvfuser_direct.FusionDefinition.from_pytorch"><code class="docutils literal notranslate"><span class="pre">FusionDefinition.from_pytorch()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../api/general.html#nvfuser_direct.FusionDefinition.fusion"><code class="docutils literal notranslate"><span class="pre">FusionDefinition.fusion</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../api/general.html#nvfuser_direct.FusionDefinition.last_repro_script"><code class="docutils literal notranslate"><span class="pre">FusionDefinition.last_repro_script()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../api/general.html#nvfuser_direct.FusionDefinition.manual_execute"><code class="docutils literal notranslate"><span class="pre">FusionDefinition.manual_execute()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../api/general.html#nvfuser_direct.FusionDefinition.manual_validate"><code class="docutils literal notranslate"><span class="pre">FusionDefinition.manual_validate()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../api/general.html#nvfuser_direct.FusionDefinition.repro_script_for"><code class="docutils literal notranslate"><span class="pre">FusionDefinition.repro_script_for()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../api/general.html#nvfuser_direct.FusionDefinition.validate"><code class="docutils literal notranslate"><span class="pre">FusionDefinition.validate()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../api/general.html#nvfuser_direct.FusionDefinition.validate_definition"><code class="docutils literal notranslate"><span class="pre">FusionDefinition.validate_definition()</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="../api/ops.html">Operations</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="../api/ops.html#ops">Ops</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../api/ops.html#module-nvfuser_direct.ops">Ops</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../api/ops.html#nvfuser_direct.ops.abs"><code class="docutils literal notranslate"><span class="pre">abs()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../api/ops.html#nvfuser_direct.ops.acos"><code class="docutils literal notranslate"><span class="pre">acos()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../api/ops.html#nvfuser_direct.ops.acosh"><code class="docutils literal notranslate"><span class="pre">acosh()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../api/ops.html#nvfuser_direct.ops.add"><code class="docutils literal notranslate"><span class="pre">add()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../api/ops.html#nvfuser_direct.ops.addcmul"><code class="docutils literal notranslate"><span class="pre">addcmul()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../api/ops.html#nvfuser_direct.ops.argsort"><code class="docutils literal notranslate"><span class="pre">argsort()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../api/ops.html#nvfuser_direct.ops.asin"><code class="docutils literal notranslate"><span class="pre">asin()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../api/ops.html#nvfuser_direct.ops.asinh"><code class="docutils literal notranslate"><span class="pre">asinh()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../api/ops.html#nvfuser_direct.ops.atan"><code class="docutils literal notranslate"><span class="pre">atan()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../api/ops.html#nvfuser_direct.ops.atan2"><code class="docutils literal notranslate"><span class="pre">atan2()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../api/ops.html#nvfuser_direct.ops.atanh"><code class="docutils literal notranslate"><span class="pre">atanh()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../api/ops.html#nvfuser_direct.ops.bitwise_and"><code class="docutils literal notranslate"><span class="pre">bitwise_and()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../api/ops.html#nvfuser_direct.ops.bitwise_left_shift"><code class="docutils literal notranslate"><span class="pre">bitwise_left_shift()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../api/ops.html#nvfuser_direct.ops.bitwise_not"><code class="docutils literal notranslate"><span class="pre">bitwise_not()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../api/ops.html#nvfuser_direct.ops.bitwise_or"><code class="docutils literal notranslate"><span class="pre">bitwise_or()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../api/ops.html#nvfuser_direct.ops.bitwise_right_shift"><code class="docutils literal notranslate"><span class="pre">bitwise_right_shift()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../api/ops.html#nvfuser_direct.ops.bitwise_xor"><code class="docutils literal notranslate"><span class="pre">bitwise_xor()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../api/ops.html#nvfuser_direct.ops.broadcast"><code class="docutils literal notranslate"><span class="pre">broadcast()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../api/ops.html#nvfuser_direct.ops.broadcast_in_dim"><code class="docutils literal notranslate"><span class="pre">broadcast_in_dim()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../api/ops.html#nvfuser_direct.ops.cast"><code class="docutils literal notranslate"><span class="pre">cast()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../api/ops.html#nvfuser_direct.ops.ceil"><code class="docutils literal notranslate"><span class="pre">ceil()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../api/ops.html#nvfuser_direct.ops.clamp"><code class="docutils literal notranslate"><span class="pre">clamp()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../api/ops.html#nvfuser_direct.ops.complex"><code class="docutils literal notranslate"><span class="pre">complex()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../api/ops.html#nvfuser_direct.ops.cos"><code class="docutils literal notranslate"><span class="pre">cos()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../api/ops.html#nvfuser_direct.ops.cosh"><code class="docutils literal notranslate"><span class="pre">cosh()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../api/ops.html#nvfuser_direct.ops.cummax"><code class="docutils literal notranslate"><span class="pre">cummax()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../api/ops.html#nvfuser_direct.ops.cummin"><code class="docutils literal notranslate"><span class="pre">cummin()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../api/ops.html#nvfuser_direct.ops.cumprod"><code class="docutils literal notranslate"><span class="pre">cumprod()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../api/ops.html#nvfuser_direct.ops.cumsum"><code class="docutils literal notranslate"><span class="pre">cumsum()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../api/ops.html#nvfuser_direct.ops.cutlass_nvfp4_grouped_mm"><code class="docutils literal notranslate"><span class="pre">cutlass_nvfp4_grouped_mm()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../api/ops.html#nvfuser_direct.ops.div"><code class="docutils literal notranslate"><span class="pre">div()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../api/ops.html#nvfuser_direct.ops.embedding_fwd"><code class="docutils literal notranslate"><span class="pre">embedding_fwd()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../api/ops.html#nvfuser_direct.ops.eq"><code class="docutils literal notranslate"><span class="pre">eq()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../api/ops.html#nvfuser_direct.ops.erf"><code class="docutils literal notranslate"><span class="pre">erf()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../api/ops.html#nvfuser_direct.ops.erfc"><code class="docutils literal notranslate"><span class="pre">erfc()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../api/ops.html#nvfuser_direct.ops.erfcinv"><code class="docutils literal notranslate"><span class="pre">erfcinv()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../api/ops.html#nvfuser_direct.ops.erfinv"><code class="docutils literal notranslate"><span class="pre">erfinv()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../api/ops.html#nvfuser_direct.ops.exp"><code class="docutils literal notranslate"><span class="pre">exp()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../api/ops.html#nvfuser_direct.ops.exp2"><code class="docutils literal notranslate"><span class="pre">exp2()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../api/ops.html#nvfuser_direct.ops.expand"><code class="docutils literal notranslate"><span class="pre">expand()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../api/ops.html#nvfuser_direct.ops.expm1"><code class="docutils literal notranslate"><span class="pre">expm1()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../api/ops.html#nvfuser_direct.ops.floor"><code class="docutils literal notranslate"><span class="pre">floor()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../api/ops.html#nvfuser_direct.ops.fmod"><code class="docutils literal notranslate"><span class="pre">fmod()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../api/ops.html#nvfuser_direct.ops.frac"><code class="docutils literal notranslate"><span class="pre">frac()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../api/ops.html#nvfuser_direct.ops.full"><code class="docutils literal notranslate"><span class="pre">full()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../api/ops.html#nvfuser_direct.ops.gather"><code class="docutils literal notranslate"><span class="pre">gather()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../api/ops.html#nvfuser_direct.ops.gcd"><code class="docutils literal notranslate"><span class="pre">gcd()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../api/ops.html#nvfuser_direct.ops.ge"><code class="docutils literal notranslate"><span class="pre">ge()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../api/ops.html#nvfuser_direct.ops.grouped_mm"><code class="docutils literal notranslate"><span class="pre">grouped_mm()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../api/ops.html#nvfuser_direct.ops.gt"><code class="docutils literal notranslate"><span class="pre">gt()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../api/ops.html#nvfuser_direct.ops.imag"><code class="docutils literal notranslate"><span class="pre">imag()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../api/ops.html#nvfuser_direct.ops.index_select"><code class="docutils literal notranslate"><span class="pre">index_select()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../api/ops.html#nvfuser_direct.ops.iota"><code class="docutils literal notranslate"><span class="pre">iota()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../api/ops.html#nvfuser_direct.ops.isfinite"><code class="docutils literal notranslate"><span class="pre">isfinite()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../api/ops.html#nvfuser_direct.ops.isinf"><code class="docutils literal notranslate"><span class="pre">isinf()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../api/ops.html#nvfuser_direct.ops.isnan"><code class="docutils literal notranslate"><span class="pre">isnan()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../api/ops.html#nvfuser_direct.ops.isneginf"><code class="docutils literal notranslate"><span class="pre">isneginf()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../api/ops.html#nvfuser_direct.ops.isposinf"><code class="docutils literal notranslate"><span class="pre">isposinf()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../api/ops.html#nvfuser_direct.ops.isreal"><code class="docutils literal notranslate"><span class="pre">isreal()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../api/ops.html#nvfuser_direct.ops.le"><code class="docutils literal notranslate"><span class="pre">le()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../api/ops.html#nvfuser_direct.ops.lerp"><code class="docutils literal notranslate"><span class="pre">lerp()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../api/ops.html#nvfuser_direct.ops.lgamma"><code class="docutils literal notranslate"><span class="pre">lgamma()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../api/ops.html#nvfuser_direct.ops.linear"><code class="docutils literal notranslate"><span class="pre">linear()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../api/ops.html#nvfuser_direct.ops.log"><code class="docutils literal notranslate"><span class="pre">log()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../api/ops.html#nvfuser_direct.ops.log10"><code class="docutils literal notranslate"><span class="pre">log10()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../api/ops.html#nvfuser_direct.ops.log1p"><code class="docutils literal notranslate"><span class="pre">log1p()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../api/ops.html#nvfuser_direct.ops.log2"><code class="docutils literal notranslate"><span class="pre">log2()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../api/ops.html#nvfuser_direct.ops.logical_and"><code class="docutils literal notranslate"><span class="pre">logical_and()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../api/ops.html#nvfuser_direct.ops.logical_not"><code class="docutils literal notranslate"><span class="pre">logical_not()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../api/ops.html#nvfuser_direct.ops.logical_or"><code class="docutils literal notranslate"><span class="pre">logical_or()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../api/ops.html#nvfuser_direct.ops.logical_right_shift"><code class="docutils literal notranslate"><span class="pre">logical_right_shift()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../api/ops.html#nvfuser_direct.ops.lt"><code class="docutils literal notranslate"><span class="pre">lt()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../api/ops.html#nvfuser_direct.ops.matmul"><code class="docutils literal notranslate"><span class="pre">matmul()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../api/ops.html#nvfuser_direct.ops.max"><code class="docutils literal notranslate"><span class="pre">max()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../api/ops.html#nvfuser_direct.ops.maximum"><code class="docutils literal notranslate"><span class="pre">maximum()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../api/ops.html#nvfuser_direct.ops.min"><code class="docutils literal notranslate"><span class="pre">min()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../api/ops.html#nvfuser_direct.ops.minimum"><code class="docutils literal notranslate"><span class="pre">minimum()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../api/ops.html#nvfuser_direct.ops.mod"><code class="docutils literal notranslate"><span class="pre">mod()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../api/ops.html#nvfuser_direct.ops.mul"><code class="docutils literal notranslate"><span class="pre">mul()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../api/ops.html#nvfuser_direct.ops.ne"><code class="docutils literal notranslate"><span class="pre">ne()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../api/ops.html#nvfuser_direct.ops.neg"><code class="docutils literal notranslate"><span class="pre">neg()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../api/ops.html#nvfuser_direct.ops.nextafter"><code class="docutils literal notranslate"><span class="pre">nextafter()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../api/ops.html#nvfuser_direct.ops.normal"><code class="docutils literal notranslate"><span class="pre">normal()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../api/ops.html#nvfuser_direct.ops.pad"><code class="docutils literal notranslate"><span class="pre">pad()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../api/ops.html#nvfuser_direct.ops.permute"><code class="docutils literal notranslate"><span class="pre">permute()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../api/ops.html#nvfuser_direct.ops.pow"><code class="docutils literal notranslate"><span class="pre">pow()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../api/ops.html#nvfuser_direct.ops.prod"><code class="docutils literal notranslate"><span class="pre">prod()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../api/ops.html#nvfuser_direct.ops.rand_like"><code class="docutils literal notranslate"><span class="pre">rand_like()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../api/ops.html#nvfuser_direct.ops.randn_like"><code class="docutils literal notranslate"><span class="pre">randn_like()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../api/ops.html#nvfuser_direct.ops.real"><code class="docutils literal notranslate"><span class="pre">real()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../api/ops.html#nvfuser_direct.ops.reciprocal"><code class="docutils literal notranslate"><span class="pre">reciprocal()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../api/ops.html#nvfuser_direct.ops.relu"><code class="docutils literal notranslate"><span class="pre">relu()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../api/ops.html#nvfuser_direct.ops.remainder"><code class="docutils literal notranslate"><span class="pre">remainder()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../api/ops.html#nvfuser_direct.ops.reshape"><code class="docutils literal notranslate"><span class="pre">reshape()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../api/ops.html#nvfuser_direct.ops.round"><code class="docutils literal notranslate"><span class="pre">round()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../api/ops.html#nvfuser_direct.ops.rsqrt"><code class="docutils literal notranslate"><span class="pre">rsqrt()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../api/ops.html#nvfuser_direct.ops.scaled_mm"><code class="docutils literal notranslate"><span class="pre">scaled_mm()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../api/ops.html#nvfuser_direct.ops.scatter"><code class="docutils literal notranslate"><span class="pre">scatter()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../api/ops.html#nvfuser_direct.ops.sdpfa_bwd"><code class="docutils literal notranslate"><span class="pre">sdpfa_bwd()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../api/ops.html#nvfuser_direct.ops.sdpfa_fwd"><code class="docutils literal notranslate"><span class="pre">sdpfa_fwd()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../api/ops.html#nvfuser_direct.ops.segment_set"><code class="docutils literal notranslate"><span class="pre">segment_set()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../api/ops.html#nvfuser_direct.ops.select"><code class="docutils literal notranslate"><span class="pre">select()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../api/ops.html#nvfuser_direct.ops.set"><code class="docutils literal notranslate"><span class="pre">set()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../api/ops.html#nvfuser_direct.ops.shape"><code class="docutils literal notranslate"><span class="pre">shape()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../api/ops.html#nvfuser_direct.ops.sigmoid"><code class="docutils literal notranslate"><span class="pre">sigmoid()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../api/ops.html#nvfuser_direct.ops.sign"><code class="docutils literal notranslate"><span class="pre">sign()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../api/ops.html#nvfuser_direct.ops.signbit"><code class="docutils literal notranslate"><span class="pre">signbit()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../api/ops.html#nvfuser_direct.ops.silu"><code class="docutils literal notranslate"><span class="pre">silu()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../api/ops.html#nvfuser_direct.ops.sin"><code class="docutils literal notranslate"><span class="pre">sin()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../api/ops.html#nvfuser_direct.ops.sinh"><code class="docutils literal notranslate"><span class="pre">sinh()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../api/ops.html#nvfuser_direct.ops.size"><code class="docutils literal notranslate"><span class="pre">size()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../api/ops.html#nvfuser_direct.ops.slice"><code class="docutils literal notranslate"><span class="pre">slice()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../api/ops.html#nvfuser_direct.ops.sqrt"><code class="docutils literal notranslate"><span class="pre">sqrt()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../api/ops.html#nvfuser_direct.ops.squeeze"><code class="docutils literal notranslate"><span class="pre">squeeze()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../api/ops.html#nvfuser_direct.ops.stride_order"><code class="docutils literal notranslate"><span class="pre">stride_order()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../api/ops.html#nvfuser_direct.ops.sub"><code class="docutils literal notranslate"><span class="pre">sub()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../api/ops.html#nvfuser_direct.ops.sum"><code class="docutils literal notranslate"><span class="pre">sum()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../api/ops.html#nvfuser_direct.ops.take_along_axis"><code class="docutils literal notranslate"><span class="pre">take_along_axis()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../api/ops.html#nvfuser_direct.ops.tan"><code class="docutils literal notranslate"><span class="pre">tan()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../api/ops.html#nvfuser_direct.ops.tanh"><code class="docutils literal notranslate"><span class="pre">tanh()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../api/ops.html#nvfuser_direct.ops.threshold"><code class="docutils literal notranslate"><span class="pre">threshold()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../api/ops.html#nvfuser_direct.ops.topk"><code class="docutils literal notranslate"><span class="pre">topk()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../api/ops.html#nvfuser_direct.ops.triu"><code class="docutils literal notranslate"><span class="pre">triu()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../api/ops.html#nvfuser_direct.ops.truediv"><code class="docutils literal notranslate"><span class="pre">truediv()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../api/ops.html#nvfuser_direct.ops.trunc"><code class="docutils literal notranslate"><span class="pre">trunc()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../api/ops.html#nvfuser_direct.ops.uniform"><code class="docutils literal notranslate"><span class="pre">uniform()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../api/ops.html#nvfuser_direct.ops.var"><code class="docutils literal notranslate"><span class="pre">var()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../api/ops.html#nvfuser_direct.ops.var_mean"><code class="docutils literal notranslate"><span class="pre">var_mean()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../api/ops.html#nvfuser_direct.ops.welford"><code class="docutils literal notranslate"><span class="pre">welford()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../api/ops.html#nvfuser_direct.ops.where"><code class="docutils literal notranslate"><span class="pre">where()</span></code></a></li>
+</ul>
+</li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="../api/multidevice.html">Multidevice</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="../api/multidevice.html#communicator">Communicator</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../api/multidevice.html#devicemesh">DeviceMesh</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../api/multidevice.html#sharding">Sharding</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../api/multidevice.html#communicator">Communicator</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../api/multidevice.html#nvfuser_direct.multidevice.Communicator"><code class="docutils literal notranslate"><span class="pre">Communicator</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../api/multidevice.html#nvfuser_direct.multidevice.Communicator.barrier"><code class="docutils literal notranslate"><span class="pre">Communicator.barrier()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../api/multidevice.html#nvfuser_direct.multidevice.Communicator.instance"><code class="docutils literal notranslate"><span class="pre">Communicator.instance()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../api/multidevice.html#nvfuser_direct.multidevice.Communicator.local_rank"><code class="docutils literal notranslate"><span class="pre">Communicator.local_rank()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../api/multidevice.html#nvfuser_direct.multidevice.Communicator.local_size"><code class="docutils literal notranslate"><span class="pre">Communicator.local_size()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../api/multidevice.html#nvfuser_direct.multidevice.Communicator.rank"><code class="docutils literal notranslate"><span class="pre">Communicator.rank()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../api/multidevice.html#nvfuser_direct.multidevice.Communicator.size"><code class="docutils literal notranslate"><span class="pre">Communicator.size()</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../api/multidevice.html#devicemesh">DeviceMesh</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../api/multidevice.html#nvfuser_direct.multidevice.DeviceMesh"><code class="docutils literal notranslate"><span class="pre">DeviceMesh</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../api/multidevice.html#nvfuser_direct.multidevice.DeviceMesh.shape"><code class="docutils literal notranslate"><span class="pre">DeviceMesh.shape</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../api/multidevice.html#nvfuser_direct.multidevice.DeviceMesh.shard_tensor"><code class="docutils literal notranslate"><span class="pre">DeviceMesh.shard_tensor()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../api/multidevice.html#nvfuser_direct.multidevice.DeviceMesh.size"><code class="docutils literal notranslate"><span class="pre">DeviceMesh.size</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../api/multidevice.html#sharding">Sharding</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../api/multidevice.html#nvfuser_direct.multidevice.Sharding"><code class="docutils literal notranslate"><span class="pre">Sharding</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../api/multidevice.html#nvfuser_direct.multidevice.Sharding.axis_sharded_on"><code class="docutils literal notranslate"><span class="pre">Sharding.axis_sharded_on()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../api/multidevice.html#nvfuser_direct.multidevice.Sharding.mesh"><code class="docutils literal notranslate"><span class="pre">Sharding.mesh</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="../api/enum.html">Enums</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="../api/enum.html#communicatorbackend-types">CommunicatorBackend Types</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../api/enum.html#data-types">Data Types</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../api/enum.html#parallel-types">Parallel Types</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../api/enum.html#scheduler-types">Scheduler Types</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../api/enum.html#communicatorbackend-types">CommunicatorBackend Types</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../api/enum.html#nvfuser_direct.CommunicatorBackend"><code class="docutils literal notranslate"><span class="pre">CommunicatorBackend</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../api/enum.html#nvfuser_direct.CommunicatorBackend.name"><code class="docutils literal notranslate"><span class="pre">CommunicatorBackend.name</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../api/enum.html#data-types">Data Types</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../api/enum.html#nvfuser_direct.DataType"><code class="docutils literal notranslate"><span class="pre">DataType</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../api/enum.html#nvfuser_direct.DataType.name"><code class="docutils literal notranslate"><span class="pre">DataType.name</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../api/enum.html#parallel-types">Parallel Types</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../api/enum.html#nvfuser_direct.ParallelType"><code class="docutils literal notranslate"><span class="pre">ParallelType</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../api/enum.html#nvfuser_direct.ParallelType.name"><code class="docutils literal notranslate"><span class="pre">ParallelType.name</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../api/enum.html#scheduler-types">Scheduler Types</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../api/enum.html#nvfuser_direct.SchedulerType"><code class="docutils literal notranslate"><span class="pre">SchedulerType</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../api/enum.html#nvfuser_direct.SchedulerType.name"><code class="docutils literal notranslate"><span class="pre">SchedulerType.name</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="../api/pod_class.html">Data classes</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="../api/pod_class.html#launchparams">LaunchParams</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../api/pod_class.html#compileparams">CompileParams</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../api/pod_class.html#launchparams">LaunchParams</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../api/pod_class.html#nvfuser_direct.LaunchParams"><code class="docutils literal notranslate"><span class="pre">LaunchParams</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../api/pod_class.html#nvfuser_direct.LaunchParams.bdimx"><code class="docutils literal notranslate"><span class="pre">LaunchParams.bdimx</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../api/pod_class.html#nvfuser_direct.LaunchParams.bdimy"><code class="docutils literal notranslate"><span class="pre">LaunchParams.bdimy</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../api/pod_class.html#nvfuser_direct.LaunchParams.bdimz"><code class="docutils literal notranslate"><span class="pre">LaunchParams.bdimz</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../api/pod_class.html#nvfuser_direct.LaunchParams.gdimx"><code class="docutils literal notranslate"><span class="pre">LaunchParams.gdimx</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../api/pod_class.html#nvfuser_direct.LaunchParams.gdimy"><code class="docutils literal notranslate"><span class="pre">LaunchParams.gdimy</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../api/pod_class.html#nvfuser_direct.LaunchParams.gdimz"><code class="docutils literal notranslate"><span class="pre">LaunchParams.gdimz</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../api/pod_class.html#compileparams">CompileParams</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../api/pod_class.html#nvfuser_direct.CompileParams"><code class="docutils literal notranslate"><span class="pre">CompileParams</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../api/pod_class.html#nvfuser_direct.CompileParams.enable_magic_zero"><code class="docutils literal notranslate"><span class="pre">CompileParams.enable_magic_zero</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../api/pod_class.html#nvfuser_direct.CompileParams.enable_ptxas_verbose"><code class="docutils literal notranslate"><span class="pre">CompileParams.enable_ptxas_verbose</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../api/pod_class.html#nvfuser_direct.CompileParams.index_type"><code class="docutils literal notranslate"><span class="pre">CompileParams.index_type</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../api/pod_class.html#nvfuser_direct.CompileParams.maxrregcount"><code class="docutils literal notranslate"><span class="pre">CompileParams.maxrregcount</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
 </ul>
 </li>
 </ul>
@@ -426,17 +714,17 @@ $<span class="math notranslate nohighlight">\(\mathrm{InnerSplit}(m)[0] \circ \m
 <p><strong>The extent mapping:</strong></p>
 <p>The extent mapping of <span class="math notranslate nohighlight">\(\mathrm{InnerSplit}(m)[0] \circ \mathrm{InnerSplit}(n)\)</span> is <span class="math notranslate nohighlight">\(i \to (i \lceil/\rceil n \lceil/\rceil m, m, n)\)</span>.</p>
 <p>The extent mapping of <span class="math notranslate nohighlight">\(\mathrm{InnerSplit}(n)[1] \circ \mathrm{InnerSplit}(m\cdot n)\)</span> is <span class="math notranslate nohighlight">\(i \to (i \lceil/\rceil (m\cdot n), m, n)\)</span>.</p>
-<p>According to Theorem 5.11 in <span class="xref myst">Integer Division</span>: <span class="math notranslate nohighlight">\(i \lceil/\rceil n \lceil/\rceil m = i \lceil/\rceil (m\cdot n)\)</span>.</p>
+<p>According to Theorem 5.11 in <a class="reference internal" href="#../math/integer-division.md"><span class="xref myst">Integer Division</span></a>: <span class="math notranslate nohighlight">\(i \lceil/\rceil n \lceil/\rceil m = i \lceil/\rceil (m\cdot n)\)</span>.</p>
 <p><strong>The index mapping:</strong></p>
 <p>The index mapping of <span class="math notranslate nohighlight">\(\mathrm{InnerSplit}(m)[0] \circ \mathrm{InnerSplit}(n)\)</span> is <span class="math notranslate nohighlight">\(i \to (i / n / m, i / n \mathbin{\\%} m, i \mathbin{\\%} n)\)</span>.</p>
 <p>The index mapping of <span class="math notranslate nohighlight">\(\mathrm{InnerSplit}(n)[1] \circ \mathrm{InnerSplit}(m\cdot n)\)</span> is <span class="math notranslate nohighlight">\(i \to (i / (m\cdot n), i \mathbin{\\%} (m\cdot n) / n, i \mathbin{\\%} (m\cdot n) \mathbin{\\%} n)\)</span>.</p>
-<p>According to Theorem 2.11 in <span class="xref myst">Integer Division</span>: <span class="math notranslate nohighlight">\(i / n / m = i / (m\cdot n)\)</span>.</p>
-<p>According to Theorem 2.12 in <span class="xref myst">Integer Division</span>:</p>
+<p>According to Theorem 2.11 in <a class="reference internal" href="#../math/integer-division.md"><span class="xref myst">Integer Division</span></a>: <span class="math notranslate nohighlight">\(i / n / m = i / (m\cdot n)\)</span>.</p>
+<p>According to Theorem 2.12 in <a class="reference internal" href="#../math/integer-division.md"><span class="xref myst">Integer Division</span></a>:</p>
 <div class="math notranslate nohighlight">
 \[\begin{split}i \mathbin{\\%} (m\cdot n) = i \mathbin{\\%} n + ((i / n) \mathbin{\\%} m) \times n\end{split}\]</div>
-<p>According to Theorem 2.15.1 in <span class="xref myst">Integer Division</span>:
+<p>According to Theorem 2.15.1 in <a class="reference internal" href="#../math/integer-division.md"><span class="xref myst">Integer Division</span></a>:
 $<span class="math notranslate nohighlight">\(i \mathbin{\\%} (m\cdot n) / n = (i / n) \mathbin{\\%} m\)</span>$</p>
-<p>According to Theorem 2.7.1 in <span class="xref myst">Integer Division</span>:
+<p>According to Theorem 2.7.1 in <a class="reference internal" href="#../math/integer-division.md"><span class="xref myst">Integer Division</span></a>:
 $<span class="math notranslate nohighlight">\(i \mathbin{\\%} (m\cdot n) \mathbin{\\%} n = i \mathbin{\\%} n\)</span>$</p>
 <p><span class="math notranslate nohighlight">\(\square\)</span></p>
 </details>
