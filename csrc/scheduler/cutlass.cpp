@@ -191,7 +191,7 @@ bool initNVMMH() {
 #else // HAS_NVMMH
 
 bool initNVMMH() {
-  TORCH_WARN_ONCE("nvFuser was built without nvMatmulHeurisitcs support");
+  TORCH_WARN_ONCE("nvFuser was built without nvMatmulHeuristics support");
   return false;
 }
 
@@ -214,8 +214,8 @@ std::unique_ptr<HeuristicParams> CutlassScheduler::computeHeuristics(
   // For now, use default parameters
   // TODO: Implement actual heuristics based on problem size, GPU arch, etc.
   // Once libheuristics is available via pycutlass wheel, integrate it here
-#ifdef HAS_NVMMH
   if (initNVMMH()) {
+#ifdef HAS_NVMMH
     std::cout << "found NVMMH" << std::endl;
     nvmmhHandle_t handle = nullptr;
     NVMMH_SAFE_CALL(nvMatmulHeuristicsCreate(&handle));
@@ -278,8 +278,8 @@ std::unique_ptr<HeuristicParams> CutlassScheduler::computeHeuristics(
     params->mma_tile.k = config.cta[2];
 
     NVMMH_SAFE_CALL(nvMatmulHeuristicsDestroy(&handle));
-  }
 #endif // HAS_NVMMH
+  }
 
   if (isDebugDumpEnabled(DebugDumpOption::SchedulerDebug)) {
     debug() << params->toString() << std::endl;
