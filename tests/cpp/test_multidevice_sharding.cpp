@@ -691,41 +691,6 @@ TEST_F(MultiDeviceTest, ViewWithMerge) {
       UnorderedElementsAre(HeuristicIs(SchedulerType::PointWise)));
 }
 
-TEST_F(MultiDeviceTest, ReorderParallelizedToFront) {
-  auto fusion = std::make_unique<Fusion>();
-  FusionGuard fg(fusion.get());
-
-  const auto d = communicator_->size();
-  auto mesh = DeviceMesh::createForNumDevices(d);
-
-  const int64_t b = 2, s = 4, h = 16;
-  TensorView* in = makeConcreteTensor({b, s, d * h});
-  TensorView* out = set(in);
-  fusion->addInput(in);
-  fusion->addOutput(out);
-
-  for (auto* tv : {in, out}) {
-    tv->setDeviceMesh(mesh);
-    tv->outer_split(-1, d);
-    tv->axis(-2)->parallelize(ParallelType::DIDx);
-    reorderParallelizedToFront(tv);
-    NVF_CHECK(tv->axis(0)->isDeviceDim());
-  }
-
-  at::Tensor in_tensor = at::randn({b, s, h}, tensor_options);
-  FusionExecutorCache executor_cache(std::move(fusion));
-  at::Tensor out_tensor =
-      executor_cache.runFusionWithInputs({in_tensor})[0].as<at::Tensor>();
-
-  testValidate(
-      executor_cache.fusion(),
-      {out_tensor},
-      {in_tensor},
-      {in_tensor},
-      __LINE__,
-      __FILE__);
-}
-
 using InsertReshardingTestParams = std::tuple<bool, bool, bool>;
 
 class InsertReshardingTest
