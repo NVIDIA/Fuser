@@ -66,6 +66,24 @@ endif()
 
 string(APPEND CMAKE_CXX_FLAGS " -Wno-psabi")
 
+# --------------------------
+# nvMatmulHeuristics support
+# --------------------------
+set(NVMMH_INCLUDE_DIR "NVMMH_INCLUDE_DIR-NOTFOUND" CACHE PATH "Directory containing nvMatmulHeuristics.h")
+if (NOT IS_DIRECTORY "${NVMMH_INCLUDE_DIR}")
+  find_path(NVMMH_INCLUDE_DIR nvMatmulHeuristics.h
+    PATHS /usr/local/lib/python3.12/dist-packages/nvidia/nvMatmulHeuristics/include $ENV{HOME}/.local/lib/python3.12/dist-packages/nvidia/nvMatmulHeuristics/include)
+endif()
+
+if(IS_DIRECTORY "${NVMMH_INCLUDE_DIR}")
+  set(NVMMH_FOUND TRUE)
+  string(APPEND CMAKE_CXX_FLAGS " -DHAS_NVMMH=1")
+else()
+  set(NVMMH_FOUND FALSE)
+  message(WARNING "nvMatmulHeuristics headers not found – building without nvMatmulHeuristics support")
+endif()
+# --------------------------
+
 find_package(Torch REQUIRED)
 find_package(Python REQUIRED Development.Module Interpreter)
 find_package(pybind11 REQUIRED)
@@ -486,6 +504,9 @@ endif()
 target_compile_definitions(codegen_internal PRIVATE "-DTORCH_CUDA_BUILD_MAIN_LIB")
 target_include_directories(codegen_internal PUBLIC ${NVFUSER_PYTHON_DIR})
 target_include_directories(codegen_internal PUBLIC ${NVFUSER_PYTHON_COMMON})
+if (NVMMH_FOUND)
+  target_include_directories(codegen_internal PUBLIC ${NVMMH_INCLUDE_DIR})
+endif()
 target_include_directories(codegen_internal SYSTEM PUBLIC
   ${CMAKE_SOURCE_DIR}/third_party/flatbuffers/include
   PRIVATE
@@ -1475,6 +1496,7 @@ message(STATUS "  NVFUSER_BUILD_WITH_ASAN            : ${NVFUSER_BUILD_WITH_ASAN
 message(STATUS "  NVFUSER_DISTRIBUTED                : ${NVFUSER_DISTRIBUTED}")
 message(STATUS "  NVFUSER_HOST_IR_JIT                : ${NVFUSER_HOST_IR_JIT}")
 message(STATUS "  NVFUSER_CPP_STANDARD               : ${NVFUSER_CPP_STANDARD}")
+message(STATUS "  NVMMH_INCLUDE_DIR                  : ${NVMMH_INCLUDE_DIR}")
 
 if(NVFUSER_STANDALONE_BUILD_WITH_UCC)
   message(STATUS "    UCC_HOME: $ENV{UCC_HOME}")
