@@ -1454,12 +1454,17 @@ void GreedyScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
   // Cache inputs
   auto cached_inputs = scheduler_utils::cacheInputs(fusion, true);
   for (const auto& [cache, original] : cached_inputs) {
-    greedy_params.transferParams(original, nullptr, cache, nullptr);
+    greedy_params.transferParams(
+        fusion->inputs().at(original)->as<TensorView>(),
+        nullptr,
+        cache,
+        nullptr);
   }
   // Cache and fork outputs
   auto cached_outputs = scheduler_utils::cacheAndForkOutputs(fusion, true);
   for (const auto& [cache, original] : cached_outputs) {
-    greedy_params.transferParams(original, cache);
+    greedy_params.transferParams(
+        fusion->outputs().at(original)->as<TensorView>(), cache);
   }
 
   std::cerr << std::endl;

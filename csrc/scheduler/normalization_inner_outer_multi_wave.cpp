@@ -556,8 +556,8 @@ void scheduleFusion(Fusion* fusion, const ReductionParams* rparams) {
   // helper tensors for persistent buffer projection.
   std::vector<TensorView*> dummy_outputs, reduction_tvs, smem_consumers,
       persistent_buffers;
-  std::vector<std::pair<TensorView*, TensorView*>> cached_inputs,
-      cached_outputs;
+  std::vector<std::pair<TensorView*, int64_t>> cached_inputs;
+  std::vector<std::pair<TensorView*, int64_t>> cached_outputs;
   normalization_scheduler_utils::commonScheduleBeforeIterDomainTransform(
       fusion,
       rparams,
