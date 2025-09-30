@@ -408,14 +408,8 @@ void IndexLowering::handle(const TopKOp* top) {
 void IndexLowering::handle(const BlockQuantizationOp* bqop) {
   const auto in = lowerSrcIndex(bqop->in(), bqop->quantizedOutput());
 
-  // For the two outputs, we don't really need indices.
-  const auto out_scales = IrBuilder::create<kir::TensorIndex>(
-      static_cast<TensorView*>(bqop->blockScales()),
-      IrBuilder::create<Val>(0L, DataType::Index));
-
-  const auto out_quantized = IrBuilder::create<kir::TensorIndex>(
-      static_cast<TensorView*>(bqop->quantizedOutput()),
-      IrBuilder::create<Val>(0L, DataType::Index));
+  const auto out_scales = lowerDstIndex(bqop->blockScales());
+  const auto out_quantized = lowerDstIndex(bqop->quantizedOutput());
 
   pushBack(
       IrBuilder::create<BlockQuantizationOp>(out_scales, out_quantized, in));

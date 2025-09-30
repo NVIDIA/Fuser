@@ -1691,8 +1691,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     // Second argument: quantized output
     // Third argument: block scale output
     func_args.arg(ir_utils::varName(bqop->input(0)));
-    func_args.arg(ir_utils::varName(bqop->quantizedOutput()));
-    func_args.arg(ir_utils::varName(bqop->blockScales())); // DataT
+    func_args.arg(genInline(bqop->quantizedOutput()));
+    func_args.arg(genInline(bqop->blockScales()));
 
     indent() << genCall("bq::block_quantize_to_nvfp4", template_args, func_args)
              << ";\n";

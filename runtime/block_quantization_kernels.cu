@@ -35,11 +35,11 @@ __device__ __inline__ void quadMaxReduction(float& local_max) {
 // This assumes that ITEMS_PER_THREAD is 4.
 // This assumes for block quantization, the block size is 16.
 // This works for float but will extended to work with bfloat.
-template <int ITEMS_PER_THREAD, int DIM>
+template <int ITEMS_PER_THREAD>
 __device__ void block_quantize_to_nvfp4(
     Array<float, ITEMS_PER_THREAD, 1>& input,
-    Tensor<__e2m1, DIM, DIM>& output,
-    Tensor<__e4m3, DIM, DIM>& fp8_output) {
+    __e2m1& output,
+    __e4m3& fp8_output) {
   assert(blockDim.x % 4 == 0);
   assert(blockDim.z == 1 && gridDim.z == 1);
   static_assert(
@@ -77,9 +77,7 @@ __device__ void block_quantize_to_nvfp4(
   // Convert back from FP8 to float using __e4m32float
   if (threadIdx.x % 4 == 0) // Only one thread per quad writes
   {
-    int offset_per_cta = (blockDim.x / 4) * blockIdx.x;
-    int quad_id = threadIdx.x / 4;
-    fp8_output[offset_per_cta + quad_id] = clamped_max_fp8;
+    fp8_output = clamped_max_fp8; // Broadcast to all threads
   }
 
   Array<float, 4, 4> clamped_vals;
@@ -99,9 +97,8 @@ __device__ void block_quantize_to_nvfp4(
     fp4_vals_aligned[i] = fp4_vals[i];
   }
 
-  int total_offset = (blockIdx.x * blockDim.x + threadIdx.x) * ITEMS_PER_THREAD;
   loadLocalToGlobal<__e2m1, /*vec_size=*/4, /*is_volatile=*/false>(
-      &output[total_offset], &fp4_vals_aligned.array[0]);
+      &output, &fp4_vals_aligned.array[0]);
 }
 
 } // namespace bq
