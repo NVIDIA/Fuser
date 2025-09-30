@@ -1341,12 +1341,17 @@ std::vector<std::pair<TensorView*, int64_t>> cacheInputs(
 
 // Returns the pairs of <cache of each fusion output, corresponding output> for
 // all outputs.
-std::vector<std::pair<TensorView*, TensorView*>> cacheAndForkOutputs(
+std::vector<std::pair<TensorView*, int64_t>> cacheAndForkOutputs(
     Fusion* fusion,
     bool unroll) {
-  std::vector<std::pair<TensorView*, TensorView*>> cached_outputs;
+  std::vector<std::pair<TensorView*, int64_t>> cached_outputs;
   // For intermediate outputs, apply cacheFork
-  for (auto output : ir_utils::filterByType<TensorView>(fusion->outputs())) {
+  for (auto [output_idx, output_val] : enumerate(fusion->outputs())) {
+    auto output = dynamic_cast<TensorView*>(output_val);
+    if (!output) {
+      continue;
+    }
+
     if (output->definition() == nullptr ||
         // the output of ScatterOp must on the global memory due to the random
         // or atomic access.
@@ -1364,7 +1369,7 @@ std::vector<std::pair<TensorView*, TensorView*>> cacheAndForkOutputs(
     // strategy is optimal.
     if (unroll) {
       auto cached_output = output->cacheBefore();
-      cached_outputs.emplace_back(cached_output, output);
+      cached_outputs.emplace_back(cached_output, output_idx);
     }
   }
   return cached_outputs;

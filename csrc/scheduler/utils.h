@@ -396,9 +396,10 @@ std::vector<std::pair<TensorView*, int64_t>> cacheInputs(
     Fusion* fusion,
     bool unroll);
 
-// Returns the pairs of <cache of each fusion output, corresponding output> for
-// all outputs.
-std::vector<std::pair<TensorView*, TensorView*>> cacheAndForkOutputs(
+// Returns the pairs of <cache, output_index> for each cached fusion output.
+// output_index is the position in fusion->outputs(). Otherwise return empty
+// vector.
+std::vector<std::pair<TensorView*, int64_t>> cacheAndForkOutputs(
     Fusion* fusion,
     bool unroll);
 

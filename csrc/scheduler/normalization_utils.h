@@ -281,7 +281,7 @@ void commonScheduleBeforeIterDomainTransform(
     std::vector<TensorView*>& reduction_tvs,
     std::vector<TensorView*>& smem_consumers,
     std::vector<TensorView*>& persistent_buffers,
-    std::vector<std::pair<TensorView*, TensorView*>>& cached_outputs);
+    std::vector<std::pair<TensorView*, int64_t>>& cached_outputs);
 
 // schedule a reduction tv, used by all persistent schedulers.
 // will group reduction ops for OuterPersistentKernelScheduler with multiple

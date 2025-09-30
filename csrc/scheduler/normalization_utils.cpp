@@ -1468,7 +1468,7 @@ void commonScheduleBeforeIterDomainTransform(
     std::vector<TensorView*>& reduction_tvs,
     std::vector<TensorView*>& smem_consumers,
     std::vector<TensorView*>& persistent_buffers,
-    std::vector<std::pair<TensorView*, TensorView*>>& cached_outputs) {
+    std::vector<std::pair<TensorView*, int64_t>>& cached_outputs) {
   const scheduler_utils::PersistentBufferInfo persistent_info =
       scheduler_utils::persistentBuffers(fusion);
 
@@ -1569,7 +1569,7 @@ void schedulePersistentKernel(
   std::vector<TensorView*> dummy_outputs, reduction_tvs, smem_consumers,
       persistent_buffers;
   std::vector<std::pair<TensorView*, int64_t>> cached_inputs;
-  std::vector<std::pair<TensorView*, TensorView*>> cached_outputs;
+  std::vector<std::pair<TensorView*, int64_t>> cached_outputs;
   commonScheduleBeforeIterDomainTransform(
       fusion,
       rparams,

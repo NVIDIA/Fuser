@@ -433,7 +433,7 @@ std::unordered_set<TensorView*> getCachedTvsToUnrollOrVectorize(
     TensorView* reference_tv,
     bool vectorize,
     const std::vector<std::pair<TensorView*, int64_t>>& cached_inputs,
-    const std::vector<std::pair<TensorView*, TensorView*>>& cached_outputs) {
+    const std::vector<std::pair<TensorView*, int64_t>>& cached_outputs) {
   auto reduced_tv = ir_utils::getSoleProducerTv(reference_tv);
   // Grab all tensor views that should be vectorized
   auto vectorizable_inputs_outputs =
@@ -456,8 +456,9 @@ std::unordered_set<TensorView*> getCachedTvsToUnrollOrVectorize(
     }
   }
 
-  for (auto cached_output_pair : cached_outputs) {
-    auto output = cached_output_pair.second;
+  for (const auto& [cached_output, output_idx] : cached_outputs) {
+    auto output =
+        reference_tv->fusion()->outputs()[output_idx]->as<TensorView>();
     if (vectorize) {
       if (vectorizable_expr(output->definition()) &&
           std::ranges::find(vectorizable_inputs_outputs, output) !=
