@@ -2288,11 +2288,8 @@ std::unordered_map<int64_t, int64_t> reorderLogicalAsAllocationMap(
 
 std::unordered_map<int64_t, int64_t> reorderLoopAsAllocationMap(
     TensorView* tv) {
-  if (!tv->hasAllocation()) {
-    return {};
-  }
   const std::vector<IterDomain*>& loop_domain = tv->getLoopDomain();
-  std::vector<IterDomain*> alloc_domain = tv->getAllocationDomain();
+  std::vector<IterDomain*> alloc_domain = tv->getMaybeAllocationDomain();
   auto transform_exprs = DependencyCheck::getAllExprsBetween(
       {alloc_domain.begin(), alloc_domain.end()},
       {loop_domain.begin(), loop_domain.end()});
