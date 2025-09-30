@@ -956,15 +956,11 @@ void initNvFuserPythonBindings(PyObject* module) {
   py::class_<FusionDefinition> fusion_def(nvfuser, "_FusionDefinition");
   fusion_def
       .def(
-          py::init<
-              std::optional<size_t>,
-              size_t,
-              bool,
-              MultiDeviceExecutorParams>(),
+          py::init<std::optional<size_t>, size_t, bool, CommunicatorBackend>(),
           py::arg("id") = py::none(),
           py::arg("max_length") = int(1024),
           py::arg("use_multidevice_executor") = false,
-          py::arg("multi_device_executor_params") = MultiDeviceExecutorParams())
+          py::arg("backend_type") = CommunicatorBackend::kNccl)
       .def_readwrite("ops", &FusionDefinition::ops)
       .def_readwrite("sched", &FusionDefinition::sched)
       .def(

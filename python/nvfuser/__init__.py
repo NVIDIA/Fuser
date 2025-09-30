@@ -64,10 +64,10 @@ class FusionDefinition(_C._FusionDefinition):
         id=None,
         max_length=9999,
         use_multidevice_executor=False,
-        multi_device_executor_params=MultiDeviceExecutorParams(),
+        backend_type=CommunicatorBackend.nccl,
     ):
         super(FusionDefinition, self).__init__(
-            id, max_length, use_multidevice_executor, multi_device_executor_params
+            id, max_length, use_multidevice_executor, backend_type
         )
         self.profiled = False
 
