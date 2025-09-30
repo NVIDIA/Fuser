@@ -123,7 +123,8 @@ if(BUILD_CUTLASS)
       "-DCUTLASS_DEBUG_TRACE_LEVEL=0"
       "--expt-relaxed-constexpr"
       "--expt-extended-lambda"
-      "--threads=${NPROC}"
+      # Equivalent to --threads=<number of CPUs>
+      "--threads=0"
       # -----------------
       # Suppress warnings
       # -----------------
