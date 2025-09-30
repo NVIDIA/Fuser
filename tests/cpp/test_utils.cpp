@@ -161,20 +161,22 @@ TEST_F(UtilsTest, ReorderAsAllocationMaps) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
-  const int64_t m = 3, d = 4, n = 5;
+  const int64_t d = 4, m = 3, n = 5, k = 7;
 
-  auto tv = makeConcreteTensor({m, d * n});
-  tv->outer_split(1, d); // [m, d, n]
+  auto tv = makeConcreteTensor({m, n, d * k});
+  tv->outer_split(2, d); // [m, n, d, k]
   tv->setAllocationDomain(
-      {tv->axis(1), tv->axis(2), tv->axis(0)}, true); // [d, n, m]
-  tv->reorder({1, 0}); // [d, m, n]
+      {tv->axis(1), tv->axis(2), tv->axis(3), tv->axis(0)},
+      true); // [n, d, k, m]
+  tv->reorder({{2, 0}}); // [d, m, n, k]
 
   auto logical_reorder_map = scheduler_utils::reorderLogicalAsAllocationMap(tv);
   auto loop_reorder_map = scheduler_utils::reorderLoopAsAllocationMap(tv);
 
-  std::unordered_map<int64_t, int64_t> expected_logical_map = {{0, 1}, {1, 0}};
+  std::unordered_map<int64_t, int64_t> expected_logical_map = {
+      {0, 2}, {1, 0}, {2, 1}};
   std::unordered_map<int64_t, int64_t> expected_loop_map = {
-      {0, 0}, {1, 2}, {2, 1}};
+      {0, 1}, {1, 3}, {2, 0}, {3, 2}};
 
   EXPECT_EQ(logical_reorder_map, expected_logical_map);
   EXPECT_EQ(loop_reorder_map, expected_loop_map);
