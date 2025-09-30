@@ -226,7 +226,7 @@ struct Fp4GemmSm100 {
   const bool has_evt = model_opt.isValid();
   if (has_evt) {
     const EVTModel& evt_model = model_opt.getData();
-    code += "  using EVTop = " + evt_model.defString() + ";\n";
+    code += "  using EVTOp = " + evt_model.defString() + ";\n";
     code += R"(
   using CollectiveEpilogue =
       typename cutlass::epilogue::collective::CollectiveBuilder<

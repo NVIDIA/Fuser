@@ -105,6 +105,8 @@ class EVTConverter : OptInDispatch {
     func_node->inputs.push_back(model_.makeNode("cutlass::" + op_name));
     // TODO: infer type of inputs from dtypes
     func_node->inputs.push_back(model_.makeNode("float"));
+    // This is the "compute" type of the op
+    func_node->inputs.push_back(model_.makeNode("float"));
     // types of inputs
     // rounding mode
     // https://github.com/NVIDIA/cutlass/blob/2b8dff1f90605452c378c02298dd0cacaf65753c/include/cutlass/numeric_conversion.h#L56
