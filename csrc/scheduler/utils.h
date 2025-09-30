@@ -395,13 +395,17 @@ std::vector<TensorView*> getTVsWithNonReductionRFactor(Fusion* fusion);
 // Reset inputs and outputs to global memory, everything else to local.
 void clearMemorySpace(Fusion* fusion);
 
-// Returns cached after tensors of the fusion inputs if unrolled. Otherwise
-// return empty vector.
-std::vector<TensorView*> cacheInputs(Fusion* fusion, bool unroll);
+// Returns the pairs of <cache, input_index> for each cached fusion input.
+// input_index is the position in fusion->inputs(). Otherwise return empty
+// vector.
+std::vector<std::pair<TensorView*, int64_t>> cacheInputs(
+    Fusion* fusion,
+    bool unroll);
 
-// Returns the pairs of <cache of each fusion output, corresponding output> for
-// all outputs.
-std::vector<std::pair<TensorView*, TensorView*>> cacheAndForkOutputs(
+// Returns the pairs of <cache, output_index> for each cached fusion output.
+// output_index is the position in fusion->outputs(). Otherwise return empty
+// vector.
+std::vector<std::pair<TensorView*, int64_t>> cacheAndForkOutputs(
     Fusion* fusion,
     bool unroll);
 
@@ -750,7 +754,7 @@ void prepareForMemoryTypePromotion(Fusion* fusion);
 //! fusion is lowered.
 void promoteProducerMemoryTypes(
     Fusion* fusion,
-    const std::vector<TensorView*>& input_caches);
+    const std::vector<std::pair<TensorView*, int64_t>>& input_caches);
 
 //! Get all tensors that are connected to from_tvs without going through
 //! any tvs in the cutoff_tv_set.

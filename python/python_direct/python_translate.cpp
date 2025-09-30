@@ -888,7 +888,9 @@ class PythonTranslator : public OptInConstDispatch {
     // The min and max reduction operations expect the dtype argument to by
     // PrimDataType::Null
     DataType dtype = (rop->getReductionOpType() == BinaryOpType::Min ||
-                      rop->getReductionOpType() == BinaryOpType::Max)
+                      rop->getReductionOpType() == BinaryOpType::FMin ||
+                      rop->getReductionOpType() == BinaryOpType::Max ||
+                      rop->getReductionOpType() == BinaryOpType::FMax)
         ? DataType::Null
         : rop->out()->dtype();
     std::vector<int64_t> dims = getReductionAxes(rop->out()->as<TensorView>());
