@@ -269,19 +269,13 @@ void TransformReplay::selfReplay(
     // would not have the rfactor flag on.
     //
     // This function can be used prior to concretization, where we might have a
-    // broadcast ID map a symbolic ID. Otherwise, the IterTypes must be the
+    // concrete ID map a symbolic ID. Otherwise, the IterTypes must be the
     // same.
     auto iter_types_match = [](IterType lhs, IterType rhs) -> bool {
       if (lhs == rhs) {
         return true;
       }
-      if (lhs == IterType::Symbolic && rhs == IterType::Broadcast) {
-        return true;
-      }
-      if (lhs == IterType::Broadcast && rhs == IterType::Symbolic) {
-        return true;
-      }
-      return false;
+      return lhs == IterType::Symbolic || rhs == IterType::Symbolic;
     };
     NVF_ERROR(
         iter_types_match(id->getIterType(), new_id->getIterType()),
