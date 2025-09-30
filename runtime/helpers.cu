@@ -88,7 +88,7 @@ __device__ constexpr int64_t max(int64_t a, int64_t b) {
   return a > b ? a : b;
 }
 
-__device__ double fmax(double a, double b) {
+__device__ double max(double a, double b) {
   // check and propagate NaN
   if (a != a) {
     return a;
@@ -97,7 +97,7 @@ __device__ double fmax(double a, double b) {
   }
 }
 
-__device__ float fmax(float a, float b) {
+__device__ float max(float a, float b) {
   // check and propagate NaN
   if (a != a) {
     return a;
@@ -106,16 +106,22 @@ __device__ float fmax(float a, float b) {
   }
 }
 
-__device__ __half fmax(__half a, __half b) {
+__device__ __half max(__half a, __half b) {
   auto a_float = __half2float(a);
   auto b_float = __half2float(b);
-  return __float2half(fmax(a_float, b_float));
+  return __float2half(max(a_float, b_float));
 }
 
-__device__ __bfloat fmax(__bfloat a, __bfloat b) {
+__device__ __bfloat max(__bfloat a, __bfloat b) {
   auto a_float = __bfloat2float(a);
   auto b_float = __bfloat2float(b);
-  return __float2bfloat(fmax(a_float, b_float));
+  return __float2bfloat(max(a_float, b_float));
+}
+
+// fmax(double, double) is the cuda built-in
+
+__device__ float fmax(float a, float b) {
+  return fmaxf(a, b);
 }
 
 template <typename T>
@@ -147,7 +153,7 @@ __device__ constexpr int64_t min(int64_t a, int64_t b) {
   return a > b ? b : a;
 }
 
-__device__ double fmin(double a, double b) {
+__device__ double min(double a, double b) {
   // check and propagate NaN
   if (b != b) {
     return b;
@@ -156,13 +162,19 @@ __device__ double fmin(double a, double b) {
   }
 }
 
-__device__ float fmin(float a, float b) {
+__device__ float min(float a, float b) {
   // check and propagate NaN
   if (b != b) {
     return b;
   } else { // If a is nan, it will be returned in the next line
     return a > b ? b : a;
   }
+}
+
+// fmin(double, double) is the cuda built-in
+
+__device__ float fmin(float a, float b) {
+  return fminf(a, b);
 }
 
 __device__ constexpr int alignBufferSize(int buffer, int size) {
@@ -170,11 +182,11 @@ __device__ constexpr int alignBufferSize(int buffer, int size) {
 }
 
 __device__ double clamp(double x, double minv, double maxv) {
-  return fmin(fmax(x, minv), maxv);
+  return min(max(x, minv), maxv);
 }
 
 __device__ float clamp(float x, double minv, double maxv) {
-  return fmin(fmax((double)x, minv), maxv);
+  return min(max((double)x, minv), maxv);
 }
 
 __device__ int clamp(int x, int64_t minv, int64_t maxv) {

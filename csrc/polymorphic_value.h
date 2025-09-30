@@ -339,13 +339,37 @@ inline PolymorphicValue ceildiv(
 inline PolymorphicValue max(
     const PolymorphicValue& a,
     const PolymorphicValue& b) {
+  if (a != a) {
+    return PolymorphicValue(a);
+  }
   return PolymorphicValue(a > b ? a : b);
+}
+
+inline PolymorphicValue fmax(
+    const PolymorphicValue& a,
+    const PolymorphicValue& b) {
+  if (a != a) {
+    return PolymorphicValue(b);
+  }
+  return PolymorphicValue(a < b ? b : a);
 }
 
 inline PolymorphicValue min(
     const PolymorphicValue& a,
     const PolymorphicValue& b) {
+  if (a != a) {
+    return PolymorphicValue(a);
+  }
   return PolymorphicValue(a < b ? a : b);
+}
+
+inline PolymorphicValue fmin(
+    const PolymorphicValue& a,
+    const PolymorphicValue& b) {
+  if (a != a) {
+    return PolymorphicValue(b);
+  }
+  return PolymorphicValue(a > b ? b : a);
 }
 
 inline PolymorphicValue gcd(
