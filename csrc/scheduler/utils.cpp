@@ -2266,10 +2266,6 @@ std::vector<int64_t> domainReorderAsLogicalMap(TensorView* tv) {
 
 std::unordered_map<int64_t, int64_t> reorderLogicalAsAllocationMap(
     TensorView* tv) {
-  std::unordered_map<int64_t, int64_t> reorder_map;
-  if (!tv->hasAllocation()) {
-    return reorder_map;
-  }
   const auto& logical_domain = tv->getLogicalDomain();
   std::optional<Layout> layout = canonicalizeLayout(tv);
   NVF_ERROR(
@@ -2278,24 +2274,22 @@ std::unordered_map<int64_t, int64_t> reorderLogicalAsAllocationMap(
       tv->domain()->toString(0, false));
   const auto& alloc_domain = layout->allocation_domain();
   if (alloc_domain == logical_domain) {
-    return reorder_map;
+    return {};
   }
-  std::optional<std::vector<int64_t>> permutation =
-      ir_utils::computePermutation(alloc_domain, logical_domain);
-  int64_t idx = 0;
-  std::transform(
-      (*permutation).begin(),
-      (*permutation).end(),
-      std::inserter(reorder_map, reorder_map.end()),
-      [&idx](const int64_t v) { return std::make_pair(idx++, v); });
+  const std::vector<int64_t> permutation =
+      *ir_utils::computePermutation(logical_domain, alloc_domain);
+  std::unordered_map<int64_t, int64_t> reorder_map;
+  reorder_map.reserve(permutation.size());
+  for (auto [new_pos, old_pos] : enumerate(permutation)) {
+    reorder_map[old_pos] = new_pos;
+  }
   return reorder_map;
 }
 
 std::unordered_map<int64_t, int64_t> reorderLoopAsAllocationMap(
     TensorView* tv) {
-  std::unordered_map<int64_t, int64_t> reorder_map;
   if (!tv->hasAllocation()) {
-    return reorder_map;
+    return {};
   }
   const std::vector<IterDomain*>& loop_domain = tv->getLoopDomain();
   std::vector<IterDomain*> alloc_domain = tv->getAllocationDomain();
@@ -2305,10 +2299,10 @@ std::unordered_map<int64_t, int64_t> reorderLoopAsAllocationMap(
   applyTransforms(alloc_domain, transform_exprs);
 
   if (alloc_domain == loop_domain) {
-    return reorder_map;
+    return {};
   }
   std::optional<std::vector<int64_t>> permutation =
-      ir_utils::computePermutation(alloc_domain, loop_domain);
+      ir_utils::computePermutation(loop_domain, alloc_domain);
   NVF_ERROR(
       permutation.has_value(),
       "Failed to find a valid permutation for reordering loop domain [",
@@ -2316,12 +2310,11 @@ std::unordered_map<int64_t, int64_t> reorderLoopAsAllocationMap(
       "] as allocation domain [",
       toDelimitedString(alloc_domain),
       "]");
-  int64_t idx = 0;
-  std::transform(
-      (*permutation).begin(),
-      (*permutation).end(),
-      std::inserter(reorder_map, reorder_map.end()),
-      [&idx](const int64_t v) { return std::make_pair(idx++, v); });
+  std::unordered_map<int64_t, int64_t> reorder_map;
+  reorder_map.reserve(permutation->size());
+  for (auto [new_pos, old_pos] : enumerate(*permutation)) {
+    reorder_map[old_pos] = new_pos;
+  }
   return reorder_map;
 }
 
