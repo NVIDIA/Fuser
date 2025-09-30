@@ -380,6 +380,7 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/scheduler/matmul_utils.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/mma_utils.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/no_op.cpp
+  ${NVFUSER_SRCS_DIR}/scheduler/nvmmh.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/communication.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/normalization_inner.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/normalization_inner_outer.cpp
