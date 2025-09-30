@@ -2247,7 +2247,6 @@ void applyTransforms(
 // Returns a permutation reordering the loop domain of the tensor view as the
 // logical domain
 std::vector<int64_t> domainReorderAsLogicalMap(TensorView* tv) {
-  FusionGuard fg(tv->fusion());
   auto transform_exprs = DependencyCheck::getAllExprsBetween(
       {tv->getLogicalDomain().begin(), tv->getLogicalDomain().end()},
       {tv->getLoopDomain().begin(), tv->getLoopDomain().end()});
