@@ -268,7 +268,7 @@ class Llama4MoE(nn.Module):
         blockscale_offsets = torch.cumsum(rounded_tokens_per_expert, 0, dtype=torch.int32)  # [n]
 
         outs_sorted_by_expert_id = self.routed_experts(
-            tokens_sorted_by_expert_id, offsets, blockscale_offsets, tokens_per_expert
+            tokens_sorted_by_expert_id, offsets[:-1], blockscale_offsets[:-1], tokens_per_expert
         )  # [s, h]
 
         token_ids_sorted_by_expert_inverse_id = torch.argsort(
