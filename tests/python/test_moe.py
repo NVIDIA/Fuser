@@ -46,12 +46,13 @@ class SwiGLU(nn.Module):
         )
 
 
-def _group_sizes_from_offsets(offsets: torch.Tensor) -> list[int]:
+def _group_sizes_from_offsets(offsets: torch.Tensor, total_tokens: int) -> list[int]:
     group_sizes = []
     prev = 0
-    for offset in offsets:
+    for offset in offsets[1:]:
         group_sizes.append(offset - prev)
         prev = offset
+    group_sizes.append(total_tokens - prev)
     return group_sizes
 
 # Required otherwise, there is a graph-break.
@@ -65,7 +66,7 @@ def grouped_mm(a: torch.Tensor, b: torch.Tensor, offsets: torch.Tensor) -> torch
     if torch.compiler.is_compiling():
         return _grouped_mm(a, b, offsets)
 
-    group_sizes = _group_sizes_from_offsets(offsets)
+    group_sizes = _group_sizes_from_offsets(offsets, a.size(0))
     group_outs = []
     for group_a, group_b in zip(a.split(group_sizes), b.unbind()):
         group_outs.append(group_a @ group_b)
@@ -260,8 +261,10 @@ class Llama4MoE(nn.Module):
 
         # Without `torch.int32`, we see `RuntimeError: Offsets tensor must be integer (int32) tensor, but got torch.int64.`
         # from PyTorch when calling _grouped_mm.
-        offsets = torch.cumsum(tokens_per_expert, 0, dtype=torch.int32)  # [n]
-        rounded_tokens_per_expert = (tokens_per_expert + 127) // 128 * 128
+        shifted_tokens_per_expert = torch.nn.functional.pad(tokens_per_expert, [1, 0])
+        
+        offsets = torch.cumsum(shifted_tokens_per_expert, 0, dtype=torch.int32)  # [n]
+        rounded_tokens_per_expert = (shifted_tokens_per_expert + 127) // 128 * 128
         blockscale_offsets = torch.cumsum(rounded_tokens_per_expert, 0, dtype=torch.int32)  # [n]
 
         outs_sorted_by_expert_id = self.routed_experts(
