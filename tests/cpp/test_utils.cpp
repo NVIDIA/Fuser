@@ -157,6 +157,29 @@ TEST_F(UtilsTest, FusionReorderAsRFactor) {
   EXPECT_EQ(old2new[2], 0);
 }
 
+TEST_F(UtilsTest, ReorderAsAllocationMaps) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  const int64_t m = 3, d = 4, n = 5;
+
+  auto tv = makeConcreteTensor({m, d * n});
+  tv->outer_split(1, d); // [m, d, n]
+  tv->setAllocationDomain(
+      {tv->axis(1), tv->axis(2), tv->axis(0)}, true); // [d, n, m]
+  tv->reorder({1, 0}); // [d, m, n]
+
+  auto logical_reorder_map = scheduler_utils::reorderLogicalAsAllocationMap(tv);
+  auto loop_reorder_map = scheduler_utils::reorderLoopAsAllocationMap(tv);
+
+  std::unordered_map<int64_t, int64_t> expected_logical_map = {{0, 1}, {1, 0}};
+  std::unordered_map<int64_t, int64_t> expected_loop_map = {
+      {0, 0}, {1, 2}, {2, 1}};
+
+  EXPECT_EQ(logical_reorder_map, expected_logical_map);
+  EXPECT_EQ(loop_reorder_map, expected_loop_map);
+}
+
 TEST_F(UtilsTest, FusionDisjointViewSet) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
