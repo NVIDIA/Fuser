@@ -432,7 +432,7 @@ void propagateRFactor(
 std::unordered_set<TensorView*> getCachedTvsToUnrollOrVectorize(
     TensorView* reference_tv,
     bool vectorize,
-    const std::vector<std::pair<TensorView*, TensorView*>>& cached_inputs,
+    const std::vector<std::pair<TensorView*, int64_t>>& cached_inputs,
     const std::vector<std::pair<TensorView*, TensorView*>>& cached_outputs) {
   auto reduced_tv = ir_utils::getSoleProducerTv(reference_tv);
   // Grab all tensor views that should be vectorized
@@ -442,7 +442,7 @@ std::unordered_set<TensorView*> getCachedTvsToUnrollOrVectorize(
   auto vectorizable_expr = [](Expr* e) { return e->isA<LoadStoreOp>(); };
 
   std::unordered_set<TensorView*> unroll_vectorizable_tvs;
-  for (const auto& [cached_input, original_input] : cached_inputs) {
+  for (const auto& [cached_input, input_idx] : cached_inputs) {
     if (vectorize) {
       auto producer_tvs = ir_utils::producerTvsOf(cached_input);
       if (producer_tvs.size() == 1 &&

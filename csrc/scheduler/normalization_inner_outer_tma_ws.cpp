@@ -516,7 +516,7 @@ void scheduleFusion(Fusion* fusion, const ReductionParams* rparams) {
   // helper tensors for persistent buffer projection.
   std::vector<TensorView*> dummy_outputs, reduction_tvs, smem_consumers,
       persistent_buffers;
-  std::vector<std::pair<TensorView*, TensorView*>> cached_inputs;
+  std::vector<std::pair<TensorView*, int64_t>> cached_inputs;
   std::vector<std::pair<TensorView*, TensorView*>> cached_outputs;
   normalization_scheduler_utils::commonScheduleBeforeIterDomainTransform(
       fusion,
@@ -822,7 +822,7 @@ void scheduleFusion(Fusion* fusion, const ReductionParams* rparams) {
       int64_t last_iter_dim = rparams->computation_warp_groups > 1
           ? tma_inline_pos + 1
           : tma_inline_pos;
-      for (const auto& [cached_tv, original_input] : cached_inputs) {
+      for (const auto& [cached_tv, input_idx] : cached_inputs) {
         // skip smem tvs as they are TMA loaded and already special inlined
         if (cached_tv->getMemoryType() == MemoryType::Shared) {
           continue;

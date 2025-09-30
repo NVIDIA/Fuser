@@ -1259,7 +1259,7 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
   // inputs, cached inputs and outputs will be updated.
   std::unordered_set<TensorView*> inner_most_tensors(
       all_tvs.begin(), all_tvs.end());
-  for (const auto& [cached_input, original_input] : cached_inputs) {
+  for (const auto& [cached_input, input_idx] : cached_inputs) {
     inner_most_tensors.erase(cached_input);
   }
   for (auto entry : cached_outputs) {

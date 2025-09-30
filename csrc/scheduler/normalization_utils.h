@@ -277,7 +277,7 @@ void commonScheduleBeforeIterDomainTransform(
     Fusion* fusion,
     const ReductionParams* rparams,
     std::vector<TensorView*>& dummy_outputs,
-    std::vector<std::pair<TensorView*, TensorView*>>& cached_inputs,
+    std::vector<std::pair<TensorView*, int64_t>>& cached_inputs,
     std::vector<TensorView*>& reduction_tvs,
     std::vector<TensorView*>& smem_consumers,
     std::vector<TensorView*>& persistent_buffers,
@@ -365,7 +365,7 @@ BufferProjectionStrategy isProjectBufferToInputs(
 std::vector<TensorView*> movePersistentBufferToSmem(
     Fusion* fusion,
     const ReductionParams* rparams,
-    const std::vector<std::pair<TensorView*, TensorView*>>& cached_inputs,
+    const std::vector<std::pair<TensorView*, int64_t>>& cached_inputs,
     const std::vector<TensorView*>& persistent_buffers);
 
 // Find the resolution points of a persistent buffer. See also

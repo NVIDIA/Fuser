@@ -1310,7 +1310,7 @@ bool compileTimeCheck(Fusion* fusion, SchedulerType scheduler_type) {
 std::vector<TensorView*> movePersistentBufferToSmem(
     Fusion* fusion,
     const ReductionParams* rparams,
-    const std::vector<std::pair<TensorView*, TensorView*>>& cached_inputs,
+    const std::vector<std::pair<TensorView*, int64_t>>& cached_inputs,
     const std::vector<TensorView*>& persistent_buffers) {
   std::vector<TensorView*> smem_consumers;
   // Transfer the persistent buffer tensors to shared memory. These tensors are
@@ -1464,7 +1464,7 @@ void commonScheduleBeforeIterDomainTransform(
     Fusion* fusion,
     const ReductionParams* rparams,
     std::vector<TensorView*>& dummy_outputs,
-    std::vector<std::pair<TensorView*, TensorView*>>& cached_inputs,
+    std::vector<std::pair<TensorView*, int64_t>>& cached_inputs,
     std::vector<TensorView*>& reduction_tvs,
     std::vector<TensorView*>& smem_consumers,
     std::vector<TensorView*>& persistent_buffers,
@@ -1568,7 +1568,7 @@ void schedulePersistentKernel(
   // helper tensors for persistent buffer projection.
   std::vector<TensorView*> dummy_outputs, reduction_tvs, smem_consumers,
       persistent_buffers;
-  std::vector<std::pair<TensorView*, TensorView*>> cached_inputs;
+  std::vector<std::pair<TensorView*, int64_t>> cached_inputs;
   std::vector<std::pair<TensorView*, TensorView*>> cached_outputs;
   commonScheduleBeforeIterDomainTransform(
       fusion,
@@ -1646,7 +1646,7 @@ void schedulePersistentKernel(
   bool unroll_persistent_cached_inputs = rparams->vectorize_inner_reduction &&
       rparams->fastest_dim && !rparams->schedule_3D;
   if (unroll_persistent_cached_inputs) {
-    for (const auto& [cached_input, original_input] : cached_inputs) {
+    for (const auto& [cached_input, input_idx] : cached_inputs) {
       if (std::ranges::find(persistent_buffers, cached_input) ==
           persistent_buffers.end()) {
         continue;
@@ -1702,7 +1702,7 @@ void schedulePersistentKernel(
     NVF_ERROR(
         rparams->persistent_kernel,
         "computeWith should be only used with persistent kernels");
-    for (const auto& [persistent_buffer, original_input] : cached_inputs) {
+    for (const auto& [persistent_buffer, input_idx] : cached_inputs) {
       persistent_buffer->computeWith(-1, true);
     }
   }
