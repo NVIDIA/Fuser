@@ -55,7 +55,7 @@ void propagateRFactor(
 NVF_API std::unordered_set<TensorView*> getCachedTvsToUnrollOrVectorize(
     TensorView* reference_tv,
     bool is_vectorize,
-    const std::vector<TensorView*>& cached_inputs,
+    const std::vector<std::pair<TensorView*, TensorView*>>& cached_inputs,
     const std::vector<std::pair<TensorView*, TensorView*>>& cached_outputs);
 
 // Propagate parallelization from the reference TensorView to other TensorViews.

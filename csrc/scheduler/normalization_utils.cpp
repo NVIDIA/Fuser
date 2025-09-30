@@ -712,10 +712,9 @@ std::vector<TensorView*> getOuterBroadcastTvs(
   // find the broadcast tensor whose broadcast mask is same to the reference
   std::vector<TensorView*> outer_broadcast_tvs;
   for (auto tv : fusion->allTvs()) {
-    if (std::any_of(
-            tv->getLoopDomain().begin(),
-            tv->getLoopDomain().end(),
-            [](IterDomain* id) { return id->isBroadcast(); })) {
+    if (std::ranges::any_of(tv->getLoopDomain(), [](IterDomain* id) {
+          return id->isBroadcast();
+        })) {
       if (auto bcast = dynamic_cast<BroadcastOp*>(tv->definition())) {
         if (bcast->getBroadcastDimFlags() == ref_broadcast_mask) {
           outer_broadcast_tvs.emplace_back(tv);
@@ -748,10 +747,8 @@ void checkReductionTvForScheduling(Fusion* fusion, TensorView* ref_red_tv) {
       ir_utils::isReductionOp(ref_red_tv->definition()),
       "TensorView doesn't have a reduction.");
   NVF_ERROR(
-      std::any_of(
-          fusion->inputs().begin(),
-          fusion->inputs().end(),
-          [](Val* inp) { return inp->isA<TensorView>(); }),
+      std::ranges::any_of(
+          fusion->inputs(), [](Val* inp) { return inp->isA<TensorView>(); }),
       "Tried to schedule a fusion with no tensor inputs, currently not "
       "supported.");
 }
@@ -1313,7 +1310,7 @@ bool compileTimeCheck(Fusion* fusion, SchedulerType scheduler_type) {
 std::vector<TensorView*> movePersistentBufferToSmem(
     Fusion* fusion,
     const ReductionParams* rparams,
-    const std::vector<TensorView*>& cached_inputs,
+    const std::vector<std::pair<TensorView*, TensorView*>>& cached_inputs,
     const std::vector<TensorView*>& persistent_buffers) {
   std::vector<TensorView*> smem_consumers;
   // Transfer the persistent buffer tensors to shared memory. These tensors are
@@ -1324,10 +1321,8 @@ std::vector<TensorView*> movePersistentBufferToSmem(
   }
 
   auto isSharedMemoryPersistent = [&rparams](const TensorView* lookup_tv) {
-    return std::any_of(
-        rparams->smem_persistent_buffers.begin(),
-        rparams->smem_persistent_buffers.end(),
-        [lookup_tv](const auto* tv) {
+    return std::ranges::any_of(
+        rparams->smem_persistent_buffers, [lookup_tv](const auto* tv) {
           // can't use `tv->sameAs(lookup_tv)` since the saved tvs in
           // smem_persistent_buffers are from a cloned fusion.
           return tv->name() == lookup_tv->name();
@@ -1364,9 +1359,9 @@ std::vector<TensorView*> movePersistentBufferToSmem(
     // and it is not in [smem_persistent_buffers].
     bool is_cached_input = false;
     bool use_smem = isSharedMemoryPersistent(tv);
-    if (!use_smem &&
-        std::find(cached_inputs.begin(), cached_inputs.end(), tv) !=
-            cached_inputs.end()) {
+    if (!use_smem && std::ranges::any_of(cached_inputs, [tv](const auto& pair) {
+          return pair.first == tv;
+        })) {
       auto input_tv = ir_utils::producerTvsOf(tv).at(0);
       use_smem = isSharedMemoryPersistent(input_tv);
       is_cached_input = true;
@@ -1378,12 +1373,9 @@ std::vector<TensorView*> movePersistentBufferToSmem(
         rparams->is_non_circular_buffer_gmem_to_regs) {
       const auto& outer_broadcast_tvs = getOuterBroadcastTvs(
           fusion, scheduler_utils::getReductionTvs(fusion));
-      if (std::any_of(
-              outer_broadcast_tvs.begin(),
-              outer_broadcast_tvs.end(),
-              [&tv](TensorView* bcast_tv) {
-                return DependencyCheck::isDependencyOf(tv, bcast_tv);
-              })) {
+      if (std::ranges::any_of(outer_broadcast_tvs, [&tv](TensorView* bcast_tv) {
+            return DependencyCheck::isDependencyOf(tv, bcast_tv);
+          })) {
         use_smem = false;
       }
     }
@@ -1472,7 +1464,7 @@ void commonScheduleBeforeIterDomainTransform(
     Fusion* fusion,
     const ReductionParams* rparams,
     std::vector<TensorView*>& dummy_outputs,
-    std::vector<TensorView*>& cached_inputs,
+    std::vector<std::pair<TensorView*, TensorView*>>& cached_inputs,
     std::vector<TensorView*>& reduction_tvs,
     std::vector<TensorView*>& smem_consumers,
     std::vector<TensorView*>& persistent_buffers,
@@ -1574,8 +1566,9 @@ void schedulePersistentKernel(
 
   // Grab the reduction, input, and output tensor views. dummy_outputs are
   // helper tensors for persistent buffer projection.
-  std::vector<TensorView*> dummy_outputs, cached_inputs, reduction_tvs,
-      smem_consumers, persistent_buffers;
+  std::vector<TensorView*> dummy_outputs, reduction_tvs, smem_consumers,
+      persistent_buffers;
+  std::vector<std::pair<TensorView*, TensorView*>> cached_inputs;
   std::vector<std::pair<TensorView*, TensorView*>> cached_outputs;
   commonScheduleBeforeIterDomainTransform(
       fusion,
@@ -1653,8 +1646,8 @@ void schedulePersistentKernel(
   bool unroll_persistent_cached_inputs = rparams->vectorize_inner_reduction &&
       rparams->fastest_dim && !rparams->schedule_3D;
   if (unroll_persistent_cached_inputs) {
-    for (auto tv : cached_inputs) {
-      if (std::find(persistent_buffers.begin(), persistent_buffers.end(), tv) ==
+    for (const auto& [cached_input, original_input] : cached_inputs) {
+      if (std::ranges::find(persistent_buffers, cached_input) ==
           persistent_buffers.end()) {
         continue;
       }
@@ -1665,7 +1658,7 @@ void schedulePersistentKernel(
       // rparams->batches_per_block_inner_reduction, we should have only one
       // such domain.
       int identified_count = 0;
-      for (auto id : tv->getLoopDomain()) {
+      for (auto id : cached_input->getLoopDomain()) {
         if (id->getParallelType() != ParallelType::Serial ||
             !id->definition() || !id->definition()->isA<Split>()) {
           continue;
@@ -1685,7 +1678,7 @@ void schedulePersistentKernel(
           "found ",
           identified_count,
           " in ",
-          tv->toString());
+          cached_input->toString());
     }
   }
 
@@ -1709,7 +1702,7 @@ void schedulePersistentKernel(
     NVF_ERROR(
         rparams->persistent_kernel,
         "computeWith should be only used with persistent kernels");
-    for (const auto persistent_buffer : cached_inputs) {
+    for (const auto& [persistent_buffer, original_input] : cached_inputs) {
       persistent_buffer->computeWith(-1, true);
     }
   }
@@ -1758,10 +1751,8 @@ class PersistentBufferResolution : public IterVisitor {
       return;
     }
 
-    if (std::any_of(
-            resolution_points_.begin(),
-            resolution_points_.end(),
-            [&tv](TensorView* resolution_point) {
+    if (std::ranges::any_of(
+            resolution_points_, [&tv](TensorView* resolution_point) {
               return DependencyCheck::isDependencyOf(resolution_point, tv);
             })) {
       // If already resolved, don't start a new reduction path.
@@ -1971,14 +1962,10 @@ bool isCacheableUnmappableTv(
     // If the reduction tv doesn't depend on unmappable tv,
     // all_vals will be empty.
     if (all_vals.empty() ||
-        std::any_of(
-            reduction_tvs.begin(),
-            reduction_tvs.end(),
-            [&](const auto& reduction_tv_j) {
-              return reduction_tv_j != reduction_tv &&
-                  std::find(all_vals.begin(), all_vals.end(), reduction_tv_j) !=
-                  all_vals.end();
-            })) {
+        std::ranges::any_of(reduction_tvs, [&](auto reduction_tv_j) {
+          return reduction_tv_j != reduction_tv &&
+              std::ranges::find(all_vals, reduction_tv_j) != all_vals.end();
+        })) {
       continue;
     }
     immediate_reduction_tvs.push_back(reduction_tv);
@@ -2006,9 +1993,8 @@ bool isCacheableUnmappableTv(
       //
       // TODO: Even if they are not mapped, is it possible that they
       // are still mapped through reshape ops?
-      auto it = std::find_if(
-          unmappable_tv->getLogicalDomain().begin(),
-          unmappable_tv->getLogicalDomain().end(),
+      auto it = std::ranges::find_if(
+          unmappable_tv->getLogicalDomain(),
           [&](const auto& unmappable_tv_logical_id) {
             return almost_exact_graph.disjointValSets().strictAreMapped(
                 reduction_id, unmappable_tv_logical_id);

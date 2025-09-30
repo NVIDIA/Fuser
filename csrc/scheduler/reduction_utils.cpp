@@ -432,7 +432,7 @@ void propagateRFactor(
 std::unordered_set<TensorView*> getCachedTvsToUnrollOrVectorize(
     TensorView* reference_tv,
     bool vectorize,
-    const std::vector<TensorView*>& cached_inputs,
+    const std::vector<std::pair<TensorView*, TensorView*>>& cached_inputs,
     const std::vector<std::pair<TensorView*, TensorView*>>& cached_outputs) {
   auto reduced_tv = ir_utils::getSoleProducerTv(reference_tv);
   // Grab all tensor views that should be vectorized
@@ -442,15 +442,13 @@ std::unordered_set<TensorView*> getCachedTvsToUnrollOrVectorize(
   auto vectorizable_expr = [](Expr* e) { return e->isA<LoadStoreOp>(); };
 
   std::unordered_set<TensorView*> unroll_vectorizable_tvs;
-  for (auto cached_input : cached_inputs) {
+  for (const auto& [cached_input, original_input] : cached_inputs) {
     if (vectorize) {
       auto producer_tvs = ir_utils::producerTvsOf(cached_input);
       if (producer_tvs.size() == 1 &&
           vectorizable_expr(cached_input->definition()) &&
-          std::find(
-              vectorizable_inputs_outputs.begin(),
-              vectorizable_inputs_outputs.end(),
-              producer_tvs[0]) != vectorizable_inputs_outputs.end()) {
+          std::ranges::find(vectorizable_inputs_outputs, producer_tvs[0]) !=
+              vectorizable_inputs_outputs.end()) {
         unroll_vectorizable_tvs.emplace(cached_input);
       }
     } else {
@@ -462,10 +460,8 @@ std::unordered_set<TensorView*> getCachedTvsToUnrollOrVectorize(
     auto output = cached_output_pair.second;
     if (vectorize) {
       if (vectorizable_expr(output->definition()) &&
-          std::find(
-              vectorizable_inputs_outputs.begin(),
-              vectorizable_inputs_outputs.end(),
-              output) != vectorizable_inputs_outputs.end()) {
+          std::ranges::find(vectorizable_inputs_outputs, output) !=
+              vectorizable_inputs_outputs.end()) {
         unroll_vectorizable_tvs.emplace(output);
       }
     } else {
