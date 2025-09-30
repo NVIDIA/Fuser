@@ -895,9 +895,8 @@ void scheduleTranspose(Fusion* fusion, const TransposeParams* tparams) {
     }
   }
   // set cached outputs of group 2 to shared memory
-  for (auto pair : cached_outputs) {
-    auto cached_output = pair.first;
-    auto output = pair.second;
+  for (const auto& [cached_output, output_idx] : cached_outputs) {
+    auto output = fusion->outputs()[output_idx]->as<TensorView>();
     if (group2_and_cached_inputs.count(output) > 0) {
       cached_output->setMemoryType(MemoryType::Shared);
     }
