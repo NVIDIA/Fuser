@@ -171,6 +171,17 @@ if(BUILD_CUTLASS)
       VISIBILITY_INLINES_HIDDEN Yes
       CUDA_ARCHITECTURES "100a"
     )
+    # Our CUTLASS kernels require substantially more memory to compile—up to 6
+    # GB per file. To avoid exhausting system memory, it's helpful to limit
+    # concurrency specifically for these kernels, without throttling other
+    # compilation units. A pool of size 2 works well in practice: there are
+    # only a handful of CUTLASS kernel files, so this restriction has little
+    # impact on overall build time.
+    set(CUTLASS_MAX_JOBS 0 CACHE STRING "Max concurrent CUTLASS CUDA compiles (0 = no limit)")
+    if(CUTLASS_MAX_JOBS GREATER 0)
+      set_property(GLOBAL PROPERTY JOB_POOLS cutlass=${CUTLASS_MAX_JOBS})
+      set_target_properties(nvf_cutlass PROPERTIES JOB_POOL_COMPILE cutlass)
+    endif()
     install(TARGETS nvf_cutlass EXPORT NvfuserTargets DESTINATION lib)
 
   endif()
@@ -1124,6 +1135,7 @@ if(BUILD_TEST)
 
   set(CLUSTER_TEST_SRCS)
   list(APPEND CLUSTER_TEST_SRCS
+    ${NVFUSER_ROOT}/tests/cpp/test_cluster.cpp
     ${NVFUSER_ROOT}/tests/cpp/cluster_runtime_test/test_cluster_device_func.cpp
   )
   add_test(test_cluster "${CLUSTER_TEST_SRCS}" ${CLUSTER_TEST_KERNELS})

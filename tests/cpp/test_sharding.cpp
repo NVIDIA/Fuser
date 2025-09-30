@@ -21,6 +21,11 @@
 
 namespace nvfuser {
 
+using testing::_;
+using testing::ElementsAre;
+using testing::HasSubstr;
+using testing::ThrowsMessage;
+
 using ShardingTest = NVFuserFixtureParamTest<bool>;
 
 TEST_F(ShardingTest, LogicalIsSharded) {
@@ -369,7 +374,7 @@ TEST_F(ShardingTest, ShardedNonDivisibleReshape) {
   // but it is not divisible by d=2
   EXPECT_THAT(
       run_propagate_shardings,
-      ::testing::ThrowsMessage<nvfuser::nvfError>(::testing::HasSubstr(
+      ThrowsMessage<nvfuser::nvfError>(HasSubstr(
           "Require the sharded ID to be divisible by the split factor")));
 }
 
@@ -395,8 +400,8 @@ TEST_F(ShardingTest, ShardedInnerReshape) {
 
   EXPECT_THAT(
       run_propagate_shardings,
-      ::testing::ThrowsMessage<nvfuser::nvfError>(::testing::HasSubstr(
-          "Expected the sharding to be on the outer reshaped id")));
+      ThrowsMessage<nvfuser::nvfError>(
+          HasSubstr("Expected the sharding to be on the outer reshaped id")));
 }
 
 TEST_F(ShardingTest, ShardedReshapeWithIndependentSplit) {
@@ -488,6 +493,35 @@ TEST_F(ShardingTest, BackpropagateToShardedTvs) {
     EXPECT_EQ(getShardedLogicalAxis(tv, ParallelType::DIDx), 0);
     EXPECT_EQ(getShardedLogicalAxis(tv, ParallelType::DIDy), 1);
   }
+}
+
+TEST_F(ShardingTest, ReorderParallelizedToFront) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  TensorView* tv = makeSymbolicTensor(2);
+  fusion.addInput(tv);
+  fusion.addOutput(tv);
+
+  constexpr int d = 2;
+  constexpr int s = 3;
+
+  auto mesh = DeviceMesh::createForNumDevices(d);
+  tv->setDeviceMesh(mesh);
+  tv->outer_split(0, d);
+  tv->axis(0)->parallelize(ParallelType::DIDx);
+  tv->outer_split(2, s);
+  tv->axis(2)->parallelize(ParallelType::Stream);
+
+  reorderParallelizedToFront(tv);
+
+  EXPECT_THAT(
+      tv->getLoopDomain(),
+      ElementsAre(
+          IsParallelized(ParallelType::Stream),
+          IsParallelized(ParallelType::DIDx),
+          _,
+          _));
 }
 
 INSTANTIATE_TEST_SUITE_P(
