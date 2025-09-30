@@ -129,6 +129,23 @@ void moveReductionsOut(TensorView* tv, int n) {
   tv->reorder(old2new);
 }
 
+int64_t moveSerialBroadcastInner(TensorView* tv) {
+  std::unordered_map<int64_t, int64_t> old2new;
+
+  int64_t target = -1;
+  for (const auto& [i, id] :
+       enumerate(tv->getLoopDomain()) | std::views::reverse) {
+    if (id->isBroadcast() && id->extent()->isOneInt() &&
+        id->getParallelType() == ParallelType::Serial) {
+      old2new[i] = target--;
+    }
+  }
+
+  tv->reorder(old2new);
+
+  return std::ssize(old2new);
+}
+
 // TransposeViewPropagator doesn't propagate anything. It simply walks across
 // the path of potential propagation checking if there's any incompatible
 // propagation that would not be resolved.
@@ -1004,7 +1021,7 @@ void scheduleTranspose(Fusion* fusion, const TransposeParams* tparams) {
   // parallelize non-tile dimensions
   reference1->axis(rhs_i + 1)->parallelize(ParallelType::Unswitch);
   reference1->axis(rhs_i)->parallelize(ParallelType::BIDx);
-  // [BIDx, Unswitch, tile1, tile2]
+  // [r.., BIDx, Unswitch, tile1, tile2]
 
   // Propagate transformations so far to the entire DAG
   TransformPropagator propagator(reference1);
@@ -1047,13 +1064,32 @@ void scheduleTranspose(Fusion* fusion, const TransposeParams* tparams) {
   // transform tile for vectorization/unroll
   // See note [vectorization and unroll of input and output]
 
-  int64_t pos = reference2->nDims() - 2;
-  // [..., tile1, tile2]
+  // There can be non-concretized broadcast IDs lying around in loop
+  // domains of intermediate or output tensors but not in fusion
+  // inputs, including reference1. Those broadcast IDs may be present
+  // in the middle of loop domains, which may prevent ideal
+  // inlining. More importantly, the code at this point assumes the
+  // innermost two dimensions are the tiling dimensions, but their
+  // positions may need to be adjusted if there are non-concretized
+  // broadcast IDs. To make the overall scheduling work consistently,
+  // move all dangling broadcast IDs to innermost. We can identify
+  // such broadcast IDs by just finding Serial broadcast loop IDs
+  // since all broadcast IDs present in reference1 should have been
+  // merged and parallelized.
+  int64_t num_innermost_broadcast_ids = 0;
+  if (true || getenv("FIX")) {
+    // std::cerr << "Before: " << reference2->toString() << "\n";
+    num_innermost_broadcast_ids = moveSerialBroadcastInner(reference2);
+    // std::cerr << "After: " << reference2->toString() << "\n";
+  }
+
+  int64_t pos = reference2->nDims() - 2 - num_innermost_broadcast_ids;
+  // [..., tile1, tile2, b..]
   moveReductionsOut(reference2, 2);
   reference2->merge(pos);
   reference2->split(pos, tparams->vectorize_factor2);
   reference2->split(pos, tparams->getThreadsPerBlock());
-  // [..., Unroll, TIDx, Vectorize]
+  // [..., Unroll, TIDx, Vectorize, b...]
 
   // Propagate transformations of reference2 to the entire DAG except
   // group 1. We actually only want to propagate to the fusion outputs, but
@@ -1072,10 +1108,13 @@ void scheduleTranspose(Fusion* fusion, const TransposeParams* tparams) {
   // parallelize group2 and its cached inputs
   {
     if (tparams->vectorize_factor2 > 1) {
-      reference2->axis(-1)->parallelize(ParallelType::Vectorize);
+      reference2->axis(-1 - num_innermost_broadcast_ids)
+          ->parallelize(ParallelType::Vectorize);
     }
-    reference2->axis(-2)->parallelize(ParallelType::TIDx);
-    reference2->axis(-3)->parallelize(ParallelType::Unroll);
+    reference2->axis(-2 - num_innermost_broadcast_ids)
+        ->parallelize(ParallelType::TIDx);
+    reference2->axis(-3 - num_innermost_broadcast_ids)
+        ->parallelize(ParallelType::Unroll);
 
     ComputeAtMap ca_map(fusion);
 
