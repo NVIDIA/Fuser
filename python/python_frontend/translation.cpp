@@ -710,10 +710,12 @@ class FusionTranslator : public OptInConstDispatch {
   void handle(const ReductionOp* rop) final {
     auto* out_tv = rop->out()->as<TensorView>();
 
-    // The min and max reduction operations expect the dtype argument to by
+    // The min and max reduction operations expect the dtype argument to be
     // PrimDataType::Null
     PrimDataType dtype = (rop->getReductionOpType() == BinaryOpType::Min ||
-                          rop->getReductionOpType() == BinaryOpType::Max)
+                          rop->getReductionOpType() == BinaryOpType::FMin ||
+                          rop->getReductionOpType() == BinaryOpType::Max ||
+                          rop->getReductionOpType() == BinaryOpType::FMax)
         ? PrimDataType::Null
         : std::get<PrimDataType>(rop->out()->dtype().type);
 

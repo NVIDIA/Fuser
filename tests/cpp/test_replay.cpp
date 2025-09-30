@@ -118,8 +118,7 @@ TEST_F(ReplayTest, ReplaySplitOnReduction) {
   out->outer_split(0, d);
 
   TensorView* new_out = sum(in, {0});
-  TransformReplay::selfReplay(
-      out->domain(), new_out->domain(), /*ignore_reductions=*/false);
+  TransformReplay::selfReplay(out->domain(), new_out->domain());
   fusion.replaceOutput(out, new_out);
 
   std::vector<IterDomain*> out_loop =
@@ -142,8 +141,7 @@ TEST_F(ReplayTest, IgnoreSplitOnReduction) {
   x->outer_split(0, d);
   x->outer_split(2, d);
 
-  TransformReplay::selfReplay(
-      x->domain(), out->domain(), /*ignore_reductions=*/true);
+  TransformReplay::selfReplay(x->domain(), out->domain());
 
   EXPECT_THAT(
       out->getLoopDomain(),
