@@ -173,7 +173,10 @@ GemmTile getProblemSize(Fusion* fusion, SchedulerRuntimeInfo& runtime_info) {
 
 } // namespace
 
-void fillNvMatmulHeuristicsParams(CutlassParams* params, Fusion* fusion, SchedulerRuntimeInfo& runtime_info) {
+void fillNvMatmulHeuristicsParams(
+    CutlassParams* params,
+    Fusion* fusion,
+    SchedulerRuntimeInfo& runtime_info) {
   FUSER_PERF_SCOPE("fillNvMatmulHeuristicsParams");
   if (initNVMMH()) {
 #ifdef HAS_NVMMH

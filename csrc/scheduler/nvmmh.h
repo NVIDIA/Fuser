@@ -7,15 +7,18 @@
 // clang-format on
 #pragma once
 
-#include <fusion.h>
-#include <mma_type.h>
-#include <scheduler/heuristic.h>
-#include <scheduler/registry.h>
-#include <scheduler/scheduler_types.h>
-#include <visibility.h>
-
 namespace nvfuser {
 
-void fillNvMatmulHeuristicsParams(CutlassParams* params, Fusion* fusion, SchedulerRuntimeInfo& runtime_info);
+class CutlassParams;
+class Fusion;
+class SchedulerRuntimeInfo;
+
+//! This tries to load libnvMatmulHeuristics.so and, if successful, calls out to
+//! it to retrieve a valid kernel config. It then translates it into a
+//! CutlassParams, filling the appropriate values in the provided params
+void fillNvMatmulHeuristicsParams(
+    CutlassParams* params,
+    Fusion* fusion,
+    SchedulerRuntimeInfo& runtime_info);
 
 } // namespace nvfuser
