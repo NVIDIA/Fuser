@@ -46,17 +46,18 @@ bool GreedyParams::sameAs(const HeuristicParams* other_base) const {
   if (other == nullptr) {
     return false;
   }
-  bool attr_equal = consumer_to_params == other->consumer_to_params;
+  bool attr_equal = consumer_to_params_ == other->consumer_to_params_ &&
+      producer_to_params_ == other->producer_to_params_;
   return attr_equal;
 }
 
 std::string GreedyParams::toString() const {
   std::stringstream ss;
   ss << "\n========= Greedy Parameters ========\n";
-  for (const auto& [tv_name, params] : consumer_to_params) {
+  for (const auto& [tv_name, params] : consumer_to_params_) {
     ss << "t" << tv_name << " (consumer) -> " << params.toString() << "\n";
   }
-  for (const auto& [producer_consumer_pair, params] : producer_tv_params) {
+  for (const auto& [producer_consumer_pair, params] : producer_to_params_) {
     ss << "t" << producer_consumer_pair.first << " (producer) for "
        << "t" << producer_consumer_pair.second << " (consumer) -> "
        << params.toString() << "\n";
@@ -67,10 +68,10 @@ std::string GreedyParams::toString() const {
 
 size_t GreedyParams::hash() const {
   size_t x = 0;
-  for (const auto& [tv, size] : consumer_to_params) {
+  for (const auto& [tv, size] : consumer_to_params_) {
     x = x ^ std::hash<int64_t>()(size.batch_size);
   }
-  for (const auto& [producer_consumer_pair, size] : producer_tv_params) {
+  for (const auto& [producer_consumer_pair, size] : producer_to_params_) {
     x = x ^ std::hash<int64_t>()(size.batch_size);
   }
   return x;
@@ -81,67 +82,54 @@ std::unique_ptr<HeuristicParams> GreedyParams::clone() const {
 }
 
 bool GreedyParams::hasConsumerParams(TensorView* consumer_tv) {
-  return consumer_to_params.contains(consumer_tv->name());
+  return consumer_to_params_.contains(consumer_tv->name());
 }
 
 bool GreedyParams::hasProducerParams(
     TensorView* producer_tv,
     TensorView* consumer_tv) const {
-  return producer_tv_params.contains(
+  return producer_to_params_.contains(
       std::make_pair(producer_tv->name(), consumer_tv->name()));
 }
 
-void GreedyParams::transferParams(TensorView* old_tv, TensorView* new_tv) {
-  auto it = consumer_to_params.find(old_tv->name());
-  if (it == consumer_to_params.end()) {
+void GreedyParams::transferConsumerParams(
+    TensorView* old_tv,
+    TensorView* new_tv) {
+  auto it = consumer_to_params_.find(old_tv->name());
+  if (it == consumer_to_params_.end()) {
     return;
   }
   NVF_ERROR(
-      consumer_to_params.emplace(new_tv->name(), it->second).second,
+      setConsumerParams(new_tv, it->second),
       "Duplicated setting for ",
       new_tv->toString());
   // Remove the old entry
-  consumer_to_params.erase(old_tv->name());
+  consumer_to_params_.erase(old_tv->name());
 }
 
-void GreedyParams::transferParams(
+void GreedyParams::transferProducerParams(
     TensorView* old_producer_tv,
     TensorView* old_consumer_tv,
     TensorView* new_producer_tv,
     TensorView* new_consumer_tv) {
-  std::vector<std::pair<StmtNameType, StmtNameType>> keys_to_erase;
-  for (const auto& [pair, batch] : producer_tv_params) {
-    if ((old_producer_tv != nullptr && old_producer_tv->name() != pair.first) ||
-        (old_consumer_tv != nullptr &&
-         old_consumer_tv->name() != pair.second)) {
-      continue;
-    }
-
-    // Use the existing name if new name is nullptr
-    auto new_key = std::make_pair(
-        new_producer_tv != nullptr ? new_producer_tv->name() : pair.first,
-        new_consumer_tv != nullptr ? new_consumer_tv->name() : pair.second);
-    NVF_ERROR(
-        producer_tv_params.emplace(new_key, batch).second,
-        "Duplicated setting for ",
-        new_key.first,
-        ", ",
-        new_key.second);
-    // Remove the old entry
-    keys_to_erase.emplace_back(pair);
+  NVF_ERROR(old_producer_tv != nullptr);
+  NVF_ERROR(old_consumer_tv != nullptr);
+  NVF_ERROR(new_producer_tv != nullptr);
+  NVF_ERROR(new_consumer_tv != nullptr);
+  auto it = producer_to_params_.find(
+      std::make_pair(old_producer_tv->name(), old_consumer_tv->name()));
+  if (it == producer_to_params_.end()) {
+    return;
   }
-  for (const auto& pair : keys_to_erase) {
-    producer_tv_params.erase(pair);
-  }
-}
-
-void GreedyParams::copyParams(TensorView* old_tv, TensorView* new_tv) {
-  auto it = consumer_to_params.find(old_tv->name());
-  NVF_ERROR(it != consumer_to_params.end());
   NVF_ERROR(
-      consumer_to_params.emplace(new_tv->name(), it->second).second,
+      setProducerParams(new_producer_tv, new_consumer_tv, it->second),
       "Duplicated setting for ",
-      new_tv->toString());
+      new_producer_tv->toString(),
+      ", ",
+      new_consumer_tv->toString());
+  // Remove the old entry
+  producer_to_params_.erase(
+      std::make_pair(old_producer_tv->name(), old_producer_tv->name()));
 }
 
 namespace {
@@ -522,7 +510,6 @@ class CompileTimeChecker : private IterVisitor {
     // domain must be mapped across the fusion to avoid the grid
     // synchronization. For the mapping, the exact graph is used for
     // now since BroadcastOp is not yet allowed.
-    // TODO: Update the comment
 
     if (unique_unconstrained_domain_.has_value()) {
       if (unique_unconstrained_domain_->set() != unconstrained_domain.set()) {
@@ -787,30 +774,17 @@ class HeuristicsBuilder : private IterVisitor {
   }
 
   void handle(ScatterOp* scatter) override {
-    // Set the parameters for constrained tensors scheduled by
-    // ConstrainedOpScheduler. See
-    // ConstrainedOpScheduler::handle(ScatterOp*).
+    // Need to have two sets of parameters: one for the logical domain
+    // of the index tensor and another for the logical domain of the
+    // input tensor. See ConstrainedOpScheduler::handle(ScatterOp*).
     auto out_tv = ir_utils::getTvOutput(scatter);
     auto inp_tv = ir_utils::getTvInput(scatter);
-    auto index_tv = scatter->index()->as<TensorView>();
     addHeuristicsFor(out_tv, out_tv->domain()->initialLoop(), {scatter->dim()});
     addHeuristicsFor(
         inp_tv,
         TensorDomain::noReductions(inp_tv->getLogicalDomain()),
         {scatter->dim()},
         out_tv);
-    addHeuristicsFor(
-        index_tv,
-        TensorDomain::noReductions(index_tv->getLogicalDomain()),
-        {scatter->dim()},
-        out_tv);
-    if (auto src_tv = dynamic_cast<TensorView*>(scatter->src())) {
-      addHeuristicsFor(
-          src_tv,
-          TensorDomain::noReductions(src_tv->getLogicalDomain()),
-          {scatter->dim()},
-          out_tv);
-    }
   }
 
   // TODO: Support batching
@@ -818,16 +792,18 @@ class HeuristicsBuilder : private IterVisitor {
     setDefaultParameters(ir_utils::getTvOutput(topk));
   }
 
+  // Make sure a given tensor has some heuristics parameters
   void setDefaultParameters(TensorView* tv) {
     NVF_ERROR(
-        params_->consumer_to_params.emplace(tv->name(), 1).second,
+        params_->setConsumerParams(tv, {1}),
         "Duplicated setting of item per thread factor for ",
         tv->toString());
   }
 
-  // Currently, the only heuristic parameter is batching, i.e., the
-  // number of items per thread. Add the parameter for ops that
-  // supports multiple items per thread.
+  // Register heuristics parameters for constrained_tv. When
+  // consumer is non-null, constrained_tv is considered a producer of
+  // consumer and a producer parameter is added. Otherwise, a consumer
+  // parameter is added for constrained_tv.
   void addHeuristicsFor(
       TensorView* constrained_tv,
       const std::vector<IterDomain*>& domain_to_schedule,
@@ -857,18 +833,12 @@ class HeuristicsBuilder : private IterVisitor {
 
     if (as_consumer) {
       NVF_ERROR(
-          params_->consumer_to_params
-              .emplace(constrained_tv->name(), batch_size)
-              .second,
+          params_->setConsumerParams(constrained_tv, {batch_size}),
           "Duplicated setting of item per thread factor for ",
           constrained_tv->toString());
     } else {
       NVF_ERROR(
-          params_->producer_tv_params
-              .emplace(
-                  std::make_pair(constrained_tv->name(), consumer->name()),
-                  batch_size)
-              .second,
+          params_->setProducerParams(constrained_tv, consumer, {batch_size}),
           "Duplicated setting of item per thread factor for ",
           constrained_tv->toString());
     }
@@ -954,7 +924,7 @@ void insertCopies(Fusion* fusion, GreedyParams& greedy_params) {
         expr = cache->definition();
         // cache is the new constraint tv. Transfer heuristic params
         // if any
-        greedy_params.transferParams(out_tv, cache);
+        greedy_params.transferConsumerParams(out_tv, cache);
       }
     }
 
@@ -969,7 +939,7 @@ void insertCopies(Fusion* fusion, GreedyParams& greedy_params) {
           // Insert an exclusive copy
           auto inp_copy = set(inp_tv);
           expr = ir_utils::replaceValInExprInputs(expr, inp_tv, inp_copy);
-          greedy_params.transferParams(
+          greedy_params.transferProducerParams(
               inp_tv,
               ir_utils::getTvOutput(expr),
               inp_copy,
@@ -1039,16 +1009,40 @@ class ConstrainedOpScheduler : public OptOutDispatch {
     auto index_tv = scatter->index()->as<TensorView>();
     auto out_tv = ir_utils::getTvOutput(scatter);
 
-    scheduleConstrainedTv(
-        out_tv, {scatter_dim}, params_->getConsumerParams(out_tv));
-    scheduleConstrainedTv(
-        index_tv, {scatter_dim}, params_->getProducerParams(index_tv, out_tv));
-    scheduleConstrainedTv(
-        in_tv, {scatter_dim}, params_->getProducerParams(in_tv, out_tv));
+    // Effectively there are two scheduling patterns around a
+    // scatter. One for the scatter loop domain, which is equivalent
+    // to the logical domain of the index tensor. Another is for the
+    // scatter input tensor and also the consumers of the scatter
+    // output. The former is stored as the parameter for the scatter
+    // output. The latter is stored as a producer parameter of the
+    // input tensor.
+    const auto& params_for_index = params_->getConsumerParams(out_tv);
+    const auto& params_for_input = params_->getProducerParams(in_tv, out_tv);
+
+    // Schedule the output and the index tensors with the index parameters
+    scheduleConstrainedTv(out_tv, {scatter_dim}, params_for_index);
+    scheduleConstrainedTv(index_tv, {scatter_dim}, params_for_index);
     if (scatter->src()->isA<TensorView>()) {
       auto src_tv = scatter->src()->as<TensorView>();
-      scheduleConstrainedTv(
-          src_tv, {scatter_dim}, params_->getProducerParams(src_tv, out_tv));
+      scheduleConstrainedTv(src_tv, {scatter_dim}, params_for_index);
+    }
+
+    // Schedule the input. Note that it is guaranteed that the input
+    // is exclusively used by this scatter op and is not a constrained
+    // tensor for another constrained op.
+    scheduleConstrainedTv(in_tv, {scatter_dim}, params_for_input);
+
+    // If there's a use of the scatter output, it is the copy op
+    // inserted by insertCopies. It is not automatically
+    // scheduled as the propagation from the scatter output won't
+    // happen because the loop domain of the scatter output is not mapped
+    // with its logical domain.
+    if (!out_tv->uses().empty()) {
+      NVF_ERROR_EQ(out_tv->uses().size(), 1);
+      auto use_of_out = out_tv->uses().at(0);
+      NVF_ERROR(use_of_out->isA<LoadStoreOp>());
+      auto out_of_use_of_out = ir_utils::getTvOutput(use_of_out);
+      scheduleConstrainedTv(out_of_use_of_out, {scatter_dim}, params_for_input);
     }
 
     // Setting the memory type.
@@ -1068,22 +1062,6 @@ class ConstrainedOpScheduler : public OptOutDispatch {
     }
 
     scheduleScatterAllocationDomains(scatter);
-
-    // If there's a use of the scatter output, that must be the copy
-    // op inserted by insertCopies. It is not automatically
-    // scheduled as the propagation from the scatter output won't
-    // happen because the loop domain of the scatter output is not mapped
-    // with its logical domain.
-    if (!out_tv->uses().empty()) {
-      NVF_ERROR_EQ(out_tv->uses().size(), 1);
-      auto use_of_out = out_tv->uses().at(0);
-      NVF_ERROR(use_of_out->isA<LoadStoreOp>());
-      auto out_of_use_of_out = ir_utils::getTvOutput(use_of_out);
-      scheduleConstrainedTv(
-          out_of_use_of_out,
-          {scatter_dim},
-          params_->getConsumerParams(out_of_use_of_out));
-    }
   }
 
   // Scatter-specific allocation domain scheduling
@@ -1455,17 +1433,20 @@ void GreedyScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
 
   // Cache inputs
   auto cached_inputs = scheduler_utils::cacheInputs(fusion, true);
+  // Transfer the heuristics parameters for the inputs to their caches
   for (const auto& [cache, original] : cached_inputs) {
-    greedy_params.transferParams(
-        fusion->inputs().at(original)->as<TensorView>(),
-        nullptr,
-        cache,
-        nullptr);
+    for (const auto& consumer : ir_utils::consumerTvsOf(cache)) {
+      greedy_params.transferProducerParams(
+          fusion->inputs().at(original)->as<TensorView>(),
+          consumer,
+          cache,
+          consumer);
+    }
   }
   // Cache and fork outputs
   auto cached_outputs = scheduler_utils::cacheAndForkOutputs(fusion, true);
   for (const auto& [cache, original] : cached_outputs) {
-    greedy_params.transferParams(
+    greedy_params.transferConsumerParams(
         fusion->outputs().at(original)->as<TensorView>(), cache);
   }
 
