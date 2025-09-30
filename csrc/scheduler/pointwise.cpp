@@ -880,7 +880,7 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
     reference_tv->reorder(
         scheduler_utils::domainReorderAsLogicalMap(reference_tv));
     // Reorder so that DeviceDims are in front
-    reorderDIDToFront(reference_tv);
+    reorderParallelizedToFront(reference_tv);
 
     // Break point is relative to logical domain, find the loop domain ID's in
     // the left/right side, we really need the values in domain, but easiest way
@@ -966,7 +966,7 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
     if (!reorder_map.empty()) {
       reference_tv->reorder(reorder_map);
     }
-    reorderDIDToFront(reference_tv);
+    reorderParallelizedToFront(reference_tv);
 
     // Merge right side of break point
     for (int64_t i = reference_tv->nDims(); i > device_aware_break_point; i--) {

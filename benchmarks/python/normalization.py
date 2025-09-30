@@ -1,9 +1,9 @@
 # SPDX-FileCopyrightText: Copyright (c) 2024-present NVIDIA CORPORATION & AFFILIATES.
 # All rights reserved.
 # SPDX-License-Identifier: BSD-3-Clause
-from nvfuser_direct import FusionDefinition, DataType
+from nvfuser import FusionDefinition, DataType
 from .global_params import PROMOTE_DTYPES
-from nvfuser_direct.pytorch_utils import torch_dtype_to_nvfuser_dtype
+from nvfuser.pytorch_utils import torch_dtype_to_nvfuser_dtype
 import torch
 from .core import run_benchmark, unary_bwd_torch, clear_dynamo_cache, with_executor
 import numpy as np

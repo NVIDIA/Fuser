@@ -5,9 +5,13 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <device_lower/pass/allocation.h>
+
+#include <ranges>
+#include <unordered_set>
+
 #include <bfs.h>
 #include <device_lower/lower2device.h>
-#include <device_lower/pass/allocation.h>
 #include <expr_evaluator.h>
 #include <expr_simplifier.h>
 #include <id_model/utils.h>
@@ -16,8 +20,6 @@
 #include <ir/utils.h>
 #include <kernel_ir.h>
 #include <kernel_ir_dispatch.h>
-
-#include <unordered_set>
 
 namespace nvfuser {
 
@@ -1172,7 +1174,9 @@ class AllocationInserter : public kir::ExprMutator {
     info.allocation_domains =
         std::make_unique<std::vector<IterDomain*>>(alloc_ids);
 
-    if (alloc_dims.empty() && !info.buffer->domain()->noReductions().empty()) {
+    if (alloc_dims.empty() &&
+        !std::ranges::empty(
+            info.buffer->getLoopDomain() | TensorDomain::kNoReductions)) {
       alloc_dims.push_back(info.buffer->container()->oneVal());
     }
 
@@ -1225,6 +1229,62 @@ class AllocationInserter : public kir::ExprMutator {
     }
 
     return alloc_expr;
+  }
+
+  // Insert cluster reduction mbarrier allocation and initialization at the
+  // beginning of the kernel for the first top-level expression
+  void insertClusterReductionMBarrier(Expr* expr) {
+    int64_t cluster_reduction_count =
+        GpuLower::current()->clusterReductionCount();
+
+    // mbarrier for cluster reduction
+    // create and allocate a memory barrier
+    TensorView* all_mbarriers =
+        TensorViewBuilder()
+            .shape(std::vector<int64_t>{cluster_reduction_count})
+            .dtype(DataType::UInt64)
+            .contiguity(true)
+            .build();
+    all_mbarriers->setMemoryType(MemoryType::Shared);
+    kir::Allocate* mbarrier_alloc =
+        IrBuilder::create<kir::Allocate>(all_mbarriers, MemoryType::Shared);
+    registerInsertBefore(expr, mbarrier_alloc, nullptr);
+
+    if (cluster_reduction_count == 1) {
+      // For single mbarrier, use TensorView directly without loop
+      auto mbarrier_init = IrBuilder::create<kir::MBarrierInit>(
+          all_mbarriers,
+          simplifyExpr(SimplifyingIrBuilder::maybeCastExpr(
+              DataType::UInt32, GpuLower::current()->kernel()->oneVal())));
+      Expr* pred_mbarrier_init = mbarrier_init->withPredicate(
+          IrBuilder::create<kir::Predicate>(PredicateType::ElectSync));
+
+      registerInsertBefore(expr, pred_mbarrier_init, nullptr);
+    } else {
+      // For multiple mbarriers, create a for loop using the utility function
+      auto fl = ir_utils::createRangeLoop(cluster_reduction_count);
+      kir::TensorIndex* indexed_mbarrier =
+          IrBuilder::create<kir::TensorIndex>(all_mbarriers, fl->index());
+
+      auto mbarrier_init = IrBuilder::create<kir::MBarrierInit>(
+          indexed_mbarrier,
+          simplifyExpr(SimplifyingIrBuilder::maybeCastExpr(
+              DataType::UInt32, GpuLower::current()->kernel()->oneVal())));
+      Expr* pred_mbarrier_init = mbarrier_init->withPredicate(
+          IrBuilder::create<kir::Predicate>(PredicateType::ElectSync));
+
+      fl->body().push_back(pred_mbarrier_init);
+
+      registerInsertBefore(expr, fl, nullptr);
+    }
+
+    // Store the mbarrier in GpuLower for later use in cluster reduction ops
+    GpuLower::current()->setClusterReductionMBarrier(all_mbarriers);
+
+    // Insert clusterSync after mbarrier initialization to ensure mbarrier is
+    // visible to other CTAs
+    auto cluster_sync = IrBuilder::create<kir::ClusterSync>();
+    registerInsertBefore(expr, cluster_sync, nullptr);
   }
 
   void dispatch(Expr* expr) override {
@@ -1615,6 +1675,10 @@ class AllocationInserter : public kir::ExprMutator {
 
   AllocationInserter(const std::vector<Expr*>& exprs)
       : gpu_lower_(GpuLower::current()) {
+    // insert cluster reduction mbarrier at top-level scope
+    if (GpuLower::current()->clusterReductionCount() >= 1) {
+      insertClusterReductionMBarrier(exprs.at(0));
+    }
     kir::ExprMutator::traverseAndInsert(exprs);
   }
 

@@ -318,8 +318,7 @@ void decomposeRowParallelLinearWithBias(Fusion* fusion) {
 
     TensorView* new_out =
         maybeCastOp(out->dtype(), add(without_bias, broadcasted_bias));
-    TransformReplay::selfReplay(
-        out->domain(), new_out->domain(), /*ignore_reductions=*/true);
+    TransformReplay::selfReplay(out->domain(), new_out->domain());
     ir_utils::replaceValInAllExprInputsAndFusionOutputs(out, new_out);
   }
 }
