@@ -1363,8 +1363,9 @@ bool mayRequireAllocation(const TensorView* tv, IterDomain* id) {
   // remain size one.
   // - Reduction: Check the original ID, not the promotion, which may
   //   be a reduction ID even though the original ID is not a reduction
-  return !isPartitionedLoop(tv, id) && !isSizeOneDomain(id) &&
-      !id->isReduction() && !id->isStride();
+  return !ir_utils::isMemoryPartitionedAcross(
+             tv->getMemoryType(), id->getParallelType()) &&
+      !isSizeOneDomain(id) && !id->isReduction() && !id->isStride();
 }
 
 bool hasRootToLoopLinearTransformations(const TensorView* tv) {
