@@ -1765,10 +1765,16 @@ TEST_F(CombinedSchedulerTest, KernelReuseVectorizationError) {
   auto a1280 = at::randn({512, 8192}, options);
   auto a1282 = at::randn({512, 8190}, options);
 
-  // Run first test (should compile new kernel)
+  // 1st test: vectorized by 4, 2nd test: vectorized by 2
   auto cg_outputs1 = executor_cache.runFusionWithInputs({a1280});
-  // Run second test (should reuse kernel) but with different vectorization
-  // factor
   auto cg_outputs2 = executor_cache.runFusionWithInputs({a1282});
+  auto runtime = executor_cache.getMostRecentKernelRuntime();
+  auto heuristic_params =
+      runtime->schedulerHeuristics()->heuristicsList().at(0).get();
+  EXPECT_EQ(
+      heuristic_params->as<ReductionParams>()->unroll_factor_inner_reduction,
+      2);
+  testValidate(
+      executor_cache.fusion(), cg_outputs2, {a1282}, __LINE__, __FILE__);
 }
 } // namespace nvfuser

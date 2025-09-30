@@ -110,7 +110,7 @@ std::unique_ptr<ReductionParams> getInnerOuterPersistentHeuristics(
                 ref_red_tv, reduced_tv, properties.inner_most_dimension_ndims));
       });
 
-  const auto vectorize_factor = vectorize_helper::getVectorizationFactor(
+  auto vectorize_factor = vectorize_helper::getVectorizationFactor(
       runtime_info, reduced_tv, data_cache, vec_break_point.get());
 
   auto persistent_buffer_info_entry =
@@ -136,6 +136,10 @@ std::unique_ptr<ReductionParams> getInnerOuterPersistentHeuristics(
   scheduler_utils::SchedulerHyperParameters& hp =
       scheduler_hyperparameters_entry.get();
 
+  // hp may cache a vectorize factor either set by user or a previous runtime.
+  // It may be illegal for the current runtime.
+  vectorize_factor = std::min(hp.vectorize_factor, vectorize_factor);
+
   auto& persistent_buffer_info = persistent_buffer_info_entry.get();
   NVF_ERROR(
       !persistent_buffer_info.persistent_buffers.empty(),
@@ -147,7 +151,7 @@ std::unique_ptr<ReductionParams> getInnerOuterPersistentHeuristics(
         runtime_info,
         data_cache,
         reduction_tvs,
-        hp.vectorize_factor,
+        vectorize_factor,
         hp.threads_per_block_min,
         hp.threads_per_block_max,
         warp_specialized);
@@ -177,7 +181,7 @@ std::unique_ptr<ReductionParams> getInnerOuterPersistentHeuristics(
           buffer_params.circular_buffered_smem_size_bit,
           buffer_params.non_circular_buffered_smem_size_bit,
           max_outer_reduction_dtype_size_bit,
-          hp.vectorize_factor,
+          vectorize_factor,
           hp.threads_per_block_min,
           hp.threads_per_block_max,
           buffer_params.project_to_input,
@@ -203,7 +207,7 @@ std::unique_ptr<ReductionParams> getInnerOuterPersistentHeuristics(
       buffer_params.smem_buffer_size_bit,
       buffer_params.smem_overhead_bit,
       max_outer_reduction_dtype_size_bit,
-      hp.vectorize_factor,
+      vectorize_factor,
       hp.threads_per_block_min,
       hp.threads_per_block_max,
       buffer_params.project_to_input,
@@ -441,7 +445,7 @@ bool InnerOuterPersistentKernelScheduler::canScheduleRunTime(
           runtime_info,
           data_cache,
           reduction_tvs,
-          hp.vectorize_factor,
+          vectorize_factor,
           hp.threads_per_block_min,
           hp.threads_per_block_max,
           hp.is_warp_specialized);
