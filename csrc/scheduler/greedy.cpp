@@ -509,7 +509,7 @@ class CompileTimeChecker : private IterVisitor {
     // parallelized with BIDx. The BIDx parallelized iter
     // domain must be mapped across the fusion to avoid the grid
     // synchronization. For the mapping, the exact graph is used for
-    // now since BroadcastOp is not yet allowed.
+    // now since broadcast IDs can be ignored for this analysis.
 
     if (unique_unconstrained_domain_.has_value()) {
       if (unique_unconstrained_domain_->set() != unconstrained_domain.set()) {
@@ -900,18 +900,20 @@ void propagateReshape(Fusion* fusion) {
 void insertCopies(Fusion* fusion, GreedyParams& greedy_params) {
   for (auto expr : getAllConstrainedOps(fusion)) {
     if (expr->isA<ScatterOp>()) {
+      auto inp_tv = ir_utils::getTvInput(expr);
       auto out_tv = ir_utils::getTvOutput(expr);
       if (!out_tv->uses().empty()) {
         auto cache = out_tv->cacheAfter(
             LoadStoreOpType::Set,
             CacheOp::Unspecified,
             /*propagate_allocation_domain=*/false);
-        // The cache is scheduled as the input of the scatter. Note
-        // that the output is scheduled based on the index input.
+        // Since the cache, which is a copy of the scatter output,
+        // needs to be scheduled as a constrained tensor, add its
+        // consumer parameter. The same parater as the producer
+        // parameter of the index tensor should be used.
+        // a producer parameter.
         greedy_params.setConsumerParams(
-            cache,
-            greedy_params.getProducerParams(
-                ir_utils::getTvInput(expr), out_tv));
+            cache, greedy_params.getProducerParams(inp_tv, out_tv));
       }
     } else if (expr->isOneOf<ArgsortOp, ScanOp, TopKOp>()) {
       auto outputs = expr->outputs();
@@ -1423,12 +1425,6 @@ void GreedyScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
   // Heuristics are copied as they may need to be updated
   GreedyParams greedy_params = *dynamic_cast<const GreedyParams*>(params);
 
-  std::cerr << std::endl;
-  std::cout << "Initial\n";
-  fusion->printMath();
-  std::cout << greedy_params.toString();
-  std::cout << std::endl;
-
   scheduler_utils::clearMemorySpace(fusion);
 
   // Cache inputs
@@ -1450,21 +1446,9 @@ void GreedyScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
         fusion->outputs().at(original)->as<TensorView>(), cache);
   }
 
-  std::cerr << std::endl;
-  std::cout << "Cache inserted\n";
-  fusion->printMath();
-  std::cout << greedy_params.toString();
-  std::cout << std::endl;
-
   propagateReshape(fusion);
 
   insertCopies(fusion, greedy_params);
-
-  std::cerr << std::endl;
-  std::cout << "Copy inserted\n";
-  fusion->printMath();
-  std::cout << greedy_params.toString();
-  std::cout << std::endl;
 
   std::vector<TensorView*> constrained_tvs = getAllConstrainedTvs(fusion);
 
@@ -1521,9 +1505,6 @@ void GreedyScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
 
   // Resolve conflicts. Find conflicting producer-consumer pairs
   // and insert memory promotion
-
-  fusion->print();
-  std::cout << std::endl;
 
   VectorOfUniqueEntries<TensorView*> tvs_to_upload_to_smem;
   const auto sync_map = buildSyncMap(fusion);
