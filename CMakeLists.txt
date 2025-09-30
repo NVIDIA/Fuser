@@ -111,9 +111,6 @@ if(BUILD_CUTLASS)
     )
     FetchContent_Populate(repo-cutlass)
 
-    include(ProcessorCount)
-    ProcessorCount(NPROC)
-
     set(NVF_CUTLASS_CUDA_FLAGS
       "-DCUTE_USE_PACKED_TUPLE=1"
       "-DCUTLASS_ENABLE_TENSOR_CORE_MMA=1"
@@ -123,7 +120,8 @@ if(BUILD_CUTLASS)
       "-DCUTLASS_DEBUG_TRACE_LEVEL=0"
       "--expt-relaxed-constexpr"
       "--expt-extended-lambda"
-      "--threads=${NPROC}"
+      # Equivalent to --threads=<number of CPUs>
+      "--threads=0"
       # -----------------
       # Suppress warnings
       # -----------------
