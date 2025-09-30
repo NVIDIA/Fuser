@@ -1136,7 +1136,7 @@ TEST_F(MultiDeviceTest, PointwiseSchedulerReordering) {
     tv->axis(1)->parallelize(ParallelType::DIDx);
     // Allocation domain: [d, 3, 5]
     tv->setAllocationDomain({tv->axis(1), tv->axis(2), tv->axis(0)}, true);
-    reorderDIDToFront(tv);
+    reorderParallelizedToFront(tv);
   }
 
   // Disable the pass to verify we can run a fusion where allocation domain
