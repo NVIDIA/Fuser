@@ -131,15 +131,14 @@ void moveReductionsOut(TensorView* tv, int n) {
 
 // This is for preventing dangling broadcast IDs from interferring the
 // scheduling of the fusion. Returns the number of moved IDs.
-int64_t moveDanglingBroadcastInner(
-    TensorView* tv,
-    const std::vector<IterDomain*>& original_loop) {
+int64_t moveDanglingBroadcastInner(TensorView* tv) {
   std::unordered_map<int64_t, int64_t> old2new;
 
   int64_t target = -1;
   for (const auto& [i, id] :
        enumerate(tv->getLoopDomain()) | std::views::reverse) {
-    if (std::ranges::find(original_loop, id) == original_loop.end()) {
+    if (std::ranges::find(tv->getLogicalDomain(), id) ==
+        tv->getLogicalDomain().end()) {
       continue;
     }
 
@@ -951,10 +950,6 @@ void scheduleTranspose(Fusion* fusion, const TransposeParams* tparams) {
   auto inner_most_id1 = scheduler_utils::innerMostAllocDim(reference1);
   auto inner_most_id2 = scheduler_utils::innerMostAllocDim(reference2);
 
-  // Keep track of the original loop domain so that unscheduled IDs
-  // can be detected later
-  const auto reference2_original_loop = reference2->getLoopDomain();
-
   //////////////////////////////////////////
   // Step 1: Make virtual inner most dims //
   //////////////////////////////////////////
@@ -1094,7 +1089,7 @@ void scheduleTranspose(Fusion* fusion, const TransposeParams* tparams) {
   // since all broadcast IDs present in reference1 should have been
   // merged and parallelized.
   const int64_t num_innermost_broadcast_ids =
-      moveDanglingBroadcastInner(reference2, reference2_original_loop);
+      moveDanglingBroadcastInner(reference2);
   int64_t pos = reference2->nDims() - 2 - num_innermost_broadcast_ids;
   // [..., tile1, tile2, b..]
   moveReductionsOut(reference2, 2);
