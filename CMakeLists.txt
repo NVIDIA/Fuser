@@ -111,9 +111,6 @@ if(BUILD_CUTLASS)
     )
     FetchContent_Populate(repo-cutlass)
 
-    include(ProcessorCount)
-    ProcessorCount(NPROC)
-
     set(NVF_CUTLASS_CUDA_FLAGS
       "-DCUTE_USE_PACKED_TUPLE=1"
       "-DCUTLASS_ENABLE_TENSOR_CORE_MMA=1"
