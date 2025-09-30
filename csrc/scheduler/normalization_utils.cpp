@@ -836,7 +836,9 @@ int64_t getMaxRegOrSharedMemorySizeBitForPersistentBuffer(
   smem_overhead_bit += sharedMemoryRoundUpOverheadBit(
       runtime_info, persistent_buffer_info, project_to_inputs);
 
-  int64_t available_shared_memory_size_bit =
+  smem_overhead_bit += scheduler_utils::counted_static_smem_bit;
+
+  t64_t available_shared_memory_size_bit =
       (int64_t)dev_prop->sharedMemPerBlockOptin * 8 - smem_overhead_bit;
 
   available_persistent_buffer_size_bit = std::max(
@@ -2028,3 +2030,4 @@ bool isCacheableUnmappableTv(
 
 } // namespace normalization_scheduler_utils
 } // namespace nvfuser
+  

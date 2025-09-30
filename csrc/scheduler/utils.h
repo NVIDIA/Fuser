@@ -50,6 +50,11 @@ constexpr int64_t y_grid_limit = 65535;
 constexpr int64_t z_grid_limit = 65535;
 constexpr int64_t z_block_limit = 64;
 
+// static shared memory useage, e.g. magic zero, etc.
+// magic zero is the only current user of this.
+// set to 128 bytes to be safe and acount for future alignments.
+constexpr int64_t counted_static_smem_bit = 128 * 8;
+
 // Find largest power of 2 that is a factor of n. If n==0, return largest power
 // of 2 representable by int64_t
 constexpr int64_t maxVectorizationWidth(int64_t n) {
