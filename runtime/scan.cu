@@ -105,6 +105,7 @@ __device__ void blockScan(
   }
 
   // Make sure the work buffer can be freely used again
+  __syncthreads();
 }
 
 } // namespace scan
