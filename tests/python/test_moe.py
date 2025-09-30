@@ -149,7 +149,6 @@ def gmm_nvfuser(
     reshaped_scaled_mat1 = fd.ops.clamp(reshaped_scaled_mat1, -FLOAT8_E4M3_MAX, FLOAT8_E4M3_MAX)
     
     scaled_mat1 = fd.ops.reshape(reshaped_scaled_mat1, [m_size, k_size])
-    # should I clamp here before cast?!
     fp4_mat1 = fd.ops.cast(scaled_mat1, DataType.Float4_e2m1fn)
     fp8_scale1 = fd.ops.cast(scale1, DataType.Float8_e4m3fn)
     layout_fp8_scale1 = fd.ops.preprocess_grouped_matmul_input_sf(fp8_scale1, nv_offsets, nv_blocksf_offsets)
@@ -159,6 +158,7 @@ def gmm_nvfuser(
         layout_fp8_scale1,
         nv_sf_w,
         nv_alpha,
+        # NOTE: we might need to call contiguous on problem_sizes
         nv_problem_sizes,
         nv_offsets,
         nv_blocksf_offsets,
@@ -188,8 +188,9 @@ class GroupedLinear(nn.Module):
 
         transposed_weight = self.weight.transpose(-1, -2).contiguous()
         for i in range(groups):
-            alpha[i] = FLOAT4_E2M1_MAX * FLOAT8_E4M3_MAX / transposed_weight[i].max()
-            scaled_mat2_i, bs_mat2_i = pytorch_nvfp4_quantize(transposed_weight[i], alpha[i])
+            global_factor = FLOAT4_E2M1_MAX * FLOAT8_E4M3_MAX / transposed_weight[i].max()
+            alpha[i] = 1.0 / global_factor
+            scaled_mat2_i, bs_mat2_i = pytorch_nvfp4_quantize(transposed_weight[i], global_factor)
             fp4_weight[i] = scaled_mat2_i
             b_sf[i] = linear_to_swizzled_128_4(bs_mat2_i)
 
