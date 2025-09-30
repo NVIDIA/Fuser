@@ -70,11 +70,20 @@ bool MaxPosCalculator::isAllowedID(
     bool allow_unmappable) const {
   bool allowed = true;
 
+  if (tv->name() == 4) {
+    std::cerr << "isAllowedID: " << tv->toString() << ", " << id->toString()
+              << ", best effort: " << best_effort << "\n";
+  }
+
   if (!allow_reduction) {
     allowed = allowed && !id->isReduction();
   }
 
   if (uninlinable_ids_.count(id)) {
+    if (tv->name() == 4) {
+      std::cerr << "Uninlinable\n";
+    }
+
     return false;
   }
 
@@ -102,7 +111,16 @@ bool MaxPosCalculator::isAllowedID(
         break;
       }
     }
+
+    if (is_unmappable && tv->name() == 4) {
+      std::cerr << "unmappable: " << toDelimitedString(unmappable_dims_)
+                << "\n";
+    }
     allowed = allowed && !is_unmappable;
+  }
+
+  if (tv->name() == 4) {
+    std::cerr << "allowed: " << allowed << "\n";
   }
 
   return allowed;
@@ -114,6 +132,9 @@ size_t MaxPosCalculator::getMaxPosSelf(
     bool allow_reduction,
     bool allow_vectorize,
     bool allow_unmappable) const {
+  if (tv->name() == 4) {
+    std::cerr << "getMaxPosSelf: " << tv->toString() << "\n";
+  }
   const auto& dom = tv->getLoopDomain();
   auto iter = std::find_if(
       dom.begin(),
@@ -228,9 +249,16 @@ size_t MaxPosCalculator::getMaxPosAll(
     bool best_effort,
     bool check_siblings) {
   auto max_pos = getMaxPosSelf(tv, best_effort, false, false, false);
+  if (tv->name() == 4) {
+    std::cerr << "getMaxPosSelf: " << max_pos << "\n";
+  }
   for (auto consumer_tv : ir_utils::consumerTvsOf(tv)) {
     max_pos = std::min<size_t>(
         max_pos, getMaxProducerPosFromConsumer(tv, consumer_tv, best_effort));
+    if (tv->name() == 4) {
+      std::cerr << "getMaxPosConsumer: " << max_pos
+                << ", consumer: " << consumer_tv->toString() << "\n";
+    }
   }
   if (check_siblings) {
     for (auto sibling_tv : ir_utils::siblingTvsOf(tv)) {

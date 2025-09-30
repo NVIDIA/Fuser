@@ -522,6 +522,8 @@ class CompileTimeChecker : private IterVisitor {
     // domain must be mapped across the fusion to avoid the grid
     // synchronization. For the mapping, the exact graph is used for
     // now since BroadcastOp is not yet allowed.
+    // TODO: Update the comment
+
     if (unique_unconstrained_domain_.has_value()) {
       if (unique_unconstrained_domain_->set() != unconstrained_domain.set()) {
         reject(
@@ -1538,6 +1540,9 @@ void GreedyScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
 
   // Resolve conflicts. Find conflicting producer-consumer pairs
   // and insert memory promotion
+
+  fusion->print();
+  std::cout << std::endl;
 
   VectorOfUniqueEntries<TensorView*> tvs_to_upload_to_smem;
   const auto sync_map = buildSyncMap(fusion);

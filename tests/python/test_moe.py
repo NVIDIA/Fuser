@@ -174,11 +174,11 @@ def test_llama4_moe_thunderfx():
     with default_tensor_type(dtype=torch.bfloat16, device="cuda"):
         model = Llama4MoE(config)
 
-    # Without this, `thunderfx` falls back to `inductor` for `_grouped_mm`
-    # as it doesn't have a grad-rule for the same.
+    # Without this, `thunderfx` falls back to `inductor` for `_grouped_mm` # as it doesn't have a grad-rule for the same.
     model.requires_grad_(False)
 
-    batch_size, seq_len = 1, 2048
+    #batch_size, seq_len = 1, 2048
+    batch_size, seq_len = 1, 1024
     inp = torch.randn(
         batch_size, seq_len, config.hidden_size, dtype=torch.bfloat16, device="cuda"
     )
@@ -199,3 +199,5 @@ def test_llama4_moe_thunderfx():
     # print(tmodel.last_traces)
 
     torch.testing.assert_close(actual, expected, atol=1e-2, rtol=1e-2)
+
+test_llama4_moe_thunderfx()
