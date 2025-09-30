@@ -940,6 +940,11 @@ class PredicateChcker : public IterVisitor {
     needs_predicate_ = true;
   }
 
+  // Same as ArgsortOp
+  void handle(ScanOp* sop) final {
+    needs_predicate_ = true;
+  }
+
  private:
   const PredicateElimination& pred_elimination_;
   const std::unordered_set<const Expr*>& non_predicated_exprs_;

@@ -1756,22 +1756,21 @@ void eraseInputDistinctRootDomains(Fusion* fusion) {
 
   for (auto tv : ir_utils::filterByType<TensorView>(fusion->inputs())) {
     // Create a new logical domain and replacement TensorDomain.
-    // Given an logical domain, create a new IterDomain.
-    // Otherwise, clone the previous IterDomain
     std::vector<IterDomain*> new_logical_domain;
-    auto logical = tv->getLogicalDomain();
-    new_logical_domain.reserve(logical.size());
+
+    // Ignore reduction ids for new tensordomain.
+    auto logical = tv->getLogicalDomain() | TensorDomain::kNoReductions;
+    new_logical_domain.reserve(std::ranges::distance(logical));
 
     // Does the logical domain contain all concrete sized extents?
-    bool tv_is_concrete = true;
-    for (auto id : logical) {
-      if (!id->extent()->isConstScalar()) {
-        tv_is_concrete = false;
-        break;
-      }
-    }
+    bool tv_is_concrete =
+        std::all_of(logical.begin(), logical.end(), [](IterDomain* id) {
+          return id->extent()->isConstScalar();
+        });
 
-    for (const auto& id : logical) {
+    // Given an rfactor IterDomain, create a new IterDomain.
+    // Otherwise, clone the previous IterDomain
+    for (IterDomain* id : logical) {
       if (id->isRFactorProduct()) {
         // Create new symbolic extents for logical iterDomains
         auto domain_extent = (!tv_is_concrete)
@@ -1787,76 +1786,56 @@ void eraseInputDistinctRootDomains(Fusion* fusion) {
       }
     }
 
-    TensorDomain* new_td = nullptr;
-    if (tv->domain()->hasAllocation()) {
-      // we need to reorder the logical domain into allocation domain
-      // consistently with the mapping from the old TensorView logical domain to
-      // its allocation domain
-      std::unordered_map<IterDomain*, IterDomain*> old_to_new;
-      for (const auto i : arange(logical.size())) {
-        old_to_new.emplace(logical[i], new_logical_domain[i]);
-      }
+    auto* new_td = IrBuilder::create<TensorDomain>(new_logical_domain);
 
-      ReplayTransformations replay(tv->getAllocationDomain(), old_to_new);
-      // Without this,
-      // https://github.com/NVIDIA/Fuser/blob/e613929a6c21b3095c8817b01b8f177096a26e60/csrc/transform_iter.cpp#L299
-      // tries to look for root IDs in the map, which shouldn't exist because
-      // the whole purpose of this function is to remove the root domain.
-      replay.setErrorOnFailure(false);
-      // We don't need replay.setReplayRFactor(true). The new root is the same
-      // as the new logical so there aren't any expressions between them.
+    auto compare_result = ir_utils::compareDomains(
+        tv->getLogicalDomain(),
+        tv->getLoopDomain(),
+        /*additional_ids=*/{},
+        /*ignore_broadcast=*/false);
+    bool has_disjoint_loop_logical = compare_result.dom0_has_unreachable_ids ||
+        compare_result.dom1_has_unreachable_ids;
 
-      std::vector<IterDomain*> new_alloc;
-      new_alloc.reserve(tv->getAllocationDomain().size());
-      for (IterDomain* alloc_id : tv->getAllocationDomain()) {
-        IterDomain* new_alloc_id = replay.getReplay().at(alloc_id);
-        // ReplayTransformations replay transforms but not paralelization, so
-        // we have to manually parallelize the new allocation ID. In other
-        // places, parallelization is usually done through parallelizeAllLike.
-        new_alloc_id->parallelize(alloc_id->getParallelType());
-        new_alloc.push_back(new_alloc_id);
-      }
-
-      std::vector<IterDomain*> new_loop;
-      if (tv->getLoopDomain() == tv->getAllocationDomain()) {
-        new_loop = new_alloc;
-      } else {
-        new_loop = new_logical_domain;
-      }
-
-      new_td = IrBuilder::create<TensorDomain>(
-          /*root_domain=*/std::vector<IterDomain*>(),
-          new_logical_domain,
-          new_alloc,
-          new_loop,
-          tv->domain()->contiguity());
+    if (has_disjoint_loop_logical) {
+      // NOTE: This is only the case for scatter outputs, for which loop and
+      // logical are disjoint. Consequently, the loop domain cannot be replayed.
+      // Since this scatter output is a fusion input to this segment, its loop
+      // domain is immaterial now and we can skip replaying it.
+      NVF_ERROR(
+          std::any_of(
+              tv->getLogicalDomain().begin(),
+              tv->getLogicalDomain().end(),
+              [](IterDomain* id) { return id->isGatherScatter(); }),
+          "Disjoint loop and logical are only permitted for scatter outputs, ",
+          tv->domain()->toString(0, false));
+      NVF_ERROR(
+          !isSharded(tv),
+          "Sharding is not permitted when loop domain is disjoint from logical "
+          "domain, ",
+          tv->domain()->toString(0, false));
+      // Only replay allocation. Contiguity is
+      // set to `true` since the scatter output is contiguous.
+      new_td->setAllocationDomain(
+          ir_utils::propagateScatterAllocationDomain(tv, new_logical_domain),
+          true);
     } else {
-      new_td = IrBuilder::create<TensorDomain>(
-          new_logical_domain, tv->domain()->contiguity());
-    }
-
-    // Remove reduction domains from new_td
-    if (new_td->hasReduction()) {
-      std::vector<std::optional<bool>> no_red_contiguity;
-      for (size_t i : arange(new_td->maybeAllocation().size())) {
-        if (new_td->maybeAllocation()[i]->isReduction()) {
-          continue;
+      // Replay both loop and allocation domains.
+      TransformReplay::selfReplay(tv->domain(), new_td);
+      if (!tv->domain()->hasAllocation()) {
+        // The default contiguity for new_td is false. `selfReplay` does not
+        // replay contiguity when no allocation domain is present.
+        const std::vector<std::optional<bool>> old_contiguity =
+            tv->domain()->contiguity();
+        std::vector<std::optional<bool>> no_red_contiguity;
+        no_red_contiguity.reserve(old_contiguity.size());
+        for (const auto& [id, contiguity] :
+             zip(tv->getLogicalDomain(), old_contiguity)) {
+          if (id->isReduction()) {
+            continue;
+          }
+          no_red_contiguity.push_back(contiguity);
         }
-        no_red_contiguity.push_back(new_td->contiguity()[i]);
-      }
-      if (new_td->hasAllocation()) {
-        const std::vector<IterDomain*> new_logical =
-            TensorDomain::noReductions(new_td->logical());
-        new_td = IrBuilder::create<TensorDomain>(
-            /*root_domain=*/std::vector<IterDomain*>{},
-            /*logical_domain=*/new_logical,
-            /*allocation=*/TensorDomain::noReductions(new_td->allocation()),
-            /*loop_domain=*/TensorDomain::noReductions(new_td->loop()),
-            /*contiguity=*/no_red_contiguity);
-      } else {
-        new_td = IrBuilder::create<TensorDomain>(
-            /*logical_domain=*/TensorDomain::noReductions(new_td->logical()),
-            /*contiguity=*/no_red_contiguity);
+        new_td->setContiguity(no_red_contiguity);
       }
     }
 

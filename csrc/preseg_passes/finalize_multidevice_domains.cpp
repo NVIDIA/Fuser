@@ -113,7 +113,7 @@ void setLoopAndAllocationDomain(TensorView* tv, bool is_resharding) {
   }
 
   // Most schedulers require DIDx to be at the front of the loop domain.
-  auto old2new = reorderDIDToFront(tv);
+  auto old2new = reorderParallelizedToFront(tv);
   auto new2old = ir_utils::normalizeOld2New(old2new, tv->nDims());
   std::vector<std::optional<bool>> reordered_contiguity;
   std::transform(

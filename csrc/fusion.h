@@ -7,10 +7,16 @@
 // clang-format on
 #pragma once
 
+#include <any>
+#include <string>
+#include <unordered_map>
+#include <unordered_set>
+#include <vector>
+
 #include <ATen/core/ivalue.h>
-#include <exceptions.h>
 
 #include <debug.h>
+#include <exceptions.h>
 #include <fusion_guard.h>
 #include <ir/base_nodes.h>
 #include <ir/cloner.h>
@@ -18,12 +24,6 @@
 #include <iter_visitor.h>
 #include <runtime/executor_params.h>
 #include <visibility.h>
-
-#include <any>
-#include <string>
-#include <unordered_map>
-#include <unordered_set>
-#include <vector>
 
 namespace nvfuser {
 
@@ -83,43 +83,54 @@ enum class AllocationType : int {
   Evaluate,
 };
 
+std::ostream& operator<<(std::ostream& os, AllocationType);
+
+enum class OutputVisibility : int {
+  kHidden,
+  kVisible,
+};
+
+std::ostream& operator<<(std::ostream& os, OutputVisibility);
+
 struct AliasInfo {
   AllocationType type;
   Val* aliased_io;
   // Whether integration should hide the output from users. This is currently
   // only used for ReuseBuffer.
-  bool hide_output;
+  OutputVisibility visibility;
 
   bool operator==(const AliasInfo& other) const {
     return type == other.type && aliased_io == other.aliased_io &&
-        hide_output == other.hide_output;
+        visibility == other.visibility;
   }
 
   bool operator!=(const AliasInfo& other) const {
     return !(*this == other);
   }
+};
 
-  std::string toString() const {
-    std::stringstream ss;
-    ss << "AliasInfo{\n";
-    ss << "  type = ";
-    switch (type) {
-      case AllocationType::Evaluate:
-        ss << "Evaluate";
-        break;
-      case AllocationType::New:
-        ss << "New";
-        break;
-      case AllocationType::ReuseBuffer:
-        ss << "ReuseBuffer";
-        break;
-    }
-    ss << ",\n  aliased_io = "
-       << (aliased_io == nullptr ? "nullptr" : aliased_io->toString()) << ",\n";
-    ss << "  hide_output = " << (hide_output ? "true" : "false") << "\n";
-    ss << "}\n";
-    return ss.str();
+std::ostream& operator<<(std::ostream& os, const AliasInfo&);
+
+class AliasInfoMap {
+ public:
+  void add(Val* out, Val* in, AllocationType type, OutputVisibility visibility);
+
+  const AliasInfo& get(const Val* v) const;
+
+  AliasInfo& mutable_at(const Val* v) {
+    return aliases_.at(v);
   }
+
+  void erase(const Val* v) {
+    aliases_.erase(v);
+  }
+
+  void clear() {
+    aliases_.clear();
+  }
+
+ private:
+  std::unordered_map<const Val*, AliasInfo> aliases_;
 };
 
 //! Fusion is mutable but unique. Nodes cannot be copied in any way from one
@@ -269,9 +280,10 @@ class NVF_API Fusion : public IrContainer {
   // those of type `ReuseBuffer` are marked in fusion definitions.
   NVF_API void aliasOutputToInput(Val* output, Val* input, AllocationType type);
 
-  //! Returns the aliased input of a given output along with an `AliasInfo`
-  //! describing how they alias. Returns <nullptr,nullptr> when `output` is not
-  //! aliased.
+  const AliasInfoMap& getOutputAliases() const {
+    return io_alias_;
+  }
+
   const AliasInfo& getOutputAlias(const Val* output) const;
 
   bool isTVUseInfoValid() {
@@ -498,8 +510,8 @@ class NVF_API Fusion : public IrContainer {
   std::vector<Val*> inputs_;
   std::vector<Val*> outputs_;
 
-  // io alias pointing from output to input
-  std::unordered_map<const Val*, AliasInfo> io_alias_;
+  // Aliases between fusion inputs and outputs.
+  AliasInfoMap io_alias_;
 
   // Records if the current use data in the IR nodes are valid
   //  the states are either all valid or all invalid

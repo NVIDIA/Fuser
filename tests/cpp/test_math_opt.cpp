@@ -49,4 +49,64 @@ TEST_F(MathOptTest, FastMathTanh) {
   EXPECT_TRUE(ptx_string.find("tanh.approx.f32") != std::string::npos);
 }
 
+using NanReductionTest = NVFuserFixtureParamTest<BinaryOpType>;
+
+TEST_P(NanReductionTest, Test) {
+  // Check NAN reduction behavior for several cases:
+  // 1. No NAN input -> no NAN output
+  // 2. Single NAN input -> NAN output only for min/max (not fmin/fmax)
+  // 3. All NAN input -> NAN output
+
+  BinaryOpType opType = GetParam();
+
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  auto tv0 = makeSymbolicTensor(1);
+  fusion->addInput(tv0);
+  Val* init = ops::binOpIdentity(opType, tv0->dtype());
+  auto tv1 = reductionOp(opType, {0}, init, tv0);
+  fusion->addOutput(tv1);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({32}, options);
+
+  KernelExecutor ke;
+  ke.compile(fusion.get(), {t0});
+
+  // No-NAN input
+  auto cg_outputs = ke.run({t0});
+  EXPECT_FALSE(at::any(at::isnan(cg_outputs[0].as<at::Tensor>())).item<bool>());
+
+  // Single NAN input
+  t0[0] = std::numeric_limits<float>::quiet_NaN();
+  cg_outputs = ke.run({t0});
+  bool any_nan =
+      at::any(at::isnan(cg_outputs[0].as<at::Tensor>())).item<bool>();
+  if (opType == BinaryOpType::FMax || opType == BinaryOpType::FMin) {
+    EXPECT_FALSE(any_nan);
+  } else {
+    EXPECT_TRUE(any_nan);
+  }
+
+  // All NAN input
+  t0 = at::full({32}, std::numeric_limits<float>::quiet_NaN(), options);
+  cg_outputs = ke.run({t0});
+  EXPECT_TRUE(at::any(at::isnan(cg_outputs[0].as<at::Tensor>())).item<bool>());
+}
+
+INSTANTIATE_TEST_SUITE_P(
+    MathOptTest,
+    NanReductionTest,
+    ::testing::Values(
+        BinaryOpType::Max,
+        BinaryOpType::FMax,
+        BinaryOpType::Min,
+        BinaryOpType::FMin),
+    [](const testing::TestParamInfo<BinaryOpType>& info) -> std::string {
+      std::stringstream ss;
+      ss << info.param;
+      return sanitizeTestName(ss.str());
+    });
+
 } // namespace nvfuser
