@@ -294,6 +294,123 @@ TEST_F(BQTest, ScheduleAsPointwise) {
   EXPECT_EQ(quantized_tensor_output.dim(), 3);
 }
 
+TEST_F(BQTest, ScheduleAsPointwise2D) {
+  // Basic test implementation
+  std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  createNVFP4QunatizationFusion(fusion.get(), DataType::Float);
+
+  FusionExecutorCache fec(std::move(fusion));
+
+  const int m = 1024;
+  const int n = 1024;
+  std::vector<at::Tensor> inputs;
+  inputs.push_back(at::randn({m, n}, at::device(at::kCUDA).dtype(at::kFloat)));
+  auto outputs_baseline = fec.runFusionWithInputs(inputs);
+
+  // Print baseline outputs
+  auto baseline_block_scales = outputs_baseline[0].as<at::Tensor>();
+  auto baseline_quantized_tensor = outputs_baseline[1].as<at::Tensor>();
+
+  // Move baseline tensors from GPU to CPU
+  auto baseline_block_scales_cpu = baseline_block_scales.cpu();
+  auto baseline_quantized_tensor_cpu = baseline_quantized_tensor.cpu();
+
+  // Print first 32 bytes of baseline block_scales_output in hex format
+  const uint8_t* baseline_block_scales_data =
+      static_cast<const uint8_t*>(baseline_block_scales_cpu.data_ptr());
+  const uint8_t* baseline_quantized_data =
+      static_cast<const uint8_t*>(baseline_quantized_tensor_cpu.data_ptr());
+
+  std::unique_ptr<Fusion> fusion_new_op = std::make_unique<Fusion>();
+  FusionGuard fg2(fusion_new_op.get());
+
+  auto tv_data_hp = makeContigTensor(2, DataType::Float);
+  fusion_new_op->addInput(tv_data_hp);
+
+  // t0 is 2D
+  auto t0 = set(tv_data_hp);
+  auto quantization_results = block_quantize(t0);
+
+  // t1 and t2 are 2D.
+  fusion_new_op->addOutput(quantization_results.block_scales);
+  fusion_new_op->addOutput(quantization_results.quantized_tensor);
+
+  t0->setMemoryType(MemoryType::Local);
+
+  // This is the 3D input to the BQ Op.
+  auto view_out_tv = quantization_results.block_scales->definition()
+                         ->input(0)
+                         ->as<TensorView>();
+
+  for (auto t : {tv_data_hp, t0}) {
+    t->split(-1, block_size);
+  }
+
+  for (auto t :
+       {tv_data_hp,
+        t0,
+        view_out_tv,
+        quantization_results.quantized_tensor,
+        quantization_results.block_scales}) {
+    t->merge(1, 2);
+
+    t->split(-1, 4); // V
+    t->split(-2, 32); // BDx
+
+    t->split(0, 1);
+    t->split(0, 4); // BDy
+
+    if (t != tv_data_hp) {
+      // Don't vectorize the outputs of reshape
+      if (t != view_out_tv && t != quantization_results.block_scales) {
+        t->axis(-1)->parallelize(ParallelType::Vectorize);
+      }
+      //  I/512(BIDx), 128(TIDx), 1, 4(v)
+      t->axis(-2)->parallelize(ParallelType::TIDx);
+      t->axis(-3)->parallelize(ParallelType::BIDx);
+      t->axis(-5)->parallelize(ParallelType::TIDy);
+      t->axis(-6)->parallelize(ParallelType::BIDy);
+    }
+  }
+
+  // Execute the fusion
+  KernelExecutor ke;
+  ke.compile(fusion_new_op.get(), inputs);
+  auto outputs_new_op = ke.run(inputs);
+
+  // Verify we got the expected outputs
+  auto block_scales_output = outputs_new_op[0].as<at::Tensor>();
+  auto quantized_tensor_output = outputs_new_op[1].as<at::Tensor>();
+
+  // Move tensors from GPU to CPU
+  auto block_scales_cpu = block_scales_output.cpu();
+  auto quantized_tensor_cpu = quantized_tensor_output.cpu();
+
+  auto block_scales_bytes = (m * n) / block_size;
+  auto quantized_tensor_bytes = (m * n) / 2;
+
+  const uint8_t* block_scales_data =
+      static_cast<const uint8_t*>(block_scales_cpu.data_ptr());
+  for (int i = 0; i < block_scales_bytes; ++i) {
+    EXPECT_EQ(
+        block_scales_data[i],
+        baseline_block_scales_data[i]); // Compare with baseline
+  }
+
+  const uint8_t* quantized_data =
+      static_cast<const uint8_t*>(quantized_tensor_cpu.data_ptr());
+  for (int i = 0; i < quantized_tensor_bytes; ++i) {
+    EXPECT_EQ(
+        quantized_data[i],
+        baseline_quantized_data[i]); // Compare with baseline
+  }
+
+  // Basic shape checks
+  EXPECT_EQ(block_scales_output.dim(), 3);
+  EXPECT_EQ(quantized_tensor_output.dim(), 3);
+}
+
 TEST_P(NVFP4QuantizeTest, SwizzledOuputAndWithoutPerTensorAmax) {
   auto data_hp_dtype = GetParam();
 
