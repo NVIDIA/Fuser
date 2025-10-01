@@ -1276,17 +1276,24 @@ void clearMemorySpace(Fusion* fusion) {
   }
 }
 
-// Returns cached after tensors of the fusion inputs if unrolled. Otherwise
-// return empty vector.
-std::vector<TensorView*> cacheInputs(Fusion* fusion, bool unroll) {
+// Returns the pairs of <cache, input_index> for each cached fusion input.
+// input_index is the position in fusion->inputs(). Otherwise return empty
+// vector.
+std::vector<std::pair<TensorView*, int64_t>> cacheInputs(
+    Fusion* fusion,
+    bool unroll) {
   if (!unroll) {
     return {};
   }
 
-  std::vector<TensorView*> cached_inputs;
+  std::vector<std::pair<TensorView*, int64_t>> cached_inputs;
   // If we're going to unroll, make a cache of the inputs
-  auto in_tvs = ir_utils::filterByType<TensorView>(fusion->inputs());
-  for (auto tv : in_tvs) {
+  for (auto [input_idx, input] : enumerate(fusion->inputs())) {
+    auto tv = dynamic_cast<TensorView*>(input);
+    if (!tv) {
+      continue;
+    }
+
     if (tv->nDims() == 0 || tv->uses().empty() ||
         ir_utils::isIndexSelectLookupTv(tv) ||
         ir_utils::isTvUsedByOpsOfType<SelectOp>(tv)) {
@@ -1327,19 +1334,25 @@ std::vector<TensorView*> cacheInputs(Fusion* fusion, bool unroll) {
         /*cache_op=*/CacheOp::Unspecified,
         /*propagate_allocation_domain=*/true,
         /*cached_uses=*/cached_uses);
-    cached_inputs.emplace_back(cached_tv);
+
+    cached_inputs.emplace_back(cached_tv, input_idx);
   }
   return cached_inputs;
 }
 
 // Returns the pairs of <cache of each fusion output, corresponding output> for
 // all outputs.
-std::vector<std::pair<TensorView*, TensorView*>> cacheAndForkOutputs(
+std::vector<std::pair<TensorView*, int64_t>> cacheAndForkOutputs(
     Fusion* fusion,
     bool unroll) {
-  std::vector<std::pair<TensorView*, TensorView*>> cached_outputs;
+  std::vector<std::pair<TensorView*, int64_t>> cached_outputs;
   // For intermediate outputs, apply cacheFork
-  for (auto output : ir_utils::filterByType<TensorView>(fusion->outputs())) {
+  for (auto [output_idx, output_val] : enumerate(fusion->outputs())) {
+    auto output = dynamic_cast<TensorView*>(output_val);
+    if (!output) {
+      continue;
+    }
+
     if (output->definition() == nullptr ||
         // the output of ScatterOp must on the global memory due to the random
         // or atomic access.
@@ -1357,7 +1370,7 @@ std::vector<std::pair<TensorView*, TensorView*>> cacheAndForkOutputs(
     // strategy is optimal.
     if (unroll) {
       auto cached_output = output->cacheBefore();
-      cached_outputs.emplace_back(cached_output, output);
+      cached_outputs.emplace_back(cached_output, output_idx);
     }
   }
   return cached_outputs;
@@ -2497,7 +2510,7 @@ bool revertUseOfInputCache(
     TensorView* consumer,
     TensorView* promoted_producer,
     MemoryType promoted_memory_type,
-    const std::vector<TensorView*>& input_caches) {
+    const std::vector<std::pair<TensorView*, int64_t>>& input_caches) {
   auto get_copy_src = [](TensorView* tv) -> TensorView* {
     if (auto uop = dynamic_cast<LoadStoreOp*>(tv->definition())) {
       return uop->in()->as<TensorView>();
@@ -2519,9 +2532,10 @@ bool revertUseOfInputCache(
     return false;
   }
 
-  auto cache_it =
-      std::find(input_caches.begin(), input_caches.end(), producer_of_producer);
-  if (cache_it == input_caches.end()) {
+  if (std::ranges::find_if(
+          input_caches, [producer_of_producer](const auto& pair) {
+            return pair.first == producer_of_producer;
+          }) == input_caches.end()) {
     return false;
   }
 
@@ -2589,7 +2603,7 @@ void prepareForMemoryTypePromotion(Fusion* fusion) {
 
 void promoteProducerMemoryTypes(
     Fusion* fusion,
-    const std::vector<TensorView*>& input_caches) {
+    const std::vector<std::pair<TensorView*, int64_t>>& input_caches) {
   auto non_pwise_pairs = getNonPointwiseProducerConsumerPairs(fusion);
 
   // Just make it simpler to promote memory types. Minimum is
