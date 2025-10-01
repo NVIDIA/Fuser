@@ -69,15 +69,15 @@ class ConditionalFromPredicateModifier : public kir::ExprMutator {
               vec_expr->isA<UnaryOp>() || vec_expr->isA<LoadStoreOp>() ||
                   vec_expr->isA<TernaryOp>() ||
                   vec_expr->isA<IndexSelectOp>() ||
+                  // To supress the throw.
+                  // I think this is predicated on the vectorized dim.
                   vec_expr->isA<BlockQuantizationOp>(),
               "Vectorize predicate exprs only supported on set operations.");
           NVF_ERROR(
-              ir_utils::isTvOp(vec_expr) ||
-                  vec_expr->isA<BlockQuantizationOp>(),
+              ir_utils::isTvOp(vec_expr),
               "Vectorize predicate exprs only supported on tensor view "
               "operations.");
-          if (!vec_expr->inputs()[0]->isConstScalar() &&
-              !vec_expr->isA<BlockQuantizationOp>()) {
+          if (!vec_expr->inputs()[0]->isConstScalar()) {
             conditional = SimplifyingIrBuilder::logicalAndExpr(
                 conditional,
                 GpuLower::current()->info().threadPredicateMap().getPredicate(

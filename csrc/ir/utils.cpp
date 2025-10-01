@@ -1516,13 +1516,6 @@ kir::ForLoop* createRangeLoop(int64_t size) {
 }
 
 TensorView* getTvOutput(const Expr* expr) {
-  if (expr->isA<BlockQuantizationOp>()) {
-    // BlockQuantizationOp has multiple outputs
-    // but for now we only look at the quantized output
-    // which cleanly maps to the input.
-    return getTv(expr->as<BlockQuantizationOp>()->quantizedOutput());
-  }
-
   for (auto out : expr->outputs()) {
     if (auto tv = getTv(out)) {
       return tv;
