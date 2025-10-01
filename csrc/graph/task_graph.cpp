@@ -533,9 +533,10 @@ class TaskSorter {
     using Clock = std::chrono::high_resolution_clock;
     Clock::time_point start = Clock::now();
 
-    for (int64_t iter : arange(10000000)) {
-      result_.iterations = iter;
-      if (iter % 64 == 0) {
+    result_.iterations = 0;
+    while (true) {
+      result_.iterations++;
+      if (result_.iterations % 64 == 0) {
         Clock::time_point end = Clock::now();
         if (std::chrono::duration_cast<std::chrono::microseconds>(end - start)
                 .count() > max_time_us_) {
@@ -587,7 +588,7 @@ class TaskSorter {
       if (steps_.size() == (size_t)graph_.numTasks() && hwm < best_hwm) {
         best_steps = steps_;
       }
-    } // for iter
+    } // while
 
     // Record our best found steps
     result_.steps = best_steps;
