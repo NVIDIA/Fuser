@@ -132,9 +132,9 @@ def test_cutlass_nvfp4_grouped_mm(
     tokens_per_expert.append(m - sum(tokens_per_expert))
     g = len(tokens_per_expert)
 
-    mat1 = torch.testing.make_tensor((m, k), dtype=torch.float32, device="cuda:0")
+    mat1_ref = torch.testing.make_tensor((m, k), dtype=torch.float32, device="cuda:0")
     # format is g, n, k instead of g, k, n
-    mat2 = torch.testing.make_tensor((g, n, k), dtype=torch.float32, device="cuda:0")
+    mat2_ref = torch.testing.make_tensor((g, n, k), dtype=torch.float32, device="cuda:0")
 
     offsets = torch.empty((g,), dtype=torch.int32, device="cuda:0")
     blockscale_offsets = torch.empty((g,), dtype=torch.int32, device="cuda:0")
@@ -153,7 +153,7 @@ def test_cutlass_nvfp4_grouped_mm(
     )
 
     for i in range(g):
-        global_sf = FLOAT4_E2M1_MAX * FLOAT8_E4M3_MAX / mat2[i].max()
+        global_sf = FLOAT4_E2M1_MAX * FLOAT8_E4M3_MAX / mat2_ref[i].max()
         offsets[i] = acc_tokens
         blockscale_offsets[i] = rounded_acc_tokens
         acc_tokens += tokens_per_expert[i]
@@ -164,7 +164,7 @@ def test_cutlass_nvfp4_grouped_mm(
         problem_sizes[i][1] = n
         problem_sizes[i][2] = k
 
-        scaled_mat2_i, bs_mat2_i = pytorch_nvfp4_quantize(mat2[i], global_sf)
+        scaled_mat2_i, bs_mat2_i = pytorch_nvfp4_quantize(mat2_ref[i], global_sf)
         mat2_gs[i] = 1.0 / global_sf
         mat2_scaled[i] = scaled_mat2_i
         scale2[i] = linear_to_swizzled_128_4(bs_mat2_i)
@@ -174,7 +174,7 @@ def test_cutlass_nvfp4_grouped_mm(
     #       similarly, we don't need to apply mat1_gs to alpha
     mat1_gs = torch.ones((g,), dtype=torch.float32, device="cuda:0")
     mat1, scale1 = activation_scale_to_nvfp4(
-        mat1, mat1_gs, offsets, blockscale_offsets, BLOCK_SIZE
+        mat1_ref, mat1_gs, offsets, blockscale_offsets, BLOCK_SIZE
     )
 
     ab_strides = torch.full((g,), k, dtype=torch.int64, device="cuda:0")
