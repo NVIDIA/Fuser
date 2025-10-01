@@ -153,7 +153,7 @@ def test_cutlass_nvfp4_grouped_mm(
     )
 
     for i in range(g):
-        mat2_gs[i] = FLOAT4_E2M1_MAX * FLOAT8_E4M3_MAX / mat2[i].max()
+        global_sf = FLOAT4_E2M1_MAX * FLOAT8_E4M3_MAX / mat2[i].max()
         offsets[i] = acc_tokens
         blockscale_offsets[i] = rounded_acc_tokens
         acc_tokens += tokens_per_expert[i]
@@ -164,7 +164,8 @@ def test_cutlass_nvfp4_grouped_mm(
         problem_sizes[i][1] = n
         problem_sizes[i][2] = k
 
-        scaled_mat2_i, bs_mat2_i = pytorch_nvfp4_quantize(mat2[i], mat2_gs[i])
+        scaled_mat2_i, bs_mat2_i = pytorch_nvfp4_quantize(mat2[i], global_sf)
+        mat2_gs[i] = 1.0 / global_sf
         mat2_scaled[i] = scaled_mat2_i
         scale2[i] = linear_to_swizzled_128_4(bs_mat2_i)
 
@@ -244,6 +245,7 @@ def test_cutlass_nvfp4_grouped_mm(
     o, _ = nvfuser_direct_test.exec_nvfuser(nvfuser_fusion_id0, inputs)
 
     o_decomposed_ref = torch.empty(m, n, dtype=torch.bfloat16, device="cuda:0")
+    o_ref = torch.empty(m, n, dtype=torch.bfloat16, device="cuda:0")
     for i in range(g):
         l = offsets[i]
         l_sf = blockscale_offsets[i]
@@ -266,5 +268,6 @@ def test_cutlass_nvfp4_grouped_mm(
             )
             * mat2_gs[i]
         )
-
+        o_ref[l:r] = mat1_ref[l:r] @ mat2_ref[i].tranpose(-1, -2)
+        
     assert torch.allclose(o_decomposed_ref, o[0], atol=1e-2, rtol=1e-2)
