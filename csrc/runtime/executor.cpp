@@ -486,7 +486,7 @@ LaunchParams KernelExecutor::computeLaunchParams(
     // enforce the workspace aligned at 128 Bytes. Same roundup is also added to
     // codegen.
     reduction_broadcast_workspace =
-        roundUpToMultiple(reduction_broadcast_workspace, 128);
+        alignedSharedMemoryBits(reduction_broadcast_workspace);
 
     if (isDebugDumpEnabled(DebugDumpOption::DynamicSharedMemory)) {
       debug() << "reduction_broadcast_workspace shared memory bytes: "

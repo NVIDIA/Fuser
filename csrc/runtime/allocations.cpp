@@ -64,8 +64,9 @@ int64_t computeSharedMemory(
     int64_t smem_offset) {
   FUSER_PERF_SCOPE("fusion_executor::allocations::computeSharedMemory");
   int64_t total = smem_offset;
-  // align smem_offset at 16 bytes
-  smem_offset = (smem_offset + 15) & (~15);
+  // align smem_offset at kSharedMemoryAlignmentBytes
+  smem_offset = (smem_offset + kSharedMemoryAlignmentBytes - 1) &
+      (~(kSharedMemoryAlignmentBytes - 1));
   for (auto smem_alloc : buffers) {
     // If this buffer aliases another buffer,
     // then do not allocate memory for this buffer.
@@ -104,9 +105,6 @@ int64_t computeSharedMemory(
       const auto last_byte = first_byte + size_bytes;
 
       total = std::max(total, last_byte);
-      // First byte may not equal to last byte of the previous buffer since
-      // shared memory is forced to align at 128 Bytes. See PR-3023.
-      // https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html#table-alignment-multi-dim-tma
       if (isDebugDumpEnabled(DebugDumpOption::DynamicSharedMemory)) {
         debug() << "buffer: " << smem_alloc->buffer()->toString()
                 << ", first_byte: " << first_byte
