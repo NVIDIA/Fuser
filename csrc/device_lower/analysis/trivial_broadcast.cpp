@@ -20,12 +20,6 @@ ConcretizedBroadcastDomains::ConcretizedBroadcastDomains(Fusion* fusion) {
   auto inputs = fusion->inputsAndCreated();
   auto exprs_ = fusion->exprs();
 
-  auto bq_ops = ir_utils::filterByType<BlockQuantizationOp>(exprs_);
-  if (bq_ops.size() == 1) {
-    inputs.push_back(
-        static_cast<TensorView*>(bq_ops.vector()[0]->blockScales()));
-  }
-
   for (const auto fusion_input_tv :
        ir_utils::filterByType<TensorView>(inputs)) {
     for (auto logical_id : fusion_input_tv->getLogicalDomain()) {
@@ -110,6 +104,16 @@ void ConcretizedBroadcastDomains::handle(TopKOp* top) {
   }
 }
 
+// BlockQuantizationOp introduces broadcast domains in the block scales output
+void ConcretizedBroadcastDomains::handle(BlockQuantizationOp* bq) {
+  auto out = bq->blockScales()->as<TensorView>();
+  auto bcast_id = out->getLogicalDomain().back();
+  if (bcast_id->isBroadcast()) {
+    broadcast_origin_map_.emplace(
+        bcast_id, std::unordered_set<IterDomain*>({bcast_id}));
+  }
+}
+
 void ConcretizedBroadcastDomains::dispatch(Expr* expr) {
   IterVisitor::dispatch(expr);
 
@@ -131,9 +135,6 @@ void ConcretizedBroadcastDomains::dispatch(Expr* expr) {
     for (auto consumer : ir_utils::filterByType<TensorView>(expr->outputs())) {
       auto p2c_map = PairwiseLogicalDomainMap(producer, consumer)
                          .mapProducerToConsumer(&producer_broadcasts);
-      auto consumer_is_block_quantization_scales =
-          expr->isA<BlockQuantizationOp>() &&
-          consumer == expr->as<BlockQuantizationOp>()->blockScales();
 
       for (const auto& kv : p2c_map) {
         auto p_id = kv.first;
@@ -144,8 +145,7 @@ void ConcretizedBroadcastDomains::dispatch(Expr* expr) {
             !c_id->isBroadcast() && !c_id->isReduction();
         auto it = broadcast_origin_map_.find(p_id);
         NVF_ERROR(
-            it != broadcast_origin_map_.end() &&
-                !consumer_is_block_quantization_scales,
+            it != broadcast_origin_map_.end(),
             "Broadcast origin info not found for producer broadcast domain: ",
             p_id->toString(),
             " of ",
@@ -159,10 +159,8 @@ void ConcretizedBroadcastDomains::dispatch(Expr* expr) {
         } else {
           // Not concretized yet. Propagate forward the origin info.
           auto& consumer_origins = broadcast_origin_map_[c_id];
-          if (!consumer_is_block_quantization_scales) {
-            for (auto origin : producer_origins) {
-              consumer_origins.insert(origin);
-            }
+          for (auto origin : producer_origins) {
+            consumer_origins.insert(origin);
           }
           consumer_origins.insert(c_id);
         }
