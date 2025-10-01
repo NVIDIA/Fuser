@@ -297,10 +297,9 @@ std::string disassembleBinary(
     // so I have to dump the stdin to a temp file and let nvdisasm read it. I am
     // hoping that nvdisasm will support reading from stdin one day.
     std::stringstream ss;
-    ss << "export PATH=$PATH:/usr/local/cuda/bin;"
-       << "TMPFILE=$(mktemp);"
-       << "cat>$TMPFILE;"
-       << "nvdisasm $TMPFILE " << nvdisasm_args << "; rm $TMPFILE";
+    ss << "export PATH=$PATH:/usr/local/cuda/bin;" << "TMPFILE=$(mktemp);"
+       << "cat>$TMPFILE;" << "nvdisasm $TMPFILE " << nvdisasm_args
+       << "; rm $TMPFILE";
     auto command = ss.str();
     execl("/bin/bash", "bash", "-c", command.c_str(), NULL);
 
@@ -990,58 +989,6 @@ static const std::string& defineStdComplex() {
   return result;
 }
 
-// When executing nvFuser with: NVFUSER_EXTERNAL_SRC=file1.cu,file2.cu
-// This function retrieves structured code from the specified files.
-// The files should be comma-separated, and their order corresponds to the
-// fusion_id order. If the provided number of files is fewer than the fusion
-// segments, the function will resort to the available files in sequence
-// and issue a warning.
-std::string getStructuredCodeFromExternalFiles(const int64_t fusion_id) {
-  auto external_code_path = getNvFuserEnv("EXTERNAL_SRC");
-  if (!external_code_path) {
-    return "";
-  }
-  std::string all_external_code_paths(external_code_path);
-  if (all_external_code_paths.empty() || fusion_id < 1) {
-    return "";
-  }
-  auto getExternalCodeFile =
-      [fusion_id](const std::string& input) -> std::string {
-    std::stringstream ss(input);
-    std::string token;
-    int64_t count = 0;
-    while (std::getline(ss, token, ',')) {
-      if (++count == fusion_id) {
-        return token;
-      }
-    }
-    debug() << "Didn't find requested external source code. Will use generated "
-               "code!\n"
-            << "Number of source code files should equal the number of fusion "
-               "segments.\n"
-            << "External source code filenames should be delineated with "
-               "commas, e.g.: file1.cu,file2.cu.\n";
-    return "";
-  };
-
-  std::string single_code_path = getExternalCodeFile(all_external_code_paths);
-  if (single_code_path.empty()) {
-    return "";
-  }
-  std::ifstream cuda_src(single_code_path);
-  if (!cuda_src.is_open()) {
-    debug() << "Failed to open external source file: " << single_code_path
-            << std::endl;
-    return "";
-  }
-  debug() << "--------> Compiling external CUDA code: " << single_code_path
-          << std::endl;
-
-  std::stringstream buffer;
-  buffer << cuda_src.rdbuf();
-  return buffer.str();
-}
-
 bool requiresDisabledParamCache(const kir::Kernel* kernel) {
   std::vector<Val*> output_extents;
   for (auto out : kernel->outputs()) {
@@ -1110,7 +1057,8 @@ std::string _getStructuredCode(
     bool has_argsort = false,
     bool has_topk = false,
     bool has_scan = false,
-    bool has_block_layout = false) {
+    bool has_block_layout = false,
+    bool has_cluster_reduction = false) {
   // generating cuda code;
   std::string code = "";
 
@@ -1133,6 +1081,11 @@ std::string _getStructuredCode(
       "{\n" + defineTypes() + defineIndexType(index_type) + kernelPreamble() +
       "} // namespace " + CompiledKernel::kernelNamespace() + "\n";
 
+  if (has_cluster_reduction) {
+    code += nvfuser_resources::cluster_cu;
+  }
+
+  // The following runtime namespaces are already nested in `nvf` namespace
   if (has_argsort || has_topk || has_scan) {
     code += nvfuser_resources::cub_utils_cu;
   }
@@ -1176,6 +1129,58 @@ std::string _getStructuredCode(
 }
 
 } // namespace
+
+// When executing nvFuser with: NVFUSER_EXTERNAL_SRC=file1.cu,file2.cu
+// This function retrieves structured code from the specified files.
+// The files should be comma-separated, and their order corresponds to the
+// fusion_id order. If the provided number of files is fewer than the fusion
+// segments, the function will resort to the available files in sequence
+// and issue a warning.
+std::string getStructuredCodeFromExternalFiles(const int64_t fusion_id) {
+  auto external_code_path = getNvFuserEnv("EXTERNAL_SRC");
+  if (!external_code_path) {
+    return "";
+  }
+  std::string all_external_code_paths(external_code_path);
+  if (all_external_code_paths.empty() || fusion_id < 1) {
+    return "";
+  }
+  auto getExternalCodeFile =
+      [fusion_id](const std::string& input) -> std::string {
+    std::stringstream ss(input);
+    std::string token;
+    int64_t count = 0;
+    while (std::getline(ss, token, ',')) {
+      if (++count == fusion_id) {
+        return token;
+      }
+    }
+    debug() << "Didn't find requested external source code. Will use generated "
+               "code!\n"
+            << "Number of source code files should equal the number of fusion "
+               "segments.\n"
+            << "External source code filenames should be delineated with "
+               "commas, e.g.: file1.cu,file2.cu.\n";
+    return "";
+  };
+
+  std::string single_code_path = getExternalCodeFile(all_external_code_paths);
+  if (single_code_path.empty()) {
+    return "";
+  }
+  std::ifstream cuda_src(single_code_path);
+  if (!cuda_src.is_open()) {
+    debug() << "Failed to open external source file: " << single_code_path
+            << std::endl;
+    return "";
+  }
+  debug() << "--------> Compiling external CUDA code: " << single_code_path
+          << std::endl;
+
+  std::stringstream buffer;
+  buffer << cuda_src.rdbuf();
+  return buffer.str();
+}
 
 void queryTargetGPUVersion(
     const cudaDeviceProp* const prop,
@@ -1445,7 +1450,8 @@ std::string CompiledKernel::getStructuredCode() const {
       kernel()->summary().has_argsort,
       kernel()->summary().has_topk,
       kernel()->summary().has_scan,
-      kernel()->summary().has_preprocess_grouped_matmul_input_sf);
+      kernel()->summary().has_preprocess_grouped_matmul_input_sf,
+      kernel()->summary().has_cluster_reduction);
 }
 
 std::string CompiledKernel::disassembledKernelSASS() const {

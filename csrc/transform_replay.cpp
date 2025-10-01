@@ -247,32 +247,38 @@ TensorDomain* TransformReplay::fullSelfReplay(
 
 void TransformReplay::selfReplay(
     const TensorDomain* self,
-    TensorDomain* new_self,
-    bool ignore_reductions) {
+    TensorDomain* new_self) {
   FUSER_PERF_SCOPE("TransformReplay::selfReplay");
 
-  std::vector<IterDomain*> new_self_logical = new_self->logical();
-  std::vector<IterDomain*> self_logical = self->logical();
-  if (ignore_reductions) {
-    new_self_logical = TensorDomain::noReductions(new_self_logical);
-    self_logical = TensorDomain::noReductions(self_logical);
-  }
+  std::vector<IterDomain*> logical = self->logical();
+  std::vector<IterDomain*> new_logical = new_self->logical();
 
-  NVF_ERROR_EQ(new_self_logical.size(), self_logical.size());
+  // For convenience, automatically remove extra reduction dimensions.
+  bool ignore_reductions = logical.size() != new_logical.size();
+  if (logical.size() > new_logical.size()) {
+    logical = TensorDomain::noReductions(logical);
+  } else if (logical.size() < new_logical.size()) {
+    new_logical = TensorDomain::noReductions(new_logical);
+  }
+  NVF_ERROR_EQ(logical.size(), new_logical.size());
 
   IterDomainMap axis_map;
-  for (auto&& [id, new_id] : zip(self_logical, new_self_logical)) {
-    // Note: we don't want to check for equal `isRFactorProduct`, since we
-    // could replay Allocation of the output of a reduction to a later
-    // consumer tensor, which would not have the rfactor flag on.
+  for (auto&& [id, new_id] : zip(logical, new_logical)) {
+    // We don't check for equal `isRFactorProduct`, since we could replay
+    // Allocation of the output of a reduction to a later consumer tensor, which
+    // would not have the rfactor flag on.
     //
-    // Note: this function can be used prior to concretization, where we might
-    // have unresolved symbolic ID, where the broadcast flag might mismatch.
-    // We skip the check if either id or new_id is symbolic and expect a
-    // correct user program.
+    // This function can be used prior to concretization, where we might have a
+    // concrete ID map a symbolic ID. Otherwise, the IterTypes must be the
+    // same.
+    auto iter_types_match = [](IterType lhs, IterType rhs) -> bool {
+      if (lhs == rhs) {
+        return true;
+      }
+      return lhs == IterType::Symbolic || rhs == IterType::Symbolic;
+    };
     NVF_ERROR(
-        new_id->isSymbolic() || id->isSymbolic() ||
-            new_id->isBroadcast() == id->isBroadcast(),
+        iter_types_match(id->getIterType(), new_id->getIterType()),
         "Axes ",
         id,
         " and ",
@@ -285,13 +291,13 @@ void TransformReplay::selfReplay(
   // loop and allocation share the same transforms if they are split the same
   // way.
   //
-  // We use `self_loop` as the target domain because loop post-dominates
+  // We use `loop` as the target domain because loop post-dominates
   // allocation.
-  const std::vector<IterDomain*>& self_loop = self->loop();
-  ReplaySelf replay(self_loop, axis_map);
+  const std::vector<IterDomain*>& loop = self->loop();
+  ReplaySelf replay(loop, axis_map);
 
   // Replay loop.
-  if (self_loop != self->logical()) {
+  if (loop != self->logical()) {
     std::vector<IterDomain*> new_loop;
     if (ignore_reductions) {
       for (auto* id : new_self->logical()) {
@@ -301,11 +307,10 @@ void TransformReplay::selfReplay(
       }
     }
 
-    for (IterDomain* loop_id : self_loop) {
+    for (IterDomain* loop_id : loop) {
       if (ignore_reductions && loop_id->isReduction()) {
         continue;
       }
-
       auto it = replay.getReplay().find(loop_id);
       NVF_ERROR(
           it != replay.getReplay().end(),
@@ -320,30 +325,28 @@ void TransformReplay::selfReplay(
 
   // Replay allocation.
   if (self->hasAllocation()) {
-    const std::vector<IterDomain*>& self_allocation = self->allocation();
-    const std::vector<std::optional<bool>>& self_contiguity =
-        self->contiguity();
-    NVF_ERROR_EQ(self_allocation.size(), self_contiguity.size());
+    const std::vector<IterDomain*>& allocation = self->allocation();
+    const std::vector<std::optional<bool>>& contiguities = self->contiguity();
+    NVF_ERROR_EQ(allocation.size(), contiguities.size());
 
-    std::vector<IterDomain*> new_alloc_domain;
-    std::vector<std::optional<bool>> new_contiguity;
-    new_alloc_domain.reserve(self_allocation.size());
-    new_contiguity.reserve(self_contiguity.size());
+    std::vector<IterDomain*> new_allocation;
+    std::vector<std::optional<bool>> new_contiguities;
+    new_allocation.reserve(allocation.size());
+    new_contiguities.reserve(contiguities.size());
 
     // Push back the reduction IDs that are not mapped
     if (ignore_reductions) {
       for (auto* id : new_self->logical()) {
         if (id->isReduction()) {
-          new_alloc_domain.push_back(id);
+          new_allocation.push_back(id);
           // NOLINTNEXTLINE(modernize-use-emplace)
-          new_contiguity.push_back(std::nullopt);
+          new_contiguities.push_back(std::nullopt);
         }
       }
     }
 
     // Pushing the mapped IDs and corresponding contiguity flags
-    for (auto&& [alloc_id, contiguity] :
-         zip(self_allocation, self_contiguity)) {
+    for (auto&& [alloc_id, contiguity] : zip(allocation, contiguities)) {
       if (ignore_reductions && alloc_id->isReduction()) {
         continue;
       }
@@ -353,15 +356,16 @@ void TransformReplay::selfReplay(
           "failed to replay IterDomain: ",
           alloc_id);
       NVF_ERROR_EQ(
-          it->second->isBroadcast(),
+          (it->second->isBroadcast() || it->second->isReduction()),
           !contiguity.has_value(),
-          "Contiguity should be nullopt iff broadcast.");
-      new_contiguity.push_back(contiguity);
+          "Contiguity should be nullopt iff broadcast or reduction, true/false "
+          "otherwise.");
+      new_contiguities.push_back(contiguity);
       it->second->parallelize(alloc_id->getParallelType());
-      new_alloc_domain.push_back(it->second);
+      new_allocation.push_back(it->second);
     }
 
-    new_self->setAllocationDomain(new_alloc_domain, new_contiguity);
+    new_self->setAllocationDomain(new_allocation, new_contiguities);
   }
 }
 

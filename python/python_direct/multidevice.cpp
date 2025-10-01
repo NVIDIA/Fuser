@@ -142,6 +142,67 @@ If the distributed tensor is replicated on that parallel type, returns -1.
 )");
 }
 
+void bindMultiDeviceExecutor(py::module& nvfuser) {
+  py::class_<MultiDeviceExecutor> multi_device_executor(
+      nvfuser, "MultiDeviceExecutor");
+  multi_device_executor.def(
+      py::init([](const Fusion& fusion, CommunicatorBackend backend) {
+        MultiDeviceExecutorParams params;
+        params.lower.communicator_backend = backend;
+        return std::make_unique<MultiDeviceExecutor>(
+            std::make_unique<Fusion>(fusion),
+            Communicator::getInstance(),
+            std::move(params));
+      }),
+      R"(
+Create a new MultiDeviceExecutor.
+
+Parameters
+----------
+fusion : Fusion
+    The fusion to be executed.
+backend : CommunicatorBackend
+    The backend to be used for the communicator.
+
+Examples
+--------
+>>> multi_device_executor = MultiDeviceExecutor(fusion, CommunicatorBackend.nccl)
+>>> outputs = multi_device_executor.run(inputs)
+)",
+      py::arg("fusion"),
+      py::arg("backend"));
+  multi_device_executor.def(
+      "__str__",
+      [](MultiDeviceExecutor& self) {
+        std::stringstream ss;
+        self.print(ss);
+        return ss.str();
+      },
+      R"(
+Return a string representing the MultiDeviceExecutor.
+)");
+  multi_device_executor.def(
+      "run",
+      [](MultiDeviceExecutor& self, const py::iterable& args) {
+        KernelArgumentHolder outputs = self.runWithInput(from_pyiterable(args));
+        return to_tensor_vector(outputs);
+      },
+      R"(
+              Run the fusion with the given arguments.
+
+              Parameters
+              ----------
+              args : KernelArgumentHolder
+                  The input arguments for the fusion.
+
+              Returns
+              -------
+              list of Tensor
+                  The output tensors containing the results.
+            )",
+      py::arg("args"));
+}
+
 } // namespace
 
 void bindMultiDevice(py::module& nvfuser) {
@@ -151,6 +212,7 @@ void bindMultiDevice(py::module& nvfuser) {
   bindCommunicator(nvf_multidevice);
   bindDeviceMesh(nvf_multidevice);
   bindSharding(nvf_multidevice);
+  bindMultiDeviceExecutor(nvf_multidevice);
 }
 
 } // namespace nvfuser::python

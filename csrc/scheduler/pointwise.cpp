@@ -880,7 +880,7 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
     reference_tv->reorder(
         scheduler_utils::domainReorderAsLogicalMap(reference_tv));
     // Reorder so that DeviceDims are in front
-    reorderDIDToFront(reference_tv);
+    reorderParallelizedToFront(reference_tv);
 
     // Break point is relative to logical domain, find the loop domain ID's in
     // the left/right side, we really need the values in domain, but easiest way
@@ -966,7 +966,7 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
     if (!reorder_map.empty()) {
       reference_tv->reorder(reorder_map);
     }
-    reorderDIDToFront(reference_tv);
+    reorderParallelizedToFront(reference_tv);
 
     // Merge right side of break point
     for (int64_t i = reference_tv->nDims(); i > device_aware_break_point; i--) {
@@ -1259,11 +1259,11 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
   // inputs, cached inputs and outputs will be updated.
   std::unordered_set<TensorView*> inner_most_tensors(
       all_tvs.begin(), all_tvs.end());
-  for (auto cached_input : cached_inputs) {
+  for (const auto& [cached_input, input_idx] : cached_inputs) {
     inner_most_tensors.erase(cached_input);
   }
-  for (auto entry : cached_outputs) {
-    auto output = entry.second;
+  for (const auto& [cached_output, output_idx] : cached_outputs) {
+    auto output = fusion->outputs()[output_idx]->as<TensorView>();
     inner_most_tensors.erase(output);
   }
   // IndexSelectOp reads lookup tv without cache. Because pointwise scheduler
