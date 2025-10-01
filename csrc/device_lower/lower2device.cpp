@@ -244,6 +244,8 @@ GpuLower::GpuLower(Fusion* fusion, const CompileParams& cparams)
     fusion->print();
   }
 
+  std::cout << std::endl;
+
   analysis(fusion);
 }
 
@@ -311,7 +313,7 @@ IdModelOptions getIdModelOptions(Fusion* fusion) {
     } else if (expr->isA<MmaOp>()) {
       options.setBuildTensorIndexer(true);
       continue;
-    } else if (expr->isOneOf<SliceOp, PadOp>()) {
+    } else if (expr->isOneOf<ScatterOp, SliceOp, PadOp>()) {
       options.setProducerIndex(true);
       options.setConsumerIndex(true);
       options.setInlinePredicate(true);
