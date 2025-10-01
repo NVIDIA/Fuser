@@ -27,7 +27,7 @@ __device__ __inline__ void quadMaxReduction(float& local_max) {
   // At this point, all threads in a quad hold the maximum value for that quad.
 }
 
-// TODO: Add a template parameter fnor input type.
+// TODO: Add a template parameter for input type.
 // For now we just work on float.
 // This also assumes a block of 16. That should be a
 // template parameter.
@@ -38,7 +38,7 @@ __device__ __inline__ void quadMaxReduction(float& local_max) {
 template <int ITEMS_PER_THREAD>
 __device__ void block_quantize_to_nvfp4(
     Array<float, ITEMS_PER_THREAD, 1>& input,
-    __e2m1& output,
+    Array<__e2m1, ITEMS_PER_THREAD, ITEMS_PER_THREAD>& output,
     __e4m3& fp8_output) {
   assert(blockDim.x % 4 == 0);
   assert(blockDim.z == 1 && gridDim.z == 1);
@@ -91,14 +91,11 @@ __device__ void block_quantize_to_nvfp4(
   *reinterpret_cast<Array<__e2m1, 4, 4>*>(&fp4_vals[0]) =
       __float2e2m1(*reinterpret_cast<Array<float, 4, 4>*>(&clamped_vals[0]));
 
-  Array<__e2m1, 4, 4> fp4_vals_aligned;
+  // Array<__e2m1, 4, 4> fp4_vals_aligned;
 #pragma unroll
   for (int i = 0; i < 4; ++i) {
-    fp4_vals_aligned[i] = fp4_vals[i];
+    output[i] = fp4_vals[i];
   }
-
-  loadLocalToGlobal<__e2m1, /*vec_size=*/4, /*is_volatile=*/false>(
-      &output, &fp4_vals_aligned.array[0]);
 }
 
 } // namespace bq

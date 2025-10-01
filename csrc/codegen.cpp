@@ -1686,12 +1686,12 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
 
     // We pass the entire Tensors without any indices.
     // The device functions will write out values based on
-    // it's parallelization.
+    // its parallelization.
     // First argument: input data array
     // Second argument: quantized output
     // Third argument: block scale output
     func_args.arg(ir_utils::varName(bqop->input(0)));
-    func_args.arg(genInline(bqop->quantizedOutput()));
+    func_args.arg(ir_utils::varName(bqop->quantizedOutput()));
     func_args.arg(genInline(bqop->blockScales()));
 
     indent() << genCall("bq::block_quantize_to_nvfp4", template_args, func_args)

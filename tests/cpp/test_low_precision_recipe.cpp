@@ -214,10 +214,11 @@ TEST_F(BQTest, ScheduleAsPointwise) {
   // t0 is 2D
   auto t0 = set(tv_data_hp);
   auto quantization_results = block_quantize(t0);
+  auto t_out = set(quantization_results.quantized_tensor);
 
   // t1 and t2 are 2D.
   fusion_new_op->addOutput(quantization_results.block_scales);
-  fusion_new_op->addOutput(quantization_results.quantized_tensor);
+  fusion_new_op->addOutput(t_out);
 
   t0->setMemoryType(MemoryType::Local);
 
@@ -231,7 +232,8 @@ TEST_F(BQTest, ScheduleAsPointwise) {
         t0,
         view_out_tv,
         quantization_results.quantized_tensor,
-        quantization_results.block_scales}) {
+        quantization_results.block_scales,
+        t_out}) {
     // Merge all dims.
     t->merge(-2);
     if (t->getLoopDomain().size() >= 2) {
@@ -331,10 +333,11 @@ TEST_F(BQTest, ScheduleAsPointwise2D) {
   // t0 is 2D
   auto t0 = set(tv_data_hp);
   auto quantization_results = block_quantize(t0);
+  auto t_out = set(quantization_results.quantized_tensor);
 
   // t1 and t2 are 2D.
   fusion_new_op->addOutput(quantization_results.block_scales);
-  fusion_new_op->addOutput(quantization_results.quantized_tensor);
+  fusion_new_op->addOutput(t_out);
 
   t0->setMemoryType(MemoryType::Local);
 
@@ -343,6 +346,7 @@ TEST_F(BQTest, ScheduleAsPointwise2D) {
                          ->input(0)
                          ->as<TensorView>();
 
+  // split the intput 2D tensor to make then 3D.
   for (auto t : {tv_data_hp, t0}) {
     t->split(-1, block_size);
   }
@@ -352,7 +356,8 @@ TEST_F(BQTest, ScheduleAsPointwise2D) {
         t0,
         view_out_tv,
         quantization_results.quantized_tensor,
-        quantization_results.block_scales}) {
+        quantization_results.block_scales,
+        t_out}) {
     t->merge(1, 2);
 
     t->split(-1, 4); // V
