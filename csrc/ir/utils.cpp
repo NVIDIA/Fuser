@@ -1759,8 +1759,8 @@ bool isParallelizedBy(const std::vector<IterDomain*>& ids, ParallelType pt) {
       ids, [&](IterDomain* id) { return id->getParallelType() == pt; });
 }
 
-bool canUsePresetAllocationDomain(const TensorView* tv) {
-  if (!tv->hasAllocation()) {
+bool canUsePresetAllocationDomain(const TensorView* tv, bool ignore_empty_alloc) {
+  if (ignore_empty_alloc && !tv->hasAllocation()) {
     return false;
   }
   // Honor the allocation domain if the tensor is global or Hopper MMA's
