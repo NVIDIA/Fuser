@@ -554,9 +554,16 @@ class TMALoadTestWithABroadcastDim
 };
 
 TEST_P(TMALoadTestWithABroadcastDim, LoadWithBroadcast) {
+
   Fusion fusion;
   FusionGuard fg(&fusion);
   auto shape = std::get<0>(GetParam());
+
+  size_t required_smem = dataTypeSizeByte(dtype);
+  for (auto dim : shape)
+    required_smem *= dim;
+
+  REQUIRE_DEVICE_SMEM_SIZE(required_smem, 0);
 
   auto tv0 = makeContigConcreteTensor(shape, dtype);
   fusion.addInput(tv0);
