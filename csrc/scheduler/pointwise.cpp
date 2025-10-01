@@ -1234,6 +1234,13 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
         }
       }
     }
+
+    auto bq_ops = ir_utils::getOpsOfType<BlockQuantizationOp>(fusion);
+    for (auto bq_op : bq_ops) {
+      vectorized_tvs.emplace_back(bq_op->quantizedOutput()->as<TensorView>());
+      vectorized_tvs.emplace_back(bq_op->blockScales()->as<TensorView>());
+    }
+
     if (!vectorized_tvs.empty()) {
       // Aggressively mark with vectorized and cleanup later. That way we
       // don't have to manually specify parallelization outside the reference.
@@ -1247,10 +1254,10 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
   }
 
   // Begin by inlining at the unswitch position for the entire DAG. The cached
-  // inputs, and outputs will keep this inline position, but other tensors will
-  // get a higher position in later inline propagation. We need this separate
-  // step because we were not using ParallelType::Unroll, so we have to do
-  // unrolling manually.
+  // inputs, and outputs will keep this inline position, but other tensors
+  // will get a higher position in later inline propagation. We need this
+  // separate step because we were not using ParallelType::Unroll, so we have
+  // to do unrolling manually.
   inlineAllAt(reference_tv, unswitch_pos, true);
 
   auto all_tvs = fusion->allTvs();
@@ -1304,7 +1311,11 @@ void PointWiseScheduler::schedule(
       pparams != nullptr,
       "Incorrect parameters sent to PointWiseScheduler::schedule",
       params);
+  std::cout << "before pointwise sched" << std::endl;
+  fusion->print();
   schedulePointwise(fusion, pparams);
+  std::cout << "after sched" << std::endl;
+  fusion->print();
 }
 
 } // namespace nvfuser

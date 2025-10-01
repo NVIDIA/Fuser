@@ -60,7 +60,6 @@ bool checkCanSchedule(Fusion* fusion, SchedulerType scheduler_type) {
           // TODO: remove this once we have a scheduler for it
           PreprocessGroupedMatmulInputSf,
           TopKOp,
-          BlockQuantizationOp,
           ScanOp>(fusion)) {
     scheduler_debug_utils::canScheduleRejectReason(
         scheduler_type, "Has unsupported ops");
