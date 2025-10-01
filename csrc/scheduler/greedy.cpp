@@ -1404,7 +1404,7 @@ SyncMap buildSyncMap(Fusion* fusion) {
 } // namespace
 
 bool GreedyScheduler::canScheduleCompileTime(Fusion* fusion) {
-  if (!isOptionEnabled(EnableOption::GreedyScheduler)) {
+  if (false && !isOptionEnabled(EnableOption::GreedyScheduler)) {
     scheduler_debug_utils::canScheduleRejectReason(
         SchedulerType::Greedy, "Not enabled");
     return false;
