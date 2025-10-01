@@ -213,7 +213,7 @@ TEST_F(BQTest, ScheduleAsPointwise) {
 
   // t0 is 2D
   auto t0 = set(tv_data_hp);
-  auto quantization_results = block_quantize(t0);
+  auto quantization_results = blockQuantize(t0);
   auto t_out = set(quantization_results.quantized_tensor);
 
   // t1 and t2 are 2D.
@@ -332,7 +332,7 @@ TEST_F(BQTest, ScheduleAsPointwise2D) {
 
   // t0 is 2D
   auto t0 = set(tv_data_hp);
-  auto quantization_results = block_quantize(t0);
+  auto quantization_results = blockQuantize(t0);
   auto t_out = set(quantization_results.quantized_tensor);
 
   // t1 and t2 are 2D.

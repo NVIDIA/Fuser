@@ -2634,7 +2634,7 @@ TensorView* prefixSum(TensorView* tv, int64_t dim) {
       /*init=*/tv->fusion()->zeroVal(tv->dtype()));
 }
 
-BlockQuantizationResults block_quantize(TensorView* input) {
+BlockQuantizationResults blockQuantize(TensorView* input) {
   auto reshaped_input = reshape(input, [](auto& x) { x.split(-1, 16); });
 
   auto inp_domain =
@@ -2671,7 +2671,6 @@ BlockQuantizationResults block_quantize(TensorView* input) {
           IterDomainBuilder(
               input->fusion()->zeroVal(), input->fusion()->oneVal())
               .iter_type(IterType::Broadcast)
-              .expanded_extent(IrBuilder::create<Val>(1, DataType::Index))
               .build());
     } else {
       scales_out_domain.push_back(inp_domain[i]->cloneWithoutRFactor());

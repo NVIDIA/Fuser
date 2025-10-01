@@ -835,6 +835,6 @@ struct BlockQuantizationResults {
 };
 
 //! Expose block size as a parameter. Currently only supports 16.
-NVF_API BlockQuantizationResults block_quantize(TensorView* input);
+NVF_API BlockQuantizationResults blockQuantize(TensorView* input);
 
 } // namespace nvfuser
