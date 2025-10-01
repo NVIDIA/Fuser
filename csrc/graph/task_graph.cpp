@@ -632,7 +632,7 @@ class TaskSorter {
 
   //! There is one entry here for each Data and indicating how many uses there
   //! are remaining. When it reaches zero, the Data can be freed if allowed.
-  std::vector<TaskGraph::TaskId> future_uses_;
+  std::vector<int64_t> future_uses_;
 
   //! This holds all candidates for the next step, sorted by ID
   std::set<TaskGraph::TaskId> ready_tasks_;
