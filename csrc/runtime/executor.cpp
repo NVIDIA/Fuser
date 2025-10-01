@@ -480,13 +480,8 @@ LaunchParams KernelExecutor::computeLaunchParams(
           (int64_t)kernel_summary.outer_grouped_grid_welford_largest_smem_size);
     }
 
-    // StackBasedSharedMemAllocator start from address 0 without considering the
-    // shared memory reserved for reduction and broadcast workspace which is
-    // only known at runtime. To avoid mis-alignment for TMA tensors, here we
-    // enforce the workspace aligned at 128 Bytes. Same roundup is also added to
-    // codegen.
     reduction_broadcast_workspace =
-        alignedSharedMemoryBits(reduction_broadcast_workspace);
+        alignedSharedMemoryBits(reduction_broadcast_workspace * 8);
 
     if (isDebugDumpEnabled(DebugDumpOption::DynamicSharedMemory)) {
       debug() << "reduction_broadcast_workspace shared memory bytes: "

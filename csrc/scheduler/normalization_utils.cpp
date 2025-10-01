@@ -809,7 +809,6 @@ int64_t sharedMemoryRoundUpOverheadBit(
     total_smem_overhead_bit += (buffer_size_smem - logical_buffer_size_bit);
   }
   return alignedSharedMemoryBits(total_smem_overhead_bit);
-  ;
 }
 } // namespace
 
