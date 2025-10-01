@@ -2581,30 +2581,34 @@ TensorView* scan(
 
   dim = wrapDim(dim, (int64_t)logical_dom.size());
 
-  IterDomain* scan_id = logical_dom.at((size_t)dim);
-
   // Special case: scanning along broadcast dimension is no-op
   // Assumes init is identity for op_type
-  if (scan_id->isBroadcast()) {
+  if (IterDomain* scan_id = logical_dom.at(dim); scan_id->isBroadcast()) {
     NVF_ERROR(
         !scan_id->hasExpandedExtent(),
         "Closed-form scan of expanded dimension is not yet implemented");
     return set(in_tv);
   }
 
-  DataType dtype = in_tv->dtype();
-  auto new_dom = ops::newOutputDomain({in_tv});
+  auto promoted_in_tv = promoteValues(TypePromotion::default_op_config, {in_tv})
+                            .front()
+                            ->as<TensorView>();
+  auto new_dom = ops::newOutputDomain({promoted_in_tv});
   auto* td = IrBuilder::create<TensorDomain>(
       new_dom, TensorDomain::getContiguityFilledWith(new_dom, true));
-  auto out_tv = IrBuilder::create<TensorView>(td, in_tv->dtype());
+  auto out_tv = IrBuilder::create<TensorView>(td, promoted_in_tv->dtype());
 
   if (init == nullptr) {
-    init = ops::binOpIdentity(op_type, dtype);
+    init = ops::binOpIdentity(op_type, promoted_in_tv->dtype());
     NVF_ERROR(init != nullptr);
   }
 
   IrBuilder::createInContainer<ScanOp>(
-      in_tv->container(), op_type, init, out_tv, in_tv, dim);
+      in_tv->container(), op_type, init, out_tv, promoted_in_tv, dim);
+
+  if (promoted_in_tv->dtype() != in_tv->dtype()) {
+    out_tv = castOp(in_tv->dtype(), out_tv);
+  }
 
   return out_tv;
 }
