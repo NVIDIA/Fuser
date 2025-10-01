@@ -77,7 +77,8 @@ namespace nvfuser {
 
 #if (CUDA_VERSION >= 11080)
 #define NVF_DRIVER_API_WRAPPER_CUDA_118(fn) \
-  fn(cuOccupancyMaxActiveClusters, 11080)
+  fn(cuOccupancyMaxActiveClusters, 11080);  \
+  fn(cuLaunchKernelEx, 11080)
 #else
 #define NVF_DRIVER_API_WRAPPER_CUDA_118(fn)
 #endif
