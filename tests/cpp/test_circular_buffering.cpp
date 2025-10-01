@@ -2014,6 +2014,9 @@ TEST_P(TmaCircularBufferingTest, Persistent) {
 TEST_P(TmaCircularBufferingTest, Matmul) {
   NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
 
+  // Check shared memory requirements for matmul tests
+  REQUIRE_DEVICE_SMEM_SIZE(147584, 0);
+
   if (testEnablesTIDx()) {
     GTEST_SKIP() << "Warp Specialization with TIDx used for both computation "
                     "and load, requires TIDx to be a multiple of 128.";
@@ -2156,6 +2159,9 @@ TEST_P(TmaCircularBufferingTest, Matmul) {
 
 TEST_P(TmaCircularBufferingTest, MatmulWithBroadcastedInput) {
   NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
+
+  // Check shared memory requirements for matmul tests
+  REQUIRE_DEVICE_SMEM_SIZE(147584, 0);
 
   if (testEnablesTIDx()) {
     GTEST_SKIP() << "Warp Specialization with TIDx used for both computation "
