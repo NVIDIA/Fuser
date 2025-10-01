@@ -518,11 +518,14 @@ void innerPersistentHeuristic2D(
     }
   }
 
+  rparams->static_bdimx = true;
+
   rparams->lparams = LaunchParams(
       gdimx,
       LaunchParams::UNINITIALIZED_VAL,
       LaunchParams::UNINITIALIZED_VAL,
-      LaunchParams::UNINITIALIZED_VAL,
+      rparams->static_bdimx ? best_heuristic.bdimx
+                            : LaunchParams::UNINITIALIZED_VAL,
       best_heuristic.bdimy,
       LaunchParams::UNINITIALIZED_VAL);
 }
