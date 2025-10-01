@@ -1127,7 +1127,7 @@ TEST_F(TransposeTest, ReshapePermuteTransposeScheduler) {
                        .get()
                        ->scheduler_type;
   NVF_CHECK(
-      heuristic == SchedulerType::ExprEval,
+      heuristic == SchedulerType::Transpose,
       "Unexpected heuristic: ",
       heuristic);
 
