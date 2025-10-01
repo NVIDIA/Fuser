@@ -55,7 +55,7 @@ void bindHeuristicParams(py::module& nvfuser) {
         self.bindUnsafe(val, ParallelType::BIDx);
       },
       R"(
-          The number of threads in the x dimension of the grid.
+          The number of blocks in the x dimension of the grid.
       )");
   launch_parameters.def_property(
       "gdimy",
@@ -64,7 +64,7 @@ void bindHeuristicParams(py::module& nvfuser) {
         self.bindUnsafe(val, ParallelType::BIDy);
       },
       R"(
-          The number of threads in the y dimension of the grid.
+          The number of blocks in the y dimension of the grid.
       )");
   launch_parameters.def_property(
       "gdimz",
@@ -73,7 +73,7 @@ void bindHeuristicParams(py::module& nvfuser) {
         self.bindUnsafe(val, ParallelType::BIDz);
       },
       R"(
-          The number of threads in the z dimension of the grid.
+          The number of blocks in the z dimension of the grid.
       )");
 
   py::class_<CompileParams> compile_parameters(

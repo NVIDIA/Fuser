@@ -640,7 +640,7 @@ def test_tutorial_basic_tma_example1(nvfuser_direct_test):
         # Step 5: schedule the consumer tensor
         smem_cache.axis(0).parallelize(ParallelType.grid_x)
         smem_cache.axis(1).parallelize(ParallelType.tma)
-        # [BIDx, Bulk]
+        # [BIDx, TMA]
 
         # Schedule the smem->gmem part
         output.merge(0, 1)
@@ -722,7 +722,7 @@ def test_tutorial_basic_tma_example2(nvfuser_direct_test):
         # [I0*I1*I2/256/4, 4, 256]
         smem_cache.axis(0).parallelize(ParallelType.grid_x)
         smem_cache.axis(2).parallelize(ParallelType.tma)
-        # [BIDx, Serial, Bulk]
+        # [BIDx, Serial, TMA]
 
         # Schedule the smem->gmem part
         output.merge(0, 1)
@@ -809,7 +809,7 @@ def test_tutorial_basic_tma_example3(nvfuser_direct_test):
         smem_cache.axis(0).parallelize(ParallelType.grid_x)
         smem_cache.axis(1).parallelize(ParallelType.block_x)
         smem_cache.axis(2).parallelize(ParallelType.tma)
-        # [BIDx, TIDx, Bulk]
+        # [BIDx, TIDx, TMA]
 
         # Schedule the smem->gmem part
         output.merge(0, 1)
@@ -891,7 +891,7 @@ def test_tutorial_basic_tma_example4(nvfuser_direct_test):
         output.axis(0).parallelize(ParallelType.grid_x)
         output.axis(1).parallelize(ParallelType.block_x)
         output.axis(2).parallelize(ParallelType.tma)
-        # [BIDx, TIDx, Bulk]
+        # [BIDx, TIDx, TMA]
 
         # Schedule the gmem->smem part
         smem_cache.merge(0, 1)
@@ -990,7 +990,7 @@ def test_tutorial_basic_tma_example5(nvfuser_direct_test):
         smem_cache.axis(3).parallelize(ParallelType.block_x)
         smem_cache.axis(5).parallelize(ParallelType.tma)
         smem_cache.axis(6).parallelize(ParallelType.tma)
-        # [BIDx, BIDy, BIDz, TIDx, Serial, Bulk, Bulk]
+        # [BIDx, BIDy, BIDz, TIDx, Serial, TMA, TMA]
 
         # Schedule the smem->gmem part
         output.split(2, 32)
@@ -1105,7 +1105,7 @@ def test_tutorial_basic_tma_example6(nvfuser_direct_test):
         output.axis(3).parallelize(ParallelType.tma)
         output.axis(4).parallelize(ParallelType.grid_z)
         output.axis(6).parallelize(ParallelType.tma)
-        # [BIDx, BIDy, TIDx, Bulk, BIDz, Serial, Bulk]
+        # [BIDx, BIDy, TIDx, TMA, BIDz, Serial, TMA]
 
         # Schedule the gmem->smem part
         smem_cache.merge(-2, -1)
