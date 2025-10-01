@@ -149,6 +149,37 @@ TEST_F(MultiDeviceTest, Reduction) {
       __FILE__);
 }
 
+TEST_F(MultiDeviceTest, PartialReduction) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  const auto d = communicator_->size();
+  auto mesh = DeviceMesh::createForNumDevices(d);
+
+  TensorView* in = makeContigTensor(2, DataType::Half);
+  TensorView* out = sum(in, {0});
+
+  fusion->addInput(in);
+  fusion->addOutput(out);
+
+  in->setDeviceMesh(mesh);
+  in->outer_split(0, d);
+  in->axis(0)->parallelize(ParallelType::DIDx);
+
+  const auto options = at::dtype(at::kHalf).device(communicator_->device());
+  auto unsharded_in_tensor = at::randn({d * 3, 4}, options);
+  auto in_tensor = shardTensor(unsharded_in_tensor, in);
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto out_tensors = executor_cache.runFusionWithInputs({in_tensor});
+  testValidate(
+      executor_cache.fusion(),
+      out_tensors,
+      {in_tensor},
+      {unsharded_in_tensor.sum(0)},
+      __LINE__,
+      __FILE__);
+}
+
 TEST_F(MultiDeviceTest, Slice) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
@@ -168,7 +199,7 @@ TEST_F(MultiDeviceTest, Slice) {
     tv->axis(0)->parallelize(ParallelType::DIDx);
   }
 
-  const auto options = at::TensorOptions().device(communicator_->device());
+  const auto options = at::device(communicator_->device());
   auto aten_x = at::randn(input_shape, options);
   auto expected_out = aten_x.split(4, 2);
   KernelArgumentHolder args = {shardTensor(aten_x, x)};
