@@ -18,8 +18,6 @@ ConcretizedBroadcastDomains::ConcretizedBroadcastDomains(Fusion* fusion) {
 
   // Initialize the origin map with input broadcast domains
   auto inputs = fusion->inputsAndCreated();
-  auto exprs_ = fusion->exprs();
-
   for (const auto fusion_input_tv :
        ir_utils::filterByType<TensorView>(inputs)) {
     for (auto logical_id : fusion_input_tv->getLogicalDomain()) {
