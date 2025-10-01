@@ -547,13 +547,9 @@ class TaskSorter {
           !ready_tasks_.empty() || steps_.size() == (size_t)graph_.numTasks(),
           "Ran out of ready tasks before completing ordering");
 
-      TaskGraph::TaskId next_task_id = -1;
-      for (const TaskGraph::TaskId ready_id : ready_tasks_) {
-        if (ready_id > backtracked_task_id) {
-          next_task_id = ready_id;
-          break;
-        }
-      }
+      const auto it = std::lower_bound(
+          ready_tasks_.begin(), ready_tasks_.end(), backtracked_task_id + 1);
+      TaskGraph::TaskId next_task_id = it == ready_tasks_.end() ? -1 : *it;
 
       // Reset backtracked_task_id
       backtracked_task_id = -1;
