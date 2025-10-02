@@ -1342,19 +1342,6 @@ bool hasUniformSiblings(Expr* expr) {
   return !expr->isOneOf<SdpaFwdOp, SdpaBwdOp>();
 }
 
-bool isPartitionedLoop(const TensorView* tv, IterDomain* id) {
-  // False if id is not a loop ID
-  if (std::find(tv->getLoopDomain().begin(), tv->getLoopDomain().end(), id) ==
-      tv->getLoopDomain().end()) {
-    return false;
-  }
-
-  // If the memory of this domain is partitioned with respect to the
-  // parallel type of the domain, there's no allocation for the domain
-  return ir_utils::isMemoryPartitionedAcross(
-      tv->getMemoryType(), id->getParallelType());
-}
-
 bool mayRequireAllocation(const TensorView* tv, IterDomain* id) {
   // Conditions to consider:
   // - Fully partitioned
