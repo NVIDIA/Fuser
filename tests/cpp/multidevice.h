@@ -46,7 +46,7 @@ class MultiDeviceTest : public NVFuserTest {
       const std::vector<double>& atols);
 
   Communicator* communicator_;
-  c10::TensorOptions tensor_options;
+  c10::TensorOptions tensor_options_;
   bool debug_print;
   bool disable_skip;
 };
