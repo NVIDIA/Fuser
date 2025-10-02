@@ -445,8 +445,8 @@ getShapeAndStrideAfterDimMerged(
   std::vector<int64_t> tensor_new_strides(tensor_new_shape.size(), 1);
   int64_t prod = 1;
   for (int i = static_cast<int>(tensor_new_shape.size()) - 1; i >= 0; --i) {
-    prod *= tensor_new_shape[i];
     tensor_new_strides[i] = prod;
+    prod *= tensor_new_shape[i];
   }
 
   return {tensor_new_shape, tensor_new_strides};
