@@ -95,6 +95,8 @@ bool GreedyParams::hasProducerParams(
 void GreedyParams::transferConsumerParams(
     TensorView* old_tv,
     TensorView* new_tv) {
+  NVF_ERROR(old_tv != nullptr);
+  NVF_ERROR(new_tv != nullptr);
   auto it = consumer_to_params_.find(old_tv->name());
   if (it == consumer_to_params_.end()) {
     return;
@@ -776,7 +778,10 @@ class HeuristicsBuilder : private IterVisitor {
   void handle(ScatterOp* scatter) override {
     // Need to have two sets of parameters: one for the logical domain
     // of the index tensor and another for the logical domain of the
-    // input tensor. See ConstrainedOpScheduler::handle(ScatterOp*).
+    // input tensor. For the former, we store its parameters in the
+    // scatter output tensor. For the latter, it's stored as a
+    // producer parameter for the input tensor. See
+    // ConstrainedOpScheduler::handle(ScatterOp*).
     auto out_tv = ir_utils::getTvOutput(scatter);
     auto inp_tv = ir_utils::getTvInput(scatter);
     addHeuristicsFor(out_tv, out_tv->domain()->initialLoop(), {scatter->dim()});
@@ -909,9 +914,9 @@ void insertCopies(Fusion* fusion, GreedyParams& greedy_params) {
             /*propagate_allocation_domain=*/false);
         // Since the cache, which is a copy of the scatter output,
         // needs to be scheduled as a constrained tensor, add its
-        // consumer parameter. The same parater as the producer
-        // parameter of the index tensor should be used.
-        // a producer parameter.
+        // consumer parameter. That tensor should be scheduled in the
+        // same way as the input tensor of the scatter, so set its
+        // parameter using the heuristics for the input.
         greedy_params.setConsumerParams(
             cache, greedy_params.getProducerParams(inp_tv, out_tv));
       }
