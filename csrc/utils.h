@@ -95,9 +95,14 @@ constexpr int64_t roundUpToMultiple(int64_t dividend, int64_t divisor) {
   return ceilDiv(dividend, divisor) * divisor;
 }
 
-constexpr int64_t alignedSharedMemoryBits(int64_t dividend) {
-  constexpr int64_t divisor = kSharedMemoryAlignmentBytes * 8;
-  return ceilDiv(dividend, divisor) * divisor;
+constexpr int64_t alignedSharedMemoryBits(int64_t unaligned) {
+  constexpr int64_t alignment = kSharedMemoryAlignmentBytes * 8;
+  return (unaligned + (alignment - 1)) & (~(alignment - 1));
+}
+
+constexpr int64_t alignedSharedMemoryBytes(int64_t unaligned) {
+  constexpr int64_t alignment = kSharedMemoryAlignmentBytes;
+  return (unaligned + (alignment - 1)) & (~(alignment - 1));
 }
 
 //! Simple mixin for suppressing copy & move operations, ex:
