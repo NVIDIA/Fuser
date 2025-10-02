@@ -478,22 +478,12 @@ bool isCommunicationLayoutCompliant(Expr* expr) {
   Layout p_layout = getCommunicationLayout(
       producer, communication_info.type, communication_info.p_sharded_id);
   if (!isCompliantWith(*canonicalizeLayout(producer), p_layout)) {
-    std::cout << "producer is not compliant: " << producer->toString()
-              << std::endl;
-    producer->printTransforms();
-    std::cout << "p_layout: " << p_layout.toString() << std::endl;
-    std::cout << "canonicalizeLayout(producer): " << canonicalizeLayout(producer)->toString() << std::endl;
     return false;
   }
 
   Layout c_layout = getCommunicationLayout(
       consumer, communication_info.type, communication_info.c_sharded_id);
   if (!isCompliantWith(*canonicalizeLayout(consumer), c_layout)) {
-    std::cout << "consumer is not compliant: " << consumer->toString()
-              << std::endl;
-    consumer->printTransforms();
-    std::cout << "c_layout: " << c_layout.toString() << std::endl;
-    std::cout << "canonicalizeLayout(consumer): " << canonicalizeLayout(consumer)->toString() << std::endl;
     return false;
   }
 
