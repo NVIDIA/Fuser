@@ -93,6 +93,9 @@ void resetAllocationDomainAndContiguity(
   std::cout << "resetAllocationDomainAndContiguity: " << tv->toString()
             << std::endl;
   tv->printTransforms();
+  std::cout << "sizes: " << toDelimitedString(sizes) << std::endl;
+  std::cout << "strides: " << toDelimitedString(strides) << std::endl;
+  std::cout << "prev contiguity: " << toDelimitedString(tv->getContiguity()) << std::endl;
   std::cout << "contiguity: " << toDelimitedString(contiguity) << std::endl;
   tv->setContiguity(contiguity);
 }
