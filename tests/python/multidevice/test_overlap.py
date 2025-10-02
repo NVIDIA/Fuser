@@ -64,9 +64,9 @@ def test_overlap_allgather_matmul_stream_outermost(
         tensors = fusion_definition(fd, m, k, n, s, d)
         multidevice_schedule(fd, tensors, d)
 
-    multidevice_executor = nvfuser.multidevice.MultiDeviceExecutor(
-        fd.fusion, backend_type
-    )
+    params = nvfuser.multidevice.MultiDeviceExecutorParams()
+    params.backend_type = backend_type
+    multidevice_executor = nvfuser.multidevice.MultiDeviceExecutor(fd.fusion, params)
 
     # warmup
     for _ in range(N_WARMUPS):
@@ -133,9 +133,10 @@ def test_overlap_allgather_matmul_shard_outermost(
         tensors = fusion_definition(fd, m, k, n, d)
         multidevice_schedule(fd, tensors, d)
 
-    multidevice_executor = nvfuser.multidevice.MultiDeviceExecutor(
-        fd.fusion, backend_type
-    )
+    params = nvfuser.multidevice.MultiDeviceExecutorParams()
+    params.backend_type = backend_type
+    params.use_allocation_cache = True
+    multidevice_executor = nvfuser.multidevice.MultiDeviceExecutor(fd.fusion, params)
 
     # warmup
     for _ in range(N_WARMUPS):
