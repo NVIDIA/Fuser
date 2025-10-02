@@ -1149,7 +1149,7 @@ TEST_F(MultiDeviceTest, PointwiseSchedulerReordering) {
       optimization_guard(false);
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  at::Tensor inp = at::randn({3 * d, 5}, tensor_options);
+  at::Tensor inp = at::randn({3 * d, 5}, tensor_options_);
   at::Tensor sharded_inp = shardTensor(inp, 0, mesh).t();
   at::Tensor nvf_out =
       executor_cache.runFusionWithInputs({sharded_inp})[0].as<at::Tensor>();

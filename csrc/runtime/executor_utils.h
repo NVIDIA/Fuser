@@ -243,5 +243,6 @@ void validateIndexCasts(
     ExpressionEvaluator& expr_eval,
     const LaunchParams& launch_params);
 
+void initializeCudaContext();
 } // namespace executor_utils
 } // namespace nvfuser
