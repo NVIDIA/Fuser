@@ -58,6 +58,36 @@ def test_pointwise(multidevice_direct_test):
     assert output_sharding.axis_sharded_on(nvfuser.ParallelType.mesh_x) == -1
 
 
+@pytest.mark.mpi
+def test_binary(multidevice_direct_test):
+    d = multidevice_direct_test.size
+    mesh = nvfuser.multidevice.DeviceMesh(torch.arange(d))
+
+    unsharded_input = torch.randn(d, 4)
+    sharded_input = multidevice_direct_test.shard_tensor(unsharded_input, 0, mesh)
+
+    with FusionDefinition() as fd:
+        x = fd.define_tensor((-1, -1), contiguity=True, dtype=DataType.Half)
+        y = fd.define_tensor((-1, -1), contiguity=True, dtype=DataType.Half)
+        z = fd.ops.add(x, y)
+        fd.add_output(z)
+
+        x.set_device_mesh(mesh)
+        y.set_device_mesh(mesh)
+        y.split(0, d, inner_split=False)
+        y.axis(0).parallelize(nvfuser.ParallelType.mesh_x)
+
+    x_ref = torch.randn(d * 2, 3)
+    x = x_ref.cuda()
+    y_ref = torch.randn(d * 2, 3)
+    y = multidevice_direct_test.shard_tensor(y_ref, 0, mesh)
+    (z,) = fd.execute([x, y])
+
+    torch.testing.assert_close(
+        z, multidevice_direct_test.shard_tensor(x_ref + y_ref, 0, mesh)
+    )
+
+
 class QkvFormat(Enum):
     BHSE = auto()
     BSHE = auto()
