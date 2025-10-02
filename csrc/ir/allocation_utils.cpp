@@ -180,6 +180,10 @@ bool contiguityIsCompliant(
     const IterDomain* id,
     const std::optional<bool>& actual,
     const std::optional<bool>& required) {
+  const auto ptype = id->getParallelType();
+  if (isParallelTypeDeviceDim(ptype)) {
+    return true;
+  }
   if (actual == true && required == false) {
     return true;
   }
