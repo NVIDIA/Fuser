@@ -221,7 +221,11 @@ TEST_F(DistributedMatmulTest, Matmul_LayoutTN_Allgather) {
   in0 = in0.view({Mo, Mi, K});
   out = out.view({Mo, Mi, N});
 
-  KernelArgumentHolder args = {shardTensor(in0, a), in1};
+  auto in0_sharded = shardTensor(in0, a);
+  std::cout << "in0_sharded: " << in0_sharded.sizes() << std::endl;
+  std::cout << "in0_sharded: " << in0_sharded.strides() << std::endl;
+  std::cout << "in0_sharded: " << in0_sharded.is_contiguous() << std::endl;
+  KernelArgumentHolder args = {in0_sharded, in1};
   auto expected_output = shardTensor(out, c);
   FusionExecutorCache executor_cache(std::move(fusion));
   auto outputs = executor_cache.runFusionWithInputs(args);
