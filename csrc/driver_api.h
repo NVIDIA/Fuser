@@ -52,7 +52,8 @@ namespace nvfuser {
   fn(cuModuleUnload, 11000);                               \
   fn(cuMemGetAddressRange, 11000);                         \
   fn(cuOccupancyMaxActiveBlocksPerMultiprocessor, 11000);  \
-  fn(cuOccupancyAvailableDynamicSMemPerBlock, 11000)
+  fn(cuOccupancyAvailableDynamicSMemPerBlock, 11000);      \
+  fn(cuCtxGetCurrent, 11000);
 
 // Stream memory operations (e.g. cuStreamWriteValue32) are specified for both
 // 11 and 12+. In CUDA 11, these operations require NVreg_EnableStreamMemOPs=1
