@@ -77,7 +77,7 @@ bool isLowerableToCommunication(Expr* e) {
   }
 
   if (auto* ldst = dynamic_cast<LoadStoreOp*>(e)) {
-    return ldst->as<LoadStoreOp>()->opType() == LoadStoreOpType::Set;
+    return ldst->opType() == LoadStoreOpType::Set;
   }
 
   return false;
@@ -111,7 +111,7 @@ void insertReshardingSetsBefore(Fusion* fusion) {
     if (!expr->output(0)->isA<TensorView>()) {
       continue;
     }
-    auto output = expr->output(0)->as<TensorView>();
+    auto* output = expr->output(0)->as<TensorView>();
 
     std::unordered_set<TensorView*> inputs;
     for (auto input : ir_utils::filterByType<TensorView>(expr->inputs())) {
@@ -160,15 +160,14 @@ void insertReshardingSetsAfter(Fusion* fusion) {
     if (!expr->output(0)->isA<TensorView>()) {
       continue;
     }
-    auto output = expr->output(0)->as<TensorView>();
+    auto* output = expr->output(0)->as<TensorView>();
 
     std::unordered_set<TensorView*> inputs;
-    for (auto input : ir_utils::filterByType<TensorView>(expr->inputs())) {
+    for (auto* input : ir_utils::filterByType<TensorView>(expr->inputs())) {
       if (haveDifferentShardings(input, output)) {
         inputs.insert(input);
       }
     }
-
     // Insert resharding set after the expr and update
     // output of expr to match input's sharding.
     // input [expr] output [set] new_output
@@ -176,9 +175,10 @@ void insertReshardingSetsAfter(Fusion* fusion) {
       TensorView* input = *inputs.begin();
       TensorView* new_output = set(output);
       ir_utils::replaceValInAllExprInputsAndFusionOutputs(output, new_output);
+
       // Update shardings new_output takes output's sharding,
       // output takes input's sharding
-      shardAllLike(output, {new_output}, deviceAndStreamParallelTypes());
+      TransformReplay::selfReplay(output->domain(), new_output->domain());
 
       // Consider a reshard case:
       //
@@ -192,7 +192,7 @@ void insertReshardingSetsAfter(Fusion* fusion) {
       // ParallelType::Serial is required here so the output is sharded as
       // [DIDx(i0), i1] instead of [DIDx(i0), DIDx(i1)] when sharding using
       // input as the reference.
-      shardAllLike(input, {output}, allParallelTypes());
+      TransformReplay::selfReplay(input->domain(), output->domain());
 
       // The previous sharding propagation may have overwritten the stream
       // parallelization. We need to propagate it back.

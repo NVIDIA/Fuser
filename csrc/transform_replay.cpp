@@ -297,7 +297,7 @@ void TransformReplay::selfReplay(
   ReplaySelf replay(loop, axis_map);
 
   // Replay loop.
-  if (loop != self->logical()) {
+  {
     std::vector<IterDomain*> new_loop;
     if (ignore_reductions) {
       for (auto* id : new_self->logical()) {
