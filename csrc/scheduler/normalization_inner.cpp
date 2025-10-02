@@ -395,7 +395,10 @@ void innerPersistentHeuristic2D(
       properties.inner_most_dimension_numel / properties.vectorize_factor;
 
   // try to use at least 4 warps per block
-  const int64_t min_threads_per_block = 4l * threads_per_warp;
+  bool can_use_all_sms =
+      properties.total_iteration_numel >= device_multiprocessor_count;
+  const int64_t min_threads_per_block =
+      can_use_all_sms ? 4l * threads_per_warp : max_threads_in_block;
 
   // set the min persistent buffer size to avoid requesting
   // a block size larger than device limit
@@ -518,11 +521,14 @@ void innerPersistentHeuristic2D(
     }
   }
 
+  rparams->static_bdimx = true;
+
   rparams->lparams = LaunchParams(
       gdimx,
       LaunchParams::UNINITIALIZED_VAL,
       LaunchParams::UNINITIALIZED_VAL,
-      LaunchParams::UNINITIALIZED_VAL,
+      rparams->static_bdimx ? best_heuristic.bdimx
+                            : LaunchParams::UNINITIALIZED_VAL,
       best_heuristic.bdimy,
       LaunchParams::UNINITIALIZED_VAL);
 }

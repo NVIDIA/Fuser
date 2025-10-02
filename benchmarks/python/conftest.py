@@ -37,6 +37,11 @@ def pytest_addoption(parser):
         action="store_true",
         help="Benchmarks torch.compile mode.",
     )
+    parser.addoption(
+        "--benchmark-flashinfer",
+        action="store_true",
+        help="Benchmarks flashinfer mode.",
+    )
 
     # pytest-benchmark does not have CLI options to set rounds/warmup_rounds for benchmark.pedantic.
     # The following two options are used to overwrite the default values through CLI.
@@ -144,7 +149,13 @@ def pytest_collection_modifyitems(session, config, items):
 
     from nvfuser.pytorch_utils import retry_on_oom_or_skip_test
 
-    executors = ["eager", "torchcompile", "thunder", "thunder-torchcompile"]
+    executors = [
+        "eager",
+        "torchcompile",
+        "thunder",
+        "thunder-torchcompile",
+        "flashinfer",
+    ]
 
     def get_test_executor(item) -> str | None:
         if hasattr(item, "callspec") and "executor" in item.callspec.params:
