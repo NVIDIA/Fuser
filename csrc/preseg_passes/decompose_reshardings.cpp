@@ -193,6 +193,34 @@ void insertReshardingSetsAfter(Fusion* fusion) {
       // [DIDx(i0), i1] instead of [DIDx(i0), DIDx(i1)] when sharding using
       // input as the reference.
       shardAllLike(input, {output}, allParallelTypes());
+
+      // The previous sharding propagation may have overwritten the stream
+      // parallelization. We need to propagate it back.
+      //
+      // Consider a reshard case typical of GEMM+AG (when AG occurs after GEMM):
+      //
+      //   input [i0, DIDx(i1)] -> op -> output [Stream(i0), i1]
+      //
+      // This is decomposed into:
+      //
+      //   input [i0, DIDx(i1)] -> op -> output [i0, DIDx(i1)] -> set ->
+      //   new_output [Stream(i0), i1
+      //
+      // After sharding using input as the reference, the output is sharded as
+      // [i0, i1]. We need to propagate the stream parallelization back to the
+      // output, in order to obtain:
+      //
+      //   input [i0, DIDx(i1)] -> op -> output [Stream(i0), DIDx(i1)] -> set ->
+      //   new_output [Stream(i0), i1]
+      // WAR (https://github.com/NVIDIA/Fuser/pull/5205#issuecomment-3324173092)
+      // this pass might incorrectly overwrite output's DIDx parallelization,
+      // which should be avoided. This case shows up if the fusion lowers to a
+      // p2p ring pipeline and the option "reshard_after" is enabled. The proper
+      // fix should be to make parallelizeAllLike smarter and skip the
+      // propagation over a DID parallelization type. We leave this as is as a
+      // temporary solution, as the bug is catched by an assertion.
+      scheduler_utils::parallelizeAllLike(
+          new_output, {output}, {ParallelType::Stream});
     }
   }
 }

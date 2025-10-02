@@ -378,8 +378,8 @@ TEST_F(DistributedMatmulTest, PresegPreservesSharding) {
     tv->axis(0)->parallelize(ParallelType::DIDx);
   }
 
-  auto x_tensor = at::randn({12, 48}, tensor_options);
-  auto w_tensor = at::randn({mesh.size(), 36, 48}, tensor_options);
+  auto x_tensor = at::randn({12, 48}, tensor_options_);
+  auto w_tensor = at::randn({mesh.size(), 36, 48}, tensor_options_);
   auto sharded_w_tensor = shardTensor(w_tensor, w);
 
   FusionExecutorCache executor_cache(std::move(fusion));
@@ -420,9 +420,10 @@ TEST_F(DistributedMatmulTest, AnnotateWeightOnly) {
   // y is expected to have shape [2, D*5] and to be also column-wise sharded.
   constexpr int64_t kLowerBound = 0;
   constexpr int64_t kUpperBound = 10;
-  auto x_tensor = at::randint(kLowerBound, kUpperBound, {2, 3}, tensor_options);
+  auto x_tensor =
+      at::randint(kLowerBound, kUpperBound, {2, 3}, tensor_options_);
   auto w_tensor = at::randint(
-      kLowerBound, kUpperBound, {mesh.size(), 3, 5}, tensor_options);
+      kLowerBound, kUpperBound, {mesh.size(), 3, 5}, tensor_options_);
   auto sharded_w_tensor = shardTensor(w_tensor, w);
 
   FusionExecutorCache executor_cache(std::move(fusion));
@@ -483,8 +484,8 @@ TEST_F(DistributedMatmulTest, RowParallelLinear) {
   constexpr int64_t b = 1;
   for (int64_t s : {4, 8, 16}) {
     // Use randint instead of randn to avoid floating point accumulation errors.
-    auto x_tensor = at::randint(/*high=*/5, {b, s, e}, tensor_options);
-    auto w_tensor = at::randint(/*high=*/5, {e, e}, tensor_options);
+    auto x_tensor = at::randint(/*high=*/5, {b, s, e}, tensor_options_);
+    auto w_tensor = at::randint(/*high=*/5, {e, e}, tensor_options_);
     auto sharded_x = shardTensor(x_tensor, x);
     auto sharded_w = shardTensor(w_tensor, w);
 
