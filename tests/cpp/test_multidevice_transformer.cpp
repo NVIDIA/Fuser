@@ -1024,15 +1024,15 @@ TEST_P(DistributedTransformerTest, LoopSplitMLP) {
   w1->axis(1)->parallelize(ParallelType::DIDx);
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  at::Tensor inp_tensor = at::randn({B, S, E}, tensor_options.dtype(at_dtype));
+  at::Tensor inp_tensor = at::randn({B, S, E}, tensor_options_.dtype(at_dtype));
   at::Tensor w0_tensor =
-      at::randn({4 * E, E}, tensor_options.dtype(at_dtype)) * kParamScale;
+      at::randn({4 * E, E}, tensor_options_.dtype(at_dtype)) * kParamScale;
   at::Tensor b0_tensor =
-      at::randn({4 * E}, tensor_options.dtype(at_dtype)) * kParamScale;
+      at::randn({4 * E}, tensor_options_.dtype(at_dtype)) * kParamScale;
   at::Tensor w1_tensor =
-      at::randn({E, 4 * E}, tensor_options.dtype(at_dtype)) * kParamScale;
+      at::randn({E, 4 * E}, tensor_options_.dtype(at_dtype)) * kParamScale;
   at::Tensor b1_tensor =
-      at::randn({E}, tensor_options.dtype(at_dtype)) * kParamScale;
+      at::randn({E}, tensor_options_.dtype(at_dtype)) * kParamScale;
 
   at::Tensor w0_sharded = shardTensor(w0_tensor, 0, mesh);
   at::Tensor b0_sharded = shardTensor(b0_tensor, 0, mesh);
@@ -1118,18 +1118,18 @@ TEST_P(DistributedTransformerTest, LoopSplitMHAFwd) {
   mha_w1->axis(1)->parallelize(ParallelType::DIDx);
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  at::Tensor inp_tensor = at::randn({B, S, E}, tensor_options.dtype(at_dtype));
+  at::Tensor inp_tensor = at::randn({B, S, E}, tensor_options_.dtype(at_dtype));
   at::Tensor mha_w0_tensor =
-      at::randn({3 * E, E}, tensor_options.dtype(at_dtype)) * kParamScale;
+      at::randn({3 * E, E}, tensor_options_.dtype(at_dtype)) * kParamScale;
   at::Tensor sharded_mha_w0 = shardTensor(mha_w0_tensor, 0, mesh);
   at::Tensor mha_b0_tensor =
-      at::randn({3 * E}, tensor_options.dtype(at_dtype)) * kParamScale;
+      at::randn({3 * E}, tensor_options_.dtype(at_dtype)) * kParamScale;
   at::Tensor sharded_mha_b0 = shardTensor(mha_b0_tensor, 0, mesh);
   at::Tensor mha_w1_tensor =
-      at::randn({E, E}, tensor_options.dtype(at_dtype)) * kParamScale;
+      at::randn({E, E}, tensor_options_.dtype(at_dtype)) * kParamScale;
   at::Tensor sharded_mha_w1 = shardTensor(mha_w1_tensor, 1, mesh);
   at::Tensor mha_b1_tensor =
-      at::randn({E}, tensor_options.dtype(at_dtype)) * kParamScale;
+      at::randn({E}, tensor_options_.dtype(at_dtype)) * kParamScale;
 
   KernelArgumentHolder args = {
       inp_tensor,
