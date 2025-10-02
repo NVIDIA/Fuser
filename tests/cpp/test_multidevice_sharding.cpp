@@ -1187,7 +1187,7 @@ TEST_F(MultiDeviceTest, ReshapeAllocationPermutation) {
       preseg_passes::FinalizeMultideviceDomainsPass>
       optimization_guard(false);
 
-  at::Tensor input = at::randn({s, h, e / h}, tensor_options);
+  at::Tensor input = at::randn({s, h, e / h}, tensor_options_);
   at::Tensor sharded_input = shardTensor(input, 1, mesh);
 
   FusionExecutorCache executor_cache(std::move(fusion));
