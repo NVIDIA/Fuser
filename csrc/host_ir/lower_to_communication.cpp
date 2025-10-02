@@ -468,6 +468,8 @@ Layout getCommunicationLayout(
 }
 
 bool isCommunicationLayoutCompliant(Expr* expr) {
+  std::cout << "isCommunicationLayoutCompliant: " << expr->toString()
+            << std::endl;
   auto* producer = expr->inputs().at(0)->as<TensorView>();
   auto* consumer = expr->outputs().at(0)->as<TensorView>();
 
@@ -476,12 +478,18 @@ bool isCommunicationLayoutCompliant(Expr* expr) {
   Layout p_layout = getCommunicationLayout(
       producer, communication_info.type, communication_info.p_sharded_id);
   if (!isCompliantWith(*canonicalizeLayout(producer), p_layout)) {
+    std::cout << "producer is not compliant: " << producer->toString()
+              << std::endl;
+    producer->printTransforms();
     return false;
   }
 
   Layout c_layout = getCommunicationLayout(
       consumer, communication_info.type, communication_info.c_sharded_id);
   if (!isCompliantWith(*canonicalizeLayout(consumer), c_layout)) {
+    std::cout << "consumer is not compliant: " << consumer->toString()
+              << std::endl;
+    consumer->printTransforms();
     return false;
   }
 
