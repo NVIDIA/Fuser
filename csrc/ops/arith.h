@@ -808,7 +808,11 @@ NVF_API TopKResult topk(
 //!   y[0] = x[0]
 //!   y[i] = y[i-1] + x[i] for 0 < i < n
 //!
-//! If the dimension being scanned is an expanded broadcast, we throw an error.
+//! If the dimension being scanned is an expanded broadcast, we throw
+//! an error.
+//!
+//! Note that unlike reductions, low precision inputs are not
+//! automtaically upcast to float, as that is the PyTorch convention.
 NVF_API TensorView* scan(
     TensorView* in_tv,
     int64_t dim,
