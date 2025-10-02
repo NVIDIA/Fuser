@@ -1179,15 +1179,9 @@ std::unique_ptr<ReductionParams> getInnerPersistentHeuristics(
   // specific heuristics for different cases
   // use cluster reduction when buffer size is larger than register size and
   // the reduction is not 3D.
-<<<<<<< HEAD
   if (prop.max_persistent_buffer_size_bit >
           scheduler_utils::register_file_size_bit &&
       scheduler_utils::getMaxClusterSize() > 1) {
-=======
-  if (scheduler_utils::getMaxClusterSize() > 1 &&
-      prop.max_persistent_buffer_size_bit >
-          scheduler_utils::register_file_size_bit) {
->>>>>>> cbae9f4580760a2adc474a658b694b37f622cd74
     innerPersistentHeuristicCluster(prop, rparams.get());
   } else if (
       prop.max_persistent_buffer_size_bit >
