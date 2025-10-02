@@ -481,6 +481,8 @@ bool isCommunicationLayoutCompliant(Expr* expr) {
     std::cout << "producer is not compliant: " << producer->toString()
               << std::endl;
     producer->printTransforms();
+    std::cout << "p_layout: " << p_layout.toString() << std::endl;
+    std::cout << "canonicalizeLayout(producer): " << canonicalizeLayout(producer)->toString() << std::endl;
     return false;
   }
 
@@ -489,8 +491,9 @@ bool isCommunicationLayoutCompliant(Expr* expr) {
   if (!isCompliantWith(*canonicalizeLayout(consumer), c_layout)) {
     std::cout << "consumer is not compliant: " << consumer->toString()
               << std::endl;
-    std::cout << "c_layout: " << c_layout.toString() << std::endl;
     consumer->printTransforms();
+    std::cout << "c_layout: " << c_layout.toString() << std::endl;
+    std::cout << "canonicalizeLayout(consumer): " << canonicalizeLayout(consumer)->toString() << std::endl;
     return false;
   }
 
