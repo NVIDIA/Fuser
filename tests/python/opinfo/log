@@ -1,0 +1,1382 @@
+============================= test session starts ==============================
+platform linux -- Python 3.10.18, pytest-8.4.2, pluggy-1.6.0 -- /opt/conda/pytorch/bin/python3.10
+cachedir: .pytest_cache
+hypothesis profile 'default'
+benchmark: 5.1.0 (defaults: timer=time.perf_counter disable_gc=False min_rounds=5 min_time=0.000005 max_time=1.0 calibration_precision=10 warmup=False warmup_iterations=100000)
+rootdir: /tmp/nvfuser
+plugins: hypothesis-6.140.2, benchmark-5.1.0
+collecting ... collected 536 items / 533 deselected / 3 selected
+
+test_direct_ops.py::test_correctness_cumsum_float16 Segmented_Fusion Dump: -- Re-written complete fusion:{
+Inputs:
+  T0_g___half[iS0{i0}, iS1{i1}]
+Outputs:
+  T1_g___half[iS2{i0}, iS3{i1}]
+
+%kernel_math {
+T1_g___half[iS2{i0}, iS3{i1}]
+   = scan(T0_g___half[iS0{i0}, iS1{i1}],
+          dim=0,
+          op_type=add,
+          init=__half(0))
+} // %kernel_math 
+
+} // {Re-written complete fusion}
+Segmented_Fusion Dump: -- fusion segments:
+Segmented_Fusion{ 
+groups: 
+  expr_eval{0}
+edges: 
+
+group details:
+g{(expr_eval)
+group id: 0
+inputs:
+  T0_g___half[iS0{i0}, iS1{i1}] __half
+outputs:
+  T1_g___half[iS2{i0}, iS3{i1}] __half
+
+
+T1_g___half[iS2{i0}, iS3{i1}]
+   = scan(T0_g___half[iS0{i0}, iS1{i1}],
+          dim=0,
+          op_type=add,
+          init=__half(0))
+(0)
+}
+
+} //Segmented_Fusion
+
+Segmented_Fusion Dump: -- Re-written complete fusion:{
+Inputs:
+  T0_g___half[iS0{i0}, iS1{i1}]
+Outputs:
+  T1_g___half[iS2{i0}, iS3{i1}]
+
+%kernel_math {
+T1_g___half[iS2{i0}, iS3{i1}]
+   = scan(T0_g___half[iS0{i0}, iS1{i1}],
+          dim=0,
+          op_type=add,
+          init=__half(0))
+} // %kernel_math 
+
+} // {Re-written complete fusion}
+Segmented_Fusion Dump: -- fusion segments:
+Segmented_Fusion{ 
+groups: 
+  expr_eval{0}
+edges: 
+
+group details:
+g{(expr_eval)
+group id: 0
+inputs:
+  T0_g___half[iS0{i0}, iS1{i1}] __half
+outputs:
+  T1_g___half[iS2{i0}, iS3{i1}] __half
+
+
+T1_g___half[iS2{i0}, iS3{i1}]
+   = scan(T0_g___half[iS0{i0}, iS1{i1}],
+          dim=0,
+          op_type=add,
+          init=__half(0))
+(0)
+}
+
+} //Segmented_Fusion
+
+Segmented_Fusion Dump: -- Re-written complete fusion:{
+Inputs:
+  T0_g___half[iS0{i0}]
+Outputs:
+  T1_g___half[iS1{i0}]
+
+%kernel_math {
+T1_g___half[iS1{i0}]
+   = scan(T0_g___half[iS0{i0}],
+          dim=0,
+          op_type=add,
+          init=__half(0))
+} // %kernel_math 
+
+} // {Re-written complete fusion}
+Segmented_Fusion Dump: -- fusion segments:
+Segmented_Fusion{ 
+groups: 
+  expr_eval{0}
+edges: 
+
+group details:
+g{(expr_eval)
+group id: 0
+inputs:
+  T0_g___half[iS0{i0}] __half
+outputs:
+  T1_g___half[iS1{i0}] __half
+
+
+T1_g___half[iS1{i0}]
+   = scan(T0_g___half[iS0{i0}],
+          dim=0,
+          op_type=add,
+          init=__half(0))
+(0)
+}
+
+} //Segmented_Fusion
+
+Segmented_Fusion Dump: -- Re-written complete fusion:{
+Inputs:
+  T0_g___half[iS0{i0}]
+Outputs:
+  T1_g___half[iS1{i0}]
+
+%kernel_math {
+T1_g___half[iS1{i0}]
+   = scan(T0_g___half[iS0{i0}],
+          dim=0,
+          op_type=add,
+          init=__half(0))
+} // %kernel_math 
+
+} // {Re-written complete fusion}
+Segmented_Fusion Dump: -- fusion segments:
+Segmented_Fusion{ 
+groups: 
+  expr_eval{0}
+edges: 
+
+group details:
+g{(expr_eval)
+group id: 0
+inputs:
+  T0_g___half[iS0{i0}] __half
+outputs:
+  T1_g___half[iS1{i0}] __half
+
+
+T1_g___half[iS1{i0}]
+   = scan(T0_g___half[iS0{i0}],
+          dim=0,
+          op_type=add,
+          init=__half(0))
+(0)
+}
+
+} //Segmented_Fusion
+
+Segmented_Fusion Dump: -- Re-written complete fusion:{
+Inputs:
+  T0_g___half[iS0{i0}, bS1{1}, iS2{i2}]
+Outputs:
+  T1_g___half[iS3{i0}, bS4{1}, iS5{i2}]
+
+%kernel_math {
+T1_g___half[iS3{i0}, bS4{1}, iS5{i2}]
+   = Set( T0_g___half[iS0{i0}, bS1{1}, iS2{i2}], cache_op=Streaming )
+} // %kernel_math 
+
+} // {Re-written complete fusion}
+Segmented_Fusion Dump: -- fusion segments:
+Segmented_Fusion{ 
+groups: 
+  expr_eval{0}
+edges: 
+
+group details:
+g{(expr_eval)
+group id: 0
+inputs:
+  T0_g___half[iS0{i0}, bS1{1}, iS2{i2}] __half
+outputs:
+  T1_g___half[iS3{i0}, bS4{1}, iS5{i2}] __half
+
+
+T1_g___half[iS3{i0}, bS4{1}, iS5{i2}]
+   = Set( T0_g___half[iS0{i0}, bS1{1}, iS2{i2}], cache_op=Streaming )
+(0)
+}
+
+} //Segmented_Fusion
+
+Segmented_Fusion Dump: -- Re-written complete fusion:{
+Inputs:
+  T0_g___half[iS0{i0}, bS1{1}, iS2{i2}]
+Outputs:
+  T1_g___half[iS3{i0}, bS4{1}, iS5{i2}]
+
+%kernel_math {
+T1_g___half[iS3{i0}, bS4{1}, iS5{i2}]
+   = Set( T0_g___half[iS0{i0}, bS1{1}, iS2{i2}], cache_op=Streaming )
+} // %kernel_math 
+
+} // {Re-written complete fusion}
+Segmented_Fusion Dump: -- fusion segments:
+Segmented_Fusion{ 
+groups: 
+  expr_eval{0}
+edges: 
+
+group details:
+g{(expr_eval)
+group id: 0
+inputs:
+  T0_g___half[iS0{i0}, bS1{1}, iS2{i2}] __half
+outputs:
+  T1_g___half[iS3{i0}, bS4{1}, iS5{i2}] __half
+
+
+T1_g___half[iS3{i0}, bS4{1}, iS5{i2}]
+   = Set( T0_g___half[iS0{i0}, bS1{1}, iS2{i2}], cache_op=Streaming )
+(0)
+}
+
+} //Segmented_Fusion
+
+Segmented_Fusion Dump: -- Re-written complete fusion:{
+Inputs:
+  T0_g___half[iS0{i0}, iS1{i1}, iS2{i2}, bS3{1}]
+Outputs:
+  T1_g___half[iS4{i0}, iS5{i1}, iS6{i2}, bS7{1}]
+
+%kernel_math {
+T1_g___half[iS4{i0}, iS5{i1}, iS6{i2}, bS7{1}]
+   = scan(T0_g___half[iS0{i0}, iS1{i1}, iS2{i2}, bS3{1}],
+          dim=2,
+          op_type=add,
+          init=__half(0))
+} // %kernel_math 
+
+} // {Re-written complete fusion}
+Segmented_Fusion Dump: -- fusion segments:
+Segmented_Fusion{ 
+groups: 
+  expr_eval{0}
+edges: 
+
+group details:
+g{(expr_eval)
+group id: 0
+inputs:
+  T0_g___half[iS0{i0}, iS1{i1}, iS2{i2}, bS3{1}] __half
+outputs:
+  T1_g___half[iS4{i0}, iS5{i1}, iS6{i2}, bS7{1}] __half
+
+
+T1_g___half[iS4{i0}, iS5{i1}, iS6{i2}, bS7{1}]
+   = scan(T0_g___half[iS0{i0}, iS1{i1}, iS2{i2}, bS3{1}],
+          dim=2,
+          op_type=add,
+          init=__half(0))
+(0)
+}
+
+} //Segmented_Fusion
+
+Segmented_Fusion Dump: -- Re-written complete fusion:{
+Inputs:
+  T0_g___half[iS0{i0}, iS1{i1}, iS2{i2}, bS3{1}]
+Outputs:
+  T1_g___half[iS4{i0}, iS5{i1}, iS6{i2}, bS7{1}]
+
+%kernel_math {
+T1_g___half[iS4{i0}, iS5{i1}, iS6{i2}, bS7{1}]
+   = scan(T0_g___half[iS0{i0}, iS1{i1}, iS2{i2}, bS3{1}],
+          dim=2,
+          op_type=add,
+          init=__half(0))
+} // %kernel_math 
+
+} // {Re-written complete fusion}
+Segmented_Fusion Dump: -- fusion segments:
+Segmented_Fusion{ 
+groups: 
+  expr_eval{0}
+edges: 
+
+group details:
+g{(expr_eval)
+group id: 0
+inputs:
+  T0_g___half[iS0{i0}, iS1{i1}, iS2{i2}, bS3{1}] __half
+outputs:
+  T1_g___half[iS4{i0}, iS5{i1}, iS6{i2}, bS7{1}] __half
+
+
+T1_g___half[iS4{i0}, iS5{i1}, iS6{i2}, bS7{1}]
+   = scan(T0_g___half[iS0{i0}, iS1{i1}, iS2{i2}, bS3{1}],
+          dim=2,
+          op_type=add,
+          init=__half(0))
+(0)
+}
+
+} //Segmented_Fusion
+
+Segmented_Fusion Dump: -- Re-written complete fusion:{
+Inputs:
+  T0_g___half[iS0{i0}, iS1{i1}, iS2{i2}, bS3{1}]
+Outputs:
+  T1_g___half[iS4{i0}, iS5{i1}, iS6{i2}, bS7{1}]
+
+%kernel_math {
+T1_g___half[iS4{i0}, iS5{i1}, iS6{i2}, bS7{1}]
+   = Set( T0_g___half[iS0{i0}, iS1{i1}, iS2{i2}, bS3{1}], cache_op=Streaming )
+} // %kernel_math 
+
+} // {Re-written complete fusion}
+Segmented_Fusion Dump: -- fusion segments:
+Segmented_Fusion{ 
+groups: 
+  expr_eval{0}
+edges: 
+
+group details:
+g{(expr_eval)
+group id: 0
+inputs:
+  T0_g___half[iS0{i0}, iS1{i1}, iS2{i2}, bS3{1}] __half
+outputs:
+  T1_g___half[iS4{i0}, iS5{i1}, iS6{i2}, bS7{1}] __half
+
+
+T1_g___half[iS4{i0}, iS5{i1}, iS6{i2}, bS7{1}]
+   = Set( T0_g___half[iS0{i0}, iS1{i1}, iS2{i2}, bS3{1}], cache_op=Streaming )
+(0)
+}
+
+} //Segmented_Fusion
+
+Segmented_Fusion Dump: -- Re-written complete fusion:{
+Inputs:
+  T0_g___half[iS0{i0}, iS1{i1}, iS2{i2}, bS3{1}]
+Outputs:
+  T1_g___half[iS4{i0}, iS5{i1}, iS6{i2}, bS7{1}]
+
+%kernel_math {
+T1_g___half[iS4{i0}, iS5{i1}, iS6{i2}, bS7{1}]
+   = Set( T0_g___half[iS0{i0}, iS1{i1}, iS2{i2}, bS3{1}], cache_op=Streaming )
+} // %kernel_math 
+
+} // {Re-written complete fusion}
+Segmented_Fusion Dump: -- fusion segments:
+Segmented_Fusion{ 
+groups: 
+  expr_eval{0}
+edges: 
+
+group details:
+g{(expr_eval)
+group id: 0
+inputs:
+  T0_g___half[iS0{i0}, iS1{i1}, iS2{i2}, bS3{1}] __half
+outputs:
+  T1_g___half[iS4{i0}, iS5{i1}, iS6{i2}, bS7{1}] __half
+
+
+T1_g___half[iS4{i0}, iS5{i1}, iS6{i2}, bS7{1}]
+   = Set( T0_g___half[iS0{i0}, iS1{i1}, iS2{i2}, bS3{1}], cache_op=Streaming )
+(0)
+}
+
+} //Segmented_Fusion
+
+Segmented_Fusion Dump: -- Re-written complete fusion:{
+Inputs:
+  T0_g___half[iS0{i0}, iS1{i1}, iS2{i2}, bS3{1}]
+Outputs:
+  T1_g___half[iS4{i0}, iS5{i1}, iS6{i2}, bS7{1}]
+
+%kernel_math {
+T1_g___half[iS4{i0}, iS5{i1}, iS6{i2}, bS7{1}]
+   = scan(T0_g___half[iS0{i0}, iS1{i1}, iS2{i2}, bS3{1}],
+          dim=2,
+          op_type=add,
+          init=__half(0))
+} // %kernel_math 
+
+} // {Re-written complete fusion}
+Segmented_Fusion Dump: -- fusion segments:
+Segmented_Fusion{ 
+groups: 
+  expr_eval{0}
+edges: 
+
+group details:
+g{(expr_eval)
+group id: 0
+inputs:
+  T0_g___half[iS0{i0}, iS1{i1}, iS2{i2}, bS3{1}] __half
+outputs:
+  T1_g___half[iS4{i0}, iS5{i1}, iS6{i2}, bS7{1}] __half
+
+
+T1_g___half[iS4{i0}, iS5{i1}, iS6{i2}, bS7{1}]
+   = scan(T0_g___half[iS0{i0}, iS1{i1}, iS2{i2}, bS3{1}],
+          dim=2,
+          op_type=add,
+          init=__half(0))
+(0)
+}
+
+} //Segmented_Fusion
+
+Segmented_Fusion Dump: -- Re-written complete fusion:{
+Inputs:
+  T0_g___half[iS0{i0}, iS1{i1}, iS2{i2}, bS3{1}]
+Outputs:
+  T1_g___half[iS4{i0}, iS5{i1}, iS6{i2}, bS7{1}]
+
+%kernel_math {
+T1_g___half[iS4{i0}, iS5{i1}, iS6{i2}, bS7{1}]
+   = scan(T0_g___half[iS0{i0}, iS1{i1}, iS2{i2}, bS3{1}],
+          dim=2,
+          op_type=add,
+          init=__half(0))
+} // %kernel_math 
+
+} // {Re-written complete fusion}
+Segmented_Fusion Dump: -- fusion segments:
+Segmented_Fusion{ 
+groups: 
+  expr_eval{0}
+edges: 
+
+group details:
+g{(expr_eval)
+group id: 0
+inputs:
+  T0_g___half[iS0{i0}, iS1{i1}, iS2{i2}, bS3{1}] __half
+outputs:
+  T1_g___half[iS4{i0}, iS5{i1}, iS6{i2}, bS7{1}] __half
+
+
+T1_g___half[iS4{i0}, iS5{i1}, iS6{i2}, bS7{1}]
+   = scan(T0_g___half[iS0{i0}, iS1{i1}, iS2{i2}, bS3{1}],
+          dim=2,
+          op_type=add,
+          init=__half(0))
+(0)
+}
+
+PASSED
+test_direct_ops.py::test_correctness_cumsum_float32 } //Segmented_Fusion
+
+Segmented_Fusion Dump: -- Re-written complete fusion:{
+Inputs:
+  T0_g_float[iS0{i0}, iS1{i1}]
+Outputs:
+  T1_g_float[iS2{i0}, iS3{i1}]
+
+%kernel_math {
+T1_g_float[iS2{i0}, iS3{i1}]
+   = scan(T0_g_float[iS0{i0}, iS1{i1}],
+          dim=0,
+          op_type=add,
+          init=float(0))
+} // %kernel_math 
+
+} // {Re-written complete fusion}
+Segmented_Fusion Dump: -- fusion segments:
+Segmented_Fusion{ 
+groups: 
+  expr_eval{0}
+edges: 
+
+group details:
+g{(expr_eval)
+group id: 0
+inputs:
+  T0_g_float[iS0{i0}, iS1{i1}] float
+outputs:
+  T1_g_float[iS2{i0}, iS3{i1}] float
+
+
+T1_g_float[iS2{i0}, iS3{i1}]
+   = scan(T0_g_float[iS0{i0}, iS1{i1}],
+          dim=0,
+          op_type=add,
+          init=float(0))
+(0)
+}
+
+} //Segmented_Fusion
+
+Segmented_Fusion Dump: -- Re-written complete fusion:{
+Inputs:
+  T0_g_float[iS0{i0}, iS1{i1}]
+Outputs:
+  T1_g_float[iS2{i0}, iS3{i1}]
+
+%kernel_math {
+T1_g_float[iS2{i0}, iS3{i1}]
+   = scan(T0_g_float[iS0{i0}, iS1{i1}],
+          dim=0,
+          op_type=add,
+          init=float(0))
+} // %kernel_math 
+
+} // {Re-written complete fusion}
+Segmented_Fusion Dump: -- fusion segments:
+Segmented_Fusion{ 
+groups: 
+  expr_eval{0}
+edges: 
+
+group details:
+g{(expr_eval)
+group id: 0
+inputs:
+  T0_g_float[iS0{i0}, iS1{i1}] float
+outputs:
+  T1_g_float[iS2{i0}, iS3{i1}] float
+
+
+T1_g_float[iS2{i0}, iS3{i1}]
+   = scan(T0_g_float[iS0{i0}, iS1{i1}],
+          dim=0,
+          op_type=add,
+          init=float(0))
+(0)
+}
+
+} //Segmented_Fusion
+
+Segmented_Fusion Dump: -- Re-written complete fusion:{
+Inputs:
+  T0_g_float[iS0{i0}]
+Outputs:
+  T1_g_float[iS1{i0}]
+
+%kernel_math {
+T1_g_float[iS1{i0}]
+   = scan(T0_g_float[iS0{i0}],
+          dim=0,
+          op_type=add,
+          init=float(0))
+} // %kernel_math 
+
+} // {Re-written complete fusion}
+Segmented_Fusion Dump: -- fusion segments:
+Segmented_Fusion{ 
+groups: 
+  expr_eval{0}
+edges: 
+
+group details:
+g{(expr_eval)
+group id: 0
+inputs:
+  T0_g_float[iS0{i0}] float
+outputs:
+  T1_g_float[iS1{i0}] float
+
+
+T1_g_float[iS1{i0}]
+   = scan(T0_g_float[iS0{i0}],
+          dim=0,
+          op_type=add,
+          init=float(0))
+(0)
+}
+
+} //Segmented_Fusion
+
+Segmented_Fusion Dump: -- Re-written complete fusion:{
+Inputs:
+  T0_g_float[iS0{i0}]
+Outputs:
+  T1_g_float[iS1{i0}]
+
+%kernel_math {
+T1_g_float[iS1{i0}]
+   = scan(T0_g_float[iS0{i0}],
+          dim=0,
+          op_type=add,
+          init=float(0))
+} // %kernel_math 
+
+} // {Re-written complete fusion}
+Segmented_Fusion Dump: -- fusion segments:
+Segmented_Fusion{ 
+groups: 
+  expr_eval{0}
+edges: 
+
+group details:
+g{(expr_eval)
+group id: 0
+inputs:
+  T0_g_float[iS0{i0}] float
+outputs:
+  T1_g_float[iS1{i0}] float
+
+
+T1_g_float[iS1{i0}]
+   = scan(T0_g_float[iS0{i0}],
+          dim=0,
+          op_type=add,
+          init=float(0))
+(0)
+}
+
+} //Segmented_Fusion
+
+Segmented_Fusion Dump: -- Re-written complete fusion:{
+Inputs:
+  T0_g_float[iS0{i0}, bS1{1}, iS2{i2}]
+Outputs:
+  T1_g_float[iS3{i0}, bS4{1}, iS5{i2}]
+
+%kernel_math {
+T1_g_float[iS3{i0}, bS4{1}, iS5{i2}]
+   = Set( T0_g_float[iS0{i0}, bS1{1}, iS2{i2}], cache_op=Streaming )
+} // %kernel_math 
+
+} // {Re-written complete fusion}
+Segmented_Fusion Dump: -- fusion segments:
+Segmented_Fusion{ 
+groups: 
+  expr_eval{0}
+edges: 
+
+group details:
+g{(expr_eval)
+group id: 0
+inputs:
+  T0_g_float[iS0{i0}, bS1{1}, iS2{i2}] float
+outputs:
+  T1_g_float[iS3{i0}, bS4{1}, iS5{i2}] float
+
+
+T1_g_float[iS3{i0}, bS4{1}, iS5{i2}]
+   = Set( T0_g_float[iS0{i0}, bS1{1}, iS2{i2}], cache_op=Streaming )
+(0)
+}
+
+} //Segmented_Fusion
+
+Segmented_Fusion Dump: -- Re-written complete fusion:{
+Inputs:
+  T0_g_float[iS0{i0}, bS1{1}, iS2{i2}]
+Outputs:
+  T1_g_float[iS3{i0}, bS4{1}, iS5{i2}]
+
+%kernel_math {
+T1_g_float[iS3{i0}, bS4{1}, iS5{i2}]
+   = Set( T0_g_float[iS0{i0}, bS1{1}, iS2{i2}], cache_op=Streaming )
+} // %kernel_math 
+
+} // {Re-written complete fusion}
+Segmented_Fusion Dump: -- fusion segments:
+Segmented_Fusion{ 
+groups: 
+  expr_eval{0}
+edges: 
+
+group details:
+g{(expr_eval)
+group id: 0
+inputs:
+  T0_g_float[iS0{i0}, bS1{1}, iS2{i2}] float
+outputs:
+  T1_g_float[iS3{i0}, bS4{1}, iS5{i2}] float
+
+
+T1_g_float[iS3{i0}, bS4{1}, iS5{i2}]
+   = Set( T0_g_float[iS0{i0}, bS1{1}, iS2{i2}], cache_op=Streaming )
+(0)
+}
+
+} //Segmented_Fusion
+
+Segmented_Fusion Dump: -- Re-written complete fusion:{
+Inputs:
+  T0_g_float[iS0{i0}, iS1{i1}, iS2{i2}, bS3{1}]
+Outputs:
+  T1_g_float[iS4{i0}, iS5{i1}, iS6{i2}, bS7{1}]
+
+%kernel_math {
+T1_g_float[iS4{i0}, iS5{i1}, iS6{i2}, bS7{1}]
+   = scan(T0_g_float[iS0{i0}, iS1{i1}, iS2{i2}, bS3{1}],
+          dim=2,
+          op_type=add,
+          init=float(0))
+} // %kernel_math 
+
+} // {Re-written complete fusion}
+Segmented_Fusion Dump: -- fusion segments:
+Segmented_Fusion{ 
+groups: 
+  expr_eval{0}
+edges: 
+
+group details:
+g{(expr_eval)
+group id: 0
+inputs:
+  T0_g_float[iS0{i0}, iS1{i1}, iS2{i2}, bS3{1}] float
+outputs:
+  T1_g_float[iS4{i0}, iS5{i1}, iS6{i2}, bS7{1}] float
+
+
+T1_g_float[iS4{i0}, iS5{i1}, iS6{i2}, bS7{1}]
+   = scan(T0_g_float[iS0{i0}, iS1{i1}, iS2{i2}, bS3{1}],
+          dim=2,
+          op_type=add,
+          init=float(0))
+(0)
+}
+
+} //Segmented_Fusion
+
+Segmented_Fusion Dump: -- Re-written complete fusion:{
+Inputs:
+  T0_g_float[iS0{i0}, iS1{i1}, iS2{i2}, bS3{1}]
+Outputs:
+  T1_g_float[iS4{i0}, iS5{i1}, iS6{i2}, bS7{1}]
+
+%kernel_math {
+T1_g_float[iS4{i0}, iS5{i1}, iS6{i2}, bS7{1}]
+   = scan(T0_g_float[iS0{i0}, iS1{i1}, iS2{i2}, bS3{1}],
+          dim=2,
+          op_type=add,
+          init=float(0))
+} // %kernel_math 
+
+} // {Re-written complete fusion}
+Segmented_Fusion Dump: -- fusion segments:
+Segmented_Fusion{ 
+groups: 
+  expr_eval{0}
+edges: 
+
+group details:
+g{(expr_eval)
+group id: 0
+inputs:
+  T0_g_float[iS0{i0}, iS1{i1}, iS2{i2}, bS3{1}] float
+outputs:
+  T1_g_float[iS4{i0}, iS5{i1}, iS6{i2}, bS7{1}] float
+
+
+T1_g_float[iS4{i0}, iS5{i1}, iS6{i2}, bS7{1}]
+   = scan(T0_g_float[iS0{i0}, iS1{i1}, iS2{i2}, bS3{1}],
+          dim=2,
+          op_type=add,
+          init=float(0))
+(0)
+}
+
+} //Segmented_Fusion
+
+Segmented_Fusion Dump: -- Re-written complete fusion:{
+Inputs:
+  T0_g_float[iS0{i0}, iS1{i1}, iS2{i2}, bS3{1}]
+Outputs:
+  T1_g_float[iS4{i0}, iS5{i1}, iS6{i2}, bS7{1}]
+
+%kernel_math {
+T1_g_float[iS4{i0}, iS5{i1}, iS6{i2}, bS7{1}]
+   = Set( T0_g_float[iS0{i0}, iS1{i1}, iS2{i2}, bS3{1}], cache_op=Streaming )
+} // %kernel_math 
+
+} // {Re-written complete fusion}
+Segmented_Fusion Dump: -- fusion segments:
+Segmented_Fusion{ 
+groups: 
+  expr_eval{0}
+edges: 
+
+group details:
+g{(expr_eval)
+group id: 0
+inputs:
+  T0_g_float[iS0{i0}, iS1{i1}, iS2{i2}, bS3{1}] float
+outputs:
+  T1_g_float[iS4{i0}, iS5{i1}, iS6{i2}, bS7{1}] float
+
+
+T1_g_float[iS4{i0}, iS5{i1}, iS6{i2}, bS7{1}]
+   = Set( T0_g_float[iS0{i0}, iS1{i1}, iS2{i2}, bS3{1}], cache_op=Streaming )
+(0)
+}
+
+} //Segmented_Fusion
+
+Segmented_Fusion Dump: -- Re-written complete fusion:{
+Inputs:
+  T0_g_float[iS0{i0}, iS1{i1}, iS2{i2}, bS3{1}]
+Outputs:
+  T1_g_float[iS4{i0}, iS5{i1}, iS6{i2}, bS7{1}]
+
+%kernel_math {
+T1_g_float[iS4{i0}, iS5{i1}, iS6{i2}, bS7{1}]
+   = Set( T0_g_float[iS0{i0}, iS1{i1}, iS2{i2}, bS3{1}], cache_op=Streaming )
+} // %kernel_math 
+
+} // {Re-written complete fusion}
+Segmented_Fusion Dump: -- fusion segments:
+Segmented_Fusion{ 
+groups: 
+  expr_eval{0}
+edges: 
+
+group details:
+g{(expr_eval)
+group id: 0
+inputs:
+  T0_g_float[iS0{i0}, iS1{i1}, iS2{i2}, bS3{1}] float
+outputs:
+  T1_g_float[iS4{i0}, iS5{i1}, iS6{i2}, bS7{1}] float
+
+
+T1_g_float[iS4{i0}, iS5{i1}, iS6{i2}, bS7{1}]
+   = Set( T0_g_float[iS0{i0}, iS1{i1}, iS2{i2}, bS3{1}], cache_op=Streaming )
+(0)
+}
+
+} //Segmented_Fusion
+
+Segmented_Fusion Dump: -- Re-written complete fusion:{
+Inputs:
+  T0_g_float[iS0{i0}, iS1{i1}, iS2{i2}, bS3{1}]
+Outputs:
+  T1_g_float[iS4{i0}, iS5{i1}, iS6{i2}, bS7{1}]
+
+%kernel_math {
+T1_g_float[iS4{i0}, iS5{i1}, iS6{i2}, bS7{1}]
+   = scan(T0_g_float[iS0{i0}, iS1{i1}, iS2{i2}, bS3{1}],
+          dim=2,
+          op_type=add,
+          init=float(0))
+} // %kernel_math 
+
+} // {Re-written complete fusion}
+Segmented_Fusion Dump: -- fusion segments:
+Segmented_Fusion{ 
+groups: 
+  expr_eval{0}
+edges: 
+
+group details:
+g{(expr_eval)
+group id: 0
+inputs:
+  T0_g_float[iS0{i0}, iS1{i1}, iS2{i2}, bS3{1}] float
+outputs:
+  T1_g_float[iS4{i0}, iS5{i1}, iS6{i2}, bS7{1}] float
+
+
+T1_g_float[iS4{i0}, iS5{i1}, iS6{i2}, bS7{1}]
+   = scan(T0_g_float[iS0{i0}, iS1{i1}, iS2{i2}, bS3{1}],
+          dim=2,
+          op_type=add,
+          init=float(0))
+(0)
+}
+
+} //Segmented_Fusion
+
+Segmented_Fusion Dump: -- Re-written complete fusion:{
+Inputs:
+  T0_g_float[iS0{i0}, iS1{i1}, iS2{i2}, bS3{1}]
+Outputs:
+  T1_g_float[iS4{i0}, iS5{i1}, iS6{i2}, bS7{1}]
+
+%kernel_math {
+T1_g_float[iS4{i0}, iS5{i1}, iS6{i2}, bS7{1}]
+   = scan(T0_g_float[iS0{i0}, iS1{i1}, iS2{i2}, bS3{1}],
+          dim=2,
+          op_type=add,
+          init=float(0))
+} // %kernel_math 
+
+} // {Re-written complete fusion}
+Segmented_Fusion Dump: -- fusion segments:
+Segmented_Fusion{ 
+groups: 
+  expr_eval{0}
+edges: 
+
+group details:
+g{(expr_eval)
+group id: 0
+inputs:
+  T0_g_float[iS0{i0}, iS1{i1}, iS2{i2}, bS3{1}] float
+outputs:
+  T1_g_float[iS4{i0}, iS5{i1}, iS6{i2}, bS7{1}] float
+
+
+T1_g_float[iS4{i0}, iS5{i1}, iS6{i2}, bS7{1}]
+   = scan(T0_g_float[iS0{i0}, iS1{i1}, iS2{i2}, bS3{1}],
+          dim=2,
+          op_type=add,
+          init=float(0))
+(0)
+}
+
+PASSED
+test_direct_ops.py::test_correctness_cumsum_float64 } //Segmented_Fusion
+
+Segmented_Fusion Dump: -- Re-written complete fusion:{
+Inputs:
+  T0_g_double[iS0{i0}, iS1{i1}]
+Outputs:
+  T1_g_double[iS2{i0}, iS3{i1}]
+
+%kernel_math {
+T1_g_double[iS2{i0}, iS3{i1}]
+   = scan(T0_g_double[iS0{i0}, iS1{i1}],
+          dim=0,
+          op_type=add,
+          init=double(0))
+} // %kernel_math 
+
+} // {Re-written complete fusion}
+Segmented_Fusion Dump: -- fusion segments:
+Segmented_Fusion{ 
+groups: 
+  expr_eval{0}
+edges: 
+
+group details:
+g{(expr_eval)
+group id: 0
+inputs:
+  T0_g_double[iS0{i0}, iS1{i1}] double
+outputs:
+  T1_g_double[iS2{i0}, iS3{i1}] double
+
+
+T1_g_double[iS2{i0}, iS3{i1}]
+   = scan(T0_g_double[iS0{i0}, iS1{i1}],
+          dim=0,
+          op_type=add,
+          init=double(0))
+(0)
+}
+
+} //Segmented_Fusion
+
+Segmented_Fusion Dump: -- Re-written complete fusion:{
+Inputs:
+  T0_g_double[iS0{i0}, iS1{i1}]
+Outputs:
+  T1_g_double[iS2{i0}, iS3{i1}]
+
+%kernel_math {
+T1_g_double[iS2{i0}, iS3{i1}]
+   = scan(T0_g_double[iS0{i0}, iS1{i1}],
+          dim=0,
+          op_type=add,
+          init=double(0))
+} // %kernel_math 
+
+} // {Re-written complete fusion}
+Segmented_Fusion Dump: -- fusion segments:
+Segmented_Fusion{ 
+groups: 
+  expr_eval{0}
+edges: 
+
+group details:
+g{(expr_eval)
+group id: 0
+inputs:
+  T0_g_double[iS0{i0}, iS1{i1}] double
+outputs:
+  T1_g_double[iS2{i0}, iS3{i1}] double
+
+
+T1_g_double[iS2{i0}, iS3{i1}]
+   = scan(T0_g_double[iS0{i0}, iS1{i1}],
+          dim=0,
+          op_type=add,
+          init=double(0))
+(0)
+}
+
+} //Segmented_Fusion
+
+Segmented_Fusion Dump: -- Re-written complete fusion:{
+Inputs:
+  T0_g_double[iS0{i0}]
+Outputs:
+  T1_g_double[iS1{i0}]
+
+%kernel_math {
+T1_g_double[iS1{i0}]
+   = scan(T0_g_double[iS0{i0}],
+          dim=0,
+          op_type=add,
+          init=double(0))
+} // %kernel_math 
+
+} // {Re-written complete fusion}
+Segmented_Fusion Dump: -- fusion segments:
+Segmented_Fusion{ 
+groups: 
+  expr_eval{0}
+edges: 
+
+group details:
+g{(expr_eval)
+group id: 0
+inputs:
+  T0_g_double[iS0{i0}] double
+outputs:
+  T1_g_double[iS1{i0}] double
+
+
+T1_g_double[iS1{i0}]
+   = scan(T0_g_double[iS0{i0}],
+          dim=0,
+          op_type=add,
+          init=double(0))
+(0)
+}
+
+} //Segmented_Fusion
+
+Segmented_Fusion Dump: -- Re-written complete fusion:{
+Inputs:
+  T0_g_double[iS0{i0}]
+Outputs:
+  T1_g_double[iS1{i0}]
+
+%kernel_math {
+T1_g_double[iS1{i0}]
+   = scan(T0_g_double[iS0{i0}],
+          dim=0,
+          op_type=add,
+          init=double(0))
+} // %kernel_math 
+
+} // {Re-written complete fusion}
+Segmented_Fusion Dump: -- fusion segments:
+Segmented_Fusion{ 
+groups: 
+  expr_eval{0}
+edges: 
+
+group details:
+g{(expr_eval)
+group id: 0
+inputs:
+  T0_g_double[iS0{i0}] double
+outputs:
+  T1_g_double[iS1{i0}] double
+
+
+T1_g_double[iS1{i0}]
+   = scan(T0_g_double[iS0{i0}],
+          dim=0,
+          op_type=add,
+          init=double(0))
+(0)
+}
+
+} //Segmented_Fusion
+
+Segmented_Fusion Dump: -- Re-written complete fusion:{
+Inputs:
+  T0_g_double[iS0{i0}, bS1{1}, iS2{i2}]
+Outputs:
+  T1_g_double[iS3{i0}, bS4{1}, iS5{i2}]
+
+%kernel_math {
+T1_g_double[iS3{i0}, bS4{1}, iS5{i2}]
+   = Set( T0_g_double[iS0{i0}, bS1{1}, iS2{i2}], cache_op=Streaming )
+} // %kernel_math 
+
+} // {Re-written complete fusion}
+Segmented_Fusion Dump: -- fusion segments:
+Segmented_Fusion{ 
+groups: 
+  expr_eval{0}
+edges: 
+
+group details:
+g{(expr_eval)
+group id: 0
+inputs:
+  T0_g_double[iS0{i0}, bS1{1}, iS2{i2}] double
+outputs:
+  T1_g_double[iS3{i0}, bS4{1}, iS5{i2}] double
+
+
+T1_g_double[iS3{i0}, bS4{1}, iS5{i2}]
+   = Set( T0_g_double[iS0{i0}, bS1{1}, iS2{i2}], cache_op=Streaming )
+(0)
+}
+
+} //Segmented_Fusion
+
+Segmented_Fusion Dump: -- Re-written complete fusion:{
+Inputs:
+  T0_g_double[iS0{i0}, bS1{1}, iS2{i2}]
+Outputs:
+  T1_g_double[iS3{i0}, bS4{1}, iS5{i2}]
+
+%kernel_math {
+T1_g_double[iS3{i0}, bS4{1}, iS5{i2}]
+   = Set( T0_g_double[iS0{i0}, bS1{1}, iS2{i2}], cache_op=Streaming )
+} // %kernel_math 
+
+} // {Re-written complete fusion}
+Segmented_Fusion Dump: -- fusion segments:
+Segmented_Fusion{ 
+groups: 
+  expr_eval{0}
+edges: 
+
+group details:
+g{(expr_eval)
+group id: 0
+inputs:
+  T0_g_double[iS0{i0}, bS1{1}, iS2{i2}] double
+outputs:
+  T1_g_double[iS3{i0}, bS4{1}, iS5{i2}] double
+
+
+T1_g_double[iS3{i0}, bS4{1}, iS5{i2}]
+   = Set( T0_g_double[iS0{i0}, bS1{1}, iS2{i2}], cache_op=Streaming )
+(0)
+}
+
+} //Segmented_Fusion
+
+Segmented_Fusion Dump: -- Re-written complete fusion:{
+Inputs:
+  T0_g_double[iS0{i0}, iS1{i1}, iS2{i2}, bS3{1}]
+Outputs:
+  T1_g_double[iS4{i0}, iS5{i1}, iS6{i2}, bS7{1}]
+
+%kernel_math {
+T1_g_double[iS4{i0}, iS5{i1}, iS6{i2}, bS7{1}]
+   = scan(T0_g_double[iS0{i0}, iS1{i1}, iS2{i2}, bS3{1}],
+          dim=2,
+          op_type=add,
+          init=double(0))
+} // %kernel_math 
+
+} // {Re-written complete fusion}
+Segmented_Fusion Dump: -- fusion segments:
+Segmented_Fusion{ 
+groups: 
+  expr_eval{0}
+edges: 
+
+group details:
+g{(expr_eval)
+group id: 0
+inputs:
+  T0_g_double[iS0{i0}, iS1{i1}, iS2{i2}, bS3{1}] double
+outputs:
+  T1_g_double[iS4{i0}, iS5{i1}, iS6{i2}, bS7{1}] double
+
+
+T1_g_double[iS4{i0}, iS5{i1}, iS6{i2}, bS7{1}]
+   = scan(T0_g_double[iS0{i0}, iS1{i1}, iS2{i2}, bS3{1}],
+          dim=2,
+          op_type=add,
+          init=double(0))
+(0)
+}
+
+} //Segmented_Fusion
+
+Segmented_Fusion Dump: -- Re-written complete fusion:{
+Inputs:
+  T0_g_double[iS0{i0}, iS1{i1}, iS2{i2}, bS3{1}]
+Outputs:
+  T1_g_double[iS4{i0}, iS5{i1}, iS6{i2}, bS7{1}]
+
+%kernel_math {
+T1_g_double[iS4{i0}, iS5{i1}, iS6{i2}, bS7{1}]
+   = scan(T0_g_double[iS0{i0}, iS1{i1}, iS2{i2}, bS3{1}],
+          dim=2,
+          op_type=add,
+          init=double(0))
+} // %kernel_math 
+
+} // {Re-written complete fusion}
+Segmented_Fusion Dump: -- fusion segments:
+Segmented_Fusion{ 
+groups: 
+  expr_eval{0}
+edges: 
+
+group details:
+g{(expr_eval)
+group id: 0
+inputs:
+  T0_g_double[iS0{i0}, iS1{i1}, iS2{i2}, bS3{1}] double
+outputs:
+  T1_g_double[iS4{i0}, iS5{i1}, iS6{i2}, bS7{1}] double
+
+
+T1_g_double[iS4{i0}, iS5{i1}, iS6{i2}, bS7{1}]
+   = scan(T0_g_double[iS0{i0}, iS1{i1}, iS2{i2}, bS3{1}],
+          dim=2,
+          op_type=add,
+          init=double(0))
+(0)
+}
+
+} //Segmented_Fusion
+
+Segmented_Fusion Dump: -- Re-written complete fusion:{
+Inputs:
+  T0_g_double[iS0{i0}, iS1{i1}, iS2{i2}, bS3{1}]
+Outputs:
+  T1_g_double[iS4{i0}, iS5{i1}, iS6{i2}, bS7{1}]
+
+%kernel_math {
+T1_g_double[iS4{i0}, iS5{i1}, iS6{i2}, bS7{1}]
+   = Set( T0_g_double[iS0{i0}, iS1{i1}, iS2{i2}, bS3{1}], cache_op=Streaming )
+} // %kernel_math 
+
+} // {Re-written complete fusion}
+Segmented_Fusion Dump: -- fusion segments:
+Segmented_Fusion{ 
+groups: 
+  expr_eval{0}
+edges: 
+
+group details:
+g{(expr_eval)
+group id: 0
+inputs:
+  T0_g_double[iS0{i0}, iS1{i1}, iS2{i2}, bS3{1}] double
+outputs:
+  T1_g_double[iS4{i0}, iS5{i1}, iS6{i2}, bS7{1}] double
+
+
+T1_g_double[iS4{i0}, iS5{i1}, iS6{i2}, bS7{1}]
+   = Set( T0_g_double[iS0{i0}, iS1{i1}, iS2{i2}, bS3{1}], cache_op=Streaming )
+(0)
+}
+
+} //Segmented_Fusion
+
+Segmented_Fusion Dump: -- Re-written complete fusion:{
+Inputs:
+  T0_g_double[iS0{i0}, iS1{i1}, iS2{i2}, bS3{1}]
+Outputs:
+  T1_g_double[iS4{i0}, iS5{i1}, iS6{i2}, bS7{1}]
+
+%kernel_math {
+T1_g_double[iS4{i0}, iS5{i1}, iS6{i2}, bS7{1}]
+   = Set( T0_g_double[iS0{i0}, iS1{i1}, iS2{i2}, bS3{1}], cache_op=Streaming )
+} // %kernel_math 
+
+} // {Re-written complete fusion}
+Segmented_Fusion Dump: -- fusion segments:
+Segmented_Fusion{ 
+groups: 
+  expr_eval{0}
+edges: 
+
+group details:
+g{(expr_eval)
+group id: 0
+inputs:
+  T0_g_double[iS0{i0}, iS1{i1}, iS2{i2}, bS3{1}] double
+outputs:
+  T1_g_double[iS4{i0}, iS5{i1}, iS6{i2}, bS7{1}] double
+
+
+T1_g_double[iS4{i0}, iS5{i1}, iS6{i2}, bS7{1}]
+   = Set( T0_g_double[iS0{i0}, iS1{i1}, iS2{i2}, bS3{1}], cache_op=Streaming )
+(0)
+}
+
+} //Segmented_Fusion
+
+Segmented_Fusion Dump: -- Re-written complete fusion:{
+Inputs:
+  T0_g_double[iS0{i0}, iS1{i1}, iS2{i2}, bS3{1}]
+Outputs:
+  T1_g_double[iS4{i0}, iS5{i1}, iS6{i2}, bS7{1}]
+
+%kernel_math {
+T1_g_double[iS4{i0}, iS5{i1}, iS6{i2}, bS7{1}]
+   = scan(T0_g_double[iS0{i0}, iS1{i1}, iS2{i2}, bS3{1}],
+          dim=2,
+          op_type=add,
+          init=double(0))
+} // %kernel_math 
+
+} // {Re-written complete fusion}
+Segmented_Fusion Dump: -- fusion segments:
+Segmented_Fusion{ 
+groups: 
+  expr_eval{0}
+edges: 
+
+group details:
+g{(expr_eval)
+group id: 0
+inputs:
+  T0_g_double[iS0{i0}, iS1{i1}, iS2{i2}, bS3{1}] double
+outputs:
+  T1_g_double[iS4{i0}, iS5{i1}, iS6{i2}, bS7{1}] double
+
+
+T1_g_double[iS4{i0}, iS5{i1}, iS6{i2}, bS7{1}]
+   = scan(T0_g_double[iS0{i0}, iS1{i1}, iS2{i2}, bS3{1}],
+          dim=2,
+          op_type=add,
+          init=double(0))
+(0)
+}
+
+} //Segmented_Fusion
+
+Segmented_Fusion Dump: -- Re-written complete fusion:{
+Inputs:
+  T0_g_double[iS0{i0}, iS1{i1}, iS2{i2}, bS3{1}]
+Outputs:
+  T1_g_double[iS4{i0}, iS5{i1}, iS6{i2}, bS7{1}]
+
+%kernel_math {
+T1_g_double[iS4{i0}, iS5{i1}, iS6{i2}, bS7{1}]
+   = scan(T0_g_double[iS0{i0}, iS1{i1}, iS2{i2}, bS3{1}],
+          dim=2,
+          op_type=add,
+          init=double(0))
+} // %kernel_math 
+
+} // {Re-written complete fusion}
+Segmented_Fusion Dump: -- fusion segments:
+Segmented_Fusion{ 
+groups: 
+  expr_eval{0}
+edges: 
+
+group details:
+g{(expr_eval)
+group id: 0
+inputs:
+  T0_g_double[iS0{i0}, iS1{i1}, iS2{i2}, bS3{1}] double
+outputs:
+  T1_g_double[iS4{i0}, iS5{i1}, iS6{i2}, bS7{1}] double
+
+
+T1_g_double[iS4{i0}, iS5{i1}, iS6{i2}, bS7{1}]
+   = scan(T0_g_double[iS0{i0}, iS1{i1}, iS2{i2}, bS3{1}],
+          dim=2,
+          op_type=add,
+          init=double(0))
+(0)
+}
+
+PASSED
+
+====================== 3 passed, 533 deselected in 8.24s =======================
+} //Segmented_Fusion
+

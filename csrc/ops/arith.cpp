@@ -2590,25 +2590,18 @@ TensorView* scan(
     return set(in_tv);
   }
 
-  auto promoted_in_tv = promoteValues(TypePromotion::default_op_config, {in_tv})
-                            .front()
-                            ->as<TensorView>();
-  auto new_dom = ops::newOutputDomain({promoted_in_tv});
+  auto new_dom = ops::newOutputDomain({in_tv});
   auto* td = IrBuilder::create<TensorDomain>(
       new_dom, TensorDomain::getContiguityFilledWith(new_dom, true));
-  auto out_tv = IrBuilder::create<TensorView>(td, promoted_in_tv->dtype());
+  auto out_tv = IrBuilder::create<TensorView>(td, in_tv->dtype());
 
   if (init == nullptr) {
-    init = ops::binOpIdentity(op_type, promoted_in_tv->dtype());
+    init = ops::binOpIdentity(op_type, in_tv->dtype());
     NVF_ERROR(init != nullptr);
   }
 
   IrBuilder::createInContainer<ScanOp>(
-      in_tv->container(), op_type, init, out_tv, promoted_in_tv, dim);
-
-  if (promoted_in_tv->dtype() != in_tv->dtype()) {
-    out_tv = castOp(in_tv->dtype(), out_tv);
-  }
+      in_tv->container(), op_type, init, out_tv, in_tv, dim);
 
   return out_tv;
 }
