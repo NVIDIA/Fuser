@@ -599,7 +599,6 @@ void innerPersistentHeuristicCluster(
     }
   }
   int64_t persistent_batch = ceilDiv(after_vect_bdimx, blocks_per_cluster);
-  blocks_per_cluster = ceilDiv(after_vect_bdimx, persistent_batch);
 
   rparams->cross_block_inner_reduction = true;
   rparams->cross_grid_inner_reduction = true;
