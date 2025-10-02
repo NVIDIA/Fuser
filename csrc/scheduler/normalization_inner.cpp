@@ -550,6 +550,8 @@ void innerPersistentHeuristic2D(
 //  (1) vectorization width: 128 bit.
 //  (2) bdimx: 256 threads per block.
 //  (3) cluster size: pow of 2, avoid register spills, achieve high occupancy.
+// Note that, the occupancy estimation is based on blocks per sm, which is not
+// correct for cluster launch, should be regarded as a hint.
 void innerPersistentHeuristicCluster(
     const PersistentKernelProperties& properties,
     ReductionParams* rparams) {
@@ -1176,8 +1178,6 @@ std::unique_ptr<ReductionParams> getInnerPersistentHeuristics(
   rparams->project_persistent_buffers = prop.project_persistent_buffers;
   rparams->cparams.index_type = prop.index_type;
   // specific heuristics for different cases
-  // use cluster reduction when buffer size is larger than register size and
-  // the reduction is not 3D.
   if (prop.max_persistent_buffer_size_bit >
           scheduler_utils::register_file_size_bit &&
       scheduler_utils::getMaxClusterSize() > 1) {
@@ -1236,7 +1236,9 @@ bool InnerPersistentKernelScheduler::canScheduleRunTime(
   const int64_t warp_size = at::cuda::getCurrentDeviceProperties()->warpSize;
 
   // check reduction properties, don't use shared memory persistent if 3D
-  // reduction or device supports cluster reduction.
+  // reduction or device supports cluster reduction. Test of cross entropy loss
+  // shows using cluster reduction with register persistent is faster than block
+  // reduction using shared memory persistent.
   bool can_use_smem_persistent = (properties.total_reduction_numel ==
                                   properties.inner_most_dimension_numel) &&
       scheduler_utils::getMaxClusterSize() == 1;
