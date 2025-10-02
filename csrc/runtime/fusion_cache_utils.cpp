@@ -90,6 +90,10 @@ void resetAllocationDomainAndContiguity(
       contiguity.push_back(contiguity_without_reduction[index++]);
     }
   }
+  std::cout << "resetAllocationDomainAndContiguity: " << tv->toString()
+            << std::endl;
+  tv->printTransforms();
+  std::cout << "contiguity: " << toDelimitedString(contiguity) << std::endl;
   tv->setContiguity(contiguity);
 }
 
