@@ -2581,22 +2581,25 @@ TensorView* scan(
 
   dim = wrapDim(dim, (int64_t)logical_dom.size());
 
+  IterDomain* scan_id = logical_dom.at((size_t)dim);
+
   // Special case: scanning along broadcast dimension is no-op
   // Assumes init is identity for op_type
-  if (IterDomain* scan_id = logical_dom.at(dim); scan_id->isBroadcast()) {
+  if (scan_id->isBroadcast()) {
     NVF_ERROR(
         !scan_id->hasExpandedExtent(),
         "Closed-form scan of expanded dimension is not yet implemented");
     return set(in_tv);
   }
 
+  DataType dtype = in_tv->dtype();
   auto new_dom = ops::newOutputDomain({in_tv});
   auto* td = IrBuilder::create<TensorDomain>(
       new_dom, TensorDomain::getContiguityFilledWith(new_dom, true));
   auto out_tv = IrBuilder::create<TensorView>(td, in_tv->dtype());
 
   if (init == nullptr) {
-    init = ops::binOpIdentity(op_type, in_tv->dtype());
+    init = ops::binOpIdentity(op_type, dtype);
     NVF_ERROR(init != nullptr);
   }
 
