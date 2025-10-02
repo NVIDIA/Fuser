@@ -489,6 +489,7 @@ bool isCommunicationLayoutCompliant(Expr* expr) {
   if (!isCompliantWith(*canonicalizeLayout(consumer), c_layout)) {
     std::cout << "consumer is not compliant: " << consumer->toString()
               << std::endl;
+    std::cout << "c_layout: " << c_layout.toString() << std::endl;
     consumer->printTransforms();
     return false;
   }
