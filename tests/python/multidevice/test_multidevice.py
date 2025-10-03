@@ -77,14 +77,14 @@ def test_binary(multidevice_direct_test):
         y.split(0, d, inner_split=False)
         y.axis(0).parallelize(nvfuser.ParallelType.mesh_x)
 
-    x_ref = torch.randn(d * 2, 3)
+    x_ref = torch.randn(d * 2, 3, dtype=torch.float16)
     x = x_ref.cuda()
-    y_ref = torch.randn(d * 2, 3)
+    y_ref = torch.randn(d * 2, 3, dtype=torch.float16)
     y = multidevice_direct_test.shard_tensor(y_ref, 0, mesh)
     (z,) = fd.execute([x, y])
 
     torch.testing.assert_close(
-        z, multidevice_direct_test.shard_tensor(x_ref + y_ref, 0, mesh)
+        z, multidevice_direct_test.shard_tensor(x_ref.float() + y_ref.float(), 0, mesh)
     )
 
 
