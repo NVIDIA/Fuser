@@ -4509,7 +4509,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     template_args.arg("/*warps_per_block=*/")
         .append(std::to_string(warps_per_block));
     template_args.arg("/*is_all_reduce=*/")
-        .append(std::to_string(cluster_reduction->isAllreduce()));
+        .append(cluster_reduction->isAllreduce() ? "true" : "false");
 
     ArgumentBuilder func_args;
     func_args.arg(gen(output));

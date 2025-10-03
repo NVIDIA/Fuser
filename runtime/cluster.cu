@@ -191,24 +191,25 @@ __device__ __forceinline__ void storeWarpResult(
 //   CLUSTER_SIZE: Number of CTAs in the cluster (e.g., 2, 4, 8)
 //   WARPS_PER_BLOCK: Number of warps per block (e.g. 4, 8, 16)
 //   is_all_reduce: true for all-reduce (all blocks get result), false for
-//   reduce (only block-0 gets result) T: Data type (float, double, etc.) Func:
-//   Reduction operator (e.g., AddOp, MaxOp)
+//   reduce (only last block gets result) T: Data type (float, double, etc.)
+//   Func: Reduction operator (e.g., AddOp, MaxOp)
 //
 // Algorithm:
 // 1. Each warp performs a warp reduction
 // 2. All warps async store reduction results to distributed shared memory
 //    - If is_all_reduce=true: store to all CTAs in cluster
-//    - If is_all_reduce=false: store only to block-0
+//    - If is_all_reduce=false: store only to the last block in cluster
 // 3. Finish reduction with a warp reduction
 //    - If is_all_reduce=true: all blocks participate and get the result
-//    - If is_all_reduce=false: only warp-0 in block-0 computes the final result
+//    - If is_all_reduce=false: only warp-0 in the last block computes the final
+//    result
 //
 // Usage Examples:
 //   // All-reduce: all blocks get the result
 //   clusterReduce<2, 4, true>(result, input, 0.0f, barrier_addr, buffer,
 //   AddOp<float>());
 //
-//   // Reduce: only block-0 gets the result
+//   // Reduce: only last block gets the result
 //   clusterReduce<2, 4, false>(result, input, 0.0f, barrier_addr, buffer,
 //   AddOp<float>());
 //
@@ -259,8 +260,8 @@ __device__ __forceinline__ void clusterReduce(
     }
   } else {
     // Reduce: Each warp selects a thread to store warp reduction result to
-    // shared memory of block-0
-    if (my_block_rank == 0) {
+    // shared memory of the last block in cluster
+    if (my_block_rank == CLUSTER_SIZE - 1) {
       setupBarrierExpectTX<CLUSTER_SIZE, WARPS_PER_BLOCK, T>(
           barrier_smem_addr, warp_idx);
     }
@@ -269,7 +270,7 @@ __device__ __forceinline__ void clusterReduce(
           warp_sum,
           my_block_rank,
           warp_idx,
-          /*peer_cta_rank_in_cluster=*/0,
+          /*peer_cta_rank_in_cluster=*/CLUSTER_SIZE - 1,
           reduction_buffer,
           barrier_smem_addr);
     }
@@ -286,8 +287,8 @@ __device__ __forceinline__ void clusterReduce(
     res = finalBufferReduce<CLUSTER_SIZE, WARPS_PER_BLOCK>(
         init, reduction_buffer, lane_idx, reduction_op);
   } else {
-    // Reduce: only warp-0 in block-0 is required to finish the reduction
-    if (my_block_rank == 0 && warp_idx == 0) {
+    // Reduce: only warp-0 in the last block is required to finish the reduction
+    if (my_block_rank == CLUSTER_SIZE - 1 && warp_idx == 0) {
       mbarrier::waitParity(barrier_smem_addr, 0);
       res = finalBufferReduce<CLUSTER_SIZE, WARPS_PER_BLOCK>(
           init, reduction_buffer, lane_idx, reduction_op);
