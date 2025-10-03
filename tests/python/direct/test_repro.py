@@ -4536,17 +4536,11 @@ def test_shared_memory_usage(nvfuser_direct_test):
         nvfuser_fusion_id0(fd)
 
     inputs = [
-        torch.testing.make_tensor(
-            (16384, 24578), dtype=torch.bfloat16, device="cuda:0"
-        ),
-        torch.testing.make_tensor(
-            (16384, 24578), dtype=torch.bfloat16, device="cuda:0"
-        ),
-        torch.testing.make_tensor((16384, 24578), dtype=torch.bool, device="cuda:0"),
-        torch.testing.make_tensor((16384, 1), dtype=torch.float32, device="cuda:0"),
-        torch.testing.make_tensor(
-            (16384, 24578), dtype=torch.bfloat16, device="cuda:0"
-        ),
+        torch.testing.make_tensor((16, 24578), dtype=torch.bfloat16, device="cuda:0"),
+        torch.testing.make_tensor((16, 24578), dtype=torch.bfloat16, device="cuda:0"),
+        torch.testing.make_tensor((16, 24578), dtype=torch.bool, device="cuda:0"),
+        torch.testing.make_tensor((16, 1), dtype=torch.float32, device="cuda:0"),
+        torch.testing.make_tensor((16, 24578), dtype=torch.bfloat16, device="cuda:0"),
         torch.testing.make_tensor((24578,), dtype=torch.bfloat16, device="cuda:0"),
     ]
     fd.validate(inputs)
