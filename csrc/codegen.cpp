@@ -1668,11 +1668,10 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
   }
 
   void handle(const BlockQuantizationOp* bqop) final {
-    // Get the vectorization size for items per thread
-    const auto input = bqop->in()->as<kir::TensorIndex>();
-    auto vectorized_input_to_reshape = input->view()->definition()->input(0);
-    int64_t vector_word_size = ir_utils::getVectorizeSize(
-        vectorized_input_to_reshape->as<TensorView>());
+    auto vectorized_input_to_reshape =
+        bqop->quantizedOutput()->as<kir::TensorIndex>()->view();
+    int64_t vector_word_size =
+        ir_utils::getVectorizeSize(vectorized_input_to_reshape);
     NVF_ERROR(
         vector_word_size == 4,
         "Vectorization size should be 4 for "

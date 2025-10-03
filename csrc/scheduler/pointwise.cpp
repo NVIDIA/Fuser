@@ -1234,6 +1234,13 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
         }
       }
     }
+
+    auto bq_ops = ir_utils::getOpsOfType<BlockQuantizationOp>(fusion);
+    for (auto bq_op : bq_ops) {
+      vectorized_tvs.emplace_back(bq_op->quantizedOutput()->as<TensorView>());
+      vectorized_tvs.emplace_back(bq_op->blockScales()->as<TensorView>());
+    }
+
     if (!vectorized_tvs.empty()) {
       // Aggressively mark with vectorized and cleanup later. That way we
       // don't have to manually specify parallelization outside the reference.

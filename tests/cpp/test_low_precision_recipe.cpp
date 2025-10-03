@@ -10,8 +10,6 @@
 
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
-#include <iomanip>
-#include <iostream>
 
 #include <fusion.h>
 #include <ops/all_ops.h>
@@ -110,7 +108,10 @@ constexpr double F8E4M3_MAX = 448.0;
 class NVFP4QuantizeTest : public BlackwellBase,
                           public ::testing::WithParamInterface<DataType> {};
 namespace {
-void createNVFP4QunatizationFusion(Fusion* fusion, DataType data_hp_dtype) {
+void createNVFP4QunatizationFusion(
+    Fusion* fusion,
+    DataType data_hp_dtype,
+    bool swizzle_output = false) {
   auto tv_data_hp = makeContigTensor(2, data_hp_dtype);
   fusion->addInput(tv_data_hp);
 
@@ -145,6 +146,28 @@ void createNVFP4QunatizationFusion(Fusion* fusion, DataType data_hp_dtype) {
 
   fusion->addOutput(tv_block_scale_fp8);
   fusion->addOutput(tv_data_lp);
+
+  if (swizzle_output) {
+    tv_block_scale_fp8->split(0, 128);
+    // m/128, 128, k
+    tv_block_scale_fp8->split(1, 32);
+    // m/128, 4(m_o), 32(m_i), k
+    tv_block_scale_fp8->split(3, 4);
+    // m/128, 4(m_o), 32(m_i), k/4, 4(k)
+    std::vector<IterDomain*> tv_block_scale_fp8_alloc{
+        tv_block_scale_fp8->axis(0),
+        tv_block_scale_fp8->axis(3),
+        tv_block_scale_fp8->axis(2),
+        tv_block_scale_fp8->axis(1),
+        tv_block_scale_fp8->axis(4)};
+    // m/128, k/4, 32(m_i), 4(m_o), 4(k)
+    tv_block_scale_fp8->setAllocationDomain(tv_block_scale_fp8_alloc, true);
+
+    // back to a 2D logical domain.
+    tv_block_scale_fp8->merge(0);
+    tv_block_scale_fp8->merge(0);
+    tv_block_scale_fp8->merge(-1);
+  }
 }
 } // namespace
 
@@ -414,6 +437,137 @@ TEST_F(BQTest, ScheduleAsPointwise2D) {
   // Basic shape checks
   EXPECT_EQ(block_scales_output.dim(), 3);
   EXPECT_EQ(quantized_tensor_output.dim(), 3);
+}
+
+TEST_F(BQTest, AutoScheduleSingleOpWithSwizzle) {
+  const int m = 1024;
+  const int n = 1024;
+
+  std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  createNVFP4QunatizationFusion(
+      fusion.get(), DataType::Float, /*swizzled*/ true);
+
+  FusionExecutorCache fec(std::move(fusion));
+
+  std::vector<at::Tensor> inputs;
+  inputs.push_back(at::randn({m, n}, at::device(at::kCUDA).dtype(at::kFloat)));
+  auto outputs_baseline = fec.runFusionWithInputs(inputs);
+
+  // Print baseline outputs
+  auto baseline_block_scales = outputs_baseline[0].as<at::Tensor>();
+  auto baseline_quantized_tensor = outputs_baseline[1].as<at::Tensor>();
+
+  // Move baseline tensors from GPU to CPU
+  auto baseline_block_scales_cpu = baseline_block_scales.cpu();
+  auto baseline_quantized_tensor_cpu = baseline_quantized_tensor.cpu();
+
+  const uint8_t* baseline_block_scales_data =
+      static_cast<const uint8_t*>(baseline_block_scales_cpu.data_ptr());
+  const uint8_t* baseline_quantized_data =
+      static_cast<const uint8_t*>(baseline_quantized_tensor_cpu.data_ptr());
+
+  std::unique_ptr<Fusion> fusion_new_op = std::make_unique<Fusion>();
+  FusionGuard fg2(fusion_new_op.get());
+
+  auto tv_in_1 = makeContigTensor(2, DataType::Float);
+  fusion_new_op->addInput(tv_in_1);
+
+  // t0 is 2D
+  auto quantization_results = blockQuantize(tv_in_1);
+
+  // outputs are 3D
+  fusion_new_op->addOutput(quantization_results.block_scales);
+  fusion_new_op->addOutput(quantization_results.quantized_tensor);
+
+  auto temp_loop_domain = quantization_results.block_scales->getLoopDomain();
+
+  quantization_results.block_scales->split(0, 128);
+  // m/128, 128, k
+  quantization_results.block_scales->split(1, 32);
+  // m/128, 4(m_o), 32(m_i), k
+  quantization_results.block_scales->split(3, 4);
+  // m/128, 4(m_o), 32(m_i), k/4, 4(k)
+  std::vector<IterDomain*> tv_block_scale_fp8_alloc{
+      quantization_results.block_scales->axis(0),
+      quantization_results.block_scales->axis(3),
+      quantization_results.block_scales->axis(2),
+      quantization_results.block_scales->axis(1),
+      quantization_results.block_scales->axis(4),
+      quantization_results.block_scales->axis(5)};
+  // m/128, k/4, 32(m_i), 4(m_o), 4(k)
+  quantization_results.block_scales->setAllocationDomain(
+      tv_block_scale_fp8_alloc, true);
+
+  quantization_results.block_scales->setLoopDomain(temp_loop_domain);
+
+  FusionExecutorCache executor_cache(std::move(fusion_new_op));
+  auto outputs_new_op = executor_cache.runFusionWithInputs(inputs);
+
+  // Verify we got the expected outputs
+  auto block_scales_output = outputs_new_op[0].as<at::Tensor>();
+  auto quantized_tensor_output = outputs_new_op[1].as<at::Tensor>();
+
+  // Move tensors from GPU to CPU
+  auto block_scales_cpu = block_scales_output.cpu();
+  auto quantized_tensor_cpu = quantized_tensor_output.cpu();
+
+  auto block_scales_bytes = (m * n) / block_size;
+  auto quantized_tensor_bytes = (m * n) / 2;
+
+  const uint8_t* block_scales_data =
+      static_cast<const uint8_t*>(block_scales_cpu.data_ptr());
+  for (int i = 0; i < block_scales_bytes; ++i) {
+    EXPECT_EQ(
+        block_scales_data[i],
+        baseline_block_scales_data[i]); // Compare with baseline
+  }
+
+  const uint8_t* quantized_data =
+      static_cast<const uint8_t*>(quantized_tensor_cpu.data_ptr());
+  for (int i = 0; i < quantized_tensor_bytes; ++i) {
+    EXPECT_EQ(
+        quantized_data[i],
+        baseline_quantized_data[i]); // Compare with baseline
+  }
+}
+
+TEST_F(BQTest, AutoScheduleMultipleOps) {
+  const int m = 1024;
+  const int n = 1024;
+  const int k = 16;
+  std::vector<at::Tensor> inputs;
+  inputs.push_back(at::randn({n, k}, at::device(at::kCUDA).dtype(at::kFloat)));
+  inputs.push_back(
+      at::randn({m, n, k}, at::device(at::kCUDA).dtype(at::kFloat)));
+
+  std::unique_ptr<Fusion> fusion_new_op = std::make_unique<Fusion>();
+  FusionGuard fg2(fusion_new_op.get());
+
+  auto tv_in_1 = makeContigTensor(2, DataType::Float);
+  auto tv_in_2 = makeContigTensor(3, DataType::Float);
+  fusion_new_op->addInput(tv_in_1);
+  fusion_new_op->addInput(tv_in_2);
+
+  // tv_in_1 = broadcast(tv_in_1, {false, false, true});
+
+  // t0 is 2D
+  auto t_add = add(tv_in_1, tv_in_2);
+  auto t_relu = relu(t_add);
+  auto quantization_results = blockQuantize(t_relu);
+  quantization_results.quantized_tensor->setMemoryType(MemoryType::Local);
+  // auto t_out = set(quantization_results.quantized_tensor);
+
+  // outputs are 3D
+  fusion_new_op->addOutput(quantization_results.block_scales);
+  fusion_new_op->addOutput(quantization_results.quantized_tensor);
+
+  FusionExecutorCache executor_cache(std::move(fusion_new_op));
+  auto outputs_new_op = executor_cache.runFusionWithInputs(inputs);
+
+  // Verify we got the expected outputs
+  auto block_scales_output = outputs_new_op[0].as<at::Tensor>();
+  auto quantized_tensor_output = outputs_new_op[1].as<at::Tensor>();
 }
 
 TEST_P(NVFP4QuantizeTest, SwizzledOuputAndWithoutPerTensorAmax) {
