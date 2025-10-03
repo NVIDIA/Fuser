@@ -8,7 +8,9 @@
 #include <multidevice/utils.h>
 
 #include <algorithm>
+#include <optional>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include <device_lower/utils.h>
@@ -313,7 +315,9 @@ int64_t numDeviceDims(const TensorView* tv) {
   return std::count_if(
       tv->getLoopDomain().begin(),
       tv->getLoopDomain().end(),
-      [](IterDomain* id) { return id->isDeviceDim() && !id->isReduction(); });
+      [](IterDomain* id) {
+        return (id->isDeviceDim() || id->isStream()) && !id->isReduction();
+      });
 }
 
 namespace {
