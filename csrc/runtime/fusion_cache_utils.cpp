@@ -75,9 +75,9 @@ KernelArgumentHolder ArgumentManager::translateValsToArgs(
 void resetAllocationDomainAndContiguity(
     TensorView* tv,
     const at::Tensor& tensor) {
-  // const auto [sizes, strides] = inferAndValidateAllocationSizesAndStrides(tensor, tv, ExpressionEvaluator());
-  std::vector<int64_t> sizes = tensor.sizes().vec();
-  std::vector<int64_t> strides = tensor.strides().vec();
+  const auto [sizes, strides] = inferAllocationSizesAndStrides(tensor, tv, ExpressionEvaluator());
+  // std::vector<int64_t> sizes = tensor.sizes().vec();
+  // std::vector<int64_t> strides = tensor.strides().vec();
   auto contiguity_without_reduction = computeContiguity(sizes, strides);
   std::vector<std::optional<bool>> contiguity;
   int64_t index = 0;
