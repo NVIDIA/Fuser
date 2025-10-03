@@ -1254,10 +1254,10 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
   }
 
   // Begin by inlining at the unswitch position for the entire DAG. The cached
-  // inputs, and outputs will keep this inline position, but other tensors
-  // will get a higher position in later inline propagation. We need this
-  // separate step because we were not using ParallelType::Unroll, so we have
-  // to do unrolling manually.
+  // inputs, and outputs will keep this inline position, but other tensors will
+  // get a higher position in later inline propagation. We need this separate
+  // step because we were not using ParallelType::Unroll, so we have to do
+  // unrolling manually.
   inlineAllAt(reference_tv, unswitch_pos, true);
 
   auto all_tvs = fusion->allTvs();
