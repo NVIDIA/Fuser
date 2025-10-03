@@ -247,6 +247,10 @@ void validateAllocationSizesAndStrides(
     auto size = sizes.at(dim_index);
     auto stride = strides.at(dim_index);
 
+    // if (isParallelTypeDeviceDim(alloc_id->getParallelType())) {
+    //   continue;
+    // }
+
     if (alloc_id->isBroadcast()) {
       NVF_CHECK(!contiguity[domain_index].has_value());
       if (alloc_id->hasExpandedExtent()) {
@@ -290,7 +294,7 @@ void validateAllocationSizesAndStrides(
 } // namespace
 
 std::pair<std::vector<int64_t>, std::vector<int64_t>>
-inferAndValidateAllocationSizesAndStrides(
+inferAllocationSizesAndStrides(
     const at::Tensor& tensor,
     TensorView* tv,
     ExpressionEvaluator ee) {
@@ -324,7 +328,18 @@ inferAndValidateAllocationSizesAndStrides(
     }
     allocation_strides.push_back(active_ids.at(id).second);
   }
+  return {std::move(allocation_sizes), std::move(allocation_strides)};
+}
 
+
+std::pair<std::vector<int64_t>, std::vector<int64_t>>
+inferAndValidateAllocationSizesAndStrides(
+    const at::Tensor& tensor,
+    TensorView* tv,
+    ExpressionEvaluator ee) {
+  auto [allocation_sizes, allocation_strides] =
+      inferAllocationSizesAndStrides(tensor, tv, ee);
+  const auto& alloc = tv->getMaybeAllocationDomain();
   // Only validate final sizes and strides when we have a non-empty tensor.
   if (tensor.numel() != 0) {
     validateAllocationSizesAndStrides(

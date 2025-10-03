@@ -33,10 +33,15 @@ NVF_API bool distributedEnabled() {
 
 bool isTvContiguous(const TensorView* tv) {
   // Reduction and broadcast axis do not have a contiguity value.
-  return std::all_of(
-      tv->getContiguity().begin(),
-      tv->getContiguity().end(),
-      [](std::optional<bool> c) { return c.value_or(true); });
+  for (auto [id, contiguity] : zip(tv->getMaybeAllocationDomain(), tv->getContiguity())) {
+    if (id->isBroadcast() || id->isReduction() || isParallelTypeDeviceDim(id->getParallelType())) {
+      continue;
+    }
+    if (contiguity.has_value() && !contiguity.value()) {
+      return false;
+    }
+  }
+  return true;
 }
 
 bool isSharded(const TensorView* tv) {
