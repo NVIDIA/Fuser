@@ -2108,7 +2108,6 @@ ClusterReductionOp::ClusterReductionOp(
   NVF_ERROR(
       passkey.ir_container_->isA<kir::Kernel>(),
       "IR type only valid for Kernel container.");
-  NVF_ERROR(is_all_reduce, "ClusterReductionOp only supports all-reduce");
   addInput(mbarrier);
 }
 
