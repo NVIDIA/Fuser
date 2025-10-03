@@ -46,15 +46,21 @@ bool GreedyParams::sameAs(const HeuristicParams* other_base) const {
   if (other == nullptr) {
     return false;
   }
-  bool attr_equal = tv_to_item_per_thread == other->tv_to_item_per_thread;
+  bool attr_equal = consumer_to_params_ == other->consumer_to_params_ &&
+      producer_to_params_ == other->producer_to_params_;
   return attr_equal;
 }
 
 std::string GreedyParams::toString() const {
   std::stringstream ss;
   ss << "\n========= Greedy Parameters ========\n";
-  for (const auto& [tv_name, nitems] : tv_to_item_per_thread) {
-    ss << "t" << tv_name << " -> items per thread: " << nitems << "\n";
+  for (const auto& [tv_name, params] : consumer_to_params_) {
+    ss << "t" << tv_name << " (consumer) -> " << params.toString() << "\n";
+  }
+  for (const auto& [producer_consumer_pair, params] : producer_to_params_) {
+    ss << "t" << producer_consumer_pair.first << " (producer) for "
+       << "t" << producer_consumer_pair.second << " (consumer) -> "
+       << params.toString() << "\n";
   }
   ss << "====================================\n";
   return ss.str();
@@ -62,8 +68,11 @@ std::string GreedyParams::toString() const {
 
 size_t GreedyParams::hash() const {
   size_t x = 0;
-  for (const auto& [tv, size] : tv_to_item_per_thread) {
-    x = x ^ std::hash<int64_t>()(size);
+  for (const auto& [tv, size] : consumer_to_params_) {
+    x = x ^ std::hash<int64_t>()(size.batch_size);
+  }
+  for (const auto& [producer_consumer_pair, size] : producer_to_params_) {
+    x = x ^ std::hash<int64_t>()(size.batch_size);
   }
   return x;
 }
@@ -72,16 +81,57 @@ std::unique_ptr<HeuristicParams> GreedyParams::clone() const {
   return std::make_unique<GreedyParams>(*this);
 }
 
-void GreedyParams::transferParams(TensorView* old_tv, TensorView* new_tv) {
-  if (auto it = tv_to_item_per_thread.find(old_tv->name());
-      it != tv_to_item_per_thread.end()) {
-    NVF_ERROR(
-        tv_to_item_per_thread.emplace(new_tv->name(), it->second).second,
-        "Duplicated setting for ",
-        new_tv->toString());
-    // Remove the old entry
-    tv_to_item_per_thread.erase(old_tv->name());
+bool GreedyParams::hasConsumerParams(TensorView* consumer_tv) {
+  return consumer_to_params_.contains(consumer_tv->name());
+}
+
+bool GreedyParams::hasProducerParams(
+    TensorView* producer_tv,
+    TensorView* consumer_tv) const {
+  return producer_to_params_.contains(
+      std::make_pair(producer_tv->name(), consumer_tv->name()));
+}
+
+void GreedyParams::transferConsumerParams(
+    TensorView* old_tv,
+    TensorView* new_tv) {
+  NVF_ERROR(old_tv != nullptr);
+  NVF_ERROR(new_tv != nullptr);
+  auto it = consumer_to_params_.find(old_tv->name());
+  if (it == consumer_to_params_.end()) {
+    return;
   }
+  NVF_ERROR(
+      setConsumerParams(new_tv, it->second),
+      "Duplicated setting for ",
+      new_tv->toString());
+  // Remove the old entry
+  consumer_to_params_.erase(old_tv->name());
+}
+
+void GreedyParams::transferProducerParams(
+    TensorView* old_producer_tv,
+    TensorView* old_consumer_tv,
+    TensorView* new_producer_tv,
+    TensorView* new_consumer_tv) {
+  NVF_ERROR(old_producer_tv != nullptr);
+  NVF_ERROR(old_consumer_tv != nullptr);
+  NVF_ERROR(new_producer_tv != nullptr);
+  NVF_ERROR(new_consumer_tv != nullptr);
+  auto it = producer_to_params_.find(
+      std::make_pair(old_producer_tv->name(), old_consumer_tv->name()));
+  if (it == producer_to_params_.end()) {
+    return;
+  }
+  NVF_ERROR(
+      setProducerParams(new_producer_tv, new_consumer_tv, it->second),
+      "Duplicated setting for ",
+      new_producer_tv->toString(),
+      ", ",
+      new_consumer_tv->toString());
+  // Remove the old entry
+  producer_to_params_.erase(
+      std::make_pair(old_producer_tv->name(), old_producer_tv->name()));
 }
 
 namespace {
@@ -461,7 +511,8 @@ class CompileTimeChecker : private IterVisitor {
     // parallelized with BIDx. The BIDx parallelized iter
     // domain must be mapped across the fusion to avoid the grid
     // synchronization. For the mapping, the exact graph is used for
-    // now since BroadcastOp is not yet allowed.
+    // now since broadcast IDs can be ignored for this analysis.
+
     if (unique_unconstrained_domain_.has_value()) {
       if (unique_unconstrained_domain_->set() != unconstrained_domain.set()) {
         reject(
@@ -579,7 +630,7 @@ class RunTimeChecker : private IterVisitor {
     checkDomainConstraints(
         ir_utils::getTvOutput(argsort)->getLogicalDomain(),
         {argsort->dim()},
-        /*support_grouping=*/true);
+        /*support_batching=*/true);
   }
 
   void handle(PadOp* pad) override {
@@ -591,7 +642,7 @@ class RunTimeChecker : private IterVisitor {
     checkDomainConstraints(
         ir_utils::getTvOutput(scan)->getLogicalDomain(),
         {scan->dim()},
-        /*support_grouping=*/true);
+        /*support_batching=*/true);
   }
 
   void handle(TopKOp* topk) override {
@@ -603,19 +654,20 @@ class RunTimeChecker : private IterVisitor {
     auto out = ir_utils::getTvOutput(scatter);
     auto index = scatter->index()->as<TensorView>();
 
-    checkDomainConstraints(out->getLogicalDomain(), {scatter->dim()});
+    checkDomainConstraints(
+        out->getLogicalDomain(),
+        {scatter->dim()},
+        /*support_batching=*/true);
     checkDomainConstraints(
         TensorDomain::noReductions(index->getLogicalDomain()),
-        {scatter->dim()});
+        {scatter->dim()},
+        /*support_batching=*/true);
   }
 
-  // Since all constrained IDs are flattened and parallelized with
-  // TIDx, the extent of flattened ID must not exceed the maximum
-  // number of threads per thread block.
   void checkDomainConstraints(
       const std::vector<IterDomain*>& domain,
       const std::vector<int64_t>& constrained_id_offsets,
-      bool support_grouping = false) {
+      bool support_batching = false) {
     int64_t size_of_constrained_ids = 1;
     for (const auto i : constrained_id_offsets) {
       auto constrained_id = domain.at(i);
@@ -634,13 +686,13 @@ class RunTimeChecker : private IterVisitor {
     // available size. The next important limit would be the register
     // usage as we would not want to have excessive register spilling.
     //
-    // At this moment, not all constrained ops supports grouping. If
-    // grouping is not supported, the limit is simply set as the
+    // At this moment, not all constrained ops supports batching. If
+    // batching is not supported, the limit is simply set as the
     // maximum number of threads per thread block. This is likely
     // a sufficient condition even for shared memory, although not
     // guaranteed.
     //
-    // When grouping is supported, up to half of the shared memory
+    // When batching is supported, up to half of the shared memory
     // capacity is allowed for now. This is a pretty rough estimate
     // and does not guarantee the safety of kernel launches nor avoids
     // register spilling but is used for now since more accurate
@@ -649,7 +701,7 @@ class RunTimeChecker : private IterVisitor {
     //
     // TODO: More accurate estimation of resource requirements
     int64_t max_supported_size = max_threads_per_block_;
-    if (support_grouping) {
+    if (support_batching) {
       auto available_shmem_capacity =
           at::cuda::getCurrentDeviceProperties()->sharedMemPerBlock / 2;
       // TODO: don't assume it's always float.
@@ -705,22 +757,68 @@ class HeuristicsBuilder : private IterVisitor {
   }
 
   void handle(ArgsortOp* argsort) override {
-    addHeuristicsFor(ir_utils::getTvOutput(argsort), {argsort->dim()});
+    addHeuristicsFor(
+        ir_utils::getTvOutput(argsort),
+        ir_utils::getTvOutput(argsort)->getLogicalDomain(),
+        {argsort->dim()});
+  }
+
+  // TODO: Support batching
+  void handle(PadOp* pad) override {
+    setDefaultParameters(ir_utils::getTvOutput(pad));
   }
 
   void handle(ScanOp* scan) override {
-    addHeuristicsFor(ir_utils::getTvOutput(scan), {scan->dim()});
+    addHeuristicsFor(
+        ir_utils::getTvOutput(scan),
+        ir_utils::getTvOutput(scan)->getLogicalDomain(),
+        {scan->dim()});
   }
 
-  // Currently, the only heuristic parameter is the number of items
-  // per thread. Add the parameter for ops that supports multiple
-  // items per thread.
+  void handle(ScatterOp* scatter) override {
+    // Need to have two sets of parameters: one for the logical domain
+    // of the index tensor and another for the logical domain of the
+    // input tensor. For the former, we store its parameters in the
+    // scatter output tensor. For the latter, it's stored as a
+    // producer parameter for the input tensor. See
+    // ConstrainedOpScheduler::handle(ScatterOp*).
+    auto out_tv = ir_utils::getTvOutput(scatter);
+    auto inp_tv = ir_utils::getTvInput(scatter);
+    addHeuristicsFor(out_tv, out_tv->domain()->initialLoop(), {scatter->dim()});
+    addHeuristicsFor(
+        inp_tv,
+        TensorDomain::noReductions(inp_tv->getLogicalDomain()),
+        {scatter->dim()},
+        out_tv);
+  }
+
+  // TODO: Support batching
+  void handle(TopKOp* topk) override {
+    setDefaultParameters(ir_utils::getTvOutput(topk));
+  }
+
+  // Make sure a given tensor has some heuristics parameters
+  void setDefaultParameters(TensorView* tv) {
+    NVF_ERROR(
+        params_->setConsumerParams(tv, {1}),
+        "Duplicated setting of item per thread factor for ",
+        tv->toString());
+  }
+
+  // Register heuristics parameters for constrained_tv. When
+  // consumer is non-null, constrained_tv is considered a producer of
+  // consumer and a producer parameter is added. Otherwise, a consumer
+  // parameter is added for constrained_tv.
   void addHeuristicsFor(
       TensorView* constrained_tv,
-      const std::vector<int64_t>& constrained_id_offsets) {
+      const std::vector<IterDomain*>& domain_to_schedule,
+      const std::vector<int64_t>& constrained_id_offsets,
+      TensorView* consumer = nullptr) {
+    const bool as_consumer = consumer == nullptr;
+
     int64_t size_of_constrained_ids = 1;
     for (const auto i : constrained_id_offsets) {
-      auto logical_id = constrained_tv->getLogicalDomain().at(i);
+      auto logical_id = domain_to_schedule.at(i);
       auto extent_val =
           runtime_info_.expressionEvaluator().evaluate(logical_id->extent());
       NVF_ERROR(
@@ -731,18 +829,21 @@ class HeuristicsBuilder : private IterVisitor {
     }
 
     // TODO: The maximum allowed number of threads are launched even
-    // when grouping is supported. This should be revisited for
+    // when batching is supported. This should be revisited for
     // performance optimization.
     const int64_t bdim =
         at::cuda::getCurrentDeviceProperties()->maxThreadsPerBlock;
 
-    auto items_per_thread = ceilDiv(size_of_constrained_ids, bdim);
+    auto batch_size = ceilDiv(size_of_constrained_ids, bdim);
 
-    if (items_per_thread > 1) {
+    if (as_consumer) {
       NVF_ERROR(
-          params_->tv_to_item_per_thread
-              .emplace(constrained_tv->name(), items_per_thread)
-              .second,
+          params_->setConsumerParams(constrained_tv, {batch_size}),
+          "Duplicated setting of item per thread factor for ",
+          constrained_tv->toString());
+    } else {
+      NVF_ERROR(
+          params_->setProducerParams(constrained_tv, consumer, {batch_size}),
           "Duplicated setting of item per thread factor for ",
           constrained_tv->toString());
     }
@@ -804,12 +905,20 @@ void propagateReshape(Fusion* fusion) {
 void insertCopies(Fusion* fusion, GreedyParams& greedy_params) {
   for (auto expr : getAllConstrainedOps(fusion)) {
     if (expr->isA<ScatterOp>()) {
+      auto inp_tv = ir_utils::getTvInput(expr);
       auto out_tv = ir_utils::getTvOutput(expr);
       if (!out_tv->uses().empty()) {
-        out_tv->cacheAfter(
+        auto cache = out_tv->cacheAfter(
             LoadStoreOpType::Set,
             CacheOp::Unspecified,
             /*propagate_allocation_domain=*/false);
+        // Since the cache, which is a copy of the scatter output,
+        // needs to be scheduled as a constrained tensor, add its
+        // consumer parameter. That tensor should be scheduled in the
+        // same way as the input tensor of the scatter, so set its
+        // parameter using the heuristics for the input.
+        greedy_params.setConsumerParams(
+            cache, greedy_params.getProducerParams(inp_tv, out_tv));
       }
     } else if (expr->isOneOf<ArgsortOp, ScanOp, TopKOp>()) {
       auto outputs = expr->outputs();
@@ -822,7 +931,7 @@ void insertCopies(Fusion* fusion, GreedyParams& greedy_params) {
         expr = cache->definition();
         // cache is the new constraint tv. Transfer heuristic params
         // if any
-        greedy_params.transferParams(out_tv, cache);
+        greedy_params.transferConsumerParams(out_tv, cache);
       }
     }
 
@@ -837,6 +946,11 @@ void insertCopies(Fusion* fusion, GreedyParams& greedy_params) {
           // Insert an exclusive copy
           auto inp_copy = set(inp_tv);
           expr = ir_utils::replaceValInExprInputs(expr, inp_tv, inp_copy);
+          greedy_params.transferProducerParams(
+              inp_tv,
+              ir_utils::getTvOutput(expr),
+              inp_copy,
+              ir_utils::getTvOutput(expr));
         }
       }
     }
@@ -873,17 +987,27 @@ class ConstrainedOpScheduler : public OptOutDispatch {
   void handle(ArgsortOp* argsort) override {
     auto out_tv = ir_utils::getTvOutput(argsort);
     auto dim = argsort->dim();
-    scheduleConstrainedTv(out_tv, {dim}, /*support_grouping=*/true);
+    scheduleConstrainedTv(
+        out_tv,
+        {dim},
+        params_->getConsumerParams(out_tv),
+        /*support_grouping=*/true);
   }
 
   void handle(PadOp* pad) override {
-    scheduleConstrainedTv(ir_utils::getTvOutput(pad), pad->getPaddedAxes());
+    auto out_tv = ir_utils::getTvOutput(pad);
+    scheduleConstrainedTv(
+        out_tv, pad->getPaddedAxes(), params_->getConsumerParams(out_tv));
   }
 
   void handle(ScanOp* scan) override {
     auto scan_dim = scan->dim();
     auto out_tv = ir_utils::getTvOutput(scan);
-    scheduleConstrainedTv(out_tv, {scan_dim}, /*support_grouping=*/true);
+    scheduleConstrainedTv(
+        out_tv,
+        {scan_dim},
+        params_->getConsumerParams(out_tv),
+        /*support_grouping=*/true);
   }
 
   void handle(ScatterOp* scatter) override {
@@ -892,11 +1016,40 @@ class ConstrainedOpScheduler : public OptOutDispatch {
     auto index_tv = scatter->index()->as<TensorView>();
     auto out_tv = ir_utils::getTvOutput(scatter);
 
-    scheduleConstrainedTv(out_tv, {scatter_dim});
-    scheduleConstrainedTv(index_tv, {scatter_dim});
-    scheduleConstrainedTv(in_tv, {scatter_dim});
+    // Effectively there are two scheduling patterns around a
+    // scatter. One for the scatter loop domain, which is equivalent
+    // to the logical domain of the index tensor. Another is for the
+    // scatter input tensor and also the consumers of the scatter
+    // output. The former is stored as the parameter for the scatter
+    // output. The latter is stored as a producer parameter of the
+    // input tensor.
+    const auto& params_for_index = params_->getConsumerParams(out_tv);
+    const auto& params_for_input = params_->getProducerParams(in_tv, out_tv);
+
+    // Schedule the output and the index tensors with the index parameters
+    scheduleConstrainedTv(out_tv, {scatter_dim}, params_for_index);
+    scheduleConstrainedTv(index_tv, {scatter_dim}, params_for_index);
     if (scatter->src()->isA<TensorView>()) {
-      scheduleConstrainedTv(scatter->src()->as<TensorView>(), {scatter_dim});
+      auto src_tv = scatter->src()->as<TensorView>();
+      scheduleConstrainedTv(src_tv, {scatter_dim}, params_for_index);
+    }
+
+    // Schedule the input. Note that it is guaranteed that the input
+    // is exclusively used by this scatter op and is not a constrained
+    // tensor for another constrained op.
+    scheduleConstrainedTv(in_tv, {scatter_dim}, params_for_input);
+
+    // If there's a use of the scatter output, it is the copy op
+    // inserted by insertCopies. It is not automatically
+    // scheduled as the propagation from the scatter output won't
+    // happen because the loop domain of the scatter output is not mapped
+    // with its logical domain.
+    if (!out_tv->uses().empty()) {
+      NVF_ERROR_EQ(out_tv->uses().size(), 1);
+      auto use_of_out = out_tv->uses().at(0);
+      NVF_ERROR(use_of_out->isA<LoadStoreOp>());
+      auto out_of_use_of_out = ir_utils::getTvOutput(use_of_out);
+      scheduleConstrainedTv(out_of_use_of_out, {scatter_dim}, params_for_input);
     }
 
     // Setting the memory type.
@@ -916,18 +1069,6 @@ class ConstrainedOpScheduler : public OptOutDispatch {
     }
 
     scheduleScatterAllocationDomains(scatter);
-
-    // If there's a use of the scatter output, that must be the copy
-    // op inserted by insertCopies. It is not automatically
-    // scheduled as the propagation from the scatter output won't
-    // happen because the loop domain of the scatter output is not mapped
-    // with its logical domain.
-    if (!out_tv->uses().empty()) {
-      NVF_ERROR_EQ(out_tv->uses().size(), 1);
-      auto use_of_out = out_tv->uses().at(0);
-      NVF_ERROR(use_of_out->isA<LoadStoreOp>());
-      scheduleConstrainedTv(ir_utils::getTvOutput(use_of_out), {scatter_dim});
-    }
   }
 
   // Scatter-specific allocation domain scheduling
@@ -947,12 +1088,14 @@ class ConstrainedOpScheduler : public OptOutDispatch {
   void handle(TopKOp* topk) override {
     auto topk_dim = topk->dim();
     auto out_tv = ir_utils::getTvOutput(topk);
-    scheduleConstrainedTv(out_tv, {topk_dim});
+    scheduleConstrainedTv(
+        out_tv, {topk_dim}, params_->getConsumerParams(out_tv));
   }
 
   void scheduleConstrainedTv(
       TensorView* tv,
       const std::vector<int64_t>& constrained_logical_id_offsets,
+      const GreedyParams::TvParams& heuristic_params,
       bool suppot_grouping = false) {
     NVF_ERROR(!constrained_logical_id_offsets.empty());
 
@@ -982,13 +1125,10 @@ class ConstrainedOpScheduler : public OptOutDispatch {
     const bool has_unconstrained_ids = tv->getLoopDomain().size() > 1;
     int64_t num_constrained_loop_ids = 1;
 
-    const auto items_per_thread =
-        params_->tv_to_item_per_thread.contains(tv->name())
-        ? params_->tv_to_item_per_thread.at(tv->name())
-        : 1;
+    const int64_t batch_size = heuristic_params.batch_size;
 
-    if (items_per_thread > 1) {
-      tv->split(-1, items_per_thread);
+    if (batch_size > 1) {
+      tv->split(-1, batch_size);
       ++num_constrained_loop_ids;
       tv->axis(-2)->parallelize(ParallelType::TIDx);
       if (suppot_grouping) {
@@ -1294,8 +1434,22 @@ void GreedyScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
 
   // Cache inputs
   auto cached_inputs = scheduler_utils::cacheInputs(fusion, true);
+  // Transfer the heuristics parameters for the inputs to their caches
+  for (const auto& [cache, original] : cached_inputs) {
+    for (const auto& consumer : ir_utils::consumerTvsOf(cache)) {
+      greedy_params.transferProducerParams(
+          fusion->inputs().at(original)->as<TensorView>(),
+          consumer,
+          cache,
+          consumer);
+    }
+  }
   // Cache and fork outputs
   auto cached_outputs = scheduler_utils::cacheAndForkOutputs(fusion, true);
+  for (const auto& [cache, original] : cached_outputs) {
+    greedy_params.transferConsumerParams(
+        fusion->outputs().at(original)->as<TensorView>(), cache);
+  }
 
   propagateReshape(fusion);
 

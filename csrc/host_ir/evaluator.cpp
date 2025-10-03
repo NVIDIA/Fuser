@@ -573,6 +573,16 @@ void HostIrEvaluator::handle(kir::Allocate* allocate) {
   if (expr_evaluator_.isKnown(tv)) {
     return;
   }
+
+  // Check the cache if enabled
+  if (params_.use_allocation_cache) {
+    auto it = allocation_cache_.find(allocate);
+    if (it != allocation_cache_.end()) {
+      expr_evaluator_.bind(tv, it->second);
+      return;
+    }
+  }
+
   GlobalBufferInfo info =
       getBufferInfos(expr_evaluator_, PrimDataType::Int, {tv}).at(0);
   c10::Device device =
@@ -584,6 +594,12 @@ void HostIrEvaluator::handle(kir::Allocate* allocate) {
       c10::nullopt,
       device,
       c10::nullopt);
+
+  // Cache the allocation if enabled
+  if (params_.use_allocation_cache) {
+    allocation_cache_[allocate] = tensor;
+  }
+
   if (allocate->zeroInit()) {
     tensor.zero_();
   }
