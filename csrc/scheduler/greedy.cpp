@@ -1102,14 +1102,6 @@ class ConstrainedOpScheduler : public OptOutDispatch {
     const auto& constrained_loop_id_offsets =
         getDependentLoopIds(tv, constrained_logical_id_offsets);
 
-    // Don't inline constrained IDs. For example, like reduction IDs,
-    // argsort'ed IDs should never be inlined into its consumers.
-    for (const auto constrained_logical_id_offset :
-         constrained_logical_id_offsets) {
-      uninlinable_ids_.insert(
-          tv->getLogicalDomain().at(constrained_logical_id_offset));
-    }
-
     // Move the constrained_logical_ids innermost
     std::unordered_map<int64_t, int64_t> old2new;
     for (const auto [i, offset] : enumerate(constrained_loop_id_offsets)) {
@@ -1176,6 +1168,25 @@ class ConstrainedOpScheduler : public OptOutDispatch {
     tv->flatten(
         0, std::ssize(tv->getLoopDomain()) - 1 - num_constrained_loop_ids);
     tv->axis(0)->parallelize(ParallelType::BIDx);
+
+    // Don't inline constrained IDs. For example, like reduction IDs,
+    // argsort'ed IDs should never be inlined into its consumers.
+    std::unordered_set<Val*> constrained_logical;
+    for (const auto constrained_logical_id_offset :
+         constrained_logical_id_offsets) {
+      constrained_logical.insert(
+          tv->getLogicalDomain().at(constrained_logical_id_offset));
+    }
+
+    auto all_constrained_ids = DependencyCheck::getAllValsBetween(
+        constrained_logical,
+        {tv->getLoopDomain().begin(), tv->getLoopDomain().end()});
+    for (const auto loop_id : tv->getLoopDomain()) {
+      if (std::ranges::find(all_constrained_ids, loop_id) !=
+          all_constrained_ids.end()) {
+        uninlinable_ids_.insert(loop_id);
+      }
+    }
   }
 
  private:
