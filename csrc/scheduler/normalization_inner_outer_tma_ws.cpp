@@ -11,6 +11,7 @@
 #include <scheduler/normalization_utils.h>
 #include <scheduler/runtime_info.h>
 #include <scheduler/tools/inlining.h>
+#include <utils.h>
 
 #include <ATen/cuda/CUDAContext.h>
 namespace nvfuser {
@@ -83,13 +84,14 @@ void getHeuristics(
         if (!is_non_circular_buffer_gmem_to_regs) {
           smem_size_bit += non_circular_buffered_smem_size_bit;
         }
-        // mbarrier size, round to 128 bytes as required by TMA
-        smem_size_bit += roundUpToMultiple(128 * n_stages, 128 * 8);
+        // mbarrier dtype is uint64_t
+        constexpr int64_t bits_per_mbarrier = 8 * 8;
+        smem_size_bit += alignedSharedMemoryBits(bits_per_mbarrier * n_stages);
         // reduction workspace size, need to be aligned to 128 bytes since
         // other smems are stacked on top of it directly, see
         // assignNextAddress in StackBasedSharedMemAllocator
-        smem_size_bit += roundUpToMultiple(
-            iter_unroll * bdimx * bdimy * computation_dtype_size_bit, 128);
+        smem_size_bit += alignedSharedMemoryBits(
+            iter_unroll * bdimx * bdimy * computation_dtype_size_bit);
         return (int64_t)dev_prop->sharedMemPerBlockOptin * 8 >= smem_size_bit;
       };
 
