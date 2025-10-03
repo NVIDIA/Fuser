@@ -277,6 +277,4 @@ template class HeuristicDataCacheEntry<
 template class HeuristicDataCacheEntry<HeuristicCompileTime::LogicalReorderMap>;
 template class HeuristicDataCacheEntry<
     HeuristicCompileTime::VectorizationBreakPointOfReductionProducer>;
-template class NVF_API
-    HeuristicDataCacheEntry<HeuristicCompileTime::SchedulerHyperParameters>;
 } // namespace nvfuser
