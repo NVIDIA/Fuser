@@ -237,16 +237,9 @@ HeuristicParams* UserSchedule::computeHeuristics(SchedulerType scheduler_type) {
   // Set scheduler hyperparameters if available for InnerOuterPersistent
   // scheduler
   // TODO:: extend to other schedulers if necessary
-  std::cout << "UserSchedule::computeHeuristics " << std::endl;
   if (scheduler_type == SchedulerType::InnerOuterPersistent &&
       scheduler_hyperparams) {
-    std::cout << "UserSchedule::computeHeuristics setSchedulerHyperParameters "
-              << std::endl;
     scheduler->setSchedulerHyperParameters(scheduler_hyperparams.get());
-  } else {
-    std::cout
-        << "UserSchedule::computeHeuristics no setSchedulerHyperParameters "
-        << std::endl;
   }
 
   heuristic_params = scheduler->computeHeuristics(

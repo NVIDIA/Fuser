@@ -128,10 +128,6 @@ std::unique_ptr<ReductionParams> getInnerOuterPersistentHeuristics(
   bool user_enforced_warp_specialization =
       isOptionEnabled(EnableOption::WarpSpecializedNormalization);
   if (hp) {
-    std::cout << "=========== Scheduler hyperparameters provided, using them"
-              << std::endl;
-    std::cout << "=========== Vectorization factor: " << hp->vectorize_factor
-              << std::endl;
     NVF_ERROR(
         (hp->vectorize_factor & (hp->vectorize_factor - 1)) == 0,
         "Vectorization factor must be a power of 2");
@@ -142,10 +138,6 @@ std::unique_ptr<ReductionParams> getInnerOuterPersistentHeuristics(
     threads_per_block_min = hp->threads_per_block_min;
     threads_per_block_max = hp->threads_per_block_max;
     user_enforced_warp_specialization = hp->is_warp_specialized;
-  } else {
-    std::cout << "=========== No scheduler hyperparameters provided, using "
-                 "default values"
-              << std::endl;
   }
 
   auto& persistent_buffer_info = persistent_buffer_info_entry.get();
