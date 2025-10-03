@@ -244,6 +244,8 @@ GpuLower::GpuLower(Fusion* fusion, const CompileParams& cparams)
     fusion->print();
   }
 
+  std::cout << std::endl;
+
   analysis(fusion);
 }
 
