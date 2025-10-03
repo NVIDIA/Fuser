@@ -479,6 +479,8 @@ std::unique_ptr<FusionExecutorCache> DistributedTransformer::forward(
     shardBetween({mlp_in}, {mlp_tvs.output}, mlp_w0);
   }
 
+  fusion->print();
+
   return std::make_unique<FusionExecutorCache>(std::move(fusion));
 }
 
