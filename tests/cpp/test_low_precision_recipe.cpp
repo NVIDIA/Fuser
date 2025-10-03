@@ -439,7 +439,7 @@ TEST_F(BQTest, ScheduleAsPointwise2D) {
   EXPECT_EQ(quantized_tensor_output.dim(), 3);
 }
 
-TEST_F(BQTest, AutoScheduleBasicTest) {
+TEST_F(BQTest, AutoScheduleSingleOpWithSwizzle) {
   const int m = 1024;
   const int n = 1024;
 
@@ -532,7 +532,7 @@ TEST_F(BQTest, AutoScheduleBasicTest) {
   }
 }
 
-TEST_F(BQTest, AutoSchedule) {
+TEST_F(BQTest, AutoScheduleMultipleOps) {
   const int m = 1024;
   const int n = 1024;
   const int k = 16;
