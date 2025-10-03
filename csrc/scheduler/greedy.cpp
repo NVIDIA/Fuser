@@ -448,6 +448,23 @@ class CompileTimeChecker : private IterVisitor {
   void handle(PadOp* pad) override {
     checkDomainConstraints(
         ir_utils::getTvOutput(pad)->getLogicalDomain(), pad->getPaddedAxes());
+
+    for (const auto& logical_id :
+         ir_utils::getTvOutput(pad)->getLogicalDomain()) {
+      auto resize = dynamic_cast<Resize*>(logical_id->definition());
+      if (resize == nullptr) {
+        continue;
+      }
+      // Resize to broadcast not supported yet. Have not looked at
+      // details but the loop promotion fails (e.g.,
+      // ResizeTest.ResizePadToBroadcastStatic), likely because
+      // broadcast IDs are introduced without BroadcastOp. This is
+      // also the case with the resize scheduler.
+      if (resize->out()->isBroadcast()) {
+        reject("Resize to a broadcast ID is not allowed: ", pad->toString());
+        return;
+      }
+    }
   }
 
   void handle(TopKOp* topk) override {
