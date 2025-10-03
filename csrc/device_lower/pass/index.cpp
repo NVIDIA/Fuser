@@ -697,7 +697,7 @@ void IndexLowering::handleClusterReduction(
       rop->getReductionOpType(),
       lowerSrcIndex(rop->init(), rop->out()),
       mbarrier_addr,
-      /*is_all_reduce=*/true);
+      rop->isAllreduce());
 
   pushBack(cluster_reduction);
   GpuLower::current()->propagateExprInfo(rop, back());
