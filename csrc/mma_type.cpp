@@ -8,7 +8,6 @@
 #include <fusion.h>
 #include <ir/all_nodes.h>
 #include <mma_type.h>
-#include <utils.h>
 #include <functional>
 
 namespace nvfuser {
