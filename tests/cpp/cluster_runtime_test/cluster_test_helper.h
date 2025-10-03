@@ -22,11 +22,12 @@ void validateClusterStoreResult(
     at::Tensor output_tensor,
     int cluster_size);
 
-template <typename T, int BLOCK_SIZE, int CLUSTER_SIZE>
+template <typename T, int BLOCK_SIZE, int CLUSTER_SIZE, bool is_all_reduce>
 void launchClusterReduceTestKernel(T* input, T* output);
 
 void validateClusterReduceResult(
     at::Tensor input_tensor,
-    at::Tensor output_tensor);
+    at::Tensor output_tensor,
+    bool is_all_reduce);
 
 } // namespace nvfuser
