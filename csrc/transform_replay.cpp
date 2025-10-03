@@ -297,7 +297,7 @@ void TransformReplay::selfReplay(
   ReplaySelf replay(loop, axis_map);
 
   // Replay loop.
-  if (loop != self->logical()) {
+  {
     std::vector<IterDomain*> new_loop;
     if (ignore_reductions) {
       for (auto* id : new_self->logical()) {
@@ -324,8 +324,8 @@ void TransformReplay::selfReplay(
   }
 
   // Replay allocation.
-  if (self->hasAllocation()) {
-    const std::vector<IterDomain*>& allocation = self->allocation();
+  {
+    const std::vector<IterDomain*>& allocation = self->maybeAllocation();
     const std::vector<std::optional<bool>>& contiguities = self->contiguity();
     NVF_ERROR_EQ(allocation.size(), contiguities.size());
 
@@ -365,7 +365,11 @@ void TransformReplay::selfReplay(
       new_allocation.push_back(it->second);
     }
 
-    new_self->setAllocationDomain(new_allocation, new_contiguities);
+    if (self->hasAllocation()) {
+      new_self->setAllocationDomain(new_allocation, new_contiguities);
+    } else {
+      new_self->setContiguity(new_contiguities);
+    }
   }
 }
 
