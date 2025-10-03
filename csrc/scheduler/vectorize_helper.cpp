@@ -823,16 +823,15 @@ Val* ContiguousInnerDimensionsMapper::getContigMergeOfInnerSize(
         NVF_ERROR(
             expr->isA<Split>(),
             "alloc domain of block quantization should only have splits");
+        if (!expr->as<Split>()->outer()->isDeviceDim()) {
+          continue;
+        }
       } else {
         validateDeviceSplit(expr);
       }
       auto* split = expr->as<Split>();
       logical_id = split->in();
-      if (!is_block_scales_output ||
-          (is_block_scales_output && split->outer()->isDeviceDim())) {
-        num_devices =
-            SimplifyingIrBuilder::mulExpr(num_devices, split->factor());
-      }
+      num_devices = SimplifyingIrBuilder::mulExpr(num_devices, split->factor());
     }
 
     // Mapping order isn't correct, cannot expand vectorization dimension.

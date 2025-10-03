@@ -495,13 +495,6 @@ TEST_F(BQTest, AutoScheduleBasicTest) {
 
   quantization_results.block_scales->setLoopDomain(temp_loop_domain);
 
-  // back to a 3D logical domain.
-  // quantization_results.block_scales->merge(0);
-  // quantization_results.block_scales->merge(0);
-  // quantization_results.block_scales->merge(1);
-
-  // fusion_new_op->print();
-
   FusionExecutorCache executor_cache(std::move(fusion_new_op));
   auto outputs_new_op = executor_cache.runFusionWithInputs(inputs);
 
