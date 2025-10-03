@@ -108,7 +108,10 @@ constexpr double F8E4M3_MAX = 448.0;
 class NVFP4QuantizeTest : public BlackwellBase,
                           public ::testing::WithParamInterface<DataType> {};
 namespace {
-void createNVFP4QunatizationFusion(Fusion* fusion, DataType data_hp_dtype) {
+void createNVFP4QunatizationFusion(
+    Fusion* fusion,
+    DataType data_hp_dtype,
+    bool swizzle_output = false) {
   auto tv_data_hp = makeContigTensor(2, data_hp_dtype);
   fusion->addInput(tv_data_hp);
 
@@ -144,25 +147,27 @@ void createNVFP4QunatizationFusion(Fusion* fusion, DataType data_hp_dtype) {
   fusion->addOutput(tv_block_scale_fp8);
   fusion->addOutput(tv_data_lp);
 
-  tv_block_scale_fp8->split(0, 128);
-  // m/128, 128, k
-  tv_block_scale_fp8->split(1, 32);
-  // m/128, 4(m_o), 32(m_i), k
-  tv_block_scale_fp8->split(3, 4);
-  // m/128, 4(m_o), 32(m_i), k/4, 4(k)
-  std::vector<IterDomain*> tv_block_scale_fp8_alloc{
-      tv_block_scale_fp8->axis(0),
-      tv_block_scale_fp8->axis(3),
-      tv_block_scale_fp8->axis(2),
-      tv_block_scale_fp8->axis(1),
-      tv_block_scale_fp8->axis(4)};
-  // m/128, k/4, 32(m_i), 4(m_o), 4(k)
-  tv_block_scale_fp8->setAllocationDomain(tv_block_scale_fp8_alloc, true);
+  if (swizzle_output) {
+    tv_block_scale_fp8->split(0, 128);
+    // m/128, 128, k
+    tv_block_scale_fp8->split(1, 32);
+    // m/128, 4(m_o), 32(m_i), k
+    tv_block_scale_fp8->split(3, 4);
+    // m/128, 4(m_o), 32(m_i), k/4, 4(k)
+    std::vector<IterDomain*> tv_block_scale_fp8_alloc{
+        tv_block_scale_fp8->axis(0),
+        tv_block_scale_fp8->axis(3),
+        tv_block_scale_fp8->axis(2),
+        tv_block_scale_fp8->axis(1),
+        tv_block_scale_fp8->axis(4)};
+    // m/128, k/4, 32(m_i), 4(m_o), 4(k)
+    tv_block_scale_fp8->setAllocationDomain(tv_block_scale_fp8_alloc, true);
 
-  // back to a 2D logical domain.
-  tv_block_scale_fp8->merge(0);
-  tv_block_scale_fp8->merge(0);
-  tv_block_scale_fp8->merge(-1);
+    // back to a 2D logical domain.
+    tv_block_scale_fp8->merge(0);
+    tv_block_scale_fp8->merge(0);
+    tv_block_scale_fp8->merge(-1);
+  }
 }
 } // namespace
 
@@ -440,7 +445,8 @@ TEST_F(BQTest, AutoScheduleBasicTest) {
 
   std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
-  createNVFP4QunatizationFusion(fusion.get(), DataType::Float);
+  createNVFP4QunatizationFusion(
+      fusion.get(), DataType::Float, /*swizzled*/ true);
 
   FusionExecutorCache fec(std::move(fusion));
 

@@ -1311,11 +1311,7 @@ void PointWiseScheduler::schedule(
       pparams != nullptr,
       "Incorrect parameters sent to PointWiseScheduler::schedule",
       params);
-  std::cout << "before pointwise sched" << std::endl;
-  fusion->print();
   schedulePointwise(fusion, pparams);
-  std::cout << "after sched" << std::endl;
-  fusion->print();
 }
 
 } // namespace nvfuser
