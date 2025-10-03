@@ -303,17 +303,17 @@ void parallelizeAllLike(
   FusionGuard fg(reference_tv->fusion());
 
   if (pos < 0) {
-    pos += (int64_t)reference_tv->nDims() + 1;
+    pos += reference_tv->nDims() + 1;
   }
   NVF_CHECK(
-      pos >= 0 && pos <= (int64_t)reference_tv->nDims(),
+      pos >= 0 && pos <= reference_tv->nDims(),
       "parallelizeAllLike called on an position outside valid range.");
 
   std::unordered_map<IterDomain*, IterDomain*> concrete_to_reference_map;
 
   auto ca_map = ComputeAtMap(FusionGuard::getCurFusion());
 
-  const auto& reference_dom = reference_tv->getLoopDomain();
+  const std::vector<IterDomain*>& reference_dom = reference_tv->getLoopDomain();
   for (auto it = reference_dom.begin(); it != reference_dom.begin() + pos;
        it++) {
     auto ca_id =
