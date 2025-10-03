@@ -259,6 +259,7 @@ void TransformReplay::selfReplay(
     logical = TensorDomain::noReductions(logical);
   } else if (logical.size() < new_logical.size()) {
     new_logical = TensorDomain::noReductions(new_logical);
+    NVF_THROW("");
   }
   NVF_ERROR_EQ(logical.size(), new_logical.size());
 
