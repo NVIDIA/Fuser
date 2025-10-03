@@ -143,6 +143,26 @@ void createNVFP4QunatizationFusion(Fusion* fusion, DataType data_hp_dtype) {
 
   fusion->addOutput(tv_block_scale_fp8);
   fusion->addOutput(tv_data_lp);
+
+  tv_block_scale_fp8->split(0, 128);
+  // m/128, 128, k
+  tv_block_scale_fp8->split(1, 32);
+  // m/128, 4(m_o), 32(m_i), k
+  tv_block_scale_fp8->split(3, 4);
+  // m/128, 4(m_o), 32(m_i), k/4, 4(k)
+  std::vector<IterDomain*> tv_block_scale_fp8_alloc{
+      tv_block_scale_fp8->axis(0),
+      tv_block_scale_fp8->axis(3),
+      tv_block_scale_fp8->axis(2),
+      tv_block_scale_fp8->axis(1),
+      tv_block_scale_fp8->axis(4)};
+  // m/128, k/4, 32(m_i), 4(m_o), 4(k)
+  tv_block_scale_fp8->setAllocationDomain(tv_block_scale_fp8_alloc, true);
+
+  // back to a 2D logical domain.
+  tv_block_scale_fp8->merge(0);
+  tv_block_scale_fp8->merge(0);
+  tv_block_scale_fp8->merge(-1);
 }
 } // namespace
 
@@ -427,7 +447,6 @@ TEST_F(BQTest, AutoScheduleBasicTest) {
   std::vector<at::Tensor> inputs;
   inputs.push_back(at::randn({m, n}, at::device(at::kCUDA).dtype(at::kFloat)));
   auto outputs_baseline = fec.runFusionWithInputs(inputs);
-  std::cout << "hits here" << std::endl;
 
   // Print baseline outputs
   auto baseline_block_scales = outputs_baseline[0].as<at::Tensor>();
@@ -454,6 +473,34 @@ TEST_F(BQTest, AutoScheduleBasicTest) {
   // outputs are 3D
   fusion_new_op->addOutput(quantization_results.block_scales);
   fusion_new_op->addOutput(quantization_results.quantized_tensor);
+
+  auto temp_loop_domain = quantization_results.block_scales->getLoopDomain();
+
+  quantization_results.block_scales->split(0, 128);
+  // m/128, 128, k
+  quantization_results.block_scales->split(1, 32);
+  // m/128, 4(m_o), 32(m_i), k
+  quantization_results.block_scales->split(3, 4);
+  // m/128, 4(m_o), 32(m_i), k/4, 4(k)
+  std::vector<IterDomain*> tv_block_scale_fp8_alloc{
+      quantization_results.block_scales->axis(0),
+      quantization_results.block_scales->axis(3),
+      quantization_results.block_scales->axis(2),
+      quantization_results.block_scales->axis(1),
+      quantization_results.block_scales->axis(4),
+      quantization_results.block_scales->axis(5)};
+  // m/128, k/4, 32(m_i), 4(m_o), 4(k)
+  quantization_results.block_scales->setAllocationDomain(
+      tv_block_scale_fp8_alloc, true);
+
+  quantization_results.block_scales->setLoopDomain(temp_loop_domain);
+
+  // back to a 3D logical domain.
+  // quantization_results.block_scales->merge(0);
+  // quantization_results.block_scales->merge(0);
+  // quantization_results.block_scales->merge(1);
+
+  // fusion_new_op->print();
 
   FusionExecutorCache executor_cache(std::move(fusion_new_op));
   auto outputs_new_op = executor_cache.runFusionWithInputs(inputs);

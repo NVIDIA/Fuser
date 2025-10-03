@@ -51,6 +51,15 @@ Val* commonOrConstExtent(
   return ca_map->getConcreteMappedID(id, IdMappingMode::ALMOSTEXACT)->extent();
 }
 
+// Is the TV the block scales output of quantization.
+bool isTvBlockScalesOutputOfBlockQuantization(const TensorView* tv) {
+  if (!tv->definition() || !tv->definition()->isA<BlockQuantizationOp>()) {
+    return false;
+  }
+  auto bq_op = tv->definition()->as<BlockQuantizationOp>();
+  return bq_op->blockScales() == tv;
+}
+
 } // namespace
 
 Val* ContiguousInnerDimensionsMapper::isFullyProjected(IterDomain* id) {
@@ -807,11 +816,23 @@ Val* ContiguousInnerDimensionsMapper::getContigMergeOfInnerSize(
         {alloc_iid});
     IterDomain* logical_id = alloc_iid;
     Val* num_devices = of_tv->container()->oneVal();
+    auto is_block_scales_output =
+        isTvBlockScalesOutputOfBlockQuantization(of_tv);
     for (Expr* expr : exprs | std::views::reverse) {
-      validateDeviceSplit(expr);
+      if (is_block_scales_output) {
+        NVF_ERROR(
+            expr->isA<Split>(),
+            "alloc domain of block quantization should only have splits");
+      } else {
+        validateDeviceSplit(expr);
+      }
       auto* split = expr->as<Split>();
       logical_id = split->in();
-      num_devices = SimplifyingIrBuilder::mulExpr(num_devices, split->factor());
+      if (!is_block_scales_output ||
+          (is_block_scales_output && split->outer()->isDeviceDim())) {
+        num_devices =
+            SimplifyingIrBuilder::mulExpr(num_devices, split->factor());
+      }
     }
 
     // Mapping order isn't correct, cannot expand vectorization dimension.
