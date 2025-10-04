@@ -1668,24 +1668,16 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
   }
 
   void handle(const BlockQuantizationOp* bqop) final {
-    auto vectorized_input_to_reshape =
-        bqop->quantizedOutput()->as<kir::TensorIndex>()->view();
-    int64_t vector_word_size =
-        ir_utils::getVectorizeSize(vectorized_input_to_reshape);
-    NVF_ERROR(
-        vector_word_size == 4,
-        "Vectorization size should be 4 for "
-        "BlockQuantizationOp: ",
-        bqop->toString());
+    auto output = bqop->quantizedOutput()->as<kir::TensorIndex>()->view();
+    int64_t vector_word_size = ir_utils::getVectorizeSize(output);
+    auto input_dtype =
+        bqop->in()->as<kir::TensorIndex>()->view()->getDataType();
     ArgumentBuilder template_args;
     template_args.arg(vector_word_size); // ITEMS_PER_THREAD
 
     // Function arguments
     ArgumentBuilder func_args;
 
-    // We pass the entire Tensors without any indices.
-    // The device functions will write out values based on
-    // its parallelization.
     // First argument: input data array
     // Second argument: quantized output
     // Third argument: block scale output
@@ -1693,8 +1685,27 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     func_args.arg(ir_utils::varName(bqop->quantizedOutput()));
     func_args.arg(genInline(bqop->blockScales()));
 
-    indent() << genCall("bq::block_quantize_to_nvfp4", template_args, func_args)
-             << ";\n";
+    if (input_dtype == DataType::BFloat16) {
+      NVF_ERROR(
+          vector_word_size == 8,
+          "Vectorization size should be 4 for "
+          "BlockQuantizationOp: ",
+          bqop->toString());
+      indent() << genCall(
+                      "bq::block_quantize_bf16_to_nvfp4",
+                      template_args,
+                      func_args)
+               << ";\n";
+    } else {
+      NVF_ERROR(
+          vector_word_size == 4,
+          "Vectorization size should be 4 for "
+          "BlockQuantizationOp: ",
+          bqop->toString());
+      indent() << genCall(
+                      "bq::block_quantize_to_nvfp4", template_args, func_args)
+               << ";\n";
+    }
   }
 
   void handle(const ScanOp* scan) final {

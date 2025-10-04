@@ -532,6 +532,78 @@ TEST_F(BQTest, AutoScheduleSingleOpWithSwizzle) {
   }
 }
 
+TEST_F(BQTest, AutoScheduleSingleOp) {
+  const int m = 128;
+  const int n = 1024;
+
+  std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  createNVFP4QunatizationFusion(fusion.get(), DataType::BFloat16);
+
+  FusionExecutorCache fec(std::move(fusion));
+
+  std::vector<at::Tensor> inputs;
+  inputs.push_back(
+      at::randn({m, n}, at::device(at::kCUDA).dtype(at::kBFloat16)));
+  auto outputs_baseline = fec.runFusionWithInputs(inputs);
+
+  // Print baseline outputs
+  auto baseline_block_scales = outputs_baseline[0].as<at::Tensor>();
+  auto baseline_quantized_tensor = outputs_baseline[1].as<at::Tensor>();
+
+  // Move baseline tensors from GPU to CPU
+  auto baseline_block_scales_cpu = baseline_block_scales.cpu();
+  auto baseline_quantized_tensor_cpu = baseline_quantized_tensor.cpu();
+
+  const uint8_t* baseline_block_scales_data =
+      static_cast<const uint8_t*>(baseline_block_scales_cpu.data_ptr());
+  const uint8_t* baseline_quantized_data =
+      static_cast<const uint8_t*>(baseline_quantized_tensor_cpu.data_ptr());
+
+  std::unique_ptr<Fusion> fusion_new_op = std::make_unique<Fusion>();
+  FusionGuard fg2(fusion_new_op.get());
+
+  auto tv_in_1 = makeContigTensor(2, DataType::BFloat16);
+  fusion_new_op->addInput(tv_in_1);
+
+  // t0 is 2D
+  auto quantization_results = blockQuantize(tv_in_1);
+
+  // outputs are 3D
+  fusion_new_op->addOutput(quantization_results.block_scales);
+  fusion_new_op->addOutput(quantization_results.quantized_tensor);
+
+  FusionExecutorCache executor_cache(std::move(fusion_new_op));
+  auto outputs_new_op = executor_cache.runFusionWithInputs(inputs);
+
+  // Verify we got the expected outputs
+  auto block_scales_output = outputs_new_op[0].as<at::Tensor>();
+  auto quantized_tensor_output = outputs_new_op[1].as<at::Tensor>();
+
+  // Move tensors from GPU to CPU
+  auto block_scales_cpu = block_scales_output.cpu();
+  auto quantized_tensor_cpu = quantized_tensor_output.cpu();
+
+  auto block_scales_bytes = (m * n) / block_size;
+  auto quantized_tensor_bytes = (m * n) / 2;
+
+  const uint8_t* block_scales_data =
+      static_cast<const uint8_t*>(block_scales_cpu.data_ptr());
+  for (int i = 0; i < block_scales_bytes; ++i) {
+    EXPECT_EQ(
+        block_scales_data[i],
+        baseline_block_scales_data[i]); // Compare with baseline
+  }
+
+  const uint8_t* quantized_data =
+      static_cast<const uint8_t*>(quantized_tensor_cpu.data_ptr());
+  for (int i = 0; i < quantized_tensor_bytes; ++i) {
+    EXPECT_EQ(
+        quantized_data[i],
+        baseline_quantized_data[i]); // Compare with baseline
+  }
+}
+
 TEST_F(BQTest, AutoScheduleMultipleOps) {
   const int m = 1024;
   const int n = 1024;
