@@ -78,23 +78,24 @@ Returns the kernel profiles of the fusion profile.
 
 class PythonProfiler {
  public:
-  PythonProfiler() {
-    ProfilerOptionsGuard::getCurOptions().set(ProfilerOption::Enable);
-  }
-
-  ~PythonProfiler() {
-    ProfilerOptionsGuard::getCurOptions().unset(ProfilerOption::Enable);
-  }
+  PythonProfiler(bool auto_scheduled = false)
+      : auto_scheduled_(auto_scheduled) {}
 
   PythonProfiler* start() {
-    FusionProfiler::start();
-    FusionProfiler::createSegments(1);
+    ProfilerOptionsGuard::getCurOptions().set(ProfilerOption::Enable);
+    if (!auto_scheduled_) {
+      FusionProfiler::start();
+      FusionProfiler::createSegments(1);
+    }
     return this;
   }
 
   void stop() {
-    FusionProfiler::segment(0).scheduler("user");
-    FusionProfiler::stop();
+    if (!auto_scheduled_) {
+      FusionProfiler::segment(0).scheduler("user");
+      FusionProfiler::stop();
+    }
+    ProfilerOptionsGuard::getCurOptions().unset(ProfilerOption::Enable);
   }
 
   void reset() {
@@ -104,20 +105,32 @@ class PythonProfiler {
   const FusionProfile& get_fusion_profile() {
     const FusionProfile& profile = FusionProfiler::profile();
     NVF_ERROR(
-        profile.fusion_id < 0,
+        profile.fusion_id != -1,
         "Something went wrong with Fusion Profiling as an illegal fusion_id "
         "was returned!")
     NVF_ERROR(
-        profile.segments < 1,
+        profile.segments > 0,
         "Something went wrong with Fusion Profiling as no kernel segments were "
         "profiled!")
     return profile;
   }
+
+ private:
+  //! Automatically scheduled fusions use the FusionExecutorCache.
+  //! The FusionExecutorCache will trigger FusionProfiler, if it is enabled.
+  bool auto_scheduled_ = true;
 };
 
 void bindProfiler(py::module& nvfuser) {
   py::class_<PythonProfiler> profiler(nvfuser, "PythonProfiler");
-  profiler.def(py::init<>());
+  profiler.def(py::init<bool>(), py::arg("auto_scheduled") = true, R"(
+Create a new PythonProfiler.
+
+Parameters
+----------
+auto_scheduled : bool, optional
+    Whether the fusion is automatically scheduled.
+)");
   profiler.def(
       "__enter__",
       &PythonProfiler::start,
@@ -132,7 +145,7 @@ void bindProfiler(py::module& nvfuser) {
 Resets the fusion profile, so FusionProfiler can be used again.
 )");
   profiler.def_property_readonly(
-      "get_fusion_profile",
+      "profile",
       &PythonProfiler::get_fusion_profile,
       py::return_value_policy::reference,
       R"(
