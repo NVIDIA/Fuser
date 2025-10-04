@@ -487,15 +487,10 @@ def test_fusion_profiler():
         fusion_func(fd)
 
     # Testing that the profile returns 2 segments
-    try:
-        with PythonProfiler() as prof:
-            fd.execute(inputs)
-        assert prof.profile.segments == 2
-        assert len(prof.profile.kernel_profiles) == 2
-    except Exception as e:
-        raise RuntimeError(
-            "FusionDefinition's execute() did not run correctly with profile enabled!"
-        )
+    with PythonProfiler() as prof:
+        fd.execute(inputs)
+    assert prof.profile.segments == 2
+    assert len(prof.profile.kernel_profiles) == 2
 
 
 def test_fusion_profiler_with_noncodegen_kernels():
@@ -516,13 +511,8 @@ def test_fusion_profiler_with_noncodegen_kernels():
     with FusionDefinition() as fd:
         fusion_func(fd)
 
-    try:
-        with PythonProfiler() as prof:
-            fd.execute(inputs)
-        assert len(prof.profile.kernel_profiles) == 2
-        assert len(prof.profile.kernel_profiles[0].name) > 0
-        assert len(prof.profile.kernel_profiles[1].name) > 0
-    except Exception as e:
-        raise RuntimeError(
-            "FusionDefinition's execute() did not run correctly with profile enabled!"
-        )
+    with PythonProfiler() as prof:
+        fd.execute(inputs)
+    assert len(prof.profile.kernel_profiles) == 2
+    assert len(prof.profile.kernel_profiles[0].name) > 0
+    assert len(prof.profile.kernel_profiles[1].name) > 0
