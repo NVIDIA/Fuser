@@ -76,8 +76,78 @@ Returns the kernel profiles of the fusion profile.
 )");
 }
 
+class PythonProfiler {
+ public:
+  PythonProfiler() {
+    ProfilerOptionsGuard::getCurOptions().set(ProfilerOption::Enable);
+  }
+
+  ~PythonProfiler() {
+    ProfilerOptionsGuard::getCurOptions().unset(ProfilerOption::Enable);
+  }
+
+  PythonProfiler* start() {
+    FusionProfiler::start();
+    FusionProfiler::createSegments(1);
+    return this;
+  }
+
+  void stop() {
+    FusionProfiler::segment(0).scheduler("user");
+    FusionProfiler::stop();
+  }
+
+  void reset() {
+    FusionProfiler::reset();
+  }
+
+  const FusionProfile& get_fusion_profile() {
+    const FusionProfile& profile = FusionProfiler::profile();
+    NVF_ERROR(
+        profile.fusion_id < 0,
+        "Something went wrong with Fusion Profiling as an illegal fusion_id "
+        "was returned!")
+    NVF_ERROR(
+        profile.segments < 1,
+        "Something went wrong with Fusion Profiling as no kernel segments were "
+        "profiled!")
+    return profile;
+  }
+};
+
+void bindProfiler(py::module& nvfuser) {
+  py::class_<PythonProfiler> profiler(nvfuser, "PythonProfiler");
+  profiler.def(py::init<>());
+  profiler.def(
+      "__enter__",
+      &PythonProfiler::start,
+      py::return_value_policy::reference_internal);
+  profiler.def(
+      "__exit__",
+      [&](PythonProfiler& self,
+          py::object exc_type,
+          py::object exc_value,
+          py::object traceback) { self.stop(); });
+  profiler.def("reset", &PythonProfiler::reset, R"(
+Resets the fusion profile, so FusionProfiler can be used again.
+)");
+  profiler.def_property_readonly(
+      "get_fusion_profile",
+      &PythonProfiler::get_fusion_profile,
+      py::return_value_policy::reference,
+      R"(
+Returns the FusionProfile for the profiled fusion.
+
+Returns:
+    FusionProfile
+)");
+}
+
 } // namespace
 
-void bindProfile(py::module& nvfuser) {}
+void bindProfile(py::module& nvfuser) {
+  bindFusionProfile(nvfuser);
+  bindProfiler(nvfuser);
+}
 
 } // namespace nvfuser::python
