@@ -7,9 +7,10 @@ import pytest
 import torch
 from nvfuser_direct import nvf_cutlass
 
-if torch.cuda.get_device_capability() < (10, 0):
+compute_cap = torch.cuda.get_device_capability()
+if compute_cap < (10, 0) or compute_cap >= (12, 0):
     pytest.skip(
-        reason="Nvfp4 Requires compute capability of 10 or above.",
+        reason="Nvfp4 Requires compute capability 10.",
         allow_module_level=True,
     )
 

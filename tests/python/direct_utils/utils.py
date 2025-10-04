@@ -28,6 +28,11 @@ def is_pre_blackwell():
     return prop.major < 10
 
 
+def is_pre_blackwell_12():
+    prop = torch.cuda.get_device_properties(torch.cuda.current_device())
+    return prop.major < 12
+
+
 # Get string representation for FusionDefinition
 # Run captured python definition
 # Check that the result of captured python definition matches original results

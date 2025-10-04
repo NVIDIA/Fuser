@@ -6,6 +6,7 @@
 import torch
 import pytest
 from nvfuser_direct import FusionDefinition, DataType
+from conftest import require_device_mem_size_gb
 
 # Use smaller range for torch.testing.make_tensor for nvfuser_direct.validate
 LOW_VAL = -2
@@ -1637,6 +1638,7 @@ def test_issue2664_repro4(nvfuser_direct_test):
     T0 has a implicit broadcast which is used in add(T3) and neg (T4). T4 is
     used to inplace update T0, which causes RW race.
     """
+    require_device_mem_size_gb(32.0)
 
     def fusion_func(fd: FusionDefinition) -> None:
         T0 = fd.define_tensor(
@@ -1662,6 +1664,8 @@ def test_issue2664_repro4(nvfuser_direct_test):
         torch.randn((4194304, 1), dtype=torch.float32, device="cuda:0"),
         torch.randn((4194304, 128), dtype=torch.float32, device="cuda:0"),
     ]
+
+
     ref_out = [inputs[0] + inputs[1], -inputs[0]]
     out, _ = nvfuser_direct_test.exec_nvfuser(fusion_func, inputs)
 
@@ -1976,6 +1980,7 @@ def test_issue4444(nvfuser_direct_test):
     - Proper handling of tensor shapes and operations
     - Scalar definition and vector operations
     """
+    require_device_mem_size_gb(32.0)
 
     def fusion_func(fd: FusionDefinition) -> None:
         T0 = fd.define_tensor(
@@ -2429,6 +2434,7 @@ def test_ws_tma_normalization1(nvfuser_direct_test):
     This test verifies complex tensor operations with BFloat16 data type,
     including reshape, cast, broadcast, and mathematical operations.
     """
+    require_device_mem_size_gb(32.0)
 
     def fusion_func(fd: FusionDefinition) -> None:
         T0 = fd.define_tensor(
@@ -2736,6 +2742,7 @@ def test_ws_tma_normalization3(nvfuser_direct_test):
     This test verifies complex tensor operations with BFloat16 and Float data types,
     including reshape, cast, broadcast, and mathematical operations.
     """
+    require_device_mem_size_gb(32.0)
 
     def fusion_func(fd: FusionDefinition) -> None:
         T0 = fd.define_tensor(
@@ -2977,6 +2984,7 @@ def test_ws_tma_normalization5(nvfuser_direct_test):
     This test verifies complex tensor operations with BFloat16 and Float data types,
     including reshape, cast, broadcast, and mathematical operations.
     """
+    require_device_mem_size_gb(32.0)
 
     def fusion_func(fd: FusionDefinition) -> None:
         T0 = fd.define_tensor(
@@ -3993,6 +4001,7 @@ def test_ws_tma_normalization6(nvfuser_direct_test):
     This test verifies complex tensor operations with BFloat16 and Float data types,
     including scalar tensor operations, reshape, cast, broadcast, and mathematical operations.
     """
+    require_device_mem_size_gb(32.0)
 
     def fusion_func(fd: FusionDefinition) -> None:
         T0 = fd.define_tensor(
