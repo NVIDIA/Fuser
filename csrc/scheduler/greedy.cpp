@@ -631,6 +631,9 @@ class RunTimeChecker : private IterVisitor {
     const auto available_size =
         at::cuda::getCurrentDeviceProperties()->sharedMemPerBlock;
 
+    std::cerr << "total_required: " << total_required_size
+              << ", available: " << available_size << std::endl;
+
     if (total_required_size > available_size) {
       reject(
           "Not enough shared memory. Required size for CUB: ",
@@ -679,8 +682,16 @@ class RunTimeChecker : private IterVisitor {
   }
 
   void handle(TopKOp* topk) override {
-    checkDomainConstraints(
-        ir_utils::getTvOutput(topk)->getLogicalDomain(), {topk->dim()});
+    int64_t size_of_constrained_ids = checkDomainConstraints(
+        TensorDomain::noReductions(
+            ir_utils::getTvInput(topk)->getLogicalDomain()),
+        {topk->dim()});
+
+    int64_t batch_size =
+        ceilDiv(size_of_constrained_ids, max_threads_per_block_);
+    int64_t bdimx = std::min(size_of_constrained_ids, max_threads_per_block_);
+    cub_shmem_buffer_.registerTopK(
+        bdimx, batch_size, ir_utils::getTvInput(topk)->dtype());
   }
 
   void handle(ScatterOp* scatter) override {

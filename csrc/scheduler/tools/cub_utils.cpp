@@ -199,10 +199,15 @@ void CubSharedMemoryBuffer::registerArgsort(
   argsort_calls_.emplace(items_per_thread, dtype);
 }
 
-int64_t CubSharedMemoryBuffer::getArgsortTotalSizeInBytes() const {
-  // CUB has two algorithms depending on the divisibility of the block
-  // size by the warp size.
+void CubSharedMemoryBuffer::registerTopK(
+    int64_t bdimx,
+    int64_t items_per_thread,
+    DataType dtype) {
+  max_bdimx_ = std::max(max_bdimx_, bdimx);
+  topk_calls_.emplace(items_per_thread, dtype);
+}
 
+int64_t CubSharedMemoryBuffer::getArgsortTotalSizeInBytes() const {
   int64_t total_size = 0;
   for (const auto& template_instance : argsort_calls_) {
     total_size += computeBlockRadixSortTempStorageBytes(
@@ -215,8 +220,21 @@ int64_t CubSharedMemoryBuffer::getArgsortTotalSizeInBytes() const {
   return total_size;
 }
 
+int64_t CubSharedMemoryBuffer::getTopKTotalSizeInBytes() const {
+  int64_t total_size = 0;
+  for (const auto& template_instance : topk_calls_) {
+    total_size += computeBlockRadixSortTempStorageBytes(
+        max_bdimx_,
+        template_instance.items_per_thread,
+        dataTypeSizeByte(template_instance.dtype),
+        sizeof(int64_t));
+  }
+
+  return total_size;
+}
+
 int64_t CubSharedMemoryBuffer::getTotalSizeInBytes() const {
-  return getArgsortTotalSizeInBytes();
+  return getArgsortTotalSizeInBytes() + getTopKTotalSizeInBytes();
 }
 
 } // namespace scheduler_tools

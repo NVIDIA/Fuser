@@ -313,7 +313,9 @@ class ArgsortParameterizedWithBlockandBatch
 
 TEST_P(ArgsortParameterizedWithBlockandBatch, SharedMemoryRequirement) {
   DisableOptionsGuard disable_options_guard;
+  // Avoid using magic zero to make the estimation simpler
   DisableOptionsGuard::getCurOptions().set(DisableOption::MagicZero);
+  // Avoid insertion of segmenter_set
   preseg_passes::OptimizationPassGuard<preseg_passes::MarkAliasesPreparePass>
       optimization_guard(false);
 
@@ -402,54 +404,8 @@ INSTANTIATE_TEST_SUITE_P(
     [](const auto& info) {
       std::ostringstream os;
       os << std::get<0>(info.param) << "_" << std::get<1>(info.param) << "_"
-         << std::get<2>(info.param) << "_" << std::get<3>(info.param);
+         << std::get<2>(info.param);
       return os.str();
     });
-
-TEST_F(ArgsortTest, TMP) {
-  auto fusion_ptr = std::make_unique<Fusion>();
-  Fusion& fusion = *fusion_ptr.get();
-  FusionGuard fg(&fusion);
-
-  auto size = atoi(getenv("SIZE"));
-  // auto tidx = atoi(getenv("TIDX"));
-  auto bidx = atoi(getenv("BIDX"));
-
-  int64_t pad = -1;
-  if (getenv("PAD")) {
-    pad = atoi(getenv("PAD"));
-  }
-
-  std::vector<int64_t> shape = {size};
-  // auto tv0 = makeContigConcreteTensor(shape, DataType::Int);
-  auto tv0 = makeContigTensor(1, DataType::Int);
-  fusion.addInput(tv0);
-
-  auto tv1 = set(tv0);
-  auto tv2 = sum(tv1, {0});
-  auto tv3 = set(tv2);
-  fusion.addOutput(tv3);
-
-  for (auto tv : fusion.allTvs()) {
-    if (tv->nDims() > 0) {
-      tv->split(0, bidx, false);
-      tv->axis(1)->parallelize(ParallelType::TIDx);
-      if (pad > 0) {
-        tv->axis(1)->padToMultipleOfWarp(pad);
-      } else if (pad == 0) {
-        tv->axis(1)->padToMultipleOfWarp();
-      }
-    }
-  }
-
-  fusion.printMath();
-
-  auto options = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
-  at::Tensor t0 = at::randint(0, 100, shape, options);
-
-  KernelExecutor ke;
-  ke.compile(&fusion, {t0});
-  ke.run({t0});
-}
 
 } // namespace nvfuser
