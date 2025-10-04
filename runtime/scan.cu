@@ -88,7 +88,7 @@ __device__ void blockScan(
   using BlockScan = cub::BlockScan<
       typename cub_utils::CudaType<DataT>::type, // Data type
       BLOCK_DIM_X, // X dimension
-      cub::BLOCK_SCAN_RAKING, // Algorithm (default for BlockScan)
+      cub::BLOCK_SCAN_WARP_SCANS, // Algorithm
       BLOCK_DIM_Y, // Y dimension
       BLOCK_DIM_Z // Z dimension
       >;

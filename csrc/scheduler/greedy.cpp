@@ -651,9 +651,17 @@ class RunTimeChecker : private IterVisitor {
     }
     IterVisitor::dispatch(expr);
 
-    largest_data_type_size_ = std::max(
-        largest_data_type_size_,
-        dataTypeSizeByte(ir_utils::getTvInput(expr)->dtype()));
+    // Accumulate the largest type size for estimating the buffer size
+    // required for resolving scheduling conflicts. This is a
+    // conservative, gross estimate that should be improved as needed.
+    for (auto inp_tv : ir_utils::filterByType<TensorView>(expr->inputs())) {
+      largest_data_type_size_ =
+          std::max(largest_data_type_size_, dataTypeSizeByte(inp_tv->dtype()));
+    }
+    for (auto out_tv : ir_utils::filterByType<TensorView>(expr->outputs())) {
+      largest_data_type_size_ =
+          std::max(largest_data_type_size_, dataTypeSizeByte(out_tv->dtype()));
+    }
   }
 
   void handle(ArgsortOp* argsort) override {

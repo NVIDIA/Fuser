@@ -828,7 +828,9 @@ class GreedySchedulerTestShmemSize : public GreedySchedulerTest,
 };
 
 // Simplified version of
-// ArgsortParameterizedWithBlockandBatch.SharedMemoryRequirement
+// ArgsortParameterizedWithBlockandBatch.SharedMemoryRequirement. The
+// test may be segmented but should not fail as long as the
+// expectation of the shared memory usage is accurate.
 TEST_P(GreedySchedulerTestShmemSize, Argsort) {
   DisableOptionsGuard disable_options_guard;
   DisableOptionsGuard::getCurOptions().set(DisableOption::MagicZero);
@@ -876,7 +878,9 @@ TEST_P(GreedySchedulerTestShmemSize, Argsort) {
 }
 
 // Simplified version of
-// TopKParameterizedWithBlockandBatch.SharedMemoryRequirement
+// TopKParameterizedWithBlockandBatch.SharedMemoryRequirement. The
+// test may be segmented but should not fail as long as the
+// expectation of the shared memory usage is accurate.
 TEST_P(GreedySchedulerTestShmemSize, TopK) {
   DisableOptionsGuard disable_options_guard;
   DisableOptionsGuard::getCurOptions().set(DisableOption::MagicZero);
@@ -884,6 +888,11 @@ TEST_P(GreedySchedulerTestShmemSize, TopK) {
       optimization_guard(false);
 
   const auto size = GetParam();
+
+  // topk doesn't support batching, so the maximum is 1024
+  if (size > 1024) {
+    return;
+  }
 
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
@@ -915,9 +924,50 @@ TEST_P(GreedySchedulerTestShmemSize, TopK) {
   auto tv9 = set(tv8);
   fusion.addOutput(tv9);
 
-  for (auto tv : fusion.allTvs()) {
-    tv->axis(0)->parallelize(ParallelType::TIDx);
-  }
+  auto options = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randint(0, shape[0], shape, options);
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs({t0});
+  testValidate(executor_cache.fusion(), outputs, {t0}, __LINE__, __FILE__);
+}
+
+// Simplified version of
+// ScanParameterizedWithBlockandBatch.SharedMemoryRequirement. The
+// test may be segmented but should not fail as long as the
+// expectation of the shared memory usage is accurate.
+TEST_P(GreedySchedulerTestShmemSize, Scan) {
+  DisableOptionsGuard disable_options_guard;
+  DisableOptionsGuard::getCurOptions().set(DisableOption::MagicZero);
+  preseg_passes::OptimizationPassGuard<preseg_passes::MarkAliasesPreparePass>
+      optimization_guard(false);
+
+  const auto size = GetParam();
+
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  DataType dtype = DataType::Int;
+  DataType dtype_extra = DataType::Float;
+
+  std::vector<int64_t> shape = {size};
+
+  auto tv0 = makeContigConcreteTensor(shape, dtype);
+  fusion.addInput(tv0);
+
+  auto tv1 = cumsum(tv0, 0);
+  fusion.addOutput(tv1);
+
+  // Duplicate the above call but should not change the usage as it's
+  // the same template instantiation
+  auto tv2 = cumsum(tv0, 0);
+  fusion.addOutput(tv2);
+
+  // Create a different instantiation
+  auto tv3 = castOp(dtype_extra, tv0);
+  auto tv4 = cumsum(tv3, 0);
+  fusion.addOutput(tv4);
 
   auto options = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
   at::Tensor t0 = at::randint(0, shape[0], shape, options);
@@ -930,11 +980,44 @@ TEST_P(GreedySchedulerTestShmemSize, TopK) {
 INSTANTIATE_TEST_SUITE_P(
     ,
     GreedySchedulerTestShmemSize,
-    testing::Values(128, 256, 512, 1024),
+    testing::Values(128, 256, 512, 1024, 2048, 4096),
     [](const auto& info) {
       std::ostringstream os;
       os << info.param;
       return os.str();
     });
+
+TEST_F(GreedySchedulerTest, TMP) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeSymbolicTensor(1);
+  fusion.addInput(tv0);
+
+  auto tv1 = set(tv0);
+  auto tv2 = set(tv1);
+  auto tv3 = set(tv2);
+  auto tv4 = set(tv3);
+  fusion.addOutput(tv4);
+
+  tv1->setMemoryType(MemoryType::Shared);
+  tv1->axis(0)->parallelize(ParallelType::TIDx);
+  tv2->setMemoryType(MemoryType::Shared);
+  tv2->axis(0)->parallelize(ParallelType::TIDx);
+  tv3->setMemoryType(MemoryType::Shared);
+  tv3->axis(0)->parallelize(ParallelType::TIDx);
+  tv4->axis(0)->parallelize(ParallelType::TIDx);
+
+  fusion.printKernel();
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({100}, options);
+
+  KernelExecutor ke;
+  ke.compile(&fusion, {t0});
+  auto outputs = ke.run({t0});
+  testValidate(&fusion, outputs, {t0}, __LINE__, __FILE__);
+}
 
 } // namespace nvfuser

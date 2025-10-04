@@ -321,6 +321,12 @@ TEST_P(ArgsortParameterizedWithBlockandBatch, SharedMemoryRequirement) {
 
   const auto [size, batch, has_extra] = GetParam();
 
+  // This combination is not considered as the number of threads
+  // exceeds the limit
+  if (ceilDiv(size, batch) > 1024) {
+    return;
+  }
+
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
@@ -397,9 +403,8 @@ INSTANTIATE_TEST_SUITE_P(
     ,
     ArgsortParameterizedWithBlockandBatch,
     testing::Combine(
-        testing::Values(128, 256, 512, 1024),
-        testing::Range(1, 8),
-        testing::Bool(),
+        testing::Values(128, 256, 512, 1024, 2048, 4096),
+        testing::Values(1, 2, 3, 4, 8),        
         testing::Bool()),
     [](const auto& info) {
       std::ostringstream os;
