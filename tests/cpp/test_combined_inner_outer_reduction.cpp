@@ -1333,7 +1333,7 @@ TEST(StaticWarpReductionTest, StaticWarpReductionValidation) {
       EnableOption::WarpSpecializedNormalization);
 
   int64_t dim0 = 2048;
-  int64_t dim1 = 8192;
+  int64_t dim1 = 4096;
   DataType dtype = DataType::Float;
 
   auto fusion_ptr = std::make_unique<Fusion>();
