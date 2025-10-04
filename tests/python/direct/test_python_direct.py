@@ -469,7 +469,7 @@ def test_mismatched_input_types():
         nvf_out = fd.execute([tensor_inp, 2.0 + 1.0j])
 
 
-def test_fusion_profiler():
+def test_fusion_profiler_auto_scheduled():
     inputs = [
         torch.randn((2, 5), dtype=torch.float, device="cuda:0"),
         torch.randn((2, 5), dtype=torch.float, device="cuda:0"),
@@ -487,13 +487,20 @@ def test_fusion_profiler():
         fusion_func(fd)
 
     # Testing that the profile returns 2 segments
-    with PythonProfiler() as prof:
-        fd.execute(inputs)
-    assert prof.profile.segments == 2
-    assert len(prof.profile.kernel_profiles) == 2
+    try:
+        with PythonProfiler() as prof:
+            fd.execute(inputs)
+        assert prof.profile.segments == 2
+        assert len(prof.profile.kernel_profiles) == 2
+    except Exception as e:
+        print(e)
+        raise RuntimeError(
+            "FusionDefinition did not run correctly with profile enabled! Error: "
+            + str(e)
+        )
 
 
-def test_fusion_profiler_user_schedule():
+def test_fusion_profiler_user_scheduled():
     inputs = [
         torch.randn((2, 5), dtype=torch.float, device="cuda:0"),
         torch.randn((2, 5), dtype=torch.float, device="cuda:0"),
@@ -508,10 +515,16 @@ def test_fusion_profiler_user_schedule():
     with FusionDefinition() as fd:
         fusion_func(fd)
 
-    with PythonProfiler(auto_scheduled=False) as prof:
-        fd.manual_execute(inputs)
-    assert prof.profile.fusion_id >= 0
-    assert prof.profile.kernel_profiles[0].scheduler == "user"
+    try:
+        with PythonProfiler(auto_scheduled=False) as prof:
+            fd.manual_execute(inputs)
+        assert prof.profile.fusion_id >= 0
+        assert prof.profile.kernel_profiles[0].scheduler == "user"
+    except Exception as e:
+        raise RuntimeError(
+            "FusionDefinition did not run correctly with profile enabled! Error: "
+            + str(e)
+        )
 
 
 def test_fusion_profiler_with_noncodegen_kernels():
@@ -532,8 +545,14 @@ def test_fusion_profiler_with_noncodegen_kernels():
     with FusionDefinition() as fd:
         fusion_func(fd)
 
-    with PythonProfiler() as prof:
-        fd.execute(inputs)
-    assert len(prof.profile.kernel_profiles) == 2
-    assert len(prof.profile.kernel_profiles[0].name) > 0
-    assert len(prof.profile.kernel_profiles[1].name) > 0
+    try:
+        with PythonProfiler() as prof:
+            fd.execute(inputs)
+        assert len(prof.profile.kernel_profiles) == 2
+        assert len(prof.profile.kernel_profiles[0].name) > 0
+        assert len(prof.profile.kernel_profiles[1].name) > 0
+    except Exception as e:
+        raise RuntimeError(
+            "FusionDefinition did not run correctly with profile enabled! Error: "
+            + str(e)
+        )
