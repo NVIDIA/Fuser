@@ -178,6 +178,7 @@ const std::unordered_map<std::string, EnableOption>& getEnableOptions() {
           {"host_ir_lowering", EnableOption::HostIrLowering},
           {"insert_resharding_after", EnableOption::InsertReshardingAfter},
           {"fast_math", EnableOption::FastMath},
+          {"multiple_process_groups", EnableOption::MultipleProcessGroups},
       };
   return available_options;
 }

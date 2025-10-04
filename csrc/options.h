@@ -122,6 +122,7 @@ enum class EnableOption {
   HostIrLowering, //! Enable FusionKernelRuntime lowering to host IR
   InsertReshardingAfter, //! Insert resharding set after the expression
   FastMath, //! Enable fast math optimizations (--use_fast_math)
+  MultipleProcessGroups, //! Enable multiple process groups
   EndOfOption //! Placeholder for counting the number of elements
 };
 

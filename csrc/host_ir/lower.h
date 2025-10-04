@@ -46,7 +46,8 @@ namespace hir_pass {
 std::vector<Expr*> convertSingleOpToCommunication(
     Expr* c,
     DeviceIdxType my_device_idx,
-    const HostIrLowerParams& params);
+    const HostIrLowerParams& params,
+    Val* tag = nullptr);
 
 } // namespace hir_pass
 
