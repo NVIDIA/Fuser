@@ -493,6 +493,27 @@ def test_fusion_profiler():
     assert len(prof.profile.kernel_profiles) == 2
 
 
+def test_fusion_profiler_user_schedule():
+    inputs = [
+        torch.randn((2, 5), dtype=torch.float, device="cuda:0"),
+        torch.randn((2, 5), dtype=torch.float, device="cuda:0"),
+    ]
+
+    def fusion_func(fd: FusionDefinition) -> None:
+        T0 = fd.from_pytorch(inputs[0])
+        T1 = fd.from_pytorch(inputs[1])
+        T2 = fd.ops.add(T0, T1)
+        fd.add_output(T2)
+
+    with FusionDefinition() as fd:
+        fusion_func(fd)
+
+    with PythonProfiler(auto_scheduled=False) as prof:
+        fd.manual_execute(inputs)
+    assert prof.profile.fusion_id >= 0
+    assert prof.profile.kernel_profiles[0].scheduler == "user"
+
+
 def test_fusion_profiler_with_noncodegen_kernels():
     inputs = [
         torch.randn((2, 4, 16), dtype=torch.bfloat16, device="cuda:0"),
