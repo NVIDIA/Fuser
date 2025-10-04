@@ -180,6 +180,8 @@
 <li class="toctree-l2"><a class="reference internal" href="api/general.html#tensorview">TensorView</a><ul>
 <li class="toctree-l3"><a class="reference internal" href="api/general.html#nvfuser_direct.TensorView"><code class="docutils literal notranslate"><span class="pre">TensorView</span></code></a><ul>
 <li class="toctree-l4"><a class="reference internal" href="api/general.html#nvfuser_direct.TensorView.axis"><code class="docutils literal notranslate"><span class="pre">TensorView.axis()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/general.html#nvfuser_direct.TensorView.cache_after"><code class="docutils literal notranslate"><span class="pre">TensorView.cache_after()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/general.html#nvfuser_direct.TensorView.cache_before"><code class="docutils literal notranslate"><span class="pre">TensorView.cache_before()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="api/general.html#nvfuser_direct.TensorView.domain"><code class="docutils literal notranslate"><span class="pre">TensorView.domain()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="api/general.html#nvfuser_direct.TensorView.get_logical_domain"><code class="docutils literal notranslate"><span class="pre">TensorView.get_logical_domain()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="api/general.html#nvfuser_direct.TensorView.get_loop_domain"><code class="docutils literal notranslate"><span class="pre">TensorView.get_loop_domain()</span></code></a></li>
@@ -187,9 +189,11 @@
 <li class="toctree-l4"><a class="reference internal" href="api/general.html#nvfuser_direct.TensorView.has_root"><code class="docutils literal notranslate"><span class="pre">TensorView.has_root()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="api/general.html#nvfuser_direct.TensorView.merge"><code class="docutils literal notranslate"><span class="pre">TensorView.merge()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="api/general.html#nvfuser_direct.TensorView.ndim"><code class="docutils literal notranslate"><span class="pre">TensorView.ndim</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/general.html#nvfuser_direct.TensorView.reorder"><code class="docutils literal notranslate"><span class="pre">TensorView.reorder()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="api/general.html#nvfuser_direct.TensorView.rfactor"><code class="docutils literal notranslate"><span class="pre">TensorView.rfactor()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="api/general.html#nvfuser_direct.TensorView.set_allocation_domain"><code class="docutils literal notranslate"><span class="pre">TensorView.set_allocation_domain()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="api/general.html#nvfuser_direct.TensorView.set_device_mesh"><code class="docutils literal notranslate"><span class="pre">TensorView.set_device_mesh()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/general.html#nvfuser_direct.TensorView.set_memory_type"><code class="docutils literal notranslate"><span class="pre">TensorView.set_memory_type()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="api/general.html#nvfuser_direct.TensorView.shape"><code class="docutils literal notranslate"><span class="pre">TensorView.shape()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="api/general.html#nvfuser_direct.TensorView.size"><code class="docutils literal notranslate"><span class="pre">TensorView.size()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="api/general.html#nvfuser_direct.TensorView.split"><code class="docutils literal notranslate"><span class="pre">TensorView.split()</span></code></a></li>
@@ -454,8 +458,10 @@
 </li>
 <li class="toctree-l2"><a class="reference internal" href="api/pod_class.html#compileparams">CompileParams</a><ul>
 <li class="toctree-l3"><a class="reference internal" href="api/pod_class.html#nvfuser_direct.CompileParams"><code class="docutils literal notranslate"><span class="pre">CompileParams</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="api/pod_class.html#nvfuser_direct.CompileParams.device"><code class="docutils literal notranslate"><span class="pre">CompileParams.device</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="api/pod_class.html#nvfuser_direct.CompileParams.enable_magic_zero"><code class="docutils literal notranslate"><span class="pre">CompileParams.enable_magic_zero</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="api/pod_class.html#nvfuser_direct.CompileParams.enable_ptxas_verbose"><code class="docutils literal notranslate"><span class="pre">CompileParams.enable_ptxas_verbose</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/pod_class.html#nvfuser_direct.CompileParams.include_paths"><code class="docutils literal notranslate"><span class="pre">CompileParams.include_paths</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="api/pod_class.html#nvfuser_direct.CompileParams.index_type"><code class="docutils literal notranslate"><span class="pre">CompileParams.index_type</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="api/pod_class.html#nvfuser_direct.CompileParams.maxrregcount"><code class="docutils literal notranslate"><span class="pre">CompileParams.maxrregcount</span></code></a></li>
 </ul>
@@ -746,6 +752,10 @@
 <h2 id="C">C</h2>
 <table style="width: 100%" class="indextable genindextable"><tr>
   <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="api/general.html#nvfuser_direct.TensorView.cache_after">cache_after() (nvfuser_direct.TensorView method)</a>
+</li>
+      <li><a href="api/general.html#nvfuser_direct.TensorView.cache_before">cache_before() (nvfuser_direct.TensorView method)</a>
+</li>
       <li><a href="api/ops.html#nvfuser_direct.ops.cast">cast() (in module nvfuser_direct.ops)</a>
 </li>
       <li><a href="api/ops.html#nvfuser_direct.ops.ceil">ceil() (in module nvfuser_direct.ops)</a>
@@ -758,10 +768,10 @@
 </li>
       <li><a href="api/general.html#nvfuser_direct.KernelExecutor.compile">compile() (nvfuser_direct.KernelExecutor method)</a>
 </li>
-      <li><a href="api/pod_class.html#nvfuser_direct.CompileParams">CompileParams (class in nvfuser_direct)</a>
-</li>
   </ul></td>
   <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="api/pod_class.html#nvfuser_direct.CompileParams">CompileParams (class in nvfuser_direct)</a>
+</li>
       <li><a href="api/ops.html#nvfuser_direct.ops.complex">complex() (in module nvfuser_direct.ops)</a>
 </li>
       <li><a href="api/ops.html#nvfuser_direct.ops.cos">cos() (in module nvfuser_direct.ops)</a>
@@ -795,6 +805,8 @@
   </ul></td>
   <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="api/general.html#nvfuser_direct.Val.definition">definition() (nvfuser_direct.Val method)</a>
+</li>
+      <li><a href="api/pod_class.html#nvfuser_direct.CompileParams.device">device (nvfuser_direct.CompileParams property)</a>
 </li>
       <li><a href="api/multidevice.html#nvfuser_direct.multidevice.DeviceMesh">DeviceMesh (class in nvfuser_direct.multidevice)</a>
 </li>
@@ -923,6 +935,8 @@
 <table style="width: 100%" class="indextable genindextable"><tr>
   <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="api/ops.html#nvfuser_direct.ops.imag">imag() (in module nvfuser_direct.ops)</a>
+</li>
+      <li><a href="api/pod_class.html#nvfuser_direct.CompileParams.include_paths">include_paths (nvfuser_direct.CompileParams property)</a>
 </li>
       <li><a href="api/ops.html#nvfuser_direct.ops.index_select">index_select() (in module nvfuser_direct.ops)</a>
 </li>
@@ -1130,9 +1144,11 @@
 </li>
       <li><a href="api/ops.html#nvfuser_direct.ops.relu">relu() (in module nvfuser_direct.ops)</a>
 </li>
+      <li><a href="api/ops.html#nvfuser_direct.ops.remainder">remainder() (in module nvfuser_direct.ops)</a>
+</li>
   </ul></td>
   <td style="width: 33%; vertical-align: top;"><ul>
-      <li><a href="api/ops.html#nvfuser_direct.ops.remainder">remainder() (in module nvfuser_direct.ops)</a>
+      <li><a href="api/general.html#nvfuser_direct.TensorView.reorder">reorder() (nvfuser_direct.TensorView method)</a>
 </li>
       <li><a href="api/general.html#nvfuser_direct.FusionDefinition.repro_script_for">repro_script_for() (nvfuser_direct.FusionDefinition method)</a>
 </li>
@@ -1171,6 +1187,8 @@
       <li><a href="api/general.html#nvfuser_direct.TensorView.set_allocation_domain">set_allocation_domain() (nvfuser_direct.TensorView method)</a>
 </li>
       <li><a href="api/general.html#nvfuser_direct.TensorView.set_device_mesh">set_device_mesh() (nvfuser_direct.TensorView method)</a>
+</li>
+      <li><a href="api/general.html#nvfuser_direct.TensorView.set_memory_type">set_memory_type() (nvfuser_direct.TensorView method)</a>
 </li>
       <li><a href="api/multidevice.html#nvfuser_direct.multidevice.DeviceMesh.shape">shape (nvfuser_direct.multidevice.DeviceMesh property)</a>
 </li>

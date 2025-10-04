@@ -183,6 +183,8 @@
 <li class="toctree-l2"><a class="reference internal" href="#tensorview">TensorView</a><ul>
 <li class="toctree-l3"><a class="reference internal" href="#nvfuser_direct.TensorView"><code class="docutils literal notranslate"><span class="pre">TensorView</span></code></a><ul>
 <li class="toctree-l4"><a class="reference internal" href="#nvfuser_direct.TensorView.axis"><code class="docutils literal notranslate"><span class="pre">TensorView.axis()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#nvfuser_direct.TensorView.cache_after"><code class="docutils literal notranslate"><span class="pre">TensorView.cache_after()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#nvfuser_direct.TensorView.cache_before"><code class="docutils literal notranslate"><span class="pre">TensorView.cache_before()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="#nvfuser_direct.TensorView.domain"><code class="docutils literal notranslate"><span class="pre">TensorView.domain()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="#nvfuser_direct.TensorView.get_logical_domain"><code class="docutils literal notranslate"><span class="pre">TensorView.get_logical_domain()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="#nvfuser_direct.TensorView.get_loop_domain"><code class="docutils literal notranslate"><span class="pre">TensorView.get_loop_domain()</span></code></a></li>
@@ -190,9 +192,11 @@
 <li class="toctree-l4"><a class="reference internal" href="#nvfuser_direct.TensorView.has_root"><code class="docutils literal notranslate"><span class="pre">TensorView.has_root()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="#nvfuser_direct.TensorView.merge"><code class="docutils literal notranslate"><span class="pre">TensorView.merge()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="#nvfuser_direct.TensorView.ndim"><code class="docutils literal notranslate"><span class="pre">TensorView.ndim</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#nvfuser_direct.TensorView.reorder"><code class="docutils literal notranslate"><span class="pre">TensorView.reorder()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="#nvfuser_direct.TensorView.rfactor"><code class="docutils literal notranslate"><span class="pre">TensorView.rfactor()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="#nvfuser_direct.TensorView.set_allocation_domain"><code class="docutils literal notranslate"><span class="pre">TensorView.set_allocation_domain()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="#nvfuser_direct.TensorView.set_device_mesh"><code class="docutils literal notranslate"><span class="pre">TensorView.set_device_mesh()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#nvfuser_direct.TensorView.set_memory_type"><code class="docutils literal notranslate"><span class="pre">TensorView.set_memory_type()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="#nvfuser_direct.TensorView.shape"><code class="docutils literal notranslate"><span class="pre">TensorView.shape()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="#nvfuser_direct.TensorView.size"><code class="docutils literal notranslate"><span class="pre">TensorView.size()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="#nvfuser_direct.TensorView.split"><code class="docutils literal notranslate"><span class="pre">TensorView.split()</span></code></a></li>
@@ -457,8 +461,10 @@
 </li>
 <li class="toctree-l2"><a class="reference internal" href="pod_class.html#compileparams">CompileParams</a><ul>
 <li class="toctree-l3"><a class="reference internal" href="pod_class.html#nvfuser_direct.CompileParams"><code class="docutils literal notranslate"><span class="pre">CompileParams</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="pod_class.html#nvfuser_direct.CompileParams.device"><code class="docutils literal notranslate"><span class="pre">CompileParams.device</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="pod_class.html#nvfuser_direct.CompileParams.enable_magic_zero"><code class="docutils literal notranslate"><span class="pre">CompileParams.enable_magic_zero</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="pod_class.html#nvfuser_direct.CompileParams.enable_ptxas_verbose"><code class="docutils literal notranslate"><span class="pre">CompileParams.enable_ptxas_verbose</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="pod_class.html#nvfuser_direct.CompileParams.include_paths"><code class="docutils literal notranslate"><span class="pre">CompileParams.include_paths</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="pod_class.html#nvfuser_direct.CompileParams.index_type"><code class="docutils literal notranslate"><span class="pre">CompileParams.index_type</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="pod_class.html#nvfuser_direct.CompileParams.maxrregcount"><code class="docutils literal notranslate"><span class="pre">CompileParams.maxrregcount</span></code></a></li>
 </ul>
@@ -885,6 +891,60 @@ across CUDA threads and blocks.</p>
 </dd></dl>
 
 <dl class="py method">
+<dt class="sig sig-object py" id="nvfuser_direct.TensorView.cache_after">
+<span class="sig-name descname"><span class="pre">cache_after</span></span><span class="sig-paren">(</span>
+
+<dl>
+<dd><em class="sig-param"><span class="n"><span class="pre">self:</span> <span class="pre">nvfuser_direct._C_DIRECT.TensorView</span></span></em>,</dd>
+<dd><em class="sig-param"><span class="n"><span class="pre">op_type:</span> <span class="pre">nvfuser_direct._C_DIRECT.LoadStoreOpType</span> <span class="pre">=</span> <span class="pre">&lt;LoadStoreOpType.set:</span> <span class="pre">0&gt;</span></span></em>,</dd>
+<dd><em class="sig-param"><span class="n"><span class="pre">cache_op:</span> <span class="pre">nvfuser_direct._C_DIRECT.CacheOp</span> <span class="pre">=</span> <span class="pre">&lt;CacheOp.unspecified:</span> <span class="pre">0&gt;</span></span></em>,</dd>
+<dd><em class="sig-param"><span class="n"><span class="pre">propagate_allocation_domain:</span> <span class="pre">bool</span> <span class="pre">=</span> <span class="pre">True</span></span></em>,</dd>
+<dd><em class="sig-param"><span class="n"><span class="pre">cached_uses:</span> <span class="pre">list[nvfuser_direct._C_DIRECT.Expr]</span> <span class="pre">=</span> <span class="pre">[]</span></span></em>,</dd>
+</dl>
+
+<span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference internal" href="#nvfuser_direct.TensorView" title="nvfuser_direct._C_DIRECT.TensorView"><span class="pre">nvfuser_direct._C_DIRECT.TensorView</span></a></span></span><a class="headerlink" href="#nvfuser_direct.TensorView.cache_after" title="Link to this definition"></a></dt>
+<dd><p>Cache the TensorView after the specified operation.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>op_type</strong> (<em>LoadStoreOpType</em><em>, </em><em>optional</em>) – The type of load/store operation (default: Set).</p></li>
+<li><p><strong>cache_op</strong> (<em>CacheOp</em><em>, </em><em>optional</em>) – The type of cache operation (default: Unspecified).</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>The new cached TensorView.</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference internal" href="#nvfuser_direct.TensorView" title="nvfuser_direct.TensorView">TensorView</a></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="nvfuser_direct.TensorView.cache_before">
+<span class="sig-name descname"><span class="pre">cache_before</span></span><span class="sig-paren">(</span>
+
+<dl>
+<dd><em class="sig-param"><span class="n"><span class="pre">self:</span> <span class="pre">nvfuser_direct._C_DIRECT.TensorView</span></span></em>,</dd>
+<dd><em class="sig-param"><span class="n"><span class="pre">op_type:</span> <span class="pre">nvfuser_direct._C_DIRECT.LoadStoreOpType</span> <span class="pre">=</span> <span class="pre">&lt;LoadStoreOpType.set:</span> <span class="pre">0&gt;</span></span></em>,</dd>
+</dl>
+
+<span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference internal" href="#nvfuser_direct.TensorView" title="nvfuser_direct._C_DIRECT.TensorView"><span class="pre">nvfuser_direct._C_DIRECT.TensorView</span></a></span></span><a class="headerlink" href="#nvfuser_direct.TensorView.cache_before" title="Link to this definition"></a></dt>
+<dd><p>Cache the TensorView before the specified operation.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>op_type</strong> (<em>LoadStoreOpType</em><em>, </em><em>optional</em>) – The type of load/store operation (default: Set).</p>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>The new cached TensorView.</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference internal" href="#nvfuser_direct.TensorView" title="nvfuser_direct.TensorView">TensorView</a></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
 <dt class="sig sig-object py" id="nvfuser_direct.TensorView.domain">
 <span class="sig-name descname"><span class="pre">domain</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">self</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="#nvfuser_direct.TensorView" title="nvfuser_direct._C_DIRECT.TensorView"><span class="pre">nvfuser_direct._C_DIRECT.TensorView</span></a></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference internal" href="#nvfuser_direct.TensorDomain" title="nvfuser_direct._C_DIRECT.TensorDomain"><span class="pre">nvfuser_direct._C_DIRECT.TensorDomain</span></a></span></span><a class="headerlink" href="#nvfuser_direct.TensorView.domain" title="Link to this definition"></a></dt>
 <dd><p>Get the TensorDomain of this tensor.</p>
@@ -1002,6 +1062,30 @@ of this tensor. The tensor domain contains information about:
 </dd></dl>
 
 <dl class="py method">
+<dt class="sig sig-object py" id="nvfuser_direct.TensorView.reorder">
+<span class="sig-name descname"><span class="pre">reorder</span></span><span class="sig-paren">(</span>
+
+<dl>
+<dd><em class="sig-param"><span class="n"><span class="pre">self</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="#nvfuser_direct.TensorView" title="nvfuser_direct._C_DIRECT.TensorView"><span class="pre">nvfuser_direct._C_DIRECT.TensorView</span></a></span></em>,</dd>
+<dd><em class="sig-param"><span class="n"><span class="pre">old2new</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#dict" title="(in Python v3.13)"><span class="pre">dict</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><span class="pre">int</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><span class="pre">int</span></a><span class="p"><span class="pre">]</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">{}</span></span></em>,</dd>
+</dl>
+
+<span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference internal" href="#nvfuser_direct.TensorView" title="nvfuser_direct._C_DIRECT.TensorView"><span class="pre">nvfuser_direct._C_DIRECT.TensorView</span></a></span></span><a class="headerlink" href="#nvfuser_direct.TensorView.reorder" title="Link to this definition"></a></dt>
+<dd><p>Reorder the axes of this tensor.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>old2new</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#dict" title="(in Python v3.13)"><em>dict</em></a><em> of </em><em>int to int</em>) – The new order of the axes.</p>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>A TensorView with the reordered axes in its loop domain.</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference internal" href="#nvfuser_direct.TensorView" title="nvfuser_direct.TensorView">TensorView</a></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
 <dt class="sig sig-object py" id="nvfuser_direct.TensorView.rfactor">
 <span class="sig-name descname"><span class="pre">rfactor</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">self</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="#nvfuser_direct.TensorView" title="nvfuser_direct._C_DIRECT.TensorView"><span class="pre">nvfuser_direct._C_DIRECT.TensorView</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">axes</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.13)"><span class="pre">list</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><span class="pre">int</span></a><span class="p"><span class="pre">]</span></span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference internal" href="#nvfuser_direct.TensorView" title="nvfuser_direct._C_DIRECT.TensorView"><span class="pre">nvfuser_direct._C_DIRECT.TensorView</span></a></span></span><a class="headerlink" href="#nvfuser_direct.TensorView.rfactor" title="Link to this definition"></a></dt>
 <dd><p>Perform an rfactor transformation on the specified axes.</p>
@@ -1051,6 +1135,27 @@ of this tensor. The tensor domain contains information about:
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
 <dd class="field-odd"><p><strong>mesh</strong> (<a class="reference internal" href="multidevice.html#nvfuser_direct.multidevice.DeviceMesh" title="nvfuser_direct.multidevice.DeviceMesh"><em>DeviceMesh</em></a>) – The device mesh to set.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="nvfuser_direct.TensorView.set_memory_type">
+<span class="sig-name descname"><span class="pre">set_memory_type</span></span><span class="sig-paren">(</span>
+
+<dl>
+<dd><em class="sig-param"><span class="n"><span class="pre">self</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="#nvfuser_direct.TensorView" title="nvfuser_direct._C_DIRECT.TensorView"><span class="pre">nvfuser_direct._C_DIRECT.TensorView</span></a></span></em>,</dd>
+<dd><em class="sig-param"><span class="n"><span class="pre">memory_type</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">nvfuser_direct._C_DIRECT.MemoryType</span></span></em>,</dd>
+</dl>
+
+<span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.13)"><span class="pre">None</span></a></span></span><a class="headerlink" href="#nvfuser_direct.TensorView.set_memory_type" title="Link to this definition"></a></dt>
+<dd><p>Set the memory type for the TensorView.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>memory_type</strong> (<em>MemoryType</em>) – The memory type to set.</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>None</p>
 </dd>
 </dl>
 </dd></dl>

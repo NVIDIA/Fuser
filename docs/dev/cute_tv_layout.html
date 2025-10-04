@@ -181,6 +181,8 @@
 <li class="toctree-l2"><a class="reference internal" href="../api/general.html#tensorview">TensorView</a><ul>
 <li class="toctree-l3"><a class="reference internal" href="../api/general.html#nvfuser_direct.TensorView"><code class="docutils literal notranslate"><span class="pre">TensorView</span></code></a><ul>
 <li class="toctree-l4"><a class="reference internal" href="../api/general.html#nvfuser_direct.TensorView.axis"><code class="docutils literal notranslate"><span class="pre">TensorView.axis()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../api/general.html#nvfuser_direct.TensorView.cache_after"><code class="docutils literal notranslate"><span class="pre">TensorView.cache_after()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../api/general.html#nvfuser_direct.TensorView.cache_before"><code class="docutils literal notranslate"><span class="pre">TensorView.cache_before()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="../api/general.html#nvfuser_direct.TensorView.domain"><code class="docutils literal notranslate"><span class="pre">TensorView.domain()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="../api/general.html#nvfuser_direct.TensorView.get_logical_domain"><code class="docutils literal notranslate"><span class="pre">TensorView.get_logical_domain()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="../api/general.html#nvfuser_direct.TensorView.get_loop_domain"><code class="docutils literal notranslate"><span class="pre">TensorView.get_loop_domain()</span></code></a></li>
@@ -188,9 +190,11 @@
 <li class="toctree-l4"><a class="reference internal" href="../api/general.html#nvfuser_direct.TensorView.has_root"><code class="docutils literal notranslate"><span class="pre">TensorView.has_root()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="../api/general.html#nvfuser_direct.TensorView.merge"><code class="docutils literal notranslate"><span class="pre">TensorView.merge()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="../api/general.html#nvfuser_direct.TensorView.ndim"><code class="docutils literal notranslate"><span class="pre">TensorView.ndim</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../api/general.html#nvfuser_direct.TensorView.reorder"><code class="docutils literal notranslate"><span class="pre">TensorView.reorder()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="../api/general.html#nvfuser_direct.TensorView.rfactor"><code class="docutils literal notranslate"><span class="pre">TensorView.rfactor()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="../api/general.html#nvfuser_direct.TensorView.set_allocation_domain"><code class="docutils literal notranslate"><span class="pre">TensorView.set_allocation_domain()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="../api/general.html#nvfuser_direct.TensorView.set_device_mesh"><code class="docutils literal notranslate"><span class="pre">TensorView.set_device_mesh()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../api/general.html#nvfuser_direct.TensorView.set_memory_type"><code class="docutils literal notranslate"><span class="pre">TensorView.set_memory_type()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="../api/general.html#nvfuser_direct.TensorView.shape"><code class="docutils literal notranslate"><span class="pre">TensorView.shape()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="../api/general.html#nvfuser_direct.TensorView.size"><code class="docutils literal notranslate"><span class="pre">TensorView.size()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="../api/general.html#nvfuser_direct.TensorView.split"><code class="docutils literal notranslate"><span class="pre">TensorView.split()</span></code></a></li>
@@ -455,8 +459,10 @@
 </li>
 <li class="toctree-l2"><a class="reference internal" href="../api/pod_class.html#compileparams">CompileParams</a><ul>
 <li class="toctree-l3"><a class="reference internal" href="../api/pod_class.html#nvfuser_direct.CompileParams"><code class="docutils literal notranslate"><span class="pre">CompileParams</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../api/pod_class.html#nvfuser_direct.CompileParams.device"><code class="docutils literal notranslate"><span class="pre">CompileParams.device</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="../api/pod_class.html#nvfuser_direct.CompileParams.enable_magic_zero"><code class="docutils literal notranslate"><span class="pre">CompileParams.enable_magic_zero</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="../api/pod_class.html#nvfuser_direct.CompileParams.enable_ptxas_verbose"><code class="docutils literal notranslate"><span class="pre">CompileParams.enable_ptxas_verbose</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../api/pod_class.html#nvfuser_direct.CompileParams.include_paths"><code class="docutils literal notranslate"><span class="pre">CompileParams.include_paths</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="../api/pod_class.html#nvfuser_direct.CompileParams.index_type"><code class="docutils literal notranslate"><span class="pre">CompileParams.index_type</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="../api/pod_class.html#nvfuser_direct.CompileParams.maxrregcount"><code class="docutils literal notranslate"><span class="pre">CompileParams.maxrregcount</span></code></a></li>
 </ul>
