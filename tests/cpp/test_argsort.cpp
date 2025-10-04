@@ -13,7 +13,10 @@
 #include <fusion.h>
 #include <ir/all_nodes.h>
 #include <ops/all_ops.h>
+#include <preseg_passes/mark_aliases_prepare.h>
+#include <preseg_passes/optimization_pass.h>
 #include <runtime/executor.h>
+#include <scheduler/tools/cub_utils.h>
 #include <tests/cpp/utils.h>
 #include <tests/cpp/validator.h>
 
@@ -302,6 +305,151 @@ TEST_F(ArgsortTest, BufferSync) {
 
   // Verify the output
   testValidate(&fusion, outputs, {t0}, __LINE__, __FILE__);
+}
+
+class ArgsortParameterizedWithBlockandBatch
+    : public ArgsortTest,
+      public ::testing::WithParamInterface<std::tuple<int, int, bool>> {};
+
+TEST_P(ArgsortParameterizedWithBlockandBatch, SharedMemoryRequirement) {
+  DisableOptionsGuard disable_options_guard;
+  DisableOptionsGuard::getCurOptions().set(DisableOption::MagicZero);
+  preseg_passes::OptimizationPassGuard<preseg_passes::MarkAliasesPreparePass>
+      optimization_guard(false);
+
+  const auto [size, batch, has_extra] = GetParam();
+
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  DataType dtype = DataType::Int;
+  DataType dtype_extra = DataType::Float;
+
+  std::vector<int64_t> shape = {size};
+
+  auto tv0 = makeContigConcreteTensor(shape, dtype);
+  fusion.addInput(tv0);
+
+  auto tv1 = set(tv0);
+  auto tv2 = argsort(tv1, 0);
+  auto tv3 = set(tv2);
+  fusion.addOutput(tv3);
+
+  // Duplicate the above call but should not change the usage as it's
+  // the same template instantiation
+  auto tv4 = set(tv0);
+  auto tv5 = argsort(tv4, 0);
+  auto tv6 = set(tv5);
+  fusion.addOutput(tv6);
+
+  // Create a different instantiation
+  if (has_extra) {
+    auto tv7 = castOp(dtype_extra, tv0);
+    auto tv8 = argsort(tv7, 0);
+    auto tv9 = set(tv8);
+    fusion.addOutput(tv9);
+  }
+
+  for (auto tv : fusion.allTvs()) {
+    if (batch > 1) {
+      tv->split(-1, batch);
+      if (tv->isDefinitionType<ArgsortOp>()) {
+        tv->axis(-1)->parallelize(ParallelType::Group);
+      }
+    }
+    tv->axis(0)->parallelize(ParallelType::TIDx);
+  }
+
+  auto options = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randint(0, shape[0], shape, options);
+
+  scheduler_tools::CubSharedMemoryBuffer smem_buffer;
+  smem_buffer.registerArgsort(ceilDiv(size, batch), batch, dtype);
+  if (has_extra) {
+    smem_buffer.registerArgsort(ceilDiv(size, batch), batch, dtype_extra);
+  }
+  const int64_t expected_size = smem_buffer.getTotalSizeInBytes();
+
+  const int64_t available_capacity =
+      at::cuda::getCurrentDeviceProperties()->sharedMemPerBlock;
+
+  const bool has_enough_capacity = expected_size <= available_capacity;
+
+  KernelExecutor ke;
+  if (has_enough_capacity) {
+    ke.compile(&fusion, {t0});
+    auto outputs = ke.run({t0});
+    testValidate(&fusion, outputs, {t0}, __LINE__, __FILE__);
+    EXPECT_EQ(expected_size, ke.getStaticSmemSize())
+        << "Actual static shared memory size was different";
+  } else {
+    // Compilation should fail
+    EXPECT_THAT(
+        [&]() { ke.compile(&fusion, {t0}); },
+        testing::Throws<nvfuser::nvfError>());
+  }
+};
+
+INSTANTIATE_TEST_SUITE_P(
+    ,
+    ArgsortParameterizedWithBlockandBatch,
+    testing::Combine(
+        testing::Values(128, 256, 512, 1024),
+        testing::Range(1, 8),
+        testing::Bool(),
+        testing::Bool()),
+    [](const auto& info) {
+      std::ostringstream os;
+      os << std::get<0>(info.param) << "_" << std::get<1>(info.param) << "_"
+         << std::get<2>(info.param) << "_" << std::get<3>(info.param);
+      return os.str();
+    });
+
+TEST_F(ArgsortTest, TMP) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  auto size = atoi(getenv("SIZE"));
+  // auto tidx = atoi(getenv("TIDX"));
+  auto bidx = atoi(getenv("BIDX"));
+
+  int64_t pad = -1;
+  if (getenv("PAD")) {
+    pad = atoi(getenv("PAD"));
+  }
+
+  std::vector<int64_t> shape = {size};
+  // auto tv0 = makeContigConcreteTensor(shape, DataType::Int);
+  auto tv0 = makeContigTensor(1, DataType::Int);
+  fusion.addInput(tv0);
+
+  auto tv1 = set(tv0);
+  auto tv2 = sum(tv1, {0});
+  auto tv3 = set(tv2);
+  fusion.addOutput(tv3);
+
+  for (auto tv : fusion.allTvs()) {
+    if (tv->nDims() > 0) {
+      tv->split(0, bidx, false);
+      tv->axis(1)->parallelize(ParallelType::TIDx);
+      if (pad > 0) {
+        tv->axis(1)->padToMultipleOfWarp(pad);
+      } else if (pad == 0) {
+        tv->axis(1)->padToMultipleOfWarp();
+      }
+    }
+  }
+
+  fusion.printMath();
+
+  auto options = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randint(0, 100, shape, options);
+
+  KernelExecutor ke;
+  ke.compile(&fusion, {t0});
+  ke.run({t0});
 }
 
 } // namespace nvfuser

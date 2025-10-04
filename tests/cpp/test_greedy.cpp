@@ -12,6 +12,8 @@
 #include <ir/all_nodes.h>
 #include <ir/utils.h>
 #include <ops/all_ops.h>
+#include <preseg_passes/mark_aliases_prepare.h>
+#include <preseg_passes/optimization_pass.h>
 #include <runtime/executor.h>
 #include <runtime/executor_utils.h>
 #include <tests/cpp/utils.h>
@@ -816,6 +818,68 @@ INSTANTIATE_TEST_SUITE_P(
     GreedySchedulerTestConstraintSize,
     testing::Values(1024, 2048, 4096),
     [](const testing::TestParamInfo<int64_t>& info) {
+      std::ostringstream os;
+      os << info.param;
+      return os.str();
+    });
+
+class GreedySchedulerTestShmemSize : public GreedySchedulerTest,
+                                     public ::testing::WithParamInterface<int> {
+};
+
+TEST_P(GreedySchedulerTestShmemSize, Argsort) {
+  DisableOptionsGuard disable_options_guard;
+  DisableOptionsGuard::getCurOptions().set(DisableOption::MagicZero);
+  preseg_passes::OptimizationPassGuard<preseg_passes::MarkAliasesPreparePass>
+      optimization_guard(false);
+
+  const auto size = GetParam();
+
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  DataType dtype = DataType::Int;
+  DataType dtype_extra = DataType::Float;
+
+  std::vector<int64_t> shape = {size};
+
+  auto tv0 = makeContigConcreteTensor(shape, dtype);
+  fusion.addInput(tv0);
+
+  auto tv1 = set(tv0);
+  auto tv2 = argsort(tv1, 0);
+  auto tv3 = set(tv2);
+  fusion.addOutput(tv3);
+
+  // Duplicate the above call but should not change the usage as it's
+  // the same template instantiation
+  auto tv4 = set(tv0);
+  auto tv5 = argsort(tv4, 0);
+  auto tv6 = set(tv5);
+  fusion.addOutput(tv6);
+
+  // Create a different instantiation
+  if (true) {
+    auto tv7 = castOp(dtype_extra, tv0);
+    auto tv8 = argsort(tv7, 0);
+    auto tv9 = set(tv8);
+    fusion.addOutput(tv9);
+  }
+
+  auto options = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randint(0, shape[0], shape, options);
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs({t0});
+  testValidate(executor_cache.fusion(), outputs, {t0}, __LINE__, __FILE__);
+}
+
+INSTANTIATE_TEST_SUITE_P(
+    ,
+    GreedySchedulerTestShmemSize,
+    testing::Values(128, 256, 512, 1024),
+    [](const auto& info) {
       std::ostringstream os;
       os << info.param;
       return os.str();

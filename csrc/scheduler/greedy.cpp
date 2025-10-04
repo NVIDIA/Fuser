@@ -22,6 +22,7 @@
 #include <scheduler/greedy.h>
 #include <scheduler/mark_aliases.h>
 #include <scheduler/runtime_info.h>
+#include <scheduler/tools/cub_utils.h>
 #include <scheduler/tools/inlining.h>
 #include <scheduler/tools/loop_domain_scheduler.h>
 #include <scheduler/tools/maxinfo_propagator.h>
@@ -617,6 +618,28 @@ class RunTimeChecker : private IterVisitor {
         max_threads_per_block_(
             at::cuda::getCurrentDeviceProperties()->maxThreadsPerBlock) {
     traverse(fusion);
+
+    const int64_t cub_requited_shmem_size =
+        cub_shmem_buffer_.getTotalSizeInBytes();
+    // TODO: Use the constant added in #5272
+    auto aligned_size = [](int64_t x) { return (x + 127) / 128 * 128; };
+    // Shared memory may be also used for resolving mismatched
+    // parallelization of constrained IDs
+    const auto total_required_size = aligned_size(cub_requited_shmem_size) +
+        aligned_size(max_constraint_size_ * largest_data_type_size_);
+
+    const auto available_size =
+        at::cuda::getCurrentDeviceProperties()->sharedMemPerBlock;
+
+    if (total_required_size > available_size) {
+      reject(
+          "Not enough shared memory. Required size for CUB: ",
+          cub_requited_shmem_size,
+          ". Total required size: ",
+          total_required_size,
+          ". Available: ",
+          available_size);
+    }
   }
 
   void dispatch(Expr* expr) override {
@@ -624,13 +647,23 @@ class RunTimeChecker : private IterVisitor {
       return;
     }
     IterVisitor::dispatch(expr);
+
+    largest_data_type_size_ = std::max(
+        largest_data_type_size_,
+        dataTypeSizeByte(ir_utils::getTvInput(expr)->dtype()));
   }
 
   void handle(ArgsortOp* argsort) override {
-    checkDomainConstraints(
+    int64_t size_of_constrained_ids = checkDomainConstraints(
         ir_utils::getTvOutput(argsort)->getLogicalDomain(),
         {argsort->dim()},
         /*support_batching=*/true);
+
+    int64_t batch_size =
+        ceilDiv(size_of_constrained_ids, max_threads_per_block_);
+    int64_t bdimx = std::min(size_of_constrained_ids, max_threads_per_block_);
+    cub_shmem_buffer_.registerArgsort(
+        bdimx, batch_size, ir_utils::getTvInput(argsort)->dtype());
   }
 
   void handle(PadOp* pad) override {
@@ -664,7 +697,8 @@ class RunTimeChecker : private IterVisitor {
         /*support_batching=*/true);
   }
 
-  void checkDomainConstraints(
+  // Returns batch size
+  int64_t checkDomainConstraints(
       const std::vector<IterDomain*>& domain,
       const std::vector<int64_t>& constrained_id_offsets,
       bool support_batching = false) {
@@ -717,6 +751,11 @@ class RunTimeChecker : private IterVisitor {
           ", exceeds the maxinum supported size: ",
           max_supported_size);
     }
+
+    max_constraint_size_ =
+        std::max(max_constraint_size_, size_of_constrained_ids);
+
+    return size_of_constrained_ids;
   }
 
   template <typename... Args>
@@ -733,6 +772,9 @@ class RunTimeChecker : private IterVisitor {
  private:
   SchedulerRuntimeInfo& runtime_info_;
   int64_t max_threads_per_block_ = 0;
+  int64_t max_constraint_size_ = 0;
+  int64_t largest_data_type_size_ = 0;
+  scheduler_tools::CubSharedMemoryBuffer cub_shmem_buffer_;
 
   bool can_schedule_ = true;
   std::string reject_reason_;
