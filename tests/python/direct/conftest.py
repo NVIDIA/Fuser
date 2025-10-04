@@ -12,6 +12,20 @@ from nvfuser_direct import FusionDefinition
 from python.direct_utils import is_pre_volta, check_captured_python_definition
 
 
+def require_device_mem_size_gb(required_gb = 32.0, didx = 0):
+
+    # Get properties for the default CUDA device (GPU 0)
+    device_properties = torch.cuda.get_device_properties(didx)
+    total_memory_bytes = device_properties.total_memory
+    total_memory_gb = total_memory_bytes / (1024**3)
+
+    if total_memory_gb < required_gb:
+        pytest.skip(
+            f"Insufficient GPU memory: requires ~{required_gb:.2f} GB, "
+            f"but only {total_memory_gb:.2f} GB available"
+        )
+
+
 class NVFuserTest(TestCase):
     # Helper function to verify the nvfuser output and make sure the string
     # definition based on the FusionDefinition is executable and matches the
