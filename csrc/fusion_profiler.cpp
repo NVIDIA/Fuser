@@ -883,11 +883,6 @@ void FusionProfiler::recordAsyncCorrIdActivity(
     uint32_t seg_id,
     uint32_t corr_id) {
   FusionProfiler& fp = get();
-  NVF_CHECK(
-      fp.corrid_2_segid_.count(corr_id) == 0,
-      "Segment Correlation Activity asociated with this correlation id already "
-      "exists! ",
-      corr_id);
   fp.corrid_2_segid_[corr_id] = seg_id;
 }
 
