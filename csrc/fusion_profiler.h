@@ -130,7 +130,7 @@ struct KernelProfile {
   std::string scheduler;
 };
 
-std::ostream& operator<<(std::ostream&, const KernelProfile& kp);
+NVF_API std::ostream& operator<<(std::ostream&, const KernelProfile& kp);
 
 struct ProfileAttrDescriptor {
   std::string column_header{};
@@ -181,7 +181,7 @@ struct NVF_API FusionProfile {
   std::vector<KernelProfile> kernel_profiles{};
 };
 
-std::ostream& operator<<(std::ostream&, const FusionProfile&);
+NVF_API std::ostream& operator<<(std::ostream&, const FusionProfile&);
 
 //! \struct SegmentProfiler
 //! \brief A class used to profile each segment of a Fusion

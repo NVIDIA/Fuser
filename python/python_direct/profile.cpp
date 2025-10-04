@@ -14,6 +14,11 @@ namespace {
 
 void bindFusionProfile(py::module& nvfuser) {
   py::class_<KernelProfile> kernel_prof(nvfuser, "KernelProfile");
+  kernel_prof.def("__repr__", [](KernelProfile& self) {
+    std::stringstream ss;
+    ss << self;
+    return ss.str();
+  });
   kernel_prof.def_property_readonly(
       "name", [](KernelProfile& self) { return self.name; }, R"(
 Returns the kernel name.
@@ -94,6 +99,11 @@ Returns the scheduler type used for the kernel.
 )");
 
   py::class_<FusionProfile> fusion_prof(nvfuser, "FusionProfile");
+  kernel_prof.def("__repr__", [](KernelProfile& self) {
+    std::stringstream ss;
+    ss << self;
+    return ss.str();
+  });
   fusion_prof.def_property_readonly(
       "verbose", [](FusionProfile& self) { return self.verbose; }, R"(
 Returns the verbosity of the fusion profile.
