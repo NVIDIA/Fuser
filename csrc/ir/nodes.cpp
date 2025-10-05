@@ -6302,11 +6302,17 @@ BlockQuantizationOp::BlockQuantizationOp(
     IrBuilderPasskey passkey,
     Val* output_scales,
     Val* output,
-    Val* input)
+    Val* input,
+    Val* global_scale,
+    int64_t block_size)
     : Expr(passkey) {
-  addInput(input);
   addOutput(output);
   addOutput(output_scales);
+  addInput(input);
+  if (global_scale) {
+    addInput(global_scale);
+  }
+  addDataAttribute(block_size);
 }
 
 std::string BlockQuantizationOp::toString(int indent_size) const {

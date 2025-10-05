@@ -1684,6 +1684,9 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     func_args.arg(ir_utils::varName(bqop->input(0)));
     func_args.arg(ir_utils::varName(bqop->quantizedOutput()));
     func_args.arg(genInline(bqop->blockScales()));
+    if (bqop->hasGlobalScale()) {
+      func_args.arg(genInline(bqop->globalScale()));
+    }
 
     if (input_dtype == DataType::BFloat16) {
       NVF_ERROR(

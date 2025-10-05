@@ -471,10 +471,12 @@ TEST_F(BQTest, AutoScheduleSingleOpWithSwizzle) {
   FusionGuard fg2(fusion_new_op.get());
 
   auto tv_in_1 = makeContigTensor(2, DataType::Float);
+  auto tv_per_tensor_scale = makeContigTensor(0, DataType::Float);
   fusion_new_op->addInput(tv_in_1);
+  fusion_new_op->addInput(tv_per_tensor_scale);
 
   // t0 is 2D
-  auto quantization_results = blockQuantize(tv_in_1);
+  auto quantization_results = blockQuantize(tv_in_1, tv_per_tensor_scale);
 
   // outputs are 3D
   fusion_new_op->addOutput(quantization_results.block_scales);
@@ -502,6 +504,9 @@ TEST_F(BQTest, AutoScheduleSingleOpWithSwizzle) {
   quantization_results.block_scales->setLoopDomain(temp_loop_domain);
 
   FusionExecutorCache executor_cache(std::move(fusion_new_op));
+
+  inputs.push_back(
+      at::randn({}, at::device(at::kCUDA).dtype(at::kFloat)).abs_());
   auto outputs_new_op = executor_cache.runFusionWithInputs(inputs);
 
   // Verify we got the expected outputs

@@ -2634,8 +2634,15 @@ TensorView* prefixSum(TensorView* tv, int64_t dim) {
       /*init=*/tv->fusion()->zeroVal(tv->dtype()));
 }
 
-BlockQuantizationResults blockQuantize(TensorView* input) {
+BlockQuantizationResults blockQuantize(
+    TensorView* input,
+    TensorView* global_scale,
+    int64_t block_size) {
   auto reshaped_input = reshape(input, [](auto& x) { x.split(-1, 16); });
+
+  if (global_scale) {
+    NVF_CHECK(global_scale->isZeroDim(), "global_scale must be a scalar");
+  }
 
   auto inp_domain =
       TensorDomain::noReductions(reshaped_input->getLogicalDomain());
@@ -2692,7 +2699,7 @@ BlockQuantizationResults blockQuantize(TensorView* input) {
 
   // Create the block quantization operation
   IrBuilder::create<BlockQuantizationOp>(
-      block_scales, quantized_tensor, reshaped_input);
+      block_scales, quantized_tensor, reshaped_input, global_scale, block_size);
 
   return BlockQuantizationResults(block_scales, quantized_tensor);
 }

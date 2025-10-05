@@ -407,12 +407,18 @@ void IndexLowering::handle(const TopKOp* top) {
 
 void IndexLowering::handle(const BlockQuantizationOp* bqop) {
   const auto in = lowerSrcIndex(bqop->in(), bqop->quantizedOutput());
+  auto global_scale_ = bqop->globalScale();
+  if (bqop->hasGlobalScale()) {
+    // Hoist global scale if it's not already hoisted
+    global_scale_ = GpuLower::current()->commonScalarMap().hoistScalar(
+        bqop->globalScale(), for_loops_);
+  }
 
   const auto out_scales = lowerDstIndex(bqop->blockScales());
   const auto out_quantized = lowerDstIndex(bqop->quantizedOutput());
 
-  pushBack(
-      IrBuilder::create<BlockQuantizationOp>(out_scales, out_quantized, in));
+  pushBack(IrBuilder::create<BlockQuantizationOp>(
+      out_scales, out_quantized, in, global_scale_, bqop->blockSize()));
   GpuLower::current()->propagateExprInfo(bqop, back());
 }
 

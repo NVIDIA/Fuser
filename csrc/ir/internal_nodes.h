@@ -3407,7 +3407,9 @@ class BlockQuantizationOp : public Expr {
       IrBuilderPasskey,
       Val* output_scales,
       Val* output,
-      Val* input);
+      Val* input,
+      Val* global_scale = nullptr,
+      int64_t block_size = 16);
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
@@ -3424,7 +3426,21 @@ class BlockQuantizationOp : public Expr {
   }
 
   int64_t blockSize() const {
-    return 16;
+    return attribute<int64_t>(0);
+  }
+
+  bool hasGlobalScale() const {
+    if (inputs().size() > 1) {
+      return true;
+    }
+    return false;
+  }
+
+  Val* globalScale() const {
+    if (hasGlobalScale()) {
+      return input(1);
+    }
+    return nullptr;
   }
 
   const char* getOpString() const override {
