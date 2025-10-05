@@ -56,7 +56,9 @@ template <int ITEMS_PER_THREAD>
 __device__ void block_quantize_to_nvfp4(
     Array<float, ITEMS_PER_THREAD, 1>& input,
     Array<__e2m1, ITEMS_PER_THREAD, ITEMS_PER_THREAD>& output,
-    __e4m3& fp8_output) {
+    __e4m3& fp8_output,
+    Tensor<float, 0, 0>& global_scale,
+    bool use_global_scale = true) {
   assert(blockDim.x % 4 == 0);
   assert(blockDim.z == 1 && gridDim.z == 1);
   static_assert(
@@ -84,12 +86,19 @@ __device__ void block_quantize_to_nvfp4(
   // This division should be replaced with a multiplication
   // by a reciprocal for better performance.
   float scaled_max = block_max / 6.000000000e+00f;
+  if (use_global_scale) {
+    scaled_max = scaled_max / global_scale[0];
+  }
+
   float clamped_max = clamp(
       scaled_max, 1.562500000e-02f, 4.480000000e+02f); // Clamp between 0 and 1
 
   __e4m3 clamped_max_fp8 = __float2e4m3(clamped_max);
 
   float clamped_max_converted = __e4m32float(clamped_max_fp8);
+  if (use_global_scale) {
+    clamped_max_converted = clamped_max_converted * global_scale[0];
+  }
 
   // Convert back from FP8 to float using __e4m32float
   if (threadIdx.x % 4 == 0) // Only one thread per quad writes
@@ -116,10 +125,23 @@ __device__ void block_quantize_to_nvfp4(
 }
 
 template <int ITEMS_PER_THREAD>
+__device__ void block_quantize_to_nvfp4(
+    Array<float, ITEMS_PER_THREAD, 1>& input,
+    Array<__e2m1, ITEMS_PER_THREAD, ITEMS_PER_THREAD>& output,
+    __e4m3& fp8_output) {
+  Tensor<float, 0, 0> scale;
+  scale[0] = 1.0f;
+  block_quantize_to_nvfp4<ITEMS_PER_THREAD>(
+      input, output, fp8_output, scale, false);
+}
+
+template <int ITEMS_PER_THREAD>
 __device__ void block_quantize_bf16_to_nvfp4(
     Array<__bfloat, ITEMS_PER_THREAD, 1>& input,
     Array<__e2m1, ITEMS_PER_THREAD, ITEMS_PER_THREAD>& output,
-    __e4m3& fp8_output) {
+    __e4m3& fp8_output,
+    Tensor<float, 0, 0>& global_scale,
+    bool use_global_scale = true) {
   assert(blockDim.x % 2 == 0);
   assert(blockDim.z == 1 && gridDim.z == 1);
   static_assert(
@@ -147,12 +169,18 @@ __device__ void block_quantize_bf16_to_nvfp4(
   // This division should be replaced with a multiplication
   // by a reciprocal for better performance.
   float scaled_max = block_max / 6.000000000e+00f;
+  if (use_global_scale) {
+    scaled_max = scaled_max / global_scale[0];
+  }
   float clamped_max = clamp(
       scaled_max, 1.562500000e-02f, 4.480000000e+02f); // Clamp between 0 and 1
 
   __e4m3 clamped_max_fp8 = __float2e4m3(clamped_max);
 
   float clamped_max_converted = __e4m32float(clamped_max_fp8);
+  if (use_global_scale) {
+    clamped_max_converted = clamped_max_converted * global_scale[0];
+  }
 
   // Convert back from FP8 to float using __e4m32float
   if (threadIdx.x % 2 == 0) // Only one thread per quad writes
@@ -177,6 +205,17 @@ __device__ void block_quantize_bf16_to_nvfp4(
   for (int i = 0; i < 8; ++i) {
     output[i] = fp4_vals[i];
   }
+}
+
+template <int ITEMS_PER_THREAD>
+__device__ void block_quantize_bf16_to_nvfp4(
+    Array<__bfloat, ITEMS_PER_THREAD, 1>& input,
+    Array<__e2m1, ITEMS_PER_THREAD, ITEMS_PER_THREAD>& output,
+    __e4m3& fp8_output) {
+  Tensor<float, 0, 0> scale;
+  scale[0] = 1.0f;
+  block_quantize_bf16_to_nvfp4<ITEMS_PER_THREAD>(
+      input, output, fp8_output, scale, false);
 }
 
 } // namespace bq

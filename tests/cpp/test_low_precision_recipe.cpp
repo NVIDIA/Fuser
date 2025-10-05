@@ -169,6 +169,59 @@ void createNVFP4QunatizationFusion(
     tv_block_scale_fp8->merge(-1);
   }
 }
+
+void createNVFP4QunatizationFusionWithGlobalScale(
+    Fusion* fusion,
+    DataType data_hp_dtype,
+    bool swizzle_output = false) {
+  auto tv_data_hp = makeContigTensor(2, data_hp_dtype);
+  auto tv_per_tensor_scale = makeContigTensor(0, DataType::Float);
+  fusion->addInput(tv_data_hp);
+  fusion->addInput(tv_per_tensor_scale);
+
+  auto tv_data_hp_reshaped =
+      reshape(tv_data_hp, [](auto& x) { x.split(-1, block_size); });
+
+  auto tv_data_hp_abs = abs(tv_data_hp_reshaped);
+  auto tv_data_hp_amax = max(tv_data_hp_abs, {-1});
+  // These scales are currently in fp32, we are going to `quantize` them to e4m3
+  // Note: in the torchao implementation, tv_block_scale is bf16 if the input is
+  // bf16 But in our case, tv_block_scale is always fp32, regardless of the
+  // input dtype.
+  auto tv_block_scale = div(
+      tv_data_hp_amax, IrBuilder::create<Val>(F4_E2M1_MAX, DataType::Float));
+
+  auto tv_scaled_block_scales = div(tv_block_scale, tv_per_tensor_scale);
+  auto tv_scaled_block_scales_clamp = clamp(
+      tv_scaled_block_scales,
+      IrBuilder::create<Val>(E4M3_EPS, DataType::Float),
+      IrBuilder::create<Val>(F8E4M3_MAX, DataType::Float));
+  auto tv_scaled_block_scales_fp8 =
+      castOp(DataType::Float8_e4m3fn, tv_scaled_block_scales_clamp);
+
+  // TODO: should we just use auto tv_block_scale_fp32 = tv_block_scale_clamp?
+  auto tv_scaled_block_scales_fp32 =
+      castOp(DataType::Float, tv_scaled_block_scales_fp8);
+
+  // Temporary dequant the scaled_block_scales_fp32 to get the per_tensor_scale
+  // To apply to data
+  auto tv_total_scale = mul(tv_per_tensor_scale, tv_scaled_block_scales_fp32);
+
+  auto tv_total_scale_unsqueeze = unsqueeze(tv_total_scale, -1);
+  auto tv_data_scaled = div(tv_data_hp_reshaped, tv_total_scale_unsqueeze);
+
+  auto tv_data_scaled_clamp = clamp(
+      tv_data_scaled,
+      IrBuilder::create<Val>(-F4_E2M1_MAX, DataType::Float),
+      IrBuilder::create<Val>(F4_E2M1_MAX, DataType::Float));
+
+  auto tv_data_lp_fp4 = castOp(DataType::Float4_e2m1fn, tv_data_scaled_clamp);
+  auto tv_data_lp = reshape(tv_data_lp_fp4, [](auto& x) { x.merge(-2); });
+
+  fusion->addOutput(tv_scaled_block_scales_fp8);
+  fusion->addOutput(tv_data_lp);
+}
+
 } // namespace
 
 TEST_P(NVFP4QuantizeTest, WithoutPerTensorAmax) {
@@ -573,6 +626,82 @@ TEST_F(BQTest, AutoScheduleSingleOp) {
 
   // t0 is 2D
   auto quantization_results = blockQuantize(tv_in_1);
+
+  // outputs are 3D
+  fusion_new_op->addOutput(quantization_results.block_scales);
+  fusion_new_op->addOutput(quantization_results.quantized_tensor);
+
+  FusionExecutorCache executor_cache(std::move(fusion_new_op));
+  auto outputs_new_op = executor_cache.runFusionWithInputs(inputs);
+
+  // Verify we got the expected outputs
+  auto block_scales_output = outputs_new_op[0].as<at::Tensor>();
+  auto quantized_tensor_output = outputs_new_op[1].as<at::Tensor>();
+
+  // Move tensors from GPU to CPU
+  auto block_scales_cpu = block_scales_output.cpu();
+  auto quantized_tensor_cpu = quantized_tensor_output.cpu();
+
+  auto block_scales_bytes = (m * n) / block_size;
+  auto quantized_tensor_bytes = (m * n) / 2;
+
+  const uint8_t* block_scales_data =
+      static_cast<const uint8_t*>(block_scales_cpu.data_ptr());
+  for (int i = 0; i < block_scales_bytes; ++i) {
+    EXPECT_EQ(
+        block_scales_data[i],
+        baseline_block_scales_data[i]); // Compare with baseline
+  }
+
+  const uint8_t* quantized_data =
+      static_cast<const uint8_t*>(quantized_tensor_cpu.data_ptr());
+  for (int i = 0; i < quantized_tensor_bytes; ++i) {
+    EXPECT_EQ(
+        quantized_data[i],
+        baseline_quantized_data[i]); // Compare with baseline
+  }
+}
+
+TEST_F(BQTest, AutoScheduleSingleOpWithGlobalScale) {
+  const int m = 128;
+  const int n = 1024;
+
+  std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  createNVFP4QunatizationFusionWithGlobalScale(
+      fusion.get(), DataType::BFloat16);
+
+  FusionExecutorCache fec(std::move(fusion));
+
+  std::vector<at::Tensor> inputs;
+  inputs.push_back(
+      at::randn({m, n}, at::device(at::kCUDA).dtype(at::kBFloat16)));
+  inputs.push_back(at::randn({}, at::device(at::kCUDA).dtype(at::kFloat)));
+  auto outputs_baseline = fec.runFusionWithInputs(inputs);
+
+  // Print baseline outputs
+  auto baseline_block_scales = outputs_baseline[0].as<at::Tensor>();
+  auto baseline_quantized_tensor = outputs_baseline[1].as<at::Tensor>();
+
+  // Move baseline tensors from GPU to CPU
+  auto baseline_block_scales_cpu = baseline_block_scales.cpu();
+  auto baseline_quantized_tensor_cpu = baseline_quantized_tensor.cpu();
+
+  const uint8_t* baseline_block_scales_data =
+      static_cast<const uint8_t*>(baseline_block_scales_cpu.data_ptr());
+  const uint8_t* baseline_quantized_data =
+      static_cast<const uint8_t*>(baseline_quantized_tensor_cpu.data_ptr());
+
+  std::unique_ptr<Fusion> fusion_new_op = std::make_unique<Fusion>();
+  FusionGuard fg2(fusion_new_op.get());
+
+  auto tv_in_1 = makeContigTensor(2, DataType::BFloat16);
+  auto tv_scale = makeContigTensor(0, DataType::Float);
+  fusion_new_op->addInput(tv_in_1);
+  fusion_new_op->addInput(tv_scale);
+
+  // t0 is 2D
+  auto quantization_results = blockQuantize(tv_in_1, tv_scale);
 
   // outputs are 3D
   fusion_new_op->addOutput(quantization_results.block_scales);

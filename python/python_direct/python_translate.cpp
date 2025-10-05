@@ -1572,6 +1572,24 @@ class PythonTranslator : public OptInConstDispatch {
         std::vector<const nvfuser::Val*>{topkop->output(0), topkop->output(1)});
   }
 
+  void handle(const BlockQuantizationOp* bqop) final {
+    NVF_ERROR(bqop != nullptr);
+    visited_vals_.insert(bqop->output(0));
+    if (bqop->hasGlobalScale()) {
+      visited_vals_.insert(bqop->output(1));
+    }
+
+    static const auto default_args = std::make_tuple(
+        KeywordArgument<decltype(bqop->globalScale())>{"global_scale", nullptr},
+        KeywordArgument<int64_t>{"block_size", 16});
+    printer_.generateKwargsOperation(
+        "fd.ops.nv_block_quantize_to_nvfp4",
+        std::make_tuple(bqop->in()),
+        default_args,
+        std::make_tuple(bqop->globalScale(), bqop->blockSize()),
+        std::vector<const nvfuser::Val*>{bqop->output(0), bqop->output(1)});
+  }
+
   void handle(const ArgsortOp* argsortop) final {
     NVF_ERROR(argsortop != nullptr);
 
