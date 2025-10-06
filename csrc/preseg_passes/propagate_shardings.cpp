@@ -473,8 +473,7 @@ void PropagateShardingsPass::runPass(Fusion* fusion) {
     // modify their sharding. For non-fusion inputs, we try to propagate
     // shardings from the reference output for parallel types that are not
     // already present.
-    for (TensorView* target :
-         ir_utils::filterByType<TensorView>(expr->inputs())) {
+    for (auto* target : ir_utils::filterByType<TensorView>(expr->inputs())) {
       // Allow inputs to be stream parallelized for easier analysis.
       if (user_sharded_tvs.count(target) && !target->isFusionInput()) {
         continue;

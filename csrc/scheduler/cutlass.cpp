@@ -12,6 +12,7 @@
 #include <ir/all_nodes.h>
 #include <ops/all_ops.h>
 #include <scheduler/cutlass.h>
+#include <scheduler/nvmmh.h>
 #include <scheduler/runtime_info.h>
 #include <scheduler/utils.h>
 
@@ -99,9 +100,9 @@ std::unique_ptr<HeuristicParams> CutlassScheduler::computeHeuristics(
 
   auto params = std::make_unique<CutlassParams>();
 
-  // For now, use default parameters
-  // TODO: Implement actual heuristics based on problem size, GPU arch, etc.
-  // Once libheuristics is available via pycutlass wheel, integrate it here
+  // If nvMatmulHeuristics is not available, this call will leave params
+  // default-initialized
+  fillNvMatmulHeuristicsParams(params.get(), fusion, runtime_info);
 
   if (isDebugDumpEnabled(DebugDumpOption::SchedulerDebug)) {
     debug() << params->toString() << std::endl;
