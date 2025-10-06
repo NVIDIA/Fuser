@@ -641,7 +641,7 @@ void shardAllLike(
   if (tvs.empty()) {
     return;
   }
-  for (auto tv : tvs) {
+  for (auto* tv : tvs) {
     tv->setDeviceMesh(ref->getDeviceMesh());
   }
   scheduler_utils::parallelizeAllLike(ref, tvs, parallel_types);

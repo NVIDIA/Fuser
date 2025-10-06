@@ -38,7 +38,7 @@ MultiDeviceTest::MultiDeviceTest() {
   c10d::setDebugLevelFromEnvironment();
 
   communicator_ = &Communicator::getInstance();
-  tensor_options =
+  tensor_options_ =
       at::TensorOptions().dtype(at::kFloat).device(communicator_->device());
   debug_print = getNvFuserEnv("MULTIDEVICE_DEBUG_PRINT") != nullptr;
   disable_skip = getNvFuserEnv("MULTIDEVICE_DISABLE_SKIP") != nullptr;

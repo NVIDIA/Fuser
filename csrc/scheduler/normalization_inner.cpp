@@ -394,7 +394,10 @@ void innerPersistentHeuristic2D(
   const int64_t parallel_after_vectorize =
       properties.inner_most_dimension_numel / properties.vectorize_factor;
 
-  // try to use at least 4 warps per block
+  // The heuristic targets multi-wave kernels with far more blocks than SMs.
+  // If the iteration dimension is small, not all SMs can be utilized. In such
+  // cases, using the maximum threads per block helps increase the number of
+  // warps and improves performance.
   bool can_use_all_sms =
       properties.total_iteration_numel >= device_multiprocessor_count;
   const int64_t min_threads_per_block =
