@@ -64,10 +64,10 @@ class FusionDefinition(_C._FusionDefinition):
         id=None,
         max_length=9999,
         use_multidevice_executor=False,
-        multi_device_executor_params=MultiDeviceExecutorParams(),
+        backend_type=CommunicatorBackend.nccl,
     ):
         super(FusionDefinition, self).__init__(
-            id, max_length, use_multidevice_executor, multi_device_executor_params
+            id, max_length, use_multidevice_executor, backend_type
         )
         self.profiled = False
 
@@ -512,6 +512,11 @@ class FusionDefinition(_C._FusionDefinition):
         msg = "# CUDA devices:\n"
         for i in range(torch.cuda.device_count()):
             msg += f"#  {i}: {torch.cuda.get_device_name(i)}\n"
+        fusion_func_name = (
+            "nvfuser_incomplete_fusion"
+            if self.id() is None
+            else f"nvfuser_fusion_id{self.id()}"
+        )
         msg += (
             f"# torch version: {torch.__version__}\n"
             f"# cuda version: {torch.version.cuda}\n"
@@ -520,7 +525,7 @@ class FusionDefinition(_C._FusionDefinition):
             "from nvfuser import FusionDefinition, DataType\n"
             f"{self}"
             "with FusionDefinition() as fd:\n"
-            f"    nvfuser_fusion_id{self.id()}(fd)\n"
+            f"    {fusion_func_name}(fd)\n"
         )
         if inputs is not None:
             msg += "\ninputs = [\n"

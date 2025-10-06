@@ -210,25 +210,32 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
   const auto device_multiprocessor_count = static_cast<int64_t>(
       at::cuda::getCurrentDeviceProperties()->multiProcessorCount);
 
-  auto reorder_map_entry =
+  bool has_reshapes = !ir_utils::getReshapeOps(fusion).empty();
+
+  auto logical_reorder_map_entry =
       HeuristicDataCacheEntry<HeuristicCompileTime::LogicalReorderMap>(
-          data_cache, [&fusion, &largest_out]() {
+          data_cache, [largest_out, has_reshapes]() {
             // NOTE: reorder_map is only applied for fusion without view
             // op yet.
-            if (!ir_utils::getReshapeOps(fusion).empty()) {
+            if (has_reshapes) {
               return std::make_unique<std::unordered_map<int64_t, int64_t>>();
             }
             return std::make_unique<std::unordered_map<int64_t, int64_t>>(
-                scheduler_utils::maybeReorderAsAllocationMap(largest_out));
+                scheduler_utils::reorderLogicalAsAllocationMap(largest_out));
           });
-  const std::unordered_map<int64_t, int64_t>& reorder_map =
-      reorder_map_entry.get();
+  std::unordered_map<int64_t, int64_t> loop_reorder_map;
+  if (!has_reshapes) {
+    loop_reorder_map = scheduler_utils::reorderLoopAsAllocationMap(largest_out);
+  }
+
+  const std::unordered_map<int64_t, int64_t>& logical_reorder_map =
+      logical_reorder_map_entry.get();
 
   std::vector<IterDomain*> ref_loop = largest_out->getLoopDomain();
   // reorder of root to align with logical map should always help with indexing,
   // even when vectorization isn't used.
-  if (!reorder_map.empty()) {
-    ref_loop = TensorDomain::orderedAs(ref_loop, reorder_map);
+  if (!loop_reorder_map.empty()) {
+    ref_loop = TensorDomain::orderedAs(ref_loop, loop_reorder_map);
   }
   // We always cacheBefore output at the beginning of the scheduling. And after
   // cacheBefore, the reference tensor will have all reduction IDs removed.
@@ -485,7 +492,7 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
           data_cache,
           break_point,
           /*max_vectorization_size_in_bit=*/128,
-          reorder_map));
+          logical_reorder_map));
 
   // get unroll factor:
 
@@ -538,8 +545,8 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
             << std::endl
             << "vectorize_factor: " << params->vectorization_factor << std::endl
             << "\n"
-            << "reorder_map: ";
-    for (auto [i, j] : reorder_map) {
+            << "logical_reorder_map: ";
+    for (auto [i, j] : logical_reorder_map) {
       debug() << "(" << i << ", " << j << "), ";
     }
     debug() << "\nbroadcast_byte_multiples: ";
@@ -880,7 +887,7 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
     reference_tv->reorder(
         scheduler_utils::domainReorderAsLogicalMap(reference_tv));
     // Reorder so that DeviceDims are in front
-    reorderDIDToFront(reference_tv);
+    reorderParallelizedToFront(reference_tv);
 
     // Break point is relative to logical domain, find the loop domain ID's in
     // the left/right side, we really need the values in domain, but easiest way
@@ -961,12 +968,12 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
     // Don't need to worry about view transformations, just merge reference tv
     // as we normally would.
 
-    std::unordered_map<int64_t, int64_t> reorder_map =
-        scheduler_utils::maybeReorderAsAllocationMap(reference_tv);
-    if (!reorder_map.empty()) {
-      reference_tv->reorder(reorder_map);
+    std::unordered_map<int64_t, int64_t> loop_reorder_map =
+        scheduler_utils::reorderLoopAsAllocationMap(reference_tv);
+    if (!loop_reorder_map.empty()) {
+      reference_tv->reorder(loop_reorder_map);
     }
-    reorderDIDToFront(reference_tv);
+    reorderParallelizedToFront(reference_tv);
 
     // Merge right side of break point
     for (int64_t i = reference_tv->nDims(); i > device_aware_break_point; i--) {
@@ -1259,11 +1266,11 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
   // inputs, cached inputs and outputs will be updated.
   std::unordered_set<TensorView*> inner_most_tensors(
       all_tvs.begin(), all_tvs.end());
-  for (auto cached_input : cached_inputs) {
+  for (const auto& [cached_input, input_idx] : cached_inputs) {
     inner_most_tensors.erase(cached_input);
   }
-  for (auto entry : cached_outputs) {
-    auto output = entry.second;
+  for (const auto& [cached_output, output_idx] : cached_outputs) {
+    auto output = fusion->outputs()[output_idx]->as<TensorView>();
     inner_most_tensors.erase(output);
   }
   // IndexSelectOp reads lookup tv without cache. Because pointwise scheduler

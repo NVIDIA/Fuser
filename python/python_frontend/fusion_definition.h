@@ -168,8 +168,7 @@ class NVF_API FusionDefinition : public FusionState {
       std::optional<size_t> id,
       size_t max_length = 256,
       bool use_multidevice_executor = false,
-      MultiDeviceExecutorParams multi_device_executor_params =
-          MultiDeviceExecutorParams());
+      CommunicatorBackend backend_type = CommunicatorBackend::kNccl);
 
   // The copy/move/assign constructors/operators are removed
   FusionDefinition(const FusionDefinition& fd) = delete;
@@ -385,7 +384,7 @@ class NVF_API FusionDefinition : public FusionState {
  private:
   mutable std::optional<std::string> debug_output_ = std::nullopt;
   const bool use_multidevice_executor_;
-  const MultiDeviceExecutorParams multi_device_executor_params_;
+  const CommunicatorBackend backend_type_;
 };
 
 } // namespace nvfuser::python_frontend

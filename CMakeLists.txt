@@ -66,6 +66,24 @@ endif()
 
 string(APPEND CMAKE_CXX_FLAGS " -Wno-psabi")
 
+# --------------------------
+# nvMatmulHeuristics support
+# --------------------------
+set(NVMMH_INCLUDE_DIR "NVMMH_INCLUDE_DIR-NOTFOUND" CACHE PATH "Directory containing nvMatmulHeuristics.h")
+if (NOT IS_DIRECTORY "${NVMMH_INCLUDE_DIR}")
+  find_path(NVMMH_INCLUDE_DIR nvMatmulHeuristics.h
+    PATHS /usr/local/lib/python3.12/dist-packages/nvidia/nvMatmulHeuristics/include $ENV{HOME}/.local/lib/python3.12/dist-packages/nvidia/nvMatmulHeuristics/include)
+endif()
+
+if(IS_DIRECTORY "${NVMMH_INCLUDE_DIR}")
+  set(NVMMH_FOUND TRUE)
+  string(APPEND CMAKE_CXX_FLAGS " -DHAS_NVMMH=1")
+else()
+  set(NVMMH_FOUND FALSE)
+  message(WARNING "nvMatmulHeuristics headers not found – building without nvMatmulHeuristics support")
+endif()
+# --------------------------
+
 find_package(Torch REQUIRED)
 find_package(Python REQUIRED Development.Module Interpreter)
 find_package(pybind11 REQUIRED)
@@ -111,9 +129,6 @@ if(BUILD_CUTLASS)
     )
     FetchContent_Populate(repo-cutlass)
 
-    include(ProcessorCount)
-    ProcessorCount(NPROC)
-
     set(NVF_CUTLASS_CUDA_FLAGS
       "-DCUTE_USE_PACKED_TUPLE=1"
       "-DCUTLASS_ENABLE_TENSOR_CORE_MMA=1"
@@ -123,7 +138,8 @@ if(BUILD_CUTLASS)
       "-DCUTLASS_DEBUG_TRACE_LEVEL=0"
       "--expt-relaxed-constexpr"
       "--expt-extended-lambda"
-      "--threads=${NPROC}"
+      # Equivalent to --threads=<number of CPUs>
+      "--threads=0"
       # -----------------
       # Suppress warnings
       # -----------------
@@ -171,6 +187,17 @@ if(BUILD_CUTLASS)
       VISIBILITY_INLINES_HIDDEN Yes
       CUDA_ARCHITECTURES "100a"
     )
+    # Our CUTLASS kernels require substantially more memory to compile—up to 6
+    # GB per file. To avoid exhausting system memory, it's helpful to limit
+    # concurrency specifically for these kernels, without throttling other
+    # compilation units. A pool of size 2 works well in practice: there are
+    # only a handful of CUTLASS kernel files, so this restriction has little
+    # impact on overall build time.
+    set(CUTLASS_MAX_JOBS 0 CACHE STRING "Max concurrent CUTLASS CUDA compiles (0 = no limit)")
+    if(CUTLASS_MAX_JOBS GREATER 0)
+      set_property(GLOBAL PROPERTY JOB_POOLS cutlass=${CUTLASS_MAX_JOBS})
+      set_target_properties(nvf_cutlass PROPERTIES JOB_POOL_COMPILE cutlass)
+    endif()
     install(TARGETS nvf_cutlass EXPORT NvfuserTargets DESTINATION lib)
 
   endif()
@@ -351,6 +378,7 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/scheduler/matmul_utils.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/mma_utils.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/no_op.cpp
+  ${NVFUSER_SRCS_DIR}/scheduler/nvmmh.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/communication.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/normalization_inner.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/normalization_inner_outer.cpp
@@ -486,6 +514,9 @@ endif()
 target_compile_definitions(codegen_internal PRIVATE "-DTORCH_CUDA_BUILD_MAIN_LIB")
 target_include_directories(codegen_internal PUBLIC ${NVFUSER_PYTHON_DIR})
 target_include_directories(codegen_internal PUBLIC ${NVFUSER_PYTHON_COMMON})
+if (NVMMH_FOUND)
+  target_include_directories(codegen_internal PUBLIC ${NVMMH_INCLUDE_DIR})
+endif()
 target_include_directories(codegen_internal SYSTEM PUBLIC
   ${CMAKE_SOURCE_DIR}/third_party/flatbuffers/include
   PRIVATE
@@ -1124,6 +1155,7 @@ if(BUILD_TEST)
 
   set(CLUSTER_TEST_SRCS)
   list(APPEND CLUSTER_TEST_SRCS
+    ${NVFUSER_ROOT}/tests/cpp/test_cluster.cpp
     ${NVFUSER_ROOT}/tests/cpp/cluster_runtime_test/test_cluster_device_func.cpp
   )
   add_test(test_cluster "${CLUSTER_TEST_SRCS}" ${CLUSTER_TEST_KERNELS})
@@ -1475,6 +1507,7 @@ message(STATUS "  NVFUSER_BUILD_WITH_ASAN            : ${NVFUSER_BUILD_WITH_ASAN
 message(STATUS "  NVFUSER_DISTRIBUTED                : ${NVFUSER_DISTRIBUTED}")
 message(STATUS "  NVFUSER_HOST_IR_JIT                : ${NVFUSER_HOST_IR_JIT}")
 message(STATUS "  NVFUSER_CPP_STANDARD               : ${NVFUSER_CPP_STANDARD}")
+message(STATUS "  NVMMH_INCLUDE_DIR                  : ${NVMMH_INCLUDE_DIR}")
 
 if(NVFUSER_STANDALONE_BUILD_WITH_UCC)
   message(STATUS "    UCC_HOME: $ENV{UCC_HOME}")

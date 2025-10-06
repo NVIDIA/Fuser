@@ -44,8 +44,7 @@ HostIrEvaluator::HostIrEvaluator(
       params_(params),
       expr_evaluator_(),
       my_local_device_index_(communicator_ ? communicator_->local_rank() : 0),
-      ipc_handle_cache_(expr_evaluator_),
-      allocation_cache_() {
+      ipc_handle_cache_(expr_evaluator_) {
   const DeviceIdxType device_index =
       (communicator_ != nullptr && communicator_->is_available())
       ? communicator_->deviceId()
@@ -693,8 +692,36 @@ void HostIrEvaluator::handle(ReductionOp* reduction_op) {
     case BinaryOpType::Add:
       at::sum_out(output, input, reduction_axes);
       return;
+    case BinaryOpType::FMax: {
+      // Emulate fmax/fmin NAN behavior, which removes NANs except in the case
+      // where the whole set is NANs.
+      auto all_nans = at::all(at::isnan(input), reduction_axes);
+      auto removed_nans = at::nan_to_num(
+          input, /*nan=*/-std::numeric_limits<double>::infinity());
+
+      auto scalar_nan = at::scalar_tensor(
+          std::numeric_limits<double>::quiet_NaN(),
+          at::TensorOptions().dtype(output.dtype()));
+
+      at::where_out(
+          output, all_nans, scalar_nan, at::amax(removed_nans, reduction_axes));
+    }
+      return;
     case BinaryOpType::Max:
       at::amax_out(output, input, reduction_axes);
+      return;
+    case BinaryOpType::FMin: {
+      auto all_nans = at::all(at::isnan(input), reduction_axes);
+      auto removed_nans = at::nan_to_num(
+          input, /*nan=*/std::numeric_limits<double>::infinity());
+
+      auto scalar_nan = at::scalar_tensor(
+          std::numeric_limits<double>::quiet_NaN(),
+          at::TensorOptions().dtype(output.dtype()));
+
+      at::where_out(
+          output, all_nans, scalar_nan, at::amin(removed_nans, reduction_axes));
+    }
       return;
     case BinaryOpType::Min:
       at::amin_out(output, input, reduction_axes);
