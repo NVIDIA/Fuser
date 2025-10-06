@@ -77,7 +77,7 @@ bool isLowerableToCommunication(Expr* e) {
   }
 
   if (auto* ldst = dynamic_cast<LoadStoreOp*>(e)) {
-    return ldst->as<LoadStoreOp>()->opType() == LoadStoreOpType::Set;
+    return ldst->opType() == LoadStoreOpType::Set;
   }
 
   return false;
@@ -111,7 +111,7 @@ void insertReshardingSetsBefore(Fusion* fusion) {
     if (!expr->output(0)->isA<TensorView>()) {
       continue;
     }
-    auto output = expr->output(0)->as<TensorView>();
+    auto* output = expr->output(0)->as<TensorView>();
 
     std::unordered_set<TensorView*> inputs;
     for (auto input : ir_utils::filterByType<TensorView>(expr->inputs())) {
@@ -160,10 +160,10 @@ void insertReshardingSetsAfter(Fusion* fusion) {
     if (!expr->output(0)->isA<TensorView>()) {
       continue;
     }
-    auto output = expr->output(0)->as<TensorView>();
+    auto* output = expr->output(0)->as<TensorView>();
 
     std::unordered_set<TensorView*> inputs;
-    for (auto input : ir_utils::filterByType<TensorView>(expr->inputs())) {
+    for (auto* input : ir_utils::filterByType<TensorView>(expr->inputs())) {
       if (haveDifferentShardings(input, output)) {
         inputs.insert(input);
       }
