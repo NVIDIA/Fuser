@@ -31,6 +31,8 @@ bool checkPatternEquivalence(
 // hard to optimize problem and likely indicates we shouldn't be fusing.
 bool hasNonUniqueBcast(Fusion* fusion);
 
+bool hasNonTerminalBlockQuantizeOp(Fusion* fusion);
+
 // TODO: remove this requirement entirely
 bool rejectScheduleForMemoryPromotion(
     Fusion* fusion,

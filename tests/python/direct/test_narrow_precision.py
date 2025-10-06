@@ -36,7 +36,7 @@ def nvfp4_quantize(x):
 @pytest.mark.skipif(
     is_pre_blackwell(), reason="Only supported on blackwell and newer devices."
 )
-@pytest.mark.parametrize("config", [[128, 256, 512], [128, 256, 512]])
+@pytest.mark.parametrize("config", [[1024, 1024, 1024]])
 @pytest.mark.parametrize("out_dtype", [torch.bfloat16])
 def test_scaled_mm(
     nvfuser_direct_test,
@@ -55,38 +55,56 @@ def test_scaled_mm(
     alpha = 1.0 / (global_sf1 * global_sf2)
 
     inputs = [
-        mat1,
-        mat2.t(),
-        linear_to_swizzled_128_4(scale1),
-        linear_to_swizzled_128_4(scale2),
+        mat1_ref,
+        mat2_ref.t(),
+        global_sf1,
+        global_sf2,
         alpha,
     ]
 
     def nvfuser_fusion_id0(fd: FusionDefinition) -> None:
         mat1 = fd.define_tensor(
-            shape=[-1, -1], contiguity=True, dtype=DataType.Float4_e2m1fn, is_cpu=False
+            shape=[-1, -1], contiguity=True, dtype=DataType.Float, is_cpu=False
         )
         mat2 = fd.define_tensor(
             shape=[-1, -1],
             contiguity=True,
-            dtype=DataType.Float4_e2m1fn,
+            dtype=DataType.Float,
             is_cpu=False,
             stride_order=[0, 1],
         )
-        scale1 = fd.define_tensor(
-            shape=[-1, -1], contiguity=True, dtype=DataType.Float8_e4m3fn, is_cpu=False
+
+        global_scale_tv = fd.define_tensor(
+            shape=[], contiguity=True, dtype=DataType.Float, is_cpu=False
         )
-        scale2 = fd.define_tensor(
-            shape=[-1, -1], contiguity=True, dtype=DataType.Float8_e4m3fn, is_cpu=False
+
+        global_scale_tv_2 = fd.define_tensor(
+            shape=[], contiguity=True, dtype=DataType.Float, is_cpu=False
         )
+
+        mat1_, scale1_ = fd.ops.nv_block_quantize_to_nvfp4(mat1, global_scale_tv, 16)
+        mat2_, scale2_ = fd.ops.nv_block_quantize_to_nvfp4(mat2, global_scale_tv_2, 16)
+
+        scale1_ = fd.ops.squeeze(scale1_, [-1])
+        scale2_ = fd.ops.squeeze(scale2_, [-1])
+
+        mat1_ = fd.ops.reshape(mat1_, [1024, 1024])
+        mat2_ = fd.ops.reshape(mat2_, [1024, 1024])
+
+        # scale1 = fd.define_tensor(
+        #     shape=[-1, -1], contiguity=True, dtype=DataType.Float8_e4m3fn, is_cpu=False
+        # )
+        # scale2 = fd.define_tensor(
+        #     shape=[-1, -1], contiguity=True, dtype=DataType.Float8_e4m3fn, is_cpu=False
+        # )
         alpha = fd.define_tensor(
             shape=[], contiguity=True, dtype=DataType.Float, is_cpu=False
         )
         out, _, _ = fd.ops.scaled_mm(
-            mat1,
-            mat2,
-            scale1,
-            scale2,
+            mat1_,
+            mat2_,
+            scale1_,
+            scale2_,
             alpha,
             bias=None,
             beta=None,
@@ -208,53 +226,6 @@ def test_nv_block_quantization(nvfuser_direct_test):
         print(
             f"Scale values have different sizes after flattening: {o1_uint8.flatten().size()} vs {x_scale_uint8.flatten().size()}"
         )
-
-
-def test_sw(nvfuser_direct_test):
-    # Create a 2D tensor of size 128x16 with values from 0 to 2047 in row-major fashion
-    tn = torch.arange(128 * 16, dtype=torch.float).reshape(128, 16).cuda()
-    nt = linear_to_swizzled_128_4(tn)
-
-    # Print nt as a 2D tensor with each row on a separate line
-    print("nt tensor (each row on separate line):")
-    torch.set_printoptions(
-        linewidth=1000, precision=1
-    )  # Set large linewidth and show 1 decimal place
-    for i, row in enumerate(nt):
-        print(f"Row {i:3d}: {row}")
-    torch.set_printoptions(profile="default")  # Reset to default
-
-    def nvfuser_fusion_id0(fd: FusionDefinition):
-        x_tv = fd.define_tensor(
-            shape=[-1, -1], contiguity=True, dtype=DataType.Float, is_cpu=False
-        )
-        y = fd.ops.set(x_tv)
-        fd.add_output(y)
-        y.split(0, 128)
-        y.split(1, 32)
-        y.split(3, 4)
-        new_order_of_alloc_domain = [
-            y.axis(0),
-            y.axis(3),
-            y.axis(2),
-            y.axis(1),
-            y.axis(4),
-        ]
-        y.set_allocation_domain(new_order_of_alloc_domain, True)
-
-        y.merge(1, 2)
-        y.merge(0, 1)
-        y.merge(1, 2)
-
-    o, _ = nvfuser_direct_test.exec_nvfuser(nvfuser_fusion_id0, [tn])
-    print("o tensor (each row on separate line):")
-    torch.set_printoptions(
-        linewidth=1000, precision=1
-    )  # Set large linewidth and show 1 decimal place
-    print(o[0].shape)
-    for i, row in enumerate(o[0]):
-        print(f"Row {i:3d}: {row}")
-    torch.set_printoptions(profile="default")  # Reset to default
 
 
 @pytest.mark.skipif(

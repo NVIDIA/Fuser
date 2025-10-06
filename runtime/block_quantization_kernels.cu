@@ -70,10 +70,10 @@ __device__ __inline__ void quadMaxReductionStage1(float& local_max) {
 // This assumes that ITEMS_PER_THREAD is 4.
 // This assumes for block quantization, the block size is 16.
 // This works for float but will extended to work with bfloat.
-template <int ITEMS_PER_THREAD>
+template <int ITEMS_PER_THREAD, int ALIGNMENT = 1>
 __device__ void block_quantize_to_nvfp4(
     Array<float, ITEMS_PER_THREAD, 1>& input,
-    Array<__e2m1, ITEMS_PER_THREAD, ITEMS_PER_THREAD>& output,
+    Array<__e2m1, ITEMS_PER_THREAD, ALIGNMENT>& output,
     __e4m3& fp8_output,
     Tensor<float, 0, 0>& global_scale,
     bool use_global_scale = true) {
@@ -142,10 +142,10 @@ __device__ void block_quantize_to_nvfp4(
   }
 }
 
-template <int ITEMS_PER_THREAD>
+template <int ITEMS_PER_THREAD, int ALIGNMENT>
 __device__ void block_quantize_to_nvfp4(
     Array<float, ITEMS_PER_THREAD, 1>& input,
-    Array<__e2m1, ITEMS_PER_THREAD, ITEMS_PER_THREAD>& output,
+    Array<__e2m1, ITEMS_PER_THREAD, ALIGNMENT>& output,
     __e4m3& fp8_output) {
   Tensor<float, 0, 0> scale;
   scale[0] = 1.0f;
@@ -227,10 +227,10 @@ __device__ void block_quantize_bf16_to_nvfp4(
   }
 }
 
-template <int ITEMS_PER_THREAD>
+template <int ITEMS_PER_THREAD, int ALIGNMENT>
 __device__ void block_quantize_bf16_to_nvfp4(
     Array<__bfloat, ITEMS_PER_THREAD, 1>& input,
-    Array<__e2m1, ITEMS_PER_THREAD, ITEMS_PER_THREAD>& output,
+    Array<__e2m1, ITEMS_PER_THREAD, ALIGNMENT>& output,
     __e4m3& fp8_output) {
   Tensor<float, 0, 0> scale;
   scale[0] = 1.0f;

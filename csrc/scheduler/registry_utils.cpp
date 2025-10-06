@@ -73,6 +73,19 @@ bool hasNonUniqueBcast(Fusion* fusion) {
   return false;
 }
 
+bool hasNonTerminalBlockQuantizeOp(Fusion* fusion) {
+  for (auto expr : fusion->exprs()) {
+    if (expr->isA<BlockQuantizationOp>()) {
+      auto block_scales =
+          expr->as<BlockQuantizationOp>()->blockScales()->as<TensorView>();
+      if (!block_scales->isFusionOutput()) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
 namespace {
 // TODO: Deduplicate from compute_at.cpp
 std::deque<std::deque<TensorView*>> tvChains(
