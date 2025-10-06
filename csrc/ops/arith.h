@@ -812,7 +812,7 @@ NVF_API TopKResult topk(
 //! an error.
 //!
 //! Note that unlike reductions, low precision inputs are not
-//! automtaically upcast to float, as that is the PyTorch convention.
+//! automatically upcast to float, as that is the PyTorch convention.
 NVF_API TensorView* scan(
     TensorView* in_tv,
     int64_t dim,

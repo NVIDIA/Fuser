@@ -2592,7 +2592,7 @@ TensorView* scan(
     return set(in_tv);
   }
 
-  // Unlike ReducitonOp, low-precision input is not upcast to
+  // Unlike ReductionOp, low-precision input is not upcast to
   // float. This seems inconsistent but aligns with the PyTorch eager
   // implementation.
   DataType dtype = in_tv->dtype();
