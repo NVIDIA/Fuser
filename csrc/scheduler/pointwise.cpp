@@ -864,8 +864,8 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
   scheduler_utils::moveNonConcretizedBroadcastInnermost(fusion, {reference_tv});
 
   int64_t num_device_dims = numDeviceDims(reference_tv);
-  int64_t device_aware_break_point = pparams->break_point + num_device_dims;
-  // int64_t device_aware_break_point = 0 + num_device_dims;
+  // int64_t device_aware_break_point = pparams->break_point + num_device_dims;
+  int64_t device_aware_break_point = 0 + num_device_dims;
 
   // Positions of rhs and lhs after merging all dimensions.
   int64_t rhs_i = -1;
@@ -998,7 +998,7 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
 
   int64_t unswitch_pos = 0;
   IterDomain* vectorize_id = nullptr;
-  if (pparams->break_point) {
+  if (/*pparams->break_point*/ 0) {
     // 2D parallelization scheme
     NVF_ERROR(rhs_i >= 0 && lhs_i >= 0);
 
@@ -1313,6 +1313,7 @@ void PointWiseScheduler::schedule(
       "Incorrect parameters sent to PointWiseScheduler::schedule",
       params);
   schedulePointwise(fusion, pparams);
+  fusion->print();
 }
 
 } // namespace nvfuser

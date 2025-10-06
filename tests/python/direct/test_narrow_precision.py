@@ -115,12 +115,16 @@ def test_scaled_mm(
     is_pre_blackwell(), reason="Only supported on blackwell and newer devices."
 )
 def test_nv_block_quantization(nvfuser_direct_test):
+    swizzle_scales = True
     x = torch.rand((1024, 1024), dtype=torch.bfloat16, device="cuda")
     x_global_scale = ((FLOAT8_E4M3_MAX * FLOAT4_E2M1_MAX) / x.abs().max()).to(
         torch.float32
     )
 
     x_u8, x_scale = pytorch_nvfp4_quantize(x, x_global_scale)
+
+    if swizzle_scales:
+        x_scale = linear_to_swizzled_128_4(x_scale)
 
     def nvfuser_fusion_id0(fd: FusionDefinition):
         x_tv = fd.define_tensor(
@@ -132,6 +136,24 @@ def test_nv_block_quantization(nvfuser_direct_test):
         vals_, scales_ = fd.ops.nv_block_quantize_to_nvfp4(x_tv, global_scale_tv, 16)
         fd.add_output(vals_)
         fd.add_output(scales_)
+
+        if swizzle_scales:
+            scales_.split(0, 128)
+            scales_.split(1, 32)
+            scales_.split(3, 4)
+            new_order_of_alloc_domain = [
+                scales_.axis(0),
+                scales_.axis(3),
+                scales_.axis(2),
+                scales_.axis(1),
+                scales_.axis(4),
+                scales_.axis(5),
+            ]
+            scales_.set_allocation_domain(new_order_of_alloc_domain, True)
+
+            scales_.merge(1, 2)
+            scales_.merge(0, 1)
+            scales_.merge(1, 2)
 
     o, _ = nvfuser_direct_test.exec_nvfuser(nvfuser_fusion_id0, [x, x_global_scale])
 
@@ -186,6 +208,53 @@ def test_nv_block_quantization(nvfuser_direct_test):
         print(
             f"Scale values have different sizes after flattening: {o1_uint8.flatten().size()} vs {x_scale_uint8.flatten().size()}"
         )
+
+
+def test_sw(nvfuser_direct_test):
+    # Create a 2D tensor of size 128x16 with values from 0 to 2047 in row-major fashion
+    tn = torch.arange(128 * 16, dtype=torch.float).reshape(128, 16).cuda()
+    nt = linear_to_swizzled_128_4(tn)
+
+    # Print nt as a 2D tensor with each row on a separate line
+    print("nt tensor (each row on separate line):")
+    torch.set_printoptions(
+        linewidth=1000, precision=1
+    )  # Set large linewidth and show 1 decimal place
+    for i, row in enumerate(nt):
+        print(f"Row {i:3d}: {row}")
+    torch.set_printoptions(profile="default")  # Reset to default
+
+    def nvfuser_fusion_id0(fd: FusionDefinition):
+        x_tv = fd.define_tensor(
+            shape=[-1, -1], contiguity=True, dtype=DataType.Float, is_cpu=False
+        )
+        y = fd.ops.set(x_tv)
+        fd.add_output(y)
+        y.split(0, 128)
+        y.split(1, 32)
+        y.split(3, 4)
+        new_order_of_alloc_domain = [
+            y.axis(0),
+            y.axis(3),
+            y.axis(2),
+            y.axis(1),
+            y.axis(4),
+        ]
+        y.set_allocation_domain(new_order_of_alloc_domain, True)
+
+        y.merge(1, 2)
+        y.merge(0, 1)
+        y.merge(1, 2)
+
+    o, _ = nvfuser_direct_test.exec_nvfuser(nvfuser_fusion_id0, [tn])
+    print("o tensor (each row on separate line):")
+    torch.set_printoptions(
+        linewidth=1000, precision=1
+    )  # Set large linewidth and show 1 decimal place
+    print(o[0].shape)
+    for i, row in enumerate(o[0]):
+        print(f"Row {i:3d}: {row}")
+    torch.set_printoptions(profile="default")  # Reset to default
 
 
 @pytest.mark.skipif(

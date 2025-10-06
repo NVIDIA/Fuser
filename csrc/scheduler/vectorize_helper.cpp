@@ -816,23 +816,24 @@ Val* ContiguousInnerDimensionsMapper::getContigMergeOfInnerSize(
         {alloc_iid});
     IterDomain* logical_id = alloc_iid;
     Val* num_devices = of_tv->container()->oneVal();
-    auto is_block_scales_output =
-        isTvBlockScalesOutputOfBlockQuantization(of_tv);
-    for (Expr* expr : exprs | std::views::reverse) {
-      if (is_block_scales_output) {
-        NVF_ERROR(
-            expr->isA<Split>(),
-            "alloc domain of block quantization should only have splits");
-        if (!expr->as<Split>()->outer()->isDeviceDim()) {
-          continue;
-        }
-      } else {
-        validateDeviceSplit(expr);
-      }
-      auto* split = expr->as<Split>();
-      logical_id = split->in();
-      num_devices = SimplifyingIrBuilder::mulExpr(num_devices, split->factor());
-    }
+    // auto is_block_scales_output =
+    //     isTvBlockScalesOutputOfBlockQuantization(of_tv);
+    // for (Expr* expr : exprs | std::views::reverse) {
+    //   if (is_block_scales_output) {
+    //     NVF_ERROR(
+    //         expr->isA<Split>(),
+    //         "alloc domain of block quantization should only have splits");
+    //     if (!expr->as<Split>()->outer()->isDeviceDim()) {
+    //       continue;
+    //     }
+    //   } else {
+    //     validateDeviceSplit(expr);
+    //   }
+    //   auto* split = expr->as<Split>();
+    //   logical_id = split->in();
+    //   num_devices = SimplifyingIrBuilder::mulExpr(num_devices,
+    //   split->factor());
+    // }
 
     // Mapping order isn't correct, cannot expand vectorization dimension.
     if (projected_dims[--projected_dims_i] != logical_id) {

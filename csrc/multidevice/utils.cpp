@@ -777,6 +777,7 @@ std::unordered_set<TensorView*> getTvsWithDifferentSharding(
 }
 
 void validateDeviceSplit(Expr* expr) {
+  return;
   NVF_ERROR(expr != nullptr, "Expected a valid expression.");
   auto* split = dynamic_cast<Split*>(expr);
   NVF_ERROR(

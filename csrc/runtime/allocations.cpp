@@ -429,8 +429,8 @@ getShapeAndStrideAfterDimMerged(
   std::vector<int64_t> tensor_new_strides(tensor_new_shape.size(), 1);
   int64_t prod = 1;
   for (int i = static_cast<int>(tensor_new_shape.size()) - 1; i >= 0; --i) {
-    prod *= tensor_new_shape[i];
     tensor_new_strides[i] = prod;
+    prod *= tensor_new_shape[i];
   }
 
   return {tensor_new_shape, tensor_new_strides};
@@ -746,8 +746,21 @@ at::Tensor transformFromAllocationToLogical(
   // currently used by PreprocessGroupedMatmulInputSf, where output is padded.
   std::set<IterDomain*> frontier_set(frontier.begin(), frontier.end());
   std::set<IterDomain*> logical_set(logical.begin(), logical.end());
+  // if (frontier_set != logical_set) {
+  //   return tensor;
+  // }
+
   if (frontier_set != logical_set) {
-    return tensor;
+    std::vector<int64_t> logical_sizes(logical.size(), 0);
+    std::vector<int64_t> logical_strides(logical.size(), 0);
+    int64_t cur_stride = 1;
+    for (const auto&& [i, id] : enumerate(logical) | std::views::reverse) {
+      int64_t cur_size = ee.evaluate(id->extent()).as<int64_t>();
+      logical_sizes[i] = cur_size;
+      logical_strides[i] = cur_stride;
+      cur_stride *= cur_size;
+    }
+    return tensor.as_strided(logical_sizes, logical_strides);
   }
 
   // Now that all affine transformations are handled, and frontiers should
