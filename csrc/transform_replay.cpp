@@ -374,7 +374,6 @@ void TransformReplay::selfReplay(
         NVF_ERROR((*i)->isReduction());
         new_contiguities.push_back(std::nullopt);
       }
-      // FIXME: can I modify contiguity directly?
       std::optional<bool> new_contiguity = contiguity;
       if ((*i)->isBroadcast()) {
         new_contiguity = std::nullopt;
