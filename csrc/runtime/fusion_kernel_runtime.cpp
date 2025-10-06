@@ -26,6 +26,8 @@
 #include <type.h>
 
 #include <c10/cuda/CUDAGuard.h>
+#include <iomanip>
+#include <iostream>
 
 namespace nvfuser {
 

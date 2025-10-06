@@ -3601,7 +3601,7 @@ void bindQuantizationOps(py::module_& ops) {
           }
         }
         auto output = blockQuantize(input, global_scale_val, block_size);
-        return py::make_tuple(output.block_scales, output.quantized_tensor);
+        return py::make_tuple(output.quantized_tensor, output.block_scales);
       },
       py::arg("input"),
       py::arg("global_scale").none(true) = py::none(),

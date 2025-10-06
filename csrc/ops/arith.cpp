@@ -2701,7 +2701,7 @@ BlockQuantizationResults blockQuantize(
   IrBuilder::create<BlockQuantizationOp>(
       block_scales, quantized_tensor, reshaped_input, global_scale, block_size);
 
-  return BlockQuantizationResults(block_scales, quantized_tensor);
+  return BlockQuantizationResults(quantized_tensor, block_scales);
 }
 
 } // namespace nvfuser
