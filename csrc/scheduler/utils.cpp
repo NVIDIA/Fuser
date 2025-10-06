@@ -1186,7 +1186,7 @@ std::pair<bool, bool> canonicalDimReduction(
     bool has_iter_axis = mergeNonReduction(tv) > 0;
     return {has_iter_axis, has_red_axis};
   } else {
-    NVF_ERROR(merge_3d(tv) == 3, "Tried 3D merge, but result is not 3D.");
+    NVF_ERROR_EQ(merge_3d(tv), 3, "Tried 3D merge, but result is not 3D.");
     if (tv->axis(1)->isBroadcast()) {
       NVF_ERROR(
           !tv->axis(0)->isBroadcast(),
