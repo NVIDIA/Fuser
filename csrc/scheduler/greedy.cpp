@@ -619,30 +619,7 @@ class RunTimeChecker : private IterVisitor {
             at::cuda::getCurrentDeviceProperties()->maxThreadsPerBlock) {
     traverse(fusion);
 
-    const int64_t cub_requited_shmem_size =
-        cub_shmem_buffer_.getTotalSizeInBytes();
-    // TODO: Use the constant added in #5272
-    auto aligned_size = [](int64_t x) { return (x + 127) / 128 * 128; };
-    // Shared memory may be also used for resolving mismatched
-    // parallelization of constrained IDs
-    const auto total_required_size = aligned_size(cub_requited_shmem_size) +
-        aligned_size(max_constraint_size_ * largest_data_type_size_);
-
-    const auto available_size =
-        at::cuda::getCurrentDeviceProperties()->sharedMemPerBlock;
-
-    std::cerr << "total_required: " << total_required_size
-              << ", available: " << available_size << std::endl;
-
-    if (total_required_size > available_size) {
-      reject(
-          "Not enough shared memory. Required size for CUB: ",
-          cub_requited_shmem_size,
-          ". Total required size: ",
-          total_required_size,
-          ". Available: ",
-          available_size);
-    }
+    checkSharedMemoryBufferUsage();
   }
 
   void dispatch(Expr* expr) override {
@@ -775,6 +752,34 @@ class RunTimeChecker : private IterVisitor {
         std::max(max_constraint_size_, size_of_constrained_ids);
 
     return size_of_constrained_ids;
+  }
+
+  void checkSharedMemoryBufferUsage() {
+    // TODO: Use the constant and util functions added in #5272
+    auto aligned_size = [](int64_t x) { return (x + 127) / 128 * 128; };
+
+    const int64_t cub_buffer_size =
+        aligned_size(cub_shmem_buffer_.getTotalSizeInBytes());
+
+    // Shared memory may be also used for resolving mismatched
+    // parallelization of constrained IDs
+    const auto resolution_size =
+        aligned_size(max_constraint_size_ * largest_data_type_size_);
+
+    const auto total_required_size = cub_buffer_size + resolution_size;
+
+    const auto available_size =
+        at::cuda::getCurrentDeviceProperties()->sharedMemPerBlock;
+
+    if (total_required_size > available_size) {
+      reject(
+          "Not enough shared memory. Required size for CUB: ",
+          cub_buffer_size,
+          ". Total required size: ",
+          total_required_size,
+          ". Available: ",
+          available_size);
+    }
   }
 
   template <typename... Args>

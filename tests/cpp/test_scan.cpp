@@ -666,13 +666,13 @@ TEST_P(ScanParameterizedWithBlock, SharedMemoryRequirement) {
   // Unlike ArgsortOp, scan passes a lambda to the CUB template
   // function, so each invocation seems to be treated as a unique
   // instantiation and doubles the memory usage. This should not be an
-  // issue once shared memory reuse is implemented. 
+  // issue once shared memory reuse is implemented.
   // the same template instantiation
   auto tv4 = set(tv0);
   auto tv5 = cumsum(tv4, 0);
   auto tv6 = set(tv5);
   fusion.addOutput(tv6);
-  
+
   // Create a different instantiation
   if (has_extra) {
     auto tv7 = castOp(dtype_extra, tv0);
@@ -716,7 +716,8 @@ TEST_P(ScanParameterizedWithBlock, SharedMemoryRequirement) {
     // the actual size is even smaller than the estimation.
     if (ceilDiv(size, batch) < 32) {
       EXPECT_LE(ke.getStaticSmemSize(), expected_size)
-          << "Actual static shared memory size was not smaller than the expectation";
+          << "Actual static shared memory size was not smaller than the "
+             "expectation";
     } else {
       EXPECT_EQ(expected_size, ke.getStaticSmemSize())
           << "Actual static shared memory size was different";
@@ -738,10 +739,9 @@ INSTANTIATE_TEST_SUITE_P(
         testing::Bool()),
     [](const auto& info) {
       std::ostringstream os;
-      os << std::get<0>(info.param) << "_" << std::get<1>(info.param)
-         << "_" << std::get<2>(info.param);
+      os << std::get<0>(info.param) << "_" << std::get<1>(info.param) << "_"
+         << std::get<2>(info.param);
       return os.str();
     });
-
 
 } // namespace nvfuser

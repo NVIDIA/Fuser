@@ -404,7 +404,7 @@ INSTANTIATE_TEST_SUITE_P(
     ArgsortParameterizedWithBlockandBatch,
     testing::Combine(
         testing::Values(128, 256, 512, 1024, 2048, 4096),
-        testing::Values(1, 2, 3, 4, 8),        
+        testing::Values(1, 2, 3, 4, 8),
         testing::Bool()),
     [](const auto& info) {
       std::ostringstream os;

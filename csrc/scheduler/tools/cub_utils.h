@@ -12,9 +12,28 @@
 namespace nvfuser {
 namespace scheduler_tools {
 
+// Utility class to compute the size of the shared memory buffer used
+// by CUB for operations like argsort
 class CubSharedMemoryBuffer {
  public:
-  // bdimx is common across all calls, so not included here
+  void registerArgsort(int64_t bdimx, int64_t items_per_thread, DataType dtype);
+
+  void registerScan(int64_t bdimx, int64_t items_per_thread, DataType dtype);
+
+  void registerTopK(int64_t bdimx, int64_t items_per_thread, DataType dtype);
+
+  int64_t getTotalSizeInBytes() const;
+
+  int64_t getArgsortTotalSizeInBytes() const;
+
+  int64_t getScanTotalSizeInBytes() const;
+
+  int64_t getTopKTotalSizeInBytes() const;
+
+ private:
+  // Parameters affecting the buffer size of each call using block
+  // radix sort. bdimx is common across all calls, so not included
+  // here.
   struct BlockRadixSortParameters {
     int64_t items_per_thread;
     DataType dtype;
@@ -30,15 +49,14 @@ class CubSharedMemoryBuffer {
     }
   };
 
-  // bdimx is common across all calls, so not included here
+  // Parameters affecting the buffer size of each call using block
+  // scan. bdimx is common across all calls, so not included
+  // here.
   struct BlockScanParameters {
     DataType dtype;
-    // TODO: Remove this once reuse is implemented
-    int64_t index;
 
     bool operator==(const BlockScanParameters& other) const {
-      return dtype == other.dtype &&
-          index == other.index;
+      return dtype == other.dtype;
     }
   };
 
@@ -52,27 +70,23 @@ class CubSharedMemoryBuffer {
     }
   };
 
-  void registerArgsort(int64_t bdimx, int64_t items_per_thread, DataType dtype);
-
-  void registerScan(int64_t bdimx, int64_t items_per_thread, DataType dtype);
-
-  void registerTopK(int64_t bdimx, int64_t items_per_thread, DataType dtype);
-
-  int64_t getTotalSizeInBytes() const;
-
- private:
-  int64_t getArgsortTotalSizeInBytes() const;
-
-  int64_t getScanTotalSizeInBytes() const;
-
-  int64_t getTopKTotalSizeInBytes() const;
-
  private:
   int64_t max_bdimx_ = -1;
+
+  // Keep track of argsort calls to compute the total size of the
+  // shared memory buffers used for argsort
   std::unordered_set<BlockRadixSortParameters, BlockRadixSortParametersHash>
       argsort_calls_;
-  int64_t scan_index_ = 0;
-  std::unordered_set<BlockScanParameters, BlockScanParametersHash> scan_calls_;
+
+  // Keep track of scan calls to compute the total size of the
+  // shared memory buffers used for scan. Note that each call seems to
+  // be considered a distinctive separate call due to the lambda
+  // parameter, and thus there's no reuse even for the same data
+  // type. This should be fixed by using dynamically allocated buffers.
+  std::vector<BlockScanParameters> scan_calls_;
+
+  // Keep track of topk calls to compute the total size of the
+  // shared memory buffers used for topk.
   std::unordered_set<BlockRadixSortParameters, BlockRadixSortParametersHash>
       topk_calls_;
 };
