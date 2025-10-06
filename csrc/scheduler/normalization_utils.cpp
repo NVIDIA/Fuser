@@ -354,7 +354,7 @@ std::optional<std::tuple<int64_t, int64_t, bool>> reduceWorkOfLastBlock(
   if (next_gdimx > 0) {
     auto remaining_iteration_factor = ceilDiv(
         ceilDiv(total_iteration_numel, vectorize_factor), launch_cfg.bdimx());
-    auto current_iterration_count =
+    auto current_iteration_count =
         ceilDiv(remaining_iteration_factor, launch_cfg.gdimx());
     auto next_iteration_count = ceilDiv(remaining_iteration_factor, next_gdimx);
     log("Next iteration count: ",
@@ -362,10 +362,10 @@ std::optional<std::tuple<int64_t, int64_t, bool>> reduceWorkOfLastBlock(
         ", next gdimx: ",
         next_gdimx,
         ", current iteration: ",
-        current_iterration_count,
-        ", curreng gdimx: ",
+        current_iteration_count,
+        ", current gdimx: ",
         launch_cfg.gdimx());
-    if (next_iteration_count > current_iterration_count) {
+    if (next_iteration_count > current_iteration_count) {
       log("Still not good but stop here to avoid increase of iteration count");
       return std::make_tuple(optimal_gdimy, optimal_size, false);
     }
@@ -598,7 +598,7 @@ bool isConnectedOnlyThroughReductionProducer(
   for (auto otv : outer_reduction_tvs) {
     const auto& producers = ir_utils::producerTvsOf(otv);
     // cutoff at producers of outer reduction tvs as they are computed with
-    // inner reducitons
+    // inner reductions
     const auto& connected_tv_set = scheduler_utils::getAllTvsFrom(
         {otv}, {producers.begin(), producers.end()});
     for (auto tv : connected_tv_set) {
@@ -712,10 +712,9 @@ std::vector<TensorView*> getOuterBroadcastTvs(
   // find the broadcast tensor whose broadcast mask is same to the reference
   std::vector<TensorView*> outer_broadcast_tvs;
   for (auto tv : fusion->allTvs()) {
-    if (std::any_of(
-            tv->getLoopDomain().begin(),
-            tv->getLoopDomain().end(),
-            [](IterDomain* id) { return id->isBroadcast(); })) {
+    if (std::ranges::any_of(tv->getLoopDomain(), [](IterDomain* id) {
+          return id->isBroadcast();
+        })) {
       if (auto bcast = dynamic_cast<BroadcastOp*>(tv->definition())) {
         if (bcast->getBroadcastDimFlags() == ref_broadcast_mask) {
           outer_broadcast_tvs.emplace_back(tv);
@@ -748,10 +747,8 @@ void checkReductionTvForScheduling(Fusion* fusion, TensorView* ref_red_tv) {
       ir_utils::isReductionOp(ref_red_tv->definition()),
       "TensorView doesn't have a reduction.");
   NVF_ERROR(
-      std::any_of(
-          fusion->inputs().begin(),
-          fusion->inputs().end(),
-          [](Val* inp) { return inp->isA<TensorView>(); }),
+      std::ranges::any_of(
+          fusion->inputs(), [](Val* inp) { return inp->isA<TensorView>(); }),
       "Tried to schedule a fusion with no tensor inputs, currently not "
       "supported.");
 }
@@ -866,7 +863,7 @@ BufferProjectionStrategy isProjectBufferToInputs(
     return BufferProjectionStrategy::NoProjectOtherReasons;
   }
 
-  // Enusre project to inputs can save persistent buffer size,
+  // Ensure project to inputs can save persistent buffer size,
   // unless it's innerOuter with outer broadcast where project to inputs reduces
   // gmem access.
   if (check_projected_buffer_size &&
@@ -905,7 +902,7 @@ BufferProjectionStrategy isProjectBufferToInputs(
     return BufferProjectionStrategy::ProjectToInputs;
   }
 
-  // Recompute from inputs reduces regisger usage which may lead to higher
+  // Recompute from inputs reduces register usage which may lead to higher
   // occupancy and better performance. However, it also increases computation
   // cost which may lead to lower performance, especially when the device has a
   // high bandwidth to flops ratio where the kernel may change from memory bound
@@ -983,7 +980,7 @@ PersistentKernelProperties getPersistentKernelProperties(
 
   // Can project to input?
   // Figure out if we want to projet persistent buffers to the inputs for
-  // exmaple if we have an input tensor t0 that's fp16:
+  // example if we have an input tensor t0 that's fp16:
   //
   // t0 = makeSymbolicTensor(2, DataType::Half)
   // t1 = castOp(DataType::Float, t0)
@@ -1313,7 +1310,7 @@ bool compileTimeCheck(Fusion* fusion, SchedulerType scheduler_type) {
 std::vector<TensorView*> movePersistentBufferToSmem(
     Fusion* fusion,
     const ReductionParams* rparams,
-    const std::vector<TensorView*>& cached_inputs,
+    const std::vector<std::pair<TensorView*, int64_t>>& cached_inputs,
     const std::vector<TensorView*>& persistent_buffers) {
   std::vector<TensorView*> smem_consumers;
   // Transfer the persistent buffer tensors to shared memory. These tensors are
@@ -1324,10 +1321,8 @@ std::vector<TensorView*> movePersistentBufferToSmem(
   }
 
   auto isSharedMemoryPersistent = [&rparams](const TensorView* lookup_tv) {
-    return std::any_of(
-        rparams->smem_persistent_buffers.begin(),
-        rparams->smem_persistent_buffers.end(),
-        [lookup_tv](const auto* tv) {
+    return std::ranges::any_of(
+        rparams->smem_persistent_buffers, [lookup_tv](const auto* tv) {
           // can't use `tv->sameAs(lookup_tv)` since the saved tvs in
           // smem_persistent_buffers are from a cloned fusion.
           return tv->name() == lookup_tv->name();
@@ -1359,14 +1354,14 @@ std::vector<TensorView*> movePersistentBufferToSmem(
     // If a buffer is absent from [smem_persistent_buffers], it may be a
     // cached input. In such cases, verify if the original input tensor is
     // stored in [smem_persistent_buffers]. So, we may need to call
-    // isSharedMemoryPersistent() twice, one for the buffer iteself and the
+    // isSharedMemoryPersistent() twice, one for the buffer itself and the
     // other for the buffer's input tensor if the buffer is a cached input
     // and it is not in [smem_persistent_buffers].
     bool is_cached_input = false;
     bool use_smem = isSharedMemoryPersistent(tv);
-    if (!use_smem &&
-        std::find(cached_inputs.begin(), cached_inputs.end(), tv) !=
-            cached_inputs.end()) {
+    if (!use_smem && std::ranges::any_of(cached_inputs, [tv](const auto& pair) {
+          return pair.first == tv;
+        })) {
       auto input_tv = ir_utils::producerTvsOf(tv).at(0);
       use_smem = isSharedMemoryPersistent(input_tv);
       is_cached_input = true;
@@ -1378,12 +1373,9 @@ std::vector<TensorView*> movePersistentBufferToSmem(
         rparams->is_non_circular_buffer_gmem_to_regs) {
       const auto& outer_broadcast_tvs = getOuterBroadcastTvs(
           fusion, scheduler_utils::getReductionTvs(fusion));
-      if (std::any_of(
-              outer_broadcast_tvs.begin(),
-              outer_broadcast_tvs.end(),
-              [&tv](TensorView* bcast_tv) {
-                return DependencyCheck::isDependencyOf(tv, bcast_tv);
-              })) {
+      if (std::ranges::any_of(outer_broadcast_tvs, [&tv](TensorView* bcast_tv) {
+            return DependencyCheck::isDependencyOf(tv, bcast_tv);
+          })) {
         use_smem = false;
       }
     }
@@ -1440,7 +1432,7 @@ std::vector<TensorView*> movePersistentBufferToSmem(
 }
 
 namespace {
-void recomputeNonPersistentUnmappbleTvs(
+void recomputeNonPersistentUnmappableTvs(
     const scheduler_utils::PersistentBufferInfo& persistent_info) {
   for (auto non_persistent_buffer : persistent_info.non_persistent_buffers) {
     // If there's only one use, it must be cached
@@ -1472,11 +1464,11 @@ void commonScheduleBeforeIterDomainTransform(
     Fusion* fusion,
     const ReductionParams* rparams,
     std::vector<TensorView*>& dummy_outputs,
-    std::vector<TensorView*>& cached_inputs,
+    std::vector<std::pair<TensorView*, int64_t>>& cached_inputs,
     std::vector<TensorView*>& reduction_tvs,
     std::vector<TensorView*>& smem_consumers,
     std::vector<TensorView*>& persistent_buffers,
-    std::vector<std::pair<TensorView*, TensorView*>>& cached_outputs) {
+    std::vector<std::pair<TensorView*, int64_t>>& cached_outputs) {
   const scheduler_utils::PersistentBufferInfo persistent_info =
       scheduler_utils::persistentBuffers(fusion);
 
@@ -1495,7 +1487,7 @@ void commonScheduleBeforeIterDomainTransform(
   // persistent buffer if that persistent buffer would be the input.
   cached_inputs = scheduler_utils::cacheInputs(fusion, true);
 
-  recomputeNonPersistentUnmappbleTvs(persistent_info);
+  recomputeNonPersistentUnmappableTvs(persistent_info);
 
   // Cache and fork outputs
   cached_outputs = scheduler_utils::cacheAndForkOutputs(fusion, unroll);
@@ -1529,7 +1521,7 @@ TensorView* scheduleReductionGeneral(
 
   if (!ir_utils::getReshapeOps(fusion).empty()) {
     ComputeAtMap ca_map(fusion);
-    // Propagate reshape transforms through the graph, expecially the reference.
+    // Propagate reshape transforms through the graph, especially the reference.
     scheduler_utils::propagateReshapeTransforms(fusion, ca_map);
 
     // Reorder reference_tv after propagating the view operation. This will
@@ -1574,9 +1566,10 @@ void schedulePersistentKernel(
 
   // Grab the reduction, input, and output tensor views. dummy_outputs are
   // helper tensors for persistent buffer projection.
-  std::vector<TensorView*> dummy_outputs, cached_inputs, reduction_tvs,
-      smem_consumers, persistent_buffers;
-  std::vector<std::pair<TensorView*, TensorView*>> cached_outputs;
+  std::vector<TensorView*> dummy_outputs, reduction_tvs, smem_consumers,
+      persistent_buffers;
+  std::vector<std::pair<TensorView*, int64_t>> cached_inputs;
+  std::vector<std::pair<TensorView*, int64_t>> cached_outputs;
   commonScheduleBeforeIterDomainTransform(
       fusion,
       rparams,
@@ -1646,15 +1639,15 @@ void schedulePersistentKernel(
       reduction_tvs,
       unroll_vectorizable_cached_and_cast_tvs);
 
-  // For inner persistent with vectorized load, use explicity unroll for cached
+  // For inner persistent with vectorized load, use explicitly unroll for cached
   // input if it is a persistent buffer. This won't increase register usage
   // and encourages compiler issuing memory load instructions together. It
   // improves performance with cuda-13.0.
   bool unroll_persistent_cached_inputs = rparams->vectorize_inner_reduction &&
       rparams->fastest_dim && !rparams->schedule_3D;
   if (unroll_persistent_cached_inputs) {
-    for (auto tv : cached_inputs) {
-      if (std::find(persistent_buffers.begin(), persistent_buffers.end(), tv) ==
+    for (const auto& [cached_input, input_idx] : cached_inputs) {
+      if (std::ranges::find(persistent_buffers, cached_input) ==
           persistent_buffers.end()) {
         continue;
       }
@@ -1665,7 +1658,7 @@ void schedulePersistentKernel(
       // rparams->batches_per_block_inner_reduction, we should have only one
       // such domain.
       int identified_count = 0;
-      for (auto id : tv->getLoopDomain()) {
+      for (auto id : cached_input->getLoopDomain()) {
         if (id->getParallelType() != ParallelType::Serial ||
             !id->definition() || !id->definition()->isA<Split>()) {
           continue;
@@ -1685,7 +1678,7 @@ void schedulePersistentKernel(
           "found ",
           identified_count,
           " in ",
-          tv->toString());
+          cached_input->toString());
     }
   }
 
@@ -1709,7 +1702,7 @@ void schedulePersistentKernel(
     NVF_ERROR(
         rparams->persistent_kernel,
         "computeWith should be only used with persistent kernels");
-    for (const auto persistent_buffer : cached_inputs) {
+    for (const auto& [persistent_buffer, input_idx] : cached_inputs) {
       persistent_buffer->computeWith(-1, true);
     }
   }
@@ -1758,10 +1751,8 @@ class PersistentBufferResolution : public IterVisitor {
       return;
     }
 
-    if (std::any_of(
-            resolution_points_.begin(),
-            resolution_points_.end(),
-            [&tv](TensorView* resolution_point) {
+    if (std::ranges::any_of(
+            resolution_points_, [&tv](TensorView* resolution_point) {
               return DependencyCheck::isDependencyOf(resolution_point, tv);
             })) {
       // If already resolved, don't start a new reduction path.
@@ -1916,11 +1907,11 @@ bool isCacheableUnmappableTv(
     TensorView* unmappable_tv,
     const std::vector<TensorView*>& reduction_tvs,
     const ValGraph& almost_exact_graph) {
-  // To make an unmmapble tensor persistent, we need to make sure it
+  // To make an unmappable tensor persistent, we need to make sure it
   // can be parallelized in the same way as the following reduction
-  // and residual paths. While the unmmapble tensor is transformed in
-  // the same way, since it is not inlineable, the effect of loop
-  // promotion by broadcast inling is not propagated to the unmappable
+  // and residual paths. While the unmappable tensor is transformed in
+  // the same way, since it is not inlinable, the effect of loop
+  // promotion by broadcast inlining is not propagated to the unmappable
   // tensor. For example, in the following fusion, both t2 and t3 are the
   // unmappable tensors but t2 is problematic.
   //
@@ -1971,14 +1962,10 @@ bool isCacheableUnmappableTv(
     // If the reduction tv doesn't depend on unmappable tv,
     // all_vals will be empty.
     if (all_vals.empty() ||
-        std::any_of(
-            reduction_tvs.begin(),
-            reduction_tvs.end(),
-            [&](const auto& reduction_tv_j) {
-              return reduction_tv_j != reduction_tv &&
-                  std::find(all_vals.begin(), all_vals.end(), reduction_tv_j) !=
-                  all_vals.end();
-            })) {
+        std::ranges::any_of(reduction_tvs, [&](auto reduction_tv_j) {
+          return reduction_tv_j != reduction_tv &&
+              std::ranges::find(all_vals, reduction_tv_j) != all_vals.end();
+        })) {
       continue;
     }
     immediate_reduction_tvs.push_back(reduction_tv);
@@ -1987,9 +1974,9 @@ bool isCacheableUnmappableTv(
   NVF_ERROR(!immediate_reduction_tvs.empty());
 
   // For each (indirect) consumer reduction tensor, make sure the
-  // unmappble tensor is consistent with the reduction tensor with
+  // unmappable tensor is consistent with the reduction tensor with
   // respect to the reduction IDs. The reduction IDs are those that
-  // are not inlineable, so they won't get the effect of loop
+  // are not inlinable, so they won't get the effect of loop
   // promotion if that happens inside the group of inlined tensors.
   for (const auto& reduction_tv : immediate_reduction_tvs) {
     bool missing_reduction_id_found = false;
@@ -1999,16 +1986,15 @@ bool isCacheableUnmappableTv(
         continue;
       }
 
-      // Here, we only look for a logical ID of the unmappble tensor
+      // Here, we only look for a logical ID of the unmappable tensor
       // that is mapped with the reduction ID. If found,
       // parallelization of this reduction ID should be consistently
-      // applied to the unmappble tensor as well.
+      // applied to the unmappable tensor as well.
       //
       // TODO: Even if they are not mapped, is it possible that they
       // are still mapped through reshape ops?
-      auto it = std::find_if(
-          unmappable_tv->getLogicalDomain().begin(),
-          unmappable_tv->getLogicalDomain().end(),
+      auto it = std::ranges::find_if(
+          unmappable_tv->getLogicalDomain(),
           [&](const auto& unmappable_tv_logical_id) {
             return almost_exact_graph.disjointValSets().strictAreMapped(
                 reduction_id, unmappable_tv_logical_id);
