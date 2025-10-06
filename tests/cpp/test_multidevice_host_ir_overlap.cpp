@@ -1261,9 +1261,9 @@ TEST_F(
   hic->addOutput(tva_j_next_slice);
   hic->addOutput(tvc_j);
 
-  HostIrEvaluatorParams params;
-  params.use_allocation_cache = true;
-  hir::HostIrEvaluator hie(std::move(hic), communicator_, params);
+  hir::HostIrEvaluatorParams hie_params;
+  hie_params.use_allocation_cache = true;
+  hir::HostIrEvaluator hie(std::move(hic), communicator_, hie_params);
 
   at::manual_seed(getATenRandomSeed());
 
