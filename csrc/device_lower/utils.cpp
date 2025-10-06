@@ -2130,7 +2130,45 @@ IterDomain* getConcreteLoopID(IterDomain* id) {
     return promotion;
   } else {
     const auto& ca_map = FusionInfoGuard::current()->caMap();
-    return ca_map.getConcreteMappedID(id, IdMappingMode::LOOP);
+    auto disjoint_set = ca_map.disjointSetOf(id, IdMappingMode::LOOP);
+    auto concrete = ca_map.getConcreteMappedID(id, IdMappingMode::LOOP);
+
+    // The CA map's concrete ID may have an incompatible extent.
+    // Similar to IdModel's loop promotion, we should prefer non-broadcast IDs
+    // with the largest extent in the loop group.
+    //
+    // Check if the concrete ID has a broadcast or size-one extent while
+    // other IDs in the group have larger extents.
+    bool concrete_is_broadcast_or_one = concrete->isBroadcast() ||
+        (concrete->extent()->isConstInt() &&
+         concrete->extent()->evaluate().as<int64_t>() == 1);
+
+    if (concrete_is_broadcast_or_one && disjoint_set->vector().size() > 1) {
+      // Look for a non-broadcast ID with a larger extent in the same loop group
+      IterDomain* better_concrete = nullptr;
+      int64_t max_extent = 1;
+
+      for (auto loop_id : disjoint_set->vector()) {
+        if (loop_id->isBroadcast()) {
+          continue;
+        }
+
+        if (loop_id->extent()->isConstInt()) {
+          auto extent_val = loop_id->extent()->evaluate().as<int64_t>();
+          if (extent_val > max_extent) {
+            max_extent = extent_val;
+            better_concrete = loop_id;
+          }
+        }
+      }
+
+      // If we found a better candidate, use it instead
+      if (better_concrete != nullptr && better_concrete != concrete) {
+        concrete = better_concrete;
+      }
+    }
+
+    return concrete;
   }
 }
 
