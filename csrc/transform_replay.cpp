@@ -383,8 +383,14 @@ void TransformReplay::selfReplay(
         new_contiguities.push_back(std::nullopt);
       }
       // FIXME: can I modify contiguity directly?
-      new_contiguities.push_back(
-          (*i)->isBroadcast() ? std::nullopt : contiguity);
+      std::optional<bool> new_contiguity = contiguity;
+      if ((*i)->isBroadcast()) {
+        new_contiguity = std::nullopt;
+      }
+      if (!new_contiguity.has_value() && (*i)->isSymbolic()) {
+        new_contiguity = true;
+      }
+      new_contiguities.push_back(new_contiguity);
       ++i;
     }
     for (; i != new_self->logical().end(); ++i) {

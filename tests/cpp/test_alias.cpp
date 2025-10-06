@@ -11,6 +11,10 @@
 #include <gmock/gmock-more-matchers.h>
 #include <gtest/gtest.h>
 
+#include <ATen/ops/allclose.h>
+#include <ATen/ops/arange.h>
+#include <ATen/ops/zeros.h>
+
 #include <alias_analysis.h>
 #include <fusion.h>
 #include <fusion_profiler.h>
@@ -26,13 +30,10 @@ namespace nvfuser {
 
 using testing::_;
 using testing::Contains;
-using testing::ContainsRegex;
-using testing::Each;
 using testing::ElementsAre;
 using testing::Field;
 using testing::IsEmpty;
 using testing::Not;
-using testing::Pair;
 using testing::SizeIs;
 using testing::UnorderedElementsAre;
 
@@ -1657,6 +1658,35 @@ TEST_F(AliasTest, SliceOfExpandedBroadcast) {
   auto out_tensors = executor_cache.runFusionWithInputs({in_tensor});
   testValidate(
       executor_cache.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
+}
+
+TEST_F(AliasTest, AccumulateSlices) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  constexpr int n = 5;
+
+  TensorView* acc_in = makeContigConcreteTensor({1});
+  TensorView* in = makeContigConcreteTensor({n});
+  Val* i = IrBuilder::create<Val>(DataType::Index);
+  Slice s = {i, add(i, IrBuilder::create<Val>(1)), IrBuilder::create<Val>(1)};
+  TensorView* slice_out = slice(in, {s});
+  TensorView* acc_out = add(acc_in, slice_out);
+  fusion->addInput(acc_in);
+  fusion->addInput(in);
+  fusion->addInput(i);
+  fusion->addOutput(acc_out);
+  fusion->aliasOutputToInput(acc_out, acc_in, AllocationType::ReuseBuffer);
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA);
+  at::Tensor acc_tensor = at::zeros({1}, options);
+  at::Tensor in_tensor = at::arange(n, options);
+  for (int i = 0; i < n; i++) {
+    executor_cache.runFusionWithInputs({acc_tensor, in_tensor, i});
+  }
+
+  EXPECT_TRUE(at::allclose(acc_tensor, at::tensor({n * (n - 1) / 2}, options)));
 }
 
 } // namespace nvfuser
