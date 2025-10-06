@@ -309,7 +309,7 @@ TEST_F(ArgsortTest, BufferSync) {
 
 class ArgsortParameterizedWithBlockandBatch
     : public ArgsortTest,
-      public ::testing::WithParamInterface<std::tuple<int, int, bool>> {};
+      public ::testing::WithParamInterface<std::tuple<int, int, bool, bool>> {};
 
 TEST_P(ArgsortParameterizedWithBlockandBatch, SharedMemoryRequirement) {
   DisableOptionsGuard disable_options_guard;
@@ -319,7 +319,7 @@ TEST_P(ArgsortParameterizedWithBlockandBatch, SharedMemoryRequirement) {
   preseg_passes::OptimizationPassGuard<preseg_passes::MarkAliasesPreparePass>
       optimization_guard(false);
 
-  const auto [size, batch, has_extra] = GetParam();
+  const auto [size, batch, has_duplicate, has_extra] = GetParam();
 
   // This combination is not considered as the number of threads
   // exceeds the limit
@@ -346,10 +346,12 @@ TEST_P(ArgsortParameterizedWithBlockandBatch, SharedMemoryRequirement) {
 
   // Duplicate the above call but should not change the usage as it's
   // the same template instantiation
-  auto tv4 = set(tv0);
-  auto tv5 = argsort(tv4, 0);
-  auto tv6 = set(tv5);
-  fusion.addOutput(tv6);
+  if (has_duplicate) {
+    auto tv4 = set(tv0);
+    auto tv5 = argsort(tv4, 0);
+    auto tv6 = set(tv5);
+    fusion.addOutput(tv6);
+  }
 
   // Create a different instantiation
   if (has_extra) {
@@ -374,6 +376,7 @@ TEST_P(ArgsortParameterizedWithBlockandBatch, SharedMemoryRequirement) {
 
   scheduler_tools::CubSharedMemoryBuffer smem_buffer;
   smem_buffer.registerArgsort(ceilDiv(size, batch), batch, dtype);
+  // The duplicate should not increase the buffer usage
   if (has_extra) {
     smem_buffer.registerArgsort(ceilDiv(size, batch), batch, dtype_extra);
   }
@@ -408,13 +411,14 @@ INSTANTIATE_TEST_SUITE_P(
     ,
     ArgsortParameterizedWithBlockandBatch,
     testing::Combine(
-        testing::Values(128, 256, 512, 1024, 2048, 4096),
-        testing::Values(1, 2, 3, 4, 8),
+        testing::Values(128, 512, 1024, 2048, 4096),
+        testing::Values(1, 2, 3, 8),
+        testing::Bool(),
         testing::Bool()),
     [](const auto& info) {
       std::ostringstream os;
       os << std::get<0>(info.param) << "_" << std::get<1>(info.param) << "_"
-         << std::get<2>(info.param);
+         << std::get<2>(info.param) << "_" << std::get<3>(info.param);
       return os.str();
     });
 

@@ -688,7 +688,7 @@ TEST_F(TopKTest, BufferSync) {
 
 class TopKParameterizedWithBlockandBatch
     : public TopKTest,
-      public ::testing::WithParamInterface<std::tuple<int, int, bool>> {};
+      public ::testing::WithParamInterface<std::tuple<int, int, bool, bool>> {};
 
 TEST_P(TopKParameterizedWithBlockandBatch, SharedMemoryRequirement) {
   DisableOptionsGuard disable_options_guard;
@@ -698,7 +698,7 @@ TEST_P(TopKParameterizedWithBlockandBatch, SharedMemoryRequirement) {
   preseg_passes::OptimizationPassGuard<preseg_passes::MarkAliasesPreparePass>
       optimization_guard(false);
 
-  const auto [size, batch, has_extra] = GetParam();
+  const auto [size, batch, has_dulicate, has_extra] = GetParam();
 
   ASSERT_EQ(batch, 1) << "TopKOp does not support batching yet";
 
@@ -721,10 +721,12 @@ TEST_P(TopKParameterizedWithBlockandBatch, SharedMemoryRequirement) {
 
   // Duplicate the above call but should not change the usage as it's
   // the same template instantiation
-  auto tv4 = set(tv0);
-  auto tv5 = topk(tv4, fusion.oneVal(DataType::Int), 0).values;
-  auto tv6 = set(tv5);
-  fusion.addOutput(tv6);
+  if (has_dulicate) {
+    auto tv4 = set(tv0);
+    auto tv5 = topk(tv4, fusion.oneVal(DataType::Int), 0).values;
+    auto tv6 = set(tv5);
+    fusion.addOutput(tv6);
+  }
 
   // Create a different instantiation
   if (has_extra) {
@@ -749,6 +751,7 @@ TEST_P(TopKParameterizedWithBlockandBatch, SharedMemoryRequirement) {
 
   scheduler_tools::CubSharedMemoryBuffer smem_buffer;
   smem_buffer.registerTopK(ceilDiv(size, batch), batch, dtype);
+  // The duplicate should not increase the buffer usage
   if (has_extra) {
     smem_buffer.registerTopK(ceilDiv(size, batch), batch, dtype_extra);
   }
@@ -772,7 +775,6 @@ TEST_P(TopKParameterizedWithBlockandBatch, SharedMemoryRequirement) {
         << "Actual static shared memory size was different";
   } else {
     // Compilation should fail
-    std::cerr << "Not enough: " << expected_size << "\n";
     EXPECT_THAT(
         [&]() { ke.compile(&fusion, {t0}); },
         testing::Throws<nvfuser::nvfError>());
@@ -785,11 +787,12 @@ INSTANTIATE_TEST_SUITE_P(
     testing::Combine(
         testing::Values(128, 256, 512, 1024),
         testing::Values(1),
+        testing::Bool(),
         testing::Bool()),
     [](const auto& info) {
       std::ostringstream os;
       os << std::get<0>(info.param) << "_" << std::get<1>(info.param) << "_"
-         << std::get<2>(info.param);
+         << std::get<2>(info.param) << "_" << std::get<3>(info.param);
       return os.str();
     });
 
