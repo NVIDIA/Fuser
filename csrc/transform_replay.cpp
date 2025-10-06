@@ -331,9 +331,6 @@ void TransformReplay::selfReplay(
 
     std::vector<IterDomain*> new_allocation;
     std::vector<std::optional<bool>> new_contiguities;
-    // FIXME: wrong estimate
-    new_allocation.reserve(allocation.size());
-    new_contiguities.reserve(contiguities.size());
 
     // Push back the reduction IDs that are not mapped
     if (ignore_reductions) {
@@ -348,11 +345,6 @@ void TransformReplay::selfReplay(
 
     // Pushing the mapped IDs and corresponding contiguity flags
     for (const auto& [alloc_id, contiguity] : zip(allocation, contiguities)) {
-      // FIXME: is this necessary?
-      if (ignore_reductions && alloc_id->isReduction()) {
-        continue;
-      }
-
       IterDomain* new_alloc_id = getOrDefault(replay.getReplay(), alloc_id);
       NVF_ERROR(
           new_alloc_id != nullptr, "Failed to replay IterDomain: ", alloc_id);
