@@ -762,7 +762,8 @@ class RunTimeChecker : private IterVisitor {
         aligned_size(cub_shmem_buffer_.getTotalSizeInBytes());
 
     // Shared memory may be also used for resolving mismatched
-    // parallelization of constrained IDs
+    // parallelization of constrained. Use the maximum possible size
+    // as a conservative estimate.
     const auto resolution_size =
         aligned_size(max_constraint_size_ * largest_data_type_size_);
 
@@ -775,6 +776,8 @@ class RunTimeChecker : private IterVisitor {
       reject(
           "Not enough shared memory. Required size for CUB: ",
           cub_buffer_size,
+          ". Other usage: ",
+          resolution_size,
           ". Total required size: ",
           total_required_size,
           ". Available: ",
