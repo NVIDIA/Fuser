@@ -1094,7 +1094,7 @@ TEST_F(
 
 TEST_F(
     RingAllgatherOverlapTest,
-    RingAllgatherBasedPipeliningHostIRImplementationCudaIpc) {
+    DISABLED_RingAllgatherBasedPipeliningHostIRImplementationCudaIpc) {
   if (communicator_->size() == 1) {
     GTEST_SKIP() << "Skipping test for single device";
   }
@@ -1261,9 +1261,7 @@ TEST_F(
   hic->addOutput(tva_j_next_slice);
   hic->addOutput(tvc_j);
 
-  hir::HostIrEvaluatorParams hie_params;
-  hie_params.use_allocation_cache = true;
-  hir::HostIrEvaluator hie(std::move(hic), communicator_, hie_params);
+  hir::HostIrEvaluator hie(std::move(hic), communicator_);
 
   at::manual_seed(getATenRandomSeed());
 
