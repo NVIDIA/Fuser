@@ -346,23 +346,23 @@ void TransformReplay::selfReplay(
     }
 
     // Pushing the mapped IDs and corresponding contiguity flags
-    for (auto&& [alloc_id, contiguity] : zip(allocation, contiguities)) {
+    for (const auto& [alloc_id, contiguity] : zip(allocation, contiguities)) {
       if (ignore_reductions && alloc_id->isReduction()) {
         continue;
       }
-      auto it = replay.getReplay().find(alloc_id);
+
+      IterDomain* new_alloc_id = getOrDefault(replay.getReplay(), alloc_id);
       NVF_ERROR(
-          it != replay.getReplay().end(),
-          "failed to replay IterDomain: ",
-          alloc_id);
-      NVF_ERROR_EQ(
-          (it->second->isBroadcast() || it->second->isReduction()),
-          !contiguity.has_value(),
-          "Contiguity should be nullopt iff broadcast or reduction, true/false "
-          "otherwise.");
-      new_contiguities.push_back(contiguity);
-      it->second->parallelize(alloc_id->getParallelType());
-      new_allocation.push_back(it->second);
+          new_alloc_id != nullptr, "Failed to replay IterDomain: ", alloc_id);
+      new_alloc_id->parallelize(alloc_id->getParallelType());
+      new_allocation.push_back(new_alloc_id);
+
+      if (new_alloc_id->isBroadcast() || new_alloc_id->isReduction()) {
+        // NOLINTNEXTLINE(modernize-use-emplace)
+        new_contiguities.push_back(std::nullopt);
+      } else {
+        new_contiguities.push_back(contiguity);
+      }
     }
 
     if (self->hasAllocation()) {
