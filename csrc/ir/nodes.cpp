@@ -3209,13 +3209,10 @@ namespace {
 void validateContiguity(
     const std::vector<IterDomain*>& allocation_domain,
     const std::vector<std::optional<bool>>& contiguity) {
-  NVF_CHECK(
-      contiguity.size() == allocation_domain.size(),
-      "Invalid contiguity information provided, incorrect size. Received "
-      "vector of size ",
+  NVF_CHECK_EQ(
       contiguity.size(),
-      " but needed one of size ",
-      allocation_domain.size());
+      allocation_domain.size(),
+      "Invalid contiguity information provided, incorrect size.");
   for (auto i : arange(contiguity.size())) {
     bool expect_null =
         (allocation_domain.at(i)->isBroadcast() ||

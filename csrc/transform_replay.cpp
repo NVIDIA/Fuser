@@ -324,13 +324,14 @@ void TransformReplay::selfReplay(
   }
 
   // Replay allocation.
-  {
-    const std::vector<IterDomain*>& allocation = self->maybeAllocation();
+  if (self->hasAllocation()) {
+    const std::vector<IterDomain*>& allocation = self->allocation();
     const std::vector<std::optional<bool>>& contiguities = self->contiguity();
     NVF_ERROR_EQ(allocation.size(), contiguities.size());
 
     std::vector<IterDomain*> new_allocation;
     std::vector<std::optional<bool>> new_contiguities;
+    // FIXME: wrong estimate
     new_allocation.reserve(allocation.size());
     new_contiguities.reserve(contiguities.size());
 
@@ -347,6 +348,7 @@ void TransformReplay::selfReplay(
 
     // Pushing the mapped IDs and corresponding contiguity flags
     for (const auto& [alloc_id, contiguity] : zip(allocation, contiguities)) {
+      // FIXME: is this necessary?
       if (ignore_reductions && alloc_id->isReduction()) {
         continue;
       }
@@ -365,11 +367,32 @@ void TransformReplay::selfReplay(
       }
     }
 
-    if (self->hasAllocation()) {
-      new_self->setAllocationDomain(new_allocation, new_contiguities);
-    } else {
-      new_self->setContiguity(new_contiguities);
+    new_self->setAllocationDomain(new_allocation, new_contiguities);
+  } else {
+    std::vector<std::optional<bool>> new_contiguities;
+    new_contiguities.reserve(new_self->logical().size());
+
+    auto i = new_self->logical().begin();
+    for (auto [id, contiguity] : zip(self->logical(), self->contiguity())) {
+      IterDomain* new_id = getOrDefault(replay.getReplay(), id);
+      if (new_id == nullptr) {
+        continue;
+      }
+      for (; i != new_self->logical().end() && *i != new_id; ++i) {
+        NVF_ERROR((*i)->isReduction());
+        new_contiguities.push_back(std::nullopt);
+      }
+      // FIXME: can I modify contiguity directly?
+      new_contiguities.push_back(
+          (*i)->isBroadcast() ? std::nullopt : contiguity);
+      ++i;
     }
+    for (; i != new_self->logical().end(); ++i) {
+      NVF_ERROR((*i)->isReduction());
+      new_contiguities.push_back(std::nullopt);
+    }
+
+    new_self->setContiguity(new_contiguities);
   }
 }
 
