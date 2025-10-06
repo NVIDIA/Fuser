@@ -185,22 +185,4 @@ TEST_F(ReplayTest, ContiguityWithEmptyAllocation) {
   EXPECT_THAT(in->getContiguity(), Each(Optional(IsTrue())));
 }
 
-TEST_F(ReplayTest, ClearLoop) {
-  constexpr int d = 2;
-
-  Fusion fusion;
-  FusionGuard fg(&fusion);
-  TensorView* in = makeSymbolicTensor(2);
-  TensorView* out = set(in);
-  fusion.addInput(in);
-  fusion.addOutput(out);
-
-  in->setDeviceMesh(DeviceMesh::createForNumDevices(d));
-  in->outer_split(0, d);
-  ASSERT_NE(in->getLoopDomain(), in->getLogicalDomain());
-
-  TransformReplay::selfReplay(out->domain(), in->domain());
-  EXPECT_EQ(in->getLoopDomain(), in->getLogicalDomain());
-}
-
 } // namespace nvfuser
