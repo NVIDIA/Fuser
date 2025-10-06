@@ -1067,7 +1067,13 @@ class TmaWarpSpecializedTest
     ASSERT_NE(heur, nullptr);
     ASSERT_TRUE(heur->isA<ReductionParams>());
     auto* rparams = heur->as<ReductionParams>();
-    EXPECT_TRUE(rparams->computation_warp_groups > 1);
+
+    // Skip computation_warp_groups check for devices with compute capability
+    // 12. This heuristics check will fail due to smaller shared memory
+    // capacities with larger input sizes.
+    if (cudaArchGuardShouldSkip(12, 0, 13, 0)) {
+      EXPECT_TRUE(rparams->computation_warp_groups > 1);
+    }
   }
 
  protected:
