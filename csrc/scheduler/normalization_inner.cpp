@@ -524,7 +524,11 @@ void innerPersistentHeuristic2D(
     }
   }
 
-  rparams->static_bdimx = true;
+  // Static bdimx: divergence may happen at only the last persistent batch.
+  // [R/Vect/TIDx(Persistent), TIDx, Vect],
+  // Dynamic bdimx: divergence may happen at all persistent batches.
+  // [Persistent, R/Vect/Persistent(TIDx), Vect]
+  rparams->static_bdimx = properties.is_static_reduction_size;
 
   rparams->lparams = LaunchParams(
       gdimx,

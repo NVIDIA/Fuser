@@ -1098,6 +1098,7 @@ PersistentKernelProperties getPersistentKernelProperties(
       .has_exp_op = has_exp_op,
       .has_rng_op = has_rng_op,
       .disable_project_to_avoid_recompute = disable_project_to_avoid_recompute,
+      .is_static_reduction_size = properties.is_static_reduction_size,
       .persistent_buffers = buffers};
 }
 
