@@ -308,6 +308,26 @@ std::vector<Expr*> processForLoopBodies(
       }
     };
 
+    auto* my_device_id = IrBuilder::create<NamedScalar>("rank", DataType::Int);
+    // We need to make indexing different for when the pipeline will result in
+    // a p2p ring pipeline backed by cuda ipc, or will result in a collective
+    // based pipeline. On the one hand, for the case of collective-based
+    // pipeline, all ranks must index the tensors uniformly, because the
+    // successive collective must be posted in a globally coherent order (this
+    // can actually be relaxed by using different process groups, namely, one
+    // process group per tile, using tags, but this unfortunately hurts
+    // performance). On the other hand, the case with cuda ipc p2p needs a
+    // ring pattern where each rank sends and receives to one and only one
+    // peer, therefore, indexing must be offset by the rank. This is needed
+    // for two reasons, 1) performance-wise, this is a more efficient way to
+    // use the network than to have all ranks send or receive to/from one
+    // device 2) our semantics of sharing the memory handles can only express
+    // this type of scenario. P2p backend by ProcessGroup can relax condition
+    // 2) because there is no explicit need to share the memhandle.
+    auto tensor_index = communicator_backend == CommunicatorBackend::kCuda
+        ? mod(add(my_device_id, for_loop->index()), for_loop->stop())
+        : for_loop->index();
+
     for (auto* body_expr : for_loop->body().exprs()) {
       // We have a special handling for when an axis pass from DIDx to Stream
       // parallel type in one expression. This case should be lowered to a P2P
@@ -340,26 +360,6 @@ std::vector<Expr*> processForLoopBodies(
         }
       }
 
-      auto* my_device_id =
-          IrBuilder::create<NamedScalar>("rank", DataType::Int);
-      // We need to make indexing different for when the pipeline will result in
-      // a p2p ring pipeline backed by cuda ipc, or will result in a collective
-      // based pipeline. On the one hand, for the case of collective-based
-      // pipeline, all ranks must index the tensors uniformly, because the
-      // successive collective must be posted in a globally coherent order (this
-      // can actually be relaxed by using different process groups, namely, one
-      // process group per tile, using tags, but this unfortunately hurts
-      // performance). On the other hand, the case with cuda ipc p2p needs a
-      // ring pattern where each rank sends and receives to one and only one
-      // peer, therefore, indexing must be offset by the rank. This is needed
-      // for two reasons, 1) performance-wise, this is a more efficient way to
-      // use the network than to have all ranks send or receive to/from one
-      // device 2) our semantics of sharing the memory handles can only express
-      // this type of scenario. P2p backend by ProcessGroup can relax condition
-      // 2) because there is no explicit need to share the memhandle.
-      auto tensor_index = communicator_backend == CommunicatorBackend::kCuda
-          ? mod(add(my_device_id, for_loop->index()), for_loop->stop())
-          : for_loop->index();
       if (needs_p2p_handling) {
         NVF_ERROR(
             body_expr->isA<LoadStoreOp>() &&
