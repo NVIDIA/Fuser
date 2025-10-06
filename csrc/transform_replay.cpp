@@ -308,16 +308,12 @@ void TransformReplay::selfReplay(
     }
 
     for (IterDomain* loop_id : loop) {
-      if (ignore_reductions && loop_id->isReduction()) {
+      IterDomain* new_loop_id = getOrDefault(replay.getReplay(), loop_id);
+      if (new_loop_id == nullptr) {
         continue;
       }
-      auto it = replay.getReplay().find(loop_id);
-      NVF_ERROR(
-          it != replay.getReplay().end(),
-          "failed to replay IterDomain: ",
-          loop_id);
-      it->second->parallelize(loop_id->getParallelType());
-      new_loop.push_back(it->second);
+      new_loop_id->parallelize(loop_id->getParallelType());
+      new_loop.push_back(new_loop_id);
     }
 
     new_self->setLoopDomain(new_loop);
@@ -346,8 +342,9 @@ void TransformReplay::selfReplay(
     // Pushing the mapped IDs and corresponding contiguity flags
     for (const auto& [alloc_id, contiguity] : zip(allocation, contiguities)) {
       IterDomain* new_alloc_id = getOrDefault(replay.getReplay(), alloc_id);
-      NVF_ERROR(
-          new_alloc_id != nullptr, "Failed to replay IterDomain: ", alloc_id);
+      if (new_alloc_id == nullptr) {
+        continue;
+      }
       new_alloc_id->parallelize(alloc_id->getParallelType());
       new_allocation.push_back(new_alloc_id);
 
