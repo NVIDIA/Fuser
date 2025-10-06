@@ -389,6 +389,11 @@ TEST_P(ArgsortParameterizedWithBlockandBatch, SharedMemoryRequirement) {
     ke.compile(&fusion, {t0});
     auto outputs = ke.run({t0});
     testValidate(&fusion, outputs, {t0}, __LINE__, __FILE__);
+
+    // The test would fail if the estimate is not 100% accurate. That
+    // may be too strict and fragile as a test. After all, we would
+    // just need a reasonably tight upper bound. Consider relaxing the
+    // condition if necessary.
     EXPECT_EQ(expected_size, ke.getStaticSmemSize())
         << "Actual static shared memory size was different";
   } else {

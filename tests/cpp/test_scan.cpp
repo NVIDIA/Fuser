@@ -719,6 +719,10 @@ TEST_P(ScanParameterizedWithBlock, SharedMemoryRequirement) {
           << "Actual static shared memory size was not smaller than the "
              "expectation";
     } else {
+      // The test would fail if the estimate is not 100% accurate. That
+      // may be too strict and fragile as a test. After all, we would
+      // just need a reasonably tight upper bound. Consider relaxing the
+      // condition if necessary.
       EXPECT_EQ(expected_size, ke.getStaticSmemSize())
           << "Actual static shared memory size was different";
     }
