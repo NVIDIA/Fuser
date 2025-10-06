@@ -48,7 +48,16 @@ def generate_input_sizes_rmsnorm_add(dims: int = 2) -> List[Tuple]:
     return inputs
 
 
-@pytest.mark.parametrize("executor", DEFAULT_EXECUTORS)
+# flash infer does inplace update of inputs and residual tensors
+# needs to explicitly return the updated tensors to correctly compute IO bytes
+# https://github.com/flashinfer-ai/flashinfer/blob/ba2b4aa636c4ecf99981794767ffbf89267720cd/flashinfer/norm.py#L106
+def flashinfer_rmsnorm_add_wrapper(inputs_list):
+    inputs, weights, residual = inputs_list
+    fused_add_rmsnorm(inputs, residual, weights)
+    return inputs, residual
+
+
+@pytest.mark.parametrize("executor", DEFAULT_EXECUTORS + ["flashinfer"])
 @pytest.mark.parametrize("size", generate_input_sizes_rmsnorm_add(dims=2))
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)
 @pytest.mark.inner_persistent
@@ -63,40 +72,12 @@ def test_rmsnorm_add_fwd_baseline_benchmark(
     inputs = torch.randn(size, device="cuda", dtype=dtype, requires_grad=False)
     weights = torch.randn(size[1], device="cuda", dtype=dtype, requires_grad=False)
     residual = torch.randn(size, device="cuda", dtype=dtype, requires_grad=False)
-
-    benchmark_fn = with_executor(executor, rmsnorm_add)
-    run_benchmark(
-        benchmark,
-        benchmark_fn,
-        [inputs, weights, residual],
-    )
-
-
-# flash infer does inplace update of inputs and residual tensors
-# needs to explicitly return the updated tensors to correctly compute IO bytes
-# https://github.com/flashinfer-ai/flashinfer/blob/ba2b4aa636c4ecf99981794767ffbf89267720cd/flashinfer/norm.py#L106
-def flashinfer_rmsnorm_add_wrapper(inputs_list):
-    inputs, weights, residual = inputs_list
-    fused_add_rmsnorm(inputs, residual, weights)
-    return inputs, residual
-
-
-# requires flashinfer to be installed
-# `pip install flashinfer-python` works in pjnl container
-@pytest.mark.parametrize("executor", ["flashinfer"])
-@pytest.mark.parametrize("size", generate_input_sizes_rmsnorm_add(dims=2))
-@pytest.mark.parametrize("dtype", FLOAT_DTYPES)
-@pytest.mark.inner_persistent
-def test_rmsnorm_add_fwd_flashinfer_benchmark(
-    benchmark,
-    size: tuple,
-    dtype: torch.dtype,
-    executor: str,
-):
-    inputs = torch.randn(size, device="cuda", dtype=dtype, requires_grad=False)
-    weights = torch.randn(size[1], device="cuda", dtype=dtype, requires_grad=False)
-    residual = torch.randn(size, device="cuda", dtype=dtype, requires_grad=False)
-    benchmark_fn = flashinfer_rmsnorm_add_wrapper
+    # requires flashinfer to be installed
+    # `pip install flashinfer-python` works in pjnl container
+    if executor == "flashinfer":
+        benchmark_fn = flashinfer_rmsnorm_add_wrapper
+    else:
+        benchmark_fn = with_executor(executor, rmsnorm_add)
     run_benchmark(
         benchmark,
         benchmark_fn,
