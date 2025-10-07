@@ -100,7 +100,7 @@ constexpr int64_t alignSharedMemoryBits(int64_t unaligned_bits) {
   return (unaligned + (alignment - 1)) & (~(alignment - 1));
 }
 
-constexpr int64_t alignedSharedMemoryBytes(int64_t unaligned) {
+constexpr int64_t alignSharedMemoryBytes(int64_t unaligned_bytes) {
   constexpr int64_t alignment = kSharedMemoryAlignmentBytes;
   return (unaligned + (alignment - 1)) & (~(alignment - 1));
 }
