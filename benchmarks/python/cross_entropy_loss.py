@@ -162,6 +162,20 @@ cross_entropy_loss_setup = {
 
 
 class SyntheticMiniModel:
+    # Vocab sizes from popular models
+    sizes_from_models = [
+        49152,  # Starcoder
+        129280,  # DeepSeek-R1
+        128256,  # Llama3
+        202048,  # Llama4
+        256000,  # Gemma2
+        131072,  # Mistral
+        152064,  # Qwen2
+        32064,  # Phi3.5
+        100352,  # Phi4
+        50264,  # GPT-2
+    ]
+
     @staticmethod
     def mini_model(logits, labels):
         labels = torch.nn.functional.pad(labels, (0, 1))
@@ -196,22 +210,11 @@ class SyntheticMiniModel:
 
     @staticmethod
     def generate_vocab_sizes():
-        sizes_from_models = [
-            49152,  # Starcoder
-            129280,  # DeepSeek-R1
-            128256,  # Llama3
-            202048,  # Llama4
-            256000,  # Gemma2
-            131072,  # Mistral
-            152064,  # Qwen2
-            32064,  # Phi3.5
-            100352,  # Phi4
-            50264,  # GPT-2
-        ]
-
         powers_of_2 = [2**i * 1024 for i in range(4, 9)]
 
-        combined_set = sorted(set(sizes_from_models) | set(powers_of_2))
+        combined_set = sorted(
+            set(SyntheticMiniModel.sizes_from_models) | set(powers_of_2)
+        )
 
         # for each vocab size in the set we increment in steps 64 in +/- 5 directions
         # which gives the total number of vocab sizes to benchmark
