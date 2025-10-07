@@ -359,32 +359,40 @@ void TransformReplay::selfReplay(
 
     new_self->setAllocationDomain(new_allocation, new_contiguities);
   } else {
-    std::vector<std::optional<bool>> new_contiguities;
-    new_contiguities.reserve(new_self->logical().size());
+    const std::vector<IterDomain*>& new_logical = new_self->logical();
+    const auto new_rank = std::ssize(new_logical);
+    std::vector<std::optional<bool>> new_contiguities(new_rank, std::nullopt);
 
-    auto i = new_self->logical().begin();
+    int new_pos = 0;
     for (auto [id, contiguity] : zip(self->logical(), self->contiguity())) {
       IterDomain* new_id = getOrDefault(replay, id);
       if (new_id == nullptr) {
         continue;
       }
-      for (; i != new_self->logical().end() && *i != new_id; ++i) {
-        NVF_ERROR((*i)->isReduction());
-        new_contiguities.push_back(std::nullopt);
+
+      // Find the corresponding contiguity in new_logical. Mapped IterDomains
+      // in self->logical() and new_logical follow the same order. So it's safe
+      // to only increment `new_pos`.
+      while (new_pos < new_rank && new_logical.at(new_pos) != new_id) {
+        new_pos++;
       }
-      std::optional<bool> new_contiguity = contiguity;
-      if ((*i)->isBroadcast()) {
+      NVF_ERROR_LT(
+          new_pos,
+          new_rank,
+          "Failed to find ",
+          new_id->toString(),
+          " in ",
+          new_logical);
+      std::optional<bool>& new_contiguity = new_contiguities.at(new_pos);
+
+      new_contiguity = contiguity;
+      if (new_id->isBroadcast()) {
         new_contiguity = std::nullopt;
+      } else if (new_id->isSymbolic()) {
+        if (!new_contiguity.has_value()) {
+          new_contiguity = true;
+        }
       }
-      if (!new_contiguity.has_value() && (*i)->isSymbolic()) {
-        new_contiguity = true;
-      }
-      new_contiguities.push_back(new_contiguity);
-      ++i;
-    }
-    for (; i != new_self->logical().end(); ++i) {
-      NVF_ERROR((*i)->isReduction());
-      new_contiguities.push_back(std::nullopt);
     }
 
     new_self->setContiguity(new_contiguities);
