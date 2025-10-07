@@ -580,8 +580,7 @@ target_include_directories(nvfuser_codegen SYSTEM PUBLIC
 )
 target_link_libraries(nvfuser_codegen
   PUBLIC ${TORCH_LIBRARIES}
-  PRIVATE dynamic_type flatbuffers ${CUDA_NVRTC_LIB} CUDA::cupti dl
-    $<$<BOOL:${NVFUSER_HOST_IR_JIT}>:LLVM_JIT>
+  PRIVATE dynamic_type flatbuffers ${CUDA_NVRTC_LIB} CUDA::cupti dl LLVM_JIT
 )
 set_target_properties(nvfuser_codegen PROPERTIES
   C_STANDARD ${NVFUSER_C_STANDARD}
