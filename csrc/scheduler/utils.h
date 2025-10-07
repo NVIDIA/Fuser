@@ -52,9 +52,10 @@ constexpr int64_t z_grid_limit = 65535;
 constexpr int64_t z_block_limit = 64;
 
 // Static shared memory usage (e.g., for magic zero).
-// Currently, magic zero is the only user, it takes 4 bytes before alignment.
+// Currently, magic zero is the only user of static shared memory and takes 4 bytes before alignment.
 // All shared memory in nvFuser is aligned to kSharedMemoryAlignmentBytes.
-constexpr int64_t counted_static_smem_bit = kSharedMemoryAlignmentBytes * 8;
+constexpr int64_t static_smem_usage_in_bytes = kSharedMemoryAlignmentBytes;
+constexpr int64_t static_smem_usage_in_bits = static_smem_usage_in_bytes * 8;
 
 // Find largest power of 2 that is a factor of n. If n==0, return largest power
 // of 2 representable by int64_t
