@@ -228,7 +228,7 @@ IterDomain* getShardedIterDomain(
     NVF_THROW("Unexpected parallel type: ", parallel_type);
   }();
 
-  for (auto&& [index, id] : enumerate(domain | TensorDomain::kNoReductions)) {
+  for (IterDomain* id : domain | TensorDomain::kNoReductions) {
     if (id->getParallelType() == parallel_type) {
       return id;
     }
