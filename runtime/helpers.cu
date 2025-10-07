@@ -98,12 +98,13 @@ __device__ double max(double a, double b) {
 }
 
 __device__ float max(float a, float b) {
-  // check and propagate NaN
-  if (a != a) {
-    return a;
-  } else { // If b is nan, it will be returned in the next line
-    return a > b ? a : b;
-  }
+  return fmaxf(a, b);
+  // // check and propagate NaN
+  // if (a != a) {
+  //   return a;
+  // } else { // If b is nan, it will be returned in the next line
+  //   return a > b ? a : b;
+  // }
 }
 
 __device__ __half max(__half a, __half b) {

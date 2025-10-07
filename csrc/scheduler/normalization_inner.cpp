@@ -559,47 +559,13 @@ void innerPersistentHeuristicCluster(
   int64_t after_vect = properties.total_reduction_numel / vectorize_factor;
   int64_t bdimx = 256; // empirical value
   int64_t after_vect_bdimx = ceilDiv(after_vect, bdimx);
-  const int64_t buffer_bits_per_batch =
-      properties.max_persistent_buffer_size_bit /
-      properties.total_reduction_numel * vectorize_factor;
 
-  // Given blocks per cluster and estimate blocks per sm from register usage
-  auto getBlocksPerSM = [&](int64_t blocks_per_cluster) {
-    constexpr int64_t register_overhead = 16; // empirical value
-    int64_t persistent_batch = ceilDiv(after_vect_bdimx, blocks_per_cluster);
-    int64_t register_per_thread = register_overhead +
-        ceilDiv(buffer_bits_per_batch * persistent_batch,
-                scheduler_utils::bits_per_register);
-    return scheduler_utils::safeDiv(
-        getThreadsPerSMGivenRegPerThread(register_per_thread), bdimx);
-  };
-
-  // Start with 4 blocks each with 8 warps, then we have 32 warps per cluster.
-  // After warp reduction, there are 32 warp reduction results, they can be
-  // reduced within a single warp without serial reduction.
-  int64_t blocks_per_cluster = 4;
-  int64_t blocks_per_sm = getBlocksPerSM(blocks_per_cluster);
-
-  // If blocks_per_sm is less than 3, check with more blocks per cluster
-  // empirical value
-  if (blocks_per_sm < 3) {
-    const int64_t max_bpc = scheduler_utils::getMaxClusterSize();
-    for (int64_t bpc = blocks_per_cluster * 2; bpc <= max_bpc; bpc *= 2) {
-      // The reduction domain is parallelized with a static
-      // vectorization factor, bidmx, and persistent batch size, the remaining
-      // part is parallelized with cluster size. Ensure the dynamic cluster size
-      // is pow2 for better performance.
-      int64_t persistent_batch = ceilDiv(after_vect_bdimx, bpc);
-      if (bpc != ceilDiv(after_vect_bdimx, persistent_batch)) {
-        continue;
-      }
-      int64_t bpsm = getBlocksPerSM(bpc);
-      if (bpsm > blocks_per_sm) {
-        blocks_per_sm = bpsm;
-        blocks_per_cluster = bpc;
-      }
-    }
-  }
+  // Each blocks uses half of the register file size to store the persistent
+  // buffers
+  int64_t blocks_per_cluster = ceilDiv(
+      properties.max_persistent_buffer_size_bit,
+      scheduler_utils::register_file_size_bit / 2);
+  blocks_per_cluster = scheduler_utils::roundUpPow2(blocks_per_cluster);
   int64_t persistent_batch = ceilDiv(after_vect_bdimx, blocks_per_cluster);
 
   rparams->cross_block_inner_reduction = true;
