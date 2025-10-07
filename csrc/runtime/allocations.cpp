@@ -273,10 +273,21 @@ KernelArgumentHolder allocateOutputs(
   for (auto out_idx : arange(output_infos.size())) {
     auto out_info = output_infos.at(out_idx);
     if (output_alias_to_input_map.at(out_idx) == -1) {
+      // NOTE for allocation logic:
+      //   1. Buffer needs to be allocated based on allocation size & strides,
+      //   this is necessary because indexing is computed based on allocation
+      //   domain. By allocating buffer based on allocation size & strides, we
+      //   ensure that no out-of-bound access would occur.
+      //   2. Before returning the buffer, we need to restride it with its
+      //   logical sizes & strides. Because the consumer of the output were
+      //   expecting a tensor matching the logical sizes & strides during
+      //   validation.
+      //
+      // An example of the use case is when we express padding on allocation
+      // domain of an output TensorView, where the logical and allocation sizes
+      // doesn't match.
       at::Tensor alloc_tensor;
       if (!out_info.shape_info.allocation_sizes.empty()) {
-        // allocate based on allocation size & stride and restride with logical
-        // size & stride afterwards.
         alloc_tensor = at::native::empty_strided_cuda(
             out_info.shape_info.allocation_sizes,
             out_info.shape_info.allocation_strides,
@@ -288,6 +299,9 @@ KernelArgumentHolder allocateOutputs(
             out_info.shape_info.logical_sizes,
             out_info.shape_info.logical_strides);
       } else {
+        // A special case where allocation sizes & strides are NOT availabe,
+        // logical sizes & strides are used in place of allocation sizes &
+        // strides, hence no restride is necessary.
         alloc_tensor = at::native::empty_strided_cuda(
             out_info.shape_info.logical_sizes,
             out_info.shape_info.logical_strides,
@@ -757,12 +771,26 @@ at::Tensor transformFromAllocationToLogical(
                .run(logical, alloc);
   NVF_ERROR(frontier.size() == logical.size());
 
-  // give up on producing right stride when allocation domain has
-  // transformation that cannot be represented via permutation. This is
-  // currently used by PreprocessGroupedMatmulInputSf, where output is padded.
   std::set<IterDomain*> frontier_set(frontier.begin(), frontier.end());
   std::set<IterDomain*> logical_set(logical.begin(), logical.end());
+  // If propagated frontier matches the logical_set, we cannot rely on a simple
+  // permutation of its allocation sizes and strides to project to its logical
+  // sizes and strides.
   if (frontier_set != logical_set) {
+    // When projection cannot be done properly, we cannot compute correct
+    // combination of logical sizes and strides. We choose to:
+    //
+    //   1. We preserve the correct logical sizes. This is necessary, otherwise,
+    //   downstream consumer wouldn't be able to compute heuristics or shape
+    //   inference.
+    //
+    //   2. We give up on producing the meaningful strides, this is a reasonable
+    //   compromise, since in this scenario, we wouldn't be able to produce
+    //   correct indexing, so strides wouldn't be used anyway.
+    //
+    // One example that relies on this is PreprocessGroupedMatmulInputSf, where
+    // output is padded. Indexing is done via runtime function and stride of the
+    // tensor is not needed.
     std::vector<int64_t> logical_sizes(logical.size(), 0);
     std::vector<int64_t> logical_strides(logical.size(), 0);
     int64_t cur_stride = 1;
