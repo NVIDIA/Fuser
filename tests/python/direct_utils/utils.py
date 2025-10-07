@@ -4,28 +4,29 @@
 # Owner(s): ["module: nvfuser"]
 
 import torch
-from nvfuser_direct import FusionDefinition, DataType, TensorView  # noqa: F401
+from nvfuser_direct import FusionDefinition, DataType, TensorView
 from looseversion import LooseVersion
 
 
-def is_pre_volta():
+def microarchitecture_is_pre(major):
     prop = torch.cuda.get_device_properties(torch.cuda.current_device())
-    return prop.major < 7
+    return prop.major < major
+
+
+def is_pre_volta():
+    return microarchitecture_is_pre(7)
 
 
 def is_pre_ampere():
-    prop = torch.cuda.get_device_properties(torch.cuda.current_device())
-    return prop.major < 8
+    return microarchitecture_is_pre(8)
 
 
 def is_pre_hopper():
-    prop = torch.cuda.get_device_properties(torch.cuda.current_device())
-    return prop.major < 9
+    return microarchitecture_is_pre(9)
 
 
 def is_pre_blackwell():
-    prop = torch.cuda.get_device_properties(torch.cuda.current_device())
-    return prop.major < 10
+    return microarchitecture_is_pre(10)
 
 
 # Get string representation for FusionDefinition
