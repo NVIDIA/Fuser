@@ -140,18 +140,18 @@ __device__ __forceinline__ T warpReduce(T val, Func reduction_op) {
 }
 
 // Helper function to perform final reduction from shared memory buffer
-template <int CLUSTER_SIZE, int WARPS_PER_BLOCK, typename T, typename Func>
+template <int cluster_size, int warps_per_block, typename T, typename Func>
 __device__ __forceinline__ T finalBufferReduce(
     T init,
     T* reduction_buffer,
     uint32_t lane_idx,
     Func reduction_op) {
   T block_reduce_val = init;
-  constexpr int num_iter = (WARPS_PER_BLOCK * CLUSTER_SIZE + 31) / 32;
+  constexpr int num_iter = (warps_per_block * cluster_size + 31) / 32;
 #pragma unroll
   for (int i = 0; i < num_iter; i++) {
     int idx = lane_idx + i * 32;
-    if (idx < CLUSTER_SIZE * WARPS_PER_BLOCK) {
+    if (idx < cluster_size * warps_per_block) {
       reduction_op(block_reduce_val, reduction_buffer[idx]);
     }
   }
@@ -159,18 +159,18 @@ __device__ __forceinline__ T finalBufferReduce(
 }
 
 // Helper function to setup barrier with expected transfer bytes
-template <int CLUSTER_SIZE, int WARPS_PER_BLOCK, typename T>
+template <int cluster_size, int warps_per_block, typename T>
 __device__ __forceinline__ void setupBarrierExpectTX(
     uint32_t barrier_smem_addr,
     uint32_t warp_idx) {
   if (warp_idx == 0 && Hopper::electSync(4294967295U)) {
-    uint32_t expected_bytes = WARPS_PER_BLOCK * CLUSTER_SIZE * sizeof(T);
+    uint32_t expected_bytes = warps_per_block * cluster_size * sizeof(T);
     mbarrier::arriveExpectTX(barrier_smem_addr, expected_bytes);
   }
 }
 
 // Helper function to store warp reduction result to distributed shared memory
-template <int WARPS_PER_BLOCK, typename T>
+template <int warps_per_block, typename T>
 __device__ __forceinline__ void storeWarpResult(
     T warp_sum,
     uint32_t my_block_rank,
@@ -178,7 +178,7 @@ __device__ __forceinline__ void storeWarpResult(
     uint32_t peer_cta_rank_in_cluster,
     T* reduction_buffer,
     uint32_t barrier_smem_addr) {
-  uint32_t buffer_offset = my_block_rank * WARPS_PER_BLOCK + warp_idx;
+  uint32_t buffer_offset = my_block_rank * warps_per_block + warp_idx;
   uint32_t buffer_addr = toSmem(&reduction_buffer[buffer_offset]);
   storeSharedRemote<T>(
       warp_sum, buffer_addr, barrier_smem_addr, peer_cta_rank_in_cluster);
@@ -188,8 +188,8 @@ __device__ __forceinline__ void storeWarpResult(
 // operations
 //
 // Template Parameters:
-//   CLUSTER_SIZE: Number of CTAs in the cluster (e.g., 2, 4, 8)
-//   WARPS_PER_BLOCK: Number of warps per block (e.g. 4, 8, 16)
+//   cluster_size: Number of CTAs in the cluster (e.g., 2, 4, 8)
+//   warps_per_block: Number of warps per block (e.g. 4, 8, 16)
 //   is_all_reduce: true for all-reduce (all blocks get result), false for
 //   reduce (only last block gets result) T: Data type (float, double, etc.)
 //   Func: Reduction operator (e.g., AddOp, MaxOp)
@@ -215,14 +215,14 @@ __device__ __forceinline__ void storeWarpResult(
 //
 // Requirements:
 //   - barrier_smem_addr: Initialized mbarrier in shared memory
-//   - reduction_buffer: Shared memory buffer of size [CLUSTER_SIZE *
-//   WARPS_PER_BLOCK]
+//   - reduction_buffer: Shared memory buffer of size [cluster_size *
+//   warps_per_block]
 //
 // TODO: we can represent this cluster reduction in fusion IR after we have new
 // parallel types to represent warp reduction.
 template <
-    int CLUSTER_SIZE,
-    int WARPS_PER_BLOCK,
+    int cluster_size,
+    int warps_per_block,
     bool is_all_reduce,
     typename T,
     typename Func>
@@ -246,11 +246,11 @@ __device__ __forceinline__ void clusterReduce(
   if constexpr (is_all_reduce) {
     // All-reduce: Each warp uses N threads to write to N CTAs, e.g. thread-i
     // write to CTA-i Buffer layout:
-    // reduction_buffer[CLUSTER_SIZE][WARPS_PER_BLOCK]
-    setupBarrierExpectTX<CLUSTER_SIZE, WARPS_PER_BLOCK, T>(
+    // reduction_buffer[cluster_size][warps_per_block]
+    setupBarrierExpectTX<cluster_size, warps_per_block, T>(
         barrier_smem_addr, warp_idx);
-    if (lane_idx < CLUSTER_SIZE) {
-      storeWarpResult<WARPS_PER_BLOCK>(
+    if (lane_idx < cluster_size) {
+      storeWarpResult<warps_per_block>(
           warp_sum,
           my_block_rank,
           warp_idx,
@@ -261,16 +261,16 @@ __device__ __forceinline__ void clusterReduce(
   } else {
     // Reduce: Each warp selects a thread to store warp reduction result to
     // shared memory of the last block in cluster
-    if (my_block_rank == CLUSTER_SIZE - 1) {
-      setupBarrierExpectTX<CLUSTER_SIZE, WARPS_PER_BLOCK, T>(
+    if (my_block_rank == cluster_size - 1) {
+      setupBarrierExpectTX<cluster_size, warps_per_block, T>(
           barrier_smem_addr, warp_idx);
     }
     if (Hopper::electSync(4294967295U)) {
-      storeWarpResult<WARPS_PER_BLOCK>(
+      storeWarpResult<warps_per_block>(
           warp_sum,
           my_block_rank,
           warp_idx,
-          /*peer_cta_rank_in_cluster=*/CLUSTER_SIZE - 1,
+          /*peer_cta_rank_in_cluster=*/cluster_size - 1,
           reduction_buffer,
           barrier_smem_addr);
     }
@@ -284,13 +284,13 @@ __device__ __forceinline__ void clusterReduce(
 
     // 3. Each CTA has a copy of the warp reduction results from all warps in
     // the cluster. Finish reduction with a warp reduction
-    res = finalBufferReduce<CLUSTER_SIZE, WARPS_PER_BLOCK>(
+    res = finalBufferReduce<cluster_size, warps_per_block>(
         init, reduction_buffer, lane_idx, reduction_op);
   } else {
     // Reduce: only warp-0 in the last block is required to finish the reduction
-    if (my_block_rank == CLUSTER_SIZE - 1 && warp_idx == 0) {
+    if (my_block_rank == cluster_size - 1 && warp_idx == 0) {
       mbarrier::waitParity(barrier_smem_addr, 0);
-      res = finalBufferReduce<CLUSTER_SIZE, WARPS_PER_BLOCK>(
+      res = finalBufferReduce<cluster_size, warps_per_block>(
           init, reduction_buffer, lane_idx, reduction_op);
     }
   }
