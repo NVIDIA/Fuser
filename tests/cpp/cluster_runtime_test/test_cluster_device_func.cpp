@@ -69,7 +69,7 @@ TEST_F(ClusterDeviceFuncTest, BasicStoreSharedRemoteDouble) {
 }
 
 // Cluster reduction test for float
-TEST_F(ClusterDeviceFuncTest, ClusterReduceFloat) {
+TEST_F(ClusterDeviceFuncTest, ClusterReduceFloatAllReduce) {
   NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
   constexpr int num_blocks = 2;
   constexpr int threads_per_block = 128;
@@ -84,14 +84,14 @@ TEST_F(ClusterDeviceFuncTest, ClusterReduceFloat) {
       {total_elements},
       at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0));
 
-  launchClusterReduceTestKernel<float, threads_per_block, num_blocks>(
+  launchClusterReduceTestKernel<float, threads_per_block, num_blocks, true>(
       input_tensor.data_ptr<float>(), output_tensor.data_ptr<float>());
 
-  validateClusterReduceResult(input_tensor, output_tensor);
+  validateClusterReduceResult(input_tensor, output_tensor, true);
 }
 
 // Cluster reduction test for double
-TEST_F(ClusterDeviceFuncTest, ClusterReduceDouble) {
+TEST_F(ClusterDeviceFuncTest, ClusterReduceDoubleAllReduce) {
   NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
   constexpr int num_blocks = 2;
   constexpr int threads_per_block = 128;
@@ -106,9 +106,54 @@ TEST_F(ClusterDeviceFuncTest, ClusterReduceDouble) {
       {total_elements},
       at::TensorOptions().dtype(at::kDouble).device(at::kCUDA, 0));
 
-  launchClusterReduceTestKernel<double, threads_per_block, num_blocks>(
+  launchClusterReduceTestKernel<double, threads_per_block, num_blocks, true>(
       input_tensor.data_ptr<double>(), output_tensor.data_ptr<double>());
 
-  validateClusterReduceResult(input_tensor, output_tensor);
+  validateClusterReduceResult(input_tensor, output_tensor, true);
 }
+
+// Cluster reduction test for float
+TEST_F(ClusterDeviceFuncTest, ClusterReduceFloatNotAllReduce) {
+  NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
+  constexpr int num_blocks = 2;
+  constexpr int threads_per_block = 128;
+  constexpr int total_elements = num_blocks * threads_per_block;
+
+  auto input_tensor = at::arange(
+      1.0f,
+      total_elements + 1.0f,
+      at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0));
+
+  auto output_tensor = at::empty(
+      {total_elements},
+      at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0));
+
+  launchClusterReduceTestKernel<float, threads_per_block, num_blocks, false>(
+      input_tensor.data_ptr<float>(), output_tensor.data_ptr<float>());
+
+  validateClusterReduceResult(input_tensor, output_tensor, false);
+}
+
+// Cluster reduction test for double
+TEST_F(ClusterDeviceFuncTest, ClusterReduceDoubleNotAllReduce) {
+  NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
+  constexpr int num_blocks = 2;
+  constexpr int threads_per_block = 128;
+  constexpr int total_elements = num_blocks * threads_per_block;
+
+  auto input_tensor = at::arange(
+      1.0,
+      total_elements + 1.0,
+      at::TensorOptions().dtype(at::kDouble).device(at::kCUDA, 0));
+
+  auto output_tensor = at::empty(
+      {total_elements},
+      at::TensorOptions().dtype(at::kDouble).device(at::kCUDA, 0));
+
+  launchClusterReduceTestKernel<double, threads_per_block, num_blocks, false>(
+      input_tensor.data_ptr<double>(), output_tensor.data_ptr<double>());
+
+  validateClusterReduceResult(input_tensor, output_tensor, false);
+}
+
 } // namespace nvfuser

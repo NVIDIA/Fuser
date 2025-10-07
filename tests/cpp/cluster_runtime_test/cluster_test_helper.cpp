@@ -52,7 +52,8 @@ void validateClusterStoreResult(
 
 void validateClusterReduceResult(
     at::Tensor input_tensor,
-    at::Tensor output_tensor) {
+    at::Tensor output_tensor,
+    bool is_all_reduce) {
   const int64_t in_dim = static_cast<int64_t>(input_tensor.dim());
   const int64_t out_dim = static_cast<int64_t>(output_tensor.dim());
   ASSERT_TRUE(in_dim == out_dim);
@@ -66,11 +67,25 @@ void validateClusterReduceResult(
 
   // Expect every element to be the global sum of the input tensor
   const double expected_scalar = input_cpu.sum().item<double>();
-  auto expected = at::empty_like(input_cpu);
-  expected.fill_(expected_scalar);
 
-  ASSERT_TRUE(at::allclose(output_cpu, expected, /*rtol=*/1e-6, /*atol=*/1e-7))
-      << "Cluster reduce validation failed: output is not the global sum";
+  if (is_all_reduce) {
+    // All-reduce: every element should contain the global sum
+    auto expected = at::empty_like(input_cpu);
+    expected.fill_(expected_scalar);
+
+    ASSERT_TRUE(
+        at::allclose(output_cpu, expected, /*rtol=*/1e-6, /*atol=*/1e-7))
+        << "Cluster all-reduce validation failed: output is not the global sum";
+  } else {
+    // Reduce: only first element is expected to be the global sum
+    ASSERT_TRUE(
+        std::abs(output_cpu.flatten()[0].item<double>() - expected_scalar) <
+        1e-7)
+        << "Cluster reduce validation failed: first element is not the global "
+           "sum. "
+        << "Expected: " << expected_scalar
+        << ", Got: " << output_cpu.flatten()[0].item<double>();
+  }
 }
 
 } // namespace nvfuser

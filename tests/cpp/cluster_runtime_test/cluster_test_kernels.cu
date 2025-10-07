@@ -85,7 +85,12 @@ struct AddOp {
 };
 
 // Reduce BLOCK_SIZE x CLUSTER_SIZE values across a cluster of CLUSTER_SIZE CTAs
-template <typename T, int BLOCK_SIZE, int CLUSTER_SIZE, int WARPS_PER_BLOCK>
+template <
+    typename T,
+    int BLOCK_SIZE,
+    int CLUSTER_SIZE,
+    int WARPS_PER_BLOCK,
+    bool is_all_reduce>
 __global__ void clusterReduceTestKernel(T* input, T* output) {
 #if (defined(__CUDA_ARCH__) && (__CUDA_ARCH__ >= 900))
   const int global_tid = blockIdx.x * blockDim.x + threadIdx.x;
@@ -101,13 +106,14 @@ __global__ void clusterReduceTestKernel(T* input, T* output) {
   nvf::cluster::clusterSync();
 
   T result;
-  nvf::cluster::clusterReduce<CLUSTER_SIZE, WARPS_PER_BLOCK, T, AddOp<T>>(
-      result,
-      value,
-      static_cast<T>(0),
-      mbarrier_addr,
-      reduction_buffer,
-      AddOp<T>());
+  nvf::cluster::
+      clusterReduce<CLUSTER_SIZE, WARPS_PER_BLOCK, is_all_reduce, T, AddOp<T>>(
+          result,
+          value,
+          static_cast<T>(0),
+          mbarrier_addr,
+          reduction_buffer,
+          AddOp<T>());
 
   // After clusterReduce, each thread in each block has the same reduced value
   output[global_tid] = result;
@@ -141,7 +147,7 @@ void launchStoreSharedRemoteTestKernel(T* input, T* output) {
       output));
 }
 
-template <typename T, int BLOCK_SIZE, int CLUSTER_SIZE>
+template <typename T, int BLOCK_SIZE, int CLUSTER_SIZE, bool is_all_reduce>
 void launchClusterReduceTestKernel(T* input, T* output) {
   constexpr int WARPS_PER_BLOCK = (BLOCK_SIZE + 31) / 32;
 
@@ -159,7 +165,12 @@ void launchClusterReduceTestKernel(T* input, T* output) {
 
   NVFUSER_CUDA_RT_SAFE_CALL(cudaLaunchKernelEx(
       &config,
-      clusterReduceTestKernel<T, BLOCK_SIZE, CLUSTER_SIZE, WARPS_PER_BLOCK>,
+      clusterReduceTestKernel<
+          T,
+          BLOCK_SIZE,
+          CLUSTER_SIZE,
+          WARPS_PER_BLOCK,
+          is_all_reduce>,
       input,
       output));
 }
@@ -173,11 +184,19 @@ template void launchStoreSharedRemoteTestKernel<double, 32, 2>(
     double* input,
     double* output);
 
-template void launchClusterReduceTestKernel<float, 128, 2>(
+template void launchClusterReduceTestKernel<float, 128, 2, true>(
     float* input,
     float* output);
 
-template void launchClusterReduceTestKernel<double, 128, 2>(
+template void launchClusterReduceTestKernel<double, 128, 2, true>(
+    double* input,
+    double* output);
+
+template void launchClusterReduceTestKernel<float, 128, 2, false>(
+    float* input,
+    float* output);
+
+template void launchClusterReduceTestKernel<double, 128, 2, false>(
     double* input,
     double* output);
 } // namespace nvfuser
