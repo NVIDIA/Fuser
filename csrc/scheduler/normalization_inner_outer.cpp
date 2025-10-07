@@ -145,18 +145,6 @@ std::unique_ptr<ReductionParams> getInnerOuterPersistentHeuristics(
       !persistent_buffer_info.persistent_buffers.empty(),
       "Persistent scheduler requires persistent buffers.");
 
-  auto getBufferParams = [&](bool warp_specialized) {
-    return inner_outer_utils::getPersistentBufferStorageParams(
-        fusion,
-        runtime_info,
-        data_cache,
-        reduction_tvs,
-        vectorize_factor,
-        threads_per_block_min,
-        threads_per_block_max,
-        user_enforced_warp_specialization);
-  };
-
   auto makeRParams = [&]() {
     return std::make_unique<ReductionParams>(
         InnerOuterPersistentKernelScheduler::schedulerType());
@@ -164,7 +152,15 @@ std::unique_ptr<ReductionParams> getInnerOuterPersistentHeuristics(
   if (user_enforced_warp_specialization ||
       preferWarpSpecialized(
           fusion, properties.total_iteration_numel, n_inner_reduction_tvs)) {
-    auto buffer_params = getBufferParams(/*is_warp_specialized=*/true);
+    auto buffer_params = inner_outer_utils::getPersistentBufferStorageParams(
+        fusion,
+        runtime_info,
+        data_cache,
+        reduction_tvs,
+        vectorize_factor,
+        threads_per_block_min,
+        threads_per_block_max,
+        /*is_warp_specialized=*/true);
 
     // Current implementation assumes persistent buffers are projected to
     // inputs, making TMA loading beneficial. If not, shared memory persistent
@@ -195,7 +191,15 @@ std::unique_ptr<ReductionParams> getInnerOuterPersistentHeuristics(
   }
 
   // Fallback to multi-wave
-  auto buffer_params = getBufferParams(/*is_warp_specialized=*/false);
+  auto buffer_params = inner_outer_utils::getPersistentBufferStorageParams(
+      fusion,
+      runtime_info,
+      data_cache,
+      reduction_tvs,
+      vectorize_factor,
+      threads_per_block_min,
+      threads_per_block_max,
+      /*is_warp_specialized=*/false);
   auto rparams = makeRParams();
   rparams->smem_persistent_buffers = buffer_params.smem_persistent_buffers;
 
