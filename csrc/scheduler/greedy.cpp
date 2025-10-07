@@ -785,8 +785,8 @@ class RunTimeChecker : private IterVisitor {
 
     const auto total_required_size = cub_buffer_size;
 
-    const auto available_size =
-        at::cuda::getCurrentDeviceProperties()->sharedMemPerBlock;
+    const auto available_size = static_cast<int64_t>(
+        at::cuda::getCurrentDeviceProperties()->sharedMemPerBlock);
 
     if (total_required_size > available_size) {
       reject(
