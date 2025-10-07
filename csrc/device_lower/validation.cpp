@@ -699,7 +699,7 @@ class VectorizeValidator : public OptInDispatch {
     size_t last_alloc_dim_pos = 0;
     for (size_t i = tv->getMaybeAllocationDomain().size(); i > 0; i--) {
       auto r_id = tv->getMaybeAllocationDomain()[i - 1];
-      if (r_id->isReduction() || r_id->isBroadcast()) {
+      if (r_id->isReduction() || r_id->isBroadcast() || r_id->isDeviceDim()) {
         continue;
       }
       if ((tv->getMemoryType() == MemoryType::Shared ||
