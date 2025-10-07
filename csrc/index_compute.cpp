@@ -1227,7 +1227,8 @@ void ensureStaticIndexing(
         tv->getLoopDomain().begin(),
         tv->getLoopDomain().end(),
         [loop_id, &id_map](IterDomain* id) {
-          if (id->isBroadcast() || id->isReduction() || id->isStride()) {
+          if (id->isBroadcast() || id->isReduction() || id->isStride() ||
+              id->isStream()) {
             return false;
           }
           auto id_replacement = id_map.find(id);

@@ -36,6 +36,19 @@ void recomputeOutputTvs(Expr* e, IrCloner& ir_cloner) {
   }
 }
 
+// Finds the stream IterDomain in the outputs of a segment.
+IterDomain* findStreamIterDomain(const std::vector<Val*>& outs) {
+  for (auto* out : ir_utils::filterByType<TensorView>(outs)) {
+    const std::vector<IterDomain*>& loop = out->getLoopDomain();
+    // FinalizeMultideviceDomains pass puts the stream IterDomain to the
+    // front.
+    if (!loop.empty() && loop.front()->isStream()) {
+      return loop.front();
+    }
+  }
+  return nullptr;
+}
+
 void lowerSegment(
     const SegmentedGroup& group,
     const AliasInfoMap& aliases,
@@ -112,17 +125,34 @@ void lowerSegment(
 
       // Add the LaunchKernel instruction.
       KernelExecutor& ke = hic.getKernelExecutor(group_id);
+      IterDomain* stream_id = findStreamIterDomain(cloned_outs);
       // Needed for KernelExecutor. Should be removed once #4927 is fixed.
       auto* cache_id =
           IrBuilder::create<NamedScalar>("cacheId", DataType::UInt64);
-      auto launch_kernel = IrBuilder::create<hir::LaunchKernel>(
-          group_id,
-          launch_params,
-          ke.compiledKernel()->compileParams(),
-          cloned_ins,
-          cloned_outs,
-          cache_id);
-      hic.pushBackTopLevelExprs(launch_kernel);
+      if (stream_id == nullptr) {
+        auto launch_kernel = IrBuilder::create<hir::LaunchKernel>(
+            group_id,
+            launch_params,
+            ke.compiledKernel()->compileParams(),
+            cloned_ins,
+            cloned_outs,
+            cache_id);
+        hic.pushBackTopLevelExprs(launch_kernel);
+      } else {
+        auto* stream_index = IrBuilder::create<Val>(DataType::Index);
+        auto* for_loop =
+            hir::createForLoopFromIterDomain(stream_index, stream_id);
+        cloned_ins.push_back(stream_index);
+        auto launch_kernel = IrBuilder::create<hir::LaunchKernel>(
+            group_id,
+            launch_params,
+            ke.compiledKernel()->compileParams(),
+            cloned_ins,
+            cloned_outs,
+            cache_id);
+        for_loop->body().push_back(launch_kernel);
+        hic.pushBackTopLevelExprs(for_loop);
+      }
   }
 }
 } // namespace
