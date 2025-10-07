@@ -115,8 +115,18 @@ __global__ void clusterReduceTestKernel(T* input, T* output) {
           reduction_buffer,
           AddOp<T>());
 
-  // After clusterReduce, each thread in each block has the same reduced value
-  output[global_tid] = result;
+  if constexpr (is_all_reduce) {
+    // All-reduce: each thread writes the result to its corresponding output
+    // element
+    output[global_tid] = result;
+  } else {
+    // Reduce: only the first thread of the last block writes the scalar result
+    constexpr uint32_t last_block_rank = CLUSTER_SIZE - 1;
+    uint32_t my_block_rank = nvf::cluster::blockIdInCluster().x;
+    if (my_block_rank == last_block_rank && threadIdx.x == 0) {
+      output[0] = result;
+    }
+  }
 #endif
 }
 
@@ -163,6 +173,7 @@ void launchClusterReduceTestKernel(T* input, T* output) {
   config.attrs = &cluster_attr;
   config.numAttrs = 1;
 
+  // Use the unified kernel for both all-reduce and reduce cases
   NVFUSER_CUDA_RT_SAFE_CALL(cudaLaunchKernelEx(
       &config,
       clusterReduceTestKernel<

@@ -53,23 +53,25 @@ void validateClusterStoreResult(
 void validateClusterReduceResult(
     at::Tensor input_tensor,
     at::Tensor output_tensor,
-    bool is_all_reduce) {
-  const int64_t in_dim = static_cast<int64_t>(input_tensor.dim());
-  const int64_t out_dim = static_cast<int64_t>(output_tensor.dim());
-  ASSERT_TRUE(in_dim == out_dim);
-
-  const int64_t in_numel = input_tensor.numel();
-  const int64_t out_numel = output_tensor.numel();
-  ASSERT_TRUE(in_numel == out_numel);
-
+    bool is_all_reduce,
+    int threads_per_block) {
   auto input_cpu = input_tensor.cpu();
   auto output_cpu = output_tensor.cpu();
 
-  // Expect every element to be the global sum of the input tensor
+  // Expect the result to be the global sum of the input tensor
   const double expected_scalar = input_cpu.sum().item<double>();
 
   if (is_all_reduce) {
-    // All-reduce: every element should contain the global sum
+    // All-reduce: output should be full tensor with every element containing
+    // the global sum
+    const int64_t in_dim = static_cast<int64_t>(input_tensor.dim());
+    const int64_t out_dim = static_cast<int64_t>(output_tensor.dim());
+    ASSERT_TRUE(in_dim == out_dim);
+
+    const int64_t in_numel = input_tensor.numel();
+    const int64_t out_numel = output_tensor.numel();
+    ASSERT_TRUE(in_numel == out_numel);
+
     auto expected = at::empty_like(input_cpu);
     expected.fill_(expected_scalar);
 
@@ -77,14 +79,15 @@ void validateClusterReduceResult(
         at::allclose(output_cpu, expected, /*rtol=*/1e-6, /*atol=*/1e-7))
         << "Cluster all-reduce validation failed: output is not the global sum";
   } else {
-    // Reduce: only first element is expected to be the global sum
-    ASSERT_TRUE(
-        std::abs(output_cpu.flatten()[0].item<double>() - expected_scalar) <
-        1e-7)
-        << "Cluster reduce validation failed: first element is not the global "
-           "sum. "
-        << "Expected: " << expected_scalar
-        << ", Got: " << output_cpu.flatten()[0].item<double>();
+    // Reduce: output should be a single scalar containing the global sum
+    ASSERT_TRUE(output_tensor.numel() == 1)
+        << "Reduce output should be a scalar (single element), got "
+        << output_tensor.numel() << " elements";
+
+    const double actual_scalar = output_cpu.item<double>();
+    ASSERT_TRUE(std::abs(actual_scalar - expected_scalar) < 1e-7)
+        << "Cluster reduce validation failed: output is not the global sum. "
+        << "Expected: " << expected_scalar << ", Got: " << actual_scalar;
   }
 }
 

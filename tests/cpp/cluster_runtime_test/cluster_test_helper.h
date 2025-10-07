@@ -28,6 +28,7 @@ void launchClusterReduceTestKernel(T* input, T* output);
 void validateClusterReduceResult(
     at::Tensor input_tensor,
     at::Tensor output_tensor,
-    bool is_all_reduce);
+    bool is_all_reduce,
+    int threads_per_block = 128);
 
 } // namespace nvfuser
