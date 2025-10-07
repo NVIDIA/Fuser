@@ -187,6 +187,10 @@ void IrContainer::registerVal(Val* val) {
   val->setName(IrContainerPasskey(), getValName(val->vtype()));
 }
 
+std::vector<Val*> IrContainer::inputsOf(Val* val) {
+  return InputsOf::output(val);
+}
+
 //! Register expr with this container.
 void IrContainer::registerExpr(Expr* expr) {
   if (inContainer(expr)) {

@@ -225,9 +225,6 @@ class NVF_API Fusion : public IrContainer {
   //! exprs required to generate registered outputs.
   std::vector<Expr*> exprs() const;
 
-  //! Return a vector of fusion inputs that feed this Val
-  std::vector<Val*> inputsOf(Val* val);
-
   //! Return all Vals in math expressions that cannot be eliminated.
   //!
   //! It is generally equivalent to vals that are used to generate

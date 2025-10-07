@@ -124,6 +124,9 @@ class IrContainer : public PolymorphicBase {
     return vals_;
   }
 
+  //! Return all producer vals that don't have definitions
+  std::vector<Val*> inputsOf(Val* val);
+
   int64_t numExprs() const noexcept {
     return std::ssize(exprs_);
   }

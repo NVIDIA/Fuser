@@ -366,10 +366,6 @@ bool Fusion::isNoOp() {
   return true;
 }
 
-std::vector<Val*> Fusion::inputsOf(Val* val) {
-  return InputsOf::output(val);
-}
-
 void Fusion::validateInputs() {
   std::unordered_set<Val*> all_inputs;
   for (Val* out : outputs()) {
