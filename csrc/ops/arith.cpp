@@ -2673,10 +2673,11 @@ BlockQuantizationResults blockQuantize(
   // size is 16. Then we need to compute the max of the inner-most 16 elements.
   // Thus, we first reshape the input to [m, k/16, 16] and then compute the max
   // over the inner-most 16 elements.
-  auto reshaped_input = reshape(input, [](auto& x) { x.split(-1, 16); });
+  // auto reshaped_input = reshape(input, [](auto& x) { x.split(-1, 16); });
 
   auto inp_domain =
-      TensorDomain::noReductions(reshaped_input->getLogicalDomain());
+      // TensorDomain::noReductions(reshaped_input->getLogicalDomain());
+      TensorDomain::noReductions(input->getLogicalDomain());
 
   // Validate input tensor is not zero-dimensional
   NVF_CHECK(
@@ -2701,11 +2702,21 @@ BlockQuantizationResults blockQuantize(
 
   for (size_t i = 0; i < inp_domain.size(); ++i) {
     if (i == inp_domain.size() - 1) {
+      // scales_out_domain.push_back(
+      //     IterDomainBuilder(
+      //         input->fusion()->zeroVal(), input->fusion()->oneVal())
+      //         .iter_type(IterType::Broadcast)
+      //         .build());
+
+      // Close inp_domain[i] and divide by 16 to create new iter domain
       scales_out_domain.push_back(
           IterDomainBuilder(
-              input->fusion()->zeroVal(), input->fusion()->oneVal())
-              .iter_type(IterType::Broadcast)
+              inp_domain[i]->start(),
+              SimplifyingIrBuilder::divExpr(
+                  inp_domain[i]->extent(),
+                  IrBuilder::create<Val>(16L, DataType::Index)))
               .build());
+
     } else {
       scales_out_domain.push_back(inp_domain[i]->cloneWithoutRFactor());
     }
@@ -2725,8 +2736,7 @@ BlockQuantizationResults blockQuantize(
       DataType::Float8_e4m3fn); // Scales maintain input data type
 
   // Create the block quantization operation
-  IrBuilder::create<BlockQuantizationOp>(
-      block_scales, quantized_tensor, reshaped_input);
+  IrBuilder::create<BlockQuantizationOp>(block_scales, quantized_tensor, input);
 
   return BlockQuantizationResults(quantized_tensor, block_scales);
 }

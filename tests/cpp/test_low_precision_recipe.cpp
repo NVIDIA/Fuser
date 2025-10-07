@@ -219,15 +219,9 @@ TEST_F(BQTest, ScheduleAsPointwise) {
   fusion_new_op->addOutput(quantization_results.block_scales);
   fusion_new_op->addOutput(t_out);
 
-  // This is the 3D input to the BQ Op.
-  auto view_out_tv = quantization_results.block_scales->definition()
-                         ->input(0)
-                         ->as<TensorView>();
-
   for (auto t :
        {tv_data_hp,
         t0,
-        view_out_tv,
         quantization_results.quantized_tensor,
         quantization_results.block_scales,
         t_out}) {
@@ -246,11 +240,7 @@ TEST_F(BQTest, ScheduleAsPointwise) {
     t->split(-3, 128);
 
     if (t != tv_data_hp) {
-      // Don't vectorize the outputs of reshape
-      if (t != view_out_tv && t != quantization_results.block_scales) {
-        t->axis(-1)->parallelize(ParallelType::Vectorize);
-      }
-      //  I/512(BIDx), 128(TIDx), 1, 4(v)
+      t->axis(-1)->parallelize(ParallelType::Vectorize);
       t->axis(-3)->parallelize(ParallelType::TIDx);
       t->axis(-4)->parallelize(ParallelType::BIDx);
     }
@@ -285,8 +275,8 @@ TEST_F(BQTest, ScheduleAsPointwise) {
   }
 
   // Basic shape checks
-  EXPECT_EQ(block_scales_output.dim(), 3);
-  EXPECT_EQ(quantized_tensor_output.dim(), 3);
+  EXPECT_EQ(block_scales_output.dim(), 2);
+  EXPECT_EQ(quantized_tensor_output.dim(), 2);
 }
 
 TEST_F(BQTest, ScheduleAsPointwise2D) {
@@ -333,43 +323,26 @@ TEST_F(BQTest, ScheduleAsPointwise2D) {
 
   t0->setMemoryType(MemoryType::Local);
 
-  // This is the 3D input to the BQ Op.
-  auto view_out_tv = quantization_results.block_scales->definition()
-                         ->input(0)
-                         ->as<TensorView>();
-
-  // split the input 2D tensor to make then 3D.
-  // (i0, i1) -> (i0, i1//block_size, block_size)
-  for (auto t : {tv_data_hp, t0}) {
-    t->split(-1, block_size);
-  }
-
   for (auto t :
        {tv_data_hp,
         t0,
-        view_out_tv,
         quantization_results.quantized_tensor,
         quantization_results.block_scales,
         t_out}) {
-    // (m, n, k) -> (m, n*k)
-    t->merge(1, 2);
-
-    // (m, n*k) -> (m, n*k/4, 4)
-    // (m, n*k/4, 4) -> (m, n*k/128, 32, 4)
+    // (m, n) -> (m, n/4, 4)
+    // (m, n/4, 4) -> (m, n/128, 32, 4)
     t->split(-1, 4); // V
     t->split(-2, 32); // BDx
 
-    // (m, n*k/128, 32, 4) -> (m, 1, n*k/128, 32, 4)
-    // (m, 1, n*k/128, 32, 4) -> (m/4, 4, 1, n*k/128, 32, 4)
+    // (m, n/128, 32, 4) -> (m, 1, n/128, 32, 4)
+    // (m, 1, n/128, 32, 4) -> (m/4, 4, 1, n/128, 32, 4)
     t->split(0, 1);
     t->split(0, 4);
 
-    // (m/4(bidy), 4(tidy), 1, n*k/128(bidx), 32(tidx), 49(v))
+    // (m/4(bidy), 4(tidy), 1, n*k/128(bidx), 32(tidx), 4(v))
     if (t != tv_data_hp) {
       // Don't vectorize the outputs of reshape
-      if (t != view_out_tv && t != quantization_results.block_scales) {
-        t->axis(-1)->parallelize(ParallelType::Vectorize);
-      }
+      t->axis(-1)->parallelize(ParallelType::Vectorize);
       t->axis(-2)->parallelize(ParallelType::TIDx);
       t->axis(-3)->parallelize(ParallelType::BIDx);
       t->axis(-5)->parallelize(ParallelType::TIDy);
@@ -410,8 +383,8 @@ TEST_F(BQTest, ScheduleAsPointwise2D) {
   }
 
   // Basic shape checks
-  EXPECT_EQ(block_scales_output.dim(), 3);
-  EXPECT_EQ(quantized_tensor_output.dim(), 3);
+  EXPECT_EQ(block_scales_output.dim(), 2);
+  EXPECT_EQ(quantized_tensor_output.dim(), 2);
 }
 
 TEST_P(NVFP4QuantizeTest, SwizzledOuputAndWithoutPerTensorAmax) {

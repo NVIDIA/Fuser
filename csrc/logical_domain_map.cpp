@@ -154,6 +154,17 @@ std::pair<std::unordered_set<IterDomain*>, bool> getNonMappingDomainInfo(
       }
       has_consumer_id = true;
     }
+  } else if (
+      auto bqop =
+          dynamic_cast<BlockQuantizationOp*>(consumer_tv->definition())) {
+    if (producer_tv == bqop->in()) {
+      auto producer_logical =
+          TensorDomain::noReductions(producer_tv->getLogicalDomain());
+      auto last_logical_dim = producer_tv->getLogicalDomain().size() - 1;
+      non_mapping_ids.insert(producer_logical.at(last_logical_dim));
+      // We are mapping everything but the last ID.
+      has_consumer_id = true;
+    }
   }
 
   return std::make_pair(non_mapping_ids, has_consumer_id);

@@ -9,7 +9,8 @@
 namespace nvf {
 namespace bq {
 
-__device__ __inline__ void quadMaxReduction(float& local_max) {
+template <typename T>
+__device__ __inline__ void localMaxReduction(float& local_max) {
   // The mask 0xffffffff indicates all 32 threads in the warp are participating.
   unsigned int mask = 0xffffffff;
 
@@ -17,7 +18,9 @@ __device__ __inline__ void quadMaxReduction(float& local_max) {
   // Exchange and compare with thread 2 lanes away within the quad.
   // e.g., thread 0 exchanges with 2; thread 1 with 3.
   // The XOR pattern naturally keeps the operation within each quad.
-  local_max = fmax(local_max, __shfl_xor_sync(mask, local_max, 2));
+  if (std::is_same<T, float>::value) {
+    local_max = fmax(local_max, __shfl_xor_sync(mask, local_max, 2));
+  }
 
   // --- Reduction Step 2 ---
   // Exchange and compare with thread 1 lane away.
@@ -35,33 +38,47 @@ __device__ __inline__ void quadMaxReduction(float& local_max) {
 // This assumes that ITEMS_PER_THREAD is 4.
 // This assumes for block quantization, the block size is 16.
 // This works for float but will extended to work with bfloat.
-template <int ITEMS_PER_THREAD>
+template <
+    int ITEMS_PER_THREAD,
+    typename T,
+    int ALIGNMENT_1,
+    int ALIGNMENT_2,
+    int BLOCK_SCALE_DIM,
+    int BLOCK_SCALE_ALLOC>
 __device__ void block_quantize_to_nvfp4(
-    Array<float, ITEMS_PER_THREAD, 1>& input,
-    Array<__e2m1, ITEMS_PER_THREAD, ITEMS_PER_THREAD>& output,
-    __e4m3& fp8_output) {
+    Array<T, ITEMS_PER_THREAD, ALIGNMENT_1>& input,
+    Array<__e2m1, ITEMS_PER_THREAD, ALIGNMENT_2>& output,
+    Tensor<__e4m3, BLOCK_SCALE_DIM, BLOCK_SCALE_ALLOC>& fp8_output) {
   assert(blockDim.x % 4 == 0);
   assert(blockDim.z == 1 && gridDim.z == 1);
   static_assert(
       ITEMS_PER_THREAD % 4 == 0, "ITEMS_PER_THREAD must be multiple of 4");
 
-  Array<float, 4, 4> vec4;
-  vec4.set(0.0f); // Initialize to zero like nvfuser does
+  Array<float, 4, 4> vec_in;
+  vec_in.set(0.0f); // Initialize to zero like nvfuser does
 
   for (auto i = 0; i < ITEMS_PER_THREAD; i++) {
-    vec4[i] = input[i];
+    if constexpr (std::is_same<T, float>::value) {
+      vec_in[i] = input[i];
+    } else if constexpr (std::is_same<T, __bfloat>::value) {
+      vec_in[i] = __bfloat2float(input[i]);
+    } else {
+      static_assert(
+          std::is_same<T, float>::value || std::is_same<T, __bfloat>::value,
+          "Unsupported type");
+    }
   }
 
   float local_max = NEG_INFINITY;
 #pragma unroll
-  for (int i = 0; i < 4; ++i) {
-    local_max = fmax(local_max, fabsf(vec4[i]));
+  for (int i = 0; i < ITEMS_PER_THREAD; ++i) {
+    local_max = fmax(local_max, fabsf(vec_in[i]));
   }
 
   // Perform block(16 elements)-wide reduction (max)
   // across 4- threads
   float block_max = NEG_INFINITY;
-  quadMaxReduction(local_max);
+  localMaxReduction<T>(local_max);
   block_max = local_max;
 
   // This division should be replaced with a multiplication
@@ -74,26 +91,34 @@ __device__ void block_quantize_to_nvfp4(
 
   float clamped_max_converted = __e4m32float(clamped_max_fp8);
 
+  int offset_y_blocks = blockIdx.y * blockDim.y * blockDim.x * gridDim.x;
+  int offset_dim_y = threadIdx.y * blockDim.x * gridDim.x;
+  int offset_into_block = blockIdx.x * blockDim.x + threadIdx.x;
+
+  int offset = (offset_y_blocks + offset_dim_y + offset_into_block) / 4;
+
   // Convert back from FP8 to float using __e4m32float
-  if (threadIdx.x % 4 == 0) // Only one thread per quad writes
+  if (threadIdx.x % ITEMS_PER_THREAD == 0) // Only one thread per quad writes
   {
-    fp8_output = clamped_max_fp8; // Broadcast to all threads
+    fp8_output[offset] = clamped_max_fp8; // Broadcast to all threads
   }
 
-  Array<float, 4, 4> clamped_vals;
+  Array<float, ITEMS_PER_THREAD, ITEMS_PER_THREAD> clamped_vals;
 #pragma unroll
-  for (int i = 0; i < 4; ++i) {
-    float scaled_val = vec4[i] / clamped_max_converted;
+  for (int i = 0; i < ITEMS_PER_THREAD; ++i) {
+    float scaled_val = vec_in[i] / clamped_max_converted;
     clamped_vals[i] = clamp(scaled_val, -6.000000000e+00f, 6.000000000e+00f);
   }
 
-  Array<__e2m1, 4, 1> fp4_vals;
-  *reinterpret_cast<Array<__e2m1, 4, 4>*>(&fp4_vals[0]) =
-      __float2e2m1(*reinterpret_cast<Array<float, 4, 4>*>(&clamped_vals[0]));
+  Array<__e2m1, ITEMS_PER_THREAD, 1> fp4_vals;
+  *reinterpret_cast<Array<__e2m1, ITEMS_PER_THREAD, ITEMS_PER_THREAD>*>(
+      &fp4_vals[0]) =
+      __float2e2m1(
+          *reinterpret_cast<Array<float, ITEMS_PER_THREAD, ITEMS_PER_THREAD>*>(
+              &clamped_vals[0]));
 
-  // Array<__e2m1, 4, 4> fp4_vals_aligned;
 #pragma unroll
-  for (int i = 0; i < 4; ++i) {
+  for (int i = 0; i < ITEMS_PER_THREAD; ++i) {
     output[i] = fp4_vals[i];
   }
 }

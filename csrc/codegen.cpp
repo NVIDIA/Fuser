@@ -1805,7 +1805,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     // Third argument: block scale output
     func_args.arg(genInline(bqop->input(0)->as<kir::TensorIndex>()->view()));
     func_args.arg(genInline(output));
-    func_args.arg(genInline(bqop->blockScales()));
+    func_args.arg(
+        genInline(bqop->blockScales()->as<kir::TensorIndex>()->view()));
 
     indent() << genCall("bq::block_quantize_to_nvfp4", template_args, func_args)
              << ";\n";

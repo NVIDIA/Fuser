@@ -212,7 +212,9 @@ NonDivisiblePredicateInfo::NonDivisiblePredicateInfo(Fusion* fusion) {
     }
 
     auto def = tv->definition();
-    if (def == nullptr) {
+    // A block quantization is plumbed down to a runtime function.
+    // The runtime function handles predication so skip this.
+    if (def == nullptr || def->isA<BlockQuantizationOp>()) {
       continue;
     }
 
