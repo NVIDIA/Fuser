@@ -37,6 +37,8 @@ struct HostIrEvaluatorParams {
   // number of additional cuda streams to use at runtime for comm+compute
   // pipelining
   int64_t number_of_streams = 4;
+  // Whether to use allocation cache for tensor allocations
+  bool use_allocation_cache = false;
 };
 
 // A HostIrEvaluator evaluates a host programs represented through a
@@ -135,6 +137,8 @@ class NVF_API HostIrEvaluator final : public OptOutDispatch {
   std::unordered_map<Expr*, c10::intrusive_ptr<c10d::Work>> works_;
   const int64_t my_local_device_index_;
   IpcHandleCache ipc_handle_cache_;
+  // Allocation cache
+  std::unordered_map<kir::Allocate*, at::Tensor> allocation_cache_;
 };
 
 } // namespace hir
