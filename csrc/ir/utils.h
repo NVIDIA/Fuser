@@ -746,10 +746,6 @@ inline bool isMemorySharedAcross(
   }
 }
 
-// True if a given domain is a loop domain of a given tensor and its
-// loop is partitioned with respect to the memory type of the tensor
-bool isPartitionedLoop(const TensorView* tv, IterDomain* id);
-
 inline bool isSizeOneDomain(IterDomain* id) {
   return id->isBroadcast() || id->extent()->isOneInt();
 }
