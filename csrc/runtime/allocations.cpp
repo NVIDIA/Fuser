@@ -65,7 +65,7 @@ int64_t computeSharedMemory(
   FUSER_PERF_SCOPE("fusion_executor::allocations::computeSharedMemory");
   int64_t total = smem_offset;
   // align smem_offset at kSharedMemoryAlignmentBytes
-  smem_offset = alignedSharedMemoryBytes(smem_offset);
+  smem_offset = alignSharedMemoryBytes(smem_offset);
   for (auto smem_alloc : buffers) {
     // If this buffer aliases another buffer,
     // then do not allocate memory for this buffer.

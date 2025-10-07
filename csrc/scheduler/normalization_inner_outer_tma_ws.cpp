@@ -86,11 +86,11 @@ void getHeuristics(
         }
         // mbarrier dtype is uint64_t
         constexpr int64_t bits_per_mbarrier = 8 * 8;
-        smem_size_bit += alignedSharedMemoryBits(bits_per_mbarrier * n_stages);
+        smem_size_bit += alignSharedMemoryBits(bits_per_mbarrier * n_stages);
         // reduction workspace size, need to be aligned to 128 bytes since
         // other smems are stacked on top of it directly, see
         // assignNextAddress in StackBasedSharedMemAllocator
-        smem_size_bit += alignedSharedMemoryBits(
+        smem_size_bit += alignSharedMemoryBits(
             iter_unroll * bdimx * bdimy * computation_dtype_size_bit);
         return (int64_t)dev_prop->sharedMemPerBlockOptin * 8 >= smem_size_bit;
       };

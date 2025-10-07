@@ -786,7 +786,7 @@ int64_t roundUpSharedMemory(
         persistent_batch * vectorize_factor * threads_per_block *
             data_type_size_bit);
   }
-  return alignedSharedMemoryBits(max_smem_bit);
+  return alignSharedMemoryBits(max_smem_bit);
 }
 int64_t sharedMemoryRoundUpOverheadBit(
     SchedulerRuntimeInfo& runtime_info,
@@ -808,7 +808,7 @@ int64_t sharedMemoryRoundUpOverheadBit(
     // The difference is counted as roundup overhead
     total_smem_overhead_bit += (buffer_size_smem - logical_buffer_size_bit);
   }
-  return alignedSharedMemoryBits(total_smem_overhead_bit);
+  return alignSharedMemoryBits(total_smem_overhead_bit);
 }
 } // namespace
 

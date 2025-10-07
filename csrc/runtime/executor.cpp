@@ -481,7 +481,7 @@ LaunchParams KernelExecutor::computeLaunchParams(
     }
 
     reduction_broadcast_workspace =
-        alignedSharedMemoryBytes(reduction_broadcast_workspace);
+        alignSharedMemoryBytes(reduction_broadcast_workspace);
 
     if (isDebugDumpEnabled(DebugDumpOption::DynamicSharedMemory)) {
       debug() << "reduction_broadcast_workspace shared memory bytes: "
