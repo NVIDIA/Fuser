@@ -254,7 +254,6 @@ void TransformReplay::selfReplay(
   std::vector<IterDomain*> new_logical = new_self->logical();
 
   // For convenience, automatically remove extra reduction dimensions.
-  bool ignore_reductions = logical.size() != new_logical.size();
   if (logical.size() > new_logical.size()) {
     logical = TensorDomain::noReductions(logical);
   } else if (logical.size() < new_logical.size()) {
@@ -295,15 +294,17 @@ void TransformReplay::selfReplay(
   // allocation.
   const std::vector<IterDomain*>& loop = self->loop();
   ReplaySelf replay(loop, axis_map);
+  auto mapped_new_ids = [&]() {
+    auto values = replay.getReplay() | std::views::values;
+    return std::unordered_set<IterDomain*>(values.begin(), values.end());
+  }();
 
   // Replay loop.
   if (loop != self->logical()) {
     std::vector<IterDomain*> new_loop;
-    if (ignore_reductions) {
-      for (auto* id : new_self->logical()) {
-        if (id->isReduction()) {
-          new_loop.push_back(id);
-        }
+    for (auto* new_id : new_self->logical()) {
+      if (mapped_new_ids.count(new_id) == 0) {
+        new_loop.push_back(new_id);
       }
     }
 
@@ -329,13 +330,10 @@ void TransformReplay::selfReplay(
     std::vector<std::optional<bool>> new_contiguities;
 
     // Push back the reduction IDs that are not mapped
-    if (ignore_reductions) {
-      for (auto* id : new_self->logical()) {
-        if (id->isReduction()) {
-          new_allocation.push_back(id);
-          // NOLINTNEXTLINE(modernize-use-emplace)
-          new_contiguities.push_back(std::nullopt);
-        }
+    for (auto* new_id : new_self->logical()) {
+      if (mapped_new_ids.count(new_id) == 0) {
+        new_allocation.push_back(new_id);
+        new_contiguities.push_back(std::nullopt);
       }
     }
 
