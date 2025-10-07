@@ -773,9 +773,9 @@ at::Tensor transformFromAllocationToLogical(
 
   std::set<IterDomain*> frontier_set(frontier.begin(), frontier.end());
   std::set<IterDomain*> logical_set(logical.begin(), logical.end());
-  // If propagated frontier matches the logical_set, we cannot rely on a simple
-  // permutation of its allocation sizes and strides to project to its logical
-  // sizes and strides.
+  // If propagated frontier_set doesn't match the logical_set, we cannot rely on
+  // a simple permutation of its allocation sizes and strides to project to its
+  // logical sizes and strides.
   if (frontier_set != logical_set) {
     // When projection cannot be done properly, we cannot compute correct
     // combination of logical sizes and strides. We choose to:
