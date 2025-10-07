@@ -242,8 +242,6 @@ TEST_F(BQTest, ScheduleAsPointwise) {
   fusion_new_op->addOutput(quantization_results.block_scales);
   fusion_new_op->addOutput(t_out);
 
-  t0->setMemoryType(MemoryType::Local);
-
   // This is the 3D input to the BQ Op.
   auto view_out_tv = quantization_results.block_scales->definition()
                          ->input(0)

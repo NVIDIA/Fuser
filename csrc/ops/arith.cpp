@@ -2634,7 +2634,45 @@ TensorView* prefixSum(TensorView* tv, int64_t dim) {
       /*init=*/tv->fusion()->zeroVal(tv->dtype()));
 }
 
-BlockQuantizationResults blockQuantize(TensorView* input) {
+// API for block quantization to nvFP4.
+// We take FP32 or BF16 input and produce two outputs
+// nvFP4(x2) outputs and FP8 block scales.
+// The input is first reshape to have an inner 16 dimension.
+// This 16 should be configurable but fixed for now.
+// So, if the input is of shape (m, k), it is first reshaped
+// to (m, k/16, 16). The quantized output has the shape (m, k/16, 16)
+// and block scales has the shape (m, k/16, b(1)), where the inner dimension
+// had been "reduced" (max). Please note there is no actual reduction and this
+// node should be handled by the pointwise scheduler.
+// Currently this node get lowered to a runtime function, which expects the
+// input in registers and write out quantized values or registers and block
+// scales to global memory.
+BlockQuantizationResults blockQuantize(
+    TensorView* input,
+    int64_t block_size,
+    DataType out_dtype) {
+  NVF_CHECK(
+      block_size == 16,
+      "Currently only block size of 16 is supported, got ",
+      block_size);
+
+  NVF_CHECK(
+      out_dtype == DataType::Float4_e2m1fn_x2,
+      "Currently only output data type of Float4_e2m1fn_x2 is supported");
+
+  // Validate input data type
+  // WE'll only support FP32 or BF16
+  // TODO: BF16
+  NVF_CHECK(
+      isFloatingPointType(input->getDataType().value()),
+      "Block quantization expects floating point input but got ",
+      input->getDataType().value());
+
+  // We reshape the input to the keep the block size as the inner dimension
+  // that will be "reduced". For example, if our input in [m, k] and the block
+  // size is 16. Then we need to compute the max of the inner-most 16 elements.
+  // Thus, we first reshape the input to [m, k/16, 16] and then compute the max
+  // over the inner-most 16 elements.
   auto reshaped_input = reshape(input, [](auto& x) { x.split(-1, 16); });
 
   auto inp_domain =
@@ -2645,12 +2683,6 @@ BlockQuantizationResults blockQuantize(TensorView* input) {
       !inp_domain.empty(),
       "Block quantization does not support zero-dimensional tensors");
 
-  // Validate input data type - typically requires floating point input
-  NVF_CHECK(
-      isFloatingPointType(input->getDataType().value()),
-      "Block quantization expects floating point input but got ",
-      input->getDataType().value());
-
   // Create output domain for quantized tensor (same shape as input)
   std::vector<IterDomain*> quantized_out_domain;
   quantized_out_domain.reserve(inp_domain.size());
@@ -2660,8 +2692,10 @@ BlockQuantizationResults blockQuantize(TensorView* input) {
   }
 
   // Create output domain for block scales
-  // Block scales typically have reduced dimensions based on block size
-  // For now, assuming block size of 16 and reducing the last dimension
+  // If the input after reshape is [m, k/16, 16] then
+  // block scales will be [m, k/16, b(1)]
+  // We keep the inner-dimension as b(1) to make scheduling easier.
+  // Both the ouputs of quantization can be scheduled in similar fashion.
   std::vector<IterDomain*> scales_out_domain;
   scales_out_domain.reserve(inp_domain.size());
 
@@ -2694,7 +2728,7 @@ BlockQuantizationResults blockQuantize(TensorView* input) {
   IrBuilder::create<BlockQuantizationOp>(
       block_scales, quantized_tensor, reshaped_input);
 
-  return BlockQuantizationResults(block_scales, quantized_tensor);
+  return BlockQuantizationResults(quantized_tensor, block_scales);
 }
 
 } // namespace nvfuser
