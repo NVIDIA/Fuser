@@ -1156,4 +1156,47 @@ TEST_F(MultiDeviceTest, PointwiseSchedulerReordering) {
   EXPECT_TRUE(at::allclose(nvf_out, sharded_inp + 1.0));
 }
 
+TEST_F(MultiDeviceTest, ReshapeAllocationPermutation) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  int64_t d = communicator_->size();
+  int64_t s = 2048, h = 96, e = 12288;
+  auto mesh = DeviceMesh::createForNumDevices(d);
+
+  if (h % d != 0) {
+    GTEST_SKIP() << "Requires number of devices=" << d
+                 << " evenly divide H=" << h;
+  }
+
+  TensorView* tv0 = makeContigConcreteTensor({s, h, e / h});
+  TensorView* tv1 = reshape(tv0, {s, h, e / h}, {s, e});
+  TensorView* tv2 = sum(tv1, {0});
+  fusion->addInput(tv0);
+  fusion->addOutput(tv2);
+
+  for (auto* tv : {tv0, tv1, tv2}) {
+    tv->setDeviceMesh(mesh);
+    tv->outer_split(1, d);
+    tv->axis(1)->parallelize(ParallelType::DIDx);
+    tv->setAllocationDomain(tv->getLoopDomain(), true);
+    reorderParallelizedToFront(tv);
+  }
+
+  preseg_passes::OptimizationPassGuard<
+      preseg_passes::FinalizeMultideviceDomainsPass>
+      optimization_guard(false);
+
+  at::Tensor input = at::randn({s, h, e / h}, tensor_options_);
+  at::Tensor sharded_input = shardTensor(input, 1, mesh);
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  at::Tensor nvf_out =
+      executor_cache.runFusionWithInputs({sharded_input})[0].as<at::Tensor>();
+
+  at::Tensor ref_out =
+      sharded_input.view({s, e / d}).sum(c10::IntArrayRef({0}));
+  EXPECT_TRUE(at::allclose(nvf_out, ref_out, 1e-3, 1e-3));
+}
+
 } // namespace nvfuser
