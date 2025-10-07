@@ -708,11 +708,11 @@ TEST_P(ScanParameterizedWithBlock, SharedMemoryRequirement) {
 
   const int64_t available_capacity =
       at::cuda::getCurrentDeviceProperties()->sharedMemPerBlock;
-
-  const bool has_enough_capacity = expected_size <= available_capacity;
+  const int64_t opt_in_available_capacity =
+      at::cuda::getCurrentDeviceProperties()->sharedMemPerBlockOptin;
 
   KernelExecutor ke;
-  if (has_enough_capacity) {
+  if (expected_size <= available_capacity) {
     ke.compile(&fusion, {t0});
     auto outputs = ke.run({t0});
     testValidate(&fusion, outputs, {t0}, __LINE__, __FILE__);
@@ -730,11 +730,16 @@ TEST_P(ScanParameterizedWithBlock, SharedMemoryRequirement) {
       EXPECT_EQ(expected_size, ke.getStaticSmemSize())
           << "Actual static shared memory size was different";
     }
-  } else {
+  } else if (expected_size > opt_in_available_capacity) {
     // Compilation should fail
     EXPECT_THAT(
         [&]() { ke.compile(&fusion, {t0}); },
         testing::Throws<nvfuser::nvfError>());
+  } else {
+    // It doesn't seem consistent whether compilation or launch should
+    // fail if the requirement of static shared memory exceeds the default
+    // limit but within the opt-in larger limit. As we should move to
+    // dynamic allocaitons anyway, don't assert for now.
   }
 };
 

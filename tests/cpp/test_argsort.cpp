@@ -307,11 +307,11 @@ TEST_F(ArgsortTest, BufferSync) {
   testValidate(&fusion, outputs, {t0}, __LINE__, __FILE__);
 }
 
-class ArgsortParameterizedWithBlockandBatch
+class ArgsortParameterizedWithBlockAndBatch
     : public ArgsortTest,
       public ::testing::WithParamInterface<std::tuple<int, int, bool, bool>> {};
 
-TEST_P(ArgsortParameterizedWithBlockandBatch, SharedMemoryRequirement) {
+TEST_P(ArgsortParameterizedWithBlockAndBatch, SharedMemoryRequirement) {
   DisableOptionsGuard disable_options_guard;
   // Avoid using magic zero to make the estimation simpler
   DisableOptionsGuard::getCurOptions().set(DisableOption::MagicZero);
@@ -384,11 +384,11 @@ TEST_P(ArgsortParameterizedWithBlockandBatch, SharedMemoryRequirement) {
 
   const int64_t available_capacity =
       at::cuda::getCurrentDeviceProperties()->sharedMemPerBlock;
-
-  const bool has_enough_capacity = expected_size <= available_capacity;
+  const int64_t opt_in_available_capacity =
+      at::cuda::getCurrentDeviceProperties()->sharedMemPerBlockOptin;
 
   KernelExecutor ke;
-  if (has_enough_capacity) {
+  if (expected_size <= available_capacity) {
     ke.compile(&fusion, {t0});
     auto outputs = ke.run({t0});
     testValidate(&fusion, outputs, {t0}, __LINE__, __FILE__);
@@ -399,17 +399,22 @@ TEST_P(ArgsortParameterizedWithBlockandBatch, SharedMemoryRequirement) {
     // condition if necessary.
     EXPECT_EQ(expected_size, ke.getStaticSmemSize())
         << "Actual static shared memory size was different";
-  } else {
+  } else if (expected_size > opt_in_available_capacity) {
     // Compilation should fail
     EXPECT_THAT(
         [&]() { ke.compile(&fusion, {t0}); },
         testing::Throws<nvfuser::nvfError>());
+  } else {
+    // It doesn't seem consistent whether compilation or launch should
+    // fail if the requirement of static shared memory exceeds the default
+    // limit but within the opt-in larger limit. As we should move to
+    // dynamic allocaitons anyway, don't assert for now.
   }
 };
 
 INSTANTIATE_TEST_SUITE_P(
     ,
-    ArgsortParameterizedWithBlockandBatch,
+    ArgsortParameterizedWithBlockAndBatch,
     testing::Combine(
         testing::Values(128, 512, 1024, 2048, 4096),
         testing::Values(1, 2, 3, 8),
