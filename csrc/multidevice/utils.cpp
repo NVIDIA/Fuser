@@ -228,7 +228,7 @@ IterDomain* getShardedIterDomain(
     NVF_THROW("Unexpected parallel type: ", parallel_type);
   }();
 
-  for (auto&& [index, id] : enumerate(domain)) {
+  for (auto&& [index, id] : enumerate(domain | TensorDomain::kNoReductions)) {
     if (id->getParallelType() == parallel_type) {
       return id;
     }
@@ -266,9 +266,10 @@ std::vector<int64_t> unshardedSizes(
     }
 
     const int64_t sharded_axis = getProducingLogicalAxis(tv, sharded_id);
-    if (sharded_axis == -1) {
-      continue;
-    }
+    NVF_ERROR(
+        sharded_axis != -1,
+        "Producing logical axis not found for ",
+        sharded_id);
 
     auto multiplier = [&]() -> int64_t {
       if (parallel_type == ParallelType::Stream) {
