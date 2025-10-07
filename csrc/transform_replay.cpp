@@ -307,6 +307,10 @@ void TransformReplay::selfReplay(
     std::vector<IterDomain*> new_loop;
     for (auto* new_id : new_self->logical()) {
       if (mapped_new_ids.count(new_id) == 0) {
+        NVF_ERROR(
+            new_id->isReduction(),
+            new_id->toString(),
+            " should be a reduction.");
         new_loop.push_back(new_id);
       }
     }
@@ -392,6 +396,10 @@ void TransformReplay::selfReplay(
       if (new_id->isBroadcast()) {
         new_contiguity = std::nullopt;
       } else if (new_id->isSymbolic()) {
+        // See AliasTest.AccumulateSlices for an example. aliasOutputToInput is
+        // called before concretization and tries to replay contiguity from a
+        // broadcast IterDomain to a symbolic IterDomain. However, a symbolic
+        // IterDomain can't have contiguity null.
         if (!new_contiguity.has_value()) {
           new_contiguity = true;
         }
