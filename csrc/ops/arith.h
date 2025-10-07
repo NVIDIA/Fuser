@@ -825,16 +825,19 @@ NVF_API inline TensorView* cumsum(TensorView* tv, int64_t dim) {
 
 struct BlockQuantizationResults {
  public:
-  TensorView* block_scales = nullptr;
   TensorView* quantized_tensor = nullptr;
+  TensorView* block_scales = nullptr;
 
   explicit BlockQuantizationResults(
-      TensorView* in_block_scales,
-      TensorView* in_quantized_tensor)
-      : block_scales(in_block_scales), quantized_tensor(in_quantized_tensor) {}
+      TensorView* in_quantized_tensor,
+      TensorView* in_block_scales)
+      : quantized_tensor(in_quantized_tensor), block_scales(in_block_scales) {}
 };
 
-//! Expose block size as a parameter. Currently only supports 16.
-NVF_API BlockQuantizationResults blockQuantize(TensorView* input);
+//! TODO: Expose global scaling factor
+NVF_API BlockQuantizationResults blockQuantize(
+    TensorView* input,
+    int64_t block_size = 16,
+    DataType out_dtype = DataType::Float4_e2m1fn_x2);
 
 } // namespace nvfuser
