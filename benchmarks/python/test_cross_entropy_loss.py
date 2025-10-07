@@ -171,26 +171,41 @@ def nvfuser_cross_entropy_fusion(
     T19 = fd.ops.squeeze(T18, dims=[1])
     T20 = fd.ops.cast(T19, dtype=DataType.Float)
     T21 = fd.ops.sub(T16, T20)
-    fd.add_output(T21)
+    T22 = fd.ops.cast(T21, dtype=DataType.BFloat16)
+    fd.add_output(T22)
 
 
 @pytest.mark.parametrize("vocab_size", SyntheticMiniModel.sizes_from_models)
-def test_function_cross_entropy_fwd_nvf_benchmark(benchmark, vocab_size: int):
+def test_function_cross_entropy_fwd_nvf_benchmark(
+    benchmark, vocab_size: int, disable_validation: bool, disable_benchmarking: bool
+):
     batch_size = 4096
-    logits = 0.1 * torch.randn(
-        batch_size, vocab_size, device="cuda", dtype=torch.bfloat16, requires_grad=False
-    )
-    labels = torch.randint(
-        0,
-        vocab_size,
-        (batch_size,),
-        device="cuda",
-        dtype=torch.int64,
-        requires_grad=False,
-    )
+    inputs = [
+        0.1
+        * torch.randn(
+            batch_size,
+            vocab_size,
+            device="cuda",
+            dtype=torch.bfloat16,
+            requires_grad=False,
+        ),
+        torch.randint(
+            0,
+            vocab_size,
+            (batch_size,),
+            device="cuda",
+            dtype=torch.int64,
+            requires_grad=False,
+        ),
+    ]
     with FusionDefinition() as fd:
         nvfuser_cross_entropy_fusion(fd, batch_size, vocab_size)
-    run_benchmark(benchmark, fd.execute, [logits, labels])
+
+    if not disable_validation:
+        fd.validate(inputs, [torch_cross_entropy_fwd(inputs)])
+
+    if not disable_benchmarking:
+        run_benchmark(benchmark, fd.execute, inputs)
 
 
 def quack_cross_entropy_fwd_wrapper(inputs: list):
