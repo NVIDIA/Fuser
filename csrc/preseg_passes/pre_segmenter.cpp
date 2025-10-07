@@ -50,6 +50,7 @@ namespace nvfuser::preseg_passes {
   // removes consecutive cast operations
   OptimizationPass<ConsecutiveCastPass>::runPass(fusion);
   OptimizationPass<AddAxiomsPass>::runPass(fusion);
+  OptimizationPass<FMinFMaxPromotionPass>::runPass(fusion);
   OptimizationPass<MoveSplitCatPass>::runPass(fusion);
   // MovePadPass needs to happen:
   // 1. before MarkAliasPrepare; and

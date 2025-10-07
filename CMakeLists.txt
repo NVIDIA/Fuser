@@ -258,6 +258,7 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/polymorphic_value.cpp
   ${NVFUSER_SRCS_DIR}/predicate_compute.cpp
   ${NVFUSER_SRCS_DIR}/preseg_passes/add_axioms.cpp
+  ${NVFUSER_SRCS_DIR}/preseg_passes/fmin_fmax_promotion.cpp
   ${NVFUSER_SRCS_DIR}/preseg_passes/allocation_order_inference.cpp
   ${NVFUSER_SRCS_DIR}/preseg_passes/consecutive_cast.cpp
   ${NVFUSER_SRCS_DIR}/preseg_passes/exact_mapped_extent_substitution.cpp
