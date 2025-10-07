@@ -833,7 +833,7 @@ int64_t getMaxRegOrSharedMemorySizeBitForPersistentBuffer(
   smem_overhead_bit += sharedMemoryRoundUpOverheadBit(
       runtime_info, persistent_buffer_info, project_to_inputs);
 
-  smem_overhead_bit += scheduler_utils::counted_static_smem_bit;
+  smem_overhead_bit += scheduler_utils::static_smem_usage_in_bits;
 
   int64_t available_shared_memory_size_bit =
       (int64_t)dev_prop->sharedMemPerBlockOptin * 8 - smem_overhead_bit;

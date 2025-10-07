@@ -9068,7 +9068,7 @@ TEST_F(NVFuserTest, UseAllSharedMemory) {
       c10::Device(c10::DeviceType::CUDA, 0).index());
 
   constexpr int64_t expected_static_smem =
-      scheduler_utils::counted_static_smem_bit / 8;
+      scheduler_utils::static_smem_usage_in_bytes;
   const int64_t available_dyn_smem_bytes =
       (int64_t)properties->sharedMemPerBlockOptin - expected_static_smem;
 
