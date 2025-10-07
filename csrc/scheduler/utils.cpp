@@ -1331,6 +1331,17 @@ std::vector<TensorView*> cacheInputs(Fusion* fusion, bool unroll) {
   return cached_inputs;
 }
 
+namespace {
+bool isBlockScaleOutput(TensorView* tv) {
+  if (tv->definition() == nullptr ||
+      !tv->definition()->isA<BlockQuantizationOp>()) {
+    return false;
+  }
+  auto bq_op = tv->definition()->as<BlockQuantizationOp>();
+  return bq_op->blockScales() == tv;
+}
+} // namespace
+
 // Returns the pairs of <cache of each fusion output, corresponding output> for
 // all outputs.
 std::vector<std::pair<TensorView*, TensorView*>> cacheAndForkOutputs(
@@ -1341,11 +1352,9 @@ std::vector<std::pair<TensorView*, TensorView*>> cacheAndForkOutputs(
   for (auto output : ir_utils::filterByType<TensorView>(fusion->outputs())) {
     if (output->definition() == nullptr ||
         // the output of ScatterOp must on the global memory due to the random
-        // or atomic access.
-        output->definition()->isA<ScatterOp>() ||
-        (output->definition()->isA<BlockQuantizationOp>() &&
-         output->definition()->as<BlockQuantizationOp>()->blockScales() ==
-             output)) {
+        // or atomic access. We write back the block scale output of block
+        // scaling to global memory.
+        output->definition()->isA<ScatterOp>() || isBlockScaleOutput(output)) {
       continue;
     }
     if (!output->uses().empty()) {

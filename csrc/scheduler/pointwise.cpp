@@ -806,6 +806,17 @@ bool PointWiseScheduler::canScheduleCompileTime(Fusion* fusion) {
     return false;
   }
 
+  // The block scales output of the Block Quantization Op
+  // should be a segment output as it is written to the global
+  // memory.
+  if (registry_utils::hasNonTerminalBlockQuantizeOp(fusion)) {
+    scheduler_debug_utils::canScheduleRejectReason(
+        schedulerType(),
+        "no support for block quantization where block scales is not a fusion "
+        "output");
+    return false;
+  }
+
   return true;
 }
 

@@ -31,6 +31,10 @@ bool checkPatternEquivalence(
 // hard to optimize problem and likely indicates we shouldn't be fusing.
 bool hasNonUniqueBcast(Fusion* fusion);
 
+// Check to see if the block scales output of Block Quantization Op
+// is a segment output.
+bool hasNonTerminalBlockQuantizeOp(Fusion* fusion);
+
 // TODO: remove this requirement entirely
 bool rejectScheduleForMemoryPromotion(
     Fusion* fusion,
