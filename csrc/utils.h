@@ -95,7 +95,7 @@ constexpr int64_t roundUpToMultiple(int64_t dividend, int64_t divisor) {
   return ceilDiv(dividend, divisor) * divisor;
 }
 
-constexpr int64_t alignedSharedMemoryBits(int64_t unaligned) {
+constexpr int64_t alignSharedMemoryBits(int64_t unaligned_bits) {
   constexpr int64_t alignment = kSharedMemoryAlignmentBytes * 8;
   return (unaligned + (alignment - 1)) & (~(alignment - 1));
 }
