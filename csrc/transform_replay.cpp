@@ -349,12 +349,11 @@ void TransformReplay::selfReplay(
       new_alloc_id->parallelize(alloc_id->getParallelType());
       new_allocation.push_back(new_alloc_id);
 
+      std::optional<bool> new_contiguity = contiguity;
       if (new_alloc_id->isBroadcast() || new_alloc_id->isReduction()) {
-        // NOLINTNEXTLINE(modernize-use-emplace)
-        new_contiguities.push_back(std::nullopt);
-      } else {
-        new_contiguities.push_back(contiguity);
+        new_contiguity = std::nullopt;
       }
+      new_contiguities.push_back(new_contiguity);
     }
 
     new_self->setAllocationDomain(new_allocation, new_contiguities);
@@ -386,6 +385,10 @@ void TransformReplay::selfReplay(
       std::optional<bool>& new_contiguity = new_contiguities.at(new_pos);
 
       new_contiguity = contiguity;
+      // When used during or before concretization, TransformReplay::selfReplay
+      // can be applied to replay transformations from symbolic dimensions to
+      // concrete dimensions, or in the reverse direction. Therefore,
+      // `new_contiguity` is not always identical to `contiguity`.
       if (new_id->isBroadcast()) {
         new_contiguity = std::nullopt;
       } else if (new_id->isSymbolic()) {
