@@ -250,57 +250,60 @@ void TransformReplay::selfReplay(
     TensorDomain* new_self) {
   FUSER_PERF_SCOPE("TransformReplay::selfReplay");
 
-  std::vector<IterDomain*> logical = self->logical();
-  std::vector<IterDomain*> new_logical = new_self->logical();
+  auto replay = [&]() -> IterDomainMap {
+    std::vector<IterDomain*> logical = self->logical();
+    std::vector<IterDomain*> new_logical = new_self->logical();
 
-  // For convenience, automatically remove extra reduction dimensions.
-  if (logical.size() > new_logical.size()) {
-    logical = TensorDomain::noReductions(logical);
-  } else if (logical.size() < new_logical.size()) {
-    new_logical = TensorDomain::noReductions(new_logical);
-  }
-  NVF_ERROR_EQ(logical.size(), new_logical.size());
+    // For convenience, automatically remove extra reduction dimensions.
+    if (logical.size() > new_logical.size()) {
+      logical = TensorDomain::noReductions(logical);
+    } else if (logical.size() < new_logical.size()) {
+      new_logical = TensorDomain::noReductions(new_logical);
+    }
+    NVF_ERROR_EQ(logical.size(), new_logical.size());
 
-  IterDomainMap axis_map;
-  for (auto&& [id, new_id] : zip(logical, new_logical)) {
-    // We don't check for equal `isRFactorProduct`, since we could replay
-    // Allocation of the output of a reduction to a later consumer tensor, which
-    // would not have the rfactor flag on.
+    IterDomainMap axis_map;
+    for (auto&& [id, new_id] : zip(logical, new_logical)) {
+      // We don't check for equal `isRFactorProduct`, since we could replay
+      // Allocation of the output of a reduction to a later consumer tensor,
+      // which would not have the rfactor flag on.
+      //
+      // This function can be used prior to concretization, where we might have
+      // a concrete ID map a symbolic ID. Otherwise, the IterTypes must be the
+      // same.
+      auto iter_types_match = [](IterType lhs, IterType rhs) -> bool {
+        if (lhs == rhs) {
+          return true;
+        }
+        return lhs == IterType::Symbolic || rhs == IterType::Symbolic;
+      };
+      NVF_ERROR(
+          iter_types_match(id->getIterType(), new_id->getIterType()),
+          "Axes ",
+          id,
+          " and ",
+          new_id,
+          " do not match for self replay.");
+      axis_map[id] = new_id;
+    }
+
+    // We create one ReplaySelf instance to replay loop and allocation. This
+    // way, loop and allocation share the same transforms if they are split the
+    // same way.
     //
-    // This function can be used prior to concretization, where we might have a
-    // concrete ID map a symbolic ID. Otherwise, the IterTypes must be the
-    // same.
-    auto iter_types_match = [](IterType lhs, IterType rhs) -> bool {
-      if (lhs == rhs) {
-        return true;
-      }
-      return lhs == IterType::Symbolic || rhs == IterType::Symbolic;
-    };
-    NVF_ERROR(
-        iter_types_match(id->getIterType(), new_id->getIterType()),
-        "Axes ",
-        id,
-        " and ",
-        new_id,
-        " do not match for self replay.");
-    axis_map[id] = new_id;
-  }
+    // We use `loop` as the target domain because loop post-dominates
+    // allocation.
+    ReplaySelf replay(self->loop(), axis_map);
+    return replay.getReplay();
+  }();
 
-  // We create one ReplaySelf instance to replay loop and allocation. This way,
-  // loop and allocation share the same transforms if they are split the same
-  // way.
-  //
-  // We use `loop` as the target domain because loop post-dominates
-  // allocation.
-  const std::vector<IterDomain*>& loop = self->loop();
-  ReplaySelf replay(loop, axis_map);
   auto mapped_new_ids = [&]() {
-    auto values = replay.getReplay() | std::views::values;
+    auto values = replay | std::views::values;
     return std::unordered_set<IterDomain*>(values.begin(), values.end());
   }();
 
   // Replay loop.
-  if (loop != self->logical()) {
+  if (self->loop() != self->logical()) {
     std::vector<IterDomain*> new_loop;
     for (auto* new_id : new_self->logical()) {
       if (mapped_new_ids.count(new_id) == 0) {
@@ -308,8 +311,8 @@ void TransformReplay::selfReplay(
       }
     }
 
-    for (IterDomain* loop_id : loop) {
-      IterDomain* new_loop_id = getOrDefault(replay.getReplay(), loop_id);
+    for (IterDomain* loop_id : self->loop()) {
+      IterDomain* new_loop_id = getOrDefault(replay, loop_id);
       if (new_loop_id == nullptr) {
         continue;
       }
@@ -339,7 +342,7 @@ void TransformReplay::selfReplay(
 
     // Pushing the mapped IDs and corresponding contiguity flags
     for (const auto& [alloc_id, contiguity] : zip(allocation, contiguities)) {
-      IterDomain* new_alloc_id = getOrDefault(replay.getReplay(), alloc_id);
+      IterDomain* new_alloc_id = getOrDefault(replay, alloc_id);
       if (new_alloc_id == nullptr) {
         continue;
       }
@@ -361,7 +364,7 @@ void TransformReplay::selfReplay(
 
     auto i = new_self->logical().begin();
     for (auto [id, contiguity] : zip(self->logical(), self->contiguity())) {
-      IterDomain* new_id = getOrDefault(replay.getReplay(), id);
+      IterDomain* new_id = getOrDefault(replay, id);
       if (new_id == nullptr) {
         continue;
       }
