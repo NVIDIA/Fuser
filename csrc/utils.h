@@ -48,7 +48,7 @@ constexpr int64_t kWarpSpecializationPaddedThreads = 128;
 
 //! shared memory alignment in bytes
 //! TMA requires 128 bytes alignment, other usage doesn't have such requirement,
-//! but still align to 128 bytes for simplicity and error-prone avoidance.
+//! but still align to 128 bytes for simplicity and robustness.
 //! When shared memory swizzling is used, up to 1024 bytes alignment can be
 //! required for swizzling and they are handled by:
 //! getSharedMemoryByteAlignment(MmaInputSmemSwizzle swizzle).
