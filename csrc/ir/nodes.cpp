@@ -4759,17 +4759,6 @@ std::vector<PolymorphicValue> MatmulOp::evaluate(
     matmul_out = matmul_out.unsqueeze(rfactor_did_idx);
   }
   return {matmul_out};
-
-  // const auto& [sizes, strides] = inferShapeOfOutput(out(), ee);
-  // auto meta_out = at::detail::empty_strided_meta(sizes, strides, a.dtype());
-
-  // if (meta_out.is_contiguous()) {
-  //   return {matmul_out};
-  // }
-
-  // auto strided_matmul_out = at::empty_strided(sizes, strides, a.options());
-  // strided_matmul_out = strided_matmul_out.copy_(matmul_out);
-  // return {strided_matmul_out};
 }
 
 LinearOp::LinearOp(
