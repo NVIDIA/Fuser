@@ -197,7 +197,7 @@ struct Fp4GemmSm100 {
   if (has_evt) {
     const EVTModel& evt_model = model_opt.getData();
     code += "  using EVTOp =\n" +
-        evt_model.defString(/*node=*/nullptr, /*indent=*/3) + ";\n";
+        evt_model.defString(/*node=*/nullptr, /*indent=*/4) + ";\n";
     code += R"(
   using CollectiveEpilogue =
       typename cutlass::epilogue::collective::CollectiveBuilder<
@@ -344,7 +344,14 @@ typename T::Gemm::Arguments args_from_options(
        static_cast<ElementSFB const*>(scales_b.data_ptr),
        layout_SFB},
       {// Epilogue arguments
-       {}, // epilogue.thread
+)";
+  if (has_evt) {
+    code += model_opt.getData().argString(/*node=*/nullptr, /*indent=*/3);
+  } else {
+    code += "{}";
+  }
+  code += R"(
+       , // epilogue.thread
        nullptr,
        nullptr,
        static_cast<ElementD*>(output.data_ptr),

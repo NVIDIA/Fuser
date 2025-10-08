@@ -278,7 +278,6 @@ EVTModel::EVTModel(const EVTModel& model) {
   setRoot(old2new.at(model.root()));
 }
 
-// TODO: accept a "depth" argument and format the output prettily
 std::string EVTModel::defString(Node* node, int64_t indent_size) const {
   if (node == nullptr) {
     node = root_;
@@ -299,6 +298,72 @@ std::string EVTModel::defString(Node* node, int64_t indent_size) const {
     ss << ">";
   }
   return ss.str();
+}
+
+namespace {
+
+struct CommentedString {
+  std::string str;
+  std::string comment;
+};
+
+CommentedString argStringHelper(EVTModel::Node* node, int64_t indent_size) {
+  NVF_ERROR(node != nullptr);
+  std::stringstream ss;
+  if (node->inputs.empty()) {
+    if (node->argument == nullptr) {
+      return {"{}", node->name};
+    } else {
+      // TODO: we need to determine which input this is and provide its data_ptr
+      // for TVs
+      if (node->argument->isA<TensorView>()) {
+        NVF_THROW("WARNING: Unsupported tensorview EVT input");
+      } else {
+        // If this is a constant scalar, print its value directly
+        if (node->argument->isConstScalar()) {
+          return {"{" + node->argument->toInlineString() + "}", node->name};
+        }
+
+        // TODO: If this is an input scalar, we need to obtain its value here at
+        // runtime and pass it
+      }
+    }
+  } else {
+    indent(ss, indent_size) << "{  // " << node->name << "\n";
+    CommentedString prev_cs;
+    const auto print_line = [&](bool last) {
+      if (prev_cs.str.empty()) {
+        return;
+      }
+      ss << prev_cs.str;
+      if (!last) {
+        ss << ",";
+      }
+      ss << "  // " << prev_cs.comment << "\n";
+      prev
+    };
+    for (EVTModel::Node* input : node->inputs) {
+      print_line(false);
+      const CommentedString cs = argString(input, indent_size + 1);
+    }
+    print_line(true);
+    indent(ss, indent_size) << "}";
+  }
+  return {ss.str(), ""};
+}
+
+} // namespace
+
+std::string EVTModel::argString(Node* node, int64_t indent_size) const {
+  if (node == nullptr) {
+    node = root_;
+  }
+  const CommentedString cs = argStringHelper(node, indent_size);
+  if (cs.comment.empty()) {
+    return cs.str;
+  } else {
+    return cs.str + "  // " + cs.comment;
+  }
 }
 
 // TODO: DataWrapperOpt belongs in scheduler_utils
