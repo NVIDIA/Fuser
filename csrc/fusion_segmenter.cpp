@@ -1905,7 +1905,7 @@ std::pair<IrCloner, std::unique_ptr<Fusion>> SegmentedFusion::makeFusion(
           "operation:",
           use->toString());
       NVF_ERROR(
-          std::any_of(
+          std::none_of(
               layout_op->inputs().begin(),
               layout_op->inputs().end(),
               [&](const Val* input) {
