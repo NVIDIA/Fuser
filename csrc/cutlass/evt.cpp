@@ -112,8 +112,8 @@ class EVTConverter : OptInDispatch {
           alpha->dtype() == DataType::Float,
           "Only Float alpha is supported for EVT translation");
       // Broadcast alpha to the same dimensions as the accumulator
-      EVTModel::Node* alpha_bcast_node =
-          model_.makeNode("Sm90ScalarBroadcast<float>");
+      EVTModel::Node* alpha_bcast_node = model_.makeNode(
+          "cutlass::epilogue::fusion::Sm90ScalarBroadcast<float>");
       alpha_bcast_node->argument = alpha;
       val_nodes_.emplace(alpha, alpha_bcast_node);
 
@@ -214,9 +214,11 @@ class EVTConverter : OptInDispatch {
     EVTModel::Node* func_node =
         model_.makeNode("cutlass::epilogue::fusion::Sm90Compute");
     func_node->inputs.push_back(model_.makeNode("cutlass::" + op_name));
-    func_node->inputs.push_back(model_.makeNode(dtypeToCutlass(uop->in()->dtype())));
+    func_node->inputs.push_back(
+        model_.makeNode(dtypeToCutlass(uop->in()->dtype())));
     // This is the "compute" type of the op
-    func_node->inputs.push_back(model_.makeNode(dtypeToCutlass(uop->out()->dtype())));
+    func_node->inputs.push_back(
+        model_.makeNode(dtypeToCutlass(uop->out()->dtype())));
     // rounding mode
     // https://github.com/NVIDIA/cutlass/blob/2b8dff1f90605452c378c02298dd0cacaf65753c/include/cutlass/numeric_conversion.h#L56
     func_node->inputs.push_back(
