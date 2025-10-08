@@ -14,6 +14,7 @@
 #include <fusion.h>
 #include <ir/interface_nodes.h>
 #include <ir/internal_nodes.h>
+#include <ir/iostream.h>
 #include <ir/utils.h>
 #include <scheduler/mma_utils.h>
 #include <type.h>
@@ -277,22 +278,22 @@ EVTModel::EVTModel(const EVTModel& model) {
 }
 
 // TODO: accept a "depth" argument and format the output prettily
-std::string EVTModel::defString(Node* node) const {
+std::string EVTModel::defString(Node* node, int64_t indent_size) const {
   if (node == nullptr) {
     node = root_;
   }
   NVF_ERROR(node != nullptr);
   std::stringstream ss;
-  ss << node->name;
+  indent(ss, indent_size) << node->name;
   if (!node->inputs.empty()) {
-    ss << "<";
+    ss << "<\n";
     bool first = true;
     for (Node* input : node->inputs) {
       if (!first) {
-        ss << ", ";
+        ss << ",\n";
       }
       first = false;
-      ss << defString(input);
+      ss << defString(input, indent_size + 1);
     }
     ss << ">";
   }

@@ -59,7 +59,7 @@ class EVTModel {
   }
 
   //! Generate the C++ code used to define the EVT type
-  std::string defString(Node* node = nullptr) const;
+  std::string defString(Node* node = nullptr, int64_t indent = 2) const;
 
   // TODO: Generate the arguments to be used as args.epilogue.thread
   // std::string argString(Node* node = nullptr) const;
