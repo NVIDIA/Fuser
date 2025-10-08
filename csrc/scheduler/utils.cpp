@@ -612,6 +612,12 @@ PersistentBufferInfo persistentBuffers(Fusion* fusion) {
     }
 
     for (auto consumer : consumers) {
+      // Adding PreprocessGroupedMatmulInputSf op to the list to skip it from
+      // being considered as candidate for persistent buffer. Otherwise, the
+      // lack of mapping between all producers to consumer triggers an assert in
+      // the check later inside `isCacheableUnmappableTv`. This feels like a
+      // reasonable WAR, since producer of indexing ops have been excluded from
+      // persistent_buffer candidates.
       if (consumer->definition()
               ->isOneOf<
                   SelectOp,
