@@ -17,11 +17,8 @@ from python.direct_utils import (
     FLOAT8_E4M3_EPS,
     FLOAT8_E4M3_MAX,
     pytorch_nvfp4_quantize,
-    is_pre_blackwell,
     linear_to_swizzled_128_4,
     round_up,
-    activation_scale_to_nvfp4,
-    dequantize_to_dtype,
 )
 
 
@@ -109,7 +106,7 @@ def _(
     )
 
 
-from thunder.executors.nvfuserex_impl import lcdtype_to_nvdtype, getnv
+from thunder.executors.nvfuserex_impl import getnv
 
 from nvfuser_direct import DataType
 
