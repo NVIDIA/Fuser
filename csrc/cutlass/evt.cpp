@@ -312,7 +312,8 @@ CommentedString argStringHelper(EVTModel::Node* node, int64_t indent_size) {
   std::stringstream ss;
   if (node->inputs.empty()) {
     if (node->argument == nullptr) {
-      return {"{}", node->name};
+      indent(ss, indent_size) << "{}";
+      return {ss.str(), node->name};
     } else {
       // TODO: we need to determine which input this is and provide its data_ptr
       // for TVs
@@ -339,7 +340,10 @@ CommentedString argStringHelper(EVTModel::Node* node, int64_t indent_size) {
       if (!last) {
         ss << ",";
       }
-      ss << "  // " << prev_cs.comment << "\n";
+      if (!prev_cs.comment.empty()) {
+        ss << "  // " << prev_cs.comment;
+      }
+      ss << "\n";
     };
     for (EVTModel::Node* input : node->inputs) {
       print_line(false);
