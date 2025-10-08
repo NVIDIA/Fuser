@@ -565,7 +565,7 @@ void transformPropagateToAllFrom(TensorView* from_tv, int64_t pos);
 //!
 //! There are currently three modes of propagation: forward, backward and
 //! both-way, see comment on the interface functions for details.
-struct BoundedDirectionalTransformPropagator {
+struct NVF_API BoundedDirectionalTransformPropagator {
   //! Custom option container for configuring
   //!  the transform propagation actions.
   //! All option values default to false unless
