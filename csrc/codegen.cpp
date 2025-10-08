@@ -1762,17 +1762,11 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
 
   // Special handling of BlockQuantizationOp to call the runtime function.
   // TODO: add support for global scaling factor
-  // TODO: make sure we can handle BF16 input
   void handle(const BlockQuantizationOp* bqop) final {
-    // Block quantization takes in a reshaped input
-    // so a (m, k) input becomes (m, k/16, 16)
-    // The 16 is the block size and is "reduced".
-    // For FP32 input each thread locally reduces 4 elements and a quad of
-    // thread reduces 16. For BF16 input each thread locally reduces 8 elements
-    // and a pair of thread reduces 16. The device function for block
-    // quantization. Due to these assumptions we have to have the inner
-    // dimension of the  bqop input (and outputs) vectorized by 4 or 8 for the
-    // current device function to work.
+    // This operator is plumbed down to a runtime function call.
+    // One of the assumptions is that the device runtime expects
+    // 4 consecutive inputs (8 for FB16) per thread. We achieve this by having
+    // the input tv scheduler to have the inner dimension vectorized by 4/8.
     auto output = bqop->quantizedOutput()->as<kir::TensorIndex>()->view();
     int64_t vector_word_size = ir_utils::getVectorizeSize(output);
 
