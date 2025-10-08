@@ -5,6 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include "utils.h"
 #include <scheduler/utils.h>
 
 #include <algorithm>
@@ -2778,7 +2779,7 @@ int64_t getReductionSmemWorkspaceBit(
   int64_t reduction_broadcast_workspace_bit =
       threads_per_block * dtype_size_bit * welford_factor;
 
-  return reduction_broadcast_workspace_bit;
+  return alignSharedMemoryBits(reduction_broadcast_workspace_bit);
 }
 
 bool isResharding(Fusion* fusion) {
