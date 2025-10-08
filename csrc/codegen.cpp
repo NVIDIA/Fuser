@@ -1768,7 +1768,20 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     // 4 consecutive inputs (8 for FB16) per thread. We achieve this by having
     // the input tv scheduler to have the inner dimension vectorized by 4/8.
     auto output = bqop->quantizedOutput()->as<kir::TensorIndex>()->view();
-    int64_t vector_word_size = ir_utils::getVectorizeSize(output);
+    int64_t vector_word_size = 1;
+
+    // Get the loop domain of the TensorView output and check for group/vector
+    // parallel types. This assumes that both parallel types aren't present.
+    const auto& loop_domain = output->getLoopDomain();
+    for (auto* domain : loop_domain) {
+      auto parallel_type = domain->getParallelType();
+      if (parallel_type == ParallelType::Group ||
+          parallel_type == ParallelType::Vectorize) {
+        if (domain->extent()->isConstInt()) {
+          vector_word_size = domain->extent()->evaluate().as<int64_t>();
+        }
+      }
+    }
 
     auto input_dtype =
         bqop->in()->as<kir::TensorIndex>()->view()->getDataType();

@@ -1400,7 +1400,7 @@ void validateAndConvertIterDomainGrouping(Fusion* fusion) {
     NVF_CHECK(
         def->isA<ReductionOp>() || def->isA<GroupedReductionOp>() ||
             def->isA<WelfordOp>() || def->isA<GroupedWelfordOp>() ||
-            def->isA<ArgsortOp>(),
+            def->isA<ArgsortOp>() || def->isA<BlockQuantizationOp>(),
         "Invalid use of ParallelType::Group: ",
         def->toString());
 

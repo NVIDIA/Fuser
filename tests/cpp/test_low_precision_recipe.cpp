@@ -240,7 +240,12 @@ TEST_F(BQTest, ScheduleAsPointwise) {
     t->split(-3, 128);
 
     if (t != tv_data_hp) {
-      t->axis(-1)->parallelize(ParallelType::Vectorize);
+      if (t == quantization_results.block_scales ||
+          t == quantization_results.quantized_tensor) {
+        t->axis(-1)->parallelize(ParallelType::Group);
+      } else {
+        t->axis(-1)->parallelize(ParallelType::Vectorize);
+      }
       t->axis(-3)->parallelize(ParallelType::TIDx);
       t->axis(-4)->parallelize(ParallelType::BIDx);
     }
