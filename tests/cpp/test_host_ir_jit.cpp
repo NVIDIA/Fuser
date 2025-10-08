@@ -26,10 +26,8 @@ class HostIrJitTest : public NVFuserTest {
  protected:
   void SetUp() override {
     NVFuserTest::SetUp();
-#ifdef NVFUSER_HOST_IR_JIT
     // Enable the Host IR JIT runtime option
     EnableOptionsGuard::getCurOptions().set(EnableOption::HostIrJit);
-#endif
   }
 };
 // Build with: python setup.py install --build-with-host-ir-jit

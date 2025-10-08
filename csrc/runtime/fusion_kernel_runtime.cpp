@@ -158,12 +158,7 @@ void FusionKernelRuntime::evictCache(size_t input_id) {
 bool FusionKernelRuntime::isCompiled() const {
   if (isOptionEnabled(EnableOption::HostIrLowering)) {
     if (isOptionEnabled(EnableOption::HostIrJit)) {
-#ifdef NVFUSER_HOST_IR_JIT
       return hij_ != nullptr;
-#else
-      NVF_ERROR(false, "Host IR JIT is not available. Please rebuild with NVFUSER_HOST_IR_JIT=ON");
-      return false;
-#endif
     } else {
       return hie_ != nullptr;
     }
@@ -306,12 +301,10 @@ KernelArgumentHolder FusionKernelRuntime::runWithInputs(
 
     KernelArgumentHolder outputs;
     if (isOptionEnabled(EnableOption::HostIrJit)) {
-#ifdef NVFUSER_HOST_IR_JIT
+      NVF_ERROR(hij_ != nullptr, "Host IR JIT is not initialized");
       outputs = hij_->runWithInputs(args);
-#else
-      NVF_ERROR(false, "Host IR JIT is not available. Please rebuild with NVFUSER_HOST_IR_JIT=ON");
-#endif
     } else {
+      NVF_ERROR(hie_ != nullptr, "Host IR Evaluator is not initialized");
       outputs = hie_->runWithInputs(args);
     }
 
@@ -481,11 +474,7 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
     std::unique_ptr<hir::HostIrContainer> hic = lowerSegmentedFusionToHostIr(
         *segmented_fusion_, launch_params_per_segment, executors_);
     if (isOptionEnabled(EnableOption::HostIrJit)) {
-#ifdef NVFUSER_HOST_IR_JIT
       hij_ = std::make_unique<HostIrJit>(std::move(hic));
-#else
-      NVF_ERROR(false, "Host IR JIT is not available. Please rebuild with NVFUSER_HOST_IR_JIT=ON");
-#endif
     } else {
       hie_ = std::make_unique<hir::HostIrEvaluator>(
           std::move(hic), &Communicator::getInstance());
