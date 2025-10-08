@@ -455,6 +455,9 @@ TensorView* shardByStream(TensorView* in, Val* stream_index) {
   auto* out = ops::newValLike(in, *in->getDataType())->as<TensorView>();
 
   TransformReplay::selfReplay(in->domain(), out->domain());
+  // This is conservative and suboptimal. Consider reusing the algorithm in
+  // https://github.com/NVIDIA/Fuser/blob/33337e9b0b82dc88bc305d9956101f0c8a8a0c60/csrc/alias_analysis.cpp#L199
+  // to decide contiguity.
   out->setAllocationDomain(out->getLoopDomain(), false);
 
   IrBuilder::create<ShardByStream>(out, in, stream_index);

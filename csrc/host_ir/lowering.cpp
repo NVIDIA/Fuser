@@ -37,6 +37,10 @@ void recomputeOutputTvs(Expr* e, IrCloner& ir_cloner) {
   }
 }
 
+// Finds the stream-parallelized IterDomain in the loop domain of a TensorView,
+// or nullptr if not found.  This is different from `getShardedIterDomain(tv,
+// ParallelType::Stream)`, which searches the allocation domain.  Consider
+// unifying them into one function with an extra DomainType parameter.
 IterDomain* findStreamIterDomain(TensorView* tv) {
   const std::vector<IterDomain*>& loop = tv->getLoopDomain();
   // FinalizeMultideviceDomains pass puts the stream IterDomain to the
