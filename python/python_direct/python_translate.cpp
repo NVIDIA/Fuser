@@ -1615,6 +1615,15 @@ class PythonTranslator : public OptInConstDispatch {
         {eop->out()});
   }
 
+  void handle(const PreprocessGroupedMatmulInputSf* layout_op) final {
+    NVF_ERROR(layout_op != nullptr);
+    visited_vals_.insert(layout_op->output(0));
+    printer_.generateOperation(
+        "fd.ops.preprocess_grouped_matmul_input_sf",
+        {layout_op->in()->as<TensorView>(), layout_op->inputOffsets(), layout_op->outputOffsets()},
+        {layout_op->out()});
+  }
+
  private:
   //! Convert CPP values to python syntax.
   PythonPrinter printer_;
