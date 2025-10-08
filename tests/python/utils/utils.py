@@ -9,6 +9,7 @@ from typing import Callable, Optional
 import tempfile
 import torch
 import pytest
+from contextlib import contextmanager
 from torch.testing import make_tensor
 from torch.testing._internal.common_utils import TestCase
 from looseversion import LooseVersion
