@@ -86,16 +86,18 @@ void IrPrinter::handle(const hir::HostIrContainer* host_ir_container) {
   os() << "} // %HostIrContainer\n\n";
 
   // Print the definitions of the indices that are used in the host_ir_container
-  os() << "Index definitions:\n";
-  indent_size_++;
-  for (auto val : host_ir_container->vals()) {
-    if (val->isScalar() && val->definition() != nullptr &&
-        val->dtype() == DataType::Index) {
-      os() << val->definition()->toString(indent_size_);
+  if (hasDebugDumpArgument(DebugDumpOption::HostIr, "indices")) {
+    os() << "Index definitions:\n";
+    indent_size_++;
+    for (Val* val : host_ir_container->vals()) {
+      if (val->isScalar() && val->definition() != nullptr &&
+          val->dtype() == DataType::Index) {
+        os() << val->definition()->toString(indent_size_);
+      }
     }
+    indent_size_--;
+    os() << "\n";
   }
-  indent_size_--;
-  os() << "\n";
 }
 
 void IrTransformPrinter::handle(const Fusion* f) {
