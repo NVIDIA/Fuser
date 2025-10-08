@@ -1315,9 +1315,16 @@ class ReusableAllocationFinder : private kir::IrVisitor {
     // Check if there are any unrollable loops that overlap with the liveness
     // intervals. When a loop is unrolled, multiple iterations execute
     // simultaneously, making the linear position-based liveness analysis
-    // invalid. We check all allocations to find their loop scopes and see if
-    // any unrollable loop's body overlaps with our liveness intervals.
+    // invalid. This only applies to register (Local) memory, since shared and
+    // global memory have explicit addresses and don't use register aliasing.
+    // We check all allocations to find their loop scopes and see if any
+    // unrollable loop's body overlaps with our liveness intervals.
     auto has_unrollable_overlap = [&](AllocationInfo* info) {
+      // Only check register allocations
+      if (info->mem_type != MemoryType::Local) {
+        return false;
+      }
+
       auto first_write = info->inner_live_interval->firstWrite();
       auto last_read = info->inner_live_interval->lastRead();
 
