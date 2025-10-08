@@ -408,12 +408,7 @@ TensorView* preprocessGroupedMatmulInputSf(
 
   std::vector<IterDomain*> offset_logical_dom =
       TensorDomain::noReductions(input_offsets->getLogicalDomain());
-  // modifying this to match our cutlass kernel
-  // auto* one_val = input->fusion()->oneVal(DataType::Index);
-  Val* num_groups =
-      // SimplifyingIrBuilder::subExpr(offset_logical_dom[0]->extent(),
-      // one_val);
-      offset_logical_dom[0]->extent();
+  Val* num_groups = offset_logical_dom[0]->extent();
 
   // Create the allocation domain of output.
   std::vector<IterDomain*> out_alloc_dom =
