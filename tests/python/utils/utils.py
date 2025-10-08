@@ -344,6 +344,7 @@ class NVFuserTest(TestCase):
             )
         return out, fd
 
+
 @contextmanager
 def set_env(**environ):
     """
