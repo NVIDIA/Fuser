@@ -343,3 +343,16 @@ class NVFuserTest(TestCase):
                 check_cpp_translation(out, fd, inputs_cloned, supports_segmentation)
             )
         return out, fd
+
+@contextmanager
+def set_env(**environ):
+    """
+    Override environment variable
+    """
+    old_environ = dict(os.environ)
+    os.environ.update(environ)
+    try:
+        yield
+    finally:
+        os.environ.clear()
+        os.environ.update(old_environ)

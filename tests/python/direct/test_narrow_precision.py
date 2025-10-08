@@ -131,7 +131,6 @@ def test_cutlass_nvfp4_grouped_mm(
     tokens_per_expert_neg_one,
     out_dtype,
 ):
-    INPUT_DTYPE = torch.uint8
     BLOCK_SIZE = 16
 
     # k dimension is multiple of 128 to avoid padding
@@ -291,7 +290,6 @@ def test_layout_op_and_cutlass_nvfp4_grouped_mm(
     tokens_per_expert_neg_one,
     out_dtype,
 ):
-    INPUT_DTYPE = torch.uint8
     BLOCK_SIZE = 16
 
     # k dimension is multiple of 4 * 16 to avoid padding on block scaling factor
@@ -377,7 +375,7 @@ def test_layout_op_and_cutlass_nvfp4_grouped_mm(
         # use static shape as a temporary WAR.
         m_size = m
         k_size = k
-        k_tile_size = k_size //  16;
+        k_tile_size = k_size // 16
         # using primitive operations to handle quantization
         reshaped_mat1 = fd.ops.reshape(mat1, [m_size, k_tile_size, 16])
 
@@ -388,7 +386,9 @@ def test_layout_op_and_cutlass_nvfp4_grouped_mm(
         scale1 = fd.ops.clamp(scale1, FLOAT8_E4M3_EPS, FLOAT8_E4M3_MAX)
         broadcast_scale1 = fd.ops.broadcast(scale1, [False, False, True])
         reshaped_scaled_mat1 = fd.ops.div(reshaped_mat1, broadcast_scale1)
-        reshaped_scaled_mat1 = fd.ops.clamp(reshaped_scaled_mat1, -FLOAT8_E4M3_MAX, FLOAT8_E4M3_MAX)
+        reshaped_scaled_mat1 = fd.ops.clamp(
+            reshaped_scaled_mat1, -FLOAT8_E4M3_MAX, FLOAT8_E4M3_MAX
+        )
 
         scaled_mat1 = fd.ops.reshape(reshaped_scaled_mat1, [m_size, k_size])
 
@@ -397,7 +397,9 @@ def test_layout_op_and_cutlass_nvfp4_grouped_mm(
         fp8_scale1 = fd.ops.cast(scale1, DataType.Float8_e4m3fn)
 
         # swizzle & pad block sf
-        layout_fp8_scale1 = fd.ops.preprocess_grouped_matmul_input_sf(fp8_scale1, offsets, blockscale_offsets)
+        layout_fp8_scale1 = fd.ops.preprocess_grouped_matmul_input_sf(
+            fp8_scale1, offsets, blockscale_offsets
+        )
         out = fd.ops.cutlass_nvfp4_grouped_mm(
             fp4_mat1,
             mat2,
@@ -421,7 +423,10 @@ def test_layout_op_and_cutlass_nvfp4_grouped_mm(
         blockscale_offsets,
     ]
 
-    o, _ = nvfuser_direct_test.exec_nvfuser(nvfuser_fusion_id0, inputs)
+    # FIXME: force indexing to use IdModel indexer to avoid indexing error.
+    # see issue: https://github.com/NVIDIA/Fuser/issues/5200
+    with set_env({"NVFUSER_ENABLE" : "id_model(all)"}):
+        o, _ = nvfuser_direct_test.exec_nvfuser(nvfuser_fusion_id0, inputs)
 
     # quantization for activation is needed for reference.
     # note: following sglang implementation, not computing global scaling factor for mat1
