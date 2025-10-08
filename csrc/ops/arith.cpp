@@ -2634,16 +2634,6 @@ TensorView* prefixSum(TensorView* tv, int64_t dim) {
       /*init=*/tv->fusion()->zeroVal(tv->dtype()));
 }
 
-// API for block quantization to nvFP4.
-// We take FP32 or BF16 input and produce two outputs
-// nvFP4(x2) outputs and FP8 block scales.
-// The input is first reshape to have an inner 16 dimension.
-// This 16 should be configurable but fixed for now.
-// So, if the input is of shape (m, k), it is first reshaped
-// to (m, k/16, 16). The quantized output has the shape (m, k/16, 16)
-// and block scales has the shape (m, k/16, b(1)), where the inner dimension
-// had been "reduced" (max). Please note there is no actual reduction and this
-// node should be handled by the pointwise scheduler.
 // Currently this node get lowered to a runtime function, which expects the
 // input in registers and write out quantized values or registers and block
 // scales to global memory.
@@ -2702,12 +2692,6 @@ BlockQuantizationResults blockQuantize(
 
   for (size_t i = 0; i < inp_domain.size(); ++i) {
     if (i == inp_domain.size() - 1) {
-      // scales_out_domain.push_back(
-      //     IterDomainBuilder(
-      //         input->fusion()->zeroVal(), input->fusion()->oneVal())
-      //         .iter_type(IterType::Broadcast)
-      //         .build());
-
       // Close inp_domain[i] and divide by 16 to create new iter domain
       scales_out_domain.push_back(
           IterDomainBuilder(
