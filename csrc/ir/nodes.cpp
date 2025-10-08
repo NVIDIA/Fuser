@@ -3963,7 +3963,7 @@ std::vector<IterDomain*> TensorDomain::noDevices(
   contiguity.reserve(allocation_domain.size());
   for (auto id : allocation_domain) {
     if (id->isBroadcast() || id->isReduction()) {
-      contiguity.emplace_back(std::nullopt);
+      contiguity.push_back(std::nullopt);
     } else {
       contiguity.emplace_back(fill_value);
     }
