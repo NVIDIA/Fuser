@@ -1312,6 +1312,39 @@ class ReusableAllocationFinder : private kir::IrVisitor {
       return false;
     }
 
+    // Check if there are any unrollable loops that overlap with the liveness
+    // intervals. When a loop is unrolled, multiple iterations execute
+    // simultaneously, making the linear position-based liveness analysis
+    // invalid. We check all allocations to find their loop scopes and see if
+    // any unrollable loop's body overlaps with our liveness intervals.
+    auto has_unrollable_overlap = [&](AllocationInfo* info) {
+      auto first_write = info->inner_live_interval->firstWrite();
+      auto last_read = info->inner_live_interval->lastRead();
+
+      // Check all other allocations' loop scopes to find unrollable loops
+      for (const auto& other_info : allocation_info_map_.allAllocationInfos()) {
+        auto loop = other_info->loop_info->loop;
+        if (loop != nullptr && loop->isUnrollable()) {
+          auto loop_start = other_info->loop_info->start_pos;
+          auto loop_end = other_info->loop_info->end_pos;
+
+          // If this unrollable loop's body overlaps with the liveness interval,
+          // then inner aliasing is unsafe. The overlap means that the
+          // allocation is live during the execution of an unrolled loop, where
+          // multiple iterations exist simultaneously.
+          if (loop_start < last_read && loop_end > first_write) {
+            return true;
+          }
+        }
+      }
+      return false;
+    };
+
+    if (has_unrollable_overlap(alloc_info) ||
+        has_unrollable_overlap(to_reuse)) {
+      return false;
+    }
+
     // Check the values in between the two buffers.
     auto vals_between_this_and_reuse =
         DependencyCheck::getAllValsBetween({this_tv}, {reuse_tv});
