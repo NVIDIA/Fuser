@@ -10,6 +10,7 @@ from nvfuser_direct import (
     DataType,
 )
 from nvfuser_direct.pytorch_utils import torch_dtype_to_nvfuser_dtype
+from python.utils import set_env
 from python.direct_utils import (
     FLOAT4_E2M1_MAX,
     FLOAT8_E4M3_EPS,
@@ -425,7 +426,7 @@ def test_layout_op_and_cutlass_nvfp4_grouped_mm(
 
     # FIXME: force indexing to use IdModel indexer to avoid indexing error.
     # see issue: https://github.com/NVIDIA/Fuser/issues/5200
-    with set_env({"NVFUSER_ENABLE": "id_model(all)"}):
+    with set_env(NVFUSER_ENABLE="id_model(all)"):
         o, _ = nvfuser_direct_test.exec_nvfuser(nvfuser_fusion_id0, inputs)
 
     # quantization for activation is needed for reference.
