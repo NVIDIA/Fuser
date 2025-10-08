@@ -2133,6 +2133,7 @@ IterDomain* getConcreteLoopID(IterDomain* id) {
     auto disjoint_set = ca_map.disjointSetOf(id, IdMappingMode::LOOP);
     auto concrete = ca_map.getConcreteMappedID(id, IdMappingMode::LOOP);
 
+    // The following code is a WAR fix of issue-5326
     // The CA map's concrete ID may have an incompatible extent.
     // Similar to IdModel's loop promotion, we should prefer non-broadcast IDs
     // with the largest extent in the loop group.
