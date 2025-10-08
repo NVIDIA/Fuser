@@ -76,8 +76,6 @@ void resetAllocationDomainAndContiguity(
     TensorView* tv,
     const at::Tensor& tensor) {
   const auto [sizes, strides] = inferAllocationSizesAndStrides(tensor, tv, ExpressionEvaluator());
-  // std::vector<int64_t> sizes = tensor.sizes().vec();
-  // std::vector<int64_t> strides = tensor.strides().vec();
   auto contiguity_without_reduction = computeContiguity(sizes, strides);
   std::vector<std::optional<bool>> contiguity;
   int64_t index = 0;
@@ -92,13 +90,6 @@ void resetAllocationDomainAndContiguity(
       contiguity.push_back(contiguity_without_reduction[index++]);
     }
   }
-  std::cout << "resetAllocationDomainAndContiguity: " << tv->toString()
-            << std::endl;
-  tv->printTransforms();
-  std::cout << "sizes: " << toDelimitedString(sizes) << std::endl;
-  std::cout << "strides: " << toDelimitedString(strides) << std::endl;
-  std::cout << "prev contiguity: " << toDelimitedString(tv->getContiguity()) << std::endl;
-  std::cout << "contiguity: " << toDelimitedString(contiguity) << std::endl;
   tv->setContiguity(contiguity);
 }
 
