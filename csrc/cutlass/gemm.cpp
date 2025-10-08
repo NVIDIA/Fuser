@@ -6,6 +6,7 @@
  */
 // clang-format on
 
+#include <cutlass/codegen.h>
 #include <cutlass/evt.h>
 #include <cutlass/gemm.h>
 #include <dispatch.h>
@@ -34,37 +35,6 @@ std::string mapLayoutToCutlass(const TensorView* tv) {
   return tv->getMaybeAllocationDomain().back() == tv->getLogicalDomain().back()
       ? "cutlass::layout::RowMajor"
       : "cutlass::layout::ColumnMajor";
-}
-
-// https://docs.nvidia.com/cutlass/media/docs/cpp/fundamental_types.html#numeric-types
-std::string dtypeToCutlass(const DataType& dtype) {
-  NVF_ERROR(std::holds_alternative<PrimDataType>(dtype.type));
-  switch (std::get<PrimDataType>(dtype.type)) {
-    case (DataType::Half):
-      return "cutlass::half_t";
-    case (DataType::BFloat16):
-      return "cutlass::bfloat16_t";
-    case (DataType::Float):
-      return "cutlass::tfloat32_t";
-    case (DataType::Float8_e5m2):
-      return "cutlass::float_e5m2_t";
-    case (DataType::Float8_e4m3fn):
-      return "cutlass::float_e4m3_t";
-    // TODO: support int, complex, and fp6 types
-    case (DataType::Float4_e2m1fn):
-      // Note that cutlass also provides cutlass::mx_float4_t<float_e2m1_t>>.
-      // The difference between these is that the mxfp4 version uses a block
-      // size of 32 while nvfp4 uses a block size of 16. In nvFuser the block
-      // size is represented separately, and here we assume we're using nvfp.
-      // TODO: if block scaling is tied to element type in nvFuser in the future
-      // we can update this mapping
-      return "cutlass::nv_float4_t<float_e2m1_t>";
-    default:
-      NVF_THROW(
-          "nvFuser DataType ",
-          dtype,
-          " is not supported in our CUTLASS executor");
-  }
 }
 
 } // namespace
@@ -374,8 +344,8 @@ typename T::Gemm::Arguments args_from_options(
        layout_SFB},
       {// Epilogue arguments
        {}, // epilogue.thread
-       static_cast<ElementD const*>(output.data_ptr),
-       stride_D,
+       nullptr,
+       nullptr,
        static_cast<ElementD*>(output.data_ptr),
        stride_D}};
   auto& fusion_args = arguments.epilogue.thread;

@@ -6,6 +6,7 @@
  */
 // clang-format on
 
+#include <cutlass/codegen.h>
 #include <cutlass/evt.h>
 #include <device_lower/utils.h>
 #include <dispatch.h>
@@ -26,19 +27,22 @@ namespace cutlass_codegen {
 
 namespace {
 
-//! Find the accumulator which is the direct output of the ScaledMmaOp
-TensorView* getAccTv(Fusion* fusion) {
-  TensorView* acc = nullptr;
+Expr* getGemmExpr(Fusion* fusion) {
+  Expr* mma = nullptr;
   for (Expr* expr : fusion->exprs()) {
     if (expr->isA<ScaledMmaOp>()) {
       NVF_ERROR(
-          acc == nullptr,
-          "Found multiple ScaledMmaOps. Cannot determine which accumulator to "
-          "return");
-      acc = expr->output(0)->as<TensorView>();
+          mma == nullptr,
+          "Found multiple ScaledMmaOps. Cannot determine which to return");
+      mma = expr;
     }
   }
-  return acc;
+  return mma;
+}
+
+//! Find the accumulator which is the direct output of the ScaledMmaOp
+TensorView* getAccTv(Fusion* fusion) {
+  return getGemmExpr(fusion)->output(0)->as<TensorView>();
 }
 
 //! This converts the epilogue of a matmul fusion into an Epilogue Visitor Tree
@@ -60,12 +64,71 @@ class EVTConverter : OptInDispatch {
 
  private:
   void run() {
-    // Start by making nodes for the accumulator and for any epilogue inputs
-    TensorView* acc = getAccTv(fusion_);
-    val_nodes_.emplace(
-        acc, model_.makeNode("cutlass::epilogue::fusion::Sm90AccFetch"));
+    Expr* mma = getGemmExpr(fusion_);
 
-    // TODO: add load nodes for epilogue inputs
+    auto* scaled_mma = dynamic_cast<ScaledMmaOp*>(mma);
+    NVF_ERROR(
+        scaled_mma,
+        "Only ScaledMmaOp is currently supported for EVT translation");
+    TensorView* mma_out = mma->output(0)->as<TensorView>();
+    TensorView* alpha = scaled_mma->alpha();
+    TensorView* beta = scaled_mma->beta();
+    TensorView* bias = scaled_mma->bias();
+
+    // The default kernel uses EpilogueScheduleAuto, which in turn uses
+    // LinearCombination as the epilogue. That means an epilogue that looks like
+    // this is assumed:
+    //
+    //   alpha * acc + beta * bias
+    //
+    // The ScaledMmaOp node has tensor inputs corresponding to these arguments.
+    // If some of these are null, we can omit them when building our EVT.
+    // Otherwise, we replicate the default EVT defined here:
+    // https://github.com/NVIDIA/cutlass/blob/c6aeb9179c5f74a0fcdbd28527bf4b6ba8c60752/include/cutlass/epilogue/fusion/sm90_callbacks_tma_warpspecialized.hpp#L118-L134
+
+    NVF_ERROR(beta == nullptr, "Beta not yet supported for EVT translation");
+    NVF_ERROR(bias == nullptr, "Bias not yet supported for EVT translation");
+
+    NVF_ERROR(
+        scaled_mma->outScale() == nullptr,
+        "Output block scale factor not supported for EVT translation");
+    NVF_ERROR(
+        scaled_mma->outGamma() == nullptr,
+        "Output global scale factor not supported for EVT translation");
+
+    // Start by making nodes for the accumulator and for any epilogue inputs
+    if (alpha == nullptr && (beta == nullptr || bias == nullptr)) {
+      // No epilogue
+      val_nodes_.emplace(
+          mma_out, model_.makeNode("cutlass::epilogue::fusion::Sm90AccFetch"));
+    }
+
+    if (alpha != nullptr) {
+      NVF_ERROR(
+          alpha->nDims() == 0,
+          "Only zero-dimensional alpha is supported for EVT translation");
+      NVF_ERROR(
+          alpha->dtype() == DataType::Float,
+          "Only Float alpha is supported for EVT translation");
+      // Broadcast alpha to the same dimensions as the accumulator
+      EVTModel::Node* alpha_bcast_node =
+          model_.makeNode("Sm90ScalarBroadcast<float>");
+      alpha_bcast_node->argument = alpha;
+      val_nodes_.emplace(alpha, alpha_bcast_node);
+
+      EVTModel::Node* alpha_acc_node = makeBinaryOpNode(
+          BinaryOpType::Mul,
+          /*in_type=*/DataType::Float,
+          /*out_type=*/DataType::Float,
+          /*lhs_node=*/alpha_bcast_node,
+          /*rhs_node=*/
+          model_.makeNode("cutlass::epilogue::fusion::Sm90AccFetch"));
+
+      val_nodes_.emplace(mma_out, alpha_acc_node);
+    }
+
+    // TODO: add load nodes for epilogue inputs defined in Fusion (i.e. not as
+    // ScaledMmaOp inputs)
 
     for (Expr* expr :
          StmtSort::getExprsBetween({getAccTv(fusion_)}, fusion_->outputs())) {
@@ -76,6 +139,52 @@ class EVTConverter : OptInDispatch {
 
   EVTModel::Node* getNodeFor(Val* val) {
     return val_nodes_.at(val);
+  }
+
+  EVTModel::Node* makeBinaryOpNode(
+      BinaryOpType op_type,
+      DataType in_type,
+      DataType out_type,
+      EVTModel::Node* lhs_node,
+      EVTModel::Node* rhs_node) {
+    // TODO: translate all of the supported BinaryOpTypes
+    std::string op_name;
+    switch (op_type) {
+      case BinaryOpType::Add:
+        op_name = "plus";
+        break;
+      case BinaryOpType::Div:
+        op_name = "divides";
+        break;
+      case BinaryOpType::Mul:
+        op_name = "multiplies";
+        break;
+      case BinaryOpType::Sub:
+        op_name = "minus";
+        break;
+      default:
+        NVF_THROW("Unhandled binary op type: ", op_type);
+    }
+    // This node and its inputs is essentially a function signature
+    EVTModel::Node* func_node =
+        model_.makeNode("cutlass::epilogue::fusion::Sm90Compute");
+    func_node->inputs.push_back(model_.makeNode("cutlass::" + op_name));
+    // TODO: infer type of inputs from dtypes
+    func_node->inputs.push_back(model_.makeNode(dtypeToCutlass(in_type)));
+    func_node->inputs.push_back(model_.makeNode(dtypeToCutlass(out_type)));
+    // rounding mode
+    // https://github.com/NVIDIA/cutlass/blob/2b8dff1f90605452c378c02298dd0cacaf65753c/include/cutlass/numeric_conversion.h#L56
+    func_node->inputs.push_back(
+        model_.makeNode("cutlass::FloatRoundStyle::round_to_nearest"));
+
+    // We combine the signature with tree visitor node
+    EVTModel::Node* visitor_node =
+        model_.makeNode("cutlass::epilogue::fusion::Sm90EVT");
+    visitor_node->inputs.push_back(func_node);
+    visitor_node->inputs.push_back(lhs_node);
+    visitor_node->inputs.push_back(rhs_node);
+
+    return visitor_node;
   }
 
   using OptInDispatch::dispatch;
@@ -123,45 +232,20 @@ class EVTConverter : OptInDispatch {
   }
 
   void handle(BinaryOp* bop) {
-    // TODO: translate all of the supported BinaryOpTypes
-    std::string op_name;
-    switch (bop->getBinaryOpType()) {
-      case BinaryOpType::Add:
-        op_name = "plus";
-        break;
-      case BinaryOpType::Div:
-        op_name = "divides";
-        break;
-      case BinaryOpType::Mul:
-        op_name = "multiplies";
-        break;
-      case BinaryOpType::Sub:
-        op_name = "minus";
-        break;
-      default:
-        NVF_THROW("Unhandled binary op type: ", bop->getBinaryOpType());
-    }
-    // This node and its inputs is essentially a function signature
-    EVTModel::Node* func_node =
-        model_.makeNode("cutlass::epilogue::fusion::Sm90Compute");
-    func_node->inputs.push_back(model_.makeNode("cutlass::" + op_name));
-    // TODO: infer type of inputs from dtypes
-    func_node->inputs.push_back(model_.makeNode("float"));
-    func_node->inputs.push_back(model_.makeNode("float"));
-    // types of inputs
-    // rounding mode
-    // https://github.com/NVIDIA/cutlass/blob/2b8dff1f90605452c378c02298dd0cacaf65753c/include/cutlass/numeric_conversion.h#L56
-    func_node->inputs.push_back(
-        model_.makeNode("cutlass::FloatRoundStyle::round_to_nearest"));
-
-    // We combine the signature with tree visitor node
-    EVTModel::Node* visitor_node =
-        model_.makeNode("cutlass::epilogue::fusion::Sm90EVT");
-    visitor_node->inputs.push_back(func_node);
-    visitor_node->inputs.push_back(getNodeFor(bop->lhs()));
-    visitor_node->inputs.push_back(getNodeFor(bop->rhs()));
-
-    val_nodes_.emplace(bop->out(), visitor_node);
+    NVF_ERROR(
+        bop->lhs()->dtype() == bop->rhs()->dtype(),
+        "We require both inputs to have the same dtype but found ",
+        bop->lhs()->dtype(),
+        " and ",
+        bop->rhs()->dtype());
+    val_nodes_.emplace(
+        bop->out(),
+        makeBinaryOpNode(
+            bop->getBinaryOpType(),
+            /*in_type=*/bop->lhs()->dtype(),
+            /*out_type=*/bop->lhs()->dtype(),
+            getNodeFor(bop->lhs()),
+            getNodeFor(bop->rhs())));
   }
 
  private:
