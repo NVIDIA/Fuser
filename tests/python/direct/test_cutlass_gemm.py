@@ -73,4 +73,5 @@ def test_grouped_mm(
         #     out [l:r, n] = mat1[l:r, n] @ mat2[i, k, n]
         out_decomposed_ref[l:r] = torch.matmul(mat1[l:r], mat2[i].transpose(-1, -2))
 
-    assert torch.allclose(out_decomposed_ref.cpu(), out.cpu(), atol=1e-2, rtol=1e-2)
+    assert torch.allclose(out_decomposed_ref, out, atol=1e-2, rtol=1e-2)
+    torch.cuda.empty_cache()
