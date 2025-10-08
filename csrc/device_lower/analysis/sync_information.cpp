@@ -292,6 +292,14 @@ SyncMap::SyncMap(Fusion* fusion, bool error_on_failure) {
             continue;
           }
 
+          if ((parallel_type == ParallelType::BIDx ||
+               parallel_type == ParallelType::TIDx) &&
+              consumer->definition() != nullptr &&
+              consumer->definition()->isA<BlockQuantizationOp>()) {
+            // Skip BIDx and TIDx check for BlockQuantizationOp consumer
+            continue;
+          }
+
           // In the case when the parallel id's are mapped by ca map,
           //   will additionally need to consider if the producer is
           //   a redundant write. The raw dim can be skipped only if
@@ -499,12 +507,10 @@ SyncMap::SyncMap(Fusion* fusion, bool error_on_failure) {
         if (error_on_failure) {
           if (raw_dims.hasBID()) {
             NVF_ERROR(
-                // We need to allow the output of block quantization and the
-                // outputs of the reshape preceding the block
-                // quantization to be in local memory.
-                producer->getMemoryType() == MemoryType::Global ||
+                producer->getMemoryType() == MemoryType::Global /*||
                     consumer->definition()->isA<BlockQuantizationOp>() ||
-                    consumer->uses()[0]->isA<BlockQuantizationOp>(),
+                    consumer->uses()[0]->isA<BlockQuantizationOp>()*/
+                ,
                 "Inconsistent parallelization found between T",
                 producer->name(),
                 " (",
