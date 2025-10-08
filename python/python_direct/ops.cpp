@@ -3212,11 +3212,11 @@ Parameters
 input : TensorView
     A 2D tensor containing blockwise scaling factor
 input_offsets: TensorView
-    A 1D tensor with length as (1 + number of groups).
-    Its value notes the offsets of the starting token in each group, where the last entry contains the total number of token
+    A 1D tensor with length as `number of groups`.
+    Its value notes the offsets of the starting token in each group for the input tensor view
 output_offsets: TensorView
-    A 1D tensor with length as (1 + number of groups).
-    Its value notes the offsets of the starting token in each group at the output tensor view.
+    A 1D tensor with length as `number of groups`.
+    Its value notes the offsets of the starting token in each group for the output tensor view.
 
 Returns
 -------
