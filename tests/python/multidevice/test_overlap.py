@@ -11,7 +11,9 @@ from nvfuser_direct import DataType, FusionDefinition, CommunicatorBackend, Tens
 
 
 @pytest.mark.mpi
-@pytest.mark.parametrize("backend_type", [CommunicatorBackend.nccl])
+@pytest.mark.parametrize(
+    "backend_type", [CommunicatorBackend.nccl, CommunicatorBackend.ucc]
+)
 @pytest.mark.parametrize("s", [1, 8])
 def test_overlap_allgather_matmul_stream_outermost(
     multidevice_direct_test, benchmark, backend_type, s

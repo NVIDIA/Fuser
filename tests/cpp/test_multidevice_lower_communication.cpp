@@ -758,7 +758,7 @@ INSTANTIATE_TEST_SUITE_P(
     ,
     LowerCollectiveTest,
     ::testing::Combine(
-        testing::Values(CommunicatorBackend::kNccl),
+        testing::Values(CommunicatorBackend::kNccl, CommunicatorBackend::kUcc),
         testing::Bool()),
     ([](const testing::TestParamInfo<std::tuple<CommunicatorBackend, bool>>&
             info) -> std::string {
