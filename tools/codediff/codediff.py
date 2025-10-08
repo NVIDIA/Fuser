@@ -31,14 +31,18 @@ from dataclasses_json import dataclass_json
 class GitRev:
     full_hash: str
     diff: str | None = None
-    abbrev: str = field(init=False)
-    title: str = field(init=False)
-    author_name: str = field(init=False)
-    author_email: str = field(init=False)
-    author_time: str = field(init=False)
-    commit_time: str = field(init=False)
+    abbrev: str | None = None
+    title: str | None = None
+    author_name: str | None = None
+    author_email: str | None = None
+    author_time: str | None = None
+    commit_time: str | None = None
 
     def __post_init__(self):
+        if self.abbrev is not None:
+            # Avoid running __post_init__ during deserialization
+            return
+
         self.abbrev = (
             subprocess.run(
                 ["git", "rev-parse", "--short", self.full_hash], capture_output=True
@@ -118,6 +122,10 @@ class CompiledKernel:
     index_type: str | None = None
 
     def __post_init__(self):
+        if self.launch_params is not None:
+            # Avoid running __post_init__ during deserialization
+            return
+
         self.parse_ptxas()
         self.parse_launch_params()
 
@@ -176,6 +184,7 @@ class CompiledKernel:
         if self.launch_params_str is None:
             return
 
+        self.launch_params = None
         for line in self.launch_params_str.splitlines():
             m = re.search(
                 r"Launch Parameters: BlockDim.x = (.*), BlockDim.y = (.*), BlockDim.z = (.*), "
@@ -445,25 +454,29 @@ class TestRun:
     """A single process that might contain many kernels, grouped into tests"""
 
     directory: str
-    git: GitRev = field(init=False)
-    name: str = field(init=False)
-    command: str = field(init=False)
-    command_type: CommandType = field(init=False)
-    exit_code: int = field(init=False)
-    env: str = field(init=False)
-    gpu_names: str = field(init=False)
-    nvcc_version: str = field(init=False)
+    git: GitRev | None = None
+    name: str | None = None
+    command: str | None = None
+    command_type: CommandType | None = None
+    exit_code: int | None = None
+    env: str | None = None
+    gpu_names: str | None = None
+    nvcc_version: str | None = None
     # map from name of test to list of kernel base filenames
-    kernel_map: dict[str, CompiledTest] = field(default_factory=dict)
+    kernel_map: dict[str, CompiledTest] | None = None
     # collecting the preamble lets us skip it when diffing, and lets us compare
     # only the preamble between runs
-    preamble: str = field(init=False)
+    preamble: str | None = None
     # The following lets us skip preamble when loading kernels. Note that the
     # preamble can change length due to differing index types, so we can't rely
     # on f.seek()
-    preamble_size_lines: int = field(init=False)
+    preamble_size_lines: int | None = None
 
     def __post_init__(self):
+        if self.git is not None:
+            # Avoid running __post_init__ during deserialization
+            return
+
         if not os.path.isdir(self.directory):
             print(f"ERROR: {self.directory} does not name a directory")
             sys.exit(1)
@@ -588,6 +601,8 @@ class TestRun:
         """Get a string of the kernel, optionally stripping the preamble"""
         kern = self.kernel_map[test_name].kernels[kernel_number]
         basename = kern.filename
+        if kern.code is not None:
+            return kern
         fullname = os.path.join(self.directory, "cuda", basename)
         kern.code = ""
         with open(fullname, "r") as f:
@@ -673,14 +688,18 @@ class KernelDiff:
     kernel2: CompiledKernel
     diff_lines: InitVar[list[str]] = []
     ptx_diff_lines: InitVar[list[str] | None] = []
-    diff: str = field(init=False)
     new_lines: int = 0
     removed_lines: int = 0
     ptx_diff: str | None = None
     new_ptx_lines: int = 0
     removed_ptx_lines: int = 0
+    diff: str | None = None
 
     def __post_init__(self, diff_lines: list[str], ptx_diff_lines: list[str] | None):
+        if self.diff is not None:
+            # Avoid running __post_init__ during deserialization
+            return
+
         self.diff = "\n".join(diff_lines)
 
         for line in diff_lines:
@@ -780,10 +799,14 @@ class TestDifferences:
     total_num_diffs: int = 0
     show_diffs: InitVar[bool] = False
     inclusion_criterion: InitVar[str] = "mismatched_cuda_or_ptx"
-    preamble_diff: str = field(init=False)
-    env_diff: str = field(init=False)
+    preamble_diff: str | None = None
+    env_diff: str | None = None
 
     def __post_init__(self, show_diffs: bool, kernel_inclusion_criterion: str):
+        if self.preamble_diff is not None:
+            # Avoid running __post_init__ during deserialization
+            return
+
         if self.run1.command != self.run2.command:
             print("WARNING: commands differ between runs", file=sys.stderr)
             print(f"  {self.run1.directory}: {self.run1.command}", file=sys.stderr)
