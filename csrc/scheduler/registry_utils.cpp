@@ -88,13 +88,30 @@ std::deque<std::deque<TensorView*>> tvChains(
 
 bool rejectScheduleFusionInputRequirement(
     Expr* expr,
+    Val* val,
     SchedulerType scheduler_type) {
-  if (!expr->input(0)->isFusionInput()) {
+  if (!val->isFusionInput()) {
     scheduler_debug_utils::canScheduleRejectReason(
         scheduler_type,
-        "First input of ",
+        val->toString(),
+        ", input of ",
         expr->getOpString(),
         " must be fusion input.");
+    return true;
+  }
+  return false;
+}
+
+bool rejectScheduleFusionOutputRequirement(
+    Expr* expr,
+    SchedulerType scheduler_type) {
+  TensorView* out = ir_utils::getTvOutput(expr);
+  if (!out->isFusionOutput() || !out->uses().empty()) {
+    scheduler_debug_utils::canScheduleRejectReason(
+        scheduler_type,
+        "output of ",
+        expr->getOpString(),
+        " must be fusion output without any consumer within the fusion.");
     return true;
   }
   return false;
@@ -178,7 +195,8 @@ bool rejectScheduleForMemoryPromotion(
           isOptionEnabled(EnableOption::MemoryPromotion)) {
         continue;
       }
-      if (rejectScheduleFusionInputRequirement(expr, scheduler_type)) {
+      if (rejectScheduleFusionInputRequirement(
+              expr, expr->input(0), scheduler_type)) {
         return true;
       }
     }
@@ -192,7 +210,8 @@ bool rejectScheduleForMemoryPromotion(
               return output->isA<TensorView>() &&
                   ir_utils::hasResizedRfactor(output->as<TensorView>());
             })) {
-      if (rejectScheduleFusionInputRequirement(expr, scheduler_type)) {
+      if (rejectScheduleFusionInputRequirement(
+              expr, expr->input(0), scheduler_type)) {
         return true;
       }
     }
@@ -1030,20 +1049,20 @@ bool SchedulerTopologyChecker::hasResizeAndIndexOps(Fusion* fusion) {
   return false;
 }
 
-bool SchedulerTopologyChecker::hasIllegalNonIndexableOps(Fusion* fusion) {
+bool SchedulerTopologyChecker::rejectScheduleFusionGlobalBufferRequirement(
+    Fusion* fusion,
+    SchedulerType scheduler_type) {
   for (auto expr : fusion->exprs()) {
     if (expr->isA<PreprocessGroupedMatmulInputSf>()) {
       // The runtime function of layout_op needs:
       //   1. Write output directly to global memory
       //   2. Read two offset inputs directly from global memory
       auto layout_op = expr->as<PreprocessGroupedMatmulInputSf>();
-      // layout_op needs to write directly to global memory
-      if (!layout_op->out()->uses().empty()) {
-        return true;
-      }
-      // layout_op two offset needs to be in global memory
-      if (!layout_op->inputOffsets()->isFusionInput() ||
-          !layout_op->outputOffsets()->isFusionInput()) {
+      if (rejectScheduleFusionOutputRequirement(layout_op, scheduler_type) ||
+          rejectScheduleFusionInputRequirement(
+              layout_op, layout_op->inputOffsets(), scheduler_type) ||
+          rejectScheduleFusionInputRequirement(
+              layout_op, layout_op->outputOffsets(), scheduler_type)) {
         return true;
       }
     }

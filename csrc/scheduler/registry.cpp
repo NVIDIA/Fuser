@@ -97,12 +97,10 @@ bool checkCanSchedule(Fusion* fusion, SchedulerType scheduler_type) {
     return false;
   }
 
-  // check PreprocessGroupedMatmulInputSf's output is in global memory by
-  // forcing it as a fusion segment output
-  if (registry_utils::SchedulerTopologyChecker::hasIllegalNonIndexableOps(
-          fusion)) {
+  if (registry_utils::SchedulerTopologyChecker::
+          rejectScheduleFusionGlobalBufferRequirement(fusion, scheduler_type)) {
     scheduler_debug_utils::canScheduleRejectReason(
-        scheduler_type, "Fusion has consumer of non indexable ops.");
+        scheduler_type, "Fusion doesn't meets global buffer requirement.");
     return false;
   }
 
