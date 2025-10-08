@@ -550,11 +550,14 @@ TensorView* defineTensor(
   return tv;
 }
 
+// return the unpacked shape and dtype for a given packed dtype, where we need
+// to double the size of the inner most dimension.
 std::tuple<std::vector<int64_t>, PrimDataType> translatePackedDtype(
-  const std::vector<int64_t>& shape,
-  const PrimDataType dtype,
-  const std::vector<int64_t>& stride_order) {
-  // NVF_CHECK(stride_order.empty());
+    const std::vector<int64_t>& shape,
+    const PrimDataType dtype,
+    const std::vector<int64_t>& stride_order) {
+  // TODO: switch to isPackedType when the pack width is retrieved through
+  // utility functions as well.
   NVF_CHECK(dtype == DataType::Float4_e2m1fn_x2);
 
   int fastest_dim = -1;
@@ -564,7 +567,6 @@ std::tuple<std::vector<int64_t>, PrimDataType> translatePackedDtype(
       break;
     }
   }
-
   NVF_CHECK(fastest_dim >= 0, "illegal stride_order: ", stride_order);
 
   std::vector<int64_t> un_packed_shape = shape;
@@ -583,10 +585,13 @@ void bindDefineTensor(py::module& nvfuser) {
              const std::vector<int64_t>& stride_order = {}) -> TensorView* {
             verifyShape(shape);
             if (!isPackedType(dtype)) {
-              return defineTensor(shape, contiguity, dtype, is_cpu, stride_order);
+              return defineTensor(
+                  shape, contiguity, dtype, is_cpu, stride_order);
             } else {
-              auto&& [new_shape, new_dtype] = translatePackedDtype(shape, dtype, stride_order);
-              return defineTensor(new_shape, contiguity, new_dtype, is_cpu, stride_order);
+              auto&& [new_shape, new_dtype] =
+                  translatePackedDtype(shape, dtype, stride_order);
+              return defineTensor(
+                  new_shape, contiguity, new_dtype, is_cpu, stride_order);
             }
           },
           py::arg("shape"),
@@ -612,7 +617,8 @@ void bindDefineTensor(py::module& nvfuser) {
                   is_cpu,
                   stride_order);
             } else {
-              auto&& [new_shape, new_dtype] = translatePackedDtype(shape, dtype, stride_order);
+              auto&& [new_shape, new_dtype] =
+                  translatePackedDtype(shape, dtype, stride_order);
               return defineTensor(
                   new_shape,
                   getContiguityVec(new_shape, stride_order, contiguity),
@@ -651,7 +657,8 @@ void bindDefineTensor(py::module& nvfuser) {
                   is_cpu,
                   stride_order);
             } else {
-              auto&& [new_sizes, new_dtype] = translatePackedDtype(sizes, dtype, stride_order);
+              auto&& [new_sizes, new_dtype] =
+                  translatePackedDtype(sizes, dtype, stride_order);
               return defineTensor(
                   getTensorViewBuilderSizes(new_sizes, static_sizes),
                   contiguity,
