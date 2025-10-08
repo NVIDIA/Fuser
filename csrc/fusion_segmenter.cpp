@@ -1902,30 +1902,36 @@ std::pair<IrCloner, std::unique_ptr<Fusion>> SegmentedFusion::makeFusion(
     for (Expr* use : tv->uses()) {
       // clangtidy's false negative static analysis complains about use, see:
       // https://github.com/llvm/llvm-project/issues/134454#issuecomment-2816262570
-      assert(use);
-      auto* layout_op = dynamic_cast<CutlassNvfp4GroupedMmaOp*>(use);
-      NVF_ERROR(
-          layout_op,
-          "use of output from PreprocessGroupedMatmulInputSf is unsafe by "
-          "operation:",
-          use->toString());
-      NVF_ERROR(
-          std::none_of(
-              layout_op->inputs().begin(),
-              layout_op->inputs().end(),
-              [&](const Val* input) {
-                // we can only use output from PreprocessGroupedMatmulInputSf
-                // as block scaling factor
-                return layout_op->scale1() != input &&
-                    layout_op->scale2() != input && input == tv;
-              }
+      // However, the assert trick didn't seem to work here.
+#if defined(__clang__)
+      [[clang::suppress]] {
+#endif
+        auto* layout_op = dynamic_cast<CutlassNvfp4GroupedMmaOp*>(use);
+        NVF_ERROR(
+            layout_op,
+            "use of output from PreprocessGroupedMatmulInputSf is unsafe by "
+            "operation:",
+            use->toString());
+        NVF_ERROR(
+            std::none_of(
+                layout_op->inputs().begin(),
+                layout_op->inputs().end(),
+                [&](const Val* input) {
+                  // we can only use output from PreprocessGroupedMatmulInputSf
+                  // as block scaling factor
+                  return layout_op->scale1() != input &&
+                      layout_op->scale2() != input && input == tv;
+                }
 
-              ),
-          "use of output from PreprocessGroupedMatmulInputSf is unsafe by "
-          "operation:",
-          use->toString(),
-          " as argument: ",
-          tv->toString());
+                ),
+            "use of output from PreprocessGroupedMatmulInputSf is unsafe by "
+            "operation:",
+            use->toString(),
+            " as argument: ",
+            tv->toString());
+#if defined(__clang__)
+      }
+#endif
     }
   }
 
