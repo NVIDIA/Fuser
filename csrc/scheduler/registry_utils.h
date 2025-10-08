@@ -109,8 +109,11 @@ class SchedulerTopologyChecker {
 
   // Checks if fusion contains illegal non-indexable ops. E.g. for
   // PreprocessGroupedMatmulInputSf, the runtime function requires both offsets
-  // (inputs) and the output TensorView to reside on global memory. We currently
-  // do this by force segmentation and having them as segment IO TVs.
+  // (inputs) and the output TensorView to reside on global memory. This is
+  // because indexing is not done during lowering, but rather by runtime
+  // function. Keeping offsets and outputs in global memory allows random access
+  // without synchronization by threads. We currently rejects fusion where the
+  // runtime requirements are not satisfied.
   static bool hasIllegalNonIndexableOps(Fusion* fusion);
 
   // Checks if a series of reshape ops creates a cycle in the ID
