@@ -445,7 +445,7 @@ SegmentedFusion::SegmentedFusion(std::unique_ptr<Fusion> fusion)
     : segmented_fusion_name_{segmentedFusionName()},
       impl_(this),
       complete_fusion_(std::move(fusion)),
-      initial_vals_size_{complete_fusion_->vals().size()},
+      initial_vals_size_{complete_fusion_->unordered_vals().size()},
       initial_exprs_size_{complete_fusion_->unordered_exprs().size()} {
   annotateFP16IntermediateTensors();
 }
@@ -556,9 +556,9 @@ void SegmentedFusion::deserialize(const serde::SegmentedFusion* buffer) {
   // the fusion. We relax the constraints here because we already know the
   // proposed scheduler for each segmented group.
   NVF_ERROR(
-      complete_fusion_->vals().size() <= buffer->num_vals(),
+      complete_fusion_->unordered_vals().size() <= buffer->num_vals(),
       "The complete fusion has ",
-      complete_fusion_->vals().size(),
+      complete_fusion_->unordered_vals().size(),
       " values while serialization expected at least",
       buffer->num_vals(),
       " values.");

@@ -646,7 +646,7 @@ auto ensureMapping(
 
 TensorView* lookUpTv(const TensorDomain* td) {
   Fusion* fusion = FusionGuard::getCurFusion();
-  for (auto tv : ir_utils::filterByType<TensorView>(fusion->vals())) {
+  for (auto tv : ir_utils::filterByType<TensorView>(fusion->unordered_vals())) {
     if (tv->domain() == td) {
       return tv;
     }

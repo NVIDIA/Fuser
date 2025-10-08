@@ -238,7 +238,7 @@ std::string IrGraphGenerator::generate() {
     for (const auto* expr : fusion_->unordered_exprs()) {
       dispatch(expr);
     }
-    for (const auto* val : fusion_->vals()) {
+    for (const auto* val : fusion_->unordered_vals()) {
       dispatch(val);
     }
   }

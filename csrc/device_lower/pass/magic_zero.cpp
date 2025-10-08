@@ -69,7 +69,7 @@ std::vector<Expr*> insertMagicZero(const std::vector<Expr*>& exprs) {
   const auto gpu_lower = GpuLower::current();
   auto kernel = gpu_lower->kernel();
   const bool has_magic_zero =
-      std::any_of(kernel->vals().begin(), kernel->vals().end(), [](Val* val) {
+      std::any_of(kernel->unordered_vals().begin(), kernel->unordered_vals().end(), [](Val* val) {
         return isMagicZero(val);
       });
 

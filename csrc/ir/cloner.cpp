@@ -96,7 +96,7 @@ RecomputeTv::RecomputeTv(Fusion* fusion) : IrCloner(fusion) {
     clones_map_[inp] = inp;
   }
   // Adds all scalar values to clones map to prevent cloning them
-  for (const auto val : fusion->vals()) {
+  for (const auto val : fusion->unordered_vals()) {
     if (val->getValType().value() == ValType::Others ||
         val->getValType().value() == ValType::NamedScalar) {
       clones_map_[val] = val;

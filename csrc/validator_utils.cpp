@@ -258,7 +258,7 @@ ExpressionEvaluator bindInputsAndLaunchParams(
     const KernelArgumentHolder& aten_inputs,
     const LaunchParams& launch_constraints) {
   auto expr_eval = executor_utils::bindInputs(aten_inputs, fusion);
-  for (auto val : fusion->vals()) {
+  for (auto val : fusion->unordered_vals()) {
     if (!val->isA<TensorView>()) {
       continue;
     }

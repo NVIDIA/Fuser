@@ -120,7 +120,7 @@ class IrContainer : public PolymorphicBase {
   }
 
   //! Return the set of Vals registered with this fusion
-  const std::unordered_set<Val*>& vals() const noexcept {
+  const std::unordered_set<Val*>& unordered_vals() const noexcept {
     return vals_;
   }
 
