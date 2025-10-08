@@ -665,17 +665,19 @@ class NVF_API TensorDomain : public Val {
   // accordingly.
   NVF_API void setAllocationDomain(
       std::vector<IterDomain*> new_allocation_domain,
-      std::vector<std::optional<bool>> new_contiguity);
+      std::vector<std::optional<bool>> new_contiguity,
+      bool skip_validation = false);
 
   // Similar to the previous one, but with new contiguity filled with all true
   // or all false.
   void setAllocationDomain(
       std::vector<IterDomain*> new_allocation_domain,
-      bool new_contiguity) {
+      bool new_contiguity,
+      bool skip_validation = false) {
     auto contiguity_flags =
         getContiguityFilledWith(new_allocation_domain, new_contiguity);
     setAllocationDomain(
-        std::move(new_allocation_domain), std::move(contiguity_flags));
+        std::move(new_allocation_domain), std::move(contiguity_flags), skip_validation);
   }
 
   // i here is int, as we want to accept negative value and ::size_type can be a
