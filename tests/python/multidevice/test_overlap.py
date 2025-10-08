@@ -11,7 +11,9 @@ from nvfuser_direct import DataType, FusionDefinition, CommunicatorBackend, Tens
 
 
 @pytest.mark.mpi
-@pytest.mark.parametrize("backend_type", [CommunicatorBackend.nccl])
+@pytest.mark.parametrize(
+    "backend_type", [CommunicatorBackend.nccl, CommunicatorBackend.ucc]
+)
 @pytest.mark.parametrize("s", [1, 8])
 def test_overlap_allgather_matmul_stream_outermost(
     multidevice_direct_test, benchmark, backend_type, s
@@ -64,9 +66,9 @@ def test_overlap_allgather_matmul_stream_outermost(
         tensors = fusion_definition(fd, m, k, n, s, d)
         multidevice_schedule(fd, tensors, d)
 
-    multidevice_executor = nvfuser.multidevice.MultiDeviceExecutor(
-        fd.fusion, backend_type
-    )
+    params = nvfuser.multidevice.MultiDeviceExecutorParams()
+    params.backend_type = backend_type
+    multidevice_executor = nvfuser.multidevice.MultiDeviceExecutor(fd.fusion, params)
 
     # warmup
     for _ in range(N_WARMUPS):
@@ -133,9 +135,10 @@ def test_overlap_allgather_matmul_shard_outermost(
         tensors = fusion_definition(fd, m, k, n, d)
         multidevice_schedule(fd, tensors, d)
 
-    multidevice_executor = nvfuser.multidevice.MultiDeviceExecutor(
-        fd.fusion, backend_type
-    )
+    params = nvfuser.multidevice.MultiDeviceExecutorParams()
+    params.backend_type = backend_type
+    params.use_allocation_cache = True
+    multidevice_executor = nvfuser.multidevice.MultiDeviceExecutor(fd.fusion, params)
 
     # warmup
     for _ in range(N_WARMUPS):
