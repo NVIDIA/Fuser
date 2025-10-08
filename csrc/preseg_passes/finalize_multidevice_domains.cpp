@@ -66,7 +66,16 @@ bool isAllocationParallelized(TensorView* tv, Split* split) {
 // parallelized Device parallelization is always propagated to the allocation
 // domain Stream parallelization is propagated to the allocation domain if it is
 // allocated inside a for loop
-void setAllocationDomain(TensorView* tv) {
+void setShardedAllocationDomain(TensorView* tv) {
+  if (!isStreamParallelized(tv) || !tv->hasDeviceMesh()) {
+    // This is required for tests such as
+    // `NVFP4QuantizeTest.SwizzledOuputAndWithoutPerTensorAmax` The test has a
+    // split allocation domain but no stream/device parallelization. The loop
+    // domain is first split to set the allocation domain and then merged back
+    // to the logical domain. This will currently fail with the following
+    // implementation.
+    return;
+  }
   LinkedHashMap<IterDomain*, std::optional<bool>> allocation_to_contiguity;
   for (const auto&& [id, contiguity] :
        zip(tv->getMaybeAllocationDomain(), tv->getContiguity())) {
@@ -121,12 +130,12 @@ void FinalizeMultideviceDomainsPass::runPass(Fusion* fusion) {
       // Other tvs would already have been processed as outputs of their
       // definitions. This avoids processing the same tv multiple times.
       if (tv->isFusionInput()) {
-        setAllocationDomain(tv);
+        setShardedAllocationDomain(tv);
         reorderParallelizedToFront(tv);
       }
     }
     for (auto tv : outputs) {
-      setAllocationDomain(tv);
+      setShardedAllocationDomain(tv);
       reorderParallelizedToFront(tv);
     }
 

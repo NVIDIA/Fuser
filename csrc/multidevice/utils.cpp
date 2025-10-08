@@ -236,6 +236,10 @@ IterDomain* getShardedIterDomain(
   return nullptr;
 }
 
+bool isStreamParallelized(const TensorView* tv) {
+  return getShardedIterDomain(tv, ParallelType::Stream) != nullptr;
+}
+
 at::Tensor shardTensor(
     at::Tensor tensor,
     const int64_t axis,
