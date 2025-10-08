@@ -98,11 +98,6 @@ void setLoopAndAllocationDomain(TensorView* tv, bool is_resharding) {
 } // namespace
 
 void FinalizeMultideviceDomainsPass::runPass(Fusion* fusion) {
-  bool has_mesh = validateMeshes(fusion);
-  if (!has_mesh) {
-    return;
-  }
-
   for (Expr* expr : fusion->exprs()) {
     auto inputs = ir_utils::filterByType<TensorView>(expr->inputs());
     auto outputs = ir_utils::filterByType<TensorView>(expr->outputs());
