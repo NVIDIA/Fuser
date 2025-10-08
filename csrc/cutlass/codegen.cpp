@@ -28,7 +28,7 @@ std::string dtypeToCutlass(const DataType& dtype) {
     case (DataType::BFloat16):
       return "cutlass::bfloat16_t";
     case (DataType::Float):
-      return "cutlass::tfloat32_t";
+      return "float";
     case (DataType::Float8_e5m2):
       return "cutlass::float_e5m2_t";
     case (DataType::Float8_e4m3fn):

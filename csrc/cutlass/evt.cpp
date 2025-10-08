@@ -120,7 +120,8 @@ class EVTConverter : OptInDispatch {
       EVTModel::Node* alpha_acc_node = makeBinaryOpNode(
           BinaryOpType::Mul,
           /*in_type=*/DataType::Float,
-          /*out_type=*/DataType::Float,
+          // NOTE: CUTLASS does not have explicit cast EVT nodes.
+          /*out_type=*/mma_out->dtype(),
           /*lhs_node=*/alpha_bcast_node,
           /*rhs_node=*/
           model_.makeNode("cutlass::epilogue::fusion::Sm90AccFetch"));
@@ -213,11 +214,9 @@ class EVTConverter : OptInDispatch {
     EVTModel::Node* func_node =
         model_.makeNode("cutlass::epilogue::fusion::Sm90Compute");
     func_node->inputs.push_back(model_.makeNode("cutlass::" + op_name));
-    // TODO: infer type of inputs from dtypes
-    func_node->inputs.push_back(model_.makeNode("float"));
+    func_node->inputs.push_back(model_.makeNode(dtypeToCutlass(uop->in()->dtype())));
     // This is the "compute" type of the op
-    func_node->inputs.push_back(model_.makeNode("float"));
-    // types of inputs
+    func_node->inputs.push_back(model_.makeNode(dtypeToCutlass(uop->out()->dtype())));
     // rounding mode
     // https://github.com/NVIDIA/cutlass/blob/2b8dff1f90605452c378c02298dd0cacaf65753c/include/cutlass/numeric_conversion.h#L56
     func_node->inputs.push_back(
