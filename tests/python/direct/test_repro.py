@@ -4544,3 +4544,50 @@ def test_shared_memory_usage(nvfuser_direct_test):
         torch.testing.make_tensor((24578,), dtype=torch.bfloat16, device="cuda:0"),
     ]
     fd.validate(inputs)
+
+
+def test_ca_map_concrete_loop_id(nvfuser_direct_test):
+    def nvfuser_fusion_id10(fd: FusionDefinition) -> None:
+        T0 = fd.define_tensor(
+            shape=[16, 1, 1],
+            contiguity=[True, None, None],
+            dtype=DataType.Float,
+            is_cpu=False,
+        )
+        T1 = fd.define_tensor(
+            shape=[1, 1, 1024],
+            contiguity=[None, None, True],
+            dtype=DataType.Float,
+            is_cpu=False,
+        )
+        T2 = fd.ops.sub(T0, T0)
+        T3 = fd.ops.exp(T2)
+        T4 = fd.ops.reciprocal(T3)
+        T5 = fd.ops.mul(T3, T4)
+        T6 = fd.ops.broadcast(T5, is_broadcast_dim=[False, False, True, False])
+        S7 = fd.ops.size(T5, dim=1)
+        S8 = fd.define_scalar(16, dtype=DataType.Int)
+        S9 = fd.define_scalar(64, dtype=DataType.Int)
+        T11 = fd.ops.reshape(T1, new_shape=[S7, S7, S8, S9])
+        T12 = fd.ops.permute(T11, dims=[0, 2, 1, 3])
+        T13 = fd.ops.squeeze(T12, dims=[0], squeeze_expanded=True)
+        T14 = fd.ops.permute(T13, dims=[0, 2, 1])
+        T15 = fd.ops.broadcast(T14, is_broadcast_dim=[False, True, False, False])
+        T16 = fd.ops.mul(T6, T15)
+        T17 = fd.ops.squeeze(T16, dims=[3], squeeze_expanded=True)
+        T18 = fd.ops.broadcast(T17, is_broadcast_dim=[True, False, False, False])
+        T19 = fd.ops.permute(T18, dims=[0, 2, 1, 3])
+        S20 = fd.define_scalar(1024, dtype=DataType.Int)
+        T22 = fd.ops.reshape(T19, new_shape=[S7, S7, S20])
+        fd.add_output(T5)
+        fd.add_output(T13)
+        fd.add_output(T22)
+
+    with FusionDefinition() as fd:
+        nvfuser_fusion_id10(fd)
+
+    inputs = [
+        torch.testing.make_tensor((16, 1, 1), dtype=torch.float32, device="cuda:0"),
+        torch.testing.make_tensor((1, 1, 1024), dtype=torch.float32, device="cuda:0"),
+    ]
+    fd.validate(inputs)
