@@ -76,6 +76,10 @@ NVF_API TensorView* takeAlongAxis(
     TensorView* index,
     int64_t dim);
 
+// Utility function that constructs the padded allocation domain for
+// PreprocessGroupedMatmulInputSf output. Expected inputs are the logical domain
+// of the output tensor. It applies maximum padding on each group and returns
+// allocation domain with the required padding based on the layout.
 std::vector<IterDomain*> layoutAllocationDomain(
     std::vector<IterDomain*> logical_dom,
     Val* num_groups,

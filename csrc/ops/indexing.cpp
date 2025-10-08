@@ -322,7 +322,7 @@ std::vector<IterDomain*> layoutAllocationDomain(
     BlockScalingFactorLayout layout) {
   NVF_ERROR_EQ(logical_dom.size(), 2);
 
-  // Create the logical domain of output.
+  // Create the allocation domain of output.
   std::vector<IterDomain*> alloc_dom;
   alloc_dom.reserve(logical_dom.size());
 
@@ -333,7 +333,7 @@ std::vector<IterDomain*> layoutAllocationDomain(
 
   auto* one_val = num_groups->fusion()->oneVal(DataType::Index);
 
-  // Note: output logical domain handles potential padding required for the
+  // Note: output allocation domain handles potential padding required for the
   // layout. Since the actual padding size is data-dependent, we allocate for
   // the maximum padding (reflected on logical/allocation domain).
 
@@ -351,7 +351,7 @@ std::vector<IterDomain*> layoutAllocationDomain(
     // resize sounds good in theory, because transformation can propagate across
     // it. In reality, we do not have a protocol to index this operation via the
     // logical to allocation domain transform. I question how much a resize op
-    // provides on functionality. More importantly, resize still hits asserts in
+    // provides in functionality. More importantly, using resize hits asserts in
     // vectorization analysis (validateDeviceSplit ATM), which doesn't look easy
     // to handle for me.
     Val* padded_ext = SimplifyingIrBuilder::addExpr(
