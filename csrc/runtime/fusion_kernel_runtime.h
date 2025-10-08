@@ -11,9 +11,7 @@
 
 #include <fusion_segmenter.h>
 #include <host_ir/evaluator.h>
-#ifdef NVFUSER_HOST_IR_JIT
 #include <host_ir/jit.h>
-#endif
 #include <polymorphic_value.h>
 #include <runtime/executor.h>
 #include <runtime/executor_kernel_arg.h>
@@ -144,12 +142,10 @@ class FusionKernelRuntime {
   //! Get the Host IR Container
   const hir::HostIrContainer& getHostIrContainer() const {
     if (isOptionEnabled(EnableOption::HostIrJit)) {
-#ifdef NVFUSER_HOST_IR_JIT
+      NVF_ERROR(hij_ != nullptr, "Host IR JIT is not initialized");
       return hij_->container();
-#else
-      NVF_ERROR(false, "Host IR JIT is not available. Please rebuild with NVFUSER_HOST_IR_JIT=ON");
-#endif
     } else {
+      NVF_ERROR(hie_ != nullptr, "Host IR Evaluator is not initialized");
       return hie_->container();
     }
   }
@@ -193,11 +189,9 @@ class FusionKernelRuntime {
   //! Executors holding compiled kernels
   std::vector<std::unique_ptr<ExecutorAbstract>> executors_;
 
-#ifdef NVFUSER_HOST_IR_JIT
-  //! Host IR JIT (only available when built with NVFUSER_HOST_IR_JIT)
+  //! Host IR JIT (used when EnableOption::HostIrJit is set)
   std::unique_ptr<HostIrJit> hij_;
-#endif
-  //! Host IR Evaluator (always available as fallback)
+  //! Host IR Evaluator (used when EnableOption::HostIrJit is not set)
   std::unique_ptr<hir::HostIrEvaluator> hie_;
 
   // A metadata copy of initial arguments used to contruct this

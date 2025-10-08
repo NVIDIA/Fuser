@@ -30,7 +30,6 @@ class HostIrIntegrationTest : public NVFuserTest {
   HostIrIntegrationTest() {
     EnableOptionsGuard::getCurOptions().set(EnableOption::HostIrLowering);
     EnableOptionsGuard::getCurOptions().set(EnableOption::HostIrJit);
-#endif
   }
 };
 
