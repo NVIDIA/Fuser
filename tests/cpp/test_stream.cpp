@@ -86,6 +86,16 @@ TEST_F(StreamTest, Matmul) {
   at::Tensor in_tensor = at::randn({5, 7}, options);
   at::Tensor w_tensor = at::randn({7, c * 2}, options);
 
+  // With NVFUSER_DUMP=host_ir, you'll see the host IR container like the
+  // following:
+  // clang-format off
+  // %HostIrContainer { (T0_g_float[iS0{i0}, iS1{i2}], T1_g_float[istreamIdx7{3}, iS11{i2}, iS8{( ceilDiv(i4, 3) )}]) -> (T2_g_float[istreamIdx9{3}, iS4{i0}, iS10{( ceilDiv(i4, 3) )}, rS6{i2}]) :
+  //   FOR i18 from 0 to 3:
+  //     T2_g_float[istreamIdx9{3}, iS4{i0}, iS10{( ceilDiv(i4, 3) )}, rS6{i2}]
+  //        = matmul(T0_g_float[iS0{i0}, iS1{i2}],
+  //                 T1_g_float[istreamIdx7{3}, iS11{i2}, iS8{( ceilDiv(i4, 3) )}])
+  // } // %HostIrContainer
+  // clang-format on
   FusionExecutorCache executor_cache(std::move(fusion));
   auto out_tensor = executor_cache.runFusionWithInputs({in_tensor, w_tensor})[0]
                         .as<at::Tensor>();
