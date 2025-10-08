@@ -22,7 +22,13 @@ namespace nvfuser {
 
 namespace hir {
 
-using HostIrJitTest = NVFuserTest;
+class HostIrJitTest : public NVFuserTest {
+ protected:
+  HostIrJitTest() {
+    EnableOptionsGuard::getCurOptions().set(EnableOption::HostIrJit);
+#endif
+  }
+};
 // Build with: python setup.py install --build-with-host-ir-jit
 TEST_F(HostIrJitTest, Set) {
   auto hic = std::make_unique<HostIrContainer>();
