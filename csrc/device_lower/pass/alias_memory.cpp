@@ -18,6 +18,7 @@
 #include <kernel_ir_dispatch.h>
 #include <ops/arith.h>
 #include <options.h>
+#include <utils.h>
 
 #include <sstream>
 #include <unordered_map>
@@ -851,7 +852,7 @@ class AllocationInfoMap : private kir::IrVisitor {
 
     alloc_info->alignment = (ir_utils::isTMAOrMMASmemTv(tv))
         ? getSharedMemoryByteAlignment(ir_utils::getSwizzleMode(tv))
-        : 16;
+        : kSharedMemoryAlignmentBytes;
 
     // record short cuts
     allocation_info_map_[alloc] = alloc_info;
