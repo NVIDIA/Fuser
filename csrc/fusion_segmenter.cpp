@@ -1868,6 +1868,12 @@ std::pair<IrCloner, std::unique_ptr<Fusion>> SegmentedFusion::makeFusion(
     fusion_segment->removeOutput(out);
   }
 
+  // note, we would want to keep output consistent and not artificially drop
+  // duplicates.
+  for (auto out : sg->output_vals_) {
+    fusion_segment->addOutput(complete_to_segment_map.clone(out));
+  }
+
   for (auto inp : getAllInputs(sg)) {
     auto clone_tv = complete_to_segment_map.clone(inp);
     fusion_segment->addInput(clone_tv);
@@ -1924,12 +1930,6 @@ std::pair<IrCloner, std::unique_ptr<Fusion>> SegmentedFusion::makeFusion(
 #endif
       }
     }
-  }
-
-  // note, we would want to keep output consistent and not artificially drop
-  // duplicates.
-  for (auto out : sg->output_vals_) {
-    fusion_segment->addOutput(complete_to_segment_map.clone(out));
   }
 
   // Replace all vals that are logical extents in fusion_segment->inputs() with
