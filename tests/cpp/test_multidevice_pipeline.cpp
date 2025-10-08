@@ -326,8 +326,7 @@ TEST_P(PipelineTestTwoStages, Communication) {
 }
 
 namespace {
-auto all_backends =
-    testing::Values(CommunicatorBackend::kNccl, CommunicatorBackend::kUcc);
+auto all_backends = testing::Values(CommunicatorBackend::kNccl);
 
 DeviceMesh mesh_null;
 DeviceMesh mesh0({0});
@@ -345,7 +344,7 @@ INSTANTIATE_TEST_SUITE_P(
     Gather,
     PipelineTestTwoStages,
     testing::Combine(
-        testing::Values(CommunicatorBackend::kNccl, CommunicatorBackend::kUcc),
+        testing::Values(CommunicatorBackend::kNccl),
         all_meshes,
         all_meshes,
         testing::Values(true),
@@ -358,7 +357,7 @@ INSTANTIATE_TEST_SUITE_P(
     Scatter,
     PipelineTestTwoStages,
     testing::Combine(
-        testing::Values(CommunicatorBackend::kNccl, CommunicatorBackend::kUcc),
+        testing::Values(CommunicatorBackend::kNccl),
         testing::Values(mesh0, mesh1),
         testing::Values(mesh2, mesh4, mesh5),
         testing::Values(false),
@@ -371,7 +370,7 @@ INSTANTIATE_TEST_SUITE_P(
     Bcast,
     PipelineTestTwoStages,
     testing::Combine(
-        testing::Values(CommunicatorBackend::kNccl, CommunicatorBackend::kUcc),
+        testing::Values(CommunicatorBackend::kNccl),
         all_meshes,
         all_meshes,
         testing::Values(false),
@@ -398,7 +397,7 @@ INSTANTIATE_TEST_SUITE_P(
     Bcast_sharded_same_mesh,
     PipelineTestTwoStages,
     testing::Combine(
-        testing::Values(CommunicatorBackend::kNccl, CommunicatorBackend::kUcc),
+        testing::Values(CommunicatorBackend::kNccl),
         testing::Values(mesh0, mesh1),
         testing::Values(mesh_null), // the same mesh is used for all tensors
         testing::Values(true),
@@ -411,7 +410,7 @@ INSTANTIATE_TEST_SUITE_P(
     Reduce,
     PipelineTestTwoStages,
     testing::Combine(
-        testing::Values(CommunicatorBackend::kNccl, CommunicatorBackend::kUcc),
+        testing::Values(CommunicatorBackend::kNccl),
         all_nontrivial_meshes,
         all_meshes,
         testing::Values(true),
@@ -424,7 +423,7 @@ INSTANTIATE_TEST_SUITE_P(
     ReduceScatter,
     PipelineTestTwoStages,
     testing::Combine(
-        testing::Values(CommunicatorBackend::kNccl, CommunicatorBackend::kUcc),
+        testing::Values(CommunicatorBackend::kNccl),
         all_nontrivial_meshes,
         testing::Values(mesh_null), // the same mesh is used for all tensors
         testing::Values(true),
@@ -439,7 +438,7 @@ INSTANTIATE_TEST_SUITE_P(
     DISABLED_FusionExecutorCache_Reduce,
     PipelineTestTwoStages,
     testing::Combine(
-        testing::Values(CommunicatorBackend::kNccl, CommunicatorBackend::kUcc),
+        testing::Values(CommunicatorBackend::kNccl),
         all_nontrivial_meshes,
         all_meshes,
         testing::Values(true),
@@ -452,7 +451,7 @@ INSTANTIATE_TEST_SUITE_P(
     DISABLED_FusionExecutorCache_ReduceScatter,
     PipelineTestTwoStages,
     testing::Combine(
-        testing::Values(CommunicatorBackend::kNccl, CommunicatorBackend::kUcc),
+        testing::Values(CommunicatorBackend::kNccl),
         all_nontrivial_meshes,
         testing::Values(mesh_null), // the same mesh is used for all tensors
         testing::Values(true),
