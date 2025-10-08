@@ -416,7 +416,7 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/validator_utils.cpp
 )
 
-cmake_dependent_option(NVFUSER_HOST_IR_JIT "Build nvFuser with LLVM" ON "USE_HOST_IR_JIT" OFF)
+cmake_dependent_option(NVFUSER_HOST_IR_JIT "Build nvFuser with LLVM" ON "USE_HOST_IR_JIT" ON)
 
 
 message(STATUS "Setting NVFUSER_HOST_IR_JIT=${NVFUSER_HOST_IR_JIT}")
