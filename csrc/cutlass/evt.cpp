@@ -340,7 +340,6 @@ CommentedString argStringHelper(EVTModel::Node* node, int64_t indent_size) {
         ss << ",";
       }
       ss << "  // " << prev_cs.comment << "\n";
-      prev
     };
     for (EVTModel::Node* input : node->inputs) {
       print_line(false);
