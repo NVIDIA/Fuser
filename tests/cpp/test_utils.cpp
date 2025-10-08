@@ -51,7 +51,7 @@ TEST_F(UtilsTest, FunctionTrace1) {
   EXPECT_THAT(
       ss.str(),
       ::testing::HasSubstr("Leaving myFavoriteFunction returning 3 at "));
-  EXPECT_THAT(ss.str(), ::testing::HasSubstr("test_utils.cpp:32"));
+  EXPECT_THAT(ss.str(), ::testing::HasSubstr("test_utils.cpp:34"));
 #else
   GTEST_SKIP() << "Test only runs in debug mode";
 #endif
@@ -69,7 +69,7 @@ TEST_F(UtilsTest, FunctionTrace2) {
   EXPECT_THAT(
       ss.str(),
       ::testing::HasSubstr("Leaving myFavoriteFunction returning -3 at "));
-  EXPECT_THAT(ss.str(), ::testing::HasSubstr("test_utils.cpp:34"));
+  EXPECT_THAT(ss.str(), ::testing::HasSubstr("test_utils.cpp:36"));
 #else
   GTEST_SKIP() << "Test only runs in debug mode";
 #endif
@@ -151,6 +151,31 @@ TEST_F(UtilsTest, FusionReorderAsRFactor) {
   EXPECT_EQ(old2new[0], 2);
   EXPECT_EQ(old2new[1], 1);
   EXPECT_EQ(old2new[2], 0);
+}
+
+TEST_F(UtilsTest, ReorderAsAllocationMaps) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  const int64_t d = 4, m = 3, n = 5, k = 7;
+
+  auto tv = makeConcreteTensor({m, n, d * k});
+  tv->outer_split(2, d); // [m, n, d, k]
+  tv->setAllocationDomain(
+      {tv->axis(1), tv->axis(2), tv->axis(3), tv->axis(0)},
+      true); // [n, d, k, m]
+  tv->reorder({{2, 0}}); // [d, m, n, k]
+
+  auto logical_reorder_map = scheduler_utils::reorderLogicalAsAllocationMap(tv);
+  auto loop_reorder_map = scheduler_utils::reorderLoopAsAllocationMap(tv);
+
+  std::unordered_map<int64_t, int64_t> expected_logical_map = {
+      {0, 2}, {1, 0}, {2, 1}};
+  std::unordered_map<int64_t, int64_t> expected_loop_map = {
+      {0, 1}, {1, 3}, {2, 0}, {3, 2}};
+
+  EXPECT_EQ(logical_reorder_map, expected_logical_map);
+  EXPECT_EQ(loop_reorder_map, expected_loop_map);
 }
 
 TEST_F(UtilsTest, FusionDisjointViewSet) {

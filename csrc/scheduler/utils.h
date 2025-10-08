@@ -16,6 +16,7 @@
 #include <scheduler/reduction_heuristic.h>
 #include <scheduler/tools/maxinfo_propagator.h>
 #include <visibility.h>
+#include "utils.h"
 
 namespace nvfuser {
 
@@ -49,6 +50,13 @@ constexpr int64_t x_grid_limit = ((int64_t)1 << (int64_t)31) - (int64_t)1;
 constexpr int64_t y_grid_limit = 65535;
 constexpr int64_t z_grid_limit = 65535;
 constexpr int64_t z_block_limit = 64;
+
+// Static shared memory usage (e.g., for magic zero).
+// Currently, magic zero is the only user of static shared memory and takes 4
+// bytes before alignment. All shared memory in nvFuser is aligned to
+// kSharedMemoryAlignmentBytes.
+constexpr int64_t static_smem_usage_in_bytes = kSharedMemoryAlignmentBytes;
+constexpr int64_t static_smem_usage_in_bits = static_smem_usage_in_bytes * 8;
 
 // Find largest power of 2 that is a factor of n. If n==0, return largest power
 // of 2 representable by int64_t
@@ -389,13 +397,17 @@ std::vector<TensorView*> getTVsWithNonReductionRFactor(Fusion* fusion);
 // Reset inputs and outputs to global memory, everything else to local.
 void clearMemorySpace(Fusion* fusion);
 
-// Returns cached after tensors of the fusion inputs if unrolled. Otherwise
-// return empty vector.
-std::vector<TensorView*> cacheInputs(Fusion* fusion, bool unroll);
+// Returns the pairs of <cache, input_index> for each cached fusion input.
+// input_index is the position in fusion->inputs(). Otherwise return empty
+// vector.
+std::vector<std::pair<TensorView*, int64_t>> cacheInputs(
+    Fusion* fusion,
+    bool unroll);
 
-// Returns the pairs of <cache of each fusion output, corresponding output> for
-// all outputs.
-std::vector<std::pair<TensorView*, TensorView*>> cacheAndForkOutputs(
+// Returns the pairs of <cache, output_index> for each cached fusion output.
+// output_index is the position in fusion->outputs(). Otherwise return empty
+// vector.
+std::vector<std::pair<TensorView*, int64_t>> cacheAndForkOutputs(
     Fusion* fusion,
     bool unroll);
 
@@ -682,11 +694,16 @@ void applyTransforms(
 // This is somewhat similar to orderTiledConcreteIdAsRoot
 std::vector<int64_t> domainReorderAsLogicalMap(TensorView* tv);
 
-// Generates an old to new map to reorder tv's loop domain as its allocation
-// order. This only handles the simple case where allocation is a permutation of
-// loop domain, otherwise, the function returns an empty container.
-std::unordered_map<int64_t, int64_t> maybeReorderAsAllocationMap(
+// Generates an old to new map to reorder tv's logical domain as its allocation
+// order. Allocation domain is canonicalized to find a permutation of the
+// logical domain that satisfies the order in allocation domain.
+std::unordered_map<int64_t, int64_t> reorderLogicalAsAllocationMap(
     TensorView* tv);
+
+// Generates an old to new map to reorder tv's loop domain as its allocation
+// order. Allocation domain is transformed to find a permutation of the loop
+// domain that satisfies the order in allocation domain.
+std::unordered_map<int64_t, int64_t> reorderLoopAsAllocationMap(TensorView* tv);
 
 // Assumes view's are consistent as detected by
 // registery.cpp::requiresForwardViewReplay returning false
@@ -744,7 +761,7 @@ void prepareForMemoryTypePromotion(Fusion* fusion);
 //! fusion is lowered.
 void promoteProducerMemoryTypes(
     Fusion* fusion,
-    const std::vector<TensorView*>& input_caches);
+    const std::vector<std::pair<TensorView*, int64_t>>& input_caches);
 
 //! Get all tensors that are connected to from_tvs without going through
 //! any tvs in the cutoff_tv_set.
