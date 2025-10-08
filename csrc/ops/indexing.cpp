@@ -316,39 +316,22 @@ TensorView* takeAlongAxis(TensorView* inp, TensorView* index, int64_t dim) {
   return out_tensor->as<TensorView>();
 }
 
-TensorView* preprocessGroupedMatmulInputSf(
-    TensorView* input,
-    TensorView* input_offsets,
-    TensorView* output_offsets,
+std::vector<IterDomain*> layoutAllocationDomain(
+    std::vector<IterDomain*> logical_dom,
+    Val* num_groups,
     BlockScalingFactorLayout layout) {
-  // only support input matrix;
-  auto input_logical_dom =
-      TensorDomain::noReductions(input->getLogicalDomain());
-  NVF_ERROR_EQ(input_logical_dom.size(), 2);
-
-  // This is used for both root and loop domain on output
-  // maps directly to input's logical domain.
-  std::vector<IterDomain*> out_logical_dom;
-  out_logical_dom.reserve(input_logical_dom.size());
-  std::ranges::transform(
-      input_logical_dom,
-      std::back_inserter(out_logical_dom),
-      [](IterDomain* id) { return IterDomainBuilder(id).build(); });
+  NVF_ERROR_EQ(logical_dom.size(), 2);
 
   // Create the logical domain of output.
-  std::vector<IterDomain*> out_alloc_dom;
-  out_alloc_dom.reserve(input_logical_dom.size());
+  std::vector<IterDomain*> alloc_dom;
+  alloc_dom.reserve(logical_dom.size());
 
   // only Block128x4 is supported at this point.
   NVF_CHECK_EQ(layout, BlockScalingFactorLayout::Block128x4);
   constexpr int col_multiple = 4;
   constexpr int row_multiple = 128;
 
-  auto* one_val = input->fusion()->oneVal(DataType::Index);
-  std::vector<IterDomain*> offset_logical_dom =
-      TensorDomain::noReductions(input_offsets->getLogicalDomain());
-  Val* num_groups =
-      SimplifyingIrBuilder::subExpr(offset_logical_dom[0]->extent(), one_val);
+  auto* one_val = num_groups->fusion()->oneVal(DataType::Index);
 
   // Note: output logical domain handles potential padding required for the
   // layout. Since the actual padding size is data-dependent, we allocate for
@@ -374,9 +357,13 @@ TensorView* preprocessGroupedMatmulInputSf(
     Val* padded_ext = SimplifyingIrBuilder::addExpr(
         id->extent(),
         SimplifyingIrBuilder::mulExpr(num_groups, maximum_pad_value_per_group));
-    return IterDomainBuilder(id).extent(padded_ext).build();
+    // set it as IterType::Symbolic to avoid domain validation errors
+    return IterDomainBuilder(id)
+        .extent(padded_ext)
+        .iter_type(IterType::Symbolic)
+        .build();
   };
-  out_alloc_dom.push_back(pad_to_max_extent(out_logical_dom[0], row_multiple));
+  alloc_dom.push_back(pad_to_max_extent(logical_dom[0], row_multiple));
 
   // pad col size: (col_size + col_multiple - 1) / col_multiple * col_multiple
   auto pad_to_multiple = [&](IterDomain* id, int multiple) -> IterDomain* {
@@ -389,11 +376,52 @@ TensorView* preprocessGroupedMatmulInputSf(
                 SimplifyingIrBuilder::addExpr(ext, multiple_val), one_val),
             multiple_val),
         multiple_val);
-    return IterDomainBuilder(id).extent(padded_ext).build();
+    // set it as IterType::Symbolic to avoid domain validation errors
+    return IterDomainBuilder(id)
+        .extent(padded_ext)
+        .iter_type(IterType::Symbolic)
+        .build();
   };
-  out_alloc_dom.push_back(pad_to_multiple(out_logical_dom[1], col_multiple));
+  alloc_dom.push_back(pad_to_multiple(logical_dom[1], col_multiple));
 
-  // Create the output tensor with logical domain matching inputs
+  return alloc_dom;
+}
+
+TensorView* preprocessGroupedMatmulInputSf(
+    TensorView* input,
+    TensorView* input_offsets,
+    TensorView* output_offsets,
+    BlockScalingFactorLayout layout) {
+  // only support input matrix;
+  auto input_logical_dom =
+      TensorDomain::noReductions(input->getLogicalDomain());
+  NVF_ERROR_EQ(input_logical_dom.size(), 2);
+
+  // This is used for both root and loop domain on output
+  // maps directly to input's logical domain.
+  std::vector<IterDomain*> out_logical_dom;
+  out_logical_dom.reserve(input_logical_dom.size());
+  std::ranges::transform(
+      input_logical_dom,
+      std::back_inserter(out_logical_dom),
+      [](IterDomain* id) { return IterDomainBuilder(id).build(); });
+
+  std::vector<IterDomain*> offset_logical_dom =
+      TensorDomain::noReductions(input_offsets->getLogicalDomain());
+  // modifying this to match our cutlass kernel
+  // auto* one_val = input->fusion()->oneVal(DataType::Index);
+  Val* num_groups =
+      // SimplifyingIrBuilder::subExpr(offset_logical_dom[0]->extent(),
+      // one_val);
+      offset_logical_dom[0]->extent();
+
+  // Create the allocation domain of output.
+  std::vector<IterDomain*> out_alloc_dom =
+      layoutAllocationDomain(out_logical_dom, num_groups, layout);
+
+  // TODO: try if revert to vanilla TensorDomain constructor and call set
+  // allocation domain later Create the output tensor with logical domain
+  // matching inputs
   TensorView* out_tv = IrBuilder::create<TensorView>(
       IrBuilder::create<TensorDomain>(
           /*root_domain=*/std::vector<IterDomain*>(),
