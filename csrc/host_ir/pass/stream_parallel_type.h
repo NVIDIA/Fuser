@@ -8,6 +8,7 @@
 #pragma once
 
 #include <fusion.h>
+#include <host_ir/lower.h>
 #include <host_ir/pass/optimization_pass.h>
 
 namespace nvfuser::hir_pass {
@@ -25,11 +26,18 @@ namespace nvfuser::hir_pass {
 class StreamParallelType : public OptimizationPass<StreamParallelType> {
   friend class OptimizationPass<StreamParallelType>;
 
+ public:
+  StreamParallelType(const HostIrLowerParams& params = HostIrLowerParams())
+      : params_(params) {}
+
  protected:
   void passImplementation(Fusion* fusion);
   static constexpr std::string_view name() {
     return "StreamParallelType";
   }
+
+ private:
+  HostIrLowerParams params_;
 };
 
 } // namespace nvfuser::hir_pass
