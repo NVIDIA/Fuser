@@ -143,11 +143,15 @@ class FusionKernelRuntime {
 
   //! Get the Host IR Container
   const hir::HostIrContainer& getHostIrContainer() const {
+    if (isOptionEnabled(EnableOption::HostIrJit)) {
 #ifdef NVFUSER_HOST_IR_JIT
-    return hij_->container();
+      return hij_->container();
 #else
-    return hie_->container();
+      NVF_ERROR(false, "Host IR JIT is not available. Please rebuild with NVFUSER_HOST_IR_JIT=ON");
 #endif
+    } else {
+      return hie_->container();
+    }
   }
 
  private:
@@ -190,12 +194,11 @@ class FusionKernelRuntime {
   std::vector<std::unique_ptr<ExecutorAbstract>> executors_;
 
 #ifdef NVFUSER_HOST_IR_JIT
-  //! Host IR JIT
+  //! Host IR JIT (only available when built with NVFUSER_HOST_IR_JIT)
   std::unique_ptr<HostIrJit> hij_;
-#else
-  //! Host IR Evaluator
-  std::unique_ptr<hir::HostIrEvaluator> hie_;
 #endif
+  //! Host IR Evaluator (always available as fallback)
+  std::unique_ptr<hir::HostIrEvaluator> hie_;
 
   // A metadata copy of initial arguments used to contruct this
   // FusionKernelRuntime. Used during deserialization to schedule the fusion

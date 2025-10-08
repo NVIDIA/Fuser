@@ -157,11 +157,16 @@ void FusionKernelRuntime::evictCache(size_t input_id) {
 
 bool FusionKernelRuntime::isCompiled() const {
   if (isOptionEnabled(EnableOption::HostIrLowering)) {
+    if (isOptionEnabled(EnableOption::HostIrJit)) {
 #ifdef NVFUSER_HOST_IR_JIT
-    return hij_ != nullptr;
+      return hij_ != nullptr;
 #else
-    return hie_ != nullptr;
+      NVF_ERROR(false, "Host IR JIT is not available. Please rebuild with NVFUSER_HOST_IR_JIT=ON");
+      return false;
 #endif
+    } else {
+      return hie_ != nullptr;
+    }
   } else {
     std::lock_guard<std::mutex> guard(mutex_);
     return std::all_of(
@@ -299,13 +304,16 @@ KernelArgumentHolder FusionKernelRuntime::runWithInputs(
               << std::endl;
     }
 
+    KernelArgumentHolder outputs;
+    if (isOptionEnabled(EnableOption::HostIrJit)) {
 #ifdef NVFUSER_HOST_IR_JIT
-    auto outputs =
-        hij_->runWithInputs(args); // TODO: change NVFUSER_HOST_IR_JIT flag to
-                                   // enableOption in the future.
+      outputs = hij_->runWithInputs(args);
 #else
-    auto outputs = hie_->runWithInputs(args);
+      NVF_ERROR(false, "Host IR JIT is not available. Please rebuild with NVFUSER_HOST_IR_JIT=ON");
 #endif
+    } else {
+      outputs = hie_->runWithInputs(args);
+    }
 
     if (isDebugDumpEnabled(DebugDumpOption::PerfDebugVerbose)) {
       debug() << "============= FINISHED RUNNING HOSTIR EVALUATOR ============"
@@ -472,12 +480,16 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
     }
     std::unique_ptr<hir::HostIrContainer> hic = lowerSegmentedFusionToHostIr(
         *segmented_fusion_, launch_params_per_segment, executors_);
+    if (isOptionEnabled(EnableOption::HostIrJit)) {
 #ifdef NVFUSER_HOST_IR_JIT
-    hij_ = std::make_unique<HostIrJit>(std::move(hic));
+      hij_ = std::make_unique<HostIrJit>(std::move(hic));
 #else
-    hie_ = std::make_unique<hir::HostIrEvaluator>(
-        std::move(hic), &Communicator::getInstance());
+      NVF_ERROR(false, "Host IR JIT is not available. Please rebuild with NVFUSER_HOST_IR_JIT=ON");
 #endif
+    } else {
+      hie_ = std::make_unique<hir::HostIrEvaluator>(
+          std::move(hic), &Communicator::getInstance());
+    }
   }
 
   if (isProfilerEnabled()) {
