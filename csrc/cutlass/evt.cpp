@@ -343,7 +343,7 @@ CommentedString argStringHelper(EVTModel::Node* node, int64_t indent_size) {
     };
     for (EVTModel::Node* input : node->inputs) {
       print_line(false);
-      const CommentedString cs = argStringHelper(input, indent_size + 1);
+      prev_cs = argStringHelper(input, indent_size + 1);
     }
     print_line(true);
     indent(ss, indent_size) << "}";
