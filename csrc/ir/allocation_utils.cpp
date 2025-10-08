@@ -177,13 +177,8 @@ Layout Layout::contiguous() const {
 
 namespace {
 bool contiguityIsCompliant(
-    const IterDomain* id,
     const std::optional<bool>& actual,
     const std::optional<bool>& required) {
-  // const auto ptype = id->getParallelType();
-  // if (isParallelTypeDeviceDim(ptype)) {
-  //   return true;
-  // }
   if (actual == true && required == false) {
     return true;
   }
@@ -199,7 +194,7 @@ bool isCompliantWith(const Layout& layout, const Layout& required) {
   }
 
   for (const auto i : arange(layout.size())) {
-    if (!contiguityIsCompliant(layout.allocation_domain(i), layout.contiguity(i), required.contiguity(i))) {
+    if (!contiguityIsCompliant(layout.contiguity(i), required.contiguity(i))) {
       return false;
     }
   }
