@@ -388,61 +388,10 @@ std::unordered_set<IterDomain*> getInputsInTargetDomain(
   return inputs_as_iter_domains;
 }
 
-bool haveDifferentShardings(
+bool areMappedOnParallelTypes(
     const TensorView* producer,
-    const TensorView* consumer) {
-  // cpu scalars are not required to have a mesh
-  if (producer->isCpuScalar() || consumer->isCpuScalar()) {
-    return false;
-  }
-
-  // exit early in the unsharded case for performance
-  if (!producer->hasDeviceMesh() && !consumer->hasDeviceMesh()) {
-    return false;
-  }
-
-  // If device mesh are different, the Expr is resharding
-  if (producer->getDeviceMesh() != consumer->getDeviceMesh()) {
-    return true;
-  }
-
-  // Special handling of SelectOp for a quick fix
-  // TODO: work on a proper implementation
-  if (consumer->definition()->isA<SelectOp>()) {
-    auto* select_op = consumer->definition()->as<SelectOp>();
-    NVF_ERROR(
-        select_op->input(0) == producer, "SelectOp input 0 is not producer");
-    // If we select into the sharded axis, the op is resharding because the
-    // axis doesn't exist in the consumer and so becomes "replicated".
-    //
-    // tv0 = makeContigTensor(2); // [DIDx(4), 8] on mesh {0,1,2,3}
-    // tv1 = select(tv0, /*axis=*/0, /*index=*/1); // [8] on mesh {0,1,2,3}
-    //
-    // The long term better solution would actually to "select" into the
-    // DeviceMesh, e.g.,
-    //
-    // tv0 = makeContigTensor(2); // [DIDx(4), 8] on mesh {0,1,2,3}
-    // tv1 = select(tv0, /*axis=*/0, /*index=*/1); // [8] on mesh {1}
-    // But for achieving this with symbolic "index" we need to make DeviceMesh
-    // symbolic.
-    if (select_op->getIndexedID()->isDeviceDim()) {
-      return true;
-    }
-    // If the sharded axis is not selected into, then we still need to check
-    // that other axis do not get resharded.
-    const std::unordered_map<IterDomain*, IterDomain*>& c2p =
-        PairwiseLogicalDomainMap(producer, consumer)
-            .mapBroadcast(false)
-            .mapConsumerToProducer();
-    return !std::all_of(
-        consumer->getLoopDomain().begin(),
-        consumer->getLoopDomain().end(),
-        [&c2p](IterDomain* c_id) {
-          auto p_id = c2p.at(c_id);
-          return c_id->isDeviceDim() == p_id->isDeviceDim();
-        });
-  }
-
+    const TensorView* consumer,
+    const std::vector<ParallelType>& parallel_types) {
   // The rest of this function tries to do the following: for each pair of
   // logical-domain-mapped IterDomains (i.e. those mapped by
   // PairwiseLogicalDomainMap), check if they are sharded consistently. If not,
@@ -509,12 +458,13 @@ bool haveDifferentShardings(
   };
 
   // Create indices for producer logical IDs and consumer root IDs. As an
-  // optimization, we create indices only for those that DIDs depend on.
+  // optimization, we create indices only for those that parallel ids depend on.
   std::unordered_map<ParallelType, IterDomain*> p_parallel_type_to_id =
       mapDeviceAndStreamParallelTypeToId(producer->getLoopDomain());
   std::unordered_map<ParallelType, IterDomain*> c_parallel_type_to_id =
       mapDeviceAndStreamParallelTypeToId(consumer->getLoopDomain());
-  for (const auto parallel_type : kParallelTypeDIDs) {
+
+  for (const auto parallel_type : parallel_types) {
     if (IterDomain* p_loop_id =
             getOrDefault(p_parallel_type_to_id, parallel_type)) {
       for (IterDomain* p_logical_id :
@@ -528,7 +478,7 @@ bool haveDifferentShardings(
     }
   }
 
-  for (const auto parallel_type : kParallelTypeDIDs) {
+  for (const auto parallel_type : parallel_types) {
     if (IterDomain* c_loop_id =
             getOrDefault(c_parallel_type_to_id, parallel_type)) {
       for (IterDomain* c_root_id : getInputsInTargetDomain(
@@ -560,8 +510,8 @@ bool haveDifferentShardings(
 
   // For each parallel type, check whether the corresponding loop index in the
   // producer and that in the consumer are equivalent. If they can't be proven
-  // to be equivalent, return is-resharding.
-  for (const auto parallel_type : kParallelTypeDIDs) {
+  // to be equivalent, return false.
+  for (const auto parallel_type : parallel_types) {
     IterDomain* p_id = getOrDefault(p_parallel_type_to_id, parallel_type);
     Val* p_index = nullptr;
     bool p_mapped = false;
@@ -597,11 +547,75 @@ bool haveDifferentShardings(
     }();
 
     if (!is_equivalent) {
-      return true;
+      return false;
     }
   }
 
-  return false;
+  return true;
+}
+
+bool haveDifferentShardings(
+    const TensorView* producer,
+    const TensorView* consumer) {
+  // cpu scalars are not required to have a mesh
+  if (producer->isCpuScalar() || consumer->isCpuScalar()) {
+    return false;
+  }
+
+  // exit early in the unsharded case for performance
+  if (!producer->hasDeviceMesh() && !consumer->hasDeviceMesh()) {
+    return false;
+  }
+
+  // If device mesh are different, the Expr is resharding
+  if (producer->getDeviceMesh() != consumer->getDeviceMesh()) {
+    return true;
+  }
+
+  // Special handling of SelectOp for a quick fix
+  // TODO: work on a proper implementation
+  if (consumer->definition()->isA<SelectOp>()) {
+    auto* select_op = consumer->definition()->as<SelectOp>();
+    NVF_ERROR(
+        select_op->input(0) == producer, "SelectOp input 0 is not producer");
+    // If we select into the sharded axis, the op is resharding because the
+    // axis doesn't exist in the consumer and so becomes "replicated".
+    //
+    // tv0 = makeContigTensor(2); // [DIDx(4), 8] on mesh {0,1,2,3}
+    // tv1 = select(tv0, /*axis=*/0, /*index=*/1); // [8] on mesh {0,1,2,3}
+    //
+    // The long term better solution would actually to "select" into the
+    // DeviceMesh, e.g.,
+    //
+    // tv0 = makeContigTensor(2); // [DIDx(4), 8] on mesh {0,1,2,3}
+    // tv1 = select(tv0, /*axis=*/0, /*index=*/1); // [8] on mesh {1}
+    // But for achieving this with symbolic "index" we need to make DeviceMesh
+    // symbolic.
+    if (select_op->getIndexedID()->isDeviceDim()) {
+      return true;
+    }
+    // If the sharded axis is not selected into, then we still need to check
+    // that other axis do not get resharded.
+    const std::unordered_map<IterDomain*, IterDomain*>& c2p =
+        PairwiseLogicalDomainMap(producer, consumer)
+            .mapBroadcast(false)
+            .mapConsumerToProducer();
+    return !std::all_of(
+        consumer->getLoopDomain().begin(),
+        consumer->getLoopDomain().end(),
+        [&c2p](IterDomain* c_id) {
+          auto p_id = c2p.at(c_id);
+          return c_id->isDeviceDim() == p_id->isDeviceDim();
+        });
+  }
+
+  // Check if all parallel types are mapped between producer and consumer.
+  // If any are not mapped, it indicates resharding.
+  return !areMappedOnParallelTypes(
+      producer,
+      consumer,
+      std::vector<ParallelType>(
+          kParallelTypeDIDs.begin(), kParallelTypeDIDs.end()));
 }
 
 bool isResharding(const Expr* expr) {
