@@ -1292,6 +1292,7 @@ class ReusableAllocationFinder : private kir::IrVisitor {
   //!  current enforced conditions are:
   //!
   //! 1. The two buffers have producer-consumer relationship
+  //! 2. Prevent WAR hazards when buffers are at different loop nesting levels
   //! 3. Require index equivalence when sharing across broadcast
   bool isValidInnerSharing(
       AllocationInfo* alloc_info,
@@ -1312,44 +1313,69 @@ class ReusableAllocationFinder : private kir::IrVisitor {
       return false;
     }
 
-    // Check if there are any unrollable loops that overlap with the liveness
-    // intervals. When a loop is unrolled, multiple iterations execute
-    // simultaneously, making the linear position-based liveness analysis
-    // invalid. This only applies to register (Local) memory, since shared and
-    // global memory have explicit addresses and don't use register aliasing.
-    // We check all allocations to find their loop scopes and see if any
-    // unrollable loop's body overlaps with our liveness intervals.
-    auto has_unrollable_overlap = [&](AllocationInfo* info) {
-      // Only check register allocations
-      if (info->mem_type != MemoryType::Local) {
-        return false;
+    // Check for WAR hazard across nested loops:
+    // If the two buffers are computed at different loop nesting levels,
+    // we must ensure that aliasing won't cause writes in an inner loop
+    // to corrupt data needed by future iterations of an outer loop.
+    //
+    // Example hazard:
+    //   for i65 in outer_loop:
+    //     T42[i65] = ...        // T42 computed at outer level
+    //     for i67 in inner_loop:
+    //       ... = T42[i65]      // Read T42
+    //       T46[i67] = ...      // T46 computed at inner level
+    //
+    // If T46 aliases T42, then writes T46[0], T46[1], ... in the first
+    // outer iteration will overwrite T42[0], T42[1], ... which are needed
+    // in subsequent outer iterations.
+    if (alloc_info->loop_info != to_reuse->loop_info) {
+      // Different loop nesting levels detected
+      // Determine which is at the outer level by comparing start positions
+      AllocationInfo* outer_alloc = nullptr;
+      AllocationInfo* inner_alloc = nullptr;
+
+      // Compare start positions to determine nesting
+      // The allocation with earlier start_pos is at outer level
+      if (to_reuse->loop_info->start_pos < alloc_info->loop_info->start_pos &&
+          alloc_info->loop_info->start_pos < to_reuse->loop_info->end_pos) {
+        // to_reuse is at outer level, alloc_info is at inner level
+        outer_alloc = to_reuse;
+        inner_alloc = alloc_info;
+      } else if (
+          alloc_info->loop_info->start_pos < to_reuse->loop_info->start_pos &&
+          to_reuse->loop_info->start_pos < alloc_info->loop_info->end_pos) {
+        // alloc_info is at outer level, to_reuse is at inner level
+        outer_alloc = alloc_info;
+        inner_alloc = to_reuse;
       }
 
-      auto first_write = info->inner_live_interval->firstWrite();
-      auto last_read = info->inner_live_interval->lastRead();
+      if (outer_alloc != nullptr && inner_alloc != nullptr) {
+        // We have nested loops. Check if outer buffer is read by inner
+        // operations. If the outer buffer is read at the inner level and the
+        // inner buffer is written multiple times in a loop, we have a potential
+        // WAR hazard.
+        auto outer_tv = outer_alloc->alloc_expr->buffer()->as<TensorView>();
+        auto inner_tv = inner_alloc->alloc_expr->buffer()->as<TensorView>();
 
-      // Check all other allocations' loop scopes to find unrollable loops
-      for (const auto& other_info : allocation_info_map_.allAllocationInfos()) {
-        auto loop = other_info->loop_info->loop;
-        if (loop != nullptr && loop->isUnrollable()) {
-          auto loop_start = other_info->loop_info->start_pos;
-          auto loop_end = other_info->loop_info->end_pos;
+        // Check if outer_tv is used as input to inner_tv
+        auto vals_between =
+            DependencyCheck::getAllValsBetween({inner_tv}, {outer_tv});
+        if (!vals_between.empty()) {
+          // inner_tv depends on outer_tv
+          // The outer buffer is read at inner level, creating WAR hazard
+          // Disallow this aliasing
+          return false;
+        }
 
-          // If this unrollable loop's body overlaps with the liveness interval,
-          // then inner aliasing is unsafe. The overlap means that the
-          // allocation is live during the execution of an unrolled loop, where
-          // multiple iterations exist simultaneously.
-          if (loop_start < last_read && loop_end > first_write) {
-            return true;
-          }
+        vals_between =
+            DependencyCheck::getAllValsBetween({outer_tv}, {inner_tv});
+        if (!vals_between.empty()) {
+          // outer_tv depends on inner_tv
+          // This is also problematic - inner writes could corrupt outer reads
+          // in subsequent iterations
+          return false;
         }
       }
-      return false;
-    };
-
-    if (has_unrollable_overlap(alloc_info) ||
-        has_unrollable_overlap(to_reuse)) {
-      return false;
     }
 
     // Check the values in between the two buffers.
