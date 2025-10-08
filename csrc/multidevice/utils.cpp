@@ -228,7 +228,7 @@ IterDomain* getShardedIterDomain(
     NVF_THROW("Unexpected parallel type: ", parallel_type);
   }();
 
-  for (auto&& [index, id] : enumerate(domain)) {
+  for (IterDomain* id : domain | TensorDomain::kNoReductions) {
     if (id->getParallelType() == parallel_type) {
       return id;
     }
@@ -266,9 +266,10 @@ std::vector<int64_t> unshardedSizes(
     }
 
     const int64_t sharded_axis = getProducingLogicalAxis(tv, sharded_id);
-    if (sharded_axis == -1) {
-      continue;
-    }
+    NVF_ERROR(
+        sharded_axis != -1,
+        "Producing logical axis not found for ",
+        sharded_id);
 
     auto multiplier = [&]() -> int64_t {
       if (parallel_type == ParallelType::Stream) {
@@ -388,10 +389,76 @@ std::unordered_set<IterDomain*> getInputsInTargetDomain(
   return inputs_as_iter_domains;
 }
 
-bool areMappedOnParallelTypes(
+bool haveDifferentShardings(
     const TensorView* producer,
     const TensorView* consumer,
-    const std::vector<ParallelType>& parallel_types) {
+    const std::unordered_set<ParallelType>& parallel_types) {
+  // cpu scalars are not parallelized
+  if (producer->isCpuScalar() || consumer->isCpuScalar()) {
+    return false;
+  }
+
+  // exit early in the unsharded case for performance if we are
+  // not checking for `Stream`.
+  if (!producer->hasDeviceMesh() && !consumer->hasDeviceMesh() &&
+      !parallel_types.count(ParallelType::Stream)) {
+    return false;
+  }
+
+  // If device mesh are different, the Expr is resharding if parallel_types
+  // includes DIDs
+  if (std::any_of(
+          kParallelTypeDIDs.begin(),
+          kParallelTypeDIDs.end(),
+          [&](ParallelType pt) { return parallel_types.count(pt); }) &&
+      producer->getDeviceMesh() != consumer->getDeviceMesh()) {
+    return true;
+  }
+
+  // Special handling of SelectOp for a quick fix
+  // TODO: work on a proper implementation
+  if (consumer->definition()->isA<SelectOp>()) {
+    auto* select_op = consumer->definition()->as<SelectOp>();
+    NVF_ERROR(
+        select_op->input(0) == producer, "SelectOp input 0 is not producer");
+    // If we select into the sharded axis, the op is resharding because the
+    // axis doesn't exist in the consumer and so becomes "replicated".
+    //
+    // tv0 = makeContigTensor(2); // [DIDx(4), 8] on mesh {0,1,2,3}
+    // tv1 = select(tv0, /*axis=*/0, /*index=*/1); // [8] on mesh {0,1,2,3}
+    //
+    // The long term better solution would actually to "select" into the
+    // DeviceMesh, e.g.,
+    //
+    // tv0 = makeContigTensor(2); // [DIDx(4), 8] on mesh {0,1,2,3}
+    // tv1 = select(tv0, /*axis=*/0, /*index=*/1); // [8] on mesh {1}
+    // But for achieving this with symbolic "index" we need to make DeviceMesh
+    // symbolic.
+
+    auto indexed_id_pt = select_op->getIndexedID()->getParallelType();
+    if (parallel_types.count(indexed_id_pt)) {
+      return true;
+    }
+    // If the sharded axis is not selected into, then we still need to check
+    // that other axis do not get resharded.
+    const std::unordered_map<IterDomain*, IterDomain*>& c2p =
+        PairwiseLogicalDomainMap(producer, consumer)
+            .mapBroadcast(false)
+            .mapConsumerToProducer();
+    return !std::all_of(
+        consumer->getLoopDomain().begin(),
+        consumer->getLoopDomain().end(),
+        [&c2p, &parallel_types](IterDomain* c_id) {
+          auto p_id = c2p.at(c_id);
+          auto p_id_pt = p_id->getParallelType();
+          auto c_id_pt = c_id->getParallelType();
+          if (parallel_types.count(p_id_pt) || parallel_types.count(c_id_pt)) {
+            return p_id_pt == c_id_pt;
+          }
+          return true;
+        });
+  }
+
   // The rest of this function tries to do the following: for each pair of
   // logical-domain-mapped IterDomains (i.e. those mapped by
   // PairwiseLogicalDomainMap), check if they are sharded consistently. If not,
@@ -458,12 +525,12 @@ bool areMappedOnParallelTypes(
   };
 
   // Create indices for producer logical IDs and consumer root IDs. As an
-  // optimization, we create indices only for those that parallel ids depend on.
+  // optimization, we create indices only for those that parallel_types depend
+  // on.
   std::unordered_map<ParallelType, IterDomain*> p_parallel_type_to_id =
       mapDeviceAndStreamParallelTypeToId(producer->getLoopDomain());
   std::unordered_map<ParallelType, IterDomain*> c_parallel_type_to_id =
       mapDeviceAndStreamParallelTypeToId(consumer->getLoopDomain());
-
   for (const auto parallel_type : parallel_types) {
     if (IterDomain* p_loop_id =
             getOrDefault(p_parallel_type_to_id, parallel_type)) {
@@ -510,7 +577,7 @@ bool areMappedOnParallelTypes(
 
   // For each parallel type, check whether the corresponding loop index in the
   // producer and that in the consumer are equivalent. If they can't be proven
-  // to be equivalent, return false.
+  // to be equivalent, return is-resharding.
   for (const auto parallel_type : parallel_types) {
     IterDomain* p_id = getOrDefault(p_parallel_type_to_id, parallel_type);
     Val* p_index = nullptr;
@@ -547,75 +614,11 @@ bool areMappedOnParallelTypes(
     }();
 
     if (!is_equivalent) {
-      return false;
-    }
-  }
-
-  return true;
-}
-
-bool haveDifferentShardings(
-    const TensorView* producer,
-    const TensorView* consumer) {
-  // cpu scalars are not required to have a mesh
-  if (producer->isCpuScalar() || consumer->isCpuScalar()) {
-    return false;
-  }
-
-  // exit early in the unsharded case for performance
-  if (!producer->hasDeviceMesh() && !consumer->hasDeviceMesh()) {
-    return false;
-  }
-
-  // If device mesh are different, the Expr is resharding
-  if (producer->getDeviceMesh() != consumer->getDeviceMesh()) {
-    return true;
-  }
-
-  // Special handling of SelectOp for a quick fix
-  // TODO: work on a proper implementation
-  if (consumer->definition()->isA<SelectOp>()) {
-    auto* select_op = consumer->definition()->as<SelectOp>();
-    NVF_ERROR(
-        select_op->input(0) == producer, "SelectOp input 0 is not producer");
-    // If we select into the sharded axis, the op is resharding because the
-    // axis doesn't exist in the consumer and so becomes "replicated".
-    //
-    // tv0 = makeContigTensor(2); // [DIDx(4), 8] on mesh {0,1,2,3}
-    // tv1 = select(tv0, /*axis=*/0, /*index=*/1); // [8] on mesh {0,1,2,3}
-    //
-    // The long term better solution would actually to "select" into the
-    // DeviceMesh, e.g.,
-    //
-    // tv0 = makeContigTensor(2); // [DIDx(4), 8] on mesh {0,1,2,3}
-    // tv1 = select(tv0, /*axis=*/0, /*index=*/1); // [8] on mesh {1}
-    // But for achieving this with symbolic "index" we need to make DeviceMesh
-    // symbolic.
-    if (select_op->getIndexedID()->isDeviceDim()) {
       return true;
     }
-    // If the sharded axis is not selected into, then we still need to check
-    // that other axis do not get resharded.
-    const std::unordered_map<IterDomain*, IterDomain*>& c2p =
-        PairwiseLogicalDomainMap(producer, consumer)
-            .mapBroadcast(false)
-            .mapConsumerToProducer();
-    return !std::all_of(
-        consumer->getLoopDomain().begin(),
-        consumer->getLoopDomain().end(),
-        [&c2p](IterDomain* c_id) {
-          auto p_id = c2p.at(c_id);
-          return c_id->isDeviceDim() == p_id->isDeviceDim();
-        });
   }
 
-  // Check if all parallel types are mapped between producer and consumer.
-  // If any are not mapped, it indicates resharding.
-  return !areMappedOnParallelTypes(
-      producer,
-      consumer,
-      std::vector<ParallelType>(
-          kParallelTypeDIDs.begin(), kParallelTypeDIDs.end()));
+  return false;
 }
 
 bool isResharding(const Expr* expr) {
@@ -629,7 +632,7 @@ bool isResharding(const Expr* expr) {
   // which is too costly
   for (auto* input : ir_utils::filterByType<TensorView>(expr->inputs())) {
     for (auto* output : ir_utils::filterByType<TensorView>(expr->outputs())) {
-      if (haveDifferentShardings(input, output)) {
+      if (haveDifferentShardings(input, output, deviceParallelTypes())) {
         return true;
       }
     }
@@ -643,6 +646,15 @@ std::unordered_set<ParallelType> deviceAndStreamParallelTypes() {
     std::unordered_set<ParallelType> s(
         {kParallelTypeDIDs.begin(), kParallelTypeDIDs.end()});
     s.insert(ParallelType::Stream);
+    return s;
+  }();
+  return s;
+}
+
+std::unordered_set<ParallelType> deviceParallelTypes() {
+  static auto s = [&] {
+    std::unordered_set<ParallelType> s(
+        {kParallelTypeDIDs.begin(), kParallelTypeDIDs.end()});
     return s;
   }();
   return s;

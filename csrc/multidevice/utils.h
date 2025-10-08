@@ -46,21 +46,17 @@ std::unordered_set<TensorView*> getTvsWithDifferentSharding(
 // Returns whether an Expr embeds multi-device resharding
 NVF_API bool isResharding(const Expr* expr);
 
-// Returns whether loop indices parallelized on particular parallel types are
-// mapped between producer and consumer. 
-bool areMappedOnParallelTypes(
-    const TensorView* producer,
-    const TensorView* consumer,
-    const std::vector<ParallelType>& parallel_types);
-
 // Returns whether two tensors have different shardings. Expect a
 // producer/consumer relationship between the arguments.
 bool haveDifferentShardings(
     const TensorView* producer,
-    const TensorView* consumer);
+    const TensorView* consumer,
+    const std::unordered_set<ParallelType>& parallel_types);
 
 // Returns a set that contains DIDs and Stream.
 std::unordered_set<ParallelType> deviceAndStreamParallelTypes();
+
+std::unordered_set<ParallelType> deviceParallelTypes();
 
 // Collect device and stream parallelized IterDomains in `domain` and return
 // them as a ParallelType-to-IterDomain map. Excludes reduction iterdomains.

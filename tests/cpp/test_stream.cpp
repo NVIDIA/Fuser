@@ -57,7 +57,7 @@ TEST_F(StreamTest, AddPerStream) {
       << out_tensor << " vs " << expected_out_tensor;
 }
 
-TEST_F(StreamTest, areMappedOnParallelTypes) {
+TEST_F(StreamTest, haveDifferentShardings) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -82,8 +82,8 @@ TEST_F(StreamTest, areMappedOnParallelTypes) {
   tv3->outer_split(1, s);
   tv3->axis(1)->parallelize(ParallelType::Stream);
 
-  EXPECT_TRUE(areMappedOnParallelTypes(tv1, tv2, {ParallelType::Stream}));
-  EXPECT_FALSE(areMappedOnParallelTypes(tv2, tv3, {ParallelType::Stream}));
+  EXPECT_FALSE(haveDifferentShardings(tv1, tv2, {ParallelType::Stream}));
+  EXPECT_TRUE(haveDifferentShardings(tv2, tv3, {ParallelType::Stream}));
 }
 
 } // namespace nvfuser
