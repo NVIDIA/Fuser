@@ -1895,6 +1895,9 @@ std::pair<IrCloner, std::unique_ptr<Fusion>> SegmentedFusion::makeFusion(
   // wouldn't try to index into the given tensor relying on allocation domain.
   for (TensorView* tv : sf_tvs) {
     for (Expr* use : tv->uses()) {
+      // clangtidy's false negative static analysis complains about use, see:
+      // https://github.com/llvm/llvm-project/issues/134454#issuecomment-2816262570
+      assert(use);
       auto* layout_op = dynamic_cast<CutlassNvfp4GroupedMmaOp*>(use);
       NVF_ERROR(
           layout_op,
