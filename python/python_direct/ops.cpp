@@ -3190,6 +3190,40 @@ Notes
 - This operation is equivalent to PyTorch's torch.nn.functional.embedding.
 )",
       py::return_value_policy::reference);
+  ops.def(
+      "preprocess_grouped_matmul_input_sf",
+      [](TensorView* input,
+         TensorView* input_offsets,
+         TensorView* output_offsets) -> decltype(auto) {
+        return preprocessGroupedMatmulInputSf(
+            input,
+            input_offsets,
+            output_offsets,
+            BlockScalingFactorLayout::Block128x4);
+      },
+      py::arg("input"),
+      py::arg("input_offsets"),
+      py::arg("output_offsets"),
+      R"(
+Layout operation to apply per group swizzle & padding for grouped matmul block scaling factor for activation.
+
+Parameters
+----------
+input : TensorView
+    A 2D tensor containing blockwise scaling factor
+input_offsets: TensorView
+    A 1D tensor with length as (1 + number of groups).
+    Its value notes the offsets of the starting token in each group, where the last entry contains the total number of token
+output_offsets: TensorView
+    A 1D tensor with length as (1 + number of groups).
+    Its value notes the offsets of the starting token in each group at the output tensor view.
+
+Returns
+-------
+TensorView
+    A tensor with proper swizzle & padding  in memory. Note that the actual padding in buffer is not represented by the size/stride of the output tensor.
+)",
+      py::return_value_policy::reference);
 }
 
 template <class ShapeType>
