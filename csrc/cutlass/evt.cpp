@@ -274,6 +274,9 @@ EVTModel::EVTModel(const EVTModel& model) {
     for (Node* inp : node_up->inputs) {
       new_node->inputs.push_back(old2new.at(inp));
     }
+    if (node_up->argument != nullptr) {
+      new_node->argument = node_up->argument;
+    }
   }
   setRoot(old2new.at(model.root()));
 }
