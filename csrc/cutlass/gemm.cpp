@@ -315,6 +315,7 @@ typename T::Gemm::Arguments args_from_options(
   using ElementCompute = float;
   using StrideA = typename T::StrideA;
   using StrideB = typename T::StrideB;
+  using StrideC = typename T::StrideC;
   using StrideD = typename T::StrideD;
   using Sm1xxBlkScaledConfig =
       typename T::Gemm::GemmKernel::CollectiveMainloop::Sm1xxBlkScaledConfig;
@@ -324,6 +325,7 @@ typename T::Gemm::Arguments args_from_options(
   int k = static_cast<int>(K);
   auto stride_A = cutlass::make_cute_packed_stride(StrideA{}, {m, k, 1});
   auto stride_B = cutlass::make_cute_packed_stride(StrideB{}, {n, k, 1});
+  auto stride_C = cutlass::make_cute_packed_stride(StrideC{}, {m, n, 1});
   auto stride_D = cutlass::make_cute_packed_stride(StrideD{}, {m, n, 1});
 
   auto layout_SFA = Sm1xxBlkScaledConfig::tile_atom_to_shape_SFA(
@@ -352,8 +354,8 @@ typename T::Gemm::Arguments args_from_options(
   }
   code += R"(
        , // epilogue.thread
-       nullptr,
-       nullptr,
+       nullptr, // TODO: pass bias.data_ptr here
+       stride_C,
        static_cast<ElementD*>(output.data_ptr),
        stride_D}};
   auto& fusion_args = arguments.epilogue.thread;
