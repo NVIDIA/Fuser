@@ -4,6 +4,7 @@
 # Owner(s): ["module: nvfuser"]
 
 import torch
+import pytest
 from nvfuser_direct import FusionDefinition, DataType, TensorView
 from looseversion import LooseVersion
 
@@ -112,3 +113,15 @@ def create_sdpa_rng_tensors() -> tuple[torch.Tensor, torch.Tensor]:
     philox_seed = torch.testing.make_tensor(philox_shape, device=device, dtype=dtype)
     philox_offset = torch.testing.make_tensor((), device=device, dtype=dtype)
     return philox_seed, philox_offset
+
+
+def skip_if_global_memory_below_gb(min_gb: int, gpu_id: int = 0):
+    device_properties = torch.cuda.get_device_properties(gpu_id)
+    total_memory_bytes = device_properties.total_memory
+    min_bytes = min_gb * (1024**3)
+
+    if total_memory_bytes < min_bytes:
+        pytest.skip(
+            f"Insufficient GPU global memory: requires ~{min_bytes} B, "
+            f"but only {total_memory_bytes} B available"
+        )
