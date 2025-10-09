@@ -336,9 +336,12 @@ void TransformReplay::selfReplay(
     std::vector<IterDomain*> new_allocation;
     std::vector<std::optional<bool>> new_contiguities;
 
-    // Push back the reduction IDs that are not mapped
     for (auto* new_id : new_self->logical()) {
       if (mapped_new_ids.count(new_id) == 0) {
+        NVF_ERROR(
+            new_id->isReduction(),
+            new_id->toString(),
+            " should be a reduction.");
         new_allocation.push_back(new_id);
         new_contiguities.push_back(std::nullopt);
       }
@@ -419,7 +422,7 @@ namespace {
 std::unordered_set<IterDomain*> getMaybeUnmappedIDs(
     const TensorView* tv,
     bool is_producer,
-    const std::unordered_map<IterDomain*, IterDomain*>& root_id_map) {
+    const IterDomainMap& root_id_map) {
   std::unordered_set<Val*> unmapped_root_ids;
 
   const auto& root_domain =
@@ -1154,7 +1157,7 @@ bool TransformReplay::fullSelfMatching(
   auto replay_dom = replay->getLoopDomain();
   auto target_root = target->getMaybeRootDomain();
   auto target_dom = target->getLoopDomain();
-  std::unordered_map<IterDomain*, IterDomain*> target2replay_map;
+  IterDomainMap target2replay_map;
   if (replay_root.size() != target_root.size()) {
     return false;
   }
@@ -1405,7 +1408,7 @@ namespace {
 TensorDomain* fullReplay(
     const TensorDomain* old_domain,
     const std::vector<IterDomain*>& new_root) {
-  std::unordered_map<IterDomain*, IterDomain*> old_root_to_new;
+  IterDomainMap old_root_to_new;
   NVF_CHECK(
       old_domain->maybeRoot().size() == new_root.size(),
       "Unable to replay transformations on a root domain of different size: ",
