@@ -573,6 +573,16 @@ void HostIrEvaluator::handle(kir::Allocate* allocate) {
   if (expr_evaluator_.isKnown(tv)) {
     return;
   }
+
+  // Check the cache if enabled
+  if (params_.use_allocation_cache) {
+    auto it = allocation_cache_.find(allocate);
+    if (it != allocation_cache_.end()) {
+      expr_evaluator_.bind(tv, it->second);
+      return;
+    }
+  }
+
   GlobalBufferInfo info =
       getBufferInfos(expr_evaluator_, PrimDataType::Int, {tv}).at(0);
   c10::Device device =
@@ -584,6 +594,12 @@ void HostIrEvaluator::handle(kir::Allocate* allocate) {
       c10::nullopt,
       device,
       c10::nullopt);
+
+  // Cache the allocation if enabled
+  if (params_.use_allocation_cache) {
+    allocation_cache_[allocate] = tensor;
+  }
+
   if (allocate->zeroInit()) {
     tensor.zero_();
   }
@@ -676,8 +692,36 @@ void HostIrEvaluator::handle(ReductionOp* reduction_op) {
     case BinaryOpType::Add:
       at::sum_out(output, input, reduction_axes);
       return;
+    case BinaryOpType::FMax: {
+      // Emulate fmax/fmin NAN behavior, which removes NANs except in the case
+      // where the whole set is NANs.
+      auto all_nans = at::all(at::isnan(input), reduction_axes);
+      auto removed_nans = at::nan_to_num(
+          input, /*nan=*/-std::numeric_limits<double>::infinity());
+
+      auto scalar_nan = at::scalar_tensor(
+          std::numeric_limits<double>::quiet_NaN(),
+          at::TensorOptions().dtype(output.dtype()));
+
+      at::where_out(
+          output, all_nans, scalar_nan, at::amax(removed_nans, reduction_axes));
+    }
+      return;
     case BinaryOpType::Max:
       at::amax_out(output, input, reduction_axes);
+      return;
+    case BinaryOpType::FMin: {
+      auto all_nans = at::all(at::isnan(input), reduction_axes);
+      auto removed_nans = at::nan_to_num(
+          input, /*nan=*/std::numeric_limits<double>::infinity());
+
+      auto scalar_nan = at::scalar_tensor(
+          std::numeric_limits<double>::quiet_NaN(),
+          at::TensorOptions().dtype(output.dtype()));
+
+      at::where_out(
+          output, all_nans, scalar_nan, at::amin(removed_nans, reduction_axes));
+    }
       return;
     case BinaryOpType::Min:
       at::amin_out(output, input, reduction_axes);

@@ -53,7 +53,8 @@ void bindEnums(py::module& nvfuser) {
   py::enum_<CommunicatorBackend>(
       nvfuser, "CommunicatorBackend", py::module_local())
       .value("nccl", CommunicatorBackend::kNccl)
-      .value("ucc", CommunicatorBackend::kUcc);
+      .value("ucc", CommunicatorBackend::kUcc)
+      .value("cuda", CommunicatorBackend::kCuda);
 
   py::enum_<SchedulerType>(nvfuser, "SchedulerType", py::module_local())
       .value("none", SchedulerType::None)
@@ -67,6 +68,24 @@ void bindEnums(py::module& nvfuser) {
       .value("transpose", SchedulerType::Transpose)
       .value("expr_eval", SchedulerType::ExprEval)
       .value("resize", SchedulerType::Resize);
+
+  py::enum_<LoadStoreOpType>(nvfuser, "LoadStoreOpType", py::module_local())
+      .value("set", LoadStoreOpType::Set)
+      .value("load_matrix", LoadStoreOpType::LdMatrix)
+      .value("cp_async", LoadStoreOpType::CpAsync)
+      .value("tma", LoadStoreOpType::CpAsyncBulkTensorTile);
+
+  py::enum_<MemoryType>(nvfuser, "MemoryType", py::module_local())
+      .value("tensor", MemoryType::Tensor)
+      .value("local", MemoryType::Local)
+      .value("shared", MemoryType::Shared)
+      .value("global", MemoryType::Global);
+
+  py::enum_<CacheOp>(nvfuser, "CacheOp", py::module_local())
+      .value("unspecified", CacheOp::Unspecified)
+      .value("all_levels", CacheOp::AllLevels)
+      .value("streaming", CacheOp::Streaming)
+      .value("global", CacheOp::Global);
 
   py::enum_<IdMappingMode>(nvfuser, "IdMappingMode")
       .value("exact", IdMappingMode::EXACT)

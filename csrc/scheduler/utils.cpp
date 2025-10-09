@@ -5,6 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include "utils.h"
 #include <scheduler/utils.h>
 
 #include <algorithm>
@@ -19,6 +20,7 @@
 #include <id_model/id_model.h>
 #include <id_model/schedule.h>
 #include <instrumentation.h>
+#include <ir/allocation_utils.h>
 #include <ir/builder.h>
 #include <ir/interface_nodes.h>
 #include <ir/utils.h>
@@ -303,17 +305,17 @@ void parallelizeAllLike(
   FusionGuard fg(reference_tv->fusion());
 
   if (pos < 0) {
-    pos += (int64_t)reference_tv->nDims() + 1;
+    pos += reference_tv->nDims() + 1;
   }
   NVF_CHECK(
-      pos >= 0 && pos <= (int64_t)reference_tv->nDims(),
+      pos >= 0 && pos <= reference_tv->nDims(),
       "parallelizeAllLike called on an position outside valid range.");
 
   std::unordered_map<IterDomain*, IterDomain*> concrete_to_reference_map;
 
   auto ca_map = ComputeAtMap(FusionGuard::getCurFusion());
 
-  const auto& reference_dom = reference_tv->getLoopDomain();
+  const std::vector<IterDomain*>& reference_dom = reference_tv->getLoopDomain();
   for (auto it = reference_dom.begin(); it != reference_dom.begin() + pos;
        it++) {
     auto ca_id =
@@ -1185,7 +1187,7 @@ std::pair<bool, bool> canonicalDimReduction(
     bool has_iter_axis = mergeNonReduction(tv) > 0;
     return {has_iter_axis, has_red_axis};
   } else {
-    NVF_ERROR(merge_3d(tv) == 3, "Tried 3D merge, but result is not 3D.");
+    NVF_ERROR_EQ(merge_3d(tv), 3, "Tried 3D merge, but result is not 3D.");
     if (tv->axis(1)->isBroadcast()) {
       NVF_ERROR(
           !tv->axis(0)->isBroadcast(),
@@ -1275,17 +1277,24 @@ void clearMemorySpace(Fusion* fusion) {
   }
 }
 
-// Returns cached after tensors of the fusion inputs if unrolled. Otherwise
-// return empty vector.
-std::vector<TensorView*> cacheInputs(Fusion* fusion, bool unroll) {
+// Returns the pairs of <cache, input_index> for each cached fusion input.
+// input_index is the position in fusion->inputs(). Otherwise return empty
+// vector.
+std::vector<std::pair<TensorView*, int64_t>> cacheInputs(
+    Fusion* fusion,
+    bool unroll) {
   if (!unroll) {
     return {};
   }
 
-  std::vector<TensorView*> cached_inputs;
+  std::vector<std::pair<TensorView*, int64_t>> cached_inputs;
   // If we're going to unroll, make a cache of the inputs
-  auto in_tvs = ir_utils::filterByType<TensorView>(fusion->inputs());
-  for (auto tv : in_tvs) {
+  for (auto [input_idx, input] : enumerate(fusion->inputs())) {
+    auto tv = dynamic_cast<TensorView*>(input);
+    if (!tv) {
+      continue;
+    }
+
     if (tv->nDims() == 0 || tv->uses().empty() ||
         ir_utils::isIndexSelectLookupTv(tv) ||
         ir_utils::isTvUsedByOpsOfType<SelectOp>(tv)) {
@@ -1326,19 +1335,25 @@ std::vector<TensorView*> cacheInputs(Fusion* fusion, bool unroll) {
         /*cache_op=*/CacheOp::Unspecified,
         /*propagate_allocation_domain=*/true,
         /*cached_uses=*/cached_uses);
-    cached_inputs.emplace_back(cached_tv);
+
+    cached_inputs.emplace_back(cached_tv, input_idx);
   }
   return cached_inputs;
 }
 
 // Returns the pairs of <cache of each fusion output, corresponding output> for
 // all outputs.
-std::vector<std::pair<TensorView*, TensorView*>> cacheAndForkOutputs(
+std::vector<std::pair<TensorView*, int64_t>> cacheAndForkOutputs(
     Fusion* fusion,
     bool unroll) {
-  std::vector<std::pair<TensorView*, TensorView*>> cached_outputs;
+  std::vector<std::pair<TensorView*, int64_t>> cached_outputs;
   // For intermediate outputs, apply cacheFork
-  for (auto output : ir_utils::filterByType<TensorView>(fusion->outputs())) {
+  for (auto [output_idx, output_val] : enumerate(fusion->outputs())) {
+    auto output = dynamic_cast<TensorView*>(output_val);
+    if (!output) {
+      continue;
+    }
+
     if (output->definition() == nullptr ||
         // the output of ScatterOp must on the global memory due to the random
         // or atomic access.
@@ -1356,7 +1371,7 @@ std::vector<std::pair<TensorView*, TensorView*>> cacheAndForkOutputs(
     // strategy is optimal.
     if (unroll) {
       auto cached_output = output->cacheBefore();
-      cached_outputs.emplace_back(cached_output, output);
+      cached_outputs.emplace_back(cached_output, output_idx);
     }
   }
   return cached_outputs;
@@ -2246,7 +2261,6 @@ void applyTransforms(
 // Returns a permutation reordering the loop domain of the tensor view as the
 // logical domain
 std::vector<int64_t> domainReorderAsLogicalMap(TensorView* tv) {
-  FusionGuard fg(tv->fusion());
   auto transform_exprs = DependencyCheck::getAllExprsBetween(
       {tv->getLogicalDomain().begin(), tv->getLogicalDomain().end()},
       {tv->getLoopDomain().begin(), tv->getLoopDomain().end()});
@@ -2263,31 +2277,55 @@ std::vector<int64_t> domainReorderAsLogicalMap(TensorView* tv) {
   return *permutation;
 }
 
-std::unordered_map<int64_t, int64_t> maybeReorderAsAllocationMap(
+std::unordered_map<int64_t, int64_t> reorderLogicalAsAllocationMap(
     TensorView* tv) {
-  std::unordered_map<int64_t, int64_t> ret;
-  if (!tv->hasAllocation()) {
-    return ret;
+  const auto& logical_domain = tv->getLogicalDomain();
+  std::optional<Layout> layout = canonicalizeLayout(tv);
+  NVF_ERROR(
+      layout.has_value(),
+      "Failed to canonicalize layout of ",
+      tv->domain()->toString(0, false));
+  const auto& alloc_domain = layout->allocation_domain();
+  if (alloc_domain == logical_domain) {
+    return {};
   }
-  const auto& alloc_dom = tv->getAllocationDomain();
-  const auto& loop_dom = tv->getLoopDomain();
-  if (alloc_dom == loop_dom) {
-    return ret;
+  const std::vector<int64_t> permutation =
+      *ir_utils::computePermutation(logical_domain, alloc_domain);
+  std::unordered_map<int64_t, int64_t> reorder_map;
+  reorder_map.reserve(permutation.size());
+  for (auto [new_pos, old_pos] : enumerate(permutation)) {
+    reorder_map[old_pos] = new_pos;
   }
-  if (!std::is_permutation(
-          alloc_dom.begin(), alloc_dom.end(), loop_dom.begin())) {
-    return ret;
+  return reorder_map;
+}
+
+std::unordered_map<int64_t, int64_t> reorderLoopAsAllocationMap(
+    TensorView* tv) {
+  const std::vector<IterDomain*>& loop_domain = tv->getLoopDomain();
+  std::vector<IterDomain*> alloc_domain = tv->getMaybeAllocationDomain();
+  auto transform_exprs = DependencyCheck::getAllExprsBetween(
+      {alloc_domain.begin(), alloc_domain.end()},
+      {loop_domain.begin(), loop_domain.end()});
+  applyTransforms(alloc_domain, transform_exprs);
+
+  if (alloc_domain == loop_domain) {
+    return {};
   }
-  std::unordered_map<IterDomain*, int64_t> alloc_index;
-  std::unordered_map<IterDomain*, int64_t> rfactor_index;
-  for (auto i : arange((int64_t)alloc_dom.size())) {
-    alloc_index[alloc_dom[i]] = i;
-    rfactor_index[loop_dom[i]] = i;
+  std::optional<std::vector<int64_t>> permutation =
+      ir_utils::computePermutation(loop_domain, alloc_domain);
+  NVF_ERROR(
+      permutation.has_value(),
+      "Failed to find a valid permutation for reordering loop domain [",
+      toDelimitedString(loop_domain),
+      "] as allocation domain [",
+      toDelimitedString(alloc_domain),
+      "]");
+  std::unordered_map<int64_t, int64_t> reorder_map;
+  reorder_map.reserve(permutation->size());
+  for (auto [new_pos, old_pos] : enumerate(*permutation)) {
+    reorder_map[old_pos] = new_pos;
   }
-  for (auto iter_dom : alloc_dom) {
-    ret[rfactor_index[iter_dom]] = alloc_index[iter_dom];
-  }
-  return ret;
+  return reorder_map;
 }
 
 void propagateReshapeTransforms(Fusion* fusion, const ComputeAtMap& ca_map) {
@@ -2473,7 +2511,7 @@ bool revertUseOfInputCache(
     TensorView* consumer,
     TensorView* promoted_producer,
     MemoryType promoted_memory_type,
-    const std::vector<TensorView*>& input_caches) {
+    const std::vector<std::pair<TensorView*, int64_t>>& input_caches) {
   auto get_copy_src = [](TensorView* tv) -> TensorView* {
     if (auto uop = dynamic_cast<LoadStoreOp*>(tv->definition())) {
       return uop->in()->as<TensorView>();
@@ -2495,9 +2533,10 @@ bool revertUseOfInputCache(
     return false;
   }
 
-  auto cache_it =
-      std::find(input_caches.begin(), input_caches.end(), producer_of_producer);
-  if (cache_it == input_caches.end()) {
+  if (std::ranges::find_if(
+          input_caches, [producer_of_producer](const auto& pair) {
+            return pair.first == producer_of_producer;
+          }) == input_caches.end()) {
     return false;
   }
 
@@ -2565,7 +2604,7 @@ void prepareForMemoryTypePromotion(Fusion* fusion) {
 
 void promoteProducerMemoryTypes(
     Fusion* fusion,
-    const std::vector<TensorView*>& input_caches) {
+    const std::vector<std::pair<TensorView*, int64_t>>& input_caches) {
   auto non_pwise_pairs = getNonPointwiseProducerConsumerPairs(fusion);
 
   // Just make it simpler to promote memory types. Minimum is
@@ -2718,7 +2757,7 @@ int64_t getReductionSmemWorkspaceBit(
   int64_t reduction_broadcast_workspace_bit =
       threads_per_block * dtype_size_bit * welford_factor;
 
-  return reduction_broadcast_workspace_bit;
+  return alignSharedMemoryBits(reduction_broadcast_workspace_bit);
 }
 
 bool isResharding(Fusion* fusion) {

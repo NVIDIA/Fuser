@@ -5,6 +5,11 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <multidevice/utils.h>
+
+#include <algorithm>
+#include <unordered_map>
+#include <vector>
 
 #include <device_lower/utils.h>
 #include <expr_simplifier.h>
@@ -15,7 +20,6 @@
 #include <ir/iostream.h>
 #include <ir/utils.h>
 #include <logical_domain_map.h>
-#include <multidevice/utils.h>
 #include <ops/all_ops.h>
 #include <statement_guard.h>
 #include <transform_replay.h>
@@ -224,7 +228,7 @@ IterDomain* getShardedIterDomain(
     NVF_THROW("Unexpected parallel type: ", parallel_type);
   }();
 
-  for (auto&& [index, id] : enumerate(domain)) {
+  for (IterDomain* id : domain | TensorDomain::kNoReductions) {
     if (id->getParallelType() == parallel_type) {
       return id;
     }
@@ -262,9 +266,10 @@ std::vector<int64_t> unshardedSizes(
     }
 
     const int64_t sharded_axis = getProducingLogicalAxis(tv, sharded_id);
-    if (sharded_axis == -1) {
-      continue;
-    }
+    NVF_ERROR(
+        sharded_axis != -1,
+        "Producing logical axis not found for ",
+        sharded_id);
 
     auto multiplier = [&]() -> int64_t {
       if (parallel_type == ParallelType::Stream) {
@@ -637,7 +642,7 @@ void shardAllLike(
   if (tvs.empty()) {
     return;
   }
-  for (auto tv : tvs) {
+  for (auto* tv : tvs) {
     tv->setDeviceMesh(ref->getDeviceMesh());
   }
   scheduler_utils::parallelizeAllLike(ref, tvs, parallel_types);
@@ -708,37 +713,54 @@ void unshard(Fusion* fusion) {
   }
 }
 
-std::set<DeviceIdxType> involvedDevices(Expr* expr) {
-  std::set<DeviceIdxType> ret;
-  for (const auto& tvs :
-       {ir_utils::filterByType<TensorView>(expr->inputs()),
-        ir_utils::filterByType<TensorView>(expr->outputs())}) {
-    for (auto* tv : tvs) {
-      if (tv->hasDeviceMesh()) {
-        const auto& mesh = tv->getDeviceMesh().vector();
-        ret.insert(mesh.begin(), mesh.end());
-      } else {
-        ret.insert(0);
-      }
-    }
+namespace {
+int64_t rankOfParallelType(ParallelType parallel_type) {
+  // Currently, when reorderParallelizedToFront is called, the loop domain is
+  // expected to be parallelized on only Stream and DIDs. To make the order
+  // convenient for schedulers, we put Stream first, DIDs second, and Serial
+  // last. Stream is before DIDs so we can inline computation and communication
+  // into the same host for-loop. The best order between DIDs is unclear. We'll
+  // decide that when we support 2D sharding, e.g., https://nv/nvfuser-cp
+  switch (parallel_type) {
+    case ParallelType::Stream:
+      return 0;
+    case ParallelType::DIDx:
+    case ParallelType::DIDy:
+    case ParallelType::DIDz:
+      return 1;
+    default:
+      // I could assign other types an arbitrary rank but I prefer NVF_THROW to
+      // catch unexpected changes in the future.
+      NVF_THROW("Unexpected parallel type: ", parallel_type);
   }
-  return ret;
 }
+} // namespace
 
-std::unordered_map<int64_t, int64_t> reorderDIDToFront(TensorView* tv) {
-  // old position to new position
-  std::unordered_map<int64_t, int64_t> order_map;
-  int64_t current_pos = 0;
-
-  for (auto pos : arange(tv->nDims())) {
-    if (tv->axis(pos)->isDeviceDim()) {
-      order_map[pos] = current_pos;
-      current_pos++;
+std::unordered_map<int64_t, int64_t> reorderParallelizedToFront(
+    TensorView* tv) {
+  std::vector<std::pair<int64_t, int64_t>> rank_to_axis;
+  rank_to_axis.reserve(tv->nDims());
+  for (auto [axis, id] : enumerate(tv->getLoopDomain())) {
+    auto parallel_type = id->getParallelType();
+    // We skip ParallelType::Serial because TensorView::reorder automatically
+    // orders unspecified IterDomains to the back stably.
+    if (parallel_type != ParallelType::Serial) {
+      rank_to_axis.emplace_back(rankOfParallelType(parallel_type), axis);
     }
   }
 
-  tv->reorder(order_map);
-  return order_map;
+  std::stable_sort(rank_to_axis.begin(), rank_to_axis.end());
+
+  // old position to new position
+  std::unordered_map<int64_t, int64_t> order;
+  int64_t current_pos = 0;
+  for (auto [rank, axis] : rank_to_axis) {
+    order[axis] = current_pos;
+    current_pos++;
+  }
+
+  tv->reorder(order);
+  return order;
 }
 
 std::unordered_set<TensorView*> getTvsWithDifferentSharding(

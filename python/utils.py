@@ -30,11 +30,13 @@ class BuildConfig:
     version_tag: str = None
     build_type: str = "Release"
     wheel_name: str = "nvfuser"
+    nvmmh_include_dir: str = None
     build_dir: str = ""
     install_dir: str = ""
     install_requires: list = None
     extras_require: dict = None
     cpp_standard: int = 20
+    cutlass_max_jobs: int = 0
 
     def __post_init__(self):
         # dataclass cannot have mutable default values in the class definition
@@ -290,6 +292,11 @@ def override_build_config_from_env(config):
     if "NVFUSER_BUILD_VERSION_TAG" in os.environ:
         config.overwrite_version = True
         config.version_tag = os.getenv("NVFUSER_BUILD_VERSION_TAG")
+    if "NVFUSER_CUTLASS_MAX_JOBS" in os.environ:
+        config.cutlass_max_jobs = int(os.getenv("NVFUSER_CUTLASS_MAX_JOBS"))
+    if "NVFUSER_BUILD_NVMMH_INCLUDE_DIR" in os.environ:
+        config.has_nvmmh = True
+        config.nvmmh_include_dir = os.getenv("NVFUSER_BUILD_NVMMH_INCLUDE_DIR")
 
 
 def get_default_install_prefix():
@@ -485,6 +492,8 @@ def cmake(config, relative_path):
         f"-DBUILD_NVFUSER_BENCHMARK={on_or_off(not config.no_benchmark)}",
         f"-DNVFUSER_DISTRIBUTED={on_or_off(not config.build_without_distributed)}",
         f"-DUSE_HOST_IR_JIT={on_or_off(config.build_with_host_ir_jit)}",
+        f"-DCUTLASS_MAX_JOBS={config.cutlass_max_jobs}",
+        f"-DNVMMH_INCLUDE_DIR={config.nvmmh_include_dir}",
         "-B",
         cmake_build_dir,
     ]

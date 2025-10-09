@@ -30,7 +30,6 @@
 #include <val_graph_visitor.h>
 
 #include <algorithm>
-#include <fstream>
 
 namespace nvfuser {
 

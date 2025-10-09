@@ -281,20 +281,19 @@ class ExprValidator : public OptOutDispatch {
   // assumptions. This tight coupling isn't ideal, but it's not a
   // problem for now.
   void handle(ArgsortOp* aop) final {
-    auto inp_tv = ir_utils::getTvInput(aop);
-    auto out_tv = ir_utils::getTvOutput(aop);
+    validateGroupedOp(
+        ir_utils::getTvInput(aop), ir_utils::getTvOutput(aop), aop->dim());
+  }
 
-    // Both input and output must be Local tensors. The local input
-    // tensor is initialized to the max or min value so that
-    // out-of-bounds items do not affect the results
-    NVF_ERROR_EQ(inp_tv->getMemoryType(), MemoryType::Local);
-    NVF_ERROR_EQ(out_tv->getMemoryType(), MemoryType::Local);
+  void handle(ScanOp* sop) final {
+    validateGroupedOp(
+        ir_utils::getTvInput(sop), ir_utils::getTvOutput(sop), sop->dim());
+  }
 
-    // The input will be initialized for this argsort. To avoid any
-    // potential conflict of initialization, require the input to be
-    // exclusively used by the argsort
-    NVF_ERROR_EQ(inp_tv->uses().size(), 1);
-
+  static void validateGroupedOp(
+      TensorView* inp_tv,
+      TensorView* out_tv,
+      int64_t logical_dim_to_group) {
     IterDomain* grouped_id = nullptr;
     for (const auto& loop_id : out_tv->getLoopDomain()) {
       if (loop_id->getParallelType() == ParallelType::Group) {
@@ -303,71 +302,89 @@ class ExprValidator : public OptOutDispatch {
       }
     }
 
-    if (grouped_id != nullptr) {
-      // If it's grouped, it must correspond to the innermost subregion
-      // of the logical argsort ID
-      IterDomain* argsort_logical_id =
-          out_tv->getLogicalDomain().at(aop->dim());
-      NVF_ERROR(
-          isInnermost(argsort_logical_id, grouped_id),
-          "Invalid ID to group: ",
-          grouped_id->toString(),
-          " of ",
-          aop->toString());
+    // Even if grouping is not used, CudaKernelGenerator assumes these
+    // properties for simplicity
 
-      // The output is allocated on registers, so the allocation
-      // domain should be just the same as the loop domain. The
-      // grouped ID must have the unit stride, which means all of the
-      // inner IDs must not contribute to the allocation
-      validateUnitStride(out_tv, out_tv->getLoopDomain(), grouped_id);
+    // Both input and output must be Local tensors so that the op can be
+    // executed without explicit predication. This makes it simpler to
+    // generate code for grouped calls
+    NVF_ERROR_EQ(inp_tv->getMemoryType(), MemoryType::Local);
+    NVF_ERROR_EQ(out_tv->getMemoryType(), MemoryType::Local);
 
-      // All of the inputs per thread must be provided to the device
-      // function as a contiguous chunk of memory where each element
-      // has a unit stride within its allocated buffer. More
-      // concretely, the input would be passed to the device function
-      // as follows:
-      //
-      //  // Each thread computes 8 argsort elements
-      //  float T1[8];
-      //  ...
-      //  blockArgsort(..., T1, ...);
-      //
-      // Here, the input is required to have a loop ID that is exactly
-      // mapped with the grouped loop ID of the output, and that
-      // producer loop ID must be indeed allocated, i.e., not parallelized.
-      // Furthermore, like the output, none of the inner loop
-      // IDs is allowed to contribute to the allocation of the input so that the
-      // grouped ID has a unit stride.
-      //
-      // The requirement of the input being transformed exactly in the
-      // same as the output is a sufficient but not required
-      // condition. It could be relaxed if necessary.
-      const auto& c2p_replay = BestEffortReplay::replayPasC(
-          inp_tv, out_tv, -1, PairwiseLogicalDomainMap(inp_tv, out_tv));
-      auto producer_grouped_id_it = c2p_replay.getReplay().find(grouped_id);
-      NVF_ERROR(
-          producer_grouped_id_it != c2p_replay.getReplay().end(),
-          "No corresponding producer ID for the grouped consumer ID found: ",
-          grouped_id->toString());
-      auto producer_grouped_id = producer_grouped_id_it->second;
-
-      NVF_ERROR(
-          std::ranges::find(inp_tv->getLoopDomain(), producer_grouped_id) !=
-              inp_tv->getLoopDomain().end(),
-          "Corresponding grouped producer ID is not a loop ID: ",
-          producer_grouped_id->toString(),
-          " of ",
-          inp_tv->toString());
-
-      NVF_ERROR(
-          ir_utils::mayRequireAllocation(inp_tv, producer_grouped_id),
-          "The corresponding producer loop ID for grouping must be actualy "
-          "allocated without parallelization");
-
-      // Make sure all inner loop IDs should not contribute to the
-      // allocation
-      validateUnitStride(inp_tv, inp_tv->getLoopDomain(), producer_grouped_id);
+    // If not grouped, no more validation to do
+    if (grouped_id == nullptr) {
+      return;
     }
+
+    // The input will be initialized for this op. To avoid any
+    // potential conflict of initialization, require the input to be
+    // exclusively used by the grouped op.
+    NVF_ERROR_EQ(
+        inp_tv->uses().size(), 1, "Invalid tensor uses: ", inp_tv->toString());
+
+    // If it's grouped, it must correspond to the innermost subregion
+    // of the logical ID to group
+    IterDomain* logical_id_to_group =
+        out_tv->getLogicalDomain().at(logical_dim_to_group);
+    NVF_ERROR(
+        isInnermost(logical_id_to_group, grouped_id),
+        "Invalid ID to group: ",
+        grouped_id->toString(),
+        " of ",
+        out_tv->toString());
+
+    // The output is allocated on registers, so the allocation
+    // domain should be just the same as the loop domain. The
+    // grouped ID must have the unit stride, which means all of the
+    // inner IDs must not contribute to the allocation
+    validateUnitStride(out_tv, out_tv->getLoopDomain(), grouped_id);
+
+    // All of the inputs per thread must be provided to the device
+    // function as a contiguous chunk of memory where each element
+    // has a unit stride within its allocated buffer. More
+    // concretely, for example, in the case of argsort, the input would be
+    // passed to the device function as follows:
+    //
+    //  // Each thread computes 8 argsort elements
+    //  float T1[8];
+    //  ...
+    //  blockArgsort(..., T1, ...);
+    //
+    // Here, the input is required to have a loop ID that is exactly
+    // mapped with the grouped loop ID of the output, and that
+    // producer loop ID must be indeed allocated, i.e., not parallelized.
+    // Furthermore, like the output, none of the inner loop
+    // IDs is allowed to contribute to the allocation of the input so that the
+    // grouped ID has a unit stride.
+    //
+    // The requirement of the input being transformed exactly in the
+    // same as the output is a sufficient but not required
+    // condition. It could be relaxed if necessary.
+    const auto& c2p_replay = BestEffortReplay::replayPasC(
+        inp_tv, out_tv, -1, PairwiseLogicalDomainMap(inp_tv, out_tv));
+    auto producer_grouped_id_it = c2p_replay.getReplay().find(grouped_id);
+    NVF_ERROR(
+        producer_grouped_id_it != c2p_replay.getReplay().end(),
+        "No corresponding producer ID for the grouped consumer ID found: ",
+        grouped_id->toString());
+    auto producer_grouped_id = producer_grouped_id_it->second;
+
+    NVF_ERROR(
+        std::ranges::find(inp_tv->getLoopDomain(), producer_grouped_id) !=
+            inp_tv->getLoopDomain().end(),
+        "Corresponding grouped producer ID is not a loop ID: ",
+        producer_grouped_id->toString(),
+        " of ",
+        inp_tv->toString());
+
+    NVF_ERROR(
+        ir_utils::mayRequireAllocation(inp_tv, producer_grouped_id),
+        "The corresponding producer loop ID for grouping must be actualy "
+        "allocated without parallelization");
+
+    // Make sure all inner loop IDs should not contribute to the
+    // allocation
+    validateUnitStride(inp_tv, inp_tv->getLoopDomain(), producer_grouped_id);
   }
 
   static void validateUnitStride(
@@ -682,7 +699,7 @@ class VectorizeValidator : public OptInDispatch {
     size_t last_alloc_dim_pos = 0;
     for (size_t i = tv->getMaybeAllocationDomain().size(); i > 0; i--) {
       auto r_id = tv->getMaybeAllocationDomain()[i - 1];
-      if (r_id->isReduction() || r_id->isBroadcast()) {
+      if (r_id->isReduction() || r_id->isBroadcast() || r_id->isDeviceDim()) {
         continue;
       }
       if ((tv->getMemoryType() == MemoryType::Shared ||
@@ -1392,7 +1409,7 @@ void validateAndConvertIterDomainGrouping(Fusion* fusion) {
     NVF_CHECK(
         def->isA<ReductionOp>() || def->isA<GroupedReductionOp>() ||
             def->isA<WelfordOp>() || def->isA<GroupedWelfordOp>() ||
-            def->isA<ArgsortOp>(),
+            def->isA<ArgsortOp>() || def->isA<ScanOp>(),
         "Invalid use of ParallelType::Group: ",
         def->toString());
 
