@@ -346,6 +346,11 @@ CommentedString argStringHelper(EVTModel::Node* node, int64_t indent_size) {
       ss << "\n";
     };
     for (EVTModel::Node* input : node->inputs) {
+      if (input->name == "cutlass::epilogue::fusion::Sm90Compute") {
+        // This just describes what op is being computed in an EVT node. It
+        // should not appear in the argument list
+        continue;
+      }
       print_line(false);
       prev_cs = argStringHelper(input, indent_size + 1);
     }
