@@ -470,8 +470,9 @@ class HopperBase : public NVFuserTest {
 class BlackwellBase : public NVFuserTest {
  protected:
   void SetUp() override {
-    if (cudaArchGuardShouldSkip(10, 0)) {
-      GTEST_SKIP() << "skipping tests on non-Blackwell GPUs";
+    if (cudaArchGuardShouldSkip(10, 0, 11, 0)) {
+      GTEST_SKIP() << "skipping tests on non-Blackwell GPUs (requires "
+                      "sm_100/sm_104, not sm_110+)";
     }
     NVFuserTest::SetUp();
     EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
