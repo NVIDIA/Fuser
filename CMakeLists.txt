@@ -417,7 +417,11 @@ list(APPEND NVFUSER_SRCS
 )
 
 # Add LLVM JIT related dependencies
-find_package(LLVM 18.1 REQUIRED CONFIG)
+set(LLVM_MINIMUM_VERSION "18.1")
+find_package(LLVM REQUIRED CONFIG)
+if(${LLVM_VERSION} VERSION_LESS ${LLVM_MINIMUM_VERSION})
+  message(FATAL_ERROR "LLVM ${LLVM_VERSION} does not meet the minimum version required: ${LLVM_MINIMUM_VERSION}")
+endif()
 llvm_map_components_to_libnames(LLVM_LIBS
   support
   core
