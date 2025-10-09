@@ -1351,8 +1351,8 @@ class ReusableAllocationFinder : private kir::IrVisitor {
       // stores to that alias inside a loop nested within [this_tv]'s loop, it
       // cause RAW hazard when [this_tv] is read in the next iteration of the
       // outer loop.
-      if (reuse_tv->loop_info->start_pos > this_tv->loop_info->start_pos &&
-          reuse_tv->loop_info->start_pos < this_tv->loop_info->end_pos) {
+      if (to_reuse->loop_info->start_pos > alloc_info->loop_info->start_pos &&
+          to_reuse->loop_info->start_pos < alloc_info->loop_info->end_pos) {
         return false;
       }
     }
