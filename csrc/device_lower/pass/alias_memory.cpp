@@ -1292,7 +1292,6 @@ class ReusableAllocationFinder : private kir::IrVisitor {
   //!  current enforced conditions are:
   //!
   //! 1. The two buffers have producer-consumer relationship
-  //! 2. Prevent RAW hazards when buffers are at different loop nesting levels
   //! 3. Require index equivalence when sharing across broadcast
   bool isValidInnerSharing(
       AllocationInfo* alloc_info,
@@ -1313,48 +1312,12 @@ class ReusableAllocationFinder : private kir::IrVisitor {
       return false;
     }
 
-    // Check for RAW hazard across nested loops:
-    // If the two buffers are computed at different loop nesting levels,
-    // we must ensure that aliasing won't cause writes in an inner loop
-    // to corrupt data needed by future iterations of an outer loop.
-    //
-    // Example hazard:
-    // given: t2 -> t4 -> t5 (alias of t2)
-    // WAR if `t4 -> t5` is nested in the loop of `t2 -> t4`
-    // clang-format off
-    /*
-    Array<float, 4, 4> T2;
-    load T2 from global memory;
-    for (nvfuser_index_t i6 = 0; i6 < 4; ++i6) {
-      nvfuser_index_t i7 = 4 * i6;
-      Array<float, 1, 1> T4;
-      T4[0] = T2[i6] * T2[i6];        // Outer read of T2[i6]
-
-      // Alias Allocation - register
-      auto& T5 = T2;                  // Alias to the same underlying storage
-
-      #pragma unroll
-      for (nvfuser_index_t i8 = 0; i8 < 4; ++i8) {
-        T5[i8] = T4[0] + T3[(i7 + i8)]; // Inner write via alias → writes T2[0..3]
-      }
-    }
-    */
-    // clang-format on
     // Check the values in between the two buffers.
     auto vals_between_this_and_reuse =
         DependencyCheck::getAllValsBetween({this_tv}, {reuse_tv});
     if (vals_between_this_and_reuse.empty()) {
       vals_between_this_and_reuse =
           DependencyCheck::getAllValsBetween({reuse_tv}, {this_tv});
-    } else {
-      // [this_tv] feeds [reuse_tv]. If [reuse_tv] is aliased to [this_tv] and
-      // stores to that alias inside a loop nested within [this_tv]'s loop, it
-      // cause RAW hazard when [this_tv] is read in the next iteration of the
-      // outer loop.
-      if (to_reuse->loop_info->start_pos > alloc_info->loop_info->start_pos &&
-          to_reuse->loop_info->start_pos < alloc_info->loop_info->end_pos) {
-        return false;
-      }
     }
 
     if (!vals_between_this_and_reuse.empty()) {
@@ -1407,13 +1370,12 @@ class ReusableAllocationFinder : private kir::IrVisitor {
         if (!tv_def) {
           continue;
         }
-        if (!ir_utils::isPointwiseTvOp(tv_def) &&
+        if (tv->hasBroadcast() || isBroadcastTvOp(tv_def)) {
+          info.has_broadcast_between = true;
+        } else if (
+            !ir_utils::isPointwiseTvOp(tv_def) &&
             !ir_utils::isReductionTvOp(tv_def) && !tv_def->isA<ExpandOp>()) {
-          if (isBroadcastTvOp(tv_def)) {
-            info.has_broadcast_between = true;
-          } else {
-            info.has_unsupported_op = true;
-          }
+          info.has_unsupported_op = true;
         }
       }
     }
