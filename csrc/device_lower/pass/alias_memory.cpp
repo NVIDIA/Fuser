@@ -1328,7 +1328,7 @@ class ReusableAllocationFinder : private kir::IrVisitor {
     // If T46 aliases T42, then writes T46[0], T46[1], ... in the first
     // outer iteration will overwrite T42[0], T42[1], ... which are needed
     // in subsequent outer iterations.
-    if (false && alloc_info->loop_info != to_reuse->loop_info) {
+    if (alloc_info->loop_info != to_reuse->loop_info) {
       // Different loop nesting levels detected
       // Determine which is at the outer level by comparing start positions
       AllocationInfo* outer_alloc = nullptr;
