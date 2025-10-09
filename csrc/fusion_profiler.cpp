@@ -544,7 +544,7 @@ void record_cupti_activity_buffer(
   for (size_t i = 0; i < max_records; ++i) {
     status = cuptiActivityGetNextRecord(pBuffer, validBytes, &pRecord);
     if (status == CUPTI_SUCCESS) {
-      // Processes a valid CUPTI Activty record and records it with the
+      // Processes a valid CUPTI Activity record and records it with the
       // fusion profiling infrastructure if the record is of interest.
       record_cupti_activity(pRecord, pFileHandle);
     } else if (status == CUPTI_ERROR_MAX_LIMIT_REACHED) {
@@ -568,7 +568,7 @@ void record_cupti_activity_buffer(
 // The functions cupti_buffer_requested and cupti_buffer_completed are
 // registered with the CUPTI Activiy Record Callback API:
 // cuptiActivityRegisterCallbacks.  Each of the functions APIs is prescribed
-// by CUPTI and you can find their signatured definitions in the CUPT docs.
+// by CUPTI and you can find their signatured definitions in the CUPTI docs.
 
 void cupti_buffer_requested(
     uint8_t** ppBuffer,
@@ -883,11 +883,6 @@ void FusionProfiler::recordAsyncCorrIdActivity(
     uint32_t seg_id,
     uint32_t corr_id) {
   FusionProfiler& fp = get();
-  NVF_CHECK(
-      fp.corrid_2_segid_.count(corr_id) == 0,
-      "Segment Correlation Activity asociated with this correlation id already "
-      "exists! ",
-      corr_id);
   fp.corrid_2_segid_[corr_id] = seg_id;
 }
 
