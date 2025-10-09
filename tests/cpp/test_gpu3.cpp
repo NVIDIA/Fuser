@@ -9186,7 +9186,7 @@ for(nvfuser_index_t i6 = 0; i6 < 4; ++i6) {
   }
   */
 // clang-format on
-TEST_F(NVFuserTest, RegisterAliasingInUnrolledLoop_CUDA) {
+TEST_F(NVFuserTest, RegisterAliasingNestedLoopRAW_CUDA) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 

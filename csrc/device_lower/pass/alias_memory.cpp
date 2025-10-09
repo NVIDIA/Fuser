@@ -1292,7 +1292,7 @@ class ReusableAllocationFinder : private kir::IrVisitor {
   //!  current enforced conditions are:
   //!
   //! 1. The two buffers have producer-consumer relationship
-  //! 2. Prevent WAR hazards when buffers are at different loop nesting levels
+  //! 2. Prevent RAW hazards when buffers are at different loop nesting levels
   //! 3. Require index equivalence when sharing across broadcast
   bool isValidInnerSharing(
       AllocationInfo* alloc_info,
@@ -1313,77 +1313,48 @@ class ReusableAllocationFinder : private kir::IrVisitor {
       return false;
     }
 
-    // Check for WAR hazard across nested loops:
+    // Check for RAW hazard across nested loops:
     // If the two buffers are computed at different loop nesting levels,
     // we must ensure that aliasing won't cause writes in an inner loop
     // to corrupt data needed by future iterations of an outer loop.
     //
     // Example hazard:
-    //   for i65 in outer_loop:
-    //     T42[i65] = ...        // T42 computed at outer level
-    //     for i67 in inner_loop:
-    //       ... = T42[i65]      // Read T42
-    //       T46[i67] = ...      // T46 computed at inner level
-    //
-    // If T46 aliases T42, then writes T46[0], T46[1], ... in the first
-    // outer iteration will overwrite T42[0], T42[1], ... which are needed
-    // in subsequent outer iterations.
-    if (alloc_info->loop_info != to_reuse->loop_info) {
-      // Different loop nesting levels detected
-      // Determine which is at the outer level by comparing start positions
-      AllocationInfo* outer_alloc = nullptr;
-      AllocationInfo* inner_alloc = nullptr;
+    // given: t2 -> t4 -> t5 (alias of t2)
+    // WAR if `t4 -> t5` is nested in the loop of `t2 -> t4`
+    // clang-format off
+    /*
+    Array<float, 4, 4> T2;
+    load T2 from global memory;
+    for (nvfuser_index_t i6 = 0; i6 < 4; ++i6) {
+      nvfuser_index_t i7 = 4 * i6;
+      Array<float, 1, 1> T4;
+      T4[0] = T2[i6] * T2[i6];        // Outer read of T2[i6]
 
-      // Compare start positions to determine nesting
-      // The allocation with earlier start_pos is at outer level
-      if (to_reuse->loop_info->start_pos < alloc_info->loop_info->start_pos &&
-          alloc_info->loop_info->start_pos < to_reuse->loop_info->end_pos) {
-        // to_reuse is at outer level, alloc_info is at inner level
-        outer_alloc = to_reuse;
-        inner_alloc = alloc_info;
-      } else if (
-          alloc_info->loop_info->start_pos < to_reuse->loop_info->start_pos &&
-          to_reuse->loop_info->start_pos < alloc_info->loop_info->end_pos) {
-        // alloc_info is at outer level, to_reuse is at inner level
-        outer_alloc = alloc_info;
-        inner_alloc = to_reuse;
-      }
+      // Alias Allocation - register
+      auto& T5 = T2;                  // Alias to the same underlying storage
 
-      if (outer_alloc != nullptr && inner_alloc != nullptr) {
-        // We have nested loops. Check if outer buffer is read by inner
-        // operations. If the outer buffer is read at the inner level and the
-        // inner buffer is written multiple times in a loop, we have a potential
-        // WAR hazard.
-        auto outer_tv = outer_alloc->alloc_expr->buffer()->as<TensorView>();
-        auto inner_tv = inner_alloc->alloc_expr->buffer()->as<TensorView>();
-
-        // Check if outer_tv is used as input to inner_tv
-        auto vals_between =
-            DependencyCheck::getAllValsBetween({inner_tv}, {outer_tv});
-        if (!vals_between.empty()) {
-          // inner_tv depends on outer_tv
-          // The outer buffer is read at inner level, creating WAR hazard
-          // Disallow this aliasing
-          return false;
-        }
-
-        vals_between =
-            DependencyCheck::getAllValsBetween({outer_tv}, {inner_tv});
-        if (!vals_between.empty()) {
-          // outer_tv depends on inner_tv
-          // This is also problematic - inner writes could corrupt outer reads
-          // in subsequent iterations
-          return false;
-        }
+      #pragma unroll
+      for (nvfuser_index_t i8 = 0; i8 < 4; ++i8) {
+        T5[i8] = T4[0] + T3[(i7 + i8)]; // Inner write via alias → writes T2[0..3]
       }
     }
-
+    */
+    // clang-format on
     // Check the values in between the two buffers.
     auto vals_between_this_and_reuse =
         DependencyCheck::getAllValsBetween({this_tv}, {reuse_tv});
     if (vals_between_this_and_reuse.empty()) {
       vals_between_this_and_reuse =
           DependencyCheck::getAllValsBetween({reuse_tv}, {this_tv});
+    } else {
+      // [this_tv] feeds [reuse_tv]. If [reuse_tv] is aliased to [this_tv] and
+      // stores to that alias inside a loop nested within [this_tv]'s loop, it
+      // cause RAW hazard when [this_tv] is read in the next iteration of the
+      // outer loop.
+      if (reuse_tv->loop_info->start_pos > this_tv->loop_info->start_pos &&
+          reuse_tv->loop_info->start_pos < this_tv->loop_info->end_pos) {
+        return false;
+      }
     }
 
     if (!vals_between_this_and_reuse.empty()) {

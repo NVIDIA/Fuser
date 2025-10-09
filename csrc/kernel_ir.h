@@ -194,11 +194,10 @@ class ForLoop final : public Expr {
     return attribute<int64_t>(7);
   }
 
+ private:
   // Returns if a loop could be unrolled.
-  // Avoid register aliasing within unrolled loops.
   bool isUnrollable() const;
 
- private:
   // Not storing this as an attribute because this is only a cache for
   // simplifiedStop. We are not interested in keeping this across clone/serde.
   mutable Val* simplified_stop_ = nullptr;
