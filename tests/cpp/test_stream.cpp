@@ -16,6 +16,7 @@
 #include <multidevice/utils.h>
 #include <ops/alias.h>
 #include <ops/arith.h>
+#include <preseg_passes/pre_segmenter.h>
 #include <tests/cpp/utils.h>
 
 namespace nvfuser {
@@ -84,6 +85,50 @@ TEST_F(StreamTest, haveDifferentShardings) {
 
   EXPECT_FALSE(haveDifferentShardings(tv1, tv2, {ParallelType::Stream}));
   EXPECT_TRUE(haveDifferentShardings(tv2, tv3, {ParallelType::Stream}));
+}
+
+TEST_F(StreamTest, ForwardPropagation) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  constexpr int64_t s = 2;
+
+  TensorView* in = makeContigTensor(2);
+  TensorView* w = makeContigTensor(2);
+  TensorView* out = matmul(in, w);
+  fusion->addInput(in);
+  fusion->addInput(w);
+  fusion->addOutput(out);
+
+  w->outer_split(1, s);
+  w->axis(1)->parallelize(ParallelType::Stream);
+
+  preseg_passes::OptimizationPass<
+      preseg_passes::PropagateShardingsPass>::runPass(fusion.get());
+  EXPECT_THAT(out->axis(1), IsParallelized(ParallelType::Stream));
+}
+
+TEST_F(StreamTest, BackwardPropagation) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  constexpr int64_t s = 2;
+
+  TensorView* tv0 = makeContigTensor(2);
+  TensorView* tv1 = makeContigTensor(2);
+  TensorView* tv2 = add(tv0, IrBuilder::create<Val>(1.0));
+  TensorView* tv3 = add(tv1, IrBuilder::create<Val>(1.0));
+  TensorView* tv4 = add(tv2, tv3);
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+  fusion->addOutput(tv4);
+
+  w->outer_split(1, s);
+  w->axis(1)->parallelize(ParallelType::Stream);
+
+  preseg_passes::OptimizationPass<
+      preseg_passes::PropagateShardingsPass>::runPass(fusion.get());
+  EXPECT_THAT(out->axis(1), IsParallelized(ParallelType::Stream));
 }
 
 } // namespace nvfuser

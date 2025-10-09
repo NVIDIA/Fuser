@@ -41,61 +41,57 @@ bool isSplitDivisible(IterDomain* id, Split* ref_split) {
   return id_extent % split_factor == 0;
 }
 
+// Sort the given tvs by the number of device/stream dimensions in descending
+// order. Break ties by rank of device mesh.
 template <typename Range>
-std::vector<TensorView*> filterTvsWithMesh(const Range& tvs) {
-  std::vector<TensorView*> tvs_with_mesh;
-  std::copy_if(
-      tvs.begin(),
-      tvs.end(),
-      std::back_inserter(tvs_with_mesh),
-      [](TensorView* tv) { return tv != nullptr && tv->hasDeviceMesh(); });
-  return tvs_with_mesh;
-}
+std::vector<TensorView*> sortTvsByParallelDims(const Range& tvs) {
+  auto num_parallel_dims = [](TensorView* tv) {
+    return std::count_if(
+        tv->getLoopDomain().begin(),
+        tv->getLoopDomain().end(),
+        [](IterDomain* id) {
+          return !id->isReduction() && (id->isStream() || id->isDeviceDim());
+        });
+  };
 
-// Sort the given tvs by the number of device dimensions in descending order.
-// Break ties by the total number of dimensions.
-// Only includes TensorViews that have a device mesh.
-template <typename Range>
-std::vector<TensorView*> sortTvsByDeviceDims(const Range& tvs) {
-  // Filter out TVs without a device mesh
-  std::vector<TensorView*> tvs_with_mesh = filterTvsWithMesh(tvs);
+  std::vector<TensorView*> tvs_vec(tvs.begin(), tvs.end());
 
-  // Then sort the filtered TVs
-  std::stable_sort(
-      tvs_with_mesh.begin(), tvs_with_mesh.end(), [](auto a, auto b) {
-        int64_t a_device_dims = numDeviceDims(a);
-        int64_t b_device_dims = numDeviceDims(b);
-        if (a_device_dims != b_device_dims) {
-          return a_device_dims > b_device_dims;
-        }
-        // Break ties by rank of device mesh.
-        return a->getDeviceMesh().rank() > b->getDeviceMesh().rank();
-      });
+  std::ranges::stable_sort(tvs_vec, [&num_parallel_dims](auto a, auto b) {
+    int64_t a_device_dims = num_parallel_dims(a);
+    int64_t b_device_dims = num_parallel_dims(b);
+    if (a_device_dims != b_device_dims) {
+      return a_device_dims > b_device_dims;
+    }
+    // Break ties by rank of device mesh.
+    return a->getDeviceMesh().rank() > b->getDeviceMesh().rank();
+  });
 
-  return tvs_with_mesh;
+  return tvs_vec;
 }
 
 // Order the inputs of the expression based on their priority.
 // For linear op, we use weights and bias before input.
 // For matmul op, we use weights before input.
-// For other ops, we sort the inputs by the number of device dimensions in
-// descending order.
+// For other ops, we sort the inputs by the number of device/stream dimensions
+// in descending order.
 std::vector<TensorView*> getOrderedReferenceInputs(Expr* expr) {
   const auto& inputs = ir_utils::filterByType<TensorView>(expr->inputs());
   if (LinearOp* linear_op = dynamic_cast<LinearOp*>(expr)) {
     // Use weights and bias before input.
-    return filterTvsWithMesh(std::vector<TensorView*>(
-        {linear_op->inB(), linear_op->bias(), linear_op->inA()}));
+    if (linear_op->hasBias()) {
+      return {linear_op->inB(), linear_op->bias(), linear_op->inA()};
+    } else {
+      return {linear_op->inB(), linear_op->inA()};
+    }
   }
 
   if (MatmulOp* matmul_op = dynamic_cast<MatmulOp*>(expr)) {
     // Use weights before input.
-    return filterTvsWithMesh(
-        std::vector<TensorView*>({matmul_op->inB(), matmul_op->inA()}));
+    return {matmul_op->inB(), matmul_op->inA()};
   }
 
-  // Sort inputs by number of device dimensions in descending order
-  std::vector<TensorView*> sorted_inputs = sortTvsByDeviceDims(inputs);
+  // Sort inputs by number of device/stream dimensions in descending order
+  std::vector<TensorView*> sorted_inputs = sortTvsByParallelDims(inputs);
 
   return sorted_inputs;
 }
@@ -416,11 +412,6 @@ void PropagateShardingsPass::runPass(Fusion* fusion) {
     // Propagate shardings from reference inputs in order.
     for (auto* ref_input : reference_inputs) {
       NVF_ERROR(ref_input != nullptr);
-      NVF_ERROR(
-          ref_input->hasDeviceMesh(),
-          "Reference input ",
-          ref_input,
-          " has no device mesh.");
 
       // Consider out [M, N] = linear (inp [M, K], weight (N,
       // K)) with inp sharded on M ([DIDx(d), M/d, K]) and weight sharded on N
@@ -455,24 +446,9 @@ void PropagateShardingsPass::runPass(Fusion* fusion) {
     // All outputs of an expression (Welford, SDPA) should be uniformly sharded.
     // We pick the most parallel output as the reference.
     // This is to avoid picking seed/offset tvs in SDPA.
-    std::vector<TensorView*> sorted_outputs = sortTvsByDeviceDims(outputs);
-
-    if (sorted_outputs.empty()) {
-      // No output with a device mesh.
-      continue;
-    }
-
+    std::vector<TensorView*> sorted_outputs = sortTvsByParallelDims(outputs);
     TensorView* ref_output = sorted_outputs.front();
-    NVF_ERROR(
-        ref_output != nullptr && ref_output->hasDeviceMesh(),
-        "Reference output ",
-        ref_output,
-        " has no device mesh.");
 
-    // For fusion inputs, only check if they have a device mesh. We do not
-    // modify their sharding. For non-fusion inputs, we try to propagate
-    // shardings from the reference output for parallel types that are not
-    // already present.
     for (auto* target : ir_utils::filterByType<TensorView>(expr->inputs())) {
       // Allow inputs to be stream parallelized for easier analysis.
       if (user_sharded_tvs.count(target) && !target->isFusionInput()) {
