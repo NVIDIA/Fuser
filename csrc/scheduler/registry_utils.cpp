@@ -104,12 +104,13 @@ bool rejectScheduleFusionInputRequirement(
 
 bool rejectScheduleFusionOutputRequirement(
     Expr* expr,
+    Val* val,
     SchedulerType scheduler_type) {
-  TensorView* out = ir_utils::getTvOutput(expr);
-  if (!out->isFusionOutput() || !out->uses().empty()) {
+  if (!val->isFusionOutput() || !val->uses().empty()) {
     scheduler_debug_utils::canScheduleRejectReason(
         scheduler_type,
-        "output of ",
+        val->toString(),
+        ", output of ",
         expr->getOpString(),
         " must be fusion output without any consumer within the fusion.");
     return true;
@@ -1058,7 +1059,8 @@ bool SchedulerTopologyChecker::rejectScheduleFusionGlobalBufferRequirement(
       //   1. Write output directly to global memory
       //   2. Read two offset inputs directly from global memory
       auto layout_op = expr->as<PreprocessGroupedMatmulInputSf>();
-      if (rejectScheduleFusionOutputRequirement(layout_op, scheduler_type) ||
+      if (rejectScheduleFusionOutputRequirement(
+              layout_op, layout_op->out(), scheduler_type) ||
           rejectScheduleFusionInputRequirement(
               layout_op, layout_op->inputOffsets(), scheduler_type) ||
           rejectScheduleFusionInputRequirement(
