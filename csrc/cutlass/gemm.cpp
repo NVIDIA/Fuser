@@ -348,18 +348,18 @@ typename T::Gemm::Arguments args_from_options(
       {// Epilogue arguments
 )";
   if (has_evt) {
-    code += model_opt.getData().argString(/*node=*/nullptr, /*indent=*/3);
+    code += model_opt.getData().argString(/*node=*/nullptr, /*indent=*/4);
   } else {
-    code += "{}";
+    code += "       {}";
   }
-  code += R"(
-       , // epilogue.thread
+  code += R"(, // epilogue.thread
        nullptr, // TODO: pass bias.data_ptr here
        stride_C,
        static_cast<ElementD*>(output.data_ptr),
        stride_D}};
-  auto& fusion_args = arguments.epilogue.thread;
-  fusion_args.alpha_ptr = static_cast<ElementCompute const*>(alpha.data_ptr);
+  // TODO: this is for the default epilogue only
+  //auto& fusion_args = arguments.epilogue.thread;
+  //fusion_args.alpha_ptr = static_cast<ElementCompute const*>(alpha.data_ptr);
   return arguments;
 }
 
