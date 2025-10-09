@@ -17,6 +17,7 @@
 #include <kernel_ir.h>
 #include <multidevice/communication.h>
 #include <multidevice/utils.h>
+#include <ops/all_ops.h>
 
 namespace nvfuser::hir_pass {
 
@@ -27,12 +28,16 @@ void ConvertOpToCommunication::passImplementation(Fusion* fusion) {
   DeviceIdxType my_device_index = Communicator::getInstance().deviceId();
 
   auto handle_top_level_expr = [&](Expr* top_level_expr,
-                                   std::vector<Expr*>& new_top_level_exprs) {
+                                   std::vector<Expr*>& new_top_level_exprs,
+                                   Val* tag = nullptr) {
     if (!isResharding(top_level_expr)) {
       return new_top_level_exprs.push_back(top_level_expr);
     }
     for (auto* expr : nvfuser::convertSingleOpToCommunication(
-             top_level_expr, my_device_index, params_.communicator_backend)) {
+             top_level_expr,
+             my_device_index,
+             params_.communicator_backend,
+             tag)) {
       // Allocate the recv buffers of communications
       if (expr->isA<Communication>()) {
         auto* communication = expr->as<Communication>();
@@ -57,7 +62,10 @@ void ConvertOpToCommunication::passImplementation(Fusion* fusion) {
       auto* for_loop = top_level_expr->as<kir::ForLoop>();
       std::vector<Expr*> new_for_loop_body;
       for (auto* expr : for_loop->body().exprs()) {
-        handle_top_level_expr(expr, new_for_loop_body);
+        auto tag = isOptionEnabled(EnableOption::MultipleProcessGroups)
+            ? for_loop->index()
+            : nullptr;
+        handle_top_level_expr(expr, new_for_loop_body, tag);
       }
       for_loop->body().clear();
       for (auto* expr : new_for_loop_body) {
