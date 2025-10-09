@@ -1877,14 +1877,13 @@ std::pair<IrCloner, std::unique_ptr<Fusion>> SegmentedFusion::makeFusion(
   for (auto inp : getAllInputs(sg)) {
     auto clone_tv = complete_to_segment_map.clone(inp);
     fusion_segment->addInput(clone_tv);
-    if (inp->isDefinitionType<ReshapeOp>()) {
-      NVF_ERROR(clone_tv != nullptr && clone_tv->isA<TensorView>());
-    } else if (inp->isDefinitionType<PreprocessGroupedMatmulInputSf>()) {
+    if (inp->isDefinitionType<PreprocessGroupedMatmulInputSf>()) {
       // NOTE: inp is an input to fusion segment.
       //
       // There's no point of replaying allocation domain if we cannot index into
       // the given TV anyway in the consumer. We erase the allocation domain
-      // because Transform Replay cannot handle the allocation domain
+      // because Transform Replay (triggered inside
+      // eraseInputDistinctRootDomains) cannot handle the allocation domain
       // transformation represented padding yet. Note that the segment contains
       // PreprocessGroupedMatmulInputSf still preserves the allocation domain of
       // the output TV, which is needed to ensure that we allocate a large
