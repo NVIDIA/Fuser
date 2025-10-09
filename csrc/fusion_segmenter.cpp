@@ -1868,20 +1868,67 @@ std::pair<IrCloner, std::unique_ptr<Fusion>> SegmentedFusion::makeFusion(
     fusion_segment->removeOutput(out);
   }
 
-  std::vector<TensorView*> view_tvs;
-  for (auto inp : getAllInputs(sg)) {
-    auto clone_tv = complete_to_segment_map.clone(inp);
-    fusion_segment->addInput(clone_tv);
-    if (inp->isDefinitionType<ReshapeOp>()) {
-      NVF_ERROR(clone_tv != nullptr && clone_tv->isA<TensorView>());
-      view_tvs.push_back(clone_tv->as<TensorView>());
-    }
-  }
-
   // note, we would want to keep output consistent and not artificially drop
   // duplicates.
   for (auto out : sg->output_vals_) {
     fusion_segment->addOutput(complete_to_segment_map.clone(out));
+  }
+
+  for (auto inp : getAllInputs(sg)) {
+    auto clone_tv = complete_to_segment_map.clone(inp);
+    fusion_segment->addInput(clone_tv);
+    if (inp->isDefinitionType<PreprocessGroupedMatmulInputSf>()) {
+      // NOTE: inp is an input to fusion segment.
+      //
+      // There's no point of replaying allocation domain if we cannot index into
+      // the given TV anyway in the consumer. We erase the allocation domain
+      // because Transform Replay (triggered inside
+      // eraseInputDistinctRootDomains) cannot handle the allocation domain
+      // transformation represented padding yet. Note that the segment contains
+      // PreprocessGroupedMatmulInputSf still preserves the allocation domain of
+      // the output TV, which is needed to ensure that we allocate a large
+      // enough buffer.
+      auto* tv_ptr = clone_tv->as<TensorView>();
+      tv_ptr->setAllocationDomain(tv_ptr->getLogicalDomain(), true);
+
+      // check all uses are safe, this is to ensure that consumer of the
+      // operation wouldn't try to index into the given tensor relying on
+      // allocation domain.
+      for (Expr* use : tv_ptr->uses()) {
+        // clangtidy's false negative static analysis complains about use, see:
+        // https://github.com/llvm/llvm-project/issues/134454#issuecomment-2816262570
+        // However, the assert trick didn't seem to work here.
+#if defined(__clang__)
+        [[clang::suppress]] {
+#endif
+          auto* layout_op = dynamic_cast<CutlassNvfp4GroupedMmaOp*>(use);
+          NVF_ERROR(
+              layout_op,
+              "use of output from PreprocessGroupedMatmulInputSf is unsafe by "
+              "operation:",
+              use->toString());
+          NVF_ERROR(
+              std::none_of(
+                  layout_op->inputs().begin(),
+                  layout_op->inputs().end(),
+                  [&](const Val* input) {
+                    // we can only use output from
+                    // PreprocessGroupedMatmulInputSf as block scaling factor
+                    return layout_op->scale1() != input &&
+                        layout_op->scale2() != input && input == tv_ptr;
+                  }
+
+                  ),
+              "use of output from PreprocessGroupedMatmulInputSf is unsafe by "
+              "operation:",
+              use->toString(),
+              " as argument: ",
+              tv_ptr->toString());
+#if defined(__clang__)
+        }
+#endif
+      }
+    }
   }
 
   // Replace all vals that are logical extents in fusion_segment->inputs() with

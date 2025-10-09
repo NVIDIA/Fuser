@@ -362,6 +362,15 @@ TensorView* preprocessGroupedMatmulInputSf(
   auto pad_to_max_extent = [&](IterDomain* id, int multiple) -> IterDomain* {
     auto* maximum_pad_value_per_group =
         IrBuilder::create<Val>(multiple - 1, DataType::Index);
+
+    // NOTE: we do not use `resize` to represent the padding.
+    //
+    // resize sounds good in theory, because transformation can propagate across
+    // it. In reality, we do not have a protocol to index this operation via the
+    // logical to allocation domain transform. I question how much a resize op
+    // provides on functionality. More importantly, resize still hits asserts in
+    // vectorization analysis (validateDeviceSplit ATM), which doesn't look easy
+    // to handle for me.
     Val* padded_ext = SimplifyingIrBuilder::addExpr(
         id->extent(),
         SimplifyingIrBuilder::mulExpr(num_groups, maximum_pad_value_per_group));
@@ -373,6 +382,7 @@ TensorView* preprocessGroupedMatmulInputSf(
   auto pad_to_multiple = [&](IterDomain* id, int multiple) -> IterDomain* {
     Val* ext = id->extent();
     auto* multiple_val = IrBuilder::create<Val>(multiple, DataType::Index);
+    // Just as the comment above, we do NOT use resize op.
     Val* padded_ext = SimplifyingIrBuilder::mulExpr(
         SimplifyingIrBuilder::divExpr(
             SimplifyingIrBuilder::subExpr(
