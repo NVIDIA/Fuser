@@ -35,7 +35,8 @@ from torch.distributed.tensor.parallel import (
     ColwiseParallel,
 )
 from tqdm import tqdm
-from transformers import AutoConfig, AutoModelForCausalLM
+from transformers import AutoModelForCausalLM
+from transformers.models.llama import LlamaConfig
 from transformers.cache_utils import HybridChunkedCache
 from transformers.models.llama4.modeling_llama4 import Llama4TextMoe
 
@@ -70,6 +71,86 @@ if WORLD_SIZE > 1:
     mesh = init_device_mesh("cuda", (WORLD_SIZE,), mesh_dim_names=("tp",))
 
 LLAMA4_MAVERICK_MODEL_ID: str = "meta-llama/Llama-4-Maverick-17B-128E"
+llama_4_Maverick_17B_128E_cfg_str = r""" {
+  "_name_or_path": "meta-llama/Llama-4-Maverick-17B-128E",
+  "architectures": [
+    "Llama4ForConditionalGeneration"
+  ],
+  "boi_token_index": 200080,
+  "eoi_token_index": 200081,
+  "image_token_index": 200092,
+  "model_type": "llama4",
+  "text_config": {
+    "attention_bias": false,
+    "attention_chunk_size": 8192,
+    "attention_dropout": 0.0,
+    "attn_scale": 0.1,
+    "attn_temperature_tuning": true,
+    "bos_token_id": 200000,
+    "cache_implementation": "hybrid",
+    "eos_token_id": [
+      200001,
+      200007,
+      200008
+    ],
+    "floor_scale": 8192,
+    "for_llm_compressor": false,
+    "head_dim": 128,
+    "hidden_act": "silu",
+    "hidden_size": 5120,
+    "initializer_range": 0.02,
+    "interleave_moe_layer_step": 2,
+    "intermediate_size": 8192,
+    "intermediate_size_mlp": 16384,
+    "max_position_embeddings": 262144,
+    "model_type": "llama4_text",
+    "moe_layers": [1, 3, 5, 7, 9, 11, 13, 15, 17, 19, 21, 23, 25, 27, 29, 31, 33, 35, 37, 39, 41, 43, 45, 47],
+    "no_rope_layers": [1, 1, 1, 0, 1, 1, 1, 0, 1, 1, 1, 0, 1, 1, 1, 0, 1, 1, 1, 0, 1, 1, 1, 0, 1, 1, 1, 0, 1, 1, 1, 0, 1, 1, 1, 0, 1, 1, 1, 0, 1, 1, 1, 0, 1, 1, 1, 0],
+    "num_attention_heads": 40,
+    "num_experts_per_tok": 1,
+    "num_hidden_layers": 48,
+    "num_key_value_heads": 8,
+    "num_local_experts": 128,
+    "output_router_logits": false,
+    "pad_token_id": 200018,
+    "rms_norm_eps": 1e-05,
+    "rope_scaling": null,
+    "rope_theta": 500000.0,
+    "router_aux_loss_coef": 0.001,
+    "router_jitter_noise": 0.0,
+    "torch_dtype": "bfloat16",
+    "use_cache": true,
+    "use_qk_norm": false,
+    "vocab_size": 202048
+  },
+  "tie_word_embeddings": false,
+  "torch_dtype": "bfloat16",
+  "transformers_version": "4.52.4",
+  "vision_config": {
+    "attention_dropout": 0.0,
+    "hidden_act": "gelu",
+    "hidden_size": 1408,
+    "image_size": 336,
+    "initializer_range": 0.02,
+    "intermediate_size": 5632,
+    "model_type": "llama4_vision_model",
+    "multi_modal_projector_bias": false,
+    "norm_eps": 1e-05,
+    "num_attention_heads": 16,
+    "num_channels": 3,
+    "num_hidden_layers": 34,
+    "patch_size": 14,
+    "pixel_shuffle_ratio": 0.5,
+    "projector_dropout": 0.0,
+    "projector_input_dim": 4096,
+    "projector_output_dim": 4096,
+    "rope_theta": 10000,
+    "vision_feature_layer": -1,
+    "vision_feature_select_strategy": "default",
+    "vision_output_dim": 4096
+  }
+}
+"""
 
 
 def _replace_llama4_moe(model: nn.Module) -> None:
@@ -222,10 +303,14 @@ class InferenceBenchmark:
     def _load_model(self) -> torch.nn.Module:
         """Load the model based on configuration"""
         model_id = self.config.model_name
-        config = AutoConfig.from_pretrained(model_id)
+        config = LlamaConfig.from_dict(json.loads(llama_4_Maverick_17B_128E_cfg_str))
 
         if hasattr(config, "text_config"):
-            config = config.text_config
+            text_config = config.text_config
+            if isinstance(text_config, dict):
+                config = LlamaConfig.from_dict(text_config)
+            else:
+                config = text_config
         if self.config.num_layers:
             config.num_hidden_layers = self.config.num_layers
 
