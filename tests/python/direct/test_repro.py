@@ -4628,33 +4628,22 @@ def test_reduction_runtime_check(nvfuser_direct_test):
         )
         T3 = fd.ops.reshape(T1, new_shape=[1, 16, 32, 128])
         T4 = fd.ops.reshape(T2, new_shape=[1, 16, 8, 128])
-        T5 = fd.ops.permute(T3, dims=[0, 2, 1, 3])
-        T6 = fd.ops.permute(T4, dims=[0, 2, 1, 3])
-        T7 = fd.ops.mul(T5, T5)
-        T8 = fd.ops.sum(T7, dims=[3], keepdim=False, dtype=DataType.Null)
-        T9 = fd.ops.broadcast_in_dim(T8, shape=[1, 32, 16, 1], broadcast_dims=[0, 1, 2])
-        S10 = fd.define_scalar(0.0078125, dtype=DataType.Double)
-        T11 = fd.ops.mul(T9, S10)
-        S12 = fd.define_scalar(1.00000e-06, dtype=DataType.Double)
-        T13 = fd.ops.add(T11, S12)
-        T14 = fd.ops.rsqrt(T13)
-        T15 = fd.ops.mul(T6, T6)
-        T16 = fd.ops.sum(T15, dims=[3], keepdim=False, dtype=DataType.Null)
-        T17 = fd.ops.broadcast_in_dim(
-            T16, shape=[1, 8, 16, 1], broadcast_dims=[0, 1, 2]
-        )
-        S18 = fd.define_scalar(0.0078125, dtype=DataType.Double)
-        T19 = fd.ops.mul(T17, S18)
-        S20 = fd.define_scalar(1.00000e-06, dtype=DataType.Double)
-        T21 = fd.ops.add(T19, S20)
-        T22 = fd.ops.rsqrt(T21)
-        fd.add_output(T14)
-        fd.add_output(T22)
+        T5 = fd.ops.sum(T3, dims=[2], keepdim=False, dtype=DataType.Null)
+        T6 = fd.ops.add(T4, T4)
+
+        fd.add_output(T5)
+        fd.add_output(T6)
 
     with FusionDefinition() as fd:
         nvfuser_fusion_id1(fd)
 
     inputs = [
-        torch.testing.make_tensor((1, 16, 6144), dtype=torch.float32, device="cuda:0"),
+        torch.testing.make_tensor(
+            (1, 16, 6144),
+            dtype=torch.float32,
+            device="cuda:0",
+            low=LOW_VAL,
+            high=HIGH_VAL,
+        ),
     ]
-    fd.execute(inputs)
+    fd.validate(inputs)
