@@ -57,8 +57,6 @@ bool checkCanSchedule(Fusion* fusion, SchedulerType scheduler_type) {
           ArgsortOp,
           GroupedMmaOp,
           CutlassNvfp4GroupedMmaOp,
-          // TODO: remove this once we have a scheduler for it
-          PreprocessGroupedMatmulInputSf,
           TopKOp,
           ScanOp>(fusion)) {
     scheduler_debug_utils::canScheduleRejectReason(
@@ -80,6 +78,7 @@ bool checkCanSchedule(Fusion* fusion, SchedulerType scheduler_type) {
         scheduler_type, "Connected fusion graph check failed!");
     return false;
   }
+
   if (IterDomainGraph(fusion, /*allow_self_mapping=*/true).hasSelfMapping()) {
     scheduler_debug_utils::canScheduleRejectReason(
         scheduler_type, "Iter domain graph check failed!");
@@ -95,6 +94,15 @@ bool checkCanSchedule(Fusion* fusion, SchedulerType scheduler_type) {
   if (registry_utils::SchedulerTopologyChecker::hasCyclicReshape(fusion)) {
     scheduler_debug_utils::canScheduleRejectReason(
         scheduler_type, "Fusion has cyclic reshapes.");
+    return false;
+  }
+
+  // check PreprocessGroupedMatmulInputSf's output is in global memory by
+  // forcing it as a fusion segment output
+  if (registry_utils::SchedulerTopologyChecker::hasIllegalNonIndexableOps(
+          fusion)) {
+    scheduler_debug_utils::canScheduleRejectReason(
+        scheduler_type, "Fusion has consumer of non indexable ops.");
     return false;
   }
 
