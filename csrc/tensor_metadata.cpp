@@ -247,10 +247,6 @@ void validateAllocationSizesAndStrides(
     auto size = sizes.at(dim_index);
     auto stride = strides.at(dim_index);
 
-    // if (isParallelTypeDeviceDim(alloc_id->getParallelType())) {
-    //   continue;
-    // }
-
     if (alloc_id->isBroadcast()) {
       NVF_CHECK(!contiguity[domain_index].has_value());
       if (alloc_id->hasExpandedExtent()) {
