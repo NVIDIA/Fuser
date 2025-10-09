@@ -9,8 +9,6 @@
 #include <scheduler/tools/domain_map.h>
 #include <scheduler/utils.h>
 
-#include <iostream>
-
 namespace nvfuser {
 namespace scheduler_tools {
 
