@@ -5,8 +5,11 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <ir/utils.h>
 #include <scheduler/tools/domain_map.h>
 #include <scheduler/utils.h>
+
+#include <iostream>
 
 namespace nvfuser {
 namespace scheduler_tools {
@@ -358,10 +361,37 @@ void DomainMap::eraseifInputMappedThroughRootDomainAndIndexing(
     }
   }
 
+  // std::cout << "fusion is:" << std::endl;
+  // ids.at(0)->fusion()->print();
+
+  // Debug: Print all_exact_sets_covered
+  // std::cout << "all_exact_sets_covered contains "
+  //           << all_exact_sets_covered.size() << " sets:" << std::endl;
+  // for (size_t i = 0; i < all_exact_sets_covered.vector().size(); ++i) {
+  //   const auto& exact_set_ptr = all_exact_sets_covered.vector()[i];
+  //   std::cout << "  Set " << i << ": ";
+  //   for (const auto& id : exact_set_ptr->vector()) {
+  //     std::cout << id->toString() << " ";
+  //   }
+  //   std::cout << std::endl;
+  // }
+
   for (const auto& exact_set_ptr : all_exact_sets_covered) {
     auto exact_concrete_id = ca_map_.getConcreteMappedID(
         exact_set_ptr->front(), IdMappingMode::EXACT);
+    // std::cout << "in ids are: " << std::endl;
+    // for (const auto& in_id : in_ids) {
+    //   std::cout << "  " << in_id->toString() << std::endl;
+    // }
+
+    // std::cout << "trying to match " << std::endl;
+    // std::cout << exact_concrete_id->toString() << std::endl;
+
     eraseIfMapped(in_ids, exact_concrete_id);
+
+    // if (in_ids.empty()) {
+    //   std::cout << "in ids are empty\n" << std::endl;
+    // }
   }
 }
 
@@ -376,6 +406,57 @@ IterDomain* DomainMap::anyMapped(
   }
   return nullptr;
 }
+
+namespace {
+
+// checks to see if tv is a block scale ouput of the BlockQuantizationOp.
+// If not, it traverses up the consumer->producer chain to see if it is.
+bool isTransitiveBlockScaleOuput(TensorView* tv) {
+  // Check if current tv is directly a block scale output
+  if (tv->definition() != nullptr &&
+      tv->definition()->isA<BlockQuantizationOp>()) {
+    auto block_quant_op = tv->definition()->as<BlockQuantizationOp>();
+    if (block_quant_op->blockScales() == tv) {
+      return true;
+    }
+  }
+
+  // Traverse up the producer chain
+  auto current_tv = tv;
+  std::unordered_set<TensorView*> visited; // To prevent infinite loops
+
+  while (current_tv != nullptr && visited.find(current_tv) == visited.end()) {
+    visited.insert(current_tv);
+
+    // Get all producers of current tv
+    auto producers = ir_utils::producerTvsOf(current_tv);
+
+    // Check each producer
+    for (auto producer : producers) {
+      // Check if this producer is a block scale output
+      if (producer->definition() != nullptr &&
+          producer->definition()->isA<BlockQuantizationOp>()) {
+        auto block_quant_op = producer->definition()->as<BlockQuantizationOp>();
+        if (block_quant_op->blockScales() == producer) {
+          return true;
+        }
+      }
+    }
+
+    // Move to the first producer for continued traversal
+    // If there are multiple producers, we check the first one for simplicity
+    // This could be extended to check all paths if needed
+    if (!producers.empty()) {
+      current_tv = producers[0];
+    } else {
+      current_tv = nullptr; // No more producers to check
+    }
+  }
+
+  return false;
+}
+
+} // namespace
 
 // Determine if output TensorView is a valid reference tensor for this fusion.
 // The reference tensor must map to all the iterDomains in each input and
@@ -401,7 +482,7 @@ bool DomainMap::isValidReference(TensorView* tv, bool check_inputs) const {
   for (auto output_tv :
        ir_utils::filterByType<TensorView>(fusion_->outputs())) {
     // no need to check for self.
-    if (output_tv == tv) {
+    if (output_tv == tv || isTransitiveBlockScaleOuput(output_tv)) {
       continue;
     }
     if (!areAllTargetIdsCoveredBy(output_tv, tv)) {
