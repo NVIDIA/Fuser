@@ -67,7 +67,7 @@ bool isAllocationParallelized(TensorView* tv, Split* split) {
 // domain Stream parallelization is propagated to the allocation domain if it is
 // allocated inside a for loop
 void setShardedAllocationDomain(TensorView* tv) {
-  if (!isStreamParallelized(tv) || !tv->hasDeviceMesh()) {
+  if (!isStreamParallelized(tv) && !tv->hasDeviceMesh()) {
     // This is required for tests such as
     // `NVFP4QuantizeTest.SwizzledOuputAndWithoutPerTensorAmax` The test has a
     // split allocation domain but no stream/device parallelization. The loop
