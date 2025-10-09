@@ -361,37 +361,10 @@ void DomainMap::eraseifInputMappedThroughRootDomainAndIndexing(
     }
   }
 
-  // std::cout << "fusion is:" << std::endl;
-  // ids.at(0)->fusion()->print();
-
-  // Debug: Print all_exact_sets_covered
-  // std::cout << "all_exact_sets_covered contains "
-  //           << all_exact_sets_covered.size() << " sets:" << std::endl;
-  // for (size_t i = 0; i < all_exact_sets_covered.vector().size(); ++i) {
-  //   const auto& exact_set_ptr = all_exact_sets_covered.vector()[i];
-  //   std::cout << "  Set " << i << ": ";
-  //   for (const auto& id : exact_set_ptr->vector()) {
-  //     std::cout << id->toString() << " ";
-  //   }
-  //   std::cout << std::endl;
-  // }
-
   for (const auto& exact_set_ptr : all_exact_sets_covered) {
     auto exact_concrete_id = ca_map_.getConcreteMappedID(
         exact_set_ptr->front(), IdMappingMode::EXACT);
-    // std::cout << "in ids are: " << std::endl;
-    // for (const auto& in_id : in_ids) {
-    //   std::cout << "  " << in_id->toString() << std::endl;
-    // }
-
-    // std::cout << "trying to match " << std::endl;
-    // std::cout << exact_concrete_id->toString() << std::endl;
-
     eraseIfMapped(in_ids, exact_concrete_id);
-
-    // if (in_ids.empty()) {
-    //   std::cout << "in ids are empty\n" << std::endl;
-    // }
   }
 }
 
