@@ -844,7 +844,8 @@ struct OuterReductionParams {
        << "total_iteration_numel: " << total_iteration_numel << "\n"
        << "vectorize_factor: " << iter_unroll_factor << "\n"
        << "redu_unroll_factor: " << redu_unroll_factor << "\n"
-       << "grid(" << gidim << ", " << grdim << ", 1)" << "\n"
+       << "grid(" << gidim << ", " << grdim << ", 1)"
+       << "\n"
        << "block(" << bdimx << ", " << bdimy << ", 1)" << std::endl;
     return ss.str();
   }
@@ -1824,27 +1825,6 @@ bool ReductionScheduler::canScheduleRunTime(
     SchedulerRuntimeInfo& runtime_info,
     HeuristicDataCache* data_cache) {
   FUSER_PERF_SCOPE("ReductionScheduler::canScheduleRunTime");
-
-  auto reduction_tvs = scheduler_utils::getReductionTvs(fusion);
-
-  // If we have multiple reductions, verify they have matching extents at
-  // runtime
-  if (reduction_tvs.size() > 1) {
-    for (size_t it = 1; it < reduction_tvs.size(); it++) {
-      if (!registry_utils::checkPatternEquivalence(
-              reduction_tvs[it - 1], reduction_tvs[it], runtime_info)) {
-        scheduler_debug_utils::canScheduleRejectReason(
-            schedulerType(),
-            "Multi-reduction runtime check failed: ",
-            reduction_tvs[it - 1]->toString(),
-            " and ",
-            reduction_tvs[it]->toString(),
-            " have incompatible dimensions");
-        return false;
-      }
-    }
-  }
-
   return true;
 }
 
