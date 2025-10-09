@@ -443,6 +443,9 @@ void PropagateShardingsPass::runPass(Fusion* fusion) {
   // inputs. See MultiDevicePresegPassesTest.ResidualAdd for an example.
   for (Expr* expr : exprs | std::views::reverse) {
     const auto& outputs = ir_utils::filterByType<TensorView>(expr->outputs());
+    if (outputs.empty()) {
+      continue;
+    }
     // All outputs of an expression (Welford, SDPA) should be uniformly sharded.
     // We pick the most parallel output as the reference.
     // This is to avoid picking seed/offset tvs in SDPA.

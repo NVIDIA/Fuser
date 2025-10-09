@@ -109,17 +109,13 @@ void unshard(TensorView*);
 // extent if that IterDomain is sharded.
 int64_t getShardedLogicalAxis(const TensorView* tv, ParallelType parallel_type);
 
-int64_t getProducingLogicalAxis(const TensorView* tv, IterDomain* id);
-
-// Returns the IterDomain that's parallelized on `parallel_type` in the given
-// domain.  If it's not found, returns nullptr. If no domain is given,
-// `parallel_type` decides which domain to look at. ParallelType::Stream looks
-// at the allocation domain and DIDs look at the loop domain. Refer to the
-// implementation for the reason.
+// Returns the IterDomain that's parallelized on `parallel_type`.  If it's not
+// found, returns nullptr. `parallel_type` decides which domain to look at.
+// ParallelType::Stream looks at the allocation domain and DIDs look at the loop
+// domain. Refer to the implementation for the reason.
 IterDomain* getShardedIterDomain(
     const TensorView* tv,
-    ParallelType parallel_type,
-    const std::vector<IterDomain*>& domain = {});
+    ParallelType parallel_type);
 
 // Shards the input tensor along `axis`. How the tensor gets sliced along `axis`
 // is determined by `mesh` and `device_id`. Returns the sharded tensor.

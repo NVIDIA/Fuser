@@ -121,8 +121,6 @@ std::unordered_map<IterDomain*, int64_t> mapIterDomainToTensorAxis(
   return id_to_axis;
 }
 
-} // namespace
-
 // Finds the logical IterDomain that transitively produces `id` and returns its
 // tensor axis. Returns -1 for reduction dimensions because they don't
 // correspond to any tensor axis.
@@ -195,6 +193,8 @@ int64_t getProducingLogicalAxis(const TensorView* tv, IterDomain* id) {
   }
 }
 
+} // namespace
+
 int64_t getShardedLogicalAxis(
     const TensorView* tv,
     const ParallelType parallel_type) {
@@ -208,8 +208,7 @@ int64_t getShardedLogicalAxis(
 
 IterDomain* getShardedIterDomain(
     const TensorView* tv,
-    const ParallelType parallel_type,
-    const std::vector<IterDomain*>& domain) {
+    const ParallelType parallel_type) {
   // The allocation domain for multidevice TensorViews is set during
   // presegmentation, which is after concretization. This exposes a issue:
   // allocation domain is not set for fusion inputs before presegmentation and
@@ -219,10 +218,7 @@ IterDomain* getShardedIterDomain(
   // same DID parallelization. For ParalleType::Stream, fusion inputs will
   // always be fully allocated, and segment inputs/outputs may be partially /
   // fully allocated which can be inferred from its allocation domain.
-  const std::vector<IterDomain*>& selected_domain = [&]() {
-    if (!domain.empty()) {
-      return domain;
-    }
+  const std::vector<IterDomain*>& domain = [&]() {
     if (parallel_type == ParallelType::Stream) {
       return tv->getMaybeAllocationDomain();
     }
