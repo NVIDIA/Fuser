@@ -64,11 +64,17 @@ class EVTModel {
   //! Generate the arguments to be used as args.epilogue.thread
   std::string argString(Node* node = nullptr, int64_t indent = 2) const;
 
+  //! Print all nodes in a topological order
+  std::string toString() const;
+
  private:
   std::deque<std::unique_ptr<Node>> nodes_up_;
   Node* root_;
 };
 
+//! Convert a Fusion into an EVTModel. This includes creating nodes to
+//! represent the default epilogue in ScaledMmaOp, alpha*acc + beta*bias, when
+//! those arguments are provided.
 mma_utils::DataWrapperOpt<EVTModel> extractEVTModel(Fusion* fusion);
 
 } // namespace cutlass_codegen

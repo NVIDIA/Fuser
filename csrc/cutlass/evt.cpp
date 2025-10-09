@@ -327,7 +327,10 @@ CommentedString argStringHelper(EVTModel::Node* node, int64_t indent_size) {
         if (node->argument->isConstScalar()) {
           return {"{" + node->argument->toInlineString() + "}", node->name};
         }
-
+        NVF_ERROR(
+            node->argument->isFusionInput(),
+            "Non-constant scalars are expected to be fusion inputs for EVT "
+            "translation");
         // TODO: If this is an input scalar, we need to obtain its value here at
         // runtime and pass it
       }
@@ -375,6 +378,36 @@ std::string EVTModel::argString(Node* node, int64_t indent_size) const {
   } else {
     return cs.str + "  // " + cs.comment;
   }
+}
+
+std::string EVTModel::toString() const {
+  std::stringstream ss;
+  ss << "EVTModel{\n";
+  std::unordered_map<Node*, size_t> node_num;
+  for (const std::unique_ptr<Node>& node_up : nodes_up_) {
+    node_num.emplace(node_up.get(), node_num.size());
+  }
+  for (const std::unique_ptr<Node>& node_up : nodes_up_) {
+    ss << "  " << node_num.at(node_up.get()) << ": " << (void*)node_up.get() << " " << node_up->name;
+    if (!node_up->inputs.empty()) {
+      ss << "(";
+      bool first = true;
+      for (Node* input : node_up->inputs) {
+        if (!first) {
+          ss << ", ";
+        }
+        first = false;
+        ss << node_num.at(input);
+      }
+      ss << ")";
+    }
+    if (node_up->argument != nullptr) {
+      ss << "[" << node_up->argument->toString() << "]";
+    }
+    ss << "\n";
+  }
+  ss << "}";
+  return ss.str();
 }
 
 // TODO: DataWrapperOpt belongs in scheduler_utils
