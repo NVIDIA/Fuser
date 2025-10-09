@@ -1659,4 +1659,22 @@ TEST_F(AliasTest, SliceOfExpandedBroadcast) {
       executor_cache.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
 }
 
+TEST_F(AliasTest, ReuseBuffer_Noncontiguous) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  TensorView* in = makeSymbolicTensor(2);
+  fusion->addInput(in);
+  TensorView* out = add(in, fusion->oneVal());
+  fusion->addOutput(out);
+  fusion->aliasOutputToInput(out, in, AllocationType::ReuseBuffer);
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA);
+  at::Tensor tensor = at::arange(6, options).view({3, 2}).t();
+  at::Tensor in_tensor = tensor.clone();
+  executor_cache.runFusionWithInputs({tensor});
+  EXPECT_TRUE(at::allclose(tensor, in_tensor + 1.0));
+}
+
 } // namespace nvfuser
