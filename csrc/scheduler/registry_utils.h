@@ -15,13 +15,21 @@ class ComputeAtLogicalDomainMap;
 class ComputeAtMap;
 class ExpressionEvaluator;
 class KernelArgumentHolder;
+class SchedulerRuntimeInfo;
 
 namespace registry_utils {
 
+// Compile-time check: verifies pattern and logical mapping
 bool checkPatternEquivalence(
     TensorView* out_tv0,
     TensorView* out_tv1,
     const ComputeAtLogicalDomainMap& logical_map);
+
+// Runtime check: verifies pattern and concrete extents
+bool checkPatternEquivalence(
+    TensorView* out_tv0,
+    TensorView* out_tv1,
+    SchedulerRuntimeInfo& runtime_info);
 
 // Reusing some code from lowering specifically in lower_trivial_broadcast.cpp
 // ConcretizedBroadcastDomains::maybeNonUniquelyConcretized this checks if

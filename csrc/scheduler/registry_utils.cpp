@@ -10,6 +10,7 @@
 #include <runtime/executor_kernel_arg.h>
 #include <scheduler/debug_utils.h>
 #include <scheduler/registry_utils.h>
+#include <scheduler/runtime_info.h>
 #include <scheduler/tools/resize_utils.h>
 #include <scheduler/utils.h>
 
@@ -17,14 +18,16 @@ namespace nvfuser {
 
 namespace registry_utils {
 
-bool checkPatternEquivalence(
+namespace {
+
+// Internal implementation shared by both compile-time and runtime checks
+bool checkPatternEquivalenceImpl(
     TensorView* out_tv0,
     TensorView* out_tv1,
-    const ComputeAtLogicalDomainMap& logical_map) {
+    const ComputeAtLogicalDomainMap* logical_map,
+    SchedulerRuntimeInfo* runtime_info) {
   const auto& out_root0 = out_tv0->getMaybeRootDomain();
   const auto& out_root1 = out_tv1->getMaybeRootDomain();
-  const auto domain0 = out_tv0->domain();
-  const auto domain1 = out_tv1->domain();
 
   auto it0 = out_root0.begin();
   auto it1 = out_root1.begin();
@@ -43,15 +46,59 @@ bool checkPatternEquivalence(
     if ((*it0)->isReduction() != (*it1)->isReduction()) {
       return false;
     }
-    if (!logical_map.canMap(domain0, (*it0), domain1, (*it1))) {
-      return false;
+
+    // Compile-time check: verify logical mapping
+    if (logical_map != nullptr) {
+      const auto domain0 = out_tv0->domain();
+      const auto domain1 = out_tv1->domain();
+      if (!logical_map->canMap(domain0, (*it0), domain1, (*it1))) {
+        return false;
+      }
     }
+
+    // Runtime check: verify concrete extents
+    if (runtime_info != nullptr) {
+      auto extent0 =
+          runtime_info->expressionEvaluator().evaluate((*it0)->extent());
+      auto extent1 =
+          runtime_info->expressionEvaluator().evaluate((*it1)->extent());
+
+      if (!extent0.hasValue() || !extent1.hasValue()) {
+        return false;
+      }
+
+      auto size0 = extent0.as<int64_t>();
+      auto size1 = extent1.as<int64_t>();
+
+      if (size0 != size1) {
+        return false;
+      }
+    }
+
     it0++;
     it1++;
     skip_broadcast();
   }
 
   return it0 == out_root0.end() && it1 == out_root1.end();
+}
+
+} // anonymous namespace
+
+// Compile-time check: verifies pattern and logical mapping
+bool checkPatternEquivalence(
+    TensorView* out_tv0,
+    TensorView* out_tv1,
+    const ComputeAtLogicalDomainMap& logical_map) {
+  return checkPatternEquivalenceImpl(out_tv0, out_tv1, &logical_map, nullptr);
+}
+
+// Runtime check: verifies pattern and concrete extents
+bool checkPatternEquivalence(
+    TensorView* out_tv0,
+    TensorView* out_tv1,
+    SchedulerRuntimeInfo& runtime_info) {
+  return checkPatternEquivalenceImpl(out_tv0, out_tv1, nullptr, &runtime_info);
 }
 
 // Reusing some code from lowering specifically in lower_trivial_broadcast.cpp
