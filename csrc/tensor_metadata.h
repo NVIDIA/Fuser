@@ -115,6 +115,15 @@ inferAndValidateAllocationSizesAndStrides(
     TensorView* tv,
     ExpressionEvaluator ee);
 
+// Similar to above, but does not validate the sizes and strides with the contiguity
+// of the TensorView. This is useful when we want to infer the sizes and strides and
+// then update the contiguity of the TensorView.
+std::pair<std::vector<int64_t>, std::vector<int64_t>>
+inferAllocationSizesAndStrides(
+    const at::Tensor& tensor,
+    TensorView* tv,
+    ExpressionEvaluator ee);
+
 // Validates the sizes and strides of the tensors against the TensorViews.
 void validateSizesAndStrides(
     const std::vector<at::Tensor>& tensors,
