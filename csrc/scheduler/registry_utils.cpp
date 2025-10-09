@@ -561,6 +561,19 @@ PrimDataType getIndexTypeOfKernel(
   return PrimDataType::Int32;
 }
 
+bool hasNonTerminalBlockQuantizeOp(Fusion* fusion) {
+  for (auto expr : fusion->exprs()) {
+    if (expr->isA<BlockQuantizationOp>()) {
+      auto block_scales =
+          expr->as<BlockQuantizationOp>()->blockScales()->as<TensorView>();
+      if (!block_scales->isFusionOutput()) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
 bool SchedulerTopologyChecker::hasNonNormalizePostReductionBCast(
     Fusion* fusion) {
   auto all_vals = fusion->usedMathVals();

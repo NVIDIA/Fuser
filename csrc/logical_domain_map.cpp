@@ -157,7 +157,7 @@ std::pair<std::unordered_set<IterDomain*>, bool> getNonMappingDomainInfo(
   } else if (
       auto bqop =
           dynamic_cast<BlockQuantizationOp*>(consumer_tv->definition())) {
-    if (producer_tv == bqop->in()) {
+    if (producer_tv == bqop->in() && consumer_tv == bqop->blockScales()) {
       auto producer_logical =
           TensorDomain::noReductions(producer_tv->getLogicalDomain());
       auto last_logical_dim = producer_tv->getLogicalDomain().size() - 1;

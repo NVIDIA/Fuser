@@ -36,6 +36,10 @@ bool rejectScheduleForMemoryPromotion(
     Fusion* fusion,
     SchedulerType scheduler_type);
 
+// Check to see if the block scales output of Block Quantization Op
+// is a segment output.
+bool hasNonTerminalBlockQuantizeOp(Fusion* fusion);
+
 bool isConnectedFusionGraph(Fusion* fusion);
 
 // Returns if a fusion cannot transformed into a consistent format since we
