@@ -1258,17 +1258,6 @@ if(BUILD_TEST)
   endif()
 
 
-  if(BUILD_PYTHON)
-    set(PY_FRONTEND_TEST_SRCS)
-    list(APPEND PY_FRONTEND_TEST_SRCS
-      ${NVFUSER_PYTHON_DIR}/tests/python_frontend/test_nvfuser_fusion_cache.cpp
-      ${NVFUSER_PYTHON_DIR}/tests/python_frontend/test_nvfuser_fusion_definition.cpp
-      ${NVFUSER_PYTHON_DIR}/tests/python_frontend/test_nvfuser_fusion_record.cpp
-    )
-    add_test(test_python_frontend "${PY_FRONTEND_TEST_SRCS}" "")
-    list(APPEND TEST_BINARIES test_python_frontend)
-  endif()
-
   # We don't link CUPTI for MSVC
   if(NOT MSVC)
     add_test(test_profiler "${NVFUSER_ROOT}/tests/cpp/test_fusion_profiler.cpp" "")
