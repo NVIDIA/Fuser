@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <cmath>
 #include <sstream>
+#include "ir/interface_nodes.h"
 
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
@@ -9161,6 +9162,93 @@ TEST_F(NVFuserTest, InliningPosWithVectorizedCastOps) {
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
   auto outputs = executor_cache.runFusionWithInputs({t0, t1});
   testValidate(&fusion, outputs, {t0, t1}, __LINE__, __FILE__);
+}
+
+// Test for issue #5346: Prevent unsafe register aliasing in nested loops
+// This test creates a scenario where register aliasing could cause a
+// Write-After-Read (WAR) hazard across loop iterations.
+
+// Pattern from the real bug (see fusion IR in issue #5346):
+//   for outer_iter:                      // ca_pos(3)
+//     T42[...] = load_from_global()      // Allocated at outer level
+//     for inner_iter:                    // ca_pos(4)
+//       T12[...] = pow(T42[...], 3)      // Read T42 (depends on outer buffer)
+//       tv7[...] = Set(T42[...])         // Another use of T42
+//       ...compute using tv7...
+//       T46[...] = ...                   // Write result
+
+// If tv7 or other inner buffers alias T42, inner loop writes will corrupt
+// T42 elements needed by the next outer iteration, causing wrong results.
+
+// Key characteristics:
+// - T42: ca_pos(3) - computed at outer level
+// - tv7: ca_pos(4) produce_pos(3) - computed at inner level but produced outer
+// - Multiple operations read T42 within the inner loop
+TEST_F(NVFuserTest, RegisterAliasingInUnrolledLoop_CUDA) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  // Simplified version of the pattern
+  auto tv0 = makeContigConcreteTensor({2048, 1}); //
+  auto tv1 = makeContigConcreteTensor({2048, 32});
+  auto tv2 = makeContigConcreteTensor({1, 32});
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+  fusion->addInput(tv2);
+  auto tv3 = set(tv0);
+  auto tv4 = set(tv1);
+  auto tv5 = set(tv2);
+  auto tv6 = mul(tv3, tv3);
+  auto tv7 = add(tv6, tv4);
+  auto tv8 = add(tv4, tv5);
+  auto tv9 = add(tv7, tv8);
+  auto tv10 = set(tv9);
+  fusion->addOutput(tv10);
+
+  for (TensorView* tv : {tv3, tv4, tv5, tv6, tv7, tv8, tv9, tv10}) {
+    tv->split(1, 4); // serial
+    tv->split(1, 128); // bdimx
+
+    tv->split(0, 4); // vect
+    tv->split(0, 152); // gdimy
+    // [S, gdimy, vect, S, bdimx, serial]
+    tv->reorder({{0, 1}});
+    // [gdimy, S, vect, S, bdimx, serial]
+
+    tv->axis(0)->parallelize(ParallelType::BIDy);
+    tv->axis(1)->parallelize(ParallelType::Serial);
+    tv->axis(2)->parallelize(ParallelType::Serial);
+    tv->axis(3)->parallelize(ParallelType::Serial);
+    tv->axis(4)->parallelize(ParallelType::TIDx);
+    tv->axis(5)->parallelize(ParallelType::Serial);
+  }
+
+  tv3->axis(2)->parallelize(ParallelType::Vectorize);
+  tv4->axis(-1)->parallelize(ParallelType::Vectorize);
+  tv5->axis(-1)->parallelize(ParallelType::Vectorize);
+  tv10->axis(-1)->parallelize(ParallelType::Vectorize);
+
+  // Set computeAt based on kernel_math output
+  tv3->computeAt(tv6, 2);
+  tv6->computeAt(tv7, 3);
+  tv4->computeAt(tv7, 2);
+  tv5->computeAt(tv8, 2);
+  tv7->computeAt(tv9, 6);
+  tv8->computeAt(tv9, 6);
+  tv9->computeAt(tv10, 5);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({2048, 1}, options);
+  auto t1 = at::randn({2048, 32}, options);
+  auto t2 = at::randn({1, 32}, options);
+
+  KernelExecutor fe;
+  fe.compile(fusion.get(), {t0, t1, t2});
+
+  auto outputs = fe.run({t0, t1, t2});
+
+  // This should pass because the aliasing pass prevents the hazard
+  testValidate(fusion.get(), outputs, {t0, t1, t2}, __LINE__, __FILE__);
 }
 
 // Test file size should be up to 10K LoC. Create a new file for more tests.
