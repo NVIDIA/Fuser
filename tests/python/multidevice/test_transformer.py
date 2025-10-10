@@ -256,6 +256,10 @@ def transformer_forward_definition(
     T95 = fd.ops.slice(
         T57, start_indices=[0, 0, 0, 2 * e // h], end_indices=[b, s, h, 3 * e // h]
     )
+    fd.add_output(T82)
+    fd.add_output(T69)
+    fd.add_output(T95)
+    return
 
     T102 = fd.ops.permute(T82, dims=[0, 2, 1, 3])
     T109 = fd.ops.permute(T69, dims=[0, 2, 1, 3])
@@ -263,10 +267,6 @@ def transformer_forward_definition(
 
     S117 = fd.define_scalar(0.100000, dtype=DataType.Double)
     S118 = fd.define_scalar(True, dtype=DataType.Bool)
-    fd.add_output(T109)
-    fd.add_output(T102)
-    fd.add_output(T116)
-    return
     sdpa_out, sdpa_logsum_exp, sdpa_seed, sdpa_offset = fd.ops.sdpfa_fwd(
         T109, T102, T116, S117, S118, None
     )
