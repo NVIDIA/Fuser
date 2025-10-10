@@ -226,7 +226,7 @@ void PrecomputedValues::bindValues(
       } else {
         std::cout << "bindValues: tensor not defined" << std::endl;
       }
-      if (!tensor.is_cpu()) {
+      if (tensor.defined() && !tensor.is_cpu()) {
         bindTensorMetaData(tv, tensor);
       }
     } else {
