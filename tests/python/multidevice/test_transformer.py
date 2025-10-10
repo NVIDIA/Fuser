@@ -263,6 +263,10 @@ def transformer_forward_definition(
 
     S117 = fd.define_scalar(0.100000, dtype=DataType.Double)
     S118 = fd.define_scalar(True, dtype=DataType.Bool)
+    fd.add_output(T109)
+    fd.add_output(T102)
+    fd.add_output(T116)
+    return
     sdpa_out, sdpa_logsum_exp, sdpa_seed, sdpa_offset = fd.ops.sdpfa_fwd(
         T109, T102, T116, S117, S118, None
     )
