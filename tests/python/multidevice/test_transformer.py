@@ -1,6 +1,9 @@
 # SPDX-FileCopyrightText: Copyright (c) 2024-present NVIDIA CORPORATION & AFFILIATES.
 # All rights reserved.
 # SPDX-License-Identifier: BSD-3-Clause
+import os
+os.environ["NVFUSER_DUMP"] = "fusion_ir"
+
 import pytest
 
 import torch
@@ -121,9 +124,6 @@ def test_grouped_mlp(multidevice_direct_test):
 #   print(thunder.last_backward_traces(jfn)[-1].python_ctx()['nvFusion0'].last_used)
 # ```
 # Fusions generated from Thunder commit: b0dc72ef1a9825a70923ae1a270d919f5948c4ed
-
-import os
-os.environ["NVFUSER_DUMP"] = "fusion_ir"
 
 def transformer_forward_definition(
     fd: FusionDefinition, batch: int, sequence: int, head: int, hidden: int
