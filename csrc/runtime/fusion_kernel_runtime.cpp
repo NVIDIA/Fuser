@@ -330,6 +330,11 @@ KernelArgumentHolder FusionKernelRuntime::runWithInputs(
   // Produce final global output
   KernelArgumentHolder fusion_outputs;
   for (Val* output : segmented_fusion_->outputs()) {
+    const auto& output_pv = tensor_map.at(output);
+    if (output_pv.is<at::Tensor>() && output_pv.as<at::Tensor>().device().is_meta()) {
+      std::cout << "output_pv is meta tensor" << std::endl;
+      std::cout << output_pv.as<at::Tensor>() << std::endl;
+    }
     NVF_ERROR(
         tensor_map.count(output),
         "Segmented fusion output ",
