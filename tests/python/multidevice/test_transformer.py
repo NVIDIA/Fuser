@@ -304,8 +304,9 @@ def transformer_forward_definition(
     T185 = fd.ops.cast(T184, dtype=DataType.Float)
     T186 = fd.ops.add(T179, T185)
     T187 = fd.ops.cast(T186, dtype=DataType.BFloat16)
-    mlp_linear0_out = fd.ops.linear(T187, mlp_linear0_weight, mlp_linear0_bias)
-    fd.add_output(mha_linear0_out)
+    fd.add_output(T187)
+    # mlp_linear0_out = fd.ops.linear(T187, mlp_linear0_weight, mlp_linear0_bias)
+    # fd.add_output(mha_linear0_out)
 
 
 def transformer_forward_multidevice_schedule(fd: FusionDefinition, num_devices: int):
