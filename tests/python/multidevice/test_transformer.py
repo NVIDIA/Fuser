@@ -266,6 +266,8 @@ def transformer_forward_definition(
     sdpa_out, sdpa_logsum_exp, sdpa_seed, sdpa_offset = fd.ops.sdpfa_fwd(
         T109, T102, T116, S117, S118, None
     )
+    fd.add_output(sdpa_out)
+    return
     T123 = fd.ops.permute(sdpa_out, dims=[0, 2, 1, 3])
     T124 = fd.ops.stride_order(T123, stride_order=[3, 2, 1, 0])
     T129 = fd.ops.reshape(T124, new_shape=[b, s, e])
@@ -304,9 +306,8 @@ def transformer_forward_definition(
     T185 = fd.ops.cast(T184, dtype=DataType.Float)
     T186 = fd.ops.add(T179, T185)
     T187 = fd.ops.cast(T186, dtype=DataType.BFloat16)
-    fd.add_output(T187)
-    # mlp_linear0_out = fd.ops.linear(T187, mlp_linear0_weight, mlp_linear0_bias)
-    # fd.add_output(mha_linear0_out)
+    mlp_linear0_out = fd.ops.linear(T187, mlp_linear0_weight, mlp_linear0_bias)
+    fd.add_output(mha_linear0_out)
 
 
 def transformer_forward_multidevice_schedule(fd: FusionDefinition, num_devices: int):
