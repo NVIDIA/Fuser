@@ -64,6 +64,10 @@ void validateValWithConcreteValue(
         ", to be an at::Tensor but got scalar ",
         concrete_value);
     const auto& t = concrete_value.as<at::Tensor>();
+    if (!t.defined()) {
+      std::cout << "validateValWithConcreteValue: tensor not defined" << std::endl;
+      return;
+    }
     const auto expect_dim = std::ranges::distance(
         tv->getLogicalDomain() | TensorDomain::kNoReductions);
     NVF_CHECK(
