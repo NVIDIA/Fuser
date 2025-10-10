@@ -1019,9 +1019,6 @@ void validateAndCollectVectorizeInfo(Fusion* fusion) {
                def->as<ReductionOp>()->serialGridReductionRequested()) ||
               (def->isA<UnaryOp>() &&
                def->as<UnaryOp>()->getUnaryOpType() == UnaryOpType::Cast) ||
-              // This throws without this check.
-              // Maybe I shouldn't vectorize the outputs of the
-              // BlockQuantizationOp
               def->isA<BlockQuantizationOp>(),
           "Vectorized accesses cannot be inline with computation: ",
           (def == nullptr ? tv->toString() : def->toString()));
