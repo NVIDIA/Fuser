@@ -307,6 +307,9 @@ bool isDebugDumpEnabled(DebugDumpOption option) {
   if (option == DebugDumpOption::FusionIrPreseg) {
     return true;
   }
+  if (option == DebugDumpOption::FusionSegments) {
+    return true;
+  }
   return DebugDumpOptionsGuard::getCurOptions().has(option);
 }
 
