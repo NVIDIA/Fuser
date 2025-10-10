@@ -4979,6 +4979,11 @@ _scaled_dot_product_flash_attention_meta(const at::Tensor& query) {
   int seqlen_q = sizes[2];
   auto logsumexp = at::empty(
       {batch_size, num_heads, seqlen_q}, query.options().dtype(at::kFloat));
+  // Produce defined meta tensors for philox outputs so downstream segments
+  // can bind metadata and types correctly.
+  const auto meta_u64 = at::TensorOptions().device(at::kMeta).dtype(at::kUInt64);
+  auto rng_state = at::empty({2}, meta_u64);     // philox_seed/rng_state
+  auto unused_offset = at::empty({}, meta_u64);  // philox_offset/_unused (0-dim)
   return std::make_tuple(
       query,
       logsumexp,
@@ -4986,8 +4991,8 @@ _scaled_dot_product_flash_attention_meta(const at::Tensor& query) {
       at::Tensor(),
       c10::SymInt(seqlen_q),
       c10::SymInt(seqlen_q),
-      at::Tensor(),
-      at::Tensor(),
+      rng_state,
+      unused_offset,
       at::Tensor());
 }
 
