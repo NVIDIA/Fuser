@@ -456,10 +456,10 @@ class CompileTimeChecker : private IterVisitor {
         continue;
       }
       // Resize to broadcast not supported yet. Have not looked at
-      // details but the loop promotion fails (e.g.,
+      // details but getLoopPromotion fails at csrc/id_model/utils.h:105 (e.g.,
       // ResizeTest.ResizePadToBroadcastStatic), likely because
-      // broadcast IDs are introduced without BroadcastOp. This is
-      // also the case with the resize scheduler.
+      // broadcast IDs are introduced without BroadcastOp.
+      // This is also the case with the resize scheduler.
       if (resize->out()->isBroadcast()) {
         reject("Resize to a broadcast ID is not allowed: ", pad->toString());
         return;
