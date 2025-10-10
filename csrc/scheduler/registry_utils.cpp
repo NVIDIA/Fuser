@@ -424,6 +424,29 @@ bool isSplitOnly(ReshapeOp* view_op) {
   return true;
 }
 
+bool isSameSplit(
+    std::vector<Expr*> view_op_1_transforms,
+    std::vector<Expr*> view_op_2_transforms) {
+  if (view_op_1_transforms.size() != view_op_2_transforms.size()) {
+    return false;
+  }
+  for (auto [transform_1, transform_2] :
+       zip(view_op_1_transforms, view_op_2_transforms)) {
+    if (!transform_1->isA<Split>() || !transform_2->isA<Split>()) {
+      return false;
+    }
+    auto sp1 = transform_1->as<Split>();
+    auto sp2 = transform_2->as<Split>();
+    if (sp1->innerSplit() != sp2->innerSplit()) {
+      return false;
+    }
+    if (!sp1->factor()->sameAs(sp2->factor())) {
+      return false;
+    }
+  }
+  return true;
+}
+
 } // namespace
 
 // Returns if view interferes with how we want to treat the reference, being at
@@ -432,12 +455,38 @@ bool reductionInterferingView(
     Fusion* fusion,
     const ComputeAtMap& ca_map,
     TensorView* reduction_reference) {
-  // If reshape transform only has split, it shouldn't influence reduction.
+  // If reshape transforms only has split and all reshape processes are same, it
+  // shouldn't influence reduction.
   const auto& view_ops = ir_utils::getReshapeOps(fusion);
-  if (std::all_of(view_ops.begin(), view_ops.end(), [](ReshapeOp* view) {
-        return isSplitOnly(view);
-      })) {
+
+  const auto& ref_view_op_transforms = StmtSort::getExprsTo(
+      {view_ops.at(0)->out()->getLogicalDomain().begin(),
+       view_ops.at(0)->out()->getLogicalDomain().end()});
+  // If there is only one reshape op and all transforms are splits, it won't
+  // influence reduction.
+  if (view_ops.size() == 1 &&
+      std::all_of(
+          ref_view_op_transforms.begin(),
+          ref_view_op_transforms.end(),
+          [](Expr* expr) { return expr->isA<Split>(); })) {
     return false;
+  }
+  // If there are multiple reshape ops and all transforms are same splits, these
+  // reshape ops won't influence reduction.
+  if (view_ops.size() > 1) {
+    bool all_splits_are_same = true;
+    for (size_t idx = 1; idx < view_ops.size(); idx++) {
+      const auto& view_op_transforms = StmtSort::getExprsTo(
+          {view_ops.at(idx)->out()->getLogicalDomain().begin(),
+           view_ops.at(idx)->out()->getLogicalDomain().end()});
+      if (!isSameSplit(ref_view_op_transforms, view_op_transforms)) {
+        all_splits_are_same = false;
+        break;
+      }
+    }
+    if (all_splits_are_same) {
+      return false;
+    }
   }
 
   // Make sure the view doesn't interfere with how we'll want to schedule

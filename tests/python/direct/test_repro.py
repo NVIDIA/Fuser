@@ -4599,3 +4599,51 @@ def test_ca_map_concrete_loop_id(nvfuser_direct_test):
         torch.testing.make_tensor((1, 1, 1024), dtype=torch.float32, device="cuda:0"),
     ]
     fd.validate(inputs)
+
+
+# https://github.com/NVIDIA/Fuser/issues/5358
+# Two reductions with different iteration extents should be rejected
+def test_reduction_runtime_check(nvfuser_direct_test):
+    def nvfuser_fusion_id1(fd: FusionDefinition) -> None:
+        T0 = fd.define_tensor(
+            shape=[1, 16, 6144],
+            contiguity=[None, True, True],
+            dtype=DataType.Float,
+            is_cpu=False,
+            stride_order=[2, 1, 0],
+        )
+        T1 = fd.ops.slice(
+            T0,
+            start_indices=[0, 0, 0],
+            end_indices=[1, 16, 4096],
+            strides=[1, 1, 1],
+            manual_normalization=0,
+        )
+        T2 = fd.ops.slice(
+            T0,
+            start_indices=[0, 0, 4096],
+            end_indices=[1, 16, 5120],
+            strides=[1, 1, 1],
+            manual_normalization=0,
+        )
+        T3 = fd.ops.reshape(T1, new_shape=[1, 16, 32, 128])
+        T4 = fd.ops.reshape(T2, new_shape=[1, 16, 8, 128])
+        T5 = fd.ops.sum(T3, dims=[2], keepdim=False, dtype=DataType.Null)
+        T6 = fd.ops.add(T4, T4)
+
+        fd.add_output(T5)
+        fd.add_output(T6)
+
+    with FusionDefinition() as fd:
+        nvfuser_fusion_id1(fd)
+
+    inputs = [
+        torch.testing.make_tensor(
+            (1, 16, 6144),
+            dtype=torch.float32,
+            device="cuda:0",
+            low=LOW_VAL,
+            high=HIGH_VAL,
+        ),
+    ]
+    fd.validate(inputs)
