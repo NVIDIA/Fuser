@@ -639,7 +639,11 @@ std::optional<std::unique_ptr<HeuristicParamsList>> FusionKernelRuntime::
       ExpressionEvaluator eval_fusion;
       for (auto [i, v] : enumerate(group_to_run->inputs())) {
         auto tensor_pv = args_manager.checkTensorMap(v);
-        eval_fusion.bind(fusion_to_run->inputs()[i], tensor_pv.to(at::kMeta));
+        if (tensor_pv.is<at::Tensor>()) {
+          eval_fusion.bind(fusion_to_run->inputs()[i], tensor_pv.to(at::kMeta));
+        } else {
+          eval_fusion.bind(fusion_to_run->inputs()[i], tensor_pv);
+        }
       }
       for (auto v : fusion_to_run->outputs()) {
         auto result = eval_fusion.evaluate(v);
