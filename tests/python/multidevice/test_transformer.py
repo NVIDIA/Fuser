@@ -235,16 +235,7 @@ def transformer_forward_definition(
         layernorm0_rstd, shape=[b, s, e], broadcast_dims=[0, 1, 2]
     )
     T40 = fd.ops.mul(T34, T39)
-    x = fd.ops.cast(inp, dtype=DataType.BFloat16)
-    T45 = fd.ops.broadcast_in_dim(
-        layernorm0_weight, shape=[b, s, e], broadcast_dims=[2]
-    )
-    T46 = fd.ops.cast(T45, dtype=DataType.Float)
-    T47 = fd.ops.mul(T40, T46)
-    T52 = fd.ops.broadcast_in_dim(layernorm0_bias, shape=[b, s, e], broadcast_dims=[2])
-    T53 = fd.ops.cast(T52, dtype=DataType.Float)
-    T54 = fd.ops.add(T47, T53)
-    T55 = fd.ops.cast(T54, dtype=DataType.BFloat16)
+    x = fd.ops.cast(T40, dtype=DataType.BFloat16)
     mha_linear0_out = fd.ops.linear(x, mha_linear0_weight, mha_linear0_bias)
     fd.add_output(mha_linear0_out)
 
