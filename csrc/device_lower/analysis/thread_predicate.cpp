@@ -669,14 +669,22 @@ class ConcretizedBroadcastRedundantWriteRemover {
     return merged_logical_domains_sorted;
   }
 
-  // Get the index of the loop domain if we skip the broadcasted logical domains
+  // Get the index of the loop domain if we skip the broadcasted
+  // logical domains
+  // TODO: The result of this function is not necessary when
+  // ThreadPredicateMap is used only for its analysis result. This
+  // function is used to prepare for predicate generation, e.g.,
+  // ThreadPredicateMap::getPredicate. Consider a different design
+  // so that this preparation is only done when necessary.
   std::vector<Val*> getIndexOfBroadcastLogicalDomains(
       const std::vector<IterDomain*>& merged_logical_domains,
       ParallelType pt) {
     const int64_t ndim = (int64_t)merged_logical_domains.size();
     // get the stride if we index the loop domain using its logical domains
     std::vector<Val*> logical_stride(ndim);
-    logical_stride.at(ndim - 1) = GpuLower::current()->kernel()->oneVal();
+    NVF_ERROR(!merged_logical_domains.empty());
+    logical_stride.at(ndim - 1) =
+        merged_logical_domains.front()->fusion()->oneVal();
     for (int64_t i = ndim - 2; i >= 0; i--) {
       auto pre_crd = merged_logical_domains.at(i + 1);
       Val* pre_extent = pre_crd->isBroadcast()
