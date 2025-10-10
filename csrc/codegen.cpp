@@ -1747,7 +1747,19 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
         ? grouped_id->extent()->evaluate().as<int64_t>()
         : 1;
 
-    template_args.arg(input->dtype()); // DataT
+    const auto dtype = input->dtype();
+    std::string native_type_str;
+    if (dtype == PrimDataType::BFloat16) {
+      native_type_str = "__nv_bfloat16";
+    } else if (dtype == PrimDataType::Half) {
+      native_type_str = "__nv_half";
+    } else {
+      std::stringstream ss;
+      ss << dtype;
+      native_type_str = ss.str();
+    }
+    // template_args.arg(input->dtype()); // DataT
+    template_args.arg(native_type_str); // DataT
     template_args.arg(items_per_thread); // ITEMS_PER_THREAD
 
     // BlockDim type - using DefaultBlockDim pattern
@@ -1761,7 +1773,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     // are not used here because out-of-bounds elements are initizlied
     // to the max or min value accordingly.
     func_args.arg("*(")
-        .append(output->dtype())
+        .append(native_type_str)
         .append("(*)[")
         .append(items_per_thread)
         .append("])")
@@ -1769,7 +1781,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
         .append(genInline(output))
         .append(")");
     func_args.arg("*(")
-        .append(input->dtype())
+        .append(native_type_str)
         .append("(*)[")
         .append(items_per_thread)
         .append("])")
@@ -1783,7 +1795,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     // Fourth argument: binary operation lambda
     // This is slightly different from getReductionOp
     std::stringstream lambda;
-    lambda << "[](const " << input->dtype() << "& a, const " << input->dtype()
+    lambda << "[](const " << native_type_str << "& a, const " << native_type_str
            << "& b) "
            << "{ return "
            << genBinaryOp(scan->opType(), input->dtype(), "a", "b") << "; }";
