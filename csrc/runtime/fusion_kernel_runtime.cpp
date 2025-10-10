@@ -670,6 +670,7 @@ std::optional<std::unique_ptr<HeuristicParamsList>> FusionKernelRuntime::
         run_order_id,
         is_expr_eval);
   }
+  std::cout << "getMaybeHeuristicsFor: return heuristics" << std::endl;
   return heuristics;
 }
 
