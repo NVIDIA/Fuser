@@ -19,6 +19,7 @@ from torch.distributed.tensor.parallel import (
 
 from thunder.dynamo import thunderfx
 from thunder.executors.nvfuserex_impl import getnv
+from thunder.torch.custom_op import _register_custom_op, _register_nvfuser_translator
 
 from nvfuser_direct import DataType
 
@@ -184,13 +185,9 @@ def gmm_nvfuser(
     return out
 
 
-from thunder.torch.custom_op import _register_custom_op
-
 _sym_of_nvfp4_scaled_grouped_mm = _register_custom_op(
     nvfuser_f16a_nvfp4weight_scaled_grouped_mm
 )
-
-from thunder.torch.custom_op import _register_nvfuser_translator
 
 _register_nvfuser_translator(_sym_of_nvfp4_scaled_grouped_mm, gmm_nvfuser)
 
