@@ -481,6 +481,8 @@ def test_transformer_forward(multidevice_direct_test, benchmark):
         transformer_forward_definition(fd, b, s, h, e)
         transformer_forward_multidevice_schedule(fd, d)
 
+    fd.execute(ins)
+
     warmup_fn = lambda: fd.execute(ins)
 
     # warmup_fn, benchmark_fn = get_benchmark_fns(lambda: fd.execute(ins))
