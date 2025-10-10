@@ -4859,6 +4859,8 @@ std::vector<PolymorphicValue> LinearOp::evaluate(
     const std::vector<PolymorphicValue>& inputs) const {
   const auto in = inputs.at(0).as<at::Tensor>();
   auto weight = inputs.at(1).as<at::Tensor>();
+  std::cout << "in: " << in.device() << std::endl;
+  std::cout << "weight: " << weight.device() << std::endl;
 
   auto squeeze_device_dims = [](at::Tensor& t,
                                 int64_t num_device_dims) -> void {
@@ -4883,6 +4885,7 @@ std::vector<PolymorphicValue> LinearOp::evaluate(
   at::Tensor out_tensor;
   if (hasBias()) {
     auto bias = inputs.at(2).as<at::Tensor>();
+    std::cout << "bias: " << bias.device() << std::endl;
     squeeze_device_dims(bias, num_device_dims);
     out_tensor = at::linear(in, weight, bias);
   } else {
