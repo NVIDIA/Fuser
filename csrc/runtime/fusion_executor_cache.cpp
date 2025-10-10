@@ -104,6 +104,13 @@ KernelArgumentHolder FusionExecutorCache::runFusionWithInputs(
     debug() << FusionProfiler::profile();
   }
 
+  for (auto out : unaliased_outputs) {
+    if (out.is<at::Tensor>() && out.as<at::Tensor>().device().is_meta()) {
+      std::cout << "out is meta tensor" << std::endl;
+      std::cout << out.as<at::Tensor>() << std::endl;
+    }
+  }
+
   return unaliased_outputs;
 }
 

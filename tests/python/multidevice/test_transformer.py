@@ -1,9 +1,6 @@
 # SPDX-FileCopyrightText: Copyright (c) 2024-present NVIDIA CORPORATION & AFFILIATES.
 # All rights reserved.
 # SPDX-License-Identifier: BSD-3-Clause
-import os
-os.environ["NVFUSER_DUMP"] = "fusion_ir"
-
 import pytest
 
 import torch
