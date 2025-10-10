@@ -49,6 +49,7 @@ KernelArgumentHolder FusionExecutorCache::runFusionWithInputs(
     std::optional<PrimDataType> forced_index_type,
     std::optional<int8_t> selected_device) {
   FUSER_PERF_SCOPE("FusionExecutorCache::runFusionWithInputs");
+  std::cout << "runFusionWithInputs" << std::endl;
 
   if (isProfilerEnabled()) {
     FusionProfiler::start(!isProfilerEnabledWithCupti());
