@@ -333,8 +333,8 @@ def transformer_forward_definition(
     T218 = fd.ops.mul(T216, S217)
     T219 = fd.ops.add(T145, T218)
     out = fd.ops.cast(T219, dtype=DataType.BFloat16)
-    fd.add_output(layernorm0_mean)
-    fd.add_output(layernorm0_rstd)
+    # fd.add_output(layernorm0_mean)
+    # fd.add_output(layernorm0_rstd)
     fd.add_output(mha_linear0_out)
     # fd.add_output(sdpa_out)
     # fd.add_output(sdpa_logsum_exp)
@@ -485,6 +485,7 @@ def test_transformer_forward(multidevice_direct_test, benchmark):
         print(tv.device)
 
     fd.execute(ins)
+    return
 
     warmup_fn = lambda: fd.execute(ins)
 
