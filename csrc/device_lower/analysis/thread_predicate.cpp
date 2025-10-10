@@ -671,10 +671,11 @@ class ConcretizedBroadcastRedundantWriteRemover {
 
   // Get the index of the loop domain if we skip the broadcasted
   // logical domains
-  // TODO: ThreadPredicateMap may be used only for its anlaysis but
-  // not for generating predicates. This function is currently called
-  // no matter if it's just for the analysis but should be lazily
-  // done.
+  // TODO: The result of this function is not necessary when
+  // ThreadPredicateMap is used only for its analysis result. This
+  // function is used to prepare for predicate generation, e.g.,
+  // ThreadPredicateMap::getPredicate. Consider a different design
+  // so that this preparation is only done when necessary.
   std::vector<Val*> getIndexOfBroadcastLogicalDomains(
       const std::vector<IterDomain*>& merged_logical_domains,
       ParallelType pt) {
