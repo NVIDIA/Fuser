@@ -25,18 +25,21 @@ void WriteValue32ToLocalAndPeer(
     CUstream stream,
     const P2pIpcHandle& ipc_handles,
     IpcSemaphore value) {
-  // Write to local semaphore
-  NVFUSER_CUDA_SAFE_CALL(cuStreamWriteValue32(
-      stream,
-      reinterpret_cast<CUdeviceptr>(ipc_handles.local().semaphore()),
-      (cuuint32_t)(value),
-      CU_STREAM_WRITE_VALUE_DEFAULT));
-  // Write to peer semaphore
-  NVFUSER_CUDA_SAFE_CALL(cuStreamWriteValue32(
-      stream,
-      reinterpret_cast<CUdeviceptr>(ipc_handles.peer().semaphore()),
-      (cuuint32_t)(value),
-      CU_STREAM_WRITE_VALUE_DEFAULT));
+  CUstreamBatchMemOpParams ops[2] = {};
+
+  ops[0].operation = CU_STREAM_MEM_OP_WRITE_VALUE_32;
+  ops[0].writeValue.address =
+      reinterpret_cast<CUdeviceptr>(ipc_handles.local().semaphore());
+  ops[0].writeValue.value = static_cast<cuuint32_t>(value);
+  ops[0].writeValue.flags = CU_STREAM_WRITE_VALUE_DEFAULT;
+
+  ops[1].operation = CU_STREAM_MEM_OP_WRITE_VALUE_32;
+  ops[1].writeValue.address =
+      reinterpret_cast<CUdeviceptr>(ipc_handles.peer().semaphore());
+  ops[1].writeValue.value = static_cast<cuuint32_t>(value);
+  ops[1].writeValue.flags = CU_STREAM_WRITE_VALUE_DEFAULT;
+
+  NVFUSER_CUDA_SAFE_CALL(cuStreamBatchMemOp(stream, 2, ops, 0));
 }
 
 } // anonymous namespace
