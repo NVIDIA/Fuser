@@ -214,7 +214,7 @@ NonDivisiblePredicateInfo::NonDivisiblePredicateInfo(Fusion* fusion) {
     auto def = tv->definition();
     // A block quantization is plumbed down to a runtime function.
     // The runtime function handles predication so skip this.
-    if (def == nullptr || def->isA<BlockQuantizationOp>()) {
+    if (def == nullptr || ir_utils::isBlockScalingFactor(tv)) {
       continue;
     }
 
