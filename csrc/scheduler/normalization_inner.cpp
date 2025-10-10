@@ -570,6 +570,8 @@ void innerPersistentHeuristicCluster(
   int64_t blocks_per_cluster =
       ceilDiv(properties.max_persistent_buffer_size_bit, register_per_block);
   blocks_per_cluster = scheduler_utils::roundUpPow2(blocks_per_cluster);
+  blocks_per_cluster =
+      std::min(blocks_per_cluster, scheduler_utils::getMaxClusterSize());
   int64_t persistent_batch = ceilDiv(after_vect_bdimx, blocks_per_cluster);
 
   rparams->cross_block_inner_reduction = true;
