@@ -9,62 +9,129 @@
 #include <multidevice/cuda_p2p.h>
 
 namespace nvfuser {
+P2pProtocol getPrescribedP2pProtocol() {
+  return hasEnableOptionArgument(EnableOption::PrescribeP2pProtocol, "put")
+      ? P2pProtocol::Put
+      : P2pProtocol::Get;
+}
 
-namespace get_zcopy {
+namespace {
 
-void recvPost(const P2pIpcHandle& ipc_handles, int64_t count, CUstream stream) {
-  // wait for sender to be ready
-  NVFUSER_CUDA_SAFE_CALL(cuStreamWaitValue32(
-      stream,
-      reinterpret_cast<CUdeviceptr>(ipc_handles.local().semaphore()),
-      (cuuint32_t)(IpcSemaphore::kInUse),
-      CU_STREAM_WAIT_VALUE_EQ));
-  // RDMA get the data from the sender
-  NVFUSER_CUDA_RT_SAFE_CALL(cudaMemcpyAsync(
-      ipc_handles.local().ptr(),
-      ipc_handles.peer().ptr(),
-      count,
-      cudaMemcpyDeviceToDevice,
-      stream));
-  // Signals completion to self
+// We choose  duplicate the state of the semaphore on both the local and peer
+// devices to avoid cuStreamWaitValue32 to poll on a remote buffer and pollutes
+// the network. This is a theoretical consideration that we have not proved or
+// measured experimentally.
+void WriteValue32ToLocalAndPeer(
+    CUstream stream,
+    const P2pIpcHandle& ipc_handles,
+    IpcSemaphore value) {
+  // Write to local semaphore
   NVFUSER_CUDA_SAFE_CALL(cuStreamWriteValue32(
       stream,
       reinterpret_cast<CUdeviceptr>(ipc_handles.local().semaphore()),
-      (cuuint32_t)(IpcSemaphore::kReady),
+      (cuuint32_t)(value),
       CU_STREAM_WRITE_VALUE_DEFAULT));
-  // Signals completion to sender
+  // Write to peer semaphore
   NVFUSER_CUDA_SAFE_CALL(cuStreamWriteValue32(
       stream,
       reinterpret_cast<CUdeviceptr>(ipc_handles.peer().semaphore()),
-      (cuuint32_t)(IpcSemaphore::kReady),
+      (cuuint32_t)(value),
       CU_STREAM_WRITE_VALUE_DEFAULT));
 }
 
-void sendPost(const P2pIpcHandle& ipc_handles, CUstream stream) {
-  // signal to self that transfer is in progress
-  NVFUSER_CUDA_SAFE_CALL(cuStreamWriteValue32(
-      stream,
-      reinterpret_cast<CUdeviceptr>(ipc_handles.local().semaphore()),
-      (cuuint32_t)(IpcSemaphore::kInUse),
-      CU_STREAM_WRITE_VALUE_DEFAULT));
-  // signal to receiver that the buffer is ready
-  NVFUSER_CUDA_SAFE_CALL(cuStreamWriteValue32(
-      stream,
-      reinterpret_cast<CUdeviceptr>(ipc_handles.peer().semaphore()),
-      (cuuint32_t)(IpcSemaphore::kInUse),
-      CU_STREAM_WRITE_VALUE_DEFAULT)); // passing
-                                       // CU_STREAM_WRITE_VALUE_NO_MEMORY_BARRIER
-                                       // gives an error
+} // anonymous namespace
+
+void recvPost(const P2pIpcHandle& ipc_handles, int64_t count, CUstream stream) {
+  P2pProtocol protocol = getPrescribedP2pProtocol();
+  switch (protocol) {
+    case P2pProtocol::Get: {
+      // wait for sender to be ready
+      NVFUSER_CUDA_SAFE_CALL(cuStreamWaitValue32(
+          stream,
+          reinterpret_cast<CUdeviceptr>(ipc_handles.local().semaphore()),
+          (cuuint32_t)(IpcSemaphore::kInUse),
+          CU_STREAM_WAIT_VALUE_EQ));
+      // RDMA get the data from the sender
+      NVFUSER_CUDA_RT_SAFE_CALL(cudaMemcpyAsync(
+          ipc_handles.local().ptr(),
+          ipc_handles.peer().ptr(),
+          count,
+          cudaMemcpyDeviceToDevice,
+          stream));
+      // Signals completion
+      WriteValue32ToLocalAndPeer(stream, ipc_handles, IpcSemaphore::kReady);
+      break;
+    }
+    case P2pProtocol::Put: {
+      WriteValue32ToLocalAndPeer(stream, ipc_handles, IpcSemaphore::kInUse);
+      break;
+    }
+    default:
+      NVF_ERROR("Invalid P2P protocol: ", protocol);
+  }
+}
+
+void recvWait(const P2pIpcHandle& ipc_handles, CUstream stream) {
+  P2pProtocol protocol = getPrescribedP2pProtocol();
+  switch (protocol) {
+    case P2pProtocol::Put:
+      NVFUSER_CUDA_SAFE_CALL(cuStreamWaitValue32(
+          stream,
+          reinterpret_cast<CUdeviceptr>(ipc_handles.local().semaphore()),
+          (cuuint32_t)(IpcSemaphore::kReady),
+          CU_STREAM_WAIT_VALUE_EQ));
+      break;
+    case P2pProtocol::Get:
+      break;
+    default:
+      NVF_ERROR("Invalid P2P protocol: ", protocol);
+  }
+}
+
+void sendPost(const P2pIpcHandle& ipc_handles, int64_t count, CUstream stream) {
+  P2pProtocol protocol = getPrescribedP2pProtocol();
+  switch (protocol) {
+    case P2pProtocol::Get:
+      // signal to self and peer that transfer is in progress
+      WriteValue32ToLocalAndPeer(stream, ipc_handles, IpcSemaphore::kInUse);
+      break;
+    case P2pProtocol::Put: {
+      // wait for receiver to be ready
+      NVFUSER_CUDA_SAFE_CALL(cuStreamWaitValue32(
+          stream,
+          reinterpret_cast<CUdeviceptr>(ipc_handles.local().semaphore()),
+          (cuuint32_t)(IpcSemaphore::kInUse),
+          CU_STREAM_WAIT_VALUE_EQ));
+      // RDMA put the data to the receiver
+      NVFUSER_CUDA_RT_SAFE_CALL(cudaMemcpyAsync(
+          ipc_handles.peer().ptr(),
+          ipc_handles.local().ptr(),
+          count,
+          cudaMemcpyDeviceToDevice,
+          stream));
+      WriteValue32ToLocalAndPeer(stream, ipc_handles, IpcSemaphore::kReady);
+      break;
+    }
+    default:
+      NVF_ERROR("Invalid P2P protocol: ", protocol);
+  }
 }
 
 void sendWait(const P2pIpcHandle& ipc_handles, CUstream stream) {
-  NVFUSER_CUDA_SAFE_CALL(cuStreamWaitValue32(
-      stream,
-      reinterpret_cast<CUdeviceptr>(ipc_handles.local().semaphore()),
-      (cuuint32_t)(IpcSemaphore::kReady),
-      CU_STREAM_WAIT_VALUE_EQ));
+  P2pProtocol protocol = getPrescribedP2pProtocol();
+  switch (protocol) {
+    case P2pProtocol::Get:
+      NVFUSER_CUDA_SAFE_CALL(cuStreamWaitValue32(
+          stream,
+          reinterpret_cast<CUdeviceptr>(ipc_handles.local().semaphore()),
+          (cuuint32_t)(IpcSemaphore::kReady),
+          CU_STREAM_WAIT_VALUE_EQ));
+      break;
+    case P2pProtocol::Put:
+      break;
+    default:
+      NVF_ERROR("Invalid P2P protocol: ", protocol);
+  }
 }
-
-} // namespace get_zcopy
 
 } // namespace nvfuser
