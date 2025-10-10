@@ -640,6 +640,7 @@ std::optional<std::unique_ptr<HeuristicParamsList>> FusionKernelRuntime::
       for (auto [i, v] : enumerate(group_to_run->inputs())) {
         auto tensor_pv = args_manager.checkTensorMap(v);
         if (tensor_pv.is<at::Tensor>()) {
+          std::cout << "tensor_pv is at::Tensor" << tensor_pv.as<at::Tensor>().device() << std::endl;
           eval_fusion.bind(fusion_to_run->inputs()[i], tensor_pv.as<at::Tensor>().to(at::kMeta));
         } else {
           eval_fusion.bind(fusion_to_run->inputs()[i], tensor_pv);
