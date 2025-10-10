@@ -220,6 +220,12 @@ void PrecomputedValues::bindValues(
     NVF_ERROR(input != nullptr);
     if (auto* tv = dynamic_cast<TensorView*>(input)) {
       const auto& tensor = args[i].as<at::Tensor>();
+      std::cout << "bindValues: " << i << " " << input->toString() << std::endl;
+      if (tensor.defined()) {
+        std::cout << "bindValues: " << tensor.device() << std::endl;
+      } else {
+        std::cout << "bindValues: tensor not defined" << std::endl;
+      }
       if (!tensor.is_cpu()) {
         bindTensorMetaData(tv, tensor);
       }
