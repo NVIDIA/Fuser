@@ -96,6 +96,10 @@ std::string KernelArgumentHolder::toString() const {
 PrimDataType KernelArgumentHolder::getSmallestIndexTypeOfArguments() const {
   for (const auto& arg : arguments_) {
     if (arg.is<at::Tensor>()) {
+      if (!arg.as<at::Tensor>().defined()) {
+        std::cout << "getSmallestIndexTypeOfArguments: tensor not defined" << std::endl;
+        continue;
+      }
       if (getSmallestIndexType(arg.as<at::Tensor>()) == PrimDataType::Int) {
         return PrimDataType::Int;
       }
