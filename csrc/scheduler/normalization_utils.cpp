@@ -1647,7 +1647,7 @@ void schedulePersistentKernel(
   // and encourages compiler issuing memory load instructions together. It
   // improves performance with cuda-13.0.
   bool unroll_persistent_cached_inputs = rparams->vectorize_inner_reduction &&
-      rparams->fastest_dim && !rparams->schedule_3D;
+      rparams->fastest_dim && !rparams->schedule_3D && !rparams->static_bdimx;
   if (unroll_persistent_cached_inputs) {
     for (const auto& [cached_input, input_idx] : cached_inputs) {
       if (std::ranges::find(persistent_buffers, cached_input) ==
