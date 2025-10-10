@@ -72,6 +72,7 @@ FusionKernelRuntime::FusionKernelRuntime(
       runtime_id_{runtime_id},
       auto_schedule_{auto_schedule} {
   FUSER_PERF_SCOPE("FusionKernelRuntime::FusionKernelRuntime");
+  std::cout << "FusionKernelRuntime::FusionKernelRuntime" << std::endl;
 
   NVF_ERROR(
       !fusion->hasDynamicTransform(),
@@ -539,6 +540,7 @@ std::optional<std::unique_ptr<HeuristicParamsList>> FusionKernelRuntime::
         const KernelArgumentHolder& args,
         std::optional<PrimDataType> forced_index_type) {
   FUSER_PERF_SCOPE("FusionKernelRuntime::getMaybeHeuristicsFor");
+  std::cout << "getMaybeHeuristicsFor" << std::endl;
 
   // The runtime group run order is different from the segmented_fusion group
   // order. Instead of using HeuristicParamsList::emplaceBack, we initialize

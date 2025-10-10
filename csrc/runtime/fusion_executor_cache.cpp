@@ -564,6 +564,7 @@ FusionKernelRuntime* FusionExecutorCache::getKernelRuntimeFor(
     std::optional<PrimDataType> forced_index_type) {
   // Check for id hit case (Path 1)
   FUSER_PERF_SCOPE("FusionExecutorCache::getKernelRuntimeFor");
+  std::cout << "getKernelRuntimeFor" << std::endl;
   auto unique_id_opt = args.getCacheId();
   NVF_CHECK(
       unique_id_opt.has_value(),
