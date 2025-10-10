@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <cmath>
 #include <sstream>
+#include "ir/interface_nodes.h"
 
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
@@ -9161,6 +9162,74 @@ TEST_F(NVFuserTest, InliningPosWithVectorizedCastOps) {
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
   auto outputs = executor_cache.runFusionWithInputs({t0, t1});
   testValidate(&fusion, outputs, {t0, t1}, __LINE__, __FILE__);
+}
+
+// Test for issue #5346: prevent RAW hazard from register aliasing in nested
+// loops. Outer reads T2[i6]; inner writes alias T5[i8] (auto& T5 = T2). i8=0
+// writes can pollute values needed by later reads (e.g., i6=1).
+// clang-format off
+/*
+for(nvfuser_index_t i6 = 0; i6 < 4; ++i6) {
+  nvfuser_index_t i7;
+  i7 = 4 * i6;
+  Array<float, 1, 1> T4;
+  T4[0]
+    = T2[i6]
+    * T2[i6];
+  // Alias Allocation - register
+  auto& T5 = T2;
+  #pragma unroll
+  for(nvfuser_index_t i8 = 0; i8 < 4; ++i8) {
+    T5[i8]
+      = T4[0]
+      + T3[(i7 + i8)];
+  }
+  */
+// clang-format on
+TEST_F(NVFuserTest, RegisterAliasingNestedLoopRAW_CUDA) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  // Simplified version of the pattern
+  auto tv0 = makeContigConcreteTensor({2048, 1});
+  auto tv1 = makeContigConcreteTensor({2048, 32});
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+  auto tv2 = set(tv0);
+  auto tv3 = set(tv1);
+  auto tv4 = mul(tv2, tv2);
+  auto tv5 = add(tv4, tv3);
+  auto tv6 = set(tv5);
+  fusion->addOutput(tv6);
+
+  for (TensorView* tv : {tv2, tv3, tv4, tv5, tv6}) {
+    tv->split(1, 4); // vect
+    tv->split(1, 128); // bdimx
+    tv->split(0, 4); // vect
+    // [BIDy, vect, S, bdimx, vect]
+    tv->axis(0)->parallelize(ParallelType::BIDy);
+    tv->axis(1)->parallelize(ParallelType::Serial);
+    tv->axis(2)->parallelize(ParallelType::Serial);
+    tv->axis(3)->parallelize(ParallelType::TIDx);
+    tv->axis(4)->parallelize(ParallelType::Serial);
+  }
+  tv2->axis(1)->parallelize(ParallelType::Vectorize);
+  tv3->axis(-1)->parallelize(ParallelType::Vectorize);
+  tv6->axis(-1)->parallelize(ParallelType::Vectorize);
+
+  // set inline positions to trigger the bug
+  tv2->computeAt(tv4, 1);
+  tv4->computeAt(tv5, 2);
+  tv3->computeAt(tv5, 1);
+  tv5->computeAt(tv6, 4);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({2048, 1}, options);
+  auto t1 = at::randn({2048, 32}, options);
+  KernelExecutor fe;
+  fe.compile(fusion.get(), {t0, t1});
+  auto outputs = fe.run({t0, t1});
+  testValidate(fusion.get(), outputs, {t0, t1}, __LINE__, __FILE__);
 }
 
 // Test file size should be up to 10K LoC. Create a new file for more tests.
