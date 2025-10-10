@@ -310,6 +310,9 @@ bool isDebugDumpEnabled(DebugDumpOption option) {
   // if (option == DebugDumpOption::FusionSegments) {
   //   return true;
   // }
+  if (option == DebugDumpOption::PerfDebugVerbose) {
+    return true;
+  }
   return DebugDumpOptionsGuard::getCurOptions().has(option);
 }
 

@@ -292,6 +292,7 @@ PrimDataType FusionKernelRuntime::getIndexType() const {
 KernelArgumentHolder FusionKernelRuntime::runWithInputs(
     const KernelArgumentHolder& args) {
   FUSER_PERF_SCOPE("FusionKernelRuntime::runWithInputs");
+  std::cout << "runWithInputs" << std::endl;
 
   if (isOptionEnabled(EnableOption::HostIrLowering)) {
     std::cout << "runWithInputs: HostIrLowering" << std::endl;
