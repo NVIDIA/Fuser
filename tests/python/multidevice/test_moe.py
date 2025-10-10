@@ -3,6 +3,7 @@
 # SPDX-License-Identifier: BSD-3-Clause
 
 import math
+import pytest
 from contextlib import contextmanager
 from dataclasses import dataclass
 
@@ -441,7 +442,8 @@ def parallelize_module_with_nvfuser(
     setattr(parent_module, module_name, new_module)
 
 
-def test_llama4_moe_thunderfx():
+@pytest.mark.mpi
+def test_llama4_moe_thunderfx(multidevice_direct_test):
     config = Config()
 
     # This is much faster than creating the module with CPU float parameters
