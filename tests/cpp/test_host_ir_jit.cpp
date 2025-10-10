@@ -24,9 +24,7 @@ namespace hir {
 
 class HostIrJitTest : public NVFuserTest {
  protected:
-  void SetUp() override {
-    NVFuserTest::SetUp();
-    // Enable the Host IR JIT runtime option
+  HostIrJitTest() {
     EnableOptionsGuard::getCurOptions().set(EnableOption::HostIrJit);
   }
 };
