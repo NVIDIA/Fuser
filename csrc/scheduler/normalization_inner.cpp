@@ -547,11 +547,15 @@ void innerPersistentHeuristic2D(
 // which is usually smaller than 64K and block reduction is used.
 // The reduction domain is parallelized by vectorization, bdimx, gdimx, and
 // persistent batch size. The logic is based on empirical tests:
-//  (1) vectorization width: 128 bit.
-//  (2) bdimx: 256 threads per block.
-//  (3) cluster size: pow of 2, avoid register spills, achieve high occupancy.
-// Note that, the occupancy estimation is based on blocks per sm, which is not
-// correct for cluster launch, should be regarded as a hint.
+// (1) Fixed vectorization of 128 bit
+// (2) Fixed bdimx of 256
+// (3) Cluster size is calculated based on buffer size and available SM register
+// buffers. Assuming each SM uses 32KB of registers and 2 blocks per SM, thus
+// each block uses 16KB registers. Therefore, cluster size is total buffer size
+// divided by 16KB per block.
+// (4) Estimate persistent batch size given vectorization, bdimx, and cluster
+// size
+
 void innerPersistentHeuristicCluster(
     const PersistentKernelProperties& properties,
     ReductionParams* rparams) {
@@ -560,11 +564,11 @@ void innerPersistentHeuristicCluster(
   int64_t bdimx = 256; // empirical value
   int64_t after_vect_bdimx = ceilDiv(after_vect, bdimx);
 
-  // Each blocks uses half of the register file size to store the persistent
-  // buffers
-  int64_t blocks_per_cluster = ceilDiv(
-      properties.max_persistent_buffer_size_bit,
-      scheduler_utils::register_file_size_bit / 2);
+  // Targeting 2 blocks per SM
+  const int64_t register_per_block =
+      scheduler_utils::register_file_size_bit / 2;
+  int64_t blocks_per_cluster =
+      ceilDiv(properties.max_persistent_buffer_size_bit, register_per_block);
   blocks_per_cluster = scheduler_utils::roundUpPow2(blocks_per_cluster);
   int64_t persistent_batch = ceilDiv(after_vect_bdimx, blocks_per_cluster);
 
