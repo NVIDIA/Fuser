@@ -75,19 +75,46 @@ KernelArgumentHolder ArgumentManager::translateValsToArgs(
 void resetAllocationDomainAndContiguity(
     TensorView* tv,
     const at::Tensor& tensor) {
-  const auto [sizes, strides] = inferAllocationSizesAndStrides(tensor, tv, ExpressionEvaluator());
-  auto contiguity_without_reduction = computeContiguity(sizes, strides);
+  const auto [sizes, strides] =
+      inferAllocationSizesAndStrides(tensor, tv, ExpressionEvaluator());
+  // Compute contiguity from right to left, based on allocation domain
   std::vector<std::optional<bool>> contiguity;
-  int64_t index = 0;
-  for (auto id : tv->getMaybeAllocationDomain()) {
+  auto allocation_domain = tv->getMaybeAllocationDomain();
+  contiguity.resize(allocation_domain.size());
+
+  int64_t index = sizes.size() - 1; // Start from rightmost in sizes/strides
+  int64_t next_non_broadcast_shape = -1;
+  int64_t next_non_broadcast_stride = -1;
+
+  // Traverse allocation domain from right to left
+  for (int64_t i = allocation_domain.size() - 1; i >= 0; i--) {
+    auto id = allocation_domain[i];
+
     if (id->isReduction()) {
-      contiguity.push_back(std::nullopt);
-    } else if (!id->isBroadcast() &&
-        !contiguity_without_reduction[index].has_value()) {
-      contiguity.push_back(true);
-      index++;
+      // Reduction has no corresponding entry in sizes/strides
+      contiguity[i] = std::nullopt;
+    } else if (id->isBroadcast()) {
+      // Broadcast has entry in sizes/strides, but we ignore it
+      contiguity[i] = std::nullopt;
+      index--; // Skip the corresponding entry in sizes/strides
     } else {
-      contiguity.push_back(contiguity_without_reduction[index++]);
+      // Non-reduction, non-broadcast dimension
+      int64_t current_stride = strides[index];
+      if (next_non_broadcast_shape == -1) {
+        // This is the rightmost non-reduction non-broadcast dimension
+        // Check if stride is 1 to determine contiguity
+        contiguity[i] = (current_stride == 1);
+      } else {
+        // Check if current_stride == next_shape * next_stride
+        // where next_shape/stride are from the next non-broadcast dimension
+        contiguity[i] =
+            (current_stride ==
+             next_non_broadcast_shape * next_non_broadcast_stride);
+      }
+      // Update next_non_broadcast_shape and next_non_broadcast_stride
+      next_non_broadcast_shape = sizes[index];
+      next_non_broadcast_stride = strides[index];
+      index--;
     }
   }
   tv->setContiguity(contiguity);
