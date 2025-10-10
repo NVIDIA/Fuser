@@ -198,16 +198,17 @@ TensorView* scheduleReductionTV(
       outer_parallel(outer_i++, rparams->grid_dim_inner_reduction);
     }
     if (rparams->static_bdimx) {
-      inner_parallel_static(
-          inner_reduce_axis,
-          rparams->block_dim_inner_reduction,
-          rparams->lparams.bdimx());
+      // [R, TIDx, Vect]
+      reduction_tv->split(inner_reduce_axis, rparams->lparams.bdimx());
+      // [R, US, TIDx, Vect]
+      outer_unswitch(inner_reduce_axis + 1);
+      reduction_tv->axis(inner_reduce_axis + 2)
+          ->parallelize(rparams->block_dim_inner_reduction);
     } else {
       reduction_tv->split(
           outer_i++, rparams->batches_per_block_inner_reduction, false);
+      outer_unswitch(outer_i++);
     }
-
-    outer_unswitch(outer_i++);
 
     if (!rparams->vectorize_inner_reduction &&
         rparams->unroll_factor_inner_reduction > 1) {
@@ -335,6 +336,10 @@ TensorView* scheduleReductionTV(
       }
     }
   }
+
+  std::cout << "scheduled reduction_tv: " << reduction_tv->toString()
+            << std::endl;
+
   const bool is_non_persistent_outer_reduction =
       !rparams->persistent_kernel && !rparams->fastest_dim;
   auto reduction_rf_tv =

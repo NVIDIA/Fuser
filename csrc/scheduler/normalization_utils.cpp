@@ -1647,41 +1647,21 @@ void schedulePersistentKernel(
   // and encourages compiler issuing memory load instructions together. It
   // improves performance with cuda-13.0.
   bool unroll_persistent_cached_inputs = rparams->vectorize_inner_reduction &&
-      rparams->fastest_dim && !rparams->schedule_3D && !rparams->static_bdimx;
+      rparams->fastest_dim && !rparams->schedule_3D;
   if (unroll_persistent_cached_inputs) {
     for (const auto& [cached_input, input_idx] : cached_inputs) {
       if (std::ranges::find(persistent_buffers, cached_input) ==
           persistent_buffers.end()) {
         continue;
       }
-      // Find PersistentBatch domain to unroll, typical case is:
-      // [..., PersistentBatch, US, TIDx, Vect].
-      // From first principle, the PersistentBatch domain was created from
-      // an outer split and parallelized with Serial, and its content equals
-      // rparams->batches_per_block_inner_reduction, we should have only one
-      // such domain.
-      int identified_count = 0;
+      std::cout << "cached_input: " << cached_input->toString() << std::endl;
+      // Find PersistentBatch domain to unroll, reduction domains are:
+      // [..., PersistentBatch, US, TIDx, Vect(optional)]
       for (auto id : cached_input->getLoopDomain()) {
-        if (id->getParallelType() != ParallelType::Serial ||
-            !id->definition() || !id->definition()->isA<Split>()) {
-          continue;
+        if (id->getParallelType() == ParallelType::Serial) {
+          id->parallelize(ParallelType::Unroll);
         }
-        auto split = id->definition()->as<Split>();
-        if (split->innerSplit() ||
-            split->factor()->value().as<int64_t>() !=
-                rparams->batches_per_block_inner_reduction) {
-          continue;
-        }
-        identified_count++;
-        id->parallelize(ParallelType::Unroll);
       }
-      NVF_ERROR(
-          identified_count == 1,
-          "Expected to find exactly one PersistentBatch domain to unroll, but "
-          "found ",
-          identified_count,
-          " in ",
-          cached_input->toString());
     }
   }
 
