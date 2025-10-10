@@ -215,6 +215,10 @@ void ExpressionEvaluator::bind_(
   }
   if (auto tv = dynamic_cast<const TensorView*>(value)) {
     const auto& t = concrete_value.as<at::Tensor>();
+    if (!t.defined()) {
+      std::cout << "bind_: tensor not defined" << std::endl;
+      return;
+    }
     bindTensorDomain(tv, t, evaluate_validate);
   }
   if (value->isA<NamedScalar>()) {
