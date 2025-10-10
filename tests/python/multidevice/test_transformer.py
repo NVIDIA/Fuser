@@ -235,6 +235,7 @@ def transformer_forward_definition(
         layernorm0_rstd, shape=[b, s, e], broadcast_dims=[0, 1, 2]
     )
     T40 = fd.ops.mul(T34, T39)
+    T40_ = fd.ops.cast(T40, dtype=DataType.BFloat16)
     T45 = fd.ops.broadcast_in_dim(
         layernorm0_weight, shape=[b, s, e], broadcast_dims=[2]
     )
