@@ -425,8 +425,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
 
     // Shared memory
     if (has_dynamic_smem || has_reductions || has_parallel_welford) {
-      indent() << "alignas("
-               << 16 // always align to 16B for any shared mem allocation
+      indent() << "alignas(" << kSharedMemoryAlignmentBytes
                << ") extern __shared__ char array[];\n";
 
       if (has_reductions || has_parallel_welford) {
@@ -463,7 +462,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
           }
           // Ensure that smem_offset remains 128-byte aligned, like shared_mem
           indent() << "const unsigned smem_offset = alignBufferSize("
-                   << smem_buf_size << ", 128);\n";
+                   << smem_buf_size << ", " << kSharedMemoryAlignmentBytes
+                   << ");\n";
         }
 
         if (has_parallel_welford) {
@@ -4524,6 +4524,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
         .append(std::to_string(blocks_per_cluster));
     template_args.arg("/*warps_per_block=*/")
         .append(std::to_string(warps_per_block));
+    template_args.arg("/*is_all_reduce=*/")
+        .append(cluster_reduction->isAllreduce() ? "true" : "false");
 
     ArgumentBuilder func_args;
     func_args.arg(gen(output));
