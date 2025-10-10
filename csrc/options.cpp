@@ -301,6 +301,12 @@ Options<ProfilerOption>& OptionsGuard<ProfilerOption>::getCurOptions() {
 }
 
 bool isDebugDumpEnabled(DebugDumpOption option) {
+  if (option == DebugDumpOption::FusionIr) {
+    return true;
+  }
+  if (option == DebugDumpOption::FusionIrPreseg) {
+    return true;
+  }
   return DebugDumpOptionsGuard::getCurOptions().has(option);
 }
 
