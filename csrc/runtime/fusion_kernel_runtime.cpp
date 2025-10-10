@@ -578,7 +578,7 @@ std::optional<std::unique_ptr<HeuristicParamsList>> FusionKernelRuntime::
     KernelArgumentHolder group_runtime_inputs =
         args_manager.translateValsToArgs(group_to_run->inputs());
     group_runtime_inputs.setDeviceIndex(args.getDeviceIndex());
-    std::cout << "group_runtime_inputs: " << std::endl;
+    std::cout << "group_runtime_inputs: " << group_runtime_inputs.size() << std::endl;
     group_runtime_inputs.toString();
 
     // Create PrecomputedValues for fusion segment
