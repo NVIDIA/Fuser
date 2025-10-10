@@ -294,6 +294,7 @@ KernelArgumentHolder FusionKernelRuntime::runWithInputs(
   FUSER_PERF_SCOPE("FusionKernelRuntime::runWithInputs");
 
   if (isOptionEnabled(EnableOption::HostIrLowering)) {
+    std::cout << "runWithInputs: HostIrLowering" << std::endl;
     if (isDebugDumpEnabled(DebugDumpOption::PerfDebugVerbose)) {
       debug() << "=================RUNNING HOSTIR EVALUATOR================="
               << std::endl;
@@ -678,6 +679,7 @@ const std::vector<std::unique_ptr<ExecutorAbstract>>& FusionKernelRuntime::
 std::unordered_map<Val*, PolymorphicValue> FusionKernelRuntime::
     runSegmentsWithInputs(const KernelArgumentHolder& args) {
   FUSER_PERF_SCOPE("FusionKernelRuntime::runSegmentsWithInputs");
+  std::cout << "runSegmentsWithInputs" << std::endl;
   NVF_ERROR_EQ(
       args.size(),
       std::ssize(segmented_fusion_->inputs()),
