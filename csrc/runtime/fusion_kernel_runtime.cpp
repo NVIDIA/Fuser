@@ -691,6 +691,7 @@ std::unordered_map<Val*, PolymorphicValue> FusionKernelRuntime::
   kernel_time_ms_ = 0;
   for (auto [run_order_id, group_to_run] :
        enumerate(runtime_workspace_.group_run_order)) {
+    std::cout << "group_to_run: " << group_to_run->groupId() << std::endl;
     // TODO: index mode should be updated per segmented kernel
     // Prepare input vector
     KernelArgumentHolder group_runtime_inputs =
@@ -715,6 +716,10 @@ std::unordered_map<Val*, PolymorphicValue> FusionKernelRuntime::
       ss << "\nError from segmentation group " << group_to_run->groupId()
          << ": " << e.what() << "\n";
       throw std::runtime_error(ss.str());
+    }
+
+    for (auto out : group_runtime_outputs) {
+      std::cout << "group_runtime_outputs: " << out.as<at::Tensor>().device() << std::endl;
     }
 
     args_manager.updateWithSegmentOutputs(
