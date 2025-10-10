@@ -182,13 +182,12 @@ void transformLoopDomain(
     target->setDeviceMesh(ref->getDeviceMesh());
   }
 
-  bool is_scatter_op = direction == PropagateDirection::kForward
-      ? target->definition()->isA<ScatterOp>()
-      : ref->definition()->isA<ScatterOp>();
-
-  if (is_scatter_op) {
+  // If either the ref or target are scatter op outputs, skip propagation
+  if (target->definition() != nullptr &&
+      target->definition()->isA<ScatterOp>()) {
     // Scatter op output has a disjoint logical-to-loop domain.
-    // So we skip propagation. It is not clear to me device / stream
+    // So we skip propagation to avoid errors in the following code such as when
+    // setting the loop domain. It is not clear to me what device / stream
     // parallelization would mean on scatter output.
     return;
   }
