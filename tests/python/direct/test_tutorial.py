@@ -20,14 +20,65 @@ from nvfuser_direct import (
     DataType,
     CompileParams,
     KernelExecutor,
+    SchedulerType,
 )
-from nvfuser_direct import idm
+from nvfuser_direct import idm, schedule
 
 from python.direct_utils import (
     is_pre_hopper,
 )
 
 verbose_ = True
+
+
+# List of all scheduler heuristics for testing
+all_scheduler_heuristics = [
+    SchedulerType.pointwise,
+    SchedulerType.reduction,
+    SchedulerType.inner_persistent,
+    SchedulerType.inner_outer_persistent,
+    SchedulerType.outer_persistent,
+    SchedulerType.transpose,
+    SchedulerType.matmul,
+    SchedulerType.expr_eval,
+    SchedulerType.no_op,
+    SchedulerType.resize,
+]
+
+
+# A helper function to test heuristic schedulers with automatic scheduling
+def _apply_scheduler_helper(fusion, inputs, selected_heuristic):
+    """
+    Helper function to validate and apply a scheduler to a fusion.
+
+    Args:
+        fusion: The Fusion object to schedule
+        inputs: Input tensors for the fusion
+        selected_heuristic: The SchedulerType expected to work
+    """
+    available_heuristics = schedule.find_compatible_schedulers(fusion, inputs)
+
+    # Assume that only a single heuristic is available for fusion
+    assert len(available_heuristics) == 1
+
+    # Check that only selected heuristic is available as a scheduler
+    assert set(available_heuristics) == set([selected_heuristic])
+
+    # Double-check with can_schedule
+    status, _ = schedule.can_schedule(fusion, selected_heuristic, inputs)
+    assert status
+
+    # Check that the other schedulers are not compatible with this fusion
+    assert all(
+        [
+            not schedule.can_schedule(fusion, h, inputs)[0]
+            for h in all_scheduler_heuristics
+            if h is not selected_heuristic
+        ]
+    )
+
+    # Apply the scheduler
+    schedule.schedule_with_type(fusion, selected_heuristic, inputs)
 
 
 def test_tutorial_memcpy():
@@ -1434,3 +1485,158 @@ def test_tutorial_tma_bank_conflict_free_transpose(nvfuser_direct_test):
     ke.compile(fd.fusion, [t0], compile_params=index32bit)
     outputs = ke.run([t0])
     assert outputs[0].equal(t0.t())
+
+
+def test_tutorial_pointwise_auto_scheduler():
+    """
+    Implement a simple pointwise kernel with automatic scheduling.
+    Uses nvfuser's PointwiseScheduler.
+    """
+    inputs = [
+        torch.randn(4, 4, device="cuda"),
+        torch.randn(4, 4, device="cuda"),
+    ]
+
+    with FusionDefinition() as fd:
+        t0 = fd.from_pytorch(inputs[0])
+        t1 = fd.from_pytorch(inputs[1])
+        t2 = fd.ops.add(t0, t1)
+        t3 = fd.ops.exp(t2)
+        fd.add_output(t3)
+
+        # Apply selected scheduler
+        _apply_scheduler_helper(fd.fusion, inputs, SchedulerType.pointwise)
+
+    nvf_out = fd.manual_execute(inputs)
+    eager_out = torch.exp(inputs[0] + inputs[1])
+    torch.testing.assert_close(eager_out, nvf_out[0])
+
+
+def test_tutorial_reduction_auto_scheduler():
+    """
+    Implement a simple reduction kernel with automatic scheduling.
+    - Expects failure with PointwiseScheduler
+    - Uses nvfuser's ReductionScheduler
+    """
+    inputs = [
+        torch.randn(4, 4, device="cuda"),
+    ]
+
+    with FusionDefinition() as fd:
+        t0 = fd.from_pytorch(inputs[0])
+        t1 = fd.ops.sum(t0, dims=[1])
+        t2 = fd.ops.exp(t1)
+        fd.add_output(t2)
+
+        # Test error msg for can_schedule
+        pointwise_status, error_msg = schedule.can_schedule(
+            fd.fusion, SchedulerType.pointwise, inputs
+        )
+        assert not pointwise_status
+        assert (
+            "cannot find reference tensor" in error_msg
+            or "rejected" in error_msg.lower()
+        )
+
+        # Apply selected scheduler
+        _apply_scheduler_helper(fd.fusion, inputs, SchedulerType.reduction)
+
+    nvf_out = fd.manual_execute(inputs)
+    eager_out = torch.exp(inputs[0].sum(1))
+    torch.testing.assert_close(eager_out, nvf_out[0])
+
+
+def test_tutorial_inner_persistent_auto_scheduler():
+    """
+    Implement a simple normalization kernel with automatic scheduling.
+    Uses nvfuser's InnerPersistentScheduler.
+    """
+    tensor_size = 4
+    inputs = [torch.randn(tensor_size, tensor_size, device="cuda")]
+
+    with FusionDefinition() as fd:
+        t0 = fd.from_pytorch(inputs[0])
+        s0 = fd.define_scalar(1e-6, dtype=DataType.Double)
+        norm_const = fd.define_scalar(tensor_size, dtype=DataType.Int)
+
+        bcast_sum0 = fd.ops.sum(t0, dims=[-1], keepdim=True)
+        mean = fd.ops.div(bcast_sum0, norm_const)
+
+        diff = fd.ops.sub(t0, mean)
+        diff_sq = fd.ops.mul(diff, diff)
+        bcast_sum1 = fd.ops.sum(diff_sq, dims=[-1], keepdim=True)
+        var = fd.ops.div(bcast_sum1, norm_const)
+
+        t0_diff = fd.ops.sub(t0, mean)
+        var_eps = fd.ops.sqrt(fd.ops.add(var, s0))
+        t0_norm = fd.ops.div(t0_diff, var_eps)
+        fd.add_output(t0_norm)
+
+        # Apply selected scheduler
+        _apply_scheduler_helper(fd.fusion, inputs, SchedulerType.inner_persistent)
+
+    nvf_out = fd.manual_execute(inputs)
+    var, mean = torch.var_mean(inputs[0], dim=-1, correction=0, keepdim=True)
+    eager_out = (inputs[0] - mean) / torch.sqrt(var + 1e-6)
+    torch.testing.assert_close(eager_out, nvf_out[0])
+
+
+def test_tutorial_batch_norm_auto_scheduler():
+    """
+    Implement a batch normalization kernel with automatic scheduling.
+    Uses nvfuser's InnerPersistentScheduler.
+    """
+    batch_size = 16
+    num_channels = 128
+    height = 12
+    width = 76
+    momentum = 1e-1
+    eps = 1e-5
+    inputs = [
+        torch.randn((batch_size, num_channels, height, width), device="cuda"),
+        torch.randn((num_channels,), device="cuda"),
+        torch.randn((num_channels,), device="cuda"),
+        torch.randn((num_channels,), device="cuda"),
+        torch.randn((num_channels,), device="cuda"),
+        momentum,
+        eps,
+    ]
+
+    with FusionDefinition() as fd:
+        a = fd.from_pytorch(inputs[0])
+        w = fd.from_pytorch(inputs[1])
+        b = fd.from_pytorch(inputs[2])
+        running_mean = fd.from_pytorch(inputs[3])
+        running_invstd = fd.from_pytorch(inputs[4])
+        momentum_scalar = fd.define_scalar(dtype=DataType.Double)
+        eps_scalar = fd.define_scalar(dtype=DataType.Double)
+        a_norm, new_mean, new_invstd = fd.ops.batch_norm(
+            a,
+            w,
+            b,
+            running_mean,
+            running_invstd,
+            momentum_scalar,
+            eps_scalar,
+            training=True,
+            channels_last=False,
+        )
+        fd.add_output(a_norm)
+
+        # Apply selected scheduler
+        _apply_scheduler_helper(fd.fusion, inputs, SchedulerType.inner_persistent)
+
+    nvf_out = fd.manual_execute(inputs)
+    torch_ref = torch.nn.functional.batch_norm(
+        inputs[0],
+        running_mean=inputs[3],
+        running_var=inputs[4],
+        weight=inputs[1],
+        bias=inputs[2],
+        training=True,
+        momentum=momentum,
+        eps=eps,
+    )
+    torch.testing.assert_close(nvf_out[0], inputs[3])
+    torch.testing.assert_close(nvf_out[1], inputs[4])
+    torch.testing.assert_close(nvf_out[2], torch_ref)
