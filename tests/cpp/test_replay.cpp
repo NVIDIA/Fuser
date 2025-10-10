@@ -19,6 +19,7 @@ namespace nvfuser {
 
 using testing::ContainerEq;
 using testing::Each;
+using testing::IsFalse;
 using testing::IsTrue;
 using testing::Optional;
 using testing::Property;
@@ -167,6 +168,21 @@ TEST_F(ReplayTest, LoopAndAllocation) {
   EXPECT_THAT(out->getLoopDomain(), SizeIs(2));
   EXPECT_THAT(out->getLoopDomain(), ContainerEq(out->getAllocationDomain()));
   EXPECT_THAT(out->getContiguity(), Each(Optional(IsTrue())));
+}
+
+TEST_F(ReplayTest, ContiguityWithEmptyAllocation) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+  TensorView* in = makeSymbolicTensor(2);
+  TensorView* out = set(in);
+  fusion.addInput(in);
+  fusion.addOutput(out);
+
+  ASSERT_THAT(in->getContiguity(), Each(Optional(IsFalse())));
+  ASSERT_THAT(out->getContiguity(), Each(Optional(IsTrue())));
+
+  TransformReplay::selfReplay(out->domain(), in->domain());
+  EXPECT_THAT(in->getContiguity(), Each(Optional(IsTrue())));
 }
 
 } // namespace nvfuser
