@@ -328,8 +328,11 @@ def test_llama4_moe_thunderfx():
 
     tmodel = thunderfx(model, nv_enable_linear=True, nv_enable_scatter=True)
 
+    torch.cuda.reset_peak_memory_stats()
     with torch.no_grad():
         actual = tmodel(inp)
+    peak = torch.cuda.max_memory_allocated()
+    print(f"Peak memory allocated: {peak / 1024**2:.2f} MB")
 
     #assert len(tmodel._backend.subgraph_infos) == 1
     #assert len(tmodel._backend.subgraph_infos[0].split_reasons) == 0
