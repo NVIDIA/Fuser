@@ -122,6 +122,7 @@ def test_grouped_mlp(multidevice_direct_test):
 # ```
 # Fusions generated from Thunder commit: b0dc72ef1a9825a70923ae1a270d919f5948c4ed
 
+
 def transformer_forward_definition(
     fd: FusionDefinition, batch: int, sequence: int, head: int, hidden: int
 ) -> None:
@@ -221,14 +222,131 @@ def transformer_forward_definition(
 
     T13 = fd.ops.cast(inp, dtype=DataType.Float)
     T14, layernorm0_mean = fd.ops.var_mean(T13, dims=[2], correction=0, keepdim=False)
+    T20 = fd.ops.broadcast_in_dim(T14, shape=[b, s, 1], broadcast_dims=[0, 1])
     T25 = fd.ops.broadcast_in_dim(
         layernorm0_mean, shape=[b, s, 1], broadcast_dims=[0, 1]
     )
+    S26 = fd.define_scalar(1.00000e-05, dtype=DataType.Double)
+    T27 = fd.ops.add(T20, S26)
+    layernorm0_rstd = fd.ops.rsqrt(T27)
     T33 = fd.ops.broadcast_in_dim(T25, shape=[b, s, e], broadcast_dims=[0, 1, 2])
     T34 = fd.ops.sub(T13, T33)
-    x = fd.ops.cast(T34, dtype=DataType.BFloat16)
-    mha_linear0_out = fd.ops.linear(x, mha_linear0_weight, mha_linear0_bias)
+    T39 = fd.ops.broadcast_in_dim(
+        layernorm0_rstd, shape=[b, s, e], broadcast_dims=[0, 1, 2]
+    )
+    T40 = fd.ops.mul(T34, T39)
+    T45 = fd.ops.broadcast_in_dim(
+        layernorm0_weight, shape=[b, s, e], broadcast_dims=[2]
+    )
+    T46 = fd.ops.cast(T45, dtype=DataType.Float)
+    T47 = fd.ops.mul(T40, T46)
+    T52 = fd.ops.broadcast_in_dim(layernorm0_bias, shape=[b, s, e], broadcast_dims=[2])
+    T53 = fd.ops.cast(T52, dtype=DataType.Float)
+    T54 = fd.ops.add(T47, T53)
+    T55 = fd.ops.cast(T54, dtype=DataType.BFloat16)
+    mha_linear0_out = fd.ops.linear(T55, mha_linear0_weight, mha_linear0_bias)
+
+    # Reshape before slice to avoid slicing a tensor along sharded dimension.
+    # This is different from the single-GPU definition obtained from Thunder.
+    T57 = fd.ops.reshape(mha_linear0_out, new_shape=[b, s, h, 3 * e // h])
+    T69 = fd.ops.slice(T57, start_indices=[0, 0, 0, 0], end_indices=[b, s, h, e // h])
+    T82 = fd.ops.slice(
+        T57, start_indices=[0, 0, 0, e // h], end_indices=[b, s, h, 2 * e // h]
+    )
+    T95 = fd.ops.slice(
+        T57, start_indices=[0, 0, 0, 2 * e // h], end_indices=[b, s, h, 3 * e // h]
+    )
+
+    T102 = fd.ops.permute(T82, dims=[0, 2, 1, 3])
+    T109 = fd.ops.permute(T69, dims=[0, 2, 1, 3])
+    T116 = fd.ops.permute(T95, dims=[0, 2, 1, 3])
+
+    S117 = fd.define_scalar(0.100000, dtype=DataType.Double)
+    S118 = fd.define_scalar(True, dtype=DataType.Bool)
+    sdpa_out, sdpa_logsum_exp, sdpa_seed, sdpa_offset = fd.ops.sdpfa_fwd(
+        T109, T102, T116, S117, S118, None
+    )
+    T123 = fd.ops.permute(sdpa_out, dims=[0, 2, 1, 3])
+    T124 = fd.ops.stride_order(T123, stride_order=[3, 2, 1, 0])
+    T129 = fd.ops.reshape(T124, new_shape=[b, s, e])
+    mha_linear1_out = fd.ops.linear(T129, mha_linear1_weight, mha_linear1_bias)
+    S131 = fd.define_scalar(0.00000, dtype=DataType.Double)
+    S132 = fd.define_scalar(1.00000, dtype=DataType.Double)
+    T137 = fd.ops.uniform(S131, S132, shape=[b, s, e], dtype=DataType.BFloat16)
+    S138 = fd.define_scalar(0.900000, dtype=DataType.Double)
+    mha_dropout_mask = fd.ops.lt(T137, S138)
+    T140 = fd.ops.cast(mha_linear1_out, dtype=DataType.Float)
+    T141 = fd.ops.cast(mha_dropout_mask, dtype=DataType.Float)
+    T142 = fd.ops.mul(T140, T141)
+    S143 = fd.define_scalar(1.11111, dtype=DataType.Double)
+    T144 = fd.ops.mul(T142, S143)
+    T145 = fd.ops.add(T13, T144)
+    T146, layernorm1_mean = fd.ops.var_mean(T145, dims=[2], correction=0, keepdim=False)
+    T152 = fd.ops.broadcast_in_dim(T146, shape=[b, s, 1], broadcast_dims=[0, 1])
+    T157 = fd.ops.broadcast_in_dim(
+        layernorm1_mean, shape=[b, s, 1], broadcast_dims=[0, 1]
+    )
+    S158 = fd.define_scalar(1.00000e-05, dtype=DataType.Double)
+    T159 = fd.ops.add(T152, S158)
+    layernorm1_rstd = fd.ops.rsqrt(T159)
+    T165 = fd.ops.broadcast_in_dim(T157, shape=[b, s, e], broadcast_dims=[0, 1, 2])
+    T166 = fd.ops.sub(T145, T165)
+    T171 = fd.ops.broadcast_in_dim(
+        layernorm1_rstd, shape=[b, s, e], broadcast_dims=[0, 1, 2]
+    )
+    T172 = fd.ops.mul(T166, T171)
+    T177 = fd.ops.broadcast_in_dim(
+        layernorm1_weight, shape=[b, s, e], broadcast_dims=[2]
+    )
+    T178 = fd.ops.cast(T177, dtype=DataType.Float)
+    T179 = fd.ops.mul(T172, T178)
+    T184 = fd.ops.broadcast_in_dim(layernorm1_bias, shape=[b, s, e], broadcast_dims=[2])
+    T185 = fd.ops.cast(T184, dtype=DataType.Float)
+    T186 = fd.ops.add(T179, T185)
+    T187 = fd.ops.cast(T186, dtype=DataType.BFloat16)
+    mlp_linear0_out = fd.ops.linear(T187, mlp_linear0_weight, mlp_linear0_bias)
+    T189 = fd.ops.cast(mlp_linear0_out, dtype=DataType.Float)
+    T190 = fd.ops.mul(T189, T189)
+    T191 = fd.ops.mul(T190, T189)
+    S192 = fd.define_scalar(0.500000, dtype=DataType.Double)
+    T193 = fd.ops.mul(S192, T189)
+    S194 = fd.define_scalar(0.0447150, dtype=DataType.Double)
+    T195 = fd.ops.mul(S194, T191)
+    T196 = fd.ops.add(T189, T195)
+    S197 = fd.define_scalar(0.797885, dtype=DataType.Double)
+    T198 = fd.ops.mul(S197, T196)
+    T199 = fd.ops.tanh(T198)
+    S200 = fd.define_scalar(1.00000, dtype=DataType.Double)
+    T201 = fd.ops.add(S200, T199)
+    T202 = fd.ops.mul(T193, T201)
+    T203 = fd.ops.cast(T202, dtype=DataType.BFloat16)
+    mlp_linear1_out = fd.ops.linear(T203, mlp_linear1_weight, mlp_linear1_bias)
+    S205 = fd.define_scalar(0.00000, dtype=DataType.Double)
+    S206 = fd.define_scalar(1.00000, dtype=DataType.Double)
+    T211 = fd.ops.uniform(S205, S206, shape=[b, s, e], dtype=DataType.BFloat16)
+    S212 = fd.define_scalar(0.900000, dtype=DataType.Double)
+    mlp_dropout_mask = fd.ops.lt(T211, S212)
+    T214 = fd.ops.cast(mlp_linear1_out, dtype=DataType.Float)
+    T215 = fd.ops.cast(mlp_dropout_mask, dtype=DataType.Float)
+    T216 = fd.ops.mul(T214, T215)
+    S217 = fd.define_scalar(1.11111, dtype=DataType.Double)
+    T218 = fd.ops.mul(T216, S217)
+    T219 = fd.ops.add(T145, T218)
+    out = fd.ops.cast(T219, dtype=DataType.BFloat16)
+    fd.add_output(layernorm0_mean)
+    fd.add_output(layernorm0_rstd)
     fd.add_output(mha_linear0_out)
+    fd.add_output(sdpa_out)
+    fd.add_output(sdpa_logsum_exp)
+    fd.add_output(sdpa_seed)
+    fd.add_output(sdpa_offset)
+    fd.add_output(mha_linear1_out)
+    fd.add_output(mha_dropout_mask)
+    fd.add_output(layernorm1_mean)
+    fd.add_output(layernorm1_rstd)
+    fd.add_output(mlp_linear0_out)
+    fd.add_output(mlp_dropout_mask)
+    fd.add_output(out)
 
 
 def transformer_forward_multidevice_schedule(fd: FusionDefinition, num_devices: int):
@@ -363,15 +481,7 @@ def test_transformer_forward(multidevice_direct_test, benchmark):
         transformer_forward_definition(fd, b, s, h, e)
         transformer_forward_multidevice_schedule(fd, d)
 
-    for tv in ins:
-        print(tv.device)
-
-    fd.execute(ins)
-    return
-
-    warmup_fn = lambda: fd.execute(ins)
-
-    # warmup_fn, benchmark_fn = get_benchmark_fns(lambda: fd.execute(ins))
+    warmup_fn, benchmark_fn = get_benchmark_fns(lambda: fd.execute(ins))
 
     # Warm up and validate.
     (
