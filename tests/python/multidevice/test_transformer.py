@@ -245,6 +245,8 @@ def transformer_forward_definition(
     T54 = fd.ops.add(T47, T53)
     T55 = fd.ops.cast(T54, dtype=DataType.BFloat16)
     mha_linear0_out = fd.ops.linear(T55, mha_linear0_weight, mha_linear0_bias)
+    fd.add_output(mha_linear0_out)
+    return
 
     # Reshape before slice to avoid slicing a tensor along sharded dimension.
     # This is different from the single-GPU definition obtained from Thunder.
@@ -259,18 +261,6 @@ def transformer_forward_definition(
     fd.add_output(T82)
     fd.add_output(T69)
     fd.add_output(T95)
-    return
-
-    T102 = fd.ops.permute(T82, dims=[0, 2, 1, 3])
-    T109 = fd.ops.permute(T69, dims=[0, 2, 1, 3])
-    T116 = fd.ops.permute(T95, dims=[0, 2, 1, 3])
-
-    S117 = fd.define_scalar(0.100000, dtype=DataType.Double)
-    S118 = fd.define_scalar(True, dtype=DataType.Bool)
-    sdpa_out, sdpa_logsum_exp, sdpa_seed, sdpa_offset = fd.ops.sdpfa_fwd(
-        T109, T102, T116, S117, S118, None
-    )
-    fd.add_output(sdpa_out)
 
 
 def transformer_forward_multidevice_schedule(fd: FusionDefinition, num_devices: int):
