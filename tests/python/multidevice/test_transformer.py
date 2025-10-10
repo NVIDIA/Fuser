@@ -244,7 +244,7 @@ def transformer_forward_definition(
     T53 = fd.ops.cast(T52, dtype=DataType.Float)
     T54 = fd.ops.add(T47, T53)
     T55 = fd.ops.cast(T54, dtype=DataType.BFloat16)
-    mha_linear0_out = fd.ops.linear(inp, mha_linear0_weight, mha_linear0_bias)
+    mha_linear0_out = fd.ops.linear(T40, mha_linear0_weight, mha_linear0_bias)
     fd.add_output(mha_linear0_out)
 
 
