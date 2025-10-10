@@ -425,8 +425,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
 
     // Shared memory
     if (has_dynamic_smem || has_reductions || has_parallel_welford) {
-      indent() << "alignas("
-               << 16 // always align to 16B for any shared mem allocation
+      indent() << "alignas(" << kSharedMemoryAlignmentBytes
                << ") extern __shared__ char array[];\n";
 
       if (has_reductions || has_parallel_welford) {
@@ -463,7 +462,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
           }
           // Ensure that smem_offset remains 128-byte aligned, like shared_mem
           indent() << "const unsigned smem_offset = alignBufferSize("
-                   << smem_buf_size << ", 128);\n";
+                   << smem_buf_size << ", " << kSharedMemoryAlignmentBytes
+                   << ");\n";
         }
 
         if (has_parallel_welford) {
@@ -1747,7 +1747,23 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
         ? grouped_id->extent()->evaluate().as<int64_t>()
         : 1;
 
-    template_args.arg(input->dtype()); // DataT
+    // Unlike ReductionOp, ScanOp supports bfloat16 and half. The
+    // nvFuser bfoat16 and half types do not support arithmetic
+    // operations, so they are cast to the corresponding CUDA native
+    // type.
+    const auto dtype = input->dtype();
+    std::string native_type_str;
+    if (dtype == PrimDataType::BFloat16) {
+      native_type_str = "__nv_bfloat16";
+    } else if (dtype == PrimDataType::Half) {
+      native_type_str = "__nv_half";
+    } else {
+      std::stringstream ss;
+      ss << dtype;
+      native_type_str = ss.str();
+    }
+
+    template_args.arg(native_type_str); // DataT
     template_args.arg(items_per_thread); // ITEMS_PER_THREAD
 
     // BlockDim type - using DefaultBlockDim pattern
@@ -1761,7 +1777,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     // are not used here because out-of-bounds elements are initizlied
     // to the max or min value accordingly.
     func_args.arg("*(")
-        .append(output->dtype())
+        .append(native_type_str)
         .append("(*)[")
         .append(items_per_thread)
         .append("])")
@@ -1769,7 +1785,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
         .append(genInline(output))
         .append(")");
     func_args.arg("*(")
-        .append(input->dtype())
+        .append(native_type_str)
         .append("(*)[")
         .append(items_per_thread)
         .append("])")
@@ -1783,7 +1799,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     // Fourth argument: binary operation lambda
     // This is slightly different from getReductionOp
     std::stringstream lambda;
-    lambda << "[](const " << input->dtype() << "& a, const " << input->dtype()
+    lambda << "[](const " << native_type_str << "& a, const " << native_type_str
            << "& b) "
            << "{ return "
            << genBinaryOp(scan->opType(), input->dtype(), "a", "b") << "; }";
@@ -4508,6 +4524,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
         .append(std::to_string(blocks_per_cluster));
     template_args.arg("/*warps_per_block=*/")
         .append(std::to_string(warps_per_block));
+    template_args.arg("/*is_all_reduce=*/")
+        .append(cluster_reduction->isAllreduce() ? "true" : "false");
 
     ArgumentBuilder func_args;
     func_args.arg(gen(output));

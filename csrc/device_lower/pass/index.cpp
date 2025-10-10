@@ -675,10 +675,6 @@ void IndexLowering::handleClusterReduction(
     Val* in) {
   NVF_ERROR(ir_utils::isTvOp(rop));
 
-  // cluster reduction is only supported for all-reduce
-  NVF_ERROR(
-      rop->isAllreduce(), "Cluster reduction is only supported for all-reduce");
-
   // Get mbarrier allocated during allocation pass
   auto cluster_mbarrier_tv = GpuLower::current()->clusterReductionMBarrier();
   NVF_CHECK(
@@ -701,7 +697,7 @@ void IndexLowering::handleClusterReduction(
       rop->getReductionOpType(),
       lowerSrcIndex(rop->init(), rop->out()),
       mbarrier_addr,
-      /*is_all_reduce=*/true);
+      rop->isAllreduce());
 
   pushBack(cluster_reduction);
   GpuLower::current()->propagateExprInfo(rop, back());

@@ -558,6 +558,12 @@ TEST_P(TMALoadTestWithABroadcastDim, LoadWithBroadcast) {
   FusionGuard fg(&fusion);
   auto shape = std::get<0>(GetParam());
 
+  uint64_t required_smem = dataTypeSizeByte(dtype);
+  for (auto dim : shape)
+    required_smem *= dim;
+
+  REQUIRE_DEVICE_SMEM_SIZE(required_smem, 0);
+
   auto tv0 = makeContigConcreteTensor(shape, dtype);
   fusion.addInput(tv0);
   auto tv1 = set(tv0);
@@ -960,6 +966,8 @@ TEST_F(TMAIndexingTest, DefineBoxByCompositing2) {
 }
 
 TEST_F(TMAIndexingTest, DefineBoxByCompositingShouldNotMerge) {
+  REQUIRE_DEVICE_SMEM_SIZE(131080, 0);
+
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -1009,6 +1017,8 @@ TEST_F(TMAIndexingTest, DefineBoxByCompositingShouldNotMerge) {
 }
 
 TEST_F(TMAIndexingTest, DefineBoxByRotation1) {
+  REQUIRE_DEVICE_SMEM_SIZE(124424, 0);
+
   Fusion fusion;
   FusionGuard fg(&fusion);
 

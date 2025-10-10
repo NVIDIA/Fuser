@@ -623,4 +623,42 @@ TEST_F(ScanTest, BufferSync) {
   testValidate(&fusion, outputs, {t0}, __LINE__, __FILE__);
 }
 
+// In PyTorch, half and bfloat16 input is automatically upcast to
+// float. While it deviates from the convention for arithmetic
+// operations, including sum reductions, NvFuser scan follows the same
+// scan convention and does not promote automatically. This test
+// exercises the low precison codegen.
+TEST_F(ScanTest, LowPrecision) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  FusionGuard fg(fusion_ptr.get());
+  Fusion& fusion = *fusion_ptr;
+
+  const std::vector<int64_t> shape{4, 1024};
+
+  auto tv0 = makeConcreteTensor(shape, DataType::BFloat16);
+  fusion.addInput(tv0);
+  auto tv1 = set(tv0);
+  auto tv2 = scan(tv1, /*dim=*/1, BinaryOpType::Add);
+  auto tv3 = set(tv2);
+  fusion.addOutput(tv3);
+
+  for (auto tv : fusion.allTvs()) {
+    tv->axis(0)->parallelize(ParallelType::BIDx);
+    tv->axis(1)->parallelize(ParallelType::TIDx);
+  }
+
+  EXPECT_TRUE(std::ranges::all_of(fusion.allTvs(), [](TensorView* tv) {
+    return tv->dtype() == DataType::BFloat16;
+  })) << "Expected all tensors are BFloat16";
+
+  auto options = at::TensorOptions().dtype(at::kBFloat16).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn(shape, options);
+
+  KernelExecutor ke;
+  ke.compile(&fusion, {t0});
+  auto outputs = ke.run({t0});
+
+  testValidate(&fusion, outputs, {t0}, __LINE__, __FILE__);
+}
+
 } // namespace nvfuser
