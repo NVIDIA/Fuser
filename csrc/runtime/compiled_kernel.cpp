@@ -1457,11 +1457,8 @@ std::string CompiledKernel::getStructuredCode() const {
       kernel()->summary().has_topk,
       kernel()->summary().has_scan,
       kernel()->summary().has_preprocess_grouped_matmul_input_sf,
-<<<<<<< HEAD
+      kernel()->summary().has_cluster_reduction,
       kernel()->summary().has_block_quantize_op);
-=======
-      kernel()->summary().has_cluster_reduction);
->>>>>>> main
 }
 
 std::string CompiledKernel::disassembledKernelSASS() const {
