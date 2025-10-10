@@ -272,7 +272,7 @@ class ExprValidator : public OptOutDispatch {
 
  private:
   ExprValidator(Fusion* fusion) {
-    for (auto expr : fusion->exprs()) {
+    for (auto expr : fusion->usedExprs()) {
       dispatch(expr);
     }
   }
@@ -1480,7 +1480,7 @@ void validateGroupedReductions(Fusion* fusion) {
 }
 
 void validateLookupTV(Fusion* fusion) {
-  for (auto expr : fusion->exprs()) {
+  for (auto expr : fusion->usedExprs()) {
     if (expr->isA<SelectOp>() || expr->isA<IndexSelectOp>()) {
       NVF_CHECK(
           expr->input(0)->isFusionInput(),

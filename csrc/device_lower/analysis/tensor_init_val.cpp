@@ -15,7 +15,7 @@
 namespace nvfuser {
 
 TensorInitVal::TensorInitVal(Fusion* fusion) {
-  for (auto expr : fusion->exprs()) {
+  for (auto expr : fusion->usedExprs()) {
     dispatch(expr);
   }
 }

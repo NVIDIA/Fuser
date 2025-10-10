@@ -50,9 +50,9 @@ void insertSegmentSet(Fusion* fusion) {
     return;
   }
 
-  // fusion->exprs() is a topologically sorted list. Filter out the broadcast
+  // fusion->usedExprs() is a topologically sorted list. Filter out the broadcast
   // ops from the list.
-  auto all_exprs = fusion->exprs();
+  auto all_exprs = fusion->usedExprs();
   auto all_bcast_ops = ir_utils::filterByType<BroadcastOp>(all_exprs);
 
   // Traverse and store all direct/indirect consumer tensorviews of these

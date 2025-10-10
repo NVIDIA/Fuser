@@ -49,7 +49,7 @@ void TensorIndexer::buildLoopIndexMap() {
   Fusion* fusion = id_model_.fusion();
   FusionGuard fg(fusion);
 
-  for (auto expr : fusion->exprs()) {
+  for (auto expr : fusion->usedExprs()) {
     if (!ir_utils::isTvOp(expr)) {
       continue;
     }

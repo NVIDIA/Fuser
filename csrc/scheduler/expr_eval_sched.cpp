@@ -54,7 +54,7 @@ bool ExprEvalScheduler::canScheduleCompileTime(Fusion* fusion) {
     return true;
   }
 
-  auto exprs = fusion->exprs();
+  auto exprs = fusion->usedExprs();
   if (exprs.size() != 1) {
     scheduler_debug_utils::canScheduleRejectReason(
         schedulerType(), "Fusion must contain only a single expression.");

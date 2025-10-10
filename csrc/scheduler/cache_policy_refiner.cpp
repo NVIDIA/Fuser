@@ -154,7 +154,7 @@ bool refineCachePolicy(LoadStoreOp* ldst) {
 } // namespace
 
 void refineCachePolicy(Fusion* fusion) {
-  for (Expr* expr : fusion->exprs()) {
+  for (Expr* expr : fusion->usedExprs()) {
     // Currently, we only change cache policy for global->local loads.
     if (isLoadGlobalToLocal(expr)) {
       refineCachePolicy(expr->as<LoadStoreOp>());

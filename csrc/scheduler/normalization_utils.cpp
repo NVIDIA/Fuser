@@ -1056,7 +1056,7 @@ PersistentKernelProperties getPersistentKernelProperties(
   bool has_exp_op = false;
   bool has_rng_op = false;
 
-  // Could save fusion->exprs() instead of doing this, but allTvs is already
+  // Could save fusion->usedExprs() instead of doing this, but allTvs is already
   // cached in fusion so using that for now.
   for (auto tv : fusion->allTvs()) {
     if (tv->definition() == nullptr) {

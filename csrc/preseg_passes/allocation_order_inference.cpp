@@ -425,7 +425,7 @@ void AllocationDomainPass::runPass(Fusion* fusion) {
   inferAllocationOrder(fusion, srcs, dsts);
 
   SdpaPropagator sdpa_propagator;
-  for (Expr* e : fusion->exprs()) {
+  for (Expr* e : fusion->usedExprs()) {
     sdpa_propagator.dispatch(e);
   }
 

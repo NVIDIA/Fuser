@@ -2783,7 +2783,7 @@ int64_t getReductionSmemWorkspaceBit(
 }
 
 bool isResharding(Fusion* fusion) {
-  const std::vector<Expr*>& exprs = fusion->exprs();
+  const std::vector<Expr*>& exprs = fusion->usedExprs();
   return std::any_of(
       exprs.begin(), exprs.end(), [](Expr* e) { return isResharding(e); });
 }
@@ -2981,7 +2981,7 @@ class ExpensiveOpInfo {
  public:
   ExpensiveOpInfo() : n_tanh_(0), n_exp_(0), n_reciprocal_(0) {}
   void analyzeFusion(Fusion* fusion) {
-    for (auto expr : fusion->exprs()) {
+    for (auto expr : fusion->usedExprs()) {
       if (auto unary = dynamic_cast<UnaryOp*>(expr)) {
         switch (unary->getUnaryOpType()) {
           case UnaryOpType::Tanh:
@@ -3117,7 +3117,7 @@ bool hasExpensiveMUFUops(Fusion* fusion) {
       UnaryOpType::Sin,
       UnaryOpType::Cos};
 
-  for (auto expr : fusion->exprs()) {
+  for (auto expr : fusion->usedExprs()) {
     if (expr->isA<UnaryOp>()) {
       if (auto unary = expr->as<UnaryOp>()) {
         if (expensive_unary_ops.count(unary->getUnaryOpType())) {

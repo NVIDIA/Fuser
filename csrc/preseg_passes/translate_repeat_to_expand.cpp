@@ -50,7 +50,7 @@ class RepeatToExpandTranslator {
   // inputs that resize the same iter domain of the same input tensor,
   // that must correspond to a repetition.
   void inspect() {
-    const auto exprs = fusion_->exprs();
+    const auto exprs = fusion_->usedExprs();
 
     for (auto pad : ir_utils::filterByType<PadOp>(exprs)) {
       auto pad_inp = pad->input(0)->as<TensorView>();
@@ -129,7 +129,7 @@ class RepeatToExpandTranslator {
   void translate() {
     FusionGuard fg(fusion_);
 
-    const auto exprs = fusion_->exprs();
+    const auto exprs = fusion_->usedExprs();
     // Apply the translation in a reverse topological order. Since the
     // output of the repetition is replaced, the use exprs of the
     // output are replaced too, which may invalidate the inspected

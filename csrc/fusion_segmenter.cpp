@@ -1988,7 +1988,7 @@ std::unique_ptr<SegmentedFusion> SegmentCandidateFinder::segment(
 }
 
 bool SegmentCandidateFinder::hasSegmentHints(Fusion* fusion) {
-  for (const auto& expr : fusion->exprs()) {
+  for (const auto& expr : fusion->usedExprs()) {
     if (expr->isA<LoadStoreOp>()) {
       auto op = expr->as<LoadStoreOp>();
       // SegmenterSet is a segmenter hint that needs explicit segment call
@@ -2272,7 +2272,7 @@ namespace {
 
 // SegmenterSet hints a kernel break
 bool tryingToMergeSegmenterSet(Fusion* fusion) {
-  for (auto expr : fusion->exprs()) {
+  for (auto expr : fusion->usedExprs()) {
     if (expr->isA<LoadStoreOp>() &&
         expr->as<LoadStoreOp>()->opType() == LoadStoreOpType::SegmenterSet) {
       auto out = expr->output(0);
@@ -2304,7 +2304,7 @@ class FusionSegmentGuard : public NonCopyable {
     FUSER_PERF_SCOPE("Segmenter::FusionSegmentGuard");
     NVF_ERROR(fusion_ != nullptr);
 #ifndef NDEBUG
-    num_original_exprs_ = fusion_->exprs().size();
+    num_original_exprs_ = fusion_->usedExprs().size();
     original_tvs_ = fusion_->allTvs();
 #endif // NDEBUG
     narrowToNewSegment(inputs, outputs);
@@ -2316,7 +2316,7 @@ class FusionSegmentGuard : public NonCopyable {
         fusion_(segmented_fusion->completeFusion()) {
     FUSER_PERF_SCOPE("Segmenter::FusionSegmentGuard");
 #ifndef NDEBUG
-    num_original_exprs_ = fusion_->exprs().size();
+    num_original_exprs_ = fusion_->usedExprs().size();
     original_tvs_ = fusion_->allTvs();
 #endif // NDEBUG
     lowered_precision_edges_ =
@@ -2333,7 +2333,7 @@ class FusionSegmentGuard : public NonCopyable {
         fusion_(segmented_fusion->completeFusion()) {
     FUSER_PERF_SCOPE("Segmenter::FusionSegmentGuard");
 #ifndef NDEBUG
-    num_original_exprs_ = fusion_->exprs().size();
+    num_original_exprs_ = fusion_->usedExprs().size();
     original_tvs_ = fusion_->allTvs();
 #endif // NDEBUG
 
@@ -2362,7 +2362,7 @@ class FusionSegmentGuard : public NonCopyable {
         fusion_(segmented_fusion->completeFusion()) {
     FUSER_PERF_SCOPE("Segmenter::FusionSegmentGuard");
 #ifndef NDEBUG
-    num_original_exprs_ = fusion_->exprs().size();
+    num_original_exprs_ = fusion_->usedExprs().size();
     original_tvs_ = fusion_->allTvs();
 #endif // NDEBUG
 
@@ -2399,7 +2399,7 @@ class FusionSegmentGuard : public NonCopyable {
     // fusion_ should now be equivalent to the original fusion. We
     // can't just compare Expr pointers as we replace Exprs. For
     // now, just make sure there are the same number of exprs.
-    auto num_current_exprs = fusion_->exprs().size();
+    auto num_current_exprs = fusion_->usedExprs().size();
     NVF_ERROR(
         num_original_exprs_ == num_current_exprs,
         "Failed to revert temporary changes. Expected: ",
@@ -2751,7 +2751,7 @@ TranslateApplicableWelford::TranslateApplicableWelford(
     Fusion* fusion,
     const KernelArgumentHolder& runtime_inputs)
     : runtime_inputs_(runtime_inputs) {
-  auto exprs = fusion->exprs();
+  auto exprs = fusion->usedExprs();
   std::vector<WelfordOp*> original_welfords(
       ir_utils::filterByType<WelfordOp>(exprs).begin(),
       ir_utils::filterByType<WelfordOp>(exprs).end());
@@ -4135,7 +4135,7 @@ void SegmentCandidateFinder::buildInitialSegments() {
   std::unordered_map<Expr*, SegmentedGroup*> expr2group;
 
   // Initialize DAG, convert each expr to a segment group
-  auto exprs = completeFusion()->exprs();
+  auto exprs = completeFusion()->usedExprs();
   for (auto expr : exprs) {
     if (!ir_utils::isScalarOp(expr)) {
       auto new_group = segmented_fusion_->newGroup(expr);
@@ -4493,7 +4493,7 @@ bool needsToSqueezeExpanded(
 // The above reasons motivated us to privatize squeeze ops as well.
 bool SegmentCandidateFinder::privatizeUpCastOrSqueezeOp() {
   FusionGuard fg(segmented_fusion_->complete_fusion_.get());
-  const auto exprs = segmented_fusion_->complete_fusion_->exprs();
+  const auto exprs = segmented_fusion_->complete_fusion_->usedExprs();
 
   bool privatized = false;
 
@@ -4828,7 +4828,7 @@ void SegmentCandidateFinder::forwardInputs() {
   // TODO: Handle more factory methods such as IotaOp, EyeOp,
   // TensorConstruct. Probably should not include relatively expensive
   // ops like RNGOp.
-  for (auto expr : completeFusion()->exprs()) {
+  for (auto expr : completeFusion()->usedExprs()) {
     if (expr->isA<FullOp>() &&
         // Don't bother if it's a fusion output
         !expr->output(0)->isFusionOutput()) {

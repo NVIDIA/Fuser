@@ -186,7 +186,7 @@ PrimDataType getTensorIndexType(TensorView* tv, ExpressionEvaluator& ee) {
 bool rejectScheduleForMemoryPromotion(
     Fusion* fusion,
     SchedulerType scheduler_type) {
-  for (auto expr : fusion->exprs()) {
+  for (auto expr : fusion->usedExprs()) {
     if (expr->isOneOf<SelectOp, IndexSelectOp, GatherOp>()) {
       // For now, only relax the input requirement when it's
       // takeAlongAxis. Also since this would require memory
@@ -235,7 +235,7 @@ bool isConnectedFusionGraph(Fusion* fusion) {
   component_sets.initializeSet(output0);
 
   // Iterate through all used exprs
-  for (auto expr : fusion->exprs()) {
+  for (auto expr : fusion->usedExprs()) {
     NVF_ERROR(!expr->outputs().empty(), "unknown expr with zero output");
 
     // Each expr maps all its inputs and
@@ -1035,7 +1035,7 @@ bool SchedulerTopologyChecker::hasResizeAndIndexOps(Fusion* fusion) {
   bool has_resize = false;
   bool has_index_op = false;
 
-  for (auto expr : fusion->exprs()) {
+  for (auto expr : fusion->usedExprs()) {
     if (scheduler_tools::isResizeBasedOp(expr)) {
       has_resize = true;
     } else if (expr->isOneOf<GatherOp, ScatterOp, IndexSelectOp, SelectOp>()) {

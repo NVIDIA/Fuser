@@ -744,7 +744,7 @@ void ThreadPredicateMap::build(Fusion* fusion) {
       update(tv, ParallelTypeBitmap(), ParallelTypeBitmap());
     }
   }
-  for (auto expr : fusion->exprs()) {
+  for (auto expr : fusion->usedExprs()) {
     updateBitSet(expr);
   }
 

@@ -147,7 +147,7 @@ class KIRCleaner : public OptOutDispatch {
 } // namespace
 
 void segmenterHintCleanup(Fusion* fusion) {
-  for (auto expr : fusion->exprs()) {
+  for (auto expr : fusion->usedExprs()) {
     if (expr->isA<LoadStoreOp>()) {
       auto op = expr->as<LoadStoreOp>();
       if (op->opType() == LoadStoreOpType::SegmenterSet) {
@@ -165,7 +165,7 @@ void assignRNGOffset(Fusion* fusion) {
   Val* first_offset = nullptr;
   kir::GetRNGSeedAndOffsetFromHost* getseed_op = nullptr;
   int64_t counter = 0;
-  for (auto expr : fusion->exprs()) {
+  for (auto expr : fusion->usedExprs()) {
     if (auto rop = dynamic_cast<RNGOp*>(expr)) {
       if (!rop->isDeterministic()) {
         if (seed == nullptr) {
@@ -298,7 +298,7 @@ namespace {
 IdModelOptions getIdModelOptions(Fusion* fusion) {
   IdModelOptions options;
 
-  for (auto expr : fusion->exprs()) {
+  for (auto expr : fusion->usedExprs()) {
     if (auto ldst = dynamic_cast<LoadStoreOp*>(expr)) {
       if (ldst->opType() == LoadStoreOpType::CpAsyncBulkTensorTile ||
           ldst->opType() == LoadStoreOpType::CpAsyncBulk) {
@@ -421,40 +421,40 @@ void GpuLower::analysis(Fusion* fusion) {
   // Alias the fusion kernel caries around as a view of itself.
   fusion_ = kernel_.get();
 
-  dumpExprsIfEnabled(fusion_->exprs(), "initialize lowering");
+  dumpExprsIfEnabled(fusion_->usedExprs(), "initialize lowering");
 
   segmenterHintCleanup(fusion_);
   FusionGuard fg(fusion_);
-  dumpExprsIfEnabled(fusion_->exprs(), "segmenterHintCleanup");
+  dumpExprsIfEnabled(fusion_->usedExprs(), "segmenterHintCleanup");
 
   id_model_options_ = getIdModelOptions(fusion_);
 
   // Temporarily set allKnownVals to inputs. In the future, we will have a real
   // pass to determine how to set allKnownVals.
   // TODO: revisit all passes on how they handle exprs in the fusion. Should we
-  // change their use of fusion_->exprs() to only include exprs that are not
+  // change their use of fusion_->usedExprs() to only include exprs that are not
   // between inputs and allKnownVals()?
   allKnownVals() = kernel_->inputs();
-  dumpExprsIfEnabled(fusion_->exprs(), "set allKnownVals");
+  dumpExprsIfEnabled(fusion_->usedExprs(), "set allKnownVals");
 
   // prepare for lowering
   validateIr(fusion_);
-  dumpExprsIfEnabled(fusion_->exprs(), "validateIr");
+  dumpExprsIfEnabled(fusion_->usedExprs(), "validateIr");
 
   // Determines minimum device version necessary to compile and run this fusion.
   std::tie(min_device_version_, min_device_version_reason_) =
       MinimumDeviceVersion::compute(fusion_);
-  dumpExprsIfEnabled(fusion_->exprs(), "MinimumDeviceVersion");
+  dumpExprsIfEnabled(fusion_->usedExprs(), "MinimumDeviceVersion");
 
   // Checks if any TIDx dim is marked as padded to a warp. Also checks if we can
   // determine the padding is explicitly a single warp.
   info().set(std::make_unique<PaddedParallelDimensions>(
       collectPaddedParallelDims(fusion_)));
-  dumpExprsIfEnabled(fusion_->exprs(), "collectPaddedParallelDims");
+  dumpExprsIfEnabled(fusion_->usedExprs(), "collectPaddedParallelDims");
 
   // Replaces integers that are tensor sizes by named scalars as "T0.size[0]"
   replaceSymbolicSizes(fusion_);
-  dumpExprsIfEnabled(fusion_->exprs(), "replaceSymbolicSizes");
+  dumpExprsIfEnabled(fusion_->usedExprs(), "replaceSymbolicSizes");
 
   // Does not need to be placed here as it has no dependency to any other
   // analysis.
@@ -481,53 +481,53 @@ void GpuLower::analysis(Fusion* fusion) {
 
   // Requires IdModel as expression sorting is necessary
   resolveComputeWith(fusion_);
-  dumpExprsIfEnabled(fusion_->exprs(), "resolveComputeWith");
+  dumpExprsIfEnabled(fusion_->usedExprs(), "resolveComputeWith");
 
   if (isDebugDumpEnabled(DebugDumpOption::ComputeAtMap)) {
     debug() << info().caMap().toString() << std::endl;
   }
   info().caMap().validateAndPropagatePType();
-  dumpExprsIfEnabled(fusion_->exprs(), "validateAndPropagatePType");
+  dumpExprsIfEnabled(fusion_->usedExprs(), "validateAndPropagatePType");
 
   // Uses compute_at_map, find all splits that are enforced to be divisible
   divisible_splits_ = getAllDivisibleSplits(fusion_, &info().caMap());
-  dumpExprsIfEnabled(fusion_->exprs(), "getAllDivisibleSplits");
+  dumpExprsIfEnabled(fusion_->usedExprs(), "getAllDivisibleSplits");
 
   // Used in parallel dimension map
   info().set(std::make_unique<ConcretizedBroadcastDomains>(fusion_));
-  dumpExprsIfEnabled(fusion_->exprs(), "build ConcretizedBroadcastDomains");
+  dumpExprsIfEnabled(fusion_->usedExprs(), "build ConcretizedBroadcastDomains");
 
   info().set(std::make_unique<ParallelDimensionMap>(fusion_));
   if (isDebugDumpEnabled(DebugDumpOption::ParallelDimensions)) {
     debug() << "Parallel dimension map:" << std::endl;
     debug() << info().parallelDimensionMap().toString() << std::endl;
   }
-  dumpExprsIfEnabled(fusion_->exprs(), "build parallelDimensionMap");
+  dumpExprsIfEnabled(fusion_->usedExprs(), "build parallelDimensionMap");
 
   validate1dTmaLoad(fusion_);
-  dumpExprsIfEnabled(fusion_->exprs(), "validate1dTmaLoad");
+  dumpExprsIfEnabled(fusion_->usedExprs(), "validate1dTmaLoad");
 
   // Validate mma data format and compatibility if any on the fusion.
   validateMma(fusion_);
-  dumpExprsIfEnabled(fusion_->exprs(), "validateMma");
+  dumpExprsIfEnabled(fusion_->usedExprs(), "validateMma");
 
   // Validate swizzle usage on the fusion schedule.
   validateSwizzle(fusion_);
-  dumpExprsIfEnabled(fusion_->exprs(), "validateSwizzle");
+  dumpExprsIfEnabled(fusion_->usedExprs(), "validateSwizzle");
 
   validateReductions(fusion_);
-  dumpExprsIfEnabled(fusion_->exprs(), "validateReductions");
+  dumpExprsIfEnabled(fusion_->usedExprs(), "validateReductions");
 
   // Compute thread predicates. Depends on parallel_dimension_map_
   info().set(std::make_unique<ThreadPredicateMap>(fusion_));
-  dumpExprsIfEnabled(fusion_->exprs(), "build thread_pred_map_");
+  dumpExprsIfEnabled(fusion_->usedExprs(), "build thread_pred_map_");
 
   // Fuse cetain patterns of reductions, such as a grid reduction
   // followed by a grid broadcast. Only depends on parallelization and
   // thread predicate map.
   info().set(std::make_unique<FusedReductionInfo>(
       fuseReductionsAndBroadcasts(fusion_)));
-  dumpExprsIfEnabled(fusion_->exprs(), "fuseReductionsAndBroadcasts");
+  dumpExprsIfEnabled(fusion_->usedExprs(), "fuseReductionsAndBroadcasts");
 
   // When allreduce is generated, rebuild thread predicate map
   if (!info().fusedReductionInfo().allreduceIds().empty()) {
@@ -536,31 +536,31 @@ void GpuLower::analysis(Fusion* fusion) {
 
   // Depends on ComputeAtMap
   validateAndConvertIterDomainGrouping(fusion_);
-  dumpExprsIfEnabled(fusion_->exprs(), "validateAndConvertIterDomainGrouping");
+  dumpExprsIfEnabled(fusion_->usedExprs(), "validateAndConvertIterDomainGrouping");
 
   // Assumes all grouped reductions are convered to
   // GroupedReductionOp, which is done by
   // validateAndConvertIterDomainGrouping
   validateGroupedReductions(fusion_);
-  dumpExprsIfEnabled(fusion_->exprs(), "validateGroupedReductions");
+  dumpExprsIfEnabled(fusion_->usedExprs(), "validateGroupedReductions");
 
   // Want to run this after parallel map is created.
   // Needs info about grouped reductions.
   // vectorized_accesses_ and vectorized_set_info_ are filled.
   validateAndCollectVectorizeInfo(fusion_);
-  dumpExprsIfEnabled(fusion_->exprs(), "validateAndCollectVectorizeInfo");
+  dumpExprsIfEnabled(fusion_->usedExprs(), "validateAndCollectVectorizeInfo");
 
   // all of the lookup TVs are fusion inputs
   validateLookupTV(fusion_);
-  dumpExprsIfEnabled(fusion_->exprs(), "validateLookupTV");
+  dumpExprsIfEnabled(fusion_->usedExprs(), "validateLookupTV");
 
   validateScatter(fusion_);
-  dumpExprsIfEnabled(fusion_->exprs(), "validateScatter");
+  dumpExprsIfEnabled(fusion_->usedExprs(), "validateScatter");
 
   // Find trivial global to global broadcast, squeeze, and set operations and
   // mark their outputs as aliases of their inputs.
   findTensorProducerAliases(fusion_);
-  dumpExprsIfEnabled(fusion_->exprs(), "findTensorProducerAliases");
+  dumpExprsIfEnabled(fusion_->usedExprs(), "findTensorProducerAliases");
 
   // Depends on thread_pred_map_, validates parallelization collects which
   // tensor views need WAR or RAW syncs
@@ -568,16 +568,16 @@ void GpuLower::analysis(Fusion* fusion) {
   if (isDebugDumpEnabled(DebugDumpOption::SyncMap)) {
     debug() << sync_map_->toString() << std::endl;
   }
-  dumpExprsIfEnabled(fusion_->exprs(), "SyncMap");
+  dumpExprsIfEnabled(fusion_->usedExprs(), "SyncMap");
 
   non_divisible_split_info_ = std::make_unique<NonDivisibleSplitInfo>(fusion_);
-  dumpExprsIfEnabled(fusion_->exprs(), "build nonDivisibleSplitInfo");
+  dumpExprsIfEnabled(fusion_->usedExprs(), "build nonDivisibleSplitInfo");
 
   circularBufferInfo().build(fusion_);
-  dumpExprsIfEnabled(fusion_->exprs(), "build circularBufferInfo");
+  dumpExprsIfEnabled(fusion_->usedExprs(), "build circularBufferInfo");
 
   info().caMap().allocateIndexVariables();
-  dumpExprsIfEnabled(fusion_->exprs(), "allocateIndexVariables");
+  dumpExprsIfEnabled(fusion_->usedExprs(), "allocateIndexVariables");
 
   if (idModelOptions().loop()) {
     // Depends on CircularBufferInfo and compute_at_map_->allocateIndexVariables
@@ -593,13 +593,13 @@ void GpuLower::analysis(Fusion* fusion) {
   // Detects all exprssions that don't need predicates. Depends on
   // nonDivisibleSplitInfo.
   pred_elimination_ = std::make_unique<PredicateElimination>(fusion_);
-  dumpExprsIfEnabled(fusion_->exprs(), "build predicateElimination");
+  dumpExprsIfEnabled(fusion_->usedExprs(), "build predicateElimination");
 
   consumerToTMAInfo() = getConsumerToTMAInfoMap(fusion_);
-  dumpExprsIfEnabled(fusion_->exprs(), "getConsumerToTMAInfoMap");
+  dumpExprsIfEnabled(fusion_->usedExprs(), "getConsumerToTMAInfoMap");
 
   tmemInfo() = computeTMemInfo(fusion_);
-  dumpExprsIfEnabled(fusion_->exprs(), "computeTMemInfo");
+  dumpExprsIfEnabled(fusion_->usedExprs(), "computeTMemInfo");
 }
 
 kir::Kernel* GpuLower::kernel() const {

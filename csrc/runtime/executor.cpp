@@ -123,7 +123,7 @@ KernelArgumentHolder ExprEvalExecutor::run(
 
 namespace {
 bool hasCpuScalarOutputs(Fusion* _fusion) {
-  if (_fusion->exprs().empty()) {
+  if (_fusion->usedExprs().empty()) {
     return false;
   }
 
@@ -195,7 +195,7 @@ void KernelExecutor::compile(
 
   //! Force index_type to int and disable magic zero if we detect that the
   //! kernel contains any TMA memory operations.
-  std::vector<Expr*> exprs = fusion->exprs();
+  std::vector<Expr*> exprs = fusion->usedExprs();
   bool has_cp_async_bulk = std::any_of(exprs.begin(), exprs.end(), [](Expr* e) {
     return ir_utils::isCpAsyncBulk(e);
   });

@@ -415,7 +415,7 @@ AliasAnalysisResult findAliases(
   AliasAnalysisResult analysis;
   AliasFinder finder(empty_allocation_as, analysis);
   // Fusion::exprs() computes and returns topological order.
-  for (Expr* expr : fusion->exprs()) {
+  for (Expr* expr : fusion->usedExprs()) {
     // A potential improvement suggested by @tfogal: Let AliasFinder
     // return the AliasAnalysisResult instead of taking a mutable
     // `analysis` arg. This might be somewhat easily parallelizable

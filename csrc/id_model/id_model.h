@@ -120,7 +120,7 @@ class NVF_API IdModel : public PolymorphicBase {
       LoopPromotionMapBuilderCallback* loop_promotion_map_builder_callback =
           nullptr);
 
-  // Same as the above constructor with fusion->exprs() excpet fusion may have
+  // Same as the above constructor with fusion->usedExprs() excpet fusion may have
   // some dangling inputs/outputs that are expected to have IterDomain entries
   // even though there's no possible connections from them.
   //

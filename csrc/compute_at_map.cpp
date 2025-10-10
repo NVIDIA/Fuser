@@ -364,7 +364,7 @@ void IterDomainGraph::build(Fusion* fusion) {
   // All ID's are initialized, start connecting them on the permissive, exact,
   // and loop dimensions.
 
-  for (auto expr : fusion->exprs()) {
+  for (auto expr : fusion->usedExprs()) {
     if (!ir_utils::isTvOp(expr)) {
       continue;
     }
@@ -923,7 +923,7 @@ std::vector<ValGroup> getAsyncWarpSiblingIds(const std::vector<Expr*>& exprs) {
 void ComputeAtMap::allocateIndexVariables() {
   // Get the sibling iterDomain mapping for AsyncWarp
   std::vector<ValGroup> async_warp_sibling_ids =
-      getAsyncWarpSiblingIds(fusion_->exprs());
+      getAsyncWarpSiblingIds(fusion_->usedExprs());
   // Map sibling ValGroups to the same index variable.
   std::vector<Val*> async_warp_sibling_id_index_variable(
       async_warp_sibling_ids.size(), nullptr);

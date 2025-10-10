@@ -122,7 +122,7 @@ IdModel::IdModel(
       validate_(validate),
       loop_promotion_map_builder_callback_(
           loop_promotion_map_builder_callback) {
-  auto all_exprs = fusion->exprs();
+  auto all_exprs = fusion->usedExprs();
   std::copy_if(
       all_exprs.begin(),
       all_exprs.end(),

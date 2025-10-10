@@ -40,7 +40,7 @@ std::string mapLayoutToCutlass(const TensorView* tv) {
 } // namespace
 
 bool hasNvfp4ScaledMmPattern(Fusion* fusion) {
-  const std::vector<Expr*> exprs = fusion->exprs();
+  const std::vector<Expr*> exprs = fusion->usedExprs();
   return ir_utils::filterByType<ScaledMmaOp>(exprs).size() == 1;
 }
 

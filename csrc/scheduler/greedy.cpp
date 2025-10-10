@@ -170,7 +170,7 @@ bool isConstrainedOp(Expr* expr) {
 std::vector<Expr*> getAllConstrainedOps(Fusion* fusion) {
   std::vector<Expr*> ops;
   std::ranges::copy_if(
-      fusion->exprs(), std::back_inserter(ops), isConstrainedOp);
+      fusion->usedExprs(), std::back_inserter(ops), isConstrainedOp);
   return ops;
 }
 
@@ -1233,7 +1233,7 @@ std::unordered_map<TensorView*, TensorView*> partitionFusion(
     const std::unordered_set<TensorView*>& constrained_tvs) {
   FusionGuard fg(fusion);
 
-  const auto all_exprs = fusion->exprs();
+  const auto all_exprs = fusion->usedExprs();
   const auto all_tvs = fusion->allTvs();
 
   std::unordered_map<TensorView*, TensorView*> tv_to_constrained_tv_map;

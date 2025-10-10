@@ -18,7 +18,7 @@ namespace nvfuser {
 void IrPrinter::handle(const Fusion* fusion) {
   FUSER_PERF_SCOPE("IrPrinter");
   resetIndent();
-  for (const Expr* expr : fusion->exprs()) {
+  for (const Expr* expr : fusion->usedExprs()) {
     os_ << expr->toString();
   }
 }
@@ -89,7 +89,7 @@ void IrPrinter::handle(const hir::HostIrContainer* host_ir_container) {
   if (hasDebugDumpArgument(DebugDumpOption::HostIr, "indices")) {
     os() << "Index definitions:\n";
     indent_size_++;
-    for (Val* val : host_ir_container->vals()) {
+    for (Val* val : host_ir_container->unordered_vals()) {
       if (val->isScalar() && val->definition() != nullptr &&
           val->dtype() == DataType::Index) {
         os() << val->definition()->toString(indent_size_);

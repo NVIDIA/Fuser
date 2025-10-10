@@ -19,7 +19,7 @@ namespace nvfuser {
 
 //! Check if the given fusion is a single communication expression
 bool CommunicationScheduler::canScheduleCompileTime(Fusion* fusion) {
-  const std::vector<Expr*>& exprs = fusion->exprs();
+  const std::vector<Expr*>& exprs = fusion->usedExprs();
   if (exprs.size() != 1) {
     scheduler_debug_utils::canScheduleRejectReason(
         schedulerType(),

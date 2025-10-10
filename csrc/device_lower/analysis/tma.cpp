@@ -1193,7 +1193,7 @@ Val* TMAInfo::tensorMap() const {
 std::unordered_map<TensorView*, const TMAInfo> getConsumerToTMAInfoMap(
     Fusion* fusion) {
   std::unordered_map<TensorView*, const TMAInfo> result;
-  for (Expr* expr : fusion->exprs()) {
+  for (Expr* expr : fusion->usedExprs()) {
     if (auto ldst = dynamic_cast<LoadStoreOp*>(expr)) {
       if (ldst->opType() == LoadStoreOpType::CpAsyncBulkTensorTile ||
           ldst->opType() == LoadStoreOpType::CpAsyncBulk) {

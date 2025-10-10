@@ -190,7 +190,7 @@ class ScatterAccumulateTranslator : public OptOutMutator {
 
  private:
   ScatterAccumulateTranslator(Fusion* fusion) {
-    for (auto expr : fusion->exprs()) {
+    for (auto expr : fusion->usedExprs()) {
       dispatchMutate(expr);
     }
 

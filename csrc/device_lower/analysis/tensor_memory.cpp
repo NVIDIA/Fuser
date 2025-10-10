@@ -422,7 +422,7 @@ computeTMemLdStDataPath(Fusion* fusion, const TMemAlllocationInfo& allocation) {
   using DPMap = std::unordered_map<TensorView*, TMemRegisterDataPath>;
   DPMap load_data_path;
   DPMap store_data_path;
-  for (auto expr : fusion->exprs()) {
+  for (auto expr : fusion->usedExprs()) {
     auto ldst = dynamic_cast<LoadStoreOp*>(expr);
     if (ldst == nullptr) {
       continue;

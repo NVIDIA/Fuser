@@ -86,7 +86,7 @@ bool isLowerableToCommunication(Expr* e) {
 void insertReshardingSetsBefore(Fusion* fusion) {
   // Remove this after we refactor this as a pre-segmenter pass.
   FusionGuard fg(fusion);
-  for (Expr* expr : fusion->exprs()) {
+  for (Expr* expr : fusion->usedExprs()) {
     if (!isResharding(expr)) {
       continue;
     }
@@ -142,7 +142,7 @@ void insertReshardingSetsAfter(Fusion* fusion) {
   // Iterate backwards over fusion expressions. Reshard after will
   // replace expressions that occur downstream from the current expression.
   // This will ensure we don't process an expression that has been deleted.
-  auto exprs = fusion->exprs();
+  auto exprs = fusion->usedExprs();
   for (auto it = std::rbegin(exprs); it != std::rend(exprs); it++) {
     Expr* expr = *it;
     if (!isResharding(expr)) {
@@ -281,7 +281,7 @@ void decomposeRowParallelLinearWithBias(Fusion* fusion) {
   // expressions that have been deleted.
   // Recall that replaceValInAllExprInputsAndFusionOutputs invalidates
   // consumers.
-  for (Expr* e : fusion->exprs() | std::views::reverse) {
+  for (Expr* e : fusion->usedExprs() | std::views::reverse) {
     auto* linear_op = dynamic_cast<LinearOp*>(e);
     if (linear_op == nullptr) {
       continue;
@@ -432,7 +432,7 @@ void DecomposeReshardingsPass::runPass(Fusion* fusion) {
   insertReshardingSetsBefore(fusion);
 
   // Validate
-  for (Expr* e : fusion->exprs()) {
+  for (Expr* e : fusion->usedExprs()) {
     if (isResharding(e)) {
       getCommunicationInfo(e);
     }

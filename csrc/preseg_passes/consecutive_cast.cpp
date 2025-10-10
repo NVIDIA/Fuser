@@ -300,7 +300,7 @@ Expr* removeChainedCasts(Expr* expr, std::unordered_set<Expr*>& folded) {
 
 void castOptimizationPass(Fusion* fusion) {
   FusionGuard fusion_guard(fusion);
-  auto exprs = fusion->exprs();
+  auto exprs = fusion->usedExprs();
   std::unordered_set<Expr*> folded;
   for (auto iter = exprs.rbegin(); iter != exprs.rend(); ++iter) {
     auto expr = *iter;

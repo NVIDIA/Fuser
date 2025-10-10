@@ -456,7 +456,7 @@ TensorView* CancelSplitCat::findCancelingSplit(
 }
 
 void CancelSplitCat::run() {
-  std::vector<Expr*> exprs = fusion_->exprs();
+  std::vector<Expr*> exprs = fusion_->usedExprs();
   for (auto* cat : ir_utils::filterByType<CatOp>(exprs)) {
     std::vector<Expr*> def_use_chain;
     TensorView* split_in = findCancelingSplit(cat, std::ref(def_use_chain));

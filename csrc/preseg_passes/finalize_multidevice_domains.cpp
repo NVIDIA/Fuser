@@ -103,7 +103,7 @@ void FinalizeMultideviceDomainsPass::runPass(Fusion* fusion) {
     return;
   }
 
-  for (Expr* expr : fusion->exprs()) {
+  for (Expr* expr : fusion->usedExprs()) {
     auto inputs = ir_utils::filterByType<TensorView>(expr->inputs());
     auto outputs = ir_utils::filterByType<TensorView>(expr->outputs());
 

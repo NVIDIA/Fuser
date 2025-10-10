@@ -192,7 +192,7 @@ std::vector<Expr*> addRNG(const std::vector<Expr*>& exprs) {
   FUSER_PERF_SCOPE("GpuLower::Lower::addRNG");
   // Check if magic zero was even used, if not we don't have to define it or
   // update it.
-  auto kernel_exprs = GpuLower::current()->kernel()->exprs();
+  auto kernel_exprs = GpuLower::current()->kernel()->usedExprs();
   const bool has_rng =
       std::any_of(kernel_exprs.begin(), kernel_exprs.end(), [](Expr* expr) {
         return expr->isA<RNGOp>();

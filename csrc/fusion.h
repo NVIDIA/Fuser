@@ -223,7 +223,7 @@ class NVF_API Fusion : public IrContainer {
 
   //! Return a list of topologically sorted expressions. This only includes
   //! exprs required to generate registered outputs.
-  std::vector<Expr*> exprs() const;
+  std::vector<Expr*> usedExprs() const;
 
   //! Return all Vals in math expressions that cannot be eliminated.
   //!

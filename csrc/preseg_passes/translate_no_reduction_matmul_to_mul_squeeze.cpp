@@ -35,7 +35,7 @@ class NoReductionMatmulToMulSqueezeTranslator {
  private:
   // Traverse through the fusion and gather all MatmulOps with K=1.
   void inspect() {
-    const auto exprs = fusion_->exprs();
+    const auto exprs = fusion_->usedExprs();
 
     for (auto matmul : ir_utils::filterByType<MatmulOp>(exprs)) {
       // Find the K dimension

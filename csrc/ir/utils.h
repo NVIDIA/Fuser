@@ -616,7 +616,7 @@ auto getOpsOfType(Fusion* fusion) {
   using ExprType =
       std::conditional_t<sizeof...(OpTypes) == 1, FirstOpType, Expr>;
   std::vector<ExprType*> ops;
-  for (auto expr : fusion->exprs()) {
+  for (auto expr : fusion->usedExprs()) {
     if (expr->isOneOf<OpTypes...>()) {
       ops.push_back(expr->as<ExprType>());
     }
@@ -627,7 +627,7 @@ auto getOpsOfType(Fusion* fusion) {
 //! Returns true if fusion has any ops of the given type.
 template <typename... OpTypes>
 bool hasOpsOfType(Fusion* fusion) {
-  for (auto expr : fusion->exprs()) {
+  for (auto expr : fusion->usedExprs()) {
     if (expr->isOneOf<OpTypes...>()) {
       return true;
     }

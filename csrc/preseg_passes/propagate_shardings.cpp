@@ -408,7 +408,7 @@ void PropagateShardingsPass::runPass(Fusion* fusion) {
     return std::unordered_set<TensorView*>(filtered.begin(), filtered.end());
   }();
 
-  const std::vector<Expr*>& exprs = fusion->exprs();
+  const std::vector<Expr*>& exprs = fusion->usedExprs();
 
   for (Expr* expr : exprs) {
     const auto& reference_inputs = getOrderedReferenceInputs(expr);

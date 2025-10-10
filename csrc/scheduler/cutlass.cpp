@@ -129,7 +129,7 @@ bool CutlassScheduler::hasSupportedMatmulPattern(Fusion* fusion) {
   // Only accept ScaledMmaOp for JIT CUTLASS kernels
   bool has_non_scaled_mma = false;
   int64_t num_scaled_mmas = 0;
-  for (auto expr : fusion->exprs()) {
+  for (auto expr : fusion->usedExprs()) {
     if (!ir_utils::isTvOp(expr)) {
       continue;
     }
@@ -165,7 +165,7 @@ bool CutlassScheduler::hasSupportedEpilogue(Fusion* fusion) {
 }
 
 TensorView* CutlassScheduler::findMatmulOutput(Fusion* fusion) {
-  for (auto expr : fusion->exprs()) {
+  for (auto expr : fusion->usedExprs()) {
     if (expr->isA<ScaledMmaOp>()) {
       return expr->output(0)->as<TensorView>();
     }

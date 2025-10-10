@@ -381,7 +381,7 @@ std::vector<Val*> maybeMovePadBeforeDefinition(
 // `zeroIsFixedPoint` and `zeroIsIdentity`.
 void propagatePads(Fusion* fusion) {
   // propagating PadOp
-  auto exprs = fusion->exprs();
+  auto exprs = fusion->usedExprs();
   auto filtered_pads = ir_utils::filterByType<PadOp>(exprs);
   std::vector<PadOp*> stack;
   stack.reserve(filtered_pads.size());
@@ -536,7 +536,7 @@ void propagatePads(Fusion* fusion) {
 // been altered by the pass.
 void replaceCat(Fusion* fusion) {
   // updating CatOp
-  std::vector<Expr*> exprs = fusion->exprs();
+  std::vector<Expr*> exprs = fusion->usedExprs();
 
   // sanitizing CatOp with series of binary add
   std::unordered_map<Val*, Val*> replacement_map;

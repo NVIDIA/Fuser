@@ -101,7 +101,7 @@ void findTensorProducerAliases(Fusion* fusion) {
       inputs_aliased_by_outputs.insert(io_alias_target);
     }
   }
-  for (Expr* expr : fusion->exprs()) {
+  for (Expr* expr : fusion->usedExprs()) {
     TensorView* in = ir_utils::getTvInput(expr);
     if (in != nullptr && inputs_aliased_by_outputs.count(in) == 0 &&
         isTrivialExpr(expr)) {

@@ -343,12 +343,12 @@ void Fusion::replaceOutput(Val* output, Val* replacement) {
   }
 }
 
-std::vector<Expr*> Fusion::exprs() const {
+std::vector<Expr*> Fusion::usedExprs() const {
   return StmtSort::getExprs(this);
 }
 
 bool Fusion::isNoOp() {
-  if (exprs().empty()) {
+  if (usedExprs().empty()) {
     return true;
   }
 
@@ -515,7 +515,7 @@ void Fusion::printMath(bool from_outputs_only) {
   FUSER_PERF_SCOPE("Fusion::printMath");
 
   FusionGuard fg(this);
-  auto exprs_for_print = exprs();
+  auto exprs_for_print = usedExprs();
   debug() << "Inputs:" << std::endl;
   for (auto inp : inputs()) {
     debug() << "  " << inp << std::endl;
@@ -549,7 +549,7 @@ void Fusion::printMath(bool from_outputs_only) {
 
 std::vector<Val*> Fusion::inputsAndCreated() {
   auto result = inputs_;
-  for (auto expr : exprs()) {
+  for (auto expr : usedExprs()) {
     auto tv_inputs = ir_utils::filterByType<TensorView>(expr->inputs());
     if (tv_inputs.empty()) {
       for (auto v : expr->outputs()) {

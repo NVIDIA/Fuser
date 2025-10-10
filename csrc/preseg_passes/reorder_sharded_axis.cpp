@@ -70,7 +70,7 @@ void makeCommunicationLayoutCompliant(Expr* expr) {
 void ReorderShardedAxisPass::runPass(Fusion* fusion) {
   FusionGuard fg(fusion);
 
-  const std::vector<Expr*>& exprs = fusion->exprs();
+  const std::vector<Expr*>& exprs = fusion->usedExprs();
 
   for (auto it = std::rbegin(exprs); it != std::rend(exprs); it++) {
     Expr* expr = *it;

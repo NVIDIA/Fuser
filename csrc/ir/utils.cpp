@@ -634,7 +634,7 @@ bool isSegmentSet(const Expr* e) {
 }
 
 std::vector<ReshapeOp*> getReshapeOps(Fusion* fusion) {
-  auto all_exprs = fusion->exprs();
+  auto all_exprs = fusion->usedExprs();
 
   auto all_view_ops = ir_utils::filterByType<ReshapeOp>(all_exprs);
 

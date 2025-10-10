@@ -436,7 +436,7 @@ void ResizeScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
 
   // Propagate Resize ops to producer tensors. This is safe as this
   // scheduler only accepts pointwise ops with no reduction.
-  for (auto expr : fusion->exprs()) {
+  for (auto expr : fusion->usedExprs()) {
     if (!scheduler_tools::isResizeBasedOp(expr)) {
       continue;
     }

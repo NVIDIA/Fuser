@@ -26,7 +26,7 @@ CommunicationExecutor::CommunicationExecutor(
 
 bool CommunicationExecutor::supported(Fusion* fusion) {
   FUSER_PERF_SCOPE("CommunicationExecutor::supported");
-  std::vector<Expr*> exprs = fusion->exprs();
+  std::vector<Expr*> exprs = fusion->usedExprs();
   if (std::any_of(exprs.begin(), exprs.end(), isResharding)) {
     NVF_ERROR(
         std::all_of(exprs.begin(), exprs.end(), isResharding),
@@ -53,7 +53,7 @@ void CommunicationExecutor::compile(Fusion* fusion) {
       host_ir_container_->pushBackTopLevelExprs(cloner.clone(e));
     }
   } else {
-    std::vector<Expr*> exprs = fusion->exprs();
+    std::vector<Expr*> exprs = fusion->usedExprs();
     DeviceIdxType my_device_idx = communicator_ ? communicator_->deviceId() : 0;
     for (Expr* e : exprs) {
       std::vector<Expr*> communications =

@@ -86,7 +86,7 @@ getIndexedConsumerToProducerMap(Fusion* fusion, const ComputeAtMap& ca_map) {
       std::shared_ptr<VectorOfUniqueEntries<IterDomain*>>>
       indexed_id_map;
 
-  for (auto expr : fusion->exprs()) {
+  for (auto expr : fusion->usedExprs()) {
     if (auto gather = dynamic_cast<GatherOp*>(expr)) {
       auto p_id = gather->getIndexedID();
       auto c_id = gather->getConsumerOfIndexedID();
