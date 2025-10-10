@@ -431,7 +431,7 @@ class PredicateChcker : public IterVisitor {
         predicateProducerConsumerPair(expr) ||
         predicateNonDivisibleLogicalDomains(expr) ||
         predicateNonDivisibleSplit(expr) || predicateExpandReduce(expr) ||
-        predicateRNGOp(expr);
+        predicateRNGOp(expr) || predicateInitializedTensors(expr);
 
     if (needs_predicate_) {
       return;
@@ -448,6 +448,21 @@ class PredicateChcker : public IterVisitor {
   bool predicateRNGOp(Expr* expr) const {
     DEBUG_PRINT_SCOPE(expr);
     RECORD_AND_RETURN(expr->isA<RNGOp>());
+  }
+
+  // If any output has an initialization, it is meant to set the
+  // default values for indices that are out of the logical shape, and
+  // thus the predicate should not be omitted.
+  bool predicateInitializedTensors(Expr* expr) const {
+    DEBUG_PRINT_SCOPE(expr);
+    NVF_ERROR(FusionInfoGuard::hasCurrent());
+    NVF_ERROR(FusionInfoGuard::current()->hasTensorInitVal());
+    auto is_initialized = std::ranges::any_of(expr->outputs(), [](Val* out) {
+      auto out_tv = dynamic_cast<TensorView*>(out);
+      return out_tv != nullptr &&
+          FusionInfoGuard::current()->tensorInitVal().get(out_tv) != nullptr;
+    });
+    RECORD_AND_RETURN(is_initialized);
   }
 
   // Always predicate integer division and related ops as we don't
@@ -933,18 +948,6 @@ class PredicateChcker : public IterVisitor {
     }
   }
 
-  // Disable predicate elimination with argsort ops for now. Note that
-  // it is possible to eliminate predicates for argsort ops by
-  // initializing depedent vals with min or max values.
-  void handle(ArgsortOp* aop) final {
-    needs_predicate_ = true;
-  }
-
-  // Same as ArgsortOp
-  void handle(ScanOp* sop) final {
-    needs_predicate_ = true;
-  }
-
  private:
   const PredicateElimination& pred_elimination_;
   const std::unordered_set<const Expr*>& non_predicated_exprs_;
@@ -1015,6 +1018,11 @@ void PredicateElimination::dispatch(Expr* expr) {
         non_predicated_exprs_.find(input_def) != non_predicated_exprs_.end()) {
       // If an input does not need a predicate either, then it should
       // have some value, so no need to set a default value
+      continue;
+    } else if (
+        FusionInfoGuard::current()->tensorInitVal().get(input) != nullptr) {
+      // Don't set anything if the input is already set to be
+      // initialized.
       continue;
     } else {
       // Make sure input is initialized
