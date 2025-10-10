@@ -264,6 +264,9 @@ EVTModel::EVTModel(const EVTModel& model) {
 
   for (const auto& node_up : model.nodes_up_) {
     Node* new_node = makeNode(node_up->name);
+    if (node_up->argument != nullptr) {
+      new_node->argument = node_up->argument;
+    }
     old2new.emplace(node_up.get(), new_node);
   }
   // Loop again now that have old2new fully populated
@@ -273,9 +276,6 @@ EVTModel::EVTModel(const EVTModel& model) {
     new_node->inputs.reserve(node_up->inputs.size());
     for (Node* inp : node_up->inputs) {
       new_node->inputs.push_back(old2new.at(inp));
-    }
-    if (node_up->argument != nullptr) {
-      new_node->argument = node_up->argument;
     }
   }
   setRoot(old2new.at(model.root()));
@@ -318,21 +318,30 @@ CommentedString argStringHelper(EVTModel::Node* node, int64_t indent_size) {
       indent(ss, indent_size) << "{}";
       return {ss.str(), node->name};
     } else {
-      // TODO: we need to determine which input this is and provide its data_ptr
-      // for TVs
       if (node->argument->isA<TensorView>()) {
-        NVF_THROW("WARNING: Unsupported tensorview EVT input");
+        indent(ss, indent_size) << "{  // " << node->name << "\n";
+        // TODO: If this is an input scalar, we need to obtain its name in the
+        // kernel here
+        const std::string internal_var_name = "alpha";
+        indent(ss, indent_size + 1)
+            << ".scalar_ptrs=static_cast<"
+            << dtypeToCutlass(node->argument->dtype()) << " const*>("
+            << internal_var_name << ".data_ptr)\n";
+        indent(ss, indent_size) << "}";
+        return {ss.str(), ""};
       } else {
         // If this is a constant scalar, print its value directly
         if (node->argument->isConstScalar()) {
-          return {"{" + node->argument->toInlineString() + "}", node->name};
+          return {
+              "{.scalars={" + node->argument->toInlineString() + "}}",
+              node->name};
         }
         NVF_ERROR(
             node->argument->isFusionInput(),
             "Non-constant scalars are expected to be fusion inputs for EVT "
             "translation");
-        // TODO: If this is an input scalar, we need to obtain its value here at
-        // runtime and pass it
+        NVF_THROW("Input scalars not yet supported in EVT translation");
+        return {ss.str(), ""};
       }
     }
   } else {
@@ -388,7 +397,8 @@ std::string EVTModel::toString() const {
     node_num.emplace(node_up.get(), node_num.size());
   }
   for (const std::unique_ptr<Node>& node_up : nodes_up_) {
-    ss << "  " << node_num.at(node_up.get()) << ": " << (void*)node_up.get() << " " << node_up->name;
+    ss << "  " << node_num.at(node_up.get()) << ": " << (void*)node_up.get()
+       << " " << node_up->name;
     if (!node_up->inputs.empty()) {
       ss << "(";
       bool first = true;
