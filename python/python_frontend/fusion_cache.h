@@ -38,6 +38,10 @@ struct UserSchedule {
   //! The compile-time data cache.
   std::unique_ptr<HeuristicDataCache> data_cache;
 
+  //! Scheduler hyperparameters for normalization schedulers
+  std::unique_ptr<scheduler_utils::SchedulerHyperParameters>
+      scheduler_hyperparams;
+
   //! Concretized, Scheduled Fusion IR
   std::unique_ptr<Fusion> scheduled_fusion;
 
