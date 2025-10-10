@@ -492,8 +492,8 @@ void inferTensorShapesAndStrides(
   // Check if sizes and strides are the same size as logical domain
   const auto logical_ndims =
       std::ranges::distance(logical_domain | TensorDomain::kNoReductions);
-  NVF_ERROR_EQ(sizes.size(), logical_ndims);
-  NVF_ERROR_EQ(strides.size(), logical_ndims);
+  NVF_ERROR_EQ(std::ssize(sizes), logical_ndims);
+  NVF_ERROR_EQ(std::ssize(strides), logical_ndims);
 }
 
 void unpackInputs(

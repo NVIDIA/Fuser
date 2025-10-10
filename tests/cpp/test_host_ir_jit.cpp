@@ -16,11 +16,18 @@
 #include <tests/cpp/utils.h>
 #include <tests/cpp/validator.h>
 
+#include <torch/torch.h>
+
 namespace nvfuser {
 
 namespace hir {
 
-using HostIrJitTest = NVFuserTest;
+class HostIrJitTest : public NVFuserTest {
+ protected:
+  HostIrJitTest() {
+    EnableOptionsGuard::getCurOptions().set(EnableOption::HostIrJit);
+  }
+};
 // Build with: python setup.py install --build-with-host-ir-jit
 TEST_F(HostIrJitTest, Set) {
   auto hic = std::make_unique<HostIrContainer>();
