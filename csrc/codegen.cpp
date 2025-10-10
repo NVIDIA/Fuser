@@ -1762,7 +1762,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       ss << dtype;
       native_type_str = ss.str();
     }
-    // template_args.arg(input->dtype()); // DataT
+
     template_args.arg(native_type_str); // DataT
     template_args.arg(items_per_thread); // ITEMS_PER_THREAD
 
