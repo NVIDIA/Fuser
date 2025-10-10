@@ -295,7 +295,6 @@ TEST_F(CutlassExecutorTest, Nvfp4ScaledGemm_Executor) {
   testValidate(fusion.get(), outputs, inputs, __LINE__, __FILE__);
 }
 
-// 
 TEST_F(CutlassExecutorTest, Nvfp4MatmulReLU) {
   // Skip if not on SM100 or above
   if (at::cuda::getCurrentDeviceProperties()->major < 10) {

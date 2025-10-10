@@ -64,6 +64,8 @@ class EVTConverter : OptInDispatch {
   }
 
  private:
+  using OptInDispatch::dispatch;
+
   void run() {
     Expr* mma = getGemmExpr(fusion_);
 
@@ -188,8 +190,6 @@ class EVTConverter : OptInDispatch {
 
     return visitor_node;
   }
-
-  using OptInDispatch::dispatch;
 
   void dispatch(Expr* expr) {
     if (!ir_utils::isTvOp(expr)) {
