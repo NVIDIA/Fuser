@@ -222,19 +222,11 @@ def transformer_forward_definition(
 
     T13 = fd.ops.cast(inp, dtype=DataType.Float)
     T14, layernorm0_mean = fd.ops.var_mean(T13, dims=[2], correction=0, keepdim=False)
-    T20 = fd.ops.broadcast_in_dim(T14, shape=[b, s, 1], broadcast_dims=[0, 1])
     T25 = fd.ops.broadcast_in_dim(
         layernorm0_mean, shape=[b, s, 1], broadcast_dims=[0, 1]
     )
-    S26 = fd.define_scalar(1.00000e-05, dtype=DataType.Double)
-    T27 = fd.ops.add(T20, S26)
-    layernorm0_rstd = fd.ops.rsqrt(T27)
     T33 = fd.ops.broadcast_in_dim(T25, shape=[b, s, e], broadcast_dims=[0, 1, 2])
     T34 = fd.ops.sub(T13, T33)
-    T39 = fd.ops.broadcast_in_dim(
-        layernorm0_rstd, shape=[b, s, e], broadcast_dims=[0, 1, 2]
-    )
-    T40 = fd.ops.mul(T34, T39)
     x = fd.ops.cast(T34, dtype=DataType.BFloat16)
     mha_linear0_out = fd.ops.linear(x, mha_linear0_weight, mha_linear0_bias)
     fd.add_output(mha_linear0_out)
