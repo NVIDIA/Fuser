@@ -157,11 +157,7 @@ void FusionKernelRuntime::evictCache(size_t input_id) {
 
 bool FusionKernelRuntime::isCompiled() const {
   if (isOptionEnabled(EnableOption::HostIrLowering)) {
-    if (isOptionEnabled(EnableOption::HostIrJit)) {
-      return hij_ != nullptr;
-    } else {
-      return hie_ != nullptr;
-    }
+    return hij_ != nullptr || hie_ != nullptr;
   } else {
     std::lock_guard<std::mutex> guard(mutex_);
     return std::all_of(
@@ -300,12 +296,12 @@ KernelArgumentHolder FusionKernelRuntime::runWithInputs(
     }
 
     KernelArgumentHolder outputs;
-    if (isOptionEnabled(EnableOption::HostIrJit)) {
-      NVF_ERROR(hij_ != nullptr, "Host IR JIT is not initialized");
+    if (hij_ != nullptr) {
       outputs = hij_->runWithInputs(args);
-    } else {
-      NVF_ERROR(hie_ != nullptr, "Host IR Evaluator is not initialized");
+    } else if (hie_ != nullptr){
       outputs = hie_->runWithInputs(args);
+    } else {
+      NVF_THROW("Neither Host IR JIT or Host IR Evaluator are initialized.");
     }
 
     if (isDebugDumpEnabled(DebugDumpOption::PerfDebugVerbose)) {
