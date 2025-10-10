@@ -7,10 +7,19 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 
 import torch
+import torch.distributed as dist
 import torch.nn as nn
 import torch.nn.functional as F
+from torch.distributed.tensor.parallel import (
+    ParallelStyle,
+    RowwiseParallel,
+    ColwiseParallel,
+)
 
 from thunder.dynamo import thunderfx
+from thunder.executors.nvfuserex_impl import getnv
+
+from nvfuser_direct import DataType
 
 from python.direct_utils import (
     FLOAT4_E2M1_MAX,
@@ -114,11 +123,6 @@ def _(
         device=activation.device,
         dtype=activation.dtype,
     )
-
-
-from thunder.executors.nvfuserex_impl import getnv
-
-from nvfuser_direct import DataType
 
 
 def gmm_nvfuser(
@@ -373,6 +377,70 @@ def default_tensor_type(dtype=torch.float32, device="cpu"):
     torch.set_default_device(prev_device)
 
 
+def parallelize_linear_with_nvfuser(
+    linear: torch.nn.Linear,
+    mesh: dist.device_mesh.DeviceMesh,
+    parallel_style: ParallelStyle,
+) -> torch.nn.Linear:
+    assert isinstance(linear, torch.nn.Linear), f"Unsupported layer: {linear}"
+
+    assert len(parallel_style.input_layouts) == 1, "Expect 1D mesh"
+    input_layout = parallel_style.input_layouts[0]
+
+    assert len(parallel_style.output_layouts) == 1, "Expect 1D mesh"
+    output_layout = parallel_style.output_layouts[0]
+
+    if isinstance(parallel_style, RowwiseParallel):
+        # We only support TP at this moment. A row-wise parallel linear is
+        # expected to have the input sharded on the contracting dimension and
+        # the output replicated.
+        assert input_layout.is_shard(-1), f"Unsupported layout: {input_layout}"
+        assert output_layout.is_replicate(), f"Unsupported layout: {output_layout}"
+        return TensorParallelLinear.distribute(
+            linear, mesh, in_placements=[input_layout], weight_placements=[Shard(-1)]
+        )
+
+    if isinstance(parallel_style, ColwiseParallel):
+        # We only support TP at this moment. A column-wise parallel linear is
+        # expected to have the input replicated and the output sharded on the
+        # feature dimension.
+        assert input_layout.is_replicate(), f"Unsupported layout: {input_layout}"
+        assert output_layout.is_shard(-1), f"Unsupported layout: {output_layout}"
+        return TensorParallelLinear.distribute(
+            linear, mesh, in_placements=[input_layout], weight_placements=[Shard(0)]
+        )
+
+    assert False, f"Unsupported parallel style: {parallel_style}"
+
+
+# Recursively finds all linear modules and replaces them with tensor-parallel
+# nvFuser definitions if a parallel plan is found.
+def parallelize_module_with_nvfuser(
+    module: torch.nn.Module,
+    mesh: dist.device_mesh.DeviceMesh,
+    parallel_plan: dict[str, ParallelStyle],
+    fqn: str,  # stands for fully qualified name
+    parent_module: torch.nn.Module | None = None,
+):
+    for child_module_name, child_module in module.named_children():
+        if fqn:
+            child_fqn = f"{fqn}.{child_module_name}"
+        else:
+            child_fqn = child_module_name
+
+        parallelize_module_with_nvfuser(
+            child_module, mesh, parallel_plan, child_fqn, module
+        )
+
+    if (parallel_style := parallel_plan.get(fqn)) is None:
+        return
+
+    new_module = parallelize_linear_with_nvfuser(module, mesh, parallel_style)
+    assert parent_module is not None
+    module_name = fqn.split(".")[-1]
+    setattr(parent_module, module_name, new_module)
+
+
 def test_llama4_moe_thunderfx():
     config = Config()
 
@@ -394,6 +462,30 @@ def test_llama4_moe_thunderfx():
     assert expected.size() == (batch_size, seq_len, config.hidden_size)
     assert expected.dtype == torch.bfloat16
     assert expected.is_cuda
+
+    # ```
+    # for name, _ in model.named_modules():
+    #     print(name)
+    # ```
+    # prints the following:
+    #
+    # gate
+    # shared_experts
+    # shared_experts.gate_proj
+    # shared_experts.up_proj
+    # shared_experts.down_proj
+    # routed_experts
+    # routed_experts.gate_proj
+    # routed_experts.up_proj
+    # routed_experts.down_proj
+    parallel_plan = {
+        "shared_experts.gate_proj": ColwiseParallel(),
+        "shared_experts.up_proj": ColwiseParallel(),
+        "shared_experts.down_proj": RowwiseParallel(),
+        "routed_experts.gate_proj": ColwiseParallel(),
+        "routed_experts.up_proj": ColwiseParallel(),
+        "routed_experts.down_proj": RowwiseParallel(),
+    }
 
     tmodel = thunderfx(model, nv_enable_linear=True, nv_enable_scatter=True)
 
