@@ -12,6 +12,7 @@ import torch.distributed as dist
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.distributed.tensor.parallel import (
+    parallelize_module,
     ParallelStyle,
     RowwiseParallel,
     ColwiseParallel,
@@ -440,7 +441,7 @@ def parallelize_module_with_nvfuser(
 
 
 @pytest.mark.mpi
-def test_llama4_moe_thunderfx(multidevice_direct_test):
+def test_llama4_moe_thunderfx(setup_default_process_group, multidevice_direct_test):
     config = Config()
 
     # This is much faster than creating the module with CPU float parameters
@@ -481,11 +482,15 @@ def test_llama4_moe_thunderfx(multidevice_direct_test):
         "shared_experts.gate_proj": ColwiseParallel(),
         "shared_experts.up_proj": ColwiseParallel(),
         "shared_experts.down_proj": RowwiseParallel(),
-        "routed_experts.gate_proj": ColwiseParallel(),
-        "routed_experts.up_proj": ColwiseParallel(),
-        "routed_experts.down_proj": RowwiseParallel(),
+        # "routed_experts.gate_proj": ColwiseParallel(),
+        # "routed_experts.up_proj": ColwiseParallel(),
+        # "routed_experts.down_proj": RowwiseParallel(),
     }
 
+    d = dist.get_world_size()
+    mesh = dist.device_mesh.init_device_mesh("cuda", [d])
+
+    model = parallelize_module(model, mesh, parallel_plan)
     tmodel = thunderfx(model, nv_enable_linear=True, nv_enable_scatter=True)
 
     with torch.no_grad():
