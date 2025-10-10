@@ -1141,3 +1141,296 @@ def test_tutorial_basic_tma_example6(nvfuser_direct_test):
     ke.compile(fd.fusion, [t0], compile_params=index32bit)
     outputs = ke.run([t0])
     assert outputs[0].equal(t0)
+
+
+@pytest.mark.skipif(
+    is_pre_hopper(), reason="Only supported on Hopper and newer devices."
+)
+def test_tutorial_vectorize_store_pointwise_tma(nvfuser_direct_test):
+    with FusionDefinition() as fd:
+        tv0 = fd.define_tensor(shape=[-1, -1], contiguity=[True, True])
+        tv1 = fd.define_tensor(shape=[-1, -1], contiguity=[True, True])
+        tv2 = fd.ops.add(tv0, tv1)
+        fd.add_output(tv2)
+
+        # Create cache_tvs
+        tv0a = tv0.cache_after(LoadStoreOpType.tma)
+        tv1a = tv1.cache_after(LoadStoreOpType.tma)
+        tv2b = tv2.cache_before()
+
+        tv0a.set_memory_type(MemoryType.shared)
+        tv1a.set_memory_type(MemoryType.shared)
+
+        reference_tv = tv2
+
+        # Step 1: Create tma domain
+        # Use the root domain as TMA domain
+        #   root domain: [I0, I1]
+
+        num_threads = 128
+        vectorization = 2
+        tma_tile = num_threads * vectorization
+        num_stages = 4
+        num_ctas_for_hopper = 132
+
+        # Step 2: Create Box
+        # After TMA domain creation
+        #         split: [I0, I3, 256]
+        reference_tv.split(-1, tma_tile)
+        #         split: [I2, 4, I3, 256]
+        reference_tv.split(0, num_stages)
+
+        # Step 3: Create Tile
+        # Do nothing here because box == tile
+
+        # Step 4: Schedule Shared Memory Tensor
+        #         split: [I2, 4, I3, 128, 2]
+        reference_tv.split(-1, vectorization)
+        #         split: [I4, 132, 4, I3, 128, 2]
+        reference_tv.split(0, num_ctas_for_hopper)
+        #         reorder: [I4, 132, I3, 4, 128, 2]
+        reference_tv.reorder({3: 2, 2: 3})
+
+        # Transform Operations between cache operations and output reference
+        fd.sched.transform_like(reference_tv)
+
+        # Propagate common parallel dimensions
+        reference_tv.axis(1).parallelize(ParallelType.grid_x)
+        fd.sched.parallelize_like(reference_tv)
+
+        tv2b.axis(-2).parallelize(ParallelType.block_x)
+
+        # Vectorization for writing results to gmem
+        reference_tv.axis(-3).parallelize(ParallelType.unroll)
+        reference_tv.axis(-2).parallelize(ParallelType.block_x)
+        reference_tv.axis(-1).parallelize(ParallelType.vectorize)
+
+        # Apply bulk type to TMA tensors
+        tv0a.axis(-1).parallelize(ParallelType.tma)
+        tv0a.axis(-2).parallelize(ParallelType.tma)
+        tv0a.axis(-3).parallelize(ParallelType.tma)
+
+        tv1a.axis(-1).parallelize(ParallelType.tma)
+        tv1a.axis(-2).parallelize(ParallelType.tma)
+        tv1a.axis(-3).parallelize(ParallelType.tma)
+
+        # ComputeAt
+        fd.sched.inline_most()
+
+        if verbose_:
+            print(fd.fusion.print_math())
+            print(fd.fusion.print_kernel())
+
+    dim0 = 16384
+    dim1 = 16384
+
+    # Compile with KernelExecutor directly to avoid scheduling
+    index32bit = CompileParams(
+        index_type=DataType.Int32, maxrregcount=255, enable_magic_zero=False
+    )
+    t0 = torch.randn(dim0, dim1, dtype=torch.float, device="cuda:0")
+    t1 = torch.randn(dim0, dim1, dtype=torch.float, device="cuda:0")
+    t2 = t0 + t1
+    ke = KernelExecutor()
+    ke.compile(fd.fusion, [t0, t1], compile_params=index32bit)
+    outputs = ke.run([t0, t1])
+    assert outputs[0].equal(t2)
+
+
+@pytest.mark.skipif(
+    is_pre_hopper(), reason="Only supported on Hopper and newer devices."
+)
+def test_tutorial_pointwise_broadcast_tma(nvfuser_direct_test):
+    with FusionDefinition() as fd:
+        tv0 = fd.define_tensor(shape=[-1, -1, -1], contiguity=[True, True, True])
+        tv1 = fd.define_tensor(
+            shape=[-1, -1, -1, -1], contiguity=[True, False, True, True]
+        )
+        tv2 = fd.ops.broadcast(tv0, [True, False, False, False])
+        tv3 = fd.ops.add(tv2, tv1)
+        fd.add_output(tv3)
+
+        # Create cache_tvs
+        tv0a = tv0.cache_after(LoadStoreOpType.tma)
+        tv1a = tv1.cache_after(LoadStoreOpType.tma)
+        tv3b = tv3.cache_before(LoadStoreOpType.tma)
+
+        tv0a.set_memory_type(MemoryType.shared)
+        tv1a.set_memory_type(MemoryType.shared)
+        tv3b.set_memory_type(MemoryType.shared)
+
+        reference_tv = tv3
+
+        # Step 1: Create tma domain
+        #   root domain: [I0, I1, I2, I3]
+        #    TMA domain: [I0, I1, I4]
+        reference_tv.merge(-2, -1)
+
+        # Step 2: Define TMA Box
+        #         split: [I0, I1, I5, 256]
+        reference_tv.split(-1, 256)
+
+        # Step 3: Define Tile
+        # Do nothing here because tile == box.
+
+        # Step 4: Schedule Shared Memory Tensor
+        #         merge: [I10, I5, 256]
+        reference_tv.merge(0, 1)
+        #         split: [I10, I7, 4, 256]
+        reference_tv.split(-2, 4)
+        #         merge: [I11, 4, 256]
+        reference_tv.merge(0, 1)
+
+        # Transform Operations between cache operations and output reference
+        fd.sched.transform_like(reference_tv)
+
+        # Define Parallelization Schema
+        # Intermediate Tensors
+        tv3b.axis(0).parallelize(ParallelType.grid_x)
+        tv3b.axis(1).parallelize(ParallelType.unroll)
+        tv3b.axis(2).parallelize(ParallelType.block_x)
+
+        tv2.axis(0).parallelize(ParallelType.grid_x)
+        tv2.axis(1).parallelize(ParallelType.unroll)
+        tv2.axis(2).parallelize(ParallelType.block_x)
+
+        # TMA Tensors
+        tv1a.axis(0).parallelize(ParallelType.grid_x)
+        tv1a.axis(1).parallelize(ParallelType.block_x)
+        tv1a.axis(2).parallelize(ParallelType.tma)
+
+        tv0a.axis(0).parallelize(ParallelType.grid_x)
+        tv0a.axis(1).parallelize(ParallelType.block_x)
+        tv0a.axis(2).parallelize(ParallelType.tma)
+
+        tv3.axis(0).parallelize(ParallelType.grid_x)
+        tv3.axis(1).parallelize(ParallelType.block_x)
+        tv3.axis(2).parallelize(ParallelType.tma)
+
+        # ComputeAt
+        fd.sched.inline_most()
+
+        if verbose_:
+            print(fd.fusion.print_math())
+            print(fd.fusion.print_kernel())
+
+    dim0 = 32
+    dim1 = 2
+    dim2 = 4
+    dim3 = 256
+
+    # Compile with KernelExecutor directly to avoid scheduling
+    index32bit = CompileParams(
+        index_type=DataType.Int32, maxrregcount=255, enable_magic_zero=False
+    )
+    t0 = torch.randn(dim1, dim2, dim3, dtype=torch.float, device="cuda:0")
+    t1 = torch.randn(dim0, dim1, dim2, dim3, dtype=torch.float, device="cuda:0")
+    t2 = t0 + t1
+    ke = KernelExecutor()
+    ke.compile(fd.fusion, [t0, t1], compile_params=index32bit)
+    outputs = ke.run([t0, t1])
+    assert outputs[0].equal(t2)
+
+
+@pytest.mark.skipif(
+    is_pre_hopper(), reason="Only supported on Hopper and newer devices."
+)
+def test_tutorial_tma_bank_conflict_free_transpose(nvfuser_direct_test):
+    with FusionDefinition() as fd:
+        input = fd.define_tensor(shape=[-1, -1], contiguity=[True, True])
+        output = fd.ops.permute(input, [1, 0])
+        fd.add_output(output)
+
+        # Change the fusion to input->smem->register->smem->output where the
+        # smem->register part does the transpose
+        input_smem_cache = input.cache_after(LoadStoreOpType.tma)
+        input_smem_cache.set_memory_type(MemoryType.shared)
+
+        output_smem_cache = output.cache_before(LoadStoreOpType.tma)
+        output_smem_cache.set_memory_type(MemoryType.shared)
+
+        output_reg_cache = output_smem_cache.cache_before()
+
+        # Create 32x32 tile. Each CTA has one tile, and the entire tile will be
+        # loaded to shared memory by TMA, and stored back to global memory by TMA.
+
+        # [I1, I0]
+        output.split(1, 32)
+        output.split(0, 32)
+        # [I1, 32', I0, 32]
+        output.reorder({0: 1, 1: 2, 2: 0})
+        output.merge(0, 1)
+        # [I0/32 * I1/32', 32', 32]
+        output.axis(0).parallelize(ParallelType.grid_x)
+        # [BIDx, 32', 32]
+
+        fd.sched.bounded_transform_backward(
+            output, -1, [input], propagate_parallel_type=True
+        )
+
+        # For fusion output, we just use TMA to store the entire tile back to global
+        # memory. There is no need to further schedule the output tensor.
+        output.axis(1).parallelize(ParallelType.tma)
+        output.axis(2).parallelize(ParallelType.tma)
+        # [BIDx, Bulk, Bulk]
+
+        # output_smem_cache and output_reg_cache are scheduled in the same way.
+        # We use each warp to load one column of input_smem_cache. We vectorize
+        # the load to 16 bytes, and use 8 warps to load all these 8 columns. Then,
+        # when we write to output_smem_cache, we unroll the write. Each warp writes
+        # one row in output_smem_cache in each iteration, so there is no bank
+        # conflict.
+
+        # [BIDx, 32', 32]
+        output_smem_cache.set_allocation_domain(
+            output_smem_cache.get_loop_domain(), new_contiguity=True
+        )
+        output_smem_cache.split(1, 4)
+        # [BIDx, 8', 4', 32]
+
+        fd.sched.bounded_transform_backward(output_smem_cache, -1, [input])
+
+        output_smem_cache.merge(1, 3)
+        # [BIDx, 256, 4']
+        output_smem_cache.axis(1).parallelize(ParallelType.block_x)
+
+        fd.sched.bounded_transform_backward(
+            output_smem_cache, -1, [input_smem_cache], propagate_parallel_type=True
+        )
+
+        output_smem_cache.axis(2).parallelize(ParallelType.unroll)
+        output_reg_cache.axis(2).parallelize(ParallelType.vectorize)
+        output_reg_cache.set_allocation_domain(
+            output_reg_cache.get_loop_domain(), new_contiguity=True
+        )
+
+        # Schedule the memory format for 128 byte swizzle
+        # [BIDx, 8', 4', 32]
+        input_smem_cache.reorder({3: 1, 1: 2, 2: 3})
+        # [BIDx, 32, 8', 4']
+        input_smem_cache.split(1, 8)
+        # [BIDx, 4, 8, 8', 4']
+        input_smem_cache.swizzle(2, 3)
+        # [BIDx, 4, 8, 8', 4']
+        input_smem_cache.set_allocation_domain(
+            input_smem_cache.get_loop_domain(), new_contiguity=True
+        )
+
+        input_smem_cache.axis(1).parallelize(ParallelType.tma)
+        input_smem_cache.axis(2).parallelize(ParallelType.tma)
+        input_smem_cache.axis(3).parallelize(ParallelType.tma)
+        input_smem_cache.axis(4).parallelize(ParallelType.tma)
+        # [BIDx, Bulk, Bulk, Bulk, Bulk]
+
+        if verbose_:
+            print(fd.fusion.print_math())
+            print(fd.fusion.print_kernel())
+
+    index32bit = CompileParams(
+        index_type=DataType.Int32, maxrregcount=255, enable_magic_zero=False
+    )
+    t0 = torch.randn(10000, 10000, dtype=torch.float, device="cuda:0")
+    ke = KernelExecutor()
+    ke.compile(fd.fusion, [t0], compile_params=index32bit)
+    outputs = ke.run([t0])
+    assert outputs[0].equal(t0.t())

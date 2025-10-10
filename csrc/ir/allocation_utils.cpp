@@ -155,15 +155,16 @@ std::optional<Layout> canonicalizeLayout(const TensorView* tv) {
     canonicalized_contiguity.push_back(contiguity);
   }
 
-  NVF_ERROR(
-      std::is_permutation(
+  // This indicates that logical and allocation are not connected via
+  // transforms. We cannot infer a layout in this case. This could be used by
+  // PreprocessGroupedMatmulInputSf.
+  if (!std::is_permutation(
           tv->getLogicalDomain().begin(),
           tv->getLogicalDomain().end(),
           canonicalized_allocation.begin(),
-          canonicalized_allocation.end()),
-      "This indicates that logical and allocation are not connected via "
-      "transforms. This is most often caused by forgetting to concretize "
-      "a fusion with dynamic reshapes.");
+          canonicalized_allocation.end())) {
+    return std::nullopt;
+  }
 
   return Layout(
       std::move(canonicalized_allocation), std::move(canonicalized_contiguity));
