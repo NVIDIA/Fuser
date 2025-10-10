@@ -298,7 +298,7 @@ KernelArgumentHolder FusionKernelRuntime::runWithInputs(
     KernelArgumentHolder outputs;
     if (hij_ != nullptr) {
       outputs = hij_->runWithInputs(args);
-    } else if (hie_ != nullptr){
+    } else if (hie_ != nullptr) {
       outputs = hie_->runWithInputs(args);
     } else {
       NVF_THROW("Neither Host IR JIT or Host IR Evaluator are initialized.");
