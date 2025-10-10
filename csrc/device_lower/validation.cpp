@@ -47,8 +47,6 @@ class ValidateSiblings : public IterVisitor {
   using IterVisitor::handle;
 
   void dispatch(Expr* expr) final {
-    // Skip BlockQuantization.
-    // It has sibling outputs which differ from each other
     if (!ir_utils::isTvOp(expr) || expr->outputs().size() < 2 ||
         !ir_utils::hasUniformSiblings(expr)) {
       IterVisitor::dispatch(expr);

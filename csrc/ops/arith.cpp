@@ -2651,23 +2651,15 @@ BlockQuantizationResults blockQuantize(
       "Currently only output data type of Float4_e2m1fn_x2 is supported");
 
   // Validate input data type
-  // WE'll only support FP32 or BF16
-  // TODO: BF16
+  // We'll only support FP32 or BF16
+  // We should check if the inputs are FP or BF16.
   NVF_CHECK(
-      isFloatingPointType(input->getDataType().value()),
+      input->getDataType().value() == DataType::Float ||
+          input->getDataType().value() == DataType::BFloat16,
       "Block quantization expects floating point input but got ",
       input->getDataType().value());
 
-  // We reshape the input to the keep the block size as the inner dimension
-  // that will be "reduced". For example, if our input in [m, k] and the block
-  // size is 16. Then we need to compute the max of the inner-most 16 elements.
-  // Thus, we first reshape the input to [m, k/16, 16] and then compute the max
-  // over the inner-most 16 elements.
-  // auto reshaped_input = reshape(input, [](auto& x) { x.split(-1, 16); });
-
-  auto inp_domain =
-      // TensorDomain::noReductions(reshaped_input->getLogicalDomain());
-      TensorDomain::noReductions(input->getLogicalDomain());
+  auto inp_domain = TensorDomain::noReductions(input->getLogicalDomain());
 
   // Validate input tensor is not zero-dimensional
   NVF_CHECK(
@@ -2683,22 +2675,19 @@ BlockQuantizationResults blockQuantize(
   }
 
   // Create output domain for block scales
-  // If the input after reshape is [m, k/16, 16] then
-  // block scales will be [m, k/16, b(1)]
-  // We keep the inner-dimension as b(1) to make scheduling easier.
-  // Both the ouputs of quantization can be scheduled in similar fashion.
+  // We'll clone the outer domains but divide the
+  // extent of the inner domain by 16. (block_size).
   std::vector<IterDomain*> scales_out_domain;
   scales_out_domain.reserve(inp_domain.size());
 
   for (size_t i = 0; i < inp_domain.size(); ++i) {
     if (i == inp_domain.size() - 1) {
-      // Close inp_domain[i] and divide by 16 to create new iter domain
       scales_out_domain.push_back(
           IterDomainBuilder(
               inp_domain[i]->start(),
               SimplifyingIrBuilder::divExpr(
                   inp_domain[i]->extent(),
-                  IrBuilder::create<Val>(16L, DataType::Index)))
+                  IrBuilder::create<Val>(block_size, DataType::Index)))
               .build());
 
     } else {

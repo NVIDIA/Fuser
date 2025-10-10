@@ -6298,6 +6298,14 @@ std::vector<PolymorphicValue> PreprocessGroupedMatmulInputSf::evaluate(
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(PreprocessGroupedMatmulInputSf)
 
+// Details:
+// Currently output_scales is the first input in the constructor even though
+// it's the second output. This is because if it's the second output then we hit
+// a bug in indexing. The stack trace can be seen here:
+// https://gist.github.com/protonu/dc35024c1291625b2b7ce87baa39e2ae
+// This happens when creating UnswitchPredicate, probably in the call to
+// TensorIndexer::getPredicates. The incorrect predicate_domains for the tv
+// in the call to getPredicateDomains.
 BlockQuantizationOp::BlockQuantizationOp(
     IrBuilderPasskey passkey,
     Val* output_scales,

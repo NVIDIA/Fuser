@@ -10,8 +10,6 @@
 
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
-#include <iomanip>
-#include <iostream>
 
 #include <fusion.h>
 #include <ops/all_ops.h>
@@ -175,10 +173,10 @@ TEST_P(NVFP4QuantizeTest, WithoutPerTensorAmax) {
           HeuristicIs(SchedulerType::InnerPersistent)));
 }
 
-class BQTest : public BlackwellBase {};
+class BlockQuantizationTest : public BlackwellBase {};
 
-TEST_F(BQTest, ScheduleAsPointwise) {
-  // Basic test implementation
+TEST_F(BlockQuantizationTest, ScheduleAsPointwise) {
+  // Baseline implementation
   std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
   createNVFP4QunatizationFusion(fusion.get(), DataType::Float);
@@ -191,7 +189,6 @@ TEST_F(BQTest, ScheduleAsPointwise) {
   inputs.push_back(at::randn({m, n}, at::device(at::kCUDA).dtype(at::kFloat)));
   auto outputs_baseline = fec.runFusionWithInputs(inputs);
 
-  // Print baseline outputs
   auto baseline_block_scales = outputs_baseline[0].as<at::Tensor>();
   auto baseline_quantized_tensor = outputs_baseline[1].as<at::Tensor>();
 
@@ -199,7 +196,6 @@ TEST_F(BQTest, ScheduleAsPointwise) {
   auto baseline_block_scales_cpu = baseline_block_scales.cpu();
   auto baseline_quantized_tensor_cpu = baseline_quantized_tensor.cpu();
 
-  // Print first 32 bytes of baseline block_scales_output in hex format
   const uint8_t* baseline_block_scales_data =
       static_cast<const uint8_t*>(baseline_block_scales_cpu.data_ptr());
   const uint8_t* baseline_quantized_data =
@@ -211,7 +207,6 @@ TEST_F(BQTest, ScheduleAsPointwise) {
   auto tv_data_hp = makeContigTensor(2, DataType::Float);
   fusion_new_op->addInput(tv_data_hp);
 
-  // t0 is 2D
   auto t0 = set(tv_data_hp);
   auto quantization_results = blockQuantize(t0);
   auto t_out = set(quantization_results.quantized_tensor);
@@ -284,8 +279,8 @@ TEST_F(BQTest, ScheduleAsPointwise) {
   EXPECT_EQ(quantized_tensor_output.dim(), 2);
 }
 
-TEST_F(BQTest, ScheduleAsPointwise2D) {
-  // Basic test implementation
+TEST_F(BlockQuantizationTest, ScheduleAsPointwise2D) {
+  // Baseline  implementation
   std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
   createNVFP4QunatizationFusion(fusion.get(), DataType::Float);

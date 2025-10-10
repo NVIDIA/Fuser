@@ -294,9 +294,10 @@ SyncMap::SyncMap(Fusion* fusion, bool error_on_failure) {
 
           if ((parallel_type == ParallelType::BIDx ||
                parallel_type == ParallelType::TIDx) &&
-              consumer->definition() != nullptr &&
-              consumer->definition()->isA<BlockQuantizationOp>()) {
+              ir_utils::isBlockScalingFactor(consumer)) {
             // Skip BIDx and TIDx check for BlockQuantizationOp consumer
+            producer->as<TensorView>()->printTransforms();
+            consumer->as<TensorView>()->printTransforms();
             continue;
           }
 
