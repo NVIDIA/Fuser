@@ -47,7 +47,8 @@ class ValidateSiblings : public IterVisitor {
   using IterVisitor::handle;
 
   void dispatch(Expr* expr) final {
-    if (!ir_utils::isTvOp(expr) || expr->outputs().size() < 2) {
+    if (!ir_utils::isTvOp(expr) || expr->outputs().size() < 2 ||
+        !ir_utils::hasUniformSiblings(expr)) {
       IterVisitor::dispatch(expr);
       return;
     }
@@ -724,6 +725,7 @@ class VectorizeValidator : public OptInDispatch {
     }
 
     auto ldst = dynamic_cast<LoadStoreOp*>(tv->definition());
+
     bool is_ldmatrix_trans =
         ldst != nullptr && mma_utils::isLdMatrixTranspose(ldst);
     if (!is_ldmatrix_trans && name.compare("consumer") != 0) {
@@ -1033,7 +1035,8 @@ void validateAndCollectVectorizeInfo(Fusion* fusion) {
               (def->isA<ReductionOp>() &&
                def->as<ReductionOp>()->serialGridReductionRequested()) ||
               (def->isA<UnaryOp>() &&
-               def->as<UnaryOp>()->getUnaryOpType() == UnaryOpType::Cast),
+               def->as<UnaryOp>()->getUnaryOpType() == UnaryOpType::Cast) ||
+              def->isA<BlockQuantizationOp>(),
           "Vectorized accesses cannot be inline with computation: ",
           (def == nullptr ? tv->toString() : def->toString()));
     }
@@ -1409,7 +1412,8 @@ void validateAndConvertIterDomainGrouping(Fusion* fusion) {
     NVF_CHECK(
         def->isA<ReductionOp>() || def->isA<GroupedReductionOp>() ||
             def->isA<WelfordOp>() || def->isA<GroupedWelfordOp>() ||
-            def->isA<ArgsortOp>() || def->isA<ScanOp>(),
+            def->isA<ArgsortOp>() || def->isA<BlockQuantizationOp>() ||
+            def->isA<ScanOp>(),
         "Invalid use of ParallelType::Group: ",
         def->toString());
 

@@ -406,6 +406,20 @@ void IndexLowering::handle(const TopKOp* top) {
   GpuLower::current()->propagateExprInfo(top, back());
 }
 
+void IndexLowering::handle(const BlockQuantizationOp* bqop) {
+  const auto in = IrBuilder::create<kir::TensorIndex>(
+      bqop->in()->as<TensorView>(), bqop->fusion()->zeroVal());
+
+  const auto out_scales = IrBuilder::create<kir::TensorIndex>(
+      bqop->blockScales()->as<TensorView>(), bqop->fusion()->zeroVal());
+  const auto out_quantized = IrBuilder::create<kir::TensorIndex>(
+      bqop->quantizedOutput()->as<TensorView>(), bqop->fusion()->zeroVal());
+
+  pushBack(
+      IrBuilder::create<BlockQuantizationOp>(out_scales, out_quantized, in));
+  GpuLower::current()->propagateExprInfo(bqop, back());
+}
+
 void IndexLowering::handle(const SelectOp* sop) {
   auto lowered_index = lowerSrcIndex(sop->input(1), sop->output(0));
   auto lowered_index_cast = lowered_index;

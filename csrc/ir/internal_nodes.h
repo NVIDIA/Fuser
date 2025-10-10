@@ -3399,4 +3399,59 @@ class PreprocessGroupedMatmulInputSf : public Expr {
   }
 };
 
+class BlockQuantizationOp : public Expr {
+ public:
+  using Expr::Expr;
+
+  BlockQuantizationOp(
+      IrBuilderPasskey,
+      Val* output_scales,
+      Val* output,
+      Val* input,
+      Val* global_scale = nullptr,
+      int64_t block_size = 16);
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  Val* blockScales() const {
+    return output(1);
+  }
+
+  Val* quantizedOutput() const {
+    return output(0);
+  }
+
+  Val* in() const {
+    return input(0);
+  }
+
+  int64_t blockSize() const {
+    return attribute<int64_t>(0);
+  }
+
+  bool hasGlobalScale() const {
+    if (inputs().size() > 1) {
+      return true;
+    }
+    return false;
+  }
+
+  Val* globalScale() const {
+    if (hasGlobalScale()) {
+      return input(1);
+    }
+    return nullptr;
+  }
+
+  const char* getOpString() const override {
+    return "BlockQuantizationOp";
+  }
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+  std::vector<PolymorphicValue> evaluate(
+      const ExpressionEvaluator& ee,
+      const std::vector<PolymorphicValue>& inputs) const override;
+};
+
 } // namespace nvfuser

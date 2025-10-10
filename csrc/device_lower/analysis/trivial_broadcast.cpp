@@ -102,6 +102,16 @@ void ConcretizedBroadcastDomains::handle(TopKOp* top) {
   }
 }
 
+// BlockQuantizationOp introduces broadcast domains in the block scales output
+void ConcretizedBroadcastDomains::handle(BlockQuantizationOp* bq) {
+  auto out = bq->blockScales()->as<TensorView>();
+  auto bcast_id = out->getLogicalDomain().back();
+  if (bcast_id->isBroadcast()) {
+    broadcast_origin_map_.emplace(
+        bcast_id, std::unordered_set<IterDomain*>({bcast_id}));
+  }
+}
+
 void ConcretizedBroadcastDomains::dispatch(Expr* expr) {
   IterVisitor::dispatch(expr);
 
@@ -123,6 +133,7 @@ void ConcretizedBroadcastDomains::dispatch(Expr* expr) {
     for (auto consumer : ir_utils::filterByType<TensorView>(expr->outputs())) {
       auto p2c_map = PairwiseLogicalDomainMap(producer, consumer)
                          .mapProducerToConsumer(&producer_broadcasts);
+
       for (const auto& kv : p2c_map) {
         auto p_id = kv.first;
         auto c_id = kv.second;

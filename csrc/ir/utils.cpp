@@ -1339,7 +1339,7 @@ bool hasTrivialAllocationDomain(const TensorView* tv) {
       alloc | TensorDomain::kNoReductions | TensorDomain::kNoBroadcasts);
 }
 bool hasUniformSiblings(Expr* expr) {
-  return !expr->isOneOf<SdpaFwdOp, SdpaBwdOp>();
+  return !expr->isOneOf<SdpaFwdOp, SdpaBwdOp, BlockQuantizationOp>();
 }
 
 bool mayRequireAllocation(const TensorView* tv, IterDomain* id) {
@@ -1745,6 +1745,12 @@ std::vector<IterDomain*> propagateScatterAllocationDomain(
 bool isParallelizedBy(const std::vector<IterDomain*>& ids, ParallelType pt) {
   return std::ranges::any_of(
       ids, [&](IterDomain* id) { return id->getParallelType() == pt; });
+}
+
+bool isBlockScalingFactor(const TensorView* tv) {
+  return tv->definition() != nullptr &&
+      tv->definition()->isA<BlockQuantizationOp>() &&
+      tv == tv->definition()->as<BlockQuantizationOp>()->blockScales();
 }
 
 } // namespace nvfuser::ir_utils
