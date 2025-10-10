@@ -579,7 +579,18 @@ std::optional<std::unique_ptr<HeuristicParamsList>> FusionKernelRuntime::
         args_manager.translateValsToArgs(group_to_run->inputs());
     group_runtime_inputs.setDeviceIndex(args.getDeviceIndex());
     std::cout << "group_runtime_inputs: " << group_runtime_inputs.size() << std::endl;
-    group_runtime_inputs.toString();
+    for (auto inp : group_runtime_inputs) {
+      if (inp.is<at::Tensor>()) {
+        const auto& tensor = inp.as<at::Tensor>();
+        if (tensor.defined()) {
+          std::cout << "group_runtime_inputs: " << tensor.device() << std::endl;
+        } else {
+          std::cout << "group_runtime_inputs: tensor not defined" << std::endl;
+        }
+      } else {
+        std::cout << "group_runtime_inputs: not a tensor" << std::endl;
+      }
+    }
 
     // Create PrecomputedValues for fusion segment
     std::unique_ptr<PrecomputedValues> evaluator_precomputed_values;
