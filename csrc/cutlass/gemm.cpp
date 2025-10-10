@@ -6,7 +6,10 @@
  */
 // clang-format on
 
-#include "cutlass/gemm.h"
+#include <cutlass/codegen.h>
+#include <cutlass/evt.h>
+#include <cutlass/gemm.h>
+#include <dispatch.h>
 #include <exceptions.h>
 #include <fusion.h>
 #include <ir/interface_nodes.h>
@@ -32,37 +35,6 @@ std::string mapLayoutToCutlass(const TensorView* tv) {
   return tv->getMaybeAllocationDomain().back() == tv->getLogicalDomain().back()
       ? "cutlass::layout::RowMajor"
       : "cutlass::layout::ColumnMajor";
-}
-
-// https://docs.nvidia.com/cutlass/media/docs/cpp/fundamental_types.html#numeric-types
-std::string dtypeToCutlass(const DataType& dtype) {
-  NVF_ERROR(std::holds_alternative<PrimDataType>(dtype.type));
-  switch (std::get<PrimDataType>(dtype.type)) {
-    case (DataType::Half):
-      return "cutlass::half_t";
-    case (DataType::BFloat16):
-      return "cutlass::bfloat16_t";
-    case (DataType::Float):
-      return "cutlass::tfloat32_t";
-    case (DataType::Float8_e5m2):
-      return "cutlass::float_e5m2_t";
-    case (DataType::Float8_e4m3fn):
-      return "cutlass::float_e4m3_t";
-    // TODO: support int, complex, and fp6 types
-    case (DataType::Float4_e2m1fn):
-      // Note that cutlass also provides cutlass::mx_float4_t<float_e2m1_t>>.
-      // The difference between these is that the mxfp4 version uses a block
-      // size of 32 while nvfp4 uses a block size of 16. In nvFuser the block
-      // size is represented separately, and here we assume we're using nvfp.
-      // TODO: if block scaling is tied to element type in nvFuser in the future
-      // we can update this mapping
-      return "cutlass::nv_float4_t<float_e2m1_t>";
-    default:
-      NVF_THROW(
-          "nvFuser DataType ",
-          dtype,
-          " is not supported in our CUTLASS executor");
-  }
 }
 
 } // namespace
@@ -106,9 +78,11 @@ std::string generateNvfp4ScaledMmKernel(
       R"(
 #include "cutlass/cutlass.h"
 #include "cutlass/epilogue/collective/collective_builder.hpp"
+#include "cutlass/epilogue/fusion/sm90_visitor_load_tma_warpspecialized.hpp"
 #include "cutlass/gemm/collective/collective_builder.hpp"
 #include "cutlass/gemm/device/gemm_universal_adapter.h"
 #include "cutlass/gemm/kernel/gemm_universal.hpp"
+#include "cutlass/numeric_conversion.h"
 #include "cutlass/util/packed_stride.hpp"
 
 #define NVF_THROW(msg) throw std::runtime_error(msg);
@@ -217,6 +191,34 @@ struct Fp4GemmSm100 {
   using ClusterShape = typename KernelTraits::ClusterShape;
   using PerSmTileShape_MNK = typename KernelTraits::PerSmTileShape_MNK;
 
+)";
+  const mma_utils::DataWrapperOpt<EVTModel> model_opt = extractEVTModel(fusion);
+  const bool has_evt = model_opt.isValid();
+  if (has_evt) {
+    const EVTModel& evt_model = model_opt.getData();
+    code += "  using EVTOp =\n" +
+        evt_model.defString(/*node=*/nullptr, /*indent=*/4) + ";\n";
+    code += R"(
+  using CollectiveEpilogue =
+      typename cutlass::epilogue::collective::CollectiveBuilder<
+          ArchTag,
+          OperatorClass,
+          PerSmTileShape_MNK,
+          ClusterShape,
+          cutlass::epilogue::collective::EpilogueTileAuto,
+          ElementAccumulator,
+          ElementAccumulator,
+          ElementC,
+          LayoutCTag,
+          AlignmentC,
+          ElementD,
+          LayoutDTag,
+          AlignmentD,
+          cutlass::epilogue::collective::EpilogueScheduleAuto,
+          EVTOp>::CollectiveOp;
+)";
+  } else {
+    code += R"(
   using CollectiveEpilogue =
       typename cutlass::epilogue::collective::CollectiveBuilder<
           ArchTag,
@@ -233,6 +235,9 @@ struct Fp4GemmSm100 {
           LayoutDTag,
           AlignmentD,
           cutlass::epilogue::collective::EpilogueScheduleAuto>::CollectiveOp;
+)";
+  }
+  code += R"(
 
   using CollectiveMainloop =
       typename cutlass::gemm::collective::CollectiveBuilder<
@@ -310,6 +315,7 @@ typename T::Gemm::Arguments args_from_options(
   using ElementCompute = float;
   using StrideA = typename T::StrideA;
   using StrideB = typename T::StrideB;
+  using StrideC = typename T::StrideC;
   using StrideD = typename T::StrideD;
   using Sm1xxBlkScaledConfig =
       typename T::Gemm::GemmKernel::CollectiveMainloop::Sm1xxBlkScaledConfig;
@@ -319,6 +325,7 @@ typename T::Gemm::Arguments args_from_options(
   int k = static_cast<int>(K);
   auto stride_A = cutlass::make_cute_packed_stride(StrideA{}, {m, k, 1});
   auto stride_B = cutlass::make_cute_packed_stride(StrideB{}, {n, k, 1});
+  auto stride_C = cutlass::make_cute_packed_stride(StrideC{}, {m, n, 1});
   auto stride_D = cutlass::make_cute_packed_stride(StrideD{}, {m, n, 1});
 
   auto layout_SFA = Sm1xxBlkScaledConfig::tile_atom_to_shape_SFA(
@@ -339,13 +346,20 @@ typename T::Gemm::Arguments args_from_options(
        static_cast<ElementSFB const*>(scales_b.data_ptr),
        layout_SFB},
       {// Epilogue arguments
-       {}, // epilogue.thread
-       static_cast<ElementD const*>(output.data_ptr),
-       stride_D,
+)";
+  if (has_evt) {
+    code += model_opt.getData().argString(/*node=*/nullptr, /*indent=*/4);
+  } else {
+    code += "       {}";
+  }
+  code += R"(, // epilogue.thread
+       nullptr, // TODO: pass bias.data_ptr here
+       stride_C,
        static_cast<ElementD*>(output.data_ptr),
        stride_D}};
-  auto& fusion_args = arguments.epilogue.thread;
-  fusion_args.alpha_ptr = static_cast<ElementCompute const*>(alpha.data_ptr);
+  // TODO: this is for the default epilogue only
+  //auto& fusion_args = arguments.epilogue.thread;
+  //fusion_args.alpha_ptr = static_cast<ElementCompute const*>(alpha.data_ptr);
   return arguments;
 }
 
