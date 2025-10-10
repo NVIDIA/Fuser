@@ -267,47 +267,6 @@ def transformer_forward_definition(
         T109, T102, T116, S117, S118, None
     )
     fd.add_output(sdpa_out)
-    return
-    T123 = fd.ops.permute(sdpa_out, dims=[0, 2, 1, 3])
-    T124 = fd.ops.stride_order(T123, stride_order=[3, 2, 1, 0])
-    T129 = fd.ops.reshape(T124, new_shape=[b, s, e])
-    mha_linear1_out = fd.ops.linear(T129, mha_linear1_weight, mha_linear1_bias)
-    S131 = fd.define_scalar(0.00000, dtype=DataType.Double)
-    S132 = fd.define_scalar(1.00000, dtype=DataType.Double)
-    T137 = fd.ops.uniform(S131, S132, shape=[b, s, e], dtype=DataType.BFloat16)
-    S138 = fd.define_scalar(0.900000, dtype=DataType.Double)
-    mha_dropout_mask = fd.ops.lt(T137, S138)
-    T140 = fd.ops.cast(mha_linear1_out, dtype=DataType.Float)
-    T141 = fd.ops.cast(mha_dropout_mask, dtype=DataType.Float)
-    T142 = fd.ops.mul(T140, T141)
-    S143 = fd.define_scalar(1.11111, dtype=DataType.Double)
-    T144 = fd.ops.mul(T142, S143)
-    T145 = fd.ops.add(T13, T144)
-    T146, layernorm1_mean = fd.ops.var_mean(T145, dims=[2], correction=0, keepdim=False)
-    T152 = fd.ops.broadcast_in_dim(T146, shape=[b, s, 1], broadcast_dims=[0, 1])
-    T157 = fd.ops.broadcast_in_dim(
-        layernorm1_mean, shape=[b, s, 1], broadcast_dims=[0, 1]
-    )
-    S158 = fd.define_scalar(1.00000e-05, dtype=DataType.Double)
-    T159 = fd.ops.add(T152, S158)
-    layernorm1_rstd = fd.ops.rsqrt(T159)
-    T165 = fd.ops.broadcast_in_dim(T157, shape=[b, s, e], broadcast_dims=[0, 1, 2])
-    T166 = fd.ops.sub(T145, T165)
-    T171 = fd.ops.broadcast_in_dim(
-        layernorm1_rstd, shape=[b, s, e], broadcast_dims=[0, 1, 2]
-    )
-    T172 = fd.ops.mul(T166, T171)
-    T177 = fd.ops.broadcast_in_dim(
-        layernorm1_weight, shape=[b, s, e], broadcast_dims=[2]
-    )
-    T178 = fd.ops.cast(T177, dtype=DataType.Float)
-    T179 = fd.ops.mul(T172, T178)
-    T184 = fd.ops.broadcast_in_dim(layernorm1_bias, shape=[b, s, e], broadcast_dims=[2])
-    T185 = fd.ops.cast(T184, dtype=DataType.Float)
-    T186 = fd.ops.add(T179, T185)
-    T187 = fd.ops.cast(T186, dtype=DataType.BFloat16)
-    mlp_linear0_out = fd.ops.linear(T187, mlp_linear0_weight, mlp_linear0_bias)
-    fd.add_output(mha_linear0_out)
 
 
 def transformer_forward_multidevice_schedule(fd: FusionDefinition, num_devices: int):
