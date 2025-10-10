@@ -122,6 +122,8 @@ def test_grouped_mlp(multidevice_direct_test):
 # ```
 # Fusions generated from Thunder commit: b0dc72ef1a9825a70923ae1a270d919f5948c4ed
 
+import os
+os.environ["NVFUSER_DUMP"] = "fusion_ir"
 
 def transformer_forward_definition(
     fd: FusionDefinition, batch: int, sequence: int, head: int, hidden: int
