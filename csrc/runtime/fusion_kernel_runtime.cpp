@@ -571,6 +571,9 @@ std::optional<std::unique_ptr<HeuristicParamsList>> FusionKernelRuntime::
     NVF_ERROR(fusion_to_run != nullptr);
     FusionGuard fg(fusion_to_run);
 
+    std::cout << "fusion_to_run: " << std::endl;
+    fusion_to_run->print();
+
     // Get input arguments for SchedulerRuntimeInfo
     KernelArgumentHolder group_runtime_inputs =
         args_manager.translateValsToArgs(group_to_run->inputs());
