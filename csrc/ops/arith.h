@@ -97,7 +97,7 @@ NVF_API TensorView* binaryOp(
 // Return a new TensorView consistent with reducing `tv` on specified `axes`
 NVF_API TensorView* newForReduction(
     TensorView* tv,
-    const std::vector<unsigned int>& axes,
+    const std::vector<int64_t>& axes,
     DataType data_type = DataType::Null);
 
 // Perform a reduction operation on v1, initial value for reduction is init,
@@ -808,7 +808,11 @@ NVF_API TopKResult topk(
 //!   y[0] = x[0]
 //!   y[i] = y[i-1] + x[i] for 0 < i < n
 //!
-//! If the dimension being scanned is an expanded broadcast, we throw an error.
+//! If the dimension being scanned is an expanded broadcast, we throw
+//! an error.
+//!
+//! Note that unlike reductions, low precision inputs are not
+//! automatically upcast to float, as that is the PyTorch convention.
 NVF_API TensorView* scan(
     TensorView* in_tv,
     int64_t dim,

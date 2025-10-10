@@ -1059,6 +1059,7 @@ std::string _getStructuredCode(
     bool has_topk = false,
     bool has_scan = false,
     bool has_block_layout = false,
+    bool has_cluster_reduction = false,
     bool has_block_quantize_op = false) {
   // generating cuda code;
   std::string code = "";
@@ -1082,6 +1083,11 @@ std::string _getStructuredCode(
       "{\n" + defineTypes() + defineIndexType(index_type) + kernelPreamble() +
       "} // namespace " + CompiledKernel::kernelNamespace() + "\n";
 
+  if (has_cluster_reduction) {
+    code += nvfuser_resources::cluster_cu;
+  }
+
+  // The following runtime namespaces are already nested in `nvf` namespace
   if (has_argsort || has_topk || has_scan) {
     code += nvfuser_resources::cub_utils_cu;
   }
@@ -1451,7 +1457,11 @@ std::string CompiledKernel::getStructuredCode() const {
       kernel()->summary().has_topk,
       kernel()->summary().has_scan,
       kernel()->summary().has_preprocess_grouped_matmul_input_sf,
+<<<<<<< HEAD
       kernel()->summary().has_block_quantize_op);
+=======
+      kernel()->summary().has_cluster_reduction);
+>>>>>>> main
 }
 
 std::string CompiledKernel::disassembledKernelSASS() const {
