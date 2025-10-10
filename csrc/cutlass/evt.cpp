@@ -360,14 +360,26 @@ CommentedString argStringHelper(EVTModel::Node* node, int64_t indent_size) {
       }
       ss << "\n";
     };
+    std::string node_op_name;
     for (EVTModel::Node* input : node->inputs) {
+      // TODO: add all other node op names
       if (input->name == "cutlass::epilogue::fusion::Sm90Compute") {
         // This just describes what op is being computed in an EVT node. It
         // should not appear in the argument list
+        NVF_ERROR(node_op_name.empty());
+        node_op_name = input->name;
         continue;
       }
       print_line(false);
       prev_cs = argStringHelper(input, indent_size + 1);
+    }
+    if (!node_op_name.empty()) {
+      // We have a node op. Print its arguments last (there never are any, so
+      // don't recurse)
+      print_line(false);
+      std::stringstream ss_name;
+      indent(ss_name, indent_size + 1) << "{}";
+      prev_cs = {ss_name.str(), node_op_name};
     }
     print_line(true);
     indent(ss, indent_size) << "}";
