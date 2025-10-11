@@ -645,6 +645,8 @@ std::optional<std::unique_ptr<HeuristicParamsList>> FusionKernelRuntime::
             std::cout << "t: " << t.device() << std::endl;
             std::cout << "sizes: " << t.sizes() << std::endl;
             std::cout << "strides: " << t.strides() << std::endl;
+            std::cout << "meta_sizes: " << t.to(at::kMeta).sizes() << std::endl;
+            std::cout << "meta_strides: " << t.to(at::kMeta).strides() << std::endl;
             eval_fusion.bind(fusion_to_run->inputs()[i], t.to(at::kMeta));
           } else {
             eval_fusion.bind(fusion_to_run->inputs()[i], t);
