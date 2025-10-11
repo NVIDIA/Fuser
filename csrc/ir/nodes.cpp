@@ -6161,6 +6161,18 @@ std::vector<PolymorphicValue> ScanOp::evaluate(
 
   NVF_ERROR(inputs.size() == 1);
 
+  // Meta-safe path: when input is a Meta tensor, avoid invoking ATen ops that
+  // may not have Meta kernels (e.g., cummin). Instead, synthesize an output
+  // tensor on Meta with the correct shape/strides and dtype.
+  if (input.is_meta()) {
+    const at::ScalarType out_dtype = data_type_to_aten(out()->dtype());
+    auto out_meta = at::empty_strided(
+        input.sizes(),
+        input.strides(),
+        at::TensorOptions().device(at::kMeta).dtype(out_dtype));
+    return {out_meta};
+  }
+
   at::Tensor out_t;
   switch (opType()) {
     case BinaryOpType::Add:
