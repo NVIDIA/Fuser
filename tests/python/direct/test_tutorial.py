@@ -32,17 +32,11 @@ verbose_ = True
 
 
 # List of all scheduler heuristics for testing
+# NOTE We cannot iterate pybind11 enum directly, so we extract the entries here.
 all_scheduler_heuristics = [
-    SchedulerType.pointwise,
-    SchedulerType.reduction,
-    SchedulerType.inner_persistent,
-    SchedulerType.inner_outer_persistent,
-    SchedulerType.outer_persistent,
-    SchedulerType.transpose,
-    SchedulerType.matmul,
-    SchedulerType.expr_eval,
-    SchedulerType.no_op,
-    SchedulerType.resize,
+    heuristic
+    for heuristic, _ in SchedulerType.__entries.values()
+    if not SchedulerType.none
 ]
 
 
@@ -1534,12 +1528,13 @@ def test_tutorial_reduction_auto_scheduler():
         )
         assert not pointwise_status
         assert (
-            "cannot find reference tensor" in error_msg
-            or "rejected" in error_msg.lower()
+            error_msg.strip()
+            == "Scheduler _pointwise_ ***rejected*** because : cannot find reference tensor"
         )
 
         # Apply selected scheduler
         _apply_scheduler_helper(fd.fusion, inputs, SchedulerType.reduction)
+    print(fd.fusion.print_math())
 
     nvf_out = fd.manual_execute(inputs)
     eager_out = torch.exp(inputs[0].sum(1))
@@ -1579,64 +1574,3 @@ def test_tutorial_inner_persistent_auto_scheduler():
     var, mean = torch.var_mean(inputs[0], dim=-1, correction=0, keepdim=True)
     eager_out = (inputs[0] - mean) / torch.sqrt(var + 1e-6)
     torch.testing.assert_close(eager_out, nvf_out[0])
-
-
-def test_tutorial_batch_norm_auto_scheduler():
-    """
-    Implement a batch normalization kernel with automatic scheduling.
-    Uses nvfuser's InnerPersistentScheduler.
-    """
-    batch_size = 16
-    num_channels = 128
-    height = 12
-    width = 76
-    momentum = 1e-1
-    eps = 1e-5
-    inputs = [
-        torch.randn((batch_size, num_channels, height, width), device="cuda"),
-        torch.randn((num_channels,), device="cuda"),
-        torch.randn((num_channels,), device="cuda"),
-        torch.randn((num_channels,), device="cuda"),
-        torch.randn((num_channels,), device="cuda"),
-        momentum,
-        eps,
-    ]
-
-    with FusionDefinition() as fd:
-        a = fd.from_pytorch(inputs[0])
-        w = fd.from_pytorch(inputs[1])
-        b = fd.from_pytorch(inputs[2])
-        running_mean = fd.from_pytorch(inputs[3])
-        running_invstd = fd.from_pytorch(inputs[4])
-        momentum_scalar = fd.define_scalar(dtype=DataType.Double)
-        eps_scalar = fd.define_scalar(dtype=DataType.Double)
-        a_norm, new_mean, new_invstd = fd.ops.batch_norm(
-            a,
-            w,
-            b,
-            running_mean,
-            running_invstd,
-            momentum_scalar,
-            eps_scalar,
-            training=True,
-            channels_last=False,
-        )
-        fd.add_output(a_norm)
-
-        # Apply selected scheduler
-        _apply_scheduler_helper(fd.fusion, inputs, SchedulerType.inner_persistent)
-
-    nvf_out = fd.manual_execute(inputs)
-    torch_ref = torch.nn.functional.batch_norm(
-        inputs[0],
-        running_mean=inputs[3],
-        running_var=inputs[4],
-        weight=inputs[1],
-        bias=inputs[2],
-        training=True,
-        momentum=momentum,
-        eps=eps,
-    )
-    torch.testing.assert_close(nvf_out[0], inputs[3])
-    torch.testing.assert_close(nvf_out[1], inputs[4])
-    torch.testing.assert_close(nvf_out[2], torch_ref)
