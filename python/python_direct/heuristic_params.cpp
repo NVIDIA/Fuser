@@ -206,12 +206,160 @@ void bindHeuristicParams(py::module& nvfuser) {
                 Unroll factor for outer dimension to reuse loaded data.
               )");
 
-  // Reduction scheduler parameters
   py::class_<ReductionParams, HeuristicParams> reduction(
       nvfuser, "ReductionParams", py::module_local());
   reduction.def(py::init());
   reduction.def(
       "__repr__", [](const ReductionParams& self) { return self.toString(); });
+  reduction.def_readwrite("fastest_dim", &ReductionParams::fastest_dim, R"(
+                Reduce on innermost dimension.
+              )");
+  reduction.def_readwrite(
+      "persistent_kernel", &ReductionParams::persistent_kernel, R"(
+                Store input in shared memory or registers to reduce global memory reads.
+              )");
+  reduction.def_readwrite(
+      "project_persistent_buffers",
+      &ReductionParams::project_persistent_buffers,
+      R"(Project persistent buffers back to inputs.
+              )");
+  reduction.def_readwrite("schedule_3D", &ReductionParams::schedule_3D, R"(
+                Use 3D scheduling for patterns like [reduction, iteration, reduction].
+              )");
+  reduction.def_readwrite("flip_grid", &ReductionParams::flip_grid, R"(
+                Swap gdimx and gdimy bindings for outer reductions.)");
+  reduction.def_readwrite(
+      "cross_block_inner_reduction",
+      &ReductionParams::cross_block_inner_reduction,
+      R"(Reduce across the block for inner reduction.)");
+  reduction.def_readwrite(
+      "cross_grid_inner_reduction",
+      &ReductionParams::cross_grid_inner_reduction,
+      R"(Reduce across the grid for inner reduction.)");
+  reduction.def_readwrite(
+      "unroll_factor_inner_reduction",
+      &ReductionParams::unroll_factor_inner_reduction,
+      R"(Unrolling/vectorization factor for inner reduction dimension.)");
+  reduction.def_readwrite(
+      "unroll_factor_top_of_vectorization",
+      &ReductionParams::unroll_factor_top_of_vectorization,
+      R"(Extra unroll on top of vectorization.)");
+  reduction.def_readwrite(
+      "vectorize_inner_reduction",
+      &ReductionParams::vectorize_inner_reduction,
+      R"(Vectorize instead of unroll for inner reduction.)");
+  reduction.def_readwrite(
+      "split_grid_dim_inner_reduction",
+      &ReductionParams::split_grid_dim_inner_reduction,
+      R"(Split grid dimension for inner reduction if too large.)");
+  reduction.def_readwrite(
+      "pad_inner_reduction_to_warp",
+      &ReductionParams::pad_inner_reduction_to_warp,
+      R"(Pad inner dimension to nearest warp.)");
+  reduction.def_readwrite(
+      "batches_per_block_inner_reduction",
+      &ReductionParams::batches_per_block_inner_reduction,
+      R"(Register persistent buffer size in inner dimension.)");
+  reduction.def_readwrite(
+      "block_dim_inner_reduction",
+      &ReductionParams::block_dim_inner_reduction,
+      R"(Block parallel dimension for inner reduction.)");
+  reduction.def_readwrite(
+      "grid_dim_inner_reduction",
+      &ReductionParams::grid_dim_inner_reduction,
+      R"(Grid parallel dimension for inner reduction.)");
+  reduction.def_readwrite(
+      "multiple_reds_per_blk",
+      &ReductionParams::multiple_reds_per_blk,
+      R"(Perform multiple reductions per block.)");
+  reduction.def_readwrite(
+      "unroll_factor_iter_dom",
+      &ReductionParams::unroll_factor_iter_dom,
+      R"(Unrolling/vectorization factor for iteration dimension.)");
+  reduction.def_readwrite(
+      "vectorize_iter_dom",
+      &ReductionParams::vectorize_iter_dom,
+      R"(Vectorize instead of unroll for iteration domain.)");
+  reduction.def_readwrite(
+      "split_grid_dim_iter_dom_inner",
+      &ReductionParams::split_grid_dim_iter_dom_inner,
+      R"(Inner split grid dimension for iteration axis.)");
+  reduction.def_readwrite(
+      "split_grid_dim_iter_dom_outer",
+      &ReductionParams::split_grid_dim_iter_dom_outer,
+      R"(Outer split grid dimension for iteration axis.)");
+  reduction.def_readwrite(
+      "block_dim_iter_dom",
+      &ReductionParams::block_dim_iter_dom,
+      R"(Block parallel dimension for iteration domain.)");
+  reduction.def_readwrite(
+      "grid_dim_iter_dom",
+      &ReductionParams::grid_dim_iter_dom,
+      R"(Grid parallel dimension for iteration domain.)");
+  reduction.def_readwrite(
+      "cross_block_outer_reduction",
+      &ReductionParams::cross_block_outer_reduction,
+      R"(Reduce across the block for outer reduction.)");
+  reduction.def_readwrite(
+      "cross_grid_outer_reduction",
+      &ReductionParams::cross_grid_outer_reduction,
+      R"(Reduce across the grid for outer reduction.)");
+  reduction.def_readwrite(
+      "batches_per_block_outer_reduction",
+      &ReductionParams::batches_per_block_outer_reduction,
+      R"(Register persistent buffer size in outer dimension.)");
+  reduction.def_readwrite(
+      "unroll_factor_outer_reduction",
+      &ReductionParams::unroll_factor_outer_reduction,
+      R"(Unrolling/vectorization factor for outer reduction.)");
+  reduction.def_readwrite(
+      "block_dim_outer_reduction",
+      &ReductionParams::block_dim_outer_reduction,
+      R"(Block parallel dimension for outer reduction.)");
+  reduction.def_readwrite(
+      "grid_dim_outer_reduction",
+      &ReductionParams::grid_dim_outer_reduction,
+      R"(Grid parallel dimension for outer reduction.)");
+  reduction.def_readwrite(
+      "compute_persistent_buffer_with_first_consumer",
+      &ReductionParams::compute_persistent_buffer_with_first_consumer,
+      R"(Use computeWith to persistent buffers.)");
+  reduction.def_readwrite(
+      "static_bdimx",
+      &ReductionParams::static_bdimx,
+      R"(Static block dimension X.)");
+  reduction.def_readwrite(
+      "static_bdimy",
+      &ReductionParams::static_bdimy,
+      R"(Static block dimension Y.)");
+  reduction.def_readwrite(
+      "combined_inner_outer",
+      &ReductionParams::combined_inner_outer,
+      R"(Combined inner and outer reduction.)");
+  reduction.def_readwrite(
+      "tidx_for_outer_reduction",
+      &ReductionParams::tidx_for_outer_reduction,
+      R"(Use TIDx for outer reduction axis.)");
+  reduction.def_readwrite(
+      "pad_outer_reduction_to_warp",
+      &ReductionParams::pad_outer_reduction_to_warp,
+      R"(Pad outer reduction to warp.)");
+  reduction.def_readwrite(
+      "combined_split_grid_inner_dim",
+      &ReductionParams::combined_split_grid_inner_dim,
+      R"(Further split inner dimension by grid in combined scheduler.)");
+  reduction.def_readwrite(
+      "vectorization_factor_outer",
+      &ReductionParams::vectorization_factor_outer,
+      R"(Vectorization factor for outer reduction partial result.)");
+  reduction.def_readwrite(
+      "vectorization_factor_tmp_gmem_write",
+      &ReductionParams::vectorization_factor_tmp_gmem_write,
+      R"(Vectorization factor for temporary global memory write.)");
+  reduction.def_readwrite(
+      "block_dim_inner_reduction_extra",
+      &ReductionParams::block_dim_inner_reduction_extra,
+      R"(Additional block parallel dimension for inner reduction.)");
 }
 
 } // namespace nvfuser::python
