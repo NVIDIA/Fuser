@@ -641,6 +641,10 @@ std::optional<std::unique_ptr<HeuristicParamsList>> FusionKernelRuntime::
         if (tensor_pv.is<at::Tensor>()) {
           const auto t = tensor_pv.as<at::Tensor>();
           if (t.defined()) {
+            std::cout << fusion_to_run->inputs()[i]->toString() << std::endl;
+            std::cout << "t: " << t.device() << std::endl;
+            std::cout << "sizes: " << t.sizes() << std::endl;
+            std::cout << "strides: " << t.strides() << std::endl;
             eval_fusion.bind(fusion_to_run->inputs()[i], t.to(at::kMeta));
           } else {
             eval_fusion.bind(fusion_to_run->inputs()[i], t);
