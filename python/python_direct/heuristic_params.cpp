@@ -179,7 +179,34 @@ void bindHeuristicParams(py::module& nvfuser) {
   pointwise.def(py::init());
   pointwise.def(
       "__repr__", [](const PointwiseParams& self) { return self.toString(); });
+  pointwise.def_readwrite("break_point", &PointwiseParams::break_point, R"(
+                Split point from left to right of domain for 2D scheduling.
+              )");
+  pointwise.def_readwrite("split_block", &PointwiseParams::split_block, R"(
+                Split block across left and right dimension.
+              )");
+  pointwise.def_readwrite(
+      "split_grid_y_dim", &PointwiseParams::split_grid_y_dim, R"(
+                Split grid y dimension if too large.
+              )");
+  pointwise.def_readwrite(
+      "flip_grid_binding", &PointwiseParams::flip_grid_binding, R"(
+                Bind BIDy on innermost dimension for broadcast performance.
+              )");
+  pointwise.def_readwrite(
+      "vectorization_factor", &PointwiseParams::vectorization_factor, R"(
+                Vectorization factor.
+              )");
+  pointwise.def_readwrite(
+      "unroll_factor_inner", &PointwiseParams::unroll_factor_inner, R"(
+                Unroll factor for inner dimension.
+              )");
+  pointwise.def_readwrite(
+      "unroll_factor_outer", &PointwiseParams::unroll_factor_outer, R"(
+                Unroll factor for outer dimension to reuse loaded data.
+              )");
 
+  // Reduction scheduler parameters
   py::class_<ReductionParams, HeuristicParams> reduction(
       nvfuser, "ReductionParams", py::module_local());
   reduction.def(py::init());
