@@ -6,17 +6,18 @@ import math
 import pytest
 from contextlib import contextmanager
 from dataclasses import dataclass
+from functools import partial
 
 import torch
 import torch.distributed as dist
 import torch.nn as nn
 import torch.nn.functional as F
+from torch.distributed.tensor import DeviceMesh, distribute_module, distribute_tensor
 from torch.distributed.tensor.parallel import (
+    ParallelStyle,
     parallelize_module,
-    RowwiseParallel,
-    ColwiseParallel,
 )
-from torch.distributed.tensor.placement_types import Shard
+from torch.distributed.tensor.placement_types import Placement, Replicate, Shard
 
 from thunder.dynamo import thunderfx
 from thunder.executors.nvfuserex_impl import getnv
@@ -263,6 +264,119 @@ class GroupedLinear(nn.Module):
         return grouped_mm(hidden_states, self.weight, offsets)
 
 
+class GroupedLinearColwiseParallel(ParallelStyle):
+    def __init__(
+        self,
+        *,
+        use_local_output: bool = True,
+    ):
+        super().__init__()
+        self.use_local_output = use_local_output
+
+    @staticmethod
+    def _prepare_input_fn(mod, inputs, device_mesh):
+        prepared_inputs = []
+        INPUT_LAYOUTS = (Replicate(), Replicate())
+        assert len(INPUT_LAYOUTS) == len(
+            inputs
+        ), "input_layouts and inputs have different lengths"
+        # annotate module input placements/sharding with input_layouts
+        for inp, input_layout in zip(inputs, INPUT_LAYOUTS):
+            assert isinstance(
+                inp, (torch.Tensor, list)
+            ), f"inp is not a torch.Tensor or list: {type(inp)}"
+            if isinstance(inp, torch.Tensor):
+                assert not isinstance(inp, DTensor), "inp is already a DTensor"
+                inp = DTensor.from_local(
+                    inp, device_mesh, (input_layout,), run_check=False
+                )
+            prepared_inputs.append(inp)
+        return tuple(prepared_inputs)
+
+    def _partition_fn(self, name, module, device_mesh):
+        module.register_parameter(
+            "weight",
+            nn.Parameter(distribute_tensor(module.weight, device_mesh, [Shard(2)])),
+        )  # Column-wise sharding
+
+    @staticmethod
+    def _prepare_output_fn(use_local_output, mod, outputs, device_mesh):
+        OUTPUT_LAYOUT = Shard(1)
+        if outputs.placements != (OUTPUT_LAYOUT,):
+            outputs = outputs.redistribute(placements=(OUTPUT_LAYOUT,), async_op=True)
+        # back to local tensor
+        return outputs.to_local() if use_local_output else outputs
+
+    def _apply(self, module: nn.Module, device_mesh: DeviceMesh) -> nn.Module:
+        return distribute_module(
+            module,
+            device_mesh,
+            self._partition_fn,
+            self._prepare_input_fn,
+            partial(self._prepare_output_fn, self.use_local_output),
+        )
+
+
+class GroupedLinearRowwiseParallel(ParallelStyle):
+    def __init__(
+        self,
+        *,
+        input_layouts: tuple[Placement | None] | None = None,
+        output_layouts: Placement | None = None,
+        use_local_output: bool = True,
+    ):
+        super().__init__()
+        self.input_layouts = input_layouts or (Shard(-1), Replicate())
+        self.output_layout = output_layouts or Replicate()
+        self.desired_input_layouts = (Shard(-1), Replicate())
+        self.use_local_output = use_local_output
+
+    @staticmethod
+    def _prepare_input_fn(
+        input_layouts, desired_input_layouts, mod, inputs, device_mesh
+    ):
+        prepared_inputs = []
+        # annotate module input placements/sharding with input_layouts
+        for inp, input_layout, desired_input_layout in zip(
+            inputs, input_layouts, desired_input_layouts
+        ):
+            if isinstance(inp, torch.Tensor):
+                if not isinstance(inp, DTensor):
+                    inp = DTensor.from_local(
+                        inp, device_mesh, (input_layout,), run_check=False
+                    )
+                if input_layout != desired_input_layout:
+                    inp = inp.redistribute(
+                        placements=(desired_input_layout,), async_op=True
+                    )
+            prepared_inputs.append(inp)
+        return tuple(prepared_inputs)
+
+    def _partition_fn(self, name, module, device_mesh):
+        module.register_parameter(
+            "weight",
+            nn.Parameter(distribute_tensor(module.weight, device_mesh, [Shard(1)])),
+        )
+
+    @staticmethod
+    def _prepare_output_fn(output_layout, use_local_output, mod, outputs, device_mesh):
+        if outputs.placements != (output_layout,):
+            outputs = outputs.redistribute(placements=(output_layout,), async_op=True)
+        # back to local tensor
+        return outputs.to_local() if use_local_output else outputs
+
+    def _apply(self, module: nn.Module, device_mesh: DeviceMesh) -> nn.Module:
+        return distribute_module(
+            module,
+            device_mesh,
+            self._partition_fn,
+            partial(
+                self._prepare_input_fn, self.input_layouts, self.desired_input_layouts
+            ),
+            partial(self._prepare_output_fn, self.output_layout, self.use_local_output),
+        )
+
+
 class GroupedSwiGLU(nn.Module):
     def __init__(self, groups: int, hidden_size: int, intermediate_size: int):
         super().__init__()
@@ -415,16 +529,18 @@ def test_llama4_moe_thunderfx(setup_default_process_group, multidevice_direct_te
     # routed_experts.up_proj
     # routed_experts.down_proj
     parallel_plan = {
-        "shared_experts.gate_proj": ColwiseParallel(
-            use_local_output=False, output_layouts=Shard(2)
+        # "shared_experts.gate_proj": ColwiseParallel(
+        #     use_local_output=False, output_layouts=Shard(2)
+        # ),
+        # "shared_experts.up_proj": ColwiseParallel(
+        #     use_local_output=False, output_layouts=Shard(2)
+        # ),
+        # "shared_experts.down_proj": RowwiseParallel(),
+        "routed_experts.gate_proj": GroupedLinearColwiseParallel(
+            use_local_output=False
         ),
-        "shared_experts.up_proj": ColwiseParallel(
-            use_local_output=False, output_layouts=Shard(2)
-        ),
-        "shared_experts.down_proj": RowwiseParallel(),
-        # "routed_experts.gate_proj": ColwiseParallel(),
-        # "routed_experts.up_proj": ColwiseParallel(),
-        # "routed_experts.down_proj": RowwiseParallel(),
+        "routed_experts.up_proj": GroupedLinearColwiseParallel(use_local_output=False),
+        "routed_experts.down_proj": GroupedLinearRowwiseParallel(),
     }
 
     d = dist.get_world_size()
