@@ -31,48 +31,54 @@ from python.direct_utils import (
 verbose_ = True
 
 
-# List of all scheduler heuristics for testing
-# NOTE We cannot iterate pybind11 enum directly, so we extract the entries here.
-all_scheduler_heuristics = [
-    heuristic
-    for heuristic, _ in SchedulerType.__entries.values()
-    if not SchedulerType.none
-]
-
-
 # A helper function to test heuristic schedulers with automatic scheduling
-def _apply_scheduler_helper(fusion, inputs, selected_heuristic):
+def check_auto_schedule(schedule_fn):
     """
-    Helper function to validate and apply a scheduler to a fusion.
+    A decorator to validate a schedule_fn before applying it to a fusion.
 
     Args:
-        fusion: The Fusion object to schedule
-        inputs: Input tensors for the fusion
-        selected_heuristic: The SchedulerType expected to work
+        schedule_fn: The function to apply the scheduler
     """
-    available_heuristics = schedule.find_compatible_schedulers(fusion, inputs)
+    # List of all scheduler heuristics for testing
+    # NOTE We cannot iterate pybind11 enum directly, so we extract the entries here.
+    all_scheduler_heuristics = [
+        heuristic
+        for heuristic, _ in SchedulerType.__entries.values()
+        if not SchedulerType.none
+    ]
 
-    # Assume that only a single heuristic is available for fusion
-    assert len(available_heuristics) == 1
+    def inner_fn(fusion, selected_heuristic, inputs):
+        """
+        Helper function to validate a schedule_fn.
 
-    # Check that only selected heuristic is available as a scheduler
-    assert set(available_heuristics) == set([selected_heuristic])
+        Args:
+            fusion: The Fusion object to schedule
+            selected_heuristic: The SchedulerType expected to work
+            inputs: Input tensors for the fusion
+        """
+        available_heuristics = schedule.find_compatible_schedulers(fusion, inputs)
 
-    # Double-check with can_schedule
-    status, _ = schedule.can_schedule(fusion, selected_heuristic, inputs)
-    assert status
+        # Assume that only a single heuristic is available for fusion
+        assert len(available_heuristics) == 1
 
-    # Check that the other schedulers are not compatible with this fusion
-    assert all(
-        [
-            not schedule.can_schedule(fusion, h, inputs)[0]
-            for h in all_scheduler_heuristics
-            if h is not selected_heuristic
-        ]
-    )
+        # Check that only selected heuristic is available as a scheduler
+        assert set(available_heuristics) == set([selected_heuristic])
 
-    # Apply the scheduler
-    schedule.schedule_with_type(fusion, selected_heuristic, inputs)
+        # Double-check with can_schedule
+        status, _ = schedule.can_schedule(fusion, selected_heuristic, inputs)
+        assert status
+
+        # Check that the other schedulers are not compatible with this fusion
+        assert all(
+            [
+                not schedule.can_schedule(fusion, h, inputs)[0]
+                for h in all_scheduler_heuristics
+                if h is not selected_heuristic
+            ]
+        )
+        schedule_fn(fusion, selected_heuristic, inputs)
+
+    return inner_fn
 
 
 def test_tutorial_memcpy():
@@ -1499,7 +1505,9 @@ def test_tutorial_pointwise_auto_scheduler():
         fd.add_output(t3)
 
         # Apply selected scheduler
-        _apply_scheduler_helper(fd.fusion, inputs, SchedulerType.pointwise)
+        check_auto_schedule(schedule.schedule_with_type)(
+            fd.fusion, SchedulerType.pointwise, inputs
+        )
 
     nvf_out = fd.manual_execute(inputs)
     eager_out = torch.exp(inputs[0] + inputs[1])
@@ -1533,8 +1541,9 @@ def test_tutorial_reduction_auto_scheduler():
         )
 
         # Apply selected scheduler
-        _apply_scheduler_helper(fd.fusion, inputs, SchedulerType.reduction)
-    print(fd.fusion.print_math())
+        check_auto_schedule(schedule.schedule_with_type)(
+            fd.fusion, SchedulerType.reduction, inputs
+        )
 
     nvf_out = fd.manual_execute(inputs)
     eager_out = torch.exp(inputs[0].sum(1))
@@ -1568,7 +1577,9 @@ def test_tutorial_inner_persistent_auto_scheduler():
         fd.add_output(t0_norm)
 
         # Apply selected scheduler
-        _apply_scheduler_helper(fd.fusion, inputs, SchedulerType.inner_persistent)
+        check_auto_schedule(schedule.schedule_with_type)(
+            fd.fusion, SchedulerType.inner_persistent, inputs
+        )
 
     nvf_out = fd.manual_execute(inputs)
     var, mean = torch.var_mean(inputs[0], dim=-1, correction=0, keepdim=True)
