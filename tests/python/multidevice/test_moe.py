@@ -236,7 +236,7 @@ class GroupedLinear(nn.Module):
             b_sf[i] = linear_to_swizzled_128_4(bs_mat2_i)
 
         self.alpha = nn.Parameter(alpha)
-        self.fp4_weight = nn.Parameter(fp4_weight.transpose(-1, -2))
+        self.fp4_weight = nn.Parameter(fp4_weight)
         self.b_sf = nn.Parameter(b_sf)
 
     def forward(
@@ -250,9 +250,10 @@ class GroupedLinear(nn.Module):
             problem_sizes = torch.cat(
                 (tokens_per_expert.unsqueeze(-1), self.n, self.k), dim=1
             ).to(torch.int32)
+            fp4_weight = self.fp4_weight.transpose(-1, -2)
             return torch.ops.nvf_cutlass.f16a_nvfp4weight_scaled_grouped_mm(
                 hidden_states,
-                self.fp4_weight,
+                fp4_weight,
                 self.b_sf,
                 self.alpha,
                 offsets,
@@ -295,8 +296,8 @@ class GroupedLinearColwiseParallel(ParallelStyle):
 
     def _partition_fn(self, name, module, device_mesh):
         module.register_parameter(
-            "weight",
-            nn.Parameter(distribute_tensor(module.weight, device_mesh, [Shard(2)])),
+            "fp4_weight",
+            nn.Parameter(distribute_tensor(module.fp4_weight, device_mesh, [Shard(1)])),
         )  # Column-wise sharding
 
     @staticmethod
@@ -354,8 +355,8 @@ class GroupedLinearRowwiseParallel(ParallelStyle):
 
     def _partition_fn(self, name, module, device_mesh):
         module.register_parameter(
-            "weight",
-            nn.Parameter(distribute_tensor(module.weight, device_mesh, [Shard(1)])),
+            "fp4_weight",
+            nn.Parameter(distribute_tensor(module.fp4_weight, device_mesh, [Shard(2)])),
         )
 
     @staticmethod
