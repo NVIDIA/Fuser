@@ -4817,17 +4817,7 @@ std::vector<PolymorphicValue> MatmulOp::evaluate(
       rfactor_did_idx != -1) {
     matmul_out = matmul_out.unsqueeze(rfactor_did_idx);
   }
-
-  const auto& [sizes, strides] = inferShapeOfOutput(out(), ee);
-  auto meta_out = at::detail::empty_strided_meta(sizes, strides, a.dtype());
-
-  if (meta_out.is_contiguous()) {
-    return {matmul_out};
-  }
-
-  auto strided_matmul_out = at::empty_strided(sizes, strides, a.options());
-  strided_matmul_out = strided_matmul_out.copy_(matmul_out);
-  return {strided_matmul_out};
+  return {matmul_out};
 }
 
 LinearOp::LinearOp(
@@ -4986,6 +4976,11 @@ _scaled_dot_product_flash_attention_meta(const at::Tensor& query) {
   int seqlen_q = sizes[2];
   auto logsumexp = at::empty(
       {batch_size, num_heads, seqlen_q}, query.options().dtype(at::kFloat));
+  // Produce defined meta tensors for philox outputs so downstream segments
+  // can bind metadata and types correctly.
+  const auto meta_u64 = at::TensorOptions().device(at::kMeta).dtype(at::kUInt64);
+  auto rng_state = at::empty({2}, meta_u64);     // philox_seed/rng_state
+  auto unused_offset = at::empty({}, meta_u64);  // philox_offset/_unused (0-dim)
   return std::make_tuple(
       query,
       logsumexp,
@@ -4993,8 +4988,8 @@ _scaled_dot_product_flash_attention_meta(const at::Tensor& query) {
       at::Tensor(),
       c10::SymInt(seqlen_q),
       c10::SymInt(seqlen_q),
-      at::Tensor(),
-      at::Tensor(),
+      rng_state,
+      unused_offset,
       at::Tensor());
 }
 
@@ -5418,6 +5413,27 @@ std::vector<PolymorphicValue> EmbeddingFwdOp::evaluate(
   if (has_max_norm()) {
     auto idx = 5 + has_padding_idx();
     max_norm = inputs.at(idx).as<double>();
+  }
+
+  // Meta-safe path: when either input or weight is a Meta tensor, avoid
+  // calling into ATen embedding (which dispatches to index_select) and
+  // instead synthesize the output shape and strides directly on Meta.
+  if (input.is_meta() || weight.is_meta()) {
+    std::vector<int64_t> out_sizes;
+    out_sizes.reserve(input.dim() + 1);
+    for (int64_t d = 0; d < input.dim(); ++d) {
+      out_sizes.push_back(input.size(d));
+    }
+    // Embedding expands the last dimension to embedding_dim = weight.size(1)
+    NVF_CHECK(
+        weight.dim() >= 2,
+        "Embedding weight must be at least 2D [num_embeddings, embedding_dim], but got dim=",
+        weight.dim());
+    out_sizes.push_back(weight.size(1));
+    auto out = at::empty(
+        out_sizes,
+        at::TensorOptions().device(at::kMeta).dtype(weight.dtype()));
+    return {out};
   }
 
   namespace F = torch::nn::functional;
@@ -6144,6 +6160,18 @@ std::vector<PolymorphicValue> ScanOp::evaluate(
   auto input = inputs.at(0).as<at::Tensor>();
 
   NVF_ERROR(inputs.size() == 1);
+
+  // Meta-safe path: when input is a Meta tensor, avoid invoking ATen ops that
+  // may not have Meta kernels (e.g., cummin). Instead, synthesize an output
+  // tensor on Meta with the correct shape/strides and dtype.
+  if (input.is_meta()) {
+    const at::ScalarType out_dtype = data_type_to_aten(out()->dtype());
+    auto out_meta = at::empty_strided(
+        input.sizes(),
+        input.strides(),
+        at::TensorOptions().device(at::kMeta).dtype(out_dtype));
+    return {out_meta};
+  }
 
   at::Tensor out_t;
   switch (opType()) {

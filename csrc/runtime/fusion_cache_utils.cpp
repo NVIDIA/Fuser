@@ -7,12 +7,14 @@
 // clang-format on
 #include <runtime/fusion_cache_utils.h>
 
+#include <tensor_metadata.h>
 #include <unordered_set>
 
 #include <fusion_segmenter.h>
 #include <ir/all_nodes.h>
 #include <polymorphic_value.h>
 #include <runtime/executor_kernel_arg.h>
+#include <utils.h>
 
 namespace nvfuser {
 
@@ -66,10 +68,39 @@ KernelArgumentHolder ArgumentManager::translateValsToArgs(
   return holder;
 }
 
+// When a fusion segment is executed by ExprEvalExecutor, the output
+// sizes and strides are determined by PyTorch, which might be different from
+// how we infer them. In this case, PyTorch is the ground truth, so we should
+// use PyTorch's result to reset the allocation domain and contiguity.
+void resetAllocationDomainAndContiguity(
+    TensorView* tv,
+    const at::Tensor& tensor) {
+  if (!tensor.defined()) {
+    return;
+  }
+  const auto [sizes, strides] = inferAllocationSizesAndStrides(tensor, tv, ExpressionEvaluator());
+  auto contiguity_without_reduction = computeContiguity(sizes, strides);
+  std::vector<std::optional<bool>> contiguity;
+  int64_t index = 0;
+  for (auto id : tv->getMaybeAllocationDomain()) {
+    if (id->isReduction()) {
+      contiguity.push_back(std::nullopt);
+    } else if (!id->isBroadcast() &&
+        !contiguity_without_reduction[index].has_value()) {
+      contiguity.push_back(true);
+      index++;
+    } else {
+      contiguity.push_back(contiguity_without_reduction[index++]);
+    }
+  }
+  tv->setContiguity(contiguity);
+}
+
 void ArgumentManager::updateWithSegmentOutputs(
     const std::vector<Val*>& group_outputs,
     const KernelArgumentHolder& group_runtime_outputs,
-    const int64_t group_id) {
+    const int64_t group_id,
+    const bool update_contiguity) {
   // Insert graph segment output to tensor map
   NVF_ERROR_EQ(
       std::ssize(group_outputs),
@@ -78,6 +109,12 @@ void ArgumentManager::updateWithSegmentOutputs(
   for (const size_t group_out_i : arange(group_outputs.size())) {
     tensor_map_.emplace(
         group_outputs[group_out_i], group_runtime_outputs[group_out_i]);
+    auto tv = dynamic_cast<TensorView*>(group_outputs[group_out_i]);
+    if (update_contiguity && tv) {
+      const at::Tensor& tensor =
+          group_runtime_outputs[group_out_i].as<at::Tensor>();
+      resetAllocationDomainAndContiguity(tv, tensor);
+    }
   }
 
   // Delete args corresponding to vals lastly used in this segment

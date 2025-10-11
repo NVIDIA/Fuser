@@ -222,9 +222,10 @@ class BackwardTraverseFromLogicalToAlloc {
 
 void validateAllocationSizesAndStrides(
     const std::vector<IterDomain*>& alloc_dom,
-    const std::vector<std::optional<bool>>& contiguity,
+    TensorView* tv,
     c10::IntArrayRef sizes,
     c10::IntArrayRef strides) {
+  const std::vector<std::optional<bool>>& contiguity = tv->getContiguity();
   NVF_ERROR_EQ(alloc_dom.size(), contiguity.size());
   checkAllEqual(
       {std::ranges::distance(alloc_dom | TensorDomain::kNoReductions),
@@ -268,7 +269,9 @@ void validateAllocationSizesAndStrides(
       NVF_CHECK_EQ(
           stride,
           expected_stride_if_contiguous,
-          "Stride mismatch with contiguity info. ",
+          "TensorView ",
+          tv->toString(),
+          "'s stride mismatch with contiguity info. ",
           " allocation domain: ",
           ir_utils::toString(alloc_dom),
           ": sizes: ",
@@ -287,7 +290,7 @@ void validateAllocationSizesAndStrides(
 } // namespace
 
 std::pair<std::vector<int64_t>, std::vector<int64_t>>
-inferAndValidateAllocationSizesAndStrides(
+inferAllocationSizesAndStrides(
     const at::Tensor& tensor,
     TensorView* tv,
     ExpressionEvaluator ee) {
@@ -321,11 +324,22 @@ inferAndValidateAllocationSizesAndStrides(
     }
     allocation_strides.push_back(active_ids.at(id).second);
   }
+  return {std::move(allocation_sizes), std::move(allocation_strides)};
+}
 
+
+std::pair<std::vector<int64_t>, std::vector<int64_t>>
+inferAndValidateAllocationSizesAndStrides(
+    const at::Tensor& tensor,
+    TensorView* tv,
+    ExpressionEvaluator ee) {
+  auto [allocation_sizes, allocation_strides] =
+      inferAllocationSizesAndStrides(tensor, tv, ee);
+  const auto& alloc = tv->getMaybeAllocationDomain();
   // Only validate final sizes and strides when we have a non-empty tensor.
   if (tensor.numel() != 0) {
     validateAllocationSizesAndStrides(
-        alloc, tv->getContiguity(), allocation_sizes, allocation_strides);
+        alloc, tv, allocation_sizes, allocation_strides);
   }
   return {std::move(allocation_sizes), std::move(allocation_strides)};
 }
