@@ -360,6 +360,222 @@ void bindHeuristicParams(py::module& nvfuser) {
       "block_dim_inner_reduction_extra",
       &ReductionParams::block_dim_inner_reduction_extra,
       R"(Additional block parallel dimension for inner reduction.)");
+
+  // Supporting types for MatmulParams
+  py::class_<GemmTile> gemm_tile(nvfuser, "GemmTile", py::module_local());
+  gemm_tile.def(py::init<int64_t, int64_t, int64_t>());
+  gemm_tile.def_readwrite(
+      "m", &GemmTile::m, R"(M dimension of the GEMM tile.)");
+  gemm_tile.def_readwrite(
+      "n", &GemmTile::n, R"(N dimension of the GEMM tile.)");
+  gemm_tile.def_readwrite(
+      "k", &GemmTile::k, R"(K dimension of the GEMM tile.)");
+  gemm_tile.def("__repr__", [](const GemmTile& self) {
+    return "GemmTile(m=" + std::to_string(self.m) +
+        ", n=" + std::to_string(self.n) + ", k=" + std::to_string(self.k) + ")";
+  });
+
+  py::class_<MatMulTileOptions> matmul_tile_options(
+      nvfuser, "MatMulTileOptions", py::module_local());
+  matmul_tile_options.def(py::init<GemmTile, GemmTile>());
+  matmul_tile_options.def_readwrite(
+      "cta_tile", &MatMulTileOptions::cta_tile, R"(CTA tile dimensions.)");
+  matmul_tile_options.def_readwrite(
+      "warp_tile", &MatMulTileOptions::warp_tile, R"(Warp tile dimensions.)");
+  matmul_tile_options.def("__repr__", [](const MatMulTileOptions& self) {
+    return nvfuser::toString(self);
+  });
+
+  py::class_<MatmulParams::CircularBufferOptions> circular_buffer_options(
+      nvfuser, "CircularBufferOptions", py::module_local());
+  circular_buffer_options.def(py::init<bool, bool, int, int>());
+  circular_buffer_options.def_readwrite(
+      "circular_buffer_smem_read",
+      &MatmulParams::CircularBufferOptions::circular_buffer_smem_read,
+      R"(Enable circular buffering for shared memory reads.)");
+  circular_buffer_options.def_readwrite(
+      "circular_buffer_smem_write",
+      &MatmulParams::CircularBufferOptions::circular_buffer_smem_write,
+      R"(Enable circular buffering for shared memory writes.)");
+  circular_buffer_options.def_readwrite(
+      "smem_circular_buffer_stage",
+      &MatmulParams::CircularBufferOptions::smem_circular_buffer_stage,
+      R"(Number of circular buffering stages.)");
+  circular_buffer_options.def_readwrite(
+      "smem_circular_buffer_prefetch_gap",
+      &MatmulParams::CircularBufferOptions::smem_circular_buffer_prefetch_gap,
+      R"(Circular buffer prefetch gap.)");
+  circular_buffer_options.def(
+      "__repr__", [](const MatmulParams::CircularBufferOptions& self) {
+        return self.toString();
+      });
+
+  py::class_<MatmulParams::SupportedVectorization> supported_vectorization(
+      nvfuser, "SupportedVectorization", py::module_local());
+  supported_vectorization.def(py::init<int64_t, int64_t, int64_t>());
+  supported_vectorization.def_readwrite(
+      "a", &MatmulParams::SupportedVectorization::a, R"(
+                Vectorization factor for operand A.
+              )");
+  supported_vectorization.def_readwrite(
+      "b", &MatmulParams::SupportedVectorization::b, R"(
+                Vectorization factor for operand B.
+              )");
+  supported_vectorization.def_readwrite(
+      "epilogue", &MatmulParams::SupportedVectorization::epilogue, R"(
+                Vectorization factor for epilogue.
+              )");
+  supported_vectorization.def(
+      "__repr__", [](const MatmulParams::SupportedVectorization& self) {
+        return self.toString();
+      });
+
+  py::enum_<MatmulParams::TileRasterizationOrder> tile_rasterization_order(
+      nvfuser, "MatmulTileRasterizationOrder", py::module_local());
+  tile_rasterization_order.value(
+      "column_major", MatmulParams::TileRasterizationOrder::ColumnMajor);
+  tile_rasterization_order.value(
+      "row_major", MatmulParams::TileRasterizationOrder::RowMajor);
+
+  py::class_<MatmulParams::ClusterDims> cluster_dims(
+      nvfuser, "ClusterDims", py::module_local());
+  cluster_dims.def(py::init<int64_t, int64_t>());
+  cluster_dims.def_readwrite("m", &MatmulParams::ClusterDims::m, R"(
+                M dimension of the cluster.
+              )");
+  cluster_dims.def_readwrite("n", &MatmulParams::ClusterDims::n, R"(
+                N dimension of the cluster.
+              )");
+  cluster_dims.def("__repr__", [](const MatmulParams::ClusterDims& self) {
+    return self.toString();
+  });
+
+  py::enum_<MmaMacroEncode::Arch> mma_macro_arch(
+      nvfuser, "MmaMacroArch", py::module_local());
+  mma_macro_arch.value("no_mma", MmaMacroEncode::Arch::NoMma);
+  mma_macro_arch.value("volta", MmaMacroEncode::Arch::Volta);
+  mma_macro_arch.value("turing", MmaMacroEncode::Arch::Turing);
+  mma_macro_arch.value("ampere", MmaMacroEncode::Arch::Ampere);
+  mma_macro_arch.value("hopper", MmaMacroEncode::Arch::Hopper);
+
+  py::class_<MmaMacroEncode> mma_macro_encode(
+      nvfuser, "MmaMacroEncode", py::module_local());
+  mma_macro_encode.def(
+      py::init<MmaMacroEncode::Arch, uint16_t, uint16_t, uint16_t>());
+  mma_macro_encode.def("mma_macro", &MmaMacroEncode::operator MmaMacro);
+  mma_macro_encode.def_readwrite("arch", &MmaMacroEncode::arch, R"(
+                GPU architecture for MMA instruction.
+              )");
+  mma_macro_encode.def_readwrite("m", &MmaMacroEncode::m, R"(
+                M dimension of MMA instruction.
+              )");
+  mma_macro_encode.def_readwrite("n", &MmaMacroEncode::n, R"(
+                N dimension of MMA instruction.
+              )");
+  mma_macro_encode.def_readwrite("k", &MmaMacroEncode::k, R"(
+                K dimension of MMA instruction.
+              )");
+
+  py::class_<MmaMacro> mma_macro(nvfuser, "MmaMacro", py::module_local());
+  mma_macro.def_property(
+      "arch",
+      [](const MmaMacro& self) { return MmaMacroEncode(self).arch; },
+      [](MmaMacro& self, MmaMacroEncode::Arch x) {
+        auto enc = MmaMacroEncode(self);
+        enc.arch = x;
+        self = enc;
+      },
+      R"(GPU architecture for MMA instruction.)");
+  mma_macro.def_property(
+      "m",
+      [](const MmaMacro& self) { return MmaMacroEncode(self).m; },
+      [](MmaMacro& self, uint16_t x) {
+        auto enc = MmaMacroEncode(self);
+        enc.m = x;
+        self = enc;
+      },
+      R"(M dimension of MMA instruction.)");
+  mma_macro.def_property(
+      "n",
+      [](const MmaMacro& self) { return MmaMacroEncode(self).n; },
+      [](MmaMacro& self, uint16_t x) {
+        auto enc = MmaMacroEncode(self);
+        enc.n = x;
+        self = enc;
+      },
+      R"(N dimension of MMA instruction.)");
+  mma_macro.def_property(
+      "k",
+      [](const MmaMacro& self) { return MmaMacroEncode(self).k; },
+      [](MmaMacro& self, uint16_t x) {
+        auto enc = MmaMacroEncode(self);
+        enc.k = x;
+        self = enc;
+      },
+      R"(K dimension of MMA instruction.)");
+  mma_macro.def(
+      "__repr__", [](const MmaMacro& self) { return nvfuser::toString(self); });
+
+  py::class_<MatmulParams, HeuristicParams> matmul(
+      nvfuser, "MatmulParams", py::module_local());
+  matmul.def(py::init());
+  matmul.def(
+      "__repr__", [](const MatmulParams& self) { return self.toString(); });
+  matmul.def_readwrite("tile_sizes", &MatmulParams::tile_sizes, R"(
+                Tiling hierarchy on block and warp levels.
+              )");
+  matmul.def_readwrite(
+      "circular_buffer_options", &MatmulParams::circular_buffer_options, R"(
+                Circular buffering configuration.
+              )");
+  matmul.def_readwrite(
+      "supported_vec_size", &MatmulParams::supported_vec_size, R"(
+                Maximum vectorization supported by inputs and outputs.
+              )");
+  matmul.def_readwrite(
+      "async_gmem_load_operands", &MatmulParams::async_gmem_load_operands, R"(
+                Use cp.async to load operands (Ampere+).
+              )");
+  matmul.def_readwrite(
+      "grid_traversal_factor", &MatmulParams::grid_traversal_factor, R"(
+                Grid swizzle factor to increase L2 hit rate.
+              )");
+  matmul.def_readwrite(
+      "use_smem_epilogue", &MatmulParams::use_smem_epilogue, R"(
+                Unswizzle MMA results in shared memory for coalesced writes.
+              )");
+  matmul.def_readwrite("use_ldst_matrix", &MatmulParams::use_ldst_matrix, R"(
+                Use stmatrix/ldmatrix instructions in epilogue.
+              )");
+  matmul.def_readwrite(
+      "promote_prologue_smem_reuse",
+      &MatmulParams::promote_prologue_smem_reuse,
+      R"(
+                Promote reuse of prologue shared memory.
+              )");
+  matmul.def_readwrite("splitk_factor", &MatmulParams::splitk_factor, R"(
+                Single-kernel split-K factor for parallelizing K dimension.
+              )");
+  matmul.def_readwrite("tiling_strategy", &MatmulParams::tiling_strategy, R"(
+                Strategy for mapping output tiles to CTAs.
+              )");
+  matmul.def_readwrite(
+      "buffering_loop_level", &MatmulParams::buffering_loop_level, R"(
+                Loop level for circular buffering (CTA tiles vs warp tiles).
+              )");
+  matmul.def_readwrite(
+      "circular_buffering_strategy",
+      &MatmulParams::circular_buffering_strategy,
+      R"(Circular buffering strategy (pipelined vs warp specialized).)");
+  matmul.def_readwrite("cta_order", &MatmulParams::cta_order, R"(
+                CTA rasterization order (row major vs column major).
+              )");
+  matmul.def_readwrite("cluster_dims", &MatmulParams::cluster_dims, R"(
+                CGA dimensions for Hopper+ devices.
+              )");
+  matmul.def_readwrite("mma_macro", &MatmulParams::mma_macro, R"(
+                Type of MMA instruction to use in generated kernel.
+              )");
 }
 
 } // namespace nvfuser::python
