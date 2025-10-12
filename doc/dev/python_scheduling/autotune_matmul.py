@@ -5,7 +5,8 @@
 
 import torch
 import itertools
-from nvfuser import FusionDefinition, SchedulerType
+from nvfuser_direct import FusionDefinition, SchedulerType, PythonProfiler
+from nvfuser_direct import schedule
 
 # Description of the problem
 M = 512
@@ -37,43 +38,42 @@ def eager_reference(inputs):
     return torch.matmul(inputs[0], inputs[1])
 
 
-# Apply scheduler with custom parameters using decorator
-def custom_matmul_scheduler(fd, config):
-    def inner_fn():
-        # Check if compatible with matmul scheduler
-        status, error = fd.sched.can_schedule(SchedulerType.matmul)
-        assert status, error
+# Apply scheduler with custom parameters
+def custom_matmul_scheduler(fd, inputs, config):
+    # Compute heuristics for matmul scheduler
+    schedule_params = fd.sched.compute_heuristics(
+        fd.fusion, SchedulerType.matmul, inputs
+    )
 
-        schedule_params = fd.sched.compute_matmul_heuristics()
+    # Modify original parameters
+    if config is not None:
+        splitk_factor, stages = config
+        schedule_params.circular_buffer_options.circular_buffer_smem_write = stages > 1
+        schedule_params.circular_buffer_options.smem_circular_buffer_stage = stages
+        schedule_params.splitk_factor = splitk_factor
 
-        # Modify original parameters
-        if config is not None:
-            splitk_factor, stages = config
-            schedule_params.circular_buffer_options.circular_buffer_smem_write = (
-                stages > 1
-            )
-            schedule_params.circular_buffer_options.smem_circular_buffer_stage = stages
-            schedule_params.splitk_factor = splitk_factor
-
-        # Schedule fusion
-        fd.sched.schedule()
-
-    fd.schedule = inner_fn
-    return fd
+    # Schedule fusion
+    schedule.schedule(fd.fusion, SchedulerType.matmul, schedule_params)
+    return schedule_params
 
 
-# Apply schedule decorator, run fusion, and profile performance
-def run_profile(presched_fd, inputs, config=None, num_iterations=10):
-    scheduled_fd = custom_matmul_scheduler(presched_fd, config)
-
+# Run fusion and profile performance
+def run_profile(inputs, definition_fn, config=None, num_iterations=10):
     mean_bw = 0
     mean_time = 0.0
-    for iteration in range(num_iterations):
-        nvf_outputs = scheduled_fd.execute(inputs, profile=True)
 
-        prof = scheduled_fd.profile()
-        bandwidth = prof.kernel_profiles[0].effective_bandwidth_gbs
-        time = prof.kernel_profiles[0].time_ms
+    for iteration in range(num_iterations):
+        with FusionDefinition() as fd:
+            definition_fn(fd)
+            # Get the heuristic parameters using custom_matmul_scheduler
+            heuristic_params = custom_matmul_scheduler(fd, inputs, config)
+
+        # Profile execution with the heuristic parameters
+        with PythonProfiler(auto_scheduled=False) as prof:
+            nvf_outputs = fd.manual_execute(inputs, heuristic_params)
+
+        bandwidth = prof.profile.kernel_profiles[0].effective_bandwidth_gbs
+        time = prof.profile.kernel_profiles[0].time_ms
         mean_bw += (bandwidth - mean_bw) / (iteration + 1)
         mean_time += (time - mean_time) / (iteration + 1)
 
@@ -89,8 +89,7 @@ inputs = [
     torch.randn((K, N), dtype=dtype, device="cuda"),
 ]
 
-with FusionDefinition() as presched_fd:
-    create_fusion_func(inputs)(presched_fd)
+definition_fn = create_fusion_func(inputs)
 
 optimal_config = None
 optimal_perf = None
@@ -98,7 +97,7 @@ for config in itertools.product(splitk_factors, load_stages):
     splitk_factor, stages = config
     # TODO: introduce a utility to check if this config is valid.
     # For example, it should check on smem reuse
-    bw, kernel_time = run_profile(presched_fd, inputs, config)
+    bw, kernel_time = run_profile(inputs, definition_fn, config)
     perf_metric = kernel_time
 
     print(f"  sk={splitk_factor} st={stages} bw={bw} kernel_time={kernel_time}")
