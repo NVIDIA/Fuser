@@ -5,7 +5,8 @@
 
 import torch
 import itertools
-from nvfuser import FusionDefinition, SchedulerType, DataType, ParallelType
+from nvfuser_direct import FusionDefinition, SchedulerType, DataType, ParallelType
+from nvfuser_direct import schedule
 from enum import Enum
 from dataclasses import dataclass
 
@@ -372,26 +373,21 @@ class AutotuneInnerReduction:
         else:
             assert False
 
-    # Apply scheduler with custom parameters using decorator
-    def custom_scheduler(self, fd, scheduler_config):
-        def inner_fn():
-            # Check if compatible with reduction scheduler
-            status, _ = fd.sched.can_schedule(SchedulerType.reduction)
-            assert status
+    # Apply scheduler with custom parameters
+    def custom_scheduler(self, fd, inputs, scheduler_config):
+        # Check if compatible with reduction scheduler and get heuristic
+        # parameters
+        reduction_params = fd.sched.compute_heuristics(
+            fd.fusion, SchedulerType.reduction, inputs
+        )
 
-            reduction_params = fd.sched.compute_reduction_heuristics()
+        # Modify original parameters
+        if scheduler_config is not None:
+            self.convert_to_inner_reduction_params(scheduler_config, reduction_params)
 
-            # Modify original parameters
-            if scheduler_config is not None:
-                self.convert_to_inner_reduction_params(
-                    scheduler_config, reduction_params
-                )
-
-            # Schedule fusion
-            fd.sched.schedule()
-
-        fd.schedule = inner_fn
-        return fd
+        # Schedule fusion
+        schedule.schedule(fd.fusion, SchedulerType.reduction, reduction_params)
+        return reduction_params
 
 
 # Run sequence of steps to collect data, train and test model
