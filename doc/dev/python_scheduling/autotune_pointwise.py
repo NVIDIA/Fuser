@@ -6,7 +6,8 @@
 import torch
 import itertools
 import math
-from nvfuser import FusionDefinition, SchedulerType, DataType
+from nvfuser_direct import FusionDefinition, SchedulerType, DataType
+from nvfuser_direct import schedule
 from dataclasses import dataclass
 from enum import Enum
 
@@ -155,7 +156,7 @@ class AutotunePointwise:
             return outer_bcast()
         elif self.selected_fusion in [self.FUSION.SILU_MUL, self.FUSION.MUL]:
             return full()
-        elif self.selected_fusion == FUSION.BCAST_ADD:
+        elif self.selected_fusion == self.FUSION.BCAST_ADD:
             return inner_bcast()
         else:
             assert False
@@ -294,7 +295,7 @@ class AutotunePointwise:
 
         if self.selected_fusion == self.FUSION.GELU_BIAS:
             return gelu_bias(inputs)
-        elif self.selected__fusion == self.FUSION.SILU_MUL:
+        elif self.selected_fusion == self.FUSION.SILU_MUL:
             return silu_mul(inputs)
         elif self.selected_fusion == self.FUSION.BCAST_ADD:
             return bcast_add(inputs)
@@ -303,29 +304,25 @@ class AutotunePointwise:
         else:
             assert False
 
-    # Apply scheduler with custom parameters using decorator
-    def custom_scheduler(self, fd, scheduler_config):
-        def inner_fn():
-            # Check if compatible with pointwise scheduler
-            status, _ = fd.sched.can_schedule(SchedulerType.pointwise)
-            assert status
+    # Get heuristic parameters with custom scheduler configuration
+    def custom_scheduler(self, fd, inputs, scheduler_config):
+        # Check if compatible with pointwise scheduler and get default parameters
+        pointwise_params = fd.sched.compute_heuristics(
+            fd.fusion, SchedulerType.pointwise, inputs
+        )
 
-            schedule_params = fd.sched.compute_pointwise_heuristics()
+        # Modify original parameters
+        if scheduler_config is not None:
+            pointwise_params.break_point = scheduler_config.break_point
+            pointwise_params.vectorization_factor = scheduler_config.vectorize_factor
+            pointwise_params.unroll_factor_outer = scheduler_config.outer_unroll
+            pointwise_params.unroll_factor_inner = scheduler_config.inner_unroll
+            pointwise_params.lparams.bdimx = scheduler_config.bdim[0]
+            pointwise_params.lparams.bdimy = scheduler_config.bdim[1]
 
-            # Modify original parameters
-            if scheduler_config is not None:
-                schedule_params.break_point = scheduler_config.break_point
-                schedule_params.vectorization_factor = scheduler_config.vectorize_factor
-                schedule_params.unroll_factor_outer = scheduler_config.outer_unroll
-                schedule_params.unroll_factor_inner = scheduler_config.inner_unroll
-                schedule_params.lparams.bdimx = scheduler_config.bdim[0]
-                schedule_params.lparams.bdimy = scheduler_config.bdim[1]
-
-            # Schedule fusion
-            fd.sched.schedule()
-
-        fd.schedule = inner_fn
-        return fd
+        # Get base heuristic parameters
+        schedule.schedule(fd.fusion, SchedulerType.pointwise, pointwise_params)
+        return pointwise_params
 
 
 # Run sequence of steps to collect data, train and test model

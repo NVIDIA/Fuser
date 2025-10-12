@@ -6,7 +6,7 @@
 import torch
 import math
 import itertools
-from nvfuser import FusionCache, FusionDefinition
+from nvfuser_direct import FusionDefinition, PythonProfiler
 from dataclasses import dataclass, astuple
 
 # ================================ Description ================================
@@ -75,15 +75,14 @@ def collect_data(script_config, autotune_config):
         print(shape)
         inputs = autotune_config.create_inputs(shape, script_config.tensor_datatype)
 
-        with FusionDefinition() as presched_fd:
-            autotune_config.create_fusion_func(inputs)(presched_fd)
+        definition_fn = autotune_config.create_fusion_func(inputs)
 
         # unroll and vectorization configurations
         for parameter_config in autotune_config.generate_scheduler_configurations(
             shape
         ):
             perf_metric, _ = run_profile(
-                autotune_config, presched_fd, inputs, parameter_config
+                autotune_config, definition_fn, inputs, parameter_config
             )
             parameters.append((*shape, *flatten_configuration(parameter_config)))
             performance.append(perf_metric)
@@ -135,18 +134,25 @@ def separate_data(script_config, parameters, performance):
 
 
 # Apply schedule decorator, run fusion, and profile performance
-def run_profile(autotune_config, presched_fd, inputs, scheduler_config=None):
-    scheduled_fd = autotune_config.custom_scheduler(presched_fd, scheduler_config)
-    nvf_outputs = scheduled_fd.execute(inputs, profile=True)
+def run_profile(autotune_config, definition_fn, inputs, scheduler_config=None):
+    with FusionDefinition() as fd:
+        definition_fn(fd)
+        # Get the heuristic parameters using custom_scheduler
+        heuristic_params = autotune_config.custom_scheduler(
+            fd, inputs, scheduler_config
+        )
+
+    # Profile execution with the heuristic parameters
+    with PythonProfiler(auto_scheduled=False) as prof:
+        nvf_outputs = fd.manual_execute(inputs, heuristic_params)
 
     # validate correctness
     assert torch.allclose(
         nvf_outputs[0], autotune_config.eager_reference(inputs), atol=1e-2, rtol=1e-2
     )
 
-    prof = scheduled_fd.profile()
-    bandwidth = prof.kernel_profiles[0].effective_bandwidth_gbs
-    time = prof.kernel_profiles[0].time_ms
+    bandwidth = prof.profile.kernel_profiles[0].effective_bandwidth_gbs
+    time = prof.profile.kernel_profiles[0].time_ms
     return bandwidth, time
 
 
@@ -221,11 +227,11 @@ def test_model_rmse(clf, script_config, autotune_config, test_data):
     for shape, estimate_config in mismatch_configs:
         inputs = autotune_config.create_inputs(shape, script_config.tensor_datatype)
 
-        with FusionDefinition() as presched_fd:
-            autotune_config.create_fusion_func(inputs)(presched_fd)
-
-        _, est_perf = run_profile(autotune_config, presched_fd, inputs, estimate_config)
-        _, nvf_perf = run_profile(autotune_config, presched_fd, inputs)
+        definition_fn = autotune_config.create_fusion_func(inputs)
+        _, est_perf = run_profile(
+            autotune_config, definition_fn, inputs, estimate_config
+        )
+        _, nvf_perf = run_profile(autotune_config, definition_fn, inputs)
         est_perf_faster = est_perf < nvf_perf
         print(
             f"{shape} \t estimate_perf: {est_perf: .5f} \t nvfuser_perf: {nvf_perf: .5f} \t is_estimated_config_faster: {est_perf_faster}"
@@ -247,7 +253,6 @@ def test_model(clf, script_config, autotune_config):
     import matplotlib.pyplot as plt
     import numpy as np
 
-    FusionCache.reset()
     est_perfs = []
     for hidden_shape in script_config.empirical_hidden_sizes:
         inputs = autotune_config.create_inputs(
@@ -263,18 +268,15 @@ def test_model(clf, script_config, autotune_config):
             ),
         )
 
-        with FusionDefinition() as presched_fd:
-            autotune_config.create_fusion_func(inputs)(presched_fd)
-
+        definition_fn = autotune_config.create_fusion_func(inputs)
         _, est_time_ms = run_profile(
-            autotune_config, presched_fd, inputs, estimate_config
+            autotune_config, definition_fn, inputs, estimate_config
         )
         est_perfs.append(est_time_ms)
         print(
             f"{script_config.empirical_batch_size}, {hidden_shape}, {estimate_config}, {est_time_ms: .3f}"
         )
 
-    FusionCache.reset()
     nvf_perfs = []
     for hidden_shape in script_config.empirical_hidden_sizes:
         inputs = autotune_config.create_inputs(
@@ -282,10 +284,9 @@ def test_model(clf, script_config, autotune_config):
             script_config.tensor_datatype,
         )
 
-        with FusionDefinition() as presched_fd:
-            autotune_config.create_fusion_func(inputs)(presched_fd)
+        definition_fn = autotune_config.create_fusion_func(inputs)
+        _, nvf_time_ms = run_profile(autotune_config, definition_fn, inputs)
 
-        _, nvf_time_ms = run_profile(autotune_config, presched_fd, inputs)
         nvf_perfs.append(nvf_time_ms)
         print(
             f"{script_config.empirical_batch_size}, {hidden_shape}, {nvf_time_ms: .3f}"
