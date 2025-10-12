@@ -1487,6 +1487,64 @@ def test_tutorial_tma_bank_conflict_free_transpose(nvfuser_direct_test):
     assert outputs[0].equal(t0.t())
 
 
+def test_tutorial_compute_heuristics_and_schedule():
+    """
+    Demonstrate explicit scheduling: compute_heuristics, modify, then schedule.
+    This shows how to customize automatically computed heuristics.
+    """
+    inputs = [
+        torch.randn(4, 4, device="cuda"),
+        torch.randn(4, 4, device="cuda"),
+    ]
+
+    with FusionDefinition() as fd:
+        t0 = fd.from_pytorch(inputs[0])
+        t1 = fd.from_pytorch(inputs[1])
+        t2 = fd.ops.add(t0, t1)
+        t3 = fd.ops.exp(t2)
+        fd.add_output(t3)
+
+        # Step 1: Compute heuristics for pointwise scheduler
+        heuristic_params = schedule.compute_heuristics(
+            fd.fusion, SchedulerType.pointwise, inputs
+        )
+
+        before_modification = """
+===== Pointwise Parameters ========
+Tag: Pointwise heuristics Pointwise Characteristics:
+ Gridx: 1 BlckY: 1 BlckX: 128
+vectorization_factor: 1
+unroll_factor_outer: 1
+unroll_factor_inner: 1
+====================================
+"""
+        assert str(heuristic_params) == before_modification
+
+        # Step 2: Modify the computed heuristics
+        # Example: Adjust vectorization and unroll factors
+        heuristic_params.vectorization_factor = 1
+        heuristic_params.unroll_factor_inner = 2
+
+        after_modification = """
+===== Pointwise Parameters ========
+Tag: Pointwise heuristics Pointwise Characteristics:
+ Gridx: 1 BlckY: 1 BlckX: 128
+vectorization_factor: 1
+unroll_factor_outer: 1
+unroll_factor_inner: 2
+====================================
+"""
+        assert str(heuristic_params) == after_modification
+
+        # Step 3: Apply the schedule using modified heuristics
+        schedule.schedule(fd.fusion, SchedulerType.pointwise, heuristic_params)
+
+    # Execute with the modified heuristic params
+    nvf_out = fd.manual_execute(inputs, heuristic_params)
+    eager_out = torch.exp(inputs[0] + inputs[1])
+    torch.testing.assert_close(eager_out, nvf_out[0])
+
+
 def test_tutorial_pointwise_auto_scheduler():
     """
     Implement a simple pointwise kernel with automatic scheduling.
