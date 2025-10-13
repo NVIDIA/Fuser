@@ -54,7 +54,7 @@ void recvPost(const P2pIpcHandle& ipc_handles, int64_t count, CUstream stream) {
           reinterpret_cast<CUdeviceptr>(ipc_handles.local().semaphore()),
           (cuuint32_t)(IpcSemaphore::kInUse),
           CU_STREAM_WAIT_VALUE_EQ));
-      // RDMA get the data from the sender
+      // Get the data from the sender
       NVFUSER_CUDA_RT_SAFE_CALL(cudaMemcpyAsync(
           ipc_handles.local().ptr(),
           ipc_handles.peer().ptr(),
@@ -105,7 +105,7 @@ void sendPost(const P2pIpcHandle& ipc_handles, int64_t count, CUstream stream) {
           reinterpret_cast<CUdeviceptr>(ipc_handles.local().semaphore()),
           (cuuint32_t)(IpcSemaphore::kInUse),
           CU_STREAM_WAIT_VALUE_EQ));
-      // RDMA put the data to the receiver
+      // Put the data to the receiver
       NVFUSER_CUDA_RT_SAFE_CALL(cudaMemcpyAsync(
           ipc_handles.peer().ptr(),
           ipc_handles.local().ptr(),
