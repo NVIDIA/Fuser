@@ -482,35 +482,30 @@ TensorView* matmul(TensorView* tv_a, TensorView* tv_b) {
       " and ",
       tv_b->toString());
 
-  std::cout << "tv_a=" << tv_a->toString() << std::endl;
-  std::cout << "tv_b=" << tv_b->toString() << std::endl;
-
   if (a_ndims == 2 && b_ndims == 2) {
     // Convert matrix-matrix products where M and/or N is broadcast/expanded
     IterDomain* m_id = a_logical.front();
+    IterDomain* k_id_a = (a_logical | std::views::reverse).front();
     IterDomain* n_id = (b_logical | std::views::reverse).front();
-
-    std::cout << "m_id=" << m_id->toString() << std::endl;
-    std::cout << "n_id=" << n_id->toString() << std::endl;
+    IterDomain* k_id_b = b_logical.front();
 
     bool bcast_m = m_id->isBroadcast();
     bool bcast_n = n_id->isBroadcast();
 
-    if (bcast_m and bcast_n) {
-      // If M and N are both broadcasts, then this is just a bcast+mul+sum
-      std::cout << "M and N both bcast" << std::endl;
-      // Broadcast to MKN
+    if ((bcast_m and bcast_n) // [1, K] @ [K, 1]
+        || (bcast_m && k_id_a->isBroadcast()) // [1, 1] @ [K, N]
+        || (bcast_n && k_id_b->isBroadcast())) { // [M, K] @ [1, 1]
+      // Broadcast to MKN and convert to mul+sum
       TensorView* bcast_a = broadcast(tv_a, {false, false, true});
       TensorView* bcast_b = broadcast(tv_b, {true, false, false});
       TensorView* prod = mul(bcast_a, bcast_b);
+      // NOTE: if K is broadcast in both A and B, sum() will perform a squeeze
       TensorView* mma_result = sum(prod, {-2});
       NVF_ERROR_EQ(tv_b->dtype(), tv_a->dtype());
       if (mma_result->dtype() != tv_a->dtype()) {
         mma_result = castOp(tv_a->dtype(), mma_result);
       }
       return mma_result;
-    } else if (bcast_m) {
-    } else if (bcast_n) {
     }
   }
 
