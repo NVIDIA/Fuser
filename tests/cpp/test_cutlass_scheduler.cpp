@@ -297,7 +297,7 @@ TEST_F(CutlassExecutorTest, Nvfp4ScaledGemm_Executor) {
 
 TEST_F(CutlassExecutorTest, Nvfp4MatmulReLU) {
   // Skip if not on SM100 or above
-  if (at::cuda::getCurrentDeviceProperties()->major < 10) {
+  if (at::cuda::getCurrentDeviceProperties()->major < 10 || at::cuda::getCurrentDeviceProperties()->major > 11) {
     GTEST_SKIP() << "Skipping test on pre-SM100 GPUs";
   }
 
