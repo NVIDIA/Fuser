@@ -147,17 +147,13 @@ struct KernelTraits {
       R"(
   using MmaTileShape = Shape<_{}, _{}, _{}>;
   using ClusterShape = Shape<_{}, _{}, _{}>;
-  using PerSmTileShape_MNK = Shape<_{}, _{}, _{}>;
 )",
       params.mma_tile.m,
       params.mma_tile.n,
       params.mma_tile.k,
       params.cluster_shape.m,
       params.cluster_shape.n,
-      params.cluster_shape.k,
-      params.per_sm_tile.m,
-      params.per_sm_tile.n,
-      params.per_sm_tile.k);
+      params.cluster_shape.k);
 
   code += R"(
 };
@@ -215,13 +211,12 @@ struct Fp4GemmSm100 {
   // Kernel Perf config
   using MmaTileShape = typename KernelTraits::MmaTileShape;
   using ClusterShape = typename KernelTraits::ClusterShape;
-  using PerSmTileShape_MNK = typename KernelTraits::PerSmTileShape_MNK;
 
   using CollectiveEpilogue =
       typename cutlass::epilogue::collective::CollectiveBuilder<
           ArchTag,
           OperatorClass,
-          PerSmTileShape_MNK,
+          MmaTileShape,
           ClusterShape,
           cutlass::epilogue::collective::EpilogueTileAuto,
           ElementAccumulator,

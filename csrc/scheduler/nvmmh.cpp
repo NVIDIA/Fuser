@@ -125,7 +125,16 @@ int isValidScaledGemmConfig(const nvmmhKernelConfiguration_t* result) {
     return false;
   }
 
-  if (Cta[1] != 64 && Cta[1] != 128 && Cta[1] != 192 && Cta[1] != 256) {
+  // There are restrictions on tile sizes
+  // https://docs.nvidia.com/cutlass/media/docs/cpp/blackwell_functionality.html#mma-tile-shapes-supported
+  // For both operands nvfp4, see Table 5.
+  // In particular for dense GEMM:
+  //   cta.m = 64, 128, 256
+  //   cta.n = 64, 128, 192, 256
+  uint16_t tile_m = Cta[0] * result->cluster[0];
+  uint16_t tile_n = Cta[1] * result->cluster[1];
+  if ((tile_m != 64 && tile_m != 128 && tile_m != 256) ||
+      (tile_n != 64 && tile_n != 128 && tile_n != 192 && tile_n != 256)) {
     return false;
   }
 
@@ -185,7 +194,7 @@ void fillNvMatmulHeuristicsParams(
 
     nvmmhBackend_t backend;
     NVMMH_SAFE_CALL(
-        nvMatmulHeuristicsBackendCreate(&backend, NVMMH_TARGET_CUTLASS));
+        nvMatmulHeuristicsBackendCreate(&backend, NVMMH_TARGET_CUTLASS3));
 
     NVMMH_SAFE_CALL(nvMatmulHeuristicsBackendSetCallbackProperty(
         backend,
@@ -208,8 +217,8 @@ void fillNvMatmulHeuristicsParams(
         /*hardwareDescriptor=*/nullptr);
     if (status != NVMMH_STATUS_SUCCESS) {
       TORCH_WARN_ONCE(
-          "WARNING: could not load nvMatmulHeuristics internal discovery set "
-          "for precision ",
+          "Could not load nvMatmulHeuristics internal discovery set for "
+          "precision ",
           precision);
     }
 
