@@ -46,8 +46,8 @@ class EVTModel {
   };
 
   Node* makeNode(const std::string& name) {
-    Node* new_node = nodes_up_.emplace_back(new Node(name)).get();
-    return new_node;
+    nodes_up_.push_back(std::make_unique<Node>(name));
+    return nodes_up_.back().get();
   }
 
   Node* root() const {
