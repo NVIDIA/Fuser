@@ -413,9 +413,15 @@ class GroupedLinearRowwiseParallel(ParallelStyle):
         use_local_output: bool = True,
     ):
         super().__init__()
-        self.input_layouts = input_layouts or (Shard(-1), Replicate())
+        # GroupedLinear.forward expects 4 inputs: hidden_states, offsets, blockscale_offsets, tokens_per_expert
+        self.input_layouts = input_layouts or (
+            Shard(-1),
+            Replicate(),
+            Replicate(),
+            Replicate(),
+        )
         self.output_layout = output_layouts or Replicate()
-        self.desired_input_layouts = (Shard(-1), Replicate())
+        self.desired_input_layouts = (Shard(-1), Replicate(), Replicate(), Replicate())
         self.use_local_output = use_local_output
 
     @staticmethod
@@ -440,9 +446,28 @@ class GroupedLinearRowwiseParallel(ParallelStyle):
         return tuple(prepared_inputs)
 
     def _partition_fn(self, name, module, device_mesh):
-        module.register_parameter(
-            "fp4_weight",
-            nn.Parameter(distribute_tensor(module.fp4_weight, device_mesh, [Shard(2)])),
+        # For rowwise parallelism, shard on input feature dimension (dim 2 for fp4_weight)
+        # Use Replicate() for fp4_weight and b_sf because packed fp4 dtype doesn't work well with DTensor
+        # Use src_data_rank=None to skip data sync since each rank already has the data
+        module.fp4_weight = nn.Parameter(
+            distribute_tensor(
+                module.fp4_weight, device_mesh, [Replicate()], src_data_rank=None
+            ),
+            requires_grad=False,
+        )
+        module.b_sf = nn.Parameter(
+            distribute_tensor(
+                module.b_sf, device_mesh, [Replicate()], src_data_rank=None
+            ),
+            requires_grad=False,
+        )
+        module.k = nn.Parameter(
+            distribute_tensor(module.k, device_mesh, [Replicate()], src_data_rank=None),
+            requires_grad=False,
+        )
+        module.n = nn.Parameter(
+            distribute_tensor(module.n, device_mesh, [Replicate()], src_data_rank=None),
+            requires_grad=False,
         )
 
     @staticmethod
