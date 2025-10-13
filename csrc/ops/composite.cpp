@@ -465,12 +465,54 @@ TensorView* newForMatmul(
 } // namespace
 
 TensorView* matmul(TensorView* tv_a, TensorView* tv_b) {
+  auto a_logical = tv_a->getLogicalDomain() | TensorDomain::kNoReductions;
+  auto b_logical = tv_b->getLogicalDomain() | TensorDomain::kNoReductions;
+
+  int64_t a_ndims = std::ranges::distance(a_logical);
+  int64_t b_ndims = std::ranges::distance(b_logical);
+
   NVF_CHECK(
-      tv_a->nDims() > 0 && tv_b->nDims() > 0,
-      "Expected inputs to be atleast 1D, got: ",
-      tv_a->nDims(),
+      a_ndims > 0 && b_ndims > 0,
+      "Expected matmul inputs to be at least 1D, got: ",
+      a_ndims,
       " and ",
-      tv_b->nDims());
+      b_ndims,
+      " for operands ",
+      tv_a->toString(),
+      " and ",
+      tv_b->toString());
+
+  std::cout << "tv_a=" << tv_a->toString() << std::endl;
+  std::cout << "tv_b=" << tv_b->toString() << std::endl;
+
+  if (a_ndims == 2 && b_ndims == 2) {
+    // Convert matrix-matrix products where M and/or N is broadcast/expanded
+    IterDomain* m_id = a_logical.front();
+    IterDomain* n_id = (b_logical | std::views::reverse).front();
+
+    std::cout << "m_id=" << m_id->toString() << std::endl;
+    std::cout << "n_id=" << n_id->toString() << std::endl;
+
+    bool bcast_m = m_id->isBroadcast();
+    bool bcast_n = n_id->isBroadcast();
+
+    if (bcast_m and bcast_n) {
+      // If M and N are both broadcasts, then this is just a bcast+mul+sum
+      std::cout << "M and N both bcast" << std::endl;
+      // Broadcast to MKN
+      TensorView* bcast_a = broadcast(tv_a, {false, false, true});
+      TensorView* bcast_b = broadcast(tv_b, {true, false, false});
+      TensorView* prod = mul(bcast_a, bcast_b);
+      TensorView* mma_result = sum(prod, {-2});
+      NVF_ERROR_EQ(tv_b->dtype(), tv_a->dtype());
+      if (mma_result->dtype() != tv_a->dtype()) {
+        mma_result = castOp(tv_a->dtype(), mma_result);
+      }
+      return mma_result;
+    } else if (bcast_m) {
+    } else if (bcast_n) {
+    }
+  }
 
   // Note: torch.matmul reference does not restrict the inputs to the same
   // dtype, but it fails for different input dtypes.
