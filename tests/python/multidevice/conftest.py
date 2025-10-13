@@ -45,7 +45,9 @@ class MultideviceTest:
             nvfuser.FusionCache.reset()
             self._communicator = nvfuser.Communicator.instance()
         elif binding == Binding.DIRECT:
-            assert "nvfuser" not in sys.modules, "nvfuser is already imported"
+            # The following check is disabled because test_moe.py imports both.
+            # It imports nvfuser via Thunder and nvfuser_direct directly.
+            # assert "nvfuser" not in sys.modules, "nvfuser is already imported"
             import nvfuser_direct as nvfd
 
             self._communicator = nvfd.multidevice.Communicator.instance()
