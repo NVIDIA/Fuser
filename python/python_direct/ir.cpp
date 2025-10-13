@@ -560,15 +560,13 @@ std::tuple<std::vector<int64_t>, PrimDataType> translatePackedDtype(
   // utility functions as well.
   NVF_CHECK(dtype == DataType::Float4_e2m1fn_x2);
 
-  int fastest_dim = -1;
+  int fastest_dim = shape.size() - 1;
   for (const auto& [i, val] : enumerate(stride_order)) {
     if (val == 0) {
       fastest_dim = i;
       break;
     }
   }
-  NVF_CHECK(fastest_dim >= 0, "illegal stride_order: ", stride_order);
-
   std::vector<int64_t> un_packed_shape = shape;
   un_packed_shape[fastest_dim] *= 2;
   return {un_packed_shape, DataType::Float4_e2m1fn};

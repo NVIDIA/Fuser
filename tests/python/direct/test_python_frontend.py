@@ -2635,7 +2635,6 @@ def test_packed_fp4(nvfuser_direct_test):
             contiguity=[True, True],
             dtype=DataType.Float4_e2m1fn_x2,
             is_cpu=False,
-            stride_order=[1, 0],
         )
         T1 = fd.ops.cast(T0, DataType.Float)
         T2 = fd.ops.relu(T1)
