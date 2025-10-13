@@ -118,16 +118,6 @@ if(BUILD_CUTLASS)
     set(CUTLASS_STATUS "ENABLED")
 
     find_package(CUDAToolkit REQUIRED)
-    include(FetchContent)
-
-    # cutlass
-    FetchContent_Declare(
-      repo-cutlass
-      GIT_REPOSITORY https://github.com/NVIDIA/cutlass
-      GIT_TAG        f115c3f85467d5d9619119d1dbeb9c03c3d73864
-      GIT_SHALLOW    OFF
-    )
-    FetchContent_Populate(repo-cutlass)
 
     set(NVF_CUTLASS_CUDA_FLAGS
       "-DCUTE_USE_PACKED_TUPLE=1"
@@ -160,8 +150,8 @@ if(BUILD_CUTLASS)
     )
     add_library(nvf_cutlass SHARED ${NVFUSER_CUTLASS_SRCS})
 
-    target_include_directories(nvf_cutlass PRIVATE ${repo-cutlass_SOURCE_DIR}/include)
-    target_include_directories(nvf_cutlass PRIVATE ${repo-cutlass_SOURCE_DIR}/tools/util/include)
+    target_include_directories(nvf_cutlass PRIVATE ${NVFUSER_THIRD_PARTY_DIR}/cutlass/include)
+    target_include_directories(nvf_cutlass PRIVATE ${NVFUSER_THIRD_PARTY_DIR}/cutlass/tools/util/include)
     target_compile_options(nvf_cutlass PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:${NVF_CUTLASS_CUDA_FLAGS}>)
     if(NOT MSVC)
       set(NVF_LIB_SUFFIX ".so")
@@ -799,9 +789,9 @@ if(BUILD_PYTHON)
   install(TARGETS nvfuser DESTINATION lib)
 
   # ------------------------------------------------
-  # build nvfuser next python library
+  # build nvfuser direct python library
   # ------------------------------------------------
-  # nvfuser next bindings API sources
+  # nvfuser direct bindings API sources
   set(NVFUSER_PYTHON_DIRECT_SRCS)
   list(APPEND NVFUSER_PYTHON_DIRECT_SRCS
     ${NVFUSER_PYTHON_DIRECT_BINDINGS}/extension.cpp
@@ -1257,17 +1247,6 @@ if(BUILD_TEST)
     list(APPEND TEST_BINARIES test_host_ir_jit)
   endif()
 
-
-  if(BUILD_PYTHON)
-    set(PY_FRONTEND_TEST_SRCS)
-    list(APPEND PY_FRONTEND_TEST_SRCS
-      ${NVFUSER_PYTHON_DIR}/tests/python_frontend/test_nvfuser_fusion_cache.cpp
-      ${NVFUSER_PYTHON_DIR}/tests/python_frontend/test_nvfuser_fusion_definition.cpp
-      ${NVFUSER_PYTHON_DIR}/tests/python_frontend/test_nvfuser_fusion_record.cpp
-    )
-    add_test(test_python_frontend "${PY_FRONTEND_TEST_SRCS}" "")
-    list(APPEND TEST_BINARIES test_python_frontend)
-  endif()
 
   # We don't link CUPTI for MSVC
   if(NOT MSVC)

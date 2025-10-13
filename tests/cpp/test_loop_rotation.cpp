@@ -571,7 +571,7 @@ TEST_F(LoopRotationTest, MultipleCircularBuffer) {
 // Codegen generated code
 
 __global__ void CUDAGeneratedKernel(Tensor<float, 2, 2> T0, Tensor<float, 2, 2> T3) {
-  alignas(16) extern __shared__ char array[];
+  alignas(128) extern __shared__ char array[];
   const unsigned smem_offset = 0;
   NVFUSER_DEFINE_MAGIC_ZERO;
   float* T4 = reinterpret_cast<float*>(array + smem_offset + 0LL);

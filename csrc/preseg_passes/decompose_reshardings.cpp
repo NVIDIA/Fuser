@@ -115,7 +115,7 @@ void insertReshardingSetsBefore(Fusion* fusion) {
 
     std::unordered_set<TensorView*> inputs;
     for (auto input : ir_utils::filterByType<TensorView>(expr->inputs())) {
-      if (haveDifferentShardings(input, output)) {
+      if (haveDifferentShardings(input, output, deviceParallelTypes())) {
         inputs.insert(input);
       }
     }
@@ -164,7 +164,7 @@ void insertReshardingSetsAfter(Fusion* fusion) {
 
     std::unordered_set<TensorView*> inputs;
     for (auto* input : ir_utils::filterByType<TensorView>(expr->inputs())) {
-      if (haveDifferentShardings(input, output)) {
+      if (haveDifferentShardings(input, output, deviceParallelTypes())) {
         inputs.insert(input);
       }
     }

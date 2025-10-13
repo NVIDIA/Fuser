@@ -339,7 +339,6 @@ void TransformReplay::selfReplay(
       for (auto* id : new_self->logical()) {
         if (id->isReduction()) {
           new_allocation.push_back(id);
-          // NOLINTNEXTLINE(modernize-use-emplace)
           new_contiguities.push_back(std::nullopt);
         }
       }

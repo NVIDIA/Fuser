@@ -5,6 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include "utils.h"
 #include <scheduler/utils.h>
 
 #include <algorithm>
@@ -612,9 +613,18 @@ PersistentBufferInfo persistentBuffers(Fusion* fusion) {
     }
 
     for (auto consumer : consumers) {
-      if (dynamic_cast<SelectOp*>(consumer->definition()) ||
-          dynamic_cast<IndexSelectOp*>(consumer->definition()) ||
-          dynamic_cast<GatherOp*>(consumer->definition())) {
+      // Adding PreprocessGroupedMatmulInputSf op to the list to skip it from
+      // being considered as candidate for persistent buffer. Otherwise, the
+      // lack of mapping between all producers to consumer triggers an assert in
+      // the check later inside `isCacheableUnmappableTv`. This feels like a
+      // reasonable WAR, since producer of indexing ops have been excluded from
+      // persistent_buffer candidates.
+      if (consumer->definition()
+              ->isOneOf<
+                  SelectOp,
+                  IndexSelectOp,
+                  GatherOp,
+                  PreprocessGroupedMatmulInputSf>()) {
         continue;
       }
       auto mappable_roots =
@@ -1318,9 +1328,21 @@ std::vector<std::pair<TensorView*, int64_t>> cacheInputs(
       }
       return use->as<GatherOp>()->lookupTv() == tv;
     };
+
+    // TODO: we might need to explicitly promote offsets to global memory
+    // We expect offsets to remain in global memory, so we do not add it to
+    // cache
+    auto isPreprocessGroupedMatmulInputSfOffsets = [tv](Expr* use) {
+      if (!use->isA<PreprocessGroupedMatmulInputSf>()) {
+        return false;
+      }
+      auto layout = use->as<PreprocessGroupedMatmulInputSf>();
+      return tv == layout->inputOffsets() || tv == layout->outputOffsets();
+    };
     std::vector<Expr*> cached_uses;
     for (auto use : tv->uses()) {
-      if (!use->isOneOf<PadOp, SliceOp>() && !isGatherLookUpTvInUse(use)) {
+      if (!use->isOneOf<PadOp, SliceOp>() && !isGatherLookUpTvInUse(use) &&
+          !isPreprocessGroupedMatmulInputSfOffsets(use)) {
         cached_uses.push_back(use);
       }
     }
@@ -1355,8 +1377,10 @@ std::vector<std::pair<TensorView*, int64_t>> cacheAndForkOutputs(
 
     if (output->definition() == nullptr ||
         // the output of ScatterOp must on the global memory due to the random
-        // or atomic access.
-        output->definition()->isA<ScatterOp>()) {
+        // or atomic access. Similarly, PreprocessGroupedMatmulInputSf requires
+        // direct write to global memory because of random access.
+        output->definition()
+            ->isOneOf<ScatterOp, PreprocessGroupedMatmulInputSf>()) {
       continue;
     }
     if (!output->uses().empty()) {
@@ -2280,10 +2304,11 @@ std::unordered_map<int64_t, int64_t> reorderLogicalAsAllocationMap(
     TensorView* tv) {
   const auto& logical_domain = tv->getLogicalDomain();
   std::optional<Layout> layout = canonicalizeLayout(tv);
-  NVF_ERROR(
-      layout.has_value(),
-      "Failed to canonicalize layout of ",
-      tv->domain()->toString(0, false));
+  // if layout cannot be inferred, we cannot reorder logical as allocation
+  // domain.
+  if (!layout.has_value()) {
+    return {};
+  }
   const auto& alloc_domain = layout->allocation_domain();
   if (alloc_domain == logical_domain) {
     return {};
@@ -2312,13 +2337,11 @@ std::unordered_map<int64_t, int64_t> reorderLoopAsAllocationMap(
   }
   std::optional<std::vector<int64_t>> permutation =
       ir_utils::computePermutation(loop_domain, alloc_domain);
-  NVF_ERROR(
-      permutation.has_value(),
-      "Failed to find a valid permutation for reordering loop domain [",
-      toDelimitedString(loop_domain),
-      "] as allocation domain [",
-      toDelimitedString(alloc_domain),
-      "]");
+  // if layout cannot be inferred, we cannot reorder logical as allocation
+  // domain.
+  if (!permutation.has_value()) {
+    return {};
+  }
   std::unordered_map<int64_t, int64_t> reorder_map;
   reorder_map.reserve(permutation->size());
   for (auto [new_pos, old_pos] : enumerate(*permutation)) {
@@ -2756,7 +2779,7 @@ int64_t getReductionSmemWorkspaceBit(
   int64_t reduction_broadcast_workspace_bit =
       threads_per_block * dtype_size_bit * welford_factor;
 
-  return reduction_broadcast_workspace_bit;
+  return alignSharedMemoryBits(reduction_broadcast_workspace_bit);
 }
 
 bool isResharding(Fusion* fusion) {
