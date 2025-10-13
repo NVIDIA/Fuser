@@ -48,7 +48,7 @@ TensorView* getAccTv(Fusion* fusion) {
 
 //! This converts the epilogue of a matmul fusion into an Epilogue Visitor Tree
 //! (EVT). We model the tree using the EVTModel class above.
-//! https://dx.doi.org/doi/10.1145/3620666.3651369
+//! https://dx.doi.org/10.1145/3620666.3651369
 class EVTConverter : OptInDispatch {
  public:
   EVTConverter(Fusion* fusion) : fusion_(fusion) {
