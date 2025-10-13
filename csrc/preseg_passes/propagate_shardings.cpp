@@ -57,13 +57,8 @@ std::vector<TensorView*> sortTvsByParallelDims(const Range& tvs) {
   std::vector<TensorView*> tvs_vec(tvs.begin(), tvs.end());
 
   std::ranges::stable_sort(tvs_vec, [&num_parallel_dims](auto a, auto b) {
-    int64_t a_device_dims = num_parallel_dims(a);
-    int64_t b_device_dims = num_parallel_dims(b);
-    if (a_device_dims != b_device_dims) {
-      return a_device_dims > b_device_dims;
-    }
-    // Break ties by rank of device mesh.
-    return a->getDeviceMesh().rank() > b->getDeviceMesh().rank();
+    return std::make_pair(num_parallel_dims(a), a->getDeviceMesh().rank()) >
+        std::make_pair(num_parallel_dims(b), b->getDeviceMesh().rank());
   });
 
   return tvs_vec;
@@ -76,7 +71,7 @@ std::vector<TensorView*> sortTvsByParallelDims(const Range& tvs) {
 // in descending order.
 std::vector<TensorView*> getOrderedReferenceInputs(Expr* expr) {
   const auto& inputs = ir_utils::filterByType<TensorView>(expr->inputs());
-  if (LinearOp* linear_op = dynamic_cast<LinearOp*>(expr)) {
+  if (auto* linear_op = dynamic_cast<LinearOp*>(expr)) {
     // Use weights and bias before input.
     if (linear_op->hasBias()) {
       return {linear_op->inB(), linear_op->bias(), linear_op->inA()};
@@ -85,15 +80,13 @@ std::vector<TensorView*> getOrderedReferenceInputs(Expr* expr) {
     }
   }
 
-  if (MatmulOp* matmul_op = dynamic_cast<MatmulOp*>(expr)) {
+  if (auto* matmul_op = dynamic_cast<MatmulOp*>(expr)) {
     // Use weights before input.
     return {matmul_op->inB(), matmul_op->inA()};
   }
 
   // Sort inputs by number of device/stream dimensions in descending order
-  std::vector<TensorView*> sorted_inputs = sortTvsByParallelDims(inputs);
-
-  return sorted_inputs;
+  return sortTvsByParallelDims(inputs);
 }
 
 // Returns the set of parallel types not seen on the loop domain of the given
