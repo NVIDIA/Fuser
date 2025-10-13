@@ -436,7 +436,7 @@ llvm_map_components_to_libnames(LLVM_LIBS
 )
 
 add_library(LLVM_JIT INTERFACE)
-target_include_directories(LLVM_JIT INTERFACE ${LLVM_INCLUDE_DIRS})
+target_include_directories(LLVM_JIT SYSTEM INTERFACE ${LLVM_INCLUDE_DIRS})
 target_compile_definitions(LLVM_JIT INTERFACE ${LLVM_DEFINITIONS})
 target_link_libraries(LLVM_JIT INTERFACE ${LLVM_LIBS})
 
