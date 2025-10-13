@@ -2631,14 +2631,15 @@ def test_packed_fp4(nvfuser_direct_test):
 
     def fusion_func(fd: FusionDefinition):
         T0 = fd.define_tensor(
-            shape=[-1],
-            contiguity=[True],
+            shape=[-1, -1],
+            contiguity=[True, True],
             dtype=DataType.Float4_e2m1fn,
             is_cpu=False,
-            stride_order=[0],
         )
-        T1 = fd.ops.relu(T0)
-        fd.add_output(T1)
+        T1 = fd.ops.cast(T0, DataType.Float)
+        T2 = fd.ops.relu(T1)
+        T3 = fd.ops.cast(T2, DataType.Float4_e2m1fn)
+        fd.add_output(T3)
 
     out, _ = nvfuser_direct_test.exec_nvfuser(fusion_func, inputs)
     nvfuser_direct_test.assertEqual(
