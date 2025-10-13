@@ -22,7 +22,12 @@ from torch.distributed.tensor.parallel import (
     ParallelStyle,
     parallelize_module,
 )
-from torch.distributed.tensor.placement_types import Placement, Replicate, Shard
+from torch.distributed.tensor.placement_types import (
+    Placement,
+    Replicate,
+    Shard,
+)
+from torch.distributed.tensor.experimental import register_sharding
 
 from thunder.dynamo import thunderfx
 from thunder.executors.nvfuserex_impl import getnv
@@ -132,6 +137,62 @@ def _(
         device=activation.device,
         dtype=activation.dtype,
     )
+
+
+@register_sharding(torch.ops.nvf_cutlass.f16a_nvfp4weight_scaled_grouped_mm.default)
+def nvfuser_grouped_mm_sharding(
+    activation,
+    fp4_weight,
+    weight_scaling_factor,
+    global_scale,
+    offsets,
+    blockscale_offsets,
+    problem_sizes,
+    dropme,
+):
+    """
+    Register sharding strategies for the grouped matmul custom op.
+    Focused on tensor parallel (column-wise parallelism).
+    """
+    acceptable_shardings = []
+
+    # Strategy 1: All Replicate (fallback)
+    all_replicate = (
+        [Replicate()],
+        [
+            Replicate(),
+            Replicate(),
+            Replicate(),
+            Replicate(),
+            Replicate(),
+            Replicate(),
+            Replicate(),
+            Replicate(),
+        ],
+    )
+    acceptable_shardings.append(all_replicate)
+
+    # Strategy 2: Column Parallel (Tensor Parallel)
+    # Shard weights on output feature dimension
+    # Note: fp4_weight and b_sf (weight_scaling_factor) use Replicate() instead of Shard()
+    # because packed fp4 dtype doesn't work well with DTensor sharding
+    if fp4_weight.ndim >= 2:
+        column_parallel = (
+            [Shard(1)],  # output sharded on feature dimension
+            [
+                Replicate(),  # activation replicated
+                Replicate(),  # fp4_weight replicated (packed fp4 not compatible with sharding)
+                Replicate(),  # weight_scaling_factor replicated (b_sf)
+                Replicate(),  # global_scale replicated
+                Replicate(),  # offsets replicated
+                Replicate(),  # blockscale_offsets replicated
+                Replicate(),  # problem_sizes replicated
+                Shard(2),  # dropme sharded on output feature dimension (last dim)
+            ],
+        )
+        acceptable_shardings.append(column_parallel)
+
+    return acceptable_shardings
 
 
 def gmm_nvfuser(
@@ -300,20 +361,28 @@ class GroupedLinearColwiseParallel(ParallelStyle):
         return tuple(prepared_inputs)
 
     def _partition_fn(self, name, module, device_mesh):
+        # Use Replicate() for fp4_weight and b_sf because packed fp4 dtype
+        # doesn't work well with DTensor sharding
+        # Use src_data_rank=None to skip data sync since each rank already has the data
+        # More specifically, `copy_` doesn't support the packed fp4 dtype at the moment.
         module.fp4_weight = nn.Parameter(
-            distribute_tensor(module.fp4_weight, device_mesh, [Shard(1)]),
+            distribute_tensor(
+                module.fp4_weight, device_mesh, [Replicate()], src_data_rank=None
+            ),
             requires_grad=False,
         )
         module.b_sf = nn.Parameter(
-            distribute_tensor(module.b_sf, device_mesh, [Shard(1)]),
+            distribute_tensor(
+                module.b_sf, device_mesh, [Replicate()], src_data_rank=None
+            ),
             requires_grad=False,
         )
         module.k = nn.Parameter(
-            distribute_tensor(module.k, device_mesh, [Replicate()]),
+            distribute_tensor(module.k, device_mesh, [Replicate()], src_data_rank=None),
             requires_grad=False,
         )
         module.n = nn.Parameter(
-            distribute_tensor(module.n, device_mesh, [Replicate()]),
+            distribute_tensor(module.n, device_mesh, [Replicate()], src_data_rank=None),
             requires_grad=False,
         )
 
@@ -409,18 +478,14 @@ class GroupedSwiGLU(nn.Module):
         blockscale_offsets: torch.Tensor,
         tokens_per_expert: torch.Tensor,
     ) -> torch.Tensor:
+        # SwiGLU: gate_proj -> silu -> multiply with up_proj -> down_proj
+        gate = self.gate_proj(
+            hidden_states, offsets, blockscale_offsets, tokens_per_expert
+        )
+        up = self.up_proj(hidden_states, offsets, blockscale_offsets, tokens_per_expert)
+        hidden_states = F.silu(gate) * up
         return self.down_proj(
-            F.silu(
-                self.gate_proj(
-                    hidden_states, offsets, blockscale_offsets, tokens_per_expert
-                )
-            )
-            * self.up_proj(
-                hidden_states, offsets, blockscale_offsets, tokens_per_expert
-            ),
-            offsets,
-            blockscale_offsets,
-            tokens_per_expert,
+            hidden_states, offsets, blockscale_offsets, tokens_per_expert
         )
 
 
