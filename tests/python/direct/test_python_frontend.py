@@ -2624,7 +2624,7 @@ def test_single_segment_multi_device():
 
 # Test that we properly handle packed type
 def test_packed_fp4(nvfuser_direct_test):
-    t0 = torch.rand((32,), dtype=torch.float32, device="cuda:0")
+    t0 = torch.rand((8, 32,), dtype=torch.float32, device="cuda:0")
     # we'll just ignore the scaling factor, since we only want to test basic fp4 support
     t0_fp4, _ = pytorch_nvfp4_quantize(t0, 1.0)
     inputs = [t0_fp4]
