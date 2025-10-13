@@ -1815,6 +1815,27 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     func_args.arg(
         genInline(bqop->blockScales()->as<kir::TensorIndex>()->view()));
 
+    auto block_scales_tv = bqop->blockScales()->as<kir::TensorIndex>()->view();
+    auto block_scales_is_swizzled = block_scales_tv->hasAllocation() &&
+        block_scales_tv->getAllocationDomain().size() == 5 &&
+        TensorDomain::noReductions(block_scales_tv->getLogicalDomain())
+                .size() == 2;
+
+    if (block_scales_is_swizzled) {
+      func_args.arg(
+          genInline(block_scales_tv->getLogicalDomain()[1]->extent()));
+      func_args.arg(
+          genInline(block_scales_tv->getAllocationDomain()[0]->extent()));
+      func_args.arg(
+          genInline(block_scales_tv->getAllocationDomain()[1]->extent()));
+      func_args.arg(
+          genInline(block_scales_tv->getAllocationDomain()[2]->extent()));
+      func_args.arg(
+          genInline(block_scales_tv->getAllocationDomain()[3]->extent()));
+      func_args.arg(
+          genInline(block_scales_tv->getAllocationDomain()[4]->extent()));
+    }
+
     indent() << genCall("bq::block_quantize_to_nvfp4", template_args, func_args)
              << ";\n";
   }
