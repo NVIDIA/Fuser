@@ -5,6 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <id_model/id_model.h>
 #include <ir/utils.h>
 #include <logical_domain_map.h>
 #include <runtime/executor_kernel_arg.h>
@@ -20,11 +21,12 @@ namespace registry_utils {
 bool checkPatternEquivalence(
     TensorView* out_tv0,
     TensorView* out_tv1,
-    const ComputeAtLogicalDomainMap& logical_map) {
+    IdModel& id_model) {
   const auto& out_root0 = out_tv0->getMaybeRootDomain();
   const auto& out_root1 = out_tv1->getMaybeRootDomain();
-  const auto domain0 = out_tv0->domain();
-  const auto domain1 = out_tv1->domain();
+
+  const auto& exact_graph = id_model.maybeBuildGraph(IdMappingMode::EXACT);
+  const auto& exact_sets = exact_graph.disjointValSets();
 
   auto it0 = out_root0.begin();
   auto it1 = out_root1.begin();
@@ -40,10 +42,12 @@ bool checkPatternEquivalence(
 
   skip_broadcast();
   while (it0 != out_root0.end() && it1 != out_root1.end()) {
+    // Reduction vs non-reduction must match per axis position
     if ((*it0)->isReduction() != (*it1)->isReduction()) {
       return false;
     }
-    if (!logical_map.canMap(domain0, (*it0), domain1, (*it1))) {
+    // Check mapping in the EXACT IdModel graph
+    if (!exact_sets.permissiveAreMapped(*it0, *it1)) {
       return false;
     }
     it0++;
