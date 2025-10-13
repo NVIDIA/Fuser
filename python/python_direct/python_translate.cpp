@@ -307,6 +307,11 @@ class PythonPrinter {
     return ss.str();
   }
 
+  // Add manually generated operation
+  void generate(const std::string& op) {
+    os_ << kTab << op;
+  }
+
   // Generate a python operation with a list of inputs and outputs.
   void generateOperation(
       const std::string& op_name,
@@ -953,6 +958,22 @@ class PythonTranslator : public OptInConstDispatch {
         broadcast_argument_names,
         std::make_tuple(bcast_op->getBroadcastDimFlags()),
         {bcast_op->out()});
+  }
+
+  void handle(const MmaOp* mma_op) final {
+    NVF_ERROR(mma_op != nullptr);
+    visited_vals_.insert(mma_op->out());
+
+    // Given a[M, 1, K] and b[1, N, K], MmaOp(a, b) is equivalent to
+    // c = fd.ops.sum(fd.ops.mul(a, b), dim=-1).
+    std::stringstream ss;
+    ss << printer_.toString(mma_op->out());
+    ss << " = fd.ops.sum(fd.ops.mul(";
+    ss << printer_.toString(mma_op->inA());
+    ss << ", ";
+    ss << printer_.toString(mma_op->inB());
+    ss << "), dim=-1)\n";
+    printer_.generate(ss.str());
   }
 
   void handle(const MatmulOp* matmul_op) final {

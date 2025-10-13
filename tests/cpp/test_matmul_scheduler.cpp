@@ -1049,6 +1049,9 @@ TEST_F(MatmulSchedulerTest, FusedMultiplySumOnly) {
   fusion->addInput(y);
   fusion->addOutput(z);
 
+  // std::string python_script = nvfuser::python::translateFusion(fusion.get());
+  // std::cout << python_script << std::endl;
+
   auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA);
   auto x_ref = at::randn({M, 1, K}, options);
   auto y_ref = at::randn({1, N, K}, options);
