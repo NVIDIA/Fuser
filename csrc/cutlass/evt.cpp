@@ -29,16 +29,15 @@ namespace cutlass_codegen {
 namespace {
 
 Expr* getGemmExpr(Fusion* fusion) {
-  Expr* mma = nullptr;
-  for (Expr* expr : fusion->exprs()) {
-    if (expr->isA<ScaledMmaOp>()) {
-      NVF_ERROR(
-          mma == nullptr,
-          "Found multiple ScaledMmaOps. Cannot determine which to return");
-      mma = expr;
-    }
-  }
-  return mma;
+  auto scaled_mma_exprs = fusion->exprs() |
+      std::views::filter([](Expr* e) { return e->isA<ScaledMmaOp>(); });
+  const int64_t num_exprs = std::ranges::distance(scaled_mma_exprs);
+  NVF_ERROR_NE(num_exprs, 0, "No ScaledMmaOps detected");
+  NVF_ERROR_EQ(
+      num_exprs,
+      1,
+      "Found multiple ScaledMmaOps. Cannot determine which to return");
+  return scaled_mma_exprs.front();
 }
 
 //! Find the accumulator which is the direct output of the ScaledMmaOp
