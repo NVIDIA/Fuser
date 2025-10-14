@@ -76,7 +76,7 @@ void shardAllocation(TensorView* tv) {
     // implementation.
     return;
   }
-  
+
   LinkedHashMap<IterDomain*, std::optional<bool>> allocation_to_contiguity;
   for (const auto&& [id, contiguity] :
        zip(tv->getMaybeAllocationDomain(), tv->getContiguity())) {
