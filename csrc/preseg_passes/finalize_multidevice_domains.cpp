@@ -139,7 +139,7 @@ void FinalizeMultideviceDomainsPass::runPass(Fusion* fusion) {
         reorderParallelizedToFront(tv);
       }
     }
-    for (auto tv : outputs) {
+    for (auto* tv : outputs) {
       shardAllocation(tv);
       reorderParallelizedToFront(tv);
     }
