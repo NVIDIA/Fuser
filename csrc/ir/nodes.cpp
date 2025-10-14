@@ -5688,9 +5688,9 @@ std::vector<PolymorphicValue> GroupedMmaOp::evaluate(
       "GroupedMmaOp expects tensor input at position 2 but got ",
       inputs[2].type().name());
 
-  const auto& mat1 = inputs[0].as<at::Tensor>();
-  const auto& mat2 = inputs[1].as<at::Tensor>();
-  const auto& offsets = inputs[2].as<at::Tensor>();
+  auto mat1 = inputs[0].as<at::Tensor>();
+  auto mat2 = inputs[1].as<at::Tensor>();
+  auto offsets = inputs[2].as<at::Tensor>();
 
   at::Tensor alpha;
   at::Tensor bias;
@@ -5780,6 +5780,33 @@ std::vector<PolymorphicValue> GroupedMmaOp::evaluate(
         /*bias=*/std::nullopt,
         /*alpha=*/std::nullopt,
         at::ScalarType::BFloat16);
+#if NVFUSER_CUTLASS_KERNEL_ENABLED
+  } else if (true) {
+    // FIXME: gate blackwell
+    // FIXME: gate contiguity
+    // FIXME: gate 2D x 3D
+    mat2 = mat2.transpose(-1, -2);
+    NVF_ERROR(mat2.is_contiguous());
+    // [m, k] x [g, n, k]; both contiguous
+    at::Tensor group_sizes = at::diff(
+        offsets,
+        /*n=*/1,
+        /*dim=*/-1,
+        /*prepend=*/
+        at::zeros({1}, at::dtype(at::kInt).device(offsets.device())));
+    at::Tensor ab_strides =
+        at::full_like(offsets, mat1.size(-1), at::dtype(at::kLong));
+    at::Tensor c_strides =
+        at::full_like(offsets, mat2.size(1), at::dtype(at::kLong));
+    at::Tensor problem_sizes =
+        at::stack({group_sizes, c_strides, ab_strides}, /*dim=*/-1)
+            .to(at::kInt);
+    offsets = at::cat(
+        {at::tensor({0}, at::dtype(at::kInt).device(offsets.device())),
+         offsets.slice(0, 0, -1)});
+    result = cutlass_kernels::grouped_mm(
+        mat1, mat2, ab_strides, c_strides, problem_sizes, offsets);
+#endif
   } else {
     // undefined bias is not supported by aten API
     NVF_ERROR(!alpha.defined(), "alpha is not supported yet");
