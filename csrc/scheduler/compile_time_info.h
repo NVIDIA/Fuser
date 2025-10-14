@@ -48,8 +48,7 @@ enum class CompileTimeEntryType {
   CAN_SCHEDULE_TRANSPOSE,
   CAN_SCHEDULE_MUL_SUM_AS_MMA,
   LOGICAL_REORDER_MAP,
-  VECTORIZATION_BREAK_POINT_OF_RED_PROD,
-  SCHEDULE_HYPERPARAMETERS
+  VECTORIZATION_BREAK_POINT_OF_RED_PROD
 };
 
 //! Entry type definition class for `DOMAIN_MAP`,
@@ -213,15 +212,6 @@ class VectorizationBreakPointOfReductionProducer {
   using DataType = int64_t;
   static const CompileTimeEntryType EntryType =
       CompileTimeEntryType::VECTORIZATION_BREAK_POINT_OF_RED_PROD;
-};
-
-//! Entry type definition class for `SCHEDULE_HYPERPARAMETERS`,
-//!  stores hyperparameters for SchedulerEntry::computeHeuristics
-class SchedulerHyperParameters {
- public:
-  using DataType = scheduler_utils::SchedulerHyperParameters;
-  static const CompileTimeEntryType EntryType =
-      CompileTimeEntryType::SCHEDULE_HYPERPARAMETERS;
 };
 
 //! Base abstract class for unified storage in `HeuristicDataCache`,

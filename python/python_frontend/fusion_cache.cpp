@@ -233,6 +233,15 @@ HeuristicParams* UserSchedule::computeHeuristics(SchedulerType scheduler_type) {
   NVF_CHECK(
       heuristic_params == nullptr,
       "Heuristic Scheduler is already defined for this UserSchedule");
+
+  // Set scheduler hyperparameters if available for InnerOuterPersistent
+  // scheduler
+  // TODO:: extend to other schedulers if necessary
+  if (scheduler_type == SchedulerType::InnerOuterPersistent &&
+      scheduler_hyperparams) {
+    scheduler->setSchedulerHyperParameters(scheduler_hyperparams.get());
+  }
+
   heuristic_params = scheduler->computeHeuristics(
       fusion(), runtime_info_ref, data_cache.get());
   return heuristic_params.get();
@@ -347,6 +356,27 @@ FusionCache* FusionCache::get(
     if (load_from_default_workspace && fs::exists(file_path)) {
       try {
         singleton_->deserialize(file_path);
+
+        // Check if deserialized cache exceeds max_fusions limit
+        if (singleton_->fusions_.size() > max_fusions) {
+          std::cout
+              << "Warning: Deserialized cache contains "
+              << singleton_->fusions_.size()
+              << " fusions, which exceeds the requested max_fusions limit of "
+              << max_fusions << ". Resetting cache." << std::endl;
+
+          // Delete incompatible workspace
+          std::error_code remove_ec;
+          fs::remove(file_path, remove_ec);
+          if (remove_ec) {
+            std::cout << "Failed to delete common workspace. Exception:\t"
+                      << remove_ec.message() << std::endl;
+          }
+
+          // Reset FusionCache
+          delete singleton_;
+          singleton_ = new FusionCache(max_fusions, selected_device);
+        }
       } catch (const std::exception& deserialize_exception) {
         // The saved workspace can become out-of-date between nvfuser updates.
         // Send warning and delete the incompatible workspace.
