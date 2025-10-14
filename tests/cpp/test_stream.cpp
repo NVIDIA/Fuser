@@ -16,6 +16,7 @@
 #include <multidevice/utils.h>
 #include <ops/alias.h>
 #include <ops/all_ops.h>
+#include <preseg_passes/pre_segmenter.h>
 #include <preseg_passes/propagate_shardings.h>
 #include <tests/cpp/utils.h>
 
@@ -131,8 +132,8 @@ TEST_F(StreamTest, BackwardPropagation) {
 }
 
 TEST_F(StreamTest, ShardedAllocation) {
-  Fusion fusion;
-  FusionGuard fg(&fusion);
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
 
   const int64_t s = 2;
 
@@ -140,15 +141,15 @@ TEST_F(StreamTest, ShardedAllocation) {
   TensorView* tv1 = add(tv0, IrBuilder::create<Val>(1.0));
   TensorView* tv2 = sum(tv1, {2});
   TensorView* tv3 = div(tv1, IrBuilder::create<Val>(2.0));
-  fusion.addInput(tv0);
-  fusion.addOutput(tv2);
-  fusion.addOutput(tv3);
+  fusion->addInput(tv0);
+  fusion->addOutput(tv2);
+  fusion->addOutput(tv3);
 
   tv0->outer_split(0, s);
   tv0->axis(0)->parallelize(ParallelType::Stream);
 
-  preseg_passes::OptimizationPass<preseg_passes::PresegmenterPass>::runPass(
-      &fusion);
+  preseg_passes::OptimizationPass<preseg_passes::PreSegmenter>::runPass(
+      fusion.get());
 
   for (auto* tv : {tv0, tv1, tv2, tv3}) {
     EXPECT_TRUE(tv->axis(0)->isStream()) << tv;
@@ -161,24 +162,26 @@ TEST_F(StreamTest, ShardedAllocation) {
 }
 
 TEST_F(StreamTest, ReplicatedAllocation) {
-  Fusion fusion;
-  FusionGuard fg(&fusion);
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  const int64_t s = 2;
 
   TensorView* tv0 = makeContigTensor(3);
   TensorView* tv1 = add(tv0, IrBuilder::create<Val>(1.0));
   TensorView* tv2 = sum(tv1, {2});
   TensorView* tv3 = div(tv1, IrBuilder::create<Val>(2.0));
-  fusion.addInput(tv0);
-  fusion.addOutput(tv2);
-  fusion.addOutput(tv3);
+  fusion->addInput(tv0);
+  fusion->addOutput(tv2);
+  fusion->addOutput(tv3);
 
   tv0->outer_split(0, s);
   tv0->axis(0)->parallelize(ParallelType::Stream);
   tv2->outer_split(1, s);
   tv2->axis(1)->parallelize(ParallelType::Stream);
 
-  preseg_passes::OptimizationPass<preseg_passes::PresegmenterPass>::runPass(
-      &fusion);
+  preseg_passes::OptimizationPass<preseg_passes::PreSegmenter>::runPass(
+      fusion.get());
   for (auto* tv : {tv0, tv1, tv2, tv3}) {
     EXPECT_TRUE(tv->axis(0)->isStream()) << tv;
     EXPECT_EQ(tv->getAllocationDomain(), tv->getLogicalDomain());

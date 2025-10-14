@@ -55,12 +55,19 @@ bool shouldParallelizeAllocationOnStream(TensorView* tv) {
   return true;
 }
 
+bool isLoopStreamParallelized(const TensorView* tv) {
+  return std::any_of(
+      tv->getLoopDomain().begin(),
+      tv->getLoopDomain().end(),
+      [](IterDomain* id) { return id->isStream(); });
+}
+
 // Splits the allocation domain of a TensorView if it is device or stream
 // parallelized Device parallelization is always propagated to the allocation
 // domain Stream parallelization is propagated to the allocation domain if it is
-// allocated inside a for loop
+// allocated inside a for loop.
 void shardAllocation(TensorView* tv) {
-  if (!isStreamParallelized(tv) && !tv->hasDeviceMesh()) {
+  if (!isLoopStreamParallelized(tv) && !tv->hasDeviceMesh()) {
     // This is required for tests such as
     // `NVFP4QuantizeTest.SwizzledOuputAndWithoutPerTensorAmax` The test has a
     // split allocation domain but no stream/device parallelization. The loop
@@ -145,6 +152,13 @@ void FinalizeMultideviceDomainsPass::runPass(Fusion* fusion) {
           "Resharding expression must have contiguous inputs and outputs: ",
           expr);
     }
+  }
+
+  if (isDebugDumpEnabled(DebugDumpOption::PreSegmenterLogging)) {
+    debug() << std::endl
+            << "Fusion Transforms after " << name() << ":" << std::endl;
+    fusion->printTransforms();
+    debug() << std::endl;
   }
 }
 

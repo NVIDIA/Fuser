@@ -117,9 +117,6 @@ IterDomain* getShardedIterDomain(
     const TensorView* tv,
     ParallelType parallel_type);
 
-// Returns true if the TensorView is stream parallelized.
-bool isStreamParallelized(const TensorView* tv);
-
 // Shards the input tensor along `axis`. How the tensor gets sliced along `axis`
 // is determined by `mesh` and `device_id`. Returns the sharded tensor.
 NVF_API at::Tensor shardTensor(
