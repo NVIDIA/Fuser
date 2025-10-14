@@ -412,7 +412,7 @@ typename T::Gemm::Arguments args_from_inputs(
   if (smma->bias() != nullptr) {
     code += "       bias.data_ptr,";
   } else {
-    code += "       nullptr, // bias";
+    code += "       /*bias=*/nullptr,";
   }
   code += R"(
        stride_C,
