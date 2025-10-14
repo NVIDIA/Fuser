@@ -77,6 +77,34 @@ def test_fusion_definition_print():
         tv2 = fd.ops.add(tv0, tv1)
         fd.add_output(tv2)
 
+    # Test fusion representation
+    full_prescheduled_fusion_definition = """Inputs:
+  T0_g_float[iS0{2}, iS1{4}, iS2{8}]
+  T1_g_float[iS3{2}, iS4{4}, iS5{8}]
+Outputs:
+  T2_g_float[iS6{2}, iS7{4}, iS8{8}]
+
+%kernel {
+T2_g_float[iS6{2}, iS7{4}, iS8{8}]
+   = T0_g_float[iS0{2}, iS1{4}, iS2{8}]
+   + T1_g_float[iS3{2}, iS4{4}, iS5{8}];
+
+TransformPrinter :
+T0_g_float[iS0{2}, iS1{4}, iS2{8}]
+ logical domain : (iS0{2}, iS1{4}, iS2{8})
+ contiguity: f f f
+ loop domain : (iS0{2}, iS1{4}, iS2{8})
+T1_g_float[iS3{2}, iS4{4}, iS5{8}]
+ logical domain : (iS3{2}, iS4{4}, iS5{8})
+ contiguity: f f f
+ loop domain : (iS3{2}, iS4{4}, iS5{8})
+T2_g_float[iS6{2}, iS7{4}, iS8{8}]
+ logical domain : (iS6{2}, iS7{4}, iS8{8})
+ contiguity: t t t
+ loop domain : (iS6{2}, iS7{4}, iS8{8})
+} // %kernel\n"""
+    assert fd.fusion.print() == full_prescheduled_fusion_definition
+
     # Test fusion math representation
     prescheduled_fusion_definition = """Inputs:
   T0_g_float[iS0{2}, iS1{4}, iS2{8}]
