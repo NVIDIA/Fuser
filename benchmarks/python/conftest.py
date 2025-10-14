@@ -42,7 +42,11 @@ def pytest_addoption(parser):
         action="store_true",
         help="Benchmarks flashinfer mode.",
     )
-
+    parser.addoption(
+        "--benchmark-quack",
+        action="store_true",
+        help="Benchmarks quack mode.",
+    )
     # pytest-benchmark does not have CLI options to set rounds/warmup_rounds for benchmark.pedantic.
     # The following two options are used to overwrite the default values through CLI.
     parser.addoption(
@@ -155,6 +159,7 @@ def pytest_collection_modifyitems(session, config, items):
         "thunder",
         "thunder-torchcompile",
         "flashinfer",
+        "quack",
     ]
 
     def get_test_executor(item) -> str | None:
