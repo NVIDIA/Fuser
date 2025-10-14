@@ -35,7 +35,6 @@ from torch.distributed.tensor.parallel import (
     ColwiseParallel,
 )
 from tqdm import tqdm
-from transformers import AutoModelForCausalLM
 from transformers.models.llama4 import Llama4TextConfig
 from transformers.cache_utils import HybridChunkedCache
 from transformers.models.llama4.modeling_llama4 import Llama4TextMoe
@@ -50,6 +49,7 @@ from layers_for_inference_benchmark import (
     NVFP4InferenceLinear,
     nvfuser_f16a_nvfp4weight_scaled_grouped_mm,
     nvfuser_f16a_nvfp4weight_scaled_mm,
+    copied_Llama4ForCausalLM,
 )
 from thunder.torch.custom_op import _register_custom_op
 
@@ -279,7 +279,7 @@ class InferenceBenchmark:
         self.hf_config = config
 
         with DEVICE:
-            model = AutoModelForCausalLM.from_config(config, torch_dtype=torch.bfloat16)
+            model = copied_Llama4ForCausalLM._from_config(config)
 
         return model
 
