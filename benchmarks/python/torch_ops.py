@@ -115,3 +115,9 @@ def scatter_reduce(inputs: list):
     out = out.reshape(*topk_weight.shape, -1)  # [seq, top_k, hidden]
     out = out * topk_weight.unsqueeze(-1)  # [seq, top_k, hidden]
     return out.sum(dim=1)  # [seq, hidden]
+
+
+# simply cross entropy to benchmark quack cross entropy
+def cross_entropy(inputs: list):
+    logits, labels = inputs
+    return F.cross_entropy(logits, labels, reduction="none")

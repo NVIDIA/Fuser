@@ -118,16 +118,6 @@ if(BUILD_CUTLASS)
     set(CUTLASS_STATUS "ENABLED")
 
     find_package(CUDAToolkit REQUIRED)
-    include(FetchContent)
-
-    # cutlass
-    FetchContent_Declare(
-      repo-cutlass
-      GIT_REPOSITORY https://github.com/NVIDIA/cutlass
-      GIT_TAG        f115c3f85467d5d9619119d1dbeb9c03c3d73864
-      GIT_SHALLOW    OFF
-    )
-    FetchContent_Populate(repo-cutlass)
 
     set(NVF_CUTLASS_CUDA_FLAGS
       "-DCUTE_USE_PACKED_TUPLE=1"
@@ -160,8 +150,8 @@ if(BUILD_CUTLASS)
     )
     add_library(nvf_cutlass SHARED ${NVFUSER_CUTLASS_SRCS})
 
-    target_include_directories(nvf_cutlass PRIVATE ${repo-cutlass_SOURCE_DIR}/include)
-    target_include_directories(nvf_cutlass PRIVATE ${repo-cutlass_SOURCE_DIR}/tools/util/include)
+    target_include_directories(nvf_cutlass PRIVATE ${NVFUSER_THIRD_PARTY_DIR}/cutlass/include)
+    target_include_directories(nvf_cutlass PRIVATE ${NVFUSER_THIRD_PARTY_DIR}/cutlass/tools/util/include)
     target_compile_options(nvf_cutlass PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:${NVF_CUTLASS_CUDA_FLAGS}>)
     if(NOT MSVC)
       set(NVF_LIB_SUFFIX ".so")
@@ -426,38 +416,34 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/validator_utils.cpp
 )
 
-cmake_dependent_option(NVFUSER_HOST_IR_JIT "Build nvFuser with LLVM" ON "USE_HOST_IR_JIT" OFF)
-
-
-message(STATUS "Setting NVFUSER_HOST_IR_JIT=${NVFUSER_HOST_IR_JIT}")
-
-if(NVFUSER_HOST_IR_JIT)
-  add_compile_definitions(NVFUSER_HOST_IR_JIT)
-  # Add LLVM JIT related dependencies
-  find_package(LLVM 18.1 REQUIRED CONFIG)
-  llvm_map_components_to_libnames(LLVM_LIBS
-    support
-    core
-    orcjit
-    executionengine
-    irreader
-    nativecodegen
-    Target
-    Analysis
-    JITLink
-    Demangle
-  )
-
-  add_library(LLVM_JIT INTERFACE)
-  target_include_directories(LLVM_JIT INTERFACE ${LLVM_INCLUDE_DIRS})
-  target_compile_definitions(LLVM_JIT INTERFACE ${LLVM_DEFINITIONS})
-  target_link_libraries(LLVM_JIT INTERFACE ${LLVM_LIBS})
-
-  # Add LLVM JIT related sources
-  list(APPEND NVFUSER_SRCS
-    ${NVFUSER_SRCS_DIR}/host_ir/jit.cpp
-  )
+# Add LLVM JIT related dependencies
+set(LLVM_MINIMUM_VERSION "18.1")
+find_package(LLVM REQUIRED CONFIG)
+if(${LLVM_VERSION} VERSION_LESS ${LLVM_MINIMUM_VERSION})
+  message(FATAL_ERROR "LLVM ${LLVM_VERSION} does not meet the minimum version required: ${LLVM_MINIMUM_VERSION}")
 endif()
+llvm_map_components_to_libnames(LLVM_LIBS
+  support
+  core
+  orcjit
+  executionengine
+  irreader
+  nativecodegen
+  Target
+  Analysis
+  JITLink
+  Demangle
+)
+
+add_library(LLVM_JIT INTERFACE)
+target_include_directories(LLVM_JIT SYSTEM INTERFACE ${LLVM_INCLUDE_DIRS})
+target_compile_definitions(LLVM_JIT INTERFACE ${LLVM_DEFINITIONS})
+target_link_libraries(LLVM_JIT INTERFACE ${LLVM_LIBS})
+
+# Add LLVM JIT related sources
+list(APPEND NVFUSER_SRCS
+  ${NVFUSER_SRCS_DIR}/host_ir/jit.cpp
+)
 
 # We don't link CUPTI for MSVC
 if(NOT MSVC)
@@ -553,9 +539,7 @@ if (BUILD_CUTLASS AND CMAKE_CUDA_COMPILER_VERSION VERSION_GREATER_EQUAL 12.8)
   target_compile_definitions(codegen_internal PRIVATE "-DNVFUSER_CUTLASS_KERNEL_ENABLED")
 endif()
 
-if(NVFUSER_HOST_IR_JIT)
-  target_link_libraries(codegen_internal PUBLIC LLVM_JIT)
-endif()
+target_link_libraries(codegen_internal PUBLIC LLVM_JIT)
 
 add_library(nvfuser_codegen SHARED $<TARGET_OBJECTS:codegen_internal>)
 
@@ -590,8 +574,7 @@ target_include_directories(nvfuser_codegen SYSTEM PUBLIC
 )
 target_link_libraries(nvfuser_codegen
   PUBLIC ${TORCH_LIBRARIES}
-  PRIVATE dynamic_type flatbuffers ${CUDA_NVRTC_LIB} CUDA::cupti dl
-    $<$<BOOL:${NVFUSER_HOST_IR_JIT}>:LLVM_JIT>
+  PRIVATE dynamic_type flatbuffers ${CUDA_NVRTC_LIB} CUDA::cupti dl LLVM_JIT
 )
 set_target_properties(nvfuser_codegen PROPERTIES
   C_STANDARD ${NVFUSER_C_STANDARD}
@@ -799,9 +782,9 @@ if(BUILD_PYTHON)
   install(TARGETS nvfuser DESTINATION lib)
 
   # ------------------------------------------------
-  # build nvfuser next python library
+  # build nvfuser direct python library
   # ------------------------------------------------
-  # nvfuser next bindings API sources
+  # nvfuser direct bindings API sources
   set(NVFUSER_PYTHON_DIRECT_SRCS)
   list(APPEND NVFUSER_PYTHON_DIRECT_SRCS
     ${NVFUSER_PYTHON_DIRECT_BINDINGS}/extension.cpp
@@ -816,6 +799,7 @@ if(BUILD_PYTHON)
     ${NVFUSER_PYTHON_DIRECT_BINDINGS}/runtime.cpp
     ${NVFUSER_PYTHON_DIRECT_BINDINGS}/schedule.cpp
     ${NVFUSER_PYTHON_DIRECT_BINDINGS}/id_model.cpp
+    ${NVFUSER_PYTHON_DIRECT_BINDINGS}/profile.cpp
     ${NVFUSER_PYTHON_DIRECT_BINDINGS}/direct_utils.cpp
     ${NVFUSER_PYTHON_DIRECT_BINDINGS}/python_translate.cpp
   )
@@ -1247,15 +1231,13 @@ if(BUILD_TEST)
   add_test(test_host_ir "${HOSTIR_TEST_SRCS}" "")
   list(APPEND TEST_BINARIES test_host_ir)
 
-  if(NVFUSER_HOST_IR_JIT)
-    set(LLVM_COMPILE_TEST_SRCS)
-    list(APPEND LLVM_COMPILE_TEST_SRCS
-      ${NVFUSER_ROOT}/tests/cpp/test_host_ir_jit.cpp
-    )
-    add_test(test_host_ir_jit "${LLVM_COMPILE_TEST_SRCS}" "")
-    target_link_libraries(test_host_ir_jit PUBLIC LLVM_JIT)
-    list(APPEND TEST_BINARIES test_host_ir_jit)
-  endif()
+  set(LLVM_COMPILE_TEST_SRCS)
+  list(APPEND LLVM_COMPILE_TEST_SRCS
+    ${NVFUSER_ROOT}/tests/cpp/test_host_ir_jit.cpp
+  )
+  add_test(test_host_ir_jit "${LLVM_COMPILE_TEST_SRCS}" "")
+  target_link_libraries(test_host_ir_jit PUBLIC LLVM_JIT)
+  list(APPEND TEST_BINARIES test_host_ir_jit)
 
 
   # We don't link CUPTI for MSVC
@@ -1494,7 +1476,6 @@ message(STATUS "  UCC_FOUND: ${UCC_FOUND}")
 message(STATUS "  NVFUSER_STANDALONE_BUILD_WITH_UCC  : ${NVFUSER_STANDALONE_BUILD_WITH_UCC}")
 message(STATUS "  NVFUSER_BUILD_WITH_ASAN            : ${NVFUSER_BUILD_WITH_ASAN}")
 message(STATUS "  NVFUSER_DISTRIBUTED                : ${NVFUSER_DISTRIBUTED}")
-message(STATUS "  NVFUSER_HOST_IR_JIT                : ${NVFUSER_HOST_IR_JIT}")
 message(STATUS "  NVFUSER_CPP_STANDARD               : ${NVFUSER_CPP_STANDARD}")
 message(STATUS "  NVMMH_INCLUDE_DIR                  : ${NVMMH_INCLUDE_DIR}")
 
