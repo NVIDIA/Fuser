@@ -387,6 +387,10 @@ IterDomain* newOutputIterDomain(
       iter_type = promoteIterType(iter_type.value(), id->getIterType());
     } else {
       iter_type = id->getIterType();
+      // GatherScatter ID needs to convert back to Iteration
+      if (iter_type.value() == IterType::GatherScatter) {
+        iter_type = IterType::Iteration;
+      }
     }
 
     auto id_start_offset = id->start();
