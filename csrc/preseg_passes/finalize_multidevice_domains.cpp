@@ -40,14 +40,7 @@ bool validateMeshes(Fusion* fusion) {
   return tv_with_mesh_found;
 }
 
-bool isAllocationParallelized(TensorView* tv, Split* split) {
-  NVF_CHECK(
-      split->outer()->isDeviceDim() || split->outer()->isStream(),
-      "Expected the outer dimension to be a device or stream dimension: ",
-      split);
-  if (split->outer()->isDeviceDim()) {
-    return true;
-  }
+bool shouldParallelizeAllocationOnStream(TensorView* tv) {
   if (tv->isFusionInput() || tv->isFusionOutput()) {
     return false;
   }
@@ -66,7 +59,7 @@ bool isAllocationParallelized(TensorView* tv, Split* split) {
 // parallelized Device parallelization is always propagated to the allocation
 // domain Stream parallelization is propagated to the allocation domain if it is
 // allocated inside a for loop
-void setShardedAllocationDomain(TensorView* tv) {
+void shardAllocation(TensorView* tv) {
   if (!isStreamParallelized(tv) && !tv->hasDeviceMesh()) {
     // This is required for tests such as
     // `NVFP4QuantizeTest.SwizzledOuputAndWithoutPerTensorAmax` The test has a
@@ -94,8 +87,12 @@ void setShardedAllocationDomain(TensorView* tv) {
         split != nullptr,
         "Expected all transform exprs to be a split between allocation and "
         "loop domain during sharding propagation.");
-
-    if (!isAllocationParallelized(tv, split)) {
+    NVF_ERROR(
+        split->outer()->isDeviceDim() || split->outer()->isStream(),
+        "Expected the outer dimension to be a device or stream dimension: ",
+        split);
+    if (split->outer()->isStream() &&
+        !shouldParallelizeAllocationOnStream(tv)) {
       continue;
     }
     const auto [contiguity, split_i] =
@@ -130,12 +127,12 @@ void FinalizeMultideviceDomainsPass::runPass(Fusion* fusion) {
       // Other tvs would already have been processed as outputs of their
       // definitions. This avoids processing the same tv multiple times.
       if (tv->isFusionInput()) {
-        setShardedAllocationDomain(tv);
+        shardAllocation(tv);
         reorderParallelizedToFront(tv);
       }
     }
     for (auto tv : outputs) {
-      setShardedAllocationDomain(tv);
+      shardAllocation(tv);
       reorderParallelizedToFront(tv);
     }
 
