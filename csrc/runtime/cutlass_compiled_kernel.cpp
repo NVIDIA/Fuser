@@ -170,8 +170,6 @@ void CutlassCompiledKernel::generateCode() {
 
   cutlass_code_ = getStructuredCodeFromExternalFiles(getGlobalFusionCount());
   if (!cutlass_code_.empty()) {
-    debug() << "Found external cutlass code:\n";
-    debug() << cutlass_code_ << std::endl;
     return;
   }
 
