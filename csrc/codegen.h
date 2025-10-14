@@ -9,6 +9,7 @@
 
 #include <exceptions.h>
 #include <kernel.h>
+#include <type.h>
 #include <visibility.h>
 
 #include <string>
