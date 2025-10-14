@@ -321,7 +321,7 @@ fd.execute(inputs)\n"""
     # Check last_repro_script fails gracefully.
     with pytest.raises(
         AssertionError,
-        match=r"fd.last_repro_script\(\) cannot provide a repro because fd.execute\(inputs, save_repro_state=True\) was not executed!",
+        match=r"fd.last_repro_script\(\) cannot provide a repro because fd.execute\(inputs, save_repro_inputs=True\) was not executed!",
     ):
         fd.last_repro_script()
 
