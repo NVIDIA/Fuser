@@ -568,10 +568,12 @@ class VectorizeValidator : public OptInDispatch {
     // domain. This should be always able to reach at least the
     // vectorized ID.
     const auto loop_domain = getLoopIds(load_store, id_model);
+    const auto alloc_groups = graph.toGroups(tv->getMaybeAllocationDomain());
+
     auto expr_path = ValGraphBFS::getExprGroupsBetween(
                          graph,
                          graph.toGroups(loop_domain),
-                         graph.toGroups(tv->getMaybeAllocationDomain()),
+                         alloc_groups,
                          /*require_all_to_visited=*/false)
                          .first;
 
@@ -636,6 +638,10 @@ class VectorizeValidator : public OptInDispatch {
           cur_group = outputs[1];
         }
       }
+
+      if (alloc_groups.has(cur_group)) {
+        break;
+      }
     }
 
     NVF_ERROR(
@@ -672,6 +678,7 @@ class VectorizeValidator : public OptInDispatch {
       for (auto expr : tv->domain()->allExprs()) {
         ss << expr->toString();
       }
+      graph.dumpGraphvizDotGraph("validation_graph.dot");
       NVF_THROW(ss.str());
     }
 
