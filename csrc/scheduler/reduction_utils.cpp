@@ -200,15 +200,14 @@ TensorView* scheduleReductionTV(
     if (rparams->static_bdimx) {
       // [R, TIDx, Vect]
       reduction_tv->split(inner_reduce_axis, rparams->lparams.bdimx());
-      // [R, US, TIDx, Vect]
-      outer_unswitch(inner_reduce_axis + 1);
-      reduction_tv->axis(inner_reduce_axis + 2)
+      // [R, TIDx, Vect]
+      reduction_tv->axis(inner_reduce_axis + 1)
           ->parallelize(rparams->block_dim_inner_reduction);
     } else {
       reduction_tv->split(
           outer_i++, rparams->batches_per_block_inner_reduction, false);
-      outer_unswitch(outer_i++);
     }
+    outer_unswitch(outer_i++);
 
     if (!rparams->vectorize_inner_reduction &&
         rparams->unroll_factor_inner_reduction > 1) {
