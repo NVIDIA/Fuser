@@ -309,81 +309,104 @@ struct CommentedString {
   std::string comment;
 };
 
+// Forward declaration to enable recursion from fine-grained helper functions
+CommentedString argStringHelper(EVTModel::Node* node, int64_t indent_size);
+
+CommentedString argumentArgString(EVTModel::Node* node, int64_t indent_size) {
+  std::stringstream ss;
+  if (node->argument->isA<TensorView>()) {
+    indent(ss, indent_size) << "{  // " << node->name << "\n";
+    // TODO: If this is an input scalar, we need to obtain its name in the
+    // kernel here
+    const std::string internal_var_name = "alpha";
+    indent(ss, indent_size + 1)
+        << ".scalar_ptrs=static_cast<"
+        << dtypeToCutlass(node->argument->dtype()) << " const*>("
+        << internal_var_name << ".data_ptr)\n";
+    indent(ss, indent_size) << "}";
+    return {ss.str(), ""};
+  } else {
+    // If this is a constant scalar, print its value directly
+    if (node->argument->isConstScalar()) {
+      return {
+          "{.scalars={" + node->argument->toInlineString() + "}}", node->name};
+    }
+    NVF_ERROR(
+        node->argument->isFusionInput(),
+        "Non-constant scalars are expected to be fusion inputs for EVT "
+        "translation");
+    NVF_THROW("Input scalars not yet supported in EVT translation");
+    return {ss.str(), ""};
+  }
+}
+
+// For nodes with no inputs, we print their args like this:
+//
+//   {}  // node->name
+//
+// When a node has inputs, we print it like this:
+//
+//   {  // node->name
+//     { ... },  // args for input 1
+//     ...
+//     { ... }  // args for input N
+//   }
+CommentedString argStringWithInputs(EVTModel::Node* node, int64_t indent_size) {
+  std::stringstream ss;
+  indent(ss, indent_size) << "{  // " << node->name << "\n";
+  CommentedString prev_cs;
+  const auto print_line = [&](bool last) {
+    if (prev_cs.str.empty()) {
+      return;
+    }
+    ss << prev_cs.str;
+    if (!last) {
+      ss << ",";
+    }
+    if (!prev_cs.comment.empty()) {
+      ss << "  // " << prev_cs.comment;
+    }
+    ss << "\n";
+  };
+  std::string node_op_name;
+  for (EVTModel::Node* input : node->inputs) {
+    // TODO: add all other node op names that might appear here
+    if (input->name == "cutlass::epilogue::fusion::Sm90Compute") {
+      // This just describes what op is being computed in an EVT node. It
+      // should not appear in the argument list
+      NVF_ERROR(node_op_name.empty());
+      node_op_name = input->name;
+      continue;
+    }
+    print_line(false);
+    prev_cs = argStringHelper(input, indent_size + 1);
+  }
+  if (!node_op_name.empty()) {
+    // We have a node op. Print its arguments last (there never are any, so
+    // don't recurse)
+    print_line(false);
+    std::stringstream ss_name;
+    indent(ss_name, indent_size + 1) << "{}";
+    prev_cs = {ss_name.str(), node_op_name};
+  }
+  print_line(true);
+  indent(ss, indent_size) << "}";
+  return {ss.str(), ""};
+}
+
 CommentedString argStringHelper(EVTModel::Node* node, int64_t indent_size) {
   NVF_ERROR(node != nullptr);
-  std::stringstream ss;
   if (node->inputs.empty()) {
     if (node->argument == nullptr) {
+      std::stringstream ss;
       indent(ss, indent_size) << "{}";
       return {ss.str(), node->name};
     } else {
-      if (node->argument->isA<TensorView>()) {
-        indent(ss, indent_size) << "{  // " << node->name << "\n";
-        // TODO: If this is an input scalar, we need to obtain its name in the
-        // kernel here
-        const std::string internal_var_name = "alpha";
-        indent(ss, indent_size + 1)
-            << ".scalar_ptrs=static_cast<"
-            << dtypeToCutlass(node->argument->dtype()) << " const*>("
-            << internal_var_name << ".data_ptr)\n";
-        indent(ss, indent_size) << "}";
-        return {ss.str(), ""};
-      } else {
-        // If this is a constant scalar, print its value directly
-        if (node->argument->isConstScalar()) {
-          return {
-              "{.scalars={" + node->argument->toInlineString() + "}}",
-              node->name};
-        }
-        NVF_ERROR(
-            node->argument->isFusionInput(),
-            "Non-constant scalars are expected to be fusion inputs for EVT "
-            "translation");
-        NVF_THROW("Input scalars not yet supported in EVT translation");
-        return {ss.str(), ""};
-      }
+      return argumentArgString(node, indent_size);
     }
   } else {
-    indent(ss, indent_size) << "{  // " << node->name << "\n";
-    CommentedString prev_cs;
-    const auto print_line = [&](bool last) {
-      if (prev_cs.str.empty()) {
-        return;
-      }
-      ss << prev_cs.str;
-      if (!last) {
-        ss << ",";
-      }
-      if (!prev_cs.comment.empty()) {
-        ss << "  // " << prev_cs.comment;
-      }
-      ss << "\n";
-    };
-    std::string node_op_name;
-    for (EVTModel::Node* input : node->inputs) {
-      // TODO: add all other node op names
-      if (input->name == "cutlass::epilogue::fusion::Sm90Compute") {
-        // This just describes what op is being computed in an EVT node. It
-        // should not appear in the argument list
-        NVF_ERROR(node_op_name.empty());
-        node_op_name = input->name;
-        continue;
-      }
-      print_line(false);
-      prev_cs = argStringHelper(input, indent_size + 1);
-    }
-    if (!node_op_name.empty()) {
-      // We have a node op. Print its arguments last (there never are any, so
-      // don't recurse)
-      print_line(false);
-      std::stringstream ss_name;
-      indent(ss_name, indent_size + 1) << "{}";
-      prev_cs = {ss_name.str(), node_op_name};
-    }
-    print_line(true);
-    indent(ss, indent_size) << "}";
+    return argStringWithInputs(node, indent_size);
   }
-  return {ss.str(), ""};
 }
 
 } // namespace
