@@ -177,9 +177,9 @@ class EVTConverter : OptInDispatch {
     EVTModel::Node* func_node =
         model_.makeNode("cutlass::epilogue::fusion::Sm90Compute");
     func_node->inputs.push_back(model_.makeNode("cutlass::" + op_name));
-    // TODO: infer type of inputs from dtypes
-    func_node->inputs.push_back(model_.makeNode(dtypeToCutlass(in_type)));
     func_node->inputs.push_back(model_.makeNode(dtypeToCutlass(out_type)));
+    // Compute type
+    func_node->inputs.push_back(model_.makeNode(dtypeToCutlass(in_type)));
     // rounding mode
     // https://github.com/NVIDIA/cutlass/blob/2b8dff1f90605452c378c02298dd0cacaf65753c/include/cutlass/numeric_conversion.h#L56
     func_node->inputs.push_back(
@@ -219,10 +219,10 @@ class EVTConverter : OptInDispatch {
         model_.makeNode("cutlass::epilogue::fusion::Sm90Compute");
     func_node->inputs.push_back(model_.makeNode("cutlass::" + op_name));
     func_node->inputs.push_back(
-        model_.makeNode(dtypeToCutlass(uop->in()->dtype())));
+        model_.makeNode(dtypeToCutlass(uop->out()->dtype())));
     // This is the "compute" type of the op
     func_node->inputs.push_back(
-        model_.makeNode(dtypeToCutlass(uop->out()->dtype())));
+        model_.makeNode(dtypeToCutlass(uop->in()->dtype())));
     // rounding mode
     // https://github.com/NVIDIA/cutlass/blob/2b8dff1f90605452c378c02298dd0cacaf65753c/include/cutlass/numeric_conversion.h#L56
     func_node->inputs.push_back(
@@ -325,9 +325,9 @@ CommentedString argumentArgString(EVTModel::Node* node, int64_t indent_size) {
     // kernel here
     const std::string internal_var_name = "alpha";
     indent(ss, indent_size + 1)
-        << ".scalar_ptrs=static_cast<"
+        << ".scalar_ptrs={static_cast<"
         << dtypeToCutlass(node->argument->dtype()) << " const*>("
-        << internal_var_name << ".data_ptr)\n";
+        << internal_var_name << ".data_ptr)}\n";
     indent(ss, indent_size) << "}";
     return {ss.str(), ""};
   } else {
