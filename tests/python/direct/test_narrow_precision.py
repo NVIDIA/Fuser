@@ -280,7 +280,7 @@ def test_cutlass_nvfp4_grouped_mm(
 
 # TODO: update reference implementation to support padding on k
 @pytest.mark.skipif(
-    is_pre_blackwell(), reason="Only supported on blackwell and newer devices."
+    not microarchitecture_is_pre(12), reason="Does not support blackwell compute 12.0"
 )
 @pytest.mark.parametrize("config", [[1024, 128, 256]])
 @pytest.mark.parametrize("tokens_per_expert_neg_one", [[115, 144, 8]])
