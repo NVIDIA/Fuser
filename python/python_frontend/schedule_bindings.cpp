@@ -499,18 +499,16 @@ void bindSchedule(py::class_<FusionDefinition>& fusion_def) {
             self.validUse(),
             "Attempting to use a SchedOperators Op prior to definition!");
         UserSchedule* sched = self.fusion_definition->userSchedule();
-        auto scheduler_hyperparameters_entry = HeuristicDataCacheEntry<
-            HeuristicCompileTime::SchedulerHyperParameters>(
-            sched->data_cache.get(), []() {
-              return std::make_unique<
-                  scheduler_utils::SchedulerHyperParameters>(
+        if (!sched->scheduler_hyperparams) {
+          sched->scheduler_hyperparams =
+              std::make_unique<scheduler_utils::SchedulerHyperParameters>(
                   /*vectorize_factor=*/1,
                   /*unroll_factor=*/1,
                   /*threads_per_block_min=*/1,
                   /*threads_per_block_max=*/1,
                   /*is_warp_specialized=*/false);
-            });
-        return scheduler_hyperparameters_entry.get();
+        }
+        return *sched->scheduler_hyperparams;
       },
       py::return_value_policy::reference);
 }
