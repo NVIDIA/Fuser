@@ -757,7 +757,7 @@ TEST_P(TranslationCastTest, CountCasts) {
 
   // Count cast ops. In any case there should be only a single cast, at the end
   // of the fusion.
-  const auto exprs = fusion->exprs();
+  const auto exprs = fusion->usedExprs();
   size_t num_casts = std::count_if(exprs.begin(), exprs.end(), [](Expr* e) {
     if (auto* uop = dynamic_cast<UnaryOp*>(e)) {
       return uop->getUnaryOpType() == UnaryOpType::Cast;

@@ -785,7 +785,7 @@ TEST_F(PresegTest, TranslateRepeatToExpand1) {
     // Make sure pad and cat no longer exist
     Fusion fusion_copy = fusion;
     OptimizationPass<TranslateRepeatToExpand>::runPass(&fusion_copy);
-    auto new_exprs = fusion_copy.exprs();
+    auto new_exprs = fusion_copy.usedExprs();
     EXPECT_EQ(
         std::find_if(
             new_exprs.begin(),
@@ -825,7 +825,7 @@ TEST_F(PresegTest, TranslateRepeatToExpand2) {
   {
     Fusion fusion_copy = fusion;
     OptimizationPass<TranslateRepeatToExpand>::runPass(&fusion_copy);
-    auto new_exprs = fusion_copy.exprs();
+    auto new_exprs = fusion_copy.usedExprs();
     EXPECT_EQ(
         std::find_if(
             new_exprs.begin(),
@@ -865,7 +865,7 @@ TEST_F(PresegTest, TranslateRepeatToExpand3) {
   {
     Fusion fusion_copy = fusion;
     OptimizationPass<TranslateRepeatToExpand>::runPass(&fusion_copy);
-    auto new_exprs = fusion_copy.exprs();
+    auto new_exprs = fusion_copy.usedExprs();
     EXPECT_EQ(
         std::find_if(
             new_exprs.begin(),
@@ -912,7 +912,7 @@ TEST_F(PresegTest, TranslateRepeatToExpand4) {
   {
     Fusion fusion_copy = fusion;
     OptimizationPass<TranslateRepeatToExpand>::runPass(&fusion_copy);
-    auto new_exprs = fusion_copy.exprs();
+    auto new_exprs = fusion_copy.usedExprs();
     EXPECT_EQ(
         std::find_if(
             new_exprs.begin(),
@@ -951,7 +951,7 @@ TEST_F(PresegTest, TranslateRepeatToExpand5) {
     // Make sure pad and cat no longer exist
     Fusion fusion_copy = fusion;
     OptimizationPass<TranslateRepeatToExpand>::runPass(&fusion_copy);
-    auto new_exprs = fusion_copy.exprs();
+    auto new_exprs = fusion_copy.usedExprs();
     EXPECT_EQ(
         std::find_if(
             new_exprs.begin(),
@@ -991,7 +991,7 @@ TEST_F(PresegTest, TranslateRepeatToExpand6) {
     // Make sure pad and cat no longer exist
     Fusion fusion_copy = fusion;
     OptimizationPass<TranslateRepeatToExpand>::runPass(&fusion_copy);
-    auto new_exprs = fusion_copy.exprs();
+    auto new_exprs = fusion_copy.usedExprs();
     EXPECT_EQ(
         std::find_if(
             new_exprs.begin(),
@@ -1037,7 +1037,7 @@ TEST_F(PresegTest, FusionTestCastOptimizationMetaOp0) {
     // Make sure cast no longer exists
     Fusion fusion_copy = fusion;
     OptimizationPass<ConsecutiveCastPass>::runPass(&fusion_copy);
-    auto new_exprs = fusion_copy.exprs();
+    auto new_exprs = fusion_copy.usedExprs();
     EXPECT_EQ(
         std::find_if(
             new_exprs.begin(),
@@ -1152,7 +1152,7 @@ TEST_F(PresegTest, FusionTestCastOptimizationMetaOp4) {
     // Make sure cast no longer exists
     Fusion fusion_copy = fusion;
     OptimizationPass<ConsecutiveCastPass>::runPass(&fusion_copy);
-    auto new_exprs = fusion_copy.exprs();
+    auto new_exprs = fusion_copy.usedExprs();
     EXPECT_EQ(
         std::find_if(
             new_exprs.begin(),
@@ -1193,7 +1193,7 @@ TEST_F(PresegTest, FusionTestCastOptimizationMetaOp5) {
     // Make sure we merge all cast together
     Fusion fusion_copy = fusion;
     OptimizationPass<ConsecutiveCastPass>::runPass(&fusion_copy);
-    auto new_exprs = fusion_copy.exprs();
+    auto new_exprs = fusion_copy.usedExprs();
     EXPECT_EQ(
         std::count_if(
             new_exprs.begin(),
@@ -1231,7 +1231,7 @@ TEST_F(PresegTest, FusionTestCastOptimizationMetaOp6) {
     // Make sure we merge all cast together
     Fusion fusion_copy = fusion;
     OptimizationPass<ConsecutiveCastPass>::runPass(&fusion_copy);
-    auto new_exprs = fusion_copy.exprs();
+    auto new_exprs = fusion_copy.usedExprs();
     EXPECT_EQ(
         std::count_if(
             new_exprs.begin(),
@@ -1320,7 +1320,7 @@ TEST_F(PresegTest, MoveGatherOverCast) {
   auto exprs = executor_cache.getMostRecentKernelRuntime()
                    ->fusionSegments()
                    ->completeFusion()
-                   ->exprs();
+                   ->usedExprs();
   // Has take Along axis
   // lookupTv is now a fusion input and of type bfloat16
   auto gather_ops = ir_utils::filterByType<GatherOp>(exprs);
@@ -1415,7 +1415,7 @@ TEST_F(PresegTest, MoveGatherOverSqueezeAndCast) {
   auto exprs = executor_cache.getMostRecentKernelRuntime()
                    ->fusionSegments()
                    ->completeFusion()
-                   ->exprs();
+                   ->usedExprs();
   // Has take Along axis
   // lookupTv is now a fusion input and of type bfloat16
   auto gather_ops = ir_utils::filterByType<GatherOp>(exprs);
@@ -1488,7 +1488,7 @@ TEST_P(TranslateNoReductionMatmulTest, Test) {
     Fusion fusion_copy = fusion;
     OptimizationPass<TranslateNoReductionMatmulToMulSqueeze>::runPass(
         &fusion_copy);
-    auto new_exprs = fusion_copy.exprs();
+    auto new_exprs = fusion_copy.usedExprs();
     EXPECT_EQ(
         std::find_if(
             new_exprs.begin(),

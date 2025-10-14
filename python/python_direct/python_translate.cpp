@@ -564,7 +564,7 @@ class PythonTranslator : public OptInConstDispatch {
     }
 
     // Gather all expressions in CPP Fusion.
-    const std::vector<nvfuser::Expr*> fusion_exprs = fusion_->exprs();
+    const std::vector<nvfuser::Expr*> fusion_exprs = fusion_->usedExprs();
     std::deque<nvfuser::Expr*> to_visit(
         fusion_exprs.begin(), fusion_exprs.end());
 

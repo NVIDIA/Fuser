@@ -172,7 +172,7 @@ TEST_F(SegmentationTest, EnforceSegmentationByCachingBeforeAndAfter) {
 
   // I'd put this in a pre-segmenter pass.
   std::vector<Expr*> sharding_exprs;
-  for (Expr* expr : fusion->exprs()) {
+  for (Expr* expr : fusion->usedExprs()) {
     if (is_sharding(expr)) {
       sharding_exprs.push_back(expr);
     }

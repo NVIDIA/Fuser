@@ -5372,7 +5372,7 @@ TEST_F(ResizeTest, VectorizeFactorFour) {
 
   // check that we vectorize 4
   bool found_vectorize = false;
-  auto exprs = fusion.exprs();
+  auto exprs = fusion.usedExprs();
   auto pad_ops = ir_utils::filterByType<PadOp>(exprs).vector();
   EXPECT_EQ(pad_ops.size(), 1);
   EXPECT_TRUE(pad_ops.at(0)->out()->isA<TensorView>());
@@ -5410,7 +5410,7 @@ TEST_F(ResizeTest, VectorizeFactorTwo) {
 
   // check that we vectorize 2
   bool found_vectorize = false;
-  auto exprs = fusion.exprs();
+  auto exprs = fusion.usedExprs();
   auto pad_ops = ir_utils::filterByType<PadOp>(exprs).vector();
   EXPECT_EQ(pad_ops.size(), 1);
   EXPECT_TRUE(pad_ops.at(0)->out()->isA<TensorView>());
@@ -5447,7 +5447,7 @@ TEST_F(ResizeTest, VectorizeFactorTwoPadZeroExtent) {
 
   // check that we vectorize 2
   bool found_vectorize = false;
-  auto exprs = fusion.exprs();
+  auto exprs = fusion.usedExprs();
   auto pad_ops = ir_utils::filterByType<PadOp>(exprs).vector();
   EXPECT_EQ(pad_ops.size(), 1);
   EXPECT_TRUE(pad_ops.at(0)->out()->isA<TensorView>());
@@ -5489,7 +5489,7 @@ TEST_F(ResizeTest, VectorizePadNonInnermost) {
 
   // check that we vectorize 4
   bool found_vectorize = false;
-  auto exprs = fusion.exprs();
+  auto exprs = fusion.usedExprs();
   auto pad_ops = ir_utils::filterByType<PadOp>(exprs).vector();
   EXPECT_EQ(pad_ops.size(), 1);
   EXPECT_TRUE(pad_ops.at(0)->out()->isA<TensorView>());
@@ -5526,7 +5526,7 @@ TEST_F(ResizeTest, PadAndCacheUses) {
 
   // check that pad vectorize 4
   bool found_vectorize = false;
-  auto exprs = fusion.exprs();
+  auto exprs = fusion.usedExprs();
   auto pad_ops = ir_utils::filterByType<PadOp>(exprs).vector();
   EXPECT_EQ(pad_ops.size(), 1);
   EXPECT_TRUE(pad_ops.at(0)->out()->isA<TensorView>());
@@ -5948,7 +5948,7 @@ TEST_F(ResizeTest, AvoidCachingSliceInput) {
       continue;
     }
     const auto* ke = exec->as<KernelExecutor>();
-    for (auto expr : ke->compiledKernel()->kernel()->exprs()) {
+    for (auto expr : ke->compiledKernel()->kernel()->usedExprs()) {
       if (expr->isA<SliceOp>()) {
         auto slice = expr->as<SliceOp>();
         EXPECT_EQ(slice->in()->getMemoryType(), MemoryType::Global);

@@ -60,7 +60,7 @@ TEST_F(ReshardingTest, SplitingView) {
   KernelArgumentHolder args({in_tensor});
   DynamicTransform::concretizeFusion(&fusion, args);
 
-  EXPECT_THAT(fusion.exprs(), Each(ResultOf(isResharding, IsFalse())));
+  EXPECT_THAT(fusion.usedExprs(), Each(ResultOf(isResharding, IsFalse())));
 }
 
 TEST_F(ReshardingTest, MergingView) {
@@ -546,7 +546,7 @@ TEST_F(ReshardingTest, InsertShardedAxisReordering) {
   preseg_passes::OptimizationPass<
       preseg_passes::DecomposeReshardingsPass>::runPass(&fusion);
   int num_inner_reshardings = 0;
-  for (auto expr : fusion.exprs()) {
+  for (auto expr : fusion.usedExprs()) {
     if (isResharding(expr) && !isCommunicationLayoutCompliant(expr)) {
       num_inner_reshardings++;
     }
@@ -555,7 +555,7 @@ TEST_F(ReshardingTest, InsertShardedAxisReordering) {
 
   preseg_passes::OptimizationPass<
       preseg_passes::ReorderShardedAxisPass>::runPass(&fusion);
-  for (auto expr : fusion.exprs()) {
+  for (auto expr : fusion.usedExprs()) {
     if (isResharding(expr)) {
       EXPECT_TRUE(isCommunicationLayoutCompliant(expr));
     }

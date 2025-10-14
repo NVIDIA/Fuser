@@ -1053,7 +1053,7 @@ bool SchedulerTopologyChecker::hasResizeAndIndexOps(Fusion* fusion) {
 bool SchedulerTopologyChecker::rejectScheduleFusionGlobalBufferRequirement(
     Fusion* fusion,
     SchedulerType scheduler_type) {
-  for (auto expr : fusion->exprs()) {
+  for (auto expr : fusion->usedExprs()) {
     if (expr->isA<PreprocessGroupedMatmulInputSf>()) {
       // The runtime function of layout_op needs:
       //   1. Write output directly to global memory

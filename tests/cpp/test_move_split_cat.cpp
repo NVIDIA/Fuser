@@ -204,7 +204,7 @@ TEST_F(MoveSplitCatTest, Cancellable_IncompatibleAllocationOrder) {
   // Check the two permutes are merged to one.
   FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
   Fusion* complete_fusion = runtime->fusionSegments()->completeFusion();
-  EXPECT_THAT(complete_fusion->exprs(), Contains(IsPermute()).Times(1));
+  EXPECT_THAT(complete_fusion->usedExprs(), Contains(IsPermute()).Times(1));
 
   // Due to the incompatible output allocation order, the output can't be an
   // alias.
@@ -534,7 +534,7 @@ TEST_F(MoveSplitCatTest, MultiplePairs) {
 
   FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
   Fusion* complete_fusion = runtime->fusionSegments()->completeFusion();
-  std::vector<Expr*> exprs = complete_fusion->exprs();
+  std::vector<Expr*> exprs = complete_fusion->usedExprs();
 
   // Only region 1 is not mergeable, so we expect to see only that region
   // contains two slices and one cat in the pre-segmenter fusion.

@@ -163,7 +163,7 @@ TEST_F(ShardingTest, ShardedAllocationDomain) {
       preseg_passes::ReorderShardedAxisPass>::runPass(&fusion);
   preseg_passes::OptimizationPass<
       preseg_passes::FinalizeMultideviceDomainsPass>::runPass(&fusion);
-  for (auto expr : fusion.exprs()) {
+  for (auto expr : fusion.usedExprs()) {
     if (isResharding(expr)) {
       for (auto tv : ir_utils::filterByType<TensorView>(expr->inputs())) {
         isContiguous(tv);

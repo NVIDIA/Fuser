@@ -270,7 +270,7 @@ TEST_F(MovePadTest, CascadePadCase0) {
 
   FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
   Fusion* complete_fusion = runtime->fusionSegments()->completeFusion();
-  std::vector<Expr*> exprs = complete_fusion->exprs();
+  std::vector<Expr*> exprs = complete_fusion->usedExprs();
   EXPECT_THAT(exprs, Contains(IsA<PadOp>()).Times(1));
 
   testValidate(executor_cache.fusion(), out_tensors, {t0}, __LINE__, __FILE__);
@@ -307,7 +307,7 @@ TEST_F(MovePadTest, CascadePadCase1) {
 
   FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
   Fusion* complete_fusion = runtime->fusionSegments()->completeFusion();
-  std::vector<Expr*> exprs = complete_fusion->exprs();
+  std::vector<Expr*> exprs = complete_fusion->usedExprs();
   EXPECT_THAT(exprs, Contains(IsA<PadOp>()).Times(2));
 
   testValidate(executor_cache.fusion(), out_tensors, {t0}, __LINE__, __FILE__);

@@ -1976,7 +1976,7 @@ TEST_F(NVFuserTest, FusionPropagateParallelTypesToSiblings_CUDA) {
   // Make sure the parallelization of tv_avg is propagated to the var
   // and count tensors.
   GpuLower gpulw(&fusion);
-  for (const auto expr : gpulw.run()->exprs()) {
+  for (const auto expr : gpulw.run()->usedExprs()) {
     auto wop = dynamic_cast<WelfordOp*>(expr);
     if (wop == nullptr) {
       continue;
@@ -5934,7 +5934,7 @@ TEST_F(NVFuserTest, FusionAvoidRedundantWriteBroadcastedSoftmaxInput_CUDA) {
   auto kernel = ke->compiledKernel()->kernel();
   const auto& thread_pred_map =
       ke->compiledKernel()->lowered()->info().threadPredicateMap();
-  for (const auto expr : kernel->exprs()) {
+  for (const auto expr : kernel->usedExprs()) {
     auto tv = ir_utils::getTvOutput(expr);
     if (tv && tv->name() == 15 && tv->getMemoryType() == MemoryType::Global) {
       const auto& thread_pred = thread_pred_map.getPredicateInfo(tv);
@@ -5999,7 +5999,7 @@ TEST_F(NVFuserTest, FusionAvoidRedundantWrite_CUDA) {
     const auto& thread_pred_map =
         ke->compiledKernel()->lowered()->info().threadPredicateMap();
 
-    for (const auto expr : kernel->exprs()) {
+    for (const auto expr : kernel->usedExprs()) {
       auto tv = ir_utils::getTvOutput(expr);
       if (tv && tv->name() == 8 && tv->getMemoryType() == MemoryType::Global) {
         const auto& thread_pred = thread_pred_map.getPredicateInfo(tv);
@@ -6156,7 +6156,7 @@ TEST_F(NVFuserTest, FusionAvoidRedundantWriteNonOutput_CUDA) {
   const auto& thread_pred_map =
       ke.compiledKernel()->lowered()->info().threadPredicateMap();
 
-  for (const auto expr : kernel->exprs()) {
+  for (const auto expr : kernel->usedExprs()) {
     auto tv = ir_utils::getTvOutput(expr);
     if (tv->name() == 5 || tv->name() == 6) {
       const auto& thread_pred = thread_pred_map.getPredicateInfo(tv);
@@ -6221,7 +6221,7 @@ TEST_F(NVFuserTest, FusionAvoidRedundantWriteNonNeighbor_CUDA) {
   const auto& thread_pred_map =
       ke.compiledKernel()->lowered()->info().threadPredicateMap();
 
-  for (const auto expr : kernel->exprs()) {
+  for (const auto expr : kernel->usedExprs()) {
     auto tv = ir_utils::getTvOutput(expr);
     if (tv->name() == 5 || tv->name() == 6) {
       const auto& thread_pred = thread_pred_map.getPredicateInfo(tv);
@@ -8804,7 +8804,7 @@ TEST_F(NVFuserTest, ReplaceSymbolicSizesPreferSimplerExtents) {
   ASSERT_NE(dynamic_cast<GetItem*>(lhs->definition()), nullptr);
   ASSERT_NE(dynamic_cast<GetItem*>(rhs->definition()), nullptr);
 
-  for (auto expr : fusion.exprs()) {
+  for (auto expr : fusion.usedExprs()) {
     auto tv_output = ir_utils::getTvOutput(expr);
     ASSERT_EQ(tv_output->nDims(), 1);
     auto ext = tv_output->axis(0)->extent();

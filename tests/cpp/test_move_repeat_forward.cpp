@@ -53,7 +53,7 @@ TEST_F(MoveRepeatForwardTest, Simple) {
                                  ->compiledKernel()
                                  ->kernel();
 
-  for (auto e : scheduled_fusion->exprs()) {
+  for (auto e : scheduled_fusion->usedExprs()) {
     // The sin op should operate on a tensor of the pre-repeat size
     if (auto uop = dynamic_cast<UnaryOp*>(e);
         uop != nullptr && uop->getUnaryOpType() == UnaryOpType::Sin) {
@@ -99,7 +99,7 @@ TEST_F(MoveRepeatForwardTest, MoveOverSlice) {
                                  ->compiledKernel()
                                  ->kernel();
 
-  for (auto e : scheduled_fusion->exprs()) {
+  for (auto e : scheduled_fusion->usedExprs()) {
     // The sin op should operate on a tensor of the pre-repeat size
     if (auto uop = dynamic_cast<UnaryOp*>(e);
         uop != nullptr && uop->getUnaryOpType() == UnaryOpType::Sin) {
@@ -150,7 +150,7 @@ TEST_F(MoveRepeatForwardTest, DISABLED_ConflictingSlice) {
                    ->as<KernelExecutor>()
                    ->compiledKernel()
                    ->kernel()
-                   ->exprs();
+                   ->usedExprs();
   // The sin should operate on the pre-repeat size
   auto sin_it = std::ranges::find_if(exprs, [](Expr* e) {
     auto uop = dynamic_cast<UnaryOp*>(e);
@@ -228,7 +228,7 @@ TEST_F(MoveRepeatForwardTest, MoveOverRotation) {
                                  ->compiledKernel()
                                  ->kernel();
 
-  for (auto e : scheduled_fusion->exprs()) {
+  for (auto e : scheduled_fusion->usedExprs()) {
     // The sin op should operate on a tensor of the pre-repeat size
     if (auto uop = dynamic_cast<UnaryOp*>(e);
         uop != nullptr && uop->getUnaryOpType() == UnaryOpType::Sin) {
@@ -286,7 +286,7 @@ TEST_F(MoveRepeatForwardTest, MoveRepeatWithNonRepeatedInputs) {
                    ->as<KernelExecutor>()
                    ->compiledKernel()
                    ->kernel()
-                   ->exprs();
+                   ->usedExprs();
 
   // The sin should operate on the pre-repeat size
   auto sin_it = std::ranges::find_if(exprs, [](Expr* e) {

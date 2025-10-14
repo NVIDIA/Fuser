@@ -118,7 +118,7 @@ TEST_F(RemoveBcastSqueezeTest, BcastSqueezeUnmatchedDim) {
       fusion.get());
   EXPECT_TRUE(ir_utils::hasOpsOfType<BroadcastOp>(fusion.get()));
   EXPECT_FALSE(ir_utils::hasOpsOfType<SqueezeOp>(fusion.get()));
-  for (auto expr : fusion->exprs()) {
+  for (auto expr : fusion->usedExprs()) {
     if (auto* bcast = dynamic_cast<BroadcastOp*>(expr)) {
       EXPECT_EQ(
           bcast->getBroadcastDimFlags(),

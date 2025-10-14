@@ -5897,7 +5897,7 @@ TEST_F(PredicateIndexingTest, VectorizedResizeRotation) {
 
   fusion.addOutput(tv6);
 
-  for (Expr* expr : fusion.exprs()) {
+  for (Expr* expr : fusion.usedExprs()) {
     if (expr->isOneOf<SliceOp, PadOp>()) {
       scheduler_tools::propagateResizeToInputs(expr);
     }

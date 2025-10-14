@@ -444,7 +444,7 @@ void scheduleNormalization(Fusion& fusion, const OuterReductionParams& params) {
   std::vector<Expr*> reduction_exprs;
   std::vector<TensorView*> reduction_tvs;
 
-  for (auto expr : fusion.exprs()) {
+  for (auto expr : fusion.usedExprs()) {
     if (ir_utils::isReductionTvOp(expr)) {
       reduction_exprs.push_back(expr);
       reduction_tvs.push_back(ir_utils::getTvOutput(expr));

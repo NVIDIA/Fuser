@@ -88,7 +88,7 @@ list of Val
 )")
       .def(
           "vals",
-          [](Fusion& self) { return self.vals(); },
+          [](Fusion& self) { return self.unordered_vals(); },
           py::return_value_policy::reference,
           R"(
 Return all Vals registered in the fusion.
