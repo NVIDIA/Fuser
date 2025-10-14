@@ -174,12 +174,13 @@ void CutlassCompiledKernel::run(
 
   // Define the function signature for the kernel
   using KernelFunc =
-      void (*)(const std::vector<TensorArg>&, void*, cudaStream_t);
+      void (*)(const std::vector<TensorArg>&, uint8_t*, cudaStream_t);
 
   auto kernel_func = reinterpret_cast<KernelFunc>(cuda_function_);
 
   // Call the kernel
-  kernel_func(tensor_args, workspace.data_ptr(), stream);
+  kernel_func(
+      tensor_args, reinterpret_cast<uint8_t*>(workspace.data_ptr()), stream);
 }
 
 void CutlassCompiledKernel::generateCode() {

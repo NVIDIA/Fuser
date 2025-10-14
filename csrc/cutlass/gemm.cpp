@@ -454,7 +454,7 @@ extern "C" size_t workspace_size(void* input_ptr) {
 // It handles the complete lifecycle from kernel initialization to execution.
 extern "C" void run_kernel(
     const std::vector<TensorArg>& inputs,
-    void* workspace,
+    uint8_t* workspace_ptr,
     cudaStream_t stream) {
   typename Fp4GemmSm100::Gemm gemm;
 
@@ -465,10 +465,10 @@ extern "C" void run_kernel(
       can_implement_status == cutlass::Status::kSuccess,
       "Failed to implement GEMM");
 
-  auto status = gemm.initialize(arguments, workspace, stream);
+  auto status = gemm.initialize(arguments, workspace_ptr, stream);
   NVF_ERROR(status == cutlass::Status::kSuccess, "Failed to initialize GEMM");
 
-  status = gemm.run(arguments, workspace, stream);
+  status = gemm.run(arguments, workspace_ptr, stream);
   NVF_ERROR(status == cutlass::Status::kSuccess, "Failed to run GEMM");
 }
 )";
