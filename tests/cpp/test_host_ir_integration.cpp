@@ -29,7 +29,6 @@ class HostIrIntegrationTest : public NVFuserTest {
  protected:
   HostIrIntegrationTest() {
     EnableOptionsGuard::getCurOptions().set(EnableOption::HostIrLowering);
-    EnableOptionsGuard::getCurOptions().set(EnableOption::HostIrJit);
   }
 };
 
