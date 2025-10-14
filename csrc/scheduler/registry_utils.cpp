@@ -1201,16 +1201,30 @@ bool SchedulerTopologyChecker::hasReshapeWithDifferentSplitFactors(
     return false;
   }
 
-  // use the first reshape op as the reference
+  // use the first reshape op as the reference, only check splits
   const auto& ref_transforms = StmtSort::getExprsTo(
       {reshape_ops.at(0)->out()->getLogicalDomain().begin(),
        reshape_ops.at(0)->out()->getLogicalDomain().end()});
+  std::vector<Expr*> ref_transforms_splits;
+  ref_transforms_splits.reserve(ref_transforms.size());
+  for (auto* transform : ref_transforms) {
+    if (transform->isA<Split>()) {
+      ref_transforms_splits.push_back(transform);
+    }
+  }
 
   for (size_t idx = 1; idx < reshape_ops.size(); idx++) {
     const auto& my_transforms = StmtSort::getExprsTo(
         {reshape_ops.at(idx)->out()->getLogicalDomain().begin(),
          reshape_ops.at(idx)->out()->getLogicalDomain().end()});
-    if (!isSameSplit(ref_transforms, my_transforms)) {
+    std::vector<Expr*> my_transforms_splits;
+    my_transforms_splits.reserve(my_transforms.size());
+    for (auto* transform : my_transforms) {
+      if (transform->isA<Split>()) {
+        my_transforms_splits.push_back(transform);
+      }
+    }
+    if (!isSameSplit(ref_transforms_splits, my_transforms_splits)) {
       return true;
     }
   }
