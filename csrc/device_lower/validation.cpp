@@ -812,7 +812,7 @@ class VectorizeValidator : public OptInDispatch {
     // If no vectorized ids found simply return. If vectorized access is
     // broadcast, it won't generate an actual vector instruction, so can
     // be safely ignored
-    if (v_id == nullptr || v_id->isBroadcast() || v_id->extent()->isOne()) {
+    if (v_id == nullptr || v_id->isBroadcast()) {
       return;
     }
 
@@ -866,6 +866,14 @@ class VectorizeValidator : public OptInDispatch {
     }
 
     if (!tv_def->isA<LoadStoreOp>()) {
+      return;
+    }
+
+    // If the extent of the vectorized ID is just 1, it is effectively
+    // not vectorized. Note that this check should be place below the
+    // above check of the vectorization size since it's still invalid
+    // if the data type is a sub byte type
+    if (v_id->extent()->isOne()) {
       return;
     }
 
