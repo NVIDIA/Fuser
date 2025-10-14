@@ -449,6 +449,23 @@ class CompileTimeChecker : private IterVisitor {
   void handle(PadOp* pad) override {
     checkDomainConstraints(
         ir_utils::getTvOutput(pad)->getLogicalDomain(), pad->getPaddedAxes());
+
+    for (const auto& logical_id :
+         ir_utils::getTvOutput(pad)->getLogicalDomain()) {
+      auto resize = dynamic_cast<Resize*>(logical_id->definition());
+      if (resize == nullptr) {
+        continue;
+      }
+      // Resize to broadcast not supported yet. Have not looked at
+      // details but getLoopPromotion fails at csrc/id_model/utils.h:105 (e.g.,
+      // ResizeTest.ResizePadToBroadcastStatic), likely because
+      // broadcast IDs are introduced without BroadcastOp.
+      // This is also the case with the resize scheduler.
+      if (resize->out()->isBroadcast()) {
+        reject("Resize to a broadcast ID is not allowed: ", pad->toString());
+        return;
+      }
+    }
   }
 
   void handle(TopKOp* topk) override {
@@ -1183,14 +1200,6 @@ class ConstrainedOpScheduler : public OptOutDispatch {
     const auto& constrained_loop_id_offsets =
         getDependentLoopIds(tv, constrained_logical_id_offsets);
 
-    // Don't inline constrained IDs. For example, like reduction IDs,
-    // argsort'ed IDs should never be inlined into its consumers.
-    for (const auto constrained_logical_id_offset :
-         constrained_logical_id_offsets) {
-      uninlinable_ids_.insert(
-          tv->getLogicalDomain().at(constrained_logical_id_offset));
-    }
-
     // Move the constrained_logical_ids innermost
     std::unordered_map<int64_t, int64_t> old2new;
     for (const auto [i, offset] : enumerate(constrained_loop_id_offsets)) {
@@ -1257,6 +1266,25 @@ class ConstrainedOpScheduler : public OptOutDispatch {
     tv->flatten(
         0, std::ssize(tv->getLoopDomain()) - 1 - num_constrained_loop_ids);
     tv->axis(0)->parallelize(ParallelType::BIDx);
+
+    // Don't inline constrained IDs. For example, like reduction IDs,
+    // argsort'ed IDs should never be inlined into its consumers.
+    std::unordered_set<Val*> constrained_logical;
+    for (const auto constrained_logical_id_offset :
+         constrained_logical_id_offsets) {
+      constrained_logical.insert(
+          tv->getLogicalDomain().at(constrained_logical_id_offset));
+    }
+
+    auto all_constrained_ids = DependencyCheck::getAllValsBetween(
+        constrained_logical,
+        {tv->getLoopDomain().begin(), tv->getLoopDomain().end()});
+    for (const auto loop_id : tv->getLoopDomain()) {
+      if (std::ranges::find(all_constrained_ids, loop_id) !=
+          all_constrained_ids.end()) {
+        uninlinable_ids_.insert(loop_id);
+      }
+    }
   }
 
  private:
