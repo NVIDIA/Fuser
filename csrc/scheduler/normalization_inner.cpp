@@ -536,6 +536,10 @@ void innerPersistentHeuristic2D(
   }
 
   if (rparams->static_bdimx) {
+    rparams->compute_persistent_buffer_with_first_consumer = true;
+    if (std::getenv("NO_COMPUTE_WITH") != nullptr) {
+      rparams->compute_persistent_buffer_with_first_consumer = false;
+    }
     best_heuristic.bdimx =
         roundUpToMultiple(best_heuristic.bdimx, threads_per_warp);
   }

@@ -6,7 +6,6 @@ from .core import run_benchmark, clear_dynamo_cache, with_executor, DEFAULT_EXEC
 import torch
 from .global_params import FLOAT_DTYPES, BENCHMARK_CONFIG
 from .torch_ops import rmsnorm_add
-from flashinfer import fused_add_rmsnorm
 import itertools
 from random import sample
 from typing import List, Tuple
@@ -52,6 +51,8 @@ def generate_input_sizes_rmsnorm_add(dims: int = 2) -> List[Tuple]:
 # needs to explicitly return the updated tensors to correctly compute IO bytes
 # https://github.com/flashinfer-ai/flashinfer/blob/ba2b4aa636c4ecf99981794767ffbf89267720cd/flashinfer/norm.py#L106
 def flashinfer_rmsnorm_add_wrapper(inputs_list):
+    from flashinfer import fused_add_rmsnorm
+
     inputs, weights, residual = inputs_list
     fused_add_rmsnorm(inputs, residual, weights)
     return inputs, residual
