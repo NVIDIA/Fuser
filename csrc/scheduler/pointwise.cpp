@@ -312,8 +312,16 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
                (int64_t)vectorizable_inputs_outputs_entry.get().size()) >>
            2),
           (int64_t)1));
+
+  auto all_exprs = fusion->exprs();
+  auto fusion_has_block_quantization =
+      ir_utils::filterByType<BlockQuantizationOp>(all_exprs).size() > 0;
+
   // Don't vectorize at the cost of getting a full wave on the GPU
-  if (n_elems < device_multiprocessor_count * kThreadX && max_vect_factor > 1) {
+  // unless there's a block quantization op which must be vectorized.
+  if ((n_elems < device_multiprocessor_count * kThreadX &&
+       max_vect_factor > 1) &&
+      !fusion_has_block_quantization) {
     max_vect_factor = std::min(
         max_vect_factor,
         ceilDiv(n_elems, device_multiprocessor_count * kThreadX));
