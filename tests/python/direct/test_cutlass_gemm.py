@@ -6,11 +6,15 @@
 import pytest
 import torch
 from python.direct_utils import is_pre_blackwell
+from python.direct_utils import microarchitecture_is_pre
 from nvfuser_direct import nvf_cutlass
 
 
 @pytest.mark.skipif(
     is_pre_blackwell(), reason="Only supported on blackwell and newer devices."
+)
+@pytest.mark.skipif(
+    not microarchitecture_is_pre(12), reason="Does not support blackwell compute 12.0."
 )
 @pytest.mark.parametrize("config", [[1024, 128, 256], [32, 128, 256]])
 @pytest.mark.parametrize("tokens_per_expert_neg_one", [[115, 144, 8], [5, 7, 9]])

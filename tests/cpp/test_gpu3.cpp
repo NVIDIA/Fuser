@@ -9067,9 +9067,8 @@ TEST_F(NVFuserTest, UseAllSharedMemory) {
   const auto properties = at::cuda::getDeviceProperties(
       c10::Device(c10::DeviceType::CUDA, 0).index());
 
-  // This kernel requires some static smem for some reason. We validate that
-  // here as well.
-  constexpr int64_t expected_static_smem = 16L;
+  constexpr int64_t expected_static_smem =
+      scheduler_utils::static_smem_usage_in_bytes;
   const int64_t available_dyn_smem_bytes =
       (int64_t)properties->sharedMemPerBlockOptin - expected_static_smem;
 

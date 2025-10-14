@@ -13,6 +13,8 @@
 #include <fusion.h>
 #include <fusion_guard.h>
 #include <ir/interface_nodes.h>
+#include <multidevice/utils.h>
+#include <ops/alias.h>
 #include <ops/arith.h>
 #include <ops/composite.h>
 #include <runtime/fusion_executor_cache.h>
@@ -106,6 +108,35 @@ TEST_F(StreamTest, Matmul) {
       {in_tensor, w_tensor},
       __LINE__,
       __FILE__);
+}
+
+TEST_F(StreamTest, HaveDifferentShardings) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  constexpr int64_t s = 2;
+
+  TensorView* tv0 = makeContigTensor(2);
+  TensorView* tv1 = set(tv0);
+  TensorView* tv2 = set(tv1);
+  TensorView* tv3 = set(tv2);
+  fusion.addInput(tv0);
+  fusion.addOutput(tv2);
+
+  // tv1: [s, i0/s, i1]
+  tv1->outer_split(0, s);
+  tv1->axis(0)->parallelize(ParallelType::Stream);
+
+  // tv2: [s, i0/s, i1]
+  tv2->outer_split(0, s);
+  tv2->axis(0)->parallelize(ParallelType::Stream);
+
+  // tv3: [s, i0, i1/s]
+  tv3->outer_split(1, s);
+  tv3->axis(1)->parallelize(ParallelType::Stream);
+
+  EXPECT_FALSE(haveDifferentShardings(tv1, tv2, {ParallelType::Stream}));
+  EXPECT_TRUE(haveDifferentShardings(tv2, tv3, {ParallelType::Stream}));
 }
 
 } // namespace nvfuser

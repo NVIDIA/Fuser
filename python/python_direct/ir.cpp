@@ -405,6 +405,29 @@ TensorView
     A TensorView with the reordered axes in its loop domain.
 )")
       .def(
+          "swizzle",
+          [](TensorView* self, int64_t x, int64_t y) {
+            return self->swizzle(SwizzleType::XOR, x, y);
+          },
+          py::return_value_policy::reference,
+          py::arg("x"),
+          py::arg("y"),
+          R"(
+Swizzle the axes of this tensor.
+
+Parameters
+----------
+x : int
+    The x axis to swizzle.
+y : int
+    The y axis to swizzle.
+
+Returns
+-------
+TensorView
+    A TensorView with the swizzled axes in its loop domain.
+)")
+      .def(
           "rfactor",
           static_cast<TensorView* (TensorView::*)(const std::vector<int64_t>&)>(
               &TensorView::rFactor),
