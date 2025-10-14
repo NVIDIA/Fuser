@@ -130,4 +130,59 @@ TEST_F(StreamTest, BackwardPropagation) {
   }
 }
 
+TEST_F(StreamTest, ShardedAllocation) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  const int64_t s = 2;
+
+  TensorView* tv0 = makeContigTensor(3);
+  TensorView* tv1 = add(tv0, IrBuilder::create<Val>(1.0));
+  TensorView* tv2 = sum(tv1, {2});
+  TensorView* tv3 = div(tv1, IrBuilder::create<Val>(2.0));
+  fusion.addInput(tv0);
+  fusion.addOutput(tv2);
+  fusion.addOutput(tv3);
+
+  tv0->outer_split(0, s);
+  tv0->axis(0)->parallelize(ParallelType::Stream);
+
+  preseg_passes::OptimizationPass<preseg_passes::PresegmenterPass>::runPass(
+      &fusion);
+
+  for (auto* tv : {tv0, tv1, tv2, tv3}) {
+    EXPECT_TRUE(tv->axis(0)->isStream()) << tv;
+    if (tv->isFusionOutput() || tv->isFusionInput()) {
+      EXPECT_EQ(tv->getAllocationDomain(), tv->getLogicalDomain());
+    } else {
+      EXPECT_EQ(tv->getAllocationDomain(), tv->getLoopDomain());
+    }
+  }
+}
+
+TEST_F(StreamTest, ReplicatedAllocation) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  TensorView* tv0 = makeContigTensor(3);
+  TensorView* tv1 = add(tv0, IrBuilder::create<Val>(1.0));
+  TensorView* tv2 = sum(tv1, {2});
+  TensorView* tv3 = div(tv1, IrBuilder::create<Val>(2.0));
+  fusion.addInput(tv0);
+  fusion.addOutput(tv2);
+  fusion.addOutput(tv3);
+
+  tv0->outer_split(0, s);
+  tv0->axis(0)->parallelize(ParallelType::Stream);
+  tv2->outer_split(1, s);
+  tv2->axis(1)->parallelize(ParallelType::Stream);
+
+  preseg_passes::OptimizationPass<preseg_passes::PresegmenterPass>::runPass(
+      &fusion);
+  for (auto* tv : {tv0, tv1, tv2, tv3}) {
+    EXPECT_TRUE(tv->axis(0)->isStream()) << tv;
+    EXPECT_EQ(tv->getAllocationDomain(), tv->getLogicalDomain());
+  }
+}
+
 } // namespace nvfuser
