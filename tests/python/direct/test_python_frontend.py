@@ -2623,6 +2623,9 @@ def test_single_segment_multi_device():
 
 
 # Test that we properly handle packed type
+@pytest.mark.skipif(
+    is_pre_blackwell(), reason="Only supported on blackwell and newer devices."
+)
 def test_packed_fp4(nvfuser_direct_test):
     t0 = torch.rand(
         (
