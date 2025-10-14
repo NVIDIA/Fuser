@@ -856,6 +856,13 @@ ReductionTvProperties getReductionProperties(
     }
   }
 
+  // all reduction ids are static, don't care about non-reduction ids
+  // For static reduction size, we can use static block size
+  bool is_static_reduction_size = std::all_of(
+      logical_domain.begin(), logical_domain.end(), [](IterDomain* id) {
+        return !id->isReduction() || id->extent()->isConstScalar();
+      });
+
   ReductionTvProperties properties;
   properties.total_reduction_numel = total_reduction_numel;
   properties.total_iteration_numel = total_iteration_numel;
@@ -863,6 +870,7 @@ ReductionTvProperties getReductionProperties(
   properties.inner_most_dimension_numel = inner_most_dimension_numel;
   properties.inner_most_dimension_ndims = inner_most_dimension_ndims;
   properties.dimensionality = dimensionality;
+  properties.is_static_reduction_size = is_static_reduction_size;
 
   return properties;
 }

@@ -15,6 +15,7 @@
 #include <scheduler/utils.h>
 
 #include <ATen/cuda/CUDAContext.h>
+#include "utils.h"
 
 namespace nvfuser {
 using PersistentKernelProperties =
@@ -524,11 +525,27 @@ void innerPersistentHeuristic2D(
     }
   }
 
+  // Use static bdimx if the fusion has static reduction size.
+  // Static bdimx: divergence may happen at only the last persistent batch.
+  // [R/Vect/TIDx(Persistent), TIDx, Vect],
+  // Dynamic bdimx: divergence may happen at all persistent batches.
+  // [Persistent, R/Vect/Persistent(TIDx), Vect]
+  rparams->static_bdimx = properties.is_static_reduction_size;
+  if (std::getenv("USE_MAIN") != nullptr) {
+    rparams->static_bdimx = false;
+  }
+
+  if (rparams->static_bdimx) {
+    best_heuristic.bdimx =
+        roundUpToMultiple(best_heuristic.bdimx, threads_per_warp);
+  }
+
   rparams->lparams = LaunchParams(
       gdimx,
       LaunchParams::UNINITIALIZED_VAL,
       LaunchParams::UNINITIALIZED_VAL,
-      LaunchParams::UNINITIALIZED_VAL,
+      rparams->static_bdimx ? best_heuristic.bdimx
+                            : LaunchParams::UNINITIALIZED_VAL,
       best_heuristic.bdimy,
       LaunchParams::UNINITIALIZED_VAL);
 }
