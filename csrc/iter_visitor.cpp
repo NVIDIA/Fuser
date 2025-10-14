@@ -71,8 +71,7 @@ class MemberStatements : public OptOutDispatch {
 
   void handle(TensorDomain* stmt) final {
     std::vector<IterDomain*> all_ids = stmt->allIDs();
-    next_stmts_.insert(
-        next_stmts_.end(), all_ids.begin(), all_ids.end());
+    next_stmts_.insert(next_stmts_.end(), all_ids.begin(), all_ids.end());
   }
 
   void handle(TensorView* tv) final {
