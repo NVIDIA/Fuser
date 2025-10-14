@@ -3205,7 +3205,7 @@ Notes
       py::arg("input_offsets"),
       py::arg("output_offsets"),
       R"(
-Layout operation to apply per group swizzle & padding for grouped matmul block scaling factor for activation.
+Layout operation to apply per group swizzle & padding to the block scaling factor of the input activations to grouped matmul.
 
 Parameters
 ----------
@@ -3221,7 +3221,7 @@ output_offsets: TensorView
 Returns
 -------
 TensorView
-    A tensor with proper swizzle & padding  in memory. Note that the actual padding in buffer is not represented by the size/stride of the output tensor.
+    A tensor with proper swizzle & padding in memory. Note that the actual padding in buffer is not represented by the size/stride of the output tensor.
 )",
       py::return_value_policy::reference);
 }
