@@ -39,6 +39,7 @@ namespace nvfuser {
 // unless new driver capabilities are needed.
 #define NVF_ALL_DRIVER_API_WRAPPER_VERSION_INDEPENDENT(fn) \
   fn(cuDeviceGetAttribute, 11000);                         \
+  fn(cuDeviceGet, 11000);                                   \
   fn(cuDeviceGetName, 11000);                              \
   fn(cuFuncGetAttribute, 11000);                           \
   fn(cuFuncSetAttribute, 11000);                           \
@@ -84,16 +85,41 @@ namespace nvfuser {
 #endif
 
 #if (CUDA_VERSION >= 12000)
-#define NVF_DRIVER_API_WRAPPER_CUDA_120(fn) fn(cuTensorMapEncodeTiled, 12000)
+#define NVF_DRIVER_API_WRAPPER_CUDA_120(fn) \
+  fn(cuTensorMapEncodeTiled, 12000);        \
+  /* Virtual memory management */           \
+  fn(cuMemAddressReserve, 12000);           \
+  fn(cuMemAddressFree, 12000);              \
+  fn(cuMemMap, 12000);                      \
+  fn(cuMemUnmap, 12000);                    \
+  fn(cuMemSetAccess, 12000);                \
+  fn(cuMemCreate, 12000);                   \
+  fn(cuMemRelease, 12000);                  \
+  fn(cuMemExportToShareableHandle, 12000);  \
+  fn(cuMemImportFromShareableHandle, 12000);\
+  fn(cuMemGetAllocationGranularity, 12000)
 #else
 #define NVF_DRIVER_API_WRAPPER_CUDA_120(fn)
+#endif
+
+#if (CUDA_VERSION >= 12200)
+#define NVF_DRIVER_API_WRAPPER_CUDA_122(fn) \
+  /* NVLS multicast */                      \
+  fn(cuMulticastCreate, 12200);             \
+  fn(cuMulticastAddDevice, 12200);          \
+  fn(cuMulticastBindMem, 12200);            \
+  fn(cuMulticastGetGranularity, 12200);     \
+  fn(cuMulticastUnbind, 12200)
+#else
+#define NVF_DRIVER_API_WRAPPER_CUDA_122(fn)
 #endif
 
 #define NVF_ALL_DRIVER_API_WRAPPER(fn)                \
   NVF_ALL_DRIVER_API_WRAPPER_VERSION_INDEPENDENT(fn); \
   NVF_STREAM_DRIVER_API_WRAPPER(fn);                  \
   NVF_DRIVER_API_WRAPPER_CUDA_118(fn);                \
-  NVF_DRIVER_API_WRAPPER_CUDA_120(fn)
+  NVF_DRIVER_API_WRAPPER_CUDA_120(fn);               \
+  NVF_DRIVER_API_WRAPPER_CUDA_122(fn)
 
 #define DECLARE_DRIVER_API_WRAPPER(funcName, version) \
   extern decltype(::funcName)* funcName
