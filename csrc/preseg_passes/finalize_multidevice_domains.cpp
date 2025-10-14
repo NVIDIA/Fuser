@@ -130,7 +130,7 @@ void FinalizeMultideviceDomainsPass::runPass(Fusion* fusion) {
     auto inputs = ir_utils::filterByType<TensorView>(expr->inputs());
     auto outputs = ir_utils::filterByType<TensorView>(expr->outputs());
 
-    for (auto tv : inputs) {
+    for (auto* tv : inputs) {
       // Only set loop and allocation domain for fusion inputs.
       // Other tvs would already have been processed as outputs of their
       // definitions. This avoids processing the same tv multiple times.
