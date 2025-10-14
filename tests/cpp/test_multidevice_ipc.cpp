@@ -297,36 +297,21 @@ TEST_F(IpcTest, IpcNvlsMulticastBroadcast) {
   communicator_->barrier();
   // Import the multicast object at other ranks
   if (rank != exporter_rank) {
-    constexpr bool use_pidfd = true;
-    if (use_pidfd) {
-      shared_handle = fromBytes<handle_typename>(
-          store->get(std::string("nvls_export_fd_mcast_handle")));
-      root_pid = fromBytes<pid_t>(
-          store->get(std::string("nvls_export_pid_mcast_handle")));
+    shared_handle = fromBytes<handle_typename>(
+        store->get(std::string("nvls_export_fd_mcast_handle")));
+    root_pid = fromBytes<pid_t>(
+        store->get(std::string("nvls_export_pid_mcast_handle")));
 
-      int pid_fd, peer_fd;
-      pid_fd = syscall(SYS_pidfd_open, root_pid, /*flags=*/0);
-      ASSERT_GE(pid_fd, 0) << "rank " << rank
-                           << " failed to open pidfd for pid " << root_pid;
+    int pid_fd, peer_fd;
+    pid_fd = syscall(SYS_pidfd_open, root_pid, /*flags=*/0);
+    ASSERT_GE(pid_fd, 0) << "rank " << rank << " failed to open pidfd for pid "
+                         << root_pid;
 
-      peer_fd = syscall(SYS_pidfd_getfd, pid_fd, shared_handle, /*flags=*/0);
-      if (peer_fd < 0) {
-        printf("rank %ld failed to get peer fd\n", rank);
-        perror("pidfd_getfd");
-      }
-      ASSERT_GE(peer_fd, 0) << "rank " << rank << " failed to get peer fd";
-
-      void* os_handle = (void*)((uint64_t)peer_fd);
-      NVFUSER_CUDA_SAFE_CALL(cuMemImportFromShareableHandle(
-          &mcast_handle, os_handle, handle_type));
-
-      close(pid_fd);
-    } else {
-      shared_handle = fromBytes<handle_typename>(
-          store->get(std::string("nvls_export_fd_mcast_handle")));
-      NVFUSER_CUDA_SAFE_CALL(cuMemImportFromShareableHandle(
-          &mcast_handle, &shared_handle, handle_type));
-    }
+    peer_fd = syscall(SYS_pidfd_getfd, pid_fd, shared_handle, /*flags=*/0);
+    ASSERT_GE(peer_fd, 0) << "rank " << rank << " failed to get peer fd";
+    NVFUSER_CUDA_SAFE_CALL(cuMemImportFromShareableHandle(
+        &mcast_handle, (void*)((uint64_t)peer_fd), handle_type));
+    close(pid_fd);
   }
 
   // All ranks add their device to multicast group
