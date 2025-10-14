@@ -1156,3 +1156,48 @@ class TestScheduleOps(TestCase):
         inp = torch.randint(5, [30], dtype=torch.float32, device="cuda")
         (out,) = fd.execute([inp])
         self.assertEqual(out, inp.sum())
+
+    def test_schedule_hyperparameters_vectorization_factor(self):
+        """Test that schedule_hyperparameters works by setting a custom vectorization factor."""
+        from nvfuser import SchedulerType
+
+        inputs = [
+            torch.randn(64, 128, dtype=torch.float, device="cuda"),
+            torch.randn(64, 128, dtype=torch.float, device="cuda"),
+        ]
+
+        # A decorator to create a pointwise fusion given some input arguments.
+        def create_fusion_func(inputs):
+            def fusion_func(fd: FusionDefinition):
+                T0 = fd.from_pytorch(inputs[0])
+                T1 = fd.from_pytorch(inputs[1])
+                T2 = fd.ops.add(T0, T1)
+                T3 = fd.ops.sum(T2, dims=[1])
+                T4 = fd.ops.broadcast_in_dim(T3, shape=[64, 128], broadcast_dims=[0])
+                T5 = fd.ops.add(T2, T4)
+                T6 = fd.ops.sum(T1, dims=[0])
+                fd.add_output(T5)
+                fd.add_output(T6)
+
+            return fusion_func
+
+        # Test with custom scheduler that sets a custom vectorization factor
+        def custom_persistent_scheduler(fd, vectorize_factor):
+            def inner_fn():
+                hyperparameters = fd.sched.schedule_hyperparameters()
+                hyperparameters.vectorize_factor = vectorize_factor
+                fd.sched.schedule(SchedulerType.inner_outer_persistent)
+
+            fd.schedule = inner_fn
+            return fd
+
+        with FusionDefinition() as presched_fd:
+            create_fusion_func(inputs)(presched_fd)
+
+        # Test that setting a non-power-of-2 vectorization factor raises an error
+        scheduled_fd = custom_persistent_scheduler(presched_fd, vectorize_factor=3)
+        scheduled_fd._setup_schedule(inputs)
+        with self.assertRaisesRegex(
+            RuntimeError, "Vectorization factor must be a power of 2"
+        ):
+            scheduled_fd.schedule()
