@@ -23,6 +23,31 @@
 
 namespace nvfuser {
 
+TEST_F(NVFuserTest, GatherScatterIterType) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeContigTensor(1, DataType::Int);
+  fusion.addInput(tv0);
+  auto tv1 = makeContigTensor(1, DataType::Int);
+  fusion.addInput(tv1);
+  auto tv2 =
+      scatter(tv0, 0, tv1, fusion.oneVal(DataType::Int), BinaryOpType::Add);
+  auto tv3 = add(tv2, fusion.oneVal());
+  fusion.addOutput(tv3);
+
+  for (auto tv : fusion.allTvs()) {
+    if (tv->definition() != nullptr && tv->definition()->isA<ScatterOp>()) {
+      continue;
+    }
+    EXPECT_TRUE(std::none_of(
+        tv->getLoopDomain().begin(),
+        tv->getLoopDomain().end(),
+        [](const IterDomain* id) { return id->isGatherScatter(); }));
+  }
+}
+
 using ScatterTestConfig = bool; // manual_scheduling
 
 class ScatterTest : public NVFuserFixtureParamTest<ScatterTestConfig> {
