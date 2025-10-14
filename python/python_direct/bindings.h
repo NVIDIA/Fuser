@@ -42,6 +42,9 @@ void bindMultiDevice(py::module& nvfuser);
 // Add bindings for IdModel and ValGraph
 void bindIdModel(py::module& nvfuser);
 
+// Add bindings for Fusion Profiler
+void bindProfile(py::module& nvfuser);
+
 // Translate a CPP Fusion to a bindings python function
 std::string translateFusion(Fusion* f);
 

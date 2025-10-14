@@ -351,7 +351,7 @@ class FusionDefinition:
     def last_repro_script(self) -> str:
         assert (
             hasattr(self, "fake_inputs") and self.fake_inputs is not None
-        ), "fd.last_repro_script() cannot provide a repro because fd.execute(inputs, save_repro_state=True) was not executed!"
+        ), "fd.last_repro_script() cannot provide a repro because fd.execute(inputs, save_repro_inputs=True) was not executed!"
         return self.repro_script_for(self.fake_inputs)
 
     def repro_script_for(self, inputs: list | None = None) -> str:

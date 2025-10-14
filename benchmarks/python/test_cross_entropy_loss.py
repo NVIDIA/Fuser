@@ -212,8 +212,11 @@ def quack_cross_entropy_fwd_wrapper(inputs: list):
     return quack_cross_entropy_fwd(*inputs, return_dx=False)
 
 
+# cross entropy in thunder is split into log_softmax and nll_loss without
+# using nvFuser, the performance using nvFuser should be measured using
+# test_function_cross_entropy_fwd_nvf_benchmark
 @pytest.mark.parametrize(
-    "executor", ["eager", "torchcompile", "thunder", "thunder-torchcompile", "quack"]
+    "executor", ["eager", "torchcompile", "thunder-torchcompile", "quack"]
 )
 @pytest.mark.parametrize("vocab_size", SyntheticMiniModel.sizes_from_models)
 def test_function_cross_entropy_fwd_benchmark(

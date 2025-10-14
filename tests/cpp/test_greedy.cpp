@@ -735,6 +735,37 @@ TEST_P(GreedySchedulerTestConstraintSize, ArgsortLargeConstrainedIDs) {
   testValidate(executor_cache.fusion(), outputs, {t0}, __LINE__, __FILE__);
 
   EXPECT_FALSE(executor_cache.getMostRecentKernelRuntime()->isSegmented());
+
+  FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
+  Fusion* scheduled_fusion = runtime->executors()
+                                 .at(0)
+                                 ->as<KernelExecutor>()
+                                 ->compiledKernel()
+                                 ->kernel();
+  for (const auto tv : scheduled_fusion->allTvs()) {
+    if (tv->isDefinitionType<ArgsortOp>()) {
+      // The loop domain should look like: [BIDx, TIDx, Group] if
+      // grouped, or [BIDx, TIDx] if not. The computeAt and producer
+      // positions should be 1 in both cases.
+      EXPECT_TRUE(
+          std::ssize(tv->getLoopDomain()) == 2 ||
+          std::ssize(tv->getLoopDomain()) == 3);
+      EXPECT_EQ(tv->axis(0)->getParallelType(), ParallelType::BIDx);
+      EXPECT_EQ(tv->axis(1)->getParallelType(), ParallelType::TIDx);
+      if (std::ssize(tv->getLoopDomain()) == 3) {
+        EXPECT_EQ(tv->axis(-1)->getParallelType(), ParallelType::Group);
+      }
+      EXPECT_EQ(tv->getComputeAtPosition(), 1);
+      // The input should not be inlined into the argsort dim
+      EXPECT_EQ(
+          tv->definition()
+              ->as<ArgsortOp>()
+              ->in()
+              ->as<TensorView>()
+              ->getComputeAtPosition(),
+          1);
+    }
+  }
 }
 
 TEST_P(GreedySchedulerTestConstraintSize, ScanLargeConstrainedIDs) {
@@ -758,6 +789,37 @@ TEST_P(GreedySchedulerTestConstraintSize, ScanLargeConstrainedIDs) {
   testValidate(executor_cache.fusion(), outputs, {t0}, __LINE__, __FILE__);
 
   EXPECT_FALSE(executor_cache.getMostRecentKernelRuntime()->isSegmented());
+
+  FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
+  Fusion* scheduled_fusion = runtime->executors()
+                                 .at(0)
+                                 ->as<KernelExecutor>()
+                                 ->compiledKernel()
+                                 ->kernel();
+  for (const auto tv : scheduled_fusion->allTvs()) {
+    if (tv->isDefinitionType<ScanOp>()) {
+      // The loop domain should look like: [BIDx, TIDx, Group] if
+      // grouped, or [BIDx, TIDx] if not. The computeAt and producer
+      // positions should be 1 in both cases.
+      EXPECT_TRUE(
+          std::ssize(tv->getLoopDomain()) == 2 ||
+          std::ssize(tv->getLoopDomain()) == 3);
+      EXPECT_EQ(tv->axis(0)->getParallelType(), ParallelType::BIDx);
+      EXPECT_EQ(tv->axis(1)->getParallelType(), ParallelType::TIDx);
+      if (std::ssize(tv->getLoopDomain()) == 3) {
+        EXPECT_EQ(tv->axis(-1)->getParallelType(), ParallelType::Group);
+      }
+      EXPECT_EQ(tv->getComputeAtPosition(), 1);
+      // The input should not be inlined into the scan dim
+      EXPECT_EQ(
+          tv->definition()
+              ->as<ScanOp>()
+              ->in()
+              ->as<TensorView>()
+              ->getComputeAtPosition(),
+          1);
+    }
+  }
 }
 
 TEST_P(GreedySchedulerTestConstraintSize, ScatterLargeConstrainedIDs) {
@@ -786,6 +848,35 @@ TEST_P(GreedySchedulerTestConstraintSize, ScatterLargeConstrainedIDs) {
   testValidate(executor_cache.fusion(), outputs, {t0, t1}, __LINE__, __FILE__);
 
   EXPECT_FALSE(executor_cache.getMostRecentKernelRuntime()->isSegmented());
+
+  FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
+  Fusion* scheduled_fusion = runtime->executors()
+                                 .at(0)
+                                 ->as<KernelExecutor>()
+                                 ->compiledKernel()
+                                 ->kernel();
+  for (const auto tv : scheduled_fusion->allTvs()) {
+    if (tv->isDefinitionType<ScatterOp>()) {
+      // The loop domain should look like: [TIDx, Serial] if
+      // grouped, or [TIDx] if not.
+      EXPECT_TRUE(
+          std::ssize(tv->getLoopDomain()) == 1 ||
+          std::ssize(tv->getLoopDomain()) == 2);
+      EXPECT_EQ(tv->axis(0)->getParallelType(), ParallelType::TIDx);
+      if (std::ssize(tv->getLoopDomain()) == 2) {
+        EXPECT_EQ(tv->axis(-1)->getParallelType(), ParallelType::Serial);
+      }
+      EXPECT_EQ(tv->getComputeAtPosition(), 0);
+      // The input should not be inlined into the scatter dim
+      EXPECT_EQ(
+          tv->definition()
+              ->as<ScatterOp>()
+              ->in()
+              ->as<TensorView>()
+              ->getComputeAtPosition(),
+          0);
+    }
+  }
 }
 
 // Pattern appearing in test_moe.py
