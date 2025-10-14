@@ -1748,4 +1748,39 @@ TEST_F(CombinedSchedulerTest, ScalarInput) {
   auto outputs = executor_cache.runFusionWithInputs(inputs);
   testValidate(executor_cache.fusion(), outputs, inputs, __LINE__, __FILE__);
 }
+
+// Test kernel reuse with different vectorization factors
+TEST_F(CombinedSchedulerTest, KernelReuseVectorizationError) {
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  auto fusion = fusion_ptr.get();
+  FusionGuard fg(fusion);
+
+  auto tv0 = makeSymbolicTensor(2);
+  fusion->addInput(tv0);
+  auto tv1 = sum(tv0, {1});
+  auto tv2 = broadcast(tv1, {false, true});
+  auto tv3 = add(tv0, tv2);
+  auto tv4 = sum(tv0, {0});
+  fusion->addOutput(tv3);
+  fusion->addOutput(tv4);
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+
+  auto a1280 = at::randn({512, 8192}, options);
+  auto a1282 = at::randn({512, 8190}, options);
+
+  // 1st test: vectorized by 4, 2nd test: vectorized by 2
+  auto cg_outputs1 = executor_cache.runFusionWithInputs({a1280});
+  auto cg_outputs2 = executor_cache.runFusionWithInputs({a1282});
+  auto runtime = executor_cache.getMostRecentKernelRuntime();
+  auto heuristic_params =
+      runtime->schedulerHeuristics()->heuristicsList().at(0).get();
+  EXPECT_EQ(
+      heuristic_params->as<ReductionParams>()->unroll_factor_inner_reduction,
+      2);
+  testValidate(
+      executor_cache.fusion(), cg_outputs2, {a1282}, __LINE__, __FILE__);
+}
 } // namespace nvfuser
