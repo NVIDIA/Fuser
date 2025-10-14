@@ -50,9 +50,17 @@ TensorView* getAccTv(Fusion* fusion) {
 //! https://dx.doi.org/10.1145/3620666.3651369
 class EVTConverter : OptInDispatch {
  public:
-  EVTConverter(Fusion* fusion) : fusion_(fusion) {
-    run();
+  static mma_utils::DataWrapperOpt<EVTModel> convert(Fusion* fusion) {
+    EVTConverter conv(fusion);
+    conv.run();
+    if (!conv.failureReason().empty()) {
+      return {conv.failureReason().c_str()};
+    }
+    return std::move(conv.model());
   }
+
+ private:
+  EVTConverter(Fusion* fusion) : fusion_(fusion) {}
 
   EVTModel& model() {
     return model_;
@@ -61,9 +69,6 @@ class EVTConverter : OptInDispatch {
   const std::string& failureReason() const {
     return failure_reason_;
   }
-
- private:
-  using OptInDispatch::dispatch;
 
   void run() {
     Expr* mma = getGemmExpr(fusion_);
@@ -456,20 +461,7 @@ std::string EVTModel::toString() const {
 
 // TODO: DataWrapperOpt belongs in scheduler_utils
 mma_utils::DataWrapperOpt<EVTModel> extractEVTModel(Fusion* fusion) {
-  EVTConverter conv(fusion);
-  if (!conv.failureReason().empty()) {
-    return {conv.failureReason().c_str()};
-  }
-  return std::move(conv.model());
-}
-
-std::string genEVT(Fusion* fusion) {
-  EVTConverter conv(fusion);
-  std::stringstream ss;
-  ss << "cutlass::epilogue::fusion::Sm90EVT<";
-  ss << conv.model().defString();
-  ss << ">";
-  return ss.str();
+  return EVTConverter::convert(fusion);
 }
 
 } // namespace cutlass_codegen
