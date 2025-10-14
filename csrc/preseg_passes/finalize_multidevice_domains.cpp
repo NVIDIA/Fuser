@@ -67,16 +67,6 @@ bool isLoopStreamParallelized(const TensorView* tv) {
 // domain Stream parallelization is propagated to the allocation domain if it is
 // allocated inside a for loop.
 void shardAllocation(TensorView* tv) {
-  if (!isLoopStreamParallelized(tv) && !tv->hasDeviceMesh()) {
-    // This is required for tests such as
-    // `NVFP4QuantizeTest.SwizzledOuputAndWithoutPerTensorAmax` The test has a
-    // split allocation domain but no stream/device parallelization. The loop
-    // domain is first split to set the allocation domain and then merged back
-    // to the logical domain. This will currently fail with the following
-    // implementation.
-    return;
-  }
-
   LinkedHashMap<IterDomain*, std::optional<bool>> allocation_to_contiguity;
   for (const auto&& [id, contiguity] :
        zip(tv->getMaybeAllocationDomain(), tv->getContiguity())) {
@@ -84,10 +74,14 @@ void shardAllocation(TensorView* tv) {
   }
 
   // Allocation domain should be a permutation of logical domain at this point.
+  auto loop_stream_device_view =
+      tv->getLoopDomain() | std::views::filter([](IterDomain* id) {
+        return id->isStream() || id->isDeviceDim();
+      });
   std::vector<Expr*> transform_exprs = DependencyCheck::getAllExprsBetween(
       {tv->getMaybeAllocationDomain().begin(),
        tv->getMaybeAllocationDomain().end()},
-      {tv->getLoopDomain().begin(), tv->getLoopDomain().end()});
+      {loop_stream_device_view.begin(), loop_stream_device_view.end()});
 
   for (auto* expr : transform_exprs) {
     auto* split = dynamic_cast<Split*>(expr);
@@ -95,10 +89,6 @@ void shardAllocation(TensorView* tv) {
         split != nullptr,
         "Expected all transform exprs to be a split between allocation and "
         "loop domain during sharding propagation.");
-    NVF_ERROR(
-        split->outer()->isDeviceDim() || split->outer()->isStream(),
-        "Expected the outer dimension to be a device or stream dimension: ",
-        split);
     if (split->outer()->isStream() &&
         !shouldParallelizeAllocationOnStream(tv)) {
       continue;
