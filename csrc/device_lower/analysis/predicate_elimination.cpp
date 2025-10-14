@@ -381,7 +381,7 @@ class ProducerConsumerPairAnalyzer : public OptOutDispatch {
   bool needs_predicate_ = false;
 };
 
-class PredicateChcker : public IterVisitor {
+class PredicateChecker : public IterVisitor {
  public:
   static bool needsPredicate(
       Expr* expr,
@@ -399,13 +399,13 @@ class PredicateChcker : public IterVisitor {
       }
     }
 
-    PredicateChcker checker(pred_elimination);
+    PredicateChecker checker(pred_elimination);
     checker.dispatch(expr);
     return checker.needs_predicate_;
   }
 
  private:
-  PredicateChcker(const PredicateElimination& pred_elimination)
+  PredicateChecker(const PredicateElimination& pred_elimination)
       : pred_elimination_(pred_elimination),
         non_predicated_exprs_(pred_elimination.getNonPredicatedExprs()) {}
 
@@ -961,7 +961,7 @@ PredicateElimination::PredicateElimination(Fusion* fusion) {
 }
 
 bool PredicateElimination::needsPredicate(Expr* expr) const {
-  return PredicateChcker::needsPredicate(expr, *this);
+  return PredicateChecker::needsPredicate(expr, *this);
 }
 
 void PredicateElimination::dispatch(Expr* expr) {
