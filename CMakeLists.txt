@@ -799,6 +799,7 @@ if(BUILD_PYTHON)
     ${NVFUSER_PYTHON_DIRECT_BINDINGS}/runtime.cpp
     ${NVFUSER_PYTHON_DIRECT_BINDINGS}/schedule.cpp
     ${NVFUSER_PYTHON_DIRECT_BINDINGS}/id_model.cpp
+    ${NVFUSER_PYTHON_DIRECT_BINDINGS}/profile.cpp
     ${NVFUSER_PYTHON_DIRECT_BINDINGS}/direct_utils.cpp
     ${NVFUSER_PYTHON_DIRECT_BINDINGS}/python_translate.cpp
   )
