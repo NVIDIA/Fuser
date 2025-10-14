@@ -134,7 +134,7 @@ class NVF_API FusionExecutorCache {
   //! what inputs and the fusion look like. This may be useful in some
   //! cases as our analysis of index type may be overly conservative
   //! for intermediate tensors.
-  //! WANRING: Correctness is not guaranteed.
+  //! WARNING: Correctness is not guaranteed.
   //! TODO: Check usage of forced_index_type. It's a lot of plumbing, what's the
   //! value.
   KernelArgumentHolder runFusionWithInputs(
