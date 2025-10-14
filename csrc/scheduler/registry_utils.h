@@ -123,6 +123,10 @@ class SchedulerTopologyChecker {
   // propagateReshapeTransforms won't work as it won't find any
   // terminating reshape IDs.
   static bool hasCyclicReshape(Fusion* fusion);
+
+  // reshape with different split factors is not supported
+  // can't propagate the transform from one reshape to another
+  static bool hasReshapeWithDifferentSplitFactors(Fusion* fusion);
 };
 
 } // namespace registry_utils

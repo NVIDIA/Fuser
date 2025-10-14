@@ -2817,4 +2817,45 @@ TEST_F(ReshapeTest, CyclicReshape) {
   }
 }
 
+TEST_F(ReshapeTest, ReshapeWithDifferentSplitFactors) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  FusionGuard fg(fusion_ptr.get());
+  Fusion& fusion = *fusion_ptr;
+
+  // Build a fusion with multiple reshapes that split the same extent
+  // using different factors, e.g., 12 -> (3,4) vs 12 -> (2,6).
+  std::vector<int64_t> in_shape{12};
+  std::vector<int64_t> split_a{3, 4};
+  std::vector<int64_t> split_b{2, 6};
+
+  auto tv0 = makeContigConcreteTensor(in_shape);
+  fusion.addInput(tv0);
+
+  auto tv1 = reshape(tv0, in_shape, split_a);
+  auto tv2 = reshape(tv0, in_shape, split_b);
+  auto tv3 = add(tv1, tv1);
+  auto tv4 = add(tv2, tv2);
+  fusion.addOutput(tv3);
+  fusion.addOutput(tv4);
+
+  EXPECT_TRUE(registry_utils::SchedulerTopologyChecker::
+                  hasReshapeWithDifferentSplitFactors(&fusion));
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn(in_shape, options);
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs({t0});
+  testValidate(executor_cache.fusion(), outputs, {t0}, __LINE__, __FILE__);
+
+  // Each segment should not contain conflicting reshape split factors
+  auto segmented_fusion =
+      executor_cache.getMostRecentKernelRuntime()->fusionSegments();
+  for (const auto group : segmented_fusion->groups()) {
+    auto segment_fusion = segmented_fusion->makeFusion(group).second;
+    EXPECT_FALSE(registry_utils::SchedulerTopologyChecker::
+                     hasReshapeWithDifferentSplitFactors(segment_fusion.get()));
+  }
+}
+
 } // namespace nvfuser
