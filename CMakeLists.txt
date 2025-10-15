@@ -438,13 +438,17 @@ llvm_map_components_to_libnames(LLVM_LIBS
 )
 
 add_library(LLVM_JIT INTERFACE)
-target_include_directories(LLVM_JIT SYSTEM INTERFACE ${LLVM_INCLUDE_DIRS})
 target_compile_definitions(LLVM_JIT INTERFACE ${LLVM_DEFINITIONS})
 target_link_libraries(LLVM_JIT INTERFACE ${LLVM_LIBS})
 
 # Add LLVM JIT related sources
 list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/host_ir/jit.cpp
+)
+
+# Apply LLVM include directories only to jit.cpp
+set_source_files_properties(${NVFUSER_SRCS_DIR}/host_ir/jit.cpp
+  PROPERTIES INCLUDE_DIRECTORIES "${LLVM_INCLUDE_DIRS}"
 )
 
 # We don't link CUPTI for MSVC
