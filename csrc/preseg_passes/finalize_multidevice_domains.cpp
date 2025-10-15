@@ -67,6 +67,12 @@ bool isLoopStreamParallelized(const TensorView* tv) {
 // domain Stream parallelization is propagated to the allocation domain if it is
 // allocated inside a for loop.
 void shardAllocation(TensorView* tv) {
+  if (!isLoopStreamParallelized(tv) && !tv->hasDeviceMesh()) {
+    // This is required for tests such as `LayoutOpTest.SchedulerKernel` The
+    // tensorview has allocation domain disjoint from logical domain. This will
+    // currently cause errors when setting allocation domain.
+    return;
+  }
   LinkedHashMap<IterDomain*, std::optional<bool>> allocation_to_contiguity;
   for (const auto&& [id, contiguity] :
        zip(tv->getMaybeAllocationDomain(), tv->getContiguity())) {
