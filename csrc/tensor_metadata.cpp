@@ -329,6 +329,7 @@ inferAllocationSizesAndStrides(
       allocation_strides.push_back(it->second.second);
       continue;
     }
+    continue;
     std::cout << "ID not found in active_ids: " << id->toString() << std::endl;
 
     // Fallback for IDs not populated in active_ids due to transforms on both
