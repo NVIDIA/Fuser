@@ -630,6 +630,20 @@ void validateInputsNvfp4ScaledGroupMm(
       "Number of experts in problem_sizes must match expert_offsets");
   NVF_CHECK(
       problem_sizes.dtype() == torch::kInt32, "problem_sizes must be int32.");
+
+  const int64_t m = a.sizes()[0];
+  const int64_t g = expert_offsets.sizes()[0];
+  for (int64_t i = 0; i < g; ++i) {
+    int64_t expert_offset = expert_offsets[i].item<int64_t>();
+    NVF_CHECK(
+        m > expert_offset,
+        "The expert offset ",
+        i,
+        " is ",
+        expert_offset,
+        ", but it must be smaller than the M dimension of operand A ",
+        m);
+  }
 }
 
 } // namespace
