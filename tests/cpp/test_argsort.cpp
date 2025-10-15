@@ -408,7 +408,7 @@ TEST_P(ArgsortParameterizedWithBlockAndBatch, SharedMemoryRequirement) {
     // It doesn't seem consistent whether compilation or launch should
     // fail if the requirement of static shared memory exceeds the default
     // limit but within the opt-in larger limit. As we should move to
-    // dynamic allocaitons anyway, don't assert for now.
+    // dynamic allocations anyway, don't assert for now.
   }
 };
 
