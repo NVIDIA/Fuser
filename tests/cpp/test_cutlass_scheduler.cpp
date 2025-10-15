@@ -337,7 +337,13 @@ TEST_F(CutlassExecutorTest, Nvfp4MatmulReLU) {
 
   TensorView* out_tv = relu(smm.tv);
 
+  out_tv = exp(out_tv);
+
+  out_tv = castOp(DataType::Half, out_tv);
+
   fusion->addOutput(out_tv);
+
+  fusion->printMath();
 
   // Note that K is the actual problem size independent of data type, not the
   // packed size.

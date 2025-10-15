@@ -149,6 +149,54 @@ class EVTConverter : OptInDispatch {
     return val_nodes_.at(val);
   }
 
+  EVTModel::Node* makeUnaryOpNode(
+      UnaryOpType op_type,
+      DataType in_type,
+      DataType out_type,
+      EVTModel::Node* in_node) {
+    // TODO: translate all of the supported UnaryOpTypes
+    std::string op_name;
+    switch (op_type) {
+      case UnaryOpType::Abs:
+        op_name = "cutlass::absolute_value_op";
+        break;
+      case UnaryOpType::Cast:
+        op_name = "cutlass::epilogue::thread::Identity";
+        break;
+      case UnaryOpType::Neg:
+        op_name = "cutlass::negate";
+        break;
+      case UnaryOpType::Relu:
+        op_name = "cutlass::epilogue::thread::ReLU";
+        break;
+      case UnaryOpType::Tanh:
+        op_name = "cutlass::epilogue::thread::Tanh";
+        break;
+      default:
+        NVF_THROW("Unhandled unary op type: ", op_type);
+    }
+    // This node and its inputs is essentially a function signature
+    EVTModel::Node* func_node =
+        model_.makeNode("cutlass::epilogue::fusion::Sm90Compute");
+    func_node->inputs.push_back(model_.makeNode(op_name));
+    func_node->inputs.push_back(model_.makeNode(dtypeToCutlass(out_type)));
+    // Compute type determines what precision the operation will take place in.
+    // The op is computed as (out_type)(op((compute_type)x))
+    func_node->inputs.push_back(model_.makeNode(dtypeToCutlass(in_type)));
+    // rounding mode
+    // https://github.com/NVIDIA/cutlass/blob/2b8dff1f90605452c378c02298dd0cacaf65753c/include/cutlass/numeric_conversion.h#L56
+    func_node->inputs.push_back(
+        model_.makeNode("cutlass::FloatRoundStyle::round_to_nearest"));
+
+    // We combine the signature with tree visitor node
+    EVTModel::Node* visitor_node =
+        model_.makeNode("cutlass::epilogue::fusion::Sm90EVT");
+    visitor_node->inputs.push_back(func_node);
+    visitor_node->inputs.push_back(in_node);
+
+    return visitor_node;
+  }
+
   EVTModel::Node* makeBinaryOpNode(
       BinaryOpType op_type,
       DataType in_type,
@@ -203,40 +251,25 @@ class EVTConverter : OptInDispatch {
     OptInDispatch::dispatch(expr);
   }
 
-  void handle(LoadStoreOp* uop) {}
+  void handle(LoadStoreOp* lsop) {
+    // Make an explicit "set" node by pretending it's a trivial cast
+    val_nodes_.emplace(
+        lsop->out(),
+        makeUnaryOpNode(
+            UnaryOpType::Cast,
+            /*in_type=*/lsop->in()->dtype(),
+            /*out_type=*/lsop->out()->dtype(),
+            getNodeFor(lsop->in())));
+  }
 
   void handle(UnaryOp* uop) {
-    // TODO: translate all of the supported UnaryOpTypes
-    std::string op_name;
-    switch (uop->getUnaryOpType()) {
-      case UnaryOpType::Relu:
-        op_name = "epilogue::thread::ReLU";
-        break;
-      default:
-        NVF_THROW("Unhandled unary op type: ", uop->getUnaryOpType());
-    }
-    // This node and its inputs is essentially a function signature
-    EVTModel::Node* func_node =
-        model_.makeNode("cutlass::epilogue::fusion::Sm90Compute");
-    func_node->inputs.push_back(model_.makeNode("cutlass::" + op_name));
-    func_node->inputs.push_back(
-        model_.makeNode(dtypeToCutlass(uop->out()->dtype())));
-    // Compute type determines what precision the operation will take place in.
-    // The op is computed as (out_type)(op((compute_type)x))
-    func_node->inputs.push_back(
-        model_.makeNode(dtypeToCutlass(uop->in()->dtype())));
-    // rounding mode
-    // https://github.com/NVIDIA/cutlass/blob/2b8dff1f90605452c378c02298dd0cacaf65753c/include/cutlass/numeric_conversion.h#L56
-    func_node->inputs.push_back(
-        model_.makeNode("cutlass::FloatRoundStyle::round_to_nearest"));
-
-    // We combine the signature with tree visitor node
-    EVTModel::Node* visitor_node =
-        model_.makeNode("cutlass::epilogue::fusion::Sm90EVT");
-    visitor_node->inputs.push_back(func_node);
-    visitor_node->inputs.push_back(getNodeFor(uop->in()));
-
-    val_nodes_.emplace(uop->out(), visitor_node);
+    val_nodes_.emplace(
+        uop->out(),
+        makeUnaryOpNode(
+            uop->getUnaryOpType(),
+            /*in_type=*/uop->in()->dtype(),
+            /*out_type=*/uop->out()->dtype(),
+            getNodeFor(uop->in())));
   }
 
   void handle(BinaryOp* bop) {
