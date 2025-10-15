@@ -1143,9 +1143,11 @@ ValGraph IdModel::buildIntersection(
         Val* id1 = group0->vector()[id1_i];
         // id0 and id1 map in group0. If they also map in the group1,
         // add the mapping to the intersection.
-        if ((permissive &&
-             graph1.disjointValSets().permissiveAreMapped(id0, id1)) ||
-            graph1.disjointValSets().strictAreMapped(id0, id1)) {
+        if (permissive) {
+          if (graph1.disjointValSets().permissiveAreMapped(id0, id1)) {
+          intersection.mapVals(id0, id1);
+          }
+        } else if(graph1.disjointValSets().strictAreMapped(id0, id1)) {
           intersection.mapVals(id0, id1);
         }
       }
