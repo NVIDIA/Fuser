@@ -16,7 +16,7 @@ from nvfuser_direct import nvf_cutlass
 @pytest.mark.skipif(
     not microarchitecture_is_pre(12), reason="Does not support blackwell compute 12.0."
 )
-@pytest.mark.parametrize("config", [[1024, 128, 256], [268, 128, 256]])
+@pytest.mark.parametrize("config", [[1024, 128, 256], [267, 128, 256]])
 @pytest.mark.parametrize("tokens_per_expert_neg_one", [[115, 144, 8], [5, 7, 9]])
 @pytest.mark.parametrize("tensor_dtype", [torch.bfloat16, torch.float16])
 def test_grouped_mm(

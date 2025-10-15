@@ -637,7 +637,7 @@ void validateInputsNvfp4ScaledGroupMm(
   for (int64_t i = 0; i < g; ++i) {
     int64_t expert_offset = expert_offsets[i].item<int64_t>();
     NVF_CHECK(
-        m > expert_offset,
+        expert_offset <= m,
         "The expert offset ",
         i,
         " is ",
