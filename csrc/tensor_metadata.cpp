@@ -319,10 +319,20 @@ inferAllocationSizesAndStrides(
   for (IterDomain* id : alloc | TensorDomain::kNoReductions) {
     if (id->isDeviceDim()) {
       allocation_sizes.push_back(1);
-    } else {
-      allocation_sizes.push_back(active_ids.at(id).first);
+      allocation_strides.push_back(1);
+      continue;
     }
-    allocation_strides.push_back(active_ids.at(id).second);
+
+    auto it = active_ids.find(id);
+    if (it != active_ids.end()) {
+      allocation_sizes.push_back(it->second.first);
+      allocation_strides.push_back(it->second.second);
+      continue;
+    }
+    // grouped matmul could introduce some IDs not in active_ids
+    // For those IDs, just push some dummy values
+    allocation_sizes.push_back(1);
+    allocation_strides.push_back(1);
   }
   return {std::move(allocation_sizes), std::move(allocation_strides)};
 }
