@@ -2,8 +2,8 @@
 # All rights reserved.
 # SPDX-License-Identifier: BSD-3-Clause
 import pytest
-from nvfuser import FusionDefinition, DataType
-from nvfuser.pytorch_utils import torch_dtype_to_nvfuser_dtype
+from nvfuser_direct import FusionDefinition, DataType
+from nvfuser_direct.pytorch_utils import torch_dtype_to_nvfuser_dtype
 from .core import (
     run_benchmark,
     clear_dynamo_cache,
@@ -59,8 +59,9 @@ def nanogpt_attn_bwd_fusion(
     T9 = fd.ops.mul(T3, T8)
     T10 = fd.ops.sum(T9, dims=[3], keepdim=False, dtype=DataType.Null)
 
-    V15 = fd.define_vector([T2.size(0), T2.size(1), T2.size(2), 1], dtype=DataType.Int)
-    T16 = fd.ops.broadcast_in_dim(T10, shape=V15, broadcast_dims=[0, 1, 2])
+    T16 = fd.ops.broadcast_in_dim(
+        T10, shape=[T2.size(0), T2.size(1), T2.size(2), 1], broadcast_dims=[0, 1, 2]
+    )
 
     V21 = T2.shape()
     T22 = fd.ops.broadcast_in_dim(T16, shape=V21, broadcast_dims=[0, 1, 2, 3])
