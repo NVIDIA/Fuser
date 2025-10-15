@@ -2,8 +2,8 @@
 # All rights reserved.
 # SPDX-License-Identifier: BSD-3-Clause
 import pytest
-from nvfuser import FusionDefinition, DataType
-from nvfuser.pytorch_utils import torch_dtype_to_nvfuser_dtype
+from nvfuser_direct import FusionDefinition, DataType
+from nvfuser_direct.pytorch_utils import torch_dtype_to_nvfuser_dtype
 from .core import (
     run_benchmark,
     clear_dynamo_cache,
@@ -53,9 +53,8 @@ def dropout_layernorm_fwd_fusion(
     T16 = fd.ops.add(T3, T15)
     # Layernorm
     T17, T18 = fd.ops.var_mean(T16, dims=[1], correction=0, keepdim=False)
-    V21 = fd.define_vector([T2.size(0), 1], dtype=DataType.Int)
-    T22 = fd.ops.broadcast_in_dim(T17, shape=V21, broadcast_dims=[0])
-    T26 = fd.ops.broadcast_in_dim(T18, shape=V21, broadcast_dims=[0])
+    T22 = fd.ops.broadcast_in_dim(T17, shape=[T2.size(0), 1], broadcast_dims=[0])
+    T26 = fd.ops.broadcast_in_dim(T18, shape=[T2.size(0), 1], broadcast_dims=[0])
     S27 = fd.define_scalar(eps, dtype=DataType.Double)
     T28 = fd.ops.add(T22, S27)
     T29 = fd.ops.rsqrt(T28)
