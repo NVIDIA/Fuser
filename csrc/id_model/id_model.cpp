@@ -966,11 +966,47 @@ StatefulInliningInfo buildStatefulInliningInfo(
 }
 
 void IdModel::initializeLoopGraph(const StatefulInliningInfo& info) {
-  // In the case of the Loop graph, we do not propagate mappings but
-  // explicitly set which domains to map based on the permissive graph
-  // and the CA positions.
-  NVF_ERROR(
-      id_graphs_.emplace(IdMappingMode::LOOP, initializeIdGraph(false)).second);
+  {
+    // In the case of the Loop graph, we do not propagate mappings but
+    // explicitly set which domains to map based on the permissive graph
+    // and the CA positions.
+    ValGraph loop_graph(false);
+
+    // loop_ids only contains at IDs between logical->loop
+    VectorOfUniqueEntries<IterDomain*> loop_ids;
+    for (TensorView* tv : tvs_) {
+      loop_ids.pushBack(tv->getLogicalDomain());
+      loop_ids.pushBack(tv->getLoopDomain());
+      // TODO: put this into TensorDomain instead like TensorDomain::allIDs()
+      auto path =
+          getExprsBetween<IRBFS>(
+              {tv->getLogicalDomain().begin(), tv->getLogicalDomain().end()},
+              {tv->getLoopDomain().begin(), tv->getLoopDomain().end()},
+              false)
+              .first;
+      for (auto [expr, _] : path) {
+        loop_ids.pushBack(ir_utils::filterByType<IterDomain>(expr->outputs()));
+        loop_ids.pushBack(ir_utils::filterByType<IterDomain>(expr->inputs()));
+      }
+    }
+    std::vector<IterDomain*> all_ids = loop_ids.vector();
+
+    std::sort(
+        all_ids.begin(), all_ids.end(), [](IterDomain* id1, IterDomain* id2) {
+          return id1->name() < id2->name();
+        });
+
+    for (auto id : all_ids) {
+      auto uses_it = id_uses_.find(id);
+      NVF_ERROR(
+          uses_it != id_uses_.end(),
+          "Failed to initialize id: ",
+          id->toString(),
+          " as it's missing a definition entry.");
+      loop_graph.initializeVal(id, id_definitions_.at(id), uses_it->second);
+    }
+    NVF_ERROR(id_graphs_.emplace(IdMappingMode::LOOP, loop_graph).second);
+  }
 
   // Make sure this is called in a deterministic order. Build all inlined
   // relationships in loop graph.
@@ -1096,7 +1132,8 @@ void IdModel::removeGraph(IdMappingMode mode) {
 ValGraph IdModel::buildIntersection(
     const ValGraph& graph0,
     const ValGraph& graph1,
-    bool propagate_exprs) const {
+    bool propagate_exprs,
+    bool permissive) const {
   ValGraph intersection = initializeIdGraph(propagate_exprs);
   for (const ValGroup& group0 : graph0.disjointValSets().disjointSets()) {
     auto set_size = group0->size();
@@ -1106,7 +1143,9 @@ ValGraph IdModel::buildIntersection(
         Val* id1 = group0->vector()[id1_i];
         // id0 and id1 map in group0. If they also map in the group1,
         // add the mapping to the intersection.
-        if (graph1.disjointValSets().strictAreMapped(id0, id1)) {
+        if ((permissive &&
+             graph1.disjointValSets().permissiveAreMapped(id0, id1)) ||
+            graph1.disjointValSets().strictAreMapped(id0, id1)) {
           intersection.mapVals(id0, id1);
         }
       }
