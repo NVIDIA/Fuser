@@ -4599,3 +4599,139 @@ def test_ca_map_concrete_loop_id(nvfuser_direct_test):
         torch.testing.make_tensor((1, 1, 1024), dtype=torch.float32, device="cuda:0"),
     ]
     fd.validate(inputs)
+
+
+def test_issue5377(nvfuser_direct_test):
+    def nvfuser_fusion(fd: FusionDefinition) -> None:
+        tv0 = fd.define_tensor(
+            shape=[1, 16],
+            contiguity=[None, True],
+            dtype=DataType.BFloat16,
+            is_cpu=False,
+        )
+        tv1 = fd.define_tensor(
+            shape=[1, 16],
+            contiguity=[None, True],
+            dtype=DataType.BFloat16,
+            is_cpu=False,
+        )
+        tv2 = fd.define_tensor(
+            shape=[1, 5120],
+            contiguity=[None, True],
+            dtype=DataType.BFloat16,
+            is_cpu=False,
+        )
+        tv3 = fd.define_tensor(
+            shape=[16, 5120, 16384],
+            contiguity=[True, True, True],
+            dtype=DataType.BFloat16,
+            is_cpu=False,
+        )
+        tv4 = fd.define_tensor(
+            shape=[16, 8192, 5120],
+            contiguity=[True, True, True],
+            dtype=DataType.BFloat16,
+            is_cpu=False,
+        )
+        tv5 = fd.define_tensor(
+            shape=[8192, 5120],
+            contiguity=[True, True],
+            dtype=DataType.BFloat16,
+            is_cpu=False,
+        )
+        tv6 = fd.define_tensor(
+            shape=[8192, 5120],
+            contiguity=[True, True],
+            dtype=DataType.BFloat16,
+            is_cpu=False,
+        )
+        tv7 = fd.define_tensor(
+            shape=[5120, 8192],
+            contiguity=[True, True],
+            dtype=DataType.BFloat16,
+            is_cpu=False,
+        )
+        tv41 = fd.ops.linear(tv2, tv5)
+        tv42 = fd.ops.cast(tv41, dtype=DataType.Float)
+        tv43 = fd.ops.neg(tv42)
+        tv44 = fd.ops.exp(tv43)
+        tv45 = fd.ops.add(1.00000, tv44)
+        tv46 = fd.ops.reciprocal(tv45)
+        tv47 = fd.ops.mul(tv42, tv46)
+        tv48 = fd.ops.linear(tv2, tv6)
+        tv49 = fd.ops.cast(tv48, dtype=DataType.Float)
+        tv50 = fd.ops.mul(tv47, tv49)
+        tv51 = fd.ops.cast(tv50, dtype=DataType.BFloat16)
+        tv52 = fd.ops.linear(tv51, tv7)
+        tv15 = fd.ops.broadcast(tv2, is_broadcast_dim=[True, False, True, False])
+        tv16 = fd.ops.expand(tv15, shape=[16, 1, 1, 5120])
+        tv17 = fd.ops.squeeze(tv16, dims=[1, 2])
+        tv22 = fd.ops.cast(tv17, dtype=DataType.Float)
+        tv8 = fd.ops.cast(tv0, dtype=DataType.BFloat16)
+        tv9 = fd.ops.cast(tv8, dtype=DataType.Float)
+        tv10 = fd.ops.neg(tv9)
+        tv11 = fd.ops.exp(tv10)
+        tv12 = fd.ops.add(1.00000, tv11)
+        tv13 = fd.ops.reciprocal(tv12)
+        tv14 = fd.ops.cast(tv13, dtype=DataType.BFloat16)
+        tv18 = fd.ops.squeeze(tv14, dims=[0])
+        tv19 = fd.ops.broadcast(tv18, is_broadcast_dim=[False, True])
+        tv20 = fd.ops.cast(tv19, dtype=DataType.BFloat16)
+        tv21 = fd.ops.expand(tv20, shape=[16, 5120])
+        tv23 = fd.ops.cast(tv21, dtype=DataType.Float)
+        tv24 = fd.ops.mul(tv22, tv23)
+        tv25 = fd.ops.cast(tv24, dtype=DataType.BFloat16)
+        tv26 = fd.ops.broadcast(tv25, is_broadcast_dim=[False, True, False])
+        tv27 = fd.ops.matmul(tv26, tv3)
+        tv29 = fd.ops.slice(
+            tv27,
+            start_indices=[0, 0, 8192],
+            end_indices=[16, 1, 16384],
+            strides=[1, 1, 1],
+            manual_normalization=True,
+        )
+        tv36 = fd.ops.cast(tv29, dtype=DataType.Float)
+        tv28 = fd.ops.slice(
+            tv27,
+            start_indices=[0, 0, 0],
+            end_indices=[16, 1, 8192],
+            strides=[1, 1, 1],
+            manual_normalization=True,
+        )
+        tv30 = fd.ops.cast(tv28, dtype=DataType.Float)
+        tv31 = fd.ops.neg(tv30)
+        tv32 = fd.ops.exp(tv31)
+        tv33 = fd.ops.add(1.00000, tv32)
+        tv34 = fd.ops.reciprocal(tv33)
+        tv35 = fd.ops.mul(tv30, tv34)
+        tv37 = fd.ops.mul(tv36, tv35)
+        tv38 = fd.ops.cast(tv37, dtype=DataType.BFloat16)
+        tv39 = fd.ops.matmul(tv38, tv4)
+        tv40 = fd.ops.squeeze(tv39, dims=[1])
+        tv53 = fd.ops.broadcast(tv40, is_broadcast_dim=[False, True, False])
+        tv54 = fd.ops.cast(tv53, dtype=DataType.Float)
+        tv55 = fd.ops.sum(tv54, dims=[0], dtype=DataType.Float)
+        tv56 = fd.ops.cast(tv55, dtype=DataType.BFloat16)
+        fd.add_output(tv8, tv1)
+        fd.add_output(tv52)
+        fd.add_output(tv56)
+
+    with FusionDefinition() as fd:
+        nvfuser_fusion(fd)
+
+    inputs = [
+        torch.testing.make_tensor((1, 16), dtype=torch.bfloat16, device="cuda:0"),
+        torch.testing.make_tensor((1, 16), dtype=torch.bfloat16, device="cuda:0"),
+        torch.testing.make_tensor((1, 5120), dtype=torch.bfloat16, device="cuda:0"),
+        torch.testing.make_tensor(
+            (16, 5120, 16384), dtype=torch.bfloat16, device="cuda:0"
+        ),
+        torch.testing.make_tensor(
+            (16, 8192, 5120), dtype=torch.bfloat16, device="cuda:0"
+        ),
+        torch.testing.make_tensor((8192, 5120), dtype=torch.bfloat16, device="cuda:0"),
+        torch.testing.make_tensor((8192, 5120), dtype=torch.bfloat16, device="cuda:0"),
+        torch.testing.make_tensor((5120, 8192), dtype=torch.bfloat16, device="cuda:0"),
+    ]
+
+    fd.validate(inputs)
