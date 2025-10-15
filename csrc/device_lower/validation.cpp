@@ -548,7 +548,7 @@ class VectorizeValidator : public OptInDispatch {
     NVF_ERROR(GpuLower::current()->info().hasIdModel());
 
     const auto& id_model = GpuLower::current()->info().idModel();
-    const auto& graph = id_model.idGraph(IdMappingMode::ALMOSTEXACT);
+    const auto& graph = id_model.idGraph(IdMappingMode::EXACT);
 
     // Traverse from the complete set of loop IDs to the allocation
     // domain of this tensor. Note that the allocation domain may
@@ -567,7 +567,8 @@ class VectorizeValidator : public OptInDispatch {
     // traverse from the promoted loop IDs to the allocation
     // domain. This should be always able to reach at least the
     // vectorized ID.
-    const auto loop_domain = getLoopIds(load_store, id_model);
+    // const auto loop_domain = getLoopIds(load_store, id_model);
+    const auto loop_domain = ir_utils::getTvOutput(load_store)->getLoopDomain();
     const auto alloc_groups = graph.toGroups(tv->getMaybeAllocationDomain());
 
     auto expr_path = ValGraphBFS::getExprGroupsBetween(
@@ -577,12 +578,22 @@ class VectorizeValidator : public OptInDispatch {
                          /*require_all_to_visited=*/false)
                          .first;
 
-    ValGroup cur_group = graph.toGroup(getLoopPromotion(v_id, id_model));
+    bool _debug = getenv("DEBUG");
+
+    // ValGroup cur_group = graph.toGroup(getLoopPromotion(v_id,
+    // id_model));
+    ValGroup cur_group = graph.toGroup(v_id);
     std::unordered_set<ValGroup> visited_ids;
     visited_ids.insert(cur_group);
 
+    if (_debug)
+      std::cerr << "Traversing from : " << nvfuser::toString(cur_group) << "\n";
     for (const auto& [expr_g, dir] : expr_path) {
       Expr* expr = expr_g->front();
+      if (_debug) {
+        std::cerr << dir << ", " << expr->toString();
+        std::cerr << "Current: " << nvfuser::toString(cur_group) << "\n";
+      }
       NVF_ERROR(
           expr->isA<Merge>() || expr->isA<Split>() || expr->isA<Resize>() ||
               expr->isA<Swizzle>() || expr->isA<Swizzle2D>(),
@@ -640,7 +651,7 @@ class VectorizeValidator : public OptInDispatch {
       }
 
       if (alloc_groups.has(cur_group)) {
-        break;
+        // break;
       }
     }
 
