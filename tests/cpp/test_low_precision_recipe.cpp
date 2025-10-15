@@ -110,7 +110,10 @@ constexpr double F8E4M3_MAX = 448.0;
 class NVFP4QuantizeTest : public BlackwellBase,
                           public ::testing::WithParamInterface<DataType> {};
 namespace {
-void createNVFP4QunatizationFusion(Fusion* fusion, DataType data_hp_dtype) {
+void createNVFP4QunatizationFusion(
+    Fusion* fusion,
+    DataType data_hp_dtype,
+    bool swizzle_output = false) {
   auto tv_data_hp = makeContigTensor(2, data_hp_dtype);
   fusion->addInput(tv_data_hp);
 
@@ -145,6 +148,29 @@ void createNVFP4QunatizationFusion(Fusion* fusion, DataType data_hp_dtype) {
 
   fusion->addOutput(tv_block_scale_fp8);
   fusion->addOutput(tv_data_lp);
+
+  if (swizzle_output) {
+    // Swizzle the output to match the memory layout used in
+    auto original_loop = tv_block_scale_fp8->getLoopDomain();
+    tv_block_scale_fp8->split(0, 128);
+    // m/128, 128, k
+    tv_block_scale_fp8->split(1, 32);
+    // m/128, 4(m_o), 32(m_i), k
+    tv_block_scale_fp8->split(3, 4);
+    // m/128, 4(m_o), 32(m_i), k/4, 4(k)
+    std::vector<IterDomain*> tv_block_scale_fp8_alloc{
+        tv_block_scale_fp8->axis(0),
+        tv_block_scale_fp8->axis(3),
+        tv_block_scale_fp8->axis(2),
+        tv_block_scale_fp8->axis(1),
+        tv_block_scale_fp8->axis(4)};
+    // m/128, k/4, 32(m_i), 4(m_o), 4(k)
+    tv_block_scale_fp8->setAllocationDomain(tv_block_scale_fp8_alloc, true);
+    // back to a 2D logical domain.
+    tv_block_scale_fp8->merge(0);
+    tv_block_scale_fp8->merge(0);
+    tv_block_scale_fp8->merge(-1);
+  }
 }
 } // namespace
 
@@ -176,6 +202,10 @@ TEST_P(NVFP4QuantizeTest, WithoutPerTensorAmax) {
 }
 
 class BQTest : public BlackwellBase {};
+
+class BQTestParametric
+    : public BlackwellBase,
+      public ::testing::WithParamInterface<std::tuple<bool, int, int>> {};
 
 TEST_F(BQTest, ScheduleAsPointwise) {
   // Basic test implementation
@@ -392,13 +422,14 @@ TEST_F(BQTest, ScheduleAsPointwise2D) {
   EXPECT_EQ(quantized_tensor_output.dim(), 2);
 }
 
-TEST_F(BQTest, AutoScheduleSingleOp) {
-  const int m = 1024;
-  const int n = 1024;
+TEST_P(BQTestParametric, AutoScheduleSingleOp) {
+  bool swizzle_output = std::get<0>(GetParam());
+  int m = std::get<1>(GetParam());
+  int n = std::get<2>(GetParam());
 
   std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
-  createNVFP4QunatizationFusion(fusion.get(), DataType::Float);
+  createNVFP4QunatizationFusion(fusion.get(), DataType::Float, swizzle_output);
 
   FusionExecutorCache fec(std::move(fusion));
 
@@ -429,6 +460,26 @@ TEST_F(BQTest, AutoScheduleSingleOp) {
   // outputs are 3D
   fusion_new_op->addOutput(quantization_results.block_scales);
   fusion_new_op->addOutput(quantization_results.quantized_tensor);
+
+  if (swizzle_output) {
+    auto original_loop_domain =
+        quantization_results.block_scales->getLoopDomain();
+
+    quantization_results.block_scales->split(0, 128);
+    quantization_results.block_scales->split(1, 32);
+    quantization_results.block_scales->split(3, 4);
+    std::vector<IterDomain*> tv_block_scale_fp8_alloc{
+        quantization_results.block_scales->axis(0),
+        quantization_results.block_scales->axis(3),
+        quantization_results.block_scales->axis(2),
+        quantization_results.block_scales->axis(1),
+        quantization_results.block_scales->axis(4)};
+
+    quantization_results.block_scales->setAllocationDomain(
+        tv_block_scale_fp8_alloc, true);
+
+    quantization_results.block_scales->setLoopDomain(original_loop_domain);
+  }
 
   FusionExecutorCache executor_cache(std::move(fusion_new_op));
   auto outputs_new_op = executor_cache.runFusionWithInputs(inputs);
@@ -608,5 +659,30 @@ INSTANTIATE_TEST_SUITE_P(
     NVFP4QuantizeTest,
     ::testing::Values(DataType::BFloat16, DataType::Float),
     testing::PrintToStringParamName());
+
+INSTANTIATE_TEST_SUITE_P(
+    ,
+    BQTestParametric,
+    ::testing::Values(
+        std::make_tuple(false, 1024, 64),
+        std::make_tuple(true, 1024, 64),
+        std::make_tuple(false, 32, 64),
+        std::make_tuple(true, 32, 64),
+        std::make_tuple(false, 64, 32),
+        std::make_tuple(true, 64, 32),
+        std::make_tuple(false, 1024, 1024),
+        std::make_tuple(true, 1024, 1024),
+        std::make_tuple(false, 512, 512),
+        std::make_tuple(true, 512, 512),
+        std::make_tuple(false, 2048, 1024),
+        std::make_tuple(true, 2048, 1024)),
+    [](const testing::TestParamInfo<std::tuple<bool, int, int>>& info) {
+      bool swizzle_output = std::get<0>(info.param);
+      int m = std::get<1>(info.param);
+      int n = std::get<2>(info.param);
+      std::string name = (swizzle_output ? "SwizzleTrue" : "SwizzleFalse");
+      name += "_" + std::to_string(m) + "x" + std::to_string(n);
+      return name;
+    });
 
 } // namespace nvfuser
