@@ -329,23 +329,10 @@ inferAllocationSizesAndStrides(
       allocation_strides.push_back(it->second.second);
       continue;
     }
+    // grouped matmul could introduce some IDs not in active_ids
+    // For those IDs, just push some dummy values
     allocation_sizes.push_back(1);
     allocation_strides.push_back(1);
-    std::cout << "ID not found in active_ids: " << id->toString() << std::endl;
-    continue;
-
-    // Fallback for IDs not populated in active_ids due to transforms on both
-    // sides of logical domain.
-    // if (id->isBroadcast()) {
-    //   const int64_t sz = id->hasExpandedExtent()
-    //       ? ee.evaluate(id->getMaybeExpandedExtent()).as<int64_t>()
-    //       : 1;
-    //   allocation_sizes.push_back(sz);
-    //   allocation_strides.push_back(0);
-    // } else {
-    //   allocation_sizes.push_back(ee.evaluate(id->extent()).as<int64_t>());
-    //   allocation_strides.push_back(1);
-    // }
   }
   return {std::move(allocation_sizes), std::move(allocation_strides)};
 }
