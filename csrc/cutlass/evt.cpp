@@ -169,6 +169,9 @@ class EVTConverter : OptInDispatch {
       case UnaryOpType::Relu:
         op_name = "cutlass::epilogue::thread::ReLU";
         break;
+      case UnaryOpType::Rsqrt:
+        op_name = "cutlass::inverse_square_root";
+        break;
       case UnaryOpType::Tanh:
         op_name = "cutlass::epilogue::thread::Tanh";
         break;

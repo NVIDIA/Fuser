@@ -338,6 +338,7 @@ TEST_F(CutlassExecutorTest, Nvfp4MatmulReLU) {
   TensorView* out_tv = relu(smm.tv);
 
   out_tv = abs(out_tv);
+  out_tv = rsqrt(out_tv);
   out_tv = neg(out_tv);
 
   out_tv = castOp(DataType::Half, out_tv);
