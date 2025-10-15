@@ -777,8 +777,8 @@ class RunTimeChecker : private IterVisitor {
         at::cuda::getCurrentDeviceProperties()->regsPerBlock /
         threads_per_block;
     // Make sure at least 20 registers are always available
-    const int64_t reserved_regiser_count_per_thread = 20;
-    if (register_count_per_thread + reserved_regiser_count_per_thread >
+    const int64_t reserved_register_count_per_thread = 20;
+    if (register_count_per_thread + reserved_register_count_per_thread >
         available_register_count_per_thread) {
       reject(
           "Expected register usage, ",
