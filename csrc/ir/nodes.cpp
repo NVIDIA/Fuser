@@ -12,6 +12,7 @@
 #include <sstream>
 #include <string>
 
+#include <ATen/cuda/CUDAContextLight.h>
 #include <torch/nn/functional/embedding.h>
 #include <torch/nn/options/embedding.h>
 
@@ -5672,7 +5673,6 @@ std::string GroupedMmaOp::toInlineString(int indent_size) const {
 std::vector<PolymorphicValue> GroupedMmaOp::evaluate(
     const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
-#if NVF_TORCH_VERSION_NO_LESS(2, 8, 0)
   NVF_ERROR(
       inputs[0].is<at::Tensor>(),
       "GroupedMmaOp expects tensor input at position 0 but got ",
@@ -5726,88 +5726,100 @@ std::vector<PolymorphicValue> GroupedMmaOp::evaluate(
     beta = inputs[beta_offset].as<at::Tensor>();
   }
 
-  at::Tensor result;
-  if (hasScale()) {
-    NVF_ERROR(
-        inputs[3].is<at::Tensor>(),
-        "GroupedMmaOp expects tensor input at position 3 but got ",
-        inputs[3].type().name());
-    NVF_ERROR(
-        inputs[4].is<at::Tensor>(),
-        "GroupedMmaOp expects tensor input at position 4 but got ",
-        inputs[4].type().name());
+  // This lambda returns the raw result, which will be postprocessed by the
+  // caller, e.g., converting the data type and adding rFactor dimensions.
+  auto result = [&]() -> at::Tensor {
+    if (hasScale()) {
+#if NVF_TORCH_VERSION_NO_LESS(2, 8, 0)
+      NVF_ERROR(
+          inputs[3].is<at::Tensor>(),
+          "GroupedMmaOp expects tensor input at position 3 but got ",
+          inputs[3].type().name());
+      NVF_ERROR(
+          inputs[4].is<at::Tensor>(),
+          "GroupedMmaOp expects tensor input at position 4 but got ",
+          inputs[4].type().name());
 
-    auto scale1 = inputs[scale1Offset()].as<at::Tensor>();
-    auto scale2 = inputs[scale2Offset()].as<at::Tensor>();
-    // Note: at::_scaled_grouped_mm requires k dimension to be the fastest on
-    // both input matrices.
-    auto mat1_k_last = mat1.contiguous();
-    auto mat2_k_last = mat2.transpose(-1, -2).contiguous().transpose(-1, -2);
+      auto scale1 = inputs[scale1Offset()].as<at::Tensor>();
+      auto scale2 = inputs[scale2Offset()].as<at::Tensor>();
+      // Note: at::_scaled_grouped_mm requires k dimension to be the fastest on
+      // both input matrices.
+      auto mat1_k_last = mat1.contiguous();
+      auto mat2_k_last = mat2.transpose(-1, -2).contiguous().transpose(-1, -2);
 
-    // at::_scaled_grouped_mm limitation
-    NVF_CHECK(
-        scale1.size(-1) == 1 && scale2.size(-2) == 1,
-        "Scale1 and scale2 must have size 1 at the k dimension. Got ",
-        scale1.sizes(),
-        " and ",
-        scale2.sizes());
-    // scale factor handling
-    // see NOTE -- [ Grouped Matrix Multiplication semantics ]
-    if (TensorDomain::noReductions(out()->getLogicalDomain()).size() == 3) {
-      // case 1, aten API expects collapsed 1D scale with group dimension on the
-      // slower side.
-      scale1 = scale1.reshape(-1);
-      scale2 = scale2.reshape(-1);
-    } else {
-      // case 2 and 3, aten doesn't allow broadcast on k dimension. squeeze k
-      // out.
-      scale1 = scale1.squeeze(-1);
-      scale2 = scale2.squeeze(-2);
-    }
-    // undefined alpha, bias is not supported by aten API
-    NVF_ERROR(!alpha.defined(), "alpha is not supported yet");
-    NVF_ERROR(!beta.defined(), "beta is not supported yet");
-    NVF_ERROR(!bias.defined(), "bias is not supported yet");
-    // NOTE: at::_scaled_grouped_mm only supports bfloat16 as output at this
-    // moment, otherwise we should have requested the output dtype directly
-    // instead of casting the output afterwards.
-    result = at::_scaled_grouped_mm(
-        mat1_k_last,
-        mat2_k_last,
-        scale1,
-        scale2,
-        offsets,
-        /*bias=*/std::nullopt,
-        /*alpha=*/std::nullopt,
-        at::ScalarType::BFloat16);
-#if NVFUSER_CUTLASS_KERNEL_ENABLED
-  } else if (true) {
-    // FIXME: gate blackwell
-    // FIXME: gate contiguity
-    // FIXME: gate 2D x 3D
-    mat2 = mat2.transpose(-1, -2);
-    NVF_ERROR(mat2.is_contiguous());
-    // [m, k] x [g, n, k]; both contiguous
-    at::Tensor group_sizes = at::diff(
-        offsets,
-        /*n=*/1,
-        /*dim=*/-1,
-        /*prepend=*/
-        at::zeros({1}, at::dtype(at::kInt).device(offsets.device())));
-    at::Tensor ab_strides =
-        at::full_like(offsets, mat1.size(-1), at::dtype(at::kLong));
-    at::Tensor c_strides =
-        at::full_like(offsets, mat2.size(1), at::dtype(at::kLong));
-    at::Tensor problem_sizes =
-        at::stack({group_sizes, c_strides, ab_strides}, /*dim=*/-1)
-            .to(at::kInt);
-    offsets = at::cat(
-        {at::tensor({0}, at::dtype(at::kInt).device(offsets.device())),
-         offsets.slice(0, 0, -1)});
-    result = cutlass_kernels::grouped_mm(
-        mat1, mat2, ab_strides, c_strides, problem_sizes, offsets);
+      // at::_scaled_grouped_mm limitation
+      NVF_CHECK(
+          scale1.size(-1) == 1 && scale2.size(-2) == 1,
+          "Scale1 and scale2 must have size 1 at the k dimension. Got ",
+          scale1.sizes(),
+          " and ",
+          scale2.sizes());
+      // scale factor handling
+      // see NOTE -- [ Grouped Matrix Multiplication semantics ]
+      if (TensorDomain::noReductions(out()->getLogicalDomain()).size() == 3) {
+        // case 1, aten API expects collapsed 1D scale with group dimension on
+        // the slower side.
+        scale1 = scale1.reshape(-1);
+        scale2 = scale2.reshape(-1);
+      } else {
+        // case 2 and 3, aten doesn't allow broadcast on k dimension. squeeze k
+        // out.
+        scale1 = scale1.squeeze(-1);
+        scale2 = scale2.squeeze(-2);
+      }
+      // undefined alpha, bias is not supported by aten API
+      NVF_ERROR(!alpha.defined(), "alpha is not supported yet");
+      NVF_ERROR(!beta.defined(), "beta is not supported yet");
+      NVF_ERROR(!bias.defined(), "bias is not supported yet");
+      // NOTE: at::_scaled_grouped_mm only supports bfloat16 as output at this
+      // moment, otherwise we should have requested the output dtype directly
+      // instead of casting the output afterwards.
+      return at::_scaled_grouped_mm(
+          mat1_k_last,
+          mat2_k_last,
+          scale1,
+          scale2,
+          offsets,
+          /*bias=*/std::nullopt,
+          /*alpha=*/std::nullopt,
+          at::ScalarType::BFloat16);
+#else
+      NVF_THROW("at::_scaled_grouped_mm does not exist prior to PyTorch 2.8.");
 #endif
-  } else {
+    }
+
+#if NVFUSER_CUTLASS_KERNEL_ENABLED
+    auto supported_by_cutlass_kernel = [&]() -> bool {
+      return at::cuda::getCurrentDeviceProperties()->major >= 10 &&
+          mat1.dim() == 2 && mat2.dim() == 3 && mat1.is_contiguous() &&
+          mat2.transpose(-1, -2).is_contiguous();
+    };
+
+    if (supported_by_cutlass_kernel()) {
+      mat2 = mat2.transpose(-1, -2);
+      NVF_ERROR(mat2.is_contiguous());
+      // [m, k] x [g, n, k]; both contiguous
+      const auto k = mat1.size(-1);
+      const auto n = mat2.size(1);
+      at::Tensor group_sizes = at::diff(
+          offsets,
+          /*n=*/1,
+          /*dim=*/-1,
+          /*prepend=*/
+          at::zeros({1}, at::dtype(at::kInt).device(offsets.device())));
+      at::Tensor ab_strides = at::full_like(offsets, k, at::dtype(at::kLong));
+      at::Tensor c_strides = at::full_like(offsets, n, at::dtype(at::kLong));
+      at::Tensor problem_sizes =
+          at::stack({group_sizes, c_strides, ab_strides}, /*dim=*/-1)
+              .to(at::kInt);
+      offsets = at::cat(
+          {at::tensor({0}, at::dtype(at::kInt).device(offsets.device())),
+           offsets.slice(0, 0, -1)});
+      return cutlass_kernels::grouped_mm(
+          mat1, mat2, ab_strides, c_strides, problem_sizes, offsets);
+    }
+#endif
+
     // undefined bias is not supported by aten API
     NVF_ERROR(!alpha.defined(), "alpha is not supported yet");
     NVF_ERROR(!beta.defined(), "beta is not supported yet");
@@ -5825,6 +5837,7 @@ std::vector<PolymorphicValue> GroupedMmaOp::evaluate(
 
     std::vector<at::Tensor> group_mat1s;
     std::vector<at::Tensor> group_mat2s;
+    at::Tensor result;
     std::vector<at::Tensor> group_outs;
     if (mat1.dim() == 2 && mat2.dim() == 2) {
       // [m, k] @ [k, n] => [g, m, n]
@@ -5857,8 +5870,10 @@ std::vector<PolymorphicValue> GroupedMmaOp::evaluate(
          zip(group_mat1s, group_mat2s, group_outs)) {
       at::matmul_out(group_out, group_mat1, group_mat2);
     }
-  }
+    return result;
+  }();
 
+  // Post-processing
   result = result.to(data_type_to_aten(out()->dtype()));
 
   if (const auto rfactor_did_idx = getRFactorDeviceDimensionIndex(out());
@@ -5867,9 +5882,6 @@ std::vector<PolymorphicValue> GroupedMmaOp::evaluate(
   }
 
   return {result};
-#else
-  NVF_THROW("GroupedMmaOp is not supported prior to PyTorch 2.8.");
-#endif
 }
 
 IterDomain* GroupedMmaOp::getKDimOfMatrix1() const {
