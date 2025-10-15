@@ -1801,7 +1801,14 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
           bqop->toString());
     }
 
+    auto block_scales_tv = bqop->blockScales()->as<kir::TensorIndex>()->view();
+    auto block_scales_is_swizzled = block_scales_tv->hasAllocation() &&
+        block_scales_tv->getAllocationDomain().size() == 5 &&
+        TensorDomain::noReductions(block_scales_tv->getLogicalDomain())
+                .size() == 2;
+
     ArgumentBuilder template_args;
+    template_args.arg(block_scales_is_swizzled);
     template_args.arg(vector_word_size); // ITEMS_PER_THREAD
 
     // Function arguments
@@ -1814,12 +1821,6 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     func_args.arg(genInline(output));
     func_args.arg(
         genInline(bqop->blockScales()->as<kir::TensorIndex>()->view()));
-
-    auto block_scales_tv = bqop->blockScales()->as<kir::TensorIndex>()->view();
-    auto block_scales_is_swizzled = block_scales_tv->hasAllocation() &&
-        block_scales_tv->getAllocationDomain().size() == 5 &&
-        TensorDomain::noReductions(block_scales_tv->getLogicalDomain())
-                .size() == 2;
 
     if (block_scales_is_swizzled) {
       func_args.arg(

@@ -39,6 +39,7 @@ __device__ __inline__ void localMaxReduction(float& local_max) {
 // This assumes for block quantization, the block size is 16.
 // This works for float but will extended to work with bfloat.
 template <
+    bool SWIZZLE_SCALING_FACTORS,
     int ITEMS_PER_THREAD,
     typename T,
     int ALIGNMENT_1,
@@ -103,7 +104,7 @@ __device__ void block_quantize_to_nvfp4(
 
   int offset = (offset_y_blocks + offset_dim_y + offset_into_block) / 4;
 
-  if (fp8_output_inner_dim > 0) {
+  if constexpr (SWIZZLE_SCALING_FACTORS) {
     auto stride_4 = 1;
     auto stride_3 = stride_4 * alloc_dim4;
     auto stride_2 = stride_3 * alloc_dim3;
