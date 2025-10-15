@@ -569,31 +569,19 @@ class VectorizeValidator : public OptInDispatch {
     // vectorized ID.
     // const auto loop_domain = getLoopIds(load_store, id_model);
     const auto loop_domain = ir_utils::getTvOutput(load_store)->getLoopDomain();
-    const auto alloc_groups = graph.toGroups(tv->getMaybeAllocationDomain());
-
     auto expr_path = ValGraphBFS::getExprGroupsBetween(
                          graph,
                          graph.toGroups(loop_domain),
-                         alloc_groups,
+                         graph.toGroups(tv->getMaybeAllocationDomain()),
                          /*require_all_to_visited=*/false)
                          .first;
 
-    bool _debug = getenv("DEBUG");
-
-    // ValGroup cur_group = graph.toGroup(getLoopPromotion(v_id,
-    // id_model));
     ValGroup cur_group = graph.toGroup(v_id);
     std::unordered_set<ValGroup> visited_ids;
     visited_ids.insert(cur_group);
 
-    if (_debug)
-      std::cerr << "Traversing from : " << nvfuser::toString(cur_group) << "\n";
     for (const auto& [expr_g, dir] : expr_path) {
       Expr* expr = expr_g->front();
-      if (_debug) {
-        std::cerr << dir << ", " << expr->toString();
-        std::cerr << "Current: " << nvfuser::toString(cur_group) << "\n";
-      }
       NVF_ERROR(
           expr->isA<Merge>() || expr->isA<Split>() || expr->isA<Resize>() ||
               expr->isA<Swizzle>() || expr->isA<Swizzle2D>(),
@@ -648,10 +636,6 @@ class VectorizeValidator : public OptInDispatch {
         } else {
           cur_group = outputs[1];
         }
-      }
-
-      if (alloc_groups.has(cur_group)) {
-        // break;
       }
     }
 
@@ -884,10 +868,11 @@ class VectorizeValidator : public OptInDispatch {
     // not vectorized. Note that this check should be place below the
     // above check of the vectorization size since it's still invalid
     // if the data type is a sub byte type
+#if 0
     if (v_id->extent()->isOne()) {
       return;
     }
-
+#endif
     auto consumer_vectorized_id = getAndValidateVectorizedIdInAllocationDomain(
         v_id, tv, "consumer", tv_def, vector_size_bit);
     if (consumer_vectorized_id == nullptr) {
