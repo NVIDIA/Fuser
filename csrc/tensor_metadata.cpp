@@ -329,6 +329,8 @@ inferAllocationSizesAndStrides(
       allocation_strides.push_back(it->second.second);
       continue;
     }
+    allocation_sizes.push_back(1);
+    allocation_strides.push_back(1);
     continue;
     std::cout << "ID not found in active_ids: " << id->toString() << std::endl;
 
