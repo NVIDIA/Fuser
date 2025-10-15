@@ -453,7 +453,7 @@ TEST_F(Tutorial, Reshape) {
     fusion.addInput(tv0);
 
     // Shape of tv0 is assumed to be [4, 8], which is then reshaped to [32]
-    auto tv1 = reshape(tv0, [](auto &t) { t.merge(0); });
+    auto tv1 = view(tv0, [](auto &t) { t.merge(0); });
     fusion.addOutput(tv1);
 
     if (verbose_) {
