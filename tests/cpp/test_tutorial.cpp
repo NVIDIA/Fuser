@@ -11,6 +11,7 @@
 #include <fusion.h>
 #include <id_model/id_model.h>
 #include <ir/utils.h>
+#include <ir/all_nodes.h>
 #include <ops/all_ops.h>
 #include <scheduler/tools/inlining.h>
 #include <tests/cpp/utils.h>
