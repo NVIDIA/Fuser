@@ -175,7 +175,6 @@ class PythonProfiler {
 
   PythonProfiler* start() {
     ProfilerOptionsGuard::getCurOptions().set(ProfilerOption::Enable);
-    DisableOptionsGuard::getCurOptions().set(DisableOption::ParallelCompile);
     if (!auto_scheduled_) {
       FusionProfiler::start();
       FusionProfiler::createSegments(1);
@@ -189,7 +188,6 @@ class PythonProfiler {
       FusionProfiler::stop();
     }
     ProfilerOptionsGuard::getCurOptions().unset(ProfilerOption::Enable);
-    DisableOptionsGuard::getCurOptions().unset(DisableOption::ParallelCompile);
   }
 
   void reset() {
