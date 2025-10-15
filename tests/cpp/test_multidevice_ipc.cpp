@@ -187,7 +187,7 @@ TEST_F(IpcTest, IpcMemHandlePtrArithmeticAtSender) {
   NVFUSER_CUDA_RT_SAFE_CALL(cudaFree(d_ptr));
 }
 
-#if (CUDA_VERSION >= 12000)
+#if (CUDA_VERSION >= 13000)
 
 TEST_F(IpcTest, IpcNvlsMulticastBroadcast) {
   if (communicator_->size() == 1) {
