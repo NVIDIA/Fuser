@@ -320,9 +320,27 @@ inferAllocationSizesAndStrides(
     if (id->isDeviceDim()) {
       allocation_sizes.push_back(1);
       allocation_strides.push_back(1);
+      continue;
+    }
+
+    auto it = active_ids.find(id);
+    if (it != active_ids.end()) {
+      allocation_sizes.push_back(it->second.first);
+      allocation_strides.push_back(it->second.second);
+      continue;
+    }
+
+    // Fallback for IDs not populated in active_ids due to transforms on both
+    // sides of logical domain.
+    if (id->isBroadcast()) {
+      const int64_t sz = id->hasExpandedExtent()
+          ? ee.evaluate(id->getMaybeExpandedExtent()).as<int64_t>()
+          : 1;
+      allocation_sizes.push_back(sz);
+      allocation_strides.push_back(0);
     } else {
-      allocation_sizes.push_back(active_ids.at(id).first);
-      allocation_strides.push_back(active_ids.at(id).second);
+      allocation_sizes.push_back(ee.evaluate(id->extent()).as<int64_t>());
+      allocation_strides.push_back(1);
     }
   }
   return {std::move(allocation_sizes), std::move(allocation_strides)};
