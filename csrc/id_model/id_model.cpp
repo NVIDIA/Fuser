@@ -988,6 +988,20 @@ void IdModel::initializeLoopGraph(const StatefulInliningInfo& info) {
         loop_ids.pushBack(ir_utils::filterByType<IterDomain>(expr->outputs()));
         loop_ids.pushBack(ir_utils::filterByType<IterDomain>(expr->inputs()));
       }
+
+      if (tv->hasRoot()) {
+        loop_ids.pushBack(tv->getRootDomain());
+        auto path =
+            getExprsBetween<IRBFS>(
+                {tv->getRootDomain().begin(), tv->getRootDomain().end()},
+                {tv->getLogicalDomain().begin(), tv->getLogicalDomain().end()},
+                false)
+                .first;
+        for (auto [expr, _] : path) {
+          loop_ids.pushBack(ir_utils::filterByType<IterDomain>(expr->outputs()));
+          loop_ids.pushBack(ir_utils::filterByType<IterDomain>(expr->inputs()));
+        }
+      }
     }
     std::vector<IterDomain*> all_ids = loop_ids.vector();
 
