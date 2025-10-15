@@ -20,8 +20,8 @@ std::ostream& operator<<(std::ostream& os, P2pProtocol protocol) {
   std::unreachable();
 }
 
-P2pProtocol getPrescribedP2pProtocol() {
-  return hasEnableOptionArgument(EnableOption::PrescribeP2pProtocol, "put")
+P2pProtocol getP2pProtocol() {
+  return hasEnableOptionArgument(EnableOption::P2pProtocol, "put")
       ? P2pProtocol::Put
       : P2pProtocol::Get;
 }
@@ -56,7 +56,7 @@ void WriteValue32ToLocalAndPeer(
 } // anonymous namespace
 
 void recvPost(const P2pIpcHandle& ipc_handles, int64_t count, CUstream stream) {
-  P2pProtocol protocol = getPrescribedP2pProtocol();
+  P2pProtocol protocol = getP2pProtocol();
   switch (protocol) {
     case P2pProtocol::Get: {
       // wait for sender to be ready
@@ -86,7 +86,7 @@ void recvPost(const P2pIpcHandle& ipc_handles, int64_t count, CUstream stream) {
 }
 
 void recvWait(const P2pIpcHandle& ipc_handles, CUstream stream) {
-  P2pProtocol protocol = getPrescribedP2pProtocol();
+  P2pProtocol protocol = getP2pProtocol();
   switch (protocol) {
     case P2pProtocol::Put:
       NVFUSER_CUDA_SAFE_CALL(cuStreamWaitValue32(
@@ -103,7 +103,7 @@ void recvWait(const P2pIpcHandle& ipc_handles, CUstream stream) {
 }
 
 void sendPost(const P2pIpcHandle& ipc_handles, int64_t count, CUstream stream) {
-  P2pProtocol protocol = getPrescribedP2pProtocol();
+  P2pProtocol protocol = getP2pProtocol();
   switch (protocol) {
     case P2pProtocol::Get:
       // signal to self and peer that transfer is in progress
@@ -132,7 +132,7 @@ void sendPost(const P2pIpcHandle& ipc_handles, int64_t count, CUstream stream) {
 }
 
 void sendWait(const P2pIpcHandle& ipc_handles, CUstream stream) {
-  P2pProtocol protocol = getPrescribedP2pProtocol();
+  P2pProtocol protocol = getP2pProtocol();
   switch (protocol) {
     case P2pProtocol::Get:
       NVFUSER_CUDA_SAFE_CALL(cuStreamWaitValue32(

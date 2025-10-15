@@ -178,7 +178,7 @@ const std::unordered_map<std::string, EnableOption>& getEnableOptions() {
           {"host_ir_lowering", EnableOption::HostIrLowering},
           {"insert_resharding_after", EnableOption::InsertReshardingAfter},
           {"fast_math", EnableOption::FastMath},
-          {"p2p_protocol", EnableOption::PrescribeP2pProtocol},
+          {"p2p_protocol", EnableOption::P2pProtocol},
       };
   return available_options;
 }

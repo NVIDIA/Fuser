@@ -16,7 +16,7 @@ enum class P2pProtocol { Get, Put };
 std::ostream& operator<<(std::ostream& os, P2pProtocol protocol);
 
 // Returns the prescribed P2P protocol based on NVFUSER_ENABLE option
-P2pProtocol getPrescribedP2pProtocol();
+P2pProtocol getP2pProtocol();
 
 void recvPost(const P2pIpcHandle& ipc_handles, int64_t count, CUstream stream);
 

@@ -435,7 +435,7 @@ TEST_P(P2PCommunicationTest, CudaComm) {
 
   std::string protocol = GetParam();
   EnableOptionsGuard::getCurOptions().set(
-      EnableOption::PrescribeP2pProtocol, {protocol});
+      EnableOption::P2pProtocol, {protocol});
 
   auto container = std::make_unique<hir::HostIrContainer>();
   FusionGuard fg(container.get());

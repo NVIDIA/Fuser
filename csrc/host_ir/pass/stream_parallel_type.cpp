@@ -437,14 +437,14 @@ std::vector<Expr*> processForLoopBodies(
           auto wait_recv = IrBuilder::create<hir::Wait>(recv);
 
           if_sending_to_self->elseBody().push_back(share_mem_handles);
-          if (getPrescribedP2pProtocol() == P2pProtocol::Put) {
+          if (getP2pProtocol() == P2pProtocol::Put) {
             if_sending_to_self->elseBody().push_back(recv);
             if_sending_to_self->elseBody().push_back(send);
-          } else if (getPrescribedP2pProtocol() == P2pProtocol::Get) {
+          } else if (getP2pProtocol() == P2pProtocol::Get) {
             if_sending_to_self->elseBody().push_back(send);
             if_sending_to_self->elseBody().push_back(recv);
           } else {
-            NVF_ERROR("Invalid P2P protocol: ", getPrescribedP2pProtocol());
+            NVF_ERROR("Invalid P2P protocol: ", getP2pProtocol());
           }
           if_sending_to_self->elseBody().push_back(wait_recv);
           // Defer the wait on send to the loop epilogue under the same
