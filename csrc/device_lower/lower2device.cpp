@@ -634,7 +634,7 @@ bool GpuLower::resolveComputeWith(Fusion* fusion) {
   std::vector<Expr*> exprs_sorted;
 
   bool updated = false;
-  for (auto val : fusion->usedMathVals()) {
+  for (auto val : fusion->producedMathVals()) {
     auto tv = dynamic_cast<TensorView*>(val);
     if (tv == nullptr) {
       continue;

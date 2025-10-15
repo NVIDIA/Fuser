@@ -41,7 +41,7 @@ namespace nvfuser {
 
 ParallelDimensionMap::ParallelDimensionMap(Fusion* fusion) {
   VectorOfUniqueEntries<PAndID> all_concrete_ids;
-  auto all_vals = fusion->usedMathVals();
+  auto all_vals = fusion->producedMathVals();
   for (auto tv : ir_utils::filterByType<TensorView>(all_vals)) {
     if (tv->isCircularBuffered() &&
         std::holds_alternative<WarpSpecialized>(

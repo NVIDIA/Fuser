@@ -15,7 +15,7 @@
 namespace nvfuser::preseg_passes {
 
 void AddAxiomsPass::runPass(Fusion* fusion) {
-  auto all_vals = fusion->usedMathVals();
+  auto all_vals = fusion->producedMathVals();
   std::unordered_set<Val*> assumed_vals;
   for (auto tv : ir_utils::filterByType<TensorView>(all_vals)) {
     std::vector<const std::vector<nvfuser::IterDomain*>*> interested_domains{

@@ -2475,7 +2475,7 @@ TEST_F(NVFuserTest, FusionRedundantUseCheck_CUDA) {
   GpuLower gpulw(&fusion);
 
   TensorView *lowered_tv2 = nullptr, *lowered_tv4 = nullptr;
-  auto used_vals = gpulw.run()->usedMathVals();
+  auto used_vals = gpulw.run()->producedMathVals();
 
   for (auto tv : ir_utils::filterByType<TensorView>(used_vals)) {
     if (tv->name() == 2) {

@@ -101,7 +101,7 @@ void IrPrinter::handle(const hir::HostIrContainer* host_ir_container) {
 }
 
 void IrTransformPrinter::handle(const Fusion* f) {
-  auto all_vals = f->usedMathVals();
+  auto all_vals = f->producedMathVals();
 
   for (auto tv : ir_utils::filterByType<TensorView>(all_vals)) {
     os() << tv->toString();

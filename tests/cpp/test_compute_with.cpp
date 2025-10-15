@@ -75,7 +75,7 @@ void checkComputeWith(
     unsigned int pos,
     const std::vector<TensorView*>& target_tvs) {
   TensorView* kernel_tv = nullptr;
-  for (auto val : kernel->usedMathVals()) {
+  for (auto val : kernel->producedMathVals()) {
     auto tv = dynamic_cast<TensorView*>(val);
     if (tv == nullptr) {
       continue;

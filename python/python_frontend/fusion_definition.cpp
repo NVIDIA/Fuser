@@ -150,7 +150,7 @@ void FusionDefinition::findHiddenTensorViews(Fusion* fusion) {
       [this](State s) { return getFusionState(s.index); });
 
   // Get set difference between CPP Fusion and Python FusionDefinition
-  std::vector<Val*> all_vals = fusion->usedMathVals();
+  std::vector<Val*> all_vals = fusion->producedMathVals();
   std::vector<Val*> new_fusion_tvs;
   std::copy_if(
       all_vals.begin(),

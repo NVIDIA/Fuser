@@ -141,7 +141,7 @@ static void NvFuserScheduler_Softmax_WarpReduce(
   scheduler->schedule(fusion, heuristic_params.get());
 
   // Modify the schedule to use warp reduction
-  auto used_vals = fusion->usedMathVals();
+  auto used_vals = fusion->producedMathVals();
   for (auto tv : ir_utils::filterByType<TensorView>(used_vals)) {
     for (IterDomain* id : tv->getLoopDomain()) {
       if (id->getParallelType() == ParallelType::TIDx) {

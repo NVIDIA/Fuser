@@ -1244,7 +1244,7 @@ std::vector<TensorView*> getReductionTvs(Fusion* fusion) {
 
 std::vector<TensorView*> getViewTVs(Fusion* fusion) {
   std::vector<TensorView*> view_tvs;
-  auto fusion_vals = fusion->usedMathVals();
+  auto fusion_vals = fusion->producedMathVals();
   for (auto producer_tv : ir_utils::filterByType<TensorView>(fusion_vals)) {
     auto consumer_tvs = ir_utils::consumerTvsOf(producer_tv);
     for (auto consumer_tv : consumer_tvs) {
@@ -1258,7 +1258,7 @@ std::vector<TensorView*> getViewTVs(Fusion* fusion) {
 
 std::vector<TensorView*> getTVsWithNonReductionRFactor(Fusion* fusion) {
   std::vector<TensorView*> tvs_with_rfactor;
-  auto fusion_vals = fusion->usedMathVals();
+  auto fusion_vals = fusion->producedMathVals();
   std::copy_if(
       ir_utils::filterByType<TensorView>(fusion_vals).begin(),
       ir_utils::filterByType<TensorView>(fusion_vals).end(),

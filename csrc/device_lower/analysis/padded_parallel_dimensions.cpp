@@ -22,7 +22,7 @@ PaddedParallelDimensions collectPaddedParallelDims(Fusion* fusion) {
 
   PaddedParallelDimensions warp_pad_info;
 
-  auto used_vals = fusion->usedMathVals();
+  auto used_vals = fusion->producedMathVals();
   for (auto tv : ir_utils::filterByType<TensorView>(used_vals)) {
     // TODO: Support GroupedReductionOp
     if (auto reduction = dynamic_cast<ReductionOp*>(tv->definition());

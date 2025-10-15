@@ -1592,7 +1592,7 @@ void CompiledKernel::deserialize(const serde::KernelExecutor* buffer) {
 }
 
 void CompiledKernel::setUsedTVs() {
-  auto used_vals = kernel()->usedMathVals();
+  auto used_vals = kernel()->producedMathVals();
   auto used_tvs = ir_utils::filterByType<TensorView>(used_vals);
   used_tvs_.clear();
   used_tvs_.insert(used_tvs_.begin(), used_tvs.begin(), used_tvs.end());

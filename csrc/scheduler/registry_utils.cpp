@@ -583,7 +583,7 @@ PrimDataType getIndexTypeOfKernel(
 
 bool SchedulerTopologyChecker::hasNonNormalizePostReductionBCast(
     Fusion* fusion) {
-  auto all_vals = fusion->usedMathVals();
+  auto all_vals = fusion->producedMathVals();
   std::vector<TensorView*> reduction_tvs;
   for (auto tv : ir_utils::filterByType<TensorView>(all_vals)) {
     if (tv->hasReduction() &&
@@ -843,7 +843,7 @@ bool SchedulerTopologyChecker::hasNonNormalizePostReductionBCast(
 // Checks if any broadcasts are resolved after a reduction, this shouldn't be
 // accepted in the single reduction or multi-reduction scheduler
 bool SchedulerTopologyChecker::hasPostReductionBCast(Fusion* fusion) {
-  auto all_vals = fusion->usedMathVals();
+  auto all_vals = fusion->producedMathVals();
   for (auto tv : ir_utils::filterByType<TensorView>(all_vals)) {
     // Reductions can have multiple outputs, so do this on all found reduction
     // tensor views

@@ -443,7 +443,7 @@ std::unordered_map<
     std::pair<std::vector<int64_t>, std::vector<int64_t>>>
 Fusion::bankConflictInfo(const CompileParams& compile_params) {
   std::vector<TensorView*> smem_tvs;
-  for (auto v : usedMathVals()) {
+  for (auto v : producedMathVals()) {
     auto tv = dynamic_cast<TensorView*>(v);
     if (tv == nullptr) {
       continue;
@@ -652,7 +652,7 @@ void Fusion::resetTvUses() {
   is_during_update_uses_ = false;
 }
 
-std::vector<Val*> Fusion::usedMathVals() const {
+std::vector<Val*> Fusion::producedMathVals() const {
   // Note that using fusion->inputs() as the argument for the first
   // parameter of getAllValsBetween does not grab all used vals as
   // there can be vals that are created inside a fusion without using
@@ -692,7 +692,7 @@ std::vector<Val*> Fusion::usedMathVals() const {
 
 std::vector<Val*> Fusion::terminatingMathVals() {
   VectorOfUniqueEntries<Val*> result;
-  auto used_vals = usedMathVals();
+  auto used_vals = producedMathVals();
   for (auto v : used_vals) {
     // Locate the vals that are not expr outputs but have valid definitions.
     if (unordered_uses(v).empty() && v->definition() != nullptr) {
@@ -873,7 +873,7 @@ bool Fusion::hasDynamicTransform() {
 
 namespace {
 std::vector<TensorView*> findAllTvs(Fusion* fusion) {
-  auto used_vals = fusion->usedMathVals();
+  auto used_vals = fusion->producedMathVals();
   auto used_tvs = ir_utils::filterByType<TensorView>(used_vals);
 
   // This shouldn't be necessary but FusionSegmentIoAlias_CUDA due to aliasing

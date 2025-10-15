@@ -440,7 +440,7 @@ void scheduleNormalization(Fusion& fusion, const OuterReductionParams& params) {
   }
 
   // Find reduction TVs
-  const auto used_math_vals = fusion.usedMathVals();
+  const auto used_math_vals = fusion.producedMathVals();
   std::vector<Expr*> reduction_exprs;
   std::vector<TensorView*> reduction_tvs;
 
