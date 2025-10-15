@@ -11,9 +11,7 @@
 #include <fusion.h>
 #include <id_model/id_model.h>
 #include <ir/utils.h>
-#include <ops/alias.h>
-#include <ops/arith.h>
-#include <ops/utils.h>
+#include <ops/all_ops.h>
 #include <scheduler/tools/inlining.h>
 #include <tests/cpp/utils.h>
 #include <tests/cpp/validator.h>
@@ -453,7 +451,7 @@ TEST_F(Tutorial, Reshape) {
     fusion.addInput(tv0);
 
     // Shape of tv0 is assumed to be [4, 8], which is then reshaped to [32]
-    auto tv1 = view(tv0, [](auto &t) { t.merge(0); });
+    auto tv1 = reshape(tv0, [](auto &t) { t.merge(0); });
     fusion.addOutput(tv1);
 
     if (verbose_) {
