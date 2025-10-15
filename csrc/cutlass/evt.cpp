@@ -178,7 +178,8 @@ class EVTConverter : OptInDispatch {
         model_.makeNode("cutlass::epilogue::fusion::Sm90Compute");
     func_node->inputs.push_back(model_.makeNode("cutlass::" + op_name));
     func_node->inputs.push_back(model_.makeNode(dtypeToCutlass(out_type)));
-    // Compute type
+    // Compute type determines what precision the operation will take place in.
+    // The op is computed as (out_type)(op((compute_type)x, (compute_type)y))
     func_node->inputs.push_back(model_.makeNode(dtypeToCutlass(in_type)));
     // rounding mode
     // https://github.com/NVIDIA/cutlass/blob/2b8dff1f90605452c378c02298dd0cacaf65753c/include/cutlass/numeric_conversion.h#L56
@@ -220,7 +221,8 @@ class EVTConverter : OptInDispatch {
     func_node->inputs.push_back(model_.makeNode("cutlass::" + op_name));
     func_node->inputs.push_back(
         model_.makeNode(dtypeToCutlass(uop->out()->dtype())));
-    // This is the "compute" type of the op
+    // Compute type determines what precision the operation will take place in.
+    // The op is computed as (out_type)(op((compute_type)x))
     func_node->inputs.push_back(
         model_.makeNode(dtypeToCutlass(uop->in()->dtype())));
     // rounding mode
@@ -249,7 +251,7 @@ class EVTConverter : OptInDispatch {
         makeBinaryOpNode(
             bop->getBinaryOpType(),
             /*in_type=*/bop->lhs()->dtype(),
-            /*out_type=*/bop->lhs()->dtype(),
+            /*out_type=*/bop->out()->dtype(),
             getNodeFor(bop->lhs()),
             getNodeFor(bop->rhs())));
   }
