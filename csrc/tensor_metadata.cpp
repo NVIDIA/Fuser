@@ -319,10 +319,11 @@ inferAllocationSizesAndStrides(
   for (IterDomain* id : alloc | TensorDomain::kNoReductions) {
     if (id->isDeviceDim()) {
       allocation_sizes.push_back(1);
+      allocation_strides.push_back(1);
     } else {
       allocation_sizes.push_back(active_ids.at(id).first);
+      allocation_strides.push_back(active_ids.at(id).second);
     }
-    allocation_strides.push_back(active_ids.at(id).second);
   }
   return {std::move(allocation_sizes), std::move(allocation_strides)};
 }
