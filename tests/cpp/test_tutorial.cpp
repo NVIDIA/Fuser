@@ -471,7 +471,7 @@ TEST_F(Tutorial, Reshape) {
     ASSERT_EQ(tv1_merge->inner(), tv1->getRootDomain().at(1));
     ASSERT_EQ(tv1_merge->outer(), tv1->getRootDomain().at(0));
   }
-  return
+  return;
 
   {
     // Reshape example with broadcast domains
