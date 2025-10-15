@@ -13,20 +13,7 @@ namespace nvfuser {
 
 enum class P2pProtocol { Get, Put };
 
-inline std::ostream& operator<<(std::ostream& os, P2pProtocol protocol) {
-  switch (protocol) {
-    case P2pProtocol::Get:
-      os << "Get";
-      break;
-    case P2pProtocol::Put:
-      os << "Put";
-      break;
-    default:
-      os << "Unknown";
-      break;
-  }
-  return os;
-}
+std::ostream& operator<<(std::ostream& os, P2pProtocol protocol);
 
 // Returns the prescribed P2P protocol based on NVFUSER_ENABLE option
 P2pProtocol getPrescribedP2pProtocol();

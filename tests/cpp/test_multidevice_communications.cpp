@@ -18,9 +18,7 @@
 #include <ops/arith.h>
 #include <ops/utils.h>
 
-#include <options.h>
 #include <iostream>
-#include <string>
 
 namespace nvfuser {
 
@@ -435,7 +433,6 @@ TEST_P(P2PCommunicationTest, CudaComm) {
   const DeviceIdxType send_peer = (my_rank + 1) % size;
   const DeviceIdxType recv_peer = (size + my_rank - 1) % size;
 
-  EnableOptionsGuard guard;
   std::string protocol = GetParam();
   EnableOptionsGuard::getCurOptions().set(
       EnableOption::PrescribeP2pProtocol, {protocol});

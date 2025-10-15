@@ -9,6 +9,17 @@
 #include <multidevice/cuda_p2p.h>
 
 namespace nvfuser {
+
+std::ostream& operator<<(std::ostream& os, P2pProtocol protocol) {
+  switch (protocol) {
+    case P2pProtocol::Get:
+      return os << "Get";
+    case P2pProtocol::Put:
+      return os << "Put";
+  }
+  std::unreachable();
+}
+
 P2pProtocol getPrescribedP2pProtocol() {
   return hasEnableOptionArgument(EnableOption::PrescribeP2pProtocol, "put")
       ? P2pProtocol::Put
