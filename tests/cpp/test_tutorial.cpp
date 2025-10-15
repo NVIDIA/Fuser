@@ -455,7 +455,7 @@ TEST_F(Tutorial, Reshape) {
     auto tv1 = reshape(tv0, [](auto &t) { t.merge(0); });
     fusion.addOutput(tv1);
 
-    if (verbose_) {
+    if (true) {
       // Notice that tv1 has root and logical domains. The root domain
       // should consist of two IterDomains, whreas the logical domain
       // consists of a single IterDomain that is an output of a merge
