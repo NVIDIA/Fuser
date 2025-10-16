@@ -577,7 +577,7 @@ void cupti_buffer_requested(
   // Dynamically allocate a new buffer for each request
   // This ensures thread-safety and prevents buffer reuse issues
   const size_t buffer_size = FusionProfiler::cupti_activity_buffer_size;
-  uint8_t* pBuffer = (uint8_t*)malloc(buffer_size);
+  uint8_t* pBuffer = new uint8_t[buffer_size];
   NVF_ERROR(pBuffer, "Failed to allocate CUPTI Activity Record buffer!");
 
   const size_t align_size = 8;
@@ -604,7 +604,7 @@ void cupti_buffer_completed(
   }
 
   // Free the dynamically allocated buffer after processing
-  free(pBuffer);
+  delete[] pBuffer;
 }
 
 // CUPT activities to enable/disable
@@ -649,7 +649,6 @@ void teardownCupti(CUpti_SubscriberHandle subscriber_handle) {
 
 FusionProfiler::FusionProfiler()
     : cupti_disabled_(false),
-      cupti_buffer_(FusionProfiler::cupti_activity_buffer_size),
       state_(ProfilerState::Ready),
       fusion_id_(-1),
       profile_(),

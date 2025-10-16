@@ -293,8 +293,6 @@ class FusionProfiler {
 
   //! Disables CUPTI usage in order to measure Host Time without CUPTI overhead
   bool cupti_disabled_;
-  //! Buffer for Cupti to store Activity Buffers during async activity
-  std::vector<uint8_t> cupti_buffer_;
   //! The state is used to check for errors in usage
   ProfilerState state_;
 
