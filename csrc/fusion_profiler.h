@@ -272,8 +272,6 @@ class FusionProfiler {
   static void recordAsyncCorrIdActivity(uint32_t seg_id, uint32_t corr_id);
   //! Collects CUPTI Kernel Activity
   static void recordAsyncKernelActivity(KernelProfile prof);
-  //! Ptr to the CUPTI Activity Buffer
-  static uint8_t* cuptiBufferPtr();
 
  public:
   // CUPTI buffer size 200.0 KB
