@@ -357,40 +357,35 @@ def test_column_parallel_grouped_mm(multidevice_direct_test):
     mesh = nvfuser.multidevice.DeviceMesh(torch.arange(d))
     g = 4
     k = 16
-    n = 16 * d
+    n = 64 * d
 
-    def _definition(fd: FusionDefinition):
+    with FusionDefinition() as fd:
         inp = fd.define_tensor([-1, k], dtype=DataType.BFloat16, contiguity=True)
-        w = fd.define_tensor([g, k, n], dtype=DataType.BFloat16, contiguity=True)
+        w = fd.define_tensor([g, n, k], dtype=DataType.BFloat16, contiguity=True)
+        w_t = fd.ops.permute(w, [0, 2, 1])
         offsets = fd.define_tensor([g], dtype=DataType.Int32, contiguity=True)
-        out = fd.ops.grouped_mm(inp, w, offsets)
+        out = fd.ops.grouped_mm(inp, w_t, offsets)
         fd.add_output(out)
 
-    def _multidevice_schedule(fd: FusionDefinition):
-        inp, w, offsets = fd.fusion.inputs()
         for t in [inp, w, offsets]:
             t.set_device_mesh(mesh)
 
-        w.split(-1, d, inner_split=False)
-        w.axis(-2).parallelize(nvfuser.ParallelType.mesh_x)
+        w.split(1, d, inner_split=False)
+        w.axis(1).parallelize(nvfuser.ParallelType.mesh_x)
 
     m = 32
     inp = torch.randn(m, k, dtype=torch.bfloat16, device="cuda")
-    w = torch.randn(g, k, n, dtype=torch.bfloat16)
-    sharded_w = multidevice_direct_test.shard_tensor(w, -1, mesh)
+    w = torch.randn(g, n, k, dtype=torch.bfloat16)
+    sharded_w = multidevice_direct_test.shard_tensor(w, 1, mesh)
     group_sizes = [5, 7, 9, 11]
     assert sum(group_sizes) == m
     offsets = torch.cumsum(torch.tensor(group_sizes), 0, dtype=torch.int32).cuda()
 
     group_outs = [
-        group_in.cpu() @ group_w
+        group_in.cpu() @ group_w.T
         for group_in, group_w in zip(inp.split(group_sizes), w.unbind())
     ]
     expected_out = torch.cat(group_outs, dim=0)
-
-    with FusionDefinition() as fd:
-        _definition(fd)
-        _multidevice_schedule(fd)
 
     (out,) = fd.execute([inp, sharded_w, offsets])
 
@@ -405,44 +400,39 @@ def test_row_parallel_grouped_mm(multidevice_direct_test):
     mesh = nvfuser.multidevice.DeviceMesh(torch.arange(d))
     g = 4
     k = 16 * d
-    n = 16
+    n = 64
 
-    def _definition(fd: FusionDefinition):
+    with FusionDefinition() as fd:
         inp = fd.define_tensor([-1, k], dtype=DataType.BFloat16, contiguity=True)
-        w = fd.define_tensor([g, k, n], dtype=DataType.BFloat16, contiguity=True)
+        w = fd.define_tensor([g, n, k], dtype=DataType.BFloat16, contiguity=True)
+        w_t = fd.ops.permute(w, [0, 2, 1])
         offsets = fd.define_tensor([g], dtype=DataType.Int32, contiguity=True)
-        out = fd.ops.grouped_mm(inp, w, offsets)
+        out = fd.ops.grouped_mm(inp, w_t, offsets)
         fd.add_output(out)
 
-    def _multidevice_schedule(fd: FusionDefinition):
-        inp, w, offsets = fd.fusion.inputs()
         for t in [inp, w, offsets]:
             t.set_device_mesh(mesh)
 
         inp.split(-1, d, inner_split=False)
         inp.axis(-2).parallelize(nvfuser.ParallelType.mesh_x)
 
-        w.split(1, d, inner_split=False)
-        w.axis(1).parallelize(nvfuser.ParallelType.mesh_x)
+        w.split(-1, d, inner_split=False)
+        w.axis(-2).parallelize(nvfuser.ParallelType.mesh_x)
 
     m = 32
     inp = torch.randint(-2, 3, (m, k), dtype=torch.bfloat16)
     sharded_inp = multidevice_direct_test.shard_tensor(inp, -1, mesh)
-    w = torch.randint(-2, 3, (g, k, n), dtype=torch.bfloat16)
-    sharded_w = multidevice_direct_test.shard_tensor(w, 1, mesh)
+    w = torch.randint(-2, 3, (g, n, k), dtype=torch.bfloat16)
+    sharded_w = multidevice_direct_test.shard_tensor(w, -1, mesh)
     group_sizes = [5, 7, 9, 11]
     assert sum(group_sizes) == m
     offsets = torch.cumsum(torch.tensor(group_sizes), 0, dtype=torch.int32).cuda()
 
     group_outs = [
-        group_in @ group_w
+        group_in @ group_w.T
         for group_in, group_w in zip(inp.split(group_sizes), w.unbind())
     ]
     expected_out = torch.cat(group_outs, dim=0)
-
-    with FusionDefinition() as fd:
-        _definition(fd)
-        _multidevice_schedule(fd)
 
     (out,) = fd.execute([sharded_inp, sharded_w, offsets])
 
