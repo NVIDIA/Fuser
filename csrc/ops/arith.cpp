@@ -2604,6 +2604,9 @@ TensorView* scan(
     return set(in_tv);
   }
 
+  // Unlike ReductionOp, low-precision input is not upcast to
+  // float. This seems inconsistent but aligns with the PyTorch eager
+  // implementation.
   DataType dtype = in_tv->dtype();
   auto new_dom = ops::newOutputDomain({in_tv});
   auto* td = IrBuilder::create<TensorDomain>(
