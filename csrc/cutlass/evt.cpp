@@ -70,6 +70,12 @@ class EVTConverter : OptInDispatch {
     return failure_reason_;
   }
 
+  EVTModel::Node* makeAuxLoadNode(TensorView* tv) {
+    EVTModel::Node* load_node =
+        model_.makeNode("cutlass::epilogue::fusion::Sm90AuxLoad<>");
+    return load_node;
+  }
+
   void run() {
     Expr* mma = getGemmExpr(fusion_);
 
@@ -82,6 +88,27 @@ class EVTConverter : OptInDispatch {
     TensorView* beta = scaled_mma->beta();
     TensorView* bias = scaled_mma->bias();
 
+    auto check_input = [](TensorView* inp) {
+      if (inp == nullptr) {
+        // Allow null
+        return;
+      }
+      // Check that input is contiguous
+      const std::vector<std::optional<bool>>& contig = inp->getContiguity();
+      NVF_ERROR(
+          std::all_of(
+              contig.begin(),
+              contig.end(),
+              [](const std::optional<bool>& c) {
+                return !c.has_value() || c.value();
+              }),
+          "Expected all inputs to ScaledMmaOp to be contiguous but found ",
+          inp->toString());
+    };
+    check_input(alpha);
+    check_input(beta);
+    check_input(bias);
+
     // The default kernel uses EpilogueScheduleAuto, which in turn uses
     // LinearCombination as the epilogue. That means an epilogue that looks like
     // this is assumed:
@@ -93,9 +120,6 @@ class EVTConverter : OptInDispatch {
     // Otherwise, we replicate the default EVT defined here:
     // https://github.com/NVIDIA/cutlass/blob/c6aeb9179c5f74a0fcdbd28527bf4b6ba8c60752/include/cutlass/epilogue/fusion/sm90_callbacks_tma_warpspecialized.hpp#L118-L134
 
-    NVF_ERROR(beta == nullptr, "Beta not yet supported for EVT translation");
-    NVF_ERROR(bias == nullptr, "Bias not yet supported for EVT translation");
-
     NVF_ERROR(
         scaled_mma->outScale() == nullptr,
         "Output block scale factor not supported for EVT translation");
@@ -103,12 +127,10 @@ class EVTConverter : OptInDispatch {
         scaled_mma->outGamma() == nullptr,
         "Output global scale factor not supported for EVT translation");
 
-    // Start by making nodes for the accumulator and for any epilogue inputs
-    if (alpha == nullptr && (beta == nullptr || bias == nullptr)) {
-      // No epilogue
-      val_nodes_.emplace(
-          mma_out, model_.makeNode("cutlass::epilogue::fusion::Sm90AccFetch"));
-    }
+    // This will be the node corresponding to the TensorView output of the
+    // ScaledMmaOp
+    EVTModel::Node* mma_out_node =
+        model_.makeNode("cutlass::epilogue::fusion::Sm90AccFetch");
 
     if (alpha != nullptr) {
       NVF_ERROR(
@@ -123,17 +145,52 @@ class EVTConverter : OptInDispatch {
       alpha_bcast_node->argument = alpha;
       val_nodes_.emplace(alpha, alpha_bcast_node);
 
-      EVTModel::Node* alpha_acc_node = makeBinaryOpNode(
+      // Delay casting down to output type until we've completed the default
+      // epilogue alpha*acc + beta*bias. If no bias is given, go ahead and cast
+      // it down.
+      // TODO: If the only use of mma_out is a cast, then cast directly to that
+      // precision instead here i.e. forward past the two casts
+      DataType out_dtype = beta == nullptr ? mma_out->dtype() : DataType::Float;
+
+      mma_out_node = makeBinaryOpNode(
           BinaryOpType::Mul,
           /*in_type=*/DataType::Float,
-          // NOTE: CUTLASS does not have explicit cast EVT nodes.
-          /*out_type=*/mma_out->dtype(),
+          /*out_type=*/out_dtype,
           /*lhs_node=*/alpha_bcast_node,
           /*rhs_node=*/
           model_.makeNode("cutlass::epilogue::fusion::Sm90AccFetch"));
-
-      val_nodes_.emplace(mma_out, alpha_acc_node);
     }
+
+    if (bias != nullptr) {
+      // Make a node to load the bias
+      EVTModel::Node* bias_node =
+          model_.makeNode("cutlass::epilogue::fusion::Sm90AuxLoad");
+      bias_node->argument = bias;
+
+      if (beta != nullptr) {
+        EVTModel::Node* beta_bcast_node = model_.makeNode(
+            "cutlass::epilogue::fusion::Sm90ScalarBroadcast<float>");
+        beta_bcast_node->argument = beta;
+        // Note: this casts beta and bias to float then multiplies and outputs
+        // float, since we will always be adding it straight to alpha*acc
+        // anyway
+        bias_node = makeBinaryOpNode(
+            BinaryOpType::Mul,
+            /*in_type=*/DataType::Float,
+            /*out_type=*/DataType::Float,
+            /*lhs_node=*/beta_bcast_node,
+            /*rhs_node=*/bias_node);
+      }
+
+      mma_out_node = makeBinaryOpNode(
+          BinaryOpType::Mul,
+          /*in_type=*/DataType::Float,
+          /*out_type=*/mma_out->dtype(),
+          /*lhs_node=*/mma_out_node,
+          /*rhs_node=*/bias_node);
+    }
+
+    val_nodes_.emplace(mma_out, mma_out_node);
 
     // TODO: add load nodes for epilogue inputs defined in Fusion (i.e. not as
     // ScaledMmaOp inputs)
