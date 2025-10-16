@@ -7,6 +7,7 @@
 // clang-format on
 #include <ATen/cuda/CUDAContext.h>
 #include <debug.h>
+#include <id_model/id_model.h>
 #include <instrumentation.h>
 #include <multidevice/utils.h>
 #include <scheduler/debug_utils.h>
@@ -1773,15 +1774,14 @@ bool ReductionScheduler::canScheduleCompileTime(Fusion* fusion) {
       }
     }
 
-    // Use root domain map to check the reduction ops have the same axes
+    // Use IdModel to check the reduction ops have the same axes
     FusionGuard fg(fusion);
-    ComputeAtLogicalDomainMap logical_map;
-    logical_map.build(true);
+    IdModel id_model(fusion, /*build_graphs=*/false);
 
     // red_ops.size()>1 checked before
     for (size_t it = 1; it < reduction_tvs.size(); it++) {
       if (!registry_utils::checkPatternEquivalence(
-              reduction_tvs[it - 1], reduction_tvs[it], logical_map)) {
+              reduction_tvs[it - 1], reduction_tvs[it], id_model)) {
         scheduler_debug_utils::canScheduleRejectReason(
             schedulerType(),
             "Un-mapped multi-reduction: ",

@@ -11,17 +11,18 @@
 namespace nvfuser {
 
 class TensorView;
-class ComputeAtLogicalDomainMap;
 class ComputeAtMap;
 class ExpressionEvaluator;
 class KernelArgumentHolder;
+class IdModel;
 
 namespace registry_utils {
 
+// IdModel-based overload to allow graph reuse
 bool checkPatternEquivalence(
     TensorView* out_tv0,
     TensorView* out_tv1,
-    const ComputeAtLogicalDomainMap& logical_map);
+    IdModel& id_model);
 
 // Reusing some code from lowering specifically in lower_trivial_broadcast.cpp
 // ConcretizedBroadcastDomains::maybeNonUniquelyConcretized this checks if
