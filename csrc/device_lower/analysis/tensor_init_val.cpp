@@ -45,6 +45,21 @@ void TensorInitVal::handle(ScanOp* sop) {
   registerInitVal(inp_tv, sop->init());
 }
 
+void TensorInitVal::handle(TopKOp* top) {
+  // It is already validated that the input is exclusively used by
+  // this argsort op, so it's free to initialize it for this op
+  auto inp_tv = ir_utils::getTvInput(top);
+
+  Val* init_val = nullptr;
+  if (top->isLargest()) {
+    init_val = ops::getMinimumValue(inp_tv->dtype());
+  } else {
+    init_val = ops::getMaximumValue(inp_tv->dtype());
+  }
+
+  registerInitVal(inp_tv, init_val);
+}
+
 void TensorInitVal::registerInitVal(TensorView* tv, Val* val) {
   auto inserted = init_val_map_.emplace(tv, val).second;
   if (!inserted) {
