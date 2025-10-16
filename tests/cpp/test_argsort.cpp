@@ -163,13 +163,14 @@ TEST_F(ArgsortTest, Grouping) {
   fusion.addInput(tv0);
 
   auto tv1 = set(tv0);
-  auto tv2 = argsort(tv1, -1);
-  auto tv3 = set(tv2);
-  fusion.addOutput(tv3);
+  auto tv2 = set(tv1);
+  auto tv3 = argsort(tv2, -1);
+  auto tv4 = set(tv3);
+  fusion.addOutput(tv4);
 
   const int64_t items_per_thread = 4;
 
-  for (auto tv : {tv1, tv2, tv3}) {
+  for (auto tv : fusion.allTvs()) {
     // [i0, i1]
     tv->split(-1, items_per_thread);
     // [i0, i1/S, S]
