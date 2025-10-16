@@ -20,12 +20,7 @@ namespace nvfuser {
 
 namespace hir {
 
-class HostIrJitTest : public NVFuserTest {
- protected:
-  HostIrJitTest() {
-    EnableOptionsGuard::getCurOptions().set(EnableOption::HostIrJit);
-  }
-};
+using HostIrJitTest = NVFuserTest;
 // Build with: python setup.py install --build-with-host-ir-jit
 TEST_F(HostIrJitTest, Set) {
   auto hic = std::make_unique<HostIrContainer>();
@@ -338,7 +333,7 @@ TEST_F(HostIrJitTest, Matmul) {
 
   HostIrJit jit(std::move(hic));
 
-  auto options = at::TensorOptions().device(at::kCUDA, 0).dtype(at::kFloat);
+  auto options = at::TensorOptions().device(at::kCUDA, 0).dtype(torch::kFloat);
   at::Tensor t0 = at::randn({H, M, K}, options);
   at::Tensor t1 = at::randn({H, K, N}, options);
   at::Tensor t2 = at::randn({H, M, N}, options);
@@ -382,7 +377,7 @@ TEST_F(HostIrJitTest, MatmulOut) {
 
   HostIrJit jit(std::move(hic));
 
-  auto options = at::TensorOptions().device(at::kCUDA, 0).dtype(at::kFloat);
+  auto options = at::TensorOptions().device(at::kCUDA, 0).dtype(torch::kFloat);
   at::Tensor t0 = at::randn({H, M, K}, options);
   at::Tensor t1 = at::randn({H, K, N}, options);
   std::unordered_map<Val*, PolymorphicValue> concrete_input_buffers = {
@@ -433,7 +428,7 @@ TEST_F(HostIrJitTest, Linear) {
 
   HostIrJit jit(std::move(hic));
 
-  auto options = at::TensorOptions().device(at::kCUDA, 0).dtype(at::kFloat);
+  auto options = at::TensorOptions().device(at::kCUDA, 0).dtype(torch::kFloat);
   auto in_at = at::randint(5, {B, M, K}, options);
   auto weight_at = at::randint(5, {N, K}, options);
   auto bias_at = at::randint(5, {N}, options);
