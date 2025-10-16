@@ -1490,9 +1490,9 @@ SyncMap buildSyncMap(Fusion* fusion) {
 } // namespace
 
 bool GreedyScheduler::canScheduleCompileTime(Fusion* fusion) {
-  if (!isOptionEnabled(EnableOption::GreedyScheduler)) {
+  if (isOptionDisabled(DisableOption::GreedyScheduler)) {
     scheduler_debug_utils::canScheduleRejectReason(
-        SchedulerType::Greedy, "Not enabled");
+        SchedulerType::Greedy, "Disabled");
     return false;
   }
 
