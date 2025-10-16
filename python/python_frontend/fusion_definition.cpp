@@ -339,6 +339,7 @@ std::pair<KernelArgumentHolder, std::vector<Sharding>> FusionDefinition::
 
   if (profile) {
     ProfilerOptionsGuard::getCurOptions().set(ProfilerOption::Enable);
+    DisableOptionsGuard::getCurOptions().set(DisableOption::ParallelCompile);
   }
 
   EnableOptionsGuard enable_opt_guard;
@@ -440,6 +441,7 @@ std::pair<KernelArgumentHolder, std::vector<Sharding>> FusionDefinition::
 
   if (profile) {
     ProfilerOptionsGuard::getCurOptions().unset(ProfilerOption::Enable);
+    DisableOptionsGuard::getCurOptions().unset(DisableOption::ParallelCompile);
   }
 
   if (capture_debug_output) {
