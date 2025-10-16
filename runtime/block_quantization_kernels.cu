@@ -40,6 +40,7 @@ __device__ __inline__ void localMaxReduction(float& local_max) {
 // This works for float but will extended to work with bfloat.
 template <
     bool SWIZZLE_SCALING_FACTORS,
+    bool USE_GLOBAL_SCALING_FACTOR,
     int ITEMS_PER_THREAD,
     typename T,
     int ALIGNMENT_1,
@@ -50,18 +51,27 @@ __device__ void block_quantize_to_nvfp4(
     Array<T, ITEMS_PER_THREAD, ALIGNMENT_1>& input,
     Array<__e2m1, ITEMS_PER_THREAD, ALIGNMENT_2>& output,
     Tensor<__e4m3, BLOCK_SCALE_DIM, BLOCK_SCALE_ALLOC>& fp8_output,
+    Tensor<float, 0, 0> global_scale,
     int64_t fp8_output_inner_dim = -1,
     int64_t alloc_dim0 = -1,
     int64_t alloc_dim1 = -1,
     int64_t alloc_dim2 = -1,
     int64_t alloc_dim3 = -1,
     int64_t alloc_dim4 = -1) {
-  assert(blockDim.x % 4 == 0);
+  if constexpr (std::is_same<T, float>::value) {
+    assert(blockDim.x % 4 == 0);
+  } else if constexpr (std::is_same<T, __bfloat>::value) {
+    assert(blockDim.x % 2 == 0);
+  }
   assert(blockDim.z == 1 && gridDim.z == 1);
   static_assert(
-      ITEMS_PER_THREAD % 4 == 0, "ITEMS_PER_THREAD must be multiple of 4");
+      (std::is_same<T, float>::value && ITEMS_PER_THREAD == 4) ||
+          (std::is_same<T, __bfloat>::value && ITEMS_PER_THREAD == 8),
+      "ITEMS_PER_THREAD must be 4 for float type or 8 for __bfloat type");
 
-  Array<float, 4, 4> vec_in;
+  int THREADS_PER_SCALING_FACTOR = 16 / ITEMS_PER_THREAD;
+
+  Array<float, ITEMS_PER_THREAD, ITEMS_PER_THREAD> vec_in;
   vec_in.set(0.0f); // Initialize to zero like nvfuser does
 
   for (auto i = 0; i < ITEMS_PER_THREAD; i++) {
@@ -91,18 +101,26 @@ __device__ void block_quantize_to_nvfp4(
   // This division should be replaced with a multiplication
   // by a reciprocal for better performance.
   float scaled_max = block_max / 6.000000000e+00f;
+  if constexpr (USE_GLOBAL_SCALING_FACTOR) {
+    scaled_max = scaled_max / global_scale[0];
+  }
+
   float clamped_max = clamp(
       scaled_max, 1.562500000e-02f, 4.480000000e+02f); // Clamp between 0 and 1
 
   __e4m3 clamped_max_fp8 = __float2e4m3(clamped_max);
 
   float clamped_max_converted = __e4m32float(clamped_max_fp8);
+  if constexpr (USE_GLOBAL_SCALING_FACTOR) {
+    clamped_max_converted = clamped_max_converted * global_scale[0];
+  }
 
   int offset_y_blocks = blockIdx.y * blockDim.y * blockDim.x * gridDim.x;
   int offset_dim_y = threadIdx.y * blockDim.x * gridDim.x;
   int offset_into_block = blockIdx.x * blockDim.x + threadIdx.x;
 
-  int offset = (offset_y_blocks + offset_dim_y + offset_into_block) / 4;
+  int offset = (offset_y_blocks + offset_dim_y + offset_into_block) /
+      THREADS_PER_SCALING_FACTOR;
 
   if constexpr (SWIZZLE_SCALING_FACTORS) {
     auto stride_4 = 1;
@@ -132,8 +150,7 @@ __device__ void block_quantize_to_nvfp4(
   }
 
   // Convert back from FP8 to float using __e4m32float
-  if (threadIdx.x % ITEMS_PER_THREAD == 0) // Only one thread per quad writes
-  {
+  if (threadIdx.x % THREADS_PER_SCALING_FACTOR == 0) {
     fp8_output[offset] = clamped_max_fp8; // Broadcast to all threads
   }
 

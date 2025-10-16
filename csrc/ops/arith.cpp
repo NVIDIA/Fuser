@@ -2639,6 +2639,7 @@ TensorView* prefixSum(TensorView* tv, int64_t dim) {
 // scales to global memory.
 BlockQuantizationResults blockQuantize(
     TensorView* input,
+    TensorView* global_scale,
     int64_t block_size,
     DataType out_dtype) {
   NVF_CHECK(
@@ -2720,7 +2721,8 @@ BlockQuantizationResults blockQuantize(
       DataType::Float8_e4m3fn); // Scales maintain input data type
 
   // Create the block quantization operation
-  IrBuilder::create<BlockQuantizationOp>(block_scales, quantized_tensor, input);
+  IrBuilder::create<BlockQuantizationOp>(
+      block_scales, quantized_tensor, input, global_scale);
 
   return BlockQuantizationResults(quantized_tensor, block_scales);
 }

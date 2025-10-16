@@ -113,9 +113,14 @@ namespace {
 void createNVFP4QunatizationFusion(
     Fusion* fusion,
     DataType data_hp_dtype,
+    bool use_global_scale = false,
     bool swizzle_output = false) {
   auto tv_data_hp = makeContigTensor(2, data_hp_dtype);
+  auto tv_per_tensor_scale = makeContigTensor(0, DataType::Float);
   fusion->addInput(tv_data_hp);
+  if (use_global_scale) {
+    fusion->addInput(tv_per_tensor_scale);
+  }
 
   auto tv_data_hp_reshaped =
       reshape(tv_data_hp, [](auto& x) { x.split(-1, block_size); });
@@ -128,6 +133,10 @@ void createNVFP4QunatizationFusion(
   // input dtype.
   auto tv_block_scale = div(
       tv_data_hp_amax, IrBuilder::create<Val>(F4_E2M1_MAX, DataType::Float));
+  if (use_global_scale) {
+    tv_block_scale = div(tv_block_scale, tv_per_tensor_scale);
+  }
+
   auto tv_block_scale_clamp = clamp(
       tv_block_scale,
       IrBuilder::create<Val>(E4M3_EPS, DataType::Float),
@@ -136,6 +145,10 @@ void createNVFP4QunatizationFusion(
       castOp(DataType::Float8_e4m3fn, tv_block_scale_clamp);
   // TODO: should we just use auto tv_block_scale_fp32 = tv_block_scale_clamp?
   auto tv_block_scale_fp32 = castOp(DataType::Float, tv_block_scale_fp8);
+  if (use_global_scale) {
+    tv_block_scale_fp32 = mul(tv_block_scale_fp32, tv_per_tensor_scale);
+  }
+
   auto tv_block_scale_fp32_unsqueeze = unsqueeze(tv_block_scale_fp32, -1);
   auto tv_data_scaled = div(tv_data_hp_reshaped, tv_block_scale_fp32_unsqueeze);
   auto tv_data_scaled_clamp = clamp(
@@ -203,22 +216,33 @@ TEST_P(NVFP4QuantizeTest, WithoutPerTensorAmax) {
 
 class BQTest : public BlackwellBase {};
 
+class BQTestDataType
+    : public BlackwellBase,
+      public ::testing::WithParamInterface<std::tuple<DataType, bool>> {};
+
 class BQTestParametric
     : public BlackwellBase,
       public ::testing::WithParamInterface<std::tuple<bool, int, int>> {};
 
-TEST_F(BQTest, ScheduleAsPointwise) {
+TEST_P(BQTestDataType, ScheduleAsPointwise) {
+  auto data_hp_dtype = std::get<0>(GetParam());
+  bool use_global_scale = std::get<1>(GetParam());
+
   // Basic test implementation
   std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
-  createNVFP4QunatizationFusion(fusion.get(), DataType::Float);
+  createNVFP4QunatizationFusion(fusion.get(), data_hp_dtype, use_global_scale);
 
   FusionExecutorCache fec(std::move(fusion));
 
   const int m = 1024;
   const int n = 1024;
   std::vector<at::Tensor> inputs;
-  inputs.push_back(at::randn({m, n}, at::device(at::kCUDA).dtype(at::kFloat)));
+  inputs.push_back(at::randn({m, n}, at::device(at::kCUDA).dtype(at::kFloat))
+                       .to(data_type_to_aten(data_hp_dtype)));
+  if (use_global_scale) {
+    inputs.push_back(at::randn({}, at::device(at::kCUDA).dtype(at::kFloat)));
+  }
   auto outputs_baseline = fec.runFusionWithInputs(inputs);
 
   // Print baseline outputs
@@ -238,16 +262,23 @@ TEST_F(BQTest, ScheduleAsPointwise) {
   std::unique_ptr<Fusion> fusion_new_op = std::make_unique<Fusion>();
   FusionGuard fg2(fusion_new_op.get());
 
-  auto tv_data_hp = makeContigTensor(2, DataType::Float);
+  auto tv_data_hp = makeContigTensor(2, data_hp_dtype);
+  auto tv_global_scale = makeContigTensor(0, DataType::Float);
   fusion_new_op->addInput(tv_data_hp);
+  if (use_global_scale) {
+    fusion_new_op->addInput(tv_global_scale);
+  }
 
   // t0 is 2D
   auto t0 = set(tv_data_hp);
-  auto quantization_results = blockQuantize(t0);
+  auto quantization_results =
+      use_global_scale ? blockQuantize(t0, tv_global_scale) : blockQuantize(t0);
   auto t_out = set(quantization_results.quantized_tensor);
 
   fusion_new_op->addOutput(quantization_results.block_scales);
   fusion_new_op->addOutput(t_out);
+
+  auto vector_size = tv_data_hp->getDataType() == DataType::Float ? 4 : 8;
 
   for (auto t :
        {tv_data_hp,
@@ -261,9 +292,9 @@ TEST_F(BQTest, ScheduleAsPointwise) {
       t->merge(-2);
     }
 
-    // split by 4.
+    // split by 4 (or 8).
     // I -> I/4, 4
-    t->split(-1, 4);
+    t->split(-1, vector_size);
     // I//4, 4 -> I/4, 1, 4
     t->split(-2, 1);
     // I//4, 1, 4 -> I/512, 128, 1, 4
@@ -281,6 +312,7 @@ TEST_F(BQTest, ScheduleAsPointwise) {
     }
   }
 
+  fusion_new_op->print();
   // Execute the fusion
   KernelExecutor ke;
   ke.compile(fusion_new_op.get(), inputs);
@@ -314,18 +346,25 @@ TEST_F(BQTest, ScheduleAsPointwise) {
   EXPECT_EQ(quantized_tensor_output.dim(), 2);
 }
 
-TEST_F(BQTest, ScheduleAsPointwise2D) {
+TEST_P(BQTestDataType, ScheduleAsPointwise2D) {
+  auto data_hp_dtype = std::get<0>(GetParam());
+  bool use_global_scale = std::get<1>(GetParam());
+
   // Basic test implementation
   std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
-  createNVFP4QunatizationFusion(fusion.get(), DataType::Float);
+  createNVFP4QunatizationFusion(fusion.get(), data_hp_dtype, use_global_scale);
 
   FusionExecutorCache fec(std::move(fusion));
 
   const int m = 1024;
   const int n = 1024;
   std::vector<at::Tensor> inputs;
-  inputs.push_back(at::randn({m, n}, at::device(at::kCUDA).dtype(at::kFloat)));
+  inputs.push_back(at::randn({m, n}, at::device(at::kCUDA).dtype(at::kFloat))
+                       .to(data_type_to_aten(data_hp_dtype)));
+  if (use_global_scale) {
+    inputs.push_back(at::randn({}, at::device(at::kCUDA).dtype(at::kFloat)));
+  }
   auto outputs_baseline = fec.runFusionWithInputs(inputs);
 
   // Print baseline outputs
@@ -344,12 +383,19 @@ TEST_F(BQTest, ScheduleAsPointwise2D) {
   std::unique_ptr<Fusion> fusion_new_op = std::make_unique<Fusion>();
   FusionGuard fg2(fusion_new_op.get());
 
-  auto tv_data_hp = makeContigTensor(2, DataType::Float);
+  auto tv_data_hp = makeContigTensor(2, data_hp_dtype);
+  auto tv_global_scale = makeContigTensor(0, DataType::Float);
+
   fusion_new_op->addInput(tv_data_hp);
+
+  if (use_global_scale) {
+    fusion_new_op->addInput(tv_global_scale);
+  }
 
   // t0 is 2D
   auto t0 = set(tv_data_hp);
-  auto quantization_results = blockQuantize(t0);
+  auto quantization_results =
+      use_global_scale ? blockQuantize(t0, tv_global_scale) : blockQuantize(t0);
   auto t_out = set(quantization_results.quantized_tensor);
 
   // outputs are 3D
@@ -357,6 +403,8 @@ TEST_F(BQTest, ScheduleAsPointwise2D) {
   fusion_new_op->addOutput(t_out);
 
   t0->setMemoryType(MemoryType::Local);
+
+  auto vector_size = tv_data_hp->getDataType() == DataType::Float ? 4 : 8;
 
   for (auto t :
        {tv_data_hp,
@@ -366,7 +414,7 @@ TEST_F(BQTest, ScheduleAsPointwise2D) {
         t_out}) {
     // (m, n) -> (m, n/4, 4)
     // (m, n/4, 4) -> (m, n/128, 32, 4)
-    t->split(-1, 4); // V
+    t->split(-1, vector_size); // V
     t->split(-2, 32); // BDx
 
     // (m, n/128, 32, 4) -> (m, 1, n/128, 32, 4)
@@ -659,6 +707,22 @@ INSTANTIATE_TEST_SUITE_P(
     NVFP4QuantizeTest,
     ::testing::Values(DataType::BFloat16, DataType::Float),
     testing::PrintToStringParamName());
+
+INSTANTIATE_TEST_SUITE_P(
+    ,
+    BQTestDataType,
+    ::testing::Values(
+        std::make_tuple(DataType::BFloat16, false),
+        std::make_tuple(DataType::BFloat16, true),
+        std::make_tuple(DataType::Float, false),
+        std::make_tuple(DataType::Float, true)),
+    [](const testing::TestParamInfo<std::tuple<DataType, bool>>& info) {
+      DataType dtype = std::get<0>(info.param);
+      bool use_global_scale = std::get<1>(info.param);
+      std::string name = (dtype == DataType::BFloat16 ? "BFloat16" : "Float");
+      name += (use_global_scale ? "_GlobalScaleTrue" : "_GlobalScaleFalse");
+      return name;
+    });
 
 INSTANTIATE_TEST_SUITE_P(
     ,

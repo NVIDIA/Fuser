@@ -3430,6 +3430,7 @@ class BlockQuantizationOp : public Expr {
   }
 
   bool hasGlobalScale() const {
+    std::cout << "inputs().size(): " << inputs().size() << "\n";
     if (inputs().size() > 1) {
       return true;
     }

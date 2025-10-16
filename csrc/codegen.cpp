@@ -1809,6 +1809,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
 
     ArgumentBuilder template_args;
     template_args.arg(block_scales_is_swizzled);
+    template_args.arg(bqop->hasGlobalScale());
     template_args.arg(vector_word_size); // ITEMS_PER_THREAD
 
     // Function arguments
@@ -1821,6 +1822,13 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     func_args.arg(genInline(output));
     func_args.arg(
         genInline(bqop->blockScales()->as<kir::TensorIndex>()->view()));
+
+    if (bqop->hasGlobalScale()) {
+      func_args.arg(
+          genInline(bqop->globalScale()->as<kir::TensorIndex>()->view()));
+    } else {
+      func_args.arg("{}");
+    }
 
     if (block_scales_is_swizzled) {
       func_args.arg(

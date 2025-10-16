@@ -6319,7 +6319,8 @@ std::string BlockQuantizationOp::toString(int indent_size) const {
   std::stringstream ss;
   indent(ss, indent_size) << "(" << blockScales()->toString() << ",\n "
                           << quantizedOutput()->toString() << ")\n"
-                          << " = block_quantize(" << in()->toString() << ")\n";
+                          << " = block_quantize(" << in()->toString() << ",  "
+                          << globalScale()->toString() << ")\n";
   return ss.str();
 }
 
