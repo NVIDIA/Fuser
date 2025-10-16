@@ -19,7 +19,8 @@ using DequeOfExprGroup = std::deque<ExprGroup>;
 } // namespace
 
 ValGraph::ValGraph(const ValGraph& other)
-    : disjoint_vals_(other.disjoint_vals_),
+    : propagate_through_exprs_(other.propagate_through_exprs_),
+      disjoint_vals_(other.disjoint_vals_),
       disjoint_exprs_(other.disjoint_exprs_),
       unique_definitions_(),
       unique_uses_() {
