@@ -974,34 +974,53 @@ void IdModel::initializeLoopGraph(const StatefulInliningInfo& info) {
 
     // loop_ids only contains at IDs between logical->loop
     VectorOfUniqueEntries<IterDomain*> loop_ids;
-    for (TensorView* tv : tvs_) {
-      loop_ids.pushBack(tv->getLogicalDomain());
-      loop_ids.pushBack(tv->getLoopDomain());
-      // TODO: put this into TensorDomain instead like TensorDomain::allIDs()
-      auto path =
-          getExprsBetween<IRBFS>(
-              {tv->getLogicalDomain().begin(), tv->getLogicalDomain().end()},
-              {tv->getLoopDomain().begin(), tv->getLoopDomain().end()},
-              false)
-              .first;
-      for (auto [expr, _] : path) {
-        loop_ids.pushBack(ir_utils::filterByType<IterDomain>(expr->outputs()));
-        loop_ids.pushBack(ir_utils::filterByType<IterDomain>(expr->inputs()));
-      }
 
-      if (tv->hasRoot()) {
-        loop_ids.pushBack(tv->getRootDomain());
-        auto path =
-            getExprsBetween<IRBFS>(
-                {tv->getRootDomain().begin(), tv->getRootDomain().end()},
-                {tv->getLogicalDomain().begin(), tv->getLogicalDomain().end()},
-                false)
-                .first;
-        for (auto [expr, _] : path) {
-          loop_ids.pushBack(ir_utils::filterByType<IterDomain>(expr->outputs()));
-          loop_ids.pushBack(ir_utils::filterByType<IterDomain>(expr->inputs()));
-        }
-      }
+    auto all_ids_except_allocation = [&loop_ids](TensorView* tv) {
+std::vector<const std::vector<IterDomain*>*> all_domains = {
+    &tv->getLoopDomain(),
+    &tv->getLogicalDomain(),
+    &tv->getInitialLoopDomain(),
+    &tv->domain()->additionalIDs()};
+if (tv->hasRoot()) {
+  all_domains.push_back(&tv->getRootDomain());
+}
+if (tv->getAlternateLoopDomain().has_value()) {
+  all_domains.push_back(&tv->getAlternateLoopDomain().value());
+}
+
+for (auto domain : all_domains) {
+  loop_ids.pushBack(*domain);
+}
+
+// We only care about IDs on the shortest path between domains
+std::unordered_multimap<IterDomain*, IterDomain*> out2in;
+for (auto i : arange(all_domains.size() - 1)) {
+  if (all_domains[i]->empty()) {
+    continue;
+  }
+  for (auto j : arange(i + 1, all_domains.size())) {
+    if (all_domains[j]->empty()) {
+      continue;
+    }
+    auto path = getExprsBetween<IRBFS>(
+                    {all_domains[i]->begin(), all_domains[i]->end()},
+                    {all_domains[j]->begin(), all_domains[j]->end()},
+                    false)
+                    .first;
+    for (auto [expr, _] : path) {
+      loop_ids.pushBack(
+          ir_utils::filterByType<IterDomain>(expr->outputs()));
+      loop_ids.pushBack(
+          ir_utils::filterByType<IterDomain>(expr->inputs()));
+    }
+  }
+}
+return loop_ids.vector();
+    };
+
+
+    for (TensorView* tv : tvs_) {
+      all_ids_except_allocation(tv);
     }
     std::vector<IterDomain*> all_ids = loop_ids.vector();
 
