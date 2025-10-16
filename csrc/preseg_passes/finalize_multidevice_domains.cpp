@@ -82,7 +82,8 @@ void shardAllocation(TensorView* tv) {
   // Allocation domain should be a permutation of logical domain at this point.
   auto loop_stream_device_view =
       tv->getLoopDomain() | std::views::filter([](IterDomain* id) {
-        return id->isStream() || id->isDeviceDim();
+        return id->isDeviceDim() ||
+            (id->isStream() && shouldParallelizeAllocationOnStream(tv));
       });
   std::vector<Expr*> transform_exprs = DependencyCheck::getAllExprsBetween(
       {tv->getMaybeAllocationDomain().begin(),
@@ -95,10 +96,6 @@ void shardAllocation(TensorView* tv) {
         split != nullptr,
         "Expected all transform exprs to be a split between allocation and "
         "loop domain during sharding propagation.");
-    if (split->outer()->isStream() &&
-        !shouldParallelizeAllocationOnStream(tv)) {
-      continue;
-    }
     const auto [contiguity, split_i] =
         allocation_to_contiguity.erase(split->in());
     auto [outer_contiguity, inner_contiguity] = splitContiguity(contiguity);
