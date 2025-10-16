@@ -14,7 +14,6 @@
 #include <logical_domain_map.h>
 #include <ops/alias.h>
 #include <ops/arith.h>
-#include <ops/indexing.h>
 #include <ops/utils.h>
 #include <runtime/executor_kernel_arg.h>
 #include <runtime/executor_utils.h>
@@ -847,22 +846,6 @@ void DynamicTransformConcretizer::concretize() {
       continue;
     }
     OptOutMutator::dispatchMutate(stmt);
-  }
-
-  // OptOutMutator only updates ID, but not exprs on its extent. Concretization
-  // on the allocation domain of layout op output needs to be manually replaced,
-  // because they are not connect by ID ops.
-  auto exprs = info_->fusion()->exprs();
-  for (auto* layout_op :
-       ir_utils::filterByType<PreprocessGroupedMatmulInputSf>(exprs)) {
-    auto* out_tv = layout_op->out()->as<TensorView>();
-    std::vector<IterDomain*> logical_dom =
-        TensorDomain::noReductions(out_tv->getLogicalDomain());
-    std::vector<IterDomain*> alloc_dom = layoutAllocationDomain(
-        logical_dom, layout_op->g(), layout_op->layout());
-    // skip validation because allocation domain doesn't converge to logical
-    // domain.
-    out_tv->domain()->setAllocationDomain(alloc_dom, true, true);
   }
 
   for (Val* outp : info_->fusion()->outputs()) {
