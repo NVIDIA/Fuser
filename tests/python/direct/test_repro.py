@@ -4602,6 +4602,12 @@ def test_ca_map_concrete_loop_id(nvfuser_direct_test):
 
 
 def test_issue5377(nvfuser_direct_test):
+    """
+    Repro for issue 5377, where a traversal for vectorize validation
+    failed to find an allocation ID that corresponds to a vectorized
+    ID.
+    """
+
     def nvfuser_fusion(fd: FusionDefinition) -> None:
         tv0 = fd.define_tensor(
             shape=[1, 16],
