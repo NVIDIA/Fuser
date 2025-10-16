@@ -1370,13 +1370,12 @@ class ReusableAllocationFinder : private kir::IrVisitor {
         if (!tv_def) {
           continue;
         }
-        if (!ir_utils::isPointwiseTvOp(tv_def) &&
+        if (tv->hasBroadcast()) {
+          info.has_broadcast_between = true;
+        } else if (
+            !ir_utils::isPointwiseTvOp(tv_def) &&
             !ir_utils::isReductionTvOp(tv_def) && !tv_def->isA<ExpandOp>()) {
-          if (isBroadcastTvOp(tv_def)) {
-            info.has_broadcast_between = true;
-          } else {
-            info.has_unsupported_op = true;
-          }
+          info.has_unsupported_op = true;
         }
       }
     }
@@ -1420,14 +1419,6 @@ class ReusableAllocationFinder : private kir::IrVisitor {
     } else {
       allocation_info_map_.useOuterAlias(alloc_info, to_reuse);
     }
-  }
-
-  // Utility to capture broadcast ops
-  bool isBroadcastTvOp(const Expr* expr) {
-    if (!ir_utils::isTvOp(expr)) {
-      return false;
-    }
-    return expr->isA<BroadcastOp>();
   }
 
  private:
