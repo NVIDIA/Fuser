@@ -152,6 +152,39 @@ void bindHeuristicParams(py::module& nvfuser) {
       "include_paths", &CompileParams::include_paths, R"(
                 The additional include paths to use for the kernel.
               )");
+
+  py::class_<HeuristicParams> heuristic_parameters(
+      nvfuser, "HeuristicParams", py::module_local());
+  heuristic_parameters.def(
+      "__repr__", [](const HeuristicParams& self) { return self.toString(); });
+  heuristic_parameters.def("__eq__", &HeuristicParams::sameAs, R"(
+                Whether the heuristic parameters are the same.
+              )");
+  heuristic_parameters.def_readwrite("lparams", &HeuristicParams::lparams, R"(
+                The launch parameters for the kernel.
+              )");
+  heuristic_parameters.def_readwrite("cparams", &HeuristicParams::cparams, R"(
+                The compile parameters for the kernel.
+              )");
+  heuristic_parameters.def_readonly(
+      "scheduler_type", &HeuristicParams::scheduler_type, R"(
+                The type of scheduler that generated these parameters.
+              )");
+  heuristic_parameters.def("hash", &HeuristicParams::hash, R"(
+                The hash of the heuristic parameters.
+              )");
+
+  py::class_<PointwiseParams, HeuristicParams> pointwise(
+      nvfuser, "PointwiseParams", py::module_local());
+  pointwise.def(py::init());
+  pointwise.def(
+      "__repr__", [](const PointwiseParams& self) { return self.toString(); });
+
+  py::class_<ReductionParams, HeuristicParams> reduction(
+      nvfuser, "ReductionParams", py::module_local());
+  reduction.def(py::init());
+  reduction.def(
+      "__repr__", [](const ReductionParams& self) { return self.toString(); });
 }
 
 } // namespace nvfuser::python
