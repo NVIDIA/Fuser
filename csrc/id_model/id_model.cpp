@@ -1019,7 +1019,7 @@ void IdModel::initializeLoopGraph(const StatefulInliningInfo& info) {
           " as it's missing a definition entry.");
       loop_graph.initializeVal(id, id_definitions_.at(id), uses_it->second);
     }
-    NVF_ERROR(id_graphs_.emplace(IdMappingMode::LOOP, loop_graph).second);
+    NVF_ERROR(id_graphs_.emplace(IdMappingMode::LOOP, std::move(loop_graph)).second);
   }
 
   // Make sure this is called in a deterministic order. Build all inlined
