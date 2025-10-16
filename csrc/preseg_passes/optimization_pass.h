@@ -58,7 +58,7 @@ class OptimizationPass {
     // TODO: skip the logging of the pass where the fusion has not been changed.
     if (isDebugDumpEnabled(DebugDumpOption::PreSegmenterLogging)) {
       debug() << "Fusion after pass: " << DerivedClass::name() << std::endl;
-      fusion->print();
+      fusion->printMath();
       debug() << "========================================" << std::endl;
     }
 

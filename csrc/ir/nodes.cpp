@@ -5789,13 +5789,11 @@ std::vector<PolymorphicValue> GroupedMmaOp::evaluate(
     }
 
 #if NVFUSER_CUTLASS_KERNEL_ENABLED
-    auto supported_by_cutlass_kernel = [&]() -> bool {
-      return at::cuda::getCurrentDeviceProperties()->major >= 10 &&
-          mat1.dim() == 2 && mat2.dim() == 3 && mat1.is_contiguous() &&
-          mat2.transpose(-1, -2).is_contiguous();
-    };
-
-    if (supported_by_cutlass_kernel()) {
+    const bool supported_by_cutlass_kernel =
+        at::cuda::getCurrentDeviceProperties()->major == 10 &&
+        mat1.dim() == 2 && mat2.dim() == 3 && mat1.is_contiguous() &&
+        mat2.transpose(-1, -2).is_contiguous();
+    if (supported_by_cutlass_kernel) {
       mat2 = mat2.transpose(-1, -2);
       NVF_ERROR(mat2.is_contiguous());
       // [m, k] x [g, n, k]; both contiguous
