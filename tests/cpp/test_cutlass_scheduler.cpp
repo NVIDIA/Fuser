@@ -412,7 +412,10 @@ TEST_F(CutlassExecutorTest, Nvfp4Matmul_BiasEpilogue) {
       alpha,
       beta,
       bias,
-      /*dtype=*/DataType::Float);
+      // NOTE: We support DataType::Float output in the Cutlass executor, but
+      // we use BFloat16 here in order to compare fairly against our
+      // precompiled kernels which only support Half and BFloat16
+      /*dtype=*/DataType::BFloat16);
 
   TensorView* out_tv = relu(smm.tv);
 
@@ -450,7 +453,68 @@ TEST_F(CutlassExecutorTest, Nvfp4Matmul_BiasEpilogue) {
 
   KernelArgumentHolder outputs = ce.run(inputs);
 
-  testValidate(fusion.get(), outputs, inputs, __LINE__, __FILE__);
+  // The pre-compiled kernels do not support beta or bias, so instead, I'll
+  // create a separate fusion that computes those separately in order to create
+  // a reference.
+  {
+    auto ref_fusion = std::make_unique<Fusion>();
+    FusionGuard fg(ref_fusion.get());
+
+    TensorView* a = makeContigTensor(2, DataType::Float4_e2m1fn);
+    TensorView* b = makeContigTensor(2, DataType::Float4_e2m1fn);
+    // B has K inner
+    b->setAllocationDomain({b->axis(1), b->axis(0)}, /*new_contiguity=*/true);
+    TensorView* a_sf = makeContigTensor(2, DataType::Float8_e4m3fn);
+    TensorView* b_sf = makeContigTensor(2, DataType::Float8_e4m3fn);
+    TensorView* alpha = makeContigTensor(0, DataType::Float);
+    TensorView* beta = makeContigTensor(0, DataType::Float);
+    TensorView* bias = makeContigTensor(2, DataType::BFloat16);
+
+    ref_fusion->addInput(a);
+    ref_fusion->addInput(b);
+    ref_fusion->addInput(a_sf);
+    ref_fusion->addInput(b_sf);
+    ref_fusion->addInput(bias);
+    ref_fusion->addInput(alpha);
+    ref_fusion->addInput(beta);
+
+    // TODO: support more output dtypes, specifically nvfp4
+    auto smm = scaled_mm(
+        a,
+        b,
+        a_sf,
+        b_sf,
+        alpha,
+        /*beta=*/nullptr,
+        /*bias=*/nullptr,
+        /*dtype=*/DataType::BFloat16);
+
+    TensorView* beta_bias = mul(beta, bias);
+    TensorView* lincomb = add(smm.tv, beta_bias);
+
+    TensorView* out_tv = relu(lincomb);
+
+    ref_fusion->addOutput(out_tv);
+
+    ExpressionEvaluator expr_eval;
+
+    ASSERT_EQ(ref_fusion->inputs().size(), inputs.size());
+    for (auto [val, at_tens] : zip(ref_fusion->inputs(), inputs)) {
+      expr_eval.bind(val, at_tens.toTensor());
+    }
+
+    PolymorphicValue out_pv = expr_eval.evaluate(out_tv);
+
+    ASSERT_TRUE(out_pv.is<at::Tensor>());
+
+    testValidate(
+        fusion.get(),
+        outputs,
+        inputs,
+        {out_pv.as<at::Tensor>()},
+        __LINE__,
+        __FILE__);
+  }
 }
 
 } // namespace nvfuser
