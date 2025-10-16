@@ -673,7 +673,6 @@ class VectorizeValidator : public OptInDispatch {
       for (auto expr : tv->domain()->allExprs()) {
         ss << expr->toString();
       }
-      graph.dumpGraphvizDotGraph("validation_graph.dot");
       NVF_THROW(ss.str());
     }
 
