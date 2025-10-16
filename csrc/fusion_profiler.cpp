@@ -903,9 +903,4 @@ void FusionProfiler::recordAsyncKernelActivity(KernelProfile prof) {
   fp.kernel_profiles_.emplace_back(std::move(prof));
 }
 
-uint8_t* FusionProfiler::cuptiBufferPtr() {
-  FusionProfiler& fp = get();
-  return fp.cupti_buffer_.data();
-}
-
 } // namespace nvfuser
