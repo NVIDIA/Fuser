@@ -30,13 +30,13 @@ namespace {
 //
 // The logical domain of the producer must match the consumers root domain to
 // maintain producer-consumer mappings. The following uses the original domain
-// being rfactored and marked iter domains as "static_logical_ids". These static
+// being rfactored and marked iter domains as "rfactor_dep_ids". These static
 // IDs cannot be changed in the producer as it would invalidate the rfactor, no
 // longer matching the consumer.
 //
 // To find the logical domain in the producer which will be used as the root
 // domain in the consumer, we start at the roots of producer, and replay forward
-// the root iter domains if that iter domain is marked as a "static_logical_id".
+// the root iter domains if that iter domain is marked as a "rfactor_dep_id".
 // To do this we maintain the ordering of the iter domains. For example:
 //
 //       I1
@@ -47,7 +47,7 @@ namespace {
 //   /    \/
 //  I5    I6
 //
-// If rfactor_axes = {I6}, then "static_logical_id" IDs will be {I6, I4, I3, I2,
+// If rfactor_axes = {I6}, then "rfactor_dep_id" IDs will be {I6, I4, I3, I2,
 // I1}. Then, as we perform the replay the logical domain will be updated as:
 // [I1] -> [I2, I3] -> [I5, I4, I3] -> [I5, I6]
 //
@@ -79,8 +79,8 @@ class ReplayRFactor : public ReplayTransformations {
     // definition of the fusion. Iter domains are actually not static, its the
     // transformation that's static or not, so if one output is marked as a
     // static id, then both must be.
-    bool static_logical_outputs = static_logical_ids_.count(s->outer()) ||
-        static_logical_ids_.count(s->inner());
+    bool static_logical_outputs = rfactor_dep_ids_.count(s->outer()) ||
+        rfactor_dep_ids_.count(s->inner());
 
     // A split of a reduction ID may output a non-reduction ID when the split
     // is involved in a prior rfactor transformation. In that case, we need to
@@ -142,7 +142,7 @@ class ReplayRFactor : public ReplayTransformations {
     // Let IterDomain::merge determine the correct IterType, except
     // when the output is a reduction domain but not part of the
     // rfactored domains. If it isn't involved in the rfactor, it's no
-    // longer a redunction domain
+    // longer a reduction domain
     std::optional<IterType> iter_type;
     if (m->out()->isReduction() && !rfactor_dep_ids_.count(m->out())) {
       iter_type = IterType::Iteration;
@@ -151,7 +151,7 @@ class ReplayRFactor : public ReplayTransformations {
     IterDomain* merged_id = IterDomain::merge(
         id_outer_mapped,
         id_inner_mapped,
-        static_logical_ids_.count(m->out()),
+        rfactor_dep_ids_.count(m->out()),
         iter_type);
 
     // Remove inputs from the loop IDs
@@ -179,7 +179,7 @@ class ReplayRFactor : public ReplayTransformations {
   // The IterDomains in the original_domain that are being factored into the
   // first stage of the two stage reduction (the producer).
   std::unordered_set<IterDomain*> rfactor_axes_;
-  // All iter domains between the logical and the loop that the
+  // All iter domains between the root domain and the loop that the
   // rfactor_axes_ depend on
   std::unordered_set<IterDomain*> rfactor_dep_ids_;
 
