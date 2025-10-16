@@ -562,12 +562,12 @@ class VectorizeValidator : public OptInDispatch {
     // domain has a broadcast ID that is promoted to a concrete ID
     // and then is used to generate v_id. See
     // LoopDomainSchedulingTest.VecValidationRepro for a concrete
-    // case. The traversal needs to use the promoted concrete ID
-    // instead of the broadcast allocation ID. Instead, here, we
-    // traverse from the promoted loop IDs to the allocation
-    // domain. This should be always able to reach at least the
-    // vectorized ID.
-    // const auto loop_domain = getLoopIds(load_store, id_model);
+    // case.
+    //
+    // Although actual indexing traversal starts from promoted loop
+    // IDs on the AlmostExact graph, the loop IDs of the consumer
+    // tensor is used here without promotion on the Exact graph. This
+    // was changed to avoid the error as reported in issue #5377.
     const auto loop_domain = ir_utils::getTvOutput(load_store)->getLoopDomain();
     auto expr_path = ValGraphBFS::getExprGroupsBetween(
                          graph,
@@ -864,15 +864,6 @@ class VectorizeValidator : public OptInDispatch {
       return;
     }
 
-    // If the extent of the vectorized ID is just 1, it is effectively
-    // not vectorized. Note that this check should be place below the
-    // above check of the vectorization size since it's still invalid
-    // if the data type is a sub byte type
-#if 0
-    if (v_id->extent()->isOne()) {
-      return;
-    }
-#endif
     auto consumer_vectorized_id = getAndValidateVectorizedIdInAllocationDomain(
         v_id, tv, "consumer", tv_def, vector_size_bit);
     if (consumer_vectorized_id == nullptr) {
