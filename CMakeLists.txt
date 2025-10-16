@@ -424,6 +424,14 @@ find_package(LLVM REQUIRED CONFIG)
 if(${LLVM_VERSION} VERSION_LESS ${LLVM_MINIMUM_VERSION})
   message(FATAL_ERROR "LLVM ${LLVM_VERSION} does not meet the minimum version required: ${LLVM_MINIMUM_VERSION}")
 endif()
+
+message(STATUS "Found LLVM ${LLVM_PACKAGE_VERSION}")
+message(STATUS "Using LLVMConfig.cmake in: ${LLVM_DIR}")
+message(STATUS "LLVM_INCLUDE_DIRS: ${LLVM_INCLUDE_DIRS}")
+message(STATUS "LLVM_DEFINITIONS: ${LLVM_DEFINITIONS}")
+message(STATUS "LLVM_LIBS: ${LLVM_LIBS}")
+
+
 llvm_map_components_to_libnames(LLVM_LIBS
   support
   core
