@@ -206,6 +206,7 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/compute_at_map.cpp
   ${NVFUSER_SRCS_DIR}/contiguity.cpp
   ${NVFUSER_SRCS_DIR}/cutlass/codegen.cpp
+  ${NVFUSER_SRCS_DIR}/cutlass/evt.cpp
   ${NVFUSER_SRCS_DIR}/cutlass/gemm.cpp
   ${NVFUSER_SRCS_DIR}/debug.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/analysis/bank_conflict.cpp
@@ -386,6 +387,7 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/scheduler/resize.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/runtime_info.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/scheduler_types.cpp
+  ${NVFUSER_SRCS_DIR}/scheduler/tools/cub_utils.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/tools/domain_map.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/tools/inlining.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/tools/loop_domain_scheduler.cpp
@@ -806,6 +808,7 @@ if(BUILD_PYTHON)
     ${NVFUSER_PYTHON_DIRECT_BINDINGS}/runtime.cpp
     ${NVFUSER_PYTHON_DIRECT_BINDINGS}/schedule.cpp
     ${NVFUSER_PYTHON_DIRECT_BINDINGS}/id_model.cpp
+    ${NVFUSER_PYTHON_DIRECT_BINDINGS}/profile.cpp
     ${NVFUSER_PYTHON_DIRECT_BINDINGS}/direct_utils.cpp
     ${NVFUSER_PYTHON_DIRECT_BINDINGS}/python_translate.cpp
   )
@@ -1482,18 +1485,16 @@ message(STATUS "")
 message(STATUS "******** Nvfuser configuration summary ********")
 message(STATUS "  BUILD_CUTLASS: ${CUTLASS_STATUS}")
 message(STATUS "  UCC_FOUND: ${UCC_FOUND}")
-message(STATUS "  NVFUSER_STANDALONE_BUILD_WITH_UCC  : ${NVFUSER_STANDALONE_BUILD_WITH_UCC}")
-message(STATUS "  NVFUSER_BUILD_WITH_ASAN            : ${NVFUSER_BUILD_WITH_ASAN}")
-message(STATUS "  NVFUSER_DISTRIBUTED                : ${NVFUSER_DISTRIBUTED}")
-message(STATUS "  NVFUSER_HOST_IR_JIT                : ${NVFUSER_HOST_IR_JIT}")
-message(STATUS "  NVFUSER_CPP_STANDARD               : ${NVFUSER_CPP_STANDARD}")
-message(STATUS "  NVMMH_INCLUDE_DIR                  : ${NVMMH_INCLUDE_DIR}")
-
 if(NVFUSER_STANDALONE_BUILD_WITH_UCC)
   message(STATUS "    UCC_HOME: $ENV{UCC_HOME}")
   message(STATUS "    UCC_DIR : $ENV{UCC_DIR}")
   message(STATUS "    UCX_HOME: $ENV{UCX_HOME}")
   message(STATUS "    UCX_DIR : $ENV{UCX_DIR}")
 endif()
-
+message(STATUS "  NVFUSER_STANDALONE_BUILD_WITH_UCC  : ${NVFUSER_STANDALONE_BUILD_WITH_UCC}")
+message(STATUS "  NVFUSER_BUILD_WITH_ASAN            : ${NVFUSER_BUILD_WITH_ASAN}")
+message(STATUS "  NVFUSER_DISTRIBUTED                : ${NVFUSER_DISTRIBUTED}")
+message(STATUS "  NVFUSER_HOST_IR_JIT                : ${NVFUSER_HOST_IR_JIT}")
+message(STATUS "  NVFUSER_CPP_STANDARD               : ${NVFUSER_CPP_STANDARD}")
+message(STATUS "  NVMMH_INCLUDE_DIR                  : ${NVMMH_INCLUDE_DIR}")
 message(STATUS "******** End of Nvfuser configuration summary ********")
