@@ -380,8 +380,10 @@ void CutlassCompiledKernel::loadKernel() {
   if (shared_library_handle_) {
     // Get functions from dlopen-loaded library
     workspace_size_function_ = dlsym(shared_library_handle_, "workspace_size");
-    cuda_function_ = reinterpret_cast<CUfunction>(
-        dlsym(shared_library_handle_, "run_kernel"));
+    if (!workspace_size_function_) {
+      NVF_THROW("Failed to get CUTLASS workspace size function: ", dlerror());
+    }
+    cuda_function_ = dlsym(shared_library_handle_, "run_kernel");
     if (!cuda_function_) {
       NVF_THROW("Failed to get CUTLASS kernel function: ", dlerror());
     }
