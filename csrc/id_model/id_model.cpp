@@ -976,48 +976,47 @@ void IdModel::initializeLoopGraph(const StatefulInliningInfo& info) {
     VectorOfUniqueEntries<IterDomain*> loop_ids;
 
     auto all_ids_except_allocation = [&loop_ids](TensorView* tv) {
-std::vector<const std::vector<IterDomain*>*> all_domains = {
-    &tv->getLoopDomain(),
-    &tv->getLogicalDomain(),
-    &tv->getInitialLoopDomain(),
-    &tv->domain()->additionalIDs()};
-if (tv->hasRoot()) {
-  all_domains.push_back(&tv->getRootDomain());
-}
-if (tv->getAlternateLoopDomain().has_value()) {
-  all_domains.push_back(&tv->getAlternateLoopDomain().value());
-}
+      std::vector<const std::vector<IterDomain*>*> all_domains = {
+          &tv->getLoopDomain(),
+          &tv->getLogicalDomain(),
+          &tv->getInitialLoopDomain(),
+          &tv->domain()->additionalIDs()};
+      if (tv->hasRoot()) {
+        all_domains.push_back(&tv->getRootDomain());
+      }
+      if (tv->getAlternateLoopDomain().has_value()) {
+        all_domains.push_back(&tv->getAlternateLoopDomain().value());
+      }
 
-for (auto domain : all_domains) {
-  loop_ids.pushBack(*domain);
-}
+      for (auto domain : all_domains) {
+        loop_ids.pushBack(*domain);
+      }
 
-// We only care about IDs on the shortest path between domains
-std::unordered_multimap<IterDomain*, IterDomain*> out2in;
-for (auto i : arange(all_domains.size() - 1)) {
-  if (all_domains[i]->empty()) {
-    continue;
-  }
-  for (auto j : arange(i + 1, all_domains.size())) {
-    if (all_domains[j]->empty()) {
-      continue;
-    }
-    auto path = getExprsBetween<IRBFS>(
-                    {all_domains[i]->begin(), all_domains[i]->end()},
-                    {all_domains[j]->begin(), all_domains[j]->end()},
-                    false)
-                    .first;
-    for (auto [expr, _] : path) {
-      loop_ids.pushBack(
-          ir_utils::filterByType<IterDomain>(expr->outputs()));
-      loop_ids.pushBack(
-          ir_utils::filterByType<IterDomain>(expr->inputs()));
-    }
-  }
-}
-return loop_ids.vector();
+      // We only care about IDs on the shortest path between domains
+      std::unordered_multimap<IterDomain*, IterDomain*> out2in;
+      for (auto i : arange(all_domains.size() - 1)) {
+        if (all_domains[i]->empty()) {
+          continue;
+        }
+        for (auto j : arange(i + 1, all_domains.size())) {
+          if (all_domains[j]->empty()) {
+            continue;
+          }
+          auto path = getExprsBetween<IRBFS>(
+                          {all_domains[i]->begin(), all_domains[i]->end()},
+                          {all_domains[j]->begin(), all_domains[j]->end()},
+                          false)
+                          .first;
+          for (auto [expr, _] : path) {
+            loop_ids.pushBack(
+                ir_utils::filterByType<IterDomain>(expr->outputs()));
+            loop_ids.pushBack(
+                ir_utils::filterByType<IterDomain>(expr->inputs()));
+          }
+        }
+      }
+      return loop_ids.vector();
     };
-
 
     for (TensorView* tv : tvs_) {
       all_ids_except_allocation(tv);
@@ -1038,7 +1037,8 @@ return loop_ids.vector();
           " as it's missing a definition entry.");
       loop_graph.initializeVal(id, id_definitions_.at(id), uses_it->second);
     }
-    NVF_ERROR(id_graphs_.emplace(IdMappingMode::LOOP, std::move(loop_graph)).second);
+    NVF_ERROR(
+        id_graphs_.emplace(IdMappingMode::LOOP, std::move(loop_graph)).second);
   }
 
   // Make sure this is called in a deterministic order. Build all inlined
@@ -1178,9 +1178,9 @@ ValGraph IdModel::buildIntersection(
         // add the mapping to the intersection.
         if (permissive) {
           if (graph1.disjointValSets().permissiveAreMapped(id0, id1)) {
-          intersection.mapVals(id0, id1);
+            intersection.mapVals(id0, id1);
           }
-        } else if(graph1.disjointValSets().strictAreMapped(id0, id1)) {
+        } else if (graph1.disjointValSets().strictAreMapped(id0, id1)) {
           intersection.mapVals(id0, id1);
         }
       }
