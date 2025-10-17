@@ -1077,37 +1077,4 @@ INSTANTIATE_TEST_SUITE_P(
       return os.str();
     });
 
-TEST_F(GreedySchedulerTest, TMP) {
-  auto fusion_ptr = std::make_unique<Fusion>();
-  Fusion& fusion = *fusion_ptr.get();
-  FusionGuard fg(&fusion);
-
-  auto tv0 = makeSymbolicTensor(1);
-  fusion.addInput(tv0);
-
-  auto tv1 = set(tv0);
-  auto tv2 = set(tv1);
-  auto tv3 = set(tv2);
-  auto tv4 = set(tv3);
-  fusion.addOutput(tv4);
-
-  tv1->setMemoryType(MemoryType::Shared);
-  tv1->axis(0)->parallelize(ParallelType::TIDx);
-  tv2->setMemoryType(MemoryType::Shared);
-  tv2->axis(0)->parallelize(ParallelType::TIDx);
-  tv3->setMemoryType(MemoryType::Shared);
-  tv3->axis(0)->parallelize(ParallelType::TIDx);
-  tv4->axis(0)->parallelize(ParallelType::TIDx);
-
-  fusion.printKernel();
-
-  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  auto t0 = at::randn({100}, options);
-
-  KernelExecutor ke;
-  ke.compile(&fusion, {t0});
-  auto outputs = ke.run({t0});
-  testValidate(&fusion, outputs, {t0}, __LINE__, __FILE__);
-}
-
 } // namespace nvfuser
