@@ -30,7 +30,6 @@
 #include <c10/cuda/CUDAFunctions.h>
 #include <c10/cuda/CUDAMathCompat.h>
 #include <c10/util/Exception.h>
-#include <torch/torch.h>
 
 #include <chrono>
 #include <filesystem>
@@ -162,15 +161,13 @@ void CutlassCompiledKernel::run(
   auto workspace_size_func =
       reinterpret_cast<WorkspaceSizeFunc>(workspace_size_function_);
   const size_t workspace_size = workspace_size_func(&tensor_args);
-  auto const workspace_options =
-      torch::TensorOptions()
-          .dtype(torch::kUInt8)
-          .device(torch::kCUDA, args.getDeviceIndex());
+  auto const workspace_options = at::TensorOptions().dtype(at::kByte).device(
+      at::kCUDA, args.getDeviceIndex());
   if (isDebugDumpEnabled(DebugDumpOption::CutlassCompile)) {
     debug() << "Allocating " << workspace_size
             << " bytes to use as CUTLASS workspace" << std::endl;
   }
-  at::Tensor workspace = torch::empty(workspace_size, workspace_options);
+  at::Tensor workspace = at::empty(workspace_size, workspace_options);
 
   // Define the function signature for the kernel
   using KernelFunc =
