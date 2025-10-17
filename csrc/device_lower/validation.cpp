@@ -436,6 +436,22 @@ class ExprValidator : public OptOutDispatch {
 
   // I'd like to check that the inner dimension of the input
   // is divisble by 16.
+  // Basic tests:
+  // Input is in local memory.
+  // Block scaling factor is in global memory and
+  // quantized output is in local memory.
+  // Any loop ID that is not TID(x/y). BID(x/y) or Group
+  // has an extent of 1.
+  // The Group ID has an extent of 4/8 depending on the data type.
+  // There are TIDz/BIDz IDs.
+  // TODO: Express the following as validation checks.
+  // For 1D scheduling (BIDx/TIDx/Group only):
+  // (1)Chek that the these loop IDs cover the entire logical domain
+  // (2) Group ID is "innermost" next TIDx ID and then BIDx ID.
+  // The above is because this op is implemented by a device function
+  // Which access the block scales output memory using the index
+  // (blockDix.x * blockDim.x + threadIdx.x) /4 (for FP32, group is 4).
+  // We have to do the same for 2D scheduling.
   void handle(BlockQuantizationOp* bqop) final {
     auto inp_tv = bqop->input(0)->as<TensorView>();
     auto quantized_output = bqop->quantizedOutput()->as<TensorView>();
@@ -481,10 +497,18 @@ class ExprValidator : public OptOutDispatch {
 
     for (const auto& loop_id : block_scaling_factor->getLoopDomain()) {
       if (loop_id->getParallelType() == ParallelType::Group) {
-        NVF_ERROR(
-            grouped_id == nullptr,
-            "Multiple IDs found to be grouped/vectorized");
         grouped_id = loop_id;
+      }
+      if (loop_id->getParallelType() == ParallelType::Serial ||
+          loop_id->getParallelType() == ParallelType::Unswitch ||
+          loop_id->getParallelType() == ParallelType::Unroll) {
+        // Check this is ID has a constant extent and is 1
+        NVF_ERROR(
+            loop_id->extent()->isConstInt(),
+            "Expected constant extent for Serial ID in BlockQuantizationOp");
+        NVF_ERROR(
+            loop_id->extent()->evaluate().as<int64_t>() == 1,
+            "Expected extent of 1");
       }
     }
 
@@ -550,6 +574,7 @@ class ExprValidator : public OptOutDispatch {
         ". Expr: ",
         bqop->toString());
 
+    // Please temporarily ignore from here below. This needs to be updated.
     // Find the logical domain IDs that correspond to these loop IDs.
     // Then we check that the logical domain IDs are the inner-most
     // IDs.
