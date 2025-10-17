@@ -115,6 +115,9 @@ void createNVFP4QunatizationFusion(Fusion* fusion, DataType data_hp_dtype) {
   auto tv_data_hp_reshaped =
       reshape(tv_data_hp, [](auto& x) { x.split(-1, block_size); });
 
+  // cast it to FP32
+  tv_data_hp_reshaped = castOp(DataType::Float, tv_data_hp_reshaped);
+
   auto tv_data_hp_abs = abs(tv_data_hp_reshaped);
   auto tv_data_hp_amax = max(tv_data_hp_abs, {-1});
   // These scales are currently in fp32, we are going to `quantize` them to e4m3
