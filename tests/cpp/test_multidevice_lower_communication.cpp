@@ -277,17 +277,16 @@ TEST_P(LowerCollectiveTest, Allgather_LoopSplit) {
   auto mesh = DeviceMesh::createForNumDevices(num_devices);
 
   TensorView* in = makeContigTensor(1);
-  in->setDeviceMesh(mesh);
   TensorView* out = set(in);
   fusion->addInput(in);
   fusion->addOutput(out);
 
+  in->setDeviceMesh(mesh);
   in->split(0, num_devices, /*inner_split=*/false);
   in->axis(0)->parallelize(ParallelType::DIDx);
   in->setAllocationDomain(in->getLoopDomain(), true);
 
-  out->split(0, num_devices, /*inner_split=*/false);
-  out->setAllocationDomain(out->getLoopDomain(), true);
+  out->setDeviceMesh(mesh);
 
   at::Tensor unsharded_tensor =
       at::randn({num_devices * kTensorSize}, at::kFloat);

@@ -4,6 +4,26 @@
 import pytest
 from .core import BENCHMARK_CONFIG
 from nvfuser.pytorch_utils import DEVICE_PROPERTIES
+import os
+
+ORIGINAL_ENV_VARS = {}
+
+
+def pytest_sessionstart(session):
+    for var, value in [
+        ("TORCHINDUCTOR_COORDINATE_DESCENT_TUNING", "1"),
+        ("TORCHINDUCTOR_COORDINATE_DESCENT_CHECK_ALL_DIRECTIONS", "1"),
+    ]:
+        ORIGINAL_ENV_VARS[var] = os.environ.get(var)
+        os.environ[var] = value
+
+
+def pytest_sessionfinish(session):
+    for var, value in ORIGINAL_ENV_VARS.items():
+        if value is not None:
+            os.environ[var] = value
+        else:
+            os.environ.pop(var, None)
 
 
 def pytest_addoption(parser):
@@ -42,7 +62,11 @@ def pytest_addoption(parser):
         action="store_true",
         help="Benchmarks flashinfer mode.",
     )
-
+    parser.addoption(
+        "--benchmark-quack",
+        action="store_true",
+        help="Benchmarks quack mode.",
+    )
     # pytest-benchmark does not have CLI options to set rounds/warmup_rounds for benchmark.pedantic.
     # The following two options are used to overwrite the default values through CLI.
     parser.addoption(
@@ -155,6 +179,7 @@ def pytest_collection_modifyitems(session, config, items):
         "thunder",
         "thunder-torchcompile",
         "flashinfer",
+        "quack",
     ]
 
     def get_test_executor(item) -> str | None:
