@@ -443,14 +443,7 @@ void validateInputsGroupMm(
         expert_offset,
         ", but it must be smaller than the M dimension of operand A ",
         m);
-    NVF_CHECK(
-        prev_offset == 0 || prev_offset < expert_offset,
-        "The expert offset ",
-        i,
-        " is ",
-        expert_offset,
-        ", but it must be smaller than the previous offset ",
-        prev_offset);
+    NVF_CHECK_LE(prev_offset, expert_offset);
     prev_offset = expert_offset;
   }
 
