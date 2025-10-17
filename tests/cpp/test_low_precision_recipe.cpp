@@ -355,8 +355,12 @@ TEST_P(BlockQuantizationTest, ScheduleAsPointwise2D) {
 
     // (m/4(bidy), 4(tidy), 1, n*k/128(bidx), 32(tidx), 4(v))
     if (t != tv_data_hp) {
-      // Don't vectorize the outputs of reshape
-      t->axis(-1)->parallelize(ParallelType::Vectorize);
+      if (t == quantization_results.block_scales ||
+          t == quantization_results.quantized_tensor) {
+        t->axis(-1)->parallelize(ParallelType::Group);
+      } else {
+        t->axis(-1)->parallelize(ParallelType::Vectorize);
+      }
       t->axis(-2)->parallelize(ParallelType::TIDx);
       t->axis(-3)->parallelize(ParallelType::BIDx);
       t->axis(-5)->parallelize(ParallelType::TIDy);

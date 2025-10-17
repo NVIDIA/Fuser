@@ -1819,17 +1819,16 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     // 4 consecutive inputs (8 for FB16) per thread. We achieve this by having
     // the input tv scheduler to have the inner dimension vectorized by 4/8.
     auto output = bqop->quantizedOutput()->as<kir::TensorIndex>()->view();
-    int64_t vector_word_size = 1;
+    int64_t group_size = 1;
 
     // Get the loop domain of the TensorView output and check for group/vector
     // parallel types. This assumes that both parallel types aren't present.
     const auto& loop_domain = output->getLoopDomain();
     for (auto* domain : loop_domain) {
       auto parallel_type = domain->getParallelType();
-      if (parallel_type == ParallelType::Group ||
-          parallel_type == ParallelType::Vectorize) {
+      if (parallel_type == ParallelType::Group) {
         if (domain->extent()->isConstInt()) {
-          vector_word_size = domain->extent()->evaluate().as<int64_t>();
+          group_size = domain->extent()->evaluate().as<int64_t>();
         }
       }
     }
@@ -1839,21 +1838,21 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
 
     if (input_dtype == DataType::BFloat16 || input_dtype == DataType::Half) {
       NVF_ERROR(
-          vector_word_size == 8,
-          "Vectorization size should be 8 for "
+          group_size == 8,
+          "Group size should be 8 for "
           "BlockQuantizationOp: ",
           bqop->toString());
 
     } else {
       NVF_ERROR(
-          vector_word_size == 4,
-          "Vectorization size should be 4 for "
+          group_size == 4,
+          "Group size should be 4 for "
           "BlockQuantizationOp: ",
           bqop->toString());
     }
 
     ArgumentBuilder template_args;
-    template_args.arg(vector_word_size); // ITEMS_PER_THREAD
+    template_args.arg(group_size); // ITEMS_PER_THREAD
 
     // Function arguments
     ArgumentBuilder func_args;

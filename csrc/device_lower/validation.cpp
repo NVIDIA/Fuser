@@ -471,7 +471,7 @@ class ExprValidator : public OptOutDispatch {
 
     // Check that it either had vectorized ID or grouped ID
     // not both and the extent is either 4(FP32) or 8(BF16)
-    IterDomain* grouped_or_vector_id = nullptr;
+    IterDomain* grouped_id = nullptr;
     IterDomain* thread_x = nullptr;
     IterDomain* block_x = nullptr;
     IterDomain* thread_y = nullptr;
@@ -480,17 +480,17 @@ class ExprValidator : public OptOutDispatch {
     IterDomain* block_z = nullptr;
 
     for (const auto& loop_id : block_scaling_factor->getLoopDomain()) {
-      if (loop_id->getParallelType() == ParallelType::Group ||
-          loop_id->getParallelType() == ParallelType::Vectorize) {
+      if (loop_id->getParallelType() == ParallelType::Group) {
         NVF_ERROR(
-            grouped_or_vector_id == nullptr,
+            grouped_id == nullptr,
             "Multiple IDs found to be grouped/vectorized");
-        grouped_or_vector_id = loop_id;
+        grouped_id = loop_id;
       }
     }
 
     auto parallel_domains_map =
         ir_utils::getParallelDomains(block_scaling_factor);
+
     if (parallel_domains_map.find(ParallelType::TIDx) !=
         parallel_domains_map.end()) {
       thread_x = parallel_domains_map.at(ParallelType::TIDx);
@@ -517,8 +517,8 @@ class ExprValidator : public OptOutDispatch {
     }
 
     NVF_ERROR(
-        grouped_or_vector_id != nullptr,
-        "One of the output IDs must be grouped or vectorized for "
+        grouped_id != nullptr,
+        "One of the output IDs must be grouped for "
         "BlockQuantizationOp: ",
         bqop->toString());
 
@@ -536,8 +536,7 @@ class ExprValidator : public OptOutDispatch {
     bool is_2d_scheduled =
         (thread_y != nullptr || block_y != nullptr) ? true : false;
 
-    auto inner_extent =
-        grouped_or_vector_id->extent()->evaluate().as<int64_t>();
+    auto inner_extent = grouped_id->extent()->evaluate().as<int64_t>();
     auto input_dtype = inp_tv->dtype();
 
     NVF_ERROR(
@@ -555,7 +554,7 @@ class ExprValidator : public OptOutDispatch {
     // Then we check that the logical domain IDs are the inner-most
     // IDs.
     auto input_logical_domains_ids = findLogicalDomainOrigins(
-        {grouped_or_vector_id, thread_x, block_x}, block_scaling_factor);
+        {grouped_id, thread_x, block_x}, block_scaling_factor);
 
     // Get the size of input logical domains
     size_t num_input_logical_domains = input_logical_domains_ids.size();
