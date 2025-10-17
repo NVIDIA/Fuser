@@ -73,7 +73,7 @@ TEST_P(LowerGatherTest, ) {
 
   const auto device_id = communicator_->deviceId();
   at::Tensor unsharded_tensor =
-      at::randn({in_mesh.size(), kTensorSize}, tensor_options);
+      at::randn({in_mesh.size(), kTensorSize}, tensor_options_);
   at::Tensor in_tensor = shardTensor(unsharded_tensor, in);
 
   FusionExecutorCache executor_cache(std::move(fusion));
@@ -145,7 +145,7 @@ TEST_P(LowerScatterTest, ) {
 
   const auto device_id = communicator_->deviceId();
   at::Tensor unsharded_tensor =
-      at::randn({out_mesh.size(), kTensorSize}, tensor_options);
+      at::randn({out_mesh.size(), kTensorSize}, tensor_options_);
 
   FusionExecutorCache executor_cache(std::move(fusion));
   at::Tensor out_tensor =
@@ -197,7 +197,7 @@ TEST_P(LowerSendRecvTest, ) {
 
   const auto device_id = communicator_->deviceId();
   at::Tensor unsharded_tensor =
-      at::randn({in_mesh.size(), kTensorSize}, tensor_options);
+      at::randn({in_mesh.size(), kTensorSize}, tensor_options_);
   at::Tensor in_tensor = shardTensor(unsharded_tensor, in);
 
   FusionExecutorCache executor_cache(std::move(fusion));
@@ -258,7 +258,7 @@ TEST_P(LowerCollectiveTest, Allgather) {
   in->axis(0)->parallelize(ParallelType::DIDx);
 
   at::Tensor unsharded_tensor =
-      at::randn({num_devices, kTensorSize}, tensor_options);
+      at::randn({num_devices, kTensorSize}, tensor_options_);
   at::Tensor in_tensor = shardTensor(unsharded_tensor, in);
 
   FusionExecutorCache executor_cache(std::move(fusion));
@@ -277,17 +277,16 @@ TEST_P(LowerCollectiveTest, Allgather_LoopSplit) {
   auto mesh = DeviceMesh::createForNumDevices(num_devices);
 
   TensorView* in = makeContigTensor(1);
-  in->setDeviceMesh(mesh);
   TensorView* out = set(in);
   fusion->addInput(in);
   fusion->addOutput(out);
 
+  in->setDeviceMesh(mesh);
   in->split(0, num_devices, /*inner_split=*/false);
   in->axis(0)->parallelize(ParallelType::DIDx);
   in->setAllocationDomain(in->getLoopDomain(), true);
 
-  out->split(0, num_devices, /*inner_split=*/false);
-  out->setAllocationDomain(out->getLoopDomain(), true);
+  out->setDeviceMesh(mesh);
 
   at::Tensor unsharded_tensor =
       at::randn({num_devices * kTensorSize}, at::kFloat);
@@ -318,7 +317,7 @@ TEST_P(LowerCollectiveTest, Broadcast) {
   out->setDeviceMesh(mesh);
 
   at::Tensor unsharded_tensor =
-      at::randn({num_devices, kTensorSize}, tensor_options);
+      at::randn({num_devices, kTensorSize}, tensor_options_);
   const auto device_id = communicator_->deviceId();
   at::Tensor in_tensor = unsharded_tensor.slice(0, device_id, device_id + 1);
 
@@ -351,7 +350,7 @@ TEST_P(LowerCollectiveTest, Reduce) {
   in->axis(0)->parallelize(ParallelType::DIDx);
 
   at::Tensor unsharded_in_tensor =
-      at::randn({num_devices, kTensorSize}, tensor_options);
+      at::randn({num_devices, kTensorSize}, tensor_options_);
   const auto device_id = communicator_->deviceId();
   at::Tensor in_tensor = shardTensor(unsharded_in_tensor, in);
 
@@ -382,7 +381,7 @@ TEST_P(LowerCollectiveTest, Allreduce) {
   in->axis(0)->parallelize(ParallelType::DIDx);
 
   at::Tensor unsharded_in_tensor =
-      at::randn({num_devices, kTensorSize}, tensor_options);
+      at::randn({num_devices, kTensorSize}, tensor_options_);
   at::Tensor in_tensor = shardTensor(unsharded_in_tensor, in);
 
   FusionExecutorCache executor_cache(std::move(fusion));
@@ -411,7 +410,7 @@ TEST_P(LowerCollectiveTest, Allreduce_Concrete) {
   in->axis(0)->parallelize(ParallelType::DIDx);
 
   at::Tensor unsharded_in_tensor =
-      at::randn({num_devices, kTensorSize}, tensor_options);
+      at::randn({num_devices, kTensorSize}, tensor_options_);
   at::Tensor in_tensor = shardTensor(unsharded_in_tensor, in);
 
   FusionExecutorCache executor_cache(std::move(fusion));
@@ -448,7 +447,7 @@ TEST_P(LowerCollectiveTest, ReduceScatter) {
   out->axis(0)->parallelize(ParallelType::DIDx);
   out->setAllocationDomain(out->getLoopDomain(), true);
 
-  at::Tensor unsharded_in_tensor = at::randn({d * 2, d * 3}, tensor_options);
+  at::Tensor unsharded_in_tensor = at::randn({d * 2, d * 3}, tensor_options_);
   at::Tensor in_tensor = shardTensor(unsharded_in_tensor, in);
 
   FusionExecutorCache executor_cache(std::move(fusion));
@@ -499,7 +498,7 @@ TEST_P(LowerCollectiveTest, ReduceScatter_LogicalSplit) {
   out->axis(1)->parallelize(ParallelType::DIDx);
 
   at::Tensor unsharded_in_tensor =
-      at::randn({num_devices, num_devices, kTensorSize}, tensor_options);
+      at::randn({num_devices, num_devices, kTensorSize}, tensor_options_);
   at::Tensor in_tensor = shardTensor(unsharded_in_tensor, in);
 
   FusionExecutorCache executor_cache(std::move(fusion));
@@ -533,7 +532,7 @@ TEST_P(LowerCollectiveTest, ReduceScatter_Allgather) {
   fusion->addOutput(out);
 
   at::Tensor unsharded_in_tensor =
-      at::randn({num_devices, num_devices, kTensorSize}, tensor_options);
+      at::randn({num_devices, num_devices, kTensorSize}, tensor_options_);
   at::Tensor in_tensor = shardTensor(unsharded_in_tensor, in);
 
   FusionExecutorCache executor_cache(std::move(fusion));
@@ -573,7 +572,7 @@ TEST_P(LowerCollectiveTest, ReduceScatterNoncontig) {
   fusion->addOutput(tv1);
 
   at::Tensor unsharded_in_tensor =
-      at::randint(2, {5, d * 3, d * 7}, tensor_options);
+      at::randint(2, {5, d * 3, d * 7}, tensor_options_);
   at::Tensor in_tensor = shardTensor(unsharded_in_tensor, 1, mesh);
 
   at::Tensor expected_output =
@@ -612,7 +611,7 @@ TEST_P(LowerCollectiveTest, AllreduceNoncontig) {
   fusion->addInput(tv0);
   fusion->addOutput(tv1);
 
-  at::Tensor unsharded_in_tensor = at::randn({5, d * 3}, tensor_options);
+  at::Tensor unsharded_in_tensor = at::randn({5, d * 3}, tensor_options_);
   at::Tensor in_tensor = shardTensor(unsharded_in_tensor, 1, mesh);
 
   FusionExecutorCache executor_cache(std::move(fusion));
@@ -653,7 +652,7 @@ TEST_P(LowerCollectiveTest, Allgather_CompliantAllocation) {
   fusion->addInput(tv0);
   fusion->addOutput(tv1);
 
-  at::Tensor unsharded_in_tensor = at::randn({d * 3, 5}, tensor_options);
+  at::Tensor unsharded_in_tensor = at::randn({d * 3, 5}, tensor_options_);
   at::Tensor in_tensor = shardTensor(unsharded_in_tensor, 0, mesh).t();
 
   FusionExecutorCache executor_cache(std::move(fusion));
@@ -695,7 +694,7 @@ TEST_P(LowerCollectiveTest, Allgather_NonCompliantAllocation) {
   fusion->addInput(tv0);
   fusion->addOutput(tv1);
 
-  at::Tensor unsharded_in_tensor = at::randn({5, d * 3}, tensor_options);
+  at::Tensor unsharded_in_tensor = at::randn({5, d * 3}, tensor_options_);
   at::Tensor in_tensor = shardTensor(unsharded_in_tensor, 1, mesh);
 
   FusionExecutorCache executor_cache(std::move(fusion));
@@ -735,7 +734,7 @@ TEST_P(LowerCollectiveTest, Allgather_NoncontiguousOutput) {
   in->outer_split(1, d);
   in->axis(1)->parallelize(ParallelType::DIDx);
 
-  at::Tensor unsharded_in_tensor = at::randn({2, d * 3}, tensor_options);
+  at::Tensor unsharded_in_tensor = at::randn({2, d * 3}, tensor_options_);
   at::Tensor in_tensor = shardTensor(unsharded_in_tensor, 1, mesh);
 
   FusionExecutorCache executor_cache(std::move(fusion));

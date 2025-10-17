@@ -35,6 +35,16 @@ void TensorInitVal::handle(ArgsortOp* aop) {
   registerInitVal(inp_tv, init_val);
 }
 
+void TensorInitVal::handle(ScanOp* sop) {
+  // It is already validated that the input is exclusively used by
+  // this scan op, so it's free to initialize it for this op
+  auto inp_tv = ir_utils::getTvInput(sop);
+
+  // May not be strictly required but make sure the input is always
+  // initialized
+  registerInitVal(inp_tv, sop->init());
+}
+
 void TensorInitVal::registerInitVal(TensorView* tv, Val* val) {
   auto inserted = init_val_map_.emplace(tv, val).second;
   if (!inserted) {

@@ -159,8 +159,8 @@ TensorView* scheduleReductionTV(
     // Unswitch the persistent buffer by a factor of
     // unroll_factor_inner_reduction. If that is equal to the
     // persistent buffer size, unswitch the whole buffer by
-    // outer-unswith by 1. Otherwise, split the persistent buffer by
-    // the unsiwtch factor and just unswitch the inner domain
+    // outer-unswitch by 1. Otherwise, split the persistent buffer by
+    // the unswitch factor and just unswitch the inner domain
     if (rparams->batches_per_block_inner_reduction ==
         rparams->unroll_factor_inner_reduction) {
       outer_unswitch(reduction_axis + 1);
@@ -432,8 +432,8 @@ void propagateRFactor(
 std::unordered_set<TensorView*> getCachedTvsToUnrollOrVectorize(
     TensorView* reference_tv,
     bool vectorize,
-    const std::vector<TensorView*>& cached_inputs,
-    const std::vector<std::pair<TensorView*, TensorView*>>& cached_outputs) {
+    const std::vector<std::pair<TensorView*, int64_t>>& cached_inputs,
+    const std::vector<std::pair<TensorView*, int64_t>>& cached_outputs) {
   auto reduced_tv = ir_utils::getSoleProducerTv(reference_tv);
   // Grab all tensor views that should be vectorized
   auto vectorizable_inputs_outputs =
@@ -442,15 +442,13 @@ std::unordered_set<TensorView*> getCachedTvsToUnrollOrVectorize(
   auto vectorizable_expr = [](Expr* e) { return e->isA<LoadStoreOp>(); };
 
   std::unordered_set<TensorView*> unroll_vectorizable_tvs;
-  for (auto cached_input : cached_inputs) {
+  for (const auto& [cached_input, input_idx] : cached_inputs) {
     if (vectorize) {
       auto producer_tvs = ir_utils::producerTvsOf(cached_input);
       if (producer_tvs.size() == 1 &&
           vectorizable_expr(cached_input->definition()) &&
-          std::find(
-              vectorizable_inputs_outputs.begin(),
-              vectorizable_inputs_outputs.end(),
-              producer_tvs[0]) != vectorizable_inputs_outputs.end()) {
+          std::ranges::find(vectorizable_inputs_outputs, producer_tvs[0]) !=
+              vectorizable_inputs_outputs.end()) {
         unroll_vectorizable_tvs.emplace(cached_input);
       }
     } else {
@@ -458,14 +456,13 @@ std::unordered_set<TensorView*> getCachedTvsToUnrollOrVectorize(
     }
   }
 
-  for (auto cached_output_pair : cached_outputs) {
-    auto output = cached_output_pair.second;
+  for (const auto& [cached_output, output_idx] : cached_outputs) {
+    auto output =
+        reference_tv->fusion()->outputs()[output_idx]->as<TensorView>();
     if (vectorize) {
       if (vectorizable_expr(output->definition()) &&
-          std::find(
-              vectorizable_inputs_outputs.begin(),
-              vectorizable_inputs_outputs.end(),
-              output) != vectorizable_inputs_outputs.end()) {
+          std::ranges::find(vectorizable_inputs_outputs, output) !=
+              vectorizable_inputs_outputs.end()) {
         unroll_vectorizable_tvs.emplace(output);
       }
     } else {
@@ -839,10 +836,10 @@ class PersistentBufferProjector {
       // Re-calculation of t1 from t0 is trivial, just f(t0).
       // Re-calculation of t5 from t0 needs t0->t1->t2->t3->t4->t5 where
       // t1->t2 is a reduction, which is considered very expensive and should
-      // be avoided. Since t3 is a broadcast tv, all the persitent batches are
+      // be avoided. Since t3 is a broadcast tv, all the persistent batches are
       // sharing the same value. It can be considered as a `free` persistent
       // buffer. So, t5 can be re-calculated directly from t3, this skips the
-      // reduciton and broadcast from input t0 to t3. The broadcast here is not
+      // reduction and broadcast from input t0 to t3. The broadcast here is not
       // just a local register copy but involves an inter-thread communication.
       std::vector<Val*> vals_project_to = fusion_->inputs();
       const auto& [can_project, broadcast_tvs] =
@@ -919,7 +916,7 @@ class PersistentBufferProjector {
     std::vector<Val*> persistent_use_of_buffer;
     // Go through the resolution points one by one. Resolution points are points
     // in which the reduction branch meets the residual branch. These are points
-    // where the persitent buffer may no longer be needed (one point could be
+    // where the persistent buffer may no longer be needed (one point could be
     // after another, and the buffer would be needed until the last resolution
     // points)
     auto buffer = persistent_buffers[buffer_i];
@@ -1068,7 +1065,7 @@ void sharedMemoryConsumerVectorization(
     std::vector<TensorView*>& smem_consumers,
     int64_t io_vectorization_factor) {
   for (auto tv : smem_consumers) {
-    // they were creatd with cacheAfter.
+    // they were created with cacheAfter.
     NVF_ERROR(
         tv->definition()->isA<LoadStoreOp>(),
         "smem consumers should be LoadStoreOp. Got: ",
@@ -1098,7 +1095,7 @@ void sharedMemoryConsumerVectorization(
     NVF_ERROR(
         innermost_extent == io_vectorization_factor,
         "Extent of the innermost axis of smem consumers should be equal to the "
-        "vectorization factor of fuion inputs and outputs. Got: ",
+        "vectorization factor of fusion inputs and outputs. Got: ",
         innermost_extent,
         ", expected: ",
         io_vectorization_factor);

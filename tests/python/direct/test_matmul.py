@@ -207,17 +207,17 @@ def test_matmul_stride(nvfuser_direct_test):
         torch.randn(n, h, l, e, device="cuda", dtype=torch.float16, requires_grad=True),
         torch.randn(n, h, s, e, device="cuda", dtype=torch.float16, requires_grad=True),
     ]
-    for perm in itertools.permutations(range(4), 4):
+    for stride_order in itertools.permutations(range(4)):
 
         def fusion_func(fd: FusionDefinition) -> None:
             q = fd.from_pytorch(inputs[0])
             k = fd.from_pytorch(inputs[1])
             k_t = fd.ops.permute(k, [0, 1, 3, 2])
             out = fd.ops.matmul(q, k_t)
-            strided_out = fd.ops.stride_order(out, perm)
+            strided_out = fd.ops.stride_order(out, stride_order)
             fd.add_output(strided_out)
 
         nvf_out, _ = nvfuser_direct_test.exec_nvfuser(fusion_func, inputs)
         eager_out = torch.matmul(inputs[0], torch.transpose(inputs[1], -2, -1))
-        verify_stride_order(nvf_out[0].stride(), perm)
+        verify_stride_order(nvf_out[0].stride(), stride_order)
         nvfuser_direct_test.assertEqual(nvf_out[0], eager_out)

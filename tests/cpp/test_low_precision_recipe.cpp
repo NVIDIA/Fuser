@@ -10,8 +10,6 @@
 
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
-#include <iomanip>
-#include <iostream>
 
 #include <fusion.h>
 #include <ops/all_ops.h>
@@ -117,6 +115,9 @@ void createNVFP4QunatizationFusion(Fusion* fusion, DataType data_hp_dtype) {
   auto tv_data_hp_reshaped =
       reshape(tv_data_hp, [](auto& x) { x.split(-1, block_size); });
 
+  // cast it to FP32
+  tv_data_hp_reshaped = castOp(DataType::Float, tv_data_hp_reshaped);
+
   auto tv_data_hp_abs = abs(tv_data_hp_reshaped);
   auto tv_data_hp_amax = max(tv_data_hp_abs, {-1});
   // These scales are currently in fp32, we are going to `quantize` them to e4m3
@@ -175,23 +176,26 @@ TEST_P(NVFP4QuantizeTest, WithoutPerTensorAmax) {
           HeuristicIs(SchedulerType::InnerPersistent)));
 }
 
-class BQTest : public BlackwellBase {};
+class BlockQuantizationTest : public BlackwellBase,
+                              public ::testing::WithParamInterface<DataType> {};
 
-TEST_F(BQTest, ScheduleAsPointwise) {
-  // Basic test implementation
+TEST_P(BlockQuantizationTest, ScheduleAsPointwise) {
+  auto data_hp_dtype = GetParam();
+
+  // Baseline implementation
   std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
-  createNVFP4QunatizationFusion(fusion.get(), DataType::Float);
+  createNVFP4QunatizationFusion(fusion.get(), data_hp_dtype);
 
   FusionExecutorCache fec(std::move(fusion));
 
   const int m = 1024;
   const int n = 1024;
   std::vector<at::Tensor> inputs;
-  inputs.push_back(at::randn({m, n}, at::device(at::kCUDA).dtype(at::kFloat)));
+  inputs.push_back(at::randn({m, n}, at::device(at::kCUDA).dtype(at::kFloat))
+                       .to(data_type_to_aten(data_hp_dtype)));
   auto outputs_baseline = fec.runFusionWithInputs(inputs);
 
-  // Print baseline outputs
   auto baseline_block_scales = outputs_baseline[0].as<at::Tensor>();
   auto baseline_quantized_tensor = outputs_baseline[1].as<at::Tensor>();
 
@@ -199,7 +203,6 @@ TEST_F(BQTest, ScheduleAsPointwise) {
   auto baseline_block_scales_cpu = baseline_block_scales.cpu();
   auto baseline_quantized_tensor_cpu = baseline_quantized_tensor.cpu();
 
-  // Print first 32 bytes of baseline block_scales_output in hex format
   const uint8_t* baseline_block_scales_data =
       static_cast<const uint8_t*>(baseline_block_scales_cpu.data_ptr());
   const uint8_t* baseline_quantized_data =
@@ -208,16 +211,17 @@ TEST_F(BQTest, ScheduleAsPointwise) {
   std::unique_ptr<Fusion> fusion_new_op = std::make_unique<Fusion>();
   FusionGuard fg2(fusion_new_op.get());
 
-  auto tv_data_hp = makeContigTensor(2, DataType::Float);
+  auto tv_data_hp = makeContigTensor(2, data_hp_dtype);
   fusion_new_op->addInput(tv_data_hp);
 
-  // t0 is 2D
   auto t0 = set(tv_data_hp);
   auto quantization_results = blockQuantize(t0);
   auto t_out = set(quantization_results.quantized_tensor);
 
   fusion_new_op->addOutput(quantization_results.block_scales);
   fusion_new_op->addOutput(t_out);
+
+  auto vectorization_factor = data_hp_dtype == DataType::Float ? 4 : 8;
 
   for (auto t :
        {tv_data_hp,
@@ -231,9 +235,9 @@ TEST_F(BQTest, ScheduleAsPointwise) {
       t->merge(-2);
     }
 
-    // split by 4.
+    // split by 4 (or 8).
     // I -> I/4, 4
-    t->split(-1, 4);
+    t->split(-1, vectorization_factor);
     // I//4, 4 -> I/4, 1, 4
     t->split(-2, 1);
     // I//4, 1, 4 -> I/512, 128, 1, 4
@@ -284,18 +288,21 @@ TEST_F(BQTest, ScheduleAsPointwise) {
   EXPECT_EQ(quantized_tensor_output.dim(), 2);
 }
 
-TEST_F(BQTest, ScheduleAsPointwise2D) {
-  // Basic test implementation
+TEST_P(BlockQuantizationTest, ScheduleAsPointwise2D) {
+  auto data_hp_dtype = GetParam();
+
+  // Baseline  implementation
   std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
-  createNVFP4QunatizationFusion(fusion.get(), DataType::Float);
+  createNVFP4QunatizationFusion(fusion.get(), data_hp_dtype);
 
   FusionExecutorCache fec(std::move(fusion));
 
   const int m = 1024;
   const int n = 1024;
   std::vector<at::Tensor> inputs;
-  inputs.push_back(at::randn({m, n}, at::device(at::kCUDA).dtype(at::kFloat)));
+  inputs.push_back(at::randn({m, n}, at::device(at::kCUDA).dtype(at::kFloat))
+                       .to(data_type_to_aten(data_hp_dtype)));
   auto outputs_baseline = fec.runFusionWithInputs(inputs);
 
   // Print baseline outputs
@@ -314,7 +321,7 @@ TEST_F(BQTest, ScheduleAsPointwise2D) {
   std::unique_ptr<Fusion> fusion_new_op = std::make_unique<Fusion>();
   FusionGuard fg2(fusion_new_op.get());
 
-  auto tv_data_hp = makeContigTensor(2, DataType::Float);
+  auto tv_data_hp = makeContigTensor(2, data_hp_dtype);
   fusion_new_op->addInput(tv_data_hp);
 
   // t0 is 2D
@@ -328,15 +335,17 @@ TEST_F(BQTest, ScheduleAsPointwise2D) {
 
   t0->setMemoryType(MemoryType::Local);
 
+  auto vectorization_factor = data_hp_dtype == DataType::Float ? 4 : 8;
+
   for (auto t :
        {tv_data_hp,
         t0,
         quantization_results.quantized_tensor,
         quantization_results.block_scales,
         t_out}) {
-    // (m, n) -> (m, n/4, 4)
+    // (m, n) -> (m, n/4, 4) (or (m, n/8, 8) if bfloat16)
     // (m, n/4, 4) -> (m, n/128, 32, 4)
-    t->split(-1, 4); // V
+    t->split(-1, vectorization_factor); // V
     t->split(-2, 32); // BDx
 
     // (m, n/128, 32, 4) -> (m, 1, n/128, 32, 4)
@@ -346,8 +355,12 @@ TEST_F(BQTest, ScheduleAsPointwise2D) {
 
     // (m/4(bidy), 4(tidy), 1, n*k/128(bidx), 32(tidx), 4(v))
     if (t != tv_data_hp) {
-      // Don't vectorize the outputs of reshape
-      t->axis(-1)->parallelize(ParallelType::Vectorize);
+      if (t == quantization_results.block_scales ||
+          t == quantization_results.quantized_tensor) {
+        t->axis(-1)->parallelize(ParallelType::Group);
+      } else {
+        t->axis(-1)->parallelize(ParallelType::Vectorize);
+      }
       t->axis(-2)->parallelize(ParallelType::TIDx);
       t->axis(-3)->parallelize(ParallelType::BIDx);
       t->axis(-5)->parallelize(ParallelType::TIDy);
@@ -607,6 +620,12 @@ INSTANTIATE_TEST_SUITE_P(
     ,
     NVFP4QuantizeTest,
     ::testing::Values(DataType::BFloat16, DataType::Float),
+    testing::PrintToStringParamName());
+
+INSTANTIATE_TEST_SUITE_P(
+    ,
+    BlockQuantizationTest,
+    ::testing::Values(DataType::BFloat16, DataType::Float, DataType::Half),
     testing::PrintToStringParamName());
 
 } // namespace nvfuser

@@ -65,13 +65,14 @@ class PointwiseParams : public HeuristicParams {
       return false;
     }
     bool attr_equal = other->cparams == cparams &&
-        other->vectorization_factor == vectorization_factor &&
         other->break_point == break_point &&
         other->split_block == split_block &&
         other->split_grid_y_dim == split_grid_y_dim &&
+        other->flip_grid_binding == flip_grid_binding &&
+        other->vectorization_factor == vectorization_factor &&
+        other->vectorize_casts == vectorize_casts &&
         other->unroll_factor_outer == unroll_factor_outer &&
-        other->unroll_factor_inner == unroll_factor_inner &&
-        other->flip_grid_binding == flip_grid_binding;
+        other->unroll_factor_inner == unroll_factor_inner;
     return attr_equal;
   }
 

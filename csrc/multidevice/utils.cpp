@@ -5,6 +5,11 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <multidevice/utils.h>
+
+#include <algorithm>
+#include <unordered_map>
+#include <vector>
 
 #include <device_lower/utils.h>
 #include <expr_simplifier.h>
@@ -15,7 +20,6 @@
 #include <ir/iostream.h>
 #include <ir/utils.h>
 #include <logical_domain_map.h>
-#include <multidevice/utils.h>
 #include <ops/all_ops.h>
 #include <statement_guard.h>
 #include <transform_replay.h>
@@ -224,7 +228,7 @@ IterDomain* getShardedIterDomain(
     NVF_THROW("Unexpected parallel type: ", parallel_type);
   }();
 
-  for (auto&& [index, id] : enumerate(domain)) {
+  for (IterDomain* id : domain | TensorDomain::kNoReductions) {
     if (id->getParallelType() == parallel_type) {
       return id;
     }
@@ -262,9 +266,10 @@ std::vector<int64_t> unshardedSizes(
     }
 
     const int64_t sharded_axis = getProducingLogicalAxis(tv, sharded_id);
-    if (sharded_axis == -1) {
-      continue;
-    }
+    NVF_ERROR(
+        sharded_axis != -1,
+        "Producing logical axis not found for ",
+        sharded_id);
 
     auto multiplier = [&]() -> int64_t {
       if (parallel_type == ParallelType::Stream) {
@@ -386,19 +391,27 @@ std::unordered_set<IterDomain*> getInputsInTargetDomain(
 
 bool haveDifferentShardings(
     const TensorView* producer,
-    const TensorView* consumer) {
-  // cpu scalars are not required to have a mesh
+    const TensorView* consumer,
+    const std::unordered_set<ParallelType>& parallel_types) {
+  // cpu scalars are not parallelized
   if (producer->isCpuScalar() || consumer->isCpuScalar()) {
     return false;
   }
 
-  // exit early in the unsharded case for performance
-  if (!producer->hasDeviceMesh() && !consumer->hasDeviceMesh()) {
+  // exit early in the unsharded case for performance if we are
+  // not checking for `Stream`.
+  if (!producer->hasDeviceMesh() && !consumer->hasDeviceMesh() &&
+      !parallel_types.count(ParallelType::Stream)) {
     return false;
   }
 
-  // If device mesh are different, the Expr is resharding
-  if (producer->getDeviceMesh() != consumer->getDeviceMesh()) {
+  // If device mesh are different, the Expr is resharding if parallel_types
+  // includes DIDs
+  if (std::any_of(
+          kParallelTypeDIDs.begin(),
+          kParallelTypeDIDs.end(),
+          [&](ParallelType pt) { return parallel_types.count(pt); }) &&
+      producer->getDeviceMesh() != consumer->getDeviceMesh()) {
     return true;
   }
 
@@ -421,7 +434,9 @@ bool haveDifferentShardings(
     // tv1 = select(tv0, /*axis=*/0, /*index=*/1); // [8] on mesh {1}
     // But for achieving this with symbolic "index" we need to make DeviceMesh
     // symbolic.
-    if (select_op->getIndexedID()->isDeviceDim()) {
+
+    auto indexed_id_pt = select_op->getIndexedID()->getParallelType();
+    if (parallel_types.count(indexed_id_pt)) {
       return true;
     }
     // If the sharded axis is not selected into, then we still need to check
@@ -433,9 +448,14 @@ bool haveDifferentShardings(
     return !std::all_of(
         consumer->getLoopDomain().begin(),
         consumer->getLoopDomain().end(),
-        [&c2p](IterDomain* c_id) {
+        [&c2p, &parallel_types](IterDomain* c_id) {
           auto p_id = c2p.at(c_id);
-          return c_id->isDeviceDim() == p_id->isDeviceDim();
+          auto p_id_pt = p_id->getParallelType();
+          auto c_id_pt = c_id->getParallelType();
+          if (parallel_types.count(p_id_pt) || parallel_types.count(c_id_pt)) {
+            return p_id_pt == c_id_pt;
+          }
+          return true;
         });
   }
 
@@ -505,12 +525,13 @@ bool haveDifferentShardings(
   };
 
   // Create indices for producer logical IDs and consumer root IDs. As an
-  // optimization, we create indices only for those that DIDs depend on.
+  // optimization, we create indices only for those that parallel_types depend
+  // on.
   std::unordered_map<ParallelType, IterDomain*> p_parallel_type_to_id =
       mapDeviceAndStreamParallelTypeToId(producer->getLoopDomain());
   std::unordered_map<ParallelType, IterDomain*> c_parallel_type_to_id =
       mapDeviceAndStreamParallelTypeToId(consumer->getLoopDomain());
-  for (const auto parallel_type : kParallelTypeDIDs) {
+  for (const auto parallel_type : parallel_types) {
     if (IterDomain* p_loop_id =
             getOrDefault(p_parallel_type_to_id, parallel_type)) {
       for (IterDomain* p_logical_id :
@@ -524,7 +545,7 @@ bool haveDifferentShardings(
     }
   }
 
-  for (const auto parallel_type : kParallelTypeDIDs) {
+  for (const auto parallel_type : parallel_types) {
     if (IterDomain* c_loop_id =
             getOrDefault(c_parallel_type_to_id, parallel_type)) {
       for (IterDomain* c_root_id : getInputsInTargetDomain(
@@ -557,7 +578,7 @@ bool haveDifferentShardings(
   // For each parallel type, check whether the corresponding loop index in the
   // producer and that in the consumer are equivalent. If they can't be proven
   // to be equivalent, return is-resharding.
-  for (const auto parallel_type : kParallelTypeDIDs) {
+  for (const auto parallel_type : parallel_types) {
     IterDomain* p_id = getOrDefault(p_parallel_type_to_id, parallel_type);
     Val* p_index = nullptr;
     bool p_mapped = false;
@@ -611,7 +632,7 @@ bool isResharding(const Expr* expr) {
   // which is too costly
   for (auto* input : ir_utils::filterByType<TensorView>(expr->inputs())) {
     for (auto* output : ir_utils::filterByType<TensorView>(expr->outputs())) {
-      if (haveDifferentShardings(input, output)) {
+      if (haveDifferentShardings(input, output, deviceParallelTypes())) {
         return true;
       }
     }
@@ -630,6 +651,15 @@ std::unordered_set<ParallelType> deviceAndStreamParallelTypes() {
   return s;
 }
 
+std::unordered_set<ParallelType> deviceParallelTypes() {
+  static auto s = [&] {
+    std::unordered_set<ParallelType> s(
+        {kParallelTypeDIDs.begin(), kParallelTypeDIDs.end()});
+    return s;
+  }();
+  return s;
+}
+
 void shardAllLike(
     TensorView* ref,
     const std::vector<TensorView*>& tvs,
@@ -637,7 +667,7 @@ void shardAllLike(
   if (tvs.empty()) {
     return;
   }
-  for (auto tv : tvs) {
+  for (auto* tv : tvs) {
     tv->setDeviceMesh(ref->getDeviceMesh());
   }
   scheduler_utils::parallelizeAllLike(ref, tvs, parallel_types);
@@ -708,37 +738,54 @@ void unshard(Fusion* fusion) {
   }
 }
 
-std::set<DeviceIdxType> involvedDevices(Expr* expr) {
-  std::set<DeviceIdxType> ret;
-  for (const auto& tvs :
-       {ir_utils::filterByType<TensorView>(expr->inputs()),
-        ir_utils::filterByType<TensorView>(expr->outputs())}) {
-    for (auto* tv : tvs) {
-      if (tv->hasDeviceMesh()) {
-        const auto& mesh = tv->getDeviceMesh().vector();
-        ret.insert(mesh.begin(), mesh.end());
-      } else {
-        ret.insert(0);
-      }
-    }
+namespace {
+int64_t rankOfParallelType(ParallelType parallel_type) {
+  // Currently, when reorderParallelizedToFront is called, the loop domain is
+  // expected to be parallelized on only Stream and DIDs. To make the order
+  // convenient for schedulers, we put Stream first, DIDs second, and Serial
+  // last. Stream is before DIDs so we can inline computation and communication
+  // into the same host for-loop. The best order between DIDs is unclear. We'll
+  // decide that when we support 2D sharding, e.g., https://nv/nvfuser-cp
+  switch (parallel_type) {
+    case ParallelType::Stream:
+      return 0;
+    case ParallelType::DIDx:
+    case ParallelType::DIDy:
+    case ParallelType::DIDz:
+      return 1;
+    default:
+      // I could assign other types an arbitrary rank but I prefer NVF_THROW to
+      // catch unexpected changes in the future.
+      NVF_THROW("Unexpected parallel type: ", parallel_type);
   }
-  return ret;
 }
+} // namespace
 
-std::unordered_map<int64_t, int64_t> reorderDIDToFront(TensorView* tv) {
-  // old position to new position
-  std::unordered_map<int64_t, int64_t> order_map;
-  int64_t current_pos = 0;
-
-  for (auto pos : arange(tv->nDims())) {
-    if (tv->axis(pos)->isDeviceDim()) {
-      order_map[pos] = current_pos;
-      current_pos++;
+std::unordered_map<int64_t, int64_t> reorderParallelizedToFront(
+    TensorView* tv) {
+  std::vector<std::pair<int64_t, int64_t>> rank_to_axis;
+  rank_to_axis.reserve(tv->nDims());
+  for (auto [axis, id] : enumerate(tv->getLoopDomain())) {
+    auto parallel_type = id->getParallelType();
+    // We skip ParallelType::Serial because TensorView::reorder automatically
+    // orders unspecified IterDomains to the back stably.
+    if (parallel_type != ParallelType::Serial) {
+      rank_to_axis.emplace_back(rankOfParallelType(parallel_type), axis);
     }
   }
 
-  tv->reorder(order_map);
-  return order_map;
+  std::stable_sort(rank_to_axis.begin(), rank_to_axis.end());
+
+  // old position to new position
+  std::unordered_map<int64_t, int64_t> order;
+  int64_t current_pos = 0;
+  for (auto [rank, axis] : rank_to_axis) {
+    order[axis] = current_pos;
+    current_pos++;
+  }
+
+  tv->reorder(order);
+  return order;
 }
 
 std::unordered_set<TensorView*> getTvsWithDifferentSharding(

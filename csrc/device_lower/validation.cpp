@@ -47,8 +47,6 @@ class ValidateSiblings : public IterVisitor {
   using IterVisitor::handle;
 
   void dispatch(Expr* expr) final {
-    // Skip BlockQuantization.
-    // It has sibling outputs which differ from each other
     if (!ir_utils::isTvOp(expr) || expr->outputs().size() < 2 ||
         !ir_utils::hasUniformSiblings(expr)) {
       IterVisitor::dispatch(expr);
@@ -284,20 +282,19 @@ class ExprValidator : public OptOutDispatch {
   // assumptions. This tight coupling isn't ideal, but it's not a
   // problem for now.
   void handle(ArgsortOp* aop) final {
-    auto inp_tv = ir_utils::getTvInput(aop);
-    auto out_tv = ir_utils::getTvOutput(aop);
+    validateGroupedOp(
+        ir_utils::getTvInput(aop), ir_utils::getTvOutput(aop), aop->dim());
+  }
 
-    // Both input and output must be Local tensors. The local input
-    // tensor is initialized to the max or min value so that
-    // out-of-bounds items do not affect the results
-    NVF_ERROR_EQ(inp_tv->getMemoryType(), MemoryType::Local);
-    NVF_ERROR_EQ(out_tv->getMemoryType(), MemoryType::Local);
+  void handle(ScanOp* sop) final {
+    validateGroupedOp(
+        ir_utils::getTvInput(sop), ir_utils::getTvOutput(sop), sop->dim());
+  }
 
-    // The input will be initialized for this argsort. To avoid any
-    // potential conflict of initialization, require the input to be
-    // exclusively used by the argsort
-    NVF_ERROR_EQ(inp_tv->uses().size(), 1);
-
+  static void validateGroupedOp(
+      TensorView* inp_tv,
+      TensorView* out_tv,
+      int64_t logical_dim_to_group) {
     IterDomain* grouped_id = nullptr;
     for (const auto& loop_id : out_tv->getLoopDomain()) {
       if (loop_id->getParallelType() == ParallelType::Group) {
@@ -306,71 +303,89 @@ class ExprValidator : public OptOutDispatch {
       }
     }
 
-    if (grouped_id != nullptr) {
-      // If it's grouped, it must correspond to the innermost subregion
-      // of the logical argsort ID
-      IterDomain* argsort_logical_id =
-          out_tv->getLogicalDomain().at(aop->dim());
-      NVF_ERROR(
-          isInnermost(argsort_logical_id, grouped_id),
-          "Invalid ID to group: ",
-          grouped_id->toString(),
-          " of ",
-          aop->toString());
+    // Even if grouping is not used, CudaKernelGenerator assumes these
+    // properties for simplicity
 
-      // The output is allocated on registers, so the allocation
-      // domain should be just the same as the loop domain. The
-      // grouped ID must have the unit stride, which means all of the
-      // inner IDs must not contribute to the allocation
-      validateUnitStride(out_tv, out_tv->getLoopDomain(), grouped_id);
+    // Both input and output must be Local tensors so that the op can be
+    // executed without explicit predication. This makes it simpler to
+    // generate code for grouped calls
+    NVF_ERROR_EQ(inp_tv->getMemoryType(), MemoryType::Local);
+    NVF_ERROR_EQ(out_tv->getMemoryType(), MemoryType::Local);
 
-      // All of the inputs per thread must be provided to the device
-      // function as a contiguous chunk of memory where each element
-      // has a unit stride within its allocated buffer. More
-      // concretely, the input would be passed to the device function
-      // as follows:
-      //
-      //  // Each thread computes 8 argsort elements
-      //  float T1[8];
-      //  ...
-      //  blockArgsort(..., T1, ...);
-      //
-      // Here, the input is required to have a loop ID that is exactly
-      // mapped with the grouped loop ID of the output, and that
-      // producer loop ID must be indeed allocated, i.e., not parallelized.
-      // Furthermore, like the output, none of the inner loop
-      // IDs is allowed to contribute to the allocation of the input so that the
-      // grouped ID has a unit stride.
-      //
-      // The requirement of the input being transformed exactly in the
-      // same as the output is a sufficient but not required
-      // condition. It could be relaxed if necessary.
-      const auto& c2p_replay = BestEffortReplay::replayPasC(
-          inp_tv, out_tv, -1, PairwiseLogicalDomainMap(inp_tv, out_tv));
-      auto producer_grouped_id_it = c2p_replay.getReplay().find(grouped_id);
-      NVF_ERROR(
-          producer_grouped_id_it != c2p_replay.getReplay().end(),
-          "No corresponding producer ID for the grouped consumer ID found: ",
-          grouped_id->toString());
-      auto producer_grouped_id = producer_grouped_id_it->second;
-
-      NVF_ERROR(
-          std::ranges::find(inp_tv->getLoopDomain(), producer_grouped_id) !=
-              inp_tv->getLoopDomain().end(),
-          "Corresponding grouped producer ID is not a loop ID: ",
-          producer_grouped_id->toString(),
-          " of ",
-          inp_tv->toString());
-
-      NVF_ERROR(
-          ir_utils::mayRequireAllocation(inp_tv, producer_grouped_id),
-          "The corresponding producer loop ID for grouping must be actualy "
-          "allocated without parallelization");
-
-      // Make sure all inner loop IDs should not contribute to the
-      // allocation
-      validateUnitStride(inp_tv, inp_tv->getLoopDomain(), producer_grouped_id);
+    // If not grouped, no more validation to do
+    if (grouped_id == nullptr) {
+      return;
     }
+
+    // The input will be initialized for this op. To avoid any
+    // potential conflict of initialization, require the input to be
+    // exclusively used by the grouped op.
+    NVF_ERROR_EQ(
+        inp_tv->uses().size(), 1, "Invalid tensor uses: ", inp_tv->toString());
+
+    // If it's grouped, it must correspond to the innermost subregion
+    // of the logical ID to group
+    IterDomain* logical_id_to_group =
+        out_tv->getLogicalDomain().at(logical_dim_to_group);
+    NVF_ERROR(
+        isInnermost(logical_id_to_group, grouped_id),
+        "Invalid ID to group: ",
+        grouped_id->toString(),
+        " of ",
+        out_tv->toString());
+
+    // The output is allocated on registers, so the allocation
+    // domain should be just the same as the loop domain. The
+    // grouped ID must have the unit stride, which means all of the
+    // inner IDs must not contribute to the allocation
+    validateUnitStride(out_tv, out_tv->getLoopDomain(), grouped_id);
+
+    // All of the inputs per thread must be provided to the device
+    // function as a contiguous chunk of memory where each element
+    // has a unit stride within its allocated buffer. More
+    // concretely, for example, in the case of argsort, the input would be
+    // passed to the device function as follows:
+    //
+    //  // Each thread computes 8 argsort elements
+    //  float T1[8];
+    //  ...
+    //  blockArgsort(..., T1, ...);
+    //
+    // Here, the input is required to have a loop ID that is exactly
+    // mapped with the grouped loop ID of the output, and that
+    // producer loop ID must be indeed allocated, i.e., not parallelized.
+    // Furthermore, like the output, none of the inner loop
+    // IDs is allowed to contribute to the allocation of the input so that the
+    // grouped ID has a unit stride.
+    //
+    // The requirement of the input being transformed exactly in the
+    // same as the output is a sufficient but not required
+    // condition. It could be relaxed if necessary.
+    const auto& c2p_replay = BestEffortReplay::replayPasC(
+        inp_tv, out_tv, -1, PairwiseLogicalDomainMap(inp_tv, out_tv));
+    auto producer_grouped_id_it = c2p_replay.getReplay().find(grouped_id);
+    NVF_ERROR(
+        producer_grouped_id_it != c2p_replay.getReplay().end(),
+        "No corresponding producer ID for the grouped consumer ID found: ",
+        grouped_id->toString());
+    auto producer_grouped_id = producer_grouped_id_it->second;
+
+    NVF_ERROR(
+        std::ranges::find(inp_tv->getLoopDomain(), producer_grouped_id) !=
+            inp_tv->getLoopDomain().end(),
+        "Corresponding grouped producer ID is not a loop ID: ",
+        producer_grouped_id->toString(),
+        " of ",
+        inp_tv->toString());
+
+    NVF_ERROR(
+        ir_utils::mayRequireAllocation(inp_tv, producer_grouped_id),
+        "The corresponding producer loop ID for grouping must be actualy "
+        "allocated without parallelization");
+
+    // Make sure all inner loop IDs should not contribute to the
+    // allocation
+    validateUnitStride(inp_tv, inp_tv->getLoopDomain(), producer_grouped_id);
   }
 
   // Given a set of loop domain IterDomains, find their logical domain origins
@@ -614,6 +629,225 @@ class ExprValidator : public OptOutDispatch {
           (*it)->toString());
     }
   }
+
+  // Given a set of loop domain IterDomains, find their logical domain origins
+  std::vector<IterDomain*> findLogicalDomainOrigins(
+      const std::vector<IterDomain*>& loop_domain_ids,
+      const TensorView* tv) {
+    // Get the logical domain to use as the target/boundary
+    const auto& logical_domain = tv->getLogicalDomain();
+
+    // Use IterVisitor to find inputs to the loop domain IDs,
+    // bounded by the logical domain
+    std::vector<Val*> inputs_as_vals = IterVisitor::getInputsTo(
+        {loop_domain_ids.begin(), loop_domain_ids.end()},
+        {logical_domain.begin(), logical_domain.end()});
+
+    // Convert back to IterDomains
+    std::vector<IterDomain*> logical_origins;
+    for (auto val : inputs_as_vals) {
+      logical_origins.push_back(val->as<IterDomain>());
+    }
+
+    return logical_origins;
+  }
+
+  // I'd like to check that the inner dimension of the input
+  // is divisble by 16.
+  void handle(BlockQuantizationOp* bqop) final {
+    auto inp_tv = bqop->input(0)->as<TensorView>();
+    auto quantized_output = bqop->quantizedOutput()->as<TensorView>();
+    auto block_scaling_factor = bqop->blockScales()->as<TensorView>();
+
+    NVF_ERROR_EQ(
+        inp_tv->getMemoryType(),
+        MemoryType::Local,
+        "Input must be a local memory tensor. Found: ",
+        inp_tv->getMemoryType());
+
+    NVF_ERROR_EQ(
+        quantized_output->getMemoryType(),
+        MemoryType::Local,
+        "Quantized output must be a local memory tensor. Found: ",
+        quantized_output->getMemoryType());
+
+    NVF_ERROR_EQ(
+        block_scaling_factor->getMemoryType(),
+        MemoryType::Global,
+        "Block scaling factor must be a global memory tensor. Found: ",
+        block_scaling_factor->getMemoryType());
+
+    // outputs have the same allocation domain
+    // as the loop domain. This has to be later
+    // relaxed for the scaling factors.
+    NVF_ERROR(
+        quantized_output->hasAllocation() == false,
+        "Quantized output must not have an allocation domain.");
+    NVF_ERROR(
+        block_scaling_factor->hasAllocation() == false,
+        "Block scaling factor must not have an allocation domain.");
+
+    // Check that it either had vectorized ID or grouped ID
+    // not both and the extent is either 4(FP32) or 8(BF16)
+    IterDomain* grouped_id = nullptr;
+    IterDomain* thread_x = nullptr;
+    IterDomain* block_x = nullptr;
+    IterDomain* thread_y = nullptr;
+    IterDomain* block_y = nullptr;
+    IterDomain* thread_z = nullptr;
+    IterDomain* block_z = nullptr;
+
+    for (const auto& loop_id : block_scaling_factor->getLoopDomain()) {
+      if (loop_id->getParallelType() == ParallelType::Group) {
+        NVF_ERROR(
+            grouped_id == nullptr,
+            "Multiple IDs found to be grouped/vectorized");
+        grouped_id = loop_id;
+      }
+    }
+
+    auto parallel_domains_map =
+        ir_utils::getParallelDomains(block_scaling_factor);
+
+    if (parallel_domains_map.find(ParallelType::TIDx) !=
+        parallel_domains_map.end()) {
+      thread_x = parallel_domains_map.at(ParallelType::TIDx);
+    }
+    if (parallel_domains_map.find(ParallelType::BIDx) !=
+        parallel_domains_map.end()) {
+      block_x = parallel_domains_map.at(ParallelType::BIDx);
+    }
+    if (parallel_domains_map.find(ParallelType::TIDy) !=
+        parallel_domains_map.end()) {
+      thread_y = parallel_domains_map.at(ParallelType::TIDy);
+    }
+    if (parallel_domains_map.find(ParallelType::BIDy) !=
+        parallel_domains_map.end()) {
+      block_y = parallel_domains_map.at(ParallelType::BIDy);
+    }
+    if (parallel_domains_map.find(ParallelType::TIDz) !=
+        parallel_domains_map.end()) {
+      thread_z = parallel_domains_map.at(ParallelType::TIDz);
+    }
+    if (parallel_domains_map.find(ParallelType::BIDz) !=
+        parallel_domains_map.end()) {
+      block_z = parallel_domains_map.at(ParallelType::BIDz);
+    }
+
+    NVF_ERROR(
+        grouped_id != nullptr,
+        "One of the output IDs must be grouped for "
+        "BlockQuantizationOp: ",
+        bqop->toString());
+
+    NVF_ERROR(
+        thread_x != nullptr && block_x != nullptr,
+        "Need to have both TIDx and BIDx when using BlockQuantizationOp: ",
+        bqop->toString());
+
+    NVF_ERROR(
+        !thread_z && !block_z,
+        "Parallelization along z axis is not supported for "
+        "BlockQuantizationOp: ",
+        bqop->toString());
+
+    bool is_2d_scheduled =
+        (thread_y != nullptr || block_y != nullptr) ? true : false;
+
+    auto inner_extent = grouped_id->extent()->evaluate().as<int64_t>();
+    auto input_dtype = inp_tv->dtype();
+
+    NVF_ERROR(
+        (inner_extent == 4 && input_dtype == DataType::Float) ||
+            (inner_extent == 8 &&
+             (input_dtype == DataType::BFloat16 ||
+              input_dtype == DataType::Half)),
+        "The vectorized/grouped dimension must be  4 (FP32) or 8 "
+        "(BF16). Found: ",
+        inner_extent,
+        ". Expr: ",
+        bqop->toString());
+
+    // Find the logical domain IDs that correspond to these loop IDs.
+    // Then we check that the logical domain IDs are the inner-most
+    // IDs.
+    auto input_logical_domains_ids = findLogicalDomainOrigins(
+        {grouped_id, thread_x, block_x}, block_scaling_factor);
+
+    // Get the size of input logical domains
+    size_t num_input_logical_domains = input_logical_domains_ids.size();
+
+    // Get the same number of elements from the innermost logical domain
+    const auto& logical_domain = block_scaling_factor->getLogicalDomain();
+    std::vector<IterDomain*> innermost_logical_domains;
+
+    // Extract from the rightmost (innermost) positions
+    for (int64_t i = logical_domain.size() - 1;
+         i >= 0 && innermost_logical_domains.size() < num_input_logical_domains;
+         i--) {
+      auto logical_id = logical_domain[i];
+      if (!logical_id->isReduction() && !logical_id->isBroadcast()) {
+        innermost_logical_domains.insert(
+            innermost_logical_domains.begin(), logical_id);
+      }
+    }
+
+    // Validate that input_logical_domains_ids and innermost_logical_domains
+    // contain the same IterDomains
+    std::unordered_set<IterDomain*> input_logical_set(
+        input_logical_domains_ids.begin(), input_logical_domains_ids.end());
+    std::unordered_set<IterDomain*> innermost_logical_set(
+        innermost_logical_domains.begin(), innermost_logical_domains.end());
+
+    NVF_ERROR(
+        input_logical_set == innermost_logical_set,
+        "Input logical domain IDs do not match the innermost logical domains "
+        "for BlockQuantizationOp: ",
+        bqop->toString(),
+        ". Expected innermost domains: ",
+        toDelimitedString(innermost_logical_domains),
+        ". Found input logical domains: ",
+        toDelimitedString(input_logical_domains_ids));
+
+    // If it's 2D scheduled, the we get the IDs from the logical domain
+    // that correspond to blockIdx.y and threadIdx.y. We make sure the
+    // IDs from the logical domain don't share any ID with those from the
+    // thread/block for x-dimension was derived.
+    if (is_2d_scheduled) {
+      std::vector<IterDomain*> input_logical_domains_ids_2d = {};
+      for (auto id : {thread_y, block_y}) {
+        if (id) {
+          input_logical_domains_ids_2d.push_back(id);
+        }
+      }
+
+      auto input_logical_domains_ids_y = findLogicalDomainOrigins(
+          input_logical_domains_ids_2d, block_scaling_factor);
+
+      // Validate that input_logical_domains_ids and input_logical_domains_ids_y
+      // don't have any elements in common
+      std::unordered_set<IterDomain*> input_logical_set_x(
+          input_logical_domains_ids.begin(), input_logical_domains_ids.end());
+      std::unordered_set<IterDomain*> input_logical_set_y(
+          input_logical_domains_ids_y.begin(),
+          input_logical_domains_ids_y.end());
+
+      for (const auto& id : input_logical_set_x) {
+        NVF_ERROR(
+            input_logical_set_y.find(id) == input_logical_set_y.end(),
+            "Input logical domain IDs for X and Y dimensions have overlapping "
+            "elements "
+            "for BlockQuantizationOp: ",
+            bqop->toString(),
+            ". Overlapping IterDomain: ",
+            id->toString(),
+            ". X logical domains: ",
+            toDelimitedString(input_logical_domains_ids),
+            ". Y logical domains: ",
+            toDelimitedString(input_logical_domains_ids_y));
+      }
+    }
+  }
 };
 
 } // namespace
@@ -766,12 +1000,13 @@ class VectorizeValidator : public OptInDispatch {
     // domain has a broadcast ID that is promoted to a concrete ID
     // and then is used to generate v_id. See
     // LoopDomainSchedulingTest.VecValidationRepro for a concrete
-    // case. The traversal needs to use the promoted concrete ID
-    // instead of the broadcast allocation ID. Instead, here, we
-    // traverse from the promoted loop IDs to the allocation
-    // domain. This should be always able to reach at least the
-    // vectorized ID.
-    const auto loop_domain = getLoopIds(load_store, id_model);
+    // case.
+    //
+    // Although actual indexing traversal starts from promoted loop
+    // IDs on the AlmostExact graph, the loop IDs of the consumer
+    // tensor is used here without promotion on the Exact graph. This
+    // was changed to avoid the error as reported in issue #5377.
+    const auto loop_domain = ir_utils::getTvOutput(load_store)->getLoopDomain();
     auto expr_path = ValGraphBFS::getExprGroupsBetween(
                          graph,
                          graph.toGroups(loop_domain),
@@ -779,7 +1014,7 @@ class VectorizeValidator : public OptInDispatch {
                          /*require_all_to_visited=*/false)
                          .first;
 
-    ValGroup cur_group = graph.toGroup(getLoopPromotion(v_id, id_model));
+    ValGroup cur_group = graph.toGroup(v_id);
     std::unordered_set<ValGroup> visited_ids;
     visited_ids.insert(cur_group);
 
@@ -903,7 +1138,7 @@ class VectorizeValidator : public OptInDispatch {
     size_t last_alloc_dim_pos = 0;
     for (size_t i = tv->getMaybeAllocationDomain().size(); i > 0; i--) {
       auto r_id = tv->getMaybeAllocationDomain()[i - 1];
-      if (r_id->isReduction() || r_id->isBroadcast()) {
+      if (r_id->isReduction() || r_id->isBroadcast() || r_id->isDeviceDim()) {
         continue;
       }
       if ((tv->getMemoryType() == MemoryType::Shared ||
@@ -1239,9 +1474,6 @@ void validateAndCollectVectorizeInfo(Fusion* fusion) {
                def->as<ReductionOp>()->serialGridReductionRequested()) ||
               (def->isA<UnaryOp>() &&
                def->as<UnaryOp>()->getUnaryOpType() == UnaryOpType::Cast) ||
-              // This throws without this check.
-              // Maybe I shouldn't vectorize the outputs of the
-              // BlockQuantizationOp
               def->isA<BlockQuantizationOp>(),
           "Vectorized accesses cannot be inline with computation: ",
           (def == nullptr ? tv->toString() : def->toString()));
@@ -1618,7 +1850,8 @@ void validateAndConvertIterDomainGrouping(Fusion* fusion) {
     NVF_CHECK(
         def->isA<ReductionOp>() || def->isA<GroupedReductionOp>() ||
             def->isA<WelfordOp>() || def->isA<GroupedWelfordOp>() ||
-            def->isA<ArgsortOp>() || def->isA<BlockQuantizationOp>(),
+            def->isA<ArgsortOp>() || def->isA<BlockQuantizationOp>() ||
+            def->isA<ScanOp>(),
         "Invalid use of ParallelType::Group: ",
         def->toString());
 

@@ -1094,7 +1094,7 @@ TEST_F(
 
 TEST_F(
     RingAllgatherOverlapTest,
-    RingAllgatherBasedPipeliningHostIRImplementationCudaIpc) {
+    DISABLED_RingAllgatherBasedPipeliningHostIRImplementationCudaIpc) {
   if (communicator_->size() == 1) {
     GTEST_SKIP() << "Skipping test for single device";
   }

@@ -145,6 +145,112 @@ class HeuristicDataCache;
 //
 // There are still a number of limitations. For a full list of issues
 // we plan to address, see https://github.com/NVIDIA/Fuser/issues/5030.
+
+class GreedyParams : public HeuristicParams {
+ public:
+  GreedyParams();
+
+  // Heuristics parameters for each tensor. Currently, the only
+  // heuristic parameter is batching, i.e., the number of items per
+  // thread.
+  //
+  // Note that a single tensor can have multiple TvParms structs, one
+  // as the consumer and one as each producer. For example, in the
+  // case of scatter, we use the input tensor to store the scheduling
+  // parameters for the input and also for the consumers of the
+  // output. This input tensor could be produced by another
+  // constrained op, so it could have different heuristic
+  // parameters. This is not an issue as long as the difference is
+  // resolved by staging data to the shared memory. See
+  // HeuristicsBuilder::handle(ScatterOp*) for a concrete examle.
+  struct TvParams {
+    int64_t batch_size;
+    std::string toString() const {
+      return "Items per thread: " + std::to_string(batch_size);
+    }
+    bool operator==(const TvParams& other) const {
+      return batch_size == other.batch_size;
+    }
+    bool operator!=(const TvParams& other) const {
+      return !(batch_size == other.batch_size);
+    }
+  };
+
+  using HeuristicParams::HeuristicParams;
+
+  bool sameAs(const HeuristicParams* other_base) const override;
+
+  std::string toString() const override;
+
+  size_t hash() const override;
+
+  std::unique_ptr<HeuristicParams> clone() const override;
+
+  const TvParams& getConsumerParams(TensorView* tv) const {
+    return consumer_to_params_.at(tv->name());
+  }
+
+  bool setConsumerParams(TensorView* tv, const TvParams& params) {
+    return consumer_to_params_.emplace(tv->name(), params).second;
+  }
+
+  const TvParams& getProducerParams(
+      TensorView* producer_tv,
+      TensorView* consumer_tv) const {
+    return producer_to_params_.at(
+        std::make_pair(producer_tv->name(), consumer_tv->name()));
+  }
+
+  bool setProducerParams(
+      TensorView* producer_tv,
+      TensorView* consumer_tv,
+      const TvParams& params) {
+    return producer_to_params_
+        .emplace(
+            std::make_pair(producer_tv->name(), consumer_tv->name()), params)
+        .second;
+  }
+
+  // Updates mappings by transferring parameters for old_tv to
+  // new_tv. Mappings for old_tv are removed.
+  void transferConsumerParams(TensorView* old_tv, TensorView* new_tv);
+
+  bool hasConsumerParams(TensorView* consumer_tv);
+
+  // Updates mappings by transferring producer parameters for
+  // a pair of old_producer_tv and old_consumer_tv. The mapping for
+  // the old pair is removed.
+  void transferProducerParams(
+      TensorView* old_producer_tv,
+      TensorView* old_consumer_tv,
+      TensorView* new_producer_tv,
+      TensorView* new_consumer_tv);
+
+  bool hasProducerParams(TensorView* producer_tv, TensorView* consumer_tv)
+      const;
+
+ private:
+  // Parameters for each consumer tensor. Map from tensor names as
+  // pointers may not be kept the same
+  std::unordered_map<StmtNameType, TvParams> consumer_to_params_;
+
+  struct NamePairHash {
+    std::size_t operator()(
+        const std::pair<StmtNameType, StmtNameType>& pair) const {
+      return std::hash<StmtNameType>{}(pair.first) ^
+          std::hash<StmtNameType>{}(pair.second);
+    }
+  };
+
+  // Parameters for each producer tensor used for a consumer
+  // tensor. Map from a pair of a producer name and its consumer name.
+  std::unordered_map<
+      std::pair<StmtNameType, StmtNameType>,
+      TvParams,
+      NamePairHash>
+      producer_to_params_;
+};
+
 class GreedyScheduler : public SchedulerEntry {
  public:
   bool canScheduleCompileTime(Fusion* fusion) override;

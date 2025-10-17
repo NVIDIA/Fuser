@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: BSD-3-Clause
 # Owner(s): ["module: nvfuser"]
 
-from nvfuser_direct import FusionDefinition, DataType, version
+from nvfuser_direct import FusionDefinition, PythonProfiler, DataType, version
 import torch
 import pytest
 import io
@@ -321,7 +321,7 @@ fd.execute(inputs)\n"""
     # Check last_repro_script fails gracefully.
     with pytest.raises(
         AssertionError,
-        match=r"fd.last_repro_script\(\) cannot provide a repro because fd.execute\(inputs, save_repro_state=True\) was not executed!",
+        match=r"fd.last_repro_script\(\) cannot provide a repro because fd.execute\(inputs, save_repro_inputs=True\) was not executed!",
     ):
         fd.last_repro_script()
 
@@ -467,3 +467,92 @@ def test_mismatched_input_types():
         ),
     ):
         nvf_out = fd.execute([tensor_inp, 2.0 + 1.0j])
+
+
+def test_fusion_profiler_auto_scheduled():
+    inputs = [
+        torch.randn((2, 5), dtype=torch.float, device="cuda:0"),
+        torch.randn((2, 5), dtype=torch.float, device="cuda:0"),
+    ]
+
+    def fusion_func(fd: FusionDefinition) -> None:
+        T0 = fd.from_pytorch(inputs[0])
+        T1 = fd.from_pytorch(inputs[1])
+        T2 = fd.ops.add(T0, T1)
+        T3 = fd.ops.sum(T2, dim=-1)
+        T4 = fd.ops.sum(T3, dim=-1)
+        fd.add_output(T4)
+
+    with FusionDefinition() as fd:
+        fusion_func(fd)
+
+    # Testing that the profile returns 2 segments
+    try:
+        with PythonProfiler() as prof:
+            fd.execute(inputs)
+        assert prof.profile.segments == 2
+        assert len(prof.profile.kernel_profiles) == 2
+    except Exception as e:
+        print(e)
+        raise RuntimeError(
+            "FusionDefinition did not run correctly with profile enabled! Error: "
+            + str(e)
+        )
+
+
+def test_fusion_profiler_user_scheduled():
+    inputs = [
+        torch.randn((2, 5), dtype=torch.float, device="cuda:0"),
+        torch.randn((2, 5), dtype=torch.float, device="cuda:0"),
+    ]
+
+    def fusion_func(fd: FusionDefinition) -> None:
+        T0 = fd.from_pytorch(inputs[0])
+        T1 = fd.from_pytorch(inputs[1])
+        T2 = fd.ops.add(T0, T1)
+        fd.add_output(T2)
+
+    with FusionDefinition() as fd:
+        fusion_func(fd)
+
+    try:
+        with PythonProfiler(auto_scheduled=False) as prof:
+            fd.manual_execute(inputs)
+        assert prof.profile.fusion_id >= 0
+        assert prof.profile.kernel_profiles[0].scheduler == "user"
+    except Exception as e:
+        raise RuntimeError(
+            "FusionDefinition did not run correctly with profile enabled! Error: "
+            + str(e)
+        )
+
+
+def test_fusion_profiler_with_noncodegen_kernels():
+    inputs = [
+        torch.randn((2, 4, 16), dtype=torch.bfloat16, device="cuda:0"),
+        torch.randn((2, 4, 16), dtype=torch.bfloat16, device="cuda:0"),
+        torch.randn((16, 16), dtype=torch.bfloat16, device="cuda:0"),
+    ]
+
+    def fusion_func(fd: FusionDefinition) -> None:
+        T0 = fd.from_pytorch(inputs[0])
+        T1 = fd.from_pytorch(inputs[1])
+        T2 = fd.from_pytorch(inputs[2])
+        T3 = fd.ops.linear(T0, T2)
+        T4 = fd.ops.add(T3, T1)
+        fd.add_output(T4)
+
+    with FusionDefinition() as fd:
+        fusion_func(fd)
+
+    try:
+        with PythonProfiler() as prof:
+            fd.execute(inputs)
+        assert len(prof.profile.kernel_profiles) == 2
+        assert len(prof.profile.kernel_profiles[0].name) > 0
+        assert len(prof.profile.kernel_profiles[1].name) > 0
+    except Exception as e:
+        raise RuntimeError(
+            "FusionDefinition did not run correctly with profile enabled! Error: "
+            + str(e)
+        )

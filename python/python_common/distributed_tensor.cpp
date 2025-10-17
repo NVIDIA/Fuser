@@ -46,7 +46,8 @@ std::vector<Sharding> getOutputShardings(Fusion* fusion) {
   output_shardings.reserve(fusion->outputs().size());
   for (Val* out_val : fusion->outputs()) {
     if (auto* out_tv = dynamic_cast<TensorView*>(out_val)) {
-      if (fusion->getOutputAlias(out_tv).hide_output) {
+      if (fusion->getOutputAlias(out_tv).visibility ==
+          OutputVisibility::kHidden) {
         continue;
       }
       const DeviceMesh& mesh = out_tv->getDeviceMesh();

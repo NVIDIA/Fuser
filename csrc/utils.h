@@ -46,6 +46,14 @@ namespace nvfuser {
 //! Warp specialization padded threads count
 constexpr int64_t kWarpSpecializationPaddedThreads = 128;
 
+//! shared memory alignment in bytes
+//! TMA requires 128 bytes alignment, other usage doesn't have such requirement,
+//! but still align to 128 bytes for simplicity and robustness.
+//! When shared memory swizzling is used, up to 1024 bytes alignment can be
+//! required for swizzling and they are handled by:
+//! getSharedMemoryByteAlignment(MmaInputSmemSwizzle swizzle).
+constexpr int64_t kSharedMemoryAlignmentBytes = 128;
+
 class KernelArgumentHolder;
 
 int getNumThreads();
@@ -85,6 +93,16 @@ constexpr int64_t ceilDiv(int64_t dividend, int64_t divisor) {
 
 constexpr int64_t roundUpToMultiple(int64_t dividend, int64_t divisor) {
   return ceilDiv(dividend, divisor) * divisor;
+}
+
+constexpr int64_t alignSharedMemoryBits(int64_t unaligned_bits) {
+  constexpr int64_t alignment = kSharedMemoryAlignmentBytes * 8;
+  return (unaligned_bits + (alignment - 1)) & (~(alignment - 1));
+}
+
+constexpr int64_t alignSharedMemoryBytes(int64_t unaligned_bytes) {
+  constexpr int64_t alignment = kSharedMemoryAlignmentBytes;
+  return (unaligned_bytes + (alignment - 1)) & (~(alignment - 1));
 }
 
 //! Simple mixin for suppressing copy & move operations, ex:

@@ -50,10 +50,13 @@ NVF_API bool isResharding(const Expr* expr);
 // producer/consumer relationship between the arguments.
 bool haveDifferentShardings(
     const TensorView* producer,
-    const TensorView* consumer);
+    const TensorView* consumer,
+    const std::unordered_set<ParallelType>& parallel_types);
 
 // Returns a set that contains DIDs and Stream.
 std::unordered_set<ParallelType> deviceAndStreamParallelTypes();
+
+std::unordered_set<ParallelType> deviceParallelTypes();
 
 // Collect device and stream parallelized IterDomains in `domain` and return
 // them as a ParallelType-to-IterDomain map. Excludes reduction iterdomains.
@@ -86,9 +89,6 @@ void shardBetween(
     const std::vector<Expr*>& from,
     const std::vector<Expr*>& to,
     TensorView* ref);
-
-// Returns the devices involved in an expr
-std::set<DeviceIdxType> involvedDevices(Expr* expr);
 
 // Returns the number of device indices present accross all
 // device meshes in the Fusion
@@ -125,9 +125,12 @@ NVF_API at::Tensor shardTensor(
     const DeviceMesh& mesh,
     DeviceIdxType device_id);
 
-// Reorders a TensorView so that the DID parallelized axis are in front.
+// Reorders a TensorView's loop domain so that parallelized IterDomains are in
+// front, making the order most convenient for (inter-GPU and intra-GPU)
+// schedulers.
+//
 // Returns a map of the old index to the new index.
-std::unordered_map<int64_t, int64_t> reorderDIDToFront(TensorView*);
+std::unordered_map<int64_t, int64_t> reorderParallelizedToFront(TensorView*);
 
 // Given a TensorView and the shape of a sharded tensor of which certain
 // dimensions are partially allocated, returns the global shape that'll be used

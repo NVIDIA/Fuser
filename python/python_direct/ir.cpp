@@ -279,6 +279,63 @@ list of IterDomain
     The root iteration domains.
 )")
       .def(
+          "cache_after",
+          &TensorView::cacheAfter,
+          py::arg("op_type") = LoadStoreOpType::Set,
+          py::arg("cache_op") = CacheOp::Unspecified,
+          py::arg("propagate_allocation_domain") = true,
+          py::arg("cached_uses") = py::list(),
+          py::return_value_policy::reference,
+          R"(
+      Cache the TensorView after the specified operation.
+
+      Parameters
+      ----------
+      op_type : LoadStoreOpType, optional
+          The type of load/store operation (default: Set).
+      cache_op : CacheOp, optional
+          The type of cache operation (default: Unspecified).
+
+      Returns
+      -------
+      TensorView
+          The new cached TensorView.
+    )")
+      .def(
+          "cache_before",
+          &TensorView::cacheBefore,
+          py::arg("op_type") = LoadStoreOpType::Set,
+          py::return_value_policy::reference,
+          R"(
+      Cache the TensorView before the specified operation.
+
+      Parameters
+      ----------
+      op_type : LoadStoreOpType, optional
+          The type of load/store operation (default: Set).
+
+      Returns
+      -------
+      TensorView
+          The new cached TensorView.
+    )")
+      .def(
+          "set_memory_type",
+          &TensorView::setMemoryType,
+          py::arg("memory_type"),
+          R"(
+      Set the memory type for the TensorView.
+
+      Parameters
+      ----------
+      memory_type : MemoryType
+          The memory type to set.
+
+      Returns
+      -------
+      None
+    )")
+      .def(
           "split",
           static_cast<TensorView* (TensorView::*)(int64_t, int64_t, bool)>(
               &TensorView::split),
@@ -326,6 +383,49 @@ Returns
 -------
 TensorView
     A TensorView with the merged axes in its loop domain.
+)")
+      .def(
+          "reorder",
+          [](TensorView* self, std::unordered_map<int64_t, int64_t>& old2new) {
+            return self->reorder(old2new);
+          },
+          py::arg("old2new") = py::dict(),
+          py::return_value_policy::reference,
+          R"(
+Reorder the axes of this tensor.
+
+Parameters
+----------
+old2new : dict of int to int
+    The new order of the axes.
+
+Returns
+-------
+TensorView
+    A TensorView with the reordered axes in its loop domain.
+)")
+      .def(
+          "swizzle",
+          [](TensorView* self, int64_t x, int64_t y) {
+            return self->swizzle(SwizzleType::XOR, x, y);
+          },
+          py::return_value_policy::reference,
+          py::arg("x"),
+          py::arg("y"),
+          R"(
+Swizzle the axes of this tensor.
+
+Parameters
+----------
+x : int
+    The x axis to swizzle.
+y : int
+    The y axis to swizzle.
+
+Returns
+-------
+TensorView
+    A TensorView with the swizzled axes in its loop domain.
 )")
       .def(
           "rfactor",
@@ -450,6 +550,28 @@ TensorView* defineTensor(
   return tv;
 }
 
+// return the unpacked shape and dtype for a given packed dtype, where we need
+// to double the size of the inner most dimension.
+std::tuple<std::vector<int64_t>, PrimDataType> translatePackedDtype(
+    const std::vector<int64_t>& shape,
+    const PrimDataType dtype,
+    const std::vector<int64_t>& stride_order) {
+  // TODO: switch to isPackedType when the pack width is retrieved through
+  // utility functions as well.
+  NVF_CHECK(dtype == DataType::Float4_e2m1fn_x2);
+
+  int fastest_dim = shape.size() - 1;
+  for (const auto& [i, val] : enumerate(stride_order)) {
+    if (val == 0) {
+      fastest_dim = i;
+      break;
+    }
+  }
+  std::vector<int64_t> un_packed_shape = shape;
+  un_packed_shape[fastest_dim] *= 2;
+  return {un_packed_shape, DataType::Float4_e2m1fn};
+}
+
 void bindDefineTensor(py::module& nvfuser) {
   nvfuser
       .def(
@@ -460,7 +582,15 @@ void bindDefineTensor(py::module& nvfuser) {
              const bool is_cpu = false,
              const std::vector<int64_t>& stride_order = {}) -> TensorView* {
             verifyShape(shape);
-            return defineTensor(shape, contiguity, dtype, is_cpu, stride_order);
+            if (!isPackedType(dtype)) {
+              return defineTensor(
+                  shape, contiguity, dtype, is_cpu, stride_order);
+            } else {
+              auto&& [new_shape, new_dtype] =
+                  translatePackedDtype(shape, dtype, stride_order);
+              return defineTensor(
+                  new_shape, contiguity, new_dtype, is_cpu, stride_order);
+            }
           },
           py::arg("shape"),
           py::arg("contiguity"),
@@ -477,12 +607,23 @@ void bindDefineTensor(py::module& nvfuser) {
              const bool is_cpu = false,
              const std::vector<int64_t>& stride_order = {}) -> TensorView* {
             verifyShape(shape);
-            return defineTensor(
-                shape,
-                getContiguityVec(shape, stride_order, contiguity),
-                dtype,
-                is_cpu,
-                stride_order);
+            if (!isPackedType(dtype)) {
+              return defineTensor(
+                  shape,
+                  getContiguityVec(shape, stride_order, contiguity),
+                  dtype,
+                  is_cpu,
+                  stride_order);
+            } else {
+              auto&& [new_shape, new_dtype] =
+                  translatePackedDtype(shape, dtype, stride_order);
+              return defineTensor(
+                  new_shape,
+                  getContiguityVec(new_shape, stride_order, contiguity),
+                  new_dtype,
+                  is_cpu,
+                  stride_order);
+            }
           },
           py::arg("shape"),
           py::arg("contiguity") = false,
@@ -506,12 +647,23 @@ void bindDefineTensor(py::module& nvfuser) {
             std::vector<int64_t> stride_order;
             std::tie(contiguity, stride_order) =
                 computeTensorDescriptor(sizes, strides);
-            return defineTensor(
-                getTensorViewBuilderSizes(sizes, static_sizes),
-                contiguity,
-                dtype,
-                is_cpu,
-                stride_order);
+            if (!isPackedType(dtype)) {
+              return defineTensor(
+                  getTensorViewBuilderSizes(sizes, static_sizes),
+                  contiguity,
+                  dtype,
+                  is_cpu,
+                  stride_order);
+            } else {
+              auto&& [new_sizes, new_dtype] =
+                  translatePackedDtype(sizes, dtype, stride_order);
+              return defineTensor(
+                  getTensorViewBuilderSizes(new_sizes, static_sizes),
+                  contiguity,
+                  new_dtype,
+                  is_cpu,
+                  stride_order);
+            }
           },
           py::arg("sizes"),
           py::arg("strides"),

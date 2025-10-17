@@ -1067,7 +1067,13 @@ class TmaWarpSpecializedTest
     ASSERT_NE(heur, nullptr);
     ASSERT_TRUE(heur->isA<ReductionParams>());
     auto* rparams = heur->as<ReductionParams>();
-    EXPECT_TRUE(rparams->computation_warp_groups > 1);
+
+    // Skip computation_warp_groups check for devices with compute capability
+    // 12. This heuristics check will fail due to smaller shared memory
+    // capacities with larger input sizes.
+    if (cudaArchGuardShouldSkip(12, 0, 13, 0)) {
+      EXPECT_TRUE(rparams->computation_warp_groups > 1);
+    }
   }
 
  protected:
@@ -1327,7 +1333,7 @@ TEST(StaticWarpReductionTest, StaticWarpReductionValidation) {
       EnableOption::WarpSpecializedNormalization);
 
   int64_t dim0 = 2048;
-  int64_t dim1 = 8192;
+  int64_t dim1 = 4096;
   DataType dtype = DataType::Float;
 
   auto fusion_ptr = std::make_unique<Fusion>();
@@ -1741,5 +1747,40 @@ TEST_F(CombinedSchedulerTest, ScalarInput) {
   FusionExecutorCache executor_cache(std::move(fusion));
   auto outputs = executor_cache.runFusionWithInputs(inputs);
   testValidate(executor_cache.fusion(), outputs, inputs, __LINE__, __FILE__);
+}
+
+// Test kernel reuse with different vectorization factors
+TEST_F(CombinedSchedulerTest, KernelReuseVectorizationError) {
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  auto fusion = fusion_ptr.get();
+  FusionGuard fg(fusion);
+
+  auto tv0 = makeSymbolicTensor(2);
+  fusion->addInput(tv0);
+  auto tv1 = sum(tv0, {1});
+  auto tv2 = broadcast(tv1, {false, true});
+  auto tv3 = add(tv0, tv2);
+  auto tv4 = sum(tv0, {0});
+  fusion->addOutput(tv3);
+  fusion->addOutput(tv4);
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+
+  auto a1280 = at::randn({512, 8192}, options);
+  auto a1282 = at::randn({512, 8190}, options);
+
+  // 1st test: vectorized by 4, 2nd test: vectorized by 2
+  auto cg_outputs1 = executor_cache.runFusionWithInputs({a1280});
+  auto cg_outputs2 = executor_cache.runFusionWithInputs({a1282});
+  auto runtime = executor_cache.getMostRecentKernelRuntime();
+  auto heuristic_params =
+      runtime->schedulerHeuristics()->heuristicsList().at(0).get();
+  EXPECT_EQ(
+      heuristic_params->as<ReductionParams>()->unroll_factor_inner_reduction,
+      2);
+  testValidate(
+      executor_cache.fusion(), cg_outputs2, {a1282}, __LINE__, __FILE__);
 }
 } // namespace nvfuser

@@ -10,7 +10,6 @@ from .core import DEFAULT_EXECUTORS
 
 @pytest.mark.parametrize("size", generate_input_sizes(dims=4))
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)
-@pytest.mark.parametrize("channels_last", [True, False])
 @pytest.mark.parametrize(
     "channels_last",
     [
@@ -42,7 +41,6 @@ def test_batchnorm_fwd_nvf_benchmark(
 @pytest.mark.parametrize("executor", DEFAULT_EXECUTORS)
 @pytest.mark.parametrize("size", generate_input_sizes(dims=4))
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)
-@pytest.mark.parametrize("channels_last", [True, False])
 @pytest.mark.parametrize(
     "channels_last",
     [

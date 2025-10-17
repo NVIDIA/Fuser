@@ -287,7 +287,7 @@ void AliasFinder::handle(const BroadcastOp* bcast) {
   for (const auto i : arange(out_logical.size())) {
     if (bcast->isBroadcastDim(i)) {
       out_allocation.push_back(out_logical[i]);
-      out_contiguity.emplace_back(std::nullopt);
+      out_contiguity.push_back(std::nullopt);
     }
   }
 

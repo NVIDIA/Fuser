@@ -56,6 +56,9 @@
 #     this is used for pip wheel build to specify package required for install
 #     e.g. NVFUSER_BUILD_INSTALL_REQUIRES=nvidia-cuda-nvrtc-cu12
 #
+#   NVFUSER_BUILD_NVMMH_INCLUDE_DIR=<ABSOLUTE PATH>
+#     Specify the location to find nvMatmulHeuristics.h
+#
 #   NVFUSER_BUILD_WHEEL_NAME=NAME
 #     Specify the wheel name this is used for pip wheel package where we want
 #     to identify the cuda toolkit version

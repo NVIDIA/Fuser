@@ -39,6 +39,7 @@ class Allocate;
 class Asm;
 class BlockSync;
 class GridSync;
+class ClusterSync;
 class FenceAsyncProxy;
 class WgMmaFence;
 class SetMaxNReg;
@@ -48,6 +49,7 @@ class MBarrierInit;
 class MBarrierInvalidate;
 class MBarrierArrive;
 class MBarrierArriveExpectTx;
+class ClusterReductionOp;
 class MBarrierWait;
 class MBarrierWaitParity;
 class BlockSerializeWait;
@@ -708,6 +710,23 @@ class GridSync final : public Expr {
   }
 };
 
+// Synchronize all threads in cluster
+class ClusterSync final : public Expr {
+ public:
+  using Expr::Expr;
+
+  explicit ClusterSync(IrBuilderPasskey passkey);
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  const char* getOpString() const override {
+    return "ClusterSync";
+  }
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+};
+
 // PTX: fence.proxy.async
 class FenceAsyncProxy final : public Expr {
  public:
@@ -907,6 +926,33 @@ class MBarrierArriveExpectTx final : public Expr {
   }
 
   Val* txCount() const {
+    return input(1);
+  }
+};
+
+// IR node for cluster reduction operations with associated mbarrier
+class ClusterReductionOp final : public ReductionOp {
+ public:
+  using ReductionOp::ReductionOp;
+  explicit ClusterReductionOp(
+      IrBuilderPasskey passkey,
+      Val* output,
+      Val* input,
+      BinaryOpType reduction_op_type,
+      Val* init,
+      Val* mbarrier,
+      bool is_all_reduce);
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  const char* getOpString() const override {
+    return "ClusterReductionOp";
+  }
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+
+  Val* mbarrier() const {
     return input(1);
   }
 };

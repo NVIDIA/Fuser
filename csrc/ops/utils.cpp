@@ -385,6 +385,8 @@ IterDomain* newOutputIterDomain(
     extent_val = promoteSize(extent_val, id->extent());
     if (iter_type.has_value()) {
       iter_type = promoteIterType(iter_type.value(), id->getIterType());
+    } else if (id->isGatherScatter()) {
+      iter_type = IterType::Iteration;
     } else {
       iter_type = id->getIterType();
     }
@@ -620,16 +622,17 @@ Val* getMaximumValue(DataType v) {
   return nullptr;
 }
 
-std::vector<unsigned int> canonicalizeAxes(
+std::vector<int64_t> canonicalizeAxes(
     const std::vector<int64_t>& axes,
     int64_t ndims) {
-  std::vector<unsigned int> uint_axes;
-  uint_axes.reserve(axes.size());
+  std::vector<int64_t> canonicalized_axes;
+  canonicalized_axes.reserve(axes.size());
   std::transform(
-      axes.begin(), axes.end(), std::back_inserter(uint_axes), [&](int axis) {
-        return (unsigned int)wrapDim(axis, ndims);
-      });
-  return uint_axes;
+      axes.begin(),
+      axes.end(),
+      std::back_inserter(canonicalized_axes),
+      [&](int64_t axis) { return wrapDim(axis, ndims); });
+  return canonicalized_axes;
 }
 
 Val* binOpIdentity(BinaryOpType op_type, DataType dtype) {
@@ -639,8 +642,12 @@ Val* binOpIdentity(BinaryOpType op_type, DataType dtype) {
       return fusion->zeroVal(dtype);
     case BinaryOpType::Mul:
       return fusion->oneVal(dtype);
+    case BinaryOpType::FMin:
+      return IrBuilder::create<Val>(std::numeric_limits<double>::quiet_NaN());
     case BinaryOpType::Min:
       return getMaximumValue(dtype);
+    case BinaryOpType::FMax:
+      return IrBuilder::create<Val>(std::numeric_limits<double>::quiet_NaN());
     case BinaryOpType::Max:
       return getMinimumValue(dtype);
     case BinaryOpType::LogicalAnd:

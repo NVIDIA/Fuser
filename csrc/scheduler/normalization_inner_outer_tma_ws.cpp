@@ -11,6 +11,7 @@
 #include <scheduler/normalization_utils.h>
 #include <scheduler/runtime_info.h>
 #include <scheduler/tools/inlining.h>
+#include <utils.h>
 
 #include <ATen/cuda/CUDAContext.h>
 namespace nvfuser {
@@ -83,13 +84,14 @@ void getHeuristics(
         if (!is_non_circular_buffer_gmem_to_regs) {
           smem_size_bit += non_circular_buffered_smem_size_bit;
         }
-        // mbarrier size, round to 128 bytes as required by TMA
-        smem_size_bit += roundUpToMultiple(128 * n_stages, 128 * 8);
+        // mbarrier dtype is uint64_t
+        constexpr int64_t bits_per_mbarrier = 8 * 8;
+        smem_size_bit += alignSharedMemoryBits(bits_per_mbarrier * n_stages);
         // reduction workspace size, need to be aligned to 128 bytes since
         // other smems are stacked on top of it directly, see
         // assignNextAddress in StackBasedSharedMemAllocator
-        smem_size_bit += roundUpToMultiple(
-            iter_unroll * bdimx * bdimy * computation_dtype_size_bit, 128);
+        smem_size_bit += alignSharedMemoryBits(
+            iter_unroll * bdimx * bdimy * computation_dtype_size_bit);
         return (int64_t)dev_prop->sharedMemPerBlockOptin * 8 >= smem_size_bit;
       };
 
@@ -514,9 +516,10 @@ void scheduleFusion(Fusion* fusion, const ReductionParams* rparams) {
 
   // Grab the reduction, input, and output tensor views. dummy_outputs are
   // helper tensors for persistent buffer projection.
-  std::vector<TensorView*> dummy_outputs, cached_inputs, reduction_tvs,
-      smem_consumers, persistent_buffers;
-  std::vector<std::pair<TensorView*, TensorView*>> cached_outputs;
+  std::vector<TensorView*> dummy_outputs, reduction_tvs, smem_consumers,
+      persistent_buffers;
+  std::vector<std::pair<TensorView*, int64_t>> cached_inputs;
+  std::vector<std::pair<TensorView*, int64_t>> cached_outputs;
   normalization_scheduler_utils::commonScheduleBeforeIterDomainTransform(
       fusion,
       rparams,
@@ -821,7 +824,7 @@ void scheduleFusion(Fusion* fusion, const ReductionParams* rparams) {
       int64_t last_iter_dim = rparams->computation_warp_groups > 1
           ? tma_inline_pos + 1
           : tma_inline_pos;
-      for (auto cached_tv : cached_inputs) {
+      for (const auto& [cached_tv, input_idx] : cached_inputs) {
         // skip smem tvs as they are TMA loaded and already special inlined
         if (cached_tv->getMemoryType() == MemoryType::Shared) {
           continue;
@@ -830,10 +833,8 @@ void scheduleFusion(Fusion* fusion, const ReductionParams* rparams) {
         // analysis and propagation.
         // The last iter dim may be a broadcast, so we need to check all the
         // iter dims.
-        if (std::any_of(
-                cached_tv->domain()->loop().begin(),
-                cached_tv->domain()->loop().end(),
-                [](const IterDomain* id) {
+        if (std::ranges::any_of(
+                cached_tv->domain()->loop(), [](const IterDomain* id) {
                   return id->getParallelType() == ParallelType::Vectorize;
                 })) {
           continue;

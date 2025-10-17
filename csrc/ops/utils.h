@@ -125,7 +125,7 @@ Val* getMinimumValue(DataType v);
 //   true for bool.
 Val* getMaximumValue(DataType v);
 
-std::vector<unsigned int> canonicalizeAxes(
+std::vector<int64_t> canonicalizeAxes(
     const std::vector<int64_t>& axes,
     int64_t ndims);
 

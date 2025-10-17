@@ -480,13 +480,8 @@ LaunchParams KernelExecutor::computeLaunchParams(
           (int64_t)kernel_summary.outer_grouped_grid_welford_largest_smem_size);
     }
 
-    // StackBasedSharedMemAllocator start from address 0 without considering the
-    // shared memory reserved for reduction and broadcast workspace which is
-    // only known at runtime. To avoid mis-alignment for TMA tensors, here we
-    // enforce the workspace aligned at 128 Bytes. Same roundup is also added to
-    // codegen.
     reduction_broadcast_workspace =
-        roundUpToMultiple(reduction_broadcast_workspace, 128);
+        alignSharedMemoryBytes(reduction_broadcast_workspace);
 
     if (isDebugDumpEnabled(DebugDumpOption::DynamicSharedMemory)) {
       debug() << "reduction_broadcast_workspace shared memory bytes: "
@@ -1267,7 +1262,54 @@ KernelArgumentHolder KernelExecutor::run(
               << ", occupancy=" << oss.str() << std::endl;
     }
 
-    if (!compiled_kernel_->kernel()->summary().has_cooperative_grid_reduction) {
+    const auto& kernel_summary = compiled_kernel_->kernel()->summary();
+
+    // cluster reduction uses DSMEM
+    // TODO: CUDA11-CLEANUP, use cuLaunchKernelEx for cuLaunchCooperativeKernel
+    if (kernel_summary.has_cluster_reduction) {
+      FUSER_PERF_SCOPE("ExecutorRunFusion::cuLaunchKernelEx");
+      CUlaunchConfig config = {};
+      config.gridDimX = launch_params_.gdimx();
+      config.gridDimY = launch_params_.gdimy();
+      config.gridDimZ = launch_params_.gdimz();
+      config.blockDimX = launch_params_.bdimx();
+      config.blockDimY = launch_params_.bdimy();
+      config.blockDimZ = launch_params_.bdimz();
+      config.sharedMemBytes = launch_params_.smem();
+      config.hStream = stream;
+
+      CUlaunchAttribute attribute;
+      attribute.id = CU_LAUNCH_ATTRIBUTE_CLUSTER_DIMENSION;
+      attribute.value.clusterDim.x = launch_params_.gdimx();
+      attribute.value.clusterDim.y = 1;
+      attribute.value.clusterDim.z = 1;
+      config.attrs = &attribute;
+      config.numAttrs = 1;
+      // To request more than 8 CTAs per cluster, need to set non-portable
+      // cluster size allowed
+      if (attribute.value.clusterDim.x > 8) {
+        NVFUSER_CUDA_SAFE_CALL(cuFuncSetAttribute(
+            compiled_kernel_->cudaExecutable()->function,
+            CU_FUNC_ATTRIBUTE_NON_PORTABLE_CLUSTER_SIZE_ALLOWED,
+            1));
+      }
+      // CUDA guide recommends checking max active clusters before launching
+      // https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html#thread-block-clusters
+      int num_clusters = 0;
+      NVFUSER_CUDA_SAFE_CALL(cuOccupancyMaxActiveClusters(
+          &num_clusters,
+          compiled_kernel_->cudaExecutable()->function,
+          &config));
+      NVF_ERROR(
+          num_clusters > 0,
+          "Failed to launch kernel with cluster dimensions: ",
+          attribute.value.clusterDim.x);
+      NVFUSER_CUDA_SAFE_CALL(cuLaunchKernelEx(
+          &config,
+          compiled_kernel_->cudaExecutable()->function,
+          executor_entry->arg_ptrs.data(),
+          nullptr));
+    } else if (!kernel_summary.has_cooperative_grid_reduction) {
       FUSER_PERF_SCOPE("ExecutorRunFusion::cuLaunchKernel");
       NVFUSER_CUDA_SAFE_CALL(cuLaunchKernel(
           compiled_kernel_->cudaExecutable()->function,

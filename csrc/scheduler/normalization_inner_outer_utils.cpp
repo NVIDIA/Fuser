@@ -150,8 +150,11 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
            ProjectToInputs);
 
   const auto dev_prop = at::cuda::getCurrentDeviceProperties();
-  int64_t smem_overhead_bit = scheduler_utils::getReductionSmemWorkspaceBit(
-      fusion, reduction_tvs, threads_per_block_max);
+
+  int64_t smem_overhead_bit =
+      scheduler_utils::getReductionSmemWorkspaceBit(
+          fusion, reduction_tvs, threads_per_block_max) +
+      scheduler_utils::static_smem_usage_in_bits;
   int64_t available_smem_bit =
       (int64_t)dev_prop->sharedMemPerBlockOptin * 8 - smem_overhead_bit;
   int64_t available_regs_bit = scheduler_utils::register_file_size_bit_56k;
@@ -220,6 +223,7 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
               threads_per_block_min,
               threads_per_block_max,
               dev_prop->warpSize);
+    buffer_size_smem_bit = alignSharedMemoryBits(buffer_size_smem_bit);
     required_size_bit_regs_smem_map[buffer] =
         std::make_pair(buffer_size_regs_bit, buffer_size_smem_bit);
     total_smem_buffer_size_bit += buffer_size_smem_bit;

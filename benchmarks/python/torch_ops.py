@@ -68,6 +68,21 @@ def rmsnorm(inputs: list):
     return output
 
 
+# reference implementation from TRT-LLM
+# https://github.com/NVIDIA/TensorRT-LLM/blob/334e2cab0d6ca186b98c6c15faeb0336d84a027f/tensorrt_llm/_torch/modules/rms_norm.py#L92
+# inputs: x, w, r
+# return rmsnorm(x+r, weight), x+r
+# different ways to implement rmsnorm, here we use rsqrt based used in TRT-LLM
+def rmsnorm_add(inputs: list):
+    hidden_states, weight, residual = inputs
+    hidden_states = hidden_states + residual
+    residual = hidden_states
+    variance = hidden_states.pow(2).mean(-1, keepdim=True)
+    hidden_states = hidden_states * torch.rsqrt(variance + 1e-5)
+    hidden_states = weight * hidden_states
+    return hidden_states, residual
+
+
 def scale_bias_relu(inputs: list):
     inp, scale, bias = inputs
     return F.relu(inp * scale + bias)
@@ -100,3 +115,9 @@ def scatter_reduce(inputs: list):
     out = out.reshape(*topk_weight.shape, -1)  # [seq, top_k, hidden]
     out = out * topk_weight.unsqueeze(-1)  # [seq, top_k, hidden]
     return out.sum(dim=1)  # [seq, hidden]
+
+
+# simply cross entropy to benchmark quack cross entropy
+def cross_entropy(inputs: list):
+    logits, labels = inputs
+    return F.cross_entropy(logits, labels, reduction="none")

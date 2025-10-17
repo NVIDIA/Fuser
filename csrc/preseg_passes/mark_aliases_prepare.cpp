@@ -107,8 +107,7 @@ void insertSegmentSetAfter(
   // selfReplay or create a new API that can propagate the allocation
   // domain only.
   if (!use_of->isDefinitionType<ScatterOp>()) {
-    TransformReplay::selfReplay(
-        use_of->domain(), copy->domain(), /*ignore_reductions=*/true);
+    TransformReplay::selfReplay(use_of->domain(), copy->domain());
   } else if (use_of->hasAllocation()) {
     copy->setAllocationDomain(
         ir_utils::propagateScatterAllocationDomain(

@@ -40,23 +40,39 @@ bool validateMeshes(Fusion* fusion) {
   return tv_with_mesh_found;
 }
 
-// Reorders the loop domain in the same relative order as the allocation domain.
-// Specifically:
-// 1. It uses the exprs between logical and loop domain to split the allocation
-// domain
-// 2. It reorders the loop domain to match the split allocation domain.
-// 3. It computes the contiguity of the transformed allocation domain through
-// the split exprs.
-// 4. Sets the allocation domain to be the same as the loop domain with the
-// computed contiguity. This preserves both the sharding and any stride order.
-// 5. For non-resharding expressions, it moves the DIDx to the front of the
-// loop/allocation domain.
-// Note: Ideally, the loop domain can follow the logical domain and the
-// allocation domain can follow the stride order specified/inferred. However, we
-// currently require loop domain to be the same as allocation domain. This
-// behavior will be modified in the future with allocation and loop domain being
-// propagated independently.
-void setLoopAndAllocationDomain(TensorView* tv, bool is_resharding) {
+bool shouldParallelizeAllocationOnStream(TensorView* tv) {
+  if (tv->isFusionInput() || tv->isFusionOutput()) {
+    return false;
+  }
+  for (Expr* use_of_tv : tv->uses()) {
+    for (TensorView* output :
+         ir_utils::filterByType<TensorView>(use_of_tv->outputs())) {
+      if (haveDifferentShardings(tv, output, {ParallelType::Stream})) {
+        return false;
+      }
+    }
+  }
+  return true;
+}
+
+bool isLoopStreamParallelized(const TensorView* tv) {
+  return std::any_of(
+      tv->getLoopDomain().begin(),
+      tv->getLoopDomain().end(),
+      [](IterDomain* id) { return id->isStream(); });
+}
+
+// Splits the allocation domain of a TensorView if it is device or stream
+// parallelized Device parallelization is always propagated to the allocation
+// domain Stream parallelization is propagated to the allocation domain if it is
+// allocated inside a for loop.
+void shardAllocation(TensorView* tv) {
+  if (!isLoopStreamParallelized(tv) && !tv->hasDeviceMesh()) {
+    // This is required for tests such as `LayoutOpTest.SchedulerKernel` The
+    // tensorview has allocation domain disjoint from logical domain. This will
+    // currently cause errors when setting allocation domain.
+    return;
+  }
   LinkedHashMap<IterDomain*, std::optional<bool>> allocation_to_contiguity;
   for (const auto&& [id, contiguity] :
        zip(tv->getMaybeAllocationDomain(), tv->getContiguity())) {
@@ -64,10 +80,14 @@ void setLoopAndAllocationDomain(TensorView* tv, bool is_resharding) {
   }
 
   // Allocation domain should be a permutation of logical domain at this point.
+  auto loop_stream_device_view =
+      tv->getLoopDomain() | std::views::filter([](IterDomain* id) {
+        return id->isStream() || id->isDeviceDim();
+      });
   std::vector<Expr*> transform_exprs = DependencyCheck::getAllExprsBetween(
       {tv->getMaybeAllocationDomain().begin(),
        tv->getMaybeAllocationDomain().end()},
-      {tv->getLoopDomain().begin(), tv->getLoopDomain().end()});
+      {loop_stream_device_view.begin(), loop_stream_device_view.end()});
 
   for (auto* expr : transform_exprs) {
     auto* split = dynamic_cast<Split*>(expr);
@@ -75,6 +95,10 @@ void setLoopAndAllocationDomain(TensorView* tv, bool is_resharding) {
         split != nullptr,
         "Expected all transform exprs to be a split between allocation and "
         "loop domain during sharding propagation.");
+    if (split->outer()->isStream() &&
+        !shouldParallelizeAllocationOnStream(tv)) {
+      continue;
+    }
     const auto [contiguity, split_i] =
         allocation_to_contiguity.erase(split->in());
     auto [outer_contiguity, inner_contiguity] = splitContiguity(contiguity);
@@ -91,67 +115,32 @@ void setLoopAndAllocationDomain(TensorView* tv, bool is_resharding) {
     new_allocation_domain.push_back(id);
     new_contiguity.push_back(contiguity);
   }
-
-  std::optional<std::vector<int64_t>> permutation =
-      ir_utils::computePermutation(new_allocation_domain, tv->getLoopDomain());
-  NVF_ERROR(
-      permutation.has_value(),
-      "Failed to find a valid permutation for reordering ",
-      tv->getLoopDomain(),
-      " as ",
-      new_allocation_domain);
-  tv->reorder(permutation.value());
-
-  if (is_resharding) {
-    // Resharding expressions have specific requirements on position of
-    // gathered/scattered dimensions in the allocation domain that is ensured
-    // by ReorderShardedAxisPass. So we do not move the DIDx to the front in
-    // this case. For example, in reduce-scatter, the scattered axis is the
-    // outer-most dimension in communication input and output.
-    tv->setAllocationDomain(tv->getLoopDomain(), new_contiguity);
-    return;
-  }
-
-  // Most schedulers require DIDx to be at the front of the loop domain.
-  auto old2new = reorderDIDToFront(tv);
-  auto new2old = ir_utils::normalizeOld2New(old2new, tv->nDims());
-  std::vector<std::optional<bool>> reordered_contiguity;
-  std::transform(
-      new2old.begin(),
-      new2old.end(),
-      std::back_inserter(reordered_contiguity),
-      [&new_contiguity](int64_t i) -> std::optional<bool> {
-        return new_contiguity[i];
-      });
-  tv->setAllocationDomain(tv->getLoopDomain(), reordered_contiguity);
+  tv->setAllocationDomain(new_allocation_domain, new_contiguity);
 }
-
 } // namespace
 
 void FinalizeMultideviceDomainsPass::runPass(Fusion* fusion) {
-  bool has_mesh = validateMeshes(fusion);
-  if (!has_mesh) {
-    return;
-  }
+  validateMeshes(fusion);
 
   for (Expr* expr : fusion->exprs()) {
     auto inputs = ir_utils::filterByType<TensorView>(expr->inputs());
     auto outputs = ir_utils::filterByType<TensorView>(expr->outputs());
 
-    bool is_resharding = isResharding(expr);
-    for (auto tv : inputs) {
+    for (auto* tv : inputs) {
       // Only set loop and allocation domain for fusion inputs.
       // Other tvs would already have been processed as outputs of their
       // definitions. This avoids processing the same tv multiple times.
       if (tv->isFusionInput()) {
-        setLoopAndAllocationDomain(tv, is_resharding);
+        shardAllocation(tv);
+        reorderParallelizedToFront(tv);
       }
     }
-    for (auto tv : outputs) {
-      setLoopAndAllocationDomain(tv, is_resharding);
+    for (auto* tv : outputs) {
+      shardAllocation(tv);
+      reorderParallelizedToFront(tv);
     }
 
-    if (is_resharding) {
+    if (isResharding(expr)) {
       auto check_contiguity = [&](const auto& tvs) {
         return std::all_of(tvs.begin(), tvs.end(), isTvContiguous);
       };
@@ -160,6 +149,13 @@ void FinalizeMultideviceDomainsPass::runPass(Fusion* fusion) {
           "Resharding expression must have contiguous inputs and outputs: ",
           expr);
     }
+  }
+
+  if (isDebugDumpEnabled(DebugDumpOption::PreSegmenterLogging)) {
+    debug() << std::endl
+            << "Fusion Transforms after " << name() << ":" << std::endl;
+    fusion->printTransforms();
+    debug() << std::endl;
   }
 }
 

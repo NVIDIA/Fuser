@@ -316,6 +316,69 @@ TensorView* takeAlongAxis(TensorView* inp, TensorView* index, int64_t dim) {
   return out_tensor->as<TensorView>();
 }
 
+std::vector<IterDomain*> layoutAllocationDomain(
+    std::vector<IterDomain*> logical_dom,
+    Val* num_groups,
+    BlockScalingFactorLayout layout) {
+  NVF_ERROR_EQ(logical_dom.size(), 2);
+
+  // Create the allocation domain of output.
+  std::vector<IterDomain*> alloc_dom;
+  alloc_dom.reserve(logical_dom.size());
+
+  // only Block128x4 is supported at this point.
+  NVF_CHECK_EQ(layout, BlockScalingFactorLayout::Block128x4);
+  constexpr int col_multiple = 4;
+  constexpr int row_multiple = 128;
+
+  auto* one_val = num_groups->fusion()->oneVal(DataType::Index);
+
+  // Note: output allocation domain handles potential padding required for the
+  // layout. Since the actual padding size is data-dependent, we allocate for
+  // the maximum padding (reflected on logical/allocation domain).
+
+  // NOTE: We could use resize operations for the padding logic, I think this
+  // might simplify predication. Not doing that for now for simpler
+  // implementation. We'll re-evaluate when we add scheduler support.
+
+  // pad row size: num_groups * (row_multiple - 1) + row_size
+  auto pad_to_max_extent = [&](IterDomain* id, int multiple) -> IterDomain* {
+    auto* maximum_pad_value_per_group =
+        IrBuilder::create<Val>(multiple - 1, DataType::Index);
+
+    // NOTE: we do not use `resize` to represent the padding.
+    //
+    // resize sounds good in theory, because transformation can propagate across
+    // it. In reality, we do not have a protocol to index this operation via the
+    // logical to allocation domain transform. I question how much a resize op
+    // provides in functionality. More importantly, using resize hits asserts in
+    // vectorization analysis (validateDeviceSplit ATM), which doesn't look easy
+    // to handle for me.
+    Val* padded_ext = SimplifyingIrBuilder::addExpr(
+        id->extent(),
+        SimplifyingIrBuilder::mulExpr(num_groups, maximum_pad_value_per_group));
+    return IterDomainBuilder(id).extent(padded_ext).build();
+  };
+  alloc_dom.push_back(pad_to_max_extent(logical_dom[0], row_multiple));
+
+  // pad col size: (col_size + col_multiple - 1) / col_multiple * col_multiple
+  auto pad_to_multiple = [&](IterDomain* id, int multiple) -> IterDomain* {
+    Val* ext = id->extent();
+    auto* multiple_val = IrBuilder::create<Val>(multiple, DataType::Index);
+    // Just as the comment above, we do NOT use resize op.
+    Val* padded_ext = SimplifyingIrBuilder::mulExpr(
+        SimplifyingIrBuilder::divExpr(
+            SimplifyingIrBuilder::subExpr(
+                SimplifyingIrBuilder::addExpr(ext, multiple_val), one_val),
+            multiple_val),
+        multiple_val);
+    return IterDomainBuilder(id).extent(padded_ext).build();
+  };
+  alloc_dom.push_back(pad_to_multiple(logical_dom[1], col_multiple));
+
+  return alloc_dom;
+}
+
 TensorView* preprocessGroupedMatmulInputSf(
     TensorView* input,
     TensorView* input_offsets,
@@ -335,55 +398,17 @@ TensorView* preprocessGroupedMatmulInputSf(
       std::back_inserter(out_logical_dom),
       [](IterDomain* id) { return IterDomainBuilder(id).build(); });
 
-  // Create the logical domain of output.
-  std::vector<IterDomain*> out_alloc_dom;
-  out_alloc_dom.reserve(input_logical_dom.size());
-
-  // only Block128x4 is supported at this point.
-  NVF_CHECK_EQ(layout, BlockScalingFactorLayout::Block128x4);
-  constexpr int col_multiple = 4;
-  constexpr int row_multiple = 128;
-
-  auto* one_val = input->fusion()->oneVal(DataType::Index);
   std::vector<IterDomain*> offset_logical_dom =
       TensorDomain::noReductions(input_offsets->getLogicalDomain());
-  Val* num_groups =
-      SimplifyingIrBuilder::subExpr(offset_logical_dom[0]->extent(), one_val);
+  Val* num_groups = offset_logical_dom[0]->extent();
 
-  // Note: output logical domain handles potential padding required for the
-  // layout. Since the actual padding size is data-dependent, we allocate for
-  // the maximum padding (reflected on logical/allocation domain).
+  // Create the allocation domain of output.
+  std::vector<IterDomain*> out_alloc_dom =
+      layoutAllocationDomain(out_logical_dom, num_groups, layout);
 
-  // NOTE: We could use resize operations for the padding logic, I think this
-  // might simplify predication. Not doing that for now for simpler
-  // implementation. We'll re-evaluate when we add scheduler support.
-
-  // pad row size: num_groups * (row_multiple - 1) + row_size
-  auto pad_to_max_extent = [&](IterDomain* id, int multiple) -> IterDomain* {
-    auto* maximum_pad_value_per_group =
-        IrBuilder::create<Val>(multiple - 1, DataType::Index);
-    Val* padded_ext = SimplifyingIrBuilder::addExpr(
-        id->extent(),
-        SimplifyingIrBuilder::mulExpr(num_groups, maximum_pad_value_per_group));
-    return IterDomainBuilder(id).extent(padded_ext).build();
-  };
-  out_alloc_dom.push_back(pad_to_max_extent(out_logical_dom[0], row_multiple));
-
-  // pad col size: (col_size + col_multiple - 1) / col_multiple * col_multiple
-  auto pad_to_multiple = [&](IterDomain* id, int multiple) -> IterDomain* {
-    Val* ext = id->extent();
-    auto* multiple_val = IrBuilder::create<Val>(multiple, DataType::Index);
-    Val* padded_ext = SimplifyingIrBuilder::mulExpr(
-        SimplifyingIrBuilder::divExpr(
-            SimplifyingIrBuilder::subExpr(
-                SimplifyingIrBuilder::addExpr(ext, multiple_val), one_val),
-            multiple_val),
-        multiple_val);
-    return IterDomainBuilder(id).extent(padded_ext).build();
-  };
-  out_alloc_dom.push_back(pad_to_multiple(out_logical_dom[1], col_multiple));
-
-  // Create the output tensor with logical domain matching inputs
+  // TODO: try if revert to vanilla TensorDomain constructor and call set
+  // allocation domain later Create the output tensor with logical domain
+  // matching inputs
   TensorView* out_tv = IrBuilder::create<TensorView>(
       IrBuilder::create<TensorDomain>(
           /*root_domain=*/std::vector<IterDomain*>(),
