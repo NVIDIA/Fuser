@@ -49,16 +49,25 @@ __device__ void block_quantize_to_nvfp4(
     Array<T, ITEMS_PER_THREAD, ALIGNMENT_1>& input,
     Array<__e2m1, ITEMS_PER_THREAD, ALIGNMENT_2>& output,
     Tensor<__e4m3, BLOCK_SCALE_DIM, BLOCK_SCALE_ALLOC>& fp8_output) {
-  if constexpr (std::is_same<T, float>::value) {
+  constexpr bool is_half_or_bfloat =
+      std::is_same<T, __bfloat>::value || std::is_same<T, __half>::value;
+  constexpr bool is_float = std::is_same<T, float>::value;
+  static_assert(
+      is_float || is_half_or_bfloat,
+      "Input type must be float, __half or __bfloat");
+
+  if constexpr (is_float) {
     assert(blockDim.x % 4 == 0);
-  } else if constexpr (std::is_same<T, __bfloat>::value) {
+  } else if constexpr (is_half_or_bfloat) {
     assert(blockDim.x % 2 == 0);
   }
   assert(blockDim.z == 1 && gridDim.z == 1);
+
   static_assert(
-      (std::is_same<T, float>::value && ITEMS_PER_THREAD == 4) ||
-          (std::is_same<T, __bfloat>::value && ITEMS_PER_THREAD == 8),
-      "ITEMS_PER_THREAD must be 4 for float type or 8 for __bfloat type");
+      (is_float && ITEMS_PER_THREAD == 4) ||
+          (is_half_or_bfloat && ITEMS_PER_THREAD == 8),
+      "ITEMS_PER_THREAD must be 4 for float type or 8 for __bfloat or __half "
+      "type");
 
   int THREADS_PER_SCALING_FACTOR = 16 / ITEMS_PER_THREAD;
 
@@ -70,10 +79,8 @@ __device__ void block_quantize_to_nvfp4(
       vec_in[i] = input[i];
     } else if constexpr (std::is_same<T, __bfloat>::value) {
       vec_in[i] = __bfloat2float(input[i]);
-    } else {
-      static_assert(
-          std::is_same<T, float>::value || std::is_same<T, __bfloat>::value,
-          "Unsupported type");
+    } else if constexpr (std::is_same<T, __half>::value) {
+      vec_in[i] = __half2float(input[i]);
     }
   }
 

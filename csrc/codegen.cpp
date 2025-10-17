@@ -1837,7 +1837,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     auto input_dtype =
         bqop->in()->as<kir::TensorIndex>()->view()->getDataType();
 
-    if (input_dtype == DataType::BFloat16) {
+    if (input_dtype == DataType::BFloat16 || input_dtype == DataType::Half) {
       NVF_ERROR(
           vector_word_size == 8,
           "Vectorization size should be 8 for "
