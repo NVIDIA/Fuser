@@ -313,6 +313,10 @@ std::vector<std::pair<double, double>> getValTolerances(
   std::vector<std::pair<double, double>> tolerance_values;
   for (size_t i = 0; i < fusion->outputs().size(); i++) {
     auto fusion_output_tv = fusion->outputs()[i]->as<TensorView>();
+    const AliasInfo& alias_info = fusion->getOutputAlias(fusion_output_tv);
+    if (alias_info.type == AllocationType::ReuseBuffer) {
+      continue;
+    }
     NVF_ERROR(
         reduction_sizes.count(fusion_output_tv),
         "Missed reduction size count on fusion output at index: ",
