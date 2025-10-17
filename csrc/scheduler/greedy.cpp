@@ -1496,10 +1496,13 @@ bool GreedyScheduler::canScheduleCompileTime(Fusion* fusion) {
     return false;
   }
 
-  auto constrained_ops = getAllConstrainedOps(fusion);
-  if (constrained_ops.empty()) {
+  // Only enabled for these ops for now. Notably, PadOp, which is
+  // supported, does not trigger the scheduler by itself as the Resize
+  // scheduler would probably be more preferable at this moment since
+  // vectorization is not yet supported.
+  if (!ir_utils::hasOpsOfType<ArgsortOp, ScanOp, ScatterOp, TopKOp>(fusion)) {
     scheduler_debug_utils::canScheduleRejectReason(
-        SchedulerType::Greedy, "No constrained op found");
+        SchedulerType::Greedy, "No specific op for the greedy scheduler found");
     return false;
   }
 
