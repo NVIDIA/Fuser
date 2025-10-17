@@ -103,6 +103,9 @@ __device__ void block_quantize_to_nvfp4(
   int offset_dim_y = threadIdx.y * blockDim.x * gridDim.x;
   int offset_into_block = blockIdx.x * blockDim.x + threadIdx.x;
 
+  int offset = (offset_y_blocks + offset_dim_y + offset_into_block) /
+      THREADS_PER_SCALING_FACTOR;
+
   // Convert back from FP8 to float using __e4m32float
   if (threadIdx.x % THREADS_PER_SCALING_FACTOR == 0) {
     fp8_output[offset] = clamped_max_fp8; // Broadcast to all threads
