@@ -494,7 +494,6 @@ def cmake(config, relative_path):
         cmd_str.append("-G")
         cmd_str.append("Ninja")
     cmd_str.append(relative_path)
-    print(f'{cmd_str=}')
 
     print(f"Configuring CMake with {' '.join(cmd_str)}")
     subprocess.check_call(cmd_str)
