@@ -339,6 +339,9 @@ struct ReductionTvProperties {
   // Is the inner most dimension a reduction, if no reductions mark true.
   bool fastest_dim_reduction = true;
 
+  // Is the reduction size static, if yes mark true.
+  bool is_static_reduction_size = false;
+
   // How many elements in the inner most dimension merging surrounding domains
   // that match in type. This is used for 3D schedulers in
   // reduction/normalization.
