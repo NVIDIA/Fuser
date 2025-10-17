@@ -2641,7 +2641,8 @@ BlockQuantizationResults blockQuantize(
   // We should check if the inputs are FP or BF16.
   NVF_CHECK(
       input->getDataType().value() == DataType::Float ||
-          input->getDataType().value() == DataType::BFloat16,
+          input->getDataType().value() == DataType::BFloat16 ||
+          input->getDataType().value() == DataType::Half,
       "Block quantization expects floating point input but got ",
       input->getDataType().value());
 

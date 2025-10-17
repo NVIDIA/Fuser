@@ -861,7 +861,4 @@ std::vector<IterDomain*> propagateScatterAllocationDomain(
 
 bool isParallelizedBy(const std::vector<IterDomain*>& ids, ParallelType pt);
 
-// Check if tv is the block scales output of a BlockQuantization Op.
-bool isBlockScalingFactor(const TensorView* tv);
-
 } // namespace nvfuser::ir_utils

@@ -299,7 +299,11 @@ SyncMap::SyncMap(Fusion* fusion, bool error_on_failure) {
           // sync/predication is handled there.
           if ((parallel_type == ParallelType::BIDx ||
                parallel_type == ParallelType::TIDx) &&
-              ir_utils::isBlockScalingFactor(consumer)) {
+              (consumer->definition()->isA<BlockQuantizationOp>() &&
+               consumer ==
+                   consumer->definition()
+                       ->as<BlockQuantizationOp>()
+                       ->blockScales())) {
             continue;
           }
 

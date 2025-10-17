@@ -1747,10 +1747,4 @@ bool isParallelizedBy(const std::vector<IterDomain*>& ids, ParallelType pt) {
       ids, [&](IterDomain* id) { return id->getParallelType() == pt; });
 }
 
-bool isBlockScalingFactor(const TensorView* tv) {
-  return tv->definition() != nullptr &&
-      tv->definition()->isA<BlockQuantizationOp>() &&
-      tv == tv->definition()->as<BlockQuantizationOp>()->blockScales();
-}
-
 } // namespace nvfuser::ir_utils
