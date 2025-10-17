@@ -221,7 +221,7 @@ void bindFusionExecutorCache(py::module& nvfuser) {
                       int64_t fusion_id,
                       bool auto_schedule) {
             // Make a copy of the fusion for FusionExecutorCache to own.
-            return new FusionExecutorCache(
+            return std::make_unique<FusionExecutorCache>(
                 std::make_unique<Fusion>(*fusion), fusion_id, auto_schedule);
           }),
           py::arg("fusion"),
