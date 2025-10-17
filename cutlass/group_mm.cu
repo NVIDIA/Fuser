@@ -430,6 +430,30 @@ void validateInputsGroupMm(
           b.scalar_type() == at::ScalarType::Half,
       "Expected BFloat16 or Half for Operand B.")
 
+  const int64_t m = a.sizes()[0];
+  const int64_t g = expert_offsets.sizes()[0];
+  int64_t prev_offset = 0;
+  for (int64_t i = 0; i < g; ++i) {
+    int64_t expert_offset = expert_offsets[i].item<int64_t>();
+    NVF_CHECK(
+        expert_offset <= m,
+        "The expert offset ",
+        i,
+        " is ",
+        expert_offset,
+        ", but it must be smaller than the M dimension of operand A ",
+        m);
+    NVF_CHECK(
+        prev_offset == 0 || prev_offset < expert_offset,
+        "The expert offset ",
+        i,
+        " is ",
+        expert_offset,
+        ", but it must be smaller than the previous offset ",
+        prev_offset);
+    prev_offset = expert_offset;
+  }
+
   NVF_CHECK_EQ(ab_strides.dtype(), at::kLong);
   NVF_CHECK_EQ(c_strides.dtype(), at::kLong);
 
