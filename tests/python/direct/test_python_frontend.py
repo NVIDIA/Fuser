@@ -23,6 +23,11 @@ from python.direct_utils import (
     verify_stride_order,
 )
 
+from python.direct_utils.narrow_precision import (
+    pytorch_nvfp4_quantize,
+    unpack_fp4_bytes,
+)
+
 
 def test_basic(nvfuser_direct_test):
     inputs = [
@@ -2615,3 +2620,36 @@ def test_single_segment_multi_device():
         RuntimeError, match="KernelExecutor does not support the Fusion provided."
     ):
         _ = fd.execute(inputs)
+
+
+# Test that we properly handle packed type
+@pytest.mark.skipif(
+    is_pre_blackwell(), reason="Only supported on blackwell and newer devices."
+)
+def test_packed_fp4(nvfuser_direct_test):
+    t0 = torch.rand(
+        (
+            1024,
+            32,
+        ),
+        dtype=torch.float32,
+        device="cuda:0",
+    )
+    # we'll just ignore the scaling factor, since we only want to test basic fp4 support
+    t0_fp4, _ = pytorch_nvfp4_quantize(t0, 1.0)
+    inputs = [t0_fp4]
+
+    def fusion_func(fd: FusionDefinition):
+        T0 = fd.define_tensor(
+            shape=[1024, 16],
+            contiguity=[True, True],
+            dtype=DataType.Float4_e2m1fn_x2,
+            is_cpu=False,
+        )
+        T1 = fd.ops.cast(T0, DataType.Float)
+        T2 = fd.ops.relu(T1)
+        fd.add_output(T2)
+
+    out, _ = nvfuser_direct_test.exec_nvfuser(fusion_func, inputs)
+    ref = unpack_fp4_bytes(t0_fp4, torch.float32).relu()
+    nvfuser_direct_test.assertEqual(out[0], ref)
