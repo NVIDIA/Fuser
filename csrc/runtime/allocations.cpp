@@ -43,6 +43,45 @@ KernelArgumentHolder inferOutputSizes(
   KernelArgumentHolder output_tensor_proxies;
   output_tensor_proxies.setDeviceIndex(args.getDeviceIndex());
 
+  // If any output is marked to be evaluated by ExpressionEvaluator,
+  // evaluate outputs directly following ATen's striding rules.
+  bool has_evaluate_outputs = false;
+  for (Val* out : fusion->outputs()) {
+    if (auto* tv = dynamic_cast<TensorView*>(out)) {
+      if (fusion->getOutputAlias(tv).type == AllocationType::Evaluate) {
+        has_evaluate_outputs = true;
+        break;
+      }
+    }
+  }
+
+  if (has_evaluate_outputs) {
+    ExpressionEvaluator eval_fusion;
+    // Bind inputs; for tensors, bind meta tensors preserving size/stride and dtype.
+    for (auto i : arange(fusion->inputs().size())) {
+      const auto& pv = args[i];
+      if (pv.is<at::Tensor>()) {
+        const auto t = pv.as<at::Tensor>();
+        if (t.defined()) {
+          const auto meta_t = at::empty_strided(
+              t.sizes(),
+              t.strides(),
+              c10::TensorOptions().device(c10::Device(c10::DeviceType::Meta)).dtype(t.dtype()));
+          eval_fusion.bind(fusion->inputs()[i], meta_t);
+        } else {
+          eval_fusion.bind(fusion->inputs()[i], t);
+        }
+      } else {
+        eval_fusion.bind(fusion->inputs()[i], pv);
+      }
+    }
+    for (auto v : fusion->outputs()) {
+      auto result = eval_fusion.evaluate(v);
+      output_tensor_proxies.push(result);
+    }
+    return output_tensor_proxies;
+  }
+
   for (Val* output : fusion->outputs()) {
     NVF_ERROR(
         output->isA<TensorView>(),
