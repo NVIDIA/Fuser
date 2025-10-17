@@ -85,19 +85,22 @@ namespace nvfuser {
 #endif
 
 #if (CUDA_VERSION >= 12000)
-#define NVF_DRIVER_API_WRAPPER_CUDA_120(fn)  \
-  fn(cuTensorMapEncodeTiled, 12000);         \
-  /* Virtual memory management */            \
-  fn(cuMemAddressReserve, 12000);            \
-  fn(cuMemAddressFree, 12000);               \
-  fn(cuMemMap, 12000);                       \
-  fn(cuMemUnmap, 12000);                     \
-  fn(cuMemSetAccess, 12000);                 \
-  fn(cuMemCreate, 12000);                    \
-  fn(cuMemRelease, 12000);                   \
-  fn(cuMemExportToShareableHandle, 12000);   \
-  fn(cuMemImportFromShareableHandle, 12000); \
-  fn(cuMemGetAllocationGranularity, 12000)
+#define NVF_DRIVER_API_WRAPPER_CUDA_120(fn)          \
+  fn(cuTensorMapEncodeTiled, 12000);                 \
+  /* Virtual memory management */                    \
+  fn(cuMemAddressReserve, 12000);                    \
+  fn(cuMemAddressFree, 12000);                       \
+  fn(cuMemMap, 12000);                               \
+  fn(cuMemUnmap, 12000);                             \
+  fn(cuMemSetAccess, 12000);                         \
+  fn(cuMemCreate, 12000);                            \
+  fn(cuMemRelease, 12000);                           \
+  fn(cuMemExportToShareableHandle, 12000);           \
+  fn(cuMemImportFromShareableHandle, 12000);         \
+  fn(cuMemGetAllocationGranularity, 12000);          \
+  fn(cuMemRetainAllocationHandle, 12000);            \
+  fn(cuMemGetAllocationPropertiesFromHandle, 12000); \
+  fn(cuMemGetAccess, 12000)
 #else
 #define NVF_DRIVER_API_WRAPPER_CUDA_120(fn)
 #endif

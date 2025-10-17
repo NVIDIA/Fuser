@@ -1227,6 +1227,50 @@ TEST_F(AllocationTest, inHostForLoop) {
   EXPECT_EQ(sizes, outputs[0].as<at::Tensor>().sizes());
 }
 
+TEST_F(AllocationTest, SymmetricMemory) {
+  constexpr int64_t size0 = 8, size1 = 64;
+  const std::vector<int64_t> sizes = {size0, size1};
+
+  auto hic = std::make_unique<HostIrContainer>();
+  FusionGuard fg(hic.get());
+
+  auto* tv = makeConcreteTensor(sizes);
+  tv->setMemoryType(MemoryType::Symmetric);
+  auto* allocate = IrBuilder::create<kir::Allocate>(tv, MemoryType::Symmetric);
+  hic->addOutput(tv);
+  hic->pushBackTopLevelExprs(allocate);
+
+  HostIrEvaluator hie(std::move(hic));
+
+  auto output = hie.runWithInput({})[0].as<at::Tensor>();
+
+  EXPECT_EQ(output.sizes(), sizes);
+  EXPECT_EQ(output.strides(), std::vector<int64_t>({size1, 1}));
+  EXPECT_EQ(output.dtype(), at::kFloat);
+
+  auto ptr = (CUdeviceptr)output.data_ptr();
+
+  CUmemLocation location{};
+  location.type = CU_MEM_LOCATION_TYPE_DEVICE;
+  location.id = 0;
+  unsigned long long flags = 0;
+  NVFUSER_CUDA_SAFE_CALL(cuMemGetAccess(&flags, &location, ptr));
+  EXPECT_EQ(flags, CU_MEM_ACCESS_FLAGS_PROT_READWRITE);
+
+  CUmemGenericAllocationHandle alloc_handle = 0;
+  NVFUSER_CUDA_SAFE_CALL(
+      cuMemRetainAllocationHandle(&alloc_handle, (void*)ptr));
+
+  CUmemAllocationProp prop{};
+  NVFUSER_CUDA_SAFE_CALL(
+      cuMemGetAllocationPropertiesFromHandle(&prop, alloc_handle));
+  EXPECT_EQ(prop.type, CU_MEM_ALLOCATION_TYPE_PINNED);
+  EXPECT_EQ(prop.location.type, CU_MEM_LOCATION_TYPE_DEVICE);
+  EXPECT_EQ(prop.location.id, 0);
+  EXPECT_EQ(
+      prop.requestedHandleTypes, CU_MEM_HANDLE_TYPE_POSIX_FILE_DESCRIPTOR);
+}
+
 using HirAliasSelectHostIrTest = NVFuserTest;
 
 TEST_F(HirAliasSelectHostIrTest, SelectingTensor) {
