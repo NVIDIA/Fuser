@@ -435,22 +435,8 @@ void validateInputsGroupMm(
   int64_t prev_offset = 0;
   for (int64_t i = 0; i < g; ++i) {
     int64_t expert_offset = expert_offsets[i].item<int64_t>();
-    NVF_CHECK(
-        expert_offset <= m,
-        "The expert offset ",
-        i,
-        " is ",
-        expert_offset,
-        ", but it must be smaller than the M dimension of operand A ",
-        m);
-    NVF_CHECK(
-        prev_offset == 0 || prev_offset < expert_offset,
-        "The expert offset ",
-        i,
-        " is ",
-        expert_offset,
-        ", but it must be smaller than the previous offset ",
-        prev_offset);
+    NVF_CHECK_LE(expert_offset, m);
+    NVF_CHECK_LE(prev_offset, expert_offset);
     prev_offset = expert_offset;
   }
 
