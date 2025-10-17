@@ -167,7 +167,7 @@ void CutlassCompiledKernel::run(
     debug() << "Allocating " << workspace_size
             << " bytes to use as CUTLASS workspace" << std::endl;
   }
-  at::Tensor workspace = at::empty(workspace_size, workspace_options);
+  const at::Tensor workspace = at::empty(workspace_size, workspace_options);
 
   // Define the function signature for the kernel
   using KernelFunc =
