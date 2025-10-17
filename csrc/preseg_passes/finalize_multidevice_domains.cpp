@@ -81,7 +81,7 @@ void shardAllocation(TensorView* tv) {
 
   // Allocation domain should be a permutation of logical domain at this point.
   auto loop_stream_device_view =
-      tv->getLoopDomain() | std::views::filter([](IterDomain* id) {
+      tv->getLoopDomain() | std::views::filter([&tv](IterDomain* id) {
         return id->isDeviceDim() ||
             (id->isStream() && shouldParallelizeAllocationOnStream(tv));
       });
