@@ -5,6 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <ir/builder.h>
 #include <ir/utils.h>
 #include <logical_domain_map.h>
 #include <runtime/executor_kernel_arg.h>
@@ -1162,6 +1163,69 @@ bool SchedulerTopologyChecker::hasCyclicReshape(Fusion* fusion) {
           exact_graph.toGroups(getReshapeIds(reshape_j).second);
 
       if (inp_groups_i.hasIntersect(out_groups_j)) {
+        return true;
+      }
+    }
+  }
+
+  return false;
+}
+
+namespace {
+
+// Two sequences of constant outer-split factors are considered compatible
+// if they share the same leading prefix up to the length of the shorter one.
+// That is, either they are identical (same length) or the shorter sequence
+// matches the first N elements of the longer one.
+bool areConstExtentSequencesCompatible(
+    const std::vector<int64_t>& a,
+    const std::vector<int64_t>& b) {
+  if (a.size() <= b.size()) {
+    return a == std::vector<int64_t>(b.begin(), b.begin() + a.size());
+  } else {
+    return b == std::vector<int64_t>(a.begin(), a.begin() + b.size());
+  }
+}
+
+} // namespace
+
+// Reshape is expressed as merges and outer splits by constant factors.
+// Merges are replay-safe and do not introduce conflicts during transform
+// propagation. Compatibility therefore hinges on the constant outer-split
+// factors: if the leading prefix of factors matches, the splits can be
+// replayed across reshapes.
+bool SchedulerTopologyChecker::hasIncompatibleReshape(Fusion* fusion) {
+  const auto reshape_ops = ir_utils::getOpsOfType<ReshapeOp>(fusion);
+  if (reshape_ops.size() < 2) {
+    return false;
+  }
+
+  // Collect constant outer-split factors of the reshape output, ordered
+  // from outer-most to inner-most.
+  auto collect_extent_prefix = [](ReshapeOp* reshape) {
+    auto reshape_out = reshape->out()->as<TensorView>();
+    std::vector<int64_t> outer_split_factors;
+    for (auto* id : reshape_out->getLogicalDomain()) {
+      if (auto* def = id->definition()) {
+        if (auto* split = dynamic_cast<Split*>(def)) {
+          if (!split->innerSplit() && split->outer() == id &&
+              split->factor()->isConstInt()) {
+            outer_split_factors.push_back(
+                split->factor()->evaluate().as<int64_t>());
+          }
+        }
+      }
+    }
+
+    return outer_split_factors;
+  };
+
+  for (const auto i : arange(std::ssize(reshape_ops) - 1)) {
+    const auto& out_ids_i_extents = collect_extent_prefix(reshape_ops[i]);
+    for (const auto j : arange(i + 1, std::ssize(reshape_ops))) {
+      const auto& out_ids_j_extents = collect_extent_prefix(reshape_ops[j]);
+      if (!areConstExtentSequencesCompatible(
+              out_ids_i_extents, out_ids_j_extents)) {
         return true;
       }
     }
