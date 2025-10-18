@@ -1201,6 +1201,8 @@ void TransformPropagator::propagateP2C(TensorView* from, TensorView* to) {
     debug() << "TransformPropagator::propagateP2C" << std::endl;
     debug() << "  from: " << from << " @ " << pos << std::endl;
     debug() << "  to: " << to << std::endl;
+    std::cout << "  from transforms: " << std::endl;
+    from->printTransforms();
   }
   if (new_pos < 0) {
     auto replay = TransformReplay::replayCasP(
@@ -1255,6 +1257,9 @@ void TransformPropagator::propagateSibling(TensorView* from, TensorView* to) {
 
 TransformPropagator::TransformPropagator(TensorView* from, int64_t pos) {
   replayed_pos_[from] = wrapDim(pos, from->nDims() + 1);
+  std::cout << "TransformPropagator::TransformPropagator" << std::endl;
+  std::cout << "  from: " << from->toString() << " @ " << replayed_pos_[from]
+            << std::endl;
 }
 
 void MostInlinedTransformPropagator::propagateC2P(

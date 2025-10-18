@@ -123,6 +123,8 @@ class SchedulerTopologyChecker {
   // propagateReshapeTransforms won't work as it won't find any
   // terminating reshape IDs.
   static bool hasCyclicReshape(Fusion* fusion);
+
+  static bool hasIncompatibleReshape(Fusion* fusion);
 };
 
 } // namespace registry_utils
