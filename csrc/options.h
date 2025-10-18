@@ -59,6 +59,7 @@ enum class DebugDumpOption {
   GlobalZeroedMemory, //!< Print the log for zeroed global memory allocator
   HostIr, //!< Dump the Host IR program
   HostIrJit, //!< Dump the LLVM IR lowered from Host IR
+  Inlining, //! Verbose information about tensor inlining
   KernelArgs, //!< Print the runtime kernel arguments when launching kernels
   FusionSegmentsDrawing, //!< Dump Segmented Fusion Graph
   PrintPtxasLog, //!< Print the ptxas verbose log including register usage
