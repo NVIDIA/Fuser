@@ -879,9 +879,6 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
 
   if (!ir_utils::getReshapeOps(fusion).empty()) {
     ComputeAtMap ca_map(fusion);
-    std::cout << "fusion before propagateReshapeTransforms" << std::endl;
-    fusion->print();
-    std::cout << ca_map.toString() << std::endl;
     // Propagate reshape transforms through the graph, expecially the reference.
     scheduler_utils::propagateReshapeTransforms(fusion, ca_map);
 
