@@ -242,6 +242,10 @@ size_t MaxPosCalculator::getMaxPosAll(
     TensorView* tv,
     bool best_effort,
     bool check_siblings) {
+  // When check_siblings is not true, it means this function is
+  // recursively called from the below conditional block for sibling
+  // check. Enable debug dump only when it's first called and disable
+  // it when recursibly called.
   const bool debug_dump =
       isDebugDumpEnabled(DebugDumpOption::Inlining) && check_siblings;
   std::stringstream debug_msg;
