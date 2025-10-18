@@ -8,7 +8,7 @@ import multiprocessing
 import subprocess
 import sys
 import shutil
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import setuptools.command.build_ext
 
 
@@ -30,20 +30,13 @@ class BuildConfig:
     version_tag: str = None
     build_type: str = "Release"
     wheel_name: str = "nvfuser"
-    nvmmh_include_dir: str = None
+    nvmmh_include_dir: str = ""
     build_dir: str = ""
     install_dir: str = ""
-    install_requires: list = None
-    extras_require: dict = None
+    install_requires: list = field(default_factory=list)
+    extras_require: dict = field(default_factory=dict)
     cpp_standard: int = 20
     cutlass_max_jobs: int = 0
-
-    def __post_init__(self):
-        # dataclass cannot have mutable default values in the class definition
-        if self.install_requires is None:
-            self.install_requires = []
-        if self.extras_require is None:
-            self.extras_require = {}
 
 
 def check_env_flag_bool_default(name: str, default: str = "") -> bool:
@@ -295,7 +288,6 @@ def override_build_config_from_env(config):
     if "NVFUSER_CUTLASS_MAX_JOBS" in os.environ:
         config.cutlass_max_jobs = int(os.getenv("NVFUSER_CUTLASS_MAX_JOBS"))
     if "NVFUSER_BUILD_NVMMH_INCLUDE_DIR" in os.environ:
-        config.has_nvmmh = True
         config.nvmmh_include_dir = os.getenv("NVFUSER_BUILD_NVMMH_INCLUDE_DIR")
 
 
@@ -493,10 +485,11 @@ def cmake(config, relative_path):
         f"-DNVFUSER_DISTRIBUTED={on_or_off(not config.build_without_distributed)}",
         f"-DUSE_HOST_IR_JIT={on_or_off(config.build_with_host_ir_jit)}",
         f"-DCUTLASS_MAX_JOBS={config.cutlass_max_jobs}",
-        f"-DNVMMH_INCLUDE_DIR={config.nvmmh_include_dir}",
         "-B",
         cmake_build_dir,
     ]
+    if config.nvmmh_include_dir:
+        f"-DNVMMH_INCLUDE_DIR={config.nvmmh_include_dir}",
     if not config.no_ninja:
         cmd_str.append("-G")
         cmd_str.append("Ninja")
