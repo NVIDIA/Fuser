@@ -272,8 +272,6 @@ class FusionProfiler {
   static void recordAsyncCorrIdActivity(uint32_t seg_id, uint32_t corr_id);
   //! Collects CUPTI Kernel Activity
   static void recordAsyncKernelActivity(KernelProfile prof);
-  //! Ptr to the CUPTI Activity Buffer
-  static uint8_t* cuptiBufferPtr();
 
  public:
   // CUPTI buffer size 200.0 KB
@@ -293,8 +291,6 @@ class FusionProfiler {
 
   //! Disables CUPTI usage in order to measure Host Time without CUPTI overhead
   bool cupti_disabled_;
-  //! Buffer for Cupti to store Activity Buffers during async activity
-  std::vector<uint8_t> cupti_buffer_;
   //! The state is used to check for errors in usage
   ProfilerState state_;
 

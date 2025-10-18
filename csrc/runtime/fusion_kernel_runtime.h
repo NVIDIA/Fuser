@@ -11,7 +11,9 @@
 
 #include <fusion_segmenter.h>
 #include <host_ir/evaluator.h>
+#ifdef NVFUSER_HOST_IR_JIT
 #include <host_ir/jit.h>
+#endif
 #include <polymorphic_value.h>
 #include <runtime/executor.h>
 #include <runtime/executor_kernel_arg.h>
@@ -141,13 +143,11 @@ class FusionKernelRuntime {
 
   //! Get the Host IR Container
   const hir::HostIrContainer& getHostIrContainer() const {
-    if (isOptionEnabled(EnableOption::HostIrJit)) {
-      NVF_ERROR(hij_ != nullptr, "Host IR JIT is not initialized");
-      return hij_->container();
-    } else {
-      NVF_ERROR(hie_ != nullptr, "Host IR Evaluator is not initialized");
-      return hie_->container();
-    }
+#ifdef NVFUSER_HOST_IR_JIT
+    return hij_->container();
+#else
+    return hie_->container();
+#endif
   }
 
  private:
@@ -189,10 +189,13 @@ class FusionKernelRuntime {
   //! Executors holding compiled kernels
   std::vector<std::unique_ptr<ExecutorAbstract>> executors_;
 
-  //! Host IR JIT (used when EnableOption::HostIrJit is set)
+#ifdef NVFUSER_HOST_IR_JIT
+  //! Host IR JIT
   std::unique_ptr<HostIrJit> hij_;
-  //! Host IR Evaluator (used when EnableOption::HostIrJit is not set)
+#else
+  //! Host IR Evaluator
   std::unique_ptr<hir::HostIrEvaluator> hie_;
+#endif
 
   // A metadata copy of initial arguments used to contruct this
   // FusionKernelRuntime. Used during deserialization to schedule the fusion

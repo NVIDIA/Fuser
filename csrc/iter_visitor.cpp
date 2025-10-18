@@ -70,8 +70,9 @@ class MemberStatements : public OptOutDispatch {
   }
 
   void handle(TensorDomain* stmt) final {
-    next_stmts_.insert(
-        next_stmts_.end(), stmt->loop().begin(), stmt->loop().end());
+    for (const std::vector<IterDomain*>* dom : stmt->allDomains()) {
+      next_stmts_.insert(next_stmts_.end(), dom->begin(), dom->end());
+    }
   }
 
   void handle(TensorView* tv) final {
