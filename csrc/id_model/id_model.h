@@ -229,7 +229,8 @@ class NVF_API IdModel : public PolymorphicBase {
   ValGraph buildIntersection(
       const ValGraph& graph0,
       const ValGraph& graph1,
-      bool propagate_exprs = true) const;
+      bool propagate_exprs = true,
+      bool permissive = false) const;
 
   const std::unordered_map<ValGroup, IterDomain*>& loopPromotionMap() const {
     return loop_promotion_map_;

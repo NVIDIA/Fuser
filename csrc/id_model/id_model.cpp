@@ -966,11 +966,80 @@ StatefulInliningInfo buildStatefulInliningInfo(
 }
 
 void IdModel::initializeLoopGraph(const StatefulInliningInfo& info) {
-  // In the case of the Loop graph, we do not propagate mappings but
-  // explicitly set which domains to map based on the permissive graph
-  // and the CA positions.
-  NVF_ERROR(
-      id_graphs_.emplace(IdMappingMode::LOOP, initializeIdGraph(false)).second);
+  {
+    // In the case of the Loop graph, we do not propagate mappings but
+    // explicitly set which domains to map based on the permissive graph
+    // and the CA positions.
+    ValGraph loop_graph(false);
+
+    // loop_ids only contains at IDs between logical->loop
+    VectorOfUniqueEntries<IterDomain*> loop_ids;
+
+    auto all_ids_except_allocation = [&loop_ids](TensorView* tv) {
+      std::vector<const std::vector<IterDomain*>*> all_domains = {
+          &tv->getLoopDomain(),
+          &tv->getLogicalDomain(),
+          &tv->getInitialLoopDomain(),
+          &tv->domain()->additionalIDs()};
+      if (tv->hasRoot()) {
+        all_domains.push_back(&tv->getRootDomain());
+      }
+      if (tv->getAlternateLoopDomain().has_value()) {
+        all_domains.push_back(&tv->getAlternateLoopDomain().value());
+      }
+
+      for (auto domain : all_domains) {
+        loop_ids.pushBack(*domain);
+      }
+
+      // We only care about IDs on the shortest path between domains
+      std::unordered_multimap<IterDomain*, IterDomain*> out2in;
+      for (auto i : arange(all_domains.size() - 1)) {
+        if (all_domains[i]->empty()) {
+          continue;
+        }
+        for (auto j : arange(i + 1, all_domains.size())) {
+          if (all_domains[j]->empty()) {
+            continue;
+          }
+          auto path = getExprsBetween<IRBFS>(
+                          {all_domains[i]->begin(), all_domains[i]->end()},
+                          {all_domains[j]->begin(), all_domains[j]->end()},
+                          false)
+                          .first;
+          for (auto [expr, _] : path) {
+            loop_ids.pushBack(
+                ir_utils::filterByType<IterDomain>(expr->outputs()));
+            loop_ids.pushBack(
+                ir_utils::filterByType<IterDomain>(expr->inputs()));
+          }
+        }
+      }
+      return loop_ids.vector();
+    };
+
+    for (TensorView* tv : tvs_) {
+      all_ids_except_allocation(tv);
+    }
+    std::vector<IterDomain*> all_ids = loop_ids.vector();
+
+    std::sort(
+        all_ids.begin(), all_ids.end(), [](IterDomain* id1, IterDomain* id2) {
+          return id1->name() < id2->name();
+        });
+
+    for (auto id : all_ids) {
+      auto uses_it = id_uses_.find(id);
+      NVF_ERROR(
+          uses_it != id_uses_.end(),
+          "Failed to initialize id: ",
+          id->toString(),
+          " as it's missing a definition entry.");
+      loop_graph.initializeVal(id, id_definitions_.at(id), uses_it->second);
+    }
+    NVF_ERROR(
+        id_graphs_.emplace(IdMappingMode::LOOP, std::move(loop_graph)).second);
+  }
 
   // Make sure this is called in a deterministic order. Build all inlined
   // relationships in loop graph.
@@ -1096,7 +1165,8 @@ void IdModel::removeGraph(IdMappingMode mode) {
 ValGraph IdModel::buildIntersection(
     const ValGraph& graph0,
     const ValGraph& graph1,
-    bool propagate_exprs) const {
+    bool propagate_exprs,
+    bool permissive) const {
   ValGraph intersection = initializeIdGraph(propagate_exprs);
   for (const ValGroup& group0 : graph0.disjointValSets().disjointSets()) {
     auto set_size = group0->size();
@@ -1106,7 +1176,11 @@ ValGraph IdModel::buildIntersection(
         Val* id1 = group0->vector()[id1_i];
         // id0 and id1 map in group0. If they also map in the group1,
         // add the mapping to the intersection.
-        if (graph1.disjointValSets().strictAreMapped(id0, id1)) {
+        if (permissive) {
+          if (graph1.disjointValSets().permissiveAreMapped(id0, id1)) {
+            intersection.mapVals(id0, id1);
+          }
+        } else if (graph1.disjointValSets().strictAreMapped(id0, id1)) {
           intersection.mapVals(id0, id1);
         }
       }
