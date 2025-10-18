@@ -4,7 +4,7 @@
 import pytest
 
 import torch
-from nvfuser import FusionDefinition, DataType
+from nvfuser_direct import FusionDefinition, DataType
 from .core import run_benchmark, with_executor, unary_bwd_torch, clear_dynamo_cache
 from .cross_entropy_loss import (
     cross_entropy_loss_setup,

@@ -2,8 +2,8 @@
 # All rights reserved.
 # SPDX-License-Identifier: BSD-3-Clause
 import pytest
-from nvfuser import FusionDefinition, DataType
-from nvfuser.pytorch_utils import torch_dtype_to_nvfuser_dtype
+from nvfuser_direct import FusionDefinition, DataType
+from nvfuser_direct.pytorch_utils import torch_dtype_to_nvfuser_dtype
 from .core import run_benchmark, clear_dynamo_cache, with_executor
 import torch
 from .global_params import generate_input_sizes, FLOAT_DTYPES, PROMOTE_DTYPES
@@ -27,8 +27,7 @@ def gelu_bwd_reduction_fusion(
     S_079 = fd.define_scalar(0.79788456)
     S_004 = fd.define_scalar(0.044715)
     S_010 = fd.define_scalar(0.1070322243)
-    V1 = fd.define_vector([1, input.size(-1)], dtype=DataType.Int)
-    bias = fd.ops.broadcast_in_dim(bias, shape=V1, broadcast_dims=[1])
+    bias = fd.ops.broadcast_in_dim(bias, shape=[1, input.size(-1)], broadcast_dims=[1])
     T1 = fd.ops.add(input, bias)
     T2 = fd.ops.mul(T1, S_079)
     T3 = fd.ops.mul(T1, S_004)
