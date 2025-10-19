@@ -174,7 +174,13 @@ TEST_P(FMinFMaxPromotionTest, Test) {
   if (testIndex == 7) {
     TensorView* tv3 = add(abs(max(tv0, {0, 1})), sum(tv0, {0, 1}));
     fusion->addOutput(tv3);
-    expectFMax = false;
+    expectFMax = true;
+  }
+
+  if (testIndex == 8) {
+    TensorView* tv3 = add(max(tv0, {0, 1}), max(tv0, {0, 1}));
+    fusion->addOutput(tv3);
+    expectFMax = true;
   }
 
   fusion->printMath();
@@ -210,7 +216,7 @@ TEST_P(FMinFMaxPromotionTest, Test) {
 INSTANTIATE_TEST_SUITE_P(
     MathOptTest,
     FMinFMaxPromotionTest,
-    ::testing::Values(1, 2, 3, 4, 5, 6, 7),
+    ::testing::Values(1, 2, 3, 4, 5, 6, 7, 8),
     [](const testing::TestParamInfo<int>& info) -> std::string {
       std::stringstream ss;
       ss << info.param;
