@@ -378,7 +378,10 @@ std::vector<KernelArgumentHolder> FusionKernelRuntime::prepareInputs(
         if (tensor_pv.is<at::Tensor>()) {
           const auto t = tensor_pv.as<at::Tensor>();
           if (t.defined()) {
-            const auto meta_t = at::empty_strided(t.sizes(), t.strides(), at::TensorOptions().device(at::kMeta).dtype(t.dtype()));
+            const auto meta_t = at::empty_strided(
+                t.sizes(),
+                t.strides(),
+                at::TensorOptions().device(at::kMeta).dtype(t.dtype()));
             eval_fusion.bind(fusion_to_run->inputs()[i], meta_t);
           } else {
             eval_fusion.bind(fusion_to_run->inputs()[i], t);
@@ -401,7 +404,10 @@ std::vector<KernelArgumentHolder> FusionKernelRuntime::prepareInputs(
 
     // map output args to tensor map
     args_manager.updateWithSegmentOutputs(
-        group_to_run->outputs(), group_runtime_outputs, run_order_id, is_expr_eval);
+        group_to_run->outputs(),
+        group_runtime_outputs,
+        run_order_id,
+        is_expr_eval);
   }
 
   return all_runtime_inputs;
@@ -642,7 +648,10 @@ std::optional<std::unique_ptr<HeuristicParamsList>> FusionKernelRuntime::
         if (tensor_pv.is<at::Tensor>()) {
           const auto t = tensor_pv.as<at::Tensor>();
           if (t.defined()) {
-            const auto meta_t = at::empty_strided(t.sizes(), t.strides(), at::TensorOptions().device(at::kMeta).dtype(t.dtype()));
+            const auto meta_t = at::empty_strided(
+                t.sizes(),
+                t.strides(),
+                at::TensorOptions().device(at::kMeta).dtype(t.dtype()));
             eval_fusion.bind(fusion_to_run->inputs()[i], meta_t);
           } else {
             eval_fusion.bind(fusion_to_run->inputs()[i], t);

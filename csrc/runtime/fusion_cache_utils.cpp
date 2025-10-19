@@ -78,14 +78,16 @@ void resetAllocationDomainAndContiguity(
   if (!tensor.defined()) {
     return;
   }
-  const auto [sizes, strides] = inferAllocationSizesAndStrides(tensor, tv, ExpressionEvaluator());
+  const auto [sizes, strides] =
+      inferAllocationSizesAndStrides(tensor, tv, ExpressionEvaluator());
   auto contiguity_without_reduction = computeContiguity(sizes, strides);
   std::vector<std::optional<bool>> contiguity;
   int64_t index = 0;
   for (auto id : tv->getMaybeAllocationDomain()) {
     if (id->isReduction()) {
       contiguity.push_back(std::nullopt);
-    } else if (!id->isBroadcast() &&
+    } else if (
+        !id->isBroadcast() &&
         !contiguity_without_reduction[index].has_value()) {
       contiguity.push_back(true);
       index++;

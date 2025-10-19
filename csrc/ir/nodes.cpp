@@ -4987,9 +4987,10 @@ _scaled_dot_product_flash_attention_meta(const at::Tensor& query) {
       {batch_size, num_heads, seqlen_q}, query.options().dtype(at::kFloat));
   // Produce defined meta tensors for philox outputs so downstream segments
   // can bind metadata and types correctly.
-  const auto meta_u64 = at::TensorOptions().device(at::kMeta).dtype(at::kUInt64);
-  auto rng_state = at::empty({2}, meta_u64);     // philox_seed/rng_state
-  auto unused_offset = at::empty({}, meta_u64);  // philox_offset/_unused (0-dim)
+  const auto meta_u64 =
+      at::TensorOptions().device(at::kMeta).dtype(at::kUInt64);
+  auto rng_state = at::empty({2}, meta_u64); // philox_seed/rng_state
+  auto unused_offset = at::empty({}, meta_u64); // philox_offset/_unused (0-dim)
   return std::make_tuple(
       query,
       logsumexp,
@@ -5436,12 +5437,12 @@ std::vector<PolymorphicValue> EmbeddingFwdOp::evaluate(
     // Embedding expands the last dimension to embedding_dim = weight.size(1)
     NVF_CHECK(
         weight.dim() >= 2,
-        "Embedding weight must be at least 2D [num_embeddings, embedding_dim], but got dim=",
+        "Embedding weight must be at least 2D [num_embeddings, embedding_dim], "
+        "but got dim=",
         weight.dim());
     out_sizes.push_back(weight.size(1));
     auto out = at::empty(
-        out_sizes,
-        at::TensorOptions().device(at::kMeta).dtype(weight.dtype()));
+        out_sizes, at::TensorOptions().device(at::kMeta).dtype(weight.dtype()));
     return {out};
   }
 
@@ -5708,13 +5709,11 @@ std::vector<PolymorphicValue> GroupedMmaOp::evaluate(
       const int64_t num_groups = offsets_meta_check.numel();
       std::vector<int64_t> result_sizes;
       if (mat1_meta_check.dim() == 2 && mat2_meta_check.dim() == 2) {
-        result_sizes = {num_groups, mat1_meta_check.size(0),
-                        mat2_meta_check.size(-1)};
-      } else if (
-          mat1_meta_check.dim() == 3 && mat2_meta_check.dim() == 2) {
+        result_sizes = {
+            num_groups, mat1_meta_check.size(0), mat2_meta_check.size(-1)};
+      } else if (mat1_meta_check.dim() == 3 && mat2_meta_check.dim() == 2) {
         result_sizes = {mat1_meta_check.size(1), mat2_meta_check.size(-1)};
-      } else if (
-          mat1_meta_check.dim() == 2 && mat2_meta_check.dim() == 3) {
+      } else if (mat1_meta_check.dim() == 2 && mat2_meta_check.dim() == 3) {
         result_sizes = {mat1_meta_check.size(0), mat2_meta_check.size(-1)};
       } else {
         NVF_THROW(
@@ -5725,8 +5724,8 @@ std::vector<PolymorphicValue> GroupedMmaOp::evaluate(
       }
 
       auto options = mat1_meta_check.options()
-                          .device(c10::Device(c10::kMeta))
-                          .dtype(data_type_to_aten(out()->dtype()));
+                         .device(c10::Device(c10::kMeta))
+                         .dtype(data_type_to_aten(out()->dtype()));
       at::Tensor result = at::empty(result_sizes, options);
 
       if (const auto rfactor_did_idx = getRFactorDeviceDimensionIndex(out());

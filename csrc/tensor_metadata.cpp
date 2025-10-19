@@ -337,7 +337,6 @@ inferAllocationSizesAndStrides(
   return {std::move(allocation_sizes), std::move(allocation_strides)};
 }
 
-
 std::pair<std::vector<int64_t>, std::vector<int64_t>>
 inferAndValidateAllocationSizesAndStrides(
     const at::Tensor& tensor,
