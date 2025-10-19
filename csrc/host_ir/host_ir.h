@@ -479,6 +479,10 @@ class ShardByStream : public Expr {
   }
 };
 
+// Creates a ShardByStream without needing the output TensorView. Returns the
+// output TensorView.
+TensorView* shardByStream(TensorView* in, Val* stream_index);
+
 class ForLoop : public Expr {
  public:
   using Expr::Expr;
@@ -491,6 +495,8 @@ class ForLoop : public Expr {
   ForLoop& operator=(ForLoop&& other) = delete;
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  static ForLoop* createFromIterDomain(Val* index, IterDomain* iter_domain);
 
   std::string toString(int indent_size = 0) const override;
   std::string toInlineString(int indent_size = 0) const override;
@@ -518,7 +524,5 @@ class ForLoop : public Expr {
     return attribute<Scope>(0);
   }
 };
-
-ForLoop* createForLoopFromIterDomain(Val* index, IterDomain* iter_domain);
 
 } // namespace nvfuser::hir
