@@ -14,9 +14,9 @@
 #include <fusion_guard.h>
 #include <ir/interface_nodes.h>
 #include <multidevice/utils.h>
-#include <ops/alias.h>
-#include <ops/arith.h>
-#include <ops/composite.h>
+#include <ops/all_ops.h>
+#include <preseg_passes/pre_segmenter.h>
+#include <preseg_passes/propagate_shardings.h>
 #include <runtime/fusion_executor_cache.h>
 #include <tests/cpp/utils.h>
 #include <tests/cpp/validator.h>
@@ -137,6 +137,106 @@ TEST_F(StreamTest, HaveDifferentShardings) {
 
   EXPECT_FALSE(haveDifferentShardings(tv1, tv2, {ParallelType::Stream}));
   EXPECT_TRUE(haveDifferentShardings(tv2, tv3, {ParallelType::Stream}));
+}
+
+TEST_F(StreamTest, ForwardPropagation) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  const int64_t s = 2;
+
+  TensorView* in = makeContigTensor(2);
+  TensorView* w = makeContigTensor(2);
+  TensorView* out = matmul(in, w);
+  fusion->addInput(in);
+  fusion->addInput(w);
+  fusion->addOutput(out);
+
+  w->outer_split(1, s);
+  w->axis(1)->parallelize(ParallelType::Stream);
+
+  preseg_passes::OptimizationPass<
+      preseg_passes::PropagateShardingsPass>::runPass(fusion.get());
+  EXPECT_TRUE(out->axis(1)->isStream()) << out;
+}
+
+TEST_F(StreamTest, BackwardPropagation) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  const int64_t s = 2;
+
+  TensorView* tv0 = makeContigTensor(2);
+  TensorView* tv1 = add(tv0, IrBuilder::create<Val>(1.0));
+  TensorView* tv2 = add(tv1, tv1);
+  fusion->addInput(tv0);
+  fusion->addOutput(tv2);
+
+  tv2->outer_split(0, s);
+  tv2->axis(0)->parallelize(ParallelType::Stream);
+
+  preseg_passes::OptimizationPass<
+      preseg_passes::PropagateShardingsPass>::runPass(fusion.get());
+  for (auto* tv : {tv0, tv1, tv2}) {
+    EXPECT_TRUE(tv->axis(0)->isStream()) << tv;
+  }
+}
+
+TEST_F(StreamTest, ShardedAllocation) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  const int64_t s = 2;
+
+  TensorView* tv0 = makeContigTensor(3);
+  TensorView* tv1 = add(tv0, IrBuilder::create<Val>(1.0));
+  TensorView* tv2 = sum(tv1, {2});
+  TensorView* tv3 = div(tv1, IrBuilder::create<Val>(2.0));
+  fusion->addInput(tv0);
+  fusion->addOutput(tv2);
+  fusion->addOutput(tv3);
+
+  tv0->outer_split(0, s);
+  tv0->axis(0)->parallelize(ParallelType::Stream);
+
+  preseg_passes::OptimizationPass<preseg_passes::PreSegmenter>::runPass(
+      fusion.get());
+
+  for (auto* tv : {tv0, tv1, tv2, tv3}) {
+    EXPECT_TRUE(tv->axis(0)->isStream()) << tv;
+    if (tv->isFusionOutput() || tv->isFusionInput()) {
+      EXPECT_EQ(tv->getAllocationDomain(), tv->getLogicalDomain());
+    } else {
+      EXPECT_EQ(tv->getAllocationDomain(), tv->getLoopDomain());
+    }
+  }
+}
+
+TEST_F(StreamTest, ReplicatedAllocation) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  const int64_t s = 2;
+
+  TensorView* tv0 = makeContigTensor(3);
+  TensorView* tv1 = add(tv0, IrBuilder::create<Val>(1.0));
+  TensorView* tv2 = sum(tv1, {2});
+  TensorView* tv3 = div(tv1, IrBuilder::create<Val>(2.0));
+  fusion->addInput(tv0);
+  fusion->addOutput(tv2);
+  fusion->addOutput(tv3);
+
+  tv0->outer_split(0, s);
+  tv0->axis(0)->parallelize(ParallelType::Stream);
+  tv2->outer_split(1, s);
+  tv2->axis(1)->parallelize(ParallelType::Stream);
+
+  preseg_passes::OptimizationPass<preseg_passes::PreSegmenter>::runPass(
+      fusion.get());
+  for (auto* tv : {tv0, tv1, tv2, tv3}) {
+    EXPECT_TRUE(tv->axis(0)->isStream()) << tv;
+    EXPECT_EQ(tv->getAllocationDomain(), tv->getLogicalDomain());
+  }
 }
 
 } // namespace nvfuser

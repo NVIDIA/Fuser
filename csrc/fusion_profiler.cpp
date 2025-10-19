@@ -544,7 +544,7 @@ void record_cupti_activity_buffer(
   for (size_t i = 0; i < max_records; ++i) {
     status = cuptiActivityGetNextRecord(pBuffer, validBytes, &pRecord);
     if (status == CUPTI_SUCCESS) {
-      // Processes a valid CUPTI Activty record and records it with the
+      // Processes a valid CUPTI Activity record and records it with the
       // fusion profiling infrastructure if the record is of interest.
       record_cupti_activity(pRecord, pFileHandle);
     } else if (status == CUPTI_ERROR_MAX_LIMIT_REACHED) {
@@ -568,21 +568,25 @@ void record_cupti_activity_buffer(
 // The functions cupti_buffer_requested and cupti_buffer_completed are
 // registered with the CUPTI Activiy Record Callback API:
 // cuptiActivityRegisterCallbacks.  Each of the functions APIs is prescribed
-// by CUPTI and you can find their signatured definitions in the CUPT docs.
+// by CUPTI and you can find their signatured definitions in the CUPTI docs.
 
 void cupti_buffer_requested(
     uint8_t** ppBuffer,
     size_t* pSize,
     size_t* pMaxNumRecords) {
-  uint8_t* pBuffer = FusionProfiler::cuptiBufferPtr();
-  NVF_ERROR(pBuffer, "CUPTI Activity Record buffer pointer is null!");
+  // Dynamically allocate a new buffer for each request
+  // This ensures thread-safety and prevents buffer reuse issues
+  const size_t buffer_size = FusionProfiler::cupti_activity_buffer_size;
+  uint8_t* pBuffer = new uint8_t[buffer_size];
+  NVF_ERROR(pBuffer, "Failed to allocate CUPTI Activity Record buffer!");
+
   const size_t align_size = 8;
   NVF_ERROR(
       ((uintptr_t)pBuffer & (align_size - 1)) == 0,
       "The CUPTI Activity Record buffer needs to be 8 byte aligned!");
 
   *ppBuffer = pBuffer;
-  *pSize = FusionProfiler::cupti_activity_buffer_size;
+  *pSize = buffer_size;
   // NOTE: The Max Number of records limits the number of records that can be
   // recorded in the activity buffer.  When set to 0, it puts as many records
   // as it can which effectively disables a max limit.
@@ -598,6 +602,9 @@ void cupti_buffer_completed(
   if (validSize > 0) {
     record_cupti_activity_buffer(pBuffer, validSize, stdout, nullptr);
   }
+
+  // Free the dynamically allocated buffer after processing
+  delete[] pBuffer;
 }
 
 // CUPT activities to enable/disable
@@ -642,7 +649,6 @@ void teardownCupti(CUpti_SubscriberHandle subscriber_handle) {
 
 FusionProfiler::FusionProfiler()
     : cupti_disabled_(false),
-      cupti_buffer_(FusionProfiler::cupti_activity_buffer_size),
       state_(ProfilerState::Ready),
       fusion_id_(-1),
       profile_(),
@@ -894,11 +900,6 @@ void FusionProfiler::recordAsyncCorrIdActivity(
 void FusionProfiler::recordAsyncKernelActivity(KernelProfile prof) {
   FusionProfiler& fp = get();
   fp.kernel_profiles_.emplace_back(std::move(prof));
-}
-
-uint8_t* FusionProfiler::cuptiBufferPtr() {
-  FusionProfiler& fp = get();
-  return fp.cupti_buffer_.data();
 }
 
 } // namespace nvfuser
