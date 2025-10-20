@@ -126,6 +126,7 @@ std::unordered_map<DebugDumpOption, std::vector<std::string>> Options<
       {"host_ir_jit", DebugDumpOption::HostIrJit},
       {"index_type", DebugDumpOption::IndexType},
       {"indexing_verbose", DebugDumpOption::IndexingVerbose},
+      {"inlining", DebugDumpOption::Inlining},
       {"kernel_args", DebugDumpOption::KernelArgs},
       {"kernel_ir", DebugDumpOption::KernelIr},
       {"launch_param", DebugDumpOption::LaunchParam},
