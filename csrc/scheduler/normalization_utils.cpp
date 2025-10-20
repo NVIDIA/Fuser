@@ -786,7 +786,7 @@ int64_t roundUpSharedMemory(
         persistent_batch * vectorize_factor * threads_per_block *
             data_type_size_bit);
   }
-  return max_smem_bit;
+  return alignSharedMemoryBits(max_smem_bit);
 }
 int64_t sharedMemoryRoundUpOverheadBit(
     SchedulerRuntimeInfo& runtime_info,
@@ -808,7 +808,7 @@ int64_t sharedMemoryRoundUpOverheadBit(
     // The difference is counted as roundup overhead
     total_smem_overhead_bit += (buffer_size_smem - logical_buffer_size_bit);
   }
-  return total_smem_overhead_bit;
+  return alignSharedMemoryBits(total_smem_overhead_bit);
 }
 } // namespace
 
@@ -832,6 +832,8 @@ int64_t getMaxRegOrSharedMemorySizeBitForPersistentBuffer(
 
   smem_overhead_bit += sharedMemoryRoundUpOverheadBit(
       runtime_info, persistent_buffer_info, project_to_inputs);
+
+  smem_overhead_bit += scheduler_utils::static_smem_usage_in_bits;
 
   int64_t available_shared_memory_size_bit =
       (int64_t)dev_prop->sharedMemPerBlockOptin * 8 - smem_overhead_bit;
