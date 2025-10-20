@@ -25,6 +25,7 @@
 #include <multidevice/communication.h>
 #include <multidevice/cuda_p2p.h>
 #include <multidevice/utils.h>
+#include <multidevice/symmetric_memory.h>
 #include <options.h>
 #include <runtime/allocations.h>
 #include <runtime/executor_dispatch.h>
@@ -563,87 +564,6 @@ void HostIrEvaluator::handle(LoadStoreOp* load_store_op) {
   }
 }
 
-at::Tensor empty_strided_cuda_symmetric(
-    at::IntArrayRef size,
-    at::IntArrayRef stride,
-    at::ScalarType dtype,
-    at::Device device,
-    std::optional<uint64_t> alloc_id) {
-  if (alloc_id.has_value()) {
-    NVF_ERROR("Persistent symmetric memory allocation is not yet supported");
-  }
-  // Check if the stride corresponds to a contiguous tensor (only supported case
-  // for now)
-  int64_t expected_stride = 1;
-  for (int64_t i = size.size() - 1; i >= 0; --i) {
-    if (stride[i] != expected_stride) {
-      NVF_ERROR(
-          false,
-          "empty_strided_cuda_symmetric only supports contiguous tensors, but "
-          "got strides ",
-          stride,
-          " for size ",
-          size);
-    }
-    expected_stride *= size[i];
-  }
-
-  const int64_t numel = std::accumulate(
-      size.begin(),
-      size.end(),
-      /*init=*/1,
-      std::multiplies<int64_t>());
-  const int64_t element_size = c10::elementSize(dtype);
-  const int64_t alloc_size = numel * element_size;
-
-  CUmemAllocationProp prop{};
-  prop.type = CU_MEM_ALLOCATION_TYPE_PINNED;
-  prop.location.type = CU_MEM_LOCATION_TYPE_DEVICE;
-  prop.location.id = static_cast<int>(device.index());
-  prop.requestedHandleTypes = CU_MEM_HANDLE_TYPE_POSIX_FILE_DESCRIPTOR;
-
-  size_t granularity = 0;
-  NVFUSER_CUDA_SAFE_CALL(cuMemGetAllocationGranularity(
-      &granularity, &prop, CU_MEM_ALLOC_GRANULARITY_MINIMUM));
-
-  // Round up alloc_size to the nearest multiple of granularity
-  int64_t rounded_alloc_size =
-      ((alloc_size + granularity - 1) / granularity) * granularity;
-
-  CUmemGenericAllocationHandle alloc_handle = 0;
-  NVFUSER_CUDA_SAFE_CALL(
-      cuMemCreate(&alloc_handle, rounded_alloc_size, &prop, /*flags=*/0));
-
-  CUdeviceptr ptr = 0;
-  NVFUSER_CUDA_SAFE_CALL(cuMemAddressReserve(
-      &ptr,
-      rounded_alloc_size,
-      /*alignment=*/granularity,
-      /*baseVA=*/0,
-      /*flags=*/0));
-  NVFUSER_CUDA_SAFE_CALL(cuMemMap(
-      ptr, rounded_alloc_size, /*offset=*/0, alloc_handle, /*flags=*/0));
-  CUmemAccessDesc access_desc{};
-  access_desc.location.type = CU_MEM_LOCATION_TYPE_DEVICE;
-  access_desc.location.id = static_cast<int>(device.index());
-  access_desc.flags = CU_MEM_ACCESS_FLAGS_PROT_READWRITE;
-  NVFUSER_CUDA_SAFE_CALL(
-      cuMemSetAccess(ptr, rounded_alloc_size, &access_desc, /*count=*/1));
-
-  auto options = at::TensorOptions().dtype(dtype).device(device);
-  return at::from_blob(
-      (void*)ptr,
-      size,
-      stride,
-      [=](void* ptr) {
-        NVFUSER_CUDA_SAFE_CALL(
-            cuMemUnmap((CUdeviceptr)(ptr), rounded_alloc_size));
-        NVFUSER_CUDA_SAFE_CALL(
-            cuMemAddressFree((CUdeviceptr)(ptr), rounded_alloc_size));
-        NVFUSER_CUDA_SAFE_CALL(cuMemRelease(alloc_handle));
-      },
-      options);
-}
 
 void HostIrEvaluator::handle(kir::Allocate* allocate) {
   FUSER_PERF_SCOPE("HostIrEvaluator::handle(kir::Allocate)");

@@ -19,6 +19,7 @@
 #include <ir/all_nodes.h>
 #include <ir/builder.h>
 #include <multidevice/utils.h>
+#include <multidevice/symmetric_memory.h>
 #include <ops/all_ops.h>
 #include <runtime/executor_kernel_arg.h>
 #include <tests/cpp/utils.h>
@@ -1248,27 +1249,9 @@ TEST_F(AllocationTest, SymmetricMemory) {
   EXPECT_EQ(output.strides(), std::vector<int64_t>({size1, 1}));
   EXPECT_EQ(output.dtype(), at::kFloat);
 
-  auto ptr = (CUdeviceptr)output.data_ptr();
-
-  CUmemLocation location{};
-  location.type = CU_MEM_LOCATION_TYPE_DEVICE;
-  location.id = 0;
-  unsigned long long flags = 0;
-  NVFUSER_CUDA_SAFE_CALL(cuMemGetAccess(&flags, &location, ptr));
-  EXPECT_EQ(flags, CU_MEM_ACCESS_FLAGS_PROT_READWRITE);
-
-  CUmemGenericAllocationHandle alloc_handle = 0;
-  NVFUSER_CUDA_SAFE_CALL(
-      cuMemRetainAllocationHandle(&alloc_handle, (void*)ptr));
-
-  CUmemAllocationProp prop{};
-  NVFUSER_CUDA_SAFE_CALL(
-      cuMemGetAllocationPropertiesFromHandle(&prop, alloc_handle));
-  EXPECT_EQ(prop.type, CU_MEM_ALLOCATION_TYPE_PINNED);
-  EXPECT_EQ(prop.location.type, CU_MEM_LOCATION_TYPE_DEVICE);
-  EXPECT_EQ(prop.location.id, 0);
-  EXPECT_EQ(
-      prop.requestedHandleTypes, CU_MEM_HANDLE_TYPE_POSIX_FILE_DESCRIPTOR);
+  // Validate symmetric memory properties
+  auto validation_error = is_symmetric_memory_valid(output);
+  EXPECT_TRUE(validation_error.empty()) << validation_error;
 }
 
 using HirAliasSelectHostIrTest = NVFuserTest;
