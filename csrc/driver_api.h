@@ -105,7 +105,11 @@ namespace nvfuser {
 #define NVF_DRIVER_API_WRAPPER_CUDA_120(fn)
 #endif
 
-#if (CUDA_VERSION >= 13000)
+#ifndef NVF_MIN_CUDA_FOR_MCAST
+#define NVF_MIN_CUDA_FOR_MCAST 13000
+#endif
+
+#if (CUDA_VERSION >= NVF_MIN_CUDA_FOR_MCAST)
 #define NVF_DRIVER_API_WRAPPER_CUDA_122(fn) \
   /* NVLS multicast */                      \
   fn(cuMulticastCreate, 13000);             \

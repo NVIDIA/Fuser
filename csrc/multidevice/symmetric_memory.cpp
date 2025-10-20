@@ -11,9 +11,45 @@
 #include <cuda_utils.h>
 #include <multidevice/communicator.h>
 
-#include <numeric>
-
 namespace nvfuser {
+
+namespace {
+// Returns the minimum between the allocation granularity and, when available,
+// the maximum of multicast minimum and recommended granularities.
+static inline size_t get_granularity(
+    const CUmemAllocationProp& prop,
+    size_t requested_size_bytes) {
+  size_t alloc_granularity = 0;
+  NVFUSER_CUDA_SAFE_CALL(cuMemGetAllocationGranularity(
+      &alloc_granularity, &prop, CU_MEM_ALLOC_GRANULARITY_MINIMUM));
+
+#if (CUDA_VERSION >= NVF_MIN_CUDA_FOR_MCAST)
+  size_t mcast_min_granularity = 0;
+  size_t mcast_rec_granularity = 0;
+
+  CUmulticastObjectProp mcast_prop{};
+  mcast_prop.flags = 0;
+  mcast_prop.handleTypes = CU_MEM_HANDLE_TYPE_POSIX_FILE_DESCRIPTOR;
+  mcast_prop.numDevices = Communicator::getInstance().size();
+  mcast_prop.size = requested_size_bytes; // is it needed?
+
+  NVFUSER_CUDA_SAFE_CALL(cuMulticastGetGranularity(
+      &mcast_min_granularity, &mcast_prop, CU_MULTICAST_GRANULARITY_MINIMUM));
+  NVFUSER_CUDA_SAFE_CALL(cuMulticastGetGranularity(
+      &mcast_rec_granularity,
+      &mcast_prop,
+      CU_MULTICAST_GRANULARITY_RECOMMENDED));
+
+  size_t mcast_granularity =
+      std::max(mcast_min_granularity, mcast_rec_granularity);
+
+  return std::max(alloc_granularity, mcast_granularity);
+#else
+  return alloc_granularity;
+#endif
+}
+
+} // anonymous namespace
 
 at::Tensor empty_strided_cuda_symmetric(
     at::IntArrayRef sizes,
@@ -24,13 +60,25 @@ at::Tensor empty_strided_cuda_symmetric(
   if (alloc_id.has_value()) {
     NVF_ERROR("Persistent symmetric memory allocation is not yet supported");
   }
+
+  // Query support for Virtual Memory Management
+  int is_vmm_supported;
+  NVFUSER_CUDA_SAFE_CALL(cuDeviceGetAttribute(
+      &is_vmm_supported,
+      CU_DEVICE_ATTRIBUTE_VIRTUAL_MEMORY_MANAGEMENT_SUPPORTED,
+      device.index()));
+  NVF_ERROR(
+      is_vmm_supported != 0,
+      "Device does not support Virtual Memory Management");
+
   // Only support contiguous tensors for now
   int64_t expected_stride = 1;
   for (int64_t i = sizes.size() - 1; i >= 0; --i) {
     if (strides[i] != expected_stride) {
       NVF_ERROR(
           false,
-          "empty_strided_cuda_symmetric only supports contiguous tensors, but got strides ",
+          "empty_strided_cuda_symmetric only supports contiguous tensors, but "
+          "got strides ",
           strides,
           " for size ",
           sizes);
@@ -49,9 +97,7 @@ at::Tensor empty_strided_cuda_symmetric(
   prop.location.id = static_cast<int>(device.index());
   prop.requestedHandleTypes = CU_MEM_HANDLE_TYPE_POSIX_FILE_DESCRIPTOR;
 
-  size_t granularity = 0;
-  NVFUSER_CUDA_SAFE_CALL(cuMemGetAllocationGranularity(
-      &granularity, &prop, CU_MEM_ALLOC_GRANULARITY_MINIMUM));
+  size_t granularity = get_granularity(prop, static_cast<size_t>(alloc_size));
 
   // Round up alloc_size to the nearest multiple of granularity
   int64_t rounded_alloc_size =
@@ -93,40 +139,45 @@ at::Tensor empty_strided_cuda_symmetric(
 }
 
 std::string is_symmetric_memory_valid(at::Tensor tensor) {
+  // Query support for Virtual Memory Management
+  int is_vmm_supported;
+  NVFUSER_CUDA_SAFE_CALL(cuDeviceGetAttribute(
+      &is_vmm_supported,
+      CU_DEVICE_ATTRIBUTE_VIRTUAL_MEMORY_MANAGEMENT_SUPPORTED,
+      tensor.device().index()));
+  if (is_vmm_supported == 0) {
+    return "Tensor device " + tensor.device().str() +
+        " does not support Virtual Memory Management";
+  }
+
   auto ptr = (CUdeviceptr)tensor.data_ptr();
 
   CUmemLocation location{};
   location.type = CU_MEM_LOCATION_TYPE_DEVICE;
   location.id = 0;
   unsigned long long flags = 0;
-  CUresult result = cuMemGetAccess(&flags, &location, ptr);
-  if (result != CUDA_SUCCESS) {
-    return "cuMemGetAccess failed with error code " + std::to_string(result);
-  }
+  NVFUSER_CUDA_SAFE_CALL(cuMemGetAccess(&flags, &location, ptr));
   if (flags != CU_MEM_ACCESS_FLAGS_PROT_READWRITE) {
-    return "Expected symmetric memory access flags to be CU_MEM_ACCESS_FLAGS_PROT_READWRITE, but got " +
+    return "Expected symmetric memory access flags to be "
+           "CU_MEM_ACCESS_FLAGS_PROT_READWRITE, but got " +
         std::to_string(flags);
   }
 
   CUmemGenericAllocationHandle alloc_handle = 0;
-  result = cuMemRetainAllocationHandle(&alloc_handle, (void*)ptr);
-  if (result != CUDA_SUCCESS) {
-    return "cuMemRetainAllocationHandle failed with error code " +
-        std::to_string(result);
-  }
+  NVFUSER_CUDA_SAFE_CALL(
+      cuMemRetainAllocationHandle(&alloc_handle, (void*)ptr));
 
   CUmemAllocationProp prop{};
-  result = cuMemGetAllocationPropertiesFromHandle(&prop, alloc_handle);
-  if (result != CUDA_SUCCESS) {
-    return "cuMemGetAllocationPropertiesFromHandle failed with error code " +
-        std::to_string(result);
-  }
+  NVFUSER_CUDA_SAFE_CALL(
+      cuMemGetAllocationPropertiesFromHandle(&prop, alloc_handle));
   if (prop.type != CU_MEM_ALLOCATION_TYPE_PINNED) {
-    return "Expected symmetric allocation to be of type CU_MEM_ALLOCATION_TYPE_PINNED, got " +
+    return "Expected symmetric allocation to be of type "
+           "CU_MEM_ALLOCATION_TYPE_PINNED, got " +
         std::to_string(prop.type);
   }
   if (prop.location.type != CU_MEM_LOCATION_TYPE_DEVICE) {
-    return "Expected symmetric allocation to be on device memory, got location.type = " +
+    return "Expected symmetric allocation to be on device memory, got "
+           "location.type = " +
         std::to_string(prop.location.type);
   }
   if (prop.location.id != Communicator::getInstance().local_rank()) {
@@ -135,13 +186,30 @@ std::string is_symmetric_memory_valid(at::Tensor tensor) {
         " got location.id = " + std::to_string(prop.location.id);
   }
   if (prop.requestedHandleTypes != CU_MEM_HANDLE_TYPE_POSIX_FILE_DESCRIPTOR) {
-    return "Expected requestedHandleTypes = CU_MEM_HANDLE_TYPE_POSIX_FILE_DESCRIPTOR, got " +
+    return "Expected requestedHandleTypes = "
+           "CU_MEM_HANDLE_TYPE_POSIX_FILE_DESCRIPTOR, got " +
         std::to_string(prop.requestedHandleTypes);
+  }
+
+  // Check virtual address alignment and mapping size w.r.t. granularity
+  CUdeviceptr base_ptr = 0;
+  size_t va_size = 0;
+  NVFUSER_CUDA_SAFE_CALL(cuMemGetAddressRange(&base_ptr, &va_size, ptr));
+
+  const size_t granularity = get_granularity(prop, va_size);
+
+  if ((static_cast<size_t>(ptr) % granularity) != 0) {
+    return "Expected symmetric memory address to be aligned to granularity " +
+        std::to_string(granularity) + ", got address " +
+        std::to_string(static_cast<unsigned long long>(ptr));
+  }
+
+  if ((va_size % granularity) != 0) {
+    return "Expected symmetric memory size to be a multiple of granularity " +
+        std::to_string(granularity) + ", got size " + std::to_string(va_size);
   }
 
   return ""; // Memory is valid
 }
 
 } // namespace nvfuser
-
-
