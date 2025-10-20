@@ -85,9 +85,9 @@ class EVTConverter : OptInDispatch {
   std::string getPointerCode(TensorView* tv) {
     int64_t index = -1;
     if (tv->isFusionInput()) {
-      findInputPosition(fusion_, alpha);
+      index = fusionInputPosition(fusion_, tv);
     } else if (tv->isFusionOutput()) {
-      fusion_->inputs().size() + findOutputPosition(fusion_, alpha);
+      index = fusion_->inputs().size() + fusionOutputPosition(fusion_, tv);
     } else {
       NVF_THROW(
           "Cannot get pointer for TV ",
@@ -95,7 +95,7 @@ class EVTConverter : OptInDispatch {
           " which is not a fusion input or output");
     }
     return "static_cast<" + dtypeToCutlass(tv->dtype()) + "*>(inputs.at(" +
-         index + ").data_ptr");
+        std::to_string(index) + ").data_ptr)";
   }
 
   void run() {
@@ -397,14 +397,14 @@ struct CommentedString {
 CommentedString argStringHelper(EVTModel::Node* node, int64_t indent_size);
 
 CommentedString argumentArgString(EVTModel::Node* node, int64_t indent_size) {
-  std::stringstream ss;
   if (node->arguments.empty()) {
-    return "{}  // " << node->name << "\n";
+    return {"{}", node->name};
   }
+  std::stringstream ss;
   indent(ss, indent_size) << "{  // " << node->name << "\n";
-  for (const auto& [i, kv] : enumerate(node->arguments())) {
+  for (const auto& [i, kv] : enumerate(node->arguments)) {
     indent(ss, indent_size + 1) << "." << kv.first << "=" << kv.second;
-    if (i < node->arguments().size() - 1) {
+    if (i < node->arguments.size() - 1) {
       ss << ",";
     }
     ss << "\n";
