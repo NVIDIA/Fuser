@@ -11,6 +11,7 @@
 #include <ir/builder.h>
 #include <multidevice/communication.h>
 #include <multidevice/communicator.h>
+#include <multidevice/cuda_p2p.h>
 #include <tests/cpp/multidevice.h>
 #include <tests/cpp/validator.h>
 
@@ -414,11 +415,8 @@ INSTANTIATE_TEST_SUITE_P(
     testing::Values(CommunicatorBackend::kNccl),
     testing::PrintToStringParamName());
 
-using P2PCommunicationTestParams = std::string;
-
-class P2PCommunicationTest
-    : public MultiDeviceTest,
-      public testing::WithParamInterface<P2PCommunicationTestParams> {};
+class P2PCommunicationTest : public MultiDeviceTest,
+                             public testing::WithParamInterface<P2pProtocol> {};
 
 TEST_P(P2PCommunicationTest, CudaComm) {
   static constexpr int kTensorSize = 8;
@@ -433,9 +431,11 @@ TEST_P(P2PCommunicationTest, CudaComm) {
   const DeviceIdxType send_peer = (my_rank + 1) % size;
   const DeviceIdxType recv_peer = (size + my_rank - 1) % size;
 
-  std::string protocol = GetParam();
+  P2pProtocol protocol = GetParam();
+  std::stringstream protocol_ss;
+  protocol_ss << protocol;
   EnableOptionsGuard::getCurOptions().set(
-      EnableOption::P2pProtocol, {protocol});
+      EnableOption::P2pProtocol, {protocol_ss.str()});
 
   auto container = std::make_unique<hir::HostIrContainer>();
   FusionGuard fg(container.get());
@@ -465,10 +465,10 @@ TEST_P(P2PCommunicationTest, CudaComm) {
   auto wait_recv = IrBuilder::create<hir::Wait>(recv);
 
   container->pushBackTopLevelExprs(share_mem_handles);
-  if (protocol == "get") {
+  if (protocol == P2pProtocol::Get) {
     container->pushBackTopLevelExprs(send);
     container->pushBackTopLevelExprs(recv);
-  } else if (protocol == "put") {
+  } else if (protocol == P2pProtocol::Put) {
     container->pushBackTopLevelExprs(recv);
     container->pushBackTopLevelExprs(send);
   }
@@ -501,8 +501,7 @@ TEST_P(P2PCommunicationTest, CudaComm) {
 INSTANTIATE_TEST_SUITE_P(
     ,
     P2PCommunicationTest,
-    testing::Values(std::string("get"), std::string("put")),
-    [](const testing::TestParamInfo<P2PCommunicationTestParams>& info)
-        -> std::string { return info.param; });
+    testing::Values(P2pProtocol::Get, P2pProtocol::Put),
+    testing::PrintToStringParamName());
 
 } // namespace nvfuser
