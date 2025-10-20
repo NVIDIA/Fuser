@@ -7,15 +7,12 @@
 // clang-format on
 #pragma once
 
+#include <unordered_map>
+
 #include <exceptions.h>
 #include <ir/internal_nodes.h>
 #include <scheduler/tools/maxinfo_propagator.h>
 #include <visibility.h>
-
-#include <algorithm>
-#include <unordered_map>
-#include <unordered_set>
-#include <vector>
 
 namespace nvfuser {
 
