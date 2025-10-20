@@ -81,7 +81,8 @@ class EVTConverter : OptInDispatch {
   //! of inputs and outputs, where the outputs are after the inputs. Given a TV,
   //! this function returns something like
   //!
-  //!   static_cast<cutlass::bfloat16_t*>(inputs.at(4).data_ptr);
+  //!   static_cast<cutlass::bfloat16_t*>(inputs.at(4).data_ptr)
+  //!
   std::string getPointerCode(TensorView* tv) {
     int64_t index = -1;
     if (tv->isFusionInput()) {
