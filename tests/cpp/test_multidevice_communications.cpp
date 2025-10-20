@@ -432,10 +432,9 @@ TEST_P(P2PCommunicationTest, CudaComm) {
   const DeviceIdxType recv_peer = (size + my_rank - 1) % size;
 
   P2pProtocol protocol = GetParam();
-  std::stringstream protocol_ss;
-  protocol_ss << protocol;
+  std::string protocol_str = protocol == P2pProtocol::Get ? "get" : "put";
   EnableOptionsGuard::getCurOptions().set(
-      EnableOption::P2pProtocol, {protocol_ss.str()});
+      EnableOption::P2pProtocol, {protocol_str});
 
   auto container = std::make_unique<hir::HostIrContainer>();
   FusionGuard fg(container.get());
