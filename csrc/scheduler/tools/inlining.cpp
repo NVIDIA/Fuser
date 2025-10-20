@@ -68,24 +68,38 @@ bool MaxPosCalculator::isAllowedID(
     bool allow_reduction,
     bool allow_vectorize,
     bool allow_unmappable) const {
-  bool allowed = true;
+  std::stringstream dump_msg;
+  if (isDebugDumpEnabled(DebugDumpOption::Inlining)) {
+    dump_msg << "Inlining not allowed: " << id->toString() << " of "
+             << tv->toString();
+  }
 
-  if (!allow_reduction) {
-    allowed = allowed && !id->isReduction();
+  if (!allow_reduction && id->isReduction()) {
+    if (isDebugDumpEnabled(DebugDumpOption::Inlining)) {
+      debug() << dump_msg.str() << " as it is a reduction ID" << "\n";
+    }
+    return false;
   }
 
   if (uninlinable_ids_.count(id)) {
+    if (isDebugDumpEnabled(DebugDumpOption::Inlining)) {
+      debug() << dump_msg.str() << " as instructed by the user" << "\n";
+    }
     return false;
   }
 
   if (!allow_vectorize) {
     // Avoid inlining if marked as Vectorize or Group. In the case of
     // BestEffort and MostInlined modes, avoid Unroll as well.
-    bool is_vectorize = isParallelTypeVectorize(id->getParallelType()) ||
+    if (isParallelTypeVectorize(id->getParallelType()) ||
         id->getParallelType() == ParallelType::Group ||
         (best_effort && id->getParallelType() == ParallelType::Unroll) ||
-        id->getParallelType() == ParallelType::Bulk;
-    allowed = allowed && !is_vectorize;
+        id->getParallelType() == ParallelType::Bulk) {
+      if (isDebugDumpEnabled(DebugDumpOption::Inlining)) {
+        debug() << dump_msg.str() << " as it uses Vectorize/Group/Bulk" << "\n";
+      }
+      return false;
+    }
   }
 
   if (!allow_unmappable) {
@@ -94,18 +108,19 @@ bool MaxPosCalculator::isAllowedID(
         logical_dom.begin(), logical_dom.end());
     auto all_vals =
         getValsBetween<IRBFS>({logical_dom.begin(), logical_dom.end()}, {id});
-    bool is_unmappable = false;
     for (auto val : all_vals) {
       auto id = val->as<IterDomain>();
       if (logical_dom_set.count(val) > 0 && unmappable_dims_.count(id) > 0) {
-        is_unmappable = true;
-        break;
+        if (isDebugDumpEnabled(DebugDumpOption::Inlining)) {
+          debug() << dump_msg.str()
+                  << " as it is not mapped in ComputeAtLogicalDomainMap\n";
+        }
+        return false;
       }
     }
-    allowed = allowed && !is_unmappable;
   }
 
-  return allowed;
+  return true;
 }
 
 size_t MaxPosCalculator::getMaxPosSelf(
@@ -227,17 +242,44 @@ size_t MaxPosCalculator::getMaxPosAll(
     TensorView* tv,
     bool best_effort,
     bool check_siblings) {
+  // When check_siblings is not true, it means this function is
+  // recursively called from the below conditional block for sibling
+  // check. Enable debug dump only when it's first called and disable
+  // it when recursibly called.
+  const bool debug_dump =
+      isDebugDumpEnabled(DebugDumpOption::Inlining) && check_siblings;
+  std::stringstream debug_msg;
+
   auto max_pos = getMaxPosSelf(tv, best_effort, false, false, false);
+  if (debug_dump) {
+    debug_msg << "self: " << max_pos;
+  }
+
   for (auto consumer_tv : ir_utils::consumerTvsOf(tv)) {
-    max_pos = std::min<size_t>(
-        max_pos, getMaxProducerPosFromConsumer(tv, consumer_tv, best_effort));
+    const auto consumer_pos =
+        getMaxProducerPosFromConsumer(tv, consumer_tv, best_effort);
+    if (debug_dump) {
+      debug_msg << ", consumer t" << consumer_tv->name() << " @ "
+                << consumer_pos;
+    }
+    max_pos = std::min<size_t>(max_pos, consumer_pos);
   }
   if (check_siblings) {
     for (auto sibling_tv : ir_utils::siblingTvsOf(tv)) {
-      max_pos = std::min<size_t>(
-          max_pos, getMaxPosAll(sibling_tv, best_effort, false));
+      const auto sibling_pos = getMaxPosAll(sibling_tv, best_effort, false);
+      if (debug_dump) {
+        debug_msg << ", sibling t" << sibling_tv->name() << " @ "
+                  << sibling_pos;
+      }
+      max_pos = std::min<size_t>(max_pos, sibling_pos);
     }
   }
+
+  if (debug_dump) {
+    debug() << "Max inlining position of " << tv->toString() << ": " << max_pos
+            << " (" << debug_msg.str() << ")\n";
+  }
+
   return max_pos;
 }
 
