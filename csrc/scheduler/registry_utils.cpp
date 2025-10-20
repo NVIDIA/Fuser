@@ -5,7 +5,6 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <ir/builder.h>
 #include <ir/utils.h>
 #include <logical_domain_map.h>
 #include <runtime/executor_kernel_arg.h>

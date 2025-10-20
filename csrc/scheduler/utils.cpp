@@ -2366,12 +2366,6 @@ void propagateReshapeTransforms(Fusion* fusion, const ComputeAtMap& ca_map) {
       }
     }
   }
-  std::cout << "transformed_disjoint_sets: " << transformed_disjoint_sets.size()
-            << std::endl;
-  for (auto set : transformed_disjoint_sets) {
-    std::cout << "  transformed_disjoint_sets: " << set->toString()
-              << std::endl;
-  }
 
   std::unordered_set<IterDomain*> terminating_reshape_dims;
   for (const auto& disjoint_set_shared_ptr :
@@ -2396,11 +2390,7 @@ void propagateReshapeTransforms(Fusion* fusion, const ComputeAtMap& ca_map) {
       terminating_reshape_dims.emplace(id);
     }
   }
-  std::cout << "terminating_reshape_dims: " << terminating_reshape_dims.size()
-            << std::endl;
-  for (auto set : terminating_reshape_dims) {
-    std::cout << "  terminating_reshape_dims: " << set->toString() << std::endl;
-  }
+
   // If iter domains are involved in any transformation from root domains to
   // logical domains they should be considered "contaminated".
   for (auto tv : fusion->allTvs()) {
@@ -2465,11 +2455,8 @@ void propagateReshapeTransforms(Fusion* fusion, const ComputeAtMap& ca_map) {
     }
 
     // Propagate the view transformations
-    std::cout << "before reorder " << tv->toString() << std::endl;
     tv->reorder(old2new);
     //! Propagate current transformations on from_tv to all graphs
-    std::cout << "transformPropagateToAllFrom " << tv->toString() << " @ "
-              << (int64_t)old2new.size() << std::endl;
     transformPropagateToAllFrom(tv, (int64_t)old2new.size());
 
     // Propgating the transforms will not replay the DIDx parallelization, so we
