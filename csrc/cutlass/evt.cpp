@@ -72,8 +72,8 @@ class EVTConverter : OptInDispatch {
 
   EVTModel::Node* makeAuxLoadNode(TensorView* tv) {
     EVTModel::Node* load_node =
-        model_.makeNode("cutlass::epilogue::fusion::Sm100AuxLoad<>");
-    // TODO: Add arguments for Sm100AuxLoad
+        model_.makeNode("cutlass::epilogue::fusion::Sm90AuxLoad<>");
+    // TODO: Add arguments for Sm90AuxLoad
     return load_node;
   }
 
