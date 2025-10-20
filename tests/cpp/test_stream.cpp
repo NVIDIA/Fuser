@@ -14,15 +14,21 @@
 #include <fusion_guard.h>
 #include <ir/interface_nodes.h>
 #include <multidevice/utils.h>
-#include <ops/alias.h>
 #include <ops/all_ops.h>
 #include <preseg_passes/pre_segmenter.h>
 #include <preseg_passes/propagate_shardings.h>
+#include <runtime/fusion_executor_cache.h>
 #include <tests/cpp/utils.h>
+#include <tests/cpp/validator.h>
 
 namespace nvfuser {
 
-using StreamTest = NVFuserTest;
+class StreamTest : public NVFuserTest {
+ public:
+  StreamTest() {
+    EnableOptionsGuard::getCurOptions().set(EnableOption::HostIrLowering);
+  }
+};
 
 TEST_F(StreamTest, AddPerStream) {
   constexpr int64_t c = 3;
@@ -59,7 +65,52 @@ TEST_F(StreamTest, AddPerStream) {
       << out_tensor << " vs " << expected_out_tensor;
 }
 
-TEST_F(StreamTest, haveDifferentShardings) {
+TEST_F(StreamTest, Matmul) {
+  constexpr int64_t c = 3;
+
+  auto fusion = std::make_unique<Fusion>();
+  {
+    FusionGuard fg(fusion.get());
+    TensorView* in = makeSymbolicTensor(2);
+    TensorView* w = makeSymbolicTensor(2);
+    TensorView* out = matmul(in, w);
+    fusion->addInput(in);
+    fusion->addInput(w);
+    fusion->addOutput(out);
+
+    w->outer_split(1, c);
+    w->axis(1)->parallelize(ParallelType::Stream);
+    out->outer_split(1, c);
+    out->axis(1)->parallelize(ParallelType::Stream);
+  }
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA);
+  at::Tensor in_tensor = at::randn({5, 7}, options);
+  at::Tensor w_tensor = at::randn({7, c * 2}, options);
+
+  // With NVFUSER_DUMP=host_ir, you'll see the host IR container like the
+  // following:
+  // clang-format off
+  // %HostIrContainer { (T0_g_float[iS0{i0}, iS1{i2}], T1_g_float[istreamIdx7{3}, iS11{i2}, iS8{( ceilDiv(i4, 3) )}]) -> (T2_g_float[istreamIdx9{3}, iS4{i0}, iS10{( ceilDiv(i4, 3) )}, rS6{i2}]) :
+  //   FOR i18 from 0 to 3:
+  //     T2_g_float[istreamIdx9{3}, iS4{i0}, iS10{( ceilDiv(i4, 3) )}, rS6{i2}]
+  //        = matmul(T0_g_float[iS0{i0}, iS1{i2}],
+  //                 T1_g_float[istreamIdx7{3}, iS11{i2}, iS8{( ceilDiv(i4, 3) )}])
+  // } // %HostIrContainer
+  // clang-format on
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto out_tensor = executor_cache.runFusionWithInputs({in_tensor, w_tensor})[0]
+                        .as<at::Tensor>();
+
+  testValidate(
+      executor_cache.fusion(),
+      {out_tensor},
+      {in_tensor, w_tensor},
+      __LINE__,
+      __FILE__);
+}
+
+TEST_F(StreamTest, HaveDifferentShardings) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 

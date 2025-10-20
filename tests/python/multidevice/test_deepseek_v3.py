@@ -144,10 +144,9 @@ def parallelize_module_with_nvfuser(
     setattr(parent_module, module_name, new_module)
 
 
-# This test timed out once when downloading
-# "/deepseek-ai/DeepSeek-V3/resolve/main/configuration_deepseek.py" (cf.
-# http://nv/eCm). I consider this a one-off, but please let me know if this
-# error becomes consistent.
+@pytest.mark.skip(
+    reason="Flaky. The test occasionally failed for too many download requests. The test itself downloads the HuggingFace model only once. However, with CI runs triggered by other PRs and for other GPU architectures, it can easily exceed the limit."
+)
 @pytest.mark.mpi
 @pytest.mark.parametrize(
     "executor",

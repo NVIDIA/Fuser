@@ -11,6 +11,7 @@
 #include <host_ir/lower_to_communication.h>
 #include <host_ir/lowering.h>
 #include <host_ir/pass/insert_deallocations.h>
+#include <multidevice/utils.h>
 #include <runtime/executor_abstract.h>
 
 namespace nvfuser {
@@ -34,6 +35,30 @@ void recomputeOutputTvs(Expr* e, IrCloner& ir_cloner) {
   for (auto* out : ir_utils::filterByType<TensorView>(e->outputs())) {
     recomputeTv(out, ir_cloner);
   }
+}
+
+// Finds the stream-parallelized IterDomain in the loop domain of a TensorView,
+// or nullptr if not found.  This is different from `getShardedIterDomain(tv,
+// ParallelType::Stream)`, which searches the allocation domain.  Consider
+// unifying them into one function with an extra DomainType parameter.
+IterDomain* findStreamIterDomain(TensorView* tv) {
+  const std::vector<IterDomain*>& loop = tv->getLoopDomain();
+  // FinalizeMultideviceDomains pass puts the stream IterDomain to the
+  // front.
+  if (!loop.empty() && loop.front()->isStream()) {
+    return loop.front();
+  }
+  return nullptr;
+}
+
+// Finds the stream IterDomain in the outputs of a segment.
+IterDomain* findStreamIterDomain(const std::vector<Val*>& outs) {
+  for (auto* out : ir_utils::filterByType<TensorView>(outs)) {
+    if (auto* stream_id = findStreamIterDomain(out)) {
+      return stream_id;
+    }
+  }
+  return nullptr;
 }
 
 void lowerSegment(
@@ -72,15 +97,99 @@ void lowerSegment(
       }
     } break;
     case SchedulerType::ExprEval: {
-      // push back segment's exprs into the container as top level
-      // expressions
-      for (auto* e : group.stablyOrderedExprs()) {
+      // Pseudocode:
+      // clang-format off
+      // ```
+      // clone all expressions and store the copies to a list
+      // if no expressions are stream parallelized:
+      //   append the list to the top level
+      //   return
+      // for each non-input TensorView:
+      //   if it needs an out-of-loop allocation:
+      //     create an Allocate and append it to the top level
+      // create a new, empty for loop
+      // for each cloned expression:
+      //   for each input or output TensorView of that expression:
+      //     shard it by stream if it's allocated outside the loop
+      //   add the cloned expression to the loop body with the maybe-sharded inputs and outputs
+      // ```
+      // clang-format on
+      std::vector<Expr*> cloned_exprs;
+      cloned_exprs.reserve(group.exprs().size());
+      for (Expr* e : group.stablyOrderedExprs()) {
         auto* e_clone = ir_cloner.clone(e);
         recomputeOutputTvs(e, ir_cloner);
-        hic.pushBackTopLevelExprs(e_clone);
+        cloned_exprs.push_back(e_clone);
+      }
+
+      std::vector<Val*> cloned_outs = ir_cloner.clone(group.outputs());
+      // All expressions in the group are expected to be stream parallelized in
+      // the same way. So it's safe to find the stream IterDomain from any of
+      // them.  Ideally, loop domains should be tied to expressions not
+      // TensorViews.
+      IterDomain* stream_id = findStreamIterDomain(cloned_outs);
+      if (stream_id == nullptr) {
+        for (Expr* e : cloned_exprs) {
+          hic.pushBackTopLevelExprs(e);
+        }
+      } else {
+        for (Expr* e : cloned_exprs) {
+          for (auto* out : ir_utils::filterByType<TensorView>(e->outputs())) {
+            if (getShardedIterDomain(out, ParallelType::Stream) == nullptr) {
+              auto* allocate =
+                  IrBuilder::create<kir::Allocate>(out, MemoryType::Global);
+              hic.pushBackTopLevelExprs(allocate);
+            }
+          }
+        }
+
+        auto* stream_index = IrBuilder::create<Val>(DataType::Index);
+        auto* for_loop =
+            hir::ForLoop::createFromIterDomain(stream_index, stream_id);
+        hic.pushBackTopLevelExprs(for_loop);
+
+        std::unordered_map<Val*, Val*> replacement_map;
+        for (Expr* e : cloned_exprs) {
+          for (auto ins_or_out :
+               {ir_utils::filterByType<TensorView>(e->inputs()),
+                ir_utils::filterByType<TensorView>(e->outputs())}) {
+            for (auto* tv : ins_or_out) {
+              if (replacement_map.count(tv) > 0) {
+                continue;
+              }
+              if (findStreamIterDomain(tv) != nullptr &&
+                  getShardedIterDomain(tv, ParallelType::Stream) == nullptr) {
+                // Loop is stream parallelized but allocation is not.
+                TensorView* sharded_tv = hir::shardByStream(tv, stream_index);
+                for_loop->body().push_back(sharded_tv->definition());
+                replacement_map[tv] = sharded_tv;
+              }
+            }
+          }
+
+          std::vector<Val*> new_inputs;
+          std::transform(
+              e->inputs().begin(),
+              e->inputs().end(),
+              std::back_inserter(new_inputs),
+              [&replacement_map](Val* input) {
+                return getOrDefault(replacement_map, input, input);
+              });
+          std::vector<Val*> new_outputs;
+          std::transform(
+              e->outputs().begin(),
+              e->outputs().end(),
+              std::back_inserter(new_outputs),
+              [&replacement_map](Val* output) {
+                return getOrDefault(replacement_map, output, output);
+              });
+          Expr* new_e = e->newObjectFunc()(
+              e->container(), new_inputs, new_outputs, e->attributes());
+          for_loop->body().push_back(new_e);
+        }
       }
     } break;
-    default:
+    default: {
       const int group_id = group.groupId();
 
       // Copy the input/output TensorViews to the container.
@@ -123,6 +232,7 @@ void lowerSegment(
           cloned_outs,
           cache_id);
       hic.pushBackTopLevelExprs(launch_kernel);
+    }
   }
 }
 } // namespace

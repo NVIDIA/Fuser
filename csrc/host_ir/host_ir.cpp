@@ -17,6 +17,7 @@
 #include <kernel_ir.h>
 #include <multidevice/communication.h>
 #include <ops/all_ops.h>
+#include <transform_replay.h>
 #include <utils.h>
 
 namespace nvfuser::hir {
@@ -450,6 +451,19 @@ std::string ShardByStream::toInlineString(int indent_size) const {
   NVF_CHECK(false, "Cannot be printed inline");
 }
 
+TensorView* shardByStream(TensorView* in, Val* stream_index) {
+  auto* out = ops::newValLike(in, *in->getDataType())->as<TensorView>();
+
+  TransformReplay::selfReplay(in->domain(), out->domain());
+  // This is conservative and suboptimal. Consider reusing the algorithm in
+  // https://github.com/NVIDIA/Fuser/blob/33337e9b0b82dc88bc305d9956101f0c8a8a0c60/csrc/alias_analysis.cpp#L199
+  // to decide contiguity.
+  out->setAllocationDomain(out->getLoopDomain(), false);
+
+  IrBuilder::create<ShardByStream>(out, in, stream_index);
+  return out;
+}
+
 ForLoop::ForLoop(IrBuilderPasskey passkey, Val* index, Val* start, Val* stop)
     : Expr(passkey, {index, start, stop}, {}, {}) {
   NVF_ERROR(passkey.ir_container_ != nullptr);
@@ -473,7 +487,9 @@ std::string ForLoop::toInlineString(int indent_size) const {
   NVF_CHECK(false, "Cannot be printed inline");
 }
 
-ForLoop* createForLoopFromIterDomain(Val* index, IterDomain* iter_domain) {
+/*static*/ ForLoop* ForLoop::createFromIterDomain(
+    Val* index,
+    IterDomain* iter_domain) {
   return IrBuilder::create<ForLoop>(
       index, iter_domain->start(), iter_domain->stop());
 }
