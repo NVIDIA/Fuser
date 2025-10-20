@@ -168,6 +168,19 @@ Returns the kernel profiles of the fusion profile.
 )");
 }
 
+const FusionProfile& get_fusion_profile() {
+  const FusionProfile& profile = FusionProfiler::profile();
+  NVF_ERROR(
+      profile.fusion_id != -1,
+      "Something went wrong with Fusion Profiling as an illegal fusion_id "
+      "was returned!")
+  NVF_ERROR(
+      profile.segments > 0,
+      "Something went wrong with Fusion Profiling as no kernel segments were "
+      "profiled!")
+  return profile;
+}
+
 class PythonProfiler {
  public:
   PythonProfiler(bool auto_scheduled = false)
@@ -175,7 +188,6 @@ class PythonProfiler {
 
   PythonProfiler* start() {
     ProfilerOptionsGuard::getCurOptions().set(ProfilerOption::Enable);
-    DisableOptionsGuard::getCurOptions().set(DisableOption::ParallelCompile);
     if (!auto_scheduled_) {
       FusionProfiler::start();
       FusionProfiler::createSegments(1);
@@ -189,24 +201,6 @@ class PythonProfiler {
       FusionProfiler::stop();
     }
     ProfilerOptionsGuard::getCurOptions().unset(ProfilerOption::Enable);
-    DisableOptionsGuard::getCurOptions().unset(DisableOption::ParallelCompile);
-  }
-
-  void reset() {
-    FusionProfiler::reset();
-  }
-
-  const FusionProfile& get_fusion_profile() {
-    const FusionProfile& profile = FusionProfiler::profile();
-    NVF_ERROR(
-        profile.fusion_id != -1,
-        "Something went wrong with Fusion Profiling as an illegal fusion_id "
-        "was returned!")
-    NVF_ERROR(
-        profile.segments > 0,
-        "Something went wrong with Fusion Profiling as no kernel segments were "
-        "profiled!")
-    return profile;
   }
 
  private:
@@ -235,12 +229,9 @@ auto_scheduled : bool, optional
           py::object exc_type,
           py::object exc_value,
           py::object traceback) { self.stop(); });
-  profiler.def("reset", &PythonProfiler::reset, R"(
-Resets the fusion profile, so FusionProfiler can be used again.
-)");
   profiler.def_property_readonly(
       "profile",
-      &PythonProfiler::get_fusion_profile,
+      [&](PythonProfiler& self) { return get_fusion_profile(); },
       py::return_value_policy::reference,
       R"(
 Returns the FusionProfile for the profiled fusion.
@@ -248,6 +239,20 @@ Returns the FusionProfile for the profiled fusion.
 Returns:
     FusionProfile
 )");
+  nvfuser.def(
+      "get_fusion_profile",
+      &get_fusion_profile,
+      py::return_value_policy::reference,
+      R"(
+Returns the FusionProfile for the profiled fusion.
+
+Returns:
+    FusionProfile
+)");
+  nvfuser.def(
+      "reset_profiler",
+      &FusionProfiler::reset,
+      R"(Resets FusionProfiler so it can be used again.)");
 }
 
 } // namespace
