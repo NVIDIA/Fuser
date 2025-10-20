@@ -1035,7 +1035,16 @@ void IdModel::initializeLoopGraph(const StatefulInliningInfo& info) {
           "Failed to initialize id: ",
           id->toString(),
           " as it's missing a definition entry.");
-      loop_graph.initializeVal(id, id_definitions_.at(id), uses_it->second);
+      
+      // we might have inactive uses, i.e. uses that doesn't produce all_ids.
+      VectorOfUniqueEntries<IterDomain*> active_uses;
+      std::copy_if(uses_it->second, std::inserter(active_uses), [](Expr* use) {
+        return std::any_of(use->outputs().begin(), use->outputs().end(), [&](Val* output) {
+          return loop_ids.has(output);
+        });
+      });
+
+      loop_graph.initializeVal(id, id_definitions_.at(id), active_uses);
     }
     NVF_ERROR(
         id_graphs_.emplace(IdMappingMode::LOOP, std::move(loop_graph)).second);
