@@ -76,6 +76,27 @@ class EVTConverter : OptInDispatch {
     return load_node;
   }
 
+  //! We pass both inputs and output tensors to the launcher code via a vector
+  //! of inputs and outputs, where the outputs are after the inputs. Given a TV,
+  //! this function returns something like
+  //!
+  //!   static_cast<cutlass::bfloat16_t*>(inputs.at(4).data_ptr);
+  std::string getPointerCode(TensorView* tv) {
+    int64_t index = -1;
+    if (tv->isFusionInput()) {
+      findInputPosition(fusion_, alpha);
+    } else if (tv->isFusionOutput()) {
+      fusion_->inputs().size() + findOutputPosition(fusion_, alpha);
+    } else {
+      NVF_THROW(
+          "Cannot get pointer for TV ",
+          tv->toString(),
+          " which is not a fusion input or output");
+    }
+    return "static_cast<" + dtypeToCutlass(tv->dtype()) + "*>(inputs.at(" +
+         index + ").data_ptr");
+  }
+
   void run() {
     Expr* mma = getGemmExpr(fusion_);
 
@@ -142,7 +163,8 @@ class EVTConverter : OptInDispatch {
       // Broadcast alpha to the same dimensions as the accumulator
       EVTModel::Node* alpha_bcast_node = model_.makeNode(
           "cutlass::epilogue::fusion::Sm90ScalarBroadcast<float>");
-      alpha_bcast_node->argument = alpha;
+      alpha_bcast_node->arguments.emplace_back(
+          "scalar_ptrs", "{" + getPointerCode(alpha) + "}");
       val_nodes_.emplace(alpha, alpha_bcast_node);
 
       // Delay casting down to output type until we've completed the default
@@ -165,12 +187,13 @@ class EVTConverter : OptInDispatch {
       // Make a node to load the bias
       EVTModel::Node* bias_node =
           model_.makeNode("cutlass::epilogue::fusion::Sm90AuxLoad");
-      bias_node->argument = bias;
+      // TODO: set bias arguments
 
       if (beta != nullptr) {
         EVTModel::Node* beta_bcast_node = model_.makeNode(
             "cutlass::epilogue::fusion::Sm90ScalarBroadcast<float>");
-        beta_bcast_node->argument = beta;
+        beta_bcast_node->arguments.emplace_back(
+            "scalar_ptrs", "{" + getPointerCode(beta) + "}");
         // Note: this casts beta and bias to float then multiplies and outputs
         // float, since we will always be adding it straight to alpha*acc
         // anyway
@@ -509,8 +532,17 @@ std::string EVTModel::toString() const {
       }
       ss << ")";
     }
-    if (node_up->argument != nullptr) {
-      ss << "[" << node_up->argument->toString() << "]";
+    if (!node_up->arguments.empty()) {
+      ss << "[";
+      bool first = true;
+      for (const auto& [k, v] : node_up->arguments) {
+        if (!first) {
+          ss << ", ";
+        }
+        first = false;
+        ss << k << "=" << v;
+      }
+      ss << "]";
     }
     ss << "\n";
   }
