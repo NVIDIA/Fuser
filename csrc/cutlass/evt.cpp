@@ -72,7 +72,8 @@ class EVTConverter : OptInDispatch {
 
   EVTModel::Node* makeAuxLoadNode(TensorView* tv) {
     EVTModel::Node* load_node =
-        model_.makeNode("cutlass::epilogue::fusion::Sm90AuxLoad<>");
+        model_.makeNode("cutlass::epilogue::fusion::Sm100AuxLoad<>");
+    // TODO: Add arguments for Sm100AuxLoad
     return load_node;
   }
 
@@ -185,9 +186,7 @@ class EVTConverter : OptInDispatch {
 
     if (bias != nullptr) {
       // Make a node to load the bias
-      EVTModel::Node* bias_node =
-          model_.makeNode("cutlass::epilogue::fusion::Sm90AuxLoad");
-      // TODO: set bias arguments
+      EVTModel::Node* bias_node = makeAuxLoadNode(bias);
 
       if (beta != nullptr) {
         EVTModel::Node* beta_bcast_node = model_.makeNode(
@@ -350,9 +349,7 @@ EVTModel::EVTModel(const EVTModel& model) {
 
   for (const auto& node_up : model.nodes_up_) {
     Node* new_node = makeNode(node_up->name);
-    if (node_up->argument != nullptr) {
-      new_node->argument = node_up->argument;
-    }
+    new_node->arguments = node_up->arguments;
     old2new.emplace(node_up.get(), new_node);
   }
   // Loop again now that have old2new fully populated
@@ -401,30 +398,19 @@ CommentedString argStringHelper(EVTModel::Node* node, int64_t indent_size);
 
 CommentedString argumentArgString(EVTModel::Node* node, int64_t indent_size) {
   std::stringstream ss;
-  if (node->argument->isA<TensorView>()) {
-    indent(ss, indent_size) << "{  // " << node->name << "\n";
-    // TODO: If this is an input scalar, we need to obtain its name in the
-    // kernel here
-    const std::string internal_var_name = "alpha";
-    indent(ss, indent_size + 1)
-        << ".scalar_ptrs={static_cast<"
-        << dtypeToCutlass(node->argument->dtype()) << " const*>("
-        << internal_var_name << ".data_ptr)}\n";
-    indent(ss, indent_size) << "}";
-    return {ss.str(), ""};
-  } else {
-    // If this is a constant scalar, print its value directly
-    if (node->argument->isConstScalar()) {
-      return {
-          "{.scalars={" + node->argument->toInlineString() + "}}", node->name};
-    }
-    NVF_ERROR(
-        node->argument->isFusionInput(),
-        "Non-constant scalars are expected to be fusion inputs for EVT "
-        "translation");
-    NVF_THROW("Input scalars not yet supported in EVT translation");
-    return {ss.str(), ""};
+  if (node->arguments.empty()) {
+    return "{}  // " << node->name << "\n";
   }
+  indent(ss, indent_size) << "{  // " << node->name << "\n";
+  for (const auto& [i, kv] : enumerate(node->arguments())) {
+    indent(ss, indent_size + 1) << "." << kv.first << "=" << kv.second;
+    if (i < node->arguments().size() - 1) {
+      ss << ",";
+    }
+    ss << "\n";
+  }
+  indent(ss, indent_size) << "}";
+  return {ss.str(), ""};
 }
 
 // For nodes with no inputs, we print their args like this:
@@ -484,7 +470,7 @@ CommentedString argStringWithInputs(EVTModel::Node* node, int64_t indent_size) {
 CommentedString argStringHelper(EVTModel::Node* node, int64_t indent_size) {
   NVF_ERROR(node != nullptr);
   if (node->inputs.empty()) {
-    if (node->argument == nullptr) {
+    if (node->arguments.empty()) {
       std::stringstream ss;
       indent(ss, indent_size) << "{}";
       return {ss.str(), node->name};
