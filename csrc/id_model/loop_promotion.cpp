@@ -1220,7 +1220,7 @@ VectorOfUniqueEntries<IterDomain*> LoopPromotionMapBuilder::
       bool all_outs_in_loop_group = true;
       for (auto use : uses_it->second) {
         if (std::ranges::any_of(use->outputs(), [&](Val* out) -> bool {
-              return group != idGraph(IdMappingMode::LOOP).toGroup(out);
+              return idGraph(IdMappingMode::LOOP).hasGroup(out) && group != idGraph(IdMappingMode::LOOP).toGroup(out);
             })) {
           all_outs_in_loop_group = false;
           break;
