@@ -867,12 +867,6 @@ void buildAsyncWarpInliningInfo(
   }
 }
 
-std::vector<IterDomain*> findAllIdsExceptAllocation(const TensorView* tv) {
-  VectorOfUniqueEntries<IterDomain*> discovered_ids;
-  findAllIdsExceptAllocation(tv, discovered_ids);
-  return discovered_ids.vector();
-}
-
 void findAllIdsExceptAllocation(const TensorView* tv, VectorOfUniqueEntries<IterDomain*>& discovered_ids) {
   std::vector<const std::vector<IterDomain*>*> all_domains = {
       &tv->getLoopDomain(),
@@ -914,6 +908,12 @@ void findAllIdsExceptAllocation(const TensorView* tv, VectorOfUniqueEntries<Iter
     }
   }
 };
+
+std::vector<IterDomain*> findAllIdsExceptAllocation(const TensorView* tv) {
+  VectorOfUniqueEntries<IterDomain*> discovered_ids;
+  findAllIdsExceptAllocation(tv, discovered_ids);
+  return discovered_ids.vector();
+}
 
 } // namespace
 
