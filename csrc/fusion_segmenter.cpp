@@ -2014,8 +2014,6 @@ class SegmentedGroupTaskGraphConverter {
     for (SegmentedGroup* group : groups) {
       conv.processGroup(group);
     }
-    std::cout << conv.all_tasks_ << std::endl;
-    std::cout << conv.all_data_ << std::endl;
     return TaskGraph(conv.all_tasks_, conv.all_data_);
   }
 
