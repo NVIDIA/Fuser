@@ -73,7 +73,7 @@ void bindDeviceMesh(py::module& nvfuser) {
   py::class_<DeviceMesh> device_mesh(nvfuser, "DeviceMesh", py::module_local());
   device_mesh.def(
       py::init([](at::Tensor devices) {
-        return new DeviceMesh(std::move(devices));
+        return std::make_unique<DeviceMesh>(std::move(devices));
       }),
       py::arg("devices"),
       R"(
@@ -81,7 +81,7 @@ Create a new DeviceMesh from torch.Tensor.
 )");
   device_mesh.def(
       py::init([](const std::vector<int64_t>& devices) {
-        return new DeviceMesh(at::tensor(devices));
+        return std::make_unique<DeviceMesh>(at::tensor(devices));
       }),
       py::arg("devices"),
       R"(
@@ -143,17 +143,37 @@ If the distributed tensor is replicated on that parallel type, returns -1.
 }
 
 void bindMultiDeviceExecutor(py::module& nvfuser) {
+  // Bind params type under the multidevice submodule. We'll alias it to the
+  // top-level module in bindMultiDevice to allow direct imports.
+  py::class_<MultiDeviceExecutorParams>(nvfuser, "MultiDeviceExecutorParams")
+      .def(py::init<>())
+      .def_property(
+          "use_allocation_cache",
+          [](const MultiDeviceExecutorParams& self) {
+            return self.executor.use_allocation_cache;
+          },
+          [](MultiDeviceExecutorParams& self, bool value) {
+            self.executor.use_allocation_cache = value;
+          })
+      .def_property(
+          "backend_type",
+          [](const MultiDeviceExecutorParams& self) {
+            return self.lower.communicator_backend;
+          },
+          [](MultiDeviceExecutorParams& self, CommunicatorBackend value) {
+            self.lower.communicator_backend = value;
+          });
+
   py::class_<MultiDeviceExecutor> multi_device_executor(
       nvfuser, "MultiDeviceExecutor");
   multi_device_executor.def(
-      py::init([](const Fusion& fusion, CommunicatorBackend backend) {
-        MultiDeviceExecutorParams params;
-        params.lower.communicator_backend = backend;
-        return std::make_unique<MultiDeviceExecutor>(
-            std::make_unique<Fusion>(fusion),
-            Communicator::getInstance(),
-            std::move(params));
-      }),
+      py::init(
+          [](const Fusion& fusion, const MultiDeviceExecutorParams& params) {
+            return std::make_unique<MultiDeviceExecutor>(
+                std::make_unique<Fusion>(fusion),
+                Communicator::getInstance(),
+                params);
+          }),
       R"(
 Create a new MultiDeviceExecutor.
 
@@ -161,16 +181,18 @@ Parameters
 ----------
 fusion : Fusion
     The fusion to be executed.
-backend : CommunicatorBackend
-    The backend to be used for the communicator.
+params : MultiDeviceExecutorParams
+    Parameters configuring the executor and communicator backend.
 
 Examples
 --------
->>> multi_device_executor = MultiDeviceExecutor(fusion, CommunicatorBackend.nccl)
+>>> params = MultiDeviceExecutorParams()
+>>> params.backend_type = CommunicatorBackend.nccl
+>>> multi_device_executor = MultiDeviceExecutor(fusion, params)
 >>> outputs = multi_device_executor.run(inputs)
 )",
       py::arg("fusion"),
-      py::arg("backend"));
+      py::arg("params"));
   multi_device_executor.def(
       "__str__",
       [](MultiDeviceExecutor& self) {

@@ -11,6 +11,7 @@
 #include <ir/builder.h>
 #include <multidevice/communication.h>
 #include <multidevice/communicator.h>
+#include <multidevice/cuda_p2p.h>
 #include <tests/cpp/multidevice.h>
 #include <tests/cpp/validator.h>
 
@@ -77,12 +78,12 @@ TEST_P(CommunicationTest, Gather) {
   auto* communication = IrBuilder::create<Communication>(
       CommunicationType::Gather, out, in, all_ranks_, kRoot);
 
-  at::Tensor input_tensor = at::empty({1, kTensorSize}, tensor_options);
+  at::Tensor input_tensor = at::empty({1, kTensorSize}, tensor_options_);
   at::Tensor output_tensor =
-      at::empty({communicator_->size(), kTensorSize}, tensor_options);
+      at::empty({communicator_->size(), kTensorSize}, tensor_options_);
   for (auto repetition : arange(kNumRepetitions)) {
     input_tensor.copy_(
-        at::arange(kTensorSize, tensor_options).unsqueeze(0) +
+        at::arange(kTensorSize, tensor_options_).unsqueeze(0) +
         (communicator_->deviceId() + 1) * repetition);
     auto work = postSingleCommunication(
         communication,
@@ -93,8 +94,8 @@ TEST_P(CommunicationTest, Gather) {
     work->wait();
 
     if (communicator_->deviceId() == kRoot) {
-      at::Tensor ref = at::arange(kTensorSize, tensor_options).unsqueeze(0) +
-          at::arange(1, communicator_->size() + 1, tensor_options)
+      at::Tensor ref = at::arange(kTensorSize, tensor_options_).unsqueeze(0) +
+          at::arange(1, communicator_->size() + 1, tensor_options_)
                   .unsqueeze(1) *
               repetition;
       validate(output_tensor, ref);
@@ -111,12 +112,12 @@ TEST_P(CommunicationTest, Allgather) {
   auto communication = IrBuilder::create<Communication>(
       CommunicationType::Allgather, out, in, all_ranks_);
 
-  at::Tensor input_tensor = at::empty({1, kTensorSize}, tensor_options);
+  at::Tensor input_tensor = at::empty({1, kTensorSize}, tensor_options_);
   at::Tensor output_tensor =
-      at::empty({communicator_->size(), kTensorSize}, tensor_options);
+      at::empty({communicator_->size(), kTensorSize}, tensor_options_);
   for (auto repetition : arange(kNumRepetitions)) {
     input_tensor.copy_(
-        at::arange(kTensorSize, tensor_options).unsqueeze(0) +
+        at::arange(kTensorSize, tensor_options_).unsqueeze(0) +
         (communicator_->deviceId() + 1) * repetition);
 
     auto work = postSingleCommunication(
@@ -127,8 +128,8 @@ TEST_P(CommunicationTest, Allgather) {
         output_tensor);
     work->wait();
 
-    at::Tensor ref = at::arange(kTensorSize, tensor_options).unsqueeze(0) +
-        at::arange(1, communicator_->size() + 1, tensor_options).unsqueeze(1) *
+    at::Tensor ref = at::arange(kTensorSize, tensor_options_).unsqueeze(0) +
+        at::arange(1, communicator_->size() + 1, tensor_options_).unsqueeze(1) *
             repetition;
     validate(output_tensor, ref);
   }
@@ -146,15 +147,15 @@ TEST_P(CommunicationTest, Scatter) {
   at::Tensor input_tensor;
   if (communicator_->deviceId() == kRoot) {
     input_tensor =
-        at::empty({communicator_->size(), kTensorSize}, tensor_options);
+        at::empty({communicator_->size(), kTensorSize}, tensor_options_);
   }
-  at::Tensor output_tensor = at::empty({1, kTensorSize}, tensor_options);
+  at::Tensor output_tensor = at::empty({1, kTensorSize}, tensor_options_);
 
   for (auto repetition : arange(kNumRepetitions)) {
     if (communicator_->deviceId() == kRoot) {
       input_tensor.copy_(
-          at::arange(kTensorSize, tensor_options).unsqueeze(0) +
-          at::arange(1, communicator_->size() + 1, tensor_options)
+          at::arange(kTensorSize, tensor_options_).unsqueeze(0) +
+          at::arange(1, communicator_->size() + 1, tensor_options_)
                   .unsqueeze(1) *
               repetition);
     }
@@ -167,7 +168,7 @@ TEST_P(CommunicationTest, Scatter) {
         output_tensor);
     work->wait();
 
-    auto ref = at::arange(kTensorSize, tensor_options).unsqueeze(0) +
+    auto ref = at::arange(kTensorSize, tensor_options_).unsqueeze(0) +
         (communicator_->deviceId() + 1) * repetition;
     validate(output_tensor, ref);
   }
@@ -184,12 +185,12 @@ TEST_P(CommunicationTest, Broadcast) {
 
   at::Tensor input_tensor;
   if (communicator_->deviceId() == kRoot) {
-    input_tensor = at::empty({kTensorSize}, tensor_options);
+    input_tensor = at::empty({kTensorSize}, tensor_options_);
   }
-  at::Tensor output_tensor = at::empty({kTensorSize}, tensor_options);
+  at::Tensor output_tensor = at::empty({kTensorSize}, tensor_options_);
   for (auto repetition : arange(kNumRepetitions)) {
     if (communicator_->deviceId() == kRoot) {
-      input_tensor.copy_(at::arange(kTensorSize, tensor_options) + repetition);
+      input_tensor.copy_(at::arange(kTensorSize, tensor_options_) + repetition);
     }
 
     auto work = postSingleCommunication(
@@ -202,7 +203,7 @@ TEST_P(CommunicationTest, Broadcast) {
       work->wait();
     }
 
-    auto ref = at::arange(kTensorSize, tensor_options) + repetition;
+    auto ref = at::arange(kTensorSize, tensor_options_) + repetition;
     validate(output_tensor, ref);
   }
 }
@@ -235,17 +236,17 @@ TEST_P(CommunicationTest, SendRecv) {
   at::Tensor input_tensor;
   at::Tensor output_tensor;
   if (rank == sender) {
-    input_tensor = at::empty({kTensorSize}, tensor_options);
+    input_tensor = at::empty({kTensorSize}, tensor_options_);
   } else {
     NVF_ERROR(rank == receiver);
-    output_tensor = at::empty({kTensorSize}, tensor_options);
+    output_tensor = at::empty({kTensorSize}, tensor_options_);
   }
 
   c10d::Backend* backend =
       communicator_->getBackendForTeam(communication->team(), GetParam());
   for (auto repetition : arange(kNumRepetitions)) {
     if (rank == sender) {
-      input_tensor.copy_(at::arange(kTensorSize, tensor_options) + repetition);
+      input_tensor.copy_(at::arange(kTensorSize, tensor_options_) + repetition);
     }
 
     auto work = postSingleCommunication(
@@ -253,7 +254,7 @@ TEST_P(CommunicationTest, SendRecv) {
     work->wait();
 
     if (rank == receiver) {
-      auto ref = at::arange(kTensorSize, tensor_options) + repetition;
+      auto ref = at::arange(kTensorSize, tensor_options_) + repetition;
       validate(output_tensor, ref);
     }
   }
@@ -274,13 +275,13 @@ TEST_P(CommunicationTest, SendRecvToSelf) {
   auto communication = IrBuilder::create<Communication>(
       CommunicationType::SendRecv, out, in, Team({sender}), sender);
 
-  at::Tensor input_tensor = at::empty({kTensorSize}, tensor_options);
+  at::Tensor input_tensor = at::empty({kTensorSize}, tensor_options_);
   at::Tensor output_tensor = at::empty_like(input_tensor);
 
   c10d::Backend* backend =
       communicator_->getBackendForTeam(communication->team(), GetParam());
   for (auto repetition : arange(kNumRepetitions)) {
-    input_tensor.copy_(at::arange(kTensorSize, tensor_options) + repetition);
+    input_tensor.copy_(at::arange(kTensorSize, tensor_options_) + repetition);
 
     postSingleCommunication(
         communication,
@@ -289,7 +290,7 @@ TEST_P(CommunicationTest, SendRecvToSelf) {
         input_tensor,
         output_tensor);
 
-    auto ref = at::arange(kTensorSize, tensor_options) + repetition;
+    auto ref = at::arange(kTensorSize, tensor_options_) + repetition;
     validate(output_tensor, ref);
   }
 }
@@ -303,12 +304,12 @@ TEST_P(CommunicationTest, Reduce) {
   auto communication = IrBuilder::create<Communication>(
       CommunicationType::Reduce, out, in, all_ranks_, kRoot, kReductionOp);
 
-  at::Tensor input_tensor = at::empty({1, kTensorSize}, tensor_options);
-  at::Tensor output_tensor = at::empty({kTensorSize}, tensor_options);
+  at::Tensor input_tensor = at::empty({1, kTensorSize}, tensor_options_);
+  at::Tensor output_tensor = at::empty({kTensorSize}, tensor_options_);
 
   for (auto repetition : arange(kNumRepetitions)) {
     input_tensor.copy_(
-        at::arange(kTensorSize, tensor_options).unsqueeze(0) +
+        at::arange(kTensorSize, tensor_options_).unsqueeze(0) +
         (communicator_->deviceId() + 1) * repetition);
 
     auto work = postSingleCommunication(
@@ -321,7 +322,7 @@ TEST_P(CommunicationTest, Reduce) {
 
     if (communicator_->deviceId() == kRoot) {
       const int s = communicator_->size();
-      auto ref = at::arange(kTensorSize, tensor_options) * s +
+      auto ref = at::arange(kTensorSize, tensor_options_) * s +
           s * (s + 1) / 2 * repetition;
       validate(output_tensor, ref);
     }
@@ -342,11 +343,11 @@ TEST_P(CommunicationTest, Allreduce) {
       /*root=*/-1,
       kReductionOp);
 
-  at::Tensor input_tensor = at::empty({1, kTensorSize}, tensor_options);
-  at::Tensor output_tensor = at::empty({kTensorSize}, tensor_options);
+  at::Tensor input_tensor = at::empty({1, kTensorSize}, tensor_options_);
+  at::Tensor output_tensor = at::empty({kTensorSize}, tensor_options_);
   for (auto repetition : arange(kNumRepetitions)) {
     input_tensor.copy_(
-        at::arange(kTensorSize, tensor_options).unsqueeze(0) +
+        at::arange(kTensorSize, tensor_options_).unsqueeze(0) +
         (communicator_->deviceId() + 1) * repetition);
 
     auto work = postSingleCommunication(
@@ -358,7 +359,7 @@ TEST_P(CommunicationTest, Allreduce) {
     work->wait();
 
     const int s = communicator_->size();
-    auto ref = at::arange(kTensorSize, tensor_options) * s +
+    auto ref = at::arange(kTensorSize, tensor_options_) * s +
         s * (s + 1) / 2 * repetition;
     validate(output_tensor, ref);
   }
@@ -381,10 +382,10 @@ TEST_P(CommunicationTest, ReduceScatter) {
   const int num_devices = communicator_->size();
   const int device_id = communicator_->deviceId();
   at::Tensor unsharded_input_tensor =
-      at::empty({num_devices, num_devices, kTensorSize}, tensor_options);
+      at::empty({num_devices, num_devices, kTensorSize}, tensor_options_);
   at::Tensor input_tensor =
       unsharded_input_tensor.slice(0, device_id, device_id + 1);
-  at::Tensor output_tensor = at::empty({1, kTensorSize}, tensor_options);
+  at::Tensor output_tensor = at::empty({1, kTensorSize}, tensor_options_);
 
   for (auto repetition : arange(kNumRepetitions)) {
     std::ignore = repetition;
@@ -392,7 +393,7 @@ TEST_P(CommunicationTest, ReduceScatter) {
     // Create a tensor with integer values to avoid rounding error so we can
     // validate using `equal` for more confidence.
     unsharded_input_tensor.copy_(at::randint(
-        2, {num_devices, num_devices, kTensorSize}, tensor_options));
+        2, {num_devices, num_devices, kTensorSize}, tensor_options_));
 
     auto work = postSingleCommunication(
         communication,
@@ -414,9 +415,10 @@ INSTANTIATE_TEST_SUITE_P(
     testing::Values(CommunicatorBackend::kNccl),
     testing::PrintToStringParamName());
 
-using P2PCommunicationTest = MultiDeviceTest;
+class P2PCommunicationTest : public MultiDeviceTest,
+                             public testing::WithParamInterface<P2pProtocol> {};
 
-TEST_F(P2PCommunicationTest, CudaComm) {
+TEST_P(P2PCommunicationTest, CudaComm) {
   static constexpr int kTensorSize = 8;
   static constexpr int kNumRepetitions = 32;
 
@@ -428,6 +430,11 @@ TEST_F(P2PCommunicationTest, CudaComm) {
   const DeviceIdxType size = communicator_->size();
   const DeviceIdxType send_peer = (my_rank + 1) % size;
   const DeviceIdxType recv_peer = (size + my_rank - 1) % size;
+
+  P2pProtocol protocol = GetParam();
+  std::string protocol_str = protocol == P2pProtocol::Get ? "get" : "put";
+  EnableOptionsGuard::getCurOptions().set(
+      EnableOption::P2pProtocol, {protocol_str});
 
   auto container = std::make_unique<hir::HostIrContainer>();
   FusionGuard fg(container.get());
@@ -457,32 +464,43 @@ TEST_F(P2PCommunicationTest, CudaComm) {
   auto wait_recv = IrBuilder::create<hir::Wait>(recv);
 
   container->pushBackTopLevelExprs(share_mem_handles);
-  container->pushBackTopLevelExprs(send);
-  container->pushBackTopLevelExprs(recv);
-  container->pushBackTopLevelExprs(wait_send);
+  if (protocol == P2pProtocol::Get) {
+    container->pushBackTopLevelExprs(send);
+    container->pushBackTopLevelExprs(recv);
+  } else if (protocol == P2pProtocol::Put) {
+    container->pushBackTopLevelExprs(recv);
+    container->pushBackTopLevelExprs(send);
+  }
   container->pushBackTopLevelExprs(wait_recv);
+  container->pushBackTopLevelExprs(wait_send);
 
   hir::HostIrEvaluator executor(std::move(container), communicator_);
 
-  at::Tensor send_tensor = at::empty({kTensorSize}, tensor_options);
-  at::Tensor recv_tensor = at::empty({kTensorSize}, tensor_options);
+  at::Tensor send_tensor = at::empty({kTensorSize}, tensor_options_);
+  at::Tensor recv_tensor = at::empty({kTensorSize}, tensor_options_);
 
   std::unordered_map<Val*, PolymorphicValue> inputs = {
       {send_tv, send_tensor}, {recv_tv, recv_tensor}};
 
   for (auto repetition : c10::irange(kNumRepetitions)) {
     send_tensor.copy_(
-        at::arange(kTensorSize, tensor_options) + repetition * 10 +
+        at::arange(kTensorSize, tensor_options_) + repetition * 10 +
         100 * my_rank);
 
     executor.runWithInput(inputs);
 
-    auto ref = at::arange(kTensorSize, tensor_options) + repetition * 10 +
+    auto ref = at::arange(kTensorSize, tensor_options_) + repetition * 10 +
         100 * recv_peer;
     EXPECT_TRUE(at::allclose(recv_tensor, ref))
         << "Rank " << my_rank << " failed at repetition " << repetition
         << " with recv tensor " << recv_tensor << " and ref " << ref;
   }
 }
+
+INSTANTIATE_TEST_SUITE_P(
+    ,
+    P2PCommunicationTest,
+    testing::Values(P2pProtocol::Get, P2pProtocol::Put),
+    testing::PrintToStringParamName());
 
 } // namespace nvfuser

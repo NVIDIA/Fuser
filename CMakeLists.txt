@@ -66,6 +66,24 @@ endif()
 
 string(APPEND CMAKE_CXX_FLAGS " -Wno-psabi")
 
+# --------------------------
+# nvMatmulHeuristics support
+# --------------------------
+set(NVMMH_INCLUDE_DIR "NVMMH_INCLUDE_DIR-NOTFOUND" CACHE PATH "Directory containing nvMatmulHeuristics.h")
+if (NOT IS_DIRECTORY "${NVMMH_INCLUDE_DIR}")
+  find_path(NVMMH_INCLUDE_DIR nvMatmulHeuristics.h
+    PATHS /usr/local/lib/python3.12/dist-packages/nvidia/nvMatmulHeuristics/include $ENV{HOME}/.local/lib/python3.12/dist-packages/nvidia/nvMatmulHeuristics/include)
+endif()
+
+if(IS_DIRECTORY "${NVMMH_INCLUDE_DIR}")
+  set(NVMMH_FOUND TRUE)
+  string(APPEND CMAKE_CXX_FLAGS " -DHAS_NVMMH=1")
+else()
+  set(NVMMH_FOUND FALSE)
+  message(WARNING "nvMatmulHeuristics headers not found – building without nvMatmulHeuristics support")
+endif()
+# --------------------------
+
 find_package(Torch REQUIRED)
 find_package(Python REQUIRED Development.Module Interpreter)
 find_package(pybind11 REQUIRED)
@@ -100,16 +118,6 @@ if(BUILD_CUTLASS)
     set(CUTLASS_STATUS "ENABLED")
 
     find_package(CUDAToolkit REQUIRED)
-    include(FetchContent)
-
-    # cutlass
-    FetchContent_Declare(
-      repo-cutlass
-      GIT_REPOSITORY https://github.com/NVIDIA/cutlass
-      GIT_TAG        f115c3f85467d5d9619119d1dbeb9c03c3d73864
-      GIT_SHALLOW    OFF
-    )
-    FetchContent_Populate(repo-cutlass)
 
     set(NVF_CUTLASS_CUDA_FLAGS
       "-DCUTE_USE_PACKED_TUPLE=1"
@@ -142,8 +150,8 @@ if(BUILD_CUTLASS)
     )
     add_library(nvf_cutlass SHARED ${NVFUSER_CUTLASS_SRCS})
 
-    target_include_directories(nvf_cutlass PRIVATE ${repo-cutlass_SOURCE_DIR}/include)
-    target_include_directories(nvf_cutlass PRIVATE ${repo-cutlass_SOURCE_DIR}/tools/util/include)
+    target_include_directories(nvf_cutlass PRIVATE ${NVFUSER_THIRD_PARTY_DIR}/cutlass/include)
+    target_include_directories(nvf_cutlass PRIVATE ${NVFUSER_THIRD_PARTY_DIR}/cutlass/tools/util/include)
     target_compile_options(nvf_cutlass PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:${NVF_CUTLASS_CUDA_FLAGS}>)
     if(NOT MSVC)
       set(NVF_LIB_SUFFIX ".so")
@@ -198,6 +206,7 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/compute_at_map.cpp
   ${NVFUSER_SRCS_DIR}/contiguity.cpp
   ${NVFUSER_SRCS_DIR}/cutlass/codegen.cpp
+  ${NVFUSER_SRCS_DIR}/cutlass/evt.cpp
   ${NVFUSER_SRCS_DIR}/cutlass/gemm.cpp
   ${NVFUSER_SRCS_DIR}/debug.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/analysis/bank_conflict.cpp
@@ -361,6 +370,7 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/scheduler/matmul_utils.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/mma_utils.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/no_op.cpp
+  ${NVFUSER_SRCS_DIR}/scheduler/nvmmh.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/communication.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/normalization_inner.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/normalization_inner_outer.cpp
@@ -378,6 +388,7 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/scheduler/resize.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/runtime_info.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/scheduler_types.cpp
+  ${NVFUSER_SRCS_DIR}/scheduler/tools/cub_utils.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/tools/domain_map.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/tools/inlining.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/tools/loop_domain_scheduler.cpp
@@ -496,6 +507,9 @@ endif()
 target_compile_definitions(codegen_internal PRIVATE "-DTORCH_CUDA_BUILD_MAIN_LIB")
 target_include_directories(codegen_internal PUBLIC ${NVFUSER_PYTHON_DIR})
 target_include_directories(codegen_internal PUBLIC ${NVFUSER_PYTHON_COMMON})
+if (NVMMH_FOUND)
+  target_include_directories(codegen_internal PUBLIC ${NVMMH_INCLUDE_DIR})
+endif()
 target_include_directories(codegen_internal SYSTEM PUBLIC
   ${CMAKE_SOURCE_DIR}/third_party/flatbuffers/include
   PRIVATE
@@ -778,9 +792,9 @@ if(BUILD_PYTHON)
   install(TARGETS nvfuser DESTINATION lib)
 
   # ------------------------------------------------
-  # build nvfuser next python library
+  # build nvfuser direct python library
   # ------------------------------------------------
-  # nvfuser next bindings API sources
+  # nvfuser direct bindings API sources
   set(NVFUSER_PYTHON_DIRECT_SRCS)
   list(APPEND NVFUSER_PYTHON_DIRECT_SRCS
     ${NVFUSER_PYTHON_DIRECT_BINDINGS}/extension.cpp
@@ -795,6 +809,7 @@ if(BUILD_PYTHON)
     ${NVFUSER_PYTHON_DIRECT_BINDINGS}/runtime.cpp
     ${NVFUSER_PYTHON_DIRECT_BINDINGS}/schedule.cpp
     ${NVFUSER_PYTHON_DIRECT_BINDINGS}/id_model.cpp
+    ${NVFUSER_PYTHON_DIRECT_BINDINGS}/profile.cpp
     ${NVFUSER_PYTHON_DIRECT_BINDINGS}/direct_utils.cpp
     ${NVFUSER_PYTHON_DIRECT_BINDINGS}/python_translate.cpp
   )
@@ -1238,17 +1253,6 @@ if(BUILD_TEST)
   endif()
 
 
-  if(BUILD_PYTHON)
-    set(PY_FRONTEND_TEST_SRCS)
-    list(APPEND PY_FRONTEND_TEST_SRCS
-      ${NVFUSER_PYTHON_DIR}/tests/python_frontend/test_nvfuser_fusion_cache.cpp
-      ${NVFUSER_PYTHON_DIR}/tests/python_frontend/test_nvfuser_fusion_definition.cpp
-      ${NVFUSER_PYTHON_DIR}/tests/python_frontend/test_nvfuser_fusion_record.cpp
-    )
-    add_test(test_python_frontend "${PY_FRONTEND_TEST_SRCS}" "")
-    list(APPEND TEST_BINARIES test_python_frontend)
-  endif()
-
   # We don't link CUPTI for MSVC
   if(NOT MSVC)
     add_test(test_profiler "${NVFUSER_ROOT}/tests/cpp/test_fusion_profiler.cpp" "")
@@ -1482,17 +1486,16 @@ message(STATUS "")
 message(STATUS "******** Nvfuser configuration summary ********")
 message(STATUS "  BUILD_CUTLASS: ${CUTLASS_STATUS}")
 message(STATUS "  UCC_FOUND: ${UCC_FOUND}")
-message(STATUS "  NVFUSER_STANDALONE_BUILD_WITH_UCC  : ${NVFUSER_STANDALONE_BUILD_WITH_UCC}")
-message(STATUS "  NVFUSER_BUILD_WITH_ASAN            : ${NVFUSER_BUILD_WITH_ASAN}")
-message(STATUS "  NVFUSER_DISTRIBUTED                : ${NVFUSER_DISTRIBUTED}")
-message(STATUS "  NVFUSER_HOST_IR_JIT                : ${NVFUSER_HOST_IR_JIT}")
-message(STATUS "  NVFUSER_CPP_STANDARD               : ${NVFUSER_CPP_STANDARD}")
-
 if(NVFUSER_STANDALONE_BUILD_WITH_UCC)
   message(STATUS "    UCC_HOME: $ENV{UCC_HOME}")
   message(STATUS "    UCC_DIR : $ENV{UCC_DIR}")
   message(STATUS "    UCX_HOME: $ENV{UCX_HOME}")
   message(STATUS "    UCX_DIR : $ENV{UCX_DIR}")
 endif()
-
+message(STATUS "  NVFUSER_STANDALONE_BUILD_WITH_UCC  : ${NVFUSER_STANDALONE_BUILD_WITH_UCC}")
+message(STATUS "  NVFUSER_BUILD_WITH_ASAN            : ${NVFUSER_BUILD_WITH_ASAN}")
+message(STATUS "  NVFUSER_DISTRIBUTED                : ${NVFUSER_DISTRIBUTED}")
+message(STATUS "  NVFUSER_HOST_IR_JIT                : ${NVFUSER_HOST_IR_JIT}")
+message(STATUS "  NVFUSER_CPP_STANDARD               : ${NVFUSER_CPP_STANDARD}")
+message(STATUS "  NVMMH_INCLUDE_DIR                  : ${NVMMH_INCLUDE_DIR}")
 message(STATUS "******** End of Nvfuser configuration summary ********")

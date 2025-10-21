@@ -16,6 +16,7 @@
 #include <scheduler/reduction_heuristic.h>
 #include <scheduler/tools/maxinfo_propagator.h>
 #include <visibility.h>
+#include "utils.h"
 
 namespace nvfuser {
 
@@ -49,6 +50,13 @@ constexpr int64_t x_grid_limit = ((int64_t)1 << (int64_t)31) - (int64_t)1;
 constexpr int64_t y_grid_limit = 65535;
 constexpr int64_t z_grid_limit = 65535;
 constexpr int64_t z_block_limit = 64;
+
+// Static shared memory usage (e.g., for magic zero).
+// Currently, magic zero is the only user of static shared memory and takes 4
+// bytes before alignment. All shared memory in nvFuser is aligned to
+// kSharedMemoryAlignmentBytes.
+constexpr int64_t static_smem_usage_in_bytes = kSharedMemoryAlignmentBytes;
+constexpr int64_t static_smem_usage_in_bits = static_smem_usage_in_bytes * 8;
 
 // Find largest power of 2 that is a factor of n. If n==0, return largest power
 // of 2 representable by int64_t
@@ -557,7 +565,7 @@ void transformPropagateToAllFrom(TensorView* from_tv, int64_t pos);
 //!
 //! There are currently three modes of propagation: forward, backward and
 //! both-way, see comment on the interface functions for details.
-struct BoundedDirectionalTransformPropagator {
+struct NVF_API BoundedDirectionalTransformPropagator {
   //! Custom option container for configuring
   //!  the transform propagation actions.
   //! All option values default to false unless
@@ -686,11 +694,16 @@ void applyTransforms(
 // This is somewhat similar to orderTiledConcreteIdAsRoot
 std::vector<int64_t> domainReorderAsLogicalMap(TensorView* tv);
 
-// Generates an old to new map to reorder tv's loop domain as its allocation
-// order. This only handles the simple case where allocation is a permutation of
-// loop domain, otherwise, the function returns an empty container.
-std::unordered_map<int64_t, int64_t> maybeReorderAsAllocationMap(
+// Generates an old to new map to reorder tv's logical domain as its allocation
+// order. Allocation domain is canonicalized to find a permutation of the
+// logical domain that satisfies the order in allocation domain.
+std::unordered_map<int64_t, int64_t> reorderLogicalAsAllocationMap(
     TensorView* tv);
+
+// Generates an old to new map to reorder tv's loop domain as its allocation
+// order. Allocation domain is transformed to find a permutation of the loop
+// domain that satisfies the order in allocation domain.
+std::unordered_map<int64_t, int64_t> reorderLoopAsAllocationMap(TensorView* tv);
 
 // Assumes view's are consistent as detected by
 // registery.cpp::requiresForwardViewReplay returning false

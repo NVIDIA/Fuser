@@ -236,8 +236,8 @@ TEST_F(PipelineTest, Pipeline) {
   // Note: each process is binded to a different GPU
   // Note: the concrete values are only used at the relevant ranks
   unsharded_args = {
-      at::randn(input_shape1, tensor_options),
-      at::randn(input_shape2, tensor_options)};
+      at::randn(input_shape1, tensor_options_),
+      at::randn(input_shape2, tensor_options_)};
 
   SKIP_IF_NOT_ENOUGH_DEVICES(fusion);
   executeAndValidate();
@@ -314,7 +314,7 @@ TEST_P(PipelineTestTwoStages, Communication) {
     tv3->axis(sharded_dim)->parallelize(ParallelType::DIDx);
   }
 
-  unsharded_args = {at::randn(unsharded_input_sizes, tensor_options)};
+  unsharded_args = {at::randn(unsharded_input_sizes, tensor_options_)};
 
   if (use_fusion_executor_cache) {
     host_ir_executor_params.use_fusion_executor_cache = true;

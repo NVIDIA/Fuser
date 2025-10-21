@@ -339,7 +339,6 @@ void TransformReplay::selfReplay(
       for (auto* id : new_self->logical()) {
         if (id->isReduction()) {
           new_allocation.push_back(id);
-          // NOLINTNEXTLINE(modernize-use-emplace)
           new_contiguities.push_back(std::nullopt);
         }
       }
@@ -868,13 +867,22 @@ std::pair<TensorDomain*, int64_t> TransformReplay::replayCasP(
   }
 
   if (!opt.replay_allocation) {
+    // TODO: refactor to TensorDomainBuilder and clean up similar pattern. See:
+    // https://github.com/NVIDIA/Fuser/issues/5383 Duplicate TensorDomain to
+    // avoid validation run on existing TensorDomain.
     TensorDomain* replayed = IrBuilder::createInContainer<TensorDomain>(
         consumer->container(),
         consumer->getRootDomain(),
         consumer->getLogicalDomain(),
         consumer->getAllocationDomain(),
-        new_loop,
-        consumer->domain()->contiguity());
+        consumer->getLoopDomain(),
+        /*alternate_loop_domain=*/std::nullopt,
+        consumer->domain()->contiguity(),
+        /*additiona_ids=*/std::vector<IterDomain*>(),
+        /*skip_validation=*/true);
+
+    // update loop domain, this ensures we run validation on new_loop.
+    replayed->setLoopDomain(new_loop);
 
     return {replayed, consumer_pos};
   }

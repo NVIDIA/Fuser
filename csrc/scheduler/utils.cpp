@@ -5,6 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include "utils.h"
 #include <scheduler/utils.h>
 
 #include <algorithm>
@@ -19,6 +20,7 @@
 #include <id_model/id_model.h>
 #include <id_model/schedule.h>
 #include <instrumentation.h>
+#include <ir/allocation_utils.h>
 #include <ir/builder.h>
 #include <ir/interface_nodes.h>
 #include <ir/utils.h>
@@ -303,17 +305,17 @@ void parallelizeAllLike(
   FusionGuard fg(reference_tv->fusion());
 
   if (pos < 0) {
-    pos += (int64_t)reference_tv->nDims() + 1;
+    pos += reference_tv->nDims() + 1;
   }
   NVF_CHECK(
-      pos >= 0 && pos <= (int64_t)reference_tv->nDims(),
+      pos >= 0 && pos <= reference_tv->nDims(),
       "parallelizeAllLike called on an position outside valid range.");
 
   std::unordered_map<IterDomain*, IterDomain*> concrete_to_reference_map;
 
   auto ca_map = ComputeAtMap(FusionGuard::getCurFusion());
 
-  const auto& reference_dom = reference_tv->getLoopDomain();
+  const std::vector<IterDomain*>& reference_dom = reference_tv->getLoopDomain();
   for (auto it = reference_dom.begin(); it != reference_dom.begin() + pos;
        it++) {
     auto ca_id =
@@ -611,9 +613,18 @@ PersistentBufferInfo persistentBuffers(Fusion* fusion) {
     }
 
     for (auto consumer : consumers) {
-      if (dynamic_cast<SelectOp*>(consumer->definition()) ||
-          dynamic_cast<IndexSelectOp*>(consumer->definition()) ||
-          dynamic_cast<GatherOp*>(consumer->definition())) {
+      // Adding PreprocessGroupedMatmulInputSf op to the list to skip it from
+      // being considered as candidate for persistent buffer. Otherwise, the
+      // lack of mapping between all producers to consumer triggers an assert in
+      // the check later inside `isCacheableUnmappableTv`. This feels like a
+      // reasonable WAR, since producer of indexing ops have been excluded from
+      // persistent_buffer candidates.
+      if (consumer->definition()
+              ->isOneOf<
+                  SelectOp,
+                  IndexSelectOp,
+                  GatherOp,
+                  PreprocessGroupedMatmulInputSf>()) {
         continue;
       }
       auto mappable_roots =
@@ -1185,7 +1196,7 @@ std::pair<bool, bool> canonicalDimReduction(
     bool has_iter_axis = mergeNonReduction(tv) > 0;
     return {has_iter_axis, has_red_axis};
   } else {
-    NVF_ERROR(merge_3d(tv) == 3, "Tried 3D merge, but result is not 3D.");
+    NVF_ERROR_EQ(merge_3d(tv), 3, "Tried 3D merge, but result is not 3D.");
     if (tv->axis(1)->isBroadcast()) {
       NVF_ERROR(
           !tv->axis(0)->isBroadcast(),
@@ -1317,9 +1328,21 @@ std::vector<std::pair<TensorView*, int64_t>> cacheInputs(
       }
       return use->as<GatherOp>()->lookupTv() == tv;
     };
+
+    // TODO: we might need to explicitly promote offsets to global memory
+    // We expect offsets to remain in global memory, so we do not add it to
+    // cache
+    auto isPreprocessGroupedMatmulInputSfOffsets = [tv](Expr* use) {
+      if (!use->isA<PreprocessGroupedMatmulInputSf>()) {
+        return false;
+      }
+      auto layout = use->as<PreprocessGroupedMatmulInputSf>();
+      return tv == layout->inputOffsets() || tv == layout->outputOffsets();
+    };
     std::vector<Expr*> cached_uses;
     for (auto use : tv->uses()) {
-      if (!use->isOneOf<PadOp, SliceOp>() && !isGatherLookUpTvInUse(use)) {
+      if (!use->isOneOf<PadOp, SliceOp>() && !isGatherLookUpTvInUse(use) &&
+          !isPreprocessGroupedMatmulInputSfOffsets(use)) {
         cached_uses.push_back(use);
       }
     }
@@ -1354,8 +1377,10 @@ std::vector<std::pair<TensorView*, int64_t>> cacheAndForkOutputs(
 
     if (output->definition() == nullptr ||
         // the output of ScatterOp must on the global memory due to the random
-        // or atomic access.
-        output->definition()->isA<ScatterOp>()) {
+        // or atomic access. Similarly, PreprocessGroupedMatmulInputSf requires
+        // direct write to global memory because of random access.
+        output->definition()
+            ->isOneOf<ScatterOp, PreprocessGroupedMatmulInputSf>()) {
       continue;
     }
     if (!output->uses().empty()) {
@@ -2275,31 +2300,54 @@ std::vector<int64_t> domainReorderAsLogicalMap(TensorView* tv) {
   return *permutation;
 }
 
-std::unordered_map<int64_t, int64_t> maybeReorderAsAllocationMap(
+std::unordered_map<int64_t, int64_t> reorderLogicalAsAllocationMap(
     TensorView* tv) {
-  std::unordered_map<int64_t, int64_t> ret;
-  if (!tv->hasAllocation()) {
-    return ret;
+  const auto& logical_domain = tv->getLogicalDomain();
+  std::optional<Layout> layout = canonicalizeLayout(tv);
+  // if layout cannot be inferred, we cannot reorder logical as allocation
+  // domain.
+  if (!layout.has_value()) {
+    return {};
   }
-  const auto& alloc_dom = tv->getAllocationDomain();
-  const auto& loop_dom = tv->getLoopDomain();
-  if (alloc_dom == loop_dom) {
-    return ret;
+  const auto& alloc_domain = layout->allocation_domain();
+  if (alloc_domain == logical_domain) {
+    return {};
   }
-  if (!std::is_permutation(
-          alloc_dom.begin(), alloc_dom.end(), loop_dom.begin())) {
-    return ret;
+  const std::vector<int64_t> permutation =
+      *ir_utils::computePermutation(logical_domain, alloc_domain);
+  std::unordered_map<int64_t, int64_t> reorder_map;
+  reorder_map.reserve(permutation.size());
+  for (auto [new_pos, old_pos] : enumerate(permutation)) {
+    reorder_map[old_pos] = new_pos;
   }
-  std::unordered_map<IterDomain*, int64_t> alloc_index;
-  std::unordered_map<IterDomain*, int64_t> rfactor_index;
-  for (auto i : arange((int64_t)alloc_dom.size())) {
-    alloc_index[alloc_dom[i]] = i;
-    rfactor_index[loop_dom[i]] = i;
+  return reorder_map;
+}
+
+std::unordered_map<int64_t, int64_t> reorderLoopAsAllocationMap(
+    TensorView* tv) {
+  const std::vector<IterDomain*>& loop_domain = tv->getLoopDomain();
+  std::vector<IterDomain*> alloc_domain = tv->getMaybeAllocationDomain();
+  auto transform_exprs = DependencyCheck::getAllExprsBetween(
+      {alloc_domain.begin(), alloc_domain.end()},
+      {loop_domain.begin(), loop_domain.end()});
+  applyTransforms(alloc_domain, transform_exprs);
+
+  if (alloc_domain == loop_domain) {
+    return {};
   }
-  for (auto iter_dom : alloc_dom) {
-    ret[rfactor_index[iter_dom]] = alloc_index[iter_dom];
+  std::optional<std::vector<int64_t>> permutation =
+      ir_utils::computePermutation(loop_domain, alloc_domain);
+  // if layout cannot be inferred, we cannot reorder logical as allocation
+  // domain.
+  if (!permutation.has_value()) {
+    return {};
   }
-  return ret;
+  std::unordered_map<int64_t, int64_t> reorder_map;
+  reorder_map.reserve(permutation->size());
+  for (auto [new_pos, old_pos] : enumerate(*permutation)) {
+    reorder_map[old_pos] = new_pos;
+  }
+  return reorder_map;
 }
 
 void propagateReshapeTransforms(Fusion* fusion, const ComputeAtMap& ca_map) {
@@ -2731,7 +2779,7 @@ int64_t getReductionSmemWorkspaceBit(
   int64_t reduction_broadcast_workspace_bit =
       threads_per_block * dtype_size_bit * welford_factor;
 
-  return reduction_broadcast_workspace_bit;
+  return alignSharedMemoryBits(reduction_broadcast_workspace_bit);
 }
 
 bool isResharding(Fusion* fusion) {

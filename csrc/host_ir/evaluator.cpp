@@ -349,13 +349,11 @@ void HostIrEvaluator::handle(P2PCommunication* communication) {
     const P2pIpcHandle& p2p_ipc_handle = ipc_handle_cache_.get(communication);
     const auto current_stream = static_cast<CUstream>(
         c10::cuda::getCurrentCUDAStream(my_local_device_index_).stream());
+    auto count = buffer.numel() * buffer.element_size();
     if (communication->type() == P2PCommunicationType::RECV) {
-      get_zcopy::recvPost(
-          p2p_ipc_handle,
-          buffer.numel() * buffer.element_size(),
-          current_stream);
+      recvPost(p2p_ipc_handle, count, current_stream);
     } else {
-      get_zcopy::sendPost(p2p_ipc_handle, current_stream);
+      sendPost(p2p_ipc_handle, count, current_stream);
     }
   } else {
     validateSizesAndStrides(
@@ -373,11 +371,13 @@ void HostIrEvaluator::handle(Wait* wait) {
   Expr* communication = wait->communication();
   auto* p2p_comm = dynamic_cast<P2PCommunication*>(communication);
   if (p2p_comm && p2p_comm->backend() == CommunicatorBackend::kCuda) {
+    const auto current_stream = static_cast<CUstream>(
+        c10::cuda::getCurrentCUDAStream(my_local_device_index_).stream());
+    const P2pIpcHandle& ipc_handles = ipc_handle_cache_.get(p2p_comm);
     if (p2p_comm->type() == P2PCommunicationType::SEND) {
-      const auto current_stream = static_cast<CUstream>(
-          c10::cuda::getCurrentCUDAStream(my_local_device_index_).stream());
-      const P2pIpcHandle& ipc_handles = ipc_handle_cache_.get(p2p_comm);
-      get_zcopy::sendWait(ipc_handles, current_stream);
+      sendWait(ipc_handles, current_stream);
+    } else if (p2p_comm->type() == P2PCommunicationType::RECV) {
+      recvWait(ipc_handles, current_stream);
     }
   } else {
     auto i = works_.find(communication);
@@ -573,6 +573,16 @@ void HostIrEvaluator::handle(kir::Allocate* allocate) {
   if (expr_evaluator_.isKnown(tv)) {
     return;
   }
+
+  // Check the cache if enabled
+  if (params_.use_allocation_cache) {
+    auto it = allocation_cache_.find(allocate);
+    if (it != allocation_cache_.end()) {
+      expr_evaluator_.bind(tv, it->second);
+      return;
+    }
+  }
+
   GlobalBufferInfo info =
       getBufferInfos(expr_evaluator_, PrimDataType::Int, {tv}).at(0);
   c10::Device device =
@@ -584,6 +594,12 @@ void HostIrEvaluator::handle(kir::Allocate* allocate) {
       c10::nullopt,
       device,
       c10::nullopt);
+
+  // Cache the allocation if enabled
+  if (params_.use_allocation_cache) {
+    allocation_cache_[allocate] = tensor;
+  }
+
   if (allocate->zeroInit()) {
     tensor.zero_();
   }

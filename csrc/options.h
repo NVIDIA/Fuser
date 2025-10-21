@@ -59,6 +59,7 @@ enum class DebugDumpOption {
   GlobalZeroedMemory, //!< Print the log for zeroed global memory allocator
   HostIr, //!< Dump the Host IR program
   HostIrJit, //!< Dump the LLVM IR lowered from Host IR
+  Inlining, //! Verbose information about tensor inlining
   KernelArgs, //!< Print the runtime kernel arguments when launching kernels
   FusionSegmentsDrawing, //!< Dump Segmented Fusion Graph
   PrintPtxasLog, //!< Print the ptxas verbose log including register usage
@@ -123,6 +124,7 @@ enum class EnableOption {
   HostIrLowering, //! Enable FusionKernelRuntime lowering to host IR
   InsertReshardingAfter, //! Insert resharding set after the expression
   FastMath, //! Enable fast math optimizations (--use_fast_math)
+  P2pProtocol, //! Prescribe P2P protocol: put|get
   EndOfOption //! Placeholder for counting the number of elements
 };
 
