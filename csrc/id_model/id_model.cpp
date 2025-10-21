@@ -867,6 +867,54 @@ void buildAsyncWarpInliningInfo(
   }
 }
 
+std::vector<IterDomain*> findAllIdsExceptAllocation(const TensorView* tv) {
+  VectorOfUniqueEntries<IterDomain*> discovered_ids;
+  findAllIdsExceptAllocation(tv, discovered_ids);
+  return discovered_ids.vector();
+}
+
+void findAllIdsExceptAllocation(const TensorView* tv, VectorOfUniqueEntries<IterDomain*>& discovered_ids) {
+  std::vector<const std::vector<IterDomain*>*> all_domains = {
+      &tv->getLoopDomain(),
+      &tv->getLogicalDomain(),
+      &tv->getInitialLoopDomain(),
+      &tv->domain()->additionalIDs()};
+  if (tv->hasRoot()) {
+    all_domains.push_back(&tv->getRootDomain());
+  }
+  if (tv->getAlternateLoopDomain().has_value()) {
+    all_domains.push_back(&tv->getAlternateLoopDomain().value());
+  }
+
+  for (auto domain : all_domains) {
+    discovered_ids.pushBack(*domain);
+  }
+
+  // We only care about IDs on the shortest path between domains
+  std::unordered_multimap<IterDomain*, IterDomain*> out2in;
+  for (auto i : arange(all_domains.size() - 1)) {
+    if (all_domains[i]->empty()) {
+      continue;
+    }
+    for (auto j : arange(i + 1, all_domains.size())) {
+      if (all_domains[j]->empty()) {
+        continue;
+      }
+      auto path = getExprsBetween<IRBFS>(
+                      {all_domains[i]->begin(), all_domains[i]->end()},
+                      {all_domains[j]->begin(), all_domains[j]->end()},
+                      false)
+                      .first;
+      for (auto [expr, _] : path) {
+        discovered_ids.pushBack(
+            ir_utils::filterByType<IterDomain>(expr->outputs()));
+        discovered_ids.pushBack(
+            ir_utils::filterByType<IterDomain>(expr->inputs()));
+      }
+    }
+  }
+};
+
 } // namespace
 
 // Grab inlining relationships
@@ -915,8 +963,8 @@ StatefulInliningInfo buildStatefulInliningInfo(
         info.ordered_p_ca_ids.pushBack(all_producer_ca_deps);
 
         // This doesn't look right! we shouldn't be using allIDs, but exclude allocation paths from this.
-        auto all_producer_ids = producer_tv->domain()->allIDs();
-        auto all_consumer_ids = consumer_tv->domain()->allIDs();
+        auto all_producer_ids = findAllIdsExceptAllocation(producer_tv);
+        auto all_consumer_ids = findAllIdsExceptAllocation(consumer_tv);
 
         auto p2c_permissive_map = permissive_graph.buildMapBetween(
             all_producer_ids, all_consumer_ids);
@@ -941,12 +989,12 @@ StatefulInliningInfo buildStatefulInliningInfo(
     if (ir_utils::hasUniformSiblings(expr)) {
       auto consumer_tvs = ir_utils::filterByType<TensorView>(expr->outputs());
       if (consumer_tvs.size() > 1) {
-        auto all_consumer_ids = consumer_tvs.vector().at(0)->domain()->allIDs();
+        auto all_consumer_ids = findAllIdsExceptAllocation(consumer_tvs.vector().at(0));
         info.ordered_sibling_ids.pushBack(
             {all_consumer_ids.begin(), all_consumer_ids.end()});
         for (const auto i : arange(1, consumer_tvs.size())) {
           auto consumer_tv_i = consumer_tvs.vector().at(i);
-          auto all_consumer_i_ids = consumer_tv_i->domain()->allIDs();
+          auto all_consumer_i_ids = findAllIdsExceptAllocation(consumer_tv_i);
 
           auto sibling_map = permissive_graph.buildMapBetween(
               all_consumer_ids, all_consumer_i_ids);
@@ -976,51 +1024,8 @@ void IdModel::initializeLoopGraph(const StatefulInliningInfo& info) {
     // loop_ids only contains at IDs between logical->loop
     VectorOfUniqueEntries<IterDomain*> loop_ids;
 
-    auto all_ids_except_allocation = [&loop_ids](TensorView* tv) {
-      std::vector<const std::vector<IterDomain*>*> all_domains = {
-          &tv->getLoopDomain(),
-          &tv->getLogicalDomain(),
-          &tv->getInitialLoopDomain(),
-          &tv->domain()->additionalIDs()};
-      if (tv->hasRoot()) {
-        all_domains.push_back(&tv->getRootDomain());
-      }
-      if (tv->getAlternateLoopDomain().has_value()) {
-        all_domains.push_back(&tv->getAlternateLoopDomain().value());
-      }
-
-      for (auto domain : all_domains) {
-        loop_ids.pushBack(*domain);
-      }
-
-      // We only care about IDs on the shortest path between domains
-      std::unordered_multimap<IterDomain*, IterDomain*> out2in;
-      for (auto i : arange(all_domains.size() - 1)) {
-        if (all_domains[i]->empty()) {
-          continue;
-        }
-        for (auto j : arange(i + 1, all_domains.size())) {
-          if (all_domains[j]->empty()) {
-            continue;
-          }
-          auto path = getExprsBetween<IRBFS>(
-                          {all_domains[i]->begin(), all_domains[i]->end()},
-                          {all_domains[j]->begin(), all_domains[j]->end()},
-                          false)
-                          .first;
-          for (auto [expr, _] : path) {
-            loop_ids.pushBack(
-                ir_utils::filterByType<IterDomain>(expr->outputs()));
-            loop_ids.pushBack(
-                ir_utils::filterByType<IterDomain>(expr->inputs()));
-          }
-        }
-      }
-      return loop_ids.vector();
-    };
-
     for (TensorView* tv : tvs_) {
-      all_ids_except_allocation(tv);
+      findAllIdsExceptAllocation(tv, loop_ids);
     }
     std::vector<IterDomain*> all_ids = loop_ids.vector();
 
