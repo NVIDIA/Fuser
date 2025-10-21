@@ -1040,7 +1040,7 @@ void IdModel::initializeLoopGraph(const StatefulInliningInfo& info) {
       VectorOfUniqueEntries<IterDomain*> active_uses;
       for (const auto& use : uses_it->second) {
         if (std::any_of(use->outputs().begin(), use->outputs().end(), [&](Val* output) {
-          return output->isA<IterDomain*>() && loop_ids.has(output->as<IterDomain*>());
+          return output->isA<IterDomain>() && loop_ids.has(output->as<IterDomain>());
         })) {
           active_uses.pushBack(use);
         }
