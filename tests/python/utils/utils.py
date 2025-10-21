@@ -9,6 +9,7 @@ from typing import Callable, Optional
 import tempfile
 import torch
 import pytest
+from contextlib import contextmanager
 from torch.testing import make_tensor
 from torch.testing._internal.common_utils import TestCase
 from looseversion import LooseVersion
@@ -343,3 +344,17 @@ class NVFuserTest(TestCase):
                 check_cpp_translation(out, fd, inputs_cloned, supports_segmentation)
             )
         return out, fd
+
+
+@contextmanager
+def set_env(**environ):
+    """
+    Override environment variable
+    """
+    old_environ = dict(os.environ)
+    os.environ.update(environ)
+    try:
+        yield
+    finally:
+        os.environ.clear()
+        os.environ.update(old_environ)
