@@ -13,10 +13,9 @@
 
 namespace nvfuser {
 
-namespace {
 // Returns the minimum between the allocation granularity and, when available,
 // the maximum of multicast minimum and recommended granularities.
-static inline size_t get_granularity(
+int64_t get_granularity(
     const CUmemAllocationProp& prop,
     size_t requested_size_bytes) {
   size_t alloc_granularity = 0;
@@ -49,11 +48,8 @@ static inline size_t get_granularity(
 #endif
 }
 
-} // anonymous namespace
-
 at::Tensor empty_strided_cuda_symmetric(
     at::IntArrayRef sizes,
-    at::IntArrayRef strides,
     at::ScalarType dtype,
     at::Device device,
     std::optional<uint64_t> alloc_id) {
@@ -70,21 +66,6 @@ at::Tensor empty_strided_cuda_symmetric(
   NVF_ERROR(
       is_vmm_supported != 0,
       "Device does not support Virtual Memory Management");
-
-  // Only support contiguous tensors for now
-  int64_t expected_stride = 1;
-  for (int64_t i = sizes.size() - 1; i >= 0; --i) {
-    if (strides[i] != expected_stride) {
-      NVF_ERROR(
-          false,
-          "empty_strided_cuda_symmetric only supports contiguous tensors, but "
-          "got strides ",
-          strides,
-          " for size ",
-          sizes);
-    }
-    expected_stride *= sizes[i];
-  }
 
   const int64_t numel = std::accumulate(
       sizes.begin(), sizes.end(), /*init=*/1, std::multiplies<int64_t>());
@@ -124,10 +105,16 @@ at::Tensor empty_strided_cuda_symmetric(
       cuMemSetAccess(ptr, rounded_alloc_size, &access_desc, /*count=*/1));
 
   auto options = at::TensorOptions().dtype(dtype).device(device);
+  // Compute default (contiguous) strides for the given sizes
+  std::vector<int64_t> strides(sizes.size());
+  strides.back() = 1;
+  for (int64_t i = strides.size() - 2; i >= 0; --i) {
+    strides[i] = strides[i + 1] * sizes[i + 1];
+  }
   return at::from_blob(
       (void*)ptr,
       sizes,
-      strides,
+      std::move(strides),
       [=](void* ptr) {
         NVFUSER_CUDA_SAFE_CALL(
             cuMemUnmap((CUdeviceptr)(ptr), rounded_alloc_size));
@@ -154,7 +141,7 @@ std::string is_symmetric_memory_valid(at::Tensor tensor) {
 
   CUmemLocation location{};
   location.type = CU_MEM_LOCATION_TYPE_DEVICE;
-  location.id = 0;
+  location.id = Communicator::getInstance().local_rank();
   unsigned long long flags = 0;
   NVFUSER_CUDA_SAFE_CALL(cuMemGetAccess(&flags, &location, ptr));
   if (flags != CU_MEM_ACCESS_FLAGS_PROT_READWRITE) {

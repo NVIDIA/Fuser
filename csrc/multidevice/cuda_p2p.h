@@ -19,10 +19,9 @@ void sendWait(const P2pIpcHandle& ipc_handles, CUstream stream);
 
 } // namespace get_zcopy
 
-void postAllgatherWithP2pBackend(
+void postBroadcastWithP2pBackend(
     Communication* communication,
-    DeviceIdxType my_device_index,
-    c10d::Backend* backend,
+    Communicator* communicator,
     at::Tensor input_tensor,
     at::Tensor output_tensor);
 

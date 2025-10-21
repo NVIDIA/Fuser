@@ -11,7 +11,8 @@
 #include <c10/util/ArrayRef.h>
 #include <optional>
 #include <string>
-#include <visibility.h>
+
+#include <driver_api.h>
 
 namespace nvfuser {
 
@@ -27,19 +28,20 @@ namespace nvfuser {
  *   returns a descriptive error message.
  */
 
-// Allocate a symmetric CUDA tensor with the given size, stride, dtype and device.
-// Only contiguous strides are currently supported.
-NVF_API at::Tensor empty_strided_cuda_symmetric(
+// Allocate a symmetric CUDA tensor with the given size, stride, dtype and
+// device. Only contiguous strides are currently supported.
+at::Tensor empty_strided_cuda_symmetric(
     at::IntArrayRef sizes,
-    at::IntArrayRef strides,
     at::ScalarType dtype,
     at::Device device,
     std::optional<uint64_t> alloc_id);
 
 // Validate that the provided tensor is backed by symmetric CUDA memory.
 // Returns "" if valid; otherwise an error description.
-NVF_API std::string is_symmetric_memory_valid(at::Tensor tensor);
+std::string is_symmetric_memory_valid(at::Tensor tensor);
+
+int64_t get_granularity(
+    const CUmemAllocationProp& prop,
+    size_t requested_size_bytes);
 
 } // namespace nvfuser
-
-

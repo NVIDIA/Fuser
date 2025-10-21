@@ -11,6 +11,8 @@
 #include <ir/builder.h>
 #include <multidevice/communication.h>
 #include <multidevice/communicator.h>
+#include <multidevice/cuda_p2p.h>
+#include <multidevice/symmetric_memory.h>
 #include <tests/cpp/multidevice.h>
 #include <tests/cpp/validator.h>
 
@@ -482,6 +484,54 @@ TEST_F(P2PCommunicationTest, CudaComm) {
     EXPECT_TRUE(at::allclose(recv_tensor, ref))
         << "Rank " << my_rank << " failed at repetition " << repetition
         << " with recv tensor " << recv_tensor << " and ref " << ref;
+  }
+}
+
+using CUDACommunicationTest = MultiDeviceTest;
+
+TEST_F(CUDACommunicationTest, Broadcast) {
+  if (communicator_->size() < 2 || at::cuda::device_count() < 2) {
+    GTEST_SKIP() << "This test needs at least 2 GPUs and 2 ranks.";
+  }
+
+  constexpr DeviceIdxType kRoot = 0;
+  constexpr int kTensorSize = 8;
+
+  hir::HostIrContainer container;
+  FusionGuard fg(&container);
+  auto* in = makeContigTensor(2);
+  in->setDeviceMesh(DeviceMesh::createForNumDevices(communicator_->size()));
+  auto* out = ops::newValLike(in, in->dtype())->as<TensorView>();
+  auto communication = IrBuilder::create<Communication>(
+      CommunicationType::Broadcast,
+      out,
+      in,
+      out->getDeviceMesh().vector(),
+      kRoot);
+
+  at::Tensor input_tensor;
+  if (communicator_->deviceId() == kRoot) {
+    input_tensor = at::empty({kTensorSize}, tensor_options_);
+  }
+  at::Tensor output_tensor = empty_strided_cuda_symmetric(
+      {kTensorSize},
+      at::kFloat,
+      tensor_options_.device(),
+      c10::nullopt);
+
+  for (auto repetition : arange(1)) {
+    // for (auto repetition : arange(kNumRepetitions)) {
+    if (communicator_->deviceId() == kRoot) {
+      input_tensor.copy_(at::arange(kTensorSize, tensor_options_) + repetition);
+    }
+    postBroadcastWithP2pBackend(
+        communication, communicator_, input_tensor, output_tensor);
+
+    auto ref = at::arange(kTensorSize, tensor_options_) + repetition;
+    EXPECT_TRUE(output_tensor.equal(ref))
+        << "Device " << communicator_->deviceId() << " expected tensor:\n"
+        << ref << "\nbut obtained tensor:\n"
+        << output_tensor;
   }
 }
 
