@@ -1037,7 +1037,7 @@ void IdModel::initializeLoopGraph(const StatefulInliningInfo& info) {
           " as it's missing a definition entry.");
       
       // we might have inactive uses, i.e. uses that doesn't produce all_ids.
-      VectorOfUniqueEntries<IterDomain*> active_uses;
+      VectorOfUniqueEntries<Expr*> active_uses;
       for (const auto& use : uses_it->second) {
         if (std::any_of(use->outputs().begin(), use->outputs().end(), [&](Val* output) {
           return output->isA<IterDomain>() && loop_ids.has(output->as<IterDomain>());
