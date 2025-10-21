@@ -329,7 +329,7 @@ void HostIrEvaluator::handle(Communication* communication) {
   CommunicatorBackend backend_type = communication->backend();
   if (backend_type == CommunicatorBackend::kCuda) {
     NVF_ERROR(communication->type() == CommunicationType::Broadcast, "Invalid communication type, expected Broadcast, got: ", communication->type());
-    postBroadcastWithP2pBackend(communication, communicator_, input_tensor, output_tensor);
+    postBroadcastWithP2pBackend(communication, input_tensor, output_tensor);
   } else {
     c10d::Backend* backend =
         communicator_->getBackendForTeam(communication->team(), backend_type);

@@ -10,6 +10,10 @@
 #include <cuda.h>
 #include <cuda_runtime.h>
 #include <expr_evaluator.h>
+#include <memory>
+#include <string>
+#include <unordered_map>
+#include <vector>
 
 namespace nvfuser {
 
@@ -70,6 +74,27 @@ class P2pIpcHandle {
   std::unique_ptr<IpcHandle> peer_;
 };
 
+namespace {
+
+struct TensorHash {
+  std::size_t operator()(const at::Tensor& tensor) const {
+    auto ptr = reinterpret_cast<std::uintptr_t>(tensor.data_ptr());
+    auto offset = tensor.storage_offset();
+    auto element_size = tensor.element_size();
+    auto numel = tensor.numel();
+    return std::hash<std::uintptr_t>()(ptr) ^ std::hash<int64_t>()(offset) ^
+        std::hash<int64_t>()(element_size) ^ std::hash<int64_t>()(numel);
+  }
+};
+
+struct TensorEqual {
+  bool operator()(const at::Tensor& lhs, const at::Tensor& rhs) const {
+    return lhs.equal(rhs);
+  }
+};
+
+} // namespace
+
 // IpcHandleCache manages and cache the IpcHandles.
 // Caching is done on the runtime values of (peer, tensor) and the
 // P2PCommunication* pointer.
@@ -113,23 +138,6 @@ class IpcHandleCache {
             (std::hash<P2PCommunication*>()(key.comm));
       }
     };
-
-    struct TensorHash {
-      std::size_t operator()(const at::Tensor& tensor) const {
-        auto ptr = reinterpret_cast<std::uintptr_t>(tensor.data_ptr());
-        auto offset = tensor.storage_offset();
-        auto element_size = tensor.element_size();
-        auto numel = tensor.numel();
-        return std::hash<std::uintptr_t>()(ptr) ^ std::hash<int64_t>()(offset) ^
-            std::hash<int64_t>()(element_size) ^ std::hash<int64_t>()(numel);
-      }
-    };
-
-    struct TensorEqual {
-      bool operator()(const at::Tensor& lhs, const at::Tensor& rhs) const {
-        return lhs.equal(rhs);
-      }
-    };
   };
 
   void insert(P2PCommunication* comm, std::unique_ptr<P2pIpcHandle> handle) {
@@ -155,6 +163,57 @@ class IpcHandleCache {
 
   const ExpressionEvaluator& expr_evaluator_;
   std::unordered_map<KeyType, std::unique_ptr<P2pIpcHandle>, KeyType::Hash>
+      handles_;
+};
+
+class MulticastHandleForBcast {
+ public:
+  MulticastHandleForBcast(Communication* communication, at::Tensor buffer);
+
+  ~MulticastHandleForBcast();
+
+  void* ptr() const {
+    return (void*)mc_ptr;
+  }
+
+ private:
+  CUmemGenericAllocationHandle mcast_handle{};
+  CUdevice cu_dev{};
+  CUmemGenericAllocationHandle output_alloc_handle{};
+  CUdeviceptr mc_ptr{0};
+  int64_t rounded_size{0};
+};
+
+class MulticastHandleCache {
+ public:
+  MulticastHandleCache(const ExpressionEvaluator& expr_evaluator)
+      : expr_evaluator_(expr_evaluator) {}
+  ~MulticastHandleCache() = default;
+
+  const MulticastHandleForBcast& get(Communication* communication);
+
+ private:
+  struct KeyType {
+    at::Tensor buffer;
+    Communication* comm;
+
+    bool operator==(const KeyType& other) const {
+      return TensorEqual{}(buffer, other.buffer) && comm == other.comm;
+    }
+
+    struct Hash {
+      std::size_t operator()(const KeyType& key) const {
+        return (TensorHash{}(key.buffer)) ^
+            (std::hash<Communication*>()(key.comm));
+      }
+    };
+  };
+
+  const ExpressionEvaluator& expr_evaluator_;
+  std::unordered_map<
+      KeyType,
+      std::unique_ptr<MulticastHandleForBcast>,
+      KeyType::Hash>
       handles_;
 };
 

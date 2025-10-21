@@ -525,7 +525,7 @@ TEST_F(CUDACommunicationTest, Broadcast) {
       input_tensor.copy_(at::arange(kTensorSize, tensor_options_) + repetition);
     }
     postBroadcastWithP2pBackend(
-        communication, communicator_, input_tensor, output_tensor);
+        communication, input_tensor, output_tensor);
 
     auto ref = at::arange(kTensorSize, tensor_options_) + repetition;
     EXPECT_TRUE(output_tensor.equal(ref))
