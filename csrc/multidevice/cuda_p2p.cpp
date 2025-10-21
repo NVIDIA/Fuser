@@ -74,7 +74,8 @@ void sendWait(const P2pIpcHandle& ipc_handles, CUstream stream) {
 void postBroadcastWithP2pBackend(
     Communication* communication,
     at::Tensor input_tensor,
-    at::Tensor output_tensor) {
+    at::Tensor output_tensor,
+    MulticastHandleCache& multicast_handle_cache) {
   NVF_ERROR(
       communication->type() == CommunicationType::Broadcast,
       "Invalid communication type, expected Broadcast, got: ",

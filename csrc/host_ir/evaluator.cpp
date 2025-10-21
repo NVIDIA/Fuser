@@ -45,7 +45,8 @@ HostIrEvaluator::HostIrEvaluator(
       params_(params),
       expr_evaluator_(),
       my_local_device_index_(communicator_ ? communicator_->local_rank() : 0),
-      ipc_handle_cache_(expr_evaluator_) {
+      ipc_handle_cache_(expr_evaluator_),
+      multicast_handle_cache_(expr_evaluator_) {
   const DeviceIdxType device_index =
       (communicator_ != nullptr && communicator_->is_available())
       ? communicator_->deviceId()
@@ -329,7 +330,7 @@ void HostIrEvaluator::handle(Communication* communication) {
   CommunicatorBackend backend_type = communication->backend();
   if (backend_type == CommunicatorBackend::kCuda) {
     NVF_ERROR(communication->type() == CommunicationType::Broadcast, "Invalid communication type, expected Broadcast, got: ", communication->type());
-    postBroadcastWithP2pBackend(communication, input_tensor, output_tensor);
+    postBroadcastWithP2pBackend(communication, input_tensor, output_tensor, multicast_handle_cache_);
   } else {
     c10d::Backend* backend =
         communicator_->getBackendForTeam(communication->team(), backend_type);
