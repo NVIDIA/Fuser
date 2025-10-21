@@ -87,11 +87,11 @@ void postBroadcastWithP2pBackend(
   const size_t kNumElems = output_tensor.numel();
   const size_t kSizeBytes = kNumElems * output_tensor.element_size();
 
-  MulticastHandleForBcast mcast(communication, output_tensor);
+  const MulticastHandleForBcast& mcast = multicast_handle_cache.get({output_tensor, communication});
 
   if (my_device_index == communication->root()) {
     NVFUSER_CUDA_RT_SAFE_CALL(cudaMemcpy(
-        reinterpret_cast<void*>(mcast.ptr()),
+        mcast.ptr(),
         input_tensor.data_ptr(),
         kSizeBytes,
         cudaMemcpyHostToDevice));

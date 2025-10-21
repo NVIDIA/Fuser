@@ -516,14 +516,16 @@ TEST_F(CUDACommunicationTest, Broadcast) {
   at::Tensor output_tensor = empty_strided_cuda_symmetric(
       {kTensorSize}, at::kFloat, tensor_options_.device(), c10::nullopt);
 
-  ExpressionEvaluator expr_evaluator;
-  MulticastHandleCache multicast_handle_cache(expr_evaluator);
+  MulticastHandleCache multicast_handle_cache;
 
-  for (auto repetition : arange(1)) {
+  for (auto repetition : arange(10)) {
     // for (auto repetition : arange(kNumRepetitions)) {
     if (communicator_->deviceId() == kRoot) {
       input_tensor.copy_(at::arange(kTensorSize, tensor_options_) + repetition);
     }
+
+    communicator_->barrier();
+
     postBroadcastWithP2pBackend(
         communication, input_tensor, output_tensor, multicast_handle_cache);
 
@@ -532,6 +534,8 @@ TEST_F(CUDACommunicationTest, Broadcast) {
         << "Device " << communicator_->deviceId() << " expected tensor:\n"
         << ref << "\nbut obtained tensor:\n"
         << output_tensor;
+
+    communicator_->barrier();
   }
 }
 

@@ -295,11 +295,7 @@ MulticastHandleForBcast::~MulticastHandleForBcast() {
 #endif
 }
 
-const MulticastHandleForBcast& MulticastHandleCache::get(
-    Communication* communication) {
-  auto buffer =
-      expr_evaluator_.evaluate(communication->output(0)).as<at::Tensor>();
-  auto key = KeyType{buffer, communication};
+const MulticastHandleForBcast& MulticastHandleCache::get(KeyType key) {
   auto it = handles_.find(key);
   if (it != handles_.end()) {
     return *(it->second);
@@ -307,8 +303,7 @@ const MulticastHandleForBcast& MulticastHandleCache::get(
 
   // If not found, create a new MulticastHandleForBcast, store, and return
   // reference
-  auto handle =
-      std::make_unique<MulticastHandleForBcast>(communication, buffer);
+  auto handle = std::make_unique<MulticastHandleForBcast>(key.comm, key.buffer);
   auto inserted = handles_.emplace(key, std::move(handle));
   return *(inserted.first->second);
 }

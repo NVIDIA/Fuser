@@ -186,13 +186,9 @@ class MulticastHandleForBcast {
 
 class MulticastHandleCache {
  public:
-  MulticastHandleCache(const ExpressionEvaluator& expr_evaluator)
-      : expr_evaluator_(expr_evaluator) {}
+  MulticastHandleCache() = default;
   ~MulticastHandleCache() = default;
 
-  const MulticastHandleForBcast& get(Communication* communication);
-
- private:
   struct KeyType {
     at::Tensor buffer;
     Communication* comm;
@@ -209,7 +205,9 @@ class MulticastHandleCache {
     };
   };
 
-  const ExpressionEvaluator& expr_evaluator_;
+  const MulticastHandleForBcast& get(KeyType key);
+
+ private:
   std::unordered_map<
       KeyType,
       std::unique_ptr<MulticastHandleForBcast>,

@@ -46,7 +46,7 @@ HostIrEvaluator::HostIrEvaluator(
       expr_evaluator_(),
       my_local_device_index_(communicator_ ? communicator_->local_rank() : 0),
       ipc_handle_cache_(expr_evaluator_),
-      multicast_handle_cache_(expr_evaluator_) {
+      multicast_handle_cache_() {
   const DeviceIdxType device_index =
       (communicator_ != nullptr && communicator_->is_available())
       ? communicator_->deviceId()
