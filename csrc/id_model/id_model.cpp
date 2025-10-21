@@ -914,6 +914,7 @@ StatefulInliningInfo buildStatefulInliningInfo(
         }
         info.ordered_p_ca_ids.pushBack(all_producer_ca_deps);
 
+        // This doesn't look right! we shouldn't be using allIDs, but exclude allocation paths from this.
         auto all_producer_ids = producer_tv->domain()->allIDs();
         auto all_consumer_ids = consumer_tv->domain()->allIDs();
 
