@@ -66,11 +66,13 @@ namespace nvfuser {
 #if (CUDA_VERSION >= 12000)
 #define NVF_STREAM_DRIVER_API_WRAPPER(fn) \
   fn(cuStreamWaitValue32, 12000);         \
-  fn(cuStreamWriteValue32, 12000)
+  fn(cuStreamWriteValue32, 12000);        \
+  fn(cuStreamBatchMemOp, 12000)
 #elif (CUDA_VERSION >= 11000)
 #define NVF_STREAM_DRIVER_API_WRAPPER(fn) \
   fn(cuStreamWaitValue32, 11000);         \
-  fn(cuStreamWriteValue32, 11000)
+  fn(cuStreamWriteValue32, 11000);        \
+  fn(cuStreamBatchMemOp, 11000)
 #else
 #error "CUDA_VERSION < 11000 isn't supported."
 #endif

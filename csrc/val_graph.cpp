@@ -23,7 +23,8 @@ ValGraph::ValGraph(const ValGraph& other)
       disjoint_vals_(other.disjoint_vals_),
       disjoint_exprs_(other.disjoint_exprs_),
       unique_definitions_(),
-      unique_uses_() {
+      unique_uses_(),
+      unmappable_vals_(other.unmappable_vals_) {
   for (const auto& [orig_val_group, orig_expr_groups] :
        other.unique_definitions_) {
     auto new_val_group = toGroup(orig_val_group->front());

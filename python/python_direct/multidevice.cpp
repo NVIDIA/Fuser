@@ -73,7 +73,7 @@ void bindDeviceMesh(py::module& nvfuser) {
   py::class_<DeviceMesh> device_mesh(nvfuser, "DeviceMesh", py::module_local());
   device_mesh.def(
       py::init([](at::Tensor devices) {
-        return new DeviceMesh(std::move(devices));
+        return std::make_unique<DeviceMesh>(std::move(devices));
       }),
       py::arg("devices"),
       R"(
@@ -81,7 +81,7 @@ Create a new DeviceMesh from torch.Tensor.
 )");
   device_mesh.def(
       py::init([](const std::vector<int64_t>& devices) {
-        return new DeviceMesh(at::tensor(devices));
+        return std::make_unique<DeviceMesh>(at::tensor(devices));
       }),
       py::arg("devices"),
       R"(
