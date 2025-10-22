@@ -200,18 +200,20 @@ void postBroadcastWithCudaBackend(
         CU_STREAM_WAIT_VALUE_EQ));
   } else {
     // Root waits on all non-root ranks' semaphores to become kInUse
+    std::vector<CUstreamBatchMemOpParams> ops(world_size - 1);
+    int op_idx = 0;
     for (int64_t rank = 0; rank < world_size; ++rank) {
       if (rank == root)
         continue;
-      printf("[DEBUG] Root waiting on rank %ld semaphore\n", rank);
-      fflush(stdout);
-      NVFUSER_CUDA_SAFE_CALL(cuStreamWaitValue32(
-          stream,
-          reinterpret_cast<CUdeviceptr>(
-              multicast_handle.semaphore_unicast_ptr(rank)),
-          static_cast<cuuint32_t>(IpcSemaphore::kInUse),
-          CU_STREAM_WAIT_VALUE_EQ));
+      ops[op_idx].operation = CU_STREAM_MEM_OP_WAIT_VALUE_32;
+      ops[op_idx].waitValue.address = reinterpret_cast<CUdeviceptr>(
+          multicast_handle.semaphore_unicast_ptr(rank));
+      ops[op_idx].waitValue.value = static_cast<cuuint32_t>(IpcSemaphore::kInUse);
+      ops[op_idx].waitValue.flags = CU_STREAM_WAIT_VALUE_EQ;
+      op_idx++;
     }
+    NVFUSER_CUDA_SAFE_CALL(
+        cuStreamBatchMemOp(stream, world_size - 1, ops.data(), 0));
 
     // Root multicast the data
     NVFUSER_CUDA_RT_SAFE_CALL(cudaMemcpyAsync(
