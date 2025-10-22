@@ -150,7 +150,6 @@ void sendWait(const P2pIpcHandle& ipc_handles, CUstream stream) {
   }
 }
 
-
 void postBroadcastWithCudaBackend(
     Communication* communication,
     at::Tensor input_tensor,
@@ -160,12 +159,22 @@ void postBroadcastWithCudaBackend(
       communication->type() == CommunicationType::Broadcast,
       "Invalid communication type, expected Broadcast, got: ",
       communication->type());
+  NVF_ERROR(
+      communication->backend() == CommunicatorBackend::kCuda,
+      "Invalid backend, expected Cuda, got: ",
+      communication->backend());
 
   Communicator& communicator = Communicator::getInstance();
   const int64_t my_device_index = communicator.deviceId();
 
-  const size_t kNumElems = output_tensor.numel();
-  const size_t kSizeBytes = kNumElems * output_tensor.element_size();
+  NVF_ERROR(
+      communication->team().size() == communicator.size(),
+      "Only support world size team for broadcast with cuda backend, expected ",
+      communicator.size(),
+      " got: ",
+      communication->team().size());
+
+  const size_t size = output_tensor.numel() * output_tensor.element_size();
 
   const MulticastHandleForBroadcast& mcast =
       multicast_handle_cache.get({output_tensor, communication});
@@ -176,9 +185,11 @@ void postBroadcastWithCudaBackend(
     NVFUSER_CUDA_RT_SAFE_CALL(cudaMemcpy(
         mcast.multicast_buffer_ptr(),
         input_tensor.data_ptr(),
-        kSizeBytes,
+        size,
         cudaMemcpyHostToDevice));
   }
 
   communicator.barrier();
 }
+
+} // namespace nvfuser
