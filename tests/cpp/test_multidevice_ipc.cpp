@@ -11,6 +11,8 @@
 #include <host_ir/container.h>
 #include <host_ir/evaluator.h>
 #include <ir/all_nodes.h>
+#include <multidevice/ipc_handle.h>
+#include <multidevice/symmetric_memory.h>
 #include <ops/all_ops.h>
 #include <sys/prctl.h>
 #include <sys/syscall.h>
@@ -350,6 +352,84 @@ TEST_F(IpcTest, IpcP2pWithVmm) {
   NVFUSER_CUDA_SAFE_CALL(cuMemUnmap(d_ptr, aligned_size));
   NVFUSER_CUDA_SAFE_CALL(cuMemAddressFree(d_ptr, aligned_size));
   NVFUSER_CUDA_SAFE_CALL(cuMemRelease(mem_handle));
+}
+
+TEST_F(IpcTest, UnicastHandleP2p) {
+  if (communicator_->size() == 1) {
+    GTEST_SKIP() << "Skipping test for single device";
+  }
+
+  constexpr size_t kBufferSize = sizeof(int64_t);
+  const int64_t num_devices = communicator_->size();
+  const int64_t rank = communicator_->deviceId();
+  const int64_t local_rank = communicator_->local_rank();
+
+  // Query support for Virtual Memory Management
+  int is_vmm_supported;
+  NVFUSER_CUDA_SAFE_CALL(cuDeviceGetAttribute(
+      &is_vmm_supported,
+      CU_DEVICE_ATTRIBUTE_VIRTUAL_MEMORY_MANAGEMENT_SUPPORTED,
+      local_rank));
+  if (is_vmm_supported == 0) {
+    GTEST_SKIP()
+        << "Device does not support Virtual Memory Management; skipping.";
+  }
+
+  // Query support for IPC handles
+  int is_ipc_supported;
+  NVFUSER_CUDA_SAFE_CALL(cuDeviceGetAttribute(
+      &is_ipc_supported,
+      CU_DEVICE_ATTRIBUTE_HANDLE_TYPE_POSIX_FILE_DESCRIPTOR_SUPPORTED,
+      local_rank));
+  if (is_ipc_supported == 0) {
+    GTEST_SKIP() << "Device does not support IPC handles; skipping.";
+  }
+
+  NVFUSER_CUDA_RT_SAFE_CALL(cudaSetDevice(local_rank));
+
+  // Allocate symmetric memory tensor
+  at::Tensor tensor = empty_strided_cuda_symmetric(
+      /*sizes=*/at::IntArrayRef({1}),
+      /*dtype=*/at::ScalarType::Long,
+      /*device=*/communicator_->device(),
+      /*alloc_id=*/c10::nullopt);
+
+  // Write rank value to the tensor
+  const int64_t value = rank;
+  NVFUSER_CUDA_RT_SAFE_CALL(cudaMemcpy(
+      tensor.data_ptr(),
+      &value,
+      kBufferSize,
+      cudaMemcpyHostToDevice));
+
+  // Create UnicastHandle as exporter
+  std::string store_key_prefix =
+      "unicast_p2p_rank_" + std::to_string(rank);
+  auto local_handle =
+      std::make_unique<UnicastHandle>(tensor, rank, store_key_prefix);
+
+  // Wait for all ranks to finish exporting
+  communicator_->barrier();
+
+  // Import peer's UnicastHandle
+  const int64_t peer_rank = (rank + 1) % num_devices;
+  std::string peer_store_key_prefix =
+      "unicast_p2p_rank_" + std::to_string(peer_rank);
+  auto peer_handle =
+      std::make_unique<UnicastHandle>(peer_rank, peer_store_key_prefix);
+
+  // Validate by reading peer's value
+  int64_t peer_value;
+  NVFUSER_CUDA_RT_SAFE_CALL(cudaMemcpy(
+      &peer_value,
+      reinterpret_cast<void*>(peer_handle->ptr()),
+      kBufferSize,
+      cudaMemcpyDeviceToHost));
+  EXPECT_EQ((value + 1) % num_devices, peer_value);
+
+  // Clean up: UnicastHandle destructors will handle cleanup
+  peer_handle.reset();
+  local_handle.reset();
 }
 
 #if (CUDA_VERSION >= 13000)

@@ -162,29 +162,78 @@ UnicastHandle::UnicastHandle(
     at::Tensor tensor,
     int64_t exporter_rank,
     const std::string& store_key_prefix)
-    : ptr_(tensor.data_ptr()), tensor_(tensor) {
+    : ptr_(reinterpret_cast<CUdeviceptr>(tensor.data_ptr())), tensor_(tensor) {
   NVF_ERROR(
       tensor.is_contiguous(), "UnicastHandle only supports contiguous tensors");
 
+  Communicator& communicator = Communicator::getInstance();
+  const int64_t local_rank = communicator.local_rank();
+
+  // Check VMM support
+  int is_vmm_supported;
+  NVFUSER_CUDA_SAFE_CALL(cuDeviceGetAttribute(
+      &is_vmm_supported,
+      CU_DEVICE_ATTRIBUTE_VIRTUAL_MEMORY_MANAGEMENT_SUPPORTED,
+      local_rank));
+  NVF_ERROR(
+      is_vmm_supported != 0,
+      "Device does not support Virtual Memory Management");
+
+  // Check IPC support
+  int is_ipc_supported;
+  NVFUSER_CUDA_SAFE_CALL(cuDeviceGetAttribute(
+      &is_ipc_supported,
+      CU_DEVICE_ATTRIBUTE_HANDLE_TYPE_POSIX_FILE_DESCRIPTOR_SUPPORTED,
+      local_rank));
+  NVF_ERROR(is_ipc_supported != 0, "Device does not support IPC handles");
+
   // Get base address and offset
+  CUdeviceptr base_address = 0;
   size_t psize = 0;
   NVFUSER_CUDA_SAFE_CALL(cuMemGetAddressRange(
-      (CUdeviceptr*)&base_address_, &psize, (CUdeviceptr)ptr_));
-  offset_from_base_address_ = static_cast<int64_t>(
-      static_cast<uint8_t*>(ptr_) - static_cast<uint8_t*>(base_address_));
+      &base_address, &psize, ptr_));
+  int64_t offset_from_base_address = static_cast<int64_t>(
+      reinterpret_cast<CUdeviceptr>(ptr_) - reinterpret_cast<CUdeviceptr>(base_address));
+  NVF_ERROR(offset_from_base_address == 0, "Offset from base address is not 0");
 
-  // Create IPC handle
-  NVFUSER_CUDA_RT_SAFE_CALL(
-      cudaIpcGetMemHandle(&ipc_handle_, tensor.data_ptr()));
+  // Get the allocation handle for the tensor
+  CUmemGenericAllocationHandle alloc_handle = 0;
+  NVFUSER_CUDA_SAFE_CALL(cuMemRetainAllocationHandle(&alloc_handle, (void*)ptr_));
+
+  // Get allocation properties to determine granularity
+  CUmemAllocationProp prop{};
+  NVFUSER_CUDA_SAFE_CALL(
+      cuMemGetAllocationPropertiesFromHandle(&prop, alloc_handle));
+
+  size_t granularity = 0;
+  NVFUSER_CUDA_SAFE_CALL(cuMemGetAllocationGranularity(
+      &granularity, &prop, CU_MEM_ALLOC_GRANULARITY_MINIMUM));
+
+  // Export to shareable file descriptor
+  int shared_fd;
+  NVFUSER_CUDA_SAFE_CALL(cuMemExportToShareableHandle(
+      &shared_fd,
+      alloc_handle,
+      CU_MEM_HANDLE_TYPE_POSIX_FILE_DESCRIPTOR,
+      /*flags=*/0));
+
+  // Allow peer processes to use pidfd_getfd
+  int status = prctl(PR_SET_PTRACER, PR_SET_PTRACER_ANY);
+  NVF_ERROR(status >= 0, "Failed to set ptrace policy");
 
   // Export to store
-  Communicator& communicator = Communicator::getInstance();
   auto store = communicator.getTcpStore();
-  std::vector<uint8_t> handle_data = toBytes(ipc_handle_);
-  std::vector<uint8_t> offset_data = toBytes(offset_from_base_address_);
+  pid_t my_pid = getpid();
 
-  store->set(store_key_prefix + "_ipc_handle", handle_data);
-  store->set(store_key_prefix + "_offset", offset_data);
+  store->set(store_key_prefix + "_fd", toBytes(shared_fd));
+  store->set(store_key_prefix + "_pid", toBytes(my_pid));
+  store->set(store_key_prefix + "_offset", toBytes(offset_from_base_address));
+  store->set(store_key_prefix + "_granularity", toBytes(granularity));
+  store->set(store_key_prefix + "_size", toBytes(psize));
+
+  // Release the allocation handle (we don't need to keep it, the tensor keeps
+  // the memory alive)
+  NVFUSER_CUDA_SAFE_CALL(cuMemRelease(alloc_handle));
 }
 
 UnicastHandle::UnicastHandle(
@@ -192,25 +241,76 @@ UnicastHandle::UnicastHandle(
     const std::string& store_key_prefix) {
   // Import from store
   Communicator& communicator = Communicator::getInstance();
+  const int64_t local_rank = communicator.local_rank();
   auto store = communicator.getTcpStore();
-  auto handle_data = store->get(store_key_prefix + "_ipc_handle");
-  auto offset_data = store->get(store_key_prefix + "_offset");
 
-  ipc_handle_ = fromBytes<cudaIpcMemHandle_t>(handle_data);
-  offset_from_base_address_ = fromBytes<int64_t>(offset_data);
+  int peer_shared_fd = fromBytes<int>(store->get(store_key_prefix + "_fd"));
+  pid_t peer_pid = fromBytes<pid_t>(store->get(store_key_prefix + "_pid"));
+  int64_t offset_from_base_address =
+      fromBytes<int64_t>(store->get(store_key_prefix + "_offset"));
+  size_t granularity =
+      fromBytes<size_t>(store->get(store_key_prefix + "_granularity"));
+  mapped_size_ = fromBytes<size_t>(store->get(store_key_prefix + "_size"));
 
-  // Open IPC memory handle
-  NVFUSER_CUDA_RT_SAFE_CALL(cudaIpcOpenMemHandle(
-      &base_address_, ipc_handle_, cudaIpcMemLazyEnablePeerAccess));
-  ptr_ = (void*)((uint8_t*)base_address_ + offset_from_base_address_);
+  // Get the peer's file descriptor using pidfd_open and pidfd_getfd
+  pid_fd_ = syscall(SYS_pidfd_open, peer_pid, /*flags=*/0);
+  NVF_ERROR(
+      pid_fd_ >= 0,
+      "Failed to open pidfd for pid ",
+      peer_pid,
+      " from rank ",
+      exporter_rank);
+
+  peer_fd_ = syscall(SYS_pidfd_getfd, pid_fd_, peer_shared_fd, /*flags=*/0);
+  NVF_ERROR(peer_fd_ >= 0, "Failed to get peer fd from rank ", exporter_rank);
+
+  // Import the peer's memory handle
+  NVFUSER_CUDA_SAFE_CALL(cuMemImportFromShareableHandle(
+      &mem_handle_,
+      (void*)((uint64_t)peer_fd_),
+      CU_MEM_HANDLE_TYPE_POSIX_FILE_DESCRIPTOR));
+
+  // Reserve virtual address space and map the peer's memory
+  NVFUSER_CUDA_SAFE_CALL(cuMemAddressReserve(
+      &mapped_ptr_,
+      mapped_size_,
+      /*alignment=*/granularity,
+      /*baseVA=*/0,
+      /*flags=*/0));
+  NVFUSER_CUDA_SAFE_CALL(cuMemMap(
+      mapped_ptr_, mapped_size_, /*offset=*/0, mem_handle_, /*flags=*/0));
+
+  // Set memory access permissions
+  CUmemAccessDesc access_desc{};
+  access_desc.location.type = CU_MEM_LOCATION_TYPE_DEVICE;
+  access_desc.location.id = static_cast<int>(local_rank);
+  access_desc.flags = CU_MEM_ACCESS_FLAGS_PROT_READ;
+  NVFUSER_CUDA_SAFE_CALL(
+      cuMemSetAccess(mapped_ptr_, mapped_size_, &access_desc, /*count=*/1));
+
+  // Calculate the actual pointer with offset
+  NVF_ERROR(offset_from_base_address == 0, "Offset from base address is not 0");
+  ptr_ = mapped_ptr_;
 }
 
 UnicastHandle::~UnicastHandle() {
   if (tensor_.defined()) {
     // Exporter: nothing to do, tensor_ reference will keep buffer alive
   } else {
-    // Importer: close the IPC handle
-    NVFUSER_CUDA_RT_SAFE_CALL(cudaIpcCloseMemHandle(base_address_));
+    // Importer: clean up VMM resources
+    if (mapped_ptr_ != 0) {
+      NVFUSER_CUDA_SAFE_CALL(cuMemUnmap(mapped_ptr_, mapped_size_));
+      NVFUSER_CUDA_SAFE_CALL(cuMemAddressFree(mapped_ptr_, mapped_size_));
+    }
+    if (mem_handle_ != 0) {
+      NVFUSER_CUDA_SAFE_CALL(cuMemRelease(mem_handle_));
+    }
+    if (peer_fd_ >= 0) {
+      close(peer_fd_);
+    }
+    if (pid_fd_ >= 0) {
+      close(pid_fd_);
+    }
   }
 }
 
@@ -367,62 +467,48 @@ MulticastHandleForBroadcast::MulticastHandleForBroadcast(
       std::make_unique<MulticastHandle>(buffer, root, store_key_prefix);
 
   // Create a symmetric memory tensor for the semaphore (single int32 element)
-  semaphore_tensor_ = empty_strided_cuda_symmetric(
+  at::Tensor semaphore = empty_strided_cuda_symmetric(
       /*sizes=*/at::IntArrayRef({1}),
       /*dtype=*/at::ScalarType::Int,
       /*device=*/buffer.device(),
       /*alloc_id=*/std::nullopt);
 
-  // Create multicast handle for the semaphore
-  semaphore_multicast_handle_ = std::make_unique<MulticastHandle>(
-      semaphore_tensor_, root, store_key_prefix + "_semaphore");
-
-  // Create per-rank semaphores: each rank exports its own semaphore using
-  // UnicastHandle
-  semaphore_handles_.resize(world_size);
-
-  // Step 1: Each rank creates and exports its own semaphore
-  std::string my_store_key =
-      store_key_prefix + "_per_rank_semaphore_" + std::to_string(my_rank);
-  local_semaphore_tensor_ = at::empty(
-      {1}, at::TensorOptions().dtype(at::kInt).device(buffer.device()));
-
   // Initialize the semaphore to kReady
   IpcSemaphore init_value = IpcSemaphore::kReady;
   NVFUSER_CUDA_RT_SAFE_CALL(cudaMemcpy(
-      local_semaphore_tensor_.data_ptr(),
+      semaphore.data_ptr(),
       &init_value,
       sizeof(IpcSemaphore),
       cudaMemcpyHostToDevice));
 
-  // Export this rank's semaphore
-  semaphore_handles_[my_rank] = std::make_unique<UnicastHandle>(
-      local_semaphore_tensor_, my_rank, my_store_key);
+  // Create multicast handle for the semaphore
+  semaphore_multicast_handle_ = std::make_unique<MulticastHandle>(
+      semaphore, root, store_key_prefix + "_semaphore");
+
+  // Create per-rank semaphores: each rank exports its own semaphore using
+  // UnicastHandle
+  semaphore_handles_.resize(world_size);
+  std::string my_store_key =
+      store_key_prefix + "_per_rank_semaphore_" + std::to_string(my_rank);
+  semaphore_handles_[my_rank] =
+      std::make_unique<UnicastHandle>(semaphore, my_rank, my_store_key);
 
   // Barrier to ensure all ranks have exported before any rank starts importing
   communicator.barrier();
 
-  // Step 2: Each rank imports all other ranks' semaphores
+  if (my_rank != root) {
+    return;
+  }
+
+  // Root imports all other ranks' semaphores
   for (int64_t rank = 0; rank < world_size; ++rank) {
     if (rank != my_rank) {
       std::string rank_store_key =
           store_key_prefix + "_per_rank_semaphore_" + std::to_string(rank);
       semaphore_handles_[rank] =
           std::make_unique<UnicastHandle>(rank, rank_store_key);
-      // Note: importer doesn't need to allocate semaphore_tensors_[rank]
     }
   }
-
-  // Barrier to ensure all ranks have imported before cleaning up
-  communicator.barrier();
-
-  // Step 3: Clean up store keys
-  auto store = communicator.getTcpStore();
-  store->deleteKey(my_store_key + "_ipc_handle");
-  store->deleteKey(my_store_key + "_offset");
-
-  // Final barrier to ensure all keys are deleted
-  communicator.barrier();
 }
 
 const MulticastHandleForBroadcast& MulticastHandleCache::get(KeyType key) {

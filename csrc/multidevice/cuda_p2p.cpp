@@ -5,6 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <cstdio>
 #include <cuda_utils.h>
 #include <multidevice/cuda_p2p.h>
 #include <multidevice/ipc_handle.h>
@@ -154,7 +155,8 @@ void postBroadcastWithCudaBackend(
     Communication* communication,
     at::Tensor input_tensor,
     at::Tensor output_tensor,
-    MulticastHandleCache& multicast_handle_cache) {
+    MulticastHandleCache& multicast_handle_cache,
+    CUstream stream) {
   NVF_ERROR(
       communication->type() == CommunicationType::Broadcast,
       "Invalid communication type, expected Broadcast, got: ",
@@ -178,58 +180,132 @@ void postBroadcastWithCudaBackend(
 
   const size_t size = output_tensor.numel() * output_tensor.element_size();
 
-  const MulticastHandleForBroadcast& mcast =
+  const MulticastHandleForBroadcast& multicast_handle =
       multicast_handle_cache.get({output_tensor, communication});
 
-  communicator.barrier();
+  if (false) {
+    std::cout << "multicast_handle.semaphore_unicast_ptr(my_device_index)=" << multicast_handle.semaphore_unicast_ptr(my_device_index) << std::endl;
+  }
+
+  // communicator.barrier();
+  
+  // DEBUG: Print device info
+  int current_device = -1;
+  cudaGetDevice(&current_device);
+  printf("[DEBUG] After barrier - my_device_index=%ld, root=%ld, current_device=%d\n", 
+         my_device_index, root, current_device);
+  fflush(stdout);
+  
   // // First synchronization: Non-root ranks signal ready, root waits for all
   if (my_device_index != root) {
-  //   // Non-root: write kInUse to its own semaphore using regular pointer
-  //   IpcSemaphore value = IpcSemaphore::kInUse;
-  //   NVFUSER_CUDA_RT_SAFE_CALL(cudaMemcpy(
-  //       mcast.local_semaphore_ptr(),
-  //       &value,
-  //       sizeof(IpcSemaphore),
-  //       cudaMemcpyHostToDevice));
+    // DEBUG: Non-root path
+    printf("[DEBUG] Non-root entering - my_device_index=%ld, stream=%p\n", 
+           my_device_index, stream);
+    fflush(stdout);
+    
+    // Non-root writes kInUse to its own semaphore
+    NVFUSER_CUDA_SAFE_CALL(cuStreamWriteValue32(
+        stream,
+        multicast_handle.semaphore_unicast_ptr(my_device_index),
+        static_cast<cuuint32_t>(IpcSemaphore::kInUse),
+        CU_STREAM_WRITE_VALUE_DEFAULT));
+
+    printf("[DEBUG] Non-root after write, before wait\n");
+    fflush(stdout);
+    
+    // Non-root waits for its own semaphore to be kReady
+    NVFUSER_CUDA_SAFE_CALL(cuStreamWaitValue32(
+        stream,
+        multicast_handle.semaphore_unicast_ptr(my_device_index),
+        // static_cast<cuuint32_t>(IpcSemaphore::kInUse),
+        static_cast<cuuint32_t>(IpcSemaphore::kReady),
+        CU_STREAM_WAIT_VALUE_EQ));
+    
+    printf("[DEBUG] Non-root after wait - completed\n");
+    fflush(stdout);
   } else {
-  //   // Root: wait on all non-root ranks' semaphores to have kInUse value
-  //   for (int64_t rank = 0; rank < world_size; ++rank) {
-  //     if (rank != root) {
-  //       cuuint32_t expected_value =
-  //           static_cast<cuuint32_t>(IpcSemaphore::kInUse);
-  //       volatile cuuint32_t* sem_ptr = reinterpret_cast<volatile cuuint32_t*>(
-  //           mcast.unicast_semaphore_ptr(rank));
-  //       while (*sem_ptr != expected_value) {
-  //         // Busy wait on this rank's semaphore
-  //       }
-  //     }
-  //   }
+    // DEBUG: Root path
+    printf("[DEBUG] Root entering - my_device_index=%ld, stream=%p\n", 
+           my_device_index, stream);
+    fflush(stdout);
+    
+    // Root waits on all non-root ranks' semaphores to become kInUse
+    for (int64_t rank = 0; rank < world_size; ++rank) {
+      if (rank == root)
+        continue;
+      printf("[DEBUG] Root waiting on rank %ld semaphore\n", rank);
+      fflush(stdout);
+      NVFUSER_CUDA_SAFE_CALL(cuStreamWaitValue32(
+          stream,
+          multicast_handle.semaphore_unicast_ptr(rank),
+          static_cast<cuuint32_t>(IpcSemaphore::kInUse),
+          CU_STREAM_WAIT_VALUE_EQ));
+      // printf("[DEBUG] Root done waiting on rank %ld\n", rank);
+      fflush(stdout);
+    }
 
-
+    // DEBUG: Print before memcpy
+    printf("[DEBUG] Root before cudaMemcpy - size=%zu, stream=%p\n", size, stream);
+    // printf("[DEBUG]   src_ptr=%p, dst_ptr=%p\n", 
+    //        input_tensor.data_ptr(), multicast_handle.buffer_multicast_ptr());
+    
+    // Check CUDA context
+    CUcontext ctx;
+    CUresult ctx_result = cuCtxGetCurrent(&ctx);
+    printf("[DEBUG]   cuCtxGetCurrent result=%d, context=%p\n", ctx_result, ctx);
+    if (ctx == nullptr) {
+      printf("[DEBUG]   WARNING: No CUDA context is current!\n");
+    }
+    fflush(stdout);
+    
     // Root copies data to the multicast buffer
-    NVFUSER_CUDA_RT_SAFE_CALL(cudaMemcpy(
-        mcast.multicast_buffer_ptr(),
+    // NVFUSER_CUDA_RT_SAFE_CALL(cudaMemcpy(
+    //     multicast_handle.buffer_multicast_ptr(),
+    //     input_tensor.data_ptr(),
+    //     size,
+    //     cudaMemcpyDeviceToDevice));
+    
+    // DEBUG: Print after memcpy
+
+    NVFUSER_CUDA_RT_SAFE_CALL(cudaMemcpyAsync(
+        multicast_handle.buffer_multicast_ptr(),
         input_tensor.data_ptr(),
         size,
-        cudaMemcpyHostToDevice));
+        cudaMemcpyDeviceToDevice,
+        stream));
 
-  //   // Root: write kReady to its own semaphore using unicast pointer
-  //   IpcSemaphore value = IpcSemaphore::kReady;
-  //   NVFUSER_CUDA_RT_SAFE_CALL(cudaMemcpy(
-  //       mcast.unicast_semaphore_ptr(root),
-  //       &value,
-  //       sizeof(IpcSemaphore),
-  //       cudaMemcpyHostToDevice));
-  // }
-
-  // // Second synchronization: All ranks wait on root's semaphore to be kReady
-  // cuuint32_t expected_value = static_cast<cuuint32_t>(IpcSemaphore::kReady);
-  // volatile cuuint32_t* sem_ptr =
-  //     reinterpret_cast<volatile cuuint32_t*>(mcast.unicast_semaphore_ptr(root));
-  // while (*sem_ptr != expected_value) {
-  //   // Busy wait on root's semaphore
+    printf("[DEBUG] Root after cudaMemcpy - SUCCESS\n");
+    fflush(stdout);
+    // Root writes kReady to all semaphores except its own
+    printf("[DEBUG] Root signaling ready to all ranks\n");
+    fflush(stdout);
+    for (int64_t rank = 0; rank < world_size; ++rank) {
+      if (rank == root)
+        continue;
+      printf("[DEBUG] Root signaling ready to rank %ld\n", rank);
+      fflush(stdout);
+      // Use cuStreamWriteValue32 to write to the semaphore on the stream
+      // NVFUSER_CUDA_SAFE_CALL(cuStreamWriteValue32(
+      //     stream,
+      //     multicast_handle.semaphore_unicast_ptr(rank),
+      //     static_cast<cuuint32_t>(IpcSemaphore::kReady),
+      //     CU_STREAM_WRITE_VALUE_DEFAULT));
+    }
+    NVFUSER_CUDA_SAFE_CALL(cuStreamWriteValue32(
+        stream,
+        (CUdeviceptr)multicast_handle.semaphore_multicast_ptr(),
+        static_cast<cuuint32_t>(IpcSemaphore::kReady),
+        CU_STREAM_WRITE_VALUE_DEFAULT));
+    printf("[DEBUG] Root done signaling ready\n");
+    fflush(stdout);
   }
-  communicator.barrier();
+
+  printf("[DEBUG] Before final barrier\n");
+  fflush(stdout);
+  // communicator.barrier();
+  printf("[DEBUG] After final barrier\n");
+  fflush(stdout);
+  
 }
 
 } // namespace nvfuser

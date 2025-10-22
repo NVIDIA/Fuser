@@ -538,6 +538,8 @@ TEST_F(CUDACommunicationTest, Broadcast) {
       {kTensorSize}, at::kFloat, tensor_options_.device(), c10::nullopt);
 
   MulticastHandleCache multicast_handle_cache;
+  const auto current_stream = static_cast<CUstream>(
+    c10::cuda::getCurrentCUDAStream(communicator_->local_rank()).stream());
 
   for (auto repetition : arange(kNumRepetitions)) {
     // for (auto repetition : arange(kNumRepetitions)) {
@@ -546,11 +548,12 @@ TEST_F(CUDACommunicationTest, Broadcast) {
     }
 
     postBroadcastWithCudaBackend(
-        communication, input_tensor, output_tensor, multicast_handle_cache);
+        communication, input_tensor, output_tensor, multicast_handle_cache, current_stream);
+
 
     auto ref = at::arange(kTensorSize, tensor_options_) + repetition;
     EXPECT_TRUE(output_tensor.equal(ref))
-        << "Device " << communicator_->deviceId() << " expected tensor:\n"
+        << "On iteration " << repetition << " on device " << communicator_->deviceId() << " expected tensor:\n"
         << ref << "\nbut obtained tensor:\n"
         << output_tensor;
   }

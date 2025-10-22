@@ -184,18 +184,22 @@ class UnicastHandle {
 
   NVF_API ~UnicastHandle();
 
-  void* ptr() const {
+  CUdeviceptr ptr() const {
     return ptr_;
   }
 
  private:
-  void* ptr_ = nullptr;
-  void* base_address_ = nullptr;
-  int64_t offset_from_base_address_ = 0;
-  cudaIpcMemHandle_t ipc_handle_ = {};
+  CUdeviceptr ptr_ = 0;
+  // VMM-related members (importer only)
+  CUdeviceptr mapped_ptr_ = 0;
+  size_t mapped_size_ = 0;
+  CUmemGenericAllocationHandle mem_handle_ = 0;
   // Keep a reference to the tensor to prevent the cuda buffer from being freed
   // before the UnicastHandle gets destroyed. Only set for exporter.
   at::Tensor tensor_;
+  // File descriptors for cleanup (importer only)
+  int pid_fd_ = -1;
+  int peer_fd_ = -1;
 };
 
 // MulticastHandle creates and shares a multicast object across all ranks,
@@ -203,7 +207,8 @@ class UnicastHandle {
 class MulticastHandle {
  public:
   // Creates a multicast object for the given tensor and shares it across all
-  // ranks. Bind the multicast object to the tensor. The tensor must be allocated with symmetric memory.
+  // ranks. Bind the multicast object to the tensor. The tensor must be
+  // allocated with symmetric memory.
   MulticastHandle(
       at::Tensor tensor,
       int64_t exporter_rank,
@@ -229,41 +234,24 @@ class MulticastHandleForBroadcast {
 
   ~MulticastHandleForBroadcast() = default;
 
-  void* multicast_buffer_ptr() const {
+  void* buffer_multicast_ptr() const {
     return buffer_multicast_handle_->multicast_ptr();
   }
 
-  void* multicast_semaphore_ptr() const {
+  void* semaphore_multicast_ptr() const {
     return semaphore_multicast_handle_->multicast_ptr();
   }
 
-  void* semaphore_ptr() const {
-    return semaphore_tensor_.data_ptr();
-  }
-
-  // Get unicast pointer for a specific rank's semaphore
-  void* unicast_semaphore_ptr(int64_t rank) const {
-    NVF_ERROR(
-        rank >= 0 && rank < static_cast<int64_t>(semaphore_handles_.size()),
-        "Invalid rank: ",
-        rank);
+  CUdeviceptr semaphore_unicast_ptr(int64_t rank) const {
     return semaphore_handles_[rank]->ptr();
-  }
-
-  // Get the local semaphore pointer for the current rank
-  void* local_semaphore_ptr() const {
-    return local_semaphore_tensor_.data_ptr();
   }
 
  private:
   std::unique_ptr<MulticastHandle> buffer_multicast_handle_;
   std::unique_ptr<MulticastHandle> semaphore_multicast_handle_;
-  at::Tensor semaphore_tensor_;
   // Per-rank semaphores: each rank exports its own semaphore using
   // UnicastHandle
   std::vector<std::unique_ptr<UnicastHandle>> semaphore_handles_;
-  // Local semaphore tensor (kept alive by this reference)
-  at::Tensor local_semaphore_tensor_;
 };
 
 class MulticastHandleCache {

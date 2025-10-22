@@ -30,6 +30,7 @@ void postBroadcastWithCudaBackend(
     Communication* communication,
     at::Tensor input_tensor,
     at::Tensor output_tensor,
-    MulticastHandleCache& multicast_handle_cache);
+    MulticastHandleCache& multicast_handle_cache,
+    CUstream stream);
 
 } // namespace nvfuser

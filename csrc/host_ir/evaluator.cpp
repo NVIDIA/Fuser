@@ -329,12 +329,14 @@ void HostIrEvaluator::handle(Communication* communication) {
 
   CommunicatorBackend backend_type = communication->backend();
   if (backend_type == CommunicatorBackend::kCuda) {
+    const auto current_stream = static_cast<CUstream>(
+        c10::cuda::getCurrentCUDAStream(my_local_device_index_).stream());
     NVF_ERROR(
         communication->type() == CommunicationType::Broadcast,
         "Invalid communication type, expected Broadcast, got: ",
         communication->type());
     postBroadcastWithCudaBackend(
-        communication, input_tensor, output_tensor, multicast_handle_cache_);
+        communication, input_tensor, output_tensor, multicast_handle_cache_, current_stream);
   } else {
     c10d::Backend* backend =
         communicator_->getBackendForTeam(communication->team(), backend_type);
