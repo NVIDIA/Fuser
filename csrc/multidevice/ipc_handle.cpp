@@ -162,7 +162,7 @@ UnicastHandle::UnicastHandle(
     at::Tensor tensor,
     int64_t exporter_rank,
     const std::string& store_key_prefix)
-    : ptr_(reinterpret_cast<CUdeviceptr>(tensor.data_ptr())), tensor_(tensor) {
+    : ptr_(tensor.data_ptr()), tensor_(tensor) {
   NVF_ERROR(
       tensor.is_contiguous(), "UnicastHandle only supports contiguous tensors");
 
@@ -187,18 +187,15 @@ UnicastHandle::UnicastHandle(
       local_rank));
   NVF_ERROR(is_ipc_supported != 0, "Device does not support IPC handles");
 
-  // Get base address and offset
+  // Get base address and size
   CUdeviceptr base_address = 0;
   size_t psize = 0;
   NVFUSER_CUDA_SAFE_CALL(cuMemGetAddressRange(
-      &base_address, &psize, ptr_));
-  int64_t offset_from_base_address = static_cast<int64_t>(
-      reinterpret_cast<CUdeviceptr>(ptr_) - reinterpret_cast<CUdeviceptr>(base_address));
-  NVF_ERROR(offset_from_base_address == 0, "Offset from base address is not 0");
+      &base_address, &psize, reinterpret_cast<CUdeviceptr>(ptr_)));
 
   // Get the allocation handle for the tensor
   CUmemGenericAllocationHandle alloc_handle = 0;
-  NVFUSER_CUDA_SAFE_CALL(cuMemRetainAllocationHandle(&alloc_handle, (void*)ptr_));
+  NVFUSER_CUDA_SAFE_CALL(cuMemRetainAllocationHandle(&alloc_handle, ptr_));
 
   // Get allocation properties to determine granularity
   CUmemAllocationProp prop{};
@@ -227,7 +224,6 @@ UnicastHandle::UnicastHandle(
 
   store->set(store_key_prefix + "_fd", toBytes(shared_fd));
   store->set(store_key_prefix + "_pid", toBytes(my_pid));
-  store->set(store_key_prefix + "_offset", toBytes(offset_from_base_address));
   store->set(store_key_prefix + "_granularity", toBytes(granularity));
   store->set(store_key_prefix + "_size", toBytes(psize));
 
@@ -246,11 +242,9 @@ UnicastHandle::UnicastHandle(
 
   int peer_shared_fd = fromBytes<int>(store->get(store_key_prefix + "_fd"));
   pid_t peer_pid = fromBytes<pid_t>(store->get(store_key_prefix + "_pid"));
-  int64_t offset_from_base_address =
-      fromBytes<int64_t>(store->get(store_key_prefix + "_offset"));
   size_t granularity =
       fromBytes<size_t>(store->get(store_key_prefix + "_granularity"));
-  mapped_size_ = fromBytes<size_t>(store->get(store_key_prefix + "_size"));
+  size_ = fromBytes<size_t>(store->get(store_key_prefix + "_size"));
 
   // Get the peer's file descriptor using pidfd_open and pidfd_getfd
   pid_fd_ = syscall(SYS_pidfd_open, peer_pid, /*flags=*/0);
@@ -271,14 +265,15 @@ UnicastHandle::UnicastHandle(
       CU_MEM_HANDLE_TYPE_POSIX_FILE_DESCRIPTOR));
 
   // Reserve virtual address space and map the peer's memory
+  CUdeviceptr mapped_cu_ptr = 0;
   NVFUSER_CUDA_SAFE_CALL(cuMemAddressReserve(
-      &mapped_ptr_,
-      mapped_size_,
+      &mapped_cu_ptr,
+      size_,
       /*alignment=*/granularity,
       /*baseVA=*/0,
       /*flags=*/0));
   NVFUSER_CUDA_SAFE_CALL(cuMemMap(
-      mapped_ptr_, mapped_size_, /*offset=*/0, mem_handle_, /*flags=*/0));
+      mapped_cu_ptr, size_, /*offset=*/0, mem_handle_, /*flags=*/0));
 
   // Set memory access permissions
   CUmemAccessDesc access_desc{};
@@ -286,11 +281,9 @@ UnicastHandle::UnicastHandle(
   access_desc.location.id = static_cast<int>(local_rank);
   access_desc.flags = CU_MEM_ACCESS_FLAGS_PROT_READ;
   NVFUSER_CUDA_SAFE_CALL(
-      cuMemSetAccess(mapped_ptr_, mapped_size_, &access_desc, /*count=*/1));
+      cuMemSetAccess(mapped_cu_ptr, size_, &access_desc, /*count=*/1));
 
-  // Calculate the actual pointer with offset
-  NVF_ERROR(offset_from_base_address == 0, "Offset from base address is not 0");
-  ptr_ = mapped_ptr_;
+  ptr_ = reinterpret_cast<void*>(mapped_cu_ptr);
 }
 
 UnicastHandle::~UnicastHandle() {
@@ -298,9 +291,10 @@ UnicastHandle::~UnicastHandle() {
     // Exporter: nothing to do, tensor_ reference will keep buffer alive
   } else {
     // Importer: clean up VMM resources
-    if (mapped_ptr_ != 0) {
-      NVFUSER_CUDA_SAFE_CALL(cuMemUnmap(mapped_ptr_, mapped_size_));
-      NVFUSER_CUDA_SAFE_CALL(cuMemAddressFree(mapped_ptr_, mapped_size_));
+    if (ptr_ != nullptr) {
+      CUdeviceptr cu_ptr = reinterpret_cast<CUdeviceptr>(ptr_);
+      NVFUSER_CUDA_SAFE_CALL(cuMemUnmap(cu_ptr, size_));
+      NVFUSER_CUDA_SAFE_CALL(cuMemAddressFree(cu_ptr, size_));
     }
     if (mem_handle_ != 0) {
       NVFUSER_CUDA_SAFE_CALL(cuMemRelease(mem_handle_));
@@ -416,20 +410,23 @@ MulticastHandle::MulticastHandle(
       size_,
       /*flags=*/0));
 
+  CUdeviceptr mc_cu_ptr = 0;
   NVFUSER_CUDA_SAFE_CALL(cuMemAddressReserve(
-      &mc_ptr_,
+      &mc_cu_ptr,
       size_,
       /*alignment=*/granularity,
       /*baseVA=*/0,
       /*flags=*/0));
   NVFUSER_CUDA_SAFE_CALL(
-      cuMemMap(mc_ptr_, size_, /*offset=*/0, mcast_handle_, /*flags=*/0));
+      cuMemMap(mc_cu_ptr, size_, /*offset=*/0, mcast_handle_, /*flags=*/0));
   CUmemAccessDesc mc_mapping_desc{};
   mc_mapping_desc.location.type = CU_MEM_LOCATION_TYPE_DEVICE;
   mc_mapping_desc.location.id = static_cast<int>(local_rank);
   mc_mapping_desc.flags = CU_MEM_ACCESS_FLAGS_PROT_READWRITE;
   NVFUSER_CUDA_SAFE_CALL(
-      cuMemSetAccess(mc_ptr_, size_, &mc_mapping_desc, /*count=*/1));
+      cuMemSetAccess(mc_cu_ptr, size_, &mc_mapping_desc, /*count=*/1));
+
+  mc_ptr_ = reinterpret_cast<void*>(mc_cu_ptr);
 
   communicator.barrier();
 
@@ -444,8 +441,9 @@ MulticastHandle::MulticastHandle(
 
 MulticastHandle::~MulticastHandle() {
 #if (CUDA_VERSION >= NVF_MIN_CUDA_FOR_MCAST)
-  NVFUSER_CUDA_SAFE_CALL(cuMemUnmap(mc_ptr_, size_));
-  NVFUSER_CUDA_SAFE_CALL(cuMemAddressFree(mc_ptr_, size_));
+  CUdeviceptr cu_ptr = reinterpret_cast<CUdeviceptr>(mc_ptr_);
+  NVFUSER_CUDA_SAFE_CALL(cuMemUnmap(cu_ptr, size_));
+  NVFUSER_CUDA_SAFE_CALL(cuMemAddressFree(cu_ptr, size_));
   NVFUSER_CUDA_SAFE_CALL(
       cuMulticastUnbind(mcast_handle_, cu_dev_, /*offset=*/0, size_));
   NVFUSER_CUDA_SAFE_CALL(cuMemRelease(mcast_handle_));

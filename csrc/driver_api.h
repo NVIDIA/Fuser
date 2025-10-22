@@ -102,8 +102,6 @@ namespace nvfuser {
   fn(cuMemGetAllocationGranularity, 12000);          \
   fn(cuMemRetainAllocationHandle, 12000);            \
   fn(cuMemGetAllocationPropertiesFromHandle, 12000); \
-  fn(cuCtxGetCurrent, 12000); \
-  fn(cuMemcpyHtoD, 12000); \
   fn(cuMemGetAccess, 12000)
 #else
 #define NVF_DRIVER_API_WRAPPER_CUDA_120(fn)

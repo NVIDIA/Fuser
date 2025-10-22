@@ -184,15 +184,14 @@ class UnicastHandle {
 
   NVF_API ~UnicastHandle();
 
-  CUdeviceptr ptr() const {
+  void* ptr() const {
     return ptr_;
   }
 
  private:
-  CUdeviceptr ptr_ = 0;
+  void* ptr_ = nullptr;
   // VMM-related members (importer only)
-  CUdeviceptr mapped_ptr_ = 0;
-  size_t mapped_size_ = 0;
+  size_t size_ = 0;
   CUmemGenericAllocationHandle mem_handle_ = 0;
   // Keep a reference to the tensor to prevent the cuda buffer from being freed
   // before the UnicastHandle gets destroyed. Only set for exporter.
@@ -217,13 +216,13 @@ class MulticastHandle {
   ~MulticastHandle();
 
   void* multicast_ptr() const {
-    return (void*)mc_ptr_;
+    return mc_ptr_;
   }
 
  private:
   CUmemGenericAllocationHandle mcast_handle_{};
   CUdevice cu_dev_{};
-  CUdeviceptr mc_ptr_{0};
+  void* mc_ptr_{nullptr};
   int64_t size_{0};
   at::Tensor tensor_;
 };
@@ -242,7 +241,7 @@ class MulticastHandleForBroadcast {
     return semaphore_multicast_handle_->multicast_ptr();
   }
 
-  CUdeviceptr semaphore_unicast_ptr(int64_t rank) const {
+  void* semaphore_unicast_ptr(int64_t rank) const {
     return semaphore_handles_[rank]->ptr();
   }
 
