@@ -145,6 +145,10 @@ FusionKernelRuntime::FusionKernelRuntime(
   auto maybe_heuristics = getMaybeHeuristicsFor(args, forced_index_type);
   NVF_CHECK(maybe_heuristics.has_value());
   heuristics_ = std::move(maybe_heuristics.value());
+
+  if (isOptionDisabled(DisableOption::KernelReuse)) {
+    cuda_graph_state_ = CudaGraphState::kWarmup;
+  }
 }
 
 void FusionKernelRuntime::evictCache(size_t input_id) {
@@ -289,6 +293,63 @@ KernelArgumentHolder FusionKernelRuntime::runWithInputs(
     const KernelArgumentHolder& args) {
   FUSER_PERF_SCOPE("FusionKernelRuntime::runWithInputs");
 
+  switch (cuda_graph_state_) {
+    case nvfuser::CudaGraphState::kWarmup: {
+      for (const PolymorphicValue& arg : args) {
+        if (arg.is<at::Tensor>()) {
+          cuda_graph_inputs_.push(arg.as<at::Tensor>().clone());
+        } else {
+          cuda_graph_inputs_.push(arg);
+        }
+      }
+
+      original_stream_ = at::cuda::getCurrentCUDAStream();
+      cuda_graph_stream_ = at::cuda::getStreamFromPool(
+          /*isHighPriority=*/false);
+
+      cudaEvent_t event;
+      NVFUSER_CUDA_RT_SAFE_CALL(cudaEventCreate(&event));
+      NVFUSER_CUDA_RT_SAFE_CALL(
+          cudaEventRecord(event, original_stream_.stream()));
+      NVFUSER_CUDA_RT_SAFE_CALL(
+          cudaStreamWaitEvent(cuda_graph_stream_.stream(), event));
+      NVFUSER_CUDA_RT_SAFE_CALL(cudaEventDestroy(event));
+
+      at::cuda::setCurrentCUDAStream(cuda_graph_stream_);
+
+      break;
+    }
+    case CudaGraphState::kCapture: {
+      for (const PolymorphicValue& arg : args) {
+        if (arg.is<at::Tensor>()) {
+          cuda_graph_inputs_.push(arg.as<at::Tensor>().clone());
+        } else {
+          cuda_graph_inputs_.push(arg);
+        }
+      }
+
+      cuda_graph_stream_.synchronize();
+
+      cuda_graph_.capture_begin();
+    } break;
+    case CudaGraphState::kReplay: {
+      NVF_ERROR_EQ(cuda_graph_inputs_.size(), args.size());
+      for (auto i : arange(args.size())) {
+        PolymorphicValue& static_arg = cuda_graph_inputs_[i];
+        const PolymorphicValue& runtime_arg = args[i];
+        if (static_arg.is<at::Tensor>()) {
+          static_arg.as<at::Tensor>().copy_(runtime_arg.as<at::Tensor>());
+        } else {
+          static_arg = runtime_arg;
+        }
+      }
+      cuda_graph_.replay();
+      return cuda_graph_outputs_;
+    }
+    default:
+      break;
+  }
+
   if (isOptionEnabled(EnableOption::HostIrLowering)) {
     if (isDebugDumpEnabled(DebugDumpOption::PerfDebugVerbose)) {
       debug() << "=================RUNNING HOSTIR EVALUATOR================="
@@ -334,6 +395,21 @@ KernelArgumentHolder FusionKernelRuntime::runWithInputs(
         " does not exist in `tensor_map`.");
     fusion_outputs.push(tensor_map.at(output));
   }
+
+  switch (cuda_graph_state_) {
+    case CudaGraphState::kWarmup:
+      cuda_graph_state_ = CudaGraphState::kCapture;
+      break;
+    case CudaGraphState::kCapture: {
+      cuda_graph_state_ = CudaGraphState::kReplay;
+      cuda_graph_.capture_end();
+      cuda_graph_outputs_ = fusion_outputs;
+      at::cuda::setCurrentCUDAStream(original_stream_);
+    } break;
+    default:
+      break;
+  }
+
   return fusion_outputs;
 }
 
