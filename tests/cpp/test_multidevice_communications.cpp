@@ -12,10 +12,7 @@
 #include <multidevice/communication.h>
 #include <multidevice/communicator.h>
 #include <multidevice/cuda_p2p.h>
-<<<<<<< HEAD
 #include <multidevice/symmetric_memory.h>
-=======
->>>>>>> 933c6411933acc8e7aebba096002689292b589e8
 #include <tests/cpp/multidevice.h>
 #include <tests/cpp/validator.h>
 
@@ -529,7 +526,9 @@ TEST_F(CUDACommunicationTest, Broadcast) {
       out,
       in,
       out->getDeviceMesh().vector(),
-      kRoot);
+      kRoot,
+      RedOpType::UNUSED,
+      CommunicatorBackend::kCuda);
 
   at::Tensor input_tensor;
   if (communicator_->deviceId() == kRoot) {
@@ -555,12 +554,6 @@ TEST_F(CUDACommunicationTest, Broadcast) {
         << ref << "\nbut obtained tensor:\n"
         << output_tensor;
   }
-
-INSTANTIATE_TEST_SUITE_P(
-    ,
-    P2PCommunicationTest,
-    testing::Values(P2pProtocol::Get, P2pProtocol::Put),
-    testing::PrintToStringParamName());
 }
 
 } // namespace nvfuser

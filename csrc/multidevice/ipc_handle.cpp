@@ -158,10 +158,67 @@ void IpcHandleCache::exchangeHandles(
   communicator->barrier();
 }
 
+UnicastHandle::UnicastHandle(
+    at::Tensor tensor,
+    int64_t exporter_rank,
+    const std::string& store_key_prefix)
+    : ptr_(tensor.data_ptr()), tensor_(tensor) {
+  NVF_ERROR(
+      tensor.is_contiguous(), "UnicastHandle only supports contiguous tensors");
+
+  // Get base address and offset
+  size_t psize = 0;
+  NVFUSER_CUDA_SAFE_CALL(cuMemGetAddressRange(
+      (CUdeviceptr*)&base_address_, &psize, (CUdeviceptr)ptr_));
+  offset_from_base_address_ = static_cast<int64_t>(
+      static_cast<uint8_t*>(ptr_) - static_cast<uint8_t*>(base_address_));
+
+  // Create IPC handle
+  NVFUSER_CUDA_RT_SAFE_CALL(
+      cudaIpcGetMemHandle(&ipc_handle_, tensor.data_ptr()));
+
+  // Export to store
+  Communicator& communicator = Communicator::getInstance();
+  auto store = communicator.getTcpStore();
+  std::vector<uint8_t> handle_data = toBytes(ipc_handle_);
+  std::vector<uint8_t> offset_data = toBytes(offset_from_base_address_);
+
+  store->set(store_key_prefix + "_ipc_handle", handle_data);
+  store->set(store_key_prefix + "_offset", offset_data);
+}
+
+UnicastHandle::UnicastHandle(
+    int64_t exporter_rank,
+    const std::string& store_key_prefix) {
+  // Import from store
+  Communicator& communicator = Communicator::getInstance();
+  auto store = communicator.getTcpStore();
+  auto handle_data = store->get(store_key_prefix + "_ipc_handle");
+  auto offset_data = store->get(store_key_prefix + "_offset");
+
+  ipc_handle_ = fromBytes<cudaIpcMemHandle_t>(handle_data);
+  offset_from_base_address_ = fromBytes<int64_t>(offset_data);
+
+  // Open IPC memory handle
+  NVFUSER_CUDA_RT_SAFE_CALL(cudaIpcOpenMemHandle(
+      &base_address_, ipc_handle_, cudaIpcMemLazyEnablePeerAccess));
+  ptr_ = (void*)((uint8_t*)base_address_ + offset_from_base_address_);
+}
+
+UnicastHandle::~UnicastHandle() {
+  if (tensor_.defined()) {
+    // Exporter: nothing to do, tensor_ reference will keep buffer alive
+  } else {
+    // Importer: close the IPC handle
+    NVFUSER_CUDA_RT_SAFE_CALL(cudaIpcCloseMemHandle(base_address_));
+  }
+}
+
 MulticastHandle::MulticastHandle(
     at::Tensor tensor,
     int64_t exporter_rank,
-    const std::string& store_key_prefix) {
+    const std::string& store_key_prefix)
+    : tensor_(tensor) {
 #if (CUDA_VERSION >= NVF_MIN_CUDA_FOR_MCAST)
   Communicator& communicator = Communicator::getInstance();
   const int64_t my_device_index = communicator.deviceId();
@@ -298,13 +355,16 @@ MulticastHandle::~MulticastHandle() {
 MulticastHandleForBroadcast::MulticastHandleForBroadcast(
     Communication* communication,
     at::Tensor buffer) {
-  const int64_t exporter_rank = communication->root();
+  Communicator& communicator = Communicator::getInstance();
+  const int64_t my_rank = communicator.deviceId();
+  const int64_t world_size = communicator.size();
+  const int64_t root = communication->root();
   std::string store_key_prefix =
       "nvls_export_mcast_handle_for_Communication" + communication->name();
 
   // Create multicast handle for the buffer
-  buffer_handle_ = std::make_unique<MulticastHandle>(
-      buffer, exporter_rank, store_key_prefix);
+  buffer_multicast_handle_ =
+      std::make_unique<MulticastHandle>(buffer, root, store_key_prefix);
 
   // Create a symmetric memory tensor for the semaphore (single int32 element)
   semaphore_tensor_ = empty_strided_cuda_symmetric(
@@ -314,8 +374,55 @@ MulticastHandleForBroadcast::MulticastHandleForBroadcast(
       /*alloc_id=*/std::nullopt);
 
   // Create multicast handle for the semaphore
-  semaphore_handle_ = std::make_unique<MulticastHandle>(
-      semaphore_tensor_, exporter_rank, store_key_prefix + "_semaphore");
+  semaphore_multicast_handle_ = std::make_unique<MulticastHandle>(
+      semaphore_tensor_, root, store_key_prefix + "_semaphore");
+
+  // Create per-rank semaphores: each rank exports its own semaphore using
+  // UnicastHandle
+  semaphore_handles_.resize(world_size);
+
+  // Step 1: Each rank creates and exports its own semaphore
+  std::string my_store_key =
+      store_key_prefix + "_per_rank_semaphore_" + std::to_string(my_rank);
+  local_semaphore_tensor_ = at::empty(
+      {1}, at::TensorOptions().dtype(at::kInt).device(buffer.device()));
+
+  // Initialize the semaphore to kReady
+  IpcSemaphore init_value = IpcSemaphore::kReady;
+  NVFUSER_CUDA_RT_SAFE_CALL(cudaMemcpy(
+      local_semaphore_tensor_.data_ptr(),
+      &init_value,
+      sizeof(IpcSemaphore),
+      cudaMemcpyHostToDevice));
+
+  // Export this rank's semaphore
+  semaphore_handles_[my_rank] = std::make_unique<UnicastHandle>(
+      local_semaphore_tensor_, my_rank, my_store_key);
+
+  // Barrier to ensure all ranks have exported before any rank starts importing
+  communicator.barrier();
+
+  // Step 2: Each rank imports all other ranks' semaphores
+  for (int64_t rank = 0; rank < world_size; ++rank) {
+    if (rank != my_rank) {
+      std::string rank_store_key =
+          store_key_prefix + "_per_rank_semaphore_" + std::to_string(rank);
+      semaphore_handles_[rank] =
+          std::make_unique<UnicastHandle>(rank, rank_store_key);
+      // Note: importer doesn't need to allocate semaphore_tensors_[rank]
+    }
+  }
+
+  // Barrier to ensure all ranks have imported before cleaning up
+  communicator.barrier();
+
+  // Step 3: Clean up store keys
+  auto store = communicator.getTcpStore();
+  store->deleteKey(my_store_key + "_ipc_handle");
+  store->deleteKey(my_store_key + "_offset");
+
+  // Final barrier to ensure all keys are deleted
+  communicator.barrier();
 }
 
 const MulticastHandleForBroadcast& MulticastHandleCache::get(KeyType key) {

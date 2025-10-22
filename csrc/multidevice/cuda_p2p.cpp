@@ -166,11 +166,13 @@ void postBroadcastWithCudaBackend(
 
   Communicator& communicator = Communicator::getInstance();
   const int64_t my_device_index = communicator.deviceId();
+  const int64_t root = communication->root();
+  const int64_t world_size = communicator.size();
 
   NVF_ERROR(
-      communication->team().size() == communicator.size(),
+      communication->team().size() == (size_t)world_size,
       "Only support world size team for broadcast with cuda backend, expected ",
-      communicator.size(),
+      world_size,
       " got: ",
       communication->team().size());
 
@@ -180,15 +182,53 @@ void postBroadcastWithCudaBackend(
       multicast_handle_cache.get({output_tensor, communication});
 
   communicator.barrier();
+  // // First synchronization: Non-root ranks signal ready, root waits for all
+  if (my_device_index != root) {
+  //   // Non-root: write kInUse to its own semaphore using regular pointer
+  //   IpcSemaphore value = IpcSemaphore::kInUse;
+  //   NVFUSER_CUDA_RT_SAFE_CALL(cudaMemcpy(
+  //       mcast.local_semaphore_ptr(),
+  //       &value,
+  //       sizeof(IpcSemaphore),
+  //       cudaMemcpyHostToDevice));
+  } else {
+  //   // Root: wait on all non-root ranks' semaphores to have kInUse value
+  //   for (int64_t rank = 0; rank < world_size; ++rank) {
+  //     if (rank != root) {
+  //       cuuint32_t expected_value =
+  //           static_cast<cuuint32_t>(IpcSemaphore::kInUse);
+  //       volatile cuuint32_t* sem_ptr = reinterpret_cast<volatile cuuint32_t*>(
+  //           mcast.unicast_semaphore_ptr(rank));
+  //       while (*sem_ptr != expected_value) {
+  //         // Busy wait on this rank's semaphore
+  //       }
+  //     }
+  //   }
 
-  if (my_device_index == communication->root()) {
+
+    // Root copies data to the multicast buffer
     NVFUSER_CUDA_RT_SAFE_CALL(cudaMemcpy(
         mcast.multicast_buffer_ptr(),
         input_tensor.data_ptr(),
         size,
         cudaMemcpyHostToDevice));
-  }
 
+  //   // Root: write kReady to its own semaphore using unicast pointer
+  //   IpcSemaphore value = IpcSemaphore::kReady;
+  //   NVFUSER_CUDA_RT_SAFE_CALL(cudaMemcpy(
+  //       mcast.unicast_semaphore_ptr(root),
+  //       &value,
+  //       sizeof(IpcSemaphore),
+  //       cudaMemcpyHostToDevice));
+  // }
+
+  // // Second synchronization: All ranks wait on root's semaphore to be kReady
+  // cuuint32_t expected_value = static_cast<cuuint32_t>(IpcSemaphore::kReady);
+  // volatile cuuint32_t* sem_ptr =
+  //     reinterpret_cast<volatile cuuint32_t*>(mcast.unicast_semaphore_ptr(root));
+  // while (*sem_ptr != expected_value) {
+  //   // Busy wait on root's semaphore
+  }
   communicator.barrier();
 }
 
