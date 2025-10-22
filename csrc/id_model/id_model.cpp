@@ -54,6 +54,56 @@ void mapThroughLoopSwizzles(ValGraph& graph) {
   }
 }
 
+void findAllIdsExceptAllocation(
+    const TensorView* tv,
+    VectorOfUniqueEntries<IterDomain*>& discovered_ids) {
+  std::vector<const std::vector<IterDomain*>*> all_domains = {
+      &tv->getLoopDomain(),
+      &tv->getLogicalDomain(),
+      &tv->getInitialLoopDomain(),
+      &tv->domain()->additionalIDs()};
+  if (tv->hasRoot()) {
+    all_domains.push_back(&tv->getRootDomain());
+  }
+  if (tv->getAlternateLoopDomain().has_value()) {
+    all_domains.push_back(&tv->getAlternateLoopDomain().value());
+  }
+
+  for (auto domain : all_domains) {
+    discovered_ids.pushBack(*domain);
+  }
+
+  // We only care about IDs on the shortest path between domains
+  std::unordered_multimap<IterDomain*, IterDomain*> out2in;
+  for (auto i : arange(all_domains.size() - 1)) {
+    if (all_domains[i]->empty()) {
+      continue;
+    }
+    for (auto j : arange(i + 1, all_domains.size())) {
+      if (all_domains[j]->empty()) {
+        continue;
+      }
+      auto path = getExprsBetween<IRBFS>(
+                      {all_domains[i]->begin(), all_domains[i]->end()},
+                      {all_domains[j]->begin(), all_domains[j]->end()},
+                      false)
+                      .first;
+      for (auto [expr, _] : path) {
+        discovered_ids.pushBack(
+            ir_utils::filterByType<IterDomain>(expr->outputs()));
+        discovered_ids.pushBack(
+            ir_utils::filterByType<IterDomain>(expr->inputs()));
+      }
+    }
+  }
+};
+
+std::vector<IterDomain*> findAllIdsExceptAllocation(const TensorView* tv) {
+  VectorOfUniqueEntries<IterDomain*> discovered_ids;
+  findAllIdsExceptAllocation(tv, discovered_ids);
+  return discovered_ids.vector();
+}
+
 } // namespace
 
 void IdModel::assertNoSelfMapping(const ValGraph& graph) const {
@@ -909,56 +959,6 @@ void buildAsyncWarpInliningInfo(
       }
     }
   }
-}
-
-void findAllIdsExceptAllocation(
-    const TensorView* tv,
-    VectorOfUniqueEntries<IterDomain*>& discovered_ids) {
-  std::vector<const std::vector<IterDomain*>*> all_domains = {
-      &tv->getLoopDomain(),
-      &tv->getLogicalDomain(),
-      &tv->getInitialLoopDomain(),
-      &tv->domain()->additionalIDs()};
-  if (tv->hasRoot()) {
-    all_domains.push_back(&tv->getRootDomain());
-  }
-  if (tv->getAlternateLoopDomain().has_value()) {
-    all_domains.push_back(&tv->getAlternateLoopDomain().value());
-  }
-
-  for (auto domain : all_domains) {
-    discovered_ids.pushBack(*domain);
-  }
-
-  // We only care about IDs on the shortest path between domains
-  std::unordered_multimap<IterDomain*, IterDomain*> out2in;
-  for (auto i : arange(all_domains.size() - 1)) {
-    if (all_domains[i]->empty()) {
-      continue;
-    }
-    for (auto j : arange(i + 1, all_domains.size())) {
-      if (all_domains[j]->empty()) {
-        continue;
-      }
-      auto path = getExprsBetween<IRBFS>(
-                      {all_domains[i]->begin(), all_domains[i]->end()},
-                      {all_domains[j]->begin(), all_domains[j]->end()},
-                      false)
-                      .first;
-      for (auto [expr, _] : path) {
-        discovered_ids.pushBack(
-            ir_utils::filterByType<IterDomain>(expr->outputs()));
-        discovered_ids.pushBack(
-            ir_utils::filterByType<IterDomain>(expr->inputs()));
-      }
-    }
-  }
-};
-
-std::vector<IterDomain*> findAllIdsExceptAllocation(const TensorView* tv) {
-  VectorOfUniqueEntries<IterDomain*> discovered_ids;
-  findAllIdsExceptAllocation(tv, discovered_ids);
-  return discovered_ids.vector();
 }
 
 } // namespace
