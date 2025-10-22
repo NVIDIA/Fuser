@@ -20,6 +20,7 @@
 #include <ops/arith.h>
 #include <ops/utils.h>
 
+#include <cstdint>
 #include <iostream>
 
 namespace nvfuser {
@@ -494,8 +495,9 @@ TEST_F(CUDACommunicationTest, Broadcast) {
     GTEST_SKIP() << "This test needs at least 2 GPUs and 2 ranks.";
   }
 
+  constexpr int64_t kNumRepetitions = 10;
   constexpr DeviceIdxType kRoot = 0;
-  constexpr int kTensorSize = 8;
+  constexpr int64_t kTensorSize = 8;
 
   hir::HostIrContainer container;
   FusionGuard fg(&container);
@@ -518,13 +520,11 @@ TEST_F(CUDACommunicationTest, Broadcast) {
 
   MulticastHandleCache multicast_handle_cache;
 
-  for (auto repetition : arange(10)) {
+  for (auto repetition : arange(kNumRepetitions)) {
     // for (auto repetition : arange(kNumRepetitions)) {
     if (communicator_->deviceId() == kRoot) {
       input_tensor.copy_(at::arange(kTensorSize, tensor_options_) + repetition);
     }
-
-    communicator_->barrier();
 
     postBroadcastWithCudaBackend(
         communication, input_tensor, output_tensor, multicast_handle_cache);
@@ -534,8 +534,6 @@ TEST_F(CUDACommunicationTest, Broadcast) {
         << "Device " << communicator_->deviceId() << " expected tensor:\n"
         << ref << "\nbut obtained tensor:\n"
         << output_tensor;
-
-    communicator_->barrier();
   }
 }
 

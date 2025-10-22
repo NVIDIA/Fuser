@@ -88,6 +88,8 @@ void postBroadcastWithCudaBackend(
   const MulticastHandleForBroadcast& mcast =
       multicast_handle_cache.get({output_tensor, communication});
 
+  communicator.barrier();
+
   if (my_device_index == communication->root()) {
     NVFUSER_CUDA_RT_SAFE_CALL(cudaMemcpy(
         mcast.multicast_buffer_ptr(),
