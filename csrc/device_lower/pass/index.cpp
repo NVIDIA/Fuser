@@ -415,8 +415,36 @@ void IndexLowering::handle(const BlockQuantizationOp* bqop) {
   const auto out_quantized = IrBuilder::create<kir::TensorIndex>(
       bqop->quantizedOutput()->as<TensorView>(), bqop->fusion()->zeroVal());
 
-  pushBack(
-      IrBuilder::create<BlockQuantizationOp>(out_scales, out_quantized, in));
+  // The BlockQuantizationOp funnels down to a runtime function.
+  // We pass the index for the block scaling factors output. We compute
+  // the index bases on the logical indices of the quantized output tensor.
+  // Then inside the runtime function, we divide this linearized index by 16
+  // (the block size) to get the index for the scaling factors.
+  // We get the linearized index as follows:
+  // We get the logical indices for the quantized output.
+  // We then multiply and accumulate them using the logical extents of the
+  // quantized output tensor to get the linearized index.
+  std::vector<Val*> logical_index = Index::getConsumerPerDimLogicalIndex(
+      bqop->quantizedOutput()->as<TensorView>(), for_loops_, getRotatedLoop());
+
+  auto loop_domain =
+      bqop->quantizedOutput()->as<TensorView>()->getLogicalDomain();
+
+  int64_t dim_count = logical_index.size();
+
+  // logical_index[2] * 1 + logical_index[1] * extent[2] + logical_index[0] *
+  // extent[1] * extent[2]
+  auto idx = logical_index[dim_count - 1];
+  for (auto i = dim_count - 2; i >= 0; i--) {
+    auto stride = IrBuilder::create<Val>(1, DataType::Index);
+    for (auto j = i + 1; j < dim_count; j++) {
+      stride = IrBuilder::mulExpr(stride, loop_domain[j]->extent());
+    }
+    idx = IrBuilder::addExpr(IrBuilder::mulExpr(logical_index[i], stride), idx);
+  }
+
+  pushBack(IrBuilder::create<BlockQuantizationOp>(
+      out_scales, out_quantized, in, idx));
   GpuLower::current()->propagateExprInfo(bqop, back());
 }
 

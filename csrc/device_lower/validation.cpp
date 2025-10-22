@@ -8,6 +8,7 @@
 #include <device_lower/validation.h>
 
 #include <contiguity.h>
+#include <debug.h>
 #include <device_lower/lower2device.h>
 #include <device_lower/utils.h>
 #include <id_model/id_model.h>
@@ -412,30 +413,186 @@ class ExprValidator : public OptOutDispatch {
     }
   }
 
-  // Given a set of loop domain IterDomains, find their logical domain origins
-  std::vector<IterDomain*> findLogicalDomainOrigins(
-      const std::vector<IterDomain*>& loop_domain_ids,
-      const TensorView* tv) {
-    // Get the logical domain to use as the target/boundary
-    const auto& logical_domain = tv->getLogicalDomain();
+  // A merge is acceptable its inputs can be traced back to IDs in the logical
+  // domain, and that these IDs are contiguous in logical domain.
+  bool isAcceptableMerge(Merge* merge, TensorView* quantized_output) {
+    const auto logical_domain = quantized_output->getLogicalDomain();
+    auto ids_in_logical_domain = IterVisitor::getInputsTo({merge->out()});
 
-    // Use IterVisitor to find inputs to the loop domain IDs,
-    // bounded by the logical domain
-    std::vector<Val*> inputs_as_vals = IterVisitor::getInputsTo(
-        {loop_domain_ids.begin(), loop_domain_ids.end()},
-        {logical_domain.begin(), logical_domain.end()});
+    // Check if all elements in ids_in_logical_domain are in logical_domain
+    // and if they are contiguously located
+    bool all_in_logical_domain = true;
+    std::vector<int64_t> logical_positions;
 
-    // Convert back to IterDomains
-    std::vector<IterDomain*> logical_origins;
-    for (auto val : inputs_as_vals) {
-      logical_origins.push_back(val->as<IterDomain>());
+    for (auto id : ids_in_logical_domain) {
+      auto iter_domain = id->as<IterDomain>();
+      auto it =
+          std::find(logical_domain.begin(), logical_domain.end(), iter_domain);
+      if (it != logical_domain.end()) {
+        // Found in logical domain, record its position
+        logical_positions.push_back(std::distance(logical_domain.begin(), it));
+      } else {
+        all_in_logical_domain = false;
+        break;
+      }
     }
 
-    return logical_origins;
+    bool are_contiguous = true;
+    if (all_in_logical_domain && logical_positions.size() > 1) {
+      // Sort positions to check contiguity
+      std::sort(logical_positions.begin(), logical_positions.end());
+      for (size_t i = 1; i < logical_positions.size(); ++i) {
+        if (logical_positions[i] != logical_positions[i - 1] + 1) {
+          are_contiguous = false;
+          break;
+        }
+      }
+    }
+
+    return all_in_logical_domain && are_contiguous;
   }
 
-  // I'd like to check that the inner dimension of the input
-  // is divisble by 16.
+  //                   M    K
+  //                 │    │
+  //                 ▼    ▼
+  //              ┌────────────┐
+  //              │   merge    │
+  //              └─────┬──────┘
+  //                    │
+  //                    ▼
+  //                   M*K
+  //               ┌──────────┐
+  //               │  split   ┼──┐
+  //               └─┬────────┘  │
+  //                 ▼           ▼
+  //           (M*K)/4          4(G)
+  //           ┌────────┐
+  //           │ split  ┼────┐
+  //           └─┬──────┘    │
+  //             ▼           ▼
+  //         (M*K)/4        1(U)
+  //     ┌─────────┐
+  //     │  split  │
+  //   ┌─┼         ┼───┐
+  //   │ └─────────┘   │
+  //   ▼               ▼
+  // (M*K)/4/128      128(Tx)
+  // With the above example, we start from G and go up to the ID K.
+  // We traverse up the split only if we are coming from the inner output and we
+  // traverse up the merge by going to the inner input.
+  // While we traverse up we also store the very last split(Sp) we have seen.
+  // Next we want to verify if Tx follows after G. We start from the last
+  // split(Sp) and execute a DFS travering the inner-split first then
+  // outer-split. The first terminating ID we should reach should be Tx. If we
+  // reach a different terminating ID, then it should have an extent of 1 or
+  // else this is not valid.
+  // Details:
+  // TODO: relax the restriction on merges.
+  // We only support merge where both the inputs can be traced back to
+  // logical IDs that are contiguous.
+  Split* checkGroupIDDerivedFromLastLogicalIDs(
+      IterDomain* group_id,
+      TensorView* quantized_output) {
+    NVF_ERROR(
+        group_id != nullptr,
+        "Expected a valid loop grouped ID for BlockQuantizationOp: ",
+        quantized_output->toString());
+
+    auto id_val = group_id;
+    Split* last_split_seen = nullptr;
+    while (id_val->definition() != nullptr) {
+      auto def = id_val->definition();
+      if (auto merge = dynamic_cast<Merge*>(def)) {
+        NVF_ERROR(
+            isAcceptableMerge(merge, quantized_output),
+            "Invalid merge found while tracing back the grouped ID for "
+            "BlockQuantizationOp. All inputs to merge must be from logical "
+            "domain or be outputs of other merges",
+            quantized_output->toString());
+        id_val = merge->inner();
+      } else if (auto split = dynamic_cast<Split*>(def)) {
+        NVF_ERROR(
+            id_val == split->inner(),
+            "The grouped ID must correspond to the innermost of all splits "
+            "from "
+            "logical domains to loop domains for BlockQuantizationOp: "
+            "quantized output ",
+            quantized_output->toString());
+        last_split_seen = split;
+        id_val = split->in();
+      } else {
+        NVF_ERROR(
+            false,
+            "Unexpected definition found while tracing back the grouped ID for "
+            "BlockQuantizationOp: ",
+            quantized_output->toString());
+      }
+    }
+
+    NVF_ERROR(
+        id_val->definition() == nullptr &&
+            id_val == quantized_output->getLogicalDomain().back(),
+        "The grouped ID must be the innermost logical domain ID for "
+        "BlockQuantizationOp: ",
+        quantized_output->toString());
+
+    return last_split_seen;
+  }
+
+  void traverseFromSplitToThreadX(
+      IterDomain* start_traversal_id,
+      TensorView* quantized_output) {
+    std::stack<IterDomain*> id_stack;
+    id_stack.push(start_traversal_id);
+
+    while (!id_stack.empty()) {
+      auto current_id = id_stack.top();
+      id_stack.pop();
+
+      if (current_id->uses().size() == 0) {
+        // If the current_id is TIDx then great, else
+        // This has to have an extent of 1.
+        if (current_id->getParallelType() == ParallelType::TIDx) {
+          break;
+        }
+        NVF_ERROR(
+            current_id->extent()->isConstInt(),
+            "Expected constant extent for ID in BlockQuantizationOp");
+        NVF_ERROR(
+            current_id->extent()->evaluate().as<int64_t>() == 1,
+            "Expected extent of 1 for ID in BlockQuantizationOp");
+        continue;
+      }
+
+      NVF_ERROR(
+          current_id->uses().size() == 1,
+          "Expected single use for IDs in logical to loop transforms "
+          "BlockQuantizationOp quantization output",
+          current_id->toString());
+
+      auto use_expr = current_id->uses().at(0);
+      if (auto merge = dynamic_cast<Merge*>(use_expr)) {
+        NVF_ERROR(
+            isAcceptableMerge(merge, quantized_output),
+            "Invalid merge found while tracing forward in the logical to loop "
+            "transforms for "
+            "BlockQuantizationOp quantization output ",
+            quantized_output->toString());
+        id_stack.push(merge->out());
+      } else if (auto split = dynamic_cast<Split*>(use_expr)) {
+        id_stack.push(split->outer());
+        id_stack.push(split->inner());
+      } else {
+        NVF_ERROR(
+            false,
+            "Unexpected use of an ID found while tracing forward in the "
+            "logical to loop transforms for "
+            "BlockQuantizationOp quantization output ",
+            quantized_output->toString());
+      }
+    }
+  }
+
   // Basic tests:
   // Input is in local memory.
   // Block scaling factor is in global memory and
@@ -443,15 +600,15 @@ class ExprValidator : public OptOutDispatch {
   // Any loop ID that is not TID(x/y). BID(x/y) or Group
   // has an extent of 1.
   // The Group ID has an extent of 4/8 depending on the data type.
-  // There are TIDz/BIDz IDs.
-  // TODO: Express the following as validation checks.
-  // For 1D scheduling (BIDx/TIDx/Group only):
-  // (1)Chek that the these loop IDs cover the entire logical domain
-  // (2) Group ID is "innermost" next TIDx ID and then BIDx ID.
-  // The above is because this op is implemented by a device function
-  // Which access the block scales output memory using the index
-  // (blockDix.x * blockDim.x + threadIdx.x) /4 (for FP32, group is 4).
-  // We have to do the same for 2D scheduling.
+  // The following are more complex checks that look at the schedule.
+  // There are no TIDz/BIDz IDs. We don't support 3D parallelization here.
+  // Our aims for the following checks are to ensure that the Group ID is
+  // contiguous and unit stride, and then after Group ID, we have TIDx.
+  // Such that (G) * ThreadIdx.x + GID is contiguous.
+  // Checks for Group ID:
+  // Next we check that the Group ID is contiguous and unit stride.
+  // We walk up the logical domain to loop domains path starting from the Group
+  // ID (G).
   void handle(BlockQuantizationOp* bqop) final {
     auto inp_tv = bqop->input(0)->as<TensorView>();
     auto quantized_output = bqop->quantizedOutput()->as<TensorView>();
@@ -490,8 +647,6 @@ class ExprValidator : public OptOutDispatch {
     IterDomain* grouped_id = nullptr;
     IterDomain* thread_x = nullptr;
     IterDomain* block_x = nullptr;
-    IterDomain* thread_y = nullptr;
-    IterDomain* block_y = nullptr;
     IterDomain* thread_z = nullptr;
     IterDomain* block_z = nullptr;
 
@@ -523,14 +678,6 @@ class ExprValidator : public OptOutDispatch {
         parallel_domains_map.end()) {
       block_x = parallel_domains_map.at(ParallelType::BIDx);
     }
-    if (parallel_domains_map.find(ParallelType::TIDy) !=
-        parallel_domains_map.end()) {
-      thread_y = parallel_domains_map.at(ParallelType::TIDy);
-    }
-    if (parallel_domains_map.find(ParallelType::BIDy) !=
-        parallel_domains_map.end()) {
-      block_y = parallel_domains_map.at(ParallelType::BIDy);
-    }
     if (parallel_domains_map.find(ParallelType::TIDz) !=
         parallel_domains_map.end()) {
       thread_z = parallel_domains_map.at(ParallelType::TIDz);
@@ -557,9 +704,6 @@ class ExprValidator : public OptOutDispatch {
         "BlockQuantizationOp: ",
         bqop->toString());
 
-    bool is_2d_scheduled =
-        (thread_y != nullptr || block_y != nullptr) ? true : false;
-
     auto inner_extent = grouped_id->extent()->evaluate().as<int64_t>();
     auto input_dtype = inp_tv->dtype();
 
@@ -574,86 +718,55 @@ class ExprValidator : public OptOutDispatch {
         ". Expr: ",
         bqop->toString());
 
-    // Please temporarily ignore from here below. This needs to be updated.
-    // Find the logical domain IDs that correspond to these loop IDs.
-    // Then we check that the logical domain IDs are the inner-most
-    // IDs.
-    auto input_logical_domains_ids = findLogicalDomainOrigins(
-        {grouped_id, thread_x, block_x}, block_scaling_factor);
-
-    // Get the size of input logical domains
-    size_t num_input_logical_domains = input_logical_domains_ids.size();
-
-    // Get the same number of elements from the innermost logical domain
-    const auto& logical_domain = block_scaling_factor->getLogicalDomain();
-    std::vector<IterDomain*> innermost_logical_domains;
-
-    // Extract from the rightmost (innermost) positions
-    for (int64_t i = logical_domain.size() - 1;
-         i >= 0 && innermost_logical_domains.size() < num_input_logical_domains;
-         i--) {
-      auto logical_id = logical_domain[i];
-      if (!logical_id->isReduction() && !logical_id->isBroadcast()) {
-        innermost_logical_domains.insert(
-            innermost_logical_domains.begin(), logical_id);
+    // Get the ID marked as Group
+    IterDomain* new_grouped_id = nullptr;
+    for (auto loop_id : quantized_output->getLoopDomain()) {
+      if (loop_id->getParallelType() == ParallelType::Group) {
+        new_grouped_id = loop_id;
       }
     }
-
-    // Validate that input_logical_domains_ids and innermost_logical_domains
-    // contain the same IterDomains
-    std::unordered_set<IterDomain*> input_logical_set(
-        input_logical_domains_ids.begin(), input_logical_domains_ids.end());
-    std::unordered_set<IterDomain*> innermost_logical_set(
-        innermost_logical_domains.begin(), innermost_logical_domains.end());
 
     NVF_ERROR(
-        input_logical_set == innermost_logical_set,
-        "Input logical domain IDs do not match the innermost logical domains "
-        "for BlockQuantizationOp: ",
-        bqop->toString(),
-        ". Expected innermost domains: ",
-        toDelimitedString(innermost_logical_domains),
-        ". Found input logical domains: ",
-        toDelimitedString(input_logical_domains_ids));
+        new_grouped_id != nullptr,
+        "Expected a valid loop grouped ID for BlockQuantizationOp: ",
+        bqop->toString());
 
-    // If it's 2D scheduled, the we get the IDs from the logical domain
-    // that correspond to blockIdx.y and threadIdx.y. We make sure the
-    // IDs from the logical domain don't share any ID with those from the
-    // thread/block for x-dimension was derived.
-    if (is_2d_scheduled) {
-      std::vector<IterDomain*> input_logical_domains_ids_2d = {};
-      for (auto id : {thread_y, block_y}) {
-        if (id) {
-          input_logical_domains_ids_2d.push_back(id);
-        }
-      }
+    auto last_split_seen =
+        checkGroupIDDerivedFromLastLogicalIDs(new_grouped_id, quantized_output);
 
-      auto input_logical_domains_ids_y = findLogicalDomainOrigins(
-          input_logical_domains_ids_2d, block_scaling_factor);
+    // if last split seen is null there are two possibilities
+    // 1) Group ID is directly from logical domain -> valid
+    // 2) There was a merge right before Group ID
+    IterDomain* restart_traversal_from = nullptr;
 
-      // Validate that input_logical_domains_ids and input_logical_domains_ids_y
-      // don't have any elements in common
-      std::unordered_set<IterDomain*> input_logical_set_x(
-          input_logical_domains_ids.begin(), input_logical_domains_ids.end());
-      std::unordered_set<IterDomain*> input_logical_set_y(
-          input_logical_domains_ids_y.begin(),
-          input_logical_domains_ids_y.end());
-
-      for (const auto& id : input_logical_set_x) {
+    if (last_split_seen == nullptr) {
+      auto ids_in_logical = IterVisitor::getInputsTo({new_grouped_id});
+      // Check all these ID have constant extents
+      for (auto id : ids_in_logical) {
+        auto iter_domain = id->as<IterDomain>();
         NVF_ERROR(
-            input_logical_set_y.find(id) == input_logical_set_y.end(),
-            "Input logical domain IDs for X and Y dimensions have overlapping "
-            "elements "
-            "for BlockQuantizationOp: ",
-            bqop->toString(),
-            ". Overlapping IterDomain: ",
-            id->toString(),
-            ". X logical domains: ",
-            toDelimitedString(input_logical_domains_ids),
-            ". Y logical domains: ",
-            toDelimitedString(input_logical_domains_ids_y));
+            iter_domain->extent()->isConstInt(),
+            "Expected all IDs feeding directly into Group ID to have constant "
+            "extents for BlockQuantizationOp: ",
+            quantized_output->toString());
       }
+
+      // Check that there are logical IDs left to derive thread IDs
+      NVF_ERROR(
+          ids_in_logical.size() < quantized_output->getLogicalDomain().size(),
+          "There aren't enough logical IDs to derive thread Ids ",
+          quantized_output->toString());
+
+      restart_traversal_from =
+          quantized_output->getLogicalDomain()
+              [quantized_output->getLogicalDomain().size() -
+               ids_in_logical.size() - 1];
+    } else {
+      // Go the outer ID, we should have come up from the inner split.
+      restart_traversal_from = last_split_seen->outer();
     }
+
+    traverseFromSplitToThreadX(restart_traversal_from, quantized_output);
   }
 };
 

@@ -3408,6 +3408,7 @@ class BlockQuantizationOp : public Expr {
       Val* output_scales,
       Val* output,
       Val* input,
+      Val* logical_index = nullptr,
       Val* global_scale = nullptr,
       int64_t block_size = 16);
 
@@ -3426,7 +3427,7 @@ class BlockQuantizationOp : public Expr {
   }
 
   int64_t blockSize() const {
-    return attribute<int64_t>(0);
+    return attribute<int64_t>(1);
   }
 
   bool hasGlobalScale() const {

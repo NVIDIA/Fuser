@@ -1817,7 +1817,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     // This operator is plumbed down to a runtime function call.
     // One of the assumptions is that the device runtime expects
     // 4 consecutive inputs (8 for FB16) per thread. We achieve this by having
-    // the input tv scheduler to have the inner dimension vectorized by 4/8.
+    // the input tv scheduler to have the inner dimension grouped by 4/8.
     auto output = bqop->quantizedOutput()->as<kir::TensorIndex>()->view();
     int64_t group_size = 1;
 
@@ -1864,6 +1864,13 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     func_args.arg(genInline(output));
     func_args.arg(
         genInline(bqop->blockScales()->as<kir::TensorIndex>()->view()));
+
+    // Fourth argument: This holds the linearized index that will be used to
+    // write out the block scaling factors in the runtime function.
+    func_args.arg(genInline(bqop->attributeVal(0)));
+
+    // Fifth argument: extent of the inner-most dimension
+    func_args.arg(genInline(output->getLoopDomain().back()->extent()));
 
     indent() << genCall("bq::block_quantize_to_nvfp4", template_args, func_args)
              << ";\n";

@@ -48,7 +48,9 @@ template <
 __device__ void block_quantize_to_nvfp4(
     Array<T, ITEMS_PER_THREAD, ALIGNMENT_1>& input,
     Array<__e2m1, ITEMS_PER_THREAD, ALIGNMENT_2>& output,
-    Tensor<__e4m3, BLOCK_SCALE_DIM, BLOCK_SCALE_ALLOC>& fp8_output) {
+    Tensor<__e4m3, BLOCK_SCALE_DIM, BLOCK_SCALE_ALLOC>& fp8_output,
+    nvfuser_index_t logical_index,
+    int input_logical_inner_dim_size) {
   constexpr bool is_half_or_bfloat =
       std::is_same<T, __bfloat>::value || std::is_same<T, __half>::value;
   constexpr bool is_float = std::is_same<T, float>::value;
@@ -61,13 +63,14 @@ __device__ void block_quantize_to_nvfp4(
   } else if constexpr (is_half_or_bfloat) {
     assert(blockDim.x % 2 == 0);
   }
-  assert(blockDim.z == 1 && gridDim.z == 1);
 
   static_assert(
       (is_float && ITEMS_PER_THREAD == 4) ||
           (is_half_or_bfloat && ITEMS_PER_THREAD == 8),
       "ITEMS_PER_THREAD must be 4 for float type or 8 for __bfloat or __half "
       "type");
+
+  assert(input_logical_inner_dim_size % 16 == 0);
 
   int THREADS_PER_SCALING_FACTOR = 16 / ITEMS_PER_THREAD;
 
@@ -110,8 +113,7 @@ __device__ void block_quantize_to_nvfp4(
   int offset_dim_y = threadIdx.y * blockDim.x * gridDim.x;
   int offset_into_block = blockIdx.x * blockDim.x + threadIdx.x;
 
-  int offset = (offset_y_blocks + offset_dim_y + offset_into_block) /
-      THREADS_PER_SCALING_FACTOR;
+  int offset = logical_index / 16;
 
   // Convert back from FP8 to float using __e4m32float
   if (threadIdx.x % THREADS_PER_SCALING_FACTOR == 0) {

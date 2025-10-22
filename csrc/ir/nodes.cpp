@@ -6417,6 +6417,7 @@ BlockQuantizationOp::BlockQuantizationOp(
     Val* output_scales,
     Val* output,
     Val* input,
+    Val* logical_index,
     Val* global_scale,
     int64_t block_size)
     : Expr(passkey) {
@@ -6426,6 +6427,7 @@ BlockQuantizationOp::BlockQuantizationOp(
   if (global_scale) {
     addInput(global_scale);
   }
+  addAttribute(logical_index);
   addDataAttribute(block_size);
 }
 
