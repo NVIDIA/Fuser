@@ -254,6 +254,50 @@ std::string IdModel::toString() const {
   return ss.str();
 }
 
+ValGraph IdModel::initializeIdGraphExcludeAllocation(
+    bool propagate_through_exprs) const {
+  // In the case of the Loop graph, we do not propagate mappings but
+  // explicitly set which domains to map based on the permissive graph
+  // and the CA positions.
+  ValGraph loop_graph(propagate_through_exprs);
+
+  // loop_ids only contains at IDs between logical->loop
+  VectorOfUniqueEntries<IterDomain*> loop_ids;
+
+  for (TensorView* tv : tvs_) {
+    findAllIdsExceptAllocation(tv, loop_ids);
+  }
+  std::vector<IterDomain*> all_ids = loop_ids.vector();
+
+  std::sort(
+      all_ids.begin(), all_ids.end(), [](IterDomain* id1, IterDomain* id2) {
+        return id1->name() < id2->name();
+      });
+
+  for (auto id : all_ids) {
+    auto uses_it = id_uses_.find(id);
+    NVF_ERROR(
+        uses_it != id_uses_.end(),
+        "Failed to initialize id: ",
+        id->toString(),
+        " as it's missing a definition entry.");
+
+    // we might have inactive uses, i.e. uses that doesn't produce all_ids.
+    VectorOfUniqueEntries<Expr*> active_uses;
+    for (const auto& use : uses_it->second) {
+      if (std::any_of(
+              use->outputs().begin(), use->outputs().end(), [&](Val* output) {
+                return output->isA<IterDomain>() &&
+                    loop_ids.has(output->as<IterDomain>());
+              })) {
+        active_uses.pushBack(use);
+      }
+    }
+
+    loop_graph.initializeVal(id, id_definitions_.at(id), active_uses);
+  }
+  return loop_graph;
+}
 ValGraph IdModel::initializeIdGraph(bool propagate_through_exprs) const {
   ValGraph id_graph(propagate_through_exprs);
 
@@ -867,7 +911,9 @@ void buildAsyncWarpInliningInfo(
   }
 }
 
-void findAllIdsExceptAllocation(const TensorView* tv, VectorOfUniqueEntries<IterDomain*>& discovered_ids) {
+void findAllIdsExceptAllocation(
+    const TensorView* tv,
+    VectorOfUniqueEntries<IterDomain*>& discovered_ids) {
   std::vector<const std::vector<IterDomain*>*> all_domains = {
       &tv->getLoopDomain(),
       &tv->getLogicalDomain(),
@@ -962,7 +1008,8 @@ StatefulInliningInfo buildStatefulInliningInfo(
         }
         info.ordered_p_ca_ids.pushBack(all_producer_ca_deps);
 
-        // This doesn't look right! we shouldn't be using allIDs, but exclude allocation paths from this.
+        // This doesn't look right! we shouldn't be using allIDs, but exclude
+        // allocation paths from this.
         auto all_producer_ids = findAllIdsExceptAllocation(producer_tv);
         auto all_consumer_ids = findAllIdsExceptAllocation(consumer_tv);
 
@@ -989,7 +1036,8 @@ StatefulInliningInfo buildStatefulInliningInfo(
     if (ir_utils::hasUniformSiblings(expr)) {
       auto consumer_tvs = ir_utils::filterByType<TensorView>(expr->outputs());
       if (consumer_tvs.size() > 1) {
-        auto all_consumer_ids = findAllIdsExceptAllocation(consumer_tvs.vector().at(0));
+        auto all_consumer_ids =
+            findAllIdsExceptAllocation(consumer_tvs.vector().at(0));
         info.ordered_sibling_ids.pushBack(
             {all_consumer_ids.begin(), all_consumer_ids.end()});
         for (const auto i : arange(1, consumer_tvs.size())) {
@@ -1015,54 +1063,11 @@ StatefulInliningInfo buildStatefulInliningInfo(
 }
 
 void IdModel::initializeLoopGraph(const StatefulInliningInfo& info) {
-  {
-    // In the case of the Loop graph, we do not propagate mappings but
-    // explicitly set which domains to map based on the permissive graph
-    // and the CA positions.
-    ValGraph loop_graph(false);
-
-    // loop_ids only contains at IDs between logical->loop
-    VectorOfUniqueEntries<IterDomain*> loop_ids;
-
-    for (TensorView* tv : tvs_) {
-      findAllIdsExceptAllocation(tv, loop_ids);
-    }
-    std::vector<IterDomain*> all_ids = loop_ids.vector();
-
-    std::sort(
-        all_ids.begin(), all_ids.end(), [](IterDomain* id1, IterDomain* id2) {
-          return id1->name() < id2->name();
-        });
-
-    for (auto id : all_ids) {
-      auto uses_it = id_uses_.find(id);
-      NVF_ERROR(
-          uses_it != id_uses_.end(),
-          "Failed to initialize id: ",
-          id->toString(),
-          " as it's missing a definition entry.");
-      
-      // we might have inactive uses, i.e. uses that doesn't produce all_ids.
-      VectorOfUniqueEntries<Expr*> active_uses;
-      for (const auto& use : uses_it->second) {
-        if (std::any_of(use->outputs().begin(), use->outputs().end(), [&](Val* output) {
-          return output->isA<IterDomain>() && loop_ids.has(output->as<IterDomain>());
-        })) {
-          active_uses.pushBack(use);
-        }
-      }
-	
-      // std::copy_if(uses_it->second, std::inserter(active_uses), [](Expr* use) {
-      //   return std::any_of(use->outputs().begin(), use->outputs().end(), [&](Val* output) {
-      //     return loop_ids.has(output);
-      //   });
-      // });
-
-      loop_graph.initializeVal(id, id_definitions_.at(id), active_uses);
-    }
-    NVF_ERROR(
-        id_graphs_.emplace(IdMappingMode::LOOP, std::move(loop_graph)).second);
-  }
+  NVF_ERROR(
+      id_graphs_
+          .emplace(
+              IdMappingMode::LOOP, initializeIdGraphExcludeAllocation(false))
+          .second);
 
   // Make sure this is called in a deterministic order. Build all inlined
   // relationships in loop graph.
@@ -1190,7 +1195,10 @@ ValGraph IdModel::buildIntersection(
     const ValGraph& graph1,
     bool propagate_exprs,
     bool permissive) const {
-  ValGraph intersection = initializeIdGraph(propagate_exprs);
+  // FIXME: This should be exposed as an option, since this is only used to
+  // create iel_graph at this point, I'm hard coding it for quicker iteration.
+  ValGraph intersection = initializeIdGraphExcludeAllocation(propagate_exprs);
+
   for (const ValGroup& group0 : graph0.disjointValSets().disjointSets()) {
     auto set_size = group0->size();
     for (auto id0_i : arange(set_size)) {
