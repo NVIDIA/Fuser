@@ -158,15 +158,15 @@ void IpcHandleCache::exchangeHandles(
   communicator->barrier();
 }
 
-MulticastHandleForBcast::MulticastHandleForBcast(
-    Communication* communication,
-    at::Tensor buffer) {
+MulticastHandle::MulticastHandle(
+    at::Tensor tensor,
+    int64_t exporter_rank,
+    const std::string& store_key_prefix) {
 #if (CUDA_VERSION >= NVF_MIN_CUDA_FOR_MCAST)
   Communicator& communicator = Communicator::getInstance();
   const int64_t my_device_index = communicator.deviceId();
   const int64_t local_rank = communicator.local_rank();
   const int64_t world_size = communicator.size();
-  const int64_t exporter_rank = communication->root();
 
   int is_ipc_supported;
   NVFUSER_CUDA_SAFE_CALL(cuDeviceGetAttribute(
@@ -183,19 +183,20 @@ MulticastHandleForBcast::MulticastHandleForBcast(
   NVF_ERROR(
       is_multicast_supported != 0, "Device does not support Multicast Objects");
 
-  std::string error_message = is_symmetric_memory_valid(buffer);
+  std::string error_message = is_symmetric_memory_valid(tensor);
   NVF_ERROR(error_message.empty(), error_message);
-  NVFUSER_CUDA_SAFE_CALL(cuMemRetainAllocationHandle(
-      &output_alloc_handle, (void*)buffer.data_ptr()));
+  CUmemGenericAllocationHandle alloc_handle{};
+  NVFUSER_CUDA_SAFE_CALL(
+      cuMemRetainAllocationHandle(&alloc_handle, (void*)tensor.data_ptr()));
 
   CUmemAllocationProp prop{};
   NVFUSER_CUDA_SAFE_CALL(
-      cuMemGetAllocationPropertiesFromHandle(&prop, output_alloc_handle));
+      cuMemGetAllocationPropertiesFromHandle(&prop, alloc_handle));
 
-  const size_t kNumElems = buffer.numel();
-  const size_t kSizeBytes = kNumElems * buffer.element_size();
-  const int64_t granularity = get_granularity(prop, kSizeBytes);
-  rounded_size = ((kSizeBytes + granularity - 1) / granularity) * granularity;
+  const size_t unrounded_size = tensor.numel() * tensor.element_size();
+  const int64_t granularity = get_granularity(prop, unrounded_size);
+  // Rounds up to the size to the nearest multiple of the granularity
+  size_ = ((unrounded_size + granularity - 1) / granularity) * granularity;
 
   auto handle_type = CU_MEM_HANDLE_TYPE_POSIX_FILE_DESCRIPTOR;
 
@@ -203,31 +204,28 @@ MulticastHandleForBcast::MulticastHandleForBcast(
   mcast_prop.flags = 0;
   mcast_prop.handleTypes = handle_type;
   mcast_prop.numDevices = world_size;
-  mcast_prop.size = static_cast<size_t>(rounded_size);
+  mcast_prop.size = static_cast<size_t>(size_);
 
   int shared_handle;
   auto store = communicator.getTcpStore();
   pid_t root_pid;
   if (my_device_index == exporter_rank) {
-    NVFUSER_CUDA_SAFE_CALL(cuMulticastCreate(&mcast_handle, &mcast_prop));
+    NVFUSER_CUDA_SAFE_CALL(cuMulticastCreate(&mcast_handle_, &mcast_prop));
     NVFUSER_CUDA_SAFE_CALL(cuMemExportToShareableHandle(
-        &shared_handle, mcast_handle, handle_type, /*flags=*/0));
+        &shared_handle, mcast_handle_, handle_type, /*flags=*/0));
 
     int status = prctl(PR_SET_PTRACER, PR_SET_PTRACER_ANY);
     NVF_ERROR(status >= 0, "Failed to set ptrace policy");
-    store->set(
-        std::string("nvls_export_fd_mcast_handle"), toBytes(shared_handle));
+    store->set(store_key_prefix + "_fd", toBytes(shared_handle));
     root_pid = getpid();
-    store->set(std::string("nvls_export_pid_mcast_handle"), toBytes(root_pid));
+    store->set(store_key_prefix + "_pid", toBytes(root_pid));
   }
 
   communicator.barrier();
 
   if (my_device_index != exporter_rank) {
-    shared_handle =
-        fromBytes<int>(store->get(std::string("nvls_export_fd_mcast_handle")));
-    root_pid = fromBytes<pid_t>(
-        store->get(std::string("nvls_export_pid_mcast_handle")));
+    shared_handle = fromBytes<int>(store->get(store_key_prefix + "_fd"));
+    root_pid = fromBytes<pid_t>(store->get(store_key_prefix + "_pid"));
 
     int pid_fd, peer_fd;
     pid_fd = syscall(SYS_pidfd_open, root_pid, /*flags=*/0);
@@ -245,65 +243,91 @@ MulticastHandleForBcast::MulticastHandleForBcast(
         my_device_index,
         " failed to get peer fd");
     NVFUSER_CUDA_SAFE_CALL(cuMemImportFromShareableHandle(
-        &mcast_handle, (void*)((uint64_t)peer_fd), handle_type));
+        &mcast_handle_, (void*)((uint64_t)peer_fd), handle_type));
     int status = close(pid_fd);
     NVF_ERROR(status >= 0, "Failed to close pidfd");
   }
 
-  NVFUSER_CUDA_SAFE_CALL(cuDeviceGet(&cu_dev, static_cast<int>(local_rank)));
-  NVFUSER_CUDA_SAFE_CALL(cuMulticastAddDevice(mcast_handle, cu_dev));
+  NVFUSER_CUDA_SAFE_CALL(cuDeviceGet(&cu_dev_, static_cast<int>(local_rank)));
+  NVFUSER_CUDA_SAFE_CALL(cuMulticastAddDevice(mcast_handle_, cu_dev_));
 
   NVFUSER_CUDA_SAFE_CALL(cuMulticastBindMem(
-      mcast_handle,
+      mcast_handle_,
       /*mcOffset=*/0,
-      output_alloc_handle,
+      alloc_handle,
       /*memOffset=*/0,
-      rounded_size,
+      size_,
       /*flags=*/0));
 
   NVFUSER_CUDA_SAFE_CALL(cuMemAddressReserve(
-      &mc_ptr,
-      rounded_size,
+      &mc_ptr_,
+      size_,
       /*alignment=*/granularity,
       /*baseVA=*/0,
       /*flags=*/0));
-  NVFUSER_CUDA_SAFE_CALL(cuMemMap(
-      mc_ptr,
-      rounded_size,
-      /*offset=*/0,
-      mcast_handle,
-      /*flags=*/0));
+  NVFUSER_CUDA_SAFE_CALL(
+      cuMemMap(mc_ptr_, size_, /*offset=*/0, mcast_handle_, /*flags=*/0));
   CUmemAccessDesc mc_mapping_desc{};
   mc_mapping_desc.location.type = CU_MEM_LOCATION_TYPE_DEVICE;
   mc_mapping_desc.location.id = static_cast<int>(local_rank);
   mc_mapping_desc.flags = CU_MEM_ACCESS_FLAGS_PROT_READWRITE;
   NVFUSER_CUDA_SAFE_CALL(
-      cuMemSetAccess(mc_ptr, rounded_size, &mc_mapping_desc, /*count=*/1));
+      cuMemSetAccess(mc_ptr_, size_, &mc_mapping_desc, /*count=*/1));
+
+  communicator.barrier();
+
+  if (my_device_index == exporter_rank) {
+    store->deleteKey(store_key_prefix + "_fd");
+    store->deleteKey(store_key_prefix + "_pid");
+  }
 #else
   NVF_ERROR(false, "Multicast is not supported");
 #endif
 }
 
-MulticastHandleForBcast::~MulticastHandleForBcast() {
+MulticastHandle::~MulticastHandle() {
 #if (CUDA_VERSION >= NVF_MIN_CUDA_FOR_MCAST)
-  NVFUSER_CUDA_SAFE_CALL(cuMemUnmap(mc_ptr, rounded_size));
-  NVFUSER_CUDA_SAFE_CALL(cuMemAddressFree(mc_ptr, rounded_size));
-  NVFUSER_CUDA_SAFE_CALL(cuMemRelease(output_alloc_handle));
+  NVFUSER_CUDA_SAFE_CALL(cuMemUnmap(mc_ptr_, size_));
+  NVFUSER_CUDA_SAFE_CALL(cuMemAddressFree(mc_ptr_, size_));
   NVFUSER_CUDA_SAFE_CALL(
-      cuMulticastUnbind(mcast_handle, cu_dev, /*offset=*/0, rounded_size));
-  NVFUSER_CUDA_SAFE_CALL(cuMemRelease(mcast_handle));
+      cuMulticastUnbind(mcast_handle_, cu_dev_, /*offset=*/0, size_));
+  NVFUSER_CUDA_SAFE_CALL(cuMemRelease(mcast_handle_));
 #endif
 }
 
-const MulticastHandleForBcast& MulticastHandleCache::get(KeyType key) {
+MulticastHandleForBroadcast::MulticastHandleForBroadcast(
+    Communication* communication,
+    at::Tensor buffer) {
+  const int64_t exporter_rank = communication->root();
+  std::string store_key_prefix =
+      "nvls_export_mcast_handle_for_Communication" + communication->name();
+
+  // Create multicast handle for the buffer
+  buffer_handle_ = std::make_unique<MulticastHandle>(
+      buffer, exporter_rank, store_key_prefix);
+
+  // Create a symmetric memory tensor for the semaphore (single int32 element)
+  semaphore_tensor_ = empty_strided_cuda_symmetric(
+      /*sizes=*/at::IntArrayRef({1}),
+      /*dtype=*/at::ScalarType::Int,
+      /*device=*/buffer.device(),
+      /*alloc_id=*/std::nullopt);
+
+  // Create multicast handle for the semaphore
+  semaphore_handle_ = std::make_unique<MulticastHandle>(
+      semaphore_tensor_, exporter_rank, store_key_prefix + "_semaphore");
+}
+
+const MulticastHandleForBroadcast& MulticastHandleCache::get(KeyType key) {
   auto it = handles_.find(key);
   if (it != handles_.end()) {
     return *(it->second);
   }
 
-  // If not found, create a new MulticastHandleForBcast, store, and return
+  // If not found, create a new MulticastHandleForBroadcast, store, and return
   // reference
-  auto handle = std::make_unique<MulticastHandleForBcast>(key.comm, key.buffer);
+  auto handle =
+      std::make_unique<MulticastHandleForBroadcast>(key.comm, key.buffer);
   auto inserted = handles_.emplace(key, std::move(handle));
   return *(inserted.first->second);
 }

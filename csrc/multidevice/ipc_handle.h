@@ -166,22 +166,48 @@ class IpcHandleCache {
       handles_;
 };
 
-class MulticastHandleForBcast {
+// MulticastHandle creates and shares a multicast object across all ranks,
+// and maps an address to that multicast object.
+class MulticastHandle {
  public:
-  MulticastHandleForBcast(Communication* communication, at::Tensor buffer);
+  // Creates a multicast object for the given tensor and shares it across all
+  // ranks. The tensor must be allocated with symmetric memory.
+  MulticastHandle(
+      at::Tensor tensor,
+      int64_t exporter_rank,
+      const std::string& store_key_prefix);
 
-  ~MulticastHandleForBcast();
+  ~MulticastHandle();
 
-  void* ptr() const {
-    return (void*)mc_ptr;
+  void* multicast_ptr() const {
+    return (void*)mc_ptr_;
   }
 
  private:
-  CUmemGenericAllocationHandle mcast_handle{};
-  CUdevice cu_dev{};
-  CUmemGenericAllocationHandle output_alloc_handle{};
-  CUdeviceptr mc_ptr{0};
-  int64_t rounded_size{0};
+  CUmemGenericAllocationHandle mcast_handle_{};
+  CUdevice cu_dev_{};
+  CUdeviceptr mc_ptr_{0};
+  int64_t size_{0};
+};
+
+class MulticastHandleForBroadcast {
+ public:
+  MulticastHandleForBroadcast(Communication* communication, at::Tensor buffer);
+
+  ~MulticastHandleForBroadcast() = default;
+
+  void* multicast_buffer_ptr() const {
+    return buffer_handle_->multicast_ptr();
+  }
+
+  void* multicast_semaphore_ptr() const {
+    return semaphore_handle_->multicast_ptr();
+  }
+
+ private:
+  std::unique_ptr<MulticastHandle> buffer_handle_;
+  std::unique_ptr<MulticastHandle> semaphore_handle_;
+  at::Tensor semaphore_tensor_;
 };
 
 class MulticastHandleCache {
@@ -205,12 +231,12 @@ class MulticastHandleCache {
     };
   };
 
-  const MulticastHandleForBcast& get(KeyType key);
+  const MulticastHandleForBroadcast& get(KeyType key);
 
  private:
   std::unordered_map<
       KeyType,
-      std::unique_ptr<MulticastHandleForBcast>,
+      std::unique_ptr<MulticastHandleForBroadcast>,
       KeyType::Hash>
       handles_;
 };

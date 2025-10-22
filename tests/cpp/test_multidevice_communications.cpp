@@ -526,7 +526,7 @@ TEST_F(CUDACommunicationTest, Broadcast) {
 
     communicator_->barrier();
 
-    postBroadcastWithP2pBackend(
+    postBroadcastWithCudaBackend(
         communication, input_tensor, output_tensor, multicast_handle_cache);
 
     auto ref = at::arange(kTensorSize, tensor_options_) + repetition;

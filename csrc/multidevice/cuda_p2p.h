@@ -19,7 +19,7 @@ void sendWait(const P2pIpcHandle& ipc_handles, CUstream stream);
 
 } // namespace get_zcopy
 
-void postBroadcastWithP2pBackend(
+void postBroadcastWithCudaBackend(
     Communication* communication,
     at::Tensor input_tensor,
     at::Tensor output_tensor,

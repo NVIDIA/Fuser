@@ -5,12 +5,10 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <multidevice/ipc_handle.h>
-
 #include <cuda_utils.h>
 #include <multidevice/cuda_p2p.h>
+#include <multidevice/ipc_handle.h>
 #include <multidevice/symmetric_memory.h>
-#include "multidevice/communicator.h"
 
 namespace nvfuser {
 
@@ -71,7 +69,7 @@ void sendWait(const P2pIpcHandle& ipc_handles, CUstream stream) {
 
 } // namespace get_zcopy
 
-void postBroadcastWithP2pBackend(
+void postBroadcastWithCudaBackend(
     Communication* communication,
     at::Tensor input_tensor,
     at::Tensor output_tensor,
@@ -87,11 +85,12 @@ void postBroadcastWithP2pBackend(
   const size_t kNumElems = output_tensor.numel();
   const size_t kSizeBytes = kNumElems * output_tensor.element_size();
 
-  const MulticastHandleForBcast& mcast = multicast_handle_cache.get({output_tensor, communication});
+  const MulticastHandleForBroadcast& mcast =
+      multicast_handle_cache.get({output_tensor, communication});
 
   if (my_device_index == communication->root()) {
     NVFUSER_CUDA_RT_SAFE_CALL(cudaMemcpy(
-        mcast.ptr(),
+        mcast.multicast_buffer_ptr(),
         input_tensor.data_ptr(),
         kSizeBytes,
         cudaMemcpyHostToDevice));

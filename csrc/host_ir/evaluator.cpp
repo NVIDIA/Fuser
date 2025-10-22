@@ -24,8 +24,8 @@
 #include <ir/utils.h>
 #include <multidevice/communication.h>
 #include <multidevice/cuda_p2p.h>
-#include <multidevice/utils.h>
 #include <multidevice/symmetric_memory.h>
+#include <multidevice/utils.h>
 #include <options.h>
 #include <runtime/allocations.h>
 #include <runtime/executor_dispatch.h>
@@ -329,8 +329,12 @@ void HostIrEvaluator::handle(Communication* communication) {
 
   CommunicatorBackend backend_type = communication->backend();
   if (backend_type == CommunicatorBackend::kCuda) {
-    NVF_ERROR(communication->type() == CommunicationType::Broadcast, "Invalid communication type, expected Broadcast, got: ", communication->type());
-    postBroadcastWithP2pBackend(communication, input_tensor, output_tensor, multicast_handle_cache_);
+    NVF_ERROR(
+        communication->type() == CommunicationType::Broadcast,
+        "Invalid communication type, expected Broadcast, got: ",
+        communication->type());
+    postBroadcastWithCudaBackend(
+        communication, input_tensor, output_tensor, multicast_handle_cache_);
   } else {
     c10d::Backend* backend =
         communicator_->getBackendForTeam(communication->team(), backend_type);
@@ -569,7 +573,6 @@ void HostIrEvaluator::handle(LoadStoreOp* load_store_op) {
   }
 }
 
-
 void HostIrEvaluator::handle(kir::Allocate* allocate) {
   FUSER_PERF_SCOPE("HostIrEvaluator::handle(kir::Allocate)");
   NVF_ERROR(
@@ -598,10 +601,7 @@ void HostIrEvaluator::handle(kir::Allocate* allocate) {
   if (allocate->memoryType() == MemoryType::Symmetric) {
     NVF_ERROR(isTvContiguous(tv), "Symmetric memory must be contiguous");
     tensor = empty_strided_cuda_symmetric(
-        info.shape_info.logical_sizes,
-        info.type,
-        device,
-        c10::nullopt);
+        info.shape_info.logical_sizes, info.type, device, c10::nullopt);
   } else {
     tensor = at::native::empty_strided_cuda(
         info.shape_info.logical_sizes,
