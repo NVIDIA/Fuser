@@ -147,8 +147,20 @@ FusionKernelRuntime::FusionKernelRuntime(
   heuristics_ = std::move(maybe_heuristics.value());
 
   if (isOptionDisabled(DisableOption::KernelReuse)) {
+    // It's safer to use CUDA graph when KernelReuse is disabled. When
+    // KernelReuse is disabled, we only reuse a FusionKernelRuntime when the
+    // input shapes match exactly.
+    //
+    // FIXME: input shapes staying fixed is not sufficient for a safe capture.
+    // For example, a scalar input can affect intermediate tensor shapes. In
+    // addition, intermediate tensor shapes can be data dependent, e.g., the
+    // receiving tensor of all-to-all is size-dependent on the number of tokens
+    // per expert. A safer approach could be to go through the complete fusion
+    // or host IR to find if any allocation can be dynamic.
     cuda_graph_state_ = CudaGraphState::kWarmup;
   }
+  // Otherwise don't attempt to use CUDA graph and cuda_graph_state_ will stay
+  // None.
 }
 
 void FusionKernelRuntime::evictCache(size_t input_id) {
@@ -290,59 +302,51 @@ PrimDataType FusionKernelRuntime::getIndexType() const {
 }
 
 KernelArgumentHolder FusionKernelRuntime::runWithInputs(
-    const KernelArgumentHolder& args) {
+    KernelArgumentHolder args) {
   FUSER_PERF_SCOPE("FusionKernelRuntime::runWithInputs");
 
   switch (cuda_graph_state_) {
-    case nvfuser::CudaGraphState::kWarmup: {
-      for (const PolymorphicValue& arg : args) {
-        if (arg.is<at::Tensor>()) {
-          cuda_graph_inputs_.push(arg.as<at::Tensor>().clone());
-        } else {
-          cuda_graph_inputs_.push(arg);
-        }
-      }
-
-      original_stream_ = at::cuda::getCurrentCUDAStream();
-      cuda_graph_stream_ = at::cuda::getStreamFromPool(
-          /*isHighPriority=*/false);
-
-      cudaEvent_t event;
-      NVFUSER_CUDA_RT_SAFE_CALL(cudaEventCreate(&event));
-      NVFUSER_CUDA_RT_SAFE_CALL(
-          cudaEventRecord(event, original_stream_.stream()));
-      NVFUSER_CUDA_RT_SAFE_CALL(
-          cudaStreamWaitEvent(cuda_graph_stream_.stream(), event));
-      NVFUSER_CUDA_RT_SAFE_CALL(cudaEventDestroy(event));
-
-      at::cuda::setCurrentCUDAStream(cuda_graph_stream_);
-
-      break;
-    }
     case CudaGraphState::kCapture: {
-      for (const PolymorphicValue& arg : args) {
+      // FIXME: CUDA graph requires the input and output tensor addresses to
+      // remain constant during capturing and replaying. If we can't guarantee
+      // that, we'll have to copy the input tensors to sticky "staged" input
+      // buffers. I'm **not** doing copy at this moment because weights take
+      // too long to copy, defeating the benefit of CUDA Graph, and that
+      // PyTorch's caching allocator is doing a fairly good job reusing same
+      // addresses.
+#if 0
+      cuda_graph_inputs_.resize(args.size());
+      for (auto [i, arg] : enumerate(args)) {
         if (arg.is<at::Tensor>()) {
-          cuda_graph_inputs_.push(arg.as<at::Tensor>().clone());
-        } else {
-          cuda_graph_inputs_.push(arg);
+          auto static_arg = arg.as<at::Tensor>().clone();
+          args[i] = cuda_graph_inputs_[i] = static_arg;
         }
       }
+#endif
 
-      cuda_graph_stream_.synchronize();
+      // This is to guarantee all in-flight lazy deallocations in PyTorch's
+      // allocator have landed before capturing. Otherwise, they would be
+      // captured and replayed.
+      at::cuda::getCurrentCUDAStream().synchronize();
+
+      // FIXME: at::cuda::CUDAGraph doesn't allow capturing on the default
+      // stream. I'm currently working around the problem by changing the
+      // benchmark to use a private stream:
+      // https://github.com/Lightning-AI/lightning-thunder/pull/2692. But this
+      // should be fixed in nvFuser instead.
 
       cuda_graph_.capture_begin();
     } break;
     case CudaGraphState::kReplay: {
-      NVF_ERROR_EQ(cuda_graph_inputs_.size(), args.size());
-      for (auto i : arange(args.size())) {
-        PolymorphicValue& static_arg = cuda_graph_inputs_[i];
-        const PolymorphicValue& runtime_arg = args[i];
-        if (static_arg.is<at::Tensor>()) {
-          static_arg.as<at::Tensor>().copy_(runtime_arg.as<at::Tensor>());
-        } else {
-          static_arg = runtime_arg;
+#if 0
+      for (auto [i, arg] : enumerate(args)) {
+        if (arg.is<at::Tensor>()) {
+          auto static_arg = cuda_graph_inputs_[i].as<at::Tensor>();
+          static_arg.copy_(arg.as<at::Tensor>());
+          args[i] = static_arg;
         }
       }
+#endif
       cuda_graph_.replay();
       return cuda_graph_outputs_;
     }
@@ -401,10 +405,9 @@ KernelArgumentHolder FusionKernelRuntime::runWithInputs(
       cuda_graph_state_ = CudaGraphState::kCapture;
       break;
     case CudaGraphState::kCapture: {
-      cuda_graph_state_ = CudaGraphState::kReplay;
       cuda_graph_.capture_end();
       cuda_graph_outputs_ = fusion_outputs;
-      at::cuda::setCurrentCUDAStream(original_stream_);
+      cuda_graph_state_ = CudaGraphState::kReplay;
     } break;
     default:
       break;

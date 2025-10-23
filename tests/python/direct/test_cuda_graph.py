@@ -3,9 +3,20 @@
 # SPDX-License-Identifier: BSD-3-Clause
 # Owner(s): ["module: nvfuser"]
 
+from contextlib import contextmanager
+
 import torch
 
 from nvfuser_direct import DataType, FusionDefinition
+
+
+@contextmanager
+def nvtx_range(name):
+    torch.cuda.nvtx.range_push(name)
+    try:
+        yield
+    finally:
+        torch.cuda.nvtx.range_pop()
 
 
 def test_capture_and_replay():
@@ -15,8 +26,13 @@ def test_capture_and_replay():
         z = fd.ops.add(x, y)
         fd.add_output(z)
 
-    x = torch.randn(2, 3, device="cuda")
-    y = torch.randn(2, 3, device="cuda")
-    for _ in range(5):
-        out = fd.execute([x, y], _disable_options=["kernel_reuse"])
-    torch.testing.assert_close(out[0], x + y)
+    with nvtx_range("run"):
+        stream = torch.cuda.Stream()
+        with torch.cuda.stream(stream):
+            for _ in range(5):
+                x = torch.randn(2, 3, device="cuda")
+                y = torch.randn(2, 3, device="cuda")
+                outs = fd.execute([x, y], _disable_options=["kernel_reuse"])
+        stream.synchronize()
+
+    torch.testing.assert_close(outs[0], x + y)
