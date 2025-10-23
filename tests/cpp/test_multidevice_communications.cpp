@@ -547,10 +547,13 @@ TEST_F(CUDACommunicationTest, Broadcast) {
       input_tensor.copy_(at::arange(kTensorSize, tensor_options_) + repetition);
     }
 
-    postBroadcastWithCudaBackend(
-        communication, input_tensor, output_tensor, multicast_handle_cache, current_stream);
+    const MulticastHandleForBroadcast& multicast_handle =
+        multicast_handle_cache.get({output_tensor, communication});
 
-    waitBroadcastWithCudaBackend(communication, output_tensor, multicast_handle_cache, current_stream);
+    postWithCudaBackend(
+        communication, input_tensor, multicast_handle, current_stream);
+
+    waitWithCudaBackend(communication, multicast_handle, current_stream);
 
     auto ref = at::arange(kTensorSize, tensor_options_) + repetition;
     EXPECT_TRUE(output_tensor.equal(ref))

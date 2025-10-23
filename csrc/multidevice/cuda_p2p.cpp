@@ -55,6 +55,81 @@ void WriteValue32ToLocalAndPeer(
   NVFUSER_CUDA_SAFE_CALL(cuStreamBatchMemOp(stream, 2, ops, 0));
 }
 
+void postBroadcastWithCudaBackend(
+    Communication* communication,
+    at::Tensor input,
+    const MulticastHandleForBroadcast& multicast_handle,
+    CUstream stream) {
+  Communicator& communicator = Communicator::getInstance();
+  const int64_t my_device_index = communicator.deviceId();
+  const int64_t world_size = communicator.size();
+  const int64_t root = communication->root();
+
+  if (my_device_index != root) {
+    // Non-root writes kInUse to its own semaphore
+    NVFUSER_CUDA_SAFE_CALL(cuStreamWriteValue32(
+        stream,
+        reinterpret_cast<CUdeviceptr>(
+            multicast_handle.semaphore_unicast_ptr(my_device_index)),
+        static_cast<cuuint32_t>(IpcSemaphore::kInUse),
+        CU_STREAM_WRITE_VALUE_DEFAULT));
+  } else {
+    // Root waits on all non-root ranks' semaphores to become kInUse
+    std::vector<CUstreamBatchMemOpParams> ops(world_size - 1);
+    int op_idx = 0;
+    for (int64_t rank = 0; rank < world_size; ++rank) {
+      if (rank == root)
+        continue;
+      ops[op_idx].operation = CU_STREAM_MEM_OP_WAIT_VALUE_32;
+      ops[op_idx].waitValue.address = reinterpret_cast<CUdeviceptr>(
+          multicast_handle.semaphore_unicast_ptr(rank));
+      ops[op_idx].waitValue.value = static_cast<cuuint32_t>(IpcSemaphore::kInUse);
+      ops[op_idx].waitValue.flags = CU_STREAM_WAIT_VALUE_EQ;
+      op_idx++;
+    }
+    NVFUSER_CUDA_SAFE_CALL(
+        cuStreamBatchMemOp(stream, world_size - 1, ops.data(), 0));
+
+    // Root multicast the data
+    // Root: compute src_ptr and count
+    const void* src_ptr = input.data_ptr();
+    const int64_t count = input.numel() * input.element_size();
+    NVFUSER_CUDA_RT_SAFE_CALL(cudaMemcpyAsync(
+        multicast_handle.buffer_multicast_ptr(),
+        src_ptr,
+        count,
+        cudaMemcpyDeviceToDevice,
+        stream));
+
+    // Root writes kReady to all semaphores using multicast handle
+    NVFUSER_CUDA_SAFE_CALL(cuStreamWriteValue32(
+        stream,
+        reinterpret_cast<CUdeviceptr>(
+            multicast_handle.semaphore_multicast_ptr()),
+        static_cast<cuuint32_t>(IpcSemaphore::kReady),
+        CU_STREAM_WRITE_VALUE_DEFAULT));
+  }
+}
+
+void waitBroadcastWithCudaBackend(
+    Communication* communication,
+    const MulticastHandleForBroadcast& multicast_handle,
+    CUstream stream) {
+  Communicator& communicator = Communicator::getInstance();
+  const int64_t my_device_index = communicator.deviceId();
+  const int64_t root = communication->root();
+
+  if (my_device_index != root) {
+    // Non-root waits for its own semaphore to be kReady
+    NVFUSER_CUDA_SAFE_CALL(cuStreamWaitValue32(
+        stream,
+        reinterpret_cast<CUdeviceptr>(
+            multicast_handle.semaphore_unicast_ptr(my_device_index)),
+        static_cast<cuuint32_t>(IpcSemaphore::kReady),
+        CU_STREAM_WAIT_VALUE_EQ));
+  }
+}
+
 } // anonymous namespace
 
 void recvPost(const P2pIpcHandle& ipc_handles, int64_t count, CUstream stream) {
@@ -150,26 +225,18 @@ void sendWait(const P2pIpcHandle& ipc_handles, CUstream stream) {
   }
 }
 
-void postBroadcastWithCudaBackend(
+void postWithCudaBackend(
     Communication* communication,
-    at::Tensor input_tensor,
-    at::Tensor output_tensor,
-    MulticastHandleCache& multicast_handle_cache,
+    at::Tensor input,
+    const MulticastHandleForBroadcast& multicast_handle,
     CUstream stream) {
-  NVF_ERROR(
-      communication->type() == CommunicationType::Broadcast,
-      "Invalid communication type, expected Broadcast, got: ",
-      communication->type());
   NVF_ERROR(
       communication->backend() == CommunicatorBackend::kCuda,
       "Invalid backend, expected Cuda, got: ",
       communication->backend());
 
   Communicator& communicator = Communicator::getInstance();
-  const int64_t my_device_index = communicator.deviceId();
-  const int64_t root = communication->root();
   const int64_t world_size = communicator.size();
-
   NVF_ERROR(
       communication->team().size() == (size_t)world_size,
       "Only support world size team for broadcast with cuda backend, expected ",
@@ -177,90 +244,46 @@ void postBroadcastWithCudaBackend(
       " got: ",
       communication->team().size());
 
-  const size_t size = output_tensor.numel() * output_tensor.element_size();
-
-  const MulticastHandleForBroadcast& multicast_handle =
-      multicast_handle_cache.get({output_tensor, communication});
-
-  if (my_device_index != root) {
-    // Non-root writes kInUse to its own semaphore
-    NVFUSER_CUDA_SAFE_CALL(cuStreamWriteValue32(
-        stream,
-        reinterpret_cast<CUdeviceptr>(
-            multicast_handle.semaphore_unicast_ptr(my_device_index)),
-        static_cast<cuuint32_t>(IpcSemaphore::kInUse),
-        CU_STREAM_WRITE_VALUE_DEFAULT));
-  } else {
-    // Root waits on all non-root ranks' semaphores to become kInUse
-    std::vector<CUstreamBatchMemOpParams> ops(world_size - 1);
-    int op_idx = 0;
-    for (int64_t rank = 0; rank < world_size; ++rank) {
-      if (rank == root)
-        continue;
-      ops[op_idx].operation = CU_STREAM_MEM_OP_WAIT_VALUE_32;
-      ops[op_idx].waitValue.address = reinterpret_cast<CUdeviceptr>(
-          multicast_handle.semaphore_unicast_ptr(rank));
-      ops[op_idx].waitValue.value = static_cast<cuuint32_t>(IpcSemaphore::kInUse);
-      ops[op_idx].waitValue.flags = CU_STREAM_WAIT_VALUE_EQ;
-      op_idx++;
-    }
-    NVFUSER_CUDA_SAFE_CALL(
-        cuStreamBatchMemOp(stream, world_size - 1, ops.data(), 0));
-
-    // Root multicast the data
-    NVFUSER_CUDA_RT_SAFE_CALL(cudaMemcpyAsync(
-        multicast_handle.buffer_multicast_ptr(),
-        input_tensor.data_ptr(),
-        size,
-        cudaMemcpyDeviceToDevice,
-        stream));
-
-    // Root writes kReady to all semaphores using multicast handle
-    NVFUSER_CUDA_SAFE_CALL(cuStreamWriteValue32(
-        stream,
-        reinterpret_cast<CUdeviceptr>(
-            multicast_handle.semaphore_multicast_ptr()),
-        static_cast<cuuint32_t>(IpcSemaphore::kReady),
-        CU_STREAM_WRITE_VALUE_DEFAULT));
+  switch (communication->type()) {
+    case CommunicationType::Broadcast:
+      postBroadcastWithCudaBackend(
+          communication, input, multicast_handle, stream);
+      break;
+    default:
+      NVF_ERROR(
+          false,
+          "Unsupported communication type for CUDA backend: ",
+          communication->type());
   }
 }
 
-void waitBroadcastWithCudaBackend(
+void waitWithCudaBackend(
     Communication* communication,
-    at::Tensor output_tensor,
-    MulticastHandleCache& multicast_handle_cache,
+    const MulticastHandleForBroadcast& multicast_handle,
     CUstream stream) {
-  NVF_ERROR(
-      communication->type() == CommunicationType::Broadcast,
-      "Invalid communication type, expected Broadcast, got: ",
-      communication->type());
   NVF_ERROR(
       communication->backend() == CommunicatorBackend::kCuda,
       "Invalid backend, expected Cuda, got: ",
       communication->backend());
 
   Communicator& communicator = Communicator::getInstance();
-  const int64_t my_device_index = communicator.deviceId();
-  const int64_t root = communication->root();
-
+  const int64_t world_size = communicator.size();
   NVF_ERROR(
-      communication->team().size() == (size_t)communicator.size(),
+      communication->team().size() == (size_t)world_size,
       "Only support world size team for broadcast with cuda backend, expected ",
-      communicator.size(),
+      world_size,
       " got: ",
       communication->team().size());
 
-
-  if (my_device_index != root) {
-    // Non-root waits for its own semaphore to be kReady
-    const MulticastHandleForBroadcast& multicast_handle =
-        multicast_handle_cache.get({output_tensor, communication});
-    NVFUSER_CUDA_SAFE_CALL(cuStreamWaitValue32(
-        stream,
-        reinterpret_cast<CUdeviceptr>(
-            multicast_handle.semaphore_unicast_ptr(my_device_index)),
-        static_cast<cuuint32_t>(IpcSemaphore::kReady),
-        CU_STREAM_WAIT_VALUE_EQ));
+  switch (communication->type()) {
+    case CommunicationType::Broadcast:
+      waitBroadcastWithCudaBackend(communication, multicast_handle, stream);
+      break;
+    default:
+      NVF_ERROR(
+          false,
+          "Unsupported communication type for CUDA backend: ",
+          communication->type());
   }
 }
 

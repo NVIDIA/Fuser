@@ -26,17 +26,15 @@ void sendPost(const P2pIpcHandle& ipc_handles, int64_t count, CUstream stream);
 
 void sendWait(const P2pIpcHandle& ipc_handles, CUstream stream);
 
-void postBroadcastWithCudaBackend(
+void postWithCudaBackend(
     Communication* communication,
-    at::Tensor input_tensor,
-    at::Tensor output_tensor,
-    MulticastHandleCache& multicast_handle_cache,
+    at::Tensor input,
+    const MulticastHandleForBroadcast& multicast_handle,
     CUstream stream);
 
-void waitBroadcastWithCudaBackend(
+void waitWithCudaBackend(
     Communication* communication,
-    at::Tensor output_tensor,
-    MulticastHandleCache& multicast_handle_cache,
+    const MulticastHandleForBroadcast& multicast_handle,
     CUstream stream);
 
 } // namespace nvfuser

@@ -335,8 +335,10 @@ void HostIrEvaluator::handle(Communication* communication) {
         communication->type() == CommunicationType::Broadcast,
         "Invalid communication type, expected Broadcast, got: ",
         communication->type());
-    postBroadcastWithCudaBackend(
-        communication, input_tensor, output_tensor, multicast_handle_cache_, current_stream);
+    const MulticastHandleForBroadcast& multicast_handle =
+        multicast_handle_cache_.get({output_tensor, communication});
+    postWithCudaBackend(
+        communication, input_tensor, multicast_handle, current_stream);
   } else {
     c10d::Backend* backend =
         communicator_->getBackendForTeam(communication->team(), backend_type);
@@ -394,7 +396,10 @@ void HostIrEvaluator::handle(Wait* wait) {
     }
   } else if (communication && communication->backend() == CommunicatorBackend::kCuda) {
     NVF_ERROR(communication->type() == CommunicationType::Broadcast, "Invalid communication type, only Broadcast is supported with cuda backend, got: ", communication->type());
-    waitBroadcastWithCudaBackend(communication, getKnownTensorOrUndefined(communication->out()), multicast_handle_cache_, current_stream);
+    at::Tensor output_tensor = getKnownTensorOrUndefined(communication->out());
+    const MulticastHandleForBroadcast& multicast_handle =
+        multicast_handle_cache_.get({output_tensor, communication});
+    waitWithCudaBackend(communication, multicast_handle, current_stream);
   } else {
     auto i = works_.find(expr);
     NVF_ERROR(i != works_.end(), "no wait req");
