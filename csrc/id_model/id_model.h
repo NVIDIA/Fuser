@@ -224,12 +224,16 @@ class NVF_API IdModel : public PolymorphicBase {
   // a new ValGraph and returns it.
   ValGraph initializeIdGraph(bool propagate_through_exprs = true) const;
 
+  ValGraph initializeIdGraphExcludeAllocation(
+      bool propagate_through_exprs = true) const;
+
   // Returns an IdGraph with all Id's mapped that are mapped both in graph0 and
   // graph1.
   ValGraph buildIntersection(
       const ValGraph& graph0,
       const ValGraph& graph1,
-      bool propagate_exprs = true) const;
+      bool propagate_exprs = true,
+      bool permissive = false) const;
 
   const std::unordered_map<ValGroup, IterDomain*>& loopPromotionMap() const {
     return loop_promotion_map_;

@@ -451,7 +451,7 @@ std::unordered_map<ValGroup, IterDomain*> LoopPromotionMapBuilder::build() {
   //
   // iel stands for Intersection of the Exact and Loop graphs.
   const ValGraph iel_graph = id_model_.buildIntersection(
-      idGraph(IdMappingMode::EXACT), idGraph(IdMappingMode::LOOP), false);
+      idGraph(IdMappingMode::EXACT), idGraph(IdMappingMode::LOOP), false, true);
 
   // We'll create mappings from a copy of the current loop graph since
   // idGraph(IdMappingMode::LOOP) will change with replayed domains.
@@ -1220,7 +1220,7 @@ VectorOfUniqueEntries<IterDomain*> LoopPromotionMapBuilder::
       bool all_outs_in_loop_group = true;
       for (auto use : uses_it->second) {
         if (std::ranges::any_of(use->outputs(), [&](Val* out) -> bool {
-              return group != idGraph(IdMappingMode::LOOP).toGroup(out);
+              return idGraph(IdMappingMode::LOOP).hasGroup(out) && group != idGraph(IdMappingMode::LOOP).toGroup(out);
             })) {
           all_outs_in_loop_group = false;
           break;
