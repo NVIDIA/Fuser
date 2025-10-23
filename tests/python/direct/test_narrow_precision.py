@@ -276,6 +276,7 @@ def test_cutlass_nvfp4_grouped_mm(
 
     assert torch.allclose(o_decomposed_ref, o[0], atol=1e-2, rtol=1e-2)
 
+
 @pytest.mark.skipif(
     is_pre_blackwell(), reason="Only supported on blackwell and newer devices."
 )
@@ -287,7 +288,6 @@ def test_fp4_vectorization(
     nvfuser_direct_test,
     dtype,
 ):
-
     inputs = [
         torch.ones(4, 8, dtype=dtype, device="cuda"),
         torch.ones(4, dtype=dtype, device="cuda"),
