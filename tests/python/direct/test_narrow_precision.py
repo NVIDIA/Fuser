@@ -307,4 +307,3 @@ def test_fp4_vectorization(
     o, _ = nvfuser_direct_test.exec_nvfuser(nvfuser_fusion_id0, inputs)
 
     ref_o = to_fp4(inputs[0].to(torch.float) / inputs[1].unsqueeze(-1)).reshape(-1)
-    breakpoint()
