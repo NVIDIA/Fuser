@@ -224,7 +224,9 @@ class NVF_API IdModel : public PolymorphicBase {
   // a new ValGraph and returns it.
   ValGraph initializeIdGraph(bool propagate_through_exprs = true) const;
 
-  // Iterates over all IterDomains in all tvs_ domain, excluding IDs that only exist on path to allocation domain. Otherwise, this function behaves mostly like initializeIdGraph
+  // Iterates over all IterDomains in all tvs_ domain, excluding IDs that only
+  // exist on path to allocation domain. Otherwise, this function behaves mostly
+  // like initializeIdGraph
   ValGraph initializeIdGraphExcludeAllocation(
       bool propagate_through_exprs = true) const;
 

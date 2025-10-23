@@ -54,7 +54,10 @@ void mapThroughLoopSwizzles(ValGraph& graph) {
   }
 }
 
-// traverse all IDs on domains of a given tv, excluding allocation domain, and push them into discovered_ids. This function is implemented similar to TensorDomain::allIDs, but is unique to IdModel for building LOOP and IEL graphs.
+// traverse all IDs on domains of a given tv, excluding allocation domain, and
+// push them into discovered_ids. This function is implemented similar to
+// TensorDomain::allIDs, but is unique to IdModel for building LOOP and IEL
+// graphs.
 void discoverIdsExceptAllocation(
     const TensorView* tv,
     VectorOfUniqueEntries<IterDomain*>& discovered_ids) {
@@ -331,7 +334,11 @@ ValGraph IdModel::initializeIdGraphExcludeAllocation(
         id->toString(),
         " as it's missing a definition entry.");
 
-    // we might have inactive uses, i.e. uses that doesn't produce an ID in all_ids. This is because we are excluding IDs only on allocation domain from traversal. We need to exclude it from active_uses, otherwise, initializeVal would add expr producing ID that's not in the ValGraph, causing assertion failure in `ValGraph::validateConsistency`
+    // we might have inactive uses, i.e. uses that doesn't produce an ID in
+    // all_ids. This is because we are excluding IDs only on allocation domain
+    // from traversal. We need to exclude it from active_uses, otherwise,
+    // initializeVal would add expr producing ID that's not in the ValGraph,
+    // causing assertion failure in `ValGraph::validateConsistency`
     VectorOfUniqueEntries<Expr*> active_uses;
     for (const auto& use : uses_it->second) {
       if (std::any_of(
@@ -1007,7 +1014,9 @@ StatefulInliningInfo buildStatefulInliningInfo(
         }
         info.ordered_p_ca_ids.pushBack(all_producer_ca_deps);
 
-        // we exclude IDs only on allocation paths, since the inlining information is only used by LOOP and IEL graph, which excludes those IDs.
+        // we exclude IDs only on allocation paths, since the inlining
+        // information is only used by LOOP and IEL graph, which excludes those
+        // IDs.
         auto all_producer_ids = findAllIdsExceptAllocation(producer_tv);
         auto all_consumer_ids = findAllIdsExceptAllocation(consumer_tv);
 
@@ -1211,7 +1220,9 @@ ValGraph IdModel::buildIntersection(
       for (auto id1_i = id0_i; id1_i < set_size; id1_i++) {
         Val* id1 = group0->vector()[id1_i];
         // id0 and id1 map in group0. If they also map in the group1,
-        // add the mapping to the intersection. permissive mapping allows group0 and group1 not containing the same IDs, which is necessary when we build intersection between loop graph and exact graph.
+        // add the mapping to the intersection. permissive mapping allows group0
+        // and group1 not containing the same IDs, which is necessary when we
+        // build intersection between loop graph and exact graph.
         if (permissive) {
           if (graph1.disjointValSets().permissiveAreMapped(id0, id1)) {
             intersection.mapVals(id0, id1);
