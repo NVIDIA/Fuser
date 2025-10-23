@@ -516,50 +516,52 @@ TEST_F(CUDACommunicationTest, Broadcast) {
   constexpr DeviceIdxType kRoot = 0;
   constexpr int64_t kTensorSize = 8;
 
-  hir::HostIrContainer container;
-  FusionGuard fg(&container);
-  auto* in = makeContigTensor(2);
-  in->setDeviceMesh(DeviceMesh::createForNumDevices(communicator_->size()));
-  auto* out = ops::newValLike(in, in->dtype())->as<TensorView>();
+  auto hic = std::make_unique<hir::HostIrContainer>();
+  FusionGuard fg(hic.get());
+
+  auto* in = makeContigConcreteTensor({kTensorSize});
+  auto* out = makeContigConcreteTensor({kTensorSize});
+  DeviceMesh mesh = DeviceMesh::createForNumDevices(communicator_->size());
+  in->setDeviceMesh(mesh);
+  out->setDeviceMesh(mesh);
+  out->setMemoryType(MemoryType::Global);
+  out->setMemoryType(MemoryType::Symmetric);
+
+  auto allocated_out = IrBuilder::create<kir::Allocate>(out, MemoryType::Symmetric);
   auto communication = IrBuilder::create<Communication>(
       CommunicationType::Broadcast,
       out,
       in,
-      out->getDeviceMesh().vector(),
+      mesh.vector(),
       kRoot,
       RedOpType::UNUSED,
       CommunicatorBackend::kCuda);
+  auto wait = IrBuilder::create<hir::Wait>(communication);
 
-  at::Tensor input_tensor;
-  if (communicator_->deviceId() == kRoot) {
-    input_tensor = at::empty({kTensorSize}, tensor_options_);
-  }
-  at::Tensor output_tensor = empty_strided_cuda_symmetric(
-      {kTensorSize}, at::kFloat, tensor_options_.device(), c10::nullopt);
+  hic->pushBackTopLevelExprs(allocated_out);
+  hic->pushBackTopLevelExprs(communication);
+  hic->pushBackTopLevelExprs(wait);
 
-  MulticastHandleCache multicast_handle_cache;
-  const auto current_stream = static_cast<CUstream>(
-    c10::cuda::getCurrentCUDAStream(communicator_->local_rank()).stream());
+  hic->addInput(in);
+  hic->addOutput(out);
 
+  hir::HostIrEvaluatorParams params;
+  params.use_allocation_cache = true;
+  hir::HostIrEvaluator hie(std::move(hic), communicator_);
+
+  at::Tensor input_tensor = at::empty({kTensorSize}, tensor_options_);
   for (auto repetition : arange(kNumRepetitions)) {
-    // for (auto repetition : arange(kNumRepetitions)) {
     if (communicator_->deviceId() == kRoot) {
       input_tensor.copy_(at::arange(kTensorSize, tensor_options_) + repetition);
     }
 
-    const MulticastHandleForBroadcast& multicast_handle =
-        multicast_handle_cache.get({output_tensor, communication});
-
-    postWithCudaBackend(
-        communication, input_tensor, multicast_handle, current_stream);
-
-    waitWithCudaBackend(communication, multicast_handle, current_stream);
+    auto outputs = hie.runWithInput({{in, input_tensor}});
 
     auto ref = at::arange(kTensorSize, tensor_options_) + repetition;
-    EXPECT_TRUE(output_tensor.equal(ref))
+    EXPECT_TRUE(outputs.back().as<at::Tensor>().equal(ref))
         << "On iteration " << repetition << " on device " << communicator_->deviceId() << " expected tensor:\n"
         << ref << "\nbut obtained tensor:\n"
-        << output_tensor;
+        << outputs.back().as<at::Tensor>();
   }
 }
 
