@@ -59,7 +59,7 @@ int64_t fusionInputPosition(Fusion* fusion, Val* v) {
 
 int64_t fusionOutputPosition(Fusion* fusion, Val* v) {
   NVF_ERROR(v->isFusionOutput());
-  return static_cast<int64_t>(
+  return std::distance(fusion->outputs().begin(), std::find(fusion->outputs().begin(), fusion->outputs().end(), v));
       std::find(fusion->outputs().begin(), fusion->outputs().end(), v) -
       fusion->outputs().begin());
 }
