@@ -66,7 +66,7 @@ bool validateGroupedLayout(
         0,
         expert_offsets[i].item().to<int>(),
         expert_offsets[i].item().to<int>() + m_g);
-    if (!at::allclose(restored_out_g, ref_g)) {
+    if (!at::allclose(restored_out_g.to(ref_g.dtype()), ref_g)) {
       std::cout << "failed at group: " << i << std::endl;
       std::cout << "out_g:\n" << out_g << std::endl;
       std::cout << "ref_g:\n" << ref_g << std::endl;
@@ -345,6 +345,7 @@ TEST_F(LayoutOpTest, SchedulerKernelWithExplicitQuantizationPattern) {
 }
 
 TEST_F(LayoutOpTest, InferenceBenchmarkLoopPromotionIssue) {
+  NVFUSER_TEST_CUDA_ARCH_GUARD(10, 0);
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
@@ -383,7 +384,7 @@ TEST_F(LayoutOpTest, InferenceBenchmarkLoopPromotionIssue) {
 
   auto options = at::TensorOptions().dtype(at::kBFloat16).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({2048, 320, 16}, options);
-  at::Tensor t1 = t0.amax({2});
+  at::Tensor t1 = t0.abs().amax({2});
   at::Tensor in_offsets = at::tensor({0, 600, 1200}, options.dtype(at::kInt));
   at::Tensor out_offsets = at::tensor({0, 640, 1280}, options.dtype(at::kInt));
 
@@ -392,19 +393,19 @@ TEST_F(LayoutOpTest, InferenceBenchmarkLoopPromotionIssue) {
   auto outputs =
       executor_cache.runFusionWithInputs({t0, t1, in_offsets, out_offsets});
 
-  // TODO: add validation
-  // // check block scaling factor
-  // ASSERT_TRUE(validateGroupedLayout(
-  //     BlockScalingFactorLayout::Block128x4,
-  //     outputs[1].as<at::Tensor>(),
-  //     ref_block_sf,
-  //     t1,
-  //     t2));
-  // EXPECT_THAT(
-  //     executor_cache.getMostRecentKernelRuntime()->fusionSegments()->groups(),
-  //     UnorderedElementsAre(
-  //         HeuristicIs(SchedulerType::InnerPersistent),
-  //         HeuristicIs(SchedulerType::ExprEval)));
+  auto ref_block_sf = t1.to(at::kFloat)
+                          .div(6.0)
+                          .clamp(0.015625, 448)
+                          .to(at::kFloat8_e4m3fn)
+                          .to(at::kBFloat16);
+
+  // check block scaling factor
+  ASSERT_TRUE(validateGroupedLayout(
+      BlockScalingFactorLayout::Block128x4,
+      outputs[1].as<at::Tensor>(),
+      ref_block_sf,
+      in_offsets,
+      out_offsets));
 }
 
 } // namespace nvfuser
