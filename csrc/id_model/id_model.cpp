@@ -54,7 +54,8 @@ void mapThroughLoopSwizzles(ValGraph& graph) {
   }
 }
 
-void findAllIdsExceptAllocation(
+// traverse all IDs on domains of a given tv, excluding allocation domain, and push them into discovered_ids. This function is implemented similar to TensorDomain::allIDs, but is unique to IdModel for building LOOP and IEL graphs.
+void discoverIdsExceptAllocation(
     const TensorView* tv,
     VectorOfUniqueEntries<IterDomain*>& discovered_ids) {
   std::vector<const std::vector<IterDomain*>*> all_domains = {
@@ -98,9 +99,10 @@ void findAllIdsExceptAllocation(
   }
 };
 
+// return all IDs on domains of a given tv, excluding allocation domain.
 std::vector<IterDomain*> findAllIdsExceptAllocation(const TensorView* tv) {
   VectorOfUniqueEntries<IterDomain*> discovered_ids;
-  findAllIdsExceptAllocation(tv, discovered_ids);
+  discoverIdsExceptAllocation(tv, discovered_ids);
   return discovered_ids.vector();
 }
 
@@ -306,16 +308,13 @@ std::string IdModel::toString() const {
 
 ValGraph IdModel::initializeIdGraphExcludeAllocation(
     bool propagate_through_exprs) const {
-  // In the case of the Loop graph, we do not propagate mappings but
-  // explicitly set which domains to map based on the permissive graph
-  // and the CA positions.
   ValGraph loop_graph(propagate_through_exprs);
 
   // loop_ids only contains at IDs between logical->loop
   VectorOfUniqueEntries<IterDomain*> loop_ids;
 
   for (TensorView* tv : tvs_) {
-    findAllIdsExceptAllocation(tv, loop_ids);
+    discoverIdsExceptAllocation(tv, loop_ids);
   }
   std::vector<IterDomain*> all_ids = loop_ids.vector();
 
@@ -332,7 +331,7 @@ ValGraph IdModel::initializeIdGraphExcludeAllocation(
         id->toString(),
         " as it's missing a definition entry.");
 
-    // we might have inactive uses, i.e. uses that doesn't produce all_ids.
+    // we might have inactive uses, i.e. uses that doesn't produce an ID in all_ids. This is because we are excluding IDs only on allocation domain from traversal. We need to exclude it from active_uses, otherwise, initializeVal would add expr producing ID that's not in the ValGraph, causing assertion failure in `ValGraph::validateConsistency`
     VectorOfUniqueEntries<Expr*> active_uses;
     for (const auto& use : uses_it->second) {
       if (std::any_of(
@@ -1008,8 +1007,7 @@ StatefulInliningInfo buildStatefulInliningInfo(
         }
         info.ordered_p_ca_ids.pushBack(all_producer_ca_deps);
 
-        // This doesn't look right! we shouldn't be using allIDs, but exclude
-        // allocation paths from this.
+        // we exclude IDs only on allocation paths, since the inlining information is only used by LOOP and IEL graph, which excludes those IDs.
         auto all_producer_ids = findAllIdsExceptAllocation(producer_tv);
         auto all_consumer_ids = findAllIdsExceptAllocation(consumer_tv);
 
@@ -1063,6 +1061,9 @@ StatefulInliningInfo buildStatefulInliningInfo(
 }
 
 void IdModel::initializeLoopGraph(const StatefulInliningInfo& info) {
+  // In the case of the Loop graph, we do not propagate mappings but
+  // explicitly set which domains to map based on the permissive graph
+  // and the CA positions.
   NVF_ERROR(
       id_graphs_
           .emplace(
@@ -1194,10 +1195,14 @@ ValGraph IdModel::buildIntersection(
     const ValGraph& graph0,
     const ValGraph& graph1,
     bool propagate_exprs,
-    bool permissive) const {
-  // FIXME: This should be exposed as an option, since this is only used to
-  // create iel_graph at this point, I'm hard coding it for quicker iteration.
-  ValGraph intersection = initializeIdGraphExcludeAllocation(propagate_exprs);
+    bool permissive,
+    bool exclude_allocation_domain) const {
+  ValGraph intersection;
+  if (exclude_allocation_domain) {
+    intersection = initializeIdGraphExcludeAllocation(propagate_exprs);
+  } else {
+    intersection = initializeIdGraph(propagate_exprs);
+  }
 
   for (const ValGroup& group0 : graph0.disjointValSets().disjointSets()) {
     auto set_size = group0->size();
@@ -1206,7 +1211,7 @@ ValGraph IdModel::buildIntersection(
       for (auto id1_i = id0_i; id1_i < set_size; id1_i++) {
         Val* id1 = group0->vector()[id1_i];
         // id0 and id1 map in group0. If they also map in the group1,
-        // add the mapping to the intersection.
+        // add the mapping to the intersection. permissive mapping allows group0 and group1 not containing the same IDs, which is necessary when we build intersection between loop graph and exact graph.
         if (permissive) {
           if (graph1.disjointValSets().permissiveAreMapped(id0, id1)) {
             intersection.mapVals(id0, id1);

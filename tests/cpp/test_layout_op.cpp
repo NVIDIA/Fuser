@@ -351,8 +351,6 @@ TEST_F(LayoutOpTest, InferenceBenchmarkLoopPromotionIssue) {
 
   auto inp = makeContigConcreteTensor({2048, 320, 16}, DataType::BFloat16);
   auto sf = makeContigConcreteTensor({2048, 320}, DataType::BFloat16);
-  // FIXME: this should be 128. i.e. number of groups, fix Masaki's scripts
-  // later.
   auto in_offset = makeContigConcreteTensor({3}, DataType::Int32);
   auto out_offset = makeContigConcreteTensor({3}, DataType::Int32);
 

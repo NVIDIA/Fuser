@@ -224,6 +224,7 @@ class NVF_API IdModel : public PolymorphicBase {
   // a new ValGraph and returns it.
   ValGraph initializeIdGraph(bool propagate_through_exprs = true) const;
 
+  // Iterates over all IterDomains in all tvs_ domain, excluding IDs that only exist on path to allocation domain. Otherwise, this function behaves mostly like initializeIdGraph
   ValGraph initializeIdGraphExcludeAllocation(
       bool propagate_through_exprs = true) const;
 
@@ -233,7 +234,8 @@ class NVF_API IdModel : public PolymorphicBase {
       const ValGraph& graph0,
       const ValGraph& graph1,
       bool propagate_exprs = true,
-      bool permissive = false) const;
+      bool permissive = false,
+      bool exclude_allocation_domain = false) const;
 
   const std::unordered_map<ValGroup, IterDomain*>& loopPromotionMap() const {
     return loop_promotion_map_;
