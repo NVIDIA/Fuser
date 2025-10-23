@@ -52,7 +52,7 @@ ScaledMmaOp* findScaledMmaOp(Fusion* fusion) {
 
 int64_t fusionInputPosition(Fusion* fusion, Val* v) {
   NVF_ERROR(v->isFusionInput());
-  return static_cast<int64_t>(
+  return std::distance(fusion->inputs().begin(), std::find(fusion->inputs().begin(), fusion->inputs().end(), v));
       std::find(fusion->inputs().begin(), fusion->inputs().end(), v) -
       fusion->inputs().begin());
 }
