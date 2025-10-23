@@ -121,8 +121,10 @@ enum class EnableOption {
   WarnRegisterSpill, //! Enable warnings of register spill
   WarpSpecializedNormalization, //! Enable warp specialized persistent kernel
   HostIrLowering, //! Enable FusionKernelRuntime lowering to host IR
+  HostIrJit, //! Enable Host IR JIT compilation with LLVM
   InsertReshardingAfter, //! Insert resharding set after the expression
   FastMath, //! Enable fast math optimizations (--use_fast_math)
+  P2pProtocol, //! Prescribe P2P protocol: put|get
   EndOfOption //! Placeholder for counting the number of elements
 };
 

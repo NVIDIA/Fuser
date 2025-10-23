@@ -98,21 +98,18 @@ KernelArgumentHolder HostIrJitImpl::runWithInputs(const KernelArgumentHolder& ar
 ```
 *Detailed Implementation:* https://github.com/NVIDIA/Fuser/blob/3ac1a4697b6b5c31e4dbb9763b3b6db2f0e0164b/csrc/host_ir/jit.cpp#L1399-L1453
 
-## Configuration and Build Options
-Building nvFuser project with `NVFUSER_BUILD_HOST_IR_JIT=1` will enables Host IR JIT as default runtime in Host IR execution path.
-Otherwise the default runtime is Host IR Evaluator. In the future, when llvm is fully supported in all build machines, we are able
-to get rid of this opt-in flag and rather use `enableOption` to control backend switching after build is done.
+## Configuration and Runtime Options
 
-Sample build
-```python
-NVFUSER_BUILD_HOST_IR_JIT=1 pip install --no-build-isolation -e python -v
-```
-or
-```python
-NVFUSER_BUILD_HOST_IR_JIT=1 _bn
-```
+### Build Requirements
+**LLVM 18.1+ is required** to build nvFuser. You can switch between Host IR JIT and Host IR Evaluator at runtime.
+
+### Runtime Configuration
+You can enable Host IR JIT via runtime option `EnableOption::HostIrJit` or environment `NVFUSER_ENABLE="host_ir_jit"`.
+
+When `host_ir_jit` is enabled, the runtime uses LLVM ORC JIT for low-latency host execution. When disabled, it falls back to the Host IR Evaluator.
+
 ## Future Integration plan
-We plan to turn on host IR JIT by default after its function and performance are on par.
+We plan to turn on host IR JIT by default after its functionality and performance are on par.
 Known missing supports and bugs are:
 
 **Ops need to be supported:**
