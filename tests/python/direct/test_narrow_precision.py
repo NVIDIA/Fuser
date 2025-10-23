@@ -295,13 +295,13 @@ def test_fp4_vectorization(
 
     def nvfuser_fusion_id0(fd: FusionDefinition) -> None:
         T0 = fd.from_pytorch(inputs[0])
-        T1 = fd.from_pytorch(inputs[0])
+        T1 = fd.from_pytorch(inputs[1])
         T2 = fd.ops.cast(T0, DataType.Float)
         cast_T1 = fd.ops.cast(T1, DataType.Float)
         broadcast_T1 = fd.ops.broadcast(cast_T1, [False, True])
         T3 = fd.ops.div(T2, broadcast_T1)
         T4 = fd.ops.cast(T3, DataType.Float4_e2m1fn)
-        T5 = fd.ops.reshape(T4, [m * k])
+        T5 = fd.ops.reshape(T4, [32])
         fd.add_output(T5)
 
     o, _ = nvfuser_direct_test.exec_nvfuser(nvfuser_fusion_id0, inputs)
