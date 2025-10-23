@@ -279,7 +279,7 @@ UnicastHandle::UnicastHandle(
   CUmemAccessDesc access_desc{};
   access_desc.location.type = CU_MEM_LOCATION_TYPE_DEVICE;
   access_desc.location.id = static_cast<int>(local_rank);
-  access_desc.flags = CU_MEM_ACCESS_FLAGS_PROT_READ;
+  access_desc.flags = CU_MEM_ACCESS_FLAGS_PROT_READWRITE;
   NVFUSER_CUDA_SAFE_CALL(
       cuMemSetAccess(mapped_cu_ptr, size_, &access_desc, /*count=*/1));
 
