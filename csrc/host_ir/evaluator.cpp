@@ -380,19 +380,23 @@ void HostIrEvaluator::handle(P2PCommunication* communication) {
 }
 
 void HostIrEvaluator::handle(Wait* wait) {
-  Expr* communication = wait->communication();
-  auto* p2p_comm = dynamic_cast<P2PCommunication*>(communication);
+  Expr* expr = wait->communication();
+  auto* p2p_comm = dynamic_cast<P2PCommunication*>(expr);
+  auto* communication = dynamic_cast<Communication*>(expr);
+  const auto current_stream = static_cast<CUstream>(
+      c10::cuda::getCurrentCUDAStream(my_local_device_index_).stream());
   if (p2p_comm && p2p_comm->backend() == CommunicatorBackend::kCuda) {
-    const auto current_stream = static_cast<CUstream>(
-        c10::cuda::getCurrentCUDAStream(my_local_device_index_).stream());
     const P2pIpcHandle& ipc_handles = ipc_handle_cache_.get(p2p_comm);
     if (p2p_comm->type() == P2PCommunicationType::SEND) {
       sendWait(ipc_handles, current_stream);
     } else if (p2p_comm->type() == P2PCommunicationType::RECV) {
       recvWait(ipc_handles, current_stream);
     }
+  } else if (communication && communication->backend() == CommunicatorBackend::kCuda) {
+    NVF_ERROR(communication->type() == CommunicationType::Broadcast, "Invalid communication type, only Broadcast is supported with cuda backend, got: ", communication->type());
+    waitBroadcastWithCudaBackend(communication, getKnownTensorOrUndefined(communication->out()), multicast_handle_cache_, current_stream);
   } else {
-    auto i = works_.find(communication);
+    auto i = works_.find(expr);
     NVF_ERROR(i != works_.end(), "no wait req");
 
     auto work = i->second;
@@ -400,7 +404,7 @@ void HostIrEvaluator::handle(Wait* wait) {
       work->wait();
     }
 
-    works_.erase(communication);
+    works_.erase(expr);
   }
 }
 

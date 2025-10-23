@@ -190,14 +190,6 @@ void postBroadcastWithCudaBackend(
             multicast_handle.semaphore_unicast_ptr(my_device_index)),
         static_cast<cuuint32_t>(IpcSemaphore::kInUse),
         CU_STREAM_WRITE_VALUE_DEFAULT));
-
-    // Non-root waits for its own semaphore to be kReady
-    NVFUSER_CUDA_SAFE_CALL(cuStreamWaitValue32(
-        stream,
-        reinterpret_cast<CUdeviceptr>(
-            multicast_handle.semaphore_unicast_ptr(my_device_index)),
-        static_cast<cuuint32_t>(IpcSemaphore::kReady),
-        CU_STREAM_WAIT_VALUE_EQ));
   } else {
     // Root waits on all non-root ranks' semaphores to become kInUse
     std::vector<CUstreamBatchMemOpParams> ops(world_size - 1);
@@ -230,6 +222,45 @@ void postBroadcastWithCudaBackend(
             multicast_handle.semaphore_multicast_ptr()),
         static_cast<cuuint32_t>(IpcSemaphore::kReady),
         CU_STREAM_WRITE_VALUE_DEFAULT));
+  }
+}
+
+void waitBroadcastWithCudaBackend(
+    Communication* communication,
+    at::Tensor output_tensor,
+    MulticastHandleCache& multicast_handle_cache,
+    CUstream stream) {
+  NVF_ERROR(
+      communication->type() == CommunicationType::Broadcast,
+      "Invalid communication type, expected Broadcast, got: ",
+      communication->type());
+  NVF_ERROR(
+      communication->backend() == CommunicatorBackend::kCuda,
+      "Invalid backend, expected Cuda, got: ",
+      communication->backend());
+
+  Communicator& communicator = Communicator::getInstance();
+  const int64_t my_device_index = communicator.deviceId();
+  const int64_t root = communication->root();
+
+  NVF_ERROR(
+      communication->team().size() == (size_t)communicator.size(),
+      "Only support world size team for broadcast with cuda backend, expected ",
+      communicator.size(),
+      " got: ",
+      communication->team().size());
+
+
+  if (my_device_index != root) {
+    // Non-root waits for its own semaphore to be kReady
+    const MulticastHandleForBroadcast& multicast_handle =
+        multicast_handle_cache.get({output_tensor, communication});
+    NVFUSER_CUDA_SAFE_CALL(cuStreamWaitValue32(
+        stream,
+        reinterpret_cast<CUdeviceptr>(
+            multicast_handle.semaphore_unicast_ptr(my_device_index)),
+        static_cast<cuuint32_t>(IpcSemaphore::kReady),
+        CU_STREAM_WAIT_VALUE_EQ));
   }
 }
 

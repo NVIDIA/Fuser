@@ -550,6 +550,7 @@ TEST_F(CUDACommunicationTest, Broadcast) {
     postBroadcastWithCudaBackend(
         communication, input_tensor, output_tensor, multicast_handle_cache, current_stream);
 
+    waitBroadcastWithCudaBackend(communication, output_tensor, multicast_handle_cache, current_stream);
 
     auto ref = at::arange(kTensorSize, tensor_options_) + repetition;
     EXPECT_TRUE(output_tensor.equal(ref))
