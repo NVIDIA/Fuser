@@ -424,6 +424,14 @@ find_package(LLVM REQUIRED CONFIG)
 if(${LLVM_VERSION} VERSION_LESS ${LLVM_MINIMUM_VERSION})
   message(FATAL_ERROR "LLVM ${LLVM_VERSION} does not meet the minimum version required: ${LLVM_MINIMUM_VERSION}")
 endif()
+
+message(STATUS "Found LLVM ${LLVM_PACKAGE_VERSION}")
+message(STATUS "Using LLVMConfig.cmake in: ${LLVM_DIR}")
+message(STATUS "LLVM_INCLUDE_DIRS: ${LLVM_INCLUDE_DIRS}")
+message(STATUS "LLVM_DEFINITIONS: ${LLVM_DEFINITIONS}")
+message(STATUS "LLVM_LIBS: ${LLVM_LIBS}")
+
+
 llvm_map_components_to_libnames(LLVM_LIBS
   support
   core
@@ -438,13 +446,17 @@ llvm_map_components_to_libnames(LLVM_LIBS
 )
 
 add_library(LLVM_JIT INTERFACE)
-target_include_directories(LLVM_JIT SYSTEM INTERFACE ${LLVM_INCLUDE_DIRS})
 target_compile_definitions(LLVM_JIT INTERFACE ${LLVM_DEFINITIONS})
 target_link_libraries(LLVM_JIT INTERFACE ${LLVM_LIBS})
 
 # Add LLVM JIT related sources
 list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/host_ir/jit.cpp
+)
+
+# Apply LLVM include directories only to jit.cpp
+set_source_files_properties(${NVFUSER_SRCS_DIR}/host_ir/jit.cpp
+  PROPERTIES INCLUDE_DIRECTORIES "${LLVM_INCLUDE_DIRS}"
 )
 
 # We don't link CUPTI for MSVC
