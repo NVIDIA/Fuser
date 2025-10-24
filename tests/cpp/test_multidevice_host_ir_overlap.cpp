@@ -14,9 +14,9 @@
 #include <host_ir/evaluator.h>
 #include <host_ir/host_ir.h>
 #include <ir/utils.h>
+#include <multidevice/cuda_p2p.h>
 #include <ops/all_ops.h>
 #include <tests/cpp/multidevice.h>
-#include <multidevice/cuda_p2p.h>
 
 namespace nvfuser {
 
@@ -1146,10 +1146,8 @@ TEST_F(
       /*circular_buffer_loop_stage_depth=*/0);
 
   auto* num_streams = IrBuilder::create<Val>(params.number_of_streams);
-  auto* curr_stream_index =
-      mod(add(i, j), num_streams);
-  auto* next_stream_index =
-      mod(add(i, add(j, step_j)), num_streams);
+  auto* curr_stream_index = mod(add(i, j), num_streams);
+  auto* next_stream_index = mod(add(i, add(j, step_j)), num_streams);
   auto* set_curr_stream = IrBuilder::create<hir::SetCurrentStream>(
       IrBuilder::create<hir::Stream>(curr_stream_index));
   auto* set_next_stream = IrBuilder::create<hir::SetCurrentStream>(
@@ -1217,9 +1215,10 @@ TEST_F(
   if_not_last_ring_step_post_comms->thenBody().push_back(set_curr_stream);
 
   // For the get protocol, recvWait is a NOP
-  // At the same time, sendWait will block waiting for the buffer to be IpcSemaphore::kReady
-  // but since on this stream we recvPosted the buffer last iteration, when that finishes
-  // it will be marked kReady anyways. So waiting for it to be kReady is unnecessary
+  // At the same time, sendWait will block waiting for the buffer to be
+  // IpcSemaphore::kReady but since on this stream we recvPosted the buffer last
+  // iteration, when that finishes it will be marked kReady anyways. So waiting
+  // for it to be kReady is unnecessary
 
   std::vector<Expr*> loop_j_body = {
       set_curr_stream,
