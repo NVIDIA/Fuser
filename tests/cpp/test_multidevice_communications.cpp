@@ -11,6 +11,7 @@
 #include <ir/builder.h>
 #include <multidevice/communication.h>
 #include <multidevice/communicator.h>
+#include <multidevice/cuda_p2p.h>
 #include <tests/cpp/multidevice.h>
 #include <tests/cpp/validator.h>
 
@@ -414,9 +415,10 @@ INSTANTIATE_TEST_SUITE_P(
     testing::Values(CommunicatorBackend::kNccl),
     testing::PrintToStringParamName());
 
-using P2PCommunicationTest = MultiDeviceTest;
+class P2PCommunicationTest : public MultiDeviceTest,
+                             public testing::WithParamInterface<P2pProtocol> {};
 
-TEST_F(P2PCommunicationTest, CudaComm) {
+TEST_P(P2PCommunicationTest, CudaComm) {
   static constexpr int kTensorSize = 8;
   static constexpr int kNumRepetitions = 32;
 
@@ -428,6 +430,11 @@ TEST_F(P2PCommunicationTest, CudaComm) {
   const DeviceIdxType size = communicator_->size();
   const DeviceIdxType send_peer = (my_rank + 1) % size;
   const DeviceIdxType recv_peer = (size + my_rank - 1) % size;
+
+  P2pProtocol protocol = GetParam();
+  std::string protocol_str = protocol == P2pProtocol::Get ? "get" : "put";
+  EnableOptionsGuard::getCurOptions().set(
+      EnableOption::P2pProtocol, {protocol_str});
 
   auto container = std::make_unique<hir::HostIrContainer>();
   FusionGuard fg(container.get());
@@ -457,10 +464,15 @@ TEST_F(P2PCommunicationTest, CudaComm) {
   auto wait_recv = IrBuilder::create<hir::Wait>(recv);
 
   container->pushBackTopLevelExprs(share_mem_handles);
-  container->pushBackTopLevelExprs(send);
-  container->pushBackTopLevelExprs(recv);
-  container->pushBackTopLevelExprs(wait_send);
+  if (protocol == P2pProtocol::Get) {
+    container->pushBackTopLevelExprs(send);
+    container->pushBackTopLevelExprs(recv);
+  } else if (protocol == P2pProtocol::Put) {
+    container->pushBackTopLevelExprs(recv);
+    container->pushBackTopLevelExprs(send);
+  }
   container->pushBackTopLevelExprs(wait_recv);
+  container->pushBackTopLevelExprs(wait_send);
 
   hir::HostIrEvaluator executor(std::move(container), communicator_);
 
@@ -484,5 +496,11 @@ TEST_F(P2PCommunicationTest, CudaComm) {
         << " with recv tensor " << recv_tensor << " and ref " << ref;
   }
 }
+
+INSTANTIATE_TEST_SUITE_P(
+    ,
+    P2PCommunicationTest,
+    testing::Values(P2pProtocol::Get, P2pProtocol::Put),
+    testing::PrintToStringParamName());
 
 } // namespace nvfuser

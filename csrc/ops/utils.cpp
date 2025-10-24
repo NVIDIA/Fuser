@@ -385,6 +385,8 @@ IterDomain* newOutputIterDomain(
     extent_val = promoteSize(extent_val, id->extent());
     if (iter_type.has_value()) {
       iter_type = promoteIterType(iter_type.value(), id->getIterType());
+    } else if (id->isGatherScatter()) {
+      iter_type = IterType::Iteration;
     } else {
       iter_type = id->getIterType();
       // GatherScatter ID needs to convert back to Iteration

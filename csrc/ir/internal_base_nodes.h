@@ -635,6 +635,8 @@ class NVF_API TensorDomain : public Val {
   // unique.
   std::vector<IterDomain*> allIDs() const;
 
+  std::vector<const std::vector<IterDomain*>*> allDomains() const;
+
   // Similar to allIDs but returns all ID expressions.
   std::vector<Expr*> allExprs() const;
 
