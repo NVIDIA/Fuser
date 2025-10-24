@@ -425,8 +425,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
 
     // Shared memory
     if (has_dynamic_smem || has_reductions || has_parallel_welford) {
-      indent() << "alignas("
-               << 16 // always align to 16B for any shared mem allocation
+      indent() << "alignas(" << kSharedMemoryAlignmentBytes
                << ") extern __shared__ char array[];\n";
 
       if (has_reductions || has_parallel_welford) {
@@ -463,7 +462,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
           }
           // Ensure that smem_offset remains 128-byte aligned, like shared_mem
           indent() << "const unsigned smem_offset = alignBufferSize("
-                   << smem_buf_size << ", 128);\n";
+                   << smem_buf_size << ", " << kSharedMemoryAlignmentBytes
+                   << ");\n";
         }
 
         if (has_parallel_welford) {
@@ -1747,7 +1747,23 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
         ? grouped_id->extent()->evaluate().as<int64_t>()
         : 1;
 
-    template_args.arg(input->dtype()); // DataT
+    // Unlike ReductionOp, ScanOp supports bfloat16 and half. The
+    // nvFuser bfoat16 and half types do not support arithmetic
+    // operations, so they are cast to the corresponding CUDA native
+    // type.
+    const auto dtype = input->dtype();
+    std::string native_type_str;
+    if (dtype == PrimDataType::BFloat16) {
+      native_type_str = "__nv_bfloat16";
+    } else if (dtype == PrimDataType::Half) {
+      native_type_str = "__nv_half";
+    } else {
+      std::stringstream ss;
+      ss << dtype;
+      native_type_str = ss.str();
+    }
+
+    template_args.arg(native_type_str); // DataT
     template_args.arg(items_per_thread); // ITEMS_PER_THREAD
 
     // BlockDim type - using DefaultBlockDim pattern
@@ -1761,7 +1777,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     // are not used here because out-of-bounds elements are initizlied
     // to the max or min value accordingly.
     func_args.arg("*(")
-        .append(output->dtype())
+        .append(native_type_str)
         .append("(*)[")
         .append(items_per_thread)
         .append("])")
@@ -1769,7 +1785,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
         .append(genInline(output))
         .append(")");
     func_args.arg("*(")
-        .append(input->dtype())
+        .append(native_type_str)
         .append("(*)[")
         .append(items_per_thread)
         .append("])")
@@ -1783,7 +1799,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     // Fourth argument: binary operation lambda
     // This is slightly different from getReductionOp
     std::stringstream lambda;
-    lambda << "[](const " << input->dtype() << "& a, const " << input->dtype()
+    lambda << "[](const " << native_type_str << "& a, const " << native_type_str
            << "& b) "
            << "{ return "
            << genBinaryOp(scan->opType(), input->dtype(), "a", "b") << "; }";
@@ -4328,6 +4344,10 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     indent() << sync_call << ";\n";
   }
 
+  void handle(const kir::ClusterSync* sync) final {
+    indent() << "cluster::clusterSync();\n";
+  }
+
   void handle(const kir::MBarrierInit* init) final {
     auto call = genCall(
         "mbarrier::init",
@@ -4475,6 +4495,58 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     indent() << "return;\n";
   }
 
+  void handle(const kir::ClusterReductionOp* cluster_reduction) final {
+    const auto output = cluster_reduction->out()->as<kir::TensorIndex>();
+    const auto input = cluster_reduction->in()->as<kir::TensorIndex>();
+    const auto op_type = cluster_reduction->getReductionOpType();
+    const auto init_val = cluster_reduction->init();
+    const auto mbarrier = cluster_reduction->mbarrier();
+
+    const auto par_domains = ir_utils::getParallelDomains(output);
+    const bool tidx =
+        par_domains.find(ParallelType::TIDx) != par_domains.end() &&
+        par_domains.at(ParallelType::TIDx)->isReduction();
+    const bool tidy =
+        par_domains.find(ParallelType::TIDy) != par_domains.end() &&
+        par_domains.at(ParallelType::TIDy)->isReduction();
+    const bool tidz =
+        par_domains.find(ParallelType::TIDz) != par_domains.end() &&
+        par_domains.at(ParallelType::TIDz)->isReduction();
+    NVF_ERROR(
+        tidx && !tidy && !tidz,
+        "Only support reduction in x direction for now");
+    int64_t blocks_per_cluster = lparams_.gdimx();
+    int64_t warps_per_block = lparams_.bdimx() / 32;
+
+    const auto data_type = output->dtype();
+    ArgumentBuilder template_args;
+    template_args.arg("/*blocks_per_cluster=*/")
+        .append(std::to_string(blocks_per_cluster));
+    template_args.arg("/*warps_per_block=*/")
+        .append(std::to_string(warps_per_block));
+    template_args.arg("/*is_all_reduce=*/")
+        .append(cluster_reduction->isAllreduce() ? "true" : "false");
+
+    ArgumentBuilder func_args;
+    func_args.arg(gen(output));
+    func_args.arg(gen(input));
+    func_args.arg(genStaticCast(output->dtype(), genInline(init_val)));
+    func_args.arg(genInline(mbarrier));
+    if (current_group_reduction_id_ > 0) {
+      func_args.arg(
+          genStaticCast(genPtrType(output->dtype()), "shared_mem") + " + " +
+          std::to_string(
+              blocks_per_cluster * warps_per_block *
+              current_group_reduction_id_));
+    } else {
+      func_args.arg(genStaticCast(genPtrType(output->dtype()), "shared_mem"));
+    }
+    func_args.arg(genReductionOp(op_type, output->dtype()));
+    indent() << genCall("cluster::clusterReduce", template_args, func_args)
+             << ";\n";
+    current_group_reduction_id_++;
+  }
+
   void handle(const PreprocessGroupedMatmulInputSf* layout_op) final {
     const auto output = layout_op->out()->as<kir::TensorIndex>();
     const auto input = layout_op->in()->as<kir::TensorIndex>();
@@ -4585,6 +4657,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
   int64_t next_barrier_id_ = 1;
   //! Track whether we are generating code for warp specialized computation loop
   bool is_within_warp_specialized_compute_loop_ = false;
+  //! Track current group reduction id
+  int64_t current_group_reduction_id_ = 0;
 };
 
 } // namespace

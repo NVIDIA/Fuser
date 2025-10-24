@@ -3190,6 +3190,40 @@ Notes
 - This operation is equivalent to PyTorch's torch.nn.functional.embedding.
 )",
       py::return_value_policy::reference);
+  ops.def(
+      "preprocess_grouped_matmul_input_sf",
+      [](TensorView* input,
+         TensorView* input_offsets,
+         TensorView* output_offsets) -> decltype(auto) {
+        return preprocessGroupedMatmulInputSf(
+            input,
+            input_offsets,
+            output_offsets,
+            BlockScalingFactorLayout::Block128x4);
+      },
+      py::arg("input"),
+      py::arg("input_offsets"),
+      py::arg("output_offsets"),
+      R"(
+Layout operation to apply per group swizzle & padding to the block scaling factor of the input activations to grouped matmul.
+
+Parameters
+----------
+input : TensorView
+    A 2D tensor containing blockwise scaling factor
+input_offsets: TensorView
+    A 1D tensor with length as `number of groups`.
+    Its value notes the offsets of the starting token in each group for the input tensor view
+output_offsets: TensorView
+    A 1D tensor with length as `number of groups`.
+    Its value notes the offsets of the starting token in each group for the output tensor view.
+
+Returns
+-------
+TensorView
+    A tensor with proper swizzle & padding in memory. Note that the actual padding in buffer is not represented by the size/stride of the output tensor.
+)",
+      py::return_value_policy::reference);
 }
 
 template <class ShapeType>
@@ -3511,6 +3545,7 @@ void bindRandomOps(py::module_& ops) {
       py::arg("dtype") = DataType::Float,
       R"(
 Create a tensor with normal distribution.
+
 Parameters
 ----------
 mean : Val
@@ -3529,7 +3564,7 @@ dtype : PrimDataType, optional
 Returns
 -------
 TensorView
-The tensor with normal distribution.
+    The tensor with normal distribution.
       )",
       py::return_value_policy::reference);
   ops.def(
@@ -3555,6 +3590,7 @@ The tensor with normal distribution.
       py::arg("dtype") = DataType::Float,
       R"(
 Create a tensor with uniform distribution.
+
 Parameters
 ----------
 minval : Val
@@ -3573,7 +3609,7 @@ dtype : PrimDataType, optional
 Returns
 -------
 TensorView
-The tensor with normal distribution.
+    The tensor with uniform distribution.
       )",
       py::return_value_policy::reference);
 }
@@ -3581,6 +3617,10 @@ The tensor with normal distribution.
 } // namespace
 
 void bindOperations(py::module& nvfuser) {
+  // suppress auto-generated signatures for sphinx documentation
+  py::options options;
+  options.disable_function_signatures();
+
   py::module_ nvf_ops = nvfuser.def_submodule(
       "ops", "This submodule contains all operations for NvFuser.");
   bindUnaryOps(nvf_ops);

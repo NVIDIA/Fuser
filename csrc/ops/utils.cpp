@@ -385,6 +385,8 @@ IterDomain* newOutputIterDomain(
     extent_val = promoteSize(extent_val, id->extent());
     if (iter_type.has_value()) {
       iter_type = promoteIterType(iter_type.value(), id->getIterType());
+    } else if (id->isGatherScatter()) {
+      iter_type = IterType::Iteration;
     } else {
       iter_type = id->getIterType();
     }
@@ -640,8 +642,12 @@ Val* binOpIdentity(BinaryOpType op_type, DataType dtype) {
       return fusion->zeroVal(dtype);
     case BinaryOpType::Mul:
       return fusion->oneVal(dtype);
+    case BinaryOpType::FMin:
+      return IrBuilder::create<Val>(std::numeric_limits<double>::quiet_NaN());
     case BinaryOpType::Min:
       return getMaximumValue(dtype);
+    case BinaryOpType::FMax:
+      return IrBuilder::create<Val>(std::numeric_limits<double>::quiet_NaN());
     case BinaryOpType::Max:
       return getMinimumValue(dtype);
     case BinaryOpType::LogicalAnd:

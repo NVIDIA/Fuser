@@ -562,12 +562,13 @@ class VectorizeValidator : public OptInDispatch {
     // domain has a broadcast ID that is promoted to a concrete ID
     // and then is used to generate v_id. See
     // LoopDomainSchedulingTest.VecValidationRepro for a concrete
-    // case. The traversal needs to use the promoted concrete ID
-    // instead of the broadcast allocation ID. Instead, here, we
-    // traverse from the promoted loop IDs to the allocation
-    // domain. This should be always able to reach at least the
-    // vectorized ID.
-    const auto loop_domain = getLoopIds(load_store, id_model);
+    // case.
+    //
+    // Although actual indexing traversal starts from promoted loop
+    // IDs on the AlmostExact graph, the loop IDs of the consumer
+    // tensor is used here without promotion on the Exact graph. This
+    // was changed to avoid the error as reported in issue #5377.
+    const auto loop_domain = ir_utils::getTvOutput(load_store)->getLoopDomain();
     auto expr_path = ValGraphBFS::getExprGroupsBetween(
                          graph,
                          graph.toGroups(loop_domain),
@@ -575,7 +576,7 @@ class VectorizeValidator : public OptInDispatch {
                          /*require_all_to_visited=*/false)
                          .first;
 
-    ValGroup cur_group = graph.toGroup(getLoopPromotion(v_id, id_model));
+    ValGroup cur_group = graph.toGroup(v_id);
     std::unordered_set<ValGroup> visited_ids;
     visited_ids.insert(cur_group);
 
@@ -702,7 +703,7 @@ class VectorizeValidator : public OptInDispatch {
     size_t last_alloc_dim_pos = 0;
     for (size_t i = tv->getMaybeAllocationDomain().size(); i > 0; i--) {
       auto r_id = tv->getMaybeAllocationDomain()[i - 1];
-      if (r_id->isReduction() || r_id->isBroadcast()) {
+      if (r_id->isReduction() || r_id->isBroadcast() || r_id->isDeviceDim()) {
         continue;
       }
       if ((tv->getMemoryType() == MemoryType::Shared ||

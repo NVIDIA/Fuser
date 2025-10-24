@@ -12,6 +12,8 @@
 #include <ir/all_nodes.h>
 #include <ir/utils.h>
 #include <ops/all_ops.h>
+#include <preseg_passes/mark_aliases_prepare.h>
+#include <preseg_passes/optimization_pass.h>
 #include <runtime/executor.h>
 #include <runtime/executor_utils.h>
 #include <tests/cpp/utils.h>
@@ -735,6 +737,37 @@ TEST_P(GreedySchedulerTestConstraintSize, ArgsortLargeConstrainedIDs) {
   testValidate(executor_cache.fusion(), outputs, {t0}, __LINE__, __FILE__);
 
   EXPECT_FALSE(executor_cache.getMostRecentKernelRuntime()->isSegmented());
+
+  FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
+  Fusion* scheduled_fusion = runtime->executors()
+                                 .at(0)
+                                 ->as<KernelExecutor>()
+                                 ->compiledKernel()
+                                 ->kernel();
+  for (const auto tv : scheduled_fusion->allTvs()) {
+    if (tv->isDefinitionType<ArgsortOp>()) {
+      // The loop domain should look like: [BIDx, TIDx, Group] if
+      // grouped, or [BIDx, TIDx] if not. The computeAt and producer
+      // positions should be 1 in both cases.
+      EXPECT_TRUE(
+          std::ssize(tv->getLoopDomain()) == 2 ||
+          std::ssize(tv->getLoopDomain()) == 3);
+      EXPECT_EQ(tv->axis(0)->getParallelType(), ParallelType::BIDx);
+      EXPECT_EQ(tv->axis(1)->getParallelType(), ParallelType::TIDx);
+      if (std::ssize(tv->getLoopDomain()) == 3) {
+        EXPECT_EQ(tv->axis(-1)->getParallelType(), ParallelType::Group);
+      }
+      EXPECT_EQ(tv->getComputeAtPosition(), 1);
+      // The input should not be inlined into the argsort dim
+      EXPECT_EQ(
+          tv->definition()
+              ->as<ArgsortOp>()
+              ->in()
+              ->as<TensorView>()
+              ->getComputeAtPosition(),
+          1);
+    }
+  }
 }
 
 TEST_P(GreedySchedulerTestConstraintSize, ScanLargeConstrainedIDs) {
@@ -758,6 +791,117 @@ TEST_P(GreedySchedulerTestConstraintSize, ScanLargeConstrainedIDs) {
   testValidate(executor_cache.fusion(), outputs, {t0}, __LINE__, __FILE__);
 
   EXPECT_FALSE(executor_cache.getMostRecentKernelRuntime()->isSegmented());
+
+  FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
+  Fusion* scheduled_fusion = runtime->executors()
+                                 .at(0)
+                                 ->as<KernelExecutor>()
+                                 ->compiledKernel()
+                                 ->kernel();
+  for (const auto tv : scheduled_fusion->allTvs()) {
+    if (tv->isDefinitionType<ScanOp>()) {
+      // The loop domain should look like: [BIDx, TIDx, Group] if
+      // grouped, or [BIDx, TIDx] if not. The computeAt and producer
+      // positions should be 1 in both cases.
+      EXPECT_TRUE(
+          std::ssize(tv->getLoopDomain()) == 2 ||
+          std::ssize(tv->getLoopDomain()) == 3);
+      EXPECT_EQ(tv->axis(0)->getParallelType(), ParallelType::BIDx);
+      EXPECT_EQ(tv->axis(1)->getParallelType(), ParallelType::TIDx);
+      if (std::ssize(tv->getLoopDomain()) == 3) {
+        EXPECT_EQ(tv->axis(-1)->getParallelType(), ParallelType::Group);
+      }
+      EXPECT_EQ(tv->getComputeAtPosition(), 1);
+      // The input should not be inlined into the scan dim
+      EXPECT_EQ(
+          tv->definition()
+              ->as<ScanOp>()
+              ->in()
+              ->as<TensorView>()
+              ->getComputeAtPosition(),
+          1);
+    }
+  }
+}
+
+TEST_P(GreedySchedulerTestConstraintSize, ScatterLargeConstrainedIDs) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  std::vector<int64_t> shape = {128};
+  auto tv0 = makeContigConcreteTensor(shape, DataType::Int);
+  fusion.addInput(tv0);
+
+  auto tv1 = makeContigConcreteTensor({size}, DataType::Int);
+  fusion.addInput(tv1);
+
+  auto tv2 =
+      scatter(tv0, 0, tv1, fusion.oneVal(DataType::Int), BinaryOpType::Add);
+  auto tv3 = add(tv2, fusion.oneVal());
+  fusion.addOutput(tv3);
+
+  auto options = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
+  auto t0 = at::zeros({128}, options);
+  auto t1 = at::randint(0, 128, {size}, options);
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs({t0, t1});
+  testValidate(executor_cache.fusion(), outputs, {t0, t1}, __LINE__, __FILE__);
+
+  EXPECT_FALSE(executor_cache.getMostRecentKernelRuntime()->isSegmented());
+
+  FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
+  Fusion* scheduled_fusion = runtime->executors()
+                                 .at(0)
+                                 ->as<KernelExecutor>()
+                                 ->compiledKernel()
+                                 ->kernel();
+  for (const auto tv : scheduled_fusion->allTvs()) {
+    if (tv->isDefinitionType<ScatterOp>()) {
+      // The loop domain should look like: [TIDx, Serial] if
+      // grouped, or [TIDx] if not.
+      EXPECT_TRUE(
+          std::ssize(tv->getLoopDomain()) == 1 ||
+          std::ssize(tv->getLoopDomain()) == 2);
+      EXPECT_EQ(tv->axis(0)->getParallelType(), ParallelType::TIDx);
+      if (std::ssize(tv->getLoopDomain()) == 2) {
+        EXPECT_EQ(tv->axis(-1)->getParallelType(), ParallelType::Serial);
+      }
+      EXPECT_EQ(tv->getComputeAtPosition(), 0);
+      // The input should not be inlined into the scatter dim
+      EXPECT_EQ(
+          tv->definition()
+              ->as<ScatterOp>()
+              ->in()
+              ->as<TensorView>()
+              ->getComputeAtPosition(),
+          0);
+    }
+  }
+}
+
+// Pattern appearing in test_moe.py
+TEST_P(GreedySchedulerTestConstraintSize, ArgsortArgsort) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeContigConcreteTensor({size}, DataType::Int);
+  fusion.addInput(tv0);
+
+  auto tv1 = argsort(tv0, 0, /*descending=*/false, /*stable=*/true);
+  auto tv2 = argsort(tv1, 0, /*descending=*/false, /*stable=*/true);
+  fusion.addOutput(tv1);
+  fusion.addOutput(tv2);
+
+  auto options = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
+  auto t0 = at::randperm(size, options);
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs({t0});
+  testValidate(executor_cache.fusion(), outputs, {t0}, __LINE__, __FILE__);
+  EXPECT_FALSE(executor_cache.getMostRecentKernelRuntime()->isSegmented());
 }
 
 INSTANTIATE_TEST_SUITE_P(
@@ -765,6 +909,170 @@ INSTANTIATE_TEST_SUITE_P(
     GreedySchedulerTestConstraintSize,
     testing::Values(1024, 2048, 4096),
     [](const testing::TestParamInfo<int64_t>& info) {
+      std::ostringstream os;
+      os << info.param;
+      return os.str();
+    });
+
+class GreedySchedulerTestShmemSize : public GreedySchedulerTest,
+                                     public ::testing::WithParamInterface<int> {
+};
+
+// Simplified version of
+// ArgsortParameterizedWithBlockandBatch.SharedMemoryRequirement. The
+// test may be segmented but should not fail as long as the
+// expectation of the shared memory usage is accurate.
+TEST_P(GreedySchedulerTestShmemSize, Argsort) {
+  DisableOptionsGuard disable_options_guard;
+  DisableOptionsGuard::getCurOptions().set(DisableOption::MagicZero);
+  preseg_passes::OptimizationPassGuard<preseg_passes::MarkAliasesPreparePass>
+      optimization_guard(false);
+
+  const auto size = GetParam();
+
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  DataType dtype = DataType::Int;
+  DataType dtype_extra = DataType::Float;
+
+  std::vector<int64_t> shape = {size};
+
+  auto tv0 = makeContigConcreteTensor(shape, dtype);
+  fusion.addInput(tv0);
+
+  auto tv1 = set(tv0);
+  auto tv2 = argsort(tv1, 0);
+  auto tv3 = set(tv2);
+  fusion.addOutput(tv3);
+
+  // Duplicate the above call but should not change the usage as it's
+  // the same template instantiation
+  auto tv4 = set(tv0);
+  auto tv5 = argsort(tv4, 0);
+  auto tv6 = set(tv5);
+  fusion.addOutput(tv6);
+
+  // Create a different instantiation
+  auto tv7 = castOp(dtype_extra, tv0);
+  auto tv8 = argsort(tv7, 0);
+  auto tv9 = set(tv8);
+  fusion.addOutput(tv9);
+
+  auto options = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randint(0, shape[0], shape, options);
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs({t0});
+  testValidate(executor_cache.fusion(), outputs, {t0}, __LINE__, __FILE__);
+}
+
+// Simplified version of
+// TopKParameterizedWithBlockandBatch.SharedMemoryRequirement. The
+// test may be segmented but should not fail as long as the
+// expectation of the shared memory usage is accurate.
+TEST_P(GreedySchedulerTestShmemSize, TopK) {
+  DisableOptionsGuard disable_options_guard;
+  DisableOptionsGuard::getCurOptions().set(DisableOption::MagicZero);
+  preseg_passes::OptimizationPassGuard<preseg_passes::MarkAliasesPreparePass>
+      optimization_guard(false);
+
+  const auto size = GetParam();
+
+  // topk doesn't support batching, so the maximum is 1024
+  if (size > 1024) {
+    return;
+  }
+
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  DataType dtype = DataType::Int;
+  DataType dtype_extra = DataType::Float;
+
+  std::vector<int64_t> shape = {size};
+
+  auto tv0 = makeContigConcreteTensor(shape, dtype);
+  fusion.addInput(tv0);
+
+  auto tv1 = set(tv0);
+  auto tv2 = topk(tv1, fusion.oneVal(DataType::Int), 0).values;
+  auto tv3 = set(tv2);
+  fusion.addOutput(tv3);
+
+  // Duplicate the above call but should not change the usage as it's
+  // the same template instantiation
+  auto tv4 = set(tv0);
+  auto tv5 = topk(tv4, fusion.oneVal(DataType::Int), 0).values;
+  auto tv6 = set(tv5);
+  fusion.addOutput(tv6);
+
+  // Create a different instantiation
+  auto tv7 = castOp(dtype_extra, tv0);
+  auto tv8 = topk(tv7, fusion.oneVal(DataType::Int), 0).values;
+  auto tv9 = set(tv8);
+  fusion.addOutput(tv9);
+
+  auto options = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randint(0, shape[0], shape, options);
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs({t0});
+  testValidate(executor_cache.fusion(), outputs, {t0}, __LINE__, __FILE__);
+}
+
+// Simplified version of
+// ScanParameterizedWithBlockandBatch.SharedMemoryRequirement. The
+// test may be segmented but should not fail as long as the
+// expectation of the shared memory usage is accurate.
+TEST_P(GreedySchedulerTestShmemSize, Scan) {
+  DisableOptionsGuard disable_options_guard;
+  DisableOptionsGuard::getCurOptions().set(DisableOption::MagicZero);
+  preseg_passes::OptimizationPassGuard<preseg_passes::MarkAliasesPreparePass>
+      optimization_guard(false);
+
+  const auto size = GetParam();
+
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  DataType dtype = DataType::Int;
+  DataType dtype_extra = DataType::Float;
+
+  std::vector<int64_t> shape = {size};
+
+  auto tv0 = makeContigConcreteTensor(shape, dtype);
+  fusion.addInput(tv0);
+
+  auto tv1 = cumsum(tv0, 0);
+  fusion.addOutput(tv1);
+
+  // Duplicate the above call but should not change the usage as it's
+  // the same template instantiation
+  auto tv2 = cumsum(tv0, 0);
+  fusion.addOutput(tv2);
+
+  // Create a different instantiation
+  auto tv3 = castOp(dtype_extra, tv0);
+  auto tv4 = cumsum(tv3, 0);
+  fusion.addOutput(tv4);
+
+  auto options = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randint(0, shape[0], shape, options);
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs({t0});
+  testValidate(executor_cache.fusion(), outputs, {t0}, __LINE__, __FILE__);
+}
+
+INSTANTIATE_TEST_SUITE_P(
+    ,
+    GreedySchedulerTestShmemSize,
+    testing::Values(128, 256, 512, 1024, 2048, 4096),
+    [](const auto& info) {
       std::ostringstream os;
       os << info.param;
       return os.str();

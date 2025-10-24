@@ -70,6 +70,25 @@ bool HostIrLower::shouldMergeSegmentedGroups(
   return true;
 }
 
+namespace {
+std::set<DeviceIdxType> involvedDevices(Expr* expr) {
+  std::set<DeviceIdxType> ret;
+  for (const auto& tvs :
+       {ir_utils::filterByType<TensorView>(expr->inputs()),
+        ir_utils::filterByType<TensorView>(expr->outputs())}) {
+    for (auto* tv : tvs) {
+      if (tv->hasDeviceMesh()) {
+        const auto& mesh = tv->getDeviceMesh().vector();
+        ret.insert(mesh.begin(), mesh.end());
+      } else {
+        ret.insert(0);
+      }
+    }
+  }
+  return ret;
+}
+} // namespace
+
 std::unique_ptr<hir::HostIrContainer> HostIrLower::lower(
     std::unique_ptr<Fusion> fusion,
     DeviceIdxType my_device_index) {
@@ -152,7 +171,7 @@ std::unique_ptr<hir::HostIrContainer> HostIrLower::lower(
     tv->setMemoryType(MemoryType::Global);
   }
 
-  hir_pass::StreamParallelType().runPass(hic.get());
+  hir_pass::StreamParallelType(params_).runPass(hic.get());
 
   hir_pass::ConvertOpToCommunication(params_).runPass(hic.get());
 

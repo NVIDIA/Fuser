@@ -12,6 +12,7 @@
 #include <sstream>
 #include <string>
 
+#include <ATen/cuda/CUDAContextLight.h>
 #include <torch/nn/functional/embedding.h>
 #include <torch/nn/options/embedding.h>
 
@@ -771,9 +772,13 @@ std::vector<PolymorphicValue> BinaryOp::evaluate(
     case BinaryOpType::LE:
       return {le(lhs, rhs)};
       break;
+    case BinaryOpType::FMax:
+      return {fmax(lhs, rhs)};
     case BinaryOpType::Max:
       return {max(lhs, rhs)};
       break;
+    case BinaryOpType::FMin:
+      return {fmin(lhs, rhs)};
     case BinaryOpType::Min:
       return {min(lhs, rhs)};
       break;
@@ -1677,9 +1682,29 @@ std::vector<PolymorphicValue> ReductionOp::evaluate(
     case BinaryOpType::Add:
       return {at::sum(input, reduction_axes)};
       break;
+    case BinaryOpType::FMax: {
+      // Emulate fmax/fmin NAN behavior, which removes NANs except in the case
+      // where the whole set is NANs.
+      auto all_nans = at::all(at::isnan(input), reduction_axes);
+      auto removed_nans = at::nan_to_num(
+          input, /*nan=*/-std::numeric_limits<double>::infinity());
+      return {at::where(
+          all_nans,
+          std::numeric_limits<double>::quiet_NaN(),
+          at::amax(removed_nans, reduction_axes))};
+    } break;
     case BinaryOpType::Max:
       return {at::amax(input, reduction_axes)};
       break;
+    case BinaryOpType::FMin: {
+      auto all_nans = at::all(at::isnan(input), reduction_axes);
+      auto removed_nans = at::nan_to_num(
+          input, /*nan=*/std::numeric_limits<double>::infinity());
+      return {at::where(
+          all_nans,
+          std::numeric_limits<double>::quiet_NaN(),
+          at::amin(removed_nans, reduction_axes))};
+    } break;
     case BinaryOpType::Min:
       return {at::amin(input, reduction_axes)};
       break;
@@ -2525,12 +2550,14 @@ IterDomainBuilder::IterDomainBuilder(const IterDomain* id)
       iter_type_(id->getIterType()),
       is_rfactor_domain_(id->isRFactorProduct()),
       is_padded_dimension_(id->hasPaddingToMultipleOfWarp()),
+      is_clustered_dimension_(id->isClusteredBlockDim()),
       padded_to_size_(id->getMaybeSizeAfterPadding()) {}
 
 IterDomainBuilder& IterDomainBuilder::resetSchedulingParams() {
   parallel_type_ = ParallelType::Serial;
   is_rfactor_domain_ = false;
   is_padded_dimension_ = false;
+  is_clustered_dimension_ = false;
   padded_to_size_ = std::nullopt;
   return *this;
 }
@@ -2605,6 +2632,7 @@ IterDomain::IterDomain(
     IterType iter_type,
     bool is_rfactor_domain,
     bool is_padded_dimension,
+    bool is_clustered_blocks,
     std::optional<int64_t> padded_to_size)
     : Val(passkey, ValType::IterDomain),
       start_(start),
@@ -2617,6 +2645,7 @@ IterDomain::IterDomain(
       iter_type_(iter_type),
       is_rfactor_domain_(is_rfactor_domain),
       is_padded_dimension_(is_padded_dimension),
+      is_clustered_dimension_(is_clustered_blocks),
       padded_to_size_(padded_to_size) {
   // NOTE: We previously asserted !(isRFactorProduct() && isBroadcast()), i.e.
   // that an IterDomain could not be both a broadcast and an logical domain.
@@ -2666,6 +2695,7 @@ IterDomain::IterDomain(IrBuilderPasskey passkey, const IterDomainBuilder& args)
           args.iter_type_,
           args.is_rfactor_domain_,
           args.is_padded_dimension_,
+          args.is_clustered_dimension_,
           args.padded_to_size_) {}
 
 IterDomain::IterDomain(const IterDomain* src, IrCloner* ir_cloner)
@@ -2680,6 +2710,7 @@ IterDomain::IterDomain(const IterDomain* src, IrCloner* ir_cloner)
       iter_type_(src->iter_type_),
       is_rfactor_domain_(src->is_rfactor_domain_),
       is_padded_dimension_(src->is_padded_dimension_),
+      is_clustered_dimension_(src->is_clustered_dimension_),
       padded_to_size_(src->padded_to_size_) {}
 
 NVFUSER_DEFINE_CLONE(IterDomain)
@@ -2720,6 +2751,7 @@ bool IterDomain::sameAs(const Statement* other) const {
       getParallelType() == other_id->getParallelType() &&
       getIterType() == other_id->getIterType() &&
       hasPaddingToMultipleOfWarp() == other_id->hasPaddingToMultipleOfWarp() &&
+      isClusteredBlockDim() == other_id->isClusteredBlockDim() &&
       getMaybeSizeAfterPadding() == other_id->getMaybeSizeAfterPadding();
 }
 
@@ -2745,6 +2777,9 @@ std::string IterDomain::toString(int indent_size) const {
   }
   if (hasPaddingToMultipleOfWarp()) {
     ss << "_p";
+  }
+  if (isClusteredBlockDim()) {
+    ss << "_c";
   }
   return ss.str();
 }
@@ -3172,7 +3207,6 @@ Val* IterDomain::stop() const {
 }
 
 namespace {
-
 void validateContiguity(
     const std::vector<IterDomain*>& allocation_domain,
     const std::vector<std::optional<bool>>& contiguity) {
@@ -3665,7 +3699,16 @@ bool TensorDomain::hasBlockReduction() const {
 bool TensorDomain::hasGridReduction() const {
   return std::any_of(
       loop_domain_.begin(), loop_domain_.end(), [](IterDomain* id) {
-        return id->isReduction() && id->isBlockDim();
+        return id->isReduction() && id->isBlockDim() &&
+            !id->isClusteredBlockDim();
+      });
+}
+
+bool TensorDomain::hasClusterReduction() const {
+  return std::any_of(
+      loop_domain_.begin(), loop_domain_.end(), [](IterDomain* id) {
+        return id->isReduction() && id->isBlockDim() &&
+            id->isClusteredBlockDim();
       });
 }
 
@@ -3924,7 +3967,7 @@ std::vector<IterDomain*> TensorDomain::noDevices(
   contiguity.reserve(allocation_domain.size());
   for (auto id : allocation_domain) {
     if (id->isBroadcast() || id->isReduction()) {
-      contiguity.emplace_back(std::nullopt);
+      contiguity.push_back(std::nullopt);
     } else {
       contiguity.emplace_back(fill_value);
     }
@@ -4040,17 +4083,20 @@ void TensorDomain::setAlternateLoopDomain(
 
 void TensorDomain::setAllocationDomain(
     std::vector<IterDomain*> new_allocation_domain,
-    std::vector<std::optional<bool>> new_contiguity) {
+    std::vector<std::optional<bool>> new_contiguity,
+    bool skip_validation) {
   validateContiguity(new_allocation_domain, new_contiguity);
 
-  ir_utils::validateDomainEquivalence(
-      logical_domain_, new_allocation_domain, additional_ids_);
+  if (!skip_validation) {
+    ir_utils::validateDomainEquivalence(
+        logical_domain_, new_allocation_domain, additional_ids_);
+  }
 
   allocation_domain_ = std::move(new_allocation_domain);
   contiguity_ = std::move(new_contiguity);
 }
 
-std::vector<IterDomain*> TensorDomain::allIDs() const {
+std::vector<const std::vector<IterDomain*>*> TensorDomain::allDomains() const {
   std::vector<const std::vector<IterDomain*>*> all_domains = {
       &loop_domain_,
       &logical_domain_,
@@ -4061,6 +4107,11 @@ std::vector<IterDomain*> TensorDomain::allIDs() const {
   if (alternate_loop_domain_.has_value()) {
     all_domains.push_back(&alternate_loop_domain_.value());
   }
+  return all_domains;
+}
+
+std::vector<IterDomain*> TensorDomain::allIDs() const {
+  const std::vector<const std::vector<IterDomain*>*> all_domains = allDomains();
   VectorOfUniqueEntries<IterDomain*> discovered_ids;
   for (auto domain : all_domains) {
     discovered_ids.pushBack(*domain);
@@ -4740,9 +4791,9 @@ namespace {
 // When the contracting dimension is sharded, each device has a partial
 // matmul output and is followed by an allreduce. For loop split, this is
 // represented as an rfactored reduction. For example, for matmul, the local
-// logical domain after the rfactor is: i{DIDx}, i{M}, i{N}, r{K//d}. Unsqueeze
-// the rfactored DID axis to correctly bind with the logical domain. See
-// tests/python/test_multidevice.py/test_matmul_allreduce_loop_split
+// logical domain after the rfactor is: i{DIDx}, i{M}, i{N}, r{K//d}.
+// Unsqueeze the rfactored DID axis to correctly bind with the logical domain.
+// See tests/python/test_multidevice.py/test_matmul_allreduce_loop_split
 int64_t getRFactorDeviceDimensionIndex(const TensorView* tv) {
   // Filter out reduction dimensions so the index to `logical` directly maps to
   // an at::Tensor axis.
@@ -5630,7 +5681,6 @@ std::string GroupedMmaOp::toInlineString(int indent_size) const {
 std::vector<PolymorphicValue> GroupedMmaOp::evaluate(
     const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
-#if NVF_TORCH_VERSION_NO_LESS(2, 8, 0)
   NVF_ERROR(
       inputs[0].is<at::Tensor>(),
       "GroupedMmaOp expects tensor input at position 0 but got ",
@@ -5646,9 +5696,9 @@ std::vector<PolymorphicValue> GroupedMmaOp::evaluate(
       "GroupedMmaOp expects tensor input at position 2 but got ",
       inputs[2].type().name());
 
-  const auto& mat1 = inputs[0].as<at::Tensor>();
-  const auto& mat2 = inputs[1].as<at::Tensor>();
-  const auto& offsets = inputs[2].as<at::Tensor>();
+  auto mat1 = inputs[0].as<at::Tensor>();
+  auto mat2 = inputs[1].as<at::Tensor>();
+  auto offsets = inputs[2].as<at::Tensor>();
 
   at::Tensor alpha;
   at::Tensor bias;
@@ -5684,61 +5734,98 @@ std::vector<PolymorphicValue> GroupedMmaOp::evaluate(
     beta = inputs[beta_offset].as<at::Tensor>();
   }
 
-  at::Tensor result;
-  if (hasScale()) {
-    NVF_ERROR(
-        inputs[3].is<at::Tensor>(),
-        "GroupedMmaOp expects tensor input at position 3 but got ",
-        inputs[3].type().name());
-    NVF_ERROR(
-        inputs[4].is<at::Tensor>(),
-        "GroupedMmaOp expects tensor input at position 4 but got ",
-        inputs[4].type().name());
+  // This lambda returns the raw result, which will be postprocessed by the
+  // caller, e.g., converting the data type and adding rFactor dimensions.
+  auto result = [&]() -> at::Tensor {
+    if (hasScale()) {
+#if NVF_TORCH_VERSION_NO_LESS(2, 8, 0)
+      NVF_ERROR(
+          inputs[3].is<at::Tensor>(),
+          "GroupedMmaOp expects tensor input at position 3 but got ",
+          inputs[3].type().name());
+      NVF_ERROR(
+          inputs[4].is<at::Tensor>(),
+          "GroupedMmaOp expects tensor input at position 4 but got ",
+          inputs[4].type().name());
 
-    auto scale1 = inputs[scale1Offset()].as<at::Tensor>();
-    auto scale2 = inputs[scale2Offset()].as<at::Tensor>();
-    // Note: at::_scaled_grouped_mm requires k dimension to be the fastest on
-    // both input matrices.
-    auto mat1_k_last = mat1.contiguous();
-    auto mat2_k_last = mat2.transpose(-1, -2).contiguous().transpose(-1, -2);
+      auto scale1 = inputs[scale1Offset()].as<at::Tensor>();
+      auto scale2 = inputs[scale2Offset()].as<at::Tensor>();
+      // Note: at::_scaled_grouped_mm requires k dimension to be the fastest on
+      // both input matrices.
+      auto mat1_k_last = mat1.contiguous();
+      auto mat2_k_last = mat2.transpose(-1, -2).contiguous().transpose(-1, -2);
 
-    // at::_scaled_grouped_mm limitation
-    NVF_CHECK(
-        scale1.size(-1) == 1 && scale2.size(-2) == 1,
-        "Scale1 and scale2 must have size 1 at the k dimension. Got ",
-        scale1.sizes(),
-        " and ",
-        scale2.sizes());
-    // scale factor handling
-    // see NOTE -- [ Grouped Matrix Multiplication semantics ]
-    if (TensorDomain::noReductions(out()->getLogicalDomain()).size() == 3) {
-      // case 1, aten API expects collapsed 1D scale with group dimension on the
-      // slower side.
-      scale1 = scale1.reshape(-1);
-      scale2 = scale2.reshape(-1);
-    } else {
-      // case 2 and 3, aten doesn't allow broadcast on k dimension. squeeze k
-      // out.
-      scale1 = scale1.squeeze(-1);
-      scale2 = scale2.squeeze(-2);
+      // at::_scaled_grouped_mm limitation
+      NVF_CHECK(
+          scale1.size(-1) == 1 && scale2.size(-2) == 1,
+          "Scale1 and scale2 must have size 1 at the k dimension. Got ",
+          scale1.sizes(),
+          " and ",
+          scale2.sizes());
+      // scale factor handling
+      // see NOTE -- [ Grouped Matrix Multiplication semantics ]
+      if (TensorDomain::noReductions(out()->getLogicalDomain()).size() == 3) {
+        // case 1, aten API expects collapsed 1D scale with group dimension on
+        // the slower side.
+        scale1 = scale1.reshape(-1);
+        scale2 = scale2.reshape(-1);
+      } else {
+        // case 2 and 3, aten doesn't allow broadcast on k dimension. squeeze k
+        // out.
+        scale1 = scale1.squeeze(-1);
+        scale2 = scale2.squeeze(-2);
+      }
+      // undefined alpha, bias is not supported by aten API
+      NVF_ERROR(!alpha.defined(), "alpha is not supported yet");
+      NVF_ERROR(!beta.defined(), "beta is not supported yet");
+      NVF_ERROR(!bias.defined(), "bias is not supported yet");
+      // NOTE: at::_scaled_grouped_mm only supports bfloat16 as output at this
+      // moment, otherwise we should have requested the output dtype directly
+      // instead of casting the output afterwards.
+      return at::_scaled_grouped_mm(
+          mat1_k_last,
+          mat2_k_last,
+          scale1,
+          scale2,
+          offsets,
+          /*bias=*/std::nullopt,
+          /*alpha=*/std::nullopt,
+          at::ScalarType::BFloat16);
+#else
+      NVF_THROW("at::_scaled_grouped_mm does not exist prior to PyTorch 2.8.");
+#endif
     }
-    // undefined alpha, bias is not supported by aten API
-    NVF_ERROR(!alpha.defined(), "alpha is not supported yet");
-    NVF_ERROR(!beta.defined(), "beta is not supported yet");
-    NVF_ERROR(!bias.defined(), "bias is not supported yet");
-    // NOTE: at::_scaled_grouped_mm only supports bfloat16 as output at this
-    // moment, otherwise we should have requested the output dtype directly
-    // instead of casting the output afterwards.
-    result = at::_scaled_grouped_mm(
-        mat1_k_last,
-        mat2_k_last,
-        scale1,
-        scale2,
-        offsets,
-        /*bias=*/std::nullopt,
-        /*alpha=*/std::nullopt,
-        at::ScalarType::BFloat16);
-  } else {
+
+#if NVFUSER_CUTLASS_KERNEL_ENABLED
+    const bool supported_by_cutlass_kernel =
+        at::cuda::getCurrentDeviceProperties()->major == 10 &&
+        mat1.dim() == 2 && mat2.dim() == 3 && mat1.is_contiguous() &&
+        mat2.transpose(-1, -2).is_contiguous();
+    if (supported_by_cutlass_kernel) {
+      mat2 = mat2.transpose(-1, -2);
+      NVF_ERROR(mat2.is_contiguous());
+      // [m, k] x [g, n, k]; both contiguous
+      const auto k = mat1.size(-1);
+      const auto n = mat2.size(1);
+      at::Tensor group_sizes = at::diff(
+          offsets,
+          /*n=*/1,
+          /*dim=*/-1,
+          /*prepend=*/
+          at::zeros({1}, at::dtype(at::kInt).device(offsets.device())));
+      at::Tensor ab_strides = at::full_like(offsets, k, at::dtype(at::kLong));
+      at::Tensor c_strides = at::full_like(offsets, n, at::dtype(at::kLong));
+      at::Tensor problem_sizes =
+          at::stack({group_sizes, c_strides, ab_strides}, /*dim=*/-1)
+              .to(at::kInt);
+      offsets = at::cat(
+          {at::tensor({0}, at::dtype(at::kInt).device(offsets.device())),
+           offsets.slice(0, 0, -1)});
+      return cutlass_kernels::grouped_mm(
+          mat1, mat2, ab_strides, c_strides, problem_sizes, offsets);
+    }
+#endif
+
     // undefined bias is not supported by aten API
     NVF_ERROR(!alpha.defined(), "alpha is not supported yet");
     NVF_ERROR(!beta.defined(), "beta is not supported yet");
@@ -5756,6 +5843,7 @@ std::vector<PolymorphicValue> GroupedMmaOp::evaluate(
 
     std::vector<at::Tensor> group_mat1s;
     std::vector<at::Tensor> group_mat2s;
+    at::Tensor result;
     std::vector<at::Tensor> group_outs;
     if (mat1.dim() == 2 && mat2.dim() == 2) {
       // [m, k] @ [k, n] => [g, m, n]
@@ -5788,8 +5876,10 @@ std::vector<PolymorphicValue> GroupedMmaOp::evaluate(
          zip(group_mat1s, group_mat2s, group_outs)) {
       at::matmul_out(group_out, group_mat1, group_mat2);
     }
-  }
+    return result;
+  }();
 
+  // Post-processing
   result = result.to(data_type_to_aten(out()->dtype()));
 
   if (const auto rfactor_did_idx = getRFactorDeviceDimensionIndex(out());
@@ -5798,9 +5888,6 @@ std::vector<PolymorphicValue> GroupedMmaOp::evaluate(
   }
 
   return {result};
-#else
-  NVF_THROW("GroupedMmaOp is not supported prior to PyTorch 2.8.");
-#endif
 }
 
 IterDomain* GroupedMmaOp::getKDimOfMatrix1() const {
@@ -6108,9 +6195,11 @@ std::vector<PolymorphicValue> ScanOp::evaluate(
     case BinaryOpType::Add:
       out_t = at::cumsum(input, dim());
       break;
+    case BinaryOpType::FMax:
     case BinaryOpType::Max:
       out_t = std::get<0>(at::cummax(input, dim()));
       break;
+    case BinaryOpType::FMin:
     case BinaryOpType::Min:
       out_t = std::get<0>(at::cummin(input, dim()));
       break;

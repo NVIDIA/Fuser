@@ -888,7 +888,9 @@ class PythonTranslator : public OptInConstDispatch {
     // The min and max reduction operations expect the dtype argument to by
     // PrimDataType::Null
     DataType dtype = (rop->getReductionOpType() == BinaryOpType::Min ||
-                      rop->getReductionOpType() == BinaryOpType::Max)
+                      rop->getReductionOpType() == BinaryOpType::FMin ||
+                      rop->getReductionOpType() == BinaryOpType::Max ||
+                      rop->getReductionOpType() == BinaryOpType::FMax)
         ? DataType::Null
         : rop->out()->dtype();
     std::vector<int64_t> dims = getReductionAxes(rop->out()->as<TensorView>());
@@ -1611,6 +1613,17 @@ class PythonTranslator : public OptInConstDispatch {
             eop->scale_grad_by_freq(),
             eop->sparse()),
         {eop->out()});
+  }
+
+  void handle(const PreprocessGroupedMatmulInputSf* layout_op) final {
+    NVF_ERROR(layout_op != nullptr);
+    visited_vals_.insert(layout_op->output(0));
+    printer_.generateOperation(
+        "fd.ops.preprocess_grouped_matmul_input_sf",
+        {layout_op->in()->as<TensorView>(),
+         layout_op->inputOffsets(),
+         layout_op->outputOffsets()},
+        {layout_op->out()});
   }
 
  private:

@@ -33,10 +33,6 @@ using namespace at::indexing;
 
 class SmemReuseTest : public NVFuserTest {};
 
-int64_t alignInt(int64_t unaligned, int64_t alignment = 16L) {
-  return (unaligned + (alignment - 1)) & (-alignment);
-}
-
 // Test that we re-use different-size smem allocations
 //
 //             +-----+
@@ -99,7 +95,7 @@ TEST_F(SmemReuseTest, SimpleCase) {
     // tv1{H} comes before tv5{W}, and the last uses follow the same order. When
     // we reorder pushed allocations, we sort them by last read in descending
     // order, so tv5 goes on the bottom.
-    EXPECT_EQ(smem_usage, alignInt(W_int * 4) + H_int * 4);
+    EXPECT_EQ(smem_usage, alignSharedMemoryBytes(W_int * 4) + H_int * 4);
   }
 
   { // Now introduce a block reduction and check that we re-use memory
@@ -197,7 +193,10 @@ TEST_F(SmemReuseTest, NeedsReorderedPush) {
       smem_usage = std::max(smem_usage, addr + size);
     }
     EXPECT_EQ(
-        smem_usage, alignInt(alignInt((H + 1) * 4) + (H + 1) * 4) + H * 4);
+        smem_usage,
+        alignSharedMemoryBytes(
+            alignSharedMemoryBytes((H + 1) * 4) + (H + 1) * 4) +
+            H * 4);
   }
 
   { // Now introduce a block reduction and check that we re-use memory
@@ -213,7 +212,7 @@ TEST_F(SmemReuseTest, NeedsReorderedPush) {
           dataTypeSizeByte(alloc->buffer()->dtype());
       smem_usage = std::max(smem_usage, addr + size);
     }
-    EXPECT_EQ(smem_usage, alignInt((H + 1) * 4) + (H + 1) * 4);
+    EXPECT_EQ(smem_usage, alignSharedMemoryBytes((H + 1) * 4) + (H + 1) * 4);
   }
 }
 
@@ -243,7 +242,10 @@ TEST_F(SmemReuseTest, PromoteReuse) {
       smem_usage = std::max(smem_usage, addr + size);
     }
     EXPECT_EQ(
-        smem_usage, alignInt(alignInt((H + 1) * 4) + (H + 1) * 4) + H * 4);
+        smem_usage,
+        alignSharedMemoryBytes(
+            alignSharedMemoryBytes((H + 1) * 4) + (H + 1) * 4) +
+            H * 4);
   }
 
   { // Request that we re-use the allocation for tv0. This should place a
@@ -260,7 +262,7 @@ TEST_F(SmemReuseTest, PromoteReuse) {
           dataTypeSizeByte(alloc->buffer()->dtype());
       smem_usage = std::max(smem_usage, addr + size);
     }
-    EXPECT_EQ(smem_usage, alignInt((H + 1) * 4) + (H + 1) * 4);
+    EXPECT_EQ(smem_usage, alignSharedMemoryBytes((H + 1) * 4) + (H + 1) * 4);
   }
 }
 
@@ -311,7 +313,10 @@ TEST_F(SmemReuseTest, PromoteReuseMultipleDownstream) {
       smem_usage = std::max(smem_usage, addr + size);
     }
     EXPECT_EQ(
-        smem_usage, alignInt(alignInt((H + 2) * 4) + (H + 1) * 4) + H * 4);
+        smem_usage,
+        alignSharedMemoryBytes(
+            alignSharedMemoryBytes((H + 2) * 4) + (H + 1) * 4) +
+            H * 4);
   }
 
   { // Request that we re-use the allocation for tv0. This should place a
@@ -328,7 +333,7 @@ TEST_F(SmemReuseTest, PromoteReuseMultipleDownstream) {
           dataTypeSizeByte(alloc->buffer()->dtype());
       smem_usage = std::max(smem_usage, addr + size);
     }
-    EXPECT_EQ(smem_usage, alignInt((H + 2) * 4) + (H + 1) * 4);
+    EXPECT_EQ(smem_usage, alignSharedMemoryBytes((H + 2) * 4) + (H + 1) * 4);
   }
 }
 
@@ -339,7 +344,7 @@ TEST_F(SmemReuseTest, PromoteReuseMultipleDownstream) {
 // the assigned addresses are:
 //
 //   A: 0. Assigned then reclaimed before assignment of B.
-//   B: alignInt((H + 2) * 4). Stacked on top of C
+//   B: alignSharedMemoryBytes((H + 2) * 4). Stacked on top of C
 //   C: 0. Assigned along with B in reverse order of last use
 //   D: 0. B and C are reclaimed before this assignment.
 //
@@ -394,7 +399,10 @@ TEST_F(SmemReuseTest, MultiplePromoteReuse) {
     }
     EXPECT_EQ(
         smem_usage,
-        alignInt(alignInt(alignInt((H + 3) * 4) + (H + 2) * 4) + (H + 1) * 4) +
+        alignSharedMemoryBytes(
+            alignSharedMemoryBytes(
+                alignSharedMemoryBytes((H + 3) * 4) + (H + 2) * 4) +
+            (H + 1) * 4) +
             H * 4);
   }
 
@@ -413,7 +421,7 @@ TEST_F(SmemReuseTest, MultiplePromoteReuse) {
       smem_usage = std::max(smem_usage, addr + size);
     }
     // High water mark has C stacked on top of B
-    EXPECT_EQ(smem_usage, alignInt((H + 2) * 4) + (H + 1) * 4);
+    EXPECT_EQ(smem_usage, alignSharedMemoryBytes((H + 2) * 4) + (H + 1) * 4);
   }
 }
 

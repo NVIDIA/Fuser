@@ -75,6 +75,7 @@ class IterDomainBuilder {
   // Only relevant at scheduling time or compile time.
   bool is_rfactor_domain_ = false;
   bool is_padded_dimension_ = false;
+  bool is_clustered_dimension_ = false;
   std::optional<int64_t> padded_to_size_ = std::nullopt;
 };
 
@@ -98,6 +99,7 @@ class NVF_API IterDomain : public Val {
       IterType iter_type,
       bool is_rfactor_domain,
       bool is_padded_dimension,
+      bool is_clustered_blocks,
       std::optional<int64_t> padded_to_size);
 
   IterDomain(const IterDomain* src, IrCloner* ir_cloner);
@@ -311,6 +313,19 @@ class NVF_API IterDomain : public Val {
     return is_padded_dimension_;
   }
 
+  //! Sets whether this IterDomain uses CUDA thread block clusters (Hopper+).
+  void setClusteredBlocks() {
+    NVF_CHECK(
+        parallel_type_ == ParallelType::BIDx,
+        "setClusteredBlocks: only support set BIDx parallel type");
+    is_clustered_dimension_ = true;
+  }
+
+  //! Returns whether this IterDomain uses clustered blocks.
+  bool isClusteredBlockDim() const {
+    return is_clustered_dimension_;
+  }
+
   //! Returns a concrete value if this iterdomain
   //!  has been padded to a statical size.
   std::optional<int64_t> getMaybeSizeAfterPadding() const {
@@ -402,6 +417,7 @@ class NVF_API IterDomain : public Val {
   IterType iter_type_ = IterType::Iteration;
   bool is_rfactor_domain_ = false;
   bool is_padded_dimension_ = false;
+  bool is_clustered_dimension_ = false;
   std::optional<int64_t> padded_to_size_ = std::nullopt;
 };
 
@@ -525,6 +541,7 @@ class NVF_API TensorDomain : public Val {
   bool hasReduction() const;
 
   bool hasBlockReduction() const;
+  bool hasClusterReduction() const;
   bool hasGridReduction() const;
   bool hasBlockBroadcast() const;
   bool hasGridBroadcast() const;
@@ -623,6 +640,8 @@ class NVF_API TensorDomain : public Val {
   // unique.
   std::vector<IterDomain*> allIDs() const;
 
+  std::vector<const std::vector<IterDomain*>*> allDomains() const;
+
   // Similar to allIDs but returns all ID expressions.
   std::vector<Expr*> allExprs() const;
 
@@ -651,17 +670,21 @@ class NVF_API TensorDomain : public Val {
   // accordingly.
   NVF_API void setAllocationDomain(
       std::vector<IterDomain*> new_allocation_domain,
-      std::vector<std::optional<bool>> new_contiguity);
+      std::vector<std::optional<bool>> new_contiguity,
+      bool skip_validation = false);
 
   // Similar to the previous one, but with new contiguity filled with all true
   // or all false.
   void setAllocationDomain(
       std::vector<IterDomain*> new_allocation_domain,
-      bool new_contiguity) {
+      bool new_contiguity,
+      bool skip_validation = false) {
     auto contiguity_flags =
         getContiguityFilledWith(new_allocation_domain, new_contiguity);
     setAllocationDomain(
-        std::move(new_allocation_domain), std::move(contiguity_flags));
+        std::move(new_allocation_domain),
+        std::move(contiguity_flags),
+        skip_validation);
   }
 
   // i here is int, as we want to accept negative value and ::size_type can be a

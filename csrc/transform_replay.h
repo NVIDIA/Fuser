@@ -7,15 +7,12 @@
 // clang-format on
 #pragma once
 
+#include <unordered_map>
+
 #include <exceptions.h>
 #include <ir/internal_nodes.h>
 #include <scheduler/tools/maxinfo_propagator.h>
 #include <visibility.h>
-
-#include <algorithm>
-#include <unordered_map>
-#include <unordered_set>
-#include <vector>
 
 namespace nvfuser {
 
@@ -232,10 +229,14 @@ class TransformReplay {
   //
   // This method is often used to propagate transforms from one TV to another
   // that's not necessarily a producer/consumer. It assumes enough similarity
-  // between `self` and `new_self`. By default, the logical domains of the two
-  // TVs have to match exactly, e.g., same length, same extents, same IterTypes,
-  // and same ParallelTypes. For convenience, we allow the reduction IDs to
-  // mismatch and thus the `ignore_reductions` flag. For example,
+  // between `self` and `new_self`. When self's logical and new_self's logical
+  // have the same length, their logical IterDomains have to match exactly,
+  // e.g., same extents, same IterTypes and same ParallelTypes. When one of
+  // them is longer than the other, the extra IterDomains (and only those) are
+  // reductions.  The remaining IterDomains still map one-to-one without
+  // ambiguity.
+  //
+  // For example,
   // ```
   // in: logical=[i{n}, r{m}], loop=[iDIDy{d}, i{n/d}, rDIDx{d}, r{m/d}]
   // out = in + 1.0: logical=[i{n}]
@@ -243,14 +244,7 @@ class TransformReplay {
   // `out` and `in` are similar enough to selfReplay so `out` gets a loop domain
   // of [iDIDy{d}, i{n/d}]. However, to achieve that, we'll have to ignore
   // `in`'s reduction dimensions.
-  //
-  // In practice, `ignore_reductions=true` is used more often than `false`. I
-  // made `false` default merely because a true "self" replay needn't and
-  // shouldn't ignore anything.
-  static void selfReplay(
-      const TensorDomain* self,
-      TensorDomain* new_self,
-      bool ignore_reductions = false);
+  static void selfReplay(const TensorDomain* self, TensorDomain* new_self);
 
   // Returns the loop position in producer that matches with `consumer_pos` in
   // consumer. Returns -1 if matching is impossible. This function can be used

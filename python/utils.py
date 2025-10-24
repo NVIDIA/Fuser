@@ -8,7 +8,7 @@ import multiprocessing
 import subprocess
 import sys
 import shutil
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import setuptools.command.build_ext
 
 
@@ -25,23 +25,17 @@ class BuildConfig:
     build_with_asan: bool = False
     build_without_distributed: bool = False
     explicit_error_check: bool = False
-    build_with_host_ir_jit: bool = False
     overwrite_version: bool = False
     version_tag: str = None
     build_type: str = "Release"
     wheel_name: str = "nvfuser"
+    nvmmh_include_dir: str = ""
     build_dir: str = ""
     install_dir: str = ""
-    install_requires: list = None
-    extras_require: dict = None
+    install_requires: list = field(default_factory=list)
+    extras_require: dict = field(default_factory=dict)
     cpp_standard: int = 20
-
-    def __post_init__(self):
-        # dataclass cannot have mutable default values in the class definition
-        if self.install_requires is None:
-            self.install_requires = []
-        if self.extras_require is None:
-            self.extras_require = {}
+    cutlass_max_jobs: int = 0
 
 
 def check_env_flag_bool_default(name: str, default: str = "") -> bool:
@@ -102,12 +96,6 @@ def parse_args():
         dest="build_with_ucc",
         action="store_true",
         help="Build nvfuser with UCC support",
-    )
-    parser.add_argument(
-        "--build-with-host-ir-jit",
-        dest="build_with_host_ir_jit",
-        action="store_true",
-        help="Build nvfuser with Host IR JIT support",
     )
     parser.add_argument(
         "--explicit-error-check",
@@ -211,7 +199,6 @@ def create_build_config():
         no_benchmark=args.no_benchmark,
         no_ninja=args.no_ninja,
         build_with_ucc=args.build_with_ucc,
-        build_with_host_ir_jit=args.build_with_host_ir_jit,
         build_with_asan=args.build_with_asan,
         build_without_distributed=args.build_without_distributed,
         explicit_error_check=args.explicit_error_check,
@@ -257,8 +244,6 @@ def override_build_config_from_env(config):
         config.no_ninja = get_env_flag_bool("NVFUSER_BUILD_NO_NINJA")
     if "NVFUSER_BUILD_WITH_UCC" in os.environ:
         config.build_with_ucc = get_env_flag_bool("NVFUSER_BUILD_WITH_UCC")
-    if "NVFUSER_BUILD_HOST_IR_JIT" in os.environ:
-        config.build_with_host_ir_jit = get_env_flag_bool("NVFUSER_BUILD_HOST_IR_JIT")
     if "NVFUSER_BUILD_WITH_ASAN" in os.environ:
         config.build_with_asan = get_env_flag_bool("NVFUSER_BUILD_WITH_ASAN")
     if "NVFUSER_BUILD_WITHOUT_DISTRIBUTED" in os.environ:
@@ -290,6 +275,10 @@ def override_build_config_from_env(config):
     if "NVFUSER_BUILD_VERSION_TAG" in os.environ:
         config.overwrite_version = True
         config.version_tag = os.getenv("NVFUSER_BUILD_VERSION_TAG")
+    if "NVFUSER_CUTLASS_MAX_JOBS" in os.environ:
+        config.cutlass_max_jobs = int(os.getenv("NVFUSER_CUTLASS_MAX_JOBS"))
+    if "NVFUSER_BUILD_NVMMH_INCLUDE_DIR" in os.environ:
+        config.nvmmh_include_dir = os.getenv("NVFUSER_BUILD_NVMMH_INCLUDE_DIR")
 
 
 def get_default_install_prefix():
@@ -484,10 +473,12 @@ def cmake(config, relative_path):
         f"-DPython_EXECUTABLE={sys.executable}",
         f"-DBUILD_NVFUSER_BENCHMARK={on_or_off(not config.no_benchmark)}",
         f"-DNVFUSER_DISTRIBUTED={on_or_off(not config.build_without_distributed)}",
-        f"-DUSE_HOST_IR_JIT={on_or_off(config.build_with_host_ir_jit)}",
+        f"-DCUTLASS_MAX_JOBS={config.cutlass_max_jobs}",
         "-B",
         cmake_build_dir,
     ]
+    if config.nvmmh_include_dir:
+        f"-DNVMMH_INCLUDE_DIR={config.nvmmh_include_dir}",
     if not config.no_ninja:
         cmd_str.append("-G")
         cmd_str.append("Ninja")

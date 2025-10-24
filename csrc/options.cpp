@@ -126,6 +126,7 @@ std::unordered_map<DebugDumpOption, std::vector<std::string>> Options<
       {"host_ir_jit", DebugDumpOption::HostIrJit},
       {"index_type", DebugDumpOption::IndexType},
       {"indexing_verbose", DebugDumpOption::IndexingVerbose},
+      {"inlining", DebugDumpOption::Inlining},
       {"kernel_args", DebugDumpOption::KernelArgs},
       {"kernel_ir", DebugDumpOption::KernelIr},
       {"launch_param", DebugDumpOption::LaunchParam},
@@ -176,8 +177,10 @@ const std::unordered_map<std::string, EnableOption>& getEnableOptions() {
           {"warn_register_spill", EnableOption::WarnRegisterSpill},
           {"ws_normalization", EnableOption::WarpSpecializedNormalization},
           {"host_ir_lowering", EnableOption::HostIrLowering},
+          {"host_ir_jit", EnableOption::HostIrJit},
           {"insert_resharding_after", EnableOption::InsertReshardingAfter},
           {"fast_math", EnableOption::FastMath},
+          {"p2p_protocol", EnableOption::P2pProtocol},
       };
   return available_options;
 }

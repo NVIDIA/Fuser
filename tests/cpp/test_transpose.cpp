@@ -1343,4 +1343,66 @@ TEST_F(TransposeTest, ReductionIterDomainOnInputsIssue1659) {
   testValidate(fusion_ptr, cg_outputs, {t0, t1}, __LINE__, __FILE__);
 }
 
+// Repro for a dangling broadcast issue (#4957)
+TEST_F(TransposeTest, DanglingBroadcastIssue4957) {
+  // The issue is not specific to TensorIndexer but just make sure the
+  // fix works with it
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  std::vector<int64_t> input_shape{1, 32, 4096};
+
+  auto tv0 = makeContigConcreteTensor(input_shape);
+  fusion.addInput(tv0);
+
+  auto tv1 = permute(tv0, {0, 2, 1});
+  auto tv2 = broadcast(tv1, {false, false, true, false});
+  auto tv3 = expand(
+      tv2,
+      {IrBuilder::create<Val>(-1),
+       IrBuilder::create<Val>(-1),
+       IrBuilder::create<Val>(2),
+       IrBuilder::create<Val>(-1)});
+  auto tv4 = reshape(
+      tv3,
+      {IrBuilder::create<Val>(1),
+       IrBuilder::create<Val>(input_shape[2]),
+       IrBuilder::create<Val>(-1)});
+  auto tv5 = cos(tv4);
+  auto tv6 = mul(tv5, fusion.oneVal(DataType::Float));
+  auto tv7 = castOp(DataType::BFloat16, tv6);
+  auto tv8 = broadcast(tv7, {false, true, false, false});
+  auto tv9 = sin(tv4);
+  auto tv10 = mul(tv9, fusion.oneVal(DataType::Float));
+  auto tv11 = castOp(DataType::BFloat16, tv10);
+  auto tv12 = broadcast(tv11, {false, true, false, false});
+  fusion.addOutput(tv11);
+  fusion.addOutput(tv7);
+  fusion.addOutput(tv8);
+  fusion.addOutput(tv12);
+
+  tv11->setAllocationDomain(
+      ir_utils::strideOrderToAllocation(tv11->getLogicalDomain(), {2, 0, 1}),
+      true);
+  tv7->setAllocationDomain(
+      ir_utils::strideOrderToAllocation(tv7->getLogicalDomain(), {2, 0, 1}),
+      true);
+  tv8->setAllocationDomain(
+      ir_utils::strideOrderToAllocation(tv8->getLogicalDomain(), {3, 0, 2, 1}),
+      true);
+  tv12->setAllocationDomain(
+      ir_utils::strideOrderToAllocation(tv12->getLogicalDomain(), {3, 0, 2, 1}),
+      true);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn(input_shape, options);
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs({t0});
+  testValidate(executor_cache.fusion(), outputs, {t0}, __LINE__, __FILE__);
+}
+
 } // namespace nvfuser
