@@ -710,6 +710,38 @@ ValGraph& IdModel::buildPermissiveGraph() {
   return graph;
 }
 
+ValGraph& IdModel::buildPermissiveResizeGraph() {
+  maybeBuildGraph(IdMappingMode::PERMISSIVE);
+
+  NVF_ERROR(id_graphs_
+                .emplace(
+                    IdMappingMode::PERMISSIVE_RESIZE,
+                    idGraph(IdMappingMode::PERMISSIVE))
+                .second);
+
+  auto& graph = idGraph(IdMappingMode::PERMISSIVE_RESIZE);
+
+  // for a consumer tv, if its logical domain is derived from a resize op,
+  // map resize input to resize output
+  for (auto expr : tv_exprs_) {
+    for (TensorView* c_tv :
+         ir_utils::filterByType<TensorView>(expr->outputs())) {
+      for (auto id : c_tv->getLogicalDomain()) {
+        if (id->definition()->isA<Resize>()) {
+          std::cout << "mapping "
+                    << id->definition()->as<Resize>()->in()->toString()
+                    << " to " << id->toString() << std::endl;
+          graph.mapVals(id->definition()->as<Resize>()->in(), id);
+        }
+      }
+    }
+  }
+
+  graph.validateConsistency();
+
+  return graph;
+}
+
 namespace {
 
 // Returns the root producer iteration domains that are resolved by provided
@@ -1069,6 +1101,8 @@ ValGraph& IdModel::buildGraph(IdMappingMode mode) {
       return buildBroadcastGraph();
     case IdMappingMode::PERMISSIVE:
       return buildPermissiveGraph();
+    case IdMappingMode::PERMISSIVE_RESIZE:
+      return buildPermissiveResizeGraph();
     case IdMappingMode::LOOP:
       return buildLoopGraph();
     default:

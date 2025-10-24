@@ -97,10 +97,10 @@ bool checkCanSchedule(Fusion* fusion, SchedulerType scheduler_type) {
     return false;
   }
 
-  if (registry_utils::SchedulerTopologyChecker::hasIncompatibleReshape(
+  if (registry_utils::SchedulerTopologyChecker::hasIncompatibleReshapes(
           fusion)) {
     scheduler_debug_utils::canScheduleRejectReason(
-        scheduler_type, "Fusion has cyclic reshapes.");
+        scheduler_type, "Fusion has incompatible reshapes.");
     return false;
   }
 

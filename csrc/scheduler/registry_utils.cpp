@@ -275,19 +275,6 @@ bool isConnectedFusionGraph(Fusion* fusion) {
 //
 // Returns true if a scenario like above is found in the fusion.
 bool requiresForwardViewReplay(Fusion* fusion, ComputeAtMap& ca_map) {
-  // Track the uses of the logical domains in the fusion. If an logical domain
-  // is used in more than one way it means the above situation is being
-  // encountered.
-  //
-  // tv1 root: [I0rf, I1rf, I2] -> logical [I0*I1rf, I2]
-  // tv1 root: [I0, I1rf, I2rf] -> logical [I0, I1*I2rf]
-  //
-  // Here we can see I1rf is used in two view transformations, one to I0*I1rf,
-  // and the other to I1*I2rf.
-
-  // Track the transformation each exact disjoint logical set is used in. If
-  // more than one is detected we can't support transforming the fusion into a
-  // consistent format.
   std::unordered_map<std::shared_ptr<VectorOfUniqueEntries<IterDomain*>>, Expr*>
       unique_exact_uses;
 
@@ -307,7 +294,7 @@ bool requiresForwardViewReplay(Fusion* fusion, ComputeAtMap& ca_map) {
   // Mark those as an active use of the logical, if two are detected, return
   // true.
   for (const auto& disjoint_set_shared_ptr :
-       ca_map.idGraph().exactNodes().disjointSets()) {
+       ca_map.idGraph().permissiveResizeNodes().disjointSets()) {
     // Make sure there's at least one logical domain in the set, otherwise we
     // don't need to check anything from this set.
     if (!std::any_of(
@@ -1170,62 +1157,55 @@ bool SchedulerTopologyChecker::hasCyclicReshape(Fusion* fusion) {
   return false;
 }
 
-namespace {
+// Detects incompatible reshape patterns using PERMISSIVE_RESIZE graph.
+// Returns true if rfactor IDs are mapped together (same ValGroup) but have
+// different transformations (different ExprGroups). This indicates the reshape
+// operations cannot be replayed and the fusion must be segmented.
+//
+// Example: slice(tv[36], 0, 24)->tv[24]->reshape([2,3,4]) and
+//          slice(tv[36], 12, 36)->tv[24]->reshape([2,2,6])
+// Both slices produce tv[24] which map together, but reshape differently.
+bool SchedulerTopologyChecker::hasIncompatibleReshapes(Fusion* fusion) {
+  // TODO: Reuse IdModel when possible
+  IdModel id_model(fusion);
+  const auto& permissive_resize_graph = id_model.buildPermissiveResizeGraph();
 
-// Two sequences of constant outer-split factors are considered compatible
-// if they share the same leading prefix up to the length of the shorter one.
-// That is, either they are identical (same length) or the shorter sequence
-// matches the first N elements of the longer one.
-bool areConstExtentSequencesCompatible(
-    const std::vector<int64_t>& a,
-    const std::vector<int64_t>& b) {
-  if (a.size() <= b.size()) {
-    return a == std::vector<int64_t>(b.begin(), b.begin() + a.size());
-  } else {
-    return b == std::vector<int64_t>(a.begin(), a.begin() + b.size());
-  }
-}
-
-} // namespace
-
-// Reshape is expressed as merges and outer splits by constant factors.
-// Merges are replay-safe and do not introduce conflicts during transform
-// propagation. Compatibility therefore hinges on the constant outer-split
-// factors: if the leading prefix of factors matches, the splits can be
-// replayed across reshapes.
-bool SchedulerTopologyChecker::hasIncompatibleReshape(Fusion* fusion) {
-  const auto reshape_ops = ir_utils::getOpsOfType<ReshapeOp>(fusion);
-  if (reshape_ops.size() < 2) {
-    return false;
-  }
-
-  // Collect constant outer-split factors of the reshape output, ordered
-  // from outer-most to inner-most.
-  auto collect_extent_prefix = [](ReshapeOp* reshape) {
-    auto reshape_out = reshape->out()->as<TensorView>();
-    std::vector<int64_t> outer_split_factors;
-    for (auto* id : reshape_out->getLogicalDomain()) {
-      if (auto* def = id->definition()) {
-        if (auto* split = dynamic_cast<Split*>(def)) {
-          if (!split->innerSplit() && split->outer() == id &&
-              split->factor()->isConstInt()) {
-            outer_split_factors.push_back(
-                split->factor()->evaluate().as<int64_t>());
-          }
-        }
+  for (const ValGroup& val_group :
+       permissive_resize_graph.disjointValSets().disjointSets()) {
+    // Collect all rfactor IDs in this val group
+    // Check for consistency if there are at least 2 rfactor IDs
+    std::vector<IterDomain*> rfactor_ids;
+    for (Val* val : *val_group) {
+      auto id = val->as<IterDomain>();
+      if (id->isRFactorProduct()) {
+        rfactor_ids.push_back(id);
       }
     }
+    if (rfactor_ids.size() < 2) {
+      continue;
+    }
 
-    return outer_split_factors;
-  };
-
-  for (const auto i : arange(std::ssize(reshape_ops) - 1)) {
-    const auto& out_ids_i_extents = collect_extent_prefix(reshape_ops[i]);
-    for (const auto j : arange(i + 1, std::ssize(reshape_ops))) {
-      const auto& out_ids_j_extents = collect_extent_prefix(reshape_ops[j]);
-      if (!areConstExtentSequencesCompatible(
-              out_ids_i_extents, out_ids_j_extents)) {
-        return true;
+    // For ids in the same val group, their usages should be in the same expr
+    // group. Resize ops are skipped since they are not propagated during replay
+    std::optional<ExprGroup> common_use_group;
+    for (auto id : rfactor_ids) {
+      if (!permissive_resize_graph.hasUses(
+              permissive_resize_graph.toGroup(id))) {
+        continue;
+      }
+      const auto& use_groups =
+          permissive_resize_graph.getUses(permissive_resize_graph.toGroup(id));
+      for (const auto& use_group : use_groups) {
+        if (std::any_of(use_group->begin(), use_group->end(), [](Expr* expr) {
+              return expr->isA<Resize>();
+            })) {
+          continue;
+        }
+        if (!common_use_group.has_value()) {
+          common_use_group = use_group;
+        } else if (common_use_group.value() != use_group) {
+          return true;
+        }
       }
     }
   }

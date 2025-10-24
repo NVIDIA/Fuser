@@ -3122,6 +3122,30 @@ TEST_F(ReshapeTest, CompatibleReshapesDifferentDisjointSetsMultiSteps) {
   EXPECT_FALSE(executor_cache.getMostRecentKernelRuntime()->isSegmented());
 }
 
+TEST_F(ReshapeTest, DifferentSlicesCompatibleReshapesDifferentDisjointSets) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeConcreteTensor({36});
+  fusion.addInput(tv0);
+  auto tv1 = slice(tv0, std::vector<int64_t>{0}, std::vector<int64_t>{24});
+  auto tv2 = slice(tv0, std::vector<int64_t>{12}, std::vector<int64_t>{24});
+  auto tv3 = reshape(tv1, {24}, {2, 12});
+  auto tv4 = reshape(tv2, {12}, {2, 6});
+  auto tv5 = sin(tv3);
+  auto tv6 = cos(tv4);
+  fusion.addOutput(tv5);
+  fusion.addOutput(tv6);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({36}, options);
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs({t0});
+  testValidate(executor_cache.fusion(), outputs, {t0}, __LINE__, __FILE__);
+  EXPECT_FALSE(executor_cache.getMostRecentKernelRuntime()->isSegmented());
+}
+
 TEST_F(ReshapeTest, OneSliceIncompatibleReshapesDifferentDisjointSets) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
