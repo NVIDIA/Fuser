@@ -290,10 +290,8 @@ TensorView* Common::cacheBefore(TensorView* orig, LoadStoreOpType op_type) {
   const std::vector<IterDomain*> cache_logical = c->getLogicalDomain();
   NVF_ERROR(orig_logical.size() == cache_logical.size());
   for (size_t i : arange(orig_logical.size())) {
-    // The domain of orig gets transferred to c and a new domain is applied to
-    // orig
-    ValGroup vg = graph_->toGroup(cache_logical[i]);
-    graph_->initializeVal(orig_logical[i], vg);
+    ValGroup vg = graph_->toGroup(orig_logical[i]);
+    graph_->initializeVal(cache_logical[i], vg);
   }
 
   return c;
