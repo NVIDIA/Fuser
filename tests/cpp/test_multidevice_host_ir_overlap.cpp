@@ -16,6 +16,7 @@
 #include <ir/utils.h>
 #include <ops/all_ops.h>
 #include <tests/cpp/multidevice.h>
+#include <multidevice/cuda_p2p.h>
 
 namespace nvfuser {
 
@@ -55,7 +56,7 @@ struct HostIrOverlapTestParams {
   // fill input with new random values and repeat the operation
   int64_t number_of_iterations = 4;
   // Change CUDA stream at each iteration in a Round-Robin fashion
-  int64_t number_of_streams = 3;
+  int64_t number_of_streams = 8192;
 };
 
 std::ostream& operator<<(
@@ -1094,7 +1095,7 @@ TEST_F(
 
 TEST_F(
     RingAllgatherOverlapTest,
-    DISABLED_RingAllgatherBasedPipeliningHostIRImplementationCudaIpc) {
+    RingAllgatherBasedPipeliningHostIRImplementationCudaIpc) {
   if (communicator_->size() == 1) {
     GTEST_SKIP() << "Skipping test for single device";
   }
@@ -1141,10 +1142,19 @@ TEST_F(
       CircularBufferLoopStage::NotApplicable,
       /*circular_buffer_loop_stage_depth=*/0);
 
-  auto* stream_index =
-      mod(add(i, j), IrBuilder::create<Val>(params.number_of_streams));
-  auto* set_stream = IrBuilder::create<hir::SetCurrentStream>(
-      IrBuilder::create<hir::Stream>(stream_index));
+  auto* num_streams = IrBuilder::create<Val>(params.number_of_streams);
+  auto* curr_stream_index =
+      mod(add(i, j), num_streams);
+  auto* next_stream_index =
+      mod(add(i, add(j, step_j)), num_streams);
+//  auto* prev_stream_index =
+//      mod(add(i, sub(j, step_j)), num_streams);
+  auto* set_curr_stream = IrBuilder::create<hir::SetCurrentStream>(
+      IrBuilder::create<hir::Stream>(curr_stream_index));
+  auto* set_next_stream = IrBuilder::create<hir::SetCurrentStream>(
+      IrBuilder::create<hir::Stream>(next_stream_index));
+//  auto* set_prev_stream = IrBuilder::create<hir::SetCurrentStream>(
+//      IrBuilder::create<hir::Stream>(prev_stream_index));
 
   auto* my_device_index_val = IrBuilder::create<Val>(my_device_index_);
   auto* number_of_steps_per_ring_val =
@@ -1201,18 +1211,37 @@ TEST_F(
   auto* comm_predicate = IrBuilder::create<kir::Predicate>(comm_cond);
   auto* if_not_last_ring_step_post_comms =
       IrBuilder::create<kir::IfThenElse>(comm_predicate);
-  if_not_last_ring_step_post_comms->thenBody().push_back(send);
-  if_not_last_ring_step_post_comms->thenBody().push_back(recv);
 
+  if (getP2pProtocol() == P2pProtocol::Put) {
+    //if_not_last_ring_step_post_comms->thenBody().push_back(set_next_stream);
+    if_not_last_ring_step_post_comms->thenBody().push_back(recv); // Nonblocking
+    if_not_last_ring_step_post_comms->thenBody().push_back(send); // Block in sendPost
+    if_not_last_ring_step_post_comms->thenBody().push_back(set_curr_stream);
+  } else {
+    if_not_last_ring_step_post_comms->thenBody().push_back(send); // Nonblocking
+    if_not_last_ring_step_post_comms->thenBody().push_back(set_next_stream);
+    if_not_last_ring_step_post_comms->thenBody().push_back(recv); // Block in recvPost
+    if_not_last_ring_step_post_comms->thenBody().push_back(set_curr_stream);
+  }
+//nick
   auto* cond = ne(j, hic->zeroVal());
   auto* wait_predicate = IrBuilder::create<kir::Predicate>(cond);
   auto* if_not_first_ring_step_wait =
       IrBuilder::create<kir::IfThenElse>(wait_predicate);
-  if_not_first_ring_step_wait->thenBody().push_back(wait_send);
-  if_not_first_ring_step_wait->thenBody().push_back(wait_recv);
+
+  if (getP2pProtocol() == P2pProtocol::Put) {
+    if_not_first_ring_step_wait->thenBody().push_back(wait_send); // NOP
+    //if_not_first_ring_step_wait->thenBody().push_back(set_curr_stream);
+    if_not_first_ring_step_wait->thenBody().push_back(wait_recv); // Block in recvWait
+    //if_not_first_ring_step_wait->thenBody().push_back(set_curr_stream);
+  } else {
+    // For get, we posted this send on the current stream last iteration
+    if_not_first_ring_step_wait->thenBody().push_back(wait_send); // Block in sendWait
+    if_not_first_ring_step_wait->thenBody().push_back(wait_recv); // NOP
+  }
 
   std::vector<Expr*> loop_j_body = {
-      set_stream,
+      set_curr_stream,
       tmp1->definition(),
       tmp2->definition(),
       tmp3->definition(),
@@ -1229,30 +1258,6 @@ TEST_F(
   for_loop_i->body().push_back(for_loop_j);
 
   hic->pushBackTopLevelExprs(for_loop_i);
-
-  // Synchronize all streams
-  auto* i_stream =
-      IrBuilder::create<Val>(DataType::Index); // running index of the for-loop
-  auto* start_stream = hic->zeroVal();
-  auto* stop_stream =
-      IrBuilder::create<Val>(params.number_of_streams, DataType::Index);
-  auto* step_stream = hic->oneVal();
-  auto* for_loop_stream = IrBuilder::create<kir::ForLoop>(
-      /*IterDomain=*/makeContigConcreteTensor({params.number_of_streams})
-          ->axis(0),
-      /*index=*/i_stream,
-      start_stream,
-      stop_stream,
-      step_stream,
-      /*vectorize=*/false,
-      /*vectorize_shift=*/nullptr,
-      /*unroll_required=*/false,
-      CircularBufferLoopStage::NotApplicable,
-      /*circular_buffer_loop_stage_depth=*/0);
-  auto* sync_stream = IrBuilder::create<hir::Synchronize>(
-      IrBuilder::create<hir::Stream>(i_stream));
-  for_loop_stream->body().push_back(sync_stream);
-  hic->pushBackTopLevelExprs(for_loop_stream);
 
   hic->addOutput(tmp1);
   hic->addOutput(tmp2);
@@ -1274,8 +1279,11 @@ TEST_F(
         {tvc_unsharded, tc_unsharded_}};
 
     hie.runWithInput(std::move(inputs));
-
+    cudaDeviceSynchronize();
+    communicator_->barrier();
     validate();
+    cudaDeviceSynchronize();
+    communicator_->barrier();
   }
 }
 
@@ -1404,30 +1412,6 @@ TEST_F(
   for_loop_i->body().push_back(for_loop_j);
 
   hic->pushBackTopLevelExprs(for_loop_i);
-
-  // Synchronize all streams
-  auto* i_stream =
-      IrBuilder::create<Val>(DataType::Index); // running index of the for-loop
-  auto* start_stream = hic->zeroVal();
-  auto* stop_stream =
-      IrBuilder::create<Val>(params.number_of_streams, DataType::Index);
-  auto* step_stream = hic->oneVal();
-  auto* for_loop_stream = IrBuilder::create<kir::ForLoop>(
-      /*IterDomain=*/makeContigConcreteTensor({params.number_of_streams})
-          ->axis(0),
-      /*index=*/i_stream,
-      start_stream,
-      stop_stream,
-      step_stream,
-      /*vectorize=*/false,
-      /*vectorize_shift=*/nullptr,
-      /*unroll_required=*/false,
-      CircularBufferLoopStage::NotApplicable,
-      /*circular_buffer_loop_stage_depth=*/0);
-  auto* sync_stream = IrBuilder::create<hir::Synchronize>(
-      IrBuilder::create<hir::Stream>(i_stream));
-  for_loop_stream->body().push_back(sync_stream);
-  hic->pushBackTopLevelExprs(for_loop_stream);
 
   hic->addOutput(tmp1);
   hic->addOutput(tmp2);
