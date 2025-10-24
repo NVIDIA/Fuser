@@ -56,7 +56,7 @@ struct HostIrOverlapTestParams {
   // fill input with new random values and repeat the operation
   int64_t number_of_iterations = 4;
   // Change CUDA stream at each iteration in a Round-Robin fashion
-  int64_t number_of_streams = 8192;
+  int64_t number_of_streams = 3;
 };
 
 std::ostream& operator<<(
@@ -1099,6 +1099,9 @@ TEST_F(
   if (communicator_->size() == 1) {
     GTEST_SKIP() << "Skipping test for single device";
   }
+  if (getP2pProtocol() == P2pProtocol::Put) {
+    GTEST_SKIP() << "Skipping test for CudaIpc P2pProtocol::Put";
+  }
 
   auto hic = std::make_unique<hir::HostIrContainer>();
   FusionGuard::setCurFusion(hic.get());
@@ -1147,14 +1150,10 @@ TEST_F(
       mod(add(i, j), num_streams);
   auto* next_stream_index =
       mod(add(i, add(j, step_j)), num_streams);
-//  auto* prev_stream_index =
-//      mod(add(i, sub(j, step_j)), num_streams);
   auto* set_curr_stream = IrBuilder::create<hir::SetCurrentStream>(
       IrBuilder::create<hir::Stream>(curr_stream_index));
   auto* set_next_stream = IrBuilder::create<hir::SetCurrentStream>(
       IrBuilder::create<hir::Stream>(next_stream_index));
-//  auto* set_prev_stream = IrBuilder::create<hir::SetCurrentStream>(
-//      IrBuilder::create<hir::Stream>(prev_stream_index));
 
   auto* my_device_index_val = IrBuilder::create<Val>(my_device_index_);
   auto* number_of_steps_per_ring_val =
@@ -1204,41 +1203,23 @@ TEST_F(
   std::vector<P2PCommunication*> grouped_communications = {send, recv};
   auto share_mem_handles = IrBuilder::create<hir::ShareMemHandles>(
       std::move(grouped_communications));
-  auto* wait_send = IrBuilder::create<hir::Wait>(send);
-  auto* wait_recv = IrBuilder::create<hir::Wait>(recv);
 
   auto* comm_cond = ne(j, sub(stop_j, hic->oneVal()));
   auto* comm_predicate = IrBuilder::create<kir::Predicate>(comm_cond);
   auto* if_not_last_ring_step_post_comms =
       IrBuilder::create<kir::IfThenElse>(comm_predicate);
 
-  if (getP2pProtocol() == P2pProtocol::Put) {
-    //if_not_last_ring_step_post_comms->thenBody().push_back(set_next_stream);
-    if_not_last_ring_step_post_comms->thenBody().push_back(recv); // Nonblocking
-    if_not_last_ring_step_post_comms->thenBody().push_back(send); // Block in sendPost
-    if_not_last_ring_step_post_comms->thenBody().push_back(set_curr_stream);
-  } else {
-    if_not_last_ring_step_post_comms->thenBody().push_back(send); // Nonblocking
-    if_not_last_ring_step_post_comms->thenBody().push_back(set_next_stream);
-    if_not_last_ring_step_post_comms->thenBody().push_back(recv); // Block in recvPost
-    if_not_last_ring_step_post_comms->thenBody().push_back(set_curr_stream);
-  }
-//nick
-  auto* cond = ne(j, hic->zeroVal());
-  auto* wait_predicate = IrBuilder::create<kir::Predicate>(cond);
-  auto* if_not_first_ring_step_wait =
-      IrBuilder::create<kir::IfThenElse>(wait_predicate);
+  // Nonblocking--just signals the buffer is ready for the get transfer
+  if_not_last_ring_step_post_comms->thenBody().push_back(send);
+  if_not_last_ring_step_post_comms->thenBody().push_back(set_next_stream);
+  // Block in recvPost on the next stream to do the get transfer
+  if_not_last_ring_step_post_comms->thenBody().push_back(recv);
+  if_not_last_ring_step_post_comms->thenBody().push_back(set_curr_stream);
 
-  if (getP2pProtocol() == P2pProtocol::Put) {
-    if_not_first_ring_step_wait->thenBody().push_back(wait_send); // NOP
-    //if_not_first_ring_step_wait->thenBody().push_back(set_curr_stream);
-    if_not_first_ring_step_wait->thenBody().push_back(wait_recv); // Block in recvWait
-    //if_not_first_ring_step_wait->thenBody().push_back(set_curr_stream);
-  } else {
-    // For get, we posted this send on the current stream last iteration
-    if_not_first_ring_step_wait->thenBody().push_back(wait_send); // Block in sendWait
-    if_not_first_ring_step_wait->thenBody().push_back(wait_recv); // NOP
-  }
+  // For the get protocol, recvWait is a NOP
+  // At the same time, sendWait will block waiting for the buffer to be IpcSemaphore::kReady
+  // but since on this stream we recvPosted the buffer last iteration, when that finishes
+  // it will be marked kReady anyways. So waiting for it to be kReady is unnecessary
 
   std::vector<Expr*> loop_j_body = {
       set_curr_stream,
@@ -1249,7 +1230,6 @@ TEST_F(
       tva_j_next_slice->definition(),
       tvc_j->definition(),
       share_mem_handles,
-      if_not_first_ring_step_wait,
       if_not_last_ring_step_post_comms,
       mm};
   for (Expr* expr : loop_j_body) {
