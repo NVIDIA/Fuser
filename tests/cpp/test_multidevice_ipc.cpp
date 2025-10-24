@@ -352,6 +352,208 @@ TEST_F(IpcTest, IpcP2pWithVmm) {
   NVFUSER_CUDA_SAFE_CALL(cuMemRelease(mem_handle));
 }
 
+TEST_F(IpcTest, IpcUnicastP2pPtrArithmeticAtReceiver) {
+  if (communicator_->size() == 1) {
+    GTEST_SKIP() << "Skipping test for single device";
+  }
+
+  // TL;DR: This test demonstrates that we can do pointer arithmetic on the
+  // receiver side when using VMM with Unicast mappings for P2P communication.
+  // This is similar to IpcMemHandlePtrArithmeticAtReceiver but uses VMM API
+  // instead of cudaMalloc/cudaIpcGetMemHandle.
+
+  // Allocate GPU memory with multiple elements using VMM API
+  constexpr size_t kNumElems = 4;
+  constexpr size_t kBufferSize = kNumElems * sizeof(int64_t);
+  const int64_t num_devices = communicator_->size();
+  const int64_t rank = communicator_->deviceId();
+  const int64_t local_rank = communicator_->local_rank();
+  const int64_t peer_rank = (rank + 1) % num_devices;
+
+  // Query support for Virtual Memory Management
+  int is_vmm_supported;
+  NVFUSER_CUDA_SAFE_CALL(cuDeviceGetAttribute(
+      &is_vmm_supported,
+      CU_DEVICE_ATTRIBUTE_VIRTUAL_MEMORY_MANAGEMENT_SUPPORTED,
+      local_rank));
+  if (is_vmm_supported == 0) {
+    GTEST_SKIP()
+        << "Device does not support Virtual Memory Management; skipping.";
+  }
+
+  // Query support for IPC handles
+  int is_ipc_supported;
+  NVFUSER_CUDA_SAFE_CALL(cuDeviceGetAttribute(
+      &is_ipc_supported,
+      CU_DEVICE_ATTRIBUTE_HANDLE_TYPE_POSIX_FILE_DESCRIPTOR_SUPPORTED,
+      local_rank));
+  if (is_ipc_supported == 0) {
+    GTEST_SKIP() << "Device does not support IPC handles; skipping.";
+  }
+
+  NVFUSER_CUDA_RT_SAFE_CALL(cudaSetDevice(local_rank));
+
+  // Set up allocation properties for VMM
+  CUmemAllocationProp prop{};
+  prop.type = CU_MEM_ALLOCATION_TYPE_PINNED;
+  prop.location.type = CU_MEM_LOCATION_TYPE_DEVICE;
+  prop.location.id = static_cast<int>(local_rank);
+  prop.requestedHandleTypes = CU_MEM_HANDLE_TYPE_POSIX_FILE_DESCRIPTOR;
+
+  // Check allocation granularity
+  size_t granularity = 0;
+  NVFUSER_CUDA_SAFE_CALL(cuMemGetAllocationGranularity(
+      &granularity, &prop, CU_MEM_ALLOC_GRANULARITY_MINIMUM));
+
+  // Align buffer size to granularity
+  size_t aligned_size =
+      ((kBufferSize + granularity - 1) / granularity) * granularity;
+
+  // Allocate memory using VMM API
+  CUmemGenericAllocationHandle mem_handle = 0;
+  NVFUSER_CUDA_SAFE_CALL(
+      cuMemCreate(&mem_handle, aligned_size, &prop, /*flags=*/0));
+
+  // Reserve virtual address space and map the memory (Unicast mapping)
+  CUdeviceptr uc_ptr = 0;
+  NVFUSER_CUDA_SAFE_CALL(cuMemAddressReserve(
+      &uc_ptr,
+      aligned_size,
+      /*alignment=*/granularity,
+      /*baseVA=*/0,
+      /*flags=*/0));
+  NVFUSER_CUDA_SAFE_CALL(
+      cuMemMap(uc_ptr, aligned_size, /*offset=*/0, mem_handle, /*flags=*/0));
+
+  // Set memory access permissions
+  CUmemAccessDesc access_desc{};
+  access_desc.location.type = CU_MEM_LOCATION_TYPE_DEVICE;
+  access_desc.location.id = static_cast<int>(local_rank);
+  access_desc.flags = CU_MEM_ACCESS_FLAGS_PROT_READWRITE;
+  NVFUSER_CUDA_SAFE_CALL(
+      cuMemSetAccess(uc_ptr, aligned_size, &access_desc, /*count=*/1));
+
+  // Write multiple values to the buffer
+  std::vector<int64_t> values;
+  for (size_t i = 0; i < kNumElems; ++i) {
+    values.push_back(rank * 10 + static_cast<int64_t>(i));
+  }
+  NVFUSER_CUDA_RT_SAFE_CALL(cudaMemcpy(
+      reinterpret_cast<void*>(uc_ptr),
+      values.data(),
+      kBufferSize,
+      cudaMemcpyHostToDevice));
+
+  // Export VMM handle to shareable file descriptor
+  int shared_fd;
+  NVFUSER_CUDA_SAFE_CALL(cuMemExportToShareableHandle(
+      &shared_fd,
+      mem_handle,
+      CU_MEM_HANDLE_TYPE_POSIX_FILE_DESCRIPTOR,
+      /*flags=*/0));
+
+  // Allow peer processes to use pidfd_getfd on this process
+  prctl(PR_SET_PTRACER, PR_SET_PTRACER_ANY);
+
+  // Share the file descriptor and PID via TCP store
+  auto store = communicator_->getTcpStore();
+  store->set("vmm_uc_ipc_fd_" + std::to_string(rank), toBytes(shared_fd));
+  pid_t my_pid = getpid();
+  store->set("vmm_uc_ipc_pid_" + std::to_string(rank), toBytes(my_pid));
+
+  // Wait for all ranks to finish exporting
+  communicator_->barrier();
+
+  // Import peer's VMM handle
+  int peer_shared_fd = fromBytes<int>(
+      store->get("vmm_uc_ipc_fd_" + std::to_string(peer_rank)));
+  pid_t peer_pid =
+      fromBytes<pid_t>(store->get("vmm_uc_ipc_pid_" + std::to_string(peer_rank)));
+
+  // Get the peer's file descriptor using pidfd_open and pidfd_getfd
+  int pid_fd = syscall(SYS_pidfd_open, peer_pid, /*flags=*/0);
+  ASSERT_GE(pid_fd, 0) << "rank " << rank << " failed to open pidfd for pid "
+                       << peer_pid;
+
+  int peer_fd = syscall(SYS_pidfd_getfd, pid_fd, peer_shared_fd, /*flags=*/0);
+  ASSERT_GE(peer_fd, 0) << "rank " << rank << " failed to get peer fd";
+
+  // Import the peer's memory handle
+  CUmemGenericAllocationHandle peer_mem_handle = 0;
+  NVFUSER_CUDA_SAFE_CALL(cuMemImportFromShareableHandle(
+      &peer_mem_handle,
+      (void*)((uint64_t)peer_fd),
+      CU_MEM_HANDLE_TYPE_POSIX_FILE_DESCRIPTOR));
+
+  // Reserve virtual address space and map the peer's memory (Unicast mapping)
+  CUdeviceptr peer_uc_ptr = 0;
+  NVFUSER_CUDA_SAFE_CALL(cuMemAddressReserve(
+      &peer_uc_ptr,
+      aligned_size,
+      /*alignment=*/granularity,
+      /*baseVA=*/0,
+      /*flags=*/0));
+  NVFUSER_CUDA_SAFE_CALL(cuMemMap(
+      peer_uc_ptr, aligned_size, /*offset=*/0, peer_mem_handle, /*flags=*/0));
+
+  // Set memory access permissions for peer memory
+  CUmemAccessDesc peer_access_desc{};
+  peer_access_desc.location.type = CU_MEM_LOCATION_TYPE_DEVICE;
+  peer_access_desc.location.id = static_cast<int>(local_rank);
+  peer_access_desc.flags = CU_MEM_ACCESS_FLAGS_PROT_READ;
+  NVFUSER_CUDA_SAFE_CALL(cuMemSetAccess(
+      peer_uc_ptr, aligned_size, &peer_access_desc, /*count=*/1));
+
+  // Validate by reading different elements using pointer arithmetic
+  // Read the first element (offset 0)
+  int64_t peer_value_0;
+  NVFUSER_CUDA_RT_SAFE_CALL(cudaMemcpy(
+      &peer_value_0,
+      reinterpret_cast<int64_t*>(peer_uc_ptr),
+      sizeof(int64_t),
+      cudaMemcpyDeviceToHost));
+  EXPECT_EQ(peer_rank * 10 + 0, peer_value_0);
+
+  // Read the second element (offset 1)
+  int64_t peer_value_1;
+  NVFUSER_CUDA_RT_SAFE_CALL(cudaMemcpy(
+      &peer_value_1,
+      reinterpret_cast<int64_t*>(peer_uc_ptr) + 1,
+      sizeof(int64_t),
+      cudaMemcpyDeviceToHost));
+  EXPECT_EQ(peer_rank * 10 + 1, peer_value_1);
+
+  // Read the third element (offset 2)
+  int64_t peer_value_2;
+  NVFUSER_CUDA_RT_SAFE_CALL(cudaMemcpy(
+      &peer_value_2,
+      reinterpret_cast<int64_t*>(peer_uc_ptr) + 2,
+      sizeof(int64_t),
+      cudaMemcpyDeviceToHost));
+  EXPECT_EQ(peer_rank * 10 + 2, peer_value_2);
+
+  // Read the fourth element (offset 3)
+  int64_t peer_value_3;
+  NVFUSER_CUDA_RT_SAFE_CALL(cudaMemcpy(
+      &peer_value_3,
+      reinterpret_cast<int64_t*>(peer_uc_ptr) + 3,
+      sizeof(int64_t),
+      cudaMemcpyDeviceToHost));
+  EXPECT_EQ(peer_rank * 10 + 3, peer_value_3);
+
+  // Clean up peer memory
+  NVFUSER_CUDA_SAFE_CALL(cuMemUnmap(peer_uc_ptr, aligned_size));
+  NVFUSER_CUDA_SAFE_CALL(cuMemAddressFree(peer_uc_ptr, aligned_size));
+  NVFUSER_CUDA_SAFE_CALL(cuMemRelease(peer_mem_handle));
+  close(peer_fd);
+  close(pid_fd);
+
+  // Clean up local memory
+  NVFUSER_CUDA_SAFE_CALL(cuMemUnmap(uc_ptr, aligned_size));
+  NVFUSER_CUDA_SAFE_CALL(cuMemAddressFree(uc_ptr, aligned_size));
+  NVFUSER_CUDA_SAFE_CALL(cuMemRelease(mem_handle));
+}
+
 #if (CUDA_VERSION >= 13000)
 
 TEST_F(IpcTest, IpcNvlsMulticastBroadcast) {
