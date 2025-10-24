@@ -28,6 +28,7 @@ class Parallelism(Enum):
 # mpirun -np <processes> nsys profile --capture-range=cudaProfilerApi --capture-range-end=repeat:<iterations> pytest tests/python/test_transformer_engine.py -k <filter> --only-mpi
 # ```
 # and then display the status using e.g. `nsys stats --report=cuda_gpu_kern_sum report1.nsys-rep`.
+@pytest.mark.skip(reason="TransformerEngine causes this test to stall, so skip it.")
 @pytest.mark.mpi
 @pytest.mark.parametrize(
     "compute_type",
