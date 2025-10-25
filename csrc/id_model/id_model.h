@@ -199,6 +199,11 @@ class NVF_API IdModel : public PolymorphicBase {
   // BROADCAST graph as well if not yet done.
   ValGraph& buildPermissiveGraph();
 
+  // Fills disjoint_ids_[IdMappingMode::PERMISSIVE_RESIZE]. Initialize it as
+  // PERMISSIVE entries, then map through resize and indexed domains (gather,
+  // scatter). Build the PERMISSIVE graph as well if not yet done.
+  ValGraph& buildPermissiveResizeGraph();
+
   // Fills disjoint_ids_[IdMappingMode::LOOP]. Map only inlined
   // domains that are mapped in the permissive graph. Build the Exact
   // and Permissive graphs as well if not yet done.

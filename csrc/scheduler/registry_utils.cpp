@@ -275,19 +275,6 @@ bool isConnectedFusionGraph(Fusion* fusion) {
 //
 // Returns true if a scenario like above is found in the fusion.
 bool requiresForwardViewReplay(Fusion* fusion, ComputeAtMap& ca_map) {
-  // Track the uses of the logical domains in the fusion. If an logical domain
-  // is used in more than one way it means the above situation is being
-  // encountered.
-  //
-  // tv1 root: [I0rf, I1rf, I2] -> logical [I0*I1rf, I2]
-  // tv1 root: [I0, I1rf, I2rf] -> logical [I0, I1*I2rf]
-  //
-  // Here we can see I1rf is used in two view transformations, one to I0*I1rf,
-  // and the other to I1*I2rf.
-
-  // Track the transformation each exact disjoint logical set is used in. If
-  // more than one is detected we can't support transforming the fusion into a
-  // consistent format.
   std::unordered_map<std::shared_ptr<VectorOfUniqueEntries<IterDomain*>>, Expr*>
       unique_exact_uses;
 
@@ -307,7 +294,7 @@ bool requiresForwardViewReplay(Fusion* fusion, ComputeAtMap& ca_map) {
   // Mark those as an active use of the logical, if two are detected, return
   // true.
   for (const auto& disjoint_set_shared_ptr :
-       ca_map.idGraph().exactNodes().disjointSets()) {
+       ca_map.idGraph().permissiveResizeNodes().disjointSets()) {
     // Make sure there's at least one logical domain in the set, otherwise we
     // don't need to check anything from this set.
     if (!std::any_of(
@@ -1163,6 +1150,62 @@ bool SchedulerTopologyChecker::hasCyclicReshape(Fusion* fusion) {
 
       if (inp_groups_i.hasIntersect(out_groups_j)) {
         return true;
+      }
+    }
+  }
+
+  return false;
+}
+
+// Detects incompatible reshape patterns using PERMISSIVE_RESIZE graph.
+// Returns true if rfactor IDs are mapped together (same ValGroup) but have
+// different transformations (different ExprGroups). This indicates the reshape
+// operations cannot be replayed and the fusion must be segmented.
+//
+// Example: slice(tv[36], 0, 24)->tv[24]->reshape([2,3,4]) and
+//          slice(tv[36], 12, 36)->tv[24]->reshape([2,2,6])
+// Both slices produce tv[24] which map together, but reshape differently.
+bool SchedulerTopologyChecker::hasIncompatibleReshapes(Fusion* fusion) {
+  // TODO: Reuse IdModel when possible
+  IdModel id_model(fusion);
+  const auto& permissive_resize_graph = id_model.buildPermissiveResizeGraph();
+
+  for (const ValGroup& val_group :
+       permissive_resize_graph.disjointValSets().disjointSets()) {
+    // Collect all rfactor IDs in this val group
+    // Check for consistency if there are at least 2 rfactor IDs
+    std::vector<IterDomain*> rfactor_ids;
+    for (Val* val : *val_group) {
+      auto id = val->as<IterDomain>();
+      if (id->isRFactorProduct()) {
+        rfactor_ids.push_back(id);
+      }
+    }
+    if (rfactor_ids.size() < 2) {
+      continue;
+    }
+
+    // For ids in the same val group, their usages should be in the same expr
+    // group. Resize ops are skipped since they are not propagated during replay
+    std::optional<ExprGroup> common_use_group;
+    for (auto id : rfactor_ids) {
+      if (!permissive_resize_graph.hasUses(
+              permissive_resize_graph.toGroup(id))) {
+        continue;
+      }
+      const auto& use_groups =
+          permissive_resize_graph.getUses(permissive_resize_graph.toGroup(id));
+      for (const auto& use_group : use_groups) {
+        if (std::any_of(use_group->begin(), use_group->end(), [](Expr* expr) {
+              return expr->isA<Resize>();
+            })) {
+          continue;
+        }
+        if (!common_use_group.has_value()) {
+          common_use_group = use_group;
+        } else if (common_use_group.value() != use_group) {
+          return true;
+        }
       }
     }
   }
