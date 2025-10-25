@@ -9,6 +9,8 @@ import transformer_engine.pytorch as te
 from benchmark_utils import get_benchmark_fns
 from enum import auto, Enum
 
+compute_cap = torch.cuda.get_device_capability()
+
 
 class ComputeType(Enum):
     FORWARD = auto()
@@ -28,7 +30,10 @@ class Parallelism(Enum):
 # mpirun -np <processes> nsys profile --capture-range=cudaProfilerApi --capture-range-end=repeat:<iterations> pytest tests/python/test_transformer_engine.py -k <filter> --only-mpi
 # ```
 # and then display the status using e.g. `nsys stats --report=cuda_gpu_kern_sum report1.nsys-rep`.
-@pytest.mark.skip(reason="TransformerEngine causes this test to stall, so skip it.")
+@pytest.mark.skipif(
+    compute_cap >= (10, 0) and compute_cap < (12, 0),
+    reason=f"TransformerEngine stalls this test on devices with compute capability {compute_cap}.",
+)
 @pytest.mark.mpi
 @pytest.mark.parametrize(
     "compute_type",
