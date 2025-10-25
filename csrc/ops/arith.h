@@ -827,4 +827,24 @@ NVF_API inline TensorView* cumsum(TensorView* tv, int64_t dim) {
   return prefixSum(tv, dim);
 }
 
+struct BlockQuantizationResults {
+ public:
+  TensorView* quantized_tensor = nullptr;
+  TensorView* block_scales = nullptr;
+
+  explicit BlockQuantizationResults(
+      TensorView* in_quantized_tensor,
+      TensorView* in_block_scales)
+      : quantized_tensor(in_quantized_tensor), block_scales(in_block_scales) {}
+};
+
+//! TODO: Expose global scaling factor
+// API for block quantization to nvFP4.
+// We take FP32 or BF16 input and produce two outputs
+// nvFP4(x2) outputs and FP8 block scales.
+NVF_API BlockQuantizationResults blockQuantize(
+    TensorView* input,
+    int64_t block_size = 16,
+    DataType out_dtype = DataType::Float4_e2m1fn_x2);
+
 } // namespace nvfuser
