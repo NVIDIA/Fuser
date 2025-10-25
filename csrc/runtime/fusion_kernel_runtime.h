@@ -7,6 +7,11 @@
 // clang-format on
 #pragma once
 
+#include <mutex>
+#include <vector>
+
+#include <ATen/cuda/CUDAGraph.h>
+#include <c10/cuda/CUDAGuard.h>
 #include <c10/util/ArrayRef.h>
 
 #include <fusion_segmenter.h>
@@ -17,9 +22,6 @@
 #include <runtime/executor_kernel_arg.h>
 #include <runtime/fusion_cache_utils.h>
 
-#include <mutex>
-#include <vector>
-
 namespace nvfuser {
 
 class HeuristicParamsList;
@@ -29,6 +31,17 @@ class Val;
 namespace serde {
 struct FusionKernelRuntime;
 }
+
+enum class CudaGraphState {
+  // Won't use CUDAGraph
+  kNone,
+  // Warmup is required because the first iteration may autotune matmul
+  // algorithms, running kernels that don't need to be captured. Currently, I
+  // only do one warmup iteration before capturing.
+  kWarmup,
+  kCapture,
+  kReplay,
+};
 
 //! FusionKernelRuntime is the unified interface from fusion graphs into
 //!  caching, compilation into kernels, and kernel launches.
@@ -78,7 +91,7 @@ class FusionKernelRuntime {
   PrimDataType getIndexType() const;
 
   //! Unified interface to run the managed kernels with given input
-  KernelArgumentHolder runWithInputs(const KernelArgumentHolder& args);
+  KernelArgumentHolder runWithInputs(KernelArgumentHolder args);
 
   //! Compile a kernel executor for given inputs. Note: The compilation is
   //! multithreaded. The segments in the fusion are compiled independently.
@@ -242,6 +255,13 @@ class FusionKernelRuntime {
 
   // Whether to auto schedule the Fusion. If set to false, scheduling is skipped
   const bool auto_schedule_;
+
+  // States for CUDA graph
+  CudaGraphState cuda_graph_state_ = CudaGraphState::kNone;
+  at::cuda::CUDAGraph cuda_graph_;
+  // CUDA graph requires inputs and outputs to be sticky.
+  KernelArgumentHolder cuda_graph_inputs_;
+  KernelArgumentHolder cuda_graph_outputs_;
 };
 
 } // namespace nvfuser
