@@ -206,9 +206,9 @@ void Common::updateIdModel() {
       // output [m4, n5 ] = set(cache [m6, n7, rk8])
       //
       // So the old role rK6 wouldn't be mapped in new_graph.
-      auto old_vg = std::ranges::find_if(k, [&new_graph](ValGraph vg){return new_graph.hasGroup(vg);});
+      auto old_vg = std::ranges::find_if(k->vector(), [&new_graph](Val* vg){return new_graph.hasGroup(vg);});
       NVF_ERROR(
-        old_vg != k.end(),
+        old_vg != k->vector().end(),
         "Old ValGroup not found in new ValGraph"
       );
       new_id_roles.emplace(new_graph.toGroup(*old_vg), v);
