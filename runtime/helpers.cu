@@ -634,3 +634,34 @@ __device__ __bfloat print_impl(const char* name, __bfloat value) {
 #endif
 
 #define print(...) print_impl(#__VA_ARGS__, (__VA_ARGS__))
+
+__device__ __inline__ unsigned clusterIdX() {
+  unsigned ctaid;
+  asm("mov.u32 %0, %clusterid.x;" : "=r"(ctaid));
+  return ctaid;
+}
+__device__ __inline__ unsigned clusterIdY() {
+  unsigned ctaid;
+  asm("mov.u32 %0, %clusterid.y;" : "=r"(ctaid));
+  return ctaid;
+}
+__device__ __inline__ unsigned clusterIdZ() {
+  unsigned ctaid;
+  asm("mov.u32 %0, %clusterid.z;" : "=r"(ctaid));
+  return ctaid;
+}
+__device__ __inline__ unsigned clusterCtaIdX() {
+  unsigned ctaid;
+  asm("mov.u32 %0, %cluster_ctaid.x;" : "=r"(ctaid));
+  return ctaid;
+}
+__device__ __inline__ unsigned clusterCtaIdY() {
+  unsigned ctaid;
+  asm("mov.u32 %0, %cluster_ctaid.y;" : "=r"(ctaid));
+  return ctaid;
+}
+__device__ __inline__ unsigned clusterCtaIdZ() {
+  unsigned ctaid;
+  asm("mov.u32 %0, %cluster_ctaid.z;" : "=r"(ctaid));
+  return ctaid;
+}
