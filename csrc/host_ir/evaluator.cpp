@@ -332,10 +332,11 @@ void HostIrEvaluator::handle(Communication* communication) {
     const auto current_stream = static_cast<CUstream>(
         c10::cuda::getCurrentCUDAStream(my_local_device_index_).stream());
     NVF_ERROR(
-        communication->type() == CommunicationType::Broadcast,
-        "Invalid communication type, expected Broadcast, got: ",
+        communication->type() == CommunicationType::Broadcast ||
+            communication->type() == CommunicationType::Allgather,
+        "Invalid communication type, expected Broadcast or Allgather, got: ",
         communication->type());
-    const MulticastHandleForBroadcast& multicast_handle =
+    const SymmetricMemoryHandle& multicast_handle =
         multicast_handle_cache_.get({output_tensor, communication});
     postWithCudaBackend(
         communication, input_tensor, multicast_handle, current_stream);
@@ -395,9 +396,13 @@ void HostIrEvaluator::handle(Wait* wait) {
       recvWait(ipc_handles, current_stream);
     }
   } else if (communication && communication->backend() == CommunicatorBackend::kCuda) {
-    NVF_ERROR(communication->type() == CommunicationType::Broadcast, "Invalid communication type, only Broadcast is supported with cuda backend, got: ", communication->type());
+    NVF_ERROR(
+        communication->type() == CommunicationType::Broadcast ||
+            communication->type() == CommunicationType::Allgather,
+        "Invalid communication type, only Broadcast and Allgather are supported with cuda backend, got: ",
+        communication->type());
     at::Tensor output_tensor = getKnownTensorOrUndefined(communication->out());
-    const MulticastHandleForBroadcast& multicast_handle =
+    const SymmetricMemoryHandle& multicast_handle =
         multicast_handle_cache_.get({output_tensor, communication});
     waitWithCudaBackend(communication, multicast_handle, current_stream);
   } else {

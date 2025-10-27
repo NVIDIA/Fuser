@@ -7,6 +7,9 @@
 // clang-format on
 #include <gtest/gtest.h>
 
+#include <torch/torch.h>
+
+
 #include <fusion.h>
 #include <ir/builder.h>
 #include <multidevice/communication.h>
@@ -562,6 +565,101 @@ TEST_F(CUDACommunicationTest, Broadcast) {
         << "On iteration " << repetition << " on device " << communicator_->deviceId() << " expected tensor:\n"
         << ref << "\nbut obtained tensor:\n"
         << outputs.back().as<at::Tensor>();
+  }
+}
+
+TEST_F(CUDACommunicationTest, Allgather) {
+  if (communicator_->size() < 2 || at::cuda::device_count() < 2) {
+    GTEST_SKIP() << "This test needs at least 2 GPUs and 2 ranks.";
+  }
+
+  constexpr int64_t kNumRepetitions = 10;
+  constexpr int64_t kTensorSize = 524288; // each slice must be aligned with the granularity of 2097152
+
+  auto hic = std::make_unique<hir::HostIrContainer>();
+  FusionGuard fg(hic.get());
+
+  auto* in = makeContigConcreteTensor({kTensorSize});
+  auto* out = makeContigConcreteTensor({communicator_->size() * kTensorSize});
+  DeviceMesh mesh = DeviceMesh::createForNumDevices(communicator_->size());
+  in->setDeviceMesh(mesh);
+  out->setDeviceMesh(mesh);
+  out->setMemoryType(MemoryType::Global);
+  out->setMemoryType(MemoryType::Symmetric);
+
+  auto allocated_out = IrBuilder::create<kir::Allocate>(out, MemoryType::Symmetric);
+  auto communication = IrBuilder::create<Communication>(
+      CommunicationType::Allgather,
+      out,
+      in,
+      mesh.vector(),
+      /*root=*/-1,
+      RedOpType::UNUSED,
+      CommunicatorBackend::kCuda);
+  auto wait = IrBuilder::create<hir::Wait>(communication);
+
+  hic->pushBackTopLevelExprs(allocated_out);
+  hic->pushBackTopLevelExprs(communication);
+  hic->pushBackTopLevelExprs(wait);
+
+  hic->addInput(in);
+  hic->addOutput(out);
+
+  hir::HostIrEvaluatorParams params;
+  params.use_allocation_cache = true;
+  hir::HostIrEvaluator hie(std::move(hic), communicator_);
+
+  at::Tensor input_tensor = at::empty({kTensorSize}, tensor_options_);
+  for (auto repetition : arange(kNumRepetitions)) {
+    input_tensor.copy_(
+        at::arange(kTensorSize, tensor_options_) +
+        (communicator_->deviceId() + 1) * repetition);
+
+    torch::cuda::synchronize();
+    communicator_->barrier();
+
+    auto outputs = hie.runWithInput({{in, input_tensor}});
+
+    torch::cuda::synchronize();
+    communicator_->barrier();
+    // Expected output: concatenation of all ranks' inputs
+    at::Tensor ref = at::empty({communicator_->size() * kTensorSize}, tensor_options_);
+    for (auto rank_idx : arange(communicator_->size())) {
+      ref.slice(0, rank_idx * kTensorSize, (rank_idx + 1) * kTensorSize)
+          .copy_(at::arange(kTensorSize, tensor_options_) + (rank_idx + 1) * repetition);
+    }
+
+    {
+      const at::Tensor& out_tensor = outputs.back().as<at::Tensor>();
+      if (!out_tensor.equal(ref)) {
+        // Copy both tensors to CPU (host)
+        at::Tensor got_cpu = out_tensor.to(torch::kCPU);
+        at::Tensor ref_cpu = ref.to(torch::kCPU);
+
+        // Search for first mismatch
+        int64_t mismatch_idx = -1;
+        for (int64_t i = 0; i < got_cpu.numel(); ++i) {
+          auto got_val = got_cpu.data_ptr<float>()[i];
+          auto ref_val = ref_cpu.data_ptr<float>()[i];
+          if (got_val != ref_val) {
+            mismatch_idx = i;
+            break;
+          }
+        }
+        std::ostringstream oss;
+        oss << "On iteration " << repetition 
+            << ", device " << communicator_->deviceId()
+            << " got an unexpected output.\n";
+        if (mismatch_idx != -1) {
+          oss << "First difference at index " << mismatch_idx
+              << ": got " << got_cpu.data_ptr<float>()[mismatch_idx]
+              << ", expected " << ref_cpu.data_ptr<float>()[mismatch_idx] << "\n";
+        } else {
+          oss << "Tensors are not equal, but no differing index found.\n";
+        }
+        FAIL() << oss.str();
+      }
+    }
   }
 }
 

@@ -130,6 +130,90 @@ void waitBroadcastWithCudaBackend(
   }
 }
 
+void postAllgatherWithCudaBackend(
+    Communication* communication,
+    at::Tensor input,
+    const MulticastHandleForAllgather& allgather_handle,
+    CUstream stream) {
+  Communicator& communicator = Communicator::getInstance();
+  const int64_t my_device_index = communicator.deviceId();
+  const int64_t world_size = communicator.size();
+  
+  // Step 1: Each rank signals it's ready by writing kInUse to its own semaphore for every root
+  std::vector<CUstreamBatchMemOpParams> write_ready_ops(world_size - 1);
+  int write_op_idx = 0;
+  for (int64_t rank = 0; rank < world_size; ++rank) {
+    if (rank == my_device_index)
+      continue;
+    write_ready_ops[write_op_idx].operation = CU_STREAM_MEM_OP_WRITE_VALUE_32;
+    write_ready_ops[write_op_idx].writeValue.address =
+        reinterpret_cast<CUdeviceptr>(
+            allgather_handle.semaphore_unicast_ptr(rank, my_device_index));
+    write_ready_ops[write_op_idx].writeValue.value = static_cast<cuuint32_t>(IpcSemaphore::kInUse);
+    write_ready_ops[write_op_idx].writeValue.flags = CU_STREAM_WRITE_VALUE_DEFAULT;
+    write_op_idx++;
+  }
+  NVFUSER_CUDA_SAFE_CALL(
+      cuStreamBatchMemOp(stream, world_size - 1, write_ready_ops.data(), 0));
+  
+  // Step 2: Each rank waits for all other ranks to signal ready using batch operations
+  std::vector<CUstreamBatchMemOpParams> wait_ready_ops(world_size - 1);
+  int wait_op_idx = 0;
+  for (int64_t rank = 0; rank < world_size; ++rank) {
+    if (rank == my_device_index)
+      continue;
+    wait_ready_ops[wait_op_idx].operation = CU_STREAM_MEM_OP_WAIT_VALUE_32;
+    wait_ready_ops[wait_op_idx].waitValue.address = reinterpret_cast<CUdeviceptr>(
+        allgather_handle.semaphore_unicast_ptr(my_device_index, rank));
+    wait_ready_ops[wait_op_idx].waitValue.value = static_cast<cuuint32_t>(IpcSemaphore::kInUse);
+    wait_ready_ops[wait_op_idx].waitValue.flags = CU_STREAM_WAIT_VALUE_EQ;
+    wait_op_idx++;
+  }
+  NVFUSER_CUDA_SAFE_CALL(
+      cuStreamBatchMemOp(stream, world_size - 1, wait_ready_ops.data(), 0));
+
+  // Step 3: Each rank copies its data to its multicast buffer
+  NVFUSER_CUDA_RT_SAFE_CALL(cudaMemcpyAsync(
+      allgather_handle.buffer_multicast_ptr(my_device_index),
+      input.data_ptr(),
+      input.numel() * input.element_size(),
+      cudaMemcpyDeviceToDevice,
+      stream));
+
+  // Step 4: Each rank signals completion by writing kReady to its semaphore
+  NVFUSER_CUDA_SAFE_CALL(cuStreamWriteValue32(
+      stream,
+      reinterpret_cast<CUdeviceptr>(
+          allgather_handle.semaphore_multicast_ptr(my_device_index)),
+      static_cast<cuuint32_t>(IpcSemaphore::kReady),
+      CU_STREAM_WRITE_VALUE_DEFAULT));
+}
+
+void waitAllgatherWithCudaBackend(
+    Communication* communication,
+    const MulticastHandleForAllgather& allgather_handle,
+    CUstream stream) {
+  Communicator& communicator = Communicator::getInstance();
+  const int64_t my_device_index = communicator.deviceId();
+  const int64_t world_size = communicator.size();
+
+  // Wait for all other ranks to complete using batch operations
+  std::vector<CUstreamBatchMemOpParams> wait_complete_ops(world_size - 1);
+  int op_idx = 0;
+  for (int64_t rank = 0; rank < world_size; ++rank) {
+    if (rank == my_device_index)
+      continue;
+    wait_complete_ops[op_idx].operation = CU_STREAM_MEM_OP_WAIT_VALUE_32;
+    wait_complete_ops[op_idx].waitValue.address = reinterpret_cast<CUdeviceptr>(
+        allgather_handle.semaphore_unicast_ptr(rank, my_device_index));
+    wait_complete_ops[op_idx].waitValue.value = static_cast<cuuint32_t>(IpcSemaphore::kReady);
+    wait_complete_ops[op_idx].waitValue.flags = CU_STREAM_WAIT_VALUE_EQ;
+    op_idx++;
+  }
+  NVFUSER_CUDA_SAFE_CALL(
+      cuStreamBatchMemOp(stream, world_size - 1, wait_complete_ops.data(), 0));
+}
+
 } // anonymous namespace
 
 void recvPost(const P2pIpcHandle& ipc_handles, int64_t count, CUstream stream) {
@@ -228,7 +312,7 @@ void sendWait(const P2pIpcHandle& ipc_handles, CUstream stream) {
 void postWithCudaBackend(
     Communication* communication,
     at::Tensor input,
-    const MulticastHandleForBroadcast& multicast_handle,
+    const SymmetricMemoryHandle& symmetric_memory_handle,
     CUstream stream) {
   NVF_ERROR(
       communication->backend() == CommunicatorBackend::kCuda,
@@ -245,10 +329,20 @@ void postWithCudaBackend(
       communication->team().size());
 
   switch (communication->type()) {
-    case CommunicationType::Broadcast:
+    case CommunicationType::Broadcast: {
+      const auto& broadcast_handle = 
+          *std::get<std::unique_ptr<MulticastHandleForBroadcast>>(symmetric_memory_handle);
       postBroadcastWithCudaBackend(
-          communication, input, multicast_handle, stream);
+          communication, input, broadcast_handle, stream);
       break;
+    }
+    case CommunicationType::Allgather: {
+      const auto& allgather_handle = 
+          *std::get<std::unique_ptr<MulticastHandleForAllgather>>(symmetric_memory_handle);
+      postAllgatherWithCudaBackend(
+          communication, input, allgather_handle, stream);
+      break;
+    }
     default:
       NVF_ERROR(
           false,
@@ -259,7 +353,7 @@ void postWithCudaBackend(
 
 void waitWithCudaBackend(
     Communication* communication,
-    const MulticastHandleForBroadcast& multicast_handle,
+    const SymmetricMemoryHandle& symmetric_memory_handle,
     CUstream stream) {
   NVF_ERROR(
       communication->backend() == CommunicatorBackend::kCuda,
@@ -276,9 +370,18 @@ void waitWithCudaBackend(
       communication->team().size());
 
   switch (communication->type()) {
-    case CommunicationType::Broadcast:
-      waitBroadcastWithCudaBackend(communication, multicast_handle, stream);
+    case CommunicationType::Broadcast: {
+      const auto& broadcast_handle = 
+          *std::get<std::unique_ptr<MulticastHandleForBroadcast>>(symmetric_memory_handle);
+      waitBroadcastWithCudaBackend(communication, broadcast_handle, stream);
       break;
+    }
+    case CommunicationType::Allgather: {
+      const auto& allgather_handle = 
+          *std::get<std::unique_ptr<MulticastHandleForAllgather>>(symmetric_memory_handle);
+      waitAllgatherWithCudaBackend(communication, allgather_handle, stream);
+      break;
+    }
     default:
       NVF_ERROR(
           false,

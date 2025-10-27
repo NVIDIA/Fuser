@@ -13,6 +13,7 @@
 #include <memory>
 #include <string>
 #include <unordered_map>
+#include <variant>
 #include <vector>
 
 namespace nvfuser {
@@ -211,7 +212,8 @@ class MulticastHandle {
   MulticastHandle(
       at::Tensor tensor,
       int64_t exporter_rank,
-      const std::string& store_key_prefix);
+      const std::string& store_key_prefix,
+      int64_t offset = 0);
 
   ~MulticastHandle();
 
@@ -230,6 +232,13 @@ class MulticastHandle {
 class MulticastHandleForBroadcast {
  public:
   MulticastHandleForBroadcast(Communication* communication, at::Tensor buffer);
+  
+  // Constructor for use when creating multiple broadcasts (e.g., for allgather)
+  MulticastHandleForBroadcast(
+      at::Tensor buffer,
+      int64_t root,
+      const std::string& name_suffix,
+      int64_t offset = 0);
 
   ~MulticastHandleForBroadcast() = default;
 
@@ -253,6 +262,36 @@ class MulticastHandleForBroadcast {
   std::vector<std::unique_ptr<UnicastHandle>> semaphore_handles_;
 };
 
+class MulticastHandleForAllgather {
+ public:
+  MulticastHandleForAllgather(Communication* communication, at::Tensor buffer);
+
+  ~MulticastHandleForAllgather() = default;
+
+  // Accessors for a specific root rank's handles
+  void* buffer_multicast_ptr(int64_t root_rank) const {
+    return broadcast_handles_[root_rank]->buffer_multicast_ptr();
+  }
+
+  void* semaphore_multicast_ptr(int64_t root_rank) const {
+    return broadcast_handles_[root_rank]->semaphore_multicast_ptr();
+  }
+
+  void* semaphore_unicast_ptr(int64_t root_rank, int64_t rank) const {
+    return broadcast_handles_[root_rank]->semaphore_unicast_ptr(rank);
+  }
+
+ private:
+  // Allgather is world_size broadcasts, each broadcasting a different slice
+  // One MulticastHandleForBroadcast per rank (each rank acts as root once)
+  std::vector<std::unique_ptr<MulticastHandleForBroadcast>> broadcast_handles_;
+};
+
+// Variant type that can hold either type of multicast handle
+using SymmetricMemoryHandle = std::variant<
+    std::unique_ptr<MulticastHandleForBroadcast>,
+    std::unique_ptr<MulticastHandleForAllgather>>;
+
 class MulticastHandleCache {
  public:
   MulticastHandleCache() = default;
@@ -274,13 +313,10 @@ class MulticastHandleCache {
     };
   };
 
-  const MulticastHandleForBroadcast& get(KeyType key);
+  const SymmetricMemoryHandle& get(KeyType key);
 
  private:
-  std::unordered_map<
-      KeyType,
-      std::unique_ptr<MulticastHandleForBroadcast>,
-      KeyType::Hash>
+  std::unordered_map<KeyType, SymmetricMemoryHandle, KeyType::Hash>
       handles_;
 };
 
