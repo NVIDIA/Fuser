@@ -25,8 +25,12 @@ TEST_F(ParallelDimTest, Basic) {
 
   fusion->getParallelDim(ParallelType::BIDx);
 
-  EXPECT_ANY_THROW(fusion->getParallelDim(ParallelType::Count););
+  fusion->getParallelDim(ParallelType::ClusterIDy);
+  fusion->getParallelDim(ParallelType::ClusterCtaIDy);
 
+  std::cout << fusion->parallelDimGraphMermaid() << std::endl;
+
+  EXPECT_ANY_THROW(fusion->getParallelDim(ParallelType::Count););
 }
 
 } // namespace nvfuser

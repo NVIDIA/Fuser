@@ -773,6 +773,18 @@ static const char* parallel_type2string(ParallelType t) {
       return "blockIdx.y";
     case ParallelType::BIDx:
       return "blockIdx.x";
+    case ParallelType::ClusterIDz:
+      return "clusterIdZ()";
+    case ParallelType::ClusterIDy:
+      return "clusterIdY()";
+    case ParallelType::ClusterIDx:
+      return "clusterIdX()";
+    case ParallelType::ClusterCtaIDz:
+      return "clusterCtaIdZ()";
+    case ParallelType::ClusterCtaIDy:
+      return "clusterCtaIdY()";
+    case ParallelType::ClusterCtaIDx:
+      return "clusterCtaIdX()";
     case ParallelType::TIDz:
       return "threadIdx.z";
     case ParallelType::TIDy:

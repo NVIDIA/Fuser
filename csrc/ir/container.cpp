@@ -12,6 +12,9 @@
 #include <ir/container.h>
 #include <ir/internal_nodes.h>
 
+#include <string>
+#include <vector>
+
 namespace nvfuser {
 
 void swap(IrContainer& a, IrContainer& b) noexcept {
@@ -437,6 +440,24 @@ ParallelDim* IrContainer::getParallelDim(ParallelType ptype) {
     case ParallelType::BIDx:
       dim = split_inner(getParallelDim(ParallelType::BIDy))->split().first;
       break;
+    case ParallelType::ClusterIDz:
+      dim = getParallelDim(ParallelType::BIDz)->split().first;
+      break;
+    case ParallelType::ClusterIDy:
+      dim = getParallelDim(ParallelType::BIDy)->split().first;
+      break;
+    case ParallelType::ClusterIDx:
+      dim = getParallelDim(ParallelType::BIDx)->split().first;
+      break;
+    case ParallelType::ClusterCtaIDz:
+      dim = split_inner(getParallelDim(ParallelType::BIDz));
+      break;
+    case ParallelType::ClusterCtaIDy:
+      dim = split_inner(getParallelDim(ParallelType::BIDy));
+      break;
+    case ParallelType::ClusterCtaIDx:
+      dim = split_inner(getParallelDim(ParallelType::BIDx));
+      break;
     case ParallelType::TIDz:
       dim = split_inner(getParallelDim(ParallelType::BIDx))->split().first;
       break;
@@ -469,6 +490,79 @@ ParallelDim* IrContainer::getParallelDim(ParallelType ptype) {
   dim->setParallelType(ptype);
   parallel_dim_map_.emplace(ptype, dim);
   return dim;
+}
+
+std::string IrContainer::parallelDimGraphMermaid() const {
+  std::stringstream ss;
+
+  ss << "graph TD\n";
+
+  const auto stmt_cmp = [](Statement* a, Statement* b) -> bool {
+    return a->name() < b->name();
+  };
+
+  // Gather all named dims
+  std::vector<ParallelDim*> named_dims;
+  named_dims.reserve(parallel_dim_map_.size());
+  for (auto [ptype, pdim] : parallel_dim_map_) {
+    named_dims.push_back(pdim);
+  }
+  // Sort named_dims for deterministic printing
+  std::sort(named_dims.begin(), named_dims.end(), stmt_cmp);
+  for (ParallelDim* pdim : named_dims) {
+    NVF_ERROR(pdim->getMaybeParallelType().has_value());
+    ss << "  d" << pdim->name() << "[\"" << pdim->getMaybeParallelType().value()
+       << "\"];\n";
+  }
+
+  // Now get all exprs connected to the named dims
+  std::unordered_set<ParallelDim*> processed_dims;
+  std::unordered_set<Expr*> processed_exprs;
+  std::vector<ParallelDim*> to_visit(named_dims.cbegin(), named_dims.cend());
+
+  while (!to_visit.empty()) {
+    ParallelDim* dim = to_visit.back();
+    to_visit.pop_back();
+    if (processed_dims.contains(dim)) {
+      continue;
+    }
+    processed_dims.insert(dim);
+
+    if (Expr* def = dim->definition()) {
+      processed_exprs.insert(def);
+      for (Val* producer : def->inputs()) {
+        if (auto* prod_dim = dynamic_cast<ParallelDim*>(producer)) {
+          to_visit.push_back(prod_dim);
+        }
+      }
+    }
+    for (Expr* use : dim->uses()) {
+      processed_exprs.insert(use);
+      for (Val* consumer : use->outputs()) {
+        if (auto* cons_dim = dynamic_cast<ParallelDim*>(consumer)) {
+          to_visit.push_back(cons_dim);
+        }
+      }
+    }
+  }
+
+  std::vector<Expr*> sorted_exprs(
+      processed_exprs.begin(), processed_exprs.end());
+  std::sort(sorted_exprs.begin(), sorted_exprs.end(), stmt_cmp);
+  for (Expr* expr : sorted_exprs) {
+    for (Val* inp_val : expr->inputs()) {
+      if (auto* inp_dim = dynamic_cast<ParallelDim*>(inp_val)) {
+        for (Val* outp_val : expr->outputs()) {
+          if (auto* outp_dim = dynamic_cast<ParallelDim*>(outp_val)) {
+            ss << "  d" << inp_dim->name() << " --> d" << outp_dim->name()
+               << ";\n";
+          }
+        }
+      }
+    }
+  }
+
+  return ss.str();
 }
 
 } // namespace nvfuser

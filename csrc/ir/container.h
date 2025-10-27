@@ -162,6 +162,10 @@ class IrContainer : public PolymorphicBase {
   //! type
   ParallelDim* getParallelDim(ParallelType ptype);
 
+  //! Returns a string of mermaid code representing the graph of ParallelDims in
+  //! this container
+  std::string parallelDimGraphMermaid() const;
+
  protected:
   static IrCloner copy(const IrContainer* from, IrContainer* to);
 
