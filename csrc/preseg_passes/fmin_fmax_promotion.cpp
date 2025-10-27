@@ -25,6 +25,17 @@ enum class ValStatus {
 
 using ValStatusMap = std::unordered_map<Val*, ValStatus>;
 
+bool isSafeReduction(Expr* expr) {
+  if (auto* rop = dynamic_cast<ReductionOp*>(expr)) {
+    auto reduction_type = rop->getReductionOpType();
+
+    return reduction_type != BinaryOpType::FMin &&
+        reduction_type != BinaryOpType::FMax;
+  }
+
+  return false;
+}
+
 bool AnyBadInputTvs(Expr* expr, ValStatusMap& valMap) {
   for (auto input : expr->inputs()) {
     if (auto* in_tv = dynamic_cast<TensorView*>(input)) {
@@ -125,7 +136,7 @@ bool AnalyzeReduceDomain(
     }
 
     bool mappedReduction = false;
-    if (expr->isA<ReductionOp>()) {
+    if (isSafeReduction(expr)) {
       if (valMap[expr->input(0)->as<TensorView>()] == ValStatus::DEFAULT ||
           valMap[expr->input(0)->as<TensorView>()] == ValStatus::BAD_DEFAULT) {
         for (IterDomain* out_id : out_tv->getLogicalDomain()) {
