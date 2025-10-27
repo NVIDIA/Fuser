@@ -3415,8 +3415,49 @@ class ParallelDim : public Val {
 
   std::string toInlineString(int indent_size = 0) const override;
 
-  //! Return the named scalar extent of a parallel dimension (e.g. blockDim.x)
-  static ParallelDim* getParallelDim(ParallelType p_type);
+  void setParallelType(ParallelType ptype);
+
+  const std::optional<ParallelType>& getMaybeParallelType() const {
+    return parallel_type_;
+  }
+
+  std::pair<ParallelDim*, ParallelDim*> split();
+
+ private:
+  std::optional<ParallelType> parallel_type_ = std::nullopt;
+};
+
+//! This represents a split of a ParallelDim into two parts
+class ParallelDimSplit : public Expr {
+ public:
+  using Expr::Expr;
+
+  ParallelDimSplit(
+      IrBuilderPasskey,
+      ParallelDim* outer,
+      ParallelDim* inner,
+      ParallelDim* input);
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  const char* getOpString() const override {
+    return "ParallelDimSplit";
+  }
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+
+  ParallelDim* outer() const {
+    return output(0)->as<ParallelDim>();
+  }
+
+  ParallelDim* inner() const {
+    return output(1)->as<ParallelDim>();
+  }
+
+  ParallelDim* in() const {
+    return input(0)->as<ParallelDim>();
+  }
 };
 
 } // namespace nvfuser

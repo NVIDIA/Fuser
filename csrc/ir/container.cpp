@@ -391,4 +391,84 @@ void IrContainer::removeStatementsCreatedAfter(
   }
 }
 
+ParallelDim* IrContainer::getParallelDim(ParallelType ptype) {
+  if (const auto it = parallel_dim_map_.find(ptype);
+      it != parallel_dim_map_.end()) {
+    return it->second;
+  }
+
+  // Given a ParallelDim which is assumed to be the outer dim of a split, return
+  // the inner dim of that split
+  const auto split_inner = [](ParallelDim* outer) {
+    auto* split = dynamic_cast<ParallelDimSplit*>(outer->definition());
+    NVF_ERROR(
+        split != nullptr,
+        outer->toString(),
+        " is required to be a split ParallelDim");
+    return split->inner();
+  };
+
+  ParallelDim* dim = nullptr;
+  switch (ptype) {
+    case ParallelType::DIDz: {
+      // This is the outer-most split. We start with all threads in the cluster
+      // and split by device-z first
+
+      // Create a new node to represent "all threads in the cluster"
+      auto* all_threads = IrBuilder::createInContainer<ParallelDim>(this);
+      auto [didz, inner] = all_threads->split();
+      dim = didz;
+      break;
+    }
+    case ParallelType::DIDy:
+      dim = split_inner(getParallelDim(ParallelType::DIDz))->split().first;
+      break;
+    case ParallelType::DIDx:
+      dim = split_inner(getParallelDim(ParallelType::DIDy))->split().first;
+      break;
+    case ParallelType::BIDz:
+      // The inner dimension after all of the DID splits represents "all threads
+      // on this device"
+      dim = split_inner(getParallelDim(ParallelType::DIDx))->split().first;
+      break;
+    case ParallelType::BIDy:
+      dim = split_inner(getParallelDim(ParallelType::BIDz))->split().first;
+      break;
+    case ParallelType::BIDx:
+      dim = split_inner(getParallelDim(ParallelType::BIDy))->split().first;
+      break;
+    case ParallelType::TIDz:
+      dim = split_inner(getParallelDim(ParallelType::BIDx))->split().first;
+      break;
+    case ParallelType::TIDy:
+      dim = split_inner(getParallelDim(ParallelType::TIDz))->split().first;
+      break;
+    case ParallelType::TIDx: {
+      dim = split_inner(getParallelDim(ParallelType::TIDy));
+      break;
+    }
+    case ParallelType::Stream:
+    case ParallelType::Vectorize:
+    case ParallelType::Unroll:
+    case ParallelType::Unswitch:
+    case ParallelType::Mma:
+    case ParallelType::Group:
+    case ParallelType::Bulk:
+    case ParallelType::Serial: {
+      // These ParallelTypes are not hierarchical. Each of them forms its own
+      // connected component in the ParallelType graph
+      dim = IrBuilder::createInContainer<ParallelDim>(this);
+      break;
+    }
+    case ParallelType::Count:
+      // This is not a real ParallelType.
+      NVF_THROW(
+          "Refusing to create ParallelDim to represent ParallelType::Count");
+      break;
+  }
+  dim->setParallelType(ptype);
+  parallel_dim_map_.emplace(ptype, dim);
+  return dim;
+}
+
 } // namespace nvfuser

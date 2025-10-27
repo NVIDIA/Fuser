@@ -13,6 +13,7 @@
 
 #include <exceptions.h>
 #include <ir/base_nodes.h>
+#include <type.h>
 #include <utils.h>
 #include <visibility.h>
 
@@ -23,6 +24,7 @@ class ExprPasskey;
 class OptOutMutator;
 
 class NamedScalar;
+class ParallelDim;
 
 // Passkey for container to register names with statements
 class IrContainerPasskey {
@@ -152,6 +154,10 @@ class IrContainer : public PolymorphicBase {
   void assumePositive(Val* val);
   void assumeNonNegative(Val* val);
 
+  //! Return or create a ParallelDim Val corresponding to the given parallel
+  //! type
+  ParallelDim* getParallelDim(ParallelType ptype);
+
  protected:
   static IrCloner copy(const IrContainer* from, IrContainer* to);
 
@@ -234,6 +240,8 @@ class IrContainer : public PolymorphicBase {
   std::unique_ptr<NamedScalar> magic_zero_val_;
   std::unique_ptr<std::vector<Val*>> axioms_;
   std::unordered_map<Val*, std::pair<Val*, Expr*>> metadata_;
+
+  std::unordered_map<ParallelType, ParallelDim*> parallel_dim_map_;
 };
 
 } // namespace nvfuser

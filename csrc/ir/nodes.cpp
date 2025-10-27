@@ -6412,7 +6412,7 @@ ParallelDim::ParallelDim(const ParallelDim* src, IrCloner* ir_cloner)
 
 NVFUSER_DEFINE_CLONE(ParallelDim)
 
-bool ParallelDim::sameAs(Statement* other) const {
+bool ParallelDim::sameAs(const Statement* other) const {
   if (this == other) {
     return true;
   }
@@ -6422,6 +6422,33 @@ bool ParallelDim::sameAs(Statement* other) const {
   return false;
 }
 
-std::string ParallelDim::toInlineString(int indent_size) const {}
+std::string ParallelDim::toInlineString(int indent_size) const {
+  if (parallel_type_.has_value()) {
+    std::stringstream ss;
+    ss << parallel_type_.value();
+    return ss.str();
+  }
+  return Val::toInlineString(indent_size);
+}
+
+void ParallelDim::setParallelType(ParallelType ptype) {
+  ParallelDim* existing_dim = container()->getParallelDim(ptype);
+  NVF_ERROR(
+      existing_dim == nullptr || existing_dim == this,
+      "Refusing to set parallel type of two distinct ParallelDims");
+  parallel_type_ = ptype;
+}
+
+std::pair<ParallelDim*, ParallelDim*> ParallelDim::split() {
+  // TODO: Should we reuse the existing Split Expr for IterDomains here?
+
+  auto* outer = IrBuilder::createInContainer<ParallelDim>(container());
+  auto* inner = IrBuilder::createInContainer<ParallelDim>(container());
+
+  IrBuilder::createInContainer<ParallelDimSplit>(
+      this->container(), outer, inner, this);
+
+  return {outer, inner};
+}
 
 } // namespace nvfuser

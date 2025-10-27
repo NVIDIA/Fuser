@@ -332,6 +332,8 @@ static const char* val_type2string(ValType t) {
       return "TensorIndex";
     case ValType::Stream:
       return "Stream";
+    case ValType::ParallelDim:
+      return "ParallelDim";
   }
   std::unreachable();
 }

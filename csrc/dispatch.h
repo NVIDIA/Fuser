@@ -64,7 +64,8 @@ class Val;
   f(IterDomain);                 \
   f(TensorDomain);               \
   f(TensorView);                 \
-  f(NamedScalar);
+  f(NamedScalar);                \
+  f(ParallelDim);
 #define DISPATCH_FOR_ALL_KIR_VALS(f) f(Predicate) f(TensorIndex)
 #define DISPATCH_FOR_ALL_HIR_VALS(f) f(Stream)
 
@@ -121,7 +122,8 @@ class Val;
   f(SdpaBwdOp);                      \
   f(EmbeddingFwdOp);                 \
   f(Communication);                  \
-  f(P2PCommunication);
+  f(P2PCommunication);               \
+  f(ParallelDimSplit);
 #define DISPATCH_FOR_ALL_KIR_EXPRS(f) \
   f(Allocate);                        \
   f(AllocTMem);                       \
