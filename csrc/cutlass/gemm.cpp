@@ -68,6 +68,7 @@ std::string generateNvfp4ScaledMmKernel(
   TensorView* b = smma->matrix2();
   TensorView* a_scale = smma->scale1();
   TensorView* b_scale = smma->scale2();
+  TensorView* bias = smma->bias();
 
   NVF_ERROR(a->isFusionInput());
   NVF_ERROR(b->isFusionInput());
@@ -202,7 +203,11 @@ struct Fp4GemmSm100 {
   // C/D matrix configuration
 )";
   code += "  using ElementD = " + output_dtype + ";\n";
-  code += "  using ElementC = " + output_dtype + ";\n";
+  if (bias != nullptr) {
+    code += "  using ElementC = " + dtypeToCutlass(bias->dtype()) + ";\n";
+  } else {
+    code += "  using ElementC = " + output_dtype + ";\n";
+  }
 
   NVF_ERROR(
       !main_output->hasAllocation(),

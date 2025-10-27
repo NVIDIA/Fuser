@@ -187,11 +187,13 @@ class EVTConverter : OptInDispatch {
 
     if (bias != nullptr) {
       // Make a node to load the bias
-      EVTModel::Node* bias_node = makeAuxLoadNode(bias);
-
+      EVTModel::Node* bias_node = model_.makeNode(
+          "cutlass::epilogue::fusion::Sm90SrcFetch<" +
+          dtypeToCutlass(bias->dtype()) + ">");
       if (beta != nullptr) {
         EVTModel::Node* beta_bcast_node = model_.makeNode(
-            "cutlass::epilogue::fusion::Sm90ScalarBroadcast<float>");
+            "cutlass::epilogue::fusion::Sm90ScalarBroadcast<" +
+            dtypeToCutlass(beta->dtype()) + ">");
         beta_bcast_node->arguments.emplace_back(
             "scalar_ptrs", "{" + getPointerCode(beta) + "}");
         // Note: this casts beta and bias to float then multiplies and outputs
