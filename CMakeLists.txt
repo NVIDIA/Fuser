@@ -1208,6 +1208,13 @@ if(BUILD_TEST)
   add_test(test_matmul "${MATMUL_TEST_SRCS}" "")
   list(APPEND TEST_BINARIES test_matmul)
 
+  set(PARALLELDIM_TEST_SRCS)
+  list(APPEND PARALLELDIM_TEST_SRCS
+    ${NVFUSER_ROOT}/tests/cpp/test_parallel_dim.cpp
+  )
+  add_test(test_parallel_dim "${PARALLELDIM_TEST_SRCS}" "")
+  list(APPEND TEST_BINARIES test_parallel_dim)
+
   add_test(test_greedy "${NVFUSER_ROOT}/tests/cpp/test_greedy.cpp" "")
   list(APPEND TEST_BINARIES test_greedy)
 

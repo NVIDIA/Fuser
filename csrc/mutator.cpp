@@ -96,6 +96,8 @@ void OptOutMutator::mutate(Val* s) {}
 
 void OptOutMutator::mutate(NamedScalar* ns) {}
 
+void OptOutMutator::mutate(ParallelDim* pd) {}
+
 void OptOutMutator::mutate(IterDomain* id) {
   Val* start = maybeMutated(id->start());
   Val* extent = maybeMutated(id->extent());

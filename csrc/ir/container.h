@@ -154,6 +154,10 @@ class IrContainer : public PolymorphicBase {
   void assumePositive(Val* val);
   void assumeNonNegative(Val* val);
 
+  bool hasParallelDim(ParallelType ptype) {
+    return parallel_dim_map_.contains(ptype);
+  }
+
   //! Return or create a ParallelDim Val corresponding to the given parallel
   //! type
   ParallelDim* getParallelDim(ParallelType ptype);

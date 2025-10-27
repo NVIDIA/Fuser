@@ -3444,7 +3444,9 @@ class ParallelDimSplit : public Expr {
     return "ParallelDimSplit";
   }
 
-  std::string toString(int indent_size = 0) const override;
+  std::string toString(int indent_size = 0) const override {
+    return toInlineString(indent_size);
+  }
   std::string toInlineString(int indent_size = 0) const override;
 
   ParallelDim* outer() const {

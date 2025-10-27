@@ -6432,9 +6432,9 @@ std::string ParallelDim::toInlineString(int indent_size) const {
 }
 
 void ParallelDim::setParallelType(ParallelType ptype) {
-  ParallelDim* existing_dim = container()->getParallelDim(ptype);
   NVF_ERROR(
-      existing_dim == nullptr || existing_dim == this,
+      !container()->hasParallelDim(ptype) ||
+          container()->getParallelDim(ptype) == this,
       "Refusing to set parallel type of two distinct ParallelDims");
   parallel_type_ = ptype;
 }
@@ -6450,5 +6450,24 @@ std::pair<ParallelDim*, ParallelDim*> ParallelDim::split() {
 
   return {outer, inner};
 }
+
+ParallelDimSplit::ParallelDimSplit(
+    IrBuilderPasskey passkey,
+    ParallelDim* outer,
+    ParallelDim* inner,
+    ParallelDim* input)
+    : Expr(passkey) {
+  addInput(input);
+  addOutput(outer);
+  addOutput(inner);
+}
+
+std::string ParallelDimSplit::toInlineString(int indent_size) const {
+  std::stringstream ss;
+  ss << "parallelDimSplit(" << in()->toInlineString() << ")";
+  return ss.str();
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(ParallelDimSplit)
 
 } // namespace nvfuser
