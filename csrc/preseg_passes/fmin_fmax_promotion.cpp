@@ -10,6 +10,7 @@
 #include <unordered_map>
 #include <vector>
 
+#include <id_model/id_model.h>
 #include <ir/utils.h>
 #include <logical_domain_map.h>
 
@@ -92,8 +93,7 @@ bool anyBadDefaultInputTvs(Expr* expr, ValStatusMap& val_map) {
 
 bool analyzeReduceDomain(
     ReductionOp* targetRop,
-    IterDomain* reduceIn,
-    ComputeAtLogicalDomainMap& logical_map) {
+    const ValGroup& reduce_axis_id_group) {
   Fusion* fusion = targetRop->fusion();
 
   auto* in_tv = targetRop->input(0)->as<TensorView>();
@@ -137,17 +137,17 @@ bool analyzeReduceDomain(
       continue;
     }
 
+    // Here we handle the repair of squelched NAN's. This happens when
+    // IterDomain's with DEFAULT data are safely reduced.
     bool mappedReduction = false;
     if (isSafeReduction(expr)) {
       if (val_map[expr->input(0)->as<TensorView>()] == ValStatus::DEFAULT ||
           val_map[expr->input(0)->as<TensorView>()] == ValStatus::BAD_DEFAULT) {
         for (IterDomain* out_id : out_tv->getLogicalDomain()) {
           if (out_id->isReduction()) {
-            if (logical_map.canMap(
-                    targetRop->input(0)->as<TensorView>()->domain(),
-                    reduceIn,
-                    out_tv->domain(),
-                    out_id)) {
+            // This id_group check verifies that the reduction axis matches
+            // the axis of the target unsafe reduction.
+            if (reduce_axis_id_group->has(out_id)) {
               val_map[out_tv] = ValStatus::GOOD;
               mappedReduction = true;
               break;
@@ -193,23 +193,15 @@ bool analyzeReduceDomain(
 }
 
 bool analyzeMinMaxOp(ReductionOp* targetRop) {
-  auto* in_tv = targetRop->input(0)->as<TensorView>();
   auto* out_tv = targetRop->output(0)->as<TensorView>();
 
-  ComputeAtLogicalDomainMap logical_map;
-  logical_map.build(true);
-
-  auto c2p = logical_map.mapBestEffort(
-      out_tv->domain(),
-      out_tv->getLogicalDomain(),
-      in_tv->domain(),
-      in_tv->getLogicalDomain());
+  IdModel id_model(targetRop->fusion(), true);
+  const ValGraph& perm_graph = id_model.idGraph(IdMappingMode::PERMISSIVE);
 
   for (IterDomain* out_id : out_tv->getLogicalDomain()) {
     if (out_id->isReduction()) {
-      IterDomain* in_id = c2p[out_id];
-
-      if (!analyzeReduceDomain(targetRop, in_id, logical_map)) {
+      const ValGroup& reduce_axis_id_group = perm_graph.toGroup(out_id);
+      if (!analyzeReduceDomain(targetRop, reduce_axis_id_group)) {
         return false;
       }
     }
