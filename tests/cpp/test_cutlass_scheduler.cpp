@@ -13,6 +13,7 @@
 #include <c10/cuda/CUDAStream.h>
 #include <gtest/gtest.h>
 
+#include <cutlass/evt.h>
 #include <fusion.h>
 #include <ops/all_ops.h>
 #include <runtime/cutlass_compiled_kernel.h>
@@ -368,6 +369,155 @@ TEST_F(CutlassExecutorTest, Nvfp4MatmulReLU) {
   KernelArgumentHolder outputs = ce.run(inputs);
 
   testValidate(fusion.get(), outputs, inputs, __LINE__, __FILE__);
+}
+
+// Test findBlockScaledOutputs pattern matching
+TEST_F(CutlassExecutorTest, FindBlockScaledOutputs_WithoutGlobalScale) {
+  constexpr int64_t block_size = 16;
+  constexpr double F4_E2M1_MAX = 6.0;
+  constexpr double E4M3_EPS = 0.015625;
+  constexpr double F8E4M3_MAX = 448.0;
+
+  std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  auto tv_data_hp = makeContigTensor(2, DataType::Float);
+  fusion->addInput(tv_data_hp);
+
+  auto tv_data_hp_reshaped =
+      reshape(tv_data_hp, [](auto& x) { x.split(-1, block_size); });
+
+  auto tv_data_hp_abs = abs(tv_data_hp_reshaped);
+  auto tv_data_hp_amax = max(tv_data_hp_abs, {-1});
+  auto tv_block_scale = div(
+      tv_data_hp_amax, IrBuilder::create<Val>(F4_E2M1_MAX, DataType::Float));
+  auto tv_block_scale_clamp = clamp(
+      tv_block_scale,
+      IrBuilder::create<Val>(E4M3_EPS, DataType::Float),
+      IrBuilder::create<Val>(F8E4M3_MAX, DataType::Float));
+  auto tv_block_scale_fp8 =
+      castOp(DataType::Float8_e4m3fn, tv_block_scale_clamp);
+  auto tv_block_scale_fp32 = castOp(DataType::Float, tv_block_scale_fp8);
+  auto tv_block_scale_fp32_unsqueeze = unsqueeze(tv_block_scale_fp32, -1);
+  auto tv_data_scaled = div(tv_data_hp_reshaped, tv_block_scale_fp32_unsqueeze);
+  auto tv_data_scaled_clamp = clamp(
+      tv_data_scaled,
+      IrBuilder::create<Val>(-F4_E2M1_MAX, DataType::Float),
+      IrBuilder::create<Val>(F4_E2M1_MAX, DataType::Float));
+
+  auto tv_data_lp_fp4 = castOp(DataType::Float4_e2m1fn, tv_data_scaled_clamp);
+  auto tv_data_lp = reshape(tv_data_lp_fp4, [](auto& x) { x.merge(-2); });
+
+  fusion->addOutput(tv_block_scale_fp8);
+  fusion->addOutput(tv_data_lp);
+
+  // Test pattern matching
+  auto patterns = cutlass_codegen::findBlockScaledOutputs(fusion.get());
+
+  EXPECT_EQ(patterns.size(), 1);
+  EXPECT_EQ(patterns[0].output, tv_data_lp);
+  EXPECT_EQ(patterns[0].prescaled_output, tv_data_scaled_clamp);
+  EXPECT_EQ(patterns[0].block_scale_factors, tv_block_scale_fp8);
+  EXPECT_EQ(patterns[0].global_scale_factor, nullptr);
+  EXPECT_EQ(patterns[0].block_size, block_size);
+}
+
+TEST_F(CutlassExecutorTest, FindBlockScaledOutputs_WithGlobalScale) {
+  constexpr int64_t block_size = 16;
+  constexpr double F4_E2M1_MAX = 6.0;
+  constexpr double E4M3_EPS = 0.015625;
+  constexpr double F8E4M3_MAX = 448.0;
+
+  std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  auto tv_data_hp = makeContigTensor(2, DataType::Float);
+  auto tv_per_tensor_scale = makeContigTensor(0, DataType::Float);
+  fusion->addInput(tv_data_hp);
+  fusion->addInput(tv_per_tensor_scale);
+
+  auto tv_data_hp_reshaped =
+      reshape(tv_data_hp, [](auto& x) { x.split(-1, block_size); });
+
+  auto tv_data_hp_abs = abs(tv_data_hp_reshaped);
+  auto tv_data_hp_amax = max(tv_data_hp_abs, {-1});
+  auto tv_block_scale = div(
+      tv_data_hp_amax, IrBuilder::create<Val>(F4_E2M1_MAX, DataType::Float));
+
+  auto tv_scaled_block_scales = div(tv_block_scale, tv_per_tensor_scale);
+  auto tv_scaled_block_scales_clamp = clamp(
+      tv_scaled_block_scales,
+      IrBuilder::create<Val>(E4M3_EPS, DataType::Float),
+      IrBuilder::create<Val>(F8E4M3_MAX, DataType::Float));
+  auto tv_scaled_block_scales_fp8 =
+      castOp(DataType::Float8_e4m3fn, tv_scaled_block_scales_clamp);
+  auto tv_scaled_block_scales_fp32 =
+      castOp(DataType::Float, tv_scaled_block_scales_fp8);
+
+  auto tv_total_scale = mul(tv_per_tensor_scale, tv_scaled_block_scales_fp32);
+  auto tv_total_scale_unsqueeze = unsqueeze(tv_total_scale, -1);
+  auto tv_data_scaled = div(tv_data_hp_reshaped, tv_total_scale_unsqueeze);
+
+  auto tv_data_scaled_clamp = clamp(
+      tv_data_scaled,
+      IrBuilder::create<Val>(-F4_E2M1_MAX, DataType::Float),
+      IrBuilder::create<Val>(F4_E2M1_MAX, DataType::Float));
+
+  auto tv_data_lp_fp4 = castOp(DataType::Float4_e2m1fn, tv_data_scaled_clamp);
+  auto tv_data_lp = reshape(tv_data_lp_fp4, [](auto& x) { x.merge(-2); });
+
+  fusion->addOutput(tv_scaled_block_scales_fp8);
+  fusion->addOutput(tv_data_lp);
+
+  // Test pattern matching
+  auto patterns = cutlass_codegen::findBlockScaledOutputs(fusion.get());
+
+  EXPECT_EQ(patterns.size(), 1);
+  EXPECT_EQ(patterns[0].output, tv_data_lp);
+  EXPECT_EQ(patterns[0].prescaled_output, tv_data_scaled_clamp);
+  EXPECT_EQ(patterns[0].block_scale_factors, tv_scaled_block_scales_fp8);
+  EXPECT_EQ(patterns[0].global_scale_factor, tv_per_tensor_scale);
+  EXPECT_EQ(patterns[0].block_size, block_size);
+}
+
+TEST_F(CutlassExecutorTest, FindBlockScaledOutputs_MXFP8) {
+  constexpr int64_t block_size = 32;
+  constexpr double FP8_MAX = 448.0;
+
+  std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  auto tv_data_hp = makeContigTensor(2, DataType::Float);
+  fusion->addInput(tv_data_hp);
+
+  auto tv_data_hp_reshaped =
+      reshape(tv_data_hp, [](auto& x) { x.split(-1, block_size); });
+
+  auto tv_data_hp_abs = abs(tv_data_hp_reshaped);
+  auto tv_data_hp_amax = max(tv_data_hp_abs, {-1});
+  auto tv_block_scale = div(
+      tv_data_hp_amax, IrBuilder::create<Val>(FP8_MAX, DataType::Float));
+  auto tv_block_scale_fp8 =
+      castOp(DataType::Float8_e4m3fn, tv_block_scale);
+  auto tv_block_scale_fp32 = castOp(DataType::Float, tv_block_scale_fp8);
+  auto tv_block_scale_fp32_unsqueeze = unsqueeze(tv_block_scale_fp32, -1);
+  auto tv_data_scaled = div(tv_data_hp_reshaped, tv_block_scale_fp32_unsqueeze);
+
+  auto tv_data_lp_fp8 = castOp(DataType::Float8_e4m3fn, tv_data_scaled);
+  auto tv_data_lp = reshape(tv_data_lp_fp8, [](auto& x) { x.merge(-2); });
+
+  fusion->addOutput(tv_block_scale_fp8);
+  fusion->addOutput(tv_data_lp);
+
+  // Test pattern matching for FP8 output (MXFP8)
+  auto patterns = cutlass_codegen::findBlockScaledOutputs(fusion.get());
+
+  EXPECT_EQ(patterns.size(), 1);
+  EXPECT_EQ(patterns[0].output, tv_data_lp);
+  EXPECT_EQ(patterns[0].prescaled_output, tv_data_scaled);
+  EXPECT_EQ(patterns[0].block_scale_factors, tv_block_scale_fp8);
+  EXPECT_EQ(patterns[0].global_scale_factor, nullptr);
+  EXPECT_EQ(patterns[0].block_size, block_size);
 }
 
 } // namespace nvfuser
