@@ -46,9 +46,13 @@ TensorView* getAccTv(Fusion* fusion) {
 }
 
 struct BlockScaledOutputPattern {
-  TensorView* output;
-  TensorView* output_scale_factors;
   TensorView* prescaled_output;
+
+  TensorView* output;
+  TensorView* block_scale_factors;
+  TensorView* global_scale_factor;
+
+  int64_t block_size;
 };
 
 // This matches a standard block scaling pattern expressed in Fusion IR like
@@ -61,6 +65,9 @@ std::vector<BlockScaledOutputPattern> findBlockScaledOutputs(Fusion* fusion) {
     if (out_tv == nullptr) {
       continue;
     }
+    // Match scale factor
+
+    // Match
   }
 
   return patterns;
