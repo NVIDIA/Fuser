@@ -6513,4 +6513,70 @@ std::vector<PolymorphicValue> BlockQuantizationOp::evaluate(
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(BlockQuantizationOp)
 
+LaunchDependentGridOp::LaunchDependentGridOp(
+    IrBuilderPasskey passkey,
+    Val* output,
+    std::vector<Val*> inputs)
+    : Expr(passkey) {
+  addOutput(output);
+  for (auto input : inputs) {
+    addInput(input);
+  }
+}
+
+std::string LaunchDependentGridOp::toString(int indent_size) const {
+  NVF_CHECK_EQ(outputs().size(), 1);
+  std::stringstream ss;
+  indent(ss, indent_size) << output(0)->toString() << " = "
+                          << "launchDependentGrid("
+                          << toDelimitedString(inputs()) << ")\n";
+  return ss.str();
+}
+
+std::string LaunchDependentGridOp::toInlineString(int indent_size) const {
+  NVF_CHECK(false, "LaunchDependentGridOp can not be printed inline");
+}
+
+std::vector<PolymorphicValue> LaunchDependentGridOp::evaluate(
+    const ExpressionEvaluator& ee,
+    const std::vector<PolymorphicValue>& inputs) const {
+  // This is a placeholder, currently we don't have a fallback kernel available
+  NVF_THROW("LaunchDependentGridOp evaluation not yet implemented");
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(LaunchDependentGridOp)
+
+WaitForPriorGridOp::WaitForPriorGridOp(
+    IrBuilderPasskey passkey,
+    Val* output,
+    std::vector<Val*> inputs)
+    : Expr(passkey) {
+  addOutput(output);
+  for (auto input : inputs) {
+    addInput(input);
+  }
+}
+
+std::string WaitForPriorGridOp::toString(int indent_size) const {
+  NVF_CHECK_EQ(outputs().size(), 1);
+  std::stringstream ss;
+  indent(ss, indent_size) << output(0)->toString() << " = "
+                          << "waitForPriorGrid(" << toDelimitedString(inputs())
+                          << ")\n";
+  return ss.str();
+}
+
+std::string WaitForPriorGridOp::toInlineString(int indent_size) const {
+  NVF_CHECK(false, "WaitForPriorGridOp can not be printed inline");
+}
+
+std::vector<PolymorphicValue> WaitForPriorGridOp::evaluate(
+    const ExpressionEvaluator& ee,
+    const std::vector<PolymorphicValue>& inputs) const {
+  // This is a placeholder, currently we don't have a fallback kernel available
+  NVF_THROW("WaitForPriorGridOp evaluation not yet implemented");
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(WaitForPriorGridOp)
+
 } // namespace nvfuser
