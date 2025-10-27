@@ -223,6 +223,25 @@ void bindSchedule(py::class_<FusionDefinition>& fusion_def) {
       py::arg("tensor"),
       py::arg("memory_type"));
   nvf_sched.def(
+      "circular_buffer",
+      [](FusionDefinition::SchedOperators& self,
+         Tensor tensor,
+         int64_t number_of_stages,
+         int64_t prefetch_distance,
+         const CircularBufferType& type) {
+        NVF_CHECK(
+            self.validUse(),
+            "Attempting to use a SchedOperators Op prior to definition!");
+        FusionDefinition* fd = self.fusion_definition;
+        TensorView* tv =
+            fd->getFusionState(tensor.index)->template as<TensorView>();
+        tv->circularBuffer(number_of_stages, prefetch_distance, type);
+      },
+      py::arg("tensor"),
+      py::arg("number_of_stages"),
+      py::arg("prefetch_distance") = -1,
+      py::arg("type") = Pipelined(false));
+  nvf_sched.def(
       "transform_like",
       [](FusionDefinition::SchedOperators& self,
          Tensor tensor,

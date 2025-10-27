@@ -1548,6 +1548,144 @@ TEST_F(PointwiseTest, PointwiseMulMultiWaveTMA) {
   testValidate(&fusion, out_tensors, {t0, t1}, __LINE__, __FILE__);
 }
 
+TEST_F(PointwiseTest, PointwiseMulBcastNonTMA) {
+  int64_t dim0 = 8192, dim1 = 8192;
+  DataType dtype = DataType::BFloat16;
+
+  auto fusion_ptr = std::make_unique<Fusion>();
+  FusionGuard fg(fusion_ptr.get());
+  Fusion& fusion = *fusion_ptr;
+
+  // Input tensors
+  auto tv0 = makeContigConcreteTensor({dim0}, dtype);
+  auto tv1 = makeContigConcreteTensor({dim1}, dtype);
+  fusion.addInput(tv0);
+  fusion.addInput(tv1);
+
+  // Data type conversion and computation
+  auto tv0_float = maybeCastOp(DataType::Float, tv0);
+  auto tv1_float = maybeCastOp(DataType::Float, tv1);
+  auto tv0_bcast = broadcast(tv0_float, {false, true});
+  auto tv1_bcast = broadcast(tv1_float, {true, false});
+  auto tv2 = mul(tv0_bcast, tv1_bcast);
+  auto tv3 = maybeCastOp(dtype, tv2);
+  fusion.addOutput(tv3);
+
+  auto options =
+      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
+  auto t0 = at::randn({dim0}, options);
+  auto t1 = at::randn({dim1}, options);
+
+  auto cg_results = scheduleAndRun(&fusion, SchedulerType::PointWise, {t0, t1});
+  testValidate(&fusion, cg_results.outputs, {t0, t1}, __LINE__, __FILE__);
+}
+
+// TEST_F(PointwiseTest, PointwiseMulInnerBcastMultiWaveTMA) {
+//   int64_t dim0 = 8192, dim1 = 8192;
+//   DataType dtype = DataType::BFloat16;
+
+//   auto fusion_ptr = std::make_unique<Fusion>();
+//   FusionGuard fg(fusion_ptr.get());
+//   Fusion& fusion = *fusion_ptr;
+
+//   // Input tensors
+//   auto tv0 = makeContigConcreteTensor({dim0, dim1}, dtype);
+//   auto tv1 = makeContigConcreteTensor({dim0}, dtype);
+//   fusion.addInput(tv0);
+//   fusion.addInput(tv1);
+
+//   // Data type conversion and computation
+//   auto tv0_float = maybeCastOp(DataType::Float, tv0);
+//   auto tv1_float = maybeCastOp(DataType::Float, tv1);
+//   auto tv1_bcast = broadcast(tv1_float, {false, true});
+//   auto tv2 = mul(tv0_float, tv1_bcast);
+//   auto tv3 = maybeCastOp(dtype, tv2);
+//   fusion.addOutput(tv3);
+
+//   // Create TMA loads from inputs to shared memory
+//   auto tv0_smem = tv0->cacheAfter(LoadStoreOpType::CpAsyncBulkTensorTile);
+//   tv0_smem->setMemoryType(MemoryType::Shared);
+
+//   auto tv1_smem = tv1->cacheAfter(LoadStoreOpType::CpAsyncBulkTensorTile);
+//   tv1_smem->setMemoryType(MemoryType::Shared);
+
+//   // Cache loads from shared memory to registers (vectorized)
+//   auto tv0_reg = tv0_smem->cacheAfter();
+//   auto tv1_reg = tv1_smem->cacheAfter();
+
+//   // Cache output for vectorized store
+//   auto tv3_cache = tv3->cacheBefore();
+
+//   // Tile sizes, best configuration on gb200
+//   // num_sms=152, blocks_per_sm=6, warps_per_sm=24, occupancy=37.50%
+//   // 1.05x speedup over default without tma, 7450 GB/s, 94% SOL
+//   // hardware bandwidt is 3996 * 7936/8*2 = 7928 GB/s
+//   int64_t vect_factor = 128L / dataTypeSizeBit(dtype);
+//   TileMN tma_tile = {64, 128};
+//   TileMN blk_tile = {8, 16}; // [TIDy, TIDx]
+//   TileMN tid_tile = {2, vect_factor}; // [Unroll, Vectorize]
+
+//   // Schedule TMA load tensors
+//   std::vector<TensorView*> tma_tvs = {tv0_smem, tv1_smem};
+//   for (auto tv : tma_tvs) {
+//     // [I0, I1] -> [I0/m, m, I1/n, n]
+//     tv->split(0, tma_tile.m);
+//     tv->split(-1, tma_tile.n);
+//     // [I0/m, m, I1/n, n] --> [I0/m, I1/n, m, n]
+//     tv->reorder({{1, 2}});
+//     // Parallelize
+//     tv->axis(0)->parallelize(ParallelType::BIDy);
+//     tv->axis(1)->parallelize(ParallelType::BIDx);
+//     tv->axis(2)->parallelize(ParallelType::Bulk);
+//     tv->axis(3)->parallelize(ParallelType::Bulk);
+//   }
+
+//   // Schedule all compute tensors (registers and output)
+//   std::vector<TensorView*> compute_tvs = {
+//       tv0_reg, tv1_reg, tv0_float, tv1_float, tv2, tv3_cache, tv3};
+
+//   for (auto tv : compute_tvs) {
+//     // [I0, I1] -> [I0/m, m, I1/n, n]
+//     tv->split(0, tma_tile.m);
+//     tv->split(-1, tma_tile.n);
+//     // [I0/m, m, I1/n, n] -> [I0/m, m/u, u, I1/n, n/v, v]
+//     tv->split(1, tid_tile.m);
+//     tv->split(-1, tid_tile.n);
+//     // [I0/m, m/u, u, I1/n, n/v, v] -> [I0/m, m/u/y, y, u, I1/n, n/v/x, x, v]
+//     tv->split(1, blk_tile.m);
+//     tv->split(-2, blk_tile.n);
+//     // [I0/m, m/u/y, y, u, I1/n, n/v/x, x, v] -> [I0/m, I1/n, m/u/y, n/v/x,
+//     y,
+//     // x, u, v]
+//     tv->reorder({{1, 2}, {2, 4}, {3, 6}, {4, 1}, {5, 3}, {6, 5}});
+
+//     // Parallelize
+//     tv->axis(0)->parallelize(ParallelType::BIDy);
+//     tv->axis(1)->parallelize(ParallelType::BIDx);
+//     tv->axis(4)->parallelize(ParallelType::TIDy);
+//     tv->axis(5)->parallelize(ParallelType::TIDx);
+//     tv->axis(6)->parallelize(ParallelType::Unroll);
+//     // Only vectorize the cache tensors (loads and stores)
+//     if (tv == tv0_reg || tv == tv1_reg || tv == tv3) {
+//       tv->axis(7)->parallelize(ParallelType::Vectorize);
+//     }
+//   }
+
+//   // Inline most tensors
+//   inlineMost();
+
+//   auto options =
+//       at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA,
+//       0);
+//   auto t0 = at::randn({dim0, dim1}, options);
+//   auto t1 = at::randn({dim0, dim1}, options);
+
+//   KernelExecutor ke;
+//   ke.compile(&fusion, {t0, t1});
+//   auto out_tensors = ke.run({t0, t1});
+//   testValidate(&fusion, out_tensors, {t0, t1}, __LINE__, __FILE__);
+// }
+
 TEST_F(PointwiseTest, PointwiseMulPersistentWsTMA) {
   int64_t dim0 = 8192, dim1 = 8192;
   DataType dtype = DataType::BFloat16;
@@ -1710,7 +1848,7 @@ TEST_F(PointwiseTest, TMP2) {
   // Constants
   TileMN tma_tile = {32, 256};
   TileMN tid_tile = {4, 8}; // [Unroll, Vectorize]
-  TileMN blk_tile = {1, 256}; // [TIDy, TIDx]
+  TileMN blk_tile = {2, 128}; // [TIDy, TIDx]
   bool fully_reg_cached = true;
 
   // [I0, I1] -> [I0/m, m, I1/n, n]
@@ -1747,16 +1885,22 @@ TEST_F(PointwiseTest, TMP2) {
       tv0_reg, tv1_reg, tv0_float, tv1_float, tv2, tv3_cache, tv3};
 
   for (auto tv : compute_tvs) {
+    // [..., m, n] -> [..., mn]
     tv->merge(-2, -1);
+    // [..., mn] -> [..., mn/v, v]
     tv->split(-1, tid_tile.n);
+    // [..., mn/v, v] -> [..., mn/v/x, x, v]
     tv->split(-2, blk_tile.n);
+    // [..., mn/v/x, x, v] -> [..., mn/v/x/u, u, x, v]
     tv->split(-3, tid_tile.m);
 
     // Parallelize
     if (blk_tile.m > 1) {
+      // [y, sm, I/sm/y, ...]
       tv->axis(0)->parallelize(ParallelType::TIDy);
       tv->axis(1)->parallelize(ParallelType::BIDx);
     } else {
+      // [sm, I/sm, ...]
       tv->axis(0)->parallelize(ParallelType::BIDx);
     }
     tv->axis(-2)->parallelize(ParallelType::TIDx);
@@ -1777,7 +1921,9 @@ TEST_F(PointwiseTest, TMP2) {
   // Circular Buffer with TMA loads
   int64_t number_of_stages = 4;
   int64_t prefetch_distance = number_of_stages - 1;
-  CircularBufferType circular_buffer_type = WarpSpecialized(ParallelType::TIDx);
+  CircularBufferType circular_buffer_type = blk_tile.m > 1
+      ? WarpSpecialized(ParallelType::TIDy)
+      : WarpSpecialized(ParallelType::TIDx);
   // WarpSpecialized(ParallelType::TIDy, std::make_pair(40L, 232L));
   std::vector<TensorView*> tma_tvs = {tv0_smem, tv1_smem};
   for (auto tv : tma_tvs) {
@@ -1786,6 +1932,125 @@ TEST_F(PointwiseTest, TMP2) {
     } else {
       tv->axis(0)->parallelize(ParallelType::BIDx);
     }
+    tv->axis(-1)->parallelize(ParallelType::Bulk);
+    tv->axis(-2)->parallelize(ParallelType::Bulk);
+    tv->circularBuffer(
+        number_of_stages, prefetch_distance, circular_buffer_type);
+  }
+
+  auto options =
+      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
+  auto t0 = at::randn({dim0, dim1}, options);
+  auto t1 = at::randn({dim0, dim1}, options);
+
+  KernelExecutor ke;
+  ke.compile(&fusion, {t0, t1});
+  auto out_tensors = ke.run({t0, t1});
+  testValidate(&fusion, out_tensors, {t0, t1}, __LINE__, __FILE__);
+}
+
+TEST_F(PointwiseTest, TMP3) {
+  int64_t dim0 = 8192, dim1 = 8192;
+  DataType dtype = DataType::BFloat16;
+
+  auto fusion_ptr = std::make_unique<Fusion>();
+  FusionGuard fg(fusion_ptr.get());
+  Fusion& fusion = *fusion_ptr;
+
+  // Input tensors
+  auto tv0 = makeContigConcreteTensor({dim0, dim1}, dtype);
+  auto tv1 = makeContigConcreteTensor({dim0, dim1}, dtype);
+  fusion.addInput(tv0);
+  fusion.addInput(tv1);
+
+  // Data type conversion and computation
+  auto tv0_float = maybeCastOp(DataType::Float, tv0);
+  auto tv1_float = maybeCastOp(DataType::Float, tv1);
+  auto tv2 = mul(tv0_float, tv1_float);
+  auto tv3 = maybeCastOp(dtype, tv2);
+  fusion.addOutput(tv3);
+
+  // Create TMA loads from inputs to shared memory
+  auto tv0_smem = tv0->cacheAfter(LoadStoreOpType::CpAsyncBulkTensorTile);
+  tv0_smem->setMemoryType(MemoryType::Shared);
+
+  auto tv1_smem = tv1->cacheAfter(LoadStoreOpType::CpAsyncBulkTensorTile);
+  tv1_smem->setMemoryType(MemoryType::Shared);
+
+  // Cache loads from shared memory to registers (vectorized)
+  auto tv0_reg = tv0_smem->cacheAfter();
+  auto tv1_reg = tv1_smem->cacheAfter();
+
+  // Cache output for vectorized store
+  auto tv3_cache = tv3->cacheBefore();
+
+  auto reference = tv3;
+
+  // Constants
+  TileMN tma_tile = {32, 256};
+  TileMN tid_tile = {4, 8}; // [Unroll, Vectorize]
+  TileMN blk_tile = {1, 256}; // [TIDy, TIDx]
+  bool fully_reg_cached = true;
+
+  // [I0, I1] -> [I0/m, m, I1/n, n]
+  reference->split(0, tma_tile.m);
+  reference->split(-1, tma_tile.n);
+  // [I0/m, m, I1/n, n] -> [I0/m, I1/n, m, n]
+  reference->reorder({{1, 2}});
+  // [I0/m, I1/n, m, n] -> [I/sm, sm, m, n]
+  reference->merge(0, 1);
+  reference->split(0, getNumSMs());
+  // [I/sm, sm, m, n] -> [sm, I/sm, m, n]
+  reference->reorder({{0, 1}});
+
+  // Propagate TMA transform
+  TransformPropagatorWithCheck propagator(reference);
+  MaxLogicalDomainInfoSpanningTree(reference).traverse(&propagator);
+
+  // Apply inlineAt for TMA cache
+  inlineAllAt(reference, /*pos=*/2);
+
+  // Schedule all compute tensors (registers and output)
+  std::vector<TensorView*> compute_tvs = {
+      tv0_reg, tv1_reg, tv0_float, tv1_float, tv2, tv3_cache, tv3};
+
+  for (auto tv : compute_tvs) {
+    // [..., m, n] -> [..., mn]
+    tv->merge(-2, -1);
+    // [..., mn] -> [..., mn/v, v]
+    tv->split(-1, tid_tile.n);
+    // [..., mn/v, v] -> [..., mn/v/x, x, v]
+    tv->split(-2, blk_tile.n);
+    // [..., mn/v/x, x, v] -> [..., mn/v/x/u, u, x, v]
+    tv->split(-3, tid_tile.m);
+
+    // Parallelize
+
+    // [sm, I/sm, ...]
+    tv->axis(0)->parallelize(ParallelType::BIDx);
+    tv->axis(-2)->parallelize(ParallelType::TIDx);
+    tv->axis(-3)->parallelize(ParallelType::Unroll);
+    if (tv == tv0_reg || tv == tv1_reg || tv == tv3) {
+      tv->axis(-1)->parallelize(ParallelType::Vectorize);
+    }
+  }
+  if (!fully_reg_cached) {
+    inlineMost(compute_tvs);
+  } else {
+    inlineSelectedAt({tv0_reg, tv1_reg}, tv0_reg, 2);
+    auto all_other_tvs =
+        ir_utils::allTvsExcept(&fusion, {tv0_reg, tv1_reg, tv0_smem, tv1_smem});
+    inlineMost(all_other_tvs);
+  }
+
+  // Circular Buffer with TMA loads
+  int64_t number_of_stages = 4;
+  int64_t prefetch_distance = number_of_stages - 1;
+  CircularBufferType circular_buffer_type =
+      WarpSpecialized(ParallelType::TIDx, std::make_pair(40L, 232L));
+  std::vector<TensorView*> tma_tvs = {tv0_smem, tv1_smem};
+  for (auto tv : tma_tvs) {
+    tv->axis(0)->parallelize(ParallelType::BIDx);
     tv->axis(-1)->parallelize(ParallelType::Bulk);
     tv->axis(-2)->parallelize(ParallelType::Bulk);
     tv->circularBuffer(
