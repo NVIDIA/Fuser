@@ -25,25 +25,6 @@ namespace nvfuser {
 
 namespace cutlass_codegen {
 
-namespace {
-
-Expr* getGemmExpr(Fusion* fusion) {
-  auto scaled_mma_exprs = fusion->exprs() |
-      std::views::filter([](Expr* e) { return e->isA<ScaledMmaOp>(); });
-  const int64_t num_exprs = std::ranges::distance(scaled_mma_exprs);
-  NVF_ERROR_NE(num_exprs, 0, "No ScaledMmaOps detected");
-  NVF_ERROR_EQ(
-      num_exprs,
-      1,
-      "Found multiple ScaledMmaOps. Cannot determine which to return");
-  return scaled_mma_exprs.front();
-}
-
-//! Find the accumulator which is the direct output of the ScaledMmaOp
-TensorView* getAccTv(Fusion* fusion) {
-  return getGemmExpr(fusion)->output(0)->as<TensorView>();
-}
-
 // This matches a standard block scaling pattern expressed in Fusion IR like
 // follows:
 //
@@ -206,6 +187,25 @@ std::vector<BlockScaledOutputPattern> findBlockScaledOutputs(Fusion* fusion) {
   }
 
   return patterns;
+}
+
+namespace {
+
+Expr* getGemmExpr(Fusion* fusion) {
+  auto scaled_mma_exprs = fusion->exprs() |
+      std::views::filter([](Expr* e) { return e->isA<ScaledMmaOp>(); });
+  const int64_t num_exprs = std::ranges::distance(scaled_mma_exprs);
+  NVF_ERROR_NE(num_exprs, 0, "No ScaledMmaOps detected");
+  NVF_ERROR_EQ(
+      num_exprs,
+      1,
+      "Found multiple ScaledMmaOps. Cannot determine which to return");
+  return scaled_mma_exprs.front();
+}
+
+//! Find the accumulator which is the direct output of the ScaledMmaOp
+TensorView* getAccTv(Fusion* fusion) {
+  return getGemmExpr(fusion)->output(0)->as<TensorView>();
 }
 
 //! This converts the epilogue of a matmul fusion into an Epilogue Visitor Tree

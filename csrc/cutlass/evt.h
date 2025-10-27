@@ -8,6 +8,7 @@
 #pragma once
 
 #include <scheduler/mma_utils.h>
+#include <visibility.h>
 
 #include <deque>
 #include <memory>
@@ -74,7 +75,7 @@ class EVTModel {
 };
 
 //! Pattern for block-scaled quantized outputs
-struct BlockScaledOutputPattern {
+struct NVF_API BlockScaledOutputPattern {
   TensorView* prescaled_output;
   TensorView* output;
   TensorView* block_scale_factors;
@@ -84,7 +85,8 @@ struct BlockScaledOutputPattern {
 
 //! Find block-scaled output patterns in a fusion
 //! Returns a vector of patterns, one for each block-scaled output
-std::vector<BlockScaledOutputPattern> findBlockScaledOutputs(Fusion* fusion);
+NVF_API std::vector<BlockScaledOutputPattern> findBlockScaledOutputs(
+    Fusion* fusion);
 
 //! Convert a Fusion into an EVTModel. This includes creating nodes to
 //! represent the default epilogue in ScaledMmaOp, alpha*acc + beta*bias, when
