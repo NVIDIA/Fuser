@@ -1184,28 +1184,52 @@ TensorView* TensorView::cacheBefore(LoadStoreOpType op_type) {
 
   // NOTE: I need to clear definition otherwise BestEffortReplay will not work with dangling sources
   // create an issue for this, use the example from ./bin/test_nvfuser --gtest_filter="PointwiseTest.VectorizeWithBroadcastAndReshape1"
-  // copy non-reduction IDs onto logical and loop
+  // IMPORTANT: We must clone the IDs to avoid mutating shared IDs when a tensor has multiple uses.
+  // We need to maintain a mapping so that if the same ID appears in multiple domains, we reuse the same clone.
+  std::unordered_map<IterDomain*, IterDomain*> id_clone_map;
+
+  auto getOrCloneId = [&](IterDomain* id, bool clear_definition = false) -> IterDomain* {
+    if (auto it = id_clone_map.find(id); it != id_clone_map.end()) {
+      return it->second;
+    }
+    IterDomain* cloned = id->cloneWithoutRFactor();
+    if (clear_definition) {
+      // NOTE: Clear definition to avoid issues with BestEffortReplay and dangling sources
+      cloned->setDefinition(nullptr);
+    }
+    id_clone_map[id] = cloned;
+    return cloned;
+  };
+
+  // copy non-reduction IDs onto logical domain
+  // Clear definition on logical IDs as per original PR code intent
   std::ranges::copy_if(
-      domain()->logical() | std::views::transform([](IterDomain* id) { id->setDefinition(nullptr); return id->resetRFactorProduct(); }),
+      domain()->logical() | std::views::transform([&](IterDomain* id) {
+        return getOrCloneId(id, /*clear_definition=*/true);
+      }),
       std::back_inserter(logical_dom),
       [](IterDomain* id) {return !id->isReduction();});
+
   if (definition()->isA<ScatterOp>()) {
     // NOTE: this doesn't feel right. we would still want to replay the loop domain
     // we are basically dropping transformations on loop domain for scatter op during cacheBefore
     loop_dom = logical_dom;
   } else {
-  std::ranges::copy_if(
-      domain()->loop() | std::views::transform([](IterDomain* id) { return id->resetRFactorProduct(); }),
-      std::back_inserter(loop_dom),
-      [](IterDomain* id) {return !id->isReduction();});
+    // copy non-reduction IDs onto loop domain, reusing clones from logical if they exist
+    std::ranges::copy_if(
+        domain()->loop() | std::views::transform(getOrCloneId),
+        std::back_inserter(loop_dom),
+        [](IterDomain* id) {return !id->isReduction();});
   }
+
+  // copy non-reduction IDs onto allocation domain, reusing clones if they exist
   for (auto&& [id, c] : zip(domain()->hasAllocation() ? domain()->allocation() : domain()->logical(), domain()->contiguity())) {
     if (id->isReduction()) {
       continue;
     }
-    id->resetRFactorProduct();
+    IterDomain* cloned = getOrCloneId(id);
     if (domain()->hasAllocation()) {
-      alloc_dom.push_back(id);
+      alloc_dom.push_back(cloned);
     }
     contiguity.push_back(c);
   }
@@ -1220,26 +1244,6 @@ TensorView* TensorView::cacheBefore(LoadStoreOpType op_type) {
       alloc_dom,
       loop_dom,
       contiguity));
-
-  // TODO: figure out scatter special handling.
-  // if (!producer->definition()->isA<ScatterOp>()) {
-  // } else {
-  // }
-
-  /* FIXME
-  std::vector<IterDomain*> new_logical_domain;
-  new_logical_domain.reserve(getLogicalDomain().size());
-  for (IterDomain* dom : getLogicalDomain() | TensorDomain::kNoReductions) {
-    new_logical_domain.push_back(dom->cloneWithoutRFactor());
-  }
-
-  // Warning: allocation domain is temporarily discarded. It will be recovered
-  // later.
-  consumer->setDomain(IrBuilder::createInContainer<TensorDomain>(
-      container(),
-      new_logical_domain,
-      TensorDomain::getContiguityFilledWith(new_logical_domain, true)));
-   */
 
   // Insert producer - Cache_Before (CB) - before this TV.
   // Before: Prev TV -> [Definition Op] -> This TV
@@ -1258,7 +1262,8 @@ TensorView* TensorView::cacheBefore(LoadStoreOpType op_type) {
   // definition_ is no longer valid
   // setDefinition(nullptr);
 
-  /* FIXME
+  // FIXME: The manual domain construction above may have issues. As a fallback,
+  // use replayCasP to properly replay transforms from producer to consumer.
   // We do not want to reproduce the loop domain if it's for
   // scatter. Recall that the loop domain of the scatter op is derived
   // from the logical domain of the scatter index tensor. Here, the
@@ -1275,7 +1280,6 @@ TensorView* TensorView::cacheBefore(LoadStoreOpType op_type) {
             producer, consumer->getLogicalDomain()),
         true);
   }
-   */
 
   if (consumer->hasDeviceMesh()) {
     producer->setDeviceMesh(consumer->getDeviceMesh());
