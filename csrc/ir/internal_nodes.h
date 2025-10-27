@@ -3446,4 +3446,48 @@ class BlockQuantizationOp : public Expr {
       const std::vector<PolymorphicValue>& inputs) const override;
 };
 
+// This operations launches dependent grid in programmatic dependent launch.
+class LaunchDependentGridOp : public Expr {
+ public:
+  using Expr::Expr;
+
+  LaunchDependentGridOp(
+      IrBuilderPasskey,
+      Val* output,
+      std::vector<Val*> inputs);
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  const char* getOpString() const override {
+    return "pdl::launchDependentGrid";
+  }
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+  std::vector<PolymorphicValue> evaluate(
+      const ExpressionEvaluator& ee,
+      const std::vector<PolymorphicValue>& inputs) const override;
+};
+
+// This operations waits for primary grid to finish in programmatic dependent
+// launch.
+class WaitForPriorGridOp : public Expr {
+ public:
+  using Expr::Expr;
+
+  WaitForPriorGridOp(IrBuilderPasskey, Val* output, std::vector<Val*> inputs);
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  const char* getOpString() const override {
+    return "pdl::waitForPriorGrid";
+  }
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+  std::vector<PolymorphicValue> evaluate(
+      const ExpressionEvaluator& ee,
+      const std::vector<PolymorphicValue>& inputs) const override;
+};
+
 } // namespace nvfuser
