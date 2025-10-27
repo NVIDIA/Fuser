@@ -84,11 +84,14 @@ __device__ void blockScan(
 
   // CUB BlockScan setup - with proper multi-dimensional block support
   // CUB BlockScan template parameters are simpler than BlockRadixSort:
-  // - Key type, Block dimensions, Items per thread, Algorithm (optional)
+  // - Key type, Block dimensions, Items per thread, Algorithm
+  // (optional). BLOCK_SCAN_WARP_SCANS is not the default option but
+  // is chosen here for now as it may work well for inference
+  // workloads. More detailed evaluation should be done.
   using BlockScan = cub::BlockScan<
       typename cub_utils::CudaType<DataT>::type, // Data type
       BLOCK_DIM_X, // X dimension
-      cub::BLOCK_SCAN_RAKING, // Algorithm (default for BlockScan)
+      cub::BLOCK_SCAN_WARP_SCANS, // Algorithm
       BLOCK_DIM_Y, // Y dimension
       BLOCK_DIM_Z // Z dimension
       >;

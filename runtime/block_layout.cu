@@ -74,10 +74,10 @@ __device__ void preprocessGroupedMatmulInputSf(
     const nvfuser_index_t col_size,
     const nvfuser_index_t group_size) {
   // find corresponding expert_id
-  int expert_id = 0;
-  for (int i = 0; i < group_size; ++i) {
-    if (row_idx < input_offsets[i + 1]) {
-      expert_id = i;
+  int expert_id = group_size - 1;
+  for (int i = 1; i < group_size; ++i) {
+    if (row_idx < input_offsets[i]) {
+      expert_id = i - 1;
       break;
     }
   }

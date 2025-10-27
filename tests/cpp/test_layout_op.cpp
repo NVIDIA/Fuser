@@ -25,23 +25,30 @@ bool validateGroupedLayout(
     at::Tensor expert_offsets,
     at::Tensor sf_offsets) {
   NVF_ERROR(BlockScalingFactorLayout::Block128x4 == layout);
-  int num_group = expert_offsets.size(0) - 1;
+  int num_group = expert_offsets.size(0);
 
   // validate output logical shape
   EXPECT_EQ(out.sizes(), ref.sizes());
 
   // take length of reference for un-padded k size.
+  int m = ref.size(0);
   int k = ref.size(1);
   int padded_k = (k + 4 - 1) / 4 * 4;
-  int padded_m = sf_offsets[num_group].item().to<int>();
+  int m_offset_last = sf_offsets[num_group - 1].item().to<int>();
+  int m_last = m - expert_offsets[num_group - 1].item().to<int>();
+  int padded_m = m_offset_last + (m_last + 127) / 128 * 128;
+
   out.as_strided_({padded_m, padded_k}, {padded_k, 1});
 
   // We validate each group individually
   for (int i = 0; i < num_group; ++i) {
     int start_idx = sf_offsets[i].item().to<int>();
-    int padded_m_g = sf_offsets[i + 1].item().to<int>() - start_idx;
-    int m_g = expert_offsets[i + 1].item().to<int>() -
+
+    int m_g = (i + 1 < num_group ? expert_offsets[i + 1].item().to<int>() : m) -
         expert_offsets[i].item().to<int>();
+
+    int padded_m_g = std::ceil(m_g / 128.0) * 128;
+
     auto out_g = out.slice(0, start_idx, start_idx + padded_m_g);
 
     int mn_tile = padded_m_g / 128;
@@ -58,8 +65,12 @@ bool validateGroupedLayout(
     auto ref_g = ref.slice(
         0,
         expert_offsets[i].item().to<int>(),
-        expert_offsets[i + 1].item().to<int>());
+        expert_offsets[i].item().to<int>() + m_g);
     if (!at::allclose(restored_out_g, ref_g)) {
+      std::cout << "failed at group: " << i << std::endl;
+      std::cout << "out_g:\n" << out_g << std::endl;
+      std::cout << "ref_g:\n" << ref_g << std::endl;
+      std::cout << "restored_out_g:\n" << restored_out_g << std::endl;
       return false;
     }
   }
@@ -117,12 +128,13 @@ TEST_F(LayoutOpTest, ManualKernel) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   int m = 512;
   int k = 9; // note: padded column size would be 12
-  auto t0 = at::randn({m, k}, options);
+  // auto t0 = at::randn({m, k}, options);
+  auto t0 = at::arange(m * k, options).reshape({m, k});
   // tokens per group are [100, 150, 262] respectively, so each group would be
   // padded to multiple of 128. Hence the total output row span would cover a
   // length of 128 + 256 + 384 = 768.
-  auto t1 = at::tensor({0, 100, 250, 512}, options.dtype(at::kInt));
-  auto t2 = at::tensor({0, 128, 384, 768}, options.dtype(at::kInt));
+  auto t1 = at::tensor({0, 100, 250}, options.dtype(at::kInt));
+  auto t2 = at::tensor({0, 128, 384}, options.dtype(at::kInt));
 
   // naive scheduling.
   for (auto tv : {inp, inp_tv, out_tv}) {
@@ -165,8 +177,8 @@ TEST_F(LayoutOpTest, SchedulerKernel) {
   // tokens per group are [100, 150, 262] respectively, so each group would be
   // padded to multiple of 128. Hence the total output row span would cover a
   // length of 128 + 256 + 384 = 768.
-  auto t1 = at::tensor({0, 100, 250, 512}, options.dtype(at::kInt));
-  auto t2 = at::tensor({0, 128, 384, 768}, options.dtype(at::kInt));
+  auto t1 = at::tensor({0, 100, 250}, options.dtype(at::kInt));
+  auto t2 = at::tensor({0, 128, 384}, options.dtype(at::kInt));
 
   // running through automatic scheduler.
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
@@ -208,8 +220,8 @@ TEST_F(LayoutOpTest, SchedulerKernelWithConsumer) {
   // tokens per group are [100, 150, 262] respectively, so each group would be
   // padded to multiple of 128. Hence the total output row span would cover a
   // length of 128 + 256 + 384 = 768.
-  auto t1 = at::tensor({0, 100, 250, 512}, options.dtype(at::kInt));
-  auto t2 = at::tensor({0, 128, 384, 768}, options.dtype(at::kInt));
+  auto t1 = at::tensor({0, 100, 250}, options.dtype(at::kInt));
+  auto t2 = at::tensor({0, 128, 384}, options.dtype(at::kInt));
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
   EXPECT_ANY_THROW(executor_cache.runFusionWithInputs({t0, t1, t2}));
@@ -302,8 +314,8 @@ TEST_F(LayoutOpTest, SchedulerKernelWithExplicitQuantizationPattern) {
   // tokens per group are [100, 150, 262] respectively, so each group would be
   // padded to multiple of 128. Hence the total output row span would cover a
   // length of 128 + 256 + 384 = 768.
-  auto t1 = at::tensor({0, 100, 250, 512}, options.dtype(at::kInt));
-  auto t2 = at::tensor({0, 128, 384, 768}, options.dtype(at::kInt));
+  auto t1 = at::tensor({0, 100, 250}, options.dtype(at::kInt));
+  auto t2 = at::tensor({0, 128, 384}, options.dtype(at::kInt));
 
   // automatic scheduling.
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
