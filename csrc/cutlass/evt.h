@@ -17,6 +17,7 @@
 namespace nvfuser {
 
 class Fusion;
+class TensorView;
 
 namespace cutlass_codegen {
 
@@ -71,6 +72,19 @@ class EVTModel {
   std::deque<std::unique_ptr<Node>> nodes_up_;
   Node* root_;
 };
+
+//! Pattern for block-scaled quantized outputs
+struct BlockScaledOutputPattern {
+  TensorView* prescaled_output;
+  TensorView* output;
+  TensorView* block_scale_factors;
+  TensorView* global_scale_factor;
+  int64_t block_size;
+};
+
+//! Find block-scaled output patterns in a fusion
+//! Returns a vector of patterns, one for each block-scaled output
+std::vector<BlockScaledOutputPattern> findBlockScaledOutputs(Fusion* fusion);
 
 //! Convert a Fusion into an EVTModel. This includes creating nodes to
 //! represent the default epilogue in ScaledMmaOp, alpha*acc + beta*bias, when

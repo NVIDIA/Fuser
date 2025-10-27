@@ -45,29 +45,164 @@ TensorView* getAccTv(Fusion* fusion) {
   return getGemmExpr(fusion)->output(0)->as<TensorView>();
 }
 
-struct BlockScaledOutputPattern {
-  TensorView* prescaled_output;
-
-  TensorView* output;
-  TensorView* block_scale_factors;
-  TensorView* global_scale_factor;
-
-  int64_t block_size;
-};
-
 // This matches a standard block scaling pattern expressed in Fusion IR like
 // follows:
+//
+// Pattern 1 (without global scale):
+//   tv_data_scaled = div(tv_data_hp_reshaped, tv_block_scale_fp32_unsqueeze)
+//   tv_data_scaled_clamp = clamp(tv_data_scaled, ...)
+//   tv_data_lp = castOp(low_precision_dtype, tv_data_scaled_clamp)
+//   outputs: tv_block_scale_fp8 (Float8_e4m3fn), tv_data_lp
+//
+// Pattern 2 (with global scale):
+//   tv_total_scale = mul(tv_global_scale, tv_scaled_block_scales_fp32)
+//   tv_total_scale_unsqueeze = unsqueeze(tv_total_scale, -1)
+//   tv_data_scaled = div(tv_data_hp_reshaped, tv_total_scale_unsqueeze)
+//   tv_data_scaled_clamp = clamp(tv_data_scaled, ...)
+//   tv_data_lp = castOp(low_precision_dtype, tv_data_scaled_clamp)
+//   outputs: tv_scaled_block_scales_fp8 (Float8_e4m3fn), tv_data_lp
+//
+// Supports low-precision types: Float4_e2m1fn, Float8_e4m3fn, Float8_e5m2
 std::vector<BlockScaledOutputPattern> findBlockScaledOutputs(Fusion* fusion) {
   std::vector<BlockScaledOutputPattern> patterns;
 
+  // Helper to check if a dtype is a low-precision block-scaled type
+  auto is_low_precision_output = [](DataType dtype) {
+    return dtype == DataType::Float4_e2m1fn ||
+           dtype == DataType::Float8_e4m3fn ||
+           dtype == DataType::Float8_e5m2;
+  };
+
+  // Look for low-precision outputs (the quantized data)
   for (Val* out_val : fusion->outputs()) {
     auto* out_tv = dynamic_cast<TensorView*>(out_val);
     if (out_tv == nullptr) {
       continue;
     }
-    // Match scale factor
 
-    // Match
+    // Check if this is a low-precision output
+    if (!is_low_precision_output(out_tv->dtype())) {
+      continue;
+    }
+
+    // The low-precision output should be produced by a cast operation
+    auto* cast_op = dynamic_cast<UnaryOp*>(out_tv->definition());
+    if (cast_op == nullptr || cast_op->getUnaryOpType() != UnaryOpType::Cast) {
+      continue;
+    }
+
+    // The input to the cast is the prescaled output (after clamping)
+    TensorView* prescaled_output = cast_op->in()->as<TensorView>();
+
+    // Look backwards to find the division operation that scales the data
+    // The prescaled_output is typically the result of a clamp operation
+    TensorView* data_scaled = prescaled_output;
+    if (auto* clamp_op = dynamic_cast<UnaryOp*>(data_scaled->definition())) {
+      if (clamp_op->getUnaryOpType() == UnaryOpType::Clamp) {
+        data_scaled = clamp_op->in()->as<TensorView>();
+      }
+    }
+
+    // The data_scaled should be the result of a division
+    auto* div_op = dynamic_cast<BinaryOp*>(data_scaled->definition());
+    if (div_op == nullptr || div_op->getBinaryOpType() != BinaryOpType::Div) {
+      continue;
+    }
+
+    // The LHS of the division is the data, which should come from a reshape
+    TensorView* data_reshaped = div_op->lhs()->as<TensorView>();
+
+    // The RHS of the division should be the unsqueezed scale factor
+    TensorView* scale_unsqueezed = div_op->rhs()->as<TensorView>();
+
+    // Trace back through unsqueeze operation
+    TensorView* total_scale = scale_unsqueezed;
+    if (auto* unsqueeze_op = dynamic_cast<SqueezeOp*>(total_scale->definition())) {
+      total_scale = unsqueeze_op->in()->as<TensorView>();
+    }
+
+    // Now we need to find the corresponding FP8 scale output
+    // It could be either:
+    // 1. Direct FP8 cast (without global scale)
+    // 2. Result of global_scale * scaled_block_scales_fp32 (with global scale)
+
+    TensorView* block_scale_factors = nullptr;
+    TensorView* global_scale_factor = nullptr;
+
+    // Check if total_scale is the result of a multiplication (pattern 2)
+    if (auto* mul_op = dynamic_cast<BinaryOp*>(total_scale->definition())) {
+      if (mul_op->getBinaryOpType() == BinaryOpType::Mul) {
+        // One operand should be a 0-dim tensor (global scale),
+        // the other should be scaled_block_scales_fp32
+        TensorView* lhs = mul_op->lhs()->as<TensorView>();
+        TensorView* rhs = mul_op->rhs()->as<TensorView>();
+
+        // The global scale factor should be a 0-dim tensor
+        // It can be either a fusion input or computed (e.g., from amax)
+        if (lhs->nDims() == 0) {
+          global_scale_factor = lhs;
+          total_scale = rhs;
+        } else if (rhs->nDims() == 0) {
+          global_scale_factor = rhs;
+          total_scale = lhs;
+        }
+      }
+    }
+
+    // Now total_scale should be the FP32 version of the FP8 block scales
+    // Trace back through the cast from FP8 to FP32
+    if (auto* fp32_cast_op = dynamic_cast<UnaryOp*>(total_scale->definition())) {
+      if (fp32_cast_op->getUnaryOpType() == UnaryOpType::Cast) {
+        TensorView* fp8_scale = fp32_cast_op->in()->as<TensorView>();
+
+        // Verify this is an FP8 tensor (typically e4m3fn for scale factors)
+        if (fp8_scale->dtype() == DataType::Float8_e4m3fn ||
+            fp8_scale->dtype() == DataType::Float8_e5m2 ||
+            fp8_scale->dtype() == DataType::Float8_e8m0fnu) {
+          // Check if this FP8 scale is a fusion output
+          if (std::find(fusion->outputs().begin(), fusion->outputs().end(), fp8_scale) != fusion->outputs().end()) {
+            block_scale_factors = fp8_scale;
+          }
+        }
+      }
+    }
+
+    // If we found the block scale factors, we have a valid pattern
+    if (block_scale_factors != nullptr) {
+      // Infer block size from the reshape operation that created data_reshaped
+      int64_t block_size = -1;
+
+      // Trace back through the reshape to find the split
+      if (auto* reshape_op = dynamic_cast<ReshapeOp*>(data_reshaped->definition())) {
+        TensorView* reshape_in = reshape_op->in();
+        // Look for the innermost split in the rfactor domain
+        // The reshape typically splits the last dimension by block_size
+        for (IterDomain* id : data_reshaped->getLogicalDomain()) {
+          if (auto* split_expr = dynamic_cast<Split*>(id->definition())) {
+            Val* factor = split_expr->factor();
+            // If the split factor is a constant scalar, use it as block_size
+            if (factor->isConstScalar()) {
+              block_size = factor->value().as<int64_t>();
+              break;
+            }
+          }
+        }
+      }
+
+      // Fallback to default if we couldn't infer block size
+      if (block_size <= 0) {
+        block_size = 16; // Default block size
+      }
+
+      BlockScaledOutputPattern pattern;
+      pattern.prescaled_output = prescaled_output;
+      pattern.output = out_tv;
+      pattern.block_scale_factors = block_scale_factors;
+      pattern.global_scale_factor = global_scale_factor;
+      pattern.block_size = block_size;
+
+      patterns.push_back(pattern);
+    }
   }
 
   return patterns;
