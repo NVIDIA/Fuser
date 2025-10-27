@@ -62,8 +62,8 @@
 // CUDA 12.x version. If/When there's a need, use the following pattern
 // ```c++
 // #if CUDA_VERSION >= <version>
-// #define NVF_FOR_EACH_DRIVER_API_GE_<version>(fn) \
-//   fn(cuFoo, <version>); \
+// #define NVF_FOR_EACH_DRIVER_API_GE_<version>(fn) \\
+//   fn(cuFoo, <version>); \\
 //   fn(cuBar, <version>)
 // #else
 // #define NVF_FOR_EACH_DRIVER_API_GE_<version>(fn)
