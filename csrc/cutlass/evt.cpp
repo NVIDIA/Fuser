@@ -45,6 +45,27 @@ TensorView* getAccTv(Fusion* fusion) {
   return getGemmExpr(fusion)->output(0)->as<TensorView>();
 }
 
+struct BlockScaledOutputPattern {
+  TensorView* output;
+  TensorView* output_scale_factors;
+  TensorView* prescaled_output;
+};
+
+// This matches a standard block scaling pattern expressed in Fusion IR like
+// follows:
+std::vector<BlockScaledOutputPattern> findBlockScaledOutputs(Fusion* fusion) {
+  std::vector<BlockScaledOutputPattern> patterns;
+
+  for (Val* out_val : fusion->outputs()) {
+    auto* out_tv = dynamic_cast<TensorView*>(out_val);
+    if (out_tv == nullptr) {
+      continue;
+    }
+  }
+
+  return patterns;
+}
+
 //! This converts the epilogue of a matmul fusion into an Epilogue Visitor Tree
 //! (EVT). We model the tree using the EVTModel class above.
 //! https://dx.doi.org/10.1145/3620666.3651369
