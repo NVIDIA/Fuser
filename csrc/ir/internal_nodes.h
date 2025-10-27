@@ -3399,4 +3399,24 @@ class PreprocessGroupedMatmulInputSf : public Expr {
   }
 };
 
+class ParallelDim : public Val {
+ public:
+  ParallelDim(IrBuilderPasskey passkey);
+
+  ParallelDim(const ParallelDim* src, IrCloner* ir_cloner);
+
+  NVFUSER_DECLARE_CLONE
+
+  bool sameAs(const Statement* other) const override;
+
+  std::string toString(int indent_size = 0) const override {
+    return toInlineString(indent_size);
+  }
+
+  std::string toInlineString(int indent_size = 0) const override;
+
+  //! Return the named scalar extent of a parallel dimension (e.g. blockDim.x)
+  static ParallelDim* getParallelDim(ParallelType p_type);
+};
+
 } // namespace nvfuser

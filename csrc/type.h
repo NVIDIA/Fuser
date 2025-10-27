@@ -50,6 +50,7 @@ enum class ValType {
   Predicate,
   TensorIndex,
   Stream,
+  ParallelDim,
   Others
 };
 

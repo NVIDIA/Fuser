@@ -6404,4 +6404,24 @@ std::vector<PolymorphicValue> PreprocessGroupedMatmulInputSf::evaluate(
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(PreprocessGroupedMatmulInputSf)
 
+ParallelDim::ParallelDim(IrBuilderPasskey passkey)
+    : Val(passkey, ValType::ParallelDim) {}
+
+ParallelDim::ParallelDim(const ParallelDim* src, IrCloner* ir_cloner)
+    : Val(src, ir_cloner) {}
+
+NVFUSER_DEFINE_CLONE(ParallelDim)
+
+bool ParallelDim::sameAs(Statement* other) const {
+  if (this == other) {
+    return true;
+  }
+  if (!other->isA<ParallelDim>()) {
+    return false;
+  }
+  return false;
+}
+
+std::string ParallelDim::toInlineString(int indent_size) const {}
+
 } // namespace nvfuser
