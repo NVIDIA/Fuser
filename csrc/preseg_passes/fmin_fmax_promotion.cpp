@@ -1,6 +1,6 @@
 // clang-format off
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023-present NVIDIA CORPORATION & AFFILIATES.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-present NVIDIA CORPORATION & AFFILIATES.
  * All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  */
@@ -14,6 +14,8 @@
 #include <logical_domain_map.h>
 
 namespace nvfuser::preseg_passes {
+
+namespace {
 
 enum class ValStatus {
   NONE,
@@ -36,10 +38,10 @@ bool isSafeReduction(Expr* expr) {
   return false;
 }
 
-bool AnyBadInputTvs(Expr* expr, ValStatusMap& valMap) {
+bool anyBadInputTvs(Expr* expr, ValStatusMap& val_map) {
   for (auto input : expr->inputs()) {
     if (auto* in_tv = dynamic_cast<TensorView*>(input)) {
-      ValStatus status = valMap[in_tv];
+      ValStatus status = val_map[in_tv];
       if (status == ValStatus::BAD || status == ValStatus::BAD_DEFAULT) {
         return true;
       }
@@ -49,10 +51,10 @@ bool AnyBadInputTvs(Expr* expr, ValStatusMap& valMap) {
   return false;
 }
 
-bool AnyGoodInputTvs(Expr* expr, ValStatusMap& valMap) {
+bool anyGoodInputTvs(Expr* expr, ValStatusMap& val_map) {
   for (auto input : expr->inputs()) {
     if (auto* in_tv = dynamic_cast<TensorView*>(input)) {
-      ValStatus status = valMap[in_tv];
+      ValStatus status = val_map[in_tv];
       if (status == ValStatus::GOOD) {
         return true;
       }
@@ -62,10 +64,10 @@ bool AnyGoodInputTvs(Expr* expr, ValStatusMap& valMap) {
   return false;
 }
 
-bool AnyDefaultInputTvs(Expr* expr, ValStatusMap& valMap) {
+bool anyDefaultInputTvs(Expr* expr, ValStatusMap& val_map) {
   for (auto input : expr->inputs()) {
     if (auto* in_tv = dynamic_cast<TensorView*>(input)) {
-      ValStatus status = valMap[in_tv];
+      ValStatus status = val_map[in_tv];
       if (status == ValStatus::DEFAULT) {
         return true;
       }
@@ -75,10 +77,10 @@ bool AnyDefaultInputTvs(Expr* expr, ValStatusMap& valMap) {
   return false;
 }
 
-bool AnyBadDefaultInputTvs(Expr* expr, ValStatusMap& valMap) {
+bool anyBadDefaultInputTvs(Expr* expr, ValStatusMap& val_map) {
   for (auto input : expr->inputs()) {
     if (auto* in_tv = dynamic_cast<TensorView*>(input)) {
-      ValStatus status = valMap[in_tv];
+      ValStatus status = val_map[in_tv];
       if (status == ValStatus::BAD_DEFAULT) {
         return true;
       }
@@ -88,7 +90,7 @@ bool AnyBadDefaultInputTvs(Expr* expr, ValStatusMap& valMap) {
   return false;
 }
 
-bool AnalyzeReduceDomain(
+bool analyzeReduceDomain(
     ReductionOp* targetRop,
     IterDomain* reduceIn,
     ComputeAtLogicalDomainMap& logical_map) {
@@ -97,10 +99,10 @@ bool AnalyzeReduceDomain(
   auto* in_tv = targetRop->input(0)->as<TensorView>();
   auto* out_tv = targetRop->output(0)->as<TensorView>();
 
-  ValStatusMap valMap;
+  ValStatusMap val_map;
 
-  valMap[in_tv] = ValStatus::DEFAULT;
-  valMap[out_tv] = ValStatus::BAD;
+  val_map[in_tv] = ValStatus::DEFAULT;
+  val_map[out_tv] = ValStatus::BAD;
 
   auto traversal =
       StmtSort::getExprsBetween({targetRop->input(0)}, fusion->outputs());
@@ -113,9 +115,9 @@ bool AnalyzeReduceDomain(
       continue;
     }
 
-    bool anyBad = AnyBadInputTvs(expr, valMap);
-    bool anyBadDefault = AnyBadDefaultInputTvs(expr, valMap);
-    bool anyDefault = AnyDefaultInputTvs(expr, valMap);
+    bool anyBad = anyBadInputTvs(expr, val_map);
+    bool anyBadDefault = anyBadDefaultInputTvs(expr, val_map);
+    bool anyDefault = anyDefaultInputTvs(expr, val_map);
 
     auto* out_tv = dynamic_cast<TensorView*>(expr->output(0));
 
@@ -130,15 +132,15 @@ bool AnalyzeReduceDomain(
       }
     }
 
-    if (AnyGoodInputTvs(expr, valMap)) {
-      valMap[out_tv] = ValStatus::GOOD;
+    if (anyGoodInputTvs(expr, val_map)) {
+      val_map[out_tv] = ValStatus::GOOD;
       continue;
     }
 
     bool mappedReduction = false;
     if (isSafeReduction(expr)) {
-      if (valMap[expr->input(0)->as<TensorView>()] == ValStatus::DEFAULT ||
-          valMap[expr->input(0)->as<TensorView>()] == ValStatus::BAD_DEFAULT) {
+      if (val_map[expr->input(0)->as<TensorView>()] == ValStatus::DEFAULT ||
+          val_map[expr->input(0)->as<TensorView>()] == ValStatus::BAD_DEFAULT) {
         for (IterDomain* out_id : out_tv->getLogicalDomain()) {
           if (out_id->isReduction()) {
             if (logical_map.canMap(
@@ -146,7 +148,7 @@ bool AnalyzeReduceDomain(
                     reduceIn,
                     out_tv->domain(),
                     out_id)) {
-              valMap[out_tv] = ValStatus::GOOD;
+              val_map[out_tv] = ValStatus::GOOD;
               mappedReduction = true;
               break;
             }
@@ -159,30 +161,30 @@ bool AnalyzeReduceDomain(
     }
 
     if (anyBadDefault) {
-      valMap[out_tv] = ValStatus::BAD_DEFAULT;
+      val_map[out_tv] = ValStatus::BAD_DEFAULT;
       continue;
     }
 
     if (anyDefault && anyBad) {
-      valMap[out_tv] = ValStatus::BAD_DEFAULT;
+      val_map[out_tv] = ValStatus::BAD_DEFAULT;
       continue;
     }
 
     if (anyDefault) {
-      valMap[out_tv] = ValStatus::DEFAULT;
+      val_map[out_tv] = ValStatus::DEFAULT;
       continue;
     }
 
     if (anyBad) {
-      valMap[out_tv] = ValStatus::BAD;
+      val_map[out_tv] = ValStatus::BAD;
     }
   }
 
   // Check whether any bad status reached output nodes
   auto output_tvs = ir_utils::filterByType<TensorView>(fusion->outputs());
   for (TensorView* out_tv : output_tvs) {
-    if (valMap[out_tv] == ValStatus::BAD ||
-        valMap[out_tv] == ValStatus::BAD_DEFAULT) {
+    if (val_map[out_tv] == ValStatus::BAD ||
+        val_map[out_tv] == ValStatus::BAD_DEFAULT) {
       return false;
     }
   }
@@ -190,7 +192,7 @@ bool AnalyzeReduceDomain(
   return true;
 }
 
-bool AnalyzeMinMaxOp(ReductionOp* targetRop) {
+bool analyzeMinMaxOp(ReductionOp* targetRop) {
   auto* in_tv = targetRop->input(0)->as<TensorView>();
   auto* out_tv = targetRop->output(0)->as<TensorView>();
 
@@ -207,7 +209,7 @@ bool AnalyzeMinMaxOp(ReductionOp* targetRop) {
     if (out_id->isReduction()) {
       IterDomain* in_id = c2p[out_id];
 
-      if (!AnalyzeReduceDomain(targetRop, in_id, logical_map)) {
+      if (!analyzeReduceDomain(targetRop, in_id, logical_map)) {
         return false;
       }
     }
@@ -215,6 +217,8 @@ bool AnalyzeMinMaxOp(ReductionOp* targetRop) {
 
   return true;
 }
+
+} // namespace
 
 void FMinFMaxPromotionPass::runPass(Fusion* fusion) {
   FusionGuard fusion_guard(fusion);
@@ -233,7 +237,7 @@ void FMinFMaxPromotionPass::runPass(Fusion* fusion) {
 
     if (reduction_type == BinaryOpType::Min ||
         reduction_type == BinaryOpType::Max) {
-      if (AnalyzeMinMaxOp(targetRop)) {
+      if (analyzeMinMaxOp(targetRop)) {
         targetRop->markUnsafe();
       }
     }
