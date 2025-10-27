@@ -19,11 +19,11 @@ namespace nvfuser::preseg_passes {
 namespace {
 
 enum class ValStatus {
-  NONE,
-  DEFAULT,
-  BAD,
-  BAD_DEFAULT,
-  GOOD,
+  None,
+  Unreduced,
+  BadReduced,
+  Mixed,
+  GoodReduced,
 };
 
 using ValStatusMap = std::unordered_map<Val*, ValStatus>;
@@ -39,58 +39,6 @@ bool isSafeReduction(Expr* expr) {
   return false;
 }
 
-bool anyBadInputTvs(Expr* expr, ValStatusMap& val_map) {
-  for (auto input : expr->inputs()) {
-    if (auto* in_tv = dynamic_cast<TensorView*>(input)) {
-      ValStatus status = val_map[in_tv];
-      if (status == ValStatus::BAD || status == ValStatus::BAD_DEFAULT) {
-        return true;
-      }
-    }
-  }
-
-  return false;
-}
-
-bool anyGoodInputTvs(Expr* expr, ValStatusMap& val_map) {
-  for (auto input : expr->inputs()) {
-    if (auto* in_tv = dynamic_cast<TensorView*>(input)) {
-      ValStatus status = val_map[in_tv];
-      if (status == ValStatus::GOOD) {
-        return true;
-      }
-    }
-  }
-
-  return false;
-}
-
-bool anyDefaultInputTvs(Expr* expr, ValStatusMap& val_map) {
-  for (auto input : expr->inputs()) {
-    if (auto* in_tv = dynamic_cast<TensorView*>(input)) {
-      ValStatus status = val_map[in_tv];
-      if (status == ValStatus::DEFAULT) {
-        return true;
-      }
-    }
-  }
-
-  return false;
-}
-
-bool anyBadDefaultInputTvs(Expr* expr, ValStatusMap& val_map) {
-  for (auto input : expr->inputs()) {
-    if (auto* in_tv = dynamic_cast<TensorView*>(input)) {
-      ValStatus status = val_map[in_tv];
-      if (status == ValStatus::BAD_DEFAULT) {
-        return true;
-      }
-    }
-  }
-
-  return false;
-}
-
 bool analyzeReduceDomain(
     ReductionOp* targetRop,
     const ValGroup& reduce_axis_id_group) {
@@ -101,23 +49,41 @@ bool analyzeReduceDomain(
 
   ValStatusMap val_map;
 
-  val_map[in_tv] = ValStatus::DEFAULT;
-  val_map[out_tv] = ValStatus::BAD;
+  val_map[in_tv] = ValStatus::Unreduced;
+  val_map[out_tv] = ValStatus::BadReduced;
 
   auto traversal =
       StmtSort::getExprsBetween({targetRop->input(0)}, fusion->outputs());
 
   for (Expr* expr : traversal) {
-    std::string opName = expr->getOpString();
-
     if (expr == targetRop) {
       // Skip the target rop. We already marked its status.
       continue;
     }
 
-    bool anyBad = anyBadInputTvs(expr, val_map);
-    bool anyBadDefault = anyBadDefaultInputTvs(expr, val_map);
-    bool anyDefault = anyDefaultInputTvs(expr, val_map);
+    bool anyUnreduced = false;
+    bool anyBadReduced = false;
+    bool anyMixed = false;
+    bool anyGoodReduced = false;
+
+    for (auto input : expr->inputs()) {
+      if (auto* in_tv = dynamic_cast<TensorView*>(input)) {
+        ValStatus status = val_map[in_tv];
+
+        if (status == ValStatus::Unreduced) {
+          anyUnreduced = true;
+        }
+        if (status == ValStatus::BadReduced) {
+          anyBadReduced = true;
+        }
+        if (status == ValStatus::Mixed) {
+          anyMixed = true;
+        }
+        if (status == ValStatus::GoodReduced) {
+          anyGoodReduced = true;
+        }
+      }
+    }
 
     auto* out_tv = dynamic_cast<TensorView*>(expr->output(0));
 
@@ -125,66 +91,56 @@ bool analyzeReduceDomain(
         expr->isA<BroadcastOp>() || expr->isA<BinaryOp>();
 
     if (!out_tv || !canBeAnalyzed) {
-      if (anyBad) {
+      if (anyBadReduced || anyMixed) {
         return false;
       } else {
         continue;
       }
     }
 
-    if (anyGoodInputTvs(expr, val_map)) {
-      val_map[out_tv] = ValStatus::GOOD;
-      continue;
+    ValStatus status = ValStatus::None;
+
+    // Determine this node's status based on its inputs.
+    // Status is mostly propped based on priority. For example, GoodReduced
+    // beats all other states. There is also one combination rule with
+    // BadReduced and Unreduced combining to become Mixed.
+    if (anyGoodReduced) {
+      status = ValStatus::GoodReduced;
+    } else if (anyMixed) {
+      status = ValStatus::Mixed;
+    } else if (anyUnreduced && anyBadReduced) {
+      status = ValStatus::Mixed;
+    } else if (anyUnreduced) {
+      status = ValStatus::Unreduced;
+    } else if (anyBadReduced) {
+      status = ValStatus::BadReduced;
     }
 
     // Here we handle the repair of squelched NAN's. This happens when
-    // IterDomain's with DEFAULT data are safely reduced.
-    bool mappedReduction = false;
+    // IterDomain's with Unreduced data are safely reduced.
     if (isSafeReduction(expr)) {
-      if (val_map[expr->input(0)->as<TensorView>()] == ValStatus::DEFAULT ||
-          val_map[expr->input(0)->as<TensorView>()] == ValStatus::BAD_DEFAULT) {
+      if (status == ValStatus::Unreduced || status == ValStatus::Mixed) {
         for (IterDomain* out_id : out_tv->getLogicalDomain()) {
           if (out_id->isReduction()) {
             // This id_group check verifies that the reduction axis matches
             // the axis of the target unsafe reduction.
             if (reduce_axis_id_group->has(out_id)) {
-              val_map[out_tv] = ValStatus::GOOD;
-              mappedReduction = true;
+              status = ValStatus::GoodReduced;
               break;
             }
           }
         }
       }
     }
-    if (mappedReduction) {
-      continue;
-    }
 
-    if (anyBadDefault) {
-      val_map[out_tv] = ValStatus::BAD_DEFAULT;
-      continue;
-    }
-
-    if (anyDefault && anyBad) {
-      val_map[out_tv] = ValStatus::BAD_DEFAULT;
-      continue;
-    }
-
-    if (anyDefault) {
-      val_map[out_tv] = ValStatus::DEFAULT;
-      continue;
-    }
-
-    if (anyBad) {
-      val_map[out_tv] = ValStatus::BAD;
-    }
+    val_map[out_tv] = status;
   }
 
   // Check whether any bad status reached output nodes
   auto output_tvs = ir_utils::filterByType<TensorView>(fusion->outputs());
   for (TensorView* out_tv : output_tvs) {
-    if (val_map[out_tv] == ValStatus::BAD ||
-        val_map[out_tv] == ValStatus::BAD_DEFAULT) {
+    if (val_map[out_tv] == ValStatus::BadReduced ||
+        val_map[out_tv] == ValStatus::Mixed) {
       return false;
     }
   }
