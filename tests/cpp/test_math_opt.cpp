@@ -183,6 +183,13 @@ TEST_P(FMinFMaxPromotionTest, Test) {
     expectFMax = true;
   }
 
+  if (testIndex == 9) {
+    TensorView* tv3 = add(broadcast(abs(max(tv0, {1})), {false, true}), tv0);
+    TensorView* tv4 = add(tv3, broadcast(abs(sum(tv3, {0})), {true, false}));
+    fusion->addOutput(tv4);
+    expectFMax = false;
+  }
+
   fusion->printMath();
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
@@ -216,7 +223,7 @@ TEST_P(FMinFMaxPromotionTest, Test) {
 INSTANTIATE_TEST_SUITE_P(
     MathOptTest,
     FMinFMaxPromotionTest,
-    ::testing::Values(1, 2, 3, 4, 5, 6, 7, 8),
+    ::testing::Values(1, 2, 3, 4, 5, 6, 7, 8, 9),
     [](const testing::TestParamInfo<int>& info) -> std::string {
       std::stringstream ss;
       ss << info.param;
