@@ -202,15 +202,12 @@ bool reductionDomainIsCovered(
 // single reduction domain. This could be merged into a single traversal,
 // however it would require per-domain tracked of the NanStatusMap, and it would
 // make the propagation code more complicated.
-bool minMaxOpIsCovered(ReductionOp* targetRop) {
+bool minMaxOpIsCovered(ReductionOp* targetRop, const ValGraph& graph) {
   auto* out_tv = targetRop->output(0)->as<TensorView>();
-
-  IdModel id_model(targetRop->fusion(), true);
-  const ValGraph& perm_graph = id_model.idGraph(IdMappingMode::PERMISSIVE);
 
   for (IterDomain* out_id : out_tv->getLogicalDomain()) {
     if (out_id->isReduction()) {
-      const ValGroup& reduction_id_group = perm_graph.toGroup(out_id);
+      const ValGroup& reduction_id_group = graph.toGroup(out_id);
       if (!reductionDomainIsCovered(targetRop, reduction_id_group)) {
         return false;
       }
@@ -225,6 +222,10 @@ bool minMaxOpIsCovered(ReductionOp* targetRop) {
 void FMinFMaxPromotionPass::runPass(Fusion* fusion) {
   FusionGuard fusion_guard(fusion);
 
+  IdModel id_model(fusion, false);
+  id_model.buildGraph(IdMappingMode::EXACT);
+  const ValGraph& graph = id_model.idGraph(IdMappingMode::EXACT);
+
   // This outer loop runs over all expressions, filtering for min/max
   // reductions, which become the target for the rest of the analysis.
   for (Expr* targetExpr : fusion->exprs()) {
@@ -238,7 +239,7 @@ void FMinFMaxPromotionPass::runPass(Fusion* fusion) {
 
     if (reduction_type == BinaryOpType::Min ||
         reduction_type == BinaryOpType::Max) {
-      if (minMaxOpIsCovered(targetRop)) {
+      if (minMaxOpIsCovered(targetRop, graph)) {
         targetRop->markUnsafe();
       }
     }
