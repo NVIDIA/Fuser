@@ -54,6 +54,8 @@ def check_captured_python_definition(reference_outputs, fd, inputs, device=None)
             # torch.allclose does not work with fp8 datatype, so cast to fp64.
             # However, casting complex values to real discards the imaginary
             # part, so skip complex dtypes.
+            # Similarly, packed fp4 dtype cannot be compared neither, we view
+            # it as int8 and run comparison as-is.
             if ref_out.dtype == torch.float4_e2m1fn_x2:
                 ref_out = ref_out.view(torch.int8)
             elif not ref_out.dtype.is_complex:
