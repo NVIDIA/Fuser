@@ -1278,32 +1278,47 @@ KernelArgumentHolder KernelExecutor::run(
       config.sharedMemBytes = launch_params_.smem();
       config.hStream = stream;
 
-      CUlaunchAttribute attribute;
-      attribute.id = CU_LAUNCH_ATTRIBUTE_CLUSTER_DIMENSION;
-      attribute.value.clusterDim.x = launch_params_.gdimx();
-      attribute.value.clusterDim.y = 1;
-      attribute.value.clusterDim.z = 1;
-      config.attrs = &attribute;
-      config.numAttrs = 1;
-      // To request more than 8 CTAs per cluster, need to set non-portable
-      // cluster size allowed
-      if (attribute.value.clusterDim.x > 8) {
-        NVFUSER_CUDA_SAFE_CALL(cuFuncSetAttribute(
-            compiled_kernel_->cudaExecutable()->function,
-            CU_FUNC_ATTRIBUTE_NON_PORTABLE_CLUSTER_SIZE_ALLOWED,
-            1));
+      std::vector<CUlaunchAttribute> launch_attributes;
+
+      if (kernel_summary.has_cluster_reduction) {
+        CUlaunchAttribute attribute;
+        attribute.id = CU_LAUNCH_ATTRIBUTE_CLUSTER_DIMENSION;
+        attribute.value.clusterDim.x = launch_params_.gdimx();
+        attribute.value.clusterDim.y = 1;
+        attribute.value.clusterDim.z = 1;
+        launch_attributes.push_back(attribute);
+
+        // To request more than 8 CTAs per cluster, need to set non-portable
+        // cluster size allowed
+        if (attribute.value.clusterDim.x > 8) {
+          NVFUSER_CUDA_SAFE_CALL(cuFuncSetAttribute(
+              compiled_kernel_->cudaExecutable()->function,
+              CU_FUNC_ATTRIBUTE_NON_PORTABLE_CLUSTER_SIZE_ALLOWED,
+              1));
+        }
       }
-      // CUDA guide recommends checking max active clusters before launching
-      // https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html#thread-block-clusters
-      int num_clusters = 0;
-      NVFUSER_CUDA_SAFE_CALL(cuOccupancyMaxActiveClusters(
-          &num_clusters,
-          compiled_kernel_->cudaExecutable()->function,
-          &config));
-      NVF_ERROR(
-          num_clusters > 0,
-          "Failed to launch kernel with cluster dimensions: ",
-          attribute.value.clusterDim.x);
+
+      if (launch_attributes.size() > 0) {
+        config.attrs = launch_attributes.data();
+        config.numAttrs = (unsigned int)launch_attributes.size();
+      } else {
+        config.attrs = nullptr;
+        config.numAttrs = 0;
+      }
+
+      if (kernel_summary.has_cluster_reduction) {
+        // CUDA guide recommends checking max active clusters before launching
+        // https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html#thread-block-clusters
+        int num_clusters = 0;
+        NVFUSER_CUDA_SAFE_CALL(cuOccupancyMaxActiveClusters(
+            &num_clusters,
+            compiled_kernel_->cudaExecutable()->function,
+            &config));
+        NVF_ERROR(
+            num_clusters > 0,
+            "Failed to launch kernel with cluster dimensions");
+      }
+
       NVFUSER_CUDA_SAFE_CALL(cuLaunchKernelEx(
           &config,
           compiled_kernel_->cudaExecutable()->function,
