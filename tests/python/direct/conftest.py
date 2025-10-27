@@ -23,7 +23,10 @@ class NVFuserTest(TestCase):
         *,
         expected_fd_str=None,
         device=None,
+        validate_results=False,
     ):
+        torch.manual_seed(0)
+
         # Copy inputs because aliased outputs can modify inputs when running
         # FusionDefinition
         inputs_captured = deepcopy(inputs)
@@ -31,7 +34,10 @@ class NVFuserTest(TestCase):
         # Execute a fusion function and capture the string python definition
         with FusionDefinition() as fd:
             fusion_func(fd)
-        torch.manual_seed(0)
+
+        if validate_results:
+            fd.validate(deepcopy(inputs))
+
         out = fd.execute(
             inputs,
             device=device,
