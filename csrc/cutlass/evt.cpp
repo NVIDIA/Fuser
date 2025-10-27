@@ -19,7 +19,6 @@
 #include <scheduler/mma_utils.h>
 #include <type.h>
 
-#include <format>
 #include <string>
 
 namespace nvfuser {
@@ -69,8 +68,7 @@ std::vector<BlockScaledOutputPattern> findBlockScaledOutputs(Fusion* fusion) {
   // Helper to check if a dtype is a low-precision block-scaled type
   auto is_low_precision_output = [](DataType dtype) {
     return dtype == DataType::Float4_e2m1fn ||
-           dtype == DataType::Float8_e4m3fn ||
-           dtype == DataType::Float8_e5m2;
+        dtype == DataType::Float8_e4m3fn || dtype == DataType::Float8_e5m2;
   };
 
   // Look for low-precision outputs (the quantized data)
@@ -97,9 +95,9 @@ std::vector<BlockScaledOutputPattern> findBlockScaledOutputs(Fusion* fusion) {
     // Look backwards to find the division operation that scales the data
     // The prescaled_output is typically the result of a clamp operation
     TensorView* data_scaled = prescaled_output;
-    if (auto* clamp_op = dynamic_cast<UnaryOp*>(data_scaled->definition())) {
-      if (clamp_op->getUnaryOpType() == UnaryOpType::Clamp) {
-        data_scaled = clamp_op->in()->as<TensorView>();
+    if (auto* clamp_op = dynamic_cast<TernaryOp*>(data_scaled->definition())) {
+      if (clamp_op->getTernaryOpType() == TernaryOpType::Clamp) {
+        data_scaled = clamp_op->in1()->as<TensorView>();
       }
     }
 
@@ -117,7 +115,8 @@ std::vector<BlockScaledOutputPattern> findBlockScaledOutputs(Fusion* fusion) {
 
     // Trace back through unsqueeze operation
     TensorView* total_scale = scale_unsqueezed;
-    if (auto* unsqueeze_op = dynamic_cast<SqueezeOp*>(total_scale->definition())) {
+    if (auto* unsqueeze_op =
+            dynamic_cast<SqueezeOp*>(total_scale->definition())) {
       total_scale = unsqueeze_op->in()->as<TensorView>();
     }
 
@@ -151,7 +150,8 @@ std::vector<BlockScaledOutputPattern> findBlockScaledOutputs(Fusion* fusion) {
 
     // Now total_scale should be the FP32 version of the FP8 block scales
     // Trace back through the cast from FP8 to FP32
-    if (auto* fp32_cast_op = dynamic_cast<UnaryOp*>(total_scale->definition())) {
+    if (auto* fp32_cast_op =
+            dynamic_cast<UnaryOp*>(total_scale->definition())) {
       if (fp32_cast_op->getUnaryOpType() == UnaryOpType::Cast) {
         TensorView* fp8_scale = fp32_cast_op->in()->as<TensorView>();
 
@@ -160,7 +160,10 @@ std::vector<BlockScaledOutputPattern> findBlockScaledOutputs(Fusion* fusion) {
             fp8_scale->dtype() == DataType::Float8_e5m2 ||
             fp8_scale->dtype() == DataType::Float8_e8m0fnu) {
           // Check if this FP8 scale is a fusion output
-          if (std::find(fusion->outputs().begin(), fusion->outputs().end(), fp8_scale) != fusion->outputs().end()) {
+          if (std::find(
+                  fusion->outputs().begin(),
+                  fusion->outputs().end(),
+                  fp8_scale) != fusion->outputs().end()) {
             block_scale_factors = fp8_scale;
           }
         }
@@ -173,7 +176,8 @@ std::vector<BlockScaledOutputPattern> findBlockScaledOutputs(Fusion* fusion) {
       int64_t block_size = -1;
 
       // Trace back through the reshape to find the split
-      if (auto* reshape_op = dynamic_cast<ReshapeOp*>(data_reshaped->definition())) {
+      if (auto* reshape_op =
+              dynamic_cast<ReshapeOp*>(data_reshaped->definition())) {
         TensorView* reshape_in = reshape_op->in();
         // Look for the innermost split in the rfactor domain
         // The reshape typically splits the last dimension by block_size
