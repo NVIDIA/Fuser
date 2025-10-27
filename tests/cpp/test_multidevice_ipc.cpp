@@ -11,6 +11,8 @@
 #include <host_ir/container.h>
 #include <host_ir/evaluator.h>
 #include <ir/all_nodes.h>
+#include <multidevice/ipc_handle.h>
+#include <multidevice/symmetric_memory.h>
 #include <ops/all_ops.h>
 #include <sys/prctl.h>
 #include <sys/syscall.h>
@@ -800,6 +802,92 @@ TEST_F(IpcTest, IpcNvlsMulticastBroadcast) {
   NVFUSER_CUDA_SAFE_CALL(
       cuMulticastUnbind(mcast_handle, cu_dev, /*offset=*/0, kSizeBytes));
   NVFUSER_CUDA_SAFE_CALL(cuMemRelease(mcast_handle));
+}
+
+TEST_F(IpcTest, IpcNvlsMulticastHandle) {
+  if (communicator_->size() == 1) {
+    GTEST_SKIP() << "Skipping test for single device";
+  }
+
+  const int64_t rank = communicator_->deviceId();
+  const int64_t local_rank = communicator_->local_rank();
+
+  constexpr int64_t exporter_rank = 0;
+  constexpr int64_t root_rank = 1;
+
+  // Multicast parameters
+  constexpr size_t kNumElems = 524288;
+  constexpr size_t kSizeBytes = kNumElems * sizeof(uint32_t);
+
+  // Query support for Virtual Memory Management
+  int is_vmm_supported;
+  NVFUSER_CUDA_SAFE_CALL(cuDeviceGetAttribute(
+      &is_vmm_supported,
+      CU_DEVICE_ATTRIBUTE_VIRTUAL_MEMORY_MANAGEMENT_SUPPORTED,
+      local_rank));
+  if (is_vmm_supported == 0) {
+    GTEST_SKIP()
+        << "Device does not support Virtual Memory Management; skipping.";
+  }
+
+  // Query support for IPC handles
+  int is_ipc_supported;
+  NVFUSER_CUDA_SAFE_CALL(cuDeviceGetAttribute(
+      &is_ipc_supported,
+      CU_DEVICE_ATTRIBUTE_HANDLE_TYPE_POSIX_FILE_DESCRIPTOR_SUPPORTED,
+      local_rank));
+  if (is_ipc_supported == 0) {
+    GTEST_SKIP() << "Device does not support IPC handles; skipping.";
+  }
+
+  // Query support for Multicast Objects
+  int is_multicast_supported;
+  NVFUSER_CUDA_SAFE_CALL(cuDeviceGetAttribute(
+      &is_multicast_supported,
+      CU_DEVICE_ATTRIBUTE_MULTICAST_SUPPORTED,
+      local_rank));
+  if (is_multicast_supported == 0) {
+    GTEST_SKIP() << "Device does not support Multicast Objects; skipping.";
+  }
+
+  // Create a symmetric memory tensor
+  at::Tensor buffer = empty_strided_cuda_symmetric(
+      /*sizes=*/at::IntArrayRef({static_cast<int64_t>(kNumElems)}),
+      /*dtype=*/at::ScalarType::Int,
+      /*device=*/at::Device(at::kCUDA, local_rank),
+      /*alloc_id=*/std::nullopt);
+
+  // Use MulticastHandle to set up multicast communication
+  std::string store_key_prefix = "test_multicast_handle";
+  std::unique_ptr<MulticastHandle> mcast_handle =
+      std::make_unique<MulticastHandle>(buffer, exporter_rank, store_key_prefix);
+
+  // Get the multicast pointer
+  void* mc_ptr = mcast_handle->multicast_ptr();
+
+  // Root rank writes to multicast address
+  std::vector<uint32_t> host_buffer(kNumElems);
+  if (rank == root_rank) {
+    for (size_t i = 0; i < kNumElems; ++i) {
+      host_buffer[i] = static_cast<uint32_t>(i * 7 + 13);
+    }
+    NVFUSER_CUDA_RT_SAFE_CALL(cudaMemcpy(
+        mc_ptr, host_buffer.data(), kSizeBytes, cudaMemcpyHostToDevice));
+  }
+
+  communicator_->barrier();
+
+  // Each rank reads from the unicast address
+  NVFUSER_CUDA_RT_SAFE_CALL(cudaMemcpy(
+      host_buffer.data(),
+      buffer.data_ptr(),
+      kSizeBytes,
+      cudaMemcpyDeviceToHost));
+
+  // Validate the data
+  for (size_t i = 0; i < kNumElems; ++i) {
+    EXPECT_EQ(host_buffer[i], static_cast<uint32_t>(i * 7 + 13));
+  }
 }
 
 #endif
