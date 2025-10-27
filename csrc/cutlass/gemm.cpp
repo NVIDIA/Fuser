@@ -438,8 +438,9 @@ typename T::Gemm::Arguments args_from_inputs(
     code += "       {}";
   }
   code += ",  // epilogue.thread\n";
-  if (smma->bias() != nullptr) {
-    code += "       bias.data_ptr,";
+  if (bias != nullptr) {
+    code += "       static_cast<" + dtypeToCutlass(bias->dtype()) +
+        "*>(bias.data_ptr),";
   } else {
     code += "       /*bias=*/nullptr,";
   }

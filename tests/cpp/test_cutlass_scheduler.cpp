@@ -448,6 +448,9 @@ TEST_F(CutlassExecutorTest, Nvfp4Matmul_BiasEpilogue) {
 
   CutlassParams params;
 
+  params.mma_tile = {128, 256, 256};
+  params.per_sm_tile = {64, 256, 256};
+
   CutlassExecutor ce;
   ce.compile(fusion.get(), params);
 
