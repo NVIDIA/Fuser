@@ -178,25 +178,21 @@ std::vector<BlockScaledOutputPattern> findBlockScaledOutputs(Fusion* fusion) {
       // Trace back through the reshape to find the split
       if (auto* reshape_op =
               dynamic_cast<ReshapeOp*>(data_reshaped->definition())) {
-        TensorView* reshape_in = reshape_op->in();
         // Look for the innermost split in the rfactor domain
         // The reshape typically splits the last dimension by block_size
-        for (IterDomain* id : data_reshaped->getLogicalDomain()) {
-          if (auto* split_expr = dynamic_cast<Split*>(id->definition())) {
-            Val* factor = split_expr->factor();
-            // If the split factor is a constant scalar, use it as block_size
-            if (factor->isConstScalar()) {
-              block_size = factor->value().as<int64_t>();
-              break;
-            }
-          }
+        IterDomain* id = data_reshaped->getLogicalDomain().back();
+        auto* split_expr = dynamic_cast<Split*>(id->definition());
+        if (split_expr == nullptr) {
+          continue;
+        }
+        Val* factor = split_expr->factor();
+        // If the split factor is a constant scalar, use it as block_size
+        if (factor->isConstScalar()) {
+          block_size = factor->value().as<int64_t>();
         }
       }
 
-      // Fallback to default if we couldn't infer block size
-      if (block_size <= 0) {
-        block_size = 16; // Default block size
-      }
+      NVF_ERROR(block_size > 1, "Could not infer block size");
 
       BlockScaledOutputPattern pattern;
       pattern.prescaled_output = prescaled_output;
