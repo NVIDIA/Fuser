@@ -13,11 +13,6 @@ A Fusion Code Generator for NVIDIA GPUs (commonly known as "nvFuser")
 We publish nightly wheel packages on https://pypi.nvidia.com, while build against stable torch version on https://pypi.org and https://pypi.nvidia.com.
 **Wheels are published for Python version: _3.10_, _3.12_**.
 
-built-env | cuda 11.8 | cuda12.6 | cuda 12.8
-:---: | :---: | :---: | :---: |
-torch 2.7 | nvfuser-cu118-torch27 | nvfuser-cu126-torch27 | nvfuser-cu128-torch27 |
-torch nightly (pypi.nvidia.com) | nvfuser-cu118 | nvfuser-cu126 | nvfuser-cu128 |
-
 Note that nvfuser built against stable torch version isn't compatible with nightly pytorch wheel, so ensure you pick the right version suiting your environment.
 
 
