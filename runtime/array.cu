@@ -25,7 +25,7 @@ struct alignas(sizeof(scalar_t) * align_size) Array {
     return array[i];
   }
 
-  Array& operator=(const Array& a) {
+  __device__ Array& operator=(const Array& a) {
 #pragma unroll
     for (int i = 0; i < size; ++i) {
       array[i] = a[i];
@@ -51,7 +51,7 @@ struct alignas(align_size / 2) Array<__e2m1, size, align_size> {
     return array[i / 2];
   }
 
-  Array& operator=(const Array& a) {
+  __device__ Array& operator=(const Array& a) {
 #pragma unroll
     for (int i = 0; i < size / 2; ++i) {
       array[i] = a.array[i];

@@ -16,19 +16,19 @@ __device__ __inline__ __bfloat __float2bfloat(const float);
 struct __align__(2) __bfloat {
   __bfloat() = default;
 
-  __bfloat(const __bfloat& other) {
+  __device__ __bfloat(const __bfloat& other) {
     __x = other.__x;
   }
 
-  __bfloat(const __bfloat&& other) {
+  __device__ __bfloat(const __bfloat&& other) {
     __x = other.__x;
   }
 
-  __bfloat(const volatile __bfloat& other) {
+  __device__ __bfloat(const volatile __bfloat& other) {
     __x = other.__x;
   }
 
-  __bfloat(const volatile __bfloat&& other) {
+  __device__ __bfloat(const volatile __bfloat&& other) {
     __x = other.__x;
   }
 

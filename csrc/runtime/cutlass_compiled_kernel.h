@@ -63,9 +63,9 @@ class CutlassCompiledKernel : public CompiledKernelBase {
 
   bool compiled_ = false;
 
-  // CUDA resources
-  CUfunction cuda_function_ = nullptr;
-  void* shared_library_handle_ = nullptr; // For nvcc/dlopen approach
+  void* workspace_size_function_ = nullptr;
+  void* cuda_function_ = nullptr;
+  void* shared_library_handle_ = nullptr;
 };
 
 } // namespace nvfuser
