@@ -12695,9 +12695,11 @@ __global__ void nvfuser_pointwise_f0_c1_r0_g0(
   i1 = 1024 * ((nvfuser_index_t)blockIdx.x);
   nvfuser_index_t i2;
   i2 = i0 + i1;
-  bool b3;
-  b3 = ((7 + i0) + i1) < 67108864;
-  if ((((i0 + 7) + i1) < 67108864)) {
+  nvfuser_index_t i3;
+  i3 = T0.logical_size[0LL] * T0.logical_size[1LL];
+  bool b4;
+  b4 = ((7 + i0) + i1) < i3;
+  if ((((i0 + 7) + i1) < i3)) {
     Array<__bfloat, 8, 8> T7;
     T7.set(__bfloat(0));
     loadGlobalToLocal<
@@ -12715,21 +12717,21 @@ __global__ void nvfuser_pointwise_f0_c1_r0_g0(
     // Alias Allocation - register
     auto& T8 = T6;
 #pragma unroll
-    for (nvfuser_index_t i4 = 0; i4 < 8; ++i4) {
+    for (nvfuser_index_t i5 = 0; i5 < 8; ++i5) {
       Array<float, 1, 1> T3;
-      T3[0] = __bfloat2float(T7[i4]);
+      T3[0] = __bfloat2float(T7[i5]);
       Array<float, 1, 1> T2;
-      T2[0] = __bfloat2float(T6[i4]);
+      T2[0] = __bfloat2float(T6[i5]);
       Array<float, 1, 1> T4;
       T4[0] = T2[0] * T3[0];
-      T8[i4] = __float2bfloat(T4[0]);
+      T8[i5] = __float2bfloat(T4[0]);
     }
     loadLocalToGlobal<__bfloat, /*vec_size=*/8, /*is_volatile=*/false>(
         &T5[i2], &T8[0]);
   } else {
     Array<__bfloat, 8, 8> T7;
     T7.set(__bfloat(0));
-    if (b3) {
+    if (b4) {
       loadGlobalToLocal<
           __bfloat,
           /*vec_size=*/8,
@@ -12738,7 +12740,7 @@ __global__ void nvfuser_pointwise_f0_c1_r0_g0(
     }
     Array<__bfloat, 8, 8> T6;
     T6.set(__bfloat(0));
-    if (b3) {
+    if (b4) {
       loadGlobalToLocal<
           __bfloat,
           /*vec_size=*/8,
@@ -12748,16 +12750,16 @@ __global__ void nvfuser_pointwise_f0_c1_r0_g0(
     // Alias Allocation - register
     auto& T8 = T6;
 #pragma unroll
-    for (nvfuser_index_t i4 = 0; i4 < 8; ++i4) {
+    for (nvfuser_index_t i5 = 0; i5 < 8; ++i5) {
       Array<float, 1, 1> T3;
-      T3[0] = __bfloat2float(T7[i4]);
+      T3[0] = __bfloat2float(T7[i5]);
       Array<float, 1, 1> T2;
-      T2[0] = __bfloat2float(T6[i4]);
+      T2[0] = __bfloat2float(T6[i5]);
       Array<float, 1, 1> T4;
       T4[0] = T2[0] * T3[0];
-      T8[i4] = __float2bfloat(T4[0]);
+      T8[i5] = __float2bfloat(T4[0]);
     }
-    if (b3) {
+    if (b4) {
       loadLocalToGlobal<__bfloat, /*vec_size=*/8, /*is_volatile=*/false>(
           &T5[i2], &T8[0]);
     }

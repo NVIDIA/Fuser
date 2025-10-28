@@ -46,8 +46,14 @@ class PointwiseMulDefault(FusionDefinition):
     """Pointwise multiplication using default auto-scheduler"""
 
     def definition(self):
-        self.t0 = self.from_pytorch(inputs[0])
-        self.t1 = self.from_pytorch(inputs[1])
+        # self.t0 = self.from_pytorch(inputs[0])
+        # self.t1 = self.from_pytorch(inputs[1])
+        self.t0 = self.define_tensor(
+            sizes=[dim0, dim1], strides=[dim1, 1], dtype=DataType.BFloat16
+        )
+        self.t1 = self.define_tensor(
+            sizes=[dim0, dim1], strides=[dim1, 1], dtype=DataType.BFloat16
+        )
 
         # Data type conversion and computation
         self.t0_float = self.ops.cast(self.t0, dtype=DataType.Float)
@@ -66,17 +72,37 @@ class PointwiseMulDefault(FusionDefinition):
 class PointwiseMulTMA(FusionDefinition):
     """Pointwise multiplication with manual TMA schedule"""
 
-    def __init__(self, tma_m=128, tma_n=128, blk_m=8, blk_n=16, tid_m=2):
+    def __init__(
+        self,
+        tma_m=128,
+        tma_n=128,
+        blk_m=8,
+        blk_n=16,
+        tid_m=2,
+        use_tma_store=False,
+        explicit_unroll=True,
+    ):
         super().__init__()
         self.tma_tile_m = tma_m
         self.tma_tile_n = tma_n
         self.blk_tile_m = blk_m
         self.blk_tile_n = blk_n
         self.tid_tile_m = tid_m
+        self.use_tma_store = use_tma_store
+        self.explicit_unroll = explicit_unroll
+        assert (
+            tma_n >= blk_n * 8 and tma_m >= blk_m * tid_m
+        ), "TMA tile size must be greater than or equal to block tile size"
 
     def definition(self):
-        self.t0 = self.from_pytorch(inputs[0])
-        self.t1 = self.from_pytorch(inputs[1])
+        # self.t0 = self.from_pytorch(inputs[0])
+        # self.t1 = self.from_pytorch(inputs[1])
+        self.t0 = self.define_tensor(
+            sizes=[dim0, dim1], strides=[dim1, 1], dtype=DataType.BFloat16
+        )
+        self.t1 = self.define_tensor(
+            sizes=[dim0, dim1], strides=[dim1, 1], dtype=DataType.BFloat16
+        )
 
         # Data type conversion and computation
         self.t0_float = self.ops.cast(self.t0, dtype=DataType.Float)
@@ -109,11 +135,20 @@ class PointwiseMulTMA(FusionDefinition):
         self.t0_reg = self.sched.cache_after(self.t0_smem)
         self.t1_reg = self.sched.cache_after(self.t1_smem)
 
-        # Cache output for vectorized store
-        self.t3_cache = self.sched.cache_before(self.t3)
+        # Output caching: regs -> [smem ->] global memory
+        if self.use_tma_store:
+            # TMA store path: regs -> smem -> global memory (via TMA)
+            self.t3_smem = self.sched.cache_before(self.t3, LoadStoreOpType.tma)
+            self.sched.set_memory_type(self.t3_smem, MemoryType.shared)
+            self.t3_cache = self.sched.cache_before(self.t3_smem)
+        else:
+            # Regular store path: regs -> global memory (no TMA)
+            self.t3_cache = self.sched.cache_before(self.t3)
 
-        # Schedule TMA load tensors
+        # Schedule TMA tensors
         tma_tvs = [self.t0_smem, self.t1_smem]
+        if self.use_tma_store:
+            tma_tvs.append(self.t3)
         for tv in tma_tvs:
             # [I0, I1] -> [I0/m, m, I1/n, n]
             self.sched.split(tv, dim=0, factor=tma_tile_m)
@@ -126,7 +161,7 @@ class PointwiseMulTMA(FusionDefinition):
             self.sched.parallelize(tv, axis=2, parallel_type=ParallelType.tma)
             self.sched.parallelize(tv, axis=3, parallel_type=ParallelType.tma)
 
-        # Schedule all compute tensors (registers and output)
+        # Schedule all non-TMA tensors
         compute_tvs = [
             self.t0_reg,
             self.t1_reg,
@@ -134,10 +169,15 @@ class PointwiseMulTMA(FusionDefinition):
             self.t1_float,
             self.t2_mul,
             self.t3_cache,
-            self.t3,
         ]
         if has_tanh:
-            compute_tvs.insert(-2, self.t2)  # Insert t2 (tanh result) before t3_cache
+            compute_tvs.insert(-1, self.t2)  # Insert t2 (tanh result) before t3_cache
+
+        # Add t3_smem if using TMA store, otherwise add t3 (output tensor)
+        if self.use_tma_store:
+            compute_tvs.append(self.t3_smem)
+        else:
+            compute_tvs.append(self.t3)
 
         for tv in compute_tvs:
             # [I0, I1] -> [I0/m, m, I1/n, n]
@@ -157,9 +197,16 @@ class PointwiseMulTMA(FusionDefinition):
             self.sched.parallelize(tv, axis=1, parallel_type=ParallelType.grid_x)
             self.sched.parallelize(tv, axis=4, parallel_type=ParallelType.block_y)
             self.sched.parallelize(tv, axis=5, parallel_type=ParallelType.block_x)
-            self.sched.parallelize(tv, axis=6, parallel_type=ParallelType.unroll)
-            # Only vectorize the cache tensors (loads and stores)
-            if tv == self.t0_reg or tv == self.t1_reg or tv == self.t3:
+            if self.explicit_unroll:
+                self.sched.parallelize(tv, axis=6, parallel_type=ParallelType.unroll)
+            # Vectorize: register cache tensors for loads from smem, and smem tensor for TMA store
+            vectorize_condition = (
+                tv == self.t0_reg
+                or tv == self.t1_reg
+                or (self.use_tma_store and tv == self.t3_smem)
+                or (not self.use_tma_store and tv == self.t3)
+            )
+            if vectorize_condition:
                 self.sched.parallelize(tv, axis=7, parallel_type=ParallelType.vectorize)
 
         # Inline most tensors
@@ -209,32 +256,39 @@ if True:
         print_kernel_profile(kp)
 
 
+# if False:
 if True:
     # debug run
     print("=" * 110)
-    print("DEBUG RUN - Testing with and without TMA Store")
+    print("DEBUG RUN - Testing configurations")
     print("=" * 110)
 
-    for use_tma_store in [False]:
-        clear_l2_cache()
-        store_mode = (
-            "WITH TMA Store" if use_tma_store else "WITHOUT TMA Store (Regular Store)"
-        )
-        print(f"\n{store_mode}")
-        print("-" * 110)
+    for use_tma_store in [False, True]:
+        for explicit_unroll in [True, False]:
+            clear_l2_cache()
+            store_mode = (
+                "WITH TMA Store"
+                if use_tma_store
+                else "WITHOUT TMA Store (Regular Store)"
+            )
+            unroll_mode = "WITH Unroll" if explicit_unroll else "WITHOUT Unroll"
+            print(f"\n{store_mode}, {unroll_mode}")
+            print("-" * 110)
 
-        fn_tma = PointwiseMulTMA(
-            tma_m=64,
-            tma_n=256,
-            blk_m=32,
-            blk_n=8,
-            tid_m=2,
-        )
-        nvf_out_tma = fn_tma.execute(inputs, profile=True)
-        assert torch.allclose(nvf_out_tma[0], torch_out, rtol=1e-2, atol=1e-2)
-        kps_tma = fn_tma.profile().kernel_profiles
-        for kp in kps_tma:
-            print_kernel_profile(kp)
+            fn_tma = PointwiseMulTMA(
+                tma_m=64,
+                tma_n=128,
+                blk_m=16,
+                blk_n=16,
+                tid_m=4,
+                use_tma_store=use_tma_store,
+                explicit_unroll=explicit_unroll,
+            )
+            nvf_out_tma = fn_tma.execute(inputs, profile=True)
+            assert torch.allclose(nvf_out_tma[0], torch_out, rtol=1e-2, atol=1e-2)
+            kps_tma = fn_tma.profile().kernel_profiles
+            for kp in kps_tma:
+                print_kernel_profile(kp)
 
     # exit()
 # ============================================================================================================
@@ -248,72 +302,107 @@ print("=" * 110)
 tma_tiles = [(64, 256), (128, 128), (64, 128), (64, 64), (32, 64), (32, 32)]
 blk_tiles = [(8, 16), (8, 32), (16, 16)]
 tid_tiles_m = [1, 2, 4]
+use_tma_store_options = [False]
+explicit_unroll_options = [True, False]
 
 results = []
 best_time = float("inf")
 best_config = None
 
-print(
-    f"\nTesting {len(tma_tiles) * len(tma_tiles) * len(blk_tiles) * len(tid_tiles_m)} configurations..."
+total_configs = (
+    len(tma_tiles)
+    * len(blk_tiles)
+    * len(tid_tiles_m)
+    * len(use_tma_store_options)
+    * len(explicit_unroll_options)
 )
-print(f"{'Config':<40} {'Time (ms)':<12} {'Bandwidth (GB/s)':<20} {'Status'}")
+print(f"\nTesting {total_configs} configurations...")
+print(f"{'Config':<70} {'Time (ms)':<12} {'Bandwidth (GB/s)':<20} {'Status'}")
 print("-" * 110)
 
 config_count = 0
 for tma_m, tma_n in tma_tiles:
     for blk_m, blk_n in blk_tiles:
         for tid_m in tid_tiles_m:
-            config_count += 1
-            config_str = f"TMA={tma_m}x{tma_n}, BLK={blk_m}x{blk_n}, TID={tid_m}"
+            if tma_n < blk_n * 8 or tma_m < blk_m * tid_m:
+                continue
+            for use_tma_store in use_tma_store_options:
+                for explicit_unroll_opt in explicit_unroll_options:
+                    required_sms = tma_m * tma_n * 2 * 2
+                    if use_tma_store:
+                        required_sms += tma_m * tma_n
+                    if required_sms > device_smem_bytes:
+                        print(f"Not enough SMEM for {tma_m}x{tma_n}x{use_tma_store}")
+                        continue
 
-            try:
-                # Create fusion with specific tile configuration
-                clear_l2_cache()
-                fn_tma = PointwiseMulTMA(
-                    tma_m=tma_m, tma_n=tma_n, blk_m=blk_m, blk_n=blk_n, tid_m=tid_m
-                )
-                nvf_out_tma = fn_tma.execute(inputs, profile=True)
+                    config_count += 1
+                    store_mode = "TMAStore" if use_tma_store else "RegStore"
+                    unroll_mode = "Unroll" if explicit_unroll_opt else "NoUnroll"
+                    config_str = f"TMA={tma_m}x{tma_n}, BLK={blk_m}x{blk_n}, TID={tid_m}, {store_mode}, {unroll_mode}"
 
-                # Verify correctness
-                if not torch.allclose(nvf_out_tma[0], torch_out, rtol=1e-2, atol=1e-2):
-                    print(f"{config_str:<40} {'N/A':<12} {'N/A':<20} INCORRECT")
-                    exit()
+                    try:
+                        # Create fusion with specific tile configuration
+                        clear_l2_cache()
+                        fn_tma = PointwiseMulTMA(
+                            tma_m=tma_m,
+                            tma_n=tma_n,
+                            blk_m=blk_m,
+                            blk_n=blk_n,
+                            tid_m=tid_m,
+                            use_tma_store=use_tma_store,
+                            explicit_unroll=explicit_unroll_opt,
+                        )
+                        nvf_out_tma = fn_tma.execute(inputs, profile=True)
 
-                # Get performance metrics
-                kps_tma = fn_tma.profile().kernel_profiles
-                tma_time = sum(kp.time_ms for kp in kps_tma)
-                tma_bw = (
-                    sum(kp.effective_bandwidth_gbs for kp in kps_tma) / len(kps_tma)
-                    if kps_tma
-                    else 0
-                )
+                        # Verify correctness
+                        if not torch.allclose(
+                            nvf_out_tma[0], torch_out, rtol=1e-2, atol=1e-2
+                        ):
+                            print(f"{config_str:<70} {'N/A':<12} {'N/A':<20} INCORRECT")
+                            exit()
 
-                results.append(
-                    {
-                        "config": config_str,
-                        "tma_m": tma_m,
-                        "tma_n": tma_n,
-                        "blk_m": blk_m,
-                        "blk_n": blk_n,
-                        "tid_m": tid_m,
-                        "time": tma_time,
-                        "bandwidth": tma_bw,
-                        "kps": kps_tma,
-                    }
-                )
+                        # Get performance metrics
+                        kps_tma = fn_tma.profile().kernel_profiles
+                        tma_time = sum(kp.time_ms for kp in kps_tma)
+                        tma_bw = (
+                            sum(kp.effective_bandwidth_gbs for kp in kps_tma)
+                            / len(kps_tma)
+                            if kps_tma
+                            else 0
+                        )
 
-                # Track best configuration
-                status = ""
-                if tma_time < best_time:
-                    best_time = tma_time
-                    best_config = results[-1]
-                    status = "← BEST"
+                        results.append(
+                            {
+                                "config": config_str,
+                                "tma_m": tma_m,
+                                "tma_n": tma_n,
+                                "blk_m": blk_m,
+                                "blk_n": blk_n,
+                                "tid_m": tid_m,
+                                "use_tma_store": use_tma_store,
+                                "explicit_unroll": explicit_unroll_opt,
+                                "time": tma_time,
+                                "bandwidth": tma_bw,
+                                "kps": kps_tma,
+                            }
+                        )
 
-                print(f"{config_str:<40} {tma_time:<12.4f} {tma_bw:<20.2f} {status}")
+                        # Track best configuration
+                        status = ""
+                        if tma_time < best_time:
+                            best_time = tma_time
+                            best_config = results[-1]
+                            status = "← BEST"
 
-            except Exception as e:
-                print(f"{config_str:<40} {'FAILED':<12} {'N/A':<20} {str(e)[:30]}")
-                exit()
+                        print(
+                            f"{config_str:<70} {tma_time:<12.4f} {tma_bw:<20.2f} {status}"
+                        )
+
+                    except Exception as e:
+                        print(
+                            f"{config_str:<70} {'FAILED':<12} {'N/A':<20} {str(e)[:30]}"
+                        )
+                        exit()
 
 print("-" * 110)
 print(f"\nTested {len(results)}/{config_count} configurations successfully\n")
