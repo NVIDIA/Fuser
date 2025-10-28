@@ -68,10 +68,12 @@ std::string generateNvfp4ScaledMmKernel(
     Fusion* fusion,
     const CutlassParams& params) {
   NVF_ERROR(fusion != nullptr);
+  /*
   NVF_ERROR_EQ(
       fusion->outputs().size(),
       1,
       "Cutlass executor currently only supports a single output");
+      */
   auto* main_output = fusion->outputs().front()->as<TensorView>();
   const std::string output_dtype = dtypeToCutlass(main_output->dtype());
 

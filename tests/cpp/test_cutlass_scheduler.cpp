@@ -522,4 +522,120 @@ TEST_F(CutlassExecutorTest, FindBlockScaledOutputs_MXFP8) {
   EXPECT_EQ(patterns[0].block_size, block_size);
 }
 
+// Test GEMM + ReLU with nvfp4 block-scaled inputs and output
+TEST_F(CutlassExecutorTest, Nvfp4BlockScaledGemmReLU) {
+  // Skip if not on SM100 or above
+  if (at::cuda::getCurrentDeviceProperties()->major < 10 ||
+      at::cuda::getCurrentDeviceProperties()->major > 11) {
+    GTEST_SKIP() << "Skipping test on pre-SM100 GPUs";
+  }
+
+  if (!std::getenv("CUTLASS_PATH")) {
+    GTEST_SKIP() << "The CUTLASS_PATH environment variable must be set in "
+                 << "order to run this test";
+  }
+
+  constexpr int64_t block_size = 16;
+  constexpr double F4_E2M1_MAX = 6.0;
+  constexpr double E4M3_EPS = 0.015625;
+  constexpr double F8E4M3_MAX = 448.0;
+
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  // Input tensors: nvfp4 block-scaled A and B matrices
+  TensorView* a = makeContigTensor(2, DataType::Float4_e2m1fn);
+  TensorView* b = makeContigTensor(2, DataType::Float4_e2m1fn);
+  // B has K inner for optimal memory access
+  b->setAllocationDomain({b->axis(1), b->axis(0)}, /*new_contiguity=*/true);
+  TensorView* a_sf = makeContigTensor(2, DataType::Float8_e4m3fn);
+  TensorView* b_sf = makeContigTensor(2, DataType::Float8_e4m3fn);
+  TensorView* alpha = makeContigTensor(0, DataType::Float);
+
+  fusion->addInput(a);
+  fusion->addInput(b);
+  fusion->addInput(a_sf);
+  fusion->addInput(b_sf);
+  fusion->addInput(alpha);
+
+  // Perform block-scaled matmul
+  auto smm = scaled_mm(
+      a,
+      b,
+      a_sf,
+      b_sf,
+      alpha,
+      /*bias=*/nullptr,
+      /*beta=*/nullptr,
+      /*dtype=*/DataType::Float);
+
+  // Apply ReLU activation
+  TensorView* relu_out = relu(smm.tv);
+
+  // Create block-scaled nvfp4 output pattern
+  // Reshape to expose block dimension
+  auto relu_reshaped =
+      reshape(relu_out, [](auto& x) { x.split(-1, block_size); });
+
+  // Compute block-wise absolute maximum
+  auto relu_abs = abs(relu_reshaped);
+  auto relu_amax = max(relu_abs, {-1});
+
+  // Compute block scale factors
+  auto block_scale =
+      div(relu_amax, IrBuilder::create<Val>(F4_E2M1_MAX, DataType::Float));
+  auto block_scale_clamp = clamp(
+      block_scale,
+      IrBuilder::create<Val>(E4M3_EPS, DataType::Float),
+      IrBuilder::create<Val>(F8E4M3_MAX, DataType::Float));
+  auto block_scale_fp8 = castOp(DataType::Float8_e4m3fn, block_scale_clamp);
+
+  // Quantize output to nvfp4
+  auto block_scale_fp32 = castOp(DataType::Float, block_scale_fp8);
+  auto block_scale_unsqueeze = unsqueeze(block_scale_fp32, -1);
+  auto relu_scaled = div(relu_reshaped, block_scale_unsqueeze);
+  auto relu_scaled_clamp = clamp(
+      relu_scaled,
+      IrBuilder::create<Val>(-F4_E2M1_MAX, DataType::Float),
+      IrBuilder::create<Val>(F4_E2M1_MAX, DataType::Float));
+
+  auto relu_fp4 = castOp(DataType::Float4_e2m1fn, relu_scaled_clamp);
+  auto relu_fp4_flat = reshape(relu_fp4, [](auto& x) { x.merge(-2); });
+
+  // Add outputs - Note: block_scale_fp8 and relu_fp4_flat are both outputs,
+  // but the Cutlass executor will recognize the block scaling pattern and
+  // handle them together as a single logical output
+  fusion->addOutput(block_scale_fp8);
+  fusion->addOutput(relu_fp4_flat);
+
+  // Test dimensions
+  constexpr int64_t M = 4096, N = 4096, K = 4096;
+
+  // Create test data
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+
+  QuantizedTensor qa = quantizeNvfp4(at::randn({M, K}, options));
+  QuantizedTensor qb = quantizeNvfp4(at::randn({N, K}, options));
+
+  at::Tensor at_a = qa.elts;
+  at::Tensor at_b = qb.elts.t();
+  at::Tensor at_a_sf = qa.block_scale;
+  at::Tensor at_b_sf = qb.block_scale;
+
+  // Compute alpha to combine global scales
+  at::Tensor at_alpha = 1.0 / (qa.global_scale * qb.global_scale);
+
+  std::vector<c10::IValue> inputs{at_a, at_b, at_a_sf, at_b_sf, at_alpha};
+
+  // Compile and run
+  CutlassParams params;
+  CutlassExecutor ce;
+  ce.compile(fusion.get(), params);
+
+  KernelArgumentHolder outputs = ce.run(inputs);
+
+  // Validate results
+  testValidate(fusion.get(), outputs, inputs, __LINE__, __FILE__);
+}
+
 } // namespace nvfuser

@@ -235,8 +235,8 @@ class EVTConverter : OptInDispatch {
     OptInDispatch::dispatch(expr);
   }
 
-  void dispatch(Val* val) {
-    const auto it = block_scaling_patterns_.find(val);
+  void handle(TensorView* tv) {
+    const auto it = block_scaling_patterns_.find(tv);
     if (it != block_scaling_patterns_.end()) {
       // This is the pre-scaling version of a block-scaled output.
       // Insert a block scaling EVT node which will handle the scaling and
@@ -246,7 +246,7 @@ class EVTConverter : OptInDispatch {
           pattern.global_scale_factor == nullptr,
           "EVT translation with global scale factors is not yet supported");
       NVF_ERROR(
-          val->definition() != nullptr,
+          tv->definition() != nullptr,
           "Must have already processed pre-scaled output's definition but it "
           "has no definition");
       // Assume we have already processed val's definition, so it should have an
@@ -274,7 +274,6 @@ class EVTConverter : OptInDispatch {
 
       val_nodes_[pattern.unquantized_output] = visitor_node;
     }
-    OptInDispatch::dispatch(val);
   }
 
   void handle(LoadStoreOp* uop) {}
