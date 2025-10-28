@@ -334,7 +334,7 @@ MulticastHandle::MulticastHandle(
   NVF_ERROR(
       is_multicast_supported != 0, "Device does not support Multicast Objects");
 
-  std::string error_message = is_symmetric_memory_valid(tensor);
+  std::string error_message = isSymmetricAllocationValid(tensor);
   NVF_ERROR(error_message.empty(), error_message);
   CUmemGenericAllocationHandle alloc_handle{};
   NVFUSER_CUDA_SAFE_CALL(
@@ -345,7 +345,7 @@ MulticastHandle::MulticastHandle(
       cuMemGetAllocationPropertiesFromHandle(&prop, alloc_handle));
 
   const size_t unrounded_size = tensor.numel() * tensor.element_size();
-  const int64_t granularity = get_granularity(prop, unrounded_size);
+  const int64_t granularity = getGranularityForSymmetricMemory(prop, unrounded_size);
   int64_t offset = tensor.storage_offset() * tensor.element_size();
   NVF_ERROR(
       offset % granularity == 0,
@@ -479,7 +479,7 @@ MulticastHandleForBroadcast::MulticastHandleForBroadcast(
       std::make_unique<MulticastHandle>(buffer, root, store_key_prefix);
 
   // Create a symmetric memory tensor for the semaphore (single int32 element)
-  at::Tensor semaphore = empty_strided_cuda_symmetric(
+  at::Tensor semaphore = allocateSymmetricTensor(
       /*sizes=*/at::IntArrayRef({1}),
       /*dtype=*/at::ScalarType::Int,
       /*device=*/buffer.device(),
@@ -551,7 +551,7 @@ MulticastHandleForAllgather::MulticastHandleForAllgather(
   }
 }
 
-SymmetricMemoryHandle* MulticastHandleCache::get(KeyType key) {
+SymmetricMemoryHandle* SymmetricMemoryHandleCache::get(KeyType key) {
   auto it = handles_.find(key);
   if (it != handles_.end()) {
     return it->second.get();

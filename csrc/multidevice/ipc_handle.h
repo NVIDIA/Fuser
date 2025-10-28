@@ -10,11 +10,6 @@
 #include <cuda.h>
 #include <cuda_runtime.h>
 #include <expr_evaluator.h>
-#include <memory>
-#include <string>
-#include <unordered_map>
-#include <variant>
-#include <vector>
 
 namespace nvfuser {
 
@@ -291,10 +286,10 @@ class MulticastHandleForAllgather : public SymmetricMemoryHandle {
   std::vector<std::unique_ptr<MulticastHandleForBroadcast>> broadcast_handles_;
 };
 
-class MulticastHandleCache {
+class SymmetricMemoryHandleCache {
  public:
-  MulticastHandleCache() = default;
-  ~MulticastHandleCache() = default;
+  SymmetricMemoryHandleCache() = default;
+  ~SymmetricMemoryHandleCache() = default;
 
   struct KeyType {
     at::Tensor buffer;

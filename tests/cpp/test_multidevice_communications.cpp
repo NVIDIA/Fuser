@@ -22,7 +22,6 @@
 #include <ops/arith.h>
 #include <ops/utils.h>
 
-#include <cstdint>
 #include <iostream>
 
 namespace nvfuser {

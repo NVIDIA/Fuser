@@ -851,7 +851,7 @@ TEST_F(IpcTest, IpcNvlsMulticastHandle) {
   }
 
   // Create a symmetric memory tensor
-  at::Tensor buffer = empty_strided_cuda_symmetric(
+  at::Tensor buffer = allocateSymmetricTensor(
       /*sizes=*/at::IntArrayRef({static_cast<int64_t>(kNumElems)}),
       /*dtype=*/at::ScalarType::Int,
       /*device=*/at::Device(at::kCUDA, local_rank),

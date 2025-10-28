@@ -15,7 +15,7 @@ namespace nvfuser {
 
 // Returns the minimum between the allocation granularity and, when available,
 // the maximum of multicast minimum and recommended granularities.
-int64_t get_granularity(
+int64_t getGranularityForSymmetricMemory(
     const CUmemAllocationProp& prop,
     size_t requested_size_bytes) {
   size_t alloc_granularity = 0;
@@ -48,7 +48,7 @@ int64_t get_granularity(
 #endif
 }
 
-at::Tensor empty_strided_cuda_symmetric(
+at::Tensor allocateSymmetricTensor(
     at::IntArrayRef sizes,
     at::ScalarType dtype,
     at::Device device,
@@ -78,7 +78,7 @@ at::Tensor empty_strided_cuda_symmetric(
   prop.location.id = static_cast<int>(device.index());
   prop.requestedHandleTypes = CU_MEM_HANDLE_TYPE_POSIX_FILE_DESCRIPTOR;
 
-  size_t granularity = get_granularity(prop, static_cast<size_t>(alloc_size));
+  size_t granularity = getGranularityForSymmetricMemory(prop, static_cast<size_t>(alloc_size));
 
   // Round up alloc_size to the nearest multiple of granularity
   int64_t rounded_alloc_size =
@@ -125,7 +125,7 @@ at::Tensor empty_strided_cuda_symmetric(
       options);
 }
 
-std::string is_symmetric_memory_valid(at::Tensor tensor) {
+std::string isSymmetricAllocationValid(at::Tensor tensor) {
   // Query support for Virtual Memory Management
   int is_vmm_supported;
   NVFUSER_CUDA_SAFE_CALL(cuDeviceGetAttribute(
@@ -179,7 +179,7 @@ std::string is_symmetric_memory_valid(at::Tensor tensor) {
   }
 
   size_t size_bytes = tensor.numel() * tensor.element_size();
-  const size_t granularity = get_granularity(prop, size_bytes);
+  const size_t granularity = getGranularityForSymmetricMemory(prop, size_bytes);
 
   if ((static_cast<size_t>(ptr) % granularity) != 0) {
     return "Expected symmetric memory address to be aligned to granularity " +

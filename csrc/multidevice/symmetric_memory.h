@@ -8,9 +8,6 @@
 #pragma once
 
 #include <ATen/ATen.h>
-#include <c10/util/ArrayRef.h>
-#include <optional>
-#include <string>
 
 #include <driver_api.h>
 
@@ -19,10 +16,10 @@ namespace nvfuser {
 /**
  * Symmetric memory helpers for multi-device execution.
  *
- * - empty_strided_cuda_symmetric: allocate a CUDA symmetric memory tensor
+ * - allocateSymmetricTensor: allocate a CUDA symmetric memory tensor
  *   using the CUDA driver virtual memory APIs with read/write access on the
  *   current device. Currently supports only contiguous layouts.
- * - is_symmetric_memory_valid: validate that a tensor points to symmetric
+ * - isSymmetricAllocationValid: validate that a tensor points to symmetric
  *   memory with the expected properties (access flags, allocation type,
  *   location, and handle type). Returns an empty string if valid; otherwise,
  *   returns a descriptive error message.
@@ -30,7 +27,7 @@ namespace nvfuser {
 
 // Allocate a symmetric CUDA tensor with the given size, stride, dtype and
 // device. Only contiguous strides are currently supported.
-at::Tensor empty_strided_cuda_symmetric(
+at::Tensor allocateSymmetricTensor(
     at::IntArrayRef sizes,
     at::ScalarType dtype,
     at::Device device,
@@ -38,9 +35,9 @@ at::Tensor empty_strided_cuda_symmetric(
 
 // Validate that the provided tensor is backed by symmetric CUDA memory.
 // Returns "" if valid; otherwise an error description.
-std::string is_symmetric_memory_valid(at::Tensor tensor);
+std::string isSymmetricAllocationValid(at::Tensor tensor);
 
-int64_t get_granularity(
+int64_t getGranularityForSymmetricMemory(
     const CUmemAllocationProp& prop,
     size_t requested_size_bytes);
 
