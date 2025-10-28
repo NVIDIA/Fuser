@@ -8,7 +8,6 @@
 #pragma once
 
 #include <scheduler/mma_utils.h>
-#include <visibility.h>
 
 #include <deque>
 #include <memory>
@@ -18,7 +17,6 @@
 namespace nvfuser {
 
 class Fusion;
-class TensorView;
 
 namespace cutlass_codegen {
 
