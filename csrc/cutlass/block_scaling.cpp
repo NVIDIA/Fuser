@@ -27,22 +27,54 @@ bool isBlockScaledDtype(const DataType& dtype) {
 
 namespace cutlass_codegen {
 
-// This matches a standard block scaling pattern expressed in Fusion IR like
-// follows:
+// This matches a standard block scaling pattern expressed in Fusion IR.
 //
-// Pattern 1 (without global scale):
-//   tv_data_scaled = div(tv_data_hp_reshaped, tv_block_scale_fp32_unsqueeze)
-//   tv_data_scaled_clamp = clamp(tv_data_scaled, ...)
-//   tv_data_lp = castOp(low_precision_dtype, tv_data_scaled_clamp)
-//   outputs: tv_block_scale_fp8 (Float8_e4m3fn), tv_data_lp
+// Block scaling quantizes a tensor by dividing it by per-block scale factors
+// that are computed from the absolute maximum values within each block.
 //
-// Pattern 2 (with global scale):
-//   tv_total_scale = mul(tv_global_scale, tv_scaled_block_scales_fp32)
-//   tv_total_scale_unsqueeze = unsqueeze(tv_total_scale, -1)
-//   tv_data_scaled = div(tv_data_hp_reshaped, tv_total_scale_unsqueeze)
-//   tv_data_scaled_clamp = clamp(tv_data_scaled, ...)
-//   tv_data_lp = castOp(low_precision_dtype, tv_data_scaled_clamp)
-//   outputs: tv_scaled_block_scales_fp8 (Float8_e4m3fn), tv_data_lp
+// Pattern diagram (without global scale):
+//
+//          Input (high precision)
+//                   |
+//       Reshape (split by block_size)
+//                   |
+//           data_hp_reshaped
+//           /            \
+//          /              \
+//         /                \.
+//        /                Abs
+//       |                   |
+//       |             Max (reduction)
+//       |                   |
+//       |            Div (by constant)
+//       |                   |
+//       |             [Optional: Clamp]
+//       |                   |
+//       |             Cast (to FP8)
+//       |                   |
+//       |           block_scale_fp8 --> OUTPUT (FP8 scales)
+//       |                   |
+//       |             Cast (to FP32)
+//       |                   |
+//       |           Broadcast/Unsqueeze
+//       |                   |
+//       +--------+----------+
+//                |
+//               Div
+//                |
+//           data_scaled
+//                |
+//         [Optional: Clamp]
+//                |
+//        Cast (to low precision)
+//                |
+//         [Optional: Reshape]
+//                |
+//             data_lp --> OUTPUT (quantized)
+//
+//
+// The pattern with global scale accepts a fusion input that divides the data
+// before the first abs/max
 //
 // Supports low-precision types: Float4_e2m1fn, Float8_e4m3fn, Float8_e5m2
 std::vector<BlockScaledOutputPattern> findBlockScaledOutputs(Fusion* fusion) {
