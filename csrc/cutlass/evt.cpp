@@ -64,8 +64,20 @@ std::vector<BlockScaledOutputPattern> findBlockScaledOutputs(Fusion* fusion) {
       continue;
     }
 
+    // The low-precision output might have a reshape after the cast
+    // Trace back through any reshapes first
+    TensorView* low_precision_tv = out_tv;
+    while (auto* reshape_op =
+               dynamic_cast<ReshapeOp*>(low_precision_tv->definition())) {
+      low_precision_tv = reshape_op->in();
+      // Verify it's still the same dtype after unwrapping reshape
+      if (!is_low_precision_output(low_precision_tv->dtype())) {
+        break;
+      }
+    }
+
     // The low-precision output should be produced by a cast operation
-    auto* cast_op = dynamic_cast<UnaryOp*>(out_tv->definition());
+    auto* cast_op = dynamic_cast<UnaryOp*>(low_precision_tv->definition());
     if (cast_op == nullptr || cast_op->getUnaryOpType() != UnaryOpType::Cast) {
       continue;
     }
@@ -76,29 +88,32 @@ std::vector<BlockScaledOutputPattern> findBlockScaledOutputs(Fusion* fusion) {
     // Look backwards to find the division operation that scales the data
     // The prescaled_output is typically the result of a clamp operation
     TensorView* data_scaled = prescaled_output;
-    if (auto* clamp_op = dynamic_cast<TernaryOp*>(data_scaled->definition())) {
-      if (clamp_op->getTernaryOpType() == TernaryOpType::Clamp) {
-        data_scaled = clamp_op->in1()->as<TensorView>();
-      }
+    if (auto* clamp_op = dynamic_cast<TernaryOp*>(data_scaled->definition());
+        clamp_op != nullptr &&
+        clamp_op->getTernaryOpType() == TernaryOpType::Clamp) {
+      data_scaled = clamp_op->in1()->as<TensorView>();
     }
 
     // The data_scaled should be the result of a division
     auto* div_op = dynamic_cast<BinaryOp*>(data_scaled->definition());
-    if (div_op == nullptr || div_op->getBinaryOpType() != BinaryOpType::Div) {
+    if (div_op == nullptr || div_op->getBinaryOpType() != BinaryOpType::Div ||
+        !div_op->lhs()->isA<TensorView>() ||
+        !div_op->rhs()->isA<TensorView>()) {
       continue;
     }
 
     // The LHS of the division is the data, which should come from a reshape
     TensorView* data_reshaped = div_op->lhs()->as<TensorView>();
 
-    // The RHS of the division should be the unsqueezed scale factor
+    // The RHS of the division should be the unsqueezed/broadcasted scale factor
     TensorView* scale_unsqueezed = div_op->rhs()->as<TensorView>();
 
-    // Trace back through unsqueeze operation
+    // Trace back through unsqueeze/broadcast operation
+    // Note: unsqueeze() is implemented as broadcast() in nvFuser
     TensorView* total_scale = scale_unsqueezed;
-    if (auto* unsqueeze_op =
-            dynamic_cast<SqueezeOp*>(total_scale->definition())) {
-      total_scale = unsqueeze_op->in()->as<TensorView>();
+    if (auto* broadcast_op =
+            dynamic_cast<BroadcastOp*>(total_scale->definition())) {
+      total_scale = broadcast_op->in()->as<TensorView>();
     }
 
     // Now we need to find the corresponding FP8 scale output
@@ -109,21 +124,34 @@ std::vector<BlockScaledOutputPattern> findBlockScaledOutputs(Fusion* fusion) {
     TensorView* block_scale_factors = nullptr;
     TensorView* global_scale_factor = nullptr;
 
+    // Helper to unwrap broadcasts to find the original tensor
+    auto unwrap_broadcasts = [](TensorView* tv) -> TensorView* {
+      while (auto* bcast_op = dynamic_cast<BroadcastOp*>(tv->definition())) {
+        tv = bcast_op->in()->as<TensorView>();
+      }
+      return tv;
+    };
+
     // Check if total_scale is the result of a multiplication (pattern 2)
     if (auto* mul_op = dynamic_cast<BinaryOp*>(total_scale->definition())) {
       if (mul_op->getBinaryOpType() == BinaryOpType::Mul) {
         // One operand should be a 0-dim tensor (global scale),
         // the other should be scaled_block_scales_fp32
+        // Note: the 0-dim tensor might be wrapped in broadcasts
         TensorView* lhs = mul_op->lhs()->as<TensorView>();
         TensorView* rhs = mul_op->rhs()->as<TensorView>();
 
+        // Unwrap broadcasts to find the original tensors
+        TensorView* lhs_unwrapped = unwrap_broadcasts(lhs);
+        TensorView* rhs_unwrapped = unwrap_broadcasts(rhs);
+
         // The global scale factor should be a 0-dim tensor
         // It can be either a fusion input or computed (e.g., from amax)
-        if (lhs->nDims() == 0) {
-          global_scale_factor = lhs;
+        if (lhs_unwrapped->nDims() == 0) {
+          global_scale_factor = lhs_unwrapped;
           total_scale = rhs;
-        } else if (rhs->nDims() == 0) {
-          global_scale_factor = rhs;
+        } else if (rhs_unwrapped->nDims() == 0) {
+          global_scale_factor = rhs_unwrapped;
           total_scale = lhs;
         }
       }

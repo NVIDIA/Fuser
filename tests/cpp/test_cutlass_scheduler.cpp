@@ -411,10 +411,12 @@ TEST_F(CutlassExecutorTest, FindBlockScaledOutputs_WithoutGlobalScale) {
   fusion->addOutput(tv_block_scale_fp8);
   fusion->addOutput(tv_data_lp);
 
+  fusion->printMath();
+
   // Test pattern matching
   auto patterns = cutlass_codegen::findBlockScaledOutputs(fusion.get());
 
-  EXPECT_EQ(patterns.size(), 1);
+  ASSERT_EQ(patterns.size(), 1);
   EXPECT_EQ(patterns[0].output, tv_data_lp);
   EXPECT_EQ(patterns[0].prescaled_output, tv_data_scaled_clamp);
   EXPECT_EQ(patterns[0].block_scale_factors, tv_block_scale_fp8);
@@ -472,7 +474,7 @@ TEST_F(CutlassExecutorTest, FindBlockScaledOutputs_WithGlobalScale) {
   // Test pattern matching
   auto patterns = cutlass_codegen::findBlockScaledOutputs(fusion.get());
 
-  EXPECT_EQ(patterns.size(), 1);
+  ASSERT_EQ(patterns.size(), 1);
   EXPECT_EQ(patterns[0].output, tv_data_lp);
   EXPECT_EQ(patterns[0].prescaled_output, tv_data_scaled_clamp);
   EXPECT_EQ(patterns[0].block_scale_factors, tv_scaled_block_scales_fp8);
@@ -495,10 +497,9 @@ TEST_F(CutlassExecutorTest, FindBlockScaledOutputs_MXFP8) {
 
   auto tv_data_hp_abs = abs(tv_data_hp_reshaped);
   auto tv_data_hp_amax = max(tv_data_hp_abs, {-1});
-  auto tv_block_scale = div(
-      tv_data_hp_amax, IrBuilder::create<Val>(FP8_MAX, DataType::Float));
-  auto tv_block_scale_fp8 =
-      castOp(DataType::Float8_e4m3fn, tv_block_scale);
+  auto tv_block_scale =
+      div(tv_data_hp_amax, IrBuilder::create<Val>(FP8_MAX, DataType::Float));
+  auto tv_block_scale_fp8 = castOp(DataType::Float8_e4m3fn, tv_block_scale);
   auto tv_block_scale_fp32 = castOp(DataType::Float, tv_block_scale_fp8);
   auto tv_block_scale_fp32_unsqueeze = unsqueeze(tv_block_scale_fp32, -1);
   auto tv_data_scaled = div(tv_data_hp_reshaped, tv_block_scale_fp32_unsqueeze);
@@ -512,7 +513,7 @@ TEST_F(CutlassExecutorTest, FindBlockScaledOutputs_MXFP8) {
   // Test pattern matching for FP8 output (MXFP8)
   auto patterns = cutlass_codegen::findBlockScaledOutputs(fusion.get());
 
-  EXPECT_EQ(patterns.size(), 1);
+  ASSERT_EQ(patterns.size(), 1);
   EXPECT_EQ(patterns[0].output, tv_data_lp);
   EXPECT_EQ(patterns[0].prescaled_output, tv_data_scaled);
   EXPECT_EQ(patterns[0].block_scale_factors, tv_block_scale_fp8);
