@@ -302,6 +302,11 @@ class KernelIrScanner : private IrVisitor {
     summary_.has_argsort = true;
   }
 
+  void handle(WaitForPriorGridOp* wop) final {
+    // Only the dependent grid requires a special cudaLaunchAttribute.
+    summary_.enable_programmatic_dependent_launch = true;
+  }
+
   void handle(PreprocessGroupedMatmulInputSf* aop) final {
     summary_.has_preprocess_grouped_matmul_input_sf = true;
   }
