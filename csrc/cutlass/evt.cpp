@@ -327,9 +327,9 @@ CommentedString argumentArgString(EVTModel::Node* node, int64_t indent_size) {
     // kernel here
     const std::string internal_var_name = "alpha";
     indent(ss, indent_size + 1)
-        << ".scalar_ptrs=static_cast<"
+        << ".scalar_ptrs={static_cast<"
         << dtypeToCutlass(node->argument->dtype()) << " const*>("
-        << internal_var_name << ".data_ptr)\n";
+        << internal_var_name << ".data_ptr)}\n";
     indent(ss, indent_size) << "}";
     return {ss.str(), ""};
   } else {
