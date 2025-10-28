@@ -175,9 +175,87 @@ std::vector<BlockScaledOutputPattern> findBlockScaledOutputs(Fusion* fusion) {
       }
     }
 
-    // If we found the block scale factors, we have a valid pattern
+    // If we found the block scale factors, verify the full pattern
     if (block_scale_factors != nullptr) {
-      // Infer block size from the reshape operation that created data_reshaped
+      // Now verify that block_scale_factors was computed from data_reshaped
+      // Expected pattern:
+      //   abs(data_reshaped) -> max reduction -> div by constant ->
+      //   clamp -> cast to FP8
+
+      // block_scale_factors is the FP8 output, trace back to find what was
+      // cast TO it
+      auto* to_fp8_cast =
+          dynamic_cast<UnaryOp*>(block_scale_factors->definition());
+      if (to_fp8_cast == nullptr ||
+          to_fp8_cast->getUnaryOpType() != UnaryOpType::Cast) {
+        continue;
+      }
+      TensorView* scale_before_fp8_cast = to_fp8_cast->in()->as<TensorView>();
+
+      // Skip optional clamp before FP8 cast
+      TensorView* scale_before_clamp = scale_before_fp8_cast;
+      if (auto* clamp_op =
+              dynamic_cast<TernaryOp*>(scale_before_clamp->definition());
+          clamp_op != nullptr &&
+          clamp_op->getTernaryOpType() == TernaryOpType::Clamp) {
+        scale_before_clamp = clamp_op->in1()->as<TensorView>();
+      }
+
+      // If there's a global scale, there's an extra division:
+      //   block_scale / global_scale -> scaled_block_scales
+      // Otherwise it's just: amax / constant -> block_scale
+      TensorView* scale_computation = scale_before_clamp;
+      if (global_scale_factor != nullptr) {
+        // Expect: scaled_block_scales = block_scale / global_scale
+        auto* global_div_op =
+            dynamic_cast<BinaryOp*>(scale_computation->definition());
+        if (global_div_op == nullptr ||
+            global_div_op->getBinaryOpType() != BinaryOpType::Div ||
+            !global_div_op->lhs()->isA<TensorView>()) {
+          continue;
+        }
+        // Verify the RHS is related to the global_scale_factor
+        // (might be wrapped in broadcasts)
+        TensorView* div_rhs = global_div_op->rhs()->as<TensorView>();
+        TensorView* div_rhs_unwrapped = unwrap_broadcasts(div_rhs);
+        if (div_rhs_unwrapped != global_scale_factor) {
+          continue;
+        }
+        scale_computation = global_div_op->lhs()->as<TensorView>();
+      }
+
+      // Should be a division (scale = amax / constant)
+      auto* scale_div_op =
+          dynamic_cast<BinaryOp*>(scale_computation->definition());
+      if (scale_div_op == nullptr ||
+          scale_div_op->getBinaryOpType() != BinaryOpType::Div ||
+          !scale_div_op->lhs()->isA<TensorView>()) {
+        continue;
+      }
+
+      TensorView* amax_tv = scale_div_op->lhs()->as<TensorView>();
+
+      // amax should be a reduction operation
+      auto* reduction_op = dynamic_cast<ReductionOp*>(amax_tv->definition());
+      if (reduction_op == nullptr ||
+          reduction_op->getReductionOpType() != BinaryOpType::Max) {
+        continue;
+      }
+
+      // The input to the reduction should be abs of data_reshaped
+      TensorView* abs_input = reduction_op->in()->as<TensorView>();
+      auto* abs_op = dynamic_cast<UnaryOp*>(abs_input->definition());
+      if (abs_op == nullptr || abs_op->getUnaryOpType() != UnaryOpType::Abs) {
+        continue;
+      }
+
+      // The input to abs should be the same data_reshaped we're dividing
+      TensorView* abs_input_data = abs_op->in()->as<TensorView>();
+      if (abs_input_data != data_reshaped) {
+        continue;
+      }
+
+      // Now we've verified the full pattern! Infer block size
       int64_t block_size = -1;
 
       // Trace back through the reshape to find the split
