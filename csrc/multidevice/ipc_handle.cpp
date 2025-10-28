@@ -334,8 +334,8 @@ MulticastHandle::MulticastHandle(
   NVF_ERROR(
       is_multicast_supported != 0, "Device does not support Multicast Objects");
 
-  // std::string error_message = is_symmetric_memory_valid(tensor);
-  // NVF_ERROR(error_message.empty(), error_message);
+  std::string error_message = is_symmetric_memory_valid(tensor);
+  NVF_ERROR(error_message.empty(), error_message);
   CUmemGenericAllocationHandle alloc_handle{};
   NVFUSER_CUDA_SAFE_CALL(
       cuMemRetainAllocationHandle(&alloc_handle, (void*)tensor.data_ptr()));

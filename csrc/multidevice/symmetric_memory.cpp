@@ -178,17 +178,24 @@ std::string is_symmetric_memory_valid(at::Tensor tensor) {
         std::to_string(prop.requestedHandleTypes);
   }
 
-  // Check virtual address alignment and mapping size w.r.t. granularity
-  CUdeviceptr base_ptr = 0;
-  size_t va_size = 0;
-  NVFUSER_CUDA_SAFE_CALL(cuMemGetAddressRange(&base_ptr, &va_size, ptr));
-
-  const size_t granularity = get_granularity(prop, va_size);
+  size_t size_bytes = tensor.numel() * tensor.element_size();
+  const size_t granularity = get_granularity(prop, size_bytes);
 
   if ((static_cast<size_t>(ptr) % granularity) != 0) {
     return "Expected symmetric memory address to be aligned to granularity " +
         std::to_string(granularity) + ", got address " +
         std::to_string(static_cast<unsigned long long>(ptr));
+  }
+
+  // Check virtual address alignment and mapping size w.r.t. granularity
+  CUdeviceptr base_ptr = 0;
+  size_t va_size = 0;
+  NVFUSER_CUDA_SAFE_CALL(cuMemGetAddressRange(&base_ptr, &va_size, ptr));
+
+  if ((static_cast<size_t>(base_ptr) % granularity) != 0) {
+    return "Expected symmetric memory address to be aligned to granularity " +
+        std::to_string(granularity) + ", got address " +
+        std::to_string(static_cast<unsigned long long>(base_ptr));
   }
 
   if ((va_size % granularity) != 0) {

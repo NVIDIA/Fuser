@@ -574,7 +574,8 @@ TEST_F(CUDACommunicationTest, Allgather) {
   }
 
   constexpr int64_t kNumRepetitions = 10;
-  constexpr int64_t kTensorSize = 524288; // each slice must be aligned with the granularity of 2097152
+  constexpr int64_t granularity_bytes = 2097152;
+  constexpr int64_t kTensorSize = granularity_bytes / sizeof(float); // each slice must be aligned with the granularity
 
   auto hic = std::make_unique<hir::HostIrContainer>();
   FusionGuard fg(hic.get());
