@@ -138,11 +138,41 @@ class EVTConverter : OptInDispatch {
     // TODO: add load nodes for epilogue inputs defined in Fusion (i.e. not as
     // ScaledMmaOp inputs)
 
-    for (Expr* expr :
-         StmtSort::getExprsBetween({getAccTv(fusion_)}, fusion_->outputs())) {
-      dispatch(expr);
+    // Now detect block scaled outputs. Any output that is block scaled will
+    // have its own special block scaling EVT node, so we don't want to create
+    // EVT nodes for the block scaling pattern itself.
+    std::vector<Val*> unscaled_outputs;
+    const std::vector<BlockScaledOutputPattern> scaling_patterns =
+        findBlockScaledOutputs(fusion_);
+    if (scaling_patterns.empty()) {
+      unscaled_outputs.insert(
+          unscaled_outputs.end(),
+          fusion_->outputs().begin(),
+          fusion_->outputs().end());
+    } else {
+      // This holds all quantized outputs as well as scale factors, so we can
+      // skip those outputs
+      std::unordered_set<Val*> all_scaling_outputs;
+      for (const BlockScaledOutputPattern& pattern : scaling_patterns) {
+        block_scaling_patterns_.emplace(pattern.unquantized_output, pattern);
+        unscaled_outputs.push_back(pattern.unquantized_output);
+        all_scaling_outputs.insert(pattern.output);
+        all_scaling_outputs.insert(pattern.block_scale_factors);
+      }
+      for (Val* v : fusion_->outputs()) {
+        if (!all_scaling_outputs.contains(v)) {
+          unscaled_outputs.push_back(v);
+        }
+      }
     }
-    model_.setRoot(val_nodes_.at(fusion_->outputs().at(0)));
+    NVF_ERROR_EQ(
+        unscaled_outputs.size(), 1, "Only one unquantized output is supported");
+
+    for (Statement* stmt :
+         StmtSort::getStmtsBetween({getAccTv(fusion_)}, unscaled_outputs)) {
+      dispatch(stmt);
+    }
+    model_.setRoot(val_nodes_.at(unscaled_outputs.front()));
   }
 
   EVTModel::Node* getNodeFor(Val* val) {
@@ -196,11 +226,55 @@ class EVTConverter : OptInDispatch {
     return visitor_node;
   }
 
+  using OptInDispatch::dispatch;
+
   void dispatch(Expr* expr) {
     if (!ir_utils::isTvOp(expr)) {
       return;
     }
     OptInDispatch::dispatch(expr);
+  }
+
+  void dispatch(Val* val) {
+    const auto it = block_scaling_patterns_.find(val);
+    if (it != block_scaling_patterns_.end()) {
+      // This is the pre-scaling version of a block-scaled output.
+      // Insert a block scaling EVT node which will handle the scaling and
+      // outputting the scale factors.
+      const BlockScaledOutputPattern& pattern = it->second;
+      NVF_ERROR(
+          pattern.global_scale_factor == nullptr,
+          "EVT translation with global scale factors is not yet supported");
+      NVF_ERROR(
+          val->definition() != nullptr,
+          "Must have already processed pre-scaled output's definition but it "
+          "has no definition");
+      // Assume we have already processed val's definition, so it should have an
+      // EVT node
+      EVTModel::Node* unquantized_node = getNodeFor(pattern.unquantized_output);
+      NVF_ERROR(
+          unquantized_node != nullptr,
+          "Could not find EVT node for unquantized output");
+
+      EVTModel::Node* scaling_node = model_.makeNode(
+          "cutlass::epilogue::fusion::Sm100BlockScaleFactorRowStore<" +
+          std::to_string(pattern.block_size) + ", EpilogueTile, " +
+          dtypeToCutlass(pattern.output->dtype()) + ", " +
+          dtypeToCutlass(pattern.unquantized_output->dtype()) + ", " +
+          dtypeToCutlass(pattern.block_scale_factors->dtype()) +
+          ", cutlass::FloatRoundStyle::round_to_nearest>");
+      // TODO: explicitly setting arguments is better. See
+      // https://github.com/NVIDIA/Fuser/pull/5440
+      scaling_node->argument = pattern.block_scale_factors;
+
+      EVTModel::Node* visitor_node =
+          model_.makeNode("cutlass::epilogue::fusion::Sm90EVT");
+      visitor_node->inputs.push_back(scaling_node);
+      visitor_node->inputs.push_back(unquantized_node);
+
+      val_nodes_[pattern.unquantized_output] = visitor_node;
+    }
+    OptInDispatch::dispatch(val);
   }
 
   void handle(LoadStoreOp* uop) {}
@@ -260,6 +334,7 @@ class EVTConverter : OptInDispatch {
   Fusion* fusion_;
   EVTModel model_;
   std::unordered_map<Val*, EVTModel::Node*> val_nodes_;
+  std::unordered_map<Val*, BlockScaledOutputPattern> block_scaling_patterns_;
   std::string failure_reason_;
 };
 
