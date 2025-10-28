@@ -1264,9 +1264,7 @@ KernelArgumentHolder KernelExecutor::run(
 
     const auto& kernel_summary = compiled_kernel_->kernel()->summary();
 
-    // cluster reduction uses DSMEM
-    // TODO: CUDA11-CLEANUP, use cuLaunchKernelEx for cuLaunchCooperativeKernel
-    if (kernel_summary.has_cluster_reduction) {
+    {
       FUSER_PERF_SCOPE("ExecutorRunFusion::cuLaunchKernelEx");
       CUlaunchConfig config = {};
       config.gridDimX = launch_params_.gdimx();
@@ -1281,6 +1279,9 @@ KernelArgumentHolder KernelExecutor::run(
       std::vector<CUlaunchAttribute> launch_attributes;
 
       if (kernel_summary.has_cluster_reduction) {
+        // cluster reduction uses DSMEM
+        // The launch attribute for cluster dimension must match
+        // __cluster_dims__ compile-time specification.
         CUlaunchAttribute attribute;
         attribute.id = CU_LAUNCH_ATTRIBUTE_CLUSTER_DIMENSION;
         attribute.value.clusterDim.x = launch_params_.gdimx();
@@ -1296,6 +1297,13 @@ KernelArgumentHolder KernelExecutor::run(
               CU_FUNC_ATTRIBUTE_NON_PORTABLE_CLUSTER_SIZE_ALLOWED,
               1));
         }
+      }
+
+      if (kernel_summary.has_cooperative_grid_reduction) {
+        CUlaunchAttribute attribute;
+        attribute.id = CU_LAUNCH_ATTRIBUTE_COOPERATIVE;
+        attribute.value.cooperative = 1;
+        launch_attributes.push_back(attribute);
       }
 
       if (launch_attributes.size() > 0) {
@@ -1324,33 +1332,6 @@ KernelArgumentHolder KernelExecutor::run(
           compiled_kernel_->cudaExecutable()->function,
           executor_entry->arg_ptrs.data(),
           nullptr));
-    } else if (!kernel_summary.has_cooperative_grid_reduction) {
-      FUSER_PERF_SCOPE("ExecutorRunFusion::cuLaunchKernel");
-      NVFUSER_CUDA_SAFE_CALL(cuLaunchKernel(
-          compiled_kernel_->cudaExecutable()->function,
-          launch_params_.gdimx(),
-          launch_params_.gdimy(),
-          launch_params_.gdimz(),
-          launch_params_.bdimx(),
-          launch_params_.bdimy(),
-          launch_params_.bdimz(),
-          launch_params_.smem(),
-          stream,
-          executor_entry->arg_ptrs.data(),
-          nullptr));
-    } else {
-      FUSER_PERF_SCOPE("ExecutorRunFusion::cuLaunchCooperativeKernel");
-      NVFUSER_CUDA_SAFE_CALL(cuLaunchCooperativeKernel(
-          compiled_kernel_->cudaExecutable()->function,
-          launch_params_.gdimx(),
-          launch_params_.gdimy(),
-          launch_params_.gdimz(),
-          launch_params_.bdimx(),
-          launch_params_.bdimy(),
-          launch_params_.bdimz(),
-          launch_params_.smem(),
-          stream,
-          executor_entry->arg_ptrs.data()));
     }
   }
 
