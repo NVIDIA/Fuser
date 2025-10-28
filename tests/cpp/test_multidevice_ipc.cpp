@@ -893,4 +893,129 @@ TEST_F(IpcTest, IpcNvlsMulticastHandle) {
 
 #endif
 
+TEST_F(IpcTest, VmmContiguousMappingTest) {
+  // This test demonstrates Virtual Memory Management by creating 4 separate
+  // allocations and mapping them into one contiguous virtual address range.
+
+  const int64_t local_rank = communicator_->local_rank();
+
+  // Query support for Virtual Memory Management
+  int is_vmm_supported;
+  NVFUSER_CUDA_SAFE_CALL(cuDeviceGetAttribute(
+      &is_vmm_supported,
+      CU_DEVICE_ATTRIBUTE_VIRTUAL_MEMORY_MANAGEMENT_SUPPORTED,
+      local_rank));
+  if (is_vmm_supported == 0) {
+    GTEST_SKIP()
+        << "Device does not support Virtual Memory Management; skipping.";
+  }
+
+  NVFUSER_CUDA_RT_SAFE_CALL(cudaSetDevice(communicator_->local_rank()));
+
+  // Set up allocation properties for VMM
+  CUmemAllocationProp prop{};
+  prop.type = CU_MEM_ALLOCATION_TYPE_PINNED;
+  prop.location.type = CU_MEM_LOCATION_TYPE_DEVICE;
+  prop.location.id = static_cast<int>(local_rank);
+  prop.requestedHandleTypes = CU_MEM_HANDLE_TYPE_POSIX_FILE_DESCRIPTOR;
+
+  // Check allocation granularity
+  size_t granularity = 0;
+  NVFUSER_CUDA_SAFE_CALL(cuMemGetAllocationGranularity(
+      &granularity, &prop, CU_MEM_ALLOC_GRANULARITY_MINIMUM));
+
+  // Create 4 separate allocations, each containing 1024 int64_t elements
+  constexpr size_t kNumAllocations = 4;
+  constexpr size_t kElemsPerAlloc = 1024;
+  constexpr size_t kBytesPerAlloc = kElemsPerAlloc * sizeof(int64_t);
+
+  // Align each allocation size to granularity
+  size_t aligned_size =
+      ((kBytesPerAlloc + granularity - 1) / granularity) * granularity;
+
+  // Create 4 separate allocation handles
+  std::vector<CUmemGenericAllocationHandle> alloc_handles(kNumAllocations);
+  for (size_t i = 0; i < kNumAllocations; ++i) {
+    NVFUSER_CUDA_SAFE_CALL(
+        cuMemCreate(&alloc_handles[i], aligned_size, &prop, /*flags=*/0));
+  }
+
+  // Reserve one contiguous virtual address space large enough for all 4
+  // allocations
+  size_t total_size = aligned_size * kNumAllocations;
+  CUdeviceptr base_ptr = 0;
+  NVFUSER_CUDA_SAFE_CALL(cuMemAddressReserve(
+      &base_ptr,
+      total_size,
+      /*alignment=*/granularity,
+      /*baseVA=*/0,
+      /*flags=*/0));
+
+  // Map each of the 4 allocations to consecutive regions in the virtual
+  // address space
+  for (size_t i = 0; i < kNumAllocations; ++i) {
+    CUdeviceptr offset_ptr = base_ptr + (i * aligned_size);
+    NVFUSER_CUDA_SAFE_CALL(
+        cuMemMap(offset_ptr, aligned_size, /*offset=*/0, alloc_handles[i], /*flags=*/0));
+  }
+
+  // Set memory access permissions for the entire contiguous range
+  CUmemAccessDesc access_desc{};
+  access_desc.location.type = CU_MEM_LOCATION_TYPE_DEVICE;
+  access_desc.location.id = static_cast<int>(local_rank);
+  access_desc.flags = CU_MEM_ACCESS_FLAGS_PROT_READWRITE;
+  NVFUSER_CUDA_SAFE_CALL(
+      cuMemSetAccess(base_ptr, total_size, &access_desc, /*count=*/1));
+
+  // Now we have a contiguous virtual address space that can be accessed
+  // uniformly. Write data to each section with distinct patterns.
+  std::vector<int64_t> host_data(kElemsPerAlloc * kNumAllocations);
+  for (size_t i = 0; i < kNumAllocations; ++i) {
+    for (size_t j = 0; j < kElemsPerAlloc; ++j) {
+      host_data[i * kElemsPerAlloc + j] =
+          static_cast<int64_t>(i * 10000 + j);
+    }
+  }
+
+  // Write the entire data buffer at once to the contiguous virtual address
+  NVFUSER_CUDA_RT_SAFE_CALL(cudaMemcpy(
+      reinterpret_cast<void*>(base_ptr),
+      host_data.data(),
+      kElemsPerAlloc * kNumAllocations * sizeof(int64_t),
+      cudaMemcpyHostToDevice));
+
+  // Verify that we can read back data from each allocation independently
+  // by reading from different offsets in the contiguous address range
+  std::vector<int64_t> readback_data(kElemsPerAlloc * kNumAllocations);
+  NVFUSER_CUDA_RT_SAFE_CALL(cudaMemcpy(
+      readback_data.data(),
+      reinterpret_cast<void*>(base_ptr),
+      kElemsPerAlloc * kNumAllocations * sizeof(int64_t),
+      cudaMemcpyDeviceToHost));
+
+  // Verify the pattern for this allocation
+  for (size_t i = 0; i < kNumAllocations; ++i) {
+    for (size_t j = 0; j < kElemsPerAlloc; ++j) {
+      int64_t expected = static_cast<int64_t>(i * 10000 + j);
+      ASSERT_EQ(readback_data[i * kElemsPerAlloc + j], expected)
+          << "Mismatch at allocation " << i << ", element " << j;
+    }
+  }
+
+  // Clean up: Unmap each allocation from the virtual address space
+  for (size_t i = 0; i < kNumAllocations; ++i) {
+    CUdeviceptr offset_ptr = base_ptr + (i * aligned_size);
+    NVFUSER_CUDA_SAFE_CALL(cuMemUnmap(offset_ptr, aligned_size));
+  }
+
+  // Free the virtual address space
+  NVFUSER_CUDA_SAFE_CALL(cuMemAddressFree(base_ptr, total_size));
+
+  // Release all allocation handles
+  for (size_t i = 0; i < kNumAllocations; ++i) {
+    NVFUSER_CUDA_SAFE_CALL(cuMemRelease(alloc_handles[i]));
+  }
+}
+
+
 } // namespace nvfuser
