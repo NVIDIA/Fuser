@@ -212,8 +212,7 @@ class MulticastHandle {
   MulticastHandle(
       at::Tensor tensor,
       int64_t exporter_rank,
-      const std::string& store_key_prefix,
-      int64_t offset = 0);
+      const std::string& store_key_prefix);
 
   ~MulticastHandle();
 
@@ -229,7 +228,13 @@ class MulticastHandle {
   at::Tensor tensor_;
 };
 
-class MulticastHandleForBroadcast {
+// Base class for symmetric memory handles used in collective communications
+class SymmetricMemoryHandle {
+ public:
+  virtual ~SymmetricMemoryHandle() = default;
+};
+
+class MulticastHandleForBroadcast : public SymmetricMemoryHandle {
  public:
   MulticastHandleForBroadcast(Communication* communication, at::Tensor buffer);
   
@@ -237,8 +242,7 @@ class MulticastHandleForBroadcast {
   MulticastHandleForBroadcast(
       at::Tensor buffer,
       int64_t root,
-      const std::string& name_suffix,
-      int64_t offset = 0);
+      const std::string& name_suffix);
 
   ~MulticastHandleForBroadcast() = default;
 
@@ -262,11 +266,11 @@ class MulticastHandleForBroadcast {
   std::vector<std::unique_ptr<UnicastHandle>> semaphore_handles_;
 };
 
-class MulticastHandleForAllgather {
+class MulticastHandleForAllgather : public SymmetricMemoryHandle {
  public:
   MulticastHandleForAllgather(Communication* communication, at::Tensor buffer);
 
-  ~MulticastHandleForAllgather() = default;
+  ~MulticastHandleForAllgather() override = default;
 
   // Accessors for a specific root rank's handles
   void* buffer_multicast_ptr(int64_t root_rank) const {
@@ -286,11 +290,6 @@ class MulticastHandleForAllgather {
   // One MulticastHandleForBroadcast per rank (each rank acts as root once)
   std::vector<std::unique_ptr<MulticastHandleForBroadcast>> broadcast_handles_;
 };
-
-// Variant type that can hold either type of multicast handle
-using SymmetricMemoryHandle = std::variant<
-    std::unique_ptr<MulticastHandleForBroadcast>,
-    std::unique_ptr<MulticastHandleForAllgather>>;
 
 class MulticastHandleCache {
  public:
@@ -313,10 +312,10 @@ class MulticastHandleCache {
     };
   };
 
-  const SymmetricMemoryHandle& get(KeyType key);
+  SymmetricMemoryHandle* get(KeyType key);
 
  private:
-  std::unordered_map<KeyType, SymmetricMemoryHandle, KeyType::Hash>
+  std::unordered_map<KeyType, std::unique_ptr<SymmetricMemoryHandle>, KeyType::Hash>
       handles_;
 };
 

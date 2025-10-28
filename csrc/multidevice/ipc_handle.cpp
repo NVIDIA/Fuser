@@ -311,8 +311,7 @@ UnicastHandle::~UnicastHandle() {
 MulticastHandle::MulticastHandle(
     at::Tensor tensor,
     int64_t exporter_rank,
-    const std::string& store_key_prefix,
-    int64_t offset)
+    const std::string& store_key_prefix)
     : tensor_(tensor) {
 #if (CUDA_VERSION >= NVF_MIN_CUDA_FOR_MCAST)
   Communicator& communicator = Communicator::getInstance();
@@ -335,10 +334,8 @@ MulticastHandle::MulticastHandle(
   NVF_ERROR(
       is_multicast_supported != 0, "Device does not support Multicast Objects");
 
-//   std::string error_message = is_symmetric_memory_valid(tensor);
-//   NVF_ERROR(error_message.empty(), error_message);
-// TODO: check if the offset is aligned with the granularity
-// NVF_ERROR(offset % granularity == 0, "Offset is not aligned with the granularity");
+  // std::string error_message = is_symmetric_memory_valid(tensor);
+  // NVF_ERROR(error_message.empty(), error_message);
   CUmemGenericAllocationHandle alloc_handle{};
   NVFUSER_CUDA_SAFE_CALL(
       cuMemRetainAllocationHandle(&alloc_handle, (void*)tensor.data_ptr()));
@@ -349,6 +346,8 @@ MulticastHandle::MulticastHandle(
 
   const size_t unrounded_size = tensor.numel() * tensor.element_size();
   const int64_t granularity = get_granularity(prop, unrounded_size);
+  int64_t offset = tensor.storage_offset() * tensor.element_size();
+  NVF_ERROR(offset % granularity == 0, "Offset is not aligned with the granularity, offset: ", offset, ", granularity: ", granularity);
   // Rounds up to the size to the nearest multiple of the granularity
   size_ = ((unrounded_size + granularity - 1) / granularity) * granularity;
 
@@ -405,7 +404,6 @@ MulticastHandle::MulticastHandle(
   NVFUSER_CUDA_SAFE_CALL(cuDeviceGet(&cu_dev_, static_cast<int>(local_rank)));
   NVFUSER_CUDA_SAFE_CALL(cuMulticastAddDevice(mcast_handle_, cu_dev_));
 
-  std::cout << "offset: " << offset << ", size_: " << size_ << ", granularity: " << granularity << std::endl;
   NVFUSER_CUDA_SAFE_CALL(cuMulticastBindMem(
       mcast_handle_,
       /*mcOffset=*/0,
@@ -460,14 +458,12 @@ MulticastHandleForBroadcast::MulticastHandleForBroadcast(
     : MulticastHandleForBroadcast(
           buffer,
           communication->root(),
-          "for_Communication" + communication->name(),
-          0) {}
+          "for_Communication" + communication->name()) {}
 
 MulticastHandleForBroadcast::MulticastHandleForBroadcast(
     at::Tensor buffer,
     int64_t root,
-    const std::string& name_suffix,
-    int64_t offset) {
+    const std::string& name_suffix) {
   Communicator& communicator = Communicator::getInstance();
   const int64_t my_rank = communicator.deviceId();
   const int64_t world_size = communicator.size();
@@ -476,7 +472,7 @@ MulticastHandleForBroadcast::MulticastHandleForBroadcast(
 
   // Create multicast handle for the buffer
   buffer_multicast_handle_ =
-      std::make_unique<MulticastHandle>(buffer, root, store_key_prefix, offset);
+      std::make_unique<MulticastHandle>(buffer, root, store_key_prefix);
 
   // Create a symmetric memory tensor for the semaphore (single int32 element)
   at::Tensor semaphore = empty_strided_cuda_symmetric(
@@ -528,40 +524,39 @@ MulticastHandleForAllgather::MulticastHandleForAllgather(
     at::Tensor buffer) {
   Communicator& communicator = Communicator::getInstance();
   const int64_t world_size = communicator.size();
-  
+
   // Allgather is world_size broadcasts, each broadcasting a different slice
   // of the output buffer. Create one MulticastHandleForBroadcast per rank.
   broadcast_handles_.reserve(world_size);
-  
+
   for (int64_t root_rank = 0; root_rank < world_size; ++root_rank) {
     // Each rank gets a slice of the output buffer
     int64_t slice_size = buffer.numel() / world_size;
-    at::Tensor sliced_buffer = buffer.slice(
+    // Flatten the tensor before slicing to ensure it is 1D
+    at::Tensor sliced_buffer = buffer.view({-1}).slice(
         /*dim=*/0,
         /*start=*/root_rank * slice_size,
         /*end=*/(root_rank + 1) * slice_size);
-    std::cout << "offset between slice and buffer:"
-              << (int64_t)buffer.data_ptr() -  (int64_t)sliced_buffer.data_ptr() << std::endl;
     // Create unique name suffix for this broadcast
     std::string name_suffix = communication->name() + "_allgather_root" + std::to_string(root_rank);
-    
+
     // Create MulticastHandleForBroadcast for this slice
     broadcast_handles_.push_back(
         std::make_unique<MulticastHandleForBroadcast>(
-            sliced_buffer, root_rank, name_suffix, root_rank * slice_size * buffer.element_size()));
-            // sliced_buffer, root_rank, name_suffix, root_rank * slice_size));
+            sliced_buffer, root_rank, name_suffix));
   }
 }
 
-const SymmetricMemoryHandle& MulticastHandleCache::get(KeyType key) {
+SymmetricMemoryHandle* MulticastHandleCache::get(KeyType key) {
   auto it = handles_.find(key);
   if (it != handles_.end()) {
-    return it->second;
+    return it->second.get();
   }
 
+
   // If not found, create a new handle based on communication type
-  SymmetricMemoryHandle handle;
-  
+  std::unique_ptr<SymmetricMemoryHandle> handle;
+
   if (key.comm->type() == CommunicationType::Broadcast) {
     handle = std::make_unique<MulticastHandleForBroadcast>(
         key.comm, key.buffer);
@@ -574,9 +569,9 @@ const SymmetricMemoryHandle& MulticastHandleCache::get(KeyType key) {
         "Unsupported communication type for multicast handle: ",
         key.comm->type());
   }
-  
+
   auto inserted = handles_.emplace(key, std::move(handle));
-  return inserted.first->second;
+  return inserted.first->second.get();
 }
 
 } // namespace nvfuser

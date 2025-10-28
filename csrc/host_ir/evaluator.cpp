@@ -336,7 +336,7 @@ void HostIrEvaluator::handle(Communication* communication) {
             communication->type() == CommunicationType::Allgather,
         "Invalid communication type, expected Broadcast or Allgather, got: ",
         communication->type());
-    const SymmetricMemoryHandle& multicast_handle =
+    SymmetricMemoryHandle* multicast_handle =
         multicast_handle_cache_.get({output_tensor, communication});
     postWithCudaBackend(
         communication, input_tensor, multicast_handle, current_stream);
@@ -402,7 +402,7 @@ void HostIrEvaluator::handle(Wait* wait) {
         "Invalid communication type, only Broadcast and Allgather are supported with cuda backend, got: ",
         communication->type());
     at::Tensor output_tensor = getKnownTensorOrUndefined(communication->out());
-    const SymmetricMemoryHandle& multicast_handle =
+    SymmetricMemoryHandle* multicast_handle =
         multicast_handle_cache_.get({output_tensor, communication});
     waitWithCudaBackend(communication, multicast_handle, current_stream);
   } else {

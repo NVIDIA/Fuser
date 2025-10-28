@@ -550,7 +550,7 @@ TEST_F(CUDACommunicationTest, Broadcast) {
 
   hir::HostIrEvaluatorParams params;
   params.use_allocation_cache = true;
-  hir::HostIrEvaluator hie(std::move(hic), communicator_);
+  hir::HostIrEvaluator hie(std::move(hic), communicator_, params);
 
   at::Tensor input_tensor = at::empty({kTensorSize}, tensor_options_);
   for (auto repetition : arange(kNumRepetitions)) {
@@ -607,7 +607,7 @@ TEST_F(CUDACommunicationTest, Allgather) {
 
   hir::HostIrEvaluatorParams params;
   params.use_allocation_cache = true;
-  hir::HostIrEvaluator hie(std::move(hic), communicator_);
+  hir::HostIrEvaluator hie(std::move(hic), communicator_, params);
 
   at::Tensor input_tensor = at::empty({kTensorSize}, tensor_options_);
   for (auto repetition : arange(kNumRepetitions)) {
@@ -615,14 +615,8 @@ TEST_F(CUDACommunicationTest, Allgather) {
         at::arange(kTensorSize, tensor_options_) +
         (communicator_->deviceId() + 1) * repetition);
 
-    torch::cuda::synchronize();
-    communicator_->barrier();
-
     auto outputs = hie.runWithInput({{in, input_tensor}});
 
-    torch::cuda::synchronize();
-    communicator_->barrier();
-    // Expected output: concatenation of all ranks' inputs
     at::Tensor ref = at::empty({communicator_->size() * kTensorSize}, tensor_options_);
     for (auto rank_idx : arange(communicator_->size())) {
       ref.slice(0, rank_idx * kTensorSize, (rank_idx + 1) * kTensorSize)
