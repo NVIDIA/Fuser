@@ -585,7 +585,7 @@ class TaskSorter {
 
       // Our usage is at or below best. Have we completed an ordering? If
       // so, update best_steps
-      if (steps_.size() == (size_t)graph_.numTasks() && hwm < best_hwm) {
+      if (std::ssize(steps_) == graph_.numTasks() && hwm < best_hwm) {
         best_steps = steps_;
       }
     } // while
