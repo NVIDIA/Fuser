@@ -395,11 +395,13 @@ void HostIrEvaluator::handle(Wait* wait) {
     } else if (p2p_comm->type() == P2PCommunicationType::RECV) {
       recvWait(ipc_handles, current_stream);
     }
-  } else if (communication && communication->backend() == CommunicatorBackend::kCuda) {
+  } else if (
+      communication && communication->backend() == CommunicatorBackend::kCuda) {
     NVF_ERROR(
         communication->type() == CommunicationType::Broadcast ||
             communication->type() == CommunicationType::Allgather,
-        "Invalid communication type, only Broadcast and Allgather are supported with cuda backend, got: ",
+        "Invalid communication type, only Broadcast and Allgather are "
+        "supported with cuda backend, got: ",
         communication->type());
     at::Tensor output_tensor = getKnownTensorOrUndefined(communication->out());
     SymmetricMemoryHandle* multicast_handle =

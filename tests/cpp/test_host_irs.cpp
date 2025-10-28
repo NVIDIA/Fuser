@@ -18,8 +18,8 @@
 #include <host_ir/lower.h>
 #include <ir/all_nodes.h>
 #include <ir/builder.h>
-#include <multidevice/utils.h>
 #include <multidevice/symmetric_memory.h>
+#include <multidevice/utils.h>
 #include <ops/all_ops.h>
 #include <runtime/executor_kernel_arg.h>
 #include <tests/cpp/utils.h>

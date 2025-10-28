@@ -38,12 +38,12 @@
 
 #define NVF_MIN_CUDA_FOR_MCAST 13000
 #if (CUDA_VERSION >= NVF_MIN_CUDA_FOR_MCAST)
-#define NVF_FOR_EACH_DRIVER_API_GE_130(fn)  \
-  /* NVLS multicast */                      \
-  fn(cuMulticastCreate, 13000);             \
-  fn(cuMulticastAddDevice, 13000);          \
-  fn(cuMulticastBindMem, 13000);            \
-  fn(cuMulticastGetGranularity, 13000);     \
+#define NVF_FOR_EACH_DRIVER_API_GE_130(fn) \
+  /* NVLS multicast */                     \
+  fn(cuMulticastCreate, 13000);            \
+  fn(cuMulticastAddDevice, 13000);         \
+  fn(cuMulticastBindMem, 13000);           \
+  fn(cuMulticastGetGranularity, 13000);    \
   fn(cuMulticastUnbind, 13000)
 #else
 #define NVF_FOR_EACH_DRIVER_API_GE_130(fn)
@@ -87,7 +87,6 @@
   fn(cuMemGetAllocationPropertiesFromHandle, 12000);      \
   fn(cuMemGetAccess, 12000);                              \
   NVF_FOR_EACH_DRIVER_API_GE_130(fn)
-
 
 #define NVF_DECLARE_DRIVER_API_WRAPPER(fn, requested_version) \
   extern decltype(::fn)* fn

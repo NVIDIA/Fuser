@@ -9,7 +9,6 @@
 
 #include <torch/torch.h>
 
-
 #include <fusion.h>
 #include <ir/builder.h>
 #include <multidevice/communication.h>
@@ -530,7 +529,8 @@ TEST_F(CUDACommunicationTest, Broadcast) {
   out->setMemoryType(MemoryType::Global);
   out->setMemoryType(MemoryType::Symmetric);
 
-  auto allocated_out = IrBuilder::create<kir::Allocate>(out, MemoryType::Symmetric);
+  auto allocated_out =
+      IrBuilder::create<kir::Allocate>(out, MemoryType::Symmetric);
   auto communication = IrBuilder::create<Communication>(
       CommunicationType::Broadcast,
       out,
@@ -562,7 +562,8 @@ TEST_F(CUDACommunicationTest, Broadcast) {
 
     auto ref = at::arange(kTensorSize, tensor_options_) + repetition;
     EXPECT_TRUE(outputs.back().as<at::Tensor>().equal(ref))
-        << "On iteration " << repetition << " on device " << communicator_->deviceId() << " expected tensor:\n"
+        << "On iteration " << repetition << " on device "
+        << communicator_->deviceId() << " expected tensor:\n"
         << ref << "\nbut obtained tensor:\n"
         << outputs.back().as<at::Tensor>();
   }
@@ -575,7 +576,8 @@ TEST_F(CUDACommunicationTest, Allgather) {
 
   constexpr int64_t kNumRepetitions = 10;
   constexpr int64_t granularity_bytes = 2097152;
-  constexpr int64_t kTensorSize = granularity_bytes / sizeof(float); // each slice must be aligned with the granularity
+  constexpr int64_t kTensorSize = granularity_bytes /
+      sizeof(float); // each slice must be aligned with the granularity
 
   auto hic = std::make_unique<hir::HostIrContainer>();
   FusionGuard fg(hic.get());
@@ -588,7 +590,8 @@ TEST_F(CUDACommunicationTest, Allgather) {
   out->setMemoryType(MemoryType::Global);
   out->setMemoryType(MemoryType::Symmetric);
 
-  auto allocated_out = IrBuilder::create<kir::Allocate>(out, MemoryType::Symmetric);
+  auto allocated_out =
+      IrBuilder::create<kir::Allocate>(out, MemoryType::Symmetric);
   auto communication = IrBuilder::create<Communication>(
       CommunicationType::Allgather,
       out,
@@ -618,10 +621,13 @@ TEST_F(CUDACommunicationTest, Allgather) {
 
     auto outputs = hie.runWithInput({{in, input_tensor}});
 
-    at::Tensor ref = at::empty({communicator_->size() * kTensorSize}, tensor_options_);
+    at::Tensor ref =
+        at::empty({communicator_->size() * kTensorSize}, tensor_options_);
     for (auto rank_idx : arange(communicator_->size())) {
       ref.slice(0, rank_idx * kTensorSize, (rank_idx + 1) * kTensorSize)
-          .copy_(at::arange(kTensorSize, tensor_options_) + (rank_idx + 1) * repetition);
+          .copy_(
+              at::arange(kTensorSize, tensor_options_) +
+              (rank_idx + 1) * repetition);
     }
 
     {
@@ -642,13 +648,12 @@ TEST_F(CUDACommunicationTest, Allgather) {
           }
         }
         std::ostringstream oss;
-        oss << "On iteration " << repetition 
-            << ", device " << communicator_->deviceId()
-            << " got an unexpected output.\n";
+        oss << "On iteration " << repetition << ", device "
+            << communicator_->deviceId() << " got an unexpected output.\n";
         if (mismatch_idx != -1) {
-          oss << "First difference at index " << mismatch_idx
-              << ": got " << got_cpu.data_ptr<float>()[mismatch_idx]
-              << ", expected " << ref_cpu.data_ptr<float>()[mismatch_idx] << "\n";
+          oss << "First difference at index " << mismatch_idx << ": got "
+              << got_cpu.data_ptr<float>()[mismatch_idx] << ", expected "
+              << ref_cpu.data_ptr<float>()[mismatch_idx] << "\n";
         } else {
           oss << "Tensors are not equal, but no differing index found.\n";
         }

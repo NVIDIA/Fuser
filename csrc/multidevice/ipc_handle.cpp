@@ -272,8 +272,8 @@ UnicastHandle::UnicastHandle(
       /*alignment=*/granularity,
       /*baseVA=*/0,
       /*flags=*/0));
-  NVFUSER_CUDA_SAFE_CALL(cuMemMap(
-      mapped_cu_ptr, size_, /*offset=*/0, mem_handle_, /*flags=*/0));
+  NVFUSER_CUDA_SAFE_CALL(
+      cuMemMap(mapped_cu_ptr, size_, /*offset=*/0, mem_handle_, /*flags=*/0));
 
   // Set memory access permissions
   CUmemAccessDesc access_desc{};
@@ -347,7 +347,12 @@ MulticastHandle::MulticastHandle(
   const size_t unrounded_size = tensor.numel() * tensor.element_size();
   const int64_t granularity = get_granularity(prop, unrounded_size);
   int64_t offset = tensor.storage_offset() * tensor.element_size();
-  NVF_ERROR(offset % granularity == 0, "Offset is not aligned with the granularity, offset: ", offset, ", granularity: ", granularity);
+  NVF_ERROR(
+      offset % granularity == 0,
+      "Offset is not aligned with the granularity, offset: ",
+      offset,
+      ", granularity: ",
+      granularity);
   // Rounds up to the size to the nearest multiple of the granularity
   size_ = ((unrounded_size + granularity - 1) / granularity) * granularity;
 
@@ -467,8 +472,7 @@ MulticastHandleForBroadcast::MulticastHandleForBroadcast(
   Communicator& communicator = Communicator::getInstance();
   const int64_t my_rank = communicator.deviceId();
   const int64_t world_size = communicator.size();
-  std::string store_key_prefix =
-      "nvls_export_mcast_handle_" + name_suffix;
+  std::string store_key_prefix = "nvls_export_mcast_handle_" + name_suffix;
 
   // Create multicast handle for the buffer
   buffer_multicast_handle_ =
@@ -538,12 +542,12 @@ MulticastHandleForAllgather::MulticastHandleForAllgather(
         /*start=*/root_rank * slice_size,
         /*end=*/(root_rank + 1) * slice_size);
     // Create unique name suffix for this broadcast
-    std::string name_suffix = communication->name() + "_allgather_root" + std::to_string(root_rank);
+    std::string name_suffix =
+        communication->name() + "_allgather_root" + std::to_string(root_rank);
 
     // Create MulticastHandleForBroadcast for this slice
-    broadcast_handles_.push_back(
-        std::make_unique<MulticastHandleForBroadcast>(
-            sliced_buffer, root_rank, name_suffix));
+    broadcast_handles_.push_back(std::make_unique<MulticastHandleForBroadcast>(
+        sliced_buffer, root_rank, name_suffix));
   }
 }
 
@@ -553,16 +557,15 @@ SymmetricMemoryHandle* MulticastHandleCache::get(KeyType key) {
     return it->second.get();
   }
 
-
   // If not found, create a new handle based on communication type
   std::unique_ptr<SymmetricMemoryHandle> handle;
 
   if (key.comm->type() == CommunicationType::Broadcast) {
-    handle = std::make_unique<MulticastHandleForBroadcast>(
-        key.comm, key.buffer);
+    handle =
+        std::make_unique<MulticastHandleForBroadcast>(key.comm, key.buffer);
   } else if (key.comm->type() == CommunicationType::Allgather) {
-    handle = std::make_unique<MulticastHandleForAllgather>(
-        key.comm, key.buffer);
+    handle =
+        std::make_unique<MulticastHandleForAllgather>(key.comm, key.buffer);
   } else {
     NVF_ERROR(
         false,

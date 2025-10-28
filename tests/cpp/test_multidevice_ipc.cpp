@@ -467,10 +467,10 @@ TEST_F(IpcTest, IpcUnicastP2pPtrArithmeticAtReceiver) {
   communicator_->barrier();
 
   // Import peer's VMM handle
-  int peer_shared_fd = fromBytes<int>(
-      store->get("vmm_uc_ipc_fd_" + std::to_string(peer_rank)));
-  pid_t peer_pid =
-      fromBytes<pid_t>(store->get("vmm_uc_ipc_pid_" + std::to_string(peer_rank)));
+  int peer_shared_fd =
+      fromBytes<int>(store->get("vmm_uc_ipc_fd_" + std::to_string(peer_rank)));
+  pid_t peer_pid = fromBytes<pid_t>(
+      store->get("vmm_uc_ipc_pid_" + std::to_string(peer_rank)));
 
   // Get the peer's file descriptor using pidfd_open and pidfd_getfd
   int pid_fd = syscall(SYS_pidfd_open, peer_pid, /*flags=*/0);
@@ -860,7 +860,8 @@ TEST_F(IpcTest, IpcNvlsMulticastHandle) {
   // Use MulticastHandle to set up multicast communication
   std::string store_key_prefix = "test_multicast_handle";
   std::unique_ptr<MulticastHandle> mcast_handle =
-      std::make_unique<MulticastHandle>(buffer, exporter_rank, store_key_prefix);
+      std::make_unique<MulticastHandle>(
+          buffer, exporter_rank, store_key_prefix);
 
   // Get the multicast pointer
   void* mc_ptr = mcast_handle->multicast_ptr();

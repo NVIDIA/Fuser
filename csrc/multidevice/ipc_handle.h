@@ -237,7 +237,7 @@ class SymmetricMemoryHandle {
 class MulticastHandleForBroadcast : public SymmetricMemoryHandle {
  public:
   MulticastHandleForBroadcast(Communication* communication, at::Tensor buffer);
-  
+
   // Constructor for use when creating multiple broadcasts (e.g., for allgather)
   MulticastHandleForBroadcast(
       at::Tensor buffer,
@@ -315,7 +315,10 @@ class MulticastHandleCache {
   SymmetricMemoryHandle* get(KeyType key);
 
  private:
-  std::unordered_map<KeyType, std::unique_ptr<SymmetricMemoryHandle>, KeyType::Hash>
+  std::unordered_map<
+      KeyType,
+      std::unique_ptr<SymmetricMemoryHandle>,
+      KeyType::Hash>
       handles_;
 };
 
