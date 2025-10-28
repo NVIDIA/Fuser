@@ -497,6 +497,7 @@ class FusionDefinition:
         """
         fusion_outputs = self.execute(inputs, device=device, **kwargs)
         self._validate(self.fec.fusion(), fusion_outputs, reference_outputs, inputs)
+        return fusion_outputs
 
     def manual_validate(
         self,
@@ -521,6 +522,7 @@ class FusionDefinition:
         """
         fusion_outputs = self.manual_execute(inputs)
         self._validate(self.fusion, fusion_outputs, reference_outputs, inputs)
+        return fusion_outputs
 
     def _validate(self, fusion, fusion_outputs, reference_outputs, inputs):
         """

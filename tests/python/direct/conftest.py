@@ -36,12 +36,12 @@ class NVFuserTest(TestCase):
             fusion_func(fd)
 
         if validate_results:
-            fd.validate(deepcopy(inputs))
-
-        out = fd.execute(
-            inputs,
-            device=device,
-        )
+            out = fd.validate(deepcopy(inputs))
+        else:
+            out = fd.execute(
+                inputs,
+                device=device,
+            )
 
         assert check_captured_python_definition(out, fd, inputs_captured, device)
         assert expected_fd_str is None or expected_fd_str in repr(fd)
