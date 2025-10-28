@@ -1435,13 +1435,18 @@ TEST_F(
   }
 }
 
-TEST_F(PointwiseTest, PointwiseMulMultiWaveTMA) {
+// Parameterized test for TMA with/without store and with/without unroll
+using TMATestParams =
+    std::tuple<bool, bool>; // <use_tma_store, explicit_unroll>
+using PointwiseMultiWaveTMATest = NVFuserFixtureParamTest<TMATestParams>;
+TEST_P(PointwiseMultiWaveTMATest, PointwiseMulMultiWaveTMA) {
   struct TileMN {
-    int64_t m, n;
+    int64_t m;
+    int64_t n;
   };
+  auto [use_tma_store, explicit_unroll] = GetParam();
   int64_t dim0 = 8192, dim1 = 8192;
   DataType dtype = DataType::BFloat16;
-
   auto fusion_ptr = std::make_unique<Fusion>();
   FusionGuard fg(fusion_ptr.get());
   Fusion& fusion = *fusion_ptr;
@@ -1457,24 +1462,39 @@ TEST_F(PointwiseTest, PointwiseMulMultiWaveTMA) {
 
   // Create TMA loads from inputs to shared memory
   auto tv0_smem = tv0->cacheAfter(LoadStoreOpType::CpAsyncBulkTensorTile);
-  auto tv1_smem = tv1->cacheAfter(LoadStoreOpType::CpAsyncBulkTensorTile);
   tv0_smem->setMemoryType(MemoryType::Shared);
+
+  auto tv1_smem = tv1->cacheAfter(LoadStoreOpType::CpAsyncBulkTensorTile);
   tv1_smem->setMemoryType(MemoryType::Shared);
 
   // Cache loads from shared memory to registers (vectorized)
   auto tv0_reg = tv0_smem->cacheAfter();
   auto tv1_reg = tv1_smem->cacheAfter();
 
-  // Cache output for vectorized store
-  auto tv3_cache = tv3->cacheBefore();
+  // Output caching: regs -> [smem ->] global memory
+  TensorView* tv3_smem = nullptr;
+  TensorView* tv3_regs = nullptr;
+  if (use_tma_store) {
+    // TMA store path: regs -> smem -> global memory (via TMA)
+    tv3_smem = tv3->cacheBefore(LoadStoreOpType::CpAsyncBulkTensorTile);
+    tv3_smem->setMemoryType(MemoryType::Shared);
+    tv3_regs = tv3_smem->cacheBefore();
+  } else {
+    // Regular store path: regs -> global memory (no TMA)
+    tv3_regs = tv3->cacheBefore();
+  }
 
+  // Tile sizes
   int64_t vect_factor = 128L / dataTypeSizeBit(dtype);
   TileMN tma_tile = {64, 128};
   TileMN blk_tile = {8, 16}; // [TIDy, TIDx]
   TileMN tid_tile = {2, vect_factor}; // [Unroll, Vectorize]
 
-  // Schedule TMA load tensors
+  // Schedule TMA tensors
   std::vector<TensorView*> tma_tvs = {tv0_smem, tv1_smem};
+  if (use_tma_store) {
+    tma_tvs.push_back(tv3);
+  }
   for (auto tv : tma_tvs) {
     // [I0, I1] -> [I0/m, m, I1/n, n]
     tv->split(0, tma_tile.m);
@@ -1488,9 +1508,16 @@ TEST_F(PointwiseTest, PointwiseMulMultiWaveTMA) {
     tv->axis(3)->parallelize(ParallelType::Bulk);
   }
 
-  // Schedule non-tma tensors
+  // Schedule all non-tma tensors
   std::vector<TensorView*> compute_tvs = {
-      tv0_reg, tv1_reg, tv0_float, tv1_float, tv2, tv3_cache, tv3};
+      tv0_reg, tv1_reg, tv0_float, tv1_float, tv2, tv3_regs};
+
+  // Add t3_smem if using TMA store, otherwise add t3 (output tensor)
+  if (use_tma_store) {
+    compute_tvs.push_back(tv3_smem);
+  } else {
+    compute_tvs.push_back(tv3);
+  }
 
   for (auto tv : compute_tvs) {
     // [I0, I1] -> [I0/m, m, I1/n, n]
@@ -1511,13 +1538,18 @@ TEST_F(PointwiseTest, PointwiseMulMultiWaveTMA) {
     tv->axis(1)->parallelize(ParallelType::BIDx);
     tv->axis(4)->parallelize(ParallelType::TIDy);
     tv->axis(5)->parallelize(ParallelType::TIDx);
-    tv->axis(6)->parallelize(ParallelType::Unroll);
-    // Only vectorize the cache tensors (loads and stores)
-    if (tv == tv0_reg || tv == tv1_reg || tv == tv3) {
+    if (explicit_unroll) {
+      tv->axis(6)->parallelize(ParallelType::Unroll);
+    }
+    // Vectorize: register cache tensors for loads from smem, and smem tensor
+    // for TMA store
+    bool vectorize_condition =
+        (tv == tv0_reg || tv == tv1_reg || (use_tma_store && tv == tv3_smem) ||
+         (!use_tma_store && tv == tv3));
+    if (vectorize_condition) {
       tv->axis(7)->parallelize(ParallelType::Vectorize);
     }
   }
-
   // Inline most tensors
   inlineMost();
 
@@ -1531,5 +1563,19 @@ TEST_F(PointwiseTest, PointwiseMulMultiWaveTMA) {
   auto out_tensors = ke.run({t0, t1});
   testValidate(&fusion, out_tensors, {t0, t1}, __LINE__, __FILE__);
 }
+
+INSTANTIATE_TEST_SUITE_P(
+    ,
+    PointwiseMultiWaveTMATest,
+    ::testing::Combine(
+        ::testing::Bool(), // use_tma_store
+        ::testing::Bool() // explicit_unroll
+        ),
+    [](const testing::TestParamInfo<TMATestParams>& info) {
+      bool use_tma_store = std::get<0>(info.param);
+      bool explicit_unroll = std::get<1>(info.param);
+      return std::string(use_tma_store ? "WithTMAStore" : "WithoutTMAStore") +
+          "_" + (explicit_unroll ? "WithUnroll" : "WithoutUnroll");
+    });
 
 } // namespace nvfuser
