@@ -545,7 +545,7 @@ class TaskSorter {
       }
 
       NVF_ERROR(
-          !ready_tasks_.empty() || steps_.size() == (size_t)graph_.numTasks(),
+          !ready_tasks_.empty() || std::ssize(steps_) == graph_.numTasks(),
           "Ran out of ready tasks before completing ordering");
 
       const auto it = std::lower_bound(
