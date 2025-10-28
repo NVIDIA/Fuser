@@ -72,6 +72,10 @@ PrimDataType getIndexTypeOfKernel(
     const KernelArgumentHolder& inputs,
     ExpressionEvaluator& ee);
 
+// Check to see if the block scales output of Block Quantization Op
+// is a segment output.
+bool hasNonTerminalBlockQuantizeOp(Fusion* fusion);
+
 class SchedulerTopologyChecker {
  public:
   // Checks if any broadcasts are resolved after a reduction that don't follow

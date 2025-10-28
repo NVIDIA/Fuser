@@ -1838,15 +1838,15 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
 
     if (input_dtype == DataType::BFloat16 || input_dtype == DataType::Half) {
       NVF_ERROR(
-          group_size == 8,
-          "Group size should be 8 for "
+          group_size == 8 || group_size == 4 || group_size == 2,
+          "Group size should be 8/4/2 for "
           "BlockQuantizationOp: ",
           bqop->toString());
 
     } else {
       NVF_ERROR(
-          group_size == 4,
-          "Group size should be 4 for "
+          group_size == 4 || group_size == 2,
+          "Group size should be 4/2 for "
           "BlockQuantizationOp: ",
           bqop->toString());
     }

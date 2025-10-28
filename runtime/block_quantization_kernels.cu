@@ -9,7 +9,7 @@
 namespace nvf {
 namespace bq {
 
-template <typename T>
+template <int ITEMS_PER_THREAD>
 __device__ __inline__ void localMaxReduction(float& local_max) {
   // The mask 0xffffffff indicates all 32 threads in the warp are participating.
   unsigned int mask = 0xffffffff;
@@ -18,7 +18,12 @@ __device__ __inline__ void localMaxReduction(float& local_max) {
   // Exchange and compare with thread 2 lanes away within the quad.
   // e.g., thread 0 exchanges with 2; thread 1 with 3.
   // The XOR pattern naturally keeps the operation within each quad.
-  if (std::is_same<T, float>::value) {
+
+  if constexpr (ITEMS_PER_THREAD == 2) {
+    local_max = fmax(local_max, __shfl_xor_sync(mask, local_max, 4));
+  }
+
+  if constexpr (ITEMS_PER_THREAD == 2 || ITEMS_PER_THREAD == 4) {
     local_max = fmax(local_max, __shfl_xor_sync(mask, local_max, 2));
   }
 
@@ -59,16 +64,14 @@ __device__ void block_quantize_to_nvfp4(
       "Input type must be float, __half or __bfloat");
 
   if constexpr (is_float) {
-    assert(blockDim.x % 4 == 0);
+    static_assert(
+        ITEMS_PER_THREAD == 4 || ITEMS_PER_THREAD == 2,
+        "ITEMS_PER_THREAD must be 4 or 2 for float type");
   } else if constexpr (is_half_or_bfloat) {
-    assert(blockDim.x % 2 == 0);
+    static_assert(
+        ITEMS_PER_THREAD == 8 || ITEMS_PER_THREAD == 4 || ITEMS_PER_THREAD == 2,
+        "ITEMS_PER_THREAD must be 8, 4 or 2 for __bfloat or __half type");
   }
-
-  static_assert(
-      (is_float && ITEMS_PER_THREAD == 4) ||
-          (is_half_or_bfloat && ITEMS_PER_THREAD == 8),
-      "ITEMS_PER_THREAD must be 4 for float type or 8 for __bfloat or __half "
-      "type");
 
   assert(input_logical_inner_dim_size % 16 == 0);
 
@@ -96,7 +99,7 @@ __device__ void block_quantize_to_nvfp4(
   // Perform block(16 elements)-wide reduction (max)
   // across 4- threads
   float block_max = NEG_INFINITY;
-  localMaxReduction<T>(local_max);
+  localMaxReduction<ITEMS_PER_THREAD>(local_max);
   block_max = local_max;
 
   // This division should be replaced with a multiplication

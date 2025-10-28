@@ -319,6 +319,7 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
                (int64_t)vectorizable_inputs_outputs_entry.get().size()) >>
            2),
           (int64_t)1));
+
   // Don't vectorize at the cost of getting a full wave on the GPU
   if (n_elems < device_multiprocessor_count * kThreadX && max_vect_factor > 1) {
     max_vect_factor = std::min(
@@ -484,6 +485,16 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
     }
   }
 
+  auto fusion_has_block_quantization =
+      ir_utils::getOpsOfType<BlockQuantizationOp>(fusion).size() > 0;
+
+  // This is a stop gap measure.
+  // We want to be able to vectorize by at least a factor of 2
+  // if there a block quantization op and there's sub-byte output.
+  if (fusion_has_block_quantization) {
+    max_vect_factor = std::max(max_vect_factor, 2L);
+  }
+
   params->vectorization_factor = std::min(
       max_vect_factor,
       vectorize_helper::getVectorizationFactor(
@@ -509,6 +520,12 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
       params->vectorization_factor * max_dtype_size_bit_for_vectorization,
       divisible_split,
       vectorizable_inputs_outputs_entry.get());
+
+  // Limit unroll factor for fusions with BlockQuantizationOp. The runtime
+  // function which implements quantization assumes no unrolling
+  if (fusion_has_block_quantization && unroll_factor > 1) {
+    unroll_factor = 1;
+  }
 
   if (is_outer_broadcast_dominated) {
     params->unroll_factor_outer = unroll_factor;
@@ -810,6 +827,17 @@ bool PointWiseScheduler::canScheduleCompileTime(Fusion* fusion) {
     scheduler_debug_utils::canScheduleRejectReason(
         schedulerType(),
         "Broadcasting dimension might be broadcasting to multiple sizes.");
+    return false;
+  }
+
+  // The block scales output of the Block Quantization Op
+  // should be a segment output as it is written to the global
+  // memory.
+  if (registry_utils::hasNonTerminalBlockQuantizeOp(fusion)) {
+    scheduler_debug_utils::canScheduleRejectReason(
+        schedulerType(),
+        "no support for block quantization where block scales is not a fusion "
+        "output");
     return false;
   }
 
@@ -1210,6 +1238,20 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
   spanning_tree.traverse(&propagator);
   scheduler_utils::parallelizeAllLike(reference_tv);
 
+  auto bq_ops = ir_utils::getOpsOfType<BlockQuantizationOp>(fusion);
+  std::vector<TensorView*> nvfp4_quantized_outputs = {};
+  for (auto bq_op : bq_ops) {
+    nvfp4_quantized_outputs.push_back(
+        bq_op->quantizedOutput()->as<TensorView>());
+  }
+
+  if (bq_ops.size() > 1 && pparams->vectorization_factor < 2) {
+    // Multiple BlockQuantizationOps are not supported in pointwise scheduler
+    NVF_THROW(
+        "Unable to schedule BlockQuantization since we were not able to "
+        "vectorize the reference tensor");
+  }
+
   if (pparams->vectorization_factor > 1) {
     // Grab all tensor views that should be vectorized
     auto inputs_outputs =
@@ -1241,6 +1283,13 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
         }
       }
     }
+
+    // Vectorize nvfp4 quantized outputs.
+    // We will later change the vectorized ID to group ID
+    for (auto quantized_output : nvfp4_quantized_outputs) {
+      vectorized_tvs.emplace_back(quantized_output);
+    }
+
     if (!vectorized_tvs.empty()) {
       // Aggressively mark with vectorized and cleanup later. That way we
       // don't have to manually specify parallelization outside the reference.
@@ -1249,6 +1298,15 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
           reference_tv, vectorized_tvs, {ParallelType::Vectorize});
       if (!should_vectorize_reference_tv) {
         vectorize_id->parallelize(ParallelType::Serial);
+      }
+    }
+  }
+
+  for (auto quantized_output : nvfp4_quantized_outputs) {
+    // Change vectorized IDs to group IDs for quantized outputs
+    for (auto id : quantized_output->getLoopDomain()) {
+      if (id->getParallelType() == ParallelType::Vectorize) {
+        id->parallelize(ParallelType::Group);
       }
     }
   }

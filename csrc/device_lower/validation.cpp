@@ -649,7 +649,7 @@ class ExprValidator : public OptOutDispatch {
     IterDomain* thread_z = nullptr;
     IterDomain* block_z = nullptr;
 
-    for (const auto& loop_id : block_scaling_factor->getLoopDomain()) {
+    for (const auto& loop_id : quantized_output->getLoopDomain()) {
       if (loop_id->getParallelType() == ParallelType::Group) {
         grouped_id = loop_id;
       }
@@ -666,8 +666,7 @@ class ExprValidator : public OptOutDispatch {
       }
     }
 
-    auto parallel_domains_map =
-        ir_utils::getParallelDomains(block_scaling_factor);
+    auto parallel_domains_map = ir_utils::getParallelDomains(quantized_output);
 
     if (parallel_domains_map.find(ParallelType::TIDx) !=
         parallel_domains_map.end()) {
@@ -707,8 +706,9 @@ class ExprValidator : public OptOutDispatch {
     auto input_dtype = inp_tv->dtype();
 
     NVF_ERROR(
-        (inner_extent == 4 && input_dtype == DataType::Float) ||
-            (inner_extent == 8 &&
+        ((inner_extent == 4 || inner_extent == 2) &&
+         input_dtype == DataType::Float) ||
+            ((inner_extent == 8 || inner_extent == 4 || inner_extent == 2) &&
              (input_dtype == DataType::BFloat16 ||
               input_dtype == DataType::Half)),
         "The vectorized/grouped dimension must be  4 (FP32) or 8 "
