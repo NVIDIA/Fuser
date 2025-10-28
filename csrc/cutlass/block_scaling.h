@@ -20,7 +20,7 @@ class TensorView;
 namespace cutlass_codegen {
 
 //! Pattern for block-scaled quantized outputs
-struct NVF_API BlockScaledOutputPattern {
+struct BlockScaledOutputPattern {
   TensorView* unquantized_output;
   TensorView* output;
   TensorView* block_scale_factors;
@@ -30,7 +30,7 @@ struct NVF_API BlockScaledOutputPattern {
 
 //! Find block-scaled output patterns in a fusion
 //! Returns a vector of patterns, one for each block-scaled output
-NVF_API std::vector<BlockScaledOutputPattern> findBlockScaledOutputs(
+std::vector<BlockScaledOutputPattern> findBlockScaledOutputs(
     Fusion* fusion);
 
 } // namespace cutlass_codegen
