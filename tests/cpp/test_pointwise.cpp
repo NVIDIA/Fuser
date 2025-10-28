@@ -1435,4 +1435,101 @@ TEST_F(
   }
 }
 
+TEST_F(PointwiseTest, PointwiseMulMultiWaveTMA) {
+  struct TileMN {
+    int64_t m, n;
+  };
+  int64_t dim0 = 8192, dim1 = 8192;
+  DataType dtype = DataType::BFloat16;
+
+  auto fusion_ptr = std::make_unique<Fusion>();
+  FusionGuard fg(fusion_ptr.get());
+  Fusion& fusion = *fusion_ptr;
+  auto tv0 = makeContigConcreteTensor({dim0, dim1}, dtype);
+  auto tv1 = makeContigConcreteTensor({dim0, dim1}, dtype);
+  fusion.addInput(tv0);
+  fusion.addInput(tv1);
+  auto tv0_float = maybeCastOp(DataType::Float, tv0);
+  auto tv1_float = maybeCastOp(DataType::Float, tv1);
+  auto tv2 = mul(tv0_float, tv1_float);
+  auto tv3 = maybeCastOp(dtype, tv2);
+  fusion.addOutput(tv3);
+
+  // Create TMA loads from inputs to shared memory
+  auto tv0_smem = tv0->cacheAfter(LoadStoreOpType::CpAsyncBulkTensorTile);
+  auto tv1_smem = tv1->cacheAfter(LoadStoreOpType::CpAsyncBulkTensorTile);
+  tv0_smem->setMemoryType(MemoryType::Shared);
+  tv1_smem->setMemoryType(MemoryType::Shared);
+
+  // Cache loads from shared memory to registers (vectorized)
+  auto tv0_reg = tv0_smem->cacheAfter();
+  auto tv1_reg = tv1_smem->cacheAfter();
+
+  // Cache output for vectorized store
+  auto tv3_cache = tv3->cacheBefore();
+
+  int64_t vect_factor = 128L / dataTypeSizeBit(dtype);
+  TileMN tma_tile = {64, 128};
+  TileMN blk_tile = {8, 16}; // [TIDy, TIDx]
+  TileMN tid_tile = {2, vect_factor}; // [Unroll, Vectorize]
+
+  // Schedule TMA load tensors
+  std::vector<TensorView*> tma_tvs = {tv0_smem, tv1_smem};
+  for (auto tv : tma_tvs) {
+    // [I0, I1] -> [I0/m, m, I1/n, n]
+    tv->split(0, tma_tile.m);
+    tv->split(-1, tma_tile.n);
+    // [I0/m, m, I1/n, n] --> [I0/m, I1/n, m, n]
+    tv->reorder({{1, 2}});
+    // Parallelize
+    tv->axis(0)->parallelize(ParallelType::BIDy);
+    tv->axis(1)->parallelize(ParallelType::BIDx);
+    tv->axis(2)->parallelize(ParallelType::Bulk);
+    tv->axis(3)->parallelize(ParallelType::Bulk);
+  }
+
+  // Schedule non-tma tensors
+  std::vector<TensorView*> compute_tvs = {
+      tv0_reg, tv1_reg, tv0_float, tv1_float, tv2, tv3_cache, tv3};
+
+  for (auto tv : compute_tvs) {
+    // [I0, I1] -> [I0/m, m, I1/n, n]
+    tv->split(0, tma_tile.m);
+    tv->split(-1, tma_tile.n);
+    // [I0/m, m, I1/n, n] -> [I0/m, m/u, u, I1/n, n/v, v]
+    tv->split(1, tid_tile.m);
+    tv->split(-1, tid_tile.n);
+    // [I0/m, m/u, u, I1/n, n/v, v] -> [I0/m, m/u/y, y, u, I1/n, n/v/x, x, v]
+    tv->split(1, blk_tile.m);
+    tv->split(-2, blk_tile.n);
+    // [I0/m, m/u/y, y, u, I1/n, n/v/x, x, v] -> [I0/m, I1/n, m/u/y, n/v/x, y,
+    // x, u, v]
+    tv->reorder({{1, 2}, {2, 4}, {3, 6}, {4, 1}, {5, 3}, {6, 5}});
+
+    // Parallelize
+    tv->axis(0)->parallelize(ParallelType::BIDy);
+    tv->axis(1)->parallelize(ParallelType::BIDx);
+    tv->axis(4)->parallelize(ParallelType::TIDy);
+    tv->axis(5)->parallelize(ParallelType::TIDx);
+    tv->axis(6)->parallelize(ParallelType::Unroll);
+    // Only vectorize the cache tensors (loads and stores)
+    if (tv == tv0_reg || tv == tv1_reg || tv == tv3) {
+      tv->axis(7)->parallelize(ParallelType::Vectorize);
+    }
+  }
+
+  // Inline most tensors
+  inlineMost();
+
+  auto options =
+      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
+  auto t0 = at::randn({dim0, dim1}, options);
+  auto t1 = at::randn({dim0, dim1}, options);
+
+  KernelExecutor ke;
+  ke.compile(&fusion, {t0, t1});
+  auto out_tensors = ke.run({t0, t1});
+  testValidate(&fusion, out_tensors, {t0, t1}, __LINE__, __FILE__);
+}
+
 } // namespace nvfuser
