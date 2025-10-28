@@ -68,10 +68,6 @@ namespace caching {
 //! List of all the possible entry types in
 //!  `KernelExecutor` compile-time data cache.
 enum class CompileTimeEntryType {
-  PARALLEL_BINDING_ITERDOMAINS,
-  PARALLEL_ITER_EXTENT_MAP,
-  SIMPLIFIED_PARALLEL_ITER_EXTENT_MAP,
-  WARP_PADDED_PARALLEL_EXTENTS,
   VECTORIZED_TENSOR_VALIDATION,
   INPUT_ALIAS_INDICES,
   OUTPUT_ALIAS_INDICES
@@ -79,30 +75,6 @@ enum class CompileTimeEntryType {
 
 //! Entry class definitions for each entry type:
 //!  each class defines the data type for each entry type
-
-//! Compile-time info to be cached in each KernelExecutor:
-//!  ParallelBindingIterDomains:
-//!    Stores all the iterdomains that are parallelized
-//!    on the scheduled Fusion graph. They will be used
-//!    in launch param iteration and their extents may
-//!    come from launch constraints.
-class ParallelBindingIterDomains {
- public:
-  using DataType = std::vector<IterDomain*>;
-  static const CompileTimeEntryType EntryType =
-      CompileTimeEntryType::PARALLEL_BINDING_ITERDOMAINS;
-};
-
-//! Compile-time info to be cached in each KernelExecutor:
-//!  ParallelIterExtentMap
-//!    Stores the symbolic extents of all the parallelized
-//!    iterdomains corresponding to each used parallel type.
-class ParallelIterExtentMap {
- public:
-  using DataType = std::unordered_map<ParallelType, std::vector<const Val*>>;
-  static const CompileTimeEntryType EntryType =
-      CompileTimeEntryType::PARALLEL_ITER_EXTENT_MAP;
-};
 
 //!  VectorizedTensorInfo:
 //!    Auxiliary data type for entry class VectorizedTensorValidation
@@ -205,20 +177,6 @@ class ExecutorCompileTimeEntry {
 };
 
 } // namespace caching
-
-//! Returns the vector of tensorviews that will be used to bind parallel
-//!  dimensions.
-std::vector<IterDomain*> getParallelBindingsIterDomains(
-    GpuLower* lower,
-    const std::vector<TensorView*>& used_tvs);
-
-using ParallelExtentMap =
-    std::unordered_map<ParallelType, std::vector<const Val*>>;
-
-//! Returns the extents of all parallel binding iterdomains corresponding
-//!  to each parallel type.
-std::unique_ptr<ParallelExtentMap> getParallelIterExtents(
-    std::vector<IterDomain*>& parallel_binding_ids);
 
 void validateVectorizedTensors(
     kir::Kernel* kernel,

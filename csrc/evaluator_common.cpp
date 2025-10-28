@@ -172,22 +172,6 @@ PrecomputedValues::~PrecomputedValues() {
   }
 }
 
-void PrecomputedValues::bindParallelExtents(
-    const ParallelExtentMap& parallel_extents,
-    const LaunchParams& launch_constraint) {
-  // Bind values of extents of parallelized
-  //  iterdomains from launch_constraint when applicable.
-  // Consistency will be checked at validate().
-  for (const auto& it : parallel_extents) {
-    auto raw_val = launch_constraint.getRawVal(it.first);
-    if (raw_val > 0) {
-      for (auto extent : it.second) {
-        bindValue(extent->evaluatorIndex(), raw_val);
-      }
-    }
-  }
-}
-
 void PrecomputedValues::bindConcreteParallelTypeValue(
     ParallelType pt,
     PolymorphicValue value) {
