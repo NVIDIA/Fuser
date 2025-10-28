@@ -21,7 +21,7 @@ namespace cutlass_codegen {
 
 //! Pattern for block-scaled quantized outputs
 struct NVF_API BlockScaledOutputPattern {
-  TensorView* prescaled_output;
+  TensorView* unquantized_output;
   TensorView* output;
   TensorView* block_scale_factors;
   TensorView* global_scale_factor;

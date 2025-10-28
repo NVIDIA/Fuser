@@ -419,7 +419,7 @@ TEST_F(CutlassExecutorTest, FindBlockScaledOutputs_WithoutGlobalScale) {
 
   ASSERT_EQ(patterns.size(), 1);
   EXPECT_EQ(patterns[0].output, tv_data_lp);
-  EXPECT_EQ(patterns[0].prescaled_output, tv_data_scaled_clamp);
+  EXPECT_EQ(patterns[0].unquantized_output, tv_data_scaled_clamp);
   EXPECT_EQ(patterns[0].block_scale_factors, tv_block_scale_fp8);
   EXPECT_EQ(patterns[0].global_scale_factor, nullptr);
   EXPECT_EQ(patterns[0].block_size, block_size);
@@ -477,7 +477,7 @@ TEST_F(CutlassExecutorTest, FindBlockScaledOutputs_WithGlobalScale) {
 
   ASSERT_EQ(patterns.size(), 1);
   EXPECT_EQ(patterns[0].output, tv_data_lp);
-  EXPECT_EQ(patterns[0].prescaled_output, tv_data_scaled_clamp);
+  EXPECT_EQ(patterns[0].unquantized_output, tv_data_scaled_clamp);
   EXPECT_EQ(patterns[0].block_scale_factors, tv_scaled_block_scales_fp8);
   EXPECT_EQ(patterns[0].global_scale_factor, tv_per_tensor_scale);
   EXPECT_EQ(patterns[0].block_size, block_size);
@@ -516,7 +516,7 @@ TEST_F(CutlassExecutorTest, FindBlockScaledOutputs_MXFP8) {
 
   ASSERT_EQ(patterns.size(), 1);
   EXPECT_EQ(patterns[0].output, tv_data_lp);
-  EXPECT_EQ(patterns[0].prescaled_output, tv_data_scaled);
+  EXPECT_EQ(patterns[0].unquantized_output, tv_data_scaled);
   EXPECT_EQ(patterns[0].block_scale_factors, tv_block_scale_fp8);
   EXPECT_EQ(patterns[0].global_scale_factor, nullptr);
   EXPECT_EQ(patterns[0].block_size, block_size);
