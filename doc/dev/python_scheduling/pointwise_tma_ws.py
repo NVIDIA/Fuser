@@ -27,7 +27,9 @@ dtype = DataType.BFloat16
 # Number of streaming multiprocessors (always use actual device SM count)
 num_sms = torch.cuda.get_device_properties(0).multi_processor_count
 l2_cache_size = torch.cuda.get_device_properties(0).L2_cache_size
+device_smem_bytes = torch.cuda.get_device_properties(0).shared_memory_per_block_optin
 print(f"L2 cache size: {l2_cache_size} bytes")
+print(f"Device SMEM bytes: {device_smem_bytes} bytes")
 # run with NVFUSER_DISALBE=kernel_reuse
 os.environ["NVFUSER_DISABLE"] = "kernel_reuse"
 
@@ -73,7 +75,15 @@ class PointwiseMulTMA(FusionDefinition):
     """Pointwise multiplication with manual TMA schedule following TMP3"""
 
     def __init__(
-        self, tma_m=32, tma_n=256, tid_m=4, tid_n=8, blk_n=256, fully_reg_cached=True
+        self,
+        tma_m=32,
+        tma_n=256,
+        tid_m=4,
+        tid_n=8,
+        blk_n=256,
+        fully_reg_cached=True,
+        number_of_stages=4,
+        use_tma_store=False,
     ):
         super().__init__()
         self.tma_tile_m = tma_m
@@ -82,6 +92,8 @@ class PointwiseMulTMA(FusionDefinition):
         self.tid_tile_n = tid_n  # Vectorize
         self.blk_tile_n = blk_n  # TIDx
         self.fully_reg_cached = fully_reg_cached
+        self.number_of_stages = number_of_stages
+        self.use_tma_store = use_tma_store
 
     def definition(self):
         # Define tensors with concrete static shapes instead of symbolic
@@ -118,8 +130,16 @@ class PointwiseMulTMA(FusionDefinition):
         self.t0_reg = self.sched.cache_after(self.t0_smem)
         self.t1_reg = self.sched.cache_after(self.t1_smem)
 
-        # Cache output for vectorized store
-        self.t3_cache = self.sched.cache_before(self.t3)
+        # Output caching: regs -> [smem ->] global memory
+        if self.use_tma_store:
+            # TMA store path: regs -> smem -> global memory (via TMA)
+            self.t3_smem = self.sched.cache_before(self.t3, LoadStoreOpType.tma)
+            self.sched.set_memory_type(self.t3_smem, MemoryType.shared)
+            self.t3_regs = self.sched.cache_before(self.t3_smem)
+        else:
+            # Regular store path: regs -> global memory (no TMA)
+            self.t3_regs = self.sched.cache_before(self.t3)
+            self.t3_smem = None
 
         # Use t3 as reference for scheduling (following TMP3)
         reference = self.t3
@@ -148,9 +168,15 @@ class PointwiseMulTMA(FusionDefinition):
             self.t0_float,
             self.t1_float,
             self.t2,
-            self.t3_cache,
-            self.t3,
+            self.t3_regs,
         ]
+
+        # Add t3_smem if using TMA store, otherwise add t3 (output tensor)
+        if self.use_tma_store:
+            compute_tvs.append(self.t3_smem)
+        else:
+            # For regular store, schedule the output tensor
+            compute_tvs.append(self.t3)
 
         for tv in compute_tvs:
             # [..., m, n] -> [..., mn]
@@ -171,8 +197,14 @@ class PointwiseMulTMA(FusionDefinition):
                 tv, axis=-2, parallel_type=ParallelType.block_x
             )  # TIDx
             # self.sched.parallelize(tv, axis=-3, parallel_type=ParallelType.unroll)
-            # Only vectorize the cache tensors (loads and stores)
-            if tv == self.t0_reg or tv == self.t1_reg or tv == self.t3:
+            # Vectorize: register cache tensors for loads from smem, and smem tensor for TMA store
+            vectorize_condition = (
+                tv == self.t0_reg
+                or tv == self.t1_reg
+                or (self.use_tma_store and tv == self.t3_smem)
+                or (not self.use_tma_store and tv == self.t3)
+            )
+            if vectorize_condition:
                 self.sched.parallelize(
                     tv, axis=-1, parallel_type=ParallelType.vectorize
                 )
@@ -189,8 +221,7 @@ class PointwiseMulTMA(FusionDefinition):
                 self.t0_float,
                 self.t1_float,
                 self.t2,
-                self.t3_cache,
-                self.t3,
+                self.t3_regs,
             ]
             self.sched.inline_most(inline_most_tvs)
 
@@ -199,7 +230,10 @@ class PointwiseMulTMA(FusionDefinition):
         # (1) blk_tile_n == 128 -> no register sharing
         # (2) blk_tile_n == 256 -> 168 registers -> register sharing: [40, 232]
         # (3) blk_tile_n == 384 -> 128 registers -> register sharing: [32, 160]
-        # (3) blk_tile_n == 512 -> 96  registers -> register sharing: [32, 112]
+        # (4) blk_tile_n == 512 -> 96  registers -> register sharing: [32, 112]
+        # (5) blk_tile_n == 640 -> 80  registers -> register sharing: [40, 88]
+        # (6) blk_tile_n == 768 -> 72  registers -> register sharing: [24, 80]
+        # (7) blk_tile_n == 896 -> 64  registers -> register sharing: [64, 64]
         if blk_tile_n == 128:
             circular_buffer_type = WarpSpecialized(
                 ParallelType.block_x
@@ -216,11 +250,25 @@ class PointwiseMulTMA(FusionDefinition):
             circular_buffer_type = WarpSpecialized(
                 ParallelType.block_x, (32, 112)
             )  # TIDx with register sharing
+        elif blk_tile_n == 640:
+            circular_buffer_type = WarpSpecialized(
+                ParallelType.block_x, (40, 88)
+            )  # TIDx with register sharing
+        elif blk_tile_n == 768:
+            circular_buffer_type = WarpSpecialized(
+                ParallelType.block_x, (24, 80)
+            )  # TIDx with register sharing
+        elif blk_tile_n == 896:
+            circular_buffer_type = WarpSpecialized(
+                ParallelType.block_x
+            )  # TIDx with register sharing
 
-        number_of_stages = 4
+        number_of_stages = self.number_of_stages
         prefetch_distance = number_of_stages - 1
-        tma_tvs = [self.t0_smem, self.t1_smem]
-        for tv in tma_tvs:
+
+        # TMA loads - add to circular buffer
+        tma_load_tvs = [self.t0_smem, self.t1_smem]
+        for tv in tma_load_tvs:
             self.sched.parallelize(
                 tv, axis=0, parallel_type=ParallelType.grid_x
             )  # BIDx
@@ -229,6 +277,18 @@ class PointwiseMulTMA(FusionDefinition):
             self.sched.circular_buffer(
                 tv, number_of_stages, prefetch_distance, circular_buffer_type
             )
+
+        # TMA store - parallelize output tensor (t3) for gmem (only if use_tma_store)
+        if self.use_tma_store:
+            self.sched.parallelize(
+                self.t3, axis=0, parallel_type=ParallelType.grid_x
+            )  # BIDx
+            self.sched.parallelize(
+                self.t3, axis=-1, parallel_type=ParallelType.tma
+            )  # Bulk
+            self.sched.parallelize(
+                self.t3, axis=-2, parallel_type=ParallelType.tma
+            )  # Bulk
 
 
 def print_kernel_profile(kp):
@@ -250,23 +310,6 @@ def print_kernel_profile(kp):
 torch_out = inputs[0].float() * inputs[1].float()
 torch_out = torch_out.to(torch.bfloat16)
 
-# debug run
-# --- Top 5 Configurations (single run) ---
-# 1. TMA=64x128, TID=8x8, BLK=512, FullyRegCached: 0.0641 ms (6278.90 GB/s)
-# 2. TMA=64x128, TID=8x8, BLK=256, NotFullyRegCached: 0.0642 ms (6272.54 GB/s)
-# 3. TMA=64x64, TID=8x8, BLK=256, FullyRegCached: 0.0646 ms (6235.24 GB/s)
-# 4. TMA=64x128, TID=8x8, BLK=384, FullyRegCached: 0.0647 ms (6226.08 GB/s)
-# 5. TMA=64x64, TID=8x8, BLK=128, FullyRegCached: 0.0648 ms (6210.72 GB/s)
-fn_tma = PointwiseMulTMA(
-    tma_m=64, tma_n=128, tid_m=8, tid_n=8, blk_n=512, fully_reg_cached=True
-)
-nvf_out_tma = fn_tma.execute(inputs, profile=True)
-print(torch.allclose(nvf_out_tma[0], torch_out, rtol=1e-2, atol=1e-2))
-print("\n--- Kernel Profile ---")
-kps_tma = fn_tma.profile().kernel_profiles
-for kp in kps_tma:
-    print_kernel_profile(kp)
-exit()
 
 # ============================================================================================================
 # Run with Default Scheduler
@@ -287,6 +330,40 @@ kps_default = fn_default.profile().kernel_profiles
 for kp in kps_default:
     print_kernel_profile(kp)
 
+if True:
+    # debug run
+    print("=" * 110)
+    print("DEBUG RUN - Testing with and without TMA Store")
+    print("=" * 110)
+
+    for use_tma_store in [True, False]:
+        clear_l2_cache()
+        store_mode = (
+            "WITH TMA Store" if use_tma_store else "WITHOUT TMA Store (Regular Store)"
+        )
+        print(f"\n{store_mode}")
+        print("-" * 110)
+
+        fn_tma = PointwiseMulTMA(
+            tma_m=64,
+            tma_n=256,
+            tid_m=4,
+            tid_n=8,
+            blk_n=256,
+            fully_reg_cached=True,
+            number_of_stages=3,
+            use_tma_store=use_tma_store,
+        )
+        nvf_out_tma = fn_tma.execute(inputs, profile=True)
+        print(
+            f"Correctness: {torch.allclose(nvf_out_tma[0], torch_out, rtol=1e-2, atol=1e-2)}"
+        )
+
+        kps_tma = fn_tma.profile().kernel_profiles
+        for kp in kps_tma:
+            print_kernel_profile(kp)
+
+    exit()
 
 # ============================================================================================================
 # Auto-tune: Test Different Tile Configurations
@@ -295,20 +372,39 @@ print("\n" + "=" * 110)
 print("AUTO-TUNING TMA SCHEDULER")
 print("=" * 110)
 
-# Define search space (following TMP3 defaults)
-tma_tiles = [(64, 64), (64, 128)]
-tid_tiles = [(2, 8), (4, 8), (8, 8)]
-blk_tiles_n = [128, 256, 384, 512]
+# On Blackwell, needs 64KB of data in flight to saturate memory bandwidth.
+# For this case, we have 2 inputs of bfloat16, they are 2 x 2 = 4 Bytes.
+# Needs to load 64KB / 4B = 16K elements.
+# smem = 232 KB / 64KB = 3.625 --> 3 loads --> 232 / 3 = 77.33 KB -> 77.33 KB / 4B = 19332.5 --> 19332 elements
+# 16384 = 64 x 256 = 128 * 128
+tma_tiles = [(64, 256), (128, 128), (64, 128), (64, 64), (32, 64), (32, 32)]
+tid_tiles = [(1, 8), (2, 8), (4, 8)]
+blk_tiles_n = [256, 512]
 fully_reg_cached_options = [True, False]
+number_of_stages_options = [3]  # use max allowed by SMEM
+use_tma_store_options = [False, True]  # Test with and without TMA store
+
+
+def not_enough_smem(tma_m, tma_n, n_stages):
+    n_input = 2
+    bytes_per_element = 2
+    return tma_m * tma_n * n_stages * n_input * bytes_per_element > device_smem_bytes
+
 
 results = []
 best_time = float("inf")
 best_config = None
 
-print(
-    f"\nTesting {len(tma_tiles) * len(tid_tiles) * len(blk_tiles_n) * len(fully_reg_cached_options)} configurations..."
+total_configs = (
+    len(tma_tiles)
+    * len(tid_tiles)
+    * len(blk_tiles_n)
+    * len(fully_reg_cached_options)
+    * len(number_of_stages_options)
+    * len(use_tma_store_options)
 )
-print(f"{'Config':<60} {'Time (ms)':<12} {'Bandwidth (GB/s)':<20} {'Status'}")
+print(f"\nTesting {total_configs} configurations...")
+print(f"{'Config':<70} {'Time (ms)':<12} {'Bandwidth (GB/s)':<20} {'Status'}")
 print("-" * 110)
 
 config_count = 0
@@ -316,70 +412,92 @@ for tma_m, tma_n in tma_tiles:
     for tid_m, tid_n in tid_tiles:
         for blk_n in blk_tiles_n:
             for fully_reg_cached in fully_reg_cached_options:
-                config_count += 1
-                reg_mode = "FullyRegCached" if fully_reg_cached else "NotFullyRegCached"
-                config_str = (
-                    f"TMA={tma_m}x{tma_n}, TID={tid_m}x{tid_n}, BLK={blk_n}, {reg_mode}"
-                )
+                for n_stages in number_of_stages_options:
+                    for use_tma_store in use_tma_store_options:
+                        if use_tma_store:
+                            smem_for_load = device_smem_bytes - tma_m * tma_n * 2
+                        else:
+                            smem_for_load = device_smem_bytes
+                        n_stages = smem_for_load // (tma_m * tma_n * 2 * 2)
+                        if not_enough_smem(tma_m, tma_n, n_stages):
+                            print(f"Not enough SMEM for {tma_m}x{tma_n}x{n_stages}")
+                            continue
+                        config_count += 1
+                        reg_mode = (
+                            "FullyRegCached"
+                            if fully_reg_cached
+                            else "NotFullyRegCached"
+                        )
+                        store_mode = "TMAStore" if use_tma_store else "RegStore"
+                        config_str = f"TMA={tma_m}x{tma_n}, TID={tid_m}x{tid_n}, BLK={blk_n}, Stages={n_stages}, {reg_mode}, {store_mode}"
 
-                try:
-                    clear_l2_cache()
-                    # Create fusion with specific tile configuration
-                    fn_tma = PointwiseMulTMA(
-                        tma_m=tma_m,
-                        tma_n=tma_n,
-                        tid_m=tid_m,
-                        tid_n=tid_n,
-                        blk_n=blk_n,
-                        fully_reg_cached=fully_reg_cached,
-                    )
-                    nvf_out_tma = fn_tma.execute(inputs, profile=True)
+                        try:
+                            clear_l2_cache()
+                            # Create fusion with specific tile configuration
+                            fn_tma = PointwiseMulTMA(
+                                tma_m=tma_m,
+                                tma_n=tma_n,
+                                tid_m=tid_m,
+                                tid_n=tid_n,
+                                blk_n=blk_n,
+                                fully_reg_cached=fully_reg_cached,
+                                number_of_stages=n_stages,
+                                use_tma_store=use_tma_store,
+                            )
+                            nvf_out_tma = fn_tma.execute(inputs, profile=True)
 
-                    # Verify correctness
-                    if not torch.allclose(
-                        nvf_out_tma[0], torch_out, rtol=1e-2, atol=1e-2
-                    ):
-                        print(f"{config_str:<60} {'N/A':<12} {'N/A':<20} INCORRECT")
-                        continue
+                            # Verify correctness
+                            if not torch.allclose(
+                                nvf_out_tma[0], torch_out, rtol=1e-2, atol=1e-2
+                            ):
+                                print(
+                                    f"{config_str:<70} {'N/A':<12} {'N/A':<20} INCORRECT"
+                                )
+                                continue
 
-                    # Get performance metrics
-                    kps_tma = fn_tma.profile().kernel_profiles
-                    tma_time = sum(kp.time_ms for kp in kps_tma)
-                    tma_bw = (
-                        sum(kp.effective_bandwidth_gbs for kp in kps_tma) / len(kps_tma)
-                        if kps_tma
-                        else 0
-                    )
+                            # Get performance metrics
+                            kps_tma = fn_tma.profile().kernel_profiles
+                            tma_time = sum(kp.time_ms for kp in kps_tma)
+                            tma_bw = (
+                                sum(kp.effective_bandwidth_gbs for kp in kps_tma)
+                                / len(kps_tma)
+                                if kps_tma
+                                else 0
+                            )
 
-                    results.append(
-                        {
-                            "config": config_str,
-                            "tma_m": tma_m,
-                            "tma_n": tma_n,
-                            "tid_m": tid_m,
-                            "tid_n": tid_n,
-                            "blk_n": blk_n,
-                            "fully_reg_cached": fully_reg_cached,
-                            "time": tma_time,
-                            "bandwidth": tma_bw,
-                            "kps": kps_tma,
-                        }
-                    )
+                            results.append(
+                                {
+                                    "config": config_str,
+                                    "tma_m": tma_m,
+                                    "tma_n": tma_n,
+                                    "tid_m": tid_m,
+                                    "tid_n": tid_n,
+                                    "blk_n": blk_n,
+                                    "number_of_stages": n_stages,
+                                    "fully_reg_cached": fully_reg_cached,
+                                    "use_tma_store": use_tma_store,
+                                    "time": tma_time,
+                                    "bandwidth": tma_bw,
+                                    "kps": kps_tma,
+                                }
+                            )
 
-                    # Track best configuration
-                    status = ""
-                    if tma_time < best_time:
-                        best_time = tma_time
-                        best_config = results[-1]
-                        status = "← BEST"
+                            # Track best configuration
+                            status = ""
+                            if tma_time < best_time:
+                                best_time = tma_time
+                                best_config = results[-1]
+                                status = "← BEST"
 
-                    print(
-                        f"{config_str:<60} {tma_time:<12.4f} {tma_bw:<20.2f} {status}"
-                    )
+                            print(
+                                f"{config_str:<70} {tma_time:<12.4f} {tma_bw:<20.2f} {status}"
+                            )
 
-                except Exception as e:
-                    print(f"{config_str:<60} {'FAILED':<12} {'N/A':<20} {str(e)[:30]}")
-                    continue
+                        except Exception as e:
+                            print(
+                                f"{config_str:<70} {'FAILED':<12} {'N/A':<20} {str(e)[:30]}"
+                            )
+                            exit()
 
 print("-" * 110)
 print(f"\nTested {len(results)}/{config_count} configurations successfully\n")
@@ -426,9 +544,9 @@ if best_config:
     print(f"  Bandwidth: {best_config['bandwidth']:.2f} GB/s")
     print(f"\nSpeedup: {default_time / best_config['time']:.2f}x")
 
-    # Show top 5 configurations
-    print("\n--- Top 5 Configurations (single run) ---")
-    sorted_results = sorted(results, key=lambda x: x["time"])[:5]
+    # Show top 10 configurations
+    print("\n--- Top 10 Configurations (single run) ---")
+    sorted_results = sorted(results, key=lambda x: x["time"])[:10]
     for i, result in enumerate(sorted_results, 1):
         print(
             f"{i}. {result['config']}: {result['time']:.4f} ms ({result['bandwidth']:.2f} GB/s)"

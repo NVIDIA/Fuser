@@ -5,7 +5,7 @@
 
 # Description: Schedule pointwise multiplication with TMA loads using nvfuser scheduling primitives
 # Converted from C++ test: PointwiseTest.PointwiseMulMultiWaveTMA
-
+import os
 import torch
 from nvfuser import (
     FusionDefinition,
@@ -22,6 +22,23 @@ inputs = [
     torch.randn(dim0, dim1, dtype=torch.bfloat16, device="cuda"),
     torch.randn(dim0, dim1, dtype=torch.bfloat16, device="cuda"),
 ]
+
+
+# Number of streaming multiprocessors (always use actual device SM count)
+num_sms = torch.cuda.get_device_properties(0).multi_processor_count
+l2_cache_size = torch.cuda.get_device_properties(0).L2_cache_size
+device_smem_bytes = torch.cuda.get_device_properties(0).shared_memory_per_block_optin
+print(f"L2 cache size: {l2_cache_size} bytes")
+print(f"Device SMEM bytes: {device_smem_bytes} bytes")
+# run with NVFUSER_DISALBE=kernel_reuse
+os.environ["NVFUSER_DISABLE"] = "kernel_reuse"
+
+
+def clear_l2_cache():
+    cache_clear_size = l2_cache_size // 4
+    dummy = torch.empty(cache_clear_size, dtype=torch.float32, device="cuda")
+    dummy.fill_(0.0)
+    torch.cuda.synchronize()
 
 
 class PointwiseMulDefault(FusionDefinition):
@@ -212,6 +229,7 @@ for tma_m in tma_tiles:
 
                 try:
                     # Create fusion with specific tile configuration
+                    clear_l2_cache()
                     fn_tma = PointwiseMulTMA(
                         tma_m=tma_m, tma_n=tma_n, blk_m=blk_m, blk_n=blk_n, tid_m=tid_m
                     )
