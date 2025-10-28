@@ -1383,8 +1383,7 @@ class WarAsyncWaitInserter : private kir::ExprMutator {
         // However, we still need to insert commit/wait to prevent WAR hazards
         // where the next loop iteration overwrites shared memory before the TMA
         // store completes.
-        bool is_tma_store = (type == AsyncOpType::CpAsyncBulk) &&
-            ir_utils::isCpAsyncBulkStore(expr);
+        bool is_tma_store = ir_utils::isCpAsyncBulkStore(expr);
 
         // If the input of the async op is not in the current scope, then this
         // async op is not related, so nothing to protect.
@@ -1449,67 +1448,23 @@ class WarAsyncWaitInserter : private kir::ExprMutator {
           }
         }
 
-        // Special positioning for TMA stores (CpAsyncBulk S2G):
-        // The commit/wait must be placed immediately after the TMA store
-        // operation within the loop body, not at the end of the loop. This
-        // ensures that:
-        // 1. Each iteration waits for its own TMA stores to complete
-        // 2. Shared memory buffers are not overwritten by the next iteration
-        //    before the current TMA store finishes reading from them
-        //
-        // Example of correct placement:
-        //   for (i = 0; i < N; ++i) {
-        //     compute_to_smem();
-        //     block_sync();
-        //     if (condition) {
-        //       TMA_store(smem -> gmem);     // Async store from shared memory
-        //     }
-        //     block_sync();
-        //     cpAsyncBulkCommitGroup();       // ← Must be here (inside loop)
-        //     cpAsyncBulkWaitGroup<0>();      // ← Wait for ALL stores
-        //   }
-        //
-        // This fix applies when TMA stores are directly in the loop body
-        // (possibly nested in if statements), but NOT when they are in nested
-        // for loops (e.g., matmul epilogue patterns handle that differently).
         if (type == AsyncOpType::CpAsyncBulk) {
-          // Check if TMA stores are in nested for loops
-          auto has_tma_in_nested_loop = [&]() {
-            for (auto expr : for_loop->body().exprs()) {
-              if (auto loop = dynamic_cast<kir::ForLoop*>(expr)) {
-                auto nested =
-                    ir_utils::flattenScopedExprs(loop->body().exprs());
-                if (std::any_of(
-                        nested.begin(),
-                        nested.end(),
-                        ir_utils::isCpAsyncBulkStore)) {
-                  return true;
-                }
-              }
-            }
-            return false;
-          };
-
-          if (!has_tma_in_nested_loop()) {
-            // Find the last top-level expression containing a TMA store
-            for (int64_t i = num_exprs - 1; i >= 0; --i) {
-              auto exprs = ir_utils::flattenScopedExprs(
-                  {for_loop->body().exprs().at(i)});
-              if (std::any_of(
-                      exprs.begin(),
-                      exprs.end(),
-                      ir_utils::isCpAsyncBulkStore)) {
-                pos = i;
-                break;
+          for (auto fl : for_loop_stack_) {
+            if (fl->body().exprs().back()->isA<kir::BlockSync>()) {
+              size_t num_exprs = fl->body().exprs().size();
+              Expr* expr = fl->body().exprs().at(num_exprs - 1);
+              while (!sync_exprs.empty()) {
+                registerInsertAfter(expr, sync_exprs.back(), &fl->body());
+                sync_exprs.pop_back();
               }
             }
           }
-        }
-
-        Expr* expr = for_loop->body().exprs().at(pos);
-        while (!sync_exprs.empty()) {
-          registerInsertAfter(expr, sync_exprs.back(), &for_loop->body());
-          sync_exprs.pop_back();
+        } else {
+          Expr* expr = for_loop->body().exprs().at(pos);
+          while (!sync_exprs.empty()) {
+            registerInsertAfter(expr, sync_exprs.back(), &for_loop->body());
+            sync_exprs.pop_back();
+          }
         }
       }
     }
