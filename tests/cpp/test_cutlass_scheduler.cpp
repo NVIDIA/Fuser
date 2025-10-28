@@ -13,6 +13,7 @@
 #include <c10/cuda/CUDAStream.h>
 #include <gtest/gtest.h>
 
+#include <cutlass/block_scaling.h>
 #include <cutlass/evt.h>
 #include <fusion.h>
 #include <ops/all_ops.h>

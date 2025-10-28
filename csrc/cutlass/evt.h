@@ -74,20 +74,6 @@ class EVTModel {
   Node* root_;
 };
 
-//! Pattern for block-scaled quantized outputs
-struct NVF_API BlockScaledOutputPattern {
-  TensorView* prescaled_output;
-  TensorView* output;
-  TensorView* block_scale_factors;
-  TensorView* global_scale_factor;
-  int64_t block_size;
-};
-
-//! Find block-scaled output patterns in a fusion
-//! Returns a vector of patterns, one for each block-scaled output
-NVF_API std::vector<BlockScaledOutputPattern> findBlockScaledOutputs(
-    Fusion* fusion);
-
 //! Convert a Fusion into an EVTModel. This includes creating nodes to
 //! represent the default epilogue in ScaledMmaOp, alpha*acc + beta*bias, when
 //! those arguments are provided.
