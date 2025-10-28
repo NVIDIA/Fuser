@@ -23,6 +23,7 @@ inputs = [
     torch.randn(dim0, dim1, dtype=torch.bfloat16, device="cuda"),
 ]
 
+has_tanh = False
 
 # Number of streaming multiprocessors (always use actual device SM count)
 num_sms = torch.cuda.get_device_properties(0).multi_processor_count
@@ -52,6 +53,8 @@ class PointwiseMulDefault(FusionDefinition):
         self.t0_float = self.ops.cast(self.t0, dtype=DataType.Float)
         self.t1_float = self.ops.cast(self.t1, dtype=DataType.Float)
         self.t2 = self.ops.mul(self.t0_float, self.t1_float)
+        if has_tanh:
+            self.t2 = self.ops.tanh(self.t2)
         self.t3 = self.ops.cast(self.t2, dtype=dtype)
 
         # Output
@@ -78,8 +81,12 @@ class PointwiseMulTMA(FusionDefinition):
         # Data type conversion and computation
         self.t0_float = self.ops.cast(self.t0, dtype=DataType.Float)
         self.t1_float = self.ops.cast(self.t1, dtype=DataType.Float)
-        self.t2 = self.ops.mul(self.t0_float, self.t1_float)
-        self.t3 = self.ops.cast(self.t2, dtype=dtype)
+        self.t2_mul = self.ops.mul(self.t0_float, self.t1_float)
+        if has_tanh:
+            self.t2 = self.ops.tanh(self.t2_mul)
+            self.t3 = self.ops.cast(self.t2, dtype=dtype)
+        else:
+            self.t3 = self.ops.cast(self.t2_mul, dtype=dtype)
 
         # Output
         self.add_output(self.t3)
@@ -125,10 +132,12 @@ class PointwiseMulTMA(FusionDefinition):
             self.t1_reg,
             self.t0_float,
             self.t1_float,
-            self.t2,
+            self.t2_mul,
             self.t3_cache,
             self.t3,
         ]
+        if has_tanh:
+            compute_tvs.insert(-2, self.t2)  # Insert t2 (tanh result) before t3_cache
 
         for tv in compute_tvs:
             # [I0, I1] -> [I0/m, m, I1/n, n]
@@ -174,29 +183,60 @@ def print_kernel_profile(kp):
 
 # Compute PyTorch reference
 torch_out = inputs[0].float() * inputs[1].float()
+if has_tanh:
+    torch_out = torch.tanh(torch_out)
 torch_out = torch_out.to(torch.bfloat16)
 
 
 # ============================================================================================================
 # Run with Default Scheduler
 # ============================================================================================================
-print("\n\n" + "=" * 110)
-print("DEFAULT SCHEDULER (Auto)")
-print("=" * 110)
+if True:
+    print("\n\n" + "=" * 110)
+    print("DEFAULT SCHEDULER (Auto)")
+    print("=" * 110)
 
-fn_default = PointwiseMulDefault()
-nvf_out_default = fn_default.execute(inputs, profile=True)
+    fn_default = PointwiseMulDefault()
+    nvf_out_default = fn_default.execute(inputs, profile=True)
 
-print(
-    f"Results match PyTorch: {torch.allclose(nvf_out_default[0], torch_out, rtol=1e-2, atol=1e-2)}"
-)
+    print(
+        f"Results match PyTorch: {torch.allclose(nvf_out_default[0], torch_out, rtol=1e-2, atol=1e-2)}"
+    )
 
-print("\n--- Kernel Profile ---")
-kps_default = fn_default.profile().kernel_profiles
-for kp in kps_default:
-    print_kernel_profile(kp)
+    print("\n--- Kernel Profile ---")
+    kps_default = fn_default.profile().kernel_profiles
+    for kp in kps_default:
+        print_kernel_profile(kp)
 
 
+if True:
+    # debug run
+    print("=" * 110)
+    print("DEBUG RUN - Testing with and without TMA Store")
+    print("=" * 110)
+
+    for use_tma_store in [False]:
+        clear_l2_cache()
+        store_mode = (
+            "WITH TMA Store" if use_tma_store else "WITHOUT TMA Store (Regular Store)"
+        )
+        print(f"\n{store_mode}")
+        print("-" * 110)
+
+        fn_tma = PointwiseMulTMA(
+            tma_m=64,
+            tma_n=256,
+            blk_m=32,
+            blk_n=8,
+            tid_m=2,
+        )
+        nvf_out_tma = fn_tma.execute(inputs, profile=True)
+        assert torch.allclose(nvf_out_tma[0], torch_out, rtol=1e-2, atol=1e-2)
+        kps_tma = fn_tma.profile().kernel_profiles
+        for kp in kps_tma:
+            print_kernel_profile(kp)
+
+    # exit()
 # ============================================================================================================
 # Auto-tune: Test Different Tile Configurations
 # ============================================================================================================
@@ -205,7 +245,7 @@ print("AUTO-TUNING TMA SCHEDULER")
 print("=" * 110)
 
 # Define search space
-tma_tiles = [64, 128, 256]
+tma_tiles = [(64, 256), (128, 128), (64, 128), (64, 64), (32, 64), (32, 32)]
 blk_tiles = [(8, 16), (8, 32), (16, 16)]
 tid_tiles_m = [1, 2, 4]
 
@@ -220,65 +260,60 @@ print(f"{'Config':<40} {'Time (ms)':<12} {'Bandwidth (GB/s)':<20} {'Status'}")
 print("-" * 110)
 
 config_count = 0
-for tma_m in tma_tiles:
-    for tma_n in tma_tiles:
-        for blk_m, blk_n in blk_tiles:
-            for tid_m in tid_tiles_m:
-                config_count += 1
-                config_str = f"TMA={tma_m}x{tma_n}, BLK={blk_m}x{blk_n}, TID={tid_m}"
+for tma_m, tma_n in tma_tiles:
+    for blk_m, blk_n in blk_tiles:
+        for tid_m in tid_tiles_m:
+            config_count += 1
+            config_str = f"TMA={tma_m}x{tma_n}, BLK={blk_m}x{blk_n}, TID={tid_m}"
 
-                try:
-                    # Create fusion with specific tile configuration
-                    clear_l2_cache()
-                    fn_tma = PointwiseMulTMA(
-                        tma_m=tma_m, tma_n=tma_n, blk_m=blk_m, blk_n=blk_n, tid_m=tid_m
-                    )
-                    nvf_out_tma = fn_tma.execute(inputs, profile=True)
+            try:
+                # Create fusion with specific tile configuration
+                clear_l2_cache()
+                fn_tma = PointwiseMulTMA(
+                    tma_m=tma_m, tma_n=tma_n, blk_m=blk_m, blk_n=blk_n, tid_m=tid_m
+                )
+                nvf_out_tma = fn_tma.execute(inputs, profile=True)
 
-                    # Verify correctness
-                    if not torch.allclose(
-                        nvf_out_tma[0], torch_out, rtol=1e-2, atol=1e-2
-                    ):
-                        print(f"{config_str:<40} {'N/A':<12} {'N/A':<20} INCORRECT")
-                        continue
+                # Verify correctness
+                if not torch.allclose(nvf_out_tma[0], torch_out, rtol=1e-2, atol=1e-2):
+                    print(f"{config_str:<40} {'N/A':<12} {'N/A':<20} INCORRECT")
+                    exit()
 
-                    # Get performance metrics
-                    kps_tma = fn_tma.profile().kernel_profiles
-                    tma_time = sum(kp.time_ms for kp in kps_tma)
-                    tma_bw = (
-                        sum(kp.effective_bandwidth_gbs for kp in kps_tma) / len(kps_tma)
-                        if kps_tma
-                        else 0
-                    )
+                # Get performance metrics
+                kps_tma = fn_tma.profile().kernel_profiles
+                tma_time = sum(kp.time_ms for kp in kps_tma)
+                tma_bw = (
+                    sum(kp.effective_bandwidth_gbs for kp in kps_tma) / len(kps_tma)
+                    if kps_tma
+                    else 0
+                )
 
-                    results.append(
-                        {
-                            "config": config_str,
-                            "tma_m": tma_m,
-                            "tma_n": tma_n,
-                            "blk_m": blk_m,
-                            "blk_n": blk_n,
-                            "tid_m": tid_m,
-                            "time": tma_time,
-                            "bandwidth": tma_bw,
-                            "kps": kps_tma,
-                        }
-                    )
+                results.append(
+                    {
+                        "config": config_str,
+                        "tma_m": tma_m,
+                        "tma_n": tma_n,
+                        "blk_m": blk_m,
+                        "blk_n": blk_n,
+                        "tid_m": tid_m,
+                        "time": tma_time,
+                        "bandwidth": tma_bw,
+                        "kps": kps_tma,
+                    }
+                )
 
-                    # Track best configuration
-                    status = ""
-                    if tma_time < best_time:
-                        best_time = tma_time
-                        best_config = results[-1]
-                        status = "← BEST"
+                # Track best configuration
+                status = ""
+                if tma_time < best_time:
+                    best_time = tma_time
+                    best_config = results[-1]
+                    status = "← BEST"
 
-                    print(
-                        f"{config_str:<40} {tma_time:<12.4f} {tma_bw:<20.2f} {status}"
-                    )
+                print(f"{config_str:<40} {tma_time:<12.4f} {tma_bw:<20.2f} {status}")
 
-                except Exception as e:
-                    print(f"{config_str:<40} {'FAILED':<12} {'N/A':<20} {str(e)[:30]}")
-                    continue
+            except Exception as e:
+                print(f"{config_str:<40} {'FAILED':<12} {'N/A':<20} {str(e)[:30]}")
+                exit()
 
 print("-" * 110)
 print(f"\nTested {len(results)}/{config_count} configurations successfully\n")

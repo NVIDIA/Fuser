@@ -46,6 +46,10 @@ inputs = [
     torch.randn(dim0, dim1, dtype=torch.bfloat16, device="cuda"),
 ]
 
+has_tanh = False
+
+explicit_unroll = False
+
 
 class PointwiseMulDefault(FusionDefinition):
     """Pointwise multiplication using default auto-scheduler"""
@@ -62,8 +66,12 @@ class PointwiseMulDefault(FusionDefinition):
         # Data type conversion and computation
         self.t0_float = self.ops.cast(self.t0, dtype=DataType.Float)
         self.t1_float = self.ops.cast(self.t1, dtype=DataType.Float)
-        self.t2 = self.ops.mul(self.t0_float, self.t1_float)
-        self.t3 = self.ops.cast(self.t2, dtype=dtype)
+        self.t2_mul = self.ops.mul(self.t0_float, self.t1_float)
+        if has_tanh:
+            self.t2 = self.ops.tanh(self.t2_mul)
+            self.t3 = self.ops.cast(self.t2, dtype=dtype)
+        else:
+            self.t3 = self.ops.cast(self.t2_mul, dtype=dtype)
 
         # Output
         self.add_output(self.t3)
@@ -107,8 +115,12 @@ class PointwiseMulTMA(FusionDefinition):
         # Data type conversion and computation
         self.t0_float = self.ops.cast(self.t0, dtype=DataType.Float)
         self.t1_float = self.ops.cast(self.t1, dtype=DataType.Float)
-        self.t2 = self.ops.mul(self.t0_float, self.t1_float)
-        self.t3 = self.ops.cast(self.t2, dtype=dtype)
+        self.t2_mul = self.ops.mul(self.t0_float, self.t1_float)
+        if has_tanh:
+            self.t2 = self.ops.tanh(self.t2_mul)
+            self.t3 = self.ops.cast(self.t2, dtype=dtype)
+        else:
+            self.t3 = self.ops.cast(self.t2_mul, dtype=dtype)
 
         # Output
         self.add_output(self.t3)
@@ -167,9 +179,11 @@ class PointwiseMulTMA(FusionDefinition):
             self.t1_reg,
             self.t0_float,
             self.t1_float,
-            self.t2,
+            self.t2_mul,
             self.t3_regs,
         ]
+        if has_tanh:
+            compute_tvs.insert(-1, self.t2)  # Insert t2 (tanh result) before t3_regs
 
         # Add t3_smem if using TMA store, otherwise add t3 (output tensor)
         if self.use_tma_store:
@@ -196,7 +210,8 @@ class PointwiseMulTMA(FusionDefinition):
             self.sched.parallelize(
                 tv, axis=-2, parallel_type=ParallelType.block_x
             )  # TIDx
-            # self.sched.parallelize(tv, axis=-3, parallel_type=ParallelType.unroll)
+            if explicit_unroll:
+                self.sched.parallelize(tv, axis=-3, parallel_type=ParallelType.unroll)
             # Vectorize: register cache tensors for loads from smem, and smem tensor for TMA store
             vectorize_condition = (
                 tv == self.t0_reg
@@ -220,9 +235,11 @@ class PointwiseMulTMA(FusionDefinition):
             inline_most_tvs = [
                 self.t0_float,
                 self.t1_float,
-                self.t2,
+                self.t2_mul,
                 self.t3_regs,
             ]
+            if has_tanh:
+                inline_most_tvs.insert(-1, self.t2)  # Insert t2 (tanh) before t3_regs
             self.sched.inline_most(inline_most_tvs)
 
         # Circular Buffer with TMA loads (warp specialization)
@@ -308,27 +325,30 @@ def print_kernel_profile(kp):
 
 # Compute PyTorch reference
 torch_out = inputs[0].float() * inputs[1].float()
+if has_tanh:
+    torch_out = torch.tanh(torch_out)
 torch_out = torch_out.to(torch.bfloat16)
 
 
 # ============================================================================================================
 # Run with Default Scheduler
 # ============================================================================================================
-print("\n\n" + "=" * 110)
-print("DEFAULT SCHEDULER (Auto)")
-print("=" * 110)
+if True:
+    print("\n\n" + "=" * 110)
+    print("DEFAULT SCHEDULER (Auto)")
+    print("=" * 110)
 
-fn_default = PointwiseMulDefault()
-nvf_out_default = fn_default.execute(inputs, profile=True)
+    fn_default = PointwiseMulDefault()
+    nvf_out_default = fn_default.execute(inputs, profile=True)
 
-print(
-    f"Results match PyTorch: {torch.allclose(nvf_out_default[0], torch_out, rtol=1e-2, atol=1e-2)}"
-)
+    print(
+        f"Results match PyTorch: {torch.allclose(nvf_out_default[0], torch_out, rtol=1e-2, atol=1e-2)}"
+    )
 
-print("\n--- Kernel Profile ---")
-kps_default = fn_default.profile().kernel_profiles
-for kp in kps_default:
-    print_kernel_profile(kp)
+    print("\n--- Kernel Profile ---")
+    kps_default = fn_default.profile().kernel_profiles
+    for kp in kps_default:
+        print_kernel_profile(kp)
 
 if True:
     # debug run
@@ -336,7 +356,7 @@ if True:
     print("DEBUG RUN - Testing with and without TMA Store")
     print("=" * 110)
 
-    for use_tma_store in [True, False]:
+    for use_tma_store in [False]:
         clear_l2_cache()
         store_mode = (
             "WITH TMA Store" if use_tma_store else "WITHOUT TMA Store (Regular Store)"
@@ -346,24 +366,22 @@ if True:
 
         fn_tma = PointwiseMulTMA(
             tma_m=64,
-            tma_n=256,
-            tid_m=4,
+            tma_n=128,
+            tid_m=2,
             tid_n=8,
-            blk_n=256,
-            fully_reg_cached=True,
-            number_of_stages=3,
+            blk_n=512,
+            fully_reg_cached=False,
+            number_of_stages=7,
             use_tma_store=use_tma_store,
         )
         nvf_out_tma = fn_tma.execute(inputs, profile=True)
-        print(
-            f"Correctness: {torch.allclose(nvf_out_tma[0], torch_out, rtol=1e-2, atol=1e-2)}"
-        )
+        assert torch.allclose(nvf_out_tma[0], torch_out, rtol=1e-2, atol=1e-2)
 
         kps_tma = fn_tma.profile().kernel_profiles
         for kp in kps_tma:
             print_kernel_profile(kp)
 
-    exit()
+    # exit()
 
 # ============================================================================================================
 # Auto-tune: Test Different Tile Configurations
@@ -382,7 +400,7 @@ tid_tiles = [(1, 8), (2, 8), (4, 8)]
 blk_tiles_n = [256, 512]
 fully_reg_cached_options = [True, False]
 number_of_stages_options = [3]  # use max allowed by SMEM
-use_tma_store_options = [False, True]  # Test with and without TMA store
+use_tma_store_options = [False]  # Test with and without TMA store
 
 
 def not_enough_smem(tma_m, tma_n, n_stages):
@@ -453,7 +471,7 @@ for tma_m, tma_n in tma_tiles:
                                 print(
                                     f"{config_str:<70} {'N/A':<12} {'N/A':<20} INCORRECT"
                                 )
-                                continue
+                                exit()
 
                             # Get performance metrics
                             kps_tma = fn_tma.profile().kernel_profiles
