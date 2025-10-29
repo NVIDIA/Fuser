@@ -484,14 +484,12 @@ TEST_F(CutlassExecutorTest, FindBlockScaledOutputs_WithoutGlobalScale) {
   // Test pattern matching
   auto patterns = cutlass_codegen::findBlockScaledOutputs(fusion.get());
 
-  constexpr int64_t block_size = 16;
-
   ASSERT_EQ(patterns.size(), 1);
   EXPECT_EQ(patterns[0].quantized_output, qtv.elts);
   EXPECT_EQ(patterns[0].unquantized_output, unquantized_output);
   EXPECT_EQ(patterns[0].block_scale_factors, qtv.block_scale);
   EXPECT_EQ(patterns[0].global_scale_factor, nullptr);
-  EXPECT_EQ(patterns[0].block_size, block_size);
+  EXPECT_EQ(patterns[0].block_size, 16);
 }
 
 TEST_F(CutlassExecutorTest, FindBlockScaledOutputs_WithGlobalScale) {
@@ -514,13 +512,12 @@ TEST_F(CutlassExecutorTest, FindBlockScaledOutputs_WithGlobalScale) {
   // Test pattern matching
   auto patterns = cutlass_codegen::findBlockScaledOutputs(fusion.get());
 
-  constexpr int64_t block_size = 16;
   ASSERT_EQ(patterns.size(), 1);
   EXPECT_EQ(patterns[0].quantized_output, qtv.elts);
   EXPECT_EQ(patterns[0].unquantized_output, unquantized_output);
   EXPECT_EQ(patterns[0].block_scale_factors, qtv.block_scale);
   EXPECT_EQ(patterns[0].global_scale_factor, per_tensor_scale);
-  EXPECT_EQ(patterns[0].block_size, block_size);
+  EXPECT_EQ(patterns[0].block_size, 16);
 }
 
 TEST_F(CutlassExecutorTest, FindBlockScaledOutputs_MXFP8) {
@@ -541,14 +538,12 @@ TEST_F(CutlassExecutorTest, FindBlockScaledOutputs_MXFP8) {
   // Test pattern matching for FP8 output (MXFP8)
   auto patterns = cutlass_codegen::findBlockScaledOutputs(fusion.get());
 
-  constexpr int64_t block_size = 32;
-
   ASSERT_EQ(patterns.size(), 1);
   EXPECT_EQ(patterns[0].quantized_output, qtv.elts);
   EXPECT_EQ(patterns[0].unquantized_output, unquantized_output);
   EXPECT_EQ(patterns[0].block_scale_factors, qtv.block_scale);
   EXPECT_EQ(patterns[0].global_scale_factor, nullptr);
-  EXPECT_EQ(patterns[0].block_size, block_size);
+  EXPECT_EQ(patterns[0].block_size, 32);
 }
 
 // Test GEMM + ReLU with nvfp4 block-scaled inputs and output
