@@ -18,6 +18,8 @@
 #include <sys/syscall.h>
 #include <tests/cpp/multidevice.h>
 
+#include <sstream>
+
 namespace nvfuser {
 
 template <typename T>
@@ -1229,5 +1231,287 @@ TEST_F(IpcTest, VmmMultiRankContiguousMappingTest) {
   }
 }
 
+
+// Parametrized test to explore granularity alignment requirements
+// Parameter tuple: (align_create_size, align_reserve_size, align_reserve_alignment, align_map_size, align_map_offset)
+using VmmGranularityTestParams = std::tuple<bool, bool, bool, bool, bool>;
+
+class VmmGranularityTest : public IpcTest,
+                           public ::testing::WithParamInterface<VmmGranularityTestParams> {};
+
+TEST_P(VmmGranularityTest, ExploreGranularityRequirements) {
+
+  auto params = GetParam();
+  bool align_create_size = std::get<0>(params);
+  bool align_reserve_size = std::get<1>(params);
+  bool align_reserve_alignment = std::get<2>(params);
+  bool align_map_size = std::get<3>(params);
+  bool align_map_offset = std::get<4>(params);
+  
+  if (!align_reserve_alignment) {
+    GTEST_SKIP() << "providing an alignement which is not a multiple of the granularity won't necessarily fail.";
+  }
+
+  // Test should pass if and only if all parameters are aligned
+  bool should_pass = align_create_size && 
+                     align_reserve_size && 
+                     align_map_size && 
+                     align_map_offset;
+  
+  constexpr size_t kBufferSize = sizeof(int64_t);
+  const int64_t num_devices = communicator_->size();
+  const int64_t rank = communicator_->deviceId();
+  const int64_t local_rank = communicator_->local_rank();
+
+  // Query support for Virtual Memory Management
+  int is_vmm_supported;
+  NVFUSER_CUDA_SAFE_CALL(cuDeviceGetAttribute(
+      &is_vmm_supported,
+      CU_DEVICE_ATTRIBUTE_VIRTUAL_MEMORY_MANAGEMENT_SUPPORTED,
+      local_rank));
+  if (is_vmm_supported == 0) {
+    GTEST_SKIP()
+        << "Device does not support Virtual Memory Management; skipping.";
+  }
+
+  // Query support for IPC handles
+  int is_ipc_supported;
+  NVFUSER_CUDA_SAFE_CALL(cuDeviceGetAttribute(
+      &is_ipc_supported,
+      CU_DEVICE_ATTRIBUTE_HANDLE_TYPE_POSIX_FILE_DESCRIPTOR_SUPPORTED,
+      local_rank));
+  if (is_ipc_supported == 0) {
+    GTEST_SKIP() << "Device does not support IPC handles; skipping.";
+  }
+
+  NVFUSER_CUDA_RT_SAFE_CALL(cudaSetDevice(local_rank));
+
+  // Set up allocation properties for VMM
+  CUmemAllocationProp prop{};
+  prop.type = CU_MEM_ALLOCATION_TYPE_PINNED;
+  prop.location.type = CU_MEM_LOCATION_TYPE_DEVICE;
+  prop.location.id = static_cast<int>(local_rank);
+  prop.requestedHandleTypes = CU_MEM_HANDLE_TYPE_POSIX_FILE_DESCRIPTOR;
+
+  // Check allocation granularity
+  size_t granularity = 0;
+  NVFUSER_CUDA_SAFE_CALL(cuMemGetAllocationGranularity(
+      &granularity, &prop, CU_MEM_ALLOC_GRANULARITY_MINIMUM));
+
+  // Calculate aligned and unaligned sizes
+  size_t aligned_size =
+      ((kBufferSize + granularity - 1) / granularity) * granularity;
+  size_t unaligned_size = kBufferSize; // Intentionally not aligned
+
+  // Determine sizes based on parameters
+  size_t create_size = align_create_size ? aligned_size : unaligned_size;
+  size_t reserve_size = align_reserve_size ? aligned_size : unaligned_size;
+  size_t reserve_alignment = align_reserve_alignment ? granularity : 1;
+  size_t map_size = align_map_size ? aligned_size : unaligned_size;
+  size_t map_offset = align_map_offset ? 0 : 1;
+
+  // Track which operations succeed/fail
+  CUmemGenericAllocationHandle mem_handle = 0;
+  CUdeviceptr d_ptr = 0;
+
+  try {
+    // Step 1: cuMemCreate
+    CUresult result = cuMemCreate(&mem_handle, create_size, &prop, /*flags=*/0);
+    if (result != CUDA_SUCCESS) {
+      if (rank == 0) {
+        const char* error_name;
+        cuGetErrorName(result, &error_name);
+        std::cout << "FAILED at cuMemCreate: " << error_name << std::endl;
+      }
+      if (should_pass) {
+        FAIL() << "Expected test to pass, but cuMemCreate failed";
+      }
+      return;
+    }
+
+    // Step 2: cuMemAddressReserve
+    result = cuMemAddressReserve(
+        &d_ptr,
+        reserve_size,
+        /*alignment=*/reserve_alignment,
+        /*baseVA=*/0,
+        /*flags=*/0);
+    if (result != CUDA_SUCCESS) {
+      if (rank == 0) {
+        const char* error_name;
+        cuGetErrorName(result, &error_name);
+        std::cout << "FAILED at cuMemAddressReserve: " << error_name << std::endl;
+      }
+      NVFUSER_CUDA_SAFE_CALL(cuMemRelease(mem_handle));
+      if (should_pass) {
+        FAIL() << "Expected test to pass, but cuMemAddressReserve failed";
+      }
+      return;
+    }
+
+    // Step 3: cuMemMap
+    result = cuMemMap(d_ptr, map_size, /*offset=*/map_offset, mem_handle, /*flags=*/0);
+    if (result != CUDA_SUCCESS) {
+      if (rank == 0) {
+        const char* error_name;
+        cuGetErrorName(result, &error_name);
+        std::cout << "FAILED at cuMemMap: " << error_name << std::endl;
+      }
+      NVFUSER_CUDA_SAFE_CALL(cuMemAddressFree(d_ptr, reserve_size));
+      NVFUSER_CUDA_SAFE_CALL(cuMemRelease(mem_handle));
+      if (should_pass) {
+        FAIL() << "Expected test to pass, but cuMemMap failed";
+      }
+      return;
+    }
+
+    // Step 4: cuMemSetAccess
+    CUmemAccessDesc access_desc{};
+    access_desc.location.type = CU_MEM_LOCATION_TYPE_DEVICE;
+    access_desc.location.id = static_cast<int>(local_rank);
+    access_desc.flags = CU_MEM_ACCESS_FLAGS_PROT_READWRITE;
+    result = cuMemSetAccess(d_ptr, map_size, &access_desc, /*count=*/1);
+    if (result != CUDA_SUCCESS) {
+      if (rank == 0) {
+        const char* error_name;
+        cuGetErrorName(result, &error_name);
+        std::cout << "FAILED at cuMemSetAccess: " << error_name << std::endl;
+      }
+      NVFUSER_CUDA_SAFE_CALL(cuMemUnmap(d_ptr, map_size));
+      NVFUSER_CUDA_SAFE_CALL(cuMemAddressFree(d_ptr, reserve_size));
+      NVFUSER_CUDA_SAFE_CALL(cuMemRelease(mem_handle));
+      if (should_pass) {
+        FAIL() << "Expected test to pass, but cuMemSetAccess failed";
+      }
+      return;
+    }
+
+    // If we got here, basic operations succeeded
+    // Now try IPC communication
+    const int64_t value = rank;
+    NVFUSER_CUDA_RT_SAFE_CALL(cudaMemcpy(
+        reinterpret_cast<void*>(d_ptr),
+        &value,
+        kBufferSize,
+        cudaMemcpyHostToDevice));
+
+    // Export VMM handle to shareable file descriptor
+    int shared_fd;
+    NVFUSER_CUDA_SAFE_CALL(cuMemExportToShareableHandle(
+        &shared_fd,
+        mem_handle,
+        CU_MEM_HANDLE_TYPE_POSIX_FILE_DESCRIPTOR,
+        /*flags=*/0));
+
+    prctl(PR_SET_PTRACER, PR_SET_PTRACER_ANY);
+
+    auto store = communicator_->getTcpStore();
+    std::ostringstream key_stream;
+    key_stream << "vmm_granularity_test_" 
+               << align_create_size << align_reserve_size 
+               << align_reserve_alignment << align_map_size 
+               << align_map_offset << "_";
+    std::string key_prefix = key_stream.str();
+    store->set(key_prefix + "fd_" + std::to_string(rank), toBytes(shared_fd));
+    pid_t my_pid = getpid();
+    store->set(key_prefix + "pid_" + std::to_string(rank), toBytes(my_pid));
+
+    communicator_->barrier();
+
+    // Import peer's VMM handle
+    const int64_t peer_rank = (rank + 1) % num_devices;
+    int peer_shared_fd =
+        fromBytes<int>(store->get(key_prefix + "fd_" + std::to_string(peer_rank)));
+    pid_t peer_pid =
+        fromBytes<pid_t>(store->get(key_prefix + "pid_" + std::to_string(peer_rank)));
+
+    int pid_fd = syscall(SYS_pidfd_open, peer_pid, /*flags=*/0);
+    ASSERT_GE(pid_fd, 0) << "rank " << rank << " failed to open pidfd for pid "
+                         << peer_pid;
+
+    int peer_fd = syscall(SYS_pidfd_getfd, pid_fd, peer_shared_fd, /*flags=*/0);
+    ASSERT_GE(peer_fd, 0) << "rank " << rank << " failed to get peer fd";
+
+    CUmemGenericAllocationHandle peer_mem_handle = 0;
+    NVFUSER_CUDA_SAFE_CALL(cuMemImportFromShareableHandle(
+        &peer_mem_handle,
+        (void*)((uint64_t)peer_fd),
+        CU_MEM_HANDLE_TYPE_POSIX_FILE_DESCRIPTOR));
+
+    // Reserve virtual address space and map the peer's memory
+    CUdeviceptr peer_d_ptr = 0;
+    NVFUSER_CUDA_SAFE_CALL(cuMemAddressReserve(
+        &peer_d_ptr,
+        reserve_size,
+        /*alignment=*/reserve_alignment,
+        /*baseVA=*/0,
+        /*flags=*/0));
+    NVFUSER_CUDA_SAFE_CALL(cuMemMap(
+        peer_d_ptr, map_size, /*offset=*/map_offset, peer_mem_handle, /*flags=*/0));
+
+    CUmemAccessDesc peer_access_desc{};
+    peer_access_desc.location.type = CU_MEM_LOCATION_TYPE_DEVICE;
+    peer_access_desc.location.id = static_cast<int>(local_rank);
+    peer_access_desc.flags = CU_MEM_ACCESS_FLAGS_PROT_READ;
+    NVFUSER_CUDA_SAFE_CALL(
+        cuMemSetAccess(peer_d_ptr, map_size, &peer_access_desc, /*count=*/1));
+
+    // Validate by reading peer's value
+    int64_t peer_value;
+    NVFUSER_CUDA_RT_SAFE_CALL(cudaMemcpy(
+        &peer_value,
+        reinterpret_cast<void*>(peer_d_ptr),
+        kBufferSize,
+        cudaMemcpyDeviceToHost));
+    EXPECT_EQ((value + 1) % num_devices, peer_value);
+
+    if (rank == 0) {
+      std::cout << "SUCCESS: All operations completed successfully!" << std::endl;
+    }
+    
+    // Assert that test succeeded if and only if we expected it to pass
+    if (!should_pass) {
+      FAIL() << "Expected test to fail, but it succeeded";
+    }
+
+    // Clean up peer memory
+    NVFUSER_CUDA_SAFE_CALL(cuMemUnmap(peer_d_ptr, map_size));
+    NVFUSER_CUDA_SAFE_CALL(cuMemAddressFree(peer_d_ptr, reserve_size));
+    NVFUSER_CUDA_SAFE_CALL(cuMemRelease(peer_mem_handle));
+    close(peer_fd);
+    close(pid_fd);
+
+    // Clean up local memory
+    NVFUSER_CUDA_SAFE_CALL(cuMemUnmap(d_ptr, map_size));
+    NVFUSER_CUDA_SAFE_CALL(cuMemAddressFree(d_ptr, reserve_size));
+    NVFUSER_CUDA_SAFE_CALL(cuMemRelease(mem_handle));
+
+  } catch (const std::exception& e) {
+    if (rank == 0) {
+      std::cout << "EXCEPTION: " << e.what() << std::endl;
+    }
+    // Clean up on exception
+    if (d_ptr != 0) {
+      cuMemUnmap(d_ptr, map_size);
+      cuMemAddressFree(d_ptr, reserve_size);
+    }
+    if (mem_handle != 0) {
+      cuMemRelease(mem_handle);
+    }
+    throw;
+  }
+}
+
+// Define parameter combinations to test - generates all 2^5 = 32 combinations
+INSTANTIATE_TEST_SUITE_P(
+    GranularityAlignment,
+    VmmGranularityTest,
+    ::testing::Combine(
+        ::testing::Bool(), // align_create_size
+        ::testing::Bool(), // align_reserve_size
+        ::testing::Bool(), // align_reserve_alignment
+        ::testing::Bool(), // align_map_size
+        ::testing::Bool()  // align_map_offset
+    ));
 
 } // namespace nvfuser
