@@ -128,7 +128,7 @@ FusionKernelRuntime::FusionKernelRuntime(
 
   // Pre-compute the executor order so that the run time path
   //  would go directly to kernel launch.
-  runtime_workspace_ = prepareRuntimeOrder(*segmented_fusion_);
+  runtime_workspace_ = prepareRuntimeOrder(*segmented_fusion_, &runtime_info);
 
   executors_.resize(segmented_fusion_->groups().size());
 
@@ -467,8 +467,13 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
     for (const auto& heuristic_params : schedulers()) {
       launch_params_per_segment.push_back(heuristic_params->lparams);
     }
+    SchedulerRuntimeInfo runtime_info(
+        segmented_fusion_->completeFusion(), args);
     std::unique_ptr<hir::HostIrContainer> hic = lowerSegmentedFusionToHostIr(
-        *segmented_fusion_, launch_params_per_segment, executors_);
+        *segmented_fusion_,
+        launch_params_per_segment,
+        executors_,
+        runtime_info);
     if (isOptionEnabled(EnableOption::HostIrJit)) {
       hij_ = std::make_unique<HostIrJit>(std::move(hic));
     } else {
