@@ -15,6 +15,7 @@
 #include <preseg_passes/optimization_pass.h>
 #include <runtime/fusion_executor_cache.h>
 #include <scheduler/tools/domain_map.h>
+#include <scheduler/tools/inlining.h>
 #include <tests/cpp/utils.h>
 #include <tests/cpp/validator.h>
 
