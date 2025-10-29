@@ -795,7 +795,7 @@ def test_issue1872(nvfuser_direct_test):
         fd.add_output(T5)
         fd.add_output(T7)
 
-    nvfuser_direct_test.exec_nvfuser(fusion_func, [])
+    nvfuser_direct_test.exec_nvfuser(fusion_func, [], validate_results=True)
 
 
 def test_issue1953(nvfuser_direct_test):
@@ -988,7 +988,7 @@ def test_issue1953(nvfuser_direct_test):
         fd.add_output(T57)
         fd.add_output(T101)
 
-    nvf_out, _ = nvfuser_direct_test.exec_nvfuser(fusion_func, inputs)
+    nvfuser_direct_test.exec_nvfuser(fusion_func, inputs, validate_results=True)
 
 
 def test_issue2275_repro1(nvfuser_direct_test):
@@ -1143,7 +1143,7 @@ def test_issue2275_repro1(nvfuser_direct_test):
 
         fd.add_output(T88)
 
-    nvf_out, _ = nvfuser_direct_test.exec_nvfuser(fusion_func, inputs)
+    nvfuser_direct_test.exec_nvfuser(fusion_func, inputs, validate_results=True)
 
 
 def test_issue2275_repro2(nvfuser_direct_test):
@@ -1195,7 +1195,7 @@ def test_issue2275_repro2(nvfuser_direct_test):
         T101 = fd.ops.cat([T7, T100], dim=-1)
         fd.add_output(T101)
 
-    nvf_out, _ = nvfuser_direct_test.exec_nvfuser(fusion_func, inputs)
+    nvfuser_direct_test.exec_nvfuser(fusion_func, inputs, validate_results=True)
 
 
 # See https://github.com/NVIDIA/Fuser/issues/2317
@@ -1236,7 +1236,7 @@ def test_issue2317(nvfuser_direct_test):
         T35 = fd.ops.add(T34, T33)
         fd.add_output(T35)
 
-    nvf_out, _ = nvfuser_direct_test.exec_nvfuser(fusion_func, inputs)
+    nvfuser_direct_test.exec_nvfuser(fusion_func, inputs, validate_results=True)
 
 
 def test_issue2354(nvfuser_direct_test):
@@ -1282,7 +1282,7 @@ def test_issue2354(nvfuser_direct_test):
         fd.add_output(T2)
         fd.add_output(T4)
 
-    nvfuser_direct_test.exec_nvfuser(fusion_func, inputs)
+    nvfuser_direct_test.exec_nvfuser(fusion_func, inputs, validate_results=True)
 
 
 def test_issue2395(nvfuser_direct_test):
@@ -1397,6 +1397,7 @@ def test_issue2532(nvfuser_direct_test):
         ),
     ]
     nvfuser_direct_test.exec_nvfuser(fusion_func, inputs)
+    # TODO fd.validate fails with this test
 
 
 def test_issue2545(nvfuser_direct_test):
@@ -1451,7 +1452,7 @@ def test_issue2545(nvfuser_direct_test):
         fd.add_output(T18)
         fd.add_output(T16)
 
-    nvf_out, _ = nvfuser_direct_test.exec_nvfuser(fusion_func, inputs)
+    nvfuser_direct_test.exec_nvfuser(fusion_func, inputs, validate_results=True)
 
 
 def test_issue2549(nvfuser_direct_test):
@@ -1700,7 +1701,7 @@ def test_issue2755(nvfuser_direct_test):
         fd.add_output(t4)
 
     inputs = [torch.randn((10,), dtype=torch.float32, device="cuda:0")]
-    nvfuser_direct_test.exec_nvfuser(fusion_func, inputs)
+    nvfuser_direct_test.exec_nvfuser(fusion_func, inputs, validate_results=True)
 
 
 def test_issue2853(nvfuser_direct_test):
@@ -1952,16 +1953,12 @@ def test_issue3369(nvfuser_direct_test):
         T3 = fd.ops.linear(T0, T1, T2)
         fd.add_output(T3)
 
-    with FusionDefinition() as fd:
-        nvfuser_fusion_id28(fd)
-
     inputs = [
         torch.testing.make_tensor((5, 5), dtype=torch.float32, device="cuda:0"),
         torch.testing.make_tensor((5, 5), dtype=torch.float32, device="cuda:0"),
         torch.testing.make_tensor((5,), dtype=torch.float32, device="cuda:0"),
     ]
-    fd.validate(inputs)
-    nvf_out, _ = nvfuser_direct_test.exec_nvfuser(nvfuser_fusion_id28, inputs)
+    nvfuser_direct_test.exec_nvfuser(nvfuser_fusion_id28, inputs, validate_results=True)
 
 
 def test_issue4444(nvfuser_direct_test):
@@ -2169,7 +2166,7 @@ def test_issue4444(nvfuser_direct_test):
             high=HIGH_VAL,
         ),
     ]
-    fd.validate(inputs)
+    nvfuser_direct_test.exec_nvfuser(fusion_func, inputs, validate_results=True)
 
 
 def test_issue4459(nvfuser_direct_test):
@@ -2372,7 +2369,7 @@ def test_issue4459(nvfuser_direct_test):
             high=HIGH_VAL,
         ),
     ]
-    fd.validate(inputs)
+    nvfuser_direct_test.exec_nvfuser(fusion_func, inputs, validate_results=True)
 
 
 def test_issue4670(nvfuser_direct_test):
@@ -2419,11 +2416,7 @@ def test_issue4670(nvfuser_direct_test):
         fd.add_output(T18)
         fd.add_output(T36)
 
-    with FusionDefinition() as fd:
-        fusion_func(fd)
-
-    inputs = []
-    fd.validate(inputs)
+    nvfuser_direct_test.exec_nvfuser(fusion_func, [], validate_results=True)
 
 
 def test_ws_tma_normalization1(nvfuser_direct_test):
@@ -2574,7 +2567,7 @@ def test_ws_tma_normalization1(nvfuser_direct_test):
             high=HIGH_VAL,
         ),
     ]
-    fd.validate(inputs)
+    nvfuser_direct_test.exec_nvfuser(fusion_func, inputs, validate_results=True)
 
 
 def test_ws_tma_normalization2(nvfuser_direct_test):
@@ -2731,7 +2724,7 @@ def test_ws_tma_normalization2(nvfuser_direct_test):
             high=HIGH_VAL,
         ),
     ]
-    fd.validate(inputs)
+    nvfuser_direct_test.exec_nvfuser(fusion_func, inputs, validate_results=True)
 
 
 def test_ws_tma_normalization3(nvfuser_direct_test):
@@ -2859,7 +2852,7 @@ def test_ws_tma_normalization3(nvfuser_direct_test):
             high=HIGH_VAL,
         ),
     ]
-    fd.validate(inputs)
+    nvfuser_direct_test.exec_nvfuser(fusion_func, inputs, validate_results=True)
 
 
 def test_ws_tma_normalization4(nvfuser_direct_test):
@@ -2973,7 +2966,7 @@ def test_ws_tma_normalization4(nvfuser_direct_test):
             high=HIGH_VAL,
         ),
     ]
-    fd.validate(inputs)
+    nvfuser_direct_test.exec_nvfuser(fusion_func, inputs, validate_results=True)
 
 
 def test_ws_tma_normalization5(nvfuser_direct_test):
@@ -3216,7 +3209,7 @@ def test_ws_tma_normalization5(nvfuser_direct_test):
             high=HIGH_VAL,
         ),
     ]
-    fd.validate(inputs)
+    nvfuser_direct_test.exec_nvfuser(fusion_func, inputs, validate_results=True)
 
 
 def test_loop_promotion_cyclic_war(nvfuser_direct_test):
@@ -3520,7 +3513,7 @@ def test_loop_promotion_cyclic_war(nvfuser_direct_test):
             high=HIGH_VAL,
         ),
     ]
-    fd.validate(inputs)
+    nvfuser_direct_test.exec_nvfuser(fusion_func, inputs, validate_results=True)
 
 
 def test_reshape_cancellation(nvfuser_direct_test):
@@ -3701,7 +3694,7 @@ def test_reshape_cancellation(nvfuser_direct_test):
             high=HIGH_VAL,
         ),
     ]
-    fd.validate(inputs)
+    nvfuser_direct_test.exec_nvfuser(fusion_func, inputs, validate_results=True)
 
 
 def test_reduction_reference_missing_input_ids(nvfuser_direct_test):
@@ -3990,7 +3983,7 @@ def test_reduction_reference_missing_input_ids(nvfuser_direct_test):
             (1, 4096, 16, 128), dtype=torch.float16, device="cuda:0", low=-1, high=1
         ),
     ]
-    fd.validate(inputs)
+    nvfuser_direct_test.exec_nvfuser(fusion_func, inputs, validate_results=True)
 
 
 def test_ws_tma_normalization6(nvfuser_direct_test):
@@ -4130,7 +4123,7 @@ def test_ws_tma_normalization6(nvfuser_direct_test):
             high=HIGH_VAL,
         ),
     ]
-    fd.validate(inputs)
+    nvfuser_direct_test.exec_nvfuser(fusion_func, inputs, validate_results=True)
 
 
 def test_domain_map_hang(nvfuser_direct_test):
@@ -4458,7 +4451,7 @@ def test_domain_map_hang(nvfuser_direct_test):
             (1, 4096, 10240), dtype=torch.float32, device="cuda:0"
         ),
     ]
-    fd.validate(inputs)
+    nvfuser_direct_test.exec_nvfuser(fusion_func, inputs, validate_results=True)
 
 
 def test_shared_memory_usage(nvfuser_direct_test):
@@ -4540,9 +4533,6 @@ def test_shared_memory_usage(nvfuser_direct_test):
         fd.add_output(T49)
         fd.add_output(T51)
 
-    with FusionDefinition() as fd:
-        nvfuser_fusion_id0(fd)
-
     inputs = [
         torch.testing.make_tensor((16, 24578), dtype=torch.bfloat16, device="cuda:0"),
         torch.testing.make_tensor((16, 24578), dtype=torch.bfloat16, device="cuda:0"),
@@ -4551,7 +4541,7 @@ def test_shared_memory_usage(nvfuser_direct_test):
         torch.testing.make_tensor((16, 24578), dtype=torch.bfloat16, device="cuda:0"),
         torch.testing.make_tensor((24578,), dtype=torch.bfloat16, device="cuda:0"),
     ]
-    fd.validate(inputs)
+    nvfuser_direct_test.exec_nvfuser(nvfuser_fusion_id0, inputs, validate_results=True)
 
 
 def test_ca_map_concrete_loop_id(nvfuser_direct_test):
@@ -4591,11 +4581,147 @@ def test_ca_map_concrete_loop_id(nvfuser_direct_test):
         fd.add_output(T13)
         fd.add_output(T22)
 
-    with FusionDefinition() as fd:
-        nvfuser_fusion_id10(fd)
-
     inputs = [
         torch.testing.make_tensor((16, 1, 1), dtype=torch.float32, device="cuda:0"),
         torch.testing.make_tensor((1, 1, 1024), dtype=torch.float32, device="cuda:0"),
     ]
-    fd.validate(inputs)
+    nvfuser_direct_test.exec_nvfuser(nvfuser_fusion_id10, inputs, validate_results=True)
+
+
+def test_issue5377(nvfuser_direct_test):
+    """
+    Repro for issue 5377, where a traversal for vectorize validation
+    failed to find an allocation ID that corresponds to a vectorized
+    ID.
+    """
+
+    def nvfuser_fusion(fd: FusionDefinition) -> None:
+        tv0 = fd.define_tensor(
+            shape=[1, 16],
+            contiguity=[None, True],
+            dtype=DataType.BFloat16,
+            is_cpu=False,
+        )
+        tv1 = fd.define_tensor(
+            shape=[1, 16],
+            contiguity=[None, True],
+            dtype=DataType.BFloat16,
+            is_cpu=False,
+        )
+        tv2 = fd.define_tensor(
+            shape=[1, 5120],
+            contiguity=[None, True],
+            dtype=DataType.BFloat16,
+            is_cpu=False,
+        )
+        tv3 = fd.define_tensor(
+            shape=[16, 5120, 16384],
+            contiguity=[True, True, True],
+            dtype=DataType.BFloat16,
+            is_cpu=False,
+        )
+        tv4 = fd.define_tensor(
+            shape=[16, 8192, 5120],
+            contiguity=[True, True, True],
+            dtype=DataType.BFloat16,
+            is_cpu=False,
+        )
+        tv5 = fd.define_tensor(
+            shape=[8192, 5120],
+            contiguity=[True, True],
+            dtype=DataType.BFloat16,
+            is_cpu=False,
+        )
+        tv6 = fd.define_tensor(
+            shape=[8192, 5120],
+            contiguity=[True, True],
+            dtype=DataType.BFloat16,
+            is_cpu=False,
+        )
+        tv7 = fd.define_tensor(
+            shape=[5120, 8192],
+            contiguity=[True, True],
+            dtype=DataType.BFloat16,
+            is_cpu=False,
+        )
+        tv41 = fd.ops.linear(tv2, tv5)
+        tv42 = fd.ops.cast(tv41, dtype=DataType.Float)
+        tv43 = fd.ops.neg(tv42)
+        tv44 = fd.ops.exp(tv43)
+        tv45 = fd.ops.add(1.00000, tv44)
+        tv46 = fd.ops.reciprocal(tv45)
+        tv47 = fd.ops.mul(tv42, tv46)
+        tv48 = fd.ops.linear(tv2, tv6)
+        tv49 = fd.ops.cast(tv48, dtype=DataType.Float)
+        tv50 = fd.ops.mul(tv47, tv49)
+        tv51 = fd.ops.cast(tv50, dtype=DataType.BFloat16)
+        tv52 = fd.ops.linear(tv51, tv7)
+        tv15 = fd.ops.broadcast(tv2, is_broadcast_dim=[True, False, True, False])
+        tv16 = fd.ops.expand(tv15, shape=[16, 1, 1, 5120])
+        tv17 = fd.ops.squeeze(tv16, dims=[1, 2])
+        tv22 = fd.ops.cast(tv17, dtype=DataType.Float)
+        tv8 = fd.ops.cast(tv0, dtype=DataType.BFloat16)
+        tv9 = fd.ops.cast(tv8, dtype=DataType.Float)
+        tv10 = fd.ops.neg(tv9)
+        tv11 = fd.ops.exp(tv10)
+        tv12 = fd.ops.add(1.00000, tv11)
+        tv13 = fd.ops.reciprocal(tv12)
+        tv14 = fd.ops.cast(tv13, dtype=DataType.BFloat16)
+        tv18 = fd.ops.squeeze(tv14, dims=[0])
+        tv19 = fd.ops.broadcast(tv18, is_broadcast_dim=[False, True])
+        tv20 = fd.ops.cast(tv19, dtype=DataType.BFloat16)
+        tv21 = fd.ops.expand(tv20, shape=[16, 5120])
+        tv23 = fd.ops.cast(tv21, dtype=DataType.Float)
+        tv24 = fd.ops.mul(tv22, tv23)
+        tv25 = fd.ops.cast(tv24, dtype=DataType.BFloat16)
+        tv26 = fd.ops.broadcast(tv25, is_broadcast_dim=[False, True, False])
+        tv27 = fd.ops.matmul(tv26, tv3)
+        tv29 = fd.ops.slice(
+            tv27,
+            start_indices=[0, 0, 8192],
+            end_indices=[16, 1, 16384],
+            strides=[1, 1, 1],
+            manual_normalization=True,
+        )
+        tv36 = fd.ops.cast(tv29, dtype=DataType.Float)
+        tv28 = fd.ops.slice(
+            tv27,
+            start_indices=[0, 0, 0],
+            end_indices=[16, 1, 8192],
+            strides=[1, 1, 1],
+            manual_normalization=True,
+        )
+        tv30 = fd.ops.cast(tv28, dtype=DataType.Float)
+        tv31 = fd.ops.neg(tv30)
+        tv32 = fd.ops.exp(tv31)
+        tv33 = fd.ops.add(1.00000, tv32)
+        tv34 = fd.ops.reciprocal(tv33)
+        tv35 = fd.ops.mul(tv30, tv34)
+        tv37 = fd.ops.mul(tv36, tv35)
+        tv38 = fd.ops.cast(tv37, dtype=DataType.BFloat16)
+        tv39 = fd.ops.matmul(tv38, tv4)
+        tv40 = fd.ops.squeeze(tv39, dims=[1])
+        tv53 = fd.ops.broadcast(tv40, is_broadcast_dim=[False, True, False])
+        tv54 = fd.ops.cast(tv53, dtype=DataType.Float)
+        tv55 = fd.ops.sum(tv54, dims=[0], dtype=DataType.Float)
+        tv56 = fd.ops.cast(tv55, dtype=DataType.BFloat16)
+        fd.add_output(tv8, tv1)
+        fd.add_output(tv52)
+        fd.add_output(tv56)
+
+    inputs = [
+        torch.testing.make_tensor((1, 16), dtype=torch.bfloat16, device="cuda:0"),
+        torch.testing.make_tensor((1, 16), dtype=torch.bfloat16, device="cuda:0"),
+        torch.testing.make_tensor((1, 5120), dtype=torch.bfloat16, device="cuda:0"),
+        torch.testing.make_tensor(
+            (16, 5120, 16384), dtype=torch.bfloat16, device="cuda:0"
+        ),
+        torch.testing.make_tensor(
+            (16, 8192, 5120), dtype=torch.bfloat16, device="cuda:0"
+        ),
+        torch.testing.make_tensor((8192, 5120), dtype=torch.bfloat16, device="cuda:0"),
+        torch.testing.make_tensor((8192, 5120), dtype=torch.bfloat16, device="cuda:0"),
+        torch.testing.make_tensor((5120, 8192), dtype=torch.bfloat16, device="cuda:0"),
+    ]
+
+    nvfuser_direct_test.exec_nvfuser(nvfuser_fusion, inputs, validate_results=True)

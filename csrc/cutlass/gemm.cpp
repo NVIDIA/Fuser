@@ -6,7 +6,10 @@
  */
 // clang-format on
 
-#include "cutlass/gemm.h"
+#include <cutlass/codegen.h>
+#include <cutlass/evt.h>
+#include <cutlass/gemm.h>
+#include <dispatch.h>
 #include <exceptions.h>
 #include <fusion.h>
 #include <ir/interface_nodes.h>
@@ -15,6 +18,7 @@
 #include <scheduler/cutlass.h>
 #include <type.h>
 
+#include <algorithm>
 #include <format>
 #include <string>
 
@@ -34,42 +38,30 @@ std::string mapLayoutToCutlass(const TensorView* tv) {
       : "cutlass::layout::ColumnMajor";
 }
 
-// https://docs.nvidia.com/cutlass/media/docs/cpp/fundamental_types.html#numeric-types
-std::string dtypeToCutlass(const DataType& dtype) {
-  NVF_ERROR(std::holds_alternative<PrimDataType>(dtype.type));
-  switch (std::get<PrimDataType>(dtype.type)) {
-    case (DataType::Half):
-      return "cutlass::half_t";
-    case (DataType::BFloat16):
-      return "cutlass::bfloat16_t";
-    case (DataType::Float):
-      return "cutlass::tfloat32_t";
-    case (DataType::Float8_e5m2):
-      return "cutlass::float_e5m2_t";
-    case (DataType::Float8_e4m3fn):
-      return "cutlass::float_e4m3_t";
-    // TODO: support int, complex, and fp6 types
-    case (DataType::Float4_e2m1fn):
-      // Note that cutlass also provides cutlass::mx_float4_t<float_e2m1_t>>.
-      // The difference between these is that the mxfp4 version uses a block
-      // size of 32 while nvfp4 uses a block size of 16. In nvFuser the block
-      // size is represented separately, and here we assume we're using nvfp.
-      // TODO: if block scaling is tied to element type in nvFuser in the future
-      // we can update this mapping
-      return "cutlass::nv_float4_t<float_e2m1_t>";
-    default:
-      NVF_THROW(
-          "nvFuser DataType ",
-          dtype,
-          " is not supported in our CUTLASS executor");
-  }
-}
-
 } // namespace
 
-bool hasNvfp4ScaledMmPattern(Fusion* fusion) {
-  const std::vector<Expr*> exprs = fusion->exprs();
-  return ir_utils::filterByType<ScaledMmaOp>(exprs).size() == 1;
+ScaledMmaOp* findScaledMmaOp(Fusion* fusion) {
+  auto exprs = fusion->exprs();
+  const auto smmas =
+      ir_utils::filterByType<ScaledMmaOp>(exprs.begin(), exprs.end());
+  if (smmas.size() != 1) {
+    return nullptr;
+  }
+  return *smmas.begin();
+}
+
+int64_t fusionInputPosition(Fusion* fusion, Val* v) {
+  NVF_ERROR(v->isFusionInput());
+  return std::distance(
+      fusion->inputs().begin(),
+      std::find(fusion->inputs().begin(), fusion->inputs().end(), v));
+}
+
+int64_t fusionOutputPosition(Fusion* fusion, Val* v) {
+  NVF_ERROR(v->isFusionOutput());
+  return std::distance(
+      fusion->outputs().begin(),
+      std::find(fusion->outputs().begin(), fusion->outputs().end(), v));
 }
 
 std::string generateNvfp4ScaledMmKernel(
@@ -83,11 +75,18 @@ std::string generateNvfp4ScaledMmKernel(
   auto* main_output = fusion->outputs().front()->as<TensorView>();
   const std::string output_dtype = dtypeToCutlass(main_output->dtype());
 
-  NVF_ERROR_GE(fusion->inputs().size(), 4);
-  auto* a = fusion->inputs()[0]->as<TensorView>();
-  auto* b = fusion->inputs()[1]->as<TensorView>();
-  auto* a_scale = fusion->inputs()[2]->as<TensorView>();
-  auto* b_scale = fusion->inputs()[3]->as<TensorView>();
+  ScaledMmaOp* smma = findScaledMmaOp(fusion);
+  NVF_ERROR(smma != nullptr);
+
+  TensorView* a = smma->matrix1();
+  TensorView* b = smma->matrix2();
+  TensorView* a_scale = smma->scale1();
+  TensorView* b_scale = smma->scale2();
+
+  NVF_ERROR(a->isFusionInput());
+  NVF_ERROR(b->isFusionInput());
+  NVF_ERROR(a_scale->isFusionInput());
+  NVF_ERROR(b_scale->isFusionInput());
 
   // Validate that the inputs and scale factors are all contiguous
   for (TensorView* tv : {a, b, a_scale, b_scale}) {
@@ -106,9 +105,11 @@ std::string generateNvfp4ScaledMmKernel(
       R"(
 #include "cutlass/cutlass.h"
 #include "cutlass/epilogue/collective/collective_builder.hpp"
+#include "cutlass/epilogue/fusion/sm90_visitor_load_tma_warpspecialized.hpp"
 #include "cutlass/gemm/collective/collective_builder.hpp"
 #include "cutlass/gemm/device/gemm_universal_adapter.h"
 #include "cutlass/gemm/kernel/gemm_universal.hpp"
+#include "cutlass/numeric_conversion.h"
 #include "cutlass/util/packed_stride.hpp"
 
 #define NVF_THROW(msg) throw std::runtime_error(msg);
@@ -217,6 +218,34 @@ struct Fp4GemmSm100 {
   using ClusterShape = typename KernelTraits::ClusterShape;
   using PerSmTileShape_MNK = typename KernelTraits::PerSmTileShape_MNK;
 
+)";
+  const mma_utils::DataWrapperOpt<EVTModel> model_opt = extractEVTModel(fusion);
+  const bool has_evt = model_opt.isValid();
+  if (has_evt) {
+    const EVTModel& evt_model = model_opt.getData();
+    code += "  using EVTOp =\n" +
+        evt_model.defString(/*node=*/nullptr, /*indent=*/4) + ";\n";
+    code += R"(
+  using CollectiveEpilogue =
+      typename cutlass::epilogue::collective::CollectiveBuilder<
+          ArchTag,
+          OperatorClass,
+          PerSmTileShape_MNK,
+          ClusterShape,
+          cutlass::epilogue::collective::EpilogueTileAuto,
+          ElementAccumulator,
+          ElementAccumulator,
+          ElementC,
+          LayoutCTag,
+          AlignmentC,
+          ElementD,
+          LayoutDTag,
+          AlignmentD,
+          cutlass::epilogue::collective::EpilogueScheduleAuto,
+          EVTOp>::CollectiveOp;
+)";
+  } else {
+    code += R"(
   using CollectiveEpilogue =
       typename cutlass::epilogue::collective::CollectiveBuilder<
           ArchTag,
@@ -233,6 +262,9 @@ struct Fp4GemmSm100 {
           LayoutDTag,
           AlignmentD,
           cutlass::epilogue::collective::EpilogueScheduleAuto>::CollectiveOp;
+)";
+  }
+  code += R"(
 
   using CollectiveMainloop =
       typename cutlass::gemm::collective::CollectiveBuilder<
@@ -286,16 +318,8 @@ struct Fp4GemmSm100 {
 //
 // Returns: CUTLASS GEMM arguments structure ready for kernel execution
 template <typename T>
-typename T::Gemm::Arguments args_from_options(
-    const TensorArg& output,
-    const TensorArg& a,
-    const TensorArg& b,
-    const TensorArg& scales_a,
-    const TensorArg& scales_b,
-    const TensorArg& alpha,
-    int64_t M,
-    int64_t N,
-    int64_t K) {
+typename T::Gemm::Arguments args_from_inputs(
+  const std::vector<TensorArg>& inputs) {
   using ElementA = typename T::Gemm::ElementA;
   using ElementB = typename T::Gemm::ElementB;
 )";
@@ -310,15 +334,54 @@ typename T::Gemm::Arguments args_from_options(
   using ElementCompute = float;
   using StrideA = typename T::StrideA;
   using StrideB = typename T::StrideB;
+  using StrideC = typename T::StrideC;
   using StrideD = typename T::StrideD;
   using Sm1xxBlkScaledConfig =
       typename T::Gemm::GemmKernel::CollectiveMainloop::Sm1xxBlkScaledConfig;
+)";
 
-  int m = static_cast<int>(M);
-  int n = static_cast<int>(N);
-  int k = static_cast<int>(K);
+  code += "  const TensorArg& a = inputs.at(" +
+      std::to_string(fusionInputPosition(fusion, a)) + ");\n";
+  code += "  const TensorArg& b = inputs.at(" +
+      std::to_string(fusionInputPosition(fusion, b)) + ");\n";
+  code += "  const TensorArg& scales_a = inputs.at(" +
+      std::to_string(fusionInputPosition(fusion, a_scale)) + ");\n";
+  code += "  const TensorArg& scales_b = inputs.at(" +
+      std::to_string(fusionInputPosition(fusion, b_scale)) + ");\n";
+  if (smma->alpha() != nullptr) {
+    code += "  const TensorArg& alpha = inputs.at(" +
+        std::to_string(fusionInputPosition(fusion, smma->alpha())) + ");\n";
+  }
+  if (smma->beta() != nullptr) {
+    code += "  const TensorArg& beta = inputs.at(" +
+        std::to_string(fusionInputPosition(fusion, smma->beta())) + ");\n";
+  }
+  if (smma->bias() != nullptr) {
+    code += "  const TensorArg& bias = inputs.at(" +
+        std::to_string(fusionInputPosition(fusion, smma->bias())) + ");\n";
+  }
+  NVF_ERROR_EQ(fusion->outputs().size(), 1);
+  code +=
+      "  const TensorArg& output = inputs.at(" +
+      std::to_string(
+          fusion->inputs().size() + fusionOutputPosition(fusion, main_output)) +
+      ");\n";
+  code +=
+      "  NVF_ERROR(a.dim == " + std::to_string(a->getLogicalDomain().size()) +
+      ", \"Wrong dimension for argument a\");\n";
+  code +=
+      "  NVF_ERROR(b.dim == " + std::to_string(b->getLogicalDomain().size()) +
+      ", \"Wrong dimension for argument b\");\n";
+  code += R"(
+
+  int m = static_cast<int>(a.sizes[0]);
+  int n = static_cast<int>(b.sizes[1]);
+  int k = static_cast<int>(a.sizes[1]) * 2;
+  NVF_ERROR(b.sizes[0] == a.sizes[1], "Mismatched K dims");
+
   auto stride_A = cutlass::make_cute_packed_stride(StrideA{}, {m, k, 1});
   auto stride_B = cutlass::make_cute_packed_stride(StrideB{}, {n, k, 1});
+  auto stride_C = cutlass::make_cute_packed_stride(StrideC{}, {m, n, 1});
   auto stride_D = cutlass::make_cute_packed_stride(StrideD{}, {m, n, 1});
 
   auto layout_SFA = Sm1xxBlkScaledConfig::tile_atom_to_shape_SFA(
@@ -339,14 +402,49 @@ typename T::Gemm::Arguments args_from_options(
        static_cast<ElementSFB const*>(scales_b.data_ptr),
        layout_SFB},
       {// Epilogue arguments
-       {}, // epilogue.thread
-       static_cast<ElementD const*>(output.data_ptr),
-       stride_D,
+)";
+  if (has_evt) {
+    code += model_opt.getData().argString(/*node=*/nullptr, /*indent=*/4);
+  } else {
+    code += "       {}";
+  }
+  code += ",  // epilogue.thread\n";
+  if (smma->bias() != nullptr) {
+    code += "       bias.data_ptr,";
+  } else {
+    code += "       /*bias=*/nullptr,";
+  }
+  code += R"(
+       stride_C,
        static_cast<ElementD*>(output.data_ptr),
        stride_D}};
-  auto& fusion_args = arguments.epilogue.thread;
-  fusion_args.alpha_ptr = static_cast<ElementCompute const*>(alpha.data_ptr);
+)";
+  if (!has_evt && (smma->alpha() != nullptr || smma->beta() != nullptr)) {
+    // Passing alpha and beta by name is for the default epilogue only
+    code += "  auto& fusion_args = arguments.epilogue.thread;\n";
+    if (smma->alpha() != nullptr) {
+      code +=
+          "  fusion_args.alpha_ptr = static_cast<ElementCompute "
+          "const*>(alpha.data_ptr);\n";
+    }
+    if (smma->beta() != nullptr) {
+      code +=
+          "  fusion_args.beta_ptr = static_cast<ElementCompute "
+          "const*>(beta.data_ptr);\n";
+    }
+  }
+  code += R"(
   return arguments;
+}
+
+} // namespace
+
+// Calling code should pass a pointer to a vector of TensorArgs
+extern "C" size_t workspace_size(void* input_ptr) {
+  const std::vector<TensorArg>& inputs =
+      *reinterpret_cast<const std::vector<TensorArg>*>(input_ptr);
+  auto arguments = args_from_inputs<Fp4GemmSm100>(inputs);
+  return Fp4GemmSm100::Gemm::get_workspace_size(arguments);
 }
 
 // Executes the FP4 scaled matrix multiplication using CUTLASS kernels
@@ -354,82 +452,24 @@ typename T::Gemm::Arguments args_from_options(
 // This function orchestrates the GEMM operation by setting up the kernel,
 // allocating workspace memory, and running the computation on the GPU.
 // It handles the complete lifecycle from kernel initialization to execution.
-//
-// Parameters:
-//   output: Output tensor to store the result
-//   a, b: Input matrices in FP4 format
-//   scales_a, scales_b: Per-block scaling factors
-//   alpha: Global scaling factor
-//   m, n, k: Matrix dimensions
-//   stream: CUDA stream for asynchronous execution
-void runGemm(
-    const TensorArg& output,
-    const TensorArg& a,
-    const TensorArg& b,
-    const TensorArg& scales_a,
-    const TensorArg& scales_b,
-    const TensorArg& alpha,
-    int64_t m,
-    int64_t n,
-    int64_t k,
+extern "C" void run_kernel(
+    const std::vector<TensorArg>& inputs,
+    uint8_t* workspace_ptr,
     cudaStream_t stream) {
   typename Fp4GemmSm100::Gemm gemm;
 
-  auto arguments = args_from_options<Fp4GemmSm100>(
-      output, a, b, scales_a, scales_b, alpha, m, n, k);
-
-  size_t workspace_size = Fp4GemmSm100::Gemm::get_workspace_size(arguments);
-  NVF_ERROR(workspace_size == 0,
-      "Cannot currently allocate workspace in CUTLASS scheduler");
-  /*
-  auto const workspace_options =
-      torch::TensorOptions().dtype(torch::kUInt8).device(a.device());
-  auto workspace = torch::empty(workspace_size, workspace_options);
-  */
+  auto arguments = args_from_inputs<Fp4GemmSm100>(inputs);
 
   auto can_implement_status = gemm.can_implement(arguments);
   NVF_ERROR(
       can_implement_status == cutlass::Status::kSuccess,
       "Failed to implement GEMM");
 
-  auto status = gemm.initialize(arguments, /*workspace=*/nullptr, stream);
+  auto status = gemm.initialize(arguments, workspace_ptr, stream);
   NVF_ERROR(status == cutlass::Status::kSuccess, "Failed to initialize GEMM");
 
-  status = gemm.run(arguments, /*workspace=*/nullptr, stream);
+  status = gemm.run(arguments, workspace_ptr, stream);
   NVF_ERROR(status == cutlass::Status::kSuccess, "Failed to run GEMM");
-}
-
-} // namespace
-
-// Main kernel function that will be called from nvFuser
-extern "C" void run_kernel(
-    const std::vector<TensorArg>& args,
-    cudaStream_t stream) {
-
-  // TODO: determine this ordering from fusion inputs and pattern matching
-  NVF_ERROR(args.size() == 6, "Expected 6 arguments");
-  const TensorArg& a = args[0];
-  const TensorArg& b = args[1];
-  const TensorArg& scales_a = args[2];
-  const TensorArg& scales_b = args[3];
-  const TensorArg& alpha = args[4];
-  const TensorArg& output = args[5];
-
-)";
-  code +=
-      "  NVF_ERROR(a.dim == " + std::to_string(a->getLogicalDomain().size()) +
-      ", \"Wrong dimension for argument a\");\n";
-  code +=
-      "  NVF_ERROR(b.dim == " + std::to_string(b->getLogicalDomain().size()) +
-      ", \"Wrong dimension for argument b\");\n";
-  code += R"(
-
-  int64_t m = a.sizes[0];
-  int64_t n = b.sizes[1];
-  int64_t k = a.sizes[1] * 2;
-  NVF_ERROR(b.sizes[0] == a.sizes[1], "Mismatched K dims");
-
-  runGemm(output, a, b, scales_a, scales_b, alpha, m, n, k, stream);
 }
 )";
 
