@@ -467,11 +467,6 @@ TEST_F(CutlassExecutorTest, Nvfp4MatmulReLU) {
 
 // Test findBlockScaledOutputs pattern matching
 TEST_F(CutlassExecutorTest, FindBlockScaledOutputs_WithoutGlobalScale) {
-  constexpr int64_t block_size = 16;
-  constexpr double F4_E2M1_MAX = 6.0;
-  constexpr double E4M3_EPS = 0.015625;
-  constexpr double F8E4M3_MAX = 448.0;
-
   std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
@@ -480,42 +475,21 @@ TEST_F(CutlassExecutorTest, FindBlockScaledOutputs_WithoutGlobalScale) {
 
   auto unquantized_output = exp(input);
 
-  auto tv_data_hp_reshaped =
-      reshape(unquantized_output, [](auto& x) { x.split(-1, block_size); });
+  const QuantizedTensorView qtv =
+      quantizeTvNvfp4(unquantized_output, /*global_scale_factor=*/nullptr);
 
-  auto tv_data_hp_abs = abs(tv_data_hp_reshaped);
-  auto tv_data_hp_amax = max(tv_data_hp_abs, {-1});
-  auto tv_block_scale = div(
-      tv_data_hp_amax, IrBuilder::create<Val>(F4_E2M1_MAX, DataType::Float));
-  auto tv_block_scale_clamp = clamp(
-      tv_block_scale,
-      IrBuilder::create<Val>(E4M3_EPS, DataType::Float),
-      IrBuilder::create<Val>(F8E4M3_MAX, DataType::Float));
-  auto tv_block_scale_fp8 =
-      castOp(DataType::Float8_e4m3fn, tv_block_scale_clamp);
-  auto tv_block_scale_fp32 = castOp(DataType::Float, tv_block_scale_fp8);
-  auto tv_block_scale_fp32_unsqueeze = unsqueeze(tv_block_scale_fp32, -1);
-  auto tv_data_scaled = div(tv_data_hp_reshaped, tv_block_scale_fp32_unsqueeze);
-  auto tv_data_scaled_clamp = clamp(
-      tv_data_scaled,
-      IrBuilder::create<Val>(-F4_E2M1_MAX, DataType::Float),
-      IrBuilder::create<Val>(F4_E2M1_MAX, DataType::Float));
-
-  auto tv_data_lp_fp4 = castOp(DataType::Float4_e2m1fn, tv_data_scaled_clamp);
-  auto tv_data_lp = reshape(tv_data_lp_fp4, [](auto& x) { x.merge(-2); });
-
-  fusion->addOutput(tv_block_scale_fp8);
-  fusion->addOutput(tv_data_lp);
-
-  fusion->printMath();
+  fusion->addOutput(qtv.block_scale);
+  fusion->addOutput(qtv.elts);
 
   // Test pattern matching
   auto patterns = cutlass_codegen::findBlockScaledOutputs(fusion.get());
 
+  constexpr int64_t block_size = 16;
+
   ASSERT_EQ(patterns.size(), 1);
-  EXPECT_EQ(patterns[0].quantized_output, tv_data_lp);
+  EXPECT_EQ(patterns[0].quantized_output, qtv.elts);
   EXPECT_EQ(patterns[0].unquantized_output, unquantized_output);
-  EXPECT_EQ(patterns[0].block_scale_factors, tv_block_scale_fp8);
+  EXPECT_EQ(patterns[0].block_scale_factors, qtv.block_scale);
   EXPECT_EQ(patterns[0].global_scale_factor, nullptr);
   EXPECT_EQ(patterns[0].block_size, block_size);
 }
@@ -590,11 +564,6 @@ TEST_F(CutlassExecutorTest, Nvfp4BlockScaledGemmReLU) {
                  << "order to run this test";
   }
 
-  constexpr int64_t block_size = 16;
-  constexpr double F4_E2M1_MAX = 6.0;
-  constexpr double E4M3_EPS = 0.015625;
-  constexpr double F8E4M3_MAX = 448.0;
-
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
@@ -627,41 +596,11 @@ TEST_F(CutlassExecutorTest, Nvfp4BlockScaledGemmReLU) {
   // Apply ReLU activation
   TensorView* relu_out = relu(smm.tv);
 
-  // Create block-scaled nvfp4 output pattern
-  // Reshape to expose block dimension
-  auto relu_reshaped =
-      reshape(relu_out, [](auto& x) { x.split(-1, block_size); });
+  const QuantizedTensorView qtv =
+      quantizeTvNvfp4(relu_out, /*global_scale_factor=*/nullptr);
 
-  // Compute block-wise absolute maximum
-  auto relu_abs = abs(relu_reshaped);
-  auto relu_amax = max(relu_abs, {-1});
-
-  // Compute block scale factors
-  auto block_scale =
-      div(relu_amax, IrBuilder::create<Val>(F4_E2M1_MAX, DataType::Float));
-  auto block_scale_clamp = clamp(
-      block_scale,
-      IrBuilder::create<Val>(E4M3_EPS, DataType::Float),
-      IrBuilder::create<Val>(F8E4M3_MAX, DataType::Float));
-  auto block_scale_fp8 = castOp(DataType::Float8_e4m3fn, block_scale_clamp);
-
-  // Quantize output to nvfp4
-  auto block_scale_fp32 = castOp(DataType::Float, block_scale_fp8);
-  auto block_scale_unsqueeze = unsqueeze(block_scale_fp32, -1);
-  auto relu_scaled = div(relu_reshaped, block_scale_unsqueeze);
-  auto relu_scaled_clamp = clamp(
-      relu_scaled,
-      IrBuilder::create<Val>(-F4_E2M1_MAX, DataType::Float),
-      IrBuilder::create<Val>(F4_E2M1_MAX, DataType::Float));
-
-  auto relu_fp4 = castOp(DataType::Float4_e2m1fn, relu_scaled_clamp);
-  auto relu_fp4_flat = reshape(relu_fp4, [](auto& x) { x.merge(-2); });
-
-  // Add outputs - Note: block_scale_fp8 and relu_fp4_flat are both outputs,
-  // but the Cutlass executor will recognize the block scaling pattern and
-  // handle them together as a single logical output
-  fusion->addOutput(block_scale_fp8);
-  fusion->addOutput(relu_fp4_flat);
+  fusion->addOutput(qtv.block_scale);
+  fusion->addOutput(qtv.elts);
 
   // Test dimensions
   constexpr int64_t M = 4096, N = 4096, K = 4096;
