@@ -44,7 +44,8 @@ QuantizedTensorView quantizeTv(
     DataType block_scale_dtype,
     double quantized_max_norm,
     double block_scale_min,
-    double block_scale_max) {
+    double block_scale_max,
+    bool clamp_before_casts) {
   TensorView* reshaped =
       reshape(unquantized, [block_size](auto& x) { x.split(-1, block_size); });
 
@@ -56,11 +57,13 @@ QuantizedTensorView quantizeTv(
   if (global_scale_factor != nullptr) {
     block_sf = div(block_sf, global_scale_factor);
   }
-  TensorView* block_sf_clamped = clamp(
-      block_sf,
-      IrBuilder::create<Val>(block_scale_min, DataType::Float),
-      IrBuilder::create<Val>(block_scale_max, DataType::Float));
-  TensorView* block_sf_cast = castOp(DataType::Float8_e4m3fn, block_sf_clamped);
+  if (clamp_before_casts) {
+    block_sf = clamp(
+        block_sf,
+        IrBuilder::create<Val>(block_scale_min, DataType::Float),
+        IrBuilder::create<Val>(block_scale_max, DataType::Float));
+  }
+  TensorView* block_sf_cast = castOp(DataType::Float8_e4m3fn, block_sf);
   TensorView* block_sf_fp32 = castOp(DataType::Float, block_sf_cast);
 
   if (global_scale_factor != nullptr) {
@@ -69,12 +72,14 @@ QuantizedTensorView quantizeTv(
   TensorView* unsqueezed = unsqueeze(block_sf_fp32, -1);
   TensorView* scaled = div(reshaped, unsqueezed);
 
-  TensorView* clamped = clamp(
-      scaled,
-      IrBuilder::create<Val>(-quantized_max_norm, DataType::Float),
-      IrBuilder::create<Val>(quantized_max_norm, DataType::Float));
+  if (clamp_before_casts) {
+    scaled = clamp(
+        scaled,
+        IrBuilder::create<Val>(-quantized_max_norm, DataType::Float),
+        IrBuilder::create<Val>(quantized_max_norm, DataType::Float));
+  }
 
-  TensorView* casted = castOp(DataType::Float4_e2m1fn, clamped);
+  TensorView* casted = castOp(DataType::Float4_e2m1fn, scaled);
   TensorView* quantized = reshape(casted, [](auto& x) { x.merge(-2); });
 
   return {.elts = quantized, .block_scale = block_sf_cast};
@@ -83,7 +88,9 @@ QuantizedTensorView quantizeTv(
 QuantizedTensorView quantizeTvNvfp4(
     TensorView* unquantized,
     TensorView* global_scale_factor = nullptr) {
+  // max = (2 – 2^(–M)) * 2^(2^(E-1))  (no nans for fp4)
   constexpr double F4E2M1_MAX = 6.0;
+  // eps = 2^(1-M-E)
   constexpr double F8E4M3_EPS = 0.015625;
   constexpr double F8E4M3_MAX = 448.0;
   return quantizeTv(
@@ -94,7 +101,27 @@ QuantizedTensorView quantizeTvNvfp4(
       /*block_scale_factor_dtype=*/DataType::Float8_e4m3fn,
       /*quantized_max_norm=*/F4E2M1_MAX,
       /*block_scale_min=*/F8E4M3_EPS,
-      /*block_scale_max=*/F8E4M3_MAX);
+      /*block_scale_max=*/F8E4M3_MAX,
+      /*clamp_before_casts=*/true);
+}
+
+QuantizedTensorView quantizeTvMxfp8(
+    TensorView* unquantized,
+    TensorView* global_scale_factor = nullptr) {
+  // eps = 2^(1-M-E)
+  constexpr double F8E4M3_EPS = 0.015625;
+  // https://docs.nvidia.com/deeplearning/transformer-engine/user-guide/examples/fp8_primer.html
+  constexpr double F8E4M3_MAX = 448.0;
+  return quantizeTv(
+      unquantized,
+      global_scale_factor,
+      /*block_size=*/32,
+      /*quantized_dtype=*/DataType::Float4_e2m1fn,
+      /*block_scale_factor_dtype=*/DataType::Float8_e4m3fn,
+      /*quantized_max_norm=*/F8E4M3_MAX,
+      /*block_scale_min=*/F8E4M3_EPS,
+      /*block_scale_max=*/F8E4M3_MAX,
+      /*clamp_before_casts=*/false);
 }
 
 struct QuantizedTensor {
@@ -523,40 +550,29 @@ TEST_F(CutlassExecutorTest, FindBlockScaledOutputs_WithGlobalScale) {
 }
 
 TEST_F(CutlassExecutorTest, FindBlockScaledOutputs_MXFP8) {
-  constexpr int64_t block_size = 32;
-  constexpr double FP8_MAX = 448.0;
-
   std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
-  auto tv_data_hp = makeContigTensor(2, DataType::Float);
-  fusion->addInput(tv_data_hp);
+  auto input = makeContigTensor(2, DataType::Float);
+  fusion->addInput(input);
 
-  auto tv_data_hp_reshaped =
-      reshape(tv_data_hp, [](auto& x) { x.split(-1, block_size); });
+  TensorView* unquantized_output = exp(input);
 
-  auto tv_data_hp_abs = abs(tv_data_hp_reshaped);
-  auto tv_data_hp_amax = max(tv_data_hp_abs, {-1});
-  auto tv_block_scale =
-      div(tv_data_hp_amax, IrBuilder::create<Val>(FP8_MAX, DataType::Float));
-  auto tv_block_scale_fp8 = castOp(DataType::Float8_e4m3fn, tv_block_scale);
-  auto tv_block_scale_fp32 = castOp(DataType::Float, tv_block_scale_fp8);
-  auto tv_block_scale_fp32_unsqueeze = unsqueeze(tv_block_scale_fp32, -1);
-  auto tv_data_scaled = div(tv_data_hp_reshaped, tv_block_scale_fp32_unsqueeze);
+  const QuantizedTensorView qtv =
+      quantizeTvMxfp8(unquantized_output, /*global_scale_factor=*/nullptr);
 
-  auto tv_data_lp_fp8 = castOp(DataType::Float8_e4m3fn, tv_data_scaled);
-  auto tv_data_lp = reshape(tv_data_lp_fp8, [](auto& x) { x.merge(-2); });
-
-  fusion->addOutput(tv_block_scale_fp8);
-  fusion->addOutput(tv_data_lp);
+  fusion->addOutput(qtv.block_scale);
+  fusion->addOutput(qtv.elts);
 
   // Test pattern matching for FP8 output (MXFP8)
   auto patterns = cutlass_codegen::findBlockScaledOutputs(fusion.get());
 
+  constexpr int64_t block_size = 32;
+
   ASSERT_EQ(patterns.size(), 1);
-  EXPECT_EQ(patterns[0].quantized_output, tv_data_lp);
-  EXPECT_EQ(patterns[0].unquantized_output, tv_data_scaled);
-  EXPECT_EQ(patterns[0].block_scale_factors, tv_block_scale_fp8);
+  EXPECT_EQ(patterns[0].quantized_output, qtv.elts);
+  EXPECT_EQ(patterns[0].unquantized_output, unquantized_output);
+  EXPECT_EQ(patterns[0].block_scale_factors, qtv.block_scale);
   EXPECT_EQ(patterns[0].global_scale_factor, nullptr);
   EXPECT_EQ(patterns[0].block_size, block_size);
 }
