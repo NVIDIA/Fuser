@@ -325,6 +325,8 @@ void TransformReplay::selfReplay(
     }
 
     new_self->setLoopDomain(new_loop);
+  } else {
+    NVF_ERROR_EQ(new_self->loop(), new_self->logical());
   }
 
   // Replay allocation.
@@ -365,6 +367,7 @@ void TransformReplay::selfReplay(
 
     new_self->setAllocationDomain(new_allocation, new_contiguities);
   } else {
+    NVF_ERROR(!new_self->hasAllocation());
     const std::vector<IterDomain*>& new_logical = new_self->logical();
     const auto new_rank = std::ssize(new_logical);
     std::vector<std::optional<bool>> new_contiguities(new_rank, std::nullopt);
