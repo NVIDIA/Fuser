@@ -207,7 +207,7 @@ std::vector<BlockScaledOutputPattern> findBlockScaledOutputs(Fusion* fusion) {
     auto* cast_from_quantized =
         dynamic_cast<UnaryOp*>(block_scales_fp32->definition());
     if (cast_from_quantized == nullptr ||
-        cast_from_quantized->getUnaryOpType() == UnaryOpType::Cast) {
+        cast_from_quantized->getUnaryOpType() != UnaryOpType::Cast) {
       continue;
     }
     TensorView* block_scales_quantized =
