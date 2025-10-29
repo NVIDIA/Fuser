@@ -99,21 +99,21 @@ std::vector<BlockScaledOutputPattern> findBlockScaledOutputs(Fusion* fusion) {
       continue;
     }
 
+    // We will fill out this pattern as we go
+    BlockScaledOutputPattern pattern;
+
     // Check if this output might use block scaling
     if (!isBlockScaledDtype(out_tv->dtype())) {
       continue;
     }
+    pattern.quantized_output = out_tv;
 
     // The quantized output might have a reshape after the cast
     // Trace back through any reshapes first
     TensorView* quantized_data = out_tv;
-    while (auto* reshape_op =
-               dynamic_cast<ReshapeOp*>(quantized_data->definition())) {
+    if (auto* reshape_op =
+            dynamic_cast<ReshapeOp*>(quantized_data->definition())) {
       quantized_data = reshape_op->in();
-      // Verify it's still the same dtype after unwrapping reshape
-      if (!isBlockScaledDtype(quantized_data->dtype())) {
-        break;
-      }
     }
 
     // The quantized output should be produced by a cast operation
@@ -124,21 +124,20 @@ std::vector<BlockScaledOutputPattern> findBlockScaledOutputs(Fusion* fusion) {
       continue;
     }
 
-    // The input to the cast is the unquantized output (after clamping)
-    TensorView* unquantized_output =
-        cast_to_low_precision->in()->as<TensorView>();
+    // The input to the cast is the scaled output (not yet quantized)
+    TensorView* scaled_output = cast_to_low_precision->in()->as<TensorView>();
 
-    // Look backwards to find the division operation that scales the data
-    // The unquantized_output is typically the result of a clamp operation
-    TensorView* data_scaled = unquantized_output;
-    if (auto* clamp_op = dynamic_cast<TernaryOp*>(data_scaled->definition());
+    // Look backwards to find the division operation that scales the data. Note
+    // that the scaled output might have been clamped before casting, so we
+    // unwrap the clamp if needed.
+    if (auto* clamp_op = dynamic_cast<TernaryOp*>(scaled_output->definition());
         clamp_op != nullptr &&
         clamp_op->getTernaryOpType() == TernaryOpType::Clamp) {
-      data_scaled = clamp_op->in1()->as<TensorView>();
+      scaled_output = clamp_op->in1()->as<TensorView>();
     }
 
-    // The data_scaled should be the result of a division
-    auto* data_div_op = dynamic_cast<BinaryOp*>(data_scaled->definition());
+    // The scaled_output should be the result of a division
+    auto* data_div_op = dynamic_cast<BinaryOp*>(scaled_output->definition());
     if (data_div_op == nullptr ||
         data_div_op->getBinaryOpType() != BinaryOpType::Div ||
         !data_div_op->lhs()->isA<TensorView>() ||
@@ -149,11 +148,16 @@ std::vector<BlockScaledOutputPattern> findBlockScaledOutputs(Fusion* fusion) {
     // The LHS of the division is the data, which should come from a reshape
     TensorView* data_reshaped = data_div_op->lhs()->as<TensorView>();
 
+    auto* reshape = dynamic_cast<ReshapeOp*>(data_reshaped->definition());
+    if (reshape == nullptr) {
+      continue;
+    }
+    pattern.unquantized_output = reshape->in();
+
     // The RHS of the division is the broadcasted block scales
     TensorView* block_scales_broadcasted = data_div_op->rhs()->as<TensorView>();
 
     // Trace back through broadcast operation
-    // Note: unsqueeze() is implemented as broadcast() in nvFuser
     TensorView* block_scales_fp32 = block_scales_broadcasted;
     if (auto* broadcast_op =
             dynamic_cast<BroadcastOp*>(block_scales_fp32->definition())) {
@@ -165,12 +169,9 @@ std::vector<BlockScaledOutputPattern> findBlockScaledOutputs(Fusion* fusion) {
     // 1. Direct cast to FP8 (without global scale)
     // 2. Result of global_scale * block_scales_fp32 (with global scale)
 
-    TensorView* block_scale_factors = nullptr;
-    TensorView* global_scale_factor = nullptr;
-
     // Helper to unwrap broadcasts to find the original tensor
-    auto unwrap_broadcasts = [](TensorView* tv) -> TensorView* {
-      while (auto* bcast_op = dynamic_cast<BroadcastOp*>(tv->definition())) {
+    auto unwrap_broadcast = [](TensorView* tv) -> TensorView* {
+      if (auto* bcast_op = dynamic_cast<BroadcastOp*>(tv->definition())) {
         tv = bcast_op->in()->as<TensorView>();
       }
       return tv;
@@ -182,51 +183,48 @@ std::vector<BlockScaledOutputPattern> findBlockScaledOutputs(Fusion* fusion) {
       if (mul_op->getBinaryOpType() == BinaryOpType::Mul) {
         // One operand should be a 0-dim tensor (global scale),
         // the other should be the block scales from FP8
-        // Note: the 0-dim tensor might be wrapped in broadcasts
+        // Note: the 0-dim tensor will be broadcast to the full dimension
         TensorView* lhs = mul_op->lhs()->as<TensorView>();
         TensorView* rhs = mul_op->rhs()->as<TensorView>();
 
         // Unwrap broadcasts to find the original tensors
-        TensorView* lhs_unwrapped = unwrap_broadcasts(lhs);
-        TensorView* rhs_unwrapped = unwrap_broadcasts(rhs);
+        TensorView* lhs_unwrapped = unwrap_broadcast(lhs);
+        TensorView* rhs_unwrapped = unwrap_broadcast(rhs);
 
         // The global scale factor should be a 0-dim tensor
         // It can be either a fusion input or computed (e.g., from amax)
         if (lhs_unwrapped->nDims() == 0) {
-          global_scale_factor = lhs_unwrapped;
+          pattern.global_scale_factor = lhs_unwrapped;
           block_scales_fp32 = rhs;
         } else if (rhs_unwrapped->nDims() == 0) {
-          global_scale_factor = rhs_unwrapped;
+          pattern.global_scale_factor = rhs_unwrapped;
           block_scales_fp32 = lhs;
         }
       }
     }
 
     // block_scales_fp32 should be a cast from the quantized block scales
-    if (auto* cast_from_quantized =
-            dynamic_cast<UnaryOp*>(block_scales_fp32->definition())) {
-      if (cast_from_quantized->getUnaryOpType() == UnaryOpType::Cast) {
-        TensorView* block_scales_quantized =
-            cast_from_quantized->in()->as<TensorView>();
-
-        // Verify this is a quantized tensor (typically e4m3fn for scale
-        // factors)
-        if (block_scales_quantized->dtype() == DataType::Float8_e4m3fn ||
-            block_scales_quantized->dtype() == DataType::Float8_e5m2 ||
-            block_scales_quantized->dtype() == DataType::Float8_e8m0fnu) {
-          // Check if this quantized scale is a fusion output
-          if (std::find(
-                  fusion->outputs().begin(),
-                  fusion->outputs().end(),
-                  block_scales_quantized) != fusion->outputs().end()) {
-            block_scale_factors = block_scales_quantized;
-          }
-        }
-      }
+    auto* cast_from_quantized =
+        dynamic_cast<UnaryOp*>(block_scales_fp32->definition());
+    if (cast_from_quantized == nullptr ||
+        cast_from_quantized->getUnaryOpType() == UnaryOpType::Cast) {
+      continue;
     }
+    TensorView* block_scales_quantized =
+        cast_from_quantized->in()->as<TensorView>();
+
+    // Verify this is a quantized tensor (typically e4m3fn for scale
+    // factors)
+    if (!block_scales_quantized->isFusionOutput() ||
+        !(block_scales_quantized->dtype() == DataType::Float8_e4m3fn ||
+          block_scales_quantized->dtype() == DataType::Float8_e5m2 ||
+          block_scales_quantized->dtype() == DataType::Float8_e8m0fnu)) {
+      continue;
+    }
+    pattern.block_scale_factors = block_scales_quantized;
 
     // If we found the block scale factors, verify the full pattern
-    if (block_scale_factors != nullptr) {
+    if (pattern.block_scale_factors != nullptr) {
       // Now verify that block_scale_factors was computed from data_reshaped
       // Expected pattern:
       //   abs(data_reshaped) -> max reduction -> div by constant ->
@@ -235,7 +233,7 @@ std::vector<BlockScaledOutputPattern> findBlockScaledOutputs(Fusion* fusion) {
       // block_scale_factors is the quantized output, trace back to find what
       // was cast TO it
       auto* cast_to_quantized =
-          dynamic_cast<UnaryOp*>(block_scale_factors->definition());
+          dynamic_cast<UnaryOp*>(pattern.block_scale_factors->definition());
       if (cast_to_quantized == nullptr ||
           cast_to_quantized->getUnaryOpType() != UnaryOpType::Cast) {
         continue;
@@ -256,7 +254,7 @@ std::vector<BlockScaledOutputPattern> findBlockScaledOutputs(Fusion* fusion) {
       //   block_scales_raw / global_scale -> block_scales_scaled
       // Otherwise it's just: amax / constant -> block_scales_raw
       TensorView* block_scales_raw = block_scales_unclamped;
-      if (global_scale_factor != nullptr) {
+      if (pattern.global_scale_factor != nullptr) {
         // Expect: block_scales_scaled = block_scales_raw / global_scale
         auto* global_div_op =
             dynamic_cast<BinaryOp*>(block_scales_raw->definition());
@@ -268,8 +266,8 @@ std::vector<BlockScaledOutputPattern> findBlockScaledOutputs(Fusion* fusion) {
         // Verify the RHS is related to the global_scale_factor
         // (might be wrapped in broadcasts)
         TensorView* divisor = global_div_op->rhs()->as<TensorView>();
-        TensorView* divisor_unwrapped = unwrap_broadcasts(divisor);
-        if (divisor_unwrapped != global_scale_factor) {
+        TensorView* divisor_unwrapped = unwrap_broadcast(divisor);
+        if (divisor_unwrapped != pattern.global_scale_factor) {
           continue;
         }
         block_scales_raw = global_div_op->lhs()->as<TensorView>();
@@ -328,11 +326,6 @@ std::vector<BlockScaledOutputPattern> findBlockScaledOutputs(Fusion* fusion) {
 
       NVF_ERROR(block_size > 1, "Could not infer block size");
 
-      BlockScaledOutputPattern pattern;
-      pattern.unquantized_output = unquantized_output;
-      pattern.quantized_output = out_tv;
-      pattern.block_scale_factors = block_scale_factors;
-      pattern.global_scale_factor = global_scale_factor;
       pattern.block_size = block_size;
 
       patterns.push_back(pattern);
