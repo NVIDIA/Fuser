@@ -1252,14 +1252,6 @@ class WarAsyncWaitInserter : private kir::ExprMutator {
         compute_warp_insertion_position_ != -1,
         "for_loop is not within a circular buffer compute warp");
 
-    // Short-circuit: no wgmma expressions to protect in computeWarp.
-    // TODO: Create direct scan for wgmma operations in nested for loops.
-    if (for_loop->body().exprs().size() < 1 ||
-        !for_loop->body().exprs().back()->isA<kir::MBarrierArrive>()) {
-      for_loop_stack_.pop_back();
-      return;
-    }
-
     NVF_ERROR(
         warp_specialized_async_exprs_to_protect_.empty() ||
             !warp_specialized_async_inputs_in_current_scope_.empty(),
@@ -1348,7 +1340,12 @@ class WarAsyncWaitInserter : private kir::ExprMutator {
 
     // Short-circuit: special handling of ComputeWarp for-loop
     // Add wgmma commit_group and wait_group
-    if (compute_warp_insertion_position_ == (int64_t)for_loop_stack_.size()) {
+    // Don't go to this short-circuit if there are no wgmma expressions to
+    // protect in computeWarp.
+    // TODO: Create direct scan for wgmma operations in nested for loops.
+    if (compute_warp_insertion_position_ == (int64_t)for_loop_stack_.size() &&
+        !(for_loop->body().exprs().size() < 1 ||
+          !for_loop->body().exprs().back()->isA<kir::MBarrierArrive>())) {
       return handleComputeWarp(for_loop);
     }
 
