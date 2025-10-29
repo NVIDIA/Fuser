@@ -6202,9 +6202,8 @@ std::vector<PolymorphicValue> ScanOp::evaluate(
   // tensor on Meta with the correct shape/strides and dtype.
   if (input.is_meta()) {
     const at::ScalarType out_dtype = data_type_to_aten(out()->dtype());
-    auto out_meta = at::empty_strided(
+    auto out_meta = at::empty(
         input.sizes(),
-        input.strides(),
         at::TensorOptions().device(at::kMeta).dtype(out_dtype));
     return {out_meta};
   }
