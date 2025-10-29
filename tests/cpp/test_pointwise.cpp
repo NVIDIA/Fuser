@@ -1436,19 +1436,28 @@ TEST_F(
   }
 }
 
-// Parameterized test for TMA with/without store and with/without unroll
+// Base class for TMA tests with common data members
 using TMATestParams =
     std::tuple<bool, bool>; // <use_tma_store, explicit_unroll>
-using PointwiseMultiWaveTMATest = NVFuserFixtureParamTest<TMATestParams>;
-TEST_P(PointwiseMultiWaveTMATest, PointwiseMulMultiWaveTMA) {
-  NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
+class PointwiseTmaTest : public NVFuserFixtureParamTest<TMATestParams> {
+ protected:
+  void SetUp() override {
+    NVFuserFixtureParamTest<TMATestParams>::SetUp();
+    NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
+  }
+
   struct TileMN {
     int64_t m;
     int64_t n;
   };
+
+  const int64_t dim0 = 8192;
+  const int64_t dim1 = 8192;
+  const DataType dtype = DataType::BFloat16;
+};
+
+TEST_P(PointwiseTmaTest, PointwiseMulMultiWaveTMA) {
   auto [use_tma_store, explicit_unroll] = GetParam();
-  int64_t dim0 = 8192, dim1 = 8192;
-  DataType dtype = DataType::BFloat16;
   auto fusion_ptr = std::make_unique<Fusion>();
   FusionGuard fg(fusion_ptr.get());
   Fusion& fusion = *fusion_ptr;
@@ -1566,35 +1575,12 @@ TEST_P(PointwiseMultiWaveTMATest, PointwiseMulMultiWaveTMA) {
   testValidate(&fusion, out_tensors, {t0, t1}, __LINE__, __FILE__);
 }
 
-INSTANTIATE_TEST_SUITE_P(
-    ,
-    PointwiseMultiWaveTMATest,
-    ::testing::Combine(
-        ::testing::Bool(), // use_tma_store
-        ::testing::Bool() // explicit_unroll
-        ),
-    [](const testing::TestParamInfo<TMATestParams>& info) {
-      bool use_tma_store = std::get<0>(info.param);
-      bool explicit_unroll = std::get<1>(info.param);
-      return std::string(use_tma_store ? "WithTMAStore" : "WithoutTMAStore") +
-          "_" + (explicit_unroll ? "WithUnroll" : "WithoutUnroll");
-    });
-
-// Parameterized test for Warp-Specialized TMA with/without store
-using PointwiseWarpSpecializedTMATest = NVFuserFixtureParamTest<bool>;
-TEST_P(PointwiseWarpSpecializedTMATest, PointwiseWarpSpecializedTMA) {
-  NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
-  struct TileMN {
-    int64_t m;
-    int64_t n;
-  };
-  bool use_tma_store = GetParam();
+TEST_P(PointwiseTmaTest, PointwiseWarpSpecializedTMA) {
+  auto [use_tma_store, explicit_unroll] = GetParam();
   if (use_tma_store) {
     GTEST_SKIP()
         << "skipping test with TMA store due to a bug in insertWarAsyncWait.";
   }
-  int64_t dim0 = 8192, dim1 = 8192;
-  DataType dtype = DataType::BFloat16;
 
   auto fusion_ptr = std::make_unique<Fusion>();
   FusionGuard fg(fusion_ptr.get());
@@ -1689,7 +1675,9 @@ TEST_P(PointwiseWarpSpecializedTMATest, PointwiseWarpSpecializedTMA) {
     // [sm, I/sm, ...]
     tv->axis(0)->parallelize(ParallelType::BIDx);
     tv->axis(-2)->parallelize(ParallelType::TIDx);
-    tv->axis(-3)->parallelize(ParallelType::Unroll);
+    if (explicit_unroll) {
+      tv->axis(-3)->parallelize(ParallelType::Unroll);
+    }
     // Vectorize: register cache tensors for loads from smem, and smem tensor
     // for TMA store
     bool vectorize_condition =
@@ -1743,9 +1731,15 @@ TEST_P(PointwiseWarpSpecializedTMATest, PointwiseWarpSpecializedTMA) {
 
 INSTANTIATE_TEST_SUITE_P(
     ,
-    PointwiseWarpSpecializedTMATest,
-    ::testing::Bool(),
-    [](const testing::TestParamInfo<bool>& info) {
-      return info.param ? "WithTMAStore" : "WithoutTMAStore";
+    PointwiseTmaTest,
+    ::testing::Combine(
+        ::testing::Bool(), // use_tma_store
+        ::testing::Bool() // explicit_unroll
+        ),
+    [](const testing::TestParamInfo<TMATestParams>& info) {
+      bool use_tma_store = std::get<0>(info.param);
+      bool explicit_unroll = std::get<1>(info.param);
+      return std::string(use_tma_store ? "WithTMAStore" : "WithoutTMAStore") +
+          "_" + (explicit_unroll ? "WithUnroll" : "WithoutUnroll");
     });
 } // namespace nvfuser
