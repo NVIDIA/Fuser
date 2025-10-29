@@ -1017,5 +1017,217 @@ TEST_F(IpcTest, VmmContiguousMappingTest) {
   }
 }
 
+TEST_F(IpcTest, VmmMultiRankContiguousMappingTest) {
+  // This test demonstrates distributed Virtual Memory Management where:
+  // 1. Each rank allocates a buffer
+  // 2. All ranks share their allocation handles via IPC
+  // 3. Each rank creates a single contiguous virtual address range that maps
+  //    all allocations (local + all remote ranks)
+  
+  if (communicator_->size() == 1) {
+    GTEST_SKIP() << "Skipping test for single device";
+  }
+
+  const int64_t num_devices = communicator_->size();
+  const int64_t rank = communicator_->deviceId();
+  const int64_t local_rank = communicator_->local_rank();
+
+  // Query support for Virtual Memory Management
+  int is_vmm_supported;
+  NVFUSER_CUDA_SAFE_CALL(cuDeviceGetAttribute(
+      &is_vmm_supported,
+      CU_DEVICE_ATTRIBUTE_VIRTUAL_MEMORY_MANAGEMENT_SUPPORTED,
+      local_rank));
+  if (is_vmm_supported == 0) {
+    GTEST_SKIP()
+        << "Device does not support Virtual Memory Management; skipping.";
+  }
+
+  // Query support for IPC handles
+  int is_ipc_supported;
+  NVFUSER_CUDA_SAFE_CALL(cuDeviceGetAttribute(
+      &is_ipc_supported,
+      CU_DEVICE_ATTRIBUTE_HANDLE_TYPE_POSIX_FILE_DESCRIPTOR_SUPPORTED,
+      local_rank));
+  if (is_ipc_supported == 0) {
+    GTEST_SKIP() << "Device does not support IPC handles; skipping.";
+  }
+
+  NVFUSER_CUDA_RT_SAFE_CALL(cudaSetDevice(local_rank));
+
+  // Set up allocation properties for VMM
+  CUmemAllocationProp prop{};
+  prop.type = CU_MEM_ALLOCATION_TYPE_PINNED;
+  prop.location.type = CU_MEM_LOCATION_TYPE_DEVICE;
+  prop.location.id = static_cast<int>(local_rank);
+  prop.requestedHandleTypes = CU_MEM_HANDLE_TYPE_POSIX_FILE_DESCRIPTOR;
+
+  // Check allocation granularity
+  size_t granularity = 0;
+  NVFUSER_CUDA_SAFE_CALL(cuMemGetAllocationGranularity(
+      &granularity, &prop, CU_MEM_ALLOC_GRANULARITY_MINIMUM));
+
+  // Each rank creates one allocation containing 2048 int64_t elements
+  constexpr size_t kElemsPerRank = 2048;
+  constexpr size_t kBytesPerRank = kElemsPerRank * sizeof(int64_t);
+
+  // Align allocation size to granularity
+  size_t aligned_size =
+      ((kBytesPerRank + granularity - 1) / granularity) * granularity;
+  ASSERT_EQ(aligned_size % sizeof(int64_t), 0) << "aligned_size is not aligned to sizeof(int64_t)";
+  size_t aligned_number_of_elements_per_rank = aligned_size / sizeof(int64_t);
+
+  // Create local allocation handle
+  CUmemGenericAllocationHandle local_alloc_handle = 0;
+  NVFUSER_CUDA_SAFE_CALL(
+      cuMemCreate(&local_alloc_handle, aligned_size, &prop, /*flags=*/0));
+
+  // Export local allocation handle to shareable file descriptor
+  int shared_fd;
+  NVFUSER_CUDA_SAFE_CALL(cuMemExportToShareableHandle(
+      &shared_fd,
+      local_alloc_handle,
+      CU_MEM_HANDLE_TYPE_POSIX_FILE_DESCRIPTOR,
+      /*flags=*/0));
+
+  // Allow peer processes to use pidfd_getfd on this process
+  prctl(PR_SET_PTRACER, PR_SET_PTRACER_ANY);
+
+  // Share the file descriptor and PID via TCP store
+  auto store = communicator_->getTcpStore();
+  store->set("vmm_multi_fd_" + std::to_string(rank), toBytes(shared_fd));
+  pid_t my_pid = getpid();
+  store->set("vmm_multi_pid_" + std::to_string(rank), toBytes(my_pid));
+
+  // Wait for all ranks to finish exporting
+  communicator_->barrier();
+
+  // Import all other ranks' allocation handles
+  std::vector<CUmemGenericAllocationHandle> all_alloc_handles(num_devices);
+  std::vector<int> peer_fds;
+  std::vector<int> pid_fds;
+  
+  all_alloc_handles[rank] = local_alloc_handle;
+
+  for (int64_t peer_rank = 0; peer_rank < num_devices; ++peer_rank) {
+    if (peer_rank == rank) {
+      continue; // Skip self
+    }
+
+    int peer_shared_fd = fromBytes<int>(
+        store->get("vmm_multi_fd_" + std::to_string(peer_rank)));
+    pid_t peer_pid = fromBytes<pid_t>(
+        store->get("vmm_multi_pid_" + std::to_string(peer_rank)));
+
+    // Get the peer's file descriptor using pidfd_open and pidfd_getfd
+    int pid_fd = syscall(SYS_pidfd_open, peer_pid, /*flags=*/0);
+    ASSERT_GE(pid_fd, 0) << "rank " << rank << " failed to open pidfd for pid "
+                         << peer_pid;
+    pid_fds.push_back(pid_fd);
+
+    int peer_fd = syscall(SYS_pidfd_getfd, pid_fd, peer_shared_fd, /*flags=*/0);
+    ASSERT_GE(peer_fd, 0) << "rank " << rank << " failed to get peer fd";
+    peer_fds.push_back(peer_fd);
+
+    // Import the peer's memory handle
+    CUmemGenericAllocationHandle peer_alloc_handle = 0;
+    NVFUSER_CUDA_SAFE_CALL(cuMemImportFromShareableHandle(
+        &peer_alloc_handle,
+        (void*)((uint64_t)peer_fd),
+        CU_MEM_HANDLE_TYPE_POSIX_FILE_DESCRIPTOR));
+    
+    all_alloc_handles[peer_rank] = peer_alloc_handle;
+  }
+
+  // Now create one contiguous virtual address range for all allocations
+  size_t total_size = aligned_size * num_devices;
+  CUdeviceptr base_ptr = 0;
+  NVFUSER_CUDA_SAFE_CALL(cuMemAddressReserve(
+      &base_ptr,
+      total_size,
+      /*alignment=*/granularity,
+      /*baseVA=*/0,
+      /*flags=*/0));
+
+  // Map each rank's allocation to consecutive regions in the virtual address
+  // space
+  for (int64_t i = 0; i < num_devices; ++i) {
+    CUdeviceptr offset_ptr = base_ptr + (i * aligned_size);
+    NVFUSER_CUDA_SAFE_CALL(cuMemMap(
+        offset_ptr, aligned_size, /*offset=*/0, all_alloc_handles[i], /*flags=*/0));
+  }
+
+  // Set memory access permissions for local allocation (read-write) and remote allocations (read-only)
+  for (int64_t peer_rank = 0; peer_rank < num_devices; ++peer_rank) {
+    CUdeviceptr peer_offset_ptr = base_ptr + (peer_rank * aligned_size);
+    CUmemAccessDesc peer_access_desc{};
+    peer_access_desc.location.type = CU_MEM_LOCATION_TYPE_DEVICE;
+    peer_access_desc.location.id = static_cast<int>(local_rank);
+    peer_access_desc.flags = (peer_rank == rank) ? CU_MEM_ACCESS_FLAGS_PROT_READWRITE : CU_MEM_ACCESS_FLAGS_PROT_READ;
+    NVFUSER_CUDA_SAFE_CALL(cuMemSetAccess(
+        peer_offset_ptr, aligned_size, &peer_access_desc, /*count=*/1));
+  }
+
+  // Write data to local allocation region
+  std::vector<int64_t> local_host_data(aligned_number_of_elements_per_rank);
+  for (size_t i = 0; i < aligned_number_of_elements_per_rank; ++i) {
+    local_host_data[i] = static_cast<int64_t>(rank * 100000 + i);
+  }
+
+  CUdeviceptr local_device_ptr = base_ptr + (rank * aligned_size);
+  NVFUSER_CUDA_RT_SAFE_CALL(cudaMemcpy(
+      reinterpret_cast<void*>(local_device_ptr),
+      local_host_data.data(),
+      aligned_size,
+      cudaMemcpyHostToDevice));
+
+  // Wait for all ranks to finish writing their data
+  communicator_->barrier();
+
+  // Read back the entire contiguous buffer containing all ranks' data
+  std::vector<int64_t> full_readback_data(aligned_number_of_elements_per_rank * num_devices);
+  NVFUSER_CUDA_RT_SAFE_CALL(cudaMemcpy(
+      full_readback_data.data(),
+      reinterpret_cast<void*>(base_ptr),
+      aligned_size * num_devices,
+      cudaMemcpyDeviceToHost));
+
+  // Verify that we can read all ranks' data from the contiguous buffer
+  for (int64_t source_rank = 0; source_rank < num_devices; ++source_rank) {
+    for (size_t i = 0; i < aligned_number_of_elements_per_rank; ++i) {
+      int64_t expected = static_cast<int64_t>(source_rank * 100000 + i);
+      size_t idx = source_rank * aligned_number_of_elements_per_rank + i;
+      ASSERT_EQ(full_readback_data[idx], expected)
+          << "Rank " << rank << " failed to read from rank " << source_rank
+          << " at element " << i;
+    }
+  }
+
+  // Wait for all ranks to finish reading their data
+  communicator_->barrier();
+
+  // Clean up: Unmap all allocations from the virtual address space
+  for (int64_t i = 0; i < num_devices; ++i) {
+    CUdeviceptr offset_ptr = base_ptr + (i * aligned_size);
+    NVFUSER_CUDA_SAFE_CALL(cuMemUnmap(offset_ptr, aligned_size));
+  }
+
+  // Free the virtual address space
+  NVFUSER_CUDA_SAFE_CALL(cuMemAddressFree(base_ptr, total_size));
+
+  // Release all allocation handles
+  for (int64_t i = 0; i < num_devices; ++i) {
+    NVFUSER_CUDA_SAFE_CALL(cuMemRelease(all_alloc_handles[i]));
+  }
+
+  // Close file descriptors
+  for (int fd : peer_fds) {
+    close(fd);
+  }
+  for (int fd : pid_fds) {
+    close(fd);
+  }
+}
+
 
 } // namespace nvfuser
