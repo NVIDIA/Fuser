@@ -223,113 +223,99 @@ std::vector<BlockScaledOutputPattern> findBlockScaledOutputs(Fusion* fusion) {
     }
     pattern.block_scale_factors = block_scales_quantized;
 
-    // If we found the block scale factors, verify the full pattern
-    if (pattern.block_scale_factors != nullptr) {
-      // Now verify that block_scale_factors was computed from data_reshaped
-      // Expected pattern:
-      //   abs(data_reshaped) -> max reduction -> div by constant ->
-      //   clamp -> cast to FP8
+    // Now verify that block_scale_factors was computed from data_reshaped
+    // Expected pattern:
+    //   data_reshaped -> abs -> max -> div by scalar -> (clamp) -> cast
 
-      // block_scale_factors is the quantized output, trace back to find what
-      // was cast TO it
-      auto* cast_to_quantized =
-          dynamic_cast<UnaryOp*>(pattern.block_scale_factors->definition());
-      if (cast_to_quantized == nullptr ||
-          cast_to_quantized->getUnaryOpType() != UnaryOpType::Cast) {
-        continue;
-      }
-      TensorView* block_scales_unquantized =
-          cast_to_quantized->in()->as<TensorView>();
-
-      // Skip optional clamp before quantizing the scales
-      TensorView* block_scales_unclamped = block_scales_unquantized;
-      if (auto* clamp_op =
-              dynamic_cast<TernaryOp*>(block_scales_unclamped->definition());
-          clamp_op != nullptr &&
-          clamp_op->getTernaryOpType() == TernaryOpType::Clamp) {
-        block_scales_unclamped = clamp_op->in1()->as<TensorView>();
-      }
-
-      // If there's a global scale, there's an extra division:
-      //   block_scales_raw / global_scale -> block_scales_scaled
-      // Otherwise it's just: amax / constant -> block_scales_raw
-      TensorView* block_scales_raw = block_scales_unclamped;
-      if (pattern.global_scale_factor != nullptr) {
-        // Expect: block_scales_scaled = block_scales_raw / global_scale
-        auto* global_div_op =
-            dynamic_cast<BinaryOp*>(block_scales_raw->definition());
-        if (global_div_op == nullptr ||
-            global_div_op->getBinaryOpType() != BinaryOpType::Div ||
-            !global_div_op->lhs()->isA<TensorView>()) {
-          continue;
-        }
-        // Verify the RHS is related to the global_scale_factor
-        // (might be wrapped in broadcasts)
-        TensorView* divisor = global_div_op->rhs()->as<TensorView>();
-        TensorView* divisor_unwrapped = unwrap_broadcast(divisor);
-        if (divisor_unwrapped != pattern.global_scale_factor) {
-          continue;
-        }
-        block_scales_raw = global_div_op->lhs()->as<TensorView>();
-      }
-
-      // block_scales_raw should be: amax / constant
-      auto* amax_div_op =
-          dynamic_cast<BinaryOp*>(block_scales_raw->definition());
-      if (amax_div_op == nullptr ||
-          amax_div_op->getBinaryOpType() != BinaryOpType::Div ||
-          !amax_div_op->lhs()->isA<TensorView>()) {
-        continue;
-      }
-
-      TensorView* data_hp_amax = amax_div_op->lhs()->as<TensorView>();
-
-      // data_hp_amax should be a max reduction
-      auto* max_reduction =
-          dynamic_cast<ReductionOp*>(data_hp_amax->definition());
-      if (max_reduction == nullptr ||
-          max_reduction->getReductionOpType() != BinaryOpType::Max) {
-        continue;
-      }
-
-      // The input to the max reduction should be abs(data_reshaped)
-      TensorView* data_hp_abs = max_reduction->in()->as<TensorView>();
-      auto* abs_op = dynamic_cast<UnaryOp*>(data_hp_abs->definition());
-      if (abs_op == nullptr || abs_op->getUnaryOpType() != UnaryOpType::Abs) {
-        continue;
-      }
-
-      // The input to abs should be the same data_reshaped we're dividing
-      TensorView* data_hp_reshaped = abs_op->in()->as<TensorView>();
-      if (data_hp_reshaped != data_reshaped) {
-        continue;
-      }
-
-      // Now we've verified the full pattern! Infer block size
-      int64_t block_size = -1;
-
-      // Trace back through the reshape to find the split
-      if (data_reshaped->definition()->isA<ReshapeOp>()) {
-        // Look for the innermost split in the rfactor domain
-        // The reshape typically splits the last dimension by block_size
-        IterDomain* id = data_reshaped->getLogicalDomain().back();
-        auto* split_expr = dynamic_cast<Split*>(id->definition());
-        if (split_expr == nullptr) {
-          continue;
-        }
-        Val* factor = split_expr->factor();
-        // If the split factor is a constant scalar, use it as block_size
-        if (factor->isConstScalar()) {
-          block_size = factor->value().as<int64_t>();
-        }
-      }
-
-      NVF_ERROR(block_size > 1, "Could not infer block size");
-
-      pattern.block_size = block_size;
-
-      patterns.push_back(pattern);
+    // block_scale_factors is the quantized output, trace back to find what
+    // was cast TO it
+    auto* cast_to_quantized =
+        dynamic_cast<UnaryOp*>(pattern.block_scale_factors->definition());
+    if (cast_to_quantized == nullptr ||
+        cast_to_quantized->getUnaryOpType() != UnaryOpType::Cast) {
+      continue;
     }
+    TensorView* block_scales_unquantized =
+        cast_to_quantized->in()->as<TensorView>();
+
+    // Skip optional clamp before quantizing the scales
+    if (auto* clamp_op =
+            dynamic_cast<TernaryOp*>(block_scales_unquantized->definition());
+        clamp_op != nullptr &&
+        clamp_op->getTernaryOpType() == TernaryOpType::Clamp) {
+      block_scales_unquantized = clamp_op->in1()->as<TensorView>();
+    }
+
+    // If there's a global scale, there's can be an extra division:
+    //   block_scales_raw / global_scale -> block_scales_scaled
+    // Otherwise it's just: amax / constant -> block_scales_raw
+    TensorView* block_scales_raw = block_scales_unquantized;
+    if (pattern.global_scale_factor != nullptr) {
+      // Expect: block_scales_scaled = block_scales_raw / global_scale
+      auto* global_div_op =
+          dynamic_cast<BinaryOp*>(block_scales_raw->definition());
+      if (global_div_op == nullptr ||
+          global_div_op->getBinaryOpType() != BinaryOpType::Div ||
+          !global_div_op->lhs()->isA<TensorView>()) {
+        continue;
+      }
+      // Verify the RHS is related to the global_scale_factor
+      // (might be wrapped in broadcasts)
+      TensorView* divisor = global_div_op->rhs()->as<TensorView>();
+      TensorView* divisor_unwrapped = unwrap_broadcast(divisor);
+      if (divisor_unwrapped != pattern.global_scale_factor) {
+        continue;
+      }
+      block_scales_raw = global_div_op->lhs()->as<TensorView>();
+    }
+
+    // block_scales_raw should be: amax / constant
+    auto* amax_div_op = dynamic_cast<BinaryOp*>(block_scales_raw->definition());
+    if (amax_div_op == nullptr ||
+        amax_div_op->getBinaryOpType() != BinaryOpType::Div ||
+        !amax_div_op->lhs()->isA<TensorView>()) {
+      continue;
+    }
+
+    TensorView* data_hp_amax = amax_div_op->lhs()->as<TensorView>();
+
+    // data_hp_amax should be a max reduction
+    auto* max_reduction =
+        dynamic_cast<ReductionOp*>(data_hp_amax->definition());
+    if (max_reduction == nullptr ||
+        max_reduction->getReductionOpType() != BinaryOpType::Max) {
+      continue;
+    }
+
+    // The input to the max reduction should be abs(data_reshaped)
+    TensorView* data_hp_abs = max_reduction->in()->as<TensorView>();
+    auto* abs_op = dynamic_cast<UnaryOp*>(data_hp_abs->definition());
+    if (abs_op == nullptr || abs_op->getUnaryOpType() != UnaryOpType::Abs) {
+      continue;
+    }
+
+    // The input to abs should be the same data_reshaped we're dividing
+    TensorView* before_abs = abs_op->in()->as<TensorView>();
+    if (before_abs != data_reshaped) {
+      continue;
+    }
+
+    // Look at the logical domain of the reshape to find the split
+    // The reshape splits the last dimension by block_size
+    IterDomain* inner_id = data_reshaped->getLogicalDomain().back();
+    auto* split_expr = dynamic_cast<Split*>(inner_id->definition());
+    if (split_expr == nullptr) {
+      continue;
+    }
+    Val* factor = split_expr->factor();
+    // If the split factor is a constant scalar, use it as block_size
+    if (!factor->isConstScalar()) {
+      // Split must be by a constant block size
+      continue;
+    }
+    pattern.block_size = factor->value().as<int64_t>();
+
+    patterns.push_back(pattern);
   }
 
   return patterns;

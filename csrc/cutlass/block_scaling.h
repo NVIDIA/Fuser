@@ -22,11 +22,11 @@ namespace cutlass_codegen {
 
 //! Pattern for block-scaled quantized outputs
 struct BlockScaledOutputPattern {
-  TensorView* unquantized_output;
-  TensorView* quantized_output;
-  TensorView* block_scale_factors;
-  TensorView* global_scale_factor;
-  int64_t block_size;
+  TensorView* unquantized_output = nullptr;
+  TensorView* quantized_output = nullptr;
+  TensorView* block_scale_factors = nullptr;
+  TensorView* global_scale_factor = nullptr;
+  int64_t block_size = -1;
 
   std::string toString() const;
 };
