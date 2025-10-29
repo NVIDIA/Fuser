@@ -326,7 +326,13 @@ void TransformReplay::selfReplay(
 
     new_self->setLoopDomain(new_loop);
   } else {
-    NVF_ERROR_EQ(new_self->loop(), new_self->logical());
+    NVF_ERROR_EQ(
+        new_self->loop(),
+        new_self->logical(),
+        "It is unclear what the correct contract should be when replaying an "
+        "empty transform sequence on a non-empty loop domain. We could keep "
+        "the loop domain as is or set the loop domain to be the same as "
+        "logical. Fortunately, we do not have a use case for this scenario.");
   }
 
   // Replay allocation.
@@ -367,7 +373,11 @@ void TransformReplay::selfReplay(
 
     new_self->setAllocationDomain(new_allocation, new_contiguities);
   } else {
-    NVF_ERROR(!new_self->hasAllocation());
+    NVF_ERROR(
+        !new_self->hasAllocation(),
+        "It is unclear what the correct contract should be when replaying an "
+        "empty transform sequence on a non-empty allocation domain. "
+        "Fortunately, we do not have a use case for this scenario.");
     const std::vector<IterDomain*>& new_logical = new_self->logical();
     const auto new_rank = std::ssize(new_logical);
     std::vector<std::optional<bool>> new_contiguities(new_rank, std::nullopt);
