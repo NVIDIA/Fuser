@@ -3,6 +3,7 @@
 # SPDX-License-Identifier: BSD-3-Clause
 # Owner(s): ["module: nvfuser"]
 
+import pytest
 import torch
 from torch.testing import make_tensor
 from enum import Enum, auto

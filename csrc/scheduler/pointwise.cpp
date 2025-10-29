@@ -295,7 +295,10 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
       });
 
   int64_t max_dtype_size_bit_for_vectorization = 0;
+  // ugly WAR.
+  bool has_sub_byte = false;
   for (auto inp : vectorizable_inputs_outputs_entry.get()) {
+    has_sub_byte |= dataTypeSizeBit(inp->getDataType().value()) < 8;
     max_dtype_size_bit_for_vectorization = std::max(
         max_dtype_size_bit_for_vectorization,
         dataTypeSizeBit(inp->getDataType().value(), index_type));
@@ -484,8 +487,11 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
     }
   }
 
+  // If we have sub-byte data types, we wouldn't want to clamp vectorization
+  // factor to 1, otherwise we could end up with illegal array type with
+  // sub-byte length.
   params->vectorization_factor = std::min(
-      max_vect_factor,
+      has_sub_byte ? std::max(2l, max_vect_factor) : max_vect_factor,
       vectorize_helper::getVectorizationFactor(
           runtime_info,
           largest_out,

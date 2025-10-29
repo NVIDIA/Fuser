@@ -41,7 +41,7 @@ class SchedulerRuntimeInfo : public NonCopyable {
   //! The index type of forced_index_type is used if given, no matter
   //! how large the actual arguments and fusion tensors
   //! are. CORRECTNESS IS NOT GUARANTEED.
-  SchedulerRuntimeInfo(
+  NVF_API SchedulerRuntimeInfo(
       Fusion* complete_fusion,
       KernelArgumentHolder args,
       PrecomputedValues* precomputed_values = nullptr,

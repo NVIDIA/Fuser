@@ -5819,7 +5819,7 @@ std::vector<PolymorphicValue> GroupedMmaOp::evaluate(
           at::stack({group_sizes, c_strides, ab_strides}, /*dim=*/-1)
               .to(at::kInt);
       offsets = at::cat(
-          {at::tensor({0}, at::dtype(at::kInt).device(offsets.device())),
+          {at::zeros({1}, at::dtype(at::kInt).device(offsets.device())),
            offsets.slice(0, 0, -1)});
       return cutlass_kernels::grouped_mm(
           mat1, mat2, ab_strides, c_strides, problem_sizes, offsets);
