@@ -7,10 +7,10 @@
 // clang-format on
 #include <cassert>
 
-#include <ATen/cuda/CUDAContext.h>
+#include <ATen/cuda/CUDAContextLight.h>
+#include <c10/cuda/CUDAGraphsC10Utils.h>
 #include <c10/cuda/CUDAGuard.h>
 #include <c10/cuda/CUDAStream.h>
-#include <ATen/cuda/CUDAGraphsUtils.cuh>
 
 #include <cutlass/arch/arch.h>
 #include <cutlass/epilogue/collective/collective_builder.hpp>
@@ -422,7 +422,8 @@ void validateInputsGroupMm(
           b.scalar_type() == at::ScalarType::Half,
       "Expected BFloat16 or Half for Operand B.")
 
-  if (at::cuda::currentStreamCaptureStatus() == at::cuda::CaptureStatus::None) {
+  if (c10::cuda::currentStreamCaptureStatusMayInitCtx() ==
+      c10::cuda::CaptureStatus::None) {
     const int64_t m = a.size(0);
     const int64_t g = expert_offsets.size(0);
     int64_t prev_offset = 0;
