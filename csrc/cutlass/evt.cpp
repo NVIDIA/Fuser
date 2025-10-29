@@ -149,6 +149,7 @@ class EVTConverter : OptInDispatch {
           unscaled_outputs.end(),
           fusion_->outputs().begin(),
           fusion_->outputs().end());
+      model_.setRootTensorView(fusion_->outputs().front()->as<TensorView>());
     } else {
       // This holds all quantized outputs as well as scale factors, so we can
       // skip those outputs
@@ -164,9 +165,12 @@ class EVTConverter : OptInDispatch {
           unscaled_outputs.push_back(v);
         }
       }
+      // The first scaling pattern is considered the root
+      model_.setRootTensorView(scaling_patterns.front().quantized_output);
     }
     NVF_ERROR_EQ(
         unscaled_outputs.size(), 1, "Only one unquantized output is supported");
+    NVF_ERROR(model_.getRootTensorView() != nullptr);
 
     for (Statement* stmt :
          StmtSort::getStmtsBetween({getAccTv(fusion_)}, unscaled_outputs)) {
@@ -359,6 +363,7 @@ EVTModel::EVTModel(const EVTModel& model) {
     }
   }
   setRoot(old2new.at(model.root()));
+  setRootTensorView(model.getRootTensorView());
 }
 
 std::string EVTModel::defString(Node* node, int64_t indent_size) const {

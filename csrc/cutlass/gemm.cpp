@@ -68,7 +68,20 @@ std::string generateNvfp4ScaledMmKernel(
     Fusion* fusion,
     const CutlassParams& params) {
   NVF_ERROR(fusion != nullptr);
-  auto* main_output = fusion->outputs().front()->as<TensorView>();
+
+  TensorView* main_output = fusion->outputs().front()->as<TensorView>();
+  const mma_utils::DataWrapperOpt<EVTModel> model_opt = extractEVTModel(fusion);
+  const bool has_evt = model_opt.isValid();
+  if (has_evt) {
+    main_output = model_opt.getData().getRootTensorView();
+  } else {
+    NVF_ERROR_EQ(
+        fusion->outputs().size(),
+        1,
+        "Fusions without EVT must have a single output");
+  }
+  NVF_ERROR(main_output != nullptr);
+
   const std::string output_dtype = dtypeToCutlass(main_output->dtype());
 
   ScaledMmaOp* smma = findScaledMmaOp(fusion);
@@ -215,8 +228,6 @@ struct Fp4GemmSm100 {
   using PerSmTileShape_MNK = typename KernelTraits::PerSmTileShape_MNK;
 
 )";
-  const mma_utils::DataWrapperOpt<EVTModel> model_opt = extractEVTModel(fusion);
-  const bool has_evt = model_opt.isValid();
   if (has_evt) {
     const EVTModel& evt_model = model_opt.getData();
     code += "  using EVTOp =\n" +
@@ -356,7 +367,6 @@ typename T::Gemm::Arguments args_from_inputs(
     code += "  const TensorArg& bias = inputs.at(" +
         std::to_string(fusionInputPosition(fusion, smma->bias())) + ");\n";
   }
-  NVF_ERROR_EQ(fusion->outputs().size(), 1);
   code +=
       "  const TensorArg& output = inputs.at(" +
       std::to_string(
