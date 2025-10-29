@@ -1440,6 +1440,7 @@ using TMATestParams =
     std::tuple<bool, bool>; // <use_tma_store, explicit_unroll>
 using PointwiseMultiWaveTMATest = NVFuserFixtureParamTest<TMATestParams>;
 TEST_P(PointwiseMultiWaveTMATest, PointwiseMulMultiWaveTMA) {
+  NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
   struct TileMN {
     int64_t m;
     int64_t n;
