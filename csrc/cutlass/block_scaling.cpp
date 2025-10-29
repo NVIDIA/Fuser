@@ -33,7 +33,7 @@ std::string BlockScaledOutputPattern::toString() const {
   std::stringstream ss;
   ss << "BlockScaledOutputPattern: {\n";
   ss << "  unquantized_output: " << unquantized_output->toString() << "\n";
-  ss << "  output: " << quantized_output->toString() << "\n";
+  ss << "  quantized_output: " << quantized_output->toString() << "\n";
   ss << "  block_scale_factors: " << block_scale_factors->toString() << "\n";
   ss << "  block_size: " << block_size << "\n";
   ss << "}\n";
