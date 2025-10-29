@@ -23,7 +23,7 @@ inputs = [
     torch.randn(dim0, dim1, dtype=torch.bfloat16, device="cuda"),
 ]
 
-has_tanh = False
+has_tanh = True
 
 # Number of streaming multiprocessors (always use actual device SM count)
 num_sms = torch.cuda.get_device_properties(0).multi_processor_count

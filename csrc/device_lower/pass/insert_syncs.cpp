@@ -1448,6 +1448,25 @@ class WarAsyncWaitInserter : private kir::ExprMutator {
           }
         }
 
+        // Special positioning for TMA stores (CpAsyncBulk S2G):
+        // TMA stores read from shared memory asynchronously and write to global
+        // memory. To prevent WAR (Write-After-Read) hazards where the next loop
+        // iteration overwrites shared memory before the TMA store completes, we
+        // must insert commit/wait operations.
+        //
+        // The commit/wait must be placed after the BlockSync that follows the
+        // TMA store. In nested loops, this BlockSync may be in an outer loop:
+        //
+        //   FOR i274:  ← Outer loop
+        //     FOR i269:
+        //       compute_to_smem();
+        //       TMA_store(smem -> gmem);
+        //       BLOCKSYNC  ← BlockSync after TMA store
+        //     cpAsyncBulkCommitGroup();  ← Insert here (after outer loop's last
+        //     BlockSync) cpAsyncBulkWaitGroup<0>(); ← Wait for ALL stores
+        //
+        // We iterate through for_loop_stack_ to find the loop whose last
+        // expression is a BlockSync, and place the commit/wait after it.
         if (type == AsyncOpType::CpAsyncBulk) {
           for (auto fl : for_loop_stack_) {
             if (fl->body().exprs().back()->isA<kir::BlockSync>()) {

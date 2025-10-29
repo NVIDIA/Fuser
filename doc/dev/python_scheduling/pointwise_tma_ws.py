@@ -46,7 +46,7 @@ inputs = [
     torch.randn(dim0, dim1, dtype=torch.bfloat16, device="cuda"),
 ]
 
-has_tanh = False
+has_tanh = True
 
 explicit_unroll = False
 
@@ -350,13 +350,14 @@ if True:
     for kp in kps_default:
         print_kernel_profile(kp)
 
+# if False:
 if True:
     # debug run
     print("=" * 110)
     print("DEBUG RUN - Testing with and without TMA Store")
     print("=" * 110)
 
-    for use_tma_store in [False]:
+    for use_tma_store in [True]:
         clear_l2_cache()
         store_mode = (
             "WITH TMA Store" if use_tma_store else "WITHOUT TMA Store (Regular Store)"
@@ -366,12 +367,12 @@ if True:
 
         fn_tma = PointwiseMulTMA(
             tma_m=64,
-            tma_n=128,
-            tid_m=2,
+            tma_n=256,
+            tid_m=1,
             tid_n=8,
             blk_n=512,
             fully_reg_cached=False,
-            number_of_stages=7,
+            number_of_stages=3,
             use_tma_store=use_tma_store,
         )
         nvf_out_tma = fn_tma.execute(inputs, profile=True)
@@ -400,7 +401,7 @@ tid_tiles = [(1, 8), (2, 8), (4, 8)]
 blk_tiles_n = [256, 512]
 fully_reg_cached_options = [True, False]
 number_of_stages_options = [3]  # use max allowed by SMEM
-use_tma_store_options = [False]  # Test with and without TMA store
+use_tma_store_options = [True]  # Test with and without TMA store
 
 
 def not_enough_smem(tma_m, tma_n, n_stages):
@@ -429,6 +430,8 @@ config_count = 0
 for tma_m, tma_n in tma_tiles:
     for tid_m, tid_n in tid_tiles:
         for blk_n in blk_tiles_n:
+            if blk_n * tid_m * tid_n > tma_m * tma_n:
+                continue
             for fully_reg_cached in fully_reg_cached_options:
                 for n_stages in number_of_stages_options:
                     for use_tma_store in use_tma_store_options:
@@ -436,6 +439,9 @@ for tma_m, tma_n in tma_tiles:
                             smem_for_load = device_smem_bytes - tma_m * tma_n * 2
                         else:
                             smem_for_load = device_smem_bytes
+                        smem_for_load = (
+                            smem_for_load - 4096
+                        )  # overhhead for mbarriers, kernel launch, etc.
                         n_stages = smem_for_load // (tma_m * tma_n * 2 * 2)
                         if not_enough_smem(tma_m, tma_n, n_stages):
                             print(f"Not enough SMEM for {tma_m}x{tma_n}x{n_stages}")
@@ -471,7 +477,7 @@ for tma_m, tma_n in tma_tiles:
                                 print(
                                     f"{config_str:<70} {'N/A':<12} {'N/A':<20} INCORRECT"
                                 )
-                                exit()
+                                continue
 
                             # Get performance metrics
                             kps_tma = fn_tma.profile().kernel_profiles
