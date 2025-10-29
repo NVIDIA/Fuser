@@ -13,6 +13,7 @@
 #include <string>
 
 #include <ATen/cuda/CUDAContextLight.h>
+#include <c10/cuda/CUDAGraphsC10Utils.h>
 #include <torch/nn/functional/embedding.h>
 #include <torch/nn/options/embedding.h>
 
@@ -5832,6 +5833,12 @@ std::vector<PolymorphicValue> GroupedMmaOp::evaluate(
     NVF_ERROR(!bias.defined(), "bias is not supported yet");
 
     // Compute numbers of tokens per group from offsets.
+    NVF_CHECK_EQ(
+        c10::cuda::currentStreamCaptureStatusMayInitCtx(),
+        c10::cuda::CaptureStatus::None,
+        "GroupedMmaOp's fallback implementation below doesn't support CUDA "
+        "graph capturing. The shapes of individual matmuls depend on "
+        "`offsets`, which is data dependent.");
     at::Tensor offsets_cpu = offsets.cpu();
     NVF_ERROR_EQ(offsets_cpu.dtype(), at::kInt);
     const int* data_ptr = offsets_cpu.data_ptr<int>();
