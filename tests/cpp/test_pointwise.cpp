@@ -1436,19 +1436,28 @@ TEST_F(
   }
 }
 
-// Parameterized test for TMA with/without store and with/without unroll
+// Base class for TMA tests with common data members
 using TMATestParams =
     std::tuple<bool, bool>; // <use_tma_store, explicit_unroll>
-using PointwiseMultiWaveTMATest = NVFuserFixtureParamTest<TMATestParams>;
-TEST_P(PointwiseMultiWaveTMATest, PointwiseMulMultiWaveTMA) {
-  NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
+class PointwiseTmaTest : public NVFuserFixtureParamTest<TMATestParams> {
+ protected:
+  void SetUp() override {
+    NVFuserFixtureParamTest<TMATestParams>::SetUp();
+    NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
+  }
+
   struct TileMN {
     int64_t m;
     int64_t n;
   };
+
+  const int64_t dim0 = 8192;
+  const int64_t dim1 = 8192;
+  const DataType dtype = DataType::BFloat16;
+};
+
+TEST_P(PointwiseTmaTest, PointwiseMulMultiWaveTMA) {
   auto [use_tma_store, explicit_unroll] = GetParam();
-  int64_t dim0 = 8192, dim1 = 8192;
-  DataType dtype = DataType::BFloat16;
   auto fusion_ptr = std::make_unique<Fusion>();
   FusionGuard fg(fusion_ptr.get());
   Fusion& fusion = *fusion_ptr;
@@ -1566,9 +1575,163 @@ TEST_P(PointwiseMultiWaveTMATest, PointwiseMulMultiWaveTMA) {
   testValidate(&fusion, out_tensors, {t0, t1}, __LINE__, __FILE__);
 }
 
+TEST_P(PointwiseTmaTest, PointwiseWarpSpecializedTMA) {
+  auto [use_tma_store, explicit_unroll] = GetParam();
+  if (use_tma_store) {
+    GTEST_SKIP()
+        << "skipping test with TMA store due to a bug in insertWarAsyncWait.";
+  }
+
+  auto fusion_ptr = std::make_unique<Fusion>();
+  FusionGuard fg(fusion_ptr.get());
+  Fusion& fusion = *fusion_ptr;
+
+  // Input tensors
+  auto tv0 = makeContigConcreteTensor({dim0, dim1}, dtype);
+  auto tv1 = makeContigConcreteTensor({dim0, dim1}, dtype);
+  fusion.addInput(tv0);
+  fusion.addInput(tv1);
+
+  // Data type conversion and computation
+  auto tv0_float = maybeCastOp(DataType::Float, tv0);
+  auto tv1_float = maybeCastOp(DataType::Float, tv1);
+  auto tv2 = mul(tv0_float, tv1_float);
+  auto tv3 = maybeCastOp(dtype, tv2);
+  fusion.addOutput(tv3);
+
+  // Create TMA loads from inputs to shared memory
+  auto tv0_smem = tv0->cacheAfter(LoadStoreOpType::CpAsyncBulkTensorTile);
+  tv0_smem->setMemoryType(MemoryType::Shared);
+
+  auto tv1_smem = tv1->cacheAfter(LoadStoreOpType::CpAsyncBulkTensorTile);
+  tv1_smem->setMemoryType(MemoryType::Shared);
+
+  // Cache loads from shared memory to registers (vectorized)
+  auto tv0_reg = tv0_smem->cacheAfter();
+  auto tv1_reg = tv1_smem->cacheAfter();
+
+  // Output caching: regs -> [smem ->] global memory
+  TensorView* tv3_smem = nullptr;
+  TensorView* tv3_cache = nullptr;
+  if (use_tma_store) {
+    // TMA store path: regs -> smem -> global memory (via TMA)
+    tv3_smem = tv3->cacheBefore(LoadStoreOpType::CpAsyncBulkTensorTile);
+    tv3_smem->setMemoryType(MemoryType::Shared);
+    tv3_cache = tv3_smem->cacheBefore();
+  } else {
+    // Regular store path: regs -> global memory (no TMA)
+    tv3_cache = tv3->cacheBefore();
+  }
+
+  auto reference = tv3;
+
+  // Constants
+  TileMN tma_tile = {32, 256};
+  TileMN tid_tile = {4, 8}; // [Unroll, Vectorize]
+  TileMN blk_tile = {1, 256}; // [TIDy, TIDx]
+  bool fully_reg_cached = true;
+
+  // [I0, I1] -> [I0/m, m, I1/n, n]
+  reference->split(0, tma_tile.m);
+  reference->split(-1, tma_tile.n);
+  // [I0/m, m, I1/n, n] -> [I0/m, I1/n, m, n]
+  reference->reorder({{1, 2}});
+  // [I0/m, I1/n, m, n] -> [I/sm, sm, m, n]
+  reference->merge(0, 1);
+  reference->split(0, getNumSMs());
+  // [I/sm, sm, m, n] -> [sm, I/sm, m, n]
+  reference->reorder({{0, 1}});
+
+  // Propagate TMA transform
+  TransformPropagatorWithCheck propagator(reference);
+  MaxLogicalDomainInfoSpanningTree(reference).traverse(&propagator);
+
+  // Apply inlineAt for TMA cache
+  inlineAllAt(reference, /*pos=*/2);
+
+  // Schedule all compute tensors (registers and output)
+  std::vector<TensorView*> compute_tvs = {
+      tv0_reg, tv1_reg, tv0_float, tv1_float, tv2, tv3_cache};
+
+  // Add t3_smem if using TMA store, otherwise add t3 (output tensor)
+  if (use_tma_store) {
+    compute_tvs.push_back(tv3_smem);
+  } else {
+    compute_tvs.push_back(tv3);
+  }
+
+  for (auto tv : compute_tvs) {
+    // [..., m, n] -> [..., mn]
+    tv->merge(-2, -1);
+    // [..., mn] -> [..., mn/v, v]
+    tv->split(-1, tid_tile.n);
+    // [..., mn/v, v] -> [..., mn/v/x, x, v]
+    tv->split(-2, blk_tile.n);
+    // [..., mn/v/x, x, v] -> [..., mn/v/x/u, u, x, v]
+    tv->split(-3, tid_tile.m);
+
+    // Parallelize
+
+    // [sm, I/sm, ...]
+    tv->axis(0)->parallelize(ParallelType::BIDx);
+    tv->axis(-2)->parallelize(ParallelType::TIDx);
+    if (explicit_unroll) {
+      tv->axis(-3)->parallelize(ParallelType::Unroll);
+    }
+    // Vectorize: register cache tensors for loads from smem, and smem tensor
+    // for TMA store
+    bool vectorize_condition =
+        (tv == tv0_reg || tv == tv1_reg || (use_tma_store && tv == tv3_smem) ||
+         (!use_tma_store && tv == tv3));
+    if (vectorize_condition) {
+      tv->axis(-1)->parallelize(ParallelType::Vectorize);
+    }
+  }
+  if (!fully_reg_cached) {
+    inlineMost(compute_tvs);
+  } else {
+    inlineSelectedAt({tv0_reg, tv1_reg}, tv0_reg, 2);
+    auto all_other_tvs =
+        ir_utils::allTvsExcept(&fusion, {tv0_reg, tv1_reg, tv0_smem, tv1_smem});
+    inlineMost(all_other_tvs);
+  }
+
+  // Circular Buffer with TMA loads (and TMA store if enabled)
+  int64_t number_of_stages = 4;
+  int64_t prefetch_distance = number_of_stages - 1;
+  CircularBufferType circular_buffer_type =
+      WarpSpecialized(ParallelType::TIDx, std::make_pair(40L, 232L));
+  std::vector<TensorView*> tma_tvs = {tv0_smem, tv1_smem};
+  for (auto tv : tma_tvs) {
+    tv->axis(0)->parallelize(ParallelType::BIDx);
+    tv->axis(-1)->parallelize(ParallelType::Bulk);
+    tv->axis(-2)->parallelize(ParallelType::Bulk);
+    tv->circularBuffer(
+        number_of_stages, prefetch_distance, circular_buffer_type);
+  }
+
+  // TMA store - parallelize output tensor (tv3) for gmem (only if
+  // use_tma_store)
+  if (use_tma_store) {
+    tv3->axis(0)->parallelize(ParallelType::BIDx);
+    tv3->axis(-1)->parallelize(ParallelType::Bulk);
+    tv3->axis(-2)->parallelize(ParallelType::Bulk);
+  }
+
+  auto options =
+      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
+  auto t0 = at::randn({dim0, dim1}, options);
+  auto t1 = at::randn({dim0, dim1}, options);
+
+  KernelExecutor ke;
+  ke.compile(&fusion, {t0, t1});
+  auto out_tensors = ke.run({t0, t1});
+  testValidate(&fusion, out_tensors, {t0, t1}, __LINE__, __FILE__);
+}
+
 INSTANTIATE_TEST_SUITE_P(
     ,
-    PointwiseMultiWaveTMATest,
+    PointwiseTmaTest,
     ::testing::Combine(
         ::testing::Bool(), // use_tma_store
         ::testing::Bool() // explicit_unroll
@@ -1579,5 +1742,4 @@ INSTANTIATE_TEST_SUITE_P(
       return std::string(use_tma_store ? "WithTMAStore" : "WithoutTMAStore") +
           "_" + (explicit_unroll ? "WithUnroll" : "WithoutUnroll");
     });
-
 } // namespace nvfuser
