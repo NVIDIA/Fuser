@@ -156,7 +156,7 @@ class EVTConverter : OptInDispatch {
       for (const BlockScaledOutputPattern& pattern : scaling_patterns) {
         block_scaling_patterns_.emplace(pattern.unquantized_output, pattern);
         unscaled_outputs.push_back(pattern.unquantized_output);
-        all_scaling_outputs.insert(pattern.output);
+        all_scaling_outputs.insert(pattern.quantized_output);
         all_scaling_outputs.insert(pattern.block_scale_factors);
       }
       for (Val* v : fusion_->outputs()) {
@@ -259,7 +259,7 @@ class EVTConverter : OptInDispatch {
       EVTModel::Node* scaling_node = model_.makeNode(
           "cutlass::epilogue::fusion::Sm100BlockScaleFactorRowStore<" +
           std::to_string(pattern.block_size) + ", EpilogueTile, " +
-          dtypeToCutlass(pattern.output->dtype()) + ", " +
+          dtypeToCutlass(pattern.quantized_output->dtype()) + ", " +
           dtypeToCutlass(pattern.unquantized_output->dtype()) + ", " +
           dtypeToCutlass(pattern.block_scale_factors->dtype()) +
           ", cutlass::FloatRoundStyle::round_to_nearest>");

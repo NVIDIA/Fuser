@@ -29,6 +29,17 @@ bool isBlockScaledDtype(const DataType& dtype) {
 
 namespace cutlass_codegen {
 
+std::string BlockScaledOutputPattern::toString() const {
+  std::stringstream ss;
+  ss << "BlockScaledOutputPattern: {\n";
+  ss << "  unquantized_output: " << unquantized_output->toString() << "\n";
+  ss << "  output: " << quantized_output->toString() << "\n";
+  ss << "  block_scale_factors: " << block_scale_factors->toString() << "\n";
+  ss << "  block_size: " << block_size << "\n";
+  ss << "}\n";
+  return ss.str();
+}
+
 // This matches a standard block scaling pattern expressed in Fusion IR.
 //
 // Block scaling quantizes a tensor by dividing it by per-block scale factors
@@ -36,7 +47,7 @@ namespace cutlass_codegen {
 //
 // Pattern diagram (without global scale):
 //
-//          Input (high precision)
+//          unquantized_output (high precision)
 //                   |
 //       Reshape (split by block_size)
 //                   |
@@ -72,7 +83,7 @@ namespace cutlass_codegen {
 //                |
 //         [Optional: Reshape]
 //                |
-//             data_lp --> OUTPUT (quantized)
+//         quantized_output --> OUTPUT (quantized)
 //
 // The pattern with global scale accepts a fusion input that divides the data
 // before the first abs/max
@@ -319,7 +330,7 @@ std::vector<BlockScaledOutputPattern> findBlockScaledOutputs(Fusion* fusion) {
 
       BlockScaledOutputPattern pattern;
       pattern.unquantized_output = unquantized_output;
-      pattern.output = out_tv;
+      pattern.quantized_output = out_tv;
       pattern.block_scale_factors = block_scale_factors;
       pattern.global_scale_factor = global_scale_factor;
       pattern.block_size = block_size;

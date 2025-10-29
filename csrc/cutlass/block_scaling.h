@@ -10,6 +10,7 @@
 #include <visibility.h>
 
 #include <cstdint>
+#include <string>
 #include <vector>
 
 namespace nvfuser {
@@ -22,16 +23,17 @@ namespace cutlass_codegen {
 //! Pattern for block-scaled quantized outputs
 struct BlockScaledOutputPattern {
   TensorView* unquantized_output;
-  TensorView* output;
+  TensorView* quantized_output;
   TensorView* block_scale_factors;
   TensorView* global_scale_factor;
   int64_t block_size;
+
+  std::string toString() const;
 };
 
 //! Find block-scaled output patterns in a fusion
 //! Returns a vector of patterns, one for each block-scaled output
-std::vector<BlockScaledOutputPattern> findBlockScaledOutputs(
-    Fusion* fusion);
+std::vector<BlockScaledOutputPattern> findBlockScaledOutputs(Fusion* fusion);
 
 } // namespace cutlass_codegen
 

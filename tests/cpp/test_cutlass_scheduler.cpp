@@ -382,11 +382,13 @@ TEST_F(CutlassExecutorTest, FindBlockScaledOutputs_WithoutGlobalScale) {
   std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
-  auto tv_data_hp = makeContigTensor(2, DataType::Float);
-  fusion->addInput(tv_data_hp);
+  auto input = makeContigTensor(2, DataType::Float);
+  fusion->addInput(input);
+
+  auto unquantized_output = exp(input);
 
   auto tv_data_hp_reshaped =
-      reshape(tv_data_hp, [](auto& x) { x.split(-1, block_size); });
+      reshape(unquantized_output, [](auto& x) { x.split(-1, block_size); });
 
   auto tv_data_hp_abs = abs(tv_data_hp_reshaped);
   auto tv_data_hp_amax = max(tv_data_hp_abs, {-1});
@@ -418,8 +420,8 @@ TEST_F(CutlassExecutorTest, FindBlockScaledOutputs_WithoutGlobalScale) {
   auto patterns = cutlass_codegen::findBlockScaledOutputs(fusion.get());
 
   ASSERT_EQ(patterns.size(), 1);
-  EXPECT_EQ(patterns[0].output, tv_data_lp);
-  EXPECT_EQ(patterns[0].unquantized_output, tv_data_scaled_clamp);
+  EXPECT_EQ(patterns[0].quantized_output, tv_data_lp);
+  EXPECT_EQ(patterns[0].unquantized_output, unquantized_output);
   EXPECT_EQ(patterns[0].block_scale_factors, tv_block_scale_fp8);
   EXPECT_EQ(patterns[0].global_scale_factor, nullptr);
   EXPECT_EQ(patterns[0].block_size, block_size);
@@ -476,7 +478,7 @@ TEST_F(CutlassExecutorTest, FindBlockScaledOutputs_WithGlobalScale) {
   auto patterns = cutlass_codegen::findBlockScaledOutputs(fusion.get());
 
   ASSERT_EQ(patterns.size(), 1);
-  EXPECT_EQ(patterns[0].output, tv_data_lp);
+  EXPECT_EQ(patterns[0].quantized_output, tv_data_lp);
   EXPECT_EQ(patterns[0].unquantized_output, tv_data_scaled_clamp);
   EXPECT_EQ(patterns[0].block_scale_factors, tv_scaled_block_scales_fp8);
   EXPECT_EQ(patterns[0].global_scale_factor, tv_per_tensor_scale);
@@ -515,7 +517,7 @@ TEST_F(CutlassExecutorTest, FindBlockScaledOutputs_MXFP8) {
   auto patterns = cutlass_codegen::findBlockScaledOutputs(fusion.get());
 
   ASSERT_EQ(patterns.size(), 1);
-  EXPECT_EQ(patterns[0].output, tv_data_lp);
+  EXPECT_EQ(patterns[0].quantized_output, tv_data_lp);
   EXPECT_EQ(patterns[0].unquantized_output, tv_data_scaled);
   EXPECT_EQ(patterns[0].block_scale_factors, tv_block_scale_fp8);
   EXPECT_EQ(patterns[0].global_scale_factor, nullptr);
