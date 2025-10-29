@@ -275,6 +275,19 @@ bool isConnectedFusionGraph(Fusion* fusion) {
 //
 // Returns true if a scenario like above is found in the fusion.
 bool requiresForwardViewReplay(Fusion* fusion, ComputeAtMap& ca_map) {
+  // Track the uses of the logical domains in the fusion. If an logical domain
+  // is used in more than one way it means the above situation is being
+  // encountered.
+  //
+  // tv1 root: [I0rf, I1rf, I2] -> logical [I0*I1rf, I2]
+  // tv1 root: [I0, I1rf, I2rf] -> logical [I0, I1*I2rf]
+  //
+  // Here we can see I1rf is used in two view transformations, one to I0*I1rf,
+  // and the other to I1*I2rf.
+
+  // Track the transformation each exact disjoint logical set is used in. If
+  // more than one is detected we can't support transforming the fusion into a
+  // consistent format.
   std::unordered_map<std::shared_ptr<VectorOfUniqueEntries<IterDomain*>>, Expr*>
       unique_exact_uses;
 
@@ -294,7 +307,7 @@ bool requiresForwardViewReplay(Fusion* fusion, ComputeAtMap& ca_map) {
   // Mark those as an active use of the logical, if two are detected, return
   // true.
   for (const auto& disjoint_set_shared_ptr :
-       ca_map.idGraph().permissiveResizeNodes().disjointSets()) {
+       ca_map.idGraph().exactNodes().disjointSets()) {
     // Make sure there's at least one logical domain in the set, otherwise we
     // don't need to check anything from this set.
     if (!std::any_of(

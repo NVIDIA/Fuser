@@ -3170,14 +3170,4 @@ TEST_F(ReshapeTest, OneSliceIncompatibleReshapesDifferentDisjointSets) {
   EXPECT_TRUE(executor_cache.getMostRecentKernelRuntime()->isSegmented());
 }
 
-// [  FAILED  ] 4 tests, listed below:
-// [  FAILED  ] ReshapeTest.IncompatibleReshapesDifferentDisjointSets
-// [  FAILED  ] ReshapeTest.IncompatibleReshapesDifferentDisjointSetsMultiSteps
-// [  FAILED  ] ReshapeTest.CompatibleReshapesDifferentDisjointSetsMultiSteps
-// [  FAILED  ] ReshapeTest.OneSliceIncompatibleReshapesDifferentDisjointSets
-// TransformPropagator propagates through slice, slice leads to different
-// disjoint sets. Then transformation is propagated to different disjoint sets.
-// If the reshapes attached to these two slices are different, there will be a
-// conflict in reshapes.
-//
 } // namespace nvfuser

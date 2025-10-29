@@ -200,8 +200,7 @@ class NVF_API IdModel : public PolymorphicBase {
   ValGraph& buildPermissiveGraph();
 
   // Fills disjoint_ids_[IdMappingMode::PERMISSIVE_RESIZE]. Initialize it as
-  // PERMISSIVE entries, then map through resize and indexed domains (gather,
-  // scatter). Build the PERMISSIVE graph as well if not yet done.
+  // PERMISSIVE entries, then map through resize.
   ValGraph& buildPermissiveResizeGraph();
 
   // Fills disjoint_ids_[IdMappingMode::LOOP]. Map only inlined

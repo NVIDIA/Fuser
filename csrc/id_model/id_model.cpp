@@ -728,9 +728,6 @@ ValGraph& IdModel::buildPermissiveResizeGraph() {
          ir_utils::filterByType<TensorView>(expr->outputs())) {
       for (auto id : c_tv->getLogicalDomain()) {
         if (id->definition()->isA<Resize>()) {
-          std::cout << "mapping "
-                    << id->definition()->as<Resize>()->in()->toString()
-                    << " to " << id->toString() << std::endl;
           graph.mapVals(id->definition()->as<Resize>()->in(), id);
         }
       }
