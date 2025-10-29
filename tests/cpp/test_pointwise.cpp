@@ -1577,11 +1577,6 @@ TEST_P(PointwiseTmaTest, PointwiseMulMultiWaveTMA) {
 
 TEST_P(PointwiseTmaTest, PointwiseWarpSpecializedTMA) {
   auto [use_tma_store, explicit_unroll] = GetParam();
-  if (use_tma_store) {
-    GTEST_SKIP()
-        << "skipping test with TMA store due to a bug in insertWarAsyncWait.";
-  }
-
   auto fusion_ptr = std::make_unique<Fusion>();
   FusionGuard fg(fusion_ptr.get());
   Fusion& fusion = *fusion_ptr;
