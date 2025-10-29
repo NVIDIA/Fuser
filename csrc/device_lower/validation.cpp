@@ -637,9 +637,6 @@ class ExprValidator : public OptOutDispatch {
     NVF_ERROR(
         quantized_output->hasAllocation() == false,
         "Quantized output must not have an allocation domain.");
-    NVF_ERROR(
-        block_scaling_factor->hasAllocation() == false,
-        "Block scaling factor must not have an allocation domain.");
 
     // Check that it either had vectorized ID or grouped ID
     // not both and the extent is either 4(FP32) or 8(BF16)
