@@ -3412,13 +3412,12 @@ TEST_F(TMATest, NdTmaLoad1dTensor) {
   auto t0 = at::randn({dim0}, options);
   KernelExecutor ke;
   ke.compile(fusion.get(), {t0});
-  try {
-    ke.run({t0});
-  } catch (const std::exception& e) {
-    const char* reference =
-        R"(boxDim array, which specifies number of elements to be traversed along each of the tensorRank dimensions, must be non-zero and less than or equal to 256. box_dim_val = 512)";
-    const char* str_match_pointer = strstr(e.what(), reference);
-    EXPECT_TRUE(str_match_pointer != nullptr) << e.what();
-  }
+
+  EXPECT_THAT(
+      [&]() { ke.run({t0}); },
+      ::testing::ThrowsMessage<nvfuser::nvfError>(::testing::HasSubstr(
+          "boxDim array, which specifies number of elements to be traversed "
+          "along each of the tensorRank dimensions, must be non-zero and less "
+          "than or equal to 256. box_dim_val = 512")));
 }
 } // namespace nvfuser
