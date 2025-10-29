@@ -58,6 +58,10 @@ bool Statement::lessThan(const Statement* stmt1, const Statement* stmt2) {
   return stmt1->name() < stmt2->name();
 }
 
+size_t Statement::getHash() const {
+  NVF_THROW("getHash for IR node ", typeid(*this).name(), " is not defined");
+}
+
 std::string Statement::toString(int indent_size) const {
   NVF_THROW("toString for IR node ", typeid(*this).name(), " is not defined");
 }
@@ -163,6 +167,43 @@ bool Val::sameAs(const Statement* other) const {
     return true;
   }
   return false;
+}
+
+bool Val::checkDefinition(const Val* other) const {
+  if (typeid(*this) != typeid(*other)) {
+    return false;
+  }
+  if ((definition_ == nullptr) != (other->definition_ == nullptr)) {
+    return false;
+  }
+  if (vtype_ != other->vtype_) {
+    return false;
+  }
+  if (dtype_ != other->dtype_) {
+    return false;
+  }
+  if (value_.hasValue() != other->value_.hasValue()) {
+    return false;
+  }
+  if (value_.hasValue()) {
+    if (value_.is<double>() && std::isnan(value_.as<double>()) &&
+        std::isnan(other->value_.as<double>())) {
+      return true;
+    } else {
+      return value_ == other->value_;
+    }
+  }
+  return true;
+}
+
+size_t Val::getHash() const {
+  size_t hash = 0;
+  hashCombine(hash, std::hash<ValType>()(vtype_));
+  hashCombine(
+      hash,
+      std::hash<int>()(static_cast<int>(std::get<PrimDataType>(dtype_.type))));
+  hashCombine(hash, PolymorphicValue_functions::hash(value_));
+  return hash;
 }
 
 std::string Val::toString(int indent_size) const {
@@ -279,6 +320,24 @@ Expr* Expr::shallowCopy() const {
   return result;
 }
 
+namespace {
+size_t hashVectorOfVals(const std::vector<Val*>& vals) {
+  size_t hash = 0;
+  for (const auto& val : vals) {
+    hashCombine(hash, val->hash());
+  }
+  return hash;
+}
+} // namespace
+
+size_t Expr::getHash() const {
+  size_t hash = 0;
+  hashCombine(hash, std::hash<std::string>()(getOpString()));
+  hashCombine(hash, hashVectorOfVals(inputs_));
+  hashCombine(hash, hashVectorOfVals(outputs_));
+  return hash;
+}
+
 std::string Expr::getGraphvizLabel() const {
   if (attributes().empty()) {
     return getOpString();
@@ -319,6 +378,18 @@ bool Expr::sameOp(const Expr* other) const {
   }
   for (const auto i : arange(attributes().size())) {
     if (!attribute(i)->sameAs(other->attribute(i))) {
+      return false;
+    }
+  }
+  return true;
+}
+
+bool Expr::checkDefinition(const Expr* other) const {
+  if (!sameOp(other)) {
+    return false;
+  }
+  for (const auto i : arange(inputs().size())) {
+    if (!input(i)->checkDefinition(other->input(i))) {
       return false;
     }
   }

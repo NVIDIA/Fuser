@@ -99,7 +99,9 @@ def test_scaled_mm(
         )
         fd.add_output(out)
 
-    o, _ = nvfuser_direct_test.exec_nvfuser(nvfuser_fusion_id0, inputs)
+    o, _ = nvfuser_direct_test.exec_nvfuser(
+        nvfuser_fusion_id0, inputs, new_fusion_expected=None
+    )
 
     ref_o = (
         torch._scaled_mm(

@@ -494,6 +494,8 @@ class NVF_API TensorDomain : public Val {
     return static_cast<int64_t>(loop_domain_.size());
   }
 
+  bool checkDefinition(const Val* other) const override;
+
   bool sameAs(const Statement* other) const override;
 
   static bool sameAs(

@@ -176,8 +176,18 @@ class NVF_API Statement : public NonCopyable, public PolymorphicBase {
 
   virtual Statement* clone(IrCloner* ir_cloner) const;
 
+  size_t hash() const {
+    size_t hash = 0;
+    hashCombine(hash, std::hash<StmtNameType>()(name_));
+    hashCombine(hash, getHash());
+    return hash;
+  }
+
  protected:
   Statement(IrBuilderPasskey);
+
+  // Virtual helper for hashing that is defined in child class
+  virtual size_t getHash() const;
 
   // NOLINTNEXTLINE(cppcoreguidelines-non-private-member-variables-in-classes)
   StmtNameType name_ = kInvalidStmName;
@@ -270,6 +280,10 @@ class NVF_API Val : public Statement {
         vtype_(src->vtype_),
         dtype_(src->dtype_),
         value_(src->value_) {}
+
+  size_t getHash() const override;
+
+  virtual bool checkDefinition(const Val* other) const;
 
   std::string toString(int indent_size = 0) const override;
 
@@ -524,6 +538,11 @@ class NVF_API Expr : public Statement {
   // from sameAs is that sameOp does not check the inputs.
   virtual bool sameOp(const Expr* other) const;
 
+  // Check that if this and other have same definition. This main difference
+  // from sameAs is that checkDefinition checks the inputs with checkDefinition
+  // instead of sameAs.
+  virtual bool checkDefinition(const Expr* other) const;
+
   bool sameAs(const Statement* other) const override;
 
   virtual bool isDeterministic() const {
@@ -611,6 +630,8 @@ class NVF_API Expr : public Statement {
   virtual void checkConcretization(Val* old_val, Val* new_val) const;
 
  protected:
+  size_t getHash() const override;
+
   // TODO: Protect based on being in kernel container
   void setPredicate(kir::Predicate* predicate);
 
