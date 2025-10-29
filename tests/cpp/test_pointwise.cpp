@@ -1737,4 +1737,28 @@ INSTANTIATE_TEST_SUITE_P(
       return std::string(use_tma_store ? "WithTMAStore" : "WithoutTMAStore") +
           "_" + (explicit_unroll ? "WithUnroll" : "WithoutUnroll");
     });
+
+class PointwiseTmaAutoSchedulerTest : public PointwiseTmaTest {
+  // enable tma pointwise
+  void SetUp() override {
+    PointwiseTmaTest::SetUp();
+    EnableOptionsGuard enable_options_guard;
+    EnableOptionsGuard::getCurOptions().set(EnableOption::TmaPointwise);
+  }
+};
+TEST_F(PointwiseTmaAutoSchedulerTest, MultiWaveAuto1D) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto fusion = fusion_ptr.get();
+  FusionGuard fg(fusion);
+  auto tv0 = makeContigConcreteTensor({dim0}, dtype);
+  fusion->addInput(tv0);
+  auto tv1 = add(tv0, tv0);
+  fusion->addOutput(tv1);
+  auto options =
+      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
+  auto t0 = at::randn({dim0}, options);
+  auto cg_results = scheduleAndRun(fusion, SchedulerType::PointWise, {t0});
+  testValidate(fusion, cg_results.outputs, {t0}, __LINE__, __FILE__);
+}
+
 } // namespace nvfuser
