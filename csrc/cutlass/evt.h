@@ -41,8 +41,8 @@ class EVTModel {
   struct Node {
     const std::string name;
     std::vector<Node*> inputs;
-    // If an argument is required, provide it here
-    Val* argument = nullptr;
+    // Arguments are an order set of key-value pairs
+    std::vector<std::pair<std::string, std::string>> arguments;
   };
 
   Node* makeNode(const std::string& name) {

@@ -8,13 +8,13 @@
 
 #include <cutlass/gemm.h>
 #include <exceptions.h>
+#include <fusion.h>
+#include <ir/base_nodes.h>
 #include <type.h>
 
 #include <string>
 
 namespace nvfuser {
-
-class Fusion;
 
 class CutlassParams;
 
@@ -48,6 +48,20 @@ std::string dtypeToCutlass(const DataType& dtype) {
           dtype,
           " is not supported in our CUTLASS executor");
   }
+}
+
+int64_t fusionInputPosition(Fusion* fusion, Val* v) {
+  NVF_ERROR(v->isFusionInput());
+  return static_cast<int64_t>(
+      std::find(fusion->inputs().begin(), fusion->inputs().end(), v) -
+      fusion->inputs().begin());
+}
+
+int64_t fusionOutputPosition(Fusion* fusion, Val* v) {
+  NVF_ERROR(v->isFusionOutput());
+  return static_cast<int64_t>(
+      std::find(fusion->outputs().begin(), fusion->outputs().end(), v) -
+      fusion->outputs().begin());
 }
 
 std::string generateCode(Fusion* fusion, const CutlassParams& params) {

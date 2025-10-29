@@ -70,6 +70,35 @@ class EVTConverter : OptInDispatch {
     return failure_reason_;
   }
 
+  EVTModel::Node* makeAuxLoadNode(TensorView* tv) {
+    EVTModel::Node* load_node =
+        model_.makeNode("cutlass::epilogue::fusion::Sm90AuxLoad<>");
+    // TODO: Add arguments for Sm90AuxLoad
+    return load_node;
+  }
+
+  //! We pass both inputs and output tensors to the launcher code via a vector
+  //! of inputs and outputs, where the outputs are after the inputs. Given a TV,
+  //! this function returns something like
+  //!
+  //!   static_cast<cutlass::bfloat16_t*>(inputs.at(4).data_ptr)
+  //!
+  std::string getPointerCode(TensorView* tv) {
+    int64_t index = -1;
+    if (tv->isFusionInput()) {
+      index = fusionInputPosition(fusion_, tv);
+    } else if (tv->isFusionOutput()) {
+      index = fusion_->inputs().size() + fusionOutputPosition(fusion_, tv);
+    } else {
+      NVF_THROW(
+          "Cannot get pointer for TV ",
+          tv->toString(),
+          " which is not a fusion input or output");
+    }
+    return "static_cast<" + dtypeToCutlass(tv->dtype()) + "*>(inputs.at(" +
+        std::to_string(index) + ").data_ptr)";
+  }
+
   void run() {
     Expr* mma = getGemmExpr(fusion_);
 
@@ -82,6 +111,27 @@ class EVTConverter : OptInDispatch {
     TensorView* beta = scaled_mma->beta();
     TensorView* bias = scaled_mma->bias();
 
+    auto check_input = [](TensorView* inp) {
+      if (inp == nullptr) {
+        // Allow null
+        return;
+      }
+      // Check that input is contiguous
+      const std::vector<std::optional<bool>>& contig = inp->getContiguity();
+      NVF_ERROR(
+          std::all_of(
+              contig.begin(),
+              contig.end(),
+              [](const std::optional<bool>& c) {
+                return !c.has_value() || c.value();
+              }),
+          "Expected all inputs to ScaledMmaOp to be contiguous but found ",
+          inp->toString());
+    };
+    check_input(alpha);
+    check_input(beta);
+    check_input(bias);
+
     // The default kernel uses EpilogueScheduleAuto, which in turn uses
     // LinearCombination as the epilogue. That means an epilogue that looks like
     // this is assumed:
@@ -93,9 +143,6 @@ class EVTConverter : OptInDispatch {
     // Otherwise, we replicate the default EVT defined here:
     // https://github.com/NVIDIA/cutlass/blob/c6aeb9179c5f74a0fcdbd28527bf4b6ba8c60752/include/cutlass/epilogue/fusion/sm90_callbacks_tma_warpspecialized.hpp#L118-L134
 
-    NVF_ERROR(beta == nullptr, "Beta not yet supported for EVT translation");
-    NVF_ERROR(bias == nullptr, "Bias not yet supported for EVT translation");
-
     NVF_ERROR(
         scaled_mma->outScale() == nullptr,
         "Output block scale factor not supported for EVT translation");
@@ -103,12 +150,10 @@ class EVTConverter : OptInDispatch {
         scaled_mma->outGamma() == nullptr,
         "Output global scale factor not supported for EVT translation");
 
-    // Start by making nodes for the accumulator and for any epilogue inputs
-    if (alpha == nullptr && (beta == nullptr || bias == nullptr)) {
-      // No epilogue
-      val_nodes_.emplace(
-          mma_out, model_.makeNode("cutlass::epilogue::fusion::Sm90AccFetch"));
-    }
+    // This will be the node corresponding to the TensorView output of the
+    // ScaledMmaOp
+    EVTModel::Node* mma_out_node =
+        model_.makeNode("cutlass::epilogue::fusion::Sm90AccFetch");
 
     if (alpha != nullptr) {
       NVF_ERROR(
@@ -120,20 +165,57 @@ class EVTConverter : OptInDispatch {
       // Broadcast alpha to the same dimensions as the accumulator
       EVTModel::Node* alpha_bcast_node = model_.makeNode(
           "cutlass::epilogue::fusion::Sm90ScalarBroadcast<float>");
-      alpha_bcast_node->argument = alpha;
+      alpha_bcast_node->arguments.emplace_back(
+          "scalar_ptrs", "{" + getPointerCode(alpha) + "}");
       val_nodes_.emplace(alpha, alpha_bcast_node);
 
-      EVTModel::Node* alpha_acc_node = makeBinaryOpNode(
+      // Delay casting down to output type until we've completed the default
+      // epilogue alpha*acc + beta*bias. If no bias is given, go ahead and cast
+      // it down.
+      // TODO: If the only use of mma_out is a cast, then cast directly to that
+      // precision instead here i.e. forward past the two casts
+      DataType out_dtype = beta == nullptr ? mma_out->dtype() : DataType::Float;
+
+      mma_out_node = makeBinaryOpNode(
           BinaryOpType::Mul,
           /*in_type=*/DataType::Float,
-          // NOTE: CUTLASS does not have explicit cast EVT nodes.
-          /*out_type=*/mma_out->dtype(),
+          /*out_type=*/out_dtype,
           /*lhs_node=*/alpha_bcast_node,
           /*rhs_node=*/
           model_.makeNode("cutlass::epilogue::fusion::Sm90AccFetch"));
-
-      val_nodes_.emplace(mma_out, alpha_acc_node);
     }
+
+    if (bias != nullptr) {
+      // Make a node to load the bias
+      EVTModel::Node* bias_node = model_.makeNode(
+          "cutlass::epilogue::fusion::Sm90SrcFetch<" +
+          dtypeToCutlass(bias->dtype()) + ">");
+      if (beta != nullptr) {
+        EVTModel::Node* beta_bcast_node = model_.makeNode(
+            "cutlass::epilogue::fusion::Sm90ScalarBroadcast<" +
+            dtypeToCutlass(beta->dtype()) + ">");
+        beta_bcast_node->arguments.emplace_back(
+            "scalar_ptrs", "{" + getPointerCode(beta) + "}");
+        // Note: this casts beta and bias to float then multiplies and outputs
+        // float, since we will always be adding it straight to alpha*acc
+        // anyway
+        bias_node = makeBinaryOpNode(
+            BinaryOpType::Mul,
+            /*in_type=*/DataType::Float,
+            /*out_type=*/DataType::Float,
+            /*lhs_node=*/beta_bcast_node,
+            /*rhs_node=*/bias_node);
+      }
+
+      mma_out_node = makeBinaryOpNode(
+          BinaryOpType::Mul,
+          /*in_type=*/DataType::Float,
+          /*out_type=*/mma_out->dtype(),
+          /*lhs_node=*/mma_out_node,
+          /*rhs_node=*/bias_node);
+    }
+
+    val_nodes_.emplace(mma_out, mma_out_node);
 
     // TODO: add load nodes for epilogue inputs defined in Fusion (i.e. not as
     // ScaledMmaOp inputs)
@@ -270,9 +352,7 @@ EVTModel::EVTModel(const EVTModel& model) {
 
   for (const auto& node_up : model.nodes_up_) {
     Node* new_node = makeNode(node_up->name);
-    if (node_up->argument != nullptr) {
-      new_node->argument = node_up->argument;
-    }
+    new_node->arguments = node_up->arguments;
     old2new.emplace(node_up.get(), new_node);
   }
   // Loop again now that have old2new fully populated
@@ -320,31 +400,20 @@ struct CommentedString {
 CommentedString argStringHelper(EVTModel::Node* node, int64_t indent_size);
 
 CommentedString argumentArgString(EVTModel::Node* node, int64_t indent_size) {
-  std::stringstream ss;
-  if (node->argument->isA<TensorView>()) {
-    indent(ss, indent_size) << "{  // " << node->name << "\n";
-    // TODO: If this is an input scalar, we need to obtain its name in the
-    // kernel here
-    const std::string internal_var_name = "alpha";
-    indent(ss, indent_size + 1)
-        << ".scalar_ptrs={static_cast<"
-        << dtypeToCutlass(node->argument->dtype()) << " const*>("
-        << internal_var_name << ".data_ptr)}\n";
-    indent(ss, indent_size) << "}";
-    return {ss.str(), ""};
-  } else {
-    // If this is a constant scalar, print its value directly
-    if (node->argument->isConstScalar()) {
-      return {
-          "{.scalars={" + node->argument->toInlineString() + "}}", node->name};
-    }
-    NVF_ERROR(
-        node->argument->isFusionInput(),
-        "Non-constant scalars are expected to be fusion inputs for EVT "
-        "translation");
-    NVF_THROW("Input scalars not yet supported in EVT translation");
-    return {ss.str(), ""};
+  if (node->arguments.empty()) {
+    return {"{}", node->name};
   }
+  std::stringstream ss;
+  indent(ss, indent_size) << "{  // " << node->name << "\n";
+  for (const auto& [i, kv] : enumerate(node->arguments)) {
+    indent(ss, indent_size + 1) << "." << kv.first << "=" << kv.second;
+    if (i < node->arguments.size() - 1) {
+      ss << ",";
+    }
+    ss << "\n";
+  }
+  indent(ss, indent_size) << "}";
+  return {ss.str(), ""};
 }
 
 // For nodes with no inputs, we print their args like this:
@@ -404,7 +473,7 @@ CommentedString argStringWithInputs(EVTModel::Node* node, int64_t indent_size) {
 CommentedString argStringHelper(EVTModel::Node* node, int64_t indent_size) {
   NVF_ERROR(node != nullptr);
   if (node->inputs.empty()) {
-    if (node->argument == nullptr) {
+    if (node->arguments.empty()) {
       std::stringstream ss;
       indent(ss, indent_size) << "{}";
       return {ss.str(), node->name};
@@ -452,8 +521,17 @@ std::string EVTModel::toString() const {
       }
       ss << ")";
     }
-    if (node_up->argument != nullptr) {
-      ss << "[" << node_up->argument->toString() << "]";
+    if (!node_up->arguments.empty()) {
+      ss << "[";
+      bool first = true;
+      for (const auto& [k, v] : node_up->arguments) {
+        if (!first) {
+          ss << ", ";
+        }
+        first = false;
+        ss << k << "=" << v;
+      }
+      ss << "]";
     }
     ss << "\n";
   }

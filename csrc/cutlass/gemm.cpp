@@ -50,20 +50,6 @@ ScaledMmaOp* findScaledMmaOp(Fusion* fusion) {
   return *smmas.begin();
 }
 
-int64_t fusionInputPosition(Fusion* fusion, Val* v) {
-  NVF_ERROR(v->isFusionInput());
-  return std::distance(
-      fusion->inputs().begin(),
-      std::find(fusion->inputs().begin(), fusion->inputs().end(), v));
-}
-
-int64_t fusionOutputPosition(Fusion* fusion, Val* v) {
-  NVF_ERROR(v->isFusionOutput());
-  return std::distance(
-      fusion->outputs().begin(),
-      std::find(fusion->outputs().begin(), fusion->outputs().end(), v));
-}
-
 std::string generateNvfp4ScaledMmKernel(
     Fusion* fusion,
     const CutlassParams& params) {
@@ -82,6 +68,7 @@ std::string generateNvfp4ScaledMmKernel(
   TensorView* b = smma->matrix2();
   TensorView* a_scale = smma->scale1();
   TensorView* b_scale = smma->scale2();
+  TensorView* bias = smma->bias();
 
   NVF_ERROR(a->isFusionInput());
   NVF_ERROR(b->isFusionInput());
@@ -149,6 +136,7 @@ struct KernelTraits {
   using MmaTileShape = Shape<_{}, _{}, _{}>;
   using ClusterShape = Shape<_{}, _{}, _{}>;
   using PerSmTileShape_MNK = Shape<_{}, _{}, _{}>;
+  using EpilogueTileShape_MNK = Shape<_{}, _{}, _{}>;
 )",
       params.mma_tile.m,
       params.mma_tile.n,
@@ -158,8 +146,27 @@ struct KernelTraits {
       params.cluster_shape.k,
       params.per_sm_tile.m,
       params.per_sm_tile.n,
-      params.per_sm_tile.k);
+      params.per_sm_tile.k,
+      params.epilogue_tile.m,
+      params.epilogue_tile.n,
+      params.epilogue_tile.k);
 
+  // This replicates the CUTLASS logic for determining whether the mma uses 1
+  // or 2 SMs on blackwell. Note that for non-blockscaled mmas,
+  // params.mma_tile.m can also be 128 and use 2SM but we currently only
+  // support block-scaled inputs.
+  const bool is_2sm =
+      params.cluster_shape.m % 2 == 0 && params.mma_tile.m == 256;
+
+  if (is_2sm) {
+    code +=
+        "  using EpilogueScheduleType = "
+        "cutlass::epilogue::TmaWarpSpecialized2Sm;\n";
+  } else {
+    code +=
+        "  using EpilogueScheduleType = "
+        "cutlass::epilogue::TmaWarpSpecialized1Sm;\n";
+  }
   code += R"(
 };
 
@@ -196,7 +203,11 @@ struct Fp4GemmSm100 {
   // C/D matrix configuration
 )";
   code += "  using ElementD = " + output_dtype + ";\n";
-  code += "  using ElementC = " + output_dtype + ";\n";
+  if (bias != nullptr) {
+    code += "  using ElementC = " + dtypeToCutlass(bias->dtype()) + ";\n";
+  } else {
+    code += "  using ElementC = " + output_dtype + ";\n";
+  }
 
   NVF_ERROR(
       !main_output->hasAllocation(),
@@ -217,7 +228,25 @@ struct Fp4GemmSm100 {
   using MmaTileShape = typename KernelTraits::MmaTileShape;
   using ClusterShape = typename KernelTraits::ClusterShape;
   using PerSmTileShape_MNK = typename KernelTraits::PerSmTileShape_MNK;
+  using EpilogueTileShape_MNK = typename KernelTraits::EpilogueTileShape_MNK;
+  using EpilogueScheduleType = typename KernelTraits::EpilogueScheduleType;
+  using EpilogueTileShape = Shape<_64, _64>;
 
+  using EpilogueDescriptor = cutlass::epilogue::collective::detail::Sm100EpilogueDescriptor<
+    OperatorClass,
+    MmaTileShape,
+    EpilogueTileShape,
+    ElementAccumulator,
+    ElementC,
+    ElementD,
+    EpilogueScheduleType,
+    cutlass::gemm::TagToStrideC_t<LayoutCTag>,
+    cutlass::gemm::TagToStrideC_t<LayoutDTag>,
+    // NOTE: The following flags are only affect the default epilogue and are
+    // ignored when passing a custom epilogue
+    false, // IsPerColScaleSupported
+    false  // IsBlockScaleSupported
+  >;
 )";
   const mma_utils::DataWrapperOpt<EVTModel> model_opt = extractEVTModel(fusion);
   const bool has_evt = model_opt.isValid();
@@ -409,8 +438,9 @@ typename T::Gemm::Arguments args_from_inputs(
     code += "       {}";
   }
   code += ",  // epilogue.thread\n";
-  if (smma->bias() != nullptr) {
-    code += "       bias.data_ptr,";
+  if (bias != nullptr) {
+    code += "       static_cast<" + dtypeToCutlass(bias->dtype()) +
+        "*>(bias.data_ptr),";
   } else {
     code += "       /*bias=*/nullptr,";
   }
