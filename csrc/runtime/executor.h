@@ -105,7 +105,7 @@ class KernelExecutor : public ExecutorAbstract {
       const KernelArgumentHolder& args = {},
       const LaunchParams& launch_constraints = LaunchParams(),
       CompileParams compile_params = CompileParams(),
-      SchedulerType sceduler_type = SchedulerType::None);
+      SchedulerType scheduler_type = SchedulerType::None);
 
   NVF_API KernelArgumentHolder
   run(KernelArgumentHolder args,
