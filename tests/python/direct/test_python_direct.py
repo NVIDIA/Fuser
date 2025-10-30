@@ -3,7 +3,13 @@
 # SPDX-License-Identifier: BSD-3-Clause
 # Owner(s): ["module: nvfuser"]
 
-from nvfuser_direct import FusionDefinition, PythonProfiler, DataType, version
+from nvfuser_direct import (
+    FusionDefinition,
+    PythonProfiler,
+    DataType,
+    version,
+    LruFusionCache,
+)
 import torch
 import pytest
 import io
@@ -556,3 +562,59 @@ def test_fusion_profiler_with_noncodegen_kernels():
             "FusionDefinition did not run correctly with profile enabled! Error: "
             + str(e)
         )
+
+
+def test_lru_cache():
+    inputs = [
+        torch.randn(2, 4, device="cuda"),
+        torch.randn(2, 4, device="cuda"),
+    ]
+
+    def create_fd1(fd: FusionDefinition):
+        t0 = fd.from_pytorch(inputs[0])
+        t1 = fd.from_pytorch(inputs[1])
+        t2 = fd.ops.div(t0, t1)
+        fd.add_output(t2)
+
+    def create_fd2(fd: FusionDefinition):
+        t0 = fd.from_pytorch(inputs[0])
+        t1 = fd.from_pytorch(inputs[1])
+        t2 = fd.ops.div(t1, t0)
+        fd.add_output(t2)
+
+    @LruFusionCache(max_fusions=10)
+    def create_fusion(select_first_fd: bool):
+        with FusionDefinition() as fd:
+            if select_first_fd:
+                create_fd1(fd)
+            else:
+                create_fd2(fd)
+        return fd
+
+    empty_stats = """Max Fusions Allowed: 10
+The fusion cache is empty.\n"""
+    assert create_fusion.stats() == empty_stats
+
+    # Test LRU cache compilation
+    for i in range(5):
+        fd1 = create_fusion(select_first_fd=True)
+        outputs = fd1.execute(inputs)
+        assert torch.allclose(outputs[0], inputs[0] / inputs[1])
+
+        fd2 = create_fusion(select_first_fd=False)
+        outputs = fd2.execute(inputs)
+        assert torch.allclose(outputs[0], inputs[1] / inputs[0])
+        assert fd1.fusion == fd1.fusion
+        assert fd2.fusion == fd2.fusion
+        assert fd1.fusion != fd2.fusion
+
+    expected_stats = """Max Fusions Allowed: 10
+Total Fusions in Cache: 2
+Total Unique Fusions Compiled: 2
+Cache Hits by LRU ordering:
+\t0 -> 4 hits
+\t1 -> 4 hits
+Cache Lookups: 10
+Cache Hits: 8
+Hit Rate: 80%\n"""
+    assert create_fusion.stats() == expected_stats

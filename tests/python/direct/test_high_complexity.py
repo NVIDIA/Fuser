@@ -69,7 +69,9 @@ def test_broadcast_in_dim_with_dynamic_shapes(nvfuser_direct_test):
 
     # Test 2
     inputs = inputs_2
-    nvf_out, _ = nvfuser_direct_test.exec_nvfuser(fusion_func_1, inputs)
+    nvf_out, _ = nvfuser_direct_test.exec_nvfuser(
+        fusion_func_1, inputs, new_fusion_expected=False
+    )
     eager_out = refs.add(
         inputs[0], prims.broadcast_in_dim(inputs[1], inputs[0].size(), [2])
     )
@@ -283,8 +285,7 @@ def test_slice_error_checks(nvfuser_direct_test):
         inputs, (check, error_msg) = combination
         if error_msg is None:
             out = nvfuser_direct_test.exec_nvfuser(
-                partial(check, acts=inputs),
-                inputs,
+                partial(check, acts=inputs), inputs, new_fusion_expected=None
             )
         else:
             with pytest.raises(RuntimeError, match=error_msg), redirect_stdout(
