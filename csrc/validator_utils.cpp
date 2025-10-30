@@ -18,6 +18,7 @@
 #include <expr_evaluator.h>
 #include <fusion.h>
 #include <ir/iostream.h>
+#include <ir/utils.h>
 #include <runtime/executor_utils.h>
 
 namespace nvfuser {
@@ -311,12 +312,16 @@ std::vector<std::pair<double, double>> getValTolerances(
       ReductionSizeMapper::computeReductionSizes(fusion, expr_eval);
 
   std::vector<std::pair<double, double>> tolerance_values;
-  for (size_t i = 0; i < fusion->outputs().size(); i++) {
-    auto fusion_output_tv = fusion->outputs()[i]->as<TensorView>();
+  for (auto fusion_output_tv :
+       ir_utils::filterByType<TensorView>(fusion->outputs())) {
+    if (fusion->getOutputAlias(fusion_output_tv).type ==
+        AllocationType::ReuseBuffer) {
+      continue;
+    }
     NVF_ERROR(
         reduction_sizes.count(fusion_output_tv),
-        "Missed reduction size count on fusion output at index: ",
-        i);
+        "Missed reduction size count on fusion output: ",
+        fusion_output_tv->toString());
 
     int64_t reduction_size = reduction_sizes.at(fusion_output_tv);
 
