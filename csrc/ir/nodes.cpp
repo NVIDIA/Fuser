@@ -6203,8 +6203,7 @@ std::vector<PolymorphicValue> ScanOp::evaluate(
   if (input.is_meta()) {
     const at::ScalarType out_dtype = data_type_to_aten(out()->dtype());
     auto out_meta = at::empty(
-        input.sizes(),
-        at::TensorOptions().device(at::kMeta).dtype(out_dtype));
+        input.sizes(), at::TensorOptions().device(at::kMeta).dtype(out_dtype));
     return {out_meta};
   }
 

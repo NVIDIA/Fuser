@@ -35,14 +35,17 @@ TEST_F(MetaTest, ScanRowMajor) {
   // CUDA path via ExpressionEvaluator
   ExpressionEvaluator ee_cuda;
   ee_cuda.bind(fusion_ptr->inputs().at(0), input);
-  auto real_out = ee_cuda.evaluate(fusion_ptr->outputs().at(0)).as<at::Tensor>();
+  auto real_out =
+      ee_cuda.evaluate(fusion_ptr->outputs().at(0)).as<at::Tensor>();
 
   // Meta evaluation
   // Meta path via ExpressionEvaluator
   ExpressionEvaluator ee_meta;
-  auto meta_in = at::empty_strided(input.sizes(), input.strides(), options.device(at::kMeta));
+  auto meta_in = at::empty_strided(
+      input.sizes(), input.strides(), options.device(at::kMeta));
   ee_meta.bind(fusion_ptr->inputs().at(0), meta_in);
-  auto meta_out = ee_meta.evaluate(fusion_ptr->outputs().at(0)).as<at::Tensor>();
+  auto meta_out =
+      ee_meta.evaluate(fusion_ptr->outputs().at(0)).as<at::Tensor>();
 
   // Checks: tensor is meta, dtype/size/stride match
   EXPECT_TRUE(meta_out.is_meta());
@@ -68,13 +71,16 @@ TEST_F(MetaTest, ScanColMajor) {
   // CUDA path via ExpressionEvaluator
   ExpressionEvaluator ee_cuda;
   ee_cuda.bind(fusion_ptr->inputs().at(0), input);
-  auto real_out = ee_cuda.evaluate(fusion_ptr->outputs().at(0)).as<at::Tensor>();
+  auto real_out =
+      ee_cuda.evaluate(fusion_ptr->outputs().at(0)).as<at::Tensor>();
 
   // Meta evaluation
   ExpressionEvaluator ee_meta;
-  auto meta_in = at::empty_strided(input.sizes(), input.strides(), options.device(at::kMeta));
+  auto meta_in = at::empty_strided(
+      input.sizes(), input.strides(), options.device(at::kMeta));
   ee_meta.bind(fusion_ptr->inputs().at(0), meta_in);
-  auto meta_out = ee_meta.evaluate(fusion_ptr->outputs().at(0)).as<at::Tensor>();
+  auto meta_out =
+      ee_meta.evaluate(fusion_ptr->outputs().at(0)).as<at::Tensor>();
 
   // Checks: tensor is meta, dtype/size/stride match
   EXPECT_TRUE(meta_out.is_meta());
@@ -84,5 +90,3 @@ TEST_F(MetaTest, ScanColMajor) {
 }
 
 } // namespace nvfuser
-
-
