@@ -471,9 +471,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
           auto space_type = kernel_summary.largest_smem_data_type;
           indent() << "nvfuser_index_t block_size = "
                       "blockDim.x*blockDim.y*blockDim.z;\n";
-          indent() << space_type << " *shared_mem_var = "
-                   << "static_cast<" << space_type << "*>("
-                   << "shared_mem);\n";
+          indent() << space_type << " *shared_mem_var = " << "static_cast<"
+                   << space_type << "*>(" << "shared_mem);\n";
           indent() << space_type
                    << " *shared_mem_avg = shared_mem_var + block_size;\n";
           indent() << space_type
@@ -1356,9 +1355,9 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       case BinaryOpType::Add:
         if (sop->in()->dtype() == DataType::Int) {
           // atomicAdd does not provide an overload for int64_t
-          code_ << "atomicAdd("
-                << "reinterpret_cast<unsigned long long*>(&" << dst << "), "
-                << "static_cast<unsigned long long>(" << src << "));\n";
+          code_ << "atomicAdd(" << "reinterpret_cast<unsigned long long*>(&"
+                << dst << "), " << "static_cast<unsigned long long>(" << src
+                << "));\n";
         } else {
           code_ << "atomicAdd(" << "&" << dst << ", " << src << ");\n";
         }
@@ -1800,8 +1799,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     // This is slightly different from getReductionOp
     std::stringstream lambda;
     lambda << "[](const " << native_type_str << "& a, const " << native_type_str
-           << "& b) "
-           << "{ return "
+           << "& b) " << "{ return "
            << genBinaryOp(scan->opType(), input->dtype(), "a", "b") << "; }";
     func_args.arg(lambda.str());
 
@@ -1858,6 +1856,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
                 .size() == 2;
 
     ArgumentBuilder template_args;
+    template_args.arg(
+        bqop->hasGlobalScale() ? true : false); // HAS_GLOBAL_SCALE
     template_args.arg(group_size); // ITEMS_PER_THREAD
 
     // Function arguments
@@ -1877,6 +1877,9 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
 
     // Fifth argument: extent of the inner-most dimension
     func_args.arg(genInline(output->getLoopDomain().back()->extent()));
+
+    func_args.arg(
+        bqop->hasGlobalScale() ? genInline(bqop->globalScale()) : "{}");
 
     if (block_scales_is_swizzled) {
       func_args.arg(
@@ -2226,8 +2229,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     indent() << "#pragma unroll\n";
     indent() << "for (int i = 0; i < " << ldst->groupSize() << "; ++i) {\n";
     indent() << kTab << genVariableName(out_ti->view()) << "[("
-             << genInline(out_ti->index()) << ") + i]"
-             << " = " << gen(ldst->in()) << ";\n";
+             << genInline(out_ti->index()) << ") + i]" << " = "
+             << gen(ldst->in()) << ";\n";
     indent() << "}\n";
   }
 
@@ -2334,8 +2337,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     const bool has_grid_reduce = domain->hasGridReduction();
 
     if (!has_block_reduce && !has_grid_reduce) {
-      indent() << "welfordCombine ("
-               << "\n";
+      indent() << "welfordCombine (" << "\n";
       indent() << kTab << gen(out_avg) << ",\n";
       indent() << kTab << gen(out_var) << ",\n";
       indent() << kTab << gen(out_N) << ",\n";
@@ -4269,8 +4271,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
                       // actual argument value like T0[i * 4 + j].
                       << (as_utility ? prefix + std::to_string(counter)
                                      : gen(register_))
-                      << "[" << i << "]"
-                      << ")";
+                      << "[" << i << "]" << ")";
                 }
               } else {
                 (*asm_target) << "\"" << constraint << "\"(";

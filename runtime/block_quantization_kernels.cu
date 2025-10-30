@@ -44,6 +44,7 @@ __device__ __inline__ void localMaxReduction(float& local_max) {
 // This assumes for block quantization, the block size is 16.
 // This works for float but will extended to work with bfloat.
 template <
+    bool USE_GLOBAL_SCALE,
     int ITEMS_PER_THREAD,
     typename T,
     int ALIGNMENT_1,
@@ -56,6 +57,7 @@ __device__ void block_quantize_to_nvfp4(
     Tensor<__e4m3, BLOCK_SCALE_DIM, BLOCK_SCALE_ALLOC>& fp8_output,
     nvfuser_index_t logical_index,
     int input_logical_inner_dim_size,
+    Tensor<float, 0, 0> global_scale,
     int64_t fp8_output_inner_dim = -1,
     int64_t alloc_dim0 = -1,
     int64_t alloc_dim1 = -1,
@@ -111,12 +113,19 @@ __device__ void block_quantize_to_nvfp4(
   // This division should be replaced with a multiplication
   // by a reciprocal for better performance.
   float scaled_max = block_max / 6.000000000e+00f;
+  if constexpr (USE_GLOBAL_SCALE) {
+    scaled_max = scaled_max / global_scale[0];
+  }
+
   float clamped_max = clamp(
       scaled_max, 1.562500000e-02f, 4.480000000e+02f); // Clamp between 0 and 1
 
   __e4m3 clamped_max_fp8 = __float2e4m3(clamped_max);
 
   float clamped_max_converted = __e4m32float(clamped_max_fp8);
+  if constexpr (USE_GLOBAL_SCALE) {
+    clamped_max_converted = clamped_max_converted * global_scale[0];
+  }
 
   int offset_y_blocks = blockIdx.y * blockDim.y * blockDim.x * gridDim.x;
   int offset_dim_y = threadIdx.y * blockDim.x * gridDim.x;

@@ -443,8 +443,10 @@ void IndexLowering::handle(const BlockQuantizationOp* bqop) {
     idx = IrBuilder::addExpr(IrBuilder::mulExpr(logical_index[i], stride), idx);
   }
 
+  Val* global_scaling_factor = bqop->globalScale();
+
   pushBack(IrBuilder::create<BlockQuantizationOp>(
-      out_scales, out_quantized, in, idx));
+      out_scales, out_quantized, in, idx, global_scaling_factor));
   GpuLower::current()->propagateExprInfo(bqop, back());
 }
 

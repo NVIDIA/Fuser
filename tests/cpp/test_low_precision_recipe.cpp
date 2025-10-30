@@ -111,9 +111,15 @@ namespace {
 void createNVFP4QunatizationFusion(
     Fusion* fusion,
     DataType data_hp_dtype,
-    bool swizzle_output = false) {
+    bool swizzle_output = false,
+    bool use_global_scale = false) {
   auto tv_data_hp = makeContigTensor(2, data_hp_dtype);
+  auto tv_global_scale =
+      use_global_scale ? makeContigTensor(0, DataType::Float) : nullptr;
   fusion->addInput(tv_data_hp);
+  if (use_global_scale) {
+    fusion->addInput(tv_global_scale);
+  }
 
   auto tv_data_hp_reshaped =
       reshape(tv_data_hp, [](auto& x) { x.split(-1, block_size); });
@@ -129,6 +135,9 @@ void createNVFP4QunatizationFusion(
   // input dtype.
   auto tv_block_scale = div(
       tv_data_hp_amax, IrBuilder::create<Val>(F4_E2M1_MAX, DataType::Float));
+  if (use_global_scale) {
+    tv_block_scale = div(tv_block_scale, tv_global_scale);
+  }
   auto tv_block_scale_clamp = clamp(
       tv_block_scale,
       IrBuilder::create<Val>(E4M3_EPS, DataType::Float),
@@ -137,6 +146,9 @@ void createNVFP4QunatizationFusion(
       castOp(DataType::Float8_e4m3fn, tv_block_scale_clamp);
   // TODO: should we just use auto tv_block_scale_fp32 = tv_block_scale_clamp?
   auto tv_block_scale_fp32 = castOp(DataType::Float, tv_block_scale_fp8);
+  if (use_global_scale) {
+    tv_block_scale_fp32 = mul(tv_block_scale_fp32, tv_global_scale);
+  }
   auto tv_block_scale_fp32_unsqueeze = unsqueeze(tv_block_scale_fp32, -1);
   auto tv_data_scaled = div(tv_data_hp_reshaped, tv_block_scale_fp32_unsqueeze);
   auto tv_data_scaled_clamp = clamp(
@@ -465,6 +477,7 @@ TEST_P(BlockQuantizationSchedulingTest, AutoScheduleSingleOp) {
   std::vector<at::Tensor> inputs;
   inputs.push_back(at::randn({m, n}, at::device(at::kCUDA).dtype(at::kFloat))
                        .to(data_type_to_aten(data_type)));
+  inputs.push_back(at::randn({}, at::device(at::kCUDA).dtype(at::kFloat)));
   auto outputs_baseline = fec.runFusionWithInputs(inputs);
 
   auto baseline_block_scales = outputs_baseline[0].as<at::Tensor>();
@@ -482,10 +495,12 @@ TEST_P(BlockQuantizationSchedulingTest, AutoScheduleSingleOp) {
   FusionGuard fg2(fusion_new_op.get());
 
   auto tv_in_1 = makeContigTensor(2, data_type);
+  auto tv_per_tensor_scale = makeContigTensor(0, DataType::Float);
   fusion_new_op->addInput(tv_in_1);
+  fusion_new_op->addInput(tv_per_tensor_scale);
 
   // t0 is 2D
-  auto quantization_results = blockQuantize(tv_in_1);
+  auto quantization_results = blockQuantize(tv_in_1, tv_per_tensor_scale);
 
   // outputs are 3D
   fusion_new_op->addOutput(quantization_results.block_scales);
