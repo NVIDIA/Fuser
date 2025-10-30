@@ -211,45 +211,48 @@ IterDomain::IterDomain(const IterDomain* src, IrCloner* ir_cloner)
 
 NVFUSER_DEFINE_CLONE(IterDomain)
 
-bool IterDomain::sameAs(const Statement* other) const {
-  if (other == this) {
-    return true;
+// The ITERDOMAIN_SAME_FN macro is used to define the sameAs and sameDefinition
+// functions. Here are the data fields of checked in the macro:
+//   * start_
+//   * extent_
+//   * expanded_extent_
+//   * stop_offset_
+//   * parallel_type_
+//   * iter_type_
+//   * is_rfactor_domain_
+//   * is_padded_dimension_
+//   * padded_to_size_
+//
+// Do not take is_rfactor_domain_ into account. IterDomains are considered the
+// same if they are rfactor or not.
+//
+// TODO: Consider managing them as attributes
+
+#define ITERDOMAIN_SAME_FN(sameFunctionName, OtherType)                     \
+  bool IterDomain::sameFunctionName(const OtherType* other) const {         \
+    if (other == this) {                                                    \
+      return true;                                                          \
+    }                                                                       \
+    if (!other->isA<IterDomain>()) {                                        \
+      return false;                                                         \
+    }                                                                       \
+    const auto* other_id = other->as<IterDomain>();                         \
+    return start()->sameFunctionName(other_id->start()) &&                  \
+        extent()->sameFunctionName(other_id->extent()) &&                   \
+        hasExpandedExtent() == other_id->hasExpandedExtent() &&             \
+        (!hasExpandedExtent() ||                                            \
+         expandedExtent()->sameFunctionName(other_id->expandedExtent())) && \
+        stopOffset()->sameFunctionName(other_id->stopOffset()) &&           \
+        getParallelType() == other_id->getParallelType() &&                 \
+        getIterType() == other_id->getIterType() &&                         \
+        hasPaddingToMultipleOfWarp() ==                                     \
+        other_id->hasPaddingToMultipleOfWarp() &&                           \
+        isClusteredBlockDim() == other_id->isClusteredBlockDim() &&         \
+        getMaybeSizeAfterPadding() == other_id->getMaybeSizeAfterPadding(); \
   }
 
-  if (!other->isA<IterDomain>()) {
-    return false;
-  }
-
-  const auto* other_id = other->as<IterDomain>();
-
-  // Here're the data fields of IterDomain:
-  // start_
-  // extent_
-  // expanded_extent_
-  // stop_offset_
-  // parallel_type_
-  // iter_type_
-  // is_rfactor_domain_
-  // is_padded_dimension_
-  // padded_to_size_
-
-  // Do not take is_rfactor_domain_ into account. IterDomain's are
-  // considered the same if they are rfactor or not.
-
-  // TODO: Consider managing them as attributes
-
-  return start()->sameAs(other_id->start()) &&
-      extent()->sameAs(other_id->extent()) &&
-      hasExpandedExtent() == other_id->hasExpandedExtent() &&
-      (!hasExpandedExtent() ||
-       expandedExtent()->sameAs(other_id->expandedExtent())) &&
-      stopOffset()->sameAs(other_id->stopOffset()) &&
-      getParallelType() == other_id->getParallelType() &&
-      getIterType() == other_id->getIterType() &&
-      hasPaddingToMultipleOfWarp() == other_id->hasPaddingToMultipleOfWarp() &&
-      isClusteredBlockDim() == other_id->isClusteredBlockDim() &&
-      getMaybeSizeAfterPadding() == other_id->getMaybeSizeAfterPadding();
-}
+ITERDOMAIN_SAME_FN(sameAs, Statement)
+ITERDOMAIN_SAME_FN(sameDefinition, Val)
 
 std::string IterDomain::toString(int indent_size) const {
   std::stringstream ss;
@@ -1012,6 +1015,46 @@ bool TensorDomain::hasGridBroadcast() const {
       });
 }
 
+bool TensorDomain::sameDefinition(const Val* other) const {
+  // Val::sameDefinition checks nullptr, dtype, vtype, and definition.
+  if (!Val::sameDefinition(other)) {
+    return false;
+  }
+  if (!other->isA<TensorDomain>()) {
+    return false;
+  }
+  const TensorDomain* other_td = other->as<TensorDomain>();
+
+  // This check is based on the legacy TensorRecord operator== check.
+  // Check number of dimensions
+  if (logical_domain_.size() != other_td->logical_domain_.size()) {
+    return false;
+  }
+  for (auto&& [id, other_id] :
+       zip(logical_domain_, other_td->logical_domain_)) {
+    if (!id->sameDefinition(other_id)) {
+      return false;
+    }
+  }
+
+  // Check stride order
+  if (allocation_domain_.size() != other_td->allocation_domain_.size()) {
+    return false;
+  }
+  for (auto&& [id, other_id] :
+       zip(allocation_domain_, other_td->allocation_domain_)) {
+    if (!id->sameDefinition(other_id)) {
+      return false;
+    }
+  }
+
+  // Check contiguity
+  if (contiguity_.size() != other_td->contiguity_.size()) {
+    return false;
+  }
+  return std::ranges::equal(contiguity_, other_td->contiguity_);
+}
+
 bool TensorDomain::operator==(const TensorDomain& other) const {
   // Checks equality of each class field. Derived domains such as reduction or
   // broadcast views are computed on demand from these fields.
@@ -1167,6 +1210,18 @@ std::vector<int64_t> TensorDomain::strideOrder() const {
   }
 
   NVF_ERROR(logical_domain_.size() == allocation_domain_.size());
+
+  // Operations like preprocessGroupedMatmulInputSf pad the logical domain to
+  // create the allocation domain. strideOrder only checks for permutations
+  // between logical and allocation domains.
+  bool is_complex_allocation = std::all_of(
+      allocation_domain_.begin(), allocation_domain_.end(), [](IterDomain* id) {
+        return id->extent()->definition() != nullptr;
+      });
+  NVF_CHECK(
+      !is_complex_allocation,
+      "Encountered non-trivial allocation domain not expressible with stride "
+      "order.");
 
   std::vector<int64_t> stride_order;
   stride_order.reserve(logical_domain_.size());
