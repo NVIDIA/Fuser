@@ -55,7 +55,13 @@ __device__ void block_quantize_to_nvfp4(
     Array<__e2m1, ITEMS_PER_THREAD, ALIGNMENT_2>& output,
     Tensor<__e4m3, BLOCK_SCALE_DIM, BLOCK_SCALE_ALLOC>& fp8_output,
     nvfuser_index_t logical_index,
-    int input_logical_inner_dim_size) {
+    int input_logical_inner_dim_size,
+    int64_t fp8_output_inner_dim = -1,
+    int64_t alloc_dim0 = -1,
+    int64_t alloc_dim1 = -1,
+    int64_t alloc_dim2 = -1,
+    int64_t alloc_dim3 = -1,
+    int64_t alloc_dim4 = -1) {
   constexpr bool is_half_or_bfloat =
       std::is_same<T, __bfloat>::value || std::is_same<T, __half>::value;
   constexpr bool is_float = std::is_same<T, float>::value;
@@ -117,6 +123,33 @@ __device__ void block_quantize_to_nvfp4(
   int offset_into_block = blockIdx.x * blockDim.x + threadIdx.x;
 
   int offset = logical_index / 16;
+
+  if (fp8_output_inner_dim > 0) {
+    auto stride_4 = 1;
+    auto stride_3 = stride_4 * alloc_dim4;
+    auto stride_2 = stride_3 * alloc_dim3;
+    auto stride_1 = stride_2 * alloc_dim2;
+    auto stride_0 = stride_1 * alloc_dim1;
+
+    auto logical_inner = offset % fp8_output_inner_dim;
+    auto logical_outer = offset / fp8_output_inner_dim;
+
+    // The allocation domain swizzle logic is:
+    // m, k -> m, k/4, 4
+    // m, k/4, 4 -> m/128, 128, k/4, 4 ->
+    // m/128, 4(m), 32, k/4, 4(k) ->
+    // m/128, k/4, 32, 4(m), 4(k)
+
+    auto pos_4 = logical_inner % 4;
+    auto pos_1 = logical_inner / 4;
+    auto pos_t = logical_outer % 128;
+    auto pos_0 = logical_outer / 128;
+    auto pos_3 = pos_t / 32;
+    auto pos_2 = pos_t % 32;
+
+    offset = pos_4 * stride_4 + pos_3 * stride_3 + pos_2 * stride_2 +
+        pos_1 * stride_1 + pos_0 * stride_0;
+  }
 
   // Convert back from FP8 to float using __e4m32float
   if (threadIdx.x % THREADS_PER_SCALING_FACTOR == 0) {
