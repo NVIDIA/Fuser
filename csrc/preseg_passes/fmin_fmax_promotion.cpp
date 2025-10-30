@@ -253,7 +253,21 @@ void FMinFMaxPromotionPass::runPass(Fusion* fusion) {
   }
 
   for (auto* rop : promotedRops) {
-    rop->markUnsafe();
+    // Promote the reduction ops by doing expression replacement
+    auto red_op_type = rop->getReductionOpType();
+    auto init = rop->init();
+    auto out = rop->out();
+    auto in = rop->in();
+
+    if (red_op_type == BinaryOpType::Max) {
+      red_op_type = BinaryOpType::FMax;
+    }
+    if (red_op_type == BinaryOpType::Min) {
+      red_op_type = BinaryOpType::FMin;
+    }
+
+    fusion->removeExpr(rop);
+    IrBuilder::create<ReductionOp>(red_op_type, init, out, in, true);
   }
 
   return;
