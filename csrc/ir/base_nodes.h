@@ -176,6 +176,8 @@ class NVF_API Statement : public NonCopyable, public PolymorphicBase {
 
   virtual Statement* clone(IrCloner* ir_cloner) const;
 
+  virtual size_t hash() const;
+
  protected:
   Statement(IrBuilderPasskey);
 
@@ -270,6 +272,8 @@ class NVF_API Val : public Statement {
         vtype_(src->vtype_),
         dtype_(src->dtype_),
         value_(src->value_) {}
+
+  size_t hash() const final;
 
   std::string toString(int indent_size = 0) const override;
 
@@ -519,6 +523,8 @@ class NVF_API Expr : public Statement {
   // Creates a new instance of the expression with all its field copied.
   // Note that unlike IrCloner, this function only do a shallow copy
   Expr* shallowCopy() const;
+
+  size_t hash() const final;
 
   // Check that if this and other are the same operator. This main difference
   // from sameAs is that sameOp does not check the inputs.
