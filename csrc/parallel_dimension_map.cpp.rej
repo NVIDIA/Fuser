@@ -1,0 +1,26 @@
+--- csrc/parallel_dimension_map.cpp
++++ csrc/parallel_dimension_map.cpp
+@@ -156,6 +161,11 @@ void ParallelDimensionMap::adjustMappingsForWarpPadding() {
+ 
+   // TIDx is no longer exact
+   exact_types_.erase(ParallelType::TIDx);
++
++  std::cout << "ParallelDimensionMap after adjustMappingsForWarpPadding:\n";
++  for (auto [pt, d] : dim_map_) {
++    std::cout << "  " << pt << " -> " << d->toInlineString() << std::endl;
++  }
+ }
+ 
+ int64_t ParallelDimensionMap::getThreadCountInDim(ParallelType pt) {
+@@ -222,6 +232,11 @@ void ParallelDimensionMap::adjustMappingsForWarpSpecialization() {
+       : dim_it->second;
+   dim_map_[ws_pt] = IrBuilder::addExpr(current_val, offset);
+   exact_types_.erase(ws_pt);
++
++  std::cout << "ParallelDimensionMap after adjustMappingsForWarpSpecialization:\n";
++  for (auto [pt, d] : dim_map_) {
++    std::cout << "  " << pt << " -> " << d->toInlineString() << std::endl;
++  }
+ }
+ 
+ Val* ParallelDimensionMap::getRaw(ParallelType pt) const {

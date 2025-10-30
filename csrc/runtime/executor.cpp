@@ -10,6 +10,7 @@
 
 #include <cmath>
 #include <cstring>
+#include "type.h"
 
 #include <ATen/core/LegacyTypeDispatch.h>
 #include <ATen/cuda/CUDAContext.h>
@@ -340,6 +341,15 @@ LaunchParams KernelExecutor::computeLaunchParams(
 
   const auto& parallel_dim_map = lower->info().parallelDimensionMap().getMap();
 
+  // First bind any set dimensions in launch_constraints
+  for (auto [p_type, extent] : parallel_dim_map) {
+    if (launch_constraints.hasDim(p_type)) {
+      // User provided a launch constraint for this parallel type
+      int64_t constraint_value = launch_constraints.getDim(p_type);
+      expr_eval.bind(extent, constraint_value);
+    }
+  }
+
   // Process launch constraints and compute launch parameters.
   // For each parallel type in the ParallelDimensionMap, either use the
   // launch constraint if provided, or evaluate the extent to infer the size.
@@ -348,7 +358,7 @@ LaunchParams KernelExecutor::computeLaunchParams(
 
     if (launch_constraints.hasDim(p_type)) {
       // User provided a launch constraint for this parallel type
-      auto constraint_val = launch_constraints.getDim(p_type);
+      int64_t constraint_val = launch_constraints.getDim(p_type);
 
       // Try to evaluate the extent to validate the constraint
       auto inferred_val = expr_eval.evaluate(extent);
@@ -367,19 +377,9 @@ LaunchParams KernelExecutor::computeLaunchParams(
               ". This may be due to mixed broadcast axes that are "
               "parallelized.");
         }
-      } else {
-        // Cannot infer the value - bind the constraint to the extent expression
-        expr_eval.bind(extent, constraint_val);
       }
 
-      // Bind the constraint to launch params and evaluator
       launch_params.bind(constraint_val, p_type);
-      expr_eval.bind(p_type, constraint_val);
-
-      // If using precomputed values, also bind the extent expression
-      if (!expr_eval.precomputedValues()) {
-        expr_eval.bind(extent, constraint_val);
-      }
     } else {
       // No launch constraint - infer the parallel dimension size
       auto val = expr_eval.evaluate(extent);
