@@ -58,6 +58,10 @@ bool Statement::lessThan(const Statement* stmt1, const Statement* stmt2) {
   return stmt1->name() < stmt2->name();
 }
 
+size_t Statement::hash() const {
+  NVF_THROW("hash for IR node ", typeid(*this).name(), " is not defined");
+}
+
 std::string Statement::toString(int indent_size) const {
   NVF_THROW("toString for IR node ", typeid(*this).name(), " is not defined");
 }
@@ -163,6 +167,28 @@ bool Val::sameAs(const Statement* other) const {
     return true;
   }
   return false;
+}
+
+size_t Val::hash() const {
+  size_t hash = 0;
+  hashCombine(hash, std::hash<ValType>()(vtype_));
+  if (std::holds_alternative<PrimDataType>(dtype_.type)) {
+    hashCombine(
+        hash,
+        std::hash<int>()(
+            static_cast<int>(std::get<PrimDataType>(dtype_.type))));
+    hashCombine(hash, PolymorphicValue_functions::hash(value_));
+  } else if (std::holds_alternative<OpaqueType>(dtype_.type)) {
+    hashCombine(
+        hash, std::hash<std::string>()(std::get<OpaqueType>(dtype_.type).name));
+    // TODO Support hashing OpaqueType value_. In prescheduled fusion
+    // definitions, OpaqueType is commonly used to represent Enum attributes.
+  } else {
+    // TODO Add support for ArrayType, PointerType, and StructType.
+    // Skip because they are not expected in prescheduled fusion definition.
+    NVF_THROW("ArrayType, PointerType, and StructType are not supported.");
+  }
+  return hash;
 }
 
 std::string Val::toString(int indent_size) const {
@@ -277,6 +303,26 @@ Expr* Expr::shallowCopy() const {
     result->write_predicate_ = write_predicate_;
   }
   return result;
+}
+
+namespace {
+template <typename T>
+size_t hashVector(const std::vector<T>& statements) {
+  size_t hash = 0;
+  for (const auto& s : statements) {
+    hashCombine(hash, s->hash());
+  }
+  return hash;
+}
+} // namespace
+
+size_t Expr::hash() const {
+  size_t hash = 0;
+  hashCombine(hash, std::hash<std::string>()(getOpString()));
+  hashCombine(hash, hashVector(inputs_));
+  hashCombine(hash, hashVector(outputs_));
+  hashCombine(hash, hashVector(attributes_));
+  return hash;
 }
 
 std::string Expr::getGraphvizLabel() const {
