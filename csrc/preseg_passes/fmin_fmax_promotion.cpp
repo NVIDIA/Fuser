@@ -8,6 +8,7 @@
 #include <preseg_passes/fmin_fmax_promotion.h>
 
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include <id_model/id_model.h>
@@ -69,12 +70,11 @@ enum class NanStatus {
 
 using NanStatusMap = std::unordered_map<TensorView*, NanStatus>;
 
-bool isSafeReduction(Expr* expr) {
+bool isSafeReduction(
+    Expr* expr,
+    const std::unordered_set<ReductionOp*>& promotedRops) {
   if (auto* rop = dynamic_cast<ReductionOp*>(expr)) {
-    auto reduction_type = rop->getReductionOpType();
-
-    return reduction_type != BinaryOpType::FMin &&
-        reduction_type != BinaryOpType::FMax;
+    return !promotedRops.contains(rop);
   }
 
   return false;
@@ -87,7 +87,8 @@ bool isSafeReduction(Expr* expr) {
 // targetRop IterDomain.
 bool reductionDomainIsCovered(
     ReductionOp* targetRop,
-    const ValGroup& reduction_id_group) {
+    const ValGroup& reduction_id_group,
+    const std::unordered_set<ReductionOp*>& promotedRops) {
   Fusion* fusion = targetRop->fusion();
 
   auto* in_tv = targetRop->input(0)->as<TensorView>();
@@ -165,7 +166,7 @@ bool reductionDomainIsCovered(
 
     // Here we handle the repair of squelched NAN's. This happens when
     // IterDomain's with "Unreduced" data are safely reduced.
-    if (isSafeReduction(expr)) {
+    if (isSafeReduction(expr, promotedRops)) {
       if (status == NanStatus::Unreduced || status == NanStatus::Mixed) {
         for (IterDomain* out_id : out_tv->getLogicalDomain()) {
           if (out_id->isReduction()) {
@@ -202,13 +203,17 @@ bool reductionDomainIsCovered(
 // single reduction domain. This could be merged into a single traversal,
 // however it would require per-domain tracked of the NanStatusMap, and it would
 // make the propagation code more complicated.
-bool minMaxOpIsCovered(ReductionOp* targetRop, const ValGraph& graph) {
+bool minMaxOpIsCovered(
+    ReductionOp* targetRop,
+    const ValGraph& graph,
+    const std::unordered_set<ReductionOp*>& promotedRops) {
   auto* out_tv = targetRop->output(0)->as<TensorView>();
 
   for (IterDomain* out_id : out_tv->getLogicalDomain()) {
     if (out_id->isReduction()) {
       const ValGroup& reduction_id_group = graph.toGroup(out_id);
-      if (!reductionDomainIsCovered(targetRop, reduction_id_group)) {
+      if (!reductionDomainIsCovered(
+              targetRop, reduction_id_group, promotedRops)) {
         return false;
       }
     }
@@ -226,6 +231,8 @@ void FMinFMaxPromotionPass::runPass(Fusion* fusion) {
   id_model.buildGraph(IdMappingMode::EXACT);
   const ValGraph& graph = id_model.idGraph(IdMappingMode::EXACT);
 
+  std::unordered_set<ReductionOp*> promotedRops;
+
   // This outer loop runs over all expressions, filtering for min/max
   // reductions, which become the target for the rest of the analysis.
   for (Expr* targetExpr : fusion->exprs()) {
@@ -239,10 +246,14 @@ void FMinFMaxPromotionPass::runPass(Fusion* fusion) {
 
     if (reduction_type == BinaryOpType::Min ||
         reduction_type == BinaryOpType::Max) {
-      if (minMaxOpIsCovered(targetRop, graph)) {
-        targetRop->markUnsafe();
+      if (minMaxOpIsCovered(targetRop, graph, promotedRops)) {
+        promotedRops.insert(targetRop);
       }
     }
+  }
+
+  for (auto* rop : promotedRops) {
+    rop->markUnsafe();
   }
 
   return;
