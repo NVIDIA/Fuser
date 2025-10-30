@@ -286,7 +286,7 @@ class EVTConverter : OptInDispatch {
 
       EVTModel::Node* scaling_node = model_.makeNode(
           "cutlass::epilogue::fusion::Sm100BlockScaleFactorRowStore<" +
-          std::to_string(pattern.block_size) + ", EpilogueTile, " +
+          std::to_string(pattern.block_size) + ", EpilogueTileShape, " +
           dtypeToCutlass(pattern.quantized_output->dtype()) + ", " +
           dtypeToCutlass(pattern.unquantized_output->dtype()) + ", " +
           dtypeToCutlass(pattern.block_scale_factors->dtype()) +
