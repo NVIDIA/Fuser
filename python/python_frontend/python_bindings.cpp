@@ -703,6 +703,7 @@ void initNvFuserPythonBindings(PyObject* module) {
       .value("set", LoadStoreOpType::Set)
       .value("load_matrix", LoadStoreOpType::LdMatrix)
       .value("cp_async", LoadStoreOpType::CpAsync)
+      .value("tma_1d", LoadStoreOpType::CpAsyncBulk)
       .value("tma", LoadStoreOpType::CpAsyncBulkTensorTile);
 
   //! Circular buffer types

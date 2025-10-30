@@ -80,26 +80,20 @@ class PointwiseMulDefault(FusionDefinition):
 
 
 class PointwiseMulTMA(FusionDefinition):
-    """Pointwise multiplication with manual TMA schedule following TMP3"""
+    """Pointwise multiplication with manual 1D TMA schedule following C++ test"""
 
     def __init__(
         self,
-        tma_m=32,
-        tma_n=256,
-        tid_m=4,
-        tid_n=8,
-        blk_n=256,
-        fully_reg_cached=True,
+        tidx=128,
+        unroll_factor=2,
         number_of_stages=4,
         use_tma_store=False,
     ):
         super().__init__()
-        self.tma_tile_m = tma_m
-        self.tma_tile_n = tma_n
-        self.tid_tile_m = tid_m  # Unroll
-        self.tid_tile_n = tid_n  # Vectorize
-        self.blk_tile_n = blk_n  # TIDx
-        self.fully_reg_cached = fully_reg_cached
+        self.tidx = tidx
+        self.unroll_factor = unroll_factor
+        self.vect_factor = 8  # 128 bits / 16 bits (bfloat16) = 8
+        self.tma_tile = self.vect_factor * tidx * unroll_factor
         self.number_of_stages = number_of_stages
         self.use_tma_store = use_tma_store
 
@@ -126,16 +120,17 @@ class PointwiseMulTMA(FusionDefinition):
         self.add_output(self.t3)
 
     def schedule(self):
-        # Tile sizes following TMP3
-        tma_tile_m, tma_tile_n = self.tma_tile_m, self.tma_tile_n
-        tid_tile_m, tid_tile_n = self.tid_tile_m, self.tid_tile_n  # [Unroll, Vectorize]
-        blk_tile_n = self.blk_tile_n  # TIDx
+        # Parameters for 1D tiling
+        vect_factor = self.vect_factor
+        tidx = self.tidx
+        unroll_factor = self.unroll_factor
+        tma_tile = self.tma_tile
 
         # Create TMA loads from inputs to shared memory
-        self.t0_smem = self.sched.cache_after(self.t0, LoadStoreOpType.tma)
+        self.t0_smem = self.sched.cache_after(self.t0, LoadStoreOpType.tma_1d)
         self.sched.set_memory_type(self.t0_smem, MemoryType.shared)
 
-        self.t1_smem = self.sched.cache_after(self.t1, LoadStoreOpType.tma)
+        self.t1_smem = self.sched.cache_after(self.t1, LoadStoreOpType.tma_1d)
         self.sched.set_memory_type(self.t1_smem, MemoryType.shared)
 
         # Cache loads from shared memory to registers (vectorized)
@@ -145,7 +140,7 @@ class PointwiseMulTMA(FusionDefinition):
         # Output caching: regs -> [smem ->] global memory
         if self.use_tma_store:
             # TMA store path: regs -> smem -> global memory (via TMA)
-            self.t3_smem = self.sched.cache_before(self.t3, LoadStoreOpType.tma)
+            self.t3_smem = self.sched.cache_before(self.t3, LoadStoreOpType.tma_1d)
             self.sched.set_memory_type(self.t3_smem, MemoryType.shared)
             self.t3_regs = self.sched.cache_before(self.t3_smem)
         else:
@@ -153,27 +148,42 @@ class PointwiseMulTMA(FusionDefinition):
             self.t3_regs = self.sched.cache_before(self.t3)
             self.t3_smem = None
 
-        # Use t3 as reference for scheduling (following TMP3)
-        reference = self.t3
+        # Pick reference tensor for scheduling (following C++ test pattern)
+        reference = self.t2_mul
 
-        # [I0, I1] -> [I0/m, m, I1/n, n]
-        self.sched.split(reference, dim=0, factor=tma_tile_m)
-        self.sched.split(reference, dim=-1, factor=tma_tile_n)
-        # [I0/m, m, I1/n, n] -> [I0/m, I1/n, m, n]
-        self.sched.reorder(reference, {1: 2})
-        # [I0/m, I1/n, m, n] -> [I/sm, sm, m, n]
-        self.sched.merge(reference, dim=0)  # Merge I0/m and I1/n
+        # Schedule the TMA tile (1D approach)
+        # [I0, I1] -> [I0*I1] -> [I0*I1/tma, tma]
+        self.sched.merge(reference, dim=0)
+        self.sched.split(reference, dim=0, factor=tma_tile)
+        # [I0*I1/tma, tma] -> [I0*I1/tma/sm, sm, tma]
         self.sched.split(reference, dim=0, factor=num_sms)
-        # [I/sm, sm, m, n] -> [sm, I/sm, m, n]
+        # [I0*I1/tma/sm, sm, tma] -> [sm, I0*I1/tma/sm, tma]
         self.sched.reorder(reference, {0: 1})
 
-        # Propagate transform to all tensors
+        # Propagate TMA tiles to all tensors
         self.sched.transform_like(reference)
 
-        # Apply inlineAt for TMA cache (pos=2 corresponds to after [sm, I/sm])
-        self.sched.inline_at(reference, pos=2)
+        # Schedule block tile and thread tile
+        # [sm, I0*I1/tma/sm, tma] -> [sm, I0*I1/tma/sm, tma/v, v]
+        self.sched.split(reference, dim=2, factor=vect_factor)
+        # [sm, I0*I1/tma/sm, tma/v, v] -> [sm, I0*I1/tma/sm, tma/v/x, x, v]
+        self.sched.split(reference, dim=2, factor=tidx)
+        # [sm, I0*I1/tma/sm, tma/v/x, x, v] -> [sm, I0*I1/tma/sm, x, tma/v/x, v]
+        self.sched.reorder(reference, {2: 3})
 
-        # Schedule all compute tensors (registers and output)
+        # Parallelize TMA tensors
+        tma_tvs = [self.t0_smem, self.t1_smem]
+        if self.use_tma_store:
+            tma_tvs.append(self.t3)
+
+        for tv in tma_tvs:
+            # [sm, I0*I1/tma/sm, tma]
+            self.sched.parallelize(
+                tv, axis=0, parallel_type=ParallelType.grid_x
+            )  # BIDx
+            self.sched.parallelize(tv, axis=2, parallel_type=ParallelType.tma)  # Bulk
+
+        # Compute tensors (non-TMA)
         compute_tvs = [
             self.t0_reg,
             self.t1_reg,
@@ -183,35 +193,29 @@ class PointwiseMulTMA(FusionDefinition):
             self.t3_regs,
         ]
         if has_tanh:
-            compute_tvs.insert(-1, self.t2)  # Insert t2 (tanh result) before t3_regs
+            compute_tvs.insert(-1, self.t2)
 
         # Add t3_smem if using TMA store, otherwise add t3 (output tensor)
         if self.use_tma_store:
             compute_tvs.append(self.t3_smem)
         else:
-            # For regular store, schedule the output tensor
             compute_tvs.append(self.t3)
 
-        for tv in compute_tvs:
-            # [..., m, n] -> [..., mn]
-            self.sched.merge(tv, dim=-2)
-            # [..., mn] -> [..., mn/v, v]
-            self.sched.split(tv, dim=-1, factor=tid_tile_n)
-            # [..., mn/v, v] -> [..., mn/v/x, x, v]
-            self.sched.split(tv, dim=-2, factor=blk_tile_n)
-            # [..., mn/v/x, x, v] -> [..., mn/v/x/u, u, x, v]
-            self.sched.split(tv, dim=-3, factor=tid_tile_m)
+        # Propagate transformation to non-TMA tensors
+        self.sched.transform_like(reference, selected_tensors=compute_tvs)
 
-            # Parallelize
-            # [sm, I/sm, ...]
+        # Parallelize non-TMA tensors
+        # [sm, I0*I1/tma/sm, x, tma/v/x, v]
+        for tv in compute_tvs:
             self.sched.parallelize(
                 tv, axis=0, parallel_type=ParallelType.grid_x
             )  # BIDx
             self.sched.parallelize(
-                tv, axis=-2, parallel_type=ParallelType.block_x
+                tv, axis=2, parallel_type=ParallelType.block_x
             )  # TIDx
             if explicit_unroll:
-                self.sched.parallelize(tv, axis=-3, parallel_type=ParallelType.unroll)
+                self.sched.parallelize(tv, axis=3, parallel_type=ParallelType.unroll)
+
             # Vectorize: register cache tensors for loads from smem, and smem tensor for TMA store
             vectorize_condition = (
                 tv == self.t0_reg
@@ -224,61 +228,21 @@ class PointwiseMulTMA(FusionDefinition):
                     tv, axis=-1, parallel_type=ParallelType.vectorize
                 )
 
-        # Inline selected tensors for register caching
-        if not self.fully_reg_cached:
-            self.sched.inline_most(compute_tvs)
-        else:
-            # Inline register caches at position 2
-            self.sched.inline_at(
-                self.t0_reg, pos=2, selected_tensors=[self.t0_reg, self.t1_reg]
-            )
-            inline_most_tvs = [
-                self.t0_float,
-                self.t1_float,
-                self.t2_mul,
-                self.t3_regs,
-            ]
-            if has_tanh:
-                inline_most_tvs.insert(-1, self.t2)  # Insert t2 (tanh) before t3_regs
-            self.sched.inline_most(inline_most_tvs)
+        # Inline most tensors
+        self.sched.inline_most()
 
         # Circular Buffer with TMA loads (warp specialization)
-        # register sharing strategy:
-        # (1) blk_tile_n == 128 -> no register sharing
-        # (2) blk_tile_n == 256 -> 168 registers -> register sharing: [40, 232]
-        # (3) blk_tile_n == 384 -> 128 registers -> register sharing: [32, 160]
-        # (4) blk_tile_n == 512 -> 96  registers -> register sharing: [32, 112]
-        # (5) blk_tile_n == 640 -> 80  registers -> register sharing: [40, 88]
-        # (6) blk_tile_n == 768 -> 72  registers -> register sharing: [24, 80]
-        # (7) blk_tile_n == 896 -> 64  registers -> register sharing: [64, 64]
-        if blk_tile_n == 128:
-            circular_buffer_type = WarpSpecialized(
-                ParallelType.block_x
-            )  # No register sharing
-        elif blk_tile_n == 256:
-            circular_buffer_type = WarpSpecialized(
-                ParallelType.block_x, (40, 232)
-            )  # TIDx with register sharing
-        elif blk_tile_n == 384:
-            circular_buffer_type = WarpSpecialized(
-                ParallelType.block_x, (32, 160)
-            )  # TIDx with register sharing
-        elif blk_tile_n == 512:
-            circular_buffer_type = WarpSpecialized(
-                ParallelType.block_x, (32, 112)
-            )  # TIDx with register sharing
-        elif blk_tile_n == 640:
-            circular_buffer_type = WarpSpecialized(
-                ParallelType.block_x, (40, 88)
-            )  # TIDx with register sharing
-        elif blk_tile_n == 768:
-            circular_buffer_type = WarpSpecialized(
-                ParallelType.block_x, (24, 80)
-            )  # TIDx with register sharing
-        elif blk_tile_n == 896:
-            circular_buffer_type = WarpSpecialized(
-                ParallelType.block_x
-            )  # TIDx with register sharing
+        # Register sharing strategy based on tidx
+        if tidx == 128:
+            circular_buffer_type = WarpSpecialized(ParallelType.block_x)
+        elif tidx == 256:
+            circular_buffer_type = WarpSpecialized(ParallelType.block_x, (40, 232))
+        elif tidx == 384:
+            circular_buffer_type = WarpSpecialized(ParallelType.block_x, (32, 160))
+        elif tidx == 512:
+            circular_buffer_type = WarpSpecialized(ParallelType.block_x, (32, 112))
+        else:
+            circular_buffer_type = WarpSpecialized(ParallelType.block_x)
 
         number_of_stages = self.number_of_stages
         prefetch_distance = number_of_stages - 1
@@ -286,26 +250,9 @@ class PointwiseMulTMA(FusionDefinition):
         # TMA loads - add to circular buffer
         tma_load_tvs = [self.t0_smem, self.t1_smem]
         for tv in tma_load_tvs:
-            self.sched.parallelize(
-                tv, axis=0, parallel_type=ParallelType.grid_x
-            )  # BIDx
-            self.sched.parallelize(tv, axis=-1, parallel_type=ParallelType.tma)  # Bulk
-            self.sched.parallelize(tv, axis=-2, parallel_type=ParallelType.tma)  # Bulk
             self.sched.circular_buffer(
                 tv, number_of_stages, prefetch_distance, circular_buffer_type
             )
-
-        # TMA store - parallelize output tensor (t3) for gmem (only if use_tma_store)
-        if self.use_tma_store:
-            self.sched.parallelize(
-                self.t3, axis=0, parallel_type=ParallelType.grid_x
-            )  # BIDx
-            self.sched.parallelize(
-                self.t3, axis=-1, parallel_type=ParallelType.tma
-            )  # Bulk
-            self.sched.parallelize(
-                self.t3, axis=-2, parallel_type=ParallelType.tma
-            )  # Bulk
 
 
 def print_kernel_profile(kp):
@@ -333,7 +280,7 @@ torch_out = torch_out.to(torch.bfloat16)
 # ============================================================================================================
 # Run with Default Scheduler
 # ============================================================================================================
-if True:
+if False:
     print("\n\n" + "=" * 110)
     print("DEFAULT SCHEDULER (Auto)")
     print("=" * 110)
@@ -354,7 +301,7 @@ if True:
 if True:
     # debug run
     print("=" * 110)
-    print("DEBUG RUN - Testing with and without TMA Store")
+    print("DEBUG RUN - Testing 1D TMA with and without TMA Store")
     print("=" * 110)
 
     for use_tma_store in [False]:
@@ -366,12 +313,8 @@ if True:
         print("-" * 110)
 
         fn_tma = PointwiseMulTMA(
-            tma_m=64,
-            tma_n=256,
-            tid_m=2,
-            tid_n=8,
-            blk_n=512,
-            fully_reg_cached=False,
+            tidx=512,
+            unroll_factor=4,
             number_of_stages=3,
             use_tma_store=use_tma_store,
         )
@@ -385,29 +328,28 @@ if True:
     # exit()
 
 # ============================================================================================================
-# Auto-tune: Test Different Tile Configurations
+# Auto-tune: Test Different Tile Configurations (1D)
 # ============================================================================================================
 print("\n" + "=" * 110)
-print("AUTO-TUNING TMA SCHEDULER")
+print("AUTO-TUNING 1D TMA SCHEDULER")
 print("=" * 110)
 
 # On Blackwell, needs 64KB of data in flight to saturate memory bandwidth.
 # For this case, we have 2 inputs of bfloat16, they are 2 x 2 = 4 Bytes.
-# Needs to load 64KB / 4B = 16K elements.
-# smem = 232 KB / 64KB = 3.625 --> 3 loads --> 232 / 3 = 77.33 KB -> 77.33 KB / 4B = 19332.5 --> 19332 elements
-# 16384 = 64 x 256 = 128 * 128
-tma_tiles = [(64, 256), (128, 128), (64, 128), (64, 64), (32, 64), (32, 32)]
-tid_tiles = [(1, 8), (2, 8), (4, 8)]
-blk_tiles_n = [256, 512]
-fully_reg_cached_options = [True, False]
+# vect_factor = 8 for bfloat16 (128 bits / 16 bits)
+# tma_tile = vect_factor * tidx * unroll_factor
+tidx_options = [128, 256, 512]
+unroll_factor_options = [1, 2, 4, 8, 16, 32]
 number_of_stages_options = [3]  # use max allowed by SMEM
-use_tma_store_options = [False]  # Test with and without TMA store
+use_tma_store_options = [False, True]  # Test with and without TMA store
 
 
-def not_enough_smem(tma_m, tma_n, n_stages):
+def not_enough_smem(tma_tile, n_stages, use_tma_store):
     n_input = 2
     bytes_per_element = 2
-    return tma_m * tma_n * n_stages * n_input * bytes_per_element > device_smem_bytes
+    smem_for_loads = tma_tile * n_stages * n_input * bytes_per_element
+    smem_for_store = tma_tile * bytes_per_element if use_tma_store else 0
+    return (smem_for_loads + smem_for_store) > device_smem_bytes
 
 
 results = []
@@ -415,108 +357,94 @@ best_time = float("inf")
 best_config = None
 
 total_configs = (
-    len(tma_tiles)
-    * len(tid_tiles)
-    * len(blk_tiles_n)
-    * len(fully_reg_cached_options)
+    len(tidx_options)
+    * len(unroll_factor_options)
     * len(number_of_stages_options)
     * len(use_tma_store_options)
 )
 print(f"\nTesting {total_configs} configurations...")
-print(f"{'Config':<70} {'Time (ms)':<12} {'Bandwidth (GB/s)':<20} {'Status'}")
+print(f"{'Config':<60} {'Time (ms)':<12} {'Bandwidth (GB/s)':<20} {'Status'}")
 print("-" * 110)
 
 config_count = 0
-for tma_m, tma_n in tma_tiles:
-    for tid_m, tid_n in tid_tiles:
-        for blk_n in blk_tiles_n:
-            if blk_n * tid_m * tid_n > tma_m * tma_n:
+vect_factor = 8  # Fixed for bfloat16
+for tidx in tidx_options:
+    for unroll_factor in unroll_factor_options:
+        tma_tile = vect_factor * tidx * unroll_factor
+        for use_tma_store in use_tma_store_options:
+            # Calculate actual stages based on available SMEM
+            if use_tma_store:
+                smem_for_load = device_smem_bytes - tma_tile * 2
+            else:
+                smem_for_load = device_smem_bytes
+            smem_for_load = smem_for_load - 4096  # overhead for mbarriers, etc.
+            n_stages = smem_for_load // (tma_tile * 2 * 2)
+            if n_stages <= 1:
+                print(
+                    f"Not enough SMEM for tidx={tidx}, unroll={unroll_factor}, stages={n_stages}"
+                )
                 continue
-            for fully_reg_cached in fully_reg_cached_options:
-                for use_tma_store in use_tma_store_options:
-                    if use_tma_store:
-                        smem_for_load = device_smem_bytes - tma_m * tma_n * 2
-                    else:
-                        smem_for_load = device_smem_bytes
-                    smem_for_load = (
-                        smem_for_load - 4096
-                    )  # overhhead for mbarriers, kernel launch, etc.
-                    n_stages = smem_for_load // (tma_m * tma_n * 2 * 2)
-                    if not_enough_smem(tma_m, tma_n, n_stages):
-                        print(f"Not enough SMEM for {tma_m}x{tma_n}x{n_stages}")
-                        continue
-                    config_count += 1
-                    reg_mode = (
-                        "FullyRegCached" if fully_reg_cached else "NotFullyRegCached"
-                    )
-                    store_mode = "TMAStore" if use_tma_store else "RegStore"
-                    config_str = f"TMA={tma_m}x{tma_n}, TID={tid_m}x{tid_n}, BLK={blk_n}, Stages={n_stages}, {reg_mode}, {store_mode}"
+            if not_enough_smem(tma_tile, n_stages, use_tma_store):
+                print(
+                    f"Not enough SMEM for tidx={tidx}, unroll={unroll_factor}, stages={n_stages}"
+                )
+                continue
 
-                    try:
-                        clear_l2_cache()
-                        # Create fusion with specific tile configuration
-                        fn_tma = PointwiseMulTMA(
-                            tma_m=tma_m,
-                            tma_n=tma_n,
-                            tid_m=tid_m,
-                            tid_n=tid_n,
-                            blk_n=blk_n,
-                            fully_reg_cached=fully_reg_cached,
-                            number_of_stages=n_stages,
-                            use_tma_store=use_tma_store,
-                        )
-                        nvf_out_tma = fn_tma.execute(inputs, profile=True)
+            config_count += 1
+            store_mode = "TMAStore" if use_tma_store else "RegStore"
+            config_str = f"TIDx={tidx}, Unroll={unroll_factor}, TMA={tma_tile}, Stages={n_stages}, {store_mode}"
 
-                        # Verify correctness
-                        if not torch.allclose(
-                            nvf_out_tma[0], torch_out, rtol=1e-2, atol=1e-2
-                        ):
-                            print(f"{config_str:<70} {'N/A':<12} {'N/A':<20} INCORRECT")
-                            continue
+            try:
+                clear_l2_cache()
+                # Create fusion with specific tile configuration
+                fn_tma = PointwiseMulTMA(
+                    tidx=tidx,
+                    unroll_factor=unroll_factor,
+                    number_of_stages=n_stages,
+                    use_tma_store=use_tma_store,
+                )
+                nvf_out_tma = fn_tma.execute(inputs, profile=True)
 
-                        # Get performance metrics
-                        kps_tma = fn_tma.profile().kernel_profiles
-                        tma_time = sum(kp.time_ms for kp in kps_tma)
-                        tma_bw = (
-                            sum(kp.effective_bandwidth_gbs for kp in kps_tma)
-                            / len(kps_tma)
-                            if kps_tma
-                            else 0
-                        )
+                # Verify correctness
+                if not torch.allclose(nvf_out_tma[0], torch_out, rtol=1e-2, atol=1e-2):
+                    print(f"{config_str:<60} {'N/A':<12} {'N/A':<20} INCORRECT")
+                    continue
 
-                        results.append(
-                            {
-                                "config": config_str,
-                                "tma_m": tma_m,
-                                "tma_n": tma_n,
-                                "tid_m": tid_m,
-                                "tid_n": tid_n,
-                                "blk_n": blk_n,
-                                "number_of_stages": n_stages,
-                                "fully_reg_cached": fully_reg_cached,
-                                "use_tma_store": use_tma_store,
-                                "time": tma_time,
-                                "bandwidth": tma_bw,
-                                "kps": kps_tma,
-                            }
-                        )
+                # Get performance metrics
+                kps_tma = fn_tma.profile().kernel_profiles
+                tma_time = sum(kp.time_ms for kp in kps_tma)
+                tma_bw = (
+                    sum(kp.effective_bandwidth_gbs for kp in kps_tma) / len(kps_tma)
+                    if kps_tma
+                    else 0
+                )
 
-                        # Track best configuration
-                        status = ""
-                        if tma_time < best_time:
-                            best_time = tma_time
-                            best_config = results[-1]
-                            status = "← BEST"
+                results.append(
+                    {
+                        "config": config_str,
+                        "tidx": tidx,
+                        "unroll_factor": unroll_factor,
+                        "tma_tile": tma_tile,
+                        "number_of_stages": n_stages,
+                        "use_tma_store": use_tma_store,
+                        "time": tma_time,
+                        "bandwidth": tma_bw,
+                        "kps": kps_tma,
+                    }
+                )
 
-                        print(
-                            f"{config_str:<70} {tma_time:<12.4f} {tma_bw:<20.2f} {status}"
-                        )
+                # Track best configuration
+                status = ""
+                if tma_time < best_time:
+                    best_time = tma_time
+                    best_config = results[-1]
+                    status = "← BEST"
 
-                    except Exception as e:
-                        print(
-                            f"{config_str:<70} {'FAILED':<12} {'N/A':<20} {str(e)[:30]}"
-                        )
-                        exit()
+                print(f"{config_str:<60} {tma_time:<12.4f} {tma_bw:<20.2f} {status}")
+
+            except Exception as e:
+                print(f"{config_str:<60} {'FAILED':<12} {'N/A':<20} {str(e)[:30]}")
+                exit()
 
 print("-" * 110)
 print(f"\nTested {len(results)}/{config_count} configurations successfully\n")

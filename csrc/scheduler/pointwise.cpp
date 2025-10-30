@@ -332,7 +332,7 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
 
   // TMA pointwise heuristics
   // TODO: tune three tiling sizes for the best performance
-  if (true || isOptionEnabled(EnableOption::TmaPointwise)) {
+  if (isOptionEnabled(EnableOption::TmaPointwise)) {
     params->tag = "TMA pointwise heuristics";
     params->use_tma_load = true;
     params->use_tma_store = true;
@@ -1109,7 +1109,7 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
     }
   }
 
-  if (true || isOptionEnabled(EnableOption::TmaPointwise)) {
+  if (isOptionEnabled(EnableOption::TmaPointwise)) {
     return schedulePointwiseMultiwaveTMA(
         fusion, reference_tv, pparams, cached_inputs, cached_outputs);
   }

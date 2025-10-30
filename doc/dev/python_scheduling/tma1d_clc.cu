@@ -12706,31 +12706,21 @@ __global__ void nvfuser_none_f0_c0_r0_g0(
   __bfloat* T7 = reinterpret_cast<__bfloat*>(array + smem_offset + 0);
   __bfloat* T6 = reinterpret_cast<__bfloat*>(array + smem_offset + 16512);
   uint64_t* T11 = reinterpret_cast<uint64_t*>(array + smem_offset + 16512);
-  mbarrier::init(toSmem(T11), 1U);
+  // uint64_t* T12 = reinterpret_cast<uint64_t*>(array + smem_offset + 16384);
+  unsigned mbarrier_1 = toSmem(T11);
+  mbarrier::init(mbarrier_1, 1U);
   __syncthreads();
   if (b4) {
-    uint64_t i6;
-    i6 = mbarrier::arriveExpectTX(toSmem(T11), 16384U);
+    mbarrier::arriveExpectTX(mbarrier_1, 32768U);
     Hopper::cpAsyncBulkG2S(
-        (Hopper::CpAsyncBulkG2SIndex{(T1.data + i0), 16384U, toSmem(T11)}),
+        (Hopper::CpAsyncBulkG2SIndex{(T1.data + i0), 16384U, mbarrier_1}),
         toSmem(T7));
-    mbarrier::wait(toSmem(T11), i6);
-  }
-  __syncthreads();
-  mbarrier::inval(toSmem(T11));
-  uint64_t* T12 = reinterpret_cast<uint64_t*>(array + smem_offset + 16384);
-  mbarrier::init(toSmem(T12), 1U);
-  __syncthreads();
-  if (b4) {
-    uint64_t i7;
-    i7 = mbarrier::arriveExpectTX(toSmem(T12), 16384U);
     Hopper::cpAsyncBulkG2S(
-        (Hopper::CpAsyncBulkG2SIndex{(T0.data + i0), 16384U, toSmem(T12)}),
+        (Hopper::CpAsyncBulkG2SIndex{(T0.data + i0), 16384U, mbarrier_1}),
         toSmem(T6));
-    mbarrier::wait(toSmem(T12), i7);
   }
-  __syncthreads();
-  mbarrier::inval(toSmem(T12));
+  mbarrier::waitParity(mbarrier_1, 0);
+
   if ((((i1 + 7175) + i0) < i3)) {
 #pragma unroll
     for (nvfuser_index_t i8 = 0; i8 < 8; ++i8) {

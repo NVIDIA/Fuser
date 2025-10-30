@@ -39,7 +39,7 @@ class ConditionalFromPredicateModifier : public kir::ExprMutator {
   ConditionalFromPredicateModifier(const std::vector<Expr*>& exprs) {
     FUSER_PERF_SCOPE(
         "ConditionalFromPredicateModifier::ConditionalFromPredicateModifier");
-    has_nd_tma_ = isOptionEnabled(EnableOption::WarpSpecializedPointwise);
+    has_nd_tma_ = isOptionEnabled(EnableOption::TmaPointwise);
     traverseAndInsert(exprs);
     // For each OneDimTmaLoadExpectArrive, expect a corresponding
     // OneDimTmaWaitParity.
