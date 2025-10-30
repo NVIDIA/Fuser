@@ -176,8 +176,18 @@ class NVF_API Statement : public NonCopyable, public PolymorphicBase {
 
   virtual Statement* clone(IrCloner* ir_cloner) const;
 
+  size_t hash() const {
+    size_t hash = 0;
+    hashCombine(hash, std::hash<StmtNameType>()(name_));
+    hashCombine(hash, getHash());
+    return hash;
+  }
+
  protected:
   Statement(IrBuilderPasskey);
+
+  // Virtual helper for hashing that is defined in child class
+  virtual size_t getHash() const;
 
   // NOLINTNEXTLINE(cppcoreguidelines-non-private-member-variables-in-classes)
   StmtNameType name_ = kInvalidStmName;
@@ -270,6 +280,8 @@ class NVF_API Val : public Statement {
         vtype_(src->vtype_),
         dtype_(src->dtype_),
         value_(src->value_) {}
+
+  size_t getHash() const final;
 
   std::string toString(int indent_size = 0) const override;
 
@@ -611,6 +623,8 @@ class NVF_API Expr : public Statement {
   virtual void checkConcretization(Val* old_val, Val* new_val) const;
 
  protected:
+  size_t getHash() const final;
+
   // TODO: Protect based on being in kernel container
   void setPredicate(kir::Predicate* predicate);
 
