@@ -46,7 +46,7 @@ inputs = [
     torch.randn(dim0, dim1, dtype=torch.bfloat16, device="cuda"),
 ]
 
-has_tanh = True
+has_tanh = False
 
 explicit_unroll = False
 
@@ -333,7 +333,7 @@ torch_out = torch_out.to(torch.bfloat16)
 # ============================================================================================================
 # Run with Default Scheduler
 # ============================================================================================================
-if True:
+if False:
     print("\n\n" + "=" * 110)
     print("DEFAULT SCHEDULER (Auto)")
     print("=" * 110)
@@ -357,8 +357,8 @@ if True:
     print("DEBUG RUN - Testing with and without TMA Store")
     print("=" * 110)
 
-    for use_tma_store in [True]:
-        clear_l2_cache()
+    for use_tma_store in [False]:
+        # clear_l2_cache()
         store_mode = (
             "WITH TMA Store" if use_tma_store else "WITHOUT TMA Store (Regular Store)"
         )
@@ -368,7 +368,7 @@ if True:
         fn_tma = PointwiseMulTMA(
             tma_m=64,
             tma_n=256,
-            tid_m=1,
+            tid_m=2,
             tid_n=8,
             blk_n=512,
             fully_reg_cached=False,
@@ -382,7 +382,7 @@ if True:
         for kp in kps_tma:
             print_kernel_profile(kp)
 
-    # exit()
+    exit()
 
 # ============================================================================================================
 # Auto-tune: Test Different Tile Configurations
