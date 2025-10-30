@@ -102,12 +102,13 @@ def test_define_contiguous_tensor(nvfuser_direct_test):
 
 
 def test_define_noncontiguous_tensor(nvfuser_direct_test):
+    in_tensor = torch.randn(8, device="cuda").as_strided([2, 3], [4, 1])
+
     def fusion_func(fd: FusionDefinition):
-        inp = fd.define_tensor([2, 3])
+        inp = fd.from_pytorch(in_tensor)
         out = fd.ops.add(inp, inp)
         fd.add_output(out)
 
-    in_tensor = torch.randn(8, device="cuda").as_strided([2, 3], [4, 1])
     out_tensors, _ = nvfuser_direct_test.exec_nvfuser(fusion_func, [in_tensor])
     nvfuser_direct_test.assertEqual(out_tensors[0], in_tensor * 2)
 
@@ -366,8 +367,9 @@ def test_execute_with_tuple_and_list(nvfuser_direct_test):
     nvfuser_direct_test.assertEqual(eager_out, nvf_out[0])
 
     inputs_with_tuple = [tensor, tuple(new_shape)]
-    # expect to reuse fusion
-    nvf_out, _ = nvfuser_direct_test.exec_nvfuser(fusion_func, inputs_with_tuple)
+    nvf_out, _ = nvfuser_direct_test.exec_nvfuser(
+        fusion_func, inputs_with_tuple, new_fusion_expected=False
+    )
     nvfuser_direct_test.assertEqual(eager_out, nvf_out[0])
 
 
@@ -1950,7 +1952,9 @@ def test_tensor_shape_with_output_bcast(nvfuser_direct_test):
 
     # Testing Dynamic usage of same Fusion
     inputs = inputs_2
-    nvf_out, _ = nvfuser_direct_test.exec_nvfuser(fusion_func, inputs)
+    nvf_out, _ = nvfuser_direct_test.exec_nvfuser(
+        fusion_func, inputs, new_fusion_expected=False
+    )
     eager_out = prims.broadcast_in_dim(
         torch.sum(inputs[0], dim=-1), inputs[0].size(), [0, 1]
     )
