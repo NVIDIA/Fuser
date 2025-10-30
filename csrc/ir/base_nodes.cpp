@@ -58,6 +58,10 @@ bool Statement::lessThan(const Statement* stmt1, const Statement* stmt2) {
   return stmt1->name() < stmt2->name();
 }
 
+size_t Statement::getHash() const {
+  NVF_THROW("getHash for IR node ", typeid(*this).name(), " is not defined");
+}
+
 std::string Statement::toString(int indent_size) const {
   NVF_THROW("toString for IR node ", typeid(*this).name(), " is not defined");
 }
@@ -163,6 +167,16 @@ bool Val::sameAs(const Statement* other) const {
     return true;
   }
   return false;
+}
+
+size_t Val::getHash() const {
+  size_t hash = 0;
+  hashCombine(hash, std::hash<ValType>()(vtype_));
+  hashCombine(
+      hash,
+      std::hash<int>()(static_cast<int>(std::get<PrimDataType>(dtype_.type))));
+  hashCombine(hash, PolymorphicValue_functions::hash(value_));
+  return hash;
 }
 
 std::string Val::toString(int indent_size) const {
@@ -277,6 +291,24 @@ Expr* Expr::shallowCopy() const {
     result->write_predicate_ = write_predicate_;
   }
   return result;
+}
+
+namespace {
+size_t hashVectorOfVals(const std::vector<Val*>& vals) {
+  size_t hash = 0;
+  for (const auto& val : vals) {
+    hashCombine(hash, val->hash());
+  }
+  return hash;
+}
+} // namespace
+
+size_t Expr::getHash() const {
+  size_t hash = 0;
+  hashCombine(hash, std::hash<std::string>()(getOpString()));
+  hashCombine(hash, hashVectorOfVals(inputs_));
+  hashCombine(hash, hashVectorOfVals(outputs_));
+  return hash;
 }
 
 std::string Expr::getGraphvizLabel() const {
