@@ -70,6 +70,27 @@ class P2pIpcHandle {
   std::unique_ptr<IpcHandle> peer_;
 };
 
+namespace {
+
+struct TensorHash {
+  std::size_t operator()(const at::Tensor& tensor) const {
+    auto ptr = reinterpret_cast<std::uintptr_t>(tensor.data_ptr());
+    auto offset = tensor.storage_offset();
+    auto element_size = tensor.element_size();
+    auto numel = tensor.numel();
+    return std::hash<std::uintptr_t>()(ptr) ^ std::hash<int64_t>()(offset) ^
+        std::hash<int64_t>()(element_size) ^ std::hash<int64_t>()(numel);
+  }
+};
+
+struct TensorEqual {
+  bool operator()(const at::Tensor& lhs, const at::Tensor& rhs) const {
+    return lhs.equal(rhs);
+  }
+};
+
+} // namespace
+
 // IpcHandleCache manages and cache the IpcHandles.
 // Caching is done on the runtime values of (peer, tensor) and the
 // P2PCommunication* pointer.
@@ -113,23 +134,6 @@ class IpcHandleCache {
             (std::hash<P2PCommunication*>()(key.comm));
       }
     };
-
-    struct TensorHash {
-      std::size_t operator()(const at::Tensor& tensor) const {
-        auto ptr = reinterpret_cast<std::uintptr_t>(tensor.data_ptr());
-        auto offset = tensor.storage_offset();
-        auto element_size = tensor.element_size();
-        auto numel = tensor.numel();
-        return std::hash<std::uintptr_t>()(ptr) ^ std::hash<int64_t>()(offset) ^
-            std::hash<int64_t>()(element_size) ^ std::hash<int64_t>()(numel);
-      }
-    };
-
-    struct TensorEqual {
-      bool operator()(const at::Tensor& lhs, const at::Tensor& rhs) const {
-        return lhs.equal(rhs);
-      }
-    };
   };
 
   void insert(P2PCommunication* comm, std::unique_ptr<P2pIpcHandle> handle) {
@@ -155,6 +159,161 @@ class IpcHandleCache {
 
   const ExpressionEvaluator& expr_evaluator_;
   std::unordered_map<KeyType, std::unique_ptr<P2pIpcHandle>, KeyType::Hash>
+      handles_;
+};
+
+// UnicastHandle allows a single rank (exporter) to share its buffer with
+// multiple other ranks (importers) using IPC handles.
+class UnicastHandle {
+ public:
+  // Exporter constructor: creates an IPC handle for the tensor and exports it
+  // to the store
+  NVF_API UnicastHandle(
+      at::Tensor tensor,
+      int64_t exporter_rank,
+      const std::string& store_key_prefix);
+
+  // Importer constructor: imports an IPC handle from the store
+  NVF_API UnicastHandle(
+      int64_t exporter_rank,
+      const std::string& store_key_prefix);
+
+  NVF_API ~UnicastHandle();
+
+  void* ptr() const {
+    return ptr_;
+  }
+
+ private:
+  void* ptr_ = nullptr;
+  // VMM-related members (importer only)
+  size_t size_ = 0;
+  CUmemGenericAllocationHandle mem_handle_ = 0;
+  // Keep a reference to the tensor to prevent the cuda buffer from being freed
+  // before the UnicastHandle gets destroyed. Only set for exporter.
+  at::Tensor tensor_;
+  // File descriptors for cleanup (importer only)
+  int pid_fd_ = -1;
+  int peer_fd_ = -1;
+};
+
+// MulticastHandle creates and shares a multicast object across all ranks,
+// and maps an address to that multicast object.
+class MulticastHandle {
+ public:
+  // Creates a multicast object for the given tensor and shares it across all
+  // ranks. Bind the multicast object to the tensor. The tensor must be
+  // allocated with symmetric memory.
+  MulticastHandle(
+      at::Tensor tensor,
+      int64_t exporter_rank,
+      const std::string& store_key_prefix);
+
+  ~MulticastHandle();
+
+  void* multicast_ptr() const {
+    return mc_ptr_;
+  }
+
+ private:
+  CUmemGenericAllocationHandle mcast_handle_{};
+  CUdevice cu_dev_{};
+  void* mc_ptr_{nullptr};
+  int64_t size_{0};
+  at::Tensor tensor_;
+};
+
+// Base class for symmetric memory handles used in collective communications
+class SymmetricMemoryHandle {
+ public:
+  virtual ~SymmetricMemoryHandle() = default;
+};
+
+class MulticastHandleForBroadcast : public SymmetricMemoryHandle {
+ public:
+  MulticastHandleForBroadcast(Communication* communication, at::Tensor buffer);
+
+  // Constructor for use when creating multiple broadcasts (e.g., for allgather)
+  MulticastHandleForBroadcast(
+      at::Tensor buffer,
+      int64_t root,
+      const std::string& name_suffix);
+
+  ~MulticastHandleForBroadcast() = default;
+
+  void* buffer_multicast_ptr() const {
+    return buffer_multicast_handle_->multicast_ptr();
+  }
+
+  void* semaphore_multicast_ptr() const {
+    return semaphore_multicast_handle_->multicast_ptr();
+  }
+
+  void* semaphore_unicast_ptr(int64_t rank) const {
+    return semaphore_handles_[rank]->ptr();
+  }
+
+ private:
+  std::unique_ptr<MulticastHandle> buffer_multicast_handle_;
+  std::unique_ptr<MulticastHandle> semaphore_multicast_handle_;
+  // Per-rank semaphores: each rank exports its own semaphore using
+  // UnicastHandle
+  std::vector<std::unique_ptr<UnicastHandle>> semaphore_handles_;
+};
+
+class MulticastHandleForAllgather : public SymmetricMemoryHandle {
+ public:
+  MulticastHandleForAllgather(Communication* communication, at::Tensor buffer);
+
+  ~MulticastHandleForAllgather() override = default;
+
+  // Accessors for a specific root rank's handles
+  void* buffer_multicast_ptr(int64_t root_rank) const {
+    return broadcast_handles_[root_rank]->buffer_multicast_ptr();
+  }
+
+  void* semaphore_multicast_ptr(int64_t root_rank) const {
+    return broadcast_handles_[root_rank]->semaphore_multicast_ptr();
+  }
+
+  void* semaphore_unicast_ptr(int64_t root_rank, int64_t rank) const {
+    return broadcast_handles_[root_rank]->semaphore_unicast_ptr(rank);
+  }
+
+ private:
+  // Allgather is world_size broadcasts, each broadcasting a different slice
+  // One MulticastHandleForBroadcast per rank (each rank acts as root once)
+  std::vector<std::unique_ptr<MulticastHandleForBroadcast>> broadcast_handles_;
+};
+
+class SymmetricMemoryHandleCache {
+ public:
+  SymmetricMemoryHandleCache() = default;
+  ~SymmetricMemoryHandleCache() = default;
+
+  struct KeyType {
+    at::Tensor buffer;
+    Communication* comm;
+
+    bool operator==(const KeyType& other) const {
+      return TensorEqual{}(buffer, other.buffer) && comm == other.comm;
+    }
+
+    struct Hash {
+      std::size_t operator()(const KeyType& key) const {
+        return (TensorHash{}(key.buffer)) ^
+            (std::hash<Communication*>()(key.comm));
+      }
+    };
+  };
+
+  SymmetricMemoryHandle* get(KeyType key);
+
+ private:
+  std::unordered_map<
+      KeyType,
+      std::unique_ptr<SymmetricMemoryHandle>,
+      KeyType::Hash>
       handles_;
 };
 

@@ -65,6 +65,9 @@ std::string TensorView::toString(int indent_size) const {
     case MemoryType::Tensor:
       ss << "_t";
       break;
+    case MemoryType::Symmetric:
+      ss << "_sym";
+      break;
     default:
       NVF_THROW("Unknown tensor memory type.");
   }
