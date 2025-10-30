@@ -444,6 +444,12 @@ std::unordered_map<ValGroup, IterDomain*> LoopPromotionMapBuilder::build() {
         {tv->getLoopDomain().begin(), tv->getLoopDomain().end()});
     logical_to_loop_ids_.insert(
         logical_to_loop_ids.begin(), logical_to_loop_ids.end());
+    // Make sure loop IDs are included as logical_to_loop_ids may not
+    // when loop is not generated from logical, e.g., scatter. In that
+    // case, no broadcast promotion is done but we still need to pick
+    // some ID as a promotion ID.
+    logical_to_loop_ids_.insert(
+        tv->getLoopDomain().begin(), tv->getLoopDomain().end());
   }
 
   // Make an intersection of the exact and loop map. This will group together
@@ -1288,7 +1294,11 @@ void LoopPromotionMapBuilder::sanityCheckLoopPromotionMap(
       NVF_ERROR(
           promotion_it != loop_promotion_map.end(),
           "Loop promotion not found for ",
-          nvfuser::toString(loop_group));
+          loop_id->toString(),
+          " (",
+          nvfuser::toString(loop_group),
+          ") of ",
+          tv->toString());
       IterDomain* promotion = promotion_it->second;
       // Make sure the promotion domain is also loop-mapped
       NVF_ERROR(
