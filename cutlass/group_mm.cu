@@ -5,23 +5,21 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <cutlass_utils.h>
-#include <nvf_cutlass.h>
-
-#include <ATen/cuda/CUDAContext.h>
-#include <c10/cuda/CUDAGuard.h>
-#include <c10/cuda/CUDAStream.h>
-#include <cutlass/arch/arch.h>
-#include <torch/torch.h>
-
 #include <cassert>
 
-#include "cutlass/epilogue/collective/collective_builder.hpp"
-#include "cutlass/gemm/collective/collective_builder.hpp"
-#include "cutlass/gemm/device/gemm_universal_adapter.h"
-#include "cutlass/gemm/group_array_problem_shape.hpp"
+#include <ATen/cuda/CUDAContextLight.h>
+#include <c10/cuda/CUDAGraphsC10Utils.h>
+#include <c10/cuda/CUDAGuard.h>
+#include <c10/cuda/CUDAStream.h>
 
+#include <cutlass/arch/arch.h>
+#include <cutlass/epilogue/collective/collective_builder.hpp>
+#include <cutlass/gemm/collective/collective_builder.hpp>
+#include <cutlass/gemm/device/gemm_universal_adapter.h>
+#include <cutlass/gemm/group_array_problem_shape.hpp>
+#include <cutlass_utils.h>
 #include <exceptions.h>
+#include <nvf_cutlass.h>
 
 namespace nvfuser::cutlass_kernels {
 
@@ -128,29 +126,24 @@ __global__ void get_group_gemm_starts(
 //   K: Common K dimension across all groups
 //   stream: CUDA stream for kernel execution
 void run_get_group_gemm_starts(
-    const torch::Tensor& a_starts,
-    const torch::Tensor& b_starts,
-    const torch::Tensor& out_starts,
-    const torch::Tensor& a_tensors,
-    const torch::Tensor& b_tensors,
-    const torch::Tensor& out_tensors,
-    const torch::Tensor& expert_offsets,
-    const torch::Tensor& problem_sizes,
+    const at::Tensor& a_starts,
+    const at::Tensor& b_starts,
+    const at::Tensor& out_starts,
+    const at::Tensor& a_tensors,
+    const at::Tensor& b_tensors,
+    const at::Tensor& out_tensors,
+    const at::Tensor& expert_offsets,
+    const at::Tensor& problem_sizes,
     int M,
     int N,
     int K,
     cudaStream_t stream) {
   int num_experts = (int)expert_offsets.size(0);
 
-  NVF_CHECK(
-      out_tensors.size(1) == N,
-      "Output tensor shape doesn't match expected shape");
-  NVF_CHECK(
-      K == b_tensors.size(2),
-      "b_tensors(dim = 2) and a_tensors(dim = 1) trailing"
-      " dimension must match");
+  NVF_CHECK_EQ(out_tensors.size(1), N);
+  NVF_CHECK_EQ(K, b_tensors.size(2));
 
-  if (out_tensors.dtype() == torch::kBFloat16) {
+  if (out_tensors.dtype() == at::kBFloat16) {
     get_group_gemm_starts<cutlass::bfloat16_t, cutlass::bfloat16_t>
         <<<1, num_experts, 0, stream>>>(
             static_cast<cutlass::bfloat16_t**>(a_starts.data_ptr()),
@@ -163,7 +156,7 @@ void run_get_group_gemm_starts(
             static_cast<int32_t*>(problem_sizes.data_ptr()),
             K,
             N);
-  } else if (out_tensors.dtype() == torch::kFloat16) {
+  } else if (out_tensors.dtype() == at::kHalf) {
     get_group_gemm_starts<cutlass::half_t, cutlass::half_t>
         <<<1, num_experts, 0, stream>>>(
             static_cast<cutlass::half_t**>(a_starts.data_ptr()),
@@ -197,13 +190,13 @@ void run_get_group_gemm_starts(
 //   stream: CUDA stream for kernel execution
 template <typename DType>
 void run_group_mm(
-    torch::Tensor& output,
-    const torch::Tensor& a,
-    const torch::Tensor& b,
-    const torch::Tensor& ab_strides,
-    const torch::Tensor& c_strides,
-    const torch::Tensor& problem_sizes,
-    const torch::Tensor& expert_offsets,
+    at::Tensor& output,
+    const at::Tensor& a,
+    const at::Tensor& b,
+    const at::Tensor& ab_strides,
+    const at::Tensor& c_strides,
+    const at::Tensor& problem_sizes,
+    const at::Tensor& expert_offsets,
     int M,
     int N,
     int K,
@@ -291,11 +284,10 @@ void run_group_mm(
 
   // Create cutlass arguments
   int num_experts = static_cast<int>(expert_offsets.size(0));
-  auto options_int =
-      torch::TensorOptions().dtype(torch::kInt64).device(a.device());
-  torch::Tensor a_ptrs = torch::empty(num_experts, options_int);
-  torch::Tensor b_ptrs = torch::empty(num_experts, options_int);
-  torch::Tensor out_ptrs = torch::empty(num_experts, options_int);
+  auto options_int = at::TensorOptions().dtype(at::kLong).device(a.device());
+  at::Tensor a_ptrs = at::empty(num_experts, options_int);
+  at::Tensor b_ptrs = at::empty(num_experts, options_int);
+  at::Tensor out_ptrs = at::empty(num_experts, options_int);
   run_get_group_gemm_starts(
       a_ptrs,
       b_ptrs,
@@ -360,8 +352,8 @@ void run_group_mm(
 
   size_t workspace_size = Gemm::get_workspace_size(args);
   auto const workspace_options =
-      torch::TensorOptions().dtype(torch::kUInt8).device(a.device());
-  auto workspace = torch::empty(workspace_size, workspace_options);
+      at::TensorOptions().dtype(at::kByte).device(a.device());
+  auto workspace = at::empty(workspace_size, workspace_options);
 
   auto can_implement_status = gemm_op.can_implement(args);
   NVF_CHECK(
@@ -384,13 +376,13 @@ void run_group_mm(
 // Returns: Never returns (throws exception)
 template <typename DType>
 void run_group_mm(
-    torch::Tensor& output,
-    const torch::Tensor& a,
-    const torch::Tensor& b,
-    const torch::Tensor& ab_strides,
-    const torch::Tensor& c_strides,
-    const torch::Tensor& problem_sizes,
-    const torch::Tensor& expert_offsets,
+    at::Tensor& output,
+    const at::Tensor& a,
+    const at::Tensor& b,
+    const at::Tensor& ab_strides,
+    const at::Tensor& c_strides,
+    const at::Tensor& problem_sizes,
+    const at::Tensor& expert_offsets,
     int M,
     int N,
     int K,
@@ -414,10 +406,12 @@ void run_group_mm(
 //
 // Throws: NVF_CHECK exceptions for any validation failures
 void validateInputsGroupMm(
-    const torch::Tensor& a,
-    const torch::Tensor& b,
-    const torch::Tensor& problem_sizes,
-    const torch::Tensor& expert_offsets) {
+    const at::Tensor& a,
+    const at::Tensor& b,
+    const at::Tensor& ab_strides,
+    const at::Tensor& c_strides,
+    const at::Tensor& problem_sizes,
+    const at::Tensor& expert_offsets) {
   // Check data types
   NVF_CHECK(
       a.scalar_type() == at::ScalarType::BFloat16 ||
@@ -428,6 +422,22 @@ void validateInputsGroupMm(
           b.scalar_type() == at::ScalarType::Half,
       "Expected BFloat16 or Half for Operand B.")
 
+  if (c10::cuda::currentStreamCaptureStatusMayInitCtx() ==
+      c10::cuda::CaptureStatus::None) {
+    const int64_t m = a.size(0);
+    const int64_t g = expert_offsets.size(0);
+    int64_t prev_offset = 0;
+    for (int64_t i = 0; i < g; ++i) {
+      const auto expert_offset = expert_offsets[i].item<int64_t>();
+      NVF_CHECK_LE(expert_offset, m);
+      NVF_CHECK_LE(prev_offset, expert_offset);
+      prev_offset = expert_offset;
+    }
+  }
+
+  NVF_CHECK_EQ(ab_strides.dtype(), at::kLong);
+  NVF_CHECK_EQ(c_strides.dtype(), at::kLong);
+
   // Check CUDA device
   NVF_CHECK(a.is_cuda(), "Expected CUDA tensor for Operand A.")
   NVF_CHECK(b.is_cuda(), "Expected CUDA tensor for Operand B.")
@@ -437,15 +447,10 @@ void validateInputsGroupMm(
   NVF_CHECK(b.is_contiguous(), "Expected contiguous tensor for Operand B.")
 
   // Check shapes
-  NVF_CHECK(problem_sizes.dim() == 2, "problem_sizes must be  a 2D tensor");
-  NVF_CHECK(
-      problem_sizes.size(1) == 3,
-      "problem_sizes must have the shape (num_experts, 3)");
-  NVF_CHECK(
-      problem_sizes.size(0) == expert_offsets.size(0),
-      "Number of experts in problem_sizes must match expert_offsets");
-  NVF_CHECK(
-      problem_sizes.dtype() == torch::kInt32, "problem_sizes must be int32.");
+  NVF_CHECK_EQ(problem_sizes.dim(), 2);
+  NVF_CHECK_EQ(problem_sizes.size(1), 3);
+  NVF_CHECK_EQ(problem_sizes.size(0), expert_offsets.size(0));
+  NVF_CHECK_EQ(problem_sizes.dtype(), at::kInt);
 }
 
 } // namespace
@@ -467,20 +472,21 @@ void validateInputsGroupMm(
 //
 // Returns: Grouped matrix C = A @ B for all groups in the specified
 // output dtype
-torch::Tensor grouped_mm(
-    const torch::Tensor& a,
-    const torch::Tensor& b,
-    const torch::Tensor& ab_strides,
-    const torch::Tensor& c_strides,
-    const torch::Tensor& problem_sizes,
-    const torch::Tensor& expert_offsets) {
+at::Tensor grouped_mm(
+    const at::Tensor& a,
+    const at::Tensor& b,
+    const at::Tensor& ab_strides,
+    const at::Tensor& c_strides,
+    const at::Tensor& problem_sizes,
+    const at::Tensor& expert_offsets) {
   // Calculate output shape and allocate output tensor
   auto options = at::TensorOptions()
                      .dtype(a.scalar_type())
                      .device(at::kCUDA, a.get_device());
-  torch::Tensor output = at::empty({a.size(0), b.size(1)}, options);
+  at::Tensor output = at::empty({a.size(0), b.size(1)}, options);
 
-  validateInputsGroupMm(a, b, problem_sizes, expert_offsets);
+  validateInputsGroupMm(
+      a, b, ab_strides, c_strides, problem_sizes, expert_offsets);
 
   int M = static_cast<int>(a.size(0));
   int N = static_cast<int>(b.size(1));

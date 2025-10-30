@@ -99,6 +99,9 @@ def test_layernorm_fwd_nvf_benchmark(
         run_benchmark(benchmark, fd.execute, inputs)
 
 
+import os
+
+
 @pytest.mark.parametrize("executor", DEFAULT_EXECUTORS)
 @pytest.mark.parametrize("size", generate_input_sizes(dims=2))
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)
@@ -111,6 +114,11 @@ def test_layernorm_fwd_baseline_benchmark(
 ):
     if executor == "torchcompile":
         clear_dynamo_cache()
+        assert os.environ.get("TORCHINDUCTOR_COORDINATE_DESCENT_TUNING") == "1"
+        assert (
+            os.environ.get("TORCHINDUCTOR_COORDINATE_DESCENT_CHECK_ALL_DIRECTIONS")
+            == "1"
+        )
     batch_size, hidden_size = size
     inputs = [
         torch.randn(size, device="cuda", dtype=dtype, requires_grad=True),

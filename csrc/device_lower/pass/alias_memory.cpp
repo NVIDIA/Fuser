@@ -1370,6 +1370,16 @@ class ReusableAllocationFinder : private kir::IrVisitor {
         if (!tv_def) {
           continue;
         }
+        // A broadcast domain in any tensor between the original and reuse
+        // tensor can lead to a cross-iteration Read-After-Write (RAW) hazard.
+        // Broadcast concretization may occur without an explicit BroadcastOp,
+        // so we check for broadcast domains on any intermediate tensor. When
+        // detected, this forces the allocationDomainsIndexMapped check (line
+        // 1349) to ensure safe aliasing. The hazard occurs when register
+        // aliasing inside an inner loop is allowed while the aliased buffer is
+        // read at an outer loop level: inner-loop stores in iteration i can
+        // clobber values needed by reads in outer-loop iteration i+1.
+        // See https://github.com/NVIDIA/Fuser/issues/5346.
         if (tv->hasBroadcast()) {
           info.has_broadcast_between = true;
         } else if (

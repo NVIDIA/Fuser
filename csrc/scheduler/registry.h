@@ -72,14 +72,31 @@ class SchedulerEntry {
     return params_.get();
   }
 
+  //! Set scheduler hyperparameters for schedulers that use them
+  void setSchedulerHyperParameters(
+      const scheduler_utils::SchedulerHyperParameters* hyperparams) {
+    scheduler_hyperparams_ = hyperparams;
+  }
+
+  //! Get scheduler hyperparameters (may be nullptr)
+  const scheduler_utils::SchedulerHyperParameters* getSchedulerHyperParameters()
+      const {
+    return scheduler_hyperparams_;
+  }
+
   std::unique_ptr<HeuristicParams> params_ = nullptr;
+
+ private:
+  //! Optional scheduler hyperparameters for schedulers that use them
+  const scheduler_utils::SchedulerHyperParameters* scheduler_hyperparams_ =
+      nullptr;
 };
 
 namespace Schedule {
 
 //! External access for canSchedule utilities through SchedulerEntry
 //!  to avoid exposing a single function to the namespace
-bool canSchedule(
+NVF_API bool canSchedule(
     SchedulerType sh,
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
