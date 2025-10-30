@@ -1173,7 +1173,11 @@ TensorView* TensorView::cacheBefore(LoadStoreOpType op_type) {
         IrBuilder::createInContainer<TensorDomain>(container(), root, root, root, TensorDomain::getContiguityFilledWith(root, true)),
         getDataType().value());
     // replay from `root`->`loop` on producer
-    producer->setDomain(TransformReplay::fullSelfReplay(producer->domain(), domain()));
+    if (consumer->hasDeviceMesh()) {
+      TransformReplay::selfReplay(producer->domain(), domain());
+    } else {
+      producer->setDomain(TransformReplay::fullSelfReplay(producer->domain(), domain()));
+    }
   }
 
   // clean up consumer domain to wipe out root and all reduction IDs
