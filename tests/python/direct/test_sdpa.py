@@ -133,6 +133,7 @@ def test_sdpa_fwd(nvfuser_direct_test):
                     has_scale=has_scale,
                 ),
                 inputs,
+                new_fusion_expected=None,
             )
 
             # Torch does not accept NoneType dropout_p, is_causal.
@@ -298,6 +299,7 @@ def test_sdpa_bwd(nvfuser_direct_test):
                     has_scale=has_scale,
                 ),
                 inputs,
+                new_fusion_expected=None,
             )
             torch.testing.assert_close(nvf_out[0], ref_grad[0])
             torch.testing.assert_close(nvf_out[1], ref_grad[1])
@@ -427,6 +429,7 @@ def test_sdpa_fwd_bwd(nvfuser_direct_test):
                     has_scale=has_scale,
                 ),
                 inputs,
+                new_fusion_expected=None,
             )
             torch.testing.assert_close(nvf_out[0], ref_out)
             torch.testing.assert_close(nvf_out[1], q.grad)
