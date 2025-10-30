@@ -638,6 +638,22 @@ class ExprValidator : public OptOutDispatch {
         quantized_output->hasAllocation() == false,
         "Quantized output must not have an allocation domain.");
 
+    if (block_scaling_factor->hasAllocation()) {
+      NVF_ERROR_EQ(
+          block_scaling_factor->getLogicalDomain().size(),
+          2,
+          "Currently we only support block scaling factor with allocation "
+          "domain which have a 2D logical "
+          "domain.");
+
+      NVF_ERROR_EQ(
+          block_scaling_factor->getAllocationDomain().size(),
+          5,
+          "Currently we only support block scaling factor with allocation "
+          "domain which have a 5D allocation "
+          "domain.");
+    }
+
     // Check that it either had vectorized ID or grouped ID
     // not both and the extent is either 4(FP32) or 8(BF16)
     IterDomain* grouped_id = nullptr;
