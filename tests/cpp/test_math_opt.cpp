@@ -109,125 +109,163 @@ INSTANTIATE_TEST_SUITE_P(
       return sanitizeTestName(ss.str());
     });
 
-using FMinFMaxPromotionTest = NVFuserFixtureParamTest<int>;
-TEST_P(FMinFMaxPromotionTest, Test) {
-  // Test and validate max reductions under a couple different topologies.
-  // Ensure some topologies include "fmax" in the kernel.
+class FMinFMaxPromotionTest : public NVFuserTest {
+ protected:
+  void SetUp() override {
+    NVFuserTest::SetUp();
 
-  int testIndex = GetParam();
+    fusion_ = std::make_unique<Fusion>();
+    fg_ = std::make_unique<FusionGuard>(fusion_.get());
 
-  auto fusion = std::make_unique<Fusion>();
-  FusionGuard fg(fusion.get());
-
-  auto tv0 = makeSymbolicTensor(2);
-  fusion->addInput(tv0);
-  auto tv1 = makeSymbolicTensor(2);
-  fusion->addInput(tv1);
-  auto tv2 = makeSymbolicTensor(2);
-  fusion->addInput(tv2);
-
-  bool expectFMax = false;
-
-  if (testIndex == 1) {
-    TensorView* tv3 = add(max(tv0, {0, 1}), tv0);
-    TensorView* tv4 = add(tv3, sum(tv3, {0, 1}));
-    fusion->addOutput(tv4);
-    expectFMax = true;
+    in_tv0_ = makeSymbolicTensor(2);
+    fusion_->addInput(in_tv0_);
+    in_tv1_ = makeSymbolicTensor(2);
+    fusion_->addInput(in_tv1_);
+    in_tv2_ = makeSymbolicTensor(2);
+    fusion_->addInput(in_tv2_);
   }
 
-  if (testIndex == 2) {
-    TensorView* tv3 = add(max(tv0, {0, 1}), sum(tv0, {0, 1}));
-    fusion->addOutput(tv3);
-    expectFMax = true;
+  void validateFusion(bool shouldPromoteFMax) {
+    auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+    auto t0 = at::randn({32, 32}, options);
+    t0[0][0] = std::numeric_limits<float>::quiet_NaN();
+
+    auto t1 = at::randn({32, 32}, options);
+    auto t2 = at::randn({32, 32}, options);
+
+    FusionExecutorCache executor_cache(std::move(fusion_));
+    auto outputs = executor_cache.runFusionWithInputs({t0, t1, t2});
+
+    testValidate(
+        executor_cache.fusion(), outputs, {t0, t1, t2}, __LINE__, __FILE__);
+
+    auto kernel_runtime = executor_cache.getMostRecentKernelRuntime();
+
+    bool anyFMax = false;
+    for (auto& segment : kernel_runtime->fusionSegments()->groups()) {
+      const auto* ke = kernel_runtime->executors()
+                           .at(segment->groupId())
+                           ->as<KernelExecutor>();
+      std::string kernel_code = ke->compiledKernel()->kernelString();
+      if (kernel_code.find("fmax(") != std::string::npos) {
+        anyFMax = true;
+      }
+    }
+
+    NVF_CHECK(anyFMax == shouldPromoteFMax);
   }
 
-  if (testIndex == 3) {
-    TensorView* tv3 = add(tv0, tv1);
-    TensorView* tv4 = add(tv3, broadcast(max(tv3, {1}), {false, true}));
-    TensorView* tv5 = broadcast(sum(add(tv4, tv2), {1}), {false, true});
-    TensorView* tv6 = add(tv4, tv5);
-    fusion->addOutput(tv6);
-    expectFMax = true;
-  }
+  std::unique_ptr<Fusion> fusion_;
+  std::unique_ptr<FusionGuard> fg_;
+  TensorView* in_tv0_;
+  TensorView* in_tv1_;
+  TensorView* in_tv2_;
+};
 
-  if (testIndex == 4) {
-    TensorView* tv3 = add(max(tv0, {1}), sum(tv1, {1}));
-    fusion->addOutput(tv3);
-    expectFMax = false;
-  }
-
-  if (testIndex == 5) {
-    TensorView* tv3 = add(tv0, tv1);
-    TensorView* tv4 = broadcast(max(tv3, {1}), {false, true});
-    TensorView* tv5 = broadcast(sum(add(tv4, tv2), {1}), {false, true});
-    TensorView* tv6 = add(tv4, tv5);
-    fusion->addOutput(tv6);
-    expectFMax = false;
-  }
-
-  if (testIndex == 6) {
-    TensorView* tv3 = add(tv0, broadcast(max(tv0, {1}), {false, true}));
-    fusion->addOutput(tv3);
-    expectFMax = false;
-  }
-
-  if (testIndex == 7) {
-    TensorView* tv3 = add(abs(max(tv0, {0, 1})), sum(tv0, {0, 1}));
-    fusion->addOutput(tv3);
-    expectFMax = true;
-  }
-
-  if (testIndex == 8) {
-    TensorView* tv3 = add(max(tv0, {0, 1}), max(tv0, {0, 1}));
-    fusion->addOutput(tv3);
-    expectFMax = true;
-  }
-
-  if (testIndex == 9) {
-    TensorView* tv3 = add(broadcast(abs(max(tv0, {1})), {false, true}), tv0);
-    TensorView* tv4 = add(tv3, broadcast(abs(sum(tv3, {0})), {true, false}));
-    fusion->addOutput(tv4);
-    expectFMax = false;
-  }
-
-  fusion->printMath();
-
-  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  auto t0 = at::randn({16, 32}, options);
-  t0[0][0] = std::numeric_limits<float>::quiet_NaN();
-
-  auto t1 = at::randn({16, 32}, options);
-  auto t2 = at::randn({16, 32}, options);
-
-  FusionExecutorCache executor_cache(std::move(fusion));
-  auto outputs = executor_cache.runFusionWithInputs({t0, t1, t2});
-
-  testValidate(
-      executor_cache.fusion(), outputs, {t0, t1, t2}, __LINE__, __FILE__);
-
-  auto kernel_runtime = executor_cache.getMostRecentKernelRuntime();
-
-  auto& group = kernel_runtime->fusionSegments()->groups()[0];
-
-  const auto* ke =
-      kernel_runtime->executors().at(group->groupId())->as<KernelExecutor>();
-  std::string kernel_code = ke->compiledKernel()->kernelString();
-
-  if (expectFMax) {
-    EXPECT_THAT(kernel_code, ::testing::HasSubstr("fmax("));
-  } else {
-    EXPECT_THAT(kernel_code, ::testing::Not(::testing::HasSubstr("fmax(")));
-  }
+// The most basic case of promotion. The sum covers the max reduction.
+TEST_F(FMinFMaxPromotionTest, BasicMaxSum) {
+  TensorView* tv1 = max(in_tv0_, {0, 1});
+  TensorView* tv2 = sum(in_tv0_, {0, 1});
+  TensorView* tv3 = add(tv1, tv2);
+  fusion_->addOutput(tv3);
+  validateFusion(true);
 }
 
-INSTANTIATE_TEST_SUITE_P(
-    MathOptTest,
-    FMinFMaxPromotionTest,
-    ::testing::Values(1, 2, 3, 4, 5, 6, 7, 8, 9),
-    [](const testing::TestParamInfo<int>& info) -> std::string {
-      std::stringstream ss;
-      ss << info.param;
-      return sanitizeTestName(ss.str());
-    });
+// Like BasicMaxSum but reducing over different axes, so sum doesn't cover max.
+TEST_F(FMinFMaxPromotionTest, MaxSumDifferentAxes) {
+  TensorView* tv1 = max(in_tv0_, {0});
+  TensorView* tv2 = sum(in_tv0_, {1});
+  // Why does IdModel exact map the reduce dims of max and sum into one graph?
+
+  // ComputeAtLogicalMap also gets this wrong
+  TensorView* tv3 = add(tv1, tv2);
+  fusion_->addOutput(tv3);
+  validateFusion(false);
+}
+
+// Like BasicMaxSum, but the tensors are different, so sum doesn't cover max.
+TEST_F(FMinFMaxPromotionTest, MaxSumDifferentTensorViews) {
+  TensorView* tv1 = max(in_tv0_, {0});
+  TensorView* tv2 = sum(in_tv1_, {0});
+  TensorView* tv3 = add(tv1, tv2);
+  fusion_->addOutput(tv3);
+  validateFusion(false);
+}
+
+// Like BasicMaxSum but with unary ops inserted.
+// Unary ops should not affect the promotion at all.
+TEST_F(FMinFMaxPromotionTest, MaxSumSameAxesUnary) {
+  TensorView* tv1 = max(in_tv0_, {0, 1});
+  TensorView* tv2 = sum(in_tv0_, {0, 1});
+  TensorView* tv3 = abs(tv1);
+  TensorView* tv4 = abs(tv2);
+  TensorView* tv5 = add(tv3, tv4);
+  fusion_->addOutput(tv5);
+  validateFusion(true);
+}
+
+// Like BasicMaxSum but with binary ops connected to unrelated inputs.
+// Like unary ops, binary ops with unrelated inputs do not affect the promotion.
+TEST_F(FMinFMaxPromotionTest, MaxSumSameAxesBinary) {
+  TensorView* tv1 = max(in_tv0_, {0, 1});
+  TensorView* tv2 = sum(in_tv0_, {0, 1});
+  TensorView* tv3 = add(tv1, in_tv1_);
+  TensorView* tv4 = add(tv2, in_tv2_);
+  TensorView* tv5 = add(tv3, tv4);
+  fusion_->addOutput(tv5);
+  validateFusion(true);
+}
+
+// Normalization pattern requiring a mixed state
+TEST_F(FMinFMaxPromotionTest, Normalization) {
+  TensorView* tv1 = max(in_tv0_, {1});
+
+  // tv2 is in a mixed state. It's not a safe output, but it could be repaired
+  // by a safe reduction.
+  TensorView* tv2 = add(broadcast(tv1, {false, true}), in_tv0_);
+
+  TensorView* tv3 = sum(tv2, {1});
+  TensorView* tv4 = add(broadcast(tv3, {false, true}), tv2);
+  fusion_->addOutput(tv4);
+  validateFusion(true);
+}
+
+// Normalization with unary and binary ops thrown in.
+// These should not affect promotion.
+TEST_F(FMinFMaxPromotionTest, NormalizationUnaryBinary) {
+  TensorView* tv1 = max(in_tv0_, {0});
+
+  // Unary op
+  TensorView* tv2 = abs(tv1);
+  TensorView* tv3 = add(tv2, in_tv0_);
+  TensorView* tv4 = sum(tv3, {0});
+
+  // Unrelated binary op
+  TensorView* tv5 = add(tv4, in_tv1_);
+  TensorView* tv6 = add(tv5, tv4);
+  fusion_->addOutput(tv6);
+  validateFusion(true);
+}
+
+// Normalization style pattern, but with different axes, breaking promotion.
+TEST_F(FMinFMaxPromotionTest, NormalizationDifferentAxes) {
+  TensorView* tv1 = max(in_tv0_, {0});
+  TensorView* tv2 = add(tv1, in_tv0_);
+  TensorView* tv3 = sum(tv2, {1});
+  TensorView* tv4 = add(tv3, tv2);
+  fusion_->addOutput(tv4);
+  validateFusion(false);
+}
+
+// Two unsafe reductions on the same input. Exactly one should be promoted.
+TEST_F(FMinFMaxPromotionTest, SiblingReduction) {
+  TensorView* tv1 = max(in_tv0_, {0, 1});
+  TensorView* tv2 = min(in_tv0_, {0, 1});
+  // tv1 must be the first argument to add, simply because we check for fmax and
+  // not fmin.
+  TensorView* tv3 = add(tv1, tv2);
+  fusion_->addOutput(tv3);
+  validateFusion(true);
+}
 
 } // namespace nvfuser
