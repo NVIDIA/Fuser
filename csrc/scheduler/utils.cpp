@@ -2355,9 +2355,31 @@ std::unordered_map<int64_t, int64_t> reorderLoopAsAllocationMap(
   return reorder_map;
 }
 
-void propagateReshapeTransforms(Fusion* fusion, const ComputeAtMap& ca_map) {
-  std::unordered_set<std::shared_ptr<VectorOfUniqueEntries<IterDomain*>>>
-      transformed_disjoint_sets;
+void propagateReshapeTransforms(Fusion* fusion) {
+  // Build IdModel with PERMISSIVE_RESIZE graph to properly handle
+  // reshape operations across slice boundaries. This ensures that
+  // compatible reshapes (e.g., reshape(24, {2,12}) and reshape(24, {2,2,6}))
+  // are treated consistently even when the input slices differ.
+  IdModel id_model(fusion);
+  const auto permissive_resize_graph = buildPermissiveResizeGraph(
+      id_model.maybeBuildGraph(IdMappingMode::PERMISSIVE));
+
+  if (isDebugDumpEnabled(DebugDumpOption::TransformPropagator)) {
+    std::cout << "\n=== propagateReshapeTransforms Debug ===" << std::endl;
+    std::cout << "PERMISSIVE_RESIZE graph disjoint sets: "
+              << permissive_resize_graph.disjointValSets().disjointSets().size()
+              << std::endl;
+    for (const ValGroup& disjoint_set :
+         permissive_resize_graph.disjointValSets().disjointSets()) {
+      std::cout << "  ValGroup: { ";
+      for (auto val : *disjoint_set) {
+        std::cout << val->toString() << "; ";
+      }
+      std::cout << "}" << std::endl;
+    }
+  }
+
+  std::unordered_set<ValGroup> transformed_disjoint_sets;
 
   // If iter domains are involved in any transformation from root domains to
   // logical domains they should be considered "contaminated".
@@ -2366,34 +2388,53 @@ void propagateReshapeTransforms(Fusion* fusion, const ComputeAtMap& ca_map) {
              {tv->getMaybeRootDomain().begin(), tv->getMaybeRootDomain().end()},
              {tv->getLogicalDomain().begin(), tv->getLogicalDomain().end()})) {
       for (auto id : ir_utils::filterByType<IterDomain>(expr->inputs())) {
-        transformed_disjoint_sets.emplace(
-            ca_map.disjointSetOf(id, IdMappingMode::EXACT));
+        transformed_disjoint_sets.emplace(permissive_resize_graph.toGroup(id));
       }
     }
   }
 
+  if (isDebugDumpEnabled(DebugDumpOption::TransformPropagator)) {
+    std::cout << "\ntransformed_disjoint_sets (contaminated): "
+              << transformed_disjoint_sets.size() << std::endl;
+    for (const auto& disjoint_set : transformed_disjoint_sets) {
+      std::cout << "  transformed_disjoint_sets: { ";
+      for (auto val : *disjoint_set) {
+        std::cout << val->toString() << "; ";
+      }
+      std::cout << "}" << std::endl;
+    }
+  }
+
+  // These sets contain RFactorProduct IDs produced by reshape (excluding
+  // resize). Skip sets that were already transformed for view operations. The
+  // collected IDs represent terminating dimensions of reshape operations.
   std::unordered_set<IterDomain*> terminating_reshape_dims;
-  for (const auto& disjoint_set_shared_ptr :
-       ca_map.idGraph().exactNodes().disjointSets()) {
-    // Find a disjoint set that is produced by a reshape
-    // operation. Ignore resize as it isn't reshape
-    if (std::none_of(
-            disjoint_set_shared_ptr->vector().begin(),
-            disjoint_set_shared_ptr->vector().end(),
-            [](IterDomain* id) {
-              return id->isRFactorProduct() && id->definition() &&
-                  !id->definition()->isA<Resize>();
-            })) {
+  for (const ValGroup& disjoint_set :
+       permissive_resize_graph.disjointValSets().disjointSets()) {
+    if (std::none_of(disjoint_set->begin(), disjoint_set->end(), [](Val* val) {
+          auto id = val->as<IterDomain>();
+          return id->isRFactorProduct() && id->definition() &&
+              !id->definition()->isA<Resize>();
+        })) {
       continue;
     }
-    if (transformed_disjoint_sets.find(disjoint_set_shared_ptr) !=
+    if (transformed_disjoint_sets.find(disjoint_set) !=
         transformed_disjoint_sets.end()) {
       // Disjoint set was transformed for view, ignore it
       continue;
     }
-    for (auto id : disjoint_set_shared_ptr->vector()) {
-      terminating_reshape_dims.emplace(id);
+    for (auto val : *disjoint_set) {
+      terminating_reshape_dims.emplace(val->as<IterDomain>());
     }
+  }
+
+  if (isDebugDumpEnabled(DebugDumpOption::TransformPropagator)) {
+    std::cout << "\nterminating_reshape_dims: "
+              << terminating_reshape_dims.size() << std::endl;
+    for (auto id : terminating_reshape_dims) {
+      std::cout << "  terminating_reshape_dim: " << id->toString() << std::endl;
+    }
+    std::cout << "=== End propagateReshapeTransforms Debug ===\n" << std::endl;
   }
 
   // If iter domains are involved in any transformation from root domains to
