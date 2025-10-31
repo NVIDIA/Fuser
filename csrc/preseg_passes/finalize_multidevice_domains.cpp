@@ -15,7 +15,7 @@
 #include <linked_hash_map.h>
 #include <multidevice/utils.h>
 #include <scheduler/utils.h>
-#include "type.h"
+#include <type.h>
 
 namespace nvfuser::preseg_passes {
 
