@@ -99,9 +99,9 @@ def test_scaled_mm(
         )
         fd.add_output(out)
 
-    o, _ = nvfuser_direct_test.exec_nvfuser(nvfuser_fusion_id0, inputs)
+    outputs, _ = nvfuser_direct_test.exec_nvfuser(nvfuser_fusion_id0, inputs)
 
-    ref_o = (
+    ref_outputs = (
         torch._scaled_mm(
             mat1,
             mat2.t(),
@@ -113,7 +113,7 @@ def test_scaled_mm(
         )
         * alpha
     )
-    assert o[0].allclose(ref_o, 1e-2, 1e-2)
+    assert outputs[0].allclose(ref_outputs, 1e-2, 1e-2)
 
 
 @pytest.mark.skipif(
@@ -248,7 +248,7 @@ def test_cutlass_nvfp4_grouped_mm(
         blockscale_offsets,
     ]
 
-    o, _ = nvfuser_direct_test.exec_nvfuser(nvfuser_fusion_id0, inputs)
+    outputs, _ = nvfuser_direct_test.exec_nvfuser(nvfuser_fusion_id0, inputs)
 
     o_decomposed_ref = torch.empty(m, n, dtype=torch.bfloat16, device="cuda:0")
     for i in range(g):
@@ -274,7 +274,7 @@ def test_cutlass_nvfp4_grouped_mm(
             * mat2_gs[i]
         )
 
-    assert torch.allclose(o_decomposed_ref, o[0], atol=1e-2, rtol=1e-2)
+    assert torch.allclose(o_decomposed_ref, outputs[0], atol=1e-2, rtol=1e-2)
 
 
 @pytest.mark.skipif(
@@ -304,6 +304,7 @@ def test_fp4_vectorization(
         T5 = fd.ops.reshape(T4, [32])
         fd.add_output(T5)
 
-    o, _ = nvfuser_direct_test.exec_nvfuser(nvfuser_fusion_id0, inputs)
+    outputs, _ = nvfuser_direct_test.exec_nvfuser(nvfuser_fusion_id0, inputs)
 
-    ref_o = to_fp4(inputs[0].to(torch.float) / inputs[1].unsqueeze(-1)).reshape(-1)
+    ref_outputs = to_fp4(inputs[0].to(torch.float) / inputs[1].unsqueeze(-1)).reshape(-1)
+    assert outputs[0].view(dtype=torch.uint8).allclose(ref_outputs.view(dtype=torch.uint8))
