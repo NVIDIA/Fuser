@@ -209,7 +209,8 @@ struct Fp4GemmSm100 {
   // C/D matrix configuration
 )";
   code += "  using ElementD = " + output_dtype + ";\n";
-  code += "  using ElementC = " + output_dtype + ";\n";
+  // This should be void unless there is a bias
+  code += "  using ElementC = void;\n";
 
   NVF_ERROR(
       !main_output->hasAllocation(),
@@ -220,7 +221,9 @@ struct Fp4GemmSm100 {
 
   code += R"(
   static constexpr int AlignmentD = 128 / cutlass::sizeof_bits<ElementD>::value;
-  static constexpr int AlignmentC = 128 / cutlass::sizeof_bits<ElementC>::value;
+  // Avoid division by zero in case ElementC is void
+  static constexpr int AlignmentC = 128 / std::max(cutlass::sizeof_bits<ElementC>::value, 1);
+
   // Kernel functional config
   using ElementAccumulator = float;
   using ArchTag = cutlass::arch::Sm100;
