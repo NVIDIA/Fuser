@@ -1189,8 +1189,15 @@ bool SchedulerTopologyChecker::hasIncompatibleTransforms(Fusion* fusion) {
     if (val_group->size() < 2) {
       continue;
     }
-    auto ids = ir_utils::filterByType<IterDomain>(val_group->vector());
-
+    // collect all derived ids except resize since it is not propagated during
+    // replay
+    std::vector<IterDomain*> ids;
+    for (Val* val : *val_group) {
+      auto id = val->as<IterDomain>();
+      if (id->definition() && !id->definition()->isA<Resize>()) {
+        ids.push_back(id);
+      }
+    }
     // For IDs in the same val group, their usages should be in the same expr
     // group. Resize ops are skipped since they are not propagated during replay
     std::optional<ExprGroup> common_use_group;
