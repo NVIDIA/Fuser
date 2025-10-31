@@ -1869,9 +1869,6 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     // write out the block scaling factors in the runtime function.
     func_args.arg(genInline(bqop->attributeVal(0)));
 
-    // Fifth argument: extent of the inner-most dimension
-    func_args.arg(genInline(output->getLoopDomain().back()->extent()));
-
     indent() << genCall("bq::block_quantize_to_nvfp4", template_args, func_args)
              << ";\n";
   }

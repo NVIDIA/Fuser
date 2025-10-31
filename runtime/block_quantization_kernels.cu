@@ -9,8 +9,21 @@
 namespace nvf {
 namespace bq {
 
+// This helper function is templatized of over types float, __half, and
+// __bfloat. This assumes that for float, each thread was working on 4 elements.
+// Thus 4 threads were working to find the max of 16 elements, and hence we need
+// two steps to find the maximum. If the type is __bfloat or __half, then we
+// only need a single step to find the maximum of 16 elements as each thread was
+// working on 8 elements and 2 threads are required to compute the max of 16
+// elements.
+// This function assumes for float each thread has already computed the max of 4
+// elements (8 elements for the other 2 data types) and the block size is 16, so
+// we have 4 threads (2 for bf16/fp16) participating in the reduction.
+// TODO: For FP32 support the cases where each thread works on 2 or 4 elements.
+// TODO: For bf16/fp16 support the cases where each thread works on 2,4, or 8
+// elements.
 template <typename T>
-__device__ __inline__ void localMaxReduction(float& local_max) {
+__device__ __inline__ void reduceAcrossThreads(float& per_thread_computed_max) {
   // The mask 0xffffffff indicates all 32 threads in the warp are participating.
   unsigned int mask = 0xffffffff;
 
@@ -19,25 +32,30 @@ __device__ __inline__ void localMaxReduction(float& local_max) {
   // e.g., thread 0 exchanges with 2; thread 1 with 3.
   // The XOR pattern naturally keeps the operation within each quad.
   if (std::is_same<T, float>::value) {
-    local_max = fmax(local_max, __shfl_xor_sync(mask, local_max, 2));
+    per_thread_computed_max = fmax(
+        per_thread_computed_max,
+        __shfl_xor_sync(mask, per_thread_computed_max, 2));
   }
 
   // --- Reduction Step 2 ---
   // Exchange and compare with thread 1 lane away.
   // e.g., thread 0 exchanges with 1; thread 2 with 3.
-  local_max = fmax(local_max, __shfl_xor_sync(mask, local_max, 1));
+  per_thread_computed_max = fmax(
+      per_thread_computed_max,
+      __shfl_xor_sync(mask, per_thread_computed_max, 1));
 
-  // At this point, all threads in a quad hold the maximum value for that quad.
+  // At this point, all threads in a quad hold the maximum value for that
+  // quad(pair of 2 threads).
 }
 
-// TODO: Add a template parameter for input type.
-// For now we just work on float.
-// This also assumes a block of 16. That should be a
-// template parameter.
-
-// This assumes that ITEMS_PER_THREAD is 4.
-// This assumes for block quantization, the block size is 16.
-// This works for float but will extended to work with bfloat.
+// A runtime function to compute quantized nvfp4 output (output) and fp8 block
+// scaling (block_scales) factors from fp32, fp16, bf16 inputs (input).
+// The function is templatized over input type T (float, __half, __bfloat).
+// This function assumes that for float, each thread is working on 4 elements.
+// Thus 4 threads are working to quantize 16 elements. If the type is __bfloat
+// or
+// __half, then 2 threads are working to quantize 16 elements as each thread
+// is working on 8 elements.
 template <
     int ITEMS_PER_THREAD,
     typename T,
@@ -49,8 +67,7 @@ __device__ void block_quantize_to_nvfp4(
     const Array<T, ITEMS_PER_THREAD, ALIGNMENT_1>& input,
     Array<__e2m1, ITEMS_PER_THREAD, ALIGNMENT_2>& output,
     Tensor<__e4m3, BLOCK_SCALE_DIM, BLOCK_SCALE_ALLOC>& block_scales,
-    nvfuser_index_t logical_index,
-    int input_logical_inner_dim_size) {
+    nvfuser_index_t logical_index) {
   constexpr bool is_half_or_bfloat =
       std::is_same<T, __bfloat>::value || std::is_same<T, __half>::value;
   constexpr bool is_float = std::is_same<T, float>::value;
@@ -58,25 +75,19 @@ __device__ void block_quantize_to_nvfp4(
       is_float || is_half_or_bfloat,
       "Input type must be float, __half or __bfloat");
 
-  if constexpr (is_float) {
-    assert(blockDim.x % 4 == 0);
-  } else if constexpr (is_half_or_bfloat) {
-    assert(blockDim.x % 2 == 0);
-  }
-
   static_assert(
       (is_float && ITEMS_PER_THREAD == 4) ||
           (is_half_or_bfloat && ITEMS_PER_THREAD == 8),
       "ITEMS_PER_THREAD must be 4 for float type or 8 for __bfloat or __half "
       "type");
 
-  assert(input_logical_inner_dim_size % 16 == 0);
-
-  int THREADS_PER_SCALING_FACTOR = 16 / ITEMS_PER_THREAD;
+  // Number of threads involved in computing one block scaling factor
+  constexpr int THREADS_PER_SCALING_FACTOR = 16 / ITEMS_PER_THREAD;
 
   Array<float, ITEMS_PER_THREAD, ITEMS_PER_THREAD> vec_in;
-  vec_in.set(0.0f); // Initialize to zero like nvfuser does
+  vec_in.set(0.0f);
 
+#pragma unroll
   for (auto i = 0; i < ITEMS_PER_THREAD; i++) {
     if constexpr (std::is_same<T, float>::value) {
       vec_in[i] = input[i];
@@ -93,9 +104,10 @@ __device__ void block_quantize_to_nvfp4(
     local_max = fmax(local_max, fabsf(vec_in[i]));
   }
 
-  // Perform block(16 elements)-wide reduction (max)
-  // across 4- threads
-  localMaxReduction<T>(local_max);
+  // Compute the max accross 4 threads (float) or 2 threads (bf16/fp16)
+  // This assumes each thread has already computed is local max of 4 (fp32) or
+  // 8 (bf16/fp16) elements.
+  reduceAcrossThreads<T>(local_max);
   float block_max = local_max;
 
   // This division should be replaced with a multiplication
@@ -106,17 +118,16 @@ __device__ void block_quantize_to_nvfp4(
 
   __e4m3 clamped_max_fp8 = __float2e4m3(clamped_max);
 
+  // Convert back from FP8 to float using __e4m32float
   float clamped_max_converted = __e4m32float(clamped_max_fp8);
 
-  int offset_y_blocks = blockIdx.y * blockDim.y * blockDim.x * gridDim.x;
-  int offset_dim_y = threadIdx.y * blockDim.x * gridDim.x;
-  int offset_into_block = blockIdx.x * blockDim.x + threadIdx.x;
-
+  // Write out the block scaling factor to global memory.
+  // This assumes 16 elements in the input were contiguous.
+  // Only one block scaling factor is written out per 16(assumed block size)
+  // elements.
   int offset = logical_index / 16;
-
-  // Convert back from FP8 to float using __e4m32float
   if (threadIdx.x % THREADS_PER_SCALING_FACTOR == 0) {
-    fp8_output[offset] = clamped_max_fp8; // Broadcast to all threads
+    block_scales[offset] = clamped_max_fp8;
   }
 
   Array<float, ITEMS_PER_THREAD, ITEMS_PER_THREAD> clamped_vals;

@@ -3403,6 +3403,13 @@ class BlockQuantizationOp : public Expr {
  public:
   using Expr::Expr;
 
+  // This op takes in a high precision input(input)
+  // and returns the quantized output(output) along with the block scaling
+  // factors (output_scales). It can also take as an optional input the global
+  // scaling factor and block size (though we currently only support 16).
+  // logical_index is used for internal implemtation. This op is currently
+  // implemented via a runtime function. During index computation, we compute
+  // the index of the output_scales and pass it to the runtime function.
   BlockQuantizationOp(
       IrBuilderPasskey,
       Val* output_scales,
