@@ -24,9 +24,6 @@ class NVF_API CutlassParams : public HeuristicParams {
   // If this is smaller than mma_tile, then we are doing 2sm mma
   GemmTile per_sm_tile = {128, 256, 256};
 
-  // The epilogue will be processed in M,N tiles of this size
-  GemmTile epilogue_tile = {128, 128, 1};
-
   // Shape of the cluster in CTAs, order is M, N, 1
   GemmTile cluster_shape = {4, 4, 1};
 

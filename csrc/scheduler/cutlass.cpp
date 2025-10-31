@@ -25,7 +25,6 @@ std::string CutlassParams::toString() const {
   ss << "CutlassParams (" << scheduler_type << ")\n";
   ss << "  MMA Tile: " << mma_tile.toVector() << "\n";
   ss << "  Per-SM MMA Tile: " << per_sm_tile.toVector() << "\n";
-  ss << "  Epilogue Tile: " << epilogue_tile.toVector() << "\n";
   ss << "  Cluster shape: " << cluster_shape.toVector() << "\n";
   return ss.str();
 }
@@ -38,7 +37,6 @@ size_t CutlassParams::hash() const {
   hashCombine(h, (size_t)t.k);
   HASHTILE(mma_tile);
   HASHTILE(per_sm_tile);
-  HASHTILE(epilogue_tile);
   HASHTILE(cluster_shape);
 #undef HASHTILE
   return h;
@@ -51,7 +49,6 @@ bool CutlassParams::sameAs(const HeuristicParams* other) const {
   const auto* other_cutlass = other->as<CutlassParams>();
   return cparams == other->cparams && mma_tile == other_cutlass->mma_tile &&
       per_sm_tile == other_cutlass->per_sm_tile &&
-      epilogue_tile == other_cutlass->epilogue_tile &&
       cluster_shape == other_cutlass->cluster_shape;
 }
 

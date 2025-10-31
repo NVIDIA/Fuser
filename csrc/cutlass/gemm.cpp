@@ -158,7 +158,6 @@ struct KernelTraits {
   using MmaTileShape = Shape<_{}, _{}, _{}>;
   using ClusterShape = Shape<_{}, _{}, _{}>;
   using PerSmTileShape_MNK = Shape<_{}, _{}, _{}>;
-  using EpilogueTileShape = Shape<_{}, _{}, _{}>;
 )",
       params.mma_tile.m,
       params.mma_tile.n,
@@ -168,10 +167,7 @@ struct KernelTraits {
       params.cluster_shape.k,
       params.per_sm_tile.m,
       params.per_sm_tile.n,
-      params.per_sm_tile.k,
-      params.epilogue_tile.m,
-      params.epilogue_tile.n,
-      params.epilogue_tile.k);
+      params.per_sm_tile.k);
 
   code += R"(
 };
