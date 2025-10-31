@@ -12,7 +12,6 @@
 #include <compute_at_map.h>
 #include <fusion.h>
 #include <ir/interface_nodes.h>
-#include <multidevice/execution_utils.h>
 #include <scheduler/utils.h>
 #include <visibility.h>
 
