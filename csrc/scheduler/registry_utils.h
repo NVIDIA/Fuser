@@ -125,7 +125,7 @@ class SchedulerTopologyChecker {
   static bool hasCyclicReshape(Fusion* fusion);
 
   // Checks if there are incompatible reshapes in the fusion.
-  // reshapes are propagated to other tvs, reaplying one reshpe
+  // reshapes are propagated to other tvs, replaying one reshape
   // should not cause conflicts with other reshapes, e.g. two ids
   // are the same disjoint val set can't be split by different factors.
   static bool hasIncompatibleReshapes(Fusion* fusion);
