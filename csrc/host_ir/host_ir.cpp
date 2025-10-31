@@ -462,34 +462,54 @@ std::string ShardByStream::toInlineString(int indent_size) const {
 TensorView* shardByStream(TensorView* in, Val* stream_index) {
   auto* out = ops::newValLike(in, *in->getDataType())->as<TensorView>();
 
+  NVF_ERROR(
+      getShardedIterDomain(in, ParallelType::Stream) == nullptr,
+      "Input allocation shouldn't be sharded on stream: ",
+      in);
   TransformReplay::selfReplay(in->domain(), out->domain());
 
   shardAllocationAsLoop(out, {ParallelType::Stream});
+  NVF_ERROR(
+      getShardedIterDomain(out, ParallelType::Stream) != nullptr,
+      "Output allocation should be sharded on stream after "
+      "shardAllocationAsLoop: ",
+      out);
 
-  // Inherit the allocation order from the input. However, refine the
-  // contiguity flags. This is done by scanning through the allocation domain in
-  // minor-to-major order. If an IterDomain is sliced, the next non-broadcast
-  // IterDomain has to be marked non-contiguous. For example,
+  // Refine the contiguity flags so `out` aliases `in`. This is done similar to
+  // AliasFinder::handle(const SliceOp*). We scan through the allocation domain
+  // in minor-to-major order. If an IterDomain is parallelized on Stream (thus
+  // "sliced"), the next non-broadcast-non-reduction IterDomain has to be marked
+  // non-contiguous. For example,
   //
-  //   in = makeContigConcreteTensor({16, 128, 3072});
-  //   out = slice(in, {0, 0, 0}, {16, 128, 1024});
+  //   [m, n]
+  //      /\.
+  //     s  n/s
+  //   contiguity = [t, t, t]
   //
-  // For `out` to alias `in`, its contiguity has to be updated to [t, f, t].
+  // will become contiguity = [f, t, t].
+  //
+  //    [m, n]
+  //    /\.
+  //   s m/s
+  //   contiguity = [t, t, t]
+  //
+  // will remain [t, t, t] because the stream-parallel IterDomain is allocated
+  // outermost.
   std::vector<IterDomain*> out_allocation = out->getMaybeAllocationDomain();
   std::vector<std::optional<bool>> out_contiguity = out->getContiguity();
-  bool set_next_noncontiguous = false;
+  bool next_will_be_noncontiguous = false;
   for (auto [i, alloc_id] : enumerate(out_allocation) | std::views::reverse) {
     std::optional<bool>& contiguity = out_contiguity[i];
 
     if (alloc_id->isBroadcast() || alloc_id->isReduction()) {
       contiguity = std::nullopt;
-    } else if (set_next_noncontiguous) {
+    } else if (next_will_be_noncontiguous) {
       contiguity = false;
-      set_next_noncontiguous = false;
+      next_will_be_noncontiguous = false;
     }
 
     if (alloc_id->isStream()) {
-      set_next_noncontiguous = true;
+      next_will_be_noncontiguous = true;
     }
   }
   out->setContiguity(out_contiguity);
