@@ -48,7 +48,7 @@ template <
 __device__ void block_quantize_to_nvfp4(
     const Array<T, ITEMS_PER_THREAD, ALIGNMENT_1>& input,
     Array<__e2m1, ITEMS_PER_THREAD, ALIGNMENT_2>& output,
-    Tensor<__e4m3, BLOCK_SCALE_DIM, BLOCK_SCALE_ALLOC>& fp8_output,
+    Tensor<__e4m3, BLOCK_SCALE_DIM, BLOCK_SCALE_ALLOC>& block_scales,
     nvfuser_index_t logical_index,
     int input_logical_inner_dim_size) {
   constexpr bool is_half_or_bfloat =
