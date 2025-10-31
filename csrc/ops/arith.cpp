@@ -2689,11 +2689,12 @@ BlockQuantizationResults blockQuantize(
           TensorDomain::getContiguityFilledWith(quantized_out_domain, true)),
       out_dtype);
 
+  // Create block scaling factors
   TensorView* block_scales = IrBuilder::create<TensorView>(
       IrBuilder::create<TensorDomain>(
           scales_out_domain,
           TensorDomain::getContiguityFilledWith(scales_out_domain, true)),
-      DataType::Float8_e4m3fn); // Scales maintain input data type
+      DataType::Float8_e4m3fn);
 
   // Create the block quantization operation
   IrBuilder::create<BlockQuantizationOp>(block_scales, quantized_tensor, input);

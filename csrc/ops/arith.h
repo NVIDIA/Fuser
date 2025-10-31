@@ -838,10 +838,11 @@ struct BlockQuantizationResults {
       : quantized_tensor(in_quantized_tensor), block_scales(in_block_scales) {}
 };
 
-//! TODO: Expose global scaling factor
-// API for block quantization to nvFP4.
-// We take FP32 or BF16 input and produce two outputs
-// nvFP4(x2) outputs and FP8 block scales.
+// API for block quantization.
+// Currently We take FP32 or BF16/FP16 input and produce two outputs:
+// nvFP4 outputs and FP8 block scales.
+// We optionally take a block size as an input but currenlty just support 16.
+// TODO: Expose global scaling factor
 NVF_API BlockQuantizationResults blockQuantize(
     TensorView* input,
     int64_t block_size = 16,
