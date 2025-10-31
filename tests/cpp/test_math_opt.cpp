@@ -228,13 +228,13 @@ TEST_F(FMinFMaxPromotionTest, MultiStageRepair) {
   validateFusion(false);
 }
 
+// Here the reductions broadcast up to 2D along different axes.
+// They are basically transposed with each other, and repair doesn't happen.
 TEST_F(FMinFMaxPromotionTest, WrongBroadcast) {
   TensorView* tv1 = max(in_tv0_, {1});
   TensorView* tv2 = sum(in_tv0_, {1});
   TensorView* tv3 = broadcast(tv1, {true, false});
   TensorView* tv4 = broadcast(tv2, {false, true});
-  // The reduction axes are basically transposed now, they do not repair
-  // eachother
   TensorView* tv5 = add(tv3, tv4);
   fusion_->addOutput(tv5);
   validateFusion(false);
