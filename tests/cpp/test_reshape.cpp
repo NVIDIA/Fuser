@@ -3012,52 +3012,6 @@ TEST_F(ReshapeTest, IncompatibleReshapesDifferentDisjointSetsMultiSteps) {
   EXPECT_TRUE(executor_cache.getMostRecentKernelRuntime()->isSegmented());
 }
 
-// Exact map:
-// {iS12{12}rf* }
-// {iS22{12}*; iS16{12}; iS8{12}rf }
-
-// transformed_disjoint_sets: 4
-//   transformed_disjoint_sets: { iS12{12}rf }
-//   transformed_disjoint_sets: { iS10{24}rf; iS4{24}rf }
-//   transformed_disjoint_sets: { iS6{24}rf; iS2{24}rf }
-//   transformed_disjoint_sets: { iS3{36}rf; iS1{36}rf; iS0{36} }
-// transformPropagateToAllFrom T3_l_float[iS7{2}rf, iS8{12}rf] @ 2
-// In this case, iS8{12}rf in T3 is not in the same disjoint set with
-// transformed id iS12{12}rf, thus, it is treated as a terminating reshape dim,
-// so propagate T3 @ 2. It leads to an error when propagating to T8.
-// TransformPropagator::propagateP2C
-//   from: T4_l_float[iS11{2}rf, iS12{12}rf] @ 2
-//   to: T8_l_float[iS17{2}, iS18{2}, iS19{6}]
-// Could not find axis, iS12{12}rf, since it is not in the same disjoint set
-// with iS16{12} in T8.
-
-// After fix:
-// PERMISSIVE_RESIZE graph disjoint sets: 5
-//   ValGroup: { iS24{2}; iS18{2}; iS13{2}rf; }
-//   ValGroup: { iS25{6}; iS19{6}; iS14{6}rf; }
-//   ValGroup: { iS3{36}rf; iS1{36}rf; iS0{36}; iS6{24}rf; iS2{24}rf;
-//   iS10{24}rf; iS4{24}rf; } ValGroup: { iS21{2}; iS15{2}; iS7{2}rf; iS23{2};
-//   iS17{2}; iS11{2}rf; } ValGroup: { iS22{12}; iS16{12}; iS8{12}rf;
-//   iS12{12}rf; }
-
-// transformed_disjoint_sets (contaminated): 2
-//   transformed_disjoint_sets: { iS22{12}; iS16{12}; iS8{12}rf; iS12{12}rf; }
-//   transformed_disjoint_sets: { iS3{36}rf; iS1{36}rf; iS0{36}; iS6{24}rf;
-//   iS2{24}rf; iS10{24}rf; iS4{24}rf; }
-
-// terminating_reshape_dims: 12
-//   terminating_reshape_dim: iS17{2}
-//   terminating_reshape_dim: iS23{2}
-//   terminating_reshape_dim: iS7{2}rf
-//   terminating_reshape_dim: iS11{2}rf
-//   terminating_reshape_dim: iS15{2}
-//   terminating_reshape_dim: iS21{2}
-//   terminating_reshape_dim: iS19{6}
-//   terminating_reshape_dim: iS14{6}rf
-//   terminating_reshape_dim: iS25{6}
-//   terminating_reshape_dim: iS18{2}
-//   terminating_reshape_dim: iS13{2}rf
-//   terminating_reshape_dim: iS24{2}
 TEST_F(ReshapeTest, CompatibleReshapesDifferentDisjointSetsMultiSteps) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
