@@ -233,7 +233,25 @@ struct Fp4GemmSm100 {
   using MmaTileShape = typename KernelTraits::MmaTileShape;
   using ClusterShape = typename KernelTraits::ClusterShape;
   using PerSmTileShape_MNK = typename KernelTraits::PerSmTileShape_MNK;
-  using EpilogueTileShape = typename KernelTraits::EpilogueTileShape;
+
+  // For OpClassBlockScaledTensorOp, Is2SmMma is true when MmaTileM == 256
+  static constexpr bool Is2SmMma = (cute::size<0>(MmaTileShape{}) == 256);
+  using TmemWarpShape_MN =
+      decltype(cutlass::epilogue::collective::detail::
+                   sm100_tmem_warps<Is2SmMma, MmaTileShape>());
+  // Compute the actual epilogue tile that will be auto-selected by the builder
+  using EpilogueTileShape =
+      decltype(cutlass::epilogue::collective::detail::
+                   sm100_dense_compute_tile_shape_or_override<
+                       OperatorClass,
+                       PerSmTileShape_MNK,
+                       cutlass::epilogue::collective::EpilogueTileAuto,
+                       TmemWarpShape_MN,
+                       ElementC,
+                       LayoutCTag,
+                       ElementD,
+                       LayoutDTag,
+                       /*IsPerColScaleSupported=*/false>());
 
 )";
   if (has_evt) {
