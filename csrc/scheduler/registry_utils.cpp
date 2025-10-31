@@ -1171,37 +1171,30 @@ bool SchedulerTopologyChecker::hasCyclicReshape(Fusion* fusion) {
 }
 
 // Detects incompatible reshape patterns using PERMISSIVE_RESIZE graph.
-// Returns true if rfactor IDs are mapped together (same ValGroup) but have
+// Returns true if IDs are mapped together (same ValGroup) but have
 // different transformations (different ExprGroups). This indicates the reshape
 // operations cannot be replayed and the fusion must be segmented.
 // See test IncompatibleReshapesDifferentDisjointSetsMultiSteps
 // It has:  slice(tv[36], 0, 24)->tv[24]->reshape([2,3,4]) and
 //          slice(tv[36], 12, 36)->tv[24]->reshape([2,2,6])
 // Both slices produce tv[24] which map together, but reshape differently.
-bool SchedulerTopologyChecker::hasIncompatibleReshapes(Fusion* fusion) {
+bool SchedulerTopologyChecker::hasIncompatibleTransforms(Fusion* fusion) {
   // TODO: Reuse IdModel when possible
   IdModel id_model(fusion);
   const auto permissive_resize_graph = buildPermissiveResizeGraph(id_model);
 
   for (const ValGroup& val_group :
        permissive_resize_graph.disjointValSets().disjointSets()) {
-    // Collect all rfactor IDs in this val group
-    // Check for consistency if there are at least 2 rfactor IDs
-    std::vector<IterDomain*> rfactor_ids;
-    for (Val* val : *val_group) {
-      auto id = val->as<IterDomain>();
-      if (id->isRFactorProduct()) {
-        rfactor_ids.push_back(id);
-      }
-    }
-    if (rfactor_ids.size() < 2) {
+    // Check for consistency if there are at least 2 IDs
+    if (val_group->size() < 2) {
       continue;
     }
+    auto ids = ir_utils::filterByType<IterDomain>(val_group->vector());
 
-    // For ids in the same val group, their usages should be in the same expr
+    // For IDs in the same val group, their usages should be in the same expr
     // group. Resize ops are skipped since they are not propagated during replay
     std::optional<ExprGroup> common_use_group;
-    for (auto id : rfactor_ids) {
+    for (auto id : ids) {
       if (!permissive_resize_graph.hasUses(
               permissive_resize_graph.toGroup(id))) {
         continue;

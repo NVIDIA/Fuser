@@ -128,7 +128,7 @@ class SchedulerTopologyChecker {
   // reshapes are propagated to other tvs, replaying one reshape
   // should not cause conflicts with other reshapes, e.g. two ids
   // are the same disjoint val set can't be split by different factors.
-  static bool hasIncompatibleReshapes(Fusion* fusion);
+  static bool hasIncompatibleTransforms(Fusion* fusion);
 };
 
 } // namespace registry_utils
