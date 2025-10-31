@@ -223,7 +223,7 @@ TEST_F(FMinFMaxPromotionTest, MultiStageRepair) {
   TensorView* tv3 = sum(tv2, {0});
   TensorView* tv4 = add(tv1, tv3);
   fusion_->addOutput(tv4);
-  validateFusion(true);
+  validateFusion(false);
 }
 
 TEST_F(FMinFMaxPromotionTest, WrongBroadcast) {
