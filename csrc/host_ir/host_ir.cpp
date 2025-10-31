@@ -6,8 +6,15 @@
  */
 // clang-format on
 
-#include <host_ir/container.h>
 #include <host_ir/host_ir.h>
+
+#include <algorithm>
+#include <memory>
+#include <sstream>
+#include <string>
+#include <vector>
+
+#include <host_ir/container.h>
 #include <ir/builder.h>
 #include <ir/builder_passkey.h>
 #include <ir/cloner.h>
@@ -16,6 +23,7 @@
 #include <ir/utils.h>
 #include <kernel_ir.h>
 #include <multidevice/communication.h>
+#include <multidevice/utils.h>
 #include <ops/all_ops.h>
 #include <transform_replay.h>
 #include <utils.h>
@@ -455,10 +463,36 @@ TensorView* shardByStream(TensorView* in, Val* stream_index) {
   auto* out = ops::newValLike(in, *in->getDataType())->as<TensorView>();
 
   TransformReplay::selfReplay(in->domain(), out->domain());
-  // This is conservative and suboptimal. Consider reusing the algorithm in
-  // https://github.com/NVIDIA/Fuser/blob/33337e9b0b82dc88bc305d9956101f0c8a8a0c60/csrc/alias_analysis.cpp#L199
-  // to decide contiguity.
-  out->setAllocationDomain(out->getLoopDomain(), false);
+
+  shardAllocation(out, {ParallelType::Stream});
+
+  // Inherit the allocation order from the input. However, refine the
+  // contiguity flags. This is done by scanning through the allocation domain in
+  // minor-to-major order. If an IterDomain is sliced, the next non-broadcast
+  // IterDomain has to be marked non-contiguous. For example,
+  //
+  //   in = makeContigConcreteTensor({16, 128, 3072});
+  //   out = slice(in, {0, 0, 0}, {16, 128, 1024});
+  //
+  // For `out` to alias `in`, its contiguity has to be updated to [t, f, t].
+  std::vector<IterDomain*> out_allocation = out->getMaybeAllocationDomain();
+  std::vector<std::optional<bool>> out_contiguity = out->getContiguity();
+  bool set_next_noncontiguous = false;
+  for (auto [i, alloc_id] : enumerate(out_allocation) | std::views::reverse) {
+    std::optional<bool>& contiguity = out_contiguity[i];
+
+    if (alloc_id->isBroadcast() || alloc_id->isReduction()) {
+      contiguity = std::nullopt;
+    } else if (set_next_noncontiguous) {
+      contiguity = false;
+      set_next_noncontiguous = false;
+    }
+
+    if (alloc_id->isStream()) {
+      set_next_noncontiguous = true;
+    }
+  }
+  out->setContiguity(out_contiguity);
 
   IrBuilder::create<ShardByStream>(out, in, stream_index);
   return out;
