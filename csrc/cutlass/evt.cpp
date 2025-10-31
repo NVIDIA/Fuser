@@ -291,12 +291,10 @@ class EVTConverter : OptInDispatch {
           dtypeToCutlass(pattern.unquantized_output->dtype()) + ", " +
           dtypeToCutlass(pattern.block_scale_factors->dtype()) +
           ", cutlass::FloatRoundStyle::round_to_nearest>");
-      // TODO: explicitly setting arguments is better. See
-      // https://github.com/NVIDIA/Fuser/pull/5440
-      scaling_node->arguments.emplace_back(
-          "ptr_scale_factor", getPointerCode(pattern.block_scale_factors));
-      scaling_node->arguments.emplace_back("norm_constant_ptr", "nullptr");
-      scaling_node->arguments.emplace_back("norm_constant_stride", "{}");
+      scaling_node->arguments = {
+          {"ptr_scale_factor", getPointerCode(pattern.block_scale_factors)},
+          {"norm_constant_ptr", "nullptr"},
+          {"norm_constant_stride", "{}"}};
 
       EVTModel::Node* visitor_node =
           model_.makeNode("cutlass::epilogue::fusion::Sm90EVT");
