@@ -35,6 +35,7 @@
 #include <ir/utils.h>
 #include <iter_visitor.h>
 #include <kernel_ir.h>
+#include <multidevice/execution_utils.h>
 #include <multidevice/utils.h>
 #include <options.h>
 #include <polymorphic_value.h>

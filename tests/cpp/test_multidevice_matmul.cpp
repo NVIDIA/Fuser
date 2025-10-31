@@ -17,6 +17,7 @@
 #include <ir/printer.h>
 #include <ir/utils.h>
 #include <mma_type.h>
+#include <multidevice/execution_utils.h>
 #include <ops/all_ops.h>
 #include <runtime/executor.h>
 #include <scheduler/mma_utils.h>

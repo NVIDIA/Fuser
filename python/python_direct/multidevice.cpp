@@ -11,6 +11,7 @@
 
 #include <multidevice/communicator.h>
 #include <multidevice/device_mesh.h>
+#include <multidevice/execution_utils.h>
 #include <multidevice/executor.h>
 #include <multidevice/multidevice.h>
 #include <runtime/fusion_kernel_runtime.h>

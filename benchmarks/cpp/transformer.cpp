@@ -10,6 +10,7 @@
 
 #include <benchmarks/cpp/utils.h>
 #include <fusion.h>
+#include <multidevice/execution_utils.h>
 #include <multidevice/utils.h>
 #include <ops/all_ops.h>
 #include <tests/cpp/multidevice.h>
