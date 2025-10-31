@@ -1821,7 +1821,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     auto output = bqop->quantizedOutput()->as<kir::TensorIndex>()->view();
     int64_t group_size = 1;
 
-    // Get the loop domain of the TensorView output and check for group/vector
+    // Get the loop domain of the TensorView output and check for group
     // parallel types. This assumes that both parallel types aren't present.
     const auto& loop_domain = output->getLoopDomain();
     for (auto* domain : loop_domain) {
