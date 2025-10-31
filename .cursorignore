@@ -1,0 +1,5 @@
+# Ignore CUDA kernel files from linting
+*.cu
+
+# Ignore PTX assembly files
+*.ptx
