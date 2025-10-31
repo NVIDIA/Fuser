@@ -455,8 +455,10 @@ list(APPEND NVFUSER_SRCS
 )
 
 # Apply LLVM include directories only to jit.cpp
-set_source_files_properties(${NVFUSER_SRCS_DIR}/host_ir/jit.cpp
-  PROPERTIES INCLUDE_DIRECTORIES "${LLVM_INCLUDE_DIRS}"
+set_source_files_properties(
+  ${NVFUSER_SRCS_DIR}/host_ir/jit.cpp
+  PROPERTIES
+  COMPILE_FLAGS "-isystem ${LLVM_INCLUDE_DIRS}"
 )
 
 # We don't link CUPTI for MSVC
