@@ -43,25 +43,6 @@
 
 namespace nvfuser {
 
-namespace {
-
-void unshard(TensorView* tv) {
-  for (IterDomain* id : tv->getLoopDomain()) {
-    if (id->isDeviceDim()) {
-      id->parallelize(ParallelType::Serial);
-    }
-  }
-  tv->setDeviceMesh(DeviceMesh());
-}
-
-void unshard(Fusion* fusion) {
-  for (auto tv : fusion->allTvs()) {
-    unshard(tv);
-  }
-}
-
-} // namespace
-
 class PipelineTest : public MultiDeviceTest {
  protected:
   PipelineTest();
