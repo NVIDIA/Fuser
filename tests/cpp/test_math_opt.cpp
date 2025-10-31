@@ -208,10 +208,12 @@ TEST_F(FMinFMaxPromotionTest, MaxSumSameAxesUnary) {
 TEST_F(FMinFMaxPromotionTest, MaxSumSameAxesBinary) {
   TensorView* tv1 = max(in_tv0_, {0, 1});
   TensorView* tv2 = sum(in_tv0_, {0, 1});
-  TensorView* tv3 = add(tv1, in_tv1_);
-  TensorView* tv4 = add(tv2, in_tv2_);
-  TensorView* tv5 = add(tv3, tv4);
-  fusion_->addOutput(tv5);
+  TensorView* tv3 = broadcast(tv1, {true, true});
+  TensorView* tv4 = broadcast(tv2, {true, true});
+  TensorView* tv5 = add(tv3, in_tv1_);
+  TensorView* tv6 = add(tv4, in_tv2_);
+  TensorView* tv7 = add(tv5, tv6);
+  fusion_->addOutput(tv7);
   validateFusion(true);
 }
 
@@ -227,26 +229,30 @@ TEST_F(FMinFMaxPromotionTest, MultiStageRepair) {
 }
 
 TEST_F(FMinFMaxPromotionTest, WrongBroadcast) {
-  TensorView* tv1 = broadcast(max(in_tv0_, {1}), {true, false});
-  TensorView* tv2 = broadcast(sum(in_tv0_, {1}), {false, true});
+  TensorView* tv1 = max(in_tv0_, {1});
+  TensorView* tv2 = sum(in_tv0_, {1});
+  TensorView* tv3 = broadcast(tv1, {true, false});
+  TensorView* tv4 = broadcast(tv2, {false, true});
   // The reduction axes are basically transposed now, they do not repair
   // eachother
-  TensorView* tv3 = add(tv1, tv2);
-  fusion_->addOutput(tv3);
+  TensorView* tv5 = add(tv3, tv4);
+  fusion_->addOutput(tv5);
   validateFusion(false);
 }
 
 // Normalization pattern requiring a mixed state
 TEST_F(FMinFMaxPromotionTest, Normalization) {
   TensorView* tv1 = max(in_tv0_, {1});
+  TensorView* tv2 = broadcast(tv1, {false, true});
 
   // tv2 is in a mixed state. It's not a safe output, but it could be repaired
   // by a safe reduction.
-  TensorView* tv2 = add(broadcast(tv1, {false, true}), in_tv0_);
+  TensorView* tv3 = add(tv2, in_tv0_);
 
-  TensorView* tv3 = sum(tv2, {1});
-  TensorView* tv4 = add(broadcast(tv3, {false, true}), tv2);
-  fusion_->addOutput(tv4);
+  TensorView* tv4 = sum(tv3, {1});
+  TensorView* tv5 = broadcast(tv4, {false, true});
+  TensorView* tv6 = add(tv5, tv4);
+  fusion_->addOutput(tv6);
   validateFusion(true);
 }
 
@@ -257,23 +263,26 @@ TEST_F(FMinFMaxPromotionTest, NormalizationUnaryBinary) {
 
   // Unary op
   TensorView* tv2 = abs(tv1);
-  TensorView* tv3 = add(tv2, in_tv0_);
-  TensorView* tv4 = sum(tv3, {0});
+  TensorView* tv3 = broadcast(tv2, {true, false});
+  TensorView* tv4 = add(tv3, in_tv0_);
+  TensorView* tv5 = sum(tv4, {0});
+  TensorView* tv6 = broadcast(tv5, {true, false});
 
   // Unrelated binary op
-  TensorView* tv5 = add(tv4, in_tv1_);
-  TensorView* tv6 = add(tv5, tv4);
-  fusion_->addOutput(tv6);
+  TensorView* tv7 = add(tv6, in_tv1_);
+  fusion_->addOutput(tv7);
   validateFusion(true);
 }
 
 // Normalization style pattern, but with different axes, breaking promotion.
 TEST_F(FMinFMaxPromotionTest, NormalizationDifferentAxes) {
   TensorView* tv1 = max(in_tv0_, {0});
-  TensorView* tv2 = add(tv1, in_tv0_);
-  TensorView* tv3 = sum(tv2, {1});
-  TensorView* tv4 = add(tv3, tv2);
-  fusion_->addOutput(tv4);
+  TensorView* tv2 = broadcast(tv1, {true, false});
+  TensorView* tv3 = add(tv2, in_tv0_);
+  TensorView* tv4 = sum(tv3, {1});
+  TensorView* tv5 = broadcast(tv4, {true, false});
+  TensorView* tv6 = add(tv5, tv3);
+  fusion_->addOutput(tv6);
   validateFusion(false);
 }
 
