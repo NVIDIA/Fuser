@@ -877,7 +877,7 @@ IterDomain* projectLogicalToShardedAllocation(
   return allocation_id;
 }
 
-void shardAllocation(
+void shardAllocationAsLoop(
     TensorView* tv,
     const std::vector<ParallelType>& parallel_types) {
   LinkedHashMap<IterDomain*, std::optional<bool>> allocation_to_contiguity;

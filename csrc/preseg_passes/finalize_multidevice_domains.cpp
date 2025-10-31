@@ -63,6 +63,10 @@ bool isLoopStreamParallelized(const TensorView* tv) {
       [](IterDomain* id) { return id->isStream(); });
 }
 
+// Split the allocation domain of a TensorView when it has device or stream
+// parallelization. Device parallelization always propagates to the allocation
+// domain. Stream parallelization propagates only if the tensor is allocated
+// inside a for loop.
 void shardAllocation(TensorView* tv) {
   if (!isLoopStreamParallelized(tv) && !tv->hasDeviceMesh()) {
     // This is required for tests such as `LayoutOpTest.SchedulerKernel` The
@@ -76,7 +80,7 @@ void shardAllocation(TensorView* tv) {
   if (shouldParallelizeAllocationOnStream(tv)) {
     parallel_types.push_back(ParallelType::Stream);
   }
-  shardAllocation(tv, parallel_types);
+  shardAllocationAsLoop(tv, parallel_types);
 }
 
 } // namespace

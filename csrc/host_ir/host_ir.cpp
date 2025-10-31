@@ -464,7 +464,7 @@ TensorView* shardByStream(TensorView* in, Val* stream_index) {
 
   TransformReplay::selfReplay(in->domain(), out->domain());
 
-  shardAllocation(out, {ParallelType::Stream});
+  shardAllocationAsLoop(out, {ParallelType::Stream});
 
   // Inherit the allocation order from the input. However, refine the
   // contiguity flags. This is done by scanning through the allocation domain in

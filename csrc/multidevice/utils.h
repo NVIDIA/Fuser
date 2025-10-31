@@ -189,11 +189,10 @@ IterDomain* projectLogicalToShardedAllocation(
     TensorView* tv,
     IterDomain* logical_id);
 
-// FIXME: Splits the allocation domain of a TensorView if it is device or stream
-// parallelized. Device parallelization is always propagated to the allocation
-// domain. Stream parallelization is propagated to the allocation domain if it
-// is allocated inside a for loop.
-void shardAllocation(
+// Propagate sharding for the given parallel types from loop domain to
+// allocation domain, refining contiguity as needed so allocation aliases the
+// original storage layout.
+void shardAllocationAsLoop(
     TensorView* tv,
     const std::vector<ParallelType>& parallel_types);
 
