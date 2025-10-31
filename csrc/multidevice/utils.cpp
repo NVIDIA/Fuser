@@ -27,14 +27,6 @@
 
 namespace nvfuser {
 
-NVF_API bool distributedEnabled() {
-#ifdef NVFUSER_DISTRIBUTED
-  return true;
-#else
-  return false;
-#endif
-}
-
 bool isTvContiguous(const TensorView* tv) {
   // Reduction and broadcast axis do not have a contiguity value.
   return std::all_of(
