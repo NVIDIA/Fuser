@@ -451,6 +451,13 @@ CommentedString argumentArgString(EVTModel::Node* node, int64_t indent_size) {
 //     { ... }  // args for input N
 //   }
 CommentedString argStringWithInputs(EVTModel::Node* node, int64_t indent_size) {
+  if (node->name == "cutlass::epilogue::fusion::Sm90Compute") {
+    // Sm90Compute does not require arguments
+    // TODO: We should probably not represent Sm90Compute's template parameters
+    // as nodes in the EVT
+    return {"{}", node->name};
+  }
+
   std::stringstream ss;
   indent(ss, indent_size) << "{  // " << node->name << "\n";
   CommentedString prev_cs;
@@ -467,26 +474,39 @@ CommentedString argStringWithInputs(EVTModel::Node* node, int64_t indent_size) {
     }
     ss << "\n";
   };
-  std::string node_op_name;
+
+  // Sm90TreeVisitor is defined like this:
+  //
+  //   template <class NodeOp, class... ChildOps>
+  //   struct Sm90TreeVisitor : Sm90VisitorImpl<ChildOps..., NodeOp>
+  //
+  // Sm90EVT is just an alias to Sm90TreeVisitor.
+  //
+  // Notice that NodeOp is the op for the root of the tree and ChildOps are its
+  // in-neighbors (producer nodes). When specifying the template parameters
+  // NodeOp comes first, but when specifying arguments we need to follow the
+  // Sm90VisitorImpl pattern and pass the NodeOp args last instead.
+  bool has_node_op =
+      node->name == "cutlass::epilogue::fusion::Sm90TreeVisitor" ||
+      node->name == "cutlass::epilogue::fusion::Sm90EVT";
+
+  CommentedString node_op_args;
   for (EVTModel::Node* input : node->inputs) {
-    // TODO: add all other node op names that might appear here
-    if (input->name == "cutlass::epilogue::fusion::Sm90Compute") {
-      // This just describes what op is being computed in an EVT node. It
-      // should not appear in the argument list
-      NVF_ERROR(node_op_name.empty());
-      node_op_name = input->name;
+    if (has_node_op && node_op_args.str.empty()) {
+      // Save NodeOp args in order to print them last
+      node_op_args = argStringHelper(input, indent_size + 1);
+      node_op_args.comment = "(NodeOp arguments last) " + node_op_args.comment;
       continue;
     }
     print_line(false);
     prev_cs = argStringHelper(input, indent_size + 1);
   }
-  if (!node_op_name.empty()) {
-    // We have a node op. Print its arguments last (there never are any, so
-    // don't recurse)
+  if (has_node_op) {
+    NVF_ERROR(!node_op_args.str.empty(), "Could not find NodeOp");
+    // We have a node op. Print its arguments last
     print_line(false);
     std::stringstream ss_name;
-    indent(ss_name, indent_size + 1) << "{}";
-    prev_cs = {ss_name.str(), node_op_name};
+    prev_cs = node_op_args;
   }
   print_line(true);
   indent(ss, indent_size) << "}";
