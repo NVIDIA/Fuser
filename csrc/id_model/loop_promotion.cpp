@@ -450,6 +450,11 @@ std::unordered_map<ValGroup, IterDomain*> LoopPromotionMapBuilder::build() {
     // some ID as a promotion ID.
     logical_to_loop_ids_.insert(
         tv->getLoopDomain().begin(), tv->getLoopDomain().end());
+    if (tv->getAlternateLoopDomain().has_value()) {
+      logical_to_loop_ids_.insert(
+          tv->getAlternateLoopDomain()->begin(),
+          tv->getAlternateLoopDomain()->end());
+    }
   }
 
   // Make an intersection of the exact and loop map. This will group together
