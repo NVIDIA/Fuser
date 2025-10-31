@@ -166,6 +166,8 @@ class FMinFMaxPromotionTest : public NVFuserTest {
 TEST_F(FMinFMaxPromotionTest, BasicMaxSum) {
   TensorView* tv1 = max(in_tv0_, {0, 1});
   TensorView* tv2 = sum(in_tv0_, {0, 1});
+  // At tv3, the damage done by an fmax promotion is repaired by the BinaryOp
+  // with tv2.
   TensorView* tv3 = add(tv1, tv2);
   fusion_->addOutput(tv3);
   validateFusion(true);
@@ -175,9 +177,6 @@ TEST_F(FMinFMaxPromotionTest, BasicMaxSum) {
 TEST_F(FMinFMaxPromotionTest, MaxSumDifferentAxes) {
   TensorView* tv1 = max(in_tv0_, {0});
   TensorView* tv2 = sum(in_tv0_, {1});
-  // Why does IdModel exact map the reduce dims of max and sum into one graph?
-
-  // ComputeAtLogicalMap also gets this wrong
   TensorView* tv3 = add(tv1, tv2);
   fusion_->addOutput(tv3);
   validateFusion(false);
@@ -217,6 +216,7 @@ TEST_F(FMinFMaxPromotionTest, MaxSumSameAxesBinary) {
 }
 
 // The axes are repaired separately by multiple safe reductions
+// Although this is safe to promote, the current algorithm cannot verify it.
 TEST_F(FMinFMaxPromotionTest, MultiStageRepair) {
   TensorView* tv1 = max(in_tv0_, {0, 1});
   TensorView* tv2 = sum(in_tv0_, {1});
@@ -229,7 +229,7 @@ TEST_F(FMinFMaxPromotionTest, MultiStageRepair) {
 TEST_F(FMinFMaxPromotionTest, WrongBroadcast) {
   TensorView* tv1 = broadcast(max(in_tv0_, {1}), {true, false});
   TensorView* tv2 = broadcast(sum(in_tv0_, {1}), {false, true});
-  // The reduction axes are basically transposed now, they do not cover
+  // The reduction axes are basically transposed now, they do not repair
   // eachother
   TensorView* tv3 = add(tv1, tv2);
   fusion_->addOutput(tv3);
@@ -278,6 +278,7 @@ TEST_F(FMinFMaxPromotionTest, NormalizationDifferentAxes) {
 }
 
 // Two unsafe reductions on the same input. Exactly one should be promoted.
+// This tests that the promotion considers its previous promotion decisions.
 TEST_F(FMinFMaxPromotionTest, SiblingReduction) {
   TensorView* tv1 = max(in_tv0_, {0, 1});
   TensorView* tv2 = min(in_tv0_, {0, 1});
