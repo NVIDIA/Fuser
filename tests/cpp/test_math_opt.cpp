@@ -128,7 +128,7 @@ class FMinFMaxPromotionTest : public NVFuserTest {
   void validateFusion(bool shouldPromoteFMax) {
     auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
     auto t0 = at::randn({32, 32}, options);
-    t0[0][0] = std::numeric_limits<float>::quiet_NaN();
+    t0[0][1] = std::numeric_limits<float>::quiet_NaN();
 
     auto t1 = at::randn({32, 32}, options);
     auto t2 = at::randn({32, 32}, options);
@@ -214,6 +214,26 @@ TEST_F(FMinFMaxPromotionTest, MaxSumSameAxesBinary) {
   TensorView* tv5 = add(tv3, tv4);
   fusion_->addOutput(tv5);
   validateFusion(true);
+}
+
+// The axes are repaired separately by multiple safe reductions
+TEST_F(FMinFMaxPromotionTest, MultiStageRepair) {
+  TensorView* tv1 = max(in_tv0_, {0, 1});
+  TensorView* tv2 = sum(in_tv0_, {1});
+  TensorView* tv3 = sum(tv2, {0});
+  TensorView* tv4 = add(tv1, tv3);
+  fusion_->addOutput(tv4);
+  validateFusion(true);
+}
+
+TEST_F(FMinFMaxPromotionTest, WrongBroadcast) {
+  TensorView* tv1 = broadcast(max(in_tv0_, {1}), {true, false});
+  TensorView* tv2 = broadcast(sum(in_tv0_, {1}), {false, true});
+  // The reduction axes are basically transposed now, they do not cover
+  // eachother
+  TensorView* tv3 = add(tv1, tv2);
+  fusion_->addOutput(tv3);
+  validateFusion(false);
 }
 
 // Normalization pattern requiring a mixed state
