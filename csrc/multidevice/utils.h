@@ -131,4 +131,11 @@ IterDomain* projectLogicalToShardedAllocation(
     TensorView* tv,
     IterDomain* logical_id);
 
+// Propagate sharding for the given parallel types from loop domain to
+// allocation domain, refining contiguity as needed so allocation aliases the
+// original storage layout.
+void shardAllocationAsLoop(
+    TensorView* tv,
+    const std::vector<ParallelType>& parallel_types);
+
 } // namespace nvfuser

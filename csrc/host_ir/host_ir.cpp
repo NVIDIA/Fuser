@@ -6,8 +6,15 @@
  */
 // clang-format on
 
-#include <host_ir/container.h>
 #include <host_ir/host_ir.h>
+
+#include <algorithm>
+#include <memory>
+#include <sstream>
+#include <string>
+#include <vector>
+
+#include <host_ir/container.h>
 #include <ir/builder.h>
 #include <ir/builder_passkey.h>
 #include <ir/cloner.h>
@@ -16,6 +23,7 @@
 #include <ir/utils.h>
 #include <kernel_ir.h>
 #include <multidevice/communication.h>
+#include <multidevice/utils.h>
 #include <ops/all_ops.h>
 #include <transform_replay.h>
 #include <utils.h>
@@ -454,11 +462,57 @@ std::string ShardByStream::toInlineString(int indent_size) const {
 TensorView* shardByStream(TensorView* in, Val* stream_index) {
   auto* out = ops::newValLike(in, *in->getDataType())->as<TensorView>();
 
+  NVF_ERROR(
+      getShardedIterDomain(in, ParallelType::Stream) == nullptr,
+      "Input allocation shouldn't be sharded on stream: ",
+      in);
   TransformReplay::selfReplay(in->domain(), out->domain());
-  // This is conservative and suboptimal. Consider reusing the algorithm in
-  // https://github.com/NVIDIA/Fuser/blob/33337e9b0b82dc88bc305d9956101f0c8a8a0c60/csrc/alias_analysis.cpp#L199
-  // to decide contiguity.
-  out->setAllocationDomain(out->getLoopDomain(), false);
+
+  shardAllocationAsLoop(out, {ParallelType::Stream});
+  NVF_ERROR(
+      getShardedIterDomain(out, ParallelType::Stream) != nullptr,
+      "Output allocation should be sharded on stream after "
+      "shardAllocationAsLoop: ",
+      out);
+
+  // Refine the contiguity flags so `out` aliases `in`. This is done similar to
+  // AliasFinder::handle(const SliceOp*). We scan through the allocation domain
+  // in minor-to-major order. If an IterDomain is parallelized on Stream (thus
+  // "sliced"), the next non-broadcast-non-reduction IterDomain has to be marked
+  // non-contiguous. For example,
+  //
+  //   [m, n]
+  //      /\.
+  //     s  n/s
+  //   contiguity = [t, t, t]
+  //
+  // will become contiguity = [f, t, t].
+  //
+  //    [m, n]
+  //    /\.
+  //   s m/s
+  //   contiguity = [t, t, t]
+  //
+  // will remain [t, t, t] because the stream-parallel IterDomain is allocated
+  // outermost.
+  std::vector<IterDomain*> out_allocation = out->getMaybeAllocationDomain();
+  std::vector<std::optional<bool>> out_contiguity = out->getContiguity();
+  bool next_will_be_noncontiguous = false;
+  for (auto [i, alloc_id] : enumerate(out_allocation) | std::views::reverse) {
+    std::optional<bool>& contiguity = out_contiguity[i];
+
+    if (alloc_id->isBroadcast() || alloc_id->isReduction()) {
+      contiguity = std::nullopt;
+    } else if (next_will_be_noncontiguous) {
+      contiguity = false;
+      next_will_be_noncontiguous = false;
+    }
+
+    if (alloc_id->isStream()) {
+      next_will_be_noncontiguous = true;
+    }
+  }
+  out->setContiguity(out_contiguity);
 
   IrBuilder::create<ShardByStream>(out, in, stream_index);
   return out;
