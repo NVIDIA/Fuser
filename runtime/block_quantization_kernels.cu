@@ -46,7 +46,7 @@ template <
     int BLOCK_SCALE_DIM,
     int BLOCK_SCALE_ALLOC>
 __device__ void block_quantize_to_nvfp4(
-    Array<T, ITEMS_PER_THREAD, ALIGNMENT_1>& input,
+    const Array<T, ITEMS_PER_THREAD, ALIGNMENT_1>& input,
     Array<__e2m1, ITEMS_PER_THREAD, ALIGNMENT_2>& output,
     Tensor<__e4m3, BLOCK_SCALE_DIM, BLOCK_SCALE_ALLOC>& fp8_output,
     nvfuser_index_t logical_index,
