@@ -195,8 +195,8 @@ bool minMaxOpIsRepaired(
 
   NanStatusMap status_map;
 
-  status_map[in_tv] = NanStatus::Unreduced;
-  status_map[out_tv] = NanStatus::BadReduced;
+  status_map.emplace(in_tv, NanStatus::Unreduced);
+  status_map.emplace(out_tv, NanStatus::BadReduced);
 
   std::optional<BroadcastOp*> broadcastMatcher;
 
@@ -220,7 +220,12 @@ bool minMaxOpIsRepaired(
 
     for (auto input : expr->inputs()) {
       if (auto* in_tv = dynamic_cast<TensorView*>(input)) {
-        NanStatus status = status_map[in_tv];
+        NanStatus status = NanStatus::None;
+
+        auto it = status_map.find(in_tv);
+        if (it != status_map.end()) {
+          status = it->second;
+        }
 
         if (status == NanStatus::Unreduced) {
           anyUnreduced = true;
@@ -276,14 +281,20 @@ bool minMaxOpIsRepaired(
 
     auto* out_tv = dynamic_cast<TensorView*>(expr->output(0));
 
-    status_map[out_tv] = status;
+    status_map.emplace(out_tv, status);
   }
 
   // Check whether any bad status reached output nodes
   auto output_tvs = ir_utils::filterByType<TensorView>(fusion->outputs());
   for (TensorView* out_tv : output_tvs) {
-    if (status_map[out_tv] == NanStatus::BadReduced ||
-        status_map[out_tv] == NanStatus::Mixed) {
+    NanStatus status = NanStatus::None;
+
+    auto it = status_map.find(out_tv);
+    if (it != status_map.end()) {
+      status = it->second;
+    }
+
+    if (status == NanStatus::BadReduced || status == NanStatus::Mixed) {
       return false;
     }
   }
