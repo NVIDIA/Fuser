@@ -181,6 +181,9 @@ Communicator::Communicator(
       ucc_available_(false),
       nccl_available_(false) {
   if (isOptionDisabled(DisableOption::Multidevice)) {
+    TORCH_WARN(
+        "Multi-device support is disabled. All communication operations will "
+        "fail.");
     return;
   }
 
