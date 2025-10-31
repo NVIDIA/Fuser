@@ -2633,8 +2633,8 @@ BlockQuantizationResults blockQuantize(
       block_size);
 
   NVF_CHECK(
-      out_dtype == DataType::Float4_e2m1fn_x2,
-      "Currently only output data type of Float4_e2m1fn_x2 is supported");
+      out_dtype == DataType::Float4_e2m1fn,
+      "Currently only output data type of Float4_e2m1fn is supported");
 
   // Validate input data type
   // We'll only support FP32 or BF16
@@ -2687,7 +2687,7 @@ BlockQuantizationResults blockQuantize(
       IrBuilder::create<TensorDomain>(
           quantized_out_domain,
           TensorDomain::getContiguityFilledWith(quantized_out_domain, true)),
-      DataType::Float4_e2m1fn); // Quantized output using 32-bit integers
+      out_dtype);
 
   TensorView* block_scales = IrBuilder::create<TensorView>(
       IrBuilder::create<TensorDomain>(

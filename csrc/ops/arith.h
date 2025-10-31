@@ -845,6 +845,6 @@ struct BlockQuantizationResults {
 NVF_API BlockQuantizationResults blockQuantize(
     TensorView* input,
     int64_t block_size = 16,
-    DataType out_dtype = DataType::Float4_e2m1fn_x2);
+    DataType out_dtype = DataType::Float4_e2m1fn);
 
 } // namespace nvfuser
