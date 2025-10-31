@@ -8,6 +8,7 @@
 
 #include <cutlass/codegen.h>
 #include <cutlass/evt.h>
+#include <cutlass/gemm.h>
 #include <device_lower/utils.h>
 #include <dispatch.h>
 #include <exceptions.h>
@@ -70,6 +71,28 @@ class EVTConverter : OptInDispatch {
     return failure_reason_;
   }
 
+  //! We pass both inputs and output tensors to the launcher code via a vector
+  //! of inputs and outputs, where the outputs are after the inputs. Given a TV,
+  //! this function returns something like
+  //!
+  //!   static_cast<cutlass::bfloat16_t*>(inputs.at(4).data_ptr)
+  //!
+  std::string getPointerCode(TensorView* tv) {
+    int64_t index = -1;
+    if (tv->isFusionInput()) {
+      index = fusionInputPosition(fusion_, tv);
+    } else if (tv->isFusionOutput()) {
+      index = fusion_->inputs().size() + fusionOutputPosition(fusion_, tv);
+    } else {
+      NVF_THROW(
+          "Cannot get pointer for TV ",
+          tv->toString(),
+          " which is not a fusion input or output");
+    }
+    return "static_cast<" + dtypeToCutlass(tv->dtype()) + "*>(inputs.at(" +
+        std::to_string(index) + ").data_ptr)";
+  }
+
   void run() {
     Expr* mma = getGemmExpr(fusion_);
 
@@ -120,7 +143,8 @@ class EVTConverter : OptInDispatch {
       // Broadcast alpha to the same dimensions as the accumulator
       EVTModel::Node* alpha_bcast_node = model_.makeNode(
           "cutlass::epilogue::fusion::Sm90ScalarBroadcast<float>");
-      alpha_bcast_node->argument = alpha;
+      alpha_bcast_node->arguments.emplace_back(
+          "scalar_ptrs", "{" + getPointerCode(alpha) + "}");
       val_nodes_.emplace(alpha, alpha_bcast_node);
 
       EVTModel::Node* alpha_acc_node = makeBinaryOpNode(
@@ -270,9 +294,7 @@ EVTModel::EVTModel(const EVTModel& model) {
 
   for (const auto& node_up : model.nodes_up_) {
     Node* new_node = makeNode(node_up->name);
-    if (node_up->argument != nullptr) {
-      new_node->argument = node_up->argument;
-    }
+    new_node->arguments = node_up->arguments;
     old2new.emplace(node_up.get(), new_node);
   }
   // Loop again now that have old2new fully populated
@@ -320,31 +342,21 @@ struct CommentedString {
 CommentedString argStringHelper(EVTModel::Node* node, int64_t indent_size);
 
 CommentedString argumentArgString(EVTModel::Node* node, int64_t indent_size) {
-  std::stringstream ss;
-  if (node->argument->isA<TensorView>()) {
-    indent(ss, indent_size) << "{  // " << node->name << "\n";
-    // TODO: If this is an input scalar, we need to obtain its name in the
-    // kernel here
-    const std::string internal_var_name = "alpha";
-    indent(ss, indent_size + 1)
-        << ".scalar_ptrs={static_cast<"
-        << dtypeToCutlass(node->argument->dtype()) << " const*>("
-        << internal_var_name << ".data_ptr)}\n";
-    indent(ss, indent_size) << "}";
-    return {ss.str(), ""};
-  } else {
-    // If this is a constant scalar, print its value directly
-    if (node->argument->isConstScalar()) {
-      return {
-          "{.scalars={" + node->argument->toInlineString() + "}}", node->name};
-    }
-    NVF_ERROR(
-        node->argument->isFusionInput(),
-        "Non-constant scalars are expected to be fusion inputs for EVT "
-        "translation");
-    NVF_THROW("Input scalars not yet supported in EVT translation");
-    return {ss.str(), ""};
+  if (node->arguments.empty()) {
+    return {"{}", node->name};
   }
+  std::stringstream ss;
+  indent(ss, indent_size) << "{  // " << node->name << "\n";
+
+  for (const auto& [i, kv] : enumerate(node->arguments)) {
+    indent(ss, indent_size + 1) << "." << kv.first << "=" << kv.second;
+    if (i < node->arguments.size() - 1) {
+      ss << ",";
+    }
+    ss << "\n";
+  }
+  indent(ss, indent_size) << "}";
+  return {ss.str(), ""};
 }
 
 // For nodes with no inputs, we print their args like this:
@@ -404,7 +416,7 @@ CommentedString argStringWithInputs(EVTModel::Node* node, int64_t indent_size) {
 CommentedString argStringHelper(EVTModel::Node* node, int64_t indent_size) {
   NVF_ERROR(node != nullptr);
   if (node->inputs.empty()) {
-    if (node->argument == nullptr) {
+    if (node->arguments.empty()) {
       std::stringstream ss;
       indent(ss, indent_size) << "{}";
       return {ss.str(), node->name};
@@ -452,8 +464,17 @@ std::string EVTModel::toString() const {
       }
       ss << ")";
     }
-    if (node_up->argument != nullptr) {
-      ss << "[" << node_up->argument->toString() << "]";
+    if (!node_up->arguments.empty()) {
+      ss << "[";
+      bool first = true;
+      for (const auto& [k, v] : node_up->arguments) {
+        if (!first) {
+          ss << ", ";
+        }
+        first = false;
+        ss << k << "=" << v;
+      }
+      ss << "]";
     }
     ss << "\n";
   }
