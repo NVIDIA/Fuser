@@ -622,7 +622,7 @@ TEST_F(CutlassExecutorTest, Nvfp4BlockScaledGemmReLU) {
   KernelArgumentHolder outputs = ce.run(inputs);
 
 #if NVFUSER_ENABLE_CUTLASS
-  at::Tensor at_global_normconst = at::full({}, 6.0, options);
+  at::Tensor at_global_normconst = at::full({}, 2.0f, options);
 
   std::pair<torch::Tensor, torch::Tensor> aot_result =
       cutlass_kernels::nvfp4_scaled_mm_blockscale(
