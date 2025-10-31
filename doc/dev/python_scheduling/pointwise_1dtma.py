@@ -265,6 +265,7 @@ if False:
     for kp in kps_default:
         print_kernel_profile(kp)
 
+    exit()
 
 # if False:
 if True:

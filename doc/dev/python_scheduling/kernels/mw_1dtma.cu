@@ -2,7 +2,7 @@
 #ifdef __NVCC__
 #include <complex>
 #endif // __NVCC__
-namespace nvf {
+namespace nvf{
 
 using int8_t = signed char;
 using uint8_t = unsigned char;
@@ -15,7 +15,8 @@ using uint64_t = unsigned long long int;
 
 // Modified from cuda.h
 struct TensorMap {
-  alignas(64) uint64_t opaque[16];
+  alignas(64)
+  uint64_t opaque[16];
 };
 typedef int nvfuser_index_t;
 
@@ -12685,10 +12686,7 @@ __device__ __inline__ void ParallelReduce<
 namespace nvf {
 
 // Codegen generated code
-__global__ void nvfuser_none_f0_c0_r0_g0(
-    Tensor<__bfloat, 2, 2> T0,
-    Tensor<__bfloat, 2, 2> T1,
-    Tensor<__bfloat, 2, 2> T5) {
+__global__ void nvfuser_none_f0_c0_r0_g0(Tensor<__bfloat, 2, 2> T0, Tensor<__bfloat, 2, 2> T1, Tensor<__bfloat, 2, 2> T5) {
   alignas(128) extern __shared__ char array[];
   const unsigned smem_offset = 0;
   nvfuser_index_t i0;
@@ -12711,9 +12709,7 @@ __global__ void nvfuser_none_f0_c0_r0_g0(
   if (b4) {
     uint64_t i6;
     i6 = mbarrier::arriveExpectTX(toSmem(T11), 16384U);
-    Hopper::cpAsyncBulkG2S(
-        (Hopper::CpAsyncBulkG2SIndex{(T1.data + i0), 16384U, toSmem(T11)}),
-        toSmem(T7));
+    Hopper::cpAsyncBulkG2S((Hopper::CpAsyncBulkG2SIndex{ (T1.data + i0), 16384U, toSmem(T11) }), toSmem(T7));
     mbarrier::wait(toSmem(T11), i6);
   }
   __syncthreads();
@@ -12724,44 +12720,46 @@ __global__ void nvfuser_none_f0_c0_r0_g0(
   if (b4) {
     uint64_t i7;
     i7 = mbarrier::arriveExpectTX(toSmem(T12), 16384U);
-    Hopper::cpAsyncBulkG2S(
-        (Hopper::CpAsyncBulkG2SIndex{(T0.data + i0), 16384U, toSmem(T12)}),
-        toSmem(T6));
+    Hopper::cpAsyncBulkG2S((Hopper::CpAsyncBulkG2SIndex{ (T0.data + i0), 16384U, toSmem(T12) }), toSmem(T6));
     mbarrier::wait(toSmem(T12), i7);
   }
   __syncthreads();
   mbarrier::inval(toSmem(T12));
   if ((((i1 + 7175) + i0) < i3)) {
-#pragma unroll
-    for (nvfuser_index_t i8 = 0; i8 < 8; ++i8) {
+    #pragma unroll
+    for(nvfuser_index_t i8 = 0; i8 < 8; ++i8) {
       nvfuser_index_t i9;
       i9 = 1024 * i8;
       nvfuser_index_t i10;
       i10 = i1 + i9;
       Array<__bfloat, 8, 8> T9;
       T9.set(__bfloat(0));
-      loadGeneric<__bfloat, 8>(&T9[0], &T7[i10]);
+      loadGeneric<__bfloat, 8>( &T9[0],  &T7[i10]);
       Array<__bfloat, 8, 8> T8;
       T8.set(__bfloat(0));
-      loadGeneric<__bfloat, 8>(&T8[0], &T6[i10]);
+      loadGeneric<__bfloat, 8>( &T8[0],  &T6[i10]);
       // Alias Allocation - register
       auto& T10 = T8;
-#pragma unroll
-      for (nvfuser_index_t i11 = 0; i11 < 8; ++i11) {
+      #pragma unroll
+      for(nvfuser_index_t i11 = 0; i11 < 8; ++i11) {
         Array<float, 1, 1> T3;
-        T3[0] = __bfloat2float(T9[i11]);
+        T3[0]
+           = __bfloat2float(T9[i11]);
         Array<float, 1, 1> T2;
-        T2[0] = __bfloat2float(T8[i11]);
+        T2[0]
+           = __bfloat2float(T8[i11]);
         Array<float, 1, 1> T4;
-        T4[0] = T2[0] * T3[0];
-        T10[i11] = __float2bfloat(T4[0]);
+        T4[0]
+          = T2[0]
+          * T3[0];
+        T10[i11]
+           = __float2bfloat(T4[0]);
       }
-      loadLocalToGlobal<__bfloat, /*vec_size=*/8, /*is_volatile=*/false>(
-          &T5[(i2 + i9)], &T10[0]);
+      loadLocalToGlobal<__bfloat, /*vec_size=*/8, /*is_volatile=*/false>( &T5[(i2 + i9)], &T10[0]);
     }
   } else {
-#pragma unroll
-    for (nvfuser_index_t i8 = 0; i8 < 8; ++i8) {
+    #pragma unroll
+    for(nvfuser_index_t i8 = 0; i8 < 8; ++i8) {
       nvfuser_index_t i12;
       i12 = 1024 * i8;
       nvfuser_index_t i13;
@@ -12771,28 +12769,32 @@ __global__ void nvfuser_none_f0_c0_r0_g0(
       Array<__bfloat, 8, 8> T9;
       T9.set(__bfloat(0));
       if (b14) {
-        loadGeneric<__bfloat, 8>(&T9[0], &T7[i13]);
+        loadGeneric<__bfloat, 8>( &T9[0],  &T7[i13]);
       }
       Array<__bfloat, 8, 8> T8;
       T8.set(__bfloat(0));
       if (b14) {
-        loadGeneric<__bfloat, 8>(&T8[0], &T6[i13]);
+        loadGeneric<__bfloat, 8>( &T8[0],  &T6[i13]);
       }
       // Alias Allocation - register
       auto& T10 = T8;
-#pragma unroll
-      for (nvfuser_index_t i11 = 0; i11 < 8; ++i11) {
+      #pragma unroll
+      for(nvfuser_index_t i11 = 0; i11 < 8; ++i11) {
         Array<float, 1, 1> T3;
-        T3[0] = __bfloat2float(T9[i11]);
+        T3[0]
+           = __bfloat2float(T9[i11]);
         Array<float, 1, 1> T2;
-        T2[0] = __bfloat2float(T8[i11]);
+        T2[0]
+           = __bfloat2float(T8[i11]);
         Array<float, 1, 1> T4;
-        T4[0] = T2[0] * T3[0];
-        T10[i11] = __float2bfloat(T4[0]);
+        T4[0]
+          = T2[0]
+          * T3[0];
+        T10[i11]
+           = __float2bfloat(T4[0]);
       }
       if (b14) {
-        loadLocalToGlobal<__bfloat, /*vec_size=*/8, /*is_volatile=*/false>(
-            &T5[(i2 + i12)], &T10[0]);
+        loadLocalToGlobal<__bfloat, /*vec_size=*/8, /*is_volatile=*/false>( &T5[(i2 + i12)], &T10[0]);
       }
     }
   }

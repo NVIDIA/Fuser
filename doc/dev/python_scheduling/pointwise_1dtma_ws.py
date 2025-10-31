@@ -280,7 +280,7 @@ torch_out = torch_out.to(torch.bfloat16)
 # ============================================================================================================
 # Run with Default Scheduler
 # ============================================================================================================
-if True:
+if False:
     print("\n\n" + "=" * 110)
     print("DEFAULT SCHEDULER (Auto)")
     print("=" * 110)
@@ -297,10 +297,10 @@ if True:
     for kp in kps_default:
         print_kernel_profile(kp)
 
-    exit()
+    # exit()
 
 
-if False:
+if True:
     # if True:
     # debug run
     print("=" * 110)
@@ -328,7 +328,7 @@ if False:
         for kp in kps_tma:
             print_kernel_profile(kp)
 
-    # exit()
+    exit()
 
 # ============================================================================================================
 # Auto-tune: Test Different Tile Configurations (1D)
