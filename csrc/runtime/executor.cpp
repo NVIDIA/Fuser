@@ -347,6 +347,7 @@ LaunchParams KernelExecutor::computeLaunchParams(
       // User provided a launch constraint for this parallel type
       int64_t constraint_value = launch_constraints.getDim(p_type);
       expr_eval.bind(extent, constraint_value);
+      expr_eval.bind(p_type, constraint_value);
     }
   }
 
