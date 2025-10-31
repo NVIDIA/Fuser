@@ -3,3 +3,5 @@
 # SPDX-License-Identifier: BSD-3-Clause
 cupti-python
 cxxfilt
+quack-kernels
+flashinfer-python
