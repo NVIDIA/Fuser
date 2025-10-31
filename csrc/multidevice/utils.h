@@ -94,10 +94,6 @@ void shardBetween(
 // device meshes in the Fusion
 int64_t requestedNumberOfDevices(Fusion*);
 
-// remove the multi-device scheduling annotations
-void unshard(Fusion*);
-void unshard(TensorView*);
-
 // Returns the index of the sharded logical axis that produces the allocation
 // IterDomain sharded on `parallel_type`. If `tv` isn't sharded on the parallel
 // type, returns -1.
