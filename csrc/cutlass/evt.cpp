@@ -271,8 +271,10 @@ class EVTConverter : OptInDispatch {
       // outputting the scale factors.
       const BlockScaledOutputPattern& pattern = it->second;
       NVF_ERROR(
-          pattern.global_scale_factor == nullptr,
-          "EVT translation with global scale factors is not yet supported");
+          pattern.global_scale_factor != nullptr &&
+              pattern.global_scale_factor->isFusionInput(),
+          "Block-scaled outputs currently require a global scale factor "
+          "residing in global memory");
       NVF_ERROR(
           tv->definition() != nullptr,
           "Must have already processed pre-scaled output's definition but it "
@@ -293,7 +295,7 @@ class EVTConverter : OptInDispatch {
           ", cutlass::FloatRoundStyle::round_to_nearest>");
       scaling_node->arguments = {
           {"ptr_scale_factor", getPointerCode(pattern.block_scale_factors)},
-          {"norm_constant_ptr", "nullptr"},
+          {"norm_constant_ptr", getPointerCode(pattern.global_scale_factor)},
           {"norm_constant_stride", "{}"}};
 
       EVTModel::Node* visitor_node =
