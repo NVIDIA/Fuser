@@ -1235,9 +1235,7 @@ KernelArgumentHolder KernelExecutor::run(
 
     const auto& kernel_summary = compiled_kernel_->kernel()->summary();
 
-    // cluster reduction uses DSMEM
-    // TODO: CUDA11-CLEANUP, use cuLaunchKernelEx for cuLaunchCooperativeKernel
-    if (kernel_summary.has_cluster_reduction) {
+    {
       FUSER_PERF_SCOPE("ExecutorRunFusion::cuLaunchKernelEx");
       CUlaunchConfig config = {};
       config.gridDimX = launch_params_.gdimx();
@@ -1249,64 +1247,62 @@ KernelArgumentHolder KernelExecutor::run(
       config.sharedMemBytes = launch_params_.smem();
       config.hStream = stream;
 
-      CUlaunchAttribute attribute;
-      attribute.id = CU_LAUNCH_ATTRIBUTE_CLUSTER_DIMENSION;
-      attribute.value.clusterDim.x = launch_params_.gdimx();
-      attribute.value.clusterDim.y = 1;
-      attribute.value.clusterDim.z = 1;
-      config.attrs = &attribute;
-      config.numAttrs = 1;
-      // To request more than 8 CTAs per cluster, need to set non-portable
-      // cluster size allowed
-      if (attribute.value.clusterDim.x > 8) {
-        NVFUSER_CUDA_SAFE_CALL(cuFuncSetAttribute(
-            compiled_kernel_->cudaExecutable()->function,
-            CU_FUNC_ATTRIBUTE_NON_PORTABLE_CLUSTER_SIZE_ALLOWED,
-            1));
+      std::vector<CUlaunchAttribute> launch_attributes;
+
+      if (kernel_summary.has_cluster_reduction) {
+        // cluster reduction uses DSMEM
+        // The launch attribute for cluster dimension must match
+        // __cluster_dims__ compile-time specification.
+        CUlaunchAttribute attribute;
+        attribute.id = CU_LAUNCH_ATTRIBUTE_CLUSTER_DIMENSION;
+        attribute.value.clusterDim.x = launch_params_.gdimx();
+        attribute.value.clusterDim.y = 1;
+        attribute.value.clusterDim.z = 1;
+        launch_attributes.push_back(attribute);
+
+        // To request more than 8 CTAs per cluster, need to set non-portable
+        // cluster size allowed
+        if (attribute.value.clusterDim.x > 8) {
+          NVFUSER_CUDA_SAFE_CALL(cuFuncSetAttribute(
+              compiled_kernel_->cudaExecutable()->function,
+              CU_FUNC_ATTRIBUTE_NON_PORTABLE_CLUSTER_SIZE_ALLOWED,
+              1));
+        }
       }
-      // CUDA guide recommends checking max active clusters before launching
-      // https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html#thread-block-clusters
-      int num_clusters = 0;
-      NVFUSER_CUDA_SAFE_CALL(cuOccupancyMaxActiveClusters(
-          &num_clusters,
-          compiled_kernel_->cudaExecutable()->function,
-          &config));
-      NVF_ERROR(
-          num_clusters > 0,
-          "Failed to launch kernel with cluster dimensions: ",
-          attribute.value.clusterDim.x);
+
+      if (kernel_summary.has_cooperative_grid_reduction) {
+        CUlaunchAttribute attribute;
+        attribute.id = CU_LAUNCH_ATTRIBUTE_COOPERATIVE;
+        attribute.value.cooperative = 1;
+        launch_attributes.push_back(attribute);
+      }
+
+      if (launch_attributes.size() > 0) {
+        config.attrs = launch_attributes.data();
+        config.numAttrs = (unsigned int)launch_attributes.size();
+      } else {
+        config.attrs = nullptr;
+        config.numAttrs = 0;
+      }
+
+      if (kernel_summary.has_cluster_reduction) {
+        // CUDA guide recommends checking max active clusters before launching
+        // https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html#thread-block-clusters
+        int num_clusters = 0;
+        NVFUSER_CUDA_SAFE_CALL(cuOccupancyMaxActiveClusters(
+            &num_clusters,
+            compiled_kernel_->cudaExecutable()->function,
+            &config));
+        NVF_ERROR(
+            num_clusters > 0,
+            "Failed to launch kernel with cluster dimensions");
+      }
+
       NVFUSER_CUDA_SAFE_CALL(cuLaunchKernelEx(
           &config,
           compiled_kernel_->cudaExecutable()->function,
           executor_entry->arg_ptrs.data(),
           nullptr));
-    } else if (!kernel_summary.has_cooperative_grid_reduction) {
-      FUSER_PERF_SCOPE("ExecutorRunFusion::cuLaunchKernel");
-      NVFUSER_CUDA_SAFE_CALL(cuLaunchKernel(
-          compiled_kernel_->cudaExecutable()->function,
-          launch_params_.gdimx(),
-          launch_params_.gdimy(),
-          launch_params_.gdimz(),
-          launch_params_.bdimx(),
-          launch_params_.bdimy(),
-          launch_params_.bdimz(),
-          launch_params_.smem(),
-          stream,
-          executor_entry->arg_ptrs.data(),
-          nullptr));
-    } else {
-      FUSER_PERF_SCOPE("ExecutorRunFusion::cuLaunchCooperativeKernel");
-      NVFUSER_CUDA_SAFE_CALL(cuLaunchCooperativeKernel(
-          compiled_kernel_->cudaExecutable()->function,
-          launch_params_.gdimx(),
-          launch_params_.gdimy(),
-          launch_params_.gdimz(),
-          launch_params_.bdimx(),
-          launch_params_.bdimy(),
-          launch_params_.bdimz(),
-          launch_params_.smem(),
-          stream,
-          executor_entry->arg_ptrs.data()));
     }
   }
 

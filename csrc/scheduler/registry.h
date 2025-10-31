@@ -96,7 +96,7 @@ namespace Schedule {
 
 //! External access for canSchedule utilities through SchedulerEntry
 //!  to avoid exposing a single function to the namespace
-bool canSchedule(
+NVF_API bool canSchedule(
     SchedulerType sh,
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,

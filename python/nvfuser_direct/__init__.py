@@ -322,7 +322,9 @@ class FusionDefinition:
             _disable_options=_disable_options,
         )
 
-    def manual_execute(self, inputs):
+    def manual_execute(
+        self, inputs, heuristic_params: Optional[HeuristicParams] = None
+    ):
         """
         Execute the fusion with the given inputs.
 
@@ -344,8 +346,21 @@ class FusionDefinition:
             self.ke = KernelExecutor()
 
         if not self.ke.is_compiled():
-            self.ke.compile(self.fusion, inputs)
+            if heuristic_params is not None:
+                self.ke.compile(
+                    self.fusion,
+                    inputs,
+                    heuristic_params.lparams,
+                    heuristic_params.cparams,
+                    heuristic_params.scheduler_type,
+                )
+            else:
+                self.ke.compile(self.fusion, inputs)
 
+        if heuristic_params is not None:
+            return self.ke.run(
+                inputs, heuristic_params.lparams, heuristic_params.cparams
+            )
         return self.ke.run(inputs)
 
     def last_repro_script(self) -> str:
@@ -497,6 +512,7 @@ class FusionDefinition:
         """
         fusion_outputs = self.execute(inputs, device=device, **kwargs)
         self._validate(self.fec.fusion(), fusion_outputs, reference_outputs, inputs)
+        return fusion_outputs
 
     def manual_validate(
         self,
@@ -521,6 +537,7 @@ class FusionDefinition:
         """
         fusion_outputs = self.manual_execute(inputs)
         self._validate(self.fusion, fusion_outputs, reference_outputs, inputs)
+        return fusion_outputs
 
     def _validate(self, fusion, fusion_outputs, reference_outputs, inputs):
         """
