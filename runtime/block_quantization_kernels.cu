@@ -95,9 +95,8 @@ __device__ void block_quantize_to_nvfp4(
 
   // Perform block(16 elements)-wide reduction (max)
   // across 4- threads
-  float block_max = NEG_INFINITY;
   localMaxReduction<T>(local_max);
-  block_max = local_max;
+  float block_max = local_max;
 
   // This division should be replaced with a multiplication
   // by a reciprocal for better performance.
