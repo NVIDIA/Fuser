@@ -723,21 +723,6 @@ int64_t requestedNumberOfDevices(Fusion* fusion) {
   return max_index + 1;
 }
 
-void unshard(TensorView* tv) {
-  for (IterDomain* id : tv->getLoopDomain()) {
-    if (id->isDeviceDim()) {
-      id->parallelize(ParallelType::Serial);
-    }
-  }
-  tv->setDeviceMesh(DeviceMesh());
-}
-
-void unshard(Fusion* fusion) {
-  for (auto tv : fusion->allTvs()) {
-    unshard(tv);
-  }
-}
-
 namespace {
 int64_t rankOfParallelType(ParallelType parallel_type) {
   // Currently, when reorderParallelizedToFront is called, the loop domain is
