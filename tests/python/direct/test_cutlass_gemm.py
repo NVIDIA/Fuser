@@ -65,4 +65,4 @@ def test_grouped_mm(
     # For each expert, apply gemm. Slice the input matrix given the tokens_per_expert.
     # C[start:stop] = A[start:stop] @ B[expert].
     out_ref = torch._grouped_mm(mat1, mat2.transpose(-1, -2), aten_offsets)
-    assert torch.allclose(out_ref, out, atol=1e-2, rtol=1e-2)
+    torch.testing.assert_close(out_ref, out, atol=1e-2, rtol=1e-2)

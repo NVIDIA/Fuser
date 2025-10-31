@@ -277,4 +277,4 @@ def test_nvfp4_grouped_mm(
             * mat2_gs[i]
         )
 
-    assert torch.allclose(out_decomposed_ref, out, atol=1e-2, rtol=1e-2)
+    torch.testing.assert_close(out_decomposed_ref, out, atol=1e-2, rtol=1e-2)

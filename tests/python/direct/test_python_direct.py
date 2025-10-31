@@ -164,7 +164,7 @@ def test_fusion_execution_cache():
         torch.randn(2, 4, 8, device="cuda"),
     ]
     results = fd.execute(inputs)
-    assert torch.allclose(results[0], inputs[0] + inputs[1])
+    torch.testing.assert_close(results[0], inputs[0] + inputs[1])
 
     with pytest.raises(
         AssertionError,
@@ -260,7 +260,7 @@ def test_kernel_executor():
         torch.randn(2, 4, 8, device="cuda"),
     ]
     results = fd.manual_execute(inputs)
-    assert torch.allclose(results[0], inputs[0] + inputs[1])
+    torch.testing.assert_close(results[0], inputs[0] + inputs[1])
     assert fd.ke.is_compiled()
 
     with pytest.raises(
@@ -356,7 +356,7 @@ def test_define_tensor():
         torch.randn(2, 4, 8, device="cuda"),
     ]
     outputs = fd.execute(inputs)
-    assert torch.allclose(outputs[0], inputs[0] + inputs[1])
+    torch.testing.assert_close(outputs[0], inputs[0] + inputs[1])
 
 
 @pytest.mark.skipif(
