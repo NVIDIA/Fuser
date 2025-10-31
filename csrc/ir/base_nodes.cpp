@@ -169,6 +169,44 @@ bool Val::sameAs(const Statement* other) const {
   return false;
 }
 
+bool Val::checkDefinition(const Val* other) const {
+  if (other == nullptr) {
+    return false;
+  }
+  if (typeid(*this) != typeid(*other)) {
+    return false;
+  }
+  if (name() != other->name()) {
+    return false;
+  }
+  if ((definition_ == nullptr) != (other->definition_ == nullptr)) {
+    return false;
+  }
+  if (vtype_ != other->vtype_) {
+    return false;
+  }
+  if (dtype_ != other->dtype_) {
+    return false;
+  }
+  if (value_.hasValue() != other->value_.hasValue()) {
+    return false;
+  }
+  // Definitions are only checked with Expr::checkDefinition to avoid infinite
+  // recursion.
+  if (definition_ != nullptr) {
+    return true;
+  }
+  if (!value_.hasValue()) {
+    return true;
+  }
+  // NaNs are considered the same
+  if (value_.is<double>() && std::isnan(value_.as<double>()) &&
+      std::isnan(other->value_.as<double>())) {
+    return true;
+  }
+  return value_ == other->value_;
+}
+
 size_t Val::getHash() const {
   size_t hash = 0;
   hashCombine(hash, std::hash<ValType>()(vtype_));
@@ -351,6 +389,26 @@ bool Expr::sameOp(const Expr* other) const {
   }
   for (const auto i : arange(attributes().size())) {
     if (!attribute(i)->sameAs(other->attribute(i))) {
+      return false;
+    }
+  }
+  return true;
+}
+
+bool Expr::checkDefinition(const Expr* other) const {
+  if (!sameOp(other)) {
+    return false;
+  }
+  if (name() != other->name()) {
+    return false;
+  }
+  for (const auto i : arange(inputs().size())) {
+    if (!input(i)->checkDefinition(other->input(i))) {
+      return false;
+    }
+  }
+  for (const auto i : arange(outputs().size())) {
+    if (!output(i)->checkDefinition(other->output(i))) {
       return false;
     }
   }

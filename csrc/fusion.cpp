@@ -48,6 +48,67 @@ size_t Fusion::hash() const {
   return hash;
 }
 
+namespace {
+//! Check if the alias info is the same between different Fusion objects
+bool checkAliasInfo(
+    const AliasInfo& this_alias_info,
+    const AliasInfo& other_alias_info) {
+  if (this_alias_info.type != other_alias_info.type) {
+    return false;
+  }
+  if (this_alias_info.visibility != other_alias_info.visibility) {
+    return false;
+  }
+  if (this_alias_info.aliased_io == nullptr) {
+    return other_alias_info.aliased_io == nullptr;
+  }
+  return this_alias_info.aliased_io->checkDefinition(
+      other_alias_info.aliased_io);
+}
+} // namespace
+
+bool Fusion::checkDefinition(const Fusion& other) const {
+  // Check if the inputs are the same
+  if (inputs().size() != other.inputs().size()) {
+    return false;
+  }
+  for (auto&& [input, other_input] : zip(inputs(), other.inputs())) {
+    if (!input->checkDefinition(other_input)) {
+      return false;
+    }
+  }
+
+  // Check if the outputs are the same
+  if (outputs().size() != other.outputs().size()) {
+    return false;
+  }
+  const auto& this_output_aliases = getOutputAliases();
+  const auto& other_output_aliases = other.getOutputAliases();
+  for (auto&& [output, other_output] : zip(outputs(), other.outputs())) {
+    if (!output->checkDefinition(other_output)) {
+      return false;
+    }
+    if (!checkAliasInfo(
+            this_output_aliases.get(output),
+            other_output_aliases.get(other_output))) {
+      return false;
+    }
+  }
+
+  // Check if the expressions are the same
+  std::vector<Expr*> this_exprs = exprs();
+  std::vector<Expr*> other_exprs = other.exprs();
+  if (this_exprs.size() != other_exprs.size()) {
+    return false;
+  }
+  for (auto&& [expr, other_expr] : zip(this_exprs, other_exprs)) {
+    if (!expr->checkDefinition(other_expr)) {
+      return false;
+    }
+  }
+  return true;
+}
+
 void swap(Fusion& a, Fusion& b) noexcept {
   FUSER_PERF_SCOPE("Fusion swap");
 
