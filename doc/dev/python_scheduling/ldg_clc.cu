@@ -12683,85 +12683,192 @@ __device__ __inline__ void ParallelReduce<
 } // namespace nvf
 
 namespace nvf {
+namespace clc {
 
-// Codegen generated code
-__global__ void nvfuser_pointwise_f0_c1_r0_g0(
-    Tensor<__bfloat, 2, 2> T0,
-    Tensor<__bfloat, 2, 2> T1,
-    Tensor<__bfloat, 2, 2> T5) {
-  nvfuser_index_t i0;
-  i0 = 8 * ((nvfuser_index_t)threadIdx.x);
-  nvfuser_index_t i1;
-  i1 = 1024 * ((nvfuser_index_t)blockIdx.x);
-  nvfuser_index_t i2;
-  i2 = i0 + i1;
-  bool b3;
-  b3 = ((7 + i0) + i1) < 67108864;
-  if ((((i0 + 7) + i1) < 67108864)) {
-    Array<__bfloat, 8, 8> T7;
-    T7.set(__bfloat(0));
-    loadGlobalToLocal<
-        __bfloat,
-        /*vec_size=*/8,
-        /*is_volatile=*/false,
-        CacheOp::Streaming>(&T7[0], &T1[i2]);
-    Array<__bfloat, 8, 8> T6;
-    T6.set(__bfloat(0));
-    loadGlobalToLocal<
-        __bfloat,
-        /*vec_size=*/8,
-        /*is_volatile=*/false,
-        CacheOp::Streaming>(&T6[0], &T0[i2]);
-    // Alias Allocation - register
-    auto& T8 = T6;
-#pragma unroll
-    for (nvfuser_index_t i4 = 0; i4 < 8; ++i4) {
-      Array<float, 1, 1> T3;
-      T3[0] = __bfloat2float(T7[i4]);
-      Array<float, 1, 1> T2;
-      T2[0] = __bfloat2float(T6[i4]);
-      Array<float, 1, 1> T4;
-      T4[0] = T2[0] * T3[0];
-      T8[i4] = __float2bfloat(T4[0]);
-    }
-    loadLocalToGlobal<__bfloat, /*vec_size=*/8, /*is_volatile=*/false>(
-        &T5[i2], &T8[0]);
-  } else {
-    Array<__bfloat, 8, 8> T7;
-    T7.set(__bfloat(0));
-    if (b3) {
-      loadGlobalToLocal<
-          __bfloat,
-          /*vec_size=*/8,
-          /*is_volatile=*/false,
-          CacheOp::Streaming>(&T7[0], &T1[i2]);
-    }
-    Array<__bfloat, 8, 8> T6;
-    T6.set(__bfloat(0));
-    if (b3) {
-      loadGlobalToLocal<
-          __bfloat,
-          /*vec_size=*/8,
-          /*is_volatile=*/false,
-          CacheOp::Streaming>(&T6[0], &T0[i2]);
-    }
-    // Alias Allocation - register
-    auto& T8 = T6;
-#pragma unroll
-    for (nvfuser_index_t i4 = 0; i4 < 8; ++i4) {
-      Array<float, 1, 1> T3;
-      T3[0] = __bfloat2float(T7[i4]);
-      Array<float, 1, 1> T2;
-      T2[0] = __bfloat2float(T6[i4]);
-      Array<float, 1, 1> T4;
-      T4[0] = T2[0] * T3[0];
-      T8[i4] = __float2bfloat(T4[0]);
-    }
-    if (b3) {
-      loadLocalToGlobal<__bfloat, /*vec_size=*/8, /*is_volatile=*/false>(
-          &T5[i2], &T8[0]);
-    }
-  }
+// Query next work ID asynchronously (pass pointers directly like reference)
+__device__ inline void try_cancel(uint4* nextworkid, uint64_t* bar) {
+  asm volatile(
+      "clusterlaunchcontrol.try_cancel.async.shared::cta.mbarrier::complete_tx:"
+      ":bytes.b128 [%0], [%1];"
+      :
+      : "l"(nextworkid), "l"(bar)
+      : "memory");
 }
 
-} // namespace nvf
+heck if more work is available(pass uint4 directly)
+
+    vice__ inline bool query_cancel_is_canceled(uint4 response) {
+  is_canceled;
+
+  volatile(
+   
+      "
+   
+      eg .b128 B128_try_cancel_response;\n"
+   
+      v.b128 B128_try_cancel_response, {%1, %2};\n"
+   
+      n"
+   
+      reg .pred P_OUT;\n"
+   
+      lusterlaunchcontrol.query_cancel.is_canceled.pred.b128 P_OUT, B128"
+      "_try_cancel_response;\n"
+   
+      elp.b32 %0, 1, 0, P_OUT;\n"
+   
+      n"
+   
+         
+      r"(is_canceled)
+   
+      "(((uint64_t*)&response)[0]), "l"(((uint64_t*)&response)[1])
+   
+      emory");
+   
+  rn is_canceled != 0;
+   
+ 
+
+ct the new block ID from CLC response (pass uint4 directly)
+    __d
+__ inline int query_cancel_get_first_ctaid_x(uint4 response) {
+    i cta_id;
+      a
+  tile(
+       
+           
+      b128 B128_try_cancel_response;\n"
+       
+      28 B128_try_cancel_response, {%1, %2};\n"
+       
+      rlaunchcontrol.query_cancel.get_first_ctaid::x.b32.b128 %0, B128_try"
+      "_cancel_response;\n"
+       
+         
+      ew_cta_id)
+       
+      uint64_t*)&response)[0]), "l"(((uint64_t*)&response)[1])
+       
+      y");
+      r
+  ew_cta_id;
+    }
+
+
+ 
+
+ce clc
+// Codegen generated code
+__global__ void nvfuser_pointwise_f0_c1_r0_g0(Tensor<__bfl
+    oat, 2, 2> T0, Tensor<__bf
+    oat, 2, 2> T1, Tensor<__bf
+    oat, 2, 2> T5) {
+    nvfuser_index_t i0;
+    i0 = 8 * ((nvfuser_index_t)threadIdx.x);
+    // ============ CLC SETUP ============
+    __shared__ uint64_t bar;
+    __shared__ uint4 nextworkid[2];
+
+    // Get s
+
+    memory addresses uint32_t bar_addr = toSmem(&bar);
+
+    // Initial
+
+    rrier(
+        thread 0 only) if (threadIdx.x < 32 && Hopper::electSync(4294967295U)) {
+      mbarrier::init(bar_addr, blockDim.x);
+    }
+
+    __syncthread
+
+        // CLC state v
+
+        es int parity = 0;
+    int bx = blockIdx.x;
+    bool valid = true;
+    uint32_t arvtx =
+        threadIdx.x == 0 ? izeof(uint4) : 0; // Only thread 0 h  non-zero
+    int iteration = 0;
+
+    // ============
+
+    RK LOOP == == == == == == do {
+      // Query next work ID (thread 0 only)
+      if (threadIdx.x < 32 && Hopper::electSync(4294967295U)) {
+        clc::try_cancel(nextworkid + parity, &bar);
+      }
+
+      // All threads a
+
+      arrier,
+          thread 0 has non -
+          zero arvtx mbarrier::arriveExpectTX(bar_addr, arvtx);
+
+      // ============ DO W
+
+      == == ==
+
+          nvfuser_index_t i1;
+      i1 = 1024 * ((nvfuser_index_t)bx);
+      nvfuser_index_t i2;
+      i2 = i0 + i1;
+      bool b3;
+      b3 = ((7 + i0) + i1) < 67108864;
+      if ((((i0 + 7) + i1) < 67108864)) {
+        Array<__bfloat, 8, 8> T7;
+        T7.set(__bfloat(0));
+        loadGlobalToLocal<__bfloat, /*vec_size=*/8, /*is
+            _volatile
+            */ false, CacheO ::Streaming>(&T7[0], T1[i2]);
+        Array<__bflo, 8, 8> T6;
+        T6.set(__bfloat(0));
+        loadGlobalToLocal<__bfloat, /*vec_size=*/8, /*is
+            _volatile
+            */ false, CacheO ::Streaming>(&T6[0], T0[i2]);
+        // Alias All ation - register
+        auto& T8 = T6;
+#pragma unroll
+        fo er_index_t i4 = 0;
+        i4 < 8; ++i4) {
+          Array<float, 1, 1> T3;
+        T3[0]
+           = __bfloat2float(T     Array<float, 1, 1> T2;
+        T2[0]
+           = __bfloat2float(T     Array<float, 1, 1> T4;
+        T4[0]
+          = T2[0]
+          *      T8      = __float2bfloat(T
+        }
+        loadLocalToGlobal<__bfloat, /*vec_size=*/8, /*is_volatile=*/false>(
+            &T5[i2], &T8[0]);
+      }
+
+          / ============ CLC COMP
+
+    tching reference pattern) ============
+    // Wait for CLC response (barrier ensures nextworkid[parity^1] consumed)
+    mbarrier::waitParity(bar_addr, parity);
+
+          // Decode response (pass uin
+
+    y like reference)
+    valid = clc::query_cancel_is_canceled(nextworkid[parity]);
+    bx = clc::query_cancel_get_first_ctaid_x(nextworkid[parity]);
+
+    // Toggle parity
+    parity ^= 1
+
+        ation++;
+    }
+    while (valid)
+      ;
+
+
+}
+
+} // namespace n
+
+                
+                      

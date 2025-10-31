@@ -280,7 +280,7 @@ torch_out = torch_out.to(torch.bfloat16)
 # ============================================================================================================
 # Run with Default Scheduler
 # ============================================================================================================
-if False:
+if True:
     print("\n\n" + "=" * 110)
     print("DEFAULT SCHEDULER (Auto)")
     print("=" * 110)
@@ -297,8 +297,11 @@ if False:
     for kp in kps_default:
         print_kernel_profile(kp)
 
-# if False:
-if True:
+    exit()
+
+
+if False:
+    # if True:
     # debug run
     print("=" * 110)
     print("DEBUG RUN - Testing 1D TMA with and without TMA Store")

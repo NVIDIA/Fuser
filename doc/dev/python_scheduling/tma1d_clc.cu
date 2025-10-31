@@ -6432,6 +6432,107 @@ __device__ inline void waitParity(uint32_t smem_barrier_ptr, uint32_t parity) {
 
 #endif // (defined(__CUDA_ARCH__) && (__CUDA_ARCH__ >= 800))
 
+// Cluster Launch Control utilities for Blackwell (sm_100+)
+#if (defined(__CUDA_ARCH__) && (__CUDA_ARCH__ >= 1000))
+
+namespace clc {
+
+// Query next work ID asynchronously, writes to nextworkid buffer and completes
+// on mbarrier
+__device__ inline void tryCancel(
+    uint32_t nextworkid_ptr,
+    uint32_t mbarrier_ptr) {
+  asm volatile(
+      "clusterlaunchcontrol.try_cancel.async.shared::cta.mbarrier::complete_tx:"
+      ":bytes.b128 [%0], [%1];"
+      :
+      : "r"(nextworkid_ptr), "r"(mbarrier_ptr)
+      : "memory");
+}
+
+// Wait on mbarrier until CLC response arrives (returns true when complete)
+__device__ inline bool tryWaitParity(uint32_t mbarrier_ptr, uint32_t parity) {
+  int complete;
+  asm volatile(
+      "{\n"
+      " .reg .pred P_OUT;\n"
+      " mbarrier.try_wait.parity.shared::cta.b64 P_OUT, [%1], %2;\n"
+      " selp.b32 %0, 1, 0, P_OUT;\n"
+      "}"
+      : "=r"(complete)
+      : "r"(mbarrier_ptr), "r"(parity)
+      : "memory");
+  return complete != 0;
+}
+
+// Check if more work is available (returns true if work is available)
+__device__ inline bool queryCancelIsCanceled(
+    uint64_t response_lo,
+    uint64_t response_hi) {
+  int is_canceled;
+  asm volatile(
+      "{\n"
+      " .reg .b128 B128_try_cancel_response;\n"
+      " mov.b128 B128_try_cancel_response, {%1, %2};\n"
+      " {\n"
+      "  .reg .pred P_OUT;\n"
+      "  clusterlaunchcontrol.query_cancel.is_canceled.pred.b128 P_OUT, "
+      "B128_try_cancel_response;\n"
+      "  selp.b32 %0, 1, 0, P_OUT;\n"
+      " }\n"
+      "}"
+      : "=r"(is_canceled)
+      : "l"(response_lo), "l"(response_hi)
+      : "memory");
+  return is_canceled != 0;
+}
+
+// Extract the new block ID from CLC response
+__device__ inline int queryCancelGetCtaId(
+    uint64_t response_lo,
+    uint64_t response_hi) {
+  int new_cta_id;
+  asm volatile(
+      "{\n"
+      " .reg .b128 B128_try_cancel_response;\n"
+      " mov.b128 B128_try_cancel_response, {%1, %2};\n"
+      " clusterlaunchcontrol.query_cancel.get_first_ctaid::x.b32.b128 %0, "
+      "B128_try_cancel_response;\n"
+      "}"
+      : "=r"(new_cta_id)
+      : "l"(response_lo), "l"(response_hi)
+      : "memory");
+  return new_cta_id;
+}
+
+// Arrive at mbarrier with expected transaction bytes (for CLC)
+__device__ inline uint64_t arriveExpectTX(
+    uint32_t mbarrier_ptr,
+    uint32_t tx_count) {
+  uint64_t token;
+  asm volatile(
+      "mbarrier.arrive.expect_tx.release.cta.shared::cta.b64 %0, [%1], %2;"
+      : "=l"(token)
+      : "r"(mbarrier_ptr), "r"(tx_count)
+      : "memory");
+  return token;
+}
+
+// Load 128-bit CLC response from shared memory
+__device__ inline void loadResponse(
+    uint32_t nextworkid_ptr,
+    uint64_t& response_lo,
+    uint64_t& response_hi) {
+  asm volatile("ld.shared.v2.u64 {%0, %1}, [%2];"
+               : "=l"(response_lo), "=l"(response_hi)
+               : "r"(nextworkid_ptr)
+               : "memory");
+}
+
+} // namespace clc
+
+#endif // (defined(__CUDA_ARCH__) && (__CUDA_ARCH__ >= 1000))
+
 // clang-format off
 /*
  * SPDX-FileCopyrightText: Copyright (c) 2023-present NVIDIA CORPORATION & AFFILIATES.
@@ -12684,6 +12785,14 @@ __device__ __inline__ void ParallelReduce<
 
 namespace nvf {
 
+// Toggle CLC on/off for debugging
+#define ENABLE_CLC 0 // Set to 1 to enable CLC, 0 to disable
+#define DEBUG_PRINT 1 // Set to 1 to enable debug prints, 0 to disable
+
+// NOTE: Even with ENABLE_CLC=0, if USE_CLC env var is set, nvFuser will use
+// cluster launch This may cause issues if the kernel doesn't properly support
+// it
+
 // Codegen generated code
 __global__ void nvfuser_none_f0_c0_r0_g0(
     Tensor<__bfloat, 2, 2> T0,
@@ -12691,37 +12800,153 @@ __global__ void nvfuser_none_f0_c0_r0_g0(
     Tensor<__bfloat, 2, 2> T5) {
   alignas(128) extern __shared__ char array[];
   const unsigned smem_offset = 0;
-  nvfuser_index_t i0;
-  i0 = 8192 * ((nvfuser_index_t)blockIdx.x);
-  nvfuser_index_t i1;
-  i1 = 8 * ((nvfuser_index_t)threadIdx.x);
-  nvfuser_index_t i2;
-  i2 = i1 + i0;
-  nvfuser_index_t i3;
-  i3 = T0.logical_size[0LL] * T0.logical_size[1LL];
-  bool b4;
-  b4 = (((nvfuser_index_t)threadIdx.x) == 0) && (i0 < i3);
-  nvfuser_index_t i5;
-  i5 = ((7 - i3) + i1) + i0;
+#if DEBUG_PRINT
+  if (threadIdx.x == 0 && blockIdx.x == 0) {
+    printf("[DEBUG] Kernel started\n");
+  }
+#endif
+  // ============ TMA BARRIER SETUP (ALWAYS NEEDED) ============
+  // Initialize TMA mbarrier ONCE before any work
   __bfloat* T7 = reinterpret_cast<__bfloat*>(array + smem_offset + 0);
   __bfloat* T6 = reinterpret_cast<__bfloat*>(array + smem_offset + 16512);
   uint64_t* T11 = reinterpret_cast<uint64_t*>(array + smem_offset + 16512);
-  // uint64_t* T12 = reinterpret_cast<uint64_t*>(array + smem_offset + 16384);
   unsigned mbarrier_1 = toSmem(T11);
+
   mbarrier::init(mbarrier_1, 1U);
   __syncthreads();
-  if (b4) {
-    mbarrier::arriveExpectTX(mbarrier_1, 32768U);
-    Hopper::cpAsyncBulkG2S(
-        (Hopper::CpAsyncBulkG2SIndex{(T1.data + i0), 16384U, mbarrier_1}),
-        toSmem(T7));
-    Hopper::cpAsyncBulkG2S(
-        (Hopper::CpAsyncBulkG2SIndex{(T0.data + i0), 16384U, mbarrier_1}),
-        toSmem(T6));
-  }
-  mbarrier::waitParity(mbarrier_1, 0);
 
-  if ((((i1 + 7175) + i0) < i3)) {
+#if DEBUG_PRINT
+  if (threadIdx.x == 0 && blockIdx.x == 0) {
+    printf("[DEBUG] TMA barrier initialized: mbarrier_1=0x%x\n", mbarrier_1);
+  }
+#endif
+
+#if ENABLE_CLC && defined(__CUDA_ARCH__) && __CUDA_ARCH__ >= 1000
+  // ============ CLUSTER LAUNCH CONTROL SETUP (SM_100+) ============
+
+#if DEBUG_PRINT
+  if (threadIdx.x == 0 && blockIdx.x == 0) {
+    printf(
+        "[DEBUG] CLC ENABLED (sm_%d): blockIdx.x=%d, blockDim.x=%d\n",
+        __CUDA_ARCH__,
+        blockIdx.x,
+        blockDim.x);
+  }
+#endif
+
+  // Separate mbarrier for CLC (not mixed with TMA mbarrier_1)
+  __shared__ uint64_t mbarrier_clc;
+  __shared__ uint4 nextworkid[2]; // Double-buffered work ID response
+
+  // Compute shared memory addresses for CLC operations
+  unsigned mbarrier_clc_addr = toSmem(&mbarrier_clc);
+
+#if DEBUG_PRINT
+  if (threadIdx.x == 0 && blockIdx.x == 0) {
+    printf(
+        "[DEBUG] CLC addresses: mbarrier_clc_addr=0x%x\n", mbarrier_clc_addr);
+  }
+#endif
+
+  // Initialize CLC mbarrier (use all threads like TMA barrier)
+  mbarrier::init(mbarrier_clc_addr, blockDim.x);
+  __syncthreads();
+
+#if DEBUG_PRINT
+  if (threadIdx.x == 0 && blockIdx.x == 0) {
+    printf("[DEBUG] CLC barrier initialized\n");
+  }
+#endif
+
+  // CLC state variables
+  int clc_parity = 0;
+  int clc_bx = blockIdx.x; // Start with initial blockIdx
+  bool clc_valid = true;
+  // Thread 0 will update transaction count for CLC queries
+  const unsigned clc_arvtx = (threadIdx.x == 0) ? sizeof(uint4) : 0;
+
+  int clc_iteration = 0;
+
+  // Main CLC work loop
+  do {
+#if DEBUG_PRINT
+    if (threadIdx.x == 0 && blockIdx.x == 0) {
+      printf(
+          "[DEBUG] === Iteration %d: clc_bx=%d, parity=%d ===\n",
+          clc_iteration,
+          clc_bx,
+          clc_parity);
+    }
+#endif
+
+    // === CLC: Query next work ID (thread 0 only) ===
+    if (threadIdx.x == 0) {
+      unsigned nextworkid_addr = toSmem(&nextworkid[clc_parity]);
+#if DEBUG_PRINT
+      if (blockIdx.x == 0) {
+        printf(
+            "[DEBUG] Issuing CLC query: nextworkid_addr=0x%x\n",
+            nextworkid_addr);
+      }
+#endif
+      clc::tryCancel(nextworkid_addr, mbarrier_clc_addr);
+    }
+
+    // === CLC: All threads arrive, thread 0 signals transaction ===
+    clc::arriveExpectTX(mbarrier_clc_addr, clc_arvtx);
+
+#if DEBUG_PRINT
+    if (threadIdx.x == 0 && blockIdx.x == 0) {
+      printf("[DEBUG] CLC arrive complete, starting work\n");
+    }
+#endif
+#else
+#if DEBUG_PRINT
+  if (threadIdx.x == 0 && blockIdx.x == 0) {
+    printf("[DEBUG] CLC DISABLED - using static blockIdx.x=%d\n", blockIdx.x);
+  }
+#endif
+  {
+    int clc_bx = blockIdx.x;
+#endif
+
+    // ============ ORIGINAL KERNEL WORK ============
+    nvfuser_index_t i0;
+    i0 = 8192 *
+        ((nvfuser_index_t)clc_bx); // Use CLC block ID (or static blockIdx)
+    nvfuser_index_t i1;
+    i1 = 8 * ((nvfuser_index_t)threadIdx.x);
+    nvfuser_index_t i2;
+    i2 = i1 + i0;
+    nvfuser_index_t i3;
+    i3 = T0.logical_size[0LL] * T0.logical_size[1LL];
+    bool b4;
+    b4 = (((nvfuser_index_t)threadIdx.x) == 0) && (i0 < i3);
+    nvfuser_index_t i5;
+    i5 = ((7 - i3) + i1) + i0;
+
+    if (b4) {
+#if DEBUG_PRINT
+      if (blockIdx.x == 0) {
+        printf("[DEBUG] Starting TMA loads: i0=%ld\n", i0);
+      }
+#endif
+      mbarrier::arriveExpectTX(mbarrier_1, 32768U);
+      Hopper::cpAsyncBulkG2S(
+          (Hopper::CpAsyncBulkG2SIndex{(T1.data + i0), 16384U, mbarrier_1}),
+          toSmem(T7));
+      Hopper::cpAsyncBulkG2S(
+          (Hopper::CpAsyncBulkG2SIndex{(T0.data + i0), 16384U, mbarrier_1}),
+          toSmem(T6));
+    }
+    mbarrier::waitParity(mbarrier_1, 0);
+
+#if DEBUG_PRINT
+    if (threadIdx.x == 0 && blockIdx.x == 0) {
+      printf("[DEBUG] TMA loads complete\n");
+    }
+#endif
+
 #pragma unroll
     for (nvfuser_index_t i8 = 0; i8 < 8; ++i8) {
       nvfuser_index_t i9;
@@ -12749,43 +12974,80 @@ __global__ void nvfuser_none_f0_c0_r0_g0(
       loadLocalToGlobal<__bfloat, /*vec_size=*/8, /*is_volatile=*/false>(
           &T5[(i2 + i9)], &T10[0]);
     }
-  } else {
-#pragma unroll
-    for (nvfuser_index_t i8 = 0; i8 < 8; ++i8) {
-      nvfuser_index_t i12;
-      i12 = 1024 * i8;
-      nvfuser_index_t i13;
-      i13 = i1 + i12;
-      bool b14;
-      b14 = i5 < (-i12);
-      Array<__bfloat, 8, 8> T9;
-      T9.set(__bfloat(0));
-      if (b14) {
-        loadGeneric<__bfloat, 8>(&T9[0], &T7[i13]);
-      }
-      Array<__bfloat, 8, 8> T8;
-      T8.set(__bfloat(0));
-      if (b14) {
-        loadGeneric<__bfloat, 8>(&T8[0], &T6[i13]);
-      }
-      // Alias Allocation - register
-      auto& T10 = T8;
-#pragma unroll
-      for (nvfuser_index_t i11 = 0; i11 < 8; ++i11) {
-        Array<float, 1, 1> T3;
-        T3[0] = __bfloat2float(T9[i11]);
-        Array<float, 1, 1> T2;
-        T2[0] = __bfloat2float(T8[i11]);
-        Array<float, 1, 1> T4;
-        T4[0] = T2[0] * T3[0];
-        T10[i11] = __float2bfloat(T4[0]);
-      }
-      if (b14) {
-        loadLocalToGlobal<__bfloat, /*vec_size=*/8, /*is_volatile=*/false>(
-            &T5[(i2 + i12)], &T10[0]);
-      }
+
+#if ENABLE_CLC && defined(__CUDA_ARCH__) && __CUDA_ARCH__ >= 1000
+    // ============ CLC COMPLETION ============
+#if DEBUG_PRINT
+    if (threadIdx.x == 0 && blockIdx.x == 0) {
+      printf("[DEBUG] Work complete, waiting for CLC response...\n");
     }
+#endif
+
+    // === CLC: Wait for next work ID response ===
+    int wait_count = 0;
+    while (!clc::tryWaitParity(mbarrier_clc_addr, clc_parity)) {
+      // Spin-wait until CLC response arrives
+#if DEBUG_PRINT
+      if (threadIdx.x == 0 && blockIdx.x == 0) {
+        wait_count++;
+        if (wait_count % 10000000 == 0) {
+          printf("[DEBUG] Still waiting... count=%d\n", wait_count);
+        }
+        if (wait_count > 100000000) {
+          printf("[DEBUG] ERROR: Timeout waiting for CLC response!\n");
+          break;
+        }
+      }
+#endif
+    }
+
+#if DEBUG_PRINT
+    if (threadIdx.x == 0 && blockIdx.x == 0) {
+      printf("[DEBUG] CLC response received (wait_count=%d)\n", wait_count);
+    }
+#endif
+
+    // === CLC: Decode response from nextworkid[clc_parity] ===
+    // Read the b128 response from shared memory
+    uint64_t response_lo, response_hi;
+    clc::loadResponse(
+        toSmem(&nextworkid[clc_parity]), response_lo, response_hi);
+
+#if DEBUG_PRINT
+    if (threadIdx.x == 0 && blockIdx.x == 0) {
+      printf(
+          "[DEBUG] Response raw: lo=0x%016lx, hi=0x%016lx\n",
+          response_lo,
+          response_hi);
+    }
+#endif
+
+    // Check if more work is available
+    clc_valid = clc::queryCancelIsCanceled(response_lo, response_hi);
+
+    // Get the new block ID for next iteration
+    clc_bx = clc::queryCancelGetCtaId(response_lo, response_hi);
+
+#if DEBUG_PRINT
+    if (threadIdx.x == 0 && blockIdx.x == 0) {
+      printf("[DEBUG] Decoded: valid=%d, new_bx=%d\n", clc_valid, clc_bx);
+    }
+#endif
+
+    // Toggle parity for double buffering
+    clc_parity ^= 1;
+    clc_iteration++;
+
+  } while (clc_valid); // Continue until no more work
+
+#if DEBUG_PRINT
+  if (threadIdx.x == 0 && blockIdx.x == 0) {
+    printf("[DEBUG] CLC loop exit after %d iterations\n", clc_iteration);
   }
+#endif
+#else
+  } // End of non-CLC block
+#endif
 }
 
 } // namespace nvf
