@@ -306,5 +306,9 @@ def test_fp4_vectorization(
 
     outputs, _ = nvfuser_direct_test.exec_nvfuser(nvfuser_fusion_id0, inputs)
 
-    ref_outputs = to_fp4(inputs[0].to(torch.float) / inputs[1].unsqueeze(-1)).reshape(-1)
-    assert outputs[0].view(dtype=torch.uint8).allclose(ref_outputs.view(dtype=torch.uint8))
+    ref_outputs = to_fp4(inputs[0].to(torch.float) / inputs[1].unsqueeze(-1)).reshape(
+        -1
+    )
+    assert (
+        outputs[0].view(dtype=torch.uint8).allclose(ref_outputs.view(dtype=torch.uint8))
+    )

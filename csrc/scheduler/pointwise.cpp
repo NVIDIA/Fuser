@@ -489,8 +489,13 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
   // If we have sub-byte data types, we wouldn't want to clamp vectorization
   // factor to 1, otherwise we could end up with illegal array type with
   // sub-byte length.
-  // NOTE: This is not a perfect solution, as sub-byte data types doesn't necessarily need vectorization, but rather just consecutive elements being handled together so we have byte-sized buffer per thread.
-  if (std::ranges::any_of(vectorizable_inputs_outputs_entry.get(), [](TensorView* inp) { return dataTypeSizeBit(inp->getDataType().value()) < 8; })) {
+  // NOTE: This is not a perfect solution, as sub-byte data types doesn't
+  // necessarily need vectorization, but rather just consecutive elements being
+  // handled together so we have byte-sized buffer per thread.
+  if (std::ranges::any_of(
+          vectorizable_inputs_outputs_entry.get(), [](TensorView* inp) {
+            return dataTypeSizeBit(inp->getDataType().value()) < 8;
+          })) {
     vectorization_factor = std::max(2l, max_vect_factor);
   }
   params->vectorization_factor = std::min(
