@@ -52,8 +52,8 @@ std::string BlockScaledOutputPattern::toString() const {
 //       Reshape (split by block_size)
 //                   |
 //           data_hp_reshaped
-//           /            \
-//          /              \
+//           /            \.
+//          /              \.
 //         /                \.
 //        /                Abs
 //       |                   |
