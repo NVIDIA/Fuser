@@ -2667,13 +2667,13 @@ BlockQuantizationResults blockQuantize(
   std::vector<IterDomain*> scales_out_domain;
   scales_out_domain.reserve(inp_domain.size());
 
-  for (size_t i = 0; i < inp_domain.size(); ++i) {
-    if (i == inp_domain.size() - 1) {
+  for (auto inp_id: inp_domain) {
+    if (inp_id == inp_domain.back()) {
       scales_out_domain.push_back(
           IterDomainBuilder(
-              inp_domain[i]->start(),
+              inp_id->start(),
               SimplifyingIrBuilder::divExpr(
-                  inp_domain[i]->extent(),
+                  inp_id->extent(),
                   IrBuilder::create<Val>(block_size, DataType::Index)))
               .build());
 
