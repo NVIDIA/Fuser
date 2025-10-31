@@ -318,6 +318,39 @@ QuantizedTensor quantizeNvfp4(const at::Tensor x) {
   return {x_u8, x_scale, x_global_scale};
 }
 
+//! Convert FP4 into FP32
+at::Tensor e2m1ToFp32(const at::Tensor& int4_value) {
+  NVF_ERROR_EQ(int4_value.dtype(), at::kByte);
+  const at::Tensor signBit = int4_value & 0b1000;
+  const at::Tensor index = int4_value & 0xb0111;
+
+  // Map the 8 possible non-negative values of e2m1 to corresponding positive
+  // fp32 value
+  const at::Tensor kE2M1ToFloatArray = at::tensor(
+      {0.0f, 0.5f, 1.0f, 1.5f, 2.0f, 3.0f, 4.0f, 6.0f},
+      int4_value.options().dtype(at::kFloat));
+
+  const at::Tensor abs_float_result =
+      at::take(kE2M1ToFloatArray, index.to(at::kLong));
+  return at::where(signBit != 0, -abs_float_result, abs_float_result);
+}
+
+//! Unpack float4_e2m1fn_x2 into two separate fp32 values
+at::Tensor unpackFp4Bytes(const at::Tensor& a) {
+  NVF_ERROR_EQ(a.dtype(), at::kFloat4_e2m1fn_x2);
+  int64_t m = a.size(0);
+  int64_t n = a.size(1);
+  const at::Tensor a_byte = a.view(at::kByte);
+  const at::Tensor a_flat = a_byte.flatten();
+  const at::Tensor upper_half_byte =
+      at::bitwise_right_shift(a_byte & 0b11110000, 4);
+  const at::Tensor lower_half_byte = a_byte & 0b00001111;
+  const at::Tensor upper_half_float = e2m1ToFp32(upper_half_byte);
+  const at::Tensor lower_half_float = e2m1ToFp32(lower_half_byte);
+  return at::stack({lower_half_float, upper_half_float}, /*dim=*/-1)
+      .reshape({m, n * 2});
+}
+
 // Test Cutlass scheduler with simple nvfp4 block-scaled GEMM
 TEST_F(CutlassExecutorTest, Nvfp4ScaledGemm_Executor) {
   // Skip if not on SM100 or above
@@ -571,12 +604,14 @@ TEST_F(CutlassExecutorTest, Nvfp4BlockScaledGemmReLU) {
   TensorView* a_sf = makeContigTensor(2, DataType::Float8_e4m3fn);
   TensorView* b_sf = makeContigTensor(2, DataType::Float8_e4m3fn);
   TensorView* alpha = makeContigTensor(0, DataType::Float);
+  TensorView* global_normconst = makeContigTensor(0, DataType::Float);
 
   fusion->addInput(a);
   fusion->addInput(b);
   fusion->addInput(a_sf);
   fusion->addInput(b_sf);
   fusion->addInput(alpha);
+  fusion->addInput(global_normconst);
 
   // Perform block-scaled matmul
   auto smm = scaled_mm(
@@ -589,8 +624,7 @@ TEST_F(CutlassExecutorTest, Nvfp4BlockScaledGemmReLU) {
       /*beta=*/nullptr,
       /*dtype=*/DataType::Float);
 
-  const QuantizedTensorView qtv =
-      quantizeTvNvfp4(smm.tv, /*global_scale_factor=*/nullptr);
+  const QuantizedTensorView qtv = quantizeTvNvfp4(smm.tv, global_normconst);
 
   fusion->addOutput(qtv.block_scale);
   fusion->addOutput(qtv.elts);
@@ -611,8 +645,10 @@ TEST_F(CutlassExecutorTest, Nvfp4BlockScaledGemmReLU) {
 
   // Compute alpha to combine global scales
   at::Tensor at_alpha = 1.0 / (qa.global_scale * qb.global_scale);
+  at::Tensor at_global_normconst = at::full({}, 2.0f, options);
 
-  std::vector<c10::IValue> inputs{at_a, at_b, at_a_sf, at_b_sf, at_alpha};
+  std::vector<c10::IValue> inputs{
+      at_a, at_b, at_a_sf, at_b_sf, at_alpha, at_global_normconst};
 
   // Compile and run
   CutlassParams params;
@@ -621,23 +657,23 @@ TEST_F(CutlassExecutorTest, Nvfp4BlockScaledGemmReLU) {
 
   KernelArgumentHolder outputs = ce.run(inputs);
 
-#if NVFUSER_ENABLE_CUTLASS
-  at::Tensor at_global_normconst = at::full({}, 2.0f, options);
+  EXPECT_EQ(outputs.size(), 2);
 
+#if NVFUSER_ENABLE_CUTLASS
   std::pair<torch::Tensor, torch::Tensor> aot_result =
       cutlass_kernels::nvfp4_scaled_mm_blockscale(
           at_a, at_b.t(), at_a_sf, at_b_sf, at_alpha, at_global_normconst);
 
-  std::cout << "Validating" << std::endl;
-
-  // Validate results
-  testValidate(
-      fusion.get(),
-      outputs,
-      inputs,
-      /*aten_outputs=*/{aot_result.first, aot_result.second},
-      __LINE__,
-      __FILE__);
+  EXPECT_TRUE(at::allclose(
+      outputs[0].as<at::Tensor>().to(at::kFloat),
+      aot_result.second.to(at::kFloat),
+      /*rtol=*/0.001,
+      /*atol=*/0.001));
+  EXPECT_TRUE(at::allclose(
+      unpackFp4Bytes(outputs[1].as<at::Tensor>()),
+      unpackFp4Bytes(aot_result.first),
+      /*rtol=*/0.001,
+      /*atol=*/0.001));
 #endif
 }
 
