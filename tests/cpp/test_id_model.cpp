@@ -3196,17 +3196,10 @@ TEST_F(IdModelTest, PermissiveResizeGraph) {
   fusion.addOutput(tv5);
   fusion.addOutput(tv6);
 
-  fusion.print();
-
   IdModel id_model(&fusion);
   const auto& eg = id_model.buildExactGraph();
-  const auto& prg = id_model.buildPermissiveResizeGraph();
-  for (const auto& disjoint_set : prg.disjointValSets().disjointSets()) {
-    std::cout << "Disjoint val set: " << disjoint_set->toString() << std::endl;
-  }
-  for (const auto& disjoint_set : prg.disjointExprSets().disjointSets()) {
-    std::cout << "Disjoint expr set: " << disjoint_set->toString() << std::endl;
-  }
+  const auto prg = buildPermissiveResizeGraph(id_model);
+
   // in exact graph, tv1 and tv2 are not mapped
   EXPECT_FALSE(
       eg.disjointValSets().strictAreMapped(tv1->axis(0), tv2->axis(0)));

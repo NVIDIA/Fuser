@@ -2822,34 +2822,6 @@ TEST_F(ReshapeTest, CyclicReshape) {
   }
 }
 
-// clang-format off
-/*
-Two different reshapes:
-
-T3_l_float[iS5{6}rf, iS6{4}rf]
- root domain : (iS4{24}rf)
-  Outer split: iS4{24}rf by factor 6 -> iS5{6}rf, iS6{4}rf
- logical domain : (iS5{6}rf, iS6{4}rf)
-
-T4_l_float[iS9{3}rf, iS10{8}rf]
- root domain : (iS8{24}rf)
-  Outer split: iS8{24}rf by factor 3 -> iS9{3}rf, iS10{8}rf
- logical domain : (iS9{3}rf, iS10{8}rf)
-
-iS4{24}rf and iS8{24}rf are in the same disjoint set and go through different splits.
-This is not allowed and captured by requiresForwardViewReplay.
-
-ComputeAt map:
-Exact map:
-  {iS8{24}rf*; iS2{24}; iS4{24}rf; iS1{24}; iS0{24} }
-  {iS11{6}*; iS5{6}rf }
-  {iS12{4}*; iS6{4}rf }
-  {iS13{3}*; iS9{3}rf }
-  {iS14{8}*; iS10{8}rf }
-
- */
-
-// clang-format on
 TEST_F(ReshapeTest, IncompatibleReshapesSameDisjointSets) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
@@ -2873,24 +2845,6 @@ TEST_F(ReshapeTest, IncompatibleReshapesSameDisjointSets) {
   EXPECT_TRUE(executor_cache.getMostRecentKernelRuntime()->isSegmented());
 }
 
-// Exact map:
-//   {iS3{36}rf*; iS1{36}rf; iS0{36} }
-//   {iS6{24}rf*; iS2{24}rf }
-//   {iS10{24}rf*; iS4{24}rf }
-//   {iS18{6}*; iS13{6}; iS7{6}rf }
-//   {iS19{4}*; iS14{4}; iS8{4}rf }
-//   {iS20{6}*; iS15{6}; iS11{6}rf }
-//   {iS21{4}*; iS16{4}; iS12{4}rf }
-// transformed_disjoint_sets: 3
-//   transformed_disjoint_sets: { iS10{24}rf; iS4{24}rf }
-//   transformed_disjoint_sets: { iS6{24}rf; iS2{24}rf }
-//   transformed_disjoint_sets: { iS3{36}rf; iS1{36}rf; iS0{36} }
-// terminating_reshape_dims: 12
-// transformPropagateToAllFrom T3_l_float[iS7{6}rf, iS8{4}rf] @ 2
-// TransformPropagator::propagateP2C
-//   from: T4_l_float[iS11{6}rf, iS12{4}rf] @ 2
-//   to: T8_l_float[iS15{6}, iS16{4}]
-//   replay skipped. result position: 2
 TEST_F(ReshapeTest, CompatibleReshapesDifferentDisjointSets) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
@@ -2915,7 +2869,6 @@ TEST_F(ReshapeTest, CompatibleReshapesDifferentDisjointSets) {
   EXPECT_FALSE(executor_cache.getMostRecentKernelRuntime()->isSegmented());
 }
 
-// Similar to CompatibleReshapesDifferentDisjointSets, but with merge
 TEST_F(ReshapeTest, CompatibleReshapesDifferentDisjointSetsWithMerge) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
@@ -2940,15 +2893,7 @@ TEST_F(ReshapeTest, CompatibleReshapesDifferentDisjointSetsWithMerge) {
   testValidate(executor_cache.fusion(), outputs, {t0}, __LINE__, __FILE__);
   EXPECT_FALSE(executor_cache.getMostRecentKernelRuntime()->isSegmented());
 }
-// Exact map: {iS12{12}*; iS4{12}rf; iS8{12}rf }
-// transformed_disjoint_sets: 2
-//   transformed_disjoint_sets: { iS19{12}; iS12{12}; iS4{12}rf; iS8{12}rf }
-//   transformed_disjoint_sets: { iS6{24}rf; iS2{24}rf; iS17{24}; iS0{24} }
-// terminating_reshape_dims: 12
-// transformPropagateToAllFrom T1_l_float[iS3{2}rf, iS4{12}rf] @ 1
-// transformPropagateToAllFrom T2_l_float[iS7{2}rf, iS9{2}rf, iS10{6}rf] @ 3
-// iS4{12}rf in T1 is in the same disjoint set with transformed id iS8{12}rf,
-// therefore, it is not a terminating reshape dim, so propagate T1 @ 1.
+
 TEST_F(ReshapeTest, CompatibleReshapesSameDisjointSetsMultiSteps) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
@@ -2995,8 +2940,6 @@ TEST_F(ReshapeTest, UnsegmentedCompatibleReshapesDifferentDisjointSets) {
   EXPECT_FALSE(executor_cache.getMostRecentKernelRuntime()->isSegmented());
 }
 
-// requiresForwardViewReplay captures incompatible reshapes when the root
-// domains are in the same disjoint set.
 TEST_F(ReshapeTest, IncompatibleReshapesSameDisjointSetsMultiSteps) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
@@ -3021,13 +2964,6 @@ TEST_F(ReshapeTest, IncompatibleReshapesSameDisjointSetsMultiSteps) {
   EXPECT_TRUE(executor_cache.getMostRecentKernelRuntime()->isSegmented());
 }
 
-// The following tests failed in current main branch
-
-// Similar to IncompatibleReshapesSameDisjointSets, but the root domains are in
-// different disjoint sets. This is illegal however it is not captured by
-// requiresForwardViewReplay. The transformations from two reshapes are
-// propagated through slice although their root domains are in different
-// disjoint sets.
 TEST_F(ReshapeTest, IncompatibleReshapesDifferentDisjointSets) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
@@ -3052,9 +2988,6 @@ TEST_F(ReshapeTest, IncompatibleReshapesDifferentDisjointSets) {
   EXPECT_TRUE(executor_cache.getMostRecentKernelRuntime()->isSegmented());
 }
 
-// Similar to IncompatibleReshapesDifferentDisjointSets, there are two
-// transformations in each of the reshapes. The first split is same while
-// the second split is different.
 TEST_F(ReshapeTest, IncompatibleReshapesDifferentDisjointSetsMultiSteps) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();

@@ -199,10 +199,6 @@ class NVF_API IdModel : public PolymorphicBase {
   // BROADCAST graph as well if not yet done.
   ValGraph& buildPermissiveGraph();
 
-  // Fills disjoint_ids_[IdMappingMode::PERMISSIVE_RESIZE]. Initialize it as
-  // PERMISSIVE entries, then map through resize.
-  ValGraph& buildPermissiveResizeGraph();
-
   // Fills disjoint_ids_[IdMappingMode::LOOP]. Map only inlined
   // domains that are mapped in the permissive graph. Build the Exact
   // and Permissive graphs as well if not yet done.
@@ -369,5 +365,14 @@ class NVF_API IdModel : public PolymorphicBase {
 std::unordered_map<ValGroup, IterDomain*> updateValGroupIdMap(
     const std::unordered_map<ValGroup, IterDomain*>& stale_map,
     ValGraph& new_graph);
+
+// Build a PERMISSIVE_RESIZE graph from an IdModel.
+// This creates a local copy of the PERMISSIVE graph and adds additional
+// mappings for resize operations. This is not part of IdModel itself to avoid
+// overhead when this graph is not needed (e.g., during lowering).
+//
+// For a consumer tv, if its logical domain is derived from a resize op,
+// map resize input to resize output.
+ValGraph buildPermissiveResizeGraph(IdModel& id_model);
 
 } // namespace nvfuser

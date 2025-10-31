@@ -1174,14 +1174,14 @@ bool SchedulerTopologyChecker::hasCyclicReshape(Fusion* fusion) {
 // Returns true if rfactor IDs are mapped together (same ValGroup) but have
 // different transformations (different ExprGroups). This indicates the reshape
 // operations cannot be replayed and the fusion must be segmented.
-//
-// Example: slice(tv[36], 0, 24)->tv[24]->reshape([2,3,4]) and
+// See test IncompatibleReshapesDifferentDisjointSetsMultiSteps
+// It has:  slice(tv[36], 0, 24)->tv[24]->reshape([2,3,4]) and
 //          slice(tv[36], 12, 36)->tv[24]->reshape([2,2,6])
 // Both slices produce tv[24] which map together, but reshape differently.
 bool SchedulerTopologyChecker::hasIncompatibleReshapes(Fusion* fusion) {
   // TODO: Reuse IdModel when possible
   IdModel id_model(fusion);
-  const auto& permissive_resize_graph = id_model.buildPermissiveResizeGraph();
+  const auto permissive_resize_graph = buildPermissiveResizeGraph(id_model);
 
   for (const ValGroup& val_group :
        permissive_resize_graph.disjointValSets().disjointSets()) {
