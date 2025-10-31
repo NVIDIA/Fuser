@@ -443,6 +443,19 @@ void IndexLowering::handle(const BlockQuantizationOp* bqop) {
     idx = IrBuilder::addExpr(IrBuilder::mulExpr(logical_index[i], stride), idx);
   }
 
+  // As part of runtime validation
+  // make sure that the inner dimension of the input is divisible by 16.
+  auto* inner_id = bqop->in()->as<TensorView>()->getLogicalDomain().back();
+  Val* is_divisible = SimplifyingIrBuilder::eqExpr(
+      SimplifyingIrBuilder::modExpr(
+          inner_id->extent(), IrBuilder::create<Val>(16)),
+      bqop->fusion()->zeroVal());
+
+  NVFUSER_LOWER_VALIDATE(
+      is_divisible,
+      "Inner dim of input of Block Quantization is not divisble by 16",
+      bqop->toString());
+
   pushBack(IrBuilder::create<BlockQuantizationOp>(
       out_scales, out_quantized, in, idx));
   GpuLower::current()->propagateExprInfo(bqop, back());
