@@ -50,7 +50,7 @@ def test_layout_op_and_cutlass_nvfp4_grouped_mm(
     # k dimension is multiple of 4 * 16 to avoid padding on block scaling factor
     m, n, k = config
     assert k % 64 == 0
-    tokens_per_expert = tokens_per_expert_neg_one
+    tokens_per_expert = list(tokens_per_expert_neg_one)
     tokens_per_expert.append(m - sum(tokens_per_expert))
     g = len(tokens_per_expert)
 
