@@ -2620,9 +2620,9 @@ TensorView* prefixSum(TensorView* tv, int64_t dim) {
       /*init=*/tv->fusion()->zeroVal(tv->dtype()));
 }
 
-// Currently this node get lowered to a runtime function, which expects the
-// input in registers and write out quantized values or registers and block
-// scales to global memory.
+// Currently this node gets lowered to a runtime function, which expects the
+// inputs in registers and writes out the quantized values to registers and
+// block scales to global memory.
 BlockQuantizationResults blockQuantize(
     TensorView* input,
     int64_t block_size,
@@ -2637,8 +2637,7 @@ BlockQuantizationResults blockQuantize(
       "Currently only output data type of Float4_e2m1fn is supported");
 
   // Validate input data type
-  // We'll only support FP32 or BF16
-  // We should check if the inputs are FP or BF16.
+  // We'll only support FP32 or BF16/FP16
   NVF_CHECK(
       input->getDataType().value() == DataType::Float ||
           input->getDataType().value() == DataType::BFloat16 ||
