@@ -26,6 +26,7 @@
 #include <iter_visitor.h>
 #include <kernel_ir.h>
 #include <logical_domain_map.h>
+#include <multidevice/execution_utils.h>
 #include <ops/all_ops.h>
 #include <preseg_passes/optimization_pass.h>
 #include <preseg_passes/reorder_sharded_axis.h>

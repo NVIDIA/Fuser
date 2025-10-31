@@ -9,6 +9,7 @@
 
 #include <multidevice/communicator.h>
 #include <multidevice/device_mesh.h>
+#include <multidevice/execution_utils.h>
 #include <multidevice/utils.h>
 
 namespace nvfuser::python_frontend {
