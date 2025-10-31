@@ -9,17 +9,16 @@
 
 #include <vector>
 
-#include <ATen/ATen.h>
+#include <ATen/core/Tensor.h>
 #include <c10/util/ArrayRef.h>
 
+#include <fusion.h>
+#include <ir/interface_nodes.h>
+#include <multidevice/device_mesh.h>
 #include <multidevice/multidevice.h>
 #include <visibility.h>
 
 namespace nvfuser {
-
-class Fusion;
-class TensorView;
-class DeviceMesh;
 
 // Returns the number of device indices present across all device meshes in the
 // Fusion.
