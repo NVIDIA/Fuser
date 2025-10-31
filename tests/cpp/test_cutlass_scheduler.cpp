@@ -16,6 +16,7 @@
 #include <cutlass/block_scaling.h>
 #include <cutlass/evt.h>
 #include <fusion.h>
+#include <nvf_cutlass.h>
 #include <ops/all_ops.h>
 #include <runtime/cutlass_compiled_kernel.h>
 #include <runtime/cutlass_executor.h>
@@ -588,11 +589,8 @@ TEST_F(CutlassExecutorTest, Nvfp4BlockScaledGemmReLU) {
       /*beta=*/nullptr,
       /*dtype=*/DataType::Float);
 
-  // Apply ReLU activation
-  TensorView* relu_out = relu(smm.tv);
-
   const QuantizedTensorView qtv =
-      quantizeTvNvfp4(relu_out, /*global_scale_factor=*/nullptr);
+      quantizeTvNvfp4(smm.tv, /*global_scale_factor=*/nullptr);
 
   fusion->addOutput(qtv.block_scale);
   fusion->addOutput(qtv.elts);
@@ -623,8 +621,22 @@ TEST_F(CutlassExecutorTest, Nvfp4BlockScaledGemmReLU) {
 
   KernelArgumentHolder outputs = ce.run(inputs);
 
+#if NVFUSER_CUTLASS_KERNEL_ENABLED
+  at::Tensor at_global_normconst = at::full({}, 6.0, options);
+
+  std::pair<torch::Tensor, torch::Tensor> aot_result =
+      cutlass_kernels::nvfp4_scaled_mm_blockscale(
+          a_nvfp4, b_nvfp4, scales_a, scales_b, alpha, global_normconst);
+
   // Validate results
-  testValidate(fusion.get(), outputs, inputs, __LINE__, __FILE__);
+  testValidate(
+      fusion.get(),
+      outputs,
+      inputs,
+      /*aten_outputs=*/{aot_result.first, aot_result.second},
+      __LINE__,
+      __FILE__);
+#endif
 }
 
 } // namespace nvfuser
