@@ -959,7 +959,9 @@ FenceAsyncProxy::FenceAsyncProxy(IrBuilderPasskey passkey) : Expr(passkey) {
 }
 
 std::string FenceAsyncProxy::toString(int indent_size) const {
-  return "fence.proxy.async\n";
+  std::stringstream ss;
+  indent(ss, indent_size) << "fence.proxy.async\n";
+  return ss.str();
 }
 
 std::string FenceAsyncProxy::toInlineString(int indent_size) const {
@@ -976,7 +978,9 @@ WgMmaFence::WgMmaFence(IrBuilderPasskey passkey) : Expr(passkey) {
 }
 
 std::string WgMmaFence::toString(int indent_size) const {
-  return "fence.proxy.async\n";
+  std::stringstream ss;
+  indent(ss, indent_size) << "fence.proxy.async\n";
+  return ss.str();
 }
 
 std::string WgMmaFence::toInlineString(int indent_size) const {

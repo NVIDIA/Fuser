@@ -703,7 +703,30 @@ void initNvFuserPythonBindings(PyObject* module) {
       .value("set", LoadStoreOpType::Set)
       .value("load_matrix", LoadStoreOpType::LdMatrix)
       .value("cp_async", LoadStoreOpType::CpAsync)
+      .value("tma_1d", LoadStoreOpType::CpAsyncBulk)
       .value("tma", LoadStoreOpType::CpAsyncBulkTensorTile);
+
+  //! Circular buffer types
+  py::class_<Pipelined>(nvfuser, "Pipelined")
+      .def(py::init<bool>(), py::arg("uses_mbarrier_for_war") = false)
+      .def_readwrite(
+          "uses_mbarrier_for_war", &Pipelined::uses_mbarrier_for_war);
+
+  py::class_<WarpSpecialized>(nvfuser, "WarpSpecialized")
+      .def(py::init<ParallelType>(), py::arg("on"))
+      .def(
+          py::init<ParallelType, std::pair<int64_t, int64_t>>(),
+          py::arg("on"),
+          py::arg("num_registers"))
+      .def(
+          py::init<ParallelType, std::pair<int64_t, int64_t>, int64_t>(),
+          py::arg("on"),
+          py::arg("num_registers"),
+          py::arg("stage_slice_position"))
+      .def_readwrite("on", &WarpSpecialized::on)
+      .def_readwrite("num_registers", &WarpSpecialized::num_registers)
+      .def_readwrite(
+          "stage_slice_position", &WarpSpecialized::stage_slice_position);
 
   //! CacheOp used for scheduling
   py::enum_<CacheOp>(nvfuser, "CacheOp")

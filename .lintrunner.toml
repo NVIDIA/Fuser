@@ -32,6 +32,7 @@ exclude_patterns = [
     'third_party/**',
     '**/*generated*',
     'tools/examples/**',
+    'doc/dev/python_scheduling/**/*.cu',
 ]
 command = [
     'python3',
@@ -59,6 +60,7 @@ include_patterns = [
 exclude_patterns = [
     'pytorch/**/*.cpp',
     'third_party/**',
+    'doc/dev/python_scheduling/**/*.cu',
 ]
 command = [
     'python3',
@@ -87,6 +89,7 @@ include_patterns = [
 exclude_patterns = [
     'pytorch/**/*.cpp',
     'third_party/**',
+    'doc/dev/python_scheduling/**/*.cu',
 ]
 command = [
     'python3',
@@ -115,6 +118,7 @@ include_patterns = [
 exclude_patterns = [
     'pytorch/**/*.cpp',
     'third_party/**',
+    'doc/dev/python_scheduling/**/*.cu',
 ]
 command = [
     'python3',
@@ -143,6 +147,7 @@ include_patterns = [
 exclude_patterns = [
     'pytorch/**/*.cpp',
     'third_party/**',
+    'doc/dev/python_scheduling/**/*.cu',
 ]
 command = [
     'python3',
@@ -173,6 +178,7 @@ exclude_patterns = [
     'pytorch/**/*.cpp',
     'third_party/**',
     'tools/examples/**',
+    'doc/dev/python_scheduling/**/*.cu',
 ]
 
 init_command = [

@@ -1299,6 +1299,15 @@ KernelArgumentHolder KernelExecutor::run(
               1));
         }
       }
+      if (std::getenv("USE_CLC") != nullptr) {
+        std::cout << "===========Using CLC===========" << std::endl;
+        CUlaunchAttribute attribute;
+        attribute.id = CU_LAUNCH_ATTRIBUTE_CLUSTER_DIMENSION;
+        attribute.value.clusterDim.x = 1;
+        attribute.value.clusterDim.y = 1;
+        attribute.value.clusterDim.z = 1;
+        launch_attributes.push_back(attribute);
+      }
 
       if (kernel_summary.has_cooperative_grid_reduction) {
         CUlaunchAttribute attribute;

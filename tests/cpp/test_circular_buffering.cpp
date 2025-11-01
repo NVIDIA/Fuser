@@ -16,7 +16,7 @@
 
 namespace nvfuser {
 
-TEST_F(NVFuserTest, BarSyncWarpSpecializedPointwise) {
+TEST_F(NVFuserTest, BarSyncTmaPointwise) {
   NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
   std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
