@@ -2,8 +2,8 @@
 # All rights reserved.
 # SPDX-License-Identifier: BSD-3-Clause
 import pytest
-from nvfuser import FusionDefinition, DataType
-from nvfuser.pytorch_utils import torch_dtype_to_nvfuser_dtype
+from nvfuser_direct import FusionDefinition, DataType
+from nvfuser_direct.pytorch_utils import torch_dtype_to_nvfuser_dtype
 from .core import run_benchmark, clear_dynamo_cache, with_executor, DEFAULT_EXECUTORS
 import torch
 from .global_params import generate_input_sizes, FLOAT_DTYPES, PROMOTE_DTYPES
@@ -26,8 +26,7 @@ def rmsnorm_fwd_fusion(
     S3 = fd.define_scalar(2.00000, dtype=DataType.Double)
     T4 = fd.ops.pow(T0, S3)
     T5 = fd.ops.sum(T4, dims=[1], keepdim=False, dtype=DataType.Null)
-    V8 = fd.define_vector([T0.size(0), 1], dtype=DataType.Int)
-    T9 = fd.ops.broadcast_in_dim(T5, shape=V8, broadcast_dims=[0])
+    T9 = fd.ops.broadcast_in_dim(T5, shape=[T0.size(0), 1], broadcast_dims=[0])
     S11 = fd.ops.reciprocal(T0.size(1))
     T12 = fd.ops.mul(T9, S11)
     S13 = fd.define_scalar(eps, dtype=DataType.Double)
