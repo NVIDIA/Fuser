@@ -3181,4 +3181,42 @@ TEST_F(IdModelTest, ScatterLoopMapping) {
   }
 }
 
+// This test validates no promotion analysis is done for IDs that are
+// not part of logical-loop traversal paths. This is not strictly
+// required but is a WAR for special ops like
+// PreprocessGroupedMatmulInputSf. See also issue #5391.
+TEST_F(IdModelTest, LoopPromotionIncludeOnlyLoopIds) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeSymbolicTensor(2);
+  fusion.addInput(tv0);
+  auto tv1 = makeSymbolicTensor(1);
+  fusion.addInput(tv1);
+
+  auto tv2 = broadcast(tv1, {false, true});
+  auto tv3 = add(tv0, tv2);
+  fusion.addOutput(tv3);
+
+  tv3->flatten();
+  tv3->split(0, 128);
+  TransformPropagatorWithCheck propagator(tv3);
+  MaxLogicalDomainInfoSpanningTree(tv3).traverse(&propagator);
+
+  AbstractTensor tv3_alloc(tv3->getLogicalDomain());
+  tv3_alloc.flatten();
+  tv3_alloc.split(0, 4);
+  tv3->setAllocationDomain(tv3_alloc.as<IterDomain*>(), true);
+
+  inlineMost();
+
+  IdModel id_model(&fusion);
+  const auto& loop_graph = id_model.buildLoopGraph();
+  for (auto tv3_alloc : tv3->getAllocationDomain()) {
+    EXPECT_FALSE(
+        id_model.loopPromotionMap().contains(loop_graph.toGroup(tv3_alloc)));
+  }
+}
+
 } // namespace nvfuser

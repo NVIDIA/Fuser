@@ -303,6 +303,9 @@ class LoopPromotionMapBuilder {
   LoopPromotionMapBuilderCallback* callback_ = nullptr;
   // Keep track of IDs of broadcast only loop groups
   std::unordered_set<Val*> broadcast_only_loop_group_ids_;
+  // IDs of between logical (root) and loop domains. Loop promotion
+  // only matters for these IDs.
+  std::unordered_set<Val*> logical_to_loop_ids_;
 
   // (For debugging only) When force_full_loop_promotion_analysis_ is
   // true, it always performs the full loop promotion analysis even
