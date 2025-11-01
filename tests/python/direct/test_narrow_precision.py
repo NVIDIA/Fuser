@@ -310,4 +310,9 @@ def test_fp4_vectorization(
         -1
     )
 
-    torch.testing.assert_close(outputs[0].view(dtype=torch.uint8), ref_outputs.view(dtype=torch.uint8), rtol=1e-1, atol=1e-2)
+    torch.testing.assert_close(
+        outputs[0].view(dtype=torch.uint8),
+        ref_outputs.view(dtype=torch.uint8),
+        rtol=1e-1,
+        atol=1e-2,
+    )
