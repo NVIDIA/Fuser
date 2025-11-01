@@ -193,6 +193,7 @@ bool Val::checkDefinition(const Val* other) const {
   }
   if (definition_ == nullptr) {
     if (!value_.hasValue()) {
+      // sameAs return false if value is symbolic
       return true;
     }
     // NaNs are considered the same
@@ -202,6 +203,8 @@ bool Val::checkDefinition(const Val* other) const {
     }
     return value_ == other->value_;
   }
+  NVF_ERROR(!value_.hasValue());
+  // sameAs checks if definition is deterministic
   if (!definition_->checkDefinition(other->definition_)) {
     return false;
   }
