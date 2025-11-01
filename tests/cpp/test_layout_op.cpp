@@ -66,7 +66,7 @@ bool validateGroupedLayout(
         0,
         expert_offsets[i].item().to<int>(),
         expert_offsets[i].item().to<int>() + m_g);
-    if (!at::allclose(restored_out_g, ref_g)) {
+    if (!at::allclose(restored_out_g.to(ref_g.dtype()), ref_g)) {
       std::cout << "failed at group: " << i << std::endl;
       std::cout << "out_g:\n" << out_g << std::endl;
       std::cout << "ref_g:\n" << ref_g << std::endl;
@@ -342,6 +342,70 @@ TEST_F(LayoutOpTest, SchedulerKernelWithExplicitQuantizationPattern) {
       UnorderedElementsAre(
           HeuristicIs(SchedulerType::InnerPersistent),
           HeuristicIs(SchedulerType::ExprEval)));
+}
+
+TEST_F(LayoutOpTest, InferenceBenchmarkLoopPromotionIssue) {
+  NVFUSER_TEST_CUDA_ARCH_GUARD(10, 0);
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  auto inp = makeContigConcreteTensor({2048, 320, 16}, DataType::BFloat16);
+  auto sf = makeContigConcreteTensor({2048, 320}, DataType::BFloat16);
+  auto in_offset = makeContigConcreteTensor({3}, DataType::Int32);
+  auto out_offset = makeContigConcreteTensor({3}, DataType::Int32);
+
+  fusion.addInput(inp);
+  fusion.addInput(sf);
+  fusion.addInput(in_offset);
+  fusion.addInput(out_offset);
+
+  auto max_fp4 = IrBuilder::create<Val>(6, DataType::Double);
+  auto max_fp8 = IrBuilder::create<Val>(448, DataType::Double);
+  auto min_fp8 = IrBuilder::create<Val>(-448, DataType::Double);
+  auto eps = IrBuilder::create<Val>(0.015625, DataType::Double);
+
+  auto T81 = castOp(DataType::Float, inp);
+  auto T77 = castOp(DataType::Float, sf);
+  auto T78 = div(T77, max_fp4);
+  auto T79 = clamp(T78, eps, max_fp8);
+  auto T80 = broadcast(T79, {false, false, true});
+  auto T82 = div(T81, T80);
+  auto T83 = clamp(T82, min_fp8, max_fp8);
+  auto T146 = castOp(DataType::Float4_e2m1fn, T83);
+  auto T155 = reshape(T146, {2048, 320, 16}, {2048, 320 * 16});
+
+  auto T86 = castOp(DataType::Float8_e4m3fn, T79);
+  auto T87 = preprocessGroupedMatmulInputSf(
+      T86, in_offset, out_offset, BlockScalingFactorLayout::Block128x4);
+
+  fusion.addOutput(T155);
+  fusion.addOutput(T87);
+
+  auto options = at::TensorOptions().dtype(at::kBFloat16).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({2048, 320, 16}, options);
+  at::Tensor t1 = t0.abs().amax({2});
+  at::Tensor in_offsets = at::tensor({0, 600, 1200}, options.dtype(at::kInt));
+  at::Tensor out_offsets = at::tensor({0, 640, 1280}, options.dtype(at::kInt));
+
+  // automatic scheduling.
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs =
+      executor_cache.runFusionWithInputs({t0, t1, in_offsets, out_offsets});
+
+  auto ref_block_sf = t1.to(at::kFloat)
+                          .div(6.0)
+                          .clamp(0.015625, 448)
+                          .to(at::kFloat8_e4m3fn)
+                          .to(at::kBFloat16);
+
+  // check block scaling factor
+  ASSERT_TRUE(validateGroupedLayout(
+      BlockScalingFactorLayout::Block128x4,
+      outputs[1].as<at::Tensor>(),
+      ref_block_sf,
+      in_offsets,
+      out_offsets));
 }
 
 } // namespace nvfuser
