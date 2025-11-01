@@ -1444,7 +1444,7 @@ Val* IdModel::getLoopIndexVariable(
   return getLoopIndexVariable(loop_group, circular_buffer_loop_stage);
 }
 
-ValGraph buildPermissiveResizeGraph(IdModel& id_model) {
+ValGraph buildPermissiveResizeGraph(const ValGraph& permissive_graph) {
   // Build the PERMISSIVE graph if not already built
   id_model.maybeBuildGraph(IdMappingMode::PERMISSIVE);
 
