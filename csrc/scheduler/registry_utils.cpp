@@ -1181,7 +1181,8 @@ bool SchedulerTopologyChecker::hasCyclicReshape(Fusion* fusion) {
 bool SchedulerTopologyChecker::hasIncompatibleTransforms(Fusion* fusion) {
   // TODO: Reuse IdModel when possible
   IdModel id_model(fusion);
-  const auto permissive_resize_graph = buildPermissiveResizeGraph(id_model);
+  const auto& permissive_resize_graph = buildPermissiveResizeGraph(
+      id_model.maybeBuildGraph(IdMappingMode::PERMISSIVE));
 
   for (const ValGroup& val_group :
        permissive_resize_graph.disjointValSets().disjointSets()) {

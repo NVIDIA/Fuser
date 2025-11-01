@@ -3198,7 +3198,8 @@ TEST_F(IdModelTest, PermissiveResizeGraph) {
 
   IdModel id_model(&fusion);
   const auto& eg = id_model.buildExactGraph();
-  const auto prg = buildPermissiveResizeGraph(id_model);
+  const auto& prg = buildPermissiveResizeGraph(
+      id_model.maybeBuildGraph(IdMappingMode::PERMISSIVE));
 
   // in exact graph, tv1 and tv2 are not mapped
   EXPECT_FALSE(

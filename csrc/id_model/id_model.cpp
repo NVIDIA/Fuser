@@ -1445,28 +1445,20 @@ Val* IdModel::getLoopIndexVariable(
 }
 
 ValGraph buildPermissiveResizeGraph(const ValGraph& permissive_graph) {
-  // Build the PERMISSIVE graph if not already built
-  id_model.maybeBuildGraph(IdMappingMode::PERMISSIVE);
-
-  // Create a local copy of the PERMISSIVE graph
-  ValGraph graph = id_model.idGraph(IdMappingMode::PERMISSIVE);
-
-  // Add resize mappings: for a consumer tv, if its logical domain is derived
-  // from a resize op, map resize input to resize output
-  for (auto expr : id_model.tvExprs()) {
-    for (TensorView* c_tv :
-         ir_utils::filterByType<TensorView>(expr->outputs())) {
-      for (auto id : c_tv->getLogicalDomain()) {
-        if (id->definition()->isA<Resize>()) {
-          graph.mapVals(id->definition()->as<Resize>()->in(), id);
-        }
+  ValGraph resize_graph(permissive_graph);
+  // Add resize mappings: if an id's definition is a resize op, map resize input
+  // to id
+  for (const ValGroup& val_group :
+       permissive_graph.disjointValSets().disjointSets()) {
+    for (Val* val : *val_group) {
+      auto def = val->as<IterDomain>()->definition();
+      if (def && def->isA<Resize>()) {
+        resize_graph.mapVals(def->as<Resize>()->in(), val);
       }
     }
   }
-
-  graph.validateConsistency();
-
-  return graph;
+  resize_graph.validateConsistency();
+  return resize_graph;
 }
 
 } // namespace nvfuser
