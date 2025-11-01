@@ -191,20 +191,35 @@ bool Val::checkDefinition(const Val* other) const {
   if (value_.hasValue() != other->value_.hasValue()) {
     return false;
   }
-  // Definitions are only checked with Expr::checkDefinition to avoid infinite
-  // recursion.
-  if (definition_ != nullptr) {
-    return true;
+  if (definition_ == nullptr) {
+    if (!value_.hasValue()) {
+      // sameAs return false if value is symbolic
+      return true;
+    }
+    // NaNs are considered the same
+    if (value_.is<double>() && std::isnan(value_.as<double>()) &&
+        std::isnan(other->value_.as<double>())) {
+      return true;
+    }
+    return value_ == other->value_;
   }
-  if (!value_.hasValue()) {
-    return true;
+  NVF_ERROR(!value_.hasValue());
+  // sameAs checks if definition is deterministic
+  if (!definition_->checkDefinition(other->definition_)) {
+    return false;
   }
-  // NaNs are considered the same
-  if (value_.is<double>() && std::isnan(value_.as<double>()) &&
-      std::isnan(other->value_.as<double>())) {
-    return true;
+  if (definition_->outputs().size() != other->definition_->outputs().size()) {
+    return false;
   }
-  return value_ == other->value_;
+  // For definition with multiple outputs, only outputs at the same position
+  // could be the same
+  for (auto i : arange(definition_->outputs().size())) {
+    if ((definition_->output(i) == this) !=
+        (other->definition_->output(i) == other)) {
+      return false;
+    }
+  }
+  return true;
 }
 
 size_t Val::getHash() const {
@@ -402,13 +417,10 @@ bool Expr::checkDefinition(const Expr* other) const {
   if (name() != other->name()) {
     return false;
   }
+  // Only check the input argument definitions to avoid infinite recursion
+  // because Val::checkDefinition will check the definition.
   for (const auto i : arange(inputs().size())) {
     if (!input(i)->checkDefinition(other->input(i))) {
-      return false;
-    }
-  }
-  for (const auto i : arange(outputs().size())) {
-    if (!output(i)->checkDefinition(other->output(i))) {
       return false;
     }
   }
