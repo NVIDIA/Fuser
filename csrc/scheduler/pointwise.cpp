@@ -295,7 +295,6 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
       });
 
   int64_t max_dtype_size_bit_for_vectorization = 0;
-  // ugly WAR.
   for (auto inp : vectorizable_inputs_outputs_entry.get()) {
     max_dtype_size_bit_for_vectorization = std::max(
         max_dtype_size_bit_for_vectorization,
@@ -498,7 +497,7 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
           })) {
     vectorization_factor = std::max(2l, max_vect_factor);
   }
-  params->vectorization_factor = std::min(
+  vectorization_factor = std::min(
       vectorization_factor,
       vectorize_helper::getVectorizationFactor(
           runtime_info,
@@ -507,6 +506,7 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
           break_point,
           /*max_vectorization_size_in_bit=*/128,
           logical_reorder_map));
+  params->vectorization_factor = vectorization_factor;
 
   // get unroll factor:
 
